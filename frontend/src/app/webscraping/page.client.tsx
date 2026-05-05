@@ -306,16 +306,39 @@ type SearchResponse = {
   };
   meta: {
     historyId: string | null;
+    runId?: string | null;
     source: "history" | "google" | "hbx" | "hybrid" | "global_cache" | "radar_database";
     reusedCount: number;
     fetchedCount: number;
     totalStoredCount?: number;
+    duplicateCount?: number;
+    skippedCount?: number;
+    importedCount?: number;
     status?: "completed" | "partial_error" | "completed_with_errors";
     message?: string | null;
     technicalCacheUsed: boolean;
     technicalCacheReusedCount: number;
     technicalCacheValidUntil: string | null;
   };
+  results: SearchResult[];
+};
+
+type SearchRunStatus = "queued" | "running" | "completed" | "partial_error" | "failed" | "canceled";
+
+type SearchRunResponse = {
+  id: string;
+  runId: string;
+  status: SearchRunStatus;
+  targetQuantity: number;
+  foundCount: number;
+  importedCount: number;
+  duplicateCount: number;
+  skippedCount: number;
+  errorMessage?: string | null;
+  startedAt?: string | null;
+  finishedAt?: string | null;
+  query: SearchResponse["query"];
+  meta: SearchResponse["meta"];
   results: SearchResult[];
 };
 
@@ -952,6 +975,8 @@ export default function WebscrapingClientPage() {
   const [results, setResults] = useState<SearchResult[]>([]);
   const [activeQuery, setActiveQuery] = useState<SearchResponse["query"] | null>(null);
   const [searchMeta, setSearchMeta] = useState<SearchResponse["meta"] | null>(null);
+  const [activeSearchRun, setActiveSearchRun] = useState<SearchRunResponse | null>(null);
+  const [activeSearchRunId, setActiveSearchRunId] = useState<string | null>(null);
   const [loadingBootstrap, setLoadingBootstrap] = useState(true);
   const [searching, setSearching] = useState(false);
   const [exporting, setExporting] = useState(false);
@@ -1217,7 +1242,7 @@ export default function WebscrapingClientPage() {
         const payload = await apiFetch<CrmPreviewResponse>("/vendas/import/webscraping/preview", {
           method: "POST",
           body: JSON.stringify({
-            sourceHistoryId: searchMeta?.historyId || undefined,
+            sourceHistoryId: activeSearchRun ? undefined : searchMeta?.historyId || undefined,
             leads: qualifiedResults.map((result) => ({
               name: result.name,
               phone: result.phone,
@@ -1491,6 +1516,65 @@ export default function WebscrapingClientPage() {
     }
   }
 
+  function searchRunStatusLabel(status: SearchRunStatus) {
+    if (status === "queued") return "na fila";
+    if (status === "running") return "em andamento";
+    if (status === "completed") return "concluida";
+    if (status === "partial_error") return "parcial";
+    if (status === "failed") return "falhou";
+    if (status === "canceled") return "cancelada";
+    return status;
+  }
+
+  function isSearchRunTerminal(status: SearchRunStatus) {
+    return status === "completed" || status === "partial_error" || status === "failed" || status === "canceled";
+  }
+
+  function wait(ms: number) {
+    return new Promise((resolve) => window.setTimeout(resolve, ms));
+  }
+
+  function applySearchRunPayload(payload: SearchRunResponse) {
+    setActiveSearchRun(payload);
+    setResults(payload.results || []);
+    setActiveQuery(payload.query);
+    setSearchMeta({
+      ...payload.meta,
+      fetchedCount: payload.foundCount,
+      totalStoredCount: payload.foundCount,
+      duplicateCount: payload.duplicateCount,
+      skippedCount: payload.skippedCount,
+      importedCount: payload.importedCount,
+    });
+    setHasSearched(true);
+    setFeedback(
+      `Pesquisa ${searchRunStatusLabel(payload.status)}: ${payload.foundCount}/${payload.targetQuantity} encontrados, ${payload.duplicateCount} duplicados, ${payload.skippedCount} ignorados.`,
+    );
+  }
+
+  async function pollSearchRun(runId: string) {
+    for (;;) {
+      const payload = await apiFetch<SearchRunResponse>(`/webscraping/search-runs/${runId}`);
+      applySearchRunPayload(payload);
+      if (isSearchRunTerminal(payload.status)) return payload;
+      await wait(2000);
+    }
+  }
+
+  async function handleCancelSearchRun() {
+    if (!activeSearchRunId) return;
+    try {
+      const payload = await apiFetch<SearchRunResponse>(`/webscraping/search-runs/${activeSearchRunId}/cancel`, {
+        method: "POST",
+      });
+      applySearchRunPayload(payload);
+      setSearching(false);
+      scrapingLaunchNotice.clear();
+    } catch (error) {
+      setSearchError(error instanceof Error ? error.message : "Falha ao cancelar pesquisa.");
+    }
+  }
+
   async function handleSearch() {
     setSearchError(null);
     setFeedback(null);
@@ -1549,95 +1633,24 @@ export default function WebscrapingClientPage() {
     });
 
     setSearching(true);
+    setActiveSearchRun(null);
+    setActiveSearchRunId(null);
     try {
-      const shouldRunProgressiveHbx = engine === "hbx" && targetType === "pj" && quantity > 20;
-      let finalPayload: SearchResponse | null = null;
-      let finalResults: SearchResult[] = [];
-      let partialFailure = false;
+      const startPayload = await apiFetch<{ runId: string; id: string }>("/webscraping/search-runs", {
+        method: "POST",
+        body: JSON.stringify({
+          ...buildPayload(),
+          city: selectedCity,
+          state: selectedState || undefined,
+        }),
+      });
+      const runId = startPayload.runId || startPayload.id;
+      if (!runId) throw new Error("Busca não retornou runId válido.");
+      setActiveSearchRunId(runId);
+      setFeedback("Pesquisa iniciada. Os cards aparecem conforme os lotes terminam.");
 
-      if (shouldRunProgressiveHbx) {
-        const totalBatches = Math.ceil(quantity / 20);
-        let accumulated: SearchResult[] = [];
-        let accumulatedMeta: SearchResponse["meta"] | null = null;
-        let progressQuery: SearchResponse["query"] | null = null;
-
-        for (let batchIndex = 0; batchIndex < totalBatches && accumulated.length < quantity; batchIndex += 1) {
-          const batchNumber = batchIndex + 1;
-          const remaining = Math.max(1, quantity - accumulated.length);
-          const batchQuantity = Math.min(20, remaining);
-          const excludePhoneDigits = accumulated
-            .map((result) => normalizePhoneDigits(result.phoneDigits || result.phone))
-            .filter(Boolean);
-          setFeedback(`Buscando lote ${batchNumber}/${totalBatches}... ${accumulated.length} cards encontrados`);
-
-          try {
-            const payload = await apiFetch<SearchResponse>("/webscraping/search", {
-              method: "POST",
-              body: JSON.stringify({
-                ...buildPayload({ quantity: batchQuantity, excludePhoneDigits }),
-                city: selectedCity,
-                state: selectedState || undefined,
-              }),
-            });
-            finalPayload = payload;
-            accumulated = mergeUniqueSearchResults(accumulated, payload.results || []).slice(0, quantity);
-            progressQuery = { ...payload.query, quantity };
-            accumulatedMeta = {
-              ...payload.meta,
-              fetchedCount: accumulated.length,
-              reusedCount: 0,
-              totalStoredCount: Math.max(Number(payload.meta.totalStoredCount || 0), accumulated.length),
-              status: payload.meta.status || "completed",
-              message: payload.meta.message || null,
-            };
-            setResults(accumulated);
-            setActiveQuery(progressQuery);
-            setSearchMeta(accumulatedMeta);
-            setHasSearched(true);
-          } catch (batchError) {
-            partialFailure = true;
-            if (accumulated.length === 0) throw batchError;
-            break;
-          }
-        }
-
-        finalResults = accumulated;
-        if (finalPayload && progressQuery && accumulatedMeta) {
-          finalPayload = {
-            ...finalPayload,
-            query: progressQuery,
-            meta: {
-              ...accumulatedMeta,
-              status: partialFailure || accumulated.length < quantity ? "partial_error" : accumulatedMeta.status,
-              message:
-                partialFailure || accumulated.length < quantity
-                  ? `Busca parcial concluída. Encontramos ${accumulated.length} de ${quantity} cards.`
-                  : accumulatedMeta.message,
-            },
-            results: accumulated,
-          };
-        }
-        setFeedback(
-          partialFailure || finalResults.length < quantity
-            ? `Busca parcial concluída. Encontramos ${finalResults.length} de ${quantity} cards.`
-            : `${finalResults.length} cards encontrados.`,
-        );
-      } else {
-        const payload = await apiFetch<SearchResponse>("/webscraping/search", {
-          method: "POST",
-          body: JSON.stringify({ ...buildPayload(), city: selectedCity }),
-        });
-        finalPayload = payload;
-        finalResults = payload.results || [];
-        setResults(finalResults);
-        setActiveQuery(payload.query);
-        setSearchMeta(payload.meta);
-        setHasSearched(true);
-      }
-
-      if (!finalPayload) {
-        throw new Error("Busca não retornou resposta válida.");
-      }
+      const finalPayload = await pollSearchRun(runId);
+      const finalResults = finalPayload.results || [];
 
       const responseTargetType =
         finalPayload.query.engine === "hbx" || isPeopleTargetType(finalPayload.query.targetType)
@@ -1645,6 +1658,9 @@ export default function WebscrapingClientPage() {
           : "pj";
       const displayResults = filterResultsForTarget(finalResults, responseTargetType);
       const hiddenCount = Math.max(0, finalResults.length - displayResults.length);
+      if (finalPayload.status === "failed" && displayResults.length === 0) {
+        throw new Error(finalPayload.errorMessage || "Nenhum card válido foi encontrado.");
+      }
       scrapingLaunchNotice.markSuccess({
         successDescription:
           displayResults.length
@@ -1670,9 +1686,11 @@ export default function WebscrapingClientPage() {
         // ignore storage errors
       }
     } catch (error) {
-      setResults([]);
-      setActiveQuery(null);
-      setSearchMeta(null);
+      if (!results.length) {
+        setResults([]);
+        setActiveQuery(null);
+        setSearchMeta(null);
+      }
       setHasSearched(true);
       const baseMessage = error instanceof Error ? error.message : "Falha ao buscar contatos.";
       setSearchError(
@@ -1684,6 +1702,7 @@ export default function WebscrapingClientPage() {
       scrapingLaunchNotice.clear();
     } finally {
       setSearching(false);
+      setActiveSearchRunId(null);
     }
   }
 
@@ -1695,6 +1714,8 @@ export default function WebscrapingClientPage() {
       const payload = await apiFetch<SearchResponse>(`/webscraping/history/${item.id}/reuse`, {
         method: "POST",
       });
+      setActiveSearchRun(null);
+      setActiveSearchRunId(null);
       const parsedLocation = splitCityState(payload.query.city, payload.query.state || "");
       setCity(parsedLocation.city);
       setSelectedState(parsedLocation.state);
@@ -1743,6 +1764,8 @@ export default function WebscrapingClientPage() {
     setFeedback(null);
     setHistoryBusyId(historyId);
     setSearching(true);
+    setActiveSearchRun(null);
+    setActiveSearchRunId(null);
     try {
       const payload = await apiFetch<SearchResponse>(`/webscraping/history/${historyId}/search-more`, {
         method: "POST",
@@ -1864,7 +1887,7 @@ export default function WebscrapingClientPage() {
       const payload = await apiFetch<ImportToVendasResponse>("/vendas/import/webscraping", {
         method: "POST",
         body: JSON.stringify({
-          sourceHistoryId: searchMeta?.historyId || undefined,
+          sourceHistoryId: activeSearchRun ? undefined : searchMeta?.historyId || undefined,
           leads: qualifiedResults.map((result) => ({
             name: result.name,
             phone: result.phone,
@@ -2329,8 +2352,18 @@ export default function WebscrapingClientPage() {
                       disabled={loadingBootstrap || searching}
                     >
                       <Icon name="play" size={18} />
-                      {searching ? "Buscando..." : hbxPjMode ? "Buscar cards" : "Buscar contatos"}
+                      {searching ? "Buscando em lotes..." : hbxPjMode ? "Buscar cards" : "Buscar contatos"}
                     </button>
+                    {searching && activeSearchRunId ? (
+                      <button
+                        type="button"
+                        className={styles.glassButton}
+                        onClick={() => void handleCancelSearchRun()}
+                      >
+                        <Icon name="alert" size={18} />
+                        Cancelar
+                      </button>
+                    ) : null}
                     <button
                       type="button"
                       className={styles.glassButton}
@@ -2715,21 +2748,37 @@ export default function WebscrapingClientPage() {
               <strong className={styles.sectionTitle}>Contatos qualificados</strong>
               <p className={styles.helperText}>
                 {searchMeta && activeQuery
-                  ? `Encontramos ${qualifiedResults.length} possíveis clientes para ${getVisualSegment(activeQuery.segment, resultTargetType)}${activeQuery.city ? ` em ${activeQuery.city}` : ""}. ${searchMeta.fetchedCount}/${activeQuery.quantity} novos cards encontrados. Fonte: ${searchSourceLabel(searchMeta.source)}${hiddenGenericResultsCount ? `; ${hiddenGenericResultsCount} genérico(s) ocultado(s).` : "."}`
+                  ? `Encontramos ${qualifiedResults.length} possíveis clientes para ${getVisualSegment(activeQuery.segment, resultTargetType)}${activeQuery.city ? ` em ${activeQuery.city}` : ""}. ${searchMeta.fetchedCount}/${activeQuery.quantity} cards salvos. Fonte: ${searchSourceLabel(searchMeta.source)}${hiddenGenericResultsCount ? `; ${hiddenGenericResultsCount} genérico(s) ocultado(s).` : "."}`
                   : "Pronto para receber contatos com ações rápidas e roteiro pronto."}
               </p>
             </div>
             {searchMeta ? (
               <div className={styles.metaPills}>
-                <span className={styles.metaPill}>Reaproveitados: {searchMeta.reusedCount}</span>
-                <span className={styles.metaPill}>Novos: {searchMeta.fetchedCount}</span>
+                {activeSearchRun ? (
+                  <span className={styles.metaPill}>Status: {searchRunStatusLabel(activeSearchRun.status)}</span>
+                ) : (
+                  <span className={styles.metaPill}>Reaproveitados: {searchMeta.reusedCount}</span>
+                )}
+                <span className={styles.metaPill}>Encontrados: {searchMeta.fetchedCount}</span>
+                <span className={styles.metaPill}>Duplicados: {searchMeta.duplicateCount ?? 0}</span>
+                <span className={styles.metaPill}>Ignorados: {searchMeta.skippedCount ?? 0}</span>
                 {searchMeta.technicalCacheUsed ? (
                   <span className={styles.metaPill}>
                     Cache global: {searchMeta.technicalCacheReusedCount}
                     {searchMeta.technicalCacheValidUntil ? ` • válido até ${formatDateTime(searchMeta.technicalCacheValidUntil)}` : ""}
                   </span>
                 ) : null}
-                {activeQuery?.engine === "hbx" && searchMeta.historyId && !searchMeta.historyId.startsWith("global:") ? (
+                {searching && activeSearchRunId ? (
+                  <button
+                    type="button"
+                    className={styles.glassButton}
+                    onClick={() => void handleCancelSearchRun()}
+                  >
+                    <Icon name="alert" size={18} />
+                    Cancelar pesquisa
+                  </button>
+                ) : null}
+                {!activeSearchRun && activeQuery?.engine === "hbx" && searchMeta.historyId && !searchMeta.historyId.startsWith("global:") ? (
                   <button
                     type="button"
                     className={styles.glassButton}

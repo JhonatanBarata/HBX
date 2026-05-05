@@ -12,6 +12,7 @@ import * as XLSX from 'xlsx';
 import { probeWebscrapingRuntime, type WebscrapingRuntimeDiagnostic } from '../modules/webscraping-runtime.util';
 import { PrismaService } from '../prisma/prisma.service';
 import { VendasService } from '../vendas/vendas.service';
+import { HbxEnginePoolService, type HbxEngineLease } from './hbx-engine-pool.service';
 import {
   COMMERCIAL_PLAN_QUOTAS,
   COMMERCIAL_PLAN_KEYS,
@@ -38,6 +39,8 @@ type SearchSource = 'history' | 'google' | 'hbx' | 'hybrid' | 'global_cache' | '
 type WebscrapingEngine = 'google' | 'hbx';
 type HbxTargetType = 'pj' | 'pf' | 'agenda_pf';
 type SearchRunStatus = 'completed' | 'partial_error' | 'completed_with_errors';
+type WebscrapingSearchRunStatus = 'queued' | 'running' | 'completed' | 'partial_error' | 'failed' | 'canceled';
+type WebscrapingSearchRunItemStatus = 'found' | 'duplicate' | 'skipped' | 'invalid';
 type HbxEngineSearchOutput = {
   results: WebscrapingContactResult[];
   status: SearchRunStatus;
@@ -127,6 +130,54 @@ export type WebscrapingSearchResponse = {
   results: Array<Omit<WebscrapingContactResult, 'placeId'>>;
 };
 
+export type WebscrapingSearchRunResponse = {
+  id: string;
+  runId: string;
+  status: WebscrapingSearchRunStatus;
+  city: string;
+  state: string | null;
+  segment: string;
+  engine: WebscrapingEngine;
+  targetType: HbxTargetType;
+  targetQuantity: number;
+  foundCount: number;
+  importedCount: number;
+  duplicateCount: number;
+  skippedCount: number;
+  errorMessage: string | null;
+  operationalStatus?: 'healthy' | 'degraded';
+  operationalMessage?: string | null;
+  startedAt: string | null;
+  finishedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  query: WebscrapingSearchResponse['query'];
+  meta: WebscrapingSearchResponse['meta'] & {
+    runId: string;
+    duplicateCount: number;
+    skippedCount: number;
+    importedCount: number;
+  };
+  items: Array<{
+    id: string;
+    placeId: string;
+    name: string;
+    phone: string;
+    phoneDigits: string;
+    website: string | null;
+    websiteKey: string | null;
+    address: string | null;
+    city: string | null;
+    state: string | null;
+    segment: string | null;
+    source: string | null;
+    status: WebscrapingSearchRunItemStatus;
+    duplicateReason: string | null;
+    createdAt: string;
+  }>;
+  results: Array<Omit<WebscrapingContactResult, 'placeId'>>;
+};
+
 export type WebscrapingHistorySummary = {
   id: string;
   city: string;
@@ -200,13 +251,15 @@ type SearchExecutionOptions = {
   skipPrivateHistory?: boolean;
   skipTechnicalCache?: boolean;
   recordUsage?: boolean;
+  hbxEngineUrl?: string;
+  usageEventType?: UsageEventType;
 };
 
 type NormalizeSearchInputOptions = {
   allowMissingHbxState?: boolean;
 };
 
-type UsageEventType = 'EXECUTED' | 'GOOGLE_SEARCH_EXECUTED' | 'BLOCKED_DAILY_LIMIT';
+type UsageEventType = 'EXECUTED' | 'GOOGLE_SEARCH_EXECUTED' | 'GOOGLE_EMERGENCY_EXECUTED' | 'BLOCKED_DAILY_LIMIT';
 
 type UsageExecutionMeta = {
   source?: SearchSource;
@@ -488,11 +541,21 @@ function formatCityWithState(city: string, state: string | null | undefined) {
 
 @Injectable()
 export class WebscrapingService {
+  private searchRunQueuePumpActive = false;
+
   constructor(
     private readonly prisma: PrismaService,
+    @Optional() private hbxEnginePool?: HbxEnginePoolService,
     @Optional() @Inject(forwardRef(() => VendasService))
     private readonly vendasService?: VendasService,
   ) {}
+
+  private getEnginePool() {
+    if (!this.hbxEnginePool) {
+      this.hbxEnginePool = new HbxEnginePoolService(this.prisma);
+    }
+    return this.hbxEnginePool;
+  }
 
   async getRuntime(user: any): Promise<WebscrapingRuntimeResponse> {
     const native = this.inspectNativeRuntime();
@@ -609,6 +672,109 @@ export class WebscrapingService {
     };
   }
 
+  async startSearchRunForUser(user: any, input: SearchContactsInput) {
+    const context = this.resolveContext(user);
+    const normalized = this.normalizeSearchInput({
+      ...input,
+      engine: 'hbx',
+      targetType: input?.targetType || 'pj',
+    });
+    await this.assertSearchRunPersistence();
+
+    const run = await this.prisma.webscrapingSearchRun.create({
+      data: {
+        companyId: context.companyId,
+        userId: context.userId,
+        status: 'queued',
+        city: normalized.city,
+        state: normalized.state || null,
+        segment: normalized.segment,
+        engine: normalized.engine,
+        targetType: normalized.targetType,
+        targetQuantity: normalized.quantity,
+      },
+      select: {
+        id: true,
+        status: true,
+        city: true,
+        state: true,
+        segment: true,
+        engine: true,
+        targetType: true,
+        targetQuantity: true,
+        createdAt: true,
+      },
+    });
+
+    setTimeout(() => {
+      void this.processNextQueuedSearchRun();
+    }, 0);
+
+    return {
+      runId: run.id,
+      id: run.id,
+      status: run.status as WebscrapingSearchRunStatus,
+      query: {
+        city: run.city,
+        state: run.state || null,
+        segment: run.segment,
+        quantity: run.targetQuantity,
+        engine: normalizeEngine(run.engine),
+        targetType: normalizeTargetType(run.targetType),
+        filters: normalized.filters,
+      },
+      createdAt: run.createdAt.toISOString(),
+    };
+  }
+
+  async getSearchRunForUser(user: any, runId: string): Promise<WebscrapingSearchRunResponse> {
+    const context = this.resolveContext(user);
+    await this.assertSearchRunPersistence();
+    const run = await this.prisma.webscrapingSearchRun.findFirst({
+      where: {
+        id: String(runId || '').trim(),
+        companyId: context.companyId,
+      },
+      include: {
+        items: {
+          orderBy: { createdAt: 'asc' },
+        },
+      },
+    });
+    if (!run) throw new NotFoundException('Pesquisa nao encontrada.');
+    const capacity = await this.getEnginePool().getCurrentCapacityLevel().catch(() => null);
+    return this.buildSearchRunResponse(run, capacity || undefined);
+  }
+
+  async cancelSearchRunForUser(user: any, runId: string): Promise<WebscrapingSearchRunResponse> {
+    const context = this.resolveContext(user);
+    await this.assertSearchRunPersistence();
+    const current = await this.prisma.webscrapingSearchRun.findFirst({
+      where: {
+        id: String(runId || '').trim(),
+        companyId: context.companyId,
+      },
+      select: {
+        id: true,
+        status: true,
+      },
+    });
+    if (!current) throw new NotFoundException('Pesquisa nao encontrada.');
+
+    if (!this.isTerminalSearchRunStatus(current.status)) {
+      await this.prisma.webscrapingSearchRun.update({
+        where: { id: current.id },
+        data: {
+          status: 'canceled',
+          finishedAt: new Date(),
+          errorMessage: 'Pesquisa cancelada pelo usuario.',
+        },
+      });
+    }
+
+    return this.getSearchRunForUser(user, current.id);
+  }
+
   async searchContactsForUser(
     user: any,
     input: SearchContactsInput,
@@ -674,7 +840,7 @@ export class WebscrapingService {
       let hbxMessage: string | null = null;
       let hbxError: unknown = null;
       try {
-        const hbxOutput = await this.searchHbxEngine(normalized, Array.from(seenPhones));
+        const hbxOutput = await this.searchHbxEngine(normalized, Array.from(seenPhones), options.hbxEngineUrl);
         hbxResults = hbxOutput.results;
         hbxStatus = hbxOutput.status;
         hbxMessage = hbxOutput.message;
@@ -814,7 +980,9 @@ export class WebscrapingService {
       throw this.buildConfigurationUnavailableError();
     }
 
-    await this.assertGoogleDailyQuota(context, normalized);
+    if (options.usageEventType !== 'GOOGLE_EMERGENCY_EXECUTED') {
+      await this.assertGoogleDailyQuota(context, normalized);
+    }
 
     for (const candidateLimit of this.buildCandidateSteps(normalized.quantity)) {
       if (results.length >= normalized.quantity) break;
@@ -870,7 +1038,14 @@ export class WebscrapingService {
             : null,
     });
     if (options.recordUsage !== false) {
-      await this.recordUsageLog(context, normalized, 'GOOGLE_SEARCH_EXECUTED', response.results.length, null, response.meta);
+      await this.recordUsageLog(
+        context,
+        normalized,
+        options.usageEventType || 'GOOGLE_SEARCH_EXECUTED',
+        response.results.length,
+        null,
+        response.meta,
+      );
     }
     this.logSearchResult(normalized, response.results.length);
     return response;
@@ -1239,6 +1414,600 @@ export class WebscrapingService {
       }) as Buffer,
       filename: this.buildExportFilename(response.query.segment, response.query.city),
       contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    };
+  }
+
+  private async assertSearchRunPersistence() {
+    const [runTable, itemTable, engineLockTable] = await Promise.all([
+      this.prisma.hasTable('WebscrapingSearchRun'),
+      this.prisma.hasTable('WebscrapingSearchRunItem'),
+      this.prisma.hasTable('HbxEngineLock'),
+    ]);
+    if (!runTable || !itemTable || !engineLockTable) {
+      throw new ServiceUnavailableException({
+        code: 'webscraping_search_run_schema_missing',
+        message: 'Estrutura de pesquisa incremental ainda nao foi aplicada no banco.',
+      });
+    }
+  }
+
+  private isTerminalSearchRunStatus(status: string | null | undefined) {
+    return ['completed', 'partial_error', 'failed', 'canceled'].includes(String(status || '').trim());
+  }
+
+  private normalizeSearchRunStatus(status: unknown): WebscrapingSearchRunStatus {
+    const normalized = String(status || '').trim();
+    if (['queued', 'running', 'completed', 'partial_error', 'failed', 'canceled'].includes(normalized)) {
+      return normalized as WebscrapingSearchRunStatus;
+    }
+    return 'queued';
+  }
+
+  private normalizeRunItemStatus(status: unknown): WebscrapingSearchRunItemStatus {
+    const normalized = String(status || '').trim();
+    if (['found', 'duplicate', 'skipped', 'invalid'].includes(normalized)) {
+      return normalized as WebscrapingSearchRunItemStatus;
+    }
+    return 'found';
+  }
+
+  private buildRunInputFromRow(run: any): SearchContactsInput {
+    return {
+      city: String(run?.city || ''),
+      state: String(run?.state || ''),
+      segment: String(run?.segment || ''),
+      quantity: Math.max(1, Math.trunc(Number(run?.targetQuantity || 1))),
+      engine: normalizeEngine(run?.engine),
+      targetType: normalizeTargetType(run?.targetType),
+    };
+  }
+
+  private buildSyntheticRunPlaceId(runId: string, result: Partial<WebscrapingContactResult>, index: number) {
+    const phone = normalizePhoneDigits(result.phoneDigits || result.phone);
+    if (phone) return `run:${runId}:${phone}`;
+    const base = normalizeLookupValue(`${result.name || 'card'}:${result.website || ''}:${index}`);
+    return `run:${runId}:${base.replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || index}`;
+  }
+
+  private buildRunCompositeKey(input: {
+    name?: string | null;
+    city?: string | null;
+    state?: string | null;
+    segment?: string | null;
+  }) {
+    return [
+      normalizeLookupValue(String(input.name || '')),
+      normalizeLookupValue(String(input.city || '')),
+      String(input.state || '').trim().toUpperCase(),
+      normalizeLookupValue(String(input.segment || '')),
+    ].join('|');
+  }
+
+  private async snapshotSearchRunDedup(runId: string) {
+    const rows = await this.prisma.webscrapingSearchRunItem.findMany({
+      where: { runId },
+      select: {
+        placeId: true,
+        phoneDigits: true,
+        websiteKey: true,
+        name: true,
+        city: true,
+        state: true,
+        segment: true,
+      },
+    });
+    return {
+      rows,
+      placeIds: new Set(rows.map((row) => String(row.placeId || '').trim()).filter(Boolean)),
+      phoneDigits: new Set(rows.map((row) => normalizePhoneDigits(row.phoneDigits)).filter(Boolean)),
+      websiteKeys: new Set(rows.map((row) => String(row.websiteKey || '').trim()).filter(Boolean)),
+      compositeKeys: new Set(rows.map((row) => this.buildRunCompositeKey(row)).filter((key) => key !== '|||')),
+    };
+  }
+
+  private classifyRunItem(
+    result: Omit<WebscrapingContactResult, 'placeId'> & { placeId?: string | null },
+    dedup: Awaited<ReturnType<WebscrapingService['snapshotSearchRunDedup']>>,
+    fallback: { runId: string; index: number; city: string; state: string; segment: string },
+  ) {
+    const phoneDigits = normalizePhoneDigits(result.phoneDigits || result.phone);
+    const websiteKey = normalizeWebsiteKey(result.website);
+    const name = String(result.name || '').trim();
+    const placeId = String(result.placeId || '').trim()
+      || this.buildSyntheticRunPlaceId(fallback.runId, result, fallback.index);
+    const compositeKey = this.buildRunCompositeKey({
+      name,
+      city: fallback.city,
+      state: fallback.state,
+      segment: fallback.segment,
+    });
+
+    if (!name || !phoneDigits) {
+      return {
+        placeId,
+        phoneDigits,
+        websiteKey,
+        status: 'invalid' as WebscrapingSearchRunItemStatus,
+        duplicateReason: !name ? 'Nome ausente.' : 'Telefone invalido ou ausente.',
+      };
+    }
+    if (placeId && dedup.placeIds.has(placeId)) {
+      return { placeId, phoneDigits, websiteKey, status: 'duplicate' as const, duplicateReason: 'placeId repetido.' };
+    }
+    if (phoneDigits && dedup.phoneDigits.has(phoneDigits)) {
+      return { placeId, phoneDigits, websiteKey, status: 'duplicate' as const, duplicateReason: 'Telefone repetido.' };
+    }
+    if (websiteKey && dedup.websiteKeys.has(websiteKey)) {
+      return { placeId, phoneDigits, websiteKey, status: 'duplicate' as const, duplicateReason: 'Website repetido.' };
+    }
+    if (compositeKey !== '|||' && dedup.compositeKeys.has(compositeKey)) {
+      return {
+        placeId,
+        phoneDigits,
+        websiteKey,
+        status: 'duplicate' as const,
+        duplicateReason: 'Nome, cidade, estado e segmento repetidos.',
+      };
+    }
+
+    dedup.placeIds.add(placeId);
+    dedup.phoneDigits.add(phoneDigits);
+    if (websiteKey) dedup.websiteKeys.add(websiteKey);
+    if (compositeKey !== '|||') dedup.compositeKeys.add(compositeKey);
+    return { placeId, phoneDigits, websiteKey, status: 'found' as const, duplicateReason: null };
+  }
+
+  private async saveSearchRunResults(
+    context: SearchExecutionContext,
+    normalized: NormalizedSearchInput,
+    runId: string,
+    results: Array<Omit<WebscrapingContactResult, 'placeId'> & { placeId?: string | null }>,
+    source: string | null,
+    baseIndex = 0,
+  ) {
+    const dedup = await this.snapshotSearchRunDedup(runId);
+    for (const [index, result] of results.entries()) {
+      const classified = this.classifyRunItem(result, dedup, {
+        runId,
+        index: baseIndex + index,
+        city: normalized.city,
+        state: normalized.state,
+        segment: normalized.segment,
+      });
+      await this.prisma.webscrapingSearchRunItem.create({
+        data: {
+          runId,
+          companyId: context.companyId,
+          placeId: classified.placeId,
+          name: String(result.name || '').trim(),
+          phone: String(result.phone || '').trim(),
+          phoneDigits: classified.phoneDigits,
+          website: String(result.website || '').trim() || null,
+          websiteKey: classified.websiteKey || null,
+          address: String(result.address || '').trim() || null,
+          city: normalized.city || null,
+          state: normalized.state || null,
+          segment: normalized.segment || null,
+          source: String(result.source || source || '').trim() || null,
+          status: classified.status,
+          duplicateReason: classified.duplicateReason,
+          rawJson: JSON.stringify(result),
+        },
+      });
+    }
+  }
+
+  private async recalculateSearchRunCounters(runId: string) {
+    const [currentRun, rows] = await Promise.all([
+      this.prisma.webscrapingSearchRun.findUnique({
+        where: { id: runId },
+        select: { foundCount: true },
+      }),
+      this.prisma.webscrapingSearchRunItem.findMany({
+        where: { runId },
+        select: { status: true },
+      }),
+    ]);
+    const foundCount = rows.filter((row) => row.status === 'found').length;
+    const duplicateCount = rows.filter((row) => row.status === 'duplicate').length;
+    const skippedCount = rows.filter((row) => row.status === 'skipped' || row.status === 'invalid').length;
+    await this.prisma.webscrapingSearchRun.update({
+      where: { id: runId },
+      data: {
+        foundCount,
+        duplicateCount,
+        skippedCount,
+        ...(foundCount > safeInteger(currentRun?.foundCount) ? { lastFoundCountChangeAt: new Date() } : {}),
+      },
+    });
+    return { foundCount, duplicateCount, skippedCount };
+  }
+
+  private async persistSearchRunHistoryIfPossible(runId: string, normalized: NormalizedSearchInput, context: SearchExecutionContext) {
+    if (!(await this.supportsHistoryPersistence())) return null;
+    const rows = await this.prisma.webscrapingSearchRunItem.findMany({
+      where: {
+        runId,
+        status: 'found',
+      },
+      orderBy: { createdAt: 'asc' },
+    });
+    const results = rows.map((row) => this.mapRunItemToContact(row));
+    if (!results.length) return null;
+    return this.persistHistory(context, normalized, results, null).catch(() => null);
+  }
+
+  private async runGoogleEmergencyComplementIfEligible(
+    runId: string,
+    user: any,
+    context: SearchExecutionContext,
+    normalized: NormalizedSearchInput,
+  ) {
+    if (normalized.targetType !== 'pj') return;
+    if (!(await this.getEnginePool().canUseGoogleEmergencyForRun())) return;
+
+    const current = await this.prisma.webscrapingSearchRun.findUnique({
+      where: { id: runId },
+      select: {
+        foundCount: true,
+        targetQuantity: true,
+        googleEmergencyUsedCount: true,
+      },
+    });
+    if (!current || current.foundCount >= current.targetQuantity || current.googleEmergencyUsedCount > 0) return;
+
+    const quantity = Math.min(
+      this.getEnginePool().googleEmergencyMaxPerRun(),
+      Math.max(1, current.targetQuantity - current.foundCount),
+    );
+    const dedup = await this.snapshotSearchRunDedup(runId);
+    const excludePhoneDigits = Array.from(dedup.phoneDigits);
+
+    try {
+      const response = await this.searchContactsForUser(
+        user,
+        {
+          city: normalized.city,
+          state: normalized.state,
+          segment: normalized.segment,
+          engine: 'google',
+          targetType: 'pj',
+          quantity,
+          minRating: normalized.filters.minRating,
+          minReviews: normalized.filters.minReviews,
+          onlyWithWebsite: normalized.filters.onlyWithWebsite,
+          excludePhoneDigits,
+        },
+        {
+          skipPrivateHistory: true,
+          skipTechnicalCache: true,
+          skipRadarLookup: true,
+          recordUsage: true,
+          usageEventType: 'GOOGLE_EMERGENCY_EXECUTED',
+        },
+      );
+      const incoming = Array.isArray(response.results) ? response.results : [];
+      if (incoming.length > 0) {
+        await this.saveSearchRunResults(context, normalized, runId, incoming, 'google_emergency');
+        await this.recalculateSearchRunCounters(runId);
+      }
+      await this.prisma.webscrapingSearchRun.update({
+        where: { id: runId },
+        data: {
+          googleEmergencyUsedCount: { increment: incoming.length },
+        },
+      });
+    } catch (error) {
+      await this.prisma.webscrapingSearchRun.update({
+        where: { id: runId },
+        data: {
+          errorMessage: `Google emergency falhou: ${String((error as any)?.message || error || 'erro desconhecido')}`,
+        },
+      }).catch(() => null);
+    }
+  }
+
+  private buildQueueUser(run: any) {
+    return {
+      id: Number(run?.userId || 0),
+      companyId: Number(run?.companyId || 0),
+      role: 'ADMIN',
+      isSystemMaster: false,
+      masterContext: { active: false },
+    };
+  }
+
+  private async processNextQueuedSearchRun() {
+    if (this.searchRunQueuePumpActive) return;
+    this.searchRunQueuePumpActive = true;
+    try {
+      await this.assertSearchRunPersistence();
+      await this.getEnginePool().refreshEngineRegistryFromEnv();
+      await this.getEnginePool().cleanupExpiredLocks();
+
+      for (;;) {
+        const run = await this.prisma.webscrapingSearchRun.findFirst({
+          where: { status: 'queued' },
+          orderBy: { createdAt: 'asc' },
+        });
+        if (!run) break;
+
+        const lease = await this.getEnginePool().acquireEngine(run.id, run.companyId, run.userId);
+        if (!lease) break;
+
+        const claimed = await this.prisma.webscrapingSearchRun.updateMany({
+          where: {
+            id: run.id,
+            status: 'queued',
+          },
+          data: {
+            status: 'running',
+            assignedEngineId: lease.engineId,
+            assignedEngineUrl: lease.url,
+            assignedEngineIndex: lease.engineIndex,
+            startedAt: run.startedAt || new Date(),
+            errorMessage: null,
+          },
+        });
+
+        if (claimed.count === 0) {
+          await this.getEnginePool().releaseEngine(lease.engineId);
+          continue;
+        }
+
+        const queueUser = this.buildQueueUser(run);
+        const normalized = this.normalizeSearchInput(this.buildRunInputFromRow({ ...run, engine: 'hbx' }));
+        setTimeout(() => {
+          void this.processSearchRun(run.id, queueUser, normalized, lease);
+        }, 0);
+      }
+    } finally {
+      this.searchRunQueuePumpActive = false;
+    }
+  }
+
+  private async processSearchRun(runId: string, user: any, initialInput?: NormalizedSearchInput, lease?: HbxEngineLease) {
+    const context = this.resolveContext(user);
+    const current = await this.prisma.webscrapingSearchRun.findFirst({
+      where: { id: runId, companyId: context.companyId },
+    });
+    if (!current || this.isTerminalSearchRunStatus(current.status)) {
+      if (lease) await this.getEnginePool().releaseEngine(lease.engineId);
+      return;
+    }
+
+    const normalized = initialInput || this.normalizeSearchInput(this.buildRunInputFromRow(current));
+    const batchSize = normalized.engine === 'google'
+      ? normalized.quantity
+      : Math.min(15, Math.max(10, normalized.quantity));
+    const maxBatches = normalized.engine === 'google'
+      ? 1
+      : Math.max(Math.ceil(normalized.quantity / batchSize) + 4, 8);
+
+    await this.prisma.webscrapingSearchRun.update({
+      where: { id: runId },
+      data: {
+        status: 'running',
+        startedAt: current.startedAt || new Date(),
+        assignedEngineId: lease?.engineId || current.assignedEngineId || null,
+        assignedEngineUrl: lease?.url || current.assignedEngineUrl || null,
+        assignedEngineIndex: lease?.engineIndex ?? current.assignedEngineIndex ?? null,
+        errorMessage: null,
+      },
+    });
+
+    let emptyBatches = 0;
+    let partialMessage: string | null = null;
+
+    try {
+      for (let batchIndex = 0; batchIndex < maxBatches; batchIndex += 1) {
+        const liveRun = await this.prisma.webscrapingSearchRun.findUnique({
+          where: { id: runId },
+          select: {
+            status: true,
+            foundCount: true,
+            targetQuantity: true,
+          },
+        });
+        if (!liveRun || liveRun.status === 'canceled') return;
+        if (this.isTerminalSearchRunStatus(liveRun.status)) return;
+        if (liveRun.foundCount >= liveRun.targetQuantity) break;
+
+        const dedup = await this.snapshotSearchRunDedup(runId);
+        const excludePhoneDigits = Array.from(dedup.phoneDigits);
+        const remaining = Math.max(1, normalized.quantity - liveRun.foundCount);
+        const quantity = Math.min(batchSize, remaining);
+
+        const batchResponse = await this.searchContactsForUser(
+          user,
+          {
+            city: normalized.city,
+            state: normalized.state,
+            segment: normalized.segment,
+            engine: normalized.engine,
+            targetType: normalized.targetType,
+            quantity,
+            minRating: normalized.filters.minRating,
+            minReviews: normalized.filters.minReviews,
+            onlyWithWebsite: normalized.filters.onlyWithWebsite,
+            excludePhoneDigits,
+          },
+          {
+            skipPrivateHistory: true,
+            skipTechnicalCache: true,
+            skipRadarLookup: true,
+            recordUsage: true,
+            hbxEngineUrl: lease?.url,
+          },
+        );
+
+        const incoming = Array.isArray(batchResponse.results) ? batchResponse.results : [];
+        if (incoming.length === 0) emptyBatches += 1;
+        else emptyBatches = 0;
+
+        await this.saveSearchRunResults(
+          context,
+          normalized,
+          runId,
+          incoming,
+          batchResponse.meta.source,
+          batchIndex * batchSize,
+        );
+
+        const counters = await this.recalculateSearchRunCounters(runId);
+        if (batchResponse.meta.status === 'partial_error' || batchResponse.meta.status === 'completed_with_errors') {
+          partialMessage = batchResponse.meta.message || 'Um lote retornou erro parcial.';
+          await this.prisma.webscrapingSearchRun.update({
+            where: { id: runId },
+            data: {
+              status: counters.foundCount > 0 ? 'partial_error' : 'failed',
+              errorMessage: partialMessage,
+              finishedAt: new Date(),
+            },
+          });
+          return;
+        }
+        if (emptyBatches >= 2) break;
+      }
+
+      await this.runGoogleEmergencyComplementIfEligible(runId, user, context, normalized);
+      const counters = await this.recalculateSearchRunCounters(runId);
+      const finishedStatus: WebscrapingSearchRunStatus = counters.foundCount > 0 ? 'completed' : 'failed';
+      const errorMessage = counters.foundCount > 0
+        ? partialMessage
+        : 'Nenhum card valido foi encontrado nos lotes processados.';
+      await this.persistSearchRunHistoryIfPossible(runId, normalized, context);
+      await this.prisma.webscrapingSearchRun.update({
+        where: { id: runId },
+        data: {
+          status: finishedStatus,
+          errorMessage: finishedStatus === 'failed' ? errorMessage : null,
+          finishedAt: new Date(),
+        },
+      });
+    } catch (error) {
+      if (lease) {
+        await this.getEnginePool().markEngineFailed(lease.engineId, error);
+      }
+      const counters = await this.recalculateSearchRunCounters(runId).catch(() => ({
+        foundCount: 0,
+        duplicateCount: 0,
+        skippedCount: 0,
+      }));
+      const errorMessage = String((error as any)?.response?.message || (error as any)?.message || error || 'Falha no lote.');
+      await this.prisma.webscrapingSearchRun.update({
+        where: { id: runId },
+        data: {
+          status: counters.foundCount > 0 ? 'partial_error' : 'failed',
+          errorMessage,
+          finishedAt: new Date(),
+        },
+      }).catch(() => null);
+    } finally {
+      if (lease) {
+        await this.getEnginePool().releaseEngine(lease.engineId);
+      }
+      setTimeout(() => {
+        void this.processNextQueuedSearchRun();
+      }, 0);
+    }
+  }
+
+  private mapRunItemToContact(item: any): WebscrapingContactResult {
+    return {
+      placeId: String(item.placeId || '').trim(),
+      name: String(item.name || '').trim(),
+      phone: String(item.phone || '').trim(),
+      phoneDigits: normalizePhoneDigits(item.phoneDigits || item.phone),
+      rating: null,
+      reviews: null,
+      address: String(item.address || '').trim() || null,
+      website: String(item.website || '').trim() || null,
+      source: String(item.source || '').trim() || null,
+    };
+  }
+
+  private buildSearchRunResponse(run: any, capacity?: { operationalStatus: 'healthy' | 'degraded'; message: string | null }): WebscrapingSearchRunResponse {
+    const engine = normalizeEngine(run.engine);
+    const targetType = normalizeTargetType(run.targetType);
+    const status = this.normalizeSearchRunStatus(run.status);
+    const items = Array.isArray(run.items) ? run.items : [];
+    const foundItems = items.filter((item) => item.status === 'found');
+    const results = foundItems.map((item) => {
+      const contact = this.mapRunItemToContact(item);
+      const { placeId: _placeId, ...publicContact } = contact;
+      return publicContact;
+    });
+    const query = {
+      city: String(run.city || ''),
+      state: run.state || null,
+      segment: String(run.segment || ''),
+      quantity: Math.max(1, Math.trunc(Number(run.targetQuantity || 1))),
+      engine,
+      targetType,
+      filters: {
+        minRating: null,
+        minReviews: null,
+        onlyWithWebsite: false,
+      },
+    };
+    const source: SearchSource = engine === 'hbx' ? 'hbx' : 'google';
+    return {
+      id: run.id,
+      runId: run.id,
+      status,
+      city: query.city,
+      state: query.state,
+      segment: query.segment,
+      engine,
+      targetType,
+      targetQuantity: query.quantity,
+      foundCount: safeInteger(run.foundCount),
+      importedCount: safeInteger(run.importedCount),
+      duplicateCount: safeInteger(run.duplicateCount),
+      skippedCount: safeInteger(run.skippedCount),
+      errorMessage: run.errorMessage || null,
+      operationalStatus: capacity?.operationalStatus,
+      operationalMessage: capacity?.message || null,
+      startedAt: run.startedAt instanceof Date ? run.startedAt.toISOString() : null,
+      finishedAt: run.finishedAt instanceof Date ? run.finishedAt.toISOString() : null,
+      createdAt: run.createdAt instanceof Date ? run.createdAt.toISOString() : new Date().toISOString(),
+      updatedAt: run.updatedAt instanceof Date ? run.updatedAt.toISOString() : new Date().toISOString(),
+      query,
+      meta: {
+        runId: run.id,
+        historyId: run.id,
+        source,
+        reusedCount: 0,
+        fetchedCount: safeInteger(run.foundCount),
+        totalStoredCount: safeInteger(run.foundCount),
+        status: status === 'partial_error' ? 'partial_error' : status === 'completed' ? 'completed' : undefined,
+        message: run.errorMessage || capacity?.message || null,
+        technicalCacheUsed: false,
+        technicalCacheReusedCount: 0,
+        technicalCacheValidUntil: null,
+        duplicateCount: safeInteger(run.duplicateCount),
+        skippedCount: safeInteger(run.skippedCount),
+        importedCount: safeInteger(run.importedCount),
+      },
+      items: items.map((item) => ({
+        id: item.id,
+        placeId: String(item.placeId || ''),
+        name: String(item.name || ''),
+        phone: String(item.phone || ''),
+        phoneDigits: String(item.phoneDigits || ''),
+        website: item.website || null,
+        websiteKey: item.websiteKey || null,
+        address: item.address || null,
+        city: item.city || null,
+        state: item.state || null,
+        segment: item.segment || null,
+        source: item.source || null,
+        status: this.normalizeRunItemStatus(item.status),
+        duplicateReason: item.duplicateReason || null,
+        createdAt: item.createdAt instanceof Date ? item.createdAt.toISOString() : new Date().toISOString(),
+      })),
+      results,
     };
   }
 
@@ -2801,7 +3570,7 @@ export class WebscrapingService {
   }
 
   private isExecutedUsageEvent(eventType: UsageEventType) {
-    return eventType === 'EXECUTED' || eventType === 'GOOGLE_SEARCH_EXECUTED';
+    return eventType === 'EXECUTED' || eventType === 'GOOGLE_SEARCH_EXECUTED' || eventType === 'GOOGLE_EMERGENCY_EXECUTED';
   }
 
   private async findGlobalCacheBySignature(cacheSignature: string): Promise<GlobalCacheRow | null> {
@@ -3117,8 +3886,9 @@ export class WebscrapingService {
   private async searchHbxEngine(
     input: NormalizedSearchInput,
     excludePhoneDigits: string[] = [],
+    engineUrlOverride?: string,
   ): Promise<HbxEngineSearchOutput> {
-    const engineUrl = this.getHbxScrapingEngineUrl();
+    const engineUrl = String(engineUrlOverride || this.getHbxScrapingEngineUrl()).trim().replace(/\/+$/, '');
     let response: Response;
     const normalizedExcludePhoneDigits = Array.from(
       new Set(excludePhoneDigits.map((phone) => normalizePhoneDigits(phone)).filter(Boolean) as string[]),
