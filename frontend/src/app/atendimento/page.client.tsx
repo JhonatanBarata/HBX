@@ -244,6 +244,7 @@ type VendasAgendaQueueMetadata = {
   manualSentAt?: string | null;
   botEligible?: boolean | string | number | null;
   botEntryPending?: boolean | string | number | null;
+  humanAssigned?: boolean | string | number | null;
   manualQueueOverride?: string | null;
   manualQueueOverriddenAt?: string | null;
   whatsappAvailabilityStatus?: string | null;
@@ -1488,6 +1489,21 @@ function hasInboxInboundMessage(conversation?: InboxConversation | null) {
   return (conversation?.messages || []).some((message) => String(message.direction || "").trim().toLowerCase() === "inbound");
 }
 
+function hasInboxProspectionCustomerResponse(conversation?: InboxConversation | null) {
+  const metadata = getInboxConversationMetadata(conversation);
+  const queue = getInboxVendasAgendaQueue(conversation);
+  const automation =
+    metadata?.vendasAutomation && typeof metadata.vendasAutomation === "object" && !Array.isArray(metadata.vendasAutomation)
+      ? (metadata.vendasAutomation as Record<string, unknown>)
+      : null;
+  const automationStatus = getInboxMetadataText(automation?.status);
+  return (
+    hasInboxInboundMessage(conversation) ||
+    Boolean(String(queue?.respondedAt || "").trim()) ||
+    ["replied_positive", "replied_negative", "interested", "neutral", "human_assigned"].includes(automationStatus)
+  );
+}
+
 function hasInboxRealMessage(conversation?: InboxConversation | null) {
   return Boolean(getInboxConversationActivityAt(conversation));
 }
@@ -1524,6 +1540,36 @@ function hasInboxHbxProspectionOrigin(conversation?: InboxConversation | null) {
     routeTarget === "prospection" ||
     sourceCandidates.some((value) => value === "vendas" || value === "webscraping" || value.includes("webscraping")) ||
     Boolean(String(queue?.leadId || "").trim())
+  );
+}
+
+function isInboxExplicitAtendimentoHandoff(
+  conversation?: InboxConversation | null,
+  manualQueue?: InboxQueue,
+  persistedQueue?: string,
+) {
+  const metadata = getInboxConversationMetadata(conversation);
+  const queue = getInboxVendasAgendaQueue(conversation);
+  if (manualQueue === "scheduled" || persistedQueue === "scheduled") return true;
+  if (conversation?.humanAssigned === true) return true;
+  if (parseInboxBooleanFlag(metadata?.humanAssigned) || parseInboxBooleanFlag(queue?.humanAssigned)) return true;
+
+  const flowCandidates = [
+    conversation?.flowResult,
+    conversation?.currentFlow,
+    metadata?.flowResult,
+    metadata?.currentFlow,
+    metadata?.currentStep,
+    metadata?.handoffType,
+    metadata?.routeReason,
+  ].map(getInboxMetadataText);
+  return flowCandidates.some(
+    (value) =>
+      value === "human_handoff" ||
+      value === "recovery_handoff" ||
+      value === "human_assigned" ||
+      value.includes("human_handoff") ||
+      value.includes("atendimento_humano"),
   );
 }
 
@@ -1568,15 +1614,16 @@ function resolveInboxBucket(
   if (isInboxPersonalContact(conversation) || persistedRouteTarget === "conversas") {
     return "conversas";
   }
-  if (persistedRouteTarget === "atendimento") return "atendimento";
-  if (hasInboxInboundMessage(conversation)) return "atendimento";
-  if (hasInboxHbxProspectionOrigin(conversation)) return "prospeccao";
   if (manualQueue && INBOX_QUEUE_ORDER.includes(manualQueue)) {
     return mapInboxQueueToBucket(manualQueue);
   }
   if (INBOX_QUEUE_ORDER.includes(persistedQueue as InboxQueue)) {
     return mapInboxQueueToBucket(persistedQueue as InboxQueue);
   }
+  if (hasInboxHbxProspectionOrigin(conversation) && !hasInboxProspectionCustomerResponse(conversation)) {
+    return "prospeccao";
+  }
+  if (isInboxExplicitAtendimentoHandoff(conversation, manualQueue, persistedQueue)) return "atendimento";
 
   return "conversas";
 }
