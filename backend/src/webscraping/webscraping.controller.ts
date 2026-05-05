@@ -1,6 +1,6 @@
 import { Body, Controller, Get, Param, Post, Query, Req, Res, UseGuards } from '@nestjs/common';
 import { Type } from 'class-transformer';
-import { IsBoolean, IsIn, IsInt, IsNumber, IsOptional, IsString, Max, Min } from 'class-validator';
+import { IsArray, IsBoolean, IsIn, IsInt, IsNumber, IsOptional, IsString, Max, Min } from 'class-validator';
 import type { Response } from 'express';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { ModuleAccess } from '../modules/module-feature.decorator';
@@ -52,6 +52,11 @@ class WebscrapingSearchDto {
   @Type(() => Boolean)
   @IsBoolean()
   onlyWithWebsite?: boolean;
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  excludePhoneDigits?: string[];
 }
 
 class WebscrapingSearchMoreDto {

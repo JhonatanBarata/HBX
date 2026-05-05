@@ -149,6 +149,7 @@ export type SearchContactsInput = {
   minRating?: number | null;
   minReviews?: number | null;
   onlyWithWebsite?: boolean;
+  excludePhoneDigits?: string[];
 };
 
 type SearchPlacesCandidate = {
@@ -185,6 +186,7 @@ type NormalizedSearchInput = {
   cacheSignature: string;
   normalizedCity: string;
   normalizedSegment: string;
+  excludePhoneDigits: string[];
 };
 
 type SearchExecutionOptions = {
@@ -499,13 +501,14 @@ export class WebscrapingService {
       ? await this.findHistoryBySignature(context.companyId, normalized.searchSignature, options.historyIdHint, normalized)
       : null;
     const storedResults = this.sortContacts(this.restoreStoredResults(existingHistory));
+    const hasExplicitExclusions = normalized.excludePhoneDigits.length > 0;
     const globalCacheEnabled = await this.supportsGlobalCachePersistence();
     const globalCacheEntry = globalCacheEnabled
       ? await this.findGlobalCacheBySignature(normalized.cacheSignature)
       : null;
     const cachedPublicResults = this.sortContacts(this.restoreGlobalCacheResults(globalCacheEntry));
 
-    if (storedResults.length >= normalized.quantity) {
+    if (!hasExplicitExclusions && storedResults.length >= normalized.quantity) {
       if (existingHistory) {
         await this.touchHistory(existingHistory.id, context.userId);
       }
@@ -524,8 +527,11 @@ export class WebscrapingService {
     }
 
     if (normalized.engine === 'hbx') {
-      const results = [...storedResults];
-      const seenPhones = new Set(results.map((item) => item.phoneDigits).filter(Boolean));
+      const results = hasExplicitExclusions ? [] : [...storedResults];
+      const seenPhones = new Set([
+        ...storedResults.map((item) => item.phoneDigits).filter(Boolean),
+        ...normalized.excludePhoneDigits,
+      ]);
       let fetchedCount = 0;
 
       let hbxResults: WebscrapingContactResult[] = [];
@@ -549,10 +555,13 @@ export class WebscrapingService {
       }
 
       const orderedResults = this.sortContacts(results).slice(0, normalized.quantity);
+      const historyResults = hasExplicitExclusions
+        ? this.sortContacts(this.mergeDedupedContacts([...storedResults, ...results]))
+        : orderedResults;
       const historyId = historyEnabled
-        ? await this.persistHistory(context, normalized, orderedResults, existingHistory?.id || null)
+        ? await this.persistHistory(context, normalized, historyResults, existingHistory?.id || null)
         : existingHistory?.id || null;
-      const source: SearchSource = storedResults.length > 0 && fetchedCount > 0 ? 'hybrid' : 'hbx';
+      const source: SearchSource = !hasExplicitExclusions && storedResults.length > 0 && fetchedCount > 0 ? 'hybrid' : 'hbx';
       if (hbxError && orderedResults.length === 0) {
         throw hbxError;
       }
@@ -563,9 +572,9 @@ export class WebscrapingService {
       const response = this.buildSearchResponse(normalized, orderedResults, {
         historyId,
         source,
-        reusedCount: Math.min(storedResults.length, normalized.quantity),
+        reusedCount: hasExplicitExclusions ? 0 : Math.min(storedResults.length, normalized.quantity),
         fetchedCount,
-        totalStoredCount: orderedResults.length,
+        totalStoredCount: historyResults.length,
         status,
         message,
         technicalCacheUsed: false,
@@ -1424,6 +1433,13 @@ export class WebscrapingService {
       targetType,
       state,
     });
+    const excludePhoneDigits = Array.from(
+      new Set(
+        (Array.isArray(input.excludePhoneDigits) ? input.excludePhoneDigits : [])
+          .map((phone) => normalizePhoneDigits(phone))
+          .filter(Boolean) as string[],
+      ),
+    );
     const normalizedCity = normalizeLookupValue(city);
     const normalizedSegment = normalizeLookupValue(segment);
 
@@ -1455,6 +1471,7 @@ export class WebscrapingService {
       ].join('|'),
       normalizedCity,
       normalizedSegment,
+      excludePhoneDigits,
     };
   }
 

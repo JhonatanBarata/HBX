@@ -392,6 +392,18 @@ function normalizePhoneDigits(raw: string) {
   return digits;
 }
 
+function mergeUniqueSearchResults(current: SearchResult[], incoming: SearchResult[]) {
+  const seen = new Set(current.map((result) => normalizePhoneDigits(result.phoneDigits || result.phone)).filter(Boolean));
+  const merged = [...current];
+  for (const result of incoming || []) {
+    const key = normalizePhoneDigits(result.phoneDigits || result.phone);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    merged.push(result);
+  }
+  return merged;
+}
+
 function normalizeCityLookup(value: string) {
   return String(value || "")
     .normalize("NFD")
@@ -1051,9 +1063,10 @@ export default function WebscrapingClientPage() {
 
   useEffect(() => {
     if (!feedback) return;
+    if (searching) return;
     const timer = window.setTimeout(() => setFeedback(null), 2200);
     return () => window.clearTimeout(timer);
-  }, [feedback]);
+  }, [feedback, searching]);
 
   useEffect(() => {
     if (searching || !hasSearched || qualifiedResults.length === 0) return;
@@ -1155,11 +1168,12 @@ export default function WebscrapingClientPage() {
     setScriptDraftTouched(false);
   }, [currentUser?.email, defaultScriptVariables.company, scriptPresetStorageKey]);
 
-  function buildPayload() {
+  function buildPayload(overrides: Partial<{ quantity: number; excludePhoneDigits: string[] }> = {}) {
     const basePayload = {
       city: city.trim(),
       segment: effectiveSegment,
-      quantity,
+      quantity: overrides.quantity ?? quantity,
+      ...(overrides.excludePhoneDigits?.length ? { excludePhoneDigits: overrides.excludePhoneDigits } : {}),
     };
 
     if (engine === "google") {
@@ -1310,38 +1324,118 @@ export default function WebscrapingClientPage() {
 
     setSearching(true);
     try {
-      const payload = await apiFetch<SearchResponse>("/webscraping/search", {
-        method: "POST",
-        body: JSON.stringify({ ...buildPayload(), city: selectedCity }),
-      });
-      setResults(payload.results || []);
-      setActiveQuery(payload.query);
-      setSearchMeta(payload.meta);
-      setHasSearched(true);
+      const shouldRunProgressiveHbx = engine === "hbx" && targetType === "pj" && quantity > 20;
+      let finalPayload: SearchResponse | null = null;
+      let finalResults: SearchResult[] = [];
+      let partialFailure = false;
+
+      if (shouldRunProgressiveHbx) {
+        const totalBatches = Math.ceil(quantity / 20);
+        let accumulated: SearchResult[] = [];
+        let accumulatedMeta: SearchResponse["meta"] | null = null;
+        let progressQuery: SearchResponse["query"] | null = null;
+
+        for (let batchIndex = 0; batchIndex < totalBatches && accumulated.length < quantity; batchIndex += 1) {
+          const batchNumber = batchIndex + 1;
+          const remaining = Math.max(1, quantity - accumulated.length);
+          const batchQuantity = Math.min(20, remaining);
+          const excludePhoneDigits = accumulated
+            .map((result) => normalizePhoneDigits(result.phoneDigits || result.phone))
+            .filter(Boolean);
+          setFeedback(`Buscando lote ${batchNumber}/${totalBatches}... ${accumulated.length} cards encontrados`);
+
+          try {
+            const payload = await apiFetch<SearchResponse>("/webscraping/search", {
+              method: "POST",
+              body: JSON.stringify({
+                ...buildPayload({ quantity: batchQuantity, excludePhoneDigits }),
+                city: selectedCity,
+              }),
+            });
+            finalPayload = payload;
+            accumulated = mergeUniqueSearchResults(accumulated, payload.results || []).slice(0, quantity);
+            progressQuery = { ...payload.query, quantity };
+            accumulatedMeta = {
+              ...payload.meta,
+              fetchedCount: accumulated.length,
+              reusedCount: 0,
+              totalStoredCount: Math.max(Number(payload.meta.totalStoredCount || 0), accumulated.length),
+              status: payload.meta.status || "completed",
+              message: payload.meta.message || null,
+            };
+            setResults(accumulated);
+            setActiveQuery(progressQuery);
+            setSearchMeta(accumulatedMeta);
+            setHasSearched(true);
+          } catch (batchError) {
+            partialFailure = true;
+            if (accumulated.length === 0) throw batchError;
+            break;
+          }
+        }
+
+        finalResults = accumulated;
+        if (finalPayload && progressQuery && accumulatedMeta) {
+          finalPayload = {
+            ...finalPayload,
+            query: progressQuery,
+            meta: {
+              ...accumulatedMeta,
+              status: partialFailure || accumulated.length < quantity ? "partial_error" : accumulatedMeta.status,
+              message:
+                partialFailure || accumulated.length < quantity
+                  ? `Busca parcial concluída. Encontramos ${accumulated.length} de ${quantity} cards.`
+                  : accumulatedMeta.message,
+            },
+            results: accumulated,
+          };
+        }
+        setFeedback(
+          partialFailure || finalResults.length < quantity
+            ? `Busca parcial concluída. Encontramos ${finalResults.length} de ${quantity} cards.`
+            : `${finalResults.length} cards encontrados.`,
+        );
+      } else {
+        const payload = await apiFetch<SearchResponse>("/webscraping/search", {
+          method: "POST",
+          body: JSON.stringify({ ...buildPayload(), city: selectedCity }),
+        });
+        finalPayload = payload;
+        finalResults = payload.results || [];
+        setResults(finalResults);
+        setActiveQuery(payload.query);
+        setSearchMeta(payload.meta);
+        setHasSearched(true);
+      }
+
+      if (!finalPayload) {
+        throw new Error("Busca não retornou resposta válida.");
+      }
+
       const responseTargetType =
-        payload.query.engine === "hbx" || isPeopleTargetType(payload.query.targetType)
-          ? normalizeTargetTypeValue(payload.query.targetType)
+        finalPayload.query.engine === "hbx" || isPeopleTargetType(finalPayload.query.targetType)
+          ? normalizeTargetTypeValue(finalPayload.query.targetType)
           : "pj";
-      const displayResults = filterResultsForTarget(payload.results || [], responseTargetType);
-      const hiddenCount = Math.max(0, (payload.results || []).length - displayResults.length);
+      const displayResults = filterResultsForTarget(finalResults, responseTargetType);
+      const hiddenCount = Math.max(0, finalResults.length - displayResults.length);
       scrapingLaunchNotice.markSuccess({
         successDescription:
           displayResults.length
-            ? `${displayResults.length} contato(s) qualificados para ${getVisualSegment(payload.query.segment, responseTargetType)}${payload.query.city ? ` em ${payload.query.city}` : ""}${hiddenCount ? `; ${hiddenCount} genérico(s) ocultado(s).` : "."}`
+            ? `${displayResults.length} contato(s) qualificados para ${getVisualSegment(finalPayload.query.segment, responseTargetType)}${finalPayload.query.city ? ` em ${finalPayload.query.city}` : ""}${hiddenCount ? `; ${hiddenCount} genérico(s) ocultado(s).` : "."}`
             : hiddenCount
               ? `${hiddenCount} telefone(s) foram encontrados, mas sem nome de pessoa claro para virar card.`
-            : `Busca concluída${payload.query.city ? ` em ${payload.query.city}` : ""}, mas nenhum telefone válido entrou nos resultados.`,
+            : `Busca concluída${finalPayload.query.city ? ` em ${finalPayload.query.city}` : ""}, mas nenhum telefone válido entrou nos resultados.`,
       });
       await refreshHistory();
       // persist last city/segment locally for quicker re-entry
       try {
-        localStorage.setItem("webscraping.lastCity", String(payload.query.city || city || ""));
-        const seg = normalizeTargetTypeValue(payload.query.targetType || targetType) === "pf"
+        localStorage.setItem("webscraping.lastCity", String(finalPayload.query.city || city || ""));
+        const seg = normalizeTargetTypeValue(finalPayload.query.targetType || targetType) === "pf"
           ? segment
-          : String(payload.query.segment || segment || "");
+          : String(finalPayload.query.segment || segment || "");
         localStorage.setItem("webscraping.lastSegment", seg);
-        localStorage.setItem("webscraping.lastEngine", String(payload.query.engine || engine));
-        localStorage.setItem("webscraping.lastTargetType", String(payload.query.targetType || targetType));
+        localStorage.setItem("webscraping.lastEngine", String(finalPayload.query.engine || engine));
+        localStorage.setItem("webscraping.lastTargetType", String(finalPayload.query.targetType || targetType));
         localStorage.setItem("webscraping.pfRole", pfRole);
         localStorage.setItem("webscraping.pfDdd", normalizeDdd(pfDdd));
       } catch {
@@ -2230,7 +2324,7 @@ export default function WebscrapingClientPage() {
             ) : null}
           </div>
 
-          {searching ? (
+          {searching && results.length === 0 ? (
             <div className={styles.resultsGrid}>
               {Array.from({ length: 3 }).map((_, index) => (
                 <div key={index} className={styles.resultSkeleton}>
@@ -2266,7 +2360,7 @@ export default function WebscrapingClientPage() {
             </div>
           ) : null}
 
-          {!searching && qualifiedResults.length > 0 ? (
+          {qualifiedResults.length > 0 ? (
             <div className={styles.resultsGrid}>
               {qualifiedResults.map((result) => {
                 const queryCity = activeQuery?.city || city;

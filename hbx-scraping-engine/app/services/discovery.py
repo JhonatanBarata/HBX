@@ -68,7 +68,7 @@ def discovery_target(limit: int, max_discovery_results: int, target_type: str = 
     if target_type == "agenda_pf":
         return min(max_discovery_results, max(60, limit * 4))
     if target_type == "pj":
-        return min(max_discovery_results, max(200, limit * 5 + max(0, exclude_count)))
+        return min(max_discovery_results, max(80, limit * 3))
     multiplier = 5 if target_type == "pf" else 4
     minimum = 60 if target_type == "pf" else 40
     return min(max_discovery_results, max(minimum, limit * multiplier))
