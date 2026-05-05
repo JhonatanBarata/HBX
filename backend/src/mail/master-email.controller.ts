@@ -17,7 +17,7 @@ import { existsSync } from 'fs';
 import { IsEmail, IsString, MaxLength } from 'class-validator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { MasterGuard } from '../auth/guards/master.guard';
-import { MailService } from './mail.service';
+import { MailAttachment, MailService } from './mail.service';
 
 const MASTER_EMAIL_TEMPLATE = [
   'Boa tarde, tudo bem {{nome}}?',
@@ -39,6 +39,11 @@ const MASTER_EMAIL_SUBJECT = 'Apresentação HBX System';
 const ATTACHMENT_DIR = join(process.cwd(), 'storage', 'master-email');
 const ATTACHMENT_PATH = join(ATTACHMENT_DIR, 'apresentacao-hbx.pptx');
 const ATTACHMENT_META_PATH = join(ATTACHMENT_DIR, 'apresentacao-hbx.json');
+const BUSINESS_CARD_PATH = join(ATTACHMENT_DIR, 'cartao-visitas');
+const BUSINESS_CARD_META_PATH = join(ATTACHMENT_DIR, 'cartao-visitas.json');
+const MASTER_PPTX_LIMIT_BYTES = 50 * 1024 * 1024;
+const MASTER_BUSINESS_CARD_LIMIT_BYTES = 15 * 1024 * 1024;
+const BUSINESS_CARD_CID = 'hbx-business-card';
 
 class SendMasterEmailDto {
   @IsString()
@@ -62,6 +67,8 @@ type AttachmentMeta = {
   originalName: string;
   uploadedAt: string;
   size: number;
+  mimeType?: string;
+  previewDataUrl?: string;
 };
 
 @Controller('master/email')
@@ -75,6 +82,37 @@ export class MasterEmailController {
 
   private renderTemplate(name: string) {
     return MASTER_EMAIL_TEMPLATE.replace('{{nome}}', this.normalizeName(name) || 'cliente');
+  }
+
+  private escapeHtml(value: string) {
+    return String(value || '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  private buildHtmlEmail(text: string, hasBusinessCard: boolean) {
+    const paragraphs = this.escapeHtml(text)
+      .split('\n')
+      .map((line) => (line ? line : '&nbsp;'))
+      .join('<br>');
+
+    const businessCard = hasBusinessCard
+      ? [
+          '<div style="margin-top:18px">',
+          `<img src="cid:${BUSINESS_CARD_CID}" alt="Cartao de visitas" style="display:block;max-width:640px;width:100%;height:auto;border:0;outline:none;text-decoration:none">`,
+          '</div>',
+        ].join('')
+      : '';
+
+    return [
+      '<div style="font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.55;color:#111827">',
+      paragraphs,
+      businessCard,
+      '</div>',
+    ].join('');
   }
 
   private async readAttachmentMeta() {
@@ -95,6 +133,31 @@ export class MasterEmailController {
     };
   }
 
+  private async readBusinessCardMeta(includePreview = false) {
+    if (!existsSync(BUSINESS_CARD_PATH)) return null;
+    const fileStat = await stat(BUSINESS_CARD_PATH);
+    let meta: Partial<AttachmentMeta> = {};
+    if (existsSync(BUSINESS_CARD_META_PATH)) {
+      try {
+        meta = JSON.parse(await readFile(BUSINESS_CARD_META_PATH, 'utf8'));
+      } catch {
+        meta = {};
+      }
+    }
+    const mimeType = String(meta.mimeType || 'image/png');
+    const card: AttachmentMeta = {
+      originalName: String(meta.originalName || 'cartao-visitas.png'),
+      uploadedAt: String(meta.uploadedAt || fileStat.mtime.toISOString()),
+      size: Number(meta.size || fileStat.size || 0),
+      mimeType,
+    };
+    if (includePreview) {
+      const content = await readFile(BUSINESS_CARD_PATH);
+      card.previewDataUrl = `data:${mimeType};base64,${content.toString('base64')}`;
+    }
+    return card;
+  }
+
   @Get()
   async getMasterEmailState() {
     const config = this.mailService.getConfigurationSummary();
@@ -110,6 +173,7 @@ export class MasterEmailController {
         missing: config.missing,
       },
       attachment: await this.readAttachmentMeta(),
+      businessCard: await this.readBusinessCardMeta(true),
     };
   }
 
@@ -117,7 +181,7 @@ export class MasterEmailController {
   @UseInterceptors(
     FileInterceptor('file', {
       storage: memoryStorage(),
-      limits: { fileSize: 25 * 1024 * 1024 },
+      limits: { fileSize: MASTER_PPTX_LIMIT_BYTES },
     }),
   )
   async uploadAttachment(@UploadedFile() file?: any) {
@@ -139,6 +203,36 @@ export class MasterEmailController {
     return { ok: true, attachment: await this.readAttachmentMeta() };
   }
 
+  @Post('business-card')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      storage: memoryStorage(),
+      limits: { fileSize: MASTER_BUSINESS_CARD_LIMIT_BYTES },
+    }),
+  )
+  async uploadBusinessCard(@UploadedFile() file?: any) {
+    if (!file?.buffer?.length) {
+      throw new BadRequestException('Cole ou envie uma imagem do cartão de visitas.');
+    }
+
+    const mimeType = String(file.mimetype || '').toLowerCase();
+    if (!['image/png', 'image/jpeg', 'image/webp'].includes(mimeType)) {
+      throw new BadRequestException('O cartão precisa ser PNG, JPG ou WEBP.');
+    }
+
+    const originalName = String(file.originalname || '').trim() || 'cartao-visitas.png';
+    await mkdir(ATTACHMENT_DIR, { recursive: true });
+    await writeFile(BUSINESS_CARD_PATH, file.buffer);
+    const meta: AttachmentMeta = {
+      originalName,
+      uploadedAt: new Date().toISOString(),
+      size: Number(file.size || file.buffer.length || 0),
+      mimeType,
+    };
+    await writeFile(BUSINESS_CARD_META_PATH, JSON.stringify(meta, null, 2), 'utf8');
+    return { ok: true, businessCard: await this.readBusinessCardMeta(true) };
+  }
+
   @Post('send')
   async sendPresentationEmail(@Req() req: any, @Body() dto: SendMasterEmailDto) {
     const recipientName = this.normalizeName(dto.recipientName);
@@ -154,20 +248,33 @@ export class MasterEmailController {
     }
 
     const attachmentMeta = await this.readAttachmentMeta();
+    const businessCardMeta = await this.readBusinessCardMeta(false);
     const attachment = await readFile(ATTACHMENT_PATH);
+    const attachments: MailAttachment[] = [
+      {
+        filename: attachmentMeta?.originalName || 'apresentacao-hbx.pptx',
+        content: attachment,
+        contentType: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+      },
+    ];
+
+    if (businessCardMeta && existsSync(BUSINESS_CARD_PATH)) {
+      attachments.push({
+        filename: businessCardMeta.originalName || 'cartao-visitas.png',
+        content: await readFile(BUSINESS_CARD_PATH),
+        contentType: businessCardMeta.mimeType || 'image/png',
+        cid: BUSINESS_CARD_CID,
+      });
+    }
+
     const delivery = await this.mailService.sendMail({
       to: recipientEmail,
       subject,
       text,
+      html: this.buildHtmlEmail(text, Boolean(businessCardMeta)),
       from: 'Jhonatan | HBX <jhonatan@hbx.com.br>',
       replyTo: 'jhonatan@hbx.com.br',
-      attachments: [
-        {
-          filename: attachmentMeta?.originalName || 'apresentacao-hbx.pptx',
-          content: attachment,
-          contentType: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-        },
-      ],
+      attachments,
     });
 
     return {
@@ -177,6 +284,7 @@ export class MasterEmailController {
       recipientEmail,
       subject,
       attachment: attachmentMeta,
+      businessCard: businessCardMeta,
       delivery,
       sentBy: Number(req.user?.id || 0) || null,
     };
