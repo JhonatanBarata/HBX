@@ -1401,12 +1401,83 @@
   box-shadow: 0 8px 16px -12px rgba(255, 181, 71, 0.72);
 }
 
+.conversationProspectionBadge {
+  width: fit-content;
+  min-height: 20px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0.08rem 0.5rem;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--conversation-prospeccao-accent, #2563eb) 42%, transparent);
+  background: color-mix(in srgb, var(--conversation-prospeccao-accent, #2563eb) 16%, rgba(255, 255, 255, 0.08));
+  color: color-mix(in srgb, var(--conversation-prospeccao-accent, #2563eb) 78%, #ffffff);
+  font-size: 0.62rem;
+  font-weight: 900;
+  line-height: 1;
+  box-shadow: 0 8px 16px -12px color-mix(in srgb, var(--conversation-prospeccao-accent, #2563eb) 72%, transparent);
+}
+
+.conversationPreviewStack {
+  display: grid;
+  min-width: 0;
+  gap: 0.1rem;
+  white-space: normal;
+}
+
+.conversationPreviewText {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.conversationProspectionSubtitle {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: color-mix(in srgb, var(--conversation-prospeccao-accent, #2563eb) 74%, var(--muted));
+  font-size: 0.72rem;
+  font-weight: 850;
+  line-height: 1.2;
+}
+
 .conversationQueueItemInterested {
   border-color: color-mix(in srgb, var(--inbox-warning, #ffb547) 42%, #202c33);
 }
 
 .conversationQueueItemInterested::before {
   background: linear-gradient(180deg, #fff3d1, var(--inbox-warning, #ffb547));
+}
+
+.conversationQueueItemProspection {
+  border-color: color-mix(in srgb, var(--conversation-prospeccao-accent, #2563eb) 38%, #d9e2e0);
+  background:
+    linear-gradient(
+      90deg,
+      color-mix(in srgb, var(--conversation-prospeccao-surface, #e8f1ff) 28%, transparent) 0%,
+      color-mix(in srgb, var(--conversation-prospeccao-surface, #e8f1ff) 12%, transparent) 46%,
+      transparent 100%
+    ),
+    var(--chat-row-bg, rgba(255, 255, 255, 0.04));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.2),
+    0 14px 26px color-mix(in srgb, var(--conversation-prospeccao-accent, #2563eb) 14%, transparent);
+}
+
+.conversationQueueItemProspection::before {
+  width: 4px;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--conversation-prospeccao-accent, #2563eb) 38%, #ffffff),
+    var(--conversation-prospeccao-accent, #2563eb)
+  );
+}
+
+.conversationQueueItemProspection::after {
+  background:
+    radial-gradient(circle at left center, color-mix(in srgb, var(--conversation-prospeccao-accent, #2563eb) 14%, transparent), transparent 48%),
+    linear-gradient(90deg, color-mix(in srgb, var(--conversation-prospeccao-accent, #2563eb) 10%, transparent) 0%, transparent 68%);
 }
 
 .conversationQueueItemMuted {

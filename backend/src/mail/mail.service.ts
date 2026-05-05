@@ -32,6 +32,12 @@ export type MailSendResult = {
   errorMessage: string | null;
 };
 
+export type MailAttachment = {
+  filename: string;
+  content: Buffer | string;
+  contentType?: string | null;
+};
+
 type SmtpAttempt = {
   host: string;
   port: number;
@@ -212,7 +218,7 @@ export class MailService {
 
   private async deliverWithResend(
     summary: MailConfigurationSummary,
-    message: { from?: string; replyTo?: string; to: string; subject: string; text: string; html?: string | null },
+    message: { from?: string; replyTo?: string; to: string; subject: string; text: string; html?: string | null; attachments?: MailAttachment[] },
   ) {
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const { Resend } = require('resend');
@@ -225,6 +231,14 @@ export class MailService {
       subject: message.subject,
       text: message.text,
       html: message.html || undefined,
+      attachments: message.attachments?.map((attachment) => ({
+        filename: attachment.filename,
+        content:
+          typeof attachment.content === 'string'
+            ? Buffer.from(attachment.content).toString('base64')
+            : attachment.content.toString('base64'),
+        contentType: attachment.contentType || undefined,
+      })),
     });
 
     if (response?.error) {
@@ -239,7 +253,7 @@ export class MailService {
   private async deliverWithSmtpFallback(
     nodemailer: any,
     summary: MailConfigurationSummary,
-    message: { from?: string; replyTo?: string; to: string; subject: string; text: string; html?: string | null },
+    message: { from?: string; replyTo?: string; to: string; subject: string; text: string; html?: string | null; attachments?: MailAttachment[] },
   ) {
     const attempts = this.buildSmtpAttempts(summary);
     let lastError: unknown = null;
@@ -325,7 +339,7 @@ export class MailService {
     };
   }
 
-  async sendMail(input: { to: string; subject: string; text: string; html?: string | null; from?: string | null; replyTo?: string | null }): Promise<MailSendResult> {
+  async sendMail(input: { to: string; subject: string; text: string; html?: string | null; from?: string | null; replyTo?: string | null; attachments?: MailAttachment[] }): Promise<MailSendResult> {
     const summary = this.getConfigurationSummary();
     const from = this.normalizeEnvValue(input.from) || summary.from;
     const replyTo = this.buildReplyToAddress(input.replyTo);
@@ -373,6 +387,11 @@ export class MailService {
         subject: input.subject,
         text: input.text,
         html: input.html || undefined,
+        attachments: input.attachments?.map((attachment) => ({
+          filename: attachment.filename,
+          content: attachment.content,
+          contentType: attachment.contentType || undefined,
+        })),
       });
 
       const previewUrl = nodemailer.getTestMessageUrl(info) || null;
@@ -404,6 +423,7 @@ export class MailService {
         subject: input.subject,
         text: input.text,
         html: input.html || undefined,
+        attachments: input.attachments,
       });
 
       return {
@@ -432,6 +452,11 @@ export class MailService {
       subject: input.subject,
       text: input.text,
       html: input.html || undefined,
+      attachments: input.attachments?.map((attachment) => ({
+        filename: attachment.filename,
+        content: attachment.content,
+        contentType: attachment.contentType || undefined,
+      })),
     });
 
     return {

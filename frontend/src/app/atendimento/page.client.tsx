@@ -250,6 +250,26 @@ type VendasAgendaQueueMetadata = {
   whatsappAvailabilityStatus?: string | null;
 };
 
+type VendasProspeccaoStage =
+  | "pending_send"
+  | "scheduled_send"
+  | "sent_waiting"
+  | "reply_received"
+  | "expired_no_reply"
+  | "needs_review"
+  | "no_whatsapp"
+  | "negative_reply";
+
+type VendasProspeccaoMetadata = {
+  stage?: VendasProspeccaoStage | string | null;
+  firstOutboundAt?: string | null;
+  lastInboundAt?: string | null;
+  replyDeadlineAt?: string | null;
+  leadSegment?: string | null;
+  campaignSegment?: string | null;
+  mismatchReason?: string | null;
+};
+
 type CustomerConversationCardPayload = {
   customer: {
     profileId?: string | null;
@@ -1296,6 +1316,9 @@ function getCustomerConversationCardWhatsappAvailability(
 }
 
 function getInboxConversationWhatsappAvailabilityFromMetadata(conversation?: InboxConversation | null) {
+  const prospeccao = getInboxVendasProspeccaoMetadata(conversation);
+  if (String(prospeccao?.stage || "").trim().toLowerCase() === "no_whatsapp") return "unavailable" as const;
+
   const queue = getInboxVendasAgendaQueue(conversation);
   const queueStatus = String(queue?.whatsappAvailabilityStatus || "").trim().toLowerCase();
   if (queueStatus === "unavailable") return "unavailable" as const;
@@ -1521,13 +1544,15 @@ function hasInboxAutomaticProspectionOutbound(conversation?: InboxConversation |
 }
 
 function hasInboxProspectionCustomerResponse(conversation?: InboxConversation | null) {
-  const metadata = getInboxConversationMetadata(conversation);
   const queue = getInboxVendasAgendaQueue(conversation);
   const automation = getInboxAutomationMetadata(conversation);
+  const prospeccao = getInboxVendasProspeccaoMetadata(conversation);
   const automationStatus = getInboxMetadataText(automation?.status);
+  const prospeccaoStage = getInboxMetadataText(prospeccao?.stage);
   return (
     hasInboxInboundMessage(conversation) ||
     Boolean(String(queue?.respondedAt || "").trim()) ||
+    prospeccaoStage === "reply_received" ||
     ["replied_positive", "replied_negative", "interested", "neutral", "human_assigned"].includes(automationStatus)
   );
 }
@@ -1549,6 +1574,7 @@ function hasInboxHbxProspectionOrigin(conversation?: InboxConversation | null) {
   const metadata = getInboxConversationMetadata(conversation);
   const queue = getInboxVendasAgendaQueue(conversation);
   const automation = getInboxAutomationMetadata(conversation);
+  const prospeccao = getInboxVendasProspeccaoMetadata(conversation);
   const sourceCandidates = [
     conversation?.latestSourceModule,
     metadata?.latestSourceModule,
@@ -1567,6 +1593,7 @@ function hasInboxHbxProspectionOrigin(conversation?: InboxConversation | null) {
   );
   return (
     Boolean(queue) ||
+    Boolean(prospeccao?.stage) ||
     routeTarget === "prospeccao" ||
     routeTarget === "prospection" ||
     sourceCandidates.some(isInboxProspectionSource) ||
@@ -1580,11 +1607,13 @@ function isInboxExcludedByOperationalState(conversation?: InboxConversation | nu
   const queue = getInboxVendasAgendaQueue(conversation);
   const queueRecord = queue as Record<string, unknown> | null;
   const automation = getInboxAutomationMetadata(conversation);
+  const prospeccao = getInboxVendasProspeccaoMetadata(conversation);
   const statuses = [
     conversation?.flowResult,
     metadata?.flowResult,
     queue?.status,
     automation?.status,
+    prospeccao?.stage,
   ].map(getInboxMetadataText);
   return (
     statuses.some((status) =>
@@ -1594,6 +1623,9 @@ function isInboxExcludedByOperationalState(conversation?: InboxConversation | nu
         "opt_out",
         "replied_negative",
         "no_response_archived",
+        "expired_no_reply",
+        "negative_reply",
+        "no_whatsapp",
         "prospection_negative",
         "local_deleted",
       ].includes(status),
@@ -1612,16 +1644,14 @@ function isInboxExcludedByOperationalState(conversation?: InboxConversation | nu
 }
 
 function getInboxProspectionWaitingSince(conversation?: InboxConversation | null) {
-  const metadata = getInboxConversationMetadata(conversation);
   const queue = getInboxVendasAgendaQueue(conversation);
   const automation = getInboxAutomationMetadata(conversation);
+  const prospeccao = getInboxVendasProspeccaoMetadata(conversation);
   const candidates = [
+    prospeccao?.firstOutboundAt,
     automation?.sentAt,
     queue?.manualSentAt,
     queue?.lastManualSendAt,
-    queue?.syncedAt,
-    getInboxConversationActivityAt(conversation),
-    conversation?.updatedAt,
   ];
   for (const candidate of candidates) {
     const normalized = String(candidate || "").trim();
@@ -1642,6 +1672,150 @@ function formatInboxWaitingLabel(value: string | null | undefined) {
   if (hours < 24) return `Aguardando resposta há ${hours}h`;
   const days = Math.floor(hours / 24);
   return `Aguardando resposta há ${days}d`;
+}
+
+const VENDAS_PROSPECCAO_STAGES: VendasProspeccaoStage[] = [
+  "pending_send",
+  "scheduled_send",
+  "sent_waiting",
+  "reply_received",
+  "expired_no_reply",
+  "needs_review",
+  "no_whatsapp",
+  "negative_reply",
+];
+
+type InboxProspectionStatusMeta = {
+  stage: VendasProspeccaoStage;
+  badge: string;
+  preview: string;
+  subtitle: string;
+  accent: string;
+  surface: string;
+};
+
+function normalizeProspectionStage(value: unknown): VendasProspeccaoStage | null {
+  const normalized = String(value || "").trim().toLowerCase();
+  return VENDAS_PROSPECCAO_STAGES.includes(normalized as VendasProspeccaoStage)
+    ? (normalized as VendasProspeccaoStage)
+    : null;
+}
+
+function resolveInboxProspectionStage(conversation?: InboxConversation | null): VendasProspeccaoStage | null {
+  if (!hasInboxHbxProspectionOrigin(conversation)) return null;
+  const prospeccao = getInboxVendasProspeccaoMetadata(conversation);
+  const persistedStage = normalizeProspectionStage(prospeccao?.stage);
+  if (persistedStage) return persistedStage;
+
+  const queue = getInboxVendasAgendaQueue(conversation);
+  const automation = getInboxAutomationMetadata(conversation);
+  const statuses = [
+    conversation?.flowResult,
+    queue?.status,
+    automation?.status,
+  ].map(getInboxMetadataText);
+
+  if (getInboxConversationWhatsappAvailabilityFromMetadata(conversation) === "unavailable") return "no_whatsapp";
+  if (statuses.some((status) => ["negative", "opt_out", "replied_negative", "prospection_negative"].includes(status))) {
+    return "negative_reply";
+  }
+  if (statuses.some((status) => ["no_response_archived", "expired_no_reply"].includes(status))) {
+    return "expired_no_reply";
+  }
+  if (hasInboxProspectionCustomerResponse(conversation)) return "reply_received";
+  if (
+    parseInboxBooleanFlag(queue?.manualSent) ||
+    String(queue?.manualSentAt || queue?.lastManualSendAt || automation?.sentAt || "").trim() ||
+    hasInboxAutomaticProspectionOutbound(conversation)
+  ) {
+    return "sent_waiting";
+  }
+  if (String(queue?.returnAt || automation?.scheduledAt || "").trim()) return "scheduled_send";
+  return "pending_send";
+}
+
+function formatProspectionSegment(value: unknown) {
+  return String(value || "").replace(/\s+/g, " ").trim().toLowerCase();
+}
+
+function getInboxProspectionStatusMeta(conversation?: InboxConversation | null): InboxProspectionStatusMeta | null {
+  const stage = resolveInboxProspectionStage(conversation);
+  if (!stage) return null;
+  const prospeccao = getInboxVendasProspeccaoMetadata(conversation);
+  const leadSegment = formatProspectionSegment(prospeccao?.leadSegment);
+  const campaignSegment = formatProspectionSegment(prospeccao?.campaignSegment);
+  const mismatchSubtitle =
+    prospeccao?.mismatchReason === "segment_mismatch" && (leadSegment || campaignSegment)
+      ? `Segmento divergente: ${leadSegment || "sem segmento"} / campanha ${campaignSegment || "sem segmento"}`
+      : "Revisar segmento antes de enviar";
+
+  const byStage: Record<VendasProspeccaoStage, InboxProspectionStatusMeta> = {
+    pending_send: {
+      stage,
+      badge: "Pendente",
+      preview: "Aguardando envio do bot",
+      subtitle: "Aguardando envio do bot",
+      accent: "#5b8def",
+      surface: "#eaf2ff",
+    },
+    scheduled_send: {
+      stage,
+      badge: "Agendado",
+      preview: "Agendado para envio",
+      subtitle: "Agendado para envio",
+      accent: "#8b5cf6",
+      surface: "#f2eafe",
+    },
+    sent_waiting: {
+      stage,
+      badge: "Aguardando",
+      preview: "Aguardando resposta",
+      subtitle: formatInboxWaitingLabel(getInboxProspectionWaitingSince(conversation)),
+      accent: "#2563eb",
+      surface: "#e8f1ff",
+    },
+    reply_received: {
+      stage,
+      badge: "Resposta",
+      preview: "Cliente respondeu",
+      subtitle: "Cliente respondeu",
+      accent: "#16a34a",
+      surface: "#e8f7ee",
+    },
+    expired_no_reply: {
+      stage,
+      badge: "24h",
+      preview: "Sem resposta há 24h",
+      subtitle: "Sem resposta há 24h",
+      accent: "#d97706",
+      surface: "#fff3d6",
+    },
+    needs_review: {
+      stage,
+      badge: "Revisar",
+      preview: "Revisar segmento antes de enviar",
+      subtitle: mismatchSubtitle,
+      accent: "#dc2626",
+      surface: "#fee2e2",
+    },
+    no_whatsapp: {
+      stage,
+      badge: "S/WA",
+      preview: "Número sem WhatsApp",
+      subtitle: "Número sem WhatsApp",
+      accent: "#7f1d1d",
+      surface: "#f4d8d8",
+    },
+    negative_reply: {
+      stage,
+      badge: "Sem interesse",
+      preview: "Sem interesse",
+      subtitle: "Sem interesse",
+      accent: "#b91c1c",
+      surface: "#f3e7e7",
+    },
+  };
+  return byStage[stage];
 }
 
 function isInboxExplicitAtendimentoHandoff(
@@ -1807,6 +1981,18 @@ function getInboxVendasAgendaQueue(conversation?: InboxConversation | null) {
     return null;
   }
   return metadata.vendasAgendaQueue as VendasAgendaQueueMetadata;
+}
+
+function getInboxVendasProspeccaoMetadata(conversation?: InboxConversation | null) {
+  const metadata = getInboxConversationMetadata(conversation);
+  if (
+    !metadata?.vendasProspeccao ||
+    typeof metadata.vendasProspeccao !== "object" ||
+    Array.isArray(metadata.vendasProspeccao)
+  ) {
+    return null;
+  }
+  return metadata.vendasProspeccao as VendasProspeccaoMetadata;
 }
 
 function getInboxVendasAgendaPendingDraft(conversation?: InboxConversation | null) {
@@ -2168,19 +2354,33 @@ function getInboxConversationFreshness(
 }
 
 function getInboxConversationPreview(conversation?: InboxConversation | null) {
-  if (hasInboxHbxProspectionOrigin(conversation) && !hasInboxProspectionCustomerResponse(conversation)) {
-    return formatInboxWaitingLabel(getInboxProspectionWaitingSince(conversation));
-  }
   const latestMessage = getInboxLatestMessage(conversation?.messages);
   const preview = String(getMessagePreview(latestMessage) || "").trim();
   if (preview) return preview;
   if (!conversation) return "";
+  const prospectionStatus = getInboxProspectionStatusMeta(conversation);
+  if (prospectionStatus) return prospectionStatus.preview;
   const pendingDraft = getInboxVendasAgendaPendingDraft(conversation);
   if (pendingDraft) return `Roteiro pendente: ${pendingDraft}`;
   if (isAtendimentoAgendaConversation(conversation)) return "Agendamento em andamento";
   if (conversation.isBlocked) return "Contato bloqueado";
   if (conversation.status === "closed") return "Conversa encerrada";
   return "Sem mensagens";
+}
+
+function renderInboxConversationPreview(conversation?: InboxConversation | null) {
+  const preview = getInboxConversationPreview(conversation);
+  const prospectionStatus = getInboxProspectionStatusMeta(conversation);
+  if (!prospectionStatus) return preview;
+  const subtitle = String(prospectionStatus.subtitle || "").trim();
+  return (
+    <span className={styles.conversationPreviewStack}>
+      <span className={styles.conversationPreviewText}>{preview}</span>
+      {subtitle && subtitle !== preview ? (
+        <span className={styles.conversationProspectionSubtitle}>{subtitle}</span>
+      ) : null}
+    </span>
+  );
 }
 
 function getInboxConversationSubtitle(conversation?: InboxConversation | null) {
@@ -2428,7 +2628,21 @@ function didInboxConversationViewChange(
 
 function getInboxConversationSortAtForQueue(conversation: InboxConversation, queue?: InboxQueue) {
   if (queue === "bot") {
-    return getInboxProspectionWaitingSince(conversation) || conversation.updatedAt || getInboxConversationActivityAt(conversation);
+    const prospeccao = getInboxVendasProspeccaoMetadata(conversation);
+    const agenda = getInboxVendasAgendaQueue(conversation);
+    const automation = getInboxAutomationMetadata(conversation);
+    const candidates = [
+      prospeccao?.firstOutboundAt,
+      agenda?.manualSentAt,
+      agenda?.lastManualSendAt,
+      automation?.sentAt,
+      agenda?.syncedAt,
+      automation?.scheduledAt,
+      agenda?.returnAt,
+      conversation.updatedAt,
+      getInboxConversationActivityAt(conversation),
+    ];
+    return candidates.map((value) => String(value || "").trim()).find(Boolean) || "";
   }
   return getInboxConversationActivityAt(conversation);
 }
@@ -4299,6 +4513,7 @@ export default function InboxClientPage() {
         conversation.customer?.phone,
         getInboxConversationSubtitle(conversation),
         getInboxConversationPreview(conversation),
+        getInboxProspectionStatusMeta(conversation)?.subtitle,
       ]
         .filter(Boolean)
         .join(" ")
@@ -5806,16 +6021,26 @@ export default function InboxClientPage() {
                 );
                 const displayName = resolveInboxConversationDisplayName(conversation);
                 const subtitleLabel = getInboxConversationSubtitle(conversation);
-                const previewLabel = getInboxConversationPreview(conversation);
+                const previewLabel = renderInboxConversationPreview(conversation);
+                const prospectionStatusMeta = getInboxProspectionStatusMeta(conversation);
                 const interested = isProspectingInterestedConversation(conversation);
                 const activityAt = getInboxConversationActivityAt(conversation);
                 const activityAtLabel = activityAt ? formatTimeLabel(activityAt, mounted) : "Sem mensagens";
+                const itemStyle = {
+                  "--reveal-index": idx,
+                  ...(prospectionStatusMeta
+                    ? {
+                        "--conversation-prospeccao-accent": prospectionStatusMeta.accent,
+                        "--conversation-prospeccao-surface": prospectionStatusMeta.surface,
+                      }
+                    : {}),
+                } as CSSProperties;
                 return (
                   <ChatQueueItem
                     key={conversation.id}
                     active={active}
                     onClick={() => loadConversation(conversation.id)}
-                    style={{ "--reveal-index": idx } as CSSProperties}
+                    style={itemStyle}
                     draggable
                     onDragStart={(event) => {
                       event.dataTransfer.effectAllowed = "move";
@@ -5840,8 +6065,13 @@ export default function InboxClientPage() {
                     subtitle={subtitleLabel}
                     preview={previewLabel}
                     badges={
-                      unreadCount > 0 || interested ? (
+                      unreadCount > 0 || interested || prospectionStatusMeta ? (
                         <span className={styles.conversationBadgeStack}>
+                          {prospectionStatusMeta ? (
+                            <span className={styles.conversationProspectionBadge}>
+                              {prospectionStatusMeta.badge}
+                            </span>
+                          ) : null}
                           {interested ? (
                             <span className={styles.conversationInterestedBadge}>Interessado</span>
                           ) : null}
@@ -5881,8 +6111,10 @@ export default function InboxClientPage() {
                       conversationWithoutWhatsapp && styles.conversationQueueItemUnavailable,
                       unreadCount > 0 && styles.conversationQueueItemUnread,
                       interested && styles.conversationQueueItemInterested,
+                      prospectionStatusMeta && styles.conversationQueueItemProspection,
                     )}
                     data-unread={unreadCount > 0 ? "true" : "false"}
+                    data-prospection-stage={prospectionStatusMeta?.stage || undefined}
                     aria-label={`${displayName}${unreadCount > 0 ? `, ${unreadCount} não lida${unreadCount === 1 ? "" : "s"}` : ""}`}
                   />
                 );

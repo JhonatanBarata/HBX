@@ -1,0 +1,166 @@
+.page {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: 1rem;
+  align-items: start;
+}
+
+.panel,
+.sideCard {
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  background: rgba(15, 23, 42, 0.72);
+  box-shadow: 0 18px 48px rgba(15, 23, 42, 0.24);
+}
+
+.panel {
+  display: grid;
+  gap: 1rem;
+  padding: 1rem;
+}
+
+.header,
+.attachmentBox,
+.actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.header span,
+.field span,
+.attachmentBox span,
+.sideCard span {
+  display: block;
+  margin-bottom: 0.35rem;
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0;
+}
+
+.header h2 {
+  margin: 0;
+  font-size: 1.25rem;
+}
+
+.header strong {
+  padding: 0.35rem 0.55rem;
+  border: 1px solid rgba(239, 68, 68, 0.38);
+  background: rgba(127, 29, 29, 0.2);
+  color: #fecaca;
+  font-size: 0.78rem;
+}
+
+.header strong[data-ready="true"] {
+  border-color: rgba(34, 197, 94, 0.4);
+  background: rgba(22, 101, 52, 0.22);
+  color: #bbf7d0;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.field input,
+.field textarea {
+  width: 100%;
+  border: 1px solid rgba(148, 163, 184, 0.26);
+  background: rgba(2, 6, 23, 0.42);
+  color: var(--foreground);
+  padding: 0.72rem 0.78rem;
+  font: inherit;
+  outline: none;
+}
+
+.field textarea {
+  resize: vertical;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+.field input:focus,
+.field textarea:focus {
+  border-color: rgba(59, 130, 246, 0.72);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.16);
+}
+
+.attachmentBox {
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  background: rgba(30, 41, 59, 0.44);
+  padding: 0.85rem;
+}
+
+.attachmentBox strong,
+.sideCard strong {
+  display: block;
+  color: var(--foreground);
+}
+
+.attachmentBox p,
+.sideCard p {
+  margin: 0.35rem 0 0;
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
+.uploadButton {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 36px;
+  padding: 0 0.75rem;
+  border: 1px solid rgba(148, 163, 184, 0.34);
+  background: rgba(15, 23, 42, 0.72);
+  color: var(--foreground);
+  font-size: 0.82rem;
+  font-weight: 850;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.uploadButton input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.warning {
+  border: 1px solid rgba(245, 158, 11, 0.42);
+  background: rgba(120, 53, 15, 0.22);
+  color: #fde68a;
+  padding: 0.75rem;
+  font-size: 0.88rem;
+}
+
+.actions {
+  justify-content: flex-start;
+}
+
+.side {
+  display: grid;
+  gap: 1rem;
+}
+
+.sideCard {
+  padding: 1rem;
+}
+
+@media (max-width: 900px) {
+  .page {
+    grid-template-columns: 1fr;
+  }
+
+  .grid,
+  .header,
+  .attachmentBox {
+    grid-template-columns: 1fr;
+    flex-direction: column;
+    align-items: stretch;
+  }
+}

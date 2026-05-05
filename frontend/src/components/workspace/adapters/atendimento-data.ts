@@ -1,6 +1,8 @@
 import type {
   InboxConversation,
   InboxRecoveryPaymentSummary,
+  VendasProspeccaoMetadata,
+  VendasProspeccaoStage,
 } from "@/app/atendimento/inbox-model";
 import { mapRecoveryFlowStepLabel } from "./recovery-data";
 import type {
@@ -62,8 +64,59 @@ export function hasAtendimentoAgendaQueueSignal(conversation: InboxConversation)
     !Array.isArray(metadata.vendasAgendaQueue)
       ? (metadata.vendasAgendaQueue as Record<string, unknown>)
       : null;
+  const prospeccao =
+    metadata?.vendasProspeccao &&
+    typeof metadata.vendasProspeccao === "object" &&
+    !Array.isArray(metadata.vendasProspeccao)
+      ? (metadata.vendasProspeccao as VendasProspeccaoMetadata)
+      : null;
 
-  return Boolean(queue?.active);
+  return (
+    Boolean(queue?.active) ||
+    ["pending_send", "scheduled_send", "sent_waiting", "needs_review"].includes(
+      String(prospeccao?.stage || "") as VendasProspeccaoStage,
+    )
+  );
+}
+
+function getAtendimentoProspeccaoStage(conversation: InboxConversation): VendasProspeccaoStage | null {
+  const metadata =
+    conversation?.metadata && typeof conversation.metadata === "object" && !Array.isArray(conversation.metadata)
+      ? (conversation.metadata as Record<string, unknown>)
+      : null;
+  const prospeccao =
+    metadata?.vendasProspeccao &&
+    typeof metadata.vendasProspeccao === "object" &&
+    !Array.isArray(metadata.vendasProspeccao)
+      ? (metadata.vendasProspeccao as VendasProspeccaoMetadata)
+      : null;
+  const stage = String(prospeccao?.stage || "").trim().toLowerCase();
+  const stages: VendasProspeccaoStage[] = [
+    "pending_send",
+    "scheduled_send",
+    "sent_waiting",
+    "reply_received",
+    "expired_no_reply",
+    "needs_review",
+    "no_whatsapp",
+    "negative_reply",
+  ];
+  return stages.includes(stage as VendasProspeccaoStage) ? (stage as VendasProspeccaoStage) : null;
+}
+
+function getAtendimentoProspeccaoBadge(stage: VendasProspeccaoStage | null): WorkspaceBadgeDescriptor | null {
+  if (!stage) return null;
+  const labels: Record<VendasProspeccaoStage, WorkspaceBadgeDescriptor> = {
+    pending_send: { label: "Pendente", tone: "neutral" },
+    scheduled_send: { label: "Agendado", tone: "teal" },
+    sent_waiting: { label: "Aguardando", tone: "brand" },
+    reply_received: { label: "Resposta", tone: "success" },
+    expired_no_reply: { label: "Sem resposta", tone: "warning" },
+    needs_review: { label: "Revisar", tone: "danger" },
+    no_whatsapp: { label: "Sem WhatsApp", tone: "danger" },
+    negative_reply: { label: "Sem interesse", tone: "danger" },
+  };
+  return labels[stage];
 }
 
 function formatSharedDateLabel(valueRaw: string | null | undefined) {
@@ -258,6 +311,11 @@ export function buildAtendimentoQueueBadges(
 
   if (conversation.customer.sharedProfile?.presence?.vendas?.present) {
     badges.push({ label: "Vendas", tone: "brand" });
+  }
+
+  const prospeccaoBadge = getAtendimentoProspeccaoBadge(getAtendimentoProspeccaoStage(conversation));
+  if (prospeccaoBadge) {
+    badges.push(prospeccaoBadge);
   }
 
   if (isAtendimentoAgendaConversation(conversation)) {

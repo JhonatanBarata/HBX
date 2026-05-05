@@ -449,13 +449,14 @@ export class InboxService {
 
   private isConversationKnownWithoutWhatsapp(metadata: Record<string, any>) {
     const vendasAgendaQueue = this.getNestedMetadataRecord(metadata?.vendasAgendaQueue);
+    const vendasProspeccao = this.getNestedMetadataRecord(metadata?.vendasProspeccao);
     const status = String(
       metadata?.whatsappAvailabilityStatus ||
         metadata?.vendasWhatsappAvailabilityStatus ||
         vendasAgendaQueue?.whatsappAvailabilityStatus ||
         '',
     ).trim().toLowerCase();
-    return status === 'unavailable';
+    return status === 'unavailable' || String(vendasProspeccao?.stage || '').trim().toLowerCase() === 'no_whatsapp';
   }
 
   private isConversationPersonalContact(metadata: Record<string, any>) {
@@ -1580,6 +1581,7 @@ export class InboxService {
     conversation?: any,
   ) {
     const automation = this.getNestedMetadataRecord(metadata?.vendasAutomation);
+    const vendasProspeccao = this.getNestedMetadataRecord(metadata?.vendasProspeccao);
     const sourceCandidates = [
       metadata?.sourceModule,
       metadata?.latestSourceModule,
@@ -1592,7 +1594,7 @@ export class InboxService {
       routeTarget === 'prospection' ||
       sourceCandidates.some((source) => this.isProspectionSource(source)) ||
       vendasAgendaQueue?.active === true ||
-      Boolean(String(vendasAgendaQueue?.leadId || automation?.leadId || '').trim()) ||
+      Boolean(String(vendasAgendaQueue?.leadId || automation?.leadId || vendasProspeccao?.stage || '').trim()) ||
       Boolean(this.getLatestAutomaticProspectionOutbound(conversation))
     );
   }
@@ -1604,16 +1606,15 @@ export class InboxService {
     automaticOutbound: any,
   ) {
     const automation = this.getNestedMetadataRecord(metadata?.vendasAutomation);
+    const vendasProspeccao = this.getNestedMetadataRecord(metadata?.vendasProspeccao);
     const candidates = [
+      vendasProspeccao?.firstOutboundAt,
       automation?.sentAt,
       vendasAgendaQueue?.manualSentAt,
       vendasAgendaQueue?.lastManualSendAt,
       automationJob?.sentAt,
       automaticOutbound?.timestamp,
       automaticOutbound?.createdAt,
-      vendasAgendaQueue?.syncedAt,
-      automationJob?.scheduledAt,
-      automationJob?.updatedAt,
     ];
     for (const candidate of candidates) {
       const normalized = String(candidate || '').trim();
@@ -1803,6 +1804,8 @@ export class InboxService {
     const manualQueue = String(
       metadata?.inboxManualQueueOverride || vendasAgendaQueue?.manualQueueOverride || '',
     ).trim().toLowerCase();
+    const vendasProspeccao = this.getNestedMetadataRecord(metadata?.vendasProspeccao);
+    const prospectionStage = this.normalizeClassifierText(vendasProspeccao?.stage || '');
     const automaticProspectionOutbound = this.getLatestAutomaticProspectionOutbound(conversation);
     const isProspectionCandidate = this.isProspectionMetadataCandidate(metadata, metadataRouteTarget, vendasAgendaQueue, conversation);
     const isExplicitHandoff = this.isExplicitAtendimentoHandoff(conversation, metadata, vendasAgendaQueue);
@@ -1832,6 +1835,7 @@ export class InboxService {
     const negativeOrArchivedProspection = [
       automationStatus,
       jobStatus,
+      prospectionStage,
       String(conversation?.flowResult || '').trim().toLowerCase(),
     ].some((value) =>
       [
@@ -1839,12 +1843,16 @@ export class InboxService {
         'opt_out',
         'replied_negative',
         'no_response_archived',
+        'expired_no_reply',
+        'negative_reply',
+        'no_whatsapp',
         'prospection_negative',
       ].includes(value),
     );
     const positiveOrHumanProspection = [
       automationStatus,
       jobStatus,
+      prospectionStage,
       String(conversation?.flowResult || '').trim().toLowerCase(),
     ].some((value) =>
       [
@@ -1852,6 +1860,7 @@ export class InboxService {
         'interested',
         'neutral',
         'human_assigned',
+        'reply_received',
         'prospection_interested',
         'prospection_neutral',
       ].includes(value),
@@ -1868,11 +1877,18 @@ export class InboxService {
     ].some((value) => this.parseBooleanMetadataFlag(value));
     const prospectionNoResponseExpired = Boolean(
       isProspectionCandidate &&
-      !hasProspectionInbound &&
-      prospectionSentAt &&
-      Date.now() - prospectionSentAt.getTime() >= 24 * 60 * 60 * 1000
+      (
+        prospectionStage === 'expired_no_reply' ||
+        (
+          !hasProspectionInbound &&
+          prospectionSentAt &&
+          Date.now() - prospectionSentAt.getTime() >= 24 * 60 * 60 * 1000
+        )
+      )
     );
-    const isProspectionWaitingJob = ['pending', 'scheduled', 'sending', 'sent'].includes(jobStatus);
+    const isProspectionWaitingJob =
+      ['pending', 'scheduled', 'sending', 'sent'].includes(jobStatus) ||
+      ['pending_send', 'scheduled_send', 'sent_waiting', 'needs_review'].includes(prospectionStage);
     const isAtendimentoTarget = metadataRouteTarget === 'atendimento' || metadataRouteTarget === 'scheduled';
     const isRecoveryTarget =
       metadataRouteTarget === 'recovery' ||
@@ -5168,6 +5184,11 @@ export class InboxService {
         : null;
     if (vendasAgendaQueue?.active) {
       const manualSentAt = new Date().toISOString();
+      const currentProspeccao = this.getNestedMetadataRecord(conversationMetadata?.vendasProspeccao);
+      const firstOutboundAt = String(currentProspeccao?.firstOutboundAt || manualSentAt);
+      const replyDeadlineAt = Number.isFinite(new Date(firstOutboundAt).getTime())
+        ? new Date(new Date(firstOutboundAt).getTime() + 24 * 60 * 60 * 1000).toISOString()
+        : null;
       await this.conversations.updateConversationState(companyId, conversationId, {
         metadata: {
           ...conversationMetadata,
@@ -5180,6 +5201,13 @@ export class InboxService {
             botEligible: false,
             botEntryPending: true,
             syncedAt: manualSentAt,
+          },
+          vendasProspeccao: {
+            ...(currentProspeccao || {}),
+            stage: 'sent_waiting',
+            firstOutboundAt,
+            replyDeadlineAt,
+            mismatchReason: null,
           },
         },
       });

@@ -1483,9 +1483,11 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
   }) {
     const automation = this.readJsonRecord(input.metadata?.vendasAutomation);
     const queue = this.readJsonRecord(input.metadata?.vendasAgendaQueue);
+    const jobDelegate = (this.prisma as any).vendasAutomationJob;
+    if (typeof jobDelegate?.findFirst !== 'function') return null;
     const jobId = String(automation.jobId || queue.automationJobId || '').trim();
     if (jobId) {
-      const job = await this.prisma.vendasAutomationJob.findFirst({
+      const job = await jobDelegate.findFirst({
         where: { id: jobId, companyId: input.companyId, status: 'sent' },
         include: { campaign: true, lead: true },
       });
@@ -1499,7 +1501,7 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
           .filter((value): value is string => Boolean(value))
       : [];
 
-    return this.prisma.vendasAutomationJob.findFirst({
+    return jobDelegate.findFirst({
       where: {
         companyId: input.companyId,
         status: 'sent',
@@ -1642,6 +1644,7 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
 
     const queue = this.readJsonRecord(input.metadata?.vendasAgendaQueue);
     const automation = this.readJsonRecord(input.metadata?.vendasAutomation);
+    const prospeccao = this.readJsonRecord(input.metadata?.vendasProspeccao);
     await this.updateAtendimentoConversationState(
       input.companyId,
       input.conversationId,
@@ -1678,6 +1681,14 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
           respondedAt: now.toISOString(),
           syncedAt: now.toISOString(),
           interested: true,
+        },
+        vendasProspeccao: {
+          ...prospeccao,
+          stage: 'reply_received',
+          lastInboundAt: input.timestamp instanceof Date ? input.timestamp.toISOString() : now.toISOString(),
+          leadSegment: job.lead?.segment || prospeccao.leadSegment || null,
+          campaignSegment: job.campaign?.segment || prospeccao.campaignSegment || null,
+          mismatchReason: null,
         },
       },
     );
@@ -1766,6 +1777,7 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
 
     const queue = this.readJsonRecord(input.metadata?.vendasAgendaQueue);
     const automation = this.readJsonRecord(input.metadata?.vendasAutomation);
+    const prospeccao = this.readJsonRecord(input.metadata?.vendasProspeccao);
     await this.updateAtendimentoConversationState(
       input.companyId,
       input.conversationId,
@@ -1814,6 +1826,14 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
           syncedAt: now.toISOString(),
           deactivatedAt: now.toISOString(),
         },
+        vendasProspeccao: {
+          ...prospeccao,
+          stage: 'negative_reply',
+          lastInboundAt: input.timestamp instanceof Date ? input.timestamp.toISOString() : now.toISOString(),
+          leadSegment: job.lead?.segment || prospeccao.leadSegment || null,
+          campaignSegment: job.campaign?.segment || prospeccao.campaignSegment || null,
+          mismatchReason: null,
+        },
       },
     );
     this.logger.log(`[prospeccao] inbound detectado, movendo para excluidos conversation=${input.conversationId}`);
@@ -1841,6 +1861,7 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     });
     const queue = this.readJsonRecord(input.metadata?.vendasAgendaQueue);
     const automation = this.readJsonRecord(input.metadata?.vendasAutomation);
+    const prospeccao = this.readJsonRecord(input.metadata?.vendasProspeccao);
     await this.updateAtendimentoConversationState(
       input.companyId,
       input.conversationId,
@@ -1877,6 +1898,14 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
           humanAssigned: true,
           respondedAt: now.toISOString(),
           syncedAt: now.toISOString(),
+        },
+        vendasProspeccao: {
+          ...prospeccao,
+          stage: 'reply_received',
+          lastInboundAt: input.timestamp instanceof Date ? input.timestamp.toISOString() : now.toISOString(),
+          leadSegment: job.lead?.segment || prospeccao.leadSegment || null,
+          campaignSegment: job.campaign?.segment || prospeccao.campaignSegment || null,
+          mismatchReason: null,
         },
       },
     );
@@ -1991,6 +2020,15 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     if (manualSentAt && input.timestamp.getTime() <= new Date(manualSentAt).getTime()) return null;
 
     const syncedAt = new Date().toISOString();
+    const prospeccao = this.readJsonRecord(input.metadata?.vendasProspeccao);
+    const nextProspeccao = {
+      ...prospeccao,
+      stage: 'reply_received',
+      lastInboundAt: input.timestamp.toISOString(),
+      firstOutboundAt: prospeccao.firstOutboundAt || manualSentAt || null,
+      replyDeadlineAt: prospeccao.replyDeadlineAt || null,
+      mismatchReason: null,
+    };
     const identity = await this.resolveAtendimentoIdentityState({
       companyId: input.companyId,
       phone: input.from,
@@ -2027,6 +2065,7 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
           queueTarget: 'atendimento',
           routeTarget: 'atendimento',
           vendasAgendaQueue: nextQueue,
+          vendasProspeccao: nextProspeccao,
         },
       );
       return { handled: true, humanMode: true, botSuppressed: true, botOff: true };
@@ -2037,6 +2076,7 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
       queueTarget: 'atendimento',
       routeTarget: 'atendimento',
       vendasAgendaQueue: nextQueue,
+      vendasProspeccao: nextProspeccao,
       ...(identity.confirmedName ? { cliente: identity.confirmedName } : {}),
     };
 
