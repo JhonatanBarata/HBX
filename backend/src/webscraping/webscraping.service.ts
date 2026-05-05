@@ -262,6 +262,12 @@ type GlobalCacheRow = {
   }>;
 };
 
+type HistoryPlaceColumnSupport = {
+  source: boolean;
+  score: boolean;
+  opportunityReason: boolean;
+};
+
 class GooglePlacesApiError extends Error {
   constructor(
     readonly code: string,
@@ -734,10 +740,23 @@ export class WebscrapingService {
             where: { companyId: context.companyId },
             orderBy: [{ lastUsedAt: 'desc' }, { updatedAt: 'desc' }, { createdAt: 'desc' }],
             take: readLimit,
-            include: {
+            select: {
+              id: true,
+              city: true,
+              segment: true,
+              quantity: true,
+              resultCount: true,
+              filtersJson: true,
+              searchSignature: true,
+              createdAt: true,
+              updatedAt: true,
+              lastUsedAt: true,
               places: {
                 orderBy: [{ rank: 'asc' }],
                 take: 3,
+                select: {
+                  name: true,
+                },
               },
             },
           })
@@ -1760,6 +1779,33 @@ export class WebscrapingService {
     return cacheTable && placeTable;
   }
 
+  private async getHistoryPlaceColumnSupport(): Promise<HistoryPlaceColumnSupport> {
+    const [source, score, opportunityReason] = await Promise.all([
+      this.prisma.hasColumn('WebscrapingSearchPlace', 'source'),
+      this.prisma.hasColumn('WebscrapingSearchPlace', 'score'),
+      this.prisma.hasColumn('WebscrapingSearchPlace', 'opportunityReason'),
+    ]);
+    return { source, score, opportunityReason };
+  }
+
+  private buildHistoryPlaceSelect(columnSupport: HistoryPlaceColumnSupport) {
+    return {
+      id: true,
+      placeId: true,
+      rank: true,
+      name: true,
+      phone: true,
+      phoneDigits: true,
+      rating: true,
+      reviews: true,
+      address: true,
+      website: true,
+      ...(columnSupport.source ? { source: true } : {}),
+      ...(columnSupport.score ? { score: true } : {}),
+      ...(columnSupport.opportunityReason ? { opportunityReason: true } : {}),
+    };
+  }
+
   private buildGlobalCacheValidUntil(date = new Date()) {
     return new Date(date.getTime() + GLOBAL_CACHE_TTL_HOURS * 60 * 60 * 1000);
   }
@@ -1770,6 +1816,7 @@ export class WebscrapingService {
     historyIdHint?: string,
     input?: NormalizedSearchInput,
   ): Promise<SearchHistoryRow | null> {
+    const historyPlaceSelect = this.buildHistoryPlaceSelect(await this.getHistoryPlaceColumnSupport());
     if (historyIdHint) {
       const hinted = await this.findHistoryById(companyId, historyIdHint);
       if (hinted) return hinted as SearchHistoryRow;
@@ -1782,9 +1829,21 @@ export class WebscrapingService {
           searchSignature,
         },
       },
-      include: {
+      select: {
+        id: true,
+        userId: true,
+        city: true,
+        segment: true,
+        quantity: true,
+        filtersJson: true,
+        searchSignature: true,
+        resultCount: true,
+        createdAt: true,
+        updatedAt: true,
+        lastUsedAt: true,
         places: {
           orderBy: [{ rank: 'asc' }],
+          select: historyPlaceSelect,
         },
       },
     });
@@ -1804,9 +1863,21 @@ export class WebscrapingService {
       where: { companyId },
       orderBy: [{ lastUsedAt: 'desc' }, { updatedAt: 'desc' }, { createdAt: 'desc' }],
       take: 80,
-      include: {
+      select: {
+        id: true,
+        userId: true,
+        city: true,
+        segment: true,
+        quantity: true,
+        filtersJson: true,
+        searchSignature: true,
+        resultCount: true,
+        createdAt: true,
+        updatedAt: true,
+        lastUsedAt: true,
         places: {
           orderBy: [{ rank: 'asc' }],
+          select: historyPlaceSelect,
         },
       },
     }).catch(() => []);
@@ -1823,14 +1894,27 @@ export class WebscrapingService {
   }
 
   private async findHistoryById(companyId: number, historyId: string): Promise<SearchHistoryRow | null> {
+    const historyPlaceSelect = this.buildHistoryPlaceSelect(await this.getHistoryPlaceColumnSupport());
     const row = await this.prisma.webscrapingSearchHistory.findFirst({
       where: {
         id: String(historyId || '').trim(),
         companyId,
       },
-      include: {
+      select: {
+        id: true,
+        userId: true,
+        city: true,
+        segment: true,
+        quantity: true,
+        filtersJson: true,
+        searchSignature: true,
+        resultCount: true,
+        createdAt: true,
+        updatedAt: true,
+        lastUsedAt: true,
         places: {
           orderBy: [{ rank: 'asc' }],
+          select: historyPlaceSelect,
         },
       },
     });
@@ -1952,6 +2036,7 @@ export class WebscrapingService {
   ) {
     const now = new Date();
     const dedupedResults = this.mergeDedupedContacts(results);
+    const historyPlaceColumns = await this.getHistoryPlaceColumnSupport();
     const placeRows = dedupedResults.map((result, index) => ({
       placeId: result.placeId,
       rank: index + 1,
@@ -1962,9 +2047,11 @@ export class WebscrapingService {
       reviews: safeInteger(result.reviews),
       address: result.address || '',
       website: result.website || '',
-      source: result.source || null,
-      score: result.score == null ? null : result.score,
-      opportunityReason: result.opportunityReason || this.buildOpportunityReason(result, input),
+      ...(historyPlaceColumns.source ? { source: result.source || null } : {}),
+      ...(historyPlaceColumns.score ? { score: result.score == null ? null : result.score } : {}),
+      ...(historyPlaceColumns.opportunityReason
+        ? { opportunityReason: result.opportunityReason || this.buildOpportunityReason(result, input) }
+        : {}),
     }));
 
     const saved = await this.prisma.webscrapingSearchHistory.upsert({
