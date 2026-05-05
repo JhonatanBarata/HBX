@@ -376,7 +376,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     return [...candidates];
   }
 
-  private async findOrCreateProspectionConversation(companyId: number, lead: any) {
+  private async findOrCreateProspectionConversation(companyId: number, lead: any, options?: { create?: boolean }) {
     const phoneRaw = lead?.phoneNormalized || lead?.phone;
     const contact = normalizeContact(phoneRaw);
     if (!contact) return null;
@@ -401,7 +401,28 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
       },
       orderBy: [{ lastMessageAt: 'desc' }, { id: 'desc' }],
     });
-    return existing || this.conversations.getOrCreateConversationForContact(companyId, contact);
+    if (existing || options?.create === false) return existing;
+    return this.conversations.getOrCreateConversationForContact(companyId, contact);
+  }
+
+  private isKnownWithoutWhatsappMetadata(metadata: Record<string, unknown>) {
+    const queue = parseJsonObject((metadata as any).vendasAgendaQueue);
+    const prospeccao = parseJsonObject((metadata as any).vendasProspeccao);
+    const statuses = [
+      (metadata as any).whatsappAvailabilityStatus,
+      (queue as any).whatsappAvailabilityStatus,
+    ].map((value) => String(value || '').trim().toLowerCase());
+    return statuses.includes('unavailable') || String((prospeccao as any).stage || '').trim().toLowerCase() === 'no_whatsapp';
+  }
+
+  private async shouldBlockAutomationForKnownNoWhatsapp(companyId: number, lead: any) {
+    const conversation = await this.findOrCreateProspectionConversation(companyId, lead, { create: false });
+    if (!conversation?.metadata) return { blocked: false, conversationId: conversation?.id ? Number(conversation.id) : null };
+    const metadata = parseJsonObject(conversation.metadata);
+    return {
+      blocked: this.isKnownWithoutWhatsappMetadata(metadata),
+      conversationId: Number(conversation.id),
+    };
   }
 
   private async updateProspectionConversationStage(input: {
@@ -1721,6 +1742,39 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     }
     if (isSegmentMismatch(lead.segment, campaign.segment)) {
       await this.markSegmentMismatchBeforeSend(job, campaign, lead);
+      return;
+    }
+    const noWhatsappState = await this.shouldBlockAutomationForKnownNoWhatsapp(campaign.companyId, lead);
+    if (noWhatsappState.blocked) {
+      await this.prisma.vendasAutomationJob.update({
+        where: { id: job.id },
+        data: {
+          status: 'skipped',
+          archivedAt: now,
+          errorMessage: 'Numero sem WhatsApp confirmado. Envio automatico bloqueado.',
+        },
+      });
+      await this.updateProspectionConversationStage({
+        companyId: campaign.companyId,
+        lead,
+        campaign,
+        jobId: job.id,
+        stage: 'no_whatsapp',
+        queueTarget: 'excluidos',
+        routeTarget: 'excluidos',
+        active: false,
+      }).catch(() => null);
+      this.logger.log(`[prospeccao] envio bloqueado: lead sem WhatsApp confirmado conversation=${noWhatsappState.conversationId || '-'} job=${job.id}`);
+      this.publishAutomationEvent({
+        companyId: campaign.companyId,
+        campaignId: campaign.id,
+        jobId: job.id,
+        leadId: lead.id,
+        conversationId: noWhatsappState.conversationId,
+        status: 'aguardando',
+        text: 'Contato sem WhatsApp confirmado. Envio automático bloqueado.',
+        type: 'no_whatsapp_send_blocked',
+      });
       return;
     }
     await this.prisma.vendasAutomationJob.update({ where: { id: job.id }, data: { status: 'sending' } });

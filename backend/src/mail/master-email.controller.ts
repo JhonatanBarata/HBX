@@ -21,9 +21,9 @@ import { MailAttachment, MailService } from './mail.service';
 
 const MASTER_EMAIL_TEMPLATE = [
   'Boa tarde, tudo bem {{nome}}?',
-  'O Filipe me encaminhou seu email, sou dono de um sistema , que está ajudando muitas empresas se organizarem, com foco em CRM, localizar clientes, cards, whatsapp automático com IA e bot nas prospecções.',
+  'Me foi Encaminhado me encaminhou seu email, sou dono de um sistema , que está ajudando muitas empresas se organizarem, com foco em CRM, localizar clientes, cards, whatsapp automático com IA e bot nas prospecções.',
   'Segue uma pequena apresentação, mas assim, em 1 contato consigo te explicar as telas do sistema (ele é grátis por 30 dias).',
-  'Qualquer dúvida me coloco à disposição. 19-997024884',
+  'Qualquer dúvida me coloco à disposição.',
   '',
   'Atenciosamente,',
   '',
