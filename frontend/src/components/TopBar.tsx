@@ -169,8 +169,8 @@ const RECOVERY_QUEUE_STORAGE_KEY = "hbxRecoveryPendingHumanCount";
 const ATENDIMENTO_QUEUE_STORAGE_KEY = "atendimentoPendingHumanCount";
 const MODULES_PEEK_EVENT = "hbx:modules-peek";
 const MODULES_TRIGGER_ID = "app-modules-trigger";
-const SUPPORT_PHONE = "5519997024884";
-const SUPPORT_MESSAGE = "Olá, preciso de suporte no HBX.";
+const SUPPORT_PHONE = "+5519997024884";
+const SUPPORT_MESSAGE = "Olá, preciso de ajuda com o HBX!";
 
 const hiddenRoutes = new Set(["/login", "/register", "/reset-password", "/confirm-email", "/boasvindas", "/tutorial"]);
 const PENDING_CHECKOUT_ADMIN_PATH = "/pagamento?focus=payment&reason=pending_checkout";
@@ -1261,12 +1261,17 @@ export default function TopBar() {
 
   function handleSupportClick() {
     if (supportHasInternalChat === true) {
-      router.push(`/atendimento?support=1&phone=${SUPPORT_PHONE}`);
+      const params = new URLSearchParams({
+        support: "1",
+        phone: SUPPORT_PHONE,
+        message: SUPPORT_MESSAGE,
+      });
+      router.push(`/atendimento?${params.toString()}`);
       return;
     }
 
     if (typeof window === "undefined") return;
-    const url = `https://web.whatsapp.com/send?phone=${SUPPORT_PHONE}&text=${encodeURIComponent(SUPPORT_MESSAGE)}`;
+    const url = `https://web.whatsapp.com/send?phone=${encodeURIComponent(SUPPORT_PHONE)}&text=${encodeURIComponent(SUPPORT_MESSAGE)}`;
     window.open(url, "_blank", "noopener,noreferrer");
   }
 
@@ -1758,7 +1763,11 @@ export default function TopBar() {
         : "Status em leitura";
   const visibleOperationalStatusChips = pendingCheckoutLocked
     ? []
-    : (operationalStatus?.statuses || []).filter((chip) => chip.key !== "payment");
+    : (operationalStatus?.statuses || []).filter((chip) => {
+        if (chip.key === "payment") return false;
+        if (chip.key === "token" && operationalStatusMap.get("webwhats")?.tone === "green") return false;
+        return true;
+      });
   const whatsAppDialogNode = (
     <WhatsAppOperationalDialog
       isOpen={whatsAppDetailOpen}

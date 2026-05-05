@@ -404,9 +404,17 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
       this.prisma.vendasAutomationJob.findFirst({
         where: { campaignId: campaign.id, status: 'scheduled', scheduledAt: { not: null } },
         orderBy: { scheduledAt: 'asc' },
-        select: { scheduledAt: true },
+        select: { id: true, scheduledAt: true },
       }),
     ]);
+    let nextScheduledAt = nextJob?.scheduledAt instanceof Date ? nextJob.scheduledAt : null;
+    if (nextJob?.id && nextScheduledAt && !this.isInsideWorkingHours(nextScheduledAt, campaign)) {
+      nextScheduledAt = this.moveToWorkingWindow(nextScheduledAt, campaign);
+      await this.prisma.vendasAutomationJob.update({
+        where: { id: nextJob.id },
+        data: { scheduledAt: nextScheduledAt },
+      });
+    }
     const counters = { pending, sent, interested, archived, failed };
     const status = this.inferLiveStatus(campaign, counters, sending);
     return {
@@ -415,7 +423,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
       active: campaign.status === 'running',
       campaign: this.serializeCampaign(campaign),
       counters,
-      nextScheduledAt: nextJob?.scheduledAt instanceof Date ? nextJob.scheduledAt.toISOString() : null,
+      nextScheduledAt: nextScheduledAt ? nextScheduledAt.toISOString() : null,
       lastError: campaign.lastError || null,
     };
   }
@@ -775,14 +783,30 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     return next;
   }
 
+  private isBusinessDay(date: Date) {
+    const day = date.getDay();
+    return day >= 1 && day <= 5;
+  }
+
+  private moveToBusinessDay(date: Date) {
+    const next = new Date(date);
+    while (!this.isBusinessDay(next)) {
+      next.setDate(next.getDate() + 1);
+    }
+    return next;
+  }
+
   private moveToWorkingWindow(date: Date, campaign: any) {
+    if (!this.isBusinessDay(date)) {
+      return this.parseTimeOnDate(this.moveToBusinessDay(date), campaign.workingHoursStart || '09:00');
+    }
     const start = this.parseTimeOnDate(date, campaign.workingHoursStart || '09:00');
     const end = this.parseTimeOnDate(date, campaign.workingHoursEnd || '17:30');
     if (date.getTime() < start.getTime()) return start;
     if (date.getTime() <= end.getTime()) return date;
-    const tomorrow = new Date(date);
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    return this.parseTimeOnDate(tomorrow, campaign.workingHoursStart || '09:00');
+    const nextDay = new Date(date);
+    nextDay.setDate(nextDay.getDate() + 1);
+    return this.parseTimeOnDate(this.moveToBusinessDay(nextDay), campaign.workingHoursStart || '09:00');
   }
 
   private async scheduleJobsForCampaign(campaignId: string) {
@@ -985,6 +1009,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
   }
 
   private isInsideWorkingHours(date: Date, campaign: any) {
+    if (!this.isBusinessDay(date)) return false;
     const start = this.parseTimeOnDate(date, campaign.workingHoursStart || '09:00');
     const end = this.parseTimeOnDate(date, campaign.workingHoursEnd || '17:30');
     return date.getTime() >= start.getTime() && date.getTime() <= end.getTime();
@@ -1022,9 +1047,9 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
       },
     });
     if (sentToday >= Number(campaign.dailyLimit || DEFAULT_DAILY_LIMIT)) {
-      const tomorrow = new Date(now);
-      tomorrow.setDate(tomorrow.getDate() + 1);
-      const next = this.parseTimeOnDate(tomorrow, campaign.workingHoursStart || '09:00');
+      const nextDay = new Date(now);
+      nextDay.setDate(nextDay.getDate() + 1);
+      const next = this.parseTimeOnDate(this.moveToBusinessDay(nextDay), campaign.workingHoursStart || '09:00');
       await this.prisma.vendasAutomationJob.update({ where: { id: job.id }, data: { scheduledAt: next } });
       await this.markCampaignStage(campaign.id, campaign.companyId, 'aguardando', 'Limite diário atingido. Próximos envios amanhã.', {
         type: 'daily_limit_reached',

@@ -14,7 +14,6 @@ import type { UserModule } from "@/lib/hbx-modules";
 import { dispatchModulesChanged } from "@/lib/module-events";
 import {
   getWhatsAppModalPlanRedirect,
-  whatsappModeLabel,
   type WhatsAppCenterPayload,
   type WhatsAppModalPayload,
 } from "@/lib/whatsapp-center";
@@ -28,13 +27,9 @@ import {
   type AtendimentoAgendaConfig,
   type AtendimentoBotConfig,
 } from "../../atendimento/inbox-model";
-import BotQrConnectionCard from "./_components/BotQrConnectionCard";
-import BotQrPublishPanel from "./_components/BotQrPublishPanel";
 import ConversationBuilder from "./_components/ConversationBuilder";
 import BotQrWorkspace from "./_components/BotQrWorkspace";
 import {
-  buildPublicationChecklist,
-  buildQuickTestCases,
   type BotQrWorkspaceTab,
 } from "./model";
 import styles from "./page.module.css";
@@ -297,7 +292,6 @@ function mergeProspectingConfigFromStatus(
   return {
     ...DEFAULT_PROSPECTING_CONFIG,
     ...rules,
-    ...(campaign || {}),
     city: String(campaign?.city || DEFAULT_PROSPECTING_CONFIG.city),
     state: String(campaign?.state || DEFAULT_PROSPECTING_CONFIG.state),
     segment: String(campaign?.segment || DEFAULT_PROSPECTING_CONFIG.segment),
@@ -306,8 +300,45 @@ function mergeProspectingConfigFromStatus(
       campaign?.targetType === "pf" || campaign?.targetType === "agenda_pf"
         ? campaign.targetType
         : "pj",
+    messageTemplate: String(campaign?.messageTemplate || DEFAULT_PROSPECTING_CONFIG.messageTemplate),
+    intervalMinutes: Number(campaign?.intervalMinutes || rules.intervalMinutes || DEFAULT_PROSPECTING_CONFIG.intervalMinutes),
+    workingHoursStart: String(campaign?.workingHoursStart || DEFAULT_PROSPECTING_CONFIG.workingHoursStart),
+    workingHoursEnd: String(campaign?.workingHoursEnd || DEFAULT_PROSPECTING_CONFIG.workingHoursEnd),
+    dailyLimit: Number(campaign?.dailyLimit || DEFAULT_PROSPECTING_CONFIG.dailyLimit),
+    minLeadBuffer: Number(campaign?.minLeadBuffer || DEFAULT_PROSPECTING_CONFIG.minLeadBuffer),
+    desiredLeadBuffer: Number(campaign?.desiredLeadBuffer || DEFAULT_PROSPECTING_CONFIG.desiredLeadBuffer),
     maxAttemptsPerLead: Math.max(1, Number(campaign?.maxAttemptsPerLead || DEFAULT_PROSPECTING_CONFIG.maxAttemptsPerLead)),
+    typingSeconds: Number(campaign?.typingSeconds || rules.typingSeconds || DEFAULT_PROSPECTING_CONFIG.typingSeconds),
+    typingVarianceSeconds: Number(campaign?.typingVarianceSeconds || rules.typingVarianceSeconds || DEFAULT_PROSPECTING_CONFIG.typingVarianceSeconds),
+    positiveIntentKeywords: normalizeTextList(campaign?.positiveIntentKeywords, rules.positiveIntentKeywords),
+    negativeIntentKeywords: normalizeTextList(campaign?.negativeIntentKeywords, rules.negativeIntentKeywords),
+    optOutMessage: String(campaign?.optOutMessage || rules.optOutMessage || DEFAULT_PROSPECTING_CONFIG.optOutMessage),
     optOutReplyEnabled: Boolean(campaign?.optOutReplyEnabled ?? campaignFilters.optOutReplyEnabled ?? rules.optOutReplyEnabled),
+    websiteFallbackEnabled: false,
+  };
+}
+
+function toProspectingRequestPayload(config: ProspectingAutomationConfig): ProspectingAutomationConfig {
+  return {
+    city: config.city,
+    state: config.state,
+    segment: config.segment,
+    engine: config.engine,
+    targetType: config.targetType,
+    messageTemplate: config.messageTemplate,
+    intervalMinutes: config.intervalMinutes,
+    workingHoursStart: config.workingHoursStart,
+    workingHoursEnd: config.workingHoursEnd,
+    dailyLimit: config.dailyLimit,
+    minLeadBuffer: config.minLeadBuffer,
+    desiredLeadBuffer: config.desiredLeadBuffer,
+    maxAttemptsPerLead: config.maxAttemptsPerLead,
+    typingSeconds: config.typingSeconds,
+    typingVarianceSeconds: config.typingVarianceSeconds,
+    positiveIntentKeywords: config.positiveIntentKeywords,
+    negativeIntentKeywords: config.negativeIntentKeywords,
+    optOutMessage: config.optOutMessage,
+    optOutReplyEnabled: config.optOutReplyEnabled,
     websiteFallbackEnabled: false,
   };
 }
@@ -373,8 +404,8 @@ function ProspectingAutomationPanel({
   const campaignStatus = liveStatus?.campaign?.status || "paused";
   const canPause = campaignStatus === "running";
   const canResume = campaignStatus === "paused";
-  const [positiveKeywordsDraft, setPositiveKeywordsDraft] = useState(config.positiveIntentKeywords.join("\n"));
-  const [negativeKeywordsDraft, setNegativeKeywordsDraft] = useState(config.negativeIntentKeywords.join("\n"));
+  const [positiveKeywordsDraft, setPositiveKeywordsDraft] = useState(config.positiveIntentKeywords.join(", "));
+  const [negativeKeywordsDraft, setNegativeKeywordsDraft] = useState(config.negativeIntentKeywords.join(", "));
   const [variableTarget, setVariableTarget] = useState<"messageTemplate" | "optOutMessage">("messageTemplate");
   const [variablesOpen, setVariablesOpen] = useState(false);
   const messageTemplateRef = useRef<HTMLTextAreaElement | null>(null);
@@ -383,13 +414,13 @@ function ProspectingAutomationPanel({
   useEffect(() => {
     // Keep textarea drafts aligned when a saved campaign replaces the local config.
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    setPositiveKeywordsDraft(config.positiveIntentKeywords.join("\n"));
+    setPositiveKeywordsDraft(config.positiveIntentKeywords.join(", "));
   }, [config.positiveIntentKeywords]);
 
   useEffect(() => {
     // Keep textarea drafts aligned when a saved campaign replaces the local config.
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    setNegativeKeywordsDraft(config.negativeIntentKeywords.join("\n"));
+    setNegativeKeywordsDraft(config.negativeIntentKeywords.join(", "));
   }, [config.negativeIntentKeywords]);
 
   const setField = <K extends keyof ProspectingAutomationConfig,>(field: K, value: ProspectingAutomationConfig[K]) => {
@@ -542,113 +573,121 @@ function ProspectingAutomationPanel({
       </div>
 
       <section className={styles.prospectingPanel}>
-        <div className={styles.prospectingMessageGrid}>
-          <label>
-            <span>Mensagem inicial</span>
-            <textarea
-              ref={messageTemplateRef}
-              className={styles.editorTextarea}
-              value={config.messageTemplate}
-              onFocus={() => setVariableTarget("messageTemplate")}
-              onChange={(event) => setField("messageTemplate", event.target.value)}
-            />
-          </label>
-          <label>
-            <span>Encerramento negativo</span>
-            <textarea
-              ref={optOutMessageRef}
-              className={styles.editorTextarea}
-              value={config.optOutMessage}
-              disabled={!config.optOutReplyEnabled}
-              onFocus={() => setVariableTarget("optOutMessage")}
-              onChange={(event) => setField("optOutMessage", event.target.value)}
-            />
-          </label>
-          <label>
-            <span>Palavras positivas</span>
-            <textarea
-              className={styles.editorTextarea}
-              value={positiveKeywordsDraft}
-              onChange={(event) => {
-                setPositiveKeywordsDraft(event.target.value);
-              }}
-              onBlur={(event) => setListField("positiveIntentKeywords", event.target.value)}
-            />
-          </label>
-          <label>
-            <span>Palavras negativas</span>
-            <textarea
-              className={styles.editorTextarea}
-              value={negativeKeywordsDraft}
-              onChange={(event) => {
-                setNegativeKeywordsDraft(event.target.value);
-              }}
-              onBlur={(event) => setListField("negativeIntentKeywords", event.target.value)}
-            />
-          </label>
-        </div>
-        <label className={styles.toggleCard}>
-          <span>
-            <strong>Responder encerramento negativo</strong>
-            <small>Desligado por padrão. Mesmo desligado, resposta negativa arquiva e bloqueia recontato automático.</small>
-          </span>
-          <input type="checkbox" checked={config.optOutReplyEnabled} onChange={(event) => setField("optOutReplyEnabled", event.target.checked)} />
-        </label>
-        {config.optOutReplyEnabled ? (
-          <div className={styles.riskNotice}>
-            Responder depois de uma negativa pode aumentar risco de bloqueio no WhatsApp. Use apenas uma mensagem curta, sem insistência e sem link.
+        <div className={styles.prospectingMessageWorkbench}>
+          <div className={styles.prospectingMessageEditorStack}>
+            <div className={styles.prospectingMessageGrid}>
+              <label>
+                <span>Mensagem inicial</span>
+                <textarea
+                  ref={messageTemplateRef}
+                  className={styles.editorTextarea}
+                  value={config.messageTemplate}
+                  onFocus={() => setVariableTarget("messageTemplate")}
+                  onChange={(event) => setField("messageTemplate", event.target.value)}
+                />
+              </label>
+              <label>
+                <span>Encerramento negativo</span>
+                <textarea
+                  ref={optOutMessageRef}
+                  className={styles.editorTextarea}
+                  value={config.optOutMessage}
+                  disabled={!config.optOutReplyEnabled}
+                  onFocus={() => setVariableTarget("optOutMessage")}
+                  onChange={(event) => setField("optOutMessage", event.target.value)}
+                />
+              </label>
+            </div>
+            <label className={styles.toggleCard}>
+              <span>
+                <strong>Responder encerramento negativo</strong>
+                <small>Desligado por padrão. Mesmo desligado, resposta negativa arquiva e bloqueia recontato automático.</small>
+              </span>
+              <input type="checkbox" checked={config.optOutReplyEnabled} onChange={(event) => setField("optOutReplyEnabled", event.target.checked)} />
+            </label>
+            {config.optOutReplyEnabled ? (
+              <div className={styles.riskNotice}>
+                Responder depois de uma negativa pode aumentar risco de bloqueio no WhatsApp. Use apenas uma mensagem curta, sem insistência e sem link.
+              </div>
+            ) : null}
+            <div className={styles.prospectingKeywordGrid}>
+              <label>
+                <span>Palavras positivas</span>
+                <input
+                  className={styles.inputField}
+                  value={positiveKeywordsDraft}
+                  placeholder="tenho interesse, pode mandar, quero saber"
+                  onChange={(event) => {
+                    setPositiveKeywordsDraft(event.target.value);
+                  }}
+                  onBlur={(event) => setListField("positiveIntentKeywords", event.target.value)}
+                />
+              </label>
+              <label>
+                <span>Palavras negativas</span>
+                <input
+                  className={styles.inputField}
+                  value={negativeKeywordsDraft}
+                  placeholder="não tenho interesse, pare, remover, spam"
+                  onChange={(event) => {
+                    setNegativeKeywordsDraft(event.target.value);
+                  }}
+                  onBlur={(event) => setListField("negativeIntentKeywords", event.target.value)}
+                />
+              </label>
+            </div>
           </div>
-        ) : null}
-        <div className={styles.prospectingPreviewGrid}>
-          <div className={styles.phoneMock}>
-            <div className={styles.phoneMockHeader}>
-              <span>Prévia WhatsApp - campanha</span>
+
+          <aside className={styles.prospectingWhatsAppPreview}>
+            <div className={styles.prospectingPreviewHeader}>
+              <div>
+                <span>WhatsApp</span>
+                <strong>Prévia ao vivo</strong>
+              </div>
               <button
                 type="button"
                 className={styles.previewHeaderButton}
-                onClick={() => {
-                  setVariableTarget("messageTemplate");
-                  setVariablesOpen(true);
-                }}
+                onClick={() => setVariablesOpen(true)}
               >
                 Variáveis
               </button>
             </div>
-            <div className={styles.phoneMockBody}>
-              <div className={styles.previewMessageRow} data-role="bot">
-                <div className={styles.previewMessageBubble}>{renderProspectingPreview(config.messageTemplate, config, previewVariables)}</div>
+            <div className={styles.prospectingPhoneFrame}>
+              <div className={styles.prospectingPhoneTopbar}>
+                <span className={styles.prospectingPhoneAvatar}>HBX</span>
+                <div>
+                  <strong>{previewVariables.empresa}</strong>
+                  <small>online agora</small>
+                </div>
+                <i aria-hidden="true" />
+              </div>
+              <div className={styles.prospectingPhoneBody}>
+                <span className={styles.prospectingPhoneDate}>Hoje</span>
+                <div className={styles.prospectingCustomerBubble}>Contato recebido na fila.</div>
+                <div className={styles.prospectingBotBubble} data-tone="typing">
+                  <small>Digitando</small>
+                  <p>typing por {config.typingSeconds}s, com variação humana de até {config.typingVarianceSeconds}s.</p>
+                </div>
+                <div className={styles.prospectingBotBubble}>
+                  <small>Disparo inicial</small>
+                  <p>{renderProspectingPreview(config.messageTemplate, config, previewVariables)}</p>
+                </div>
+                <div className={styles.prospectingCustomerBubble}>Não tenho interesse, remova meu contato.</div>
+                {config.optOutReplyEnabled ? (
+                  <div className={styles.prospectingBotBubble}>
+                    <small>Encerramento negativo</small>
+                    <p>{renderProspectingPreview(config.optOutMessage, config, previewVariables)}</p>
+                  </div>
+                ) : (
+                  <div className={styles.prospectingSystemBubble}>Arquiva, marca opt-out e não envia resposta.</div>
+                )}
+              </div>
+              <div className={styles.prospectingPhoneComposer}>
+                <span>Mensagem</span>
+                <strong>+</strong>
               </div>
             </div>
-          </div>
-          <div className={styles.phoneMock}>
-            <div className={styles.phoneMockHeader}>
-              <span>Prévia WhatsApp - negativo</span>
-              <button
-                type="button"
-                className={styles.previewHeaderButton}
-                onClick={() => {
-                  setVariableTarget("optOutMessage");
-                  setVariablesOpen(true);
-                }}
-              >
-                Variáveis
-              </button>
-            </div>
-            <div className={styles.phoneMockBody}>
-              <div className={styles.previewMessageRow} data-role="customer">
-                <div className={styles.previewMessageBubble}>Não tenho interesse, remova meu contato.</div>
-              </div>
-              {config.optOutReplyEnabled ? (
-                <div className={styles.previewMessageRow} data-role="bot">
-                  <div className={styles.previewMessageBubble}>{renderProspectingPreview(config.optOutMessage, config, previewVariables)}</div>
-                </div>
-              ) : (
-                <div className={styles.previewMessageRow} data-role="system">
-                  <div className={styles.previewMessageBubble}>Arquiva, marca opt-out e não envia resposta.</div>
-                </div>
-              )}
-            </div>
-          </div>
+          </aside>
         </div>
         <div className={styles.variablePreviewCard} aria-label="Valores atuais das variáveis">
           <div>
@@ -713,11 +752,9 @@ export default function VendasAutomationClientPage() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [loading, setLoading] = useState(true);
-  const [connectionLoading, setConnectionLoading] = useState(true);
+  const [, setConnectionLoading] = useState(true);
   const [publishing, setPublishing] = useState(false);
-  const [connectionAction, setConnectionAction] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [connectionError, setConnectionError] = useState<string | null>(null);
   const [notice, setNotice] = useState<NoticeState | null>(null);
   const [activeTab, setActiveTab] = useState<BotQrWorkspaceTab>("flow");
   const [connectionPaired, setConnectionPaired] = useState(false);
@@ -733,10 +770,10 @@ export default function VendasAutomationClientPage() {
   const [commercialPlans, setCommercialPlans] = useState<CommercialPlansPayload | null>(null);
   const [currentUserProfile, setCurrentUserProfile] = useState<CurrentUserProfile | null>(null);
   const [userModules, setUserModules] = useState<UserModule[]>([]);
-  const [draftSavedAt, setDraftSavedAt] = useState<string | null>(null);
-  const [publishedAt, setPublishedAt] = useState<string | null>(null);
-  const [lastQuickTestAt, setLastQuickTestAt] = useState<string | null>(null);
+  const [, setDraftSavedAt] = useState<string | null>(null);
+  const [, setPublishedAt] = useState<string | null>(null);
   const previousConnectionStatusRef = useRef<WhatsAppModalPayload["status"] | null>(null);
+  const prospectingDirtyRef = useRef(false);
 
   const draftSignature = useMemo(() => JSON.stringify(draftConfig), [draftConfig]);
   const publishedSignature = useMemo(() => JSON.stringify(publishedConfig), [publishedConfig]);
@@ -767,33 +804,6 @@ export default function VendasAutomationClientPage() {
     return userModules.some((module) => module.accessible && module.key === "hbx_recovery");
   }, [centerPayload?.company.trialModuleSelection, userModules]);
 
-  const checklist = useMemo(
-    () =>
-      buildPublicationChecklist(draftConfig, agendaConfig, {
-        qrModeSelected: centerPayload?.center.mode === "QR",
-        modalAvailable: Boolean(modalPayload?.data.available),
-        connectionLive: Boolean(modalPayload?.data.qrCodeDataUrl) || modalPayload?.status === "connected",
-        providerCapabilities,
-        recoveryEnabled,
-        hasUnsavedChanges,
-      }),
-    [agendaConfig, centerPayload?.center.mode, draftConfig, hasUnsavedChanges, modalPayload?.data.available, modalPayload?.data.qrCodeDataUrl, modalPayload?.status, providerCapabilities, recoveryEnabled],
-  );
-  const quickTests = useMemo(
-    () => buildQuickTestCases(draftConfig, agendaConfig),
-    [agendaConfig, draftConfig],
-  );
-
-  const connectionLabel = useMemo(() => {
-    if (connectionLoading) return "Carregando QR";
-    if (modalPayload?.status === "connected") return "QR conectado";
-    if (modalPayload?.data.qrCodeDataUrl) return "QR pronto para leitura";
-    if (modalPayload?.status === "waiting_qr") return "Aguardando leitura";
-    return "QR pendente";
-  }, [connectionLoading, modalPayload?.data.qrCodeDataUrl, modalPayload?.status]);
-
-  const publishLabel = draftConfig.routingRules.globalBotEnabled ? "Bot ativo" : "BOT_OFF global";
-
   const openBotPlans = useCallback(() => {
     router.push(BOT_PLAN_HREF);
   }, [router]);
@@ -814,6 +824,10 @@ export default function VendasAutomationClientPage() {
 
   const setWorkspaceTab = useCallback(
     (tab: BotQrWorkspaceTab) => {
+      if (tab === "connection") {
+        router.push("/whatsapp?focus=qr");
+        return;
+      }
       setActiveTab(tab);
       const params = new URLSearchParams(searchParams?.toString() || "");
       params.set("tab", tab);
@@ -824,7 +838,6 @@ export default function VendasAutomationClientPage() {
 
   const loadConnection = useCallback(async (background = false, includeQr = true) => {
     if (!background) setConnectionLoading(true);
-    setConnectionError(null);
     try {
       const centerData = await apiFetch<WhatsAppCenterPayload>("/companies/me/whatsapp-center");
       const statusData = await apiFetch<WhatsAppModalPayload>("/companies/me/whatsapp-modal/status");
@@ -838,10 +851,8 @@ export default function VendasAutomationClientPage() {
       setCenterPayload(centerData);
       setModalPayload(nextModal);
       handleModalPlanRedirect(nextModal);
-    } catch (loadError) {
-      setConnectionError(
-        loadError instanceof Error ? loadError.message : "Falha ao carregar a conexao QR atual.",
-      );
+    } catch {
+      setModalPayload(null);
     } finally {
       if (!background) setConnectionLoading(false);
     }
@@ -877,6 +888,7 @@ export default function VendasAutomationClientPage() {
       if (storedDraft) {
         setDraftConfig(storedDraft.config);
         setDraftSavedAt(storedDraft.savedAt);
+        prospectingDirtyRef.current = true;
         setProspectingConfig(mergeProspectingConfigFromStatus(null, storedDraft.config));
         setNotice({
           tone: "info",
@@ -884,6 +896,7 @@ export default function VendasAutomationClientPage() {
         });
       } else {
         setDraftConfig(normalizedBot);
+        prospectingDirtyRef.current = false;
         setProspectingConfig(mergeProspectingConfigFromStatus(null, normalizedBot));
         setDraftSavedAt(null);
       }
@@ -909,7 +922,7 @@ export default function VendasAutomationClientPage() {
       const payload = await apiFetch<ProspectingAutomationLiveStatus>("/vendas/automation/live-status");
       setProspectingStatus(payload);
       setProspectingConfig((current) => {
-        if (!payload.campaign && !botForMerge) return current;
+        if (prospectingDirtyRef.current || background || (!payload.campaign && !botForMerge)) return current;
         return {
           ...current,
           ...mergeProspectingConfigFromStatus(payload, botForMerge || DEFAULT_ATENDIMENTO_BOT_CONFIG),
@@ -922,87 +935,6 @@ export default function VendasAutomationClientPage() {
       if (!background) setProspectingLoading(false);
     }
   }, []);
-
-  const ensureQrModeSelected = useCallback(async () => {
-    if (centerPayload?.center.mode === "QR") return centerPayload;
-    const next = await apiFetch<WhatsAppCenterPayload>("/companies/me/whatsapp-center", {
-      method: "PATCH",
-      body: JSON.stringify({ mode: "QR" }),
-    });
-    setCenterPayload(next);
-    return next;
-  }, [centerPayload]);
-
-  const fetchModalQrOnce = useCallback(async (statusPayload: WhatsAppModalPayload) => {
-    if (!shouldLoadModalQr(statusPayload, true)) return statusPayload;
-    try {
-      const qrPayload = await apiFetch<WhatsAppModalPayload>("/companies/me/whatsapp-modal/qr");
-      const merged = mergeModalPayload(statusPayload, qrPayload);
-      handleModalPlanRedirect(merged);
-      return merged;
-    } catch {
-      return statusPayload;
-    }
-  }, [handleModalPlanRedirect]);
-
-  const runConnectionAction = useCallback(
-    async (action: "generate_qr" | "reconnect" | "disconnect") => {
-      setConnectionAction(action);
-      setConnectionError(null);
-      try {
-        if (action !== "disconnect") {
-          await ensureQrModeSelected();
-        }
-
-        let response: WhatsAppModalPayload;
-        if (action === "generate_qr") {
-          response =
-            modalPayload?.status === "waiting_qr" && !modalPayload.data.qrCodeDataUrl
-              ? await apiFetch<WhatsAppModalPayload>("/companies/me/whatsapp-modal/qr")
-              : await apiFetch<WhatsAppModalPayload>("/companies/me/whatsapp-modal/start", {
-                  method: "POST",
-                });
-        } else if (action === "reconnect") {
-          response = await apiFetch<WhatsAppModalPayload>("/companies/me/whatsapp-modal/restart", {
-            method: "POST",
-          });
-        } else {
-          response = await apiFetch<WhatsAppModalPayload>("/companies/me/whatsapp-modal/disconnect", {
-            method: "POST",
-          });
-        }
-
-        const nextPayload = action === "disconnect" ? response : await fetchModalQrOnce(response);
-        setModalPayload(nextPayload);
-        if (handleModalPlanRedirect(nextPayload)) return;
-        void loadConnection(true, action !== "disconnect");
-
-        setNotice({
-          tone: "success",
-          text:
-            action === "disconnect"
-              ? "Conexao QR encerrada."
-              : action === "reconnect"
-                ? "Reconexao solicitada. Atualizando o QR atual."
-                : nextPayload.data.qrCodeDataUrl
-                  ? "QR pronto para leitura."
-                  : "Sessao QR atualizada.",
-        });
-      } catch (actionError) {
-        const message =
-          actionError instanceof Error
-            ? actionError.message
-            : action === "disconnect"
-              ? "Falha ao desconectar o QR."
-              : "Falha ao atualizar a conexao QR.";
-        setConnectionError(message);
-        setNotice({ tone: "error", text: message });
-      } finally {
-        setConnectionAction(null);
-      }
-    },
-    [ensureQrModeSelected, fetchModalQrOnce, handleModalPlanRedirect, loadConnection, modalPayload],
-  );
 
   useEffect(() => {
     if (hasToken !== true) return;
@@ -1028,10 +960,18 @@ export default function VendasAutomationClientPage() {
 
   useEffect(() => {
     const requestedTab = searchParams.get("tab");
-    if (requestedTab === "connection" || requestedTab === "flow" || requestedTab === "publish" || requestedTab === "prospeccao") {
-      setActiveTab(requestedTab);
+    if (requestedTab === "connection") {
+      router.replace("/whatsapp?focus=qr");
+      return;
     }
-  }, [searchParams]);
+    if (requestedTab === "atendimento" || requestedTab === "flow" || requestedTab === "prospeccao" || requestedTab === "recovery") {
+      setActiveTab(requestedTab);
+      return;
+    }
+    if (requestedTab === "publish") {
+      setWorkspaceTab("flow");
+    }
+  }, [router, searchParams, setWorkspaceTab]);
 
   useEffect(() => {
     if (!notice) return;
@@ -1117,6 +1057,7 @@ export default function VendasAutomationClientPage() {
     (updater: (current: ProspectingAutomationConfig) => ProspectingAutomationConfig) => {
       setProspectingConfig((current) => {
         const next = updater(current);
+        prospectingDirtyRef.current = true;
         setDraftConfig((botCurrent) => upsertProspectingRules(botCurrent, next));
         return next;
       });
@@ -1135,9 +1076,10 @@ export default function VendasAutomationClientPage() {
     try {
       const payload = await apiFetch<ProspectingAutomationLiveStatus>("/vendas/automation/prospecting/config", {
         method: "PATCH",
-        body: JSON.stringify(prospectingConfig),
+        body: JSON.stringify(toProspectingRequestPayload(prospectingConfig)),
       });
       setProspectingStatus(payload);
+      prospectingDirtyRef.current = false;
       setProspectingConfig(mergeProspectingConfigFromStatus(payload, nextBotConfig));
       await saveBotConfig(nextBotConfig, "Configuração de prospecção salva.");
     } catch (saveError) {
@@ -1165,9 +1107,10 @@ export default function VendasAutomationClientPage() {
         }
         const payload = await apiFetch<ProspectingAutomationLiveStatus>(`/vendas/automation/prospecting/${action}`, {
           method: "POST",
-          body: action === "start" ? JSON.stringify(prospectingConfig) : undefined,
+          body: action === "start" ? JSON.stringify(toProspectingRequestPayload(prospectingConfig)) : undefined,
         });
         setProspectingStatus(payload);
+        if (action === "start") prospectingDirtyRef.current = false;
         setProspectingConfig(mergeProspectingConfigFromStatus(payload, nextBotConfig));
         setNotice({
           tone: "success",
@@ -1190,28 +1133,6 @@ export default function VendasAutomationClientPage() {
     },
     [botAiActive, draftConfig, openBotPlans, prospectingConfig, saveBotConfig],
   );
-
-  const handlePublish = useCallback(
-    async () => saveBotConfig(draftConfig, "Automacao WhatsApp publicada com sucesso."),
-    [draftConfig, saveBotConfig],
-  );
-
-  const handleRestorePublished = useCallback(() => {
-    setDraftConfig(publishedConfig);
-    clearStoredDraft();
-    setDraftSavedAt(null);
-    setNotice({ tone: "info", text: "Rascunho local descartado. Ultima publicacao restaurada." });
-  }, [publishedConfig]);
-
-  const handleRunQuickTest = useCallback(() => {
-    const executedAt = new Date().toISOString();
-    const passed = quickTests.filter((item) => item.ok).length;
-    setLastQuickTestAt(executedAt);
-    setNotice({
-      tone: passed === quickTests.length ? "success" : "info",
-      text: `Teste rapido executado: ${passed}/${quickTests.length} item(ns) validado(s).`,
-    });
-  }, [quickTests]);
 
   const renderBotPlanPaywall = () => (
     <section className={styles.botPlanPaywall}>
@@ -1249,29 +1170,30 @@ export default function VendasAutomationClientPage() {
               onTabChange={setWorkspaceTab}
               connectionPaired={connectionPaired}
               connectionPanel={
-                <BotQrConnectionCard
-                  loading={connectionLoading}
-                  actionLoading={connectionAction}
-                  error={connectionError}
-                  statusLabel={connectionLabel}
-                  centerModeLabel={whatsappModeLabel(centerPayload?.center.mode || "")}
-                  mainNote={
-                    modalPayload?.data.qrCodeDataUrl
-                      ? "QR pronto. Abra o WhatsApp no celular e leia o codigo nesta mesma tela."
-                      : modalPayload?.status === "connected"
-                        ? "Numero conectado e pronto para receber inbound real do QR-first."
-                        : "Este e o trilho principal agora. Gere ou renove o QR sem sair do modulo Vendas."
-                  }
-                  phone={modalPayload?.data.phone || null}
-                  updatedAt={modalPayload?.data.updatedAt || centerPayload?.center.qrConnection.lastSyncAt || null}
-                  connectedAt={modalPayload?.data.connectedAt || centerPayload?.center.qrConnection.connectedAt || null}
-                  qrCodeDataUrl={modalPayload?.data.qrCodeDataUrl || null}
-                  isQrPrimary={centerPayload?.center.mode === "QR"}
-                  onGenerateQr={() => void runConnectionAction("generate_qr")}
-                  onReconnect={() => void runConnectionAction("reconnect")}
-                  onDisconnect={() => void runConnectionAction("disconnect")}
-                  onRefresh={() => void loadConnection(false, true)}
-                />
+                <section className={styles.connectionRedirectPanel}>
+                  <span className={styles.sectionEyebrow}>Conexão</span>
+                  <h3>Use a central WhatsApp para QR e WebWhats</h3>
+                  <p>{modalPayload?.data.phone ? `Número conectado: ${modalPayload.data.phone}` : "Abrindo painel de conexão QR."}</p>
+                  <button type="button" className={styles.primaryButton} onClick={() => router.push("/whatsapp?focus=qr")}>
+                    Abrir conexão
+                  </button>
+                </section>
+              }
+              atendimentoPanel={
+                botAiActive ? (
+                  <ConversationBuilder
+                    botConfig={draftConfig}
+                    agendaConfig={agendaConfig}
+                    providerCapabilities={providerCapabilities}
+                    activeGuide="atendimento"
+                    publishing={publishing}
+                    recoveryEnabled={recoveryEnabled}
+                    hasUnsavedChanges={hasUnsavedChanges}
+                    onConfigChange={setDraftConfig}
+                    onSaveDraft={handleSaveDraft}
+                    onSave={(nextConfig) => void saveBotConfig(nextConfig, "Bot publicado.")}
+                  />
+                ) : renderBotPlanPaywall()
               }
               flowPanel={
                 botAiActive ? (
@@ -1279,6 +1201,7 @@ export default function VendasAutomationClientPage() {
                     botConfig={draftConfig}
                     agendaConfig={agendaConfig}
                     providerCapabilities={providerCapabilities}
+                    activeGuide="prospeccao"
                     publishing={publishing}
                     recoveryEnabled={recoveryEnabled}
                     hasUnsavedChanges={hasUnsavedChanges}
@@ -1305,22 +1228,19 @@ export default function VendasAutomationClientPage() {
                   />
                 ) : renderBotPlanPaywall()
               }
-              publishPanel={
+              recoveryPanel={
                 botAiActive ? (
-                  <BotQrPublishPanel
-                    checklist={checklist}
-                    quickTests={quickTests}
-                    draftSavedAtLabel={formatLabel(draftSavedAt)}
-                    publishedAtLabel={formatLabel(publishedAt)}
-                    lastQuickTestLabel={formatLabel(lastQuickTestAt)}
+                  <ConversationBuilder
+                    botConfig={draftConfig}
+                    agendaConfig={agendaConfig}
+                    providerCapabilities={providerCapabilities}
+                    activeGuide="recovery"
                     publishing={publishing}
+                    recoveryEnabled={recoveryEnabled}
                     hasUnsavedChanges={hasUnsavedChanges}
-                    botStatusLabel={publishLabel}
-                    connectionStatusLabel={connectionLabel}
+                    onConfigChange={setDraftConfig}
                     onSaveDraft={handleSaveDraft}
-                    onPublish={() => void handlePublish()}
-                    onRestorePublished={handleRestorePublished}
-                    onRunQuickTest={handleRunQuickTest}
+                    onSave={(nextConfig) => void saveBotConfig(nextConfig, "Bot publicado.")}
                   />
                 ) : renderBotPlanPaywall()
               }

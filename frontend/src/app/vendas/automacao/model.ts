@@ -4,9 +4,8 @@ import {
   type AtendimentoBotButton,
   type AtendimentoBotConfig,
 } from "../../atendimento/inbox-model";
-import type { ProviderCapabilities } from "@/lib/provider-capabilities";
 
-export type BotQrWorkspaceTab = "connection" | "flow" | "prospeccao" | "publish";
+export type BotQrWorkspaceTab = "connection" | "atendimento" | "flow" | "prospeccao" | "recovery";
 
 export type BotQrPreviewScenarioId =
   | "new_customer"
@@ -99,13 +98,6 @@ export type BotQrPreviewMessage = {
   text: string;
   buttons?: string[];
   subtle?: boolean;
-};
-
-export type BotQrChecklistItem = {
-  id: string;
-  label: string;
-  description: string;
-  ok: boolean;
 };
 
 export type BotQrScenarioOption = {
@@ -767,159 +759,6 @@ export function buildScenarioPreview(
       label: "Bot QR",
       text: renderConfigText(config.welcomeMessage, config, samples),
       buttons: (config.welcomeButtons || []).map((button) => button.title),
-    },
-  ];
-}
-
-export function buildPublicationChecklist(
-  config: AtendimentoBotConfig,
-  agendaConfig: AtendimentoAgendaConfig,
-  input: {
-    qrModeSelected: boolean;
-    modalAvailable: boolean;
-    connectionLive: boolean;
-    providerCapabilities: ProviderCapabilities;
-    recoveryEnabled: boolean;
-    hasUnsavedChanges: boolean;
-  },
-): BotQrChecklistItem[] {
-  const humanRouteReady =
-    String(config.humanAckMessage || "").trim().length > 0 && hasButtonAction(config, "talk_human");
-  const financeReady =
-    String(config.recoveryDetectedMessage || "").trim().length > 0 &&
-    (config.recoveryDetectedButtons || []).length > 0;
-  const agendaReady =
-    String(config.postActionPrompt || "").trim().length > 0 &&
-    (((agendaConfig.groups || []).filter((group) => group.isActive).length > 0) || hasAgendaRoute(config));
-
-  return [
-    {
-      id: "qr-first",
-      label: "Conexao ativa",
-      description: input.qrModeSelected
-        ? "A central esta posicionada no caminho QR/Evolution para operar agora."
-        : "Selecione ou mantenha um canal configurado antes de publicar.",
-      ok: input.qrModeSelected,
-    },
-    {
-      id: "qr-connection",
-      label: "Canal configurado",
-      description: input.connectionLive
-        ? "O QR esta vivo ou pronto para leitura dentro da mesma tela."
-        : "Ainda falta ativar ou renovar a conexao antes da operacao real.",
-      ok: input.modalAvailable,
-    },
-    {
-      id: "entry-message",
-      label: "Mensagem inicial pronta",
-      description: "A primeira resposta precisa estar clara para o inbound que acabou de chegar pelo QR.",
-      ok: String(config.welcomeMessage || "").trim().length > 0,
-    },
-    {
-      id: "main-menu",
-      label: "Fluxo salvo",
-      description: "O menu principal precisa expor saidas claras em linguagem operacional.",
-      ok: (config.mainMenuButtons || []).length >= 1 && !input.hasUnsavedChanges,
-    },
-    {
-      id: "templates",
-      label: "Templates somente se Meta",
-      description: input.providerCapabilities.canUseTemplates
-        ? "Canal Meta ativo: templates oficiais podem ser usados quando aprovados."
-        : "Canal Evolution ativo: templates oficiais ficam bloqueados.",
-      ok: true,
-    },
-    {
-      id: "finance",
-      label: "Recovery por plano",
-      description: input.recoveryEnabled
-        ? "Recovery liberado: financeiro pode aparecer conforme as regras do fluxo."
-        : "Recovery nao liberado: opcoes financeiras oficiais ficam ocultas para o cliente.",
-      ok: input.recoveryEnabled ? financeReady : true,
-    },
-    {
-      id: "human-handoff",
-      label: "Handoff humano visivel",
-      description: "Existe confirmacao clara de passagem para humano e rota correspondente no fluxo.",
-      ok: humanRouteReady,
-    },
-    {
-      id: "agenda",
-      label: "Agenda Bot publica",
-      description: "A Agenda Bot aparece como guia publica; Agenda Vendas permanece interna.",
-      ok: agendaReady,
-    },
-    {
-      id: "bot-off",
-      label: "BOT_OFF claro",
-      description: "A operacao consegue ver e controlar o estado de BOT_OFF sem ambiguidade.",
-      ok: String(config.blockedMessage || "").trim().length > 0,
-    },
-    {
-      id: "no-auto-send",
-      label: "Teste de envio",
-      description: "Use o teste rapido visual antes de ativar a automacao no dia a dia.",
-      ok: true,
-    },
-  ];
-}
-
-export function buildQuickTestCases(
-  config: AtendimentoBotConfig,
-  agendaConfig: AtendimentoAgendaConfig,
-): BotQrChecklistItem[] {
-  return [
-    {
-      id: "test-new-customer",
-      label: "Teste rapido: cliente novo",
-      description: "Saudacao preenchida e saida inicial pronta para novo contato.",
-      ok:
-        String(config.welcomeMessage || "").trim().length > 0 &&
-        (config.welcomeButtons || []).length > 0,
-    },
-    {
-      id: "test-known-customer",
-      label: "Teste rapido: cliente conhecido",
-      description: "Retomada pronta para quem ja foi encontrado pelo telefone.",
-      ok:
-        String(config.returningCustomerMessage || "").trim().length > 0 &&
-        (config.returningCustomerButtons || []).length > 0,
-    },
-    {
-      id: "test-debt",
-      label: "Teste rapido: cliente com debito",
-      description: "A parede financeira consegue aparecer no fluxo quando o contexto pede isso.",
-      ok:
-        String(config.recoveryDetectedMessage || "").trim().length > 0 &&
-        (config.recoveryDetectedButtons || []).length > 0,
-    },
-    {
-      id: "test-human",
-      label: "Teste rapido: pedir humano",
-      description: "Existe mensagem de handoff e rota humana visivel nos botoes do fluxo.",
-      ok:
-        String(config.humanAckMessage || "").trim().length > 0 &&
-        hasButtonAction(config, "talk_human"),
-    },
-    {
-      id: "test-bot-off",
-      label: "Teste rapido: BOT_OFF",
-      description: "Existe mensagem de referencia visual e controle persistido na configuracao.",
-      ok: String(config.blockedMessage || "").trim().length > 0,
-    },
-    {
-      id: "test-name",
-      label: "Teste rapido: confirmar nome",
-      description: "A trilha de confirmacao de nome continua representada e reaproveitada do backend atual.",
-      ok: true,
-    },
-    {
-      id: "test-agenda",
-      label: "Teste rapido: agenda",
-      description: "Existe agenda ativa ou saida operacional para agenda dentro do menu atual.",
-      ok:
-        ((agendaConfig.groups || []).filter((group) => group.isActive).length > 0) ||
-        hasAgendaRoute(config),
     },
   ];
 }

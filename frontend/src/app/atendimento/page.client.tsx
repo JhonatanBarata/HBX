@@ -575,17 +575,24 @@ function formatAutomationStatusLabel(status: ProspectingAutomationStatusValue) {
   }
 }
 
-function formatAutomationTime(value?: string | null) {
+function formatAutomationScheduleLabel(value?: string | null) {
   if (!value) return null;
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return null;
-  return parsed.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+  const now = new Date();
+  const startOf = (date: Date) => new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+  const diffDays = Math.round((startOf(parsed) - startOf(now)) / 86400000);
+  const time = parsed.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+  if (diffDays === 0) return `Próximo envio hoje às ${time}`;
+  if (diffDays === 1) return `Próximo envio amanhã às ${time}`;
+  return `Próximo envio em ${parsed.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" })} às ${time}`;
 }
 
 function ProspectingAutomationStatus({
   status,
   loading,
   actionLoading,
+  disabled = false,
   onConfigure,
   onPause,
   onResume,
@@ -593,13 +600,14 @@ function ProspectingAutomationStatus({
   status: ProspectingAutomationLiveStatus | null;
   loading: boolean;
   actionLoading: boolean;
+  disabled?: boolean;
   onConfigure: () => void;
   onPause: () => void;
   onResume: () => void;
 }) {
   const currentStatus = status?.status || "parado";
   const counters = status?.counters || { pending: 0, sent: 0, interested: 0, archived: 0, failed: 0 };
-  const nextTime = formatAutomationTime(status?.nextScheduledAt);
+  const nextLabel = formatAutomationScheduleLabel(status?.nextScheduledAt);
   const busy =
     loading ||
     currentStatus === "buscando" ||
@@ -609,16 +617,19 @@ function ProspectingAutomationStatus({
   const canPause = Boolean(status?.campaign && status.campaign.status === "running");
   const canResume = Boolean(status?.campaign && status.campaign.status === "paused");
   const text =
-    status?.text ||
-    (nextTime ? `Próximo envio em ${nextTime}` : counters.pending > 0 ? `${counters.pending} contatos na fila` : "Automação parada");
+    disabled
+      ? "Hbot desativado. Ative o Hbot para controlar a prospecção."
+      : status?.text ||
+        nextLabel ||
+        (counters.pending > 0 ? `${counters.pending} contatos na fila` : "Automação parada");
 
   return (
-    <section className={styles.automationPulse} data-status={currentStatus}>
+    <section className={styles.automationPulse} data-status={currentStatus} data-disabled={disabled ? "true" : "false"}>
       <div className={styles.automationPulseMain}>
         <span className={styles.automationPulseDot} data-busy={busy ? "true" : "false"} />
         <div className={styles.automationPulseText}>
           <strong>{formatAutomationStatusLabel(currentStatus)}</strong>
-          <span>{nextTime && currentStatus === "aguardando" ? `Próximo envio em ${nextTime}` : text}</span>
+          <span>{!disabled && nextLabel && currentStatus === "aguardando" ? nextLabel : text}</span>
         </div>
       </div>
       <div className={styles.automationPulseCounters} aria-label="Resumo da prospecção automática">
@@ -629,15 +640,15 @@ function ProspectingAutomationStatus({
         <span>Falhas <strong>{counters.failed}</strong></span>
       </div>
       <div className={styles.automationPulseActions}>
-        <button type="button" onClick={onConfigure}>
+        <button type="button" onClick={onConfigure} disabled={disabled}>
           Configurar
         </button>
         {canPause ? (
-          <button type="button" onClick={onPause} disabled={actionLoading}>
+          <button type="button" onClick={onPause} disabled={disabled || actionLoading}>
             {actionLoading ? "..." : "Pausar"}
           </button>
         ) : canResume ? (
-          <button type="button" onClick={onResume} disabled={actionLoading}>
+          <button type="button" onClick={onResume} disabled={disabled || actionLoading}>
             {actionLoading ? "..." : "Retomar"}
           </button>
         ) : null}
@@ -2504,6 +2515,10 @@ export default function InboxClientPage() {
     if (searchParams?.get("support") !== "1") return "";
     return String(searchParams?.get("phone") || "").replace(/\D/g, "");
   }, [searchParams]);
+  const requestedSupportMessage = useMemo(() => {
+    if (searchParams?.get("support") !== "1") return "";
+    return String(searchParams?.get("message") || "Olá, preciso de ajuda com o HBX!").trim();
+  }, [searchParams]);
   const [mounted, setMounted] = useState(false);
   const [activeTab, setActiveTab] = useState<InboxTab>(requestedTab);
   const [inboxQueue, setInboxQueue] = useState<InboxQueue>("all");
@@ -2566,11 +2581,15 @@ export default function InboxClientPage() {
     setActiveTab("messages");
     setInboxQueue("all");
     setConversationSearch(requestedSupportPhone);
+    if (requestedSupportMessage) {
+      setSendText(requestedSupportMessage);
+      sendTextDirtyRef.current = true;
+    }
     setNotice({
       tone: "info",
-      text: "Suporte HBX preparado no Inbox. Use a busca para localizar ou iniciar o contato.",
+      text: "Suporte HBX preparado no Inbox com a mensagem pronta.",
     });
-  }, [requestedSupportPhone]);
+  }, [requestedSupportMessage, requestedSupportPhone]);
   const [revealedDeletedMessageIds, setRevealedDeletedMessageIds] = useState<Record<string, boolean>>({});
   const [customerConversationCard, setCustomerConversationCard] =
     useState<CustomerConversationCardPayload | null>(null);
@@ -2643,6 +2662,7 @@ export default function InboxClientPage() {
   const recordingSecondsRef = useRef(0);
   const customerReturnInputRef = useRef<HTMLInputElement | null>(null);
   const customerReturnAutoSaveTimerRef = useRef<number | null>(null);
+  const conversationSearchInputRef = useRef<HTMLInputElement | null>(null);
   const conversationsRef = useRef<InboxConversation[]>([]);
   const loadingMoreConversationsRef = useRef(false);
   const conversationListHasMoreByQueueRef = useRef<Record<InboxQueue, boolean>>(buildInboxQueueBooleanMap(false));
@@ -4400,11 +4420,13 @@ export default function InboxClientPage() {
 
   useEffect(() => {
     if (!selectedId || selectedBlocked) return;
+    if (conversationSearchInputRef.current && document.activeElement === conversationSearchInputRef.current) return;
+    if (conversationSearch.trim()) return;
     const frame = window.requestAnimationFrame(() => {
       chatComposerInputRef.current?.focus();
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [selectedBlocked, selectedId]);
+  }, [conversationSearch, selectedBlocked, selectedId]);
 
   const noteStorageKey = useMemo(
     () =>
@@ -5595,6 +5617,7 @@ export default function InboxClientPage() {
             <label className={styles.listSearchField}>
               <SearchIcon className={styles.listSearchIcon} />
               <input
+                ref={conversationSearchInputRef}
                 type="search"
                 value={conversationSearch}
                 onChange={(event) => setConversationSearch(event.target.value)}
@@ -7394,6 +7417,17 @@ export default function InboxClientPage() {
   }, [selectedId]);
 
   useEffect(() => {
+    if (!selectedId || !requestedSupportPhone || !requestedSupportMessage) return;
+    const normalizedSearch = conversationSearch.replace(/\D/g, "");
+    if (normalizedSearch !== requestedSupportPhone) return;
+    setSendText((current) => {
+      if (String(current || "").trim()) return current;
+      sendTextDirtyRef.current = true;
+      return requestedSupportMessage;
+    });
+  }, [conversationSearch, requestedSupportMessage, requestedSupportPhone, selectedId]);
+
+  useEffect(() => {
     if (!selectedId || selectedBlocked || !selectedVendasAgendaDraftMessage) return;
     setSendText((current) => {
       const normalizedCurrent = String(current || "").trim();
@@ -7518,6 +7552,7 @@ export default function InboxClientPage() {
               status={prospectingAutomationStatus}
               loading={prospectingAutomationLoading}
               actionLoading={Boolean(prospectingAutomationAction)}
+              disabled={!globalBotEnabled}
               onConfigure={() => router.push("/vendas/automacao?tab=prospeccao")}
               onPause={() => void runProspectingAutomationAction("pause")}
               onResume={() => void runProspectingAutomationAction("resume")}

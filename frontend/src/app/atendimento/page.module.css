@@ -4766,6 +4766,11 @@
   border-color: rgba(255, 111, 145, 0.34);
 }
 
+.automationPulse[data-disabled="true"] {
+  opacity: 0.62;
+  filter: grayscale(0.35);
+}
+
 .automationPulseMain {
   min-width: 0;
   display: flex;
