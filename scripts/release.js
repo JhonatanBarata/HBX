@@ -20,6 +20,7 @@ const serviceLabels = {
   webscraping: 'webscraping',
   'hbx-scraping-engine': 'hbx-scraping-engine',
 };
+const composeManagedServices = new Set(['frontend', 'webscraping']);
 
 function logStage(title) {
   console.log(`\n=== ${title} ===`);
@@ -218,39 +219,117 @@ function classifyChangedFiles(files) {
 }
 
 function buildRemoteReleaseScript(config, services) {
-  const serviceArgs = services.map(shellSingleQuote).join(' ');
+  const composeServices = services.filter((service) => composeManagedServices.has(service));
+  const composeServiceArgs = composeServices.map(shellSingleQuote).join(' ');
   const lines = [
     'set -eu',
     `APP_DIR=${shellSingleQuote(config.appDir)}`,
     `SERVICES="${services.join(' ')}"`,
+    `COMPOSE_SERVICES="${composeServices.join(' ')}"`,
     'export GIT_SSH_COMMAND="ssh -o BatchMode=yes"',
     'cd "$APP_DIR"',
     `git fetch ${remote} ${branch}`,
     `git reset --hard ${remote}/${branch}`,
     'if [ ! -f .env ]; then echo "ERRO: .env raiz nao existe na VPS."; exit 1; fi',
     'if docker compose version >/dev/null 2>&1; then DC="docker compose"; elif docker-compose --version >/dev/null 2>&1; then DC="docker-compose"; else echo "ERRO: docker-compose nao encontrado."; exit 1; fi',
-    'if docker network inspect hbx_net >/dev/null 2>&1; then export HBX_DOCKER_NETWORK=hbx_net; elif docker network inspect hbx-net >/dev/null 2>&1; then export HBX_DOCKER_NETWORK=hbx-net; else docker network create hbx_net >/dev/null; export HBX_DOCKER_NETWORK=hbx_net; fi',
+    'if ! docker network inspect hbx_net >/dev/null 2>&1; then docker network create hbx_net >/dev/null; fi',
+    'export HBX_DOCKER_NETWORK=hbx_net',
     'run_filtered() { set +e; "$@" 2>&1 | sed \'/legacy builder is deprecated/d;/Install the buildx component/d;/docs.docker.com\\/go\\/buildx/d\'; status="${PIPESTATUS[0]}"; set -e; return "$status"; }',
     'if docker inspect hbx-postgres >/dev/null 2>&1; then docker start hbx-postgres >/dev/null; else run_filtered $DC --env-file .env -f docker-compose.hostinger.yml up -d hbx-postgres; fi',
     'docker network connect "$HBX_DOCKER_NETWORK" hbx-postgres 2>/dev/null || true',
     'for i in $(seq 1 60); do if docker exec hbx-postgres sh -lc \'pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB"\' >/dev/null 2>&1; then echo "Postgres pronto."; break; fi; echo "Aguardando Postgres ($i/60)..."; sleep 2; done',
     'echo "Servicos para rebuild: $SERVICES"',
-    'REMOVE_CONTAINERS=""',
-    'for s in $SERVICES; do',
-    '  case "$s" in',
-    '    backend) REMOVE_CONTAINERS="$REMOVE_CONTAINERS hbx-backend backend";;',
-    '    frontend) REMOVE_CONTAINERS="$REMOVE_CONTAINERS hbx-frontend frontend";;',
-    '    webscraping) REMOVE_CONTAINERS="$REMOVE_CONTAINERS webscraping";;',
-    '    hbx-scraping-engine) REMOVE_CONTAINERS="$REMOVE_CONTAINERS hbx-scraping-engine";;',
-    '  esac',
-    'done',
-    'if [ -n "$REMOVE_CONTAINERS" ]; then',
-    '  echo "Removendo containers antigos dos serviços afetados: $REMOVE_CONTAINERS"',
-    '  docker rm -f $REMOVE_CONTAINERS 2>/dev/null || true',
+    'has_service() { case " $SERVICES " in *" $1 "*) return 0;; *) return 1;; esac; }',
+    'remove_containers() {',
+    '  if [ "$#" -eq 0 ]; then return 0; fi',
+    '  echo "Removendo containers antigos: $*"',
+    '  docker rm -f "$@" 2>/dev/null || true',
+    '}',
+    'remove_named_or_suffixed() {',
+    '  base="$1"',
+    '  names="$base $(docker ps -a --format "{{.Names}}" | awk -v base="$base" \'$0 == base || $0 ~ "_" base "$" { print }\')"',
+    '  remove_containers $names',
+    '}',
+    'start_hbx_engines() {',
+    '  echo "Buildando imagem dos motores HBX..."',
+    '  run_filtered docker build -t hbx_hbx-scraping-engine:latest ./hbx-scraping-engine',
+    '  mkdir -p /root/HBX/hbx-scraping-engine/data /root/HBX/hbx-scraping-engine/data-1 /root/HBX/hbx-scraping-engine/data-2 /root/HBX/hbx-scraping-engine/data-3 /root/HBX/hbx-scraping-engine/data-4',
+    '  remove_containers hbx-scraping-engine hbx-engine-1 hbx-engine-2 hbx-engine-3 hbx-engine-4',
+    '  echo "Subindo hbx-scraping-engine fallback..."',
+    '  docker run -d --name hbx-scraping-engine --restart unless-stopped --network "$HBX_DOCKER_NETWORK" \\',
+    '    -e HBX_SCRAPING_TIMEOUT_SECONDS=20 \\',
+    '    -e HBX_SCRAPING_CONCURRENCY=3 \\',
+    '    -e HBX_SCRAPING_CACHE_TTL_HOURS=24 \\',
+    '    -e HBX_SCRAPING_MAX_DISCOVERY_RESULTS=120 \\',
+    '    -e HBX_AGENDA_MAX_PAGES=20 \\',
+    '    -e HBX_AGENDA_REQUEST_DELAY_MS=700 \\',
+    '    -v /root/HBX/hbx-scraping-engine/data:/app/data \\',
+    '    hbx_hbx-scraping-engine:latest',
+    '  for n in 1 2 3 4; do',
+    '    echo "Subindo hbx-engine-$n..."',
+    '    docker run -d --name "hbx-engine-$n" --restart unless-stopped --network "$HBX_DOCKER_NETWORK" \\',
+    '      -e HBX_SCRAPING_TIMEOUT_SECONDS=20 \\',
+    '      -e HBX_SCRAPING_CONCURRENCY=3 \\',
+    '      -e HBX_SCRAPING_CACHE_TTL_HOURS=24 \\',
+    '      -e HBX_SCRAPING_MAX_DISCOVERY_RESULTS=120 \\',
+    '      -e HBX_AGENDA_MAX_PAGES=20 \\',
+    '      -e HBX_AGENDA_REQUEST_DELAY_MS=700 \\',
+    '      -v "/root/HBX/hbx-scraping-engine/data-$n:/app/data" \\',
+    '      hbx_hbx-scraping-engine:latest',
+    '  done',
+    '}',
+    'start_hbx_backend() {',
+    '  echo "Buildando imagem backend..."',
+    '  run_filtered docker build -t hbx_backend:latest ./backend',
+    '  remove_named_or_suffixed hbx-backend',
+    '  remove_containers backend',
+    '  echo "Subindo hbx-backend..."',
+    '  docker run -d --name hbx-backend --restart unless-stopped --network "$HBX_DOCKER_NETWORK" \\',
+    '    --env-file /root/HBX/backend/.env \\',
+    '    -e HBX_SCRAPING_ENGINE_URL=http://hbx-scraping-engine:8001 \\',
+    '    -e HBX_ENGINE_URLS=http://hbx-engine-1:8001,http://hbx-engine-2:8001,http://hbx-engine-3:8001,http://hbx-engine-4:8001 \\',
+    '    -e HBX_CAPACITY_ENGINE_2_QUEUE_THRESHOLD=3 \\',
+    '    -e HBX_CAPACITY_ENGINE_3_QUEUE_THRESHOLD=10 \\',
+    '    -e HBX_CAPACITY_ENGINE_4_QUEUE_THRESHOLD=20 \\',
+    '    -e HBX_GOOGLE_EMERGENCY_QUEUE_THRESHOLD=50 \\',
+    '    -e HBX_GOOGLE_EMERGENCY_DAILY_LIMIT=500 \\',
+    '    -e HBX_GOOGLE_EMERGENCY_MAX_PER_RUN=20 \\',
+    '    -e HBX_QUEUE_STUCK_MINUTES=10 \\',
+    '    -e HBX_ENGINE_MAX_BUSY_MINUTES=15 \\',
+    '    -p 3000:3000 \\',
+    '    -v /root/HBX/backend/public/uploads:/app/public/uploads \\',
+    '    hbx_backend:latest',
+    '}',
+    'verify_hbx_engines() {',
+    '  echo "Validando variaveis e healthchecks dos motores HBX..."',
+    '  if ! docker exec hbx-backend printenv | grep HBX_ENGINE_URLS; then echo "ERRO: HBX_ENGINE_URLS nao esta configurado no hbx-backend."; exit 1; fi',
+    '  for n in 1 2 3 4; do',
+    '    ok=0',
+    '    for attempt in $(seq 1 30); do',
+    '      if docker exec hbx-backend wget -qO- "http://hbx-engine-$n:8001/health"; then ok=1; break; fi',
+    '      echo "Aguardando hbx-engine-$n ($attempt/30)..."',
+    '      sleep 2',
+    '    done',
+    '    if [ "$ok" != "1" ]; then echo "ERRO: healthcheck falhou para hbx-engine-$n em http://hbx-engine-$n:8001/health."; exit 1; fi',
+    '    echo "Healthcheck OK: hbx-engine-$n"',
+    '  done',
+    '}',
+    'if has_service hbx-scraping-engine; then start_hbx_engines; fi',
+    'if has_service backend; then start_hbx_backend; fi',
+    'if [ -n "$COMPOSE_SERVICES" ]; then',
+    '  REMOVE_CONTAINERS=""',
+    '  for s in $COMPOSE_SERVICES; do',
+    '    case "$s" in',
+    '      frontend) REMOVE_CONTAINERS="$REMOVE_CONTAINERS hbx-frontend frontend";;',
+    '      webscraping) REMOVE_CONTAINERS="$REMOVE_CONTAINERS webscraping";;',
+    '    esac',
+    '  done',
+    '  remove_containers $REMOVE_CONTAINERS',
+    `  run_filtered $DC --env-file .env -f docker-compose.hostinger.yml up -d --build --no-deps ${composeServiceArgs}`,
     'fi',
-    `run_filtered $DC --env-file .env -f docker-compose.hostinger.yml up -d --build --no-deps ${serviceArgs}`,
+    'if has_service backend || has_service hbx-scraping-engine; then verify_hbx_engines; fi',
     'echo "Containers ativos:"',
-    'docker ps --format "table {{.Names}}\\t{{.Status}}\\t{{.Ports}}" | grep -E "NAMES|hbx-frontend|hbx-backend|webscraping|hbx-scraping-engine|hbx-postgres" || true',
+    'docker ps --format "table {{.Names}}\\t{{.Status}}\\t{{.Ports}}" | grep -E "NAMES|hbx-frontend|hbx-backend|webscraping|hbx-scraping-engine|hbx-engine-[1-4]|hbx-postgres" || true',
   ];
 
   return lines.join('\n');
@@ -316,8 +395,26 @@ function printReleaseSummary({ commitCreated, commitLine, changedFiles, services
   } else {
     console.log('- nenhum arquivo entre origin/master..HEAD');
   }
-  console.log(`Servicos publicados: ${services.length ? services.map((service) => serviceLabels[service] || service).join(', ') : 'Sem servicos para rebuild'}`);
+  console.log(`Servicos publicados: ${formatPublishedServices(services)}`);
   console.log(`URL final verificada: ${finalUrl}`);
+}
+
+function expandPublishedServices(services) {
+  const selected = new Set(services);
+  const published = ['backend', 'frontend', 'webscraping']
+    .filter((service) => selected.has(service))
+    .map((service) => serviceLabels[service] || service);
+
+  if (selected.has('hbx-scraping-engine')) {
+    published.push('hbx-engine-1', 'hbx-engine-2', 'hbx-engine-3', 'hbx-engine-4', 'hbx-scraping-engine');
+  }
+
+  return published;
+}
+
+function formatPublishedServices(services) {
+  const published = expandPublishedServices(services);
+  return published.length ? published.join(', ') : 'Sem servicos para rebuild';
 }
 
 async function main() {

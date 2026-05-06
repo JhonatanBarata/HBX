@@ -64,7 +64,7 @@ type MasterEmailSendResponse = {
 };
 
 const TEMPLATE_LABELS: Record<TemplateKind, string> = {
-  normal: "Email normal",
+  normal: "E-mail normal",
   password_reset: "Recuperação",
   email_confirmation: "Confirmação",
 };
@@ -156,11 +156,11 @@ function getNormalSendBlocker(input: {
   hasAttachment: boolean;
 }) {
   if (!input.recipientName.trim()) return "Informe o nome do contato.";
-  if (!input.recipientEmail.trim()) return "Informe o email do contato.";
-  if (!input.recipientEmail.includes("@")) return "Informe um email de contato válido.";
-  if (!input.subject.trim()) return "Informe o assunto do email.";
-  if (!input.text.trim()) return "Informe a mensagem do email.";
-  if (!input.hasAttachment) return "Faça upload do PPTX. Sem anexo salvo no backend, o email comercial não pode ser enviado.";
+  if (!input.recipientEmail.trim()) return "Informe o e-mail do contato.";
+  if (!input.recipientEmail.includes("@")) return "Informe um e-mail de contato válido.";
+  if (!input.subject.trim()) return "Informe o assunto do e-mail.";
+  if (!input.text.trim()) return "Informe a mensagem do e-mail.";
+  if (!input.hasAttachment) return "Faça upload do PPTX. Sem anexo salvo no servidor, o e-mail comercial não pode ser enviado.";
   return null;
 }
 
@@ -211,7 +211,7 @@ export default function MasterEmailClientPage() {
       setDrafts(nextDrafts);
       setState(masterPayload);
     } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : "Falha ao carregar templates de email.");
+      setError(loadError instanceof Error ? loadError.message : "Falha ao carregar modelos de e-mail.");
     } finally {
       setLoadingKind(null);
     }
@@ -269,12 +269,12 @@ export default function MasterEmailClientPage() {
   }
 
   function validateDraft(kind: TemplateKind, draft: Draft) {
-    if (!draft.subject.trim()) return "Informe o assunto do template.";
-    if (!draft.text.trim()) return "Informe o corpo do template.";
+    if (!draft.subject.trim()) return "Informe o assunto do modelo.";
+    if (!draft.text.trim()) return "Informe o corpo do modelo.";
     const template = templates[kind];
     const required = template?.requiredVariable || null;
     if (required && !draft.text.includes(required)) {
-      return `Este template precisa conter ${required}.`;
+      return `Este modelo precisa conter ${required}.`;
     }
     return null;
   }
@@ -301,9 +301,9 @@ export default function MasterEmailClientPage() {
       });
       setTemplates((current) => ({ ...current, [activeTemplate]: payload.template }));
       setDrafts((current) => ({ ...current, [activeTemplate]: templateToDraft(payload.template) }));
-      setMessage("Template salvo com sucesso.");
+      setMessage("Modelo salvo com sucesso.");
     } catch (saveError) {
-      setError(saveError instanceof Error ? saveError.message : "Falha ao salvar template.");
+      setError(saveError instanceof Error ? saveError.message : "Falha ao salvar modelo.");
     } finally {
       setSaving(false);
     }
@@ -322,7 +322,7 @@ export default function MasterEmailClientPage() {
       setDrafts((current) => ({ ...current, [activeTemplate]: templateToDraft(payload.template) }));
       setMessage("Modelo padrão restaurado.");
     } catch (restoreError) {
-      setError(restoreError instanceof Error ? restoreError.message : "Falha ao restaurar template.");
+      setError(restoreError instanceof Error ? restoreError.message : "Falha ao restaurar modelo.");
     } finally {
       setLoadingKind(null);
     }
@@ -336,7 +336,7 @@ export default function MasterEmailClientPage() {
       return;
     }
     if (!testEmail.trim()) {
-      setError("Informe o email que receberá o teste.");
+      setError("Informe o e-mail que receberá o teste.");
       setMessage(null);
       return;
     }
@@ -365,7 +365,7 @@ export default function MasterEmailClientPage() {
         requireAuth: true,
         timeoutMs: 30000,
       });
-      setMessage(payload.ok ? `Teste enviado para ${testEmail}.` : "Teste processado, mas o provedor não confirmou envio.");
+      setMessage(payload.ok ? `Teste enviado para ${testEmail}.` : "Teste processado, mas o provedor não confirmou o envio.");
     } catch (testError) {
       setError(testError instanceof Error ? testError.message : "Falha ao enviar teste.");
     } finally {
@@ -400,7 +400,7 @@ export default function MasterEmailClientPage() {
       });
       const refreshed = await apiFetch<MasterEmailState>("/master/email", { requireAuth: true });
       setState({ ...refreshed, attachment: payload.attachment || refreshed.attachment });
-      setMessage("Anexo PPTX salvo no backend.");
+      setMessage("Anexo PPTX salvo no servidor.");
     } catch (uploadError) {
       setError(getUploadErrorMessage(uploadError, "Falha ao enviar o PPTX."));
     } finally {
@@ -433,7 +433,7 @@ export default function MasterEmailClientPage() {
       });
       const refreshed = await apiFetch<MasterEmailState>("/master/email", { requireAuth: true });
       setState({ ...refreshed, businessCard: payload.businessCard || refreshed.businessCard });
-      setMessage("Assinatura digital salva no backend.");
+      setMessage("Assinatura digital salva no servidor.");
     } catch (uploadError) {
       setError(getUploadErrorMessage(uploadError, "Falha ao salvar assinatura."));
     } finally {
@@ -478,9 +478,9 @@ export default function MasterEmailClientPage() {
         timeoutMs: 30000,
       });
       setLastSent(payload);
-      setMessage(`Email enviado para ${payload.recipientEmail}.`);
+      setMessage(`E-mail enviado para ${payload.recipientEmail}.`);
     } catch (sendError) {
-      setError(sendError instanceof Error ? sendError.message : "Falha ao enviar o email.");
+      setError(sendError instanceof Error ? sendError.message : "Falha ao enviar o e-mail.");
     } finally {
       setSending(false);
     }
@@ -490,7 +490,7 @@ export default function MasterEmailClientPage() {
     return (
       <main className="app-shell">
         <div className="app-container">
-          <div className="panel p-4 text-sm text-muted">Carregando central de emails...</div>
+          <div className="panel p-4 text-sm text-muted">Carregando central de e-mails...</div>
         </div>
       </main>
     );
@@ -501,15 +501,15 @@ export default function MasterEmailClientPage() {
   return (
     <>
       <DashboardScaffold
-        title="Email"
-        description="Central MASTER de templates comerciais e transacionais do HBX."
+        title="E-mail"
+        description="Central MASTER de modelos comerciais e transacionais do HBX."
         actions={<Link href="/master" className="btn btn-secondary btn-sm">Voltar ao Master</Link>}
       >
         <div className={styles.page}>
         <section className={styles.panel}>
           <div className={styles.header}>
             <div>
-              <span>Central de templates</span>
+              <span>Central de modelos</span>
               <h2>{TEMPLATE_LABELS[activeTemplate]}</h2>
             </div>
             <strong data-ready={senderReady ? "true" : "false"}>
@@ -517,7 +517,7 @@ export default function MasterEmailClientPage() {
             </strong>
           </div>
 
-          <div className={styles.tabs} role="tablist" aria-label="Templates de email">
+          <div className={styles.tabs} role="tablist" aria-label="Modelos de e-mail">
             {TEMPLATE_ORDER.map((kind) => (
               <button
                 key={kind}
@@ -540,8 +540,8 @@ export default function MasterEmailClientPage() {
           {!isNormal ? (
             <div className={styles.warning}>
               {activeTemplate === "password_reset"
-                ? "Este template é usado automaticamente quando o usuário pede recuperação de senha."
-                : "Este template é usado automaticamente no cadastro e reenvio de confirmação."}
+                ? "Este modelo é usado automaticamente quando o usuário pede recuperação de senha."
+                : "Este modelo é usado automaticamente no cadastro e reenvio de confirmação."}
             </div>
           ) : null}
 
@@ -552,7 +552,7 @@ export default function MasterEmailClientPage() {
                 <input value={recipientName} onChange={(event) => setRecipientName(event.target.value)} placeholder="Amanda" />
               </label>
               <label className={styles.field}>
-                <span>Email do contato</span>
+                <span>E-mail do contato</span>
                 <input type="email" value={recipientEmail} onChange={(event) => setRecipientEmail(event.target.value)} placeholder="cliente@empresa.com.br" />
               </label>
             </div>
@@ -560,7 +560,7 @@ export default function MasterEmailClientPage() {
 
           <label className={styles.field}>
             <span>Assunto</span>
-            <input value={activeDraft.subject} onChange={(event) => updateDraft({ subject: event.target.value })} placeholder="Assunto do email" />
+            <input value={activeDraft.subject} onChange={(event) => updateDraft({ subject: event.target.value })} placeholder="Assunto do e-mail" />
           </label>
 
           <div className={styles.editorHeader}>
@@ -588,7 +588,7 @@ export default function MasterEmailClientPage() {
                 event.preventDefault();
               }
             }}
-            placeholder="Escreva o corpo do email"
+            placeholder="Escreva o corpo do e-mail"
             spellCheck
             disabled={loadingKind === activeTemplate}
           />
@@ -619,12 +619,12 @@ export default function MasterEmailClientPage() {
                 <strong>{state?.attachment?.originalName || "Nenhum PPTX salvo"}</strong>
                 <p>
                   {state?.attachment
-                    ? `Salvo no backend • ${formatFileSize(state.attachment.size)} • ${formatDate(state.attachment.uploadedAt)}`
-                    : "Não há PPTX salvo no backend. Faça upload antes do envio comercial."}
+                    ? `Salvo no servidor • ${formatFileSize(state.attachment.size)} • ${formatDate(state.attachment.uploadedAt)}`
+                    : "Não há PPTX salvo no servidor. Faça upload antes do envio comercial."}
                 </p>
               </div>
               <span className={styles.statusBadge} data-ok={hasSavedAttachment ? "true" : "false"}>
-                {hasSavedAttachment ? "Salvo no backend" : "Pendente"}
+                {hasSavedAttachment ? "Salvo no servidor" : "Pendente"}
               </span>
               <label className={styles.uploadButton}>
                 {uploading ? "Enviando..." : "Trocar PPTX"}
@@ -644,13 +644,13 @@ export default function MasterEmailClientPage() {
 
           {!senderReady ? (
             <div className={styles.warning}>
-              Configure SMTP/MAIL no backend antes do envio real. Pendências: {state?.sender.missing.join(", ") || "provedor não configurado"}.
+              Configure SMTP/MAIL no servidor antes do envio real. Pendências: {state?.sender.missing.join(", ") || "provedor não configurado"}.
             </div>
           ) : null}
 
           <div className={styles.actions}>
             <button type="button" className="btn btn-primary btn-sm" onClick={saveTemplate} disabled={operationBusy}>
-              {saving ? "Salvando..." : "Salvar template"}
+              {saving ? "Salvando..." : "Salvar modelo"}
             </button>
             <button type="button" className="btn btn-secondary btn-sm" onClick={restoreTemplate} disabled={operationBusy}>
               Restaurar padrão
@@ -660,7 +660,7 @@ export default function MasterEmailClientPage() {
             </button>
             {isNormal ? (
               <button type="button" className="btn btn-primary btn-sm" onClick={sendNormalEmail} disabled={operationBusy}>
-                {sending ? "Enviando..." : "Enviar email"}
+                {sending ? "Enviando..." : "Enviar e-mail"}
               </button>
             ) : null}
           </div>
@@ -670,7 +670,7 @@ export default function MasterEmailClientPage() {
           <div className={styles.sideCard}>
             <span>Teste</span>
             <label className={styles.sideField}>
-              Email
+              E-mail
               <input type="email" value={testEmail} onChange={(event) => setTestEmail(event.target.value)} placeholder="email@teste.com" />
             </label>
             <label className={styles.sideField}>
@@ -686,10 +686,10 @@ export default function MasterEmailClientPage() {
           {isNormal ? (
             <div className={styles.sideCard}>
               <span>Assinatura digital</span>
-              <strong>{hasSavedSignature ? "Imagem salva no backend" : "Sem imagem salva"}</strong>
-              <p>{state?.businessCard ? `Salva no backend • ${formatFileSize(state.businessCard.size)} • ${formatDate(state.businessCard.uploadedAt)}` : "Opcional. Entra automaticamente no final do email e na prévia."}</p>
+              <strong>{hasSavedSignature ? "Imagem salva no servidor" : "Sem imagem salva"}</strong>
+              <p>{state?.businessCard ? `Salva no servidor • ${formatFileSize(state.businessCard.size)} • ${formatDate(state.businessCard.uploadedAt)}` : "Opcional. Entra automaticamente no final do e-mail e na prévia."}</p>
               <span className={styles.statusBadge} data-ok={hasSavedSignature ? "true" : "false"}>
-                {hasSavedSignature ? "Salva no backend" : "Pendente"}
+                {hasSavedSignature ? "Salva no servidor" : "Pendente"}
               </span>
               <label className={`${styles.uploadButton} ${styles.fullButton}`}>
                 {uploadingBusinessCard ? "Salvando..." : "Atualizar assinatura"}
@@ -711,21 +711,21 @@ export default function MasterEmailClientPage() {
           ) : null}
 
           <div className={styles.previewCard}>
-            <span>Preview</span>
+            <span>Prévia</span>
             <strong>{preview.subject || "Sem assunto"}</strong>
             <div className={styles.previewBody} dangerouslySetInnerHTML={{ __html: preview.html || "&nbsp;" }} />
             {isNormal && state?.businessCard?.previewDataUrl ? (
               <>
                 <div className={styles.previewDivider}>Assinatura digital anexada ao final</div>
-                <img className={styles.previewSignature} src={state.businessCard.previewDataUrl} alt="Assinatura digital no email" />
+                <img className={styles.previewSignature} src={state.businessCard.previewDataUrl} alt="Assinatura digital no e-mail" />
               </>
             ) : null}
           </div>
 
           <div className={styles.sideCard}>
             <span>Remetente</span>
-            <strong>{state?.sender.from || "jhonatan@hbx.com.br"}</strong>
-            <p>Resposta para {state?.sender.replyTo || "jhonatan@hbx.com.br"}</p>
+            <strong>{state?.sender.from || "HBX <jhonatan@hbxsystem.com.br>"}</strong>
+            <p>Resposta para {state?.sender.replyTo || "jhonatan@hbxsystem.com.br"}</p>
           </div>
 
           {lastSent ? (
