@@ -5,7 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
 import DashboardScaffold from "@/components/DashboardScaffold";
-import { apiFetch, getDirectDashboardApiBaseUrl } from "@/app/_lib/api";
+import { apiFetch, getDirectDashboardApiBaseUrl, type ApiFetchError } from "@/app/_lib/api";
 import { useRequireAuth } from "@/app/_lib/useRequireAuth";
 import styles from "./page.module.css";
 
@@ -72,6 +72,8 @@ const TEMPLATE_LABELS: Record<TemplateKind, string> = {
 const TEMPLATE_ORDER: TemplateKind[] = ["normal", "password_reset", "email_confirmation"];
 const DEFAULT_NAME = "Amanda";
 const DEFAULT_COMPANY = "Empresa Teste";
+const MAX_PPTX_UPLOAD_BYTES = 50 * 1024 * 1024;
+const MAX_BUSINESS_CARD_UPLOAD_BYTES = 15 * 1024 * 1024;
 
 function formatFileSize(value?: number | null) {
   const size = Number(value || 0);
@@ -118,6 +120,20 @@ function getImageFilename(file: File) {
   if (file.type === "image/jpeg") return "cartao-visitas.jpg";
   if (file.type === "image/webp") return "cartao-visitas.webp";
   return "cartao-visitas.png";
+}
+
+function isApiFetchError(error: unknown): error is ApiFetchError {
+  return error !== null && typeof error === "object" && "status" in error;
+}
+
+function getUploadErrorMessage(error: unknown, fallback: string) {
+  if (isApiFetchError(error) && error.status === 413) {
+    return "Arquivo grande demais para o servidor. Reduza o arquivo e tente novamente.";
+  }
+  if (error instanceof TypeError) {
+    return "O navegador não recebeu resposta da API. O upload pode ter sido bloqueado pelo proxy; tente novamente após atualizar a página.";
+  }
+  return error instanceof Error ? error.message : fallback;
 }
 
 function emptyDraft(): Draft {
@@ -359,6 +375,17 @@ export default function MasterEmailClientPage() {
 
   async function uploadAttachment(file: File | null | undefined) {
     if (!file) return;
+    const isPptx = file.name.toLowerCase().endsWith(".pptx") || file.type === "application/vnd.openxmlformats-officedocument.presentationml.presentation";
+    if (!isPptx) {
+      setError("O anexo precisa ser um arquivo PPTX.");
+      setMessage(null);
+      return;
+    }
+    if (file.size > MAX_PPTX_UPLOAD_BYTES) {
+      setError(`O PPTX pode ter no máximo ${formatFileSize(MAX_PPTX_UPLOAD_BYTES)}.`);
+      setMessage(null);
+      return;
+    }
     setUploading(true);
     setMessage(null);
     setError(null);
@@ -375,7 +402,7 @@ export default function MasterEmailClientPage() {
       setState({ ...refreshed, attachment: payload.attachment || refreshed.attachment });
       setMessage("Anexo PPTX salvo no backend.");
     } catch (uploadError) {
-      setError(uploadError instanceof Error ? uploadError.message : "Falha ao enviar o PPTX.");
+      setError(getUploadErrorMessage(uploadError, "Falha ao enviar o PPTX."));
     } finally {
       setUploading(false);
     }
@@ -385,6 +412,11 @@ export default function MasterEmailClientPage() {
     if (!file) return;
     if (!file.type.startsWith("image/")) {
       setError("A assinatura precisa ser uma imagem PNG, JPG ou WEBP.");
+      return;
+    }
+    if (file.size > MAX_BUSINESS_CARD_UPLOAD_BYTES) {
+      setError(`A assinatura pode ter no máximo ${formatFileSize(MAX_BUSINESS_CARD_UPLOAD_BYTES)}.`);
+      setMessage(null);
       return;
     }
     setUploadingBusinessCard(true);
@@ -403,7 +435,7 @@ export default function MasterEmailClientPage() {
       setState({ ...refreshed, businessCard: payload.businessCard || refreshed.businessCard });
       setMessage("Assinatura digital salva no backend.");
     } catch (uploadError) {
-      setError(uploadError instanceof Error ? uploadError.message : "Falha ao salvar assinatura.");
+      setError(getUploadErrorMessage(uploadError, "Falha ao salvar assinatura."));
     } finally {
       setUploadingBusinessCard(false);
     }
@@ -599,7 +631,11 @@ export default function MasterEmailClientPage() {
                 <input
                   type="file"
                   accept=".pptx,application/vnd.openxmlformats-officedocument.presentationml.presentation"
-                  onChange={(event) => void uploadAttachment(event.target.files?.[0])}
+                  onChange={(event) => {
+                    const file = event.currentTarget.files?.[0] ?? null;
+                    event.currentTarget.value = "";
+                    void uploadAttachment(file);
+                  }}
                   disabled={uploading || sending}
                 />
               </label>
@@ -660,7 +696,11 @@ export default function MasterEmailClientPage() {
                 <input
                   type="file"
                   accept="image/png,image/jpeg,image/webp"
-                  onChange={(event) => void uploadBusinessCard(event.target.files?.[0])}
+                  onChange={(event) => {
+                    const file = event.currentTarget.files?.[0] ?? null;
+                    event.currentTarget.value = "";
+                    void uploadBusinessCard(file);
+                  }}
                   disabled={uploadingBusinessCard || sending}
                 />
               </label>
