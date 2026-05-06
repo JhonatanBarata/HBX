@@ -39,6 +39,19 @@ export type MailAttachment = {
   cid?: string | null;
 };
 
+type MailAddressList = string | string[];
+
+type MailMessageInput = {
+  from?: string | null;
+  replyTo?: string | null;
+  to: string;
+  cc?: MailAddressList | null;
+  subject: string;
+  text: string;
+  html?: string | null;
+  attachments?: MailAttachment[];
+};
+
 type SmtpAttempt = {
   host: string;
   port: number;
@@ -153,12 +166,17 @@ export class MailService {
   }
 
   private normalizeEnvelopeList(values: unknown) {
-    if (!Array.isArray(values)) {
-      return [];
-    }
+    if (!Array.isArray(values)) return [];
 
     return values
       .map((value) => String(value || '').trim())
+      .filter(Boolean);
+  }
+
+  private normalizeAddressList(values: unknown) {
+    const source = Array.isArray(values) ? values : [values];
+    return source
+      .map((value) => String(value || '').trim().toLowerCase())
       .filter(Boolean);
   }
 
@@ -219,7 +237,7 @@ export class MailService {
 
   private async deliverWithResend(
     summary: MailConfigurationSummary,
-    message: { from?: string; replyTo?: string; to: string; subject: string; text: string; html?: string | null; attachments?: MailAttachment[] },
+    message: MailMessageInput,
   ) {
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const { Resend } = require('resend');
@@ -229,6 +247,7 @@ export class MailService {
       from: message.from || summary.from || undefined,
       replyTo: message.replyTo || undefined,
       to: message.to,
+      cc: this.normalizeAddressList(message.cc),
       subject: message.subject,
       text: message.text,
       html: message.html || undefined,
@@ -255,7 +274,7 @@ export class MailService {
   private async deliverWithSmtpFallback(
     nodemailer: any,
     summary: MailConfigurationSummary,
-    message: { from?: string; replyTo?: string; to: string; subject: string; text: string; html?: string | null; attachments?: MailAttachment[] },
+    message: MailMessageInput,
   ) {
     const attempts = this.buildSmtpAttempts(summary);
     let lastError: unknown = null;
@@ -341,17 +360,18 @@ export class MailService {
     };
   }
 
-  async sendMail(input: { to: string; subject: string; text: string; html?: string | null; from?: string | null; replyTo?: string | null; attachments?: MailAttachment[] }): Promise<MailSendResult> {
+  async sendMail(input: MailMessageInput): Promise<MailSendResult> {
     const summary = this.getConfigurationSummary();
     const from = this.normalizeEnvValue(input.from) || summary.from;
     const replyTo = this.buildReplyToAddress(input.replyTo);
+    const cc = this.normalizeAddressList(input.cc);
 
     if (summary.mode === 'log') {
       if (this.isProduction()) {
         throw new Error('Transactional email provider not configured in production. Configure RESEND_API_KEY or SMTP.');
       }
 
-      this.logger.warn(`Transactional provider not configured. Logging email locally to=${input.to} subject=${input.subject}`);
+      this.logger.warn(`Transactional provider not configured. Logging email locally to=${input.to} cc=${cc.join(',') || '-'} subject=${input.subject}`);
       this.logger.log(input.text);
       return {
         ok: false,
@@ -386,6 +406,7 @@ export class MailService {
         from: from || testAccount.user,
         replyTo: replyTo || undefined,
         to: input.to,
+        cc,
         subject: input.subject,
         text: input.text,
         html: input.html || undefined,
@@ -423,6 +444,7 @@ export class MailService {
         from: from || undefined,
         replyTo: replyTo || undefined,
         to: input.to,
+        cc,
         subject: input.subject,
         text: input.text,
         html: input.html || undefined,
@@ -435,7 +457,7 @@ export class MailService {
         transport: 'resend',
         previewUrl: null,
         messageId: delivery.id,
-        accepted: [input.to],
+        accepted: [input.to, ...cc],
         rejected: [],
         from: from || summary.from || null,
         replyTo,
@@ -452,6 +474,7 @@ export class MailService {
       from: from || summary.user || undefined,
       replyTo: replyTo || undefined,
       to: input.to,
+      cc,
       subject: input.subject,
       text: input.text,
       html: input.html || undefined,
