@@ -402,6 +402,100 @@ test('handleVendasAutomationInbound routes to human when email provider fails', 
   assert.match(String((queueCalls[0].payload as any).body), /problema para enviar/);
 });
 
+test('handleVendasAutomationInbound archives explicit negative after neutral handoff', async () => {
+  const metadata = {
+    humanAssigned: true,
+    vendasAutomation: {
+      jobId: 'job-email-1',
+      leadId: 'lead-1',
+      status: 'neutral',
+      humanAssigned: true,
+    },
+    vendasAgendaQueue: {
+      active: true,
+      leadId: 'lead-1',
+      automationJobId: 'job-email-1',
+      queueTarget: 'atendimento',
+      routeTarget: 'atendimento',
+      humanAssigned: true,
+    },
+    vendasProspeccao: {
+      stage: 'reply_received',
+    },
+  };
+  const jobUpdates: Array<Record<string, unknown>> = [];
+  const leadUpdates: Array<Record<string, unknown>> = [];
+  const timelineEvents: Array<Record<string, unknown>> = [];
+  const inboundMetaCalls: Array<Record<string, unknown>> = [];
+  const tx = {
+    vendasAutomationJob: {
+      update: async (input: Record<string, unknown>) => {
+        jobUpdates.push(input);
+        return input;
+      },
+      updateMany: async (input: Record<string, unknown>) => {
+        jobUpdates.push(input);
+        return { count: 0 };
+      },
+    },
+    vendasLead: {
+      update: async (input: Record<string, unknown>) => {
+        leadUpdates.push(input);
+        return input;
+      },
+    },
+    vendasLeadTimelineEvent: {
+      create: async (input: Record<string, unknown>) => {
+        timelineEvents.push(input);
+        return input;
+      },
+    },
+  };
+  const { service, conversationStateCalls } = createService({
+    prisma: {
+      $transaction: async (fn: (client: unknown) => unknown) => fn(tx),
+      vendasAutomationJob: {
+        findFirst: async () => buildVendasEmailJob(),
+      },
+      companyConversation: {
+        findFirst: async () => ({
+          id: 42,
+          metadata: JSON.stringify(metadata),
+        }),
+      },
+    },
+  });
+
+  const result = await (service as any).handleVendasAutomationInbound({
+    companyId: 7,
+    conversationId: 42,
+    inboundMessageId: 93,
+    from: '+55 19 99887-7766',
+    text: 'Não tenho interesse, obrigada',
+    timestamp: new Date('2026-05-06T17:21:00.000Z'),
+    metadata,
+    setInboundMeta: async (sourceModule: string, isComplaint: boolean) => {
+      inboundMetaCalls.push({ sourceModule, isComplaint });
+    },
+  });
+
+  assert.equal(result.handled, true);
+  assert.equal(result.classification, 'negative');
+  assert.equal(inboundMetaCalls[0].sourceModule, 'vendas_prospeccao_negativo');
+  assert.equal(jobUpdates.length, 2);
+  assert.equal((jobUpdates[0] as any).data.status, 'replied_negative');
+  assert.equal((leadUpdates[0] as any).data.status, 'encerrado');
+  assert.equal(timelineEvents.length, 1);
+  assert.equal(conversationStateCalls.length, 1);
+  const nextState = conversationStateCalls[0].payload as any;
+  assert.equal(nextState.flowResult, 'prospection_negative');
+  assert.equal(nextState.metadata.queueTarget, 'excluidos');
+  assert.equal(nextState.metadata.routeTarget, 'excluidos');
+  assert.equal(nextState.metadata.inboxManualQueueOverride, 'archived');
+  assert.equal(nextState.metadata.inboxLocalDeleted, true);
+  assert.equal(nextState.metadata.vendasProspeccao.stage, 'negative_reply');
+});
+
 test('upsertAtendimentoCustomerLocal reuses known customer profile before syncing atendimento projection', async () => {
   const upsertCalls: Array<Record<string, unknown>> = [];
   const { service } = createService({

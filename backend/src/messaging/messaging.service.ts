@@ -1962,32 +1962,6 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     const queue = this.readJsonRecord(input.metadata?.vendasAgendaQueue);
     const automationStatus = this.normalizeVendasAutomationIntentText(automation.status);
     const queueStatus = this.normalizeVendasAutomationIntentText(queue.status);
-    const blockedStatus = new Set([
-      'negative',
-      'opt_out',
-      'replied_negative',
-      'no_response_archived',
-      'interested',
-      'neutral',
-      'human_assigned',
-    ]);
-    const blocked =
-      blockedStatus.has(automationStatus) ||
-      blockedStatus.has(queueStatus) ||
-      input.metadata?.humanAssigned === true ||
-      input.metadata?.blacklist === true ||
-      input.metadata?.blacklisted === true ||
-      input.metadata?.optOut === true ||
-      queue.humanAssigned === true ||
-      queue.blacklist === true ||
-      queue.blacklisted === true ||
-      queue.optOut === true ||
-      queue.doNotContact === true ||
-      String(job.lead.status || '') === 'encerrado' ||
-      job.lead.closedAt ||
-      job.lead.wasClosedBefore;
-    if (blocked) return null;
-
     const normalizedText = this.normalizeVendasAutomationIntentText(input.text);
     const positiveKeywords = this.readJsonTextList(job.campaign.positiveIntentKeywordsJson, [
       'tenho interesse',
@@ -2010,12 +1984,39 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     const humanHandoff = this.containsVendasAutomationKeyword(normalizedText, ['humano', 'atendente', 'ligar', 'me chama']);
     const negative = optOut || this.containsVendasAutomationKeyword(normalizedText, negativeKeywords);
     const positive = !negative && !humanHandoff && this.containsVendasAutomationKeyword(normalizedText, positiveKeywords);
+    const terminalStatus = new Set(['negative', 'opt_out', 'replied_negative', 'no_response_archived']);
+    const alreadyClosed =
+      terminalStatus.has(automationStatus) ||
+      terminalStatus.has(queueStatus) ||
+      input.metadata?.blacklist === true ||
+      input.metadata?.blacklisted === true ||
+      input.metadata?.optOut === true ||
+      queue.blacklist === true ||
+      queue.blacklisted === true ||
+      queue.optOut === true ||
+      queue.doNotContact === true ||
+      String(job.lead.status || '') === 'encerrado' ||
+      job.lead.closedAt ||
+      job.lead.wasClosedBefore;
+    if (alreadyClosed) return null;
 
     if (negative) {
       await input.setInboundMeta(optOut ? 'vendas_prospeccao_opt_out' : 'vendas_prospeccao_negativo', false);
       await this.markVendasAutomationNegative({ ...input, optOut }, job);
       return { handled: true, classification: optOut ? 'opt_out' : 'negative' };
     }
+
+    const blockedStatus = new Set([
+      'interested',
+      'neutral',
+      'human_assigned',
+    ]);
+    const blocked =
+      blockedStatus.has(automationStatus) ||
+      blockedStatus.has(queueStatus) ||
+      input.metadata?.humanAssigned === true ||
+      queue.humanAssigned === true;
+    if (blocked) return null;
 
     const hbxEmailIntent = detectHbxPresentationEmailIntent(input.text);
     const hbxEmailHandled = await this.handleHbxPresentationEmailIntent(input, job, hbxEmailIntent);

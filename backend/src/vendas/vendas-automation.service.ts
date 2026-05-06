@@ -2498,24 +2498,6 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     if (String(job.status || '') !== 'sent') return null;
     const automationStatus = normalizeKey((automation as any).status);
     const queueStatus = normalizeKey((queue as any).status);
-    const blockedStatus = ['negative', 'opt_out', 'replied_negative', 'no_response_archived', 'interested', 'neutral', 'human_assigned'];
-    const isBlocked =
-      blockedStatus.includes(automationStatus) ||
-      blockedStatus.includes(queueStatus) ||
-      input.metadata?.humanAssigned === true ||
-      input.metadata?.blacklist === true ||
-      input.metadata?.blacklisted === true ||
-      input.metadata?.optOut === true ||
-      (queue as any).humanAssigned === true ||
-      (queue as any).blacklist === true ||
-      (queue as any).blacklisted === true ||
-      (queue as any).optOut === true ||
-      (queue as any).doNotContact === true ||
-      String(job.lead.status || '') === 'encerrado' ||
-      job.lead.closedAt ||
-      job.lead.wasClosedBefore;
-    if (isBlocked) return null;
-
     const normalized = normalizeKey(input.text);
     const positives = parseJsonList(job.campaign.positiveIntentKeywordsJson, DEFAULT_POSITIVE_KEYWORDS).map(normalizeKey);
     const negatives = parseJsonList(job.campaign.negativeIntentKeywordsJson, DEFAULT_NEGATIVE_KEYWORDS).map(normalizeKey);
@@ -2523,12 +2505,35 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     const humanHandoff = containsNormalizedKeyword(normalized, HUMAN_HANDOFF_INTENT_KEYWORDS);
     const negative = optOut || containsNormalizedKeyword(normalized, negatives);
     const positive = !negative && !humanHandoff && containsNormalizedKeyword(normalized, positives);
+    const terminalStatus = ['negative', 'opt_out', 'replied_negative', 'no_response_archived'];
+    const alreadyClosed =
+      terminalStatus.includes(automationStatus) ||
+      terminalStatus.includes(queueStatus) ||
+      input.metadata?.blacklist === true ||
+      input.metadata?.blacklisted === true ||
+      input.metadata?.optOut === true ||
+      (queue as any).blacklist === true ||
+      (queue as any).blacklisted === true ||
+      (queue as any).optOut === true ||
+      (queue as any).doNotContact === true ||
+      String(job.lead.status || '') === 'encerrado' ||
+      job.lead.closedAt ||
+      job.lead.wasClosedBefore;
+    if (alreadyClosed) return null;
 
     if (negative) {
       await input.setInboundMeta(optOut ? 'vendas_prospeccao_opt_out' : 'vendas_prospeccao_negativo', false);
       await this.markNegative({ ...input, job, optOut });
       return { handled: true, classification: optOut ? 'opt_out' : 'negative' };
     }
+
+    const blockedStatus = ['interested', 'neutral', 'human_assigned'];
+    const isBlocked =
+      blockedStatus.includes(automationStatus) ||
+      blockedStatus.includes(queueStatus) ||
+      input.metadata?.humanAssigned === true ||
+      (queue as any).humanAssigned === true;
+    if (isBlocked) return null;
 
     if (positive) {
       await input.setInboundMeta('vendas_prospeccao_interessado', false);
