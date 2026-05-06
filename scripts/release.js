@@ -16,12 +16,11 @@ const isDryRun = rawArgs.some((arg) => ['d', 'dry-run', '--dry-run'].includes(ar
 const serviceOrder = ['backend', 'webscraping', 'hbx-scraping-engine', 'frontend'];
 const serviceLabels = {
   backend: 'backend',
-  frontend: 'frontend',
+  frontend: 'frontend (PM2)',
   webscraping: 'webscraping',
   'hbx-scraping-engine': 'hbx-scraping-engine',
 };
-const composeManagedServices = new Set(['frontend', 'webscraping']);
-const runtimeEnsuredServices = ['frontend'];
+const composeManagedServices = new Set(['webscraping']);
 
 function logStage(title) {
   console.log(`\n=== ${title} ===`);
@@ -251,55 +250,55 @@ function buildRemoteReleaseScript(config, services) {
     '  names="$base $(docker ps -a --format "{{.Names}}" | awk -v base="$base" \'$0 == base || $0 ~ "_" base "$" { print }\')"',
     '  remove_containers $names',
     '}',
-    'is_container_running() {',
-    '  docker inspect -f "{{.State.Running}}" "$1" 2>/dev/null | grep -q true',
+    'ensure_pm2() {',
+    '  if command -v pm2 >/dev/null 2>&1; then return 0; fi',
+    '  echo "PM2 nao encontrado; instalando globalmente..."',
+    '  npm i -g pm2',
     '}',
-    'find_frontend_port_pids() {',
-    '  if command -v fuser >/dev/null 2>&1; then fuser 3001/tcp 2>/dev/null || true; return; fi',
-    '  if command -v lsof >/dev/null 2>&1; then lsof -ti tcp:3001 2>/dev/null || true; return; fi',
-    '  if command -v ss >/dev/null 2>&1; then ss -ltnp 2>/dev/null | awk \'/[:.]3001[[:space:]]/ { gsub(/.*pid=/, "", $0); gsub(/,.*/, "", $0); if ($0 ~ /^[0-9]+$/) print $0 }\' || true; return; fi',
-    '}',
-    'stop_legacy_frontend_processes() {',
-    '  echo "Garantindo que nao exista frontend Next legado fora do container na porta 3001..."',
-    '  if command -v pm2 >/dev/null 2>&1; then pm2 delete hbx-frontend frontend 2>/dev/null || true; pm2 save >/dev/null 2>&1 || true; fi',
-    '  pids="$( { find_frontend_port_pids; pgrep -f "next .*3001|next-server.*3001|npm .*frontend" 2>/dev/null || true; } | sort -u | xargs || true )"',
-    '  if [ -z "$pids" ]; then return 0; fi',
-    '  for pid in $pids; do',
-    '    [ "$pid" = "$$" ] && continue',
-    '    cmd="$(tr "\\0" " " < "/proc/$pid/cmdline" 2>/dev/null || true)"',
-    '    cwd="$(readlink "/proc/$pid/cwd" 2>/dev/null || true)"',
-    '    comm="$(cat "/proc/$pid/comm" 2>/dev/null || true)"',
-    '    if printf "%s" "$cmd $comm" | grep -qi "docker-proxy"; then continue; fi',
-    '    if [ "$cwd" = "$APP_DIR/frontend" ] || printf "%s" "$cmd" | grep -Eq "$APP_DIR/frontend|next (start|dev).*3001|next-server.*3001|npm .*frontend"; then',
-    '      echo "Parando frontend legado fora do container pid=$pid cmd=$cmd"',
-    '      kill "$pid" 2>/dev/null || true',
-    '    fi',
-    '  done',
-    '  sleep 2',
-    '  for pid in $pids; do',
-    '    [ -d "/proc/$pid" ] || continue',
-    '    cmd="$(tr "\\0" " " < "/proc/$pid/cmdline" 2>/dev/null || true)"',
-    '    cwd="$(readlink "/proc/$pid/cwd" 2>/dev/null || true)"',
-    '    if [ "$cwd" = "$APP_DIR/frontend" ] || printf "%s" "$cmd" | grep -Eq "$APP_DIR/frontend|next (start|dev).*3001|next-server.*3001|npm .*frontend"; then',
-    '      kill -9 "$pid" 2>/dev/null || true',
-    '    fi',
-    '  done',
-    '}',
-    'ensure_frontend_container() {',
-    '  stop_legacy_frontend_processes',
-    '  if docker inspect hbx-frontend >/dev/null 2>&1; then docker update --restart unless-stopped hbx-frontend >/dev/null || true; fi',
-    '  if is_container_running hbx-frontend; then',
-    '    health="$(docker inspect -f "{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}" hbx-frontend 2>/dev/null || echo none)"',
-    '    if [ "$health" = "healthy" ] || [ "$health" = "starting" ]; then echo "hbx-frontend ja esta em container com restart unless-stopped (health=$health)."; return 0; fi',
-    '    echo "hbx-frontend running mas health=$health; recriando para aplicar supervisao do compose."',
-    '  fi',
-    '  echo "hbx-frontend ausente/parado; subindo via Docker Compose..."',
+    'cleanup_frontend_docker() {',
+    '  echo "Garantindo que frontend nao rode mais em Docker..."',
     '  remove_named_or_suffixed hbx-frontend',
     '  remove_containers frontend',
-    '  run_filtered $DC --env-file .env -f docker-compose.hostinger.yml up -d --build --no-deps frontend',
-    '  docker update --restart unless-stopped hbx-frontend >/dev/null || true',
-    '  for i in $(seq 1 30); do if is_container_running hbx-frontend; then echo "hbx-frontend running."; return 0; fi; echo "Aguardando hbx-frontend ($i/30)..."; sleep 2; done',
-    '  echo "ERRO: hbx-frontend nao ficou running."; docker logs hbx-frontend --tail 120 2>/dev/null || true; exit 1',
+    '}',
+    'verify_frontend_pm2() {',
+    '  for i in $(seq 1 30); do',
+    '    if command -v curl >/dev/null 2>&1 && curl -fsSI http://127.0.0.1:3001 >/dev/null 2>&1; then echo "Frontend PM2 pronto em http://127.0.0.1:3001"; return 0; fi',
+    '    if command -v wget >/dev/null 2>&1 && wget -q --spider http://127.0.0.1:3001 >/dev/null 2>&1; then echo "Frontend PM2 pronto em http://127.0.0.1:3001"; return 0; fi',
+    '    echo "Aguardando frontend PM2 ($i/30)..."',
+    '    sleep 2',
+    '  done',
+    '  echo "ERRO: frontend PM2 nao respondeu em http://127.0.0.1:3001."',
+    '  pm2 logs hbx-frontend --lines 120 --nostream 2>/dev/null || true',
+    '  exit 1',
+    '}',
+    'deploy_frontend_pm2() {',
+    '  echo "Publicando frontend fora do Docker via PM2..."',
+    '  cleanup_frontend_docker',
+    '  ensure_pm2',
+    '  cd "$APP_DIR/frontend"',
+    '  npm ci',
+    '  npm run build',
+    '  if pm2 describe hbx-frontend >/dev/null 2>&1; then',
+    '    pm2 restart hbx-frontend --update-env',
+    '  else',
+    '    pm2 start npm --name hbx-frontend -- run start',
+    '  fi',
+    '  pm2 save',
+    '  cd "$APP_DIR"',
+    '  verify_frontend_pm2',
+    '}',
+    'ensure_frontend_pm2_runtime() {',
+    '  cleanup_frontend_docker',
+    '  ensure_pm2',
+    '  if pm2 describe hbx-frontend >/dev/null 2>&1; then',
+    '    pm2 restart hbx-frontend --update-env',
+    '  else',
+    '    cd "$APP_DIR/frontend"',
+    '    pm2 start npm --name hbx-frontend -- run start',
+    '    cd "$APP_DIR"',
+    '  fi',
+    '  pm2 save',
+    '  verify_frontend_pm2',
     '}',
     'start_hbx_engines() {',
     '  echo "Buildando imagem dos motores HBX..."',
@@ -370,31 +369,19 @@ function buildRemoteReleaseScript(config, services) {
     'if [ -n "$COMPOSE_SERVICES" ]; then',
     '  for s in $COMPOSE_SERVICES; do',
     '    case "$s" in',
-    '      frontend) stop_legacy_frontend_processes; remove_named_or_suffixed hbx-frontend; remove_containers frontend;;',
     '      webscraping) remove_named_or_suffixed webscraping;;',
     '    esac',
     '  done',
     `  run_filtered $DC --env-file .env -f docker-compose.hostinger.yml up -d --build --no-deps ${composeServiceArgs}`,
     'fi',
-    'ensure_frontend_container',
+    'if has_service frontend; then deploy_frontend_pm2; else ensure_frontend_pm2_runtime; fi',
     'if has_service backend || has_service hbx-scraping-engine; then verify_hbx_engines; fi',
-    'echo "Containers ativos:"',
-    'docker ps --format "table {{.Names}}\\t{{.Status}}\\t{{.Ports}}" | grep -E "NAMES|hbx-frontend|hbx-backend|webscraping|hbx-scraping-engine|hbx-engine-[1-4]|hbx-postgres" || true',
+    'echo "Runtime ativo:"',
+    'docker ps --format "table {{.Names}}\\t{{.Status}}\\t{{.Ports}}" | grep -E "NAMES|hbx-backend|webscraping|hbx-scraping-engine|hbx-engine-[1-4]|hbx-postgres" || true',
+    'pm2 list | grep -E "hbx-frontend|App name|name|online" || true',
   ];
 
   return lines.join('\n');
-}
-
-function buildRemoteFetchOnlyScript(config) {
-  return [
-    'set -eu',
-    `APP_DIR=${shellSingleQuote(config.appDir)}`,
-    'export GIT_SSH_COMMAND="ssh -o BatchMode=yes"',
-    'cd "$APP_DIR"',
-    `git fetch ${remote} ${branch}`,
-    `git reset --hard ${remote}/${branch}`,
-    'echo "Sem servicos para rebuild."',
-  ].join('\n');
 }
 
 function deployOnHostinger(config, services) {
@@ -444,7 +431,7 @@ function printReleaseSummary({ commitCreated, commitLine, changedFiles, services
     console.log('- nenhum arquivo entre origin/master..HEAD');
   }
   console.log(`Servicos publicados: ${formatPublishedServices(services)}`);
-  console.log(`Servicos garantidos em container: ${runtimeEnsuredServices.join(', ')}`);
+  console.log('Frontend runtime: PM2 fora do Docker');
   console.log(`URL final verificada: ${finalUrl}`);
 }
 
