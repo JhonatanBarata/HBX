@@ -4,7 +4,7 @@ import { PrismaService } from '../prisma/prisma.service';
 const DEFAULT_HBX_ENGINE_URL = 'http://localhost:8001';
 const HEALTH_CHECK_TTL_MS = 30_000;
 
-type CapacityLevel = {
+export type CapacityLevel = {
   activeEngineCount: number;
   googleEmergencyMode: boolean;
   queuedCount: number;
@@ -36,6 +36,32 @@ type EngineRegistryRow = {
   lockedUntil?: Date | null;
   cooldownUntil?: Date | null;
   lastCheckedAt?: Date | null;
+};
+
+export type HbxEngineDashboardEngine = {
+  id: string;
+  kind: 'hbx' | 'google';
+  label: string;
+  shortLabel: string;
+  index: number | null;
+  status: string;
+  configured: boolean;
+  active: boolean;
+  online: boolean;
+  busy: boolean;
+  dimmed: boolean;
+  url: string | null;
+  lockedUntil: string | null;
+  cooldownUntil: string | null;
+  lastCheckedAt: string | null;
+  lastError: string | null;
+  detail: string;
+};
+
+export type HbxEngineDashboardStatus = {
+  generatedAt: string;
+  capacity: CapacityLevel;
+  engines: HbxEngineDashboardEngine[];
 };
 
 function parseIntegerEnv(name: string, fallback: number) {
@@ -178,6 +204,43 @@ export class HbxEnginePoolService {
       completedLast10Min: stats.completedLast10Min,
       partialLast10Min: stats.partialLast10Min,
       oldestQueuedAgeMinutes: stats.oldestQueuedAgeMinutes,
+    };
+  }
+
+  async getDashboardEngineStatus(): Promise<HbxEngineDashboardStatus> {
+    const generatedAt = new Date();
+    const fallbackCapacity: CapacityLevel = {
+      activeEngineCount: 1,
+      googleEmergencyMode: false,
+      queuedCount: 0,
+      runningCount: 0,
+      operationalStatus: 'healthy',
+      message: null,
+      completedLast10Min: 0,
+      partialLast10Min: 0,
+      oldestQueuedAgeMinutes: 0,
+    };
+    const configuredUrls = this.getConfiguredEngineUrls();
+
+    if (!(await this.prisma.hasTable('HbxEngineLock'))) {
+      return {
+        generatedAt: generatedAt.toISOString(),
+        capacity: fallbackCapacity,
+        engines: this.buildDashboardEngines([], configuredUrls, fallbackCapacity, null),
+      };
+    }
+
+    await this.cleanupExpiredLocks();
+    const [capacity, rows, activeGoogleRun] = await Promise.all([
+      this.getCurrentCapacityLevel().catch(() => fallbackCapacity),
+      this.healthCheckEngines().catch(() => [] as EngineRegistryRow[]),
+      this.findActiveGoogleEmergencyRun().catch(() => null),
+    ]);
+
+    return {
+      generatedAt: generatedAt.toISOString(),
+      capacity,
+      engines: this.buildDashboardEngines(rows, configuredUrls, capacity, activeGoogleRun),
     };
   }
 
@@ -349,6 +412,91 @@ export class HbxEnginePoolService {
     return parseIntegerEnv('HBX_GOOGLE_EMERGENCY_MAX_PER_RUN', 20);
   }
 
+  private buildDashboardEngines(
+    rows: EngineRegistryRow[],
+    configuredUrls: string[],
+    capacity: CapacityLevel,
+    activeGoogleRun: { googleEmergencyUsedCount: number; updatedAt?: Date | null } | null,
+  ): HbxEngineDashboardEngine[] {
+    const byIndex = new Map(rows.map((row) => [row.engineIndex, row]));
+    const now = Date.now();
+    const hasActiveQueue = capacity.queuedCount > 0 || capacity.runningCount > 0;
+    const engines: HbxEngineDashboardEngine[] = [];
+
+    for (let index = 0; index < 4; index += 1) {
+      const row = byIndex.get(index);
+      const configured = Boolean(configuredUrls[index]);
+      const status = String(row?.status || (configured ? (index === 0 ? 'online' : 'standby') : 'missing')).trim();
+      const locked = Boolean(row?.lockedUntil instanceof Date && row.lockedUntil.getTime() > now);
+      const availableForQueue = configured && !['offline', 'cooldown', 'degraded', 'missing'].includes(status);
+      const queueActivated = availableForQueue && hasActiveQueue && index < Math.max(1, capacity.activeEngineCount);
+      const busy = locked || status === 'busy' || queueActivated;
+      const online = configured && status !== 'offline' && String(row?.lastHealthStatus || '').trim() !== 'offline';
+      const detail = !configured
+        ? 'Motor ainda nao configurado.'
+        : busy
+          ? capacity.runningCount > 0
+            ? `Processando ${capacity.runningCount} busca(s); fila ${capacity.queuedCount}.`
+            : `Aguardando fila ativa: ${capacity.queuedCount}.`
+          : status === 'cooldown'
+            ? 'Em resfriamento apos falha.'
+            : status === 'offline'
+              ? 'Sem resposta no healthcheck.'
+              : 'Pronto, sem solicitação ativa.';
+
+      engines.push({
+        id: row?.id || `hbx-engine-${index + 1}`,
+        kind: 'hbx',
+        label: `HBX Motor ${index + 1}`,
+        shortLabel: `HBX ${index + 1}`,
+        index,
+        status: busy ? 'busy' : status,
+        configured,
+        active: busy,
+        online,
+        busy,
+        dimmed: !busy,
+        url: row?.url || configuredUrls[index] || null,
+        lockedUntil: this.serializeDate(row?.lockedUntil),
+        cooldownUntil: this.serializeDate(row?.cooldownUntil),
+        lastCheckedAt: this.serializeDate(row?.lastCheckedAt),
+        lastError: row?.lastError || null,
+        detail,
+      });
+    }
+
+    const googleActive = Boolean(capacity.googleEmergencyMode || activeGoogleRun);
+    const googleDetail = googleActive
+      ? `Google emergencial ativo. Fila ${capacity.queuedCount}, rodando ${capacity.runningCount}.`
+      : 'Google emergencial em espera.';
+
+    engines.push({
+      id: 'google-engine',
+      kind: 'google',
+      label: 'Google Emergency',
+      shortLabel: 'Google',
+      index: null,
+      status: googleActive ? 'emergency' : 'standby',
+      configured: true,
+      active: googleActive,
+      online: true,
+      busy: googleActive,
+      dimmed: !googleActive,
+      url: null,
+      lockedUntil: null,
+      cooldownUntil: null,
+      lastCheckedAt: activeGoogleRun?.updatedAt instanceof Date ? activeGoogleRun.updatedAt.toISOString() : null,
+      lastError: null,
+      detail: googleDetail,
+    });
+
+    return engines;
+  }
+
+  private serializeDate(value?: Date | null) {
+    return value instanceof Date ? value.toISOString() : null;
+  }
+
   private getConfiguredEngineUrls() {
     const rawUrls = String(process.env.HBX_ENGINE_URLS || '').trim();
     const urls = rawUrls
@@ -473,6 +621,21 @@ export class HbxEnginePoolService {
           gte: start,
           lt: end,
         },
+      },
+    });
+  }
+
+  private async findActiveGoogleEmergencyRun() {
+    if (!(await this.prisma.hasTable('WebscrapingSearchRun'))) return null;
+    return (this.prisma as any).webscrapingSearchRun.findFirst({
+      where: {
+        status: { in: ['queued', 'running'] },
+        googleEmergencyUsedCount: { gt: 0 },
+      },
+      orderBy: { updatedAt: 'desc' },
+      select: {
+        googleEmergencyUsedCount: true,
+        updatedAt: true,
       },
     });
   }

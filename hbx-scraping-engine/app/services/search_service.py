@@ -131,6 +131,8 @@ class SearchService:
         return response
 
     async def search_agenda_pf(self, request: SearchRequest) -> SearchResponse:
+        excluded_phones = set(request.excludePhoneDigits or [])
+        excluded_urls = set(request.excludeUrls or [])
         print("[search:agenda_pf] fontes_tentadas=abctelefonos,web")
         contacts = await search_abctelefonos(
             request.city,
@@ -197,7 +199,10 @@ class SearchService:
         public_items = [
             {key: value for key, value in item.items() if key in allowed_fields}
             for item in contacts
-            if item.get("name") and item.get("phone") and item.get("phoneDigits")
+            if item.get("name")
+            and item.get("phone")
+            and item.get("phoneDigits")
+            and item.get("phoneDigits") not in excluded_phones
         ]
         public_items.sort(key=lambda item: int(item.get("score") or 0), reverse=True)
         public_items = public_items[: request.limit]

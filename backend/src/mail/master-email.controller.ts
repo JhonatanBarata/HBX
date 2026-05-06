@@ -14,22 +14,15 @@ import {
 import { FileInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
 import { extname } from 'path';
-import { mkdir, readFile, writeFile } from 'fs/promises';
-import { existsSync } from 'fs';
 import { IsEmail, IsOptional, IsString, MaxLength } from 'class-validator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { MasterGuard } from '../auth/guards/master.guard';
 import { EmailTemplate, EmailTemplateKind, EmailTemplateService } from './email-template.service';
 import {
-  ATTACHMENT_DIR,
-  ATTACHMENT_META_PATH,
-  ATTACHMENT_PATH,
   BUSINESS_CARD_CID,
-  BUSINESS_CARD_META_PATH,
-  BUSINESS_CARD_PATH,
   HbxPresentationEmailService,
-  type AttachmentMeta,
 } from './hbx-presentation-email.service';
+import { MasterEmailSettingsService } from './master-email-settings.service';
 import { MailAttachment } from './mail.service';
 
 const MASTER_PPTX_LIMIT_BYTES = 50 * 1024 * 1024;
@@ -89,12 +82,40 @@ class TestEmailTemplateDto {
   sampleCompany?: string | null;
 }
 
+class SaveMasterEmailSettingsDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  recipientName?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(180)
+  recipientEmail?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(180)
+  testEmail?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  sampleName?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(180)
+  sampleCompany?: string | null;
+}
+
 @Controller('master/email')
 @UseGuards(JwtAuthGuard, MasterGuard)
 export class MasterEmailController {
   constructor(
     private readonly hbxPresentationEmails: HbxPresentationEmailService,
     private readonly emailTemplates: EmailTemplateService,
+    private readonly emailSettings: MasterEmailSettingsService,
   ) {}
 
   private buildAppUrl() {
@@ -162,8 +183,9 @@ export class MasterEmailController {
     const template = await this.emailTemplates.getTemplate(kind);
     this.emailTemplates.validateTemplateInput(kind, template.subject, template.text);
     const variables = this.buildSampleVariables(kind, dto);
-    const businessCardMeta = kind === 'normal' ? await this.hbxPresentationEmails.readBusinessCardMeta(false) : null;
-    const hasBusinessCard = Boolean(businessCardMeta) && existsSync(BUSINESS_CARD_PATH);
+    const businessCardFile = kind === 'normal' ? await this.hbxPresentationEmails.readBusinessCardContent() : null;
+    const businessCardMeta = businessCardFile?.meta || null;
+    const hasBusinessCard = Boolean(businessCardFile);
     const rendered = this.emailTemplates.renderTemplate(template, variables, {
       appendHtml: hasBusinessCard ? this.hbxPresentationEmails.buildBusinessCardHtml() : null,
     });
@@ -172,8 +194,8 @@ export class MasterEmailController {
     if (hasBusinessCard && businessCardMeta) {
       attachments.push({
         filename: businessCardMeta.originalName || 'cartao-visitas.png',
-        content: await readFile(BUSINESS_CARD_PATH),
-        contentType: businessCardMeta.mimeType || 'image/png',
+        content: businessCardFile?.content || Buffer.alloc(0),
+        contentType: businessCardFile?.contentType || businessCardMeta.mimeType || 'image/png',
         cid: BUSINESS_CARD_CID,
       });
     }
@@ -212,7 +234,13 @@ export class MasterEmailController {
       },
       attachment: await this.hbxPresentationEmails.readAttachmentMeta(),
       businessCard: await this.hbxPresentationEmails.readBusinessCardMeta(true),
+      formState: await this.emailSettings.getFormState(),
     };
+  }
+
+  @Put('settings')
+  async saveMasterEmailSettings(@Body() dto: SaveMasterEmailSettingsDto) {
+    return { ok: true, formState: await this.emailSettings.saveFormState(dto) };
   }
 
   @Post('attachment')
@@ -230,15 +258,8 @@ export class MasterEmailController {
     if (extname(originalName).toLowerCase() !== '.pptx') {
       throw new BadRequestException('O anexo precisa ser um arquivo .pptx.');
     }
-    await mkdir(ATTACHMENT_DIR, { recursive: true });
-    await writeFile(ATTACHMENT_PATH, file.buffer);
-    const meta: AttachmentMeta = {
-      originalName,
-      uploadedAt: new Date().toISOString(),
-      size: Number(file.size || file.buffer.length || 0),
-    };
-    await writeFile(ATTACHMENT_META_PATH, JSON.stringify(meta, null, 2), 'utf8');
-    return { ok: true, attachment: await this.hbxPresentationEmails.readAttachmentMeta() };
+    const attachment = await this.hbxPresentationEmails.savePresentationAttachment(Buffer.from(file.buffer), originalName);
+    return { ok: true, attachment };
   }
 
   @Post('business-card')
@@ -259,16 +280,8 @@ export class MasterEmailController {
     }
 
     const originalName = this.hbxPresentationEmails.normalizeUploadedOriginalName(file.originalname, 'cartao-visitas.png');
-    await mkdir(ATTACHMENT_DIR, { recursive: true });
-    await writeFile(BUSINESS_CARD_PATH, file.buffer);
-    const meta: AttachmentMeta = {
-      originalName,
-      uploadedAt: new Date().toISOString(),
-      size: Number(file.size || file.buffer.length || 0),
-      mimeType,
-    };
-    await writeFile(BUSINESS_CARD_META_PATH, JSON.stringify(meta, null, 2), 'utf8');
-    return { ok: true, businessCard: await this.hbxPresentationEmails.readBusinessCardMeta(true) };
+    const businessCard = await this.hbxPresentationEmails.saveBusinessCard(Buffer.from(file.buffer), { originalName, mimeType });
+    return { ok: true, businessCard };
   }
 
   @Post('send')

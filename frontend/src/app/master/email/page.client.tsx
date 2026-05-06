@@ -43,12 +43,21 @@ type MasterEmailState = {
     mimeType?: string | null;
     previewDataUrl?: string | null;
   } | null;
+  formState?: MasterEmailFormState | null;
 };
 
 type Draft = {
   subject: string;
   text: string;
   html: string;
+};
+
+type MasterEmailFormState = {
+  recipientName: string;
+  recipientEmail: string;
+  testEmail: string;
+  sampleName: string;
+  sampleCompany: string;
 };
 
 type MasterEmailSendResponse = {
@@ -210,6 +219,7 @@ export default function MasterEmailClientPage() {
       setTemplates(nextTemplates);
       setDrafts(nextDrafts);
       setState(masterPayload);
+      applyFormState(masterPayload.formState);
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "Falha ao carregar modelos de e-mail.");
     } finally {
@@ -268,6 +278,36 @@ export default function MasterEmailClientPage() {
     }));
   }
 
+  function buildFormState(): MasterEmailFormState {
+    return {
+      recipientName,
+      recipientEmail,
+      testEmail,
+      sampleName,
+      sampleCompany,
+    };
+  }
+
+  function applyFormState(formState?: MasterEmailFormState | null) {
+    if (!formState) return;
+    setRecipientName(formState.recipientName ?? DEFAULT_NAME);
+    setRecipientEmail(formState.recipientEmail ?? "");
+    setTestEmail(formState.testEmail ?? "");
+    setSampleName(formState.sampleName ?? DEFAULT_NAME);
+    setSampleCompany(formState.sampleCompany ?? DEFAULT_COMPANY);
+  }
+
+  async function saveFormState() {
+    const payload = await apiFetch<{ ok: boolean; formState: MasterEmailFormState }>("/master/email/settings", {
+      method: "PUT",
+      body: JSON.stringify(buildFormState()),
+      requireAuth: true,
+    });
+    setState((current) => (current ? { ...current, formState: payload.formState } : current));
+    applyFormState(payload.formState);
+    return payload.formState;
+  }
+
   function validateDraft(kind: TemplateKind, draft: Draft) {
     if (!draft.subject.trim()) return "Informe o assunto do modelo.";
     if (!draft.text.trim()) return "Informe o corpo do modelo.";
@@ -301,7 +341,8 @@ export default function MasterEmailClientPage() {
       });
       setTemplates((current) => ({ ...current, [activeTemplate]: payload.template }));
       setDrafts((current) => ({ ...current, [activeTemplate]: templateToDraft(payload.template) }));
-      setMessage("Modelo salvo com sucesso.");
+      await saveFormState();
+      setMessage("Modelo e campos salvos com sucesso.");
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "Falha ao salvar modelo.");
     } finally {
@@ -355,6 +396,7 @@ export default function MasterEmailClientPage() {
       });
       setTemplates((current) => ({ ...current, [activeTemplate]: savePayload.template }));
       setDrafts((current) => ({ ...current, [activeTemplate]: templateToDraft(savePayload.template) }));
+      await saveFormState();
       const payload = await apiFetch<{ ok: boolean; sentAt: string }>(`/master/email/templates/${activeTemplate}/test`, {
         method: "POST",
         body: JSON.stringify({
@@ -465,6 +507,7 @@ export default function MasterEmailClientPage() {
     setError(null);
     setLastSent(null);
     try {
+      await saveFormState();
       const payload = await apiFetch<MasterEmailSendResponse>("/master/email/send", {
         method: "POST",
         body: JSON.stringify({

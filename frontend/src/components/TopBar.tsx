@@ -102,6 +102,38 @@ type OperationalStatusPayload = {
   };
   statuses: OperationalStatusChip[];
 };
+type ScrapingEngineKind = "hbx" | "google";
+type ScrapingEngineStatus = {
+  id: string;
+  kind: ScrapingEngineKind;
+  label: string;
+  shortLabel: string;
+  index: number | null;
+  status: string;
+  configured: boolean;
+  active: boolean;
+  online: boolean;
+  busy: boolean;
+  dimmed: boolean;
+  url: string | null;
+  lockedUntil: string | null;
+  cooldownUntil: string | null;
+  lastCheckedAt: string | null;
+  lastError: string | null;
+  detail: string;
+};
+type ScrapingEngineStatusPayload = {
+  generatedAt: string;
+  capacity: {
+    activeEngineCount: number;
+    googleEmergencyMode: boolean;
+    queuedCount: number;
+    runningCount: number;
+    operationalStatus: "healthy" | "degraded";
+    message: string | null;
+  };
+  engines: ScrapingEngineStatus[];
+};
 type WhatsAppHealth = "green" | "yellow" | "red";
 type RecoveryAlertConversation = {
   conversationId: number;
@@ -180,6 +212,92 @@ const SUPPORT_MESSAGE = "Olá, preciso de ajuda com o HBX!";
 const hiddenRoutes = new Set(["/login", "/register", "/reset-password", "/confirm-email", "/boasvindas", "/tutorial"]);
 const PENDING_CHECKOUT_ADMIN_PATH = "/pagamento?focus=payment&reason=pending_checkout";
 const PENDING_CHECKOUT_USER_PATH = "/planos?mode=pending_checkout&reason=pending_checkout";
+const SCRAPING_ENGINE_POLL_MS = 6500;
+
+function buildFallbackScrapingEngine(index: number): ScrapingEngineStatus {
+  return {
+    id: `hbx-engine-${index + 1}`,
+    kind: "hbx",
+    label: `HBX Motor ${index + 1}`,
+    shortLabel: `HBX ${index + 1}`,
+    index,
+    status: "standby",
+    configured: index === 0,
+    active: false,
+    online: index === 0,
+    busy: false,
+    dimmed: true,
+    url: null,
+    lockedUntil: null,
+    cooldownUntil: null,
+    lastCheckedAt: null,
+    lastError: null,
+    detail: index === 0 ? "Pronto, sem solicitação ativa." : "Motor em espera.",
+  };
+}
+
+function buildFallbackGoogleEngine(): ScrapingEngineStatus {
+  return {
+    id: "google-engine",
+    kind: "google",
+    label: "Google Emergency",
+    shortLabel: "Google",
+    index: null,
+    status: "standby",
+    configured: true,
+    active: false,
+    online: true,
+    busy: false,
+    dimmed: true,
+    url: null,
+    lockedUntil: null,
+    cooldownUntil: null,
+    lastCheckedAt: null,
+    lastError: null,
+    detail: "Google emergencial em espera.",
+  };
+}
+
+function normalizeScrapingEngines(payload: ScrapingEngineStatusPayload | null) {
+  const source = Array.isArray(payload?.engines) ? payload.engines : [];
+  const hbxEngines = Array.from({ length: 4 }, (_, index) => {
+    return source.find((engine) => engine.kind === "hbx" && engine.index === index) || buildFallbackScrapingEngine(index);
+  });
+  const googleEngine = source.find((engine) => engine.kind === "google") || buildFallbackGoogleEngine();
+  const engines = [...hbxEngines, googleEngine];
+  return {
+    engines,
+    hbxEngines,
+    googleEngine,
+    hasActive: engines.some((engine) => engine.active),
+  };
+}
+
+function getScrapingEngineState(engine: ScrapingEngineStatus) {
+  const status = String(engine.status || "").trim().toLowerCase();
+  if (engine.kind === "google" && engine.active) return "emergency";
+  if (engine.active || status === "busy") return "busy";
+  if (!engine.configured || status === "missing") return "missing";
+  if (status === "offline") return "offline";
+  if (status === "cooldown") return "cooldown";
+  if (status === "degraded") return "degraded";
+  return "standby";
+}
+
+function getScrapingEngineValue(engine: ScrapingEngineStatus) {
+  const state = getScrapingEngineState(engine);
+  if (state === "emergency") return "ativo";
+  if (state === "busy") return "rodando";
+  if (state === "cooldown") return "frio";
+  if (state === "offline" || state === "missing") return "off";
+  if (state === "degraded") return "falha";
+  return "standby";
+}
+
+function getScrapingEngineShortLabel(engine: ScrapingEngineStatus) {
+  if (engine.kind === "google") return "G";
+  return `M${Number(engine.index || 0) + 1}`;
+}
 
 function isPendingCheckoutUser(user: User | null) {
   const company = user?.company;
@@ -290,6 +408,7 @@ export default function TopBar() {
   const [recoveryPendingHumanCount, setRecoveryPendingHumanCount] = useState(0);
   const [atendimentoPendingHumanCount, setAtendimentoPendingHumanCount] = useState(0);
   const [topbarProgress, setTopbarProgress] = useState<TopbarProgressState | null>(null);
+  const [scrapingEngines, setScrapingEngines] = useState<ScrapingEngineStatusPayload | null>(null);
   const [unreadInboxOpen, setUnreadInboxOpen] = useState(false);
   const [unreadInboxLoading, setUnreadInboxLoading] = useState(false);
   const [unreadInboxError, setUnreadInboxError] = useState<string | null>(null);
@@ -448,6 +567,22 @@ export default function TopBar() {
     }
   }, []);
 
+  const refreshScrapingEngines = React.useCallback(async () => {
+    if (authenticated !== true || pendingCheckoutLocked) {
+      setScrapingEngines(null);
+      return null;
+    }
+
+    try {
+      const payload = await apiFetch<ScrapingEngineStatusPayload>("/webscraping/engines/status");
+      setScrapingEngines(payload);
+      return payload;
+    } catch {
+      setScrapingEngines(null);
+      return null;
+    }
+  }, [authenticated, pendingCheckoutLocked]);
+
   const loadWhatsAppCenter = React.useCallback(async (options?: { background?: boolean }) => {
     if (authenticated !== true) return null;
     if (pendingCheckoutLocked) {
@@ -603,6 +738,11 @@ export default function TopBar() {
   const operationalStatusMap = useMemo(() => {
     return new Map((operationalStatus?.statuses || []).map((chip) => [chip.key, chip]));
   }, [operationalStatus]);
+
+  const scrapingEngineView = useMemo(() => normalizeScrapingEngines(scrapingEngines), [scrapingEngines]);
+  const leftScrapingEngines = scrapingEngineView.hbxEngines.slice(0, 2);
+  const rightScrapingEngines = scrapingEngineView.hbxEngines.slice(2, 4);
+  const shouldShowTopbarProgressWidget = Boolean(topbarProgress && topbarProgress.source !== "webscraping");
 
   const operationalStatusReady = Boolean(
     authenticated &&
@@ -784,6 +924,22 @@ export default function TopBar() {
       window.clearInterval(timer);
     };
   }, [authenticated, refreshOperationalStatus]);
+
+  useEffect(() => {
+    if (authenticated !== true || pendingCheckoutLocked) {
+      setScrapingEngines(null);
+      return;
+    }
+
+    void refreshScrapingEngines();
+    const timer = window.setInterval(() => {
+      void refreshScrapingEngines();
+    }, SCRAPING_ENGINE_POLL_MS);
+
+    return () => {
+      window.clearInterval(timer);
+    };
+  }, [authenticated, pendingCheckoutLocked, refreshScrapingEngines]);
 
   useEffect(() => {
     if (!whatsAppDetailMessage) return;
@@ -2074,10 +2230,10 @@ export default function TopBar() {
                   ) : null}
                 </button>
 
-                {topbarProgress ? (
+                {shouldShowTopbarProgressWidget ? (
                   <div
                     className="app-topbar__progressWidget"
-                    data-phase={topbarProgress.phase}
+                    data-phase={topbarProgress?.phase}
                     role="status"
                     aria-live="polite"
                   >
@@ -2086,17 +2242,17 @@ export default function TopBar() {
                     </div>
                     <div className="app-topbar__progressBody">
                       <div className="app-topbar__progressLine">
-                        <strong>{topbarProgress.title}</strong>
-                        <span>{Math.round(Math.max(0, Math.min(100, topbarProgress.progress)))}%</span>
+                        <strong>{topbarProgress?.title}</strong>
+                        <span>{Math.round(Math.max(0, Math.min(100, topbarProgress?.progress || 0)))}%</span>
                       </div>
                       <div className="app-topbar__progressTrack" aria-hidden="true">
-                        <span style={{ width: `${Math.max(0, Math.min(100, topbarProgress.progress))}%` }} />
+                        <span style={{ width: `${Math.max(0, Math.min(100, topbarProgress?.progress || 0))}%` }} />
                       </div>
-                      <p>{topbarProgress.status}</p>
+                      <p>{topbarProgress?.status}</p>
                     </div>
-                    {topbarProgress.metrics?.length ? (
+                    {topbarProgress?.metrics?.length ? (
                       <div className="app-topbar__progressMetrics">
-                        {topbarProgress.metrics.slice(0, 2).map((metric) => (
+                        {(topbarProgress?.metrics || []).slice(0, 2).map((metric) => (
                           <span key={`${metric.label}:${metric.value}`}>
                             {metric.label}
                             <strong>{metric.value}</strong>
@@ -2111,47 +2267,106 @@ export default function TopBar() {
           </div>
 
           <div className="app-topbar__center">
-            <div className="app-topbar__summary">
-              <p className="app-topbar__summaryLabel">Status operacional</p>
-              <strong>{operationalSummaryMessage}</strong>
-            </div>
-
-            {operationalStatusReady ? (
-              <div className="app-topbar__statusRail" aria-label="Status operacional da empresa">
-                {visibleOperationalStatusChips.map((chip) => (
-                  <button
-                    key={chip.key}
-                    type="button"
-                    className="app-topbar__statusChip"
-                    data-tone={chip.tone}
-                    onClick={() => handleOperationalChipClick(chip)}
-                    title={chip.detail}
-                    aria-label={`${chip.label}: ${chip.value}. ${chip.detail}`}
+            <div className="app-topbar__engineConstellation" data-active={scrapingEngineView.hasActive ? "true" : "false"}>
+              <div className="app-topbar__engineWing app-topbar__engineWing--left" aria-label="Motores HBX 1 e 2">
+                {leftScrapingEngines.map((engine) => (
+                  <span
+                    key={engine.id}
+                    className="app-topbar__engineNode"
+                    data-active={engine.active ? "true" : "false"}
+                    data-state={getScrapingEngineState(engine)}
+                    title={`${engine.label}: ${getScrapingEngineValue(engine)}. ${engine.detail}`}
+                    aria-label={`${engine.label}: ${getScrapingEngineValue(engine)}. ${engine.detail}`}
                   >
-                    <span className="app-topbar__statusChipLabel">{chip.shortLabel}</span>
-                    <strong className="app-topbar__statusChipValue">{chip.value}</strong>
-                  </button>
+                    <span className="app-topbar__engineNodeLed" aria-hidden="true" />
+                    <span className="app-topbar__engineNodeCopy">
+                      <strong>{getScrapingEngineShortLabel(engine)}</strong>
+                      <span>{getScrapingEngineValue(engine)}</span>
+                    </span>
+                  </span>
                 ))}
               </div>
-            ) : showOperationalCompanyPicker ? (
-              <div className="app-topbar__metaGrid" aria-label="Ação operacional">
-                <button
-                  type="button"
-                  className="app-topbar__contextCta"
-                  onClick={() => void openMasterContextModal()}
-                >
-                  <strong>Escolher empresa</strong>
-                  <span>Ver motores e acesso</span>
-                </button>
-              </div>
-            ) : (
-              <div className="app-topbar__metaGrid" aria-label="Resumo rapido do shell">
-                <span className="app-topbar__metaPill">
-                  <strong>{pendingHumanCount > 0 ? `${pendingHumanCount} na fila` : "Sem alertas"}</strong>
-                  <span>Fila</span>
+
+              <div
+                className="app-topbar__engineCore"
+                data-active={scrapingEngineView.hasActive ? "true" : "false"}
+                data-google-active={scrapingEngineView.googleEngine.active ? "true" : "false"}
+                role="status"
+                aria-live="polite"
+              >
+                <span className="app-topbar__googleHalo" aria-hidden="true">
+                  <span />
                 </span>
+                <span
+                  className="app-topbar__googleBeacon"
+                  data-active={scrapingEngineView.googleEngine.active ? "true" : "false"}
+                  title={`${scrapingEngineView.googleEngine.label}: ${getScrapingEngineValue(scrapingEngineView.googleEngine)}. ${scrapingEngineView.googleEngine.detail}`}
+                  aria-hidden="true"
+                >
+                  <strong>{getScrapingEngineShortLabel(scrapingEngineView.googleEngine)}</strong>
+                </span>
+                <div className="app-topbar__summary">
+                  <p className="app-topbar__summaryLabel">Status operacional</p>
+                  <strong>{operationalSummaryMessage}</strong>
+                </div>
+
+                {operationalStatusReady ? (
+                  <div className="app-topbar__statusRail" aria-label="Status operacional da empresa">
+                    {visibleOperationalStatusChips.map((chip) => (
+                      <button
+                        key={chip.key}
+                        type="button"
+                        className="app-topbar__statusChip"
+                        data-tone={chip.tone}
+                        onClick={() => handleOperationalChipClick(chip)}
+                        title={chip.detail}
+                        aria-label={`${chip.label}: ${chip.value}. ${chip.detail}`}
+                      >
+                        <span className="app-topbar__statusChipLabel">{chip.shortLabel}</span>
+                        <strong className="app-topbar__statusChipValue">{chip.value}</strong>
+                      </button>
+                    ))}
+                  </div>
+                ) : showOperationalCompanyPicker ? (
+                  <div className="app-topbar__metaGrid" aria-label="Ação operacional">
+                    <button
+                      type="button"
+                      className="app-topbar__contextCta"
+                      onClick={() => void openMasterContextModal()}
+                    >
+                      <strong>Escolher empresa</strong>
+                      <span>Ver motores e acesso</span>
+                    </button>
+                  </div>
+                ) : (
+                  <div className="app-topbar__metaGrid" aria-label="Resumo rapido do shell">
+                    <span className="app-topbar__metaPill">
+                      <strong>{pendingHumanCount > 0 ? `${pendingHumanCount} na fila` : "Sem alertas"}</strong>
+                      <span>Fila</span>
+                    </span>
+                  </div>
+                )}
               </div>
-            )}
+
+              <div className="app-topbar__engineWing app-topbar__engineWing--right" aria-label="Motores HBX 3 e 4">
+                {rightScrapingEngines.map((engine) => (
+                  <span
+                    key={engine.id}
+                    className="app-topbar__engineNode"
+                    data-active={engine.active ? "true" : "false"}
+                    data-state={getScrapingEngineState(engine)}
+                    title={`${engine.label}: ${getScrapingEngineValue(engine)}. ${engine.detail}`}
+                    aria-label={`${engine.label}: ${getScrapingEngineValue(engine)}. ${engine.detail}`}
+                  >
+                    <span className="app-topbar__engineNodeLed" aria-hidden="true" />
+                    <span className="app-topbar__engineNodeCopy">
+                      <strong>{getScrapingEngineShortLabel(engine)}</strong>
+                      <span>{getScrapingEngineValue(engine)}</span>
+                    </span>
+                  </span>
+                ))}
+              </div>
+            </div>
           </div>
 
           <div className="app-topbar__right">

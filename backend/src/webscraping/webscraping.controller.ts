@@ -5,6 +5,7 @@ import type { Response } from 'express';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { ModuleAccess } from '../modules/module-feature.decorator';
 import { ModuleAccessGuard } from '../modules/module-access.guard';
+import { HbxEnginePoolService } from './hbx-engine-pool.service';
 import { WebscrapingService } from './webscraping.service';
 
 class WebscrapingSearchDto {
@@ -263,11 +264,19 @@ class RadarNegativeDto {
 @UseGuards(JwtAuthGuard, ModuleAccessGuard)
 @ModuleAccess('webscraping')
 export class WebscrapingController {
-  constructor(private readonly webscrapingService: WebscrapingService) {}
+  constructor(
+    private readonly webscrapingService: WebscrapingService,
+    private readonly hbxEnginePool: HbxEnginePoolService,
+  ) {}
 
   @Get('runtime')
   getRuntime(@Req() req: any) {
     return this.webscrapingService.getRuntime(req.user);
+  }
+
+  @Get('engines/status')
+  getEngineStatus() {
+    return this.hbxEnginePool.getDashboardEngineStatus();
   }
 
   @Get('cities')

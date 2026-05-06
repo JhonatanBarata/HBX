@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { existsSync } from 'fs';
 import { mkdir, readFile, writeFile } from 'fs/promises';
 import { join } from 'path';
+import { PrismaService } from '../prisma/prisma.service';
 
 export type EmailTemplateKind = 'normal' | 'password_reset' | 'email_confirmation';
 
@@ -95,6 +96,9 @@ const DEFAULT_TEMPLATES: Record<EmailTemplateKind, EmailTemplate> = {
 @Injectable()
 export class EmailTemplateService {
   private readonly logger = new Logger(EmailTemplateService.name);
+  private legacyMigrationChecked = false;
+
+  constructor(private readonly prisma: PrismaService) {}
 
   getDefaultTemplate(kind: EmailTemplateKind) {
     return { ...DEFAULT_TEMPLATES[this.normalizeKind(kind)] };
@@ -268,6 +272,24 @@ export class EmailTemplateService {
   }
 
   private async readStoredTemplates(): Promise<Partial<Record<EmailTemplateKind, EmailTemplate>>> {
+    if (await this.canUseDatabaseStorage()) {
+      await this.migrateLegacyTemplatesToDatabase();
+      const rows = await this.prisma.masterEmailTemplate.findMany();
+      const templates: Partial<Record<EmailTemplateKind, EmailTemplate>> = {};
+      for (const row of rows) {
+        const kind = this.safeKind(row.kind);
+        if (!kind) continue;
+        templates[kind] = {
+          kind,
+          subject: row.subject,
+          text: row.text,
+          html: row.html,
+          updatedAt: row.updatedAt ? row.updatedAt.toISOString() : null,
+        };
+      }
+      return templates;
+    }
+
     if (!existsSync(TEMPLATE_PATH)) return {};
     try {
       const parsed = JSON.parse(await readFile(TEMPLATE_PATH, 'utf8'));
@@ -280,7 +302,76 @@ export class EmailTemplateService {
   }
 
   private async writeStoredTemplates(templates: Partial<Record<EmailTemplateKind, EmailTemplate>>) {
+    if (await this.canUseDatabaseStorage()) {
+      await this.migrateLegacyTemplatesToDatabase();
+      for (const kind of EMAIL_TEMPLATE_KINDS) {
+        const template = templates[kind];
+        if (!template) {
+          await this.prisma.masterEmailTemplate.deleteMany({ where: { kind } });
+          continue;
+        }
+        const normalized = this.mergeTemplate(kind, template);
+        await this.prisma.masterEmailTemplate.upsert({
+          where: { kind },
+          create: {
+            kind,
+            subject: normalized.subject,
+            text: normalized.text,
+            html: normalized.html || null,
+          },
+          update: {
+            subject: normalized.subject,
+            text: normalized.text,
+            html: normalized.html || null,
+          },
+        });
+      }
+      return;
+    }
+
     await mkdir(TEMPLATE_DIR, { recursive: true });
     await writeFile(TEMPLATE_PATH, JSON.stringify({ templates }, null, 2), 'utf8');
+  }
+
+  private async canUseDatabaseStorage() {
+    return this.prisma.hasTable('MasterEmailTemplate');
+  }
+
+  private safeKind(value: unknown): EmailTemplateKind | null {
+    const kind = String(value || '').trim() as EmailTemplateKind;
+    return EMAIL_TEMPLATE_KINDS.includes(kind) ? kind : null;
+  }
+
+  private async migrateLegacyTemplatesToDatabase() {
+    if (this.legacyMigrationChecked) return;
+    this.legacyMigrationChecked = true;
+    if (!existsSync(TEMPLATE_PATH)) return;
+
+    try {
+      const parsed = JSON.parse(await readFile(TEMPLATE_PATH, 'utf8'));
+      const stored = parsed?.templates && typeof parsed.templates === 'object' ? parsed.templates : parsed;
+      if (!stored || typeof stored !== 'object') return;
+
+      for (const kind of EMAIL_TEMPLATE_KINDS) {
+        const legacyTemplate = stored[kind];
+        if (!legacyTemplate) continue;
+        const existing = await this.prisma.masterEmailTemplate.findUnique({
+          where: { kind },
+          select: { kind: true },
+        });
+        if (existing) continue;
+        const normalized = this.mergeTemplate(kind, legacyTemplate);
+        await this.prisma.masterEmailTemplate.create({
+          data: {
+            kind,
+            subject: normalized.subject,
+            text: normalized.text,
+            html: normalized.html || null,
+          },
+        });
+      }
+    } catch (error) {
+      this.logger.warn(`Failed to migrate legacy email template storage: ${error instanceof Error ? error.message : error}`);
+    }
   }
 }
