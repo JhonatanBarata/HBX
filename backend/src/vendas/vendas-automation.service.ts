@@ -61,6 +61,13 @@ type VendasProspeccaoMetadata = {
   mismatchReason?: string | null;
 };
 
+type SegmentMismatchFallbackDecision = {
+  mode: 'auto_send' | 'draft_only' | 'block';
+  message?: string;
+  reason?: string;
+  conversationId?: number | null;
+};
+
 const BUFFER_JOB_STATUSES = ['pending', 'scheduled'] as const;
 const DEFAULT_POSITIVE_KEYWORDS = ['tenho interesse', 'pode mandar', 'quero saber', 'me explica', 'quanto custa'];
 const DEFAULT_NEGATIVE_KEYWORDS = ['nao tenho interesse', 'não tenho interesse', 'pare', 'remover', 'sem interesse', 'spam', 'nao me chame', 'não me chame'];
@@ -70,6 +77,18 @@ const DEFAULT_DAILY_LIMIT = 30;
 const DEFAULT_OPT_OUT_MESSAGE = 'Entendi. Vou arquivar este contato e nao chamaremos novamente.';
 const DEFAULT_MESSAGE_TEMPLATE =
   'Oi, tudo bem? Aqui é {{funcionario}} da {{empresa}}. Vi a {{cliente}} em {{cidade}} e queria te explicar em 1 minuto uma solução para {{segmento}}. Faz sentido eu te mandar?';
+const DEFAULT_SEGMENT_MISMATCH_FALLBACK_MESSAGE =
+  'Oi, tudo bem? Sou o Jhonatan, da HBX. Vi sua empresa no Google e queria te mostrar uma ferramenta que ajuda a organizar contatos, orçamentos e retornos pelo WhatsApp. Tenho 30 dias grátis, sem compromisso. Faz sentido eu te mostrar?';
+const FIRST_OUTBOUND_CONTACT_STAGES = ['sent_waiting', 'reply_received', 'expired_no_reply', 'negative_reply'] as const;
+const FIRST_OUTBOUND_CONTACT_JOB_STATUSES = ['sent', 'replied_positive', 'replied_negative', 'no_response_archived'] as const;
+const NEGATIVE_OR_OPT_OUT_STATUS_KEYS = [
+  'negative',
+  'opt_out',
+  'replied_negative',
+  'negative_reply',
+  'prospection_negative',
+  'no_whatsapp',
+] as const;
 const NO_RESPONSE_ARCHIVE_MS = 24 * 60 * 60 * 1000;
 const BUSINESS_TIME_ZONE = 'America/Sao_Paulo';
 
@@ -216,6 +235,20 @@ function containsNormalizedKeyword(normalizedText: string, keywords: string[]) {
     const normalizedKeyword = normalizeKey(keyword);
     return Boolean(normalizedKeyword && normalizedText.includes(normalizedKeyword));
   });
+}
+
+function parseBooleanFlag(value: unknown) {
+  if (value === true) return true;
+  if (value === false || value === null || value === undefined) return false;
+  const normalized = normalizeKey(value);
+  return ['1', 'true', 'sim', 'yes', 'y', 'ativo', 'active', 'blocked', 'bloqueado'].includes(normalized);
+}
+
+function hasDateLikeValue(value: unknown) {
+  if (value instanceof Date) return Number.isFinite(value.getTime());
+  const normalized = String(value || '').trim();
+  if (!normalized || ['null', 'undefined', 'false'].includes(normalized.toLowerCase())) return false;
+  return Number.isFinite(new Date(normalized).getTime());
 }
 
 function normalizeWebsiteKey(value: unknown) {
@@ -425,6 +458,276 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
+  private async loadProspectionMetadataForLead(companyId: number, lead: any) {
+    const conversation = await this.findOrCreateProspectionConversation(companyId, lead, { create: false });
+    return {
+      conversationId: conversation?.id ? Number(conversation.id) : null,
+      metadata: parseJsonObject(conversation?.metadata),
+    };
+  }
+
+  private async hasFirstOutboundContactAlready(input: {
+    companyId: number;
+    lead: any;
+    currentJobId?: string | null;
+    metadata?: Record<string, unknown> | null;
+  }) {
+    const metadata =
+      input.metadata === undefined
+        ? (await this.loadProspectionMetadataForLead(input.companyId, input.lead)).metadata
+        : parseJsonObject(input.metadata);
+    const queue = parseJsonObject((metadata as any).vendasAgendaQueue);
+    const automation = parseJsonObject((metadata as any).vendasAutomation);
+    const prospeccao = parseJsonObject((metadata as any).vendasProspeccao);
+    const stageCandidates = [
+      (prospeccao as any).stage,
+      (queue as any).stage,
+      (automation as any).status,
+    ].map(normalizeKey);
+
+    if (hasDateLikeValue((prospeccao as any).firstOutboundAt)) return true;
+    if (hasDateLikeValue((automation as any).sentAt)) return true;
+    if (parseBooleanFlag((queue as any).manualSent)) return true;
+    if (hasDateLikeValue((queue as any).manualSentAt)) return true;
+    if (hasDateLikeValue((queue as any).lastManualSendAt)) return true;
+    if (stageCandidates.some((stage) => (FIRST_OUTBOUND_CONTACT_STAGES as readonly string[]).includes(stage))) return true;
+    if (hasDateLikeValue(input.lead?.lastContactAt)) return true;
+    if (Number(input.lead?.attemptCount || 0) > 0) return true;
+    if (['contato', 'retorno', 'qualificado', 'encerrado'].includes(normalizeKey(input.lead?.status))) return true;
+
+    const currentJobId = trimOrNull(input.currentJobId);
+    const previousContactJob = await this.prisma.vendasAutomationJob.findFirst({
+      where: {
+        companyId: input.companyId,
+        leadId: input.lead.id,
+        ...(currentJobId ? { id: { not: currentJobId } } : {}),
+        OR: [
+          { sentAt: { not: null } },
+          { status: { in: [...FIRST_OUTBOUND_CONTACT_JOB_STATUSES] as any } },
+        ],
+      },
+      select: { id: true },
+      orderBy: [{ sentAt: 'desc' }, { updatedAt: 'desc' }],
+    });
+    return Boolean(previousContactJob?.id);
+  }
+
+  private hasOptOutKeywordInMetadata(metadata: Record<string, unknown>, lead: any) {
+    const queue = parseJsonObject((metadata as any).vendasAgendaQueue);
+    const automation = parseJsonObject((metadata as any).vendasAutomation);
+    const prospeccao = parseJsonObject((metadata as any).vendasProspeccao);
+    const textCandidates = [
+      (metadata as any).lastInboundText,
+      (metadata as any).lastInboundMessage,
+      (metadata as any).latestInboundText,
+      (metadata as any).replyText,
+      (metadata as any).lastReply,
+      (metadata as any).lastCustomerReply,
+      (metadata as any).classificationReason,
+      (metadata as any).negativeReason,
+      (queue as any).lastInboundText,
+      (queue as any).lastReply,
+      (queue as any).classificationReason,
+      (automation as any).lastInboundText,
+      (automation as any).classificationReason,
+      (prospeccao as any).lastInboundText,
+      lead?.lastResult,
+    ];
+    return textCandidates.some((candidate) => {
+      const normalized = normalizeKey(candidate);
+      return Boolean(
+        normalized &&
+          (containsNormalizedKeyword(normalized, OPT_OUT_INTENT_KEYWORDS) ||
+            containsNormalizedKeyword(normalized, DEFAULT_NEGATIVE_KEYWORDS)),
+      );
+    });
+  }
+
+  private async hasNegativeOrOptOut(input: {
+    companyId: number;
+    lead: any;
+    currentJobId?: string | null;
+    metadata?: Record<string, unknown> | null;
+  }) {
+    const metadata =
+      input.metadata === undefined
+        ? (await this.loadProspectionMetadataForLead(input.companyId, input.lead)).metadata
+        : parseJsonObject(input.metadata);
+    const queue = parseJsonObject((metadata as any).vendasAgendaQueue);
+    const automation = parseJsonObject((metadata as any).vendasAutomation);
+    const prospeccao = parseJsonObject((metadata as any).vendasProspeccao);
+    const statusCandidates = [
+      (metadata as any).status,
+      (metadata as any).classification,
+      (metadata as any).replyClassification,
+      (metadata as any).flowResult,
+      (queue as any).status,
+      (queue as any).stage,
+      (queue as any).classification,
+      (automation as any).status,
+      (automation as any).classification,
+      (prospeccao as any).stage,
+      input.lead?.status,
+      input.lead?.lastResult,
+    ].map(normalizeKey);
+    if (
+      statusCandidates.some(
+        (status) =>
+          (NEGATIVE_OR_OPT_OUT_STATUS_KEYS as readonly string[]).includes(status) ||
+          status.includes('negativ') ||
+          status.includes('opt out') ||
+          status.includes('optout') ||
+          status.includes('sem interesse') ||
+          status.includes('nao tenho interesse'),
+      )
+    ) {
+      return true;
+    }
+
+    const availabilityCandidates = [
+      (metadata as any).whatsappAvailabilityStatus,
+      (queue as any).whatsappAvailabilityStatus,
+      (automation as any).whatsappAvailabilityStatus,
+    ].map((value) => String(value || '').trim().toLowerCase());
+    if (availabilityCandidates.includes('unavailable')) return true;
+    if (this.isKnownWithoutWhatsappMetadata(metadata)) return true;
+
+    const flagCandidates = [
+      (metadata as any).optOut,
+      (metadata as any).doNotContact,
+      (metadata as any).blacklisted,
+      (metadata as any).blacklist,
+      (queue as any).optOut,
+      (queue as any).doNotContact,
+      (queue as any).blacklisted,
+      (queue as any).blacklist,
+      (automation as any).optOut,
+      (automation as any).doNotContact,
+      (automation as any).blacklisted,
+      (automation as any).blacklist,
+      input.lead?.optOut,
+      input.lead?.doNotContact,
+      input.lead?.blacklisted,
+      input.lead?.blacklist,
+      input.lead?.wasClosedBefore,
+    ];
+    if (flagCandidates.some(parseBooleanFlag)) return true;
+    if (input.lead?.closedAt) return true;
+    if (this.hasOptOutKeywordInMetadata(metadata, input.lead)) return true;
+
+    const currentJobId = trimOrNull(input.currentJobId);
+    const negativeJob = await this.prisma.vendasAutomationJob.findFirst({
+      where: {
+        companyId: input.companyId,
+        leadId: input.lead.id,
+        ...(currentJobId ? { id: { not: currentJobId } } : {}),
+        OR: [
+          { status: 'replied_negative' },
+          { classification: { in: ['negative', 'opt_out'] } },
+        ],
+      },
+      select: { id: true },
+      orderBy: [{ repliedAt: 'desc' }, { updatedAt: 'desc' }],
+    });
+    return Boolean(negativeJob?.id);
+  }
+
+  private shouldCreateDraftOnlyForSegmentMismatchFallback(metadata: Record<string, unknown>, lead: any) {
+    const queue = parseJsonObject((metadata as any).vendasAgendaQueue);
+    const automation = parseJsonObject((metadata as any).vendasAutomation);
+    const explicitPermissionFlags = [
+      (metadata as any).requiresOptIn,
+      (metadata as any).optInRequired,
+      (metadata as any).consentRequired,
+      (metadata as any).permissionRequired,
+      (metadata as any).autoSendBlocked,
+      (metadata as any).manualFirstContactOnly,
+      (queue as any).requiresOptIn,
+      (queue as any).optInRequired,
+      (queue as any).consentRequired,
+      (queue as any).permissionRequired,
+      (queue as any).autoSendBlocked,
+      (queue as any).manualFirstContactOnly,
+      (automation as any).requiresOptIn,
+      (automation as any).permissionRequired,
+      lead?.requiresOptIn,
+      lead?.optInRequired,
+      lead?.consentRequired,
+      lead?.permissionRequired,
+      lead?.autoSendBlocked,
+      lead?.manualFirstContactOnly,
+    ];
+    if (explicitPermissionFlags.some(parseBooleanFlag)) return true;
+
+    const permissionStatuses = [
+      (metadata as any).optInStatus,
+      (metadata as any).consentStatus,
+      (metadata as any).permissionStatus,
+      (queue as any).optInStatus,
+      (queue as any).consentStatus,
+      (queue as any).permissionStatus,
+      (automation as any).optInStatus,
+      (automation as any).permissionStatus,
+      lead?.optInStatus,
+      lead?.consentStatus,
+      lead?.permissionStatus,
+    ].map(normalizeKey);
+    return permissionStatuses.some((status) =>
+      ['required', 'missing', 'not_granted', 'pending', 'sem opt in', 'sem permissao', 'opt in required'].includes(status),
+    );
+  }
+
+  private async resolveSegmentMismatchFallbackDecision(input: {
+    companyId: number;
+    campaign: any;
+    lead: any;
+    currentJobId?: string | null;
+  }): Promise<SegmentMismatchFallbackDecision> {
+    const contact = normalizeContact(input.lead?.phoneNormalized || input.lead?.phone);
+    if (!contact) return { mode: 'block', reason: 'invalid_whatsapp' };
+
+    const { metadata, conversationId } = await this.loadProspectionMetadataForLead(input.companyId, input.lead);
+    if (await this.hasNegativeOrOptOut({ ...input, metadata })) {
+      return { mode: 'block', reason: 'negative_or_opt_out', conversationId };
+    }
+    if (await this.hasFirstOutboundContactAlready({ ...input, metadata })) {
+      return { mode: 'block', reason: 'first_contact_already_sent', conversationId };
+    }
+    if (this.shouldCreateDraftOnlyForSegmentMismatchFallback(metadata, input.lead)) {
+      return {
+        mode: 'draft_only',
+        reason: 'missing_opt_in_or_permission',
+        message: DEFAULT_SEGMENT_MISMATCH_FALLBACK_MESSAGE,
+        conversationId,
+      };
+    }
+    return {
+      mode: 'auto_send',
+      reason: 'segment_mismatch_fallback',
+      message: DEFAULT_SEGMENT_MISMATCH_FALLBACK_MESSAGE,
+      conversationId,
+    };
+  }
+
+  private publishSegmentMismatchFallbackEvent(input: {
+    companyId: number;
+    campaignId: string;
+    leadId: string;
+    jobId?: string | null;
+    conversationId?: number | null;
+  }) {
+    this.publishAutomationEvent({
+      companyId: input.companyId,
+      campaignId: input.campaignId,
+      jobId: input.jobId || null,
+      leadId: input.leadId,
+      conversationId: input.conversationId || null,
+      status: 'aguardando',
+      text: 'Segmento divergente: usando mensagem genérica segura.',
+      type: 'segment_mismatch_fallback',
+    });
+  }
+
   private async updateProspectionConversationStage(input: {
     companyId: number;
     lead: any;
@@ -439,6 +742,8 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     queueTarget?: 'prospeccao' | 'atendimento' | 'excluidos';
     routeTarget?: 'prospeccao' | 'atendimento' | 'excluidos';
     active?: boolean;
+    botEligible?: boolean;
+    botEntryPending?: boolean;
   }) {
     const conversation = await this.findOrCreateProspectionConversation(input.companyId, input.lead);
     if (!conversation?.id) return null;
@@ -487,9 +792,10 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
       manualSent: input.stage === 'sent_waiting' || queue.manualSent === true,
       manualSentAt: firstOutboundAt || queue.manualSentAt || null,
       lastManualSendAt: firstOutboundAt || queue.lastManualSendAt || null,
-      botEligible: input.stage !== 'needs_review' && queueTarget === 'prospeccao',
-      botEntryPending: input.stage === 'sent_waiting',
+      botEligible: input.botEligible ?? (input.stage !== 'needs_review' && queueTarget === 'prospeccao'),
+      botEntryPending: input.botEntryPending ?? (input.stage === 'sent_waiting'),
       automationJobId: input.jobId || queue.automationJobId || null,
+      mismatchReason: input.mismatchReason || null,
       manualQueueOverride: shouldArchive ? 'archived' : queue.manualQueueOverride || null,
       whatsappAvailabilityStatus: input.stage === 'no_whatsapp' ? 'unavailable' : queue.whatsappAvailabilityStatus || null,
       syncedAt: now,
@@ -1322,12 +1628,48 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
       ? this.moveToWorkingWindow(latestScheduled.scheduledAt, campaign)
       : new Date(Date.now() - intervalMs);
     const data: any[] = [];
+    const fallbackLeadIds = new Set<string>();
+    let draftOnlyCount = 0;
     for (const lead of leads) {
       if (isSegmentMismatch(lead.segment, campaign.segment)) {
-        await this.ensureSegmentMismatchReviewJob(campaign, lead).catch((error) => {
-          this.logger.warn(`Falha ao marcar divergencia de segmento lead=${lead.id}: ${String(error?.message || error)}`);
+        const decision = await this.resolveSegmentMismatchFallbackDecision({
+          companyId: campaign.companyId,
+          campaign,
+          lead,
         });
-        continue;
+        if (decision.mode === 'block') {
+          await this.ensureSegmentMismatchReviewJob(campaign, lead).catch((error) => {
+            this.logger.warn(`Falha ao marcar divergencia de segmento lead=${lead.id}: ${String(error?.message || error)}`);
+          });
+          continue;
+        }
+        if (decision.mode === 'draft_only') {
+          const conversationId = await this.updateProspectionConversationStage({
+            companyId: campaign.companyId,
+            lead,
+            campaign,
+            stage: 'pending_send',
+            draftMessage: decision.message || DEFAULT_SEGMENT_MISMATCH_FALLBACK_MESSAGE,
+            mismatchReason: 'segment_mismatch_fallback',
+            queueTarget: 'prospeccao',
+            routeTarget: 'prospeccao',
+            active: true,
+            botEligible: false,
+            botEntryPending: false,
+          }).catch((error) => {
+            this.logger.warn(`Falha ao preparar fallback manual lead=${lead.id}: ${String(error?.message || error)}`);
+            return null;
+          });
+          draftOnlyCount += 1;
+          this.publishSegmentMismatchFallbackEvent({
+            companyId: campaign.companyId,
+            campaignId: campaign.id,
+            leadId: lead.id,
+            conversationId: conversationId || decision.conversationId || null,
+          });
+          continue;
+        }
+        fallbackLeadIds.add(String(lead.id));
       }
       cursor = this.moveToWorkingWindow(new Date(cursor.getTime() + intervalMs), campaign);
       data.push({
@@ -1337,6 +1679,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
         status: 'scheduled',
         scheduledAt: cursor,
         attemptNumber: Math.max(1, Number(lead.attemptCount || 0) + 1),
+        ...(fallbackLeadIds.has(String(lead.id)) ? { classification: 'segment_mismatch_fallback' } : {}),
       });
     }
     if (data.length) {
@@ -1344,25 +1687,41 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
       for (const item of data) {
         const lead = leads.find((candidate) => candidate.id === item.leadId);
         if (!lead) continue;
-        await this.updateProspectionConversationStage({
+        const usesFallback = fallbackLeadIds.has(String(lead.id));
+        const conversationId = await this.updateProspectionConversationStage({
           companyId: campaign.companyId,
           lead,
           campaign,
           stage: 'scheduled_send',
           scheduledAt: item.scheduledAt,
+          draftMessage: usesFallback ? DEFAULT_SEGMENT_MISMATCH_FALLBACK_MESSAGE : undefined,
+          mismatchReason: usesFallback ? 'segment_mismatch_fallback' : null,
           queueTarget: 'prospeccao',
           routeTarget: 'prospeccao',
           active: true,
         }).catch((error) => {
           this.logger.warn(`Falha ao marcar envio agendado lead=${lead.id}: ${String(error?.message || error)}`);
+          return null;
         });
+        if (usesFallback) {
+          this.publishSegmentMismatchFallbackEvent({
+            companyId: campaign.companyId,
+            campaignId: campaign.id,
+            leadId: lead.id,
+            conversationId,
+          });
+        }
       }
     }
     await this.markCampaignStage(
       campaign.id,
       campaign.companyId,
       'aguardando',
-      data.length ? `${pendingCount + data.length} contatos na fila.` : 'Aguardando novos contatos válidos.',
+      data.length
+        ? `${pendingCount + data.length} contatos na fila.`
+        : draftOnlyCount
+          ? `${draftOnlyCount} card(s) prontos para primeiro contato.`
+          : 'Aguardando novos contatos válidos.',
       { type: 'jobs_scheduled' },
     );
   }
@@ -1459,12 +1818,48 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
           : new Date(now.getTime() - intervalMs);
 
       const data: any[] = [];
+      const fallbackLeadIds = new Set<string>();
+      let draftOnlyCount = 0;
       for (const lead of leads) {
         if (isSegmentMismatch(lead.segment, campaign.segment)) {
-          await this.ensureSegmentMismatchReviewJob(campaign, lead).catch((error) => {
-            this.logger.warn(`Falha ao marcar divergencia de segmento lead=${lead.id}: ${String(error?.message || error)}`);
+          const decision = await this.resolveSegmentMismatchFallbackDecision({
+            companyId: campaign.companyId,
+            campaign,
+            lead,
           });
-          continue;
+          if (decision.mode === 'block') {
+            await this.ensureSegmentMismatchReviewJob(campaign, lead).catch((error) => {
+              this.logger.warn(`Falha ao marcar divergencia de segmento lead=${lead.id}: ${String(error?.message || error)}`);
+            });
+            continue;
+          }
+          if (decision.mode === 'draft_only') {
+            const conversationId = await this.updateProspectionConversationStage({
+              companyId: campaign.companyId,
+              lead,
+              campaign,
+              stage: 'pending_send',
+              draftMessage: decision.message || DEFAULT_SEGMENT_MISMATCH_FALLBACK_MESSAGE,
+              mismatchReason: 'segment_mismatch_fallback',
+              queueTarget: 'prospeccao',
+              routeTarget: 'prospeccao',
+              active: true,
+              botEligible: false,
+              botEntryPending: false,
+            }).catch((error) => {
+              this.logger.warn(`Falha ao preparar fallback manual lead=${lead.id}: ${String(error?.message || error)}`);
+              return null;
+            });
+            draftOnlyCount += 1;
+            this.publishSegmentMismatchFallbackEvent({
+              companyId: campaign.companyId,
+              campaignId: campaign.id,
+              leadId: lead.id,
+              conversationId: conversationId || decision.conversationId || null,
+            });
+            continue;
+          }
+          fallbackLeadIds.add(String(lead.id));
         }
         cursor = this.moveToWorkingWindow(new Date(cursor.getTime() + intervalMs), campaign);
         data.push({
@@ -1474,6 +1869,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
           status: 'scheduled',
           scheduledAt: cursor,
           attemptNumber: Math.max(1, Number(lead.attemptCount || 0) + 1),
+          ...(fallbackLeadIds.has(String(lead.id)) ? { classification: 'segment_mismatch_fallback' } : {}),
         });
       }
 
@@ -1482,18 +1878,30 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
         for (const item of data) {
           const lead = leads.find((candidate) => candidate.id === item.leadId);
           if (!lead) continue;
-          await this.updateProspectionConversationStage({
+          const usesFallback = fallbackLeadIds.has(String(lead.id));
+          const conversationId = await this.updateProspectionConversationStage({
             companyId: campaign.companyId,
             lead,
             campaign,
             stage: 'scheduled_send',
             scheduledAt: item.scheduledAt,
+            draftMessage: usesFallback ? DEFAULT_SEGMENT_MISMATCH_FALLBACK_MESSAGE : undefined,
+            mismatchReason: usesFallback ? 'segment_mismatch_fallback' : null,
             queueTarget: 'prospeccao',
             routeTarget: 'prospeccao',
             active: true,
           }).catch((error) => {
             this.logger.warn(`Falha ao marcar envio agendado lead=${lead.id}: ${String(error?.message || error)}`);
+            return null;
           });
+          if (usesFallback) {
+            this.publishSegmentMismatchFallbackEvent({
+              companyId: campaign.companyId,
+              campaignId: campaign.id,
+              leadId: lead.id,
+              conversationId,
+            });
+          }
         }
         await this.markCampaignStage(
           campaign.id,
@@ -1503,13 +1911,21 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
           { type: 'manual_leads_queued' },
         );
         void this.runWorkerCycle().catch(() => null);
+      } else if (draftOnlyCount) {
+        await this.markCampaignStage(
+          campaign.id,
+          campaign.companyId,
+          'aguardando',
+          `${draftOnlyCount} card(s) prontos para primeiro contato.`,
+          { type: 'manual_leads_ready_for_first_contact' },
+        );
       }
 
       return {
         ok: true,
         campaignId: campaign.id,
         queuedCount: data.length,
-        skippedCount: requestedLeadIds.length - data.length,
+        skippedCount: Math.max(0, requestedLeadIds.length - data.length - draftOnlyCount),
         reason: 'queued',
       };
     } catch (error: any) {
@@ -1740,10 +2156,6 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
       }).catch(() => null);
       return;
     }
-    if (isSegmentMismatch(lead.segment, campaign.segment)) {
-      await this.markSegmentMismatchBeforeSend(job, campaign, lead);
-      return;
-    }
     const noWhatsappState = await this.shouldBlockAutomationForKnownNoWhatsapp(campaign.companyId, lead);
     if (noWhatsappState.blocked) {
       await this.prisma.vendasAutomationJob.update({
@@ -1777,6 +2189,111 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
       });
       return;
     }
+    if (await this.hasNegativeOrOptOut({ companyId: campaign.companyId, lead, currentJobId: job.id })) {
+      await this.prisma.vendasAutomationJob.update({
+        where: { id: job.id },
+        data: {
+          status: 'skipped',
+          archivedAt: now,
+          classification: 'negative_or_opt_out',
+          errorMessage: 'Lead com negativa ou opt-out. Envio automatico bloqueado.',
+        },
+      });
+      const conversationId = await this.updateProspectionConversationStage({
+        companyId: campaign.companyId,
+        lead,
+        campaign,
+        jobId: job.id,
+        stage: 'negative_reply',
+        queueTarget: 'excluidos',
+        routeTarget: 'excluidos',
+        active: false,
+        botEligible: false,
+        botEntryPending: false,
+      }).catch(() => null);
+      this.publishAutomationEvent({
+        companyId: campaign.companyId,
+        campaignId: campaign.id,
+        jobId: job.id,
+        leadId: lead.id,
+        conversationId,
+        status: 'aguardando',
+        text: 'Lead com negativa ou opt-out. Envio automático bloqueado.',
+        type: 'negative_or_opt_out_send_blocked',
+      });
+      return;
+    }
+    let bodyOverride: string | null = null;
+    let mismatchReason: string | null = null;
+    if (isSegmentMismatch(lead.segment, campaign.segment)) {
+      const decision = await this.resolveSegmentMismatchFallbackDecision({
+        companyId: campaign.companyId,
+        campaign,
+        lead,
+        currentJobId: job.id,
+      });
+      if (decision.mode === 'block') {
+        await this.markSegmentMismatchBeforeSend(job, campaign, lead);
+        return;
+      }
+      if (decision.mode === 'draft_only') {
+        await this.prisma.vendasAutomationJob.update({
+          where: { id: job.id },
+          data: {
+            status: 'skipped',
+            archivedAt: now,
+            classification: 'segment_mismatch_fallback_draft',
+            errorMessage: 'Segmento divergente; mensagem generica pronta para envio manual.',
+          },
+        });
+        const conversationId = await this.updateProspectionConversationStage({
+          companyId: campaign.companyId,
+          lead,
+          campaign,
+          jobId: job.id,
+          stage: 'pending_send',
+          draftMessage: decision.message || DEFAULT_SEGMENT_MISMATCH_FALLBACK_MESSAGE,
+          mismatchReason: 'segment_mismatch_fallback',
+          queueTarget: 'prospeccao',
+          routeTarget: 'prospeccao',
+          active: true,
+          botEligible: false,
+          botEntryPending: false,
+        });
+        this.publishSegmentMismatchFallbackEvent({
+          companyId: campaign.companyId,
+          campaignId: campaign.id,
+          jobId: job.id,
+          leadId: lead.id,
+          conversationId: conversationId || decision.conversationId || null,
+        });
+        return;
+      }
+      bodyOverride = decision.message || DEFAULT_SEGMENT_MISMATCH_FALLBACK_MESSAGE;
+      mismatchReason = 'segment_mismatch_fallback';
+      const conversationId = await this.updateProspectionConversationStage({
+        companyId: campaign.companyId,
+        lead,
+        campaign,
+        jobId: job.id,
+        stage: 'scheduled_send',
+        scheduledAt: job.scheduledAt || null,
+        draftMessage: bodyOverride,
+        mismatchReason,
+        queueTarget: 'prospeccao',
+        routeTarget: 'prospeccao',
+        active: true,
+      }).catch(() => decision.conversationId || null);
+      if (String(job.classification || '') !== 'segment_mismatch_fallback') {
+        this.publishSegmentMismatchFallbackEvent({
+          companyId: campaign.companyId,
+          campaignId: campaign.id,
+          jobId: job.id,
+          leadId: lead.id,
+          conversationId,
+        });
+      }
+    }
     await this.prisma.vendasAutomationJob.update({ where: { id: job.id }, data: { status: 'sending' } });
     await this.markCampaignStage(campaign.id, campaign.companyId, 'enviando', `Enviando para ${lead.name || contact}.`, {
       type: 'send_started',
@@ -1787,7 +2304,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
       await new Promise((resolve) => setTimeout(resolve, delayMs));
     }
     const runtimeUser = await this.buildAutomationUser(campaign);
-    const body = this.renderMessageTemplate(campaign.messageTemplate, { lead, campaign, user: runtimeUser });
+    const body = bodyOverride || this.renderMessageTemplate(campaign.messageTemplate, { lead, campaign, user: runtimeUser });
     try {
       const queued = await this.conversations.queueOutboundForCompany(campaign.companyId, {
         to: contact,
@@ -1818,6 +2335,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
             sentAt,
             conversationId: Number(queued.conversationId),
             errorMessage: null,
+            ...(mismatchReason ? { classification: mismatchReason } : {}),
           },
         });
         await tx.vendasLead.update({
@@ -1850,6 +2368,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
         jobId: job.id,
         sentAt,
         draftMessage: body,
+        mismatchReason,
       });
       this.logger.log(`[prospeccao] outbound automatico enviado, mantendo em prospeccao conversation=${Number(queued.conversationId)} job=${job.id}`);
       this.publishAutomationEvent({
@@ -1882,6 +2401,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     jobId: string;
     sentAt: Date;
     draftMessage: string;
+    mismatchReason?: string | null;
   }) {
     const conversation = await this.prisma.companyConversation.findFirst({
       where: { id: input.conversationId, companyId: input.companyId },
@@ -1903,6 +2423,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
           leadId: input.lead.id,
           status: 'sent',
           sentAt: sentAtIso,
+          mismatchReason: input.mismatchReason || null,
         },
         vendasAgendaQueue: {
           ...queue,
@@ -1922,6 +2443,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
           lastManualSendAt: sentAtIso,
           botEligible: true,
           botEntryPending: true,
+          mismatchReason: input.mismatchReason || null,
           syncedAt,
         },
         vendasProspeccao: this.buildProspectionState('sent_waiting', {
@@ -1930,7 +2452,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
           campaign: input.campaign,
           firstOutboundAt: input.sentAt,
           replyDeadlineAt: this.addHoursIso(input.sentAt, 24),
-          mismatchReason: null,
+          mismatchReason: input.mismatchReason || null,
         }),
       },
       lastInteractionAt: input.sentAt,
