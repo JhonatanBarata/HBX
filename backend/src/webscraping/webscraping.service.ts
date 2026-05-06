@@ -663,6 +663,9 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       void this.processNextRadarCampaigns();
     }, 30_000);
     setTimeout(() => {
+      void this.processNextQueuedSearchRun();
+    }, 2_000);
+    setTimeout(() => {
       void this.processNextRadarCampaigns();
     }, 2_000);
   }

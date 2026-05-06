@@ -1,10 +1,11 @@
 import { BadGatewayException, BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { existsSync } from 'fs';
-import { readFile, stat } from 'fs/promises';
+import { mkdir, readFile, stat, writeFile } from 'fs/promises';
 import { join } from 'path';
 import { EmailTemplateService } from './email-template.service';
 import { MailAttachment, MailSendResult, MailService } from './mail.service';
 import { isValidHbxEmail, normalizeHbxEmail } from './hbx-email-intent.util';
+import { PrismaService } from '../prisma/prisma.service';
 
 export const ATTACHMENT_DIR = join(process.cwd(), 'storage', 'master-email');
 export const ATTACHMENT_PATH = join(ATTACHMENT_DIR, 'apresentacao-hbx.pptx');
@@ -13,6 +14,9 @@ export const BUSINESS_CARD_PATH = join(ATTACHMENT_DIR, 'cartao-visitas');
 export const BUSINESS_CARD_META_PATH = join(ATTACHMENT_DIR, 'cartao-visitas.json');
 export const BUSINESS_CARD_CID = 'hbx-business-card';
 export const MASTER_EMAIL_COPY_RECIPIENT = 'barataimports@gmail.com';
+export const PRESENTATION_ASSET_KEY = 'presentation_pptx';
+export const BUSINESS_CARD_ASSET_KEY = 'business_card';
+export const PRESENTATION_PPTX_MIME_TYPE = 'application/vnd.openxmlformats-officedocument.presentationml.presentation';
 
 export type AttachmentMeta = {
   originalName: string;
@@ -50,13 +54,21 @@ export type HbxPresentationEmailResult = {
   source: SendHbxPresentationInput['source'];
 };
 
+export type StoredEmailAsset = {
+  meta: AttachmentMeta;
+  content: Buffer;
+  contentType: string;
+};
+
 @Injectable()
 export class HbxPresentationEmailService {
   private readonly logger = new Logger(HbxPresentationEmailService.name);
+  private legacyAssetMigrationChecked = false;
 
   constructor(
     private readonly mailService: MailService,
     private readonly emailTemplates: EmailTemplateService,
+    private readonly prisma: PrismaService,
   ) {}
 
   normalizeName(value: unknown) {
@@ -83,6 +95,137 @@ export class HbxPresentationEmailService {
   }
 
   async readAttachmentMeta() {
+    if (await this.canUseDatabaseAssetStorage()) {
+      await this.migrateLegacyAssetsToDatabase();
+      return this.readDatabaseAssetMeta(PRESENTATION_ASSET_KEY, 'apresentacao-hbx.pptx');
+    }
+    return this.readLegacyAttachmentMeta();
+  }
+
+  async readBusinessCardMeta(includePreview = false) {
+    if (await this.canUseDatabaseAssetStorage()) {
+      await this.migrateLegacyAssetsToDatabase();
+      return this.readDatabaseAssetMeta(BUSINESS_CARD_ASSET_KEY, 'cartao-visitas.png', includePreview);
+    }
+    return this.readLegacyBusinessCardMeta(includePreview);
+  }
+
+  async readAttachmentContent(): Promise<StoredEmailAsset | null> {
+    if (await this.canUseDatabaseAssetStorage()) {
+      await this.migrateLegacyAssetsToDatabase();
+      return this.readDatabaseAssetContent(PRESENTATION_ASSET_KEY, 'apresentacao-hbx.pptx', PRESENTATION_PPTX_MIME_TYPE);
+    }
+
+    if (!existsSync(ATTACHMENT_PATH)) return null;
+    const meta = await this.readLegacyAttachmentMeta();
+    return {
+      meta: meta || {
+        originalName: 'apresentacao-hbx.pptx',
+        uploadedAt: new Date().toISOString(),
+        size: 0,
+      },
+      content: await readFile(ATTACHMENT_PATH),
+      contentType: PRESENTATION_PPTX_MIME_TYPE,
+    };
+  }
+
+  async readBusinessCardContent(): Promise<StoredEmailAsset | null> {
+    if (await this.canUseDatabaseAssetStorage()) {
+      await this.migrateLegacyAssetsToDatabase();
+      return this.readDatabaseAssetContent(BUSINESS_CARD_ASSET_KEY, 'cartao-visitas.png', 'image/png');
+    }
+
+    if (!existsSync(BUSINESS_CARD_PATH)) return null;
+    const meta = await this.readLegacyBusinessCardMeta(false);
+    return {
+      meta: meta || {
+        originalName: 'cartao-visitas.png',
+        uploadedAt: new Date().toISOString(),
+        size: 0,
+        mimeType: 'image/png',
+      },
+      content: await readFile(BUSINESS_CARD_PATH),
+      contentType: meta?.mimeType || 'image/png',
+    };
+  }
+
+  async savePresentationAttachment(buffer: Buffer, originalName: string) {
+    const uploadedAt = new Date();
+    const meta: AttachmentMeta = {
+      originalName,
+      uploadedAt: uploadedAt.toISOString(),
+      size: Number(buffer.length || 0),
+      mimeType: PRESENTATION_PPTX_MIME_TYPE,
+    };
+
+    if (await this.canUseDatabaseAssetStorage()) {
+      await this.migrateLegacyAssetsToDatabase();
+      await this.prisma.masterEmailAsset.upsert({
+        where: { key: PRESENTATION_ASSET_KEY },
+        create: {
+          key: PRESENTATION_ASSET_KEY,
+          originalName: meta.originalName,
+          mimeType: PRESENTATION_PPTX_MIME_TYPE,
+          size: meta.size,
+          fileData: buffer,
+          uploadedAt,
+        },
+        update: {
+          originalName: meta.originalName,
+          mimeType: PRESENTATION_PPTX_MIME_TYPE,
+          size: meta.size,
+          fileData: buffer,
+          uploadedAt,
+        },
+      });
+      return this.readAttachmentMeta();
+    }
+
+    await mkdir(ATTACHMENT_DIR, { recursive: true });
+    await writeFile(ATTACHMENT_PATH, buffer);
+    await writeFile(ATTACHMENT_META_PATH, JSON.stringify(meta, null, 2), 'utf8');
+    return this.readAttachmentMeta();
+  }
+
+  async saveBusinessCard(buffer: Buffer, input: { originalName: string; mimeType: string }) {
+    const uploadedAt = new Date();
+    const meta: AttachmentMeta = {
+      originalName: input.originalName,
+      uploadedAt: uploadedAt.toISOString(),
+      size: Number(buffer.length || 0),
+      mimeType: input.mimeType,
+    };
+
+    if (await this.canUseDatabaseAssetStorage()) {
+      await this.migrateLegacyAssetsToDatabase();
+      await this.prisma.masterEmailAsset.upsert({
+        where: { key: BUSINESS_CARD_ASSET_KEY },
+        create: {
+          key: BUSINESS_CARD_ASSET_KEY,
+          originalName: meta.originalName,
+          mimeType: meta.mimeType || 'image/png',
+          size: meta.size,
+          fileData: buffer,
+          uploadedAt,
+        },
+        update: {
+          originalName: meta.originalName,
+          mimeType: meta.mimeType || 'image/png',
+          size: meta.size,
+          fileData: buffer,
+          uploadedAt,
+        },
+      });
+      return this.readBusinessCardMeta(true);
+    }
+
+    await mkdir(ATTACHMENT_DIR, { recursive: true });
+    await writeFile(BUSINESS_CARD_PATH, buffer);
+    await writeFile(BUSINESS_CARD_META_PATH, JSON.stringify(meta, null, 2), 'utf8');
+    return this.readBusinessCardMeta(true);
+  }
+
+  private async readLegacyAttachmentMeta() {
     if (!existsSync(ATTACHMENT_PATH)) return null;
     const fileStat = await stat(ATTACHMENT_PATH);
     let meta: Partial<AttachmentMeta> = {};
@@ -100,7 +243,7 @@ export class HbxPresentationEmailService {
     };
   }
 
-  async readBusinessCardMeta(includePreview = false) {
+  private async readLegacyBusinessCardMeta(includePreview = false) {
     if (!existsSync(BUSINESS_CARD_PATH)) return null;
     const fileStat = await stat(BUSINESS_CARD_PATH);
     let meta: Partial<AttachmentMeta> = {};
@@ -123,6 +266,126 @@ export class HbxPresentationEmailService {
       card.previewDataUrl = `data:${mimeType};base64,${content.toString('base64')}`;
     }
     return card;
+  }
+
+  private async canUseDatabaseAssetStorage() {
+    return this.prisma.hasTable('MasterEmailAsset');
+  }
+
+  private parseStoredDate(value: unknown) {
+    const parsed = new Date(String(value || ''));
+    return Number.isNaN(parsed.getTime()) ? new Date() : parsed;
+  }
+
+  private async readDatabaseAssetMeta(key: string, fallbackName: string, includePreview = false) {
+    const row = await this.prisma.masterEmailAsset.findUnique({
+      where: { key },
+      select: {
+        originalName: true,
+        mimeType: true,
+        size: true,
+        uploadedAt: true,
+        fileData: includePreview,
+      },
+    });
+    if (!row) return null;
+
+    const mimeType = String(row.mimeType || (key === PRESENTATION_ASSET_KEY ? PRESENTATION_PPTX_MIME_TYPE : 'image/png'));
+    const meta: AttachmentMeta = {
+      originalName: this.normalizeUploadedOriginalName(row.originalName, fallbackName),
+      uploadedAt: row.uploadedAt ? row.uploadedAt.toISOString() : new Date().toISOString(),
+      size: Number(row.size || 0),
+      mimeType,
+    };
+    if (includePreview && row.fileData) {
+      meta.previewDataUrl = `data:${mimeType};base64,${Buffer.from(row.fileData).toString('base64')}`;
+    }
+    if (key === PRESENTATION_ASSET_KEY) {
+      delete meta.mimeType;
+    }
+    return meta;
+  }
+
+  private async readDatabaseAssetContent(key: string, fallbackName: string, fallbackContentType: string): Promise<StoredEmailAsset | null> {
+    const row = await this.prisma.masterEmailAsset.findUnique({
+      where: { key },
+      select: {
+        originalName: true,
+        mimeType: true,
+        size: true,
+        uploadedAt: true,
+        fileData: true,
+      },
+    });
+    if (!row?.fileData) return null;
+
+    const contentType = String(row.mimeType || fallbackContentType);
+    const meta: AttachmentMeta = {
+      originalName: this.normalizeUploadedOriginalName(row.originalName, fallbackName),
+      uploadedAt: row.uploadedAt ? row.uploadedAt.toISOString() : new Date().toISOString(),
+      size: Number(row.size || Buffer.from(row.fileData).length || 0),
+      mimeType: contentType,
+    };
+    if (key === PRESENTATION_ASSET_KEY) {
+      delete meta.mimeType;
+    }
+
+    return {
+      meta,
+      content: Buffer.from(row.fileData),
+      contentType,
+    };
+  }
+
+  private async migrateLegacyAssetsToDatabase() {
+    if (this.legacyAssetMigrationChecked) return;
+    this.legacyAssetMigrationChecked = true;
+
+    try {
+      if (existsSync(ATTACHMENT_PATH)) {
+        const existing = await this.prisma.masterEmailAsset.findUnique({
+          where: { key: PRESENTATION_ASSET_KEY },
+          select: { key: true },
+        });
+        if (!existing) {
+          const legacyMeta = await this.readLegacyAttachmentMeta();
+          const content = await readFile(ATTACHMENT_PATH);
+          await this.prisma.masterEmailAsset.create({
+            data: {
+              key: PRESENTATION_ASSET_KEY,
+              originalName: legacyMeta?.originalName || 'apresentacao-hbx.pptx',
+              mimeType: PRESENTATION_PPTX_MIME_TYPE,
+              size: Number(legacyMeta?.size || content.length || 0),
+              fileData: content,
+              uploadedAt: legacyMeta?.uploadedAt ? this.parseStoredDate(legacyMeta.uploadedAt) : new Date(),
+            },
+          });
+        }
+      }
+
+      if (existsSync(BUSINESS_CARD_PATH)) {
+        const existing = await this.prisma.masterEmailAsset.findUnique({
+          where: { key: BUSINESS_CARD_ASSET_KEY },
+          select: { key: true },
+        });
+        if (!existing) {
+          const legacyMeta = await this.readLegacyBusinessCardMeta(false);
+          const content = await readFile(BUSINESS_CARD_PATH);
+          await this.prisma.masterEmailAsset.create({
+            data: {
+              key: BUSINESS_CARD_ASSET_KEY,
+              originalName: legacyMeta?.originalName || 'cartao-visitas.png',
+              mimeType: legacyMeta?.mimeType || 'image/png',
+              size: Number(legacyMeta?.size || content.length || 0),
+              fileData: content,
+              uploadedAt: legacyMeta?.uploadedAt ? this.parseStoredDate(legacyMeta.uploadedAt) : new Date(),
+            },
+          });
+        }
+      }
+    } catch (error) {
+      this.logger.warn(`Failed to migrate legacy master email assets: ${error instanceof Error ? error.message : error}`);
+    }
   }
 
   private buildDeliveryErrorMessage(error: unknown) {
@@ -162,26 +425,28 @@ export class HbxPresentationEmailService {
     if (!recipientName) throw new BadRequestException('Informe o nome do contato.');
     if (!recipientEmail) throw new BadRequestException('Informe o e-mail do contato.');
     if (!isValidHbxEmail(recipientEmail)) throw new BadRequestException('Informe um e-mail valido para o contato.');
-    if (!existsSync(ATTACHMENT_PATH)) {
+    const attachmentFile = await this.readAttachmentContent();
+    if (!attachmentFile) {
       throw new BadRequestException('Faca upload do PPTX antes de enviar.');
     }
 
-    const attachmentMeta = await this.readAttachmentMeta();
-    const businessCardMeta = await this.readBusinessCardMeta(false);
-    const hasBusinessCard = Boolean(businessCardMeta) && existsSync(BUSINESS_CARD_PATH);
+    const attachmentMeta = attachmentFile.meta;
+    const businessCardFile = await this.readBusinessCardContent();
+    const businessCardMeta = businessCardFile?.meta || null;
+    const hasBusinessCard = Boolean(businessCardFile);
     const attachments: MailAttachment[] = [
       {
-        filename: attachmentMeta?.originalName || 'apresentacao-hbx.pptx',
-        content: await readFile(ATTACHMENT_PATH),
-        contentType: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+        filename: attachmentMeta.originalName || 'apresentacao-hbx.pptx',
+        content: attachmentFile.content,
+        contentType: attachmentFile.contentType || PRESENTATION_PPTX_MIME_TYPE,
       },
     ];
 
-    if (businessCardMeta && hasBusinessCard) {
+    if (businessCardFile && businessCardMeta && hasBusinessCard) {
       attachments.push({
         filename: businessCardMeta.originalName || 'cartao-visitas.png',
-        content: await readFile(BUSINESS_CARD_PATH),
-        contentType: businessCardMeta.mimeType || 'image/png',
+        content: businessCardFile.content,
+        contentType: businessCardFile.contentType || businessCardMeta.mimeType || 'image/png',
         cid: BUSINESS_CARD_CID,
       });
     }

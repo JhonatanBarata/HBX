@@ -80,6 +80,53 @@ def test_agenda_pf_does_not_filter_by_score(monkeypatch) -> None:
     assert response.results[0].score == 0
 
 
+def test_agenda_pf_skips_excluded_phone_digits(monkeypatch) -> None:
+    async def fake_search_abctelefonos(*args, **kwargs):
+        return [
+            {
+                "name": "Contato Antigo",
+                "phone": "(19) 3456-7890",
+                "phoneDigits": "1934567890",
+                "rating": None,
+                "reviews": None,
+                "address": None,
+                "website": None,
+                "source": "hbx_agenda:abctelefonos",
+                "score": 80,
+            },
+            {
+                "name": "Contato Novo",
+                "phone": "(19) 99999-1234",
+                "phoneDigits": "19999991234",
+                "rating": None,
+                "reviews": None,
+                "address": None,
+                "website": None,
+                "source": "hbx_agenda:abctelefonos",
+                "score": 70,
+            },
+        ]
+
+    monkeypatch.setattr("app.services.search_service.search_abctelefonos", fake_search_abctelefonos)
+
+    response = asyncio.run(
+        SearchService().search(
+            SearchRequest(
+                city="Limeira",
+                state="SP",
+                targetType="agenda_pf",
+                limit=2,
+                fresh=True,
+                excludePhoneDigits=["1934567890"],
+            )
+        )
+    )
+
+    assert response.count == 1
+    assert response.results[0].name == "Contato Novo"
+    assert response.results[0].phoneDigits == "19999991234"
+
+
 def test_agenda_pf_falls_back_to_web_when_abc_is_empty(monkeypatch) -> None:
     async def fake_search_abctelefonos(*args, **kwargs):
         return []

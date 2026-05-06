@@ -1368,6 +1368,37 @@ model MasterGlobalIntegrationConfig {
   updatedAt                DateTime @updatedAt
 }
 
+model MasterEmailTemplate {
+  kind      String   @id
+  subject   String
+  text      String
+  html      String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model MasterEmailAsset {
+  key          String   @id
+  originalName String
+  mimeType     String?
+  size         Int
+  fileData     Bytes
+  uploadedAt   DateTime @default(now())
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model MasterEmailFormState {
+  key           String   @id
+  recipientName String?
+  recipientEmail String?
+  testEmail     String?
+  sampleName    String?
+  sampleCompany String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
 model SystemModule {
   id             Int                @id @default(autoincrement())
   key            String             @unique
