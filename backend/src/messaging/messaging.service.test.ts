@@ -100,6 +100,7 @@ function createService(overrides?: Partial<Record<string, any>>) {
     (overrides?.customerProfileService || {}) as any,
     ({ sendText: async () => undefined, ...(overrides?.webwhatsBridge || {}) } as any),
     inboxRealtime,
+    (overrides?.hbxPresentationEmails || undefined) as any,
   );
 
   return {
@@ -111,6 +112,295 @@ function createService(overrides?: Partial<Record<string, any>>) {
     companyMessageUpdateCalls,
   };
 }
+
+function buildVendasEmailJob(overrides?: Record<string, any>) {
+  return {
+    id: 'job-email-1',
+    companyId: 7,
+    campaignId: 'campaign-1',
+    leadId: 'lead-1',
+    status: 'sent',
+    campaign: {
+      id: 'campaign-1',
+      segment: 'clinicas',
+      positiveIntentKeywordsJson: null,
+      negativeIntentKeywordsJson: null,
+      filtersJson: null,
+    },
+    lead: {
+      id: 'lead-1',
+      companyId: 7,
+      customerProfileId: 'profile-1',
+      name: 'Joao Cliente',
+      phone: '+5519998877766',
+      phoneNormalized: '5519998877766',
+      email: null,
+      segment: 'clinicas',
+      status: 'contato',
+    },
+    ...(overrides || {}),
+  };
+}
+
+function buildHbxDelivery(overrides?: Record<string, any>) {
+  return {
+    ok: true,
+    sentAt: '2026-05-08T19:00:00.000Z',
+    recipientName: 'Joao Cliente',
+    recipientEmail: 'contato@empresa.com.br',
+    subject: 'Apresentacao HBX System',
+    attachment: { originalName: 'apresentacao-hbx.pptx', uploadedAt: '2026-05-01T10:00:00.000Z', size: 123 },
+    businessCard: null,
+    copyRecipients: ['barataimports@gmail.com'],
+    delivery: {
+      ok: true,
+      queued: true,
+      transport: 'resend',
+      previewUrl: null,
+      messageId: 'resend_xxx',
+      accepted: ['contato@empresa.com.br', 'barataimports@gmail.com'],
+      rejected: [],
+      from: 'HBX <jhonatan@hbxsystem.com.br>',
+      replyTo: null,
+      errorCode: null,
+      errorMessage: null,
+    },
+    sentBy: null,
+    source: 'bot',
+    ...(overrides || {}),
+  };
+}
+
+test('handleVendasAutomationInbound sends HBX presentation by email and schedules 48 business hours follow-up', async () => {
+  const metadata = {
+    cliente: 'Joao Cliente',
+    vendasAgendaQueue: {
+      active: true,
+      leadId: 'lead-1',
+      sourceModule: 'vendas',
+      queueTarget: 'prospeccao',
+      routeTarget: 'prospeccao',
+      status: 'contato',
+    },
+  };
+  const sendCalls: Array<Record<string, unknown>> = [];
+  const profileUpdates: Array<Record<string, unknown>> = [];
+  const leadUpdates: Array<Record<string, unknown>> = [];
+  const inboundMetaCalls: Array<Record<string, unknown>> = [];
+  const { service, queueCalls, conversationStateCalls } = createService({
+    prisma: {
+      vendasAutomationJob: {
+        findFirst: async () => buildVendasEmailJob(),
+      },
+      companyConversation: {
+        findFirst: async () => ({
+          id: 42,
+          metadata: JSON.stringify(metadata),
+        }),
+      },
+      customerProfile: {
+        findFirst: async () => ({ id: 'profile-1', notes: 'Nota antiga' }),
+        update: async (input: Record<string, unknown>) => {
+          profileUpdates.push(input);
+          return input;
+        },
+      },
+      vendasLead: {
+        update: async (input: Record<string, unknown>) => {
+          leadUpdates.push(input);
+          return input;
+        },
+      },
+    },
+    customerProfileService: {
+      normalizePhone: (phone: string) => String(phone || '').replace(/\D/g, '').slice(-13),
+    },
+    hbxPresentationEmails: {
+      sendPresentationToContact: async (input: Record<string, unknown>) => {
+        sendCalls.push(input);
+        return buildHbxDelivery();
+      },
+    },
+  });
+
+  const result = await (service as any).handleVendasAutomationInbound({
+    companyId: 7,
+    conversationId: 42,
+    inboundMessageId: 88,
+    from: '+55 19 99887-7766',
+    text: 'Pode mandar no meu email contato@empresa.com.br',
+    timestamp: new Date('2026-05-08T19:00:00.000Z'),
+    metadata,
+    setInboundMeta: async (sourceModule: string, isComplaint: boolean) => {
+      inboundMetaCalls.push({ sourceModule, isComplaint });
+    },
+  });
+
+  assert.equal(result.handled, true);
+  assert.equal(result.classification, 'email_sent');
+  assert.equal(sendCalls.length, 1);
+  assert.equal(sendCalls[0].recipientEmail, 'contato@empresa.com.br');
+  assert.equal(sendCalls[0].recipientName, 'Joao Cliente');
+  assert.equal(queueCalls.length, 1);
+  assert.match(String((queueCalls[0].payload as any).body), /Acabei de enviar/);
+  assert.equal(conversationStateCalls.length, 1);
+  const nextMetadata = (conversationStateCalls[0].payload as any).metadata;
+  assert.equal(nextMetadata.hbxEmailFlow.status, 'sent');
+  assert.equal(nextMetadata.hbxEmailFlow.messageId, 'resend_xxx');
+  assert.equal(nextMetadata.vendasAgendaQueue.status, 'email_enviado');
+  assert.equal(nextMetadata.vendasAgendaQueue.returnAt, '2026-05-18T13:00:00.000Z');
+  assert.equal(nextMetadata.vendasAgendaQueue.draftMessage, 'Oi {{nome}}, tudo bem? Conseguiu ver a apresentação do HBX que te enviei por e-mail?');
+  assert.equal((profileUpdates[0] as any).data.email, 'contato@empresa.com.br');
+  assert.match(String((profileUpdates[0] as any).data.notes), /Apresentacao HBX enviada por e-mail/);
+  assert.equal((leadUpdates[0] as any).data.email, 'contato@empresa.com.br');
+  assert.equal((leadUpdates[0] as any).data.returnAt.toISOString(), '2026-05-18T13:00:00.000Z');
+  assert.equal(inboundMetaCalls[0].sourceModule, 'vendas_prospeccao_email_enviado');
+});
+
+test('handleVendasAutomationInbound asks for email when intent has no address', async () => {
+  const metadata = {
+    vendasAgendaQueue: { active: true, leadId: 'lead-1', sourceModule: 'vendas' },
+  };
+  const { service, queueCalls } = createService({
+    prisma: {
+      vendasAutomationJob: { findFirst: async () => buildVendasEmailJob() },
+    },
+    customerProfileService: {
+      normalizePhone: (phone: string) => String(phone || '').replace(/\D/g, '').slice(-13),
+    },
+    hbxPresentationEmails: {
+      sendPresentationToContact: async () => {
+        throw new Error('should not send without email');
+      },
+    },
+  });
+
+  const result = await (service as any).handleVendasAutomationInbound({
+    companyId: 7,
+    conversationId: 42,
+    inboundMessageId: 89,
+    from: '+55 19 99887-7766',
+    text: 'Pode mandar por email?',
+    timestamp: new Date('2026-05-06T13:00:00.000Z'),
+    metadata,
+    setInboundMeta: async () => undefined,
+  });
+
+  assert.equal(result.classification, 'email_missing');
+  assert.equal(queueCalls.length, 1);
+  assert.equal((queueCalls[0].payload as any).body, 'Perfeito. Qual e-mail devo usar para te enviar a apresentação do HBX?');
+  assert.equal((queueCalls[0].payload as any).flowState.metadata.hbxEmailFlow.status, 'awaiting_email');
+});
+
+test('handleVendasAutomationInbound asks for a valid email when candidate is invalid', async () => {
+  const metadata = {
+    vendasAgendaQueue: { active: true, leadId: 'lead-1', sourceModule: 'vendas' },
+  };
+  const { service, queueCalls } = createService({
+    prisma: {
+      vendasAutomationJob: { findFirst: async () => buildVendasEmailJob() },
+    },
+    customerProfileService: {
+      normalizePhone: (phone: string) => String(phone || '').replace(/\D/g, '').slice(-13),
+    },
+  });
+
+  const result = await (service as any).handleVendasAutomationInbound({
+    companyId: 7,
+    conversationId: 42,
+    inboundMessageId: 90,
+    from: '+55 19 99887-7766',
+    text: 'email: contato@empresa',
+    timestamp: new Date('2026-05-06T13:00:00.000Z'),
+    metadata,
+    setInboundMeta: async () => undefined,
+  });
+
+  assert.equal(result.classification, 'email_invalid');
+  assert.equal((queueCalls[0].payload as any).body, 'Esse e-mail parece invalido. Pode me passar o e-mail completo para envio?');
+  assert.deepEqual((queueCalls[0].payload as any).flowState.metadata.hbxEmailFlow.invalidEmailCandidates, ['contato@empresa']);
+});
+
+test('handleVendasAutomationInbound suppresses recent duplicate HBX email send', async () => {
+  const metadata = {
+    hbxEmailFlow: {
+      status: 'sent',
+      recipientEmail: 'contato@empresa.com.br',
+      sentAt: '2026-05-06T12:30:00.000Z',
+    },
+    vendasAgendaQueue: { active: true, leadId: 'lead-1', sourceModule: 'vendas' },
+  };
+  const { service, queueCalls } = createService({
+    prisma: {
+      vendasAutomationJob: { findFirst: async () => buildVendasEmailJob() },
+    },
+    customerProfileService: {
+      normalizePhone: (phone: string) => String(phone || '').replace(/\D/g, '').slice(-13),
+    },
+    hbxPresentationEmails: {
+      sendPresentationToContact: async () => {
+        throw new Error('duplicate should not send');
+      },
+    },
+  });
+
+  const result = await (service as any).handleVendasAutomationInbound({
+    companyId: 7,
+    conversationId: 42,
+    inboundMessageId: 91,
+    from: '+55 19 99887-7766',
+    text: 'manda no contato@empresa.com.br',
+    timestamp: new Date('2026-05-06T13:00:00.000Z'),
+    metadata,
+    setInboundMeta: async () => undefined,
+  });
+
+  assert.equal(result.classification, 'email_duplicate_recent');
+  assert.equal(queueCalls.length, 1);
+  assert.match(String((queueCalls[0].payload as any).body), /já foi enviada/);
+});
+
+test('handleVendasAutomationInbound routes to human when email provider fails', async () => {
+  const metadata = {
+    vendasAgendaQueue: { active: true, leadId: 'lead-1', sourceModule: 'vendas' },
+  };
+  const { service, queueCalls } = createService({
+    prisma: {
+      vendasAutomationJob: { findFirst: async () => buildVendasEmailJob() },
+    },
+    customerProfileService: {
+      normalizePhone: (phone: string) => String(phone || '').replace(/\D/g, '').slice(-13),
+    },
+    hbxPresentationEmails: {
+      sendPresentationToContact: async () => buildHbxDelivery({
+        ok: false,
+        delivery: {
+          ...buildHbxDelivery().delivery,
+          ok: false,
+          messageId: null,
+          errorCode: 'MAIL_DISABLED_LOCALLY',
+          errorMessage: 'Email logged locally.',
+        },
+      }),
+    },
+  });
+
+  const result = await (service as any).handleVendasAutomationInbound({
+    companyId: 7,
+    conversationId: 42,
+    inboundMessageId: 92,
+    from: '+55 19 99887-7766',
+    text: 'me envia no email contato@empresa.com.br',
+    timestamp: new Date('2026-05-06T13:00:00.000Z'),
+    metadata,
+    setInboundMeta: async () => undefined,
+  });
+
+  assert.equal(result.classification, 'email_failed');
+  assert.equal(queueCalls.length, 1);
+  assert.equal((queueCalls[0].payload as any).flowState.humanAssigned, true);
+  assert.match(String((queueCalls[0].payload as any).body), /problema para enviar/);
+});
 
 test('upsertAtendimentoCustomerLocal reuses known customer profile before syncing atendimento projection', async () => {
   const upsertCalls: Array<Record<string, unknown>> = [];

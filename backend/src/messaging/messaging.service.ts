@@ -1,4 +1,4 @@
-import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException, OnModuleDestroy, OnModuleInit, Optional } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import axios from 'axios';
 import crypto from 'crypto';
@@ -65,6 +65,13 @@ import {
   COMMERCIAL_ENTITLEMENT_KEYS,
   isCommercialEntitlementActive,
 } from '../commercial-plans/commercial-plan-catalog';
+import { HbxPresentationEmailService, type HbxPresentationEmailResult } from '../mail/hbx-presentation-email.service';
+import {
+  addBusinessHours,
+  detectHbxPresentationEmailIntent,
+  normalizeHbxEmail,
+  type HbxPresentationEmailIntent,
+} from '../mail/hbx-email-intent.util';
 
 function clamp(n: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, n));
@@ -183,6 +190,8 @@ const ATENDIMENTO_STEP = {
   COLLECTING_NAME_CONFIRM: 'coletando_confirmacao_nome',
   COLLECTING_NAME: 'coletando_nome',
 } as const;
+const HBX_EMAIL_FOLLOW_UP_DRAFT = 'Oi {{nome}}, tudo bem? Conseguiu ver a apresentação do HBX que te enviei por e-mail?';
+const HBX_EMAIL_RECENT_DUPLICATE_MS = 24 * 60 * 60 * 1000;
 
 type VendasAgendaQueueMetadata = {
   active?: boolean;
@@ -223,6 +232,7 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     private readonly customerProfileService: CustomerProfileService,
     private readonly webwhatsBridge: WebwhatsBridgeService,
     private readonly inboxRealtime: InboxRealtimeService,
+    @Optional() private readonly hbxPresentationEmails?: HbxPresentationEmailService,
   ) {}
 
   onModuleInit() {
@@ -1515,6 +1525,426 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     });
   }
 
+  private resolveHbxPresentationRecipientName(job: any, metadata: Record<string, any>) {
+    return String(
+      job?.lead?.name ||
+        metadata?.cliente ||
+        metadata?.customerName ||
+        metadata?.name ||
+        job?.lead?.phone ||
+        'cliente',
+    ).replace(/\s+/g, ' ').trim() || 'cliente';
+  }
+
+  private formatHbxEmailNoteDate(date: Date) {
+    const parts = new Intl.DateTimeFormat('pt-BR', {
+      timeZone: 'America/Sao_Paulo',
+      day: '2-digit',
+      month: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    }).formatToParts(date);
+    const byType = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+    return `${byType.day}/${byType.month} as ${byType.hour}:${byType.minute}`;
+  }
+
+  private appendHbxEmailCustomerNote(currentNotes: unknown, sentAt: Date) {
+    const base = String(currentNotes || '').trim();
+    const line = `Apresentacao HBX enviada por e-mail em ${this.formatHbxEmailNoteDate(sentAt)}.`;
+    if (base.includes(line)) return base || line;
+    return [base, line].filter(Boolean).join('\n');
+  }
+
+  private isRecentHbxEmailDuplicate(metadata: Record<string, any>, recipientEmail: string, now: Date) {
+    const flow = this.readJsonRecord(metadata?.hbxEmailFlow);
+    const sentAt = new Date(String(flow.sentAt || ''));
+    const flowEmail = normalizeHbxEmail(flow.recipientEmail);
+    return (
+      String(flow.status || '').trim().toLowerCase() === 'sent' &&
+      Boolean(flowEmail) &&
+      flowEmail === recipientEmail &&
+      Number.isFinite(sentAt.getTime()) &&
+      now.getTime() - sentAt.getTime() <= HBX_EMAIL_RECENT_DUPLICATE_MS
+    );
+  }
+
+  private buildHbxEmailPendingMetadata(input: {
+    metadata: Record<string, any>;
+    job: any;
+    status: 'awaiting_email' | 'invalid_email' | 'failed';
+    recipientEmail?: string | null;
+    errorMessage?: string | null;
+    invalidEmailCandidates?: string[];
+    at: Date;
+  }) {
+    const queue = this.readJsonRecord(input.metadata?.vendasAgendaQueue);
+    const nowIso = input.at.toISOString();
+    return {
+      ...this.clearAtendimentoBlockedMetadata(input.metadata),
+      sourceModule: 'vendas',
+      queueTarget: 'prospeccao',
+      routeTarget: 'prospeccao',
+      hbxEmailFlow: {
+        ...this.readJsonRecord(input.metadata?.hbxEmailFlow),
+        status: input.status,
+        recipientEmail: input.recipientEmail || null,
+        requestedAt: nowIso,
+        errorMessage: input.errorMessage || null,
+        invalidEmailCandidates: input.invalidEmailCandidates || [],
+        source: 'bot_intent',
+      },
+      vendasAgendaQueue: {
+        ...queue,
+        active: true,
+        leadId: String(input.job?.leadId || input.job?.lead?.id || queue.leadId || '').trim() || null,
+        sourceModule: 'vendas',
+        queueTarget: 'prospeccao',
+        routeTarget: 'prospeccao',
+        status: input.status === 'failed' ? 'email_falhou' : 'email_pendente',
+        nextAction: input.status === 'failed'
+          ? 'Atendimento humano para envio da apresentacao HBX'
+          : 'Aguardar e-mail para envio da apresentacao HBX',
+        draftPending: false,
+        botEligible: false,
+        botEntryPending: false,
+        syncedAt: nowIso,
+      },
+    };
+  }
+
+  private async queueHbxEmailBotReply(input: {
+    companyId: number;
+    conversationId: number;
+    to: string;
+    body: string;
+    metadata?: Record<string, unknown>;
+    humanAssigned?: boolean;
+    variables?: Record<string, unknown>;
+  }) {
+    return this.conversations.queueOutboundForCompany(input.companyId, {
+      conversationId: input.conversationId,
+      to: input.to,
+      contactId: input.to,
+      body: input.body,
+      messageType: 'text',
+      sourceModule: 'vendas_prospeccao_email_bot',
+      senderType: 'bot',
+      variables: {
+        intent: 'SEND_HBX_PRESENTATION_EMAIL',
+        ...(input.variables || {}),
+      },
+      flowState: {
+        currentFlow: ATENDIMENTO_FLOW_ID,
+        currentStep: ATENDIMENTO_STEP.HUMAN,
+        botActive: false,
+        humanAssigned: Boolean(input.humanAssigned),
+        flowResult: input.humanAssigned ? 'prospection_email_failed' : null,
+        metadata: input.metadata || undefined,
+      },
+    });
+  }
+
+  private async updateHbxEmailProfileAndLead(input: {
+    companyId: number;
+    job: any;
+    recipientEmail: string;
+    sentAt: Date;
+    followUpAt: Date;
+  }) {
+    const customerProfileDelegate = (this.prisma as any).customerProfile;
+    const vendasLeadDelegate = (this.prisma as any).vendasLead;
+    const profileId = String(input.job?.lead?.customerProfileId || '').trim();
+    const phoneNormalized = this.customerProfileService.normalizePhone(input.job?.lead?.phoneNormalized || input.job?.lead?.phone);
+
+    if (
+      (profileId || phoneNormalized) &&
+      typeof customerProfileDelegate?.findFirst === 'function' &&
+      typeof customerProfileDelegate?.update === 'function'
+    ) {
+      const profile = await customerProfileDelegate.findFirst({
+        where: {
+          companyId: input.companyId,
+          OR: [
+            ...(profileId ? [{ id: profileId }] : []),
+            ...(phoneNormalized ? [{ phoneNormalized }] : []),
+          ],
+        },
+        select: { id: true, notes: true },
+        orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
+      });
+      if (profile?.id) {
+        await customerProfileDelegate.update({
+          where: { id: profile.id },
+          data: {
+            email: input.recipientEmail,
+            notes: this.appendHbxEmailCustomerNote(profile.notes, input.sentAt),
+          },
+        });
+      }
+    }
+
+    if (typeof vendasLeadDelegate?.update === 'function' && input.job?.leadId) {
+      const leadData: Record<string, unknown> = {
+        email: input.recipientEmail,
+        nextAction: 'Perguntar se viu o e-mail da apresentacao HBX',
+        returnAt: input.followUpAt,
+        lastContactAt: input.sentAt,
+        lastResult: 'Apresentacao HBX enviada por e-mail',
+      };
+      if (String(input.job?.lead?.status || '').trim().toLowerCase() !== 'encerrado') {
+        leadData.status = 'retorno';
+      }
+      await vendasLeadDelegate.update({
+        where: { id: input.job.leadId },
+        data: leadData,
+      });
+    }
+  }
+
+  private buildHbxEmailSuccessMetadata(input: {
+    metadata: Record<string, any>;
+    job: any;
+    recipientName: string;
+    recipientEmail: string;
+    secondaryEmails?: string[];
+    delivery: HbxPresentationEmailResult;
+    followUpAt: Date;
+    inboundAt: Date;
+  }) {
+    const nowIso = input.delivery.sentAt;
+    const followUpIso = input.followUpAt.toISOString();
+    const queue = this.readJsonRecord(input.metadata?.vendasAgendaQueue);
+    const prospeccao = this.readJsonRecord(input.metadata?.vendasProspeccao);
+    return {
+      ...this.clearAtendimentoBlockedMetadata(input.metadata),
+      sourceModule: 'vendas',
+      queueTarget: 'prospeccao',
+      routeTarget: 'prospeccao',
+      hbxEmailFlow: {
+        status: 'sent',
+        recipientName: input.recipientName,
+        recipientEmail: input.recipientEmail,
+        sentAt: nowIso,
+        messageId: input.delivery.delivery.messageId,
+        source: 'bot_intent',
+        secondaryEmails: input.secondaryEmails || [],
+        followUpAt: followUpIso,
+        followUpStatus: 'pending',
+        copyRecipients: input.delivery.copyRecipients,
+      },
+      vendasAgendaQueue: {
+        ...queue,
+        active: true,
+        leadId: String(input.job?.leadId || input.job?.lead?.id || queue.leadId || '').trim() || null,
+        sourceModule: 'vendas',
+        sourceBlock: 'scheduled',
+        queueTarget: 'prospeccao',
+        routeTarget: 'prospeccao',
+        status: 'email_enviado',
+        nextAction: 'Perguntar se viu o e-mail da apresentação HBX',
+        returnAt: followUpIso,
+        draftMessage: HBX_EMAIL_FOLLOW_UP_DRAFT,
+        draftPending: true,
+        manualSent: true,
+        manualSentAt: nowIso,
+        lastManualSendAt: nowIso,
+        botEligible: false,
+        botEntryPending: false,
+        syncedAt: nowIso,
+      },
+      vendasProspeccao: {
+        ...prospeccao,
+        stage: 'reply_received',
+        lastInboundAt: input.inboundAt.toISOString(),
+        leadSegment: input.job?.lead?.segment || prospeccao.leadSegment || null,
+        campaignSegment: input.job?.campaign?.segment || prospeccao.campaignSegment || null,
+        mismatchReason: null,
+      },
+    };
+  }
+
+  private async handleHbxPresentationEmailIntent(input: {
+    companyId: number;
+    conversationId: number;
+    inboundMessageId: number;
+    from: string;
+    text: string;
+    timestamp: Date;
+    metadata: Record<string, any>;
+    setInboundMeta: (sourceModule: string, isComplaint: boolean) => Promise<void>;
+  }, job: any, intent: HbxPresentationEmailIntent) {
+    if (!intent.intent) return null;
+
+    const now = input.timestamp instanceof Date ? input.timestamp : new Date();
+    const recipientName = this.resolveHbxPresentationRecipientName(job, input.metadata);
+
+    if (!intent.extractedEmail) {
+      const invalid = intent.invalidEmailCandidates.length > 0;
+      const body = invalid
+        ? 'Esse e-mail parece invalido. Pode me passar o e-mail completo para envio?'
+        : 'Perfeito. Qual e-mail devo usar para te enviar a apresentação do HBX?';
+      await input.setInboundMeta(invalid ? 'vendas_prospeccao_email_invalido' : 'vendas_prospeccao_email_pendente', false);
+      await this.queueHbxEmailBotReply({
+        companyId: input.companyId,
+        conversationId: input.conversationId,
+        to: input.from,
+        body,
+        metadata: this.buildHbxEmailPendingMetadata({
+          metadata: input.metadata,
+          job,
+          status: invalid ? 'invalid_email' : 'awaiting_email',
+          invalidEmailCandidates: intent.invalidEmailCandidates,
+          at: now,
+        }),
+        variables: {
+          confidence: intent.confidence,
+          needsEmail: true,
+          invalidEmailCandidates: intent.invalidEmailCandidates,
+        },
+      });
+      return { handled: true, classification: invalid ? 'email_invalid' : 'email_missing' };
+    }
+
+    const recipientEmail = intent.extractedEmail;
+    if (this.isRecentHbxEmailDuplicate(input.metadata, recipientEmail, now)) {
+      await input.setInboundMeta('vendas_prospeccao_email_duplicado', false);
+      await this.queueHbxEmailBotReply({
+        companyId: input.companyId,
+        conversationId: input.conversationId,
+        to: input.from,
+        body: `A apresentação do HBX já foi enviada para ${recipientEmail}. Qualquer dúvida, pode me chamar por aqui.`,
+        variables: {
+          confidence: intent.confidence,
+          recipientEmail,
+          duplicate: true,
+        },
+      });
+      return { handled: true, classification: 'email_duplicate_recent' };
+    }
+
+    if (!this.hbxPresentationEmails) return null;
+
+    let delivery: HbxPresentationEmailResult;
+    try {
+      delivery = await this.hbxPresentationEmails.sendPresentationToContact({
+        companyId: input.companyId,
+        conversationId: input.conversationId,
+        customerProfileId: job?.lead?.customerProfileId || null,
+        recipientName,
+        recipientEmail,
+        source: 'bot',
+      });
+    } catch (error: any) {
+      await input.setInboundMeta('vendas_prospeccao_email_falhou', false);
+      await this.queueHbxEmailBotReply({
+        companyId: input.companyId,
+        conversationId: input.conversationId,
+        to: input.from,
+        body: 'Tive um problema para enviar a apresentação por e-mail agora. Vou encaminhar para atendimento humano continuar por aqui.',
+        humanAssigned: true,
+        metadata: this.buildHbxEmailPendingMetadata({
+          metadata: input.metadata,
+          job,
+          status: 'failed',
+          recipientEmail,
+          errorMessage: String(error?.message || error || 'Falha no envio do e-mail.'),
+          at: now,
+        }),
+        variables: {
+          confidence: intent.confidence,
+          recipientEmail,
+          error: String(error?.message || error || ''),
+        },
+      });
+      return { handled: true, classification: 'email_failed' };
+    }
+
+    if (!delivery.ok) {
+      await input.setInboundMeta('vendas_prospeccao_email_falhou', false);
+      await this.queueHbxEmailBotReply({
+        companyId: input.companyId,
+        conversationId: input.conversationId,
+        to: input.from,
+        body: 'Tive um problema para enviar a apresentação por e-mail agora. Vou encaminhar para atendimento humano continuar por aqui.',
+        humanAssigned: true,
+        metadata: this.buildHbxEmailPendingMetadata({
+          metadata: input.metadata,
+          job,
+          status: 'failed',
+          recipientEmail,
+          errorMessage: delivery.delivery.errorMessage || 'Provedor de e-mail nao confirmou o envio.',
+          at: now,
+        }),
+        variables: {
+          confidence: intent.confidence,
+          recipientEmail,
+          errorCode: delivery.delivery.errorCode,
+        },
+      });
+      return { handled: true, classification: 'email_failed' };
+    }
+
+    const sentAt = new Date(delivery.sentAt);
+    const followUpAt = addBusinessHours(sentAt, 48);
+    const metadata = this.buildHbxEmailSuccessMetadata({
+      metadata: input.metadata,
+      job,
+      recipientName,
+      recipientEmail,
+      secondaryEmails: intent.extractedEmails.slice(1),
+      delivery,
+      followUpAt,
+      inboundAt: now,
+    });
+
+    await this.updateHbxEmailProfileAndLead({
+      companyId: input.companyId,
+      job,
+      recipientEmail,
+      sentAt,
+      followUpAt,
+    });
+    await this.updateAtendimentoConversationState(
+      input.companyId,
+      input.conversationId,
+      {
+        currentFlow: ATENDIMENTO_FLOW_ID,
+        currentStep: ATENDIMENTO_STEP.HUMAN,
+        botActive: false,
+        humanAssigned: false,
+        flowResult: 'prospection_email_sent',
+      },
+      metadata,
+    );
+    await input.setInboundMeta('vendas_prospeccao_email_enviado', false);
+    await this.queueHbxEmailBotReply({
+      companyId: input.companyId,
+      conversationId: input.conversationId,
+      to: input.from,
+      body: `Agradeço o retorno. Acabei de enviar a apresentação do HBX para ${recipientEmail}.\nQualquer dúvida, pode me chamar por aqui.`,
+      variables: {
+        confidence: intent.confidence,
+        recipientEmail,
+        messageId: delivery.delivery.messageId,
+        followUpAt: followUpAt.toISOString(),
+      },
+    });
+
+    this.publishVendasAutomationEvent({
+      companyId: input.companyId,
+      campaignId: job.campaignId,
+      jobId: job.id,
+      leadId: job.leadId,
+      conversationId: input.conversationId,
+      status: 'aguardando',
+      text: 'Apresentacao HBX enviada por e-mail. Retorno agendado.',
+      type: 'hbx_email_sent',
+    });
+
+    return { handled: true, classification: 'email_sent' };
+  }
+
   private async handleVendasAutomationInbound(input: {
     companyId: number;
     conversationId: number;
@@ -1585,6 +2015,12 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
       await input.setInboundMeta(optOut ? 'vendas_prospeccao_opt_out' : 'vendas_prospeccao_negativo', false);
       await this.markVendasAutomationNegative({ ...input, optOut }, job);
       return { handled: true, classification: optOut ? 'opt_out' : 'negative' };
+    }
+
+    const hbxEmailIntent = detectHbxPresentationEmailIntent(input.text);
+    const hbxEmailHandled = await this.handleHbxPresentationEmailIntent(input, job, hbxEmailIntent);
+    if (hbxEmailHandled?.handled) {
+      return hbxEmailHandled;
     }
 
     if (positive) {

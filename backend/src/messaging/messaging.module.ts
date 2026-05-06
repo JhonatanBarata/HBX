@@ -16,9 +16,10 @@ import { CadastrosModule } from '../cadastros/cadastros.module';
 import { CustomerProfileModule } from '../customer-profile/customer-profile.module';
 import { WebwhatsBridgeService } from './webwhats-bridge.service';
 import { InboxRealtimeService } from './inbox-realtime.service';
+import { MailModule } from '../mail/mail.module';
 
 @Module({
-  imports: [PrismaModule, forwardRef(() => ModulesAccessModule), PaymentsModule, CadastrosModule, CustomerProfileModule],
+  imports: [PrismaModule, forwardRef(() => ModulesAccessModule), PaymentsModule, CadastrosModule, CustomerProfileModule, MailModule],
   providers: [MessagingService, ConversationSessionsService, MessageOrchestratorService, OrderDraftsService, ConversationsService, WhatsAppStatusService, WhatsAppAuditService, WebwhatsBridgeService, InboxRealtimeService],
   controllers: [MessagingController, ConversationsController, WhatsAppController],
   exports: [WhatsAppStatusService, ConversationsService, WhatsAppAuditService, WebwhatsBridgeService, InboxRealtimeService],
