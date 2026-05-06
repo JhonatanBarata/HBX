@@ -1,8 +1,10 @@
 import {
+  BadGatewayException,
   BadRequestException,
   Body,
   Controller,
   Get,
+  Logger,
   Param,
   Post,
   Put,
@@ -96,6 +98,8 @@ type AttachmentMeta = {
 @Controller('master/email')
 @UseGuards(JwtAuthGuard, MasterGuard)
 export class MasterEmailController {
+  private readonly logger = new Logger(MasterEmailController.name);
+
   constructor(
     private readonly mailService: MailService,
     private readonly emailTemplates: EmailTemplateService,
@@ -106,7 +110,7 @@ export class MasterEmailController {
   }
 
   private buildBusinessCardHtml() {
-    return `<img src="cid:${BUSINESS_CARD_CID}" alt="Cartao de visitas" style="display:block;max-width:100%;width:auto;height:auto;border:0;outline:none;text-decoration:none">`;
+    return `<img src="cid:${BUSINESS_CARD_CID}" alt="Cartão de visitas" style="display:block;max-width:100%;width:auto;height:auto;border:0;outline:none;text-decoration:none">`;
   }
 
   private buildAppUrl() {
@@ -125,7 +129,7 @@ export class MasterEmailController {
       }
     }
     return {
-      originalName: String(meta.originalName || 'apresentacao-hbx.pptx'),
+      originalName: this.normalizeUploadedOriginalName(meta.originalName, 'apresentacao-hbx.pptx'),
       uploadedAt: String(meta.uploadedAt || fileStat.mtime.toISOString()),
       size: Number(meta.size || fileStat.size || 0),
     };
@@ -144,7 +148,7 @@ export class MasterEmailController {
     }
     const mimeType = String(meta.mimeType || 'image/png');
     const card: AttachmentMeta = {
-      originalName: String(meta.originalName || 'cartao-visitas.png'),
+      originalName: this.normalizeUploadedOriginalName(meta.originalName, 'cartao-visitas.png'),
       uploadedAt: String(meta.uploadedAt || fileStat.mtime.toISOString()),
       size: Number(meta.size || fileStat.size || 0),
       mimeType,
@@ -154,6 +158,44 @@ export class MasterEmailController {
       card.previewDataUrl = `data:${mimeType};base64,${content.toString('base64')}`;
     }
     return card;
+  }
+
+  private normalizeUploadedOriginalName(value: unknown, fallback: string) {
+    const raw = String(value || fallback || '')
+      .replace(/[\\/]/g, '')
+      .replace(/\s+/g, ' ')
+      .trim() || fallback;
+    if (!/[ÃÂ]/.test(raw)) return raw;
+
+    const decoded = Buffer.from(raw, 'latin1').toString('utf8').trim();
+    return decoded && !decoded.includes('�') ? decoded : raw;
+  }
+
+  private buildDeliveryErrorMessage(error: unknown) {
+    const message = error instanceof Error ? error.message : String(error || '');
+    const normalized = message.toLowerCase();
+    if (normalized.includes('domain is not verified') || normalized.includes('verify your domain')) {
+      return 'O provedor de e-mail recusou o remetente configurado. Use um domínio verificado no Resend ou ajuste MAIL_FROM no servidor.';
+    }
+    if (normalized.includes('too large') || normalized.includes('size') || normalized.includes('attachment')) {
+      return 'O provedor de e-mail recusou o envio por tamanho de anexo. Reduza o PPTX ou use um link público.';
+    }
+    if (normalized.includes('configuration') || normalized.includes('not configured') || normalized.includes('missing')) {
+      return 'Configuração de e-mail incompleta no servidor. Verifique SMTP/Resend antes de enviar.';
+    }
+    return 'Falha no provedor de e-mail. Verifique a configuração SMTP/Resend e tente novamente.';
+  }
+
+  private async sendMasterMail(input: Parameters<MailService['sendMail']>[0]) {
+    try {
+      return await this.mailService.sendMail(input);
+    } catch (error) {
+      this.logger.error(
+        `Master email delivery failed: ${error instanceof Error ? error.message : error}`,
+        error instanceof Error ? error.stack : undefined,
+      );
+      throw new BadGatewayException(this.buildDeliveryErrorMessage(error));
+    }
   }
 
   private formatTemplate(template: EmailTemplate) {
@@ -212,7 +254,7 @@ export class MasterEmailController {
   async sendTemplateTest(@Param('kind') kindParam: string, @Body() dto: TestEmailTemplateDto) {
     const kind = this.emailTemplates.normalizeKind(kindParam);
     const to = String(dto.to || '').trim().toLowerCase();
-    if (!to) throw new BadRequestException('Informe o email de teste.');
+    if (!to) throw new BadRequestException('Informe o e-mail de teste.');
 
     const template = await this.emailTemplates.getTemplate(kind);
     this.emailTemplates.validateTemplateInput(kind, template.subject, template.text);
@@ -233,13 +275,11 @@ export class MasterEmailController {
       });
     }
 
-    const delivery = await this.mailService.sendMail({
+    const delivery = await this.sendMasterMail({
       to,
       subject: rendered.subject,
       text: rendered.text,
       html: rendered.html,
-      from: kind === 'normal' ? 'Jhonatan | HBX <jhonatan@hbx.com.br>' : undefined,
-      replyTo: kind === 'normal' ? 'jhonatan@hbx.com.br' : undefined,
       attachments,
     });
 
@@ -261,7 +301,7 @@ export class MasterEmailController {
       html: template.html || null,
       variables: this.emailTemplates.getAvailableVariables('normal'),
       sender: {
-        from: config.from || 'jhonatan@hbx.com.br',
+        from: config.from || 'HBX <jhonatan@hbxsystem.com.br>',
         replyTo: config.replyTo || null,
         ready: config.ready,
         mode: config.mode,
@@ -283,7 +323,7 @@ export class MasterEmailController {
     if (!file?.buffer?.length) {
       throw new BadRequestException('Envie um arquivo PPTX.');
     }
-    const originalName = String(file.originalname || '').trim() || 'apresentacao-hbx.pptx';
+    const originalName = this.normalizeUploadedOriginalName(file.originalname, 'apresentacao-hbx.pptx');
     if (extname(originalName).toLowerCase() !== '.pptx') {
       throw new BadRequestException('O anexo precisa ser um arquivo .pptx.');
     }
@@ -315,7 +355,7 @@ export class MasterEmailController {
       throw new BadRequestException('O cartão precisa ser PNG, JPG ou WEBP.');
     }
 
-    const originalName = String(file.originalname || '').trim() || 'cartao-visitas.png';
+    const originalName = this.normalizeUploadedOriginalName(file.originalname, 'cartao-visitas.png');
     await mkdir(ATTACHMENT_DIR, { recursive: true });
     await writeFile(BUSINESS_CARD_PATH, file.buffer);
     const meta: AttachmentMeta = {
@@ -336,9 +376,9 @@ export class MasterEmailController {
     const text = String(dto.text || '').replace(/\r\n/g, '\n').trim();
     const html = String(dto.html || '').trim();
     if (!recipientName) throw new BadRequestException('Informe o nome do contato.');
-    if (!recipientEmail) throw new BadRequestException('Informe o email do contato.');
-    if (!subject) throw new BadRequestException('Informe o assunto do email.');
-    if (!text) throw new BadRequestException('Informe a mensagem do email.');
+    if (!recipientEmail) throw new BadRequestException('Informe o e-mail do contato.');
+    if (!subject) throw new BadRequestException('Informe o assunto do e-mail.');
+    if (!text) throw new BadRequestException('Informe a mensagem do e-mail.');
     if (!existsSync(ATTACHMENT_PATH)) {
       throw new BadRequestException('Faça upload do PPTX antes de enviar.');
     }
@@ -382,7 +422,7 @@ export class MasterEmailController {
           ano: new Date().getFullYear(),
         })
       : null;
-    const delivery = await this.mailService.sendMail({
+    const delivery = await this.sendMasterMail({
       to: recipientEmail,
       subject: renderedSubject,
       text: renderedText,
@@ -390,8 +430,6 @@ export class MasterEmailController {
         html: renderedHtml,
         appendHtml: hasBusinessCard ? this.buildBusinessCardHtml() : null,
       }),
-      from: 'Jhonatan | HBX <jhonatan@hbx.com.br>',
-      replyTo: 'jhonatan@hbx.com.br',
       attachments,
     });
 

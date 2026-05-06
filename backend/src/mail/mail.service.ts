@@ -239,6 +239,7 @@ export class MailService {
             ? Buffer.from(attachment.content).toString('base64')
             : attachment.content.toString('base64'),
         contentType: attachment.contentType || undefined,
+        contentId: attachment.cid || undefined,
       })),
     });
 
