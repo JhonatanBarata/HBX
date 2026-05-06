@@ -11,6 +11,7 @@
 }
 
 .inboxCanvas {
+  position: relative;
   display: grid;
   gap: 0;
   min-height: 0;
@@ -18,6 +19,64 @@
     var(--workspace-stage-height, calc(100dvh - var(--topbar-total-height) - 1.35rem)),
     calc(100dvh - var(--topbar-total-height) - 1.35rem)
   );
+}
+
+.aiAssistantSwitchGroup {
+  display: grid;
+  gap: 0.34rem;
+  margin-top: 0.55rem;
+}
+
+.aiAssistantSwitchMain,
+.aiAssistantMiniToggle {
+  border: 1px solid color-mix(in srgb, var(--line) 78%, #0f8fbd);
+  background: color-mix(in srgb, var(--surface-raised) 88%, var(--background));
+  color: var(--foreground);
+  cursor: pointer;
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.08);
+}
+
+.aiAssistantSwitchMain {
+  display: grid;
+  gap: 0.1rem;
+  min-height: 46px;
+  padding: 0.42rem 0.4rem;
+  border-radius: 12px;
+  font-size: 0.64rem;
+  font-weight: 950;
+  line-height: 1.1;
+}
+
+.aiAssistantSwitchMain span {
+  color: var(--muted);
+  font-size: 0.58rem;
+  font-weight: 850;
+}
+
+.aiAssistantSwitchMain[data-active="true"] {
+  border-color: color-mix(in srgb, #25d366 58%, var(--line));
+  background: linear-gradient(135deg, color-mix(in srgb, #0f8fbd 22%, var(--surface-raised)), color-mix(in srgb, #25d366 18%, var(--surface)));
+}
+
+.aiAssistantSwitchMain[data-active="true"] span {
+  color: #159e72;
+}
+
+.aiAssistantMiniToggle {
+  min-height: 30px;
+  border-radius: 999px;
+  font-size: 0.58rem;
+  font-weight: 950;
+}
+
+.aiAssistantMiniToggle[data-active="true"] {
+  border-color: color-mix(in srgb, #25d366 58%, var(--line));
+  color: #159e72;
+}
+
+.aiAssistantMiniToggle:disabled {
+  cursor: not-allowed;
+  opacity: 0.42;
 }
 
 .inboxStage {
@@ -348,6 +407,75 @@
   align-items: center;
   gap: 0.4rem;
   width: 100%;
+}
+
+.aiSuggestionCard {
+  display: grid;
+  gap: 0.45rem;
+  padding: 0.6rem 0.68rem;
+  border: 1px solid color-mix(in srgb, #25d366 34%, #202c33);
+  border-radius: 12px;
+  background:
+    linear-gradient(135deg, rgba(15, 143, 189, 0.14), rgba(37, 211, 102, 0.1)),
+    #17252c;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+.aiSuggestionHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.65rem;
+}
+
+.aiSuggestionHeader span {
+  color: #dffaf0;
+  font-size: 0.68rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.aiSuggestionGenerate,
+.aiSuggestionApply {
+  min-height: 30px;
+  border: 0;
+  border-radius: 999px;
+  cursor: pointer;
+  font-size: 0.7rem;
+  font-weight: 900;
+}
+
+.aiSuggestionGenerate {
+  padding: 0.28rem 0.68rem;
+  background: rgba(255, 255, 255, 0.1);
+  color: #e9edef;
+}
+
+.aiSuggestionApply {
+  align-self: start;
+  padding: 0.34rem 0.75rem;
+  background: linear-gradient(135deg, #0f8fbd, #25d366);
+  color: #fff;
+}
+
+.aiSuggestionGenerate:disabled,
+.aiSuggestionApply:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.aiSuggestionBody {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.aiSuggestionBody p,
+.aiSuggestionMessage {
+  margin: 0;
+  color: #dce7ea;
+  font-size: 0.78rem;
+  line-height: 1.42;
 }
 
 .whatsAppComposerInput {
