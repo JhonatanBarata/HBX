@@ -1,0 +1,335 @@
+.aiLayer {
+  position: absolute;
+  inset: 0;
+  z-index: 8;
+  pointer-events: none;
+}
+
+.compactButton {
+  position: absolute;
+  right: 1rem;
+  bottom: 1rem;
+  z-index: 3;
+  display: none;
+  width: 46px;
+  height: 46px;
+  border: 1px solid color-mix(in srgb, #25d366 38%, var(--line));
+  border-radius: 999px;
+  background: linear-gradient(135deg, #0f8fbd, #25d366);
+  color: #fff;
+  font-size: 0.78rem;
+  font-weight: 950;
+  box-shadow: 0 16px 32px rgba(15, 23, 42, 0.22);
+  pointer-events: auto;
+}
+
+.robotWrap {
+  position: absolute;
+  left: clamp(18.5rem, 26vw, 22rem);
+  top: 0.9rem;
+  width: 72px;
+  height: 72px;
+  pointer-events: none;
+  animation: hbx-ai-float 4.8s ease-in-out infinite;
+}
+
+.robotHalo {
+  position: absolute;
+  inset: 5px;
+  border-radius: 999px;
+  background: radial-gradient(circle, rgba(37, 211, 102, 0.24), rgba(15, 143, 189, 0.05) 64%, transparent);
+  filter: blur(3px);
+}
+
+.robot {
+  position: absolute;
+  inset: 12px 10px 8px;
+  border-radius: 18px 18px 16px 16px;
+  border: 1px solid rgba(255, 255, 255, 0.62);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(229, 247, 255, 0.94)),
+    linear-gradient(135deg, #0f8fbd, #25d366);
+  box-shadow:
+    0 16px 26px rgba(15, 23, 42, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.8);
+}
+
+.robot::before,
+.robot::after {
+  content: "";
+  position: absolute;
+  top: 22px;
+  width: 8px;
+  height: 16px;
+  border-radius: 999px;
+  background: #d9f5ec;
+}
+
+.robot::before {
+  left: -7px;
+}
+
+.robot::after {
+  right: -7px;
+}
+
+.robotAntenna {
+  position: absolute;
+  left: 50%;
+  top: -13px;
+  width: 2px;
+  height: 12px;
+  background: #0f8fbd;
+  transform: translateX(-50%);
+}
+
+.robotAntenna::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: -6px;
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+  background: #25d366;
+  transform: translateX(-50%);
+  box-shadow: 0 0 0 5px rgba(37, 211, 102, 0.16);
+}
+
+.robotEyeLeft,
+.robotEyeRight {
+  position: absolute;
+  top: 18px;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: #0b6b93;
+  box-shadow: 0 0 0 3px rgba(15, 143, 189, 0.1);
+}
+
+.robotEyeLeft {
+  left: 14px;
+}
+
+.robotEyeRight {
+  right: 14px;
+}
+
+.robotSmile {
+  position: absolute;
+  left: 50%;
+  bottom: 12px;
+  width: 19px;
+  height: 9px;
+  border-bottom: 2px solid #159e72;
+  border-radius: 0 0 999px 999px;
+  transform: translateX(-50%);
+}
+
+.panel {
+  position: absolute;
+  top: 0.72rem;
+  right: 0.72rem;
+  width: min(318px, calc(100% - 2rem));
+  display: grid;
+  gap: 0.58rem;
+  pointer-events: auto;
+}
+
+.statusCard,
+.card,
+.requestCard,
+.insightsPanel {
+  border: 1px solid color-mix(in srgb, var(--line) 82%, rgba(37, 211, 102, 0.28));
+  border-radius: 14px;
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--surface-raised) 94%, #ffffff 6%), color-mix(in srgb, var(--surface) 90%, #25d366 10%));
+  box-shadow: 0 14px 32px rgba(15, 23, 42, 0.12);
+  color: var(--foreground);
+}
+
+.statusCard {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.62rem;
+  align-items: center;
+  padding: 0.72rem;
+}
+
+.statusCard strong,
+.cardHeader strong,
+.prospectName,
+.insightItem strong {
+  display: block;
+  color: var(--foreground);
+}
+
+.statusCard p,
+.cardText,
+.requestCard p,
+.insightItem p {
+  margin: 0.16rem 0 0;
+  color: var(--muted);
+  font-size: 0.72rem;
+  line-height: 1.35;
+}
+
+.onlineDot {
+  width: 11px;
+  height: 11px;
+  border-radius: 999px;
+  background: #ef4444;
+  box-shadow: 0 0 0 5px rgba(239, 68, 68, 0.12);
+}
+
+.onlineDot[data-online="true"] {
+  background: #25d366;
+  box-shadow: 0 0 0 5px rgba(37, 211, 102, 0.16);
+}
+
+.card,
+.requestCard,
+.insightsPanel {
+  padding: 0.72rem;
+}
+
+.cardHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  margin-bottom: 0.28rem;
+}
+
+.cardHeader span {
+  color: var(--muted);
+  font-size: 0.66rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.cardHeader strong {
+  font-size: 0.76rem;
+  font-weight: 950;
+}
+
+.prospectName {
+  margin: 0.25rem 0 0;
+  font-size: 0.92rem;
+  font-weight: 950;
+}
+
+.primaryAction {
+  min-height: 32px;
+  margin-top: 0.55rem;
+  padding: 0.35rem 0.7rem;
+  border: 0;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #0f8fbd, #25d366);
+  color: #fff;
+  font-size: 0.72rem;
+  font-weight: 900;
+  cursor: pointer;
+  box-shadow: 0 10px 20px rgba(15, 143, 189, 0.22);
+}
+
+.requestCard {
+  background:
+    linear-gradient(135deg, color-mix(in srgb, #0f8fbd 13%, var(--surface-raised)), color-mix(in srgb, #25d366 13%, var(--surface)));
+}
+
+.bubbleRail {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.34rem;
+}
+
+.sideBubble {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  min-height: 24px;
+  padding: 0.2rem 0.48rem;
+  border: 1px solid color-mix(in srgb, var(--line) 82%, #0f8fbd);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--surface-raised) 90%, #0f8fbd 10%);
+  color: var(--foreground);
+  font-size: 0.66rem;
+  font-weight: 850;
+}
+
+.sideBubble strong {
+  color: #159e72;
+}
+
+.insightList {
+  display: grid;
+  gap: 0.42rem;
+  margin-top: 0.58rem;
+}
+
+.insightItem {
+  padding: 0.5rem 0.55rem;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--line) 86%, var(--background));
+  background: color-mix(in srgb, var(--surface-raised) 88%, var(--background));
+}
+
+.insightItem[data-tone="success"] {
+  border-color: color-mix(in srgb, #25d366 36%, var(--line));
+}
+
+.insightItem[data-tone="warning"] {
+  border-color: color-mix(in srgb, #f59e0b 42%, var(--line));
+}
+
+.insightItem[data-tone="danger"] {
+  border-color: color-mix(in srgb, #ef4444 42%, var(--line));
+}
+
+@keyframes hbx-ai-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+
+  50% {
+    transform: translateY(7px);
+  }
+}
+
+@media (max-width: 1180px) {
+  .panel {
+    width: min(292px, calc(100% - 1.5rem));
+  }
+
+  .robotWrap {
+    left: 1rem;
+    top: auto;
+    bottom: 1rem;
+  }
+}
+
+@media (max-width: 860px) {
+  .compactButton {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .aiLayer[data-compact="true"] .panel,
+  .aiLayer[data-compact="true"] .robotWrap {
+    display: none;
+  }
+
+  .panel {
+    inset: auto 0.7rem 4.45rem auto;
+    max-height: min(68dvh, 520px);
+    overflow: auto;
+  }
+
+  .robotWrap {
+    display: none;
+  }
+}
