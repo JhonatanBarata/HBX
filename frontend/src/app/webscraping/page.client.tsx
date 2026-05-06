@@ -780,13 +780,16 @@ function campaignStatusLabel(status?: string | null) {
 }
 
 function campaignProgressMessage(campaign: RadarCampaign) {
-  if (campaign.progressMessage) return campaign.progressMessage;
   const attempt = Math.max(1, Number(campaign.currentAttempt || 0));
   if (campaign.status === "running" || campaign.status === "queued" || campaign.status === "partial_error") {
     if (campaign.lastErrorMessage) return campaign.lastErrorMessage;
     return `Rodando lote ${attempt}/${campaign.maxAttempts}. ${campaign.foundCount} contatos encontrados.`;
   }
-  if (campaign.status === "sleeping") return `Aguardando janela ${String(campaign.allowedStartHour).padStart(2, "0")}h-${String(campaign.allowedEndHour).padStart(2, "0")}h.`;
+  if (campaign.status === "sleeping") return "Aguardando a próxima execução noturna.";
+  if (campaign.status === "completed") return `Coleta concluída com ${campaign.approvedCount} contatos limpos.`;
+  if (campaign.status === "completed_insufficient_results") return `Coleta encerrada com ${campaign.approvedCount} contatos limpos encontrados.`;
+  if (campaign.status === "failed") return campaign.lastErrorMessage || "Coleta interrompida por erro.";
+  if (campaign.status === "canceled") return "Coleta cancelada.";
   return `${campaign.foundCount}/${campaign.targetTotal} contatos encontrados.`;
 }
 
@@ -1797,10 +1800,15 @@ export default function WebscrapingClientPage({ mode = "search" }: WebscrapingCl
     try {
       const campaign = await apiFetch<RadarCampaign>("/webscraping/campaigns", {
         method: "POST",
-        body: JSON.stringify(campaignForm),
+        body: JSON.stringify({
+          ...campaignForm,
+          nightOnly: true,
+          allowedStartHour: 0,
+          allowedEndHour: 6,
+        }),
       });
       setRadarCampaigns((current) => [campaign, ...current.filter((item) => item.id !== campaign.id)]);
-      setFeedback(`Campanha criada. ${campaign.progressMessage || "Os motores continuarão trabalhando em lotes."}`);
+      setFeedback("Campanha criada. A coleta será executada em lotes noturnos e os aprovados entram no Consultar Banco.");
       setRadarViewMode("campaign");
     } catch (error) {
       setSearchError(error instanceof Error ? error.message : "Falha ao criar campanha.");
@@ -3262,18 +3270,6 @@ export default function WebscrapingClientPage({ mode = "search" }: WebscrapingCl
                           {[25, 50].map((option) => <option key={option} value={option}>{option} por pesquisa</option>)}
                         </select>
                       </label>
-                      <label className={styles.checkboxField}>
-                        <input type="checkbox" checked={campaignForm.nightOnly} onChange={(event) => setCampaignForm((current) => ({ ...current, nightOnly: event.target.checked }))} />
-                        Rodar somente à noite
-                      </label>
-                      <label className={styles.field}>
-                        <span className={styles.fieldLabel}>Início</span>
-                        <input className={styles.fieldInput} type="number" min="0" max="23" value={campaignForm.allowedStartHour} onChange={(event) => setCampaignForm((current) => ({ ...current, allowedStartHour: Math.min(23, Math.max(0, Number(event.target.value) || 0)) }))} />
-                      </label>
-                      <label className={styles.field}>
-                        <span className={styles.fieldLabel}>Fim</span>
-                        <input className={styles.fieldInput} type="number" min="0" max="23" value={campaignForm.allowedEndHour} onChange={(event) => setCampaignForm((current) => ({ ...current, allowedEndHour: Math.min(23, Math.max(0, Number(event.target.value) || 0)) }))} />
-                      </label>
                     </div>
 
                     <div className={styles.actionRow}>
@@ -3299,8 +3295,8 @@ export default function WebscrapingClientPage({ mode = "search" }: WebscrapingCl
 
                     <div className={styles.radarCampaignSummary}>
                       <span><strong>{campaignForm.batchSize}</strong> por pesquisa</span>
-                      <span><strong>{campaignForm.nightOnly ? "Noite" : "Livre"}</strong> janela</span>
-                      <span><strong>{String(campaignForm.allowedStartHour).padStart(2, "0")}h-{String(campaignForm.allowedEndHour).padStart(2, "0")}h</strong> horário</span>
+                      <span><strong>Noturna</strong> execução</span>
+                      <span><strong>00h-06h</strong> janela fixa</span>
                     </div>
 
                     <div className={styles.radarCampaignFlow}>

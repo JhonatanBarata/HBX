@@ -223,6 +223,26 @@ const themeBootstrapScript = `
 })();
 `;
 
+const browserCacheResetScript = `
+(function(){
+  try {
+    var resetKey = "hbx:browser-cache-reset:2026-05-06-radar";
+    if (window.localStorage && window.localStorage.getItem(resetKey) === "done") return;
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.getRegistrations().then(function(registrations){
+        registrations.forEach(function(registration){ registration.unregister(); });
+      }).catch(function(){});
+    }
+    if ("caches" in window) {
+      window.caches.keys().then(function(keys){
+        keys.forEach(function(key){ window.caches.delete(key); });
+      }).catch(function(){});
+    }
+    if (window.localStorage) window.localStorage.setItem(resetKey, "done");
+  } catch (_) {}
+})();
+`;
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -231,7 +251,11 @@ export default function RootLayout({
   return (
     <html lang="pt-BR" suppressHydrationWarning>
       <head>
+        <meta httpEquiv="Cache-Control" content="no-store, no-cache, must-revalidate, max-age=0" />
+        <meta httpEquiv="Pragma" content="no-cache" />
+        <meta httpEquiv="Expires" content="0" />
         <script dangerouslySetInnerHTML={{ __html: themeBootstrapScript }} />
+        <script dangerouslySetInnerHTML={{ __html: browserCacheResetScript }} />
       </head>
       <body
         className={`${plusJakartaSans.variable} ${ibmPlexMono.variable} antialiased app-root`}
