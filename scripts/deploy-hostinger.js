@@ -245,6 +245,54 @@ function buildRemoteDeployScript(config, mode) {
     'echo "Backend URL: $BACKEND_URL"',
     'echo "Frontend URL: $FRONTEND_URL"',
     'echo "Rede Docker: $HBX_DOCKER_NETWORK"',
+    'if command -v python3 >/dev/null 2>&1 && [ -d /etc/nginx/sites-available ]; then',
+    'python3 - <<\'PY\'',
+    'from datetime import datetime',
+    'from pathlib import Path',
+    'paths = [Path("/etc/nginx/sites-available/hbx-api"), Path("/etc/nginx/sites-available/hbx-frontend")]',
+    'limit_line = "    client_max_body_size 80m;"',
+    'stamp = datetime.utcnow().strftime("%Y%m%d%H%M%S")',
+    'for path in paths:',
+    '    if not path.exists():',
+    '        print(f"Aviso: {path} nao encontrado; pulando limite de upload Nginx.")',
+    '        continue',
+    '    text = path.read_text()',
+    '    lines = text.splitlines()',
+    '    out = []',
+    '    in_first_server = False',
+    '    changed = False',
+    '    depth = 0',
+    '    for line in lines:',
+    '        stripped = line.strip()',
+    '        if stripped.startswith("server {") and not changed and not in_first_server:',
+    '            in_first_server = True',
+    '            depth = 1',
+    '            out.append(line)',
+    '            continue',
+    '        if in_first_server:',
+    '            depth += line.count("{") - line.count("}")',
+    '            if stripped.startswith("client_max_body_size"):',
+    '                out.append(limit_line)',
+    '                changed = True',
+    '                continue',
+    '            out.append(line)',
+    '            if stripped.startswith("server_name") and not changed:',
+    '                out.append(limit_line)',
+    '                changed = True',
+    '            if depth <= 0:',
+    '                in_first_server = False',
+    '            continue',
+    '        out.append(line)',
+    '    next_text = "\\n".join(out).rstrip() + "\\n"',
+    '    if next_text != text:',
+    '        path.with_name(f"{path.name}.bak-{stamp}").write_text(text)',
+    '        path.write_text(next_text)',
+    '        print(f"Nginx upload limit aplicado em {path}.")',
+    '    else:',
+    '        print(f"Nginx upload limit ja estava correto em {path}.")',
+    'PY',
+    'if command -v nginx >/dev/null 2>&1; then nginx -t; if command -v systemctl >/dev/null 2>&1; then systemctl reload nginx; else service nginx reload; fi; fi',
+    'else echo "Aviso: python3 ou /etc/nginx/sites-available indisponivel; limite de upload Nginx nao foi ajustado automaticamente."; fi',
     'if docker inspect hbx-postgres >/dev/null 2>&1; then docker start hbx-postgres >/dev/null; else run_filtered $DC --env-file .env -f docker-compose.hostinger.yml up -d hbx-postgres; fi',
     'docker network connect "$HBX_DOCKER_NETWORK" hbx-postgres 2>/dev/null || true',
     'for i in $(seq 1 60); do if docker exec hbx-postgres sh -lc \'pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB"\' >/dev/null 2>&1; then echo "Postgres pronto."; break; fi; echo "Aguardando Postgres ($i/60)..."; sleep 2; done',
@@ -473,6 +521,25 @@ async function verifyProduction(config) {
   console.log(`\n> GET ${config.frontendUrl}`);
   const frontendResponse = await requestWithRetry(config.frontendUrl, { method: 'GET' });
   console.log(`Frontend OK: HTTP ${frontendResponse.status}`);
+
+  const uploadProbeUrl = `${config.backendUrl}/master/email/attachment`;
+  console.log(`\n> POST ${uploadProbeUrl} 2MB upload-limit probe`);
+  const uploadProbeResponse = await fetch(uploadProbeUrl, {
+    method: 'POST',
+    headers: {
+      Origin: config.frontendUrl,
+      'Content-Type': 'application/octet-stream',
+    },
+    body: Buffer.alloc(2 * 1024 * 1024),
+  });
+  if (uploadProbeResponse.status === 413) {
+    throw new Error('Upload limit check failed: Nginx returned 413 for a 2MB request. Set client_max_body_size above the master email upload size.');
+  }
+  const uploadAllowOrigin = uploadProbeResponse.headers.get('access-control-allow-origin') || '';
+  if (!uploadAllowOrigin) {
+    throw new Error('Upload limit check failed: missing CORS header on the upload probe response.');
+  }
+  console.log(`Upload limit OK: HTTP ${uploadProbeResponse.status}, allow-origin=${uploadAllowOrigin}`);
 }
 
 async function main() {

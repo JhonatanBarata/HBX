@@ -27,10 +27,11 @@ Nginx fica fora do compose:
 
 - `hbxsystem.com.br` e `www.hbxsystem.com.br` fazem proxy para `http://127.0.0.1:3001`;
 - `api.hbxsystem.com.br` faz proxy para `http://127.0.0.1:3000`;
+- os dois servers precisam de `client_max_body_size 80m;` para uploads do MASTER Email;
 - HTTP redireciona para HTTPS;
 - a pagina default do Nginx deve ficar removida/desabilitada.
 
-Exemplo de site Nginx: `deploy/nginx/hbxsystem.conf`.
+Exemplo de site Nginx: `deploy/nginx/hbxsystem.conf`. O publish tambem aplica esse limite nos arquivos reais `/etc/nginx/sites-available/hbx-api` e `/etc/nginx/sites-available/hbx-frontend`, preservando backups com timestamp antes de recarregar o Nginx.
 
 ## Variaveis da VPS
 
