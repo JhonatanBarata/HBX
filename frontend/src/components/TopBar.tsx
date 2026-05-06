@@ -7,6 +7,11 @@ import { createPortal } from "react-dom";
 import { apiFetch, clearApiCache, clearToken, getToken } from "@/app/_lib/api";
 import { useInterfaceTransition } from "@/components/InterfaceTransitionProvider";
 import { useHbxTheme } from "@/components/ThemeProvider";
+import {
+  TOPBAR_PROGRESS_EVENT,
+  type TopbarProgressEventDetail,
+  type TopbarProgressState,
+} from "@/lib/topbar-progress";
 import { usePopupTopbarLock } from "@/lib/use-popup-topbar-lock";
 import {
   getWhatsAppModalPlanRedirect,
@@ -284,6 +289,7 @@ export default function TopBar() {
   const [operationalStatus, setOperationalStatus] = useState<OperationalStatusPayload | null>(null);
   const [recoveryPendingHumanCount, setRecoveryPendingHumanCount] = useState(0);
   const [atendimentoPendingHumanCount, setAtendimentoPendingHumanCount] = useState(0);
+  const [topbarProgress, setTopbarProgress] = useState<TopbarProgressState | null>(null);
   const [unreadInboxOpen, setUnreadInboxOpen] = useState(false);
   const [unreadInboxLoading, setUnreadInboxLoading] = useState(false);
   const [unreadInboxError, setUnreadInboxError] = useState<string | null>(null);
@@ -326,6 +332,29 @@ export default function TopBar() {
   const dashboardHref = pendingCheckoutLocked ? pendingCheckoutHref : "/boasvindas";
 
   usePopupTopbarLock(whatsAppDetailOpen || masterContextModalOpen);
+
+  useEffect(() => {
+    const handleTopbarProgress = (event: Event) => {
+      const detail = (event as CustomEvent<TopbarProgressEventDetail>).detail;
+      if (!detail) return;
+
+      if (detail.action === "show") {
+        setTopbarProgress(detail.payload);
+        return;
+      }
+
+      setTopbarProgress((current) => {
+        if (!current) return current;
+        if (detail.source && current.source !== detail.source) return current;
+        return null;
+      });
+    };
+
+    window.addEventListener(TOPBAR_PROGRESS_EVENT, handleTopbarProgress as EventListener);
+    return () => {
+      window.removeEventListener(TOPBAR_PROGRESS_EVENT, handleTopbarProgress as EventListener);
+    };
+  }, []);
 
   useEffect(() => {
     setPortalReady(true);
@@ -2045,10 +2074,37 @@ export default function TopBar() {
                   ) : null}
                 </button>
 
-                {pendingHumanCount > 0 ? (
-                  <span className="app-topbar__queueLabel">
-                    Atendimento: {atendimentoPendingHumanCount} | Cobranca: {recoveryPendingHumanCount}
-                  </span>
+                {topbarProgress ? (
+                  <div
+                    className="app-topbar__progressWidget"
+                    data-phase={topbarProgress.phase}
+                    role="status"
+                    aria-live="polite"
+                  >
+                    <div className="app-topbar__progressOrb" aria-hidden="true">
+                      <span />
+                    </div>
+                    <div className="app-topbar__progressBody">
+                      <div className="app-topbar__progressLine">
+                        <strong>{topbarProgress.title}</strong>
+                        <span>{Math.round(Math.max(0, Math.min(100, topbarProgress.progress)))}%</span>
+                      </div>
+                      <div className="app-topbar__progressTrack" aria-hidden="true">
+                        <span style={{ width: `${Math.max(0, Math.min(100, topbarProgress.progress))}%` }} />
+                      </div>
+                      <p>{topbarProgress.status}</p>
+                    </div>
+                    {topbarProgress.metrics?.length ? (
+                      <div className="app-topbar__progressMetrics">
+                        {topbarProgress.metrics.slice(0, 2).map((metric) => (
+                          <span key={`${metric.label}:${metric.value}`}>
+                            {metric.label}
+                            <strong>{metric.value}</strong>
+                          </span>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
                 ) : null}
               </div>
             ) : null}

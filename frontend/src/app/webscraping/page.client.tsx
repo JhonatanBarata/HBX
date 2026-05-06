@@ -4,9 +4,9 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import DashboardScaffold from "@/components/DashboardScaffold";
 import LiquidGlassCard, { liquidGlassCardStyles as glassCardStyles } from "@/components/LiquidGlassCard";
-import PremiumLaunchDialog from "@/components/PremiumLaunchDialog";
 import { useQuickLaunchNotice } from "@/components/useQuickLaunchNotice";
 import { BRAZIL_CITIES_BY_STATE, BRAZIL_STATES } from "@/lib/brazil-locations";
+import { clearTopbarProgress, dispatchTopbarProgress } from "@/lib/topbar-progress";
 import { apiFetch, getToken } from "@/app/_lib/api";
 import { useRequireModule } from "@/app/_lib/useRequireModule";
 import styles from "./page.module.css";
@@ -1028,6 +1028,44 @@ export default function WebscrapingClientPage() {
     return segment.trim();
   }, [agendaMode, effectiveDdd, pfMode, pfRole, segment]);
   const activeSegmentSuggestions = pfMode ? PF_NICHE_SUGGESTIONS : SEGMENT_SUGGESTIONS;
+
+  useEffect(() => {
+    const notice = scrapingLaunchNotice.notice || crmLaunchNotice.notice;
+    if (!notice) {
+      clearTopbarProgress("webscraping");
+      return;
+    }
+
+    const targetQuantity = Number(activeSearchRun?.targetQuantity || quantity || 0);
+    const foundCount = Number(activeSearchRun?.foundCount || results.length || 0);
+    const discardedCount = Number(activeSearchRun?.duplicateCount || 0) + Number(activeSearchRun?.skippedCount || 0);
+    const remainingCount = Math.max(0, targetQuantity - foundCount);
+    const status =
+      notice.statusLabel ||
+      (notice.phase === "loading"
+        ? "Raspando páginas públicas..."
+        : "Resultados prontos para revisar.");
+
+    dispatchTopbarProgress({
+      source: "webscraping",
+      phase: notice.phase,
+      title: notice.phase === "loading" ? "Scraping em andamento" : notice.title,
+      status,
+      progress: notice.progress,
+      metrics: [
+        { label: "Restante", value: String(remainingCount) },
+        { label: "Descarte", value: String(discardedCount) },
+      ],
+    });
+  }, [
+    activeSearchRun,
+    crmLaunchNotice.notice,
+    quantity,
+    results.length,
+    scrapingLaunchNotice.notice,
+  ]);
+
+  useEffect(() => () => clearTopbarProgress("webscraping"), []);
   const segmentSuggestionItems = useMemo(() => {
     const normalizedSegment = normalizeCityLookup(segment);
     if (!normalizedSegment) return activeSegmentSuggestions;
@@ -2982,20 +3020,6 @@ export default function WebscrapingClientPage() {
           ) : null}
         </section>
 
-        <PremiumLaunchDialog
-          notice={scrapingLaunchNotice.notice}
-          onOpen={scrapingLaunchNotice.openNow}
-          progressLabel={scrapingLaunchNotice.notice?.phase === "loading" ? "Raspando páginas públicas" : "Resultados prontos"}
-          loadingLabel="Scraping em andamento..."
-          detailRows={[
-            { label: "Motor", value: `${selectedSearchMode.motorCode} · ${selectedSearchMode.label}` },
-            { label: "Estado", value: selectedState || "-" },
-            { label: "Cidade", value: cityExactOption || city || "-" },
-            { label: "Busca", value: effectiveSegment || getVisualSegment(segment, targetType) || "Agenda PF" },
-            { label: "Quantidade", value: `${quantity} contato(s)` },
-          ]}
-        />
-        <PremiumLaunchDialog notice={crmLaunchNotice.notice} onOpen={crmLaunchNotice.openNow} />
       </div>
     </DashboardScaffold>
   );

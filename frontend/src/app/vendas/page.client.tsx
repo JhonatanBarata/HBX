@@ -18,11 +18,11 @@ import { useDeferredValue, useEffect, useMemo, useRef, useState, useCallback, ty
 import { useRouter, useSearchParams } from "next/navigation";
 import DashboardScaffold from "@/components/DashboardScaffold";
 import LiquidGlassCard, { liquidGlassCardStyles as glassCardStyles } from "@/components/LiquidGlassCard";
-import PremiumLaunchDialog from "@/components/PremiumLaunchDialog";
 import { useQuickLaunchNotice } from "@/components/useQuickLaunchNotice";
 import { apiFetch } from "@/app/_lib/api";
 import { useRequireModule } from "@/app/_lib/useRequireModule";
 import { HBX_WINDOW_STANDARD } from "@/lib/hbx-window-system";
+import { clearTopbarProgress, dispatchTopbarProgress } from "@/lib/topbar-progress";
 import styles from "./page.module.css";
 
 type LeadStatus = "novo" | "contato" | "retorno" | "qualificado" | "encerrado";
@@ -1330,6 +1330,37 @@ export default function VendasClientPage() {
     return scopedLeads.filter((lead) => matchesWhatsappFilter(lead, whatsappFilter) && matchesInboxFilter(lead, inboxFilter));
   }, [board, selectedFilter, whatsappFilter, inboxFilter]);
 
+  useEffect(() => {
+    const notice = todayAgendaLaunchNotice.notice;
+    if (!notice && !loading) {
+      clearTopbarProgress("vendas");
+      return;
+    }
+
+    const totalVisible = filteredLeads.length;
+    const archivedCount = board?.summary.closed || 0;
+    dispatchTopbarProgress({
+      source: "vendas",
+      phase: notice?.phase || "loading",
+      title: notice?.phase === "success" ? notice.title : loading ? "Carregando Vendas" : "Sincronizando Vendas",
+      status:
+        notice?.statusLabel ||
+        (loading ? "Atualizando agenda comercial..." : "Preparando cards para Prospecção..."),
+      progress: notice?.progress ?? 18,
+      metrics: [
+        { label: "Restante", value: String(totalVisible) },
+        { label: "Descarte", value: String(archivedCount) },
+      ],
+    });
+  }, [
+    board?.summary.closed,
+    filteredLeads.length,
+    loading,
+    todayAgendaLaunchNotice.notice,
+  ]);
+
+  useEffect(() => () => clearTopbarProgress("vendas"), []);
+
   const handleActiveDateShortcut = useCallback(async () => {
     if (!selectedFilter) return;
     await syncLeadsToInbox(filteredLeads, {
@@ -2264,8 +2295,6 @@ export default function VendasClientPage() {
           </div>
         </div>
       ) : null}
-
-      <PremiumLaunchDialog notice={todayAgendaLaunchNotice.notice} onOpen={todayAgendaLaunchNotice.openNow} />
 
       {commandOpen ? (
         <div className="ui-popup-backdrop" onClick={() => setCommandOpen(false)}>
