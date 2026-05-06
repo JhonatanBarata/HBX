@@ -1150,8 +1150,8 @@ export default function WebscrapingClientPage({ mode = "search" }: WebscrapingCl
     state: "",
     city: "",
     segment: "",
-    targetTotal: 500,
-    batchSize: 25,
+    targetTotal: 1000,
+    batchSize: 50,
     nightOnly: true,
     allowedStartHour: 0,
     allowedEndHour: 6,
@@ -2810,27 +2810,6 @@ export default function WebscrapingClientPage({ mode = "search" }: WebscrapingCl
 
         {panelMode === "radar" ? (
           <section className={styles.historyCard}>
-            <div className={styles.sectionHeader}>
-              <div>
-                <span className={styles.cardEyebrow}>Módulo ativo</span>
-                <strong className={styles.sectionTitle}>Radar Digital</strong>
-                <p className={styles.helperText}>Cards persistentes, histórico, limpeza e filtros inteligentes.</p>
-              </div>
-              <div className={styles.modeTabs} role="tablist" aria-label="Webscraping">
-                <button
-                  type="button"
-                  className={styles.modeTabActive}
-                  onClick={() => setPanelMode("radar")}
-                >
-                  <Icon name="clock" size={16} />
-                  Radar Digital
-                </button>
-                <span className={styles.modeMetaButton}>
-                  Cards na tela: <strong>{radarItems.length}</strong>
-                </span>
-              </div>
-            </div>
-
             <div className={styles.radarModeSwitch} role="tablist" aria-label="Modo Banco Radar">
               <button
                 type="button"
@@ -3140,170 +3119,209 @@ export default function WebscrapingClientPage({ mode = "search" }: WebscrapingCl
               </>
             ) : (
               <>
-                <div className={styles.radarCampaignForm}>
-                  <label className={styles.field}>
-                    <span className={styles.fieldLabel}>Tipo</span>
-                    <select className={styles.fieldSelect} value={campaignForm.targetType} onChange={(event) => setCampaignForm((current) => ({ ...current, targetType: normalizeTargetTypeValue(event.target.value) }))}>
-                      <option value="pj">CNPJ</option>
-                      <option value="pf">CPF público</option>
-                      <option value="agenda_pf">Agenda CPF</option>
-                    </select>
-                  </label>
-                  <label className={styles.field} onBlur={() => window.setTimeout(() => setOpenRadarPicker((current) => (current === "campaign-state" ? null : current)), 120)}>
-                    <span className={styles.fieldLabel}>Estado</span>
-                    <div className={styles.cityInputWrap}>
-                      <input
-                        className={styles.fieldInput}
-                        value={campaignForm.state}
-                        onFocus={() => setOpenRadarPicker("campaign-state")}
-                        onChange={(event) => {
-                          setCampaignForm((current) => ({ ...current, state: event.target.value.slice(0, 2).toUpperCase(), city: "" }));
-                          setOpenRadarPicker("campaign-state");
-                        }}
-                        placeholder="Digite ou escolha o estado"
-                        maxLength={2}
-                        autoComplete="off"
-                      />
-                      <Icon name="chevron" size={18} className={styles.cityInputArrow} />
+                <div className={styles.radarCampaignWorkspace}>
+                  <div className={styles.radarCampaignMain}>
+                    <div className={styles.radarCampaignForm}>
+                      <label className={styles.field}>
+                        <span className={styles.fieldLabel}>Tipo</span>
+                        <select className={styles.fieldSelect} value={campaignForm.targetType} onChange={(event) => setCampaignForm((current) => ({ ...current, targetType: normalizeTargetTypeValue(event.target.value) }))}>
+                          <option value="pj">CNPJ</option>
+                          <option value="pf">CPF público</option>
+                          <option value="agenda_pf">Agenda CPF</option>
+                        </select>
+                      </label>
+                      <label className={styles.field} onBlur={() => window.setTimeout(() => setOpenRadarPicker((current) => (current === "campaign-state" ? null : current)), 120)}>
+                        <span className={styles.fieldLabel}>Estado</span>
+                        <div className={styles.cityInputWrap}>
+                          <input
+                            className={styles.fieldInput}
+                            value={campaignForm.state}
+                            onFocus={() => setOpenRadarPicker("campaign-state")}
+                            onChange={(event) => {
+                              setCampaignForm((current) => ({ ...current, state: event.target.value.slice(0, 2).toUpperCase(), city: "" }));
+                              setOpenRadarPicker("campaign-state");
+                            }}
+                            placeholder="Digite ou escolha o estado"
+                            maxLength={2}
+                            autoComplete="off"
+                          />
+                          <Icon name="chevron" size={18} className={styles.cityInputArrow} />
+                        </div>
+                        {openRadarPicker === "campaign-state" ? (
+                          <div className={styles.citySuggestions} role="listbox" aria-label="Estados">
+                            {BRAZIL_STATES
+                              .map((item) => ({ value: item.uf, label: `${item.uf} - ${item.name}` }))
+                              .filter((item) => !campaignForm.state || normalizeCityLookup(item.label).includes(normalizeCityLookup(campaignForm.state)))
+                              .map((item) => (
+                                <button
+                                  key={item.value}
+                                  type="button"
+                                  className={campaignForm.state === item.value ? styles.citySuggestionActive : styles.citySuggestion}
+                                  onMouseDown={(event) => {
+                                    event.preventDefault();
+                                    setCampaignForm((current) => ({ ...current, state: item.value, city: "" }));
+                                    setOpenRadarPicker(null);
+                                  }}
+                                  role="option"
+                                  aria-selected={campaignForm.state === item.value}
+                                >
+                                  {item.label}
+                                </button>
+                              ))}
+                          </div>
+                        ) : null}
+                      </label>
+                      <label className={styles.field} onBlur={() => window.setTimeout(() => setOpenRadarPicker((current) => (current === "campaign-city" ? null : current)), 120)}>
+                        <span className={styles.fieldLabel}>Cidade</span>
+                        <div className={styles.cityInputWrap}>
+                          <input
+                            className={styles.fieldInput}
+                            value={campaignForm.city}
+                            onFocus={() => setOpenRadarPicker("campaign-city")}
+                            onChange={(event) => {
+                              setCampaignForm((current) => ({ ...current, city: event.target.value }));
+                              setOpenRadarPicker("campaign-city");
+                            }}
+                            placeholder={campaignForm.state ? "Digite e selecione a cidade" : "Selecione o estado primeiro"}
+                            disabled={!campaignForm.state}
+                            autoComplete="off"
+                          />
+                          <Icon name="chevron" size={18} className={styles.cityInputArrow} />
+                        </div>
+                        {openRadarPicker === "campaign-city" && campaignCityOptions.length > 0 ? (
+                          <div className={styles.citySuggestions} role="listbox" aria-label="Cidades">
+                            {campaignCityOptions
+                              .filter((item) => !campaignForm.city || normalizeCityLookup(item).includes(normalizeCityLookup(campaignForm.city)))
+                              .map((item) => (
+                                <button
+                                  key={item}
+                                  type="button"
+                                  className={campaignForm.city === item ? styles.citySuggestionActive : styles.citySuggestion}
+                                  onMouseDown={(event) => {
+                                    event.preventDefault();
+                                    setCampaignForm((current) => ({ ...current, city: item }));
+                                    setOpenRadarPicker(null);
+                                  }}
+                                  role="option"
+                                  aria-selected={campaignForm.city === item}
+                                >
+                                  {item}
+                                </button>
+                              ))}
+                          </div>
+                        ) : null}
+                      </label>
+                      <label className={styles.field} onBlur={() => window.setTimeout(() => setOpenRadarPicker((current) => (current === "campaign-segment" ? null : current)), 120)}>
+                        <span className={styles.fieldLabel}>Nicho / Serviço</span>
+                        <div className={styles.cityInputWrap}>
+                          <input
+                            className={styles.fieldInput}
+                            value={campaignForm.segment}
+                            onFocus={() => setOpenRadarPicker("campaign-segment")}
+                            onChange={(event) => {
+                              setCampaignForm((current) => ({ ...current, segment: event.target.value }));
+                              setOpenRadarPicker("campaign-segment");
+                            }}
+                            placeholder="Digite ou escolha um nicho"
+                            autoComplete="off"
+                          />
+                          <Icon name="chevron" size={18} className={styles.cityInputArrow} />
+                        </div>
+                        {openRadarPicker === "campaign-segment" ? (
+                          <div className={styles.citySuggestions} role="listbox" aria-label="Nichos">
+                            {SEGMENT_SUGGESTIONS
+                              .filter((item) => !campaignForm.segment || normalizeCityLookup(item).includes(normalizeCityLookup(campaignForm.segment)))
+                              .map((item) => (
+                                <button
+                                  key={item}
+                                  type="button"
+                                  className={campaignForm.segment === item ? styles.citySuggestionActive : styles.citySuggestion}
+                                  onMouseDown={(event) => {
+                                    event.preventDefault();
+                                    setCampaignForm((current) => ({ ...current, segment: item }));
+                                    setOpenRadarPicker(null);
+                                  }}
+                                  role="option"
+                                  aria-selected={campaignForm.segment === item}
+                                >
+                                  {item}
+                                </button>
+                              ))}
+                          </div>
+                        ) : null}
+                      </label>
+                      <label className={styles.field}>
+                        <span className={styles.fieldLabel}>Quantidade alvo</span>
+                        <select className={styles.fieldSelect} value={campaignForm.targetTotal} onChange={(event) => setCampaignForm((current) => ({ ...current, targetTotal: Number(event.target.value) }))}>
+                          {[1000, 2000, 5000, 10000].map((option) => <option key={option} value={option}>{option} cards</option>)}
+                        </select>
+                      </label>
+                      <label className={styles.field}>
+                        <span className={styles.fieldLabel}>Por lote</span>
+                        <select className={styles.fieldSelect} value={campaignForm.batchSize} onChange={(event) => setCampaignForm((current) => ({ ...current, batchSize: Number(event.target.value) }))}>
+                          {[25, 50].map((option) => <option key={option} value={option}>{option} por pesquisa</option>)}
+                        </select>
+                      </label>
+                      <label className={styles.checkboxField}>
+                        <input type="checkbox" checked={campaignForm.nightOnly} onChange={(event) => setCampaignForm((current) => ({ ...current, nightOnly: event.target.checked }))} />
+                        Rodar somente à noite
+                      </label>
+                      <label className={styles.field}>
+                        <span className={styles.fieldLabel}>Início</span>
+                        <input className={styles.fieldInput} type="number" min="0" max="23" value={campaignForm.allowedStartHour} onChange={(event) => setCampaignForm((current) => ({ ...current, allowedStartHour: Math.min(23, Math.max(0, Number(event.target.value) || 0)) }))} />
+                      </label>
+                      <label className={styles.field}>
+                        <span className={styles.fieldLabel}>Fim</span>
+                        <input className={styles.fieldInput} type="number" min="0" max="23" value={campaignForm.allowedEndHour} onChange={(event) => setCampaignForm((current) => ({ ...current, allowedEndHour: Math.min(23, Math.max(0, Number(event.target.value) || 0)) }))} />
+                      </label>
                     </div>
-                    {openRadarPicker === "campaign-state" ? (
-                      <div className={styles.citySuggestions} role="listbox" aria-label="Estados">
-                        {BRAZIL_STATES
-                          .map((item) => ({ value: item.uf, label: `${item.uf} - ${item.name}` }))
-                          .filter((item) => !campaignForm.state || normalizeCityLookup(item.label).includes(normalizeCityLookup(campaignForm.state)))
-                          .map((item) => (
-                            <button
-                              key={item.value}
-                              type="button"
-                              className={campaignForm.state === item.value ? styles.citySuggestionActive : styles.citySuggestion}
-                              onMouseDown={(event) => {
-                                event.preventDefault();
-                                setCampaignForm((current) => ({ ...current, state: item.value, city: "" }));
-                                setOpenRadarPicker(null);
-                              }}
-                              role="option"
-                              aria-selected={campaignForm.state === item.value}
-                            >
-                              {item.label}
-                            </button>
-                          ))}
-                      </div>
-                    ) : null}
-                  </label>
-                  <label className={styles.field} onBlur={() => window.setTimeout(() => setOpenRadarPicker((current) => (current === "campaign-city" ? null : current)), 120)}>
-                    <span className={styles.fieldLabel}>Cidade</span>
-                    <div className={styles.cityInputWrap}>
-                      <input
-                        className={styles.fieldInput}
-                        value={campaignForm.city}
-                        onFocus={() => setOpenRadarPicker("campaign-city")}
-                        onChange={(event) => {
-                          setCampaignForm((current) => ({ ...current, city: event.target.value }));
-                          setOpenRadarPicker("campaign-city");
-                        }}
-                        placeholder={campaignForm.state ? "Digite e selecione a cidade" : "Selecione o estado primeiro"}
-                        disabled={!campaignForm.state}
-                        autoComplete="off"
-                      />
-                      <Icon name="chevron" size={18} className={styles.cityInputArrow} />
-                    </div>
-                    {openRadarPicker === "campaign-city" && campaignCityOptions.length > 0 ? (
-                      <div className={styles.citySuggestions} role="listbox" aria-label="Cidades">
-                        {campaignCityOptions
-                          .filter((item) => !campaignForm.city || normalizeCityLookup(item).includes(normalizeCityLookup(campaignForm.city)))
-                          .map((item) => (
-                            <button
-                              key={item}
-                              type="button"
-                              className={campaignForm.city === item ? styles.citySuggestionActive : styles.citySuggestion}
-                              onMouseDown={(event) => {
-                                event.preventDefault();
-                                setCampaignForm((current) => ({ ...current, city: item }));
-                                setOpenRadarPicker(null);
-                              }}
-                              role="option"
-                              aria-selected={campaignForm.city === item}
-                            >
-                              {item}
-                            </button>
-                          ))}
-                      </div>
-                    ) : null}
-                  </label>
-                  <label className={styles.field} onBlur={() => window.setTimeout(() => setOpenRadarPicker((current) => (current === "campaign-segment" ? null : current)), 120)}>
-                    <span className={styles.fieldLabel}>Nicho / Serviço</span>
-                    <div className={styles.cityInputWrap}>
-                      <input
-                        className={styles.fieldInput}
-                        value={campaignForm.segment}
-                        onFocus={() => setOpenRadarPicker("campaign-segment")}
-                        onChange={(event) => {
-                          setCampaignForm((current) => ({ ...current, segment: event.target.value }));
-                          setOpenRadarPicker("campaign-segment");
-                        }}
-                        placeholder="Digite ou escolha um nicho"
-                        autoComplete="off"
-                      />
-                      <Icon name="chevron" size={18} className={styles.cityInputArrow} />
-                    </div>
-                    {openRadarPicker === "campaign-segment" ? (
-                      <div className={styles.citySuggestions} role="listbox" aria-label="Nichos">
-                        {SEGMENT_SUGGESTIONS
-                          .filter((item) => !campaignForm.segment || normalizeCityLookup(item).includes(normalizeCityLookup(campaignForm.segment)))
-                          .map((item) => (
-                            <button
-                              key={item}
-                              type="button"
-                              className={campaignForm.segment === item ? styles.citySuggestionActive : styles.citySuggestion}
-                              onMouseDown={(event) => {
-                                event.preventDefault();
-                                setCampaignForm((current) => ({ ...current, segment: item }));
-                                setOpenRadarPicker(null);
-                              }}
-                              role="option"
-                              aria-selected={campaignForm.segment === item}
-                            >
-                              {item}
-                            </button>
-                          ))}
-                      </div>
-                    ) : null}
-                  </label>
-                  <label className={styles.field}>
-                    <span className={styles.fieldLabel}>Quantidade alvo</span>
-                    <select className={styles.fieldSelect} value={campaignForm.targetTotal} onChange={(event) => setCampaignForm((current) => ({ ...current, targetTotal: Number(event.target.value) }))}>
-                      {[100, 500, 1000, 5000, 10000].map((option) => <option key={option} value={option}>{option} cards</option>)}
-                    </select>
-                  </label>
-                  <label className={styles.field}>
-                    <span className={styles.fieldLabel}>Por lote</span>
-                    <select className={styles.fieldSelect} value={campaignForm.batchSize} onChange={(event) => setCampaignForm((current) => ({ ...current, batchSize: Number(event.target.value) }))}>
-                      {[10, 25, 50].map((option) => <option key={option} value={option}>{option}</option>)}
-                    </select>
-                  </label>
-                  <label className={styles.checkboxField}>
-                    <input type="checkbox" checked={campaignForm.nightOnly} onChange={(event) => setCampaignForm((current) => ({ ...current, nightOnly: event.target.checked }))} />
-                    Só madrugada
-                  </label>
-                  <label className={styles.field}>
-                    <span className={styles.fieldLabel}>Início</span>
-                    <input className={styles.fieldInput} type="number" min="0" max="23" value={campaignForm.allowedStartHour} onChange={(event) => setCampaignForm((current) => ({ ...current, allowedStartHour: Math.min(23, Math.max(0, Number(event.target.value) || 0)) }))} />
-                  </label>
-                  <label className={styles.field}>
-                    <span className={styles.fieldLabel}>Fim</span>
-                    <input className={styles.fieldInput} type="number" min="0" max="23" value={campaignForm.allowedEndHour} onChange={(event) => setCampaignForm((current) => ({ ...current, allowedEndHour: Math.min(23, Math.max(0, Number(event.target.value) || 0)) }))} />
-                  </label>
-                </div>
 
-                <div className={styles.actionRow}>
-                  <button type="button" className={`${styles.glassButton} ${styles.glassButtonPrimary}`} onClick={() => void handleCreateRadarCampaign()} disabled={campaignLoading}>
-                    <Icon name="play" size={18} />
-                    {campaignLoading ? "Criando..." : "Criar campanha persistente"}
-                  </button>
-                  <button type="button" className={styles.glassButton} onClick={() => void refreshRadarCampaigns()} disabled={campaignLoading}>
-                    <Icon name="clock" size={18} />
-                    Atualizar progresso
-                  </button>
+                    <div className={styles.actionRow}>
+                      <button type="button" className={`${styles.glassButton} ${styles.glassButtonPrimary}`} onClick={() => void handleCreateRadarCampaign()} disabled={campaignLoading}>
+                        <Icon name="play" size={18} />
+                        {campaignLoading ? "Criando..." : "Iniciar coleta noturna"}
+                      </button>
+                      <button type="button" className={styles.glassButton} onClick={() => void refreshRadarCampaigns()} disabled={campaignLoading}>
+                        <Icon name="clock" size={18} />
+                        Atualizar progresso
+                      </button>
+                    </div>
+                  </div>
+
+                  <aside className={styles.radarCampaignAside}>
+                    <div>
+                      <span className={styles.cardEyebrow}>Campanha de coleta</span>
+                      <strong className={styles.sectionTitle}>{campaignForm.targetTotal.toLocaleString("pt-BR")} unidades</strong>
+                      <p className={styles.helperText}>
+                        A pesquisa roda em ciclos noturnos e abastece o Consultar Banco com contatos limpos, sem repetir quem já entrou na base.
+                      </p>
+                    </div>
+
+                    <div className={styles.radarCampaignSummary}>
+                      <span><strong>{campaignForm.batchSize}</strong> por pesquisa</span>
+                      <span><strong>{campaignForm.nightOnly ? "Noite" : "Livre"}</strong> janela</span>
+                      <span><strong>{String(campaignForm.allowedStartHour).padStart(2, "0")}h-{String(campaignForm.allowedEndHour).padStart(2, "0")}h</strong> horário</span>
+                    </div>
+
+                    <div className={styles.radarCampaignFlow}>
+                      <div>
+                        <span>1</span>
+                        <p>Combina tipo, estado, cidade e nicho para montar a pesquisa.</p>
+                      </div>
+                      <div>
+                        <span>2</span>
+                        <p>Executa lotes durante a noite até completar a meta de unidades.</p>
+                      </div>
+                      <div>
+                        <span>3</span>
+                        <p>Filtra duplicados, divergências de DDD, sem telefone e reclamações.</p>
+                      </div>
+                      <div>
+                        <span>4</span>
+                        <p>Entrega os aprovados no menu Consultar Banco para o time trabalhar.</p>
+                      </div>
+                    </div>
+                  </aside>
                 </div>
 
                 <div className={styles.radarCampaignGrid}>
