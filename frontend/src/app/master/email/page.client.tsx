@@ -2,6 +2,7 @@
 
 /* eslint-disable @next/next/no-img-element */
 import { useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import Link from "next/link";
 import DashboardScaffold from "@/components/DashboardScaffold";
 import { apiFetch, getDirectDashboardApiBaseUrl } from "@/app/_lib/api";
@@ -131,6 +132,22 @@ function templateToDraft(template: EmailTemplate): Draft {
   };
 }
 
+function getNormalSendBlocker(input: {
+  recipientName: string;
+  recipientEmail: string;
+  subject: string;
+  text: string;
+  hasAttachment: boolean;
+}) {
+  if (!input.recipientName.trim()) return "Informe o nome do contato.";
+  if (!input.recipientEmail.trim()) return "Informe o email do contato.";
+  if (!input.recipientEmail.includes("@")) return "Informe um email de contato válido.";
+  if (!input.subject.trim()) return "Informe o assunto do email.";
+  if (!input.text.trim()) return "Informe a mensagem do email.";
+  if (!input.hasAttachment) return "Faça upload do PPTX. Sem anexo salvo no backend, o email comercial não pode ser enviado.";
+  return null;
+}
+
 export default function MasterEmailClientPage() {
   const hasToken = useRequireAuth();
   const [activeTemplate, setActiveTemplate] = useState<TemplateKind>("normal");
@@ -188,12 +205,23 @@ export default function MasterEmailClientPage() {
     if (hasToken === true) void loadAll();
   }, [hasToken]);
 
+  useEffect(() => {
+    if (!error && !message) return;
+    const timeout = window.setTimeout(() => {
+      setError(null);
+      setMessage(null);
+    }, error ? 6500 : 4200);
+    return () => window.clearTimeout(timeout);
+  }, [error, message]);
+
   const activeDraft = drafts[activeTemplate];
   const activeTemplateData = templates[activeTemplate];
   const senderReady = state?.sender.ready;
   const isNormal = activeTemplate === "normal";
   const requiredVariable = activeTemplateData?.requiredVariable || null;
   const operationBusy = saving || testing || sending || uploading || uploadingBusinessCard || Boolean(loadingKind);
+  const hasSavedAttachment = Boolean(state?.attachment);
+  const hasSavedSignature = Boolean(state?.businessCard?.previewDataUrl);
 
   const sampleVariables = useMemo(() => ({
     nome: sampleName.trim() || DEFAULT_NAME,
@@ -343,8 +371,9 @@ export default function MasterEmailClientPage() {
         requireAuth: true,
         timeoutMs: 120000,
       });
-      setState((current) => current ? { ...current, attachment: payload.attachment } : current);
-      setMessage("Anexo PPTX atualizado.");
+      const refreshed = await apiFetch<MasterEmailState>("/master/email", { requireAuth: true });
+      setState({ ...refreshed, attachment: payload.attachment || refreshed.attachment });
+      setMessage("Anexo PPTX salvo no backend.");
     } catch (uploadError) {
       setError(uploadError instanceof Error ? uploadError.message : "Falha ao enviar o PPTX.");
     } finally {
@@ -370,8 +399,9 @@ export default function MasterEmailClientPage() {
         requireAuth: true,
         timeoutMs: 60000,
       });
-      setState((current) => current ? { ...current, businessCard: payload.businessCard } : current);
-      setMessage("Assinatura atualizada.");
+      const refreshed = await apiFetch<MasterEmailState>("/master/email", { requireAuth: true });
+      setState({ ...refreshed, businessCard: payload.businessCard || refreshed.businessCard });
+      setMessage("Assinatura digital salva no backend.");
     } catch (uploadError) {
       setError(uploadError instanceof Error ? uploadError.message : "Falha ao salvar assinatura.");
     } finally {
@@ -383,6 +413,18 @@ export default function MasterEmailClientPage() {
     const validationError = validateDraft("normal", drafts.normal);
     if (validationError) {
       setError(validationError);
+      setMessage(null);
+      return;
+    }
+    const blocker = getNormalSendBlocker({
+      recipientName,
+      recipientEmail,
+      subject: drafts.normal.subject,
+      text: drafts.normal.text,
+      hasAttachment: hasSavedAttachment,
+    });
+    if (blocker) {
+      setError(blocker);
       setMessage(null);
       return;
     }
@@ -424,29 +466,14 @@ export default function MasterEmailClientPage() {
 
   if (!hasToken) return null;
 
-  const canSendNormal = Boolean(
-    recipientName.trim() &&
-      recipientEmail.trim() &&
-      drafts.normal.subject.trim() &&
-      drafts.normal.text.trim() &&
-      state?.attachment &&
-      !operationBusy,
-  );
-
   return (
-    <DashboardScaffold
-      title="Email"
-      description="Central MASTER de templates comerciais e transacionais do HBX."
-      actions={<Link href="/master" className="btn btn-secondary btn-sm">Voltar ao Master</Link>}
-    >
-      <div className={styles.page}>
-        {error || message ? (
-          <div className={styles.alertArea}>
-            {error ? <div className="alert alert-error">{error}</div> : null}
-            {message ? <div className="alert alert-success">{message}</div> : null}
-          </div>
-        ) : null}
-
+    <>
+      <DashboardScaffold
+        title="Email"
+        description="Central MASTER de templates comerciais e transacionais do HBX."
+        actions={<Link href="/master" className="btn btn-secondary btn-sm">Voltar ao Master</Link>}
+      >
+        <div className={styles.page}>
         <section className={styles.panel}>
           <div className={styles.header}>
             <div>
@@ -557,13 +584,16 @@ export default function MasterEmailClientPage() {
             <div className={styles.attachmentBox}>
               <div>
                 <span>Anexo PPTX</span>
-                <strong>{state?.attachment?.originalName || "Nenhum PPTX enviado"}</strong>
+                <strong>{state?.attachment?.originalName || "Nenhum PPTX salvo"}</strong>
                 <p>
                   {state?.attachment
-                    ? `${formatFileSize(state.attachment.size)} • atualizado em ${formatDate(state.attachment.uploadedAt)}`
-                    : "Faça upload da apresentação antes do primeiro envio."}
+                    ? `Salvo no backend • ${formatFileSize(state.attachment.size)} • ${formatDate(state.attachment.uploadedAt)}`
+                    : "Não há PPTX salvo no backend. Faça upload antes do envio comercial."}
                 </p>
               </div>
+              <span className={styles.statusBadge} data-ok={hasSavedAttachment ? "true" : "false"}>
+                {hasSavedAttachment ? "Salvo no backend" : "Pendente"}
+              </span>
               <label className={styles.uploadButton}>
                 {uploading ? "Enviando..." : "Trocar PPTX"}
                 <input
@@ -593,7 +623,7 @@ export default function MasterEmailClientPage() {
               {testing ? "Enviando teste..." : "Enviar teste"}
             </button>
             {isNormal ? (
-              <button type="button" className="btn btn-primary btn-sm" onClick={sendNormalEmail} disabled={!canSendNormal}>
+              <button type="button" className="btn btn-primary btn-sm" onClick={sendNormalEmail} disabled={operationBusy}>
                 {sending ? "Enviando..." : "Enviar email"}
               </button>
             ) : null}
@@ -619,9 +649,12 @@ export default function MasterEmailClientPage() {
 
           {isNormal ? (
             <div className={styles.sideCard}>
-              <span>Assinatura comercial</span>
-              <strong>{state?.businessCard ? "Imagem ativa no final do email" : "Sem imagem"}</strong>
-              <p>{state?.businessCard ? `${formatFileSize(state.businessCard.size)} • ${formatDate(state.businessCard.uploadedAt)}` : "Opcional. Não entra dentro do editor."}</p>
+              <span>Assinatura digital</span>
+              <strong>{hasSavedSignature ? "Imagem salva no backend" : "Sem imagem salva"}</strong>
+              <p>{state?.businessCard ? `Salva no backend • ${formatFileSize(state.businessCard.size)} • ${formatDate(state.businessCard.uploadedAt)}` : "Opcional. Entra automaticamente no final do email e na prévia."}</p>
+              <span className={styles.statusBadge} data-ok={hasSavedSignature ? "true" : "false"}>
+                {hasSavedSignature ? "Salva no backend" : "Pendente"}
+              </span>
               <label className={`${styles.uploadButton} ${styles.fullButton}`}>
                 {uploadingBusinessCard ? "Salvando..." : "Atualizar assinatura"}
                 <input
@@ -642,7 +675,10 @@ export default function MasterEmailClientPage() {
             <strong>{preview.subject || "Sem assunto"}</strong>
             <div className={styles.previewBody} dangerouslySetInnerHTML={{ __html: preview.html || "&nbsp;" }} />
             {isNormal && state?.businessCard?.previewDataUrl ? (
-              <img className={styles.previewSignature} src={state.businessCard.previewDataUrl} alt="Assinatura comercial no email" />
+              <>
+                <div className={styles.previewDivider}>Assinatura digital anexada ao final</div>
+                <img className={styles.previewSignature} src={state.businessCard.previewDataUrl} alt="Assinatura digital no email" />
+              </>
             ) : null}
           </div>
 
@@ -660,7 +696,23 @@ export default function MasterEmailClientPage() {
             </div>
           ) : null}
         </aside>
-      </div>
-    </DashboardScaffold>
+        </div>
+      </DashboardScaffold>
+
+      {typeof document !== "undefined" && (error || message)
+        ? createPortal(
+            <div className={styles.toastDock} aria-live="polite">
+              <div
+                className={`${styles.toast} ${error ? styles.toastError : styles.toastSuccess}`}
+                role={error ? "alert" : "status"}
+              >
+                <span className={styles.toastEyebrow}>{error ? "Atenção" : "Confirmado"}</span>
+                <strong>{error || message}</strong>
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
+    </>
   );
 }

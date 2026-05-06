@@ -5,13 +5,6 @@
   align-items: start;
 }
 
-.alertArea {
-  display: grid;
-  grid-column: 1 / -1;
-  gap: 0.5rem;
-  min-width: 0;
-}
-
 .panel,
 .sideCard {
   border: 1px solid color-mix(in srgb, var(--line) 88%, var(--background));
@@ -202,6 +195,10 @@
 }
 
 .attachmentBox {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 0.75rem;
+  align-items: center;
   border: 1px solid color-mix(in srgb, var(--line) 84%, var(--background));
   border-radius: calc(var(--panel-radius) * 0.72);
   background: color-mix(in srgb, var(--surface-soft) 94%, var(--background));
@@ -243,6 +240,34 @@
   inset: 0;
   opacity: 0;
   cursor: pointer;
+}
+
+.statusBadge,
+.attachmentBox .statusBadge,
+.sideCard .statusBadge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 0;
+  min-height: 30px;
+  padding: 0 0.62rem;
+  border: 1px solid color-mix(in srgb, var(--warning) 42%, var(--line));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--warning) 12%, var(--surface));
+  color: color-mix(in srgb, var(--warning) 78%, var(--foreground));
+  font-size: 0.75rem;
+  font-weight: 900;
+  letter-spacing: 0;
+  text-transform: none;
+  white-space: nowrap;
+}
+
+.statusBadge[data-ok="true"],
+.attachmentBox .statusBadge[data-ok="true"],
+.sideCard .statusBadge[data-ok="true"] {
+  border-color: color-mix(in srgb, var(--success) 42%, var(--line));
+  background: color-mix(in srgb, var(--success) 12%, var(--surface));
+  color: color-mix(in srgb, var(--success) 78%, var(--foreground));
 }
 
 .warning {
@@ -311,12 +336,22 @@
   display: block;
   width: 100%;
   height: auto;
-  max-height: 180px;
+  max-height: none;
   object-fit: contain;
   margin-top: 0.85rem;
   border: 1px solid color-mix(in srgb, var(--line) 82%, var(--background));
   border-radius: calc(var(--panel-radius) * 0.55);
   background: color-mix(in srgb, var(--surface-soft) 90%, var(--background));
+}
+
+.previewDivider {
+  margin-top: 0.9rem;
+  padding-top: 0.8rem;
+  border-top: 1px solid color-mix(in srgb, var(--line) 72%, var(--background));
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 850;
+  text-transform: uppercase;
 }
 
 .sideField {
@@ -357,5 +392,90 @@
     grid-template-columns: 1fr;
     flex-direction: column;
     align-items: stretch;
+  }
+}
+
+.toastDock {
+  position: fixed;
+  top: 84px;
+  right: 20px;
+  z-index: calc(var(--ui-popup-z, 140) + 20);
+  display: grid;
+  gap: 0.7rem;
+  width: min(380px, calc(100vw - 2rem));
+  pointer-events: none;
+}
+
+.toast {
+  display: grid;
+  gap: 0.25rem;
+  padding: 0.88rem 1rem;
+  border: 1px solid color-mix(in srgb, var(--info) 34%, var(--line));
+  border-radius: 18px;
+  background:
+    radial-gradient(circle at top right, color-mix(in srgb, var(--info) 18%, transparent), transparent 42%),
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--surface) 98%, var(--background)),
+      color-mix(in srgb, var(--surface-raised) 94%, var(--background))
+    );
+  box-shadow: 0 18px 46px color-mix(in srgb, var(--foreground) 18%, transparent);
+  animation: master-email-toast-in 180ms ease-out both;
+}
+
+.toast strong {
+  color: var(--foreground);
+  font-size: 0.88rem;
+  line-height: 1.42;
+}
+
+.toastEyebrow {
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.toastSuccess {
+  border-color: color-mix(in srgb, var(--success) 34%, var(--line));
+  background:
+    radial-gradient(circle at top right, color-mix(in srgb, var(--success) 18%, transparent), transparent 42%),
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--surface) 98%, var(--background)),
+      color-mix(in srgb, var(--surface-raised) 94%, var(--background))
+    );
+}
+
+.toastError {
+  border-color: color-mix(in srgb, var(--danger) 36%, var(--line));
+  background:
+    radial-gradient(circle at top right, color-mix(in srgb, var(--danger) 18%, transparent), transparent 42%),
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--surface) 98%, var(--background)),
+      color-mix(in srgb, var(--surface-raised) 94%, var(--background))
+    );
+}
+
+@keyframes master-email-toast-in {
+  from {
+    opacity: 0;
+    transform: translate3d(14px, -8px, 0) scale(0.98);
+  }
+
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+@media (max-width: 640px) {
+  .toastDock {
+    top: 72px;
+    right: 12px;
+    left: 12px;
+    width: auto;
   }
 }
