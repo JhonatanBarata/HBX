@@ -31,6 +31,7 @@ type EngineRegistryRow = {
   status: string;
   lastHealthStatus?: string | null;
   lastError?: string | null;
+  failureCount?: number | null;
   lockedRunId?: string | null;
   lockedUntil?: Date | null;
   cooldownUntil?: Date | null;
@@ -111,8 +112,14 @@ export class HbxEnginePoolService {
         lastError = error instanceof Error ? error.message : String(error || 'Healthcheck falhou.');
       }
 
+      const healthFailureCount = healthStatus === 'offline'
+        ? Math.min(Number(row.failureCount || 0) + 1, 6)
+        : 0;
+      const healthCooldownUntil = healthStatus === 'offline' && healthFailureCount >= 3
+        ? new Date(Date.now() + Math.min(30, 2 ** healthFailureCount) * 60_000)
+        : row.cooldownUntil || null;
       const isLocked = Boolean(row.lockedRunId && row.lockedUntil && row.lockedUntil.getTime() > Date.now());
-      const inCooldown = Boolean(row.cooldownUntil && row.cooldownUntil.getTime() > Date.now());
+      const inCooldown = Boolean(healthCooldownUntil && healthCooldownUntil.getTime() > Date.now());
       const status = isLocked
         ? 'busy'
         : inCooldown
@@ -127,6 +134,8 @@ export class HbxEnginePoolService {
           status,
           lastHealthStatus: healthStatus,
           lastError,
+          failureCount: healthFailureCount,
+          cooldownUntil: healthCooldownUntil,
           lastCheckedAt: now,
         },
       });
@@ -186,7 +195,7 @@ export class HbxEnginePoolService {
       .sort((left, right) => left.engineIndex - right.engineIndex);
   }
 
-  async acquireEngine(runId: string, companyId: number, userId: number): Promise<HbxEngineLease | null> {
+  async acquireEngine(runId: string, companyId: number, userId: number, avoidEngineIdOrUrl?: string): Promise<HbxEngineLease | null> {
     await this.cleanupExpiredLocks();
     const capacity = await this.getCurrentCapacityLevel();
     if (capacity.operationalStatus === 'degraded') {
@@ -197,7 +206,13 @@ export class HbxEnginePoolService {
       return null;
     }
 
-    const eligible = await this.getEligibleEnginesForCurrentQueue();
+    const avoid = String(avoidEngineIdOrUrl || '').trim();
+    const eligible = (await this.getEligibleEnginesForCurrentQueue())
+      .sort((left, right) => {
+        const leftAvoided = avoid && (left.id === avoid || left.url === avoid) ? 1 : 0;
+        const rightAvoided = avoid && (right.id === avoid || right.url === avoid) ? 1 : 0;
+        return leftAvoided - rightAvoided || left.engineIndex - right.engineIndex;
+      });
     const lockedUntil = new Date(Date.now() + this.engineMaxBusyMinutes() * 60_000);
 
     for (const engine of eligible) {
@@ -240,15 +255,45 @@ export class HbxEnginePoolService {
     if (!(await this.prisma.hasTable('HbxEngineLock'))) return;
     const current = await (this.prisma as any).hbxEngineLock.findUnique({ where: { id: engineId } }).catch(() => null);
     const inCooldown = Boolean(current?.cooldownUntil instanceof Date && current.cooldownUntil.getTime() > Date.now());
+    const degraded = String(current?.status || '') === 'degraded';
     await (this.prisma as any).hbxEngineLock.update({
       where: { id: engineId },
       data: {
-        status: inCooldown ? 'cooldown' : 'online',
+        status: inCooldown ? 'cooldown' : degraded ? 'degraded' : 'online',
         lockedRunId: null,
         lockedCompanyId: null,
         lockedUserId: null,
         lockedAt: null,
         lockedUntil: null,
+      },
+    }).catch(() => null);
+  }
+
+  async markEngineBatchError(engineId: string, error: unknown) {
+    if (!(await this.prisma.hasTable('HbxEngineLock'))) return;
+    const message = String((error as any)?.response?.message || (error as any)?.rawMessage || (error as any)?.message || error || 'Falha no lote HBX.');
+    await (this.prisma as any).hbxEngineLock.update({
+      where: { id: engineId },
+      data: {
+        status: 'degraded',
+        lastError: message.slice(0, 500),
+        lockedRunId: null,
+        lockedCompanyId: null,
+        lockedUserId: null,
+        lockedAt: null,
+        lockedUntil: null,
+      },
+    }).catch(() => null);
+  }
+
+  async markEngineBatchSuccess(engineId: string) {
+    if (!(await this.prisma.hasTable('HbxEngineLock'))) return;
+    await (this.prisma as any).hbxEngineLock.update({
+      where: { id: engineId },
+      data: {
+        status: 'online',
+        failureCount: 0,
+        lastError: null,
       },
     }).catch(() => null);
   }

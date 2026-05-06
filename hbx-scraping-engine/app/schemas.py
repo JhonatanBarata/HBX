@@ -9,12 +9,15 @@ class SearchRequest(BaseModel):
     city: str = ""
     state: str = ""
     segment: str = ""
+    query: str = ""
     targetType: TargetType = "pj"
     limit: int = Field(10, ge=1, le=100)
+    batchLimit: int | None = Field(None, ge=1, le=100)
     fresh: bool = False
     excludePhoneDigits: list[str] = Field(default_factory=list)
+    excludeUrls: list[str] = Field(default_factory=list)
 
-    @field_validator("city", "state", "segment")
+    @field_validator("city", "state", "segment", "query")
     @classmethod
     def normalize_text(cls, value: str) -> str:
         return " ".join(str(value or "").split())
@@ -38,8 +41,22 @@ class SearchRequest(BaseModel):
                 normalized.append(digits)
         return normalized
 
+    @field_validator("excludeUrls")
+    @classmethod
+    def normalize_exclude_urls(cls, values: list[str]) -> list[str]:
+        seen: set[str] = set()
+        normalized: list[str] = []
+        for value in values or []:
+            url = str(value or "").strip().rstrip("/")
+            if url and url not in seen:
+                seen.add(url)
+                normalized.append(url)
+        return normalized
+
     @model_validator(mode="after")
     def validate_limit_by_target_type(self) -> "SearchRequest":
+        if self.batchLimit is not None:
+            self.limit = min(self.limit, self.batchLimit)
         if self.targetType in {"pf", "agenda_pf"} and (not self.city or not self.state):
             raise ValueError("cidade e estado sao obrigatorios")
         if self.targetType != "agenda_pf" and not self.segment:
@@ -54,6 +71,7 @@ class QueryPayload(BaseModel):
     city: str
     state: str
     segment: str = ""
+    query: str = ""
     targetType: TargetType = "pj"
     limit: int
 

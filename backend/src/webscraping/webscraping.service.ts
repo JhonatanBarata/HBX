@@ -3,7 +3,10 @@ import {
   ForbiddenException,
   Inject,
   Injectable,
+  Logger,
   NotFoundException,
+  OnModuleDestroy,
+  OnModuleInit,
   Optional,
   ServiceUnavailableException,
   forwardRef,
@@ -38,13 +41,35 @@ type ExternalRuntimeStatus = 'online' | 'offline';
 type SearchSource = 'history' | 'google' | 'hbx' | 'hybrid' | 'global_cache' | 'radar_database';
 type WebscrapingEngine = 'google' | 'hbx';
 type HbxTargetType = 'pj' | 'pf' | 'agenda_pf';
-type SearchRunStatus = 'completed' | 'partial_error' | 'completed_with_errors';
-type WebscrapingSearchRunStatus = 'queued' | 'running' | 'completed' | 'partial_error' | 'failed' | 'canceled';
+type SearchRunStatus = 'completed' | 'partial_error' | 'completed_with_errors' | 'completed_insufficient_results';
+type WebscrapingSearchRunStatus =
+  | 'queued'
+  | 'running'
+  | 'completed'
+  | 'partial_error'
+  | 'completed_insufficient_results'
+  | 'failed'
+  | 'canceled';
 type WebscrapingSearchRunItemStatus = 'found' | 'duplicate' | 'skipped' | 'invalid';
+type HbxBatchStatus =
+  | 'queued_wait'
+  | 'running_batch'
+  | 'batch_success'
+  | 'empty_batch'
+  | 'batch_error'
+  | 'engine_error'
+  | 'completed'
+  | 'completed_insufficient_results'
+  | 'failed'
+  | 'canceled';
 type HbxEngineSearchOutput = {
   results: WebscrapingContactResult[];
   status: SearchRunStatus;
   message: string | null;
+  httpStatus: number | null;
+  rawErrorMessage: string | null;
+  rejectedCount: number;
+  duplicateCount: number;
 };
 
 let cityCache: {
@@ -145,6 +170,17 @@ export type WebscrapingSearchRunResponse = {
   duplicateCount: number;
   skippedCount: number;
   errorMessage: string | null;
+  attemptCount: number;
+  failedBatchCount: number;
+  consecutiveEmptyBatchCount: number;
+  consecutiveEngineErrorCount: number;
+  lastBatchError: string | null;
+  lastBatchStatus: HbxBatchStatus | null;
+  nextRetryAt: string | null;
+  lastQueryUsed: string | null;
+  lastEngineUrl: string | null;
+  batchLimit: number;
+  maxAttempts: number;
   operationalStatus?: 'healthy' | 'degraded';
   operationalMessage?: string | null;
   startedAt: string | null;
@@ -278,6 +314,12 @@ type RadarFiltersInput = {
   segment?: string | null;
   quantity?: number | null;
   limit?: number | null;
+  page?: number | null;
+  filterKey?: string | null;
+  status?: string | null;
+  ddd?: string | null;
+  scoreRange?: string | null;
+  source?: string | null;
   minRating?: number | null;
   minReviews?: number | null;
   noWebsite?: boolean | string | null;
@@ -294,6 +336,41 @@ type RadarFiltersInput = {
   minimumStock?: number | null;
 };
 
+type RadarLeadEventType =
+  | 'found'
+  | 'imported_to_vendas'
+  | 'contacted'
+  | 'denied'
+  | 'complaint'
+  | 'no_answer'
+  | 'hidden'
+  | 'duplicate'
+  | 'status_changed';
+
+type RadarLeadStatus =
+  | 'clean'
+  | 'new'
+  | 'sent_to_vendas'
+  | 'denied'
+  | 'complaint'
+  | 'no_answer'
+  | 'duplicate'
+  | 'rejected'
+  | 'hidden';
+
+type RadarCampaignInput = {
+  city?: string | null;
+  state?: string | null;
+  segment?: string | null;
+  targetType?: HbxTargetType | string | null;
+  targetTotal?: number | null;
+  batchSize?: number | null;
+  nightOnly?: boolean | string | null;
+  allowedStartHour?: number | null;
+  allowedEndHour?: number | null;
+  timezone?: string | null;
+};
+
 type NormalizedRadarFilters = {
   city: string;
   state: string;
@@ -302,6 +379,12 @@ type NormalizedRadarFilters = {
   normalizedSegment: string;
   quantity: number;
   limit: number;
+  page: number;
+  filterKey: string;
+  status: string;
+  ddd: string;
+  scoreRange: string;
+  source: string;
   minRating: number | null;
   minReviews: number | null;
   noWebsite: boolean;
@@ -384,6 +467,22 @@ class GooglePlacesApiError extends Error {
     message: string,
   ) {
     super(message);
+  }
+}
+
+class HbxBatchError extends ServiceUnavailableException {
+  constructor(
+    readonly httpStatus: number | null,
+    readonly rawMessage: string,
+    readonly retryable: boolean,
+    readonly code = 'hbx_batch_error',
+  ) {
+    super({
+      code,
+      message: rawMessage || 'Falha no lote do Motor HBX.',
+      httpStatus,
+      retryable,
+    });
   }
 }
 
@@ -531,6 +630,12 @@ function safeInteger(value: unknown, fallback = 0) {
   return Math.max(0, Math.trunc(numeric));
 }
 
+function parsePositiveIntegerEnv(name: string, fallback: number) {
+  const parsed = Number(String(process.env[name] || '').trim());
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+  return Math.trunc(parsed);
+}
+
 function formatCityWithState(city: string, state: string | null | undefined) {
   const safeCity = String(city || '').trim();
   const safeState = String(state || '').trim().toUpperCase();
@@ -540,8 +645,11 @@ function formatCityWithState(city: string, state: string | null | undefined) {
 }
 
 @Injectable()
-export class WebscrapingService {
+export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
+  private readonly logger = new Logger(WebscrapingService.name);
   private searchRunQueuePumpActive = false;
+  private radarCampaignPumpActive = false;
+  private radarCampaignTimer: NodeJS.Timeout | null = null;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -549,6 +657,22 @@ export class WebscrapingService {
     @Optional() @Inject(forwardRef(() => VendasService))
     private readonly vendasService?: VendasService,
   ) {}
+
+  onModuleInit() {
+    this.radarCampaignTimer = setInterval(() => {
+      void this.processNextRadarCampaigns();
+    }, 30_000);
+    setTimeout(() => {
+      void this.processNextRadarCampaigns();
+    }, 2_000);
+  }
+
+  onModuleDestroy() {
+    if (this.radarCampaignTimer) {
+      clearInterval(this.radarCampaignTimer);
+      this.radarCampaignTimer = null;
+    }
+  }
 
   private getEnginePool() {
     if (!this.hbxEnginePool) {
@@ -1418,12 +1542,14 @@ export class WebscrapingService {
   }
 
   private async assertSearchRunPersistence() {
-    const [runTable, itemTable, engineLockTable] = await Promise.all([
+    const [runTable, itemTable, engineLockTable, attemptColumn, retryColumn] = await Promise.all([
       this.prisma.hasTable('WebscrapingSearchRun'),
       this.prisma.hasTable('WebscrapingSearchRunItem'),
       this.prisma.hasTable('HbxEngineLock'),
+      this.prisma.hasColumn('WebscrapingSearchRun', 'attemptCount'),
+      this.prisma.hasColumn('WebscrapingSearchRun', 'nextRetryAt'),
     ]);
-    if (!runTable || !itemTable || !engineLockTable) {
+    if (!runTable || !itemTable || !engineLockTable || !attemptColumn || !retryColumn) {
       throw new ServiceUnavailableException({
         code: 'webscraping_search_run_schema_missing',
         message: 'Estrutura de pesquisa incremental ainda nao foi aplicada no banco.',
@@ -1432,12 +1558,14 @@ export class WebscrapingService {
   }
 
   private isTerminalSearchRunStatus(status: string | null | undefined) {
-    return ['completed', 'partial_error', 'failed', 'canceled'].includes(String(status || '').trim());
+    return ['completed', 'partial_error', 'completed_insufficient_results', 'failed', 'canceled'].includes(
+      String(status || '').trim(),
+    );
   }
 
   private normalizeSearchRunStatus(status: unknown): WebscrapingSearchRunStatus {
     const normalized = String(status || '').trim();
-    if (['queued', 'running', 'completed', 'partial_error', 'failed', 'canceled'].includes(normalized)) {
+    if (['queued', 'running', 'completed', 'partial_error', 'completed_insufficient_results', 'failed', 'canceled'].includes(normalized)) {
       return normalized as WebscrapingSearchRunStatus;
     }
     return 'queued';
@@ -1460,6 +1588,192 @@ export class WebscrapingService {
       engine: normalizeEngine(run?.engine),
       targetType: normalizeTargetType(run?.targetType),
     };
+  }
+
+  private getHbxRunBatchLimit(targetQuantity: number) {
+    const configured = parsePositiveIntegerEnv('HBX_SEARCH_RUN_BATCH_LIMIT', 10);
+    const smallBatch = Math.min(20, Math.max(10, configured));
+    return Math.max(1, Math.min(smallBatch, Math.trunc(Number(targetQuantity || 1))));
+  }
+
+  private getHbxRunMaxAttempts(targetQuantity: number, batchLimit: number) {
+    const fallback = Math.max(8, Math.ceil(Math.max(1, targetQuantity) / Math.max(1, batchLimit)) * 2);
+    return Math.max(1, parsePositiveIntegerEnv('HBX_SEARCH_RUN_MAX_ATTEMPTS', fallback));
+  }
+
+  private getHbxRunMaxEmptyBatches() {
+    return Math.max(1, parsePositiveIntegerEnv('HBX_SEARCH_RUN_MAX_EMPTY_BATCHES', 5));
+  }
+
+  private getHbxRunMaxFailedBatches() {
+    return Math.max(1, parsePositiveIntegerEnv('HBX_SEARCH_RUN_MAX_FAILED_BATCHES', 6));
+  }
+
+  private getRadarCampaignMaxEmptyBatches() {
+    return Math.max(1, parsePositiveIntegerEnv('HBX_RADAR_MAX_EMPTY_BATCHES', 12));
+  }
+
+  private getRadarCampaignMaxErrorBatches() {
+    return Math.max(1, parsePositiveIntegerEnv('HBX_RADAR_MAX_ERROR_BATCHES', 8));
+  }
+
+  private getHbxBatchTimeoutMs() {
+    return Math.max(5_000, parsePositiveIntegerEnv('HBX_SEARCH_BATCH_TIMEOUT_MS', 35_000));
+  }
+
+  private getHbxRetryDelayMs(consecutiveEngineErrors: number) {
+    const delays = [5_000, 15_000, 30_000, 60_000];
+    return delays[Math.min(Math.max(1, consecutiveEngineErrors) - 1, delays.length - 1)];
+  }
+
+  private scheduleSearchRunPump(delayMs = 0) {
+    setTimeout(() => {
+      void this.processNextQueuedSearchRun();
+    }, Math.max(0, delayMs));
+  }
+
+  private async scheduleNextDueSearchRunPump() {
+    const next = await this.prisma.webscrapingSearchRun.findFirst({
+      where: {
+        status: { in: ['queued', 'running'] },
+        assignedEngineId: null,
+        nextRetryAt: { not: null },
+      },
+      orderBy: { nextRetryAt: 'asc' },
+      select: { nextRetryAt: true },
+    }).catch(() => null);
+    if (!(next?.nextRetryAt instanceof Date)) return;
+    const delayMs = Math.min(60_000, Math.max(0, next.nextRetryAt.getTime() - Date.now()));
+    this.scheduleSearchRunPump(delayMs);
+  }
+
+  private parseHbxRoleNiche(segment: string, targetType: HbxTargetType) {
+    const raw = String(segment || '').replace(/\s+/g, ' ').trim();
+    const withoutDdd = raw.replace(/\bDDD\s*\d{2}\b/gi, '').replace(/\s+/g, ' ').trim();
+    const roles = ['consultor', 'corretor', 'vendedor', 'representante', 'autonomo', 'autonomo', 'prestador'];
+    const normalized = normalizeLookupValue(withoutDdd);
+    const role = roles.find((item) => normalized === item || normalized.startsWith(`${item} `))
+      || (targetType === 'pf' || targetType === 'agenda_pf' ? 'consultor' : 'empresa');
+    const niche = role && normalizeLookupValue(withoutDdd).startsWith(normalizeLookupValue(role))
+      ? withoutDdd.slice(role.length).trim()
+      : withoutDdd;
+    return {
+      role: role || withoutDdd || 'contato',
+      niche: niche || withoutDdd || raw || 'contato',
+    };
+  }
+
+  private extractDddFromSegment(segment: string) {
+    const match = String(segment || '').match(/\bDDD\s*(\d{2})\b/i);
+    return match?.[1] || '';
+  }
+
+  private compactQuery(parts: Array<string | null | undefined>) {
+    return parts
+      .map((part) => String(part || '').trim())
+      .filter(Boolean)
+      .join(' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  private buildHbxBatchQueries(input: NormalizedSearchInput) {
+    const city = input.city;
+    const state = input.state;
+    const ddd = this.extractDddFromSegment(input.segment);
+    const { role, niche } = this.parseHbxRoleNiche(input.segment, input.targetType);
+    const queries = [
+      this.compactQuery([role, niche, city, state, 'whatsapp']),
+      this.compactQuery([role, niche, city, state, 'telefone']),
+      this.compactQuery([niche, city, state, 'contato']),
+      this.compactQuery([role, city, state, 'celular']),
+      ddd ? this.compactQuery([role, niche, 'DDD', ddd]) : this.compactQuery([role, niche, city, state]),
+    ];
+    return Array.from(new Set(queries.filter(Boolean)));
+  }
+
+  private buildHbxBatchQuery(input: NormalizedSearchInput, attempt: number) {
+    const queries = this.buildHbxBatchQueries(input);
+    if (!queries.length) return input.segment;
+    return queries[Math.max(0, attempt - 1) % queries.length];
+  }
+
+  private extractHbxHttpStatus(error: unknown) {
+    const direct = Number((error as any)?.httpStatus ?? (error as any)?.response?.httpStatus ?? 0);
+    return Number.isFinite(direct) && direct > 0 ? direct : null;
+  }
+
+  private extractHbxErrorMessage(error: unknown) {
+    const response = (error as any)?.response;
+    const message = response?.message || (error as any)?.rawMessage || (error as any)?.message || error || 'Falha no lote.';
+    return String(message || 'Falha no lote.').trim();
+  }
+
+  private isRetryableHbxError(error: unknown) {
+    const httpStatus = this.extractHbxHttpStatus(error);
+    if ([502, 503, 504].includes(Number(httpStatus))) return true;
+    if ((error as any)?.retryable === true || (error as any)?.response?.retryable === true) return true;
+    const normalized = this.extractHbxErrorMessage(error).toLowerCase();
+    return [
+      'timeout',
+      'econnreset',
+      'fetch failed',
+      'socket hang up',
+      'etimedout',
+      'network',
+    ].some((part) => normalized.includes(part));
+  }
+
+  private buildSearchRunProgressMessage(foundCount: number) {
+    if (foundCount > 0) {
+      return `Encontramos ${foundCount} contatos ate agora. Continuando busca em novos lotes...`;
+    }
+    return 'Lote processado sem cards aprovados. Continuando busca em novos lotes...';
+  }
+
+  private buildSearchRunRetryMessage(errorMessage: string, httpStatus: number | null, foundCount: number) {
+    const statusText = httpStatus ? `${httpStatus}` : errorMessage;
+    const suffix = foundCount > 0
+      ? ` Encontramos ${foundCount} contatos ate agora.`
+      : '';
+    return `Ultimo lote falhou com ${statusText}, tentando novamente...${suffix}`;
+  }
+
+  private buildSearchRunInsufficientMessage(foundCount: number, attempts: number) {
+    return `Busca parcial: ${foundCount} contatos encontrados. O motor tentou ${attempts} lotes, mas nao atingiu a meta.`;
+  }
+
+  private buildSearchRunNoCardsMessage(attempts: number, lastQuery: string | null | undefined) {
+    const query = String(lastQuery || '').trim();
+    return `Busca sem contatos aprovados apos ${attempts} lotes.${query ? ` Ultima query: ${query}.` : ''}`;
+  }
+
+  private logHbxBatch(data: {
+    runId: string;
+    attempt: number;
+    batchLimit: number;
+    query: string;
+    engineUrl: string | null;
+    httpStatus: number | null;
+    errorMessage: string | null;
+    approvedCount: number;
+    rejectedCount: number;
+    duplicateCount: number;
+    nextRetryAt: Date | null;
+  }) {
+    console.log(`[webscraping-hbx-batch] ${JSON.stringify({
+      runId: data.runId,
+      attempt: data.attempt,
+      batchLimit: data.batchLimit,
+      query: data.query,
+      engineUrl: data.engineUrl,
+      httpStatus: data.httpStatus,
+      errorMessage: data.errorMessage,
+      approvedCount: data.approvedCount,
+      rejectedCount: data.rejectedCount,
+      duplicateCount: data.duplicateCount,
+      nextRetryAt: data.nextRetryAt ? data.nextRetryAt.toISOString() : null,
+    })}`);
   }
 
   private buildSyntheticRunPlaceId(runId: string, result: Partial<WebscrapingContactResult>, index: number) {
@@ -1566,6 +1880,12 @@ export class WebscrapingService {
     baseIndex = 0,
   ) {
     const dedup = await this.snapshotSearchRunDedup(runId);
+    const counts = {
+      found: 0,
+      duplicate: 0,
+      skipped: 0,
+      invalid: 0,
+    };
     for (const [index, result] of results.entries()) {
       const classified = this.classifyRunItem(result, dedup, {
         runId,
@@ -1594,7 +1914,12 @@ export class WebscrapingService {
           rawJson: JSON.stringify(result),
         },
       });
+      if (classified.status === 'found') counts.found += 1;
+      else if (classified.status === 'duplicate') counts.duplicate += 1;
+      else if (classified.status === 'invalid') counts.invalid += 1;
+      else counts.skipped += 1;
     }
+    return counts;
   }
 
   private async recalculateSearchRunCounters(runId: string) {
@@ -1726,19 +2051,62 @@ export class WebscrapingService {
       await this.getEnginePool().cleanupExpiredLocks();
 
       for (;;) {
+        const now = new Date();
         const run = await this.prisma.webscrapingSearchRun.findFirst({
-          where: { status: 'queued' },
-          orderBy: { createdAt: 'asc' },
+          where: {
+            status: { in: ['queued', 'running'] },
+            assignedEngineId: null,
+            OR: [
+              { nextRetryAt: null },
+              { nextRetryAt: { lte: now } },
+            ],
+          },
+          orderBy: [
+            { nextRetryAt: 'asc' },
+            { createdAt: 'asc' },
+          ],
         });
-        if (!run) break;
+        if (!run) {
+          await this.scheduleNextDueSearchRunPump();
+          break;
+        }
 
-        const lease = await this.getEnginePool().acquireEngine(run.id, run.companyId, run.userId);
-        if (!lease) break;
+        const avoidEngineId = ['batch_error', 'engine_error'].includes(String(run.lastBatchStatus || ''))
+          ? String(run.lastEngineUrl || run.assignedEngineId || '')
+          : '';
+        const lease = await this.getEnginePool().acquireEngine(
+          run.id,
+          run.companyId,
+          run.userId,
+          avoidEngineId || undefined,
+        );
+        if (!lease) {
+          const nextRetryAt = new Date(Date.now() + 5_000);
+          await this.prisma.webscrapingSearchRun.update({
+            where: { id: run.id },
+            data: {
+              status: run.foundCount > 0 ? 'running' : 'queued',
+              assignedEngineId: null,
+              assignedEngineUrl: null,
+              assignedEngineIndex: null,
+              lastBatchStatus: 'queued_wait',
+              errorMessage: 'Aguardando motor livre.',
+              nextRetryAt,
+            },
+          }).catch(() => null);
+          this.scheduleSearchRunPump(5_000);
+          break;
+        }
 
         const claimed = await this.prisma.webscrapingSearchRun.updateMany({
           where: {
             id: run.id,
-            status: 'queued',
+            status: { in: ['queued', 'running'] },
+            assignedEngineId: null,
+            OR: [
+              { nextRetryAt: null },
+              { nextRetryAt: { lte: now } },
+            ],
           },
           data: {
             status: 'running',
@@ -1746,7 +2114,8 @@ export class WebscrapingService {
             assignedEngineUrl: lease.url,
             assignedEngineIndex: lease.engineIndex,
             startedAt: run.startedAt || new Date(),
-            errorMessage: null,
+            nextRetryAt: null,
+            lastEngineUrl: lease.url,
           },
         });
 
@@ -1757,6 +2126,7 @@ export class WebscrapingService {
 
         const queueUser = this.buildQueueUser(run);
         const normalized = this.normalizeSearchInput(this.buildRunInputFromRow({ ...run, engine: 'hbx' }));
+        this.scheduleSearchRunPump(0);
         setTimeout(() => {
           void this.processSearchRun(run.id, queueUser, normalized, lease);
         }, 0);
@@ -1777,129 +2147,304 @@ export class WebscrapingService {
     }
 
     const normalized = initialInput || this.normalizeSearchInput(this.buildRunInputFromRow(current));
-    const batchSize = normalized.engine === 'google'
-      ? normalized.quantity
-      : Math.min(15, Math.max(10, normalized.quantity));
-    const maxBatches = normalized.engine === 'google'
-      ? 1
-      : Math.max(Math.ceil(normalized.quantity / batchSize) + 4, 8);
-
-    await this.prisma.webscrapingSearchRun.update({
-      where: { id: runId },
-      data: {
-        status: 'running',
-        startedAt: current.startedAt || new Date(),
-        assignedEngineId: lease?.engineId || current.assignedEngineId || null,
-        assignedEngineUrl: lease?.url || current.assignedEngineUrl || null,
-        assignedEngineIndex: lease?.engineIndex ?? current.assignedEngineIndex ?? null,
-        errorMessage: null,
-      },
-    });
-
-    let emptyBatches = 0;
-    let partialMessage: string | null = null;
+    const batchLimit = this.getHbxRunBatchLimit(normalized.quantity);
+    const maxAttempts = this.getHbxRunMaxAttempts(normalized.quantity, batchLimit);
+    const maxEmptyBatches = this.getHbxRunMaxEmptyBatches();
+    const maxFailedBatches = this.getHbxRunMaxFailedBatches();
+    const attempt = safeInteger(current.attemptCount) + 1;
+    const quantity = Math.min(batchLimit, Math.max(1, normalized.quantity - safeInteger(current.foundCount)));
+    const queryUsed = this.buildHbxBatchQuery(normalized, attempt);
+    const engineUrl = lease?.url || String(current.assignedEngineUrl || current.lastEngineUrl || this.getHbxScrapingEngineUrl());
 
     try {
-      for (let batchIndex = 0; batchIndex < maxBatches; batchIndex += 1) {
-        const liveRun = await this.prisma.webscrapingSearchRun.findUnique({
+      if (safeInteger(current.foundCount) >= normalized.quantity) {
+        await this.persistSearchRunHistoryIfPossible(runId, normalized, context);
+        await this.prisma.webscrapingSearchRun.update({
           where: { id: runId },
-          select: {
-            status: true,
-            foundCount: true,
-            targetQuantity: true,
+          data: {
+            status: 'completed',
+            lastBatchStatus: 'completed',
+            errorMessage: null,
+            nextRetryAt: null,
+            assignedEngineId: null,
+            assignedEngineUrl: null,
+            assignedEngineIndex: null,
+            finishedAt: new Date(),
           },
         });
-        if (!liveRun || liveRun.status === 'canceled') return;
-        if (this.isTerminalSearchRunStatus(liveRun.status)) return;
-        if (liveRun.foundCount >= liveRun.targetQuantity) break;
-
-        const dedup = await this.snapshotSearchRunDedup(runId);
-        const excludePhoneDigits = Array.from(dedup.phoneDigits);
-        const remaining = Math.max(1, normalized.quantity - liveRun.foundCount);
-        const quantity = Math.min(batchSize, remaining);
-
-        const batchResponse = await this.searchContactsForUser(
-          user,
-          {
-            city: normalized.city,
-            state: normalized.state,
-            segment: normalized.segment,
-            engine: normalized.engine,
-            targetType: normalized.targetType,
-            quantity,
-            minRating: normalized.filters.minRating,
-            minReviews: normalized.filters.minReviews,
-            onlyWithWebsite: normalized.filters.onlyWithWebsite,
-            excludePhoneDigits,
-          },
-          {
-            skipPrivateHistory: true,
-            skipTechnicalCache: true,
-            skipRadarLookup: true,
-            recordUsage: true,
-            hbxEngineUrl: lease?.url,
-          },
-        );
-
-        const incoming = Array.isArray(batchResponse.results) ? batchResponse.results : [];
-        if (incoming.length === 0) emptyBatches += 1;
-        else emptyBatches = 0;
-
-        await this.saveSearchRunResults(
-          context,
-          normalized,
-          runId,
-          incoming,
-          batchResponse.meta.source,
-          batchIndex * batchSize,
-        );
-
-        const counters = await this.recalculateSearchRunCounters(runId);
-        if (batchResponse.meta.status === 'partial_error' || batchResponse.meta.status === 'completed_with_errors') {
-          partialMessage = batchResponse.meta.message || 'Um lote retornou erro parcial.';
-          await this.prisma.webscrapingSearchRun.update({
-            where: { id: runId },
-            data: {
-              status: counters.foundCount > 0 ? 'partial_error' : 'failed',
-              errorMessage: partialMessage,
-              finishedAt: new Date(),
-            },
-          });
-          return;
-        }
-        if (emptyBatches >= 2) break;
+        return;
       }
 
-      await this.runGoogleEmergencyComplementIfEligible(runId, user, context, normalized);
-      const counters = await this.recalculateSearchRunCounters(runId);
-      const finishedStatus: WebscrapingSearchRunStatus = counters.foundCount > 0 ? 'completed' : 'failed';
-      const errorMessage = counters.foundCount > 0
-        ? partialMessage
-        : 'Nenhum card valido foi encontrado nos lotes processados.';
-      await this.persistSearchRunHistoryIfPossible(runId, normalized, context);
+      if (attempt > maxAttempts) {
+        const counters = await this.recalculateSearchRunCounters(runId);
+        const finalStatus: WebscrapingSearchRunStatus = counters.foundCount > 0
+          ? 'completed_insufficient_results'
+          : 'failed';
+        const finalMessage = counters.foundCount > 0
+          ? this.buildSearchRunInsufficientMessage(counters.foundCount, safeInteger(current.attemptCount))
+          : this.buildSearchRunNoCardsMessage(safeInteger(current.attemptCount), current.lastQueryUsed);
+        if (counters.foundCount > 0) {
+          await this.persistSearchRunHistoryIfPossible(runId, normalized, context);
+        }
+        await this.prisma.webscrapingSearchRun.update({
+          where: { id: runId },
+          data: {
+            status: finalStatus,
+            lastBatchStatus: finalStatus,
+            errorMessage: finalMessage,
+            nextRetryAt: null,
+            assignedEngineId: null,
+            assignedEngineUrl: null,
+            assignedEngineIndex: null,
+            finishedAt: new Date(),
+          },
+        });
+        return;
+      }
+
       await this.prisma.webscrapingSearchRun.update({
         where: { id: runId },
         data: {
-          status: finishedStatus,
-          errorMessage: finishedStatus === 'failed' ? errorMessage : null,
-          finishedAt: new Date(),
+          status: 'running',
+          startedAt: current.startedAt || new Date(),
+          assignedEngineId: lease?.engineId || current.assignedEngineId || null,
+          assignedEngineUrl: lease?.url || current.assignedEngineUrl || null,
+          assignedEngineIndex: lease?.engineIndex ?? current.assignedEngineIndex ?? null,
+          attemptCount: { increment: 1 },
+          lastBatchStatus: 'running_batch',
+          lastBatchError: null,
+          lastQueryUsed: queryUsed,
+          lastEngineUrl: engineUrl,
+          nextRetryAt: null,
+          errorMessage: `Rodando lote ${attempt}/${maxAttempts}.`,
+        },
+      });
+
+      const liveRun = await this.prisma.webscrapingSearchRun.findUnique({
+        where: { id: runId },
+        select: {
+          status: true,
+          foundCount: true,
+          targetQuantity: true,
+        },
+      });
+      if (!liveRun || liveRun.status === 'canceled') return;
+      if (this.isTerminalSearchRunStatus(liveRun.status)) return;
+      if (safeInteger(liveRun.foundCount) >= safeInteger(liveRun.targetQuantity)) {
+        await this.persistSearchRunHistoryIfPossible(runId, normalized, context);
+        await this.prisma.webscrapingSearchRun.update({
+          where: { id: runId },
+          data: {
+            status: 'completed',
+            lastBatchStatus: 'completed',
+            errorMessage: null,
+            nextRetryAt: null,
+            assignedEngineId: null,
+            assignedEngineUrl: null,
+            assignedEngineIndex: null,
+            finishedAt: new Date(),
+          },
+        });
+        return;
+      }
+
+      const dedup = await this.snapshotSearchRunDedup(runId);
+      const excludePhoneDigits = Array.from(dedup.phoneDigits);
+      const batchInput: NormalizedSearchInput = {
+        ...normalized,
+        quantity,
+      };
+      const batchResponse = await this.searchHbxEngine(
+        batchInput,
+        excludePhoneDigits,
+        engineUrl,
+        {
+          queryText: queryUsed,
+          batchLimit: quantity,
+          timeoutMs: this.getHbxBatchTimeoutMs(),
+        },
+      );
+      const incoming = Array.isArray(batchResponse.results) ? batchResponse.results : [];
+      const savedCounts = await this.saveSearchRunResults(
+        context,
+        normalized,
+        runId,
+        incoming,
+        'hbx',
+        safeInteger(current.attemptCount) * batchLimit,
+      );
+
+      if (lease) {
+        await this.getEnginePool().markEngineBatchSuccess(lease.engineId).catch(() => null);
+      }
+
+      const counters = await this.recalculateSearchRunCounters(runId);
+      const approvedCount = savedCounts.found;
+      const rejectedCount = batchResponse.rejectedCount + savedCounts.invalid + savedCounts.skipped;
+      const duplicateCount = batchResponse.duplicateCount + savedCounts.duplicate;
+      const consecutiveEmptyBatchCount = approvedCount === 0
+        ? safeInteger(current.consecutiveEmptyBatchCount) + 1
+        : 0;
+      const reachedTarget = counters.foundCount >= normalized.quantity;
+      const reachedMaxAttempts = attempt >= maxAttempts;
+      const reachedMaxEmptyBatches = approvedCount === 0 && consecutiveEmptyBatchCount >= maxEmptyBatches;
+
+      this.logHbxBatch({
+        runId,
+        attempt,
+        batchLimit: quantity,
+        query: queryUsed,
+        engineUrl,
+        httpStatus: batchResponse.httpStatus,
+        errorMessage: batchResponse.rawErrorMessage,
+        approvedCount,
+        rejectedCount,
+        duplicateCount,
+        nextRetryAt: null,
+      });
+
+      if (reachedTarget) {
+        await this.runGoogleEmergencyComplementIfEligible(runId, user, context, normalized);
+        await this.persistSearchRunHistoryIfPossible(runId, normalized, context);
+        await this.prisma.webscrapingSearchRun.update({
+          where: { id: runId },
+          data: {
+            status: 'completed',
+            lastBatchStatus: 'completed',
+            errorMessage: null,
+            nextRetryAt: null,
+            assignedEngineId: null,
+            assignedEngineUrl: null,
+            assignedEngineIndex: null,
+            consecutiveEmptyBatchCount,
+            consecutiveEngineErrorCount: 0,
+            finishedAt: new Date(),
+          },
+        });
+        return;
+      }
+
+      if (reachedMaxAttempts || reachedMaxEmptyBatches) {
+        const finalStatus: WebscrapingSearchRunStatus = counters.foundCount > 0
+          ? 'completed_insufficient_results'
+          : 'failed';
+        const finalMessage = counters.foundCount > 0
+          ? this.buildSearchRunInsufficientMessage(counters.foundCount, attempt)
+          : this.buildSearchRunNoCardsMessage(attempt, queryUsed);
+        if (counters.foundCount > 0) {
+          await this.persistSearchRunHistoryIfPossible(runId, normalized, context);
+        }
+        await this.prisma.webscrapingSearchRun.update({
+          where: { id: runId },
+          data: {
+            status: finalStatus,
+            lastBatchStatus: finalStatus,
+            errorMessage: finalMessage,
+            nextRetryAt: null,
+            assignedEngineId: null,
+            assignedEngineUrl: null,
+            assignedEngineIndex: null,
+            consecutiveEmptyBatchCount,
+            consecutiveEngineErrorCount: 0,
+            finishedAt: new Date(),
+          },
+        });
+        return;
+      }
+
+      const message = this.buildSearchRunProgressMessage(counters.foundCount);
+      await this.prisma.webscrapingSearchRun.update({
+        where: { id: runId },
+        data: {
+          status: 'running',
+          lastBatchStatus: approvedCount > 0 ? 'batch_success' : 'empty_batch',
+          errorMessage: message,
+          nextRetryAt: null,
+          assignedEngineId: null,
+          assignedEngineUrl: null,
+          assignedEngineIndex: null,
+          consecutiveEmptyBatchCount,
+          consecutiveEngineErrorCount: 0,
         },
       });
     } catch (error) {
       if (lease) {
-        await this.getEnginePool().markEngineFailed(lease.engineId, error);
+        await this.getEnginePool().markEngineBatchError(lease.engineId, error).catch(() => null);
       }
       const counters = await this.recalculateSearchRunCounters(runId).catch(() => ({
         foundCount: 0,
         duplicateCount: 0,
         skippedCount: 0,
       }));
-      const errorMessage = String((error as any)?.response?.message || (error as any)?.message || error || 'Falha no lote.');
+      const httpStatus = this.extractHbxHttpStatus(error);
+      const errorMessage = this.extractHbxErrorMessage(error);
+      const retryable = this.isRetryableHbxError(error);
+      const consecutiveEngineErrorCount = safeInteger(current.consecutiveEngineErrorCount) + 1;
+      const failedBatchCount = safeInteger(current.failedBatchCount) + 1;
+      const reachedMaxAttempts = attempt >= maxAttempts;
+      const reachedMaxFailedBatches = consecutiveEngineErrorCount >= maxFailedBatches;
+      const shouldRetry = retryable && !reachedMaxAttempts && !reachedMaxFailedBatches;
+      const nextRetryAt = shouldRetry
+        ? new Date(Date.now() + this.getHbxRetryDelayMs(consecutiveEngineErrorCount))
+        : null;
+
+      this.logHbxBatch({
+        runId,
+        attempt,
+        batchLimit: quantity,
+        query: queryUsed,
+        engineUrl,
+        httpStatus,
+        errorMessage,
+        approvedCount: 0,
+        rejectedCount: 0,
+        duplicateCount: 0,
+        nextRetryAt,
+      });
+
+      if (shouldRetry) {
+        await this.prisma.webscrapingSearchRun.update({
+          where: { id: runId },
+          data: {
+            status: counters.foundCount > 0 ? 'running' : 'queued',
+            failedBatchCount,
+            consecutiveEngineErrorCount,
+            lastBatchStatus: httpStatus ? 'batch_error' : 'engine_error',
+            lastBatchError: errorMessage.slice(0, 1000),
+            errorMessage: this.buildSearchRunRetryMessage(errorMessage, httpStatus, counters.foundCount),
+            nextRetryAt,
+            assignedEngineId: null,
+            assignedEngineUrl: null,
+            assignedEngineIndex: null,
+          },
+        }).catch(() => null);
+        return;
+      }
+
+      const finalStatus: WebscrapingSearchRunStatus = counters.foundCount > 0
+        ? 'completed_insufficient_results'
+        : 'failed';
+      const finalMessage = counters.foundCount > 0
+        ? this.buildSearchRunInsufficientMessage(counters.foundCount, attempt)
+        : reachedMaxAttempts
+          ? `Nenhum card valido foi encontrado apos ${attempt} lotes. Ultima query: ${queryUsed}.`
+          : this.buildSearchRunNoCardsMessage(attempt, queryUsed);
+      if (counters.foundCount > 0) {
+        await this.persistSearchRunHistoryIfPossible(runId, normalized, context).catch(() => null);
+      }
       await this.prisma.webscrapingSearchRun.update({
         where: { id: runId },
         data: {
-          status: counters.foundCount > 0 ? 'partial_error' : 'failed',
-          errorMessage,
+          status: finalStatus,
+          failedBatchCount,
+          consecutiveEngineErrorCount,
+          lastBatchStatus: finalStatus === 'failed' ? 'failed' : 'completed_insufficient_results',
+          lastBatchError: errorMessage.slice(0, 1000),
+          errorMessage: finalMessage,
+          nextRetryAt: null,
+          assignedEngineId: null,
+          assignedEngineUrl: null,
+          assignedEngineIndex: null,
           finishedAt: new Date(),
         },
       }).catch(() => null);
@@ -1907,9 +2452,7 @@ export class WebscrapingService {
       if (lease) {
         await this.getEnginePool().releaseEngine(lease.engineId);
       }
-      setTimeout(() => {
-        void this.processNextQueuedSearchRun();
-      }, 0);
+      this.scheduleSearchRunPump(0);
     }
   }
 
@@ -1952,6 +2495,14 @@ export class WebscrapingService {
       },
     };
     const source: SearchSource = engine === 'hbx' ? 'hbx' : 'google';
+    const attemptCount = safeInteger(run.attemptCount);
+    const batchLimit = this.getHbxRunBatchLimit(query.quantity);
+    const maxAttempts = this.getHbxRunMaxAttempts(query.quantity, batchLimit);
+    const foundCount = safeInteger(run.foundCount);
+    const rawMessage = String(run.errorMessage || capacity?.message || '').trim();
+    const guardedMessage = foundCount > 0 && /nenhum card valido/i.test(rawMessage)
+      ? this.buildSearchRunInsufficientMessage(foundCount, attemptCount)
+      : rawMessage || null;
     return {
       id: run.id,
       runId: run.id,
@@ -1966,7 +2517,18 @@ export class WebscrapingService {
       importedCount: safeInteger(run.importedCount),
       duplicateCount: safeInteger(run.duplicateCount),
       skippedCount: safeInteger(run.skippedCount),
-      errorMessage: run.errorMessage || null,
+      errorMessage: guardedMessage,
+      attemptCount,
+      failedBatchCount: safeInteger(run.failedBatchCount),
+      consecutiveEmptyBatchCount: safeInteger(run.consecutiveEmptyBatchCount),
+      consecutiveEngineErrorCount: safeInteger(run.consecutiveEngineErrorCount),
+      lastBatchError: run.lastBatchError || null,
+      lastBatchStatus: run.lastBatchStatus || null,
+      nextRetryAt: run.nextRetryAt instanceof Date ? run.nextRetryAt.toISOString() : null,
+      lastQueryUsed: run.lastQueryUsed || null,
+      lastEngineUrl: run.lastEngineUrl || run.assignedEngineUrl || null,
+      batchLimit,
+      maxAttempts,
       operationalStatus: capacity?.operationalStatus,
       operationalMessage: capacity?.message || null,
       startedAt: run.startedAt instanceof Date ? run.startedAt.toISOString() : null,
@@ -1981,8 +2543,13 @@ export class WebscrapingService {
         reusedCount: 0,
         fetchedCount: safeInteger(run.foundCount),
         totalStoredCount: safeInteger(run.foundCount),
-        status: status === 'partial_error' ? 'partial_error' : status === 'completed' ? 'completed' : undefined,
-        message: run.errorMessage || capacity?.message || null,
+        status:
+          status === 'partial_error' || status === 'completed_insufficient_results'
+            ? status
+            : status === 'completed'
+              ? 'completed'
+              : undefined,
+        message: guardedMessage,
         technicalCacheUsed: false,
         technicalCacheReusedCount: 0,
         technicalCacheValidUntil: null,
@@ -2712,11 +3279,70 @@ export class WebscrapingService {
     if (!(this.prisma as any).radarLeadPool || !(this.prisma as any).radarLeadCompanyState) {
       return false;
     }
-    const [poolTable, stateTable] = await Promise.all([
+    const [poolTable, stateTable, statusColumn] = await Promise.all([
       this.prisma.hasTable('RadarLeadPool'),
       this.prisma.hasTable('RadarLeadCompanyState'),
+      this.prisma.hasColumn('RadarLeadPool', 'status'),
     ]);
-    return poolTable && stateTable;
+    return poolTable && stateTable && statusColumn;
+  }
+
+  private async supportsRadarCampaignPersistence() {
+    if (!(this.prisma as any).webscrapingCampaign || !(this.prisma as any).webscrapingCampaignBatch) {
+      return false;
+    }
+    const [campaignTable, batchTable, eventTable] = await Promise.all([
+      this.prisma.hasTable('WebscrapingCampaign'),
+      this.prisma.hasTable('WebscrapingCampaignBatch'),
+      this.prisma.hasTable('RadarLeadEvent'),
+    ]);
+    return campaignTable && batchTable && eventTable;
+  }
+
+  private normalizeRadarLeadStatus(value: unknown): RadarLeadStatus {
+    const normalized = String(value || '').trim().toLowerCase();
+    if (normalized === 'imported_to_vendas' || normalized === 'sent_to_vendas') return 'sent_to_vendas';
+    if (normalized === 'negative' || normalized === 'lost') return 'denied';
+    if (normalized === 'discarded') return 'hidden';
+    if (['clean', 'new', 'denied', 'complaint', 'no_answer', 'duplicate', 'rejected', 'hidden'].includes(normalized)) {
+      return normalized as RadarLeadStatus;
+    }
+    return 'clean';
+  }
+
+  private resolveRadarLeadStatus(row: any): RadarLeadStatus {
+    const companyState = Array.isArray(row?.companyStates) && row.companyStates.length ? row.companyStates[0] : null;
+    return this.normalizeRadarLeadStatus(companyState?.status || row?.status || 'clean');
+  }
+
+  private extractDdd(value: string | null | undefined) {
+    const digits = normalizePhoneDigits(value);
+    return digits.length >= 10 ? digits.slice(0, 2) : '';
+  }
+
+  private extractExpectedDddsFromSegment(segment: string) {
+    const matches = String(segment || '').match(/\bDDD\s*(\d{2})\b/gi) || [];
+    return Array.from(new Set(matches.map((match) => match.replace(/\D/g, '').slice(0, 2)).filter(Boolean)));
+  }
+
+  private buildExpectedDdds(input: { segment?: string | null; city?: string | null; state?: string | null }) {
+    const explicit = this.extractExpectedDddsFromSegment(String(input.segment || ''));
+    if (explicit.length) return explicit;
+    const cityKey = normalizeLookupValue(String(input.city || ''));
+    const state = String(input.state || '').trim().toUpperCase();
+    const known: Record<string, string> = {
+      americana: '19',
+      araras: '19',
+      campinas: '19',
+      limeira: '19',
+      'rio claro': '19',
+      'ribeirao preto': '16',
+      'sao paulo': '11',
+    };
+    const ddd = known[cityKey] || known[cityKey.replace(/\s+-\s+[a-z]{2}$/i, '')] || '';
+    if (ddd) return [ddd];
+    if (state === 'SP') return [];
+    return [];
   }
 
   private normalizeRadarFilters(input: RadarFiltersInput = {}): NormalizedRadarFilters {
@@ -2742,6 +3368,12 @@ export class WebscrapingService {
       normalizedSegment: normalizeLookupValue(segment),
       quantity: Math.min(Math.max(Math.trunc(Number(input.quantity || 20) || 20), 1), 100),
       limit: Math.min(Math.max(Math.trunc(Number(input.limit || input.quantity || 50) || 50), 1), 300),
+      page: Math.min(Math.max(Math.trunc(Number(input.page || 1) || 1), 1), 1000),
+      filterKey: String(input.filterKey || '').trim(),
+      status: String(input.status || '').trim().toLowerCase(),
+      ddd: String(input.ddd || '').replace(/\D/g, '').slice(0, 2),
+      scoreRange: String(input.scoreRange || '').trim().toLowerCase(),
+      source: String(input.source || '').trim(),
       minRating: this.normalizeMinRating(input.minRating),
       minReviews: this.normalizeMinReviews(input.minReviews),
       noWebsite: coerceBoolean(input.noWebsite),
@@ -2784,6 +3416,20 @@ export class WebscrapingService {
     if (filters.normalizedSegment) where.normalizedSegment = filters.normalizedSegment;
     if (filters.minRating != null) where.rating = { gte: filters.minRating };
     if (filters.minReviews != null) where.reviews = { gte: filters.minReviews };
+    if (filters.ddd) where.ddd = filters.ddd;
+    if (filters.status) where.status = filters.status;
+    if (filters.source) {
+      and.push({
+        OR: [
+          { source: { contains: filters.source, mode: 'insensitive' } },
+          { sourceEngine: { contains: filters.source, mode: 'insensitive' } },
+          { sourceEngines: { contains: filters.source } },
+        ],
+      });
+    }
+    if (filters.scoreRange === 'high') where.opportunityScore = { gte: 70 };
+    if (filters.scoreRange === 'medium') where.opportunityScore = { gte: 45, lt: 70 };
+    if (filters.scoreRange === 'low') where.opportunityScore = { lt: 45 };
 
     if (filters.noWebsite) {
       where.websiteStatus = 'none';
@@ -2810,14 +3456,17 @@ export class WebscrapingService {
       });
     }
 
-    if (companyId && !(options.includeHidden || filters.includeHidden)) {
+    if (companyId && !(options.includeHidden || filters.includeHidden || filters.filterKey)) {
       and.push({
         companyStates: {
           none: {
             companyId,
-            status: { in: ['imported_to_vendas', 'negative', 'discarded', 'lost'] },
+            status: { in: ['imported_to_vendas', 'sent_to_vendas', 'negative', 'denied', 'complaint', 'discarded', 'hidden', 'lost'] },
           },
         },
+      });
+      and.push({
+        status: { notIn: ['complaint', 'denied', 'hidden', 'rejected', 'duplicate'] },
       });
     }
 
@@ -2829,6 +3478,36 @@ export class WebscrapingService {
     return rows.filter((row) => {
       if (filters.likelyWhatsapp && !isLikelyWhatsapp(row?.phoneDigits || row?.phone)) return false;
       if (filters.validPhone && !isLikelyValidBrPhone(row?.phoneDigits || row?.phone)) return false;
+      const status = this.resolveRadarLeadStatus(row);
+      const ddd = String(row?.ddd || this.extractDdd(row?.phoneDigits || row?.phone));
+      const expectedDdds = parseJsonArray(row?.expectedDddsJson);
+      const score = safeInteger(row?.opportunityScore);
+      const websiteStatus = String(row?.websiteStatus || inferWebsiteStatus(row?.website));
+      const filterKey = filters.filterKey;
+      if (filters.status && status !== this.normalizeRadarLeadStatus(filters.status)) return false;
+      if (filterKey === 'new' || filterKey === 'clean') return status === 'clean' || status === 'new';
+      if (filterKey === 'sent_to_vendas') return status === 'sent_to_vendas';
+      if (filterKey === 'denied') return status === 'denied';
+      if (filterKey === 'complaint') return status === 'complaint';
+      if (filterKey === 'no_answer') return status === 'no_answer';
+      if (filterKey === 'without_whatsapp') return !isLikelyWhatsapp(row?.phoneDigits || row?.phone);
+      if (filterKey === 'likely_whatsapp') return isLikelyWhatsapp(row?.phoneDigits || row?.phone);
+      if (filterKey === 'ddd_local') return expectedDdds.length > 0 && expectedDdds.includes(ddd);
+      if (filterKey === 'ddd_mismatch') return status === 'rejected' && String(row?.rejectionReason || '') === 'ddd_mismatch';
+      if (filterKey === 'score_high') return score >= 70;
+      if (filterKey === 'score_medium') return score >= 45 && score < 70;
+      if (filterKey === 'score_low') return score < 45;
+      if (filterKey === 'no_website') return websiteStatus === 'none';
+      if (filterKey === 'weak_website') return websiteStatus === 'weak' || websiteStatus === 'social_only';
+      if (filterKey === 'with_website') return websiteStatus !== 'none';
+      if (filterKey.startsWith('city:')) return normalizeLookupValue(String(row?.city || '')) === normalizeLookupValue(filterKey.slice(5));
+      if (filterKey.startsWith('state:')) return String(row?.state || '').toUpperCase() === filterKey.slice(6).toUpperCase();
+      if (filterKey.startsWith('segment:')) return normalizeLookupValue(String(row?.segment || '')) === normalizeLookupValue(filterKey.slice(8));
+      if (filterKey.startsWith('source:')) {
+        const sourceNeedle = normalizeLookupValue(filterKey.slice(7));
+        const sourceValues = [row?.source, row?.sourceEngine, ...parseJsonArray(row?.sourceEngines)].map((value) => normalizeLookupValue(String(value || '')));
+        return sourceValues.some((value) => value === sourceNeedle);
+      }
       return true;
     });
   }
@@ -2873,6 +3552,22 @@ export class WebscrapingService {
             status: true,
             vendasLeadId: true,
             lastActionAt: true,
+            noAnswerCount: true,
+            contactedCount: true,
+            lastContactAt: true,
+            complaintReason: true,
+            deniedReason: true,
+          },
+        },
+        events: {
+          ...(companyId ? { where: { OR: [{ companyId }, { companyId: null }] } } : {}),
+          orderBy: { createdAt: 'desc' },
+          take: 3,
+          select: {
+            id: true,
+            eventType: true,
+            note: true,
+            createdAt: true,
           },
         },
       },
@@ -2921,12 +3616,17 @@ export class WebscrapingService {
 
   private buildRadarLeadPublic(row: any) {
     const companyState = Array.isArray(row?.companyStates) && row.companyStates.length ? row.companyStates[0] : null;
+    const status = this.resolveRadarLeadStatus(row);
+    const ddd = String(row?.ddd || this.extractDdd(row?.phoneDigits || row?.phone));
+    const recentEvents = Array.isArray(row?.events) ? row.events : [];
     return {
       id: String(row?.id || ''),
       placeId: row?.placeId || null,
       name: row?.name || '',
       phone: row?.phone || '',
       phoneDigits: row?.phoneDigits || '',
+      ddd,
+      expectedDdds: parseJsonArray(row?.expectedDddsJson),
       address: row?.address || null,
       city: row?.city || null,
       state: row?.state || null,
@@ -2935,16 +3635,179 @@ export class WebscrapingService {
       websiteStatus: row?.websiteStatus || inferWebsiteStatus(row?.website),
       rating: row?.rating == null ? null : Number(row.rating),
       reviews: safeInteger(row?.reviews),
+      source: row?.source || null,
+      sourceEngine: row?.sourceEngine || null,
+      sourceUrl: row?.sourceUrl || null,
       sourceEngines: parseJsonArray(row?.sourceEngines),
       opportunityScore: safeInteger(row?.opportunityScore),
       opportunityReason: row?.opportunityReason || null,
+      status,
+      rejectionReason: row?.rejectionReason || null,
+      complaintReason: companyState?.complaintReason || row?.complaintReason || null,
+      deniedReason: companyState?.deniedReason || row?.deniedReason || null,
+      noAnswerCount: safeInteger(companyState?.noAnswerCount ?? row?.noAnswerCount),
+      contactedCount: safeInteger(companyState?.contactedCount ?? row?.contactedCount),
+      lastContactAt: (companyState?.lastContactAt || row?.lastContactAt) instanceof Date
+        ? (companyState?.lastContactAt || row?.lastContactAt).toISOString()
+        : null,
+      campaignId: row?.campaignId || null,
+      historySummary: recentEvents.slice(0, 3).map((event: any) => ({
+        id: String(event?.id || ''),
+        eventType: String(event?.eventType || ''),
+        note: event?.note || null,
+        createdAt: event?.createdAt instanceof Date ? event.createdAt.toISOString() : null,
+      })),
       globalNegativeCount: safeInteger(row?.globalNegativeCount),
       globalImportedCount: safeInteger(row?.globalImportedCount),
       globalContactedCount: safeInteger(row?.globalContactedCount),
       firstSeenAt: row?.firstSeenAt instanceof Date ? row.firstSeenAt.toISOString() : null,
       lastSeenAt: row?.lastSeenAt instanceof Date ? row.lastSeenAt.toISOString() : null,
-      companyStatus: companyState?.status || 'new',
+      companyStatus: companyState?.status || status,
       vendasLeadId: companyState?.vendasLeadId || null,
+    };
+  }
+
+  private buildRadarFacet(key: string, label: string, count: number, tone = 'neutral') {
+    return count > 0 ? { key, label, count, tone } : null;
+  }
+
+  private buildRadarFacets(rows: any[]) {
+    const statusCounts = new Map<string, number>();
+    const cityCounts = new Map<string, number>();
+    const stateCounts = new Map<string, number>();
+    const segmentCounts = new Map<string, number>();
+    const sourceCounts = new Map<string, number>();
+    const counters = {
+      likelyWhatsapp: 0,
+      withoutWhatsapp: 0,
+      dddLocal: 0,
+      dddMismatch: 0,
+      scoreHigh: 0,
+      scoreMedium: 0,
+      scoreLow: 0,
+      noWebsite: 0,
+      weakWebsite: 0,
+      withWebsite: 0,
+    };
+
+    for (const row of rows) {
+      const status = this.resolveRadarLeadStatus(row);
+      statusCounts.set(status, (statusCounts.get(status) || 0) + 1);
+      const city = String(row?.city || '').trim();
+      const state = String(row?.state || '').trim().toUpperCase();
+      const segment = String(row?.segment || '').trim();
+      if (city) cityCounts.set(city, (cityCounts.get(city) || 0) + 1);
+      if (state) stateCounts.set(state, (stateCounts.get(state) || 0) + 1);
+      if (segment) segmentCounts.set(segment, (segmentCounts.get(segment) || 0) + 1);
+      for (const source of [row?.sourceEngine, row?.source, ...parseJsonArray(row?.sourceEngines)].filter(Boolean)) {
+        const normalizedSource = String(source || '').trim();
+        if (normalizedSource) sourceCounts.set(normalizedSource, (sourceCounts.get(normalizedSource) || 0) + 1);
+      }
+
+      const phone = row?.phoneDigits || row?.phone;
+      if (isLikelyWhatsapp(phone)) counters.likelyWhatsapp += 1;
+      else counters.withoutWhatsapp += 1;
+      const ddd = String(row?.ddd || this.extractDdd(phone));
+      const expectedDdds = parseJsonArray(row?.expectedDddsJson);
+      if (expectedDdds.length && expectedDdds.includes(ddd)) counters.dddLocal += 1;
+      if (this.resolveRadarLeadStatus(row) === 'rejected' && String(row?.rejectionReason || '') === 'ddd_mismatch') counters.dddMismatch += 1;
+      const score = safeInteger(row?.opportunityScore);
+      if (score >= 70) counters.scoreHigh += 1;
+      else if (score >= 45) counters.scoreMedium += 1;
+      else counters.scoreLow += 1;
+      const websiteStatus = String(row?.websiteStatus || inferWebsiteStatus(row?.website));
+      if (websiteStatus === 'none') counters.noWebsite += 1;
+      else counters.withWebsite += 1;
+      if (websiteStatus === 'weak' || websiteStatus === 'social_only') counters.weakWebsite += 1;
+    }
+
+    const fixed = [
+      this.buildRadarFacet('all', 'Todos', rows.length, 'neutral'),
+      this.buildRadarFacet('new', 'Novos', (statusCounts.get('new') || 0) + (statusCounts.get('clean') || 0), 'info'),
+      this.buildRadarFacet('clean', 'Limpos', (statusCounts.get('clean') || 0) + (statusCounts.get('new') || 0), 'info'),
+      this.buildRadarFacet('sent_to_vendas', 'Já enviados para Vendas', statusCounts.get('sent_to_vendas') || 0, 'success'),
+      this.buildRadarFacet('denied', 'Negaram', statusCounts.get('denied') || 0, 'warning'),
+      this.buildRadarFacet('complaint', 'Reclamação', statusCounts.get('complaint') || 0, 'danger'),
+      this.buildRadarFacet('no_answer', 'Não atenderam', statusCounts.get('no_answer') || 0, 'attention'),
+      this.buildRadarFacet('without_whatsapp', 'Sem WhatsApp', counters.withoutWhatsapp, 'neutral'),
+      this.buildRadarFacet('likely_whatsapp', 'Com WhatsApp provável', counters.likelyWhatsapp, 'success'),
+      this.buildRadarFacet('ddd_local', 'DDD local', counters.dddLocal, 'success'),
+      this.buildRadarFacet('ddd_mismatch', 'DDD divergente', counters.dddMismatch, 'alert'),
+      this.buildRadarFacet('score_high', 'Score alto', counters.scoreHigh, 'success'),
+      this.buildRadarFacet('score_medium', 'Score médio', counters.scoreMedium, 'attention'),
+      this.buildRadarFacet('score_low', 'Score baixo', counters.scoreLow, 'neutral'),
+      this.buildRadarFacet('no_website', 'Sem site', counters.noWebsite, 'info'),
+      this.buildRadarFacet('weak_website', 'Site fraco', counters.weakWebsite, 'warning'),
+      this.buildRadarFacet('with_website', 'Com site', counters.withWebsite, 'success'),
+    ].filter(Boolean);
+
+    const dynamic = [
+      ...Array.from(cityCounts.entries()).sort((a, b) => b[1] - a[1]).slice(0, 12).map(([label, count]) => this.buildRadarFacet(`city:${label}`, label, count, 'city')),
+      ...Array.from(stateCounts.entries()).sort((a, b) => b[1] - a[1]).slice(0, 12).map(([label, count]) => this.buildRadarFacet(`state:${label}`, label, count, 'state')),
+      ...Array.from(segmentCounts.entries()).sort((a, b) => b[1] - a[1]).slice(0, 12).map(([label, count]) => this.buildRadarFacet(`segment:${label}`, label, count, 'segment')),
+      ...Array.from(sourceCounts.entries()).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([label, count]) => this.buildRadarFacet(`source:${label}`, label, count, 'source')),
+    ].filter(Boolean);
+
+    return [...fixed, ...dynamic];
+  }
+
+  async listRadarLeadsForUser(user: any, input: RadarFiltersInput = {}) {
+    const context = this.resolveContext(user);
+    const filters = this.normalizeRadarFilters(input);
+    if (!(await this.supportsRadarPersistence())) {
+      return { items: [], total: 0, facets: [], meta: { available: false, message: 'Banco do Radar ainda nao foi migrado neste ambiente.' } };
+    }
+    const baseFilters = { ...filters, filterKey: '', status: '' };
+    const allRows = await this.queryRadarRowsForCompany(context.companyId, baseFilters, {
+      limit: 2000,
+      includeHidden: true,
+    });
+    const filteredRows = filters.filterKey || filters.status || filters.ddd || filters.source || filters.scoreRange
+      ? this.filterRadarRowsInMemory(allRows, filters)
+      : allRows;
+    const offset = (filters.page - 1) * filters.limit;
+    const pageRows = filteredRows.slice(offset, offset + filters.limit);
+    return {
+      items: pageRows.map((row) => this.buildRadarLeadPublic(row)),
+      total: filteredRows.length,
+      facets: this.buildRadarFacets(allRows),
+      meta: {
+        available: true,
+        page: filters.page,
+        limit: filters.limit,
+        filterKey: filters.filterKey || null,
+      },
+    };
+  }
+
+  async getRadarLeadForUser(user: any, radarLeadId: string) {
+    const context = this.resolveContext(user);
+    if (!(await this.supportsRadarPersistence())) {
+      throw new ServiceUnavailableException('Banco do Radar ainda nao foi migrado neste ambiente.');
+    }
+    const row = await (this.prisma as any).radarLeadPool.findUnique({
+      where: { id: String(radarLeadId || '').trim() },
+      include: {
+        companyStates: { where: { companyId: context.companyId }, take: 1 },
+        events: {
+          where: { OR: [{ companyId: context.companyId }, { companyId: null }] },
+          orderBy: { createdAt: 'desc' },
+          take: 80,
+        },
+      },
+    }).catch(() => null);
+    if (!row) throw new NotFoundException('Card do Radar nao encontrado.');
+    return {
+      item: this.buildRadarLeadPublic(row),
+      events: (row.events || []).map((event: any) => ({
+        id: event.id,
+        eventType: event.eventType,
+        note: event.note || null,
+        statusFrom: event.statusFrom || null,
+        statusTo: event.statusTo || null,
+        createdByUserId: event.createdByUserId || null,
+        createdAt: event.createdAt instanceof Date ? event.createdAt.toISOString() : null,
+      })),
     };
   }
 
@@ -3240,16 +4103,22 @@ export class WebscrapingService {
     input: NormalizedSearchInput,
     results: WebscrapingContactResult[],
     sourceEngine: string,
+    options: { campaignId?: string | null; strictLocalDdd?: boolean; sourceUrl?: string | null } = {},
   ) {
-    if (!(await this.supportsRadarPersistence())) return;
+    if (!(await this.supportsRadarPersistence())) return { approvedCount: 0, duplicateCount: 0, rejectedCount: 0, savedCount: 0 };
     const delegate = (this.prisma as any).radarLeadPool;
     const now = new Date();
+    const expectedDdds = this.buildExpectedDdds(input);
+    const strictLocalDdd = options.strictLocalDdd ?? input.targetType === 'pf';
+    const counts = { approvedCount: 0, duplicateCount: 0, rejectedCount: 0, savedCount: 0 };
     for (const result of this.mergeDedupedContacts(results)) {
       const phoneDigits = normalizePhoneDigits(result.phoneDigits || result.phone);
+      const ddd = this.extractDdd(phoneDigits || result.phone);
       const placeId = result.placeId && !String(result.placeId).startsWith('radar:') && !String(result.placeId).startsWith('radar_external:')
         ? String(result.placeId)
         : null;
       if (!phoneDigits && !placeId) continue;
+      const dddMismatch = strictLocalDdd && expectedDdds.length > 0 && ddd && !expectedDdds.includes(ddd);
       const websiteStatus = inferWebsiteStatus(result.website);
       const opportunityScore = this.buildOpportunityScore(result);
       const opportunityReason = result.opportunityReason || this.buildOpportunityReason(result, input);
@@ -3261,12 +4130,18 @@ export class WebscrapingService {
           ],
         },
       }).catch(() => null);
+      if (existing?.id) counts.duplicateCount += 1;
+      if (dddMismatch) counts.rejectedCount += 1;
+      else counts.approvedCount += 1;
       const sourceEngines = Array.from(new Set([...parseJsonArray(existing?.sourceEngines), sourceEngine, result.source].filter(Boolean).map(String)));
       const data = {
+        companyId: existing?.companyId || null,
         placeId: placeId || existing?.placeId || null,
         name: result.name || existing?.name || 'Empresa sem nome',
         phone: result.phone || existing?.phone || phoneDigits || null,
         phoneDigits: phoneDigits || existing?.phoneDigits || null,
+        ddd: ddd || existing?.ddd || null,
+        expectedDddsJson: expectedDdds.length ? JSON.stringify(expectedDdds) : existing?.expectedDddsJson || null,
         address: result.address || existing?.address || null,
         city: input.city || existing?.city || null,
         state: input.state || existing?.state || null,
@@ -3277,9 +4152,20 @@ export class WebscrapingService {
         websiteStatus,
         rating: result.rating == null ? existing?.rating ?? null : result.rating,
         reviews: Math.max(safeInteger(result.reviews), safeInteger(existing?.reviews)),
+        source: result.source || existing?.source || sourceEngine || null,
+        sourceEngine: sourceEngine || existing?.sourceEngine || null,
+        sourceUrl: options.sourceUrl || existing?.sourceUrl || null,
         sourceEngines: JSON.stringify(sourceEngines),
         opportunityScore,
         opportunityReason,
+        status: dddMismatch ? 'rejected' : existing?.status || 'clean',
+        rejectionReason: dddMismatch ? 'ddd_mismatch' : existing?.rejectionReason || null,
+        campaignId: options.campaignId || existing?.campaignId || null,
+        metadataJson: JSON.stringify({
+          targetType: input.targetType,
+          expectedDdds,
+          lastSourceEngine: sourceEngine,
+        }),
         lastSeenAt: now,
       };
       if (existing?.id) {
@@ -3295,7 +4181,111 @@ export class WebscrapingService {
           },
         }).catch(() => null);
       }
+      counts.savedCount += 1;
     }
+    return counts;
+  }
+
+  private async recordRadarLeadEvent(input: {
+    leadId: string;
+    companyId?: number | null;
+    userId?: number | null;
+    eventType: RadarLeadEventType;
+    note?: string | null;
+    statusFrom?: string | null;
+    statusTo?: string | null;
+  }) {
+    if (!(await this.prisma.hasTable('RadarLeadEvent'))) return null;
+    return (this.prisma as any).radarLeadEvent.create({
+      data: {
+        leadId: input.leadId,
+        companyId: input.companyId || null,
+        eventType: input.eventType,
+        note: String(input.note || '').trim() || null,
+        statusFrom: input.statusFrom || null,
+        statusTo: input.statusTo || null,
+        createdByUserId: input.userId || null,
+      },
+    }).catch(() => null);
+  }
+
+  async addRadarLeadEventForUser(
+    user: any,
+    radarLeadId: string,
+    input: { eventType?: RadarLeadEventType | string; note?: string | null } = {},
+  ) {
+    const context = this.resolveContext(user);
+    if (!(await this.supportsRadarPersistence())) {
+      throw new ServiceUnavailableException('Banco do Radar ainda nao foi migrado neste ambiente.');
+    }
+    const row = await (this.prisma as any).radarLeadPool.findUnique({
+      where: { id: String(radarLeadId || '').trim() },
+      include: { companyStates: { where: { companyId: context.companyId }, take: 1 } },
+    }).catch(() => null);
+    if (!row) throw new NotFoundException('Card do Radar nao encontrado.');
+
+    const eventType = String(input.eventType || '').trim().toLowerCase() as RadarLeadEventType;
+    if (!['denied', 'complaint', 'no_answer', 'hidden', 'contacted'].includes(eventType)) {
+      throw new BadRequestException('Evento do Radar invalido.');
+    }
+
+    const previousStatus = this.resolveRadarLeadStatus(row);
+    const nextStatus: RadarLeadStatus =
+      eventType === 'hidden'
+        ? 'hidden'
+        : eventType === 'contacted'
+          ? previousStatus
+          : eventType as RadarLeadStatus;
+    const now = new Date();
+    const note = String(input.note || '').trim();
+    await (this.prisma as any).radarLeadCompanyState.upsert({
+      where: {
+        companyId_radarLeadId: {
+          companyId: context.companyId,
+          radarLeadId: row.id,
+        },
+      },
+      create: {
+        companyId: context.companyId,
+        radarLeadId: row.id,
+        status: nextStatus,
+        lastActionAt: now,
+        lastContactAt: eventType === 'contacted' || eventType === 'no_answer' ? now : null,
+        noAnswerCount: eventType === 'no_answer' ? 1 : 0,
+        contactedCount: eventType === 'contacted' ? 1 : 0,
+        complaintReason: eventType === 'complaint' ? note || null : null,
+        deniedReason: eventType === 'denied' ? note || null : null,
+      },
+      update: {
+        status: nextStatus,
+        lastActionAt: now,
+        ...(eventType === 'no_answer' ? { noAnswerCount: { increment: 1 }, lastContactAt: now } : {}),
+        ...(eventType === 'contacted' ? { contactedCount: { increment: 1 }, lastContactAt: now } : {}),
+        ...(eventType === 'complaint' ? { complaintReason: note || null } : {}),
+        ...(eventType === 'denied' ? { deniedReason: note || null } : {}),
+      },
+    });
+    await (this.prisma as any).radarLeadPool.update({
+      where: { id: row.id },
+      data: {
+        status: nextStatus,
+        lastSeenAt: now,
+        ...(eventType === 'no_answer' ? { noAnswerCount: { increment: 1 }, lastContactAt: now } : {}),
+        ...(eventType === 'contacted' ? { contactedCount: { increment: 1 }, globalContactedCount: { increment: 1 }, lastContactAt: now } : {}),
+        ...(eventType === 'complaint' ? { complaintReason: note || null, globalNegativeCount: { increment: 1 } } : {}),
+        ...(eventType === 'denied' ? { deniedReason: note || null, globalNegativeCount: { increment: 1 } } : {}),
+      },
+    }).catch(() => null);
+    await this.recordRadarLeadEvent({
+      leadId: row.id,
+      companyId: context.companyId,
+      userId: context.userId,
+      eventType,
+      note,
+      statusFrom: previousStatus,
+      statusTo: nextStatus,
+    });
+    return this.getRadarLeadForUser(user, row.id);
   }
 
   async importRadarLeadToVendasForUser(user: any, radarLeadId: string) {
@@ -3343,23 +4333,32 @@ export class WebscrapingService {
           companyId: context.companyId,
           radarLeadId: row.id,
           vendasLeadId,
-          status: 'imported_to_vendas',
+          status: 'sent_to_vendas',
           lastActionAt: now,
         },
         update: {
           vendasLeadId,
-          status: 'imported_to_vendas',
+          status: 'sent_to_vendas',
           lastActionAt: now,
         },
       }),
       (this.prisma as any).radarLeadPool.update({
         where: { id: row.id },
         data: {
+          status: 'sent_to_vendas',
           globalImportedCount: { increment: 1 },
           lastSeenAt: now,
         },
       }),
     ]).catch(() => null);
+    await this.recordRadarLeadEvent({
+      leadId: row.id,
+      companyId: context.companyId,
+      userId: context.userId,
+      eventType: 'imported_to_vendas',
+      statusFrom: this.normalizeRadarLeadStatus(row.status),
+      statusTo: 'sent_to_vendas',
+    });
 
     return {
       ok: true,
@@ -3379,7 +4378,7 @@ export class WebscrapingService {
     });
     if (!row) throw new NotFoundException('Card do Radar nao encontrado.');
     const normalizedStatus = String(input.status || '').trim().toLowerCase();
-    const status = normalizedStatus === 'discarded' || normalizedStatus === 'descartado' ? 'discarded' : 'negative';
+    const status = normalizedStatus === 'discarded' || normalizedStatus === 'descartado' ? 'hidden' : 'denied';
     const existing = await (this.prisma as any).radarLeadCompanyState.findUnique({
       where: {
         companyId_radarLeadId: {
@@ -3401,30 +4400,556 @@ export class WebscrapingService {
         radarLeadId: row.id,
         status,
         negativeReason: String(input.reason || '').trim() || null,
+        deniedReason: status === 'denied' ? String(input.reason || '').trim() || null : null,
         privateNotes: String(input.privateNotes || '').trim() || null,
         lastActionAt: now,
       },
       update: {
         status,
         negativeReason: String(input.reason || '').trim() || null,
+        deniedReason: status === 'denied' ? String(input.reason || '').trim() || null : null,
         privateNotes: String(input.privateNotes || '').trim() || null,
         lastActionAt: now,
       },
     });
-    if (!['negative', 'discarded'].includes(String(existing?.status || ''))) {
+    if (!['negative', 'discarded', 'denied', 'hidden'].includes(String(existing?.status || ''))) {
       await (this.prisma as any).radarLeadPool.update({
         where: { id: row.id },
         data: {
+          status,
+          deniedReason: status === 'denied' ? String(input.reason || '').trim() || null : undefined,
           globalNegativeCount: { increment: 1 },
           lastSeenAt: now,
         },
       }).catch(() => null);
     }
+    await this.recordRadarLeadEvent({
+      leadId: row.id,
+      companyId: context.companyId,
+      userId: context.userId,
+      eventType: status === 'hidden' ? 'hidden' : 'denied',
+      note: String(input.reason || '').trim() || null,
+      statusFrom: this.normalizeRadarLeadStatus(existing?.status || row.status),
+      statusTo: status,
+    });
     return {
       ok: true,
       radarLeadId: row.id,
       status,
     };
+  }
+
+  private normalizeRadarCampaignInput(input: RadarCampaignInput = {}) {
+    const city = String(input.city || '').trim();
+    const state = String(input.state || '').trim().toUpperCase();
+    const segment = String(input.segment || '').trim();
+    const targetType = normalizeTargetType(input.targetType);
+    const targetTotal = Math.min(Math.max(Math.trunc(Number(input.targetTotal || 100) || 100), 1), 10_000);
+    const configuredBatchSize = parsePositiveIntegerEnv('HBX_RADAR_BATCH_SIZE', 25);
+    const batchSize = Math.min(Math.max(Math.trunc(Number(input.batchSize || configuredBatchSize) || configuredBatchSize), 1), 50);
+    const allowedStartHour = Math.min(Math.max(Math.trunc(Number(input.allowedStartHour ?? parsePositiveIntegerEnv('HBX_RADAR_NIGHT_START_HOUR', 0))), 0), 23);
+    const allowedEndHour = Math.min(Math.max(Math.trunc(Number(input.allowedEndHour ?? parsePositiveIntegerEnv('HBX_RADAR_NIGHT_END_HOUR', 6))), 0), 23);
+    const timezone = String(input.timezone || process.env.HBX_RADAR_NIGHT_TIMEZONE || 'America/Sao_Paulo').trim() || 'America/Sao_Paulo';
+    const nightOnly = input.nightOnly == null ? true : coerceBoolean(input.nightOnly);
+    const maxAttempts = Math.max(Math.ceil(targetTotal / Math.max(1, batchSize)) * 3, 40);
+    return {
+      city,
+      state,
+      segment,
+      targetType,
+      targetTotal,
+      batchSize,
+      maxAttempts,
+      nightOnly,
+      allowedStartHour,
+      allowedEndHour,
+      timezone,
+    };
+  }
+
+  private getZonedHour(timezone: string, date = new Date()) {
+    try {
+      const parts = new Intl.DateTimeFormat('en-US', {
+        timeZone: timezone,
+        hour: '2-digit',
+        hour12: false,
+      }).formatToParts(date);
+      const hour = Number(parts.find((part) => part.type === 'hour')?.value || '0');
+      return Number.isFinite(hour) ? hour : date.getHours();
+    } catch {
+      return date.getHours();
+    }
+  }
+
+  private isWithinRadarWindow(campaign: any, date = new Date()) {
+    if (!campaign?.nightOnly) return true;
+    if (String(process.env.HBX_RADAR_NIGHT_WORKER_ENABLED || 'true').trim().toLowerCase() === 'false') return false;
+    const start = safeInteger(campaign.allowedStartHour, 0);
+    const end = safeInteger(campaign.allowedEndHour, 6);
+    const hour = this.getZonedHour(String(campaign.timezone || 'America/Sao_Paulo'), date);
+    if (start === end) return true;
+    return start < end ? hour >= start && hour < end : hour >= start || hour < end;
+  }
+
+  private nextRadarWindowAt(campaign: any, date = new Date()) {
+    const next = new Date(date);
+    const hour = this.getZonedHour(String(campaign.timezone || 'America/Sao_Paulo'), date);
+    const start = safeInteger(campaign.allowedStartHour, 0);
+    if (this.isWithinRadarWindow(campaign, date)) return date;
+    const hoursUntilStart = (start - hour + 24) % 24 || 24;
+    next.setHours(next.getHours() + hoursUntilStart, 0, 0, 0);
+    return next;
+  }
+
+  private scheduleRadarCampaignPump(delayMs = 0) {
+    setTimeout(() => {
+      void this.processNextRadarCampaigns();
+    }, Math.max(0, delayMs));
+  }
+
+  private buildRadarCampaignQuery(input: NormalizedSearchInput, attempt: number) {
+    if (input.targetType === 'pj') {
+      const queries = [
+        this.compactQuery([input.segment, input.city, input.state, 'telefone']),
+        this.compactQuery([input.segment, input.city, input.state, 'whatsapp']),
+        this.compactQuery([input.segment, input.city, input.state, 'site oficial']),
+        this.compactQuery([input.segment, 'perto de', input.city, input.state]),
+      ].filter(Boolean);
+      return queries[Math.max(0, attempt - 1) % queries.length] || input.segment;
+    }
+    return this.buildHbxBatchQuery(input, attempt);
+  }
+
+  private async recalculateRadarCampaignCounters(campaignId: string) {
+    const [campaign, rows, batches] = await Promise.all([
+      (this.prisma as any).webscrapingCampaign.findUnique({ where: { id: campaignId } }).catch(() => null),
+      (this.prisma as any).radarLeadPool.findMany({
+        where: { campaignId },
+        select: {
+          status: true,
+        },
+      }).catch(() => []),
+      (this.prisma as any).webscrapingCampaignBatch.findMany({
+        where: { campaignId },
+        select: {
+          duplicateCount: true,
+          rejectedCount: true,
+        },
+      }).catch(() => []),
+    ]);
+    const foundCount = rows.length;
+    const approvedCount = rows.filter((row: any) => ['clean', 'new'].includes(String(row.status || 'clean'))).length;
+    const duplicateRows = rows.filter((row: any) => String(row.status || '') === 'duplicate').length;
+    const rejectedRows = rows.filter((row: any) => String(row.status || '') === 'rejected').length;
+    const duplicateBatches = batches.reduce((sum: number, row: any) => sum + safeInteger(row.duplicateCount), 0);
+    const rejectedBatches = batches.reduce((sum: number, row: any) => sum + safeInteger(row.rejectedCount), 0);
+    const duplicateCount = Math.max(duplicateRows, duplicateBatches);
+    const rejectedCount = Math.max(rejectedRows, rejectedBatches);
+    const complaintCount = rows.filter((row: any) => String(row.status || '') === 'complaint').length;
+    const deniedCount = rows.filter((row: any) => String(row.status || '') === 'denied').length;
+    const noAnswerCount = rows.filter((row: any) => String(row.status || '') === 'no_answer').length;
+    if (campaign) {
+      await (this.prisma as any).webscrapingCampaign.update({
+        where: { id: campaignId },
+        data: {
+          foundCount,
+          approvedCount,
+          duplicateCount,
+          rejectedCount,
+          complaintCount,
+          deniedCount,
+          noAnswerCount,
+        },
+      }).catch(() => null);
+    }
+    return { foundCount, approvedCount, duplicateCount, rejectedCount, complaintCount, deniedCount, noAnswerCount };
+  }
+
+  private buildRadarCampaignResponse(campaign: any) {
+    const batches = Array.isArray(campaign?.batches) ? campaign.batches : [];
+    return {
+      id: campaign.id,
+      status: campaign.status,
+      mode: campaign.mode,
+      city: campaign.city,
+      state: campaign.state || null,
+      segment: campaign.segment,
+      targetType: normalizeTargetType(campaign.targetType),
+      targetTotal: safeInteger(campaign.targetTotal),
+      batchSize: safeInteger(campaign.batchSize),
+      foundCount: safeInteger(campaign.foundCount),
+      approvedCount: safeInteger(campaign.approvedCount),
+      duplicateCount: safeInteger(campaign.duplicateCount),
+      rejectedCount: safeInteger(campaign.rejectedCount),
+      complaintCount: safeInteger(campaign.complaintCount),
+      deniedCount: safeInteger(campaign.deniedCount),
+      noAnswerCount: safeInteger(campaign.noAnswerCount),
+      currentAttempt: safeInteger(campaign.currentAttempt),
+      maxAttempts: safeInteger(campaign.maxAttempts),
+      consecutiveEmptyBatchCount: safeInteger(campaign.consecutiveEmptyBatchCount),
+      consecutiveErrorCount: safeInteger(campaign.consecutiveErrorCount),
+      lastQueryUsed: campaign.lastQueryUsed || null,
+      lastEngineUrl: campaign.lastEngineUrl || null,
+      lastErrorMessage: campaign.lastErrorMessage || null,
+      progressMessage: campaign.lastErrorMessage || (
+        safeInteger(campaign.foundCount) > 0
+          ? `Encontramos ${safeInteger(campaign.foundCount)} cards ate agora. Continuando nos proximos lotes.`
+          : `Rodando lote ${Math.min(safeInteger(campaign.currentAttempt) + 1, safeInteger(campaign.maxAttempts))}/${safeInteger(campaign.maxAttempts)}.`
+      ),
+      nextRunAt: campaign.nextRunAt instanceof Date ? campaign.nextRunAt.toISOString() : null,
+      nightOnly: Boolean(campaign.nightOnly),
+      allowedStartHour: safeInteger(campaign.allowedStartHour),
+      allowedEndHour: safeInteger(campaign.allowedEndHour),
+      timezone: campaign.timezone || 'America/Sao_Paulo',
+      startedAt: campaign.startedAt instanceof Date ? campaign.startedAt.toISOString() : null,
+      pausedAt: campaign.pausedAt instanceof Date ? campaign.pausedAt.toISOString() : null,
+      finishedAt: campaign.finishedAt instanceof Date ? campaign.finishedAt.toISOString() : null,
+      createdAt: campaign.createdAt instanceof Date ? campaign.createdAt.toISOString() : null,
+      updatedAt: campaign.updatedAt instanceof Date ? campaign.updatedAt.toISOString() : null,
+      batches: batches.map((batch: any) => ({
+        id: batch.id,
+        status: batch.status,
+        attemptNumber: safeInteger(batch.attemptNumber),
+        engineId: batch.engineId || null,
+        engineUrl: batch.engineUrl || null,
+        queryUsed: batch.queryUsed || null,
+        batchSize: safeInteger(batch.batchSize),
+        fetchedUrlCount: safeInteger(batch.fetchedUrlCount),
+        parsedCount: safeInteger(batch.parsedCount),
+        approvedCount: safeInteger(batch.approvedCount),
+        duplicateCount: safeInteger(batch.duplicateCount),
+        rejectedCount: safeInteger(batch.rejectedCount),
+        errorMessage: batch.errorMessage || null,
+        startedAt: batch.startedAt instanceof Date ? batch.startedAt.toISOString() : null,
+        finishedAt: batch.finishedAt instanceof Date ? batch.finishedAt.toISOString() : null,
+      })),
+    };
+  }
+
+  async createRadarCampaignForUser(user: any, input: RadarCampaignInput = {}) {
+    const context = this.resolveContext(user);
+    if (!(await this.supportsRadarCampaignPersistence())) {
+      throw new ServiceUnavailableException('Estrutura de campanhas do Radar ainda nao foi aplicada no banco.');
+    }
+    const normalized = this.normalizeRadarCampaignInput(input);
+    if (!normalized.segment.trim()) throw new BadRequestException('Informe o nicho/segmento da campanha.');
+    if (normalized.targetType !== 'pj' && (!normalized.city || !normalized.state)) {
+      throw new BadRequestException('Cidade e estado sao obrigatorios para campanhas PF.');
+    }
+    const now = new Date();
+    const sleeping = normalized.nightOnly && !this.isWithinRadarWindow(normalized, now);
+    const campaign = await (this.prisma as any).webscrapingCampaign.create({
+      data: {
+        companyId: context.companyId,
+        userId: context.userId,
+        status: sleeping ? 'sleeping' : 'queued',
+        city: normalized.city,
+        state: normalized.state || null,
+        segment: normalized.segment,
+        targetType: normalized.targetType,
+        targetTotal: normalized.targetTotal,
+        batchSize: normalized.batchSize,
+        maxAttempts: normalized.maxAttempts,
+        nightOnly: normalized.nightOnly,
+        allowedStartHour: normalized.allowedStartHour,
+        allowedEndHour: normalized.allowedEndHour,
+        timezone: normalized.timezone,
+        nextRunAt: sleeping ? this.nextRadarWindowAt(normalized, now) : now,
+      },
+      include: { batches: { orderBy: { createdAt: 'desc' }, take: 10 } },
+    });
+    this.scheduleRadarCampaignPump(0);
+    return this.buildRadarCampaignResponse(campaign);
+  }
+
+  async listRadarCampaignsForUser(user: any) {
+    const context = this.resolveContext(user);
+    if (!(await this.supportsRadarCampaignPersistence())) return { items: [] };
+    const rows = await (this.prisma as any).webscrapingCampaign.findMany({
+      where: { companyId: context.companyId },
+      orderBy: { createdAt: 'desc' },
+      take: 50,
+      include: { batches: { orderBy: { createdAt: 'desc' }, take: 5 } },
+    });
+    return { items: rows.map((row: any) => this.buildRadarCampaignResponse(row)) };
+  }
+
+  async getRadarCampaignForUser(user: any, campaignId: string) {
+    const context = this.resolveContext(user);
+    if (!(await this.supportsRadarCampaignPersistence())) {
+      throw new ServiceUnavailableException('Estrutura de campanhas do Radar ainda nao foi aplicada no banco.');
+    }
+    const row = await (this.prisma as any).webscrapingCampaign.findFirst({
+      where: { id: String(campaignId || '').trim(), companyId: context.companyId },
+      include: { batches: { orderBy: { createdAt: 'desc' }, take: 30 } },
+    });
+    if (!row) throw new NotFoundException('Campanha nao encontrada.');
+    return this.buildRadarCampaignResponse(row);
+  }
+
+  async pauseRadarCampaignForUser(user: any, campaignId: string) {
+    const context = this.resolveContext(user);
+    await (this.prisma as any).webscrapingCampaign.updateMany({
+      where: { id: String(campaignId || '').trim(), companyId: context.companyId, status: { in: ['queued', 'running', 'sleeping'] } },
+      data: { status: 'paused', pausedAt: new Date(), nextRunAt: null },
+    });
+    return this.getRadarCampaignForUser(user, campaignId);
+  }
+
+  async resumeRadarCampaignForUser(user: any, campaignId: string) {
+    const context = this.resolveContext(user);
+    const row = await (this.prisma as any).webscrapingCampaign.findFirst({ where: { id: String(campaignId || '').trim(), companyId: context.companyId } });
+    if (!row) throw new NotFoundException('Campanha nao encontrada.');
+    const sleeping = row.nightOnly && !this.isWithinRadarWindow(row);
+    await (this.prisma as any).webscrapingCampaign.update({
+      where: { id: row.id },
+      data: { status: sleeping ? 'sleeping' : 'queued', pausedAt: null, nextRunAt: sleeping ? this.nextRadarWindowAt(row) : new Date() },
+    });
+    this.scheduleRadarCampaignPump(0);
+    return this.getRadarCampaignForUser(user, campaignId);
+  }
+
+  async cancelRadarCampaignForUser(user: any, campaignId: string) {
+    const context = this.resolveContext(user);
+    await (this.prisma as any).webscrapingCampaign.updateMany({
+      where: { id: String(campaignId || '').trim(), companyId: context.companyId, status: { notIn: ['completed', 'completed_insufficient_results', 'failed', 'canceled'] } },
+      data: { status: 'canceled', finishedAt: new Date(), nextRunAt: null },
+    });
+    return this.getRadarCampaignForUser(user, campaignId);
+  }
+
+  private async processNextRadarCampaigns() {
+    if (this.radarCampaignPumpActive) return;
+    if (!(await this.supportsRadarCampaignPersistence().catch(() => false))) return;
+    this.radarCampaignPumpActive = true;
+    try {
+      const maxParallel = Math.min(Math.max(parsePositiveIntegerEnv('HBX_RADAR_MAX_PARALLEL_ENGINES', 4), 1), 4);
+      const due = await (this.prisma as any).webscrapingCampaign.findMany({
+        where: {
+          OR: [
+            {
+              status: { in: ['queued', 'sleeping'] },
+              OR: [{ nextRunAt: null }, { nextRunAt: { lte: new Date() } }],
+            },
+            {
+              status: { in: ['running', 'partial_error'] },
+              nextRunAt: { lte: new Date() },
+            },
+          ],
+        },
+        orderBy: [{ nextRunAt: 'asc' }, { createdAt: 'asc' }],
+        take: maxParallel,
+      });
+      for (const campaign of due) {
+        if (['completed', 'completed_insufficient_results', 'failed', 'canceled', 'paused'].includes(String(campaign.status))) continue;
+        if (!this.isWithinRadarWindow(campaign)) {
+          await (this.prisma as any).webscrapingCampaign.update({
+            where: { id: campaign.id },
+            data: { status: 'sleeping', nextRunAt: this.nextRadarWindowAt(campaign) },
+          }).catch(() => null);
+          continue;
+        }
+        const lease = await this.getEnginePool().acquireEngine(campaign.id, campaign.companyId, campaign.userId);
+        if (!lease) {
+          await (this.prisma as any).webscrapingCampaign.update({
+            where: { id: campaign.id },
+            data: { status: 'queued', nextRunAt: new Date(Date.now() + 10_000), lastErrorMessage: 'Aguardando motor livre.' },
+          }).catch(() => null);
+          continue;
+        }
+        void this.processRadarCampaignBatch(campaign.id, lease);
+      }
+    } finally {
+      this.radarCampaignPumpActive = false;
+    }
+  }
+
+  private async processRadarCampaignBatch(campaignId: string, lease: HbxEngineLease) {
+    const campaign = await (this.prisma as any).webscrapingCampaign.findUnique({ where: { id: campaignId } }).catch(() => null);
+    if (!campaign || ['paused', 'canceled', 'completed', 'completed_insufficient_results', 'failed'].includes(String(campaign.status))) {
+      await this.getEnginePool().releaseEngine(lease.engineId);
+      return;
+    }
+    const attempt = safeInteger(campaign.currentAttempt) + 1;
+    const normalized = this.normalizeSearchInput({
+      city: campaign.city,
+      state: campaign.state || '',
+      segment: campaign.segment,
+      quantity: Math.min(Math.max(safeInteger(campaign.batchSize, 25), 1), 50),
+      engine: 'hbx',
+      targetType: normalizeTargetType(campaign.targetType),
+    });
+    const queryUsed = this.buildRadarCampaignQuery(normalized, attempt);
+    let batch: any = null;
+    try {
+      batch = await (this.prisma as any).webscrapingCampaignBatch.create({
+        data: {
+          campaignId,
+          status: 'running',
+          attemptNumber: attempt,
+          engineId: lease.engineId,
+          engineUrl: lease.url,
+          queryUsed,
+          batchSize: normalized.quantity,
+          startedAt: new Date(),
+        },
+      });
+      await (this.prisma as any).webscrapingCampaign.update({
+        where: { id: campaignId },
+        data: {
+          status: 'running',
+          startedAt: campaign.startedAt || new Date(),
+          currentAttempt: { increment: 1 },
+          lastQueryUsed: queryUsed,
+          lastEngineUrl: lease.url,
+          nextRunAt: null,
+        },
+      });
+      const existingLeads = await (this.prisma as any).radarLeadPool.findMany({
+        where: {
+          normalizedCity: normalized.normalizedCity,
+          normalizedSegment: normalized.normalizedSegment,
+          phoneDigits: { not: null },
+        },
+        select: { phoneDigits: true, website: true, sourceUrl: true },
+        take: 10_000,
+      }).catch(() => []);
+      const excludeUrls = existingLeads
+        .flatMap((row: any) => [row.website, row.sourceUrl])
+        .map((url: any) => String(url || '').trim())
+        .filter(Boolean);
+      const output = await this.searchHbxEngine(
+        normalized,
+        existingLeads.map((row: any) => row.phoneDigits).filter(Boolean),
+        lease.url,
+        {
+          queryText: queryUsed,
+          batchLimit: normalized.quantity,
+          timeoutMs: this.getHbxBatchTimeoutMs(),
+          excludeUrls,
+        },
+      );
+      const persisted = await this.persistRadarLeadPoolBatch(normalized, output.results, 'hbx_campaign', {
+        campaignId,
+        strictLocalDdd: normalized.targetType === 'pf',
+      });
+      await this.getEnginePool().markEngineBatchSuccess(lease.engineId).catch(() => null);
+      const empty = persisted.approvedCount === 0;
+      const batchRejectedCount = persisted.rejectedCount + safeInteger(output.rejectedCount);
+      const nextConsecutiveEmpty = empty ? safeInteger(campaign.consecutiveEmptyBatchCount) + 1 : 0;
+      const reachedMaxEmptyBatches = empty && nextConsecutiveEmpty >= this.getRadarCampaignMaxEmptyBatches();
+      await (this.prisma as any).webscrapingCampaignBatch.update({
+        where: { id: batch.id },
+        data: {
+          status: empty ? 'empty_batch' : 'completed',
+          approvedCount: persisted.approvedCount,
+          duplicateCount: persisted.duplicateCount,
+          rejectedCount: batchRejectedCount,
+          errorMessage: output.rawErrorMessage || null,
+          parsedCount: Array.isArray(output.results) ? output.results.length : 0,
+          finishedAt: new Date(),
+        },
+      }).catch(() => null);
+      const counters = await this.recalculateRadarCampaignCounters(campaignId);
+      const reachedTarget = counters.approvedCount >= safeInteger(campaign.targetTotal);
+      const reachedAttempts = attempt >= safeInteger(campaign.maxAttempts);
+      const finalStatus = reachedTarget
+        ? 'completed'
+        : reachedAttempts
+          ? counters.foundCount > 0 ? 'completed_insufficient_results' : 'failed'
+          : reachedMaxEmptyBatches
+            ? 'completed_insufficient_results'
+          : empty ? 'queued' : 'running';
+      const terminal = ['completed', 'completed_insufficient_results', 'failed'].includes(finalStatus);
+      const finalMessage = reachedTarget
+        ? `Campanha concluida com ${counters.approvedCount} cards limpos.`
+        : reachedAttempts && counters.foundCount === 0
+          ? `Nenhum card valido foi encontrado apos ${attempt} lotes. Ultima query: ${queryUsed}.`
+          : reachedMaxEmptyBatches
+            ? `Campanha tentou ${attempt} lotes; os ultimos ${nextConsecutiveEmpty} vieram vazios. Ultima query: ${queryUsed}.`
+            : empty
+              ? `Lote ${attempt} sem cards aprovados. Tentando proxima query.`
+              : `Encontramos ${counters.approvedCount} cards ate agora. Continuando nos proximos lotes.`;
+      const nextRetryAt = terminal ? null : new Date(Date.now() + 1_000);
+      this.logger.log(`[radar-campaign-batch] ${JSON.stringify({
+        runId: campaignId,
+        attempt,
+        batchLimit: normalized.quantity,
+        queryUsed,
+        engineUrl: lease.url,
+        httpStatus: output.httpStatus || null,
+        errorMessage: output.rawErrorMessage || null,
+        approvedCount: persisted.approvedCount,
+        rejectedCount: batchRejectedCount,
+        duplicateCount: persisted.duplicateCount,
+        nextRetryAt: nextRetryAt ? nextRetryAt.toISOString() : null,
+      })}`);
+      await (this.prisma as any).webscrapingCampaign.update({
+        where: { id: campaignId },
+        data: {
+          status: finalStatus,
+          consecutiveEmptyBatchCount: nextConsecutiveEmpty,
+          consecutiveErrorCount: 0,
+          lastErrorMessage: finalMessage,
+          nextRunAt: nextRetryAt,
+          finishedAt: terminal ? new Date() : null,
+        },
+      }).catch(() => null);
+    } catch (error) {
+      await this.getEnginePool().markEngineBatchError(lease.engineId, error).catch(() => null);
+      const httpStatus = this.extractHbxHttpStatus(error);
+      const message = this.extractHbxErrorMessage(error);
+      const retryable = this.isRetryableHbxError(error);
+      const counters = await this.recalculateRadarCampaignCounters(campaignId).catch(() => ({ foundCount: safeInteger(campaign.foundCount) }));
+      const nextConsecutiveError = safeInteger(campaign.consecutiveErrorCount) + 1;
+      const nextRunAt = new Date(Date.now() + (retryable ? this.getHbxRetryDelayMs(nextConsecutiveError) : 30_000));
+      const reachedAttempts = attempt >= safeInteger(campaign.maxAttempts);
+      const finalStatus = reachedAttempts
+        ? counters.foundCount > 0 ? 'completed_insufficient_results' : 'failed'
+        : counters.foundCount > 0 ? 'partial_error' : 'queued';
+      const terminal = ['completed_insufficient_results', 'failed'].includes(finalStatus);
+      const effectiveNextRunAt = terminal ? null : nextRunAt;
+      if (batch?.id) {
+        await (this.prisma as any).webscrapingCampaignBatch.update({
+          where: { id: batch.id },
+          data: {
+            status: 'batch_error',
+            errorMessage: message,
+            finishedAt: new Date(),
+          },
+        }).catch(() => null);
+      }
+      this.logger.warn(`[radar-campaign-batch] ${JSON.stringify({
+        runId: campaignId,
+        attempt,
+        batchLimit: safeInteger(campaign.batchSize, 25),
+        queryUsed,
+        engineUrl: lease.url,
+        httpStatus,
+        errorMessage: message,
+        approvedCount: 0,
+        rejectedCount: 0,
+        duplicateCount: 0,
+        nextRetryAt: effectiveNextRunAt ? effectiveNextRunAt.toISOString() : null,
+      })}`);
+      await (this.prisma as any).webscrapingCampaign.update({
+        where: { id: campaignId },
+        data: {
+          status: finalStatus,
+          consecutiveErrorCount: nextConsecutiveError,
+          lastErrorMessage: finalStatus === 'failed'
+            ? `Nenhum card valido foi encontrado apos ${attempt} lotes. Ultima query: ${queryUsed}. Erro: ${message}`
+            : terminal && counters.foundCount > 0
+              ? `Busca parcial: ${counters.foundCount} cards encontrados. O motor tentou ${attempt} lotes, mas nao atingiu a meta.`
+              : httpStatus ? `Ultimo lote falhou com ${httpStatus}. Tentando novamente.` : message,
+          nextRunAt: effectiveNextRunAt,
+          finishedAt: terminal ? new Date() : null,
+        },
+      }).catch(() => null);
+    } finally {
+      await this.getEnginePool().releaseEngine(lease.engineId);
+      this.scheduleRadarCampaignPump(1_000);
+    }
   }
 
   private async getHistoryPlaceColumnSupport(): Promise<HistoryPlaceColumnSupport> {
@@ -3887,11 +5412,17 @@ export class WebscrapingService {
     input: NormalizedSearchInput,
     excludePhoneDigits: string[] = [],
     engineUrlOverride?: string,
+    options: { queryText?: string; batchLimit?: number; timeoutMs?: number; excludeUrls?: string[] } = {},
   ): Promise<HbxEngineSearchOutput> {
     const engineUrl = String(engineUrlOverride || this.getHbxScrapingEngineUrl()).trim().replace(/\/+$/, '');
     let response: Response;
     const normalizedExcludePhoneDigits = Array.from(
       new Set(excludePhoneDigits.map((phone) => normalizePhoneDigits(phone)).filter(Boolean) as string[]),
+    );
+    const batchLimit = Math.max(1, Math.min(100, Math.trunc(Number(options.batchLimit || input.quantity || 1))));
+    const queryText = String(options.queryText || '').replace(/\s+/g, ' ').trim();
+    const normalizedExcludeUrls = Array.from(
+      new Set((options.excludeUrls || []).map((url) => String(url || '').trim().replace(/\/+$/, '')).filter(Boolean)),
     );
 
     try {
@@ -3900,11 +5431,18 @@ export class WebscrapingService {
         state: input.state,
         segment: input.segment,
         targetType: input.targetType,
-        limit: input.quantity,
+        limit: batchLimit,
         fresh: normalizedExcludePhoneDigits.length > 0,
       };
+      if (queryText) {
+        body.query = queryText;
+        body.batchLimit = batchLimit;
+      }
       if (normalizedExcludePhoneDigits.length > 0) {
         body.excludePhoneDigits = normalizedExcludePhoneDigits;
+      }
+      if (normalizedExcludeUrls.length > 0) {
+        body.excludeUrls = normalizedExcludeUrls;
       }
       response = await fetch(`${engineUrl}/search`, {
         method: 'POST',
@@ -3912,39 +5450,65 @@ export class WebscrapingService {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify(body),
+        signal: AbortSignal.timeout(Math.max(1_000, Math.trunc(Number(options.timeoutMs || this.getHbxBatchTimeoutMs())))),
       });
-    } catch {
-      throw new ServiceUnavailableException({
-        code: 'hbx_scraping_engine_unavailable',
-        message: 'Motor HBX Scraping indisponivel.',
-      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error || 'Motor HBX Scraping indisponivel.');
+      const retryable = this.isRetryableHbxError(error) || /timeout|fetch failed|econnreset|socket hang up/i.test(message);
+      throw new HbxBatchError(null, message || 'Motor HBX Scraping indisponivel.', retryable, 'hbx_scraping_engine_unavailable');
     }
 
-    const payload = await response.json().catch(() => ({}));
+    const rawText = typeof (response as any).text === 'function'
+      ? await response.text().catch(() => '')
+      : '';
+    const payload = rawText
+      ? (() => {
+          try {
+            return JSON.parse(rawText);
+          } catch {
+            return {};
+          }
+        })()
+      : await response.json().catch(() => ({}));
     if (!response.ok) {
-      throw new ServiceUnavailableException({
-        code: 'hbx_scraping_engine_unavailable',
-        message: 'Motor HBX Scraping recusou a pesquisa.',
-      });
+      const payloadMessage = String(payload?.detail || payload?.message || payload?.error || '').trim();
+      const rawMessage = rawText || payloadMessage || `Motor HBX Scraping recusou a pesquisa com HTTP ${response.status}.`;
+      throw new HbxBatchError(
+        response.status,
+        rawMessage,
+        [502, 503, 504].includes(response.status),
+        'hbx_scraping_engine_http_error',
+      );
     }
 
     const items = Array.isArray(payload?.results) ? payload.results : [];
     const results: WebscrapingContactResult[] = [];
     const seenPhones = new Set<string>();
+    let rejectedCount = 0;
+    let duplicateCount = 0;
 
     for (const item of items) {
       const mapped = this.mapHbxContactResult(item, input.targetType);
-      if (!mapped) continue;
-      if (normalizedExcludePhoneDigits.includes(mapped.phoneDigits)) continue;
-      if (seenPhones.has(mapped.phoneDigits)) continue;
+      if (!mapped) {
+        rejectedCount += 1;
+        continue;
+      }
+      if (normalizedExcludePhoneDigits.includes(mapped.phoneDigits)) {
+        duplicateCount += 1;
+        continue;
+      }
+      if (seenPhones.has(mapped.phoneDigits)) {
+        duplicateCount += 1;
+        continue;
+      }
       seenPhones.add(mapped.phoneDigits);
       results.push(mapped);
-      if (results.length >= input.quantity) break;
+      if (results.length >= batchLimit) break;
     }
 
     const payloadStatus = String(payload?.status || '').trim();
     const status: SearchRunStatus =
-      payloadStatus === 'partial_error' || payloadStatus === 'completed_with_errors'
+      payloadStatus === 'partial_error' || payloadStatus === 'completed_with_errors' || payloadStatus === 'completed_insufficient_results'
         ? payloadStatus
         : 'completed';
     const errors = Array.isArray(payload?.errors) ? payload.errors.filter(Boolean) : [];
@@ -3955,6 +5519,10 @@ export class WebscrapingService {
         status === 'completed_with_errors' && errors.length > 0
           ? `Busca parcial: ${results.length} cards encontrados; ${errors.length} fonte(s) falharam.`
           : null,
+      httpStatus: response.status,
+      rawErrorMessage: errors.length > 0 ? errors.join('; ') : null,
+      rejectedCount,
+      duplicateCount,
     };
   }
 

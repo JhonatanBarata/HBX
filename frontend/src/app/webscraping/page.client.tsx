@@ -314,7 +314,7 @@ type SearchResponse = {
     duplicateCount?: number;
     skippedCount?: number;
     importedCount?: number;
-    status?: "completed" | "partial_error" | "completed_with_errors";
+    status?: "completed" | "partial_error" | "completed_with_errors" | "completed_insufficient_results";
     message?: string | null;
     technicalCacheUsed: boolean;
     technicalCacheReusedCount: number;
@@ -323,7 +323,7 @@ type SearchResponse = {
   results: SearchResult[];
 };
 
-type SearchRunStatus = "queued" | "running" | "completed" | "partial_error" | "failed" | "canceled";
+type SearchRunStatus = "queued" | "running" | "completed" | "partial_error" | "completed_insufficient_results" | "failed" | "canceled";
 
 type SearchRunResponse = {
   id: string;
@@ -335,6 +335,17 @@ type SearchRunResponse = {
   duplicateCount: number;
   skippedCount: number;
   errorMessage?: string | null;
+  attemptCount?: number;
+  failedBatchCount?: number;
+  consecutiveEmptyBatchCount?: number;
+  consecutiveEngineErrorCount?: number;
+  lastBatchError?: string | null;
+  lastBatchStatus?: string | null;
+  nextRetryAt?: string | null;
+  lastQueryUsed?: string | null;
+  lastEngineUrl?: string | null;
+  batchLimit?: number;
+  maxAttempts?: number;
   startedAt?: string | null;
   finishedAt?: string | null;
   query: SearchResponse["query"];
@@ -376,6 +387,8 @@ type RadarLeadItem = {
   name: string;
   phone: string;
   phoneDigits: string;
+  ddd?: string | null;
+  expectedDdds?: string[];
   address?: string | null;
   city?: string | null;
   state?: string | null;
@@ -384,9 +397,22 @@ type RadarLeadItem = {
   websiteStatus?: "none" | "present" | "social_only" | "weak" | "unreachable" | "unknown" | string;
   rating?: number | null;
   reviews?: number | null;
+  source?: string | null;
+  sourceEngine?: string | null;
+  sourceUrl?: string | null;
   sourceEngines?: string[];
   opportunityScore?: number | null;
   opportunityReason?: string | null;
+  score?: number | null;
+  status?: string | null;
+  rejectionReason?: string | null;
+  complaintReason?: string | null;
+  deniedReason?: string | null;
+  noAnswerCount?: number;
+  contactedCount?: number;
+  lastContactAt?: string | null;
+  campaignId?: string | null;
+  historySummary?: string | null;
   globalNegativeCount?: number;
   globalImportedCount?: number;
   globalContactedCount?: number;
@@ -396,13 +422,23 @@ type RadarLeadItem = {
   vendasLeadId?: string | null;
 };
 
+type RadarFacet = {
+  key: string;
+  label: string;
+  count: number;
+  tone?: string;
+};
+
 type RadarDatabaseResponse = {
   items: RadarLeadItem[];
   total: number;
+  facets?: RadarFacet[];
   meta?: {
     available?: boolean;
     message?: string;
     filters?: Record<string, unknown>;
+    page?: number;
+    limit?: number;
   };
 };
 
@@ -426,14 +462,97 @@ type RadarPullResponse = {
 };
 
 type RadarFilterState = {
+  page: number;
+  filterKey: string;
   state: string;
   city: string;
   segment: string;
   quantity: number;
+  source: string;
+  ddd: string;
+  scoreRange: string;
   noWebsite: boolean;
   highOpportunity: boolean;
   minRating: string;
   minReviews: string;
+};
+
+type RadarLeadEvent = {
+  id: string;
+  eventType: string;
+  note?: string | null;
+  statusFrom?: string | null;
+  statusTo?: string | null;
+  createdAt?: string | null;
+};
+
+type RadarLeadDetailsResponse = {
+  item: RadarLeadItem;
+  events: RadarLeadEvent[];
+};
+
+type RadarCampaignStatus =
+  | "queued"
+  | "running"
+  | "paused"
+  | "sleeping"
+  | "completed"
+  | "completed_insufficient_results"
+  | "partial_error"
+  | "failed"
+  | "canceled";
+
+type RadarCampaignBatch = {
+  id: string;
+  status: string;
+  attemptNumber: number;
+  engineUrl?: string | null;
+  queryUsed?: string | null;
+  batchSize: number;
+  approvedCount: number;
+  duplicateCount: number;
+  rejectedCount: number;
+  errorMessage?: string | null;
+  startedAt?: string | null;
+  finishedAt?: string | null;
+};
+
+type RadarCampaign = {
+  id: string;
+  status: RadarCampaignStatus;
+  city?: string | null;
+  state?: string | null;
+  segment?: string | null;
+  targetType: HbxTargetType;
+  targetTotal: number;
+  batchSize: number;
+  foundCount: number;
+  approvedCount: number;
+  duplicateCount: number;
+  rejectedCount: number;
+  complaintCount: number;
+  deniedCount: number;
+  noAnswerCount: number;
+  currentAttempt: number;
+  maxAttempts: number;
+  consecutiveEmptyBatchCount: number;
+  consecutiveErrorCount: number;
+  lastQueryUsed?: string | null;
+  lastEngineUrl?: string | null;
+  lastErrorMessage?: string | null;
+  progressMessage?: string | null;
+  nextRunAt?: string | null;
+  nightOnly: boolean;
+  allowedStartHour: number;
+  allowedEndHour: number;
+  timezone: string;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+  batches?: RadarCampaignBatch[];
+};
+
+type RadarCampaignsResponse = {
+  items: RadarCampaign[];
 };
 
 type CrmPreviewItem = {
@@ -619,6 +738,56 @@ function opportunityLevelLabel(score?: number | null) {
   if (value >= 70) return "Alta oportunidade";
   if (value >= 45) return "Média oportunidade";
   return "Baixa oportunidade";
+}
+
+function radarStatusLabel(status?: string | null) {
+  const normalized = String(status || "").trim().toLowerCase();
+  if (normalized === "sent_to_vendas" || normalized === "imported_to_vendas") return "Enviado para Vendas";
+  if (normalized === "no_answer") return "Não atendeu";
+  if (normalized === "denied") return "Negou";
+  if (normalized === "complaint") return "Reclamação";
+  if (normalized === "duplicate") return "Duplicado";
+  if (normalized === "rejected") return "Rejeitado";
+  if (normalized === "hidden") return "Oculto";
+  if (normalized === "new") return "Novo";
+  return "Limpo";
+}
+
+function radarStatusTone(status?: string | null) {
+  const normalized = String(status || "").trim().toLowerCase();
+  if (normalized === "sent_to_vendas" || normalized === "imported_to_vendas") return "sent_to_vendas";
+  if (normalized === "no_answer") return "no_answer";
+  if (normalized === "denied") return "denied";
+  if (normalized === "complaint") return "complaint";
+  if (normalized === "duplicate") return "duplicate";
+  if (normalized === "rejected" || normalized === "ddd_mismatch") return "rejected";
+  if (normalized === "hidden") return "hidden";
+  return "clean";
+}
+
+function campaignStatusLabel(status?: string | null) {
+  const normalized = String(status || "").trim().toLowerCase();
+  if (normalized === "queued") return "Na fila";
+  if (normalized === "running") return "Rodando";
+  if (normalized === "paused") return "Pausada";
+  if (normalized === "sleeping") return "Dormindo";
+  if (normalized === "completed") return "Concluída";
+  if (normalized === "completed_insufficient_results") return "Parcial concluída";
+  if (normalized === "partial_error") return "Erro parcial";
+  if (normalized === "failed") return "Falhou";
+  if (normalized === "canceled") return "Cancelada";
+  return "Campanha";
+}
+
+function campaignProgressMessage(campaign: RadarCampaign) {
+  if (campaign.progressMessage) return campaign.progressMessage;
+  const attempt = Math.max(1, Number(campaign.currentAttempt || 0));
+  if (campaign.status === "running" || campaign.status === "queued" || campaign.status === "partial_error") {
+    if (campaign.lastErrorMessage) return campaign.lastErrorMessage;
+    return `Rodando lote ${attempt}/${campaign.maxAttempts}. ${campaign.foundCount} contatos encontrados.`;
+  }
+  if (campaign.status === "sleeping") return `Aguardando janela ${String(campaign.allowedStartHour).padStart(2, "0")}h-${String(campaign.allowedEndHour).padStart(2, "0")}h.`;
+  return `${campaign.foundCount}/${campaign.targetTotal} contatos encontrados.`;
 }
 
 function buildMapUrl(item: RadarLeadItem) {
@@ -945,19 +1114,43 @@ export default function WebscrapingClientPage() {
   const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
   const [historyItems, setHistoryItems] = useState<SearchHistoryItem[]>([]);
   const [radarItems, setRadarItems] = useState<RadarLeadItem[]>([]);
+  const [radarFacets, setRadarFacets] = useState<RadarFacet[]>([]);
   const [radarLoading, setRadarLoading] = useState(false);
   const [radarPulling, setRadarPulling] = useState(false);
   const [radarActionId, setRadarActionId] = useState<string | null>(null);
   const [radarMeta, setRadarMeta] = useState<RadarPullResponse["meta"] | null>(null);
   const [radarFilters, setRadarFilters] = useState<RadarFilterState>({
+    page: 1,
+    filterKey: "all",
     state: "",
     city: "",
     segment: "Lanchonetes",
     quantity: 20,
-    noWebsite: true,
+    source: "",
+    ddd: "",
+    scoreRange: "",
+    noWebsite: false,
     highOpportunity: false,
     minRating: "",
     minReviews: "",
+  });
+  const [radarSelectedIds, setRadarSelectedIds] = useState<string[]>([]);
+  const [radarDetail, setRadarDetail] = useState<RadarLeadDetailsResponse | null>(null);
+  const [radarDetailLoading, setRadarDetailLoading] = useState(false);
+  const [radarViewMode, setRadarViewMode] = useState<"database" | "campaign">("database");
+  const [radarCampaigns, setRadarCampaigns] = useState<RadarCampaign[]>([]);
+  const [campaignLoading, setCampaignLoading] = useState(false);
+  const [campaignActionId, setCampaignActionId] = useState<string | null>(null);
+  const [campaignForm, setCampaignForm] = useState({
+    targetType: "pj" as HbxTargetType,
+    state: "",
+    city: "",
+    segment: "Lanchonetes",
+    targetTotal: 500,
+    batchSize: 25,
+    nightOnly: true,
+    allowedStartHour: 0,
+    allowedEndHour: 6,
   });
   const [citySuggestionsOpen, setCitySuggestionsOpen] = useState(false);
   const [activeCitySuggestionIndex, setActiveCitySuggestionIndex] = useState(0);
@@ -1172,17 +1365,20 @@ export default function WebscrapingClientPage() {
     (async () => {
       setLoadingBootstrap(true);
       try {
-        const [runtimePayload, profilePayload, historyPayload, radarPayload] = await Promise.all([
+        const [runtimePayload, profilePayload, historyPayload, radarPayload, campaignPayload] = await Promise.all([
           apiFetch<RuntimeResponse>("/webscraping/runtime"),
           apiFetch<CurrentUser>("/profile/current-user"),
           apiFetch<HistoryResponse>("/webscraping/history?limit=20"),
-          apiFetch<RadarDatabaseResponse>("/webscraping/radar/database?limit=50").catch(() => ({ items: [], total: 0 })),
+          apiFetch<RadarDatabaseResponse>("/webscraping/radar/leads?limit=50").catch(() => ({ items: [], total: 0, facets: [] })),
+          apiFetch<RadarCampaignsResponse>("/webscraping/campaigns").catch(() => ({ items: [] })),
         ]);
         if (cancelled) return;
         setRuntime(runtimePayload);
         setCurrentUser(profilePayload);
         setHistoryItems(historyPayload.items || []);
         setRadarItems(radarPayload.items || []);
+        setRadarFacets((radarPayload.facets || []).filter((facet) => Number(facet.count || 0) > 0));
+        setRadarCampaigns(campaignPayload.items || []);
         setPageError(null);
         // hydrate local UI preferences (last city / segment and script preset)
         try {
@@ -1308,7 +1504,7 @@ export default function WebscrapingClientPage() {
     return () => {
       cancelled = true;
     };
-  }, [activeQuery, agendaMode, city, effectiveSegment, qualifiedResults, resultTargetType, searchMeta?.historyId, targetType]);
+  }, [activeQuery, activeSearchRun, agendaMode, city, effectiveSegment, qualifiedResults, resultTargetType, searchMeta?.historyId, targetType]);
 
   useEffect(() => {
     const fallbackSender = String(currentUser?.email || "").trim();
@@ -1450,11 +1646,16 @@ export default function WebscrapingClientPage() {
   function buildRadarPayload(overrides: Partial<RadarFilterState> = {}) {
     const next = { ...radarFilters, ...overrides };
     return {
+      page: next.page,
+      filterKey: next.filterKey && next.filterKey !== "all" ? next.filterKey : undefined,
       state: next.state || undefined,
       city: next.city.trim() || undefined,
       segment: next.segment.trim() || undefined,
       quantity: next.quantity,
       limit: 50,
+      source: next.source.trim() || undefined,
+      ddd: next.ddd.trim() || undefined,
+      scoreRange: next.scoreRange.trim() || undefined,
       noWebsite: next.noWebsite || undefined,
       highOpportunity: next.highOpportunity || undefined,
       minRating: next.minRating ? Number(next.minRating) : undefined,
@@ -1478,8 +1679,9 @@ export default function WebscrapingClientPage() {
     setSearchError(null);
     try {
       const query = buildRadarQueryString(overrides);
-      const payload = await apiFetch<RadarDatabaseResponse>(`/webscraping/radar/database${query ? `?${query}` : ""}`);
+      const payload = await apiFetch<RadarDatabaseResponse>(`/webscraping/radar/leads${query ? `?${query}` : ""}`);
       setRadarItems(payload.items || []);
+      setRadarFacets((payload.facets || []).filter((facet) => Number(facet.count || 0) > 0));
       setRadarMeta(null);
       if (payload.meta?.message) setFeedback(payload.meta.message);
     } catch (error) {
@@ -1525,11 +1727,12 @@ export default function WebscrapingClientPage() {
     setRadarActionId(item.id);
     setSearchError(null);
     try {
-      await apiFetch(`/webscraping/radar/${item.id}/import-to-vendas`, {
+      await apiFetch(`/webscraping/radar/leads/${item.id}/send-to-vendas`, {
         method: "POST",
       });
-      setRadarItems((current) => current.filter((lead) => lead.id !== item.id));
+      setRadarItems((current) => current.map((lead) => (lead.id === item.id ? { ...lead, status: "sent_to_vendas", companyStatus: "sent_to_vendas" } : lead)));
       setFeedback(`${item.name || "Card"} herdado para Vendas.`);
+      void refreshRadarDatabase();
     } catch (error) {
       setSearchError(error instanceof Error ? error.message : "Falha ao herdar card para Vendas.");
     } finally {
@@ -1537,35 +1740,167 @@ export default function WebscrapingClientPage() {
     }
   }
 
-  async function handleRadarNegative(item: RadarLeadItem) {
+  async function handleRadarLeadEvent(item: RadarLeadItem, eventType: "denied" | "complaint" | "no_answer" | "hidden", note?: string) {
     setRadarActionId(item.id);
     setSearchError(null);
     try {
-      await apiFetch(`/webscraping/radar/${item.id}/negative`, {
+      const payload = await apiFetch<RadarLeadDetailsResponse>(`/webscraping/radar/leads/${item.id}/event`, {
         method: "POST",
-        body: JSON.stringify({ status: "discarded", reason: "Descartado no Radar Digital" }),
+        body: JSON.stringify({ eventType, note }),
       });
-      setRadarItems((current) => current.filter((lead) => lead.id !== item.id));
-      setFeedback(`${item.name || "Card"} descartado para esta empresa.`);
+      setRadarItems((current) => current.map((lead) => (lead.id === item.id ? payload.item : lead)));
+      setRadarDetail((current) => (current?.item.id === item.id ? payload : current));
+      const labels: Record<typeof eventType, string> = {
+        denied: "marcado como negou",
+        complaint: "marcado como reclamação",
+        no_answer: "marcado como não atendeu",
+        hidden: "ocultado",
+      };
+      setFeedback(`${item.name || "Card"} ${labels[eventType]}.`);
+      void refreshRadarDatabase();
     } catch (error) {
-      setSearchError(error instanceof Error ? error.message : "Falha ao descartar card.");
+      setSearchError(error instanceof Error ? error.message : "Falha ao atualizar card.");
     } finally {
       setRadarActionId(null);
     }
   }
+
+  async function handleRadarNegative(item: RadarLeadItem) {
+    await handleRadarLeadEvent(item, "hidden", "Ocultado no Banco Radar");
+  }
+
+  async function openRadarDetails(item: RadarLeadItem) {
+    setRadarDetailLoading(true);
+    setSearchError(null);
+    try {
+      const payload = await apiFetch<RadarLeadDetailsResponse>(`/webscraping/radar/leads/${item.id}`);
+      setRadarDetail(payload);
+    } catch (error) {
+      setSearchError(error instanceof Error ? error.message : "Falha ao carregar histórico do card.");
+    } finally {
+      setRadarDetailLoading(false);
+    }
+  }
+
+  function toggleRadarSelection(itemId: string) {
+    setRadarSelectedIds((current) => (
+      current.includes(itemId)
+        ? current.filter((id) => id !== itemId)
+        : [...current, itemId]
+    ));
+  }
+
+  async function refreshRadarCampaigns() {
+    setCampaignLoading(true);
+    try {
+      const payload = await apiFetch<RadarCampaignsResponse>("/webscraping/campaigns");
+      setRadarCampaigns(payload.items || []);
+    } catch (error) {
+      setSearchError(error instanceof Error ? error.message : "Falha ao carregar campanhas.");
+    } finally {
+      setCampaignLoading(false);
+    }
+  }
+
+  async function handleCreateRadarCampaign() {
+    if (!campaignForm.segment.trim()) {
+      setSearchError("Informe o nicho/serviço da campanha.");
+      return;
+    }
+    if (campaignForm.targetType !== "pj" && (!campaignForm.state.trim() || !campaignForm.city.trim())) {
+      setSearchError("Cidade e estado são obrigatórios para campanha CPF/Agenda CPF.");
+      return;
+    }
+    setCampaignLoading(true);
+    setSearchError(null);
+    try {
+      const campaign = await apiFetch<RadarCampaign>("/webscraping/campaigns", {
+        method: "POST",
+        body: JSON.stringify(campaignForm),
+      });
+      setRadarCampaigns((current) => [campaign, ...current.filter((item) => item.id !== campaign.id)]);
+      setFeedback(`Campanha criada. ${campaign.progressMessage || "Os motores continuarão trabalhando em lotes."}`);
+      setRadarViewMode("campaign");
+    } catch (error) {
+      setSearchError(error instanceof Error ? error.message : "Falha ao criar campanha.");
+    } finally {
+      setCampaignLoading(false);
+    }
+  }
+
+  async function handleCampaignAction(campaign: RadarCampaign, action: "pause" | "resume" | "cancel") {
+    setCampaignActionId(campaign.id);
+    setSearchError(null);
+    try {
+      const updated = await apiFetch<RadarCampaign>(`/webscraping/campaigns/${campaign.id}/${action}`, { method: "POST" });
+      setRadarCampaigns((current) => current.map((item) => (item.id === updated.id ? updated : item)));
+    } catch (error) {
+      setSearchError(error instanceof Error ? error.message : "Falha ao atualizar campanha.");
+    } finally {
+      setCampaignActionId(null);
+    }
+  }
+
+  useEffect(() => {
+    if (hasToken !== true || panelMode !== "radar") return;
+    const timer = window.setInterval(() => {
+      void refreshRadarCampaigns();
+      if (radarViewMode === "database") void refreshRadarDatabase();
+    }, 7000);
+    return () => window.clearInterval(timer);
+    // Polling intentionally reads the latest UI filters through refreshRadarDatabase.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasToken, panelMode, radarViewMode, radarFilters]);
 
   function searchRunStatusLabel(status: SearchRunStatus) {
     if (status === "queued") return "na fila";
     if (status === "running") return "em andamento";
     if (status === "completed") return "concluida";
     if (status === "partial_error") return "parcial";
+    if (status === "completed_insufficient_results") return "parcial";
     if (status === "failed") return "falhou";
     if (status === "canceled") return "cancelada";
     return status;
   }
 
-  function isSearchRunTerminal(status: SearchRunStatus) {
-    return status === "completed" || status === "partial_error" || status === "failed" || status === "canceled";
+  function isSearchRunTerminal(payload: SearchRunResponse) {
+    if (payload.nextRetryAt && (payload.status === "queued" || payload.status === "running" || payload.status === "failed")) {
+      return false;
+    }
+    return (
+      payload.status === "completed" ||
+      payload.status === "partial_error" ||
+      payload.status === "completed_insufficient_results" ||
+      payload.status === "failed" ||
+      payload.status === "canceled"
+    );
+  }
+
+  function buildSearchRunFeedback(payload: SearchRunResponse) {
+    const found = Number(payload.foundCount || 0);
+    const attempt = Number(payload.attemptCount || 0);
+    const maxAttempts = Number(payload.maxAttempts || 0);
+    const lote = maxAttempts ? `Rodando lote ${Math.max(1, attempt)}/${maxAttempts}` : "Rodando lote";
+
+    if (payload.status === "queued" && payload.errorMessage?.includes("Aguardando motor")) {
+      return `Aguardando motor livre. ${found} contatos encontrados.`;
+    }
+    if ((payload.status === "queued" || payload.status === "running") && payload.lastBatchError) {
+      return payload.errorMessage || `${found} contatos encontrados. Último lote falhou, tentando novamente...`;
+    }
+    if ((payload.status === "queued" || payload.status === "running") && found > 0) {
+      return `${lote}. Encontramos ${found} contatos até agora. Continuando busca em novos lotes...`;
+    }
+    if (payload.status === "queued" || payload.status === "running") {
+      return `${lote}. ${found} contatos encontrados.`;
+    }
+    if (payload.status === "completed_insufficient_results" || payload.status === "partial_error") {
+      return payload.errorMessage || `Busca parcial: ${found} contatos encontrados.`;
+    }
+    return (
+      payload.errorMessage ||
+      `Pesquisa ${searchRunStatusLabel(payload.status)}: ${found}/${payload.targetQuantity} encontrados, ${payload.duplicateCount} duplicados, ${payload.skippedCount} ignorados.`
+    );
   }
 
   function wait(ms: number) {
@@ -1585,16 +1920,14 @@ export default function WebscrapingClientPage() {
       importedCount: payload.importedCount,
     });
     setHasSearched(true);
-    setFeedback(
-      `Pesquisa ${searchRunStatusLabel(payload.status)}: ${payload.foundCount}/${payload.targetQuantity} encontrados, ${payload.duplicateCount} duplicados, ${payload.skippedCount} ignorados.`,
-    );
+    setFeedback(buildSearchRunFeedback(payload));
   }
 
   async function pollSearchRun(runId: string) {
     for (;;) {
       const payload = await apiFetch<SearchRunResponse>(`/webscraping/search-runs/${runId}`);
       applySearchRunPayload(payload);
-      if (isSearchRunTerminal(payload.status)) return payload;
+      if (isSearchRunTerminal(payload)) return payload;
       await wait(2000);
     }
   }
@@ -1697,7 +2030,16 @@ export default function WebscrapingClientPage() {
       const displayResults = filterResultsForTarget(finalResults, responseTargetType);
       const hiddenCount = Math.max(0, finalResults.length - displayResults.length);
       if (finalPayload.status === "failed" && displayResults.length === 0) {
-        throw new Error(finalPayload.errorMessage || "Nenhum card válido foi encontrado.");
+        const exhaustedAttempts =
+          Number(finalPayload.foundCount || 0) === 0 &&
+          Number(finalPayload.attemptCount || 0) >= Number(finalPayload.maxAttempts || 0) &&
+          !finalPayload.nextRetryAt;
+        throw new Error(
+          finalPayload.errorMessage ||
+          (exhaustedAttempts
+            ? "Nenhum card válido foi encontrado."
+            : "A busca não encontrou contatos aprovados nesta etapa."),
+        );
       }
       scrapingLaunchNotice.markSuccess({
         successDescription:
@@ -2494,8 +2836,8 @@ export default function WebscrapingClientPage() {
             <div className={styles.sectionHeader}>
               <div>
                 <span className={styles.cardEyebrow}>HBX Radar Digital</span>
-                <strong className={styles.sectionTitle}>Banco de Dados</strong>
-                <p className={styles.helperText}>Cards disponíveis no pool global, filtrados para esta empresa sem repetir descartes ou leads já herdados.</p>
+                <strong className={styles.sectionTitle}>Banco Radar</strong>
+                <p className={styles.helperText}>Coleta persistente, histórico, limpeza e filtros inteligentes por botão.</p>
               </div>
               <div className={styles.modeTabs} role="tablist" aria-label="Webscraping">
                 <button
@@ -2512,14 +2854,355 @@ export default function WebscrapingClientPage() {
                   onClick={() => setPanelMode("radar")}
                 >
                   <Icon name="clock" size={16} />
-                  Banco de Dados
+                  Banco Radar
                 </button>
                 <span className={styles.modeMetaButton}>
-                  Cards disponíveis: <strong>{radarItems.length}</strong>
+                  Cards na tela: <strong>{radarItems.length}</strong>
                 </span>
               </div>
             </div>
 
+            <div className={styles.radarModeSwitch} role="tablist" aria-label="Modo Banco Radar">
+              <button
+                type="button"
+                className={radarViewMode === "database" ? styles.modeTabActive : styles.modeTab}
+                onClick={() => setRadarViewMode("database")}
+              >
+                <Icon name="book" size={16} />
+                Consultar Banco
+              </button>
+              <button
+                type="button"
+                className={radarViewMode === "campaign" ? styles.modeTabActive : styles.modeTab}
+                onClick={() => setRadarViewMode("campaign")}
+              >
+                <Icon name="zap" size={16} />
+                Campanha de Coleta
+              </button>
+            </div>
+
+            {radarViewMode === "database" ? (
+              <>
+                <div className={styles.radarFilterGrid}>
+                  <label className={styles.field}>
+                    <span className={styles.fieldLabel}>Estado</span>
+                    <input
+                      className={styles.fieldInput}
+                      value={radarFilters.state}
+                      onChange={(event) => setRadarFilters((current) => ({ ...current, state: event.target.value.toUpperCase(), page: 1 }))}
+                      placeholder="UF"
+                      maxLength={2}
+                    />
+                  </label>
+                  <label className={styles.field}>
+                    <span className={styles.fieldLabel}>Cidade</span>
+                    <input
+                      className={styles.fieldInput}
+                      value={radarFilters.city}
+                      onChange={(event) => setRadarFilters((current) => ({ ...current, city: event.target.value, page: 1 }))}
+                      placeholder="Ex: Campinas"
+                    />
+                  </label>
+                  <label className={styles.field}>
+                    <span className={styles.fieldLabel}>Nicho</span>
+                    <input
+                      className={styles.fieldInput}
+                      value={radarFilters.segment}
+                      onChange={(event) => setRadarFilters((current) => ({ ...current, segment: event.target.value, page: 1 }))}
+                      placeholder="Ex: Lanchonetes"
+                    />
+                  </label>
+                  <label className={styles.field}>
+                    <span className={styles.fieldLabel}>DDD</span>
+                    <input
+                      className={styles.fieldInput}
+                      value={radarFilters.ddd}
+                      onChange={(event) => setRadarFilters((current) => ({ ...current, ddd: event.target.value.replace(/\D/g, "").slice(0, 2), page: 1 }))}
+                      placeholder="19"
+                    />
+                  </label>
+                </div>
+
+                {radarFacets.length > 0 ? (
+                  <div className={styles.radarFacetBar}>
+                    {radarFacets.map((facet) => (
+                      <button
+                        key={facet.key}
+                        type="button"
+                        className={radarFilters.filterKey === facet.key || (!radarFilters.filterKey && facet.key === "all") ? styles.radarFacetButtonActive : styles.radarFacetButton}
+                        data-tone={facet.tone || facet.key}
+                        onClick={() => {
+                          setRadarFilters((current) => ({ ...current, filterKey: facet.key, page: 1 }));
+                          void refreshRadarDatabase({ filterKey: facet.key, page: 1 });
+                        }}
+                      >
+                        <span>{facet.label}</span>
+                        <strong>{facet.count}</strong>
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+
+                <div className={styles.actionRow}>
+                  <button
+                    type="button"
+                    className={styles.glassButton}
+                    onClick={() => void refreshRadarDatabase({ page: 1 })}
+                    disabled={radarLoading || radarPulling}
+                  >
+                    <Icon name="search" size={18} />
+                    {radarLoading ? "Atualizando..." : "Atualizar banco"}
+                  </button>
+                  <button
+                    type="button"
+                    className={`${styles.glassButton} ${styles.glassButtonPrimary}`}
+                    onClick={() => setRadarViewMode("campaign")}
+                  >
+                    <Icon name="spark" size={18} />
+                    Criar campanha
+                  </button>
+                  {radarSelectedIds.length > 0 ? <span className={styles.metaPill}>{radarSelectedIds.length} selecionado(s)</span> : null}
+                </div>
+
+                {radarLoading ? (
+                  <div className={styles.resultsGrid}>
+                    {Array.from({ length: 3 }).map((_, index) => (
+                      <div key={index} className={styles.resultSkeleton}>
+                        <div className={styles.skeletonTitle} />
+                        <div className={styles.skeletonLine} />
+                        <div className={styles.skeletonLineShort} />
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+
+                {!radarLoading && radarItems.length === 0 ? (
+                  <div className={styles.emptyState}>
+                    <strong>Nenhum card disponível neste filtro</strong>
+                    <p className={styles.emptyText}>Amplie os filtros ou crie uma campanha para abastecer o Banco Radar em lotes.</p>
+                  </div>
+                ) : (
+                  <div className={styles.radarGrid}>
+                    {radarItems.map((item) => {
+                      const mapUrl = buildMapUrl(item);
+                      const score = item.opportunityScore ?? item.score ?? 0;
+                      const statusTone = radarStatusTone(item.status || item.companyStatus);
+                      const selected = radarSelectedIds.includes(item.id);
+                      return (
+                        <article key={item.id} className={styles.radarCard} data-status={statusTone} data-selected={selected ? "true" : "false"}>
+                          <button type="button" className={styles.radarCardButton} onClick={() => void openRadarDetails(item)}>
+                            <div className={styles.historyTop}>
+                              <div>
+                                <h2 className={styles.historyTitle}>{item.name || "Card sem nome"}</h2>
+                                <p className={styles.historyMeta}>{[item.city, item.state, item.segment].filter(Boolean).join(" • ") || "Local não informado"}</p>
+                              </div>
+                              <span className={styles.radarStatusChip} data-status={statusTone}>{radarStatusLabel(item.status || item.companyStatus)}</span>
+                            </div>
+                            <div className={styles.radarPills}>
+                              <span className={styles.metaPill}>DDD {item.ddd || normalizePhoneDigits(item.phoneDigits || item.phone).slice(0, 2) || "-"}</span>
+                              <span className={styles.metaPill}>{websiteStatusLabel(item.websiteStatus)}</span>
+                              <span className={styles.metaPill}>{opportunityLevelLabel(score)}</span>
+                              <span className={styles.metaPill}>Score {score}</span>
+                              {isLikelyMobileWhatsapp(item.phoneDigits || item.phone) ? <span className={styles.metaPill}>WhatsApp provável</span> : <span className={styles.metaPill}>Sem WhatsApp provável</span>}
+                            </div>
+                            <p className={styles.historyFilter}>{item.phone || item.phoneDigits || "Telefone não informado"}</p>
+                            <p className={styles.historyPreview}>{item.historySummary || item.opportunityReason || item.rejectionReason || "Histórico limpo no Banco Radar."}</p>
+                          </button>
+                          <div className={styles.radarActions}>
+                            <button type="button" className={styles.radarSelectButton} data-selected={selected ? "true" : "false"} onClick={() => toggleRadarSelection(item.id)}>
+                              <Icon name={selected ? "check" : "cursor"} size={16} />
+                              {selected ? "Selecionado" : "Selecionar"}
+                            </button>
+                            <button type="button" className={`${styles.glassButton} ${styles.glassButtonPrimary}`} onClick={() => void handleRadarImport(item)} disabled={radarActionId === item.id}>
+                              <Icon name="spark" size={18} />
+                              Vendas
+                            </button>
+                            <button type="button" className={styles.glassButton} onClick={() => void handleRadarLeadEvent(item, "no_answer", "Não atendeu no contato")} disabled={radarActionId === item.id}>
+                              <Icon name="clock" size={18} />
+                              Não atendeu
+                            </button>
+                            <button type="button" className={styles.glassButton} onClick={() => void handleRadarLeadEvent(item, "denied", "Negou contato")} disabled={radarActionId === item.id}>
+                              <Icon name="alert" size={18} />
+                              Negou
+                            </button>
+                            <button type="button" className={styles.glassButton} onClick={() => void handleRadarLeadEvent(item, "complaint", "Reclamação registrada")} disabled={radarActionId === item.id}>
+                              <Icon name="alert" size={18} />
+                              Reclamação
+                            </button>
+                            <button type="button" className={styles.glassButton} onClick={() => void handleRadarNegative(item)} disabled={radarActionId === item.id}>
+                              <Icon name="cursor" size={18} />
+                              Ocultar
+                            </button>
+                            {item.website ? (
+                              <a className={styles.glassButton} href={normalizeExternalUrl(item.website)} target="_blank" rel="noreferrer">
+                                <Icon name="cursor" size={18} />
+                                Site
+                              </a>
+                            ) : null}
+                            {mapUrl ? (
+                              <a className={styles.glassButton} href={mapUrl} target="_blank" rel="noreferrer">
+                                <Icon name="search" size={18} />
+                                Mapa
+                              </a>
+                            ) : null}
+                          </div>
+                        </article>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {radarDetail ? (
+                  <div className={styles.radarDetailPanel}>
+                    <div className={styles.sectionHeader}>
+                      <div>
+                        <span className={styles.cardEyebrow}>Histórico do card</span>
+                        <strong className={styles.sectionTitle}>{radarDetail.item.name || "Card"}</strong>
+                        <p className={styles.helperText}>{radarDetail.item.phone || radarDetail.item.phoneDigits || "Telefone não informado"}</p>
+                      </div>
+                      <button type="button" className={styles.glassButton} onClick={() => setRadarDetail(null)}>Fechar</button>
+                    </div>
+                    {radarDetailLoading ? <p className={styles.helperText}>Carregando histórico...</p> : null}
+                    <div className={styles.radarHistoryList}>
+                      {radarDetail.events.length === 0 ? (
+                        <span className={styles.metaPill}>Sem eventos registrados</span>
+                      ) : radarDetail.events.map((event) => (
+                        <div key={event.id} className={styles.radarEventItem}>
+                          <strong>{radarStatusLabel(event.statusTo || event.eventType)}</strong>
+                          <span>{event.note || event.eventType}</span>
+                          <small>{event.createdAt ? formatDateTime(event.createdAt) : "-"}</small>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+              </>
+            ) : (
+              <>
+                <div className={styles.radarCampaignForm}>
+                  <label className={styles.field}>
+                    <span className={styles.fieldLabel}>Tipo</span>
+                    <select className={styles.fieldSelect} value={campaignForm.targetType} onChange={(event) => setCampaignForm((current) => ({ ...current, targetType: normalizeTargetTypeValue(event.target.value) }))}>
+                      <option value="pj">CNPJ</option>
+                      <option value="pf">CPF público</option>
+                      <option value="agenda_pf">Agenda CPF</option>
+                    </select>
+                  </label>
+                  <label className={styles.field}>
+                    <span className={styles.fieldLabel}>Estado</span>
+                    <select className={styles.fieldSelect} value={campaignForm.state} onChange={(event) => setCampaignForm((current) => ({ ...current, state: event.target.value }))}>
+                      <option value="">Todos</option>
+                      {BRAZIL_STATES.map((item) => <option key={item.uf} value={item.uf}>{item.uf}</option>)}
+                    </select>
+                  </label>
+                  <label className={styles.field}>
+                    <span className={styles.fieldLabel}>Cidade</span>
+                    <input className={styles.fieldInput} value={campaignForm.city} onChange={(event) => setCampaignForm((current) => ({ ...current, city: event.target.value }))} placeholder="Ex: Campinas" />
+                  </label>
+                  <label className={styles.field}>
+                    <span className={styles.fieldLabel}>Nicho / Serviço</span>
+                    <input className={styles.fieldInput} value={campaignForm.segment} onChange={(event) => setCampaignForm((current) => ({ ...current, segment: event.target.value }))} placeholder="Ex: lanchonetes" />
+                  </label>
+                  <label className={styles.field}>
+                    <span className={styles.fieldLabel}>Quantidade alvo</span>
+                    <select className={styles.fieldSelect} value={campaignForm.targetTotal} onChange={(event) => setCampaignForm((current) => ({ ...current, targetTotal: Number(event.target.value) }))}>
+                      {[100, 500, 1000, 5000, 10000].map((option) => <option key={option} value={option}>{option} cards</option>)}
+                    </select>
+                  </label>
+                  <label className={styles.field}>
+                    <span className={styles.fieldLabel}>Por lote</span>
+                    <select className={styles.fieldSelect} value={campaignForm.batchSize} onChange={(event) => setCampaignForm((current) => ({ ...current, batchSize: Number(event.target.value) }))}>
+                      {[10, 25, 50].map((option) => <option key={option} value={option}>{option}</option>)}
+                    </select>
+                  </label>
+                  <label className={styles.checkboxField}>
+                    <input type="checkbox" checked={campaignForm.nightOnly} onChange={(event) => setCampaignForm((current) => ({ ...current, nightOnly: event.target.checked }))} />
+                    Só madrugada
+                  </label>
+                  <label className={styles.field}>
+                    <span className={styles.fieldLabel}>Início</span>
+                    <input className={styles.fieldInput} type="number" min="0" max="23" value={campaignForm.allowedStartHour} onChange={(event) => setCampaignForm((current) => ({ ...current, allowedStartHour: Math.min(23, Math.max(0, Number(event.target.value) || 0)) }))} />
+                  </label>
+                  <label className={styles.field}>
+                    <span className={styles.fieldLabel}>Fim</span>
+                    <input className={styles.fieldInput} type="number" min="0" max="23" value={campaignForm.allowedEndHour} onChange={(event) => setCampaignForm((current) => ({ ...current, allowedEndHour: Math.min(23, Math.max(0, Number(event.target.value) || 0)) }))} />
+                  </label>
+                </div>
+
+                <div className={styles.actionRow}>
+                  <button type="button" className={`${styles.glassButton} ${styles.glassButtonPrimary}`} onClick={() => void handleCreateRadarCampaign()} disabled={campaignLoading}>
+                    <Icon name="play" size={18} />
+                    {campaignLoading ? "Criando..." : "Criar campanha persistente"}
+                  </button>
+                  <button type="button" className={styles.glassButton} onClick={() => void refreshRadarCampaigns()} disabled={campaignLoading}>
+                    <Icon name="clock" size={18} />
+                    Atualizar progresso
+                  </button>
+                </div>
+
+                <div className={styles.radarCampaignGrid}>
+                  {radarCampaigns.length === 0 ? (
+                    <div className={styles.emptyState}>
+                      <strong>Nenhuma campanha ativa</strong>
+                      <p className={styles.emptyText}>Crie uma campanha para os motores trabalharem em lotes de até 50 cards.</p>
+                    </div>
+                  ) : radarCampaigns.map((campaign) => (
+                    <article key={campaign.id} className={styles.radarCampaignCard} data-status={campaign.status}>
+                      <div className={styles.historyTop}>
+                        <div>
+                          <h2 className={styles.historyTitle}>{campaign.segment || "Campanha Radar"}</h2>
+                          <p className={styles.historyMeta}>{[campaign.city, campaign.state, campaign.targetType?.toUpperCase()].filter(Boolean).join(" • ")}</p>
+                        </div>
+                        <span className={styles.radarStatusChip} data-status={campaign.status}>{campaignStatusLabel(campaign.status)}</span>
+                      </div>
+                      <div className={styles.radarCampaignStats}>
+                        <span><strong>{campaign.foundCount}</strong> encontrados</span>
+                        <span><strong>{campaign.approvedCount}</strong> limpos</span>
+                        <span><strong>{campaign.duplicateCount}</strong> duplicados</span>
+                        <span><strong>{campaign.rejectedCount}</strong> rejeitados</span>
+                        <span><strong>{campaign.complaintCount}</strong> reclamaram</span>
+                        <span><strong>{campaign.deniedCount}</strong> negaram</span>
+                      </div>
+                      <p className={styles.historyPreview}>{campaignProgressMessage(campaign)}</p>
+                      <div className={styles.radarPills}>
+                        <span className={styles.metaPill}>Lote {campaign.currentAttempt}/{campaign.maxAttempts}</span>
+                        <span className={styles.metaPill}>Meta {campaign.targetTotal}</span>
+                        <span className={styles.metaPill}>Batch {campaign.batchSize}</span>
+                        {campaign.lastEngineUrl ? <span className={styles.metaPill}>{campaign.lastEngineUrl}</span> : null}
+                        {campaign.lastQueryUsed ? <span className={styles.metaPill}>Query: {campaign.lastQueryUsed}</span> : null}
+                        {campaign.nextRunAt ? <span className={styles.metaPill}>Próxima: {formatDateTime(campaign.nextRunAt)}</span> : null}
+                      </div>
+                      <div className={styles.radarActions}>
+                        {campaign.status === "paused" ? (
+                          <button type="button" className={`${styles.glassButton} ${styles.glassButtonPrimary}`} onClick={() => void handleCampaignAction(campaign, "resume")} disabled={campaignActionId === campaign.id}>
+                            <Icon name="play" size={18} />
+                            Continuar
+                          </button>
+                        ) : (
+                          <button type="button" className={styles.glassButton} onClick={() => void handleCampaignAction(campaign, "pause")} disabled={campaignActionId === campaign.id || ["completed", "completed_insufficient_results", "failed", "canceled"].includes(campaign.status)}>
+                            <Icon name="clock" size={18} />
+                            Pausar
+                          </button>
+                        )}
+                        <button type="button" className={styles.glassButton} onClick={() => void handleCampaignAction(campaign, "cancel")} disabled={campaignActionId === campaign.id || ["completed", "completed_insufficient_results", "failed", "canceled"].includes(campaign.status)}>
+                          <Icon name="alert" size={18} />
+                          Cancelar
+                        </button>
+                        <button type="button" className={styles.glassButton} onClick={() => {
+                          setRadarViewMode("database");
+                          void refreshRadarDatabase({ page: 1 });
+                        }}>
+                          <Icon name="search" size={18} />
+                          Ver cards
+                        </button>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              </>
+            )}
+
+            {false ? (<>
             <div className={styles.radarFilterGrid}>
               <label className={styles.field}>
                 <span className={styles.fieldLabel}>Estado</span>
@@ -2639,7 +3322,7 @@ export default function WebscrapingClientPage() {
               </button>
               {radarMeta ? (
                 <span className={styles.metaPill}>
-                  Estoque limpo: {radarMeta.cleanStockAfter ?? "-"} • mínimo {radarMeta.minimumStock ?? 80}
+                  Estoque limpo: {radarMeta?.cleanStockAfter ?? "-"} • mínimo {radarMeta?.minimumStock ?? 80}
                 </span>
               ) : null}
             </div>
@@ -2724,6 +3407,8 @@ export default function WebscrapingClientPage() {
               </div>
             )}
 
+            </>) : null}
+
             {historyItems.length > 0 ? (
               <div className={styles.radarHistoryStrip}>
                 <span className={styles.cardEyebrow}>Histórico privado</span>
@@ -2797,9 +3482,21 @@ export default function WebscrapingClientPage() {
                 ) : (
                   <span className={styles.metaPill}>Reaproveitados: {searchMeta.reusedCount}</span>
                 )}
+                {activeSearchRun ? (
+                  <span className={styles.metaPill}>
+                    Lote {Math.max(1, Number(activeSearchRun.attemptCount || 0))}
+                    {activeSearchRun.maxAttempts ? `/${activeSearchRun.maxAttempts}` : ""}
+                  </span>
+                ) : null}
                 <span className={styles.metaPill}>Encontrados: {searchMeta.fetchedCount}</span>
                 <span className={styles.metaPill}>Duplicados: {searchMeta.duplicateCount ?? 0}</span>
                 <span className={styles.metaPill}>Ignorados: {searchMeta.skippedCount ?? 0}</span>
+                {activeSearchRun?.lastBatchError && (activeSearchRun.status === "running" || activeSearchRun.status === "queued") ? (
+                  <span className={styles.metaPill}>Último lote falhou; tentando novamente</span>
+                ) : null}
+                {activeSearchRun?.lastBatchStatus === "empty_batch" ? (
+                  <span className={styles.metaPill}>Último lote vazio</span>
+                ) : null}
                 {searchMeta.technicalCacheUsed ? (
                   <span className={styles.metaPill}>
                     Cache global: {searchMeta.technicalCacheReusedCount}

@@ -70,6 +70,16 @@ class WebscrapingSearchMoreDto {
 
 class RadarDatabaseQueryDto {
   @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  page?: number;
+
+  @IsOptional()
+  @IsString()
+  filterKey?: string;
+
+  @IsOptional()
   @IsString()
   city?: string;
 
@@ -80,6 +90,22 @@ class RadarDatabaseQueryDto {
   @IsOptional()
   @IsString()
   segment?: string;
+
+  @IsOptional()
+  @IsString()
+  status?: string;
+
+  @IsOptional()
+  @IsString()
+  ddd?: string;
+
+  @IsOptional()
+  @IsString()
+  scoreRange?: string;
+
+  @IsOptional()
+  @IsString()
+  source?: string;
 
   @IsOptional()
   @Type(() => Number)
@@ -126,6 +152,70 @@ class RadarDatabaseQueryDto {
 
   @IsOptional()
   includeHidden?: boolean | string;
+}
+
+class RadarLeadEventDto {
+  @IsIn(['denied', 'complaint', 'no_answer', 'hidden', 'contacted'])
+  eventType!: 'denied' | 'complaint' | 'no_answer' | 'hidden' | 'contacted';
+
+  @IsOptional()
+  @IsString()
+  note?: string;
+}
+
+class RadarCampaignDto {
+  @IsOptional()
+  @IsString()
+  city?: string;
+
+  @IsOptional()
+  @IsString()
+  state?: string;
+
+  @IsOptional()
+  @IsString()
+  segment?: string;
+
+  @IsOptional()
+  @IsIn(['pj', 'pf', 'agenda_pf'])
+  targetType?: 'pj' | 'pf' | 'agenda_pf';
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(10000)
+  targetTotal?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(50)
+  batchSize?: number;
+
+  @IsOptional()
+  @Type(() => Boolean)
+  @IsBoolean()
+  nightOnly?: boolean;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(23)
+  allowedStartHour?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(23)
+  allowedEndHour?: number;
+
+  @IsOptional()
+  @IsString()
+  timezone?: string;
 }
 
 class RadarPullDto extends RadarDatabaseQueryDto {
@@ -233,6 +323,26 @@ export class WebscrapingController {
     return this.webscrapingService.listRadarDatabaseForUser(req.user, query || {});
   }
 
+  @Get('radar/leads')
+  radarLeads(@Req() req: any, @Query() query: RadarDatabaseQueryDto) {
+    return this.webscrapingService.listRadarLeadsForUser(req.user, query || {});
+  }
+
+  @Get('radar/leads/:id')
+  radarLeadDetails(@Req() req: any, @Param('id') id: string) {
+    return this.webscrapingService.getRadarLeadForUser(req.user, id);
+  }
+
+  @Post('radar/leads/:id/send-to-vendas')
+  radarLeadSendToVendas(@Req() req: any, @Param('id') id: string) {
+    return this.webscrapingService.importRadarLeadToVendasForUser(req.user, id);
+  }
+
+  @Post('radar/leads/:id/event')
+  radarLeadEvent(@Req() req: any, @Param('id') id: string, @Body() dto: RadarLeadEventDto) {
+    return this.webscrapingService.addRadarLeadEventForUser(req.user, id, dto || ({} as any));
+  }
+
   @Post('radar/pull')
   radarPull(@Req() req: any, @Body() dto: RadarPullDto) {
     return this.webscrapingService.pullRadarLeadsForUser(req.user, dto || {});
@@ -251,6 +361,36 @@ export class WebscrapingController {
   @Post('radar/:id/negative')
   radarNegative(@Req() req: any, @Param('id') id: string, @Body() dto: RadarNegativeDto) {
     return this.webscrapingService.markRadarLeadNegativeForUser(req.user, id, dto || {});
+  }
+
+  @Post('campaigns')
+  createRadarCampaign(@Req() req: any, @Body() dto: RadarCampaignDto) {
+    return this.webscrapingService.createRadarCampaignForUser(req.user, dto || {});
+  }
+
+  @Get('campaigns')
+  radarCampaigns(@Req() req: any) {
+    return this.webscrapingService.listRadarCampaignsForUser(req.user);
+  }
+
+  @Get('campaigns/:id')
+  radarCampaign(@Req() req: any, @Param('id') id: string) {
+    return this.webscrapingService.getRadarCampaignForUser(req.user, id);
+  }
+
+  @Post('campaigns/:id/pause')
+  pauseRadarCampaign(@Req() req: any, @Param('id') id: string) {
+    return this.webscrapingService.pauseRadarCampaignForUser(req.user, id);
+  }
+
+  @Post('campaigns/:id/resume')
+  resumeRadarCampaign(@Req() req: any, @Param('id') id: string) {
+    return this.webscrapingService.resumeRadarCampaignForUser(req.user, id);
+  }
+
+  @Post('campaigns/:id/cancel')
+  cancelRadarCampaign(@Req() req: any, @Param('id') id: string) {
+    return this.webscrapingService.cancelRadarCampaignForUser(req.user, id);
   }
 
   @Post('export')

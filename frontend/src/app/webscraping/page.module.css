@@ -672,9 +672,179 @@
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
+.radarModeSwitch,
+.radarFacetBar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+.radarFacetButton,
+.radarFacetButtonActive,
+.radarSelectButton {
+  display: inline-flex;
+  min-height: 38px;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  border: 1px solid color-mix(in srgb, var(--line) 82%, var(--background));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--surface) 78%, var(--background));
+  color: var(--foreground);
+  cursor: pointer;
+  font-size: 0.82rem;
+  font-weight: 850;
+  padding: 0.5rem 0.75rem;
+  transition:
+    transform 160ms ease,
+    border-color 160ms ease,
+    background 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.radarFacetButton strong,
+.radarFacetButtonActive strong {
+  color: var(--foreground);
+  font-size: 0.86rem;
+  font-weight: 950;
+}
+
+.radarFacetButton:hover,
+.radarFacetButtonActive,
+.radarSelectButton:hover,
+.radarSelectButton[data-selected="true"] {
+  transform: translateY(-1px);
+  border-color: color-mix(in srgb, var(--brand) 38%, var(--line));
+  background: color-mix(in srgb, var(--brand) 9%, var(--surface));
+  box-shadow: 0 18px 38px -34px color-mix(in srgb, var(--brand) 62%, transparent);
+}
+
 .radarGrid {
   display: grid;
   gap: 0.8rem;
+}
+
+.radarCard {
+  position: relative;
+  overflow: hidden;
+}
+
+.radarCard::before,
+.radarCampaignCard::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 5px;
+  background: color-mix(in srgb, var(--info) 82%, var(--brand));
+}
+
+.radarCard[data-selected="true"] {
+  border-color: color-mix(in srgb, var(--brand) 48%, var(--line));
+  box-shadow:
+    inset 0 0 0 2px color-mix(in srgb, var(--brand) 18%, transparent),
+    0 24px 52px -42px color-mix(in srgb, var(--brand) 70%, transparent);
+}
+
+.radarCard[data-status="sent_to_vendas"]::before,
+.radarCampaignCard[data-status="completed"]::before {
+  background: var(--success);
+}
+
+.radarCard[data-status="no_answer"]::before,
+.radarCampaignCard[data-status="sleeping"]::before {
+  background: var(--warning);
+}
+
+.radarCard[data-status="denied"]::before {
+  background: color-mix(in srgb, var(--warning) 66%, var(--danger));
+}
+
+.radarCard[data-status="complaint"]::before,
+.radarCampaignCard[data-status="failed"]::before {
+  background: var(--danger);
+}
+
+.radarCard[data-status="duplicate"]::before,
+.radarCard[data-status="hidden"]::before,
+.radarCampaignCard[data-status="canceled"]::before {
+  background: var(--muted);
+}
+
+.radarCard[data-status="rejected"]::before,
+.radarCampaignCard[data-status="partial_error"]::before,
+.radarCampaignCard[data-status="completed_insufficient_results"]::before {
+  background: color-mix(in srgb, var(--brand) 58%, var(--danger));
+}
+
+.radarCardButton {
+  display: grid;
+  width: 100%;
+  min-width: 0;
+  gap: 0.8rem;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  padding: 0;
+  text-align: left;
+}
+
+.radarStatusChip {
+  display: inline-flex;
+  min-height: 32px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid color-mix(in srgb, var(--info) 32%, var(--line));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--info) 12%, var(--surface));
+  color: color-mix(in srgb, var(--info) 74%, var(--foreground));
+  font-size: 0.74rem;
+  font-weight: 950;
+  padding: 0.38rem 0.72rem;
+}
+
+.radarStatusChip[data-status="sent_to_vendas"],
+.radarStatusChip[data-status="completed"] {
+  border-color: color-mix(in srgb, var(--success) 38%, var(--line));
+  background: color-mix(in srgb, var(--success) 12%, var(--surface));
+  color: color-mix(in srgb, var(--success) 76%, var(--foreground));
+}
+
+.radarStatusChip[data-status="no_answer"],
+.radarStatusChip[data-status="sleeping"] {
+  border-color: color-mix(in srgb, var(--warning) 42%, var(--line));
+  background: color-mix(in srgb, var(--warning) 13%, var(--surface));
+  color: color-mix(in srgb, var(--warning) 78%, var(--foreground));
+}
+
+.radarStatusChip[data-status="denied"] {
+  border-color: color-mix(in srgb, var(--warning) 52%, var(--line));
+  background: color-mix(in srgb, var(--warning) 17%, var(--surface));
+  color: color-mix(in srgb, var(--warning) 74%, var(--danger));
+}
+
+.radarStatusChip[data-status="complaint"],
+.radarStatusChip[data-status="failed"] {
+  border-color: color-mix(in srgb, var(--danger) 42%, var(--line));
+  background: color-mix(in srgb, var(--danger) 13%, var(--surface));
+  color: color-mix(in srgb, var(--danger) 78%, var(--foreground));
+}
+
+.radarStatusChip[data-status="duplicate"],
+.radarStatusChip[data-status="hidden"],
+.radarStatusChip[data-status="canceled"] {
+  border-color: color-mix(in srgb, var(--muted) 42%, var(--line));
+  background: color-mix(in srgb, var(--muted) 12%, var(--surface));
+  color: var(--foreground-soft);
+}
+
+.radarStatusChip[data-status="rejected"],
+.radarStatusChip[data-status="partial_error"],
+.radarStatusChip[data-status="completed_insufficient_results"] {
+  border-color: color-mix(in srgb, var(--brand) 42%, var(--danger));
+  background: color-mix(in srgb, var(--brand) 12%, var(--surface));
+  color: color-mix(in srgb, var(--brand) 70%, var(--danger));
 }
 
 .radarPills,
@@ -682,6 +852,57 @@
   display: flex;
   flex-wrap: wrap;
   gap: 0.5rem;
+}
+
+.radarDetailPanel,
+.radarCampaignCard {
+  display: grid;
+  position: relative;
+  gap: 0.85rem;
+  border: 1px solid color-mix(in srgb, var(--line) 82%, var(--background));
+  border-radius: 22px;
+  background: color-mix(in srgb, var(--surface-raised) 88%, var(--background));
+  padding: 0.95rem 1rem;
+}
+
+.radarCampaignForm {
+  display: grid;
+  gap: 0.85rem;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.radarCampaignGrid {
+  display: grid;
+  gap: 0.8rem;
+}
+
+.radarCampaignStats {
+  display: grid;
+  gap: 0.55rem;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+}
+
+.radarCampaignStats span,
+.radarEventItem {
+  display: grid;
+  gap: 0.16rem;
+  border: 1px solid color-mix(in srgb, var(--line) 78%, var(--background));
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--surface) 82%, var(--background));
+  color: var(--foreground-soft);
+  padding: 0.65rem 0.75rem;
+}
+
+.radarCampaignStats strong,
+.radarEventItem strong {
+  color: var(--foreground);
+  font-size: 1rem;
+  font-weight: 950;
+}
+
+.radarEventItem small {
+  color: var(--muted);
+  font-size: 0.74rem;
 }
 
 .radarHistoryStrip {
@@ -874,6 +1095,8 @@
   .advancedGrid,
   .scriptFilterGrid,
   .radarFilterGrid,
+  .radarCampaignForm,
+  .radarCampaignStats,
   .skeletonGrid,
   .resultsGrid {
     grid-template-columns: 1fr;
@@ -885,13 +1108,15 @@
   .errorCard,
   .successCard,
   .historyRow,
-  .radarCard {
+  .radarCard,
+  .radarCampaignCard {
     align-items: stretch;
     grid-template-columns: 1fr;
   }
 
   .actionRow,
   .radarActions,
+  .radarModeSwitch,
   .modeMetaButton,
   .scriptFilterActions,
   .scriptFilterActions .glassButton,

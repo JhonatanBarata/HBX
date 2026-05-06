@@ -2942,6 +2942,832 @@
   background: rgba(255, 255, 255, 0.03);
 }
 
+.agendaBotChrome {
+  display: grid;
+  grid-template-columns: minmax(280px, 1fr) auto auto;
+  gap: 1rem;
+  align-items: center;
+  padding: 1.05rem 1.35rem;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(245, 249, 255, 0.94));
+}
+
+.agendaBotTitleBlock {
+  display: grid;
+  gap: 0.12rem;
+}
+
+.agendaBotTitleBlock span {
+  color: #2f65c8;
+  font-size: 0.78rem;
+  font-weight: 850;
+}
+
+.agendaBotTitleBlock strong {
+  color: #0f1f49;
+  font-size: clamp(1.15rem, 1.8vw, 1.58rem);
+  font-weight: 950;
+}
+
+.agendaBotTitleBlock p {
+  margin: 0;
+  color: #51648c;
+  font-size: 0.9rem;
+}
+
+.agendaBotHeaderActions,
+.agendaBotSectionActions,
+.agendaBotGuideMeta,
+.agendaBotWeekPills,
+.agendaBotTimelineLegend,
+.agendaBotChatButtons {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+.agendaBotCloseButton,
+.agendaBotSaveButton,
+.agendaBotActivateButton,
+.agendaBotGhostButton,
+.agendaBotSoftButton,
+.agendaBotDangerButton,
+.agendaBotRemoveButton {
+  min-height: 42px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  border-radius: 12px;
+  border: 1px solid #c9d8f5;
+  background: #ffffff;
+  color: #0754d8;
+  cursor: pointer;
+  font-size: 0.86rem;
+  font-weight: 900;
+  padding: 0.65rem 0.9rem;
+  text-decoration: none;
+  box-shadow: 0 10px 24px rgba(30, 74, 145, 0.08);
+  transition:
+    transform 160ms ease,
+    box-shadow 160ms ease,
+    border-color 160ms ease,
+    background 160ms ease;
+}
+
+.agendaBotCloseButton:hover,
+.agendaBotSaveButton:hover,
+.agendaBotActivateButton:hover,
+.agendaBotGhostButton:hover,
+.agendaBotSoftButton:hover,
+.agendaBotDangerButton:hover,
+.agendaBotRemoveButton:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 18px 36px rgba(30, 74, 145, 0.13);
+}
+
+.agendaBotSaveButton {
+  min-width: 160px;
+  border-color: #b8cdf7;
+  background: #f8fbff;
+}
+
+.agendaBotActivateButton {
+  min-width: 170px;
+  border-color: #10b85b;
+  background: linear-gradient(135deg, #20c766, #08a84f);
+  color: #ffffff;
+  box-shadow: 0 18px 36px rgba(16, 185, 93, 0.28);
+}
+
+.agendaBotDangerButton,
+.agendaBotRemoveButton {
+  color: #dc2626;
+  border-color: #fecaca;
+  background: #fffafa;
+}
+
+.agendaBotWorkspace {
+  display: grid;
+  grid-template-columns: minmax(250px, 0.78fr) minmax(0, 1.9fr) minmax(280px, 0.9fr);
+  gap: 1rem;
+  align-items: start;
+  min-width: 0;
+}
+
+.agendaBotLeftRail,
+.agendaBotMain,
+.agendaBotRightRail {
+  display: grid;
+  gap: 1rem;
+  min-width: 0;
+}
+
+.agendaBotLeftRail,
+.agendaBotSection,
+.agendaBotSummaryCard,
+.agendaBotPreviewCard {
+  border: 1px solid #cfe0fb;
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 22px 48px rgba(36, 71, 119, 0.08);
+}
+
+.agendaBotLeftRail {
+  min-height: calc(100vh - 8.4rem);
+  padding: 1rem;
+}
+
+.agendaBotRailHeader,
+.agendaBotSectionHeader,
+.agendaBotAccountCard,
+.agendaBotRailTitle {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.8rem;
+}
+
+.agendaBotRailHeader strong,
+.agendaBotSectionHeader strong,
+.agendaBotRailTitle strong {
+  display: block;
+  color: #0f2f6f;
+  font-size: 1rem;
+  font-weight: 950;
+}
+
+.agendaBotRailHeader span,
+.agendaBotSectionHeader span,
+.agendaBotRailTitle span {
+  color: #64769d;
+  font-size: 0.82rem;
+}
+
+.agendaBotGuideStack {
+  display: grid;
+  gap: 0.8rem;
+}
+
+.agendaBotGuideCard {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr);
+  gap: 0.8rem;
+  border: 1px solid #d7e3f8;
+  border-radius: 18px;
+  background: #ffffff;
+  color: #10224d;
+  cursor: pointer;
+  padding: 0.9rem;
+  text-align: left;
+  box-shadow: 0 14px 28px rgba(31, 57, 102, 0.06);
+}
+
+.agendaBotGuideCardActive {
+  border-width: 2px;
+  box-shadow: 0 22px 38px rgba(37, 99, 235, 0.18);
+}
+
+.agendaBotGuideIcon {
+  width: 48px;
+  height: 48px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 14px;
+}
+
+.agendaBotGuideContent,
+.agendaBotGuideContent small {
+  display: grid;
+  gap: 0.34rem;
+}
+
+.agendaBotGuideTopline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.7rem;
+}
+
+.agendaBotGuideTopline strong {
+  color: #10224d;
+  font-size: 1rem;
+  font-weight: 950;
+}
+
+.agendaBotGuideTopline i,
+.agendaBotSummaryRows i {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: #a8b6cf;
+}
+
+.agendaBotGuideTopline i[data-active="true"],
+.agendaBotSummaryRows i[data-active="true"] {
+  background: #13b95b;
+  box-shadow: 0 0 0 5px rgba(19, 185, 91, 0.14);
+}
+
+.agendaBotGuideContent small,
+.agendaBotGuideMeta {
+  color: #54678f;
+  font-size: 0.8rem;
+}
+
+.agendaBotGuideMeta span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.28rem;
+}
+
+.agendaBotGuideMeta svg {
+  width: 14px;
+  height: 14px;
+}
+
+.agendaBotTipCard {
+  margin-top: auto;
+  display: grid;
+  gap: 0.45rem;
+  border: 1px solid #d7e7ff;
+  border-radius: 16px;
+  background: linear-gradient(180deg, #f8fbff, #eef6ff);
+  color: #52658d;
+  padding: 0.95rem;
+}
+
+.agendaBotTipCard strong {
+  color: #0b5be0;
+}
+
+.agendaBotSection {
+  display: grid;
+  gap: 1rem;
+  padding: 1.15rem;
+}
+
+.agendaBotInfoGrid,
+.agendaBotCampaignGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.8rem;
+}
+
+.agendaBotField {
+  display: grid;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.agendaBotField > span {
+  color: #263d6d;
+  font-size: 0.78rem;
+  font-weight: 900;
+}
+
+.agendaBotColorField,
+.agendaBotStepper {
+  min-height: 42px;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  border: 1px solid #d4e0f4;
+  border-radius: 12px;
+  background: #fff;
+  padding: 0.3rem 0.6rem;
+}
+
+.agendaBotColorField input {
+  width: 32px;
+  height: 32px;
+  border: 0;
+  background: transparent;
+}
+
+.agendaBotStepper button {
+  width: 30px;
+  height: 30px;
+  border: 0;
+  border-radius: 10px;
+  background: #eef5ff;
+  color: #0b5be0;
+  cursor: pointer;
+  font-weight: 950;
+}
+
+.agendaBotStepper span {
+  color: #61749b;
+  font-size: 0.82rem;
+}
+
+.agendaBotWeekPill,
+.agendaBotWeekPillActive {
+  min-height: 38px;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  border: 1px solid #d2dded;
+  border-radius: 12px;
+  background: #ffffff;
+  color: #243a68;
+  cursor: pointer;
+  font-weight: 900;
+  padding: 0.52rem 0.75rem;
+}
+
+.agendaBotWeekPillActive {
+  border-color: #14b95b;
+  background: linear-gradient(135deg, #23c767, #12ae55);
+  color: #ffffff;
+  box-shadow: 0 14px 28px rgba(20, 185, 91, 0.2);
+}
+
+.agendaBotAvailabilitySummary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.8rem;
+  border: 1px solid #bcebd0;
+  border-radius: 16px;
+  background: #f3fff7;
+  padding: 0.85rem;
+}
+
+.agendaBotAvailabilitySummary div,
+.agendaBotAvailabilitySummary span {
+  display: flex;
+  gap: 0.65rem;
+  align-items: center;
+}
+
+.agendaBotAvailabilitySummary span {
+  display: grid;
+  gap: 0.12rem;
+  color: #607492;
+  font-size: 0.82rem;
+}
+
+.agendaBotAvailabilitySummary strong {
+  color: #126a39;
+}
+
+.agendaBotSlotList {
+  display: grid;
+  gap: 0.7rem;
+}
+
+.agendaBotSlotRow {
+  display: grid;
+  grid-template-columns: 30px 110px minmax(110px, 0.8fr) 24px minmax(110px, 0.8fr) 116px auto;
+  gap: 0.65rem;
+  align-items: center;
+  border: 1px solid #d7e2f5;
+  border-left: 4px solid #1d68f0;
+  border-radius: 14px;
+  background: #ffffff;
+  padding: 0.65rem;
+  box-shadow: 0 12px 26px rgba(36, 71, 119, 0.06);
+}
+
+.agendaBotDragHandle {
+  color: #8ea1c4;
+}
+
+.agendaBotDaySelect,
+.agendaBotSlotRow input {
+  min-height: 36px;
+  border: 1px solid #d5e0f3;
+  border-radius: 10px;
+  background: #f8fbff;
+  color: #173162;
+  font-weight: 850;
+  padding: 0.32rem 0.55rem;
+}
+
+.agendaBotSlotRow label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  color: #294476;
+}
+
+.agendaBotArrow {
+  text-align: center;
+  color: #496087;
+}
+
+.agendaBotToggle {
+  font-size: 0.84rem;
+  font-weight: 900;
+}
+
+.agendaBotToggle input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.agendaBotToggle span {
+  width: 34px;
+  height: 18px;
+  position: relative;
+  border-radius: 999px;
+  background: #c7d1e4;
+}
+
+.agendaBotToggle span::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 12px;
+  height: 12px;
+  border-radius: 999px;
+  background: #ffffff;
+  transition: transform 160ms ease;
+}
+
+.agendaBotToggle input:checked + span {
+  background: #1fbe62;
+}
+
+.agendaBotToggle input:checked + span::after {
+  transform: translateX(16px);
+}
+
+.agendaBotReorderNote {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0;
+  color: #65789f;
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.agendaBotAccountCard {
+  align-items: center;
+  border: 1px solid #d7e2f5;
+  border-radius: 16px;
+  background: #ffffff;
+  padding: 0.85rem;
+}
+
+.agendaBotAccountCard > div {
+  display: grid;
+  flex: 1;
+  gap: 0.15rem;
+}
+
+.agendaBotAccountCard strong {
+  color: #10224d;
+}
+
+.agendaBotAccountCard small {
+  color: #5e7198;
+}
+
+.agendaBotAvatar,
+.agendaBotConnectedBadge,
+.agendaBotSummaryIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+}
+
+.agendaBotAvatar {
+  width: 44px;
+  height: 44px;
+  background: #eaf3ff;
+  color: #0b5be0;
+}
+
+.agendaBotConnectedBadge {
+  min-height: 28px;
+  border: 1px solid #aee8c6;
+  background: #effff5;
+  color: #158044;
+  font-size: 0.78rem;
+  font-weight: 900;
+  padding: 0.26rem 0.62rem;
+}
+
+.agendaBotSummaryCard,
+.agendaBotPreviewCard {
+  display: grid;
+  gap: 0.9rem;
+  padding: 1rem;
+}
+
+.agendaBotRailTitle {
+  justify-content: flex-start;
+}
+
+.agendaBotRailTitle > svg {
+  color: #0b5be0;
+}
+
+.agendaBotSummaryRows {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.agendaBotSummaryRows > div {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr) auto;
+  gap: 0.55rem;
+  align-items: center;
+  border-radius: 14px;
+  background: #f7fbff;
+  padding: 0.7rem;
+}
+
+.agendaBotSummaryRows strong,
+.agendaBotSummaryRows small {
+  display: block;
+}
+
+.agendaBotSummaryRows strong {
+  color: #10224d;
+  font-size: 1rem;
+}
+
+.agendaBotSummaryRows small,
+.agendaBotSummaryRows em {
+  color: #66789d;
+  font-size: 0.76rem;
+  font-style: normal;
+}
+
+.agendaBotSummaryIcon {
+  width: 38px;
+  height: 38px;
+  background: #eaf3ff;
+  color: #0b5be0;
+}
+
+.agendaBotTimeline {
+  display: grid;
+  gap: 0.65rem;
+  border: 1px solid #d7e2f5;
+  border-radius: 14px;
+  padding: 0.8rem;
+}
+
+.agendaBotTimeline > strong {
+  color: #27416f;
+  font-size: 0.85rem;
+}
+
+.agendaBotTimelineGrid {
+  display: grid;
+  grid-template-columns: 42px repeat(7, minmax(0, 1fr));
+  gap: 0.38rem;
+  align-items: center;
+}
+
+.agendaBotTimelineGrid b {
+  color: #61749b;
+  font-size: 0.72rem;
+  text-align: center;
+}
+
+.agendaBotTimelineRow {
+  display: contents;
+}
+
+.agendaBotTimelineRow span {
+  color: #61749b;
+  font-size: 0.74rem;
+  font-weight: 850;
+}
+
+.agendaBotTimelineRow i {
+  height: 8px;
+  border-radius: 999px;
+  background: transparent;
+  border: 1px solid transparent;
+}
+
+.agendaBotTimelineRow i[data-active="false"] {
+  border-color: #d4e0f4;
+}
+
+.agendaBotTimelineLegend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.32rem;
+  color: #5b6e94;
+  font-size: 0.74rem;
+}
+
+.agendaBotTimelineLegend i {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+}
+
+.agendaBotChatPreview {
+  display: grid;
+  gap: 0.65rem;
+  border: 1px solid #d8e3f6;
+  border-radius: 18px;
+  background: linear-gradient(180deg, #eef5ff, #f8fbff);
+  padding: 0.9rem;
+}
+
+.agendaBotChatBubble {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  gap: 0.55rem;
+  align-items: end;
+}
+
+.agendaBotChatBubble span {
+  width: 34px;
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: #d7e9ff;
+  color: #0b5be0;
+}
+
+.agendaBotChatBubble p {
+  margin: 0;
+  border-radius: 14px 14px 14px 4px;
+  background: #ffffff;
+  color: #10224d;
+  font-size: 0.84rem;
+  font-weight: 800;
+  padding: 0.72rem 0.8rem;
+  box-shadow: 0 12px 24px rgba(36, 71, 119, 0.08);
+}
+
+.agendaBotChatButtons {
+  display: grid;
+  padding-left: 42px;
+}
+
+.agendaBotChatButtons button {
+  min-height: 38px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.42rem;
+  border: 1px solid #d6e1f4;
+  border-radius: 10px;
+  background: #ffffff;
+  cursor: default;
+  font-weight: 900;
+}
+
+.agendaBotPreviewCard > small {
+  color: #6a7da2;
+}
+
+.agendaBotWorkspace svg {
+  flex: 0 0 auto;
+}
+
+.agendaBotCloseButton:disabled,
+.agendaBotSaveButton:disabled,
+.agendaBotActivateButton:disabled,
+.agendaBotGhostButton:disabled,
+.agendaBotSoftButton:disabled,
+.agendaBotDangerButton:disabled,
+.agendaBotRemoveButton:disabled,
+.agendaBotWeekPill:disabled,
+.agendaBotWeekPillActive:disabled,
+.agendaBotStepper button:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
+  transform: none;
+  box-shadow: none;
+}
+
+@media (max-width: 1280px) {
+  .agendaBotWorkspace {
+    grid-template-columns: minmax(240px, 0.72fr) minmax(0, 1.28fr);
+  }
+
+  .agendaBotRightRail {
+    grid-column: 1 / -1;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .agendaBotInfoGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .agendaBotSlotRow {
+    grid-template-columns: 28px minmax(104px, 0.8fr) minmax(104px, 1fr) 22px minmax(104px, 1fr);
+  }
+
+  .agendaBotToggle,
+  .agendaBotRemoveButton {
+    grid-column: span 2;
+    justify-self: start;
+  }
+}
+
+@media (max-width: 900px) {
+  .agendaBotChrome {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+
+  .agendaBotHeaderActions,
+  .agendaStudioHeaderTabs {
+    justify-self: stretch;
+    width: 100%;
+  }
+
+  .agendaBotHeaderActions > *,
+  .agendaStudioHeaderTabs button {
+    flex: 1;
+  }
+
+  .agendaBotWorkspace,
+  .agendaBotRightRail,
+  .agendaBotInfoGrid,
+  .agendaBotAvailabilitySummary {
+    grid-template-columns: 1fr;
+  }
+
+  .agendaBotLeftRail {
+    min-height: auto;
+  }
+
+  .agendaBotGuideStack {
+    grid-template-columns: repeat(3, minmax(210px, 1fr));
+    overflow-x: auto;
+    padding-bottom: 0.15rem;
+  }
+
+  .agendaBotGuideCard {
+    min-width: 210px;
+  }
+}
+
+@media (max-width: 640px) {
+  .agendaBotChrome {
+    padding: 0.9rem;
+  }
+
+  .agendaBotTitleBlock strong {
+    font-size: 1.18rem;
+  }
+
+  .agendaBotCloseButton,
+  .agendaBotSaveButton,
+  .agendaBotActivateButton,
+  .agendaBotGhostButton,
+  .agendaBotSoftButton,
+  .agendaBotDangerButton,
+  .agendaBotRemoveButton {
+    width: 100%;
+  }
+
+  .agendaBotSection,
+  .agendaBotLeftRail,
+  .agendaBotSummaryCard,
+  .agendaBotPreviewCard {
+    border-radius: 18px;
+    padding: 0.86rem;
+  }
+
+  .agendaBotSectionHeader,
+  .agendaBotRailHeader,
+  .agendaBotAccountCard,
+  .agendaBotRailTitle {
+    display: grid;
+  }
+
+  .agendaBotSlotRow {
+    grid-template-columns: 1fr;
+  }
+
+  .agendaBotToggle,
+  .agendaBotRemoveButton {
+    grid-column: auto;
+  }
+
+  .agendaBotDragHandle,
+  .agendaBotArrow {
+    display: none;
+  }
+
+  .agendaBotChatButtons {
+    padding-left: 0;
+  }
+}
+
 .templateComposerWorkspace {
   display: grid;
   gap: 1rem;

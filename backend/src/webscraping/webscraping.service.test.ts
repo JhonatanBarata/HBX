@@ -63,6 +63,248 @@ function createUser() {
   };
 }
 
+function createSearchRunPrisma(initialRun: Record<string, any>) {
+  const run = {
+    id: 'run-1',
+    companyId: 7,
+    userId: 9,
+    status: 'running',
+    city: 'Campinas',
+    state: 'SP',
+    segment: 'Lanchonetes',
+    engine: 'hbx',
+    targetType: 'pj',
+    targetQuantity: 100,
+    foundCount: 0,
+    importedCount: 0,
+    duplicateCount: 0,
+    skippedCount: 0,
+    errorMessage: null,
+    assignedEngineId: null,
+    assignedEngineUrl: null,
+    assignedEngineIndex: null,
+    googleEmergencyUsedCount: 0,
+    lastFoundCountChangeAt: null,
+    attemptCount: 0,
+    failedBatchCount: 0,
+    consecutiveEmptyBatchCount: 0,
+    consecutiveEngineErrorCount: 0,
+    lastBatchError: null,
+    lastBatchStatus: null,
+    nextRetryAt: null,
+    lastQueryUsed: null,
+    lastEngineUrl: null,
+    startedAt: null,
+    finishedAt: null,
+    createdAt: new Date('2026-05-06T12:00:00.000Z'),
+    updatedAt: new Date('2026-05-06T12:00:00.000Z'),
+    ...initialRun,
+  };
+  const items: any[] = [];
+
+  const applyData = (data: Record<string, any>) => {
+    for (const [key, value] of Object.entries(data || {})) {
+      if (value && typeof value === 'object' && 'increment' in value) {
+        run[key] = Number(run[key] || 0) + Number((value as any).increment || 0);
+      } else {
+        run[key] = value;
+      }
+    }
+    run.updatedAt = new Date();
+    return { ...run, items: [...items] };
+  };
+
+  const prisma = createPrisma({
+    webscrapingSearchRun: {
+      findFirst: async () => ({ ...run, items: [...items] }),
+      findUnique: async () => ({ ...run, items: [...items] }),
+      update: async ({ data }: any) => applyData(data),
+      updateMany: async ({ data }: any) => {
+        applyData(data);
+        return { count: 1 };
+      },
+      count: async () => 0,
+    },
+    webscrapingSearchRunItem: {
+      findMany: async (input?: any) => {
+        const where = input?.where || {};
+        let rows = [...items];
+        if (where.runId) rows = rows.filter((item) => item.runId === where.runId);
+        if (where.status) rows = rows.filter((item) => item.status === where.status);
+        return rows;
+      },
+      create: async ({ data }: any) => {
+        const item = {
+          id: `item-${items.length + 1}`,
+          createdAt: new Date(),
+          ...data,
+        };
+        items.push(item);
+        return item;
+      },
+    },
+    hbxEngineLock: {
+      findUnique: async () => ({
+        id: 'hbx-engine-1',
+        status: 'busy',
+        cooldownUntil: null,
+      }),
+      update: async () => ({ id: 'hbx-engine-1' }),
+      updateMany: async () => ({ count: 1 }),
+      upsert: async ({ create }: any) => create,
+      findMany: async () => [],
+    },
+  });
+
+  return { prisma, run, items };
+}
+
+function disableSearchRunAutoPump(service: WebscrapingService) {
+  (service as any).scheduleSearchRunPump = () => undefined;
+  (service as any).scheduleNextDueSearchRunPump = async () => undefined;
+}
+
+function createCampaignPrisma(initialCampaign: Record<string, any> = {}) {
+  const campaign = {
+    id: 'campaign-1',
+    companyId: 7,
+    userId: 9,
+    status: 'running',
+    mode: 'radar_database',
+    city: 'Campinas',
+    state: 'SP',
+    segment: 'Lanchonetes',
+    targetType: 'pj',
+    targetTotal: 100,
+    batchSize: 25,
+    foundCount: 0,
+    approvedCount: 0,
+    duplicateCount: 0,
+    rejectedCount: 0,
+    complaintCount: 0,
+    deniedCount: 0,
+    noAnswerCount: 0,
+    currentAttempt: 0,
+    maxAttempts: 40,
+    consecutiveEmptyBatchCount: 0,
+    consecutiveErrorCount: 0,
+    lastQueryUsed: null,
+    lastEngineUrl: null,
+    lastErrorMessage: null,
+    nextRunAt: null,
+    nightOnly: false,
+    allowedStartHour: 0,
+    allowedEndHour: 6,
+    timezone: 'America/Sao_Paulo',
+    startedAt: null,
+    pausedAt: null,
+    finishedAt: null,
+    createdAt: new Date('2026-05-06T12:00:00.000Z'),
+    updatedAt: new Date('2026-05-06T12:00:00.000Z'),
+    ...initialCampaign,
+  };
+  const batches: any[] = [];
+  const leads: any[] = [];
+
+  const applyCampaignData = (data: Record<string, any>) => {
+    for (const [key, value] of Object.entries(data || {})) {
+      if (value && typeof value === 'object' && 'increment' in value) {
+        campaign[key] = Number(campaign[key] || 0) + Number((value as any).increment || 0);
+      } else {
+        campaign[key] = value;
+      }
+    }
+    campaign.updatedAt = new Date();
+    return { ...campaign, batches: [...batches] };
+  };
+
+  const prisma = createPrisma({
+    webscrapingCampaign: {
+      create: async ({ data, include }: any) => {
+        Object.assign(campaign, data, { id: campaign.id, createdAt: campaign.createdAt, updatedAt: new Date() });
+        return include ? { ...campaign, batches: [...batches] } : { ...campaign };
+      },
+      findUnique: async () => ({ ...campaign, batches: [...batches] }),
+      findFirst: async () => ({ ...campaign, batches: [...batches] }),
+      findMany: async () => [{ ...campaign, batches: [...batches] }],
+      update: async ({ data }: any) => applyCampaignData(data),
+      updateMany: async ({ data }: any) => {
+        applyCampaignData(data);
+        return { count: 1 };
+      },
+    },
+    webscrapingCampaignBatch: {
+      create: async ({ data }: any) => {
+        const batch = {
+          id: `batch-${batches.length + 1}`,
+          approvedCount: 0,
+          duplicateCount: 0,
+          rejectedCount: 0,
+          createdAt: new Date(),
+          ...data,
+        };
+        batches.push(batch);
+        return batch;
+      },
+      update: async ({ where, data }: any) => {
+        const batch = batches.find((item) => item.id === where.id);
+        if (batch) Object.assign(batch, data);
+        return batch;
+      },
+      findMany: async () => [...batches],
+    },
+    radarLeadPool: {
+      findMany: async (input?: any) => {
+        const where = input?.where || {};
+        if (where.campaignId) return leads.filter((lead) => lead.campaignId === where.campaignId);
+        if (where.normalizedCity || where.normalizedSegment) {
+          return leads.filter((lead) =>
+            (!where.normalizedCity || lead.normalizedCity === where.normalizedCity) &&
+            (!where.normalizedSegment || lead.normalizedSegment === where.normalizedSegment));
+        }
+        return [...leads];
+      },
+      findFirst: async (input?: any) => {
+        const candidates = input?.where?.OR || [];
+        return leads.find((lead) => candidates.some((where: any) =>
+          (where.phoneDigits && where.phoneDigits === lead.phoneDigits) ||
+          (where.placeId && where.placeId === lead.placeId))) || null;
+      },
+      create: async ({ data }: any) => {
+        const lead = { id: `lead-${leads.length + 1}`, status: 'clean', createdAt: new Date(), updatedAt: new Date(), ...data };
+        leads.push(lead);
+        return lead;
+      },
+      update: async ({ where, data }: any) => {
+        const lead = leads.find((item) => item.id === where.id);
+        if (lead) Object.assign(lead, data, { updatedAt: new Date() });
+        return lead;
+      },
+    },
+    radarLeadEvent: {
+      create: async ({ data }: any) => ({ id: 'event-1', ...data }),
+    },
+    radarLeadCompanyState: {
+      findFirst: async () => null,
+      upsert: async ({ create }: any) => create,
+      update: async ({ where, data }: any) => ({ id: where.id, ...data }),
+    },
+    hbxEngineLock: {
+      findUnique: async () => ({ id: 'hbx-engine-1', status: 'busy', cooldownUntil: null }),
+      update: async () => ({ id: 'hbx-engine-1' }),
+      updateMany: async () => ({ count: 1 }),
+      upsert: async ({ create }: any) => create,
+      findMany: async () => [],
+    },
+  });
+
+  return { prisma, campaign, batches, leads };
+}
+
+function disableRadarCampaignAutoPump(service: WebscrapingService) {
+  (service as any).scheduleRadarCampaignPump = () => undefined;
+}
+
 test('runtime sem config retorna mensagem publica limpa', async () => {
   const previousGoogleKey = process.env.GOOGLE_PLACES_API_KEY;
   const previousNativeKey = process.env.WEBSCRAPING_GOOGLE_PLACES_API_KEY;
@@ -1164,5 +1406,259 @@ test('reaproveitar historico hbx antigo sem estado nao retorna 400', async () =>
     assert.equal(fetchSpy.length, 0);
   } finally {
     global.fetch = previousFetch;
+  }
+});
+
+test('search-run hbx trata 502 como retryable e salva 2 contatos no lote seguinte', async () => {
+  const previousFetch = global.fetch;
+  const previousBatchLimit = process.env.HBX_SEARCH_RUN_BATCH_LIMIT;
+  const previousMaxAttempts = process.env.HBX_SEARCH_RUN_MAX_ATTEMPTS;
+  process.env.HBX_SEARCH_RUN_BATCH_LIMIT = '10';
+  process.env.HBX_SEARCH_RUN_MAX_ATTEMPTS = '20';
+
+  let fetchCount = 0;
+  global.fetch = (async () => {
+    fetchCount += 1;
+    if (fetchCount === 1) {
+      return {
+        ok: false,
+        status: 502,
+        json: async () => ({}),
+        text: async () => 'Bad Gateway',
+      } as any;
+    }
+    return createResponse(200, {
+      results: [
+        {
+          name: 'Lanchonete Centro',
+          phone: '(19) 99999-0001',
+          phoneDigits: '19999990001',
+          source: 'hbx_scraping:web',
+          score: 90,
+        },
+        {
+          name: 'Lanches Avenida',
+          phone: '(19) 99999-0002',
+          phoneDigits: '19999990002',
+          source: 'hbx_scraping:web',
+          score: 88,
+        },
+      ],
+    }) as any;
+  }) as any;
+
+  const { prisma, run } = createSearchRunPrisma({
+    targetQuantity: 10,
+  });
+  const service = new WebscrapingService(prisma);
+  disableSearchRunAutoPump(service);
+  const lease = {
+    engineId: 'hbx-engine-1',
+    engineIndex: 0,
+    url: 'http://engine-1',
+    lockedUntil: new Date(Date.now() + 60_000),
+    googleEmergencyMode: false,
+  };
+
+  try {
+    await (service as any).processSearchRun('run-1', createUser(), undefined, lease);
+    assert.equal(run.status, 'queued');
+    assert.equal(run.attemptCount, 1);
+    assert.equal(run.failedBatchCount, 1);
+    assert.equal(run.foundCount, 0);
+    assert.equal(run.nextRetryAt instanceof Date, true);
+    assert.notEqual(run.status, 'failed');
+
+    run.nextRetryAt = null;
+    await (service as any).processSearchRun('run-1', createUser(), undefined, lease);
+
+    assert.equal(run.foundCount, 2);
+    assert.equal(run.status, 'running');
+    assert.match(String(run.errorMessage || ''), /Encontramos 2 contatos ate agora/i);
+    assert.notEqual(run.status, 'failed');
+  } finally {
+    global.fetch = previousFetch;
+    if (previousBatchLimit === undefined) delete process.env.HBX_SEARCH_RUN_BATCH_LIMIT;
+    else process.env.HBX_SEARCH_RUN_BATCH_LIMIT = previousBatchLimit;
+    if (previousMaxAttempts === undefined) delete process.env.HBX_SEARCH_RUN_MAX_ATTEMPTS;
+    else process.env.HBX_SEARCH_RUN_MAX_ATTEMPTS = previousMaxAttempts;
+  }
+});
+
+test('search-run hbx so finaliza lote vazio quando maxEmptyBatches e atingido', async () => {
+  const previousFetch = global.fetch;
+  const previousBatchLimit = process.env.HBX_SEARCH_RUN_BATCH_LIMIT;
+  const previousMaxAttempts = process.env.HBX_SEARCH_RUN_MAX_ATTEMPTS;
+  const previousMaxEmpty = process.env.HBX_SEARCH_RUN_MAX_EMPTY_BATCHES;
+  process.env.HBX_SEARCH_RUN_BATCH_LIMIT = '10';
+  process.env.HBX_SEARCH_RUN_MAX_ATTEMPTS = '20';
+  process.env.HBX_SEARCH_RUN_MAX_EMPTY_BATCHES = '5';
+
+  global.fetch = (async () =>
+    createResponse(200, {
+      results: [],
+    }) as any) as any;
+
+  const { prisma, run } = createSearchRunPrisma({
+    targetQuantity: 100,
+  });
+  const service = new WebscrapingService(prisma);
+  disableSearchRunAutoPump(service);
+  const lease = {
+    engineId: 'hbx-engine-1',
+    engineIndex: 0,
+    url: 'http://engine-1',
+    lockedUntil: new Date(Date.now() + 60_000),
+    googleEmergencyMode: false,
+  };
+
+  try {
+    for (let index = 0; index < 4; index += 1) {
+      await (service as any).processSearchRun('run-1', createUser(), undefined, lease);
+      assert.equal(run.status, 'running');
+      assert.equal(run.lastBatchStatus, 'empty_batch');
+      assert.equal(run.finishedAt, null);
+    }
+
+    await (service as any).processSearchRun('run-1', createUser(), undefined, lease);
+
+    assert.equal(run.attemptCount, 5);
+    assert.equal(run.consecutiveEmptyBatchCount, 5);
+    assert.equal(run.status, 'failed');
+    assert.match(String(run.errorMessage || ''), /5 lotes/i);
+    assert.match(String(run.errorMessage || ''), /Ultima query/i);
+  } finally {
+    global.fetch = previousFetch;
+    if (previousBatchLimit === undefined) delete process.env.HBX_SEARCH_RUN_BATCH_LIMIT;
+    else process.env.HBX_SEARCH_RUN_BATCH_LIMIT = previousBatchLimit;
+    if (previousMaxAttempts === undefined) delete process.env.HBX_SEARCH_RUN_MAX_ATTEMPTS;
+    else process.env.HBX_SEARCH_RUN_MAX_ATTEMPTS = previousMaxAttempts;
+    if (previousMaxEmpty === undefined) delete process.env.HBX_SEARCH_RUN_MAX_EMPTY_BATCHES;
+    else process.env.HBX_SEARCH_RUN_MAX_EMPTY_BATCHES = previousMaxEmpty;
+  }
+});
+
+test('campanha radar cria target 10000 sem executar lote no HTTP de criacao', async () => {
+  const { prisma, campaign } = createCampaignPrisma();
+  const service = new WebscrapingService(prisma);
+  disableRadarCampaignAutoPump(service);
+
+  const response = await service.createRadarCampaignForUser(createUser(), {
+    city: 'Campinas',
+    state: 'SP',
+    segment: 'Lanchonetes',
+    targetType: 'pj',
+    targetTotal: 10000,
+    batchSize: 25,
+    nightOnly: false,
+  });
+
+  assert.equal(response.targetTotal, 10000);
+  assert.equal(response.batchSize, 25);
+  assert.equal(response.status, 'queued');
+  assert.equal(campaign.currentAttempt, 0);
+  assert.equal(campaign.maxAttempts >= 400, true);
+});
+
+test('campanha radar trata 502 como retryable e salva 2 contatos no segundo lote', async () => {
+  const previousFetch = global.fetch;
+  const previousMaxAttempts = process.env.HBX_RADAR_MAX_EMPTY_BATCHES;
+  process.env.HBX_RADAR_MAX_EMPTY_BATCHES = '12';
+
+  let fetchCount = 0;
+  const requestBodies: any[] = [];
+  global.fetch = (async (_input: any, init?: any) => {
+    requestBodies.push(JSON.parse(String(init?.body || '{}')));
+    fetchCount += 1;
+    if (fetchCount === 1) {
+      return {
+        ok: false,
+        status: 502,
+        json: async () => ({}),
+        text: async () => 'Bad Gateway',
+      } as any;
+    }
+    return createResponse(200, {
+      results: [
+        { name: 'Lanchonete Centro', phone: '(19) 99999-0001', phoneDigits: '19999990001', source: 'hbx_scraping:web', score: 90 },
+        { name: 'Lanches Avenida', phone: '(19) 99999-0002', phoneDigits: '19999990002', source: 'hbx_scraping:web', score: 88 },
+      ],
+    }) as any;
+  }) as any;
+
+  const { prisma, campaign, leads } = createCampaignPrisma({ targetTotal: 100, batchSize: 25 });
+  const service = new WebscrapingService(prisma);
+  disableRadarCampaignAutoPump(service);
+  const lease = {
+    engineId: 'hbx-engine-1',
+    engineIndex: 0,
+    url: 'http://engine-1',
+    lockedUntil: new Date(Date.now() + 60_000),
+    googleEmergencyMode: false,
+  };
+
+  try {
+    await (service as any).processRadarCampaignBatch('campaign-1', lease);
+    assert.equal(campaign.status, 'queued');
+    assert.equal(campaign.currentAttempt, 1);
+    assert.equal(campaign.consecutiveErrorCount, 1);
+    assert.equal(campaign.nextRunAt instanceof Date, true);
+    assert.notEqual(campaign.status, 'failed');
+
+    campaign.nextRunAt = null;
+    await (service as any).processRadarCampaignBatch('campaign-1', lease);
+
+    assert.equal(leads.length, 2);
+    assert.equal(campaign.foundCount, 2);
+    assert.equal(campaign.approvedCount, 2);
+    assert.equal(campaign.status, 'running');
+    assert.match(String(campaign.lastErrorMessage || ''), /Encontramos 2 cards ate agora/i);
+    assert.equal(requestBodies[1].limit, 25);
+    assert.equal(requestBodies[1].batchLimit, 25);
+    assert.deepEqual(requestBodies[1].excludePhoneDigits, undefined);
+    assert.notEqual(campaign.status, 'failed');
+  } finally {
+    global.fetch = previousFetch;
+    if (previousMaxAttempts === undefined) delete process.env.HBX_RADAR_MAX_EMPTY_BATCHES;
+    else process.env.HBX_RADAR_MAX_EMPTY_BATCHES = previousMaxAttempts;
+  }
+});
+
+test('campanha radar so encerra lote vazio quando maxEmptyBatches e atingido', async () => {
+  const previousFetch = global.fetch;
+  const previousMaxEmpty = process.env.HBX_RADAR_MAX_EMPTY_BATCHES;
+  process.env.HBX_RADAR_MAX_EMPTY_BATCHES = '5';
+
+  global.fetch = (async () => createResponse(200, { results: [] }) as any) as any;
+
+  const { prisma, campaign } = createCampaignPrisma({ targetTotal: 100, batchSize: 25, maxAttempts: 40 });
+  const service = new WebscrapingService(prisma);
+  disableRadarCampaignAutoPump(service);
+  const lease = {
+    engineId: 'hbx-engine-1',
+    engineIndex: 0,
+    url: 'http://engine-1',
+    lockedUntil: new Date(Date.now() + 60_000),
+    googleEmergencyMode: false,
+  };
+
+  try {
+    for (let index = 0; index < 4; index += 1) {
+      await (service as any).processRadarCampaignBatch('campaign-1', lease);
+      assert.equal(campaign.status, 'queued');
+      assert.equal(campaign.finishedAt, null);
+    }
+
+    await (service as any).processRadarCampaignBatch('campaign-1', lease);
+
+    assert.equal(campaign.currentAttempt, 5);
+    assert.equal(campaign.consecutiveEmptyBatchCount, 5);
+    assert.equal(campaign.status, 'completed_insufficient_results');
+    assert.match(String(campaign.lastErrorMessage || ''), /5 lotes/i);
+    assert.match(String(campaign.lastErrorMessage || ''), /Ultima query/i);
+  } finally {
+    global.fetch = previousFetch;
+    if (previousMaxEmpty === undefined) delete process.env.HBX_RADAR_MAX_EMPTY_BATCHES;
+    else process.env.HBX_RADAR_MAX_EMPTY_BATCHES = previousMaxEmpty;
   }
 });
