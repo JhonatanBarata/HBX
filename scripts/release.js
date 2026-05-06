@@ -464,7 +464,18 @@ async function main() {
   }
 
   logStage('Verificacao final');
-  const finalUrl = await verifyFinalUrl(config);
+  let finalUrl = 'nao verificada';
+  try {
+    finalUrl = await verifyFinalUrl(config);
+  } catch (err) {
+    const skip = String(process.env.HOSTINGER_SKIP_FINAL_VERIFY || '').toLowerCase();
+    if (skip === '1' || skip === 'true') {
+      console.warn(`Verificacao final falhou, ignorando devido a HOSTINGER_SKIP_FINAL_VERIFY: ${err && err.message ? err.message : err}`);
+      finalUrl = `nao verificada (falha: ${err && err.message ? err.message : err})`;
+    } else {
+      throw err;
+    }
+  }
 
   printReleaseSummary({
     commitCreated,
