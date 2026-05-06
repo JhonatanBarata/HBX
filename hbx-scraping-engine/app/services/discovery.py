@@ -8,7 +8,10 @@ BLOCKED_HOST_PARTS = ("pinterest.", "linkedin.com")
 BLOCKED_EXTENSIONS = (".pdf", ".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg", ".zip", ".rar")
 
 
-def build_queries(segment: str, city: str, state: str, target_type: str = "pj") -> list[str]:
+def build_queries(segment: str, city: str, state: str, target_type: str = "pj", query: str = "") -> list[str]:
+    explicit_query = " ".join(str(query or "").split())
+    if explicit_query:
+        return [explicit_query]
     location = " ".join(part for part in [city, state] if str(part or "").strip()).strip()
     if target_type == "agenda_pf":
         return [
@@ -74,11 +77,21 @@ def discovery_target(limit: int, max_discovery_results: int, target_type: str = 
     return min(max_discovery_results, max(minimum, limit * multiplier))
 
 
-def discover_urls(city: str, state: str, segment: str, limit: int, max_discovery_results: int, target_type: str = "pj", exclude_count: int = 0) -> list[str]:
+def discover_urls(
+    city: str,
+    state: str,
+    segment: str,
+    limit: int,
+    max_discovery_results: int,
+    target_type: str = "pj",
+    exclude_count: int = 0,
+    query: str = "",
+    exclude_urls: list[str] | None = None,
+) -> list[str]:
     target = discovery_target(limit, max_discovery_results, target_type, exclude_count)
-    queries = build_queries(segment, city, state, target_type)
+    queries = build_queries(segment, city, state, target_type, query)
     per_query = max(8, target // len(queries) + 2)
-    seen: set[str] = set()
+    seen: set[str] = {str(url or "").strip().rstrip("/") for url in (exclude_urls or []) if str(url or "").strip()}
     urls: list[str] = []
 
     with DDGS() as ddgs:

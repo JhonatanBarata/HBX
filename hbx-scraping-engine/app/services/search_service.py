@@ -20,8 +20,9 @@ class SearchService:
 
     async def search(self, request: SearchRequest) -> SearchResponse:
         excluded_phones = set(request.excludePhoneDigits or [])
+        excluded_urls = set(request.excludeUrls or [])
 
-        if not request.fresh and not excluded_phones:
+        if not request.fresh and not excluded_phones and not excluded_urls:
             cached = await asyncio.to_thread(self.storage.get_cached, request)
             if cached:
                 return SearchResponse.model_validate(cached)
@@ -40,6 +41,8 @@ class SearchService:
             self.settings.max_discovery_results,
             request.targetType,
             len(excluded_phones),
+            request.query,
+            list(excluded_urls),
         )
         print(f"[search] URLs encontradas: {len(urls)}")
 
@@ -118,7 +121,7 @@ class SearchService:
         print(f"[search] contatos aproveitados: {len(valid)}")
 
         response = SearchResponse(
-            query=QueryPayload(city=request.city, state=request.state, segment=request.segment, targetType=request.targetType, limit=request.limit),
+            query=QueryPayload(city=request.city, state=request.state, segment=request.segment, query=request.query, targetType=request.targetType, limit=request.limit),
             count=len(valid),
             results=[ContactResult.model_validate(item) for item in valid],
             status="completed_with_errors" if errors else "completed",
@@ -153,6 +156,9 @@ class SearchService:
                 max(request.limit, remaining),
                 self.settings.max_discovery_results,
                 "agenda_pf",
+                0,
+                request.query,
+                list(excluded_urls),
             )
             discovered_count = len(urls)
             print(f"[search:agenda_pf] urls_descobertas={discovered_count}")
@@ -204,7 +210,7 @@ class SearchService:
             f"contatos_aprovados={len(public_items)}"
         )
         return SearchResponse(
-            query=QueryPayload(city=request.city, state=request.state, segment=request.segment, targetType=request.targetType, limit=request.limit),
+            query=QueryPayload(city=request.city, state=request.state, segment=request.segment, query=request.query, targetType=request.targetType, limit=request.limit),
             count=len(public_items),
             results=[ContactResult.model_validate(item) for item in public_items],
         )

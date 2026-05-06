@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import PremiumLaunchDialog from "@/components/PremiumLaunchDialog";
 import { apiFetch } from "@/app/_lib/api";
 import {
@@ -142,6 +142,10 @@ function minutesToTime(total: number) {
   const hours = Math.floor(total / 60);
   const minutes = total % 60;
   return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
+}
+
+function sortWeekdays(days: number[]) {
+  return [...days].sort((left, right) => WEEKDAY_ORDER.indexOf(left) - WEEKDAY_ORDER.indexOf(right));
 }
 
 function formatDateTime(value?: string | null) {
@@ -304,6 +308,448 @@ export function canDeleteAgendaGuide(group: AtendimentoAgendaGroup) {
       ? "Esta guia possui horários ativos. Desative os horários antes de excluir, até a validação de agendamentos futuros estar disponível."
       : "",
   };
+}
+
+type AgendaGlyphName = "bot" | "briefcase" | "calendar" | "chart" | "check" | "clock" | "grip" | "plus" | "save" | "trash" | "user" | "wrench";
+
+function AgendaGlyph({ name, className = "" }: { name: AgendaGlyphName; className?: string }) {
+  const paths: Record<AgendaGlyphName, ReactNode> = {
+    bot: (
+      <>
+        <rect x="5" y="8" width="14" height="10" rx="4" />
+        <path d="M9 8V5h6v3" />
+        <path d="M9.5 13h.01M14.5 13h.01" />
+        <path d="M8 18v2M16 18v2" />
+      </>
+    ),
+    briefcase: (
+      <>
+        <path d="M9 7V5h6v2" />
+        <rect x="4" y="7" width="16" height="12" rx="3" />
+        <path d="M4 12h16" />
+      </>
+    ),
+    calendar: (
+      <>
+        <path d="M7 3v4M17 3v4" />
+        <rect x="4" y="5" width="16" height="16" rx="3" />
+        <path d="M4 10h16" />
+        <path d="M8 14h3M13 14h3M8 17h3" />
+      </>
+    ),
+    chart: (
+      <>
+        <path d="M4 19V5" />
+        <path d="M4 19h16" />
+        <path d="m7 15 4-4 3 3 5-7" />
+      </>
+    ),
+    check: <path d="m5 12 4 4L19 6" />,
+    clock: (
+      <>
+        <circle cx="12" cy="12" r="8" />
+        <path d="M12 8v5l3 2" />
+      </>
+    ),
+    grip: (
+      <>
+        <path d="M9 5h.01M15 5h.01M9 12h.01M15 12h.01M9 19h.01M15 19h.01" />
+      </>
+    ),
+    plus: <path d="M12 5v14M5 12h14" />,
+    save: (
+      <>
+        <path d="M5 4h12l2 2v14H5z" />
+        <path d="M8 4v6h8V4" />
+        <path d="M8 20v-6h8v6" />
+      </>
+    ),
+    trash: (
+      <>
+        <path d="M4 7h16" />
+        <path d="M10 11v6M14 11v6" />
+        <path d="M6 7l1 13h10l1-13" />
+        <path d="M9 7V4h6v3" />
+      </>
+    ),
+    user: (
+      <>
+        <circle cx="12" cy="8" r="4" />
+        <path d="M4 21a8 8 0 0 1 16 0" />
+      </>
+    ),
+    wrench: (
+      <>
+        <path d="M14.7 6.3a4 4 0 0 0 5 5L11 20l-4-4 8.7-8.7Z" />
+        <path d="M7 16l-3 3" />
+      </>
+    ),
+  };
+  return (
+    <svg className={className} width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      {paths[name]}
+    </svg>
+  );
+}
+
+function getAgendaGuideGlyph(group: AtendimentoAgendaGroup): AgendaGlyphName {
+  const normalized = `${group.title} ${group.slug}`.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+  if (normalized.includes("comercial") || normalized.includes("venda")) return "briefcase";
+  if (normalized.includes("instal")) return "calendar";
+  return "wrench";
+}
+
+function getActiveSlots(group: AtendimentoAgendaGroup) {
+  return group.slots.filter((slot) => slot.enabled && group.workdays.includes(slot.dayOfWeek));
+}
+
+function getActiveDayCount(group: AtendimentoAgendaGroup) {
+  return new Set(getActiveSlots(group).map((slot) => slot.dayOfWeek)).size || group.workdays.length;
+}
+
+function getStandardTimeRange(group: AtendimentoAgendaGroup) {
+  const slots = getActiveSlots(group);
+  if (!slots.length) return "Sem horário ativo";
+  const starts = slots.map((slot) => slot.startTime).sort();
+  const ends = slots.map((slot) => slot.endTime).sort();
+  return `${starts[0]} às ${ends[ends.length - 1]}`;
+}
+
+function getConnectionLabel(status: AtendimentoAgendaGroup["connectionStatus"]) {
+  if (status === "connected") return "Conta conectada";
+  if (status === "pending") return "Conexão pendente";
+  return "Conta não vinculada";
+}
+
+function hexToRgba(hex: string, alpha: number) {
+  const normalized = hex.replace("#", "").trim();
+  const valid = /^[0-9a-fA-F]{6}$/.test(normalized) ? normalized : "2563eb";
+  const red = Number.parseInt(valid.slice(0, 2), 16);
+  const green = Number.parseInt(valid.slice(2, 4), 16);
+  const blue = Number.parseInt(valid.slice(4, 6), 16);
+  return `rgba(${red}, ${green}, ${blue}, ${alpha})`;
+}
+
+type AgendaBotModernLayoutProps = Pick<
+  AgendaStudioModalProps,
+  | "agendaConfig"
+  | "canManageAgenda"
+  | "currentUserEmail"
+  | "currentUserName"
+  | "onAddGroup"
+  | "onRemoveGroup"
+  | "onLinkCurrentUser"
+  | "onUpdateGroup"
+  | "onAddSlot"
+  | "onRemoveSlot"
+  | "onUpdateSlot"
+> & {
+  selectedGroupId: string;
+  setSelectedGroupId: (value: string) => void;
+  deleteMessage: string | null;
+  setDeleteMessage: (value: string | null) => void;
+};
+
+function AgendaBotModernLayout({
+  agendaConfig,
+  canManageAgenda,
+  currentUserEmail,
+  currentUserName,
+  selectedGroupId,
+  setSelectedGroupId,
+  deleteMessage,
+  setDeleteMessage,
+  onAddGroup,
+  onRemoveGroup,
+  onLinkCurrentUser,
+  onUpdateGroup,
+  onAddSlot,
+  onRemoveSlot,
+  onUpdateSlot,
+}: AgendaBotModernLayoutProps) {
+  const selectedGroupIdSafe = agendaConfig.groups.some((group) => group.id === selectedGroupId)
+    ? selectedGroupId
+    : agendaConfig.groups[0]?.id || "";
+  const selectedGroup = agendaConfig.groups.find((group) => group.id === selectedGroupIdSafe) || agendaConfig.groups[0] || null;
+  const activeGroups = agendaConfig.groups.filter((group) => group.isActive);
+  const previewGroups = activeGroups.length ? activeGroups : agendaConfig.groups;
+  const activeSlots = selectedGroup ? getActiveSlots(selectedGroup) : [];
+  const activeDayCount = selectedGroup ? getActiveDayCount(selectedGroup) : 0;
+  const accountName = selectedGroup?.linkedUserName || currentUserName || "Mariana Souza";
+  const accountEmail = selectedGroup?.linkedEmail || currentUserEmail || "mariana.souza@empresa.com";
+  const timelineHours = [9, 12, 15, 18];
+
+  const updateWorkday = (dayValue: number) => {
+    if (!selectedGroup) return;
+    const checked = selectedGroup.workdays.includes(dayValue);
+    if (checked && selectedGroup.workdays.length === 1) return;
+    const next = checked
+      ? selectedGroup.workdays.filter((item) => item !== dayValue)
+      : [...selectedGroup.workdays, dayValue];
+    onUpdateGroup(selectedGroup.id, "workdays", WEEKDAY_ORDER.filter((item) => next.includes(item)));
+  };
+
+  return (
+    <div className={styles.agendaBotWorkspace}>
+      <aside className={styles.agendaBotLeftRail}>
+        <div className={styles.agendaBotRailHeader}>
+          <div>
+            <strong>Guias do bot</strong>
+            <span>Selecione uma guia para editar a agenda.</span>
+          </div>
+          <button type="button" className={styles.agendaBotGhostButton} onClick={onAddGroup} disabled={!canManageAgenda}>
+            <AgendaGlyph name="plus" />
+            Nova guia
+          </button>
+        </div>
+
+        <div className={styles.agendaBotGuideStack}>
+          {agendaConfig.groups.map((group) => {
+            const isSelected = selectedGroup?.id === group.id;
+            const groupSlots = getActiveSlots(group);
+            const groupDays = getActiveDayCount(group);
+            return (
+              <button
+                key={group.id}
+                type="button"
+                className={`${styles.agendaBotGuideCard} ${isSelected ? styles.agendaBotGuideCardActive : ""}`}
+                style={{ borderColor: isSelected ? group.accentColor : undefined }}
+                onClick={() => {
+                  setSelectedGroupId(group.id);
+                  setDeleteMessage(null);
+                }}
+              >
+                <span className={styles.agendaBotGuideIcon} style={{ color: group.accentColor, backgroundColor: hexToRgba(group.accentColor, 0.12) }}>
+                  <AgendaGlyph name={getAgendaGuideGlyph(group)} />
+                </span>
+                <span className={styles.agendaBotGuideContent}>
+                  <span className={styles.agendaBotGuideTopline}>
+                    <strong>{group.title}</strong>
+                    <i data-active={group.isActive ? "true" : "false"} />
+                  </span>
+                  <small>{group.description || "Agenda de atendimento do bot."}</small>
+                  <span className={styles.agendaBotGuideMeta}>
+                    <span><AgendaGlyph name="clock" /> {groupSlots.length} horários ativos</span>
+                    <span><AgendaGlyph name="calendar" /> {groupDays} dias</span>
+                  </span>
+                </span>
+              </button>
+            );
+          })}
+        </div>
+
+        <div className={styles.agendaBotTipCard}>
+          <strong>Dica</strong>
+          <span>Crie múltiplas guias para diferentes tipos de atendimento e direcione o cliente para a opção mais adequada.</span>
+        </div>
+      </aside>
+
+      {selectedGroup ? (
+        <main className={styles.agendaBotMain}>
+          <section className={styles.agendaBotSection}>
+            <div className={styles.agendaBotSectionHeader}>
+              <div>
+                <strong>1. Informações da guia</strong>
+                <span>Defina como esta opção aparece para o cliente no bot.</span>
+              </div>
+              <div className={styles.agendaBotSectionActions}>
+                <button type="button" className={styles.agendaBotSoftButton} disabled={!canManageAgenda} onClick={() => onUpdateGroup(selectedGroup.id, "isActive", !selectedGroup.isActive)}>
+                  {selectedGroup.isActive ? "Desativar guia" : "Ativar guia"}
+                </button>
+                <button
+                  type="button"
+                  className={styles.agendaBotDangerButton}
+                  disabled={!canManageAgenda}
+                  onClick={() => {
+                    const result = canDeleteAgendaGuide(selectedGroup);
+                    if (!result.allowed) {
+                      setDeleteMessage(result.reason);
+                      return;
+                    }
+                    if (!window.confirm(`Excluir a guia "${selectedGroup.title}"? Esta ação remove a guia da Agenda Bot.`)) return;
+                    onRemoveGroup(selectedGroup.id);
+                  }}
+                >
+                  Excluir guia
+                </button>
+              </div>
+            </div>
+
+            {deleteMessage ? <div className={styles.inlineNote}>{deleteMessage}</div> : null}
+
+            <div className={styles.agendaBotInfoGrid}>
+              <label className={styles.agendaBotField}>
+                <span>Nome da guia</span>
+                <input className="field" value={selectedGroup.title} disabled={!canManageAgenda} onChange={(event) => onUpdateGroup(selectedGroup.id, "title", event.target.value)} />
+              </label>
+              <label className={styles.agendaBotField}>
+                <span>Texto do botão no bot</span>
+                <input className="field" value={selectedGroup.buttonLabel} disabled={!canManageAgenda} onChange={(event) => onUpdateGroup(selectedGroup.id, "buttonLabel", event.target.value)} />
+              </label>
+              <label className={styles.agendaBotField}>
+                <span>Cor da guia</span>
+                <div className={styles.agendaBotColorField}>
+                  <input type="color" value={selectedGroup.accentColor} disabled={!canManageAgenda} onChange={(event) => onUpdateGroup(selectedGroup.id, "accentColor", event.target.value)} />
+                  <strong>{selectedGroup.accentColor}</strong>
+                </div>
+              </label>
+              <label className={styles.agendaBotField}>
+                <span>Slots sugeridos</span>
+                <div className={styles.agendaBotStepper}>
+                  <button type="button" disabled={!canManageAgenda || selectedGroup.suggestedSlotsCount <= 1} onClick={() => onUpdateGroup(selectedGroup.id, "suggestedSlotsCount", Math.max(1, selectedGroup.suggestedSlotsCount - 1))}>-</button>
+                  <strong>{selectedGroup.suggestedSlotsCount}</strong>
+                  <button type="button" disabled={!canManageAgenda || selectedGroup.suggestedSlotsCount >= 10} onClick={() => onUpdateGroup(selectedGroup.id, "suggestedSlotsCount", Math.min(10, selectedGroup.suggestedSlotsCount + 1))}>+</button>
+                  <span>horários por vez</span>
+                </div>
+              </label>
+            </div>
+          </section>
+
+          <section className={styles.agendaBotSection}>
+            <div className={styles.agendaBotSectionHeader}>
+              <div>
+                <strong>2. Disponibilidade da semana</strong>
+                <span>Selecione os dias em que o bot pode oferecer horários.</span>
+              </div>
+            </div>
+            <div className={styles.agendaBotWeekPills}>
+              {WEEKDAY_OPTIONS.map((day) => {
+                const checked = selectedGroup.workdays.includes(day.value);
+                return (
+                  <button key={day.value} type="button" className={checked ? styles.agendaBotWeekPillActive : styles.agendaBotWeekPill} disabled={!canManageAgenda || (checked && selectedGroup.workdays.length === 1)} onClick={() => updateWorkday(day.value)}>
+                    {checked ? <AgendaGlyph name="check" /> : null}
+                    {day.label}
+                  </button>
+                );
+              })}
+            </div>
+            <div className={styles.agendaBotAvailabilitySummary}>
+              <div>
+                <AgendaGlyph name="calendar" />
+                <span><strong>{activeDayCount} dias disponíveis</strong>{sortWeekdays(selectedGroup.workdays).map(formatWeekday).join(", ")}</span>
+              </div>
+              <div>
+                <AgendaGlyph name="clock" />
+                <span><strong>Horário padrão</strong>{getStandardTimeRange(selectedGroup)}</span>
+              </div>
+            </div>
+          </section>
+
+          <section className={styles.agendaBotSection}>
+            <div className={styles.agendaBotSectionHeader}>
+              <div>
+                <strong>3. Horários configurados</strong>
+                <span>Adicione e gerencie os períodos em que o bot pode agendar.</span>
+              </div>
+              <button type="button" className={styles.agendaBotGhostButton} disabled={!canManageAgenda} onClick={() => onAddSlot(selectedGroup.id)}>
+                <AgendaGlyph name="plus" />
+                Adicionar horário
+              </button>
+            </div>
+            <div className={styles.agendaBotSlotList}>
+              {selectedGroup.slots.map((slot) => (
+                <article key={slot.id} className={styles.agendaBotSlotRow} style={{ borderLeftColor: selectedGroup.accentColor }}>
+                  <span className={styles.agendaBotDragHandle}><AgendaGlyph name="grip" /></span>
+                  <select className={styles.agendaBotDaySelect} value={slot.dayOfWeek} disabled={!canManageAgenda} onChange={(event) => onUpdateSlot(selectedGroup.id, slot.id, "dayOfWeek", Number(event.target.value))}>
+                    {WEEKDAY_OPTIONS.map((day) => <option key={day.value} value={day.value}>{day.label}</option>)}
+                  </select>
+                  <label><AgendaGlyph name="clock" /><input type="time" value={slot.startTime} disabled={!canManageAgenda} onChange={(event) => onUpdateSlot(selectedGroup.id, slot.id, "startTime", event.target.value)} /></label>
+                  <strong className={styles.agendaBotArrow}>→</strong>
+                  <label><AgendaGlyph name="clock" /><input type="time" value={slot.endTime} disabled={!canManageAgenda} onChange={(event) => onUpdateSlot(selectedGroup.id, slot.id, "endTime", event.target.value)} /></label>
+                  <label className={styles.agendaBotToggle}>
+                    <input type="checkbox" checked={slot.enabled} disabled={!canManageAgenda} onChange={(event) => onUpdateSlot(selectedGroup.id, slot.id, "enabled", event.target.checked)} />
+                    <span />
+                    Ativo
+                  </label>
+                  <button type="button" className={styles.agendaBotRemoveButton} disabled={!canManageAgenda} onClick={() => onRemoveSlot(selectedGroup.id, slot.id)}>
+                    <AgendaGlyph name="trash" />
+                    Remover
+                  </button>
+                </article>
+              ))}
+              {!selectedGroup.slots.length ? <div className={styles.emptyState}>Sem horários configurados.</div> : null}
+            </div>
+            <p className={styles.agendaBotReorderNote}><AgendaGlyph name="grip" /> Arraste para reordenar os horários</p>
+          </section>
+
+          <section className={styles.agendaBotSection}>
+            <div className={styles.agendaBotSectionHeader}>
+              <div>
+                <strong>5. Conta vinculada / responsável</strong>
+                <span>Conta usada como referência operacional dessa agenda.</span>
+              </div>
+            </div>
+            <div className={styles.agendaBotAccountCard}>
+              <span className={styles.agendaBotAvatar}><AgendaGlyph name="user" /></span>
+              <div>
+                <strong>{accountName}</strong>
+                <small>{accountEmail}</small>
+              </div>
+              <span className={styles.agendaBotConnectedBadge}>{getConnectionLabel(selectedGroup.connectionStatus)}</span>
+              <button type="button" className={styles.agendaBotGhostButton} disabled={!canManageAgenda || !currentUserEmail} onClick={() => onLinkCurrentUser(selectedGroup.id)}>
+                Trocar conta
+              </button>
+            </div>
+          </section>
+        </main>
+      ) : (
+        <main className={styles.agendaBotMain}><div className={styles.emptyState}>Nenhuma guia cadastrada.</div></main>
+      )}
+
+      <aside className={styles.agendaBotRightRail}>
+        <section className={styles.agendaBotSummaryCard}>
+          <div className={styles.agendaBotRailTitle}>
+            <AgendaGlyph name="chart" />
+            <div><strong>Resumo da agenda</strong><span>Status da guia selecionada</span></div>
+          </div>
+          <div className={styles.agendaBotSummaryRows}>
+            <div><span className={styles.agendaBotSummaryIcon}><AgendaGlyph name="calendar" /></span><strong>{activeSlots.length}</strong><small>horários ativos</small><em>Hoje</em></div>
+            <div><span className={styles.agendaBotSummaryIcon}><AgendaGlyph name="calendar" /></span><strong>{activeDayCount}</strong><small>dias disponíveis</small><em>Semana</em></div>
+            <div><span className={styles.agendaBotSummaryIcon}><AgendaGlyph name="bot" /></span><strong>{selectedGroup?.isActive ? "Agenda online" : "Agenda pausada"}</strong><small>{selectedGroup?.isActive ? "Bot ativo para agendamentos" : "Guia desativada no bot"}</small><i data-active={selectedGroup?.isActive ? "true" : "false"} /></div>
+          </div>
+          <div className={styles.agendaBotTimeline}>
+            <strong>Linha do tempo — Semana</strong>
+            <div className={styles.agendaBotTimelineGrid}>
+              <span />
+              {WEEKDAY_OPTIONS.map((day) => <b key={day.value}>{day.label}</b>)}
+              {timelineHours.map((hour) => (
+                <div className={styles.agendaBotTimelineRow} key={hour}>
+                  <span>{String(hour).padStart(2, "0")}h</span>
+                  {WEEKDAY_OPTIONS.map((day) => {
+                    const slot = activeSlots.find((item) => item.dayOfWeek === day.value && toMinutes(item.startTime) <= hour * 60 && toMinutes(item.endTime) > hour * 60);
+                    return <i key={`${hour}-${day.value}`} data-active={slot ? "true" : "false"} style={{ backgroundColor: slot ? selectedGroup?.accentColor : undefined }} />;
+                  })}
+                </div>
+              ))}
+            </div>
+            <div className={styles.agendaBotTimelineLegend}>
+              {activeSlots.slice(0, 3).map((slot) => <span key={slot.id}><i style={{ backgroundColor: selectedGroup?.accentColor }} /> {slot.startTime}-{slot.endTime}</span>)}
+            </div>
+          </div>
+        </section>
+
+        <section className={styles.agendaBotPreviewCard}>
+          <div className={styles.agendaBotRailTitle}>
+            <strong>4. Prévia do cliente no bot</strong>
+            <span>Experiência aproximada no chat.</span>
+          </div>
+          <div className={styles.agendaBotChatPreview}>
+            <div className={styles.agendaBotChatBubble}><span><AgendaGlyph name="bot" /></span><p>Olá! Em que podemos te ajudar hoje?</p></div>
+            <div className={styles.agendaBotChatBubble}><span><AgendaGlyph name="bot" /></span><p>Escolha uma opção para continuar:</p></div>
+            <div className={styles.agendaBotChatButtons}>
+              {previewGroups.map((group) => (
+                <button key={group.id} type="button" style={{ borderColor: group.accentColor, color: group.accentColor }}>
+                  <AgendaGlyph name={getAgendaGuideGlyph(group)} />
+                  {group.buttonLabel || group.title}
+                </button>
+              ))}
+            </div>
+          </div>
+          <small>Esta é uma prévia aproximada da experiência no chat.</small>
+        </section>
+      </aside>
+    </div>
+  );
 }
 
 function SalesAgendaTab() {
@@ -626,6 +1072,26 @@ function BotAgendaTab({
   if (loadingAgenda) return <div className={styles.emptyState}>Carregando Agenda Bot...</div>;
 
   return (
+    <AgendaBotModernLayout
+      agendaConfig={agendaConfig}
+      canManageAgenda={canManageAgenda}
+      currentUserEmail={currentUserEmail}
+      currentUserName={currentUserName}
+      onAddGroup={onAddGroup}
+      onRemoveGroup={onRemoveGroup}
+      onLinkCurrentUser={onLinkCurrentUser}
+      onUpdateGroup={onUpdateGroup}
+      onAddSlot={onAddSlot}
+      onRemoveSlot={onRemoveSlot}
+      onUpdateSlot={onUpdateSlot}
+      selectedGroupId={selectedGroupId}
+      setSelectedGroupId={setSelectedGroupId}
+      deleteMessage={deleteMessage}
+      setDeleteMessage={setDeleteMessage}
+    />
+  );
+
+  return (
     <div className={styles.agendaStudioTabBody}>
       <section className={styles.botAgendaLayout}>
         <div className={styles.botAgendaGuideList}>
@@ -813,14 +1279,20 @@ export default function AgendaStudioModal(props: AgendaStudioModalProps) {
   const selectTab = (value: AgendaStudioTab) => {
     setTabState({ source: initialCompatibleTab, value });
   };
+  const activateAgenda = () => {
+    props.agendaConfig.groups.forEach((group) => {
+      if (!group.isActive) props.onUpdateGroup(group.id, "isActive", true);
+    });
+  };
 
   return (
     <div className={`${styles.botStudioOverlay} ${styles.botStudioOverlayActive}`}>
       <div className={`${styles.botStudioFrame} ${styles.botStudioFrameActive} ${styles.agendaStudioFrame}`}>
-        <div className={`${styles.botStudioChrome} ${styles.agendaStudioChrome}`}>
-          <div>
-            <p className={styles.botStudioChromeEyebrow}>Agenda</p>
-            <strong>{activeTab === "sales" ? "Agenda Vendas" : "Agenda Bot"}</strong>
+        <div className={`${styles.botStudioChrome} ${styles.agendaStudioChrome} ${styles.agendaBotChrome}`}>
+          <div className={styles.agendaBotTitleBlock}>
+            <span>Atendimento &gt; Bots &gt; Agendas</span>
+            <strong>{activeTab === "sales" ? "Agenda Vendas" : "Agenda do Cliente X Bot"}</strong>
+            <p>Configure os horários que o bot oferece, agenda ou cancela para os clientes.</p>
           </div>
           {allowSalesTab ? (
             <div className={styles.agendaStudioHeaderTabs} role="tablist" aria-label="Tipo de agenda">
@@ -830,13 +1302,20 @@ export default function AgendaStudioModal(props: AgendaStudioModalProps) {
           ) : (
             <span className={styles.metaBadge}>Agenda Bot separada da Agenda Vendas</span>
           )}
-          <div className={styles.headerActions}>
-            {activeTab === "bot" && props.botAgendaDirty ? (
-              <button type="button" className="btn btn-primary btn-sm" onClick={props.onSaveBotAgenda} disabled={props.savingAgenda || !props.canManageAgenda}>
-                {props.savingAgenda ? "Salvando..." : "Salvar"}
-              </button>
+          <div className={styles.agendaBotHeaderActions}>
+            <button type="button" className={styles.agendaBotCloseButton} onClick={props.onClose}>Fechar</button>
+            {activeTab === "bot" ? (
+              <>
+                <button type="button" className={styles.agendaBotSaveButton} onClick={props.onSaveBotAgenda} disabled={props.savingAgenda || !props.canManageAgenda}>
+                  <AgendaGlyph name="save" />
+                  {props.savingAgenda ? "Salvando..." : "Salvar alterações"}
+                </button>
+                <button type="button" className={styles.agendaBotActivateButton} onClick={activateAgenda} disabled={!props.canManageAgenda}>
+                  <AgendaGlyph name="check" />
+                  Ativar agenda
+                </button>
+              </>
             ) : null}
-            <button type="button" className="btn btn-secondary btn-sm" onClick={props.onClose}>Fechar</button>
           </div>
         </div>
         <div className={`${styles.botStudioBody} ${styles.agendaStudioBody}`}>
