@@ -1104,7 +1104,11 @@ async function downloadExcel(body: Record<string, unknown>) {
   window.URL.revokeObjectURL(objectUrl);
 }
 
-export default function WebscrapingClientPage() {
+type WebscrapingClientPageProps = {
+  mode?: "search" | "radar";
+};
+
+export default function WebscrapingClientPage({ mode = "search" }: WebscrapingClientPageProps) {
   const router = useRouter();
   const hasToken = useRequireModule("webscraping");
   const resultsRef = useRef<HTMLElement | null>(null);
@@ -1124,7 +1128,7 @@ export default function WebscrapingClientPage() {
     filterKey: "all",
     state: "",
     city: "",
-    segment: "Lanchonetes",
+    segment: "",
     quantity: 20,
     source: "",
     ddd: "",
@@ -1145,19 +1149,21 @@ export default function WebscrapingClientPage() {
     targetType: "pj" as HbxTargetType,
     state: "",
     city: "",
-    segment: "Lanchonetes",
+    segment: "",
     targetTotal: 500,
     batchSize: 25,
     nightOnly: true,
     allowedStartHour: 0,
     allowedEndHour: 6,
   });
+  const [stateSuggestionsOpen, setStateSuggestionsOpen] = useState(false);
   const [citySuggestionsOpen, setCitySuggestionsOpen] = useState(false);
   const [activeCitySuggestionIndex, setActiveCitySuggestionIndex] = useState(0);
   const [segmentSuggestionsOpen, setSegmentSuggestionsOpen] = useState(false);
+  const [openRadarPicker, setOpenRadarPicker] = useState<string | null>(null);
   const [selectedState, setSelectedState] = useState("");
   const [city, setCity] = useState("");
-  const [segment, setSegment] = useState("Lanchonetes");
+  const [segment, setSegment] = useState("");
   const [engine, setEngine] = useState<WebscrapingEngine>("google");
   const [targetType, setTargetType] = useState<HbxTargetType>("pj");
   const [pfRole, setPfRole] = useState("consultor");
@@ -1181,7 +1187,7 @@ export default function WebscrapingClientPage() {
   const [feedback, setFeedback] = useState<string | null>(null);
   const [hasSearched, setHasSearched] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
-  const [panelMode, setPanelMode] = useState<"search" | "radar">("radar");
+  const [panelMode, setPanelMode] = useState<"search" | "radar">(mode);
   const [appliedScriptSender, setAppliedScriptSender] = useState("");
   const [appliedScriptCompany, setAppliedScriptCompany] = useState("");
   const [scriptDraft, setScriptDraft] = useState("");
@@ -1204,6 +1210,14 @@ export default function WebscrapingClientPage() {
   }, [runtime?.quota]);
   const defaultScriptVariables = useMemo(() => buildDefaultScriptVariables(currentUser), [currentUser]);
   const cityOptions = useMemo(() => BRAZIL_CITIES_BY_STATE[selectedState] || [], [selectedState]);
+  const stateSuggestionItems = useMemo(() => {
+    const normalized = normalizeCityLookup(selectedState);
+    return BRAZIL_STATES
+      .map((item) => ({ value: item.uf, label: `${item.uf} - ${item.name}` }))
+      .filter((item) => !normalized || normalizeCityLookup(item.label).includes(normalized));
+  }, [selectedState]);
+  const radarCityOptions = useMemo(() => BRAZIL_CITIES_BY_STATE[String(radarFilters.state || "").trim().toUpperCase()] || [], [radarFilters.state]);
+  const campaignCityOptions = useMemo(() => BRAZIL_CITIES_BY_STATE[String(campaignForm.state || "").trim().toUpperCase()] || [], [campaignForm.state]);
   const scriptPresetStorageKey = useMemo(() => {
     const identity = currentUser?.id ?? currentUser?.email ?? currentUser?.username ?? "local";
     return `webscraping.scriptPreset.${identity}`;
@@ -1284,6 +1298,7 @@ export default function WebscrapingClientPage() {
   }, [city, cityOptions]);
   const shouldShowCitySuggestions =
     citySuggestionsOpen && Boolean(selectedState) && citySuggestionItems.length > 0;
+  const shouldShowStateSuggestions = stateSuggestionsOpen && stateSuggestionItems.length > 0;
   const citySelectionPending = cityOptions.length > 0 && city.trim().length > 0 && !cityExactOption;
   const activeCitySuggestion = shouldShowCitySuggestions
     ? citySuggestionItems[Math.min(activeCitySuggestionIndex, citySuggestionItems.length - 1)] || ""
@@ -1369,8 +1384,12 @@ export default function WebscrapingClientPage() {
           apiFetch<RuntimeResponse>("/webscraping/runtime"),
           apiFetch<CurrentUser>("/profile/current-user"),
           apiFetch<HistoryResponse>("/webscraping/history?limit=20"),
-          apiFetch<RadarDatabaseResponse>("/webscraping/radar/leads?limit=50").catch(() => ({ items: [], total: 0, facets: [] })),
-          apiFetch<RadarCampaignsResponse>("/webscraping/campaigns").catch(() => ({ items: [] })),
+          mode === "radar"
+            ? apiFetch<RadarDatabaseResponse>("/webscraping/radar/leads?limit=50").catch(() => ({ items: [], total: 0, facets: [] }))
+            : Promise.resolve({ items: [], total: 0, facets: [] } as RadarDatabaseResponse),
+          mode === "radar"
+            ? apiFetch<RadarCampaignsResponse>("/webscraping/campaigns").catch(() => ({ items: [] }))
+            : Promise.resolve({ items: [] } as RadarCampaignsResponse),
         ]);
         if (cancelled) return;
         setRuntime(runtimePayload);
@@ -1380,38 +1399,6 @@ export default function WebscrapingClientPage() {
         setRadarFacets((radarPayload.facets || []).filter((facet) => Number(facet.count || 0) > 0));
         setRadarCampaigns(campaignPayload.items || []);
         setPageError(null);
-        // hydrate local UI preferences (last city / segment and script preset)
-        try {
-          const lastCity = localStorage.getItem("webscraping.lastCity");
-          const lastState = localStorage.getItem("webscraping.lastState");
-          if (lastCity) {
-            const parsedLocation = splitCityState(String(lastCity), String(lastState || ""));
-            setCity((current) => current || parsedLocation.city);
-            if (parsedLocation.state) setSelectedState(parsedLocation.state);
-          } else if (lastState) {
-            setSelectedState(String(lastState).trim().toUpperCase());
-          }
-          const lastSegment = localStorage.getItem("webscraping.lastSegment");
-          if (lastSegment) {
-            setSegment(String(lastSegment));
-          }
-          const lastEngine = normalizeEngineValue(localStorage.getItem("webscraping.lastEngine"));
-          const lastTargetType = normalizeTargetTypeValue(localStorage.getItem("webscraping.lastTargetType"));
-          setEngine(lastEngine);
-          setTargetType(lastEngine === "google" ? "pj" : lastTargetType);
-          const lastPfRole = localStorage.getItem("webscraping.pfRole");
-          if (lastPfRole && PF_ROLE_OPTIONS.includes(lastPfRole)) setPfRole(lastPfRole);
-          const lastPfDdd = normalizeDdd(localStorage.getItem("webscraping.pfDdd") || "");
-          if (lastPfDdd) setPfDdd(lastPfDdd);
-          setRadarFilters((current) => ({
-            ...current,
-            state: String(lastState || current.state || "").trim().toUpperCase(),
-            city: lastCity ? splitCityState(String(lastCity), String(lastState || "")).city : current.city,
-            segment: lastSegment || current.segment,
-          }));
-        } catch {
-          // ignore storage errors
-        }
       } catch (error) {
         if (cancelled) return;
         setPageError(error instanceof Error ? error.message : "Falha ao carregar o modulo de prospeccao.");
@@ -1425,7 +1412,7 @@ export default function WebscrapingClientPage() {
     return () => {
       cancelled = true;
     };
-  }, [hasToken]);
+  }, [hasToken, mode]);
 
   useEffect(() => {
     if (!feedback) return;
@@ -1567,9 +1554,6 @@ export default function WebscrapingClientPage() {
       setTargetType("pj");
     } else {
       setTargetType((current) => current || "pj");
-      if (!segment.trim()) {
-        setSegment("Madeireira");
-      }
     }
     setQuantity((current) => {
       const nextMax = nextMode.quantityOptions[nextMode.quantityOptions.length - 1] || current;
@@ -1586,9 +1570,6 @@ export default function WebscrapingClientPage() {
     }
     if (nextTargetType === "agenda_pf" && SEGMENT_SUGGESTIONS.includes(segment)) {
       setSegment("");
-    }
-    if (nextTargetType === "pj" && !segment.trim()) {
-      setSegment("Madeireira");
     }
   }
 
@@ -1845,12 +1826,9 @@ export default function WebscrapingClientPage() {
     if (hasToken !== true || panelMode !== "radar") return;
     const timer = window.setInterval(() => {
       void refreshRadarCampaigns();
-      if (radarViewMode === "database") void refreshRadarDatabase();
     }, 7000);
     return () => window.clearInterval(timer);
-    // Polling intentionally reads the latest UI filters through refreshRadarDatabase.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hasToken, panelMode, radarViewMode, radarFilters]);
+  }, [hasToken, panelMode]);
 
   function searchRunStatusLabel(status: SearchRunStatus) {
     if (status === "queued") return "na fila";
@@ -2050,21 +2028,6 @@ export default function WebscrapingClientPage() {
             : `Busca concluída${finalPayload.query.city ? ` em ${finalPayload.query.city}` : ""}, mas nenhum telefone válido entrou nos resultados.`,
       });
       await refreshHistory();
-      // persist last city/segment locally for quicker re-entry
-      try {
-        localStorage.setItem("webscraping.lastCity", String(finalPayload.query.city || city || ""));
-        localStorage.setItem("webscraping.lastState", String(finalPayload.query.state || selectedState || ""));
-        const seg = normalizeTargetTypeValue(finalPayload.query.targetType || targetType) === "pf"
-          ? segment
-          : String(finalPayload.query.segment || segment || "");
-        localStorage.setItem("webscraping.lastSegment", seg);
-        localStorage.setItem("webscraping.lastEngine", String(finalPayload.query.engine || engine));
-        localStorage.setItem("webscraping.lastTargetType", String(finalPayload.query.targetType || targetType));
-        localStorage.setItem("webscraping.pfRole", pfRole);
-        localStorage.setItem("webscraping.pfDdd", normalizeDdd(pfDdd));
-      } catch {
-        // ignore storage errors
-      }
     } catch (error) {
       if (!results.length) {
         setResults([]);
@@ -2411,14 +2374,6 @@ export default function WebscrapingClientPage() {
                   <Icon name="search" size={16} />
                   Consulta principal
                 </button>
-                <button
-                  type="button"
-                  className={styles.modeTab}
-                  onClick={() => setPanelMode("radar")}
-                >
-                  <Icon name="clock" size={16} />
-                  Banco de Dados
-                </button>
                 <span className={styles.modeMetaButton}>
                   API oficial restantes: <strong>{remainingSearchesLabel}</strong>
                 </span>
@@ -2477,20 +2432,42 @@ export default function WebscrapingClientPage() {
                     </label>
                   ) : null}
 
-                  <label className={styles.field}>
+                  <label className={styles.field} onBlur={() => window.setTimeout(() => setStateSuggestionsOpen(false), 120)}>
                     <span className={styles.fieldLabel}>Estado</span>
-                    <select
-                      className={styles.fieldSelect}
-                      value={selectedState}
-                      onChange={(event) => handleStateChange(event.target.value)}
-                    >
-                      <option value="">Selecione</option>
-                      {BRAZIL_STATES.map((item) => (
-                        <option key={item.uf} value={item.uf}>
-                          {item.uf} - {item.name}
-                        </option>
-                      ))}
-                    </select>
+                    <div className={styles.cityInputWrap}>
+                      <input
+                        className={styles.fieldInput}
+                        value={selectedState}
+                        onChange={(event) => {
+                          handleStateChange(event.target.value.slice(0, 2));
+                          setStateSuggestionsOpen(true);
+                        }}
+                        onFocus={() => setStateSuggestionsOpen(true)}
+                        placeholder="Digite ou escolha o estado"
+                        autoComplete="off"
+                      />
+                      <Icon name="chevron" size={18} className={styles.cityInputArrow} />
+                    </div>
+                    {shouldShowStateSuggestions ? (
+                      <div className={styles.citySuggestions} role="listbox" aria-label="Estados">
+                        {stateSuggestionItems.map((item) => (
+                          <button
+                            key={item.value}
+                            type="button"
+                            className={selectedState === item.value ? styles.citySuggestionActive : styles.citySuggestion}
+                            onMouseDown={(event) => {
+                              event.preventDefault();
+                              handleStateChange(item.value);
+                              setStateSuggestionsOpen(false);
+                            }}
+                            role="option"
+                            aria-selected={selectedState === item.value}
+                          >
+                            {item.label}
+                          </button>
+                        ))}
+                      </div>
+                    ) : null}
                     <p className={styles.fieldHint}>A lista de cidades abaixo usa todos os municípios oficiais do estado.</p>
                   </label>
 
@@ -2835,26 +2812,18 @@ export default function WebscrapingClientPage() {
           <section className={styles.historyCard}>
             <div className={styles.sectionHeader}>
               <div>
-                <span className={styles.cardEyebrow}>HBX Radar Digital</span>
-                <strong className={styles.sectionTitle}>Banco Radar</strong>
-                <p className={styles.helperText}>Coleta persistente, histórico, limpeza e filtros inteligentes por botão.</p>
+                <span className={styles.cardEyebrow}>Módulo ativo</span>
+                <strong className={styles.sectionTitle}>Radar Digital</strong>
+                <p className={styles.helperText}>Cards persistentes, histórico, limpeza e filtros inteligentes.</p>
               </div>
               <div className={styles.modeTabs} role="tablist" aria-label="Webscraping">
-                <button
-                  type="button"
-                  className={styles.modeTab}
-                  onClick={() => setPanelMode("search")}
-                >
-                  <Icon name="search" size={16} />
-                  Consulta principal
-                </button>
                 <button
                   type="button"
                   className={styles.modeTabActive}
                   onClick={() => setPanelMode("radar")}
                 >
                   <Icon name="clock" size={16} />
-                  Banco Radar
+                  Radar Digital
                 </button>
                 <span className={styles.modeMetaButton}>
                   Cards na tela: <strong>{radarItems.length}</strong>
@@ -2884,33 +2853,125 @@ export default function WebscrapingClientPage() {
             {radarViewMode === "database" ? (
               <>
                 <div className={styles.radarFilterGrid}>
-                  <label className={styles.field}>
+                  <label className={styles.field} onBlur={() => window.setTimeout(() => setOpenRadarPicker((current) => (current === "radar-state" ? null : current)), 120)}>
                     <span className={styles.fieldLabel}>Estado</span>
-                    <input
-                      className={styles.fieldInput}
-                      value={radarFilters.state}
-                      onChange={(event) => setRadarFilters((current) => ({ ...current, state: event.target.value.toUpperCase(), page: 1 }))}
-                      placeholder="UF"
-                      maxLength={2}
-                    />
+                    <div className={styles.cityInputWrap}>
+                      <input
+                        className={styles.fieldInput}
+                        value={radarFilters.state}
+                        onFocus={() => setOpenRadarPicker("radar-state")}
+                        onChange={(event) => {
+                          setRadarFilters((current) => ({ ...current, state: event.target.value.slice(0, 2).toUpperCase(), city: "", page: 1 }));
+                          setOpenRadarPicker("radar-state");
+                        }}
+                        placeholder="Digite ou escolha o estado"
+                        maxLength={2}
+                        autoComplete="off"
+                      />
+                      <Icon name="chevron" size={18} className={styles.cityInputArrow} />
+                    </div>
+                    {openRadarPicker === "radar-state" ? (
+                      <div className={styles.citySuggestions} role="listbox" aria-label="Estados">
+                        {BRAZIL_STATES
+                          .map((item) => ({ value: item.uf, label: `${item.uf} - ${item.name}` }))
+                          .filter((item) => !radarFilters.state || normalizeCityLookup(item.label).includes(normalizeCityLookup(radarFilters.state)))
+                          .map((item) => (
+                            <button
+                              key={item.value}
+                              type="button"
+                              className={radarFilters.state === item.value ? styles.citySuggestionActive : styles.citySuggestion}
+                              onMouseDown={(event) => {
+                                event.preventDefault();
+                                setRadarFilters((current) => ({ ...current, state: item.value, city: "", page: 1 }));
+                                setOpenRadarPicker(null);
+                              }}
+                              role="option"
+                              aria-selected={radarFilters.state === item.value}
+                            >
+                              {item.label}
+                            </button>
+                          ))}
+                      </div>
+                    ) : null}
                   </label>
-                  <label className={styles.field}>
+                  <label className={styles.field} onBlur={() => window.setTimeout(() => setOpenRadarPicker((current) => (current === "radar-city" ? null : current)), 120)}>
                     <span className={styles.fieldLabel}>Cidade</span>
-                    <input
-                      className={styles.fieldInput}
-                      value={radarFilters.city}
-                      onChange={(event) => setRadarFilters((current) => ({ ...current, city: event.target.value, page: 1 }))}
-                      placeholder="Ex: Campinas"
-                    />
+                    <div className={styles.cityInputWrap}>
+                      <input
+                        className={styles.fieldInput}
+                        value={radarFilters.city}
+                        onFocus={() => setOpenRadarPicker("radar-city")}
+                        onChange={(event) => {
+                          setRadarFilters((current) => ({ ...current, city: event.target.value, page: 1 }));
+                          setOpenRadarPicker("radar-city");
+                        }}
+                        placeholder={radarFilters.state ? "Digite e selecione a cidade" : "Selecione o estado primeiro"}
+                        disabled={!radarFilters.state}
+                        autoComplete="off"
+                      />
+                      <Icon name="chevron" size={18} className={styles.cityInputArrow} />
+                    </div>
+                    {openRadarPicker === "radar-city" && radarCityOptions.length > 0 ? (
+                      <div className={styles.citySuggestions} role="listbox" aria-label="Cidades">
+                        {radarCityOptions
+                          .filter((item) => !radarFilters.city || normalizeCityLookup(item).includes(normalizeCityLookup(radarFilters.city)))
+                          .map((item) => (
+                            <button
+                              key={item}
+                              type="button"
+                              className={radarFilters.city === item ? styles.citySuggestionActive : styles.citySuggestion}
+                              onMouseDown={(event) => {
+                                event.preventDefault();
+                                setRadarFilters((current) => ({ ...current, city: item, page: 1 }));
+                                setOpenRadarPicker(null);
+                              }}
+                              role="option"
+                              aria-selected={radarFilters.city === item}
+                            >
+                              {item}
+                            </button>
+                          ))}
+                      </div>
+                    ) : null}
                   </label>
-                  <label className={styles.field}>
+                  <label className={styles.field} onBlur={() => window.setTimeout(() => setOpenRadarPicker((current) => (current === "radar-segment" ? null : current)), 120)}>
                     <span className={styles.fieldLabel}>Nicho</span>
-                    <input
-                      className={styles.fieldInput}
-                      value={radarFilters.segment}
-                      onChange={(event) => setRadarFilters((current) => ({ ...current, segment: event.target.value, page: 1 }))}
-                      placeholder="Ex: Lanchonetes"
-                    />
+                    <div className={styles.cityInputWrap}>
+                      <input
+                        className={styles.fieldInput}
+                        value={radarFilters.segment}
+                        onFocus={() => setOpenRadarPicker("radar-segment")}
+                        onChange={(event) => {
+                          setRadarFilters((current) => ({ ...current, segment: event.target.value, page: 1 }));
+                          setOpenRadarPicker("radar-segment");
+                        }}
+                        placeholder="Digite ou escolha um nicho"
+                        autoComplete="off"
+                      />
+                      <Icon name="chevron" size={18} className={styles.cityInputArrow} />
+                    </div>
+                    {openRadarPicker === "radar-segment" ? (
+                      <div className={styles.citySuggestions} role="listbox" aria-label="Nichos">
+                        {SEGMENT_SUGGESTIONS
+                          .filter((item) => !radarFilters.segment || normalizeCityLookup(item).includes(normalizeCityLookup(radarFilters.segment)))
+                          .map((item) => (
+                            <button
+                              key={item}
+                              type="button"
+                              className={radarFilters.segment === item ? styles.citySuggestionActive : styles.citySuggestion}
+                              onMouseDown={(event) => {
+                                event.preventDefault();
+                                setRadarFilters((current) => ({ ...current, segment: item, page: 1 }));
+                                setOpenRadarPicker(null);
+                              }}
+                              role="option"
+                              aria-selected={radarFilters.segment === item}
+                            >
+                              {item}
+                            </button>
+                          ))}
+                      </div>
+                    ) : null}
                   </label>
                   <label className={styles.field}>
                     <span className={styles.fieldLabel}>DDD</span>
@@ -3088,20 +3149,125 @@ export default function WebscrapingClientPage() {
                       <option value="agenda_pf">Agenda CPF</option>
                     </select>
                   </label>
-                  <label className={styles.field}>
+                  <label className={styles.field} onBlur={() => window.setTimeout(() => setOpenRadarPicker((current) => (current === "campaign-state" ? null : current)), 120)}>
                     <span className={styles.fieldLabel}>Estado</span>
-                    <select className={styles.fieldSelect} value={campaignForm.state} onChange={(event) => setCampaignForm((current) => ({ ...current, state: event.target.value }))}>
-                      <option value="">Todos</option>
-                      {BRAZIL_STATES.map((item) => <option key={item.uf} value={item.uf}>{item.uf}</option>)}
-                    </select>
+                    <div className={styles.cityInputWrap}>
+                      <input
+                        className={styles.fieldInput}
+                        value={campaignForm.state}
+                        onFocus={() => setOpenRadarPicker("campaign-state")}
+                        onChange={(event) => {
+                          setCampaignForm((current) => ({ ...current, state: event.target.value.slice(0, 2).toUpperCase(), city: "" }));
+                          setOpenRadarPicker("campaign-state");
+                        }}
+                        placeholder="Digite ou escolha o estado"
+                        maxLength={2}
+                        autoComplete="off"
+                      />
+                      <Icon name="chevron" size={18} className={styles.cityInputArrow} />
+                    </div>
+                    {openRadarPicker === "campaign-state" ? (
+                      <div className={styles.citySuggestions} role="listbox" aria-label="Estados">
+                        {BRAZIL_STATES
+                          .map((item) => ({ value: item.uf, label: `${item.uf} - ${item.name}` }))
+                          .filter((item) => !campaignForm.state || normalizeCityLookup(item.label).includes(normalizeCityLookup(campaignForm.state)))
+                          .map((item) => (
+                            <button
+                              key={item.value}
+                              type="button"
+                              className={campaignForm.state === item.value ? styles.citySuggestionActive : styles.citySuggestion}
+                              onMouseDown={(event) => {
+                                event.preventDefault();
+                                setCampaignForm((current) => ({ ...current, state: item.value, city: "" }));
+                                setOpenRadarPicker(null);
+                              }}
+                              role="option"
+                              aria-selected={campaignForm.state === item.value}
+                            >
+                              {item.label}
+                            </button>
+                          ))}
+                      </div>
+                    ) : null}
                   </label>
-                  <label className={styles.field}>
+                  <label className={styles.field} onBlur={() => window.setTimeout(() => setOpenRadarPicker((current) => (current === "campaign-city" ? null : current)), 120)}>
                     <span className={styles.fieldLabel}>Cidade</span>
-                    <input className={styles.fieldInput} value={campaignForm.city} onChange={(event) => setCampaignForm((current) => ({ ...current, city: event.target.value }))} placeholder="Ex: Campinas" />
+                    <div className={styles.cityInputWrap}>
+                      <input
+                        className={styles.fieldInput}
+                        value={campaignForm.city}
+                        onFocus={() => setOpenRadarPicker("campaign-city")}
+                        onChange={(event) => {
+                          setCampaignForm((current) => ({ ...current, city: event.target.value }));
+                          setOpenRadarPicker("campaign-city");
+                        }}
+                        placeholder={campaignForm.state ? "Digite e selecione a cidade" : "Selecione o estado primeiro"}
+                        disabled={!campaignForm.state}
+                        autoComplete="off"
+                      />
+                      <Icon name="chevron" size={18} className={styles.cityInputArrow} />
+                    </div>
+                    {openRadarPicker === "campaign-city" && campaignCityOptions.length > 0 ? (
+                      <div className={styles.citySuggestions} role="listbox" aria-label="Cidades">
+                        {campaignCityOptions
+                          .filter((item) => !campaignForm.city || normalizeCityLookup(item).includes(normalizeCityLookup(campaignForm.city)))
+                          .map((item) => (
+                            <button
+                              key={item}
+                              type="button"
+                              className={campaignForm.city === item ? styles.citySuggestionActive : styles.citySuggestion}
+                              onMouseDown={(event) => {
+                                event.preventDefault();
+                                setCampaignForm((current) => ({ ...current, city: item }));
+                                setOpenRadarPicker(null);
+                              }}
+                              role="option"
+                              aria-selected={campaignForm.city === item}
+                            >
+                              {item}
+                            </button>
+                          ))}
+                      </div>
+                    ) : null}
                   </label>
-                  <label className={styles.field}>
+                  <label className={styles.field} onBlur={() => window.setTimeout(() => setOpenRadarPicker((current) => (current === "campaign-segment" ? null : current)), 120)}>
                     <span className={styles.fieldLabel}>Nicho / Serviço</span>
-                    <input className={styles.fieldInput} value={campaignForm.segment} onChange={(event) => setCampaignForm((current) => ({ ...current, segment: event.target.value }))} placeholder="Ex: lanchonetes" />
+                    <div className={styles.cityInputWrap}>
+                      <input
+                        className={styles.fieldInput}
+                        value={campaignForm.segment}
+                        onFocus={() => setOpenRadarPicker("campaign-segment")}
+                        onChange={(event) => {
+                          setCampaignForm((current) => ({ ...current, segment: event.target.value }));
+                          setOpenRadarPicker("campaign-segment");
+                        }}
+                        placeholder="Digite ou escolha um nicho"
+                        autoComplete="off"
+                      />
+                      <Icon name="chevron" size={18} className={styles.cityInputArrow} />
+                    </div>
+                    {openRadarPicker === "campaign-segment" ? (
+                      <div className={styles.citySuggestions} role="listbox" aria-label="Nichos">
+                        {SEGMENT_SUGGESTIONS
+                          .filter((item) => !campaignForm.segment || normalizeCityLookup(item).includes(normalizeCityLookup(campaignForm.segment)))
+                          .map((item) => (
+                            <button
+                              key={item}
+                              type="button"
+                              className={campaignForm.segment === item ? styles.citySuggestionActive : styles.citySuggestion}
+                              onMouseDown={(event) => {
+                                event.preventDefault();
+                                setCampaignForm((current) => ({ ...current, segment: item }));
+                                setOpenRadarPicker(null);
+                              }}
+                              role="option"
+                              aria-selected={campaignForm.segment === item}
+                            >
+                              {item}
+                            </button>
+                          ))}
+                      </div>
+                    ) : null}
                   </label>
                   <label className={styles.field}>
                     <span className={styles.fieldLabel}>Quantidade alvo</span>

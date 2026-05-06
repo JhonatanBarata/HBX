@@ -40,11 +40,6 @@ type NoticeState = {
   text: string;
 };
 
-type StoredDraft = {
-  config: AtendimentoBotConfig;
-  savedAt: string;
-};
-
 type ProspectingAutomationConfig = {
   city: string;
   state: string;
@@ -464,7 +459,7 @@ const PROSPECTING_VARIABLES = [
 const DEFAULT_PROSPECTING_CONFIG: ProspectingAutomationConfig = {
   city: "",
   state: "",
-  segment: "madeireiras",
+  segment: "",
   engine: "hbx",
   targetType: "pj",
   messageTemplate:
@@ -511,7 +506,7 @@ function renderProspectingPreview(
   variables: ProspectingPreviewVariables,
 ) {
   const values: Record<string, string> = {
-    cliente: "Madeireira Modelo",
+    cliente: "Cliente Modelo",
     empresa: variables.empresa,
     funcionario: variables.funcionario,
     cidade: config.city || "sua região",
@@ -551,45 +546,6 @@ function mergeModalPayload(
       qrCodeDataUrl: qrPayload.data.qrCodeDataUrl || null,
     },
   };
-}
-
-function formatLabel(value?: string | null) {
-  const normalized = String(value || "").trim();
-  if (!normalized) return "-";
-  const parsed = new Date(normalized);
-  if (Number.isNaN(parsed.getTime())) return normalized;
-  return parsed.toLocaleString("pt-BR", {
-    day: "2-digit",
-    month: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
-
-function readStoredDraft(): StoredDraft | null {
-  if (typeof window === "undefined") return null;
-  try {
-    const raw = window.localStorage.getItem(DRAFT_STORAGE_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as { config?: AtendimentoBotConfig; savedAt?: string };
-    if (!parsed?.config) return null;
-    return {
-      config: normalizeBotConfig(parsed.config),
-      savedAt: String(parsed.savedAt || new Date().toISOString()),
-    };
-  } catch {
-    return null;
-  }
-}
-
-function writeStoredDraft(config: AtendimentoBotConfig) {
-  if (typeof window === "undefined") return null;
-  const savedAt = new Date().toISOString();
-  window.localStorage.setItem(
-    DRAFT_STORAGE_KEY,
-    JSON.stringify({ config: normalizeBotConfig(config), savedAt }),
-  );
-  return savedAt;
 }
 
 function clearStoredDraft() {
@@ -777,7 +733,6 @@ function ProspectingAutomationPanel({
   const [negativeKeywordsDraft, setNegativeKeywordsDraft] = useState(config.negativeIntentKeywords.join(", "));
   const [variableTarget, setVariableTarget] = useState<"messageTemplate" | "optOutMessage">("messageTemplate");
   const [variablesOpen, setVariablesOpen] = useState(false);
-  const [segmentMenuOpen, setSegmentMenuOpen] = useState(false);
   const [openDropdown, setOpenDropdown] = useState<string | null>(null);
   const [selectedCampaignTypeId, setSelectedCampaignTypeId] = useState<CampaignTypeId>("cnpj_local");
   const [selectedMessagePresetId, setSelectedMessagePresetId] = useState("");
@@ -796,6 +751,10 @@ function ProspectingAutomationPanel({
   const cityRequired = requiresProspectingCity(config);
   const selectedState = String(config.state || "").trim().toUpperCase();
   const cityOptions = useMemo(() => BRAZIL_CITIES_BY_STATE[selectedState] || [], [selectedState]);
+  const stateSearchItems = useMemo(
+    () => BRAZIL_STATES.map((item) => ({ value: item.uf, label: `${item.uf} - ${item.name}` })),
+    [],
+  );
 
   useEffect(() => {
     // Keep textarea drafts aligned when a saved campaign replaces the local config.
@@ -909,20 +868,42 @@ function ProspectingAutomationPanel({
             <label className={styles.hbxDropdownContainer} onBlur={() => window.setTimeout(() => setOpenDropdown((prev) => (prev === "state" ? null : prev)), 120)}>
               <span>Estado</span>
               <div className={styles.hbxDropdown}>
-                <select
-                  className={styles.selectField}
+                <input
+                  className={`${styles.inputField} ${styles.hbxDropdownInput}`}
                   value={selectedState}
-                  onChange={(event) => setStateField(event.target.value)}
                   onFocus={() => setOpenDropdown("state")}
-                  onClick={() => setOpenDropdown("state")}
-                  onBlur={() => window.setTimeout(() => setOpenDropdown((prev) => (prev === "state" ? null : prev)), 120)}
-                >
-                  <option value="">Selecione</option>
-                  {BRAZIL_STATES.map((item) => (
-                    <option key={item.uf} value={item.uf}>{item.uf} - {item.name}</option>
-                  ))}
-                </select>
-                {openDropdown === "state" ? <div className={styles.hbxDropdownOpeningNotice}>Abrindo os dados...</div> : null}
+                  onChange={(event) => {
+                    setStateField(event.target.value.slice(0, 2));
+                    setOpenDropdown("state");
+                  }}
+                  placeholder="Digite ou escolha o estado"
+                  autoComplete="off"
+                />
+                <button type="button" className={styles.hbxDropdownToggle} onMouseDown={(e) => e.preventDefault()} onClick={() => setOpenDropdown((prev) => (prev === "state" ? null : "state"))} aria-label="Abrir lista de estados">
+                  <svg width="14" height="10" viewBox="0 0 14 10" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M1 1L7 7L13 1" stroke="#0B1720" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                </button>
+                {openDropdown === "state" ? (
+                  <div className={styles.hbxDropdownMenu} role="listbox" aria-label="Estados">
+                    {stateSearchItems
+                      .filter((item) => !selectedState || normalizeSearchText(item.label).includes(normalizeSearchText(selectedState)))
+                      .map((item) => (
+                        <button
+                          key={item.value}
+                          type="button"
+                          role="option"
+                          aria-selected={selectedState === item.value}
+                          className={styles.segmentSuggestionOption}
+                          onMouseDown={(event) => event.preventDefault()}
+                          onClick={() => {
+                            setStateField(item.value);
+                            setOpenDropdown(null);
+                          }}
+                        >
+                          {item.label}
+                        </button>
+                      ))}
+                  </div>
+                ) : null}
               </div>
             </label>
             <label className={styles.hbxDropdownContainer} onBlur={() => window.setTimeout(() => setOpenDropdown((prev) => (prev === "city" ? null : prev)), 120)}>
@@ -952,15 +933,57 @@ function ProspectingAutomationPanel({
                 </button>
                 {openDropdown === "city" ? (
                   <div className={styles.hbxDropdownMenu} role="listbox" aria-label="Cidades sugeridas">
-                    {cityOptions.map((item) => (
+                    {cityOptions
+                      .filter((item) => !config.city || normalizeSearchText(item).includes(normalizeSearchText(config.city)))
+                      .map((item) => (
+                        <button
+                          key={item}
+                          type="button"
+                          role="option"
+                          aria-selected={config.city === item}
+                          className={styles.segmentSuggestionOption}
+                          onMouseDown={(event) => event.preventDefault()}
+                          onClick={() => {
+                            setField("city", item);
+                            setOpenDropdown(null);
+                          }}
+                        >
+                          {item}
+                        </button>
+                      ))}
+                  </div>
+                ) : null}
+              </div>
+            </label>
+            <label className={styles.hbxDropdownContainer} onBlur={() => window.setTimeout(() => setOpenDropdown((prev) => (prev === "segment" ? null : prev)), 120)}>
+              <span>Segmento</span>
+              <div className={styles.hbxDropdown}>
+                <input
+                  className={`${styles.inputField} ${styles.hbxDropdownInput}`}
+                  value={config.segment}
+                  onFocus={() => setOpenDropdown("segment")}
+                  onChange={(event) => {
+                    setField("segment", event.target.value);
+                    setOpenDropdown("segment");
+                  }}
+                  placeholder="Digite ou escolha um segmento"
+                  autoComplete="off"
+                />
+                <button type="button" className={styles.hbxDropdownToggle} onMouseDown={(e) => e.preventDefault()} onClick={() => setOpenDropdown((prev) => (prev === "segment" ? null : "segment"))} aria-label="Abrir lista de segmentos">
+                  <svg width="14" height="10" viewBox="0 0 14 10" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M1 1L7 7L13 1" stroke="#0B1720" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                </button>
+                {openDropdown === "segment" ? (
+                  <div className={styles.hbxDropdownMenu} role="listbox" aria-label="Segmentos sugeridos">
+                    {filteredSegmentSuggestions.map((item) => (
                       <button
                         key={item}
                         type="button"
                         role="option"
+                        aria-selected={config.segment === item}
                         className={styles.segmentSuggestionOption}
                         onMouseDown={(event) => event.preventDefault()}
                         onClick={() => {
-                          setField("city", item);
+                          setField("segment", item);
                           setOpenDropdown(null);
                         }}
                       >
@@ -970,39 +993,6 @@ function ProspectingAutomationPanel({
                   </div>
                 ) : null}
               </div>
-            </label>
-            <label className={styles.segmentPickerField} onBlur={() => window.setTimeout(() => setSegmentMenuOpen(false), 120)}>
-              <span>Segmento</span>
-              <input
-                className={styles.inputField}
-                value={config.segment}
-                onFocus={() => setSegmentMenuOpen(true)}
-                onChange={(event) => {
-                  setField("segment", event.target.value);
-                  setSegmentMenuOpen(true);
-                }}
-                placeholder="Digite ou escolha um segmento"
-                autoComplete="off"
-              />
-              {segmentMenuOpen ? (
-                <div className={styles.segmentSuggestionMenu} role="listbox" aria-label="Segmentos sugeridos">
-                  {filteredSegmentSuggestions.map((item) => (
-                    <button
-                      key={item}
-                      type="button"
-                      role="option"
-                      className={styles.segmentSuggestionOption}
-                      onMouseDown={(event) => event.preventDefault()}
-                      onClick={() => {
-                        setField("segment", item);
-                        setSegmentMenuOpen(false);
-                      }}
-                    >
-                      {item}
-                    </button>
-                  ))}
-                </div>
-              ) : null}
             </label>
             <datalist id="prospecting-city-list">
               {cityOptions.map((item) => <option key={item} value={item} />)}
@@ -1430,26 +1420,14 @@ export default function VendasAutomationClientPage() {
 
       const botPayload = await apiFetch<AtendimentoBotConfig>("/vendas/automation/bot-config");
       const normalizedBot = normalizeBotConfig(botPayload);
-      const storedDraft = readStoredDraft();
 
       setPublishedConfig(normalizedBot);
       setPublishedAt(new Date().toISOString());
-
-      if (storedDraft) {
-        setDraftConfig(storedDraft.config);
-        setDraftSavedAt(storedDraft.savedAt);
-        prospectingDirtyRef.current = true;
-        setProspectingConfig(mergeProspectingConfigFromStatus(null, storedDraft.config));
-        setNotice({
-          tone: "info",
-          text: "Rascunho local carregado para continuar a edicao da automacao WhatsApp.",
-        });
-      } else {
-        setDraftConfig(normalizedBot);
-        prospectingDirtyRef.current = false;
-        setProspectingConfig(mergeProspectingConfigFromStatus(null, normalizedBot));
-        setDraftSavedAt(null);
-      }
+      clearStoredDraft();
+      setDraftConfig(normalizedBot);
+      prospectingDirtyRef.current = false;
+      setProspectingConfig(mergeProspectingConfigFromStatus(null, normalizedBot));
+      setDraftSavedAt(null);
     } catch (loadError) {
       const redirectTo = getBotAiPlanRedirectFromError(loadError, BOT_PLAN_HREF);
       if (redirectTo) {
@@ -1553,12 +1531,6 @@ export default function VendasAutomationClientPage() {
     return () => window.clearInterval(interval);
   }, [loadConnection, modalPayload?.data.available, modalPayload?.status]);
 
-  const handleSaveDraft = useCallback(() => {
-    const savedAt = writeStoredDraft(draftConfig);
-    setDraftSavedAt(savedAt);
-    setNotice({ tone: "success", text: "Rascunho salvo localmente nesta automacao." });
-  }, [draftConfig]);
-
   const saveBotConfig = useCallback(async (nextConfig: AtendimentoBotConfig, successText: string) => {
     if (!botAiActive) {
       setNotice({
@@ -1602,6 +1574,10 @@ export default function VendasAutomationClientPage() {
       setPublishing(false);
     }
   }, [botAiActive, openBotPlans, router]);
+
+  const handleSaveDraft = useCallback(() => {
+    void saveBotConfig(draftConfig, "Rascunho salvo no banco de dados.");
+  }, [draftConfig, saveBotConfig]);
 
   const updateProspectingConfigState = useCallback(
     (updater: (current: ProspectingAutomationConfig) => ProspectingAutomationConfig) => {

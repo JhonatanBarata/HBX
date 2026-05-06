@@ -723,11 +723,18 @@
 .radarGrid {
   display: grid;
   gap: 0.8rem;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
 }
 
 .radarCard {
   position: relative;
   overflow: hidden;
+  grid-template-columns: 1fr;
+  align-items: stretch;
+}
+
+.radarGrid .radarActions {
+  grid-auto-flow: row;
 }
 
 .radarCard::before,
