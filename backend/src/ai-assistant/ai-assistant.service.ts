@@ -140,7 +140,7 @@ export class AiAssistantService {
     });
 
     const ranked = candidates
-      .filter((lead: any) => !lead.customerProfile?.botOff)
+      .filter((lead: any) => !this.isLeadBlockedForProspect(lead))
       .map((lead: any) => {
         let score = 0;
         const status = String(lead.status || '').toLowerCase();
@@ -280,6 +280,20 @@ export class AiAssistantService {
       });
     }
 
+    const latestRunStatus = String(latestRun?.status || '').toLowerCase();
+    if (latestRun && ['failed', 'partial_error'].includes(latestRunStatus)) {
+      insights.push({
+        id: 'search_errors',
+        title: 'Erros detectados',
+        description: safeString(
+          latestRun.errorMessage || latestRun.lastBatchError || 'A ultima busca de leads terminou com alerta operacional.',
+          180,
+        ),
+        tone: 'danger',
+        actionLabel: 'Ver busca',
+      });
+    }
+
     const bestHour = this.resolveBestResponseHour(recentInboundMessages.map((item) => item.timestamp));
     if (bestHour) {
       insights.push({
@@ -290,7 +304,7 @@ export class AiAssistantService {
       });
     }
 
-    const currentSearchCompleted = ['completed', 'partial_error', 'failed', 'canceled'].includes(String(latestRun?.status || '').toLowerCase());
+    const currentSearchCompleted = ['completed', 'partial_error', 'failed', 'canceled'].includes(latestRunStatus);
     const requestMoreVisible = Boolean(currentSearchCompleted && pendingLeads <= 3);
     return {
       generatedAt: now.toISOString(),
@@ -401,6 +415,30 @@ export class AiAssistantService {
     );
   }
 
+  private isLeadBlockedForProspect(lead: any) {
+    if (lead?.customerProfile?.botOff) return true;
+    const haystack = [
+      lead?.status,
+      lead?.lastResult,
+      lead?.shortNote,
+      lead?.nextAction,
+      lead?.customerProfile?.botOffReason,
+      lead?.customerProfile?.notes,
+    ]
+      .map((value) => String(value || '').trim().toLowerCase())
+      .join(' ');
+    return [
+      'não ligar mais',
+      'nao ligar mais',
+      'nao chamar mais',
+      'não chamar mais',
+      'opt out',
+      'opt-out',
+      'remover contato',
+      'sem interesse',
+    ].some((term) => haystack.includes(term));
+  }
+
   private buildNextProspectReason(lead: any) {
     if (!lead.lastContactAt && Number(lead.attemptCount || 0) === 0) return 'Ainda nao recebeu primeira mensagem.';
     const silence = hoursAgo(lead.lastContactAt);
@@ -482,6 +520,7 @@ export class AiAssistantService {
       body: JSON.stringify({
         model,
         input,
+        store: false,
         max_output_tokens: 180,
         text: { format: { type: 'text' } },
       }),
