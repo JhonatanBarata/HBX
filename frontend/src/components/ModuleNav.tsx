@@ -77,6 +77,16 @@ const NAV_ITEMS: NavItem[] = [
     moduleKey: "webscraping",
   },
   {
+    key: "radar_digital",
+    href: "/radar-digital",
+    label: "Radar Digital",
+    shortLabel: "RD",
+    description: "Cards persistentes do webscraping.",
+    matcher: (route) => route.startsWith("/radar-digital"),
+    category: "commercial",
+    moduleKey: "webscraping",
+  },
+  {
     key: "follow_up_internacional",
     href: "/followup-global",
     label: "Follow Up",
@@ -408,9 +418,11 @@ export default function ModuleNav({
                   ? resolveBlockedDescription(item, moduleItem, isSystemMaster)
                   : override?.description || item.description,
               );
-              const href = item.moduleKey
-                ? resolveModuleHref(item.moduleKey, moduleItem?.serviceUrl || item.href)
-                : item.href;
+              const href = item.key === "radar_digital"
+                ? item.href
+                : item.moduleKey
+                  ? resolveModuleHref(item.moduleKey, moduleItem?.serviceUrl || item.href)
+                  : item.href;
 
               if (presentationEditing && canEditPresentation) {
                 return (
