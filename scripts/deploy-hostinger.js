@@ -205,7 +205,7 @@ function printFrontendDeployNotice(config, changedFiles) {
 
   console.log([
     '',
-    'Aviso operacional: mudancas de frontend foram detectadas e entram no build do servico hbx-frontend na Hostinger.',
+    'Aviso operacional: mudancas de frontend foram detectadas e entram no build PM2 fora do Docker na Hostinger.',
     `Frontend publicado em ${config.frontendUrl}.`,
     `Arquivos de frontend detectados neste publish: ${preview}${suffix}`,
   ].join('\n'));
@@ -303,26 +303,65 @@ function buildRemoteDeployScript(config, mode) {
     'if ! docker inspect -f "{{.State.Running}}" hbx-postgres 2>/dev/null | grep -q true; then echo "ERRO: container hbx-postgres nao esta running."; exit 1; fi',
     'POSTGRES_DB_VALUE="$(docker exec hbx-postgres sh -lc \'printf "%s" "$POSTGRES_DB"\')"',
     'if [ "$POSTGRES_DB_VALUE" != "hbx_prod" ]; then echo "ERRO: POSTGRES_DB inesperado: $POSTGRES_DB_VALUE"; exit 1; fi',
+    'ensure_pm2() {',
+    '  if command -v pm2 >/dev/null 2>&1; then return 0; fi',
+    '  echo "PM2 nao encontrado; instalando globalmente..."',
+    '  npm i -g pm2',
+    '}',
+    'cleanup_frontend_docker() {',
+    '  echo "Garantindo frontend fora do Docker..."',
+    '  docker rm -f hbx-frontend frontend 2>/dev/null || true',
+    '}',
+    'verify_frontend_pm2() {',
+    '  for i in $(seq 1 45); do',
+    '    if command -v curl >/dev/null 2>&1 && curl -fsSI http://127.0.0.1:3001 >/dev/null 2>&1; then echo "Frontend PM2 pronto em http://127.0.0.1:3001"; return 0; fi',
+    '    if command -v wget >/dev/null 2>&1 && wget -q --spider http://127.0.0.1:3001 >/dev/null 2>&1; then echo "Frontend PM2 pronto em http://127.0.0.1:3001"; return 0; fi',
+    '    echo "Aguardando frontend PM2 ($i/45)..."',
+    '    sleep 2',
+    '  done',
+    '  echo "ERRO: frontend PM2 nao respondeu em http://127.0.0.1:3001."',
+    '  pm2 logs hbx-frontend --lines 120 --nostream 2>/dev/null || true',
+    '  exit 1',
+    '}',
+    'deploy_frontend_pm2() {',
+    '  echo "Publicando frontend fora do Docker via PM2..."',
+    '  cleanup_frontend_docker',
+    '  ensure_pm2',
+    '  cd "$APP_DIR/frontend"',
+    '  npm ci',
+    '  npm run build',
+    '  if pm2 describe hbx-frontend >/dev/null 2>&1; then',
+    '    pm2 restart hbx-frontend --update-env',
+    '  else',
+    '    pm2 start npm --name hbx-frontend -- run start',
+    '  fi',
+    '  pm2 save',
+    '  cd "$APP_DIR"',
+    '  verify_frontend_pm2',
+    '}',
   ];
 
   if (isForce) {
     lines.push(
       'docker rm -f backend hbx-backend hbx-frontend webscraping hbx-scraping-engine c7227f19b684_hbx-scraping-engine ab1704a260e6_hbx-frontend e22f61f3f5da_webscraping 2>/dev/null || true',
-      'run_filtered $DC --env-file .env -f docker-compose.hostinger.yml build --no-cache backend webscraping hbx-scraping-engine frontend || echo "Aviso: build --no-cache falhou; tentando up -d --build."',
-      'run_filtered $DC --env-file .env -f docker-compose.hostinger.yml up -d --build --no-deps backend webscraping hbx-scraping-engine frontend',
-      'docker restart hbx-backend hbx-frontend webscraping hbx-scraping-engine',
+      'run_filtered $DC --env-file .env -f docker-compose.hostinger.yml build --no-cache backend webscraping hbx-scraping-engine || echo "Aviso: build --no-cache falhou; tentando up -d --build."',
+      'run_filtered $DC --env-file .env -f docker-compose.hostinger.yml up -d --build --no-deps backend webscraping hbx-scraping-engine',
+      'docker restart hbx-backend webscraping hbx-scraping-engine',
+      'deploy_frontend_pm2',
       'docker image prune -f',
       'docker builder prune -f || true',
       'if [ "$FORCE_REBOOT_HOSTINGER" = "true" ]; then echo "FORCE_REBOOT_HOSTINGER=true: reiniciando VPS."; (sudo reboot || reboot); else echo "Reboot da VPS ignorado. Defina FORCE_REBOOT_HOSTINGER=true para habilitar."; fi',
     );
   } else {
     lines.push('docker rm -f backend hbx-backend hbx-frontend webscraping hbx-scraping-engine c7227f19b684_hbx-scraping-engine ab1704a260e6_hbx-frontend e22f61f3f5da_webscraping 2>/dev/null || true');
-    lines.push('run_filtered $DC --env-file .env -f docker-compose.hostinger.yml up -d --build --no-deps backend webscraping hbx-scraping-engine frontend');
+    lines.push('run_filtered $DC --env-file .env -f docker-compose.hostinger.yml up -d --build --no-deps backend webscraping hbx-scraping-engine');
+    lines.push('deploy_frontend_pm2');
   }
 
   lines.push(
     'echo "Containers ativos:"',
     'docker ps --format "table {{.Names}}\\t{{.Status}}\\t{{.Ports}}" | grep -E "NAMES|hbx-frontend|hbx-backend|webscraping|hbx-scraping-engine|hbx-postgres" || true',
+    'pm2 list | grep -E "hbx-frontend|App name|name|online" || true',
   );
 
   return lines.join('\n');
