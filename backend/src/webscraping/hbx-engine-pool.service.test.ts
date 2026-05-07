@@ -96,4 +96,6 @@ test('resolveConfiguredHbxEngineUrls never returns localhost defaults in product
       dockerUrls,
     );
   });
+
+  assert.deepEqual(resolveConfiguredHbxEngineUrls({ NODE_ENV: 'production' }), dockerUrls);
 });

@@ -118,6 +118,9 @@ type FormState = {
   maxAttemptsPerTask: number;
 };
 
+const BRASILIA_TIME_ZONE = "America/Sao_Paulo";
+const MAX_HBX_ENGINE_COUNT = 20;
+
 const DEFAULT_FORM: FormState = {
   state: "",
   city: "",
@@ -125,15 +128,12 @@ const DEFAULT_FORM: FormState = {
   targetType: "both",
   startTime: "20:00",
   endTime: "08:00",
-  engineCount: 4,
+  engineCount: MAX_HBX_ENGINE_COUNT,
   intensity: "turbo",
   memoryTargetGb: 16,
   batchSize: 20,
   maxAttemptsPerTask: 3,
 };
-
-const BRASILIA_TIME_ZONE = "America/Sao_Paulo";
-const MAX_HBX_ENGINE_COUNT = 20;
 
 function clampNumber(value: unknown, fallback: number, min: number, max: number) {
   const parsed = Number(value);
@@ -278,7 +278,7 @@ export default function MasterWebscrapingClientPage() {
       ...current,
       startTime: formatTime(config.startHour, config.startMinute),
       endTime: formatTime(config.endHour, config.endMinute),
-      engineCount: clampNumber(config.engineCount, 4, 1, MAX_HBX_ENGINE_COUNT),
+      engineCount: clampNumber(config.engineCount, MAX_HBX_ENGINE_COUNT, 1, MAX_HBX_ENGINE_COUNT),
       intensity: normalizeIntensity(config.intensity),
       memoryTargetGb: clampNumber(config.memoryTargetGb, 16, 1, 256),
       batchSize: clampNumber(config.batchSize, 20, 1, 20),
@@ -703,7 +703,7 @@ export default function MasterWebscrapingClientPage() {
 
         {(dashboard?.warnings.length || 0) > 0 ? (
           <section className={styles.warningStrip}>
-            {dashboard?.warnings.slice(0, 4).map((warning) => (
+            {dashboard?.warnings.slice(0, MAX_HBX_ENGINE_COUNT).map((warning) => (
               <p key={`${warning.route}-${warning.createdAt}`}>
                 <strong>{warning.route}</strong>
                 <span>{warning.message}</span>

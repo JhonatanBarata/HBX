@@ -2,6 +2,7 @@ import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 
 export const DEFAULT_HBX_ENGINE_COUNT = 4;
+export const PRODUCTION_HBX_ENGINE_COUNT = 20;
 export const MAX_HBX_ENGINE_COUNT = 20;
 const TURBO_OPERATIONAL_CONFIG_KEY = 'turbo_noturno';
 const HEALTH_CHECK_TTL_MS = 30_000;
@@ -105,7 +106,8 @@ function parseIntegerEnv(name: string, fallback: number) {
 }
 
 export function getConfiguredHbxEngineCount(env: NodeJS.ProcessEnv = process.env) {
-  return clampInteger(env.HBX_ENGINE_COUNT, DEFAULT_HBX_ENGINE_COUNT, 1, MAX_HBX_ENGINE_COUNT);
+  const fallback = isProductionEnvironment(env.NODE_ENV) ? PRODUCTION_HBX_ENGINE_COUNT : DEFAULT_HBX_ENGINE_COUNT;
+  return clampInteger(env.HBX_ENGINE_COUNT, fallback, 1, MAX_HBX_ENGINE_COUNT);
 }
 
 export function buildLocalHbxEngineUrls(count = getConfiguredHbxEngineCount()) {
