@@ -100,11 +100,11 @@ const LEGACY_SEGMENT_MISMATCH_FALLBACK_MESSAGE =
 const LEGACY_GENERICA_CASO_ERRO_MESSAGE =
   'Oi, tudo bem? Meu nome é Jhonatan, eu trabalho com empresas organizadoras de vendas, orçamentos, prospectar clientes e retornos pelo WhatsApp.\n' +
   'Tem interesse em conhecer? Eu tenho 30 dias grátis no plano, totalmente sem compromisso.\n' +
-  'Cadastre aqui: https://hbxsystem.com.br/vendas/automacao?tab=prospeccao';
+  '';
 const GENERICA_CASO_ERRO_MESSAGE =
   'Oi, tudo bem? Meu nome é Jhonatan, trabalho com uma plataforma para organizar vendas, orçamentos, prospecção de clientes e retornos pelo WhatsApp.\n' +
   'Tenho 30 dias grátis, sem compromisso. Faz sentido eu te mostrar?\n' +
-  'Cadastre aqui: https://hbxsystem.com.br/vendas/automacao?tab=prospeccao';
+  '';
 const DEFAULT_MESSAGE_TEMPLATE = GENERICA_CASO_ERRO_MESSAGE;
 const DEFAULT_SEGMENT_MISMATCH_FALLBACK_MESSAGE = GENERICA_CASO_ERRO_MESSAGE;
 const EMPTY_REFILL_RETRY_MS = 10 * 60 * 1000;
