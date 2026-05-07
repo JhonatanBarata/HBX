@@ -233,8 +233,9 @@ function buildRemoteReleaseScript(config, services) {
     'if [ ! -f .env ]; then echo "ERRO: .env raiz nao existe na VPS."; exit 1; fi',
     'export HBX_ENGINE_COUNT="$(awk -F= \'/^HBX_ENGINE_COUNT=/{print substr($0, length("HBX_ENGINE_COUNT")+2); exit}\' .env)"',
     'if [ -z "$HBX_ENGINE_COUNT" ]; then export HBX_ENGINE_COUNT=20; fi',
-    'case "$HBX_ENGINE_COUNT" in *[!0-9]*|"") echo "ERRO: HBX_ENGINE_COUNT precisa ser numerico."; exit 1;; esac',
-    'if [ "$HBX_ENGINE_COUNT" -lt 1 ] || [ "$HBX_ENGINE_COUNT" -gt 20 ]; then echo "ERRO: HBX_ENGINE_COUNT precisa ficar entre 1 e 20."; exit 1; fi',
+    'case "$HBX_ENGINE_COUNT" in *[!0-9]*|"") echo "Aviso: HBX_ENGINE_COUNT invalido no .env; usando 20."; export HBX_ENGINE_COUNT=20;; esac',
+    'if [ "$HBX_ENGINE_COUNT" -lt 20 ]; then echo "Aviso: HBX_ENGINE_COUNT=$HBX_ENGINE_COUNT no .env; Hostinger usara 20 motores."; export HBX_ENGINE_COUNT=20; fi',
+    'if [ "$HBX_ENGINE_COUNT" -gt 20 ]; then echo "Aviso: HBX_ENGINE_COUNT=$HBX_ENGINE_COUNT acima do limite; usando 20."; export HBX_ENGINE_COUNT=20; fi',
     'if docker compose version >/dev/null 2>&1; then DC="docker compose"; elif docker-compose --version >/dev/null 2>&1; then DC="docker-compose"; else echo "ERRO: docker-compose nao encontrado."; exit 1; fi',
     'if ! docker network inspect hbx_net >/dev/null 2>&1; then docker network create hbx_net >/dev/null; fi',
     'export HBX_DOCKER_NETWORK=hbx_net',
@@ -459,7 +460,7 @@ function expandPublishedServices(services) {
     .map((service) => serviceLabels[service] || service);
 
   if (selected.has('hbx-scraping-engine')) {
-    const engineCount = Math.min(Math.max(Number(process.env.HBX_ENGINE_COUNT || '20') || 20, 1), 20);
+    const engineCount = 20;
     published.push(...Array.from({ length: engineCount }, (_, index) => `hbx-engine-${index + 1}`), 'hbx-scraping-engine');
   }
 
