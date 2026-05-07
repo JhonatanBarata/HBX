@@ -114,6 +114,12 @@ function parseIntegerEnv(name: string, fallback: number) {
   return Number.isFinite(parsed) ? Math.max(0, Math.trunc(parsed)) : fallback;
 }
 
+function clampInteger(value: unknown, fallback: number, min: number, max: number) {
+  const parsed = Number(value);
+  const safe = Number.isFinite(parsed) ? Math.trunc(parsed) : fallback;
+  return Math.min(Math.max(safe, min), max);
+}
+
 function minutesAgo(minutes: number) {
   return new Date(Date.now() - Math.max(0, minutes) * 60_000);
 }
@@ -999,8 +1005,8 @@ export class HbxEnginePoolService implements OnModuleInit {
     if (!config?.enabled) return null;
     if (this.isWithinConfiguredOperationalWindow(config, date)) return date.toISOString();
     const current = date.getHours() * 60 + date.getMinutes();
-    const start = Math.min(Math.max(Math.trunc(Number(config.startHour ?? 20) || 20), 0), 23) * 60
-      + Math.min(Math.max(Math.trunc(Number(config.startMinute ?? 0) || 0), 0), 59);
+    const start = clampInteger(config.startHour, 20, 0, 23) * 60
+      + clampInteger(config.startMinute, 0, 0, 59);
     const minutesUntilStart = (start - current + 24 * 60) % (24 * 60) || 24 * 60;
     const next = new Date(date);
     next.setMinutes(next.getMinutes() + minutesUntilStart, 0, 0);
@@ -1008,13 +1014,13 @@ export class HbxEnginePoolService implements OnModuleInit {
   }
 
   private formatOperationalTime(hour: unknown, minute: unknown) {
-    const safeHour = Math.min(Math.max(Math.trunc(Number(hour ?? 20) || 20), 0), 23);
-    const safeMinute = Math.min(Math.max(Math.trunc(Number(minute ?? 0) || 0), 0), 59);
+    const safeHour = clampInteger(hour, 20, 0, 23);
+    const safeMinute = clampInteger(minute, 0, 0, 59);
     return `${String(safeHour).padStart(2, '0')}:${String(safeMinute).padStart(2, '0')}`;
   }
 
   private resolveOperationalEngineCount(config: any) {
-    const configured = Math.min(Math.max(parseInt(String(config?.engineCount ?? 4), 10) || 4, 1), 4);
+    const configured = clampInteger(config?.engineCount, 4, 1, 4);
     const intensity = String(config?.intensity || 'turbo').trim().toLowerCase();
     if (intensity === 'economico' || intensity === 'econômico') return 1;
     if (intensity === 'normal') return Math.min(configured, 2);

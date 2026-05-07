@@ -553,7 +553,7 @@ export default function TopBar() {
   }, []);
 
   useEffect(() => {
-    if (!topbarProgress || topbarProgress.phase !== "success") return undefined;
+    if (!topbarProgress || topbarProgress.phase === "loading") return undefined;
     const timer = window.setTimeout(() => {
       setTopbarProgress((current) => {
         if (!current || current.source !== topbarProgress.source || current.title !== topbarProgress.title) {
@@ -561,7 +561,7 @@ export default function TopBar() {
         }
         return null;
       });
-    }, topbarProgress.source === "vendas" ? 5200 : 3600);
+    }, topbarProgress.phase === "warning" ? 5600 : topbarProgress.source === "vendas" ? 5200 : 3600);
 
     return () => window.clearTimeout(timer);
   }, [topbarProgress]);
@@ -2127,7 +2127,9 @@ export default function TopBar() {
             ? progressEngineLabel
               ? `${progressEngineLabel} ao vivo`
               : "Motores HBX"
-            : "Confirmado";
+            : topbarProgress.phase === "warning"
+              ? "Atenção"
+              : "Confirmado";
       const fallbackMetrics =
         topbarProgress.source === "webscraping"
           ? [
@@ -2140,7 +2142,7 @@ export default function TopBar() {
       return [
         {
           id: `progress:${topbarProgress.source}:${topbarProgress.phase}:${topbarProgress.title}`,
-          eyebrow: topbarProgress.phase === "success" ? "Confirmado" : sourceLabel,
+          eyebrow: topbarProgress.phase === "success" ? "Confirmado" : topbarProgress.phase === "warning" ? "Atenção" : sourceLabel,
           title: topbarProgress.title,
           description: topbarProgress.status,
           phase: topbarProgress.phase,
