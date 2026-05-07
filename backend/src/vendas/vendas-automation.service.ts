@@ -93,10 +93,16 @@ const HUMAN_HANDOFF_INTENT_KEYWORDS = ['humano', 'atendente', 'ligar', 'me chama
 const DEFAULT_DAILY_LIMIT = 30;
 const MAX_DUE_JOBS_PER_CYCLE = 50;
 const DEFAULT_OPT_OUT_MESSAGE = 'Entendi. Vou arquivar este contato e nao chamaremos novamente.';
-const DEFAULT_MESSAGE_TEMPLATE =
+const LEGACY_DEFAULT_MESSAGE_TEMPLATE =
   'Oi, tudo bem? Aqui é {{funcionario}} da {{empresa}}. Vi a {{cliente}} em {{cidade}} e queria te explicar em 1 minuto uma solução para {{segmento}}. Faz sentido eu te mandar?';
-const DEFAULT_SEGMENT_MISMATCH_FALLBACK_MESSAGE =
+const LEGACY_SEGMENT_MISMATCH_FALLBACK_MESSAGE =
   'Oi, tudo bem? Sou o Jhonatan, da HBX. Vi sua empresa no Google e queria te mostrar uma ferramenta que ajuda a organizar contatos, orçamentos e retornos pelo WhatsApp. Tenho 30 dias grátis, sem compromisso. Faz sentido eu te mostrar?';
+const GENERICA_CASO_ERRO_MESSAGE =
+  'Oi, tudo bem? Meu nome é Jhonatan, eu trabalho com empresas organizadoras de vendas, orçamentos, prospectar clientes e retornos pelo WhatsApp.\n' +
+  'Tem interesse em conhecer? Eu tenho 30 dias grátis no plano, totalmente sem compromisso.\n' +
+  'Cadastre aqui: https://hbxsystem.com.br/vendas/automacao?tab=prospeccao';
+const DEFAULT_MESSAGE_TEMPLATE = GENERICA_CASO_ERRO_MESSAGE;
+const DEFAULT_SEGMENT_MISMATCH_FALLBACK_MESSAGE = GENERICA_CASO_ERRO_MESSAGE;
 const EMPTY_REFILL_RETRY_MS = 10 * 60 * 1000;
 const FIRST_OUTBOUND_CONTACT_STAGES = ['sent_waiting', 'reply_received', 'expired_no_reply', 'negative_reply'] as const;
 const FIRST_OUTBOUND_CONTACT_JOB_STATUSES = ['sent', 'replied_positive', 'replied_negative', 'no_response_archived'] as const;
@@ -131,6 +137,20 @@ function clampInteger(value: unknown, fallback: number, min: number, max: number
 function trimOrNull(value: unknown) {
   const normalized = String(value || '').trim();
   return normalized || null;
+}
+
+function normalizeTemplateText(value: unknown) {
+  return String(value || '').replace(/\s+/g, ' ').trim();
+}
+
+function isSystemGeneratedProspectingTemplate(value: unknown) {
+  const normalized = normalizeTemplateText(value);
+  if (!normalized) return true;
+  return [
+    LEGACY_DEFAULT_MESSAGE_TEMPLATE,
+    LEGACY_SEGMENT_MISMATCH_FALLBACK_MESSAGE,
+    GENERICA_CASO_ERRO_MESSAGE,
+  ].some((template) => normalizeTemplateText(template) === normalized);
 }
 
 function hasOwnValue(input: unknown, key: string) {
@@ -1071,10 +1091,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
           ? String(payload?.targetType || existing?.targetType)
           : 'pj',
       filtersJson: JSON.stringify(nextFilters),
-      messageTemplate:
-        trimOrNull(payload?.messageTemplate) ||
-        trimOrNull(existing?.messageTemplate) ||
-        DEFAULT_MESSAGE_TEMPLATE,
+      messageTemplate: this.resolveCampaignMessageTemplate(payload, existing),
       intervalMinutes: clampInteger(
         payload?.intervalMinutes,
         existing?.intervalMinutes ?? scene.nextContactDelayMinutes,
@@ -1103,6 +1120,14 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
       optOutMessage: trimOrNull(payload?.optOutMessage) || trimOrNull(existing?.optOutMessage) || scene.optOutMessage,
       websiteFallbackEnabled: false,
     };
+  }
+
+  private resolveCampaignMessageTemplate(payload: any, existing?: any) {
+    const payloadTemplate = hasOwnValue(payload, 'messageTemplate') ? trimOrNull(payload?.messageTemplate) : null;
+    if (payloadTemplate && !isSystemGeneratedProspectingTemplate(payloadTemplate)) return payloadTemplate;
+    const existingTemplate = trimOrNull(existing?.messageTemplate);
+    if (existingTemplate && !isSystemGeneratedProspectingTemplate(existingTemplate)) return existingTemplate;
+    return DEFAULT_MESSAGE_TEMPLATE;
   }
 
   private normalizeTime(value: unknown, fallback: string) {
@@ -1464,13 +1489,19 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     });
 
     if (startsInsideWorkingHours) {
-      void this.scrapeImportAndSchedule(campaign.id, user, 'start').catch((error) => {
-        void this.markCampaignStage(campaign.id, context.companyId, 'erro', 'Erro na prospecção automática.', {
-          error: String(error?.message || error),
-          type: 'campaign_error',
-        });
-      }).finally(() => {
-        void this.runWorkerCycle().catch(() => null);
+      void this.primeExistingProspectingQueue(campaign.id).catch((error) => {
+        const errorMessage = String(error?.message || error);
+        this.logger.warn(`Falha ao preparar fila inicial de prospeccao campaign=${campaign.id}: ${errorMessage}`);
+        void this.markCampaignStage(
+          campaign.id,
+          context.companyId,
+          'aguardando',
+          'Falha ao preparar a fila inicial. Campanha segue ativa e tentará novamente pelo banco do Radar.',
+          {
+            error: errorMessage,
+            type: 'initial_queue_failed',
+          },
+        ).catch(() => null);
       });
     }
 
@@ -1612,7 +1643,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
 
   private resolveOutboundTemplate(campaign: any, lead: any, metadata?: Record<string, unknown> | null) {
     const queue = parseJsonObject((metadata as any)?.vendasAgendaQueue);
-    return (
+    const template = (
       trimOrNull((queue as any).draftMessage) ||
       trimOrNull((queue as any).inheritedDraftMessage) ||
       trimOrNull(lead?.scriptText) ||
@@ -1621,6 +1652,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
       trimOrNull(campaign?.messageTemplate) ||
       DEFAULT_MESSAGE_TEMPLATE
     );
+    return isSystemGeneratedProspectingTemplate(template) ? DEFAULT_MESSAGE_TEMPLATE : template;
   }
 
   private renderOutboundMessage(campaign: any, lead: any, user: any, metadata?: Record<string, unknown> | null) {
@@ -1689,6 +1721,16 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
       if (nameAddress !== '|') seenBatchNameAddress.add(nameAddress);
       return true;
     });
+  }
+
+  private async primeExistingProspectingQueue(campaignId: string) {
+    const campaign = await this.prisma.vendasAutomationCampaign.findUnique({ where: { id: campaignId } });
+    if (!campaign || campaign.status !== 'running') return;
+    await this.markCampaignStage(campaign.id, campaign.companyId, 'agendando', 'Preparando contatos já disponíveis na Prospecção...', {
+      type: 'initial_queue_started',
+    });
+    await this.scheduleJobsForCampaign(campaign.id);
+    await this.runWorkerCycle();
   }
 
   private async scrapeImportAndSchedule(campaignId: string, user?: any, reason: 'start' | 'refill' = 'start') {
@@ -1980,7 +2022,10 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
       return;
     }
     const existingLeadIds = await this.prisma.vendasAutomationJob.findMany({
-      where: { campaignId: campaign.id },
+      where: {
+        campaignId: campaign.id,
+        status: { notIn: ['failed', 'canceled'] },
+      },
       select: { leadId: true },
     });
     const usedLeadIds = new Set(existingLeadIds.map((item) => item.leadId));
@@ -2475,7 +2520,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
       const pending = await this.prisma.vendasAutomationJob.count({
         where: { campaignId: campaign.id, status: { in: [...BUFFER_JOB_STATUSES] as any } },
       });
-      if (pending >= Number(campaign.minLeadBuffer || 15)) continue;
+      if (pending > 0) continue;
       const dueJobs = await this.prisma.vendasAutomationJob.count({
         where: { campaignId: campaign.id, status: 'scheduled', scheduledAt: { lte: now } },
       });

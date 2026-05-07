@@ -14,7 +14,7 @@ import {
   type DragStartEvent,
 } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
-import { useDeferredValue, useEffect, useMemo, useRef, useState, useCallback, type CSSProperties, type FormEvent, type ReactNode } from "react";
+import { useDeferredValue, useEffect, useMemo, useRef, useState, useCallback, type CSSProperties, type FormEvent } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import DashboardScaffold from "@/components/DashboardScaffold";
 import LiquidGlassCard, { liquidGlassCardStyles as glassCardStyles } from "@/components/LiquidGlassCard";
@@ -323,6 +323,15 @@ function contextLabel(value?: string | null) {
 
 function statusLabel(status: LeadStatus) {
   return STATUS_OPTIONS.find((item) => item.value === status)?.label || status;
+}
+
+function compactVendasMessage(message: string | null) {
+  const text = String(message || "").trim();
+  if (!text) return "";
+  if (text.toLowerCase().includes("deve ser um e-mail válido")) {
+    return "E-mail inválido. Remova ou informe um endereço válido.";
+  }
+  return text;
 }
 
 function createDraft(lead: LeadItem): LeadDraft {
@@ -1180,7 +1189,7 @@ export default function VendasClientPage() {
 
   useEffect(() => {
     if (!feedback) return;
-    const timer = window.setTimeout(() => setFeedback(null), 2600);
+    const timer = window.setTimeout(() => setFeedback(null), 5200);
     return () => window.clearTimeout(timer);
   }, [feedback]);
 
@@ -1342,13 +1351,43 @@ export default function VendasClientPage() {
 
   useEffect(() => {
     const notice = todayAgendaLaunchNotice.notice;
+    const totalVisible = filteredLeads.length;
+    const archivedCount = board?.summary.closed || 0;
+    const metrics = [
+      { label: "Restante", value: String(totalVisible) },
+      { label: "Descarte", value: String(archivedCount) },
+    ];
+    const errorMessage = compactVendasMessage(error);
+
+    if (errorMessage) {
+      dispatchTopbarProgress({
+        source: "vendas",
+        phase: "warning",
+        title: "Vendas precisa de atenção",
+        status: errorMessage,
+        progress: 100,
+        metrics,
+      });
+      return;
+    }
+
+    if (feedback) {
+      dispatchTopbarProgress({
+        source: "vendas",
+        phase: "success",
+        title: "Vendas atualizado",
+        status: feedback,
+        progress: 100,
+        metrics,
+      });
+      return;
+    }
+
     if (!notice && !loading) {
       clearTopbarProgress("vendas");
       return;
     }
 
-    const totalVisible = filteredLeads.length;
-    const archivedCount = board?.summary.closed || 0;
     dispatchTopbarProgress({
       source: "vendas",
       phase: notice?.phase || "loading",
@@ -1357,13 +1396,12 @@ export default function VendasClientPage() {
         notice?.statusLabel ||
         (loading ? "Atualizando agenda comercial..." : "Preparando cards para Prospecção..."),
       progress: notice?.progress ?? 18,
-      metrics: [
-        { label: "Restante", value: String(totalVisible) },
-        { label: "Descarte", value: String(archivedCount) },
-      ],
+      metrics,
     });
   }, [
     board?.summary.closed,
+    error,
+    feedback,
     filteredLeads.length,
     loading,
     todayAgendaLaunchNotice.notice,
@@ -2119,19 +2157,6 @@ export default function VendasClientPage() {
     );
   }
 
-  let headerActions: ReactNode = null;
-  if (error || feedback) {
-    const compactMessage =
-      error && error.toLowerCase().includes("deve ser um e-mail válido")
-        ? "E-mail inválido. Remova ou informe um endereço válido."
-        : error || feedback;
-    headerActions = (
-      <div className={styles.headerNotice} data-tone={error ? "error" : "success"}>
-        {compactMessage}
-      </div>
-    );
-  }
-
   if (hasToken === null) {
     return (
       <DashboardScaffold title="Vendas" description="Carregando sessão do CRM comercial." hideHeader={true}>
@@ -2161,7 +2186,7 @@ export default function VendasClientPage() {
     const activeDragDateItem = activeDragDateKey ? dateFilters.find((f) => f.key === activeDragDateKey) : null;
 
   return (
-    <DashboardScaffold title="Vendas" actions={headerActions} hideHeader={true}>
+    <DashboardScaffold title="Vendas" hideHeader={true}>
       <DndContext
         sensors={sensors}
         collisionDetection={detectDateFilterCollision}

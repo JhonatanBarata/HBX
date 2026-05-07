@@ -143,7 +143,20 @@ const CAMPAIGN_TYPES = [
 
 type CampaignTypeId = (typeof CAMPAIGN_TYPES)[number]["id"];
 
+const GENERIC_ERROR_MESSAGE_TEMPLATE =
+  "Oi, tudo bem? Meu nome é Jhonatan, eu trabalho com empresas organizadoras de vendas, orçamentos, prospectar clientes e retornos pelo WhatsApp.\n" +
+  "Tem interesse em conhecer? Eu tenho 30 dias grátis no plano, totalmente sem compromisso.\n" +
+  "Cadastre aqui: https://hbxsystem.com.br/vendas/automacao?tab=prospeccao";
+
 const MESSAGE_PRESETS = [
+  {
+    id: "generica_caso_erro",
+    group: "cnpj_local",
+    label: "Genérica caso erro",
+    segment: "serviços locais",
+    targetType: "pj",
+    messageTemplate: GENERIC_ERROR_MESSAGE_TEMPLATE,
+  },
   {
     id: "local_general",
     group: "cnpj_local",
@@ -358,8 +371,7 @@ const DEFAULT_PROSPECTING_CONFIG: ProspectingAutomationConfig = {
   segment: "",
   engine: "hbx",
   targetType: "pj",
-  messageTemplate:
-    "Oi, tudo bem? Aqui é {{funcionario}} da {{empresa}}. Vi a {{cliente}} em {{cidade}} e queria te explicar em 1 minuto uma solução para {{segmento}}. Faz sentido eu te mandar?",
+  messageTemplate: GENERIC_ERROR_MESSAGE_TEMPLATE,
   intervalMinutes: 12,
   workingHoursStart: "09:00",
   workingHoursEnd: "17:30",

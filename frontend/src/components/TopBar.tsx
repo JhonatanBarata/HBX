@@ -2269,7 +2269,17 @@ export default function TopBar() {
       return [
         {
           id: `progress:${topbarProgress.source}:${topbarProgress.phase}:${topbarProgress.title}`,
-          eyebrow: topbarProgress.phase === "success" ? "Confirmado" : topbarProgress.phase === "warning" ? "Atenção" : sourceLabel,
+          eyebrow: theaterSource
+            ? topbarProgress.phase === "success"
+              ? "Telão OK"
+              : topbarProgress.phase === "warning"
+                ? "Telão Alerta"
+                : "Telão ao vivo"
+            : topbarProgress.phase === "success"
+              ? "Confirmado"
+              : topbarProgress.phase === "warning"
+                ? "Atenção"
+                : sourceLabel,
           title: topbarProgress.title,
           description: topbarProgress.status,
           phase: topbarProgress.phase,

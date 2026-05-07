@@ -8,6 +8,7 @@ import {
 } from "@/components/prospecting-filters";
 import { apiFetch } from "@/app/_lib/api";
 import { useRequireModule } from "@/app/_lib/useRequireModule";
+import { clearTopbarProgress, dispatchTopbarProgress } from "@/lib/topbar-progress";
 import styles from "./page.module.css";
 
 type RadarLeadHistory = {
@@ -183,6 +184,15 @@ function buildLeadQuery(filters: FilterState, page: number) {
   return params.toString();
 }
 
+function compactRadarMessage(message: string | null) {
+  const text = String(message || "").trim();
+  if (!text) return "";
+  if (text.toLowerCase().includes("cidade e segmento")) {
+    return "Escolha cidade e segmento para puxar cards do Radar.";
+  }
+  return text;
+}
+
 export default function RadarDigitalClientPage() {
   const hasToken = useRequireModule("webscraping");
   const [filters, setFilters] = useState<FilterState>(DEFAULT_FILTERS);
@@ -194,6 +204,7 @@ export default function RadarDigitalClientPage() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [actionId, setActionId] = useState<string | null>(null);
   const [bulkSending, setBulkSending] = useState(false);
+  const [telonProgress, setTelonProgress] = useState(8);
   const [feedback, setFeedback] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [availableFilters, setAvailableFilters] = useState<RadarAvailableFilters>({
@@ -236,9 +247,130 @@ export default function RadarDigitalClientPage() {
 
   useEffect(() => {
     if (!feedback) return;
-    const timer = window.setTimeout(() => setFeedback(null), 2600);
+    const timer = window.setTimeout(() => setFeedback(null), 5200);
     return () => window.clearTimeout(timer);
   }, [feedback]);
+
+  const telonBusy = hasToken === null || loading || loadingMore || bulkSending || Boolean(actionId);
+
+  useEffect(() => {
+    if (!telonBusy) {
+      setTelonProgress(8);
+      return undefined;
+    }
+
+    setTelonProgress((current) => (current > 8 && current < 96 ? current : 8));
+    const timer = window.setInterval(() => {
+      setTelonProgress((current) => {
+        if (current >= 96) return 96;
+        const distance = 96 - current;
+        return Math.min(96, Math.round((current + Math.max(1.4, distance * 0.16)) * 10) / 10);
+      });
+    }, 360);
+
+    return () => window.clearInterval(timer);
+  }, [telonBusy]);
+
+  useEffect(() => {
+    const metrics = [
+      { label: "Cards", value: items.length.toLocaleString("pt-BR") },
+      { label: "High", value: highOpportunityCount.toLocaleString("pt-BR") },
+      { label: "Total", value: total.toLocaleString("pt-BR") },
+    ];
+    const errorMessage = compactRadarMessage(error);
+
+    if (errorMessage) {
+      dispatchTopbarProgress({
+        source: "radar",
+        phase: "warning",
+        title: "Radar precisa de ajuste",
+        status: errorMessage,
+        progress: 100,
+        metrics,
+      });
+      return;
+    }
+
+    if (feedback) {
+      dispatchTopbarProgress({
+        source: "radar",
+        phase: "success",
+        title: "Radar atualizado",
+        status: feedback,
+        progress: 100,
+        metrics,
+      });
+      return;
+    }
+
+    if (bulkSending) {
+      dispatchTopbarProgress({
+        source: "radar",
+        phase: "loading",
+        title: "Herdando até 100 para Vendas",
+        status: "Puxando cards elegíveis do Radar e preparando importação.",
+        progress: Math.max(18, telonProgress),
+        metrics: [
+          { label: "Limite", value: "100" },
+          { label: "High", value: highOpportunityCount.toLocaleString("pt-BR") },
+          { label: "Destino", value: "Vendas" },
+        ],
+      });
+      return;
+    }
+
+    if (loadingMore) {
+      dispatchTopbarProgress({
+        source: "radar",
+        phase: "loading",
+        title: "Carregando mais Radar",
+        status: "Buscando o próximo lote de cards.",
+        progress: Math.max(18, telonProgress),
+        metrics,
+      });
+      return;
+    }
+
+    if (loading || hasToken === null) {
+      dispatchTopbarProgress({
+        source: "radar",
+        phase: "loading",
+        title: "Carregando Radar Digital",
+        status: "Lendo estoque, filtros e oportunidades.",
+        progress: Math.max(14, telonProgress),
+        metrics,
+      });
+      return;
+    }
+
+    if (actionId) {
+      dispatchTopbarProgress({
+        source: "radar",
+        phase: "loading",
+        title: "Atualizando card do Radar",
+        status: "Aplicando ação no card selecionado.",
+        progress: Math.max(22, telonProgress),
+        metrics,
+      });
+      return;
+    }
+
+    clearTopbarProgress("radar");
+  }, [
+    actionId,
+    bulkSending,
+    error,
+    feedback,
+    hasToken,
+    highOpportunityCount,
+    items.length,
+    loading,
+    loadingMore,
+    telonProgress,
+    total,
+  ]);
+
+  useEffect(() => () => clearTopbarProgress("radar"), []);
 
   function applyFilters() {
     setAppliedFilters(filters);
@@ -327,6 +459,8 @@ export default function RadarDigitalClientPage() {
   async function sendFilteredToVendas() {
     setBulkSending(true);
     setError(null);
+    setFeedback(null);
+    setTelonProgress(12);
     try {
       const payload = await apiFetch<RadarPullResponse>("/webscraping/radar/pull", {
         method: "POST",
@@ -367,11 +501,7 @@ export default function RadarDigitalClientPage() {
 
   if (hasToken === null || loading && items.length === 0) {
     return (
-      <main className="app-shell">
-        <div className="app-container">
-          <div className="panel p-4 text-sm text-muted">Carregando Radar Digital...</div>
-        </div>
-      </main>
+      <main className="app-shell" aria-hidden="true" />
     );
   }
 
@@ -484,9 +614,6 @@ export default function RadarDigitalClientPage() {
             <button type="button" onClick={clearFilters}>Limpar</button>
           </div>
         </form>
-
-        {error ? <div className={styles.notice} data-tone="error">{error}</div> : null}
-        {feedback ? <div className={styles.notice} data-tone="ok">{feedback}</div> : null}
 
         {!loading && items.length === 0 ? (
           <div className={styles.emptyState}>
