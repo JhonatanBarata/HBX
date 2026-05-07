@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import ModuleNav from "./ModuleNav";
@@ -35,8 +35,6 @@ type NavPeekAnchorRect = Pick<DOMRect, "bottom" | "height" | "left" | "right" | 
 
 const MODULES_PEEK_EVENT = "hbx:modules-peek";
 const MODULES_TRIGGER_ID = "app-modules-trigger";
-const PENDING_CHECKOUT_ADMIN_PATH = "/pagamento?focus=payment&reason=pending_checkout";
-const PENDING_CHECKOUT_USER_PATH = "/planos?mode=pending_checkout&reason=pending_checkout";
 
 function buildPageKey(pathname: string) {
   const parts = pathname.split("/").filter(Boolean);
@@ -98,20 +96,6 @@ function isPendingCheckoutCompany(company: PresentationProfile["company"]) {
   return onboardingStatus === "pending_checkout" || subscriptionStatus === "pending_checkout" || paymentStatus === "PENDING";
 }
 
-function isPendingCheckoutAllowedPath(pathname: string, role: string | null) {
-  const normalizedRole = String(role || "").trim().toUpperCase();
-  if (pathname.startsWith("/boasvindas")) return true;
-  if (pathname.startsWith("/planos")) return true;
-  if (normalizedRole === "ADMIN" && pathname.startsWith("/pagamento")) return true;
-  return false;
-}
-
-function resolvePendingCheckoutPath(role: string | null) {
-  return String(role || "").trim().toUpperCase() === "ADMIN"
-    ? PENDING_CHECKOUT_ADMIN_PATH
-    : PENDING_CHECKOUT_USER_PATH;
-}
-
 export default function DashboardScaffold({
   title,
   description,
@@ -125,7 +109,6 @@ export default function DashboardScaffold({
 }: DashboardScaffoldProps) {
   const navPeekCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pathname = usePathname();
-  const router = useRouter();
   const isRootDashboard = pathname === "/boasvindas";
   const isMasterRoute = Boolean(pathname?.startsWith("/master"));
   const defaultSectionLabel =
@@ -235,13 +218,6 @@ export default function DashboardScaffold({
   }, [authenticated]);
 
   useEffect(() => {
-    if (!authenticated || !presentationProfile || presentationProfile.isSystemMaster) return;
-    if (!isPendingCheckoutCompany(presentationProfile.company)) return;
-    if (isPendingCheckoutAllowedPath(pathname || "", presentationProfile.role)) return;
-    router.replace(resolvePendingCheckoutPath(presentationProfile.role));
-  }, [authenticated, pathname, presentationProfile, router]);
-
-  useEffect(() => {
     const timer = window.setTimeout(() => {
       setNavPeekPortalReady(true);
     }, 0);
@@ -315,12 +291,7 @@ export default function DashboardScaffold({
   }, [presentationProfile?.tenantId]);
 
   const canEditPresentation = Boolean(presentationProfile?.isSystemMaster);
-  const pendingCheckoutLocked = Boolean(
-    authenticated &&
-      presentationProfile &&
-      !presentationProfile.isSystemMaster &&
-      isPendingCheckoutCompany(presentationProfile.company),
-  );
+  const pendingCheckoutLocked = false;
   const shouldShowHoverModules = shouldEnableHoverModules && !pendingCheckoutLocked;
 
   useEffect(() => {

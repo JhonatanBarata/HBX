@@ -128,6 +128,7 @@ const NAV_ITEMS: NavItem[] = [
     description: "Escolha Vendas, Atendimento ou veja disponibilidade.",
     matcher: (route) => route.startsWith("/planos"),
     category: "structural",
+    adminOnly: true,
   },
   {
     key: "gerencial",
@@ -382,7 +383,7 @@ export default function ModuleNav({
       if (!item.moduleKey) return true;
 
       const moduleItem = modulesByKey.get(normalizeUserModuleKey(item.moduleKey));
-      if (!moduleItem) return false;
+      if (!moduleItem) return item.category === "commercial";
       return isModuleVisible(moduleItem);
     });
   }, [hasCompany, isSystemMaster, loading, modulesByKey, userRole]);

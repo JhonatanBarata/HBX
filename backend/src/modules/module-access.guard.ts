@@ -28,58 +28,6 @@ export class ModuleAccessGuard implements CanActivate {
       if (allowed) return true;
     }
 
-    const onboardingStatus = String(user?.company?.onboardingStatus || '').trim().toLowerCase();
-    const subscriptionStatus = String(user?.company?.subscriptionStatus || '').trim().toLowerCase();
-    const paymentStatus = String(user?.company?.paymentStatus || '').trim().toUpperCase();
-    const premiumAccess = Boolean(user?.company?.premiumAccess);
-    const billingGraceEndsAt = user?.company?.billingGraceEndsAt instanceof Date
-      ? user.company.billingGraceEndsAt
-      : user?.company?.billingGraceEndsAt
-        ? new Date(String(user.company.billingGraceEndsAt))
-        : null;
-    const graceAccess = Boolean(
-      subscriptionStatus === 'grace' &&
-      billingGraceEndsAt &&
-      !Number.isNaN(billingGraceEndsAt.getTime()) &&
-      billingGraceEndsAt.getTime() >= Date.now(),
-    );
-    const authorizedAccess =
-      subscriptionStatus === 'authorized' ||
-      subscriptionStatus === 'active' ||
-      subscriptionStatus === 'trialing' ||
-      subscriptionStatus === 'manual' ||
-      paymentStatus === 'PAID' ||
-      paymentStatus === 'TRIAL' ||
-      paymentStatus === 'MANUAL' ||
-      premiumAccess ||
-      graceAccess;
-    const pendingCheckout =
-      !authorizedAccess &&
-      (
-        onboardingStatus === 'pending_checkout' ||
-        subscriptionStatus === 'pending_checkout' ||
-        paymentStatus === 'PENDING'
-      );
-
-    if (pendingCheckout) {
-      const role = String(user?.role || '').trim().toUpperCase();
-      if (role === 'ADMIN' || Boolean(user?.isSystemMaster)) {
-        throw new HttpException(
-          {
-            code: 'PENDING_CHECKOUT',
-            message: 'Finalize o pagamento para liberar este recurso.',
-            redirectTo: '/pagamento?focus=payment&reason=pending_checkout',
-          },
-          HttpStatus.PAYMENT_REQUIRED,
-        );
-      }
-
-      throw new ForbiddenException({
-        code: 'COMPANY_PENDING_CHECKOUT_USER_BLOCKED',
-        message: 'A contratação da empresa ainda não foi finalizada. Contate seu ADMIN ou o suporte da empresa.',
-      });
-    }
-
     throw new ForbiddenException(`Modulos ${requiredModules.join(', ')} indisponiveis para este usuario`);
   }
 }
