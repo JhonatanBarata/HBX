@@ -312,6 +312,12 @@ function buildRemoteDeployScript(config, mode) {
     '  echo "Garantindo frontend fora do Docker..."',
     '  docker rm -f hbx-frontend frontend 2>/dev/null || true',
     '}',
+    'remove_compose_service_containers() {',
+    '  for service in "$@"; do',
+    '    ids="$(docker ps -aq --filter "label=com.docker.compose.service=$service" | xargs || true)"',
+    '    if [ -n "$ids" ]; then echo "Removendo containers compose antigos de $service: $ids"; docker rm -f $ids 2>/dev/null || true; fi',
+    '  done',
+    '}',
     'verify_frontend_pm2() {',
     '  for i in $(seq 1 45); do',
     '    if command -v curl >/dev/null 2>&1 && curl -fsSI http://127.0.0.1:3001 >/dev/null 2>&1; then echo "Frontend PM2 pronto em http://127.0.0.1:3001"; return 0; fi',
@@ -344,6 +350,7 @@ function buildRemoteDeployScript(config, mode) {
   if (isForce) {
     lines.push(
       'docker rm -f backend hbx-backend hbx-frontend webscraping hbx-scraping-engine c7227f19b684_hbx-scraping-engine ab1704a260e6_hbx-frontend e22f61f3f5da_webscraping 2>/dev/null || true',
+      'remove_compose_service_containers backend webscraping hbx-scraping-engine',
       'run_filtered $DC --env-file .env -f docker-compose.hostinger.yml build --no-cache backend webscraping hbx-scraping-engine || echo "Aviso: build --no-cache falhou; tentando up -d --build."',
       'run_filtered $DC --env-file .env -f docker-compose.hostinger.yml up -d --build --no-deps backend webscraping hbx-scraping-engine',
       'docker restart hbx-backend webscraping hbx-scraping-engine',
@@ -354,6 +361,7 @@ function buildRemoteDeployScript(config, mode) {
     );
   } else {
     lines.push('docker rm -f backend hbx-backend hbx-frontend webscraping hbx-scraping-engine c7227f19b684_hbx-scraping-engine ab1704a260e6_hbx-frontend e22f61f3f5da_webscraping 2>/dev/null || true');
+    lines.push('remove_compose_service_containers backend webscraping hbx-scraping-engine');
     lines.push('run_filtered $DC --env-file .env -f docker-compose.hostinger.yml up -d --build --no-deps backend webscraping hbx-scraping-engine');
     lines.push('deploy_frontend_pm2');
   }
