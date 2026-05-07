@@ -345,7 +345,7 @@ export class HbxEnginePoolService implements OnModuleInit {
     }
     this.activeEngineCount = Math.min(this.activeEngineCount, getConfiguredHbxEngineCount());
 
-    const stuck = this.isQueueStuck(stats);
+    const stuck = this.isQueueStuck(stats) && stats.runningCount >= this.activeEngineCount;
     const emergencyDesired = stats.queuedCount >= this.googleEmergencyThreshold();
     if (emergencyDesired && !stuck) {
       this.googleEmergencyMode = true;

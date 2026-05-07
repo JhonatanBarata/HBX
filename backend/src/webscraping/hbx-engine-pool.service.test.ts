@@ -182,6 +182,11 @@ test('invalid HBX_ENGINE_COUNT respects environment fallback', () => {
 
 function createPoolForCapacity(input: {
   queuedCount?: number;
+  runningCount?: number;
+  completedLast10Min?: number;
+  partialLast10Min?: number;
+  progressingRuns?: number;
+  oldestQueuedAgeMinutes?: number;
   operationalConfig?: Record<string, any> | null;
 }) {
   const service = new HbxEnginePoolService({} as any) as any;
@@ -193,12 +198,12 @@ function createPoolForCapacity(input: {
   service.nextOperationalWindowAt = () => null;
   service.buildQueueStats = async () => ({
     queuedCount: Number(input.queuedCount || 0),
-    runningCount: 0,
-    completedLast10Min: 0,
-    partialLast10Min: 0,
-    oldestQueuedAgeMinutes: 0,
+    runningCount: Number(input.runningCount || 0),
+    completedLast10Min: Number(input.completedLast10Min || 0),
+    partialLast10Min: Number(input.partialLast10Min || 0),
+    progressingRuns: Number(input.progressingRuns || 0),
+    oldestQueuedAgeMinutes: Number(input.oldestQueuedAgeMinutes || 0),
   });
-  service.isQueueStuck = () => false;
   return service as HbxEnginePoolService;
 }
 
@@ -262,5 +267,26 @@ test('operational turbo config with engineCount=20 activates twenty engines', as
     });
     const capacity = await service.getCurrentCapacityLevel();
     assert.equal(capacity.activeEngineCount, 20);
+  });
+});
+
+test('old queue with one stuck run does not degrade pool while nineteen engines are free', async () => {
+  await withEnv({
+    NODE_ENV: 'production',
+    HBX_ENGINE_COUNT: '20',
+    HBX_CAPACITY_FULL_QUEUE_THRESHOLD: '100',
+    HBX_QUEUE_STUCK_MINUTES: '10',
+  }, async () => {
+    const service = createPoolForCapacity({
+      queuedCount: 4447,
+      runningCount: 1,
+      completedLast10Min: 0,
+      partialLast10Min: 0,
+      progressingRuns: 0,
+      oldestQueuedAgeMinutes: 900,
+    });
+    const capacity = await service.getCurrentCapacityLevel();
+    assert.equal(capacity.activeEngineCount, 20);
+    assert.equal(capacity.operationalStatus, 'healthy');
   });
 });
