@@ -154,6 +154,37 @@ type ScrapingEngineStatusPayload = {
   };
   engines: ScrapingEngineStatus[];
 };
+type TopbarCommandPayload<TParsed = unknown> = {
+  status?: string;
+  raw?: string | null;
+  error?: string | null;
+  parsed?: TParsed | null;
+};
+type TopbarSystemHealthPayload = {
+  generatedAt: string;
+  memory?: TopbarCommandPayload<{
+    totalKb?: number | null;
+    availableKb?: number | null;
+    usedKb?: number | null;
+    usagePercent?: number | null;
+  }> & { source?: string | null };
+  disk?: TopbarCommandPayload<{
+    filesystem?: string | null;
+    size?: string | null;
+    used?: string | null;
+    available?: string | null;
+    usagePercent?: string | number | null;
+    mount?: string | null;
+  }>;
+};
+type TopbarSystemVital = {
+  id: "memory" | "disk";
+  label: string;
+  value: string;
+  detail: string;
+  usage: number | null;
+  tone: "green" | "yellow" | "red";
+};
 type WhatsAppHealth = "green" | "yellow" | "red";
 type RecoveryAlertConversation = {
   conversationId: number;
@@ -241,7 +272,9 @@ const SUPPORT_MESSAGE = "Olá, preciso de ajuda com o HBX!";
 
 const hiddenRoutes = new Set(["/login", "/register", "/reset-password", "/confirm-email", "/boasvindas", "/tutorial"]);
 const SCRAPING_ENGINE_POLL_MS = 6500;
+const SYSTEM_HEALTH_POLL_MS = 12000;
 const TOPBAR_HBX_ENGINE_COUNT = 20;
+const TOPBAR_VISIBLE_HBX_ENGINE_COUNT = 8;
 
 function buildFallbackScrapingEngine(index: number): ScrapingEngineStatus {
   return {
@@ -277,52 +310,16 @@ function buildFallbackScrapingEngine(index: number): ScrapingEngineStatus {
   };
 }
 
-function buildFallbackGoogleEngine(): ScrapingEngineStatus {
-  return {
-    id: "google-engine",
-    kind: "google",
-    label: "Google Emergency",
-    shortLabel: "Google",
-    index: null,
-    status: "standby",
-    configured: true,
-    active: false,
-    online: true,
-    busy: false,
-    dimmed: true,
-    url: null,
-    lockedUntil: null,
-    cooldownUntil: null,
-    lastCheckedAt: null,
-    lastError: null,
-    detail: "Google emergencial em espera.",
-    usagePercent: 4,
-    stateLabel: "Standby pronto",
-    lastActivityAt: null,
-    activeRunId: null,
-    activeCampaignId: null,
-    queueShare: 0,
-    processedLast10Min: 0,
-    errorCount: 0,
-    heartbeatAgeSeconds: null,
-    isTurboEnabled: false,
-    isTurboWindowActive: false,
-    isTurboForcedNow: false,
-  };
-}
-
 function normalizeScrapingEngines(payload: ScrapingEngineStatusPayload | null) {
   const source = Array.isArray(payload?.engines) ? payload.engines : [];
   const hbxEngineCount = Math.max(TOPBAR_HBX_ENGINE_COUNT, source.filter((engine) => engine.kind === "hbx").length);
   const hbxEngines = Array.from({ length: hbxEngineCount }, (_, index) => {
     return source.find((engine) => engine.kind === "hbx" && engine.index === index) || buildFallbackScrapingEngine(index);
   });
-  const googleEngine = source.find((engine) => engine.kind === "google") || buildFallbackGoogleEngine();
-  const engines = [...hbxEngines, googleEngine];
+  const engines = hbxEngines;
   return {
     engines,
     hbxEngines,
-    googleEngine,
     hasActive: engines.some((engine) => engine.active),
   };
 }
@@ -377,6 +374,36 @@ function buildSparklinePoints(engine: ScrapingEngineStatus) {
     return Math.max(8, Math.min(92, usage * 0.72 + 14 + wave));
   });
   return values.map((value, index) => `${index * 12},${Math.round(34 - value * 0.28)}`).join(" ");
+}
+
+function normalizePercentValue(value?: string | number | null) {
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? Math.max(0, Math.min(100, Math.round(value * 10) / 10)) : null;
+  }
+  const parsed = Number(String(value || "").replace("%", "").replace(",", ".").trim());
+  return Number.isFinite(parsed) ? Math.max(0, Math.min(100, Math.round(parsed * 10) / 10)) : null;
+}
+
+function formatTopbarPercent(value?: string | number | null) {
+  const parsed = normalizePercentValue(value);
+  if (parsed === null) return "--";
+  return Number.isInteger(parsed) ? `${parsed}%` : `${parsed.toFixed(1)}%`;
+}
+
+function formatTopbarKb(value?: number | null) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric) || numeric <= 0) return "-";
+  const gb = numeric / 1024 / 1024;
+  if (gb >= 1) return `${gb >= 10 ? Math.round(gb) : gb.toFixed(1)} GB`;
+  const mb = numeric / 1024;
+  return `${mb >= 10 ? Math.round(mb) : mb.toFixed(1)} MB`;
+}
+
+function systemVitalTone(usage: number | null): TopbarSystemVital["tone"] {
+  if (usage === null) return "yellow";
+  if (usage >= 86) return "red";
+  if (usage >= 72) return "yellow";
+  return "green";
 }
 
 function extractEntryNumberLabel(metadata?: Record<string, unknown> | null) {
@@ -453,6 +480,7 @@ export default function TopBar() {
   const [billboardSlideIndex, setBillboardSlideIndex] = useState(0);
   const [scrapingEngines, setScrapingEngines] = useState<ScrapingEngineStatusPayload | null>(null);
   const [scrapingEngineStatusMessage, setScrapingEngineStatusMessage] = useState<string | null>(null);
+  const [systemHealth, setSystemHealth] = useState<TopbarSystemHealthPayload | null>(null);
   const [unreadInboxOpen, setUnreadInboxOpen] = useState(false);
   const [unreadInboxLoading, setUnreadInboxLoading] = useState(false);
   const [unreadInboxError, setUnreadInboxError] = useState<string | null>(null);
@@ -670,6 +698,24 @@ export default function TopBar() {
       return null;
     }
   }, [authenticated, modules, pendingCheckoutLocked, user]);
+
+  const refreshSystemHealth = React.useCallback(async () => {
+    if (authenticated !== true || !user?.isSystemMaster) {
+      setSystemHealth(null);
+      return null;
+    }
+
+    try {
+      const payload = await apiFetch<TopbarSystemHealthPayload>("/admin/system-health", {
+        requireAuth: true,
+        timeoutMs: 15000,
+      });
+      setSystemHealth(payload);
+      return payload;
+    } catch {
+      return null;
+    }
+  }, [authenticated, user?.isSystemMaster]);
 
   const loadWhatsAppCenter = React.useCallback(async (options?: { background?: boolean }) => {
     if (authenticated !== true) return null;
@@ -890,6 +936,44 @@ export default function TopBar() {
     [scrapingEngineView.hbxEngines],
   );
   const hbxRunningCount = scrapingEngineView.hbxEngines.filter((engine) => getScrapingEngineState(engine) === "busy" || engine.busy).length;
+  const hbxVisibleEngines = scrapingEngineView.hbxEngines.slice(0, TOPBAR_VISIBLE_HBX_ENGINE_COUNT);
+  const hbxHiddenEngines = scrapingEngineView.hbxEngines.slice(TOPBAR_VISIBLE_HBX_ENGINE_COUNT);
+  const hbxEngineTotal = scrapingEngineView.hbxEngines.length;
+  const hbxEngineOnlineCount = scrapingEngineView.hbxEngines.filter((engine) => engine.configured && engine.online).length;
+  const hbxEngineActiveCapacity = Math.max(
+    Math.trunc(Number(scrapingEngines?.capacity?.activeEngineCount || 0)),
+    hbxRunningCount,
+    hasActiveScrapingEngine ? 1 : 0,
+  );
+  const topbarSystemVitals = useMemo<TopbarSystemVital[]>(() => {
+    const memory = systemHealth?.memory?.parsed;
+    const disk = systemHealth?.disk?.parsed;
+    const memoryUsage = normalizePercentValue(memory?.usagePercent);
+    const diskUsage = normalizePercentValue(disk?.usagePercent);
+
+    return [
+      {
+        id: "memory",
+        label: "Memória",
+        value: formatTopbarPercent(memory?.usagePercent),
+        detail: memory
+          ? `${formatTopbarKb(memory.usedKb)} usados • ${formatTopbarKb(memory.availableKb)} livres`
+          : "Aguardando leitura da VPS",
+        usage: memoryUsage,
+        tone: systemVitalTone(memoryUsage),
+      },
+      {
+        id: "disk",
+        label: "HD",
+        value: formatTopbarPercent(disk?.usagePercent),
+        detail: disk
+          ? `${disk.used || "-"} usados • ${disk.available || "-"} livres`
+          : "Aguardando leitura do disco",
+        usage: diskUsage,
+        tone: systemVitalTone(diskUsage),
+      },
+    ];
+  }, [systemHealth]);
 
   const operationalStatusReady = Boolean(
     authenticated &&
@@ -1095,6 +1179,22 @@ export default function TopBar() {
       window.clearInterval(timer);
     };
   }, [authenticated, modules, pendingCheckoutLocked, refreshScrapingEngines, user]);
+
+  useEffect(() => {
+    if (authenticated !== true || !user?.isSystemMaster) {
+      setSystemHealth(null);
+      return;
+    }
+
+    void refreshSystemHealth();
+    const timer = window.setInterval(() => {
+      void refreshSystemHealth();
+    }, SYSTEM_HEALTH_POLL_MS);
+
+    return () => {
+      window.clearInterval(timer);
+    };
+  }, [authenticated, refreshSystemHealth, user?.isSystemMaster]);
 
   useEffect(() => {
     if (!whatsAppDetailMessage) return;
@@ -2510,69 +2610,100 @@ export default function TopBar() {
               <div
                 className="app-topbar__engineDeck"
                 data-count={scrapingEngineView.hbxEngines.length}
+                tabIndex={hbxHiddenEngines.length ? 0 : undefined}
                 aria-label={`Motores HBX M1 a M${scrapingEngineView.hbxEngines.length}`}
+                title={hbxHiddenEngines.length ? "Passe o mouse para ver todos os 20 motores" : undefined}
               >
-                {scrapingEngineView.hbxEngines.map((engine) => {
-                  const visualState = getVisibleScrapingEngineState(engine);
-                  const visualValue = getVisibleScrapingEngineValue(engine);
-                  const visualDetail = getVisibleScrapingEngineDetail(engine);
-                  const visualActive = engine.active || isLiveScrapingEngine(engine);
-                  const usage = getEngineUsage(engine);
-                  const title = `${engine.label}: ${engine.stateLabel || visualValue}. ${visualDetail}`;
+                <div className="app-topbar__engineDeckHead">
+                  <span>Motores HBX</span>
+                  <strong>{hbxEngineActiveCapacity}/{hbxEngineTotal}</strong>
+                  <em>{hbxEngineOnlineCount} online</em>
+                </div>
+                <div className="app-topbar__engineDeckGrid">
+                  {hbxVisibleEngines.map((engine) => {
+                    const visualState = getVisibleScrapingEngineState(engine);
+                    const visualValue = getVisibleScrapingEngineValue(engine);
+                    const visualDetail = getVisibleScrapingEngineDetail(engine);
+                    const visualActive = engine.active || isLiveScrapingEngine(engine);
+                    const usage = getEngineUsage(engine);
+                    const title = `${engine.label}: ${engine.stateLabel || visualValue}. ${visualDetail}`;
 
-                  return (
-                    <span
-                      key={engine.id}
-                      className="app-topbar__engineCard"
-                      data-active={visualActive ? "true" : "false"}
-                      data-state={visualState}
-                      data-live={isLiveScrapingEngine(engine) ? "true" : "false"}
-                      style={{ ["--engine-usage" as string]: `${usage}%` }}
-                      title={title}
-                      aria-label={title}
-                    >
-                      <span className="app-topbar__engineCardTop">
-                        <span className="app-topbar__engineNodeLed" aria-hidden="true" />
-                        <strong>{getScrapingEngineShortLabel(engine)}</strong>
-                        <em>{engine.stateLabel || visualValue}</em>
-                      </span>
-                      <span className="app-topbar__engineCardBody">
-                        <span className="app-topbar__engineGauge" aria-hidden="true">
-                          <b>{usage}</b>
+                    return (
+                      <span
+                        key={engine.id}
+                        className="app-topbar__engineCard"
+                        data-active={visualActive ? "true" : "false"}
+                        data-state={visualState}
+                        data-live={isLiveScrapingEngine(engine) ? "true" : "false"}
+                        style={{ ["--engine-usage" as string]: `${usage}%` }}
+                        title={title}
+                        aria-label={title}
+                      >
+                        <span className="app-topbar__engineCardTop">
+                          <span className="app-topbar__engineNodeLed" aria-hidden="true" />
+                          <strong>{getScrapingEngineShortLabel(engine)}</strong>
+                          <em>{engine.stateLabel || visualValue}</em>
                         </span>
-                        <svg className="app-topbar__sparkline" viewBox="0 0 72 36" aria-hidden="true">
-                          <polyline points={buildSparklinePoints(engine)} />
-                        </svg>
+                        <span className="app-topbar__engineCardBody">
+                          <span className="app-topbar__engineGauge" aria-hidden="true">
+                            <b>{usage}%</b>
+                          </span>
+                          <svg className="app-topbar__sparkline" viewBox="0 0 72 36" aria-hidden="true">
+                            <polyline points={buildSparklinePoints(engine)} />
+                          </svg>
+                        </span>
+                        <span className="app-topbar__activityDots" aria-hidden="true">
+                          <i />
+                          <i />
+                          <i />
+                        </span>
                       </span>
-                      <span className="app-topbar__activityDots" aria-hidden="true">
-                        <i />
-                        <i />
-                        <i />
-                      </span>
-                    </span>
-                  );
-                })}
+                    );
+                  })}
+                </div>
+                {hbxHiddenEngines.length ? (
+                  <div className="app-topbar__enginePopover" role="tooltip">
+                    <div className="app-topbar__enginePopoverHead">
+                      <span>Todos os motores HBX</span>
+                      <strong>{hbxEngineTotal} slots</strong>
+                    </div>
+                    <div className="app-topbar__enginePopoverGrid">
+                      {scrapingEngineView.hbxEngines.map((engine) => {
+                        const visualState = getVisibleScrapingEngineState(engine);
+                        const visualValue = getVisibleScrapingEngineValue(engine);
+                        const visualDetail = getVisibleScrapingEngineDetail(engine);
+                        const visualActive = engine.active || isLiveScrapingEngine(engine);
+                        const usage = getEngineUsage(engine);
+                        const title = `${engine.label}: ${engine.stateLabel || visualValue}. ${visualDetail}`;
+
+                        return (
+                          <span
+                            key={`peek:${engine.id}`}
+                            className="app-topbar__enginePeek"
+                            data-active={visualActive ? "true" : "false"}
+                            data-state={visualState}
+                            style={{ ["--engine-usage" as string]: `${usage}%` }}
+                            title={title}
+                          >
+                            <i aria-hidden="true" />
+                            <strong>{getScrapingEngineShortLabel(engine)}</strong>
+                            <em>{usage}%</em>
+                          </span>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ) : null}
               </div>
 
               <div
                 className="app-topbar__engineCore"
                 data-active={hasActiveScrapingEngine ? "true" : "false"}
-                data-google-active={scrapingEngineView.googleEngine.active ? "true" : "false"}
                 data-live={liveWebscrapingProgress ? "true" : "false"}
+                data-vitals={user?.isSystemMaster ? "true" : "false"}
                 role="status"
                 aria-live="polite"
               >
-                <span className="app-topbar__googleHalo" aria-hidden="true">
-                  <span />
-                </span>
-                <span
-                  className="app-topbar__googleBeacon"
-                  data-active={scrapingEngineView.googleEngine.active ? "true" : "false"}
-                  title={`${scrapingEngineView.googleEngine.label}: ${getScrapingEngineValue(scrapingEngineView.googleEngine)}. ${scrapingEngineView.googleEngine.detail}`}
-                  aria-hidden="true"
-                >
-                  <strong>{getScrapingEngineShortLabel(scrapingEngineView.googleEngine)}</strong>
-                </span>
                 <div
                   key={activeBillboardSlide.id}
                   className="app-topbar__billboard"
@@ -2608,6 +2739,45 @@ export default function TopBar() {
                     </div>
                   ) : null}
                 </div>
+                {user?.isSystemMaster ? (
+                  <div className="app-topbar__systemVitals" aria-label="Uso ao vivo de memória e HD">
+                    <div className="app-topbar__systemVitalsHead">
+                      <span aria-hidden="true" />
+                      <strong>VPS ao vivo</strong>
+                    </div>
+                    {topbarSystemVitals.map((vital) => (
+                      <span
+                        key={vital.id}
+                        className="app-topbar__systemVital"
+                        data-tone={vital.tone}
+                        style={{ ["--vital-usage" as string]: `${vital.usage ?? 0}%` }}
+                        title={`${vital.label}: ${vital.value}. ${vital.detail}`}
+                      >
+                        <span className="app-topbar__systemVitalIcon" data-kind={vital.id} aria-hidden="true">
+                          {vital.id === "memory" ? (
+                            <svg viewBox="0 0 24 24">
+                              <path d="M7 4h10a3 3 0 0 1 3 3v10a3 3 0 0 1-3 3H7a3 3 0 0 1-3-3V7a3 3 0 0 1 3-3Zm1.5 4.5v7h7v-7h-7Z" />
+                              <path d="M8 2v2M12 2v2M16 2v2M8 20v2M12 20v2M16 20v2M2 8h2M2 12h2M2 16h2M20 8h2M20 12h2M20 16h2" />
+                            </svg>
+                          ) : (
+                            <svg viewBox="0 0 24 24">
+                              <path d="M5 6c0-2 3.1-3.5 7-3.5S19 4 19 6s-3.1 3.5-7 3.5S5 8 5 6Z" />
+                              <path d="M5 6v6c0 2 3.1 3.5 7 3.5s7-1.5 7-3.5V6M5 12v6c0 2 3.1 3.5 7 3.5s7-1.5 7-3.5v-6" />
+                            </svg>
+                          )}
+                        </span>
+                        <span className="app-topbar__systemVitalCopy">
+                          <span>{vital.label}</span>
+                          <strong>{vital.value}</strong>
+                          <em>{vital.detail}</em>
+                        </span>
+                        <span className="app-topbar__systemVitalTrack" aria-hidden="true">
+                          <i />
+                        </span>
+                      </span>
+                    ))}
+                  </div>
+                ) : null}
               </div>
             </div>
           </div>
