@@ -626,6 +626,9 @@ function ProspectingAutomationPanel({
       ? `Próximo: ${liveStatus.nextEligibleLeadName}`
       : "Sem cooldown";
   const campaignStatus = liveStatus?.campaign?.status || "paused";
+  const botAttentionText =
+    liveStatus?.lastError ||
+    (String(liveStatus?.text || "").toLowerCase().startsWith("bot parado") ? liveStatus?.text || "" : "");
   const canPause = campaignStatus === "running";
   const canResume = campaignStatus === "paused";
   const [positiveKeywordsDraft, setPositiveKeywordsDraft] = useState(config.positiveIntentKeywords.join(", "));
@@ -749,6 +752,11 @@ function ProspectingAutomationPanel({
         <div>
           <span className={styles.sectionEyebrow}>Prospecção automática</span>
           <h3 className={styles.cardTitle}>{liveStatus?.text || "Motor contínuo"}</h3>
+          {botAttentionText ? (
+            <div className={styles.prospectingHeaderAlert} role="status">
+              {botAttentionText}
+            </div>
+          ) : null}
         </div>
         <div className={styles.prospectingStatusMetrics}>
           <span>Créditos usados <strong>{sentToday}/{dailyLimit}</strong></span>
@@ -1377,7 +1385,7 @@ export default function VendasAutomationClientPage() {
     void saveBotConfig(draftConfig, "Rascunho salvo no banco de dados.");
   }, [draftConfig, saveBotConfig]);
 
-  const disableGemini = useCallback(() => {
+  const disableAi = useCallback(() => {
     if (!botAiActive) {
       openBotPlans();
       return;
@@ -1389,7 +1397,7 @@ export default function VendasAutomationClientPage() {
         globalBotEnabled: false,
       },
     });
-    void saveBotConfig(nextConfig, "Gemini desativado. O HBot ficará em modo humano.");
+    void saveBotConfig(nextConfig, "IA desativada. O HBot ficará em modo humano.");
   }, [botAiActive, draftConfig, openBotPlans, saveBotConfig]);
 
   const updateProspectingConfigState = useCallback(
@@ -1533,9 +1541,9 @@ export default function VendasAutomationClientPage() {
               activeTab={activeTab}
               onTabChange={setWorkspaceTab}
               connectionPaired={connectionPaired}
-              geminiDisabled={!draftConfig.routingRules.globalBotEnabled}
-              geminiBusy={publishing}
-              onDisableGemini={botAiActive ? disableGemini : undefined}
+              aiDisabled={!draftConfig.routingRules.globalBotEnabled}
+              aiBusy={publishing}
+              onDisableAi={botAiActive ? disableAi : undefined}
               connectionPanel={
                 <section className={styles.connectionRedirectPanel}>
                   <span className={styles.sectionEyebrow}>Conexão</span>

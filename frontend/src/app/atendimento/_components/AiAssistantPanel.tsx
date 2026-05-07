@@ -130,7 +130,7 @@ export default function AiAssistantPanel({
         <span className={styles.avatar} aria-hidden="true">IA</span>
         <div>
           <span className={styles.eyebrow}>Assistente HBX IA</span>
-          <strong>{status.openAiAvailable ? "Gemini Online" : "Gemini em verificação"}</strong>
+          <strong>{status.openAiAvailable ? "Assistente HBX IA Online" : "Assistente HBX IA em verificação"}</strong>
           <p>{status.openAiAvailable ? "Apoio comercial em tempo real." : status.availabilityLabel || "Aguardando confirmação do serviço."}</p>
         </div>
         <button type="button" className={styles.collapseButton} onClick={onToggleCompact}>

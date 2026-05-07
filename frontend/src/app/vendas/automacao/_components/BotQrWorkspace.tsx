@@ -6,9 +6,9 @@ type BotQrWorkspaceProps = {
   activeTab: BotQrWorkspaceTab;
   onTabChange: (tab: BotQrWorkspaceTab) => void;
   connectionPaired?: boolean;
-  geminiDisabled?: boolean;
-  geminiBusy?: boolean;
-  onDisableGemini?: () => void;
+  aiDisabled?: boolean;
+  aiBusy?: boolean;
+  onDisableAi?: () => void;
   connectionPanel: ReactNode;
   atendimentoPanel: ReactNode;
   flowPanel: ReactNode;
@@ -28,9 +28,9 @@ export default function BotQrWorkspace({
   activeTab,
   onTabChange,
   connectionPaired = false,
-  geminiDisabled = false,
-  geminiBusy = false,
-  onDisableGemini,
+  aiDisabled = false,
+  aiBusy = false,
+  onDisableAi,
   connectionPanel,
   atendimentoPanel,
   flowPanel,
@@ -56,22 +56,22 @@ export default function BotQrWorkspace({
           <h2 className={styles.sectionTitle}>Bot</h2>
         </div>
       </div>
-      {onDisableGemini ? (
-        <div className={styles.geminiControl}>
+      {onDisableAi ? (
+        <div className={styles.aiControl}>
           <button
             type="button"
-            className={styles.geminiKillButton}
-            data-disabled={geminiDisabled ? "true" : "false"}
-            onClick={onDisableGemini}
-            disabled={geminiBusy || geminiDisabled}
-            aria-pressed={geminiDisabled}
+            className={styles.aiKillButton}
+            data-disabled={aiDisabled ? "true" : "false"}
+            onClick={onDisableAi}
+            disabled={aiBusy || aiDisabled}
+            aria-pressed={aiDisabled}
           >
-            <span className={styles.geminiIcon} aria-hidden="true">
+            <span className={styles.aiIcon} aria-hidden="true">
               AI
             </span>
             <span>
-              <strong>{geminiDisabled ? "Gemini desativado" : geminiBusy ? "Desativando Gemini" : "Desativar Gemini"}</strong>
-              <small>{geminiDisabled ? "HBot em modo humano" : "Corta resposta automática de IA"}</small>
+              <strong>{aiDisabled ? "IA desativada" : aiBusy ? "Desativando IA" : "Desativar IA"}</strong>
+              <small>{aiDisabled ? "HBot em modo humano" : "Corta resposta automática de IA"}</small>
             </span>
           </button>
         </div>

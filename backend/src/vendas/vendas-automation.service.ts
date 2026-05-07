@@ -13,7 +13,7 @@ import { ConversationsService } from '../messaging/conversations.service';
 import { InboxRealtimeService } from '../messaging/inbox-realtime.service';
 import { buildWhatsAppPhoneCandidates } from '../messaging/whatsapp-channel';
 import { PrismaService } from '../prisma/prisma.service';
-import { WebscrapingService, type WebscrapingContactResult } from '../webscraping/webscraping.service';
+import { WebscrapingService, type WebscrapingContactResult, type WebscrapingSearchResponse } from '../webscraping/webscraping.service';
 import { StartVendasProspectingDto, UpdateVendasProspectingConfigDto } from './dto/vendas.dto';
 import { VendasService } from './vendas.service';
 
@@ -1693,6 +1693,21 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
   private async scrapeImportAndSchedule(campaignId: string, user?: any, reason: 'start' | 'refill' = 'start') {
     const campaign = await this.prisma.vendasAutomationCampaign.findUnique({ where: { id: campaignId } });
     if (!campaign || campaign.status !== 'running') return;
+    const campaignCity = trimOrNull(campaign.city);
+    const campaignSegment = trimOrNull(campaign.segment);
+    if (!campaignCity || !campaignSegment) {
+      const missing = [
+        !campaignCity ? 'cidade' : null,
+        !campaignSegment ? 'segmento' : null,
+      ].filter(Boolean).join(' e ');
+      const text = `Campanha sem ${missing}. Revise a configuração da prospecção.`;
+      await this.markCampaignStage(campaign.id, campaign.companyId, 'aguardando', text, {
+        error: text,
+        type: 'invalid_campaign_config',
+      });
+      this.logger.warn(`[vendas-automation] refill bloqueado por configuracao incompleta campaign=${campaign.id} missing=${missing}`);
+      return;
+    }
     const now = new Date();
     if (!this.isInsideWorkingHours(now, campaign)) {
       const next = this.moveToWorkingWindow(now, campaign);
@@ -1702,22 +1717,32 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
       return;
     }
     const runtimeUser = user || (await this.buildAutomationUser(campaign));
-    const searchLabel = `${campaign.segment} em ${campaign.city}${campaign.state ? `/${campaign.state}` : ''}`;
+    const searchLabel = `${campaignSegment} em ${campaignCity}${campaign.state ? `/${campaign.state}` : ''}`;
     await this.markCampaignStage(campaign.id, campaign.companyId, 'buscando', `Buscando ${searchLabel}.`, {
       type: reason === 'refill' ? 'scrape_refill_started' : 'scrape_started',
     });
     const filters = parseJsonObject(campaign.filtersJson);
-    const search = await this.webscrapingService.searchContactsForUser(runtimeUser, {
-      city: campaign.city,
-      state: campaign.state || null,
-      segment: campaign.segment,
-      quantity: campaign.engine === 'hbx' ? 100 : Math.min(20, campaign.desiredLeadBuffer || 60),
-      engine: campaign.engine === 'google' ? 'google' : 'hbx',
-      targetType: ['pf', 'agenda_pf'].includes(String(campaign.targetType || '')) ? campaign.targetType as any : 'pj',
-      minRating: Number(filters.minRating || 0) || null,
-      minReviews: Number(filters.minReviews || 0) || null,
-      onlyWithWebsite: filters.onlyWithWebsite === true,
-    });
+    let search: WebscrapingSearchResponse;
+    try {
+      search = await this.webscrapingService.searchContactsForUser(runtimeUser, {
+        city: campaignCity,
+        state: campaign.state || null,
+        segment: campaignSegment,
+        quantity: campaign.engine === 'hbx' ? 100 : Math.min(20, campaign.desiredLeadBuffer || 60),
+        engine: campaign.engine === 'google' ? 'google' : 'hbx',
+        targetType: ['pf', 'agenda_pf'].includes(String(campaign.targetType || '')) ? campaign.targetType as any : 'pj',
+        minRating: Number(filters.minRating || 0) || null,
+        minReviews: Number(filters.minReviews || 0) || null,
+        onlyWithWebsite: filters.onlyWithWebsite === true,
+      });
+    } catch (error: any) {
+      const errorMessage = String(error?.message || error || 'Falha na busca de contatos.');
+      await this.markCampaignStage(campaign.id, campaign.companyId, 'aguardando', `Busca de contatos falhou: ${errorMessage}`, {
+        error: errorMessage,
+        type: reason === 'refill' ? 'scrape_refill_failed' : 'scrape_failed',
+      });
+      throw error;
+    }
     await this.prisma.vendasAutomationCampaign.update({
       where: { id: campaign.id },
       data: { lastScrapeAt: new Date(), searchSignature: search.query ? this.buildSearchSignature(campaign) : campaign.searchSignature },
@@ -1922,7 +1947,8 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     if (activeProspectionLeadIds.size) {
       sourceFilters.push({ id: { in: Array.from(activeProspectionLeadIds) } });
     }
-    const leads = await this.prisma.vendasLead.findMany({
+    let usedBroaderLeadPool = false;
+    let leads = await this.prisma.vendasLead.findMany({
       where: {
         companyId: campaign.companyId,
         status: { not: 'encerrado' },
@@ -1936,6 +1962,30 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
       orderBy: [{ returnAt: 'asc' }, { updatedAt: 'desc' }],
       take: slotsToFill,
     });
+    if (!leads.length) {
+      usedBroaderLeadPool = true;
+      await this.markCampaignStage(campaign.id, campaign.companyId, 'agendando', 'Sem card exato. Procurando cards de ramo próximo no banco...', {
+        type: 'schedule_similar_pool_started',
+      });
+      const broaderSourceFilters: any[] = [{ sourceType: 'webscraping' }];
+      if (activeProspectionLeadIds.size) {
+        broaderSourceFilters.push({ id: { in: Array.from(activeProspectionLeadIds) } });
+      }
+      leads = await this.prisma.vendasLead.findMany({
+        where: {
+          companyId: campaign.companyId,
+          status: { not: 'encerrado' },
+          wasClosedBefore: false,
+          closedAt: null,
+          OR: broaderSourceFilters,
+          phoneNormalized: { not: null },
+          id: { notIn: Array.from(usedLeadIds) },
+          attemptCount: { lt: Math.max(1, Number(campaign.maxAttemptsPerLead || 1)) },
+        },
+        orderBy: [{ returnAt: 'asc' }, { updatedAt: 'desc' }],
+        take: slotsToFill,
+      });
+    }
     const intervalMs = this.getCampaignIntervalMs(campaign);
     let cursor = await this.buildScheduleCursorForCampaign(campaign);
     const data: any[] = [];
@@ -2032,7 +2082,9 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
         ? `${pendingCount + data.length} contatos na fila.`
         : draftOnlyCount
           ? `${draftOnlyCount} card(s) prontos para primeiro contato.`
-          : 'Aguardando novos contatos válidos.',
+          : usedBroaderLeadPool
+            ? 'Bot parado: preciso de cards válidos. O banco foi consultado, mas não há contato enviável agora.'
+            : 'Bot parado: preciso de cards válidos desta busca.',
       { type: 'jobs_scheduled' },
     );
   }
@@ -2307,7 +2359,6 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     this.workerRunning = true;
     try {
       await this.archiveNoResponseJobs();
-      await this.refillCampaignsIfNeeded();
       const blockedCompanies = new Set<number>();
       let skippedThisCycle = 0;
       let lastCampaignId: string | null = null;
@@ -2329,6 +2380,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
         }
         blockedCompanies.add(Number(job.companyId));
       }
+      await this.refillCampaignsIfNeeded();
       await this.prepareCampaignBuffersDuringCooldown();
     } finally {
       this.workerRunning = false;
@@ -2373,6 +2425,10 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
         where: { campaignId: campaign.id, status: { in: [...BUFFER_JOB_STATUSES] as any } },
       });
       if (pending >= Number(campaign.minLeadBuffer || 15)) continue;
+      const dueJobs = await this.prisma.vendasAutomationJob.count({
+        where: { campaignId: campaign.id, status: 'scheduled', scheduledAt: { lte: now } },
+      });
+      if (dueJobs > 0) continue;
       await this.scrapeImportAndSchedule(campaign.id, undefined, 'refill').catch((error) => {
         this.logger.warn(`Refill falhou campaign=${campaign.id}: ${String(error?.message || error)}`);
       });
