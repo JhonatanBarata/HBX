@@ -79,6 +79,10 @@ function createService(overrides?: {
   negativeJob?: Record<string, unknown> | null;
   negativeJobsByLeadId?: Record<string, Record<string, unknown> | null>;
   latestSentJob?: Record<string, unknown> | null;
+  successfulSendsToday?: number;
+  hbotActive?: boolean;
+  providerError?: string | null;
+  activeProspectionConversations?: Array<Record<string, unknown>>;
   scheduleLeads?: any[];
 }) {
   const queueCalls: Array<Record<string, any>> = [];
@@ -89,6 +93,8 @@ function createService(overrides?: {
   const createdJobBatches: Array<any[]> = [];
   const scheduleCalls: string[] = [];
   let currentMetadata: Record<string, unknown> | null = overrides?.conversationMetadata ?? null;
+  let successfulSendsToday = overrides?.successfulSendsToday || 0;
+  let latestSentAt = overrides?.latestSentJob?.sentAt instanceof Date ? overrides.latestSentJob.sentAt : null;
   const campaignFixture = buildCampaign(overrides?.campaign || {});
 
   function metadataForWhere(where: any) {
@@ -113,14 +119,17 @@ function createService(overrides?: {
       },
     },
     vendasAutomationJob: {
-      count: async () => 0,
+      count: async ({ where }: any = {}) => {
+        if (where?.sentAt?.gte) return successfulSendsToday;
+        return 0;
+      },
       findMany: async ({ where }: any = {}) => {
         if (where?.campaignId) return [];
         return [];
       },
       findFirst: async ({ where }: any = {}) => {
         if (where?.sentAt) {
-          return overrides?.latestSentJob || null;
+          return latestSentAt ? { sentAt: latestSentAt } : overrides?.latestSentJob || null;
         }
         if (where?.scheduledAt) {
           return null;
@@ -133,6 +142,10 @@ function createService(overrides?: {
       },
       update: async ({ where, data }: any) => {
         jobUpdates.push({ where, data });
+        if (data?.status === 'sent' && data?.sentAt instanceof Date) {
+          successfulSendsToday += 1;
+          latestSentAt = data.sentAt;
+        }
         return { id: where.id, ...data };
       },
       updateMany: async () => ({ count: 0 }),
@@ -151,6 +164,7 @@ function createService(overrides?: {
       create: async ({ data }: any) => ({ id: 'event-1', ...data }),
     },
     companyConversation: {
+      findMany: async () => overrides?.activeProspectionConversations || [],
       findFirst: async ({ where }: any = {}) => {
         const metadata = metadataForWhere(where);
         if (where?.id) return { id: where.id, companyId: 7, channel: 'whatsapp', contact: '+5511999998888', metadata: JSON.stringify(metadata || {}) };
@@ -167,6 +181,13 @@ function createService(overrides?: {
     $transaction: async (callback: (tx: any) => Promise<unknown>) => callback(prisma),
   };
 
+  const inboxService = {
+    getBotConfig: async () => ({
+      routingRules: { globalBotEnabled: overrides?.hbotActive !== false },
+      setup: { completed: true },
+    }),
+  };
+
   const conversations = {
     getOrCreateConversationForContact: async () => ({ id: 501, metadata: JSON.stringify(currentMetadata || {}) }),
     updateConversationState: async (companyId: number, conversationId: number, payload: Record<string, any>) => {
@@ -175,6 +196,9 @@ function createService(overrides?: {
       return { id: conversationId, ...payload };
     },
     queueOutboundForCompany: async (companyId: number, payload: Record<string, any>) => {
+      if (overrides?.providerError) {
+        throw new Error(overrides.providerError);
+      }
       queueCalls.push({ companyId, payload });
       return { conversationId: 501 };
     },
@@ -186,7 +210,7 @@ function createService(overrides?: {
 
   const service = new VendasAutomationService(
     prisma,
-    {} as any,
+    inboxService as any,
     {} as any,
     {} as any,
     conversations as any,
@@ -229,7 +253,7 @@ test('processDueJob does not repeat first contact for segment mismatch lead with
   await service.processDueJob(buildJob());
 
   assert.equal(queueCalls.length, 0);
-  assert.ok(jobUpdates.some((call) => call.data.status === 'skipped' && call.data.classification === 'needs_review'));
+  assert.ok(jobUpdates.some((call) => call.data.status === 'skipped' && call.data.classification === 'first_contact_already_sent'));
   assert.equal(stateCalls.at(-1)?.payload.metadata.vendasProspeccao.stage, 'needs_review');
 });
 
@@ -320,8 +344,7 @@ test('runWorkerCycle skips needs_review job and sends the next valid lead in the
   const { service, queueCalls, jobUpdates } = createService({
     conversationMetadataByPhone: {
       '551100000001': {
-        vendasProspeccao: { stage: 'sent_waiting', firstOutboundAt: '2026-05-05T10:00:00.000Z' },
-        vendasAgendaQueue: { manualSent: true, manualSentAt: '2026-05-05T10:00:00.000Z' },
+        vendasProspeccao: { stage: 'needs_review' },
       },
       '551100000002': {},
     },
@@ -388,7 +411,7 @@ test('intervalMinutes defers the second send but still prepares future jobs', as
 
   const result = await service.processDueJob(buildJob({ campaign, lead, leadId: lead.id }));
 
-  assert.equal(result.outcome, 'deferred');
+  assert.equal(result.outcome, 'blocked');
   assert.equal(queueCalls.length, 0);
   const deferredUpdate = jobUpdates.find((call) => call.where.id === 'job-1' && call.data.scheduledAt instanceof Date);
   assert.ok(deferredUpdate);
@@ -453,4 +476,227 @@ test('segment_mismatch_fallback_draft stays visible and worker prepares the next
   assert.equal(queueCalls[0].payload.variables.leadId, 'lead-next');
   assert.ok(jobUpdates.some((call) => call.where.id === 'job-draft' && call.data.status === 'skipped' && call.data.classification === 'segment_mismatch_fallback_draft'));
   assert.ok(stateCalls.some((call) => call.payload.metadata.vendasProspeccao.stage === 'pending_send'));
+});
+
+test('dailyLimit=10 and maxAttemptsPerLead=1 allows 10 different successful sends, then blocks the 11th', async () => {
+  const campaign = buildCampaign({ dailyLimit: 10, maxAttemptsPerLead: 1, intervalMinutes: 12 });
+  const phones = Array.from({ length: 11 }, (_, index) => `55119999988${String(index).padStart(2, '0')}`);
+  const { service, queueCalls } = createService({
+    campaign,
+    conversationMetadataByPhone: Object.fromEntries(phones.map((phone) => [phone, {}])),
+  });
+  service.getNextAllowedSendAt = async () => null;
+
+  const outcomes: string[] = [];
+  for (let index = 0; index < 11; index += 1) {
+    const lead = buildLead({
+      id: `lead-${index + 1}`,
+      phone: `+${phones[index]}`,
+      phoneNormalized: phones[index],
+      segment: campaign.segment,
+      attemptCount: 0,
+    });
+    const result = await service.processDueJob(buildJob({ id: `job-${index + 1}`, campaign, lead, leadId: lead.id }));
+    outcomes.push(result.outcome);
+  }
+
+  assert.equal(queueCalls.length, 10);
+  assert.equal(outcomes.slice(0, 10).every((outcome) => outcome === 'sent_success'), true);
+  assert.equal(outcomes[10], 'blocked');
+});
+
+test('needs_review skip does not consume credit or cooldown and worker sends next eligible lead', async () => {
+  const campaign = buildCampaign({ dailyLimit: 10, maxAttemptsPerLead: 1 });
+  const reviewLead = buildLead({ id: 'lead-review-2', phone: '+551100000011', phoneNormalized: '551100000011', segment: campaign.segment });
+  const validLead = buildLead({ id: 'lead-valid-2', phone: '+551100000012', phoneNormalized: '551100000012', segment: campaign.segment });
+  const jobs = [
+    buildJob({ id: 'job-review-2', campaign, lead: reviewLead, leadId: reviewLead.id }),
+    buildJob({ id: 'job-valid-2', campaign, lead: validLead, leadId: validLead.id }),
+  ];
+  const { service, queueCalls, jobUpdates } = createService({
+    conversationMetadataByPhone: {
+      '551100000011': { vendasProspeccao: { stage: 'needs_review' } },
+      '551100000012': {},
+    },
+  });
+  service.archiveNoResponseJobs = async () => null;
+  service.refillCampaignsIfNeeded = async () => null;
+  service.prepareCampaignBuffersDuringCooldown = async () => null;
+  service.findNextDueJob = async () => jobs.shift() || null;
+  service.findNextDueJobForCampaign = async () => (jobs[0] ? { id: jobs[0].id } : null);
+  service.getNextAllowedSendAt = async () => null;
+
+  await service.runWorkerCycle();
+
+  assert.equal(queueCalls.length, 1);
+  assert.equal(queueCalls[0].payload.variables.leadId, 'lead-valid-2');
+  assert.ok(jobUpdates.some((call) => call.where.id === 'job-review-2' && call.data.classification === 'needs_review'));
+});
+
+test('lead without WhatsApp is skipped without credit and next eligible lead is used', async () => {
+  const campaign = buildCampaign({ maxAttemptsPerLead: 1 });
+  const badLead = buildLead({ id: 'lead-no-whatsapp', phone: null, phoneNormalized: null, segment: campaign.segment });
+  const validLead = buildLead({ id: 'lead-after-no-whatsapp', phone: '+551100000022', phoneNormalized: '551100000022', segment: campaign.segment });
+  const jobs = [
+    buildJob({ id: 'job-no-whatsapp', campaign, lead: badLead, leadId: badLead.id }),
+    buildJob({ id: 'job-after-no-whatsapp', campaign, lead: validLead, leadId: validLead.id }),
+  ];
+  const { service, queueCalls, jobUpdates } = createService({ conversationMetadataByPhone: { '551100000022': {} } });
+  service.archiveNoResponseJobs = async () => null;
+  service.refillCampaignsIfNeeded = async () => null;
+  service.prepareCampaignBuffersDuringCooldown = async () => null;
+  service.findNextDueJob = async () => jobs.shift() || null;
+  service.findNextDueJobForCampaign = async () => (jobs[0] ? { id: jobs[0].id } : null);
+  service.getNextAllowedSendAt = async () => null;
+
+  await service.runWorkerCycle();
+
+  assert.equal(queueCalls.length, 1);
+  assert.equal(queueCalls[0].payload.variables.leadId, 'lead-after-no-whatsapp');
+  assert.ok(jobUpdates.some((call) => call.where.id === 'job-no-whatsapp' && call.data.classification === 'invalid_whatsapp'));
+});
+
+test('already contacted lead is skipped without credit and next eligible lead is used', async () => {
+  const campaign = buildCampaign({ maxAttemptsPerLead: 1 });
+  const contactedLead = buildLead({ id: 'lead-contacted', phone: '+551100000031', phoneNormalized: '551100000031', segment: campaign.segment });
+  const validLead = buildLead({ id: 'lead-after-contacted', phone: '+551100000032', phoneNormalized: '551100000032', segment: campaign.segment });
+  const jobs = [
+    buildJob({ id: 'job-contacted', campaign, lead: contactedLead, leadId: contactedLead.id }),
+    buildJob({ id: 'job-after-contacted', campaign, lead: validLead, leadId: validLead.id }),
+  ];
+  const { service, queueCalls, jobUpdates } = createService({
+    conversationMetadataByPhone: {
+      '551100000031': { vendasProspeccao: { firstOutboundAt: '2026-05-05T10:00:00.000Z' } },
+      '551100000032': {},
+    },
+  });
+  service.archiveNoResponseJobs = async () => null;
+  service.refillCampaignsIfNeeded = async () => null;
+  service.prepareCampaignBuffersDuringCooldown = async () => null;
+  service.findNextDueJob = async () => jobs.shift() || null;
+  service.findNextDueJobForCampaign = async () => (jobs[0] ? { id: jobs[0].id } : null);
+  service.getNextAllowedSendAt = async () => null;
+
+  await service.runWorkerCycle();
+
+  assert.equal(queueCalls.length, 1);
+  assert.equal(queueCalls[0].payload.variables.leadId, 'lead-after-contacted');
+  assert.ok(jobUpdates.some((call) => call.where.id === 'job-contacted' && call.data.classification === 'first_contact_already_sent'));
+});
+
+test('opt-out or negative lead is skipped without credit and next eligible lead is used', async () => {
+  const campaign = buildCampaign({ maxAttemptsPerLead: 1 });
+  const optOutLead = buildLead({ id: 'lead-optout', phone: '+551100000041', phoneNormalized: '551100000041', segment: campaign.segment });
+  const validLead = buildLead({ id: 'lead-after-optout', phone: '+551100000042', phoneNormalized: '551100000042', segment: campaign.segment });
+  const jobs = [
+    buildJob({ id: 'job-optout', campaign, lead: optOutLead, leadId: optOutLead.id }),
+    buildJob({ id: 'job-after-optout', campaign, lead: validLead, leadId: validLead.id }),
+  ];
+  const { service, queueCalls, jobUpdates } = createService({
+    conversationMetadataByPhone: {
+      '551100000041': { optOut: true, vendasProspeccao: { stage: 'negative_reply' } },
+      '551100000042': {},
+    },
+  });
+  service.archiveNoResponseJobs = async () => null;
+  service.refillCampaignsIfNeeded = async () => null;
+  service.prepareCampaignBuffersDuringCooldown = async () => null;
+  service.findNextDueJob = async () => jobs.shift() || null;
+  service.findNextDueJobForCampaign = async () => (jobs[0] ? { id: jobs[0].id } : null);
+  service.getNextAllowedSendAt = async () => null;
+
+  await service.runWorkerCycle();
+
+  assert.equal(queueCalls.length, 1);
+  assert.equal(queueCalls[0].payload.variables.leadId, 'lead-after-optout');
+  assert.ok(jobUpdates.some((call) => call.where.id === 'job-optout' && call.data.classification === 'negative_or_opt_out'));
+});
+
+test('provider failure does not count as dailyLimit success', async () => {
+  const campaign = buildCampaign({ dailyLimit: 1 });
+  const { service, queueCalls, jobUpdates } = createService({ conversationMetadata: null, providerError: 'provider offline' });
+  service.getNextAllowedSendAt = async () => null;
+  const lead = buildLead({ segment: campaign.segment });
+
+  const result = await service.processDueJob(buildJob({ campaign, lead, leadId: lead.id }));
+  const sentToday = await service.countSuccessfulSendsToday(campaign.id, campaign.companyId);
+
+  assert.equal(result.outcome, 'failed_no_credit');
+  assert.equal(queueCalls.length, 0);
+  assert.equal(sentToday, 0);
+  assert.ok(jobUpdates.some((call) => call.data.status === 'failed'));
+});
+
+test('intervalMinutes uses only successful sentAt jobs and ignores skipped or failed jobs', async () => {
+  const sentAt = new Date(Date.now() - 2 * 60000);
+  const { service, jobUpdates } = createService({
+    latestSentJob: { sentAt },
+    conversationMetadata: null,
+    campaign: { intervalMinutes: 12 },
+  });
+  const campaign = buildCampaign({ intervalMinutes: 12 });
+  const lead = buildLead({ segment: campaign.segment });
+
+  const result = await service.processDueJob(buildJob({ campaign, lead, leadId: lead.id }));
+
+  assert.equal(result.outcome, 'blocked');
+  const deferredUpdate = jobUpdates.find((call) => call.where.id === 'job-1' && call.data.scheduledAt instanceof Date);
+  assert.ok(deferredUpdate);
+  assert.ok(deferredUpdate.data.scheduledAt.getTime() >= sentAt.getTime() + 12 * 60000);
+});
+
+test('sentToday=9 with dailyLimit=10 sends one more and then blocks real sends', async () => {
+  const campaign = buildCampaign({ dailyLimit: 10, maxAttemptsPerLead: 1 });
+  const { service, queueCalls } = createService({
+    successfulSendsToday: 9,
+    campaign,
+    conversationMetadataByPhone: {
+      '551100000051': {},
+      '551100000052': {},
+    },
+  });
+  service.getNextAllowedSendAt = async () => null;
+  const firstLead = buildLead({ id: 'lead-allowed-last', phone: '+551100000051', phoneNormalized: '551100000051', segment: campaign.segment });
+  const secondLead = buildLead({ id: 'lead-blocked-limit', phone: '+551100000052', phoneNormalized: '551100000052', segment: campaign.segment });
+
+  const first = await service.processDueJob(buildJob({ id: 'job-allowed-last', campaign, lead: firstLead, leadId: firstLead.id }));
+  const second = await service.processDueJob(buildJob({ id: 'job-blocked-limit', campaign, lead: secondLead, leadId: secondLead.id }));
+
+  assert.equal(first.outcome, 'sent_success');
+  assert.equal(second.outcome, 'blocked');
+  assert.equal(queueCalls.length, 1);
+});
+
+test('maxAttemptsPerLead=1 blocks same lead repetition but not different leads', async () => {
+  const campaign = buildCampaign({ maxAttemptsPerLead: 1 });
+  const repeatedLead = buildLead({ id: 'lead-repeat', phone: '+551100000061', phoneNormalized: '551100000061', segment: campaign.segment, attemptCount: 1 });
+  const validLead = buildLead({ id: 'lead-different', phone: '+551100000062', phoneNormalized: '551100000062', segment: campaign.segment, attemptCount: 0 });
+  const jobs = [
+    buildJob({ id: 'job-repeat', campaign, lead: repeatedLead, leadId: repeatedLead.id }),
+    buildJob({ id: 'job-different', campaign, lead: validLead, leadId: validLead.id }),
+  ];
+  const { service, queueCalls, jobUpdates } = createService({ conversationMetadataByPhone: { '551100000062': {} } });
+  service.archiveNoResponseJobs = async () => null;
+  service.refillCampaignsIfNeeded = async () => null;
+  service.prepareCampaignBuffersDuringCooldown = async () => null;
+  service.findNextDueJob = async () => jobs.shift() || null;
+  service.findNextDueJobForCampaign = async () => (jobs[0] ? { id: jobs[0].id } : null);
+  service.getNextAllowedSendAt = async () => null;
+
+  await service.runWorkerCycle();
+
+  assert.equal(queueCalls.length, 1);
+  assert.equal(queueCalls[0].payload.variables.leadId, 'lead-different');
+  assert.ok(jobUpdates.some((call) => call.where.id === 'job-repeat' && call.data.classification === 'first_contact_already_sent'));
+});
+
+test('lead pre-script has priority over campaign messageTemplate and defaults', async () => {
+  const { service, queueCalls } = createService({ conversationMetadata: null });
+  const campaign = buildCampaign({ messageTemplate: 'Template da campanha {{cliente}}' });
+  const lead = buildLead({ segment: campaign.segment, scriptText: 'Roteiro do lead para {{cliente}}.' });
+
+  await service.processDueJob(buildJob({ campaign, lead, leadId: lead.id }));
+
+  assert.equal(queueCalls.length, 1);
+  assert.equal(queueCalls[0].payload.body, 'Roteiro do lead para Empresa Teste.');
 });

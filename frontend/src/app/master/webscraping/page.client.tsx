@@ -132,6 +132,8 @@ const DEFAULT_FORM: FormState = {
   maxAttemptsPerTask: 3,
 };
 
+const BRASILIA_TIME_ZONE = "America/Sao_Paulo";
+
 function clampNumber(value: unknown, fallback: number, min: number, max: number) {
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) return fallback;
@@ -154,14 +156,22 @@ function formatDateTime(value?: string | null) {
   if (!value) return "-";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "-";
-  return date.toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" });
+  return date.toLocaleString("pt-BR", {
+    dateStyle: "short",
+    timeStyle: "short",
+    timeZone: BRASILIA_TIME_ZONE,
+  });
 }
 
 function formatClock(value?: string | null) {
   if (!value) return "--:--";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "--:--";
-  return date.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+  return date.toLocaleTimeString("pt-BR", {
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone: BRASILIA_TIME_ZONE,
+  });
 }
 
 function formatRemaining(seconds?: number | null) {
@@ -431,7 +441,7 @@ export default function MasterWebscrapingClientPage() {
           </div>
           <div className={styles.headerClock}>
             <span>Horário atual</span>
-            <strong>{dashboard?.status.localTime || "--:--"}</strong>
+            <strong>{dashboard?.generatedAt ? formatClock(dashboard.generatedAt) : "--:--"}</strong>
           </div>
         </header>
 

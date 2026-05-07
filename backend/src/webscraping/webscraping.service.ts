@@ -3844,6 +3844,57 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     return count > 0 ? { key, label, count, tone } : null;
   }
 
+  private buildRadarAvailableFilters(rows: any[]) {
+    const states = new Map<string, number>();
+    const citiesByState = new Map<string, Map<string, number>>();
+    const segments = new Map<string, number>();
+    const ddds = new Map<string, number>();
+    const statuses = new Map<string, number>();
+    const scoreRanges = new Map<string, number>();
+
+    for (const row of rows) {
+      const state = String(row?.state || '').trim().toUpperCase();
+      const city = String(row?.city || '').trim();
+      const segment = String(row?.segment || '').trim();
+      const phone = row?.phoneDigits || row?.phone;
+      const ddd = String(row?.ddd || this.extractDdd(phone) || '').replace(/\D/g, '').slice(0, 2);
+      const status = this.resolveRadarLeadStatus(row);
+      const score = safeInteger(row?.opportunityScore);
+      const scoreRange = score >= 70 ? 'high' : score >= 45 ? 'medium' : 'low';
+
+      if (state) states.set(state, (states.get(state) || 0) + 1);
+      if (state && city) {
+        const stateCities = citiesByState.get(state) || new Map<string, number>();
+        stateCities.set(city, (stateCities.get(city) || 0) + 1);
+        citiesByState.set(state, stateCities);
+      }
+      if (segment) segments.set(segment, (segments.get(segment) || 0) + 1);
+      if (ddd) ddds.set(ddd, (ddds.get(ddd) || 0) + 1);
+      if (status) statuses.set(status, (statuses.get(status) || 0) + 1);
+      scoreRanges.set(scoreRange, (scoreRanges.get(scoreRange) || 0) + 1);
+    }
+
+    const sortEntries = (left: [string, number], right: [string, number]) =>
+      right[1] - left[1] || left[0].localeCompare(right[0], 'pt-BR');
+    const toOptions = (entries: Iterable<[string, number]>) =>
+      Array.from(entries)
+        .sort(sortEntries)
+        .map(([value, count]) => ({ value, label: value, count }));
+    const cityOptionsByState: Record<string, Array<{ value: string; label: string; count: number }>> = {};
+    for (const [state, cityCounts] of citiesByState.entries()) {
+      cityOptionsByState[state] = toOptions(cityCounts.entries());
+    }
+
+    return {
+      states: toOptions(states.entries()),
+      citiesByState: cityOptionsByState,
+      segments: toOptions(segments.entries()),
+      ddds: toOptions(ddds.entries()),
+      statuses: toOptions(statuses.entries()),
+      scoreRanges: toOptions(scoreRanges.entries()),
+    };
+  }
+
   private buildRadarFacets(rows: any[]) {
     const statusCounts = new Map<string, number>();
     const cityCounts = new Map<string, number>();
@@ -3915,10 +3966,10 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     ].filter(Boolean);
 
     const dynamic = [
-      ...Array.from(cityCounts.entries()).sort((a, b) => b[1] - a[1]).slice(0, 12).map(([label, count]) => this.buildRadarFacet(`city:${label}`, label, count, 'city')),
-      ...Array.from(stateCounts.entries()).sort((a, b) => b[1] - a[1]).slice(0, 12).map(([label, count]) => this.buildRadarFacet(`state:${label}`, label, count, 'state')),
-      ...Array.from(segmentCounts.entries()).sort((a, b) => b[1] - a[1]).slice(0, 12).map(([label, count]) => this.buildRadarFacet(`segment:${label}`, label, count, 'segment')),
-      ...Array.from(sourceCounts.entries()).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([label, count]) => this.buildRadarFacet(`source:${label}`, label, count, 'source')),
+      ...Array.from(cityCounts.entries()).sort((a, b) => b[1] - a[1]).map(([label, count]) => this.buildRadarFacet(`city:${label}`, label, count, 'city')),
+      ...Array.from(stateCounts.entries()).sort((a, b) => b[1] - a[1]).map(([label, count]) => this.buildRadarFacet(`state:${label}`, label, count, 'state')),
+      ...Array.from(segmentCounts.entries()).sort((a, b) => b[1] - a[1]).map(([label, count]) => this.buildRadarFacet(`segment:${label}`, label, count, 'segment')),
+      ...Array.from(sourceCounts.entries()).sort((a, b) => b[1] - a[1]).map(([label, count]) => this.buildRadarFacet(`source:${label}`, label, count, 'source')),
     ].filter(Boolean);
 
     return [...fixed, ...dynamic];
@@ -3931,6 +3982,18 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       return { items: [], total: 0, facets: [], meta: { available: false, message: 'Banco do Radar ainda nao foi migrado neste ambiente.' } };
     }
     const baseFilters = { ...filters, filterKey: '', status: '' };
+    const availabilityFilters = this.normalizeRadarFilters({
+      ...input,
+      city: '',
+      state: '',
+      segment: '',
+      filterKey: '',
+      status: '',
+    });
+    const availableRows = await this.queryRadarRowsForCompany(context.companyId, availabilityFilters, {
+      limit: 2000,
+      includeHidden: true,
+    });
     const allRows = await this.queryRadarRowsForCompany(context.companyId, baseFilters, {
       limit: 2000,
       includeHidden: true,
@@ -3949,6 +4012,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         page: filters.page,
         limit: filters.limit,
         filterKey: filters.filterKey || null,
+        availableFilters: this.buildRadarAvailableFilters(availableRows),
       },
     };
   }
@@ -5499,7 +5563,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         critical: Boolean(criticalReason),
         criticalReason,
         nextTurboAt: this.nextOperationalWindowAt(config, now),
-        localTime: now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
+        localTime: now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Sao_Paulo' }),
         estimatedMemoryGb: Math.min(safeInteger(config.memoryTargetGb, 16), safeInteger(config.engineCount, 4) * 4),
         isTurboEnabled: Boolean(config.enabled),
         isTurboWindowActive: scheduledTurboActive,
