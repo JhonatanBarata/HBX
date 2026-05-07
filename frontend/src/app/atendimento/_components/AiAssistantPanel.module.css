@@ -1,36 +1,49 @@
 .aiLayer {
-  position: absolute;
-  inset: 0;
-  z-index: 8;
-  pointer-events: none;
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  min-width: 0;
+  height: 100%;
+  min-height: 0;
+  pointer-events: auto;
+}
+
+.aiLayer[data-compact="true"] {
+  width: 54px;
+  height: 54px;
 }
 
 .compactButton {
   position: absolute;
-  right: 1rem;
-  bottom: 1rem;
+  top: 0.62rem;
+  right: 0.62rem;
   z-index: 3;
-  display: none;
-  width: 46px;
-  height: 46px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
   border: 1px solid color-mix(in srgb, #25d366 38%, var(--line));
   border-radius: 999px;
   background: linear-gradient(135deg, #0f8fbd, #25d366);
   color: #fff;
-  font-size: 0.78rem;
+  font-size: 0.68rem;
   font-weight: 950;
-  box-shadow: 0 16px 32px rgba(15, 23, 42, 0.22);
+  box-shadow: 0 12px 24px rgba(15, 23, 42, 0.18);
   pointer-events: auto;
+  cursor: pointer;
+}
+
+.aiLayer[data-compact="true"] .compactButton {
+  position: static;
+  width: 54px;
+  height: 54px;
+  font-size: 0.78rem;
+  box-shadow: 0 16px 32px rgba(15, 23, 42, 0.22);
 }
 
 .robotWrap {
-  position: absolute;
-  left: clamp(18.5rem, 26vw, 22rem);
-  top: 0.9rem;
-  width: 72px;
-  height: 72px;
-  pointer-events: none;
-  animation: hbx-ai-float 4.8s ease-in-out infinite;
+  display: none;
 }
 
 .robotHalo {
@@ -127,13 +140,21 @@
 }
 
 .panel {
-  position: absolute;
-  top: 0.72rem;
-  right: 0.72rem;
-  width: min(318px, calc(100% - 2rem));
+  position: relative;
+  width: 100%;
+  max-width: none;
+  height: 100%;
+  min-height: 0;
   display: grid;
+  align-content: start;
   gap: 0.58rem;
+  overflow: auto;
+  padding-right: 0.18rem;
   pointer-events: auto;
+}
+
+.aiLayer[data-compact="true"] .panel {
+  display: none;
 }
 
 .statusCard,
@@ -301,13 +322,7 @@
 
 @media (max-width: 1180px) {
   .panel {
-    width: min(292px, calc(100% - 1.5rem));
-  }
-
-  .robotWrap {
-    left: 1rem;
-    top: auto;
-    bottom: 1rem;
+    width: 100%;
   }
 }
 
@@ -318,18 +333,12 @@
     justify-content: center;
   }
 
-  .aiLayer[data-compact="true"] .panel,
-  .aiLayer[data-compact="true"] .robotWrap {
+  .aiLayer[data-compact="true"] .panel {
     display: none;
   }
 
   .panel {
-    inset: auto 0.7rem 4.45rem auto;
     max-height: min(68dvh, 520px);
     overflow: auto;
-  }
-
-  .robotWrap {
-    display: none;
   }
 }

@@ -5937,6 +5937,31 @@
   height: 100%;
 }
 
+.inboxCanvas[data-ai-expanded="true"] {
+  grid-template-columns:
+    74px
+    minmax(260px, 310px)
+    minmax(0, 1.2fr)
+    minmax(260px, 318px)
+    minmax(270px, 318px);
+  gap: 0.58rem;
+}
+
+.inboxStageAi {
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+}
+
+.inboxStageAi[data-compact="true"] {
+  position: absolute;
+  right: 1rem;
+  bottom: 1rem;
+  z-index: 9;
+  width: 54px;
+  height: 54px;
+}
+
 .automationPulse {
   display: grid;
   grid-template-columns: minmax(220px, 0.8fr) minmax(380px, 1fr) auto;
@@ -5994,7 +6019,9 @@
 
 .automationPulseDot[data-busy="true"] {
   background: var(--inbox-teal);
-  animation: automationPulseSpin 0.82s linear infinite;
+  box-shadow:
+    0 0 0 5px rgba(22, 215, 181, 0.1),
+    0 0 16px rgba(22, 215, 181, 0.42);
 }
 
 @keyframes automationPulseSpin {
@@ -6327,6 +6354,7 @@
 .inboxStageList,
 .inboxStageMain,
 .inboxStageContext,
+.inboxStageAi,
 .inboxMainBody,
 .inboxListBody,
 .inboxContextBody,
@@ -7995,6 +8023,16 @@
   .inboxCanvas {
     grid-template-columns: 72px minmax(280px, 320px) minmax(0, 1fr) minmax(300px, 332px);
   }
+
+  .inboxCanvas[data-ai-expanded="true"] {
+    grid-template-columns:
+      72px
+      minmax(240px, 292px)
+      minmax(0, 1fr)
+      minmax(238px, 292px)
+      minmax(252px, 296px);
+    gap: 0.5rem;
+  }
 }
 
 @media (max-width: 1280px) {
@@ -8008,9 +8046,20 @@
     grid-template-rows: minmax(0, 1fr) minmax(280px, auto);
   }
 
+  .inboxCanvas[data-ai-expanded="true"] {
+    grid-template-columns: 72px minmax(280px, 320px) minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) minmax(280px, auto) minmax(260px, auto);
+  }
+
   .inboxStageContext {
     grid-column: 2 / -1;
     grid-row: 2;
+  }
+
+  .inboxCanvas[data-ai-expanded="true"] .inboxStageAi {
+    grid-column: 2 / -1;
+    grid-row: 3;
+    min-height: 260px;
   }
 }
 
@@ -8059,6 +8108,18 @@
   .inboxCanvas {
     grid-template-columns: 1fr;
     grid-template-rows: auto;
+  }
+
+  .inboxCanvas[data-ai-expanded="true"] {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto;
+  }
+
+  .inboxCanvas[data-ai-expanded="true"] .inboxStageAi {
+    position: static;
+    width: 100%;
+    height: auto;
+    min-height: 220px;
   }
 
   .commandDock {
