@@ -10,6 +10,7 @@
 }
 
 .summaryBar > div,
+.transferPanel,
 .filters,
 .card,
 .emptyState,
@@ -19,6 +20,55 @@
     radial-gradient(circle at 12% 0%, color-mix(in srgb, var(--brand) 10%, transparent), transparent 42%),
     linear-gradient(180deg, color-mix(in srgb, var(--surface-raised) 94%, var(--background)), color-mix(in srgb, var(--surface-soft) 88%, var(--background)));
   box-shadow: var(--shadow-inset), 0 22px 44px -38px color-mix(in srgb, var(--brand) 38%, transparent);
+}
+
+.transferPanel {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  border-radius: 16px;
+  padding: 16px;
+}
+
+.transferPanel span {
+  display: block;
+  color: color-mix(in srgb, var(--brand) 80%, var(--muted));
+  font-size: 0.74rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.transferPanel strong {
+  display: block;
+  margin-top: 4px;
+  color: var(--foreground);
+  font-size: 1.05rem;
+  font-weight: 950;
+}
+
+.transferPanel p {
+  margin: 5px 0 0;
+  color: var(--muted);
+  font-size: 0.88rem;
+  line-height: 1.4;
+}
+
+.transferPanel button {
+  flex: 0 0 auto;
+  min-height: 42px;
+  border: 1px solid color-mix(in srgb, var(--success) 34%, var(--line));
+  border-radius: 10px;
+  background: linear-gradient(135deg, color-mix(in srgb, var(--brand) 78%, #0f9f8f), color-mix(in srgb, var(--button-secondary) 72%, #2563eb));
+  color: white;
+  font-weight: 900;
+  padding: 0 14px;
+  cursor: pointer;
+}
+
+.transferPanel button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
 }
 
 .summaryBar > div {
@@ -356,6 +406,7 @@
 
 @media (max-width: 760px) {
   .summaryBar,
+  .transferPanel,
   .filters,
   .locationFilters,
   .grid,
@@ -365,6 +416,11 @@
   }
 
   .filterActions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .transferPanel {
     align-items: stretch;
     flex-direction: column;
   }

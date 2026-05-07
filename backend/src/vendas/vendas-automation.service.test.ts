@@ -206,6 +206,25 @@ function createService(overrides?: {
   };
 
   const webscrapingService = {
+    pullRadarLeadsForUser: async (user: any, input: Record<string, any>) => {
+      searchCalls.push({ user, input });
+      if (overrides?.searchError) throw new Error(overrides.searchError);
+      const response = overrides?.searchResponse || {
+        query: { city: input.city, segment: input.segment },
+        results: [],
+        meta: { historyId: null },
+      };
+      return {
+        items: (response.results || []).map((item: any, index: number) => ({
+          id: item.radarLeadId || `radar-${index + 1}`,
+          ...item,
+        })),
+        meta: { deliveredCount: (response.results || []).length },
+      };
+    },
+    markRadarLeadsSentToVendasForUser: async () => ({ ok: true, updatedCount: 0 }),
+    getRadarContactProtectionForUser: async () => ({ blocked: false }),
+    markRadarContactDispositionForUser: async () => ({ ok: true }),
     searchContactsForUser: async (user: any, input: Record<string, any>) => {
       searchCalls.push({ user, input });
       if (overrides?.searchError) throw new Error(overrides.searchError);

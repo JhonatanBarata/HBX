@@ -586,10 +586,16 @@ export function HbxAdvancedFilters({
                 <select className={styles.select} value={filters.status ?? ""} onChange={(event) => update({ status: event.target.value })}>
                   <option value="">Todos</option>
                   <option value="clean">Novo</option>
+                  <option value="approved">Aprovado</option>
                   <option value="sent_to_vendas">Em Vendas</option>
+                  <option value="in_attendance">Em atendimento</option>
+                  <option value="converted">Convertido</option>
                   <option value="contacted">Contato feito</option>
-                  <option value="negative">Sem interesse</option>
-                  <option value="hidden">Oculto</option>
+                  <option value="no_whatsapp">Contato inválido</option>
+                  <option value="discarded">Descartado</option>
+                  <option value="negative">Negativo</option>
+                  <option value="blocked">Bloqueado</option>
+                  <option value="opt_out">Opt-out</option>
                 </select>
               </label>
             </>

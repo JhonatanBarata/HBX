@@ -459,7 +459,7 @@ export default function MasterWebscrapingClientPage() {
       description={dashboardDescription}
       actions={
         <div className={styles.heroActions}>
-          <Link href="/webscraping" className={styles.secondaryLink}>Ver banco</Link>
+          <Link href="/radar-digital" className={styles.secondaryLink}>Ver Radar Digital</Link>
           <button type="button" className={styles.secondaryButton} onClick={() => void loadDashboard()} disabled={loading}>
             {loading ? "Atualizando" : "Atualizar"}
           </button>

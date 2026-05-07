@@ -307,7 +307,7 @@ function normalizeOperationalHref(value?: string | null) {
     ["/inbox", "/atendimento"],
     ["/whatsapp", "/whatsapp"],
     ["/website", "/website"],
-    ["/webscraping", "/webscraping"],
+    ["/webscraping", "/radar-digital"],
     ["/gerencial", "/gerencial"],
     ["/importacoes/followup-global", "/followup-global"],
     ["/master", "/master"],
@@ -328,7 +328,7 @@ function normalizeOperationalHref(value?: string | null) {
     "/pagamento",
     "/planos",
     "/vendas",
-    "/webscraping",
+    "/radar-digital",
     "/website",
     "/whatsapp",
   ];

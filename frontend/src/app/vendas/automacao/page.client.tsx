@@ -543,7 +543,7 @@ function toProspectingRequestPayload(config: ProspectingAutomationConfig): Prosp
     workingHoursEnd: config.workingHoursEnd,
     dailyLimit: config.dailyLimit,
     minLeadBuffer: config.minLeadBuffer,
-    desiredLeadBuffer: config.desiredLeadBuffer,
+    desiredLeadBuffer: Math.min(100, Math.max(1, Math.trunc(Number(config.desiredLeadBuffer || 1)))),
     maxAttemptsPerLead: config.maxAttemptsPerLead,
     typingSeconds: config.typingSeconds,
     typingVarianceSeconds: config.typingVarianceSeconds,
@@ -843,7 +843,8 @@ function ProspectingAutomationPanel({
             </label>
             <label>
               <span>Estoque desejado</span>
-              <input className={styles.inputField} type="number" min={1} value={config.desiredLeadBuffer} onChange={(event) => setNumberField("desiredLeadBuffer", event.target.value, 1)} />
+              <input className={styles.inputField} type="number" min={1} max={100} value={config.desiredLeadBuffer} onChange={(event) => setNumberField("desiredLeadBuffer", event.target.value, 1)} />
+              <small>Por segurança, cada herança do Radar para Vendas usa no máximo 100 leads.</small>
             </label>
             <label>
               <span>Tentativas por lead</span>
