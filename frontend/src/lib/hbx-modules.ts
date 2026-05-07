@@ -92,7 +92,8 @@ export function isCommercialEntryCandidate(module: UserModule) {
 }
 
 export function isModuleBlocked(module: UserModule) {
-  return isModuleVisible(module) && !module.accessible && Boolean(module.blockedByEngine || module.blockedReason);
+  void module;
+  return false;
 }
 
 export function formatCriticalEngineLabel(value?: string | null) {

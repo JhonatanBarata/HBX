@@ -20,7 +20,7 @@ export type ModuleAccessCompanySnapshot = {
 };
 
 export type CompanyModuleAccessPolicy = {
-  accessState: 'pending_checkout' | 'trial' | 'paid' | 'manual' | 'grace' | 'blocked';
+  accessState: 'pending_checkout' | 'trial' | 'paid' | 'manual' | 'grace' | 'open' | 'blocked';
   active: boolean;
   pendingCheckout: boolean;
   planKey: ActiveCommercialPlanKey;
@@ -89,25 +89,17 @@ export function resolveCompanyModuleAccessPolicy(
     !graceActive &&
     (paymentStatus === 'PENDING' || subscriptionStatus === 'pending_checkout' || onboardingStatus === 'pending_checkout'),
   );
-  const active = Boolean(!expiredOrCanceled && !pendingCheckout && (trialActive || paidActive || manualActive || graceActive));
+  const active = Boolean(isActive && !expiredOrCanceled);
   const planKey = trialActive
     ? COMMERCIAL_PLAN_KEYS.PADRAO
     : manualActive && !hasSelectedPlan(company?.selectedPlanKey)
       ? COMMERCIAL_PLAN_KEYS.PADRAO
       : normalizeCommercialPlanKey(company?.selectedPlanKey);
-  const moduleKeys = new Set<string>(active ? (COMMERCIAL_PLAN_MODULE_KEYS[planKey] || []) : []);
-
-  if (pendingCheckout) {
-    return {
-      accessState: 'pending_checkout',
-      active: false,
-      pendingCheckout: true,
-      planKey,
-      moduleKeys,
-      blockedCode: 'pending_checkout',
-      blockedReason: 'Finalize o checkout para liberar os modulos operacionais.',
-    };
-  }
+  const moduleKeys = new Set<string>(
+    active
+      ? [...(COMMERCIAL_PLAN_MODULE_KEYS[planKey] || []), ...ROUTE_GUARDED_MODULE_KEYS]
+      : [],
+  );
 
   if (!active) {
     return {
@@ -122,9 +114,19 @@ export function resolveCompanyModuleAccessPolicy(
   }
 
   return {
-    accessState: trialActive ? 'trial' : manualActive ? 'manual' : graceActive ? 'grace' : 'paid',
+    accessState: pendingCheckout
+      ? 'pending_checkout'
+      : trialActive
+        ? 'trial'
+        : manualActive
+          ? 'manual'
+          : graceActive
+            ? 'grace'
+            : paidActive
+              ? 'paid'
+              : 'open',
     active: true,
-    pendingCheckout: false,
+    pendingCheckout,
     planKey,
     moduleKeys,
     blockedCode: null,

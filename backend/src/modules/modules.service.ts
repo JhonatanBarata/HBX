@@ -1744,9 +1744,6 @@ export class ModulesService implements OnModuleInit {
       company.billingGraceEndsAt.getTime() >= now &&
       company.isActive,
     );
-    if ((paymentStatus === 'PENDING' || subscriptionStatus === 'pending_checkout') && !accessReleased && !graceAllowed) {
-      return { exists: true, active: false };
-    }
     const trialExpired = Boolean(
       company.trialEndsAt &&
       company.trialEndsAt.getTime() < now &&

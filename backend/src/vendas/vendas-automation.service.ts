@@ -2080,6 +2080,8 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
       'aguardando',
       data.length
         ? `${pendingCount + data.length} contatos na fila.`
+        : pendingCount > 0
+          ? `${pendingCount} contatos na fila.`
         : draftOnlyCount
           ? `${draftOnlyCount} card(s) prontos para primeiro contato.`
           : usedBroaderLeadPool

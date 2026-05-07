@@ -520,7 +520,7 @@ export default function TopBar() {
   const scrapingEngineBackoffUntilRef = useRef(0);
   const scrapingEngineBackoffMsRef = useRef(SCRAPING_ENGINE_POLL_MS);
   const authResolved = authenticated !== null;
-  const pendingCheckoutLocked = isPendingCheckoutUser(user);
+  const pendingCheckoutLocked = false;
   const pendingCheckoutHref = resolvePendingCheckoutHref(user);
   const dashboardHref = pendingCheckoutLocked ? pendingCheckoutHref : user?.isSystemMaster ? "/master" : "/boasvindas";
   const isMasterWebscrapingRoute = Boolean(

@@ -272,6 +272,17 @@ function parseErrorMessage(data: unknown): string {
   return "Erro";
 }
 
+function sanitizeErrorMessage(message: string, status?: number) {
+  const normalized = String(message || "").trim();
+  if (!normalized) return "Erro";
+  if (/^\s*<!doctype html/i.test(normalized) || /^\s*<html[\s>]/i.test(normalized) || /<title>\s*502 Bad Gateway/i.test(normalized)) {
+    return status === 502
+      ? "API indisponível no momento. Tente novamente em instantes."
+      : "A API retornou uma página de erro em vez de JSON.";
+  }
+  return normalized;
+}
+
 export async function apiFetch<T>(
   path: string,
   init?: ApiFetchInit
@@ -332,7 +343,7 @@ export async function apiFetch<T>(
     }
 
     if (!res.ok) {
-      const message = typeof data === "string" ? data : parseErrorMessage(data);
+      const message = sanitizeErrorMessage(typeof data === "string" ? data : parseErrorMessage(data), res.status);
       if (res.status === 401 && !skipAuth) {
         handleUnauthorized();
       } else {
