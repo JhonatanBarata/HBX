@@ -145,6 +145,49 @@ export type InboxBootstrapPayload = {
   selectedConversation: InboxConversation | null;
 };
 
+export type MeticulousTrashPurgeCandidate = {
+  conversationId: string;
+  phone: string | null;
+  action: "would_purge" | "purged" | "skipped" | string;
+  reason: string | null;
+  lastCustomerWords: string | null;
+  detectedReason: string | null;
+  confidence?: number | null;
+};
+
+export type MeticulousTrashPurgeJob = {
+  jobId: string;
+  status: "idle" | "running" | "paused" | "paused_provider_unhealthy" | "paused_after_restart" | "canceled" | "completed" | "failed" | string;
+  mode: "dry_run" | "real" | string;
+  dryRun: boolean;
+  totalCandidates: number;
+  currentIndex: number;
+  currentConversationId: string | null;
+  currentPhone: string | null;
+  currentLastCustomerWords: string | null;
+  currentDetectedReason: string | null;
+  processed: number;
+  markedNegative: number;
+  purged: number;
+  skipped: number;
+  errors: Array<Record<string, unknown>>;
+  candidates: MeticulousTrashPurgeCandidate[];
+  nextRunAt: string | null;
+  countdownSeconds: number;
+  providerStatus: string | null;
+  providerHealth: {
+    status?: string | null;
+    canSafelyDelete?: boolean | null;
+    reason?: string | null;
+    lastCheckedAt?: string | null;
+  } | null;
+  startedAt: string | null;
+  finishedAt: string | null;
+  olderThanHours: number;
+  delayMs: number;
+  limit: number | null;
+};
+
 export type InboxFullBootstrapPayload = {
   success: boolean;
   connected: boolean;

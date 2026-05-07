@@ -35,6 +35,67 @@ const GLOBAL_CACHE_TTL_HOURS = 24;
 const RECENT_HISTORY_LIMIT = 20;
 const IBGE_CITIES_URL = 'https://servicodados.ibge.gov.br/api/v1/localidades/municipios?orderBy=nome';
 const CITY_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+const MASS_DATA_INTERNAL_SEGMENTS = [
+  'empresas',
+  'comércio',
+  'serviços',
+  'lojas',
+  'whatsapp',
+  'telefone',
+  'restaurantes',
+  'mercados',
+  'oficinas',
+  'auto peças',
+  'salões de beleza',
+  'barbearias',
+  'cosméticos',
+  'perfumarias',
+  'farmácias',
+  'clínicas',
+  'dentistas',
+  'pet shops',
+  'materiais de construção',
+  'papelarias',
+  'lojas de roupas',
+  'assistência técnica',
+  'hotéis',
+  'pousadas',
+  'distribuidoras',
+  'contabilidades',
+  'imobiliárias',
+  'academias',
+];
+const ACRE_CITIES_FALLBACK = [
+  'Acrelândia',
+  'Assis Brasil',
+  'Brasiléia',
+  'Bujari',
+  'Capixaba',
+  'Cruzeiro do Sul',
+  'Epitaciolândia',
+  'Feijó',
+  'Jordão',
+  'Mâncio Lima',
+  'Manoel Urbano',
+  'Marechal Thaumaturgo',
+  'Plácido de Castro',
+  'Porto Acre',
+  'Porto Walter',
+  'Rio Branco',
+  'Rodrigues Alves',
+  'Santa Rosa do Purus',
+  'Sena Madureira',
+  'Senador Guiomard',
+  'Tarauacá',
+  'Xapuri',
+];
+const DEFAULT_MASS_DATA_ENGINE_URLS = [
+  'http://localhost:8001',
+  'http://localhost:8002',
+  'http://localhost:8003',
+  'http://localhost:8004',
+];
+const TURBO_OPERATIONAL_CONFIG_KEY = 'turbo_noturno';
 
 type RuntimeStatus = 'online' | 'degraded';
 type ExternalRuntimeStatus = 'online' | 'offline';
@@ -362,13 +423,32 @@ type RadarCampaignInput = {
   city?: string | null;
   state?: string | null;
   segment?: string | null;
-  targetType?: HbxTargetType | string | null;
+  mode?: string | null;
+  targetType?: HbxTargetType | 'both' | string | null;
   targetTotal?: number | null;
   batchSize?: number | null;
+  maxAttemptsPerTask?: number | null;
   nightOnly?: boolean | string | null;
   allowedStartHour?: number | null;
   allowedEndHour?: number | null;
   timezone?: string | null;
+};
+
+type WebscrapingOperationalConfigInput = {
+  enabled?: boolean | string | null;
+  startHour?: number | null;
+  startMinute?: number | null;
+  endHour?: number | null;
+  endMinute?: number | null;
+  engineCount?: number | null;
+  intensity?: string | null;
+  memoryTargetGb?: number | null;
+  batchSize?: number | null;
+  maxAttemptsPerTask?: number | null;
+};
+
+type MasterMassDataCampaignInput = RadarCampaignInput & WebscrapingOperationalConfigInput & {
+  companyId?: number | string | null;
 };
 
 type NormalizedRadarFilters = {
@@ -662,6 +742,9 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     this.radarCampaignTimer = setInterval(() => {
       void this.processNextRadarCampaigns();
     }, 30_000);
+    setTimeout(() => {
+      void this.recoverRadarCampaignWork();
+    }, 1_000);
     setTimeout(() => {
       void this.processNextQueuedSearchRun();
     }, 2_000);
@@ -3302,6 +3385,12 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     return campaignTable && batchTable && eventTable;
   }
 
+  private async supportsMassDataCampaignPersistence() {
+    return this.supportsRadarCampaignPersistence()
+      .then(async (base) => base && Boolean((this.prisma as any).webscrapingCampaignTask) && await this.prisma.hasTable('WebscrapingCampaignTask'))
+      .catch(() => false);
+  }
+
   private normalizeRadarLeadStatus(value: unknown): RadarLeadStatus {
     const normalized = String(value || '').trim().toLowerCase();
     if (normalized === 'imported_to_vendas' || normalized === 'sent_to_vendas') return 'sent_to_vendas';
@@ -4446,23 +4535,29 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     const city = String(input.city || '').trim();
     const state = String(input.state || '').trim().toUpperCase();
     const segment = String(input.segment || '').trim();
-    const targetType = normalizeTargetType(input.targetType);
-    const targetTotal = Math.min(Math.max(Math.trunc(Number(input.targetTotal || 100) || 100), 1), 10_000);
-    const configuredBatchSize = parsePositiveIntegerEnv('HBX_RADAR_BATCH_SIZE', 25);
-    const batchSize = Math.min(Math.max(Math.trunc(Number(input.batchSize || configuredBatchSize) || configuredBatchSize), 1), 50);
-    const allowedStartHour = Math.min(Math.max(Math.trunc(Number(input.allowedStartHour ?? parsePositiveIntegerEnv('HBX_RADAR_NIGHT_START_HOUR', 0))), 0), 23);
-    const allowedEndHour = Math.min(Math.max(Math.trunc(Number(input.allowedEndHour ?? parsePositiveIntegerEnv('HBX_RADAR_NIGHT_END_HOUR', 6))), 0), 23);
+    const mode = String(input.mode || '').trim().toLowerCase() === 'mass_data' ? 'mass_data' : 'radar_database';
+    const rawTargetType = String(input.targetType || '').trim().toLowerCase();
+    const targetType = mode === 'mass_data' && rawTargetType === 'both' ? 'both' : normalizeTargetType(input.targetType);
+    const targetTotal = Math.min(Math.max(Math.trunc(Number(input.targetTotal || (mode === 'mass_data' ? 0 : 100)) || 0), 0), 100_000);
+    const configuredBatchSize = parsePositiveIntegerEnv('HBX_RADAR_BATCH_SIZE', mode === 'mass_data' ? 20 : 25);
+    const batchSizeMax = mode === 'mass_data' ? 20 : 50;
+    const batchSize = Math.min(Math.max(Math.trunc(Number(input.batchSize || configuredBatchSize) || configuredBatchSize), 1), batchSizeMax);
+    const allowedStartHour = Math.min(Math.max(Math.trunc(Number(input.allowedStartHour ?? parsePositiveIntegerEnv('HBX_RADAR_NIGHT_START_HOUR', mode === 'mass_data' ? 20 : 0))), 0), 23);
+    const allowedEndHour = Math.min(Math.max(Math.trunc(Number(input.allowedEndHour ?? parsePositiveIntegerEnv('HBX_RADAR_NIGHT_END_HOUR', mode === 'mass_data' ? 8 : 6))), 0), 23);
     const timezone = String(input.timezone || process.env.HBX_RADAR_NIGHT_TIMEZONE || 'America/Sao_Paulo').trim() || 'America/Sao_Paulo';
     const nightOnly = input.nightOnly == null ? true : coerceBoolean(input.nightOnly);
-    const maxAttempts = Math.max(Math.ceil(targetTotal / Math.max(1, batchSize)) * 3, 40);
+    const maxAttemptsPerTask = Math.min(Math.max(Math.trunc(Number(input.maxAttemptsPerTask || 3) || 3), 1), 10);
+    const maxAttempts = mode === 'mass_data' ? maxAttemptsPerTask : Math.max(Math.ceil(Math.max(1, targetTotal) / Math.max(1, batchSize)) * 3, 40);
     return {
       city,
       state,
       segment,
+      mode,
       targetType,
       targetTotal,
       batchSize,
       maxAttempts,
+      maxAttemptsPerTask,
       nightOnly,
       allowedStartHour,
       allowedEndHour,
@@ -4523,6 +4618,404 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     return this.buildHbxBatchQuery(input, attempt);
   }
 
+  private buildMassDataTaskQuery(city: string, state: string, segment: string, attempt: number) {
+    const variation = Math.min(Math.max(Math.trunc(Number(attempt || 1)), 1), 3);
+    if (variation === 1) return this.compactQuery([segment, city, state, 'telefone']);
+    if (variation === 2) return this.compactQuery([segment, city, state, 'whatsapp']);
+    return this.compactQuery([segment, city, state, 'contato']);
+  }
+
+  private async listMassDataCities(state: string, city?: string | null) {
+    const normalizedState = String(state || '').trim().toUpperCase();
+    const requestedCity = String(city || '').trim();
+    if (requestedCity) return [requestedCity];
+    try {
+      const rows = await this.loadBrazilianCities();
+      const suffix = ` - ${normalizedState}`;
+      const cities = rows
+        .filter((item) => item.endsWith(suffix))
+        .map((item) => item.slice(0, -suffix.length).trim())
+        .filter(Boolean);
+      if (cities.length) return cities;
+    } catch {
+      // Fallback below keeps AC mass-data acceptance usable when IBGE is unavailable.
+    }
+    return normalizedState === 'AC' ? ACRE_CITIES_FALLBACK : [];
+  }
+
+  private getMassDataSegments(segment?: string | null) {
+    const explicit = String(segment || '').trim();
+    if (!explicit || ['aberto', 'todos', 'todas'].includes(normalizeLookupValue(explicit))) {
+      return MASS_DATA_INTERNAL_SEGMENTS;
+    }
+    return [explicit, ...MASS_DATA_INTERNAL_SEGMENTS.filter((item) => normalizeLookupValue(item) !== normalizeLookupValue(explicit))];
+  }
+
+  private getMassDataTargetTypes(value: unknown): HbxTargetType[] {
+    const normalized = String(value || '').trim().toLowerCase();
+    if (normalized === 'both' || normalized === 'pf_pj' || normalized === 'pj_pf') return ['pj', 'pf'];
+    if (normalized === 'pf') return ['pf'];
+    return ['pj'];
+  }
+
+  private async createMassDataTasks(campaignId: string, state: string, city: string | null, segment: string | null, targetType: unknown, maxAttempts: number) {
+    const cities = await this.listMassDataCities(state, city);
+    if (!cities.length) throw new BadRequestException('Nao encontrei cidades para o estado informado.');
+    const segments = this.getMassDataSegments(segment);
+    const targetTypes = this.getMassDataTargetTypes(targetType);
+    let created = 0;
+    for (const taskCity of cities) {
+      for (const taskSegment of segments) {
+        for (const taskTargetType of targetTypes) {
+          const query = this.buildMassDataTaskQuery(taskCity, state, taskSegment, 1);
+          await (this.prisma as any).webscrapingCampaignTask.upsert({
+            where: {
+              campaignId_state_city_segment_targetType: {
+                campaignId,
+                state,
+                city: taskCity,
+                segment: taskSegment,
+                targetType: taskTargetType,
+              },
+            },
+            create: {
+              campaignId,
+              state,
+              city: taskCity,
+              segment: taskSegment,
+              targetType: taskTargetType,
+              query,
+              maxAttempts,
+            },
+            update: {},
+          });
+          created += 1;
+        }
+      }
+    }
+    return { cityCount: cities.length, taskCount: created, segmentCount: segments.length, targetTypeCount: targetTypes.length };
+  }
+
+  private async recoverRadarCampaignWork() {
+    if (!(await this.supportsMassDataCampaignPersistence())) return;
+    const now = new Date();
+    await (this.prisma as any).webscrapingCampaignTask.updateMany({
+      where: { status: 'running', OR: [{ lockedUntil: null }, { lockedUntil: { lt: now } }] },
+      data: { status: 'queued', lockedByEngineId: null, lockedUntil: null, lastError: 'Lock expirado e liberado na retomada.' },
+    }).catch(() => null);
+    await (this.prisma as any).webscrapingCampaign.updateMany({
+      where: { mode: 'mass_data', status: { in: ['running', 'partial_error', 'sleeping'] } },
+      data: { status: 'queued', nextRunAt: now },
+    }).catch(() => null);
+    this.scheduleRadarCampaignPump(0);
+  }
+
+  private normalizeOperationalConfigInput(input: WebscrapingOperationalConfigInput = {}) {
+    const rawIntensity = String(input.intensity || 'turbo').trim().toLowerCase();
+    const intensity = rawIntensity === 'economico' || rawIntensity === 'econômico'
+      ? 'economico'
+      : rawIntensity === 'normal'
+        ? 'normal'
+        : 'turbo';
+    return {
+      enabled: input.enabled == null ? true : coerceBoolean(input.enabled),
+      preset: TURBO_OPERATIONAL_CONFIG_KEY,
+      startHour: Math.min(Math.max(Math.trunc(Number(input.startHour ?? 20) || 20), 0), 23),
+      startMinute: Math.min(Math.max(Math.trunc(Number(input.startMinute ?? 0) || 0), 0), 59),
+      endHour: Math.min(Math.max(Math.trunc(Number(input.endHour ?? 8) || 8), 0), 23),
+      endMinute: Math.min(Math.max(Math.trunc(Number(input.endMinute ?? 0) || 0), 0), 59),
+      engineCount: Math.min(Math.max(Math.trunc(Number(input.engineCount ?? 4) || 4), 1), 4),
+      intensity,
+      memoryTargetGb: Math.min(Math.max(Math.trunc(Number(input.memoryTargetGb ?? 16) || 16), 1), 256),
+      batchSize: Math.min(Math.max(Math.trunc(Number(input.batchSize ?? 20) || 20), 1), 20),
+      maxAttemptsPerTask: Math.min(Math.max(Math.trunc(Number(input.maxAttemptsPerTask ?? 3) || 3), 1), 10),
+      engineUrlsJson: JSON.stringify(DEFAULT_MASS_DATA_ENGINE_URLS),
+    };
+  }
+
+  private async getOperationalConfig() {
+    const defaults = this.normalizeOperationalConfigInput();
+    if (!(await this.prisma.hasTable('WebscrapingOperationalConfig').catch(() => false))) {
+      return { key: TURBO_OPERATIONAL_CONFIG_KEY, ...defaults, createdAt: null, updatedAt: null };
+    }
+    const row = await (this.prisma as any).webscrapingOperationalConfig.findUnique({
+      where: { key: TURBO_OPERATIONAL_CONFIG_KEY },
+    }).catch(() => null);
+    if (!row) return { key: TURBO_OPERATIONAL_CONFIG_KEY, ...defaults, createdAt: null, updatedAt: null };
+    return {
+      key: row.key,
+      enabled: Boolean(row.enabled),
+      preset: row.preset || TURBO_OPERATIONAL_CONFIG_KEY,
+      startHour: safeInteger(row.startHour, defaults.startHour),
+      startMinute: safeInteger(row.startMinute, defaults.startMinute),
+      endHour: safeInteger(row.endHour, defaults.endHour),
+      endMinute: safeInteger(row.endMinute, defaults.endMinute),
+      engineCount: Math.min(Math.max(safeInteger(row.engineCount, defaults.engineCount), 1), 4),
+      intensity: String(row.intensity || defaults.intensity),
+      memoryTargetGb: safeInteger(row.memoryTargetGb, defaults.memoryTargetGb),
+      batchSize: Math.min(Math.max(safeInteger(row.batchSize, defaults.batchSize), 1), 20),
+      maxAttemptsPerTask: Math.min(Math.max(safeInteger(row.maxAttemptsPerTask, defaults.maxAttemptsPerTask), 1), 10),
+      engineUrlsJson: row.engineUrlsJson || defaults.engineUrlsJson,
+      createdAt: row.createdAt instanceof Date ? row.createdAt.toISOString() : null,
+      updatedAt: row.updatedAt instanceof Date ? row.updatedAt.toISOString() : null,
+    };
+  }
+
+  private async saveOperationalConfig(masterUserId: number, input: WebscrapingOperationalConfigInput = {}) {
+    const data = this.normalizeOperationalConfigInput(input);
+    if (!(await this.prisma.hasTable('WebscrapingOperationalConfig').catch(() => false))) {
+      throw new ServiceUnavailableException('Estrutura de configuracao operacional do Webscraping ainda nao foi aplicada no banco.');
+    }
+    const saved = await (this.prisma as any).webscrapingOperationalConfig.upsert({
+      where: { key: TURBO_OPERATIONAL_CONFIG_KEY },
+      create: {
+        key: TURBO_OPERATIONAL_CONFIG_KEY,
+        ...data,
+        createdByUserId: masterUserId || null,
+        updatedByUserId: masterUserId || null,
+      },
+      update: {
+        ...data,
+        updatedByUserId: masterUserId || null,
+      },
+    });
+    return {
+      key: saved.key,
+      enabled: saved.enabled,
+      preset: saved.preset,
+      startHour: saved.startHour,
+      startMinute: saved.startMinute,
+      endHour: saved.endHour,
+      endMinute: saved.endMinute,
+      engineCount: saved.engineCount,
+      intensity: saved.intensity,
+      memoryTargetGb: saved.memoryTargetGb,
+      batchSize: saved.batchSize,
+      maxAttemptsPerTask: saved.maxAttemptsPerTask,
+      createdAt: saved.createdAt instanceof Date ? saved.createdAt.toISOString() : null,
+      updatedAt: saved.updatedAt instanceof Date ? saved.updatedAt.toISOString() : null,
+    };
+  }
+
+  private isWithinOperationalWindow(config: any, date = new Date()) {
+    if (!config?.enabled) return false;
+    const current = date.getHours() * 60 + date.getMinutes();
+    const start = safeInteger(config.startHour, 20) * 60 + safeInteger(config.startMinute, 0);
+    const end = safeInteger(config.endHour, 8) * 60 + safeInteger(config.endMinute, 0);
+    if (start === end) return true;
+    return start < end ? current >= start && current < end : current >= start || current < end;
+  }
+
+  private nextOperationalWindowAt(config: any, date = new Date()) {
+    const next = new Date(date);
+    if (this.isWithinOperationalWindow(config, date)) return next.toISOString();
+    const current = date.getHours() * 60 + date.getMinutes();
+    const start = safeInteger(config.startHour, 20) * 60 + safeInteger(config.startMinute, 0);
+    const minutesUntilStart = (start - current + 24 * 60) % (24 * 60) || 24 * 60;
+    next.setMinutes(next.getMinutes() + minutesUntilStart, 0, 0);
+    return next.toISOString();
+  }
+
+  private async resolveMasterCampaignContext(user: any, companyIdInput?: number | string | null) {
+    const explicitCompanyId = Number(companyIdInput || 0) || 0;
+    const contextCompanyId = Number(user?.masterContext?.active ? user?.masterContext?.companyId : 0) || 0;
+    const userCompanyId = Number(user?.companyId || 0) || 0;
+    let companyId = explicitCompanyId || contextCompanyId || userCompanyId;
+    if (!companyId) {
+      const company = await this.prisma.company.findFirst({
+        where: { isActive: true },
+        orderBy: { id: 'asc' },
+        select: { id: true },
+      });
+      companyId = Number(company?.id || 0);
+    }
+    const userId = Number(user?.id || 0);
+    if (!companyId) throw new BadRequestException('Nenhuma empresa ativa encontrada para vincular a campanha.');
+    if (!userId) throw new ForbiddenException('Usuario MASTER nao identificado.');
+    return { companyId, userId, user: { ...user, companyId } };
+  }
+
+  async getMasterMassDataControl(user: any) {
+    const config = await this.getOperationalConfig();
+    const engines = await this.getEnginePool().getDashboardEngineStatus().catch(() => null);
+    const campaigns = await (this.prisma as any).webscrapingCampaign.findMany({
+      where: { mode: 'mass_data' },
+      orderBy: { createdAt: 'desc' },
+      take: 10,
+      include: {
+        batches: { orderBy: { createdAt: 'desc' }, take: 10 },
+        tasks: { orderBy: { updatedAt: 'desc' }, take: 2000 },
+      },
+    }).catch(() => []);
+    const campaignIds = campaigns.map((campaign: any) => campaign.id).filter(Boolean);
+    const latestLeads = campaignIds.length
+      ? await (this.prisma as any).radarLeadPool.findMany({
+          where: { campaignId: { in: campaignIds } },
+          orderBy: { lastSeenAt: 'desc' },
+          take: 15,
+          select: {
+            id: true,
+            name: true,
+            phoneDigits: true,
+            city: true,
+            state: true,
+            segment: true,
+            status: true,
+            lastSeenAt: true,
+          },
+        }).catch(() => [])
+      : [];
+    const now = new Date();
+    const inTurbo = this.isWithinOperationalWindow(config, now);
+    const hbxEngines = (engines?.engines || []).filter((engine: any) => String(engine.id || '').startsWith('hbx-engine'));
+    const offlineCount = hbxEngines.filter((engine: any) => !engine.online || ['offline', 'missing'].includes(String(engine.status || '').toLowerCase())).length;
+    const allOffline = hbxEngines.length > 0 && offlineCount === hbxEngines.length;
+    return {
+      generatedAt: now.toISOString(),
+      status: {
+        resumeEnabled: true,
+        currentMode: inTurbo ? 'TURBO NOTURNO' : config.enabled ? 'ECONOMICO' : 'STANDBY',
+        critical: allOffline,
+        criticalReason: allOffline ? 'Todos os motores HBX estao offline.' : null,
+        nextTurboAt: this.nextOperationalWindowAt(config, now),
+        localTime: now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
+        estimatedMemoryGb: Math.min(safeInteger(config.memoryTargetGb, 16), safeInteger(config.engineCount, 4) * 4),
+      },
+      liveFeed: [
+        ...latestLeads.map((lead: any) => ({
+          id: `lead-${lead.id}`,
+          type: 'lead_saved',
+          message: `+ ${lead.name || 'Card'} salva`,
+          detail: [lead.city, lead.state, lead.segment, lead.phoneDigits].filter(Boolean).join(' • '),
+          createdAt: lead.lastSeenAt instanceof Date ? lead.lastSeenAt.toISOString() : null,
+        })),
+        ...campaigns.flatMap((campaign: any) => (campaign.tasks || []).slice(0, 8).map((task: any) => ({
+          id: `task-${task.id}`,
+          type: `task_${task.status}`,
+          message: String(task.status || '') === 'exhausted'
+            ? 'tarefa exhausted'
+            : String(task.status || '') === 'completed'
+              ? 'cidade/isca concluida'
+              : String(task.status || '') === 'running'
+                ? `motor ${task.lockedByEngineId || 'HBX'} coletando`
+                : `tarefa ${task.status}`,
+          detail: [task.city, task.state, task.segment, task.targetType].filter(Boolean).join(' • '),
+          createdAt: task.updatedAt instanceof Date ? task.updatedAt.toISOString() : null,
+        }))),
+      ]
+        .filter((item: any) => item.createdAt)
+        .sort((left: any, right: any) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime())
+        .slice(0, 20),
+      config: {
+        ...config,
+        engineUrlsJson: undefined,
+      },
+      engines: {
+        ...(engines || {}),
+        engines: (engines?.engines || []).map((engine: any) => ({ ...engine, url: null })),
+      },
+      campaigns: campaigns.map((campaign: any) => this.buildRadarCampaignResponse(campaign)),
+    };
+  }
+
+  async saveMasterTurboConfig(user: any, input: WebscrapingOperationalConfigInput = {}) {
+    const saved = await this.saveOperationalConfig(Number(user?.id || 0), input);
+    await (this.prisma as any).webscrapingCampaign.updateMany({
+      where: {
+        mode: 'mass_data',
+        status: { in: ['queued', 'running', 'sleeping', 'partial_error', 'paused'] },
+      },
+      data: {
+        nightOnly: true,
+        allowedStartHour: saved.startHour,
+        allowedEndHour: saved.endHour,
+        batchSize: saved.batchSize,
+        maxAttempts: saved.maxAttemptsPerTask,
+      },
+    }).catch(() => null);
+    await (this.prisma as any).webscrapingCampaign.updateMany({
+      where: {
+        mode: 'mass_data',
+        status: { in: ['queued', 'running', 'sleeping', 'partial_error'] },
+      },
+      data: { nextRunAt: new Date() },
+    }).catch(() => null);
+    this.scheduleRadarCampaignPump(0);
+    return {
+      config: saved,
+      control: await this.getMasterMassDataControl(user),
+    };
+  }
+
+  async createMasterMassDataCampaign(user: any, input: MasterMassDataCampaignInput = {}) {
+    const config = await this.saveOperationalConfig(Number(user?.id || 0), {
+      enabled: input.enabled ?? true,
+      startHour: input.startHour,
+      startMinute: input.startMinute,
+      endHour: input.endHour,
+      endMinute: input.endMinute,
+      engineCount: input.engineCount,
+      intensity: input.intensity,
+      memoryTargetGb: input.memoryTargetGb,
+      batchSize: input.batchSize,
+      maxAttemptsPerTask: input.maxAttemptsPerTask,
+    });
+    const context = await this.resolveMasterCampaignContext(user, input.companyId);
+    const campaign = await this.createRadarCampaignForUser(context.user, {
+      mode: 'mass_data',
+      state: input.state,
+      city: input.city || '',
+      segment: input.segment || '',
+      targetType: input.targetType || 'both',
+      targetTotal: input.targetTotal || 0,
+      batchSize: config.batchSize,
+      maxAttemptsPerTask: config.maxAttemptsPerTask,
+      nightOnly: true,
+      allowedStartHour: config.startHour,
+      allowedEndHour: config.endHour,
+      timezone: 'America/Sao_Paulo',
+    });
+    return {
+      campaign,
+      control: await this.getMasterMassDataControl(user),
+    };
+  }
+
+  async pauseRadarCampaignByMaster(campaignId: string) {
+    const id = String(campaignId || '').trim();
+    await (this.prisma as any).webscrapingCampaign.updateMany({
+      where: { id, mode: 'mass_data', status: { in: ['queued', 'running', 'sleeping', 'partial_error'] } },
+      data: { status: 'paused', pausedAt: new Date(), nextRunAt: null },
+    });
+    return this.getMasterMassDataControl({});
+  }
+
+  async resumeRadarCampaignByMaster(campaignId: string) {
+    const id = String(campaignId || '').trim();
+    const row = await (this.prisma as any).webscrapingCampaign.findUnique({ where: { id } }).catch(() => null);
+    if (!row) throw new NotFoundException('Campanha nao encontrada.');
+    const sleeping = row.nightOnly && !this.isWithinRadarWindow(row);
+    await (this.prisma as any).webscrapingCampaign.update({
+      where: { id },
+      data: { status: sleeping ? 'sleeping' : 'queued', pausedAt: null, nextRunAt: sleeping ? this.nextRadarWindowAt(row) : new Date() },
+    });
+    this.scheduleRadarCampaignPump(0);
+    return this.getMasterMassDataControl({});
+  }
+
+  async cancelRadarCampaignByMaster(campaignId: string) {
+    const id = String(campaignId || '').trim();
+    await (this.prisma as any).webscrapingCampaign.updateMany({
+      where: { id, mode: 'mass_data', status: { notIn: ['completed', 'failed', 'canceled'] } },
+      data: { status: 'canceled', finishedAt: new Date(), nextRunAt: null },
+    });
+    await (this.prisma as any).webscrapingCampaignTask.updateMany({
+      where: { campaignId: id, status: { in: ['queued', 'running'] } },
+      data: { status: 'canceled', lockedByEngineId: null, lockedUntil: null, finishedAt: new Date() },
+    }).catch(() => null);
+    return this.getMasterMassDataControl({});
+  }
+
   private async recalculateRadarCampaignCounters(campaignId: string) {
     const [campaign, rows, batches] = await Promise.all([
       (this.prisma as any).webscrapingCampaign.findUnique({ where: { id: campaignId } }).catch(() => null),
@@ -4570,6 +5063,25 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
 
   private buildRadarCampaignResponse(campaign: any) {
     const batches = Array.isArray(campaign?.batches) ? campaign.batches : [];
+    const tasks = Array.isArray(campaign?.tasks) ? campaign.tasks : [];
+    const taskStatusCounts = tasks.reduce((acc: Record<string, number>, task: any) => {
+      const status = String(task?.status || 'queued');
+      acc[status] = (acc[status] || 0) + 1;
+      return acc;
+    }, {});
+    const cityTaskStates = new Map<string, { total: number; terminal: number }>();
+    const activeCities = new Set<string>();
+    for (const task of tasks) {
+      const city = String(task?.city || '').trim();
+      if (!city) continue;
+      const status = String(task?.status || '');
+      const current = cityTaskStates.get(city) || { total: 0, terminal: 0 };
+      current.total += 1;
+      if (['completed', 'exhausted', 'failed', 'canceled'].includes(status)) current.terminal += 1;
+      cityTaskStates.set(city, current);
+      if (status === 'running') activeCities.add(city);
+    }
+    const completedCityCount = Array.from(cityTaskStates.values()).filter((item) => item.total > 0 && item.total === item.terminal).length;
     return {
       id: campaign.id,
       status: campaign.status,
@@ -4577,7 +5089,9 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       city: campaign.city,
       state: campaign.state || null,
       segment: campaign.segment,
-      targetType: normalizeTargetType(campaign.targetType),
+      targetType: String(campaign.mode || '') === 'mass_data' && String(campaign.targetType || '').toLowerCase() === 'both'
+        ? 'both'
+        : normalizeTargetType(campaign.targetType),
       targetTotal: safeInteger(campaign.targetTotal),
       batchSize: safeInteger(campaign.batchSize),
       foundCount: safeInteger(campaign.foundCount),
@@ -4592,8 +5106,11 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       consecutiveEmptyBatchCount: safeInteger(campaign.consecutiveEmptyBatchCount),
       consecutiveErrorCount: safeInteger(campaign.consecutiveErrorCount),
       lastQueryUsed: campaign.lastQueryUsed || null,
-      lastEngineUrl: campaign.lastEngineUrl || null,
+      lastEngineUrl: String(campaign.mode || '') === 'mass_data' ? null : campaign.lastEngineUrl || null,
       lastErrorMessage: campaign.lastErrorMessage || null,
+      taskStatusCounts,
+      completedCityCount,
+      currentCity: Array.from(activeCities)[0] || tasks[0]?.city || null,
       progressMessage: campaign.lastErrorMessage || (
         safeInteger(campaign.foundCount) > 0
           ? `Encontramos ${safeInteger(campaign.foundCount)} cards ate agora. Continuando nos proximos lotes.`
@@ -4614,7 +5131,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         status: batch.status,
         attemptNumber: safeInteger(batch.attemptNumber),
         engineId: batch.engineId || null,
-        engineUrl: batch.engineUrl || null,
+        engineUrl: String(campaign.mode || '') === 'mass_data' ? null : batch.engineUrl || null,
         queryUsed: batch.queryUsed || null,
         batchSize: safeInteger(batch.batchSize),
         fetchedUrlCount: safeInteger(batch.fetchedUrlCount),
@@ -4626,6 +5143,28 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         startedAt: batch.startedAt instanceof Date ? batch.startedAt.toISOString() : null,
         finishedAt: batch.finishedAt instanceof Date ? batch.finishedAt.toISOString() : null,
       })),
+      tasks: tasks.map((task: any) => ({
+        id: task.id,
+        campaignId: task.campaignId,
+        state: task.state,
+        city: task.city,
+        segment: task.segment,
+        targetType: task.targetType || 'pj',
+        query: task.query,
+        status: task.status,
+        attemptCount: safeInteger(task.attemptCount),
+        maxAttempts: safeInteger(task.maxAttempts),
+        foundCount: safeInteger(task.foundCount),
+        duplicateCount: safeInteger(task.duplicateCount),
+        rejectedCount: safeInteger(task.rejectedCount),
+        lastError: task.lastError || null,
+        lockedByEngineId: task.lockedByEngineId || null,
+        lockedUntil: task.lockedUntil instanceof Date ? task.lockedUntil.toISOString() : null,
+        startedAt: task.startedAt instanceof Date ? task.startedAt.toISOString() : null,
+        finishedAt: task.finishedAt instanceof Date ? task.finishedAt.toISOString() : null,
+        createdAt: task.createdAt instanceof Date ? task.createdAt.toISOString() : null,
+        updatedAt: task.updatedAt instanceof Date ? task.updatedAt.toISOString() : null,
+      })),
     };
   }
 
@@ -4635,8 +5174,12 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       throw new ServiceUnavailableException('Estrutura de campanhas do Radar ainda nao foi aplicada no banco.');
     }
     const normalized = this.normalizeRadarCampaignInput(input);
-    if (!normalized.segment.trim()) throw new BadRequestException('Informe o nicho/segmento da campanha.');
-    if (normalized.targetType !== 'pj' && (!normalized.city || !normalized.state)) {
+    if (normalized.mode === 'mass_data' && !(await this.supportsMassDataCampaignPersistence())) {
+      throw new ServiceUnavailableException('Estrutura de tarefas MASSA DE DADOS ainda nao foi aplicada no banco.');
+    }
+    if (normalized.mode === 'mass_data' && !normalized.state) throw new BadRequestException('Estado e obrigatorio para campanha MASSA DE DADOS.');
+    if (normalized.mode !== 'mass_data' && !normalized.segment.trim()) throw new BadRequestException('Informe o nicho/segmento da campanha.');
+    if (normalized.mode !== 'mass_data' && normalized.targetType !== 'pj' && (!normalized.city || !normalized.state)) {
       throw new BadRequestException('Cidade e estado sao obrigatorios para campanhas PF.');
     }
     const now = new Date();
@@ -4646,9 +5189,10 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         companyId: context.companyId,
         userId: context.userId,
         status: sleeping ? 'sleeping' : 'queued',
+        mode: normalized.mode,
         city: normalized.city,
         state: normalized.state || null,
-        segment: normalized.segment,
+        segment: normalized.segment || (normalized.mode === 'mass_data' ? 'segmentos internos' : ''),
         targetType: normalized.targetType,
         targetTotal: normalized.targetTotal,
         batchSize: normalized.batchSize,
@@ -4661,6 +5205,33 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       },
       include: { batches: { orderBy: { createdAt: 'desc' }, take: 10 } },
     });
+    if (normalized.mode === 'mass_data') {
+      const taskStats = await this.createMassDataTasks(
+        campaign.id,
+        normalized.state,
+        normalized.city || null,
+        normalized.segment || null,
+        normalized.targetType,
+        normalized.maxAttemptsPerTask,
+      );
+      await (this.prisma as any).webscrapingCampaign.update({
+        where: { id: campaign.id },
+        data: {
+          targetTotal: normalized.targetTotal || taskStats.taskCount * normalized.batchSize,
+          maxAttempts: normalized.maxAttemptsPerTask,
+          lastErrorMessage: `MASSA DE DADOS pronta: ${taskStats.cityCount} cidade(s), ${taskStats.segmentCount} isca(s), ${taskStats.targetTypeCount} tipo(s), ${taskStats.taskCount} tarefa(s).`,
+        },
+      }).catch(() => null);
+      const reloaded = await (this.prisma as any).webscrapingCampaign.findUnique({
+        where: { id: campaign.id },
+        include: {
+          batches: { orderBy: { createdAt: 'desc' }, take: 10 },
+          tasks: { orderBy: { updatedAt: 'desc' }, take: 2000 },
+        },
+      });
+      this.scheduleRadarCampaignPump(0);
+      return this.buildRadarCampaignResponse(reloaded || campaign);
+    }
     this.scheduleRadarCampaignPump(0);
     return this.buildRadarCampaignResponse(campaign);
   }
@@ -4672,7 +5243,10 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       where: { companyId: context.companyId },
       orderBy: { createdAt: 'desc' },
       take: 50,
-      include: { batches: { orderBy: { createdAt: 'desc' }, take: 5 } },
+      include: {
+        batches: { orderBy: { createdAt: 'desc' }, take: 5 },
+        tasks: { orderBy: { updatedAt: 'desc' }, take: 2000 },
+      },
     });
     return { items: rows.map((row: any) => this.buildRadarCampaignResponse(row)) };
   }
@@ -4684,7 +5258,10 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     }
     const row = await (this.prisma as any).webscrapingCampaign.findFirst({
       where: { id: String(campaignId || '').trim(), companyId: context.companyId },
-      include: { batches: { orderBy: { createdAt: 'desc' }, take: 30 } },
+      include: {
+        batches: { orderBy: { createdAt: 'desc' }, take: 30 },
+        tasks: { orderBy: { updatedAt: 'desc' }, take: 2000 },
+      },
     });
     if (!row) throw new NotFoundException('Campanha nao encontrada.');
     return this.buildRadarCampaignResponse(row);
@@ -4726,7 +5303,8 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     if (!(await this.supportsRadarCampaignPersistence().catch(() => false))) return;
     this.radarCampaignPumpActive = true;
     try {
-      const maxParallel = Math.min(Math.max(parsePositiveIntegerEnv('HBX_RADAR_MAX_PARALLEL_ENGINES', 4), 1), 4);
+      const capacity = await this.getEnginePool().getCurrentCapacityLevel().catch(() => null);
+      const maxParallel = Math.min(Math.max(safeInteger(capacity?.activeEngineCount, parsePositiveIntegerEnv('HBX_RADAR_MAX_PARALLEL_ENGINES', 4)), 1), 4);
       const due = await (this.prisma as any).webscrapingCampaign.findMany({
         where: {
           OR: [
@@ -4752,6 +5330,10 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
           }).catch(() => null);
           continue;
         }
+        if (String(campaign.mode || '') === 'mass_data') {
+          await this.processMassDataCampaignQueue(campaign, maxParallel);
+          continue;
+        }
         const lease = await this.getEnginePool().acquireEngine(campaign.id, campaign.companyId, campaign.userId);
         if (!lease) {
           await (this.prisma as any).webscrapingCampaign.update({
@@ -4765,6 +5347,240 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     } finally {
       this.radarCampaignPumpActive = false;
     }
+  }
+
+  private async processMassDataCampaignQueue(campaign: any, maxParallel: number) {
+    if (!(await this.supportsMassDataCampaignPersistence())) return;
+    const now = new Date();
+    await (this.prisma as any).webscrapingCampaignTask.updateMany({
+      where: { campaignId: campaign.id, status: 'running', OR: [{ lockedUntil: null }, { lockedUntil: { lt: now } }] },
+      data: { status: 'queued', lockedByEngineId: null, lockedUntil: null, lastError: 'Lock expirado; tarefa devolvida para fila.' },
+    }).catch(() => null);
+
+    await (this.prisma as any).webscrapingCampaign.update({
+      where: { id: campaign.id },
+      data: { status: 'running', startedAt: campaign.startedAt || now, nextRunAt: null },
+    }).catch(() => null);
+
+    let started = 0;
+    for (let index = 0; index < maxParallel; index += 1) {
+      const lease = await this.getEnginePool().acquireEngine(`${campaign.id}:mass:${index}:${Date.now()}`, campaign.companyId, campaign.userId);
+      if (!lease) break;
+      const task = await this.claimNextMassDataTask(campaign.id, lease);
+      if (!task) {
+        await this.getEnginePool().releaseEngine(lease.engineId);
+        break;
+      }
+      started += 1;
+      void this.processMassDataTask(campaign.id, task.id, lease);
+    }
+
+    if (started === 0) {
+      await this.refreshMassDataCampaignState(campaign.id);
+    }
+  }
+
+  private async claimNextMassDataTask(campaignId: string, lease: HbxEngineLease) {
+    const candidates = await (this.prisma as any).webscrapingCampaignTask.findMany({
+      where: { campaignId, status: 'queued' },
+      orderBy: [{ updatedAt: 'asc' }, { createdAt: 'asc' }],
+      take: 10,
+    }).catch(() => []);
+    for (const task of candidates) {
+      const updated = await (this.prisma as any).webscrapingCampaignTask.updateMany({
+        where: { id: task.id, status: 'queued' },
+        data: {
+          status: 'running',
+          lockedByEngineId: lease.engineId,
+          lockedUntil: lease.lockedUntil,
+          startedAt: task.startedAt || new Date(),
+        },
+      });
+      if (updated.count > 0) {
+        return (this.prisma as any).webscrapingCampaignTask.findUnique({ where: { id: task.id } });
+      }
+    }
+    return null;
+  }
+
+  private async processMassDataTask(campaignId: string, taskId: string, lease: HbxEngineLease) {
+    const task = await (this.prisma as any).webscrapingCampaignTask.findUnique({
+      where: { id: taskId },
+      include: { campaign: true },
+    }).catch(() => null);
+    if (!task || !task.campaign || ['paused', 'canceled', 'completed', 'failed'].includes(String(task.campaign.status))) {
+      await this.getEnginePool().releaseEngine(lease.engineId);
+      return;
+    }
+    const attempt = safeInteger(task.attemptCount) + 1;
+    const maxAttempts = Math.max(1, safeInteger(task.maxAttempts, 3));
+    const normalized = this.normalizeSearchInput({
+      city: task.city,
+      state: task.state,
+      segment: task.segment,
+      quantity: Math.min(Math.max(safeInteger(task.campaign.batchSize, 20), 1), 20),
+      engine: 'hbx',
+      targetType: normalizeTargetType(task.targetType),
+    });
+    const queryUsed = this.buildMassDataTaskQuery(task.city, task.state, task.segment, attempt);
+    let batch: any = null;
+    try {
+      batch = await (this.prisma as any).webscrapingCampaignBatch.create({
+        data: {
+          campaignId,
+          taskId,
+          status: 'running',
+          attemptNumber: attempt,
+          engineId: lease.engineId,
+          engineUrl: lease.url,
+          queryUsed,
+          batchSize: normalized.quantity,
+          startedAt: new Date(),
+        },
+      });
+      await (this.prisma as any).webscrapingCampaignTask.update({
+        where: { id: taskId },
+        data: { attemptCount: { increment: 1 }, query: queryUsed, lockedUntil: lease.lockedUntil },
+      });
+      await (this.prisma as any).webscrapingCampaign.update({
+        where: { id: campaignId },
+        data: { currentAttempt: { increment: 1 }, lastQueryUsed: queryUsed, lastEngineUrl: lease.url, lastErrorMessage: null },
+      }).catch(() => null);
+
+      const existingLeads = await (this.prisma as any).radarLeadPool.findMany({
+        where: { phoneDigits: { not: null } },
+        select: { phoneDigits: true, website: true, sourceUrl: true },
+        take: 50_000,
+      }).catch(() => []);
+      const existingPhones = new Set<string>(existingLeads.map((row: any) => normalizePhoneDigits(row.phoneDigits)).filter(Boolean) as string[]);
+      const output = await this.searchHbxEngine(
+        normalized,
+        Array.from(existingPhones),
+        lease.url,
+        {
+          queryText: queryUsed,
+          batchLimit: normalized.quantity,
+          timeoutMs: this.getHbxBatchTimeoutMs(),
+          excludeUrls: existingLeads.flatMap((row: any) => [row.website, row.sourceUrl]).map((url: any) => String(url || '').trim()).filter(Boolean),
+        },
+      );
+      const newPhoneCount = output.results
+        .map((result) => normalizePhoneDigits(result.phoneDigits || result.phone))
+        .filter((phone) => phone && !existingPhones.has(phone)).length;
+      const persisted = await this.persistRadarLeadPoolBatch(normalized, output.results, 'hbx_mass_data', {
+        campaignId,
+        strictLocalDdd: normalizeTargetType(task.targetType) === 'pf',
+      });
+      const batchRejectedCount = persisted.rejectedCount + safeInteger(output.rejectedCount);
+      const duplicateCount = persisted.duplicateCount + safeInteger(output.duplicateCount);
+      const finalTaskStatus = newPhoneCount > 0
+        ? 'completed'
+        : attempt >= maxAttempts
+          ? 'exhausted'
+          : 'queued';
+      await (this.prisma as any).webscrapingCampaignBatch.update({
+        where: { id: batch.id },
+        data: {
+          status: newPhoneCount > 0 ? 'completed' : 'empty_batch',
+          approvedCount: newPhoneCount,
+          duplicateCount,
+          rejectedCount: batchRejectedCount,
+          errorMessage: output.rawErrorMessage || null,
+          parsedCount: Array.isArray(output.results) ? output.results.length : 0,
+          finishedAt: new Date(),
+        },
+      }).catch(() => null);
+      await (this.prisma as any).webscrapingCampaignTask.update({
+        where: { id: taskId },
+        data: {
+          status: finalTaskStatus,
+          foundCount: { increment: newPhoneCount },
+          duplicateCount: { increment: duplicateCount },
+          rejectedCount: { increment: batchRejectedCount },
+          lastError: output.rawErrorMessage || null,
+          lockedByEngineId: null,
+          lockedUntil: null,
+          finishedAt: ['completed', 'exhausted'].includes(finalTaskStatus) ? new Date() : null,
+        },
+      });
+      await this.getEnginePool().markEngineBatchSuccess(lease.engineId).catch(() => null);
+      await this.refreshMassDataCampaignState(campaignId);
+    } catch (error) {
+      const message = this.extractHbxErrorMessage(error);
+      if (batch?.id) {
+        await (this.prisma as any).webscrapingCampaignBatch.update({
+          where: { id: batch.id },
+          data: { status: 'batch_error', errorMessage: message, finishedAt: new Date() },
+        }).catch(() => null);
+      }
+      const exhausted = attempt >= maxAttempts;
+      const retryable = this.isRetryableHbxError(error) || /timeout|fetch failed|econnreset|socket hang up/i.test(message);
+      await (this.prisma as any).webscrapingCampaignTask.update({
+        where: { id: taskId },
+        data: {
+          status: exhausted ? (retryable ? 'exhausted' : 'failed') : 'queued',
+          lastError: message,
+          lockedByEngineId: null,
+          lockedUntil: null,
+          finishedAt: exhausted ? new Date() : null,
+        },
+      }).catch(() => null);
+      await this.getEnginePool().markEngineBatchError(lease.engineId, error).catch(() => null);
+      await this.refreshMassDataCampaignState(campaignId);
+    } finally {
+      await this.getEnginePool().releaseEngine(lease.engineId);
+      this.scheduleRadarCampaignPump(1_000);
+    }
+  }
+
+  private async refreshMassDataCampaignState(campaignId: string) {
+    if (!(await this.supportsMassDataCampaignPersistence())) return;
+    const [campaign, grouped, batches, latestTask] = await Promise.all([
+      (this.prisma as any).webscrapingCampaign.findUnique({ where: { id: campaignId } }).catch(() => null),
+      (this.prisma as any).webscrapingCampaignTask.groupBy({
+        by: ['status'],
+        where: { campaignId },
+        _count: { _all: true },
+      }).catch(() => []),
+      (this.prisma as any).webscrapingCampaignBatch.findMany({
+        where: { campaignId },
+        select: { approvedCount: true, duplicateCount: true, rejectedCount: true },
+      }).catch(() => []),
+      (this.prisma as any).webscrapingCampaignTask.findFirst({
+        where: { campaignId },
+        orderBy: { updatedAt: 'desc' },
+      }).catch(() => null),
+    ]);
+    if (!campaign) return;
+    const counts = new Map<string, number>(grouped.map((row: any) => [String(row.status), safeInteger(row._count?._all)]));
+    const queued = counts.get('queued') || 0;
+    const running = counts.get('running') || 0;
+    const completed = counts.get('completed') || 0;
+    const exhausted = counts.get('exhausted') || 0;
+    const failed = counts.get('failed') || 0;
+    const canceled = counts.get('canceled') || 0;
+    const total = queued + running + completed + exhausted + failed + canceled;
+    const approvedCount = batches.reduce((sum: number, row: any) => sum + safeInteger(row.approvedCount), 0);
+    const duplicateCount = batches.reduce((sum: number, row: any) => sum + safeInteger(row.duplicateCount), 0);
+    const rejectedCount = batches.reduce((sum: number, row: any) => sum + safeInteger(row.rejectedCount), 0);
+    const reachedTarget = safeInteger(campaign.targetTotal) > 0 && approvedCount >= safeInteger(campaign.targetTotal);
+    const done = total > 0 && queued === 0 && running === 0;
+    const finalStatus = reachedTarget || done ? 'completed' : 'running';
+    await (this.prisma as any).webscrapingCampaign.update({
+      where: { id: campaignId },
+      data: {
+        status: finalStatus,
+        foundCount: approvedCount,
+        approvedCount,
+        duplicateCount,
+        rejectedCount,
+        lastErrorMessage: latestTask
+          ? `${latestTask.city}/${latestTask.state}: ${latestTask.segment} -> ${latestTask.status}`
+          : null,
+        nextRunAt: finalStatus === 'completed' ? null : new Date(Date.now() + 1_000),
+        finishedAt: finalStatus === 'completed' ? new Date() : null,
+      },
+    }).catch(() => null);
   }
 
   private async processRadarCampaignBatch(campaignId: string, lease: HbxEngineLease) {

@@ -104,7 +104,7 @@ function normalizeText(value: string) {
 
 function sharedContextSummary(sharedProfile?: Record<string, unknown> | null) {
   if (!sharedProfile) return "Sem contexto compartilhado";
-  const presence = (sharedProfile.presence || {}) as Record<string, any>;
+  const presence = (sharedProfile.presence || {}) as Record<string, { present?: boolean } | undefined>;
   const parts: string[] = [];
 
   if (presence.atendimento?.present) parts.push("Atendimento");

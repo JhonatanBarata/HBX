@@ -55,11 +55,61 @@ import { InboxRealtimeService } from '../messaging/inbox-realtime.service';
 import { resolveBackendPublicAssetPath } from '../public-assets';
 import type { Request, Response } from 'express';
 
+type TrashPurgeDetectedReason =
+  | 'SEM_INTERESSE_EXPLICITO'
+  | 'NEGATIVO'
+  | 'SEM_RESPOSTA_24H'
+  | 'MOTIVO_NAO_IDENTIFICADO';
+
+type TrashPurgeWords = {
+  lastCustomerMessage: string | null;
+  lastCustomerMessagesText: string | null;
+  lastCustomerMessageAt: Date | null;
+  detectedReason: TrashPurgeDetectedReason;
+  confidence: number;
+};
+
+type TrashPurgeJobStatus =
+  | 'idle'
+  | 'running'
+  | 'paused'
+  | 'paused_provider_unhealthy'
+  | 'paused_after_restart'
+  | 'canceled'
+  | 'completed'
+  | 'failed';
+
+type WhatsAppProviderHealthStatus =
+  | 'ready'
+  | 'connected'
+  | 'connecting'
+  | 'qr_required'
+  | 'disconnected'
+  | 'auth_failure'
+  | 'unknown';
+
+type WhatsAppProviderHealth = {
+  status: WhatsAppProviderHealthStatus;
+  canSafelyDelete: boolean;
+  reason: string;
+  lastCheckedAt: string;
+  rawStatus?: string | null;
+  rawError?: string | null;
+};
+
+const METICULOUS_TRASH_DEFAULT_DELAY_MS = 120000;
+const METICULOUS_TRASH_MIN_PRODUCTION_DELAY_MS = 120000;
+const METICULOUS_TRASH_DEFAULT_JITTER_MIN_MS = 5000;
+const METICULOUS_TRASH_DEFAULT_JITTER_MAX_MS = 20000;
+const METICULOUS_TRASH_NOTE_MARKER = 'SEM INTERESSE / NEGATIVO';
+
 @Injectable()
 export class InboxService {
   private readonly logger = new Logger(InboxService.name);
   private readonly backgroundInboxSyncAt = new Map<number | string, number>();
   private readonly fullMirrorJobs = new Map<number, Promise<unknown>>();
+  private readonly meticulousTrashTimers = new Map<string, NodeJS.Timeout>();
+  private readonly serviceStartedAt = new Date();
 
   constructor(
     private readonly prisma: PrismaService,
@@ -1463,25 +1513,23 @@ export class InboxService {
     providerCapabilities: ProviderCapabilities;
     recoveryEnabled: boolean;
   }> {
-    const [company, recoveryModule] = await Promise.all([
-      this.prisma.company.findUnique({
-        where: { id: companyId },
-        select: {
-          whatsappConnectionMode: true,
-          trialModuleSelection: true,
-        },
-      }),
-      this.prisma.companyModule?.findFirst
-        ? this.prisma.companyModule.findFirst({
-            where: {
-              companyId,
-              enabled: true,
-              systemModule: { key: 'hbx_recovery' },
-            },
-            select: { id: true },
-          })
-        : Promise.resolve(null),
-    ]);
+    const company = await this.prisma.company.findUnique({
+      where: { id: companyId },
+      select: {
+        whatsappConnectionMode: true,
+        trialModuleSelection: true,
+      },
+    });
+    const recoveryModule = this.prisma.companyModule?.findFirst
+      ? await this.prisma.companyModule.findFirst({
+          where: {
+            companyId,
+            enabled: true,
+            systemModule: { key: 'hbx_recovery' },
+          },
+          select: { id: true },
+        })
+      : null;
     return {
       providerCapabilities: resolveProviderCapabilitiesFromCompany(company),
       recoveryEnabled:
@@ -2619,23 +2667,23 @@ export class InboxService {
       liveChats.map((row) => String(row.contact || '')),
       identityMap,
     );
-    return Promise.all(
-      liveChats.map((row) => {
-        const conversation = this.buildConversationReadModel(row);
-        const phoneNormalized = this.normalizeConversationPhone(String(conversation.contact || '')) || '';
-        const identityRow = identityMap.get(phoneNormalized);
-        const sharedProfile = identityRow?.customerProfileId
-          ? sharedMap.byProfileId.get(String(identityRow.customerProfileId)) ?? null
-          : sharedMap.byPhoneNormalized.get(phoneNormalized) ?? null;
-        return this.mapConversation(
-          companyId,
-          conversation,
-          routingRules,
-          identityRow,
-          sharedProfile,
-        );
-      }),
-    );
+    const summaries: any[] = [];
+    for (const row of liveChats) {
+      const conversation = this.buildConversationReadModel(row);
+      const phoneNormalized = this.normalizeConversationPhone(String(conversation.contact || '')) || '';
+      const identityRow = identityMap.get(phoneNormalized);
+      const sharedProfile = identityRow?.customerProfileId
+        ? sharedMap.byProfileId.get(String(identityRow.customerProfileId)) ?? null
+        : sharedMap.byPhoneNormalized.get(phoneNormalized) ?? null;
+      summaries.push(await this.mapConversation(
+        companyId,
+        conversation,
+        routingRules,
+        identityRow,
+        sharedProfile,
+      ));
+    }
+    return summaries;
   }
 
   private async mapPersistedConversationRowsForCompany(
@@ -2653,18 +2701,12 @@ export class InboxService {
       identityMap,
     );
 
-    await Promise.all(
-      rows
-        .map((row) => ({ row, activityAt: this.resolveConversationActivityDate(row) }))
-        .filter(({ row, activityAt }) => {
-          if (!activityAt) return false;
-          if (!row.lastMessageAt) return true;
-          return activityAt.getTime() > new Date(row.lastMessageAt).getTime();
-        })
-        .map(({ row, activityAt }) =>
-          this.repairConversationActivityIfStale(companyId, row.id, activityAt),
-        ),
-    );
+    for (const row of rows) {
+      const activityAt = this.resolveConversationActivityDate(row);
+      if (!activityAt) continue;
+      if (row.lastMessageAt && activityAt.getTime() <= new Date(row.lastMessageAt).getTime()) continue;
+      await this.repairConversationActivityIfStale(companyId, row.id, activityAt);
+    }
 
     const sortedRows = [...rows].sort((left, right) => {
       const leftTime = this.resolveConversationActivityDate(left)?.getTime() || 0;
@@ -2676,29 +2718,29 @@ export class InboxService {
       return Number(right.id || 0) - Number(left.id || 0);
     });
 
-    return Promise.all(
-      sortedRows.map((row) => {
-        const activityAt = this.resolveConversationActivityDate(row);
-        const conversation = {
-          ...row,
-          lastRealMessageAt: activityAt || null,
-          lastMessageAt: activityAt || null,
-          messages: [...(row.messages || [])].reverse(),
-        };
-        const phoneNormalized = this.normalizeConversationPhone(String(conversation.contact || '')) || '';
-        const identityRow = identityMap.get(phoneNormalized);
-        const sharedProfile = identityRow?.customerProfileId
-          ? sharedMap.byProfileId.get(String(identityRow.customerProfileId)) ?? null
-          : sharedMap.byPhoneNormalized.get(phoneNormalized) ?? null;
-        return this.mapConversation(
-          companyId,
-          conversation,
-          routingRules,
-          identityRow,
-          sharedProfile,
-        );
-      }),
-    );
+    const summaries: any[] = [];
+    for (const row of sortedRows) {
+      const activityAt = this.resolveConversationActivityDate(row);
+      const conversation = {
+        ...row,
+        lastRealMessageAt: activityAt || null,
+        lastMessageAt: activityAt || null,
+        messages: [...(row.messages || [])].reverse(),
+      };
+      const phoneNormalized = this.normalizeConversationPhone(String(conversation.contact || '')) || '';
+      const identityRow = identityMap.get(phoneNormalized);
+      const sharedProfile = identityRow?.customerProfileId
+        ? sharedMap.byProfileId.get(String(identityRow.customerProfileId)) ?? null
+        : sharedMap.byPhoneNormalized.get(phoneNormalized) ?? null;
+      summaries.push(await this.mapConversation(
+        companyId,
+        conversation,
+        routingRules,
+        identityRow,
+        sharedProfile,
+      ));
+    }
+    return summaries;
   }
 
   private async listConversationIdsByLastRealMessage(companyId: number, limit: number, skip = 0) {
@@ -3131,39 +3173,41 @@ export class InboxService {
 
       for (let start = 0; start < conversationRows.length; start += chunkSize) {
         const chunk = conversationRows.slice(start, start + chunkSize);
-        const chunkResults = await Promise.all(
-          chunk.map(async (conversation) => {
-            try {
-              const result = await this.webwhatsBridge.syncConversationMessagesDetailed(
-                companyId,
-                conversation.id,
-                {
-                  force: true,
-                  limit: 120,
-                  fullSync: true,
-                  maxPages: 80,
-                  failOnError: true,
-                },
-              );
-              return {
-                ok: true as const,
-                conversationId: conversation.id,
-                result,
-              };
-            } catch (error: any) {
-              return {
-                ok: false as const,
-                conversationId: conversation.id,
-                message: String(
-                  error?.message || error || 'Falha ao sincronizar conversa do WhatsApp.',
-                ),
-              };
-            }
-          }),
-        );
+        const chunkResults: Array<
+          | { ok: true; conversationId: number; result: WebwhatsConversationSyncResult }
+          | { ok: false; conversationId: number; message: string }
+        > = [];
+        for (const conversation of chunk) {
+          try {
+            const result = await this.webwhatsBridge.syncConversationMessagesDetailed(
+              companyId,
+              conversation.id,
+              {
+                force: true,
+                limit: 120,
+                fullSync: true,
+                maxPages: 80,
+                failOnError: true,
+              },
+            );
+            chunkResults.push({
+              ok: true,
+              conversationId: conversation.id,
+              result,
+            });
+          } catch (error: any) {
+            chunkResults.push({
+              ok: false,
+              conversationId: conversation.id,
+              message: String(
+                error?.message || error || 'Falha ao sincronizar conversa do WhatsApp.',
+              ),
+            });
+          }
+        }
 
         for (const chunkResult of chunkResults) {
-          if (!chunkResult.ok) {
+          if (chunkResult.ok === false) {
             failures.push({
               id: chunkResult.conversationId,
               message: chunkResult.message,
@@ -4631,6 +4675,573 @@ export class InboxService {
     return this.getConversationByIdForCompany(companyId, conversation.id);
   }
 
+  private normalizeTrashPurgeText(value: unknown) {
+    return String(value || '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .trim()
+      .toLowerCase();
+  }
+
+  private parseJsonArray(raw: unknown) {
+    if (Array.isArray(raw)) return raw;
+    if (typeof raw !== 'string' || !raw.trim()) return [];
+    try {
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
+
+  private clampMeticulousTrashDelay(delayMsRaw: unknown) {
+    const requested = Math.trunc(Number(delayMsRaw || METICULOUS_TRASH_DEFAULT_DELAY_MS));
+    const base = Number.isFinite(requested) && requested > 0 ? requested : METICULOUS_TRASH_DEFAULT_DELAY_MS;
+    if (String(process.env.NODE_ENV || '').trim() === 'production') {
+      return Math.max(METICULOUS_TRASH_MIN_PRODUCTION_DELAY_MS, base);
+    }
+    return base;
+  }
+
+  private normalizeMeticulousTrashOptions(dto?: {
+    dryRun?: boolean;
+    mode?: 'dry_run' | 'real' | string | null;
+    olderThanHours?: number | string | null;
+    delayMs?: number | string | null;
+    limit?: number | string | null;
+  }) {
+    const olderThanHours = Math.max(1, Math.trunc(Number(dto?.olderThanHours || 24) || 24));
+    const delayMs = this.clampMeticulousTrashDelay(dto?.delayMs);
+    const limitRaw = dto?.limit === undefined || dto?.limit === null ? null : Math.trunc(Number(dto.limit));
+    const limit = limitRaw && Number.isFinite(limitRaw) && limitRaw > 0 ? Math.min(limitRaw, 5000) : null;
+    const mode = String(dto?.mode || (dto?.dryRun === false ? 'real' : 'dry_run')).trim() === 'real' ? 'real' : 'dry_run';
+    return {
+      mode,
+      dryRun: mode !== 'real',
+      olderThanHours,
+      delayMs,
+      limit,
+      jitterMinMs: METICULOUS_TRASH_DEFAULT_JITTER_MIN_MS,
+      jitterMaxMs: METICULOUS_TRASH_DEFAULT_JITTER_MAX_MS,
+    };
+  }
+
+  private getReasonLabel(reason: TrashPurgeDetectedReason) {
+    if (reason === 'SEM_INTERESSE_EXPLICITO') return 'sem interesse explícito';
+    if (reason === 'NEGATIVO') return 'negativo';
+    if (reason === 'SEM_RESPOSTA_24H') return 'sem resposta após 24h';
+    return 'motivo não identificado';
+  }
+
+  private detectTrashPurgeReason(input: {
+    customerMessages: Array<{ body: string; timestamp: Date | null }>;
+    newestMessage?: { direction?: string | null; senderType?: string | null; body?: string | null; timestamp?: Date | null } | null;
+    conversation: { lastMessageAt?: Date | null; lastInteractionAt?: Date | null; updatedAt?: Date | null };
+    olderThanHours?: number;
+  }): { detectedReason: TrashPurgeDetectedReason; confidence: number } {
+    const joined = this.normalizeTrashPurgeText(input.customerMessages.map((message) => message.body).join(' '));
+    if (joined) {
+      const explicitNoInterest =
+        /\b(nao|n)\s+(tenho|temos|quero|queremos|preciso|precisamos|vou|vamos)\s+(interesse|interessa|querer|precisar)\b/.test(joined) ||
+        /\bsem\s+interesse\b/.test(joined) ||
+        /\bnao\s+me\s+chama\b/.test(joined) ||
+        /\bpara\s+de\s+mandar\b/.test(joined) ||
+        /\bpare\s+de\s+mandar\b/.test(joined) ||
+        /\bnao\s+precisa\b/.test(joined) ||
+        /\bnao\s+obrigad[oa]\b/.test(joined) ||
+        /\bremover\s+meu\s+contato\b/.test(joined) ||
+        /\bnao\s+mande\s+mais\b/.test(joined);
+      if (explicitNoInterest) return { detectedReason: 'SEM_INTERESSE_EXPLICITO', confidence: 0.95 };
+
+      const negative =
+        /\b(nao|negativo|dispenso|cancelar|cancela|pare|parar|remover|bloquear|sair|stop|sem\s+chance|agora\s+nao)\b/.test(joined) ||
+        /\b(nunca|jamais)\b/.test(joined);
+      if (negative) return { detectedReason: 'NEGATIVO', confidence: 0.78 };
+    }
+
+    const newestDirection = String(input.newestMessage?.direction || '').trim().toUpperCase();
+    const newestSender = String(input.newestMessage?.senderType || '').trim().toLowerCase();
+    const lastActivity =
+      input.newestMessage?.timestamp ||
+      input.conversation.lastMessageAt ||
+      input.conversation.lastInteractionAt ||
+      input.conversation.updatedAt ||
+      null;
+    const ageMs = lastActivity ? Date.now() - lastActivity.getTime() : 0;
+    const olderThanMs = Math.max(1, Number(input.olderThanHours || 24)) * 60 * 60 * 1000;
+    const newestIsCustomer =
+      newestDirection === 'INBOUND' || ['client', 'customer', 'contact'].includes(newestSender);
+    if (lastActivity && ageMs >= olderThanMs && !newestIsCustomer) {
+      return { detectedReason: 'SEM_RESPOSTA_24H', confidence: 0.72 };
+    }
+
+    return { detectedReason: 'MOTIVO_NAO_IDENTIFICADO', confidence: 0 };
+  }
+
+  async extractLastCustomerWordsForPurge(
+    conversationId: number,
+    opts?: { companyId?: number; olderThanHours?: number },
+  ): Promise<TrashPurgeWords> {
+    const conversation = await this.prisma.companyConversation.findFirst({
+      where: {
+        id: conversationId,
+        ...(opts?.companyId ? { companyId: opts.companyId } : {}),
+        channel: 'whatsapp',
+      },
+      select: {
+        id: true,
+        lastMessageAt: true,
+        lastInteractionAt: true,
+        updatedAt: true,
+        messages: {
+          orderBy: [{ timestamp: 'desc' }],
+          take: 30,
+          select: {
+            direction: true,
+            senderType: true,
+            body: true,
+            timestamp: true,
+            messageType: true,
+            variablesJson: true,
+            rawPayload: true,
+          },
+        },
+      },
+    });
+    if (!conversation) throw new NotFoundException('Conversation not found');
+
+    const messages = conversation.messages || [];
+    const customerMessages = messages
+      .filter((message) => {
+        const direction = String(message.direction || '').trim().toUpperCase();
+        const senderType = String(message.senderType || '').trim().toLowerCase();
+        const isCustomer =
+          direction === 'INBOUND' || ['client', 'customer', 'contact'].includes(senderType);
+        const isNotInternal = !['bot', 'system', 'human', 'agent', 'attendant'].includes(senderType);
+        return isCustomer && isNotInternal && String(message.body || '').trim();
+      })
+      .slice(0, 3)
+      .map((message) => ({
+        body: String(message.body || '').trim(),
+        timestamp: message.timestamp || null,
+      }));
+
+    const newestMessage = messages[0] || null;
+    const classification = this.detectTrashPurgeReason({
+      customerMessages,
+      newestMessage,
+      conversation,
+      olderThanHours: opts?.olderThanHours || 24,
+    });
+    const chronological = [...customerMessages].reverse();
+    const lastCustomerMessage = customerMessages[0]?.body || null;
+
+    return {
+      lastCustomerMessage,
+      lastCustomerMessagesText: chronological.map((message) => message.body).join('\n').trim() || null,
+      lastCustomerMessageAt: customerMessages[0]?.timestamp || null,
+      detectedReason: classification.detectedReason,
+      confidence: classification.confidence,
+    };
+  }
+
+  private buildTrashPurgeObservation(input: {
+    extraction: TrashPurgeWords;
+    registeredAt: Date;
+  }) {
+    const reasonLabel = this.getReasonLabel(input.extraction.detectedReason);
+    const lastWords =
+      input.extraction.lastCustomerMessage ||
+      (input.extraction.detectedReason === 'SEM_RESPOSTA_24H'
+        ? 'Sem mensagem inbound do cliente no prazo analisado.'
+        : '');
+    return [
+      METICULOUS_TRASH_NOTE_MARKER,
+      `Motivo: ${reasonLabel}`,
+      `Última mensagem do cliente: "${lastWords}"`,
+      `Registrado automaticamente antes da exclusão permanente em ${input.registeredAt.toISOString()}.`,
+    ].join('\n');
+  }
+
+  private mergeTrashPurgeObservation(current: unknown, nextObservation: string) {
+    const currentText = String(current || '').trim();
+    if (currentText.includes(METICULOUS_TRASH_NOTE_MARKER)) return currentText;
+    return currentText ? `${currentText}\n\n${nextObservation}` : nextObservation;
+  }
+
+  private getTrashDeletedAt(metadata: Record<string, any>) {
+    const raw =
+      metadata?.inboxLocalDeletedAt ||
+      metadata?.inboxManualQueueOverriddenAt ||
+      metadata?.deletedAt ||
+      metadata?.archivedAt ||
+      metadata?.vendasAgendaQueue?.manualQueueOverriddenAt ||
+      metadata?.vendasAgendaQueue?.deactivatedAt;
+    const date = raw ? new Date(String(raw)) : null;
+    return date && !Number.isNaN(date.getTime()) ? date : null;
+  }
+
+  private async hasCustomerMessageAfterTrash(input: {
+    companyId: number;
+    conversationId: number;
+    trashAt: Date | null;
+  }) {
+    if (!input.trashAt) return false;
+    const row = await this.prisma.companyMessage.findFirst({
+      where: {
+        companyId: input.companyId,
+        conversationId: input.conversationId,
+        timestamp: { gt: input.trashAt },
+        OR: [
+          { direction: 'INBOUND' },
+          { direction: 'inbound' },
+          { senderType: { in: ['client', 'customer', 'contact'] } },
+        ],
+      },
+      select: { id: true },
+      orderBy: [{ timestamp: 'desc' }],
+    });
+    return Boolean(row);
+  }
+
+  private async findVendasLeadForTrashPurge(input: {
+    companyId: number;
+    conversation: any;
+    metadata: Record<string, any>;
+  }) {
+    const queue = this.getNestedMetadataRecord(input.metadata?.vendasAgendaQueue);
+    const leadId = String(queue?.leadId || '').trim();
+    if (leadId) {
+      const byId = await this.prisma.vendasLead.findFirst({
+        where: { id: leadId, companyId: input.companyId },
+      });
+      if (byId) return byId;
+    }
+    const phoneCandidates = this.buildVendasPhoneCandidates(input.conversation?.contact);
+    if (!phoneCandidates.length) return null;
+    return this.prisma.vendasLead.findFirst({
+      where: {
+        companyId: input.companyId,
+        phoneNormalized: { in: phoneCandidates },
+      },
+      orderBy: [{ updatedAt: 'desc' }],
+    });
+  }
+
+  async markConversationAsNegativeNoInterestBeforePurge(input: {
+    companyId: number;
+    userId?: number | null;
+    conversationId: number;
+    extraction: TrashPurgeWords;
+    dryRun?: boolean;
+  }) {
+    if (input.extraction.detectedReason === 'MOTIVO_NAO_IDENTIFICADO') {
+      throw new BadRequestException('Motivo nao identificado com seguranca. A conversa nao sera apagada automaticamente.');
+    }
+    const conversation = await this.ensureConversation(input.companyId, input.conversationId);
+    const metadata = this.parseConversationMetadata(conversation.metadata);
+    const registeredAt = new Date();
+    const observation = this.buildTrashPurgeObservation({
+      extraction: input.extraction,
+      registeredAt,
+    });
+    if (input.dryRun) {
+      return {
+        marked: false,
+        dryRun: true,
+        observation,
+        leadId: null,
+      };
+    }
+
+    const phoneNormalized = this.normalizeStatusCardPhone(conversation.contact);
+    const phoneVariants = phoneNormalized ? this.getStatusCardPhoneVariants(phoneNormalized) : [];
+    const lead = await this.findVendasLeadForTrashPurge({
+      companyId: input.companyId,
+      conversation,
+      metadata,
+    });
+    const existingMarkerAt = this.normalizeMessageMetadataText(metadata?.trashPurgeNegativeMarkedAt);
+    const alreadyMarked = Boolean(existingMarkerAt);
+    let markedLeadId: string | null = null;
+
+    if (lead) {
+      markedLeadId = String(lead.id);
+      const leadNote = this.mergeTrashPurgeObservation(lead.shortNote, observation);
+      await this.prisma.vendasLead.update({
+        where: { id: lead.id },
+        data: {
+          status: 'encerrado',
+          nextAction: 'Não ligar mais',
+          shortNote: leadNote || null,
+          lastResult: this.getReasonLabel(input.extraction.detectedReason),
+          wasClosedBefore: true,
+          closedAt: lead.closedAt || registeredAt,
+        },
+      });
+      const existingTimeline = await this.prisma.vendasLeadTimelineEvent.findFirst({
+        where: {
+          leadId: lead.id,
+          eventType: 'purge_negative_mark',
+        },
+        select: { id: true },
+      });
+      if (!existingTimeline) {
+        await this.prisma.vendasLeadTimelineEvent.create({
+          data: {
+            leadId: lead.id,
+            eventType: 'purge_negative_mark',
+            title: 'SEM INTERESSE / NEGATIVO registrado antes da exclusão',
+            description: observation,
+            sourceType: 'atendimento',
+            statusFrom: String(lead.status || 'novo'),
+            statusTo: 'encerrado',
+            resultLabel: this.getReasonLabel(input.extraction.detectedReason),
+            createdByUserId: Number(input.userId || 0) || null,
+          },
+        });
+      }
+    }
+
+    if (phoneVariants.length) {
+      const profile = await this.prisma.customerProfile.findFirst({
+        where: { companyId: input.companyId, phoneNormalized: { in: phoneVariants } },
+        orderBy: [{ updatedAt: 'desc' }],
+      });
+      if (profile) {
+        await this.prisma.customerProfile.update({
+          where: { id: profile.id },
+          data: {
+            notes: this.mergeTrashPurgeObservation(profile.notes, observation) || null,
+            botOff: true,
+            botOffReason: this.getReasonLabel(input.extraction.detectedReason),
+            botOffAt: registeredAt,
+          },
+        });
+      } else {
+        await this.customerProfileService.upsertProfile({
+          companyId: input.companyId,
+          phone: `+${phoneNormalized}`,
+          externalSource: 'atendimento_trash_purge',
+          status: 'active',
+          notes: observation,
+        } as any);
+      }
+
+      const atendimentoCustomer = await this.prisma.atendimentoCustomer.findFirst({
+        where: { companyId: input.companyId, phoneNormalized: { in: phoneVariants } },
+        orderBy: [{ updatedAt: 'desc' }],
+      });
+      if (atendimentoCustomer) {
+        await this.prisma.atendimentoCustomer.update({
+          where: { id: atendimentoCustomer.id },
+          data: {
+            notes: this.mergeTrashPurgeObservation(atendimentoCustomer.notes, observation) || null,
+          },
+        });
+      }
+    }
+
+    if (!alreadyMarked) {
+      await this.conversations.updateConversationState(input.companyId, conversation.id, {
+        botActive: false,
+        humanAssigned: false,
+        metadata: {
+          ...metadata,
+          trashPurgeNegativeMarkedAt: registeredAt.toISOString(),
+          trashPurgeDetectedReason: input.extraction.detectedReason,
+          trashPurgeLastCustomerMessage: input.extraction.lastCustomerMessage || null,
+          trashPurgeLastCustomerMessagesText: input.extraction.lastCustomerMessagesText || null,
+          trashPurgeMarkedByUserId: Number(input.userId || 0) || null,
+          atendimentoStatusCard: {
+            ...(this.getNestedMetadataRecord(metadata?.atendimentoStatusCard) || {}),
+            doNotCall: true,
+            observations: observation,
+            updatedAt: registeredAt.toISOString(),
+            updatedByUserId: Number(input.userId || 0) || null,
+          },
+        },
+      });
+    }
+
+    await this.logInboxEvent({
+      companyId: input.companyId,
+      event: 'conversation_marked_negative_before_purge',
+      message: 'Conversa marcada como SEM INTERESSE / NEGATIVO antes da exclusao permanente.',
+      conversationId: conversation.id,
+      phone: String(conversation.contact || '').trim(),
+      result: 'marked_negative',
+      extra: {
+        detectedReason: input.extraction.detectedReason,
+        leadId: markedLeadId,
+        alreadyMarked,
+      },
+    });
+
+    return {
+      marked: true,
+      dryRun: false,
+      observation,
+      leadId: markedLeadId,
+      alreadyMarked,
+    };
+  }
+
+  private mapWhatsAppProviderHealth(input: {
+    statusRaw?: unknown;
+    errorRaw?: unknown;
+    source?: string;
+  }): WhatsAppProviderHealth {
+    const rawStatus = String(input.statusRaw || '').trim();
+    const rawError = String(input.errorRaw || '').trim();
+    const normalized = this.normalizeTrashPurgeText(`${rawStatus} ${rawError}`);
+    const lastCheckedAt = new Date().toISOString();
+
+    if (/\bauth(_|\s|-)?failure\b|\bauthentication\b|\bunauthorized\b|\btoken\b|\blogin\s+failed\b/.test(normalized)) {
+      return {
+        status: 'auth_failure',
+        canSafelyDelete: false,
+        reason: 'Autenticacao do WhatsApp falhou; limpeza pausada para proteger a sessao.',
+        lastCheckedAt,
+        rawStatus,
+        rawError,
+      };
+    }
+    if (/\bqr\b|\bqrcode\b|\bpairing\b|\bpareamento\b|\bscan\b|\bqr_required\b/.test(normalized)) {
+      return {
+        status: 'qr_required',
+        canSafelyDelete: false,
+        reason: 'QR Code/pareamento requerido; limpeza pausada.',
+        lastCheckedAt,
+        rawStatus,
+        rawError,
+      };
+    }
+    if (/\bconnecting\b|\bconectando\b|\bopening\b|\breconnect/.test(normalized)) {
+      return {
+        status: 'connecting',
+        canSafelyDelete: false,
+        reason: 'Provider WhatsApp ainda esta conectando.',
+        lastCheckedAt,
+        rawStatus,
+        rawError,
+      };
+    }
+    if (
+      /\bdisconnect(ed)?\b|\bnot_connected\b|\bsession(_|\s|-)?closed\b|\bclosed\b|\boffline\b|\bdesconect/.test(normalized)
+    ) {
+      return {
+        status: 'disconnected',
+        canSafelyDelete: false,
+        reason: 'Sessao WhatsApp/WebWhats desconectada.',
+        lastCheckedAt,
+        rawStatus,
+        rawError,
+      };
+    }
+    if (/\bready\b|\bopen\b/.test(normalized)) {
+      return {
+        status: 'ready',
+        canSafelyDelete: true,
+        reason: 'Provider WhatsApp pronto para operacao local segura.',
+        lastCheckedAt,
+        rawStatus,
+        rawError,
+      };
+    }
+    if (/\bconnected\b|\bconectado\b/.test(normalized)) {
+      return {
+        status: 'connected',
+        canSafelyDelete: true,
+        reason: 'Provider WhatsApp conectado.',
+        lastCheckedAt,
+        rawStatus,
+        rawError,
+      };
+    }
+
+    return {
+      status: 'unknown',
+      canSafelyDelete: false,
+      reason: input.source ? `Estado ${input.source} desconhecido; limpeza pausada por seguranca.` : 'Estado do provider desconhecido.',
+      lastCheckedAt,
+      rawStatus,
+      rawError,
+    };
+  }
+
+  async getWhatsAppProviderHealth(companyId: number): Promise<WhatsAppProviderHealth> {
+    const company = await this.prisma.company.findUnique({
+      where: { id: companyId },
+      select: {
+        whatsappModalStatus: true,
+        whatsappModalLastError: true,
+        whatsappTemporaryStatus: true,
+        whatsappTemporaryStatusError: true,
+        whatsappStatus: true,
+        whatsappStatusError: true,
+      },
+    });
+    if (!company) {
+      return {
+        status: 'unknown',
+        canSafelyDelete: false,
+        reason: 'Empresa nao encontrada.',
+        lastCheckedAt: new Date().toISOString(),
+      };
+    }
+    const modalConfigured = String(process.env.WHATSAPP_MODAL_ENABLED || '').trim().toLowerCase() === 'true'
+      || Boolean(company.whatsappModalStatus);
+    if (modalConfigured) {
+      return this.mapWhatsAppProviderHealth({
+        statusRaw: company.whatsappModalStatus,
+        errorRaw: company.whatsappModalLastError,
+        source: 'WebWhats',
+      });
+    }
+    if (company.whatsappTemporaryStatus || company.whatsappTemporaryStatusError) {
+      return this.mapWhatsAppProviderHealth({
+        statusRaw: company.whatsappTemporaryStatus,
+        errorRaw: company.whatsappTemporaryStatusError,
+        source: 'WhatsApp temporario',
+      });
+    }
+    const officialStatus = String(company.whatsappStatus || '').trim().toUpperCase();
+    if (officialStatus) {
+      return this.mapWhatsAppProviderHealth({
+        statusRaw: officialStatus,
+        errorRaw: company.whatsappStatusError,
+        source: 'WhatsApp oficial',
+      });
+    }
+    return {
+      status: 'unknown',
+      canSafelyDelete: true,
+      reason: 'Nenhum provider QR ativo identificado; purge local liberado sem tocar na sessao WhatsApp.',
+      lastCheckedAt: new Date().toISOString(),
+      rawStatus: null,
+      rawError: null,
+    };
+  }
+
+  private async assertProviderHealthyForTrashPurge(companyId: number) {
+    const health = await this.getWhatsAppProviderHealth(companyId);
+    if (!health.canSafelyDelete) {
+      throw new ServiceUnavailableException({
+        code:
+          health.status === 'qr_required'
+            ? 'QR_REQUIRED'
+            : health.status === 'auth_failure'
+              ? 'AUTH_FAILURE'
+              : 'WEBWHATS_NOT_CONNECTED',
+        message: 'Pausado para proteger o QR Code / sessão WhatsApp.',
+        providerStatus: health.status,
+        providerError: health.reason || null,
+      });
+    }
+    return health;
+  }
+
   async deleteConversation(user: any, conversationId: number) {
     this.assertAdministrativeAction(user);
     const companyId = this.requireCompanyIdFromUser(user);
@@ -4686,12 +5297,17 @@ export class InboxService {
     if (exchangedMessages === 0) {
       try {
         await this.prisma.$transaction(async (tx) => {
-          await tx.companyMessage.deleteMany({
+          const emptyConversationMessages = await tx.companyMessage.findMany({
             where: {
               companyId,
               conversationId: conversation.id,
             },
+            select: { id: true },
+            orderBy: [{ id: 'asc' }],
           });
+          for (const message of emptyConversationMessages) {
+            await tx.companyMessage.delete({ where: { id: message.id } });
+          }
           await tx.companyConversation.delete({
             where: { id: conversation.id },
           });
@@ -4830,19 +5446,24 @@ export class InboxService {
 
   private async purgeInboxConversationLocally(companyId: number, conversationId: number) {
     await this.prisma.$transaction(async (tx) => {
-      await tx.companyMessage.deleteMany({
+      const messages = await tx.companyMessage.findMany({
         where: {
           companyId,
           conversationId,
         },
+        select: { id: true },
+        orderBy: [{ id: 'asc' }],
       });
-      await tx.companyConversation.deleteMany({
-        where: {
-          id: conversationId,
-          companyId,
-          channel: 'whatsapp',
-        },
+      for (const message of messages) {
+        await tx.companyMessage.delete({
+          where: { id: message.id },
+        });
+      }
+      const conversation = await tx.companyConversation.findFirst({
+        where: { id: conversationId, companyId, channel: 'whatsapp' },
+        select: { id: true },
       });
+      if (conversation) await tx.companyConversation.delete({ where: { id: conversation.id } });
     });
   }
 
@@ -4856,6 +5477,30 @@ export class InboxService {
       throw new BadRequestException('Envie a conversa para Excluídos antes da exclusão permanente.');
     }
 
+    const trashAt = this.getTrashDeletedAt(metadata);
+    if (await this.hasCustomerMessageAfterTrash({ companyId, conversationId: conversation.id, trashAt })) {
+      throw new BadRequestException('Cliente respondeu depois que a conversa foi para Excluídos. A conversa nao foi apagada.');
+    }
+
+    await this.assertProviderHealthyForTrashPurge(companyId);
+
+    const extraction = await this.extractLastCustomerWordsForPurge(conversation.id, {
+      companyId,
+      olderThanHours: 24,
+    });
+    if (extraction.detectedReason === 'MOTIVO_NAO_IDENTIFICADO') {
+      throw new BadRequestException('Nao encontrei ultimas palavras confiaveis do cliente. A conversa nao foi apagada.');
+    }
+
+    await this.markConversationAsNegativeNoInterestBeforePurge({
+      companyId,
+      userId: Number(user?.id || 0) || null,
+      conversationId: conversation.id,
+      extraction,
+    });
+
+    await this.purgeInboxConversationLocally(companyId, conversation.id);
+
     await this.logInboxEvent({
       companyId,
       event: 'conversation_trash_purged_local',
@@ -4866,10 +5511,9 @@ export class InboxService {
       extra: {
         localOnly: true,
         whatsappCommandSent: false,
+        detectedReason: extraction.detectedReason,
       },
     });
-
-    await this.purgeInboxConversationLocally(companyId, conversation.id);
 
     return {
       success: true,
@@ -4880,62 +5524,492 @@ export class InboxService {
     };
   }
 
-  async emptyTrash(user: any) {
-    this.assertAdministrativeAction(user);
-    const companyId = this.requireCompanyIdFromUser(user);
-    const candidates = await this.prisma.companyConversation.findMany({
+  private serializeMeticulousTrashJob(job: any) {
+    const now = Date.now();
+    const nextRunAt = job?.nextRunAt ? new Date(job.nextRunAt) : null;
+    return {
+      jobId: String(job.id),
+      status: String(job.status || 'idle') as TrashPurgeJobStatus,
+      mode: String(job.mode || (job.dryRun ? 'dry_run' : 'real')),
+      dryRun: Boolean(job.dryRun),
+      totalCandidates: Number(job.totalCandidates || 0),
+      currentIndex: Number(job.currentIndex || 0),
+      currentConversationId: job.currentConversationId == null ? null : String(job.currentConversationId),
+      currentPhone: job.currentPhone || null,
+      currentLastCustomerWords: job.currentLastCustomerWords || null,
+      currentDetectedReason: job.currentDetectedReason || null,
+      processed: Number(job.processed || 0),
+      markedNegative: Number(job.markedNegative || 0),
+      purged: Number(job.purged || 0),
+      skipped: Number(job.skipped || 0),
+      errors: this.parseJsonArray(job.errorsJson),
+      candidates: this.parseJsonArray(job.previewJson),
+      nextRunAt: nextRunAt ? nextRunAt.toISOString() : null,
+      countdownSeconds: nextRunAt ? Math.max(0, Math.ceil((nextRunAt.getTime() - now) / 1000)) : 0,
+      providerStatus: job.providerStatus || null,
+      providerHealth: this.parseLooseJsonRecord(job.providerHealthJson) || null,
+      startedAt: job.startedAt instanceof Date ? job.startedAt.toISOString() : job.startedAt || null,
+      finishedAt: job.finishedAt instanceof Date ? job.finishedAt.toISOString() : job.finishedAt || null,
+      olderThanHours: Number(job.olderThanHours || 24),
+      delayMs: Number(job.delayMs || METICULOUS_TRASH_DEFAULT_DELAY_MS),
+      limit: job.limit == null ? null : Number(job.limit),
+    };
+  }
+
+  private async listMeticulousTrashCandidates(input: {
+    companyId: number;
+    olderThanHours: number;
+    limit?: number | null;
+  }) {
+    const cutoff = new Date(Date.now() - input.olderThanHours * 60 * 60 * 1000);
+    const rows = await this.prisma.companyConversation.findMany({
       where: {
-        companyId,
+        companyId: input.companyId,
         channel: 'whatsapp',
-        messages: { none: {} },
+        lastMessageAt: { lte: cutoff },
       },
       select: {
         id: true,
         contact: true,
         flowResult: true,
         metadata: true,
+        lastMessageAt: true,
+        lastInteractionAt: true,
+        updatedAt: true,
+      },
+      orderBy: [{ lastMessageAt: 'asc' }, { id: 'asc' }],
+    });
+    const ids: number[] = [];
+    for (const row of rows) {
+      const metadata = this.parseConversationMetadata(row.metadata);
+      if (!this.isConversationMetadataInTrash(metadata, row.flowResult)) continue;
+      const lastActivity = row.lastMessageAt || row.lastInteractionAt || row.updatedAt || null;
+      if (!lastActivity || lastActivity.getTime() > cutoff.getTime()) continue;
+      ids.push(row.id);
+      if (input.limit && ids.length >= input.limit) break;
+    }
+    return ids;
+  }
+
+  private scheduleMeticulousTrashJob(jobId: string, delayMs: number) {
+    const current = this.meticulousTrashTimers.get(jobId);
+    if (current) clearTimeout(current);
+    const timer = setTimeout(() => {
+      this.meticulousTrashTimers.delete(jobId);
+      void this.runMeticulousTrashJobStep(jobId);
+    }, Math.max(0, delayMs));
+    this.meticulousTrashTimers.set(jobId, timer);
+  }
+
+  private appendMeticulousPreview(currentJson: string | null | undefined, item: Record<string, unknown>) {
+    const current = this.parseJsonArray(currentJson);
+    current.push(item);
+    return JSON.stringify(current.slice(-1000));
+  }
+
+  private appendMeticulousError(currentJson: string | null | undefined, item: Record<string, unknown>) {
+    const current = this.parseJsonArray(currentJson);
+    current.push({
+      ...item,
+      at: new Date().toISOString(),
+    });
+    return JSON.stringify(current.slice(-200));
+  }
+
+  private async processMeticulousTrashCandidate(job: any, conversationId: number) {
+    const conversation = await this.prisma.companyConversation.findFirst({
+      where: { id: conversationId, companyId: job.companyId, channel: 'whatsapp' },
+      select: {
+        id: true,
+        contact: true,
+        flowResult: true,
+        metadata: true,
+        lastMessageAt: true,
+        lastInteractionAt: true,
+        updatedAt: true,
       },
     });
-    const deletable = candidates.filter((conversation) =>
-      this.isConversationMetadataInTrash(
-        this.parseConversationMetadata(conversation.metadata),
-        conversation.flowResult,
-      ),
-    );
-    const ids = deletable.map((conversation) => conversation.id);
-
-    if (ids.length > 0) {
-      await this.prisma.companyConversation.deleteMany({
-        where: {
-          companyId,
-          channel: 'whatsapp',
-          id: { in: ids },
-        },
-      });
-      await this.logInboxEvent({
-        companyId,
-        event: 'conversation_empty_trash_purged_local',
-        message: 'Conversas vazias removidas de Excluídos apenas no HBX.',
-        result: 'local_purged_empty_batch',
-        extra: {
-          deleted: ids.length,
-          deletedIds: ids,
-          localOnly: true,
-          whatsappCommandSent: false,
-        },
-      });
+    if (!conversation) {
+      return {
+        action: 'skipped',
+        reason: 'conversation_not_found',
+        phone: null,
+        extraction: null,
+      };
     }
+
+    const metadata = this.parseConversationMetadata(conversation.metadata);
+    if (!this.isConversationMetadataInTrash(metadata, conversation.flowResult)) {
+      return {
+        action: 'skipped',
+        reason: 'not_in_trash',
+        phone: String(conversation.contact || '').trim(),
+        extraction: null,
+      };
+    }
+
+    const cutoff = new Date(Date.now() - Number(job.olderThanHours || 24) * 60 * 60 * 1000);
+    const lastActivity = conversation.lastMessageAt || conversation.lastInteractionAt || conversation.updatedAt || null;
+    if (!lastActivity || lastActivity.getTime() > cutoff.getTime()) {
+      return {
+        action: 'skipped',
+        reason: 'recent_activity',
+        phone: String(conversation.contact || '').trim(),
+        extraction: null,
+      };
+    }
+
+    const trashAt = this.getTrashDeletedAt(metadata);
+    if (await this.hasCustomerMessageAfterTrash({ companyId: job.companyId, conversationId, trashAt })) {
+      return {
+        action: 'skipped',
+        reason: 'customer_replied_after_trash',
+        phone: String(conversation.contact || '').trim(),
+        extraction: null,
+      };
+    }
+
+    const extraction = await this.extractLastCustomerWordsForPurge(conversation.id, {
+      companyId: job.companyId,
+      olderThanHours: Number(job.olderThanHours || 24),
+    });
+    if (extraction.detectedReason === 'MOTIVO_NAO_IDENTIFICADO') {
+      return {
+        action: 'skipped',
+        reason: 'reason_not_identified',
+        phone: String(conversation.contact || '').trim(),
+        extraction,
+      };
+    }
+
+    if (job.dryRun) {
+      return {
+        action: 'would_purge',
+        reason: 'dry_run',
+        phone: String(conversation.contact || '').trim(),
+        extraction,
+      };
+    }
+
+    await this.markConversationAsNegativeNoInterestBeforePurge({
+      companyId: job.companyId,
+      userId: Number(job.startedByUserId || 0) || null,
+      conversationId: conversation.id,
+      extraction,
+    });
+    await this.purgeInboxConversationLocally(job.companyId, conversation.id);
+
+    return {
+      action: 'purged',
+      reason: 'marked_and_purged',
+      phone: String(conversation.contact || '').trim(),
+      extraction,
+    };
+  }
+
+  private async runMeticulousTrashJobStep(jobId: string) {
+    const job = await this.prisma.inboxTrashMeticulousPurgeJob.findUnique({ where: { id: jobId } });
+    if (!job || String(job.status) !== 'running') return;
+
+    const ids = this.parseJsonArray(job.candidateIdsJson)
+      .map((id) => Number(id))
+      .filter((id) => Number.isFinite(id) && id > 0);
+
+    if (job.nextRunAt && job.nextRunAt.getTime() > Date.now()) {
+      this.scheduleMeticulousTrashJob(job.id, job.nextRunAt.getTime() - Date.now());
+      return;
+    }
+
+    if (Number(job.currentIndex || 0) >= ids.length) {
+      await this.prisma.inboxTrashMeticulousPurgeJob.update({
+        where: { id: job.id },
+        data: {
+          status: 'completed',
+          currentConversationId: null,
+          nextRunAt: null,
+          finishedAt: new Date(),
+        },
+      });
+      return;
+    }
+
+    const conversationId = ids[Number(job.currentIndex || 0)];
+    let latestJob = job;
+    try {
+      if (!job.dryRun) {
+        const health = await this.assertProviderHealthyForTrashPurge(job.companyId);
+        latestJob = await this.prisma.inboxTrashMeticulousPurgeJob.update({
+          where: { id: job.id },
+          data: {
+            providerStatus: health.status,
+            providerHealthJson: JSON.stringify(health),
+          },
+        });
+      }
+
+      let result: any = null;
+      let lastError: unknown = null;
+      for (const attempt of [1, 2]) {
+        try {
+          result = await this.processMeticulousTrashCandidate(latestJob, conversationId);
+          lastError = null;
+          break;
+        } catch (error) {
+          lastError = error;
+          if (attempt >= 2) break;
+        }
+      }
+      if (lastError) throw lastError;
+
+      const extraction = result?.extraction as TrashPurgeWords | null;
+      const previewItem = {
+        conversationId: String(conversationId),
+        phone: result?.phone || null,
+        action: result?.action || 'skipped',
+        reason: result?.reason || null,
+        lastCustomerWords: extraction?.lastCustomerMessagesText || extraction?.lastCustomerMessage || null,
+        detectedReason: extraction?.detectedReason || null,
+        confidence: extraction?.confidence ?? null,
+      };
+      const isPurged = result?.action === 'purged';
+      const isMarked = isPurged;
+      const isSkipped = result?.action === 'skipped';
+      const isDryCandidate = result?.action === 'would_purge';
+      const nextIndex = Number(job.currentIndex || 0) + 1;
+      const completed = nextIndex >= ids.length;
+      const jitter =
+        job.dryRun || completed
+          ? 0
+          : Math.trunc(
+              Number(job.jitterMinMs || 0) +
+                Math.random() * Math.max(0, Number(job.jitterMaxMs || 0) - Number(job.jitterMinMs || 0)),
+            );
+      const waitMs = job.dryRun || completed ? 0 : Number(job.delayMs || METICULOUS_TRASH_DEFAULT_DELAY_MS) + jitter;
+      const nextRunAt = completed ? null : new Date(Date.now() + waitMs);
+      const updated = await this.prisma.inboxTrashMeticulousPurgeJob.update({
+        where: { id: job.id },
+        data: {
+          status: completed ? 'completed' : 'running',
+          currentIndex: nextIndex,
+          currentConversationId: conversationId,
+          currentPhone: result?.phone || null,
+          currentLastCustomerWords: extraction?.lastCustomerMessagesText || extraction?.lastCustomerMessage || null,
+          currentDetectedReason: extraction?.detectedReason || null,
+          processed: { increment: 1 },
+          markedNegative: isMarked ? { increment: 1 } : undefined,
+          purged: isPurged ? { increment: 1 } : undefined,
+          skipped: isSkipped ? { increment: 1 } : undefined,
+          previewJson: this.appendMeticulousPreview(job.previewJson, previewItem),
+          nextRunAt,
+          finishedAt: completed ? new Date() : null,
+        },
+      });
+      if (!completed) this.scheduleMeticulousTrashJob(updated.id, waitMs);
+      if (isDryCandidate && !completed) this.scheduleMeticulousTrashJob(updated.id, 150);
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : String((error as any)?.message || error || 'Falha na limpeza meticulosa.');
+      const code = String((error as any)?.response?.code || (error as any)?.code || '').trim().toUpperCase();
+      const providerDisconnected =
+        code === 'WEBWHATS_NOT_CONNECTED' ||
+        code === 'QR_REQUIRED' ||
+        code === 'AUTH_FAILURE' ||
+        code === 'SESSION_CLOSED' ||
+        code === 'DISCONNECTED' ||
+        message.toLowerCase().includes('webwhats_not_connected') ||
+        message.toLowerCase().includes('qr code') ||
+        message.toLowerCase().includes('auth') ||
+        message.toLowerCase().includes('sessão whatsapp') ||
+        message.toLowerCase().includes('sessao whatsapp');
+      const nextErrorsJson = this.appendMeticulousError(job.errorsJson, {
+        conversationId: String(conversationId),
+        message,
+        code: code || null,
+      });
+      await this.prisma.inboxTrashMeticulousPurgeJob.update({
+        where: { id: job.id },
+        data: {
+          status: providerDisconnected ? 'paused_provider_unhealthy' : 'running',
+          currentConversationId: conversationId,
+          errorsJson: nextErrorsJson,
+          lastError: message,
+          skipped: providerDisconnected ? undefined : { increment: 1 },
+          currentIndex: providerDisconnected ? job.currentIndex : Number(job.currentIndex || 0) + 1,
+          nextRunAt: null,
+        },
+      });
+      if (!providerDisconnected) this.scheduleMeticulousTrashJob(job.id, 1500);
+    }
+  }
+
+  async startMeticulousTrashPurge(user: any, dto?: {
+    dryRun?: boolean;
+    mode?: 'dry_run' | 'real' | string | null;
+    olderThanHours?: number | string | null;
+    delayMs?: number | string | null;
+    limit?: number | string | null;
+  }) {
+    this.assertAdministrativeAction(user);
+    const companyId = this.requireCompanyIdFromUser(user);
+    const running = await this.prisma.inboxTrashMeticulousPurgeJob.findFirst({
+      where: {
+        companyId,
+        status: { in: ['running', 'paused', 'paused_provider_unhealthy', 'paused_after_restart'] },
+      },
+      orderBy: [{ createdAt: 'desc' }],
+    });
+    if (running) {
+      throw new ConflictException('Ja existe uma limpeza meticulosa ativa ou pausada para esta empresa.');
+    }
+
+    const options = this.normalizeMeticulousTrashOptions(dto);
+    const providerHealth = await this.getWhatsAppProviderHealth(companyId);
+    const candidateIds = await this.listMeticulousTrashCandidates({
+      companyId,
+      olderThanHours: options.olderThanHours,
+      limit: options.limit,
+    });
+    const job = await this.prisma.inboxTrashMeticulousPurgeJob.create({
+      data: {
+        companyId,
+        startedByUserId: Number(user?.id || 0) || null,
+        status: candidateIds.length ? 'running' : 'completed',
+        mode: options.mode,
+        dryRun: options.dryRun,
+        olderThanHours: options.olderThanHours,
+        delayMs: options.delayMs,
+        jitterMinMs: options.jitterMinMs,
+        jitterMaxMs: options.jitterMaxMs,
+        limit: options.limit,
+        candidateIdsJson: JSON.stringify(candidateIds),
+        totalCandidates: candidateIds.length,
+        providerStatus: providerHealth.status,
+        providerHealthJson: JSON.stringify(providerHealth),
+        finishedAt: candidateIds.length ? null : new Date(),
+      },
+    });
+    await this.logInboxEvent({
+      companyId,
+      event: 'meticulous_trash_purge_started',
+      message: options.dryRun
+        ? 'Simulacao de limpeza meticulosa da lixeira iniciada.'
+        : 'Limpeza meticulosa da lixeira iniciada.',
+      result: options.dryRun ? 'dry_run_started' : 'started',
+      extra: {
+        jobId: job.id,
+        mode: options.mode,
+        totalCandidates: candidateIds.length,
+        olderThanHours: options.olderThanHours,
+        delayMs: options.delayMs,
+        limit: options.limit,
+      },
+    });
+    if (candidateIds.length) this.scheduleMeticulousTrashJob(job.id, 0);
+    return this.serializeMeticulousTrashJob(job);
+  }
+
+  async dryRunMeticulousTrashPurge(user: any, dto?: {
+    olderThanHours?: number | string | null;
+    delayMs?: number | string | null;
+    limit?: number | string | null;
+  }) {
+    return this.startMeticulousTrashPurge(user, {
+      ...(dto || {}),
+      mode: 'dry_run',
+      dryRun: true,
+    });
+  }
+
+  async getMeticulousTrashPurgeStatus(user: any, jobId: string) {
+    const companyId = this.requireCompanyIdFromUser(user);
+    const job = await this.prisma.inboxTrashMeticulousPurgeJob.findFirst({
+      where: { id: String(jobId || ''), companyId },
+    });
+    if (!job) throw new NotFoundException('Job de limpeza nao encontrado.');
+    const looksRestarted =
+      Boolean(job.nextRunAt) ||
+      (job.updatedAt instanceof Date && job.updatedAt.getTime() < this.serviceStartedAt.getTime());
+    if (String(job.status) === 'running' && !this.meticulousTrashTimers.has(job.id) && looksRestarted) {
+      const updated = await this.prisma.inboxTrashMeticulousPurgeJob.update({
+        where: { id: job.id },
+        data: {
+          status: 'paused_after_restart',
+          nextRunAt: null,
+          lastError: 'Job pausado apos reinicio do servidor. Continue manualmente para retomar com seguranca.',
+        },
+      });
+      return this.serializeMeticulousTrashJob(updated);
+    }
+    return this.serializeMeticulousTrashJob(job);
+  }
+
+  async pauseMeticulousTrashPurge(user: any, jobId: string) {
+    this.assertAdministrativeAction(user);
+    const companyId = this.requireCompanyIdFromUser(user);
+    const job = await this.prisma.inboxTrashMeticulousPurgeJob.findFirst({ where: { id: jobId, companyId } });
+    if (!job) throw new NotFoundException('Job de limpeza nao encontrado.');
+    const timer = this.meticulousTrashTimers.get(job.id);
+    if (timer) clearTimeout(timer);
+    this.meticulousTrashTimers.delete(job.id);
+    const updated = await this.prisma.inboxTrashMeticulousPurgeJob.update({
+      where: { id: job.id },
+      data: { status: 'paused', nextRunAt: null },
+    });
+    return this.serializeMeticulousTrashJob(updated);
+  }
+
+  async resumeMeticulousTrashPurge(user: any, jobId: string) {
+    this.assertAdministrativeAction(user);
+    const companyId = this.requireCompanyIdFromUser(user);
+    const job = await this.prisma.inboxTrashMeticulousPurgeJob.findFirst({ where: { id: jobId, companyId } });
+    if (!job) throw new NotFoundException('Job de limpeza nao encontrado.');
+    if (!['paused', 'paused_provider_unhealthy', 'paused_after_restart'].includes(String(job.status))) {
+      throw new BadRequestException('Apenas jobs pausados podem continuar.');
+    }
+    const updated = await this.prisma.inboxTrashMeticulousPurgeJob.update({
+      where: { id: job.id },
+      data: { status: 'running', nextRunAt: new Date() },
+    });
+    this.scheduleMeticulousTrashJob(job.id, 0);
+    return this.serializeMeticulousTrashJob(updated);
+  }
+
+  async cancelMeticulousTrashPurge(user: any, jobId: string) {
+    this.assertAdministrativeAction(user);
+    const companyId = this.requireCompanyIdFromUser(user);
+    const job = await this.prisma.inboxTrashMeticulousPurgeJob.findFirst({ where: { id: jobId, companyId } });
+    if (!job) throw new NotFoundException('Job de limpeza nao encontrado.');
+    const timer = this.meticulousTrashTimers.get(job.id);
+    if (timer) clearTimeout(timer);
+    this.meticulousTrashTimers.delete(job.id);
+    const updated = await this.prisma.inboxTrashMeticulousPurgeJob.update({
+      where: { id: job.id },
+      data: { status: 'canceled', nextRunAt: null, finishedAt: new Date() },
+    });
+    return this.serializeMeticulousTrashJob(updated);
+  }
+
+  async emptyTrash(user: any) {
+    this.assertAdministrativeAction(user);
+    const companyId = this.requireCompanyIdFromUser(user);
+    await this.logInboxEvent({
+      companyId,
+      event: 'conversation_empty_trash_legacy_blocked',
+      message: 'Limpeza antiga de Excluídos bloqueada. Use a Limpeza meticulosa da lixeira.',
+      result: 'blocked',
+      extra: {
+        localOnly: true,
+        whatsappCommandSent: false,
+      },
+    });
 
     return {
       success: true,
-      deleted: ids.length,
-      deletedIds: ids.map((id) => String(id)),
-      skipped: Math.max(0, candidates.length - ids.length),
+      deleted: 0,
+      deletedIds: [],
+      skipped: 0,
       localOnly: true,
-      message:
-        ids.length > 0
-          ? `${ids.length} conversa(s) vazia(s) removida(s) de Excluídos apenas no HBX.`
-          : 'Nenhuma conversa vazia encontrada em Excluídos.',
+      message: 'Use a Limpeza meticulosa da lixeira para simular e excluir com segurança.',
     };
   }
 

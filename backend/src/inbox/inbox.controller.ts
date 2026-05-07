@@ -178,6 +178,46 @@ export class InboxController {
     return this.inboxService.emptyTrash(req.user);
   }
 
+  @Post('conversations/empty-trash/meticulous/dry-run')
+  dryRunMeticulousEmptyTrash(
+    @Req() req: any,
+    @Body() dto: { olderThanHours?: number | string | null; delayMs?: number | string | null; limit?: number | string | null },
+  ) {
+    return this.inboxService.dryRunMeticulousTrashPurge(req.user, dto || {});
+  }
+
+  @Post('conversations/empty-trash/meticulous/start')
+  startMeticulousEmptyTrash(
+    @Req() req: any,
+    @Body() dto: { dryRun?: boolean; olderThanHours?: number | string | null; delayMs?: number | string | null; limit?: number | string | null },
+  ) {
+    return this.inboxService.startMeticulousTrashPurge(req.user, {
+      ...(dto || {}),
+      mode: 'real',
+      dryRun: false,
+    });
+  }
+
+  @Get('conversations/empty-trash/meticulous/:jobId/status')
+  getMeticulousEmptyTrashStatus(@Req() req: any, @Param('jobId') jobId: string) {
+    return this.inboxService.getMeticulousTrashPurgeStatus(req.user, jobId);
+  }
+
+  @Post('conversations/empty-trash/meticulous/:jobId/pause')
+  pauseMeticulousEmptyTrash(@Req() req: any, @Param('jobId') jobId: string) {
+    return this.inboxService.pauseMeticulousTrashPurge(req.user, jobId);
+  }
+
+  @Post('conversations/empty-trash/meticulous/:jobId/resume')
+  resumeMeticulousEmptyTrash(@Req() req: any, @Param('jobId') jobId: string) {
+    return this.inboxService.resumeMeticulousTrashPurge(req.user, jobId);
+  }
+
+  @Post('conversations/empty-trash/meticulous/:jobId/cancel')
+  cancelMeticulousEmptyTrash(@Req() req: any, @Param('jobId') jobId: string) {
+    return this.inboxService.cancelMeticulousTrashPurge(req.user, jobId);
+  }
+
   @Patch('conversations/:id/read')
   markConversationAsRead(@Req() req: any, @Param('id', ParseIntPipe) id: number) {
     return this.inboxService.markConversationAsRead(req.user, id);

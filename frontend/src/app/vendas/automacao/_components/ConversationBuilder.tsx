@@ -866,8 +866,14 @@ export default function ConversationBuilder({
   useEffect(() => {
     if (activeGuideProp === activeGuideId) return;
     if (activeGuideProp === "recovery" && !recoveryEnabled) return;
+    let frame: number | null = null;
     onConfigChange(applyBotGuide(botConfig, activeGuideProp));
-    setSelectedSceneId(getGuideSceneId(activeGuideProp));
+    frame = window.requestAnimationFrame(() => {
+      setSelectedSceneId(getGuideSceneId(activeGuideProp));
+    });
+    return () => {
+      if (frame !== null) window.cancelAnimationFrame(frame);
+    };
   }, [activeGuideId, activeGuideProp, botConfig, onConfigChange, recoveryEnabled]);
 
   const updateSelectedMessage = (message: string) => {

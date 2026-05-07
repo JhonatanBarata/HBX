@@ -97,7 +97,9 @@ import {
   type InboxConversation,
   type InboxFullBootstrapPayload,
   type InboxMessage,
+  type MeticulousTrashPurgeJob,
 } from "./inbox-model";
+import { renderSafeText, normalizeMeticulousTrashJob } from "@/lib/renderSafeText";
 import styles from "./page.module.css";
 
 type InboxTab = "messages" | "automation";
@@ -167,6 +169,7 @@ type ProspectingAutomationStatusValue =
   | "agendando"
   | "enviando"
   | "aguardando"
+  | "dormindo"
   | "pausado"
   | "erro";
 
@@ -599,6 +602,8 @@ function formatAutomationStatusLabel(status: ProspectingAutomationStatusValue) {
       return "Enviando";
     case "aguardando":
       return "Aguardando";
+    case "dormindo":
+      return "Bot dormindo";
     case "pausado":
       return "Pausado";
     case "erro":
@@ -647,7 +652,7 @@ function ProspectingAutomationStatus({
     currentStatus === "importando" ||
     currentStatus === "agendando" ||
     currentStatus === "enviando";
-  const canPause = Boolean(status?.campaign && status.campaign.status === "running");
+  const canPause = Boolean(status?.campaign && status.campaign.status === "running" && currentStatus !== "dormindo");
   const canResume = Boolean(status?.campaign && status.campaign.status === "paused");
   const text =
     disabled
@@ -2986,6 +2991,9 @@ export default function InboxClientPage() {
   const [purgeConversationDialog, setPurgeConversationDialog] = useState<{ conversationId: string } | null>(null);
   const [emptyTrashDialogOpen, setEmptyTrashDialogOpen] = useState(false);
   const [emptyingTrash, setEmptyingTrash] = useState(false);
+  const [meticulousTrashJob, setMeticulousTrashJob] = useState<MeticulousTrashPurgeJob | null>(null);
+  const [meticulousTrashBusy, setMeticulousTrashBusy] = useState(false);
+  const [meticulousTrashLimit, setMeticulousTrashLimit] = useState("1");
   const [deleteMessageDialog, setDeleteMessageDialog] = useState<{ messageId: string } | null>(null);
 
   useEffect(() => {
@@ -3187,10 +3195,8 @@ export default function InboxClientPage() {
     }
     if (!background) setAiAssistantLoading(true);
     try {
-      const [prospectPayload, insightsPayload] = await Promise.all([
-        apiFetch<AiAssistantProspect>("/api/ai-assistant/next-prospect"),
-        apiFetch<AiAssistantInsights>("/api/ai-assistant/insights"),
-      ]);
+      const prospectPayload = await apiFetch<AiAssistantProspect>("/api/ai-assistant/next-prospect");
+      const insightsPayload = await apiFetch<AiAssistantInsights>("/api/ai-assistant/insights");
       setAiAssistantProspect(prospectPayload);
       setAiAssistantInsights(insightsPayload);
     } catch {
@@ -4597,7 +4603,12 @@ export default function InboxClientPage() {
 
   useEffect(() => {
     if (hasToken === false) return;
-    void Promise.all([loadCurrentUser(), loadUserModules(), loadWhatsAppCenter(), loadCommercialPlans()]);
+    void (async () => {
+      await loadCurrentUser();
+      await loadUserModules();
+      await loadWhatsAppCenter();
+      await loadCommercialPlans();
+    })();
   }, [hasToken, loadCommercialPlans, loadCurrentUser, loadUserModules, loadWhatsAppCenter]);
 
   useEffect(() => {
@@ -5520,16 +5531,18 @@ export default function InboxClientPage() {
           });
         }
 
-        const moveResults = await Promise.allSettled(
-          conversationIds.map((conversationId) =>
-            moveConversationToQueue(conversationId, targetQueue, {
+        let failedMoves = 0;
+        for (const conversationId of conversationIds) {
+          try {
+            await moveConversationToQueue(conversationId, targetQueue, {
               skipReload: true,
               skipBotSync: true,
-            }),
-          ),
-        );
+            });
+          } catch {
+            failedMoves += 1;
+          }
+        }
 
-        const failedMoves = moveResults.filter((result) => result.status === "rejected").length;
         await loadConversations({ preferredId: selectedIdRef.current, silent: true });
         setInboxQueue(targetQueue);
 
@@ -5700,47 +5713,93 @@ export default function InboxClientPage() {
     setEmptyTrashDialogOpen(true);
   }, [queueCounts.archived]);
 
-  const confirmEmptyTrash = useCallback(async () => {
+  const refreshMeticulousTrashJob = useCallback(async (jobId: string) => {
+    if (!jobId) return null;
+    const payload = await apiFetch<MeticulousTrashPurgeJob>(
+      `/inbox/conversations/empty-trash/meticulous/${jobId}/status`,
+    );
+    setMeticulousTrashJob(normalizeMeticulousTrashJob(payload));
+    return payload;
+  }, []);
+
+  const startMeticulousTrashJob = useCallback(async (dryRun: boolean) => {
     setError(null);
     setEmptyingTrash(true);
+    setMeticulousTrashBusy(true);
     try {
-      const response = await apiFetch<{
-        message?: string;
-        deleted?: number;
-        deletedIds?: string[];
-      }>("/inbox/conversations/empty-trash", {
+      const normalizedLimit = Math.max(1, Math.trunc(Number(meticulousTrashLimit || 1) || 1));
+      const endpoint = dryRun
+        ? "/inbox/conversations/empty-trash/meticulous/dry-run"
+        : "/inbox/conversations/empty-trash/meticulous/start";
+      const payload = await apiFetch<MeticulousTrashPurgeJob>(endpoint, {
         method: "POST",
+        body: JSON.stringify({
+          olderThanHours: 24,
+          limit: dryRun ? Math.max(normalizedLimit, 25) : normalizedLimit,
+          delayMs: 120000,
+        }),
       });
-      const deletedIds = new Set((response?.deletedIds || []).map((id) => String(id)));
-      if (deletedIds.size > 0) {
-        setConversations((current) => current.filter((conversation) => !deletedIds.has(String(conversation.id))));
-        if (selectedIdRef.current && deletedIds.has(String(selectedIdRef.current))) {
-          setSelectedId(null);
-          setSelectedConversation(null);
-          selectedIdRef.current = null;
-          selectedConversationRef.current = null;
-        }
-        setManualQueueOverrides((current) => {
-          const next = { ...current };
-          deletedIds.forEach((id) => {
-            delete next[id];
-          });
-          return next;
-        });
-      }
+      setMeticulousTrashJob(normalizeMeticulousTrashJob(payload));
       setNotice({
-        tone: Number(response?.deleted || 0) > 0 ? "success" : "info",
-        text: String(response?.message || "").trim() || "Nenhuma conversa vazia encontrada em Excluídos.",
+        tone: "info",
+        text: dryRun ? "Simulação da limpeza meticulosa iniciada." : "Limpeza meticulosa iniciada.",
       });
-      setEmptyTrashDialogOpen(false);
-      await loadConversations({ preferredId: null, silent: true });
     } catch (deleteError) {
-      const message = deleteError instanceof Error ? deleteError.message : "Falha ao limpar conversas vazias.";
+      const message = deleteError instanceof Error ? deleteError.message : "Falha ao iniciar limpeza meticulosa.";
       setError(message);
     } finally {
-      setEmptyingTrash(false);
+      setMeticulousTrashBusy(false);
     }
-  }, [loadConversations]);
+  }, [meticulousTrashLimit]);
+
+  const runMeticulousTrashAction = useCallback(async (action: "pause" | "resume" | "cancel") => {
+    const jobId = meticulousTrashJob?.jobId;
+    if (!jobId) return;
+    setMeticulousTrashBusy(true);
+    setError(null);
+    try {
+      const payload = await apiFetch<MeticulousTrashPurgeJob>(
+        `/inbox/conversations/empty-trash/meticulous/${jobId}/${action}`,
+        { method: "POST" },
+      );
+      setMeticulousTrashJob(normalizeMeticulousTrashJob(payload));
+      if (action === "cancel") {
+        setNotice({ tone: "info", text: "Limpeza meticulosa cancelada." });
+      }
+      if (action === "pause") {
+        setNotice({ tone: "info", text: "Limpeza meticulosa pausada." });
+      }
+      if (action === "resume") {
+        setNotice({ tone: "info", text: "Limpeza meticulosa retomada." });
+      }
+    } catch (actionError) {
+      const message = actionError instanceof Error ? actionError.message : "Falha ao controlar limpeza meticulosa.";
+      setError(message);
+    } finally {
+      setMeticulousTrashBusy(false);
+    }
+  }, [meticulousTrashJob?.jobId]);
+
+  useEffect(() => {
+    const job = meticulousTrashJob;
+    if (!job?.jobId) return;
+    const active = ["running", "paused", "paused_provider_unhealthy", "paused_after_restart"].includes(String(job.status));
+    setEmptyingTrash(active);
+    if (!active) return;
+    const delay = job.status === "running" ? 3000 : 8000;
+    const timer = window.setTimeout(() => {
+      void refreshMeticulousTrashJob(job.jobId).then((payload) => {
+        if (!payload) return;
+        if (payload.status === "completed" || payload.status === "canceled") {
+          void loadConversations({ preferredId: null, silent: true });
+        }
+      }).catch((pollError) => {
+        const message = pollError instanceof Error ? pollError.message : "Falha ao atualizar limpeza meticulosa.";
+        setError(message);
+      });
+    }, delay);
+    return () => window.clearTimeout(timer);
+  }, [loadConversations, meticulousTrashJob, refreshMeticulousTrashJob]);
 
   const purgeConversationById = useCallback(
     async (conversationId: string) => {
@@ -6804,19 +6863,19 @@ export default function InboxClientPage() {
                           .filter(Boolean)
                           .join(" • ")}
                       </small>
+                      <button
+                        type="button"
+                        className={styles.whatsAppImagePreviewClose}
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => {
+                          URL.revokeObjectURL(imagePreview.url);
+                          setImagePreview(null);
+                        }}
+                        aria-label="Remover imagem"
+                      >
+                        ✕
+                      </button>
                     </div>
-                    <button
-                      type="button"
-                      className={styles.whatsAppImagePreviewClose}
-                      onMouseDown={(e) => e.preventDefault()}
-                      onClick={() => {
-                        URL.revokeObjectURL(imagePreview.url);
-                        setImagePreview(null);
-                      }}
-                      aria-label="Remover imagem"
-                    >
-                      ✕
-                    </button>
                   </div>
                 ) : null}
                 {audioPreview ? (
@@ -8457,14 +8516,157 @@ export default function InboxClientPage() {
 
       <HbxConfirmDialog
         open={emptyTrashDialogOpen}
-        title="Limpar conversas vazias"
-        description="Remove de Excluídos apenas conversas sem nenhuma mensagem registrada. Conversas com histórico permanecem intactas."
-        confirmLabel="Limpar vazias"
+        title="Limpeza meticulosa"
+        description="Esse modo lê as últimas mensagens do cliente, preenche observação como SEM INTERESSE / NEGATIVO e exclui permanentemente 1 conversa a cada 2 minutos. Se o WhatsApp/QR ficar instável, o processo pausa sozinho para proteger a sessão."
+        confirmLabel="Iniciar limpeza real"
+        cancelLabel={emptyingTrash ? "Fechar painel" : "Fechar"}
         destructive
-        busy={emptyingTrash}
-        onCancel={() => setEmptyTrashDialogOpen(false)}
-        onConfirm={() => void confirmEmptyTrash()}
-      />
+        busy={meticulousTrashBusy}
+        confirmDisabled={emptyingTrash}
+        onCancel={() => {
+          if (emptyingTrash) {
+            setNotice({
+              tone: "info",
+              text:
+                meticulousTrashJob?.status === "paused" ||
+                meticulousTrashJob?.status === "paused_provider_unhealthy" ||
+                meticulousTrashJob?.status === "paused_after_restart"
+                  ? "Limpeza meticulosa está pausada."
+                  : "Limpeza meticulosa continua em segundo plano.",
+            });
+          }
+          setEmptyTrashDialogOpen(false);
+        }}
+        onConfirm={() => void startMeticulousTrashJob(false)}
+      >
+        <div className={styles.meticulousTrashPanel}>
+          <div className={styles.meticulousTrashActions}>
+            <label className={styles.meticulousTrashLimit}>
+              <span>Limite real</span>
+              <input
+                className="field"
+                type="number"
+                min={1}
+                max={5000}
+                value={meticulousTrashLimit}
+                disabled={emptyingTrash || meticulousTrashBusy}
+                onChange={(event) => setMeticulousTrashLimit(event.target.value)}
+              />
+            </label>
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              disabled={meticulousTrashBusy || emptyingTrash}
+              onClick={() => void startMeticulousTrashJob(true)}
+            >
+              Simular primeiro / Dry run
+            </button>
+          </div>
+
+          {meticulousTrashJob ? (
+            <div className={styles.meticulousTrashStatus}>
+              <div className={styles.meticulousTrashMotor}>
+                <span className={styles.meticulousTrashPulse} />
+                <div>
+                  <strong>
+                    {meticulousTrashJob.status === "paused_provider_unhealthy"
+                      ? "Pausado para proteger o QR Code / sessão WhatsApp."
+                      : meticulousTrashJob.dryRun
+                        ? "Simulação em andamento"
+                        : "Motor de limpeza cuidadosa"}
+                  </strong>
+                  <small>
+                    Progresso {Math.min(meticulousTrashJob.currentIndex, meticulousTrashJob.totalCandidates)}/
+                    {meticulousTrashJob.totalCandidates} · WhatsApp/QR:{" "}
+                    {meticulousTrashJob.providerHealth?.status || meticulousTrashJob.providerStatus || "aguardando"}
+                  </small>
+                </div>
+              </div>
+
+              <div className={styles.meticulousTrashGrid}>
+                <span>Telefone atual</span>
+                <strong>{meticulousTrashJob.currentPhone || "-"}</strong>
+                <span>Motivo detectado</span>
+                <strong>
+                  {renderSafeText(meticulousTrashJob.currentDetectedReason) || "-"}
+                  {meticulousTrashJob.candidates.at(-1)?.confidence
+                    ? ` (${Math.round(Number(meticulousTrashJob.candidates.at(-1)?.confidence || 0) * 100)}%)`
+                    : ""}
+                </strong>
+                <span>Próxima exclusão</span>
+                <strong>
+                  {meticulousTrashJob.countdownSeconds > 0
+                    ? `${meticulousTrashJob.countdownSeconds}s`
+                    : meticulousTrashJob.status}
+                </strong>
+                <span>Últimas palavras</span>
+                <strong>{renderSafeText(meticulousTrashJob.currentLastCustomerWords) || "-"}</strong>
+              </div>
+
+              <div className={styles.meticulousTrashCounters}>
+                <span>Marcados: {meticulousTrashJob.markedNegative}</span>
+                <span>Apagados: {meticulousTrashJob.purged}</span>
+                <span>Pulados: {meticulousTrashJob.skipped}</span>
+                <span>Erros: {meticulousTrashJob.errors.length}</span>
+              </div>
+
+              {meticulousTrashJob.candidates.length ? (
+                <div className={styles.meticulousTrashList}>
+                  {meticulousTrashJob.candidates.slice(-8).reverse().map((candidate, index) => (
+                    <div key={`${candidate.conversationId}-${index}`} className={styles.meticulousTrashRow}>
+                      <strong>{candidate.phone || candidate.conversationId}</strong>
+                      <span>{renderSafeText(candidate.action) || "-"} · {renderSafeText(candidate.detectedReason ?? candidate.reason ?? "-")}</span>
+                      <small>{renderSafeText(candidate.lastCustomerWords) || "Sem últimas palavras confiáveis."}</small>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+
+              {meticulousTrashJob.errors.length ? (
+                <div className={styles.meticulousTrashErrors}>
+                  {meticulousTrashJob.errors.slice(-3).map((item, index) => {
+                    const message = renderSafeText(item.message ?? item.note ?? item.reason ?? item);
+                    return <span key={index}>{message}</span>;
+                  })}
+                </div>
+              ) : null}
+
+              <div className={styles.meticulousTrashControls}>
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  disabled={meticulousTrashBusy || !["running"].includes(String(meticulousTrashJob.status))}
+                  onClick={() => void runMeticulousTrashAction("pause")}
+                >
+                  Pausar
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  disabled={
+                    meticulousTrashBusy ||
+                    !["paused", "paused_provider_unhealthy", "paused_after_restart"].includes(String(meticulousTrashJob.status))
+                  }
+                  onClick={() => void runMeticulousTrashAction("resume")}
+                >
+                  Continuar
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-danger btn-sm"
+                  disabled={
+                    meticulousTrashBusy ||
+                    ["completed", "canceled"].includes(String(meticulousTrashJob.status))
+                  }
+                  onClick={() => void runMeticulousTrashAction("cancel")}
+                >
+                  Cancelar
+                </button>
+              </div>
+            </div>
+          ) : null}
+        </div>
+      </HbxConfirmDialog>
 
       <HbxConfirmDialog
         open={deleteMessageDialog !== null}

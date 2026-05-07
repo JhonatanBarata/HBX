@@ -1,8 +1,9 @@
-import { Body, Controller, Get, Param, Post, Query, Req, Res, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Put, Query, Req, Res, UseGuards } from '@nestjs/common';
 import { Type } from 'class-transformer';
 import { IsArray, IsBoolean, IsIn, IsInt, IsNumber, IsOptional, IsString, Max, Min } from 'class-validator';
 import type { Response } from 'express';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { MasterGuard } from '../auth/guards/master.guard';
 import { ModuleAccess } from '../modules/module-feature.decorator';
 import { ModuleAccessGuard } from '../modules/module-access.guard';
 import { HbxEnginePoolService } from './hbx-engine-pool.service';
@@ -166,6 +167,10 @@ class RadarLeadEventDto {
 
 class RadarCampaignDto {
   @IsOptional()
+  @IsIn(['radar_database', 'mass_data'])
+  mode?: 'radar_database' | 'mass_data';
+
+  @IsOptional()
   @IsString()
   city?: string;
 
@@ -178,13 +183,13 @@ class RadarCampaignDto {
   segment?: string;
 
   @IsOptional()
-  @IsIn(['pj', 'pf', 'agenda_pf'])
-  targetType?: 'pj' | 'pf' | 'agenda_pf';
+  @IsIn(['pj', 'pf', 'agenda_pf', 'both'])
+  targetType?: 'pj' | 'pf' | 'agenda_pf' | 'both';
 
   @IsOptional()
   @Type(() => Number)
   @IsInt()
-  @Min(1)
+  @Min(0)
   @Max(10000)
   targetTotal?: number;
 
@@ -194,6 +199,13 @@ class RadarCampaignDto {
   @Min(1)
   @Max(50)
   batchSize?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(10)
+  maxAttemptsPerTask?: number;
 
   @IsOptional()
   @Type(() => Boolean)
@@ -217,6 +229,103 @@ class RadarCampaignDto {
   @IsOptional()
   @IsString()
   timezone?: string;
+}
+
+class MasterTurboConfigDto {
+  @IsOptional()
+  @Type(() => Boolean)
+  @IsBoolean()
+  enabled?: boolean;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(23)
+  startHour?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(59)
+  startMinute?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(23)
+  endHour?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(59)
+  endMinute?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(4)
+  engineCount?: number;
+
+  @IsOptional()
+  @IsIn(['economico', 'normal', 'turbo'])
+  intensity?: 'economico' | 'normal' | 'turbo';
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(256)
+  memoryTargetGb?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(20)
+  batchSize?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(10)
+  maxAttemptsPerTask?: number;
+}
+
+class MasterMassDataDto extends MasterTurboConfigDto {
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  companyId?: number;
+
+  @IsString()
+  state!: string;
+
+  @IsOptional()
+  @IsString()
+  city?: string;
+
+  @IsOptional()
+  @IsString()
+  segment?: string;
+
+  @IsOptional()
+  @IsIn(['pj', 'pf', 'both'])
+  targetType?: 'pj' | 'pf' | 'both';
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(100000)
+  targetTotal?: number;
 }
 
 class RadarPullDto extends RadarDatabaseQueryDto {
@@ -412,5 +521,43 @@ export class WebscrapingController {
     res.setHeader('Content-Type', exported.contentType);
     res.setHeader('Content-Disposition', `attachment; filename="${exported.filename}"`);
     res.send(exported.buffer);
+  }
+}
+
+@Controller('modules/master/webscraping')
+@UseGuards(JwtAuthGuard, MasterGuard)
+export class MasterWebscrapingController {
+  constructor(
+    private readonly webscrapingService: WebscrapingService,
+  ) {}
+
+  @Get('mass-data')
+  getMassDataControl(@Req() req: any) {
+    return this.webscrapingService.getMasterMassDataControl(req.user);
+  }
+
+  @Put('turbo-noturno')
+  saveTurboNoturno(@Req() req: any, @Body() dto: MasterTurboConfigDto) {
+    return this.webscrapingService.saveMasterTurboConfig(req.user, dto || {});
+  }
+
+  @Post('mass-data')
+  createMassDataCampaign(@Req() req: any, @Body() dto: MasterMassDataDto) {
+    return this.webscrapingService.createMasterMassDataCampaign(req.user, dto || ({} as any));
+  }
+
+  @Post('mass-data/:id/pause')
+  pauseMassDataCampaign(@Param('id') id: string) {
+    return this.webscrapingService.pauseRadarCampaignByMaster(id);
+  }
+
+  @Post('mass-data/:id/resume')
+  resumeMassDataCampaign(@Param('id') id: string) {
+    return this.webscrapingService.resumeRadarCampaignByMaster(id);
+  }
+
+  @Post('mass-data/:id/cancel')
+  cancelMassDataCampaign(@Param('id') id: string) {
+    return this.webscrapingService.cancelRadarCampaignByMaster(id);
   }
 }

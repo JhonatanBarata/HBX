@@ -24,6 +24,7 @@ type LiveAutomationStatus =
   | 'agendando'
   | 'enviando'
   | 'aguardando'
+  | 'dormindo'
   | 'pausado'
   | 'erro';
 
@@ -1059,6 +1060,17 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     return `Próximo envio em ${String(target.day).padStart(2, '0')}/${String(target.month).padStart(2, '0')} às ${time}`;
   }
 
+  private formatSleepingUntilText(date: Date) {
+    const target = getBusinessDateParts(date);
+    const today = getBusinessDateParts(new Date());
+    const targetDay = Date.UTC(target.year, target.month - 1, target.day);
+    const todayDay = Date.UTC(today.year, today.month - 1, today.day);
+    const diffDays = Math.round((targetDay - todayDay) / 86400000);
+    const time = `${String(target.hour).padStart(2, '0')}:${String(target.minute).padStart(2, '0')}`;
+    const dayLabel = diffDays === 0 ? 'hoje' : diffDays === 1 ? 'amanhã' : `em ${String(target.day).padStart(2, '0')}/${String(target.month).padStart(2, '0')}`;
+    return `Bot dormindo. Fora do horário operacional; retomamos ${dayLabel} às ${time}.`;
+  }
+
   private async latestCampaign(companyId: number) {
     return this.prisma.vendasAutomationCampaign.findFirst({
       where: { companyId },
@@ -1087,6 +1099,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     if (campaign.status === 'paused') return 'pausado';
     if (campaign.status === 'error') return 'erro';
     if (['canceled', 'done'].includes(String(campaign.status || ''))) return 'parado';
+    if (campaign.status === 'running' && !this.isInsideWorkingHours(new Date(), campaign)) return 'dormindo';
     const statusText = normalizeKey(campaign.lastStatusText);
     if (statusText.includes('buscando')) return 'buscando';
     if (statusText.includes('importando')) return 'importando';
@@ -1142,14 +1155,18 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     }
     const counters = { todayPending, overdue, future, sent, positives, archived, failed };
     const status = this.inferLiveStatus(campaign, counters, sending);
+    const nextWorkingWindow = status === 'dormindo' ? this.moveToWorkingWindow(new Date(), campaign) : null;
     const nextScheduledText = nextScheduledAt ? this.formatNextScheduledText(nextScheduledAt) : null;
     return {
       status,
       text:
+        status === 'dormindo'
+          ? this.formatSleepingUntilText(nextWorkingWindow || new Date())
+          :
         status === 'aguardando' && nextScheduledText
           ? nextScheduledText
           : campaign.lastStatusText || (todayPending > 0 ? `${todayPending} contatos na fila hoje.` : 'Aguardando respostas.'),
-      active: campaign.status === 'running',
+      active: campaign.status === 'running' && status !== 'dormindo',
       campaign: this.serializeCampaign(campaign),
       counters,
       nextScheduledAt: nextScheduledAt ? nextScheduledAt.toISOString() : null,
@@ -1246,6 +1263,11 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     }
     const searchSignature = this.buildSearchSignature(data);
     const searchLabel = this.formatProspectingSearchLabel(data);
+    const now = new Date();
+    const startsInsideWorkingHours = this.isInsideWorkingHours(now, data);
+    const initialStatusText = startsInsideWorkingHours
+      ? `Buscando ${searchLabel}.`
+      : this.formatSleepingUntilText(this.moveToWorkingWindow(now, data));
     const campaign = current
       ? await this.prisma.vendasAutomationCampaign.update({
           where: { id: current.id },
@@ -1254,7 +1276,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
             searchSignature,
             status: 'running',
             createdByUserId: current.createdByUserId || context.userId,
-            lastStatusText: `Buscando ${searchLabel}.`,
+            lastStatusText: initialStatusText,
             lastError: null,
           },
         })
@@ -1265,26 +1287,28 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
             companyId: context.companyId,
             createdByUserId: context.userId,
             status: 'running',
-            lastStatusText: `Buscando ${searchLabel}.`,
+            lastStatusText: initialStatusText,
           },
         });
 
     this.publishAutomationEvent({
       companyId: context.companyId,
       campaignId: campaign.id,
-      status: 'buscando',
-      text: campaign.lastStatusText || 'Buscando novos contatos...',
+      status: startsInsideWorkingHours ? 'buscando' : 'dormindo',
+      text: campaign.lastStatusText || (startsInsideWorkingHours ? 'Buscando novos contatos...' : initialStatusText),
       type: 'campaign_started',
     });
 
-    void this.scrapeImportAndSchedule(campaign.id, user, 'start').catch((error) => {
-      void this.markCampaignStage(campaign.id, context.companyId, 'erro', 'Erro na prospecção automática.', {
-        error: String(error?.message || error),
-        type: 'campaign_error',
+    if (startsInsideWorkingHours) {
+      void this.scrapeImportAndSchedule(campaign.id, user, 'start').catch((error) => {
+        void this.markCampaignStage(campaign.id, context.companyId, 'erro', 'Erro na prospecção automática.', {
+          error: String(error?.message || error),
+          type: 'campaign_error',
+        });
+      }).finally(() => {
+        void this.runWorkerCycle().catch(() => null);
       });
-    }).finally(() => {
-      void this.runWorkerCycle().catch(() => null);
-    });
+    }
 
     return this.buildLiveStatus(campaign);
   }
@@ -1476,6 +1500,14 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
   private async scrapeImportAndSchedule(campaignId: string, user?: any, reason: 'start' | 'refill' = 'start') {
     const campaign = await this.prisma.vendasAutomationCampaign.findUnique({ where: { id: campaignId } });
     if (!campaign || campaign.status !== 'running') return;
+    const now = new Date();
+    if (!this.isInsideWorkingHours(now, campaign)) {
+      const next = this.moveToWorkingWindow(now, campaign);
+      await this.markCampaignStage(campaign.id, campaign.companyId, 'dormindo', this.formatSleepingUntilText(next), {
+        type: 'outside_working_hours',
+      });
+      return;
+    }
     const runtimeUser = user || (await this.buildAutomationUser(campaign));
     const searchLabel = `${campaign.segment} em ${campaign.city}${campaign.state ? `/${campaign.state}` : ''}`;
     await this.markCampaignStage(campaign.id, campaign.companyId, 'buscando', `Buscando ${searchLabel}.`, {
@@ -1968,12 +2000,22 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async refillCampaignsIfNeeded() {
+    const now = new Date();
     const campaigns = await this.prisma.vendasAutomationCampaign.findMany({
       where: { status: 'running' },
       orderBy: { updatedAt: 'asc' },
       take: 10,
     });
     for (const campaign of campaigns) {
+      if (!this.isInsideWorkingHours(now, campaign)) {
+        const next = this.moveToWorkingWindow(now, campaign);
+        await this.markCampaignStage(campaign.id, campaign.companyId, 'dormindo', this.formatSleepingUntilText(next), {
+          type: 'outside_working_hours',
+        }).catch((error) => {
+          this.logger.warn(`Falha ao marcar campanha dormindo campaign=${campaign.id}: ${String(error?.message || error)}`);
+        });
+        continue;
+      }
       const pending = await this.prisma.vendasAutomationJob.count({
         where: { campaignId: campaign.id, status: { in: [...BUFFER_JOB_STATUSES] as any } },
       });
@@ -2102,8 +2144,8 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
       await this.markCampaignStage(
         campaign.id,
         campaign.companyId,
-        'aguardando',
-        `Próximo envio em ${next.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: BUSINESS_TIME_ZONE })}.`,
+        'dormindo',
+        this.formatSleepingUntilText(next),
         { type: 'next_send_scheduled' },
       );
       return;

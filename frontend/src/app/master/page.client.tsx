@@ -187,6 +187,15 @@ const MASTER_SHORTCUTS = [
     meta: "jhonatan@hbx.com.br",
   },
   {
+    title: "Webscraping/Radar",
+    eyebrow: "Massa de Dados",
+    description: "Turbo Noturno, quatro motores HBX, campanhas mass_data e retomada automática pelo banco.",
+    href: "/master/webscraping",
+    action: "Abrir radar",
+    tone: "hostinger",
+    meta: "M1-M4 + Banco Radar",
+  },
+  {
     title: "Planos/Módulos",
     eyebrow: "Catálogo",
     description: "Preços, módulos vendáveis, padrão para empresas e uso por cliente.",

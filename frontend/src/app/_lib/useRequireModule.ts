@@ -30,13 +30,9 @@ export function useRequireModule(moduleKey: GuardedModuleKey) {
   const [allowed, setAllowed] = useState<boolean | null>(null);
 
   useEffect(() => {
-    if (hasToken !== true) {
-      setAllowed(null);
-      return;
-    }
+    if (hasToken !== true) return;
 
     let cancelled = false;
-    setAllowed(null);
 
     Promise.all([
       apiFetch<UserModule[]>("/modules/me"),

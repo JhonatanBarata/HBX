@@ -891,6 +891,84 @@
   gap: 0.9rem;
 }
 
+.massDataControlCenter {
+  display: grid;
+  gap: 0.85rem;
+  border: 1px solid color-mix(in srgb, #22d3ee 34%, var(--line));
+  border-radius: 18px;
+  background:
+    linear-gradient(135deg, rgb(6 182 212 / 0.14), rgb(34 197 94 / 0.08) 42%, transparent),
+    color-mix(in srgb, var(--surface-raised) 88%, #020617);
+  box-shadow: 0 18px 50px rgb(0 0 0 / 0.22), inset 0 1px 0 rgb(255 255 255 / 0.08);
+  padding: 0.95rem;
+}
+
+.engineBatteryRow,
+.liveGraphStrip,
+.liveFeed {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+}
+
+.engineBattery {
+  display: grid;
+  min-width: 84px;
+  gap: 0.2rem;
+  border: 1px solid rgb(148 163 184 / 0.26);
+  border-radius: 12px;
+  background: rgb(15 23 42 / 0.72);
+  color: rgb(226 232 240);
+  padding: 0.58rem 0.65rem;
+}
+
+.engineBattery span {
+  font-size: 0.78rem;
+  font-weight: 950;
+}
+
+.engineBattery strong {
+  font-size: 0.66rem;
+  text-transform: uppercase;
+}
+
+.engineBattery[data-state="running"] {
+  border-color: rgb(34 197 94 / 0.64);
+  box-shadow: 0 0 22px rgb(34 197 94 / 0.2);
+}
+
+.engineBattery[data-state="standby"] {
+  border-color: rgb(56 189 248 / 0.48);
+}
+
+.engineBattery[data-state="paused"] {
+  border-color: rgb(234 179 8 / 0.58);
+}
+
+.engineBattery[data-state="error"] {
+  border-color: rgb(248 113 113 / 0.72);
+  color: rgb(254 202 202);
+}
+
+.engineBattery[data-state="offline"] {
+  opacity: 0.42;
+}
+
+.liveGraphStrip span,
+.liveFeed span {
+  border: 1px solid color-mix(in srgb, var(--line) 72%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--surface) 76%, transparent);
+  color: var(--foreground-soft);
+  font-size: 0.76rem;
+  font-weight: 850;
+  padding: 0.46rem 0.62rem;
+}
+
+.liveGraphStrip strong {
+  color: var(--foreground);
+}
+
 .radarCampaignAside {
   display: grid;
   align-content: start;

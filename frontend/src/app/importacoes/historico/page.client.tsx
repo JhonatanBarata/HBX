@@ -42,7 +42,7 @@ function fmtDate(v?: string | null) {
 }
 
 function TinyLineChart({ points, valueKey, color }: { points: GraficoPoint[]; valueKey: "rsKg" | "valorUsd" | "valorDolar"; color: string }) {
-  const values = points.map((p) => Number((p as any)[valueKey])).filter((v) => Number.isFinite(v));
+  const values = points.map((p) => Number(p[valueKey])).filter((v) => Number.isFinite(v));
   if (!values.length) return <div className="text-xs text-muted">Sem dados</div>;
   const min = Math.min(...values);
   const max = Math.max(...values);
@@ -53,7 +53,7 @@ function TinyLineChart({ points, valueKey, color }: { points: GraficoPoint[]; va
   const stepX = points.length <= 1 ? 0 : 100 / (points.length - 1);
   const path = points
     .map((point, idx) => {
-      const raw = Number((point as any)[valueKey]);
+      const raw = Number(point[valueKey]);
       const y = Number.isFinite(raw) ? normalize(raw) : 90;
       const x = idx * stepX;
       return `${idx === 0 ? "M" : "L"} ${x},${y}`;

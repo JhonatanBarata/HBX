@@ -636,7 +636,6 @@ function AnimatedCount({ value }: { value: number }) {
     const diff = Math.abs(to - from);
     const DURATION = Math.max(240, Math.min(560, 220 + diff * 10));
     const startTime = performance.now();
-    setRolling(true);
     const tick = (now: number) => {
       const t = Math.min((now - startTime) / DURATION, 1);
       const eased = t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
@@ -650,7 +649,10 @@ function AnimatedCount({ value }: { value: number }) {
       }
     };
     if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
-    rafRef.current = requestAnimationFrame(tick);
+    rafRef.current = requestAnimationFrame((now) => {
+      setRolling(true);
+      tick(now);
+    });
     return () => {
       if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
     };
@@ -710,7 +712,9 @@ function LeadCardView({
     let timer: number | undefined;
 
     if (editing) {
-      setEditorRendered(true);
+      requestAnimationFrame(() => {
+        setEditorRendered(true);
+      });
       // open animation
       requestAnimationFrame(() => {
         if (!el) return;
@@ -723,7 +727,9 @@ function LeadCardView({
           el.style.maxHeight = `${el.scrollHeight}px`;
           el.style.opacity = "1";
         });
-        setEditorAnimating(true);
+        requestAnimationFrame(() => {
+          setEditorAnimating(true);
+        });
         timer = window.setTimeout(() => {
           if (!el) return;
           el.style.maxHeight = "";
@@ -735,7 +741,9 @@ function LeadCardView({
     } else {
       // close animation
       if (!el) {
-        setEditorRendered(false);
+        requestAnimationFrame(() => {
+          setEditorRendered(false);
+        });
       } else {
         el.style.overflow = "hidden";
         el.style.maxHeight = `${el.scrollHeight}px`;
@@ -746,7 +754,9 @@ function LeadCardView({
           el.style.maxHeight = "0px";
           el.style.opacity = "0";
         });
-        setEditorAnimating(true);
+        requestAnimationFrame(() => {
+          setEditorAnimating(true);
+        });
         timer = window.setTimeout(() => {
           setEditorAnimating(false);
           setEditorRendered(false);
@@ -1469,7 +1479,14 @@ export default function VendasClientPage() {
     setCreatingManual(true);
     setError(null);
     try {
-      const body: any = {
+      const body: {
+        name?: string;
+        phone?: string;
+        nextAction?: string;
+        returnAt?: string;
+        shortNote?: string;
+        email?: string;
+      } = {
         name: manualLead.name || undefined,
         phone: manualLead.phone || undefined,
         nextAction: manualLead.nextAction || undefined,

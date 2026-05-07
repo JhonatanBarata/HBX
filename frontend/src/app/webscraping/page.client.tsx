@@ -189,6 +189,7 @@ const COMMON_CITY_DDD: Record<string, string> = {
 
 type WebscrapingEngine = "google" | "hbx";
 type HbxTargetType = "pj" | "pf" | "agenda_pf";
+type RadarCampaignTargetType = HbxTargetType | "both";
 type SearchModeId = "google_pj" | "hbx_radar";
 
 const SEARCH_MODE_OPTIONS: Array<{
@@ -412,7 +413,7 @@ type RadarLeadItem = {
   contactedCount?: number;
   lastContactAt?: string | null;
   campaignId?: string | null;
-  historySummary?: string | null;
+  historySummary?: string | RadarLeadEvent[] | null;
   globalNegativeCount?: number;
   globalImportedCount?: number;
   globalContactedCount?: number;
@@ -517,13 +518,33 @@ type RadarCampaignBatch = {
   finishedAt?: string | null;
 };
 
+type RadarCampaignTask = {
+  id: string;
+  city: string;
+  state: string;
+  segment: string;
+  targetType?: RadarCampaignTargetType;
+  query: string;
+  status: string;
+  attemptCount: number;
+  maxAttempts: number;
+  foundCount: number;
+  duplicateCount: number;
+  rejectedCount: number;
+  lastError?: string | null;
+  lockedByEngineId?: string | null;
+  lockedUntil?: string | null;
+  updatedAt?: string | null;
+};
+
 type RadarCampaign = {
   id: string;
   status: RadarCampaignStatus;
+  mode?: "radar_database" | "mass_data" | string;
   city?: string | null;
   state?: string | null;
   segment?: string | null;
-  targetType: HbxTargetType;
+  targetType: RadarCampaignTargetType;
   targetTotal: number;
   batchSize: number;
   foundCount: number;
@@ -540,6 +561,9 @@ type RadarCampaign = {
   lastQueryUsed?: string | null;
   lastEngineUrl?: string | null;
   lastErrorMessage?: string | null;
+  taskStatusCounts?: Record<string, number>;
+  completedCityCount?: number;
+  currentCity?: string | null;
   progressMessage?: string | null;
   nextRunAt?: string | null;
   nightOnly: boolean;
@@ -549,10 +573,34 @@ type RadarCampaign = {
   createdAt?: string | null;
   updatedAt?: string | null;
   batches?: RadarCampaignBatch[];
+  tasks?: RadarCampaignTask[];
 };
 
 type RadarCampaignsResponse = {
   items: RadarCampaign[];
+};
+
+type HbxDashboardEngine = {
+  id: string;
+  shortLabel: string;
+  status: string;
+  configured: boolean;
+  online: boolean;
+  busy: boolean;
+  url?: string | null;
+  lastError?: string | null;
+};
+
+type HbxDashboardStatus = {
+  generatedAt: string;
+  capacity: {
+    queuedCount: number;
+    runningCount: number;
+    completedLast10Min: number;
+    operationalStatus: "healthy" | "degraded";
+    message?: string | null;
+  };
+  engines: HbxDashboardEngine[];
 };
 
 type CrmPreviewItem = {
@@ -780,6 +828,15 @@ function campaignStatusLabel(status?: string | null) {
 }
 
 function campaignProgressMessage(campaign: RadarCampaign) {
+  if (campaign.mode === "mass_data") {
+    const counts = campaign.taskStatusCounts || {};
+    const queued = Number(counts.queued || 0);
+    const running = Number(counts.running || 0);
+    const completed = Number(counts.completed || 0);
+    const exhausted = Number(counts.exhausted || 0);
+    if (campaign.status === "sleeping") return "Massa de dados aguardando a janela 20h-08h.";
+    return `${completed + exhausted} tarefas finalizadas, ${running} rodando, ${queued} na fila. ${campaign.approvedCount} telefones únicos salvos.`;
+  }
   const attempt = Math.max(1, Number(campaign.currentAttempt || 0));
   if (campaign.status === "running" || campaign.status === "queued" || campaign.status === "partial_error") {
     if (campaign.lastErrorMessage) return campaign.lastErrorMessage;
@@ -791,6 +848,24 @@ function campaignProgressMessage(campaign: RadarCampaign) {
   if (campaign.status === "failed") return campaign.lastErrorMessage || "Coleta interrompida por erro.";
   if (campaign.status === "canceled") return "Coleta cancelada.";
   return `${campaign.foundCount}/${campaign.targetTotal} contatos encontrados.`;
+}
+
+function radarHistorySummaryText(value: RadarLeadItem["historySummary"]) {
+  if (typeof value === "string") return value;
+  if (Array.isArray(value) && value.length > 0) {
+    const event = value[0];
+    return [event.eventType, event.note, event.createdAt ? formatDateTime(event.createdAt) : ""].filter(Boolean).join(" • ");
+  }
+  return "";
+}
+
+function engineBatteryState(engine: HbxDashboardEngine) {
+  const status = String(engine.status || "").toLowerCase();
+  if (!engine.configured || !engine.online || status === "offline" || status === "missing") return "offline";
+  if (status === "cooldown" || status === "paused" || status === "retry") return "paused";
+  if (status === "error" || status === "degraded") return "error";
+  if (engine.busy || status === "busy" || status === "running" || status === "online") return "running";
+  return "standby";
 }
 
 function buildMapUrl(item: RadarLeadItem) {
@@ -1146,18 +1221,21 @@ export default function WebscrapingClientPage({ mode = "search" }: WebscrapingCl
   const [radarDetailLoading, setRadarDetailLoading] = useState(false);
   const [radarViewMode, setRadarViewMode] = useState<"database" | "campaign">("database");
   const [radarCampaigns, setRadarCampaigns] = useState<RadarCampaign[]>([]);
+  const [engineDashboard, setEngineDashboard] = useState<HbxDashboardStatus | null>(null);
   const [campaignLoading, setCampaignLoading] = useState(false);
   const [campaignActionId, setCampaignActionId] = useState<string | null>(null);
   const [campaignForm, setCampaignForm] = useState({
     targetType: "pj" as HbxTargetType,
+    mode: "mass_data",
     state: "",
     city: "",
     segment: "",
-    targetTotal: 1000,
-    batchSize: 50,
+    targetTotal: 0,
+    batchSize: 20,
     nightOnly: true,
-    allowedStartHour: 0,
-    allowedEndHour: 6,
+    allowedStartHour: 20,
+    allowedEndHour: 8,
+    maxAttemptsPerTask: 3,
   });
   const [stateSuggestionsOpen, setStateSuggestionsOpen] = useState(false);
   const [citySuggestionsOpen, setCitySuggestionsOpen] = useState(false);
@@ -1383,7 +1461,7 @@ export default function WebscrapingClientPage({ mode = "search" }: WebscrapingCl
     (async () => {
       setLoadingBootstrap(true);
       try {
-        const [runtimePayload, profilePayload, historyPayload, radarPayload, campaignPayload] = await Promise.all([
+        const [runtimePayload, profilePayload, historyPayload, radarPayload, campaignPayload, enginePayload] = await Promise.all([
           apiFetch<RuntimeResponse>("/webscraping/runtime"),
           apiFetch<CurrentUser>("/profile/current-user"),
           apiFetch<HistoryResponse>("/webscraping/history?limit=20"),
@@ -1393,6 +1471,9 @@ export default function WebscrapingClientPage({ mode = "search" }: WebscrapingCl
           mode === "radar"
             ? apiFetch<RadarCampaignsResponse>("/webscraping/campaigns").catch(() => ({ items: [] }))
             : Promise.resolve({ items: [] } as RadarCampaignsResponse),
+          mode === "radar"
+            ? apiFetch<HbxDashboardStatus>("/webscraping/engines/status").catch(() => null)
+            : Promise.resolve(null),
         ]);
         if (cancelled) return;
         setRuntime(runtimePayload);
@@ -1401,6 +1482,7 @@ export default function WebscrapingClientPage({ mode = "search" }: WebscrapingCl
         setRadarItems(radarPayload.items || []);
         setRadarFacets((radarPayload.facets || []).filter((facet) => Number(facet.count || 0) > 0));
         setRadarCampaigns(campaignPayload.items || []);
+        setEngineDashboard(enginePayload || null);
         setPageError(null);
       } catch (error) {
         if (cancelled) return;
@@ -1777,8 +1859,12 @@ export default function WebscrapingClientPage({ mode = "search" }: WebscrapingCl
   async function refreshRadarCampaigns() {
     setCampaignLoading(true);
     try {
-      const payload = await apiFetch<RadarCampaignsResponse>("/webscraping/campaigns");
+      const [payload, engines] = await Promise.all([
+        apiFetch<RadarCampaignsResponse>("/webscraping/campaigns"),
+        apiFetch<HbxDashboardStatus>("/webscraping/engines/status").catch(() => null),
+      ]);
       setRadarCampaigns(payload.items || []);
+      setEngineDashboard(engines || null);
     } catch (error) {
       setSearchError(error instanceof Error ? error.message : "Falha ao carregar campanhas.");
     } finally {
@@ -1787,12 +1873,12 @@ export default function WebscrapingClientPage({ mode = "search" }: WebscrapingCl
   }
 
   async function handleCreateRadarCampaign() {
-    if (!campaignForm.segment.trim()) {
+    if (campaignForm.mode !== "mass_data" && !campaignForm.segment.trim()) {
       setSearchError("Informe o nicho/serviço da campanha.");
       return;
     }
-    if (campaignForm.targetType !== "pj" && (!campaignForm.state.trim() || !campaignForm.city.trim())) {
-      setSearchError("Cidade e estado são obrigatórios para campanha CPF/Agenda CPF.");
+    if (!campaignForm.state.trim()) {
+      setSearchError("Estado é obrigatório para a campanha.");
       return;
     }
     setCampaignLoading(true);
@@ -1802,13 +1888,16 @@ export default function WebscrapingClientPage({ mode = "search" }: WebscrapingCl
         method: "POST",
         body: JSON.stringify({
           ...campaignForm,
+          mode: campaignForm.mode,
           nightOnly: true,
-          allowedStartHour: 0,
-          allowedEndHour: 6,
+          allowedStartHour: campaignForm.mode === "mass_data" ? 20 : campaignForm.allowedStartHour,
+          allowedEndHour: campaignForm.mode === "mass_data" ? 8 : campaignForm.allowedEndHour,
+          batchSize: campaignForm.mode === "mass_data" ? 20 : campaignForm.batchSize,
+          maxAttemptsPerTask: campaignForm.mode === "mass_data" ? 3 : campaignForm.maxAttemptsPerTask,
         }),
       });
       setRadarCampaigns((current) => [campaign, ...current.filter((item) => item.id !== campaign.id)]);
-      setFeedback("Campanha criada. A coleta será executada em lotes noturnos e os aprovados entram no Consultar Banco.");
+      setFeedback(campaignForm.mode === "mass_data" ? "MASSA DE DADOS criada. Os motores rodam em lotes de 20 entre 20h e 08h." : "Campanha criada. A coleta será executada em lotes noturnos e os aprovados entram no Consultar Banco.");
       setRadarViewMode("campaign");
     } catch (error) {
       setSearchError(error instanceof Error ? error.message : "Falha ao criar campanha.");
@@ -3054,7 +3143,7 @@ export default function WebscrapingClientPage({ mode = "search" }: WebscrapingCl
                               {isLikelyMobileWhatsapp(item.phoneDigits || item.phone) ? <span className={styles.metaPill}>WhatsApp provável</span> : <span className={styles.metaPill}>Sem WhatsApp provável</span>}
                             </div>
                             <p className={styles.historyFilter}>{item.phone || item.phoneDigits || "Telefone não informado"}</p>
-                            <p className={styles.historyPreview}>{item.historySummary || item.opportunityReason || item.rejectionReason || "Histórico limpo no Banco Radar."}</p>
+                            <p className={styles.historyPreview}>{radarHistorySummaryText(item.historySummary) || item.opportunityReason || item.rejectionReason || "Histórico limpo no Banco Radar."}</p>
                           </button>
                           <div className={styles.radarActions}>
                             <button type="button" className={styles.radarSelectButton} data-selected={selected ? "true" : "false"} onClick={() => toggleRadarSelection(item.id)}>
@@ -3129,7 +3218,37 @@ export default function WebscrapingClientPage({ mode = "search" }: WebscrapingCl
               <>
                 <div className={styles.radarCampaignWorkspace}>
                   <div className={styles.radarCampaignMain}>
+                    <div className={styles.massDataControlCenter}>
+                      <div>
+                        <span className={styles.cardEyebrow}>HBX Control Center</span>
+                        <strong className={styles.sectionTitle}>MASSA DE DADOS</strong>
+                      </div>
+                      <div className={styles.engineBatteryRow}>
+                        {Array.from({ length: 4 }).map((_, index) => {
+                          const engineItem = engineDashboard?.engines?.find((engine) => engine.id === `hbx-engine-${index + 1}` || engine.shortLabel?.includes(String(index + 1)));
+                          const state = engineItem ? engineBatteryState(engineItem) : "offline";
+                          return (
+                            <div key={index} className={styles.engineBattery} data-state={state} title={engineItem?.lastError || engineItem?.url || `Motor M${index + 1}`}>
+                              <span>M{index + 1}</span>
+                              <strong>{state}</strong>
+                            </div>
+                          );
+                        })}
+                      </div>
+                      <div className={styles.liveGraphStrip}>
+                        <span>Leads/min <strong>{engineDashboard?.capacity.completedLast10Min ?? 0}</strong></span>
+                        <span>Tasks rodando <strong>{engineDashboard?.capacity.runningCount ?? 0}</strong></span>
+                        <span>Fila <strong>{engineDashboard?.capacity.queuedCount ?? 0}</strong></span>
+                      </div>
+                    </div>
                     <div className={styles.radarCampaignForm}>
+                      <label className={styles.field}>
+                        <span className={styles.fieldLabel}>Modo</span>
+                        <select className={styles.fieldSelect} value={campaignForm.mode} onChange={(event) => setCampaignForm((current) => ({ ...current, mode: event.target.value, batchSize: event.target.value === "mass_data" ? 20 : 25, allowedStartHour: event.target.value === "mass_data" ? 20 : 0, allowedEndHour: event.target.value === "mass_data" ? 8 : 6 }))}>
+                          <option value="mass_data">MASSA DE DADOS</option>
+                          <option value="radar_database">Coleta Radar</option>
+                        </select>
+                      </label>
                       <label className={styles.field}>
                         <span className={styles.fieldLabel}>Tipo</span>
                         <select className={styles.fieldSelect} value={campaignForm.targetType} onChange={(event) => setCampaignForm((current) => ({ ...current, targetType: normalizeTargetTypeValue(event.target.value) }))}>
@@ -3190,7 +3309,7 @@ export default function WebscrapingClientPage({ mode = "search" }: WebscrapingCl
                               setCampaignForm((current) => ({ ...current, city: event.target.value }));
                               setOpenRadarPicker("campaign-city");
                             }}
-                            placeholder={campaignForm.state ? "Digite e selecione a cidade" : "Selecione o estado primeiro"}
+                            placeholder={campaignForm.mode === "mass_data" ? "Opcional: deixe vazio para todo o estado" : campaignForm.state ? "Digite e selecione a cidade" : "Selecione o estado primeiro"}
                             disabled={!campaignForm.state}
                             autoComplete="off"
                           />
@@ -3230,7 +3349,7 @@ export default function WebscrapingClientPage({ mode = "search" }: WebscrapingCl
                               setCampaignForm((current) => ({ ...current, segment: event.target.value }));
                               setOpenRadarPicker("campaign-segment");
                             }}
-                            placeholder="Digite ou escolha um nicho"
+                            placeholder={campaignForm.mode === "mass_data" ? "Opcional: vazio usa as iscas internas" : "Digite ou escolha um nicho"}
                             autoComplete="off"
                           />
                           <Icon name="chevron" size={18} className={styles.cityInputArrow} />
@@ -3261,13 +3380,13 @@ export default function WebscrapingClientPage({ mode = "search" }: WebscrapingCl
                       <label className={styles.field}>
                         <span className={styles.fieldLabel}>Quantidade alvo</span>
                         <select className={styles.fieldSelect} value={campaignForm.targetTotal} onChange={(event) => setCampaignForm((current) => ({ ...current, targetTotal: Number(event.target.value) }))}>
-                          {[1000, 2000, 5000, 10000].map((option) => <option key={option} value={option}>{option} cards</option>)}
+                          {[0, 1000, 2000, 5000, 10000].map((option) => <option key={option} value={option}>{option ? `${option} cards` : "Sem limite"}</option>)}
                         </select>
                       </label>
                       <label className={styles.field}>
                         <span className={styles.fieldLabel}>Por lote</span>
                         <select className={styles.fieldSelect} value={campaignForm.batchSize} onChange={(event) => setCampaignForm((current) => ({ ...current, batchSize: Number(event.target.value) }))}>
-                          {[25, 50].map((option) => <option key={option} value={option}>{option} por pesquisa</option>)}
+                          {(campaignForm.mode === "mass_data" ? [20] : [25, 50]).map((option) => <option key={option} value={option}>{option} por pesquisa</option>)}
                         </select>
                       </label>
                     </div>
@@ -3287,16 +3406,18 @@ export default function WebscrapingClientPage({ mode = "search" }: WebscrapingCl
                   <aside className={styles.radarCampaignAside}>
                     <div>
                       <span className={styles.cardEyebrow}>Campanha de coleta</span>
-                      <strong className={styles.sectionTitle}>{campaignForm.targetTotal.toLocaleString("pt-BR")} unidades</strong>
+                      <strong className={styles.sectionTitle}>{campaignForm.mode === "mass_data" ? "MASSA DE DADOS" : `${campaignForm.targetTotal.toLocaleString("pt-BR")} unidades`}</strong>
                       <p className={styles.helperText}>
-                        A pesquisa roda em ciclos noturnos e abastece o Consultar Banco com contatos limpos, sem repetir quem já entrou na base.
+                        {campaignForm.mode === "mass_data"
+                          ? "A campanha cria milhares de tarefas pequenas por cidade e isca. Cada motor pega a próxima tarefa livre e retoma por lock se algo cair."
+                          : "A pesquisa roda em ciclos noturnos e abastece o Consultar Banco com contatos limpos, sem repetir quem já entrou na base."}
                       </p>
                     </div>
 
                     <div className={styles.radarCampaignSummary}>
                       <span><strong>{campaignForm.batchSize}</strong> por pesquisa</span>
                       <span><strong>Noturna</strong> execução</span>
-                      <span><strong>00h-06h</strong> janela fixa</span>
+                      <span><strong>{campaignForm.mode === "mass_data" ? "20h-08h" : "00h-06h"}</strong> janela fixa</span>
                     </div>
 
                     <div className={styles.radarCampaignFlow}>
@@ -3336,6 +3457,12 @@ export default function WebscrapingClientPage({ mode = "search" }: WebscrapingCl
                         <span className={styles.radarStatusChip} data-status={campaign.status}>{campaignStatusLabel(campaign.status)}</span>
                       </div>
                       <div className={styles.radarCampaignStats}>
+                        {campaign.mode === "mass_data" ? (
+                          <>
+                            <span><strong>{campaign.completedCityCount || 0}</strong> cidades finalizadas</span>
+                            <span><strong>{campaign.currentCity || "-"}</strong> cidade atual</span>
+                          </>
+                        ) : null}
                         <span><strong>{campaign.foundCount}</strong> encontrados</span>
                         <span><strong>{campaign.approvedCount}</strong> limpos</span>
                         <span><strong>{campaign.duplicateCount}</strong> duplicados</span>
@@ -3348,10 +3475,22 @@ export default function WebscrapingClientPage({ mode = "search" }: WebscrapingCl
                         <span className={styles.metaPill}>Lote {campaign.currentAttempt}/{campaign.maxAttempts}</span>
                         <span className={styles.metaPill}>Meta {campaign.targetTotal}</span>
                         <span className={styles.metaPill}>Batch {campaign.batchSize}</span>
+                        {campaign.mode === "mass_data" ? Object.entries(campaign.taskStatusCounts || {}).map(([status, count]) => (
+                          <span key={status} className={styles.metaPill}>{status}: {count}</span>
+                        )) : null}
                         {campaign.lastEngineUrl ? <span className={styles.metaPill}>{campaign.lastEngineUrl}</span> : null}
                         {campaign.lastQueryUsed ? <span className={styles.metaPill}>Query: {campaign.lastQueryUsed}</span> : null}
                         {campaign.nextRunAt ? <span className={styles.metaPill}>Próxima: {formatDateTime(campaign.nextRunAt)}</span> : null}
                       </div>
+                      {campaign.mode === "mass_data" && campaign.tasks?.length ? (
+                        <div className={styles.liveFeed}>
+                          {campaign.tasks.slice(0, 6).map((task) => (
+                            <span key={task.id}>
+                              {task.status === "completed" ? `+ ${task.city} / ${task.segment} salva` : task.status === "exhausted" ? `${task.city} / ${task.segment} exhausted` : task.status === "running" ? `${task.lockedByEngineId || "motor"} em ${task.city}` : `${task.city} aguardando`}
+                            </span>
+                          ))}
+                        </div>
+                      ) : null}
                       <div className={styles.radarActions}>
                         {campaign.status === "paused" ? (
                           <button type="button" className={`${styles.glassButton} ${styles.glassButtonPrimary}`} onClick={() => void handleCampaignAction(campaign, "resume")} disabled={campaignActionId === campaign.id}>
