@@ -69,12 +69,28 @@ type SegmentMismatchFallbackDecision = {
   conversationId?: number | null;
 };
 
+type ProcessDueJobResult =
+  | { outcome: 'sent'; campaignId: string; leadId: string; jobId: string }
+  | { outcome: 'skipped'; campaignId: string; leadId: string; jobId: string; classification: string; shouldContinue: true }
+  | { outcome: 'failed'; campaignId: string; leadId: string; jobId: string; errorMessage: string; shouldContinue: true }
+  | {
+      outcome: 'deferred';
+      campaignId: string;
+      leadId: string;
+      jobId: string;
+      reason: string;
+      nextAllowedSendAt?: Date | null;
+      shouldContinue: false;
+    };
+
 const BUFFER_JOB_STATUSES = ['pending', 'scheduled'] as const;
+const SEND_COOLDOWN_JOB_STATUSES = ['sent', 'replied_positive', 'replied_negative', 'no_response_archived'] as const;
 const DEFAULT_POSITIVE_KEYWORDS = ['tenho interesse', 'pode mandar', 'quero saber', 'me explica', 'quanto custa'];
 const DEFAULT_NEGATIVE_KEYWORDS = ['nao tenho interesse', 'não tenho interesse', 'pare', 'remover', 'sem interesse', 'spam', 'nao me chame', 'não me chame'];
 const OPT_OUT_INTENT_KEYWORDS = ['remover', 'pare', 'spam', 'nao me chame', 'não me chame'];
 const HUMAN_HANDOFF_INTENT_KEYWORDS = ['humano', 'atendente', 'ligar', 'me chama'];
 const DEFAULT_DAILY_LIMIT = 30;
+const MAX_DUE_JOBS_PER_CYCLE = 10;
 const DEFAULT_OPT_OUT_MESSAGE = 'Entendi. Vou arquivar este contato e nao chamaremos novamente.';
 const DEFAULT_MESSAGE_TEMPLATE =
   'Oi, tudo bem? Aqui é {{funcionario}} da {{empresa}}. Vi a {{cliente}} em {{cidade}} e queria te explicar em 1 minuto uma solução para {{segmento}}. Faz sentido eu te mandar?';
@@ -1434,6 +1450,21 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
       .trim();
   }
 
+  private resolveOutboundTemplate(campaign: any, lead: any) {
+    return (
+      trimOrNull(lead?.scriptText) ||
+      trimOrNull(lead?.roteiro) ||
+      trimOrNull(lead?.messageTemplate) ||
+      trimOrNull(campaign?.messageTemplate) ||
+      DEFAULT_MESSAGE_TEMPLATE
+    );
+  }
+
+  private renderOutboundMessage(campaign: any, lead: any, user: any) {
+    const body = this.renderMessageTemplate(this.resolveOutboundTemplate(campaign, lead), { lead, campaign, user });
+    return trimOrNull(body) || this.renderMessageTemplate(DEFAULT_MESSAGE_TEMPLATE, { lead, campaign, user });
+  }
+
   private async dedupeSearchResults(companyId: number, results: ProspectingSearchResult[]) {
     const phones = new Set<string>();
     const websites = new Set<string>();
@@ -1552,11 +1583,11 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
       city: search.query.city || campaign.city,
       segment: search.query.segment || campaign.segment,
       shortNote: result.opportunityReason || undefined,
-      scriptText: this.renderMessageTemplate(campaign.messageTemplate, {
-        lead: { ...result, city: search.query.city, segment: search.query.segment },
+      scriptText: this.renderOutboundMessage(
         campaign,
-        user: runtimeUser,
-      }),
+        { ...result, city: search.query.city, segment: search.query.segment },
+        runtimeUser,
+      ),
       sourceHistoryId: search.meta.historyId || undefined,
     }));
     if (leads.length) {
@@ -1612,9 +1643,80 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     return this.parseTimeOnDate(this.moveToBusinessDay(nextDay), campaign.workingHoursStart || '09:00');
   }
 
+  private getCampaignIntervalMs(campaign: any) {
+    return Math.max(1, Number(campaign.intervalMinutes || 12)) * 60000;
+  }
+
+  private async buildScheduleCursorForCampaign(campaign: any) {
+    const intervalMs = this.getCampaignIntervalMs(campaign);
+    const now = new Date();
+    const [latestActiveScheduled, latestSent] = await Promise.all([
+      this.prisma.vendasAutomationJob.findFirst({
+        where: {
+          campaignId: campaign.id,
+          status: { in: [...BUFFER_JOB_STATUSES] as any },
+          scheduledAt: { not: null },
+        },
+        orderBy: { scheduledAt: 'desc' },
+        select: { scheduledAt: true },
+      }),
+      this.prisma.vendasAutomationJob.findFirst({
+        where: {
+          campaignId: campaign.id,
+          sentAt: { not: null },
+          status: { in: [...SEND_COOLDOWN_JOB_STATUSES] as any },
+        },
+        orderBy: { sentAt: 'desc' },
+        select: { sentAt: true },
+      }),
+    ]);
+    let firstSlotTime = now.getTime();
+    if (latestActiveScheduled?.scheduledAt instanceof Date && latestActiveScheduled.scheduledAt.getTime() > now.getTime()) {
+      firstSlotTime = Math.max(firstSlotTime, latestActiveScheduled.scheduledAt.getTime() + intervalMs);
+    }
+    if (latestSent?.sentAt instanceof Date) {
+      firstSlotTime = Math.max(firstSlotTime, latestSent.sentAt.getTime() + intervalMs);
+    }
+    const firstSlot = this.moveToWorkingWindow(new Date(firstSlotTime), campaign);
+    return new Date(firstSlot.getTime() - intervalMs);
+  }
+
+  private async getNextAllowedSendAt(campaign: any, currentJobId?: string | null) {
+    const intervalMs = this.getCampaignIntervalMs(campaign);
+    const latestSent = await this.prisma.vendasAutomationJob.findFirst({
+      where: {
+        campaignId: campaign.id,
+        ...(currentJobId ? { id: { not: currentJobId } } : {}),
+        sentAt: { not: null },
+        status: { in: [...SEND_COOLDOWN_JOB_STATUSES] as any },
+      },
+      orderBy: { sentAt: 'desc' },
+      select: { sentAt: true },
+    });
+    if (!(latestSent?.sentAt instanceof Date)) return null;
+    const nextAllowed = new Date(latestSent.sentAt.getTime() + intervalMs);
+    if (nextAllowed.getTime() <= Date.now()) return null;
+    return this.moveToWorkingWindow(nextAllowed, campaign);
+  }
+
+  private async replenishCampaignAfterSkip(campaign: any, statusText: string) {
+    await this.scheduleJobsForCampaign(campaign.id).catch((error) => {
+      this.logger.warn(`Falha ao repor fila apos skip campaign=${campaign.id}: ${String(error?.message || error)}`);
+    });
+    const pendingCount = await this.prisma.vendasAutomationJob.count({
+      where: { campaignId: campaign.id, status: { in: [...BUFFER_JOB_STATUSES] as any } },
+    }).catch(() => 0);
+    if (pendingCount <= 0) {
+      await this.markCampaignStage(campaign.id, campaign.companyId, 'aguardando', statusText, {
+        type: 'job_skipped',
+      }).catch(() => null);
+    }
+  }
+
   private async scheduleJobsForCampaign(campaignId: string) {
     const campaign = await this.prisma.vendasAutomationCampaign.findUnique({ where: { id: campaignId } });
     if (!campaign || campaign.status !== 'running') return;
+    const runtimeUser = await this.buildAutomationUser(campaign);
     await this.markCampaignStage(campaign.id, campaign.companyId, 'agendando', 'Agendando próximos envios...', {
       type: 'schedule_started',
     });
@@ -1629,7 +1731,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
       return;
     }
     const existingLeadIds = await this.prisma.vendasAutomationJob.findMany({
-      where: { campaignId: campaign.id, status: { notIn: ['failed', 'skipped', 'canceled'] } },
+      where: { campaignId: campaign.id },
       select: { leadId: true },
     });
     const usedLeadIds = new Set(existingLeadIds.map((item) => item.leadId));
@@ -1650,15 +1752,8 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
       orderBy: [{ returnAt: 'asc' }, { updatedAt: 'desc' }],
       take: slotsToFill,
     });
-    const latestScheduled = await this.prisma.vendasAutomationJob.findFirst({
-      where: { campaignId: campaign.id, scheduledAt: { not: null } },
-      orderBy: { scheduledAt: 'desc' },
-      select: { scheduledAt: true },
-    });
-    const intervalMs = Number(campaign.intervalMinutes || 12) * 60000;
-    let cursor = latestScheduled?.scheduledAt instanceof Date
-      ? this.moveToWorkingWindow(latestScheduled.scheduledAt, campaign)
-      : new Date(Date.now() - intervalMs);
+    const intervalMs = this.getCampaignIntervalMs(campaign);
+    let cursor = await this.buildScheduleCursorForCampaign(campaign);
     const data: any[] = [];
     const fallbackLeadIds = new Set<string>();
     let draftOnlyCount = 0;
@@ -1726,7 +1821,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
           campaign,
           stage: 'scheduled_send',
           scheduledAt: item.scheduledAt,
-          draftMessage: usesFallback ? DEFAULT_SEGMENT_MISMATCH_FALLBACK_MESSAGE : undefined,
+          draftMessage: usesFallback ? DEFAULT_SEGMENT_MISMATCH_FALLBACK_MESSAGE : this.renderOutboundMessage(campaign, lead, runtimeUser),
           mismatchReason: usesFallback ? 'segment_mismatch_fallback' : null,
           queueTarget: 'prospeccao',
           routeTarget: 'prospeccao',
@@ -1837,17 +1932,9 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
         };
       }
 
-      const latestScheduled = await this.prisma.vendasAutomationJob.findFirst({
-        where: { campaignId: campaign.id, scheduledAt: { not: null }, status: { in: [...BUFFER_JOB_STATUSES] as any } },
-        orderBy: { scheduledAt: 'desc' },
-        select: { scheduledAt: true },
-      });
-      const intervalMs = Number(campaign.intervalMinutes || 12) * 60000;
-      const now = new Date();
-      let cursor =
-        latestScheduled?.scheduledAt instanceof Date && latestScheduled.scheduledAt.getTime() > now.getTime()
-          ? this.moveToWorkingWindow(latestScheduled.scheduledAt, campaign)
-          : new Date(now.getTime() - intervalMs);
+      const runtimeUser = await this.buildAutomationUser(campaign);
+      const intervalMs = this.getCampaignIntervalMs(campaign);
+      let cursor = await this.buildScheduleCursorForCampaign(campaign);
 
       const data: any[] = [];
       const fallbackLeadIds = new Set<string>();
@@ -1917,7 +2004,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
             campaign,
             stage: 'scheduled_send',
             scheduledAt: item.scheduledAt,
-            draftMessage: usesFallback ? DEFAULT_SEGMENT_MISMATCH_FALLBACK_MESSAGE : undefined,
+            draftMessage: usesFallback ? DEFAULT_SEGMENT_MISMATCH_FALLBACK_MESSAGE : this.renderOutboundMessage(campaign, lead, runtimeUser),
             mismatchReason: usesFallback ? 'segment_mismatch_fallback' : null,
             queueTarget: 'prospeccao',
             routeTarget: 'prospeccao',
@@ -1972,28 +2059,86 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  private async findNextDueJob(blockedCompanyIds?: Set<number>) {
+    const blocked = Array.from(blockedCompanyIds || []);
+    return this.prisma.vendasAutomationJob.findFirst({
+      where: {
+        status: 'scheduled',
+        scheduledAt: { lte: new Date() },
+        campaign: { status: 'running' },
+        ...(blocked.length ? { companyId: { notIn: blocked } } : {}),
+      },
+      include: { campaign: true, lead: true },
+      orderBy: [{ scheduledAt: 'asc' }, { createdAt: 'asc' }],
+    });
+  }
+
+  private async findNextDueJobForCampaign(campaignId: string) {
+    return this.prisma.vendasAutomationJob.findFirst({
+      where: {
+        campaignId,
+        status: 'scheduled',
+        scheduledAt: { lte: new Date() },
+        campaign: { status: 'running' },
+      },
+      select: { id: true },
+      orderBy: [{ scheduledAt: 'asc' }, { createdAt: 'asc' }],
+    });
+  }
+
+  private async prepareCampaignBuffersDuringCooldown() {
+    const now = new Date();
+    const campaigns = await this.prisma.vendasAutomationCampaign.findMany({
+      where: { status: 'running' },
+      orderBy: { updatedAt: 'asc' },
+      take: 10,
+    });
+    for (const campaign of campaigns) {
+      if (!this.isInsideWorkingHours(now, campaign)) continue;
+      const nextJob = await this.prisma.vendasAutomationJob.findFirst({
+        where: {
+          campaignId: campaign.id,
+          status: 'scheduled',
+          scheduledAt: { gt: now },
+        },
+        orderBy: { scheduledAt: 'asc' },
+        select: { scheduledAt: true },
+      });
+      if (!(nextJob?.scheduledAt instanceof Date)) continue;
+      const pending = await this.prisma.vendasAutomationJob.count({
+        where: { campaignId: campaign.id, status: { in: [...BUFFER_JOB_STATUSES] as any } },
+      });
+      if (pending >= Number(campaign.desiredLeadBuffer || 60)) continue;
+      this.logger.log(
+        `[vendas-automation] cooldown active: campaignId=${campaign.id}, nextAllowedSendAt=${nextJob.scheduledAt.toISOString()}, preparing buffer`,
+      );
+      await this.scheduleJobsForCampaign(campaign.id).catch((error) => {
+        this.logger.warn(`Preparo durante cooldown falhou campaign=${campaign.id}: ${String(error?.message || error)}`);
+      });
+    }
+  }
+
   private async runWorkerCycle() {
     if (this.workerRunning) return;
     this.workerRunning = true;
     try {
       await this.archiveNoResponseJobs();
       await this.refillCampaignsIfNeeded();
-      const dueJobs = await this.prisma.vendasAutomationJob.findMany({
-        where: {
-          status: 'scheduled',
-          scheduledAt: { lte: new Date() },
-          campaign: { status: 'running' },
-        },
-        include: { campaign: true, lead: true },
-        orderBy: [{ scheduledAt: 'asc' }, { createdAt: 'asc' }],
-        take: 20,
-      });
-      const processedCompanies = new Set<number>();
-      for (const job of dueJobs) {
-        if (processedCompanies.has(job.companyId)) continue;
-        processedCompanies.add(job.companyId);
-        await this.processDueJob(job as any);
+      const blockedCompanies = new Set<number>();
+      for (let index = 0; index < MAX_DUE_JOBS_PER_CYCLE; index += 1) {
+        const job = await this.findNextDueJob(blockedCompanies);
+        if (!job) break;
+        const result = await this.processDueJob(job as any);
+        if (result.outcome === 'skipped' || result.outcome === 'failed') {
+          const nextJob = await this.findNextDueJobForCampaign(result.campaignId);
+          if (nextJob?.id) {
+            this.logger.log(`[vendas-automation] continuing after skip: campaignId=${result.campaignId}, nextJobId=${nextJob.id}`);
+          }
+          if (result.shouldContinue) continue;
+        }
+        blockedCompanies.add(Number(job.companyId));
       }
+      await this.prepareCampaignBuffersDuringCooldown();
     } finally {
       this.workerRunning = false;
     }
@@ -2132,9 +2277,32 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     return this.parseTimeOnDate(date, '00:00');
   }
 
-  private async processDueJob(job: any) {
+  private async processDueJob(job: any): Promise<ProcessDueJobResult> {
     const now = new Date();
     const campaign = job.campaign;
+    const lead = job.lead;
+    const campaignId = String(campaign?.id || job.campaignId || '');
+    const leadId = String(lead?.id || job.leadId || '');
+    const jobId = String(job.id);
+
+    const skippedResult = async (classification: string, errorMessage: string): Promise<ProcessDueJobResult> => {
+      this.logger.warn(
+        `[vendas-automation] skipped job: campaignId=${campaignId}, jobId=${jobId}, leadId=${leadId || '-'}, classification=${classification}, error=${errorMessage || '-'}`,
+      );
+      await this.replenishCampaignAfterSkip(campaign, errorMessage);
+      return { outcome: 'skipped', campaignId, leadId, jobId, classification, shouldContinue: true };
+    };
+
+    const deferredResult = (reason: string, nextAllowedSendAt?: Date | null): ProcessDueJobResult => ({
+      outcome: 'deferred',
+      campaignId,
+      leadId,
+      jobId,
+      reason,
+      nextAllowedSendAt,
+      shouldContinue: false,
+    });
+
     if (!this.isInsideWorkingHours(now, campaign)) {
       const next = this.moveToWorkingWindow(now, campaign);
       await this.prisma.vendasAutomationJob.update({
@@ -2148,25 +2316,9 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
         this.formatSleepingUntilText(next),
         { type: 'next_send_scheduled' },
       );
-      return;
+      return deferredResult('outside_working_hours', next);
     }
-    const sentToday = await this.prisma.vendasAutomationJob.count({
-      where: {
-        campaignId: campaign.id,
-        sentAt: { gte: this.startOfDay(now) },
-        status: { in: ['sent', 'replied_positive', 'replied_negative', 'no_response_archived'] },
-      },
-    });
-    if (sentToday >= Number(campaign.dailyLimit || DEFAULT_DAILY_LIMIT)) {
-      const nextDay = this.addBusinessCalendarDays(now, 1);
-      const next = this.parseTimeOnDate(this.moveToBusinessDay(nextDay), campaign.workingHoursStart || '09:00');
-      await this.prisma.vendasAutomationJob.update({ where: { id: job.id }, data: { scheduledAt: next } });
-      await this.markCampaignStage(campaign.id, campaign.companyId, 'aguardando', 'Limite diário atingido. Próximos envios amanhã.', {
-        type: 'daily_limit_reached',
-      });
-      return;
-    }
-    const lead = job.lead;
+
     if (
       !lead ||
       String(lead.status || '') === 'encerrado' ||
@@ -2174,17 +2326,20 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
       lead.wasClosedBefore ||
       Number(lead.attemptCount || 0) >= Number(campaign.maxAttemptsPerLead || 1)
     ) {
+      const errorMessage = 'Lead encerrado, bloqueado ou ja contatado.';
       await this.prisma.vendasAutomationJob.update({
         where: { id: job.id },
-        data: { status: 'skipped', archivedAt: now, errorMessage: 'Lead encerrado, bloqueado ou ja contatado.' },
+        data: { status: 'skipped', archivedAt: now, classification: 'first_contact_already_sent', errorMessage },
       });
-      return;
+      return skippedResult('first_contact_already_sent', errorMessage);
     }
+
     const contact = normalizeContact(lead.phoneNormalized || lead.phone);
     if (!contact) {
+      const errorMessage = 'Lead sem telefone valido.';
       await this.prisma.vendasAutomationJob.update({
         where: { id: job.id },
-        data: { status: 'skipped', archivedAt: now, errorMessage: 'Lead sem telefone valido.' },
+        data: { status: 'skipped', archivedAt: now, classification: 'invalid_phone', errorMessage },
       });
       await this.updateProspectionConversationStage({
         companyId: campaign.companyId,
@@ -2196,16 +2351,19 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
         routeTarget: 'excluidos',
         active: false,
       }).catch(() => null);
-      return;
+      return skippedResult('invalid_phone', errorMessage);
     }
+
     const noWhatsappState = await this.shouldBlockAutomationForKnownNoWhatsapp(campaign.companyId, lead);
     if (noWhatsappState.blocked) {
+      const errorMessage = 'Numero sem WhatsApp confirmado. Envio automatico bloqueado.';
       await this.prisma.vendasAutomationJob.update({
         where: { id: job.id },
         data: {
           status: 'skipped',
           archivedAt: now,
-          errorMessage: 'Numero sem WhatsApp confirmado. Envio automatico bloqueado.',
+          classification: 'no_whatsapp',
+          errorMessage,
         },
       });
       await this.updateProspectionConversationStage({
@@ -2229,16 +2387,18 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
         text: 'Contato sem WhatsApp confirmado. Envio automático bloqueado.',
         type: 'no_whatsapp_send_blocked',
       });
-      return;
+      return skippedResult('no_whatsapp', errorMessage);
     }
+
     if (await this.hasNegativeOrOptOut({ companyId: campaign.companyId, lead, currentJobId: job.id })) {
+      const errorMessage = 'Lead com negativa ou opt-out. Envio automatico bloqueado.';
       await this.prisma.vendasAutomationJob.update({
         where: { id: job.id },
         data: {
           status: 'skipped',
           archivedAt: now,
           classification: 'negative_or_opt_out',
-          errorMessage: 'Lead com negativa ou opt-out. Envio automatico bloqueado.',
+          errorMessage,
         },
       });
       const conversationId = await this.updateProspectionConversationStage({
@@ -2263,8 +2423,9 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
         text: 'Lead com negativa ou opt-out. Envio automático bloqueado.',
         type: 'negative_or_opt_out_send_blocked',
       });
-      return;
+      return skippedResult('negative_or_opt_out', errorMessage);
     }
+
     let bodyOverride: string | null = null;
     let mismatchReason: string | null = null;
     if (isSegmentMismatch(lead.segment, campaign.segment)) {
@@ -2276,16 +2437,17 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
       });
       if (decision.mode === 'block') {
         await this.markSegmentMismatchBeforeSend(job, campaign, lead);
-        return;
+        return skippedResult('needs_review', 'Segmento divergente entre lead e campanha.');
       }
       if (decision.mode === 'draft_only') {
+        const errorMessage = 'Segmento divergente; mensagem generica pronta para envio manual.';
         await this.prisma.vendasAutomationJob.update({
           where: { id: job.id },
           data: {
             status: 'skipped',
             archivedAt: now,
             classification: 'segment_mismatch_fallback_draft',
-            errorMessage: 'Segmento divergente; mensagem generica pronta para envio manual.',
+            errorMessage,
           },
         });
         const conversationId = await this.updateProspectionConversationStage({
@@ -2309,7 +2471,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
           leadId: lead.id,
           conversationId: conversationId || decision.conversationId || null,
         });
-        return;
+        return skippedResult('segment_mismatch_fallback_draft', errorMessage);
       }
       bodyOverride = decision.message || DEFAULT_SEGMENT_MISMATCH_FALLBACK_MESSAGE;
       mismatchReason = 'segment_mismatch_fallback';
@@ -2336,6 +2498,111 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
         });
       }
     }
+
+    if (!mismatchReason && await this.hasFirstOutboundContactAlready({ companyId: campaign.companyId, lead, currentJobId: job.id })) {
+      const errorMessage = 'Primeiro contato ja enviado para este lead.';
+      await this.prisma.vendasAutomationJob.update({
+        where: { id: job.id },
+        data: { status: 'skipped', archivedAt: now, classification: 'first_contact_already_sent', errorMessage },
+      });
+      const conversationId = await this.updateProspectionConversationStage({
+        companyId: campaign.companyId,
+        lead,
+        campaign,
+        jobId: job.id,
+        stage: 'needs_review',
+        scheduledAt: job.scheduledAt || null,
+        queueTarget: 'prospeccao',
+        routeTarget: 'prospeccao',
+        active: true,
+        botEligible: false,
+        botEntryPending: false,
+      }).catch(() => null);
+      this.publishAutomationEvent({
+        companyId: campaign.companyId,
+        campaignId: campaign.id,
+        jobId: job.id,
+        leadId: lead.id,
+        conversationId,
+        status: 'aguardando',
+        text: 'Primeiro contato já enviado. Lead mantido para revisão.',
+        type: 'first_contact_already_sent',
+      });
+      return skippedResult('first_contact_already_sent', errorMessage);
+    }
+
+    if (!mismatchReason) {
+      const { metadata, conversationId } = await this.loadProspectionMetadataForLead(campaign.companyId, lead);
+      if (this.shouldCreateDraftOnlyForSegmentMismatchFallback(metadata, lead)) {
+        const runtimeUser = await this.buildAutomationUser(campaign);
+        const draftMessage = this.renderOutboundMessage(campaign, lead, runtimeUser);
+        const errorMessage = 'Lead sem permissao para envio automatico. Draft preparado para envio manual.';
+        await this.prisma.vendasAutomationJob.update({
+          where: { id: job.id },
+          data: { status: 'skipped', archivedAt: now, classification: 'automatic_send_not_allowed', errorMessage },
+        });
+        const nextConversationId = await this.updateProspectionConversationStage({
+          companyId: campaign.companyId,
+          lead,
+          campaign,
+          jobId: job.id,
+          stage: 'pending_send',
+          draftMessage,
+          queueTarget: 'prospeccao',
+          routeTarget: 'prospeccao',
+          active: true,
+          botEligible: false,
+          botEntryPending: false,
+        }).catch(() => conversationId || null);
+        this.publishAutomationEvent({
+          companyId: campaign.companyId,
+          campaignId: campaign.id,
+          jobId: job.id,
+          leadId: lead.id,
+          conversationId: nextConversationId,
+          status: 'aguardando',
+          text: 'Lead sem permissão de envio automático. Draft mantido para revisão.',
+          type: 'automatic_send_not_allowed',
+        });
+        return skippedResult('automatic_send_not_allowed', errorMessage);
+      }
+    }
+
+    const sentToday = await this.prisma.vendasAutomationJob.count({
+      where: {
+        campaignId: campaign.id,
+        sentAt: { gte: this.startOfDay(now) },
+        status: { in: [...SEND_COOLDOWN_JOB_STATUSES] as any },
+      },
+    });
+    if (sentToday >= Number(campaign.dailyLimit || DEFAULT_DAILY_LIMIT)) {
+      const nextDay = this.addBusinessCalendarDays(now, 1);
+      const next = this.parseTimeOnDate(this.moveToBusinessDay(nextDay), campaign.workingHoursStart || '09:00');
+      await this.prisma.vendasAutomationJob.update({ where: { id: job.id }, data: { scheduledAt: next } });
+      await this.markCampaignStage(campaign.id, campaign.companyId, 'aguardando', 'Limite diário atingido. Próximos envios amanhã.', {
+        type: 'daily_limit_reached',
+      });
+      return deferredResult('daily_limit_reached', next);
+    }
+
+    const nextAllowedSendAt = await this.getNextAllowedSendAt(campaign, job.id);
+    if (nextAllowedSendAt) {
+      await this.prisma.vendasAutomationJob.update({
+        where: { id: job.id },
+        data: { scheduledAt: nextAllowedSendAt },
+      });
+      await this.markCampaignStage(campaign.id, campaign.companyId, 'aguardando', this.formatNextScheduledText(nextAllowedSendAt), {
+        type: 'send_cooldown_active',
+      });
+      this.logger.log(
+        `[vendas-automation] cooldown active: campaignId=${campaign.id}, nextAllowedSendAt=${nextAllowedSendAt.toISOString()}, preparing buffer`,
+      );
+      await this.scheduleJobsForCampaign(campaign.id).catch((error) => {
+        this.logger.warn(`Preparo durante cooldown falhou campaign=${campaign.id}: ${String(error?.message || error)}`);
+      });
+      return deferredResult('send_cooldown_active', nextAllowedSendAt);
+    }
+
     await this.prisma.vendasAutomationJob.update({ where: { id: job.id }, data: { status: 'sending' } });
     await this.markCampaignStage(campaign.id, campaign.companyId, 'enviando', `Enviando para ${lead.name || contact}.`, {
       type: 'send_started',
@@ -2346,7 +2613,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
       await new Promise((resolve) => setTimeout(resolve, delayMs));
     }
     const runtimeUser = await this.buildAutomationUser(campaign);
-    const body = bodyOverride || this.renderMessageTemplate(campaign.messageTemplate, { lead, campaign, user: runtimeUser });
+    const body = bodyOverride || this.renderOutboundMessage(campaign, lead, runtimeUser);
     try {
       const queued = await this.conversations.queueOutboundForCompany(campaign.companyId, {
         to: contact,
@@ -2423,15 +2690,25 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
         text: 'Contato enviado. Aguardando resposta.',
         type: 'message_sent',
       });
+      await this.scheduleJobsForCampaign(campaign.id).catch((error) => {
+        this.logger.warn(`Falha ao repor fila apos envio campaign=${campaign.id}: ${String(error?.message || error)}`);
+      });
+      return { outcome: 'sent', campaignId, leadId, jobId };
     } catch (error: any) {
+      const errorMessage = String(error?.message || error);
       await this.prisma.vendasAutomationJob.update({
         where: { id: job.id },
-        data: { status: 'failed', errorMessage: String(error?.message || error) },
+        data: { status: 'failed', archivedAt: new Date(), errorMessage },
       });
-      await this.markCampaignStage(campaign.id, campaign.companyId, 'erro', 'Falha ao enviar contato.', {
-        error: String(error?.message || error),
+      this.logger.warn(
+        `[vendas-automation] skipped job: campaignId=${campaignId}, jobId=${jobId}, leadId=${leadId || '-'}, classification=send_failed, error=${errorMessage}`,
+      );
+      await this.markCampaignStage(campaign.id, campaign.companyId, 'aguardando', 'Falha ao enviar contato. Continuando fila.', {
+        error: errorMessage,
         type: 'send_failed',
       });
+      await this.replenishCampaignAfterSkip(campaign, 'Falha ao enviar contato. Continuando fila.');
+      return { outcome: 'failed', campaignId, leadId, jobId, errorMessage, shouldContinue: true };
     }
   }
 
