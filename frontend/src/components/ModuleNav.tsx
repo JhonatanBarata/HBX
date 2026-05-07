@@ -37,7 +37,7 @@ const NAV_ITEMS: NavItem[] = [
     href: "/vendas",
     label: "Vendas",
     shortLabel: "VD",
-    description: "CRM principal da operação.",
+    description: "CRM e oportunidades.",
     matcher: (route) => route.startsWith("/vendas"),
     category: "commercial",
     moduleKey: "vendas",
@@ -47,7 +47,7 @@ const NAV_ITEMS: NavItem[] = [
     href: "/atendimento",
     label: "Atendimento",
     shortLabel: "AT",
-    description: "Conversas e fila humana.",
+    description: "Conversas e fila.",
     matcher: (route) =>
       route.startsWith("/atendimento") ||
       route.startsWith("/hbx-recovery") ||
@@ -61,7 +61,7 @@ const NAV_ITEMS: NavItem[] = [
     href: "/website",
     label: "Website",
     shortLabel: "WB",
-    description: "Site e admin.",
+    description: "Site e painel.",
     matcher: (route) => route.startsWith("/website"),
     category: "commercial",
     moduleKey: "website",
@@ -71,7 +71,7 @@ const NAV_ITEMS: NavItem[] = [
     href: "/webscraping",
     label: "Webscraping",
     shortLabel: "WS",
-    description: "Captação local.",
+    description: "Captação.",
     matcher: (route) => route.startsWith("/webscraping"),
     category: "commercial",
     moduleKey: "webscraping",
@@ -81,7 +81,7 @@ const NAV_ITEMS: NavItem[] = [
     href: "/radar-digital",
     label: "Radar Digital",
     shortLabel: "RD",
-    description: "Cards persistentes do webscraping.",
+    description: "Leads salvos.",
     matcher: (route) => route.startsWith("/radar-digital"),
     category: "commercial",
     moduleKey: "webscraping",
@@ -91,7 +91,7 @@ const NAV_ITEMS: NavItem[] = [
     href: "/followup-global",
     label: "Follow Up",
     shortLabel: "FU",
-    description: "Follow-up internacional.",
+    description: "Importações.",
     matcher: (route) =>
       route.startsWith("/followup-global") ||
       route.startsWith("/importacoes/historico") ||
@@ -104,7 +104,7 @@ const NAV_ITEMS: NavItem[] = [
     href: "/cadastros",
     label: "Cadastros",
     shortLabel: "CD",
-    description: "Clientes e contexto compartilhado.",
+    description: "Clientes.",
     matcher: (route) => route.startsWith("/cadastros") || route.startsWith("/importacoes/cadastros"),
     category: "structural",
     companyOnly: true,
@@ -115,7 +115,7 @@ const NAV_ITEMS: NavItem[] = [
     href: "/pagamento",
     label: "Financeiro",
     shortLabel: "FN",
-    description: "Cobrança e plano.",
+    description: "Cobrança.",
     matcher: (route) => route.startsWith("/pagamento"),
     category: "structural",
     moduleKey: "financeiro",
@@ -125,7 +125,7 @@ const NAV_ITEMS: NavItem[] = [
     href: "/planos",
     label: "Planos",
     shortLabel: "PL",
-    description: "Escolha Vendas, Atendimento ou veja disponibilidade.",
+    description: "Catálogo.",
     matcher: (route) => route.startsWith("/planos"),
     category: "structural",
     adminOnly: true,
@@ -135,7 +135,7 @@ const NAV_ITEMS: NavItem[] = [
     href: "/gerencial",
     label: "Gerencial",
     shortLabel: "GE",
-    description: "Equipe e acessos.",
+    description: "Equipe.",
     matcher: (route) => route.startsWith("/gerencial"),
     category: "structural",
     adminOnly: true,
@@ -146,7 +146,7 @@ const NAV_ITEMS: NavItem[] = [
     href: "/whatsapp",
     label: "WhatsApp",
     shortLabel: "WA",
-    description: "Conexão do canal.",
+    description: "Canal.",
     matcher: (route) => route.startsWith("/whatsapp"),
     category: "structural",
     companyOnly: true,
@@ -157,7 +157,7 @@ const NAV_ITEMS: NavItem[] = [
     href: "/master",
     label: "Master",
     shortLabel: "MS",
-    description: "Controle global.",
+    description: "Visão global.",
     matcher: (route) => route.startsWith("/master"),
     category: "system",
     adminOnly: true,
@@ -169,17 +169,17 @@ const NAV_SECTIONS: Array<{ category: HbxModuleCategory; title: string; hint: st
   {
     category: "commercial",
     title: "Módulos",
-    hint: "Operação ativa.",
+    hint: "Operação.",
   },
   {
     category: "structural",
     title: "Guias",
-    hint: "Próximas etapas.",
+    hint: "Gestão.",
   },
   {
     category: "system",
     title: "Sistema",
-    hint: "Controle global.",
+    hint: "Master.",
   },
 ];
 
@@ -369,6 +369,7 @@ export default function ModuleNav({
   const navItems = useMemo(() => {
     return NAV_ITEMS.filter((item) => {
       if (loading) return false;
+      if (isSystemMaster) return true;
       if (item.companyOnly && !hasCompany) return false;
       if (item.adminOnly) {
         if (item.key === "master") {

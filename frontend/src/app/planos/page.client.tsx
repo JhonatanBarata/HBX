@@ -387,11 +387,11 @@ export default function PlanosClientPage() {
             <div className={styles.titleCluster}>
               <div>
                 <span className={styles.eyebrow}>{trialModalOpen ? "Trial HBX WhatsApp" : "Planos HBX"}</span>
-                <h1 id="plans-title">{trialModalOpen ? "Antes de liberar seus 30 dias" : "Escolha o plano ideal para o seu negócio"}</h1>
+                <h1 id="plans-title">{trialModalOpen ? "Liberar trial" : "Planos HBX"}</h1>
                 <p>
                   {trialModalOpen
-                    ? "Precisamos confirmar um contato real. O telefone é usado para validar se este trial já foi utilizado."
-                    : "Comece encontrando clientes. Evolua para atender pelo WhatsApp. Automatize quando estiver pronto."}
+                    ? "Confirme o responsável para ativar os 30 dias."
+                    : "Compare os planos sem bloquear sua operação."}
                 </p>
               </div>
             </div>
@@ -415,14 +415,14 @@ export default function PlanosClientPage() {
 
           {pendingCheckout && !trialModalOpen ? (
             <section className={styles.notice} data-tone="info">
-              Você tem um checkout pendente. Escolha outro plano ou finalize o pagamento do plano já selecionado.
+              Checkout pendente. Você pode trocar o plano ou finalizar o pagamento.
               <Link href="/pagamento?focus=payment&reason=pending_checkout">Finalizar pagamento</Link>
             </section>
           ) : null}
 
           {intent === "bot_ia" && !trialModalOpen ? (
             <section className={styles.notice} data-tone="info">
-              O Bot de atendimento fica disponível no HBX Bot IA. Seu plano atual continua destacado para comparação.
+              Bot IA disponível no plano HBX Bot IA.
             </section>
           ) : null}
 
@@ -434,7 +434,7 @@ export default function PlanosClientPage() {
               <aside className={styles.trialSummary}>
                 <span className={styles.trialSummaryBadge}>30 dias grátis</span>
                 <h2 id="trial-title">HBX WhatsApp</h2>
-                <p>Trial sem cobrança automática agora. Depois dos 30 dias, qualquer pagamento passa pelo checkout antes de liberar cobrança.</p>
+                <p>30 dias sem cobrança automática. Pagamento só no checkout.</p>
                 <dl>
                   <div>
                     <dt>Validação</dt>
@@ -536,9 +536,9 @@ export default function PlanosClientPage() {
           )}
 
           {!trialModalOpen ? <footer className={styles.footerFacts}>
-            <span>Alteração feita pelo ADMIN.</span>
-            <span>HBX WhatsApp grátis só quando o trial ainda está elegível.</span>
-            <span>Assinatura recorrente continua pelo Mercado Pago.</span>
+            <span>ADMIN altera planos.</span>
+            <span>Trial conforme elegibilidade.</span>
+            <span>Checkout pelo Mercado Pago.</span>
           </footer> : null}
         </section>
       </main>

@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Delete, ForbiddenException, Get, HttpException, HttpStatus, Param, ParseIntPipe, Patch, Post, Put, Query, Req, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, ForbiddenException, Get, Param, ParseIntPipe, Patch, Post, Put, Query, Req, UseGuards } from '@nestjs/common';
 import { CreateCompanyDto } from './dto/create-company.dto';
 import { UpdateCompanyDto } from './dto/update-company.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -285,38 +285,12 @@ export class CompaniesController {
     };
   }
 
-  private isPendingCheckoutCompany(company: any) {
-    if (!company?.id) return false;
-    const onboardingStatus = String(company?.onboardingStatus || '').trim().toLowerCase();
-    const subscriptionStatus = String(company?.subscriptionStatus || '').trim().toLowerCase();
-    const paymentStatus = String(company?.paymentStatus || '').trim().toUpperCase();
-    const accessReleased =
-      ['active', 'authorized', 'manual'].includes(subscriptionStatus) ||
-      ['PAID', 'MANUAL'].includes(paymentStatus) ||
-      Boolean(company?.premiumAccess);
-    if (accessReleased) return false;
-    return onboardingStatus === 'pending_checkout' || subscriptionStatus === 'pending_checkout' || paymentStatus === 'PENDING';
-  }
-
-  private throwPendingCheckoutRequired() {
-    throw new HttpException(
-      {
-        code: 'PENDING_CHECKOUT_REQUIRED',
-        message: 'Finalize sua contratação para liberar os módulos do HBX.',
-        redirectTo: '/dashboard/financeiro?focus=payment&reason=pending_checkout',
-      },
-      HttpStatus.PAYMENT_REQUIRED,
-    );
-  }
-
   private async resolveOperationalCompanyIdOrThrow(req: any, options?: { allowPendingCheckout?: boolean }) {
+    void options;
     const context = await this.resolveOperationalContext(req);
     const companyId = Number(context.effectiveCompanyId || 0);
     if (!companyId) {
       throw new BadRequestException('Nenhuma empresa operacional selecionada para este contexto.');
-    }
-    if (!req?.user?.isSystemMaster && !options?.allowPendingCheckout && this.isPendingCheckoutCompany(context.company)) {
-      this.throwPendingCheckoutRequired();
     }
     return companyId;
   }
@@ -699,25 +673,6 @@ export class CompaniesController {
           masterContext: context.masterContext,
         },
         statuses: [],
-      };
-    }
-
-    if (!req?.user?.isSystemMaster && this.isPendingCheckoutCompany(context.company)) {
-      return {
-        generatedAt: new Date().toISOString(),
-        context: {
-          available: true,
-          companyId: Number(context.effectiveCompanyId),
-          companyName: String(context.company?.name || '').trim() || null,
-          mode: 'empresa',
-          masterContext: context.masterContext,
-        },
-        statuses: [],
-        summary: {
-          locked: true,
-          reason: 'pending_checkout',
-          redirectTo: '/dashboard/financeiro?focus=payment&reason=pending_checkout',
-        },
       };
     }
 

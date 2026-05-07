@@ -77,25 +77,6 @@ function getAuthServerSnapshot() {
   return false;
 }
 
-function isPendingCheckoutCompany(company: PresentationProfile["company"]) {
-  if (!company?.id) return false;
-  const onboardingStatus = String(company.onboardingStatus || "").trim().toLowerCase();
-  const paymentStatus = String(company.paymentStatus || "").trim().toUpperCase();
-  const subscriptionStatus = String(company.subscriptionStatus || "").trim().toLowerCase();
-  const billingGraceEndsAt = company.billingGraceEndsAt ? new Date(company.billingGraceEndsAt).getTime() : NaN;
-  const graceAccess = subscriptionStatus === "grace" && Number.isFinite(billingGraceEndsAt) && billingGraceEndsAt >= Date.now();
-  const accessReleased =
-    paymentStatus === "PAID" ||
-    paymentStatus === "MANUAL" ||
-    subscriptionStatus === "active" ||
-    subscriptionStatus === "authorized" ||
-    subscriptionStatus === "manual" ||
-    Boolean(company.premiumAccess) ||
-    graceAccess;
-  if (accessReleased) return false;
-  return onboardingStatus === "pending_checkout" || subscriptionStatus === "pending_checkout" || paymentStatus === "PENDING";
-}
-
 export default function DashboardScaffold({
   title,
   description,

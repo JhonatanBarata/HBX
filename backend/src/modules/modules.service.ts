@@ -1824,6 +1824,7 @@ export class ModulesService implements OnModuleInit {
 
     const key = this.normalizeRequestedModuleKey(moduleKey);
     if (key === 'master' || key === 'exclusoes') return isSystemMaster;
+    if (isSystemMaster) return true;
     if (!companyId) return false;
     if (this.isFinanceModuleKey(key)) return true;
     if (this.isTrialBundledModuleKey(key)) {
@@ -1918,6 +1919,31 @@ export class ModulesService implements OnModuleInit {
           orderBy: { name: 'asc' },
         })
       : [];
+
+    if (isSystemMaster) {
+      const allModules = await this.prisma.systemModule.findMany({
+        where: { key: { notIn: RETIRED_MODULE_KEYS } },
+        orderBy: [{ companyAssignable: 'desc' }, { name: 'asc' }, { id: 'asc' }],
+      });
+
+      return allModules.map((moduleItem) => ({
+        key: moduleItem.key,
+        name: moduleItem.name,
+        description: moduleItem.description,
+        serviceUrl: moduleItem.serviceUrl,
+        companyEnabled: true,
+        userAllowed: true,
+        accessible: true,
+        visible: true,
+        category: this.getModuleCategory(moduleItem.key),
+        entryEligible: this.getModuleCategory(moduleItem.key) === 'commercial',
+        blockedByEngine: false,
+        blockedReason: null,
+        blockedCode: null,
+        criticalEngine: null,
+        sortOrder: this.getModuleSortOrder(moduleItem.key),
+      }));
+    }
 
     if (!companyId) {
       return systemMasterModules.map((moduleItem) => ({
