@@ -8,7 +8,7 @@ export type WorkspaceBadgeDescriptor = {
   tone: WorkspaceBadgeTone;
 };
 
-export type WorkspaceQueueTone = "brand" | "success" | "amber" | "danger" | "muted";
+export type WorkspaceQueueTone = "brand" | "teal" | "info" | "purple" | "success" | "amber" | "danger" | "muted";
 
 export type WorkspaceSummaryDescriptor = {
   label: string;

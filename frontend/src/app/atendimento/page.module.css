@@ -1467,14 +1467,14 @@
 }
 
 .conversationQueueItemUnread {
-  border-color: color-mix(in srgb, #005c4b 70%, #d9e2e0);
+  border-color: color-mix(in srgb, #2563eb 64%, #d9e2e0);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.2),
-    0 16px 28px rgba(0, 92, 75, 0.16);
+    0 16px 28px rgba(37, 99, 235, 0.14);
 }
 
 .conversationQueueItemUnread::before {
-  background: linear-gradient(180deg, #c8fff1, #5ce0b7);
+  background: linear-gradient(180deg, #dbeafe, #3b82f6);
 }
 
 .conversationQueueItemUnread::after {
@@ -1499,16 +1499,16 @@
   min-height: 20px;
   padding: 0.08rem 0.48rem;
   border-radius: 999px;
-  background: #25d366;
-  color: #06281e;
+  background: #2563eb;
+  color: #eff6ff;
   font-size: 0.62rem;
   font-weight: 900;
   line-height: 1;
-  box-shadow: 0 8px 14px -10px rgba(18, 140, 126, 0.72);
+  box-shadow: 0 8px 14px -10px rgba(37, 99, 235, 0.72);
 }
 
 .conversationQueueItemUnread .conversationUnreadBadge {
-  color: #06281e;
+  color: #eff6ff;
 }
 
 .conversationBadgeStack {
@@ -1522,11 +1522,11 @@
   width: fit-content;
   min-height: 20px;
   padding: 0.08rem 0.5rem;
-  background: color-mix(in srgb, var(--inbox-warning, #ffb547) 22%, rgba(255, 255, 255, 0.08));
-  border: 1px solid color-mix(in srgb, var(--inbox-warning, #ffb547) 36%, transparent);
-  color: #ffe7bc;
+  background: color-mix(in srgb, #16a34a 24%, rgba(255, 255, 255, 0.08));
+  border: 1px solid color-mix(in srgb, #22c55e 42%, transparent);
+  color: #dcfce7;
   line-height: 1;
-  box-shadow: 0 8px 16px -12px rgba(255, 181, 71, 0.72);
+  box-shadow: 0 8px 16px -12px rgba(34, 197, 94, 0.76);
 }
 
 .conversationProspectionBadge {
@@ -1599,11 +1599,11 @@
 }
 
 .conversationQueueItemInterested {
-  border-color: color-mix(in srgb, var(--inbox-warning, #ffb547) 42%, #202c33);
+  border-color: color-mix(in srgb, #22c55e 46%, #202c33);
 }
 
 .conversationQueueItemInterested::before {
-  background: linear-gradient(180deg, #fff3d1, var(--inbox-warning, #ffb547));
+  background: linear-gradient(180deg, #dcfce7, #16a34a);
 }
 
 .conversationQueueItemProspection {
@@ -1647,7 +1647,8 @@
 }
 
 .conversationQueueItemProspection[data-prospection-stage="no_whatsapp"],
-.conversationQueueItemProspection[data-prospection-stage="needs_review"] {
+.conversationQueueItemProspection[data-prospection-stage="needs_review"],
+.conversationQueueItemProspection[data-prospection-stage="negative_reply"] {
   background:
     linear-gradient(
       90deg,
@@ -6546,9 +6547,9 @@
 }
 
 .conversationContextBadge {
-  background: rgba(25, 36, 74, 0.74);
-  border: 1px solid rgba(104, 127, 199, 0.18);
-  color: #dce5ff;
+  background: rgba(49, 35, 91, 0.62);
+  border: 1px solid rgba(167, 139, 250, 0.2);
+  color: #ede9fe;
 }
 
 .conversationContextBadge[data-tone="warning"],
@@ -6558,23 +6559,41 @@
   border-color: rgba(255, 181, 71, 0.2);
 }
 
-.conversationContextBadge[data-tone="success"],
 .conversationContextBadge[data-tone="human"] {
-  color: #bcffe0;
-  background: rgba(8, 80, 50, 0.44);
-  border-color: rgba(25, 211, 124, 0.2);
+  color: #dbeafe;
+  background: rgba(30, 64, 175, 0.42);
+  border-color: rgba(96, 165, 250, 0.24);
 }
 
-.conversationContextBadge[data-tone="danger"] {
+.conversationContextBadge[data-tone="success"] {
+  color: #bcffe0;
+  background: rgba(8, 80, 50, 0.44);
+  border-color: rgba(25, 211, 124, 0.24);
+}
+
+.conversationContextBadge[data-tone="danger"],
+.conversationContextBadge[data-tone="blocked"] {
   color: #ffd7d7;
   background: rgba(98, 24, 24, 0.44);
   border-color: rgba(248, 113, 113, 0.26);
 }
 
+.conversationContextBadge[data-tone="closed"] {
+  color: #e2e8f0;
+  background: rgba(71, 85, 105, 0.42);
+  border-color: rgba(148, 163, 184, 0.24);
+}
+
+.conversationContextBadge[data-tone="bot"] {
+  color: #ede9fe;
+  background: rgba(76, 29, 149, 0.42);
+  border-color: rgba(167, 139, 250, 0.24);
+}
+
 .conversationContextBadge[data-tone="personal"] {
-  color: #dcfce7;
-  background: rgba(22, 101, 52, 0.36);
-  border-color: rgba(34, 197, 94, 0.28);
+  color: #e0e7ff;
+  background: rgba(67, 56, 202, 0.34);
+  border-color: rgba(129, 140, 248, 0.24);
 }
 
 .conversationIdentitySubtitle {
@@ -7272,19 +7291,19 @@
 }
 
 :global(html[data-theme-mode="dark"]) .conversationQueueItemUnread {
-  border-color: color-mix(in srgb, var(--brand) 34%, var(--line));
+  border-color: color-mix(in srgb, #3b82f6 34%, var(--line));
   box-shadow:
     inset 0 1px 0 color-mix(in srgb, var(--surface) 18%, transparent),
-    0 16px 28px color-mix(in srgb, var(--brand) 18%, transparent);
+    0 16px 28px color-mix(in srgb, #2563eb 18%, transparent);
 }
 
 :global(html[data-theme-mode="dark"]) .conversationQueueItemUnread::before {
-  background: linear-gradient(180deg, var(--brand), var(--brand-solid));
+  background: linear-gradient(180deg, #93c5fd, #2563eb);
 }
 
 :global(html[data-theme-mode="dark"]) .conversationUnreadBadge {
-  background: #25d366;
-  color: #041d16;
+  background: #2563eb;
+  color: #eff6ff;
 }
 
 :global(html[data-theme-mode="dark"]) .whatsAppConversationShell {
@@ -7329,6 +7348,38 @@
   border-color: color-mix(in srgb, var(--brand) 18%, var(--line));
   background: color-mix(in srgb, var(--surface) 66%, var(--background));
   color: color-mix(in srgb, var(--foreground) 82%, var(--muted));
+}
+
+:global(html[data-theme-mode="dark"]) .conversationContextBadge[data-tone="bot"] {
+  color: #ede9fe;
+  background: rgba(76, 29, 149, 0.42);
+  border-color: rgba(167, 139, 250, 0.24);
+}
+
+:global(html[data-theme-mode="dark"]) .conversationContextBadge[data-tone="human"] {
+  color: #dbeafe;
+  background: rgba(30, 64, 175, 0.42);
+  border-color: rgba(96, 165, 250, 0.24);
+}
+
+:global(html[data-theme-mode="dark"]) .conversationContextBadge[data-tone="success"] {
+  color: #bcffe0;
+  background: rgba(8, 80, 50, 0.44);
+  border-color: rgba(25, 211, 124, 0.24);
+}
+
+:global(html[data-theme-mode="dark"]) .conversationContextBadge[data-tone="blocked"],
+:global(html[data-theme-mode="dark"]) .conversationContextBadge[data-tone="danger"] {
+  color: #ffd7d7;
+  background: rgba(98, 24, 24, 0.44);
+  border-color: rgba(248, 113, 113, 0.26);
+}
+
+:global(html[data-theme-mode="dark"]) .conversationContextBadge[data-tone="closed"],
+:global(html[data-theme-mode="dark"]) .conversationContextBadge[data-tone="personal"] {
+  color: #e2e8f0;
+  background: rgba(71, 85, 105, 0.42);
+  border-color: rgba(148, 163, 184, 0.24);
 }
 
 :global(html[data-theme-mode="dark"]) .workspaceDockBody,
@@ -7523,14 +7574,14 @@
 }
 
 :global(html[data-theme-mode="light"]) .conversationQueueItemUnread {
-  border-color: color-mix(in srgb, var(--brand) 22%, var(--line));
+  border-color: color-mix(in srgb, #2563eb 22%, var(--line));
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.74),
     0 16px 28px rgba(15, 23, 42, 0.08);
 }
 
 :global(html[data-theme-mode="light"]) .conversationQueueItemUnread::before {
-  background: linear-gradient(180deg, color-mix(in srgb, var(--brand) 92%, var(--surface)), color-mix(in srgb, var(--brand-solid) 72%, var(--surface)));
+  background: linear-gradient(180deg, color-mix(in srgb, #93c5fd 72%, var(--surface)), color-mix(in srgb, #2563eb 76%, var(--surface)));
 }
 
 :global(html[data-theme-mode="light"]) .conversationQueueItemUnread strong,
@@ -7544,8 +7595,8 @@
 }
 
 :global(html[data-theme-mode="light"]) .conversationQueueItemUnread .conversationUnreadBadge {
-  background: #25d366;
-  color: #06281e;
+  background: #2563eb;
+  color: #eff6ff;
 }
 
 :global(html[data-theme-mode="light"]) .conversationQueueItemUnavailable.conversationQueueItemUnread::after {
@@ -7596,9 +7647,9 @@
 }
 
 :global(html[data-theme-mode="light"]) .conversationContextBadge {
-  color: color-mix(in srgb, var(--foreground) 84%, var(--muted));
-  background: color-mix(in srgb, var(--surface-raised) 94%, var(--background));
-  border-color: color-mix(in srgb, var(--line) 88%, var(--background));
+  color: color-mix(in srgb, #6d28d9 82%, var(--foreground));
+  background: color-mix(in srgb, #ede9fe 74%, var(--surface));
+  border-color: color-mix(in srgb, #8b5cf6 22%, var(--background));
 }
 
 :global(html[data-theme-mode="light"]) .conversationContextBadge[data-tone="warning"],
@@ -7608,17 +7659,36 @@
   border-color: color-mix(in srgb, var(--warning) 16%, var(--background));
 }
 
-:global(html[data-theme-mode="light"]) .conversationContextBadge[data-tone="success"],
 :global(html[data-theme-mode="light"]) .conversationContextBadge[data-tone="human"] {
+  color: color-mix(in srgb, #1d4ed8 88%, var(--foreground));
+  background: color-mix(in srgb, #dbeafe 74%, var(--surface));
+  border-color: color-mix(in srgb, #3b82f6 20%, var(--background));
+}
+
+:global(html[data-theme-mode="light"]) .conversationContextBadge[data-tone="success"] {
   color: color-mix(in srgb, var(--success) 90%, var(--foreground));
   background: color-mix(in srgb, var(--success) 10%, var(--background));
   border-color: color-mix(in srgb, var(--success) 16%, var(--background));
 }
 
-:global(html[data-theme-mode="light"]) .conversationContextBadge[data-tone="danger"] {
+:global(html[data-theme-mode="light"]) .conversationContextBadge[data-tone="danger"],
+:global(html[data-theme-mode="light"]) .conversationContextBadge[data-tone="blocked"] {
   color: color-mix(in srgb, var(--danger) 90%, var(--foreground));
   background: color-mix(in srgb, var(--danger) 10%, var(--background));
   border-color: color-mix(in srgb, var(--danger) 16%, var(--background));
+}
+
+:global(html[data-theme-mode="light"]) .conversationContextBadge[data-tone="bot"] {
+  color: color-mix(in srgb, #6d28d9 88%, var(--foreground));
+  background: color-mix(in srgb, #ede9fe 74%, var(--surface));
+  border-color: color-mix(in srgb, #8b5cf6 20%, var(--background));
+}
+
+:global(html[data-theme-mode="light"]) .conversationContextBadge[data-tone="closed"],
+:global(html[data-theme-mode="light"]) .conversationContextBadge[data-tone="personal"] {
+  color: color-mix(in srgb, #475569 88%, var(--foreground));
+  background: color-mix(in srgb, #e2e8f0 70%, var(--surface));
+  border-color: color-mix(in srgb, #94a3b8 20%, var(--background));
 }
 
 :global(html[data-theme-mode="light"]) .conversationPrimaryAction,
