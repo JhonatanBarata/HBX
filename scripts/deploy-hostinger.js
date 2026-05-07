@@ -242,7 +242,7 @@ function buildRemoteDeployScript(config, mode) {
     'export HBX_ENGINE_COUNT="$(awk -F= \'/^HBX_ENGINE_COUNT=/{print substr($0, length("HBX_ENGINE_COUNT")+2); exit}\' .env)"',
     'if [ -z "$HBX_ENGINE_COUNT" ]; then export HBX_ENGINE_COUNT=20; fi',
     'case "$HBX_ENGINE_COUNT" in *[!0-9]*|"") echo "Aviso: HBX_ENGINE_COUNT invalido no .env; usando 20."; export HBX_ENGINE_COUNT=20;; esac',
-    'if [ "$HBX_ENGINE_COUNT" -lt 20 ]; then echo "Aviso: HBX_ENGINE_COUNT=$HBX_ENGINE_COUNT no .env; Hostinger usara 20 motores."; export HBX_ENGINE_COUNT=20; fi',
+    'if [ "$HBX_ENGINE_COUNT" -lt 1 ]; then echo "Aviso: HBX_ENGINE_COUNT=$HBX_ENGINE_COUNT abaixo do minimo; usando 1."; export HBX_ENGINE_COUNT=1; fi',
     'if [ "$HBX_ENGINE_COUNT" -gt 20 ]; then echo "Aviso: HBX_ENGINE_COUNT=$HBX_ENGINE_COUNT acima do limite; usando 20."; export HBX_ENGINE_COUNT=20; fi',
     'if docker network inspect hbx_net >/dev/null 2>&1; then export HBX_DOCKER_NETWORK=hbx_net; elif docker network inspect hbx-net >/dev/null 2>&1; then export HBX_DOCKER_NETWORK=hbx-net; else docker network create hbx_net >/dev/null; export HBX_DOCKER_NETWORK=hbx_net; fi',
     'if docker compose version >/dev/null 2>&1; then DC="docker compose"; elif docker-compose --version >/dev/null 2>&1; then DC="docker-compose"; else echo "ERRO: docker-compose nao encontrado."; exit 1; fi',
