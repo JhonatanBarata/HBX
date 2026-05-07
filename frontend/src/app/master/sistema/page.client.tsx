@@ -410,7 +410,7 @@ export default function SystemHealthClientPage() {
           <div>
             <h2 className="text-lg font-semibold">Containers</h2>
             <p className="text-sm text-muted mt-1">
-              {data?.containers?.note || "docker stats --no-stream para backend, Postgres, webscraping, hbx-engine-1..4, frontend e proxy."}
+              {data?.containers?.note || "docker stats --no-stream para backend, Postgres, webscraping, hbx-engine-1..20, frontend e proxy."}
             </p>
           </div>
           <span className={`text-sm font-semibold ${statusClass(data?.containers?.status)}`}>

@@ -133,6 +133,7 @@ const DEFAULT_FORM: FormState = {
 };
 
 const BRASILIA_TIME_ZONE = "America/Sao_Paulo";
+const MAX_HBX_ENGINE_COUNT = 20;
 
 function clampNumber(value: unknown, fallback: number, min: number, max: number) {
   const parsed = Number(value);
@@ -225,9 +226,10 @@ function normalizeIntensity(value: unknown): Intensity {
   return "turbo";
 }
 
-function emptyEngines(engines?: DashboardEngine[]) {
+function emptyEngines(engines?: DashboardEngine[], count = MAX_HBX_ENGINE_COUNT) {
   const byIndex = new Map((engines || []).map((engine, index) => [index, engine]));
-  return Array.from({ length: 4 }, (_, index) => byIndex.get(index) || {
+  const engineCount = Math.max(engines?.length || 0, clampNumber(count, MAX_HBX_ENGINE_COUNT, 1, MAX_HBX_ENGINE_COUNT));
+  return Array.from({ length: engineCount }, (_, index) => byIndex.get(index) || {
     id: `hbx-engine-${index + 1}`,
     label: `M${index + 1}`,
     status: "offline" as const,
@@ -276,7 +278,7 @@ export default function MasterWebscrapingClientPage() {
       ...current,
       startTime: formatTime(config.startHour, config.startMinute),
       endTime: formatTime(config.endHour, config.endMinute),
-      engineCount: clampNumber(config.engineCount, 4, 1, 4),
+      engineCount: clampNumber(config.engineCount, 4, 1, MAX_HBX_ENGINE_COUNT),
       intensity: normalizeIntensity(config.intensity),
       memoryTargetGb: clampNumber(config.memoryTargetGb, 16, 1, 256),
       batchSize: clampNumber(config.batchSize, 20, 1, 20),
@@ -340,7 +342,7 @@ export default function MasterWebscrapingClientPage() {
     return () => window.clearInterval(timer);
   }, [allowed, dashboard?.engines, dashboard?.summary.activeQueue, loadDashboard]);
 
-  const engines = useMemo(() => emptyEngines(dashboard?.engines), [dashboard?.engines]);
+  const engines = useMemo(() => emptyEngines(dashboard?.engines, dashboard?.summary.totalEngines), [dashboard?.engines, dashboard?.summary.totalEngines]);
   const dashboardDescription = dashboard?.turbo.active
     ? `Turbo forçado ativo até ${formatClock(dashboard.turbo.endsAt)}`
     : `Turbo forçado pronto para operar até ${dashboard?.turbo.endLabel || form.endTime}`;
@@ -545,7 +547,7 @@ export default function MasterWebscrapingClientPage() {
               </label>
               <label>
                 Motores
-                <input type="number" min={1} max={4} value={form.engineCount} onChange={(event) => updateTurboConfigForm({ engineCount: clampNumber(event.target.value, 4, 1, 4) })} />
+                <input type="number" min={1} max={MAX_HBX_ENGINE_COUNT} value={form.engineCount} onChange={(event) => updateTurboConfigForm({ engineCount: clampNumber(event.target.value, 4, 1, MAX_HBX_ENGINE_COUNT) })} />
               </label>
               <label>
                 Intensidade

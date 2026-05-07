@@ -2836,7 +2836,7 @@ export default function WebscrapingClientPage({ mode = "search" }: WebscrapingCl
                         <strong className={styles.sectionTitle}>MASSA DE DADOS</strong>
                       </div>
                       <div className={styles.engineBatteryRow}>
-                        {Array.from({ length: 4 }).map((_, index) => {
+                        {Array.from({ length: Math.max(20, engineDashboard?.engines?.filter((engine) => String(engine.id || "").startsWith("hbx-engine-")).length || 0) }).map((_, index) => {
                           const engineItem = engineDashboard?.engines?.find((engine) => engine.id === `hbx-engine-${index + 1}` || engine.shortLabel?.includes(String(index + 1)));
                           const state = engineItem ? engineBatteryState(engineItem) : "offline";
                           return (

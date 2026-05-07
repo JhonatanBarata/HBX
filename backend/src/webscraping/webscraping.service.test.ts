@@ -1530,7 +1530,7 @@ test('search-run hbx so finaliza lote vazio quando maxEmptyBatches e atingido', 
   };
 
   try {
-    for (let index = 0; index < 4; index += 1) {
+    for (let attempt = 0; attempt < 4; attempt += 1) {
       await (service as any).processSearchRun('run-1', createUser(), undefined, lease);
       assert.equal(run.status, 'running');
       assert.equal(run.lastBatchStatus, 'empty_batch');
@@ -1660,7 +1660,7 @@ test('campanha radar so encerra lote vazio quando maxEmptyBatches e atingido', a
   };
 
   try {
-    for (let index = 0; index < 4; index += 1) {
+    for (let attempt = 0; attempt < 4; attempt += 1) {
       await (service as any).processRadarCampaignBatch('campaign-1', lease);
       assert.equal(campaign.status, 'queued');
       assert.equal(campaign.finishedAt, null);
