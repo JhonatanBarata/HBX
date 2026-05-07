@@ -547,7 +547,7 @@ export default function MasterWebscrapingClientPage() {
               </label>
               <label>
                 Motores
-                <input type="number" min={1} max={MAX_HBX_ENGINE_COUNT} value={form.engineCount} onChange={(event) => updateTurboConfigForm({ engineCount: clampNumber(event.target.value, 4, 1, MAX_HBX_ENGINE_COUNT) })} />
+                <input type="number" min={1} max={MAX_HBX_ENGINE_COUNT} value={form.engineCount} onChange={(event) => updateTurboConfigForm({ engineCount: clampNumber(event.target.value, MAX_HBX_ENGINE_COUNT, 1, MAX_HBX_ENGINE_COUNT) })} />
               </label>
               <label>
                 Intensidade

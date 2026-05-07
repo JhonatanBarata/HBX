@@ -5655,7 +5655,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       databaseStatus === 'ok' ? 'Gravações no banco acessíveis.' : null,
       engineHealthStatus === 'ok' ? 'Motores com healthcheck saudável.' : null,
       ...databaseMessages,
-      ...offlineHbxEngines.slice(0, 4).map((engine: any) => `${engine.shortLabel || engine.id}: ${engine.lastError || engine.stateLabel || 'sem resposta'}`),
+      ...offlineHbxEngines.slice(0, getConfiguredHbxEngineCount()).map((engine: any) => `${engine.shortLabel || engine.id}: ${engine.lastError || engine.stateLabel || 'sem resposta'}`),
       criticalReason,
     ].filter(Boolean) as string[];
 
