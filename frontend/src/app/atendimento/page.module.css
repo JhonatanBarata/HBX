@@ -4398,6 +4398,121 @@
   gap: 0.55rem;
 }
 
+.meticulousTrashPanel {
+  display: grid;
+  gap: 14px;
+}
+
+.meticulousTrashActions,
+.meticulousTrashControls,
+.meticulousTrashCounters {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.meticulousTrashLimit {
+  display: grid;
+  gap: 4px;
+  min-width: 112px;
+  font-size: .72rem;
+  font-weight: 800;
+  color: var(--muted);
+  text-transform: uppercase;
+}
+
+.meticulousTrashLimit input {
+  max-width: 112px;
+}
+
+.meticulousTrashStatus {
+  display: grid;
+  gap: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+  background: color-mix(in srgb, var(--surface) 82%, transparent);
+}
+
+.meticulousTrashMotor {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.meticulousTrashMotor strong,
+.meticulousTrashGrid strong,
+.meticulousTrashRow strong {
+  color: var(--foreground);
+}
+
+.meticulousTrashMotor small,
+.meticulousTrashRow small {
+  display: block;
+  color: var(--muted);
+  font-size: .78rem;
+}
+
+.meticulousTrashPulse {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--success);
+  box-shadow: 0 0 0 6px color-mix(in srgb, var(--success) 18%, transparent);
+}
+
+.meticulousTrashGrid {
+  display: grid;
+  grid-template-columns: minmax(110px, .8fr) minmax(0, 1.2fr);
+  gap: 6px 10px;
+  font-size: .82rem;
+}
+
+.meticulousTrashGrid span {
+  color: var(--muted);
+}
+
+.meticulousTrashGrid strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.meticulousTrashCounters span {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 5px 8px;
+  font-size: .78rem;
+  font-weight: 800;
+}
+
+.meticulousTrashList,
+.meticulousTrashErrors {
+  display: grid;
+  gap: 8px;
+  max-height: 190px;
+  overflow: auto;
+}
+
+.meticulousTrashRow {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px;
+}
+
+.meticulousTrashRow span,
+.meticulousTrashErrors span {
+  display: block;
+  color: var(--muted);
+  font-size: .78rem;
+}
+
+.meticulousTrashErrors {
+  border: 1px solid color-mix(in srgb, var(--danger) 34%, var(--border));
+  border-radius: 8px;
+  padding: 8px;
+}
+
 .agendaStudioCard {
   gap: 1.2rem;
 }
@@ -5842,6 +5957,18 @@
 
 .automationPulse[data-status="erro"] {
   border-color: rgba(255, 111, 145, 0.34);
+}
+
+.automationPulse[data-status="dormindo"] {
+  border-color: rgba(96, 165, 250, 0.28);
+  background:
+    linear-gradient(135deg, rgba(10, 16, 34, 0.92), rgba(15, 23, 42, 0.82)),
+    radial-gradient(circle at left center, rgba(96, 165, 250, 0.1), transparent 38%);
+}
+
+.automationPulse[data-status="dormindo"] .automationPulseDot {
+  background: #60a5fa;
+  box-shadow: 0 0 0 5px rgba(96, 165, 250, 0.1);
 }
 
 .automationPulse[data-disabled="true"] {

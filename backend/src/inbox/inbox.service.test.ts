@@ -55,6 +55,15 @@ function createService(overrides?: Partial<Record<string, any>>) {
   });
 
   const prisma = {
+    company: {
+      findUnique: async () => ({
+        id: 7,
+        whatsappModalStatus: null,
+        whatsappModalLastError: null,
+        whatsappStatus: null,
+        whatsappStatusError: null,
+      }),
+    },
     atendimentoCustomer: {
       findMany: async () => [],
       findFirst: async () => null,
@@ -80,12 +89,15 @@ function createService(overrides?: Partial<Record<string, any>>) {
       updateMany: async () => ({ count: 0 }),
     },
     vendasLeadTimelineEvent: {
+      findFirst: async () => null,
       create: async ({ data }: any) => ({ id: 'event-1', ...data }),
     },
     companyMessage: {
       findFirst: async () => null,
+      findMany: async () => [],
       count: async () => 0,
       create: async ({ data }: any) => ({ id: 801, ...data }),
+      delete: async ({ where }: any) => ({ id: where.id }),
       deleteMany: async () => ({ count: 0 }),
     },
     companyConversation: {
@@ -97,6 +109,7 @@ function createService(overrides?: Partial<Record<string, any>>) {
       findMany: async () => [{ ...baseConversation }],
       update: async ({ where, data }: any) => ({ ...baseConversation, id: where.id, ...data }),
       updateMany: async () => ({ count: 0 }),
+      delete: async ({ where }: any) => ({ id: where.id }),
     },
     hbxRecoveryCustomer: {
       findFirst: async () => ({ clientName: 'Carlos', name: 'Carlos' }),
@@ -137,6 +150,7 @@ function createService(overrides?: Partial<Record<string, any>>) {
       byPhoneNormalized: new Map(),
     }),
     normalizePhone: (phone: string) => String(phone || '').replace(/\D/g, '').slice(-13),
+    upsertProfile: async (input: Record<string, unknown>) => ({ id: 'profile-1', ...input }),
     upsertAtendimentoProfileState: async (input: Record<string, unknown>) => ({ id: 'profile-1', ...input }),
     ...(overrides?.customerProfileService || {}),
   } as any;
@@ -146,6 +160,7 @@ function createService(overrides?: Partial<Record<string, any>>) {
     syncConversationMessages: async () => 0,
     listLiveChats: async () => [buildLiveConversationSnapshot()],
     getLiveConversation: async () => buildLiveConversationSnapshot(),
+    isDispatchAvailable: () => true,
     ...(overrides?.webwhatsBridge || {}),
   } as any;
 
@@ -827,10 +842,22 @@ test('purgeConversationFromTrash removes one archived conversation locally witho
   let whatsappDeleteCalls = 0;
   const { service, auditCalls } = createService({
     prisma: {
+      company: {
+        findUnique: async () => ({
+          id: 7,
+          whatsappModalStatus: 'ready',
+          whatsappModalLastError: null,
+          whatsappTemporaryStatus: null,
+          whatsappTemporaryStatusError: null,
+          whatsappStatus: null,
+          whatsappStatusError: null,
+        }),
+      },
       companyMessage: {
-        deleteMany: async (input: Record<string, unknown>) => {
+        findMany: async () => [{ id: 901 }, { id: 902 }],
+        delete: async (input: Record<string, unknown>) => {
           messageDeleteCalls.push(input);
-          return { count: 2 };
+          return { id: (input as any).where.id };
         },
       },
       companyConversation: {
@@ -844,12 +871,25 @@ test('purgeConversationFromTrash removes one archived conversation locally witho
             inboxLocalDeleted: true,
             inboxManualQueueOverride: 'archived',
           }),
+          lastMessageAt: new Date('2026-03-17T10:01:00.000Z'),
+          lastInteractionAt: new Date('2026-03-17T10:01:00.000Z'),
           createdAt: new Date('2026-03-18T10:00:00.000Z'),
           updatedAt: new Date('2026-03-18T10:01:00.000Z'),
+          messages: [
+            {
+              direction: 'INBOUND',
+              senderType: 'client',
+              body: 'Não tenho interesse',
+              timestamp: new Date('2026-03-17T10:01:00.000Z'),
+              messageType: 'text',
+              variablesJson: null,
+              rawPayload: null,
+            },
+          ],
         }),
-        deleteMany: async (input: Record<string, unknown>) => {
+        delete: async (input: Record<string, unknown>) => {
           conversationDeleteCalls.push(input);
-          return { count: 1 };
+          return { id: (input as any).where.id };
         },
       },
     },
@@ -866,13 +906,13 @@ test('purgeConversationFromTrash removes one archived conversation locally witho
   assert.equal(result.success, true);
   assert.equal(result.localOnly, true);
   assert.equal(whatsappDeleteCalls, 0);
-  assert.equal(messageDeleteCalls.length, 1);
+  assert.equal(messageDeleteCalls.length, 2);
   assert.equal(conversationDeleteCalls.length, 1);
-  assert.equal(auditCalls.length, 1);
-  assert.equal(auditCalls[0].event, 'conversation_trash_purged_local');
+  assert.equal(auditCalls.some((call) => call.event === 'conversation_marked_negative_before_purge'), true);
+  assert.equal(auditCalls.some((call) => call.event === 'conversation_trash_purged_local'), true);
 });
 
-test('emptyTrash removes only empty archived conversations locally', async () => {
+test('emptyTrash legacy endpoint is blocked in favor of meticulous purge', async () => {
   const conversationDeleteCalls: Array<Record<string, unknown>> = [];
   const { service, auditCalls } = createService({
     prisma: {
@@ -900,12 +940,11 @@ test('emptyTrash removes only empty archived conversations locally', async () =>
 
   assert.equal(result.success, true);
   assert.equal(result.localOnly, true);
-  assert.equal(result.deleted, 1);
-  assert.deepEqual(result.deletedIds, ['44']);
-  assert.equal(conversationDeleteCalls.length, 1);
-  assert.deepEqual((conversationDeleteCalls[0] as any).where.id, { in: [44] });
+  assert.equal(result.deleted, 0);
+  assert.deepEqual(result.deletedIds, []);
+  assert.equal(conversationDeleteCalls.length, 0);
   assert.equal(auditCalls.length, 1);
-  assert.equal(auditCalls[0].event, 'conversation_empty_trash_purged_local');
+  assert.equal(auditCalls[0].event, 'conversation_empty_trash_legacy_blocked');
 });
 
 test('getConversationById exposes customer identity fields from AtendimentoCustomer and CustomerProfile', async () => {

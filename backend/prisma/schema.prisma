@@ -426,6 +426,44 @@ model CompanyConversation {
   @@map("Conversation")
 }
 
+model InboxTrashMeticulousPurgeJob {
+  id                         String    @id @default(cuid())
+  companyId                  Int
+  startedByUserId            Int?
+  status                     String    @default("idle") // idle | running | paused | paused_provider_unhealthy | paused_after_restart | canceled | completed | failed
+  mode                       String    @default("dry_run") // dry_run | real
+  dryRun                     Boolean   @default(true)
+  olderThanHours             Int       @default(24)
+  limit                      Int?
+  delayMs                    Int       @default(120000)
+  jitterMinMs                Int       @default(5000)
+  jitterMaxMs                Int       @default(20000)
+  candidateIdsJson           String    @default("[]")
+  previewJson                String    @default("[]")
+  totalCandidates            Int       @default(0)
+  currentIndex               Int       @default(0)
+  currentConversationId      Int?
+  currentPhone               String?
+  currentLastCustomerWords   String?
+  currentDetectedReason      String?
+  processed                  Int       @default(0)
+  markedNegative             Int       @default(0)
+  purged                     Int       @default(0)
+  skipped                    Int       @default(0)
+  errorsJson                 String    @default("[]")
+  lastError                  String?
+  providerStatus             String?
+  providerHealthJson         String?
+  nextRunAt                  DateTime?
+  startedAt                  DateTime  @default(now())
+  finishedAt                 DateTime?
+  createdAt                  DateTime  @default(now())
+  updatedAt                  DateTime  @updatedAt
+
+  @@index([companyId, status])
+  @@index([status, nextRunAt])
+}
+
 model CompanyMessage {
   id             Int                 @id @default(autoincrement())
   company        Company             @relation(fields: [companyId], references: [id])
@@ -1108,6 +1146,7 @@ model WebscrapingCampaign {
   createdAt                  DateTime @default(now())
   updatedAt                  DateTime @updatedAt
   batches                    WebscrapingCampaignBatch[]
+  tasks                      WebscrapingCampaignTask[]
   leads                      RadarLeadPool[]
 
   @@index([companyId, status, updatedAt])
@@ -1115,10 +1154,65 @@ model WebscrapingCampaign {
   @@index([companyId, createdAt])
 }
 
+model WebscrapingCampaignTask {
+  id               String   @id @default(cuid())
+  campaign         WebscrapingCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  campaignId       String
+  state            String
+  city             String
+  segment          String
+  targetType       String   @default("pj")
+  query            String
+  status           String   @default("queued") // queued | running | completed | exhausted | failed | canceled
+  attemptCount     Int      @default(0)
+  maxAttempts      Int      @default(3)
+  foundCount       Int      @default(0)
+  duplicateCount   Int      @default(0)
+  rejectedCount    Int      @default(0)
+  lastError        String?
+  lockedByEngineId String?
+  lockedUntil      DateTime?
+  startedAt        DateTime?
+  finishedAt       DateTime?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  batches          WebscrapingCampaignBatch[]
+
+  @@unique([campaignId, state, city, segment, targetType])
+  @@index([campaignId, status, updatedAt])
+  @@index([status, lockedUntil])
+  @@index([campaignId, city, status])
+}
+
+model WebscrapingOperationalConfig {
+  key                String   @id
+  enabled            Boolean  @default(false)
+  preset             String   @default("turbo_noturno")
+  startHour          Int      @default(20)
+  startMinute        Int      @default(0)
+  endHour            Int      @default(8)
+  endMinute          Int      @default(0)
+  engineCount        Int      @default(4)
+  intensity          String   @default("turbo") // economico | normal | turbo
+  memoryTargetGb     Int      @default(16)
+  batchSize          Int      @default(20)
+  maxAttemptsPerTask Int      @default(3)
+  engineUrlsJson     String   @default("[]")
+  metadataJson       String?
+  createdByUserId    Int?
+  updatedByUserId    Int?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@index([enabled, preset])
+}
+
 model WebscrapingCampaignBatch {
   id              String   @id @default(cuid())
   campaign        WebscrapingCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
   campaignId      String
+  task            WebscrapingCampaignTask? @relation(fields: [taskId], references: [id], onDelete: SetNull)
+  taskId          String?
   status          String   @default("running")
   attemptNumber   Int
   engineId        String?
@@ -1137,6 +1231,7 @@ model WebscrapingCampaignBatch {
 
   @@index([campaignId, attemptNumber])
   @@index([campaignId, status])
+  @@index([taskId, attemptNumber])
 }
 
 model RadarStockConfig {

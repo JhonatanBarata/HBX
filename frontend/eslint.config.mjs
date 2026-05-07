@@ -14,6 +14,7 @@ const eslintConfig = defineConfig([
     "next-env.d.ts",
     "public/**",
     "server.js",
+    ".copilot-recovery-head.tsx",
   ]),
 ]);
 

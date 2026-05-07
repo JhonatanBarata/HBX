@@ -12,6 +12,8 @@ type CardPedido = {
   fornecedor?: string | null;
   pais?: string | null;
   usdTotal?: number | null;
+  cambio?: number | string | null;
+  valorDolarCambio?: number | string | null;
   previsaoEmbarque?: string | null;
   status: string;
   statusColor: string;
@@ -127,7 +129,7 @@ export default function FollowupGlobalClientPage() {
   const rsEmAberto = useMemo(() => {
     if (!data) return null;
     let sum = 0;
-    (data.bloco1 || []).forEach((it: any) => {
+    (data.bloco1 || []).forEach((it) => {
       const usd = Number(it.usdTotal || 0);
       // try to use a conversion present on the item (campo 'cambio' or 'valorDolar' if present), fallback to 1
       const cambio = Number(it.cambio || it.valorDolarCambio || 1) || 1;

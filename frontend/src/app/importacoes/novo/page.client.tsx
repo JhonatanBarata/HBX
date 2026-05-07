@@ -21,6 +21,26 @@ type Fornecedor = {
 };
 type TransitTime = { id: number; portoOrigemId: number; portoDestinoId: number; dias: number };
 type OptionsPayload = { fornecedores: Fornecedor[]; paises: Pais[]; portos: Porto[]; transitTimes: TransitTime[] };
+type ImportacaoForm = {
+  numeroPedido: string;
+  fornecedorId: string;
+  paisId: string;
+  portoOrigemId: string;
+  portoDestinoId: string;
+  pais: string;
+  portoOrigem: string;
+  portoDestino: string;
+  dataEmbarque: string;
+  dataAtracacao: string;
+  valorUsd: string;
+  valorDolar: string;
+  pesoKg: string;
+  status: string;
+  invoiceNumber: string;
+  incoterm: string;
+  prepaid: boolean;
+  transporteTipo: string;
+};
 
 function addDays(ymd: string, days: number) {
   if (!ymd || !days || days < 1) return "";
@@ -38,7 +58,7 @@ export default function NewImportacaoClientPage() {
   const [error, setError] = useState<string | null>(null);
   const [options, setOptions] = useState<OptionsPayload>({ fornecedores: [], paises: [], portos: [], transitTimes: [] });
 
-  const [form, setForm] = useState({
+  const [form, setForm] = useState<ImportacaoForm>({
     numeroPedido: "",
     fornecedorId: "",
     paisId: "",
@@ -53,6 +73,10 @@ export default function NewImportacaoClientPage() {
     valorDolar: "",
     pesoKg: "",
     status: "EM_CADASTRO",
+    invoiceNumber: "",
+    incoterm: "",
+    prepaid: false,
+    transporteTipo: "FCL",
   });
 
   const [invoiceFile, setInvoiceFile] = useState<File | null>(null);
@@ -182,10 +206,10 @@ export default function NewImportacaoClientPage() {
       if (form.valorDolar) fd.append("valorDolar", form.valorDolar);
       if (form.pesoKg) fd.append("pesoKg", form.pesoKg);
       if (form.status) fd.append("status", form.status);
-      if ((form as any).invoiceNumber) fd.append("invoiceNumber", (form as any).invoiceNumber);
-      if ((form as any).incoterm) fd.append("incoterm", (form as any).incoterm);
-      fd.append("prepaid", (form as any).prepaid ? "1" : "0");
-      if ((form as any).transporteTipo) fd.append("transporteTipo", (form as any).transporteTipo);
+      if (form.invoiceNumber) fd.append("invoiceNumber", form.invoiceNumber);
+      if (form.incoterm) fd.append("incoterm", form.incoterm);
+      fd.append("prepaid", form.prepaid ? "1" : "0");
+      if (form.transporteTipo) fd.append("transporteTipo", form.transporteTipo);
       if (invoiceFile) fd.append("invoiceFile", invoiceFile);
       if (billFile) fd.append("billFile", billFile);
       if (diFile) fd.append("diFile", diFile);
@@ -278,7 +302,7 @@ export default function NewImportacaoClientPage() {
           </div>
           <div>
             <label className="text-xs text-muted block mb-1">Dólar Invoice</label>
-            <input className="field" value={form.valorDolar} readOnly={(form as any).prepaid} onChange={(e) => setForm((p) => ({ ...p, valorDolar: e.target.value }))} />
+            <input className="field" value={form.valorDolar} readOnly={form.prepaid} onChange={(e) => setForm((p) => ({ ...p, valorDolar: e.target.value }))} />
           </div>
 
           <div>
@@ -288,7 +312,7 @@ export default function NewImportacaoClientPage() {
 
           <div>
             <label className="text-xs text-muted block mb-1">Tipo de transporte</label>
-            <select className="field" value={(form as any).transporteTipo || "FCL"} onChange={(e) => setForm((p) => ({ ...p, transporteTipo: e.target.value }))}>
+            <select className="field" value={form.transporteTipo || "FCL"} onChange={(e) => setForm((p) => ({ ...p, transporteTipo: e.target.value }))}>
               <option value="FCL">FCL</option>
               <option value="LCL">LCL</option>
               <option value="Aéreo">Aéreo</option>
@@ -298,7 +322,7 @@ export default function NewImportacaoClientPage() {
 
           <div>
             <label className="text-xs text-muted block mb-1">Invoice number</label>
-            <input className="field" value={(form as any).invoiceNumber || ""} onChange={(e) => setForm((p) => ({ ...p, invoiceNumber: e.target.value }))} />
+            <input className="field" value={form.invoiceNumber || ""} onChange={(e) => setForm((p) => ({ ...p, invoiceNumber: e.target.value }))} />
           </div>
           <div>
             <label className="text-xs text-muted block mb-1">Invoice (anexo)</label>
@@ -306,7 +330,7 @@ export default function NewImportacaoClientPage() {
           </div>
 
           <div>
-            <label className="text-xs text-muted block mb-1">{(form as any).transporteTipo && ((form as any).transporteTipo === 'Aéreo' || (form as any).transporteTipo === 'Aereo') ? 'Air Waybill (anexo)' : 'Bill of Lading (anexo)'}</label>
+            <label className="text-xs text-muted block mb-1">{form.transporteTipo && (form.transporteTipo === 'Aéreo' || form.transporteTipo === 'Aereo') ? 'Air Waybill (anexo)' : 'Bill of Lading (anexo)'}</label>
             <input type="file" onChange={(e) => setBillFile(e.target.files?.[0] || null)} />
           </div>
 
@@ -316,12 +340,12 @@ export default function NewImportacaoClientPage() {
           </div>
 
           <div>
-            <label className="inline-flex items-center gap-2"><input type="checkbox" checked={(form as any).prepaid || false} onChange={(e) => setForm((p) => ({ ...p, prepaid: e.target.checked }))} /> Prepaid?</label>
+            <label className="inline-flex items-center gap-2"><input type="checkbox" checked={form.prepaid || false} onChange={(e) => setForm((p) => ({ ...p, prepaid: e.target.checked }))} /> Prepaid?</label>
           </div>
 
           <div>
             <label className="text-xs text-muted block mb-1">Incoterm</label>
-            <select className="field" value={(form as any).incoterm || ""} onChange={(e) => setForm((p) => ({ ...p, incoterm: e.target.value }))}>
+            <select className="field" value={form.incoterm || ""} onChange={(e) => setForm((p) => ({ ...p, incoterm: e.target.value }))}>
               <option value="">(selecionar)</option>
               <option value="EXW">EXW</option>
               <option value="FCA">FCA</option>

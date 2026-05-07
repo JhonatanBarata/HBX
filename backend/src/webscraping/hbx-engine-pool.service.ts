@@ -2,6 +2,13 @@ import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 
 const DEFAULT_HBX_ENGINE_URL = 'http://localhost:8001';
+const DEFAULT_HBX_ENGINE_URLS = [
+  'http://localhost:8001',
+  'http://localhost:8002',
+  'http://localhost:8003',
+  'http://localhost:8004',
+];
+const TURBO_OPERATIONAL_CONFIG_KEY = 'turbo_noturno';
 const HEALTH_CHECK_TTL_MS = 30_000;
 
 export type CapacityLevel = {
@@ -87,7 +94,7 @@ export class HbxEnginePoolService {
 
   async refreshEngineRegistryFromEnv() {
     if (!(await this.prisma.hasTable('HbxEngineLock'))) return [];
-    const urls = this.getConfiguredEngineUrls();
+    const urls = await this.getConfiguredEngineUrls();
     const rows: EngineRegistryRow[] = [];
 
     for (const [index, url] of urls.entries()) {
@@ -173,9 +180,23 @@ export class HbxEnginePoolService {
 
   async getCurrentCapacityLevel(): Promise<CapacityLevel> {
     const stats = await this.buildQueueStats();
-    const desiredEngineCount = this.resolveDesiredEngineCount(stats.queuedCount);
-    this.activeEngineCount = Math.max(this.activeEngineCount, desiredEngineCount);
-    this.applyHysteresis(stats.queuedCount);
+    const operationalConfig = await this.getOperationalConfig();
+    if (operationalConfig?.enabled) {
+      if (this.isWithinOperationalWindow(operationalConfig)) {
+        this.activeEngineCount = this.resolveOperationalEngineCount(operationalConfig);
+        this.engine2LowSince = null;
+        this.engine3LowSince = null;
+        this.engine4LowSince = null;
+      } else {
+        this.activeEngineCount = 1;
+        this.googleEmergencyMode = false;
+        this.googleLowSince = null;
+      }
+    } else {
+      const desiredEngineCount = this.resolveDesiredEngineCount(stats.queuedCount);
+      this.activeEngineCount = Math.max(this.activeEngineCount, desiredEngineCount);
+      this.applyHysteresis(stats.queuedCount);
+    }
 
     const stuck = this.isQueueStuck(stats);
     const emergencyDesired = stats.queuedCount >= this.googleEmergencyThreshold();
@@ -220,7 +241,7 @@ export class HbxEnginePoolService {
       partialLast10Min: 0,
       oldestQueuedAgeMinutes: 0,
     };
-    const configuredUrls = this.getConfiguredEngineUrls();
+    const configuredUrls = await this.getConfiguredEngineUrls();
 
     if (!(await this.prisma.hasTable('HbxEngineLock'))) {
       return {
@@ -338,8 +359,9 @@ export class HbxEnginePoolService {
     await (this.prisma as any).hbxEngineLock.update({
       where: { id: engineId },
       data: {
-        status: 'degraded',
+        status: 'cooldown',
         lastError: message.slice(0, 500),
+        cooldownUntil: new Date(Date.now() + 60_000),
         lockedRunId: null,
         lockedCompanyId: null,
         lockedUserId: null,
@@ -456,7 +478,7 @@ export class HbxEnginePoolService {
         online,
         busy,
         dimmed: !busy,
-        url: row?.url || configuredUrls[index] || null,
+        url: null,
         lockedUntil: this.serializeDate(row?.lockedUntil),
         cooldownUntil: this.serializeDate(row?.cooldownUntil),
         lastCheckedAt: this.serializeDate(row?.lastCheckedAt),
@@ -497,12 +519,57 @@ export class HbxEnginePoolService {
     return value instanceof Date ? value.toISOString() : null;
   }
 
-  private getConfiguredEngineUrls() {
+  private async getConfiguredEngineUrls() {
+    const operationalConfig = await this.getOperationalConfig();
+    const databaseUrls = this.parseEngineUrls(operationalConfig?.engineUrlsJson);
+    if (databaseUrls.length) return databaseUrls;
+
     const rawUrls = String(process.env.HBX_ENGINE_URLS || '').trim();
     const urls = rawUrls
       ? rawUrls.split(',').map((url) => url.trim()).filter(Boolean)
-      : [String(process.env.HBX_SCRAPING_ENGINE_URL || DEFAULT_HBX_ENGINE_URL).trim()];
+      : process.env.HBX_SCRAPING_ENGINE_URL
+        ? [String(process.env.HBX_SCRAPING_ENGINE_URL || DEFAULT_HBX_ENGINE_URL).trim()]
+        : DEFAULT_HBX_ENGINE_URLS;
     return urls.slice(0, 4).map((url) => url.replace(/\/+$/, ''));
+  }
+
+  private async getOperationalConfig() {
+    if (!(await this.prisma.hasTable('WebscrapingOperationalConfig').catch(() => false))) return null;
+    return (this.prisma as any).webscrapingOperationalConfig.findUnique({
+      where: { key: TURBO_OPERATIONAL_CONFIG_KEY },
+    }).catch(() => null);
+  }
+
+  private parseEngineUrls(value: unknown) {
+    try {
+      const parsed = Array.isArray(value) ? value : JSON.parse(String(value || '[]'));
+      return (Array.isArray(parsed) ? parsed : [])
+        .map((url) => String(url || '').trim().replace(/\/+$/, ''))
+        .filter(Boolean)
+        .slice(0, 4);
+    } catch {
+      return [];
+    }
+  }
+
+  private isWithinOperationalWindow(config: any, date = new Date()) {
+    const safe = (value: unknown, fallback: number, max: number) => {
+      const parsed = Number(value);
+      return Number.isFinite(parsed) ? Math.min(Math.max(Math.trunc(parsed), 0), max) : fallback;
+    };
+    const current = date.getHours() * 60 + date.getMinutes();
+    const start = safe(config?.startHour, 20, 23) * 60 + safe(config?.startMinute, 0, 59);
+    const end = safe(config?.endHour, 8, 23) * 60 + safe(config?.endMinute, 0, 59);
+    if (start === end) return true;
+    return start < end ? current >= start && current < end : current >= start || current < end;
+  }
+
+  private resolveOperationalEngineCount(config: any) {
+    const configured = Math.min(Math.max(parseInt(String(config?.engineCount ?? 4), 10) || 4, 1), 4);
+    const intensity = String(config?.intensity || 'turbo').trim().toLowerCase();
+    if (intensity === 'economico' || intensity === 'econômico') return 1;
+    if (intensity === 'normal') return Math.min(configured, 2);
+    return configured;
   }
 
   private engine2Threshold() {
@@ -567,7 +634,8 @@ export class HbxEnginePoolService {
 
   private async buildQueueStats() {
     const tenMinutesAgo = minutesAgo(10);
-    const [queuedCount, runningCount, completedLast10Min, partialLast10Min, oldestQueued, progressingRuns] = await Promise.all([
+    const hasCampaignTask = Boolean((this.prisma as any).webscrapingCampaignTask) && await this.prisma.hasTable('WebscrapingCampaignTask').catch(() => false);
+    const [searchQueuedCount, searchRunningCount, searchCompletedLast10Min, partialLast10Min, oldestQueued, progressingRuns] = await Promise.all([
       (this.prisma as any).webscrapingSearchRun.count({ where: { status: 'queued' } }),
       (this.prisma as any).webscrapingSearchRun.count({ where: { status: 'running' } }),
       (this.prisma as any).webscrapingSearchRun.count({ where: { status: 'completed', finishedAt: { gte: tenMinutesAgo } } }),
@@ -584,13 +652,27 @@ export class HbxEnginePoolService {
         },
       }),
     ]);
+    const [taskQueuedCount, taskRunningCount, taskCompletedLast10Min, oldestTaskQueued] = hasCampaignTask
+      ? await Promise.all([
+          (this.prisma as any).webscrapingCampaignTask.count({ where: { status: 'queued' } }),
+          (this.prisma as any).webscrapingCampaignTask.count({ where: { status: 'running' } }),
+          (this.prisma as any).webscrapingCampaignTask.count({ where: { status: { in: ['completed', 'exhausted'] }, finishedAt: { gte: tenMinutesAgo } } }),
+          (this.prisma as any).webscrapingCampaignTask.findFirst({
+            where: { status: 'queued' },
+            orderBy: { createdAt: 'asc' },
+            select: { createdAt: true },
+          }),
+        ])
+      : [0, 0, 0, null];
     const oldestQueuedAgeMinutes = oldestQueued?.createdAt instanceof Date
       ? Math.max(0, (Date.now() - oldestQueued.createdAt.getTime()) / 60_000)
-      : 0;
+      : oldestTaskQueued?.createdAt instanceof Date
+        ? Math.max(0, (Date.now() - oldestTaskQueued.createdAt.getTime()) / 60_000)
+        : 0;
     return {
-      queuedCount,
-      runningCount,
-      completedLast10Min,
+      queuedCount: searchQueuedCount + taskQueuedCount,
+      runningCount: searchRunningCount + taskRunningCount,
+      completedLast10Min: searchCompletedLast10Min + taskCompletedLast10Min,
       partialLast10Min,
       progressingRuns,
       oldestQueuedAgeMinutes,

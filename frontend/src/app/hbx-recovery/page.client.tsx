@@ -35,7 +35,9 @@ import ConversationBadgeList from "@/components/workspace/ConversationBadgeList"
 import ConversationContextPanel from "@/components/workspace/ConversationContextPanel";
 import ConversationListPane from "@/components/workspace/ConversationListPane";
 import ConversationMainPane from "@/components/workspace/ConversationMainPane";
-import ConversationQueueFilterBar from "@/components/workspace/ConversationQueueFilterBar";
+import ConversationQueueFilterBar, {
+  type ConversationQueueFilterValue,
+} from "@/components/workspace/ConversationQueueFilterBar";
 import ConversationWorkspaceStatus from "@/components/workspace/ConversationWorkspaceStatus";
 import ConversationWorkspaceShell from "@/components/workspace/ConversationWorkspaceShell";
 import {
@@ -8757,10 +8759,11 @@ export default function HbxRecoveryClientPage({ embedded = false }: HbxRecoveryC
             className={styles.workspaceDockShell}
             toolbarSlot={
               <ConversationQueueFilterBar
-                value={interactionsQueue as any}
-                onChange={(value: any) => {
-                  if (value === "all" || value === "blocked" || value === "closed") {
-                    setInteractionsQueue(value);
+                value={interactionsQueue as ConversationQueueFilterValue}
+                onChange={(value) => {
+                  const nextQueue = value as typeof interactionsQueue;
+                  if (nextQueue === "all" || nextQueue === "blocked" || nextQueue === "closed") {
+                    setInteractionsQueue(nextQueue);
                   }
                 }}
                 counts={{ all: 0, archived: 0, groups: 0, recovery: 0, scheduled: 0, bot: 0 }}
