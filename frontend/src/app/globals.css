@@ -1303,6 +1303,302 @@ html[data-theme-mode="light"] .app-topbar__engineConstellation {
   outline: none;
 }
 
+.app-topbar__engineMainGauge {
+  --engine-node-tone: var(--success);
+  --engine-usage: 0%;
+  --engine-glow: 0;
+  --engine-glow-size: 18px;
+  position: relative;
+  isolation: isolate;
+  min-width: 0;
+  min-height: 104px;
+  display: grid;
+  grid-template-rows: auto 1fr auto auto;
+  align-content: stretch;
+  gap: 0.34rem;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--engine-node-tone) 22%, var(--line));
+  border-radius: 16px;
+  padding: 0.5rem 0.56rem;
+  background:
+    radial-gradient(circle at 12% 12%, color-mix(in srgb, var(--engine-node-tone) 10%, transparent), transparent 42%),
+    linear-gradient(180deg, color-mix(in srgb, var(--surface-raised) 90%, var(--background)), color-mix(in srgb, var(--surface-soft) 76%, var(--background)));
+  color: var(--muted);
+  opacity: 0.82;
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, white 14%, transparent),
+    0 12px 28px -24px color-mix(in srgb, var(--engine-node-tone) 34%, transparent),
+    0 0 var(--engine-glow-size) color-mix(in srgb, var(--engine-node-tone) 18%, transparent);
+  filter: saturate(0.88) brightness(0.98);
+  transition:
+    border-color 220ms ease,
+    box-shadow 220ms ease,
+    filter 220ms ease,
+    opacity 220ms ease;
+}
+
+.app-topbar__engineMainGauge::before {
+  content: "";
+  position: absolute;
+  inset: -18%;
+  z-index: 0;
+  background:
+    radial-gradient(circle at 50% 82%, color-mix(in srgb, var(--engine-node-tone) 34%, transparent), transparent 36%),
+    radial-gradient(circle at 16% 18%, color-mix(in srgb, var(--button-secondary) 22%, transparent), transparent 32%),
+    radial-gradient(circle at 88% 10%, color-mix(in srgb, var(--engine-node-tone) 24%, transparent), transparent 34%);
+  opacity: var(--engine-glow);
+  pointer-events: none;
+  transition: opacity 180ms ease;
+}
+
+.app-topbar__engineMainGauge::after {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  z-index: 0;
+  border-radius: inherit;
+  border: 1px solid color-mix(in srgb, var(--engine-node-tone) 36%, transparent);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.app-topbar__engineMainGauge > * {
+  position: relative;
+  z-index: 1;
+}
+
+.app-topbar__engineMainGauge[data-state="busy"] {
+  --engine-node-tone: var(--success);
+}
+
+.app-topbar__engineMainGauge[data-state="emergency"] {
+  --engine-node-tone: var(--button-accent);
+}
+
+.app-topbar__engineMainGauge[data-state="cooldown"] {
+  --engine-node-tone: var(--warning);
+}
+
+.app-topbar__engineMainGauge[data-state="degraded"],
+.app-topbar__engineMainGauge[data-state="offline"] {
+  --engine-node-tone: var(--danger);
+}
+
+.app-topbar__engineMainGauge[data-state="missing"] {
+  --engine-node-tone: var(--muted);
+  filter: saturate(0.62);
+}
+
+.app-topbar__engineMainGauge[data-active="true"] {
+  opacity: 0.94;
+  color: color-mix(in srgb, var(--engine-node-tone) 76%, var(--foreground));
+  border-color: color-mix(in srgb, var(--engine-node-tone) 42%, var(--button-secondary));
+  filter: saturate(1.05) brightness(1.02);
+}
+
+.app-topbar__engineMainGauge[data-live="true"]::after {
+  opacity: 0.74;
+  animation: topbar-engine-node-pulse 1.18s ease-in-out infinite;
+}
+
+.app-topbar__engineMainGauge[data-overdrive="true"] {
+  opacity: 1;
+  color: color-mix(in srgb, var(--engine-node-tone) 88%, var(--foreground));
+  border-color: color-mix(in srgb, var(--engine-node-tone) 76%, white);
+  filter: saturate(1.42) brightness(1.1);
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, white 24%, transparent),
+    0 18px 38px -24px color-mix(in srgb, var(--engine-node-tone) 82%, transparent),
+    0 0 34px color-mix(in srgb, var(--engine-node-tone) 34%, transparent),
+    0 0 72px color-mix(in srgb, var(--button-secondary) 28%, transparent);
+}
+
+.app-topbar__engineMainGauge[data-overdrive="true"]::after {
+  border-color: color-mix(in srgb, var(--engine-node-tone) 68%, white);
+  box-shadow:
+    0 0 18px color-mix(in srgb, var(--engine-node-tone) 34%, transparent),
+    0 0 44px color-mix(in srgb, var(--engine-node-tone) 22%, transparent);
+  opacity: 1;
+}
+
+.app-topbar__engineMainScan {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background:
+    linear-gradient(100deg, transparent 0 34%, color-mix(in srgb, white 26%, transparent) 48%, transparent 62%),
+    linear-gradient(90deg, transparent, color-mix(in srgb, var(--engine-node-tone) 14%, transparent), transparent);
+  opacity: 0;
+  transform: translateX(-58%);
+  pointer-events: none;
+}
+
+.app-topbar__engineMainGauge[data-booting="true"] .app-topbar__engineMainScan,
+.app-topbar__engineMainGauge[data-live="true"] .app-topbar__engineMainScan {
+  opacity: 0.68;
+  animation: topbar-main-gauge-scan 1.28s ease-in-out infinite;
+}
+
+.app-topbar__engineMainHead {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 0.32rem;
+}
+
+.app-topbar__engineMainHead span,
+.app-topbar__engineMainHead em {
+  overflow: hidden;
+  color: color-mix(in srgb, currentColor 72%, var(--muted));
+  font-size: 0.54rem;
+  font-style: normal;
+  font-weight: 950;
+  letter-spacing: 0.08em;
+  line-height: 1;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.app-topbar__engineMainHead strong {
+  color: color-mix(in srgb, var(--engine-node-tone) 84%, var(--foreground));
+  font-size: 0.86rem;
+  font-weight: 950;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 0 16px color-mix(in srgb, var(--engine-node-tone) 28%, transparent);
+}
+
+.app-topbar__engineMainHead em {
+  max-width: 86px;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.app-topbar__engineMainBody {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(128px, 0.52fr) minmax(0, 1fr);
+  align-items: center;
+  gap: 0.56rem;
+}
+
+.app-topbar__engineSpeedometer.app-topbar__engineSpeedometer--main {
+  width: min(168px, 100%);
+  justify-self: center;
+  border-radius: 999px 999px 16px 16px;
+  box-shadow:
+    inset 0 -12px 22px color-mix(in srgb, black 16%, transparent),
+    0 0 var(--engine-glow-size) color-mix(in srgb, var(--engine-node-tone) 28%, transparent);
+}
+
+.app-topbar__engineSpeedometer.app-topbar__engineSpeedometer--main::before {
+  inset: 14px 14px 0;
+}
+
+.app-topbar__engineSpeedometer.app-topbar__engineSpeedometer--main::after {
+  bottom: 8px;
+  width: 44%;
+  height: 5px;
+  box-shadow:
+    0 0 18px color-mix(in srgb, var(--engine-node-tone) 78%, transparent),
+    0 0 34px color-mix(in srgb, var(--engine-node-tone) 28%, transparent);
+}
+
+.app-topbar__engineSpeedometer.app-topbar__engineSpeedometer--main b {
+  margin-bottom: 0.22rem;
+  font-size: 0.88rem;
+  text-shadow: 0 0 14px color-mix(in srgb, var(--engine-node-tone) 32%, transparent);
+}
+
+.app-topbar__engineMainCopy {
+  min-width: 0;
+  display: grid;
+  gap: 0.12rem;
+}
+
+.app-topbar__engineMainCopy strong {
+  overflow: hidden;
+  color: var(--foreground);
+  font-size: 0.78rem;
+  font-weight: 950;
+  line-height: 1.05;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-topbar__engineMainCopy span,
+.app-topbar__engineMainCopy small {
+  overflow: hidden;
+  color: color-mix(in srgb, var(--foreground-soft) 74%, var(--muted));
+  font-size: 0.56rem;
+  font-weight: 850;
+  line-height: 1.08;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-topbar__engineMainCopy small {
+  color: color-mix(in srgb, currentColor 66%, var(--muted));
+  font-size: 0.5rem;
+}
+
+.app-topbar__engineMainLights {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 0.18rem;
+}
+
+.app-topbar__engineMainLights i {
+  height: 5px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--line) 82%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, black 12%, transparent);
+  opacity: 0.48;
+  transition: opacity 180ms ease, background 180ms ease, box-shadow 180ms ease;
+}
+
+.app-topbar__engineMainLights i[data-lit="true"] {
+  background: color-mix(in srgb, var(--engine-node-tone) 88%, white);
+  box-shadow:
+    0 0 10px color-mix(in srgb, var(--engine-node-tone) 48%, transparent),
+    0 0 20px color-mix(in srgb, var(--engine-node-tone) 18%, transparent);
+  opacity: 1;
+}
+
+.app-topbar__engineMainLights i:nth-child(5)[data-lit="true"] {
+  background: color-mix(in srgb, var(--warning) 82%, white);
+}
+
+.app-topbar__engineMainLights i:nth-child(6)[data-lit="true"] {
+  background: color-mix(in srgb, var(--danger) 70%, var(--engine-node-tone));
+  box-shadow:
+    0 0 14px color-mix(in srgb, var(--danger) 48%, transparent),
+    0 0 28px color-mix(in srgb, var(--engine-node-tone) 34%, transparent);
+}
+
+.app-topbar__engineMainTrack {
+  height: 6px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--line) 70%, var(--surface));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, black 10%, transparent);
+}
+
+.app-topbar__engineMainTrack i {
+  width: var(--engine-usage);
+  min-width: 0;
+  height: 100%;
+  display: block;
+  border-radius: inherit;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--button-secondary) 86%, var(--info)), color-mix(in srgb, var(--engine-node-tone) 88%, white));
+  box-shadow:
+    0 0 16px color-mix(in srgb, var(--engine-node-tone) 48%, transparent),
+    0 0 32px color-mix(in srgb, var(--engine-node-tone) 20%, transparent);
+  transition: width 180ms ease;
+}
+
 .app-topbar__engineDeckHead {
   min-width: 0;
   display: grid;
@@ -2910,6 +3206,20 @@ html[data-theme-mode="dark"] .app-topbar__billboard {
   }
 }
 
+@keyframes topbar-main-gauge-scan {
+  0% {
+    transform: translateX(-62%);
+  }
+
+  58% {
+    transform: translateX(62%);
+  }
+
+  100% {
+    transform: translateX(72%);
+  }
+}
+
 @keyframes topbar-engine-ring-spin {
   to {
     transform: rotate(360deg);
@@ -2976,6 +3286,8 @@ html[data-theme-mode="dark"] .app-topbar__billboard {
   .app-topbar__engineCard[data-live="true"]::before,
   .app-topbar__engineCard[data-active="true"] .app-topbar__activityDots i,
   .app-topbar__engineCard[data-active="true"] .app-topbar__engineSpeedometer,
+  .app-topbar__engineMainGauge[data-live="true"]::after,
+  .app-topbar__engineMainScan,
   .app-topbar__engineCore[data-live="true"]::before,
   .app-topbar__billboard,
   .app-topbar__billboardScan,
@@ -7686,6 +7998,27 @@ html[data-theme="tabler"] .workspace-context {
     order: 2;
     width: 100%;
     justify-content: center;
+  }
+
+  .app-topbar__engineMainGauge {
+    min-height: 112px;
+  }
+
+  .app-topbar__engineMainBody {
+    grid-template-columns: minmax(116px, 0.42fr) minmax(0, 1fr);
+    gap: 0.42rem;
+  }
+
+  .app-topbar__engineSpeedometer--main {
+    width: min(142px, 100%);
+  }
+
+  .app-topbar__engineMainCopy small {
+    display: none;
+  }
+
+  .app-topbar__enginePopover {
+    display: none;
   }
 
   .app-topbar__engineDeckGrid {

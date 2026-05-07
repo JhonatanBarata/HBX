@@ -250,6 +250,8 @@ type BillboardSlide = {
   title: string;
   description: string;
   phase: "idle" | "loading" | "success" | "warning";
+  source?: string | null;
+  isTheater?: boolean;
   progress?: number | null;
   metrics?: TopbarProgressMetric[];
 };
@@ -274,7 +276,7 @@ const hiddenRoutes = new Set(["/login", "/register", "/reset-password", "/confir
 const SCRAPING_ENGINE_POLL_MS = 5000;
 const SYSTEM_HEALTH_POLL_MS = 5000;
 const TOPBAR_HBX_ENGINE_COUNT = 20;
-const TOPBAR_VISIBLE_HBX_ENGINE_COUNT = 4;
+const HBX_GAUGE_BOOT_MS = 1350;
 
 function buildFallbackScrapingEngine(index: number): ScrapingEngineStatus {
   return {
@@ -365,17 +367,6 @@ function getEngineUsage(engine: ScrapingEngineStatus) {
   return Number.isFinite(usage) ? Math.max(0, Math.min(100, Math.round(usage))) : engine.active ? 82 : 8;
 }
 
-function buildSparklinePoints(engine: ScrapingEngineStatus) {
-  const usage = getEngineUsage(engine);
-  const processed = Math.max(0, Math.trunc(Number(engine.processedLast10Min || 0)));
-  const errors = Math.max(0, Math.trunc(Number(engine.errorCount || 0)));
-  const values = Array.from({ length: 7 }, (_, index) => {
-    const wave = ((index * 17 + usage + processed * 9 + errors * 13) % 28) - 14;
-    return Math.max(8, Math.min(92, usage * 0.72 + 14 + wave));
-  });
-  return values.map((value, index) => `${index * 12},${Math.round(34 - value * 0.28)}`).join(" ");
-}
-
 function resolveEngineGroupState(engines: ScrapingEngineStatus[], isLive: (engine: ScrapingEngineStatus) => boolean) {
   if (engines.some((engine) => isLive(engine) || getScrapingEngineState(engine) === "busy" || engine.busy)) return "busy";
   if (engines.some((engine) => getScrapingEngineState(engine) === "degraded")) return "degraded";
@@ -386,17 +377,17 @@ function resolveEngineGroupState(engines: ScrapingEngineStatus[], isLive: (engin
   return "standby";
 }
 
-function averageEngineUsage(engines: ScrapingEngineStatus[]) {
-  if (!engines.length) return 0;
-  return Math.round(engines.reduce((sum, engine) => sum + getEngineUsage(engine), 0) / engines.length);
-}
-
 function normalizePercentValue(value?: string | number | null) {
   if (typeof value === "number") {
     return Number.isFinite(value) ? Math.max(0, Math.min(100, Math.round(value * 10) / 10)) : null;
   }
   const parsed = Number(String(value || "").replace("%", "").replace(",", ".").trim());
   return Number.isFinite(parsed) ? Math.max(0, Math.min(100, Math.round(parsed * 10) / 10)) : null;
+}
+
+function isTopbarTheaterSource(source: string | null | undefined) {
+  const normalized = String(source || "").trim().toLowerCase();
+  return normalized === "vendas" || normalized === "radar" || normalized === "radar-digital";
 }
 
 function formatTopbarPercent(value?: string | number | null) {
@@ -495,6 +486,8 @@ export default function TopBar() {
   const [billboardSlideIndex, setBillboardSlideIndex] = useState(0);
   const [scrapingEngines, setScrapingEngines] = useState<ScrapingEngineStatusPayload | null>(null);
   const [scrapingEngineStatusMessage, setScrapingEngineStatusMessage] = useState<string | null>(null);
+  const [hbxGaugeBooting, setHbxGaugeBooting] = useState(true);
+  const [hbxGaugeBootUsage, setHbxGaugeBootUsage] = useState(0);
   const [systemHealth, setSystemHealth] = useState<TopbarSystemHealthPayload | null>(null);
   const [unreadInboxOpen, setUnreadInboxOpen] = useState(false);
   const [unreadInboxLoading, setUnreadInboxLoading] = useState(false);
@@ -543,6 +536,42 @@ export default function TopBar() {
   );
 
   usePopupTopbarLock(whatsAppDetailOpen || masterContextModalOpen);
+
+  useEffect(() => {
+    if (window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches) {
+      setHbxGaugeBooting(false);
+      setHbxGaugeBootUsage(100);
+      return undefined;
+    }
+
+    let frame = 0;
+    let settleTimer: number | null = null;
+    const startedAt = window.performance.now();
+
+    setHbxGaugeBooting(true);
+    setHbxGaugeBootUsage(0);
+
+    const tick = (now: number) => {
+      const progress = Math.min(1, (now - startedAt) / HBX_GAUGE_BOOT_MS);
+      const eased = 1 - Math.pow(1 - progress, 3);
+      setHbxGaugeBootUsage(Math.round(eased * 100));
+
+      if (progress < 1) {
+        frame = window.requestAnimationFrame(tick);
+        return;
+      }
+
+      setHbxGaugeBootUsage(100);
+      settleTimer = window.setTimeout(() => setHbxGaugeBooting(false), 180);
+    };
+
+    frame = window.requestAnimationFrame(tick);
+
+    return () => {
+      window.cancelAnimationFrame(frame);
+      if (settleTimer) window.clearTimeout(settleTimer);
+    };
+  }, []);
 
   useEffect(() => {
     const handleTopbarProgress = (event: Event) => {
@@ -951,33 +980,6 @@ export default function TopBar() {
     [scrapingEngineView.hbxEngines],
   );
   const hbxRunningCount = scrapingEngineView.hbxEngines.filter((engine) => getScrapingEngineState(engine) === "busy" || engine.busy).length;
-  const hbxVisibleEngineGroups = useMemo(
-    () =>
-      Array.from({ length: TOPBAR_VISIBLE_HBX_ENGINE_COUNT }, (_, index) => {
-        const groupSize = Math.ceil(scrapingEngineView.hbxEngines.length / TOPBAR_VISIBLE_HBX_ENGINE_COUNT) || 1;
-        const engines = scrapingEngineView.hbxEngines.slice(index * groupSize, index * groupSize + groupSize);
-        const usage = averageEngineUsage(engines);
-        const state = resolveEngineGroupState(engines, isLiveScrapingEngine);
-        const active = engines.some((engine) => engine.active || isLiveScrapingEngine(engine) || getScrapingEngineState(engine) === "busy");
-        const online = engines.filter((engine) => engine.configured && engine.online).length;
-        const processed = engines.reduce((sum, engine) => sum + Math.max(0, Math.trunc(Number(engine.processedLast10Min || 0))), 0);
-        const start = engines[0]?.index !== null && engines[0]?.index !== undefined ? Number(engines[0].index) + 1 : index * groupSize + 1;
-        const end = engines[engines.length - 1]?.index !== null && engines[engines.length - 1]?.index !== undefined
-          ? Number(engines[engines.length - 1].index) + 1
-          : start + engines.length - 1;
-        return {
-          id: `hbx-core-${index + 1}`,
-          label: `M${index + 1}`,
-          rangeLabel: engines.length ? `M${start}-M${end}` : "Sem motores",
-          detail: `${online}/${engines.length} online • ${processed} cards em 10 min`,
-          engines,
-          usage,
-          state,
-          active,
-        };
-      }),
-    [isLiveScrapingEngine, scrapingEngineView.hbxEngines],
-  );
   const hbxEngineTotal = scrapingEngineView.hbxEngines.length;
   const hbxEngineOnlineCount = scrapingEngineView.hbxEngines.filter((engine) => engine.configured && engine.online).length;
   const hbxEngineActiveCapacity = Math.max(
@@ -985,6 +987,18 @@ export default function TopBar() {
     hbxRunningCount,
     hasActiveScrapingEngine ? 1 : 0,
   );
+  const hbxMainGaugeUsage = hbxGaugeBooting ? hbxGaugeBootUsage : hbxUsageAverage;
+  const hbxMainGaugeState = useMemo(
+    () => (hbxGaugeBooting ? "busy" : resolveEngineGroupState(scrapingEngineView.hbxEngines, isLiveScrapingEngine)),
+    [hbxGaugeBooting, isLiveScrapingEngine, scrapingEngineView.hbxEngines],
+  );
+  const hbxMainGaugeActive = hbxGaugeBooting || hasActiveScrapingEngine || hbxMainGaugeUsage > 0;
+  const hbxMainGaugeDetail = hbxGaugeBooting
+    ? "Partida dos motores em varrida de luz"
+    : `${hbxEngineOnlineCount}/${hbxEngineTotal} online • ${hbxProcessedLast10Min} cards em 10 min`;
+  const hbxMainGaugeTitle = hbxGaugeBooting
+    ? `Motores HBX aquecendo: ${hbxMainGaugeUsage}%`
+    : `Motores HBX: ${hbxUsageAverage}% de uso geral. ${hbxMainGaugeDetail}.`;
   const topbarSystemVitals = useMemo<TopbarSystemVital[]>(() => {
     const memory = systemHealth?.memory?.parsed;
     const disk = systemHealth?.disk?.parsed;
@@ -2232,9 +2246,10 @@ export default function TopBar() {
   }, [operationalStatus?.statuses, operationalStatusMap, pendingCheckoutLocked]);
   const billboardSlides = useMemo<BillboardSlide[]>(() => {
     if (topbarProgress) {
+      const theaterSource = isTopbarTheaterSource(topbarProgress.source);
       const sourceLabel =
-        topbarProgress.source === "vendas"
-          ? "Prospecção"
+        theaterSource
+          ? "Telão"
           : topbarProgress.source === "webscraping"
             ? progressEngineLabel
               ? `${progressEngineLabel} ao vivo`
@@ -2258,6 +2273,8 @@ export default function TopBar() {
           title: topbarProgress.title,
           description: topbarProgress.status,
           phase: topbarProgress.phase,
+          source: topbarProgress.source,
+          isTheater: theaterSource,
           progress: topbarProgressPercent,
           metrics: (topbarProgress.metrics?.length ? topbarProgress.metrics : fallbackMetrics).slice(0, 3),
         },
@@ -2272,6 +2289,7 @@ export default function TopBar() {
           title: "Contexto atualizado",
           description: masterContextToast,
           phase: "success",
+          source: "master-context",
           progress: 100,
           metrics: [{ label: "MASTER", value: "OK" }],
         },
@@ -2281,12 +2299,13 @@ export default function TopBar() {
     const capacity = scrapingEngines?.capacity;
     const slides: BillboardSlide[] = [
       {
-        id: "operational",
-        eyebrow: "Status operacional",
-        title: operationalSummaryMessage,
-        description: accountContext,
-        phase: pendingCheckoutLocked || showOperationalCompanyPicker ? "warning" : hasActiveScrapingEngine ? "loading" : "idle",
-        progress: hasActiveScrapingEngine ? hbxUsageAverage : null,
+      id: "operational",
+      eyebrow: "Status operacional",
+      title: operationalSummaryMessage,
+      description: accountContext,
+      phase: pendingCheckoutLocked || showOperationalCompanyPicker ? "warning" : hasActiveScrapingEngine ? "loading" : "idle",
+      source: "operational",
+      progress: hasActiveScrapingEngine ? hbxUsageAverage : null,
         metrics: [
           { label: "Uso", value: `${hbxUsageAverage}%` },
           { label: "Fila", value: String(capacity?.queuedCount ?? 0) },
@@ -2306,6 +2325,7 @@ export default function TopBar() {
         title: visibleOperationalStatusChips.slice(0, 2).map((chip) => `${chip.shortLabel}: ${chip.value}`).join(" · "),
         description: whatsAppHealthLabel,
         phase: whatsAppHealth === "green" ? "success" : whatsAppHealth === "red" ? "warning" : "idle",
+        source: "modules",
         progress: whatsAppHealth === "green" ? 100 : null,
         metrics: chipMetrics,
       });
@@ -2318,6 +2338,7 @@ export default function TopBar() {
         title: `${pendingHumanCount} atendimento${pendingHumanCount === 1 ? "" : "s"} na fila humana`,
         description: "Mensagens e cobranças aguardando operador.",
         phase: "warning",
+        source: "queue",
         progress: null,
         metrics: [
           { label: "Inbox", value: String(atendimentoPendingHumanCount) },
@@ -2367,6 +2388,7 @@ export default function TopBar() {
       title: "Status em leitura",
       description: "Aguardando dados do sistema.",
       phase: "idle",
+      source: "fallback",
       progress: null,
       metrics: [],
     };
@@ -2592,66 +2614,80 @@ export default function TopBar() {
                 data-count={scrapingEngineView.hbxEngines.length}
                 tabIndex={0}
                 aria-label={`Motores HBX M1 a M${scrapingEngineView.hbxEngines.length}`}
-                title="Passe o mouse nos velocímetros para ver as derivações"
+                title="Uso geral dos motores HBX"
               >
-                <div className="app-topbar__engineDeckHead">
-                  <span>Motores HBX</span>
-                  <strong>{hbxEngineActiveCapacity}/{hbxEngineTotal}</strong>
-                  <em>{hbxEngineOnlineCount} online</em>
+                <div
+                  className="app-topbar__engineMainGauge"
+                  data-active={hbxMainGaugeActive ? "true" : "false"}
+                  data-booting={hbxGaugeBooting ? "true" : "false"}
+                  data-live={liveWebscrapingProgress || hbxGaugeBooting ? "true" : "false"}
+                  data-overdrive={hbxMainGaugeUsage >= 90 ? "true" : "false"}
+                  data-state={hbxMainGaugeState}
+                  style={{
+                    ["--engine-usage" as string]: `${hbxMainGaugeUsage}%`,
+                    ["--engine-angle" as string]: `${-90 + hbxMainGaugeUsage * 1.8}deg`,
+                    ["--engine-arc" as string]: `${hbxMainGaugeUsage * 1.8}deg`,
+                    ["--engine-glow" as string]: (hbxMainGaugeUsage / 100).toFixed(2),
+                    ["--engine-glow-size" as string]: `${18 + hbxMainGaugeUsage * 0.64}px`,
+                  }}
+                  title={hbxMainGaugeTitle}
+                  aria-label={hbxMainGaugeTitle}
+                >
+                  <span className="app-topbar__engineMainScan" aria-hidden="true" />
+                  <div className="app-topbar__engineMainHead">
+                    <span>Motores HBX</span>
+                    <strong>{hbxMainGaugeUsage}%</strong>
+                    <em>{hbxGaugeBooting ? "aquecendo" : `${hbxEngineOnlineCount} online`}</em>
+                  </div>
+                  <div className="app-topbar__engineMainBody">
+                    <span className="app-topbar__engineSpeedometer app-topbar__engineSpeedometer--main" aria-hidden="true">
+                      <span />
+                      <b>{hbxMainGaugeUsage}%</b>
+                    </span>
+                    <div className="app-topbar__engineMainCopy">
+                      <strong>{hbxGaugeBooting ? "Partida luminosa" : "Uso geral"}</strong>
+                      <span>{hbxMainGaugeDetail}</span>
+                      <small>{hbxEngineActiveCapacity}/{hbxEngineTotal} motores ativados pela capacidade</small>
+                    </div>
+                  </div>
+                  <span className="app-topbar__engineMainLights" aria-hidden="true">
+                    {[12, 28, 44, 60, 76, 90].map((threshold) => (
+                      <i key={threshold} data-lit={hbxMainGaugeUsage >= threshold ? "true" : "false"} />
+                    ))}
+                  </span>
+                  <span className="app-topbar__engineMainTrack" aria-hidden="true">
+                    <i />
+                  </span>
                 </div>
-                <div className="app-topbar__engineDeckGrid">
-                  {hbxVisibleEngineGroups.map((group) => {
-                    const title = `${group.label}: ${group.rangeLabel}. ${group.detail}`;
+                <div className="app-topbar__enginePopover" aria-hidden="true">
+                  <div className="app-topbar__enginePopoverHead">
+                    <span>Detalhe dos motores</span>
+                    <strong>{hbxEngineOnlineCount}/{hbxEngineTotal} online</strong>
+                  </div>
+                  <div className="app-topbar__enginePopoverGrid">
+                    {scrapingEngineView.hbxEngines.map((engine) => {
+                      const usage = getEngineUsage(engine);
+                      const state = getVisibleScrapingEngineState(engine);
+                      const active = engine.active || isLiveScrapingEngine(engine);
+                      const label = getScrapingEngineShortLabel(engine);
+                      const title = `${label}: ${usage}% (${getVisibleScrapingEngineValue(engine)}). ${getVisibleScrapingEngineDetail(engine) || ""}`;
 
-                    return (
-                      <span
-                        key={group.id}
-                        className="app-topbar__engineCard"
-                        data-active={group.active ? "true" : "false"}
-                        data-state={group.state}
-                        data-live={group.state === "busy" ? "true" : "false"}
-                        style={{
-                          ["--engine-usage" as string]: `${group.usage}%`,
-                          ["--engine-angle" as string]: `${-90 + group.usage * 1.8}deg`,
-                          ["--engine-arc" as string]: `${group.usage * 1.8}deg`,
-                        }}
-                        title={title}
-                        aria-label={title}
-                      >
-                        <span className="app-topbar__engineCardTop">
-                          <span className="app-topbar__engineNodeLed" aria-hidden="true" />
-                          <strong>{group.label}</strong>
-                          <em>{group.rangeLabel}</em>
+                      return (
+                        <span
+                          key={engine.id}
+                          className="app-topbar__enginePeek"
+                          data-active={active ? "true" : "false"}
+                          data-state={state}
+                          style={{ ["--engine-usage" as string]: `${usage}%` }}
+                          title={title}
+                        >
+                          <i aria-hidden="true" />
+                          <strong>{label}</strong>
+                          <em>{usage}%</em>
                         </span>
-                        <span className="app-topbar__engineCardBody">
-                          <span className="app-topbar__engineSpeedometer" aria-hidden="true">
-                            <span />
-                            <b>{group.usage}%</b>
-                          </span>
-                        </span>
-                        <strong className="app-topbar__engineGroupDetail">{group.detail}</strong>
-                        <span className="app-topbar__engineDerivatives" aria-hidden="true">
-                          {group.engines.map((engine) => {
-                            const usage = getEngineUsage(engine);
-                            const state = getVisibleScrapingEngineState(engine);
-                            const active = engine.active || isLiveScrapingEngine(engine);
-                            return (
-                              <i
-                                key={`${group.id}:${engine.id}`}
-                                data-active={active ? "true" : "false"}
-                                data-state={state}
-                                style={{ ["--engine-usage" as string]: `${usage}%` }}
-                                title={`${getScrapingEngineShortLabel(engine)} ${usage}%`}
-                              >
-                                <span>{getScrapingEngineShortLabel(engine)}</span>
-                                <b>{usage}%</b>
-                              </i>
-                            );
-                          })}
-                        </span>
-                      </span>
-                    );
-                  })}
+                      );
+                    })}
+                  </div>
                 </div>
               </div>
 
@@ -2667,8 +2703,17 @@ export default function TopBar() {
                   key={activeBillboardSlide.id}
                   className="app-topbar__billboard"
                   data-phase={activeBillboardSlide.phase}
+                  data-source={activeBillboardSlide.source || "default"}
+                  data-theater={activeBillboardSlide.isTheater ? "true" : "false"}
                 >
                   <span className="app-topbar__billboardScan" aria-hidden="true" />
+                  {activeBillboardSlide.isTheater ? (
+                    <span className="app-topbar__billboardEqualizer" aria-hidden="true">
+                      {[0, 1, 2, 3, 4, 5, 6, 7].map((index) => (
+                        <i key={index} style={{ ["--eq-index" as string]: index }} />
+                      ))}
+                    </span>
+                  ) : null}
                   <div className="app-topbar__billboardMain">
                     <span className="app-topbar__billboardOrb" aria-hidden="true">
                       <span />
