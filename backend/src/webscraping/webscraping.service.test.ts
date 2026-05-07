@@ -63,6 +63,23 @@ function createUser() {
   };
 }
 
+test('normalizeOperationalConfigInput preserves midnight start and end hours', () => {
+  const service = new WebscrapingService(createPrisma()) as any;
+
+  const normalized = service.normalizeOperationalConfigInput({
+    startHour: 0,
+    startMinute: 15,
+    endHour: 0,
+    endMinute: 45,
+  });
+
+  assert.equal(normalized.startHour, 0);
+  assert.equal(normalized.startMinute, 15);
+  assert.equal(normalized.endHour, 0);
+  assert.equal(normalized.endMinute, 45);
+  assert.equal(service.formatTimeLabel(0, 0), '00:00');
+});
+
 function createSearchRunPrisma(initialRun: Record<string, any>) {
   const run = {
     id: 'run-1',

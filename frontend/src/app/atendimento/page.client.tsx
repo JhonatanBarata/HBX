@@ -8171,10 +8171,19 @@ export default function InboxClientPage() {
     }
     if (!notice) {
       setExpandedAlerts((current) => ({ ...current, system_notice: false }));
+      clearTopbarProgress("atendimento-notice");
       return;
     }
     setExpandedAlerts((current) => ({ ...current, system_notice: true }));
     if (typeof window === "undefined") return;
+    dispatchTopbarProgress({
+      source: "atendimento-notice",
+      phase: notice.tone === "error" ? "warning" : "success",
+      title: notice.text,
+      status: notice.tone === "error" ? "Ação não concluída no atendimento." : "Atendimento atualizado.",
+      progress: notice.tone === "error" ? 74 : 100,
+      metrics: [{ label: notice.tone === "error" ? "Atenção" : "Status", value: notice.tone === "info" ? "Aviso" : notice.tone === "error" ? "Erro" : "OK" }],
+    });
     noticeTimerRef.current = window.setTimeout(() => {
       setExpandedAlerts((current) => ({ ...current, system_notice: false }));
       setNotice(null);
@@ -8187,8 +8196,19 @@ export default function InboxClientPage() {
       window.clearTimeout(errorTimerRef.current);
       errorTimerRef.current = null;
     }
-    if (!error) return;
+    if (!error) {
+      clearTopbarProgress("atendimento-error");
+      return;
+    }
     if (typeof window === "undefined") return;
+    dispatchTopbarProgress({
+      source: "atendimento-error",
+      phase: "warning",
+      title: error,
+      status: "Ação não concluída no atendimento.",
+      progress: 68,
+      metrics: [{ label: "Status", value: "Atenção" }],
+    });
     errorTimerRef.current = window.setTimeout(() => {
       setError(null);
       errorTimerRef.current = null;
@@ -8218,10 +8238,6 @@ export default function InboxClientPage() {
 
   if (!hasToken) return null;
 
-  const systemFeedbackItems: NoticeState[] = [
-    ...(error ? [{ tone: "error" as const, text: error }] : []),
-    ...(notice ? [notice] : []),
-  ];
   const aiAssistantPanelStatus: AiAssistantStatus = aiAssistantStatus || {
     visualFeatureEnabled: true,
     smartRepliesFeatureEnabled: false,
@@ -8394,36 +8410,6 @@ export default function InboxClientPage() {
         ) : null}
 
       </DashboardScaffold>
-
-      {typeof document !== "undefined" && systemFeedbackItems.length > 0
-        ? createPortal(
-            <div className={styles.systemToastDock} aria-live="polite">
-              {systemFeedbackItems.map((item, index) => (
-                <div
-                  key={`${item.tone}-${item.text}-${index}`}
-                  className={`${styles.notificationCard} ${styles.systemToast} ${
-                    item.tone === "error"
-                      ? styles.systemToastError
-                      : item.tone === "success"
-                        ? styles.systemToastSuccess
-                        : styles.systemToastInfo
-                  }`}
-                  role={item.tone === "error" ? "alert" : "status"}
-                >
-                  <span className={styles.systemToastEyebrow}>
-                    {item.tone === "error"
-                      ? "Atenção"
-                      : item.tone === "success"
-                        ? "Confirmado"
-                        : "Aviso"}
-                  </span>
-                  <strong>{item.text}</strong>
-                </div>
-              ))}
-            </div>,
-            document.body,
-          )
-        : null}
 
       {agendaStudioOpen ? (
         renderAgendaPanel()

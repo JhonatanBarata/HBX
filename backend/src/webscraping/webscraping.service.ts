@@ -714,6 +714,12 @@ function safeInteger(value: unknown, fallback = 0) {
   return Math.max(0, Math.trunc(numeric));
 }
 
+function clampInteger(value: unknown, fallback: number, min: number, max: number) {
+  const numeric = toNumberOrNull(value);
+  const parsed = numeric == null ? fallback : Math.trunc(numeric);
+  return Math.min(Math.max(parsed, min), max);
+}
+
 function parsePositiveIntegerEnv(name: string, fallback: number) {
   const parsed = Number(String(process.env[name] || '').trim());
   if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
@@ -4923,15 +4929,15 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     const base = {
       enabled: input.enabled == null ? true : coerceBoolean(input.enabled),
       preset: TURBO_OPERATIONAL_CONFIG_KEY,
-      startHour: Math.min(Math.max(Math.trunc(Number(input.startHour ?? 20) || 20), 0), 23),
-      startMinute: Math.min(Math.max(Math.trunc(Number(input.startMinute ?? 0) || 0), 0), 59),
-      endHour: Math.min(Math.max(Math.trunc(Number(input.endHour ?? 8) || 8), 0), 23),
-      endMinute: Math.min(Math.max(Math.trunc(Number(input.endMinute ?? 0) || 0), 0), 59),
-      engineCount: Math.min(Math.max(Math.trunc(Number(input.engineCount ?? 4) || 4), 1), 4),
+      startHour: clampInteger(input.startHour, 20, 0, 23),
+      startMinute: clampInteger(input.startMinute, 0, 0, 59),
+      endHour: clampInteger(input.endHour, 8, 0, 23),
+      endMinute: clampInteger(input.endMinute, 0, 0, 59),
+      engineCount: clampInteger(input.engineCount, 4, 1, 4),
       intensity,
-      memoryTargetGb: Math.min(Math.max(Math.trunc(Number(input.memoryTargetGb ?? 16) || 16), 1), 256),
-      batchSize: Math.min(Math.max(Math.trunc(Number(input.batchSize ?? 20) || 20), 1), 20),
-      maxAttemptsPerTask: Math.min(Math.max(Math.trunc(Number(input.maxAttemptsPerTask ?? 3) || 3), 1), 10),
+      memoryTargetGb: clampInteger(input.memoryTargetGb, 16, 1, 256),
+      batchSize: clampInteger(input.batchSize, 20, 1, 20),
+      maxAttemptsPerTask: clampInteger(input.maxAttemptsPerTask, 3, 1, 10),
       engineUrlsJson: JSON.stringify(DEFAULT_MASS_DATA_ENGINE_URLS),
     };
     const existingMetadata = this.parseOperationalMetadata(existingMetadataJson);
@@ -5065,8 +5071,8 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
   }
 
   private formatTimeLabel(hour?: number | null, minute?: number | null) {
-    const safeHour = Math.min(Math.max(Math.trunc(Number(hour ?? 20) || 20), 0), 23);
-    const safeMinute = Math.min(Math.max(Math.trunc(Number(minute ?? 0) || 0), 0), 59);
+    const safeHour = clampInteger(hour, 20, 0, 23);
+    const safeMinute = clampInteger(minute, 0, 0, 59);
     return `${String(safeHour).padStart(2, '0')}:${String(safeMinute).padStart(2, '0')}`;
   }
 

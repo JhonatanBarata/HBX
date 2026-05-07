@@ -493,6 +493,24 @@
   margin-top: 14px;
 }
 
+.configActions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.configActions span {
+  color: var(--ws-muted-strong);
+  font-size: 0.78rem;
+  font-weight: 900;
+}
+
+.configActions span[data-dirty="true"] {
+  color: var(--ws-warning);
+}
+
 .campaignForm {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   margin-top: 14px;
@@ -761,6 +779,11 @@
 
   .headerClock {
     text-align: left;
+  }
+
+  .configActions {
+    align-items: stretch;
+    flex-direction: column;
   }
 
   .productionHead {

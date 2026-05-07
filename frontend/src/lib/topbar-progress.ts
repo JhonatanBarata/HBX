@@ -9,7 +9,7 @@ export type TopbarProgressMetric = {
 
 export type TopbarProgressState = {
   source: string;
-  phase: "loading" | "success";
+  phase: "loading" | "success" | "warning";
   title: string;
   status: string;
   progress: number;

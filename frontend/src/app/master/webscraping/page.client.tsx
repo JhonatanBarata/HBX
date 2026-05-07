@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import DashboardScaffold from "@/components/DashboardScaffold";
 import {
   HbxSegmentCombobox,
@@ -256,8 +256,21 @@ export default function MasterWebscrapingClientPage() {
   const [feedback, setFeedback] = useState<string | null>(null);
   const [dashboard, setDashboard] = useState<DashboardPayload | null>(null);
   const [form, setForm] = useState<FormState>(DEFAULT_FORM);
+  const [turboConfigDirty, setTurboConfigDirtyState] = useState(false);
+  const turboConfigDirtyRef = useRef(false);
 
-  const hydrateForm = useCallback((payload: DashboardPayload) => {
+  const setTurboConfigDirty = useCallback((value: boolean) => {
+    turboConfigDirtyRef.current = value;
+    setTurboConfigDirtyState(value);
+  }, []);
+
+  const updateTurboConfigForm = useCallback((patch: Partial<FormState>) => {
+    setForm((current) => ({ ...current, ...patch }));
+    setTurboConfigDirty(true);
+  }, [setTurboConfigDirty]);
+
+  const hydrateForm = useCallback((payload: DashboardPayload, options?: { preserveDirty?: boolean }) => {
+    if (options?.preserveDirty && turboConfigDirtyRef.current) return;
     const config = payload.config;
     setForm((current) => ({
       ...current,
@@ -269,7 +282,8 @@ export default function MasterWebscrapingClientPage() {
       batchSize: clampNumber(config.batchSize, 20, 1, 20),
       maxAttemptsPerTask: clampNumber(config.maxAttemptsPerTask, 3, 1, 10),
     }));
-  }, []);
+    setTurboConfigDirty(false);
+  }, [setTurboConfigDirty]);
 
   const loadDashboard = useCallback(async (options?: { silent?: boolean }) => {
     if (!options?.silent) setLoading(true);
@@ -280,7 +294,7 @@ export default function MasterWebscrapingClientPage() {
         timeoutMs: 15000,
       });
       setDashboard(payload);
-      hydrateForm(payload);
+      hydrateForm(payload, { preserveDirty: Boolean(options?.silent) });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Falha ao carregar o dashboard de webscraping.");
     } finally {
@@ -350,6 +364,27 @@ export default function MasterWebscrapingClientPage() {
       setFeedback(`Turbo forçado ativo até ${formatClock(payload.control.turbo.endsAt)}.`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Falha ao ativar Turbo Forçado.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function saveTurboConfig() {
+    setSaving(true);
+    setError(null);
+    setFeedback(null);
+    try {
+      const payload = await apiFetch<{ config: DashboardPayload["config"]; control: DashboardPayload }>("/modules/master/webscraping/turbo-noturno", {
+        method: "PUT",
+        requireAuth: true,
+        timeoutMs: 15000,
+        body: JSON.stringify(buildTurboPayload(form)),
+      });
+      setDashboard(payload.control);
+      hydrateForm(payload.control);
+      setFeedback("Configuração do Turbo salva.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Falha ao salvar a configuração do Turbo.");
     } finally {
       setSaving(false);
     }
@@ -502,19 +537,19 @@ export default function MasterWebscrapingClientPage() {
             <div className={styles.configGrid}>
               <label>
                 Início
-                <input type="time" value={form.startTime} onChange={(event) => setForm((current) => ({ ...current, startTime: event.target.value }))} />
+                <input type="time" value={form.startTime} onChange={(event) => updateTurboConfigForm({ startTime: event.target.value })} />
               </label>
               <label>
                 Fim
-                <input type="time" value={form.endTime} onChange={(event) => setForm((current) => ({ ...current, endTime: event.target.value }))} />
+                <input type="time" value={form.endTime} onChange={(event) => updateTurboConfigForm({ endTime: event.target.value })} />
               </label>
               <label>
                 Motores
-                <input type="number" min={1} max={4} value={form.engineCount} onChange={(event) => setForm((current) => ({ ...current, engineCount: clampNumber(event.target.value, 4, 1, 4) }))} />
+                <input type="number" min={1} max={4} value={form.engineCount} onChange={(event) => updateTurboConfigForm({ engineCount: clampNumber(event.target.value, 4, 1, 4) })} />
               </label>
               <label>
                 Intensidade
-                <select value={form.intensity} onChange={(event) => setForm((current) => ({ ...current, intensity: event.target.value as Intensity }))}>
+                <select value={form.intensity} onChange={(event) => updateTurboConfigForm({ intensity: event.target.value as Intensity })}>
                   <option value="economico">Econômico</option>
                   <option value="normal">Normal</option>
                   <option value="turbo">Turbo</option>
@@ -522,8 +557,16 @@ export default function MasterWebscrapingClientPage() {
               </label>
               <label>
                 Memória alvo
-                <input type="number" min={1} max={256} value={form.memoryTargetGb} onChange={(event) => setForm((current) => ({ ...current, memoryTargetGb: clampNumber(event.target.value, 16, 1, 256) }))} />
+                <input type="number" min={1} max={256} value={form.memoryTargetGb} onChange={(event) => updateTurboConfigForm({ memoryTargetGb: clampNumber(event.target.value, 16, 1, 256) })} />
               </label>
+            </div>
+            <div className={styles.configActions}>
+              <span data-dirty={turboConfigDirty ? "true" : "false"}>
+                {turboConfigDirty ? "Alterações pendentes" : "Configuração salva"}
+              </span>
+              <button type="button" className={styles.secondaryButton} onClick={() => void saveTurboConfig()} disabled={saving || !turboConfigDirty}>
+                {saving ? "Salvando" : "Salvar configuração"}
+              </button>
             </div>
           </article>
 
