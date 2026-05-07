@@ -183,13 +183,17 @@ type ProspectingAutomationLiveStatus = {
     city?: string | null;
     state?: string | null;
     segment?: string | null;
+    workingHoursStart?: string | null;
+    workingHoursEnd?: string | null;
   } | null;
   counters: {
-    pending: number;
-    sent: number;
-    interested: number;
-    archived: number;
-    failed: number;
+    pending?: number;
+    todayPending?: number;
+    sent?: number;
+    interested?: number;
+    positives?: number;
+    archived?: number;
+    failed?: number;
   };
   nextScheduledAt?: string | null;
   lastError?: string | null;
@@ -626,6 +630,71 @@ function formatAutomationScheduleLabel(value?: string | null) {
   return `Próximo envio em ${parsed.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" })} às ${time}`;
 }
 
+function parseAutomationClock(value: string | null | undefined, fallback: string) {
+  const source = /^\d{2}:\d{2}$/.test(String(value || "")) ? String(value) : fallback;
+  const [hourRaw, minuteRaw] = source.split(":");
+  return {
+    hour: Math.min(23, Math.max(0, Number(hourRaw) || 0)),
+    minute: Math.min(59, Math.max(0, Number(minuteRaw) || 0)),
+  };
+}
+
+function getNextAutomationWorkingStart(
+  campaign: ProspectingAutomationLiveStatus["campaign"],
+  reference = new Date(),
+) {
+  const start = parseAutomationClock(campaign?.workingHoursStart, "09:00");
+  const end = parseAutomationClock(campaign?.workingHoursEnd, "17:30");
+  const target = new Date(reference);
+  target.setSeconds(0, 0);
+
+  const moveToNextBusinessDay = () => {
+    do {
+      target.setDate(target.getDate() + 1);
+    } while (target.getDay() === 0 || target.getDay() === 6);
+    target.setHours(start.hour, start.minute, 0, 0);
+  };
+
+  if (target.getDay() === 0 || target.getDay() === 6) {
+    moveToNextBusinessDay();
+    return target;
+  }
+
+  const startToday = new Date(reference);
+  startToday.setHours(start.hour, start.minute, 0, 0);
+  const endToday = new Date(reference);
+  endToday.setHours(end.hour, end.minute, 0, 0);
+
+  if (reference.getTime() < startToday.getTime()) return startToday;
+  if (reference.getTime() <= endToday.getTime()) return reference;
+
+  moveToNextBusinessDay();
+  return target;
+}
+
+function isAutomationInsideWorkingWindow(campaign: ProspectingAutomationLiveStatus["campaign"]) {
+  if (!campaign || campaign.status !== "running") return true;
+  const now = new Date();
+  if (now.getDay() === 0 || now.getDay() === 6) return false;
+  const start = parseAutomationClock(campaign.workingHoursStart, "09:00");
+  const end = parseAutomationClock(campaign.workingHoursEnd, "17:30");
+  const startToday = new Date(now);
+  startToday.setHours(start.hour, start.minute, 0, 0);
+  const endToday = new Date(now);
+  endToday.setHours(end.hour, end.minute, 0, 0);
+  return now.getTime() >= startToday.getTime() && now.getTime() <= endToday.getTime();
+}
+
+function formatAutomationSleepingText(campaign: ProspectingAutomationLiveStatus["campaign"]) {
+  const next = getNextAutomationWorkingStart(campaign);
+  const today = new Date();
+  const startOf = (date: Date) => new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+  const diffDays = Math.round((startOf(next) - startOf(today)) / 86400000);
+  const time = next.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+  const dayLabel = diffDays === 0 ? "hoje" : diffDays === 1 ? "amanhã" : `em ${next.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" })}`;
+  return `Bot em repouso. Fora do horário operacional; retomada ${dayLabel} às ${time}.`;
+}
+
 function ProspectingAutomationStatus({
   status,
   loading,
@@ -643,23 +712,38 @@ function ProspectingAutomationStatus({
   onPause: () => void;
   onResume: () => void;
 }) {
-  const currentStatus = status?.status || "parado";
-  const counters = status?.counters || { pending: 0, sent: 0, interested: 0, archived: 0, failed: 0 };
+  const outsideWorkingHours = Boolean(
+    status?.campaign?.status === "running" && !isAutomationInsideWorkingWindow(status.campaign),
+  );
+  const currentStatus = outsideWorkingHours ? "dormindo" : status?.status || "parado";
+  const rawCounters = status?.counters || {};
+  const counters = {
+    pending: Number(rawCounters.pending ?? rawCounters.todayPending ?? 0) || 0,
+    sent: Number(rawCounters.sent ?? 0) || 0,
+    interested: Number(rawCounters.interested ?? rawCounters.positives ?? 0) || 0,
+    archived: Number(rawCounters.archived ?? 0) || 0,
+    failed: Number(rawCounters.failed ?? 0) || 0,
+  };
   const nextLabel = formatAutomationScheduleLabel(status?.nextScheduledAt);
   const busy =
-    loading ||
-    currentStatus === "buscando" ||
-    currentStatus === "importando" ||
-    currentStatus === "agendando" ||
-    currentStatus === "enviando";
+    !outsideWorkingHours &&
+    (
+      loading ||
+      currentStatus === "buscando" ||
+      currentStatus === "importando" ||
+      currentStatus === "agendando" ||
+      currentStatus === "enviando"
+    );
   const canPause = Boolean(status?.campaign && status.campaign.status === "running" && currentStatus !== "dormindo");
   const canResume = Boolean(status?.campaign && status.campaign.status === "paused");
   const text =
     disabled
       ? "Hbot desativado. Ative o Hbot para controlar a prospecção."
-      : status?.text ||
-        nextLabel ||
-        (counters.pending > 0 ? `${counters.pending} contatos na fila` : "Automação parada");
+      : outsideWorkingHours
+        ? formatAutomationSleepingText(status?.campaign || null)
+        : status?.text ||
+          nextLabel ||
+          (counters.pending > 0 ? `${counters.pending} contatos na fila` : "Automação parada");
 
   return (
     <section className={styles.automationPulse} data-status={currentStatus} data-disabled={disabled ? "true" : "false"}>
@@ -3221,8 +3305,10 @@ export default function InboxClientPage() {
         });
         setAiAssistantStatus(payload);
         if (payload.visualEnabled) {
+          setAiAssistantCompact(false);
           void loadAiAssistantWorkspace(payload);
         } else {
+          setAiAssistantCompact(true);
           setAiAssistantProspect(null);
           setAiAssistantInsights(null);
         }
@@ -8145,6 +8231,8 @@ export default function InboxClientPage() {
     ...(error ? [{ tone: "error" as const, text: error }] : []),
     ...(notice ? [notice] : []),
   ];
+  const aiAssistantVisible = Boolean(aiAssistantStatus?.visualEnabled);
+  const aiAssistantExpanded = aiAssistantVisible && !aiAssistantCompact;
   const queueActionConversationIsArchived =
     queueActionConversationId ? queueByConversationId[queueActionConversationId] === "archived" : false;
 
@@ -8168,7 +8256,11 @@ export default function InboxClientPage() {
               onPause={() => void runProspectingAutomationAction("pause")}
               onResume={() => void runProspectingAutomationAction("resume")}
             />
-            <section className={styles.inboxCanvas}>
+            <section
+              className={styles.inboxCanvas}
+              data-ai-visible={aiAssistantVisible ? "true" : "false"}
+              data-ai-expanded={aiAssistantExpanded ? "true" : "false"}
+            >
               <aside className={styles.commandDock}>
                 <div className={styles.commandDockTop}>
                   <button
@@ -8310,17 +8402,19 @@ export default function InboxClientPage() {
               <div className={styles.inboxStageContext}>
                 {inboxWorkspaceComponents.context()}
               </div>
-              {aiAssistantStatus?.visualEnabled ? (
-                <AiAssistantPanel
-                  status={aiAssistantStatus}
-                  prospect={aiAssistantProspect}
-                  insights={aiAssistantInsights}
-                  loading={aiAssistantLoading}
-                  compact={aiAssistantCompact}
-                  onToggleCompact={() => setAiAssistantCompact((current) => !current)}
-                  onStartProspect={startAiProspect}
-                  onRequestMoreLeads={() => void requestMoreLeadsFromAi()}
-                />
+              {aiAssistantVisible && aiAssistantStatus ? (
+                <aside className={styles.inboxStageAi} data-compact={aiAssistantCompact ? "true" : "false"}>
+                  <AiAssistantPanel
+                    status={aiAssistantStatus}
+                    prospect={aiAssistantProspect}
+                    insights={aiAssistantInsights}
+                    loading={aiAssistantLoading}
+                    compact={aiAssistantCompact}
+                    onToggleCompact={() => setAiAssistantCompact((current) => !current)}
+                    onStartProspect={startAiProspect}
+                    onRequestMoreLeads={() => void requestMoreLeadsFromAi()}
+                  />
+                </aside>
               ) : null}
             </section>
           </section>
