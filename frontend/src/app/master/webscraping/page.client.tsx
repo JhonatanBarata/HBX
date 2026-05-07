@@ -24,9 +24,14 @@ type CurrentUser = {
 type DashboardEngine = {
   id: string;
   label: string;
+  shortLabel?: string;
+  stateLabel?: string;
+  detail?: string;
   status: EngineStatus;
   online?: boolean;
   busy?: boolean;
+  active?: boolean;
+  usagePercent?: number;
   cardsFabricated: number;
   batches?: number;
   duplicates?: number;
@@ -196,6 +201,19 @@ function statusLabel(value: EngineStatus) {
   return "Aguardando";
 }
 
+function statusTone(value: EngineStatus) {
+  if (value === "running") return "Operando";
+  if (value === "cooldown") return "Cooldown";
+  if (value === "offline") return "Sem sinal";
+  return "Pronto";
+}
+
+function engineUsage(value?: number | null, active?: boolean) {
+  const parsed = Number(value);
+  if (Number.isFinite(parsed)) return Math.max(0, Math.min(100, Math.round(parsed)));
+  return active ? 76 : 8;
+}
+
 function dbStatusLabel(value: ProductionCard["dbStatus"]) {
   if (value === "saved") return "Gravado no banco";
   if (value === "error") return "Erro";
@@ -343,6 +361,13 @@ export default function MasterWebscrapingClientPage() {
   }, [allowed, dashboard?.engines, dashboard?.summary.activeQueue, loadDashboard]);
 
   const engines = useMemo(() => emptyEngines(dashboard?.engines, dashboard?.summary.totalEngines), [dashboard?.engines, dashboard?.summary.totalEngines]);
+  const engineStats = useMemo(() => {
+    const total = engines.length || dashboard?.summary.totalEngines || MAX_HBX_ENGINE_COUNT;
+    const online = dashboard?.summary.onlineEngines ?? engines.filter((engine) => engine.online && engine.status !== "offline").length;
+    const running = engines.filter((engine) => engine.status === "running" || engine.busy || engine.active).length;
+    const issues = engines.filter((engine) => engine.status === "offline" || engine.status === "cooldown" || engine.localhostInProduction || engine.lastError).length;
+    return { total, online, running, issues };
+  }, [dashboard?.summary.onlineEngines, dashboard?.summary.totalEngines, engines]);
   const dashboardDescription = dashboard?.turbo.active
     ? `Turbo forçado ativo até ${formatClock(dashboard.turbo.endsAt)}`
     : `Turbo forçado pronto para operar até ${dashboard?.turbo.endLabel || form.endTime}`;
@@ -476,43 +501,81 @@ export default function MasterWebscrapingClientPage() {
             <h2>Radar operacional dos motores HBX</h2>
             <p>{dashboard?.status.operationalMessage || "Status operacional em leitura."}</p>
           </div>
-          <div className={styles.headerClock}>
-            <span>Horário atual</span>
-            <strong>{dashboard?.generatedAt ? formatClock(dashboard.generatedAt) : "--:--"}</strong>
+          <div className={styles.headerOps}>
+            <div>
+              <span>Online</span>
+              <strong>{metric(engineStats.online)} / {metric(engineStats.total)}</strong>
+            </div>
+            <div>
+              <span>Rodando</span>
+              <strong>{metric(engineStats.running)}</strong>
+            </div>
+            <div>
+              <span>Fila</span>
+              <strong>{metric(dashboard?.summary.activeQueue)}</strong>
+            </div>
+            <div className={styles.headerClock}>
+              <span>Horário</span>
+              <strong>{dashboard?.generatedAt ? formatClock(dashboard.generatedAt) : "--:--"}</strong>
+            </div>
           </div>
         </header>
 
+        <section className={styles.engineOverview} aria-label="Resumo dos motores HBX">
+          <div>
+            <span>Capacidade configurada</span>
+            <strong>{metric(form.engineCount)} motores</strong>
+          </div>
+          <div>
+            <span>Motores com atenção</span>
+            <strong>{metric(engineStats.issues)}</strong>
+          </div>
+          <div>
+            <span>Batch por motor</span>
+            <strong>{metric(form.batchSize)}</strong>
+          </div>
+          <div>
+            <span>Intensidade</span>
+            <strong>{form.intensity === "economico" ? "Econômico" : form.intensity === "normal" ? "Normal" : "Turbo"}</strong>
+          </div>
+        </section>
+
         <section className={styles.engineGrid} aria-label="Motores HBX">
-          {engines.map((engine, index) => (
-            <article key={engine.id} className={styles.engineCard} data-status={engine.status}>
-              <div className={styles.engineBackgroundIcon} aria-hidden="true" />
-              <div className={styles.engineTop}>
-                <span>{engine.label || `M${index + 1}`}</span>
-                <strong>{statusLabel(engine.status)}</strong>
-              </div>
-              <div className={styles.engineMainMetric}>
-                <span>Cards fabricados</span>
-                <strong>{metric(engine.cardsFabricated)}</strong>
-              </div>
-              <div className={styles.engineMeta}>
-                <span>Fila <strong>{metric(engine.queue)}</strong></span>
-                <span>Batches <strong>{metric(engine.batches)}</strong></span>
-                <span>Duplicados/Rejeitados <strong>{metric(engine.duplicates)} / {metric(engine.rejected)}</strong></span>
-                <span>Última atividade <strong>{formatDateTime(engine.lastActivityAt)}</strong></span>
-              </div>
-              {engine.localhostInProduction ? (
-                <div className={styles.engineIssue} data-tone="critical">
-                  <strong>localhost em produção</strong>
-                  <span>{engine.lockUrl || "Corrigir URLs dos motores"}</span>
+          {engines.map((engine, index) => {
+            const usage = engineUsage(engine.usagePercent, engine.active || engine.busy || engine.status === "running");
+            return (
+              <article key={engine.id} className={styles.engineCard} data-status={engine.status} style={{ ["--engine-usage" as string]: `${usage}%` }}>
+                <div className={styles.engineTop}>
+                  <span>{engine.shortLabel || `M${index + 1}`}</span>
+                  <strong>{statusTone(engine.status)}</strong>
                 </div>
-              ) : engine.lastError ? (
-                <div className={styles.engineIssue}>
-                  <strong>Último erro</strong>
-                  <span>{engine.lastError}</span>
+                <div className={styles.engineGauge} aria-hidden="true">
+                  <span />
                 </div>
-              ) : null}
-            </article>
-          ))}
+                <div className={styles.engineMainMetric}>
+                  <span>{engine.stateLabel || statusLabel(engine.status)}</span>
+                  <strong>{metric(engine.cardsFabricated)}</strong>
+                </div>
+                <div className={styles.engineMeta}>
+                  <span>Fila <strong>{metric(engine.queue)}</strong></span>
+                  <span>Batches <strong>{metric(engine.batches)}</strong></span>
+                  <span>Duplicados/Rejeitados <strong>{metric(engine.duplicates)} / {metric(engine.rejected)}</strong></span>
+                  <span>Última atividade <strong>{formatDateTime(engine.lastActivityAt)}</strong></span>
+                </div>
+                {engine.localhostInProduction ? (
+                  <div className={styles.engineIssue} data-tone="critical">
+                    <strong>localhost em produção</strong>
+                    <span>{engine.lockUrl || "Corrigir URLs dos motores"}</span>
+                  </div>
+                ) : engine.lastError ? (
+                  <div className={styles.engineIssue}>
+                    <strong>Último erro</strong>
+                    <span>{engine.lastError}</span>
+                  </div>
+                ) : null}
+              </article>
+            );
+          })}
         </section>
 
         <section className={styles.mainGrid}>

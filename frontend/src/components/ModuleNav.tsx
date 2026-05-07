@@ -188,6 +188,24 @@ function resolveBlockedDescription(item: NavItem, moduleItem: UserModule | null,
   return "Indisponível nesta fase.";
 }
 
+function resolveNavDisplay(item: NavItem, override?: PresentationModuleOverride) {
+  if (item.key !== "radar_digital") {
+    return {
+      label: String(override?.label || item.label),
+      shortLabel: String(override?.shortLabel || item.shortLabel).slice(0, 4).toUpperCase(),
+      description: String(override?.description || item.description),
+    };
+  }
+
+  const overrideLabel = String(override?.label || "").trim();
+  const overrideDescription = String(override?.description || "").trim();
+  return {
+    label: /webscraping/i.test(overrideLabel) ? item.label : String(overrideLabel || item.label),
+    shortLabel: String(override?.shortLabel || item.shortLabel).slice(0, 4).toUpperCase(),
+    description: /webscraping/i.test(overrideDescription) ? item.description : String(overrideDescription || item.description),
+  };
+}
+
 type ModuleNavProps = {
   presentationEditing?: boolean;
   canEditPresentation?: boolean;
@@ -405,12 +423,13 @@ export default function ModuleNav({
                 : null;
               const blocked = Boolean(moduleItem && isModuleBlocked(moduleItem));
               const override = presentationConfig?.modules?.[item.href];
-              const label = String(override?.label || item.label);
-              const shortLabel = String(override?.shortLabel || item.shortLabel).slice(0, 4).toUpperCase();
+              const display = resolveNavDisplay(item, override);
+              const label = display.label;
+              const shortLabel = display.shortLabel;
               const description = String(
                 blocked
                   ? resolveBlockedDescription(item, moduleItem, isSystemMaster)
-                  : override?.description || item.description,
+                  : display.description,
               );
               const href = item.key === "radar_digital"
                 ? item.href

@@ -3348,7 +3348,7 @@ export default function InboxClientPage() {
         router.push(payload.action.href);
         return;
       }
-      setNotice({ tone: "info", text: payload.message || "Abra o Webscraping para pedir mais leads." });
+      setNotice({ tone: "info", text: payload.message || "Abra o Radar Digital para pedir mais leads." });
     } catch (requestError) {
       const message = requestError instanceof Error ? requestError.message : "Falha ao pedir mais leads.";
       setNotice({ tone: "error", text: message });
@@ -7392,7 +7392,7 @@ export default function InboxClientPage() {
                             ) : null}
                             {customerCardWebscrapingSummary ? (
                               <div className={glassCardStyles.subtlePanel}>
-                                <span className={glassCardStyles.sectionLabel}>Webscraping</span>
+                                <span className={glassCardStyles.sectionLabel}>Radar Digital</span>
                                 <p className={glassCardStyles.bodyText}>{customerCardWebscrapingSummary}</p>
                               </div>
                             ) : null}

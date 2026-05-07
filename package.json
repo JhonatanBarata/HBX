@@ -5,6 +5,8 @@
 	"scripts": {
 		"release": "node ./scripts/ops/release.js",
 		"publish": "node ./scripts/ops/publish.js",
+		"up": "npm run internal:up",
+		"down": "npm run internal:down",
 		"force": "node ./scripts/ops/force.js",
 		"internal:start": "npm run internal:up",
 		"internal:up": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/start-all.ps1",

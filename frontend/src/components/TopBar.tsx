@@ -241,6 +241,7 @@ const SUPPORT_MESSAGE = "Olá, preciso de ajuda com o HBX!";
 
 const hiddenRoutes = new Set(["/login", "/register", "/reset-password", "/confirm-email", "/boasvindas", "/tutorial"]);
 const SCRAPING_ENGINE_POLL_MS = 6500;
+const TOPBAR_HBX_ENGINE_COUNT = 20;
 
 function buildFallbackScrapingEngine(index: number): ScrapingEngineStatus {
   return {
@@ -312,7 +313,7 @@ function buildFallbackGoogleEngine(): ScrapingEngineStatus {
 
 function normalizeScrapingEngines(payload: ScrapingEngineStatusPayload | null) {
   const source = Array.isArray(payload?.engines) ? payload.engines : [];
-  const hbxEngineCount = Math.max(20, source.filter((engine) => engine.kind === "hbx").length);
+  const hbxEngineCount = Math.max(TOPBAR_HBX_ENGINE_COUNT, source.filter((engine) => engine.kind === "hbx").length);
   const hbxEngines = Array.from({ length: hbxEngineCount }, (_, index) => {
     return source.find((engine) => engine.kind === "hbx" && engine.index === index) || buildFallbackScrapingEngine(index);
   });
@@ -2506,7 +2507,11 @@ export default function TopBar() {
               data-active={hasActiveScrapingEngine ? "true" : "false"}
               data-live={liveWebscrapingProgress ? "true" : "false"}
             >
-              <div className="app-topbar__engineDeck" aria-label="Motores HBX M1 a M4">
+              <div
+                className="app-topbar__engineDeck"
+                data-count={scrapingEngineView.hbxEngines.length}
+                aria-label={`Motores HBX M1 a M${scrapingEngineView.hbxEngines.length}`}
+              >
                 {scrapingEngineView.hbxEngines.map((engine) => {
                   const visualState = getVisibleScrapingEngineState(engine);
                   const visualValue = getVisibleScrapingEngineValue(engine);

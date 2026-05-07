@@ -45,7 +45,7 @@ const FALLBACK_PLANS: Record<PlanKey, CommercialPlan> = {
     annualDiscountPercent: 20,
     trialDays: 0,
     quotas: { googleSearchesPerDay: 0 },
-    features: ["Webscraping de empresas", "Leads por cidade e segmento", "CRM de vendas", "Funil comercial", "Histórico de contatos", "Organização de oportunidades"],
+    features: ["Radar Digital de empresas", "Leads por cidade e segmento", "CRM de vendas", "Funil comercial", "Histórico de contatos", "Organização de oportunidades"],
     legalCopy: "Liberação após pagamento confirmado.",
   },
   hbx_padrao: {

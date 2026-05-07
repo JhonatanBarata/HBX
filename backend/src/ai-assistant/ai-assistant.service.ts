@@ -433,9 +433,9 @@ export class AiAssistantService {
       noNewLeadsAvailable: pendingLeads <= 0,
       queueLow: pendingLeads <= 3,
       message: nightMetrics.premium > 0
-        ? 'Antes de buscar lead cru, use o Radar Premium: ha oportunidades enriquecidas prontas para abordagem humana.'
+        ? 'Antes de buscar lead cru, use o Radar Digital: ha oportunidades enriquecidas prontas para abordagem humana.'
         : nightMetrics.enriched > 0
-          ? 'Ha estoque enriquecido pela Night Factory. Priorize esses leads antes de puxar webscraping cru.'
+          ? 'Ha estoque enriquecido pela Night Factory. Priorize esses leads antes de puxar coleta bruta.'
           : 'Sua busca atual foi concluida e nao ha novos leads no momento. Se o estoque bruto estiver alto, rode enriquecimento noturno.',
       nightFactorySuggestion: {
         premiumAvailable: nightMetrics.premium,
@@ -443,10 +443,10 @@ export class AiAssistantService {
         recoveryAvailable: nightMetrics.recovery,
       },
       action: {
-        label: nightMetrics.premium > 0 ? 'Usar Radar Premium' : 'Pedir Mais Leads',
+        label: nightMetrics.premium > 0 ? 'Usar Radar Digital' : 'Pedir Mais Leads',
         href: nightMetrics.premium > 0
-          ? '/webscraping?from=ai_assistant&intent=radar_premium'
-          : '/webscraping?from=ai_assistant&intent=request_more_leads',
+          ? '/radar-digital?from=ai_assistant&intent=radar_premium'
+          : '/radar-digital?from=ai_assistant&intent=request_more_leads',
       },
     };
   }
@@ -483,7 +483,7 @@ export class AiAssistantService {
       suggestedApproach: metadata.suggestedApproach || null,
       action: {
         label: 'Abordar com roteiro',
-        href: `/webscraping?radarLeadId=${encodeURIComponent(String(candidate.id))}&source=night_factory`,
+        href: `/radar-digital?radarLeadId=${encodeURIComponent(String(candidate.id))}&source=night_factory`,
       },
     };
   }

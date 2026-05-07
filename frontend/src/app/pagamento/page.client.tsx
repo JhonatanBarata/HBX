@@ -235,7 +235,7 @@ const PLAN_CATALOG: Record<PlanKey, { title: string; monthly: number; includes: 
   hbx_lite: {
     title: "HBX Vendas",
     monthly: 49.9,
-    includes: ["Webscraping de empresas", "Leads por cidade e segmento", "CRM de vendas"],
+    includes: ["Radar Digital de empresas", "Leads por cidade e segmento", "CRM de vendas"],
   },
   hbx_padrao: {
     title: "HBX WhatsApp",

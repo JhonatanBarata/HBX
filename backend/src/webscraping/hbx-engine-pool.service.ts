@@ -223,9 +223,7 @@ export class HbxEnginePoolService implements OnModuleInit {
   private readonly logger = new Logger(HbxEnginePoolService.name);
   private activeEngineCount = 1;
   private googleEmergencyMode = false;
-  private engine2LowSince: number | null = null;
-  private engine3LowSince: number | null = null;
-  private engine4LowSince: number | null = null;
+  private lowQueueSinceByEngineCount = new Map<number, number>();
   private googleLowSince: number | null = null;
 
   constructor(private readonly prisma: PrismaService) {}
@@ -333,13 +331,12 @@ export class HbxEnginePoolService implements OnModuleInit {
     if (operationalConfig?.enabled) {
       if (this.isWithinOperationalWindow(operationalConfig)) {
         this.activeEngineCount = this.resolveOperationalEngineCount(operationalConfig);
-        this.engine2LowSince = null;
-        this.engine3LowSince = null;
-        this.engine4LowSince = null;
+        this.lowQueueSinceByEngineCount.clear();
       } else {
         this.activeEngineCount = 1;
         this.googleEmergencyMode = false;
         this.googleLowSince = null;
+        this.lowQueueSinceByEngineCount.clear();
       }
     } else {
       const desiredEngineCount = this.resolveDesiredEngineCount(stats.queuedCount);
@@ -438,7 +435,7 @@ export class HbxEnginePoolService implements OnModuleInit {
       .filter((engine) => engine.engineIndex < capacity.activeEngineCount)
       .filter((engine) => String(engine.lastHealthStatus || engine.status) !== 'offline')
       .filter((engine) => !engine.cooldownUntil || engine.cooldownUntil.getTime() <= now)
-      .sort((left, right) => left.engineIndex - right.engineIndex);
+      .sort((left, right) => this.compareEngineAvailability(left, right));
   }
 
   async acquireEngine(runId: string, companyId: number, userId: number, avoidEngineIdOrUrl?: string): Promise<HbxEngineLease | null> {
@@ -457,7 +454,7 @@ export class HbxEnginePoolService implements OnModuleInit {
       .sort((left, right) => {
         const leftAvoided = avoid && (left.id === avoid || left.url === avoid) ? 1 : 0;
         const rightAvoided = avoid && (right.id === avoid || right.url === avoid) ? 1 : 0;
-        return leftAvoided - rightAvoided || left.engineIndex - right.engineIndex;
+        return leftAvoided - rightAvoided || this.compareEngineAvailability(left, right);
       });
     const lockedUntil = new Date(Date.now() + this.engineMaxBusyMinutes() * 60_000);
 
@@ -1047,16 +1044,12 @@ export class HbxEnginePoolService implements OnModuleInit {
     return configured;
   }
 
-  private engine2Threshold() {
-    return parseIntegerEnv('HBX_CAPACITY_ENGINE_2_QUEUE_THRESHOLD', 3);
+  private fullQueueThreshold() {
+    return Math.max(1, parseIntegerEnv('HBX_CAPACITY_FULL_QUEUE_THRESHOLD', 100));
   }
 
-  private engine3Threshold() {
-    return parseIntegerEnv('HBX_CAPACITY_ENGINE_3_QUEUE_THRESHOLD', 10);
-  }
-
-  private engine4Threshold() {
-    return parseIntegerEnv('HBX_CAPACITY_ENGINE_4_QUEUE_THRESHOLD', 20);
+  private idleQueueThreshold() {
+    return Math.max(0, parseIntegerEnv('HBX_CAPACITY_IDLE_QUEUE_THRESHOLD', 5));
   }
 
   private googleEmergencyThreshold() {
@@ -1076,35 +1069,67 @@ export class HbxEnginePoolService implements OnModuleInit {
   }
 
   private resolveDesiredEngineCount(queuedCount: number) {
-    if (queuedCount >= this.engine4Threshold()) return getConfiguredHbxEngineCount();
-    if (queuedCount >= this.engine3Threshold()) return 3;
-    if (queuedCount >= this.engine2Threshold()) return 2;
-    return 1;
+    const engineCount = getConfiguredHbxEngineCount();
+    const queue = Math.max(0, Math.trunc(Number(queuedCount || 0)));
+    if (queue <= 0) return 1;
+    const fullThreshold = this.fullQueueThreshold();
+    if (queue >= fullThreshold) return engineCount;
+    const desired = Math.ceil((queue / fullThreshold) * engineCount);
+    return Math.max(1, Math.min(engineCount, desired));
   }
 
   private applyHysteresis(queuedCount: number) {
     const now = Date.now();
-    this.engine2LowSince = this.updateLowSince(this.engine2LowSince, queuedCount <= 1);
-    this.engine3LowSince = this.updateLowSince(this.engine3LowSince, queuedCount <= 5);
-    this.engine4LowSince = this.updateLowSince(this.engine4LowSince, queuedCount <= 10);
+    const desired = this.resolveDesiredEngineCount(queuedCount);
+    const current = Math.max(1, Math.min(getConfiguredHbxEngineCount(), Math.trunc(Number(this.activeEngineCount || 1))));
+    if (current <= desired) {
+      this.lowQueueSinceByEngineCount.clear();
+      return;
+    }
 
-    if (this.activeEngineCount >= 4 && this.engine4LowSince && now - this.engine4LowSince >= 30 * 60_000) {
-      this.activeEngineCount = 3;
-      this.engine4LowSince = null;
+    for (const key of Array.from(this.lowQueueSinceByEngineCount.keys())) {
+      if (key !== current) this.lowQueueSinceByEngineCount.delete(key);
     }
-    if (this.activeEngineCount >= 3 && this.engine3LowSince && now - this.engine3LowSince >= 20 * 60_000) {
-      this.activeEngineCount = 2;
-      this.engine3LowSince = null;
-    }
-    if (this.activeEngineCount >= 2 && this.engine2LowSince && now - this.engine2LowSince >= 15 * 60_000) {
-      this.activeEngineCount = 1;
-      this.engine2LowSince = null;
-    }
+
+    const lowSince = this.updateLowSince(this.lowQueueSinceByEngineCount.get(current) || null, true);
+    this.lowQueueSinceByEngineCount.set(current, lowSince);
+    if (now - lowSince < this.engineScaleDownHysteresisMs(current, queuedCount)) return;
+
+    const next = queuedCount <= this.idleQueueThreshold()
+      ? 1
+      : Math.max(desired, current - 1);
+    this.activeEngineCount = Math.max(1, Math.min(getConfiguredHbxEngineCount(), next));
+    this.lowQueueSinceByEngineCount.delete(current);
   }
 
   private updateLowSince(current: number | null, condition: boolean) {
     if (!condition) return null;
     return current || Date.now();
+  }
+
+  private engineScaleDownHysteresisMs(engineCount: number, queuedCount: number) {
+    if (queuedCount <= this.idleQueueThreshold()) return 15 * 60_000;
+    if (engineCount <= 2) return 15 * 60_000;
+    if (engineCount === 3) return 20 * 60_000;
+    return 30 * 60_000;
+  }
+
+  private compareEngineAvailability(left: EngineRegistryRow, right: EngineRegistryRow) {
+    const now = Date.now();
+    const leftBusy = this.isEngineCurrentlyBusy(left, now) ? 1 : 0;
+    const rightBusy = this.isEngineCurrentlyBusy(right, now) ? 1 : 0;
+    if (leftBusy !== rightBusy) return leftBusy - rightBusy;
+
+    const leftLastUsed = left.lastUsedAt instanceof Date ? left.lastUsedAt.getTime() : 0;
+    const rightLastUsed = right.lastUsedAt instanceof Date ? right.lastUsedAt.getTime() : 0;
+    if (leftLastUsed !== rightLastUsed) return leftLastUsed - rightLastUsed;
+
+    return left.engineIndex - right.engineIndex;
+  }
+
+  private isEngineCurrentlyBusy(engine: EngineRegistryRow, now = Date.now()) {
+    const locked = Boolean(engine.lockedRunId && engine.lockedUntil instanceof Date && engine.lockedUntil.getTime() > now);
+    return locked || String(engine.status || '').trim().toLowerCase() === 'busy';
   }
 
   private async buildQueueStats() {

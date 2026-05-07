@@ -999,7 +999,7 @@ export default function TutorialClientPage() {
         <StepFrame
           titleId={titleId}
           title="Encontre oportunidades reais para trabalhar."
-          text="O Webscraping ajuda você a buscar possíveis clientes por cidade e segmento. Você escolhe o público, revisa os resultados e pode transformar contatos promissores em oportunidades para o time comercial."
+          text="O Radar Digital ajuda você a buscar possíveis clientes por cidade e segmento. Você escolhe o público, revisa os resultados e pode transformar contatos promissores em oportunidades para o time comercial."
           points={["Busque por cidade e segmento.", "Revise contatos antes de trabalhar.", "Envie bons resultados para Vendas."]}
           visual={<WebscrapingMockup />}
           previousLabel="Anterior"
@@ -1244,11 +1244,11 @@ export default function TutorialClientPage() {
         }
         points={
           botSetupComplete
-            ? ["Bot ativo no Inbox.", "Webscraping busca os primeiros contatos.", "Vendas e Atendimento continuam com o fluxo salvo."]
-            : ["Comece pelo Webscraping.", "Envie bons contatos para Vendas.", "Avance para Atendimento conforme o plano."]
+            ? ["Bot ativo no Inbox.", "Radar Digital busca os primeiros contatos.", "Vendas e Atendimento continuam com o fluxo salvo."]
+            : ["Comece pelo Radar Digital.", "Envie bons contatos para Vendas.", "Avance para Atendimento conforme o plano."]
         }
         visual={<FinalMockup botReady={botSetupComplete} themeMode={selection.mode} />}
-        primaryLabel={botSetupComplete ? "Ir para Webscraping" : "Começar no Webscraping"}
+        primaryLabel={botSetupComplete ? "Ir para Radar Digital" : "Começar no Radar Digital"}
         onPrimary={goToWebscraping}
         secondaryLabel={blockedFeature ? "Ver planos" : undefined}
         onSecondary={blockedFeature ? goToPlans : undefined}
@@ -2689,11 +2689,11 @@ function WebscrapingMockup() {
   return (
     <div className={`${styles.visualCard} ${styles.webscrapingShowcase}`}>
       <div className={styles.visualHeader}>
-        <span className={styles.visualLabel}>Webscraping</span>
+        <span className={styles.visualLabel}>Radar Digital</span>
         <span className={styles.visualHint}>prévia real da operação</span>
       </div>
 
-      <div className={styles.previewTabs} role="tablist" aria-label="Prévia do Webscraping">
+      <div className={styles.previewTabs} role="tablist" aria-label="Prévia do Radar Digital">
         <button
           type="button"
           className={styles.previewButton}
@@ -2753,7 +2753,7 @@ function WebscrapingMockup() {
             <span>Novo</span>
             <article>
               <strong>Clínica Prime</strong>
-              <small>Webscraping · ligar hoje</small>
+              <small>Radar Digital · ligar hoje</small>
             </article>
             <article>
               <strong>Odonto Norte</strong>
@@ -2835,7 +2835,7 @@ function FinalMockup({ botReady = false, themeMode }: { botReady?: boolean; them
       <span className={styles.visualLabel}>{botReady ? "Bot ativo no Inbox" : "Próximo passo"}</span>
       <div className={styles.finalPreview}>
         <div className={styles.finalPreviewCopy}>
-          <strong>Webscraping</strong>
+          <strong>Radar Digital</strong>
           <span>{botReady ? "Buscar contatos · Vendas · Atendimento" : "Prospectar → Vendas → Atendimento"}</span>
         </div>
         <div className={styles.finalBotImageWrap} aria-hidden="true">

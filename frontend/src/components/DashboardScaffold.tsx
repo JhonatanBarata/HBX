@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 import { createPortal } from "react-dom";
 import ModuleNav from "./ModuleNav";
 import QrPairedNextStepPrompt from "./QrPairedNextStepPrompt";
+import HeroCards from "./HeroCards";
 import { apiFetch, getToken } from "@/app/_lib/api";
 import { MASTER_CONTEXT_CHANGED_EVENT } from "../lib/masterContextEvents";
 import {
@@ -505,6 +506,7 @@ export default function DashboardScaffold({
               </div>
 
               <div className="page-hero__sidebar">
+                <HeroCards />
                 <div className="page-hero__actions">
                   {shouldShowDashboardShortcut ? (
                     <Link href={dashboardShortcutHref} prefetch={false} className="btn btn-secondary btn-sm">
