@@ -1,0 +1,256 @@
+.locationGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.field {
+  position: relative;
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  color: var(--foreground, #0b1720);
+}
+
+.label {
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0;
+  color: color-mix(in srgb, var(--foreground, #0b1720) 78%, transparent);
+}
+
+.inputWrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.input,
+.select {
+  width: 100%;
+  min-height: 44px;
+  border: 1px solid color-mix(in srgb, var(--foreground, #0b1720) 16%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--surface, #ffffff) 92%, transparent);
+  color: var(--foreground, #0b1720);
+  font: inherit;
+  font-size: 0.94rem;
+  outline: none;
+  padding: 0 42px 0 13px;
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.06);
+}
+
+.select {
+  appearance: auto;
+  padding-right: 12px;
+}
+
+.input:disabled,
+.select:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
+}
+
+.input:focus,
+.select:focus {
+  border-color: color-mix(in srgb, var(--primary, #05b6d4) 66%, #ffffff);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary, #05b6d4) 20%, transparent);
+}
+
+.chevron {
+  position: absolute;
+  right: 13px;
+  color: color-mix(in srgb, var(--foreground, #0b1720) 50%, transparent);
+  pointer-events: none;
+}
+
+.helper {
+  min-height: 1rem;
+  color: color-mix(in srgb, var(--foreground, #0b1720) 58%, transparent);
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+
+.menu {
+  position: absolute;
+  z-index: 40;
+  top: calc(100% - 18px);
+  left: 0;
+  right: 0;
+  display: grid;
+  max-height: 220px;
+  overflow: auto;
+  border: 1px solid color-mix(in srgb, var(--foreground, #0b1720) 12%, transparent);
+  border-radius: 8px;
+  background: var(--surface, #ffffff);
+  padding: 6px;
+  box-shadow: 0 22px 60px rgba(15, 23, 42, 0.18);
+}
+
+.option,
+.optionActive {
+  width: 100%;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--foreground, #0b1720);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.9rem;
+  padding: 9px 10px;
+  text-align: left;
+}
+
+.option:hover,
+.optionActive {
+  background: color-mix(in srgb, var(--primary, #05b6d4) 15%, transparent);
+}
+
+.choiceGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(128px, 1fr));
+  gap: 8px;
+}
+
+.choice,
+.choiceActive {
+  display: grid;
+  gap: 4px;
+  min-height: 62px;
+  border: 1px solid color-mix(in srgb, var(--foreground, #0b1720) 14%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--surface, #ffffff) 88%, transparent);
+  color: var(--foreground, #0b1720);
+  cursor: pointer;
+  font: inherit;
+  padding: 10px 11px;
+  text-align: left;
+}
+
+.choice strong,
+.choiceActive strong {
+  font-size: 0.9rem;
+  line-height: 1.2;
+}
+
+.choice small,
+.choiceActive small {
+  color: color-mix(in srgb, var(--foreground, #0b1720) 58%, transparent);
+  font-size: 0.74rem;
+  line-height: 1.25;
+}
+
+.choiceActive {
+  border-color: color-mix(in srgb, var(--primary, #05b6d4) 58%, transparent);
+  background: color-mix(in srgb, var(--primary, #05b6d4) 14%, var(--surface, #ffffff));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--primary, #05b6d4) 22%, transparent);
+}
+
+.advanced {
+  display: grid;
+  gap: 10px;
+}
+
+.advancedToggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  border: 1px solid color-mix(in srgb, var(--foreground, #0b1720) 14%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--surface, #ffffff) 88%, transparent);
+  color: var(--foreground, #0b1720);
+  cursor: pointer;
+  font: inherit;
+  padding: 12px 14px;
+  text-align: left;
+}
+
+.advancedToggle span {
+  font-weight: 850;
+}
+
+.advancedToggle small {
+  color: color-mix(in srgb, var(--foreground, #0b1720) 58%, transparent);
+  font-size: 0.78rem;
+  line-height: 1.25;
+  text-align: right;
+}
+
+.advancedGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  border: 1px solid color-mix(in srgb, var(--foreground, #0b1720) 10%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--surface, #ffffff) 86%, transparent);
+  padding: 14px;
+}
+
+.checkGrid {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.check {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 42px;
+  border: 1px solid color-mix(in srgb, var(--foreground, #0b1720) 12%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--surface, #ffffff) 88%, transparent);
+  color: var(--foreground, #0b1720);
+  cursor: pointer;
+  font-size: 0.86rem;
+  padding: 9px 10px;
+}
+
+.check input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--primary, #05b6d4);
+}
+
+:global(.dark) .input,
+:global(.dark) .select,
+:global(.dark) .choice,
+:global(.dark) .choiceActive,
+:global(.dark) .advancedToggle,
+:global(.dark) .advancedGrid,
+:global(.dark) .check {
+  background: rgba(7, 17, 28, 0.72);
+  border-color: rgba(148, 163, 184, 0.22);
+  color: #e5f6fb;
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.18);
+}
+
+:global(.dark) .menu {
+  background: #091521;
+  border-color: rgba(148, 163, 184, 0.22);
+}
+
+:global(.dark) .option,
+:global(.dark) .optionActive {
+  color: #e5f6fb;
+}
+
+@media (max-width: 760px) {
+  .locationGrid,
+  .advancedGrid,
+  .checkGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .advancedToggle {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .advancedToggle small {
+    text-align: left;
+  }
+}

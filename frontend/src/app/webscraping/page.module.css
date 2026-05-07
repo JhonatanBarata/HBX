@@ -346,6 +346,14 @@
   grid-template-columns: minmax(220px, 1fr) minmax(240px, 1fr) minmax(160px, 0.72fr);
 }
 
+.sharedFilterBlock {
+  margin-bottom: 0.9rem;
+}
+
+.sharedWideField {
+  grid-column: 1 / -1;
+}
+
 .advancedGrid {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }

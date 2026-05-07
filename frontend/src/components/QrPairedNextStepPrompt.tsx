@@ -48,8 +48,12 @@ export default function QrPairedNextStepPrompt() {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
   const [dontShowAgain, setDontShowAgain] = useState(false);
+  const suppressedByPath = Boolean(
+    pathname?.startsWith("/master/webscraping") || pathname?.startsWith("/dashboard/master/webscraping"),
+  );
 
   useEffect(() => {
+    if (suppressedByPath) return;
     if (!getToken() || hasPromptDismissed()) {
       return;
     }
@@ -80,9 +84,9 @@ export default function QrPairedNextStepPrompt() {
       mounted = false;
       window.removeEventListener(QR_PAIRED_EVENT, loadQrStatus);
     };
-  }, [pathname]);
+  }, [suppressedByPath]);
 
-  if (!open) return null;
+  if (suppressedByPath || !open) return null;
 
   function handleClose() {
     dismissPrompt();

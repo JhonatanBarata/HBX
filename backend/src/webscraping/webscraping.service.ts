@@ -899,6 +899,70 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     });
     await this.assertSearchRunPersistence();
 
+    const canReadRadarDatabase = normalized.targetType === 'pj'
+      ? await this.supportsRadarPersistence().catch(() => false)
+      : false;
+    const databaseResults = canReadRadarDatabase
+      ? await this.listRadarContactsForSearch(context, normalized).catch(() => [])
+      : [];
+
+    if (databaseResults.length >= normalized.quantity) {
+      const now = new Date();
+      const run = await this.prisma.webscrapingSearchRun.create({
+        data: {
+          companyId: context.companyId,
+          userId: context.userId,
+          status: 'completed',
+          city: normalized.city,
+          state: normalized.state || null,
+          segment: normalized.segment,
+          engine: normalized.engine,
+          targetType: normalized.targetType,
+          targetQuantity: normalized.quantity,
+          startedAt: now,
+          finishedAt: now,
+          errorMessage: 'Entregue do banco Radar/HBX. A frota M1-M4 nao foi acionada.',
+        },
+        select: {
+          id: true,
+          status: true,
+          city: true,
+          state: true,
+          segment: true,
+          engine: true,
+          targetType: true,
+          targetQuantity: true,
+          createdAt: true,
+        },
+      });
+
+      await this.saveSearchRunResults(
+        context,
+        normalized,
+        run.id,
+        databaseResults.slice(0, normalized.quantity),
+        'radar_database',
+      );
+      await this.recalculateSearchRunCounters(run.id);
+      await this.persistSearchRunHistoryIfPossible(run.id, normalized, context).catch(() => null);
+
+      return {
+        runId: run.id,
+        id: run.id,
+        status: run.status as WebscrapingSearchRunStatus,
+        query: {
+          city: run.city,
+          state: run.state || null,
+          segment: run.segment,
+          quantity: run.targetQuantity,
+          engine: normalizeEngine(run.engine),
+          targetType: normalizeTargetType(run.targetType),
+          filters: normalized.filters,
+        },
+        createdAt: run.createdAt.toISOString(),
+      };
+    }
+
     const run = await this.prisma.webscrapingSearchRun.create({
       data: {
         companyId: context.companyId,
@@ -2588,7 +2652,14 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         onlyWithWebsite: false,
       },
     };
-    const source: SearchSource = engine === 'hbx' ? 'hbx' : 'google';
+    const foundSources = new Set(foundItems.map((item) => String(item.source || '').trim()).filter(Boolean));
+    const source: SearchSource = foundSources.has('radar_database')
+      ? (foundSources.size === 1 ? 'radar_database' : 'hybrid')
+      : engine === 'hbx'
+        ? 'hbx'
+        : 'google';
+    const databaseFirst = source === 'radar_database';
+    const radarRunItemCount = foundItems.filter((item) => String(item.source || '').trim() === 'radar_database').length;
     const attemptCount = safeInteger(run.attemptCount);
     const batchLimit = this.getHbxRunBatchLimit(query.quantity);
     const maxAttempts = this.getHbxRunMaxAttempts(query.quantity, batchLimit);
@@ -2636,8 +2707,8 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         runId: run.id,
         historyId: run.id,
         source,
-        reusedCount: 0,
-        fetchedCount: safeInteger(run.foundCount),
+        reusedCount: databaseFirst || source === 'hybrid' ? radarRunItemCount : 0,
+        fetchedCount: Math.max(0, safeInteger(run.foundCount) - radarRunItemCount),
         totalStoredCount: safeInteger(run.foundCount),
         status:
           status === 'partial_error' || status === 'completed_insufficient_results'
@@ -4774,9 +4845,8 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
   }
 
   private buildForcedUntil(config: any, date = new Date()) {
-    const minUntil = new Date(date.getTime() + 2 * 60 * 60_000);
     const windowEnd = this.nextOperationalWindowEndAt(config, date);
-    return new Date(Math.max(minUntil.getTime(), windowEnd.getTime())).toISOString();
+    return windowEnd.toISOString();
   }
 
   private normalizeOperationalConfigInput(input: WebscrapingOperationalConfigInput = {}, existingMetadataJson?: unknown) {
@@ -4846,6 +4916,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       engineUrlsJson: row.engineUrlsJson || defaults.engineUrlsJson,
       metadataJson: row.metadataJson || null,
       forcedUntil: metadata.forcedUntil,
+      forcedAt: metadata.forcedAt,
       isTurboForcedNow: Boolean(metadata.forcedUntil && new Date(metadata.forcedUntil).getTime() > Date.now()),
       createdAt: row.createdAt instanceof Date ? row.createdAt.toISOString() : null,
       updatedAt: row.updatedAt instanceof Date ? row.updatedAt.toISOString() : null,
@@ -4889,6 +4960,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       batchSize: saved.batchSize,
       maxAttemptsPerTask: saved.maxAttemptsPerTask,
       forcedUntil,
+      forcedAt: this.parseOperationalMetadata(saved.metadataJson).forcedAt,
       isTurboForcedNow: Boolean(forcedUntil && new Date(forcedUntil).getTime() > Date.now()),
       createdAt: saved.createdAt instanceof Date ? saved.createdAt.toISOString() : null,
       updatedAt: saved.updatedAt instanceof Date ? saved.updatedAt.toISOString() : null,
@@ -5065,105 +5137,318 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     return [];
   }
 
+  private startOfLocalDay(date = new Date()) {
+    const start = new Date(date);
+    start.setHours(0, 0, 0, 0);
+    return start;
+  }
+
+  private toIso(value: unknown) {
+    if (value instanceof Date) return value.toISOString();
+    const raw = String(value || '').trim();
+    if (!raw) return null;
+    const parsed = new Date(raw);
+    return Number.isFinite(parsed.getTime()) ? parsed.toISOString() : null;
+  }
+
+  private dashboardEngineStatus(engine: any): 'running' | 'waiting' | 'offline' {
+    const status = String(engine?.status || '').trim().toLowerCase();
+    const stateLabel = String(engine?.stateLabel || '').trim().toLowerCase();
+    if (!engine?.configured || !engine?.online || ['offline', 'missing', 'cooldown', 'degraded', 'error'].includes(status)) {
+      return 'offline';
+    }
+    if (engine?.busy || engine?.activeRunId || engine?.activeCampaignId || status === 'busy' || status === 'running' || stateLabel.includes('rodando')) {
+      return 'running';
+    }
+    return 'waiting';
+  }
+
+  private secondsUntil(value?: string | null, now = new Date()) {
+    const parsed = value ? new Date(value).getTime() : NaN;
+    if (!Number.isFinite(parsed)) return 0;
+    return Math.max(0, Math.round((parsed - now.getTime()) / 1000));
+  }
+
   async getMasterMassDataControl(user: any) {
-    const config = await this.getOperationalConfig();
-    const engines = await this.getEnginePool().getDashboardEngineStatus().catch(() => null);
-    const campaigns = await (this.prisma as any).webscrapingCampaign.findMany({
-      where: { mode: 'mass_data' },
-      orderBy: { createdAt: 'desc' },
-      take: 10,
-      include: {
-        batches: { orderBy: { createdAt: 'desc' }, take: 10 },
-        tasks: { orderBy: { updatedAt: 'desc' }, take: 2000 },
-      },
-    }).catch(() => []);
-    const campaignIds = campaigns.map((campaign: any) => campaign.id).filter(Boolean);
-    const latestLeads = campaignIds.length
-      ? await (this.prisma as any).radarLeadPool.findMany({
-          where: { campaignId: { in: campaignIds } },
-          orderBy: { lastSeenAt: 'desc' },
-          take: 15,
-          select: {
-            id: true,
-            name: true,
-            phoneDigits: true,
-            city: true,
-            state: true,
-            segment: true,
-            status: true,
-            lastSeenAt: true,
-          },
-        }).catch(() => [])
-      : [];
-    const recentSearchRuns = await (this.prisma as any).webscrapingSearchRun.findMany({
-      where: {
-        OR: [
-          { status: { in: ['queued', 'running'] } },
-          { updatedAt: { gte: minutesAgo(30) } },
-        ],
-      },
-      orderBy: { updatedAt: 'desc' },
-      take: 10,
-      select: {
-        id: true,
-        status: true,
-        city: true,
-        state: true,
-        segment: true,
-        foundCount: true,
-        duplicateCount: true,
-        skippedCount: true,
-        assignedEngineId: true,
-        lastBatchError: true,
-        updatedAt: true,
-      },
-    }).catch(() => []);
     const now = new Date();
-    const scheduledTurboActive = this.isWithinConfiguredOperationalWindow(config, now);
-    const forcedTurboActive = this.isForcedOperationalWindow(config, now);
-    const inTurbo = this.isWithinOperationalWindow(config, now);
+    const todayStart = this.startOfLocalDay(now);
+    const twentyFourHoursAgo = new Date(now.getTime() - 24 * 60 * 60_000);
+    const config = await this.getOperationalConfig();
+    const tableSupport = await Promise.all([
+      this.prisma.hasTable('WebscrapingCampaign').catch(() => false),
+      this.prisma.hasTable('WebscrapingCampaignTask').catch(() => false),
+      this.prisma.hasTable('WebscrapingCampaignBatch').catch(() => false),
+      this.prisma.hasTable('RadarLeadPool').catch(() => false),
+      this.prisma.hasTable('WebscrapingSearchRun').catch(() => false),
+    ]);
+    const [hasCampaign, hasTask, hasBatch, hasLeadPool, hasSearchRun] = tableSupport;
+    const databaseMessages: string[] = [];
+    let databaseStatus: 'ok' | 'warning' | 'error' = 'ok';
+    const markDatabaseWarning = () => {
+      if ((databaseStatus as string) !== 'error') databaseStatus = 'warning';
+    };
+    const withDatabaseGuard = async <T>(label: string, fallback: T, fn: () => Promise<T>) => {
+      try {
+        return await fn();
+      } catch (error) {
+        databaseStatus = 'error';
+        const message = error instanceof Error ? error.message : String(error || 'Erro desconhecido');
+        databaseMessages.push(`${label}: ${message}`);
+        return fallback;
+      }
+    };
+
+    const engines = await this.getEnginePool().getDashboardEngineStatus().catch((error) => {
+      markDatabaseWarning();
+      databaseMessages.push(`Motores: ${error instanceof Error ? error.message : String(error || 'healthcheck indisponivel')}`);
+      return null;
+    });
+    const capacity = engines?.capacity || null;
     const hbxEngines = (engines?.engines || []).filter((engine: any) => String(engine.id || '').startsWith('hbx-engine'));
     const configuredHbxEngines = hbxEngines.filter((engine: any) => engine.configured);
-    const offlineCount = configuredHbxEngines.filter((engine: any) => !engine.online && ['offline', 'missing'].includes(String(engine.status || '').toLowerCase())).length;
-    const allOffline = configuredHbxEngines.length > 0 && offlineCount === configuredHbxEngines.length;
-    const capacity = engines?.capacity || null;
-    const hasQueue = Number(capacity?.queuedCount || 0) > 0;
-    const hasRunning = Number(capacity?.runningCount || 0) > 0 || campaigns.some((campaign: any) => (campaign.tasks || []).some((task: any) => String(task.status || '') === 'running'));
-    const degraded = allOffline || String(capacity?.operationalStatus || '') === 'degraded';
-    const currentMode = degraded
-      ? 'DEGRADED'
-      : forcedTurboActive
-        ? 'TURBO FORCADO'
-        : hasRunning
-          ? 'MASSA RODANDO'
-          : config.enabled && !scheduledTurboActive
-            ? 'TURBO ARMADO'
-            : inTurbo
-              ? 'TURBO NOTURNO'
-              : hasQueue
-                ? 'FILA PRONTA'
-                : 'STANDBY';
+    const onlineHbxEngines = configuredHbxEngines.filter((engine: any) => engine.online);
+    const offlineHbxEngines = configuredHbxEngines.filter((engine: any) => !engine.online || ['offline', 'missing', 'cooldown', 'degraded'].includes(String(engine.status || '').toLowerCase()));
+    const allOffline = configuredHbxEngines.length > 0 && offlineHbxEngines.length === configuredHbxEngines.length;
+    const activeEngineCount = Math.max(1, Math.min(4, safeInteger(capacity?.activeEngineCount, safeInteger(config.engineCount, 4))));
+    const activeQueue = safeInteger(capacity?.queuedCount) + safeInteger(capacity?.runningCount);
+
+    const [campaigns, productionRows, cardsTodayCount, batchRows, taskStatusRows, errors24hParts] = await Promise.all([
+      hasCampaign
+        ? withDatabaseGuard('Campanhas', [], () => (this.prisma as any).webscrapingCampaign.findMany({
+            where: { mode: 'mass_data' },
+            orderBy: { createdAt: 'desc' },
+            take: 6,
+            include: {
+              batches: { orderBy: { createdAt: 'desc' }, take: 8 },
+              tasks: { orderBy: { updatedAt: 'desc' }, take: 500 },
+            },
+          }))
+        : Promise.resolve([]),
+      hasLeadPool
+        ? withDatabaseGuard('Produção', [], () => (this.prisma as any).radarLeadPool.findMany({
+            orderBy: [{ lastSeenAt: 'desc' }, { createdAt: 'desc' }],
+            take: 24,
+            select: {
+              id: true,
+              name: true,
+              phone: true,
+              phoneDigits: true,
+              city: true,
+              state: true,
+              source: true,
+              sourceEngine: true,
+              status: true,
+              lastSeenAt: true,
+              createdAt: true,
+            },
+          }))
+        : Promise.resolve([]),
+      hasLeadPool
+        ? withDatabaseGuard('Cards hoje', 0, () => (this.prisma as any).radarLeadPool.count({
+            where: { createdAt: { gte: todayStart } },
+          }))
+        : Promise.resolve(0),
+      hasBatch
+        ? withDatabaseGuard('Lotes por motor', [], () => (this.prisma as any).webscrapingCampaignBatch.findMany({
+            where: { createdAt: { gte: todayStart } },
+            select: {
+              engineId: true,
+              approvedCount: true,
+              duplicateCount: true,
+              rejectedCount: true,
+              status: true,
+              errorMessage: true,
+              finishedAt: true,
+              startedAt: true,
+              createdAt: true,
+            },
+            take: 5000,
+          }))
+        : Promise.resolve([]),
+      hasTask
+        ? withDatabaseGuard('Fila de tarefas', [], () => (this.prisma as any).webscrapingCampaignTask.groupBy({
+            by: ['status'],
+            _count: { _all: true },
+          }))
+        : Promise.resolve([]),
+      Promise.all([
+        hasCampaign
+          ? withDatabaseGuard('Erros de campanha 24h', 0, () => (this.prisma as any).webscrapingCampaign.count({
+              where: { status: 'failed', updatedAt: { gte: twentyFourHoursAgo } },
+            }))
+          : Promise.resolve(0),
+        hasTask
+          ? withDatabaseGuard('Erros de tarefa 24h', 0, () => (this.prisma as any).webscrapingCampaignTask.count({
+              where: { status: 'failed', updatedAt: { gte: twentyFourHoursAgo } },
+            }))
+          : Promise.resolve(0),
+        hasBatch
+          ? withDatabaseGuard('Erros de lote 24h', 0, () => (this.prisma as any).webscrapingCampaignBatch.count({
+              where: {
+                createdAt: { gte: twentyFourHoursAgo },
+                OR: [
+                  { status: { contains: 'error' } },
+                  { errorMessage: { not: null } },
+                ],
+              },
+            }))
+          : Promise.resolve(0),
+        hasSearchRun
+          ? withDatabaseGuard('Erros de busca 24h', 0, () => (this.prisma as any).webscrapingSearchRun.count({
+              where: { status: 'failed', updatedAt: { gte: twentyFourHoursAgo } },
+            }))
+          : Promise.resolve(0),
+      ]),
+    ]);
+
+    if (!hasLeadPool || !hasBatch || !hasTask) {
+      markDatabaseWarning();
+      databaseMessages.push('Algumas tabelas operacionais ainda não estão disponíveis para o painel completo.');
+    }
+
+    const cardsByEngine = new Map<string, number>();
+    for (const row of batchRows as any[]) {
+      const engineId = String(row?.engineId || '').trim();
+      if (!engineId) continue;
+      cardsByEngine.set(engineId, (cardsByEngine.get(engineId) || 0) + safeInteger(row?.approvedCount));
+    }
+
+    const queueByStatus = (taskStatusRows as any[]).reduce((acc: Record<string, number>, item: any) => {
+      const status = String(item?.status || 'queued');
+      acc[status] = safeInteger(item?._count?._all);
+      return acc;
+    }, {});
+
+    const elapsedMinutesToday = Math.max(1, (now.getTime() - todayStart.getTime()) / 60_000);
+    const cardsPerMinuteAvg = Math.round((safeInteger(cardsTodayCount) / elapsedMinutesToday) * 100) / 100;
+    const forcedTurboActive = this.isForcedOperationalWindow(config, now);
+    const scheduledTurboActive = this.isWithinConfiguredOperationalWindow(config, now);
+    const turboEndsAt = forcedTurboActive
+      ? this.toIso(config.forcedUntil)
+      : this.nextOperationalWindowEndAt(config, now).toISOString();
     const criticalReason = allOffline
-      ? 'Todos os motores HBX falharam no healthcheck.'
+      ? 'Todos os motores HBX estão offline.'
       : String(capacity?.operationalStatus || '') === 'degraded'
-        ? capacity?.message || 'Capacidade degradada no pool HBX.'
-        : null;
-    const liveFeed = this.buildMasterLiveFeed({
-      campaigns,
-      latestLeads,
-      recentSearchRuns,
-      engines: hbxEngines,
-      forcedTurboActive,
-      forcedUntil: config.forcedUntil || null,
-      capacity,
-      now,
+        ? capacity?.message || 'Campanha travada sem progresso real.'
+        : (databaseStatus as string) === 'error'
+          ? 'Banco indisponível para o dashboard operacional.'
+          : null;
+    const currentMode = criticalReason
+      ? 'CRÍTICO'
+      : forcedTurboActive
+        ? 'TURBO FORÇADO'
+        : scheduledTurboActive
+          ? 'TURBO NOTURNO'
+          : activeQueue > 0
+            ? 'FILA ATIVA'
+            : 'STANDBY';
+    const engineHealthStatus: 'ok' | 'warning' | 'error' = allOffline
+      ? 'error'
+      : offlineHbxEngines.length > 0
+        ? 'warning'
+        : 'ok';
+    const queueStatus: 'ok' | 'warning' | 'error' = String(capacity?.operationalStatus || '') === 'degraded'
+      ? 'error'
+      : safeInteger(capacity?.oldestQueuedAgeMinutes) >= 5
+        ? 'warning'
+        : 'ok';
+    const diagnosticsMessages = [
+      activeQueue > 0 ? `Fila ativa com ${activeQueue} item(ns).` : 'Fila sem pendências.',
+      databaseStatus === 'ok' ? 'Gravações no banco acessíveis.' : null,
+      engineHealthStatus === 'ok' ? 'Motores com healthcheck saudável.' : null,
+      ...databaseMessages,
+      ...offlineHbxEngines.slice(0, 4).map((engine: any) => `${engine.shortLabel || engine.id}: ${engine.lastError || engine.stateLabel || 'sem resposta'}`),
+      criticalReason,
+    ].filter(Boolean) as string[];
+
+    const dashboardEngines = Array.from({ length: 4 }, (_, index) => {
+      const engine = hbxEngines[index] || null;
+      const id = String(engine?.id || `hbx-engine-${index + 1}`);
+      const status = this.dashboardEngineStatus(engine);
+      const queue = status === 'offline'
+        ? 0
+        : status === 'running'
+          ? Math.max(1, safeInteger(engine?.queueShare) ? Math.ceil(activeQueue * (safeInteger(engine?.queueShare) / 100)) : safeInteger(capacity?.runningCount))
+          : activeQueue > 0 && index < activeEngineCount
+            ? Math.ceil(activeQueue / activeEngineCount)
+            : 0;
+      return {
+        id,
+        label: `M${index + 1}`,
+        status,
+        cardsFabricated: cardsByEngine.get(id) || 0,
+        queue,
+        lastActivityAt: this.toIso(engine?.lastActivityAt || engine?.lastCheckedAt),
+      };
     });
+
+    const warnings = [
+      ...offlineHbxEngines.map((engine: any) => ({
+        route: engine.id || 'hbx-engine',
+        statusCode: 0,
+        message: engine.lastError || engine.detail || 'Motor sem healthcheck.',
+        createdAt: now.toISOString(),
+      })),
+      ...(String(capacity?.operationalStatus || '') === 'degraded'
+        ? [{
+            route: 'webscraping/capacity',
+            statusCode: 0,
+            message: capacity?.message || 'Fila travada sem progresso.',
+            createdAt: now.toISOString(),
+          }]
+        : []),
+      ...databaseMessages.map((message) => ({
+        route: 'database',
+        statusCode: 0,
+        message,
+        createdAt: now.toISOString(),
+      })),
+    ].slice(0, 8);
+
     return {
       generatedAt: now.toISOString(),
+      turbo: {
+        active: forcedTurboActive,
+        scheduledActive: scheduledTurboActive,
+        startedAt: forcedTurboActive ? this.toIso(config.forcedAt || config.updatedAt) : null,
+        endsAt: turboEndsAt,
+        remainingSeconds: forcedTurboActive ? this.secondsUntil(turboEndsAt, now) : 0,
+        startLabel: this.formatTimeLabel(config.startHour, config.startMinute),
+        endLabel: this.formatTimeLabel(config.endHour, config.endMinute),
+      },
+      summary: {
+        cardsToday: safeInteger(cardsTodayCount),
+        cardsPerMinuteAvg,
+        activeQueue,
+        errors24h: (errors24hParts as number[]).reduce((sum, value) => sum + safeInteger(value), 0),
+        onlineEngines: onlineHbxEngines.length,
+        totalEngines: 4,
+      },
+      engines: dashboardEngines,
+      production: (productionRows as any[]).map((row: any) => {
+        const status = String(row?.status || '').toLowerCase();
+        return {
+          id: String(row?.id || ''),
+          name: String(row?.name || 'Card sem nome'),
+          phone: row?.phone || row?.phoneDigits || null,
+          city: row?.city || null,
+          state: row?.state || null,
+          source: row?.source || row?.sourceEngine || null,
+          createdAt: this.toIso(row?.lastSeenAt || row?.createdAt) || now.toISOString(),
+          dbStatus: status === 'rejected' || status === 'duplicate' ? 'error' : row?.phone || row?.phoneDigits ? 'saved' : 'pending',
+        };
+      }),
+      diagnostics: {
+        queueStatus,
+        databaseStatus,
+        engineHealthStatus,
+        messages: diagnosticsMessages.slice(0, 8),
+      },
+      warnings,
       status: {
         resumeEnabled: true,
         currentMode,
-        critical: degraded,
+        critical: Boolean(criticalReason),
         criticalReason,
         nextTurboAt: this.nextOperationalWindowAt(config, now),
         localTime: now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
@@ -5174,25 +5459,15 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         forcedUntil: config.forcedUntil || null,
         operationalMessage: criticalReason
           || (forcedTurboActive
-            ? `Turbo forcado ativo ate ${config.forcedUntil || 'a expiracao configurada'}.`
-            : config.enabled && !scheduledTurboActive
-              ? `Turbo armado para ${this.formatTimeLabel(config.startHour, config.startMinute)}.`
-              : hasQueue && !hasRunning
-                ? 'Fila aguardando motor elegivel.'
-                : hasRunning
-                  ? 'Massa de Dados em execucao.'
-                  : 'Motores em standby, aguardando trabalho.'),
+            ? `Turbo forçado ativo até ${this.formatTimeLabel(config.endHour, config.endMinute)}.`
+            : `Turbo pronto. Ative para manter os motores até ${this.formatTimeLabel(config.endHour, config.endMinute)}.`),
       },
-      liveFeed,
       config: {
         ...config,
         engineUrlsJson: undefined,
       },
-      engines: {
-        ...(engines || {}),
-        engines: (engines?.engines || []).map((engine: any) => ({ ...engine, url: null })),
-      },
-      campaigns: campaigns.map((campaign: any) => this.buildRadarCampaignResponse(campaign)),
+      campaigns: (campaigns as any[]).map((campaign: any) => this.buildRadarCampaignResponse(campaign)),
+      taskStatusCounts: queueByStatus,
     };
   }
 

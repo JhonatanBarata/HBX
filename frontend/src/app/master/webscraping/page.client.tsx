@@ -3,95 +3,82 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import DashboardScaffold from "@/components/DashboardScaffold";
+import {
+  HbxSegmentCombobox,
+  HbxStateCityPicker,
+  HbxTargetTypeSelector,
+} from "@/components/prospecting-filters";
 import { apiFetch } from "@/app/_lib/api";
 import { useRequireAuth } from "@/app/_lib/useRequireAuth";
-import { BRAZIL_CITIES_BY_STATE, BRAZIL_STATES } from "@/lib/brazil-locations";
 import styles from "./page.module.css";
 
 type TargetType = "pf" | "pj" | "both";
 type Intensity = "economico" | "normal" | "turbo";
+type EngineStatus = "running" | "waiting" | "offline";
+type DiagnosticStatus = "ok" | "warning" | "error";
 
 type CurrentUser = {
   isSystemMaster?: boolean;
 };
 
-type EngineStatus = {
+type DashboardEngine = {
   id: string;
-  shortLabel?: string | null;
-  status: string;
-  configured: boolean;
-  online: boolean;
-  busy: boolean;
-  lastError?: string | null;
-  usagePercent?: number | null;
-  stateLabel?: string | null;
-  detail?: string | null;
-  lastActivityAt?: string | null;
-  activeRunId?: string | null;
-  activeCampaignId?: string | null;
-  queueShare?: number | null;
-  processedLast10Min?: number | null;
-  errorCount?: number | null;
-  heartbeatAgeSeconds?: number | null;
-  isTurboEnabled?: boolean | null;
-  isTurboWindowActive?: boolean | null;
-  isTurboForcedNow?: boolean | null;
+  label: string;
+  status: EngineStatus;
+  cardsFabricated: number;
+  queue: number;
+  lastActivityAt: string | null;
 };
 
-type CampaignTask = {
+type ProductionCard = {
   id: string;
-  city: string;
-  state: string;
-  segment: string;
-  targetType?: string | null;
-  status: string;
-  updatedAt?: string | null;
+  name: string;
+  phone: string | null;
+  city: string | null;
+  state: string | null;
+  source: string | null;
+  createdAt: string;
+  dbStatus: "saved" | "pending" | "error";
 };
 
-type Campaign = {
-  id: string;
-  status: string;
-  city?: string | null;
-  state?: string | null;
-  segment?: string | null;
-  targetType?: string | null;
-  batchSize: number;
-  foundCount: number;
-  approvedCount: number;
-  duplicateCount: number;
-  rejectedCount: number;
-  taskStatusCounts?: Record<string, number>;
-  completedCityCount?: number;
-  currentCity?: string | null;
-  lastQueryUsed?: string | null;
-  progressMessage?: string | null;
-  nextRunAt?: string | null;
-  updatedAt?: string | null;
-  tasks?: CampaignTask[];
-};
-
-type LiveFeedItem = {
-  id: string;
-  type: string;
-  message: string;
-  detail?: string | null;
-  createdAt?: string | null;
-};
-
-type MasterControl = {
+type DashboardPayload = {
   generatedAt: string;
+  turbo: {
+    active: boolean;
+    scheduledActive?: boolean;
+    startedAt: string | null;
+    endsAt: string | null;
+    remainingSeconds: number;
+    startLabel?: string | null;
+    endLabel?: string | null;
+  };
+  summary: {
+    cardsToday: number;
+    cardsPerMinuteAvg: number;
+    activeQueue: number;
+    errors24h: number;
+    onlineEngines: number;
+    totalEngines: number;
+  };
+  engines: DashboardEngine[];
+  production: ProductionCard[];
+  diagnostics: {
+    queueStatus: DiagnosticStatus;
+    databaseStatus: DiagnosticStatus;
+    engineHealthStatus: DiagnosticStatus;
+    messages: string[];
+  };
+  warnings: Array<{
+    route: string;
+    statusCode: number;
+    message: string;
+    createdAt: string;
+  }>;
   status: {
-    resumeEnabled: boolean;
     currentMode: string;
     critical: boolean;
     criticalReason?: string | null;
-    nextTurboAt?: string | null;
     localTime?: string | null;
-    estimatedMemoryGb?: number | null;
-    isTurboEnabled?: boolean;
-    isTurboWindowActive?: boolean;
-    isTurboForcedNow?: boolean;
-    forcedUntil?: string | null;
     operationalMessage?: string | null;
   };
   config: {
@@ -105,28 +92,7 @@ type MasterControl = {
     memoryTargetGb: number;
     batchSize: number;
     maxAttemptsPerTask: number;
-    forcedUntil?: string | null;
-    isTurboForcedNow?: boolean;
   };
-  engines?: {
-    capacity?: {
-      queuedCount: number;
-      runningCount: number;
-      completedLast10Min: number;
-      partialLast10Min?: number;
-      activeEngineCount?: number;
-      operationalStatus: string;
-      message?: string | null;
-      isTurboEnabled?: boolean;
-      isTurboWindowActive?: boolean;
-      isTurboForcedNow?: boolean;
-      forcedUntil?: string | null;
-      nextTurboAt?: string | null;
-    };
-    engines?: EngineStatus[];
-  };
-  liveFeed?: LiveFeedItem[];
-  campaigns: Campaign[];
 };
 
 type FormState = {
@@ -134,7 +100,6 @@ type FormState = {
   city: string;
   segment: string;
   targetType: TargetType;
-  enabled: boolean;
   startTime: string;
   endTime: string;
   engineCount: number;
@@ -149,7 +114,6 @@ const DEFAULT_FORM: FormState = {
   city: "",
   segment: "",
   targetType: "both",
-  enabled: true,
   startTime: "20:00",
   endTime: "08:00",
   engineCount: 4,
@@ -159,20 +123,22 @@ const DEFAULT_FORM: FormState = {
   maxAttemptsPerTask: 3,
 };
 
+function clampNumber(value: unknown, fallback: number, min: number, max: number) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.min(Math.max(Math.trunc(parsed), min), max);
+}
+
 function parseTime(value: string, fallbackHour: number) {
   const [hourRaw, minuteRaw] = String(value || "").split(":");
-  const hour = Number(hourRaw);
-  const minute = Number(minuteRaw);
   return {
-    hour: Number.isFinite(hour) ? Math.min(Math.max(Math.trunc(hour), 0), 23) : fallbackHour,
-    minute: Number.isFinite(minute) ? Math.min(Math.max(Math.trunc(minute), 0), 59) : 0,
+    hour: clampNumber(hourRaw, fallbackHour, 0, 23),
+    minute: clampNumber(minuteRaw, 0, 0, 59),
   };
 }
 
 function formatTime(hour?: number | null, minute?: number | null) {
-  const safeHour = Number.isFinite(Number(hour)) ? Math.min(Math.max(Math.trunc(Number(hour)), 0), 23) : 0;
-  const safeMinute = Number.isFinite(Number(minute)) ? Math.min(Math.max(Math.trunc(Number(minute)), 0), 59) : 0;
-  return `${String(safeHour).padStart(2, "0")}:${String(safeMinute).padStart(2, "0")}`;
+  return `${String(clampNumber(hour, 0, 0, 23)).padStart(2, "0")}:${String(clampNumber(minute, 0, 0, 59)).padStart(2, "0")}`;
 }
 
 function formatDateTime(value?: string | null) {
@@ -182,57 +148,44 @@ function formatDateTime(value?: string | null) {
   return date.toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" });
 }
 
-function engineTone(engine?: EngineStatus | null) {
-  const status = String(engine?.status || "").toLowerCase();
-  const label = String(engine?.stateLabel || "").toLowerCase();
-  if (!engine || !engine.configured || !engine.online || status === "offline" || status === "missing") return "offline";
-  if (status === "cooldown" || status === "paused" || status === "retry") return "paused";
-  if (status === "error" || status === "degraded") return "error";
-  if (engine.busy || status === "busy" || status === "running" || label.includes("rodando")) return "running";
-  if (label.includes("fila") || label.includes("turbo")) return "standby";
-  return "standby";
+function formatClock(value?: string | null) {
+  if (!value) return "--:--";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "--:--";
+  return date.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
 }
 
-function engineUsage(engine?: EngineStatus | null) {
-  const usage = Number(engine?.usagePercent);
-  if (Number.isFinite(usage)) return Math.max(0, Math.min(100, Math.round(usage)));
-  const tone = engineTone(engine);
-  if (tone === "running") return 84;
-  if (tone === "paused") return 12;
-  if (tone === "offline" || tone === "error") return 0;
-  return 8;
+function formatRemaining(seconds?: number | null) {
+  const safe = Math.max(0, Math.trunc(Number(seconds || 0)));
+  const hours = Math.floor(safe / 3600);
+  const minutes = Math.floor((safe % 3600) / 60);
+  if (hours <= 0) return `${minutes}min`;
+  return `${hours}h ${String(minutes).padStart(2, "0")}min`;
 }
 
-function engineStateLabel(engine?: EngineStatus | null) {
-  if (!engine) return "Sem healthcheck";
-  return engine.stateLabel || statusLabel(engine.status);
+function metric(value?: number | null, suffix = "") {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return `0${suffix}`;
+  return `${parsed.toLocaleString("pt-BR")}${suffix}`;
 }
 
-function statusLabel(value?: string | null) {
-  const status = String(value || "").toLowerCase();
-  if (status === "running") return "Rodando";
-  if (status === "queued") return "Na fila";
-  if (status === "sleeping") return "Dormindo";
-  if (status === "paused") return "Pausada";
-  if (status === "completed") return "Concluida";
-  if (status === "exhausted") return "Esgotada";
-  if (status === "failed") return "Falha";
-  if (status === "canceled") return "Cancelada";
-  return value || "-";
+function statusLabel(value: EngineStatus) {
+  if (value === "running") return "Rodando";
+  if (value === "offline") return "Offline";
+  return "Aguardando";
 }
 
-function minutesSince(value?: string | null) {
-  if (!value) return Number.POSITIVE_INFINITY;
-  const time = new Date(value).getTime();
-  if (!Number.isFinite(time)) return Number.POSITIVE_INFINITY;
-  return Math.max(0, (Date.now() - time) / 60000);
+function dbStatusLabel(value: ProductionCard["dbStatus"]) {
+  if (value === "saved") return "Gravado no banco";
+  if (value === "error") return "Erro";
+  return "Pendente";
 }
 
-function buildPayload(form: FormState) {
+function buildTurboPayload(form: FormState) {
   const start = parseTime(form.startTime, 20);
   const end = parseTime(form.endTime, 8);
   return {
-    enabled: form.enabled,
+    enabled: true,
     startHour: start.hour,
     startMinute: start.minute,
     endHour: end.hour,
@@ -245,24 +198,23 @@ function buildPayload(form: FormState) {
   };
 }
 
-function metricValue(value?: number | null) {
-  return Number.isFinite(Number(value)) ? String(Number(value)) : "0";
+function normalizeIntensity(value: unknown): Intensity {
+  const raw = String(value || "").toLowerCase();
+  if (raw === "economico" || raw === "econômico") return "economico";
+  if (raw === "normal") return "normal";
+  return "turbo";
 }
 
-function operationalMessage(control: MasterControl | null) {
-  if (!control) return "Carregando operação.";
-  if (control.status.operationalMessage) return control.status.operationalMessage;
-  const capacity = control.engines?.capacity;
-  const engines = control.engines?.engines || [];
-  const hbx = engines.filter((engine) => String(engine.id || "").startsWith("hbx-engine") && engine.configured);
-  const allOffline = hbx.length > 0 && hbx.every((engine) => !engine.online && ["offline", "missing"].includes(String(engine.status || "").toLowerCase()));
-  if (allOffline) return "Todos os motores HBX falharam no healthcheck.";
-  if (control.status.isTurboForcedNow) return "Turbo forçado ativo.";
-  if (control.status.isTurboEnabled && !control.status.isTurboWindowActive) return `Turbo armado para ${formatDateTime(control.status.nextTurboAt)}.`;
-  if (Number(capacity?.queuedCount || 0) > 0 && Number(capacity?.runningCount || 0) === 0) return "Fila aguardando motor elegível.";
-  if (capacity?.operationalStatus === "degraded") return capacity.message || "Capacidade degradada.";
-  if (Number(capacity?.queuedCount || 0) === 0) return "Motores em standby, aguardando trabalho.";
-  return "Operação ativa.";
+function emptyEngines(engines?: DashboardEngine[]) {
+  const byIndex = new Map((engines || []).map((engine, index) => [index, engine]));
+  return Array.from({ length: 4 }, (_, index) => byIndex.get(index) || {
+    id: `hbx-engine-${index + 1}`,
+    label: `M${index + 1}`,
+    status: "offline" as const,
+    cardsFabricated: 0,
+    queue: 0,
+    lastActivityAt: null,
+  });
 }
 
 export default function MasterWebscrapingClientPage() {
@@ -271,39 +223,37 @@ export default function MasterWebscrapingClientPage() {
   const [allowed, setAllowed] = useState(false);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [actionId, setActionId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
-  const [control, setControl] = useState<MasterControl | null>(null);
+  const [dashboard, setDashboard] = useState<DashboardPayload | null>(null);
   const [form, setForm] = useState<FormState>(DEFAULT_FORM);
 
-  const hydrateForm = useCallback((payload: MasterControl) => {
+  const hydrateForm = useCallback((payload: DashboardPayload) => {
     const config = payload.config;
     setForm((current) => ({
       ...current,
-      enabled: Boolean(config.enabled),
       startTime: formatTime(config.startHour, config.startMinute),
       endTime: formatTime(config.endHour, config.endMinute),
-      engineCount: Math.min(Math.max(Number(config.engineCount || 4), 1), 4),
-      intensity: String(config.intensity || "turbo") === "economico" ? "economico" : String(config.intensity || "turbo") === "normal" ? "normal" : "turbo",
-      memoryTargetGb: Number(config.memoryTargetGb || 16),
-      batchSize: Math.min(Math.max(Number(config.batchSize || 20), 1), 20),
-      maxAttemptsPerTask: Math.min(Math.max(Number(config.maxAttemptsPerTask || 3), 1), 10),
+      engineCount: clampNumber(config.engineCount, 4, 1, 4),
+      intensity: normalizeIntensity(config.intensity),
+      memoryTargetGb: clampNumber(config.memoryTargetGb, 16, 1, 256),
+      batchSize: clampNumber(config.batchSize, 20, 1, 20),
+      maxAttemptsPerTask: clampNumber(config.maxAttemptsPerTask, 3, 1, 10),
     }));
   }, []);
 
-  const loadControl = useCallback(async (options?: { silent?: boolean }) => {
+  const loadDashboard = useCallback(async (options?: { silent?: boolean }) => {
     if (!options?.silent) setLoading(true);
     setError(null);
     try {
-      const payload = await apiFetch<MasterControl>("/modules/master/webscraping/mass-data", {
+      const payload = await apiFetch<DashboardPayload>("/modules/master/webscraping/mass-data", {
         requireAuth: true,
         timeoutMs: 15000,
       });
-      setControl(payload);
+      setDashboard(payload);
       hydrateForm(payload);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Falha ao carregar Massa de Dados.");
+      setError(err instanceof Error ? err.message : "Falha ao carregar o dashboard de webscraping.");
     } finally {
       if (!options?.silent) setLoading(false);
     }
@@ -317,15 +267,15 @@ export default function MasterWebscrapingClientPage() {
       setCheckingAccess(true);
       setError(null);
       try {
-        const user = await apiFetch<CurrentUser>("/profile/current-user");
+        const user = await apiFetch<CurrentUser>("/profile/current-user", { requireAuth: true });
         if (!mounted) return;
         const isMaster = Boolean(user?.isSystemMaster);
         setAllowed(isMaster);
-        if (isMaster) await loadControl();
+        if (isMaster) await loadDashboard();
       } catch (err) {
         if (!mounted) return;
         setAllowed(false);
-        setError(err instanceof Error ? err.message : "Falha ao validar acesso.");
+        setError(err instanceof Error ? err.message : "Falha ao validar acesso MASTER.");
       } finally {
         if (mounted) setCheckingAccess(false);
       }
@@ -335,129 +285,75 @@ export default function MasterWebscrapingClientPage() {
     return () => {
       mounted = false;
     };
-  }, [hasToken, loadControl]);
+  }, [hasToken, loadDashboard]);
 
   useEffect(() => {
     if (!allowed) return;
-    const running = control?.campaigns.some((campaign) => ["running", "queued", "partial_error"].includes(String(campaign.status || "")))
-      || Number(control?.engines?.capacity?.runningCount || 0) > 0
-      || Number(control?.engines?.capacity?.queuedCount || 0) > 0;
+    const running = (dashboard?.engines || []).some((engine) => engine.status === "running")
+      || Number(dashboard?.summary.activeQueue || 0) > 0;
     const timer = window.setInterval(() => {
-      void loadControl({ silent: true });
+      void loadDashboard({ silent: true });
     }, running ? 3000 : 10000);
     return () => window.clearInterval(timer);
-  }, [allowed, control?.campaigns, control?.engines?.capacity?.queuedCount, control?.engines?.capacity?.runningCount, loadControl]);
+  }, [allowed, dashboard?.engines, dashboard?.summary.activeQueue, loadDashboard]);
 
-  const cityOptions = useMemo(() => {
-    if (!form.state) return [];
-    return BRAZIL_CITIES_BY_STATE[form.state] || [];
-  }, [form.state]);
+  const engines = useMemo(() => emptyEngines(dashboard?.engines), [dashboard?.engines]);
+  const dashboardDescription = dashboard?.turbo.active
+    ? `Turbo forçado ativo até ${formatClock(dashboard.turbo.endsAt)}`
+    : `Turbo forçado pronto para operar até ${dashboard?.turbo.endLabel || form.endTime}`;
 
-  const hbxEngines = useMemo(() => {
-    const engines = (control?.engines?.engines || []).filter((engine) => String(engine.id || "").startsWith("hbx-engine"));
-    return Array.from({ length: 4 }, (_, index) => engines[index] || null);
-  }, [control?.engines?.engines]);
-
-  const activeCampaign = useMemo(() => {
-    return control?.campaigns.find((campaign) => ["running", "queued", "sleeping", "partial_error"].includes(String(campaign.status))) || control?.campaigns[0] || null;
-  }, [control?.campaigns]);
-
-  const liveFeed = useMemo(() => control?.liveFeed || [], [control?.liveFeed]);
-  const leadsPerMinute = liveFeed.filter((item) => item.type === "lead_saved" && minutesSince(item.createdAt) <= 1).length;
-  const tasksPerMinute = liveFeed.filter((item) => item.type.startsWith("task_") && minutesSince(item.createdAt) <= 1).length;
-  const taskCounts = activeCampaign?.taskStatusCounts || {};
-  const totalTasks = Object.values(taskCounts).reduce((sum, value) => sum + Number(value || 0), 0);
-
-  async function saveTurboConfig() {
+  async function activateForcedTurbo() {
     setSaving(true);
     setError(null);
     setFeedback(null);
     try {
-      const payload = await apiFetch<{ control: MasterControl }>("/modules/master/webscraping/turbo-noturno", {
-        method: "PUT",
+      const payload = await apiFetch<{ control: DashboardPayload }>("/modules/master/webscraping/turbo-noturno/force-now", {
+        method: "POST",
         requireAuth: true,
         timeoutMs: 15000,
-        body: JSON.stringify(buildPayload(form)),
+        body: JSON.stringify({
+          ...buildTurboPayload(form),
+          forceNow: true,
+        }),
       });
-      setControl(payload.control);
+      setDashboard(payload.control);
       hydrateForm(payload.control);
-      setFeedback("Turbo Noturno salvo no banco.");
+      setFeedback(`Turbo forçado ativo até ${formatClock(payload.control.turbo.endsAt)}.`);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Falha ao salvar Turbo Noturno.");
+      setError(err instanceof Error ? err.message : "Falha ao ativar Turbo Forçado.");
     } finally {
       setSaving(false);
     }
   }
 
-  async function activateMassData() {
+  async function createMassDataCampaign() {
     if (!form.state) {
-      setError("Escolha um estado para ativar a Massa de Dados.");
+      setError("Escolha um estado para criar a fila de Massa de Dados.");
       return;
     }
     setSaving(true);
     setError(null);
     setFeedback(null);
     try {
-      const payload = await apiFetch<{ control: MasterControl }>("/modules/master/webscraping/mass-data", {
+      const payload = await apiFetch<{ control: DashboardPayload }>("/modules/master/webscraping/mass-data", {
         method: "POST",
         requireAuth: true,
         timeoutMs: 30000,
         body: JSON.stringify({
-          ...buildPayload(form),
+          ...buildTurboPayload(form),
           state: form.state,
           city: form.city,
           segment: form.segment,
           targetType: form.targetType,
         }),
       });
-      setControl(payload.control);
+      setDashboard(payload.control);
       hydrateForm(payload.control);
-      setFeedback("Massa de Dados ativada.");
+      setFeedback("Fila de Massa de Dados criada com lotes pequenos.");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Falha ao ativar Massa de Dados.");
+      setError(err instanceof Error ? err.message : "Falha ao criar a fila de Massa de Dados.");
     } finally {
       setSaving(false);
-    }
-  }
-
-  async function forceTurboNow() {
-    setSaving(true);
-    setError(null);
-    setFeedback(null);
-    try {
-      const payload = await apiFetch<{ control: MasterControl }>("/modules/master/webscraping/turbo-noturno/force-now", {
-        method: "POST",
-        requireAuth: true,
-        timeoutMs: 15000,
-        body: JSON.stringify(buildPayload({ ...form, enabled: true })),
-      });
-      setControl(payload.control);
-      hydrateForm(payload.control);
-      setFeedback("Turbo forçado ativo agora.");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Falha ao forçar Turbo agora.");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function runCampaignAction(campaignId: string, action: "pause" | "resume" | "cancel") {
-    setActionId(`${campaignId}:${action}`);
-    setError(null);
-    setFeedback(null);
-    try {
-      const payload = await apiFetch<MasterControl>(`/modules/master/webscraping/mass-data/${campaignId}/${action}`, {
-        method: "POST",
-        requireAuth: true,
-        timeoutMs: 15000,
-      });
-      setControl(payload);
-      hydrateForm(payload);
-      setFeedback(action === "pause" ? "Campanha pausada." : action === "resume" ? "Campanha retomada." : "Campanha cancelada.");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Falha ao executar ação.");
-    } finally {
-      setActionId(null);
     }
   }
 
@@ -465,7 +361,11 @@ export default function MasterWebscrapingClientPage() {
     return (
       <main className="app-shell">
         <div className="app-container">
-          <div className="panel p-4 text-sm text-muted">Carregando painel Master...</div>
+          <section className={styles.loadingShell}>
+            <span />
+            <span />
+            <span />
+          </section>
         </div>
       </main>
     );
@@ -476,7 +376,7 @@ export default function MasterWebscrapingClientPage() {
   if (!allowed) {
     return (
       <DashboardScaffold
-        title="Master / Webscraping / Radar"
+        title="Master Webscraping"
         description="Acesso exclusivo do usuário MASTER."
         actions={<Link href="/master" className="btn btn-secondary btn-sm">Voltar ao Master</Link>}
       >
@@ -489,118 +389,75 @@ export default function MasterWebscrapingClientPage() {
 
   return (
     <DashboardScaffold
-      title="Master / Webscraping / Radar"
-      description="Massa de Dados Noturna com retomada automática e quatro motores HBX."
+      title="Master Webscraping"
+      description={dashboardDescription}
       actions={
-        <div className="flex flex-wrap gap-2 justify-end">
-          <Link href="/webscraping" className="btn btn-secondary btn-sm">Ver banco</Link>
-          <button type="button" className="btn btn-secondary btn-sm" onClick={() => void loadControl()} disabled={loading}>
-            {loading ? "Atualizando..." : "Atualizar"}
+        <div className={styles.heroActions}>
+          <Link href="/webscraping" className={styles.secondaryLink}>Ver banco</Link>
+          <button type="button" className={styles.secondaryButton} onClick={() => void loadDashboard()} disabled={loading}>
+            {loading ? "Atualizando" : "Atualizar"}
           </button>
-          <button type="button" className="btn btn-secondary btn-sm" onClick={() => void forceTurboNow()} disabled={saving}>
-            Forçar Turbo Agora
-          </button>
-          <Link href="/master" className="btn btn-secondary btn-sm">Voltar</Link>
         </div>
       }
     >
-      <section className={styles.shell} data-critical={control?.status.critical ? "true" : "false"}>
+      <section className={styles.shell} data-critical={dashboard?.status.critical ? "true" : "false"}>
         {error ? <div className={styles.alert} data-tone="error">{error}</div> : null}
         {feedback ? <div className={styles.alert} data-tone="ok">{feedback}</div> : null}
 
-        <div className={styles.headerGrid}>
-          <article className={styles.heroPanel}>
-            <div className={styles.heroTopline}>
-              <span>{control?.status.currentMode || "STANDBY"}</span>
-              <strong>continua de onde parou: {control?.status.resumeEnabled ? "ligado" : "desligado"}</strong>
-            </div>
-            <p className={styles.operationalMessage}>{operationalMessage(control)}</p>
-            <div className={styles.engineRow}>
-              {hbxEngines.map((engine, index) => (
-                <div
-                  key={engine?.id || index}
-                  className={styles.battery}
-                  data-state={engineTone(engine)}
-                  style={{ ["--usage" as string]: `${engineUsage(engine)}%` }}
-                  title={engine?.detail || engine?.lastError || statusLabel(engine?.status)}
-                >
-                  <div>
-                    <span>M{index + 1}</span>
-                    <strong>{engineStateLabel(engine)}</strong>
-                  </div>
-                  <b>{engineUsage(engine)}%</b>
-                  <i />
-                </div>
-              ))}
-            </div>
-            <div className={styles.heroMetrics}>
-              <span>Agora <strong>{control?.status.localTime || "-"}</strong></span>
-              <span>Próximo turbo <strong>{formatDateTime(control?.status.nextTurboAt)}</strong></span>
-              <span>Turbo forçado <strong>{control?.status.isTurboForcedNow ? `até ${formatDateTime(control?.status.forcedUntil)}` : "inativo"}</strong></span>
-              <span>Fila <strong>{metricValue(control?.engines?.capacity?.queuedCount)} cards</strong></span>
-              <span>Rodando <strong>{metricValue(control?.engines?.capacity?.runningCount)} tarefas</strong></span>
-              <span>Últimos 10 min <strong>{metricValue(control?.engines?.capacity?.completedLast10Min)} lotes</strong></span>
-            </div>
-            {control?.status.critical ? (
-              <p className={styles.critical}>{control.status.criticalReason || "Falha crítica no radar."}</p>
-            ) : null}
-          </article>
+        <header className={styles.pageHeader}>
+          <div>
+            <span>{dashboard?.status.currentMode || "STANDBY"}</span>
+            <h2>Radar operacional dos motores HBX</h2>
+            <p>{dashboard?.status.operationalMessage || "Status operacional em leitura."}</p>
+          </div>
+          <div className={styles.headerClock}>
+            <span>Horário atual</span>
+            <strong>{dashboard?.status.localTime || "--:--"}</strong>
+          </div>
+        </header>
 
-          <article className={styles.graphPanel}>
-            <div className={styles.graphHeader}>
-              <span>Gráfico vivo</span>
-              <strong>{leadsPerMinute} leads/min</strong>
-            </div>
-            <div className={styles.bars}>
-              <i style={{ height: `${Math.max(16, Math.min(100, leadsPerMinute * 22))}%` }} />
-              <i style={{ height: `${Math.max(16, Math.min(100, tasksPerMinute * 24))}%` }} />
-              <i style={{ height: `${Math.max(16, Math.min(100, hbxEngines.filter((engine) => engineTone(engine) === "running").length * 25))}%` }} />
-            </div>
-            <div className={styles.graphLegend}>
-              <span>Leads/min</span>
-              <span>Tasks/min</span>
-              <span>Motores</span>
-            </div>
-          </article>
-        </div>
+        <section className={styles.engineGrid} aria-label="Motores HBX">
+          {engines.map((engine, index) => (
+            <article key={engine.id} className={styles.engineCard} data-status={engine.status}>
+              <div className={styles.engineBackgroundIcon} aria-hidden="true" />
+              <div className={styles.engineTop}>
+                <span>{engine.label || `M${index + 1}`}</span>
+                <strong>{statusLabel(engine.status)}</strong>
+              </div>
+              <div className={styles.engineMainMetric}>
+                <span>Cards fabricados</span>
+                <strong>{metric(engine.cardsFabricated)}</strong>
+              </div>
+              <div className={styles.engineMeta}>
+                <span>Fila <strong>{metric(engine.queue)}</strong></span>
+                <span>Última atividade <strong>{formatDateTime(engine.lastActivityAt)}</strong></span>
+              </div>
+            </article>
+          ))}
+        </section>
 
-        <div className={styles.grid}>
-          <article className={styles.controlCard}>
+        <section className={styles.mainGrid}>
+          <article className={styles.turboCard}>
             <div className={styles.cardTitle}>
-              <span>Massa de Dados Noturna</span>
-              <strong>Turbo Noturno</strong>
+              <span>Controle do Turbo Forçado</span>
+              <strong>{dashboard?.turbo.active ? "Ativo" : "Pronto"}</strong>
             </div>
-            <div className={styles.formGrid}>
-              <label>
-                Estado
-                <select value={form.state} onChange={(event) => setForm((current) => ({ ...current, state: event.target.value, city: "" }))}>
-                  <option value="">Escolha</option>
-                  {BRAZIL_STATES.map((state) => (
-                    <option key={state.uf} value={state.uf}>{state.uf} - {state.name}</option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                Cidade
-                <select value={form.city} onChange={(event) => setForm((current) => ({ ...current, city: event.target.value }))} disabled={!form.state}>
-                  <option value="">Todas</option>
-                  {cityOptions.map((city) => (
-                    <option key={city} value={city}>{city}</option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                Segmento
-                <input value={form.segment} onChange={(event) => setForm((current) => ({ ...current, segment: event.target.value }))} placeholder="Aberto" />
-              </label>
-              <label>
-                Tipo
-                <select value={form.targetType} onChange={(event) => setForm((current) => ({ ...current, targetType: event.target.value as TargetType }))}>
-                  <option value="both">PF + PJ</option>
-                  <option value="pj">PJ</option>
-                  <option value="pf">PF</option>
-                </select>
-              </label>
+            <button
+              type="button"
+              className={styles.turboButton}
+              data-active={dashboard?.turbo.active ? "true" : "false"}
+              onClick={() => void activateForcedTurbo()}
+              disabled={saving}
+            >
+              <span>{dashboard?.turbo.active ? "Turbo Forçado Ativo" : "Ativar Turbo Forçado"}</span>
+              <strong>{dashboard?.turbo.active ? `até ${formatClock(dashboard.turbo.endsAt)}` : `até ${form.endTime}`}</strong>
+            </button>
+            <div className={styles.turboFacts}>
+              <span>Início do turbo <strong>{dashboard?.turbo.startedAt ? formatDateTime(dashboard.turbo.startedAt) : form.startTime}</strong></span>
+              <span>Desligamento programado <strong>{dashboard?.turbo.endsAt ? formatDateTime(dashboard.turbo.endsAt) : form.endTime}</strong></span>
+              <span>Tempo restante <strong>{dashboard?.turbo.active ? formatRemaining(dashboard.turbo.remainingSeconds) : "Aguardando ativação"}</strong></span>
+            </div>
+            <div className={styles.configGrid}>
               <label>
                 Início
                 <input type="time" value={form.startTime} onChange={(event) => setForm((current) => ({ ...current, startTime: event.target.value }))} />
@@ -611,7 +468,7 @@ export default function MasterWebscrapingClientPage() {
               </label>
               <label>
                 Motores
-                <input type="number" min={1} max={4} value={form.engineCount} onChange={(event) => setForm((current) => ({ ...current, engineCount: Math.min(Math.max(Number(event.target.value || 4), 1), 4) }))} />
+                <input type="number" min={1} max={4} value={form.engineCount} onChange={(event) => setForm((current) => ({ ...current, engineCount: clampNumber(event.target.value, 4, 1, 4) }))} />
               </label>
               <label>
                 Intensidade
@@ -623,102 +480,150 @@ export default function MasterWebscrapingClientPage() {
               </label>
               <label>
                 Memória alvo
-                <input type="number" min={1} max={256} value={form.memoryTargetGb} onChange={(event) => setForm((current) => ({ ...current, memoryTargetGb: Number(event.target.value || 16) }))} />
+                <input type="number" min={1} max={256} value={form.memoryTargetGb} onChange={(event) => setForm((current) => ({ ...current, memoryTargetGb: clampNumber(event.target.value, 16, 1, 256) }))} />
               </label>
-              <label>
-                Batch por lote
-                <input type="number" min={1} max={20} value={form.batchSize} onChange={(event) => setForm((current) => ({ ...current, batchSize: Math.min(Math.max(Number(event.target.value || 20), 1), 20) }))} />
-              </label>
-              <label>
-                Tentativas por isca
-                <input type="number" min={1} max={10} value={form.maxAttemptsPerTask} onChange={(event) => setForm((current) => ({ ...current, maxAttemptsPerTask: Math.min(Math.max(Number(event.target.value || 3), 1), 10) }))} />
-              </label>
-            </div>
-            <div className={styles.actions}>
-              <button type="button" onClick={() => void saveTurboConfig()} disabled={saving}>
-                Ativar Turbo Noturno
-              </button>
-              <button type="button" onClick={() => void forceTurboNow()} disabled={saving}>
-                Forçar Turbo Agora
-              </button>
-              <button type="button" data-primary="true" onClick={() => void activateMassData()} disabled={saving || !form.state}>
-                Ativar Massa de Dados
-              </button>
             </div>
           </article>
 
-          <article className={styles.statusCard}>
+          <aside className={styles.diagnosticsCard}>
             <div className={styles.cardTitle}>
-              <span>Operação atual</span>
-              <strong>{statusLabel(activeCampaign?.status)}</strong>
+              <span>Diagnóstico</span>
+              <strong>{dashboard?.diagnostics.engineHealthStatus === "error" ? "Crítico" : dashboard?.diagnostics.engineHealthStatus === "warning" ? "Atenção" : "OK"}</strong>
             </div>
-            <div className={styles.kpiGrid}>
-              <span>Cidade atual <strong>{activeCampaign?.currentCity || activeCampaign?.city || "Todas"}</strong></span>
-              <span>Estado <strong>{activeCampaign?.state || form.state || "-"}</strong></span>
-              <span>Cidades finalizadas <strong>{metricValue(activeCampaign?.completedCityCount)}</strong></span>
-              <span>Leads únicos <strong>{metricValue(activeCampaign?.approvedCount)}</strong></span>
-              <span>Duplicados <strong>{metricValue(activeCampaign?.duplicateCount)}</strong></span>
-              <span>Rejeitados <strong>{metricValue(activeCampaign?.rejectedCount)}</strong></span>
+            <div className={styles.diagnosticList}>
+              <div data-status={dashboard?.diagnostics.queueStatus || "warning"}>
+                <span>Fila de processamento</span>
+                <strong>{dashboard?.diagnostics.queueStatus === "error" ? "Erro" : dashboard?.diagnostics.queueStatus === "warning" ? "Atenção" : "OK"}</strong>
+              </div>
+              <div data-status={dashboard?.diagnostics.databaseStatus || "warning"}>
+                <span>Gravações no banco</span>
+                <strong>{dashboard?.diagnostics.databaseStatus === "error" ? "Erro" : dashboard?.diagnostics.databaseStatus === "warning" ? "Atenção" : "OK"}</strong>
+              </div>
+              <div data-status={dashboard?.diagnostics.engineHealthStatus || "warning"}>
+                <span>Saúde dos motores</span>
+                <strong>{dashboard?.diagnostics.engineHealthStatus === "error" ? "Offline" : dashboard?.diagnostics.engineHealthStatus === "warning" ? "Atenção" : "OK"}</strong>
+              </div>
             </div>
-            <div className={styles.taskPills}>
-              {["queued", "running", "completed", "exhausted", "failed"].map((status) => (
-                <span key={status}>{statusLabel(status)} <strong>{metricValue(taskCounts[status])}</strong></span>
-              ))}
+            <div className={styles.diagnosticMessages}>
+              {(dashboard?.diagnostics.messages || []).length ? (
+                dashboard?.diagnostics.messages.slice(0, 6).map((message) => <p key={message}>{message}</p>)
+              ) : (
+                <p>Sem avisos relevantes no momento.</p>
+              )}
             </div>
-            <p className={styles.queryLine}>{activeCampaign?.lastQueryUsed || activeCampaign?.progressMessage || `Total de tarefas: ${totalTasks}`}</p>
-          </article>
-        </div>
+          </aside>
+        </section>
 
-        <div className={styles.grid}>
-          <article className={styles.feedCard}>
+        <section className={styles.kpiGrid} aria-label="Resumo operacional">
+          <article>
+            <span>Cards fabricados hoje</span>
+            <strong>{metric(dashboard?.summary.cardsToday)}</strong>
+          </article>
+          <article>
+            <span>Cards/min médio</span>
+            <strong>{metric(dashboard?.summary.cardsPerMinuteAvg)}</strong>
+          </article>
+          <article>
+            <span>Fila ativa</span>
+            <strong>{metric(dashboard?.summary.activeQueue)}</strong>
+          </article>
+          <article>
+            <span>Erros 24h</span>
+            <strong>{metric(dashboard?.summary.errors24h)}</strong>
+          </article>
+          <article>
+            <span>Motores online</span>
+            <strong>{metric(dashboard?.summary.onlineEngines)} / {metric(dashboard?.summary.totalEngines)}</strong>
+          </article>
+        </section>
+
+        <section className={styles.lowerGrid}>
+          <article className={styles.productionCard}>
             <div className={styles.cardTitle}>
-              <span>Feed ao vivo</span>
-              <strong>{liveFeed.length}</strong>
+              <span>Produção em tempo real</span>
+              <strong>{dashboard?.production.length || 0}</strong>
             </div>
-            <div className={styles.feedList}>
-              {liveFeed.length === 0 ? (
-                <p>{Number(control?.engines?.capacity?.queuedCount || 0) > 0 || activeCampaign ? "Aguardando próximo lote com a fila carregada." : "Motores em standby, aguardando trabalho."}</p>
-              ) : liveFeed.slice(0, 12).map((item) => (
-                <div key={item.id} className={styles.feedItem} data-type={item.type}>
-                  <strong>{item.message}</strong>
-                  <span>{item.detail || "-"}</span>
-                  <small>{formatDateTime(item.createdAt)}</small>
+            {(dashboard?.production.length || 0) > 0 ? (
+              <div className={styles.productionTable}>
+                <div className={styles.productionHead}>
+                  <span>Nome / Contato</span>
+                  <span>Cidade</span>
+                  <span>Fonte</span>
+                  <span>Horário</span>
+                  <span>Status</span>
                 </div>
-              ))}
-            </div>
+                {dashboard?.production.map((item) => (
+                  <div key={item.id} className={styles.productionRow} data-status={item.dbStatus}>
+                    <span>
+                      <strong>{item.name}</strong>
+                      <small>{item.phone || "Sem telefone"}</small>
+                    </span>
+                    <span>{[item.city, item.state].filter(Boolean).join(" / ") || "-"}</span>
+                    <span>{item.source || "-"}</span>
+                    <span>{formatDateTime(item.createdAt)}</span>
+                    <span><b>{dbStatusLabel(item.dbStatus)}</b></span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className={styles.emptyState}>
+                <strong>Nenhum card gravado ainda</strong>
+                <p>Quando os motores salvarem registros reais no banco, eles aparecem aqui automaticamente.</p>
+              </div>
+            )}
           </article>
 
           <article className={styles.campaignCard}>
             <div className={styles.cardTitle}>
-              <span>Campanhas</span>
-              <strong>{control?.campaigns.length || 0}</strong>
+              <span>Nova fila Mass Data</span>
+              <strong>Lote pequeno</strong>
             </div>
-            <div className={styles.campaignList}>
-              {(control?.campaigns || []).length === 0 ? (
-                <p>Nenhuma campanha mass_data criada.</p>
-              ) : control?.campaigns.map((campaign) => (
-                <div key={campaign.id} className={styles.campaignRow}>
-                  <div>
-                    <strong>{campaign.state || "-"} / {campaign.currentCity || campaign.city || "Todas"}</strong>
-                    <span>{statusLabel(campaign.status)} · {campaign.targetType?.toUpperCase() || "PF+PJ"} · lote {campaign.batchSize}</span>
-                  </div>
-                  <div className={styles.rowActions}>
-                    <button type="button" onClick={() => void runCampaignAction(campaign.id, "pause")} disabled={Boolean(actionId) || !["queued", "running", "sleeping", "partial_error"].includes(campaign.status)}>
-                      Pausar
-                    </button>
-                    <button type="button" onClick={() => void runCampaignAction(campaign.id, "resume")} disabled={Boolean(actionId) || campaign.status !== "paused"}>
-                      Continuar
-                    </button>
-                    <button type="button" onClick={() => void runCampaignAction(campaign.id, "cancel")} disabled={Boolean(actionId) || ["completed", "failed", "canceled"].includes(campaign.status)}>
-                      Cancelar
-                    </button>
-                    <Link href="/webscraping">Ver banco</Link>
-                  </div>
-                </div>
-              ))}
+            <div className={styles.campaignForm}>
+              <div className={styles.campaignWide}>
+                <HbxStateCityPicker
+                  state={form.state}
+                  city={form.city}
+                  onStateChange={(value) => setForm((current) => ({ ...current, state: value, city: "" }))}
+                  onCityChange={(value) => setForm((current) => ({ ...current, city: value }))}
+                  allowAllCities
+                />
+              </div>
+              <HbxSegmentCombobox
+                value={form.segment}
+                onChange={(value) => setForm((current) => ({ ...current, segment: value }))}
+                placeholder="Todos os segmentos"
+                helperText="Deixe em branco para a Massa de Dados varrer segmentos amplos."
+              />
+              <HbxTargetTypeSelector
+                value={form.targetType}
+                onChange={(value) => setForm((current) => ({ ...current, targetType: value as TargetType }))}
+                allowedTypes={["both", "pj", "pf"]}
+              />
+              <label>
+                Batch por lote
+                <input type="number" min={1} max={20} value={form.batchSize} onChange={(event) => setForm((current) => ({ ...current, batchSize: clampNumber(event.target.value, 20, 1, 20) }))} />
+              </label>
+              <label>
+                Tentativas por isca
+                <input type="number" min={1} max={10} value={form.maxAttemptsPerTask} onChange={(event) => setForm((current) => ({ ...current, maxAttemptsPerTask: clampNumber(event.target.value, 3, 1, 10) }))} />
+              </label>
             </div>
+            <button type="button" className={styles.createCampaignButton} onClick={() => void createMassDataCampaign()} disabled={saving || !form.state}>
+              Criar fila de Massa de Dados
+            </button>
           </article>
-        </div>
+        </section>
+
+        {(dashboard?.warnings.length || 0) > 0 ? (
+          <section className={styles.warningStrip}>
+            {dashboard?.warnings.slice(0, 4).map((warning) => (
+              <p key={`${warning.route}-${warning.createdAt}`}>
+                <strong>{warning.route}</strong>
+                <span>{warning.message}</span>
+              </p>
+            ))}
+          </section>
+        ) : null}
       </section>
     </DashboardScaffold>
   );

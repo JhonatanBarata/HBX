@@ -52,6 +52,11 @@
   padding: 14px;
 }
 
+.filterWide {
+  grid-column: span 3;
+  min-width: 0;
+}
+
 .filters label {
   min-width: 0;
   display: grid;

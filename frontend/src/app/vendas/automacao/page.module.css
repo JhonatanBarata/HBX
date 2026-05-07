@@ -1059,6 +1059,10 @@
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
+.prospectingWideField {
+  grid-column: 1 / -1;
+}
+
 .prospectingMessageGrid {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }

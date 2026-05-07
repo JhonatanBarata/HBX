@@ -10,6 +10,7 @@ import { useHbxTheme } from "@/components/ThemeProvider";
 import {
   TOPBAR_PROGRESS_EVENT,
   type TopbarProgressEventDetail,
+  type TopbarProgressMetric,
   type TopbarProgressState,
 } from "@/lib/topbar-progress";
 import { usePopupTopbarLock } from "@/lib/use-popup-topbar-lock";
@@ -212,6 +213,16 @@ type TopBarIncomingPopup = {
   lastAt: string;
 };
 
+type BillboardSlide = {
+  id: string;
+  eyebrow: string;
+  title: string;
+  description: string;
+  phase: "idle" | "loading" | "success" | "warning";
+  progress?: number | null;
+  metrics?: TopbarProgressMetric[];
+};
+
 type HbxPrefetchWindow = Window & {
   __hbx_prefetch?: {
     modules: UserModule[];
@@ -412,16 +423,6 @@ function formatInboxPreview(conversation: InboxAlertConversation) {
   return "Nova mensagem aguardando resposta.";
 }
 
-function resolveWhatsAppDiagnosticFocus(chip: OperationalStatusChip): WhatsAppDiagnosticFocus {
-  if (chip.key === "webwhats") return "qr";
-  if (chip.key === "token" || chip.key === "meta") return "official";
-  return "status";
-}
-
-function isWhatsAppOperationalChip(chip: OperationalStatusChip) {
-  return chip.key === "token" || chip.key === "meta" || chip.key === "webwhats";
-}
-
 function shouldLoadModalQr(nextPayload: WhatsAppModalPayload | null, includeQr: boolean) {
   if (!includeQr || !nextPayload?.data.available) return false;
   return nextPayload.status !== "connected";
@@ -477,6 +478,7 @@ export default function TopBar() {
   const [recoveryPendingHumanCount, setRecoveryPendingHumanCount] = useState(0);
   const [atendimentoPendingHumanCount, setAtendimentoPendingHumanCount] = useState(0);
   const [topbarProgress, setTopbarProgress] = useState<TopbarProgressState | null>(null);
+  const [billboardSlideIndex, setBillboardSlideIndex] = useState(0);
   const [scrapingEngines, setScrapingEngines] = useState<ScrapingEngineStatusPayload | null>(null);
   const [scrapingEngineStatusMessage, setScrapingEngineStatusMessage] = useState<string | null>(null);
   const [unreadInboxOpen, setUnreadInboxOpen] = useState(false);
@@ -521,6 +523,9 @@ export default function TopBar() {
   const pendingCheckoutLocked = isPendingCheckoutUser(user);
   const pendingCheckoutHref = resolvePendingCheckoutHref(user);
   const dashboardHref = pendingCheckoutLocked ? pendingCheckoutHref : "/boasvindas";
+  const isMasterWebscrapingRoute = Boolean(
+    pathname?.startsWith("/master/webscraping") || pathname?.startsWith("/dashboard/master/webscraping"),
+  );
 
   usePopupTopbarLock(whatsAppDetailOpen || masterContextModalOpen);
 
@@ -546,6 +551,20 @@ export default function TopBar() {
       window.removeEventListener(TOPBAR_PROGRESS_EVENT, handleTopbarProgress as EventListener);
     };
   }, []);
+
+  useEffect(() => {
+    if (!topbarProgress || topbarProgress.phase !== "success") return undefined;
+    const timer = window.setTimeout(() => {
+      setTopbarProgress((current) => {
+        if (!current || current.source !== topbarProgress.source || current.title !== topbarProgress.title) {
+          return current;
+        }
+        return null;
+      });
+    }, topbarProgress.source === "vendas" ? 5200 : 3600);
+
+    return () => window.clearTimeout(timer);
+  }, [topbarProgress]);
 
   useEffect(() => {
     setPortalReady(true);
@@ -614,7 +633,9 @@ export default function TopBar() {
     const [profile, myModules, supportPlans] = await Promise.all([
       apiFetch<User>("/profile/current-user"),
       apiFetch<UserModule[]>("/modules/me"),
-      apiFetch<CommercialPlansTopbarPayload>("/commercial-plans/me").catch(() => null),
+      isMasterWebscrapingRoute
+        ? Promise.resolve(null)
+        : apiFetch<CommercialPlansTopbarPayload>("/commercial-plans/me").catch(() => null),
     ]);
     setUser(profile);
     setModules(myModules || []);
@@ -625,7 +646,7 @@ export default function TopBar() {
         profile,
       };
     }
-  }, []);
+  }, [isMasterWebscrapingRoute]);
 
   const refreshOperationalStatus = React.useCallback(async (refreshLive = false) => {
     try {
@@ -850,7 +871,6 @@ export default function TopBar() {
   const progressEngineLabel =
     topbarProgress?.activeEngineLabel ||
     (typeof progressEngineIndex === "number" ? `M${progressEngineIndex + 1}` : null);
-  const shouldShowTopbarProgressWidget = Boolean(topbarProgress);
 
   const isLiveScrapingEngine = React.useCallback(
     (engine: ScrapingEngineStatus) => {
@@ -1006,8 +1026,10 @@ export default function TopBar() {
         const [profile, myModules, nextOperationalStatus, supportPlans] = await Promise.all([
           apiFetch<User>("/profile/current-user"),
           apiFetch<UserModule[]>("/modules/me"),
-          refreshOperationalStatus(false),
-          apiFetch<CommercialPlansTopbarPayload>("/commercial-plans/me").catch(() => null),
+          isMasterWebscrapingRoute ? Promise.resolve(null) : refreshOperationalStatus(false),
+          isMasterWebscrapingRoute
+            ? Promise.resolve(null)
+            : apiFetch<CommercialPlansTopbarPayload>("/commercial-plans/me").catch(() => null),
         ]);
         if (mounted) {
           setUser(profile);
@@ -1037,14 +1059,18 @@ export default function TopBar() {
       const customEvent = event as CustomEvent<MasterContextChangedDetail>;
       clearApiCache();
       void refreshMasterAwareState().catch(() => undefined);
-      void refreshOperationalStatus(false).catch(() => undefined);
+      if (!isMasterWebscrapingRoute) {
+        void refreshOperationalStatus(false).catch(() => undefined);
+      }
       showMasterContextToast(customEvent.detail);
     }
 
     function handleModulesChanged() {
       clearApiCache("/modules/me");
       void refreshMasterAwareState().catch(() => undefined);
-      void refreshOperationalStatus(true).catch(() => undefined);
+      if (!isMasterWebscrapingRoute) {
+        void refreshOperationalStatus(true).catch(() => undefined);
+      }
     }
 
     window.addEventListener(MASTER_CONTEXT_CHANGED_EVENT, handleMasterContextChanged);
@@ -1055,7 +1081,7 @@ export default function TopBar() {
       window.removeEventListener(MASTER_CONTEXT_CHANGED_EVENT, handleMasterContextChanged);
       window.removeEventListener(MODULES_CHANGED_EVENT, handleModulesChanged);
     };
-  }, [authenticated, refreshMasterAwareState, refreshOperationalStatus, setStorageUserId, showMasterContextToast]);
+  }, [authenticated, isMasterWebscrapingRoute, refreshMasterAwareState, refreshOperationalStatus, setStorageUserId, showMasterContextToast]);
 
   useEffect(() => {
     setStorageUserId(user?.id ?? null);
@@ -1066,7 +1092,7 @@ export default function TopBar() {
       return;
     }
 
-    if (!authenticated) {
+    if (!authenticated || isMasterWebscrapingRoute) {
       setOperationalStatus(null);
       return;
     }
@@ -1078,7 +1104,7 @@ export default function TopBar() {
     return () => {
       window.clearInterval(timer);
     };
-  }, [authenticated, refreshOperationalStatus]);
+  }, [authenticated, isMasterWebscrapingRoute, refreshOperationalStatus]);
 
   useEffect(() => {
     const hasWebscrapingModule = (modules || []).some((module) => module.key === "webscraping" && module.accessible);
@@ -1761,22 +1787,6 @@ export default function TopBar() {
     };
   }, [unreadInboxOpen]);
 
-  async function openWhatsAppDiagnostic(focus: WhatsAppDiagnosticFocus) {
-    if (pendingCheckoutLocked) {
-      router.push(pendingCheckoutHref);
-      return;
-    }
-    setWhatsAppQrRequested(false);
-    setWhatsAppDetailFocus(focus);
-    setWhatsAppDetailOpen(true);
-    setWhatsAppDetailError(null);
-    await Promise.all([
-      loadWhatsAppCenter(),
-      loadWhatsAppModal({ includeQr: false }),
-    ]);
-    void refreshOperationalStatus(true);
-  }
-
   async function ensureWhatsAppQrMode() {
     if (pendingCheckoutLocked) {
       router.push(pendingCheckoutHref);
@@ -1920,19 +1930,6 @@ export default function TopBar() {
     } finally {
       setWhatsAppDetailBusy(null);
     }
-  }
-
-  function handleOperationalChipClick(chip: OperationalStatusChip) {
-    if (pendingCheckoutLocked) {
-      router.push(pendingCheckoutHref);
-      return;
-    }
-    if (isWhatsAppOperationalChip(chip)) {
-      void openWhatsAppDiagnostic(resolveWhatsAppDiagnosticFocus(chip));
-      return;
-    }
-    if (!chip.href) return;
-    router.push(chip.href);
   }
 
   async function openMasterContextModal() {
@@ -2113,13 +2110,156 @@ export default function TopBar() {
       : pendingHumanCount > 0
         ? `${pendingHumanCount} na fila`
         : "Status em leitura";
-  const visibleOperationalStatusChips = pendingCheckoutLocked
-    ? []
-    : (operationalStatus?.statuses || []).filter((chip) => {
-        if (chip.key === "payment") return false;
-        if (chip.key === "token" && operationalStatusMap.get("webwhats")?.tone === "green") return false;
-        return true;
+  const visibleOperationalStatusChips = useMemo(() => {
+    if (pendingCheckoutLocked) return [];
+    return (operationalStatus?.statuses || []).filter((chip) => {
+      if (chip.key === "payment") return false;
+      if (chip.key === "token" && operationalStatusMap.get("webwhats")?.tone === "green") return false;
+      return true;
+    });
+  }, [operationalStatus?.statuses, operationalStatusMap, pendingCheckoutLocked]);
+  const billboardSlides = useMemo<BillboardSlide[]>(() => {
+    if (topbarProgress) {
+      const sourceLabel =
+        topbarProgress.source === "vendas"
+          ? "Prospecção"
+          : topbarProgress.source === "webscraping"
+            ? progressEngineLabel
+              ? `${progressEngineLabel} ao vivo`
+              : "Motores HBX"
+            : "Confirmado";
+      const fallbackMetrics =
+        topbarProgress.source === "webscraping"
+          ? [
+              { label: "Fila", value: String(scrapingEngines?.capacity?.queuedCount ?? 0) },
+              { label: "Rodando", value: String(scrapingEngines?.capacity?.runningCount ?? hbxRunningCount) },
+              { label: "10 min", value: String(scrapingEngines?.capacity?.completedLast10Min ?? hbxProcessedLast10Min) },
+            ]
+          : [];
+
+      return [
+        {
+          id: `progress:${topbarProgress.source}:${topbarProgress.phase}:${topbarProgress.title}`,
+          eyebrow: topbarProgress.phase === "success" ? "Confirmado" : sourceLabel,
+          title: topbarProgress.title,
+          description: topbarProgress.status,
+          phase: topbarProgress.phase,
+          progress: topbarProgressPercent,
+          metrics: (topbarProgress.metrics?.length ? topbarProgress.metrics : fallbackMetrics).slice(0, 3),
+        },
+      ];
+    }
+
+    if (masterContextToast) {
+      return [
+        {
+          id: `master-context:${masterContextToast}`,
+          eyebrow: "Confirmado",
+          title: "Contexto atualizado",
+          description: masterContextToast,
+          phase: "success",
+          progress: 100,
+          metrics: [{ label: "MASTER", value: "OK" }],
+        },
+      ];
+    }
+
+    const capacity = scrapingEngines?.capacity;
+    const slides: BillboardSlide[] = [
+      {
+        id: "operational",
+        eyebrow: "Status operacional",
+        title: operationalSummaryMessage,
+        description: accountContext,
+        phase: pendingCheckoutLocked || showOperationalCompanyPicker ? "warning" : hasActiveScrapingEngine ? "loading" : "idle",
+        progress: hasActiveScrapingEngine ? hbxUsageAverage : null,
+        metrics: [
+          { label: "Uso", value: `${hbxUsageAverage}%` },
+          { label: "Fila", value: String(capacity?.queuedCount ?? 0) },
+          { label: "10 min", value: String(capacity?.completedLast10Min ?? hbxProcessedLast10Min) },
+        ],
+      },
+    ];
+
+    if (visibleOperationalStatusChips.length) {
+      const chipMetrics = visibleOperationalStatusChips.slice(0, 3).map((chip) => ({
+        label: chip.shortLabel || chip.label,
+        value: chip.value,
+      }));
+      slides.push({
+        id: "modules",
+        eyebrow: "Módulos",
+        title: visibleOperationalStatusChips.slice(0, 2).map((chip) => `${chip.shortLabel}: ${chip.value}`).join(" · "),
+        description: whatsAppHealthLabel,
+        phase: whatsAppHealth === "green" ? "success" : whatsAppHealth === "red" ? "warning" : "idle",
+        progress: whatsAppHealth === "green" ? 100 : null,
+        metrics: chipMetrics,
       });
+    }
+
+    if (pendingHumanCount > 0) {
+      slides.push({
+        id: "queue",
+        eyebrow: "Atenção",
+        title: `${pendingHumanCount} atendimento${pendingHumanCount === 1 ? "" : "s"} na fila humana`,
+        description: "Mensagens e cobranças aguardando operador.",
+        phase: "warning",
+        progress: null,
+        metrics: [
+          { label: "Inbox", value: String(atendimentoPendingHumanCount) },
+          { label: "Cobrança", value: String(recoveryPendingHumanCount) },
+        ],
+      });
+    }
+
+    return slides;
+  }, [
+    accountContext,
+    atendimentoPendingHumanCount,
+    hasActiveScrapingEngine,
+    hbxProcessedLast10Min,
+    hbxRunningCount,
+    hbxUsageAverage,
+    masterContextToast,
+    operationalSummaryMessage,
+    pendingCheckoutLocked,
+    pendingHumanCount,
+    progressEngineLabel,
+    recoveryPendingHumanCount,
+    scrapingEngines?.capacity,
+    showOperationalCompanyPicker,
+    topbarProgress,
+    topbarProgressPercent,
+    visibleOperationalStatusChips,
+    whatsAppHealth,
+    whatsAppHealthLabel,
+  ]);
+  const billboardSlideSignature = billboardSlides.map((slide) => slide.id).join("|");
+
+  useEffect(() => {
+    setBillboardSlideIndex(0);
+    if (billboardSlides.length <= 1) return undefined;
+    const timer = window.setInterval(() => {
+      setBillboardSlideIndex((index) => (index + 1) % billboardSlides.length);
+    }, 4200);
+
+    return () => window.clearInterval(timer);
+  }, [billboardSlideSignature, billboardSlides.length]);
+
+  const activeBillboardSlide: BillboardSlide =
+    billboardSlides[billboardSlideIndex % Math.max(1, billboardSlides.length)] || {
+      id: "fallback",
+      eyebrow: "Status operacional",
+      title: "Status em leitura",
+      description: "Aguardando dados do sistema.",
+      phase: "idle",
+      progress: null,
+      metrics: [],
+    };
+  const activeBillboardProgress =
+    typeof activeBillboardSlide?.progress === "number"
+      ? Math.round(Math.max(0, Math.min(100, activeBillboardSlide.progress)))
+      : null;
   const whatsAppDialogNode = (
     <WhatsAppOperationalDialog
       isOpen={whatsAppDetailOpen}
@@ -2279,17 +2419,6 @@ export default function TopBar() {
                 <span className="app-brand__markCaption">Módulos</span>
                 <span className="app-brand__markBadge" aria-hidden="true" />
               </button>
-
-              <Link
-                href={authenticated === true ? dashboardHref : "/login"}
-                prefetch={false}
-                className="app-brand__bodyLink"
-              >
-                <span className="app-brand__body">
-                  <span className="app-brand__text">HBX Control Center</span>
-                  <span className="app-brand__context">{accountContext}</span>
-                </span>
-              </Link>
             </div>
 
             {authenticated === true && user && !user.isSystemMaster && user.company?.id && !pendingCheckoutLocked ? (
@@ -2394,40 +2523,6 @@ export default function TopBar() {
                     </span>
                   ) : null}
                 </button>
-
-                {shouldShowTopbarProgressWidget ? (
-                  <div
-                    className="app-topbar__progressWidget"
-                    data-phase={topbarProgress?.phase}
-                    data-source={topbarProgress?.source}
-                    role="status"
-                    aria-live="polite"
-                  >
-                    <div className="app-topbar__progressOrb" aria-hidden="true">
-                      <span />
-                    </div>
-                    <div className="app-topbar__progressBody">
-                      <div className="app-topbar__progressLine">
-                        <strong>{topbarProgress?.title}</strong>
-                        <span>{topbarProgressPercent}%</span>
-                      </div>
-                      <div className="app-topbar__progressTrack" aria-hidden="true">
-                        <span style={{ width: `${Math.max(0, Math.min(100, topbarProgress?.progress || 0))}%` }} />
-                      </div>
-                      <p>{topbarProgress?.status}</p>
-                    </div>
-                    {topbarProgress?.metrics?.length ? (
-                      <div className="app-topbar__progressMetrics">
-                        {(topbarProgress?.metrics || []).slice(0, 2).map((metric) => (
-                          <span key={`${metric.label}:${metric.value}`}>
-                            {metric.label}
-                            <strong>{metric.value}</strong>
-                          </span>
-                        ))}
-                      </div>
-                    ) : null}
-                  </div>
-                ) : null}
               </div>
             ) : null}
           </div>
@@ -2500,63 +2595,41 @@ export default function TopBar() {
                 >
                   <strong>{getScrapingEngineShortLabel(scrapingEngineView.googleEngine)}</strong>
                 </span>
-                <div className="app-topbar__summary">
-                  <p className="app-topbar__summaryLabel">Status operacional</p>
-                  <strong>{operationalSummaryMessage}</strong>
-                </div>
-
-                <div className="app-topbar__aggregate" aria-label="Utilização agregada">
-                  <span>
-                    <strong>{liveWebscrapingProgress ? `${topbarProgressPercent}%` : `${hbxUsageAverage}%`}</strong>
-                    <small>{liveWebscrapingProgress ? "progresso" : "uso médio"}</small>
-                  </span>
-                  <span>
-                    <strong>{scrapingEngines?.capacity?.queuedCount ?? 0}</strong>
-                    <small>fila</small>
-                  </span>
-                  <span>
-                    <strong>{scrapingEngines?.capacity?.runningCount ?? hbxRunningCount}</strong>
-                    <small>rodando</small>
-                  </span>
-                  <span>
-                    <strong>{scrapingEngines?.capacity?.completedLast10Min ?? hbxProcessedLast10Min}</strong>
-                    <small>10 min</small>
-                  </span>
-                  <span>
-                    <strong>{scrapingEngines?.capacity?.isTurboForcedNow ? "forçado" : scrapingEngines?.capacity?.isTurboEnabled ? "armado" : "normal"}</strong>
-                    <small>turbo</small>
-                  </span>
-                </div>
-
-                {!liveWebscrapingProgress && operationalStatusReady ? (
-                  <div className="app-topbar__statusRail" aria-label="Status operacional da empresa">
-                    {visibleOperationalStatusChips.slice(0, 3).map((chip) => (
-                      <button
-                        key={chip.key}
-                        type="button"
-                        className="app-topbar__statusChip"
-                        data-tone={chip.tone}
-                        onClick={() => handleOperationalChipClick(chip)}
-                        title={chip.detail}
-                        aria-label={`${chip.label}: ${chip.value}. ${chip.detail}`}
-                      >
-                        <span className="app-topbar__statusChipLabel">{chip.shortLabel}</span>
-                        <strong className="app-topbar__statusChipValue">{chip.value}</strong>
-                      </button>
-                    ))}
+                <div
+                  key={activeBillboardSlide.id}
+                  className="app-topbar__billboard"
+                  data-phase={activeBillboardSlide.phase}
+                >
+                  <span className="app-topbar__billboardScan" aria-hidden="true" />
+                  <div className="app-topbar__billboardMain">
+                    <span className="app-topbar__billboardOrb" aria-hidden="true">
+                      <span />
+                    </span>
+                    <div className="app-topbar__billboardCopy">
+                      <span className="app-topbar__billboardEyebrow">{activeBillboardSlide.eyebrow}</span>
+                      <strong>{activeBillboardSlide.title}</strong>
+                      <p>{activeBillboardSlide.description}</p>
+                    </div>
+                    {activeBillboardProgress !== null ? (
+                      <span className="app-topbar__billboardPercent">{activeBillboardProgress}%</span>
+                    ) : null}
                   </div>
-                ) : showOperationalCompanyPicker ? (
-                  <div className="app-topbar__metaGrid" aria-label="Ação operacional">
-                    <button
-                      type="button"
-                      className="app-topbar__contextCta"
-                      onClick={() => void openMasterContextModal()}
-                    >
-                      <strong>Escolher empresa</strong>
-                      <span>Ver motores e acesso</span>
-                    </button>
-                  </div>
-                ) : null}
+                  {activeBillboardProgress !== null ? (
+                    <div className="app-topbar__billboardTrack" aria-hidden="true">
+                      <span style={{ width: `${activeBillboardProgress}%` }} />
+                    </div>
+                  ) : null}
+                  {activeBillboardSlide.metrics?.length ? (
+                    <div className="app-topbar__billboardMetrics">
+                      {activeBillboardSlide.metrics.slice(0, 3).map((metric) => (
+                        <span key={`${activeBillboardSlide.id}:${metric.label}:${metric.value}`}>
+                          {metric.label}
+                          <strong>{metric.value}</strong>
+                        </span>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
               </div>
             </div>
           </div>
@@ -2593,82 +2666,86 @@ export default function TopBar() {
                 <strong>Suporte</strong>
               </button>
             ) : null}
-            {authenticated === true ? <ThemeSwitcher /> : null}
-            {user ? (
-              <div ref={userMenuRef} className="app-user">
-                <button
-                  type="button"
-                  className="app-user__trigger"
-                  onClick={() => setOpen((value) => !value)}
-                  aria-expanded={open}
-                >
-                  <span className="app-user__avatar">{displayInitial}</span>
-                  <span className="app-user__meta">
-                    <span className="app-user__name">{displayLabel || user?.username || ""}</span>
-                    <span className="app-user__company">
-                      {user.isSystemMaster
-                        ? user.masterContext?.active
-                          ? `MASTER em ${user.masterContext.companyName || "Empresa"}`
-                          : "MASTER"
-                        : user.company?.name ?? "Sem empresa"}
-                    </span>
-                  </span>
-                </button>
+            {authenticated === true || user ? (
+              <div className="app-topbar__accountCluster">
+                {authenticated === true ? <ThemeSwitcher /> : null}
+                {user ? (
+                  <div ref={userMenuRef} className="app-user">
+                    <button
+                      type="button"
+                      className="app-user__trigger"
+                      onClick={() => setOpen((value) => !value)}
+                      aria-expanded={open}
+                    >
+                      <span className="app-user__avatar">{displayInitial}</span>
+                      <span className="app-user__meta">
+                        <span className="app-user__name">{displayLabel || user?.username || ""}</span>
+                        <span className="app-user__company">
+                          {user.isSystemMaster
+                            ? user.masterContext?.active
+                              ? `MASTER em ${user.masterContext.companyName || "Empresa"}`
+                              : "MASTER"
+                            : user.company?.name ?? "Sem empresa"}
+                        </span>
+                      </span>
+                    </button>
 
-                {open ? (
-                  <div className="app-user__menu">
-                    <p className="app-user__menu-title">Atendente/vendedor</p>
-                    <form onSubmit={handleDisplayNameSubmit} className="app-user__form">
-                      <input
-                        type="text"
-                        placeholder="Nome do atendente/vendedor"
-                        value={attendantName}
-                        onChange={(event) => setAttendantName(event.target.value)}
-                        className="field"
-                        autoComplete="name"
-                      />
-                      <button
-                        type="submit"
-                        className="btn btn-primary btn-sm"
-                        disabled={savingAttendantName || attendantName.trim().length < 2}
-                      >
-                        {savingAttendantName ? "Salvando..." : "Salvar nome"}
-                      </button>
-                    </form>
-                    <p className="app-user__menu-title">Editar senha</p>
-                    <form onSubmit={handlePasswordSubmit} className="app-user__form">
-                      <input
-                        type="password"
-                        placeholder="Senha atual"
-                        value={curPass}
-                        onChange={(event) => setCurPass(event.target.value)}
-                        className="field"
-                      />
-                      <input
-                        type="password"
-                        placeholder="Nova senha (mín. 8)"
-                        value={newPass}
-                        onChange={(event) => setNewPass(event.target.value)}
-                        className="field"
-                      />
-                      {changeMsg ? <p className="text-xs text-muted leading-5">{changeMsg}</p> : null}
-                      <div className="app-user__menu-actions">
-                        <button
-                          type="submit"
-                          className="btn btn-primary btn-sm"
-                          disabled={changing || newPass.length < 4}
-                        >
-                          {changing ? "Salvando..." : "Salvar senha"}
-                        </button>
-                        <button
-                          type="button"
-                          className="btn btn-secondary btn-sm"
-                          onClick={() => setOpen(false)}
-                        >
-                          Fechar
-                        </button>
+                    {open ? (
+                      <div className="app-user__menu">
+                        <p className="app-user__menu-title">Atendente/vendedor</p>
+                        <form onSubmit={handleDisplayNameSubmit} className="app-user__form">
+                          <input
+                            type="text"
+                            placeholder="Nome do atendente/vendedor"
+                            value={attendantName}
+                            onChange={(event) => setAttendantName(event.target.value)}
+                            className="field"
+                            autoComplete="name"
+                          />
+                          <button
+                            type="submit"
+                            className="btn btn-primary btn-sm"
+                            disabled={savingAttendantName || attendantName.trim().length < 2}
+                          >
+                            {savingAttendantName ? "Salvando..." : "Salvar nome"}
+                          </button>
+                        </form>
+                        <p className="app-user__menu-title">Editar senha</p>
+                        <form onSubmit={handlePasswordSubmit} className="app-user__form">
+                          <input
+                            type="password"
+                            placeholder="Senha atual"
+                            value={curPass}
+                            onChange={(event) => setCurPass(event.target.value)}
+                            className="field"
+                          />
+                          <input
+                            type="password"
+                            placeholder="Nova senha (mín. 8)"
+                            value={newPass}
+                            onChange={(event) => setNewPass(event.target.value)}
+                            className="field"
+                          />
+                          {changeMsg ? <p className="text-xs text-muted leading-5">{changeMsg}</p> : null}
+                          <div className="app-user__menu-actions">
+                            <button
+                              type="submit"
+                              className="btn btn-primary btn-sm"
+                              disabled={changing || newPass.length < 4}
+                            >
+                              {changing ? "Salvando..." : "Salvar senha"}
+                            </button>
+                            <button
+                              type="button"
+                              className="btn btn-secondary btn-sm"
+                              onClick={() => setOpen(false)}
+                            >
+                              Fechar
+                            </button>
+                          </div>
+                        </form>
                       </div>
-                    </form>
+                    ) : null}
                   </div>
                 ) : null}
               </div>
@@ -2698,32 +2775,6 @@ export default function TopBar() {
 
       {/* incomingPopup UI removed — notifications are disabled for now */}
       {portalReady ? createPortal(whatsAppDialogNode, document.body) : null}
-
-      {masterContextToast ? (
-        <div
-          style={{
-            position: "fixed",
-            top: 84,
-            right: 20,
-            zIndex: 145,
-            maxWidth: 360,
-            padding: "12px 14px",
-            borderRadius: 18,
-            border: "1px solid rgba(20, 122, 108, 0.18)",
-            background: "linear-gradient(180deg, rgba(255,255,255,0.96), rgba(238,247,244,0.98))",
-            boxShadow: "0 18px 40px rgba(14, 30, 37, 0.14)",
-            color: "#17313a",
-            display: "grid",
-            gap: 4,
-          }}
-          aria-live="polite"
-        >
-          <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: "0.12em", textTransform: "uppercase", color: "#147a6c" }}>
-            Contexto atualizado
-          </span>
-          <strong style={{ fontSize: 14, lineHeight: 1.4 }}>{masterContextToast}</strong>
-        </div>
-      ) : null}
 
       {portalReady && masterContextModalNode ? createPortal(masterContextModalNode, document.body) : null}
 

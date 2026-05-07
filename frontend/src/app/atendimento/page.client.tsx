@@ -65,6 +65,7 @@ import type { WhatsAppCenterPayload } from "@/lib/whatsapp-center";
 import { apiFetch, getDashboardApiBaseUrl, getToken } from "@/app/_lib/api";
 import { startSmartPolling } from "@/app/_lib/polling";
 import { useRequireModule } from "@/app/_lib/useRequireModule";
+import { clearTopbarProgress, dispatchTopbarProgress } from "@/lib/topbar-progress";
 import AgendaStudioModal, { type AgendaStudioTab } from "./_components/AgendaStudioModal";
 import AiAssistantPanel, {
   type AiAssistantInsights,
@@ -5495,12 +5496,22 @@ export default function InboxClientPage() {
       const normalized = sanitizeBotConfigForCurrentTenant(payload);
       writeStoredGlobalBotEnabled(normalized.routingRules.globalBotEnabled !== false);
       setBotConfig(normalized);
+      const topbarMessage = enabled
+        ? "Bot global ativado para novas mensagens."
+        : "Bot global desativado para novas mensagens.";
       setNotice({
         tone: "success",
-        text: enabled
-          ? "Bot global ativado para novas mensagens."
-          : "Bot global desativado para novas mensagens.",
+        text: topbarMessage,
       });
+      dispatchTopbarProgress({
+        source: "atendimento-bot",
+        phase: "success",
+        title: enabled ? "Bot global ativado" : "Bot global desativado",
+        status: topbarMessage,
+        progress: 100,
+        metrics: [{ label: "Bot", value: enabled ? "Ativo" : "Off" }],
+      });
+      window.setTimeout(() => clearTopbarProgress("atendimento-bot"), 3600);
     } catch (toggleError) {
       if (openBotPlansFromError(toggleError)) {
         setBotConfig(botConfig);
