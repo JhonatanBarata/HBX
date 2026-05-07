@@ -783,7 +783,7 @@ export default function TutorialClientPage() {
 
   function goToWebscraping() {
     window.localStorage.setItem(TUTORIAL_COMPLETED_KEY, "true");
-    router.push("/webscraping");
+    router.push("/radar-digital");
   }
 
   function goToPlans() {

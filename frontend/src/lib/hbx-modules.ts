@@ -23,8 +23,8 @@ export type UserModule = {
 const MODULE_SORT_ORDER = [
   "atendimento",
   "vendas",
-  "website",
   "webscraping",
+  "website",
   "cadastro",
   "follow_up_internacional",
   "financeiro",
@@ -55,7 +55,7 @@ export function resolveModuleHref(key: string, fallback?: string | null) {
     atendimento: "/atendimento",
     vendas: "/vendas",
     gerencial: "/gerencial",
-    webscraping: "/webscraping",
+    webscraping: "/radar-digital",
     cadastro: "/cadastros",
     financeiro: "/pagamento",
     website: "/website",
@@ -99,7 +99,7 @@ export function isModuleBlocked(module: UserModule) {
 export function formatCriticalEngineLabel(value?: string | null) {
   const normalized = String(value || "").trim().toLowerCase();
   if (normalized === "whatsapp") return "WhatsApp";
-  if (normalized === "webscraping") return "Webscraping";
+  if (normalized === "webscraping") return "Radar Digital";
   if (normalized === "payment") return "Pagamento";
   return normalized ? normalized.charAt(0).toUpperCase() + normalized.slice(1) : "Motor";
 }
@@ -119,7 +119,7 @@ export function resolveModuleBlockedHref(module: Pick<UserModule, "key" | "criti
   }
 
   if (criticalEngine === "webscraping") {
-    return "/webscraping";
+    return "/radar-digital";
   }
 
   return resolveModuleHref(normalizedKey);
@@ -129,7 +129,7 @@ export function resolveModuleBlockedActionLabel(module: Pick<UserModule, "critic
   const criticalEngine = String(module.criticalEngine || "").trim().toLowerCase();
   if (criticalEngine === "whatsapp") return "Corrigir motor";
   if (criticalEngine === "payment") return "Regularizar";
-  if (criticalEngine === "webscraping") return "Ver runtime";
+  if (criticalEngine === "webscraping") return "Abrir Radar";
   return "Resolver";
 }
 

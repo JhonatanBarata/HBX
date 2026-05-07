@@ -609,7 +609,7 @@ export default function MasterHomeClientPage() {
           </div>
           <div className={styles.masterNightActions}>
             <Link href="/master/night-factory" className="btn btn-primary btn-sm">Ver Top 20 de hoje</Link>
-            <Link href="/master/webscraping" className="btn btn-secondary btn-sm">Radar Premium</Link>
+            <Link href="/master/webscraping" className="btn btn-secondary btn-sm">Motores HBX</Link>
             <Link href="/master/sistema" className="btn btn-secondary btn-sm">Command Center</Link>
           </div>
         </section>

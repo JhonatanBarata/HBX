@@ -1725,17 +1725,59 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     const filters = parseJsonObject(campaign.filtersJson);
     let search: WebscrapingSearchResponse;
     try {
-      search = await this.webscrapingService.searchContactsForUser(runtimeUser, {
+      const operationLimit = Math.min(100, Math.max(1, Math.trunc(Number(campaign.desiredLeadBuffer || 60))));
+      const pulled = await this.webscrapingService.pullRadarLeadsForUser(runtimeUser, {
         city: campaignCity,
         state: campaign.state || null,
         segment: campaignSegment,
-        quantity: campaign.engine === 'hbx' ? 100 : Math.min(20, campaign.desiredLeadBuffer || 60),
+        quantity: operationLimit,
+        minimumStock: Math.min(operationLimit, Math.max(1, Number(campaign.minLeadBuffer || 15))),
+        desiredStock: operationLimit,
         engine: campaign.engine === 'google' ? 'google' : 'hbx',
         targetType: ['pf', 'agenda_pf'].includes(String(campaign.targetType || '')) ? campaign.targetType as any : 'pj',
         minRating: Number(filters.minRating || 0) || null,
         minReviews: Number(filters.minReviews || 0) || null,
-        onlyWithWebsite: filters.onlyWithWebsite === true,
+        withWebsite: filters.onlyWithWebsite === true,
       });
+      search = {
+        query: {
+          city: campaignCity,
+          state: campaign.state || null,
+          segment: campaignSegment,
+          quantity: operationLimit,
+          engine: campaign.engine === 'google' ? 'google' : 'hbx',
+          targetType: ['pf', 'agenda_pf'].includes(String(campaign.targetType || '')) ? campaign.targetType as any : 'pj',
+          filters: {
+            minRating: Number(filters.minRating || 0) || null,
+            minReviews: Number(filters.minReviews || 0) || null,
+            onlyWithWebsite: filters.onlyWithWebsite === true,
+          },
+        },
+        meta: {
+          historyId: 'radar-digital:pull',
+          source: 'radar_database',
+          reusedCount: Number(pulled?.meta?.deliveredCount || 0),
+          fetchedCount: Number(pulled?.meta?.deliveredCount || 0),
+          technicalCacheUsed: false,
+          technicalCacheReusedCount: 0,
+          technicalCacheValidUntil: null,
+        },
+        results: (pulled.items || []).map((item: any) => ({
+          placeId: item.placeId || `radar:${item.id}`,
+          name: item.name,
+          phone: item.phone || item.phoneDigits,
+          phoneDigits: item.phoneDigits || item.phone,
+          rating: item.rating ?? null,
+          reviews: item.reviews ?? null,
+          address: item.address || null,
+          website: item.website || null,
+          source: 'radar_database',
+          score: item.opportunityScore ?? null,
+          opportunityScore: item.opportunityScore ?? null,
+          opportunityReason: item.opportunityReason || null,
+          radarLeadId: item.id,
+        })),
+      } as any;
     } catch (error: any) {
       const errorMessage = String(error?.message || error || 'Falha na busca de contatos.');
       await this.markCampaignStage(campaign.id, campaign.companyId, 'aguardando', `Busca de contatos falhou: ${errorMessage}`, {
@@ -1776,12 +1818,18 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
         { ...result, city: search.query.city, segment: search.query.segment },
         runtimeUser,
       ),
-      sourceHistoryId: search.meta.historyId || undefined,
+      sourceHistoryId: (result as any).radarLeadId ? `radar:${(result as any).radarLeadId}` : search.meta.historyId || undefined,
     }));
     if (leads.length) {
       await this.vendasService.importWebscrapingLeadsForUser(runtimeUser, {
         sourceHistoryId: search.meta.historyId || undefined,
         leads,
+      });
+      await this.webscrapingService.markRadarLeadsSentToVendasForUser(
+        runtimeUser,
+        dedupedResults.map((result: any) => String(result.radarLeadId || '').trim()).filter(Boolean),
+      ).catch((error: any) => {
+        this.logger.warn(`Falha ao marcar Radar como enviado para Vendas campaign=${campaign.id}: ${String(error?.message || error)}`);
       });
     }
     this.publishAutomationEvent({
@@ -2584,6 +2632,25 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     return latestSent?.sentAt instanceof Date ? latestSent.sentAt : null;
   }
 
+  private async markRadarDispositionForLead(campaign: any, lead: any, status: string, reason: string) {
+    try {
+      const runtimeUser = await this.buildAutomationUser(campaign);
+      await this.webscrapingService.markRadarContactDispositionForUser(runtimeUser, {
+        phone: lead?.phoneNormalized || lead?.phone,
+        phoneDigits: lead?.phoneNormalized || lead?.phone,
+        name: lead?.name || null,
+        city: lead?.city || campaign?.city || null,
+        state: campaign?.state || null,
+        segment: lead?.segment || campaign?.segment || null,
+        status,
+        reason,
+        source: 'vendas_automation',
+      });
+    } catch (error: any) {
+      this.logger.warn(`Falha ao sincronizar descarte no Radar lead=${lead?.id || '-'}: ${String(error?.message || error)}`);
+    }
+  }
+
   private async processDueJob(job: any): Promise<ProcessDueJobResult> {
     const now = new Date();
     const campaign = job.campaign;
@@ -2666,6 +2733,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
         routeTarget: 'excluidos',
         active: false,
       }).catch(() => null);
+      await this.markRadarDispositionForLead(campaign, lead, 'invalid_whatsapp', errorMessage);
       return skippedResult('invalid_whatsapp', errorMessage);
     }
 
@@ -2702,7 +2770,49 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
         text: 'Contato sem WhatsApp confirmado. Envio automático bloqueado.',
         type: 'no_whatsapp_send_blocked',
       });
+      await this.markRadarDispositionForLead(campaign, lead, 'no_whatsapp', errorMessage);
       return skippedResult('no_whatsapp', errorMessage);
+    }
+
+    const radarProtectionUser = await this.buildAutomationUser(campaign);
+    const radarProtection = await this.webscrapingService.getRadarContactProtectionForUser(radarProtectionUser, {
+      phone: lead.phoneNormalized || lead.phone,
+      phoneDigits: lead.phoneNormalized || lead.phone,
+    }).catch(() => ({ blocked: false, status: null, reason: null }));
+    if (radarProtection?.blocked) {
+      const errorMessage = `Radar bloqueou o envio: ${String(radarProtection.reason || radarProtection.status || 'lead protegido')}.`;
+      await this.prisma.vendasAutomationJob.update({
+        where: { id: job.id },
+        data: {
+          status: 'skipped',
+          archivedAt: now,
+          classification: 'radar_protected',
+          errorMessage,
+        },
+      });
+      const conversationId = await this.updateProspectionConversationStage({
+        companyId: campaign.companyId,
+        lead,
+        campaign,
+        jobId: job.id,
+        stage: 'negative_reply',
+        queueTarget: 'excluidos',
+        routeTarget: 'excluidos',
+        active: false,
+        botEligible: false,
+        botEntryPending: false,
+      }).catch(() => null);
+      this.publishAutomationEvent({
+        companyId: campaign.companyId,
+        campaignId: campaign.id,
+        jobId: job.id,
+        leadId: lead.id,
+        conversationId,
+        status: 'aguardando',
+        text: 'Radar bloqueou este lead por histórico negativo, bloqueio ou opt-out.',
+        type: 'radar_protected',
+      });
+      return skippedResult('radar_protected', errorMessage);
     }
 
     const { metadata: prospectionMetadata, conversationId: prospectionConversationId } =
@@ -2779,6 +2889,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
         text: 'Lead com negativa ou opt-out. Envio automático bloqueado.',
         type: 'negative_or_opt_out_send_blocked',
       });
+      await this.markRadarDispositionForLead(campaign, lead, 'opt_out', errorMessage);
       return skippedResult('negative_or_opt_out', errorMessage);
     }
 
@@ -3303,6 +3414,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
         }),
       },
     });
+    await this.markRadarDispositionForLead(job.campaign, job.lead, input.optOut ? 'opt_out' : 'negative', input.optOut ? 'opt_out' : 'resposta_negativa');
     this.publishAutomationEvent({
       companyId: input.companyId,
       campaignId: job.campaignId,

@@ -53,6 +53,22 @@ type RadarLeadsResponse = {
   };
 };
 
+type RadarPullResponse = {
+  items: RadarLead[];
+  meta?: {
+    requestedQuantity?: number;
+    deliveredCount?: number;
+  };
+};
+
+type ImportToVendasResponse = {
+  ok: boolean;
+  createdCount: number;
+  updatedCount: number;
+  skippedWithoutWhatsapp?: number;
+  message?: string;
+};
+
 type RadarFilterOption = {
   value: string;
   label: string;
@@ -106,13 +122,19 @@ function formatDate(value?: string | null) {
 function statusLabel(value?: string | null) {
   const status = String(value || "clean").toLowerCase();
   if (status === "clean" || status === "new") return "Novo";
+  if (status === "approved") return "Aprovado";
   if (status === "delivered") return "Recebido";
   if (status === "sent_to_vendas" || status === "imported_to_vendas") return "Em Vendas";
+  if (status === "in_attendance" || status === "em_atendimento") return "Em atendimento";
+  if (status === "converted" || status === "won") return "Convertido";
   if (status === "contacted") return "Contato feito";
   if (status === "no_answer") return "Não atendeu";
-  if (status === "denied" || status === "negative") return "Sem interesse";
+  if (status === "no_whatsapp" || status === "invalid_whatsapp") return "Contato inválido";
+  if (status === "denied" || status === "negative") return "Negativo";
+  if (status === "blocked") return "Bloqueado";
+  if (status === "opt_out" || status === "optout") return "Opt-out";
   if (status === "complaint") return "Reclamação";
-  if (status === "hidden" || status === "discarded") return "Oculto";
+  if (status === "hidden" || status === "discarded") return "Descartado";
   return value || "Novo";
 }
 
@@ -137,8 +159,10 @@ function eventLabel(value?: string | null) {
   if (type === "found") return "Encontrado";
   if (type === "imported_to_vendas") return "Enviado para Vendas";
   if (type === "contacted") return "Contato feito";
-  if (type === "denied") return "Sem interesse";
-  if (type === "hidden") return "Ocultado";
+  if (type === "denied" || type === "negative") return "Negativo";
+  if (type === "blocked") return "Bloqueado";
+  if (type === "opt_out") return "Opt-out";
+  if (type === "hidden" || type === "discarded") return "Descartado";
   if (type === "no_answer") return "Não atendeu";
   return value || "Atualização";
 }
@@ -169,6 +193,7 @@ export default function RadarDigitalClientPage() {
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [actionId, setActionId] = useState<string | null>(null);
+  const [bulkSending, setBulkSending] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [availableFilters, setAvailableFilters] = useState<RadarAvailableFilters>({
@@ -265,9 +290,8 @@ export default function RadarDigitalClientPage() {
           timeoutMs: 15000,
           body: JSON.stringify({ eventType: "hidden", note: "Ocultado no Radar Digital." }),
         });
-        setItems((current) => current.filter((item) => item.id !== lead.id));
-        setTotal((current) => Math.max(0, current - 1));
-        setFeedback("Card ocultado.");
+        setItems((current) => current.map((item) => item.id === lead.id ? { ...item, status: "discarded", companyStatus: "discarded" } : item));
+        setFeedback("Card marcado como descartado.");
       }
 
       if (action === "negative") {
@@ -277,14 +301,67 @@ export default function RadarDigitalClientPage() {
           timeoutMs: 15000,
           body: JSON.stringify({ status: "negative", reason: "sem_interesse", privateNotes: "Marcado no Radar Digital." }),
         });
-        setItems((current) => current.filter((item) => item.id !== lead.id));
-        setTotal((current) => Math.max(0, current - 1));
-        setFeedback("Card marcado como sem interesse.");
+        setItems((current) => current.map((item) => item.id === lead.id ? { ...item, status: "negative", companyStatus: "negative" } : item));
+        setFeedback("Card marcado como negativo.");
       }
     } catch {
       setError("Não foi possível concluir esta ação agora.");
     } finally {
       setActionId(null);
+    }
+  }
+
+  function buildVendasLeadPayload(lead: RadarLead) {
+    return {
+      sourceHistoryId: `radar:${lead.id}`,
+      name: lead.name,
+      phone: lead.phone || lead.phoneDigits || "",
+      phoneDigits: lead.phoneDigits || lead.phone || "",
+      website: lead.website || undefined,
+      city: lead.city || undefined,
+      segment: lead.segment || undefined,
+      shortNote: lead.opportunityReason || undefined,
+    };
+  }
+
+  async function sendFilteredToVendas() {
+    setBulkSending(true);
+    setError(null);
+    try {
+      const payload = await apiFetch<RadarPullResponse>("/webscraping/radar/pull", {
+        method: "POST",
+        requireAuth: true,
+        timeoutMs: 30000,
+        body: JSON.stringify({
+          ...appliedFilters,
+          quantity: 100,
+          minimumStock: 20,
+          desiredStock: 100,
+        }),
+      });
+      const leads = (payload.items || []).slice(0, 100).map(buildVendasLeadPayload);
+      if (!leads.length) {
+        setFeedback("Nenhum lead elegível encontrado para estes filtros.");
+        return;
+      }
+      const imported = await apiFetch<ImportToVendasResponse>("/vendas/import/webscraping", {
+        method: "POST",
+        requireAuth: true,
+        timeoutMs: 30000,
+        body: JSON.stringify({ sourceHistoryId: "radar-digital:bulk", leads }),
+      });
+      await apiFetch("/webscraping/radar/leads/mark-sent-to-vendas", {
+        method: "POST",
+        requireAuth: true,
+        timeoutMs: 15000,
+        body: JSON.stringify({ leadIds: (payload.items || []).slice(0, 100).map((lead) => lead.id) }),
+      }).catch(() => null);
+      await loadCards(1, false);
+      setFeedback(imported.message || `${leads.length} lead(s) herdados para Vendas.`);
+    } catch (bulkError) {
+      setError(bulkError instanceof Error ? bulkError.message : "Não foi possível herdar leads para Vendas agora.");
+    } finally {
+      setBulkSending(false);
     }
   }
 
@@ -328,6 +405,17 @@ export default function RadarDigitalClientPage() {
             <strong>Massa de Dados HBX</strong>
           </div>
         </div>
+
+        <section className={styles.transferPanel}>
+          <div>
+            <span>Radar para Vendas</span>
+            <strong>Herdar leads com os filtros atuais</strong>
+            <p>Envia no máximo 100 contatos elegíveis por operação. Negativos, bloqueados e opt-out permanecem protegidos no Radar.</p>
+          </div>
+          <button type="button" onClick={() => void sendFilteredToVendas()} disabled={bulkSending}>
+            {bulkSending ? "Herdando..." : "Herdar até 100 para Vendas"}
+          </button>
+        </section>
 
         <form
           className={styles.filters}

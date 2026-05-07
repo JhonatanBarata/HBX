@@ -359,7 +359,7 @@ export default function MasterNightFactoryClientPage() {
                   <p>{lead.reason || "Oportunidade enriquecida pela Night Factory."}</p>
                   <small>{lead.recommendedOffer || "HBX Vendas + Bot IA"}</small>
                   <div className={styles.rowActions}>
-                    <Link href={`/webscraping?radarLeadId=${encodeURIComponent(lead.radarLeadId)}`}>Enviar para Vendas</Link>
+                    <Link href={`/radar-digital?radarLeadId=${encodeURIComponent(lead.radarLeadId)}`}>Enviar para Vendas</Link>
                     <button type="button" title={lead.miniAudit?.summary || "Mini-auditoria pronta"}>Auditoria</button>
                     <button type="button">Recovery</button>
                   </div>

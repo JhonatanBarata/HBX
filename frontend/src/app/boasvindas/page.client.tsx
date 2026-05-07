@@ -52,7 +52,7 @@ export default function BoasVindasClientPage() {
   }
 
   function handleSkip() {
-    navigateWithTransition("/webscraping");
+    navigateWithTransition("/radar-digital");
   }
 
   if (hasToken === null || (hasToken === true && !masterCheckComplete)) {

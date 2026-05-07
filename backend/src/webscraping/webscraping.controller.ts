@@ -366,7 +366,7 @@ class RadarPullDto extends RadarDatabaseQueryDto {
 
 class RadarNegativeDto {
   @IsOptional()
-  @IsIn(['negative', 'discarded', 'descartado'])
+  @IsIn(['negative', 'discarded', 'descartado', 'blocked', 'bloqueado', 'opt_out', 'optout', 'no_whatsapp', 'invalid_whatsapp'])
   status?: string;
 
   @IsOptional()
@@ -376,6 +376,13 @@ class RadarNegativeDto {
   @IsOptional()
   @IsString()
   privateNotes?: string;
+}
+
+class RadarMarkSentDto {
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  leadIds?: string[];
 }
 
 @Controller('webscraping')
@@ -463,6 +470,11 @@ export class WebscrapingController {
   @Post('radar/leads/:id/send-to-vendas')
   radarLeadSendToVendas(@Req() req: any, @Param('id') id: string) {
     return this.webscrapingService.importRadarLeadToVendasForUser(req.user, id);
+  }
+
+  @Post('radar/leads/mark-sent-to-vendas')
+  radarLeadsMarkSentToVendas(@Req() req: any, @Body() dto: RadarMarkSentDto) {
+    return this.webscrapingService.markRadarLeadsSentToVendasForUser(req.user, dto?.leadIds || []);
   }
 
   @Post('radar/leads/:id/event')

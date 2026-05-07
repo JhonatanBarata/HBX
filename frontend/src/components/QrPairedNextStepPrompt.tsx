@@ -27,9 +27,9 @@ const OPTIONS = [
     href: "/atendimento",
   },
   {
-    label: "Webscraping",
+    label: "Radar Digital",
     description: "Prospectar contatos e enviar leads para Vendas.",
-    href: "/webscraping",
+    href: "/radar-digital",
   },
 ];
 

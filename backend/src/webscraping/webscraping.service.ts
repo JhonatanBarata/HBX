@@ -91,6 +91,21 @@ const ACRE_CITIES_FALLBACK = [
 ];
 const DEFAULT_MASS_DATA_ENGINE_URLS = buildLocalHbxEngineUrls();
 const TURBO_OPERATIONAL_CONFIG_KEY = 'turbo_noturno';
+const RADAR_PROTECTED_STATUSES = [
+  'negative',
+  'denied',
+  'blocked',
+  'opt_out',
+  'optout',
+  'do_not_contact',
+  'complaint',
+  'discarded',
+  'hidden',
+  'lost',
+  'no_whatsapp',
+  'invalid_whatsapp',
+  'invalid_phone',
+] as const;
 
 type RuntimeStatus = 'online' | 'degraded';
 type ExternalRuntimeStatus = 'online' | 'offline';
@@ -399,8 +414,14 @@ type RadarLeadEventType =
   | 'imported_to_vendas'
   | 'contacted'
   | 'denied'
+  | 'negative'
+  | 'blocked'
+  | 'opt_out'
+  | 'discarded'
   | 'complaint'
   | 'no_answer'
+  | 'no_whatsapp'
+  | 'invalid_whatsapp'
   | 'hidden'
   | 'duplicate'
   | 'status_changed';
@@ -408,10 +429,19 @@ type RadarLeadEventType =
 type RadarLeadStatus =
   | 'clean'
   | 'new'
+  | 'approved'
   | 'sent_to_vendas'
+  | 'in_attendance'
+  | 'converted'
   | 'denied'
+  | 'negative'
+  | 'blocked'
+  | 'opt_out'
+  | 'discarded'
   | 'complaint'
   | 'no_answer'
+  | 'no_whatsapp'
+  | 'invalid_whatsapp'
   | 'duplicate'
   | 'rejected'
   | 'hidden';
@@ -3476,12 +3506,22 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
   private normalizeRadarLeadStatus(value: unknown): RadarLeadStatus {
     const normalized = String(value || '').trim().toLowerCase();
     if (normalized === 'imported_to_vendas' || normalized === 'sent_to_vendas') return 'sent_to_vendas';
-    if (normalized === 'negative' || normalized === 'lost') return 'denied';
-    if (normalized === 'discarded') return 'hidden';
-    if (['clean', 'new', 'denied', 'complaint', 'no_answer', 'duplicate', 'rejected', 'hidden'].includes(normalized)) {
+    if (normalized === 'em_atendimento' || normalized === 'atendimento') return 'in_attendance';
+    if (normalized === 'won') return 'converted';
+    if (normalized === 'optout' || normalized === 'do_not_contact') return 'opt_out';
+    if (normalized === 'lost' || normalized === 'sem_interesse') return 'negative';
+    if (normalized === 'descartado') return 'discarded';
+    if (['clean', 'new', 'approved', 'in_attendance', 'converted', 'denied', 'negative', 'blocked', 'opt_out', 'discarded', 'complaint', 'no_answer', 'no_whatsapp', 'invalid_whatsapp', 'duplicate', 'rejected', 'hidden'].includes(normalized)) {
       return normalized as RadarLeadStatus;
     }
     return 'clean';
+  }
+
+  private isRadarProtectedStatus(value: unknown) {
+    const normalized = String(value || '').trim().toLowerCase();
+    const status = this.normalizeRadarLeadStatus(normalized);
+    return (RADAR_PROTECTED_STATUSES as readonly string[]).includes(normalized) ||
+      (RADAR_PROTECTED_STATUSES as readonly string[]).includes(status);
   }
 
   private resolveRadarLeadStatus(row: any): RadarLeadStatus {
@@ -3635,12 +3675,12 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         companyStates: {
           none: {
             companyId,
-            status: { in: ['imported_to_vendas', 'sent_to_vendas', 'negative', 'denied', 'complaint', 'discarded', 'hidden', 'lost'] },
+            status: { in: [...RADAR_PROTECTED_STATUSES, 'imported_to_vendas', 'sent_to_vendas'] as any },
           },
         },
       });
       and.push({
-        status: { notIn: ['complaint', 'denied', 'hidden', 'rejected', 'duplicate'] },
+        status: { notIn: [...RADAR_PROTECTED_STATUSES, 'rejected', 'duplicate'] as any },
       });
     }
 
@@ -3660,10 +3700,18 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       const filterKey = filters.filterKey;
       if (filters.status && status !== this.normalizeRadarLeadStatus(filters.status)) return false;
       if (filterKey === 'new' || filterKey === 'clean') return status === 'clean' || status === 'new';
+      if (filterKey === 'approved') return status === 'approved';
       if (filterKey === 'sent_to_vendas') return status === 'sent_to_vendas';
-      if (filterKey === 'denied') return status === 'denied';
+      if (filterKey === 'in_attendance') return status === 'in_attendance';
+      if (filterKey === 'converted') return status === 'converted';
+      if (filterKey === 'denied') return status === 'denied' || status === 'negative';
+      if (filterKey === 'negative') return status === 'negative' || status === 'denied';
+      if (filterKey === 'blocked') return status === 'blocked';
+      if (filterKey === 'opt_out') return status === 'opt_out';
+      if (filterKey === 'discarded') return status === 'discarded' || status === 'hidden';
       if (filterKey === 'complaint') return status === 'complaint';
       if (filterKey === 'no_answer') return status === 'no_answer';
+      if (filterKey === 'no_whatsapp') return status === 'no_whatsapp' || status === 'invalid_whatsapp';
       if (filterKey === 'without_whatsapp') return !isLikelyWhatsapp(row?.phoneDigits || row?.phone);
       if (filterKey === 'likely_whatsapp') return isLikelyWhatsapp(row?.phoneDigits || row?.phone);
       if (filterKey === 'ddd_local') return expectedDdds.length > 0 && expectedDdds.includes(ddd);
@@ -3950,10 +3998,17 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       this.buildRadarFacet('all', 'Todos', rows.length, 'neutral'),
       this.buildRadarFacet('new', 'Novos', (statusCounts.get('new') || 0) + (statusCounts.get('clean') || 0), 'info'),
       this.buildRadarFacet('clean', 'Limpos', (statusCounts.get('clean') || 0) + (statusCounts.get('new') || 0), 'info'),
+      this.buildRadarFacet('approved', 'Aprovados', statusCounts.get('approved') || 0, 'success'),
       this.buildRadarFacet('sent_to_vendas', 'Já enviados para Vendas', statusCounts.get('sent_to_vendas') || 0, 'success'),
-      this.buildRadarFacet('denied', 'Negaram', statusCounts.get('denied') || 0, 'warning'),
+      this.buildRadarFacet('in_attendance', 'Em atendimento', statusCounts.get('in_attendance') || 0, 'info'),
+      this.buildRadarFacet('converted', 'Convertidos', statusCounts.get('converted') || 0, 'success'),
+      this.buildRadarFacet('negative', 'Negativos', (statusCounts.get('negative') || 0) + (statusCounts.get('denied') || 0), 'warning'),
+      this.buildRadarFacet('blocked', 'Bloqueados', statusCounts.get('blocked') || 0, 'danger'),
+      this.buildRadarFacet('opt_out', 'Opt-out', statusCounts.get('opt_out') || 0, 'danger'),
+      this.buildRadarFacet('discarded', 'Descartados', (statusCounts.get('discarded') || 0) + (statusCounts.get('hidden') || 0), 'neutral'),
       this.buildRadarFacet('complaint', 'Reclamação', statusCounts.get('complaint') || 0, 'danger'),
       this.buildRadarFacet('no_answer', 'Não atenderam', statusCounts.get('no_answer') || 0, 'attention'),
+      this.buildRadarFacet('no_whatsapp', 'Contato inválido', (statusCounts.get('no_whatsapp') || 0) + (statusCounts.get('invalid_whatsapp') || 0), 'danger'),
       this.buildRadarFacet('without_whatsapp', 'Sem WhatsApp', counters.withoutWhatsapp, 'neutral'),
       this.buildRadarFacet('likely_whatsapp', 'Com WhatsApp provável', counters.likelyWhatsapp, 'success'),
       this.buildRadarFacet('ddd_local', 'DDD local', counters.dddLocal, 'success'),
@@ -4088,7 +4143,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     const now = new Date();
     for (const row of rows) {
       const existing = Array.isArray(row?.companyStates) && row.companyStates.length ? row.companyStates[0] : null;
-      if (['imported_to_vendas', 'negative', 'discarded', 'lost'].includes(String(existing?.status || ''))) continue;
+      if (['imported_to_vendas', 'sent_to_vendas'].includes(String(existing?.status || '')) || this.isRadarProtectedStatus(existing?.status || row?.status)) continue;
       await (this.prisma as any).radarLeadCompanyState.upsert({
         where: {
           companyId_radarLeadId: {
@@ -4132,7 +4187,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       fetchedCount: 0,
     };
 
-    if (cleanStockBefore < filters.minimumStock) {
+    if (cleanStockBefore < Math.max(filters.minimumStock, filters.quantity)) {
       replenish = await this.replenishRadarStockForUser(user, {
         ...input,
         city: filters.city,
@@ -4238,6 +4293,10 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     const beforeRows = await this.queryRadarRowsForCompany(context.companyId, effectiveFilters, {
       limit: Math.max(effectiveFilters.desiredStock, effectiveFilters.minimumStock, effectiveFilters.quantity),
       requirePhone: true,
+    });
+    const allKnownRows = await this.queryRadarRowsForCompany(context.companyId, effectiveFilters, {
+      limit: Math.max(effectiveFilters.desiredStock, effectiveFilters.minimumStock, effectiveFilters.quantity, 1000),
+      requirePhone: true,
       includeHidden: true,
     });
     const cleanStockBefore = beforeRows.length;
@@ -4254,7 +4313,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     }
 
     const fetchedResults: WebscrapingContactResult[] = [];
-    const seenPhones = new Set(beforeRows.map((row) => normalizePhoneDigits(row?.phoneDigits || row?.phone)).filter(Boolean));
+    const seenPhones = new Set(allKnownRows.map((row) => normalizePhoneDigits(row?.phoneDigits || row?.phone)).filter(Boolean));
     const shortage = Math.max(0, effectiveFilters.desiredStock - cleanStockBefore);
     let attempts = 0;
     while (fetchedResults.length < shortage && attempts < 6) {
@@ -4322,7 +4381,6 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     const afterRows = await this.queryRadarRowsForCompany(context.companyId, effectiveFilters, {
       limit: Math.max(effectiveFilters.desiredStock, effectiveFilters.minimumStock, effectiveFilters.quantity),
       requirePhone: true,
-      includeHidden: true,
     });
 
     return {
@@ -4606,6 +4664,142 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
+  async markRadarLeadsSentToVendasForUser(user: any, radarLeadIds: string[] = []) {
+    const context = this.resolveContext(user);
+    if (!(await this.supportsRadarPersistence())) return { ok: false, updatedCount: 0 };
+    const ids = Array.from(new Set((Array.isArray(radarLeadIds) ? radarLeadIds : []).map((id) => String(id || '').trim()).filter(Boolean))).slice(0, 100);
+    if (!ids.length) return { ok: true, updatedCount: 0 };
+    const rows = await (this.prisma as any).radarLeadPool.findMany({
+      where: { id: { in: ids } },
+      include: { companyStates: { where: { companyId: context.companyId }, take: 1 } },
+    }).catch(() => []);
+    const now = new Date();
+    let updatedCount = 0;
+    for (const row of rows || []) {
+      const existing = Array.isArray(row?.companyStates) && row.companyStates.length ? row.companyStates[0] : null;
+      if (this.isRadarProtectedStatus(existing?.status || row?.status)) continue;
+      await (this.prisma as any).radarLeadCompanyState.upsert({
+        where: {
+          companyId_radarLeadId: {
+            companyId: context.companyId,
+            radarLeadId: row.id,
+          },
+        },
+        create: {
+          companyId: context.companyId,
+          radarLeadId: row.id,
+          status: 'sent_to_vendas',
+          lastActionAt: now,
+        },
+        update: {
+          status: 'sent_to_vendas',
+          lastActionAt: now,
+        },
+      }).catch(() => null);
+      await (this.prisma as any).radarLeadPool.update({
+        where: { id: row.id },
+        data: {
+          status: 'sent_to_vendas',
+          globalImportedCount: { increment: 1 },
+          lastSeenAt: now,
+        },
+      }).catch(() => null);
+      await this.recordRadarLeadEvent({
+        leadId: row.id,
+        companyId: context.companyId,
+        userId: context.userId,
+        eventType: 'imported_to_vendas',
+        statusFrom: this.normalizeRadarLeadStatus(existing?.status || row.status),
+        statusTo: 'sent_to_vendas',
+      });
+      updatedCount += 1;
+    }
+    return { ok: true, updatedCount };
+  }
+
+  async getRadarContactProtectionForUser(user: any, input: { phone?: string | null; phoneDigits?: string | null }) {
+    const context = this.resolveContext(user);
+    if (!(await this.supportsRadarPersistence())) {
+      return { blocked: false, reason: 'radar_unavailable' };
+    }
+    const phoneDigits = normalizePhoneDigits(input.phoneDigits || input.phone);
+    if (!phoneDigits) return { blocked: false, reason: 'no_phone' };
+    const row = await (this.prisma as any).radarLeadPool.findFirst({
+      where: {
+        OR: [
+          { phoneDigits },
+          { phoneDigits: phoneDigits.startsWith('55') ? phoneDigits.slice(2) : `55${phoneDigits}` },
+        ],
+      },
+      include: {
+        companyStates: { where: { companyId: context.companyId }, take: 1 },
+      },
+    }).catch(() => null);
+    if (!row) return { blocked: false, reason: 'not_found' };
+    const companyState = Array.isArray(row.companyStates) && row.companyStates.length ? row.companyStates[0] : null;
+    const status = this.normalizeRadarLeadStatus(companyState?.status || row.status);
+    const blocked = this.isRadarProtectedStatus(status);
+    return {
+      blocked,
+      status,
+      radarLeadId: row.id,
+      reason: blocked ? companyState?.negativeReason || companyState?.deniedReason || row.deniedReason || row.complaintReason || status : null,
+    };
+  }
+
+  async markRadarContactDispositionForUser(
+    user: any,
+    input: {
+      phone?: string | null;
+      phoneDigits?: string | null;
+      name?: string | null;
+      city?: string | null;
+      state?: string | null;
+      segment?: string | null;
+      status: string;
+      reason?: string | null;
+      source?: string | null;
+    },
+  ) {
+    const context = this.resolveContext(user);
+    if (!(await this.supportsRadarPersistence())) return { ok: false, reason: 'radar_unavailable' };
+    const phoneDigits = normalizePhoneDigits(input.phoneDigits || input.phone);
+    if (!phoneDigits) return { ok: false, reason: 'no_phone' };
+    const now = new Date();
+    let row = await (this.prisma as any).radarLeadPool.findFirst({
+      where: { phoneDigits },
+    }).catch(() => null);
+    if (!row) {
+      row = await (this.prisma as any).radarLeadPool.create({
+        data: {
+          name: String(input.name || 'Contato sem nome').trim() || 'Contato sem nome',
+          phone: String(input.phone || phoneDigits).trim() || phoneDigits,
+          phoneDigits,
+          ddd: this.extractDdd(phoneDigits),
+          city: String(input.city || '').trim() || null,
+          state: String(input.state || '').trim().toUpperCase() || null,
+          normalizedCity: normalizeLookupValue(String(input.city || '')),
+          segment: String(input.segment || '').trim() || null,
+          normalizedSegment: normalizeLookupValue(String(input.segment || '')),
+          websiteStatus: 'unknown',
+          source: input.source || 'vendas_automation',
+          sourceEngine: 'vendas_automation',
+          sourceEngines: JSON.stringify(['vendas_automation']),
+          opportunityScore: 0,
+          opportunityReason: 'Criado para proteger histórico operacional de Vendas.',
+          status: 'clean',
+          firstSeenAt: now,
+          lastSeenAt: now,
+        },
+      });
+    }
+    return this.markRadarLeadNegativeForUser(user, row.id, {
+      status: input.status,
+      reason: input.reason || input.status,
+      privateNotes: input.source || 'Vendas Automação',
+    });
+  }
+
   async markRadarLeadNegativeForUser(user: any, radarLeadId: string, input: { status?: string; reason?: string; privateNotes?: string } = {}) {
     const context = this.resolveContext(user);
     if (!(await this.supportsRadarPersistence())) {
@@ -4616,7 +4810,18 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     });
     if (!row) throw new NotFoundException('Card do Radar nao encontrado.');
     const normalizedStatus = String(input.status || '').trim().toLowerCase();
-    const status = normalizedStatus === 'discarded' || normalizedStatus === 'descartado' ? 'hidden' : 'denied';
+    const status: RadarLeadStatus =
+      normalizedStatus === 'discarded' || normalizedStatus === 'descartado'
+        ? 'discarded'
+        : normalizedStatus === 'blocked' || normalizedStatus === 'bloqueado'
+          ? 'blocked'
+          : normalizedStatus === 'opt_out' || normalizedStatus === 'optout'
+            ? 'opt_out'
+            : normalizedStatus === 'no_whatsapp'
+              ? 'no_whatsapp'
+              : normalizedStatus === 'invalid_whatsapp'
+                ? 'invalid_whatsapp'
+              : 'negative';
     const existing = await (this.prisma as any).radarLeadCompanyState.findUnique({
       where: {
         companyId_radarLeadId: {
@@ -4638,24 +4843,24 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         radarLeadId: row.id,
         status,
         negativeReason: String(input.reason || '').trim() || null,
-        deniedReason: status === 'denied' ? String(input.reason || '').trim() || null : null,
+        deniedReason: ['negative', 'denied', 'opt_out', 'blocked'].includes(status) ? String(input.reason || '').trim() || null : null,
         privateNotes: String(input.privateNotes || '').trim() || null,
         lastActionAt: now,
       },
       update: {
         status,
         negativeReason: String(input.reason || '').trim() || null,
-        deniedReason: status === 'denied' ? String(input.reason || '').trim() || null : null,
+        deniedReason: ['negative', 'denied', 'opt_out', 'blocked'].includes(status) ? String(input.reason || '').trim() || null : null,
         privateNotes: String(input.privateNotes || '').trim() || null,
         lastActionAt: now,
       },
     });
-    if (!['negative', 'discarded', 'denied', 'hidden'].includes(String(existing?.status || ''))) {
+    if (!this.isRadarProtectedStatus(existing?.status)) {
       await (this.prisma as any).radarLeadPool.update({
         where: { id: row.id },
         data: {
           status,
-          deniedReason: status === 'denied' ? String(input.reason || '').trim() || null : undefined,
+          deniedReason: ['negative', 'denied', 'opt_out', 'blocked'].includes(status) ? String(input.reason || '').trim() || null : undefined,
           globalNegativeCount: { increment: 1 },
           lastSeenAt: now,
         },
@@ -4665,7 +4870,15 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       leadId: row.id,
       companyId: context.companyId,
       userId: context.userId,
-      eventType: status === 'hidden' ? 'hidden' : 'denied',
+      eventType: status === 'discarded'
+        ? 'discarded'
+        : status === 'blocked'
+          ? 'blocked'
+          : status === 'opt_out'
+            ? 'opt_out'
+            : status === 'no_whatsapp' || status === 'invalid_whatsapp'
+              ? 'no_answer'
+              : 'negative',
       note: String(input.reason || '').trim() || null,
       statusFrom: this.normalizeRadarLeadStatus(existing?.status || row.status),
       statusTo: status,
