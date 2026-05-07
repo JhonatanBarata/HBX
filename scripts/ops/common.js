@@ -90,7 +90,7 @@ function printChangedFiles() {
   }
   const files = status
     .split(/\r?\n/)
-    .map((line) => line.slice(3).trim())
+    .map((line) => line.slice(2).trim())
     .filter(Boolean);
   console.log('Arquivos alterados:');
   for (const file of files) console.log(`- ${file}`);
