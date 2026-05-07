@@ -6,7 +6,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { MasterGuard } from '../auth/guards/master.guard';
 import { ModuleAccess } from '../modules/module-feature.decorator';
 import { ModuleAccessGuard } from '../modules/module-access.guard';
-import { HbxEnginePoolService } from './hbx-engine-pool.service';
+import { HbxEnginePoolService, MAX_HBX_ENGINE_COUNT } from './hbx-engine-pool.service';
 import { WebscrapingService } from './webscraping.service';
 
 class WebscrapingSearchDto {
@@ -269,7 +269,7 @@ class MasterTurboConfigDto {
   @Type(() => Number)
   @IsInt()
   @Min(1)
-  @Max(4)
+  @Max(MAX_HBX_ENGINE_COUNT)
   engineCount?: number;
 
   @IsOptional()

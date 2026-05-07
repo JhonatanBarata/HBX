@@ -105,21 +105,29 @@ function parseIntegerEnv(name: string, fallback: number) {
   return Number.isFinite(parsed) ? Math.max(0, Math.trunc(parsed)) : fallback;
 }
 
-export function getConfiguredHbxEngineCount(env: NodeJS.ProcessEnv = process.env) {
+export function getConfiguredHbxEngineCount(env: NodeJS.ProcessEnv = process.env): number {
   const fallback = isProductionEnvironment(env.NODE_ENV) ? PRODUCTION_HBX_ENGINE_COUNT : DEFAULT_HBX_ENGINE_COUNT;
   return clampInteger(env.HBX_ENGINE_COUNT, fallback, 1, MAX_HBX_ENGINE_COUNT);
 }
 
+export function buildHbxEngineUrls(prefixOrBase: string, count = getConfiguredHbxEngineCount()) {
+  const safeCount = clampInteger(count, DEFAULT_HBX_ENGINE_COUNT, 1, MAX_HBX_ENGINE_COUNT);
+  const base = String(prefixOrBase || '').trim().replace(/\/+$/, '');
+  if (!base) return [];
+  return Array.from({ length: safeCount }, (_, index) => {
+    if (base.includes('{n}')) return base.replace(/\{n\}/g, String(index + 1));
+    if (base.includes('{index}')) return base.replace(/\{index\}/g, String(index));
+    if (base.includes('localhost')) return `${base}:${8001 + index}`;
+    return `${base}-${index + 1}:8001`;
+  });
+}
+
 export function buildLocalHbxEngineUrls(count = getConfiguredHbxEngineCount()) {
-  return Array.from({ length: clampInteger(count, DEFAULT_HBX_ENGINE_COUNT, 1, MAX_HBX_ENGINE_COUNT) }, (_, index) => (
-    `http://localhost:${8001 + index}`
-  ));
+  return buildHbxEngineUrls('http://localhost', count);
 }
 
 export function buildDockerHbxEngineUrls(count = getConfiguredHbxEngineCount()) {
-  return Array.from({ length: clampInteger(count, DEFAULT_HBX_ENGINE_COUNT, 1, MAX_HBX_ENGINE_COUNT) }, (_, index) => (
-    `http://hbx-engine-${index + 1}:8001`
-  ));
+  return buildHbxEngineUrls('http://hbx-engine', count);
 }
 
 function clampInteger(value: unknown, fallback: number, min: number, max: number) {
@@ -204,7 +212,8 @@ export function resolveConfiguredHbxEngineUrls(
     return sanitizeProductionEngineUrls(scrapingEngineUrl.slice(0, 1), env.NODE_ENV, 1);
   }
 
-  if (databaseUrls.length) return sanitizeProductionEngineUrls(databaseUrls, env.NODE_ENV, configuredCount);
+  const parsedDatabaseUrls = parseHbxEngineUrls(databaseUrls, configuredCount);
+  if (parsedDatabaseUrls.length) return sanitizeProductionEngineUrls(parsedDatabaseUrls, env.NODE_ENV, configuredCount);
 
   return sanitizeProductionEngineUrls(buildLocalHbxEngineUrls(configuredCount), env.NODE_ENV, configuredCount);
 }
