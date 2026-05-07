@@ -17,8 +17,9 @@ Fluxo sem restart de producao:
 3. Roda validacoes rapidas locais: JSON dos manifests, `backend prisma:validate` e `docker compose config --quiet` quando Docker estiver disponivel.
 4. Cria commit automatico datado se houver mudancas permitidas.
 5. Executa `git push origin master`.
-6. Verifica `PROD_BACKEND_URL/health` e `PROD_FRONTEND_URL`.
-7. Mostra status final.
+6. Verifica na Hostinger que o build Next existe, que o PM2 `hbx-frontend` esta online e que `/login` responde localmente.
+7. Verifica `PROD_BACKEND_URL/health`, `PROD_FRONTEND_URL` e `PROD_FRONTEND_URL/login`.
+8. Mostra status final.
 
 Este comando nao reinicia containers, PM2 ou processos remotos.
 
