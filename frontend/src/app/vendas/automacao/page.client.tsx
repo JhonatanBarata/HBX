@@ -146,7 +146,7 @@ type CampaignTypeId = (typeof CAMPAIGN_TYPES)[number]["id"];
 const GENERIC_ERROR_MESSAGE_TEMPLATE =
   "Oi, tudo bem? Meu nome é Jhonatan, trabalho com uma plataforma para organizar vendas, orçamentos, prospecção de clientes e retornos pelo WhatsApp.\n" +
   "Tenho 30 dias grátis, sem compromisso. Faz sentido eu te mostrar?\n" +
-  "Cadastre aqui: https://hbxsystem.com.br/vendas/automacao?tab=prospeccao";
+  "";
 
 const MESSAGE_PRESETS = [
   {
