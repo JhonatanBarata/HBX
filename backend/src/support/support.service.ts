@@ -13,7 +13,7 @@ export class SupportService {
 
   async contactAdmin(input: { companySlug: string; username?: string; phone: string; message?: string }) {
     const adminEmail = process.env.ADMIN_SUPPORT_EMAIL || 'jbinformatica1100@gmail.com';
-    const adminPhone = process.env.ADMIN_SUPPORT_PHONE || '+5519997024884';
+    const adminPhone = process.env.ADMIN_SUPPORT_PHONE || '++5519997024884';
 
     const slug = String(input.companySlug || '').trim();
     const company = slug ? await this.prisma.company.findUnique({ where: { slug } }) : null;

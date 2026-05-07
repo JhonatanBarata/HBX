@@ -217,6 +217,7 @@ export default function RadarDigitalClientPage() {
     () => items.filter((item) => Number(item.opportunityScore || 0) >= 70).length,
     [items],
   );
+  const hasAppliedRadarPullFilters = Boolean(appliedFilters.city.trim() && appliedFilters.segment.trim());
 
   const loadCards = useCallback(async (nextPage = 1, append = false) => {
     if (append) setLoadingMore(true);
@@ -457,6 +458,12 @@ export default function RadarDigitalClientPage() {
   }
 
   async function sendFilteredToVendas() {
+    if (!hasAppliedRadarPullFilters) {
+      setFeedback(null);
+      setError("Escolha cidade e segmento e aplique os filtros antes de herdar leads para Vendas.");
+      return;
+    }
+
     setBulkSending(true);
     setError(null);
     setFeedback(null);
@@ -543,7 +550,12 @@ export default function RadarDigitalClientPage() {
             <strong>Herdar leads com os filtros atuais</strong>
             <p>Envia no máximo 100 contatos elegíveis por operação. Negativos, bloqueados e opt-out permanecem protegidos no Radar.</p>
           </div>
-          <button type="button" onClick={() => void sendFilteredToVendas()} disabled={bulkSending}>
+          <button
+            type="button"
+            onClick={() => void sendFilteredToVendas()}
+            disabled={bulkSending || !hasAppliedRadarPullFilters}
+            title={!hasAppliedRadarPullFilters ? "Aplique cidade e segmento antes de herdar leads." : undefined}
+          >
             {bulkSending ? "Herdando..." : "Herdar até 100 para Vendas"}
           </button>
         </section>

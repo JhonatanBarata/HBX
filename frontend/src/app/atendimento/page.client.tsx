@@ -5640,6 +5640,26 @@ export default function InboxClientPage() {
     [deleteConversationDialog?.conversationId, loadConversations],
   );
 
+  useEffect(() => {
+    if (!deleteConversationDialog) {
+      clearTopbarProgress("atendimento-delete");
+      return;
+    }
+    dispatchTopbarProgress({
+      source: "atendimento-delete",
+      phase: "warning",
+      title: "Enviar conversa para Excluídos",
+      status: "Remoção local no HBX. Nenhum comando será enviado ao WhatsApp.",
+      progress: 82,
+      metrics: [
+        { label: "Destino", value: "Excluídos" },
+        { label: "WhatsApp", value: "0 comandos" },
+        { label: "Escopo", value: "HBX" },
+      ],
+    });
+    return () => clearTopbarProgress("atendimento-delete");
+  }, [deleteConversationDialog]);
+
   const openEmptyTrashDialog = useCallback(() => {
     setActiveTab("messages");
     setInboxQueue("archived");
@@ -8340,6 +8360,13 @@ export default function InboxClientPage() {
         title="Enviar conversa para Excluídos"
         description="A conversa será removida apenas no HBX. Nenhum comando será enviado ao WhatsApp."
         confirmLabel="Enviar para Excluídos"
+        presentation="billboard"
+        eyebrow="Telão de segurança"
+        metrics={[
+          { label: "Destino", value: "Excluídos" },
+          { label: "WhatsApp", value: "0 comandos" },
+          { label: "Escopo", value: "HBX" },
+        ]}
         destructive
         onCancel={() => setDeleteConversationDialog(null)}
         onConfirm={() => void confirmDeleteConversation()}
