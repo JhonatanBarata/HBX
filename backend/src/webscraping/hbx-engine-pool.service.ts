@@ -1,12 +1,17 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 
-const DEFAULT_HBX_ENGINE_URL = 'http://localhost:8001';
-const DEFAULT_HBX_ENGINE_URLS = [
+const LOCAL_HBX_ENGINE_URLS = [
   'http://localhost:8001',
   'http://localhost:8002',
   'http://localhost:8003',
   'http://localhost:8004',
+];
+const DOCKER_HBX_ENGINE_URLS = [
+  'http://hbx-engine-1:8001',
+  'http://hbx-engine-2:8001',
+  'http://hbx-engine-3:8001',
+  'http://hbx-engine-4:8001',
 ];
 const TURBO_OPERATIONAL_CONFIG_KEY = 'turbo_noturno';
 const HEALTH_CHECK_TTL_MS = 30_000;
@@ -106,8 +111,84 @@ function minutesAgo(minutes: number) {
   return new Date(Date.now() - Math.max(0, minutes) * 60_000);
 }
 
+export function parseHbxEngineUrls(value: unknown) {
+  const rawUrls = Array.isArray(value)
+    ? value
+    : (() => {
+        const raw = String(value || '').trim();
+        if (!raw) return [];
+        if (raw.startsWith('[')) {
+          try {
+            const parsed = JSON.parse(raw);
+            if (Array.isArray(parsed)) return parsed;
+          } catch {
+            return [];
+          }
+        }
+        return raw.split(',');
+      })();
+
+  return rawUrls
+    .map((url) => String(url || '').trim().replace(/\/+$/, ''))
+    .filter(Boolean)
+    .slice(0, 4);
+}
+
+function isProductionEnvironment(nodeEnv: unknown) {
+  return String(nodeEnv || '').trim().toLowerCase() === 'production';
+}
+
+function isLocalhostUrl(url: string) {
+  return /^(?:https?:\/\/)?(?:localhost|127\.0\.0\.1|\[::1\])(?::|\/|$)/i.test(url);
+}
+
+function sanitizeProductionEngineUrls(urls: string[], nodeEnv: unknown) {
+  if (!isProductionEnvironment(nodeEnv)) return urls;
+  return urls.some(isLocalhostUrl) ? [...DOCKER_HBX_ENGINE_URLS] : urls;
+}
+
+export function hasConfiguredHbxEngineUrlEnv(env: NodeJS.ProcessEnv = process.env) {
+  return Boolean(
+    String(env.HBX_ENGINE_URLS || '').trim()
+      || String(env.HBX_MASS_DATA_ENGINE_URLS || '').trim()
+      || String(env.HBX_MASS_DATA_ENGINE_URL_1 || '').trim()
+      || String(env.HBX_MASS_DATA_ENGINE_URL_2 || '').trim()
+      || String(env.HBX_MASS_DATA_ENGINE_URL_3 || '').trim()
+      || String(env.HBX_MASS_DATA_ENGINE_URL_4 || '').trim()
+      || String(env.HBX_SCRAPING_ENGINE_URL || '').trim(),
+  );
+}
+
+export function resolveConfiguredHbxEngineUrls(
+  env: NodeJS.ProcessEnv = process.env,
+  databaseUrls: string[] = [],
+) {
+  const engineUrls = parseHbxEngineUrls(env.HBX_ENGINE_URLS);
+  if (engineUrls.length) return sanitizeProductionEngineUrls(engineUrls, env.NODE_ENV);
+
+  const massDataEngineUrls = parseHbxEngineUrls(env.HBX_MASS_DATA_ENGINE_URLS);
+  if (massDataEngineUrls.length) return sanitizeProductionEngineUrls(massDataEngineUrls, env.NODE_ENV);
+
+  const numberedMassDataUrls = parseHbxEngineUrls([
+    env.HBX_MASS_DATA_ENGINE_URL_1,
+    env.HBX_MASS_DATA_ENGINE_URL_2,
+    env.HBX_MASS_DATA_ENGINE_URL_3,
+    env.HBX_MASS_DATA_ENGINE_URL_4,
+  ]);
+  if (numberedMassDataUrls.length) return sanitizeProductionEngineUrls(numberedMassDataUrls, env.NODE_ENV);
+
+  const scrapingEngineUrl = parseHbxEngineUrls(env.HBX_SCRAPING_ENGINE_URL);
+  if (scrapingEngineUrl.length) {
+    return sanitizeProductionEngineUrls(scrapingEngineUrl.slice(0, 1), env.NODE_ENV);
+  }
+
+  if (databaseUrls.length) return sanitizeProductionEngineUrls(databaseUrls, env.NODE_ENV);
+
+  return sanitizeProductionEngineUrls([...LOCAL_HBX_ENGINE_URLS], env.NODE_ENV);
+}
+
 @Injectable()
-export class HbxEnginePoolService {
+export class HbxEnginePoolService implements OnModuleInit {
   private readonly logger = new Logger(HbxEnginePoolService.name);
   private activeEngineCount = 1;
   private googleEmergencyMode = false;
@@ -117,6 +198,14 @@ export class HbxEnginePoolService {
   private googleLowSince: number | null = null;
 
   constructor(private readonly prisma: PrismaService) {}
+
+  async onModuleInit() {
+    const urls = await this.getConfiguredEngineUrls().catch((error) => {
+      this.logger.warn(`[hbx-engine-pool] failed to resolve configured engine urls: ${String((error as any)?.message || error)}`);
+      return [];
+    });
+    this.logger.log(`[hbx-engine-pool] configured engine urls: ${urls.join(', ')}`);
+  }
 
   async refreshEngineRegistryFromEnv() {
     if (!(await this.prisma.hasTable('HbxEngineLock'))) return [];
@@ -821,17 +910,13 @@ export class HbxEnginePoolService {
   }
 
   private async getConfiguredEngineUrls() {
-    const operationalConfig = await this.getOperationalConfig();
-    const databaseUrls = this.parseEngineUrls(operationalConfig?.engineUrlsJson);
-    if (databaseUrls.length) return databaseUrls;
+    if (hasConfiguredHbxEngineUrlEnv(process.env)) {
+      return resolveConfiguredHbxEngineUrls(process.env);
+    }
 
-    const rawUrls = String(process.env.HBX_ENGINE_URLS || '').trim();
-    const urls = rawUrls
-      ? rawUrls.split(',').map((url) => url.trim()).filter(Boolean)
-      : process.env.HBX_SCRAPING_ENGINE_URL
-        ? [String(process.env.HBX_SCRAPING_ENGINE_URL || DEFAULT_HBX_ENGINE_URL).trim()]
-        : DEFAULT_HBX_ENGINE_URLS;
-    return urls.slice(0, 4).map((url) => url.replace(/\/+$/, ''));
+    const operationalConfig = await this.getOperationalConfig();
+    const databaseUrls = parseHbxEngineUrls(operationalConfig?.engineUrlsJson);
+    return resolveConfiguredHbxEngineUrls(process.env, databaseUrls);
   }
 
   private async getOperationalConfig() {
@@ -845,18 +930,6 @@ export class HbxEnginePoolService {
       ...row,
       forcedUntil: metadata.forcedUntil,
     };
-  }
-
-  private parseEngineUrls(value: unknown) {
-    try {
-      const parsed = Array.isArray(value) ? value : JSON.parse(String(value || '[]'));
-      return (Array.isArray(parsed) ? parsed : [])
-        .map((url) => String(url || '').trim().replace(/\/+$/, ''))
-        .filter(Boolean)
-        .slice(0, 4);
-    } catch {
-      return [];
-    }
   }
 
   private parseOperationalMetadata(value: unknown) {
