@@ -11,6 +11,7 @@ const {
   pushMaster,
   runQuickValidations,
   verifyBasicHealth,
+  verifyHostingerRuntime,
 } = require('./common');
 
 async function main() {
@@ -27,7 +28,9 @@ async function main() {
   logStage('Git push');
   pushMaster();
 
-  const health = await verifyBasicHealth(loadOperationsEnv());
+  const env = loadOperationsEnv();
+  verifyHostingerRuntime(env);
+  const health = await verifyBasicHealth(env);
   printFinalStatus({ commitCreated: commit.created, ...health });
 }
 

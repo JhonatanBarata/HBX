@@ -70,6 +70,10 @@ function normalizeUrl(value) {
   return String(value || '').trim().replace(/\/$/, '');
 }
 
+function shellSingleQuote(value) {
+  return `'${String(value).replace(/'/g, `'\\''`)}'`;
+}
+
 function getStatusShort() {
   const result = runStep('git', ['status', '--short'], { captureOutput: true });
   return String(result.stdout || '').trim();
@@ -200,7 +204,46 @@ async function verifyBasicHealth(env = loadOperationsEnv()) {
   const frontend = await requestWithRetry(frontendUrl, { method: 'GET' });
   console.log(`Frontend OK: HTTP ${frontend.status}`);
 
-  return { backendUrl, frontendUrl, healthUrl };
+  const loginUrl = `${frontendUrl}/login`;
+  console.log(`> GET ${loginUrl}`);
+  const login = await requestWithRetry(loginUrl, { method: 'GET' });
+  const loginHtml = await login.text();
+  if (!loginHtml.includes('login-card') || loginHtml.includes('Ocorreu um erro')) {
+    throw new Error(`Login check failed: /login respondeu HTTP ${login.status}, mas nao renderizou o markup esperado.`);
+  }
+  console.log(`Login OK: HTTP ${login.status}`);
+
+  return { backendUrl, frontendUrl, healthUrl, loginUrl };
+}
+
+function verifyHostingerRuntime(env = loadOperationsEnv()) {
+  const sshHost = String(env.HOSTINGER_SSH_HOST || '').trim();
+  const sshUser = String(env.HOSTINGER_SSH_USER || '').trim();
+  const appDir = String(env.HOSTINGER_APP_DIR || '').trim();
+  if (!sshHost || !sshUser || !appDir) {
+    console.log('Hostinger runtime check pulado: HOSTINGER_SSH_HOST, HOSTINGER_SSH_USER ou HOSTINGER_APP_DIR ausente.');
+    return null;
+  }
+
+  logStage('Runtime Hostinger');
+  const remoteScript = [
+    'set -eu',
+    `APP_DIR=${shellSingleQuote(appDir)}`,
+    'cd "$APP_DIR"',
+    'test -f frontend/.next/prerender-manifest.json || { echo "ERRO: frontend/.next/prerender-manifest.json ausente. Rode npm run publish ou force."; exit 1; }',
+    'pm2 describe hbx-frontend >/dev/null 2>&1 || { echo "ERRO: PM2 hbx-frontend nao encontrado."; exit 1; }',
+    'pm2 describe hbx-frontend | grep -q "online" || { echo "ERRO: PM2 hbx-frontend nao esta online."; pm2 status hbx-frontend || true; exit 1; }',
+    'curl -fsSI http://127.0.0.1:3001/login >/dev/null || { echo "ERRO: frontend local /login nao respondeu."; pm2 logs hbx-frontend --lines 80 --nostream || true; exit 1; }',
+    'curl -fsSI http://127.0.0.1:3001 >/dev/null || { echo "ERRO: frontend local / nao respondeu."; pm2 logs hbx-frontend --lines 80 --nostream || true; exit 1; }',
+    'if docker inspect hbx-backend >/dev/null 2>&1; then docker inspect -f "{{.State.Running}}" hbx-backend | grep -q true || { echo "ERRO: hbx-backend existe mas nao esta running."; exit 1; }; fi',
+    'if docker inspect hbx-postgres >/dev/null 2>&1; then docker inspect -f "{{.State.Running}}" hbx-postgres | grep -q true || { echo "ERRO: hbx-postgres existe mas nao esta running."; exit 1; }; fi',
+    'echo "Hostinger runtime OK: PM2 hbx-frontend online, build Next presente, /login local respondendo."',
+  ].join('\n');
+
+  runStep('ssh', [`${sshUser}@${sshHost}`, 'bash', '-lc', shellSingleQuote(remoteScript)], {
+    label: `ssh ${sshUser}@${sshHost} runtime health`,
+  });
+  return true;
 }
 
 function copyIfExists(source, targetDir) {
@@ -323,4 +366,5 @@ module.exports = {
   runQuickValidations,
   runStep,
   verifyBasicHealth,
+  verifyHostingerRuntime,
 };
