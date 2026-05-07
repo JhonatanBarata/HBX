@@ -97,6 +97,7 @@ const DEFAULT_MESSAGE_TEMPLATE =
   'Oi, tudo bem? Aqui é {{funcionario}} da {{empresa}}. Vi a {{cliente}} em {{cidade}} e queria te explicar em 1 minuto uma solução para {{segmento}}. Faz sentido eu te mandar?';
 const DEFAULT_SEGMENT_MISMATCH_FALLBACK_MESSAGE =
   'Oi, tudo bem? Sou o Jhonatan, da HBX. Vi sua empresa no Google e queria te mostrar uma ferramenta que ajuda a organizar contatos, orçamentos e retornos pelo WhatsApp. Tenho 30 dias grátis, sem compromisso. Faz sentido eu te mostrar?';
+const EMPTY_REFILL_RETRY_MS = 10 * 60 * 1000;
 const FIRST_OUTBOUND_CONTACT_STAGES = ['sent_waiting', 'reply_received', 'expired_no_reply', 'negative_reply'] as const;
 const FIRST_OUTBOUND_CONTACT_JOB_STATUSES = ['sent', 'replied_positive', 'replied_negative', 'no_response_archived'] as const;
 const NEGATIVE_OR_OPT_OUT_STATUS_KEYS = [
@@ -2431,6 +2432,15 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
         where: { campaignId: campaign.id, status: 'scheduled', scheduledAt: { lte: now } },
       });
       if (dueJobs > 0) continue;
+      const lastScrapeAt = campaign.lastScrapeAt instanceof Date ? campaign.lastScrapeAt : null;
+      const statusText = normalizeKey(campaign.lastStatusText);
+      if (
+        lastScrapeAt &&
+        now.getTime() - lastScrapeAt.getTime() < EMPTY_REFILL_RETRY_MS &&
+        statusText.includes('bot parado')
+      ) {
+        continue;
+      }
       await this.scrapeImportAndSchedule(campaign.id, undefined, 'refill').catch((error) => {
         this.logger.warn(`Refill falhou campaign=${campaign.id}: ${String(error?.message || error)}`);
       });
