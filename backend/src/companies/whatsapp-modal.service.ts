@@ -12,7 +12,6 @@ type WhatsAppModalErrorCode =
   | 'WHATSAPP_MODAL_UNAVAILABLE'
   | 'WHATSAPP_MODAL_HTTP_ERROR'
   | 'WHATSAPP_MODAL_QR_UNAVAILABLE'
-  | 'PENDING_CHECKOUT_REQUIRED'
   | 'TRIAL_PHONE_ALREADY_USED';
 type ProviderHealth = 'disabled' | 'misconfigured' | 'healthy' | 'unavailable' | 'unknown';
 
@@ -456,14 +455,6 @@ export class WhatsAppModalService {
       || subscriptionStatus === 'trialing'
       || onboardingStatus === 'active_trial'
     );
-  }
-
-  private isPendingCheckoutCompany(company: Pick<CompanyModalFields, 'paymentStatus' | 'subscriptionStatus' | 'onboardingStatus' | 'premiumAccess'>) {
-    if (this.isPaidOrActiveCompany(company)) return false;
-    const paymentStatus = String(company.paymentStatus || '').trim().toUpperCase();
-    const subscriptionStatus = String(company.subscriptionStatus || '').trim().toLowerCase();
-    const onboardingStatus = String(company.onboardingStatus || '').trim().toLowerCase();
-    return paymentStatus === 'PENDING' || subscriptionStatus === 'pending_checkout' || onboardingStatus === 'pending_checkout';
   }
 
   private isPaidOrActiveCompany(company: Pick<CompanyModalFields, 'paymentStatus' | 'subscriptionStatus' | 'premiumAccess'>) {
@@ -1541,16 +1532,6 @@ export class WhatsAppModalService {
     snapshot: ModalSnapshot,
     intent: 'status' | 'start' | 'qr' | 'disconnect' | 'restart',
   ) {
-    if (this.isPendingCheckoutCompany(company)) {
-      return this.buildResponse(company, { ...snapshot, qrCodeDataUrl: null }, {
-        success: intent === 'status',
-        providerHealth: 'disabled',
-        errorCode: intent === 'status' ? null : 'PENDING_CHECKOUT_REQUIRED',
-        message: 'Finalize sua contratação para liberar a conexão do WhatsApp.',
-        redirectTo: '/dashboard/financeiro?focus=payment&reason=pending_checkout',
-      });
-    }
-
     const config = this.readConfig();
     if (!config.enabled) {
       return this.buildResponse(company, snapshot, {

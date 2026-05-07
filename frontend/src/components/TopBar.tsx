@@ -240,8 +240,6 @@ const SUPPORT_PHONE = "+5519997024884";
 const SUPPORT_MESSAGE = "Olá, preciso de ajuda com o HBX!";
 
 const hiddenRoutes = new Set(["/login", "/register", "/reset-password", "/confirm-email", "/boasvindas", "/tutorial"]);
-const PENDING_CHECKOUT_ADMIN_PATH = "/pagamento?focus=payment&reason=pending_checkout";
-const PENDING_CHECKOUT_USER_PATH = "/planos?mode=pending_checkout&reason=pending_checkout";
 const SCRAPING_ENGINE_POLL_MS = 6500;
 
 function buildFallbackScrapingEngine(index: number): ScrapingEngineStatus {
@@ -379,34 +377,6 @@ function buildSparklinePoints(engine: ScrapingEngineStatus) {
   return values.map((value, index) => `${index * 12},${Math.round(34 - value * 0.28)}`).join(" ");
 }
 
-function isPendingCheckoutUser(user: User | null) {
-  const company = user?.company;
-  if (!company?.id || user?.isSystemMaster) return false;
-  const onboardingStatus = String(company.onboardingStatus || "").trim().toLowerCase();
-  const paymentStatus = String(company.paymentStatus || "").trim().toUpperCase();
-  const subscriptionStatus = String(company.subscriptionStatus || "").trim().toLowerCase();
-  const billingGraceEndsAt = company.billingGraceEndsAt ? new Date(company.billingGraceEndsAt).getTime() : NaN;
-  const graceAccess = subscriptionStatus === "grace" && Number.isFinite(billingGraceEndsAt) && billingGraceEndsAt >= Date.now();
-  const accessReleased =
-    paymentStatus === "PAID" ||
-    paymentStatus === "TRIAL" ||
-    paymentStatus === "MANUAL" ||
-    subscriptionStatus === "active" ||
-    subscriptionStatus === "authorized" ||
-    subscriptionStatus === "trialing" ||
-    subscriptionStatus === "manual" ||
-    Boolean(company.premiumAccess) ||
-    graceAccess;
-  if (accessReleased) return false;
-  return onboardingStatus === "pending_checkout" || subscriptionStatus === "pending_checkout" || paymentStatus === "PENDING";
-}
-
-function resolvePendingCheckoutHref(user: User | null) {
-  return String(user?.role || "").trim().toUpperCase() === "ADMIN"
-    ? PENDING_CHECKOUT_ADMIN_PATH
-    : PENDING_CHECKOUT_USER_PATH;
-}
-
 function extractEntryNumberLabel(metadata?: Record<string, unknown> | null) {
   const endpointLabel = String(metadata?.whatsappEntryEndpointLabel || "").trim();
   const displayNumber = String(metadata?.whatsappEntryDisplayNumber || "").trim();
@@ -521,7 +491,7 @@ export default function TopBar() {
   const scrapingEngineBackoffMsRef = useRef(SCRAPING_ENGINE_POLL_MS);
   const authResolved = authenticated !== null;
   const pendingCheckoutLocked = false;
-  const pendingCheckoutHref = resolvePendingCheckoutHref(user);
+  const pendingCheckoutHref = "/pagamento?focus=payment&reason=pending_checkout";
   const dashboardHref = pendingCheckoutLocked ? pendingCheckoutHref : user?.isSystemMaster ? "/master" : "/boasvindas";
   const isMasterWebscrapingRoute = Boolean(
     pathname?.startsWith("/master/webscraping") || pathname?.startsWith("/dashboard/master/webscraping"),
