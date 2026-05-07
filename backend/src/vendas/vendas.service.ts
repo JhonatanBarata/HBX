@@ -280,7 +280,7 @@ export class VendasService {
   }
 
   private formatSourceLabel(sourceType: unknown) {
-    return String(sourceType || '').trim().toLowerCase() === 'webscraping' ? 'Webscraping' : 'Manual';
+    return String(sourceType || '').trim().toLowerCase() === 'webscraping' ? 'Radar Digital' : 'Manual';
   }
 
   private hasPreviousContact(row: any) {
@@ -556,8 +556,8 @@ export class VendasService {
 
     const city = this.normalizeText(input.city);
     const segment = this.normalizeText(input.segment);
-    if (!city && !segment) return 'Lead herdado do webscraping.';
-    return `Lead herdado do webscraping${segment ? ` para ${segment}` : ''}${city ? ` em ${city}` : ''}.`;
+    if (!city && !segment) return 'Lead herdado do Radar Digital.';
+    return `Lead herdado do Radar Digital${segment ? ` para ${segment}` : ''}${city ? ` em ${city}` : ''}.`;
   }
 
   private buildTimelineEvent(input: TimelineEventInput): TimelineEventRecord {
@@ -1858,7 +1858,7 @@ export class VendasService {
     const context = this.resolveUserContext(user);
     const incomingLeads = Array.isArray(dto?.leads) ? dto.leads : [];
     if (!incomingLeads.length) {
-      throw new BadRequestException('Nenhum lead do webscraping foi enviado para o CRM.');
+      throw new BadRequestException('Nenhum lead do Radar Digital foi enviado para o CRM.');
     }
 
     let createdCount = 0;
@@ -1875,7 +1875,7 @@ export class VendasService {
         failedImports.push({
           name: itemName,
           phone: itemPhone || itemPhoneDigits,
-          error: 'Lead do webscraping sem nome, telefone ou telefone normalizado.',
+          error: 'Lead do Radar Digital sem nome, telefone ou telefone normalizado.',
         });
         continue;
       }
@@ -1927,7 +1927,7 @@ export class VendasService {
       throw new BadRequestException(
         failedImports.length
           ? `Nenhum lead foi importado. Primeira falha: ${failedImports[0]?.error || 'erro desconhecido'}`
-          : 'Nenhum lead valido do webscraping foi enviado para o CRM.',
+          : 'Nenhum lead valido do Radar Digital foi enviado para o CRM.',
       );
     }
 

@@ -101,7 +101,7 @@ const SIGNUP_PLANS: SignupPlan[] = [
     detail: "Para quem quer encontrar novos clientes e organizar a prospecção.",
     cta: "Escolher HBX Vendas",
     available: true,
-    features: ["Webscraping de empresas", "Leads por cidade e segmento", "CRM de vendas", "Funil comercial", "Histórico de contatos", "Organização de oportunidades"],
+    features: ["Radar Digital de empresas", "Leads por cidade e segmento", "CRM de vendas", "Funil comercial", "Histórico de contatos", "Organização de oportunidades"],
   },
   {
     key: "hbx_padrao",

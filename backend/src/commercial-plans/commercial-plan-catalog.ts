@@ -165,7 +165,7 @@ export function buildCommercialPlansCatalog() {
       requiresCheckout: true,
       quotas: COMMERCIAL_PLAN_QUOTAS[COMMERCIAL_PLAN_KEYS.LITE],
       features: [
-        'Webscraping de empresas',
+        'Radar Digital de empresas',
         'Leads por cidade e segmento',
         'CRM de vendas',
         'Radar básico com score limitado',

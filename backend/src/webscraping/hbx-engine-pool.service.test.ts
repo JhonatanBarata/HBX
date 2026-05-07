@@ -5,6 +5,7 @@ import {
   buildHbxEngineUrls,
   buildLocalHbxEngineUrls,
   getConfiguredHbxEngineCount,
+  HbxEnginePoolService,
   parseHbxEngineUrls,
   resolveConfiguredHbxEngineUrls,
 } from './hbx-engine-pool.service';
@@ -29,17 +30,7 @@ function withHbxEngineCount<T>(value: string | undefined, fn: () => T) {
 
 function withEnv<T>(patch: NodeJS.ProcessEnv, fn: () => T) {
   const previous = { ...process.env };
-  for (const key of Object.keys(patch)) {
-    const value = patch[key];
-    if (value == null) {
-      delete process.env[key];
-    } else {
-      process.env[key] = value;
-    }
-  }
-  try {
-    return fn();
-  } finally {
+  const restore = () => {
     for (const key of Object.keys(process.env)) {
       if (!(key in previous)) delete process.env[key];
     }
@@ -50,6 +41,25 @@ function withEnv<T>(patch: NodeJS.ProcessEnv, fn: () => T) {
         process.env[key] = value;
       }
     }
+  };
+  for (const key of Object.keys(patch)) {
+    const value = patch[key];
+    if (value == null) {
+      delete process.env[key];
+    } else {
+      process.env[key] = value;
+    }
+  }
+  try {
+    const result = fn();
+    if (result && typeof (result as any).finally === 'function') {
+      return (result as any).finally(restore) as T;
+    }
+    restore();
+    return result;
+  } catch (error) {
+    restore();
+    throw error;
   }
 }
 
@@ -167,5 +177,90 @@ test('invalid HBX_ENGINE_COUNT respects environment fallback', () => {
       parseHbxEngineUrls(Array.from({ length: 20 }, (_, index) => `http://engine-${index + 1}:8001`)),
       Array.from({ length: 4 }, (_, index) => `http://engine-${index + 1}:8001`),
     );
+  });
+});
+
+function createPoolForCapacity(input: {
+  queuedCount?: number;
+  operationalConfig?: Record<string, any> | null;
+}) {
+  const service = new HbxEnginePoolService({} as any) as any;
+  service.cleanupExpiredLocks = async () => undefined;
+  service.getOperationalConfig = async () => input.operationalConfig || null;
+  service.isWithinOperationalWindow = () => Boolean(input.operationalConfig?.enabled);
+  service.isWithinConfiguredOperationalWindow = () => Boolean(input.operationalConfig?.enabled);
+  service.isForcedTurboActive = () => false;
+  service.nextOperationalWindowAt = () => null;
+  service.buildQueueStats = async () => ({
+    queuedCount: Number(input.queuedCount || 0),
+    runningCount: 0,
+    completedLast10Min: 0,
+    partialLast10Min: 0,
+    oldestQueuedAgeMinutes: 0,
+  });
+  service.isQueueStuck = () => false;
+  return service as HbxEnginePoolService;
+}
+
+function buildEngineRows(count: number) {
+  return Array.from({ length: count }, (_, index) => ({
+    id: `hbx-engine-${index + 1}`,
+    engineIndex: index,
+    url: `http://hbx-engine-${index + 1}:8001`,
+    status: 'online',
+    lastHealthStatus: 'online',
+    lastUsedAt: null,
+    lockedRunId: null,
+    lockedUntil: null,
+    cooldownUntil: null,
+  }));
+}
+
+test('HBX_ENGINE_COUNT=20 with high queue activates all engines', async () => {
+  await withEnv({
+    NODE_ENV: 'production',
+    HBX_ENGINE_COUNT: '20',
+    HBX_CAPACITY_FULL_QUEUE_THRESHOLD: '100',
+  }, async () => {
+    const service = createPoolForCapacity({ queuedCount: 100 });
+    const capacity = await service.getCurrentCapacityLevel();
+    assert.equal(capacity.activeEngineCount, 20);
+  });
+});
+
+test('HBX_ENGINE_COUNT=20 scales capacity proportionally to queue', async () => {
+  await withEnv({
+    NODE_ENV: 'production',
+    HBX_ENGINE_COUNT: '20',
+    HBX_CAPACITY_FULL_QUEUE_THRESHOLD: '100',
+  }, async () => {
+    const service = createPoolForCapacity({ queuedCount: 25 });
+    const capacity = await service.getCurrentCapacityLevel();
+    assert.equal(capacity.activeEngineCount, 5);
+  });
+});
+
+test('eligible engines include hbx-engine-20 when active capacity is twenty', async () => {
+  await withEnv({ NODE_ENV: 'production', HBX_ENGINE_COUNT: '20' }, async () => {
+    const service = createPoolForCapacity({ queuedCount: 100 }) as any;
+    service.healthCheckEngines = async () => buildEngineRows(20);
+    const eligible = await service.getEligibleEnginesForCurrentQueue();
+    assert.equal(eligible.length, 20);
+    assert.equal(eligible.at(-1)?.id, 'hbx-engine-20');
+  });
+});
+
+test('operational turbo config with engineCount=20 activates twenty engines', async () => {
+  await withEnv({ NODE_ENV: 'production', HBX_ENGINE_COUNT: '20' }, async () => {
+    const service = createPoolForCapacity({
+      queuedCount: 1,
+      operationalConfig: {
+        enabled: true,
+        engineCount: 20,
+        intensity: 'turbo',
+      },
+    });
+    const capacity = await service.getCurrentCapacityLevel();
+    assert.equal(capacity.activeEngineCount, 20);
   });
 });

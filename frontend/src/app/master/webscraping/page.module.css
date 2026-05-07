@@ -143,6 +143,7 @@
 }
 
 .pageHeader,
+.engineOverview,
 .engineGrid,
 .mainGrid,
 .kpiGrid,
@@ -162,7 +163,8 @@
 .engineMainMetric span,
 .engineMeta span,
 .kpiGrid span,
-.headerClock span {
+.headerOps span,
+.engineOverview span {
   color: var(--ws-muted-strong);
   font-size: 0.72rem;
   font-weight: 900;
@@ -188,19 +190,56 @@
 }
 
 .headerClock {
-  min-width: 168px;
-  border-radius: 16px;
-  padding: 12px 14px;
-  border: 1px solid rgba(var(--ws-success-rgb), 0.28);
-  background: var(--ws-card-soft-bg);
   text-align: right;
 }
 
-.headerClock strong {
+.headerOps {
+  min-width: min(460px, 100%);
+  display: grid;
+  grid-template-columns: repeat(4, minmax(86px, 1fr));
+  gap: 8px;
+}
+
+.headerOps div,
+.engineOverview div {
+  min-width: 0;
+  border-radius: 16px;
+  padding: 11px 12px;
+  border: 1px solid var(--ws-subtle-border);
+  background: var(--ws-card-soft-bg);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.46);
+}
+
+.headerOps strong,
+.engineOverview strong {
   display: block;
   margin-top: 0.2rem;
   color: var(--ws-text-strong);
-  font-size: 1.24rem;
+  font-size: 1rem;
+  font-weight: 950;
+  line-height: 1.05;
+}
+
+.headerClock strong {
+  font-size: 1.16rem;
+}
+
+.engineOverview {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.engineOverview div {
+  position: relative;
+  overflow: hidden;
+}
+
+.engineOverview div::after {
+  content: "";
+  position: absolute;
+  inset: auto 12px 0;
+  height: 3px;
+  border-radius: 999px 999px 0 0;
+  background: linear-gradient(90deg, rgba(var(--ws-success-rgb), 0.86), rgba(var(--ws-info-rgb), 0.82));
 }
 
 .heroActions {
@@ -259,7 +298,7 @@
 }
 
 .engineGrid {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(176px, 1fr));
 }
 
 .engineCard,
@@ -276,27 +315,14 @@
 }
 
 .engineCard {
-  min-height: 170px;
+  --engine-usage: 8%;
+  min-height: 154px;
   position: relative;
   display: grid;
   align-content: space-between;
-  gap: 14px;
+  gap: 10px;
   overflow: hidden;
-  padding: 16px;
-}
-
-.engineBackgroundIcon {
-  position: absolute;
-  right: -12px;
-  top: -18px;
-  width: 92px;
-  height: 92px;
-  border-radius: 26px;
-  opacity: 0.16;
-  transform: rotate(18deg);
-  background:
-    linear-gradient(90deg, transparent 18%, currentColor 18% 28%, transparent 28% 42%, currentColor 42% 52%, transparent 52% 66%, currentColor 66% 76%, transparent 76%),
-    radial-gradient(circle at center, currentColor, transparent 58%);
+  padding: 13px;
 }
 
 .engineTop,
@@ -308,16 +334,17 @@
 }
 
 .engineTop span {
-  width: 46px;
-  height: 46px;
+  min-width: 42px;
+  height: 34px;
   display: inline-grid;
   place-items: center;
-  border-radius: 15px;
+  border-radius: 12px;
   border: 1px solid var(--ws-subtle-border);
   background: var(--ws-subtle-bg);
   color: currentColor;
-  font-size: 1rem;
+  font-size: 0.82rem;
   font-weight: 950;
+  padding: 0 8px;
 }
 
 .engineTop strong,
@@ -331,20 +358,35 @@
   display: block;
   margin-top: 0.16rem;
   color: var(--ws-text-strong);
-  font-size: 2rem;
+  font-size: 1.5rem;
   line-height: 1;
+}
+
+.engineGauge {
+  height: 7px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: rgba(148, 163, 184, 0.18);
+}
+
+.engineGauge span {
+  display: block;
+  width: var(--engine-usage);
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, currentColor, rgba(var(--ws-info-rgb), 0.82));
 }
 
 .engineMeta {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
+  gap: 6px;
 }
 
 .engineMeta span {
   min-width: 0;
-  border-radius: 12px;
-  padding: 9px;
+  border-radius: 10px;
+  padding: 7px;
   background: var(--ws-subtle-bg);
   text-transform: none;
   letter-spacing: 0;
@@ -355,7 +397,7 @@
   display: block;
   margin-top: 0.16rem;
   color: var(--ws-text-strong);
-  font-size: 0.76rem;
+  font-size: 0.7rem;
   font-weight: 900;
 }
 
@@ -748,6 +790,7 @@
 
 @media (max-width: 1240px) {
   .engineGrid,
+  .engineOverview,
   .kpiGrid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -769,6 +812,8 @@
   }
 
   .pageHeader,
+  .headerOps,
+  .engineOverview,
   .engineGrid,
   .turboFacts,
   .configGrid,

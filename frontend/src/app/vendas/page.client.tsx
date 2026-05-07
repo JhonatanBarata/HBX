@@ -308,7 +308,7 @@ function nextWhatsappFilter(current: WhatsappFilter): WhatsappFilter {
 
 function sourceLabel(value?: string | null) {
   const normalized = String(value || "").trim().toLowerCase();
-  if (normalized === "webscraping") return "Webscraping";
+  if (normalized === "webscraping") return "Radar Digital";
   if (normalized === "manual") return "Manual";
   return normalized || "Sem origem";
 }
@@ -396,7 +396,7 @@ function timelineTone(type?: LeadTimelineEventType) {
 }
 
 function timelineMeta(event: LeadTimelineEvent) {
-  if (event.eventType === "origin_registered") return event.sourceType === "webscraping" ? "Origem webscraping" : "Origem manual";
+  if (event.eventType === "origin_registered") return event.sourceType === "webscraping" ? "Origem Radar Digital" : "Origem manual";
   if (event.eventType === "status_changed" && event.statusTo) return `Status ${event.statusTo}`;
   if (event.eventType === "result_recorded" && event.resultLabel) return event.resultLabel;
   if (event.eventType === "return_scheduled" && event.returnAt) return formatDateTime(event.returnAt);
@@ -687,7 +687,7 @@ function LeadCardView({
   };
   const chips = [
     signals.alreadyExisted ? "Lead conhecido" : null,
-    signals.cameFromWebscraping ? "Webscraping" : null,
+    signals.cameFromWebscraping ? "Radar Digital" : null,
     signals.hadPreviousContact ? "Com histórico" : null,
     signals.wasClosedBefore ? "Já encerrado" : null,
     lead.whatsappAvailability?.status === "unavailable" ? "Sem WhatsApp" : null,
@@ -1450,7 +1450,7 @@ export default function VendasClientPage() {
 
     const targetLabel = bulkSelectAllAccount ? "todos os cards da conta atual" : `${selectedIds.length} card(s) selecionado(s)`;
     const confirmed = window.confirm(
-      `Excluir ${targetLabel} do Vendas? Os cards somem da tela, mas a base do webscraping continua preservada.`,
+      `Excluir ${targetLabel} do Vendas? Os cards somem da tela, mas a base do Radar Digital continua preservada.`,
     );
     if (!confirmed) return;
 
@@ -2076,7 +2076,7 @@ export default function VendasClientPage() {
                   className={`${styles.secondaryAction} ${styles.bulkDeleteButton}`}
                   onClick={() => void deleteSelectedLeadsBulk()}
                   disabled={bulkActionDisabled}
-                  title="Remove os cards do Vendas sem apagar a base do webscraping"
+                  title="Remove os cards do Vendas sem apagar a base do Radar Digital"
                 >
                   {bulkDeleting ? "Excluindo..." : `Excluir em massa (${bulkSelectionLabel})`}
                 </button>

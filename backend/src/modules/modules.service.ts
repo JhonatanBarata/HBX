@@ -62,7 +62,7 @@ type ModuleAvailability = {
 const DEFAULT_MODULES: DefaultModuleDef[] = (structuralDefaults.systemModules as DefaultModuleDef[]).map((moduleDef) => ({
   ...moduleDef,
   serviceUrl: moduleDef.key === 'webscraping'
-    ? process.env.WEBSCRAPING_URL || moduleDef.serviceUrl || '/hbx/webscraping'
+    ? '/radar-digital'
     : moduleDef.serviceUrl,
 }));
 
@@ -1640,7 +1640,11 @@ export class ModulesService implements OnModuleInit {
       await this.prisma.systemModule.upsert({
         where: { key: moduleDef.key },
         update: {
+          name: moduleDef.name,
+          description: moduleDef.description,
+          defaultEnabled: moduleDef.defaultEnabled,
           companyAssignable: moduleDef.companyAssignable,
+          serviceUrl: moduleDef.serviceUrl ?? null,
         },
         create: {
           key: moduleDef.key,

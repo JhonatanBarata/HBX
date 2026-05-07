@@ -29,12 +29,12 @@
     },
     {
       "key": "webscraping",
-      "name": "Webscraping",
-      "description": "Prospeccao local com busca de contatos.",
+      "name": "Radar Digital",
+      "description": "Leads, oportunidades, historico e envio para Vendas.",
       "monthlyPrice": 0,
       "defaultEnabled": true,
       "companyAssignable": true,
-      "serviceUrl": "/hbx/webscraping"
+      "serviceUrl": "/radar-digital"
     },
     {
       "key": "financeiro",

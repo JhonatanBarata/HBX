@@ -1210,13 +1210,13 @@ html[data-theme-switcher-open="true"] .app-topbar::after {
 }
 
 .app-topbar__engineConstellation {
-  width: min(760px, 100%);
+  width: min(940px, 100%);
   min-width: 0;
   display: grid;
-  grid-template-columns: auto minmax(340px, 1fr);
+  grid-template-columns: minmax(330px, auto) minmax(340px, 1fr);
   align-items: center;
   justify-content: center;
-  gap: 0.46rem;
+  gap: 0.52rem;
 }
 
 .app-topbar__engineConstellation[data-live="true"] {
@@ -1240,9 +1240,11 @@ html[data-theme-switcher-open="true"] .app-topbar::after {
 
 .app-topbar__engineDeck {
   min-width: 0;
+  width: min(430px, 100%);
   display: grid;
-  grid-template-columns: repeat(4, 56px);
-  gap: 0.34rem;
+  grid-template-columns: repeat(10, minmax(28px, 1fr));
+  gap: 0.24rem;
+  justify-self: end;
 }
 
 .app-topbar__engineCard {
@@ -1251,15 +1253,15 @@ html[data-theme-switcher-open="true"] .app-topbar::after {
   position: relative;
   isolation: isolate;
   min-width: 0;
-  width: 56px;
-  min-height: 88px;
+  width: 100%;
+  min-height: 42px;
   display: grid;
-  grid-template-rows: auto 1fr auto;
+  grid-template-rows: auto 1fr;
   align-content: center;
-  gap: 0.22rem;
+  gap: 0.12rem;
   border: 1px solid color-mix(in srgb, var(--line) 82%, transparent);
-  border-radius: 14px;
-  padding: 0.44rem 0.34rem;
+  border-radius: 10px;
+  padding: 0.26rem 0.22rem;
   overflow: hidden;
   background:
     radial-gradient(circle at 18% 20%, color-mix(in srgb, var(--info) 12%, transparent), transparent 46%),
@@ -1323,7 +1325,7 @@ html[data-theme-switcher-open="true"] .app-topbar::after {
   position: absolute;
   inset: -2px;
   z-index: 0;
-  border-radius: 16px;
+  border-radius: 12px;
   padding: 1px;
   background: conic-gradient(
     from 0deg,
@@ -1359,14 +1361,14 @@ html[data-theme-switcher-open="true"] .app-topbar::after {
 .app-topbar__engineCardTop {
   min-width: 0;
   display: grid;
-  grid-template-columns: 10px minmax(0, 1fr);
+  grid-template-columns: 6px minmax(0, 1fr);
   align-items: center;
-  gap: 0.2rem;
+  gap: 0.16rem;
 }
 
 .app-topbar__engineCardTop strong {
   color: currentColor;
-  font-size: 0.66rem;
+  font-size: 0.56rem;
   font-weight: 950;
   line-height: 1;
   text-align: center;
@@ -1381,25 +1383,21 @@ html[data-theme-switcher-open="true"] .app-topbar::after {
   grid-template-columns: 1fr;
   justify-items: center;
   align-items: center;
-  gap: 0.12rem;
+  gap: 0;
 }
 
 .app-topbar__engineGauge {
-  width: 34px;
-  aspect-ratio: 1;
+  width: 100%;
+  height: 4px;
   border-radius: 999px;
-  display: grid;
-  place-items: center;
+  display: block;
   background:
-    radial-gradient(circle at center, color-mix(in srgb, var(--surface-raised) 94%, var(--background)) 56%, transparent 58%),
-    conic-gradient(color-mix(in srgb, var(--engine-node-tone) 82%, white) var(--engine-usage), color-mix(in srgb, var(--line) 72%, transparent) 0);
+    linear-gradient(90deg, color-mix(in srgb, var(--engine-node-tone) 86%, white) var(--engine-usage), transparent 0),
+    color-mix(in srgb, var(--line) 72%, transparent);
 }
 
 .app-topbar__engineGauge b {
-  color: currentColor;
-  font-size: 0.58rem;
-  font-weight: 950;
-  line-height: 1;
+  display: none;
 }
 
 .app-topbar__sparkline {
@@ -1416,7 +1414,7 @@ html[data-theme-switcher-open="true"] .app-topbar::after {
 }
 
 .app-topbar__activityDots {
-  display: flex;
+  display: none;
   justify-content: center;
   gap: 0.16rem;
 }
@@ -7021,8 +7019,10 @@ html[data-theme="tabler"] .workspace-context {
   }
 
   .app-topbar__engineDeck {
-    grid-template-columns: repeat(4, 56px);
+    width: min(520px, 100%);
+    grid-template-columns: repeat(10, minmax(28px, 1fr));
     justify-content: center;
+    justify-self: center;
   }
 
   .app-topbar__engineWing {
@@ -7121,14 +7121,15 @@ html[data-theme="tabler"] .workspace-context {
 
   .app-topbar__engineDeck {
     order: 2;
-    grid-template-columns: repeat(4, 54px);
+    width: 100%;
+    grid-template-columns: repeat(10, minmax(24px, 1fr));
     justify-content: center;
   }
 
   .app-topbar__engineCard {
-    width: 54px;
-    min-height: 76px;
-    padding: 0.38rem 0.3rem;
+    width: 100%;
+    min-height: 42px;
+    padding: 0.28rem 0.24rem;
   }
 
   .app-topbar__engineCardBody {
@@ -7136,7 +7137,7 @@ html[data-theme="tabler"] .workspace-context {
   }
 
   .app-topbar__activityDots {
-    display: flex;
+    display: none;
   }
 
   .app-topbar__engineWing {
