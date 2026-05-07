@@ -13,6 +13,9 @@ export type TopbarProgressState = {
   title: string;
   status: string;
   progress: number;
+  activeEngineIds?: string[];
+  activeEngineIndex?: number | null;
+  activeEngineLabel?: string | null;
   metrics?: TopbarProgressMetric[];
 };
 

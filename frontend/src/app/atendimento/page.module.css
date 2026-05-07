@@ -5940,11 +5940,11 @@
 .inboxCanvas[data-ai-expanded="true"] {
   grid-template-columns:
     74px
-    minmax(260px, 310px)
-    minmax(0, 1.2fr)
-    minmax(260px, 318px)
-    minmax(270px, 318px);
-  gap: 0.58rem;
+    minmax(276px, 326px)
+    minmax(0, 1fr)
+    minmax(300px, 350px)
+    minmax(360px, 420px);
+  gap: 0.64rem;
 }
 
 .inboxStageAi {
@@ -6022,18 +6022,6 @@
   box-shadow:
     0 0 0 5px rgba(22, 215, 181, 0.1),
     0 0 16px rgba(22, 215, 181, 0.42);
-}
-
-@keyframes automationPulseSpin {
-  from {
-    transform: rotate(0deg);
-    box-shadow: 0 -5px 0 -2px rgba(22, 215, 181, 0.62), 0 0 0 5px rgba(22, 215, 181, 0.1);
-  }
-
-  to {
-    transform: rotate(360deg);
-    box-shadow: 0 -5px 0 -2px rgba(22, 215, 181, 0.62), 0 0 0 5px rgba(22, 215, 181, 0.1);
-  }
 }
 
 .automationPulseText {
@@ -8027,10 +8015,10 @@
   .inboxCanvas[data-ai-expanded="true"] {
     grid-template-columns:
       72px
-      minmax(240px, 292px)
+      minmax(250px, 300px)
       minmax(0, 1fr)
-      minmax(238px, 292px)
-      minmax(252px, 296px);
+      minmax(260px, 310px)
+      minmax(360px, 390px);
     gap: 0.5rem;
   }
 }

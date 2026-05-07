@@ -3138,7 +3138,7 @@ export default function InboxClientPage() {
   const [aiAssistantProspect, setAiAssistantProspect] = useState<AiAssistantProspect | null>(null);
   const [aiAssistantInsights, setAiAssistantInsights] = useState<AiAssistantInsights | null>(null);
   const [aiAssistantLoading, setAiAssistantLoading] = useState(false);
-  const [aiAssistantCompact, setAiAssistantCompact] = useState(true);
+  const [aiAssistantCompact, setAiAssistantCompact] = useState(false);
   const [aiReplySuggestion, setAiReplySuggestion] = useState<AiReplySuggestionState>({
     loading: false,
     text: "",
@@ -3209,6 +3209,7 @@ export default function InboxClientPage() {
   const inboxBootstrapStageTimerRef = useRef<number | null>(null);
   const botAiActive = hasBotAi(commercialPlans);
   const botSetupComplete = isAtendimentoBotSetupComplete(botConfig);
+  const globalBotEnabled = botAiActive && botSetupComplete && botConfig.routingRules.globalBotEnabled !== false;
 
   const openBotPlans = useCallback(() => {
     setNotice({
@@ -3272,7 +3273,7 @@ export default function InboxClientPage() {
 
   const loadAiAssistantWorkspace = useCallback(async (statusPayload?: AiAssistantStatus | null, background = false) => {
     const effectiveStatus = statusPayload;
-    if (!effectiveStatus?.visualEnabled) {
+    if (!globalBotEnabled || effectiveStatus?.visualFeatureEnabled === false) {
       setAiAssistantProspect(null);
       setAiAssistantInsights(null);
       return;
@@ -3289,39 +3290,10 @@ export default function InboxClientPage() {
     } finally {
       if (!background) setAiAssistantLoading(false);
     }
-  }, []);
-
-  const toggleAiAssistant = useCallback(
-    async (patch: Partial<AiAssistantStatus>) => {
-      if (!aiAssistantStatus?.visualFeatureEnabled) return;
-      try {
-        const payload = await apiFetch<AiAssistantStatus>("/api/ai-assistant/toggle", {
-          method: "POST",
-          body: JSON.stringify({
-            visualEnabled: typeof patch.visualEnabled === "boolean" ? patch.visualEnabled : undefined,
-            smartRepliesEnabled: typeof patch.smartRepliesEnabled === "boolean" ? patch.smartRepliesEnabled : undefined,
-            autoSendEnabled: typeof patch.autoSendEnabled === "boolean" ? patch.autoSendEnabled : undefined,
-          }),
-        });
-        setAiAssistantStatus(payload);
-        if (payload.visualEnabled) {
-          setAiAssistantCompact(false);
-          void loadAiAssistantWorkspace(payload);
-        } else {
-          setAiAssistantCompact(true);
-          setAiAssistantProspect(null);
-          setAiAssistantInsights(null);
-        }
-      } catch (toggleError) {
-        const message = toggleError instanceof Error ? toggleError.message : "Falha ao atualizar Assistente IA.";
-        setNotice({ tone: "error", text: message });
-      }
-    },
-    [aiAssistantStatus?.visualFeatureEnabled, loadAiAssistantWorkspace],
-  );
+  }, [globalBotEnabled]);
 
   const requestAiReplySuggestion = useCallback(async () => {
-    if (!selectedId || !aiAssistantStatus?.smartRepliesEnabled) return;
+    if (!selectedId || !globalBotEnabled || !aiAssistantStatus?.smartRepliesEnabled) return;
     setAiReplySuggestion({ loading: true, text: "", status: "idle", message: null });
     try {
       const payload = await apiFetch<{
@@ -3344,7 +3316,7 @@ export default function InboxClientPage() {
       const message = suggestionError instanceof Error ? suggestionError.message : "Falha ao gerar sugestao IA.";
       setAiReplySuggestion({ loading: false, text: "", status: "error", message });
     }
-  }, [aiAssistantStatus?.smartRepliesEnabled, selectedId]);
+  }, [aiAssistantStatus?.smartRepliesEnabled, globalBotEnabled, selectedId]);
 
   const applyAiReplySuggestion = useCallback(() => {
     const suggestion = aiReplySuggestion.text.trim();
@@ -3386,21 +3358,31 @@ export default function InboxClientPage() {
     if (!hasToken) return;
     let cancelled = false;
     loadAiAssistantStatus().then((payload) => {
-      if (cancelled || !payload?.visualEnabled) return;
+      if (cancelled || !globalBotEnabled || payload?.visualFeatureEnabled === false) return;
       void loadAiAssistantWorkspace(payload);
     });
     return () => {
       cancelled = true;
     };
-  }, [hasToken, loadAiAssistantStatus, loadAiAssistantWorkspace]);
+  }, [globalBotEnabled, hasToken, loadAiAssistantStatus, loadAiAssistantWorkspace]);
 
   useEffect(() => {
-    if (!hasToken || !aiAssistantStatus?.visualEnabled) return;
+    if (!hasToken || !globalBotEnabled || aiAssistantStatus?.visualFeatureEnabled === false) return;
     const timer = window.setInterval(() => {
       void loadAiAssistantWorkspace(aiAssistantStatus, true);
     }, 45000);
     return () => window.clearInterval(timer);
-  }, [aiAssistantStatus, hasToken, loadAiAssistantWorkspace]);
+  }, [aiAssistantStatus, globalBotEnabled, hasToken, loadAiAssistantWorkspace]);
+
+  useEffect(() => {
+    if (globalBotEnabled) {
+      setAiAssistantCompact(false);
+      return;
+    }
+    setAiAssistantProspect(null);
+    setAiAssistantInsights(null);
+    setAiReplySuggestion({ loading: false, text: "", status: "idle", message: null });
+  }, [globalBotEnabled]);
 
   useEffect(() => {
     setAiReplySuggestion({ loading: false, text: "", status: "idle", message: null });
@@ -4769,8 +4751,6 @@ export default function InboxClientPage() {
     }
     return base;
   }, [conversations, manualQueueOverrides]);
-
-  const globalBotEnabled = botAiActive && botSetupComplete && botConfig.routingRules.globalBotEnabled !== false;
 
   const filteredConversations = useMemo(() => {
     const normalizedSearch = deferredConversationSearch.trim().toLowerCase();
@@ -6993,7 +6973,7 @@ export default function InboxClientPage() {
                     </button>
                   </div>
                 ) : null}
-                {aiAssistantStatus?.visualEnabled && aiAssistantStatus.smartRepliesEnabled && !selectedConversationInteractionBlocked ? (
+                {globalBotEnabled && aiAssistantStatus?.smartRepliesEnabled && !selectedConversationInteractionBlocked ? (
                   <div className={styles.aiSuggestionCard}>
                     <div className={styles.aiSuggestionHeader}>
                       <span>Resposta inteligente</span>
@@ -8231,7 +8211,18 @@ export default function InboxClientPage() {
     ...(error ? [{ tone: "error" as const, text: error }] : []),
     ...(notice ? [notice] : []),
   ];
-  const aiAssistantVisible = Boolean(aiAssistantStatus?.visualEnabled);
+  const aiAssistantPanelStatus: AiAssistantStatus = aiAssistantStatus || {
+    visualFeatureEnabled: true,
+    smartRepliesFeatureEnabled: false,
+    autoSendFeatureEnabled: false,
+    visualEnabled: true,
+    smartRepliesEnabled: false,
+    autoSendEnabled: false,
+    openAiAvailable: false,
+    availabilityLabel: "Gemini em verificação",
+    safeMode: true,
+  };
+  const aiAssistantVisible = globalBotEnabled;
   const aiAssistantExpanded = aiAssistantVisible && !aiAssistantCompact;
   const queueActionConversationIsArchived =
     queueActionConversationId ? queueByConversationId[queueActionConversationId] === "archived" : false;
@@ -8289,40 +8280,6 @@ export default function InboxClientPage() {
                   >
                     <span>Hbot</span>
                   </button>
-                  {aiAssistantStatus?.visualFeatureEnabled ? (
-                    <div className={styles.aiAssistantSwitchGroup} aria-label="Controles do Assistente IA">
-                      <button
-                        type="button"
-                        className={styles.aiAssistantSwitchMain}
-                        data-active={aiAssistantStatus.visualEnabled ? "true" : "false"}
-                        onClick={() => void toggleAiAssistant({ visualEnabled: !aiAssistantStatus.visualEnabled })}
-                        title={aiAssistantStatus.visualEnabled ? "Assistente IA ligado" : "Assistente IA desligado"}
-                      >
-                        Assistente IA
-                        <span>{aiAssistantStatus.visualEnabled ? "Ligado" : "Desligado"}</span>
-                      </button>
-                      <button
-                        type="button"
-                        className={styles.aiAssistantMiniToggle}
-                        data-active={aiAssistantStatus.smartRepliesEnabled ? "true" : "false"}
-                        onClick={() => void toggleAiAssistant({ smartRepliesEnabled: !aiAssistantStatus.smartRepliesEnabled })}
-                        disabled={!aiAssistantStatus.smartRepliesFeatureEnabled}
-                        title="Respostas inteligentes"
-                      >
-                        RI
-                      </button>
-                      <button
-                        type="button"
-                        className={styles.aiAssistantMiniToggle}
-                        data-active={aiAssistantStatus.autoSendEnabled ? "true" : "false"}
-                        onClick={() => void toggleAiAssistant({ autoSendEnabled: !aiAssistantStatus.autoSendEnabled })}
-                        disabled={!aiAssistantStatus.autoSendFeatureEnabled}
-                        title="Envio automatico"
-                      >
-                        Auto
-                      </button>
-                    </div>
-                  ) : null}
                 </div>
                 <div className={styles.commandDockNav}>
                   <DockButton
@@ -8402,10 +8359,10 @@ export default function InboxClientPage() {
               <div className={styles.inboxStageContext}>
                 {inboxWorkspaceComponents.context()}
               </div>
-              {aiAssistantVisible && aiAssistantStatus ? (
+              {aiAssistantVisible ? (
                 <aside className={styles.inboxStageAi} data-compact={aiAssistantCompact ? "true" : "false"}>
                   <AiAssistantPanel
-                    status={aiAssistantStatus}
+                    status={aiAssistantPanelStatus}
                     prospect={aiAssistantProspect}
                     insights={aiAssistantInsights}
                     loading={aiAssistantLoading}
@@ -8413,6 +8370,11 @@ export default function InboxClientPage() {
                     onToggleCompact={() => setAiAssistantCompact((current) => !current)}
                     onStartProspect={startAiProspect}
                     onRequestMoreLeads={() => void requestMoreLeadsFromAi()}
+                    replySuggestion={aiReplySuggestion}
+                    smartReplyEnabled={Boolean(aiAssistantPanelStatus.smartRepliesEnabled)}
+                    replyDisabled={!selectedId || selectedConversationInteractionBlocked || sending}
+                    onRequestReplySuggestion={() => void requestAiReplySuggestion()}
+                    onApplyReplySuggestion={applyAiReplySuggestion}
                   />
                 </aside>
               ) : null}

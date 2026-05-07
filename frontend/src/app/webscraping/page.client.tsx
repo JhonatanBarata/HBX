@@ -345,6 +345,8 @@ type SearchRunResponse = {
   nextRetryAt?: string | null;
   lastQueryUsed?: string | null;
   lastEngineUrl?: string | null;
+  assignedEngineId?: string | null;
+  assignedEngineIndex?: number | null;
   batchLimit?: number;
   maxAttempts?: number;
   startedAt?: string | null;
@@ -1328,6 +1330,25 @@ export default function WebscrapingClientPage({ mode = "search" }: WebscrapingCl
     const foundCount = Number(activeSearchRun?.foundCount || results.length || 0);
     const discardedCount = Number(activeSearchRun?.duplicateCount || 0) + Number(activeSearchRun?.skippedCount || 0);
     const remainingCount = Math.max(0, targetQuantity - foundCount);
+    const backendEngineIndex =
+      typeof activeSearchRun?.assignedEngineIndex === "number" && Number.isInteger(activeSearchRun.assignedEngineIndex)
+        ? Math.max(0, Math.min(3, activeSearchRun.assignedEngineIndex))
+        : null;
+    const progressEngineIndex =
+      backendEngineIndex ??
+      (notice.phase === "loading"
+        ? Math.max(0, Math.min(3, Math.floor(Math.max(0, Math.min(99, notice.progress || 0)) / 25)))
+        : null);
+    const backendEngineId = String(activeSearchRun?.assignedEngineId || "").trim();
+    const activeEngineId =
+      backendEngineId ||
+      (typeof progressEngineIndex === "number" ? `hbx-engine-${progressEngineIndex + 1}` : "");
+    const activeEngineLabel =
+      typeof progressEngineIndex === "number"
+        ? `M${progressEngineIndex + 1}`
+        : activeEngineId
+          ? activeEngineId.replace(/^hbx-engine-/i, "M")
+          : null;
     const status =
       notice.statusLabel ||
       (notice.phase === "loading"
@@ -1338,9 +1359,14 @@ export default function WebscrapingClientPage({ mode = "search" }: WebscrapingCl
       source: "webscraping",
       phase: notice.phase,
       title: notice.phase === "loading" ? "Scraping em andamento" : notice.title,
-      status,
+      status: notice.phase === "loading" && activeEngineLabel ? `${activeEngineLabel} ativo · ${status}` : status,
       progress: notice.progress,
+      activeEngineIds: activeEngineId ? [activeEngineId] : [],
+      activeEngineIndex: progressEngineIndex,
+      activeEngineLabel,
       metrics: [
+        { label: "Motor", value: activeEngineLabel || "HBX" },
+        { label: "Cards", value: targetQuantity ? `${foundCount}/${targetQuantity}` : String(foundCount) },
         { label: "Restante", value: String(remainingCount) },
         { label: "Descarte", value: String(discardedCount) },
       ],
