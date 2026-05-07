@@ -296,6 +296,15 @@ class MasterTurboConfigDto {
   @Min(1)
   @Max(10)
   maxAttemptsPerTask?: number;
+
+  @IsOptional()
+  @Type(() => Boolean)
+  @IsBoolean()
+  forceNow?: boolean;
+
+  @IsOptional()
+  @IsString()
+  forcedUntil?: string;
 }
 
 class MasterMassDataDto extends MasterTurboConfigDto {
@@ -529,7 +538,13 @@ export class WebscrapingController {
 export class MasterWebscrapingController {
   constructor(
     private readonly webscrapingService: WebscrapingService,
+    private readonly hbxEnginePool: HbxEnginePoolService,
   ) {}
+
+  @Get('engines/status')
+  getMasterEngineStatus() {
+    return this.hbxEnginePool.getDashboardEngineStatus();
+  }
 
   @Get('mass-data')
   getMassDataControl(@Req() req: any) {
@@ -539,6 +554,11 @@ export class MasterWebscrapingController {
   @Put('turbo-noturno')
   saveTurboNoturno(@Req() req: any, @Body() dto: MasterTurboConfigDto) {
     return this.webscrapingService.saveMasterTurboConfig(req.user, dto || {});
+  }
+
+  @Post('turbo-noturno/force-now')
+  forceTurboNow(@Req() req: any, @Body() dto: MasterTurboConfigDto) {
+    return this.webscrapingService.forceMasterTurboNow(req.user, dto || {});
   }
 
   @Post('mass-data')

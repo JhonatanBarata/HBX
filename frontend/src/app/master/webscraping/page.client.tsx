@@ -23,6 +23,19 @@ type EngineStatus = {
   online: boolean;
   busy: boolean;
   lastError?: string | null;
+  usagePercent?: number | null;
+  stateLabel?: string | null;
+  detail?: string | null;
+  lastActivityAt?: string | null;
+  activeRunId?: string | null;
+  activeCampaignId?: string | null;
+  queueShare?: number | null;
+  processedLast10Min?: number | null;
+  errorCount?: number | null;
+  heartbeatAgeSeconds?: number | null;
+  isTurboEnabled?: boolean | null;
+  isTurboWindowActive?: boolean | null;
+  isTurboForcedNow?: boolean | null;
 };
 
 type CampaignTask = {
@@ -75,6 +88,11 @@ type MasterControl = {
     nextTurboAt?: string | null;
     localTime?: string | null;
     estimatedMemoryGb?: number | null;
+    isTurboEnabled?: boolean;
+    isTurboWindowActive?: boolean;
+    isTurboForcedNow?: boolean;
+    forcedUntil?: string | null;
+    operationalMessage?: string | null;
   };
   config: {
     enabled: boolean;
@@ -87,14 +105,23 @@ type MasterControl = {
     memoryTargetGb: number;
     batchSize: number;
     maxAttemptsPerTask: number;
+    forcedUntil?: string | null;
+    isTurboForcedNow?: boolean;
   };
   engines?: {
     capacity?: {
       queuedCount: number;
       runningCount: number;
       completedLast10Min: number;
+      partialLast10Min?: number;
+      activeEngineCount?: number;
       operationalStatus: string;
       message?: string | null;
+      isTurboEnabled?: boolean;
+      isTurboWindowActive?: boolean;
+      isTurboForcedNow?: boolean;
+      forcedUntil?: string | null;
+      nextTurboAt?: string | null;
     };
     engines?: EngineStatus[];
   };
@@ -157,11 +184,28 @@ function formatDateTime(value?: string | null) {
 
 function engineTone(engine?: EngineStatus | null) {
   const status = String(engine?.status || "").toLowerCase();
+  const label = String(engine?.stateLabel || "").toLowerCase();
   if (!engine || !engine.configured || !engine.online || status === "offline" || status === "missing") return "offline";
   if (status === "cooldown" || status === "paused" || status === "retry") return "paused";
   if (status === "error" || status === "degraded") return "error";
-  if (engine.busy || status === "busy" || status === "running" || status === "online") return "running";
+  if (engine.busy || status === "busy" || status === "running" || label.includes("rodando")) return "running";
+  if (label.includes("fila") || label.includes("turbo")) return "standby";
   return "standby";
+}
+
+function engineUsage(engine?: EngineStatus | null) {
+  const usage = Number(engine?.usagePercent);
+  if (Number.isFinite(usage)) return Math.max(0, Math.min(100, Math.round(usage)));
+  const tone = engineTone(engine);
+  if (tone === "running") return 84;
+  if (tone === "paused") return 12;
+  if (tone === "offline" || tone === "error") return 0;
+  return 8;
+}
+
+function engineStateLabel(engine?: EngineStatus | null) {
+  if (!engine) return "Sem healthcheck";
+  return engine.stateLabel || statusLabel(engine.status);
 }
 
 function statusLabel(value?: string | null) {
@@ -203,6 +247,22 @@ function buildPayload(form: FormState) {
 
 function metricValue(value?: number | null) {
   return Number.isFinite(Number(value)) ? String(Number(value)) : "0";
+}
+
+function operationalMessage(control: MasterControl | null) {
+  if (!control) return "Carregando operação.";
+  if (control.status.operationalMessage) return control.status.operationalMessage;
+  const capacity = control.engines?.capacity;
+  const engines = control.engines?.engines || [];
+  const hbx = engines.filter((engine) => String(engine.id || "").startsWith("hbx-engine") && engine.configured);
+  const allOffline = hbx.length > 0 && hbx.every((engine) => !engine.online && ["offline", "missing"].includes(String(engine.status || "").toLowerCase()));
+  if (allOffline) return "Todos os motores HBX falharam no healthcheck.";
+  if (control.status.isTurboForcedNow) return "Turbo forçado ativo.";
+  if (control.status.isTurboEnabled && !control.status.isTurboWindowActive) return `Turbo armado para ${formatDateTime(control.status.nextTurboAt)}.`;
+  if (Number(capacity?.queuedCount || 0) > 0 && Number(capacity?.runningCount || 0) === 0) return "Fila aguardando motor elegível.";
+  if (capacity?.operationalStatus === "degraded") return capacity.message || "Capacidade degradada.";
+  if (Number(capacity?.queuedCount || 0) === 0) return "Motores em standby, aguardando trabalho.";
+  return "Operação ativa.";
 }
 
 export default function MasterWebscrapingClientPage() {
@@ -279,11 +339,14 @@ export default function MasterWebscrapingClientPage() {
 
   useEffect(() => {
     if (!allowed) return;
+    const running = control?.campaigns.some((campaign) => ["running", "queued", "partial_error"].includes(String(campaign.status || "")))
+      || Number(control?.engines?.capacity?.runningCount || 0) > 0
+      || Number(control?.engines?.capacity?.queuedCount || 0) > 0;
     const timer = window.setInterval(() => {
       void loadControl({ silent: true });
-    }, 10000);
+    }, running ? 3000 : 10000);
     return () => window.clearInterval(timer);
-  }, [allowed, loadControl]);
+  }, [allowed, control?.campaigns, control?.engines?.capacity?.queuedCount, control?.engines?.capacity?.runningCount, loadControl]);
 
   const cityOptions = useMemo(() => {
     if (!form.state) return [];
@@ -357,6 +420,27 @@ export default function MasterWebscrapingClientPage() {
     }
   }
 
+  async function forceTurboNow() {
+    setSaving(true);
+    setError(null);
+    setFeedback(null);
+    try {
+      const payload = await apiFetch<{ control: MasterControl }>("/modules/master/webscraping/turbo-noturno/force-now", {
+        method: "POST",
+        requireAuth: true,
+        timeoutMs: 15000,
+        body: JSON.stringify(buildPayload({ ...form, enabled: true })),
+      });
+      setControl(payload.control);
+      hydrateForm(payload.control);
+      setFeedback("Turbo forçado ativo agora.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Falha ao forçar Turbo agora.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function runCampaignAction(campaignId: string, action: "pause" | "resume" | "cancel") {
     setActionId(`${campaignId}:${action}`);
     setError(null);
@@ -413,6 +497,9 @@ export default function MasterWebscrapingClientPage() {
           <button type="button" className="btn btn-secondary btn-sm" onClick={() => void loadControl()} disabled={loading}>
             {loading ? "Atualizando..." : "Atualizar"}
           </button>
+          <button type="button" className="btn btn-secondary btn-sm" onClick={() => void forceTurboNow()} disabled={saving}>
+            Forçar Turbo Agora
+          </button>
           <Link href="/master" className="btn btn-secondary btn-sm">Voltar</Link>
         </div>
       }
@@ -427,10 +514,21 @@ export default function MasterWebscrapingClientPage() {
               <span>{control?.status.currentMode || "STANDBY"}</span>
               <strong>continua de onde parou: {control?.status.resumeEnabled ? "ligado" : "desligado"}</strong>
             </div>
+            <p className={styles.operationalMessage}>{operationalMessage(control)}</p>
             <div className={styles.engineRow}>
               {hbxEngines.map((engine, index) => (
-                <div key={engine?.id || index} className={styles.battery} data-state={engineTone(engine)} title={engine?.lastError || statusLabel(engine?.status)}>
-                  <span>M{index + 1}</span>
+                <div
+                  key={engine?.id || index}
+                  className={styles.battery}
+                  data-state={engineTone(engine)}
+                  style={{ ["--usage" as string]: `${engineUsage(engine)}%` }}
+                  title={engine?.detail || engine?.lastError || statusLabel(engine?.status)}
+                >
+                  <div>
+                    <span>M{index + 1}</span>
+                    <strong>{engineStateLabel(engine)}</strong>
+                  </div>
+                  <b>{engineUsage(engine)}%</b>
                   <i />
                 </div>
               ))}
@@ -438,7 +536,10 @@ export default function MasterWebscrapingClientPage() {
             <div className={styles.heroMetrics}>
               <span>Agora <strong>{control?.status.localTime || "-"}</strong></span>
               <span>Próximo turbo <strong>{formatDateTime(control?.status.nextTurboAt)}</strong></span>
-              <span>Memória alvo <strong>{metricValue(control?.status.estimatedMemoryGb || form.memoryTargetGb)} GB</strong></span>
+              <span>Turbo forçado <strong>{control?.status.isTurboForcedNow ? `até ${formatDateTime(control?.status.forcedUntil)}` : "inativo"}</strong></span>
+              <span>Fila <strong>{metricValue(control?.engines?.capacity?.queuedCount)} cards</strong></span>
+              <span>Rodando <strong>{metricValue(control?.engines?.capacity?.runningCount)} tarefas</strong></span>
+              <span>Últimos 10 min <strong>{metricValue(control?.engines?.capacity?.completedLast10Min)} lotes</strong></span>
             </div>
             {control?.status.critical ? (
               <p className={styles.critical}>{control.status.criticalReason || "Falha crítica no radar."}</p>
@@ -537,6 +638,9 @@ export default function MasterWebscrapingClientPage() {
               <button type="button" onClick={() => void saveTurboConfig()} disabled={saving}>
                 Ativar Turbo Noturno
               </button>
+              <button type="button" onClick={() => void forceTurboNow()} disabled={saving}>
+                Forçar Turbo Agora
+              </button>
               <button type="button" data-primary="true" onClick={() => void activateMassData()} disabled={saving || !form.state}>
                 Ativar Massa de Dados
               </button>
@@ -573,7 +677,7 @@ export default function MasterWebscrapingClientPage() {
             </div>
             <div className={styles.feedList}>
               {liveFeed.length === 0 ? (
-                <p>Nenhum evento recente.</p>
+                <p>{Number(control?.engines?.capacity?.queuedCount || 0) > 0 || activeCampaign ? "Aguardando próximo lote com a fila carregada." : "Motores em standby, aguardando trabalho."}</p>
               ) : liveFeed.slice(0, 12).map((item) => (
                 <div key={item.id} className={styles.feedItem} data-type={item.type}>
                   <strong>{item.message}</strong>

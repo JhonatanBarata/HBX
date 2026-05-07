@@ -121,6 +121,18 @@ type ScrapingEngineStatus = {
   lastCheckedAt: string | null;
   lastError: string | null;
   detail: string;
+  usagePercent?: number | null;
+  stateLabel?: string | null;
+  lastActivityAt?: string | null;
+  activeRunId?: string | null;
+  activeCampaignId?: string | null;
+  queueShare?: number | null;
+  processedLast10Min?: number | null;
+  errorCount?: number | null;
+  heartbeatAgeSeconds?: number | null;
+  isTurboEnabled?: boolean | null;
+  isTurboWindowActive?: boolean | null;
+  isTurboForcedNow?: boolean | null;
 };
 type ScrapingEngineStatusPayload = {
   generatedAt: string;
@@ -129,8 +141,15 @@ type ScrapingEngineStatusPayload = {
     googleEmergencyMode: boolean;
     queuedCount: number;
     runningCount: number;
+    completedLast10Min?: number;
+    partialLast10Min?: number;
     operationalStatus: "healthy" | "degraded";
     message: string | null;
+    isTurboEnabled?: boolean;
+    isTurboWindowActive?: boolean;
+    isTurboForcedNow?: boolean;
+    forcedUntil?: string | null;
+    nextTurboAt?: string | null;
   };
   engines: ScrapingEngineStatus[];
 };
@@ -233,6 +252,18 @@ function buildFallbackScrapingEngine(index: number): ScrapingEngineStatus {
     lastCheckedAt: null,
     lastError: null,
     detail: index === 0 ? "Pronto, sem solicitação ativa." : "Motor em espera.",
+    usagePercent: index === 0 ? 8 : 4,
+    stateLabel: index === 0 ? "Standby pronto" : "Sem healthcheck",
+    lastActivityAt: null,
+    activeRunId: null,
+    activeCampaignId: null,
+    queueShare: 0,
+    processedLast10Min: 0,
+    errorCount: 0,
+    heartbeatAgeSeconds: null,
+    isTurboEnabled: false,
+    isTurboWindowActive: false,
+    isTurboForcedNow: false,
   };
 }
 
@@ -255,6 +286,18 @@ function buildFallbackGoogleEngine(): ScrapingEngineStatus {
     lastCheckedAt: null,
     lastError: null,
     detail: "Google emergencial em espera.",
+    usagePercent: 4,
+    stateLabel: "Standby pronto",
+    lastActivityAt: null,
+    activeRunId: null,
+    activeCampaignId: null,
+    queueShare: 0,
+    processedLast10Min: 0,
+    errorCount: 0,
+    heartbeatAgeSeconds: null,
+    isTurboEnabled: false,
+    isTurboWindowActive: false,
+    isTurboForcedNow: false,
   };
 }
 
@@ -285,6 +328,16 @@ function getScrapingEngineState(engine: ScrapingEngineStatus) {
 }
 
 function getScrapingEngineValue(engine: ScrapingEngineStatus) {
+  const label = String(engine.stateLabel || "").trim();
+  if (label) {
+    if (/turbo armado/i.test(label)) return "armado";
+    if (/standby/i.test(label)) return "standby";
+    if (/aguardando/i.test(label)) return "fila";
+    if (/rodando/i.test(label)) return "rodando";
+    if (/cooldown/i.test(label)) return "frio";
+    if (/offline/i.test(label)) return "off";
+    if (/healthcheck/i.test(label)) return "sem sinal";
+  }
   const state = getScrapingEngineState(engine);
   if (state === "emergency") return "ativo";
   if (state === "busy") return "rodando";
@@ -297,6 +350,22 @@ function getScrapingEngineValue(engine: ScrapingEngineStatus) {
 function getScrapingEngineShortLabel(engine: ScrapingEngineStatus) {
   if (engine.kind === "google") return "G";
   return `M${Number(engine.index || 0) + 1}`;
+}
+
+function getEngineUsage(engine: ScrapingEngineStatus) {
+  const usage = Number(engine.usagePercent);
+  return Number.isFinite(usage) ? Math.max(0, Math.min(100, Math.round(usage))) : engine.active ? 82 : 8;
+}
+
+function buildSparklinePoints(engine: ScrapingEngineStatus) {
+  const usage = getEngineUsage(engine);
+  const processed = Math.max(0, Math.trunc(Number(engine.processedLast10Min || 0)));
+  const errors = Math.max(0, Math.trunc(Number(engine.errorCount || 0)));
+  const values = Array.from({ length: 7 }, (_, index) => {
+    const wave = ((index * 17 + usage + processed * 9 + errors * 13) % 28) - 14;
+    return Math.max(8, Math.min(92, usage * 0.72 + 14 + wave));
+  });
+  return values.map((value, index) => `${index * 12},${Math.round(34 - value * 0.28)}`).join(" ");
 }
 
 function isPendingCheckoutUser(user: User | null) {
@@ -409,6 +478,7 @@ export default function TopBar() {
   const [atendimentoPendingHumanCount, setAtendimentoPendingHumanCount] = useState(0);
   const [topbarProgress, setTopbarProgress] = useState<TopbarProgressState | null>(null);
   const [scrapingEngines, setScrapingEngines] = useState<ScrapingEngineStatusPayload | null>(null);
+  const [scrapingEngineStatusMessage, setScrapingEngineStatusMessage] = useState<string | null>(null);
   const [unreadInboxOpen, setUnreadInboxOpen] = useState(false);
   const [unreadInboxLoading, setUnreadInboxLoading] = useState(false);
   const [unreadInboxError, setUnreadInboxError] = useState<string | null>(null);
@@ -445,6 +515,8 @@ export default function TopBar() {
   const masterContextToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastScrollYRef = useRef(0);
   const previousWhatsAppModalStatusRef = useRef<string | null>(null);
+  const scrapingEngineBackoffUntilRef = useRef(0);
+  const scrapingEngineBackoffMsRef = useRef(SCRAPING_ENGINE_POLL_MS);
   const authResolved = authenticated !== null;
   const pendingCheckoutLocked = isPendingCheckoutUser(user);
   const pendingCheckoutHref = resolvePendingCheckoutHref(user);
@@ -568,20 +640,43 @@ export default function TopBar() {
   }, []);
 
   const refreshScrapingEngines = React.useCallback(async () => {
-    if (authenticated !== true || pendingCheckoutLocked) {
+    const hasWebscrapingModule = (modules || []).some((module) => module.key === "webscraping" && module.accessible);
+    const isMaster = Boolean(user?.isSystemMaster);
+    if (authenticated !== true || pendingCheckoutLocked || !user || (!isMaster && !hasWebscrapingModule)) {
       setScrapingEngines(null);
+      setScrapingEngineStatusMessage(null);
+      return null;
+    }
+
+    if (scrapingEngineBackoffUntilRef.current > Date.now()) {
       return null;
     }
 
     try {
-      const payload = await apiFetch<ScrapingEngineStatusPayload>("/webscraping/engines/status");
+      const endpoint = isMaster ? "/modules/master/webscraping/engines/status" : "/webscraping/engines/status";
+      const payload = await apiFetch<ScrapingEngineStatusPayload>(endpoint, { timeoutMs: 12000 });
       setScrapingEngines(payload);
+      setScrapingEngineStatusMessage(null);
+      scrapingEngineBackoffMsRef.current = SCRAPING_ENGINE_POLL_MS;
+      scrapingEngineBackoffUntilRef.current = 0;
       return payload;
-    } catch {
+    } catch (error) {
+      const status = Number((error as { status?: number })?.status || 0);
+      if (status === 403) {
+        scrapingEngineBackoffMsRef.current = Math.min(
+          Math.max(scrapingEngineBackoffMsRef.current * 2, 30000),
+          5 * 60 * 1000,
+        );
+        scrapingEngineBackoffUntilRef.current = Date.now() + scrapingEngineBackoffMsRef.current;
+        setScrapingEngineStatusMessage(isMaster ? "Status dos motores em revalidação." : "Sem permissão para status dos motores.");
+      } else {
+        scrapingEngineBackoffUntilRef.current = Date.now() + 20000;
+        setScrapingEngineStatusMessage("Status dos motores indisponível.");
+      }
       setScrapingEngines(null);
       return null;
     }
-  }, [authenticated, pendingCheckoutLocked]);
+  }, [authenticated, modules, pendingCheckoutLocked, user]);
 
   const loadWhatsAppCenter = React.useCallback(async (options?: { background?: boolean }) => {
     if (authenticated !== true) return null;
@@ -740,8 +835,6 @@ export default function TopBar() {
   }, [operationalStatus]);
 
   const scrapingEngineView = useMemo(() => normalizeScrapingEngines(scrapingEngines), [scrapingEngines]);
-  const leftScrapingEngines = scrapingEngineView.hbxEngines.slice(0, 2);
-  const rightScrapingEngines = scrapingEngineView.hbxEngines.slice(2, 4);
   const liveWebscrapingProgress = topbarProgress?.source === "webscraping" && topbarProgress.phase === "loading";
   const topbarProgressPercent = Math.round(Math.max(0, Math.min(100, topbarProgress?.progress || 0)));
   const progressEngineIds = useMemo(
@@ -795,6 +888,16 @@ export default function TopBar() {
   );
 
   const hasActiveScrapingEngine = scrapingEngineView.hasActive || liveWebscrapingProgress;
+  const hbxUsageAverage = useMemo(() => {
+    const engines = scrapingEngineView.hbxEngines;
+    if (!engines.length) return 0;
+    return Math.round(engines.reduce((sum, engine) => sum + getEngineUsage(engine), 0) / engines.length);
+  }, [scrapingEngineView.hbxEngines]);
+  const hbxProcessedLast10Min = useMemo(
+    () => scrapingEngineView.hbxEngines.reduce((sum, engine) => sum + Math.max(0, Math.trunc(Number(engine.processedLast10Min || 0))), 0),
+    [scrapingEngineView.hbxEngines],
+  );
+  const hbxRunningCount = scrapingEngineView.hbxEngines.filter((engine) => getScrapingEngineState(engine) === "busy" || engine.busy).length;
 
   const operationalStatusReady = Boolean(
     authenticated &&
@@ -978,8 +1081,10 @@ export default function TopBar() {
   }, [authenticated, refreshOperationalStatus]);
 
   useEffect(() => {
-    if (authenticated !== true || pendingCheckoutLocked) {
+    const hasWebscrapingModule = (modules || []).some((module) => module.key === "webscraping" && module.accessible);
+    if (authenticated !== true || pendingCheckoutLocked || !user || (!user.isSystemMaster && !hasWebscrapingModule)) {
       setScrapingEngines(null);
+      setScrapingEngineStatusMessage(null);
       return;
     }
 
@@ -991,7 +1096,7 @@ export default function TopBar() {
     return () => {
       window.clearInterval(timer);
     };
-  }, [authenticated, pendingCheckoutLocked, refreshScrapingEngines]);
+  }, [authenticated, modules, pendingCheckoutLocked, refreshScrapingEngines, user]);
 
   useEffect(() => {
     if (!whatsAppDetailMessage) return;
@@ -1995,8 +2100,14 @@ export default function TopBar() {
     ? "Finalize contratação"
     : showOperationalCompanyPicker
     ? "Selecione uma empresa"
+    : scrapingEngineStatusMessage
+    ? scrapingEngineStatusMessage
     : liveWebscrapingProgress
     ? `${progressEngineLabel || "HBX"} coletando ${topbarProgressPercent}%`
+    : scrapingEngines?.capacity?.isTurboForcedNow
+    ? "Turbo forçado ativo"
+    : scrapingEngines?.capacity?.isTurboEnabled && !scrapingEngines?.capacity?.isTurboWindowActive
+    ? "Turbo armado"
     : operationalStatusReady
       ? `Empresa: ${operationalStatus?.context.companyName || "Operação ativa"}`
       : pendingHumanCount > 0
@@ -2327,27 +2438,43 @@ export default function TopBar() {
               data-active={hasActiveScrapingEngine ? "true" : "false"}
               data-live={liveWebscrapingProgress ? "true" : "false"}
             >
-              <div className="app-topbar__engineWing app-topbar__engineWing--left" aria-label="Motores HBX 1 e 2">
-                {leftScrapingEngines.map((engine) => {
+              <div className="app-topbar__engineDeck" aria-label="Motores HBX M1 a M4">
+                {scrapingEngineView.hbxEngines.map((engine) => {
                   const visualState = getVisibleScrapingEngineState(engine);
                   const visualValue = getVisibleScrapingEngineValue(engine);
                   const visualDetail = getVisibleScrapingEngineDetail(engine);
                   const visualActive = engine.active || isLiveScrapingEngine(engine);
+                  const usage = getEngineUsage(engine);
+                  const title = `${engine.label}: ${engine.stateLabel || visualValue}. ${visualDetail}`;
 
                   return (
                     <span
                       key={engine.id}
-                      className="app-topbar__engineNode"
+                      className="app-topbar__engineCard"
                       data-active={visualActive ? "true" : "false"}
                       data-state={visualState}
                       data-live={isLiveScrapingEngine(engine) ? "true" : "false"}
-                      title={`${engine.label}: ${visualValue}. ${visualDetail}`}
-                      aria-label={`${engine.label}: ${visualValue}. ${visualDetail}`}
+                      style={{ ["--engine-usage" as string]: `${usage}%` }}
+                      title={title}
+                      aria-label={title}
                     >
-                      <span className="app-topbar__engineNodeLed" aria-hidden="true" />
-                      <span className="app-topbar__engineNodeCopy">
+                      <span className="app-topbar__engineCardTop">
+                        <span className="app-topbar__engineNodeLed" aria-hidden="true" />
                         <strong>{getScrapingEngineShortLabel(engine)}</strong>
-                        <span>{visualValue}</span>
+                        <em>{engine.stateLabel || visualValue}</em>
+                      </span>
+                      <span className="app-topbar__engineCardBody">
+                        <span className="app-topbar__engineGauge" aria-hidden="true">
+                          <b>{usage}</b>
+                        </span>
+                        <svg className="app-topbar__sparkline" viewBox="0 0 72 36" aria-hidden="true">
+                          <polyline points={buildSparklinePoints(engine)} />
+                        </svg>
+                      </span>
+                      <span className="app-topbar__activityDots" aria-hidden="true">
+                        <i />
+                        <i />
+                        <i />
                       </span>
                     </span>
                   );
@@ -2378,22 +2505,32 @@ export default function TopBar() {
                   <strong>{operationalSummaryMessage}</strong>
                 </div>
 
-                {liveWebscrapingProgress ? (
-                  <div className="app-topbar__liveEngineData" aria-label="Dados da coleta em tempo real">
-                    <span>
-                      <strong>{topbarProgressPercent}%</strong>
-                      <small>progresso</small>
-                    </span>
-                    {(topbarProgress?.metrics || []).slice(0, 2).map((metric) => (
-                      <span key={`${metric.label}:${metric.value}`}>
-                        <strong>{metric.value}</strong>
-                        <small>{metric.label}</small>
-                      </span>
-                    ))}
-                  </div>
-                ) : operationalStatusReady ? (
+                <div className="app-topbar__aggregate" aria-label="Utilização agregada">
+                  <span>
+                    <strong>{liveWebscrapingProgress ? `${topbarProgressPercent}%` : `${hbxUsageAverage}%`}</strong>
+                    <small>{liveWebscrapingProgress ? "progresso" : "uso médio"}</small>
+                  </span>
+                  <span>
+                    <strong>{scrapingEngines?.capacity?.queuedCount ?? 0}</strong>
+                    <small>fila</small>
+                  </span>
+                  <span>
+                    <strong>{scrapingEngines?.capacity?.runningCount ?? hbxRunningCount}</strong>
+                    <small>rodando</small>
+                  </span>
+                  <span>
+                    <strong>{scrapingEngines?.capacity?.completedLast10Min ?? hbxProcessedLast10Min}</strong>
+                    <small>10 min</small>
+                  </span>
+                  <span>
+                    <strong>{scrapingEngines?.capacity?.isTurboForcedNow ? "forçado" : scrapingEngines?.capacity?.isTurboEnabled ? "armado" : "normal"}</strong>
+                    <small>turbo</small>
+                  </span>
+                </div>
+
+                {!liveWebscrapingProgress && operationalStatusReady ? (
                   <div className="app-topbar__statusRail" aria-label="Status operacional da empresa">
-                    {visibleOperationalStatusChips.map((chip) => (
+                    {visibleOperationalStatusChips.slice(0, 3).map((chip) => (
                       <button
                         key={chip.key}
                         type="button"
@@ -2419,41 +2556,7 @@ export default function TopBar() {
                       <span>Ver motores e acesso</span>
                     </button>
                   </div>
-                ) : (
-                  <div className="app-topbar__metaGrid" aria-label="Resumo rapido do shell">
-                    <span className="app-topbar__metaPill">
-                      <strong>{pendingHumanCount > 0 ? `${pendingHumanCount} na fila` : "Sem alertas"}</strong>
-                      <span>Fila</span>
-                    </span>
-                  </div>
-                )}
-              </div>
-
-              <div className="app-topbar__engineWing app-topbar__engineWing--right" aria-label="Motores HBX 3 e 4">
-                {rightScrapingEngines.map((engine) => {
-                  const visualState = getVisibleScrapingEngineState(engine);
-                  const visualValue = getVisibleScrapingEngineValue(engine);
-                  const visualDetail = getVisibleScrapingEngineDetail(engine);
-                  const visualActive = engine.active || isLiveScrapingEngine(engine);
-
-                  return (
-                    <span
-                      key={engine.id}
-                      className="app-topbar__engineNode"
-                      data-active={visualActive ? "true" : "false"}
-                      data-state={visualState}
-                      data-live={isLiveScrapingEngine(engine) ? "true" : "false"}
-                      title={`${engine.label}: ${visualValue}. ${visualDetail}`}
-                      aria-label={`${engine.label}: ${visualValue}. ${visualDetail}`}
-                    >
-                      <span className="app-topbar__engineNodeLed" aria-hidden="true" />
-                      <span className="app-topbar__engineNodeCopy">
-                        <strong>{getScrapingEngineShortLabel(engine)}</strong>
-                        <span>{visualValue}</span>
-                      </span>
-                    </span>
-                  );
-                })}
+                ) : null}
               </div>
             </div>
           </div>
