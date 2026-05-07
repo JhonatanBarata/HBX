@@ -8261,7 +8261,7 @@ export default function InboxClientPage() {
     smartRepliesEnabled: false,
     autoSendEnabled: false,
     openAiAvailable: false,
-    availabilityLabel: "Gemini em verificação",
+    availabilityLabel: "Assistente HBX IA em verificação",
     safeMode: true,
   };
   const aiAssistantVisible = globalBotEnabled;

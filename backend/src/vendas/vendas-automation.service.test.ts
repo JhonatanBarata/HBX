@@ -84,6 +84,9 @@ function createService(overrides?: {
   providerError?: string | null;
   activeProspectionConversations?: Array<Record<string, unknown>>;
   scheduleLeads?: any[];
+  scheduleLeadsByCall?: any[][];
+  searchResponse?: Record<string, any>;
+  searchError?: string | null;
 }) {
   const queueCalls: Array<Record<string, any>> = [];
   const jobUpdates: Array<Record<string, any>> = [];
@@ -93,6 +96,9 @@ function createService(overrides?: {
   const events: Array<Record<string, any>> = [];
   const createdJobBatches: Array<any[]> = [];
   const scheduleCalls: string[] = [];
+  const searchCalls: Array<Record<string, any>> = [];
+  const importCalls: Array<Record<string, any>> = [];
+  let scheduleLeadFindManyCalls = 0;
   let currentMetadata: Record<string, unknown> | null = overrides?.conversationMetadata ?? null;
   let successfulSendsToday = overrides?.successfulSendsToday || 0;
   let latestSentAt = overrides?.latestSentJob?.sentAt instanceof Date ? overrides.latestSentJob.sentAt : null;
@@ -160,7 +166,14 @@ function createService(overrides?: {
       create: async ({ data }: any) => ({ id: 'review-job-1', ...data }),
     },
     vendasLead: {
-      findMany: async () => overrides?.scheduleLeads || [],
+      findMany: async () => {
+        if (overrides?.scheduleLeadsByCall) {
+          const result = overrides.scheduleLeadsByCall[scheduleLeadFindManyCalls] || [];
+          scheduleLeadFindManyCalls += 1;
+          return result;
+        }
+        return overrides?.scheduleLeads || [];
+      },
       update: async ({ where, data }: any) => ({ id: where.id, ...data }),
       updateMany: async () => ({ count: 0 }),
     },
@@ -192,6 +205,25 @@ function createService(overrides?: {
     }),
   };
 
+  const webscrapingService = {
+    searchContactsForUser: async (user: any, input: Record<string, any>) => {
+      searchCalls.push({ user, input });
+      if (overrides?.searchError) throw new Error(overrides.searchError);
+      return overrides?.searchResponse || {
+        query: { city: input.city, segment: input.segment },
+        results: [],
+        meta: { historyId: null },
+      };
+    },
+  };
+
+  const vendasService = {
+    importWebscrapingLeadsForUser: async (user: any, input: Record<string, any>) => {
+      importCalls.push({ user, input });
+      return { imported: input?.leads?.length || 0 };
+    },
+  };
+
   const conversations = {
     getOrCreateConversationForContact: async () => ({ id: 501, metadata: JSON.stringify(currentMetadata || {}) }),
     updateConversationState: async (companyId: number, conversationId: number, payload: Record<string, any>) => {
@@ -215,8 +247,8 @@ function createService(overrides?: {
   const service = new VendasAutomationService(
     prisma,
     inboxService as any,
-    {} as any,
-    {} as any,
+    webscrapingService as any,
+    vendasService as any,
     conversations as any,
     inboxRealtime as any,
     {} as any,
@@ -228,7 +260,7 @@ function createService(overrides?: {
     return originalScheduleJobsForCampaign(campaignId);
   };
 
-  return { service, queueCalls, jobUpdates, jobUpdateManyCalls, stateCalls, campaignStageUpdates, events, createdJobBatches, scheduleCalls };
+  return { service, queueCalls, jobUpdates, jobUpdateManyCalls, stateCalls, campaignStageUpdates, events, createdJobBatches, scheduleCalls, searchCalls, importCalls };
 }
 
 test('cancelQueuedJobsAfterSearchChange archives stale pending automation jobs', async () => {
@@ -340,6 +372,64 @@ test('scheduleJobsForCampaign queues eligible segment mismatch fallback instead 
   assert.equal(stateCalls.at(-1)?.payload.metadata.vendasAgendaQueue.draftMessage, FALLBACK_MESSAGE);
   assert.ok(campaignStageUpdates.some((data) => String(data.lastStatusText || '').includes('1 contatos na fila.')));
   assert.ok(!campaignStageUpdates.some((data) => String(data.lastStatusText || '').includes('Aguardando novos contatos válidos.')));
+});
+
+test('scheduleJobsForCampaign falls back to broader webscraping pool when exact source has no cards', async () => {
+  const lead = buildLead({ id: 'lead-broader', sourceSignature: 'outro ramo|Outra Cidade' });
+  const { service, campaignStageUpdates, createdJobBatches } = createService({
+    conversationMetadata: null,
+    scheduleLeadsByCall: [[], [lead]],
+  });
+
+  await service.scheduleJobsForCampaign('campaign-1');
+
+  assert.equal(createdJobBatches.length, 1);
+  assert.equal(createdJobBatches[0][0].leadId, 'lead-broader');
+  assert.ok(campaignStageUpdates.some((data) => String(data.lastStatusText || '').includes('ramo próximo')));
+});
+
+test('scrapeImportAndSchedule blocks incomplete campaign config before calling webscraping', async () => {
+  const { service, campaignStageUpdates, searchCalls } = createService({
+    campaign: { segment: '' },
+  });
+
+  await service.scrapeImportAndSchedule('campaign-1', undefined, 'refill');
+
+  assert.equal(searchCalls.length, 0);
+  assert.ok(campaignStageUpdates.some((data) => String(data.lastError || '').includes('segmento')));
+  assert.ok(campaignStageUpdates.some((data) => String(data.lastStatusText || '').includes('Revise a configuração')));
+});
+
+test('scrapeImportAndSchedule records webscraping failures in campaign status', async () => {
+  const { service, campaignStageUpdates, searchCalls } = createService({
+    searchError: 'Segmento obrigatorio.',
+  });
+
+  await assert.rejects(() => service.scrapeImportAndSchedule('campaign-1', undefined, 'refill'), /Segmento obrigatorio/);
+
+  assert.equal(searchCalls.length, 1);
+  assert.ok(campaignStageUpdates.some((data) => data.lastError === 'Segmento obrigatorio.'));
+  assert.ok(campaignStageUpdates.some((data) => String(data.lastStatusText || '').includes('Busca de contatos falhou')));
+});
+
+test('runWorkerCycle sends due jobs before running refill', async () => {
+  const campaign = buildCampaign();
+  const lead = buildLead({ segment: campaign.segment });
+  const jobs = [buildJob({ id: 'job-due', campaign, lead, leadId: lead.id })];
+  const { service, queueCalls } = createService({ conversationMetadata: null });
+  let refillSawSent = false;
+
+  service.archiveNoResponseJobs = async () => null;
+  service.prepareCampaignBuffersDuringCooldown = async () => null;
+  service.findNextDueJob = async () => jobs.shift() || null;
+  service.refillCampaignsIfNeeded = async () => {
+    refillSawSent = queueCalls.length === 1;
+  };
+
+  await service.runWorkerCycle();
+
+  assert.equal(queueCalls.length, 1);
+  assert.equal(refillSawSent, true);
 });
 
 test('runWorkerCycle skips needs_review job and sends the next valid lead in the same cycle', async () => {
