@@ -21,6 +21,11 @@ export type CapacityLevel = {
   completedLast10Min: number;
   partialLast10Min: number;
   oldestQueuedAgeMinutes: number;
+  isTurboEnabled: boolean;
+  isTurboWindowActive: boolean;
+  isTurboForcedNow: boolean;
+  forcedUntil: string | null;
+  nextTurboAt: string | null;
 };
 
 export type HbxEngineLease = {
@@ -43,6 +48,15 @@ type EngineRegistryRow = {
   lockedUntil?: Date | null;
   cooldownUntil?: Date | null;
   lastCheckedAt?: Date | null;
+  lastUsedAt?: Date | null;
+};
+
+type EngineActivityStats = {
+  activeRunId: string | null;
+  activeCampaignId: string | null;
+  lastActivityAt: Date | null;
+  processedLast10Min: number;
+  errorCount: number;
 };
 
 export type HbxEngineDashboardEngine = {
@@ -63,6 +77,18 @@ export type HbxEngineDashboardEngine = {
   lastCheckedAt: string | null;
   lastError: string | null;
   detail: string;
+  usagePercent: number;
+  stateLabel: string;
+  lastActivityAt: string | null;
+  activeRunId: string | null;
+  activeCampaignId: string | null;
+  queueShare: number;
+  processedLast10Min: number;
+  errorCount: number;
+  heartbeatAgeSeconds: number | null;
+  isTurboEnabled: boolean;
+  isTurboWindowActive: boolean;
+  isTurboForcedNow: boolean;
 };
 
 export type HbxEngineDashboardStatus = {
@@ -181,6 +207,9 @@ export class HbxEnginePoolService {
   async getCurrentCapacityLevel(): Promise<CapacityLevel> {
     const stats = await this.buildQueueStats();
     const operationalConfig = await this.getOperationalConfig();
+    const turboEnabled = Boolean(operationalConfig?.enabled);
+    const turboWindowActive = turboEnabled && this.isWithinConfiguredOperationalWindow(operationalConfig);
+    const turboForcedNow = turboEnabled && this.isForcedTurboActive(operationalConfig);
     if (operationalConfig?.enabled) {
       if (this.isWithinOperationalWindow(operationalConfig)) {
         this.activeEngineCount = this.resolveOperationalEngineCount(operationalConfig);
@@ -225,6 +254,11 @@ export class HbxEnginePoolService {
       completedLast10Min: stats.completedLast10Min,
       partialLast10Min: stats.partialLast10Min,
       oldestQueuedAgeMinutes: stats.oldestQueuedAgeMinutes,
+      isTurboEnabled: turboEnabled,
+      isTurboWindowActive: turboWindowActive,
+      isTurboForcedNow: turboForcedNow,
+      forcedUntil: turboForcedNow ? this.serializeDate(this.getForcedUntilDate(operationalConfig)) : null,
+      nextTurboAt: operationalConfig?.enabled ? this.nextOperationalWindowAt(operationalConfig) : null,
     };
   }
 
@@ -240,28 +274,35 @@ export class HbxEnginePoolService {
       completedLast10Min: 0,
       partialLast10Min: 0,
       oldestQueuedAgeMinutes: 0,
+      isTurboEnabled: false,
+      isTurboWindowActive: false,
+      isTurboForcedNow: false,
+      forcedUntil: null,
+      nextTurboAt: null,
     };
     const configuredUrls = await this.getConfiguredEngineUrls();
+    const operationalConfig = await this.getOperationalConfig().catch(() => null);
 
     if (!(await this.prisma.hasTable('HbxEngineLock'))) {
       return {
         generatedAt: generatedAt.toISOString(),
         capacity: fallbackCapacity,
-        engines: this.buildDashboardEngines([], configuredUrls, fallbackCapacity, null),
+        engines: this.buildDashboardEngines([], configuredUrls, fallbackCapacity, null, new Map(), operationalConfig),
       };
     }
 
     await this.cleanupExpiredLocks();
-    const [capacity, rows, activeGoogleRun] = await Promise.all([
+    const [capacity, rows, activeGoogleRun, activityStats] = await Promise.all([
       this.getCurrentCapacityLevel().catch(() => fallbackCapacity),
       this.healthCheckEngines().catch(() => [] as EngineRegistryRow[]),
       this.findActiveGoogleEmergencyRun().catch(() => null),
+      this.buildEngineActivityStats().catch(() => new Map<string, EngineActivityStats>()),
     ]);
 
     return {
       generatedAt: generatedAt.toISOString(),
       capacity,
-      engines: this.buildDashboardEngines(rows, configuredUrls, capacity, activeGoogleRun),
+      engines: this.buildDashboardEngines(rows, configuredUrls, capacity, activeGoogleRun, activityStats, operationalConfig),
     };
   }
 
@@ -439,32 +480,72 @@ export class HbxEnginePoolService {
     configuredUrls: string[],
     capacity: CapacityLevel,
     activeGoogleRun: { googleEmergencyUsedCount: number; updatedAt?: Date | null } | null,
+    activityStats: Map<string, EngineActivityStats>,
+    operationalConfig: any,
   ): HbxEngineDashboardEngine[] {
     const byIndex = new Map(rows.map((row) => [row.engineIndex, row]));
     const now = Date.now();
     const hasActiveQueue = capacity.queuedCount > 0 || capacity.runningCount > 0;
     const engines: HbxEngineDashboardEngine[] = [];
+    const activeEngineCount = Math.max(1, Math.min(4, capacity.activeEngineCount || 1));
+    const nextTurboLabel = operationalConfig?.enabled ? this.formatOperationalTime(operationalConfig.startHour, operationalConfig.startMinute) : null;
 
     for (let index = 0; index < 4; index += 1) {
       const row = byIndex.get(index);
       const configured = Boolean(configuredUrls[index]);
       const status = String(row?.status || (configured ? (index === 0 ? 'online' : 'standby') : 'missing')).trim();
       const locked = Boolean(row?.lockedUntil instanceof Date && row.lockedUntil.getTime() > now);
-      const availableForQueue = configured && !['offline', 'cooldown', 'degraded', 'missing'].includes(status);
-      const queueActivated = availableForQueue && hasActiveQueue && index < Math.max(1, capacity.activeEngineCount);
-      const busy = locked || status === 'busy' || queueActivated;
-      const online = configured && status !== 'offline' && String(row?.lastHealthStatus || '').trim() !== 'offline';
-      const detail = !configured
-        ? 'Motor ainda nao configurado.'
-        : busy
-          ? capacity.runningCount > 0
-            ? `Processando ${capacity.runningCount} busca(s); fila ${capacity.queuedCount}.`
-            : `Aguardando fila ativa: ${capacity.queuedCount}.`
-          : status === 'cooldown'
-            ? 'Em resfriamento apos falha.'
-            : status === 'offline'
-              ? 'Sem resposta no healthcheck.'
-              : 'Pronto, sem solicitação ativa.';
+      const activity = activityStats.get(row?.id || `hbx-engine-${index + 1}`) || {
+        activeRunId: null,
+        activeCampaignId: null,
+        lastActivityAt: null,
+        processedLast10Min: 0,
+        errorCount: 0,
+      };
+      const normalizedHealth = String(row?.lastHealthStatus || '').trim().toLowerCase();
+      const offlineByHealthcheck = configured && (status === 'offline' || normalizedHealth === 'offline');
+      const inCooldown = status === 'cooldown' || Boolean(row?.cooldownUntil instanceof Date && row.cooldownUntil.getTime() > now);
+      const availableForQueue = configured && !offlineByHealthcheck && !['cooldown', 'degraded', 'missing'].includes(status);
+      const queueActivated = availableForQueue && hasActiveQueue && index < activeEngineCount;
+      const running = locked || status === 'busy' || Boolean(activity.activeRunId || activity.activeCampaignId);
+      const online = configured && !offlineByHealthcheck;
+      const heartbeatAgeSeconds = row?.lastCheckedAt instanceof Date
+        ? Math.max(0, Math.round((now - row.lastCheckedAt.getTime()) / 1000))
+        : null;
+      const queueShare = queueActivated ? Math.round(100 / activeEngineCount) : 0;
+      const usagePercent = this.resolveDashboardUsagePercent({
+        configured,
+        online,
+        running,
+        queueActivated,
+        inCooldown,
+        index,
+        capacity,
+        processedLast10Min: activity.processedLast10Min,
+      });
+      const stateLabel = this.resolveDashboardStateLabel({
+        configured,
+        online,
+        running,
+        queueActivated,
+        inCooldown,
+        status,
+        hasHealthcheck: Boolean(row?.lastCheckedAt),
+        isTurboArmed: Boolean(operationalConfig?.enabled && !capacity.isTurboWindowActive && !capacity.isTurboForcedNow),
+        nextTurboLabel,
+      });
+      const lastActivityAt = activity.lastActivityAt || row?.lastUsedAt || row?.lastCheckedAt || null;
+      const detail = this.resolveDashboardEngineDetail({
+        configured,
+        online,
+        running,
+        queueActivated,
+        inCooldown,
+        stateLabel,
+        capacity,
+        lastError: row?.lastError || null,
+        forcedUntil: capacity.forcedUntil,
+      });
 
       engines.push({
         id: row?.id || `hbx-engine-${index + 1}`,
@@ -472,18 +553,30 @@ export class HbxEnginePoolService {
         label: `HBX Motor ${index + 1}`,
         shortLabel: `HBX ${index + 1}`,
         index,
-        status: busy ? 'busy' : status,
+        status: running ? 'busy' : status,
         configured,
-        active: busy,
+        active: running || queueActivated || (capacity.isTurboForcedNow && index < activeEngineCount),
         online,
-        busy,
-        dimmed: !busy,
+        busy: running,
+        dimmed: !(running || queueActivated || (capacity.isTurboForcedNow && index < activeEngineCount)),
         url: null,
         lockedUntil: this.serializeDate(row?.lockedUntil),
         cooldownUntil: this.serializeDate(row?.cooldownUntil),
         lastCheckedAt: this.serializeDate(row?.lastCheckedAt),
         lastError: row?.lastError || null,
         detail,
+        usagePercent,
+        stateLabel,
+        lastActivityAt: this.serializeDate(lastActivityAt),
+        activeRunId: activity.activeRunId || row?.lockedRunId || null,
+        activeCampaignId: activity.activeCampaignId,
+        queueShare,
+        processedLast10Min: activity.processedLast10Min,
+        errorCount: activity.errorCount + Number(row?.failureCount || 0),
+        heartbeatAgeSeconds,
+        isTurboEnabled: capacity.isTurboEnabled,
+        isTurboWindowActive: capacity.isTurboWindowActive,
+        isTurboForcedNow: capacity.isTurboForcedNow,
       });
     }
 
@@ -510,9 +603,217 @@ export class HbxEnginePoolService {
       lastCheckedAt: activeGoogleRun?.updatedAt instanceof Date ? activeGoogleRun.updatedAt.toISOString() : null,
       lastError: null,
       detail: googleDetail,
+      usagePercent: googleActive ? Math.min(100, 64 + Math.min(32, capacity.queuedCount)) : 4,
+      stateLabel: googleActive ? 'Rodando' : 'Standby pronto',
+      lastActivityAt: activeGoogleRun?.updatedAt instanceof Date ? activeGoogleRun.updatedAt.toISOString() : null,
+      activeRunId: null,
+      activeCampaignId: null,
+      queueShare: googleActive ? 100 : 0,
+      processedLast10Min: 0,
+      errorCount: 0,
+      heartbeatAgeSeconds: null,
+      isTurboEnabled: capacity.isTurboEnabled,
+      isTurboWindowActive: capacity.isTurboWindowActive,
+      isTurboForcedNow: capacity.isTurboForcedNow,
     });
 
     return engines;
+  }
+
+  private resolveDashboardUsagePercent(input: {
+    configured: boolean;
+    online: boolean;
+    running: boolean;
+    queueActivated: boolean;
+    inCooldown: boolean;
+    index: number;
+    capacity: CapacityLevel;
+    processedLast10Min: number;
+  }) {
+    if (!input.configured || !input.online) return 0;
+    if (input.running) {
+      return Math.min(100, 76 + Math.min(18, input.capacity.queuedCount * 2) + Math.min(6, input.processedLast10Min));
+    }
+    if (input.queueActivated) {
+      return Math.min(85, 45 + Math.min(28, input.capacity.queuedCount * 3) + Math.min(12, input.index * 4));
+    }
+    if (input.inCooldown) return 12;
+    return Math.min(18, 5 + input.index * 3 + Math.min(4, input.processedLast10Min));
+  }
+
+  private resolveDashboardStateLabel(input: {
+    configured: boolean;
+    online: boolean;
+    running: boolean;
+    queueActivated: boolean;
+    inCooldown: boolean;
+    status: string;
+    hasHealthcheck: boolean;
+    isTurboArmed: boolean;
+    nextTurboLabel: string | null;
+  }) {
+    const status = String(input.status || '').trim().toLowerCase();
+    if (!input.configured) return 'Sem healthcheck';
+    if (!input.online) return 'Offline';
+    if (input.running) return 'Rodando';
+    if (input.inCooldown || status === 'cooldown') return 'Cooldown';
+    if (status === 'degraded') return 'Cooldown';
+    if (input.queueActivated) return 'Aguardando fila';
+    if (input.isTurboArmed && input.nextTurboLabel) return `Turbo armado para ${input.nextTurboLabel}`;
+    if (!input.hasHealthcheck) return 'Sem healthcheck';
+    return 'Standby pronto';
+  }
+
+  private resolveDashboardEngineDetail(input: {
+    configured: boolean;
+    online: boolean;
+    running: boolean;
+    queueActivated: boolean;
+    inCooldown: boolean;
+    stateLabel: string;
+    capacity: CapacityLevel;
+    lastError: string | null;
+    forcedUntil: string | null;
+  }) {
+    if (!input.configured) return 'Motor sem URL configurada no pool HBX.';
+    if (!input.online) return input.lastError ? `Healthcheck falhou: ${input.lastError}` : 'Sem resposta no healthcheck.';
+    if (input.inCooldown) return input.lastError ? `Cooldown ativo: ${input.lastError}` : 'Cooldown ativo apos falha recente.';
+    if (input.running) return `Rodando agora. Fila ${input.capacity.queuedCount}, tarefas em execucao ${input.capacity.runningCount}.`;
+    if (input.queueActivated) return `Elegivel para a fila. Fila ${input.capacity.queuedCount}, janela ativa.`;
+    if (input.capacity.isTurboForcedNow) return `Turbo forcado ativo ate ${input.forcedUntil || 'a expiracao configurada'}, aguardando trabalho.`;
+    if (input.stateLabel.startsWith('Turbo armado')) return `${input.stateLabel}. Motor pronto para entrar na proxima janela.`;
+    return 'Standby pronto, aguardando trabalho.';
+  }
+
+  private async buildEngineActivityStats() {
+    const result = new Map<string, EngineActivityStats>();
+    const ensure = (engineId: string) => {
+      const existing = result.get(engineId);
+      if (existing) return existing;
+      const created: EngineActivityStats = {
+        activeRunId: null,
+        activeCampaignId: null,
+        lastActivityAt: null,
+        processedLast10Min: 0,
+        errorCount: 0,
+      };
+      result.set(engineId, created);
+      return created;
+    };
+    const rememberActivity = (engineId: string, value?: Date | null) => {
+      if (!value) return;
+      const item = ensure(engineId);
+      if (!item.lastActivityAt || item.lastActivityAt.getTime() < value.getTime()) {
+        item.lastActivityAt = value;
+      }
+    };
+    const tenMinutesAgo = minutesAgo(10);
+    const now = new Date();
+
+    if ((this.prisma as any).webscrapingCampaignTask && await this.prisma.hasTable('WebscrapingCampaignTask').catch(() => false)) {
+      const tasks = await (this.prisma as any).webscrapingCampaignTask.findMany({
+        where: {
+          lockedByEngineId: { not: null },
+          OR: [
+            { status: 'running' },
+            { updatedAt: { gte: tenMinutesAgo } },
+          ],
+        },
+        orderBy: { updatedAt: 'desc' },
+        take: 300,
+        select: {
+          id: true,
+          campaignId: true,
+          status: true,
+          lockedByEngineId: true,
+          lockedUntil: true,
+          updatedAt: true,
+          finishedAt: true,
+          lastError: true,
+        },
+      }).catch(() => []);
+      for (const task of tasks) {
+        const engineId = String(task?.lockedByEngineId || '').trim();
+        if (!engineId) continue;
+        const item = ensure(engineId);
+        rememberActivity(engineId, task.updatedAt instanceof Date ? task.updatedAt : null);
+        if (String(task?.status || '') === 'running' && (!task.lockedUntil || task.lockedUntil.getTime() > now.getTime())) {
+          item.activeCampaignId ||= String(task.campaignId || '') || null;
+        }
+        if (['completed', 'exhausted'].includes(String(task?.status || '')) && task.updatedAt instanceof Date && task.updatedAt >= tenMinutesAgo) {
+          item.processedLast10Min += 1;
+        }
+        if (String(task?.status || '') === 'failed' || task.lastError) item.errorCount += 1;
+      }
+    }
+
+    if ((this.prisma as any).webscrapingCampaignBatch && await this.prisma.hasTable('WebscrapingCampaignBatch').catch(() => false)) {
+      const batches = await (this.prisma as any).webscrapingCampaignBatch.findMany({
+        where: {
+          engineId: { not: null },
+          OR: [
+            { finishedAt: { gte: tenMinutesAgo } },
+            { startedAt: { gte: tenMinutesAgo } },
+            { createdAt: { gte: tenMinutesAgo } },
+          ],
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 300,
+        select: {
+          engineId: true,
+          status: true,
+          errorMessage: true,
+          startedAt: true,
+          finishedAt: true,
+          createdAt: true,
+        },
+      }).catch(() => []);
+      for (const batch of batches) {
+        const engineId = String(batch?.engineId || '').trim();
+        if (!engineId) continue;
+        const item = ensure(engineId);
+        rememberActivity(engineId, batch.finishedAt instanceof Date ? batch.finishedAt : batch.startedAt instanceof Date ? batch.startedAt : batch.createdAt);
+        const status = String(batch?.status || '').toLowerCase();
+        if (['batch_success', 'empty_batch', 'completed'].includes(status)) item.processedLast10Min += 1;
+        if (status.includes('error') || batch.errorMessage) item.errorCount += 1;
+      }
+    }
+
+    if ((this.prisma as any).webscrapingSearchRun && await this.prisma.hasTable('WebscrapingSearchRun').catch(() => false)) {
+      const runs = await (this.prisma as any).webscrapingSearchRun.findMany({
+        where: {
+          assignedEngineId: { not: null },
+          OR: [
+            { status: { in: ['queued', 'running'] } },
+            { updatedAt: { gte: tenMinutesAgo } },
+            { finishedAt: { gte: tenMinutesAgo } },
+          ],
+        },
+        orderBy: { updatedAt: 'desc' },
+        take: 200,
+        select: {
+          id: true,
+          status: true,
+          assignedEngineId: true,
+          updatedAt: true,
+          finishedAt: true,
+          errorMessage: true,
+        },
+      }).catch(() => []);
+      for (const run of runs) {
+        const engineId = String(run?.assignedEngineId || '').trim();
+        if (!engineId) continue;
+        const item = ensure(engineId);
+        rememberActivity(engineId, run.updatedAt instanceof Date ? run.updatedAt : run.finishedAt instanceof Date ? run.finishedAt : null);
+        if (['queued', 'running'].includes(String(run?.status || ''))) item.activeRunId ||= String(run.id || '') || null;
+        if (['completed', 'partial_error', 'completed_insufficient_results'].includes(String(run?.status || '')) && run.updatedAt instanceof Date && run.updatedAt >= tenMinutesAgo) {
+          item.processedLast10Min += 1;
+        }
+        if (String(run?.status || '') === 'failed' || run.errorMessage) item.errorCount += 1;
+      }
+    }
+
+    return result;
   }
 
   private serializeDate(value?: Date | null) {
@@ -535,9 +836,15 @@ export class HbxEnginePoolService {
 
   private async getOperationalConfig() {
     if (!(await this.prisma.hasTable('WebscrapingOperationalConfig').catch(() => false))) return null;
-    return (this.prisma as any).webscrapingOperationalConfig.findUnique({
+    const row = await (this.prisma as any).webscrapingOperationalConfig.findUnique({
       where: { key: TURBO_OPERATIONAL_CONFIG_KEY },
     }).catch(() => null);
+    if (!row) return null;
+    const metadata = this.parseOperationalMetadata(row.metadataJson);
+    return {
+      ...row,
+      forcedUntil: metadata.forcedUntil,
+    };
   }
 
   private parseEngineUrls(value: unknown) {
@@ -552,7 +859,32 @@ export class HbxEnginePoolService {
     }
   }
 
-  private isWithinOperationalWindow(config: any, date = new Date()) {
+  private parseOperationalMetadata(value: unknown) {
+    try {
+      const parsed = JSON.parse(String(value || '{}'));
+      return {
+        forcedUntil: typeof parsed?.forcedUntil === 'string' ? parsed.forcedUntil : null,
+      };
+    } catch {
+      return { forcedUntil: null };
+    }
+  }
+
+  private getForcedUntilDate(config: any) {
+    const raw = String(config?.forcedUntil || this.parseOperationalMetadata(config?.metadataJson).forcedUntil || '').trim();
+    if (!raw) return null;
+    const parsed = new Date(raw);
+    return Number.isFinite(parsed.getTime()) ? parsed : null;
+  }
+
+  private isForcedTurboActive(config: any, date = new Date()) {
+    if (!config?.enabled) return false;
+    const forcedUntil = this.getForcedUntilDate(config);
+    return Boolean(forcedUntil && forcedUntil.getTime() > date.getTime());
+  }
+
+  private isWithinConfiguredOperationalWindow(config: any, date = new Date()) {
+    if (!config?.enabled) return false;
     const safe = (value: unknown, fallback: number, max: number) => {
       const parsed = Number(value);
       return Number.isFinite(parsed) ? Math.min(Math.max(Math.trunc(parsed), 0), max) : fallback;
@@ -562,6 +894,28 @@ export class HbxEnginePoolService {
     const end = safe(config?.endHour, 8, 23) * 60 + safe(config?.endMinute, 0, 59);
     if (start === end) return true;
     return start < end ? current >= start && current < end : current >= start || current < end;
+  }
+
+  private isWithinOperationalWindow(config: any, date = new Date()) {
+    return this.isForcedTurboActive(config, date) || this.isWithinConfiguredOperationalWindow(config, date);
+  }
+
+  private nextOperationalWindowAt(config: any, date = new Date()) {
+    if (!config?.enabled) return null;
+    if (this.isWithinConfiguredOperationalWindow(config, date)) return date.toISOString();
+    const current = date.getHours() * 60 + date.getMinutes();
+    const start = Math.min(Math.max(Math.trunc(Number(config.startHour ?? 20) || 20), 0), 23) * 60
+      + Math.min(Math.max(Math.trunc(Number(config.startMinute ?? 0) || 0), 0), 59);
+    const minutesUntilStart = (start - current + 24 * 60) % (24 * 60) || 24 * 60;
+    const next = new Date(date);
+    next.setMinutes(next.getMinutes() + minutesUntilStart, 0, 0);
+    return next.toISOString();
+  }
+
+  private formatOperationalTime(hour: unknown, minute: unknown) {
+    const safeHour = Math.min(Math.max(Math.trunc(Number(hour ?? 20) || 20), 0), 23);
+    const safeMinute = Math.min(Math.max(Math.trunc(Number(minute ?? 0) || 0), 0), 59);
+    return `${String(safeHour).padStart(2, '0')}:${String(safeMinute).padStart(2, '0')}`;
   }
 
   private resolveOperationalEngineCount(config: any) {

@@ -447,6 +447,8 @@ type WebscrapingOperationalConfigInput = {
   memoryTargetGb?: number | null;
   batchSize?: number | null;
   maxAttemptsPerTask?: number | null;
+  forceNow?: boolean | string | null;
+  forcedUntil?: string | null;
 };
 
 type MasterMassDataCampaignInput = RadarCampaignInput & WebscrapingOperationalConfigInput & {
@@ -716,6 +718,10 @@ function parsePositiveIntegerEnv(name: string, fallback: number) {
   const parsed = Number(String(process.env[name] || '').trim());
   if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
   return Math.trunc(parsed);
+}
+
+function minutesAgo(minutes: number) {
+  return new Date(Date.now() - Math.max(0, minutes) * 60_000);
 }
 
 function formatCityWithState(city: string, state: string | null | undefined) {
@@ -4714,14 +4720,73 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     this.scheduleRadarCampaignPump(0);
   }
 
-  private normalizeOperationalConfigInput(input: WebscrapingOperationalConfigInput = {}) {
+  private parseOperationalMetadata(value: unknown) {
+    try {
+      const parsed = JSON.parse(String(value || '{}'));
+      return {
+        forcedUntil: typeof parsed?.forcedUntil === 'string' ? parsed.forcedUntil : null,
+        forcedAt: typeof parsed?.forcedAt === 'string' ? parsed.forcedAt : null,
+      };
+    } catch {
+      return { forcedUntil: null, forcedAt: null };
+    }
+  }
+
+  private getForcedUntilDate(config: any) {
+    const raw = String(config?.forcedUntil || this.parseOperationalMetadata(config?.metadataJson).forcedUntil || '').trim();
+    if (!raw) return null;
+    const parsed = new Date(raw);
+    return Number.isFinite(parsed.getTime()) ? parsed : null;
+  }
+
+  private isForcedOperationalWindow(config: any, date = new Date()) {
+    if (!config?.enabled) return false;
+    const forcedUntil = this.getForcedUntilDate(config);
+    return Boolean(forcedUntil && forcedUntil.getTime() > date.getTime());
+  }
+
+  private isWithinConfiguredOperationalWindow(config: any, date = new Date()) {
+    if (!config?.enabled) return false;
+    const current = date.getHours() * 60 + date.getMinutes();
+    const start = safeInteger(config.startHour, 20) * 60 + safeInteger(config.startMinute, 0);
+    const end = safeInteger(config.endHour, 8) * 60 + safeInteger(config.endMinute, 0);
+    if (start === end) return true;
+    return start < end ? current >= start && current < end : current >= start || current < end;
+  }
+
+  private nextOperationalWindowEndAt(config: any, date = new Date()) {
+    const start = safeInteger(config.startHour, 20) * 60 + safeInteger(config.startMinute, 0);
+    const end = safeInteger(config.endHour, 8) * 60 + safeInteger(config.endMinute, 0);
+    const startAt = this.nextOperationalWindowAt({ ...config, forcedUntil: null }, date);
+    const startDate = new Date(startAt);
+    if (!Number.isFinite(startDate.getTime())) return new Date(date.getTime() + 2 * 60 * 60_000);
+    const endDate = new Date(startDate);
+    endDate.setHours(Math.floor(end / 60), end % 60, 0, 0);
+    if (end <= start) endDate.setDate(endDate.getDate() + 1);
+    if (this.isWithinConfiguredOperationalWindow(config, date)) {
+      const currentEnd = new Date(date);
+      currentEnd.setHours(Math.floor(end / 60), end % 60, 0, 0);
+      if (end <= start && (date.getHours() * 60 + date.getMinutes()) >= start) currentEnd.setDate(currentEnd.getDate() + 1);
+      if (end > start && currentEnd.getTime() <= date.getTime()) currentEnd.setDate(currentEnd.getDate() + 1);
+      return currentEnd;
+    }
+    return endDate;
+  }
+
+  private buildForcedUntil(config: any, date = new Date()) {
+    const minUntil = new Date(date.getTime() + 2 * 60 * 60_000);
+    const windowEnd = this.nextOperationalWindowEndAt(config, date);
+    return new Date(Math.max(minUntil.getTime(), windowEnd.getTime())).toISOString();
+  }
+
+  private normalizeOperationalConfigInput(input: WebscrapingOperationalConfigInput = {}, existingMetadataJson?: unknown) {
     const rawIntensity = String(input.intensity || 'turbo').trim().toLowerCase();
     const intensity = rawIntensity === 'economico' || rawIntensity === 'econômico'
       ? 'economico'
       : rawIntensity === 'normal'
         ? 'normal'
         : 'turbo';
-    return {
+    const base = {
       enabled: input.enabled == null ? true : coerceBoolean(input.enabled),
       preset: TURBO_OPERATIONAL_CONFIG_KEY,
       startHour: Math.min(Math.max(Math.trunc(Number(input.startHour ?? 20) || 20), 0), 23),
@@ -4735,6 +4800,24 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       maxAttemptsPerTask: Math.min(Math.max(Math.trunc(Number(input.maxAttemptsPerTask ?? 3) || 3), 1), 10),
       engineUrlsJson: JSON.stringify(DEFAULT_MASS_DATA_ENGINE_URLS),
     };
+    const existingMetadata = this.parseOperationalMetadata(existingMetadataJson);
+    const explicitForcedUntil = String(input.forcedUntil || '').trim();
+    const now = new Date();
+    const forcedUntil = coerceBoolean(input.forceNow)
+      ? this.buildForcedUntil(base, now)
+      : explicitForcedUntil
+        ? explicitForcedUntil
+        : existingMetadata.forcedUntil && new Date(existingMetadata.forcedUntil).getTime() > now.getTime()
+          ? existingMetadata.forcedUntil
+          : null;
+    return {
+      ...base,
+      metadataJson: JSON.stringify({
+        forcedUntil,
+        forcedAt: coerceBoolean(input.forceNow) ? now.toISOString() : existingMetadata.forcedAt,
+      }),
+      forcedUntil,
+    };
   }
 
   private async getOperationalConfig() {
@@ -4746,6 +4829,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       where: { key: TURBO_OPERATIONAL_CONFIG_KEY },
     }).catch(() => null);
     if (!row) return { key: TURBO_OPERATIONAL_CONFIG_KEY, ...defaults, createdAt: null, updatedAt: null };
+    const metadata = this.parseOperationalMetadata(row.metadataJson);
     return {
       key: row.key,
       enabled: Boolean(row.enabled),
@@ -4760,16 +4844,24 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       batchSize: Math.min(Math.max(safeInteger(row.batchSize, defaults.batchSize), 1), 20),
       maxAttemptsPerTask: Math.min(Math.max(safeInteger(row.maxAttemptsPerTask, defaults.maxAttemptsPerTask), 1), 10),
       engineUrlsJson: row.engineUrlsJson || defaults.engineUrlsJson,
+      metadataJson: row.metadataJson || null,
+      forcedUntil: metadata.forcedUntil,
+      isTurboForcedNow: Boolean(metadata.forcedUntil && new Date(metadata.forcedUntil).getTime() > Date.now()),
       createdAt: row.createdAt instanceof Date ? row.createdAt.toISOString() : null,
       updatedAt: row.updatedAt instanceof Date ? row.updatedAt.toISOString() : null,
     };
   }
 
   private async saveOperationalConfig(masterUserId: number, input: WebscrapingOperationalConfigInput = {}) {
-    const data = this.normalizeOperationalConfigInput(input);
     if (!(await this.prisma.hasTable('WebscrapingOperationalConfig').catch(() => false))) {
       throw new ServiceUnavailableException('Estrutura de configuracao operacional do Webscraping ainda nao foi aplicada no banco.');
     }
+    const current = await (this.prisma as any).webscrapingOperationalConfig.findUnique({
+      where: { key: TURBO_OPERATIONAL_CONFIG_KEY },
+      select: { metadataJson: true },
+    }).catch(() => null);
+    const normalized = this.normalizeOperationalConfigInput(input, current?.metadataJson);
+    const { forcedUntil, ...data } = normalized;
     const saved = await (this.prisma as any).webscrapingOperationalConfig.upsert({
       where: { key: TURBO_OPERATIONAL_CONFIG_KEY },
       create: {
@@ -4796,23 +4888,20 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       memoryTargetGb: saved.memoryTargetGb,
       batchSize: saved.batchSize,
       maxAttemptsPerTask: saved.maxAttemptsPerTask,
+      forcedUntil,
+      isTurboForcedNow: Boolean(forcedUntil && new Date(forcedUntil).getTime() > Date.now()),
       createdAt: saved.createdAt instanceof Date ? saved.createdAt.toISOString() : null,
       updatedAt: saved.updatedAt instanceof Date ? saved.updatedAt.toISOString() : null,
     };
   }
 
   private isWithinOperationalWindow(config: any, date = new Date()) {
-    if (!config?.enabled) return false;
-    const current = date.getHours() * 60 + date.getMinutes();
-    const start = safeInteger(config.startHour, 20) * 60 + safeInteger(config.startMinute, 0);
-    const end = safeInteger(config.endHour, 8) * 60 + safeInteger(config.endMinute, 0);
-    if (start === end) return true;
-    return start < end ? current >= start && current < end : current >= start || current < end;
+    return this.isForcedOperationalWindow(config, date) || this.isWithinConfiguredOperationalWindow(config, date);
   }
 
   private nextOperationalWindowAt(config: any, date = new Date()) {
     const next = new Date(date);
-    if (this.isWithinOperationalWindow(config, date)) return next.toISOString();
+    if (this.isWithinConfiguredOperationalWindow(config, date)) return next.toISOString();
     const current = date.getHours() * 60 + date.getMinutes();
     const start = safeInteger(config.startHour, 20) * 60 + safeInteger(config.startMinute, 0);
     const minutesUntilStart = (start - current + 24 * 60) % (24 * 60) || 24 * 60;
@@ -4837,6 +4926,143 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     if (!companyId) throw new BadRequestException('Nenhuma empresa ativa encontrada para vincular a campanha.');
     if (!userId) throw new ForbiddenException('Usuario MASTER nao identificado.');
     return { companyId, userId, user: { ...user, companyId } };
+  }
+
+  private formatTimeLabel(hour?: number | null, minute?: number | null) {
+    const safeHour = Math.min(Math.max(Math.trunc(Number(hour ?? 20) || 20), 0), 23);
+    const safeMinute = Math.min(Math.max(Math.trunc(Number(minute ?? 0) || 0), 0), 59);
+    return `${String(safeHour).padStart(2, '0')}:${String(safeMinute).padStart(2, '0')}`;
+  }
+
+  private buildMasterLiveFeed(input: {
+    campaigns: any[];
+    latestLeads: any[];
+    recentSearchRuns: any[];
+    engines: any[];
+    forcedTurboActive: boolean;
+    forcedUntil: string | null;
+    capacity: any;
+    now: Date;
+  }) {
+    const items = [
+      ...(input.forcedTurboActive ? [{
+        id: `turbo-forced-${input.forcedUntil || input.now.toISOString()}`,
+        type: 'turbo_forced',
+        message: 'Turbo forcado ativo',
+        detail: input.forcedUntil ? `Expira em ${new Date(input.forcedUntil).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}` : 'Expiracao configurada no controle operacional.',
+        createdAt: input.now.toISOString(),
+      }] : []),
+      ...input.engines
+        .filter((engine: any) => engine.active || ['cooldown', 'offline', 'degraded'].includes(String(engine.status || '').toLowerCase()))
+        .map((engine: any) => ({
+          id: `engine-${engine.id}-${engine.lastActivityAt || engine.lastCheckedAt || input.now.toISOString()}`,
+          type: engine.active ? 'motor_activated' : String(engine.status || '') === 'cooldown' ? 'cooldown' : String(engine.status || '') === 'offline' ? 'error' : 'motor_idle',
+          message: `${engine.shortLabel || engine.id} · ${engine.stateLabel || engine.status}`,
+          detail: engine.detail || null,
+          createdAt: engine.lastActivityAt || engine.lastCheckedAt || input.now.toISOString(),
+        })),
+      ...input.latestLeads.map((lead: any) => ({
+        id: `lead-${lead.id}`,
+        type: 'lead_saved',
+        message: `Card salvo: ${lead.name || 'Lead'}`,
+        detail: [lead.city, lead.state, lead.segment, lead.phoneDigits].filter(Boolean).join(' • '),
+        createdAt: lead.lastSeenAt instanceof Date ? lead.lastSeenAt.toISOString() : null,
+      })),
+      ...input.campaigns.flatMap((campaign: any) => [
+        {
+          id: `campaign-${campaign.id}`,
+          type: String(campaign.status || '') === 'running' ? 'mass_data_started' : 'motor_idle',
+          message: `Campanha ${campaign.status || 'ativa'}`,
+          detail: [campaign.state, campaign.currentCity || campaign.city, campaign.segment || 'segmentos internos'].filter(Boolean).join(' • '),
+          createdAt: campaign.updatedAt instanceof Date ? campaign.updatedAt.toISOString() : campaign.createdAt instanceof Date ? campaign.createdAt.toISOString() : null,
+        },
+        ...(campaign.tasks || []).slice(0, 12).map((task: any) => ({
+          id: `task-${task.id}`,
+          type: String(task.status || '') === 'running'
+            ? 'task_started'
+            : String(task.status || '') === 'completed'
+              ? 'task_completed'
+              : String(task.status || '') === 'failed'
+                ? 'error'
+                : String(task.status || '') === 'exhausted'
+                  ? 'rejected'
+                  : 'motor_idle',
+          message: String(task.status || '') === 'running'
+            ? `${task.lockedByEngineId || 'HBX'} coletando`
+            : String(task.status || '') === 'completed'
+              ? 'Tarefa concluida'
+              : String(task.status || '') === 'failed'
+                ? 'Tarefa com falha'
+                : String(task.status || '') === 'exhausted'
+                  ? 'Tarefa esgotada'
+                  : 'Tarefa aguardando lote',
+          detail: [task.city, task.state, task.segment, task.targetType].filter(Boolean).join(' • '),
+          createdAt: task.updatedAt instanceof Date ? task.updatedAt.toISOString() : null,
+        })),
+        ...(campaign.batches || []).slice(0, 8).map((batch: any) => ({
+          id: `batch-${batch.id}`,
+          type: String(batch.status || '').includes('error')
+            ? 'error'
+            : safeInteger(batch.duplicateCount) > 0
+              ? 'duplicate_skipped'
+              : safeInteger(batch.rejectedCount) > 0
+                ? 'rejected'
+                : 'task_completed',
+          message: batch.engineId ? `${batch.engineId} finalizou lote` : 'Lote processado',
+          detail: [
+            batch.queryUsed,
+            safeInteger(batch.approvedCount) ? `${safeInteger(batch.approvedCount)} aprovados` : null,
+            safeInteger(batch.duplicateCount) ? `${safeInteger(batch.duplicateCount)} duplicados` : null,
+            safeInteger(batch.rejectedCount) ? `${safeInteger(batch.rejectedCount)} rejeitados` : null,
+            batch.errorMessage,
+          ].filter(Boolean).join(' • '),
+          createdAt: batch.finishedAt instanceof Date ? batch.finishedAt.toISOString() : batch.startedAt instanceof Date ? batch.startedAt.toISOString() : batch.createdAt instanceof Date ? batch.createdAt.toISOString() : null,
+        })),
+      ]),
+      ...input.recentSearchRuns.map((run: any) => ({
+        id: `run-${run.id}`,
+        type: String(run.status || '') === 'running'
+          ? 'task_started'
+          : String(run.status || '') === 'queued'
+            ? 'motor_idle'
+            : String(run.status || '') === 'failed'
+              ? 'error'
+              : 'task_completed',
+        message: run.assignedEngineId ? `${run.assignedEngineId} · busca ${run.status}` : `Busca ${run.status}`,
+        detail: [
+          run.city,
+          run.state,
+          run.segment,
+          safeInteger(run.foundCount) ? `${safeInteger(run.foundCount)} cards` : null,
+          run.lastBatchError,
+        ].filter(Boolean).join(' • '),
+        createdAt: run.updatedAt instanceof Date ? run.updatedAt.toISOString() : null,
+      })),
+    ]
+      .filter((item: any) => item.createdAt)
+      .sort((left: any, right: any) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime())
+      .slice(0, 24);
+
+    if (items.length > 0) return items;
+    if (Number(input.capacity?.queuedCount || 0) > 0 || Number(input.capacity?.runningCount || 0) > 0) {
+      return [{
+        id: `waiting-${input.now.toISOString()}`,
+        type: 'motor_idle',
+        message: 'Aguardando proximo lote',
+        detail: `Fila ${safeInteger(input.capacity?.queuedCount)} • rodando ${safeInteger(input.capacity?.runningCount)}`,
+        createdAt: input.now.toISOString(),
+      }];
+    }
+    if (input.campaigns.length > 0) {
+      return [{
+        id: `standby-${input.now.toISOString()}`,
+        type: 'motor_idle',
+        message: 'Motores em standby, aguardando trabalho',
+        detail: 'Campanhas carregadas, sem lote em execucao neste instante.',
+        createdAt: input.now.toISOString(),
+      }];
+    }
+    return [];
   }
 
   async getMasterMassDataControl(user: any) {
@@ -4869,47 +5095,95 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
           },
         }).catch(() => [])
       : [];
+    const recentSearchRuns = await (this.prisma as any).webscrapingSearchRun.findMany({
+      where: {
+        OR: [
+          { status: { in: ['queued', 'running'] } },
+          { updatedAt: { gte: minutesAgo(30) } },
+        ],
+      },
+      orderBy: { updatedAt: 'desc' },
+      take: 10,
+      select: {
+        id: true,
+        status: true,
+        city: true,
+        state: true,
+        segment: true,
+        foundCount: true,
+        duplicateCount: true,
+        skippedCount: true,
+        assignedEngineId: true,
+        lastBatchError: true,
+        updatedAt: true,
+      },
+    }).catch(() => []);
     const now = new Date();
+    const scheduledTurboActive = this.isWithinConfiguredOperationalWindow(config, now);
+    const forcedTurboActive = this.isForcedOperationalWindow(config, now);
     const inTurbo = this.isWithinOperationalWindow(config, now);
     const hbxEngines = (engines?.engines || []).filter((engine: any) => String(engine.id || '').startsWith('hbx-engine'));
-    const offlineCount = hbxEngines.filter((engine: any) => !engine.online || ['offline', 'missing'].includes(String(engine.status || '').toLowerCase())).length;
-    const allOffline = hbxEngines.length > 0 && offlineCount === hbxEngines.length;
+    const configuredHbxEngines = hbxEngines.filter((engine: any) => engine.configured);
+    const offlineCount = configuredHbxEngines.filter((engine: any) => !engine.online && ['offline', 'missing'].includes(String(engine.status || '').toLowerCase())).length;
+    const allOffline = configuredHbxEngines.length > 0 && offlineCount === configuredHbxEngines.length;
+    const capacity = engines?.capacity || null;
+    const hasQueue = Number(capacity?.queuedCount || 0) > 0;
+    const hasRunning = Number(capacity?.runningCount || 0) > 0 || campaigns.some((campaign: any) => (campaign.tasks || []).some((task: any) => String(task.status || '') === 'running'));
+    const degraded = allOffline || String(capacity?.operationalStatus || '') === 'degraded';
+    const currentMode = degraded
+      ? 'DEGRADED'
+      : forcedTurboActive
+        ? 'TURBO FORCADO'
+        : hasRunning
+          ? 'MASSA RODANDO'
+          : config.enabled && !scheduledTurboActive
+            ? 'TURBO ARMADO'
+            : inTurbo
+              ? 'TURBO NOTURNO'
+              : hasQueue
+                ? 'FILA PRONTA'
+                : 'STANDBY';
+    const criticalReason = allOffline
+      ? 'Todos os motores HBX falharam no healthcheck.'
+      : String(capacity?.operationalStatus || '') === 'degraded'
+        ? capacity?.message || 'Capacidade degradada no pool HBX.'
+        : null;
+    const liveFeed = this.buildMasterLiveFeed({
+      campaigns,
+      latestLeads,
+      recentSearchRuns,
+      engines: hbxEngines,
+      forcedTurboActive,
+      forcedUntil: config.forcedUntil || null,
+      capacity,
+      now,
+    });
     return {
       generatedAt: now.toISOString(),
       status: {
         resumeEnabled: true,
-        currentMode: inTurbo ? 'TURBO NOTURNO' : config.enabled ? 'ECONOMICO' : 'STANDBY',
-        critical: allOffline,
-        criticalReason: allOffline ? 'Todos os motores HBX estao offline.' : null,
+        currentMode,
+        critical: degraded,
+        criticalReason,
         nextTurboAt: this.nextOperationalWindowAt(config, now),
         localTime: now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
         estimatedMemoryGb: Math.min(safeInteger(config.memoryTargetGb, 16), safeInteger(config.engineCount, 4) * 4),
+        isTurboEnabled: Boolean(config.enabled),
+        isTurboWindowActive: scheduledTurboActive,
+        isTurboForcedNow: forcedTurboActive,
+        forcedUntil: config.forcedUntil || null,
+        operationalMessage: criticalReason
+          || (forcedTurboActive
+            ? `Turbo forcado ativo ate ${config.forcedUntil || 'a expiracao configurada'}.`
+            : config.enabled && !scheduledTurboActive
+              ? `Turbo armado para ${this.formatTimeLabel(config.startHour, config.startMinute)}.`
+              : hasQueue && !hasRunning
+                ? 'Fila aguardando motor elegivel.'
+                : hasRunning
+                  ? 'Massa de Dados em execucao.'
+                  : 'Motores em standby, aguardando trabalho.'),
       },
-      liveFeed: [
-        ...latestLeads.map((lead: any) => ({
-          id: `lead-${lead.id}`,
-          type: 'lead_saved',
-          message: `+ ${lead.name || 'Card'} salva`,
-          detail: [lead.city, lead.state, lead.segment, lead.phoneDigits].filter(Boolean).join(' • '),
-          createdAt: lead.lastSeenAt instanceof Date ? lead.lastSeenAt.toISOString() : null,
-        })),
-        ...campaigns.flatMap((campaign: any) => (campaign.tasks || []).slice(0, 8).map((task: any) => ({
-          id: `task-${task.id}`,
-          type: `task_${task.status}`,
-          message: String(task.status || '') === 'exhausted'
-            ? 'tarefa exhausted'
-            : String(task.status || '') === 'completed'
-              ? 'cidade/isca concluida'
-              : String(task.status || '') === 'running'
-                ? `motor ${task.lockedByEngineId || 'HBX'} coletando`
-                : `tarefa ${task.status}`,
-          detail: [task.city, task.state, task.segment, task.targetType].filter(Boolean).join(' • '),
-          createdAt: task.updatedAt instanceof Date ? task.updatedAt.toISOString() : null,
-        }))),
-      ]
-        .filter((item: any) => item.createdAt)
-        .sort((left: any, right: any) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime())
-        .slice(0, 20),
+      liveFeed,
       config: {
         ...config,
         engineUrlsJson: undefined,
@@ -4949,6 +5223,14 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       config: saved,
       control: await this.getMasterMassDataControl(user),
     };
+  }
+
+  async forceMasterTurboNow(user: any, input: WebscrapingOperationalConfigInput = {}) {
+    return this.saveMasterTurboConfig(user, {
+      ...input,
+      enabled: true,
+      forceNow: true,
+    });
   }
 
   async createMasterMassDataCampaign(user: any, input: MasterMassDataCampaignInput = {}) {
