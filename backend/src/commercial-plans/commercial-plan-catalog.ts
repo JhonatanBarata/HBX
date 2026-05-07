@@ -13,6 +13,12 @@ export const COMMERCIAL_ENTITLEMENT_KEYS = {
   WEBSCRAPING: 'webscraping',
   BOT_IA: 'bot_ia',
   RECOVERY: 'recovery',
+  NIGHT_FACTORY: 'night_factory',
+  RADAR_PREMIUM: 'radar_premium',
+  RECOVERY_INTELLIGENCE: 'recovery_intelligence',
+  DIGITAL_AUDIT: 'digital_audit',
+  OPPORTUNITY_SCORE: 'opportunity_score',
+  AI_SALES_SCRIPTS: 'ai_sales_scripts',
 } as const;
 
 export type CommercialPlanKey = (typeof COMMERCIAL_PLAN_KEYS)[keyof typeof COMMERCIAL_PLAN_KEYS];
@@ -66,17 +72,26 @@ export const COMMERCIAL_PLAN_ENTITLEMENT_KEYS: Record<ActiveCommercialPlanKey, C
   [COMMERCIAL_PLAN_KEYS.LITE]: [
     COMMERCIAL_ENTITLEMENT_KEYS.VENDAS,
     COMMERCIAL_ENTITLEMENT_KEYS.WEBSCRAPING,
+    COMMERCIAL_ENTITLEMENT_KEYS.OPPORTUNITY_SCORE,
   ],
   [COMMERCIAL_PLAN_KEYS.PADRAO]: [
     COMMERCIAL_ENTITLEMENT_KEYS.VENDAS,
     COMMERCIAL_ENTITLEMENT_KEYS.ATENDIMENTO_CHAT,
     COMMERCIAL_ENTITLEMENT_KEYS.WEBSCRAPING,
+    COMMERCIAL_ENTITLEMENT_KEYS.RADAR_PREMIUM,
+    COMMERCIAL_ENTITLEMENT_KEYS.AI_SALES_SCRIPTS,
   ],
   [COMMERCIAL_PLAN_KEYS.MELHOR]: [
     COMMERCIAL_ENTITLEMENT_KEYS.VENDAS,
     COMMERCIAL_ENTITLEMENT_KEYS.ATENDIMENTO_CHAT,
     COMMERCIAL_ENTITLEMENT_KEYS.WEBSCRAPING,
     COMMERCIAL_ENTITLEMENT_KEYS.BOT_IA,
+    COMMERCIAL_ENTITLEMENT_KEYS.NIGHT_FACTORY,
+    COMMERCIAL_ENTITLEMENT_KEYS.RADAR_PREMIUM,
+    COMMERCIAL_ENTITLEMENT_KEYS.RECOVERY_INTELLIGENCE,
+    COMMERCIAL_ENTITLEMENT_KEYS.DIGITAL_AUDIT,
+    COMMERCIAL_ENTITLEMENT_KEYS.OPPORTUNITY_SCORE,
+    COMMERCIAL_ENTITLEMENT_KEYS.AI_SALES_SCRIPTS,
   ],
 };
 
@@ -153,6 +168,7 @@ export function buildCommercialPlansCatalog() {
         'Webscraping de empresas',
         'Leads por cidade e segmento',
         'CRM de vendas',
+        'Radar básico com score limitado',
         'Funil comercial',
         'Histórico de contatos',
         'Organização de oportunidades',
@@ -179,6 +195,8 @@ export function buildCommercialPlansCatalog() {
         'Atendimento pelo painel',
         'Controle de retornos',
         'Histórico por cliente',
+        'Radar Premium parcial',
+        'Scripts comerciais sugeridos',
         'Organização de mensagens e leads',
       ],
       legalCopy: 'Trial gratuito de 30 dias. Não precisa de cartão. Não haverá cobrança automática.',
@@ -202,6 +220,10 @@ export function buildCommercialPlansCatalog() {
         'Bot de prospecção pós-resposta',
         'Respostas automáticas',
         'Qualificação de interessados',
+        'Night Factory completa',
+        'Opportunity Score completo',
+        'Mini-auditorias digitais',
+        'Recovery inteligente',
         'Regras para não responder como bot louco',
         'Encaminhamento para humano',
         'Automação com limites e segurança',

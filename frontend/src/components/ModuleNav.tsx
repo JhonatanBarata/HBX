@@ -377,6 +377,8 @@ export default function ModuleNav({
         }
       }
 
+      if (item.key === "master" && isSystemMaster) return true;
+
       if (!item.moduleKey) return true;
 
       const moduleItem = modulesByKey.get(normalizeUserModuleKey(item.moduleKey));

@@ -1,5 +1,16 @@
 export type CommercialPlanKey = "hbx_lite" | "hbx_padrao" | "hbx_melhor";
-export type CommercialEntitlementKey = "vendas" | "atendimento_chat" | "webscraping" | "bot_ia";
+export type CommercialEntitlementKey =
+  | "vendas"
+  | "atendimento_chat"
+  | "webscraping"
+  | "bot_ia"
+  | "recovery"
+  | "night_factory"
+  | "radar_premium"
+  | "recovery_intelligence"
+  | "digital_audit"
+  | "opportunity_score"
+  | "ai_sales_scripts";
 
 export type CommercialPlan = {
   key: CommercialPlanKey;

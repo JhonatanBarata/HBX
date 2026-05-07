@@ -125,6 +125,9 @@ export class AiAssistantService {
 
   async getNextProspect(user: any) {
     const companyId = toCompanyId(user);
+    const nightFactoryProspect = await this.findNightFactoryProspect(companyId);
+    if (nightFactoryProspect) return nightFactoryProspect;
+
     const candidates = await this.prisma.vendasLead.findMany({
       where: {
         companyId,
@@ -159,6 +162,7 @@ export class AiAssistantService {
       const reason = this.buildNextProspectReason(item.lead);
       return {
         available: true,
+        source: 'vendas',
         leadId: String(item.lead.id),
         name: item.lead.name || item.lead.customerProfile?.name || item.lead.customerProfile?.profileName || 'Prospect sem nome',
         phone: formatPhone(item.lead.phone || item.lead.phoneNormalized),
@@ -185,7 +189,7 @@ export class AiAssistantService {
     const dayAgo = new Date(now.getTime() - 24 * 36e5);
     const twoDaysAgo = new Date(now.getTime() - 48 * 36e5);
 
-    const [longMessages, staleLeads, coldLeads, hotConversations, recentInboundMessages, latestRun, pendingLeads] =
+    const [longMessages, staleLeads, coldLeads, hotConversations, recentInboundMessages, latestRun, pendingLeads, nightMetrics] =
       await Promise.all([
         this.prisma.companyMessage.findMany({
           where: { companyId, direction: 'OUTBOUND', timestamp: { gte: twoDaysAgo } },
@@ -235,6 +239,7 @@ export class AiAssistantService {
         this.prisma.vendasLead.count({
           where: { companyId, status: { in: ['novo', 'contato', 'retorno'] } },
         }),
+        this.getNightFactoryInsightMetrics(companyId),
       ]);
 
     const insights: AssistantInsight[] = [];
@@ -280,6 +285,34 @@ export class AiAssistantService {
       });
     }
 
+    if (nightMetrics.premium > 0) {
+      insights.push({
+        id: 'night_factory_premium',
+        title: 'Oportunidades premium',
+        description: `${nightMetrics.premium} lead(s) com score alto esperando abordagem humana.`,
+        tone: 'success',
+        actionLabel: 'Ver Radar Premium',
+      });
+    }
+    if (nightMetrics.recovery > 0) {
+      insights.push({
+        id: 'night_factory_recovery',
+        title: 'Recovery quente',
+        description: `${nightMetrics.recovery} oportunidade(s) de receita esquecida prontas para revisar.`,
+        tone: 'info',
+        actionLabel: 'Abrir Recovery',
+      });
+    }
+    if (nightMetrics.weakSite > 0 || nightMetrics.noWhatsapp > 0) {
+      insights.push({
+        id: 'night_factory_digital_gaps',
+        title: 'Problemas digitais detectados',
+        description: `${nightMetrics.weakSite} site(s) fracos e ${nightMetrics.noWhatsapp} lead(s) sem WhatsApp claro no site.`,
+        tone: 'warning',
+        actionLabel: 'Usar scripts',
+      });
+    }
+
     const latestRunStatus = String(latestRun?.status || '').toLowerCase();
     if (latestRun && ['failed', 'partial_error'].includes(latestRunStatus)) {
       insights.push({
@@ -315,6 +348,11 @@ export class AiAssistantService {
       queue: { pendingLeads },
       bestHour,
       bubbles: [
+        { id: 'premium', label: 'Oportunidades premium', count: nightMetrics.premium },
+        { id: 'enriched', label: 'Leads enriquecidos', count: nightMetrics.enriched },
+        { id: 'recovery_hot', label: 'Recovery quente', count: nightMetrics.recovery },
+        { id: 'weak_site', label: 'Site fraco detectado', count: nightMetrics.weakSite },
+        { id: 'no_whatsapp_site', label: 'Sem WhatsApp no site', count: nightMetrics.noWhatsapp },
         { id: 'errors', label: 'Erros detectados', count: insights.filter((item) => item.tone === 'danger').length },
         { id: 'improvements', label: 'Melhorias sugeridas', count: insights.filter((item) => item.id === 'long_message' || item.id === 'cold_leads').length },
         { id: 'cold', label: 'Lead frio', count: coldLeads.length },
@@ -378,9 +416,10 @@ export class AiAssistantService {
 
   async requestMoreLeads(user: any, _body: any) {
     const companyId = toCompanyId(user);
-    const [latestRun, pendingLeads] = await Promise.all([
+    const [latestRun, pendingLeads, nightMetrics] = await Promise.all([
       this.prisma.webscrapingSearchRun.findFirst({ where: { companyId }, orderBy: { createdAt: 'desc' } }),
       this.prisma.vendasLead.count({ where: { companyId, status: { in: ['novo', 'contato', 'retorno'] } } }),
+      this.getNightFactoryInsightMetrics(companyId),
     ]);
     const currentSearchCompleted = ['completed', 'partial_error', 'failed', 'canceled'].includes(String(latestRun?.status || '').toLowerCase());
     await this.writeAudit(companyId, {
@@ -393,12 +432,98 @@ export class AiAssistantService {
       currentSearchCompleted,
       noNewLeadsAvailable: pendingLeads <= 0,
       queueLow: pendingLeads <= 3,
-      message: 'Sua busca atual foi concluida e nao ha novos leads no momento.',
+      message: nightMetrics.premium > 0
+        ? 'Antes de buscar lead cru, use o Radar Premium: ha oportunidades enriquecidas prontas para abordagem humana.'
+        : nightMetrics.enriched > 0
+          ? 'Ha estoque enriquecido pela Night Factory. Priorize esses leads antes de puxar webscraping cru.'
+          : 'Sua busca atual foi concluida e nao ha novos leads no momento. Se o estoque bruto estiver alto, rode enriquecimento noturno.',
+      nightFactorySuggestion: {
+        premiumAvailable: nightMetrics.premium,
+        enrichedAvailable: nightMetrics.enriched,
+        recoveryAvailable: nightMetrics.recovery,
+      },
       action: {
-        label: 'Pedir Mais Leads',
-        href: '/webscraping?from=ai_assistant&intent=request_more_leads',
+        label: nightMetrics.premium > 0 ? 'Usar Radar Premium' : 'Pedir Mais Leads',
+        href: nightMetrics.premium > 0
+          ? '/webscraping?from=ai_assistant&intent=radar_premium'
+          : '/webscraping?from=ai_assistant&intent=request_more_leads',
       },
     };
+  }
+
+  private async findNightFactoryProspect(companyId: number) {
+    if (!(await this.prisma.hasTable('RadarLeadPool').catch(() => false))) return null;
+    const rows = await (this.prisma as any).radarLeadPool.findMany({
+      where: {
+        AND: [
+          { OR: [{ companyId }, { companyId: null }] },
+          { OR: [{ phoneDigits: { not: null } }, { phone: { not: null } }] },
+        ],
+        status: { notIn: ['complaint', 'denied', 'hidden', 'rejected'] },
+        opportunityScore: { gte: 65 },
+      },
+      orderBy: [{ opportunityScore: 'desc' }, { updatedAt: 'desc' }],
+      take: 30,
+    }).catch(() => []);
+
+    const candidate = rows.find((row: any) => !this.isRadarLeadBlocked(row));
+    if (!candidate) return null;
+    const metadata = parseJsonRecord(candidate.metadataJson).nightFactory || {};
+    return {
+      available: true,
+      source: 'night_factory',
+      leadId: null,
+      radarLeadId: String(candidate.id),
+      name: candidate.name || 'Prospect sem nome',
+      phone: formatPhone(candidate.phone || candidate.phoneDigits),
+      score: Number(candidate.opportunityScore || 0),
+      reason: candidate.opportunityReason || metadata.opportunityReason || 'Oportunidade enriquecida pela Night Factory.',
+      opportunityReason: candidate.opportunityReason || metadata.opportunityReason || null,
+      recommendedOffer: metadata.recommendedOffer || 'HBX Vendas + Bot IA',
+      suggestedApproach: metadata.suggestedApproach || null,
+      action: {
+        label: 'Abordar com roteiro',
+        href: `/webscraping?radarLeadId=${encodeURIComponent(String(candidate.id))}&source=night_factory`,
+      },
+    };
+  }
+
+  private async getNightFactoryInsightMetrics(companyId: number) {
+    const empty = { premium: 0, enriched: 0, recovery: 0, weakSite: 0, noWhatsapp: 0 };
+    if (!(await this.prisma.hasTable('RadarLeadPool').catch(() => false))) return empty;
+    const dayAgo = new Date(Date.now() - 24 * 36e5);
+    const baseWhere = {
+      OR: [{ companyId }, { companyId: null }],
+      status: { notIn: ['complaint', 'denied', 'hidden', 'rejected'] },
+    };
+    const [premium, enriched, weakSite, noWhatsapp, recovery] = await Promise.all([
+      (this.prisma as any).radarLeadPool.count({ where: { ...baseWhere, opportunityScore: { gte: 85 } } }).catch(() => 0),
+      (this.prisma as any).radarLeadPool.count({ where: { ...baseWhere, updatedAt: { gte: dayAgo }, opportunityScore: { gt: 0 } } }).catch(() => 0),
+      (this.prisma as any).radarLeadPool.count({ where: { ...baseWhere, websiteStatus: { in: ['weak', 'broken', 'unreachable'] } } }).catch(() => 0),
+      (this.prisma as any).radarLeadPool.count({ where: { ...baseWhere, opportunityReason: { contains: 'WhatsApp' } } }).catch(() => 0),
+      this.prisma.hasTable('RecoveryOpportunity').then((available) => available
+        ? (this.prisma as any).recoveryOpportunity.count({
+            where: {
+              OR: [{ companyId }, { companyId: 0 }, { companyId: null }],
+              status: { in: ['queued', 'ready', 'assigned'] },
+              recoveryScore: { gte: 55 },
+            },
+          }).catch(() => 0)
+        : 0).catch(() => 0),
+    ]);
+    return { premium, enriched, recovery, weakSite, noWhatsapp };
+  }
+
+  private isRadarLeadBlocked(lead: any) {
+    const haystack = [
+      lead?.status,
+      lead?.opportunityReason,
+      lead?.metadataJson,
+      lead?.complaintReason,
+      lead?.deniedReason,
+    ].map((value) => String(value || '').toLowerCase()).join(' ');
+    return ['complaint', 'denied', 'opt out', 'opt-out', 'nao chamar', 'não chamar', 'reclamacao', 'reclamação']
+      .some((term) => haystack.includes(term));
   }
 
   private async isLeadPersonalContact(companyId: number, lead: any) {

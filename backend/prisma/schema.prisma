@@ -1107,6 +1107,76 @@ model RadarLeadEvent {
   @@index([companyId, eventType, createdAt])
 }
 
+model RadarLeadEnrichment {
+  id                       String   @id @default(cuid())
+  radarLeadId              String   @unique
+  companyId                Int?
+  sourceLeadPoolId         String?
+  enrichmentStatus         String   @default("queued") // queued | running | enriched | failed | skipped
+  enrichmentError          String?
+  checkedAt                DateTime?
+  websiteCheckedAt         DateTime?
+  websiteUrl               String?
+  websiteStatus            String   @default("unknown") // none | present | weak | broken | unreachable | social_only | unknown
+  hasWebsite               Boolean  @default(false)
+  hasWhatsappOnSite        Boolean  @default(false)
+  whatsappFound            String?
+  hasInstagram             Boolean  @default(false)
+  instagramUrl             String?
+  hasFacebook              Boolean  @default(false)
+  googleMapsUrl            String?
+  pageLoadMs               Int?
+  sslOk                    Boolean?
+  hasBookingLink           Boolean  @default(false)
+  hasCatalog               Boolean  @default(false)
+  hasMenu                  Boolean  @default(false)
+  hasPaymentLink           Boolean  @default(false)
+  hasLeadCaptureForm       Boolean  @default(false)
+  formLooksBroken          Boolean  @default(false)
+  digitalPresenceScore     Int      @default(0)
+  opportunityScore         Int      @default(0)
+  opportunityLevel         String   @default("baixo")
+  opportunityReason        String?
+  recommendedOffer         String?
+  suggestedApproach        String?
+  suggestedWhatsappMessage String?
+  suggestedHumanOpening    String?
+  detectedProblems         String?
+  detectedAssets           String?
+  segmentPlaybookKey       String?
+  cityOpportunityRank      Int?
+  miniAuditTitle           String?
+  miniAuditSummary         String?
+  miniAuditStatus          String   @default("text_ready")
+  createdAt                DateTime @default(now())
+  updatedAt                DateTime @updatedAt
+
+  @@index([companyId, opportunityScore])
+  @@index([enrichmentStatus, updatedAt])
+  @@index([websiteStatus])
+  @@index([segmentPlaybookKey])
+}
+
+model RecoveryOpportunity {
+  id                String   @id @default(cuid())
+  sourceType        String   // radar | vendas | financeiro | atendimento | recovery
+  sourceId          String
+  companyId         Int?
+  recoveryReason    String
+  recoveryScore     Int      @default(0)
+  suggestedFlow     String?
+  suggestedMessage  String?
+  suggestedTemplate String?
+  status            String   @default("queued") // queued | ready | assigned | done | discarded
+  metadataJson      String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@unique([sourceType, sourceId, companyId])
+  @@index([companyId, status, recoveryScore])
+  @@index([sourceType, createdAt])
+}
+
 model WebscrapingCampaign {
   id                         String   @id @default(cuid())
   company                    Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)

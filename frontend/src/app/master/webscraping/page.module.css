@@ -267,6 +267,43 @@
   filter: saturate(0.82);
 }
 
+.engineCard[data-status="cooldown"] {
+  color: #facc15;
+  border-color: rgba(250, 204, 21, 0.38);
+}
+
+.engineIssue {
+  display: grid;
+  gap: 3px;
+  border-radius: 12px;
+  padding: 9px;
+  border: 1px solid rgba(251, 191, 36, 0.26);
+  background: rgba(251, 191, 36, 0.08);
+}
+
+.engineIssue strong {
+  color: #fde68a;
+  font-size: 0.74rem;
+  font-weight: 950;
+  text-transform: uppercase;
+}
+
+.engineIssue span {
+  color: #fef3c7;
+  font-size: 0.74rem;
+  overflow-wrap: anywhere;
+}
+
+.engineIssue[data-tone="critical"] {
+  border-color: rgba(251, 113, 133, 0.42);
+  background: rgba(251, 113, 133, 0.1);
+}
+
+.engineIssue[data-tone="critical"] strong,
+.engineIssue[data-tone="critical"] span {
+  color: #fecdd3;
+}
+
 .mainGrid {
   grid-template-columns: minmax(0, 1.35fr) minmax(300px, 0.65fr);
 }

@@ -84,6 +84,27 @@ type SystemHealthPayload = {
     lines: string[];
     note?: string | null;
   };
+  production?: {
+    radar: {
+      total: number;
+      cardsToday: number;
+      cardsLastHour: number;
+      cardsLast10Min: number;
+      premiumToday: number;
+    };
+    queue: {
+      queued: number;
+      running: number;
+      failed: number;
+    };
+  };
+  nightFactory?: {
+    enabled: boolean;
+    status: string;
+    leadsEnrichedToday: number;
+    premiumOpportunities: number;
+    recoveryOpportunities: number;
+  };
 };
 
 type ActiveSessionPayload = {
@@ -194,6 +215,15 @@ const MASTER_SHORTCUTS = [
     action: "Abrir radar",
     tone: "hostinger",
     meta: "M1-M4 + Banco Radar",
+  },
+  {
+    title: "Night Factory",
+    eyebrow: "Madrugada",
+    description: "Servidor ocioso virando Radar Premium, score, scripts e Recovery para vender amanhã.",
+    href: "/master/night-factory",
+    action: "Abrir fábrica",
+    tone: "hostinger",
+    meta: "Radar Premium + Recovery",
   },
   {
     title: "Planos/Módulos",
@@ -559,6 +589,29 @@ export default function MasterHomeClientPage() {
               </a>
             </div>
           </aside>
+        </section>
+
+        <section className={styles.masterNightHero}>
+          <div>
+            <span className={styles.masterHomeEyebrow}>Night Factory</span>
+            <h2>Enquanto você dormia, o HBX produziu:</h2>
+            <p>
+              A madrugada transforma webscraping em inteligência comercial pronta para ação humana.
+            </p>
+          </div>
+          <div className={styles.masterNightGrid}>
+            <article><span>Leads fabricados</span><strong>{health?.production?.radar.cardsToday ?? 0}</strong></article>
+            <article><span>Leads limpos</span><strong>{health?.nightFactory?.leadsEnrichedToday ?? 0}</strong></article>
+            <article><span>Oportunidades Premium</span><strong>{health?.nightFactory?.premiumOpportunities ?? 0}</strong></article>
+            <article><span>Leads para Recovery</span><strong>{health?.nightFactory?.recoveryOpportunities ?? 0}</strong></article>
+            <article><span>Fila Radar</span><strong>{health?.production?.queue.queued ?? 0}</strong></article>
+            <article><span>Cards últimos 10 min</span><strong>{health?.production?.radar.cardsLast10Min ?? 0}</strong></article>
+          </div>
+          <div className={styles.masterNightActions}>
+            <Link href="/master/night-factory" className="btn btn-primary btn-sm">Ver Top 20 de hoje</Link>
+            <Link href="/master/webscraping" className="btn btn-secondary btn-sm">Radar Premium</Link>
+            <Link href="/master/sistema" className="btn btn-secondary btn-sm">Command Center</Link>
+          </div>
         </section>
 
         <section className={styles.masterCockpitSection} aria-labelledby="master-health-title">

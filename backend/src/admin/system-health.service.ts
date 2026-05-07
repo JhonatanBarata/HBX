@@ -4,6 +4,7 @@ import { promises as fs } from 'fs';
 import * as path from 'path';
 import { promisify } from 'util';
 import { PrismaService } from '../prisma/prisma.service';
+import { isHbxEngineLocalhostUrl } from '../webscraping/hbx-engine-pool.service';
 
 const execFileAsync = promisify(execFile);
 
@@ -19,7 +20,20 @@ const COMMAND_TIMEOUT_MS = 3500;
 const MAX_ERROR_LINES = 30;
 const MAX_LINE_LENGTH = 700;
 const LOG_TAIL_BYTES = 160 * 1024;
-const DOCKER_CONTAINERS = ['hbx-backend', 'hbx-postgres', 'webscraping', 'hbx-scraping-engine'];
+const DOCKER_CONTAINERS = [
+  'hbx-backend',
+  'hbx-postgres',
+  'webscraping',
+  'hbx-scraping-engine',
+  'hbx-engine-1',
+  'hbx-engine-2',
+  'hbx-engine-3',
+  'hbx-engine-4',
+  'hbx-frontend',
+  'frontend',
+  'nginx',
+  'proxy',
+];
 
 function normalizeOutput(value: unknown) {
   return String(value || '').replace(/\r\n/g, '\n').trim();
@@ -338,10 +352,245 @@ export class SystemHealthService {
     };
   }
 
+  private startOfLocalDay(now = new Date()) {
+    const start = new Date(now);
+    start.setHours(0, 0, 0, 0);
+    return start;
+  }
+
+  private localHour(now = new Date()) {
+    try {
+      const value = new Intl.DateTimeFormat('pt-BR', {
+        timeZone: 'America/Sao_Paulo',
+        hour: '2-digit',
+        hour12: false,
+      }).format(now);
+      const parsed = Number(value);
+      return Number.isFinite(parsed) ? parsed : now.getHours();
+    } catch {
+      return now.getHours();
+    }
+  }
+
+  private async collectRadarProduction() {
+    const now = new Date();
+    const todayStart = this.startOfLocalDay(now);
+    const lastHour = new Date(now.getTime() - 60 * 60_000);
+    const lastTenMinutes = new Date(now.getTime() - 10 * 60_000);
+    const [hasLeadPool, hasTask, hasBatch, hasEngineLock, hasOperationalConfig, hasRecoveryOpportunity] = await Promise.all([
+      this.prisma.hasTable('RadarLeadPool').catch(() => false),
+      this.prisma.hasTable('WebscrapingCampaignTask').catch(() => false),
+      this.prisma.hasTable('WebscrapingCampaignBatch').catch(() => false),
+      this.prisma.hasTable('HbxEngineLock').catch(() => false),
+      this.prisma.hasTable('WebscrapingOperationalConfig').catch(() => false),
+      this.prisma.hasTable('RecoveryOpportunity').catch(() => false),
+    ]);
+
+    if (!hasLeadPool) {
+      return {
+        status: 'unavailable' as HealthStatus,
+        note: 'RadarLeadPool ainda nao esta disponivel.',
+        radar: {
+          total: 0,
+          cardsToday: 0,
+          cardsLastHour: 0,
+          cardsLast10Min: 0,
+          premiumToday: 0,
+        },
+        queue: { queued: 0, running: 0, completed: 0, failed: 0, exhausted: 0 },
+        engines: [],
+        nightFactory: {
+          enabled: false,
+          status: 'indisponivel',
+          leadsEnrichedToday: 0,
+          premiumOpportunities: 0,
+          recoveryOpportunities: 0,
+          queue: 0,
+        },
+        alerts: [],
+      };
+    }
+
+    const [
+      total,
+      cardsToday,
+      cardsLastHour,
+      cardsLast10Min,
+      premiumToday,
+      taskGroups,
+      batchRows,
+      engineRows,
+      nightFactoryConfig,
+      recoveryOpportunities,
+    ] = await Promise.all([
+      (this.prisma as any).radarLeadPool.count().catch(() => 0),
+      (this.prisma as any).radarLeadPool.count({ where: { createdAt: { gte: todayStart } } }).catch(() => 0),
+      (this.prisma as any).radarLeadPool.count({ where: { createdAt: { gte: lastHour } } }).catch(() => 0),
+      (this.prisma as any).radarLeadPool.count({ where: { createdAt: { gte: lastTenMinutes } } }).catch(() => 0),
+      (this.prisma as any).radarLeadPool.count({
+        where: {
+          updatedAt: { gte: todayStart },
+          opportunityScore: { gte: 85 },
+          status: { notIn: ['complaint', 'denied', 'hidden', 'rejected'] },
+        },
+      }).catch(() => 0),
+      hasTask
+        ? (this.prisma as any).webscrapingCampaignTask.groupBy({ by: ['status'], _count: { _all: true } }).catch(() => [])
+        : Promise.resolve([]),
+      hasBatch
+        ? (this.prisma as any).webscrapingCampaignBatch.findMany({
+            where: { createdAt: { gte: todayStart } },
+            select: {
+              engineId: true,
+              approvedCount: true,
+              duplicateCount: true,
+              rejectedCount: true,
+              status: true,
+              errorMessage: true,
+              createdAt: true,
+              finishedAt: true,
+            },
+            take: 5000,
+          }).catch(() => [])
+        : Promise.resolve([]),
+      hasEngineLock
+        ? (this.prisma as any).hbxEngineLock.findMany({
+            orderBy: { engineIndex: 'asc' },
+            select: {
+              id: true,
+              engineIndex: true,
+              url: true,
+              status: true,
+              lastHealthStatus: true,
+              lastError: true,
+              lastCheckedAt: true,
+              lastUsedAt: true,
+            },
+          }).catch(() => [])
+        : Promise.resolve([]),
+      hasOperationalConfig
+        ? (this.prisma as any).webscrapingOperationalConfig.findUnique({ where: { key: 'night_factory' } }).catch(() => null)
+        : Promise.resolve(null),
+      hasRecoveryOpportunity
+        ? (this.prisma as any).recoveryOpportunity.count({ where: { createdAt: { gte: todayStart } } }).catch(() => 0)
+        : Promise.resolve(0),
+    ]);
+
+    const queue = (taskGroups as any[]).reduce((acc: Record<string, number>, item: any) => {
+      acc[String(item?.status || 'queued')] = Number(item?._count?._all || 0);
+      return acc;
+    }, {});
+
+    const byEngine = new Map<string, any>();
+    for (const batch of batchRows as any[]) {
+      const engineId = String(batch?.engineId || '').trim();
+      if (!engineId) continue;
+      const current = byEngine.get(engineId) || {
+        id: engineId,
+        cardsFabricated: 0,
+        batches: 0,
+        duplicates: 0,
+        rejected: 0,
+        lastActivityAt: null,
+        errors: 0,
+      };
+      current.cardsFabricated += Number(batch?.approvedCount || 0);
+      current.batches += 1;
+      current.duplicates += Number(batch?.duplicateCount || 0);
+      current.rejected += Number(batch?.rejectedCount || 0);
+      if (batch?.errorMessage || String(batch?.status || '').toLowerCase().includes('error')) current.errors += 1;
+      const lastActivityAt = batch?.finishedAt instanceof Date ? batch.finishedAt : batch?.createdAt instanceof Date ? batch.createdAt : null;
+      if (lastActivityAt && (!current.lastActivityAt || current.lastActivityAt.getTime() < lastActivityAt.getTime())) {
+        current.lastActivityAt = lastActivityAt;
+      }
+      byEngine.set(engineId, current);
+    }
+
+    const productionStopped = Number(cardsLast10Min || 0) === 0 && Number(queue.queued || 0) > 0 && Number(queue.running || 0) === 0;
+    const productionHint = productionStopped
+      ? 'Fila travada: ha itens na fila, mas nada rodando.'
+      : Number(cardsLast10Min || 0) > 0
+        ? 'Producao saudavel: o RadarLeadPool esta crescendo.'
+        : 'Motores descansando: sem producao recente.';
+
+    const productionAlerts = [];
+    const localhostLocks = (engineRows as any[]).filter((row) => isHbxEngineLocalhostUrl(String(row?.url || '')));
+    if (String(process.env.NODE_ENV || '').toLowerCase() === 'production' && localhostLocks.length) {
+      productionAlerts.push({
+        id: 'hbx_engine_localhost_lock',
+        severity: 'critical',
+        title: 'HbxEngineLock usando localhost em producao',
+        message: 'Motor configurado com localhost em produção. Isso quebra o Docker. Corrigir URLs dos motores.',
+        action: 'corrigir URLs dos motores',
+      });
+    }
+    if (productionStopped) {
+      productionAlerts.push({
+        id: 'radar_queue_stuck',
+        severity: 'warning',
+        title: 'Fila travada',
+        message: 'Ha tarefas em queued e nenhuma em running. Verifique motores e locks.',
+        action: 'ver motores HBX',
+      });
+    }
+
+    const hour = this.localHour(now);
+    const enabled = Boolean(nightFactoryConfig?.enabled);
+    const nightStatus = enabled
+      ? hour >= 0 && hour < 6 ? 'rodando' : 'dormindo'
+      : 'pausado';
+
+    return {
+      status: 'ok' as HealthStatus,
+      note: productionHint,
+      radar: {
+        total: Number(total || 0),
+        cardsToday: Number(cardsToday || 0),
+        cardsLastHour: Number(cardsLastHour || 0),
+        cardsLast10Min: Number(cardsLast10Min || 0),
+        premiumToday: Number(premiumToday || 0),
+      },
+      queue: {
+        queued: Number(queue.queued || 0),
+        running: Number(queue.running || 0),
+        completed: Number(queue.completed || 0),
+        failed: Number(queue.failed || 0),
+        exhausted: Number(queue.exhausted || 0),
+      },
+      engines: (engineRows as any[]).map((row) => {
+        const stats = byEngine.get(String(row?.id || '')) || {};
+        return {
+          id: String(row?.id || ''),
+          label: `M${Number(row?.engineIndex || 0) + 1}`,
+          status: String(row?.status || 'standby'),
+          online: String(row?.lastHealthStatus || row?.status || '').toLowerCase() !== 'offline',
+          cardsFabricated: Number(stats.cardsFabricated || 0),
+          batches: Number(stats.batches || 0),
+          duplicates: Number(stats.duplicates || 0),
+          rejected: Number(stats.rejected || 0),
+          lastActivityAt: stats.lastActivityAt instanceof Date ? stats.lastActivityAt.toISOString() : row?.lastUsedAt instanceof Date ? row.lastUsedAt.toISOString() : null,
+          lockUrl: row?.url || null,
+          localhostInProduction: String(process.env.NODE_ENV || '').toLowerCase() === 'production' && isHbxEngineLocalhostUrl(String(row?.url || '')),
+          lastError: row?.lastError || null,
+        };
+      }),
+      nightFactory: {
+        enabled,
+        status: nightStatus,
+        nextWindow: '00:00-06:00 America/Sao_Paulo',
+        leadsEnrichedToday: Number(premiumToday || 0),
+        premiumOpportunities: Number(premiumToday || 0),
+        recoveryOpportunities: Number(recoveryOpportunities || 0),
+        queue: Number(queue.queued || 0),
+      },
+      alerts: productionAlerts,
+    };
+  }
+
   async getSystemHealth() {
     const generatedAt = new Date().toISOString();
     const apiStartedAt = process.hrtime.bigint();
-    const [memory, load, disk, uptime, containers, postgres, errors] = await Promise.all([
+    const [memory, load, disk, uptime, containers, postgres, errors, production] = await Promise.all([
       this.collectMemory(),
       this.collectLoad(),
       this.collectDisk(),
@@ -349,6 +598,7 @@ export class SystemHealthService {
       this.collectContainers(),
       this.collectPostgres(),
       this.collectBackendErrors(),
+      this.collectRadarProduction(),
     ]);
     const apiResponseMs = Number(process.hrtime.bigint() - apiStartedAt) / 1_000_000;
 
@@ -366,6 +616,9 @@ export class SystemHealthService {
         processUptimeSeconds: Math.floor(process.uptime()),
       },
       errors,
+      production,
+      nightFactory: production.nightFactory,
+      alerts: production.alerts,
     };
   }
 

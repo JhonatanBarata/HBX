@@ -127,6 +127,7 @@ export default function DashboardScaffold({
   const pathname = usePathname();
   const router = useRouter();
   const isRootDashboard = pathname === "/boasvindas";
+  const isMasterRoute = Boolean(pathname?.startsWith("/master"));
   const defaultSectionLabel =
     pathname.startsWith("/hbx-recovery") || pathname.startsWith("/atendimento/recovery")
       ? "Atendimento"
@@ -445,6 +446,13 @@ export default function DashboardScaffold({
   const resolvedDescription = pageOverride?.description || description || "";
   const resolvedNavEyebrow = presentationConfig?.nav.eyebrow || "Módulos";
   const resolvedNavTitle = presentationConfig?.nav.title || "Navegação principal";
+  const dashboardShortcutHref = isMasterRoute || presentationProfile?.isSystemMaster ? "/master" : "/boasvindas";
+  const dashboardShortcutLabel = dashboardShortcutHref === "/master" ? "Voltar ao Master" : "Voltar ao menu";
+  const shouldShowDashboardShortcut = Boolean(
+    showDashboardShortcut &&
+      !isRootDashboard &&
+      !(dashboardShortcutHref === "/master" && pathname === "/master"),
+  );
 
   const shellStyle = useMemo<CSSProperties>(
     () =>
@@ -546,9 +554,9 @@ export default function DashboardScaffold({
 
               <div className="page-hero__sidebar">
                 <div className="page-hero__actions">
-                  {showDashboardShortcut && !isRootDashboard ? (
-                    <Link href="/boasvindas" prefetch={false} className="btn btn-secondary btn-sm">
-                      Voltar ao menu
+                  {shouldShowDashboardShortcut ? (
+                    <Link href={dashboardShortcutHref} prefetch={false} className="btn btn-secondary btn-sm">
+                      {dashboardShortcutLabel}
                     </Link>
                   ) : null}
                   {actions}

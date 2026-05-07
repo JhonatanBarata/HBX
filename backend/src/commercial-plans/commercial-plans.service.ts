@@ -119,6 +119,12 @@ export class CommercialPlansService {
         webscraping: false,
         bot_ia: false,
         recovery: false,
+        night_factory: false,
+        radar_premium: false,
+        recovery_intelligence: false,
+        digital_audit: false,
+        opportunity_score: false,
+        ai_sales_scripts: false,
       };
     }
 
@@ -138,13 +144,22 @@ export class CommercialPlansService {
 
     const vendas = hasWithManualFallback(COMMERCIAL_ENTITLEMENT_KEYS.VENDAS) || this.isCompanyTrialingVendas(company);
     const botIa = vendas && hasWithManualFallback(COMMERCIAL_ENTITLEMENT_KEYS.BOT_IA);
+    const radarPremium = hasWithManualFallback(COMMERCIAL_ENTITLEMENT_KEYS.RADAR_PREMIUM);
+    const nightFactory = botIa && hasWithManualFallback(COMMERCIAL_ENTITLEMENT_KEYS.NIGHT_FACTORY);
+    const recoveryIntelligence = hasWithManualFallback(COMMERCIAL_ENTITLEMENT_KEYS.RECOVERY_INTELLIGENCE);
 
     return {
       vendas,
       atendimento_chat: hasWithManualFallback(COMMERCIAL_ENTITLEMENT_KEYS.ATENDIMENTO_CHAT) || this.isCompanyTrialingVendas(company),
       webscraping: hasWithManualFallback(COMMERCIAL_ENTITLEMENT_KEYS.WEBSCRAPING) || this.isCompanyTrialingVendas(company),
       bot_ia: botIa,
-      recovery: false,
+      recovery: hasWithManualFallback(COMMERCIAL_ENTITLEMENT_KEYS.RECOVERY),
+      night_factory: nightFactory,
+      radar_premium: radarPremium,
+      recovery_intelligence: recoveryIntelligence,
+      digital_audit: botIa && hasWithManualFallback(COMMERCIAL_ENTITLEMENT_KEYS.DIGITAL_AUDIT),
+      opportunity_score: hasWithManualFallback(COMMERCIAL_ENTITLEMENT_KEYS.OPPORTUNITY_SCORE) || vendas,
+      ai_sales_scripts: hasWithManualFallback(COMMERCIAL_ENTITLEMENT_KEYS.AI_SALES_SCRIPTS) || radarPremium || botIa,
     };
   }
 

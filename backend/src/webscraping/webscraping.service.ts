@@ -15,7 +15,7 @@ import * as XLSX from 'xlsx';
 import { probeWebscrapingRuntime, type WebscrapingRuntimeDiagnostic } from '../modules/webscraping-runtime.util';
 import { PrismaService } from '../prisma/prisma.service';
 import { VendasService } from '../vendas/vendas.service';
-import { HbxEnginePoolService, type HbxEngineLease } from './hbx-engine-pool.service';
+import { HbxEnginePoolService, isHbxEngineLocalhostUrl, type HbxEngineLease } from './hbx-engine-pool.service';
 import {
   COMMERCIAL_PLAN_QUOTAS,
   COMMERCIAL_PLAN_KEYS,
@@ -5151,10 +5151,11 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     return Number.isFinite(parsed.getTime()) ? parsed.toISOString() : null;
   }
 
-  private dashboardEngineStatus(engine: any): 'running' | 'waiting' | 'offline' {
+  private dashboardEngineStatus(engine: any): 'running' | 'waiting' | 'offline' | 'cooldown' {
     const status = String(engine?.status || '').trim().toLowerCase();
     const stateLabel = String(engine?.stateLabel || '').trim().toLowerCase();
-    if (!engine?.configured || !engine?.online || ['offline', 'missing', 'cooldown', 'degraded', 'error'].includes(status)) {
+    if (status === 'cooldown' || status === 'degraded' || stateLabel.includes('cooldown')) return 'cooldown';
+    if (!engine?.configured || !engine?.online || ['offline', 'missing', 'error'].includes(status)) {
       return 'offline';
     }
     if (engine?.busy || engine?.activeRunId || engine?.activeCampaignId || status === 'busy' || status === 'running' || stateLabel.includes('rodando')) {
@@ -5306,11 +5307,29 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       databaseMessages.push('Algumas tabelas operacionais ainda não estão disponíveis para o painel completo.');
     }
 
-    const cardsByEngine = new Map<string, number>();
+    const statsByEngine = new Map<string, {
+      cardsFabricated: number;
+      batches: number;
+      duplicates: number;
+      rejected: number;
+      lastError: string | null;
+    }>();
     for (const row of batchRows as any[]) {
       const engineId = String(row?.engineId || '').trim();
       if (!engineId) continue;
-      cardsByEngine.set(engineId, (cardsByEngine.get(engineId) || 0) + safeInteger(row?.approvedCount));
+      const current = statsByEngine.get(engineId) || {
+        cardsFabricated: 0,
+        batches: 0,
+        duplicates: 0,
+        rejected: 0,
+        lastError: null,
+      };
+      current.cardsFabricated += safeInteger(row?.approvedCount);
+      current.batches += 1;
+      current.duplicates += safeInteger(row?.duplicateCount);
+      current.rejected += safeInteger(row?.rejectedCount);
+      if (!current.lastError && row?.errorMessage) current.lastError = String(row.errorMessage).slice(0, 220);
+      statsByEngine.set(engineId, current);
     }
 
     const queueByStatus = (taskStatusRows as any[]).reduce((acc: Record<string, number>, item: any) => {
@@ -5361,10 +5380,29 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       criticalReason,
     ].filter(Boolean) as string[];
 
+    const localhostLockWarnings = hbxEngines
+      .filter((engine: any) => {
+        const lockUrl = String(engine?.lockUrl || engine?.url || '').trim();
+        return Boolean(engine?.localhostInProduction || (String(process.env.NODE_ENV || '').toLowerCase() === 'production' && lockUrl && isHbxEngineLocalhostUrl(lockUrl)));
+      })
+      .map((engine: any) => ({
+        route: engine.id || 'hbx-engine',
+        statusCode: 0,
+        message: 'Motor configurado com localhost em produção. Isso quebra o Docker. Corrigir URLs dos motores.',
+        createdAt: now.toISOString(),
+      }));
+
     const dashboardEngines = Array.from({ length: 4 }, (_, index) => {
       const engine = hbxEngines[index] || null;
       const id = String(engine?.id || `hbx-engine-${index + 1}`);
       const status = this.dashboardEngineStatus(engine);
+      const productionStats = statsByEngine.get(id) || {
+        cardsFabricated: 0,
+        batches: 0,
+        duplicates: 0,
+        rejected: 0,
+        lastError: null,
+      };
       const queue = status === 'offline'
         ? 0
         : status === 'running'
@@ -5376,13 +5414,23 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         id,
         label: `M${index + 1}`,
         status,
-        cardsFabricated: cardsByEngine.get(id) || 0,
+        online: Boolean(engine?.online),
+        busy: Boolean(engine?.busy || engine?.activeRunId || engine?.activeCampaignId),
+        cardsFabricated: productionStats.cardsFabricated,
+        batches: productionStats.batches,
+        duplicates: productionStats.duplicates,
+        rejected: productionStats.rejected,
         queue,
         lastActivityAt: this.toIso(engine?.lastActivityAt || engine?.lastCheckedAt),
+        activeCampaignId: engine?.activeCampaignId || null,
+        lastError: engine?.lastError || productionStats.lastError || null,
+        lockUrl: engine?.lockUrl || null,
+        localhostInProduction: Boolean(engine?.localhostInProduction),
       };
     });
 
     const warnings = [
+      ...localhostLockWarnings,
       ...offlineHbxEngines.map((engine: any) => ({
         route: engine.id || 'hbx-engine',
         statusCode: 0,

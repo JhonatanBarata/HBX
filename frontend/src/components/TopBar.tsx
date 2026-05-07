@@ -522,7 +522,7 @@ export default function TopBar() {
   const authResolved = authenticated !== null;
   const pendingCheckoutLocked = isPendingCheckoutUser(user);
   const pendingCheckoutHref = resolvePendingCheckoutHref(user);
-  const dashboardHref = pendingCheckoutLocked ? pendingCheckoutHref : "/boasvindas";
+  const dashboardHref = pendingCheckoutLocked ? pendingCheckoutHref : user?.isSystemMaster ? "/master" : "/boasvindas";
   const isMasterWebscrapingRoute = Boolean(
     pathname?.startsWith("/master/webscraping") || pathname?.startsWith("/dashboard/master/webscraping"),
   );

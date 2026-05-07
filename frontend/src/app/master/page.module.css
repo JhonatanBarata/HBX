@@ -1525,6 +1525,69 @@
   box-shadow: var(--master-shadow-soft);
 }
 
+.masterNightHero {
+  display: grid;
+  gap: 1rem;
+  padding: 1.2rem;
+  border: 1px solid rgba(20, 122, 108, 0.24);
+  border-radius: 26px;
+  background:
+    linear-gradient(135deg, rgba(12, 19, 34, 0.97), rgba(11, 61, 58, 0.93)),
+    #0c1322;
+  color: #fff;
+  box-shadow: 0 22px 52px rgba(12, 19, 34, 0.18);
+}
+
+.masterNightHero h2 {
+  margin: 0.7rem 0 0;
+  font-size: clamp(1.45rem, 2vw, 2.1rem);
+  line-height: 1.08;
+  font-weight: 900;
+  letter-spacing: 0;
+}
+
+.masterNightHero p {
+  max-width: 740px;
+  margin: 0.55rem 0 0;
+  color: rgba(255, 255, 255, 0.76);
+}
+
+.masterNightGrid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.masterNightGrid article {
+  display: grid;
+  gap: 0.35rem;
+  min-width: 0;
+  padding: 0.9rem;
+  border-radius: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.075);
+}
+
+.masterNightGrid span {
+  color: rgba(255, 255, 255, 0.68);
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.masterNightGrid strong {
+  color: #fff;
+  font-size: 1.5rem;
+  font-weight: 950;
+}
+
+.masterNightActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+
 .masterHomeHero h2 {
   max-width: 760px;
   margin: 0.7rem 0 0;
@@ -1747,6 +1810,10 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .masterNightGrid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
   .healthGrid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -1863,6 +1930,10 @@
   }
 
   .masterHomeGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .masterNightGrid {
     grid-template-columns: 1fr;
   }
 
