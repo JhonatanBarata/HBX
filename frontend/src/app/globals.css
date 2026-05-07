@@ -1053,10 +1053,10 @@ html[data-theme-switcher-open="true"] .app-topbar::after {
 .app-topbar__inner {
   min-height: var(--topbar-height);
   display: grid;
-  grid-template-columns: minmax(0, auto) minmax(320px, 1fr) auto;
-  gap: 0.6rem;
+  grid-template-columns: minmax(104px, auto) minmax(560px, 1fr) minmax(250px, auto);
+  gap: 0.42rem;
   align-items: center;
-  padding: 0.22rem 0.7rem 0.2rem;
+  padding: 0.22rem 0.5rem 0.2rem;
 }
 
 .app-topbar__dock {
@@ -1099,8 +1099,16 @@ html[data-theme-switcher-open="true"] .app-topbar::after {
 .app-topbar__right {
   display: flex;
   align-items: center;
-  gap: 0.85rem;
+  gap: 0.44rem;
   min-width: 0;
+}
+
+.app-topbar__left {
+  justify-content: flex-start;
+}
+
+.app-topbar__right {
+  justify-content: flex-end;
 }
 
 .app-topbar__support {
@@ -1202,12 +1210,13 @@ html[data-theme-switcher-open="true"] .app-topbar::after {
 }
 
 .app-topbar__engineConstellation {
-  width: min(1120px, 100%);
+  width: min(760px, 100%);
   min-width: 0;
   display: grid;
-  grid-template-columns: minmax(420px, 1.28fr) minmax(340px, 0.92fr);
+  grid-template-columns: auto minmax(340px, 1fr);
   align-items: center;
-  gap: 0.5rem;
+  justify-content: center;
+  gap: 0.46rem;
 }
 
 .app-topbar__engineConstellation[data-live="true"] {
@@ -1232,8 +1241,8 @@ html[data-theme-switcher-open="true"] .app-topbar::after {
 .app-topbar__engineDeck {
   min-width: 0;
   display: grid;
-  grid-template-columns: repeat(4, minmax(92px, 1fr));
-  gap: 0.42rem;
+  grid-template-columns: repeat(4, 56px);
+  gap: 0.34rem;
 }
 
 .app-topbar__engineCard {
@@ -1242,13 +1251,15 @@ html[data-theme-switcher-open="true"] .app-topbar::after {
   position: relative;
   isolation: isolate;
   min-width: 0;
-  min-height: 74px;
+  width: 56px;
+  min-height: 88px;
   display: grid;
   grid-template-rows: auto 1fr auto;
-  gap: 0.26rem;
+  align-content: center;
+  gap: 0.22rem;
   border: 1px solid color-mix(in srgb, var(--line) 82%, transparent);
   border-radius: 14px;
-  padding: 0.42rem 0.48rem;
+  padding: 0.44rem 0.34rem;
   overflow: hidden;
   background:
     radial-gradient(circle at 18% 20%, color-mix(in srgb, var(--info) 12%, transparent), transparent 46%),
@@ -1257,6 +1268,11 @@ html[data-theme-switcher-open="true"] .app-topbar::after {
   box-shadow: var(--shadow-inset), 0 14px 26px -24px color-mix(in srgb, var(--brand) 28%, transparent);
   opacity: 0.86;
   transition: transform 180ms ease, border-color 180ms ease, filter 180ms ease, box-shadow 180ms ease;
+}
+
+.app-topbar__engineCard > * {
+  position: relative;
+  z-index: 1;
 }
 
 .app-topbar__engineCard[data-state="busy"] {
@@ -1302,6 +1318,31 @@ html[data-theme-switcher-open="true"] .app-topbar::after {
   animation: topbar-engine-node-pulse 1.5s ease-in-out infinite;
 }
 
+.app-topbar__engineCard[data-live="true"]::before {
+  content: "";
+  position: absolute;
+  inset: -2px;
+  z-index: 0;
+  border-radius: 16px;
+  padding: 1px;
+  background: conic-gradient(
+    from 0deg,
+    transparent 0deg,
+    color-mix(in srgb, var(--button-secondary) 86%, transparent) 58deg,
+    color-mix(in srgb, var(--success) 96%, white) 132deg,
+    transparent 190deg,
+    color-mix(in srgb, var(--success) 92%, transparent) 286deg,
+    transparent 360deg
+  );
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+  animation: topbar-engine-ring-spin 0.92s linear infinite;
+}
+
 .app-topbar__engineCard[data-active="true"] .app-topbar__engineNodeLed {
   background: color-mix(in srgb, var(--engine-node-tone) 84%, white);
   box-shadow:
@@ -1318,40 +1359,33 @@ html[data-theme-switcher-open="true"] .app-topbar::after {
 .app-topbar__engineCardTop {
   min-width: 0;
   display: grid;
-  grid-template-columns: 10px auto minmax(0, 1fr);
+  grid-template-columns: 10px minmax(0, 1fr);
   align-items: center;
-  gap: 0.3rem;
+  gap: 0.2rem;
 }
 
 .app-topbar__engineCardTop strong {
   color: currentColor;
-  font-size: 0.68rem;
+  font-size: 0.66rem;
   font-weight: 950;
   line-height: 1;
+  text-align: center;
 }
 
 .app-topbar__engineCardTop em {
-  min-width: 0;
-  overflow: hidden;
-  color: currentColor;
-  font-size: 0.54rem;
-  font-style: normal;
-  font-weight: 850;
-  line-height: 1;
-  opacity: 0.76;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  display: none;
 }
 
 .app-topbar__engineCardBody {
   display: grid;
-  grid-template-columns: 34px minmax(0, 1fr);
+  grid-template-columns: 1fr;
+  justify-items: center;
   align-items: center;
-  gap: 0.34rem;
+  gap: 0.12rem;
 }
 
 .app-topbar__engineGauge {
-  width: 32px;
+  width: 34px;
   aspect-ratio: 1;
   border-radius: 999px;
   display: grid;
@@ -1369,8 +1403,7 @@ html[data-theme-switcher-open="true"] .app-topbar::after {
 }
 
 .app-topbar__sparkline {
-  width: 100%;
-  height: 28px;
+  display: none;
 }
 
 .app-topbar__sparkline polyline {
@@ -1384,8 +1417,8 @@ html[data-theme-switcher-open="true"] .app-topbar::after {
 
 .app-topbar__activityDots {
   display: flex;
-  justify-content: flex-end;
-  gap: 0.2rem;
+  justify-content: center;
+  gap: 0.16rem;
 }
 
 .app-topbar__activityDots i {
@@ -1592,18 +1625,21 @@ html[data-theme-switcher-open="true"] .app-topbar::after {
   position: relative;
   isolation: isolate;
   min-width: 0;
+  width: 100%;
+  min-height: 96px;
   display: grid;
-  justify-items: center;
-  gap: 0.38rem;
-  border: 1px solid color-mix(in srgb, var(--line) 82%, var(--background));
+  justify-items: stretch;
+  align-items: center;
+  border: 1px solid color-mix(in srgb, var(--button-secondary) 34%, var(--line));
   border-radius: 16px;
-  padding: 0.44rem 0.78rem 0.48rem;
+  padding: 0.34rem;
   background:
-    radial-gradient(circle at 12% 18%, color-mix(in srgb, var(--success) 12%, transparent), transparent 38%),
-    linear-gradient(180deg, color-mix(in srgb, var(--surface-raised) 92%, var(--background)), color-mix(in srgb, var(--surface-soft) 84%, var(--background)));
+    radial-gradient(circle at 8% 16%, color-mix(in srgb, var(--success) 16%, transparent), transparent 38%),
+    radial-gradient(circle at 90% 0%, color-mix(in srgb, var(--button-secondary) 16%, transparent), transparent 46%),
+    linear-gradient(180deg, color-mix(in srgb, var(--surface-raised) 96%, var(--background)), color-mix(in srgb, var(--surface-soft) 86%, var(--background)));
   box-shadow:
     var(--shadow-inset),
-    0 18px 34px -30px color-mix(in srgb, var(--info) 38%, transparent);
+    0 18px 34px -28px color-mix(in srgb, var(--button-secondary) 38%, transparent);
 }
 
 .app-topbar__engineCore::before {
@@ -1674,6 +1710,219 @@ html[data-theme-switcher-open="true"] .app-topbar::after {
 
 .app-topbar__googleBeacon[data-active="true"] {
   display: none;
+}
+
+.app-topbar__billboard {
+  position: relative;
+  isolation: isolate;
+  min-width: 0;
+  min-height: 86px;
+  display: grid;
+  align-content: center;
+  gap: 0.34rem;
+  overflow: hidden;
+  border-radius: 13px;
+  border: 1px solid color-mix(in srgb, var(--button-secondary) 24%, var(--line));
+  padding: 0.48rem 0.56rem;
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--surface) 88%, transparent) 0 1px, transparent 1px 100%),
+    linear-gradient(180deg, color-mix(in srgb, var(--surface) 80%, transparent) 0 1px, transparent 1px 100%),
+    radial-gradient(circle at 10% 50%, color-mix(in srgb, var(--button-secondary) 18%, transparent), transparent 44%),
+    linear-gradient(180deg, color-mix(in srgb, var(--surface-raised) 96%, #eef7ff), color-mix(in srgb, var(--surface-soft) 90%, #e7f2ff));
+  background-size: 18px 18px, 18px 18px, auto, auto;
+  color: var(--foreground);
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--surface) 80%, transparent),
+    0 16px 32px -26px color-mix(in srgb, var(--button-secondary) 60%, transparent);
+  animation: topbar-billboard-enter 260ms ease both;
+}
+
+.app-topbar__billboard[data-phase="loading"],
+.app-topbar__billboard[data-phase="success"] {
+  border-color: color-mix(in srgb, var(--success) 36%, var(--button-secondary));
+}
+
+.app-topbar__billboard[data-phase="warning"] {
+  border-color: color-mix(in srgb, var(--warning) 42%, var(--line));
+}
+
+.app-topbar__billboardScan {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background:
+    linear-gradient(90deg, transparent, color-mix(in srgb, var(--success) 18%, transparent), transparent),
+    linear-gradient(180deg, transparent, color-mix(in srgb, var(--button-secondary) 10%, transparent), transparent);
+  opacity: 0.52;
+  transform: translateX(-38%);
+  pointer-events: none;
+  animation: topbar-billboard-scan 3.8s ease-in-out infinite;
+}
+
+.app-topbar__billboard > *:not(.app-topbar__billboardScan) {
+  position: relative;
+  z-index: 1;
+}
+
+.app-topbar__billboardMain {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.app-topbar__billboardOrb {
+  position: relative;
+  width: 32px;
+  height: 32px;
+  border-radius: 999px;
+  background:
+    conic-gradient(
+      from 0deg,
+      color-mix(in srgb, var(--success) 92%, white),
+      color-mix(in srgb, var(--button-secondary) 94%, white),
+      color-mix(in srgb, var(--success) 88%, white),
+      color-mix(in srgb, var(--button-secondary) 92%, white),
+      color-mix(in srgb, var(--success) 92%, white)
+    );
+  box-shadow:
+    0 0 0 5px color-mix(in srgb, var(--success) 12%, transparent),
+    0 12px 24px -16px color-mix(in srgb, var(--success) 82%, transparent),
+    0 0 22px color-mix(in srgb, var(--button-secondary) 24%, transparent);
+  animation: topbar-progress-spin 1.05s linear infinite;
+}
+
+.app-topbar__billboard[data-phase="idle"] .app-topbar__billboardOrb {
+  animation-duration: 2.4s;
+  filter: saturate(0.72);
+  opacity: 0.82;
+}
+
+.app-topbar__billboard[data-phase="success"] .app-topbar__billboardOrb {
+  animation-duration: 1.35s;
+}
+
+.app-topbar__billboardOrb::before,
+.app-topbar__billboardOrb::after {
+  content: "";
+  position: absolute;
+  border-radius: inherit;
+}
+
+.app-topbar__billboardOrb::before {
+  inset: 5px;
+  background: color-mix(in srgb, var(--surface-raised) 94%, white);
+}
+
+.app-topbar__billboardOrb::after {
+  inset: 10px;
+  background: radial-gradient(circle, color-mix(in srgb, var(--button-secondary) 86%, var(--info)), color-mix(in srgb, var(--success) 70%, var(--button-secondary)));
+  box-shadow: 0 0 16px color-mix(in srgb, var(--button-secondary) 56%, transparent);
+}
+
+.app-topbar__billboardOrb span {
+  position: absolute;
+  inset: 2px;
+  border-radius: inherit;
+  border: 1px solid color-mix(in srgb, white 42%, transparent);
+}
+
+.app-topbar__billboardCopy {
+  min-width: 0;
+  display: grid;
+  gap: 0.08rem;
+}
+
+.app-topbar__billboardEyebrow {
+  overflow: hidden;
+  color: color-mix(in srgb, var(--button-secondary) 82%, var(--foreground));
+  font-size: 0.56rem;
+  font-weight: 950;
+  letter-spacing: 0.12em;
+  line-height: 1;
+  text-transform: uppercase;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-topbar__billboardCopy strong {
+  overflow: hidden;
+  color: var(--foreground);
+  font-size: 0.78rem;
+  font-weight: 950;
+  line-height: 1.05;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-topbar__billboardCopy p {
+  margin: 0;
+  overflow: hidden;
+  color: color-mix(in srgb, var(--foreground-soft) 78%, var(--muted));
+  font-size: 0.62rem;
+  font-weight: 820;
+  line-height: 1.12;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-topbar__billboardPercent {
+  min-width: 42px;
+  color: color-mix(in srgb, var(--button-secondary) 86%, var(--success));
+  font-size: 0.74rem;
+  font-weight: 950;
+  line-height: 1;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.app-topbar__billboardTrack {
+  height: 5px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--line) 72%, var(--surface));
+}
+
+.app-topbar__billboardTrack span {
+  display: block;
+  height: 100%;
+  min-width: 5%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--button-secondary) 88%, var(--info)), color-mix(in srgb, var(--success) 84%, var(--info)));
+  box-shadow: 0 0 18px color-mix(in srgb, var(--success) 42%, transparent);
+  transition: width 260ms ease;
+}
+
+.app-topbar__billboardMetrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.24rem;
+}
+
+.app-topbar__billboardMetrics span {
+  min-width: 0;
+  display: grid;
+  gap: 0.02rem;
+  overflow: hidden;
+  border-left: 1px solid color-mix(in srgb, var(--line) 78%, var(--background));
+  padding-left: 0.36rem;
+  color: var(--muted);
+  font-size: 0.52rem;
+  font-weight: 900;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.app-topbar__billboardMetrics strong {
+  overflow: hidden;
+  color: var(--foreground);
+  font-size: 0.68rem;
+  font-weight: 950;
+  line-height: 1.1;
+  text-overflow: ellipsis;
+  text-transform: none;
+  white-space: nowrap;
 }
 
 .app-topbar__summary {
@@ -1908,7 +2157,7 @@ html[data-theme-switcher-open="true"] .app-topbar::after {
 .app-topbar__signals {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0.34rem;
   min-width: 0;
 }
 
@@ -2094,6 +2343,31 @@ html[data-theme-switcher-open="true"] .app-topbar::after {
   }
 }
 
+@keyframes topbar-billboard-enter {
+  from {
+    opacity: 0;
+    transform: translateY(5px) scale(0.985);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes topbar-billboard-scan {
+  0%,
+  100% {
+    opacity: 0.18;
+    transform: translateX(-42%);
+  }
+
+  48% {
+    opacity: 0.58;
+    transform: translateX(42%);
+  }
+}
+
 @keyframes topbar-engine-ring-spin {
   to {
     transform: rotate(360deg);
@@ -2160,10 +2434,14 @@ html[data-theme-switcher-open="true"] .app-topbar::after {
   .app-topbar__engineNode[data-active="true"][data-state="busy"]::before,
   .app-topbar__engineNode[data-live="true"] .app-topbar__engineNodeLed::after,
   .app-topbar__engineCard[data-active="true"]::after,
+  .app-topbar__engineCard[data-live="true"]::before,
   .app-topbar__engineCard[data-active="true"] .app-topbar__activityDots i,
   .app-topbar__engineCore[data-live="true"]::before,
   .app-topbar__engineCore[data-google-active="true"] .app-topbar__googleHalo,
-  .app-topbar__googleBeacon[data-active="true"] {
+  .app-topbar__googleBeacon[data-active="true"],
+  .app-topbar__billboard,
+  .app-topbar__billboardScan,
+  .app-topbar__billboardOrb {
     animation: none !important;
   }
 }
@@ -4335,12 +4613,12 @@ html[data-theme="tabler"] .login-card__stat {
   min-width: 0;
   display: inline-flex;
   align-items: center;
-  gap: 0.72rem;
+  gap: 0;
 }
 
 .app-brand__mark {
-  width: 50px;
-  height: 50px;
+  width: 48px;
+  height: 48px;
   border-radius: calc(var(--control-radius) - 1px);
   display: inline-grid;
   align-items: center;
@@ -4730,6 +5008,44 @@ html[data-hbx-modules-peek-open="true"] .app-brand__markButton.is-modules {
   color: color-mix(in srgb, var(--button-primary) 72%, var(--foreground));
 }
 
+.app-topbar__accountCluster {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.22rem;
+  min-width: 0;
+  border: 1px solid color-mix(in srgb, var(--line) 86%, var(--background));
+  border-radius: calc(var(--control-radius) + 3px);
+  padding: 0.16rem;
+  background:
+    radial-gradient(circle at 4% 50%, color-mix(in srgb, var(--button-secondary) 12%, transparent), transparent 42%),
+    linear-gradient(180deg, color-mix(in srgb, var(--surface) 94%, var(--background)), color-mix(in srgb, var(--surface-soft) 90%, var(--background)));
+  box-shadow: var(--shadow-inset), 0 12px 28px -26px color-mix(in srgb, var(--button-secondary) 46%, transparent);
+}
+
+.app-topbar__accountCluster .theme-switcher-wrap {
+  flex: 0 0 auto;
+}
+
+.app-topbar__accountCluster .theme-switcher__trigger {
+  width: 40px;
+  min-width: 40px;
+  min-height: 40px;
+  justify-content: center;
+  gap: 0;
+  border-radius: calc(var(--control-radius) - 1px);
+  padding: 0.22rem;
+}
+
+.app-topbar__accountCluster .theme-switcher__trigger-copy,
+.app-topbar__accountCluster .theme-switcher__modeBadge {
+  display: none;
+}
+
+.app-topbar__accountCluster .theme-switcher__trigger-preview {
+  width: 28px;
+  height: 28px;
+}
+
 .theme-switcher__panel,
 .app-user__menu,
 .incoming-alert {
@@ -4959,6 +5275,21 @@ html[data-hbx-modules-peek-open="true"] .app-brand__markButton.is-modules {
   transition: transform var(--motion-fast), box-shadow var(--motion-fast), border-color var(--motion-fast);
 }
 
+.app-topbar__accountCluster .app-user__trigger {
+  min-height: 40px;
+  max-width: 178px;
+  border: 0;
+  border-radius: calc(var(--control-radius) - 1px);
+  background: transparent;
+  box-shadow: none;
+  padding: 0.18rem 0.36rem 0.18rem 0.18rem;
+}
+
+.app-topbar__accountCluster .app-user__trigger:hover {
+  background: color-mix(in srgb, var(--surface-raised) 58%, transparent);
+  box-shadow: none;
+}
+
 .app-user__trigger:hover {
   transform: translateY(-1px);
   border-color: color-mix(in srgb, var(--brand) 20%, var(--line));
@@ -4982,16 +5313,23 @@ html[data-hbx-modules-peek-open="true"] .app-brand__markButton.is-modules {
   display: grid;
   gap: 0.1rem;
   line-height: 1.15;
+  min-width: 0;
 }
 
 .app-user__name {
   font-size: 0.78rem;
   font-weight: 800;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .app-user__company {
   font-size: 0.67rem;
   color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .app-user__menu {
@@ -6683,7 +7021,8 @@ html[data-theme="tabler"] .workspace-context {
   }
 
   .app-topbar__engineDeck {
-    grid-template-columns: repeat(4, minmax(76px, 1fr));
+    grid-template-columns: repeat(4, 56px);
+    justify-content: center;
   }
 
   .app-topbar__engineWing {
@@ -6782,17 +7121,22 @@ html[data-theme="tabler"] .workspace-context {
 
   .app-topbar__engineDeck {
     order: 2;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(4, 54px);
+    justify-content: center;
   }
 
   .app-topbar__engineCard {
-    min-height: 34px;
-    padding: 0.34rem 0.42rem;
+    width: 54px;
+    min-height: 76px;
+    padding: 0.38rem 0.3rem;
   }
 
-  .app-topbar__engineCardBody,
+  .app-topbar__engineCardBody {
+    display: grid;
+  }
+
   .app-topbar__activityDots {
-    display: none;
+    display: flex;
   }
 
   .app-topbar__engineWing {

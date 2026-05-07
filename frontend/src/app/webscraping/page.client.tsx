@@ -4,8 +4,18 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import DashboardScaffold from "@/components/DashboardScaffold";
 import LiquidGlassCard, { liquidGlassCardStyles as glassCardStyles } from "@/components/LiquidGlassCard";
+import {
+  HbxAdvancedFilters,
+  HbxEngineSelector,
+  HbxQuantitySelector,
+  HbxSegmentCombobox,
+  HbxStateCityPicker,
+  HbxTargetTypeSelector,
+  type HbxAdvancedFiltersValue,
+} from "@/components/prospecting-filters";
 import { useQuickLaunchNotice } from "@/components/useQuickLaunchNotice";
 import { BRAZIL_CITIES_BY_STATE, BRAZIL_STATES } from "@/lib/brazil-locations";
+import { HBX_PF_NICHE_SUGGESTIONS, HBX_SEGMENT_SUGGESTIONS } from "@/lib/hbx-segment-suggestions";
 import { clearTopbarProgress, dispatchTopbarProgress } from "@/lib/topbar-progress";
 import { apiFetch, getToken } from "@/app/_lib/api";
 import { useRequireModule } from "@/app/_lib/useRequireModule";
@@ -16,152 +26,8 @@ const DEFAULT_API_URL =
     ? "https://api.hbxsystem.com.br"
     : "http://localhost:3000";
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? DEFAULT_API_URL;
-const SEGMENT_SUGGESTIONS = [
-  "academias",
-  "acessórios automotivos",
-  "açougues",
-  "advocacias",
-  "agências de marketing",
-  "agências de turismo",
-  "agronegócios",
-  "alarmes e segurança",
-  "alimentos naturais",
-  "aluguel de equipamentos",
-  "auto elétricas",
-  "auto escolas",
-  "auto peças",
-  "bares",
-  "barbearias",
-  "bicicletarias",
-  "bijuterias",
-  "borracharias",
-  "buffets",
-  "cafeterias",
-  "calçados",
-  "casa de carnes",
-  "casas de festas",
-  "centros automotivos",
-  "chaveiros",
-  "clínicas de estética",
-  "clínicas médicas",
-  "clínicas odontológicas",
-  "clínicas veterinárias",
-  "colégios",
-  "comércio varejista",
-  "concessionárias",
-  "confeitarias",
-  "construtoras",
-  "contabilidades",
-  "consultorias empresariais",
-  "corretoras de seguros",
-  "cosméticos",
-  "coworkings",
-  "cursos profissionalizantes",
-  "dedetizadoras",
-  "depósitos de bebidas",
-  "despachantes",
-  "distribuidoras",
-  "docerias",
-  "e-commerce",
-  "educação infantil",
-  "elétricas",
-  "eletrodomésticos",
-  "eletrônicas",
-  "energia solar",
-  "engenharias",
-  "escolas",
-  "escritórios administrativos",
-  "escritórios de arquitetura",
-  "estacionamentos",
-  "estúdios de fotografia",
-  "eventos",
-  "farmácias",
-  "ferragens",
-  "financeiras",
-  "floriculturas",
-  "fornecedoras industriais",
-  "funerárias",
-  "gráficas",
-  "hospedagens",
-  "hotéis",
-  "imobiliárias",
-  "indústrias alimentícias",
-  "indústrias metalúrgicas",
-  "informática",
-  "instaladoras",
-  "joalherias",
-  "laboratórios",
-  "lanchonetes",
-  "lava rápidos",
-  "lavanderias",
-  "lojas de brinquedos",
-  "lojas de celulares",
-  "lojas de colchões",
-  "lojas de conveniência",
-  "lojas de eletrônicos",
-  "lojas de móveis",
-  "lojas de roupas",
-  "lojas de tintas",
-  "lotéricas",
-  "madeireiras",
-  "manutenção predial",
-  "marcenarias",
-  "materiais de construção",
-  "marmorarias",
-  "mecânicas",
-  "mercados",
-  "metalúrgicas",
-  "moda feminina",
-  "moda masculina",
-  "motéis",
-  "oficinas mecânicas",
-  "ótica",
-  "panificadoras",
-  "papelarias",
-  "perfumarias",
-  "pet shops",
-  "pizzarias",
-  "postos de combustível",
-  "provedores de internet",
-  "quadras esportivas",
-  "químicas",
-  "restaurantes",
-  "revendas de veículos",
-  "salões de beleza",
-  "serralherias",
-  "serviços contábeis",
-  "serviços de limpeza",
-  "serviços gráficos",
-  "serviços jurídicos",
-  "serviços médicos",
-  "serviços odontológicos",
-  "serviços terceirizados",
-  "sistemas de segurança",
-  "supermercados",
-  "telecomunicações",
-  "transportadoras",
-  "turismo",
-  "uniformes",
-  "universidades",
-  "usinagem",
-  "vidraçarias",
-  "vigilância",
-  "vistorias veiculares",
-  "web design",
-  "xérox e copiadoras",
-  "yoga e pilates",
-  "zeladoria",
-];
-const PF_NICHE_SUGGESTIONS = [
-  "plano de saúde",
-  "seguros",
-  "consórcio",
-  "imóveis",
-  "energia solar",
-  "crédito",
-  "estética",
-  "serviços",
-];
+const SEGMENT_SUGGESTIONS = HBX_SEGMENT_SUGGESTIONS;
+const PF_NICHE_SUGGESTIONS = HBX_PF_NICHE_SUGGESTIONS;
 const PF_ROLE_OPTIONS = [
   "consultor",
   "corretor",
@@ -1006,16 +872,6 @@ function parsePfSegment(value: string) {
   };
 }
 
-function searchModeTitle(option: (typeof SEARCH_MODE_OPTIONS)[number]) {
-  if (option.id === "google_pj") return "Google oficial";
-  return "Radar de oportunidades";
-}
-
-function searchModeLimit(option: (typeof SEARCH_MODE_OPTIONS)[number]) {
-  const max = option.quantityOptions[option.quantityOptions.length - 1] || 20;
-  return `Até ${max} resultados`;
-}
-
 function searchModeGuide(option: (typeof SEARCH_MODE_OPTIONS)[number]) {
   if (option.id === "hbx_radar") {
     return {
@@ -1239,10 +1095,6 @@ export default function WebscrapingClientPage({ mode = "search" }: WebscrapingCl
     allowedEndHour: 8,
     maxAttemptsPerTask: 3,
   });
-  const [stateSuggestionsOpen, setStateSuggestionsOpen] = useState(false);
-  const [citySuggestionsOpen, setCitySuggestionsOpen] = useState(false);
-  const [activeCitySuggestionIndex, setActiveCitySuggestionIndex] = useState(0);
-  const [segmentSuggestionsOpen, setSegmentSuggestionsOpen] = useState(false);
   const [openRadarPicker, setOpenRadarPicker] = useState<string | null>(null);
   const [selectedState, setSelectedState] = useState("");
   const [city, setCity] = useState("");
@@ -1269,7 +1121,6 @@ export default function WebscrapingClientPage({ mode = "search" }: WebscrapingCl
   const [searchError, setSearchError] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
   const [hasSearched, setHasSearched] = useState(false);
-  const [advancedOpen, setAdvancedOpen] = useState(false);
   const [panelMode, setPanelMode] = useState<"search" | "radar">(mode);
   const [appliedScriptSender, setAppliedScriptSender] = useState("");
   const [appliedScriptCompany, setAppliedScriptCompany] = useState("");
@@ -1293,12 +1144,6 @@ export default function WebscrapingClientPage({ mode = "search" }: WebscrapingCl
   }, [runtime?.quota]);
   const defaultScriptVariables = useMemo(() => buildDefaultScriptVariables(currentUser), [currentUser]);
   const cityOptions = useMemo(() => BRAZIL_CITIES_BY_STATE[selectedState] || [], [selectedState]);
-  const stateSuggestionItems = useMemo(() => {
-    const normalized = normalizeCityLookup(selectedState);
-    return BRAZIL_STATES
-      .map((item) => ({ value: item.uf, label: `${item.uf} - ${item.name}` }))
-      .filter((item) => !normalized || normalizeCityLookup(item.label).includes(normalized));
-  }, [selectedState]);
   const radarCityOptions = useMemo(() => BRAZIL_CITIES_BY_STATE[String(radarFilters.state || "").trim().toUpperCase()] || [], [radarFilters.state]);
   const campaignCityOptions = useMemo(() => BRAZIL_CITIES_BY_STATE[String(campaignForm.state || "").trim().toUpperCase()] || [], [campaignForm.state]);
   const scriptPresetStorageKey = useMemo(() => {
@@ -1380,12 +1225,6 @@ export default function WebscrapingClientPage({ mode = "search" }: WebscrapingCl
   ]);
 
   useEffect(() => () => clearTopbarProgress("webscraping"), []);
-  const segmentSuggestionItems = useMemo(() => {
-    const normalizedSegment = normalizeCityLookup(segment);
-    if (!normalizedSegment) return activeSegmentSuggestions;
-    const filtered = activeSegmentSuggestions.filter((option) => normalizeCityLookup(option).includes(normalizedSegment));
-    return filtered.length ? filtered : activeSegmentSuggestions;
-  }, [activeSegmentSuggestions, segment]);
   const citySuggestionItems = useMemo(() => {
     const normalizedCity = normalizeCityLookup(city);
     if (!normalizedCity) return cityOptions;
@@ -1403,13 +1242,7 @@ export default function WebscrapingClientPage({ mode = "search" }: WebscrapingCl
       })
       .map((item) => item.option);
   }, [city, cityOptions]);
-  const shouldShowCitySuggestions =
-    citySuggestionsOpen && Boolean(selectedState) && citySuggestionItems.length > 0;
-  const shouldShowStateSuggestions = stateSuggestionsOpen && stateSuggestionItems.length > 0;
   const citySelectionPending = cityOptions.length > 0 && city.trim().length > 0 && !cityExactOption;
-  const activeCitySuggestion = shouldShowCitySuggestions
-    ? citySuggestionItems[Math.min(activeCitySuggestionIndex, citySuggestionItems.length - 1)] || ""
-    : "";
   const resultTargetType = useMemo(() => {
     if (!activeQuery) return targetType;
     if (activeQuery.engine === "hbx" || isPeopleTargetType(activeQuery.targetType)) {
@@ -1556,10 +1389,6 @@ export default function WebscrapingClientPage({ mode = "search" }: WebscrapingCl
   }, [maxQuantity, quantityOptions]);
 
   useEffect(() => {
-    setActiveCitySuggestionIndex(0);
-  }, [city]);
-
-  useEffect(() => {
     const query = activeQuery || (city.trim() && (effectiveSegment || agendaMode) ? { city, segment: effectiveSegment, targetType } : null);
     if (!qualifiedResults.length || !query) {
       setCrmPreviewByPhone({});
@@ -1684,46 +1513,10 @@ export default function WebscrapingClientPage({ mode = "search" }: WebscrapingCl
     }
   }
 
-  function selectCitySuggestion(option: string) {
-    setCity(option);
-    setCitySuggestionsOpen(false);
-    setActiveCitySuggestionIndex(0);
-  }
-
   function handleStateChange(nextState: string) {
     const normalizedState = nextState.trim().toUpperCase();
     setSelectedState(normalizedState);
     setCity("");
-    setCitySuggestionsOpen(false);
-    setActiveCitySuggestionIndex(0);
-  }
-
-  function handleCityKeyDown(event: React.KeyboardEvent<HTMLInputElement>) {
-    if (!shouldShowCitySuggestions) return;
-
-    if (event.key === "ArrowDown") {
-      event.preventDefault();
-      setActiveCitySuggestionIndex((current) => Math.min(current + 1, citySuggestionItems.length - 1));
-      return;
-    }
-
-    if (event.key === "ArrowUp") {
-      event.preventDefault();
-      setActiveCitySuggestionIndex((current) => Math.max(current - 1, 0));
-      return;
-    }
-
-    if (event.key === "Enter") {
-      event.preventDefault();
-      if (activeCitySuggestion) {
-        selectCitySuggestion(activeCitySuggestion);
-      }
-      return;
-    }
-
-    if (event.key === "Escape") {
-      setCitySuggestionsOpen(false);
-    }
   }
 
   async function refreshHistory() {
@@ -2068,7 +1861,6 @@ export default function WebscrapingClientPage({ mode = "search" }: WebscrapingCl
       } else {
         setSearchError("Selecione uma cidade existente na lista.");
       }
-      setCitySuggestionsOpen(true);
       return;
     }
 
@@ -2293,7 +2085,6 @@ export default function WebscrapingClientPage({ mode = "search" }: WebscrapingCl
           ? "Selecione uma cidade da lista antes de exportar."
           : "Preencha estado, cidade e segmento antes de exportar.",
       );
-      setCitySuggestionsOpen(Boolean(city.trim() && !query.city.trim()));
       return;
     }
 
@@ -2505,26 +2296,11 @@ export default function WebscrapingClientPage({ mode = "search" }: WebscrapingCl
 
             <div className={styles.consultationSplit}>
               <div className={styles.consultationMain}>
-                <div className={styles.engineSelector} role="radiogroup" aria-label="Motor de busca">
-                  {SEARCH_MODE_OPTIONS.map((option) => (
-                    <button
-                      key={option.id}
-                      type="button"
-                      className={selectedSearchMode.id === option.id ? styles.engineOptionActive : styles.engineOption}
-                      onClick={() => handleSearchModeChange(option.id)}
-                      role="radio"
-                      aria-checked={selectedSearchMode.id === option.id}
-                    >
-                      <span className={styles.engineStatus}>
-                        <Icon name={selectedSearchMode.id === option.id ? "check" : "zap"} size={15} />
-                        {option.motorCode}
-                      </span>
-                      <strong>{option.label}</strong>
-                      <span>{searchModeTitle(option)}</span>
-                      <small>{searchModeLimit(option)}</small>
-                      <Icon name="cursor" size={16} className={styles.clickIcon} />
-                    </button>
-                  ))}
+                <div className={styles.sharedFilterBlock}>
+                  <HbxEngineSelector
+                    value={engine}
+                    onChange={(value) => handleSearchModeChange(value === "hbx" ? "hbx_radar" : "google_pj")}
+                  />
                 </div>
 
                 <div className={styles.guideStrip} aria-label="Guia do motor selecionado">
@@ -2537,123 +2313,20 @@ export default function WebscrapingClientPage({ mode = "search" }: WebscrapingCl
                 </div>
 
                 <div className={styles.formGrid}>
-                  {engine === "hbx" ? (
-                    <label className={styles.field}>
-                      <span className={styles.fieldLabel}>Tipo de oportunidade</span>
-                      <select
-                        className={styles.fieldSelect}
-                        value={targetType}
-                        onChange={(event) => handleHbxTargetTypeChange(event.target.value as HbxTargetType)}
-                      >
-                        <option value="pj">CNPJ - empresas e negócios</option>
-                        <option value="pf">CPF - pessoas em páginas públicas</option>
-                        <option value="agenda_pf">Agenda CPF - nomes públicos por cidade</option>
-                      </select>
-                      <p className={styles.fieldHint}>
-                        O Radar alterna a estratégia sem trocar de motor e não coleta documento fiscal.
-                      </p>
-                    </label>
-                  ) : null}
+                  <HbxTargetTypeSelector
+                    value={targetType}
+                    onChange={(value) => handleHbxTargetTypeChange(value as HbxTargetType)}
+                    allowedTypes={engine === "hbx" ? ["pj", "pf", "agenda_pf"] : ["pj"]}
+                  />
 
-                  <label className={styles.field} onBlur={() => window.setTimeout(() => setStateSuggestionsOpen(false), 120)}>
-                    <span className={styles.fieldLabel}>Estado</span>
-                    <div className={styles.cityInputWrap}>
-                      <input
-                        className={styles.fieldInput}
-                        value={selectedState}
-                        onChange={(event) => {
-                          handleStateChange(event.target.value.slice(0, 2));
-                          setStateSuggestionsOpen(true);
-                        }}
-                        onFocus={() => setStateSuggestionsOpen(true)}
-                        placeholder="Digite ou escolha o estado"
-                        autoComplete="off"
-                      />
-                      <Icon name="chevron" size={18} className={styles.cityInputArrow} />
-                    </div>
-                    {shouldShowStateSuggestions ? (
-                      <div className={styles.citySuggestions} role="listbox" aria-label="Estados">
-                        {stateSuggestionItems.map((item) => (
-                          <button
-                            key={item.value}
-                            type="button"
-                            className={selectedState === item.value ? styles.citySuggestionActive : styles.citySuggestion}
-                            onMouseDown={(event) => {
-                              event.preventDefault();
-                              handleStateChange(item.value);
-                              setStateSuggestionsOpen(false);
-                            }}
-                            role="option"
-                            aria-selected={selectedState === item.value}
-                          >
-                            {item.label}
-                          </button>
-                        ))}
-                      </div>
-                    ) : null}
-                    <p className={styles.fieldHint}>A lista de cidades abaixo usa todos os municípios oficiais do estado.</p>
-                  </label>
-
-                  <div className={styles.field}>
-                    <label className={styles.fieldLabel} htmlFor="webscraping-city">
-                      {hbxPjMode ? "Cidade opcional" : "Cidade"}
-                    </label>
-                    <div className={styles.cityInputWrap}>
-                      <input
-                        id="webscraping-city"
-                        className={styles.fieldInput}
-                        value={city}
-                        onChange={(event) => {
-                          setCity(event.target.value);
-                          setCitySuggestionsOpen(true);
-                        }}
-                        onFocus={() => setCitySuggestionsOpen(true)}
-                        onBlur={() => window.setTimeout(() => setCitySuggestionsOpen(false), 120)}
-                        onKeyDown={handleCityKeyDown}
-                        placeholder={selectedState ? "Digite e selecione a cidade" : "Selecione o estado primeiro"}
-                        disabled={!selectedState}
-                        autoComplete="off"
-                        role="combobox"
-                        aria-autocomplete="list"
-                        aria-expanded={shouldShowCitySuggestions}
-                        aria-controls="webscraping-city-suggestions"
-                        aria-activedescendant={activeCitySuggestion ? `webscraping-city-option-${activeCitySuggestionIndex}` : undefined}
-                      />
-                      <Icon name="chevron" size={18} className={styles.cityInputArrow} />
-                    </div>
-                    {shouldShowCitySuggestions ? (
-                      <div
-                        id="webscraping-city-suggestions"
-                        className={styles.citySuggestions}
-                        role="listbox"
-                      >
-                        {citySuggestionItems.map((option, index) => (
-                          <button
-                            key={option}
-                            id={`webscraping-city-option-${index}`}
-                            type="button"
-                            className={index === activeCitySuggestionIndex ? styles.citySuggestionActive : styles.citySuggestion}
-                            onMouseDown={(event) => {
-                              event.preventDefault();
-                              selectCitySuggestion(option);
-                            }}
-                            role="option"
-                            aria-selected={index === activeCitySuggestionIndex}
-                          >
-                            {option}
-                          </button>
-                        ))}
-                      </div>
-                    ) : null}
-                    <p className={styles.fieldHint}>
-                      {hbxPjMode
-                          ? "Opcional. Se escolher uma cidade, ela precisa pertencer ao estado selecionado."
-                        : citySelectionPending
-                          ? "Escolha uma cidade da lista antes de buscar."
-                          : selectedState
-                            ? "As opções são filtradas pelo estado selecionado."
-                            : "Selecione o estado para carregar as cidades."}
-                    </p>
+                  <div className={styles.sharedWideField}>
+                    <HbxStateCityPicker
+                      state={selectedState}
+                      city={city}
+                      onStateChange={handleStateChange}
+                      onCityChange={setCity}
+                      requiredCity={!hbxPjMode}
+                    />
                   </div>
 
               {pfMode ? (
@@ -2674,64 +2347,27 @@ export default function WebscrapingClientPage({ mode = "search" }: WebscrapingCl
                 </label>
               ) : null}
 
-              <label className={styles.field}>
-                <span className={styles.fieldLabel}>
-                  {pfMode ? "Nicho / serviço para PF" : agendaMode ? "Segmento opcional" : hbxPjMode ? "O que deseja prospectar?" : "Segmento / tipo de negocio"}
-                </span>
-                <div className={styles.cityInputWrap}>
-                  <input
-                    className={styles.fieldInput}
-                    value={segment}
-                    onChange={(event) => {
-                      setSegment(event.target.value);
-                      setSegmentSuggestionsOpen(true);
-                    }}
-                    onFocus={() => setSegmentSuggestionsOpen(true)}
-                    onBlur={() => window.setTimeout(() => setSegmentSuggestionsOpen(false), 120)}
-                    placeholder={
-                      pfMode
-                        ? "Ex: plano de saúde, seguros, imóveis"
-                        : agendaMode
-                          ? "Opcional. Ex: Agenda PF"
-                          : hbxPjMode
-                            ? "Ex: Madeireira, Auto elétrica, Clínica estética"
-                            : "Ex: Clinicas odontologicas"
-                    }
-                    autoComplete="off"
-                  />
-                  <Icon name="chevron" size={18} className={styles.cityInputArrow} />
-                </div>
-                {segmentSuggestionsOpen && segmentSuggestionItems.length > 0 ? (
-                  <div className={styles.citySuggestions} role="listbox">
-                    {segmentSuggestionItems.map((option) => (
-                      <button
-                        key={option}
-                        type="button"
-                        className={segment === option ? styles.citySuggestionActive : styles.citySuggestion}
-                        onMouseDown={(event) => {
-                          event.preventDefault();
-                          setSegment(option);
-                          setSegmentSuggestionsOpen(false);
-                        }}
-                        role="option"
-                        aria-selected={segment === option}
-                      >
-                        {option}
-                      </button>
-                    ))}
-                  </div>
-                ) : null}
-                {pfMode ? (
-                  <p className={styles.fieldHint}>
-                    Pesquisa enviada: {effectiveSegment || "informe um nicho"}
-                  </p>
-                ) : null}
-                {agendaMode ? (
-                  <p className={styles.fieldHint}>
-                    {segment.trim() ? `Rótulo visual: ${segmentLabel}` : "Sem segmento: será exibido como Agenda PF."}
-                  </p>
-                ) : null}
-              </label>
+              <HbxSegmentCombobox
+                value={segment}
+                onChange={setSegment}
+                suggestions={activeSegmentSuggestions}
+                placeholder={
+                  pfMode
+                    ? "Ex: plano de saúde, seguros, imóveis"
+                    : agendaMode
+                      ? "Opcional. Ex: Agenda PF"
+                      : "Digite ou escolha um segmento"
+                }
+                helperText={
+                  pfMode
+                    ? `Pesquisa enviada: ${effectiveSegment || "informe um nicho"}`
+                    : agendaMode
+                      ? segment.trim()
+                        ? `Rótulo visual: ${segmentLabel}`
+                        : "Sem segmento: será exibido como Agenda PF."
+                      : "Ex: clínicas odontológicas, oficinas mecânicas, energia solar"
+                }
+              />
 
               {pfMode ? (
                 <label className={styles.field}>
@@ -2750,74 +2386,24 @@ export default function WebscrapingClientPage({ mode = "search" }: WebscrapingCl
                 </label>
               ) : null}
 
-              <label className={styles.field}>
-                <span className={styles.fieldLabel}>Quantidade</span>
-                <select
-                  className={styles.fieldSelect}
-                  value={quantity}
-                  onChange={(event) => setQuantity(Number(event.target.value))}
-                >
-                  {quantityOptions.map((option) => (
-                    <option key={option} value={option}>
-                      {option} contatos
-                    </option>
-                  ))}
-                </select>
-                <p className={styles.fieldHint}>Limite deste motor: {maxQuantity} contatos.</p>
-              </label>
+              <HbxQuantitySelector
+                value={quantity}
+                onChange={setQuantity}
+                options={quantityOptions}
+                limitLabel="Quantidade"
+                helperText={`Limite deste motor/plano: ${maxQuantity} contatos.`}
+              />
             </div>
 
                 <div className={styles.advancedWrap}>
-                  <button
-                    type="button"
-                    className={styles.advancedToggle}
-                    onClick={() => setAdvancedOpen((value) => !value)}
-                  >
-                    <span>Filtros avancados</span>
-                    <span>{advancedOpen ? "Ocultar" : "Mostrar"}</span>
-                  </button>
-
-                  {advancedOpen ? (
-                    <div className={styles.advancedGrid}>
-                      {targetType === "pj" ? (
-                        <>
-                          <label className={styles.field}>
-                            <span className={styles.fieldLabel}>Nota minima</span>
-                            <input
-                              className={styles.fieldInput}
-                              type="number"
-                              min="0"
-                              max="5"
-                              step="0.1"
-                              value={minRating}
-                              onChange={(event) => setMinRating(event.target.value)}
-                              placeholder="Opcional"
-                            />
-                          </label>
-
-                          <label className={styles.field}>
-                            <span className={styles.fieldLabel}>Minimo de avaliacoes</span>
-                            <input
-                              className={styles.fieldInput}
-                              type="number"
-                              min="0"
-                              step="1"
-                              value={minReviews}
-                              onChange={(event) => setMinReviews(event.target.value)}
-                              placeholder="Opcional"
-                            />
-                          </label>
-                        </>
-                      ) : (
-                        <div className={styles.filterNotice}>
-                          <strong>Filtros de PF</strong>
-                          <p>
-                            PF não usa nota, avaliações ou site como corte. A relevância vem de perfil, nicho, cidade e DDD.
-                          </p>
-                        </div>
-                      )}
-                    </div>
-                  ) : null}
+                  <HbxAdvancedFilters
+                    mode="webscraping"
+                    filters={{ minRating, minReviews }}
+                    onChange={(next: HbxAdvancedFiltersValue) => {
+                      setMinRating(String(next.minRating ?? ""));
+                      setMinReviews(String(next.minReviews ?? ""));
+                    }}
+                  />
                 </div>
 
                 <div className={styles.searchActions}>

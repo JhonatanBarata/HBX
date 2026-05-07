@@ -2,9 +2,14 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import DashboardScaffold from "@/components/DashboardScaffold";
+import {
+  HbxAdvancedFilters,
+  HbxSegmentCombobox,
+  HbxStateCityPicker,
+  type HbxAdvancedFiltersValue,
+} from "@/components/prospecting-filters";
 import { apiFetch } from "@/app/_lib/api";
 import { useRequireModule } from "@/app/_lib/useRequireModule";
-import { BRAZIL_CITIES_BY_STATE, BRAZIL_STATES } from "@/lib/brazil-locations";
 import styles from "./page.module.css";
 
 type RadarLeadHistory = {
@@ -151,11 +156,6 @@ export default function RadarDigitalClientPage() {
   const [feedback, setFeedback] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const cityOptions = useMemo(() => {
-    const state = String(filters.state || "").trim().toUpperCase();
-    return state ? BRAZIL_CITIES_BY_STATE[state] || [] : [];
-  }, [filters.state]);
-
   const highOpportunityCount = useMemo(
     () => items.filter((item) => Number(item.opportunityScore || 0) >= 70).length,
     [items],
@@ -200,6 +200,17 @@ export default function RadarDigitalClientPage() {
   function clearFilters() {
     setFilters(DEFAULT_FILTERS);
     setAppliedFilters(DEFAULT_FILTERS);
+  }
+
+  function updateAdvancedFilters(next: HbxAdvancedFiltersValue) {
+    setFilters((current) => ({
+      ...current,
+      ddd: String(next.ddd || "").replace(/\D/g, "").slice(0, 2),
+      scoreRange: String(next.scoreRange || ""),
+      status: String(next.status || ""),
+      noWebsite: next.noWebsite === true,
+      highOpportunity: next.highOpportunity === true,
+    }));
   }
 
   async function runLeadAction(
@@ -298,60 +309,26 @@ export default function RadarDigitalClientPage() {
             applyFilters();
           }}
         >
-          <label>
-            Estado
-            <select value={filters.state} onChange={(event) => setFilters((current) => ({ ...current, state: event.target.value, city: "" }))}>
-              <option value="">Todos</option>
-              {BRAZIL_STATES.map((state) => (
-                <option key={state.uf} value={state.uf}>{state.uf} - {state.name}</option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Cidade
-            <select value={filters.city} onChange={(event) => setFilters((current) => ({ ...current, city: event.target.value }))} disabled={!filters.state}>
-              <option value="">Todas</option>
-              {cityOptions.map((city) => (
-                <option key={city} value={city}>{city}</option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Segmento
-            <input value={filters.segment} onChange={(event) => setFilters((current) => ({ ...current, segment: event.target.value }))} placeholder="Ex: clínicas, mercados" />
-          </label>
-          <label>
-            DDD
-            <input value={filters.ddd} onChange={(event) => setFilters((current) => ({ ...current, ddd: event.target.value.replace(/\D/g, "").slice(0, 2) }))} placeholder="19" inputMode="numeric" />
-          </label>
-          <label>
-            Score/oportunidade
-            <select value={filters.scoreRange} onChange={(event) => setFilters((current) => ({ ...current, scoreRange: event.target.value }))}>
-              <option value="">Todos</option>
-              <option value="high">Alto</option>
-              <option value="medium">Médio</option>
-              <option value="low">Baixo</option>
-            </select>
-          </label>
-          <label>
-            Status
-            <select value={filters.status} onChange={(event) => setFilters((current) => ({ ...current, status: event.target.value }))}>
-              <option value="">Todos</option>
-              <option value="clean">Novo</option>
-              <option value="sent_to_vendas">Em Vendas</option>
-              <option value="contacted">Contato feito</option>
-              <option value="no_answer">Não atendeu</option>
-              <option value="denied">Sem interesse</option>
-            </select>
-          </label>
-          <label className={styles.check}>
-            <input type="checkbox" checked={filters.noWebsite} onChange={(event) => setFilters((current) => ({ ...current, noWebsite: event.target.checked }))} />
-            <span>Sem website</span>
-          </label>
-          <label className={styles.check}>
-            <input type="checkbox" checked={filters.highOpportunity} onChange={(event) => setFilters((current) => ({ ...current, highOpportunity: event.target.checked }))} />
-            <span>Alta oportunidade</span>
-          </label>
+          <div className={styles.filterWide}>
+            <HbxStateCityPicker
+              state={filters.state}
+              city={filters.city}
+              onStateChange={(value) => setFilters((current) => ({ ...current, state: value, city: "" }))}
+              onCityChange={(value) => setFilters((current) => ({ ...current, city: value }))}
+              allowAllCities
+            />
+          </div>
+          <HbxSegmentCombobox
+            value={filters.segment}
+            onChange={(value) => setFilters((current) => ({ ...current, segment: value }))}
+          />
+          <div className={styles.filterWide}>
+            <HbxAdvancedFilters
+              mode="radar"
+              filters={filters}
+              onChange={updateAdvancedFilters}
+            />
+          </div>
           <div className={styles.filterActions}>
             <button type="submit">Aplicar filtros</button>
             <button type="button" onClick={clearFilters}>Limpar</button>

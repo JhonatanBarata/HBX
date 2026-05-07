@@ -13,11 +13,19 @@ import { getProviderCapabilitiesFromWhatsAppCenter } from "@/lib/provider-capabi
 import type { UserModule } from "@/lib/hbx-modules";
 import { dispatchModulesChanged } from "@/lib/module-events";
 import {
+  HbxAdvancedFilters,
+  HbxEngineSelector,
+  HbxQuantitySelector,
+  HbxSegmentCombobox,
+  HbxStateCityPicker,
+  HbxTargetTypeSelector,
+  type HbxAdvancedFiltersValue,
+} from "@/components/prospecting-filters";
+import {
   getWhatsAppModalPlanRedirect,
   type WhatsAppCenterPayload,
   type WhatsAppModalPayload,
 } from "@/lib/whatsapp-center";
-import { BRAZIL_CITIES_BY_STATE, BRAZIL_STATES } from "@/lib/brazil-locations";
 import { apiFetch } from "@/app/_lib/api";
 import { useRequireModule } from "@/app/_lib/useRequireModule";
 import {
@@ -61,6 +69,7 @@ type ProspectingAutomationConfig = {
   optOutMessage: string;
   optOutReplyEnabled: boolean;
   websiteFallbackEnabled: boolean;
+  filtersJson?: Record<string, unknown>;
 };
 
 type ProspectingAutomationLiveStatus = {
@@ -94,142 +103,6 @@ const DRAFT_STORAGE_KEY = "hbx.vendas.automacao.bot-qrcode.draft.v1";
 const BOT_PLAN_HREF = "/planos?intent=bot_ia&from=vendas_automacao";
 const PROSPECTING_SCENE_ID = "first_contact_rules_prospeccao";
 const PROSPECTING_RULE_CONDITION = "first_contact_rules";
-const SEGMENT_SUGGESTIONS = [
-  "academias",
-  "acessórios automotivos",
-  "açougues",
-  "advocacias",
-  "agências de marketing",
-  "agências de turismo",
-  "agronegócios",
-  "alarmes e segurança",
-  "alimentos naturais",
-  "aluguel de equipamentos",
-  "auto elétricas",
-  "auto escolas",
-  "auto peças",
-  "bares",
-  "barbearias",
-  "bicicletarias",
-  "bijuterias",
-  "borracharias",
-  "buffets",
-  "cafeterias",
-  "calçados",
-  "casa de carnes",
-  "casas de festas",
-  "centros automotivos",
-  "chaveiros",
-  "clínicas de estética",
-  "clínicas médicas",
-  "clínicas odontológicas",
-  "clínicas veterinárias",
-  "colégios",
-  "comércio varejista",
-  "concessionárias",
-  "confeitarias",
-  "construtoras",
-  "contabilidades",
-  "consultorias empresariais",
-  "corretoras de seguros",
-  "cosméticos",
-  "coworkings",
-  "cursos profissionalizantes",
-  "dedetizadoras",
-  "depósitos de bebidas",
-  "despachantes",
-  "distribuidoras",
-  "docerias",
-  "e-commerce",
-  "educação infantil",
-  "elétricas",
-  "eletrodomésticos",
-  "eletrônicas",
-  "energia solar",
-  "engenharias",
-  "escolas",
-  "escritórios administrativos",
-  "escritórios de arquitetura",
-  "estacionamentos",
-  "estúdios de fotografia",
-  "eventos",
-  "farmácias",
-  "ferragens",
-  "financeiras",
-  "floriculturas",
-  "fornecedoras industriais",
-  "funerárias",
-  "gráficas",
-  "hospedagens",
-  "hotéis",
-  "imobiliárias",
-  "indústrias alimentícias",
-  "indústrias metalúrgicas",
-  "informática",
-  "instaladoras",
-  "joalherias",
-  "laboratórios",
-  "lanchonetes",
-  "lava rápidos",
-  "lavanderias",
-  "lojas de brinquedos",
-  "lojas de celulares",
-  "lojas de colchões",
-  "lojas de conveniência",
-  "lojas de eletrônicos",
-  "lojas de móveis",
-  "lojas de roupas",
-  "lojas de tintas",
-  "lotéricas",
-  "madeireiras",
-  "manutenção predial",
-  "marcenarias",
-  "materiais de construção",
-  "mercados",
-  "metalúrgicas",
-  "marmorarias",
-  "mecânicas",
-  "moda feminina",
-  "moda masculina",
-  "motéis",
-  "oficinas mecânicas",
-  "ótica",
-  "panificadoras",
-  "papelarias",
-  "perfumarias",
-  "pet shops",
-  "pizzarias",
-  "postos de combustível",
-  "provedores de internet",
-  "quadras esportivas",
-  "químicas",
-  "restaurantes",
-  "revendas de veículos",
-  "salões de beleza",
-  "serralherias",
-  "serviços contábeis",
-  "serviços de limpeza",
-  "serviços gráficos",
-  "serviços jurídicos",
-  "serviços médicos",
-  "serviços odontológicos",
-  "serviços terceirizados",
-  "sistemas de segurança",
-  "supermercados",
-  "telecomunicações",
-  "transportadoras",
-  "turismo",
-  "uniformes",
-  "universidades",
-  "usinagem",
-  "vidraçarias",
-  "vigilância",
-  "vistorias veiculares",
-  "web design",
-  "xérox e copiadoras",
-  "yoga e pilates",
-  "zeladoria",
-];
 const CAMPAIGN_TYPES = [
   {
     id: "cnpj_local",
@@ -568,14 +441,6 @@ function normalizeTextList(value: unknown, fallback: string[]) {
   );
 }
 
-function normalizeSearchText(value: unknown) {
-  return String(value || "")
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase()
-    .trim();
-}
-
 function requiresProspectingCity(config: Pick<ProspectingAutomationConfig, "engine" | "targetType">) {
   return config.engine === "google" || config.targetType === "pj";
 }
@@ -638,6 +503,7 @@ function mergeProspectingConfigFromStatus(
     optOutMessage: String(campaign?.optOutMessage || rules.optOutMessage || DEFAULT_PROSPECTING_CONFIG.optOutMessage),
     optOutReplyEnabled: Boolean(campaign?.optOutReplyEnabled ?? campaignFilters.optOutReplyEnabled ?? rules.optOutReplyEnabled),
     websiteFallbackEnabled: false,
+    filtersJson: campaignFilters,
   };
 }
 
@@ -663,6 +529,7 @@ function toProspectingRequestPayload(config: ProspectingAutomationConfig): Prosp
     optOutMessage: config.optOutMessage,
     optOutReplyEnabled: config.optOutReplyEnabled,
     websiteFallbackEnabled: false,
+    filtersJson: config.filtersJson || {},
   };
 }
 
@@ -738,23 +605,16 @@ function ProspectingAutomationPanel({
   const [selectedMessagePresetId, setSelectedMessagePresetId] = useState("");
   const messageTemplateRef = useRef<HTMLTextAreaElement | null>(null);
   const optOutMessageRef = useRef<HTMLTextAreaElement | null>(null);
-  const filteredSegmentSuggestions = useMemo(() => {
-    const query = normalizeSearchText(config.segment);
-    if (!query) return SEGMENT_SUGGESTIONS;
-    const filtered = SEGMENT_SUGGESTIONS.filter((segment) => normalizeSearchText(segment).includes(query));
-    return filtered.length ? filtered : SEGMENT_SUGGESTIONS;
-  }, [config.segment]);
   const filteredMessagePresets = useMemo(
     () => MESSAGE_PRESETS.filter((preset) => preset.group === selectedCampaignTypeId),
     [selectedCampaignTypeId],
   );
   const cityRequired = requiresProspectingCity(config);
-  const selectedState = String(config.state || "").trim().toUpperCase();
-  const cityOptions = useMemo(() => BRAZIL_CITIES_BY_STATE[selectedState] || [], [selectedState]);
-  const stateSearchItems = useMemo(
-    () => BRAZIL_STATES.map((item) => ({ value: item.uf, label: `${item.uf} - ${item.name}` })),
-    [],
-  );
+  const advancedFilters = useMemo<HbxAdvancedFiltersValue>(() => ({
+    minRating: String(config.filtersJson?.minRating ?? ""),
+    minReviews: String(config.filtersJson?.minReviews ?? ""),
+    onlyWithWebsite: config.filtersJson?.onlyWithWebsite === true,
+  }), [config.filtersJson]);
 
   useEffect(() => {
     // Keep textarea drafts aligned when a saved campaign replaces the local config.
@@ -793,6 +653,17 @@ function ProspectingAutomationPanel({
   ) => {
     const parsed = Math.max(min, Math.trunc(Number(value) || 0));
     onChange((current) => ({ ...current, [field]: parsed }));
+  };
+  const setAdvancedFilters = (next: HbxAdvancedFiltersValue) => {
+    onChange((current) => ({
+      ...current,
+      filtersJson: {
+        ...(current.filtersJson || {}),
+        minRating: next.minRating || undefined,
+        minReviews: next.minReviews || undefined,
+        onlyWithWebsite: next.onlyWithWebsite === true,
+      },
+    }));
   };
   const setListField = (field: "positiveIntentKeywords" | "negativeIntentKeywords", value: string) => {
     onChange((current) => ({ ...current, [field]: normalizeTextList(value, current[field]) }));
@@ -865,157 +736,42 @@ function ProspectingAutomationPanel({
             </div>
           </div>
           <div className={styles.prospectingFormGrid}>
-            <label className={styles.hbxDropdownContainer} onBlur={() => window.setTimeout(() => setOpenDropdown((prev) => (prev === "state" ? null : prev)), 120)}>
-              <span>Estado</span>
-              <div className={styles.hbxDropdown}>
-                <input
-                  className={`${styles.inputField} ${styles.hbxDropdownInput}`}
-                  value={selectedState}
-                  onFocus={() => setOpenDropdown("state")}
-                  onChange={(event) => {
-                    setStateField(event.target.value.slice(0, 2));
-                    setOpenDropdown("state");
-                  }}
-                  placeholder="Digite ou escolha o estado"
-                  autoComplete="off"
-                />
-                <button type="button" className={styles.hbxDropdownToggle} onMouseDown={(e) => e.preventDefault()} onClick={() => setOpenDropdown((prev) => (prev === "state" ? null : "state"))} aria-label="Abrir lista de estados">
-                  <svg width="14" height="10" viewBox="0 0 14 10" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M1 1L7 7L13 1" stroke="#0B1720" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/></svg>
-                </button>
-                {openDropdown === "state" ? (
-                  <div className={styles.hbxDropdownMenu} role="listbox" aria-label="Estados">
-                    {stateSearchItems
-                      .filter((item) => !selectedState || normalizeSearchText(item.label).includes(normalizeSearchText(selectedState)))
-                      .map((item) => (
-                        <button
-                          key={item.value}
-                          type="button"
-                          role="option"
-                          aria-selected={selectedState === item.value}
-                          className={styles.segmentSuggestionOption}
-                          onMouseDown={(event) => event.preventDefault()}
-                          onClick={() => {
-                            setStateField(item.value);
-                            setOpenDropdown(null);
-                          }}
-                        >
-                          {item.label}
-                        </button>
-                      ))}
-                  </div>
-                ) : null}
-              </div>
-            </label>
-            <label className={styles.hbxDropdownContainer} onBlur={() => window.setTimeout(() => setOpenDropdown((prev) => (prev === "city" ? null : prev)), 120)}>
-              <span>Cidade</span>
-              <div className={styles.hbxDropdown}>
-                <input
-                  className={`${styles.inputField} ${styles.hbxDropdownInput}`}
-                  value={config.city}
-                  onFocus={() => setOpenDropdown("city")}
-                  onChange={(event) => {
-                    setField("city", event.target.value);
-                    setOpenDropdown("city");
-                  }}
-                  placeholder={
-                    !selectedState
-                      ? "Selecione o estado primeiro"
-                      : cityRequired
-                        ? "Obrigatório para Google/PJ"
-                        : "Opcional"
-                  }
-                  disabled={!selectedState}
-                  required={cityRequired}
-                  autoComplete="off"
-                />
-                <button type="button" className={styles.hbxDropdownToggle} onMouseDown={(e) => e.preventDefault()} onClick={() => setOpenDropdown((prev) => (prev === "city" ? null : "city"))} aria-label="Abrir lista de cidades">
-                  <svg width="14" height="10" viewBox="0 0 14 10" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M1 1L7 7L13 1" stroke="#0B1720" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/></svg>
-                </button>
-                {openDropdown === "city" ? (
-                  <div className={styles.hbxDropdownMenu} role="listbox" aria-label="Cidades sugeridas">
-                    {cityOptions
-                      .filter((item) => !config.city || normalizeSearchText(item).includes(normalizeSearchText(config.city)))
-                      .map((item) => (
-                        <button
-                          key={item}
-                          type="button"
-                          role="option"
-                          aria-selected={config.city === item}
-                          className={styles.segmentSuggestionOption}
-                          onMouseDown={(event) => event.preventDefault()}
-                          onClick={() => {
-                            setField("city", item);
-                            setOpenDropdown(null);
-                          }}
-                        >
-                          {item}
-                        </button>
-                      ))}
-                  </div>
-                ) : null}
-              </div>
-            </label>
-            <label className={styles.hbxDropdownContainer} onBlur={() => window.setTimeout(() => setOpenDropdown((prev) => (prev === "segment" ? null : prev)), 120)}>
-              <span>Segmento</span>
-              <div className={styles.hbxDropdown}>
-                <input
-                  className={`${styles.inputField} ${styles.hbxDropdownInput}`}
-                  value={config.segment}
-                  onFocus={() => setOpenDropdown("segment")}
-                  onChange={(event) => {
-                    setField("segment", event.target.value);
-                    setOpenDropdown("segment");
-                  }}
-                  placeholder="Digite ou escolha um segmento"
-                  autoComplete="off"
-                />
-                <button type="button" className={styles.hbxDropdownToggle} onMouseDown={(e) => e.preventDefault()} onClick={() => setOpenDropdown((prev) => (prev === "segment" ? null : "segment"))} aria-label="Abrir lista de segmentos">
-                  <svg width="14" height="10" viewBox="0 0 14 10" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M1 1L7 7L13 1" stroke="#0B1720" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/></svg>
-                </button>
-                {openDropdown === "segment" ? (
-                  <div className={styles.hbxDropdownMenu} role="listbox" aria-label="Segmentos sugeridos">
-                    {filteredSegmentSuggestions.map((item) => (
-                      <button
-                        key={item}
-                        type="button"
-                        role="option"
-                        aria-selected={config.segment === item}
-                        className={styles.segmentSuggestionOption}
-                        onMouseDown={(event) => event.preventDefault()}
-                        onClick={() => {
-                          setField("segment", item);
-                          setOpenDropdown(null);
-                        }}
-                      >
-                        {item}
-                      </button>
-                    ))}
-                  </div>
-                ) : null}
-              </div>
-            </label>
-            <datalist id="prospecting-city-list">
-              {cityOptions.map((item) => <option key={item} value={item} />)}
-            </datalist>
-            <label>
-              <span>Engine</span>
-              <select className={styles.selectField} value={config.engine} onChange={(event) => setField("engine", event.target.value as "hbx" | "google")}>
-                <option value="hbx">HBX</option>
-                <option value="google">Google</option>
-              </select>
-            </label>
-            <label>
-              <span>Tipo</span>
-              <select className={styles.selectField} value={config.targetType} onChange={(event) => setField("targetType", event.target.value as ProspectingAutomationConfig["targetType"])}>
-                <option value="pj">PJ</option>
-                <option value="pf">PF</option>
-                <option value="agenda_pf">Agenda PF</option>
-              </select>
-            </label>
-            <label>
-              <span>Limite diário</span>
-              <input className={styles.inputField} type="number" min={1} value={config.dailyLimit} onChange={(event) => setNumberField("dailyLimit", event.target.value, 1)} />
-            </label>
+            <div className={styles.prospectingWideField}>
+              <HbxStateCityPicker
+                state={config.state}
+                city={config.city}
+                onStateChange={setStateField}
+                onCityChange={(value) => setField("city", value)}
+                requiredCity={cityRequired}
+              />
+            </div>
+            <HbxSegmentCombobox
+              value={config.segment}
+              onChange={(value) => setField("segment", value)}
+            />
+            <HbxEngineSelector
+              value={config.engine}
+              onChange={(value) => setField("engine", value)}
+            />
+            <HbxTargetTypeSelector
+              value={config.targetType}
+              onChange={(value) => setField("targetType", value as ProspectingAutomationConfig["targetType"])}
+              allowedTypes={["pj", "pf", "agenda_pf"]}
+            />
+            <HbxQuantitySelector
+              value={config.dailyLimit}
+              onChange={(value) => setNumberField("dailyLimit", String(value), 1)}
+              options={[10, 20, 30, 40, 50, 75, 100]}
+              limitLabel="Limite diário"
+              helperText="A automação consome primeiro o banco HBX e só pede complemento à frota M1-M4 quando faltar estoque."
+            />
+            <div className={styles.prospectingWideField}>
+              <HbxAdvancedFilters
+                mode="automation"
+                filters={advancedFilters}
+                onChange={setAdvancedFilters}
+              />
+            </div>
           </div>
         </section>
 
