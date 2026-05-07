@@ -9,8 +9,13 @@ services:
       - ./backend/.env
     depends_on:
       - hbx-scraping-engine
+      - hbx-engine-1
+      - hbx-engine-2
+      - hbx-engine-3
+      - hbx-engine-4
     environment:
       HBX_SCRAPING_ENGINE_URL: http://hbx-scraping-engine:8001
+      HBX_ENGINE_URLS: http://hbx-engine-1:8001,http://hbx-engine-2:8001,http://hbx-engine-3:8001,http://hbx-engine-4:8001
     ports:
       - "3000:3000"
     volumes:
@@ -46,6 +51,83 @@ services:
     networks:
       - hbx_net
 
+  hbx-engine-1:
+    container_name: hbx-engine-1
+    build:
+      context: ./hbx-scraping-engine
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      HBX_SCRAPING_USER_AGENT: ${HBX_SCRAPING_USER_AGENT:-HBX-Scraping/0.1 contato@hbxsystem.com.br}
+      HBX_SCRAPING_TIMEOUT_SECONDS: ${HBX_SCRAPING_TIMEOUT_SECONDS:-20}
+      HBX_SCRAPING_CONCURRENCY: ${HBX_SCRAPING_CONCURRENCY:-3}
+      HBX_SCRAPING_CACHE_TTL_HOURS: ${HBX_SCRAPING_CACHE_TTL_HOURS:-24}
+      HBX_SCRAPING_MAX_DISCOVERY_RESULTS: ${HBX_SCRAPING_MAX_DISCOVERY_RESULTS:-120}
+      HBX_AGENDA_MAX_PAGES: ${HBX_AGENDA_MAX_PAGES:-20}
+      HBX_AGENDA_REQUEST_DELAY_MS: ${HBX_AGENDA_REQUEST_DELAY_MS:-700}
+    volumes:
+      - ./hbx-scraping-engine/data-1:/app/data
+    networks:
+      - hbx_net
+
+  hbx-engine-2:
+    container_name: hbx-engine-2
+    build:
+      context: ./hbx-scraping-engine
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      HBX_SCRAPING_USER_AGENT: ${HBX_SCRAPING_USER_AGENT:-HBX-Scraping/0.1 contato@hbxsystem.com.br}
+      HBX_SCRAPING_TIMEOUT_SECONDS: ${HBX_SCRAPING_TIMEOUT_SECONDS:-20}
+      HBX_SCRAPING_CONCURRENCY: ${HBX_SCRAPING_CONCURRENCY:-3}
+      HBX_SCRAPING_CACHE_TTL_HOURS: ${HBX_SCRAPING_CACHE_TTL_HOURS:-24}
+      HBX_SCRAPING_MAX_DISCOVERY_RESULTS: ${HBX_SCRAPING_MAX_DISCOVERY_RESULTS:-120}
+      HBX_AGENDA_MAX_PAGES: ${HBX_AGENDA_MAX_PAGES:-20}
+      HBX_AGENDA_REQUEST_DELAY_MS: ${HBX_AGENDA_REQUEST_DELAY_MS:-700}
+    volumes:
+      - ./hbx-scraping-engine/data-2:/app/data
+    networks:
+      - hbx_net
+
+  hbx-engine-3:
+    container_name: hbx-engine-3
+    build:
+      context: ./hbx-scraping-engine
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      HBX_SCRAPING_USER_AGENT: ${HBX_SCRAPING_USER_AGENT:-HBX-Scraping/0.1 contato@hbxsystem.com.br}
+      HBX_SCRAPING_TIMEOUT_SECONDS: ${HBX_SCRAPING_TIMEOUT_SECONDS:-20}
+      HBX_SCRAPING_CONCURRENCY: ${HBX_SCRAPING_CONCURRENCY:-3}
+      HBX_SCRAPING_CACHE_TTL_HOURS: ${HBX_SCRAPING_CACHE_TTL_HOURS:-24}
+      HBX_SCRAPING_MAX_DISCOVERY_RESULTS: ${HBX_SCRAPING_MAX_DISCOVERY_RESULTS:-120}
+      HBX_AGENDA_MAX_PAGES: ${HBX_AGENDA_MAX_PAGES:-20}
+      HBX_AGENDA_REQUEST_DELAY_MS: ${HBX_AGENDA_REQUEST_DELAY_MS:-700}
+    volumes:
+      - ./hbx-scraping-engine/data-3:/app/data
+    networks:
+      - hbx_net
+
+  hbx-engine-4:
+    container_name: hbx-engine-4
+    build:
+      context: ./hbx-scraping-engine
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      HBX_SCRAPING_USER_AGENT: ${HBX_SCRAPING_USER_AGENT:-HBX-Scraping/0.1 contato@hbxsystem.com.br}
+      HBX_SCRAPING_TIMEOUT_SECONDS: ${HBX_SCRAPING_TIMEOUT_SECONDS:-20}
+      HBX_SCRAPING_CONCURRENCY: ${HBX_SCRAPING_CONCURRENCY:-3}
+      HBX_SCRAPING_CACHE_TTL_HOURS: ${HBX_SCRAPING_CACHE_TTL_HOURS:-24}
+      HBX_SCRAPING_MAX_DISCOVERY_RESULTS: ${HBX_SCRAPING_MAX_DISCOVERY_RESULTS:-120}
+      HBX_AGENDA_MAX_PAGES: ${HBX_AGENDA_MAX_PAGES:-20}
+      HBX_AGENDA_REQUEST_DELAY_MS: ${HBX_AGENDA_REQUEST_DELAY_MS:-700}
+    volumes:
+      - ./hbx-scraping-engine/data-4:/app/data
+    networks:
+      - hbx_net
+
+# Frontend de producao roda fora do Docker via PM2 pelo publish/release.
 #  frontend:
 #    container_name: hbx-frontend
 #    build:

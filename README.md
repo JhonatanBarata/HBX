@@ -4,18 +4,17 @@ Aplicação SaaS multi-tenant com backend NestJS, frontend Next.js, Prisma e Pos
 
 ## Fluxo oficial
 
-- Desenvolvimento local: `npm run up`
-- Encerramento local: `npm run down`
-- Build integrado: `npm run build`
-- Commit unico no master: `npm run commit -- "mensagem aqui"`
-- Seed local controlado: `npm run seed:dev`
-- Publicação de código: `npm run publish`
-- Backup do banco de produção: `npm run backup:prod`
-- Verificação pós-deploy: `npm run verify:prod`
+- Release sem restart de produção: `npm run release`
+- Deploy normal Hostinger: `npm run publish`
+- Rebuild/restart completo com backup: `npm run force`
 
-`npm run commit` faz `git add -A` na estrutura principal e cria um commit unico no `master`, sem push automatico.
+Os comandos auxiliares foram movidos para scripts `internal:*` para evitar fluxos duplicados na raiz.
 
-`npm run publish` publica somente o `HEAD` ja commitado no `master`. O script falha se houver working tree sujo, valida o projeto, faz push do `master`, executa o deploy Hostinger do frontend, backend, Postgres, webscraping e HBX Scraping Engine, verifica esse deploy e mantem apenas o backup remoto mais recente quando tudo termina bem.
+`npm run release` detecta mudancas, mostra arquivos alterados, roda validacoes rapidas, cria commit automatico quando necessario, faz push e valida backend/frontend sem reiniciar producao.
+
+`npm run publish` detecta mudancas, mostra diff resumido, cria commit automatico quando necessario, faz push, builda backend/frontend, executa o deploy Hostinger existente e valida backend/frontend.
+
+`npm run force` cria backup antes de qualquer acao destrutiva, cria commit/push quando necessario, para containers/processos HBX, sobe tudo novamente, roda migrations Prisma dentro do container `hbx-backend`, verifica Docker/PM2/backend/frontend/banco/logs e termina com o servidor em uso.
 
 ## Ambientes
 
@@ -35,6 +34,8 @@ Isso inclui:
 
 ## Documentação operacional
 
+Os comandos oficiais estao documentados em [OPS.md](OPS.md).
+
 O fluxo oficial completo está em [docs/SAAS_OPERATIONS.md](docs/SAAS_OPERATIONS.md).
 
 Para salvar o projeto antes de formatar a maquina e reconstruir o ambiente depois, use [docs/FORMATAR_PC_CHECKLIST.md](docs/FORMATAR_PC_CHECKLIST.md).
@@ -43,9 +44,9 @@ Para salvar o projeto antes de formatar a maquina e reconstruir o ambiente depoi
 
 - `npm run up` recusa `backend/.env` apontando para banco remoto no host, para evitar abrir Prisma Studio ou ferramentas locais contra produção por engano.
 - `npm run up` valida backend em `http://localhost:3000/health` e frontend em `http://localhost:3001`; Prisma Studio vira opcional se `backend/.env` nao estiver pronto para o host.
-- `npm run publish` roda preflight de Prisma, build e coerência estrutural antes de qualquer push.
-- Mudancas em `frontend/` entram no build do servico Docker `hbx-frontend` na Hostinger.
-- `npm run publish` também faz backup remoto antes do push e só rota backups antigos quando a verificação pós-deploy passa.
-- `npm run backup:prod` e `npm run verify:prod` recusam targets locais e só aceitam URLs remotas de produção.
+- `npm run publish` roda preflight de Prisma, build e coerência estrutural no fluxo de deploy.
+- Mudancas em `frontend/` entram no build PM2 `hbx-frontend` na Hostinger.
+- `npm run force` salva backup local em `backups/ops/<timestamp>` e tenta dump seguro de producao antes de parar processos.
+- `internal:backup:prod` e `internal:verify:prod` recusam targets locais e só aceitam URLs remotas de produção.
 - O bootstrap do usuário master é controlado por ambiente; em produção o padrão oficial continua sendo `BOOTSTRAP_SYSTEM_MASTER=false`.
 - Os comandos operacionais de produção usam variáveis documentadas em [.env.production.example](.env.production.example).

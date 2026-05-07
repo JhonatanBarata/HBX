@@ -220,6 +220,7 @@ function buildRemoteDeployScript(config, mode) {
     `APP_DIR=${shellSingleQuote(config.appDir)}`,
     `BACKEND_URL=${shellSingleQuote(config.backendUrl)}`,
     `FRONTEND_URL=${shellSingleQuote(config.frontendUrl)}`,
+    `BUILD_NO_CACHE_ARG=${shellSingleQuote(isForce ? '--no-cache' : '')}`,
     `FORCE_REBOOT_HOSTINGER=${shellSingleQuote(rebootValue)}`,
     'export GIT_SSH_COMMAND="ssh -o BatchMode=yes"',
     'cd "$APP_DIR"',
@@ -312,6 +313,11 @@ function buildRemoteDeployScript(config, mode) {
     '  echo "Garantindo frontend fora do Docker..."',
     '  docker rm -f hbx-frontend frontend 2>/dev/null || true',
     '}',
+    'remove_containers() {',
+    '  if [ "$#" -eq 0 ]; then return 0; fi',
+    '  echo "Removendo containers antigos: $*"',
+    '  docker rm -f "$@" 2>/dev/null || true',
+    '}',
     'remove_compose_service_containers() {',
     '  for service in "$@"; do',
     '    ids="$(docker ps -aq --filter "label=com.docker.compose.service=$service" | xargs || true)"',
@@ -345,31 +351,116 @@ function buildRemoteDeployScript(config, mode) {
     '  cd "$APP_DIR"',
     '  verify_frontend_pm2',
     '}',
+    'start_hbx_engines() {',
+    '  echo "Buildando imagem dos motores HBX..."',
+    '  run_filtered docker build $BUILD_NO_CACHE_ARG -t hbx_hbx-scraping-engine:latest ./hbx-scraping-engine',
+    '  mkdir -p "$APP_DIR/hbx-scraping-engine/data" "$APP_DIR/hbx-scraping-engine/data-1" "$APP_DIR/hbx-scraping-engine/data-2" "$APP_DIR/hbx-scraping-engine/data-3" "$APP_DIR/hbx-scraping-engine/data-4"',
+    '  remove_compose_service_containers hbx-scraping-engine hbx-engine-1 hbx-engine-2 hbx-engine-3 hbx-engine-4',
+    '  remove_containers hbx-scraping-engine hbx-engine-1 hbx-engine-2 hbx-engine-3 hbx-engine-4',
+    '  echo "Subindo hbx-scraping-engine fallback..."',
+    '  docker run -d --name hbx-scraping-engine --restart unless-stopped --network "$HBX_DOCKER_NETWORK" \\',
+    '    -e HBX_SCRAPING_TIMEOUT_SECONDS=20 \\',
+    '    -e HBX_SCRAPING_CONCURRENCY=3 \\',
+    '    -e HBX_SCRAPING_CACHE_TTL_HOURS=24 \\',
+    '    -e HBX_SCRAPING_MAX_DISCOVERY_RESULTS=120 \\',
+    '    -e HBX_AGENDA_MAX_PAGES=20 \\',
+    '    -e HBX_AGENDA_REQUEST_DELAY_MS=700 \\',
+    '    -v "$APP_DIR/hbx-scraping-engine/data:/app/data" \\',
+    '    hbx_hbx-scraping-engine:latest',
+    '  for n in 1 2 3 4; do',
+    '    echo "Subindo hbx-engine-$n..."',
+    '    docker run -d --name "hbx-engine-$n" --restart unless-stopped --network "$HBX_DOCKER_NETWORK" \\',
+    '      -e HBX_SCRAPING_TIMEOUT_SECONDS=20 \\',
+    '      -e HBX_SCRAPING_CONCURRENCY=3 \\',
+    '      -e HBX_SCRAPING_CACHE_TTL_HOURS=24 \\',
+    '      -e HBX_SCRAPING_MAX_DISCOVERY_RESULTS=120 \\',
+    '      -e HBX_AGENDA_MAX_PAGES=20 \\',
+    '      -e HBX_AGENDA_REQUEST_DELAY_MS=700 \\',
+    '      -v "$APP_DIR/hbx-scraping-engine/data-$n:/app/data" \\',
+    '      hbx_hbx-scraping-engine:latest',
+    '  done',
+    '}',
+    'start_hbx_backend() {',
+    '  echo "Buildando imagem backend..."',
+    '  run_filtered docker build $BUILD_NO_CACHE_ARG -t hbx_backend:latest ./backend',
+    '  remove_compose_service_containers backend',
+    '  remove_containers backend hbx-backend',
+    '  echo "Subindo hbx-backend..."',
+    '  docker run -d --name hbx-backend --restart unless-stopped --network "$HBX_DOCKER_NETWORK" \\',
+    '    --env-file "$APP_DIR/backend/.env" \\',
+    '    -e HBX_SCRAPING_ENGINE_URL=http://hbx-scraping-engine:8001 \\',
+    '    -e HBX_ENGINE_URLS=http://hbx-engine-1:8001,http://hbx-engine-2:8001,http://hbx-engine-3:8001,http://hbx-engine-4:8001 \\',
+    '    -e HBX_CAPACITY_ENGINE_2_QUEUE_THRESHOLD=3 \\',
+    '    -e HBX_CAPACITY_ENGINE_3_QUEUE_THRESHOLD=10 \\',
+    '    -e HBX_CAPACITY_ENGINE_4_QUEUE_THRESHOLD=20 \\',
+    '    -e HBX_GOOGLE_EMERGENCY_QUEUE_THRESHOLD=50 \\',
+    '    -e HBX_GOOGLE_EMERGENCY_DAILY_LIMIT=500 \\',
+    '    -e HBX_GOOGLE_EMERGENCY_MAX_PER_RUN=20 \\',
+    '    -e HBX_QUEUE_STUCK_MINUTES=10 \\',
+    '    -e HBX_ENGINE_MAX_BUSY_MINUTES=15 \\',
+    '    -p 3000:3000 \\',
+    '    -v "$APP_DIR/backend/public/uploads:/app/public/uploads" \\',
+    '    hbx_backend:latest',
+    '}',
+    'verify_hbx_engines() {',
+    '  echo "Validando variaveis e healthchecks dos motores HBX..."',
+    '  for i in $(seq 1 45); do',
+    '    if docker inspect -f "{{.State.Running}}" hbx-backend 2>/dev/null | grep -q true; then break; fi',
+    '    echo "Aguardando hbx-backend ($i/45)..."',
+    '    sleep 2',
+    '  done',
+    '  if ! docker exec hbx-backend printenv HBX_ENGINE_URLS | grep -q "hbx-engine-1:8001"; then echo "ERRO: HBX_ENGINE_URLS nao esta configurado no hbx-backend."; exit 1; fi',
+    '  for n in 1 2 3 4; do',
+    '    ok=0',
+    '    for attempt in $(seq 1 30); do',
+    '      if docker exec hbx-backend wget -qO- "http://hbx-engine-$n:8001/health"; then ok=1; break; fi',
+    '      echo "Aguardando hbx-engine-$n ($attempt/30)..."',
+    '      sleep 2',
+    '    done',
+    '    if [ "$ok" != "1" ]; then echo "ERRO: healthcheck falhou para hbx-engine-$n em http://hbx-engine-$n:8001/health."; exit 1; fi',
+    '    echo "Healthcheck OK: hbx-engine-$n"',
+    '  done',
+    '}',
   ];
 
   if (isForce) {
     lines.push(
-      'docker rm -f backend hbx-backend hbx-frontend webscraping hbx-scraping-engine c7227f19b684_hbx-scraping-engine ab1704a260e6_hbx-frontend e22f61f3f5da_webscraping 2>/dev/null || true',
-      'remove_compose_service_containers backend webscraping hbx-scraping-engine',
-      'run_filtered $DC --env-file .env -f docker-compose.hostinger.yml build --no-cache backend webscraping hbx-scraping-engine || echo "Aviso: build --no-cache falhou; tentando up -d --build."',
-      'run_filtered $DC --env-file .env -f docker-compose.hostinger.yml up -d --build --no-deps backend webscraping hbx-scraping-engine',
-      'docker restart hbx-backend webscraping hbx-scraping-engine',
+      'ensure_pm2',
+      'pm2 stop hbx-frontend 2>/dev/null || true',
+      'remove_containers backend hbx-backend hbx-frontend webscraping hbx-scraping-engine hbx-engine-1 hbx-engine-2 hbx-engine-3 hbx-engine-4 c7227f19b684_hbx-scraping-engine ab1704a260e6_hbx-frontend e22f61f3f5da_webscraping',
+      'remove_compose_service_containers backend webscraping hbx-scraping-engine hbx-engine-1 hbx-engine-2 hbx-engine-3 hbx-engine-4',
+      'start_hbx_engines',
+      'start_hbx_backend',
+      'echo "Prisma migrate deploy roda dentro do container hbx-backend via backend/scripts/start-prod.sh, usando DATABASE_URL=hbx-postgres."',
+      'run_filtered $DC --env-file .env -f docker-compose.hostinger.yml up -d --build --no-deps webscraping',
+      'verify_hbx_engines',
       'deploy_frontend_pm2',
       'docker image prune -f',
       'docker builder prune -f || true',
       'if [ "$FORCE_REBOOT_HOSTINGER" = "true" ]; then echo "FORCE_REBOOT_HOSTINGER=true: reiniciando VPS."; (sudo reboot || reboot); else echo "Reboot da VPS ignorado. Defina FORCE_REBOOT_HOSTINGER=true para habilitar."; fi',
     );
   } else {
-    lines.push('docker rm -f backend hbx-backend hbx-frontend webscraping hbx-scraping-engine c7227f19b684_hbx-scraping-engine ab1704a260e6_hbx-frontend e22f61f3f5da_webscraping 2>/dev/null || true');
-    lines.push('remove_compose_service_containers backend webscraping hbx-scraping-engine');
-    lines.push('run_filtered $DC --env-file .env -f docker-compose.hostinger.yml up -d --build --no-deps backend webscraping hbx-scraping-engine');
+    lines.push('remove_containers backend hbx-backend hbx-frontend webscraping hbx-scraping-engine hbx-engine-1 hbx-engine-2 hbx-engine-3 hbx-engine-4 c7227f19b684_hbx-scraping-engine ab1704a260e6_hbx-frontend e22f61f3f5da_webscraping');
+    lines.push('remove_compose_service_containers backend webscraping hbx-scraping-engine hbx-engine-1 hbx-engine-2 hbx-engine-3 hbx-engine-4');
+    lines.push('start_hbx_engines');
+    lines.push('start_hbx_backend');
+    lines.push('echo "Prisma migrate deploy roda dentro do container hbx-backend via backend/scripts/start-prod.sh, usando DATABASE_URL=hbx-postgres."');
+    lines.push('run_filtered $DC --env-file .env -f docker-compose.hostinger.yml up -d --build --no-deps webscraping');
+    lines.push('verify_hbx_engines');
     lines.push('deploy_frontend_pm2');
   }
 
   lines.push(
     'echo "Containers ativos:"',
-    'docker ps --format "table {{.Names}}\\t{{.Status}}\\t{{.Ports}}" | grep -E "NAMES|hbx-frontend|hbx-backend|webscraping|hbx-scraping-engine|hbx-postgres" || true',
-    'pm2 list | grep -E "hbx-frontend|App name|name|online" || true',
+    'docker ps --format "table {{.Names}}\\t{{.Status}}\\t{{.Ports}}" | grep -E "NAMES|hbx-backend|webscraping|hbx-scraping-engine|hbx-engine-[1-4]|hbx-postgres" || true',
+    'echo "PM2 status:"',
+    'pm2 list 2>/dev/null || true',
+    'echo "Ultimos logs backend:"',
+    'docker logs --tail 80 hbx-backend 2>&1 || true',
+    'echo "Ultimos logs webscraping:"',
+    'docker logs --tail 40 webscraping 2>&1 || true',
+    'echo "Ultimos logs frontend PM2:"',
+    'pm2 logs hbx-frontend --lines 80 --nostream 2>/dev/null || true',
   );
 
   return lines.join('\n');
@@ -505,7 +596,7 @@ function printDryRun(config, mode) {
   console.log('\n[dry-run] No git push, no SSH execution, no docker-compose down/up on Hostinger.');
   console.log('[dry-run] Would run: git push origin master');
   console.log(`[dry-run] Would SSH into: ${config.sshUser}@${config.sshHost}`);
-  console.log('[dry-run] Would run Hostinger remote deploy: fetch/reset, validate env/db/docker, build/up frontend/backend/postgres/scraping services, list containers.');
+  console.log('[dry-run] Would run Hostinger remote deploy: fetch/reset, validate env/db/docker, build hbx-engine-1..4 + fallback, run backend with HBX_ENGINE_URLS, run frontend via PM2, list containers.');
   if (isTruthy(process.env.PUBLISH_VERBOSE_DRY_RUN)) {
     console.log('--- remote script start ---');
     console.log(buildRemoteDeployScript(config, mode));
