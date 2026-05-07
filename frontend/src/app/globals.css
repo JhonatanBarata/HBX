@@ -1209,6 +1209,637 @@ html[data-theme-switcher-open="true"] .app-topbar::after {
   justify-items: center;
 }
 
+.hbx-engine-header {
+  width: min(1220px, 100%);
+  min-width: 0;
+  position: relative;
+  isolation: isolate;
+  display: grid;
+  grid-template-columns: minmax(520px, 0.9fr) minmax(460px, 1.1fr);
+  align-items: stretch;
+  gap: 0.54rem;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--accent) 22%, var(--line));
+  border-radius: 18px;
+  padding: 0.48rem;
+  background:
+    radial-gradient(circle at 6% 8%, color-mix(in srgb, var(--success) 18%, transparent), transparent 30%),
+    radial-gradient(circle at 88% 4%, color-mix(in srgb, var(--accent) 18%, transparent), transparent 38%),
+    linear-gradient(180deg, color-mix(in srgb, var(--header-surface) 86%, var(--surface-raised)), color-mix(in srgb, var(--surface-soft) 82%, var(--surface)));
+  color: var(--foreground);
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--surface) 86%, transparent),
+    0 20px 50px -38px color-mix(in srgb, var(--accent) 54%, transparent);
+}
+
+.hbx-engine-header::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background:
+    linear-gradient(90deg, transparent, color-mix(in srgb, var(--success) 10%, transparent), transparent),
+    repeating-linear-gradient(90deg, color-mix(in srgb, var(--line) 26%, transparent) 0 1px, transparent 1px 22px),
+    repeating-linear-gradient(180deg, color-mix(in srgb, var(--line) 18%, transparent) 0 1px, transparent 1px 18px);
+  opacity: 0.34;
+  pointer-events: none;
+}
+
+.hbx-engine-header > * {
+  position: relative;
+  z-index: 1;
+}
+
+.hbx-engine-header[data-live="true"] {
+  filter: saturate(1.08);
+}
+
+html[data-theme-mode="dark"] .hbx-engine-header {
+  border-color: color-mix(in srgb, var(--accent) 38%, var(--line));
+  background:
+    radial-gradient(circle at 8% 0%, color-mix(in srgb, var(--success) 14%, transparent), transparent 28%),
+    radial-gradient(circle at 90% 10%, color-mix(in srgb, var(--accent-strong) 16%, transparent), transparent 36%),
+    linear-gradient(180deg, color-mix(in srgb, var(--header-surface) 90%, black), color-mix(in srgb, var(--surface) 78%, black));
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--surface-raised) 18%, transparent),
+    inset 0 -1px 0 color-mix(in srgb, var(--success) 7%, transparent),
+    0 20px 58px -36px color-mix(in srgb, var(--accent) 48%, transparent),
+    0 12px 36px -30px color-mix(in srgb, var(--success) 34%, transparent);
+}
+
+.hbx-engine-header__gauges {
+  min-width: 0;
+  display: grid;
+  align-content: stretch;
+  gap: 0.36rem;
+  outline: none;
+}
+
+.hbx-engine-header__gauges:focus-visible {
+  border-radius: 14px;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 24%, transparent);
+}
+
+.hbx-engine-header__gaugeRow {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.36rem;
+}
+
+.hbx-engine-gauge {
+  --engine-node-tone: var(--success);
+  --engine-usage: 0%;
+  --engine-arc: 0deg;
+  --engine-angle: 180deg;
+  --engine-glow: 0;
+  --engine-neon: 0;
+  --engine-hot: 0;
+  --engine-glow-size: 20px;
+  --engine-neon-size: 18px;
+  min-width: 0;
+  min-height: 150px;
+  position: relative;
+  isolation: isolate;
+  display: grid;
+  grid-template-rows: auto 1fr auto auto;
+  align-items: stretch;
+  gap: 0.22rem;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--engine-node-tone) 24%, var(--line));
+  border-radius: 14px;
+  padding: 0.42rem 0.42rem 0.38rem;
+  background:
+    radial-gradient(circle at 50% 74%, color-mix(in srgb, var(--engine-node-tone) 22%, transparent), transparent 46%),
+    radial-gradient(circle at 12% 10%, color-mix(in srgb, var(--accent) 12%, transparent), transparent 38%),
+    linear-gradient(180deg, color-mix(in srgb, var(--surface-raised) 92%, var(--surface)), color-mix(in srgb, var(--surface-soft) 80%, var(--surface)));
+  color: var(--foreground);
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--surface) 76%, transparent),
+    0 14px 32px -28px color-mix(in srgb, var(--engine-node-tone) 44%, transparent),
+    0 0 var(--engine-glow-size) color-mix(in srgb, var(--engine-node-tone) 24%, transparent),
+    0 0 var(--engine-neon-size) color-mix(in srgb, var(--accent) 22%, transparent);
+  filter:
+    saturate(calc(0.94 + var(--engine-neon) * 0.78))
+    brightness(calc(0.98 + var(--engine-hot) * 0.16));
+  transition:
+    border-color 220ms ease,
+    box-shadow 220ms ease,
+    filter 220ms ease,
+    transform 220ms ease;
+}
+
+.hbx-engine-gauge::after {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  z-index: 0;
+  border-radius: inherit;
+  border: 1px solid color-mix(in srgb, var(--engine-node-tone) 42%, transparent);
+  opacity: calc(var(--engine-neon) * 0.78);
+  pointer-events: none;
+}
+
+.hbx-engine-gauge > * {
+  position: relative;
+  z-index: 1;
+}
+
+.hbx-engine-gauge[data-state="busy"] {
+  --engine-node-tone: var(--success);
+}
+
+.hbx-engine-gauge[data-state="cooldown"] {
+  --engine-node-tone: var(--warning);
+}
+
+.hbx-engine-gauge[data-state="standby"] {
+  --engine-node-tone: var(--accent);
+}
+
+.hbx-engine-gauge[data-state="degraded"],
+.hbx-engine-gauge[data-state="offline"] {
+  --engine-node-tone: var(--danger);
+}
+
+.hbx-engine-gauge[data-state="missing"] {
+  --engine-node-tone: var(--muted);
+  filter: saturate(0.62);
+}
+
+.hbx-engine-gauge[data-active="true"] {
+  border-color: color-mix(in srgb, var(--engine-node-tone) 46%, var(--accent));
+}
+
+.hbx-engine-gauge[data-live="true"]::after {
+  opacity: 0.9;
+  animation: topbar-engine-node-pulse 1.18s ease-in-out infinite;
+}
+
+.hbx-engine-gauge[data-overdrive="true"] {
+  border-color: color-mix(in srgb, var(--engine-node-tone) 76%, var(--surface));
+  filter: saturate(1.46) brightness(1.11);
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--surface) 84%, transparent),
+    0 18px 38px -24px color-mix(in srgb, var(--engine-node-tone) 84%, transparent),
+    0 0 38px color-mix(in srgb, var(--engine-node-tone) 38%, transparent),
+    0 0 78px color-mix(in srgb, var(--accent) 30%, transparent);
+}
+
+.hbx-engine-gauge__scan {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background:
+    linear-gradient(100deg, transparent 0 34%, color-mix(in srgb, var(--surface) 32%, transparent) 48%, transparent 62%),
+    linear-gradient(90deg, transparent, color-mix(in srgb, var(--engine-node-tone) 16%, transparent), transparent);
+  opacity: 0;
+  transform: translateX(-60%);
+  pointer-events: none;
+}
+
+.hbx-engine-gauge[data-live="true"] .hbx-engine-gauge__scan {
+  opacity: 0.72;
+  animation: topbar-main-gauge-scan 1.26s ease-in-out infinite;
+}
+
+.hbx-engine-gauge__head {
+  min-width: 0;
+  display: grid;
+  gap: 0.08rem;
+  text-align: center;
+}
+
+.hbx-engine-gauge__head span,
+.hbx-engine-gauge__head strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hbx-engine-gauge__head span {
+  color: color-mix(in srgb, var(--engine-node-tone) 72%, var(--foreground-soft));
+  font-size: 0.5rem;
+  font-weight: 950;
+  letter-spacing: 0.12em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.hbx-engine-gauge__head strong {
+  color: var(--foreground);
+  font-size: 0.68rem;
+  font-weight: 950;
+  line-height: 1.02;
+}
+
+.hbx-engine-gauge__dial {
+  width: min(148px, 100%);
+  aspect-ratio: 2 / 1.04;
+  align-self: center;
+  justify-self: center;
+  position: relative;
+  overflow: hidden;
+  border-radius: 999px 999px 15px 15px;
+  background:
+    radial-gradient(farthest-side at 50% 100%, color-mix(in srgb, var(--surface-raised) 78%, transparent) 0 53%, transparent 54%),
+    conic-gradient(from 270deg at 50% 100%, color-mix(in srgb, var(--line) 74%, transparent) 0 180deg, transparent 180deg);
+  box-shadow:
+    inset 0 -14px 22px color-mix(in srgb, black 14%, transparent),
+    inset 0 1px 0 color-mix(in srgb, var(--surface) 70%, transparent),
+    0 0 var(--engine-glow-size) color-mix(in srgb, var(--engine-node-tone) 30%, transparent);
+}
+
+.hbx-engine-gauge__arc {
+  position: absolute;
+  inset: 8px 8px 0;
+  border-radius: inherit;
+  background:
+    conic-gradient(
+      from 270deg at 50% 100%,
+      color-mix(in srgb, var(--engine-node-tone) 92%, var(--surface)) 0 var(--engine-arc),
+      color-mix(in srgb, var(--line) 62%, transparent) var(--engine-arc) 180deg,
+      transparent 180deg
+    );
+  -webkit-mask: radial-gradient(farthest-side at 50% 100%, transparent calc(100% - 12px), #000 calc(100% - 11px));
+  mask: radial-gradient(farthest-side at 50% 100%, transparent calc(100% - 12px), #000 calc(100% - 11px));
+  filter: drop-shadow(0 0 calc(8px + var(--engine-neon) * 22px) color-mix(in srgb, var(--engine-node-tone) 44%, transparent));
+}
+
+.hbx-engine-gauge__dial::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: -31%;
+  z-index: 2;
+  width: 65%;
+  aspect-ratio: 1;
+  transform: translateX(-50%);
+  border-radius: 999px;
+  background:
+    radial-gradient(circle at 50% 38%, color-mix(in srgb, var(--surface-raised) 96%, var(--surface)), color-mix(in srgb, var(--surface-soft) 80%, var(--surface)));
+  box-shadow:
+    inset 0 1px 8px color-mix(in srgb, var(--surface) 80%, transparent),
+    0 -8px 24px color-mix(in srgb, var(--engine-node-tone) 22%, transparent);
+}
+
+.hbx-engine-gauge__needle {
+  position: absolute;
+  left: 50%;
+  bottom: 9px;
+  z-index: 4;
+  width: 43%;
+  height: 4px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--foreground) 92%, var(--engine-node-tone)), color-mix(in srgb, var(--engine-node-tone) 88%, var(--surface)));
+  box-shadow:
+    0 0 calc(10px + var(--engine-neon) * 24px) color-mix(in srgb, var(--engine-node-tone) 84%, transparent),
+    0 0 calc(18px + var(--engine-hot) * 56px) color-mix(in srgb, var(--accent) 28%, transparent);
+  transform: rotate(var(--engine-angle));
+  transform-origin: 0 50%;
+  transition: transform 320ms cubic-bezier(0.2, 0.9, 0.2, 1);
+}
+
+.hbx-engine-gauge__needle i {
+  position: absolute;
+  top: 50%;
+  right: -3px;
+  width: 8px;
+  height: 8px;
+  transform: translateY(-50%);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--engine-node-tone) 92%, var(--surface));
+  box-shadow: 0 0 14px color-mix(in srgb, var(--engine-node-tone) 64%, transparent);
+}
+
+.hbx-engine-gauge__hub {
+  position: absolute;
+  left: 50%;
+  bottom: 3px;
+  z-index: 5;
+  width: 16px;
+  height: 16px;
+  transform: translateX(-50%);
+  border-radius: 999px;
+  background:
+    radial-gradient(circle, color-mix(in srgb, var(--surface) 86%, var(--engine-node-tone)) 0 34%, color-mix(in srgb, var(--engine-node-tone) 92%, var(--accent)) 36% 100%);
+  box-shadow:
+    0 0 0 4px color-mix(in srgb, var(--surface-raised) 72%, transparent),
+    0 0 18px color-mix(in srgb, var(--engine-node-tone) 52%, transparent);
+}
+
+.hbx-engine-gauge__dial b {
+  position: absolute;
+  left: 50%;
+  bottom: 0.42rem;
+  z-index: 6;
+  transform: translateX(-50%);
+  color: color-mix(in srgb, var(--engine-node-tone) 82%, var(--foreground));
+  font-size: 0.88rem;
+  font-weight: 950;
+  line-height: 1;
+  text-shadow: 0 0 14px color-mix(in srgb, var(--engine-node-tone) 36%, transparent);
+  font-variant-numeric: tabular-nums;
+}
+
+.hbx-engine-gauge__copy {
+  min-width: 0;
+  display: grid;
+  gap: 0.04rem;
+  text-align: center;
+}
+
+.hbx-engine-gauge__copy strong,
+.hbx-engine-gauge__copy span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hbx-engine-gauge__copy strong {
+  color: color-mix(in srgb, var(--engine-node-tone) 82%, var(--foreground));
+  font-size: 0.68rem;
+  font-weight: 950;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.hbx-engine-gauge__copy span {
+  color: color-mix(in srgb, var(--foreground-soft) 78%, var(--muted));
+  font-size: 0.54rem;
+  font-weight: 850;
+  line-height: 1;
+}
+
+.hbx-engine-gauge__lights {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 3px;
+}
+
+.hbx-engine-gauge__lights i {
+  height: 4px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--line) 78%, var(--surface));
+}
+
+.hbx-engine-gauge__lights i[data-lit="true"] {
+  background: linear-gradient(90deg, color-mix(in srgb, var(--engine-node-tone) 82%, var(--accent)), color-mix(in srgb, var(--success) 86%, var(--surface)));
+  box-shadow: 0 0 12px color-mix(in srgb, var(--engine-node-tone) 44%, transparent);
+}
+
+.hbx-engine-gauge__bars {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(20, minmax(0, 1fr));
+  gap: 3px;
+  border: 1px solid color-mix(in srgb, var(--line) 74%, transparent);
+  border-radius: 12px;
+  padding: 0.28rem;
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--accent) 10%, transparent) 0 1px, transparent 1px 100%),
+    linear-gradient(180deg, color-mix(in srgb, var(--success) 8%, transparent) 0 1px, transparent 1px 100%),
+    color-mix(in srgb, var(--surface-raised) 74%, transparent);
+  background-size: 18px 18px, 18px 18px, auto;
+}
+
+.hbx-engine-gauge__bar {
+  --engine-node-tone: var(--muted);
+  min-width: 0;
+  height: 16px;
+  position: relative;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--engine-node-tone) 24%, var(--line));
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--surface) 76%, transparent);
+}
+
+.hbx-engine-gauge__bar[data-state="busy"],
+.hbx-engine-gauge__bar[data-state="emergency"] {
+  --engine-node-tone: var(--success);
+}
+
+.hbx-engine-gauge__bar[data-state="standby"] {
+  --engine-node-tone: var(--accent);
+}
+
+.hbx-engine-gauge__bar[data-state="cooldown"] {
+  --engine-node-tone: var(--warning);
+}
+
+.hbx-engine-gauge__bar[data-state="degraded"],
+.hbx-engine-gauge__bar[data-state="offline"] {
+  --engine-node-tone: var(--danger);
+}
+
+.hbx-engine-gauge__bar[data-state="missing"] {
+  --engine-node-tone: var(--muted);
+  opacity: 0.52;
+}
+
+.hbx-engine-gauge__bar i {
+  position: absolute;
+  inset: 2px auto 2px 2px;
+  width: max(10%, var(--engine-usage));
+  border-radius: 4px;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--engine-node-tone) 82%, var(--surface)), color-mix(in srgb, var(--engine-node-tone) 94%, var(--accent)));
+  box-shadow: 0 0 12px color-mix(in srgb, var(--engine-node-tone) 42%, transparent);
+}
+
+.hbx-engine-gauge__bar[data-active="true"] {
+  border-color: color-mix(in srgb, var(--engine-node-tone) 58%, var(--accent));
+  box-shadow: 0 0 12px color-mix(in srgb, var(--engine-node-tone) 32%, transparent);
+}
+
+.hbx-engine-gauge__bar strong {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.hbx-engine-command {
+  min-width: 0;
+  min-height: 100%;
+  position: relative;
+  isolation: isolate;
+  display: grid;
+  grid-template-rows: auto auto 1fr;
+  gap: 0.36rem;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--line));
+  border-radius: 16px;
+  padding: 0.42rem;
+  background:
+    radial-gradient(circle at 8% 18%, color-mix(in srgb, var(--success) 15%, transparent), transparent 38%),
+    radial-gradient(circle at 92% 4%, color-mix(in srgb, var(--accent-strong) 14%, transparent), transparent 42%),
+    linear-gradient(180deg, color-mix(in srgb, var(--surface-raised) 92%, var(--header-surface)), color-mix(in srgb, var(--surface-soft) 84%, var(--surface)));
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--surface) 78%, transparent),
+    0 18px 40px -32px color-mix(in srgb, var(--accent) 44%, transparent);
+}
+
+.hbx-engine-command__grid,
+.hbx-engine-command__scan {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+}
+
+.hbx-engine-command__grid {
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--accent) 12%, transparent) 0 1px, transparent 1px 100%),
+    linear-gradient(180deg, color-mix(in srgb, var(--success) 9%, transparent) 0 1px, transparent 1px 100%);
+  background-size: 20px 20px;
+  opacity: 0.72;
+}
+
+.hbx-engine-command__scan {
+  background: linear-gradient(90deg, transparent 0 26%, color-mix(in srgb, var(--success) 20%, transparent) 46%, transparent 68%);
+  opacity: 0;
+  transform: translateX(-46%);
+}
+
+.hbx-engine-command[data-live="true"] .hbx-engine-command__scan,
+.hbx-engine-header[data-active="true"] .hbx-engine-command__scan {
+  opacity: 0.72;
+  animation: topbar-core-scan 1.72s ease-in-out infinite;
+}
+
+.hbx-engine-command > *:not(.hbx-engine-command__grid, .hbx-engine-command__scan) {
+  position: relative;
+  z-index: 1;
+}
+
+.hbx-engine-command__head {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.08rem;
+}
+
+.hbx-engine-command__head span {
+  overflow: hidden;
+  color: color-mix(in srgb, var(--accent) 78%, var(--foreground));
+  font-size: 0.56rem;
+  font-weight: 950;
+  letter-spacing: 0.12em;
+  line-height: 1;
+  text-transform: uppercase;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hbx-engine-command__head strong {
+  overflow: hidden;
+  color: var(--foreground);
+  font-size: 0.94rem;
+  font-weight: 950;
+  line-height: 1.05;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hbx-engine-command__head p {
+  margin: 0;
+  overflow: hidden;
+  color: color-mix(in srgb, var(--foreground-soft) 84%, var(--muted));
+  font-size: 0.64rem;
+  font-weight: 820;
+  line-height: 1.15;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hbx-engine-command__chips {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 0.24rem;
+}
+
+.hbx-engine-status-chip {
+  --chip-tone: var(--muted);
+  min-width: 0;
+  display: grid;
+  gap: 0.04rem;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--chip-tone) 24%, var(--line));
+  border-radius: 9px;
+  padding: 0.28rem 0.34rem;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--chip-tone) 8%, transparent), transparent),
+    color-mix(in srgb, var(--surface-raised) 78%, transparent);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--surface) 72%, transparent);
+}
+
+.hbx-engine-status-chip[data-tone="success"] {
+  --chip-tone: var(--success);
+}
+
+.hbx-engine-status-chip[data-tone="warning"] {
+  --chip-tone: var(--warning);
+}
+
+.hbx-engine-status-chip[data-tone="danger"] {
+  --chip-tone: var(--danger);
+}
+
+.hbx-engine-status-chip span,
+.hbx-engine-status-chip strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hbx-engine-status-chip span {
+  color: color-mix(in srgb, var(--foreground-soft) 70%, var(--muted));
+  font-size: 0.5rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.hbx-engine-status-chip strong {
+  color: color-mix(in srgb, var(--chip-tone) 74%, var(--foreground));
+  font-size: 0.68rem;
+  font-weight: 950;
+  line-height: 1.05;
+}
+
+.hbx-engine-command__body {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.34rem;
+  align-items: stretch;
+}
+
+.hbx-engine-command[data-vitals="true"] .hbx-engine-command__body {
+  grid-template-columns: minmax(0, 1fr) minmax(150px, 0.36fr);
+}
+
+.hbx-engine-command__billboard {
+  min-height: 88px;
+  align-content: center;
+}
+
+.hbx-engine-command[data-vitals="true"] .app-topbar__systemVitals {
+  min-height: 88px;
+}
+
+html[data-theme-mode="dark"] .hbx-engine-command,
+html[data-theme-mode="dark"] .hbx-engine-gauge {
+  background:
+    radial-gradient(circle at 10% 16%, color-mix(in srgb, var(--success) 12%, transparent), transparent 40%),
+    radial-gradient(circle at 92% 0%, color-mix(in srgb, var(--accent) 16%, transparent), transparent 40%),
+    linear-gradient(180deg, color-mix(in srgb, var(--header-surface) 86%, black), color-mix(in srgb, var(--surface) 78%, black));
+}
+
 .app-topbar__engineConstellation {
   width: min(1180px, 100%);
   min-width: 0;
@@ -3796,6 +4427,10 @@ html[data-theme-mode="dark"] .hbx-confirmBillboard[data-destructive="true"] {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .hbx-engine-gauge[data-live="true"]::after,
+  .hbx-engine-gauge[data-live="true"] .hbx-engine-gauge__scan,
+  .hbx-engine-command[data-live="true"] .hbx-engine-command__scan,
+  .hbx-engine-header[data-active="true"] .hbx-engine-command__scan,
   .app-topbar__engineNode[data-active="true"]::after,
   .app-topbar__engineNode[data-active="true"][data-state="busy"]::before,
   .app-topbar__engineNode[data-live="true"] .app-topbar__engineNodeLed::after,
@@ -3811,6 +4446,10 @@ html[data-theme-mode="dark"] .hbx-confirmBillboard[data-destructive="true"] {
   .app-topbar__billboardEqualizer i,
   .app-topbar__billboardOrb {
     animation: none !important;
+  }
+
+  .hbx-engine-gauge__needle {
+    transition: none !important;
   }
 }
 
@@ -8396,6 +9035,15 @@ html[data-theme="tabler"] .workspace-context {
     grid-template-columns: 1fr;
   }
 
+  .hbx-engine-header {
+    width: 100%;
+    grid-template-columns: 1fr;
+  }
+
+  .hbx-engine-command[data-vitals="true"] .hbx-engine-command__body {
+    grid-template-columns: 1fr;
+  }
+
   .app-topbar__engineDeck {
     width: min(420px, 100%);
     justify-self: center;
@@ -8492,6 +9140,38 @@ html[data-theme="tabler"] .workspace-context {
 
   .app-topbar__engineConstellation {
     grid-template-columns: 1fr;
+  }
+
+  .hbx-engine-header {
+    gap: 0.42rem;
+    border-radius: 16px;
+    padding: 0.4rem;
+  }
+
+  .hbx-engine-header__gaugeRow {
+    grid-template-columns: 1fr;
+  }
+
+  .hbx-engine-gauge {
+    min-height: 146px;
+  }
+
+  .hbx-engine-gauge__bars {
+    grid-template-columns: repeat(10, minmax(0, 1fr));
+  }
+
+  .hbx-engine-command__chips {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .hbx-engine-command__body,
+  .hbx-engine-command[data-vitals="true"] .hbx-engine-command__body {
+    grid-template-columns: 1fr;
+  }
+
+  .hbx-engine-command__head strong,
+  .hbx-engine-command__head p {
+    white-space: normal;
   }
 
   .app-topbar__engineCore {
