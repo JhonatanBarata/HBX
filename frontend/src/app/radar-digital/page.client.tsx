@@ -388,7 +388,8 @@ export default function RadarDigitalClientPage() {
     <DashboardScaffold
       title="Radar Digital"
       description="Cards abastecidos automaticamente pela Massa de Dados HBX."
-      showDashboardShortcut
+      hideHeader
+      showDashboardShortcut={false}
     >
       <section className={styles.shell}>
         <div className={styles.summaryBar}>
