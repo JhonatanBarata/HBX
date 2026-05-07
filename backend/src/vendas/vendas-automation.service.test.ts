@@ -4,7 +4,9 @@ import assert from 'node:assert/strict';
 import { VendasAutomationService } from './vendas-automation.service';
 
 const FALLBACK_MESSAGE =
-  'Oi, tudo bem? Sou o Jhonatan, da HBX. Vi sua empresa no Google e queria te mostrar uma ferramenta que ajuda a organizar contatos, orçamentos e retornos pelo WhatsApp. Tenho 30 dias grátis, sem compromisso. Faz sentido eu te mostrar?';
+  'Oi, tudo bem? Meu nome é Jhonatan, eu trabalho com empresas organizadoras de vendas, orçamentos, prospectar clientes e retornos pelo WhatsApp.\n' +
+  'Tem interesse em conhecer? Eu tenho 30 dias grátis no plano, totalmente sem compromisso.\n' +
+  'Cadastre aqui: https://hbxsystem.com.br/vendas/automacao?tab=prospeccao';
 
 function buildCampaign(overrides?: Record<string, unknown>) {
   return {
@@ -516,8 +518,7 @@ test('lead without script and campaign without template uses DEFAULT_MESSAGE_TEM
   await service.processDueJob(buildJob({ campaign, lead, leadId: lead.id }));
 
   assert.equal(queueCalls.length, 1);
-  assert.ok(queueCalls[0].payload.body.startsWith('Oi, tudo bem? Aqui é Jhonatan da HBX.'));
-  assert.ok(queueCalls[0].payload.body.includes('Empresa Teste em Sao Paulo'));
+  assert.equal(queueCalls[0].payload.body, FALLBACK_MESSAGE);
 });
 
 test('intervalMinutes defers the second send but still prepares future jobs', async () => {

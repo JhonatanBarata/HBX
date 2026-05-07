@@ -4188,16 +4188,31 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     };
 
     if (cleanStockBefore < Math.max(filters.minimumStock, filters.quantity)) {
-      replenish = await this.replenishRadarStockForUser(user, {
-        ...input,
-        city: filters.city,
-        state: filters.state,
-        segment: filters.segment,
-        desiredStock: filters.desiredStock,
-        minimumStock: filters.minimumStock,
-        engine: filters.engine,
-        targetType: filters.targetType,
-      });
+      try {
+        replenish = await this.replenishRadarStockForUser(user, {
+          ...input,
+          city: filters.city,
+          state: filters.state,
+          segment: filters.segment,
+          desiredStock: filters.desiredStock,
+          minimumStock: filters.minimumStock,
+          engine: filters.engine,
+          targetType: filters.targetType,
+        });
+      } catch (error: any) {
+        const errorMessage = String(error?.message || error);
+        replenish = {
+          ran: true,
+          reason: 'replenish_failed_using_database',
+          cleanStockBefore,
+          cleanStockAfter: cleanStockBefore,
+          fetchedCount: 0,
+          error: errorMessage,
+        };
+        this.logger.warn(
+          `[radar] reposicao falhou; usando estoque existente company=${context.companyId} city=${filters.normalizedCity} segment=${filters.normalizedSegment}: ${errorMessage}`,
+        );
+      }
       rows = await this.queryRadarRowsForCompany(context.companyId, filters, {
         limit: Math.max(filters.quantity, filters.minimumStock, 100),
         requirePhone: true,

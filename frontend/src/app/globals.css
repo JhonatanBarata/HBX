@@ -2433,6 +2433,50 @@ html[data-theme-mode="dark"] .app-topbar__billboard {
   border-color: color-mix(in srgb, var(--warning) 42%, var(--line));
 }
 
+.app-topbar__billboard[data-theater="true"] {
+  border-color: color-mix(in srgb, var(--button-secondary) 44%, var(--success));
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--button-secondary) 26%, transparent) 0 1px, transparent 1px 100%),
+    linear-gradient(180deg, color-mix(in srgb, var(--success) 18%, transparent) 0 1px, transparent 1px 100%),
+    radial-gradient(circle at 8% 52%, color-mix(in srgb, var(--success) 28%, transparent), transparent 42%),
+    radial-gradient(circle at 94% 0%, color-mix(in srgb, var(--button-accent) 18%, transparent), transparent 38%),
+    linear-gradient(180deg, color-mix(in srgb, var(--surface-raised) 94%, #eaf9ff), color-mix(in srgb, var(--surface-soft) 90%, #e4f3ff));
+  background-size: 18px 18px, 18px 18px, auto, auto, auto;
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--surface) 82%, transparent),
+    0 18px 40px -28px color-mix(in srgb, var(--button-secondary) 72%, transparent),
+    0 0 0 1px color-mix(in srgb, var(--success) 12%, transparent);
+}
+
+html[data-theme-mode="dark"] .app-topbar__billboard[data-theater="true"] {
+  background:
+    linear-gradient(90deg, rgba(38, 170, 255, 0.2) 0 1px, transparent 1px 100%),
+    linear-gradient(180deg, rgba(35, 255, 185, 0.14) 0 1px, transparent 1px 100%),
+    radial-gradient(circle at 8% 52%, rgba(23, 255, 178, 0.22), transparent 44%),
+    radial-gradient(circle at 94% 0%, rgba(230, 59, 193, 0.16), transparent 38%),
+    linear-gradient(180deg, rgba(8, 30, 58, 0.96), rgba(4, 13, 29, 0.92));
+  background-size: 18px 18px, 18px 18px, auto, auto, auto;
+}
+
+.app-topbar__billboard[data-theater="true"][data-phase="warning"] {
+  border-color: color-mix(in srgb, var(--danger) 38%, var(--warning));
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--warning) 23%, transparent) 0 1px, transparent 1px 100%),
+    linear-gradient(180deg, color-mix(in srgb, var(--danger) 13%, transparent) 0 1px, transparent 1px 100%),
+    radial-gradient(circle at 8% 52%, color-mix(in srgb, var(--warning) 22%, transparent), transparent 42%),
+    radial-gradient(circle at 94% 0%, color-mix(in srgb, var(--danger) 18%, transparent), transparent 38%),
+    linear-gradient(180deg, color-mix(in srgb, var(--surface-raised) 94%, #fff3e8), color-mix(in srgb, var(--surface-soft) 90%, #fff0f0));
+}
+
+html[data-theme-mode="dark"] .app-topbar__billboard[data-theater="true"][data-phase="warning"] {
+  background:
+    linear-gradient(90deg, rgba(245, 158, 11, 0.19) 0 1px, transparent 1px 100%),
+    linear-gradient(180deg, rgba(239, 68, 68, 0.13) 0 1px, transparent 1px 100%),
+    radial-gradient(circle at 8% 52%, rgba(245, 158, 11, 0.2), transparent 42%),
+    radial-gradient(circle at 94% 0%, rgba(239, 68, 68, 0.16), transparent 38%),
+    linear-gradient(180deg, rgba(44, 24, 10, 0.94), rgba(25, 10, 13, 0.9));
+}
+
 .app-topbar__billboardScan {
   position: absolute;
   inset: 0;
@@ -2446,9 +2490,43 @@ html[data-theme-mode="dark"] .app-topbar__billboard {
   animation: topbar-billboard-scan 3.8s ease-in-out infinite;
 }
 
+.app-topbar__billboard[data-theater="true"] .app-topbar__billboardScan {
+  opacity: 0.72;
+  animation-duration: 2.2s;
+}
+
 .app-topbar__billboard > *:not(.app-topbar__billboardScan) {
   position: relative;
   z-index: 1;
+}
+
+.app-topbar__billboardEqualizer {
+  position: absolute;
+  top: 0.42rem;
+  right: 0.54rem;
+  z-index: 1;
+  display: inline-flex;
+  align-items: end;
+  gap: 3px;
+  height: 19px;
+  opacity: 0.68;
+  pointer-events: none;
+}
+
+.app-topbar__billboardEqualizer i {
+  width: 3px;
+  height: 18px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--button-secondary) 86%, white), color-mix(in srgb, var(--success) 84%, var(--button-secondary)));
+  box-shadow: 0 0 12px color-mix(in srgb, var(--button-secondary) 46%, transparent);
+  transform-origin: bottom;
+  animation: topbar-theater-eq 740ms ease-in-out infinite;
+  animation-delay: calc(var(--eq-index) * -82ms);
+}
+
+.app-topbar__billboard[data-phase="warning"] .app-topbar__billboardEqualizer i {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--warning) 86%, white), color-mix(in srgb, var(--danger) 72%, var(--warning)));
+  box-shadow: 0 0 12px color-mix(in srgb, var(--warning) 44%, transparent);
 }
 
 .app-topbar__billboardMain {
@@ -2488,6 +2566,30 @@ html[data-theme-mode="dark"] .app-topbar__billboard {
 
 .app-topbar__billboard[data-phase="success"] .app-topbar__billboardOrb {
   animation-duration: 1.35s;
+}
+
+.app-topbar__billboard[data-theater="true"] .app-topbar__billboardOrb {
+  animation-duration: 0.78s;
+  box-shadow:
+    0 0 0 5px color-mix(in srgb, var(--success) 14%, transparent),
+    0 12px 26px -14px color-mix(in srgb, var(--success) 86%, transparent),
+    0 0 28px color-mix(in srgb, var(--button-secondary) 34%, transparent);
+}
+
+.app-topbar__billboard[data-theater="true"][data-phase="warning"] .app-topbar__billboardOrb {
+  background:
+    conic-gradient(
+      from 0deg,
+      color-mix(in srgb, var(--warning) 92%, white),
+      color-mix(in srgb, var(--danger) 78%, var(--warning)),
+      color-mix(in srgb, var(--warning) 88%, white),
+      color-mix(in srgb, var(--danger) 72%, var(--warning)),
+      color-mix(in srgb, var(--warning) 92%, white)
+    );
+  box-shadow:
+    0 0 0 5px color-mix(in srgb, var(--warning) 14%, transparent),
+    0 12px 26px -14px color-mix(in srgb, var(--warning) 82%, transparent),
+    0 0 26px color-mix(in srgb, var(--danger) 24%, transparent);
 }
 
 .app-topbar__billboardOrb::before,
@@ -3206,6 +3308,19 @@ html[data-theme-mode="dark"] .app-topbar__billboard {
   }
 }
 
+@keyframes topbar-theater-eq {
+  0%,
+  100% {
+    opacity: 0.42;
+    transform: scaleY(0.34);
+  }
+
+  48% {
+    opacity: 1;
+    transform: scaleY(1);
+  }
+}
+
 @keyframes topbar-main-gauge-scan {
   0% {
     transform: translateX(-62%);
@@ -3291,6 +3406,7 @@ html[data-theme-mode="dark"] .app-topbar__billboard {
   .app-topbar__engineCore[data-live="true"]::before,
   .app-topbar__billboard,
   .app-topbar__billboardScan,
+  .app-topbar__billboardEqualizer i,
   .app-topbar__billboardOrb {
     animation: none !important;
   }
