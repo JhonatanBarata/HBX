@@ -1296,9 +1296,62 @@ html[data-theme-mode="light"] .app-topbar__engineConstellation {
   min-width: 0;
   width: 100%;
   display: grid;
-  grid-template-columns: repeat(10, minmax(27px, 1fr));
-  gap: 0.28rem;
+  align-content: stretch;
+  gap: 0.34rem;
   justify-self: end;
+  position: relative;
+  outline: none;
+}
+
+.app-topbar__engineDeckHead {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 0.28rem;
+  border: 1px solid color-mix(in srgb, var(--button-secondary) 18%, transparent);
+  border-radius: 999px;
+  padding: 0.18rem 0.28rem 0.18rem 0.44rem;
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--success) 10%, transparent), transparent),
+    color-mix(in srgb, var(--surface-raised) 78%, transparent);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, white 12%, transparent);
+}
+
+.app-topbar__engineDeckHead span,
+.app-topbar__engineDeckHead em {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 0.52rem;
+  font-style: normal;
+  font-weight: 950;
+  letter-spacing: 0.08em;
+  line-height: 1;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.app-topbar__engineDeckHead strong {
+  color: color-mix(in srgb, var(--success) 76%, var(--foreground));
+  font-size: 0.72rem;
+  font-weight: 950;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.app-topbar__engineDeckHead em {
+  max-width: 82px;
+  color: color-mix(in srgb, var(--button-secondary) 72%, var(--muted));
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.app-topbar__engineDeckGrid {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(58px, 1fr));
+  gap: 0.34rem;
 }
 
 .app-topbar__engineCard {
@@ -1308,14 +1361,14 @@ html[data-theme-mode="light"] .app-topbar__engineConstellation {
   isolation: isolate;
   min-width: 0;
   width: 100%;
-  min-height: 44px;
+  min-height: 54px;
   display: grid;
   grid-template-rows: auto 1fr;
   align-content: center;
-  gap: 0.16rem;
+  gap: 0.24rem;
   border: 1px solid color-mix(in srgb, var(--button-secondary) 18%, var(--line));
   border-radius: 12px;
-  padding: 0.28rem 0.24rem;
+  padding: 0.34rem;
   overflow: hidden;
   background:
     radial-gradient(circle at 20% 12%, color-mix(in srgb, var(--engine-node-tone) 16%, transparent), transparent 46%),
@@ -1418,21 +1471,30 @@ html[data-theme-mode="light"] .app-topbar__engineConstellation {
 .app-topbar__engineCardTop {
   min-width: 0;
   display: grid;
-  grid-template-columns: 7px minmax(0, 1fr);
+  grid-template-columns: 8px minmax(0, 1fr);
   align-items: center;
-  gap: 0.16rem;
+  gap: 0.22rem;
 }
 
 .app-topbar__engineCardTop strong {
   color: currentColor;
-  font-size: 0.58rem;
+  font-size: 0.68rem;
   font-weight: 950;
   line-height: 1;
-  text-align: center;
+  text-align: left;
 }
 
 .app-topbar__engineCardTop em {
-  display: none;
+  grid-column: 2;
+  overflow: hidden;
+  color: color-mix(in srgb, currentColor 70%, var(--muted));
+  display: block;
+  font-size: 0.48rem;
+  font-style: normal;
+  font-weight: 900;
+  line-height: 1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .app-topbar__engineCardBody {
@@ -1445,8 +1507,9 @@ html[data-theme-mode="light"] .app-topbar__engineConstellation {
 
 .app-topbar__engineGauge {
   width: 100%;
-  height: 5px;
+  height: 8px;
   border-radius: 999px;
+  position: relative;
   display: block;
   background:
     linear-gradient(90deg, color-mix(in srgb, var(--engine-node-tone) 86%, white) var(--engine-usage), transparent 0),
@@ -1455,7 +1518,16 @@ html[data-theme-mode="light"] .app-topbar__engineConstellation {
 }
 
 .app-topbar__engineGauge b {
-  display: none;
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 5px);
+  display: block;
+  color: color-mix(in srgb, currentColor 84%, var(--foreground));
+  font-size: 0.52rem;
+  font-weight: 950;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 1px 8px color-mix(in srgb, var(--surface) 82%, transparent);
 }
 
 .app-topbar__sparkline {
@@ -1496,6 +1568,133 @@ html[data-theme-mode="light"] .app-topbar__engineConstellation {
 
 .app-topbar__engineCard[data-active="true"] .app-topbar__activityDots i:nth-child(3) {
   animation-delay: 280ms;
+}
+
+.app-topbar__enginePopover {
+  position: absolute;
+  top: calc(100% + 10px);
+  left: 0;
+  z-index: 30;
+  width: min(540px, calc(100vw - 2rem));
+  display: grid;
+  gap: 0.5rem;
+  border: 1px solid color-mix(in srgb, var(--button-secondary) 34%, var(--line));
+  border-radius: 18px;
+  padding: 0.62rem;
+  background:
+    radial-gradient(circle at 10% 0%, color-mix(in srgb, var(--success) 16%, transparent), transparent 34%),
+    radial-gradient(circle at 88% 0%, color-mix(in srgb, var(--button-secondary) 18%, transparent), transparent 38%),
+    linear-gradient(180deg, color-mix(in srgb, var(--surface-raised) 96%, var(--background)), color-mix(in srgb, var(--surface-soft) 92%, var(--background)));
+  box-shadow:
+    var(--shadow-inset),
+    0 28px 54px -34px color-mix(in srgb, var(--button-secondary) 58%, transparent);
+  opacity: 0;
+  transform: translateY(-6px) scale(0.985);
+  pointer-events: none;
+  transition:
+    opacity 160ms ease,
+    transform 180ms ease;
+}
+
+.app-topbar__engineDeck:hover .app-topbar__enginePopover,
+.app-topbar__engineDeck:focus-within .app-topbar__enginePopover {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  pointer-events: auto;
+}
+
+.app-topbar__enginePopoverHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+}
+
+.app-topbar__enginePopoverHead span {
+  color: color-mix(in srgb, var(--button-secondary) 82%, var(--foreground));
+  font-size: 0.62rem;
+  font-weight: 950;
+  letter-spacing: 0.1em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.app-topbar__enginePopoverHead strong {
+  color: var(--foreground);
+  font-size: 0.72rem;
+  font-weight: 950;
+  line-height: 1;
+}
+
+.app-topbar__enginePopoverGrid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 0.28rem;
+}
+
+.app-topbar__enginePeek {
+  --engine-node-tone: var(--brand);
+  min-width: 0;
+  min-height: 34px;
+  display: grid;
+  grid-template-columns: 7px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.24rem;
+  border: 1px solid color-mix(in srgb, var(--engine-node-tone) 18%, var(--line));
+  border-radius: 10px;
+  padding: 0.28rem 0.32rem;
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--engine-node-tone) 10%, transparent) var(--engine-usage), transparent 0),
+    color-mix(in srgb, var(--surface-raised) 84%, transparent);
+  color: var(--muted);
+}
+
+.app-topbar__enginePeek[data-state="busy"] {
+  --engine-node-tone: var(--success);
+}
+
+.app-topbar__enginePeek[data-state="emergency"] {
+  --engine-node-tone: var(--button-accent);
+}
+
+.app-topbar__enginePeek[data-state="cooldown"] {
+  --engine-node-tone: var(--warning);
+}
+
+.app-topbar__enginePeek[data-state="degraded"],
+.app-topbar__enginePeek[data-state="offline"] {
+  --engine-node-tone: var(--danger);
+}
+
+.app-topbar__enginePeek[data-active="true"] {
+  color: color-mix(in srgb, var(--engine-node-tone) 82%, var(--foreground));
+  border-color: color-mix(in srgb, var(--engine-node-tone) 48%, var(--line));
+  box-shadow: 0 0 18px color-mix(in srgb, var(--engine-node-tone) 12%, transparent);
+}
+
+.app-topbar__enginePeek i {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--engine-node-tone) 76%, var(--muted));
+  box-shadow: 0 0 12px color-mix(in srgb, var(--engine-node-tone) 34%, transparent);
+}
+
+.app-topbar__enginePeek strong,
+.app-topbar__enginePeek em {
+  overflow: hidden;
+  color: currentColor;
+  font-size: 0.58rem;
+  font-style: normal;
+  font-weight: 950;
+  line-height: 1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-topbar__enginePeek em {
+  opacity: 0.72;
+  font-variant-numeric: tabular-nums;
 }
 
 .app-topbar__engineNode {
@@ -1682,10 +1881,10 @@ html[data-theme-mode="light"] .app-topbar__engineConstellation {
   isolation: isolate;
   min-width: 0;
   width: 100%;
-  min-height: 96px;
+  min-height: 104px;
   display: grid;
   justify-items: stretch;
-  align-items: center;
+  align-items: stretch;
   border: 1px solid color-mix(in srgb, var(--button-secondary) 30%, var(--line));
   border-radius: 16px;
   padding: 0.32rem;
@@ -1696,6 +1895,11 @@ html[data-theme-mode="light"] .app-topbar__engineConstellation {
   box-shadow:
     var(--shadow-inset),
     0 18px 34px -28px color-mix(in srgb, var(--button-secondary) 38%, transparent);
+}
+
+.app-topbar__engineCore[data-vitals="true"] {
+  grid-template-columns: minmax(0, 1fr) minmax(148px, 0.34fr);
+  gap: 0.36rem;
 }
 
 .app-topbar__engineCore::before {
@@ -1734,45 +1938,11 @@ html[data-theme-mode="light"] .app-topbar__engineConstellation {
   animation: topbar-core-scan 1.8s ease-in-out infinite;
 }
 
-.app-topbar__googleHalo {
-  display: none;
-}
-
-.app-topbar__googleHalo span {
-  display: none;
-}
-
-.app-topbar__engineCore[data-google-active="true"] {
-  border-color: color-mix(in srgb, var(--button-accent) 36%, var(--line));
-  box-shadow:
-    var(--shadow-inset),
-    0 18px 34px -26px color-mix(in srgb, var(--button-accent) 62%, transparent),
-    0 12px 28px -24px color-mix(in srgb, var(--success) 46%, transparent);
-}
-
-.app-topbar__engineCore[data-google-active="true"] .app-topbar__googleHalo {
-  display: none;
-}
-
-.app-topbar__googleBeacon {
-  display: none;
-}
-
-.app-topbar__googleBeacon strong {
-  font-size: 0.62rem;
-  font-weight: 950;
-  line-height: 1;
-}
-
-.app-topbar__googleBeacon[data-active="true"] {
-  display: none;
-}
-
 .app-topbar__billboard {
   position: relative;
   isolation: isolate;
   min-width: 0;
-  min-height: 86px;
+  min-height: 92px;
   display: grid;
   align-content: center;
   gap: 0.34rem;
@@ -1988,6 +2158,157 @@ html[data-theme-mode="dark"] .app-topbar__billboard {
   text-overflow: ellipsis;
   text-transform: none;
   white-space: nowrap;
+}
+
+.app-topbar__systemVitals {
+  min-width: 0;
+  display: grid;
+  grid-template-rows: auto 1fr 1fr;
+  gap: 0.3rem;
+}
+
+.app-topbar__systemVitalsHead {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.32rem;
+  color: color-mix(in srgb, var(--success) 74%, var(--foreground));
+  font-size: 0.54rem;
+  font-weight: 950;
+  letter-spacing: 0.1em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.app-topbar__systemVitalsHead span {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--success) 86%, white);
+  box-shadow:
+    0 0 0 4px color-mix(in srgb, var(--success) 12%, transparent),
+    0 0 14px color-mix(in srgb, var(--success) 62%, transparent);
+  animation: topbar-engine-dot 1.2s ease-in-out infinite;
+}
+
+.app-topbar__systemVital {
+  --vital-tone: var(--success);
+  --vital-usage: 0%;
+  min-width: 0;
+  min-height: 38px;
+  position: relative;
+  isolation: isolate;
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  align-items: center;
+  gap: 0.42rem;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--vital-tone) 24%, var(--line));
+  border-radius: 13px;
+  padding: 0.34rem 0.38rem;
+  background:
+    radial-gradient(circle at 18% 10%, color-mix(in srgb, var(--vital-tone) 16%, transparent), transparent 44%),
+    linear-gradient(180deg, color-mix(in srgb, var(--surface-raised) 92%, var(--background)), color-mix(in srgb, var(--surface-soft) 82%, var(--background)));
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, white 14%, transparent),
+    0 14px 26px -24px color-mix(in srgb, var(--vital-tone) 52%, transparent);
+}
+
+.app-topbar__systemVital[data-tone="yellow"] {
+  --vital-tone: var(--warning);
+}
+
+.app-topbar__systemVital[data-tone="red"] {
+  --vital-tone: var(--danger);
+}
+
+.app-topbar__systemVitalIcon {
+  width: 28px;
+  height: 28px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 10px;
+  color: color-mix(in srgb, var(--vital-tone) 82%, white);
+  background:
+    radial-gradient(circle at 30% 25%, color-mix(in srgb, var(--vital-tone) 30%, transparent), transparent 52%),
+    color-mix(in srgb, var(--vital-tone) 12%, var(--surface-raised));
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, white 18%, transparent),
+    0 0 18px color-mix(in srgb, var(--vital-tone) 16%, transparent);
+}
+
+.app-topbar__systemVitalIcon svg {
+  width: 17px;
+  height: 17px;
+  display: block;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+}
+
+.app-topbar__systemVitalIcon[data-kind="memory"] svg path:first-child,
+.app-topbar__systemVitalIcon[data-kind="disk"] svg path:first-child {
+  fill: color-mix(in srgb, currentColor 13%, transparent);
+}
+
+.app-topbar__systemVitalCopy {
+  min-width: 0;
+  display: grid;
+  gap: 0.04rem;
+}
+
+.app-topbar__systemVitalCopy span {
+  color: var(--muted);
+  font-size: 0.5rem;
+  font-weight: 950;
+  letter-spacing: 0.08em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.app-topbar__systemVitalCopy strong {
+  color: color-mix(in srgb, var(--vital-tone) 74%, var(--foreground));
+  font-size: 0.78rem;
+  font-weight: 950;
+  line-height: 1.04;
+  font-variant-numeric: tabular-nums;
+}
+
+.app-topbar__systemVitalCopy em {
+  overflow: hidden;
+  color: color-mix(in srgb, var(--foreground-soft) 72%, var(--muted));
+  font-size: 0.5rem;
+  font-style: normal;
+  font-weight: 820;
+  line-height: 1.1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-topbar__systemVitalTrack {
+  position: absolute;
+  right: 0.38rem;
+  bottom: 0.28rem;
+  left: 2.96rem;
+  height: 3px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--line) 66%, transparent);
+}
+
+.app-topbar__systemVitalTrack i {
+  display: block;
+  width: var(--vital-usage);
+  height: 100%;
+  min-width: 4px;
+  max-width: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--vital-tone) 88%, white), color-mix(in srgb, var(--button-secondary) 68%, var(--vital-tone)));
+  box-shadow: 0 0 14px color-mix(in srgb, var(--vital-tone) 38%, transparent);
+  transition: width 260ms ease;
 }
 
 .app-topbar__summary {
@@ -2478,22 +2799,6 @@ html[data-theme-mode="dark"] .app-topbar__billboard {
   }
 }
 
-@keyframes topbar-google-ring-spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-@keyframes topbar-google-beacon-pulse {
-  from {
-    transform: translateY(-1px) scale(0.94);
-  }
-
-  to {
-    transform: translateY(-1px) scale(1.08);
-  }
-}
-
 @media (prefers-reduced-motion: reduce) {
   .app-topbar__engineNode[data-active="true"]::after,
   .app-topbar__engineNode[data-active="true"][data-state="busy"]::before,
@@ -2502,8 +2807,6 @@ html[data-theme-mode="dark"] .app-topbar__billboard {
   .app-topbar__engineCard[data-live="true"]::before,
   .app-topbar__engineCard[data-active="true"] .app-topbar__activityDots i,
   .app-topbar__engineCore[data-live="true"]::before,
-  .app-topbar__engineCore[data-google-active="true"] .app-topbar__googleHalo,
-  .app-topbar__googleBeacon[data-active="true"],
   .app-topbar__billboard,
   .app-topbar__billboardScan,
   .app-topbar__billboardOrb {
@@ -7086,10 +7389,12 @@ html[data-theme="tabler"] .workspace-context {
   }
 
   .app-topbar__engineDeck {
-    width: min(520px, 100%);
-    grid-template-columns: repeat(10, minmax(28px, 1fr));
-    justify-content: center;
+    width: min(420px, 100%);
     justify-self: center;
+  }
+
+  .app-topbar__engineDeckGrid {
+    grid-template-columns: repeat(4, minmax(52px, 1fr));
   }
 
   .app-topbar__engineWing {
@@ -7186,11 +7491,27 @@ html[data-theme="tabler"] .workspace-context {
     justify-items: stretch;
   }
 
+  .app-topbar__engineCore[data-vitals="true"] {
+    grid-template-columns: 1fr;
+  }
+
+  .app-topbar__systemVitals {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-rows: auto auto;
+  }
+
+  .app-topbar__systemVitalsHead {
+    grid-column: 1 / -1;
+  }
+
   .app-topbar__engineDeck {
     order: 2;
     width: 100%;
-    grid-template-columns: repeat(10, minmax(24px, 1fr));
     justify-content: center;
+  }
+
+  .app-topbar__engineDeckGrid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 
   .app-topbar__engineCard {
