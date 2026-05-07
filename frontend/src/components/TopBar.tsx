@@ -742,7 +742,59 @@ export default function TopBar() {
   const scrapingEngineView = useMemo(() => normalizeScrapingEngines(scrapingEngines), [scrapingEngines]);
   const leftScrapingEngines = scrapingEngineView.hbxEngines.slice(0, 2);
   const rightScrapingEngines = scrapingEngineView.hbxEngines.slice(2, 4);
-  const shouldShowTopbarProgressWidget = Boolean(topbarProgress && topbarProgress.source !== "webscraping");
+  const liveWebscrapingProgress = topbarProgress?.source === "webscraping" && topbarProgress.phase === "loading";
+  const topbarProgressPercent = Math.round(Math.max(0, Math.min(100, topbarProgress?.progress || 0)));
+  const progressEngineIds = useMemo(
+    () => new Set((topbarProgress?.activeEngineIds || []).map((engineId) => String(engineId || "").trim()).filter(Boolean)),
+    [topbarProgress?.activeEngineIds],
+  );
+  const progressEngineIndex =
+    typeof topbarProgress?.activeEngineIndex === "number" && Number.isInteger(topbarProgress.activeEngineIndex)
+      ? Math.max(0, Math.min(3, topbarProgress.activeEngineIndex))
+      : liveWebscrapingProgress
+        ? Math.max(0, Math.min(3, Math.floor(Math.max(0, Math.min(99, topbarProgress?.progress || 0)) / 25)))
+        : null;
+  const progressEngineLabel =
+    topbarProgress?.activeEngineLabel ||
+    (typeof progressEngineIndex === "number" ? `M${progressEngineIndex + 1}` : null);
+  const shouldShowTopbarProgressWidget = Boolean(topbarProgress);
+
+  const isLiveScrapingEngine = React.useCallback(
+    (engine: ScrapingEngineStatus) => {
+      if (!liveWebscrapingProgress || engine.kind !== "hbx") return false;
+      if (progressEngineIds.has(engine.id)) return true;
+      return typeof progressEngineIndex === "number" && engine.index === progressEngineIndex;
+    },
+    [liveWebscrapingProgress, progressEngineIds, progressEngineIndex],
+  );
+
+  const getVisibleScrapingEngineState = React.useCallback(
+    (engine: ScrapingEngineStatus) => {
+      const state = getScrapingEngineState(engine);
+      if (!isLiveScrapingEngine(engine)) return state;
+      if (state === "offline" || state === "degraded" || state === "cooldown") return state;
+      return "busy";
+    },
+    [isLiveScrapingEngine],
+  );
+
+  const getVisibleScrapingEngineValue = React.useCallback(
+    (engine: ScrapingEngineStatus) => {
+      if (isLiveScrapingEngine(engine)) return "girando";
+      return getScrapingEngineValue(engine);
+    },
+    [isLiveScrapingEngine],
+  );
+
+  const getVisibleScrapingEngineDetail = React.useCallback(
+    (engine: ScrapingEngineStatus) => {
+      if (!isLiveScrapingEngine(engine)) return engine.detail;
+      return `${engine.label} em coleta ao vivo. ${topbarProgress?.status || engine.detail}`;
+    },
+    [isLiveScrapingEngine, topbarProgress?.status],
+  );
+
+  const hasActiveScrapingEngine = scrapingEngineView.hasActive || liveWebscrapingProgress;
 
   const operationalStatusReady = Boolean(
     authenticated &&
@@ -1943,6 +1995,8 @@ export default function TopBar() {
     ? "Finalize contratação"
     : showOperationalCompanyPicker
     ? "Selecione uma empresa"
+    : liveWebscrapingProgress
+    ? `${progressEngineLabel || "HBX"} coletando ${topbarProgressPercent}%`
     : operationalStatusReady
       ? `Empresa: ${operationalStatus?.context.companyName || "Operação ativa"}`
       : pendingHumanCount > 0
@@ -2234,6 +2288,7 @@ export default function TopBar() {
                   <div
                     className="app-topbar__progressWidget"
                     data-phase={topbarProgress?.phase}
+                    data-source={topbarProgress?.source}
                     role="status"
                     aria-live="polite"
                   >
@@ -2243,7 +2298,7 @@ export default function TopBar() {
                     <div className="app-topbar__progressBody">
                       <div className="app-topbar__progressLine">
                         <strong>{topbarProgress?.title}</strong>
-                        <span>{Math.round(Math.max(0, Math.min(100, topbarProgress?.progress || 0)))}%</span>
+                        <span>{topbarProgressPercent}%</span>
                       </div>
                       <div className="app-topbar__progressTrack" aria-hidden="true">
                         <span style={{ width: `${Math.max(0, Math.min(100, topbarProgress?.progress || 0))}%` }} />
@@ -2267,30 +2322,43 @@ export default function TopBar() {
           </div>
 
           <div className="app-topbar__center">
-            <div className="app-topbar__engineConstellation" data-active={scrapingEngineView.hasActive ? "true" : "false"}>
+            <div
+              className="app-topbar__engineConstellation"
+              data-active={hasActiveScrapingEngine ? "true" : "false"}
+              data-live={liveWebscrapingProgress ? "true" : "false"}
+            >
               <div className="app-topbar__engineWing app-topbar__engineWing--left" aria-label="Motores HBX 1 e 2">
-                {leftScrapingEngines.map((engine) => (
-                  <span
-                    key={engine.id}
-                    className="app-topbar__engineNode"
-                    data-active={engine.active ? "true" : "false"}
-                    data-state={getScrapingEngineState(engine)}
-                    title={`${engine.label}: ${getScrapingEngineValue(engine)}. ${engine.detail}`}
-                    aria-label={`${engine.label}: ${getScrapingEngineValue(engine)}. ${engine.detail}`}
-                  >
-                    <span className="app-topbar__engineNodeLed" aria-hidden="true" />
-                    <span className="app-topbar__engineNodeCopy">
-                      <strong>{getScrapingEngineShortLabel(engine)}</strong>
-                      <span>{getScrapingEngineValue(engine)}</span>
+                {leftScrapingEngines.map((engine) => {
+                  const visualState = getVisibleScrapingEngineState(engine);
+                  const visualValue = getVisibleScrapingEngineValue(engine);
+                  const visualDetail = getVisibleScrapingEngineDetail(engine);
+                  const visualActive = engine.active || isLiveScrapingEngine(engine);
+
+                  return (
+                    <span
+                      key={engine.id}
+                      className="app-topbar__engineNode"
+                      data-active={visualActive ? "true" : "false"}
+                      data-state={visualState}
+                      data-live={isLiveScrapingEngine(engine) ? "true" : "false"}
+                      title={`${engine.label}: ${visualValue}. ${visualDetail}`}
+                      aria-label={`${engine.label}: ${visualValue}. ${visualDetail}`}
+                    >
+                      <span className="app-topbar__engineNodeLed" aria-hidden="true" />
+                      <span className="app-topbar__engineNodeCopy">
+                        <strong>{getScrapingEngineShortLabel(engine)}</strong>
+                        <span>{visualValue}</span>
+                      </span>
                     </span>
-                  </span>
-                ))}
+                  );
+                })}
               </div>
 
               <div
                 className="app-topbar__engineCore"
-                data-active={scrapingEngineView.hasActive ? "true" : "false"}
+                data-active={hasActiveScrapingEngine ? "true" : "false"}
                 data-google-active={scrapingEngineView.googleEngine.active ? "true" : "false"}
+                data-live={liveWebscrapingProgress ? "true" : "false"}
                 role="status"
                 aria-live="polite"
               >
@@ -2310,7 +2378,20 @@ export default function TopBar() {
                   <strong>{operationalSummaryMessage}</strong>
                 </div>
 
-                {operationalStatusReady ? (
+                {liveWebscrapingProgress ? (
+                  <div className="app-topbar__liveEngineData" aria-label="Dados da coleta em tempo real">
+                    <span>
+                      <strong>{topbarProgressPercent}%</strong>
+                      <small>progresso</small>
+                    </span>
+                    {(topbarProgress?.metrics || []).slice(0, 2).map((metric) => (
+                      <span key={`${metric.label}:${metric.value}`}>
+                        <strong>{metric.value}</strong>
+                        <small>{metric.label}</small>
+                      </span>
+                    ))}
+                  </div>
+                ) : operationalStatusReady ? (
                   <div className="app-topbar__statusRail" aria-label="Status operacional da empresa">
                     {visibleOperationalStatusChips.map((chip) => (
                       <button
@@ -2349,22 +2430,30 @@ export default function TopBar() {
               </div>
 
               <div className="app-topbar__engineWing app-topbar__engineWing--right" aria-label="Motores HBX 3 e 4">
-                {rightScrapingEngines.map((engine) => (
-                  <span
-                    key={engine.id}
-                    className="app-topbar__engineNode"
-                    data-active={engine.active ? "true" : "false"}
-                    data-state={getScrapingEngineState(engine)}
-                    title={`${engine.label}: ${getScrapingEngineValue(engine)}. ${engine.detail}`}
-                    aria-label={`${engine.label}: ${getScrapingEngineValue(engine)}. ${engine.detail}`}
-                  >
-                    <span className="app-topbar__engineNodeLed" aria-hidden="true" />
-                    <span className="app-topbar__engineNodeCopy">
-                      <strong>{getScrapingEngineShortLabel(engine)}</strong>
-                      <span>{getScrapingEngineValue(engine)}</span>
+                {rightScrapingEngines.map((engine) => {
+                  const visualState = getVisibleScrapingEngineState(engine);
+                  const visualValue = getVisibleScrapingEngineValue(engine);
+                  const visualDetail = getVisibleScrapingEngineDetail(engine);
+                  const visualActive = engine.active || isLiveScrapingEngine(engine);
+
+                  return (
+                    <span
+                      key={engine.id}
+                      className="app-topbar__engineNode"
+                      data-active={visualActive ? "true" : "false"}
+                      data-state={visualState}
+                      data-live={isLiveScrapingEngine(engine) ? "true" : "false"}
+                      title={`${engine.label}: ${visualValue}. ${visualDetail}`}
+                      aria-label={`${engine.label}: ${visualValue}. ${visualDetail}`}
+                    >
+                      <span className="app-topbar__engineNodeLed" aria-hidden="true" />
+                      <span className="app-topbar__engineNodeCopy">
+                        <strong>{getScrapingEngineShortLabel(engine)}</strong>
+                        <span>{visualValue}</span>
+                      </span>
                     </span>
-                  </span>
-                ))}
+                  );
+                })}
               </div>
             </div>
           </div>

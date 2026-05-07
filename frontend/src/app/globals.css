@@ -1210,6 +1210,10 @@ html[data-theme-switcher-open="true"] .app-topbar::after {
   gap: 0.5rem;
 }
 
+.app-topbar__engineConstellation[data-live="true"] {
+  filter: saturate(1.08);
+}
+
 .app-topbar__engineWing {
   min-width: 0;
   display: grid;
@@ -1228,6 +1232,7 @@ html[data-theme-switcher-open="true"] .app-topbar::after {
 .app-topbar__engineNode {
   --engine-node-tone: var(--brand);
   position: relative;
+  isolation: isolate;
   min-width: 0;
   min-height: 38px;
   display: grid;
@@ -1251,6 +1256,11 @@ html[data-theme-switcher-open="true"] .app-topbar::after {
     box-shadow 220ms ease,
     background 220ms ease,
     transform 220ms ease;
+}
+
+.app-topbar__engineNode > * {
+  position: relative;
+  z-index: 1;
 }
 
 .app-topbar__engineNode[data-state="busy"] {
@@ -1287,15 +1297,42 @@ html[data-theme-switcher-open="true"] .app-topbar::after {
 
 .app-topbar__engineNode[data-active="true"] {
   opacity: 1;
-  filter: saturate(1.18) brightness(1.02);
-  border-color: color-mix(in srgb, var(--engine-node-tone) 54%, var(--line));
+  filter: saturate(1.28) brightness(1.04);
+  border-color: color-mix(in srgb, var(--engine-node-tone) 64%, var(--button-secondary));
   color: color-mix(in srgb, var(--engine-node-tone) 86%, var(--foreground));
   background:
-    radial-gradient(circle at 20% 50%, color-mix(in srgb, var(--engine-node-tone) 26%, transparent), transparent 62%),
-    linear-gradient(180deg, color-mix(in srgb, var(--surface-raised) 94%, var(--background)), color-mix(in srgb, var(--surface-soft) 82%, var(--background)));
+    radial-gradient(circle at 18% 46%, color-mix(in srgb, var(--engine-node-tone) 30%, transparent), transparent 58%),
+    radial-gradient(circle at 84% 0%, color-mix(in srgb, var(--button-secondary) 22%, transparent), transparent 48%),
+    linear-gradient(180deg, color-mix(in srgb, var(--surface-raised) 94%, #071a38), color-mix(in srgb, var(--surface-soft) 80%, #061428));
   box-shadow:
     var(--shadow-inset),
-    0 12px 24px -18px color-mix(in srgb, var(--engine-node-tone) 72%, transparent);
+    0 12px 24px -18px color-mix(in srgb, var(--engine-node-tone) 72%, transparent),
+    0 0 24px color-mix(in srgb, var(--button-secondary) 18%, transparent);
+}
+
+.app-topbar__engineNode[data-active="true"][data-state="busy"]::before {
+  content: "";
+  position: absolute;
+  inset: -2px;
+  z-index: 0;
+  border-radius: 14px;
+  padding: 1px;
+  background: conic-gradient(
+    from 0deg,
+    transparent 0deg,
+    color-mix(in srgb, var(--button-secondary) 72%, transparent) 54deg,
+    color-mix(in srgb, var(--success) 96%, white) 128deg,
+    transparent 188deg,
+    color-mix(in srgb, var(--success) 84%, transparent) 278deg,
+    transparent 360deg
+  );
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+  animation: topbar-engine-ring-spin 1.05s linear infinite;
 }
 
 .app-topbar__engineNode[data-active="true"]::after {
@@ -1306,9 +1343,11 @@ html[data-theme-switcher-open="true"] .app-topbar::after {
   border: 1px solid color-mix(in srgb, var(--engine-node-tone) 46%, transparent);
   opacity: 0.72;
   pointer-events: none;
+  animation: topbar-engine-node-pulse 1.45s ease-in-out infinite;
 }
 
 .app-topbar__engineNodeLed {
+  position: relative;
   width: 9px;
   height: 9px;
   border-radius: 999px;
@@ -1321,6 +1360,15 @@ html[data-theme-switcher-open="true"] .app-topbar::after {
   box-shadow:
     0 0 0 4px color-mix(in srgb, var(--engine-node-tone) 12%, transparent),
     0 0 14px color-mix(in srgb, var(--engine-node-tone) 72%, transparent);
+}
+
+.app-topbar__engineNode[data-live="true"] .app-topbar__engineNodeLed::after {
+  content: "";
+  position: absolute;
+  inset: -6px;
+  border-radius: inherit;
+  border: 1px solid color-mix(in srgb, var(--success) 48%, transparent);
+  animation: topbar-engine-node-pulse 0.92s ease-in-out infinite;
 }
 
 .app-topbar__engineNode[data-state="cooldown"] .app-topbar__engineNodeLed,
@@ -1376,6 +1424,42 @@ html[data-theme-switcher-open="true"] .app-topbar::after {
   box-shadow:
     var(--shadow-inset),
     0 18px 34px -30px color-mix(in srgb, var(--info) 38%, transparent);
+}
+
+.app-topbar__engineCore::before {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  z-index: 0;
+  border-radius: inherit;
+  background:
+    linear-gradient(90deg, transparent, color-mix(in srgb, var(--success) 22%, transparent), transparent),
+    radial-gradient(circle at 50% 0%, color-mix(in srgb, var(--button-secondary) 18%, transparent), transparent 52%);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 220ms ease;
+}
+
+.app-topbar__engineCore > * {
+  position: relative;
+  z-index: 1;
+}
+
+.app-topbar__engineCore[data-live="true"] {
+  border-color: color-mix(in srgb, var(--success) 46%, var(--button-secondary));
+  background:
+    radial-gradient(circle at 10% 18%, color-mix(in srgb, var(--success) 18%, transparent), transparent 42%),
+    radial-gradient(circle at 88% 0%, color-mix(in srgb, var(--button-secondary) 18%, transparent), transparent 48%),
+    linear-gradient(180deg, color-mix(in srgb, var(--surface-raised) 94%, #071a38), color-mix(in srgb, var(--surface-soft) 82%, #061428));
+  box-shadow:
+    var(--shadow-inset),
+    0 18px 44px -28px color-mix(in srgb, var(--success) 54%, transparent),
+    0 10px 34px -28px color-mix(in srgb, var(--button-secondary) 70%, transparent);
+}
+
+.app-topbar__engineCore[data-live="true"]::before {
+  opacity: 1;
+  animation: topbar-core-scan 1.8s ease-in-out infinite;
 }
 
 .app-topbar__googleHalo {
@@ -1554,6 +1638,50 @@ html[data-theme-switcher-open="true"] .app-topbar::after {
   color: currentColor;
 }
 
+.app-topbar__liveEngineData {
+  display: flex;
+  width: 100%;
+  max-width: 680px;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.42rem;
+}
+
+.app-topbar__liveEngineData span {
+  display: grid;
+  min-width: 70px;
+  min-height: 34px;
+  align-content: center;
+  gap: 0.02rem;
+  border: 1px solid color-mix(in srgb, var(--success) 26%, var(--button-secondary));
+  border-radius: 999px;
+  background:
+    radial-gradient(circle at 16% 20%, color-mix(in srgb, var(--success) 18%, transparent), transparent 48%),
+    color-mix(in srgb, var(--surface-raised) 76%, transparent);
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--surface) 52%, transparent),
+    0 10px 22px -18px color-mix(in srgb, var(--success) 58%, transparent);
+  padding: 0.28rem 0.64rem;
+}
+
+.app-topbar__liveEngineData strong {
+  color: color-mix(in srgb, var(--success) 84%, var(--foreground));
+  font-size: 0.76rem;
+  font-weight: 950;
+  line-height: 1;
+}
+
+.app-topbar__liveEngineData small {
+  overflow: hidden;
+  color: color-mix(in srgb, var(--foreground-soft) 74%, var(--muted));
+  font-size: 0.56rem;
+  font-weight: 850;
+  line-height: 1.1;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
 .app-topbar__signals {
   display: flex;
   align-items: center;
@@ -1582,6 +1710,34 @@ html[data-theme-switcher-open="true"] .app-topbar::after {
 
 .app-topbar__progressWidget[data-phase="success"] {
   border-color: color-mix(in srgb, var(--success) 34%, var(--line));
+}
+
+.app-topbar__progressWidget[data-source="webscraping"] {
+  border-color: color-mix(in srgb, var(--success) 42%, var(--button-secondary));
+  background:
+    radial-gradient(circle at 12% 48%, color-mix(in srgb, var(--success) 20%, transparent), transparent 46%),
+    radial-gradient(circle at 88% 0%, color-mix(in srgb, var(--button-secondary) 18%, transparent), transparent 48%),
+    linear-gradient(135deg, color-mix(in srgb, var(--surface-raised) 94%, #071a38), color-mix(in srgb, var(--surface-soft) 84%, #061428));
+  box-shadow:
+    var(--shadow-inset),
+    0 18px 40px -28px color-mix(in srgb, var(--success) 64%, transparent),
+    0 10px 28px -24px color-mix(in srgb, var(--button-secondary) 66%, transparent);
+}
+
+.app-topbar__progressWidget[data-source="webscraping"] .app-topbar__progressOrb {
+  background:
+    conic-gradient(
+      from 0deg,
+      color-mix(in srgb, var(--success) 92%, white),
+      color-mix(in srgb, var(--button-secondary) 92%, white),
+      color-mix(in srgb, var(--success) 88%, white),
+      color-mix(in srgb, var(--button-secondary) 92%, white),
+      color-mix(in srgb, var(--success) 92%, white)
+    );
+  box-shadow:
+    0 0 0 5px color-mix(in srgb, var(--success) 12%, transparent),
+    0 12px 24px -16px color-mix(in srgb, var(--success) 82%, transparent),
+    0 0 22px color-mix(in srgb, var(--button-secondary) 24%, transparent);
 }
 
 .app-topbar__progressOrb {
@@ -1715,6 +1871,12 @@ html[data-theme-switcher-open="true"] .app-topbar::after {
   }
 }
 
+@keyframes topbar-engine-ring-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 @keyframes topbar-engine-node-pulse {
   0%,
   100% {
@@ -1725,6 +1887,19 @@ html[data-theme-switcher-open="true"] .app-topbar::after {
   50% {
     opacity: 0.92;
     transform: scale(1.045);
+  }
+}
+
+@keyframes topbar-core-scan {
+  0%,
+  100% {
+    transform: translateX(-1.5%);
+    opacity: 0.58;
+  }
+
+  50% {
+    transform: translateX(1.5%);
+    opacity: 1;
   }
 }
 
@@ -1746,6 +1921,9 @@ html[data-theme-switcher-open="true"] .app-topbar::after {
 
 @media (prefers-reduced-motion: reduce) {
   .app-topbar__engineNode[data-active="true"]::after,
+  .app-topbar__engineNode[data-active="true"][data-state="busy"]::before,
+  .app-topbar__engineNode[data-live="true"] .app-topbar__engineNodeLed::after,
+  .app-topbar__engineCore[data-live="true"]::before,
   .app-topbar__engineCore[data-google-active="true"] .app-topbar__googleHalo,
   .app-topbar__googleBeacon[data-active="true"] {
     animation: none !important;
@@ -6378,6 +6556,15 @@ html[data-theme="tabler"] .workspace-context {
 
   .app-topbar__engineNodeCopy span {
     display: none;
+  }
+
+  .app-topbar__liveEngineData {
+    justify-content: flex-start;
+  }
+
+  .app-topbar__liveEngineData span {
+    min-width: 0;
+    flex: 1 1 calc(33.333% - 0.42rem);
   }
 
   .app-topbar__statusRail {

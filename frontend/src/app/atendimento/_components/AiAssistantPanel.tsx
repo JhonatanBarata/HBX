@@ -40,127 +40,197 @@ export type AiAssistantInsights = {
   }>;
 };
 
+type AiReplySuggestionPanel = {
+  loading: boolean;
+  text: string;
+  status: string;
+  message?: string | null;
+};
+
 type AiAssistantPanelProps = {
   status: AiAssistantStatus;
   prospect: AiAssistantProspect | null;
   insights: AiAssistantInsights | null;
+  replySuggestion?: AiReplySuggestionPanel | null;
+  smartReplyEnabled?: boolean;
+  replyDisabled?: boolean;
   loading?: boolean;
   compact?: boolean;
   onStartProspect: (href?: string | null) => void;
   onRequestMoreLeads: () => void;
+  onRequestReplySuggestion?: () => void;
+  onApplyReplySuggestion?: () => void;
   onToggleCompact: () => void;
 };
+
+const DEFAULT_INSIGHTS: NonNullable<AiAssistantInsights["insights"]> = [
+  {
+    id: "message_long",
+    title: "Mensagem longa",
+    description: "Considere uma resposta mais direta antes de enviar.",
+    tone: "warning",
+  },
+  {
+    id: "lead_cold",
+    title: "Lead frio",
+    description: "Priorize contexto e proposta objetiva.",
+    tone: "info",
+  },
+  {
+    id: "no_response",
+    title: "Sem resposta",
+    description: "Evite insistência rápida. Aguarde a janela de retorno.",
+    tone: "danger",
+  },
+  {
+    id: "adjust_approach",
+    title: "Ajustar abordagem",
+    description: "Use uma pergunta simples para retomar a conversa.",
+    tone: "success",
+  },
+];
 
 export default function AiAssistantPanel({
   status,
   prospect,
   insights,
+  replySuggestion,
+  smartReplyEnabled,
+  replyDisabled,
   loading,
   compact,
   onStartProspect,
   onRequestMoreLeads,
+  onRequestReplySuggestion,
+  onApplyReplySuggestion,
   onToggleCompact,
 }: AiAssistantPanelProps) {
-  if (!status.visualEnabled) return null;
+  const insightRows = insights?.insights?.length ? insights.insights : DEFAULT_INSIGHTS;
+  const pendingLeads = Number(insights?.queue?.pendingLeads || 0);
+  const canSuggestReply = Boolean(smartReplyEnabled && onRequestReplySuggestion && !replyDisabled);
+  const hasSuggestion = Boolean(replySuggestion?.text?.trim());
 
-  const insightRows = insights?.insights || [];
-  const bubbles = insights?.bubbles || [];
-
-  return (
-    <div className={styles.aiLayer} data-compact={compact ? "true" : "false"}>
+  if (compact) {
+    return (
       <button
         type="button"
         className={styles.compactButton}
         onClick={onToggleCompact}
-        aria-label={compact ? "Abrir Assistente IA" : "Recolher Assistente IA"}
-        title={compact ? "Abrir Assistente IA" : "Recolher Assistente IA"}
+        aria-label="Abrir painel do Assistente HBX IA"
+        title="Abrir Assistente HBX IA"
       >
         IA
       </button>
+    );
+  }
 
-      <div className={styles.robotWrap} aria-hidden="true">
-        <div className={styles.robotHalo} />
-        <div className={styles.robot}>
-          <span className={styles.robotAntenna} />
-          <span className={styles.robotEyeLeft} />
-          <span className={styles.robotEyeRight} />
-          <span className={styles.robotSmile} />
+  return (
+    <aside className={styles.panel} aria-label="Painel do Assistente HBX IA">
+      <header className={styles.panelHeader}>
+        <span className={styles.avatar} aria-hidden="true">IA</span>
+        <div>
+          <span className={styles.eyebrow}>Assistente HBX IA</span>
+          <strong>{status.openAiAvailable ? "Gemini Online" : "Gemini em verificação"}</strong>
+          <p>{status.openAiAvailable ? "Apoio comercial em tempo real." : status.availabilityLabel || "Aguardando confirmação do serviço."}</p>
         </div>
-      </div>
+        <button type="button" className={styles.collapseButton} onClick={onToggleCompact}>
+          Recolher
+        </button>
+      </header>
 
-      <aside className={styles.panel} aria-label="Assistente HBX IA">
-        <div className={styles.statusCard}>
-          <span className={styles.onlineDot} data-online={status.openAiAvailable ? "true" : "false"} />
-          <div>
-            <strong>{status.openAiAvailable ? "Assistente HBX IA — Online" : "IA indisponível"}</strong>
-            <p>{status.openAiAvailable ? "Sugestoes comerciais seguras com aprovacao humana." : "Sistema normal preservado."}</p>
-          </div>
+      <section className={styles.statusGrid} aria-label="Status do assistente">
+        <article className={styles.metricCard} data-tone={status.openAiAvailable ? "success" : "warning"}>
+          <span>Status</span>
+          <strong>{status.openAiAvailable ? "Online" : "Atenção"}</strong>
+          <small>{status.safeMode ? "Modo seguro" : "Modo padrão"}</small>
+        </article>
+        <article className={styles.metricCard} data-tone={smartReplyEnabled ? "info" : "neutral"}>
+          <span>Respostas</span>
+          <strong>{smartReplyEnabled ? "Ativas" : "Inativas"}</strong>
+          <small>{pendingLeads ? `${pendingLeads} leads na fila` : "Sem fila crítica"}</small>
+        </article>
+      </section>
+
+      <section className={styles.card}>
+        <div className={styles.cardHeader}>
+          <span>Próximo prospect</span>
+          <strong>{prospect?.available ? prospect.statusLabel || "Pendente" : "Fila limpa"}</strong>
         </div>
+        {loading ? (
+          <p className={styles.cardText}>Lendo oportunidades...</p>
+        ) : prospect?.available ? (
+          <>
+            <p className={styles.prospectName}>{prospect.name || "Prospect sem nome"}</p>
+            <p className={styles.cardText}>{[prospect.phone, prospect.reason].filter(Boolean).join(" - ")}</p>
+            <button type="button" className={styles.primaryAction} onClick={() => onStartProspect(prospect.action?.href)}>
+              Iniciar conversa
+            </button>
+          </>
+        ) : (
+          <p className={styles.cardText}>{prospect?.message || "Nenhum contato elegível agora."}</p>
+        )}
+      </section>
 
-        <div className={styles.card}>
-          <div className={styles.cardHeader}>
-            <span>Proximo Prospect</span>
-            <strong>{prospect?.available ? prospect.statusLabel || "Pendente" : "Fila limpa"}</strong>
-          </div>
-          {loading ? (
-            <p className={styles.cardText}>Lendo oportunidades...</p>
-          ) : prospect?.available ? (
-            <>
-              <p className={styles.prospectName}>{prospect.name || "Prospect sem nome"}</p>
-              <p className={styles.cardText}>{[prospect.phone, prospect.reason].filter(Boolean).join(" · ")}</p>
-              <button type="button" className={styles.primaryAction} onClick={() => onStartProspect(prospect.action?.href)}>
-                Iniciar conversa
-              </button>
-            </>
-          ) : (
-            <p className={styles.cardText}>{prospect?.message || "Nenhum contato elegivel agora."}</p>
-          )}
+      <section className={styles.card}>
+        <div className={styles.cardHeader}>
+          <span>Melhor horário</span>
+          <strong>{insights?.bestHour || "Em leitura"}</strong>
         </div>
+        <p className={styles.cardText}>Janela sugerida a partir das respostas recentes dos leads.</p>
+      </section>
 
-        {insights?.requestMoreVisible ? (
-          <div className={styles.requestCard}>
-            <p>{insights.requestMoreMessage || "Sua busca atual foi concluida e nao ha novos leads no momento."}</p>
-            <button type="button" className={styles.primaryAction} onClick={onRequestMoreLeads}>
-              Pedir Mais Leads
+      <section className={styles.card}>
+        <div className={styles.cardHeader}>
+          <span>Resposta inteligente</span>
+          <strong>{smartReplyEnabled ? "Disponível" : "Desligada"}</strong>
+        </div>
+        {hasSuggestion ? (
+          <div className={styles.replyBox}>
+            <p>{replySuggestion?.text}</p>
+            <button type="button" className={styles.secondaryAction} onClick={onApplyReplySuggestion} disabled={replyDisabled}>
+              Aplicar no chat
             </button>
           </div>
-        ) : null}
+        ) : (
+          <p className={styles.cardText}>
+            {replySuggestion?.message || "Gere uma sugestão e revise antes de enviar ao cliente."}
+          </p>
+        )}
+        <button
+          type="button"
+          className={styles.primaryAction}
+          onClick={onRequestReplySuggestion}
+          disabled={!canSuggestReply || replySuggestion?.loading}
+        >
+          {replySuggestion?.loading ? "Gerando..." : hasSuggestion ? "Gerar outra" : "Sugerir resposta"}
+        </button>
+      </section>
 
-        <div className={styles.card}>
-          <div className={styles.cardHeader}>
-            <span>Melhor horario</span>
-            <strong>{insights?.bestHour || "Em leitura"}</strong>
-          </div>
-          <p className={styles.cardText}>Baseado nas respostas recentes dos leads.</p>
+      <section className={styles.requestCard}>
+        <div className={styles.cardHeader}>
+          <span>Leads</span>
+          <strong>Pedir mais</strong>
         </div>
+        <p>{insights?.requestMoreMessage || "Solicite novos leads quando a fila comercial precisar de reforço."}</p>
+        <button type="button" className={styles.primaryAction} onClick={onRequestMoreLeads}>
+          Pedir mais leads
+        </button>
+      </section>
 
-        <div className={styles.insightsPanel}>
-          <div className={styles.cardHeader}>
-            <span>Insights em tempo real</span>
-            <strong>{insightRows.length}</strong>
-          </div>
-          <div className={styles.bubbleRail}>
-            {bubbles.map((bubble) => (
-              <span key={bubble.id} className={styles.sideBubble}>
-                {bubble.label}
-                {bubble.count ? <strong>{bubble.count}</strong> : null}
-              </span>
-            ))}
-          </div>
-          <div className={styles.insightList}>
-            {insightRows.length ? (
-              insightRows.slice(0, 4).map((item) => (
-                <article key={item.id} className={styles.insightItem} data-tone={item.tone}>
-                  <strong>{item.title}</strong>
-                  <p>{item.description}</p>
-                </article>
-              ))
-            ) : (
-              <p className={styles.cardText}>Sem alertas comerciais agora.</p>
-            )}
-          </div>
+      <section className={styles.insightsPanel}>
+        <div className={styles.cardHeader}>
+          <span>Opiniões do assistente</span>
+          <strong>{insightRows.length}</strong>
         </div>
-      </aside>
-    </div>
+        <div className={styles.insightList}>
+          {insightRows.slice(0, 5).map((item) => (
+            <article key={item.id} className={styles.insightItem} data-tone={item.tone}>
+              <strong>{item.title}</strong>
+              <p>{item.description}</p>
+            </article>
+          ))}
+        </div>
+      </section>
+    </aside>
   );
 }

@@ -240,6 +240,8 @@ export type WebscrapingSearchRunResponse = {
   nextRetryAt: string | null;
   lastQueryUsed: string | null;
   lastEngineUrl: string | null;
+  assignedEngineId: string | null;
+  assignedEngineIndex: number | null;
   batchLimit: number;
   maxAttempts: number;
   operationalStatus?: 'healthy' | 'degraded';
@@ -2613,6 +2615,8 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       nextRetryAt: run.nextRetryAt instanceof Date ? run.nextRetryAt.toISOString() : null,
       lastQueryUsed: run.lastQueryUsed || null,
       lastEngineUrl: run.lastEngineUrl || run.assignedEngineUrl || null,
+      assignedEngineId: run.assignedEngineId || null,
+      assignedEngineIndex: Number.isInteger(run.assignedEngineIndex) ? Number(run.assignedEngineIndex) : null,
       batchLimit,
       maxAttempts,
       operationalStatus: capacity?.operationalStatus,
