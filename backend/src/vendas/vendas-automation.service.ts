@@ -1121,6 +1121,24 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     ].join('|');
   }
 
+  private hasCampaignSearchChanged(existing: any, nextSearchSignature: string) {
+    if (!existing?.id) return false;
+    const currentSignature = trimOrNull(existing.searchSignature);
+    if (currentSignature) return currentSignature !== nextSearchSignature;
+    return this.buildSearchSignature(existing) !== nextSearchSignature;
+  }
+
+  private async cancelQueuedJobsAfterSearchChange(campaignId: string) {
+    await this.prisma.vendasAutomationJob.updateMany({
+      where: { campaignId, status: { in: ['pending', 'scheduled', 'sending'] } },
+      data: {
+        status: 'canceled',
+        archivedAt: new Date(),
+        errorMessage: 'Busca da campanha alterada. Fila anterior cancelada.',
+      },
+    });
+  }
+
   private formatProspectingSearchLabel(config: any) {
     const segment = trimOrNull(config?.segment) || 'contatos';
     const city = trimOrNull(config?.city);
@@ -1354,6 +1372,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     const current = await this.latestCampaign(context.companyId);
     const data = this.normalizeProspectingConfig(dto || {}, botConfig, current);
     const searchSignature = this.buildSearchSignature(data);
+    const searchChanged = this.hasCampaignSearchChanged(current, searchSignature);
     const campaign = current
       ? await this.prisma.vendasAutomationCampaign.update({
           where: { id: current.id },
@@ -1376,6 +1395,9 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
             lastStatusText: 'Configuração salva. Pronta para iniciar.',
           },
         });
+    if (searchChanged) {
+      await this.cancelQueuedJobsAfterSearchChange(campaign.id);
+    }
     this.publishAutomationEvent({
       companyId: context.companyId,
       campaignId: campaign.id,
@@ -1405,6 +1427,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     const initialStatusText = startsInsideWorkingHours
       ? `Buscando ${searchLabel}.`
       : this.formatSleepingUntilText(this.moveToWorkingWindow(now, data));
+    const searchChanged = this.hasCampaignSearchChanged(current, searchSignature);
     const campaign = current
       ? await this.prisma.vendasAutomationCampaign.update({
           where: { id: current.id },
@@ -1427,6 +1450,9 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
             lastStatusText: initialStatusText,
           },
         });
+    if (searchChanged) {
+      await this.cancelQueuedJobsAfterSearchChange(campaign.id);
+    }
 
     this.publishAutomationEvent({
       companyId: context.companyId,

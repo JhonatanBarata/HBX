@@ -180,8 +180,8 @@ export function ChatDockPanel({
   );
 }
 
-type AvatarTone = "brand" | "teal" | "amber" | "danger" | "muted" | "success";
-type BadgeTone = "neutral" | "brand" | "teal" | "success" | "warning" | "danger";
+type AvatarTone = "brand" | "teal" | "info" | "purple" | "amber" | "danger" | "muted" | "success";
+type BadgeTone = "neutral" | "brand" | "teal" | "info" | "purple" | "success" | "warning" | "danger";
 
 export function ChatAvatar({
   initials,
@@ -205,6 +205,8 @@ export function ChatAvatar({
         styles.avatar,
         tone === "brand" && styles.avatarBrand,
         tone === "teal" && styles.avatarTeal,
+        tone === "info" && styles.avatarInfo,
+        tone === "purple" && styles.avatarPurple,
         tone === "amber" && styles.avatarAmber,
         tone === "danger" && styles.avatarDanger,
         tone === "muted" && styles.avatarMuted,
@@ -244,6 +246,8 @@ export function ChatBadge({
         tone === "neutral" && styles.badgeNeutral,
         tone === "brand" && styles.badgeBrand,
         tone === "teal" && styles.badgeTeal,
+        tone === "info" && styles.badgeInfo,
+        tone === "purple" && styles.badgePurple,
         tone === "success" && styles.badgeSuccess,
         tone === "warning" && styles.badgeWarning,
         tone === "danger" && styles.badgeDanger,

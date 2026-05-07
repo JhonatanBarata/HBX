@@ -87,6 +87,7 @@ function createService(overrides?: {
 }) {
   const queueCalls: Array<Record<string, any>> = [];
   const jobUpdates: Array<Record<string, any>> = [];
+  const jobUpdateManyCalls: Array<Record<string, any>> = [];
   const stateCalls: Array<Record<string, any>> = [];
   const campaignStageUpdates: Array<Record<string, any>> = [];
   const events: Array<Record<string, any>> = [];
@@ -148,7 +149,10 @@ function createService(overrides?: {
         }
         return { id: where.id, ...data };
       },
-      updateMany: async () => ({ count: 0 }),
+      updateMany: async ({ where, data }: any = {}) => {
+        jobUpdateManyCalls.push({ where, data });
+        return { count: 1 };
+      },
       createMany: async ({ data }: any) => {
         createdJobBatches.push(data);
         return { count: data.length };
@@ -224,8 +228,23 @@ function createService(overrides?: {
     return originalScheduleJobsForCampaign(campaignId);
   };
 
-  return { service, queueCalls, jobUpdates, stateCalls, campaignStageUpdates, events, createdJobBatches, scheduleCalls };
+  return { service, queueCalls, jobUpdates, jobUpdateManyCalls, stateCalls, campaignStageUpdates, events, createdJobBatches, scheduleCalls };
 }
+
+test('cancelQueuedJobsAfterSearchChange archives stale pending automation jobs', async () => {
+  const { service, jobUpdateManyCalls } = createService();
+
+  await service.cancelQueuedJobsAfterSearchChange('campaign-1');
+
+  assert.equal(jobUpdateManyCalls.length, 1);
+  assert.deepEqual(jobUpdateManyCalls[0].where, {
+    campaignId: 'campaign-1',
+    status: { in: ['pending', 'scheduled', 'sending'] },
+  });
+  assert.equal(jobUpdateManyCalls[0].data.status, 'canceled');
+  assert.equal(jobUpdateManyCalls[0].data.errorMessage, 'Busca da campanha alterada. Fila anterior cancelada.');
+  assert.ok(jobUpdateManyCalls[0].data.archivedAt instanceof Date);
+});
 
 test('processDueJob sends segment mismatch lead with safe generic fallback when first contact was never sent', async () => {
   const { service, queueCalls, jobUpdates, stateCalls, events } = createService({ conversationMetadata: {} });

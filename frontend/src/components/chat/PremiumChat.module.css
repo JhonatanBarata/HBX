@@ -248,6 +248,14 @@
   background: linear-gradient(145deg, #cff5ef, #ffffff);
 }
 
+.avatarInfo {
+  background: linear-gradient(145deg, #dbeafe, #ffffff);
+}
+
+.avatarPurple {
+  background: linear-gradient(145deg, #ede9fe, #ffffff);
+}
+
 .avatarAmber {
   background: linear-gradient(145deg, #fff1cf, #ffffff);
 }
@@ -364,6 +372,18 @@
   color: color-mix(in srgb, #0f766e 88%, var(--foreground));
   border-color: color-mix(in srgb, #0f766e 18%, var(--background));
   background: color-mix(in srgb, #0f766e 10%, var(--background));
+}
+
+.badgeInfo {
+  color: color-mix(in srgb, #2563eb 88%, var(--foreground));
+  border-color: color-mix(in srgb, #2563eb 24%, var(--background));
+  background: color-mix(in srgb, #2563eb 11%, var(--background));
+}
+
+.badgePurple {
+  color: color-mix(in srgb, #7c3aed 88%, var(--foreground));
+  border-color: color-mix(in srgb, #7c3aed 24%, var(--background));
+  background: color-mix(in srgb, #7c3aed 11%, var(--background));
 }
 
 .badgeSuccess {

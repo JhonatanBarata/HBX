@@ -1540,6 +1540,14 @@ function isProspectingInterestedConversation(conversation?: InboxConversation | 
   );
 }
 
+function isProspectingInterestedHandoffConversation(conversation?: InboxConversation | null) {
+  return (
+    resolveInboxProspectionStage(conversation) === "reply_received" &&
+    isProspectingInterestedConversation(conversation) &&
+    isInboxExplicitAtendimentoHandoff(conversation)
+  );
+}
+
 function parseInboxDateOnlyKey(value: string) {
   const normalized = String(value || "").trim();
   if (!normalized) return null;
@@ -1844,6 +1852,7 @@ function getInboxProspectionStatusMeta(conversation?: InboxConversation | null):
   const stage = resolveInboxProspectionStage(conversation);
   if (!stage) return null;
   const prospeccao = getInboxVendasProspeccaoMetadata(conversation);
+  const interestedHandoff = isProspectingInterestedHandoffConversation(conversation);
   const leadSegment = formatProspectionSegment(prospeccao?.leadSegment);
   const campaignSegment = formatProspectionSegment(prospeccao?.campaignSegment);
   const mismatchSubtitle =
@@ -1878,11 +1887,13 @@ function getInboxProspectionStatusMeta(conversation?: InboxConversation | null):
     },
     reply_received: {
       stage,
-      badge: "Resposta",
-      preview: "Cliente respondeu",
-      subtitle: "Cliente respondeu",
-      accent: "#16a34a",
-      surface: "#e8f7ee",
+      badge: interestedHandoff ? "Interessado" : "Resposta",
+      preview: interestedHandoff ? "Cliente gostou" : "Cliente respondeu",
+      subtitle: interestedHandoff
+        ? "Transferido para atendimento"
+        : "Cliente respondeu",
+      accent: interestedHandoff ? "#16a34a" : "#7c3aed",
+      surface: interestedHandoff ? "#e8f7ee" : "#f1eafe",
     },
     expired_no_reply: {
       stage,
@@ -5065,7 +5076,7 @@ export default function InboxClientPage() {
     hasRecoveryCapability && conversationForView
       ? hasAtendimentoRecoveryContext(conversationForView)
       : false;
-  const selectedConversationIsInterested = isProspectingInterestedConversation(conversationForView);
+  const selectedConversationIsInterested = isProspectingInterestedHandoffConversation(conversationForView);
 
   useEffect(() => {
     if (!selectedId || selectedBlocked) return;
@@ -6332,7 +6343,7 @@ export default function InboxClientPage() {
                 const subtitleLabel = getInboxConversationSubtitle(conversation);
                 const previewLabel = renderInboxConversationPreview(conversation);
                 const prospectionStatusMeta = getInboxProspectionStatusMeta(conversation);
-                const interested = isProspectingInterestedConversation(conversation);
+                const interested = isProspectingInterestedHandoffConversation(conversation);
                 const activityAt = getInboxConversationActivityAt(conversation);
                 const activityAtLabel = activityAt ? formatTimeLabel(activityAt, mounted) : "Sem mensagens";
                 const itemStyle = {
@@ -6368,7 +6379,9 @@ export default function InboxClientPage() {
                     tone={
                       conversationWithoutWhatsapp
                         ? "danger"
-                        : mapAtendimentoConversationToneToQueueTone(statusMeta.tone)
+                        : interested
+                          ? "success"
+                          : mapAtendimentoConversationToneToQueueTone(statusMeta.tone)
                     }
                     title={displayName}
                     subtitle={subtitleLabel}
@@ -6472,7 +6485,9 @@ export default function InboxClientPage() {
                     tone={
                       selectedConversationWithoutWhatsapp
                         ? "danger"
-                        : mapAtendimentoConversationToneToQueueTone(selectedConversationStatusMeta?.tone || "bot")
+                        : selectedConversationIsInterested
+                          ? "success"
+                          : mapAtendimentoConversationToneToQueueTone(selectedConversationStatusMeta?.tone || "bot")
                     }
                   />
                   <div className={styles.whatsAppConversationIdentityText}>

@@ -107,12 +107,12 @@ function getAtendimentoProspeccaoStage(conversation: InboxConversation): VendasP
 function getAtendimentoProspeccaoBadge(stage: VendasProspeccaoStage | null): WorkspaceBadgeDescriptor | null {
   if (!stage) return null;
   const labels: Record<VendasProspeccaoStage, WorkspaceBadgeDescriptor> = {
-    pending_send: { label: "Pendente", tone: "neutral" },
-    scheduled_send: { label: "Agendado", tone: "teal" },
-    sent_waiting: { label: "Aguardando", tone: "brand" },
-    reply_received: { label: "Resposta", tone: "success" },
-    expired_no_reply: { label: "Sem resposta", tone: "warning" },
-    needs_review: { label: "Revisar", tone: "danger" },
+    pending_send: { label: "Pendente", tone: "warning" },
+    scheduled_send: { label: "Agendado", tone: "info" },
+    sent_waiting: { label: "Aguardando resposta", tone: "purple" },
+    reply_received: { label: "Interessado", tone: "success" },
+    expired_no_reply: { label: "Sem resposta", tone: "neutral" },
+    needs_review: { label: "Revisar", tone: "purple" },
     no_whatsapp: { label: "Sem WhatsApp", tone: "danger" },
     negative_reply: { label: "Sem interesse", tone: "danger" },
   };
@@ -203,11 +203,11 @@ export function getAtendimentoConversationStatusMeta(
 export function mapAtendimentoConversationToneToQueueTone(
   tone: AtendimentoConversationStatusTone,
 ): WorkspaceQueueTone {
-  if (tone === "human") return "success";
+  if (tone === "human") return "info";
   if (tone === "recovery") return "amber";
   if (tone === "blocked") return "danger";
   if (tone === "closed") return "muted";
-  return "brand";
+  return "purple";
 }
 
 function mapAtendimentoStatusMetaToBadgeTone(
@@ -310,10 +310,11 @@ export function buildAtendimentoQueueBadges(
   }
 
   if (conversation.customer.sharedProfile?.presence?.vendas?.present) {
-    badges.push({ label: "Vendas", tone: "brand" });
+    badges.push({ label: "Vendas", tone: "info" });
   }
 
-  const prospeccaoBadge = getAtendimentoProspeccaoBadge(getAtendimentoProspeccaoStage(conversation));
+  const prospeccaoStage = getAtendimentoProspeccaoStage(conversation);
+  const prospeccaoBadge = getAtendimentoProspeccaoBadge(prospeccaoStage);
   if (prospeccaoBadge) {
     badges.push(prospeccaoBadge);
   }
@@ -323,7 +324,10 @@ export function buildAtendimentoQueueBadges(
   }
 
   if (conversation.status === "open" || conversation.humanAssigned) {
-    badges.push({ label: "Humano", tone: "success" });
+    badges.push({
+      label: "Humano",
+      tone: prospeccaoStage && prospeccaoStage !== "reply_received" ? "info" : "success",
+    });
   } else if (conversation.status !== "closed" && !conversation.isBlocked) {
     badges.push({ label: "Bot", tone: "neutral" });
   }
