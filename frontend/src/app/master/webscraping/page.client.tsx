@@ -14,7 +14,7 @@ import styles from "./page.module.css";
 
 type TargetType = "pf" | "pj" | "both";
 type Intensity = "economico" | "normal" | "turbo";
-type EngineStatus = "running" | "waiting" | "offline";
+type EngineStatus = "running" | "waiting" | "offline" | "cooldown";
 type DiagnosticStatus = "ok" | "warning" | "error";
 
 type CurrentUser = {
@@ -25,9 +25,18 @@ type DashboardEngine = {
   id: string;
   label: string;
   status: EngineStatus;
+  online?: boolean;
+  busy?: boolean;
   cardsFabricated: number;
+  batches?: number;
+  duplicates?: number;
+  rejected?: number;
   queue: number;
   lastActivityAt: string | null;
+  activeCampaignId?: string | null;
+  lastError?: string | null;
+  lockUrl?: string | null;
+  localhostInProduction?: boolean;
 };
 
 type ProductionCard = {
@@ -171,6 +180,7 @@ function metric(value?: number | null, suffix = "") {
 
 function statusLabel(value: EngineStatus) {
   if (value === "running") return "Rodando";
+  if (value === "cooldown") return "Cooldown";
   if (value === "offline") return "Offline";
   return "Aguardando";
 }
@@ -211,9 +221,18 @@ function emptyEngines(engines?: DashboardEngine[]) {
     id: `hbx-engine-${index + 1}`,
     label: `M${index + 1}`,
     status: "offline" as const,
+    online: false,
+    busy: false,
     cardsFabricated: 0,
+    batches: 0,
+    duplicates: 0,
+    rejected: 0,
     queue: 0,
     lastActivityAt: null,
+    activeCampaignId: null,
+    lastError: null,
+    lockUrl: null,
+    localhostInProduction: false,
   });
 }
 
@@ -430,8 +449,21 @@ export default function MasterWebscrapingClientPage() {
               </div>
               <div className={styles.engineMeta}>
                 <span>Fila <strong>{metric(engine.queue)}</strong></span>
+                <span>Batches <strong>{metric(engine.batches)}</strong></span>
+                <span>Duplicados/Rejeitados <strong>{metric(engine.duplicates)} / {metric(engine.rejected)}</strong></span>
                 <span>Última atividade <strong>{formatDateTime(engine.lastActivityAt)}</strong></span>
               </div>
+              {engine.localhostInProduction ? (
+                <div className={styles.engineIssue} data-tone="critical">
+                  <strong>localhost em produção</strong>
+                  <span>{engine.lockUrl || "Corrigir URLs dos motores"}</span>
+                </div>
+              ) : engine.lastError ? (
+                <div className={styles.engineIssue}>
+                  <strong>Último erro</strong>
+                  <span>{engine.lastError}</span>
+                </div>
+              ) : null}
             </article>
           ))}
         </section>

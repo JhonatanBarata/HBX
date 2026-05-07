@@ -77,6 +77,8 @@ export type HbxEngineDashboardEngine = {
   busy: boolean;
   dimmed: boolean;
   url: string | null;
+  lockUrl: string | null;
+  localhostInProduction: boolean;
   lockedUntil: string | null;
   cooldownUntil: string | null;
   lastCheckedAt: string | null;
@@ -94,6 +96,11 @@ export type HbxEngineDashboardEngine = {
   isTurboEnabled: boolean;
   isTurboWindowActive: boolean;
   isTurboForcedNow: boolean;
+  cardsFabricated: number;
+  batches: number;
+  duplicates: number;
+  rejected: number;
+  queue: number;
 };
 
 export type HbxEngineDashboardStatus = {
@@ -138,13 +145,13 @@ function isProductionEnvironment(nodeEnv: unknown) {
   return String(nodeEnv || '').trim().toLowerCase() === 'production';
 }
 
-function isLocalhostUrl(url: string) {
+export function isHbxEngineLocalhostUrl(url: string) {
   return /^(?:https?:\/\/)?(?:localhost|127\.0\.0\.1|\[::1\])(?::|\/|$)/i.test(url);
 }
 
 function sanitizeProductionEngineUrls(urls: string[], nodeEnv: unknown) {
   if (!isProductionEnvironment(nodeEnv)) return urls;
-  return urls.some(isLocalhostUrl) ? [...DOCKER_HBX_ENGINE_URLS] : urls;
+  return urls.some(isHbxEngineLocalhostUrl) ? [...DOCKER_HBX_ENGINE_URLS] : urls;
 }
 
 export function hasConfiguredHbxEngineUrlEnv(env: NodeJS.ProcessEnv = process.env) {
@@ -204,7 +211,7 @@ export class HbxEnginePoolService implements OnModuleInit {
       this.logger.warn(`[hbx-engine-pool] failed to resolve configured engine urls: ${String((error as any)?.message || error)}`);
       return [];
     });
-    this.logger.log(`[hbx-engine-pool] configured engine urls: ${urls.join(', ')}`);
+    this.logger.log(`[hbx-engine-pool] configured engine urls:\n${urls.map((url) => `- ${url}`).join('\n')}`);
   }
 
   async refreshEngineRegistryFromEnv() {
@@ -583,6 +590,7 @@ export class HbxEnginePoolService implements OnModuleInit {
       const row = byIndex.get(index);
       const configured = Boolean(configuredUrls[index]);
       const status = String(row?.status || (configured ? (index === 0 ? 'online' : 'standby') : 'missing')).trim();
+      const lockUrl = String(row?.url || configuredUrls[index] || '').trim() || null;
       const locked = Boolean(row?.lockedUntil instanceof Date && row.lockedUntil.getTime() > now);
       const activity = activityStats.get(row?.id || `hbx-engine-${index + 1}`) || {
         activeRunId: null,
@@ -649,6 +657,8 @@ export class HbxEnginePoolService implements OnModuleInit {
         busy: running,
         dimmed: !(running || queueActivated || (capacity.isTurboForcedNow && index < activeEngineCount)),
         url: null,
+        lockUrl,
+        localhostInProduction: Boolean(lockUrl && isProductionEnvironment(process.env.NODE_ENV) && isHbxEngineLocalhostUrl(lockUrl)),
         lockedUntil: this.serializeDate(row?.lockedUntil),
         cooldownUntil: this.serializeDate(row?.cooldownUntil),
         lastCheckedAt: this.serializeDate(row?.lastCheckedAt),
@@ -666,6 +676,11 @@ export class HbxEnginePoolService implements OnModuleInit {
         isTurboEnabled: capacity.isTurboEnabled,
         isTurboWindowActive: capacity.isTurboWindowActive,
         isTurboForcedNow: capacity.isTurboForcedNow,
+        cardsFabricated: 0,
+        batches: 0,
+        duplicates: 0,
+        rejected: 0,
+        queue: 0,
       });
     }
 
@@ -687,6 +702,8 @@ export class HbxEnginePoolService implements OnModuleInit {
       busy: googleActive,
       dimmed: !googleActive,
       url: null,
+      lockUrl: null,
+      localhostInProduction: false,
       lockedUntil: null,
       cooldownUntil: null,
       lastCheckedAt: activeGoogleRun?.updatedAt instanceof Date ? activeGoogleRun.updatedAt.toISOString() : null,
@@ -704,6 +721,11 @@ export class HbxEnginePoolService implements OnModuleInit {
       isTurboEnabled: capacity.isTurboEnabled,
       isTurboWindowActive: capacity.isTurboWindowActive,
       isTurboForcedNow: capacity.isTurboForcedNow,
+      cardsFabricated: 0,
+      batches: 0,
+      duplicates: 0,
+      rejected: 0,
+      queue: 0,
     });
 
     return engines;

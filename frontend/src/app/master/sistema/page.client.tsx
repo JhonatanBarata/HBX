@@ -71,6 +71,61 @@ type SystemHealthPayload = {
     lines: string[];
     note?: string | null;
   };
+  production?: {
+    status: HealthStatus;
+    note?: string | null;
+    radar: {
+      total: number;
+      cardsToday: number;
+      cardsLastHour: number;
+      cardsLast10Min: number;
+      premiumToday: number;
+    };
+    queue: {
+      queued: number;
+      running: number;
+      completed: number;
+      failed: number;
+      exhausted: number;
+    };
+    engines: Array<{
+      id: string;
+      label: string;
+      status: string;
+      online: boolean;
+      cardsFabricated: number;
+      batches: number;
+      duplicates: number;
+      rejected: number;
+      lastActivityAt?: string | null;
+      lockUrl?: string | null;
+      localhostInProduction?: boolean;
+      lastError?: string | null;
+    }>;
+    alerts: Array<{
+      id: string;
+      severity: string;
+      title: string;
+      message: string;
+      action?: string;
+    }>;
+  };
+  nightFactory?: {
+    enabled: boolean;
+    status: string;
+    nextWindow?: string | null;
+    leadsEnrichedToday: number;
+    premiumOpportunities: number;
+    recoveryOpportunities: number;
+    queue: number;
+  };
+  alerts?: Array<{
+    id: string;
+    severity: string;
+    title: string;
+    message: string;
+    action?: string;
+  }>;
 };
 
 type CurrentUser = {
@@ -292,12 +347,70 @@ export default function SystemHealthClientPage() {
         />
       </div>
 
+      {(data?.alerts || []).length ? (
+        <section className="panel p-4 mt-3 border-red-200 bg-red-50">
+          <h2 className="text-lg font-semibold text-red-800">Alertas operacionais</h2>
+          <div className="grid gap-2 mt-3">
+            {data?.alerts?.map((alert) => (
+              <div key={alert.id} className="rounded-[12px] border border-red-200 bg-white/70 p-3 text-sm text-red-800">
+                <strong>{alert.title}</strong>
+                <p className="mt-1">{alert.message}</p>
+              </div>
+            ))}
+          </div>
+        </section>
+      ) : null}
+
+      <section className="panel p-4 mt-3">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h2 className="text-lg font-semibold">Produção Radar e Night Factory</h2>
+            <p className="text-sm text-muted mt-1">
+              {data?.production?.note || "Produção, filas e oportunidades geradas pelo servidor ocioso."}
+            </p>
+          </div>
+          <Link href="/master/night-factory" className="btn btn-secondary btn-sm">Abrir Night Factory</Link>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3 mt-3">
+          <MetricCard label="RadarLeadPool" value={String(data?.production?.radar.total ?? 0)} detail="Total no banco Radar" status={data?.production?.status || "unavailable"} />
+          <MetricCard label="Cards hoje" value={String(data?.production?.radar.cardsToday ?? 0)} detail={`${data?.production?.radar.cardsLastHour ?? 0} na última hora`} status={data?.production?.status || "unavailable"} />
+          <MetricCard label="Fila" value={`${data?.production?.queue.queued ?? 0} queued`} detail={`${data?.production?.queue.running ?? 0} running • ${data?.production?.queue.failed ?? 0} failed`} status={(data?.production?.queue.queued ?? 0) > 0 && (data?.production?.queue.running ?? 0) === 0 ? "error" : "ok"} />
+          <MetricCard label="Night Factory" value={data?.nightFactory?.status || "-"} detail={`${data?.nightFactory?.premiumOpportunities ?? 0} premium • ${data?.nightFactory?.recoveryOpportunities ?? 0} recovery`} status={data?.nightFactory?.enabled ? "ok" : "unavailable"} />
+        </div>
+        <div className="overflow-auto mt-3">
+          <table className="w-full min-w-[860px] border-collapse text-sm">
+            <thead>
+              <tr className="text-left text-muted">
+                <th className="py-2 pr-3">Motor</th>
+                <th className="py-2 pr-3">Status</th>
+                <th className="py-2 pr-3">Cards</th>
+                <th className="py-2 pr-3">Batches</th>
+                <th className="py-2 pr-3">Duplicados/Rejeitados</th>
+                <th className="py-2 pr-3">Lock URL</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(data?.production?.engines || []).map((engine) => (
+                <tr key={engine.id} className="border-t border-[var(--line)]">
+                  <td className="py-2 pr-3 font-semibold">{engine.label || engine.id}</td>
+                  <td className="py-2 pr-3">{engine.status}</td>
+                  <td className="py-2 pr-3">{engine.cardsFabricated}</td>
+                  <td className="py-2 pr-3">{engine.batches}</td>
+                  <td className="py-2 pr-3">{engine.duplicates} / {engine.rejected}</td>
+                  <td className={`py-2 pr-3 ${engine.localhostInProduction ? "text-red-700 font-semibold" : ""}`}>{engine.lockUrl || "-"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
       <section className="panel p-4 mt-3">
         <div className="flex items-start justify-between gap-3">
           <div>
             <h2 className="text-lg font-semibold">Containers</h2>
             <p className="text-sm text-muted mt-1">
-              {data?.containers?.note || "docker stats --no-stream para hbx-backend, hbx-postgres, webscraping e hbx-scraping-engine."}
+              {data?.containers?.note || "docker stats --no-stream para backend, Postgres, webscraping, hbx-engine-1..4, frontend e proxy."}
             </p>
           </div>
           <span className={`text-sm font-semibold ${statusClass(data?.containers?.status)}`}>
