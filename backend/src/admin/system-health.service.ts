@@ -638,10 +638,12 @@ export class SystemHealthService {
       take: 200,
       select: {
         id: true,
+        createdAt: true,
         lastSeenAt: true,
         expiresAt: true,
         revokedAt: true,
         userAgent: true,
+        ipHash: true,
         user: {
           select: {
             id: true,
@@ -655,7 +657,31 @@ export class SystemHealthService {
               select: {
                 id: true,
                 name: true,
+                companyModules: {
+                  where: { enabled: true },
+                  select: {
+                    systemModule: {
+                      select: {
+                        key: true,
+                        name: true,
+                      },
+                    },
+                  },
+                  take: 20,
+                },
               },
+            },
+            moduleAccesses: {
+              where: { allowed: true },
+              select: {
+                systemModule: {
+                  select: {
+                    key: true,
+                    name: true,
+                  },
+                },
+              },
+              take: 20,
             },
           },
         },
@@ -666,6 +692,15 @@ export class SystemHealthService {
       const lastSeenAt = session.lastSeenAt instanceof Date ? session.lastSeenAt : new Date(session.lastSeenAt);
       const idleMinutes = Math.max(0, Math.floor((now.getTime() - lastSeenAt.getTime()) / 60000));
       const online = !session.revokedAt && session.expiresAt.getTime() >= now.getTime() && lastSeenAt.getTime() >= onlineCutoff.getTime();
+      const moduleMap = new Map<string, { key: string; name: string }>();
+      for (const row of session.user.company?.companyModules || []) {
+        const module = row.systemModule;
+        if (module?.key) moduleMap.set(module.key, { key: module.key, name: module.name || module.key });
+      }
+      for (const row of session.user.moduleAccesses || []) {
+        const module = row.systemModule;
+        if (module?.key) moduleMap.set(module.key, { key: module.key, name: module.name || module.key });
+      }
       return {
         userId: session.user.id,
         userName: session.user.name || session.user.username || session.user.email || `Usuario ${session.user.id}`,
@@ -675,11 +710,14 @@ export class SystemHealthService {
         role: session.user.role,
         isSystemMaster: Boolean(session.user.isSystemMaster),
         sessionId: session.id,
+        createdAt: session.createdAt.toISOString(),
         lastSeenAt: lastSeenAt.toISOString(),
         expiresAt: session.expiresAt.toISOString(),
         online,
         idleMinutes,
         userAgent: summarizeUserAgent(session.userAgent),
+        ipFingerprint: session.ipHash ? session.ipHash.slice(0, 12) : null,
+        modules: [...moduleMap.values()].sort((left, right) => left.name.localeCompare(right.name)),
       };
     });
 

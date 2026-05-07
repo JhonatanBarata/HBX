@@ -6,7 +6,6 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 import { createPortal } from "react-dom";
 import ModuleNav from "./ModuleNav";
 import QrPairedNextStepPrompt from "./QrPairedNextStepPrompt";
-import HeroCards from "./HeroCards";
 import { apiFetch, getToken } from "@/app/_lib/api";
 import { MASTER_CONTEXT_CHANGED_EVENT } from "../lib/masterContextEvents";
 import {
@@ -129,7 +128,7 @@ export default function DashboardScaffold({
     const rect =
       anchorRect || document.getElementById(MODULES_TRIGGER_ID)?.getBoundingClientRect() || null;
     if (!rect) return;
-    const panelWidth = Math.min(360, Math.max(280, window.innerWidth - 24));
+    const panelWidth = Math.min(1180, Math.max(320, Math.round(window.innerWidth * 0.8)), window.innerWidth - 24);
     const left = Math.min(
       Math.max(12, Math.round(rect.left)),
       Math.max(12, window.innerWidth - panelWidth - 12),
@@ -138,7 +137,7 @@ export default function DashboardScaffold({
     setNavPeekPanelStyle({
       top: `${Math.round(rect.bottom + 12)}px`,
       left: `${left}px`,
-      width: `min(360px, calc(100vw - 24px))`,
+      width: `${panelWidth}px`,
     });
   }, []);
 
@@ -506,7 +505,6 @@ export default function DashboardScaffold({
               </div>
 
               <div className="page-hero__sidebar">
-                <HeroCards />
                 <div className="page-hero__actions">
                   {shouldShowDashboardShortcut ? (
                     <Link href={dashboardShortcutHref} prefetch={false} className="btn btn-secondary btn-sm">
@@ -536,7 +534,7 @@ export default function DashboardScaffold({
                 navPeekPanelStyle || {
                   top: "calc(var(--topbar-total-height) + 12px)",
                   left: "12px",
-                  width: "min(360px, calc(100vw - 24px))",
+                  width: "min(80vw, 1180px)",
                 }
               }
               onMouseEnter={() => openNavPeek()}

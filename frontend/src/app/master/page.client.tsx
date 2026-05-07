@@ -123,11 +123,17 @@ type ActiveSessionPayload = {
     role?: string | null;
     isSystemMaster?: boolean;
     sessionId: string;
+    createdAt?: string;
     lastSeenAt: string;
     expiresAt: string;
     online: boolean;
     idleMinutes: number;
     userAgent?: string | null;
+    ipFingerprint?: string | null;
+    modules?: Array<{
+      key: string;
+      name: string;
+    }>;
   }>;
 };
 
@@ -210,11 +216,11 @@ const MASTER_SHORTCUTS = [
   {
     title: "Webscraping/Radar",
     eyebrow: "Massa de Dados",
-    description: "Turbo Noturno, quatro motores HBX, campanhas mass_data e retomada automática pelo banco.",
+    description: "Radar técnico, 20 motores HBX, campanhas mass_data e retomada automática pelo banco.",
     href: "/master/webscraping",
     action: "Abrir radar",
     tone: "hostinger",
-    meta: "M1-M4 + Banco Radar",
+    meta: "M1-M20 + Banco Radar",
   },
   {
     title: "Night Factory",
@@ -436,6 +442,13 @@ function lastCompanySession(company: CompanySummary, sessions: ActiveSessionPayl
     .sort((left, right) => new Date(right.lastSeenAt).getTime() - new Date(left.lastSeenAt).getTime())[0] || null;
 }
 
+function compactModuleName(value: string) {
+  return String(value || "")
+    .replace(/^HBX\s+/i, "")
+    .replace("Radar Digital", "Radar")
+    .trim();
+}
+
 export default function MasterHomeClientPage() {
   const hasToken = useRequireAuth();
   const [user, setUser] = useState<CurrentUser | null>(null);
@@ -447,6 +460,7 @@ export default function MasterHomeClientPage() {
   const [sessions, setSessions] = useState<ActiveSessionPayload | null>(null);
   const [workspace, setWorkspace] = useState<WorkspacePayload | null>(null);
   const [actionFilter, setActionFilter] = useState<ActionFilterId>("trial_ending");
+  const [expandedSessionUserId, setExpandedSessionUserId] = useState<number | null>(null);
 
   const loadCockpit = useCallback(async () => {
     setLoadingCockpit(true);
@@ -495,11 +509,6 @@ export default function MasterHomeClientPage() {
     };
   }, [hasToken, loadCockpit]);
 
-  const healthTone = computeHealthTone(health, Boolean(cockpitError && !health));
-  const memory = health?.memory?.parsed;
-  const disk = health?.disk?.parsed;
-  const load = health?.load?.parsed;
-
   const actionCompanies = useMemo(
     () =>
       (workspace?.companies || [])
@@ -513,6 +522,50 @@ export default function MasterHomeClientPage() {
         .slice(0, 12),
     [actionFilter, workspace?.companies],
   );
+  const sessionUsers = useMemo(() => {
+    const groups = new Map<number, {
+      userId: number;
+      userName: string;
+      email: string | null;
+      companyName: string | null;
+      role: string | null;
+      isSystemMaster: boolean;
+      online: boolean;
+      latest: ActiveSessionPayload["sessions"][number];
+      sessions: ActiveSessionPayload["sessions"];
+      modules: Array<{ key: string; name: string }>;
+    }>();
+
+    for (const session of sessions?.sessions || []) {
+      const current = groups.get(session.userId);
+      const sessionTime = new Date(session.lastSeenAt).getTime();
+      const currentTime = current ? new Date(current.latest.lastSeenAt).getTime() : 0;
+      const latest = !current || sessionTime > currentTime ? session : current.latest;
+      const modules = new Map<string, { key: string; name: string }>();
+      for (const module of current?.modules || []) modules.set(module.key, module);
+      for (const module of session.modules || []) modules.set(module.key, module);
+
+      groups.set(session.userId, {
+        userId: session.userId,
+        userName: session.userName,
+        email: session.email || null,
+        companyName: session.companyName || (session.isSystemMaster ? "MASTER" : null),
+        role: session.isSystemMaster ? "MASTER" : session.role || null,
+        isSystemMaster: Boolean(session.isSystemMaster),
+        online: Boolean(current?.online || session.online),
+        latest,
+        sessions: [...(current?.sessions || []), session].sort(
+          (left, right) => new Date(right.lastSeenAt).getTime() - new Date(left.lastSeenAt).getTime(),
+        ),
+        modules: [...modules.values()].sort((left, right) => left.name.localeCompare(right.name)),
+      });
+    }
+
+    return [...groups.values()].sort((left, right) => {
+      if (left.online !== right.online) return left.online ? -1 : 1;
+      return new Date(right.latest.lastSeenAt).getTime() - new Date(left.latest.lastSeenAt).getTime();
+    });
+  }, [sessions?.sessions]);
 
   if (hasToken === null || checkingAccess) {
     return (
@@ -546,49 +599,32 @@ export default function MasterHomeClientPage() {
   return (
     <DashboardScaffold
       title="Master"
-      description="Cockpit rápido para produção, sessões e empresas que precisam de ação comercial agora."
-      actions={
-        <div className={styles.heroActions}>
-          <button type="button" className="btn btn-primary btn-sm" onClick={loadCockpit} disabled={loadingCockpit}>
-            {loadingCockpit ? "Atualizando..." : "Atualizar agora"}
-          </button>
-          <Link href="/master/sistema" className="btn btn-secondary btn-sm">
-            Sistema
-          </Link>
-          <Link href="/master/operacao" className="btn btn-secondary btn-sm">
-            Operação MASTER
-          </Link>
-        </div>
-      }
+      hideHeader
     >
       <div className={styles.masterHome}>
         {error ? <div className="alert alert-error">{error}</div> : null}
         {cockpitError ? <div className="alert alert-warning">{cockpitError}</div> : null}
 
-        <section className={styles.masterHomeHero}>
+        <section className={styles.masterCommandTop} aria-label="Atalhos MASTER">
           <div>
-            <span className={styles.masterHomeEyebrow}>Entrada MASTER</span>
-            <h2>Escolha o que precisa abrir agora.</h2>
-            <p>
-              Olá, {displayName(user)}. Esta home mantém o Master direto: produção Hostinger,
-              operação completa, diagnóstico técnico e áreas sensíveis.
-            </p>
+            <span className={styles.masterHomeEyebrow}>MASTER</span>
+            <strong>Command Center</strong>
+            <small>{displayName(user)} • {sessions?.counters.onlineNow ?? 0} online agora</small>
           </div>
+          <button type="button" className="btn btn-primary btn-sm" onClick={loadCockpit} disabled={loadingCockpit}>
+            {loadingCockpit ? "Atualizando..." : "Atualizar agora"}
+          </button>
+        </section>
 
-          <aside className={styles.hostingerStatus}>
-            <span>Recomendação</span>
-            <strong>{healthToneLabel(healthTone)}</strong>
-            <p>
-              API {health ? `${health.api.responseMs} ms` : "-"} • Postgres {health?.postgres?.responseMs ?? "-"} ms •
-              atualização {formatDateTime(health?.generatedAt)}
-            </p>
-            <div className={styles.hostingerLinks}>
-              <Link href="/master/sistema">Saúde completa</Link>
-              <a href="https://api.hbxsystem.com.br/health" target="_blank" rel="noreferrer">
-                Health da API
-              </a>
-            </div>
-          </aside>
+        <section className={styles.masterHomeGrid} aria-label="Atalhos MASTER">
+          {MASTER_SHORTCUTS.map((item) => (
+            <Link key={item.href} href={item.href} className={styles.masterHomeCard} data-tone={item.tone}>
+              <span>{item.eyebrow}</span>
+              <strong>{item.title}</strong>
+              <small>{item.meta}</small>
+              <b>{item.action}</b>
+            </Link>
+          ))}
         </section>
 
         <section className={styles.masterNightHero}>
@@ -614,69 +650,11 @@ export default function MasterHomeClientPage() {
           </div>
         </section>
 
-        <section className={styles.masterCockpitSection} aria-labelledby="master-health-title">
-          <div className={styles.sectionHeader}>
-            <div>
-              <p className={styles.sectionEyebrow}>Produção</p>
-              <h2 id="master-health-title">Saúde do Sistema</h2>
-            </div>
-            <span className={styles.healthBadge} data-tone={healthTone}>{healthToneLabel(healthTone)}</span>
-          </div>
-
-          <div className={styles.healthGrid}>
-            <article className={styles.healthCard} data-tone={health?.api?.status === "ok" ? "green" : "red"}>
-              <span>API</span>
-              <strong>{healthStatusLabel(health?.api?.status)}</strong>
-              <p>{health?.api?.responseMs ?? "-"} ms • uptime backend {health?.uptime?.formatted || "-"}</p>
-            </article>
-            <article className={styles.healthCard} data-tone={health?.postgres?.status === "ok" ? "green" : "red"}>
-              <span>Postgres</span>
-              <strong>{healthStatusLabel(health?.postgres?.status)}</strong>
-              <p>{health?.postgres?.error || `${health?.postgres?.responseMs ?? "-"} ms`}</p>
-            </article>
-            <article className={styles.healthCard} data-tone={healthCardToneFromPercent(memory?.usagePercent)}>
-              <span>Memória</span>
-              <strong>{memory?.usagePercent ?? "-"}%</strong>
-              <p>{formatKb(memory?.usedKb)} usados • {formatKb(memory?.availableKb)} livres • {formatKb(memory?.totalKb)} total</p>
-            </article>
-            <article className={styles.healthCard} data-tone={healthCardToneFromPercent(disk?.usagePercent)}>
-              <span>Disco</span>
-              <strong>{disk?.usagePercent || "-"}</strong>
-              <p>{disk?.used || "-"} usados • {disk?.available || "-"} livres • {disk?.size || "-"} total</p>
-            </article>
-            <article className={styles.healthCard}>
-              <span>Load average</span>
-              <strong>{[load?.oneMinute, load?.fiveMinutes, load?.fifteenMinutes].filter(Boolean).join(" / ") || "-"}</strong>
-              <p>1m / 5m / 15m</p>
-            </article>
-            <article className={styles.healthCard}>
-              <span>Containers Docker</span>
-              <strong>{healthStatusLabel(health?.containers?.status)}</strong>
-              <p>{(health?.containers?.items || []).map((item) => `${item.name}: ${item.memoryPercent || "-"}`).join(" • ") || "Sem leitura"}</p>
-            </article>
-          </div>
-
-          <div className={styles.healthSplit}>
-            <div>
-              <strong>Erros recentes de backend</strong>
-              <p>{health?.errors?.note || `${health?.errors?.lines?.length || 0} linha(s) encontrada(s).`}</p>
-              <pre>{(health?.errors?.lines || []).slice(-4).join("\n") || "Nenhum erro recente disponível."}</pre>
-            </div>
-            <div>
-              <strong>Última atualização</strong>
-              <p>{formatDateTime(health?.generatedAt)}</p>
-              <button type="button" className="btn btn-primary btn-sm" onClick={loadCockpit} disabled={loadingCockpit}>
-                {loadingCockpit ? "Atualizando..." : "Atualizar agora"}
-              </button>
-            </div>
-          </div>
-        </section>
-
         <section className={styles.masterCockpitSection} aria-labelledby="master-sessions-title">
           <div className={styles.sectionHeader}>
             <div>
               <p className={styles.sectionEyebrow}>Sessões</p>
-              <h2 id="master-sessions-title">Usuários online agora</h2>
+              <h2 id="master-sessions-title">Usuários e acessos</h2>
             </div>
             <div className={styles.sessionCounters}>
               <span><strong>{sessions?.counters.onlineNow ?? 0}</strong> online agora</span>
@@ -685,37 +663,55 @@ export default function MasterHomeClientPage() {
             </div>
           </div>
 
-          <div className={styles.tableWrap}>
-            <table className={styles.masterTable}>
-              <thead>
-                <tr>
-                  <th>Empresa</th>
-                  <th>Usuário</th>
-                  <th>Perfil</th>
-                  <th>Último acesso</th>
-                  <th>Status</th>
-                  <th>Dispositivo</th>
-                </tr>
-              </thead>
-              <tbody>
-                {(sessions?.sessions || []).slice(0, 8).map((session) => (
-                  <tr key={session.sessionId}>
-                    <td>{session.companyName || (session.isSystemMaster ? "MASTER" : "-")}</td>
-                    <td>
-                      <div className={styles.secondaryCell}>
-                        <strong>{session.userName}</strong>
-                        <span>{session.email || `ID ${session.userId}`}</span>
+          <div className={styles.sessionUserGrid}>
+            {sessionUsers.slice(0, 12).map((entry) => {
+              const expanded = expandedSessionUserId === entry.userId;
+              return (
+                <article key={entry.userId} className={styles.sessionUserCard} data-online={entry.online ? "true" : "false"}>
+                  <button
+                    type="button"
+                    className={styles.sessionUserButton}
+                    onClick={() => setExpandedSessionUserId(expanded ? null : entry.userId)}
+                    aria-expanded={expanded}
+                  >
+                    <span className={styles.sessionAvatar}>{entry.userName.charAt(0).toUpperCase()}</span>
+                    <span>
+                      <strong>{entry.userName}</strong>
+                      <small>{entry.companyName || entry.email || `ID ${entry.userId}`}</small>
+                    </span>
+                    <em>{entry.online ? "Online" : "Ausente"}</em>
+                  </button>
+
+                  <div className={styles.sessionUserMeta}>
+                    <span>{entry.role || "-"}</span>
+                    <span>{entry.latest.idleMinutes} min parado</span>
+                    <span>{entry.sessions.length} sessão{entry.sessions.length === 1 ? "" : "s"}</span>
+                  </div>
+
+                  {expanded ? (
+                    <div className={styles.sessionDetails}>
+                      <div>
+                        <strong>Último acesso</strong>
+                        <span>{formatDateTime(entry.latest.lastSeenAt)}</span>
                       </div>
-                    </td>
-                    <td>{session.isSystemMaster ? "MASTER" : session.role || "-"}</td>
-                    <td>{formatDateTime(session.lastSeenAt)} • {session.idleMinutes} min parado</td>
-                    <td><span className={styles.healthBadge} data-tone={session.online ? "green" : "yellow"}>{session.online ? "Online" : "Ausente"}</span></td>
-                    <td>{session.userAgent || "-"}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            {!sessions?.sessions?.length ? <div className={styles.emptyPanel}>Nenhuma sessão recente encontrada.</div> : null}
+                      <div>
+                        <strong>IP</strong>
+                        <span>{entry.latest.ipFingerprint ? `fingerprint ${entry.latest.ipFingerprint}` : "Não armazenado em texto puro"}</span>
+                      </div>
+                      <div>
+                        <strong>Dispositivo</strong>
+                        <span>{entry.latest.userAgent || "-"}</span>
+                      </div>
+                      <div>
+                        <strong>Módulos</strong>
+                        <span>{entry.modules.length ? entry.modules.slice(0, 8).map((module) => compactModuleName(module.name)).join(" • ") : "Sem módulos ativos"}</span>
+                      </div>
+                    </div>
+                  ) : null}
+                </article>
+              );
+            })}
+            {!sessionUsers.length ? <div className={styles.emptyPanel}>Nenhuma sessão recente encontrada.</div> : null}
           </div>
         </section>
 
@@ -794,24 +790,6 @@ export default function MasterHomeClientPage() {
           </div>
         </section>
 
-        <section className={styles.masterHomeGrid} aria-label="Atalhos MASTER">
-          {MASTER_SHORTCUTS.map((item) => (
-            <Link key={item.href} href={item.href} className={styles.masterHomeCard} data-tone={item.tone}>
-              <span>{item.eyebrow}</span>
-              <strong>{item.title}</strong>
-              <p>{item.description}</p>
-              <small>{item.meta}</small>
-              <b>{item.action}</b>
-            </Link>
-          ))}
-        </section>
-
-        <section className={styles.masterHomeNote}>
-          <strong>Fluxo de publicação</strong>
-          <p>
-            O publish da Hostinger cobre frontend, backend, Postgres, webscraping e HBX Scraping Engine.
-          </p>
-        </section>
       </div>
     </DashboardScaffold>
   );

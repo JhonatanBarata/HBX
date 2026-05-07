@@ -271,10 +271,10 @@ const SUPPORT_PHONE = "+5519997024884";
 const SUPPORT_MESSAGE = "Olá, preciso de ajuda com o HBX!";
 
 const hiddenRoutes = new Set(["/login", "/register", "/reset-password", "/confirm-email", "/boasvindas", "/tutorial"]);
-const SCRAPING_ENGINE_POLL_MS = 6500;
-const SYSTEM_HEALTH_POLL_MS = 12000;
+const SCRAPING_ENGINE_POLL_MS = 5000;
+const SYSTEM_HEALTH_POLL_MS = 5000;
 const TOPBAR_HBX_ENGINE_COUNT = 20;
-const TOPBAR_VISIBLE_HBX_ENGINE_COUNT = 8;
+const TOPBAR_VISIBLE_HBX_ENGINE_COUNT = 4;
 
 function buildFallbackScrapingEngine(index: number): ScrapingEngineStatus {
   return {
@@ -374,6 +374,21 @@ function buildSparklinePoints(engine: ScrapingEngineStatus) {
     return Math.max(8, Math.min(92, usage * 0.72 + 14 + wave));
   });
   return values.map((value, index) => `${index * 12},${Math.round(34 - value * 0.28)}`).join(" ");
+}
+
+function resolveEngineGroupState(engines: ScrapingEngineStatus[], isLive: (engine: ScrapingEngineStatus) => boolean) {
+  if (engines.some((engine) => isLive(engine) || getScrapingEngineState(engine) === "busy" || engine.busy)) return "busy";
+  if (engines.some((engine) => getScrapingEngineState(engine) === "degraded")) return "degraded";
+  if (engines.some((engine) => getScrapingEngineState(engine) === "cooldown")) return "cooldown";
+  if (engines.length && engines.every((engine) => getScrapingEngineState(engine) === "offline" || getScrapingEngineState(engine) === "missing")) {
+    return "offline";
+  }
+  return "standby";
+}
+
+function averageEngineUsage(engines: ScrapingEngineStatus[]) {
+  if (!engines.length) return 0;
+  return Math.round(engines.reduce((sum, engine) => sum + getEngineUsage(engine), 0) / engines.length);
 }
 
 function normalizePercentValue(value?: string | number | null) {
@@ -882,9 +897,9 @@ export default function TopBar() {
   );
   const progressEngineIndex =
     typeof topbarProgress?.activeEngineIndex === "number" && Number.isInteger(topbarProgress.activeEngineIndex)
-      ? Math.max(0, Math.min(3, topbarProgress.activeEngineIndex))
+      ? Math.max(0, Math.min(TOPBAR_HBX_ENGINE_COUNT - 1, topbarProgress.activeEngineIndex))
       : liveWebscrapingProgress
-        ? Math.max(0, Math.min(3, Math.floor(Math.max(0, Math.min(99, topbarProgress?.progress || 0)) / 25)))
+        ? Math.max(0, Math.min(TOPBAR_HBX_ENGINE_COUNT - 1, Math.floor(Math.max(0, Math.min(99, topbarProgress?.progress || 0)) / 5)))
         : null;
   const progressEngineLabel =
     topbarProgress?.activeEngineLabel ||
@@ -936,8 +951,33 @@ export default function TopBar() {
     [scrapingEngineView.hbxEngines],
   );
   const hbxRunningCount = scrapingEngineView.hbxEngines.filter((engine) => getScrapingEngineState(engine) === "busy" || engine.busy).length;
-  const hbxVisibleEngines = scrapingEngineView.hbxEngines.slice(0, TOPBAR_VISIBLE_HBX_ENGINE_COUNT);
-  const hbxHiddenEngines = scrapingEngineView.hbxEngines.slice(TOPBAR_VISIBLE_HBX_ENGINE_COUNT);
+  const hbxVisibleEngineGroups = useMemo(
+    () =>
+      Array.from({ length: TOPBAR_VISIBLE_HBX_ENGINE_COUNT }, (_, index) => {
+        const groupSize = Math.ceil(scrapingEngineView.hbxEngines.length / TOPBAR_VISIBLE_HBX_ENGINE_COUNT) || 1;
+        const engines = scrapingEngineView.hbxEngines.slice(index * groupSize, index * groupSize + groupSize);
+        const usage = averageEngineUsage(engines);
+        const state = resolveEngineGroupState(engines, isLiveScrapingEngine);
+        const active = engines.some((engine) => engine.active || isLiveScrapingEngine(engine) || getScrapingEngineState(engine) === "busy");
+        const online = engines.filter((engine) => engine.configured && engine.online).length;
+        const processed = engines.reduce((sum, engine) => sum + Math.max(0, Math.trunc(Number(engine.processedLast10Min || 0))), 0);
+        const start = engines[0]?.index !== null && engines[0]?.index !== undefined ? Number(engines[0].index) + 1 : index * groupSize + 1;
+        const end = engines[engines.length - 1]?.index !== null && engines[engines.length - 1]?.index !== undefined
+          ? Number(engines[engines.length - 1].index) + 1
+          : start + engines.length - 1;
+        return {
+          id: `hbx-core-${index + 1}`,
+          label: `M${index + 1}`,
+          rangeLabel: engines.length ? `M${start}-M${end}` : "Sem motores",
+          detail: `${online}/${engines.length} online • ${processed} cards em 10 min`,
+          engines,
+          usage,
+          state,
+          active,
+        };
+      }),
+    [isLiveScrapingEngine, scrapingEngineView.hbxEngines],
+  );
   const hbxEngineTotal = scrapingEngineView.hbxEngines.length;
   const hbxEngineOnlineCount = scrapingEngineView.hbxEngines.filter((engine) => engine.configured && engine.online).length;
   const hbxEngineActiveCapacity = Math.max(
@@ -2501,7 +2541,7 @@ export default function TopBar() {
                   <button
                     type="button"
                     className={`wa-health-wrap ${unreadInboxCount > 0 ? "wa-health-wrap--alert" : ""}`}
-                    onClick={() => void toggleUnreadInboxPopup()}
+                    onClick={() => handleQueueShortcut("atendimento")}
                   >
                     <span
                       className={`wa-health wa-health--${whatsAppHealth}`}
@@ -2518,84 +2558,24 @@ export default function TopBar() {
                       </span>
                     ) : null}
                   </button>
-
-                  {unreadInboxOpen ? (
-                    <div className="wa-unread-popup" role="dialog" aria-label="Mensagens não lidas">
-                      <div className="wa-unread-popup__head">
-                        <strong>Mensagens não lidas</strong>
-                        <button
-                          type="button"
-                          className="wa-unread-popup__link"
-                          onClick={() => {
-                            setUnreadInboxOpen(false);
-                            handleQueueShortcut("atendimento");
-                          }}
-                        >
-                          Abrir inbox
-                        </button>
-                      </div>
-
-                      {unreadInboxLoading ? <p className="wa-unread-popup__state">Carregando...</p> : null}
-                      {unreadInboxError ? <p className="wa-unread-popup__state">{unreadInboxError}</p> : null}
-
-                      {!unreadInboxLoading && !unreadInboxError ? (
-                        unreadInboxEntries.length ? (
-                          <div className="wa-unread-popup__list">
-                            {unreadInboxEntries.map((entry) => (
-                              <div
-                                key={`${entry.conversationId}:${entry.messageId}`}
-                                className="wa-unread-popup__item"
-                              >
-                                <div className="wa-unread-popup__copy">
-                                  <strong>{entry.conversationLabel}</strong>
-                                  <p>{entry.messagePreview}</p>
-                                </div>
-                                <div className="wa-unread-popup__actions">
-                                  <button
-                                    type="button"
-                                    className="wa-unread-popup__action"
-                                    onClick={() => void markUnreadConversationAsRead(entry.conversationId)}
-                                  >
-                                    Marcar lido
-                                  </button>
-                                  <button
-                                    type="button"
-                                    className="wa-unread-popup__action wa-unread-popup__action--danger"
-                                    onClick={() => void deleteUnreadMessage(entry)}
-                                  >
-                                    Excluir
-                                  </button>
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        ) : (
-                          <p className="wa-unread-popup__state">Sem mensagens pendentes.</p>
-                        )
-                      ) : null}
-                    </div>
-                  ) : null}
                 </div>
 
                 <button
                   type="button"
-                  className={`wa-health-wrap ${recoveryPendingHumanCount > 0 ? "wa-health-wrap--alert" : ""}`}
-                  onClick={() => handleQueueShortcut("recovery")}
+                  className="wa-health-wrap"
+                  onClick={() => {
+                    window.location.href = "/tutorial?start=bot&from=inbox_bot";
+                  }}
                 >
                   <span
-                    className={`wa-health wa-health--${whatsAppHealth}`}
-                    title={`${whatsAppHealthLabel} · Cobranca: ${recoveryPendingHumanCount}`}
-                    aria-label={`${whatsAppHealthLabel} · Cobranca: ${recoveryPendingHumanCount}`}
+                    className="wa-health wa-health--green wa-health--bot"
+                    title="Abrir tutorial do Bot IA"
+                    aria-label="Abrir tutorial do Bot IA"
                   >
                     <svg viewBox="0 0 24 24" aria-hidden="true">
-                      <path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20Zm1 14.5V18h-2v-1.5A4 4 0 1 1 13 16.5z" />
+                      <path d="M12 3a2.4 2.4 0 0 1 2.3 1.8h2.2A3.5 3.5 0 0 1 20 8.3v5.9a3.5 3.5 0 0 1-3.5 3.5h-.7L13 20.4a1.4 1.4 0 0 1-2 0l-2.8-2.7h-.7A3.5 3.5 0 0 1 4 14.2V8.3a3.5 3.5 0 0 1 3.5-3.5h2.2A2.4 2.4 0 0 1 12 3Zm-3 8.1a1.1 1.1 0 1 0 0-2.2 1.1 1.1 0 0 0 0 2.2Zm6 0a1.1 1.1 0 1 0 0-2.2 1.1 1.1 0 0 0 0 2.2Zm-5.5 2.4a3.4 3.4 0 0 0 5 0" />
                     </svg>
                   </span>
-                  {recoveryPendingHumanCount > 0 ? (
-                    <span className="wa-health__queue-badge" aria-hidden="true">
-                      {recoveryPendingHumanCount}
-                    </span>
-                  ) : null}
                 </button>
               </div>
             ) : null}
@@ -2610,9 +2590,9 @@ export default function TopBar() {
               <div
                 className="app-topbar__engineDeck"
                 data-count={scrapingEngineView.hbxEngines.length}
-                tabIndex={hbxHiddenEngines.length ? 0 : undefined}
+                tabIndex={0}
                 aria-label={`Motores HBX M1 a M${scrapingEngineView.hbxEngines.length}`}
-                title={hbxHiddenEngines.length ? "Passe o mouse para ver todos os 20 motores" : undefined}
+                title="Passe o mouse nos velocímetros para ver as derivações"
               >
                 <div className="app-topbar__engineDeckHead">
                   <span>Motores HBX</span>
@@ -2620,80 +2600,59 @@ export default function TopBar() {
                   <em>{hbxEngineOnlineCount} online</em>
                 </div>
                 <div className="app-topbar__engineDeckGrid">
-                  {hbxVisibleEngines.map((engine) => {
-                    const visualState = getVisibleScrapingEngineState(engine);
-                    const visualValue = getVisibleScrapingEngineValue(engine);
-                    const visualDetail = getVisibleScrapingEngineDetail(engine);
-                    const visualActive = engine.active || isLiveScrapingEngine(engine);
-                    const usage = getEngineUsage(engine);
-                    const title = `${engine.label}: ${engine.stateLabel || visualValue}. ${visualDetail}`;
+                  {hbxVisibleEngineGroups.map((group) => {
+                    const title = `${group.label}: ${group.rangeLabel}. ${group.detail}`;
 
                     return (
                       <span
-                        key={engine.id}
+                        key={group.id}
                         className="app-topbar__engineCard"
-                        data-active={visualActive ? "true" : "false"}
-                        data-state={visualState}
-                        data-live={isLiveScrapingEngine(engine) ? "true" : "false"}
-                        style={{ ["--engine-usage" as string]: `${usage}%` }}
+                        data-active={group.active ? "true" : "false"}
+                        data-state={group.state}
+                        data-live={group.state === "busy" ? "true" : "false"}
+                        style={{
+                          ["--engine-usage" as string]: `${group.usage}%`,
+                          ["--engine-angle" as string]: `${-90 + group.usage * 1.8}deg`,
+                          ["--engine-arc" as string]: `${group.usage * 1.8}deg`,
+                        }}
                         title={title}
                         aria-label={title}
                       >
                         <span className="app-topbar__engineCardTop">
                           <span className="app-topbar__engineNodeLed" aria-hidden="true" />
-                          <strong>{getScrapingEngineShortLabel(engine)}</strong>
-                          <em>{engine.stateLabel || visualValue}</em>
+                          <strong>{group.label}</strong>
+                          <em>{group.rangeLabel}</em>
                         </span>
                         <span className="app-topbar__engineCardBody">
-                          <span className="app-topbar__engineGauge" aria-hidden="true">
-                            <b>{usage}%</b>
+                          <span className="app-topbar__engineSpeedometer" aria-hidden="true">
+                            <span />
+                            <b>{group.usage}%</b>
                           </span>
-                          <svg className="app-topbar__sparkline" viewBox="0 0 72 36" aria-hidden="true">
-                            <polyline points={buildSparklinePoints(engine)} />
-                          </svg>
                         </span>
-                        <span className="app-topbar__activityDots" aria-hidden="true">
-                          <i />
-                          <i />
-                          <i />
+                        <strong className="app-topbar__engineGroupDetail">{group.detail}</strong>
+                        <span className="app-topbar__engineDerivatives" aria-hidden="true">
+                          {group.engines.map((engine) => {
+                            const usage = getEngineUsage(engine);
+                            const state = getVisibleScrapingEngineState(engine);
+                            const active = engine.active || isLiveScrapingEngine(engine);
+                            return (
+                              <i
+                                key={`${group.id}:${engine.id}`}
+                                data-active={active ? "true" : "false"}
+                                data-state={state}
+                                style={{ ["--engine-usage" as string]: `${usage}%` }}
+                                title={`${getScrapingEngineShortLabel(engine)} ${usage}%`}
+                              >
+                                <span>{getScrapingEngineShortLabel(engine)}</span>
+                                <b>{usage}%</b>
+                              </i>
+                            );
+                          })}
                         </span>
                       </span>
                     );
                   })}
                 </div>
-                {hbxHiddenEngines.length ? (
-                  <div className="app-topbar__enginePopover" role="tooltip">
-                    <div className="app-topbar__enginePopoverHead">
-                      <span>Todos os motores HBX</span>
-                      <strong>{hbxEngineTotal} slots</strong>
-                    </div>
-                    <div className="app-topbar__enginePopoverGrid">
-                      {scrapingEngineView.hbxEngines.map((engine) => {
-                        const visualState = getVisibleScrapingEngineState(engine);
-                        const visualValue = getVisibleScrapingEngineValue(engine);
-                        const visualDetail = getVisibleScrapingEngineDetail(engine);
-                        const visualActive = engine.active || isLiveScrapingEngine(engine);
-                        const usage = getEngineUsage(engine);
-                        const title = `${engine.label}: ${engine.stateLabel || visualValue}. ${visualDetail}`;
-
-                        return (
-                          <span
-                            key={`peek:${engine.id}`}
-                            className="app-topbar__enginePeek"
-                            data-active={visualActive ? "true" : "false"}
-                            data-state={visualState}
-                            style={{ ["--engine-usage" as string]: `${usage}%` }}
-                            title={title}
-                          >
-                            <i aria-hidden="true" />
-                            <strong>{getScrapingEngineShortLabel(engine)}</strong>
-                            <em>{usage}%</em>
-                          </span>
-                        );
-                      })}
-                    </div>
-                  </div>
-                ) : null}
               </div>
 
               <div
