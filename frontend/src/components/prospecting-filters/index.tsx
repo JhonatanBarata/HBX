@@ -22,7 +22,10 @@ export type HbxAdvancedFiltersValue = {
 type Option = {
   value: string;
   label: string;
+  count?: number;
 };
+
+type OptionInput = string | Option;
 
 function normalizeSearchText(value: string) {
   return String(value || "")
@@ -52,6 +55,31 @@ function filterOptions(options: Option[], query: string) {
   return filtered.length ? filtered : options;
 }
 
+function normalizeOptionInput(item: OptionInput): Option {
+  if (typeof item === "string") return { value: item, label: item };
+  return {
+    value: String(item.value || "").trim(),
+    label: String(item.label || item.value || "").trim(),
+    count: typeof item.count === "number" ? item.count : undefined,
+  };
+}
+
+function normalizeOptionList(items?: OptionInput[] | null) {
+  const seen = new Set<string>();
+  const options: Option[] = [];
+  for (const item of items || []) {
+    const option = normalizeOptionInput(item);
+    if (!option.value || seen.has(option.value)) continue;
+    seen.add(option.value);
+    options.push(option);
+  }
+  return options;
+}
+
+function optionLabelWithCount(option: Option) {
+  return typeof option.count === "number" ? `${option.label} (${option.count})` : option.label;
+}
+
 export function HbxStateCityPicker({
   state,
   city,
@@ -62,6 +90,9 @@ export function HbxStateCityPicker({
   helperText,
   allowAllCities = false,
   allCitiesLabel = "Todas as cidades",
+  availableStates,
+  availableCities,
+  availableCitiesByState,
 }: {
   state: string;
   city: string;
@@ -72,6 +103,9 @@ export function HbxStateCityPicker({
   helperText?: string;
   allowAllCities?: boolean;
   allCitiesLabel?: string;
+  availableStates?: OptionInput[];
+  availableCities?: OptionInput[];
+  availableCitiesByState?: Record<string, OptionInput[]>;
 }) {
   const stateListId = useId();
   const cityListId = useId();
@@ -80,24 +114,38 @@ export function HbxStateCityPicker({
   const [activeStateIndex, setActiveStateIndex] = useState(0);
   const [activeCityIndex, setActiveCityIndex] = useState(0);
   const normalizedState = String(state || "").trim().toUpperCase();
-  const knownState = isKnownState(normalizedState);
-  const stateOptions = useMemo(
-    () => filterOptions(BRAZIL_STATES.map((item) => ({ value: item.uf, label: `${item.uf} - ${item.name}` })), normalizedState),
-    [normalizedState],
+  const configuredStateOptions = useMemo(() => normalizeOptionList(availableStates), [availableStates]);
+  const hasConfiguredStates = configuredStateOptions.length > 0;
+  const stateBaseOptions = useMemo(
+    () => hasConfiguredStates
+      ? configuredStateOptions
+      : BRAZIL_STATES.map((item) => ({ value: item.uf, label: `${item.uf} - ${item.name}` })),
+    [configuredStateOptions, hasConfiguredStates],
   );
-  const cityOptions = useMemo(() => {
-    const cities = knownState ? BRAZIL_CITIES_BY_STATE[normalizedState] || [] : [];
+  const knownState = isKnownState(normalizedState) || stateBaseOptions.some((item) => item.value === normalizedState);
+  const stateOptions = useMemo(
+    () => filterOptions(stateBaseOptions, normalizedState),
+    [normalizedState, stateBaseOptions],
+  );
+  const cityOptions = useMemo<Option[]>(() => {
+    const configuredByState = normalizeOptionList(availableCitiesByState?.[normalizedState]);
+    const configuredCities = configuredByState.length ? configuredByState : normalizeOptionList(availableCities);
+    const cities = configuredCities.length
+      ? configuredCities
+      : knownState
+        ? (BRAZIL_CITIES_BY_STATE[normalizedState] || []).map((item) => ({ value: item, label: item }))
+        : [];
     const normalizedCity = normalizeSearchText(city);
     const base = cities
-      .filter((item) => !normalizedCity || normalizeSearchText(item).includes(normalizedCity))
+      .filter((item) => !normalizedCity || normalizeSearchText(`${item.label} ${item.value}`).includes(normalizedCity))
       .sort((left, right) => {
-        const leftStarts = normalizeSearchText(left).startsWith(normalizedCity) ? 0 : 1;
-        const rightStarts = normalizeSearchText(right).startsWith(normalizedCity) ? 0 : 1;
-        return leftStarts - rightStarts || left.localeCompare(right, "pt-BR");
+        const leftStarts = normalizeSearchText(left.label).startsWith(normalizedCity) ? 0 : 1;
+        const rightStarts = normalizeSearchText(right.label).startsWith(normalizedCity) ? 0 : 1;
+        return leftStarts - rightStarts || left.label.localeCompare(right.label, "pt-BR");
       });
-    return allowAllCities ? [allCitiesLabel, ...base] : base;
-  }, [allowAllCities, allCitiesLabel, city, knownState, normalizedState]);
-  const cityDisabled = disabled || !knownState;
+    return allowAllCities ? [{ value: "", label: allCitiesLabel }, ...base] : base;
+  }, [allowAllCities, allCitiesLabel, availableCities, availableCitiesByState, city, knownState, normalizedState]);
+  const cityDisabled = disabled || !knownState || (hasConfiguredStates && !normalizedState);
   const showStateOptions = stateOpen && !disabled && stateOptions.length > 0;
   const showCityOptions = cityOpen && !cityDisabled && cityOptions.length > 0;
 
@@ -108,8 +156,8 @@ export function HbxStateCityPicker({
     setActiveStateIndex(0);
   };
 
-  const selectCity = (nextCity: string) => {
-    onCityChange(allowAllCities && nextCity === allCitiesLabel ? "" : nextCity);
+  const selectCity = (nextCity: Option) => {
+    onCityChange(nextCity.value);
     setCityOpen(false);
     setActiveCityIndex(0);
   };
@@ -143,7 +191,8 @@ export function HbxStateCityPicker({
     }
     if (event.key === "Enter") {
       event.preventDefault();
-      selectCity(cityOptions[Math.min(activeCityIndex, cityOptions.length - 1)] || "");
+      const option = cityOptions[Math.min(activeCityIndex, cityOptions.length - 1)];
+      if (option) selectCity(option);
     }
     if (event.key === "Escape") setCityOpen(false);
   };
@@ -185,7 +234,7 @@ export function HbxStateCityPicker({
                 role="option"
                 aria-selected={normalizedState === item.value}
               >
-                {item.label}
+                {optionLabelWithCount(item)}
               </button>
             ))}
           </div>
@@ -220,15 +269,15 @@ export function HbxStateCityPicker({
           <div id={cityListId} className={styles.menu} role="listbox" aria-label="Cidades">
             {cityOptions.map((item, index) => (
               <button
-                key={`${item}-${index}`}
+                key={`${item.value || item.label}-${index}`}
                 type="button"
-                className={index === activeCityIndex || city === item ? styles.optionActive : styles.option}
+                className={index === activeCityIndex || city === item.value ? styles.optionActive : styles.option}
                 onMouseDown={(event) => event.preventDefault()}
                 onClick={() => selectCity(item)}
                 role="option"
-                aria-selected={city === item}
+                aria-selected={city === item.value}
               >
-                {item}
+                {optionLabelWithCount(item)}
               </button>
             ))}
           </div>
@@ -261,9 +310,10 @@ export function HbxSegmentCombobox({
   const [activeIndex, setActiveIndex] = useState(0);
   const items = useMemo(() => {
     const normalized = normalizeSearchText(value);
-    if (!normalized) return suggestions;
-    const filtered = suggestions.filter((item) => normalizeSearchText(item).includes(normalized));
-    return filtered.length ? filtered : suggestions;
+    const source = suggestions.map((item) => String(item || "").trim()).filter(Boolean);
+    if (!normalized) return source;
+    const filtered = source.filter((item) => normalizeSearchText(item).includes(normalized));
+    return filtered.length ? filtered : source;
   }, [suggestions, value]);
   const showOptions = open && !disabled && items.length > 0;
 

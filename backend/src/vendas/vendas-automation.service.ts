@@ -70,27 +70,28 @@ type SegmentMismatchFallbackDecision = {
 };
 
 type ProcessDueJobResult =
-  | { outcome: 'sent'; campaignId: string; leadId: string; jobId: string }
+  | { outcome: 'sent_success'; campaignId: string; leadId: string; jobId: string; sentAt: Date }
   | { outcome: 'skipped'; campaignId: string; leadId: string; jobId: string; classification: string; shouldContinue: true }
-  | { outcome: 'failed'; campaignId: string; leadId: string; jobId: string; errorMessage: string; shouldContinue: true }
+  | { outcome: 'failed_no_credit'; campaignId: string; leadId: string; jobId: string; errorMessage: string; shouldContinue: true }
   | {
-      outcome: 'deferred';
+      outcome: 'blocked';
       campaignId: string;
       leadId: string;
       jobId: string;
       reason: string;
       nextAllowedSendAt?: Date | null;
       shouldContinue: false;
-    };
+    }
+  | { outcome: 'no_eligible_lead'; campaignId: string; leadId?: string | null; jobId?: string | null; reason: string; shouldContinue: false };
 
 const BUFFER_JOB_STATUSES = ['pending', 'scheduled'] as const;
-const SEND_COOLDOWN_JOB_STATUSES = ['sent', 'replied_positive', 'replied_negative', 'no_response_archived'] as const;
+const SUCCESSFUL_SEND_JOB_STATUSES = ['sent', 'replied_positive', 'replied_negative', 'no_response_archived'] as const;
 const DEFAULT_POSITIVE_KEYWORDS = ['tenho interesse', 'pode mandar', 'quero saber', 'me explica', 'quanto custa'];
 const DEFAULT_NEGATIVE_KEYWORDS = ['nao tenho interesse', 'não tenho interesse', 'pare', 'remover', 'sem interesse', 'spam', 'nao me chame', 'não me chame'];
 const OPT_OUT_INTENT_KEYWORDS = ['remover', 'pare', 'spam', 'nao me chame', 'não me chame'];
 const HUMAN_HANDOFF_INTENT_KEYWORDS = ['humano', 'atendente', 'ligar', 'me chama'];
 const DEFAULT_DAILY_LIMIT = 30;
-const MAX_DUE_JOBS_PER_CYCLE = 10;
+const MAX_DUE_JOBS_PER_CYCLE = 50;
 const DEFAULT_OPT_OUT_MESSAGE = 'Entendi. Vou arquivar este contato e nao chamaremos novamente.';
 const DEFAULT_MESSAGE_TEMPLATE =
   'Oi, tudo bem? Aqui é {{funcionario}} da {{empresa}}. Vi a {{cliente}} em {{cidade}} e queria te explicar em 1 minuto uma solução para {{segmento}}. Faz sentido eu te mandar?';
@@ -694,6 +695,71 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     );
   }
 
+  private getProspectionValidationBlock(metadata: Record<string, unknown>, lead: any) {
+    const queue = parseJsonObject((metadata as any).vendasAgendaQueue);
+    const automation = parseJsonObject((metadata as any).vendasAutomation);
+    const prospeccao = parseJsonObject((metadata as any).vendasProspeccao);
+    const statusCandidates = [
+      (metadata as any).status,
+      (metadata as any).classification,
+      (queue as any).status,
+      (queue as any).stage,
+      (automation as any).status,
+      (automation as any).classification,
+      (prospeccao as any).stage,
+      lead?.status,
+      lead?.lastResult,
+    ].map(normalizeKey);
+    const reviewFlags = [
+      (metadata as any).needsReview,
+      (metadata as any).manualReviewRequired,
+      (metadata as any).reviewRequired,
+      (queue as any).needsReview,
+      (queue as any).manualReviewRequired,
+      (queue as any).reviewRequired,
+      (automation as any).needsReview,
+      (automation as any).manualReviewRequired,
+      lead?.needsReview,
+      lead?.manualReviewRequired,
+    ];
+    if (
+      reviewFlags.some(parseBooleanFlag) ||
+      statusCandidates.some((status) =>
+        ['needs_review', 'needs review', 'manual_review_required', 'manual review required', 'revisao_manual', 'em revisao', 'revisao'].includes(status),
+      )
+    ) {
+      return { classification: 'needs_review', errorMessage: 'Lead marcado para revisão antes do envio automático.' };
+    }
+
+    const blockedFlags = [
+      (metadata as any).blocked,
+      (metadata as any).isBlocked,
+      (metadata as any).atendimentoBlocked,
+      (queue as any).blocked,
+      (queue as any).isBlocked,
+      (automation as any).blocked,
+      lead?.blocked,
+      lead?.isBlocked,
+    ];
+    if (
+      blockedFlags.some(parseBooleanFlag) ||
+      hasDateLikeValue((metadata as any).blockedAt) ||
+      hasDateLikeValue((metadata as any).atendimentoBlockedAt) ||
+      statusCandidates.some((status) => ['blocked', 'bloqueado', 'blocked_manual'].includes(status))
+    ) {
+      return { classification: 'blocked', errorMessage: 'Lead ou conversa bloqueada para automação.' };
+    }
+
+    const queueTarget = normalizeKey((queue as any).queueTarget || (metadata as any).queueTarget || (queue as any).routeTarget || (metadata as any).routeTarget);
+    if (queueTarget && queueTarget !== 'prospeccao') {
+      return { classification: 'lead_status_not_eligible', errorMessage: 'Lead não está disponível na fila Prospecção.' };
+    }
+    if (queueTarget === 'prospeccao' && (queue as any).active === false) {
+      return { classification: 'lead_status_not_eligible', errorMessage: 'Lead inativo na fila Prospecção.' };
+    }
+    return null;
+  }
+
   private async resolveSegmentMismatchFallbackDecision(input: {
     companyId: number;
     campaign: any;
@@ -858,7 +924,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     return Number(conversation.id);
   }
 
-  private async markSegmentMismatchBeforeSend(job: any, campaign: any, lead: any) {
+  private async markSegmentMismatchBeforeSend(job: any, campaign: any, lead: any, classification = 'segment_mismatch_blocked') {
     const now = new Date();
     await this.prisma.$transaction(async (tx) => {
       await tx.vendasAutomationJob.update({
@@ -866,7 +932,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
         data: {
           status: 'skipped',
           archivedAt: now,
-          classification: 'needs_review',
+          classification,
           errorMessage: 'Segmento divergente entre lead e campanha.',
         },
       });
@@ -915,7 +981,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
         companyId: campaign.companyId,
         leadId: lead.id,
         status: 'skipped',
-        classification: 'needs_review',
+        classification: 'segment_mismatch_blocked',
       },
       orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
     });
@@ -1130,7 +1196,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     const todayStart = makeBusinessDate(today.year, today.month, today.day, 0, 0);
     const tomorrowStart = makeBusinessDate(today.year, today.month, today.day + 1, 0, 0);
     const pendingWhere = { campaignId: campaign.id, status: { in: [...BUFFER_JOB_STATUSES] as any } };
-    const [todayPending, overdue, future, sent, positives, archived, failed, sending, nextJob] = await Promise.all([
+    const [todayPending, overdue, future, sent, positives, archived, failed, sending, nextJob, sentToday, skippedJobsToday, needsReviewCount, noWhatsappCount, failedJobsToday, lastSkipJob, lastSuccessfulSendAt] = await Promise.all([
       this.prisma.vendasAutomationJob.count({
         where: { ...pendingWhere, scheduledAt: { gte: todayStart, lt: tomorrowStart } },
       }),
@@ -1158,8 +1224,27 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
       this.prisma.vendasAutomationJob.findFirst({
         where: { campaignId: campaign.id, status: 'scheduled', scheduledAt: { not: null } },
         orderBy: { scheduledAt: 'asc' },
-        select: { id: true, scheduledAt: true },
+        select: { id: true, scheduledAt: true, lead: { select: { name: true } } },
       }),
+      this.countSuccessfulSendsToday(campaign.id, campaign.companyId),
+      this.prisma.vendasAutomationJob.count({
+        where: { campaignId: campaign.id, status: 'skipped', archivedAt: { gte: todayStart, lt: tomorrowStart } },
+      }),
+      this.prisma.vendasAutomationJob.count({
+        where: { campaignId: campaign.id, classification: { in: ['needs_review', 'manual_review_required'] as any } },
+      }),
+      this.prisma.vendasAutomationJob.count({
+        where: { campaignId: campaign.id, classification: { in: ['no_whatsapp', 'invalid_whatsapp'] as any } },
+      }),
+      this.prisma.vendasAutomationJob.count({
+        where: { campaignId: campaign.id, status: 'failed', archivedAt: { gte: todayStart, lt: tomorrowStart } },
+      }),
+      this.prisma.vendasAutomationJob.findFirst({
+        where: { campaignId: campaign.id, status: 'skipped' },
+        orderBy: [{ archivedAt: 'desc' }, { updatedAt: 'desc' }],
+        select: { classification: true, errorMessage: true },
+      }),
+      this.getLastSuccessfulSendAt(campaign.id, campaign.companyId),
     ]);
     let nextScheduledAt = nextJob?.scheduledAt instanceof Date ? nextJob.scheduledAt : null;
     if (nextJob?.id && nextScheduledAt && !this.isInsideWorkingHours(nextScheduledAt, campaign)) {
@@ -1169,7 +1254,29 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
         data: { scheduledAt: nextScheduledAt },
       });
     }
-    const counters = { todayPending, overdue, future, sent, positives, archived, failed };
+    const nextAllowedDate = await this.getNextAllowedSendAt(campaign);
+    const dailyLimit = Number(campaign.dailyLimit || DEFAULT_DAILY_LIMIT);
+    const pendingJobs = (todayPending || 0) + (overdue || 0) + (future || 0);
+    const scheduledJobs = pendingJobs;
+    const cooldownActive = Boolean(nextAllowedDate && nextAllowedDate.getTime() > Date.now());
+    const counters = {
+      todayPending,
+      overdue,
+      future,
+      sent,
+      positives,
+      archived,
+      failed,
+      sentToday,
+      dailyLimit,
+      remainingToday: Math.max(0, dailyLimit - sentToday),
+      pendingJobs,
+      scheduledJobs,
+      skippedJobsToday,
+      needsReviewCount,
+      noWhatsappCount,
+      failedJobsToday,
+    };
     const status = this.inferLiveStatus(campaign, counters, sending);
     const nextWorkingWindow = status === 'dormindo' ? this.moveToWorkingWindow(new Date(), campaign) : null;
     const nextScheduledText = nextScheduledAt ? this.formatNextScheduledText(nextScheduledAt) : null;
@@ -1186,6 +1293,20 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
       campaign: this.serializeCampaign(campaign),
       counters,
       nextScheduledAt: nextScheduledAt ? nextScheduledAt.toISOString() : null,
+      sentToday,
+      dailyLimit,
+      remainingToday: Math.max(0, dailyLimit - sentToday),
+      nextAllowedSendAt: nextAllowedDate ? nextAllowedDate.toISOString() : null,
+      cooldownActive,
+      pendingJobs,
+      scheduledJobs,
+      skippedJobsToday,
+      needsReviewCount,
+      noWhatsappCount,
+      failedJobsToday,
+      lastSkipReason: lastSkipJob?.classification || lastSkipJob?.errorMessage || null,
+      lastSuccessfulSendAt: lastSuccessfulSendAt ? lastSuccessfulSendAt.toISOString() : null,
+      nextEligibleLeadName: String((nextJob as any)?.lead?.name || '').trim() || null,
       lastError: campaign.lastError || null,
     };
   }
@@ -1432,6 +1553,18 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
+  private async isHBotActiveForCampaign(campaign: any) {
+    if (typeof (this.inboxService as any)?.getBotConfig !== 'function') return true;
+    try {
+      const runtimeUser = await this.buildAutomationUser(campaign);
+      const config = await this.inboxService.getBotConfig(runtimeUser);
+      return config?.routingRules?.globalBotEnabled === true;
+    } catch (error: any) {
+      this.logger.warn(`Falha ao validar HBot ativo campaign=${campaign.id}: ${String(error?.message || error)}`);
+      return false;
+    }
+  }
+
   private renderMessageTemplate(template: string, input: { lead: any; campaign: any; user: any }) {
     const companyName = String(input.user?.company?.name || input.user?.masterContext?.companyName || '').trim() || 'nossa empresa';
     const employeeName = String(input.user?.name || '').trim() || 'time comercial';
@@ -1450,8 +1583,11 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
       .trim();
   }
 
-  private resolveOutboundTemplate(campaign: any, lead: any) {
+  private resolveOutboundTemplate(campaign: any, lead: any, metadata?: Record<string, unknown> | null) {
+    const queue = parseJsonObject((metadata as any)?.vendasAgendaQueue);
     return (
+      trimOrNull((queue as any).draftMessage) ||
+      trimOrNull((queue as any).inheritedDraftMessage) ||
       trimOrNull(lead?.scriptText) ||
       trimOrNull(lead?.roteiro) ||
       trimOrNull(lead?.messageTemplate) ||
@@ -1460,8 +1596,8 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     );
   }
 
-  private renderOutboundMessage(campaign: any, lead: any, user: any) {
-    const body = this.renderMessageTemplate(this.resolveOutboundTemplate(campaign, lead), { lead, campaign, user });
+  private renderOutboundMessage(campaign: any, lead: any, user: any, metadata?: Record<string, unknown> | null) {
+    const body = this.renderMessageTemplate(this.resolveOutboundTemplate(campaign, lead, metadata), { lead, campaign, user });
     return trimOrNull(body) || this.renderMessageTemplate(DEFAULT_MESSAGE_TEMPLATE, { lead, campaign, user });
   }
 
@@ -1650,7 +1786,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
   private async buildScheduleCursorForCampaign(campaign: any) {
     const intervalMs = this.getCampaignIntervalMs(campaign);
     const now = new Date();
-    const [latestActiveScheduled, latestSent] = await Promise.all([
+    const [latestActiveScheduled, lastSuccessfulSendAt] = await Promise.all([
       this.prisma.vendasAutomationJob.findFirst({
         where: {
           campaignId: campaign.id,
@@ -1660,22 +1796,14 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
         orderBy: { scheduledAt: 'desc' },
         select: { scheduledAt: true },
       }),
-      this.prisma.vendasAutomationJob.findFirst({
-        where: {
-          campaignId: campaign.id,
-          sentAt: { not: null },
-          status: { in: [...SEND_COOLDOWN_JOB_STATUSES] as any },
-        },
-        orderBy: { sentAt: 'desc' },
-        select: { sentAt: true },
-      }),
+      this.getLastSuccessfulSendAt(campaign.id, campaign.companyId),
     ]);
     let firstSlotTime = now.getTime();
     if (latestActiveScheduled?.scheduledAt instanceof Date && latestActiveScheduled.scheduledAt.getTime() > now.getTime()) {
       firstSlotTime = Math.max(firstSlotTime, latestActiveScheduled.scheduledAt.getTime() + intervalMs);
     }
-    if (latestSent?.sentAt instanceof Date) {
-      firstSlotTime = Math.max(firstSlotTime, latestSent.sentAt.getTime() + intervalMs);
+    if (lastSuccessfulSendAt) {
+      firstSlotTime = Math.max(firstSlotTime, lastSuccessfulSendAt.getTime() + intervalMs);
     }
     const firstSlot = this.moveToWorkingWindow(new Date(firstSlotTime), campaign);
     return new Date(firstSlot.getTime() - intervalMs);
@@ -1683,18 +1811,9 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
 
   private async getNextAllowedSendAt(campaign: any, currentJobId?: string | null) {
     const intervalMs = this.getCampaignIntervalMs(campaign);
-    const latestSent = await this.prisma.vendasAutomationJob.findFirst({
-      where: {
-        campaignId: campaign.id,
-        ...(currentJobId ? { id: { not: currentJobId } } : {}),
-        sentAt: { not: null },
-        status: { in: [...SEND_COOLDOWN_JOB_STATUSES] as any },
-      },
-      orderBy: { sentAt: 'desc' },
-      select: { sentAt: true },
-    });
-    if (!(latestSent?.sentAt instanceof Date)) return null;
-    const nextAllowed = new Date(latestSent.sentAt.getTime() + intervalMs);
+    const lastSuccessfulSendAt = await this.getLastSuccessfulSendAt(campaign.id, campaign.companyId, currentJobId);
+    if (!lastSuccessfulSendAt) return null;
+    const nextAllowed = new Date(lastSuccessfulSendAt.getTime() + intervalMs);
     if (nextAllowed.getTime() <= Date.now()) return null;
     return this.moveToWorkingWindow(nextAllowed, campaign);
   }
@@ -1711,6 +1830,36 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
         type: 'job_skipped',
       }).catch(() => null);
     }
+  }
+
+  private async findActiveProspectionLeadIds(companyId: number) {
+    if (typeof this.prisma.companyConversation.findMany !== 'function') return new Set<string>();
+    const conversations = await this.prisma.companyConversation.findMany({
+      where: {
+        companyId,
+        channel: 'whatsapp',
+        metadata: { contains: '"vendasAgendaQueue"' },
+      },
+      select: { metadata: true },
+    }).catch(() => []);
+    const leadIds = new Set<string>();
+    for (const conversation of conversations) {
+      const metadata = parseJsonObject(conversation.metadata);
+      const queue = parseJsonObject((metadata as any).vendasAgendaQueue);
+      const prospeccao = parseJsonObject((metadata as any).vendasProspeccao);
+      const leadId = trimOrNull((queue as any).leadId || (prospeccao as any).leadId);
+      if (!leadId) continue;
+      const queueTarget = normalizeKey((queue as any).queueTarget || (metadata as any).queueTarget || (queue as any).routeTarget || (metadata as any).routeTarget);
+      const availability = String((queue as any).whatsappAvailabilityStatus || (metadata as any).whatsappAvailabilityStatus || '').trim().toLowerCase();
+      const stage = normalizeKey((prospeccao as any).stage || (queue as any).status || (queue as any).stage);
+      if ((queue as any).active !== true) continue;
+      if (queueTarget && queueTarget !== 'prospeccao') continue;
+      if (availability === 'unavailable') continue;
+      if (['needs_review', 'manual_review_required'].includes(stage)) continue;
+      if (parseBooleanFlag((queue as any).manualSent) || hasDateLikeValue((queue as any).manualSentAt) || hasDateLikeValue((queue as any).lastManualSendAt)) continue;
+      leadIds.add(leadId);
+    }
+    return leadIds;
   }
 
   private async scheduleJobsForCampaign(campaignId: string) {
@@ -1737,14 +1886,23 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     const usedLeadIds = new Set(existingLeadIds.map((item) => item.leadId));
     const sourceSignature =
       [String(campaign.segment || '').trim(), String(campaign.city || '').trim()].filter(Boolean).join('|') || null;
+    const activeProspectionLeadIds = await this.findActiveProspectionLeadIds(campaign.companyId);
+    const sourceFilters: any[] = [
+      {
+        sourceType: 'webscraping',
+        ...(sourceSignature ? { sourceSignature } : {}),
+      },
+    ];
+    if (activeProspectionLeadIds.size) {
+      sourceFilters.push({ id: { in: Array.from(activeProspectionLeadIds) } });
+    }
     const leads = await this.prisma.vendasLead.findMany({
       where: {
         companyId: campaign.companyId,
-        sourceType: 'webscraping',
         status: { not: 'encerrado' },
         wasClosedBefore: false,
         closedAt: null,
-        ...(sourceSignature ? { sourceSignature } : {}),
+        OR: sourceFilters,
         phoneNormalized: { not: null },
         id: { notIn: Array.from(usedLeadIds) },
         attemptCount: { lt: Math.max(1, Number(campaign.maxAttemptsPerLead || 1)) },
@@ -2110,7 +2268,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
       });
       if (pending >= Number(campaign.desiredLeadBuffer || 60)) continue;
       this.logger.log(
-        `[vendas-automation] cooldown active: campaignId=${campaign.id}, nextAllowedSendAt=${nextJob.scheduledAt.toISOString()}, preparing buffer`,
+        `[vendas-automation] cooldown active campaignId=${campaign.id} nextAllowedSendAt=${nextJob.scheduledAt.toISOString()} preparingBuffer=true`,
       );
       await this.scheduleJobsForCampaign(campaign.id).catch((error) => {
         this.logger.warn(`Preparo durante cooldown falhou campaign=${campaign.id}: ${String(error?.message || error)}`);
@@ -2125,11 +2283,18 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
       await this.archiveNoResponseJobs();
       await this.refillCampaignsIfNeeded();
       const blockedCompanies = new Set<number>();
+      let skippedThisCycle = 0;
+      let lastCampaignId: string | null = null;
       for (let index = 0; index < MAX_DUE_JOBS_PER_CYCLE; index += 1) {
         const job = await this.findNextDueJob(blockedCompanies);
-        if (!job) break;
+        if (!job) {
+          if (lastCampaignId) await this.logNoEligibleLeads(lastCampaignId, skippedThisCycle).catch(() => null);
+          break;
+        }
+        lastCampaignId = String(job.campaignId || job.campaign?.id || '');
         const result = await this.processDueJob(job as any);
-        if (result.outcome === 'skipped' || result.outcome === 'failed') {
+        if (result.outcome === 'skipped' || result.outcome === 'failed_no_credit') {
+          skippedThisCycle += 1;
           const nextJob = await this.findNextDueJobForCampaign(result.campaignId);
           if (nextJob?.id) {
             this.logger.log(`[vendas-automation] continuing after skip: campaignId=${result.campaignId}, nextJobId=${nextJob.id}`);
@@ -2142,6 +2307,23 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     } finally {
       this.workerRunning = false;
     }
+  }
+
+  private async logNoEligibleLeads(campaignId: string, skippedThisCycle: number) {
+    const [pending, needsReview, noWhatsapp] = await Promise.all([
+      this.prisma.vendasAutomationJob.count({
+        where: { campaignId, status: { in: [...BUFFER_JOB_STATUSES] as any } },
+      }).catch(() => 0),
+      this.prisma.vendasAutomationJob.count({
+        where: { campaignId, classification: { in: ['needs_review', 'manual_review_required'] as any } },
+      }).catch(() => 0),
+      this.prisma.vendasAutomationJob.count({
+        where: { campaignId, classification: { in: ['no_whatsapp', 'invalid_whatsapp'] as any } },
+      }).catch(() => 0),
+    ]);
+    this.logger.log(
+      `[vendas-automation] no eligible leads campaignId=${campaignId} skippedThisCycle=${skippedThisCycle} pending=${pending} needsReview=${needsReview} noWhatsapp=${noWhatsapp}`,
+    );
   }
 
   private async refillCampaignsIfNeeded() {
@@ -2277,6 +2459,37 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     return this.parseTimeOnDate(date, '00:00');
   }
 
+  private startOfNextDay(date: Date) {
+    const parts = getBusinessDateParts(date);
+    return makeBusinessDate(parts.year, parts.month, parts.day + 1, 0, 0);
+  }
+
+  private countSuccessfulSendsToday(campaignId: string, companyId: number, now = new Date()) {
+    return this.prisma.vendasAutomationJob.count({
+      where: {
+        campaignId,
+        companyId,
+        sentAt: { gte: this.startOfDay(now), lt: this.startOfNextDay(now) },
+        status: { in: [...SUCCESSFUL_SEND_JOB_STATUSES] as any },
+      },
+    });
+  }
+
+  private async getLastSuccessfulSendAt(campaignId: string, companyId: number, currentJobId?: string | null) {
+    const latestSent = await this.prisma.vendasAutomationJob.findFirst({
+      where: {
+        campaignId,
+        companyId,
+        ...(currentJobId ? { id: { not: currentJobId } } : {}),
+        sentAt: { not: null },
+        status: { in: [...SUCCESSFUL_SEND_JOB_STATUSES] as any },
+      },
+      orderBy: { sentAt: 'desc' },
+      select: { sentAt: true },
+    });
+    return latestSent?.sentAt instanceof Date ? latestSent.sentAt : null;
+  }
+
   private async processDueJob(job: any): Promise<ProcessDueJobResult> {
     const now = new Date();
     const campaign = job.campaign;
@@ -2286,15 +2499,15 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     const jobId = String(job.id);
 
     const skippedResult = async (classification: string, errorMessage: string): Promise<ProcessDueJobResult> => {
-      this.logger.warn(
-        `[vendas-automation] skipped job: campaignId=${campaignId}, jobId=${jobId}, leadId=${leadId || '-'}, classification=${classification}, error=${errorMessage || '-'}`,
+      this.logger.log(
+        `[vendas-automation] skip lead campaignId=${campaignId} jobId=${jobId} leadId=${leadId || '-'} reason=${classification} doesNotConsumeDailyLimit=true doesNotConsumeCooldown=true`,
       );
       await this.replenishCampaignAfterSkip(campaign, errorMessage);
       return { outcome: 'skipped', campaignId, leadId, jobId, classification, shouldContinue: true };
     };
 
     const deferredResult = (reason: string, nextAllowedSendAt?: Date | null): ProcessDueJobResult => ({
-      outcome: 'deferred',
+      outcome: 'blocked',
       campaignId,
       leadId,
       jobId,
@@ -2302,6 +2515,13 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
       nextAllowedSendAt,
       shouldContinue: false,
     });
+
+    if (!(await this.isHBotActiveForCampaign(campaign))) {
+      await this.markCampaignStage(campaign.id, campaign.companyId, 'pausado', 'HBot desligado. Ative o bot para enviar novos contatos.', {
+        type: 'hbot_inactive',
+      });
+      return deferredResult('hbot_inactive', null);
+    }
 
     if (!this.isInsideWorkingHours(now, campaign)) {
       const next = this.moveToWorkingWindow(now, campaign);
@@ -2321,9 +2541,10 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
 
     if (
       !lead ||
-      String(lead.status || '') === 'encerrado' ||
+      ['contato', 'retorno', 'qualificado', 'encerrado'].includes(normalizeKey(lead.status)) ||
       lead.closedAt ||
       lead.wasClosedBefore ||
+      Number(lead.attemptCount || 0) > 0 ||
       Number(lead.attemptCount || 0) >= Number(campaign.maxAttemptsPerLead || 1)
     ) {
       const errorMessage = 'Lead encerrado, bloqueado ou ja contatado.';
@@ -2339,7 +2560,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
       const errorMessage = 'Lead sem telefone valido.';
       await this.prisma.vendasAutomationJob.update({
         where: { id: job.id },
-        data: { status: 'skipped', archivedAt: now, classification: 'invalid_phone', errorMessage },
+        data: { status: 'skipped', archivedAt: now, classification: 'invalid_whatsapp', errorMessage },
       });
       await this.updateProspectionConversationStage({
         companyId: campaign.companyId,
@@ -2351,7 +2572,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
         routeTarget: 'excluidos',
         active: false,
       }).catch(() => null);
-      return skippedResult('invalid_phone', errorMessage);
+      return skippedResult('invalid_whatsapp', errorMessage);
     }
 
     const noWhatsappState = await this.shouldBlockAutomationForKnownNoWhatsapp(campaign.companyId, lead);
@@ -2390,7 +2611,48 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
       return skippedResult('no_whatsapp', errorMessage);
     }
 
-    if (await this.hasNegativeOrOptOut({ companyId: campaign.companyId, lead, currentJobId: job.id })) {
+    const { metadata: prospectionMetadata, conversationId: prospectionConversationId } =
+      await this.loadProspectionMetadataForLead(campaign.companyId, lead);
+    const validationBlock = this.getProspectionValidationBlock(prospectionMetadata, lead);
+    if (validationBlock) {
+      await this.prisma.vendasAutomationJob.update({
+        where: { id: job.id },
+        data: {
+          status: 'skipped',
+          archivedAt: now,
+          classification: validationBlock.classification,
+          errorMessage: validationBlock.errorMessage,
+        },
+      });
+      if (validationBlock.classification === 'needs_review') {
+        await this.updateProspectionConversationStage({
+          companyId: campaign.companyId,
+          lead,
+          campaign,
+          jobId: job.id,
+          stage: 'needs_review',
+          scheduledAt: job.scheduledAt || null,
+          queueTarget: 'prospeccao',
+          routeTarget: 'prospeccao',
+          active: true,
+          botEligible: false,
+          botEntryPending: false,
+        }).catch(() => null);
+      }
+      this.publishAutomationEvent({
+        companyId: campaign.companyId,
+        campaignId: campaign.id,
+        jobId: job.id,
+        leadId: lead.id,
+        conversationId: prospectionConversationId,
+        status: 'aguardando',
+        text: validationBlock.errorMessage,
+        type: validationBlock.classification,
+      });
+      return skippedResult(validationBlock.classification, validationBlock.errorMessage);
+    }
+
+    if (await this.hasNegativeOrOptOut({ companyId: campaign.companyId, lead, currentJobId: job.id, metadata: prospectionMetadata })) {
       const errorMessage = 'Lead com negativa ou opt-out. Envio automatico bloqueado.';
       await this.prisma.vendasAutomationJob.update({
         where: { id: job.id },
@@ -2436,8 +2698,12 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
         currentJobId: job.id,
       });
       if (decision.mode === 'block') {
-        await this.markSegmentMismatchBeforeSend(job, campaign, lead);
-        return skippedResult('needs_review', 'Segmento divergente entre lead e campanha.');
+        const blockReason = trimOrNull(decision.reason) || 'segment_mismatch_blocked';
+        const classification = ['first_contact_already_sent', 'negative_or_opt_out', 'invalid_whatsapp'].includes(blockReason)
+          ? blockReason
+          : 'segment_mismatch_blocked';
+        await this.markSegmentMismatchBeforeSend(job, campaign, lead, classification);
+        return skippedResult(classification, 'Segmento divergente entre lead e campanha.');
       }
       if (decision.mode === 'draft_only') {
         const errorMessage = 'Segmento divergente; mensagem generica pronta para envio manual.';
@@ -2532,14 +2798,13 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     }
 
     if (!mismatchReason) {
-      const { metadata, conversationId } = await this.loadProspectionMetadataForLead(campaign.companyId, lead);
-      if (this.shouldCreateDraftOnlyForSegmentMismatchFallback(metadata, lead)) {
+      if (this.shouldCreateDraftOnlyForSegmentMismatchFallback(prospectionMetadata, lead)) {
         const runtimeUser = await this.buildAutomationUser(campaign);
-        const draftMessage = this.renderOutboundMessage(campaign, lead, runtimeUser);
+        const draftMessage = this.renderOutboundMessage(campaign, lead, runtimeUser, prospectionMetadata);
         const errorMessage = 'Lead sem permissao para envio automatico. Draft preparado para envio manual.';
         await this.prisma.vendasAutomationJob.update({
           where: { id: job.id },
-          data: { status: 'skipped', archivedAt: now, classification: 'automatic_send_not_allowed', errorMessage },
+          data: { status: 'skipped', archivedAt: now, classification: 'missing_opt_in_or_permission', errorMessage },
         });
         const nextConversationId = await this.updateProspectionConversationStage({
           companyId: campaign.companyId,
@@ -2553,7 +2818,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
           active: true,
           botEligible: false,
           botEntryPending: false,
-        }).catch(() => conversationId || null);
+        }).catch(() => prospectionConversationId || null);
         this.publishAutomationEvent({
           companyId: campaign.companyId,
           campaignId: campaign.id,
@@ -2564,18 +2829,15 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
           text: 'Lead sem permissão de envio automático. Draft mantido para revisão.',
           type: 'automatic_send_not_allowed',
         });
-        return skippedResult('automatic_send_not_allowed', errorMessage);
+        return skippedResult('missing_opt_in_or_permission', errorMessage);
       }
     }
 
-    const sentToday = await this.prisma.vendasAutomationJob.count({
-      where: {
-        campaignId: campaign.id,
-        sentAt: { gte: this.startOfDay(now) },
-        status: { in: [...SEND_COOLDOWN_JOB_STATUSES] as any },
-      },
-    });
+    const sentToday = await this.countSuccessfulSendsToday(campaign.id, campaign.companyId, now);
     if (sentToday >= Number(campaign.dailyLimit || DEFAULT_DAILY_LIMIT)) {
+      this.logger.log(
+        `[vendas-automation] daily limit reached campaignId=${campaign.id} sentToday=${sentToday} dailyLimit=${Number(campaign.dailyLimit || DEFAULT_DAILY_LIMIT)}`,
+      );
       const nextDay = this.addBusinessCalendarDays(now, 1);
       const next = this.parseTimeOnDate(this.moveToBusinessDay(nextDay), campaign.workingHoursStart || '09:00');
       await this.prisma.vendasAutomationJob.update({ where: { id: job.id }, data: { scheduledAt: next } });
@@ -2595,7 +2857,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
         type: 'send_cooldown_active',
       });
       this.logger.log(
-        `[vendas-automation] cooldown active: campaignId=${campaign.id}, nextAllowedSendAt=${nextAllowedSendAt.toISOString()}, preparing buffer`,
+        `[vendas-automation] cooldown active campaignId=${campaign.id} nextAllowedSendAt=${nextAllowedSendAt.toISOString()} preparingBuffer=true`,
       );
       await this.scheduleJobsForCampaign(campaign.id).catch((error) => {
         this.logger.warn(`Preparo durante cooldown falhou campaign=${campaign.id}: ${String(error?.message || error)}`);
@@ -2613,7 +2875,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
       await new Promise((resolve) => setTimeout(resolve, delayMs));
     }
     const runtimeUser = await this.buildAutomationUser(campaign);
-    const body = bodyOverride || this.renderOutboundMessage(campaign, lead, runtimeUser);
+    const body = bodyOverride || this.renderOutboundMessage(campaign, lead, runtimeUser, prospectionMetadata);
     try {
       const queued = await this.conversations.queueOutboundForCompany(campaign.companyId, {
         to: contact,
@@ -2680,6 +2942,11 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
         mismatchReason,
       });
       this.logger.log(`[prospeccao] outbound automatico enviado, mantendo em prospeccao conversation=${Number(queued.conversationId)} job=${job.id}`);
+      const sentTodayAfter = sentToday + 1;
+      const nextAllowedAfterSend = this.moveToWorkingWindow(new Date(sentAt.getTime() + this.getCampaignIntervalMs(campaign)), campaign);
+      this.logger.log(
+        `[vendas-automation] sent lead campaignId=${campaign.id} jobId=${job.id} leadId=${lead.id} sentToday=${sentTodayAfter} dailyLimit=${Number(campaign.dailyLimit || DEFAULT_DAILY_LIMIT)} nextAllowedSendAt=${nextAllowedAfterSend.toISOString()}`,
+      );
       this.publishAutomationEvent({
         companyId: campaign.companyId,
         campaignId: campaign.id,
@@ -2693,7 +2960,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
       await this.scheduleJobsForCampaign(campaign.id).catch((error) => {
         this.logger.warn(`Falha ao repor fila apos envio campaign=${campaign.id}: ${String(error?.message || error)}`);
       });
-      return { outcome: 'sent', campaignId, leadId, jobId };
+      return { outcome: 'sent_success', campaignId, leadId, jobId, sentAt };
     } catch (error: any) {
       const errorMessage = String(error?.message || error);
       await this.prisma.vendasAutomationJob.update({
@@ -2701,14 +2968,14 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
         data: { status: 'failed', archivedAt: new Date(), errorMessage },
       });
       this.logger.warn(
-        `[vendas-automation] skipped job: campaignId=${campaignId}, jobId=${jobId}, leadId=${leadId || '-'}, classification=send_failed, error=${errorMessage}`,
+        `[vendas-automation] provider failed campaignId=${campaignId} jobId=${jobId} leadId=${leadId || '-'} doesNotConsumeDailyLimit=true doesNotConsumeCooldown=true error=${errorMessage}`,
       );
       await this.markCampaignStage(campaign.id, campaign.companyId, 'aguardando', 'Falha ao enviar contato. Continuando fila.', {
         error: errorMessage,
         type: 'send_failed',
       });
       await this.replenishCampaignAfterSkip(campaign, 'Falha ao enviar contato. Continuando fila.');
-      return { outcome: 'failed', campaignId, leadId, jobId, errorMessage, shouldContinue: true };
+      return { outcome: 'failed_no_credit', campaignId, leadId, jobId, errorMessage, shouldContinue: true };
     }
   }
 

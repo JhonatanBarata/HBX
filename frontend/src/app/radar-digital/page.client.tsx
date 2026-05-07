@@ -4,8 +4,6 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import DashboardScaffold from "@/components/DashboardScaffold";
 import {
   HbxAdvancedFilters,
-  HbxSegmentCombobox,
-  HbxStateCityPicker,
   type HbxAdvancedFiltersValue,
 } from "@/components/prospecting-filters";
 import { apiFetch } from "@/app/_lib/api";
@@ -46,7 +44,25 @@ type RadarLeadsResponse = {
   items: RadarLead[];
   total: number;
   facets?: Array<{ key: string; label: string; count: number; tone?: string }>;
-  meta?: { available?: boolean; message?: string; page?: number; limit?: number };
+  meta?: {
+    available?: boolean;
+    message?: string;
+    page?: number;
+    limit?: number;
+    availableFilters?: RadarAvailableFilters;
+  };
+};
+
+type RadarFilterOption = {
+  value: string;
+  label: string;
+  count: number;
+};
+
+type RadarAvailableFilters = {
+  states?: RadarFilterOption[];
+  citiesByState?: Record<string, RadarFilterOption[]>;
+  segments?: RadarFilterOption[];
 };
 
 type FilterState = {
@@ -155,6 +171,11 @@ export default function RadarDigitalClientPage() {
   const [actionId, setActionId] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [availableFilters, setAvailableFilters] = useState<RadarAvailableFilters>({
+    states: [],
+    citiesByState: {},
+    segments: [],
+  });
 
   const highOpportunityCount = useMemo(
     () => items.filter((item) => Number(item.opportunityScore || 0) >= 70).length,
@@ -173,6 +194,7 @@ export default function RadarDigitalClientPage() {
       });
       setItems((current) => append ? [...current, ...(payload.items || [])] : payload.items || []);
       setTotal(Number(payload.total || 0));
+      setAvailableFilters(payload.meta?.availableFilters || { states: [], citiesByState: {}, segments: [] });
       setPage(nextPage);
     } catch {
       setError("Não foi possível carregar os cards agora. Tente atualizar em instantes.");
@@ -279,6 +301,11 @@ export default function RadarDigitalClientPage() {
   if (!hasToken) return null;
 
   const hasMore = items.length < total;
+  const availableStates = availableFilters.states || [];
+  const availableSegments = availableFilters.segments || [];
+  const availableCitiesForState = filters.state
+    ? availableFilters.citiesByState?.[filters.state] || []
+    : [];
 
   return (
     <DashboardScaffold
@@ -310,18 +337,52 @@ export default function RadarDigitalClientPage() {
           }}
         >
           <div className={styles.filterWide}>
-            <HbxStateCityPicker
-              state={filters.state}
-              city={filters.city}
-              onStateChange={(value) => setFilters((current) => ({ ...current, state: value, city: "" }))}
-              onCityChange={(value) => setFilters((current) => ({ ...current, city: value }))}
-              allowAllCities
-            />
+            <div className={styles.locationFilters}>
+              <label>
+                <span>Estado</span>
+                <select
+                  value={filters.state}
+                  onChange={(event) => setFilters((current) => ({ ...current, state: event.target.value, city: "" }))}
+                >
+                  <option value="">Todos os estados disponíveis</option>
+                  {availableStates.map((item) => (
+                    <option key={item.value} value={item.value}>
+                      {item.label} ({item.count})
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                <span>Cidade</span>
+                <select
+                  value={filters.city}
+                  onChange={(event) => setFilters((current) => ({ ...current, city: event.target.value }))}
+                  disabled={!filters.state}
+                >
+                  <option value="">{filters.state ? "Todas as cidades disponíveis" : "Escolha um estado disponível"}</option>
+                  {availableCitiesForState.map((item) => (
+                    <option key={item.value} value={item.value}>
+                      {item.label} ({item.count})
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
           </div>
-          <HbxSegmentCombobox
-            value={filters.segment}
-            onChange={(value) => setFilters((current) => ({ ...current, segment: value }))}
-          />
+          <label>
+            <span>Segmento</span>
+            <select
+              value={filters.segment}
+              onChange={(event) => setFilters((current) => ({ ...current, segment: event.target.value }))}
+            >
+              <option value="">Todos os segmentos disponíveis</option>
+              {availableSegments.map((item) => (
+                <option key={item.value} value={item.value}>
+                  {item.label} ({item.count})
+                </option>
+              ))}
+            </select>
+          </label>
           <div className={styles.filterWide}>
             <HbxAdvancedFilters
               mode="radar"

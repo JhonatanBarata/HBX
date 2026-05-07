@@ -6,6 +6,9 @@ type BotQrWorkspaceProps = {
   activeTab: BotQrWorkspaceTab;
   onTabChange: (tab: BotQrWorkspaceTab) => void;
   connectionPaired?: boolean;
+  geminiDisabled?: boolean;
+  geminiBusy?: boolean;
+  onDisableGemini?: () => void;
   connectionPanel: ReactNode;
   atendimentoPanel: ReactNode;
   flowPanel: ReactNode;
@@ -25,6 +28,9 @@ export default function BotQrWorkspace({
   activeTab,
   onTabChange,
   connectionPaired = false,
+  geminiDisabled = false,
+  geminiBusy = false,
+  onDisableGemini,
   connectionPanel,
   atendimentoPanel,
   flowPanel,
@@ -50,6 +56,26 @@ export default function BotQrWorkspace({
           <h2 className={styles.sectionTitle}>Bot</h2>
         </div>
       </div>
+      {onDisableGemini ? (
+        <div className={styles.geminiControl}>
+          <button
+            type="button"
+            className={styles.geminiKillButton}
+            data-disabled={geminiDisabled ? "true" : "false"}
+            onClick={onDisableGemini}
+            disabled={geminiBusy || geminiDisabled}
+            aria-pressed={geminiDisabled}
+          >
+            <span className={styles.geminiIcon} aria-hidden="true">
+              AI
+            </span>
+            <span>
+              <strong>{geminiDisabled ? "Gemini desativado" : geminiBusy ? "Desativando Gemini" : "Desativar Gemini"}</strong>
+              <small>{geminiDisabled ? "HBot em modo humano" : "Corta resposta automática de IA"}</small>
+            </span>
+          </button>
+        </div>
+      ) : null}
 
       <div className={styles.workspaceTabs} role="tablist" aria-label="Abas da Automacao WhatsApp">
         {TABS.map((tab) => (

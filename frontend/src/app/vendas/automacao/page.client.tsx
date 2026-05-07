@@ -73,7 +73,7 @@ type ProspectingAutomationConfig = {
 };
 
 type ProspectingAutomationLiveStatus = {
-  status: "parado" | "buscando" | "importando" | "agendando" | "enviando" | "aguardando" | "pausado" | "erro";
+  status: "parado" | "buscando" | "importando" | "agendando" | "enviando" | "aguardando" | "dormindo" | "pausado" | "erro";
   text: string;
   active: boolean;
   campaign: (ProspectingAutomationConfig & {
@@ -94,8 +94,31 @@ type ProspectingAutomationLiveStatus = {
     interested?: number;
     archived: number;
     failed: number;
+    sentToday?: number;
+    dailyLimit?: number;
+    remainingToday?: number;
+    pendingJobs?: number;
+    scheduledJobs?: number;
+    skippedJobsToday?: number;
+    needsReviewCount?: number;
+    noWhatsappCount?: number;
+    failedJobsToday?: number;
   };
   nextScheduledAt?: string | null;
+  sentToday?: number;
+  dailyLimit?: number;
+  remainingToday?: number;
+  nextAllowedSendAt?: string | null;
+  cooldownActive?: boolean;
+  pendingJobs?: number;
+  scheduledJobs?: number;
+  skippedJobsToday?: number;
+  needsReviewCount?: number;
+  noWhatsappCount?: number;
+  failedJobsToday?: number;
+  lastSkipReason?: string | null;
+  lastSuccessfulSendAt?: string | null;
+  nextEligibleLeadName?: string | null;
   lastError?: string | null;
 };
 
@@ -593,6 +616,15 @@ function ProspectingAutomationPanel({
   const counters = liveStatus?.counters || { todayPending: 0, overdue: 0, future: 0, sent: 0, positives: 0, archived: 0, failed: 0 };
   const todayPending = counters.todayPending ?? counters.pending ?? 0;
   const positives = counters.positives ?? counters.interested ?? 0;
+  const sentToday = liveStatus?.sentToday ?? counters.sentToday ?? counters.sent ?? 0;
+  const dailyLimit = liveStatus?.dailyLimit ?? counters.dailyLimit ?? config.dailyLimit;
+  const remainingToday = liveStatus?.remainingToday ?? counters.remainingToday ?? Math.max(0, dailyLimit - sentToday);
+  const skippedToday = liveStatus?.skippedJobsToday ?? counters.skippedJobsToday ?? 0;
+  const cooldownLabel = liveStatus?.cooldownActive
+    ? "Cooldown ativo"
+    : liveStatus?.nextEligibleLeadName
+      ? `Próximo: ${liveStatus.nextEligibleLeadName}`
+      : "Sem cooldown";
   const campaignStatus = liveStatus?.campaign?.status || "paused";
   const canPause = campaignStatus === "running";
   const canResume = campaignStatus === "paused";
@@ -719,11 +751,12 @@ function ProspectingAutomationPanel({
           <h3 className={styles.cardTitle}>{liveStatus?.text || "Motor contínuo"}</h3>
         </div>
         <div className={styles.prospectingStatusMetrics}>
-          <span>Pendentes hoje <strong>{todayPending}</strong></span>
-          <span>Enviados <strong>{counters.sent}</strong></span>
+          <span>Créditos usados <strong>{sentToday}/{dailyLimit}</strong></span>
+          <span>Restantes hoje <strong>{remainingToday}</strong></span>
+          <span>Pendentes <strong>{liveStatus?.pendingJobs ?? counters.pendingJobs ?? todayPending}</strong></span>
+          <span>Pulados hoje <strong>{skippedToday}</strong></span>
           <span>Positivos <strong>{positives}</strong></span>
-          <span title="Negativos, sem resposta, pulados ou cancelados pela campanha">Encerrados <strong>{counters.archived}</strong></span>
-          <span>Falhas <strong>{counters.failed}</strong></span>
+          <span title={liveStatus?.lastSkipReason || cooldownLabel}>Status <strong>{cooldownLabel}</strong></span>
         </div>
       </div>
 
@@ -762,8 +795,8 @@ function ProspectingAutomationPanel({
               value={config.dailyLimit}
               onChange={(value) => setNumberField("dailyLimit", String(value), 1)}
               options={[10, 20, 30, 40, 50, 75, 100]}
-              limitLabel="Limite diário"
-              helperText="A automação consome primeiro o banco HBX e só pede complemento à frota M1-M4 quando faltar estoque."
+              limitLabel="Novos contatos por dia"
+              helperText="Quantidade de pessoas diferentes que podem receber uma mensagem automática com sucesso hoje."
             />
             <div className={styles.prospectingWideField}>
               <HbxAdvancedFilters
@@ -779,13 +812,14 @@ function ProspectingAutomationPanel({
           <div className={styles.editorSectionHeader}>
             <div>
               <strong>Envio seguro</strong>
-              <span>Máx. {config.maxAttemptsPerLead} tentativa por lead</span>
+              <span>{config.maxAttemptsPerLead} tentativa(s) por lead. Recomendado: 1.</span>
             </div>
           </div>
           <div className={styles.prospectingFormGrid}>
             <label>
-              <span>Intervalo</span>
+              <span>Intervalo entre envios</span>
               <input className={styles.inputField} type="number" min={1} value={config.intervalMinutes} onChange={(event) => setNumberField("intervalMinutes", event.target.value, 1)} />
+              <small>Tempo mínimo entre mensagens realmente enviadas. Leads pulados não contam.</small>
             </label>
             <label>
               <span>Início</span>
@@ -804,8 +838,9 @@ function ProspectingAutomationPanel({
               <input className={styles.inputField} type="number" min={1} value={config.desiredLeadBuffer} onChange={(event) => setNumberField("desiredLeadBuffer", event.target.value, 1)} />
             </label>
             <label>
-              <span>Tentativas</span>
+              <span>Tentativas por lead</span>
               <input className={styles.inputField} type="number" min={1} max={3} value={config.maxAttemptsPerLead} onChange={(event) => setNumberField("maxAttemptsPerLead", event.target.value, 1)} />
+              <small>Quantas vezes o bot pode tentar falar com a mesma pessoa. Recomendado: 1.</small>
             </label>
             <label>
               <span>Typing</span>
@@ -815,6 +850,13 @@ function ProspectingAutomationPanel({
               <span>Variação</span>
               <input className={styles.inputField} type="number" min={0} value={config.typingVarianceSeconds} onChange={(event) => setNumberField("typingVarianceSeconds", event.target.value, 0)} />
             </label>
+          </div>
+          <div className={styles.riskNotice}>
+            <strong>Exemplo operacional</strong>
+            <p>
+              Com 10 novos contatos/dia, 1 tentativa por lead e intervalo de 12min, o bot pode abordar até 10 pessoas diferentes hoje, uma vez cada,
+              respeitando 12min entre envios reais. Leads pulados por revisão, sem WhatsApp ou já contatados não consomem limite.
+            </p>
           </div>
         </section>
       </div>
@@ -1335,6 +1377,21 @@ export default function VendasAutomationClientPage() {
     void saveBotConfig(draftConfig, "Rascunho salvo no banco de dados.");
   }, [draftConfig, saveBotConfig]);
 
+  const disableGemini = useCallback(() => {
+    if (!botAiActive) {
+      openBotPlans();
+      return;
+    }
+    const nextConfig = normalizeBotConfig({
+      ...draftConfig,
+      routingRules: {
+        ...draftConfig.routingRules,
+        globalBotEnabled: false,
+      },
+    });
+    void saveBotConfig(nextConfig, "Gemini desativado. O HBot ficará em modo humano.");
+  }, [botAiActive, draftConfig, openBotPlans, saveBotConfig]);
+
   const updateProspectingConfigState = useCallback(
     (updater: (current: ProspectingAutomationConfig) => ProspectingAutomationConfig) => {
       setProspectingConfig((current) => {
@@ -1476,6 +1533,9 @@ export default function VendasAutomationClientPage() {
               activeTab={activeTab}
               onTabChange={setWorkspaceTab}
               connectionPaired={connectionPaired}
+              geminiDisabled={!draftConfig.routingRules.globalBotEnabled}
+              geminiBusy={publishing}
+              onDisableGemini={botAiActive ? disableGemini : undefined}
               connectionPanel={
                 <section className={styles.connectionRedirectPanel}>
                   <span className={styles.sectionEyebrow}>Conexão</span>
