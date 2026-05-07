@@ -4,7 +4,7 @@ import { promises as fs } from 'fs';
 import * as path from 'path';
 import { promisify } from 'util';
 import { PrismaService } from '../prisma/prisma.service';
-import { isHbxEngineLocalhostUrl } from '../webscraping/hbx-engine-pool.service';
+import { getConfiguredHbxEngineCount, isHbxEngineLocalhostUrl } from '../webscraping/hbx-engine-pool.service';
 
 const execFileAsync = promisify(execFile);
 
@@ -25,10 +25,7 @@ const DOCKER_CONTAINERS = [
   'hbx-postgres',
   'webscraping',
   'hbx-scraping-engine',
-  'hbx-engine-1',
-  'hbx-engine-2',
-  'hbx-engine-3',
-  'hbx-engine-4',
+  ...Array.from({ length: getConfiguredHbxEngineCount() }, (_, index) => `hbx-engine-${index + 1}`),
   'hbx-frontend',
   'frontend',
   'nginx',

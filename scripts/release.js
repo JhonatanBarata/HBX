@@ -231,10 +231,16 @@ function buildRemoteReleaseScript(config, services) {
     `git fetch ${remote} ${branch}`,
     `git reset --hard ${remote}/${branch}`,
     'if [ ! -f .env ]; then echo "ERRO: .env raiz nao existe na VPS."; exit 1; fi',
+    'export HBX_ENGINE_COUNT="$(awk -F= \'/^HBX_ENGINE_COUNT=/{print substr($0, length("HBX_ENGINE_COUNT")+2); exit}\' .env)"',
+    'if [ -z "$HBX_ENGINE_COUNT" ]; then export HBX_ENGINE_COUNT=20; fi',
+    'case "$HBX_ENGINE_COUNT" in *[!0-9]*|"") echo "ERRO: HBX_ENGINE_COUNT precisa ser numerico."; exit 1;; esac',
+    'if [ "$HBX_ENGINE_COUNT" -lt 1 ] || [ "$HBX_ENGINE_COUNT" -gt 20 ]; then echo "ERRO: HBX_ENGINE_COUNT precisa ficar entre 1 e 20."; exit 1; fi',
     'if docker compose version >/dev/null 2>&1; then DC="docker compose"; elif docker-compose --version >/dev/null 2>&1; then DC="docker-compose"; else echo "ERRO: docker-compose nao encontrado."; exit 1; fi',
     'if ! docker network inspect hbx_net >/dev/null 2>&1; then docker network create hbx_net >/dev/null; fi',
     'export HBX_DOCKER_NETWORK=hbx_net',
     'run_filtered() { set +e; "$@" 2>&1 | sed \'/legacy builder is deprecated/d;/Install the buildx component/d;/docs.docker.com\\/go\\/buildx/d\'; status="${PIPESTATUS[0]}"; set -e; return "$status"; }',
+    'hbx_engine_names() { for n in $(seq 1 "$HBX_ENGINE_COUNT"); do printf " hbx-engine-%s" "$n"; done; }',
+    'hbx_engine_urls() { sep=""; for n in $(seq 1 "$HBX_ENGINE_COUNT"); do printf "%shttp://hbx-engine-%s:8001" "$sep" "$n"; sep=","; done; }',
     'if docker inspect hbx-postgres >/dev/null 2>&1; then docker start hbx-postgres >/dev/null; else run_filtered $DC --env-file .env -f docker-compose.hostinger.yml up -d hbx-postgres; fi',
     'docker network connect "$HBX_DOCKER_NETWORK" hbx-postgres 2>/dev/null || true',
     'for i in $(seq 1 60); do if docker exec hbx-postgres sh -lc \'pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB"\' >/dev/null 2>&1; then echo "Postgres pronto."; break; fi; echo "Aguardando Postgres ($i/60)..."; sleep 2; done',
@@ -311,8 +317,9 @@ function buildRemoteReleaseScript(config, services) {
     'start_hbx_engines() {',
     '  echo "Buildando imagem dos motores HBX..."',
     '  run_filtered docker build -t hbx_hbx-scraping-engine:latest ./hbx-scraping-engine',
-    '  mkdir -p "$APP_DIR/hbx-scraping-engine/data" "$APP_DIR/hbx-scraping-engine/data-1" "$APP_DIR/hbx-scraping-engine/data-2" "$APP_DIR/hbx-scraping-engine/data-3" "$APP_DIR/hbx-scraping-engine/data-4"',
-    '  remove_containers hbx-scraping-engine hbx-engine-1 hbx-engine-2 hbx-engine-3 hbx-engine-4',
+    '  mkdir -p "$APP_DIR/hbx-scraping-engine/data"',
+    '  for n in $(seq 1 "$HBX_ENGINE_COUNT"); do mkdir -p "$APP_DIR/hbx-scraping-engine/data-$n"; done',
+    '  remove_containers hbx-scraping-engine $(hbx_engine_names)',
     '  echo "Subindo hbx-scraping-engine fallback..."',
     '  docker run -d --name hbx-scraping-engine --restart unless-stopped --network "$HBX_DOCKER_NETWORK" \\',
     '    -e HBX_SCRAPING_TIMEOUT_SECONDS=20 \\',
@@ -323,7 +330,7 @@ function buildRemoteReleaseScript(config, services) {
     '    -e HBX_AGENDA_REQUEST_DELAY_MS=700 \\',
     '    -v "$APP_DIR/hbx-scraping-engine/data:/app/data" \\',
     '    hbx_hbx-scraping-engine:latest',
-    '  for n in 1 2 3 4; do',
+    '  for n in $(seq 1 "$HBX_ENGINE_COUNT"); do',
     '    echo "Subindo hbx-engine-$n..."',
     '    docker run -d --name "hbx-engine-$n" --restart unless-stopped --network "$HBX_DOCKER_NETWORK" \\',
     '      -e HBX_SCRAPING_TIMEOUT_SECONDS=20 \\',
@@ -345,7 +352,8 @@ function buildRemoteReleaseScript(config, services) {
     '  docker run -d --name hbx-backend --restart unless-stopped --network "$HBX_DOCKER_NETWORK" \\',
     '    --env-file "$APP_DIR/backend/.env" \\',
     '    -e HBX_SCRAPING_ENGINE_URL=http://hbx-scraping-engine:8001 \\',
-    '    -e HBX_ENGINE_URLS=http://hbx-engine-1:8001,http://hbx-engine-2:8001,http://hbx-engine-3:8001,http://hbx-engine-4:8001 \\',
+    '    -e HBX_ENGINE_COUNT="$HBX_ENGINE_COUNT" \\',
+    '    -e HBX_ENGINE_URLS="$(hbx_engine_urls)" \\',
     '    -e HBX_CAPACITY_ENGINE_2_QUEUE_THRESHOLD=3 \\',
     '    -e HBX_CAPACITY_ENGINE_3_QUEUE_THRESHOLD=10 \\',
     '    -e HBX_CAPACITY_ENGINE_4_QUEUE_THRESHOLD=20 \\',
@@ -360,8 +368,9 @@ function buildRemoteReleaseScript(config, services) {
     '}',
     'verify_hbx_engines() {',
     '  echo "Validando variaveis e healthchecks dos motores HBX..."',
-    '  if ! docker exec hbx-backend printenv | grep HBX_ENGINE_URLS; then echo "ERRO: HBX_ENGINE_URLS nao esta configurado no hbx-backend."; exit 1; fi',
-    '  for n in 1 2 3 4; do',
+    '  if [ "$(docker exec hbx-backend printenv HBX_ENGINE_COUNT)" != "$HBX_ENGINE_COUNT" ]; then echo "ERRO: HBX_ENGINE_COUNT nao esta configurado no hbx-backend."; exit 1; fi',
+    '  if [ "$(docker exec hbx-backend printenv HBX_ENGINE_URLS)" != "$(hbx_engine_urls)" ]; then echo "ERRO: HBX_ENGINE_URLS nao contem todos os motores esperados."; exit 1; fi',
+    '  for n in $(seq 1 "$HBX_ENGINE_COUNT"); do',
     '    ok=0',
     '    for attempt in $(seq 1 30); do',
     '      if docker exec hbx-backend wget -qO- "http://hbx-engine-$n:8001/health"; then ok=1; break; fi',
@@ -385,7 +394,7 @@ function buildRemoteReleaseScript(config, services) {
     'if has_service frontend; then deploy_frontend_pm2; else ensure_frontend_pm2_runtime; fi',
     'if has_service backend || has_service hbx-scraping-engine; then verify_hbx_engines; fi',
     'echo "Runtime ativo:"',
-    'docker ps --format "table {{.Names}}\\t{{.Status}}\\t{{.Ports}}" | grep -E "NAMES|hbx-backend|webscraping|hbx-scraping-engine|hbx-engine-[1-4]|hbx-postgres" || true',
+    'docker ps --format "table {{.Names}}\\t{{.Status}}\\t{{.Ports}}" | grep -E "NAMES|hbx-backend|webscraping|hbx-scraping-engine|hbx-engine-[0-9]+|hbx-postgres" || true',
     'pm2 list | grep -E "hbx-frontend|App name|name|online" || true',
   ];
 
@@ -450,7 +459,8 @@ function expandPublishedServices(services) {
     .map((service) => serviceLabels[service] || service);
 
   if (selected.has('hbx-scraping-engine')) {
-    published.push('hbx-engine-1', 'hbx-engine-2', 'hbx-engine-3', 'hbx-engine-4', 'hbx-scraping-engine');
+    const engineCount = Math.min(Math.max(Number(process.env.HBX_ENGINE_COUNT || '20') || 20, 1), 20);
+    published.push(...Array.from({ length: engineCount }, (_, index) => `hbx-engine-${index + 1}`), 'hbx-scraping-engine');
   }
 
   return published;

@@ -1,18 +1,8 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 
-const LOCAL_HBX_ENGINE_URLS = [
-  'http://localhost:8001',
-  'http://localhost:8002',
-  'http://localhost:8003',
-  'http://localhost:8004',
-];
-const DOCKER_HBX_ENGINE_URLS = [
-  'http://hbx-engine-1:8001',
-  'http://hbx-engine-2:8001',
-  'http://hbx-engine-3:8001',
-  'http://hbx-engine-4:8001',
-];
+export const DEFAULT_HBX_ENGINE_COUNT = 4;
+export const MAX_HBX_ENGINE_COUNT = 20;
 const TURBO_OPERATIONAL_CONFIG_KEY = 'turbo_noturno';
 const HEALTH_CHECK_TTL_MS = 30_000;
 
@@ -114,6 +104,22 @@ function parseIntegerEnv(name: string, fallback: number) {
   return Number.isFinite(parsed) ? Math.max(0, Math.trunc(parsed)) : fallback;
 }
 
+export function getConfiguredHbxEngineCount(env: NodeJS.ProcessEnv = process.env) {
+  return clampInteger(env.HBX_ENGINE_COUNT, DEFAULT_HBX_ENGINE_COUNT, 1, MAX_HBX_ENGINE_COUNT);
+}
+
+export function buildLocalHbxEngineUrls(count = getConfiguredHbxEngineCount()) {
+  return Array.from({ length: clampInteger(count, DEFAULT_HBX_ENGINE_COUNT, 1, MAX_HBX_ENGINE_COUNT) }, (_, index) => (
+    `http://localhost:${8001 + index}`
+  ));
+}
+
+export function buildDockerHbxEngineUrls(count = getConfiguredHbxEngineCount()) {
+  return Array.from({ length: clampInteger(count, DEFAULT_HBX_ENGINE_COUNT, 1, MAX_HBX_ENGINE_COUNT) }, (_, index) => (
+    `http://hbx-engine-${index + 1}:8001`
+  ));
+}
+
 function clampInteger(value: unknown, fallback: number, min: number, max: number) {
   const parsed = Number(value);
   const safe = Number.isFinite(parsed) ? Math.trunc(parsed) : fallback;
@@ -124,7 +130,7 @@ function minutesAgo(minutes: number) {
   return new Date(Date.now() - Math.max(0, minutes) * 60_000);
 }
 
-export function parseHbxEngineUrls(value: unknown) {
+export function parseHbxEngineUrls(value: unknown, maxUrls = getConfiguredHbxEngineCount()) {
   const rawUrls = Array.isArray(value)
     ? value
     : (() => {
@@ -144,7 +150,7 @@ export function parseHbxEngineUrls(value: unknown) {
   return rawUrls
     .map((url) => String(url || '').trim().replace(/\/+$/, ''))
     .filter(Boolean)
-    .slice(0, 4);
+    .slice(0, clampInteger(maxUrls, DEFAULT_HBX_ENGINE_COUNT, 1, MAX_HBX_ENGINE_COUNT));
 }
 
 function isProductionEnvironment(nodeEnv: unknown) {
@@ -155,19 +161,21 @@ export function isHbxEngineLocalhostUrl(url: string) {
   return /^(?:https?:\/\/)?(?:localhost|127\.0\.0\.1|\[::1\])(?::|\/|$)/i.test(url);
 }
 
-function sanitizeProductionEngineUrls(urls: string[], nodeEnv: unknown) {
+function sanitizeProductionEngineUrls(urls: string[], nodeEnv: unknown, replacementCount = urls.length) {
   if (!isProductionEnvironment(nodeEnv)) return urls;
-  return urls.some(isHbxEngineLocalhostUrl) ? [...DOCKER_HBX_ENGINE_URLS] : urls;
+  return urls.some(isHbxEngineLocalhostUrl) ? buildDockerHbxEngineUrls(replacementCount) : urls;
 }
 
 export function hasConfiguredHbxEngineUrlEnv(env: NodeJS.ProcessEnv = process.env) {
+  const configuredCount = getConfiguredHbxEngineCount(env);
+  const hasNumberedMassDataUrl = Array.from({ length: configuredCount }, (_, index) => (
+    String(env[`HBX_MASS_DATA_ENGINE_URL_${index + 1}`] || '').trim()
+  )).some(Boolean);
+
   return Boolean(
     String(env.HBX_ENGINE_URLS || '').trim()
       || String(env.HBX_MASS_DATA_ENGINE_URLS || '').trim()
-      || String(env.HBX_MASS_DATA_ENGINE_URL_1 || '').trim()
-      || String(env.HBX_MASS_DATA_ENGINE_URL_2 || '').trim()
-      || String(env.HBX_MASS_DATA_ENGINE_URL_3 || '').trim()
-      || String(env.HBX_MASS_DATA_ENGINE_URL_4 || '').trim()
+      || hasNumberedMassDataUrl
       || String(env.HBX_SCRAPING_ENGINE_URL || '').trim(),
   );
 }
@@ -176,28 +184,27 @@ export function resolveConfiguredHbxEngineUrls(
   env: NodeJS.ProcessEnv = process.env,
   databaseUrls: string[] = [],
 ) {
-  const engineUrls = parseHbxEngineUrls(env.HBX_ENGINE_URLS);
-  if (engineUrls.length) return sanitizeProductionEngineUrls(engineUrls, env.NODE_ENV);
+  const configuredCount = getConfiguredHbxEngineCount(env);
+  const engineUrls = parseHbxEngineUrls(env.HBX_ENGINE_URLS, configuredCount);
+  if (engineUrls.length) return sanitizeProductionEngineUrls(engineUrls, env.NODE_ENV, configuredCount);
 
-  const massDataEngineUrls = parseHbxEngineUrls(env.HBX_MASS_DATA_ENGINE_URLS);
-  if (massDataEngineUrls.length) return sanitizeProductionEngineUrls(massDataEngineUrls, env.NODE_ENV);
+  const massDataEngineUrls = parseHbxEngineUrls(env.HBX_MASS_DATA_ENGINE_URLS, configuredCount);
+  if (massDataEngineUrls.length) return sanitizeProductionEngineUrls(massDataEngineUrls, env.NODE_ENV, configuredCount);
 
-  const numberedMassDataUrls = parseHbxEngineUrls([
-    env.HBX_MASS_DATA_ENGINE_URL_1,
-    env.HBX_MASS_DATA_ENGINE_URL_2,
-    env.HBX_MASS_DATA_ENGINE_URL_3,
-    env.HBX_MASS_DATA_ENGINE_URL_4,
-  ]);
-  if (numberedMassDataUrls.length) return sanitizeProductionEngineUrls(numberedMassDataUrls, env.NODE_ENV);
+  const numberedMassDataUrls = parseHbxEngineUrls(
+    Array.from({ length: configuredCount }, (_, index) => env[`HBX_MASS_DATA_ENGINE_URL_${index + 1}`]),
+    configuredCount,
+  );
+  if (numberedMassDataUrls.length) return sanitizeProductionEngineUrls(numberedMassDataUrls, env.NODE_ENV, configuredCount);
 
-  const scrapingEngineUrl = parseHbxEngineUrls(env.HBX_SCRAPING_ENGINE_URL);
+  const scrapingEngineUrl = parseHbxEngineUrls(env.HBX_SCRAPING_ENGINE_URL, configuredCount);
   if (scrapingEngineUrl.length) {
-    return sanitizeProductionEngineUrls(scrapingEngineUrl.slice(0, 1), env.NODE_ENV);
+    return sanitizeProductionEngineUrls(scrapingEngineUrl.slice(0, 1), env.NODE_ENV, 1);
   }
 
-  if (databaseUrls.length) return sanitizeProductionEngineUrls(databaseUrls, env.NODE_ENV);
+  if (databaseUrls.length) return sanitizeProductionEngineUrls(databaseUrls, env.NODE_ENV, configuredCount);
 
-  return sanitizeProductionEngineUrls([...LOCAL_HBX_ENGINE_URLS], env.NODE_ENV);
+  return sanitizeProductionEngineUrls(buildLocalHbxEngineUrls(configuredCount), env.NODE_ENV, configuredCount);
 }
 
 @Injectable()
@@ -328,6 +335,7 @@ export class HbxEnginePoolService implements OnModuleInit {
       this.activeEngineCount = Math.max(this.activeEngineCount, desiredEngineCount);
       this.applyHysteresis(stats.queuedCount);
     }
+    this.activeEngineCount = Math.min(this.activeEngineCount, getConfiguredHbxEngineCount());
 
     const stuck = this.isQueueStuck(stats);
     const emergencyDesired = stats.queuedCount >= this.googleEmergencyThreshold();
@@ -589,10 +597,11 @@ export class HbxEnginePoolService implements OnModuleInit {
     const now = Date.now();
     const hasActiveQueue = capacity.queuedCount > 0 || capacity.runningCount > 0;
     const engines: HbxEngineDashboardEngine[] = [];
-    const activeEngineCount = Math.max(1, Math.min(4, capacity.activeEngineCount || 1));
+    const engineCount = Math.max(configuredUrls.length, getConfiguredHbxEngineCount());
+    const activeEngineCount = Math.max(1, Math.min(engineCount, capacity.activeEngineCount || 1));
     const nextTurboLabel = operationalConfig?.enabled ? this.formatOperationalTime(operationalConfig.startHour, operationalConfig.startMinute) : null;
 
-    for (let index = 0; index < 4; index += 1) {
+    for (let index = 0; index < engineCount; index += 1) {
       const row = byIndex.get(index);
       const configured = Boolean(configuredUrls[index]);
       const status = String(row?.status || (configured ? (index === 0 ? 'online' : 'standby') : 'missing')).trim();
@@ -755,7 +764,7 @@ export class HbxEnginePoolService implements OnModuleInit {
       return Math.min(85, 45 + Math.min(28, input.capacity.queuedCount * 3) + Math.min(12, input.index * 4));
     }
     if (input.inCooldown) return 12;
-    return Math.min(18, 5 + input.index * 3 + Math.min(4, input.processedLast10Min));
+    return Math.min(18, 5 + input.index * 3 + Math.min(getConfiguredHbxEngineCount(), input.processedLast10Min));
   }
 
   private resolveDashboardStateLabel(input: {
@@ -1020,7 +1029,7 @@ export class HbxEnginePoolService implements OnModuleInit {
   }
 
   private resolveOperationalEngineCount(config: any) {
-    const configured = clampInteger(config?.engineCount, 4, 1, 4);
+    const configured = clampInteger(config?.engineCount, getConfiguredHbxEngineCount(), 1, getConfiguredHbxEngineCount());
     const intensity = String(config?.intensity || 'turbo').trim().toLowerCase();
     if (intensity === 'economico' || intensity === 'econômico') return 1;
     if (intensity === 'normal') return Math.min(configured, 2);
@@ -1056,7 +1065,7 @@ export class HbxEnginePoolService implements OnModuleInit {
   }
 
   private resolveDesiredEngineCount(queuedCount: number) {
-    if (queuedCount >= this.engine4Threshold()) return 4;
+    if (queuedCount >= this.engine4Threshold()) return getConfiguredHbxEngineCount();
     if (queuedCount >= this.engine3Threshold()) return 3;
     if (queuedCount >= this.engine2Threshold()) return 2;
     return 1;

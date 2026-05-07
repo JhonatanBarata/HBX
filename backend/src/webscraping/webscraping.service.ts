@@ -15,7 +15,7 @@ import * as XLSX from 'xlsx';
 import { probeWebscrapingRuntime, type WebscrapingRuntimeDiagnostic } from '../modules/webscraping-runtime.util';
 import { PrismaService } from '../prisma/prisma.service';
 import { VendasService } from '../vendas/vendas.service';
-import { HbxEnginePoolService, isHbxEngineLocalhostUrl, type HbxEngineLease } from './hbx-engine-pool.service';
+import { buildLocalHbxEngineUrls, getConfiguredHbxEngineCount, HbxEnginePoolService, isHbxEngineLocalhostUrl, type HbxEngineLease } from './hbx-engine-pool.service';
 import {
   COMMERCIAL_PLAN_QUOTAS,
   COMMERCIAL_PLAN_KEYS,
@@ -89,12 +89,7 @@ const ACRE_CITIES_FALLBACK = [
   'Tarauacá',
   'Xapuri',
 ];
-const DEFAULT_MASS_DATA_ENGINE_URLS = [
-  'http://localhost:8001',
-  'http://localhost:8002',
-  'http://localhost:8003',
-  'http://localhost:8004',
-];
+const DEFAULT_MASS_DATA_ENGINE_URLS = buildLocalHbxEngineUrls();
 const TURBO_OPERATIONAL_CONFIG_KEY = 'turbo_noturno';
 
 type RuntimeStatus = 'online' | 'degraded';
@@ -4933,7 +4928,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       startMinute: clampInteger(input.startMinute, 0, 0, 59),
       endHour: clampInteger(input.endHour, 8, 0, 23),
       endMinute: clampInteger(input.endMinute, 0, 0, 59),
-      engineCount: clampInteger(input.engineCount, 4, 1, 4),
+      engineCount: clampInteger(input.engineCount, getConfiguredHbxEngineCount(), 1, getConfiguredHbxEngineCount()),
       intensity,
       memoryTargetGb: clampInteger(input.memoryTargetGb, 16, 1, 256),
       batchSize: clampInteger(input.batchSize, 20, 1, 20),
@@ -4978,7 +4973,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       startMinute: safeInteger(row.startMinute, defaults.startMinute),
       endHour: safeInteger(row.endHour, defaults.endHour),
       endMinute: safeInteger(row.endMinute, defaults.endMinute),
-      engineCount: Math.min(Math.max(safeInteger(row.engineCount, defaults.engineCount), 1), 4),
+      engineCount: Math.min(Math.max(safeInteger(row.engineCount, defaults.engineCount), 1), getConfiguredHbxEngineCount()),
       intensity: String(row.intensity || defaults.intensity),
       memoryTargetGb: safeInteger(row.memoryTargetGb, defaults.memoryTargetGb),
       batchSize: Math.min(Math.max(safeInteger(row.batchSize, defaults.batchSize), 1), 20),
@@ -5280,7 +5275,8 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     const onlineHbxEngines = configuredHbxEngines.filter((engine: any) => engine.online);
     const offlineHbxEngines = configuredHbxEngines.filter((engine: any) => !engine.online || ['offline', 'missing', 'cooldown', 'degraded'].includes(String(engine.status || '').toLowerCase()));
     const allOffline = configuredHbxEngines.length > 0 && offlineHbxEngines.length === configuredHbxEngines.length;
-    const activeEngineCount = Math.max(1, Math.min(4, safeInteger(capacity?.activeEngineCount, safeInteger(config.engineCount, 4))));
+    const configuredEngineCount = getConfiguredHbxEngineCount();
+    const activeEngineCount = Math.max(1, Math.min(configuredEngineCount, safeInteger(capacity?.activeEngineCount, safeInteger(config.engineCount, configuredEngineCount))));
     const activeQueue = safeInteger(capacity?.queuedCount) + safeInteger(capacity?.runningCount);
 
     const [campaigns, productionRows, cardsTodayCount, batchRows, taskStatusRows, errors24hParts] = await Promise.all([
@@ -5462,7 +5458,8 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         createdAt: now.toISOString(),
       }));
 
-    const dashboardEngines = Array.from({ length: 4 }, (_, index) => {
+    const dashboardEngineCount = Math.max(configuredEngineCount, hbxEngines.length);
+    const dashboardEngines = Array.from({ length: dashboardEngineCount }, (_, index) => {
       const engine = hbxEngines[index] || null;
       const id = String(engine?.id || `hbx-engine-${index + 1}`);
       const status = this.dashboardEngineStatus(engine);
@@ -5983,7 +5980,10 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     this.radarCampaignPumpActive = true;
     try {
       const capacity = await this.getEnginePool().getCurrentCapacityLevel().catch(() => null);
-      const maxParallel = Math.min(Math.max(safeInteger(capacity?.activeEngineCount, parsePositiveIntegerEnv('HBX_RADAR_MAX_PARALLEL_ENGINES', 4)), 1), 4);
+      const maxParallel = Math.min(
+        Math.max(safeInteger(capacity?.activeEngineCount, parsePositiveIntegerEnv('HBX_RADAR_MAX_PARALLEL_ENGINES', getConfiguredHbxEngineCount())), 1),
+        getConfiguredHbxEngineCount(),
+      );
       const due = await (this.prisma as any).webscrapingCampaign.findMany({
         where: {
           OR: [

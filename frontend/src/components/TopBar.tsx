@@ -312,7 +312,8 @@ function buildFallbackGoogleEngine(): ScrapingEngineStatus {
 
 function normalizeScrapingEngines(payload: ScrapingEngineStatusPayload | null) {
   const source = Array.isArray(payload?.engines) ? payload.engines : [];
-  const hbxEngines = Array.from({ length: 4 }, (_, index) => {
+  const hbxEngineCount = Math.max(20, source.filter((engine) => engine.kind === "hbx").length);
+  const hbxEngines = Array.from({ length: hbxEngineCount }, (_, index) => {
     return source.find((engine) => engine.kind === "hbx" && engine.index === index) || buildFallbackScrapingEngine(index);
   });
   const googleEngine = source.find((engine) => engine.kind === "google") || buildFallbackGoogleEngine();

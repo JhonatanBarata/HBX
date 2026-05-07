@@ -1,3 +1,19 @@
+x-hbx-engine-common: &hbx-engine-common
+  build:
+    context: ./hbx-scraping-engine
+    dockerfile: Dockerfile
+  restart: unless-stopped
+  environment:
+    HBX_SCRAPING_USER_AGENT: ${HBX_SCRAPING_USER_AGENT:-HBX-Scraping/0.1 contato@hbxsystem.com.br}
+    HBX_SCRAPING_TIMEOUT_SECONDS: ${HBX_SCRAPING_TIMEOUT_SECONDS:-20}
+    HBX_SCRAPING_CONCURRENCY: ${HBX_SCRAPING_CONCURRENCY:-3}
+    HBX_SCRAPING_CACHE_TTL_HOURS: ${HBX_SCRAPING_CACHE_TTL_HOURS:-24}
+    HBX_SCRAPING_MAX_DISCOVERY_RESULTS: ${HBX_SCRAPING_MAX_DISCOVERY_RESULTS:-120}
+    HBX_AGENDA_MAX_PAGES: ${HBX_AGENDA_MAX_PAGES:-20}
+    HBX_AGENDA_REQUEST_DELAY_MS: ${HBX_AGENDA_REQUEST_DELAY_MS:-700}
+  networks:
+    - hbx_net
+
 services:
   db:
     image: postgres:15-alpine
@@ -28,13 +44,30 @@ services:
       - hbx-engine-2
       - hbx-engine-3
       - hbx-engine-4
+      - hbx-engine-5
+      - hbx-engine-6
+      - hbx-engine-7
+      - hbx-engine-8
+      - hbx-engine-9
+      - hbx-engine-10
+      - hbx-engine-11
+      - hbx-engine-12
+      - hbx-engine-13
+      - hbx-engine-14
+      - hbx-engine-15
+      - hbx-engine-16
+      - hbx-engine-17
+      - hbx-engine-18
+      - hbx-engine-19
+      - hbx-engine-20
     environment:
       APP_PORT: "3000"
       DATABASE_URL: postgresql://admin:admin123@db:5432/jhonatan_dev
       DIRECT_URL: postgresql://admin:admin123@db:5432/jhonatan_dev
       NODE_ENV: development
       HBX_SCRAPING_ENGINE_URL: http://hbx-scraping-engine:8001
-      HBX_ENGINE_URLS: http://hbx-engine-1:8001,http://hbx-engine-2:8001,http://hbx-engine-3:8001,http://hbx-engine-4:8001
+      HBX_ENGINE_COUNT: ${HBX_ENGINE_COUNT:-4}
+      HBX_ENGINE_URLS: ${HBX_ENGINE_URLS:-http://hbx-engine-1:8001,http://hbx-engine-2:8001,http://hbx-engine-3:8001,http://hbx-engine-4:8001,http://hbx-engine-5:8001,http://hbx-engine-6:8001,http://hbx-engine-7:8001,http://hbx-engine-8:8001,http://hbx-engine-9:8001,http://hbx-engine-10:8001,http://hbx-engine-11:8001,http://hbx-engine-12:8001,http://hbx-engine-13:8001,http://hbx-engine-14:8001,http://hbx-engine-15:8001,http://hbx-engine-16:8001,http://hbx-engine-17:8001,http://hbx-engine-18:8001,http://hbx-engine-19:8001,http://hbx-engine-20:8001}
 
       WEBSCRAPING_INTERNAL_URL: http://webscraping:8501
       WEBSCRAPING_URL: /hbx/webscraping
@@ -94,80 +127,124 @@ services:
       - hbx_net
 
   hbx-engine-1:
-    build:
-      context: ./hbx-scraping-engine
-      dockerfile: Dockerfile
+    <<: *hbx-engine-common
     container_name: hbx-engine-1
-    restart: unless-stopped
-    environment:
-      HBX_SCRAPING_USER_AGENT: ${HBX_SCRAPING_USER_AGENT:-HBX-Scraping/0.1 contato@hbxsystem.com.br}
-      HBX_SCRAPING_TIMEOUT_SECONDS: ${HBX_SCRAPING_TIMEOUT_SECONDS:-20}
-      HBX_SCRAPING_CONCURRENCY: ${HBX_SCRAPING_CONCURRENCY:-3}
-      HBX_SCRAPING_CACHE_TTL_HOURS: ${HBX_SCRAPING_CACHE_TTL_HOURS:-24}
-      HBX_SCRAPING_MAX_DISCOVERY_RESULTS: ${HBX_SCRAPING_MAX_DISCOVERY_RESULTS:-120}
-      HBX_AGENDA_MAX_PAGES: ${HBX_AGENDA_MAX_PAGES:-20}
-      HBX_AGENDA_REQUEST_DELAY_MS: ${HBX_AGENDA_REQUEST_DELAY_MS:-700}
     volumes:
       - ./hbx-scraping-engine/data-1:/app/data
-    networks:
-      - hbx_net
 
   hbx-engine-2:
-    build:
-      context: ./hbx-scraping-engine
-      dockerfile: Dockerfile
+    <<: *hbx-engine-common
     container_name: hbx-engine-2
-    restart: unless-stopped
-    environment:
-      HBX_SCRAPING_USER_AGENT: ${HBX_SCRAPING_USER_AGENT:-HBX-Scraping/0.1 contato@hbxsystem.com.br}
-      HBX_SCRAPING_TIMEOUT_SECONDS: ${HBX_SCRAPING_TIMEOUT_SECONDS:-20}
-      HBX_SCRAPING_CONCURRENCY: ${HBX_SCRAPING_CONCURRENCY:-3}
-      HBX_SCRAPING_CACHE_TTL_HOURS: ${HBX_SCRAPING_CACHE_TTL_HOURS:-24}
-      HBX_SCRAPING_MAX_DISCOVERY_RESULTS: ${HBX_SCRAPING_MAX_DISCOVERY_RESULTS:-120}
-      HBX_AGENDA_MAX_PAGES: ${HBX_AGENDA_MAX_PAGES:-20}
-      HBX_AGENDA_REQUEST_DELAY_MS: ${HBX_AGENDA_REQUEST_DELAY_MS:-700}
     volumes:
       - ./hbx-scraping-engine/data-2:/app/data
-    networks:
-      - hbx_net
 
   hbx-engine-3:
-    build:
-      context: ./hbx-scraping-engine
-      dockerfile: Dockerfile
+    <<: *hbx-engine-common
     container_name: hbx-engine-3
-    restart: unless-stopped
-    environment:
-      HBX_SCRAPING_USER_AGENT: ${HBX_SCRAPING_USER_AGENT:-HBX-Scraping/0.1 contato@hbxsystem.com.br}
-      HBX_SCRAPING_TIMEOUT_SECONDS: ${HBX_SCRAPING_TIMEOUT_SECONDS:-20}
-      HBX_SCRAPING_CONCURRENCY: ${HBX_SCRAPING_CONCURRENCY:-3}
-      HBX_SCRAPING_CACHE_TTL_HOURS: ${HBX_SCRAPING_CACHE_TTL_HOURS:-24}
-      HBX_SCRAPING_MAX_DISCOVERY_RESULTS: ${HBX_SCRAPING_MAX_DISCOVERY_RESULTS:-120}
-      HBX_AGENDA_MAX_PAGES: ${HBX_AGENDA_MAX_PAGES:-20}
-      HBX_AGENDA_REQUEST_DELAY_MS: ${HBX_AGENDA_REQUEST_DELAY_MS:-700}
     volumes:
       - ./hbx-scraping-engine/data-3:/app/data
-    networks:
-      - hbx_net
 
   hbx-engine-4:
-    build:
-      context: ./hbx-scraping-engine
-      dockerfile: Dockerfile
+    <<: *hbx-engine-common
     container_name: hbx-engine-4
-    restart: unless-stopped
-    environment:
-      HBX_SCRAPING_USER_AGENT: ${HBX_SCRAPING_USER_AGENT:-HBX-Scraping/0.1 contato@hbxsystem.com.br}
-      HBX_SCRAPING_TIMEOUT_SECONDS: ${HBX_SCRAPING_TIMEOUT_SECONDS:-20}
-      HBX_SCRAPING_CONCURRENCY: ${HBX_SCRAPING_CONCURRENCY:-3}
-      HBX_SCRAPING_CACHE_TTL_HOURS: ${HBX_SCRAPING_CACHE_TTL_HOURS:-24}
-      HBX_SCRAPING_MAX_DISCOVERY_RESULTS: ${HBX_SCRAPING_MAX_DISCOVERY_RESULTS:-120}
-      HBX_AGENDA_MAX_PAGES: ${HBX_AGENDA_MAX_PAGES:-20}
-      HBX_AGENDA_REQUEST_DELAY_MS: ${HBX_AGENDA_REQUEST_DELAY_MS:-700}
     volumes:
       - ./hbx-scraping-engine/data-4:/app/data
-    networks:
-      - hbx_net
+
+  hbx-engine-5:
+    <<: *hbx-engine-common
+    container_name: hbx-engine-5
+    volumes:
+      - ./hbx-scraping-engine/data-5:/app/data
+
+  hbx-engine-6:
+    <<: *hbx-engine-common
+    container_name: hbx-engine-6
+    volumes:
+      - ./hbx-scraping-engine/data-6:/app/data
+
+  hbx-engine-7:
+    <<: *hbx-engine-common
+    container_name: hbx-engine-7
+    volumes:
+      - ./hbx-scraping-engine/data-7:/app/data
+
+  hbx-engine-8:
+    <<: *hbx-engine-common
+    container_name: hbx-engine-8
+    volumes:
+      - ./hbx-scraping-engine/data-8:/app/data
+
+  hbx-engine-9:
+    <<: *hbx-engine-common
+    container_name: hbx-engine-9
+    volumes:
+      - ./hbx-scraping-engine/data-9:/app/data
+
+  hbx-engine-10:
+    <<: *hbx-engine-common
+    container_name: hbx-engine-10
+    volumes:
+      - ./hbx-scraping-engine/data-10:/app/data
+
+  hbx-engine-11:
+    <<: *hbx-engine-common
+    container_name: hbx-engine-11
+    volumes:
+      - ./hbx-scraping-engine/data-11:/app/data
+
+  hbx-engine-12:
+    <<: *hbx-engine-common
+    container_name: hbx-engine-12
+    volumes:
+      - ./hbx-scraping-engine/data-12:/app/data
+
+  hbx-engine-13:
+    <<: *hbx-engine-common
+    container_name: hbx-engine-13
+    volumes:
+      - ./hbx-scraping-engine/data-13:/app/data
+
+  hbx-engine-14:
+    <<: *hbx-engine-common
+    container_name: hbx-engine-14
+    volumes:
+      - ./hbx-scraping-engine/data-14:/app/data
+
+  hbx-engine-15:
+    <<: *hbx-engine-common
+    container_name: hbx-engine-15
+    volumes:
+      - ./hbx-scraping-engine/data-15:/app/data
+
+  hbx-engine-16:
+    <<: *hbx-engine-common
+    container_name: hbx-engine-16
+    volumes:
+      - ./hbx-scraping-engine/data-16:/app/data
+
+  hbx-engine-17:
+    <<: *hbx-engine-common
+    container_name: hbx-engine-17
+    volumes:
+      - ./hbx-scraping-engine/data-17:/app/data
+
+  hbx-engine-18:
+    <<: *hbx-engine-common
+    container_name: hbx-engine-18
+    volumes:
+      - ./hbx-scraping-engine/data-18:/app/data
+
+  hbx-engine-19:
+    <<: *hbx-engine-common
+    container_name: hbx-engine-19
+    volumes:
+      - ./hbx-scraping-engine/data-19:/app/data
+
+  hbx-engine-20:
+    <<: *hbx-engine-common
+    container_name: hbx-engine-20
+    volumes:
+      - ./hbx-scraping-engine/data-20:/app/data
 
 volumes:
   backend_node_modules:

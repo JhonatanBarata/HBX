@@ -54,6 +54,43 @@ function runOptionalStep(command, args, options = {}) {
   return result;
 }
 
+function powershellSingleQuote(value) {
+  return `'${String(value).replace(/'/g, "''")}'`;
+}
+
+function stopLocalWorkspaceNodeProcesses() {
+  if (process.platform !== 'win32') return;
+
+  const script = [
+    '$ErrorActionPreference = "SilentlyContinue"',
+    `$repo = ${powershellSingleQuote(repoRoot)}`,
+    '$repoPattern = [regex]::Escape($repo)',
+    '$targets = Get-CimInstance Win32_Process | Where-Object {',
+    '  $_.Name -eq "node.exe" -and',
+    '  $_.CommandLine -and',
+    '  $_.CommandLine -match $repoPattern -and',
+    '  ($_.CommandLine -match "\\\\backend\\\\" -or $_.CommandLine -match "\\\\frontend\\\\" -or $_.CommandLine -match "\\\\.next\\\\" -or $_.CommandLine -match "ts-node-dev" -or $_.CommandLine -match "next\\\\dist")',
+    '}',
+    'foreach ($target in $targets) {',
+    '  Write-Host ("Stopping local workspace node process pid={0}" -f $target.ProcessId)',
+    '  Stop-Process -Id $target.ProcessId -Force',
+    '}',
+  ].join('\n');
+
+  const result = spawnSync('powershell', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', script], {
+    cwd: repoRoot,
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+
+  const output = [result.stdout, result.stderr].filter(Boolean).join('\n').trim();
+  if (output) console.log(output);
+  if (result.error) throw result.error;
+  if (result.status !== 0) {
+    throw new Error(`Falha ao liberar processos Node locais antes do build: ${output || `status ${result.status}`}`);
+  }
+}
+
 function loadOperationsEnv() {
   const files = [
     path.join(repoRoot, '.env.production.local'),
@@ -160,6 +197,7 @@ function runQuickValidations() {
 
 function runBuildValidations() {
   logStage('Build local');
+  stopLocalWorkspaceNodeProcesses();
   const env = quietToolEnv();
   runStep('npm', ['--prefix', 'backend', 'run', 'prisma:generate'], { env });
   runStep('npm', ['--prefix', 'backend', 'run', 'prisma:validate'], { env });

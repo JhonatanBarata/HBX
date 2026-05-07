@@ -239,13 +239,20 @@ function buildRemoteDeployScript(config, mode) {
     'export POSTGRES_DATA_VOLUME="$(awk -F= \'/^POSTGRES_DATA_VOLUME=/{print substr($0, length("POSTGRES_DATA_VOLUME")+2); exit}\' .env)"',
     'export NEXT_PUBLIC_API_URL="$(awk -F= \'/^NEXT_PUBLIC_API_URL=/{print substr($0, length("NEXT_PUBLIC_API_URL")+2); exit}\' .env)"',
     'if [ -z "$POSTGRES_USER" ] || [ -z "$POSTGRES_PASSWORD" ] || [ -z "$POSTGRES_DB" ] || [ -z "$POSTGRES_DATA_VOLUME" ] || [ -z "$NEXT_PUBLIC_API_URL" ]; then echo "ERRO: .env raiz sem variaveis obrigatorias do docker-compose."; exit 1; fi',
+    'export HBX_ENGINE_COUNT="$(awk -F= \'/^HBX_ENGINE_COUNT=/{print substr($0, length("HBX_ENGINE_COUNT")+2); exit}\' .env)"',
+    'if [ -z "$HBX_ENGINE_COUNT" ]; then export HBX_ENGINE_COUNT=20; fi',
+    'case "$HBX_ENGINE_COUNT" in *[!0-9]*|"") echo "ERRO: HBX_ENGINE_COUNT precisa ser numerico."; exit 1;; esac',
+    'if [ "$HBX_ENGINE_COUNT" -lt 1 ] || [ "$HBX_ENGINE_COUNT" -gt 20 ]; then echo "ERRO: HBX_ENGINE_COUNT precisa ficar entre 1 e 20."; exit 1; fi',
     'if docker network inspect hbx_net >/dev/null 2>&1; then export HBX_DOCKER_NETWORK=hbx_net; elif docker network inspect hbx-net >/dev/null 2>&1; then export HBX_DOCKER_NETWORK=hbx-net; else docker network create hbx_net >/dev/null; export HBX_DOCKER_NETWORK=hbx_net; fi',
     'if docker compose version >/dev/null 2>&1; then DC="docker compose"; elif docker-compose --version >/dev/null 2>&1; then DC="docker-compose"; else echo "ERRO: docker-compose nao encontrado."; exit 1; fi',
     'run_filtered() { set +e; "$@" 2>&1 | sed \'/legacy builder is deprecated/d;/Install the buildx component/d;/docs.docker.com\\/go\\/buildx/d\'; status="${PIPESTATUS[0]}"; set -e; return "$status"; }',
+    'hbx_engine_names() { for n in $(seq 1 "$HBX_ENGINE_COUNT"); do printf " hbx-engine-%s" "$n"; done; }',
+    'hbx_engine_urls() { sep=""; for n in $(seq 1 "$HBX_ENGINE_COUNT"); do printf "%shttp://hbx-engine-%s:8001" "$sep" "$n"; sep=","; done; }',
     'echo "Banco esperado: hbx-postgres/hbx_prod"',
     'echo "Backend URL: $BACKEND_URL"',
     'echo "Frontend URL: $FRONTEND_URL"',
     'echo "Rede Docker: $HBX_DOCKER_NETWORK"',
+    'echo "Motores HBX dedicados: $HBX_ENGINE_COUNT"',
     'if command -v python3 >/dev/null 2>&1 && [ -d /etc/nginx/sites-available ]; then',
     'python3 - <<\'PY\'',
     'from datetime import datetime',
@@ -354,9 +361,10 @@ function buildRemoteDeployScript(config, mode) {
     'start_hbx_engines() {',
     '  echo "Buildando imagem dos motores HBX..."',
     '  run_filtered docker build $BUILD_NO_CACHE_ARG -t hbx_hbx-scraping-engine:latest ./hbx-scraping-engine',
-    '  mkdir -p "$APP_DIR/hbx-scraping-engine/data" "$APP_DIR/hbx-scraping-engine/data-1" "$APP_DIR/hbx-scraping-engine/data-2" "$APP_DIR/hbx-scraping-engine/data-3" "$APP_DIR/hbx-scraping-engine/data-4"',
-    '  remove_compose_service_containers hbx-scraping-engine hbx-engine-1 hbx-engine-2 hbx-engine-3 hbx-engine-4',
-    '  remove_containers hbx-scraping-engine hbx-engine-1 hbx-engine-2 hbx-engine-3 hbx-engine-4',
+    '  mkdir -p "$APP_DIR/hbx-scraping-engine/data"',
+    '  for n in $(seq 1 "$HBX_ENGINE_COUNT"); do mkdir -p "$APP_DIR/hbx-scraping-engine/data-$n"; done',
+    '  remove_compose_service_containers hbx-scraping-engine $(hbx_engine_names)',
+    '  remove_containers hbx-scraping-engine $(hbx_engine_names)',
     '  echo "Subindo hbx-scraping-engine fallback..."',
     '  docker run -d --name hbx-scraping-engine --restart unless-stopped --network "$HBX_DOCKER_NETWORK" \\',
     '    -e HBX_SCRAPING_TIMEOUT_SECONDS=20 \\',
@@ -367,7 +375,7 @@ function buildRemoteDeployScript(config, mode) {
     '    -e HBX_AGENDA_REQUEST_DELAY_MS=700 \\',
     '    -v "$APP_DIR/hbx-scraping-engine/data:/app/data" \\',
     '    hbx_hbx-scraping-engine:latest',
-    '  for n in 1 2 3 4; do',
+    '  for n in $(seq 1 "$HBX_ENGINE_COUNT"); do',
     '    echo "Subindo hbx-engine-$n..."',
     '    docker run -d --name "hbx-engine-$n" --restart unless-stopped --network "$HBX_DOCKER_NETWORK" \\',
     '      -e HBX_SCRAPING_TIMEOUT_SECONDS=20 \\',
@@ -389,7 +397,8 @@ function buildRemoteDeployScript(config, mode) {
     '  docker run -d --name hbx-backend --restart unless-stopped --network "$HBX_DOCKER_NETWORK" \\',
     '    --env-file "$APP_DIR/backend/.env" \\',
     '    -e HBX_SCRAPING_ENGINE_URL=http://hbx-scraping-engine:8001 \\',
-    '    -e HBX_ENGINE_URLS=http://hbx-engine-1:8001,http://hbx-engine-2:8001,http://hbx-engine-3:8001,http://hbx-engine-4:8001 \\',
+    '    -e HBX_ENGINE_COUNT="$HBX_ENGINE_COUNT" \\',
+    '    -e HBX_ENGINE_URLS="$(hbx_engine_urls)" \\',
     '    -e HBX_CAPACITY_ENGINE_2_QUEUE_THRESHOLD=3 \\',
     '    -e HBX_CAPACITY_ENGINE_3_QUEUE_THRESHOLD=10 \\',
     '    -e HBX_CAPACITY_ENGINE_4_QUEUE_THRESHOLD=20 \\',
@@ -409,8 +418,9 @@ function buildRemoteDeployScript(config, mode) {
     '    echo "Aguardando hbx-backend ($i/45)..."',
     '    sleep 2',
     '  done',
-    '  if ! docker exec hbx-backend printenv HBX_ENGINE_URLS | grep -q "hbx-engine-1:8001"; then echo "ERRO: HBX_ENGINE_URLS nao esta configurado no hbx-backend."; exit 1; fi',
-    '  for n in 1 2 3 4; do',
+    '  if [ "$(docker exec hbx-backend printenv HBX_ENGINE_COUNT)" != "$HBX_ENGINE_COUNT" ]; then echo "ERRO: HBX_ENGINE_COUNT nao esta configurado no hbx-backend."; exit 1; fi',
+    '  if [ "$(docker exec hbx-backend printenv HBX_ENGINE_URLS)" != "$(hbx_engine_urls)" ]; then echo "ERRO: HBX_ENGINE_URLS nao contem todos os motores esperados."; exit 1; fi',
+    '  for n in $(seq 1 "$HBX_ENGINE_COUNT"); do',
     '    ok=0',
     '    for attempt in $(seq 1 30); do',
     '      if docker exec hbx-backend wget -qO- "http://hbx-engine-$n:8001/health"; then ok=1; break; fi',
@@ -427,8 +437,8 @@ function buildRemoteDeployScript(config, mode) {
     lines.push(
       'ensure_pm2',
       'pm2 stop hbx-frontend 2>/dev/null || true',
-      'remove_containers backend hbx-backend hbx-frontend webscraping hbx-scraping-engine hbx-engine-1 hbx-engine-2 hbx-engine-3 hbx-engine-4 c7227f19b684_hbx-scraping-engine ab1704a260e6_hbx-frontend e22f61f3f5da_webscraping',
-      'remove_compose_service_containers backend webscraping hbx-scraping-engine hbx-engine-1 hbx-engine-2 hbx-engine-3 hbx-engine-4',
+      'remove_containers backend hbx-backend hbx-frontend webscraping hbx-scraping-engine $(hbx_engine_names) c7227f19b684_hbx-scraping-engine ab1704a260e6_hbx-frontend e22f61f3f5da_webscraping',
+      'remove_compose_service_containers backend webscraping hbx-scraping-engine $(hbx_engine_names)',
       'start_hbx_engines',
       'start_hbx_backend',
       'echo "Prisma migrate deploy roda dentro do container hbx-backend via backend/scripts/start-prod.sh, usando DATABASE_URL=hbx-postgres."',
@@ -440,8 +450,8 @@ function buildRemoteDeployScript(config, mode) {
       'if [ "$FORCE_REBOOT_HOSTINGER" = "true" ]; then echo "FORCE_REBOOT_HOSTINGER=true: reiniciando VPS."; (sudo reboot || reboot); else echo "Reboot da VPS ignorado. Defina FORCE_REBOOT_HOSTINGER=true para habilitar."; fi',
     );
   } else {
-    lines.push('remove_containers backend hbx-backend hbx-frontend webscraping hbx-scraping-engine hbx-engine-1 hbx-engine-2 hbx-engine-3 hbx-engine-4 c7227f19b684_hbx-scraping-engine ab1704a260e6_hbx-frontend e22f61f3f5da_webscraping');
-    lines.push('remove_compose_service_containers backend webscraping hbx-scraping-engine hbx-engine-1 hbx-engine-2 hbx-engine-3 hbx-engine-4');
+    lines.push('remove_containers backend hbx-backend hbx-frontend webscraping hbx-scraping-engine $(hbx_engine_names) c7227f19b684_hbx-scraping-engine ab1704a260e6_hbx-frontend e22f61f3f5da_webscraping');
+    lines.push('remove_compose_service_containers backend webscraping hbx-scraping-engine $(hbx_engine_names)');
     lines.push('start_hbx_engines');
     lines.push('start_hbx_backend');
     lines.push('echo "Prisma migrate deploy roda dentro do container hbx-backend via backend/scripts/start-prod.sh, usando DATABASE_URL=hbx-postgres."');
@@ -452,7 +462,7 @@ function buildRemoteDeployScript(config, mode) {
 
   lines.push(
     'echo "Containers ativos:"',
-    'docker ps --format "table {{.Names}}\\t{{.Status}}\\t{{.Ports}}" | grep -E "NAMES|hbx-backend|webscraping|hbx-scraping-engine|hbx-engine-[1-4]|hbx-postgres" || true',
+    'docker ps --format "table {{.Names}}\\t{{.Status}}\\t{{.Ports}}" | grep -E "NAMES|hbx-backend|webscraping|hbx-scraping-engine|hbx-engine-[0-9]+|hbx-postgres" || true',
     'echo "PM2 status:"',
     'pm2 list 2>/dev/null || true',
     'echo "Ultimos logs backend:"',
@@ -596,7 +606,7 @@ function printDryRun(config, mode) {
   console.log('\n[dry-run] No git push, no SSH execution, no docker-compose down/up on Hostinger.');
   console.log('[dry-run] Would run: git push origin master');
   console.log(`[dry-run] Would SSH into: ${config.sshUser}@${config.sshHost}`);
-  console.log('[dry-run] Would run Hostinger remote deploy: fetch/reset, validate env/db/docker, build hbx-engine-1..4 + fallback, run backend with HBX_ENGINE_URLS, run frontend via PM2, list containers.');
+  console.log('[dry-run] Would run Hostinger remote deploy: fetch/reset, validate env/db/docker, build hbx-engine-1..20 + fallback, run backend with HBX_ENGINE_COUNT/HBX_ENGINE_URLS, run frontend via PM2, list containers.');
   if (isTruthy(process.env.PUBLISH_VERBOSE_DRY_RUN)) {
     console.log('--- remote script start ---');
     console.log(buildRemoteDeployScript(config, mode));
