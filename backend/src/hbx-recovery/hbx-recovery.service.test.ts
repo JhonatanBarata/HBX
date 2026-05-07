@@ -403,7 +403,7 @@ test('human interaction reply uses live conversation contact instead of stale cu
 
   service.getInteractionContext = async () => ({
     conversation: { id: 3, contact: '+5516993903340' },
-    customer: { id: 'cust-1', whatsappNumber: '+5519997024884' },
+    customer: { id: 'cust-1', whatsappNumber: '++5519997024884' },
   });
   service.conversations = {
     queueOutboundForCompany: async (_companyId: number, payload: Record<string, unknown>) => {
@@ -696,7 +696,7 @@ test('recovery customer resolution falls back to recovery message contactId when
             id: 'cust-77',
             name: 'Jhonatan',
             clientName: 'Jhonatan',
-            whatsappNumber: '+5519997024884',
+            whatsappNumber: '++5519997024884',
             openAmount: 120,
             status: 'OVERDUE',
           };

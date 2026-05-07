@@ -383,7 +383,7 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
   }
 
   private supportPhone() {
-    return String(process.env.ADMIN_SUPPORT_PHONE || '+5519997024884').trim();
+    return String(process.env.ADMIN_SUPPORT_PHONE || '++5519997024884').trim();
   }
 
   private supportWhatsAppUrl() {

@@ -144,15 +144,15 @@ const CAMPAIGN_TYPES = [
 type CampaignTypeId = (typeof CAMPAIGN_TYPES)[number]["id"];
 
 const GENERIC_ERROR_MESSAGE_TEMPLATE =
-  "Oi, tudo bem? Meu nome é Jhonatan, eu trabalho com empresas organizadoras de vendas, orçamentos, prospectar clientes e retornos pelo WhatsApp.\n" +
-  "Tem interesse em conhecer? Eu tenho 30 dias grátis no plano, totalmente sem compromisso.\n" +
+  "Oi, tudo bem? Meu nome é Jhonatan, trabalho com uma plataforma para organizar vendas, orçamentos, prospecção de clientes e retornos pelo WhatsApp.\n" +
+  "Tenho 30 dias grátis, sem compromisso. Faz sentido eu te mostrar?\n" +
   "Cadastre aqui: https://hbxsystem.com.br/vendas/automacao?tab=prospeccao";
 
 const MESSAGE_PRESETS = [
   {
     id: "generica_caso_erro",
     group: "cnpj_local",
-    label: "Genérica caso erro",
+    label: "Genérica segura",
     segment: "serviços locais",
     targetType: "pj",
     messageTemplate: GENERIC_ERROR_MESSAGE_TEMPLATE,
@@ -480,6 +480,47 @@ function requiresProspectingCity(config: Pick<ProspectingAutomationConfig, "engi
   return config.engine === "google" || config.targetType === "pj";
 }
 
+function humanizeProspectingReason(value?: string | null) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  const normalized = raw.toLowerCase();
+  const labels: Record<string, string> = {
+    no_whatsapp: "Contato sem WhatsApp confirmado.",
+    invalid_whatsapp: "Telefone inválido ou sem WhatsApp confirmado.",
+    first_contact_already_sent: "Primeiro contato já enviado para esse lead.",
+    negative_or_opt_out: "Lead com negativa ou opt-out.",
+    radar_protected: "Radar bloqueou por histórico protegido.",
+    segment_mismatch_fallback: "Segmento divergente: usando mensagem genérica segura.",
+    segment_mismatch_fallback_draft: "Segmento divergente: rascunho genérico preparado.",
+    missing_opt_in_or_permission: "Lead sem permissão de envio automático. Ficou para revisão manual.",
+    needs_review: "Lead precisa de revisão antes do envio.",
+    blocked: "Lead ou conversa bloqueada para automação.",
+    lead_status_not_eligible: "Lead fora da fila Prospecção.",
+    daily_limit_reached: "Limite diário atingido.",
+    send_failed: "Falha do provedor ao enviar. A fila continua.",
+  };
+  if (labels[normalized]) return labels[normalized];
+  if (normalized.includes("cidade")) return raw;
+  if (normalized.includes("segmento")) return raw;
+  if (normalized.includes("whatsapp")) return raw;
+  if (normalized.includes("opt-out") || normalized.includes("opt out")) return raw;
+  if (normalized.includes("primeiro contato")) return raw;
+  return raw;
+}
+
+function resolveProspectingAttentionText(status: ProspectingAutomationLiveStatus | null) {
+  if (!status) return "";
+  const explicitError = humanizeProspectingReason(status.lastError || status.campaign?.lastError || null);
+  if (explicitError) return `Motivo: ${explicitError}`;
+  const failedToday = Number(status.failedJobsToday || status.counters?.failedJobsToday || 0);
+  const skippedToday = Number(status.skippedJobsToday || status.counters?.skippedJobsToday || 0);
+  const lastSkip = humanizeProspectingReason(status.lastSkipReason || null);
+  if (lastSkip && (failedToday > 0 || skippedToday > 0)) return `Último bloqueio: ${lastSkip}`;
+  const text = String(status.text || "");
+  if (text.toLowerCase().startsWith("bot parado")) return text;
+  return "";
+}
+
 function getProspectingSceneRule(config: AtendimentoBotConfig) {
   return (config.sceneRules || []).find(
     (rule) => rule.sceneId === PROSPECTING_SCENE_ID && rule.conditionType === PROSPECTING_RULE_CONDITION,
@@ -638,9 +679,7 @@ function ProspectingAutomationPanel({
       ? `Próximo: ${liveStatus.nextEligibleLeadName}`
       : "Sem cooldown";
   const campaignStatus = liveStatus?.campaign?.status || "paused";
-  const botAttentionText =
-    liveStatus?.lastError ||
-    (String(liveStatus?.text || "").toLowerCase().startsWith("bot parado") ? liveStatus?.text || "" : "");
+  const botAttentionText = resolveProspectingAttentionText(liveStatus);
   const canPause = campaignStatus === "running";
   const canResume = campaignStatus === "paused";
   const [positiveKeywordsDraft, setPositiveKeywordsDraft] = useState(config.positiveIntentKeywords.join(", "));
@@ -1468,6 +1507,12 @@ export default function VendasAutomationClientPage() {
         !currentProspectingConfig.city.trim()
       ) {
         const message = "Informe a cidade para buscar empresas.";
+        setError(message);
+        setNotice({ tone: "error", text: message });
+        return;
+      }
+      if (action === "start" && !currentProspectingConfig.segment.trim()) {
+        const message = "Informe o segmento para iniciar a prospecção automática.";
         setError(message);
         setNotice({ tone: "error", text: message });
         return;

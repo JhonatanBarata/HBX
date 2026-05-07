@@ -59,7 +59,7 @@ export class CompaniesService implements OnModuleInit, OnModuleDestroy {
   }
 
   private getSupportWhatsAppTarget() {
-    return this.normalizeOptionalString(process.env.ADMIN_SUPPORT_PHONE) || '+5519997024884';
+    return this.normalizeOptionalString(process.env.ADMIN_SUPPORT_PHONE) || '++5519997024884';
   }
 
   private getSupportEmailTarget() {

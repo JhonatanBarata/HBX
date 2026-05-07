@@ -4,10 +4,9 @@ import assert from 'node:assert/strict';
 import { VendasAutomationService } from './vendas-automation.service';
 
 const FALLBACK_MESSAGE =
-  'Oi, tudo bem? Meu nome é Jhonatan, eu trabalho com empresas organizadoras de vendas, orçamentos, prospectar clientes e retornos pelo WhatsApp.\n' +
-  'Tem interesse em conhecer? Eu tenho 30 dias grátis no plano, totalmente sem compromisso.\n' +
-  'Cadastre aqui: https://hbxsystem.com.br/vendas/automacao?tab=prospeccao';
-
+  'Oi, tudo bem? Meu nome é Jhonatan, eu sou dono de uma empresa organizadoras de vendas, orçamentos, prospectar clientes e retornos pelo WhatsApp.\n' +
+  'Tem interesse em conhecer? Eu tenho 30 dias grátis no plano, totalmente sem compromisso.\n' ;
+  
 function buildCampaign(overrides?: Record<string, unknown>) {
   return {
     id: 'campaign-1',

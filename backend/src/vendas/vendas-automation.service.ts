@@ -97,9 +97,13 @@ const LEGACY_DEFAULT_MESSAGE_TEMPLATE =
   'Oi, tudo bem? Aqui é {{funcionario}} da {{empresa}}. Vi a {{cliente}} em {{cidade}} e queria te explicar em 1 minuto uma solução para {{segmento}}. Faz sentido eu te mandar?';
 const LEGACY_SEGMENT_MISMATCH_FALLBACK_MESSAGE =
   'Oi, tudo bem? Sou o Jhonatan, da HBX. Vi sua empresa no Google e queria te mostrar uma ferramenta que ajuda a organizar contatos, orçamentos e retornos pelo WhatsApp. Tenho 30 dias grátis, sem compromisso. Faz sentido eu te mostrar?';
-const GENERICA_CASO_ERRO_MESSAGE =
+const LEGACY_GENERICA_CASO_ERRO_MESSAGE =
   'Oi, tudo bem? Meu nome é Jhonatan, eu trabalho com empresas organizadoras de vendas, orçamentos, prospectar clientes e retornos pelo WhatsApp.\n' +
   'Tem interesse em conhecer? Eu tenho 30 dias grátis no plano, totalmente sem compromisso.\n' +
+  'Cadastre aqui: https://hbxsystem.com.br/vendas/automacao?tab=prospeccao';
+const GENERICA_CASO_ERRO_MESSAGE =
+  'Oi, tudo bem? Meu nome é Jhonatan, trabalho com uma plataforma para organizar vendas, orçamentos, prospecção de clientes e retornos pelo WhatsApp.\n' +
+  'Tenho 30 dias grátis, sem compromisso. Faz sentido eu te mostrar?\n' +
   'Cadastre aqui: https://hbxsystem.com.br/vendas/automacao?tab=prospeccao';
 const DEFAULT_MESSAGE_TEMPLATE = GENERICA_CASO_ERRO_MESSAGE;
 const DEFAULT_SEGMENT_MISMATCH_FALLBACK_MESSAGE = GENERICA_CASO_ERRO_MESSAGE;
@@ -149,6 +153,7 @@ function isSystemGeneratedProspectingTemplate(value: unknown) {
   return [
     LEGACY_DEFAULT_MESSAGE_TEMPLATE,
     LEGACY_SEGMENT_MISMATCH_FALLBACK_MESSAGE,
+    LEGACY_GENERICA_CASO_ERRO_MESSAGE,
     GENERICA_CASO_ERRO_MESSAGE,
   ].some((template) => normalizeTemplateText(template) === normalized);
 }

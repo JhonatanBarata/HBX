@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { usePathname } from "next/navigation";
 
-const SUPPORT_PHONE = "+5519997024884";
+const SUPPORT_PHONE = "++5519997024884";
 const SUPPORT_MESSAGE = "Olá, preciso de ajuda para finalizar minha contratação no HBX.";
 
 function shouldShowHelp(pathname: string | null) {

@@ -269,7 +269,7 @@ const RECOVERY_QUEUE_STORAGE_KEY = "hbxRecoveryPendingHumanCount";
 const ATENDIMENTO_QUEUE_STORAGE_KEY = "atendimentoPendingHumanCount";
 const MODULES_PEEK_EVENT = "hbx:modules-peek";
 const MODULES_TRIGGER_ID = "app-modules-trigger";
-const SUPPORT_PHONE = "+5519997024884";
+const SUPPORT_PHONE = "++5519997024884";
 const SUPPORT_MESSAGE = "Olá, preciso de ajuda com o HBX!";
 
 const hiddenRoutes = new Set(["/login", "/register", "/reset-password", "/confirm-email", "/boasvindas", "/tutorial"]);
@@ -387,7 +387,10 @@ function normalizePercentValue(value?: string | number | null) {
 
 function isTopbarTheaterSource(source: string | null | undefined) {
   const normalized = String(source || "").trim().toLowerCase();
-  return normalized === "vendas" || normalized === "radar" || normalized === "radar-digital";
+  return normalized === "vendas" ||
+    normalized === "radar" ||
+    normalized === "radar-digital" ||
+    normalized.startsWith("atendimento-");
 }
 
 function formatTopbarPercent(value?: string | number | null) {
@@ -2635,10 +2638,13 @@ export default function TopBar() {
                   data-state={hbxMainGaugeState}
                   style={{
                     ["--engine-usage" as string]: `${hbxMainGaugeUsage}%`,
-                    ["--engine-angle" as string]: `${-90 + hbxMainGaugeUsage * 1.8}deg`,
+                    ["--engine-angle" as string]: `${180 + hbxMainGaugeUsage * 1.8}deg`,
                     ["--engine-arc" as string]: `${hbxMainGaugeUsage * 1.8}deg`,
-                    ["--engine-glow" as string]: (hbxMainGaugeUsage / 100).toFixed(2),
-                    ["--engine-glow-size" as string]: `${18 + hbxMainGaugeUsage * 0.64}px`,
+                    ["--engine-glow" as string]: Math.pow(hbxMainGaugeUsage / 100, 1.32).toFixed(3),
+                    ["--engine-neon" as string]: Math.pow(hbxMainGaugeUsage / 100, 1.9).toFixed(3),
+                    ["--engine-hot" as string]: Math.pow(hbxMainGaugeUsage / 100, 3).toFixed(3),
+                    ["--engine-glow-size" as string]: `${22 + Math.pow(hbxMainGaugeUsage / 100, 1.65) * 88}px`,
+                    ["--engine-neon-size" as string]: `${18 + Math.pow(hbxMainGaugeUsage / 100, 2.15) * 118}px`,
                   }}
                   title={hbxMainGaugeTitle}
                   aria-label={hbxMainGaugeTitle}
