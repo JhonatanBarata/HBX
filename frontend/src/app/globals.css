@@ -13360,3 +13360,304 @@ html[data-theme-mode] .app-topbar .app-topbar__frame {
   padding: 0 calc(0.48rem * var(--billboard-scale));
   font-size: calc(0.58rem * var(--billboard-scale));
 }
+
+/* Final polish: centered billboard expansion and fast scale-sweep transition between operational slides. */
+.app-topbar__inner--controlCenter {
+  grid-template-columns: minmax(252px, 1fr) minmax(720px, 960px) minmax(252px, 1fr);
+}
+
+.hbx-command-center,
+.hbx-command-center__body,
+.hbx-command-billboard {
+  justify-self: center;
+}
+
+.hbx-command-center__body {
+  justify-items: center;
+}
+
+.hbx-command-billboard {
+  margin-inline: auto;
+  animation: hbxBillboardScaleIn 360ms cubic-bezier(0.18, 0.9, 0.22, 1) both;
+}
+
+.hbx-command-billboard:hover,
+.hbx-command-billboard:focus-visible {
+  justify-self: center;
+  margin-inline: auto;
+}
+
+.hbx-command-billboard::after {
+  content: "";
+  position: absolute;
+  inset: 5px;
+  z-index: 2;
+  border-radius: inherit;
+  background:
+    radial-gradient(ellipse at 50% 110%, transparent 0 38%, color-mix(in srgb, var(--button-success) 34%, transparent) 39% 45%, transparent 46%),
+    radial-gradient(ellipse at 50% 110%, transparent 0 38%, color-mix(in srgb, var(--button-secondary) 30%, transparent) 39% 45%, transparent 46%);
+  background-position: 0 0, 12px 8px;
+  background-size: 24px 16px;
+  clip-path: inset(0 100% 0 0 round 8px);
+  opacity: 0;
+  mix-blend-mode: screen;
+  filter: drop-shadow(0 0 10px color-mix(in srgb, var(--button-secondary) 34%, transparent));
+  pointer-events: none;
+  animation: hbxSnakeScaleSweep 520ms cubic-bezier(0.16, 0.88, 0.2, 1) both;
+}
+
+@keyframes hbxBillboardScaleIn {
+  0% {
+    opacity: 0.82;
+    transform: translate3d(0, 2px, 0) scaleX(0.992);
+    filter: saturate(1.18) brightness(1.08);
+  }
+  58% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scaleX(1.004);
+    filter: saturate(1.24) brightness(1.1);
+  }
+  100% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scaleX(1);
+    filter: none;
+  }
+}
+
+@keyframes hbxSnakeScaleSweep {
+  0% {
+    clip-path: inset(0 100% 0 0 round 8px);
+    opacity: 0;
+    transform: translateX(-18px) skewX(-10deg);
+  }
+  18% {
+    opacity: 0.72;
+  }
+  64% {
+    clip-path: inset(0 0 0 0 round 8px);
+    opacity: 0.48;
+  }
+  100% {
+    clip-path: inset(0 0 0 100% round 8px);
+    opacity: 0;
+    transform: translateX(18px) skewX(-10deg);
+  }
+}
+
+@media (max-width: 1280px) {
+  .app-topbar__inner--controlCenter {
+    grid-template-columns: minmax(220px, 1fr) minmax(0, 960px) minmax(220px, 1fr);
+  }
+}
+
+@media (max-width: 1120px) {
+  .app-topbar__inner--controlCenter {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hbx-command-billboard,
+  .hbx-command-billboard::after {
+    animation: none;
+  }
+}
+
+/* Correction: no layout growth on hover, no blur, no side remount during slide transition. */
+.app-topbar__inner--controlCenter .hbx-command-billboard,
+.app-topbar__inner--controlCenter .hbx-command-billboard:hover,
+.app-topbar__inner--controlCenter .hbx-command-billboard:focus-visible {
+  --billboard-scale: 1;
+  width: 100%;
+  max-width: 960px;
+  justify-self: center;
+  margin-inline: auto;
+  transform: none;
+  filter: none;
+  transition:
+    border-color 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.app-topbar__inner--controlCenter .hbx-command-billboard {
+  animation: hbxBillboardCleanIn 240ms cubic-bezier(0.2, 0.9, 0.2, 1) both;
+}
+
+.app-topbar__inner--controlCenter .hbx-command-billboard:hover,
+.app-topbar__inner--controlCenter .hbx-command-billboard:focus-visible {
+  border-color: color-mix(in srgb, var(--button-secondary) 72%, var(--line));
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--surface) 46%, transparent),
+    inset 0 0 0 4px color-mix(in srgb, var(--button-secondary) 22%, transparent),
+    inset 0 0 34px color-mix(in srgb, var(--button-secondary) 12%, transparent),
+    0 0 24px -12px color-mix(in srgb, var(--button-secondary) 62%, transparent),
+    0 18px 54px -24px color-mix(in srgb, var(--button-primary) 48%, transparent);
+}
+
+.app-topbar__inner--controlCenter .hbx-command-billboard::after {
+  filter: none;
+  transform: none;
+  animation: hbxSnakeScaleSweepClean 440ms cubic-bezier(0.18, 0.9, 0.2, 1) both;
+}
+
+@keyframes hbxBillboardCleanIn {
+  0% {
+    opacity: 0.92;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+
+@keyframes hbxSnakeScaleSweepClean {
+  0% {
+    clip-path: inset(0 100% 0 0 round 8px);
+    opacity: 0;
+  }
+  22% {
+    opacity: 0.42;
+  }
+  66% {
+    clip-path: inset(0 0 0 0 round 8px);
+    opacity: 0.32;
+  }
+  100% {
+    clip-path: inset(0 0 0 100% round 8px);
+    opacity: 0;
+  }
+}
+
+@media (max-width: 1280px) {
+  .app-topbar__inner--controlCenter .hbx-command-billboard,
+  .app-topbar__inner--controlCenter .hbx-command-billboard:hover,
+  .app-topbar__inner--controlCenter .hbx-command-billboard:focus-visible {
+    width: 100%;
+    max-width: 960px;
+  }
+}
+
+@media (max-width: 1120px) {
+  .app-topbar__inner--controlCenter .hbx-command-billboard,
+  .app-topbar__inner--controlCenter .hbx-command-billboard:hover,
+  .app-topbar__inner--controlCenter .hbx-command-billboard:focus-visible {
+    width: 100%;
+    max-width: 100%;
+  }
+}
+
+/* Edge fit: keep the billboard visually seated on the top and lower header lines. */
+.hbx-command-center {
+  align-items: stretch;
+  padding-block: 0;
+}
+
+.hbx-command-center__body {
+  align-items: stretch;
+}
+
+.app-topbar__inner--controlCenter .hbx-command-billboard,
+.app-topbar__inner--controlCenter .hbx-command-billboard:hover,
+.app-topbar__inner--controlCenter .hbx-command-billboard:focus-visible {
+  align-self: stretch;
+  margin-block: 0;
+}
+
+/* Hard lock: back frame and billboard are one fixed stage, with zero gap between borders. */
+.app-topbar__inner--controlCenter {
+  grid-template-columns: minmax(252px, 1fr) 650px minmax(252px, 1fr);
+  align-items: center;
+}
+
+.app-topbar__inner--controlCenter .hbx-command-center {
+  width: 100%;
+  max-width: 650px;
+  height: 128px;
+  min-height: 128px;
+  max-height: 128px;
+  justify-self: center;
+  align-self: center;
+  display: grid;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  box-shadow: none;
+}
+
+.app-topbar__inner--controlCenter .hbx-command-center__body {
+  width: 100%;
+  height: 128px;
+  min-height: 128px;
+  max-height: 128px;
+  display: grid;
+  grid-template-columns: 1fr;
+  align-items: stretch;
+  justify-items: stretch;
+  padding: 0;
+  margin: 0;
+  overflow: hidden;
+}
+
+.app-topbar__inner--controlCenter .hbx-command-billboard,
+.app-topbar__inner--controlCenter .hbx-command-billboard:hover,
+.app-topbar__inner--controlCenter .hbx-command-billboard:focus-visible {
+  --billboard-scale: 1;
+  width: 100%;
+  min-width: 100%;
+  max-width: 100%;
+  height: 128px;
+  min-height: 128px;
+  max-height: 128px;
+  align-self: stretch;
+  justify-self: stretch;
+  margin: 0;
+  transform: none;
+  filter: none;
+  animation: none;
+  transition:
+    border-color 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.app-topbar__inner--controlCenter .hbx-command-billboard--engines .hbx-command-engines--billboard {
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  align-items: stretch;
+}
+
+.app-topbar__inner--controlCenter .hbx-command-billboard--engines .hbx-command-engine {
+  min-height: 0;
+  height: 100%;
+}
+
+.app-topbar__inner--controlCenter .hbx-command-chips--billboard {
+  display: none;
+}
+
+.app-topbar__inner--controlCenter .hbx-command-kpis--billboard {
+  grid-auto-rows: minmax(34px, 1fr);
+}
+
+@media (max-width: 1280px) {
+  .app-topbar__inner--controlCenter {
+    grid-template-columns: minmax(220px, 1fr) minmax(0, 650px) minmax(220px, 1fr);
+  }
+}
+
+@media (max-width: 1120px) {
+  .app-topbar__inner--controlCenter {
+    grid-template-columns: 1fr;
+  }
+
+  .app-topbar__inner--controlCenter .hbx-command-center,
+  .app-topbar__inner--controlCenter .hbx-command-center__body,
+  .app-topbar__inner--controlCenter .hbx-command-billboard,
+  .app-topbar__inner--controlCenter .hbx-command-billboard:hover,
+  .app-topbar__inner--controlCenter .hbx-command-billboard:focus-visible {
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+  }
+}
