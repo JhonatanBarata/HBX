@@ -104,6 +104,7 @@ model Company {
 
   conversations CompanyConversation[]
   messages      CompanyMessage[]
+  atendimentoAppointments AtendimentoAppointment[]
   inboxConversations Conversation[]
 
   autoReplyRules       AutoReplyRule[]
@@ -442,11 +443,39 @@ model CompanyConversation {
   updatedAt     DateTime @updatedAt
 
   messages CompanyMessage[]
+  atendimentoAppointments AtendimentoAppointment[]
 
   @@unique([companyId, channel, contact])
   @@index([companyId, lastMessageAt])
   @@index([companyId, botActive, humanAssigned, lastInteractionAt])
   @@map("Conversation")
+}
+
+model AtendimentoAppointment {
+  id                    Int      @id @default(autoincrement())
+  company               Company  @relation(fields: [companyId], references: [id])
+  companyId             Int
+  conversation          CompanyConversation? @relation(fields: [conversationId], references: [id])
+  conversationId        Int?
+  customerName          String?
+  customerPhone         String
+  agendaGroupId         String
+  responsibleName       String?
+  responsibleEmail      String?
+  startsAt              DateTime
+  endsAt                DateTime
+  timezone              String   @default("America/Sao_Paulo")
+  status                String   @default("confirmed") // confirmed | canceled
+  source                String   @default("whatsapp_atendimento")
+  googleCalendarEventId String?
+  calendarSyncStatus    String   @default("not_configured") // not_configured | pending | synced | failed
+  metadata              String?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  @@index([companyId, customerPhone, status, startsAt])
+  @@index([companyId, agendaGroupId, status, startsAt])
+  @@index([conversationId, startsAt])
 }
 
 model InboxTrashMeticulousPurgeJob {

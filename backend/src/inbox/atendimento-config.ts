@@ -14,6 +14,12 @@ export const ATENDIMENTO_BOT_ACTION_IDS = [
   'enter_recovery',
   'show_main_menu',
   'schedule_service',
+  'reschedule_service',
+  'cancel_appointment',
+  'technical_support',
+  'talk_owner',
+  'supplier_contact',
+  'personal_subject',
 ] as const;
 
 export type AtendimentoBotActionId = (typeof ATENDIMENTO_BOT_ACTION_IDS)[number];
@@ -220,6 +226,9 @@ export type AtendimentoAgendaGroup = {
   suggestedSlotsCount: number;
   fallbackFutureSlotsCount: number;
   noImmediateAvailabilityMessage: string;
+  simpleMode?: boolean;
+  capacityPerDay?: number;
+  reminderMinutes?: number;
   slots: AtendimentoAgendaSlot[];
 };
 
@@ -390,12 +399,63 @@ const DEFAULT_ACTION_CATALOG: AtendimentoBotActionGuide[] = [
   },
   {
     actionId: 'schedule_service',
-    title: 'Agendar visita',
-    description: 'Despacha o cliente para a Agenda Bot operacional configurada.',
+    title: 'Agendar com Glauco',
+    description: 'Mostra os proximos dias livres da agenda simples do responsavel.',
     route: 'atendimento',
     kind: 'agenda',
     enabled: true,
-    agendaGroupId: 'agenda_tecnicos',
+    agendaGroupId: 'agenda_glauco',
+  },
+  {
+    actionId: 'reschedule_service',
+    title: 'Reagendar atendimento',
+    description: 'Permite reagendar apenas quando existe agendamento futuro confirmado.',
+    route: 'atendimento',
+    kind: 'agenda',
+    enabled: true,
+    agendaGroupId: 'agenda_glauco',
+  },
+  {
+    actionId: 'cancel_appointment',
+    title: 'Cancelar agendamento',
+    description: 'Cancela apenas agendamento futuro confirmado.',
+    route: 'atendimento',
+    kind: 'agenda',
+    enabled: true,
+    agendaGroupId: 'agenda_glauco',
+  },
+  {
+    actionId: 'technical_support',
+    title: 'Suporte tecnico',
+    description: 'Mantem a conversa no Atendimento para coleta basica do problema.',
+    route: 'atendimento',
+    kind: 'reply',
+    enabled: true,
+    responseMessage: 'Certo. Me conte em poucas palavras o que esta acontecendo para eu direcionar o suporte tecnico.',
+  },
+  {
+    actionId: 'talk_owner',
+    title: 'Falar direto com Glauco',
+    description: 'Pausa o bot e deixa a conversa aberta para o responsavel responder.',
+    route: 'atendimento',
+    kind: 'human_handoff',
+    enabled: true,
+  },
+  {
+    actionId: 'supplier_contact',
+    title: 'Fornecedor / parceria',
+    description: 'Pausa o bot e deixa a conversa para avaliacao humana sem enviar para Vendas.',
+    route: 'atendimento',
+    kind: 'human_handoff',
+    enabled: true,
+  },
+  {
+    actionId: 'personal_subject',
+    title: 'Assunto pessoal',
+    description: 'Marca o contato como pessoal e protege a conversa contra respostas do bot.',
+    route: 'atendimento',
+    kind: 'human_handoff',
+    enabled: true,
   },
 ];
 
@@ -571,12 +631,13 @@ export const DEFAULT_ATENDIMENTO_BOT_CONFIG: AtendimentoBotConfig = {
     makeDefaultButton('returning_customer', 'continue_journey', 'Continuar', 0),
     makeDefaultButton('returning_customer', 'talk_human', 'Falar com atendente', 1),
   ],
-  mainMenuPrompt: 'Escolha abaixo como deseja continuar no Atendimento:',
+  mainMenuPrompt: '{{cumprimentacao}}! Sou o assistente da {{empresa}}.\nComo posso te ajudar?',
   mainMenuButtons: [
-    makeDefaultButton('main_menu', 'show_main_menu', 'Suporte', 0),
-    makeDefaultButton('main_menu', 'schedule_service', 'Agendar visita', 1),
-    makeDefaultButton('main_menu', 'enter_recovery', 'Financeiro', 2),
-    makeDefaultButton('main_menu', 'talk_human', 'Falar com atendente', 3),
+    makeDefaultButton('main_menu', 'schedule_service', 'Agendar com Glauco', 0),
+    makeDefaultButton('main_menu', 'technical_support', 'Suporte tecnico', 1),
+    makeDefaultButton('main_menu', 'talk_owner', 'Falar direto com Glauco', 2),
+    makeDefaultButton('main_menu', 'supplier_contact', 'Fornecedor / parceria', 3),
+    makeDefaultButton('main_menu', 'personal_subject', 'Assunto pessoal', 4),
   ],
   recoveryDetectedMessage:
     'Encontrei um valor pendente de {{valor_formatado}}. Posso te mostrar pagamentos, seguir com uma acao financeira ou continuar no Atendimento sem perder o contexto.',
@@ -599,45 +660,40 @@ export const DEFAULT_ATENDIMENTO_BOT_CONFIG: AtendimentoBotConfig = {
 };
 
 const DEFAULT_BOT_AGENDA_GROUP: AtendimentoAgendaGroup = {
-  id: 'agenda_tecnicos',
-  slug: 'tecnicos',
-  title: 'Técnicos',
-  description: 'Horários para visita técnica, instalação, manutenção e suporte.',
-  buttonLabel: 'Técnicos',
+  id: 'agenda_glauco',
+  slug: 'glauco',
+  title: 'Glauco',
+  description: 'Agenda simples para atendimento direto com Glauco.',
+  buttonLabel: 'Agendar com Glauco',
   actionType: 'abrir_agenda',
-  linkedAgendaId: 'agenda_tecnicos',
+  linkedAgendaId: 'agenda_glauco',
   customActionKey: null,
   sortOrder: 0,
   introMessage:
-    'Esses são os horários disponíveis para {{agenda_nome}}.\n\n{{agenda_slots}}',
-  emptyMessage: 'No momento não há horários ativos para Técnicos.',
+    'Tenho estas opções para falar com o Glauco:\n\n{{agenda_slots}}\n\nResponda com o número da melhor opção.',
+  emptyMessage: 'Não encontrei horário livre nos próximos dias. Vou deixar essa conversa para o Glauco ajustar manualmente.',
   linkedEmail: '',
-  linkedUserName: '',
+  linkedUserName: 'Glauco',
   connectionStatus: 'not_linked',
   accentColor: '#4da36f',
   isActive: true,
   workdays: [1, 2, 3, 4, 5],
-  visibleBusinessDays: 7,
-  searchWindowDays: 7,
-  suggestedSlotsCount: 3,
+  visibleBusinessDays: 5,
+  searchWindowDays: 14,
+  suggestedSlotsCount: 5,
   fallbackFutureSlotsCount: 3,
   noImmediateAvailabilityMessage:
-    'Não encontrei disponibilidade imediata para Técnicos. Vou priorizar os próximos horários futuros.',
+    'Não encontrei horário livre nos próximos dias. Vou deixar essa conversa para o Glauco ajustar manualmente.',
+  simpleMode: true,
+  capacityPerDay: 1,
+  reminderMinutes: 60,
   slots: [
     {
-      id: 'agenda_tecnicos_seg_0900',
-      label: 'Segunda 09:00-11:00',
+      id: 'agenda_glauco_0900_1300',
+      label: '09:00 às 13:00',
       dayOfWeek: 1,
       startTime: '09:00',
-      endTime: '11:00',
-      enabled: true,
-    },
-    {
-      id: 'agenda_tecnicos_qua_1400',
-      label: 'Quarta 14:00-16:00',
-      dayOfWeek: 3,
-      startTime: '14:00',
-      endTime: '16:00',
+      endTime: '13:00',
       enabled: true,
     },
   ],
@@ -1310,10 +1366,11 @@ function normalizeTime(value: unknown, fallback: string) {
   return fallback;
 }
 
-function normalizeConnectionStatus(value: unknown): AtendimentoAgendaConnectionStatus {
+function normalizeConnectionStatus(value: unknown, linkedEmail?: string): AtendimentoAgendaConnectionStatus {
   const normalized = String(value || '').trim().toLowerCase();
-  if (normalized === 'connected') return 'connected';
-  if (normalized === 'pending') return 'pending';
+  if (normalized === 'connected' || normalized === 'pending') {
+    return String(linkedEmail || '').trim() ? 'pending' : 'not_linked';
+  }
   return 'not_linked';
 }
 
@@ -1407,6 +1464,7 @@ export function normalizeAtendimentoAgendaConfig(
     .map((group, index) => {
       const id = normalizeActionId((group as any)?.id, `agenda_group_${index + 1}`);
       const fallback = DEFAULT_ATENDIMENTO_AGENDA_CONFIG.groups[index] || DEFAULT_ATENDIMENTO_AGENDA_CONFIG.groups[0];
+      const linkedEmail = normalizeText((group as any)?.linkedEmail, fallback?.linkedEmail || '').toLowerCase();
       return {
         id,
         slug: normalizeAgendaSlug((group as any)?.slug, fallback?.slug || id),
@@ -1430,10 +1488,11 @@ export function normalizeAtendimentoAgendaConfig(
         ),
         introMessage: normalizeText((group as any)?.introMessage, fallback?.introMessage || ''),
         emptyMessage: normalizeText((group as any)?.emptyMessage, fallback?.emptyMessage || ''),
-        linkedEmail: normalizeText((group as any)?.linkedEmail, fallback?.linkedEmail || '').toLowerCase(),
+        linkedEmail,
         linkedUserName: normalizeText((group as any)?.linkedUserName, fallback?.linkedUserName || ''),
         connectionStatus: normalizeConnectionStatus(
           (group as any)?.connectionStatus ?? fallback?.connectionStatus,
+          linkedEmail,
         ),
         accentColor:
           normalizeText((group as any)?.accentColor, fallback?.accentColor || '#4da36f') ||
@@ -1476,6 +1535,19 @@ export function normalizeAtendimentoAgendaConfig(
         noImmediateAvailabilityMessage: normalizeText(
           (group as any)?.noImmediateAvailabilityMessage,
           fallback?.noImmediateAvailabilityMessage || fallback?.emptyMessage || '',
+        ),
+        simpleMode: Boolean((group as any)?.simpleMode ?? fallback?.simpleMode ?? false),
+        capacityPerDay: normalizePositiveRange(
+          (group as any)?.capacityPerDay,
+          fallback?.capacityPerDay || 1,
+          1,
+          20,
+        ),
+        reminderMinutes: normalizePositiveRange(
+          (group as any)?.reminderMinutes,
+          fallback?.reminderMinutes || 60,
+          0,
+          1440,
         ),
         slots: normalizeAgendaSlots((group as any)?.slots, fallback?.slots || []),
       };

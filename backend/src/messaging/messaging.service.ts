@@ -195,8 +195,31 @@ const ATENDIMENTO_STEP = {
   COLLECTING_NAME_CONFIRM: 'coletando_confirmacao_nome',
   COLLECTING_NAME: 'coletando_nome',
 } as const;
+const HBX_GATE_STEP = 'hbxGateContext';
+const HBX_DYNAMIC_MENU_STEP = 'hbx_menu_dinamico';
+const HBX_AGENDA_STEP = 'hbx_agenda_simples';
+const HBX_CANCEL_STEP = 'hbx_cancelamento_agenda';
 const HBX_EMAIL_FOLLOW_UP_DRAFT = 'Oi {{nome}}, tudo bem? Conseguiu ver a apresentação do HBX que te enviei por e-mail?';
 const HBX_EMAIL_RECENT_DUPLICATE_MS = 24 * 60 * 60 * 1000;
+
+type HbxDynamicMenuOption = {
+  index: number;
+  label: string;
+  actionKey: string;
+  routeTarget: string;
+  actionId?: string | null;
+  buttonId: string;
+};
+
+type HbxAgendaOption = {
+  index: number;
+  label: string;
+  isoDate: string;
+  startTime: string;
+  endTime: string;
+  startsAt: string;
+  endsAt: string;
+};
 
 type VendasAgendaQueueMetadata = {
   active?: boolean;
@@ -3264,6 +3287,669 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     }, config).concat(`\n\n${preview}`);
   }
 
+  private appointmentDelegate() {
+    return (this.prisma as any).atendimentoAppointment;
+  }
+
+  private normalizeAppointmentPhone(raw: string | null | undefined) {
+    return String(raw || '').replace(/\D/g, '').slice(-13);
+  }
+
+  private getAgendaPrimarySlot(group: AtendimentoAgendaGroup | null | undefined) {
+    return (group?.slots || []).find((slot) => slot.enabled) || null;
+  }
+
+  private isAgendaConfigured(group: AtendimentoAgendaGroup | null | undefined) {
+    if (!group?.isActive) return false;
+    if (!String(group.linkedUserName || group.linkedEmail || '').trim()) return false;
+    return Boolean(this.getAgendaPrimarySlot(group));
+  }
+
+  private getGlaucoAgendaGroup(config: AtendimentoAgendaConfig) {
+    const groups = (config.groups || []).filter((group) => group.isActive);
+    return (
+      groups.find((group) => String(group.id || '').trim().toLowerCase() === 'agenda_glauco') ||
+      groups.find((group) => String(group.title || group.buttonLabel || '').toLowerCase().includes('glauco')) ||
+      groups[0] ||
+      null
+    );
+  }
+
+  private getDatePartsInTimezone(date: Date, timezone: string) {
+    const parts = new Intl.DateTimeFormat('en-CA', {
+      timeZone: timezone || 'America/Sao_Paulo',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    }).formatToParts(date);
+    const pick = (type: string) => Number(parts.find((part) => part.type === type)?.value || 0);
+    return {
+      year: pick('year'),
+      month: pick('month'),
+      day: pick('day'),
+      hour: pick('hour'),
+      minute: pick('minute'),
+    };
+  }
+
+  private toLocalDateKey(date: Date, timezone: string) {
+    const parts = this.getDatePartsInTimezone(date, timezone);
+    return `${parts.year}-${String(parts.month).padStart(2, '0')}-${String(parts.day).padStart(2, '0')}`;
+  }
+
+  private buildDateInTimezone(dateKey: string, time: string, timezone: string) {
+    const [year, month, day] = dateKey.split('-').map(Number);
+    const [hour, minute] = String(time || '00:00').split(':').map(Number);
+    const guessedUtc = new Date(Date.UTC(year, month - 1, day, hour || 0, minute || 0, 0, 0));
+    const rendered = this.getDatePartsInTimezone(guessedUtc, timezone);
+    const desiredMs = Date.UTC(year, month - 1, day, hour || 0, minute || 0, 0, 0);
+    const renderedMs = Date.UTC(
+      rendered.year,
+      rendered.month - 1,
+      rendered.day,
+      rendered.hour,
+      rendered.minute,
+      0,
+      0,
+    );
+    return new Date(guessedUtc.getTime() + (desiredMs - renderedMs));
+  }
+
+  private getLocalDayBounds(dateKey: string, timezone: string) {
+    const start = this.buildDateInTimezone(dateKey, '00:00', timezone);
+    const [year, month, day] = dateKey.split('-').map(Number);
+    const nextDate = new Date(Date.UTC(year, month - 1, day + 1, 12, 0, 0, 0));
+    const nextKey = this.toLocalDateKey(nextDate, timezone);
+    return {
+      start,
+      end: this.buildDateInTimezone(nextKey, '00:00', timezone),
+    };
+  }
+
+  private formatAgendaDateLabel(date: Date, timezone: string) {
+    return new Intl.DateTimeFormat('pt-BR', {
+      timeZone: timezone || 'America/Sao_Paulo',
+      weekday: 'long',
+      day: '2-digit',
+      month: '2-digit',
+    }).format(date);
+  }
+
+  private async findFutureAtendimentoAppointment(companyId: number, phone: string, agendaGroupId?: string | null) {
+    const delegate = this.appointmentDelegate();
+    if (!delegate) return null;
+    const customerPhone = this.normalizeAppointmentPhone(phone);
+    if (!customerPhone) return null;
+    return delegate.findFirst({
+      where: {
+        companyId,
+        customerPhone,
+        status: 'confirmed',
+        startsAt: { gt: new Date() },
+        ...(agendaGroupId ? { agendaGroupId } : {}),
+      },
+      orderBy: { startsAt: 'asc' },
+    });
+  }
+
+  private async buildSimpleAgendaOptions(input: {
+    companyId: number;
+    group: AtendimentoAgendaGroup;
+    config: AtendimentoAgendaConfig;
+    excludeAppointmentId?: number | null;
+    fromDate?: Date;
+  }): Promise<HbxAgendaOption[]> {
+    const delegate = this.appointmentDelegate();
+    const timezone = input.config.timezone || 'America/Sao_Paulo';
+    const slot = this.getAgendaPrimarySlot(input.group);
+    if (!delegate || !slot || !this.isAgendaConfigured(input.group)) return [];
+    const workdays = input.group.workdays?.length ? input.group.workdays : [1, 2, 3, 4, 5];
+    const holidays = new Set(input.config.holidays || []);
+    const capacity = Math.max(1, Number(input.group.capacityPerDay || 1));
+    const maxOptions = Math.max(1, Number(input.group.suggestedSlotsCount || 5));
+    const searchWindow = Math.max(maxOptions, Number(input.group.searchWindowDays || 14));
+    const options: HbxAgendaOption[] = [];
+    const now = input.fromDate || new Date();
+
+    for (let offset = 0; offset <= searchWindow + 14 && options.length < maxOptions; offset += 1) {
+      const probe = new Date(now);
+      probe.setDate(probe.getDate() + offset);
+      const dateKey = this.toLocalDateKey(probe, timezone);
+      if (holidays.has(dateKey)) continue;
+      const dayOfWeek = this.buildDateInTimezone(dateKey, '12:00', timezone).getDay();
+      if (!workdays.includes(dayOfWeek)) continue;
+
+      const startsAt = this.buildDateInTimezone(dateKey, slot.startTime, timezone);
+      const endsAt = this.buildDateInTimezone(dateKey, slot.endTime, timezone);
+      if (startsAt <= now) continue;
+      const bounds = this.getLocalDayBounds(dateKey, timezone);
+      const used = await delegate.count({
+        where: {
+          companyId: input.companyId,
+          agendaGroupId: input.group.id,
+          status: 'confirmed',
+          startsAt: { gte: bounds.start, lt: bounds.end },
+          ...(input.excludeAppointmentId ? { id: { not: Number(input.excludeAppointmentId) } } : {}),
+        },
+      });
+      if (used >= capacity) continue;
+      options.push({
+        index: options.length + 1,
+        label: `${this.formatAgendaDateLabel(startsAt, timezone)}, ${slot.startTime} às ${slot.endTime}`,
+        isoDate: dateKey,
+        startTime: slot.startTime,
+        endTime: slot.endTime,
+        startsAt: startsAt.toISOString(),
+        endsAt: endsAt.toISOString(),
+      });
+    }
+    return options;
+  }
+
+  private buildReceptionGreeting(config: AtendimentoBotConfig, timezone?: string | null) {
+    const greeting = config.smartVariables?.greeting || {};
+    const now = new Date();
+    const hour = Number(
+      new Intl.DateTimeFormat('pt-BR', {
+        timeZone: greeting.timezone || timezone || 'America/Sao_Paulo',
+        hour: '2-digit',
+        hour12: false,
+      }).format(now),
+    );
+    if (hour >= Number(greeting.nightStartHour ?? 18)) return greeting.night || 'Boa noite';
+    if (hour >= Number(greeting.afternoonStartHour ?? 12)) return greeting.afternoon || 'Boa tarde';
+    return greeting.morning || 'Bom dia';
+  }
+
+  private async buildHbxGateContext(input: {
+    companyId: number;
+    from: string;
+    company: { name: string; timezone?: string | null };
+    conversation: any;
+    metadata: Record<string, any>;
+    recoveryCustomer?: any | null;
+    tenantContext: { providerCapabilities: ProviderCapabilities; recoveryEnabled: boolean };
+    agendaConfig: AtendimentoAgendaConfig;
+    config: AtendimentoBotConfig;
+    inboundProfileName?: string | null;
+  }) {
+    const group = this.getGlaucoAgendaGroup(input.agendaConfig);
+    const futureAppointment = await this.findFutureAtendimentoAppointment(input.companyId, input.from, group?.id || null);
+    const agendaOptions = group
+      ? await this.buildSimpleAgendaOptions({ companyId: input.companyId, group, config: input.agendaConfig })
+      : [];
+    const hasRecoveryContext =
+      input.tenantContext.recoveryEnabled && Number(input.recoveryCustomer?.openAmount || 0) > 0;
+    const agendaEnabled = Boolean(group && this.isAgendaConfigured(group));
+    const hasFutureAppointment = Boolean(futureAppointment?.id && new Date(futureAppointment.startsAt).getTime() > Date.now());
+    const hbxGateContext = {
+      isKnownCustomer: Boolean(
+        String(input.metadata?.cliente || input.metadata?.customerName || input.inboundProfileName || '').trim() ||
+          input.recoveryCustomer?.id,
+      ),
+      isPersonalContact: this.isPersonalWhatsappContact(input.metadata),
+      hasFutureAppointment,
+      futureAppointment: futureAppointment
+        ? {
+            id: futureAppointment.id,
+            agendaGroupId: futureAppointment.agendaGroupId,
+            startsAt: futureAppointment.startsAt,
+            endsAt: futureAppointment.endsAt,
+            responsibleName: futureAppointment.responsibleName,
+          }
+        : null,
+      hasRecoveryContext,
+      recoveryEnabled: input.tenantContext.recoveryEnabled,
+      agendaEnabled,
+      hasAvailableAgendaSlots: agendaOptions.length > 0,
+      isSupplier: input.metadata?.supplierContact === true,
+      isTeamOrOwnerContact: input.metadata?.talkToOwner === true,
+      canShowAgenda: Boolean(agendaEnabled && agendaOptions.length > 0 && !hasFutureAppointment),
+      canShowReschedule: Boolean(hasFutureAppointment && group?.isActive),
+      canShowCancelAppointment: hasFutureAppointment,
+      canShowRecovery: Boolean(hasRecoveryContext),
+      canShowSupport: true,
+      canShowTalkToOwner: true,
+      canShowSupplier: true,
+      canShowPersonal: true,
+      provider: input.tenantContext.providerCapabilities.provider,
+      agendaGroupId: group?.id || null,
+      step: HBX_GATE_STEP,
+    };
+    return { hbxGateContext, group, agendaOptions, futureAppointment };
+  }
+
+  private buildDynamicReceptionMenu(context: Record<string, any>): HbxDynamicMenuOption[] {
+    const options: Array<Omit<HbxDynamicMenuOption, 'index' | 'buttonId'>> = [];
+    if (context.canShowAgenda) {
+      options.push({ label: 'Agendar com Glauco', actionKey: 'schedule_service', routeTarget: 'atendimento', actionId: 'schedule_service' });
+    }
+    if (context.canShowReschedule) {
+      options.push({ label: 'Reagendar atendimento', actionKey: 'reschedule_service', routeTarget: 'atendimento', actionId: 'reschedule_service' });
+    }
+    if (context.canShowCancelAppointment) {
+      options.push({ label: 'Cancelar agendamento', actionKey: 'cancel_appointment', routeTarget: 'atendimento', actionId: 'cancel_appointment' });
+    }
+    if (context.canShowSupport) {
+      options.push({ label: 'Suporte tecnico', actionKey: 'technical_support', routeTarget: 'atendimento', actionId: 'technical_support' });
+    }
+    if (context.canShowRecovery) {
+      options.push({ label: 'Financeiro', actionKey: 'enter_recovery', routeTarget: 'recovery', actionId: 'enter_recovery' });
+    }
+    if (context.canShowTalkToOwner) {
+      options.push({ label: 'Falar direto com Glauco', actionKey: 'talk_owner', routeTarget: 'conversas', actionId: 'talk_owner' });
+    }
+    if (context.canShowSupplier) {
+      options.push({ label: 'Fornecedor / parceria', actionKey: 'supplier_contact', routeTarget: 'conversas', actionId: 'supplier_contact' });
+    }
+    if (context.canShowPersonal) {
+      options.push({ label: 'Assunto pessoal', actionKey: 'personal_subject', routeTarget: 'conversas', actionId: 'personal_subject' });
+    }
+    return options.map((option, index) => ({
+      ...option,
+      index: index + 1,
+      buttonId: `hbx_dynamic_${index + 1}`,
+    }));
+  }
+
+  private resolveDynamicMenuActionKey(metadata: Record<string, any>, rawActionId: string, normalizedText: string, rawPayload: any) {
+    const options = Array.isArray(metadata?.hbxDynamicMenuOptions)
+      ? (metadata.hbxDynamicMenuOptions as HbxDynamicMenuOption[])
+      : [];
+    if (!options.length) return '';
+    const raw = this.fromAtendimentoButtonId(rawActionId || this.extractInteractiveReplyId(rawPayload));
+    const textLabel = this.normalizeActionLabel(normalizedText || extractInboundTextFromPayload(rawPayload));
+    const numeric = Number(String(normalizedText || '').trim());
+    const matched = options.find((option) => {
+      return (
+        (raw && (raw === option.buttonId || raw === option.actionKey || raw === option.actionId)) ||
+        (Number.isInteger(numeric) && numeric === option.index) ||
+        (textLabel && textLabel === this.normalizeActionLabel(option.label))
+      );
+    });
+    return String(matched?.actionKey || matched?.actionId || '').trim().toLowerCase();
+  }
+
+  private containsNegativeOptOut(text: string) {
+    const normalized = String(text || '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase();
+    return /\b(nao quero|pare|parar|remover|me remove|nao tenho interesse|spam|nao chama mais|nao me chame|sair|stop)\b/.test(normalized);
+  }
+
+  private async markAtendimentoNegativeOptOut(input: {
+    companyId: number;
+    conversationId: number;
+    from: string;
+    metadata: Record<string, any>;
+  }) {
+    const now = new Date().toISOString();
+    await this.updateAtendimentoConversationState(
+      input.companyId,
+      input.conversationId,
+      {
+        currentFlow: ATENDIMENTO_FLOW_ID,
+        currentStep: ATENDIMENTO_STEP.HUMAN,
+        botActive: false,
+        humanAssigned: true,
+        flowResult: 'negative_optout',
+      },
+      {
+        ...input.metadata,
+        hbxGateType: 'negative_optout',
+        optOut: true,
+        doNotContact: true,
+        queueTarget: 'excluidos',
+        routeTarget: 'excluidos',
+        negativeOptOutAt: now,
+      },
+    );
+    await this.appendAtendimentoSystemEvent({
+      companyId: input.companyId,
+      conversationId: input.conversationId,
+      contactId: input.from,
+      text: 'Contato marcou opt-out/negativo. Automacoes comerciais futuras devem ser impedidas.',
+      eventType: 'atendimento_negative_optout',
+    });
+  }
+
+  private async queueDynamicReceptionMenu(input: {
+    companyId: number;
+    conversationId: number;
+    from: string;
+    company: { name: string; timezone?: string | null };
+    config: AtendimentoBotConfig;
+    metadata: Record<string, any>;
+    hbxGateContext: Record<string, any>;
+  }) {
+    const options = this.buildDynamicReceptionMenu(input.hbxGateContext);
+    if (!options.length) {
+      await this.routeAtendimentoToHumanQueue({
+        companyId: input.companyId,
+        conversationId: input.conversationId,
+        from: input.from,
+        config: input.config,
+        metadata: {
+          ...input.metadata,
+          hbxGateContext: input.hbxGateContext,
+          hbxGateLastCheckedAt: new Date().toISOString(),
+        },
+        reason: 'sem_opcao_dinamica_executavel',
+      });
+      return;
+    }
+    const vars = this.buildAtendimentoTemplateVars({
+      companyName: input.company.name,
+      phone: input.from,
+      metadata: {
+        ...input.metadata,
+        cumprimentacao: this.buildReceptionGreeting(input.config, input.company.timezone),
+      },
+      recoveryCustomer: null,
+    });
+    const body = renderTemplate(
+      input.config.mainMenuPrompt || '{{cumprimentacao}}! Sou o assistente da {{empresa}}.\nComo posso te ajudar?',
+      {
+        ...vars,
+        cumprimentacao: this.buildReceptionGreeting(input.config, input.company.timezone),
+      },
+      input.config,
+    );
+    await this.queueAtendimentoButtonPrompt({
+      companyId: input.companyId,
+      to: input.from,
+      contactId: input.from,
+      conversationId: input.conversationId,
+      body,
+      step: HBX_DYNAMIC_MENU_STEP,
+      buttons: options.map((option) => ({
+        buttonId: option.buttonId,
+        actionId: option.actionKey,
+        title: option.label,
+      })),
+      variables: {
+        ...input.metadata,
+        hbxGateContext: input.hbxGateContext,
+        hbxGateLastCheckedAt: new Date().toISOString(),
+        hbxDynamicMenu: true,
+        hbxDynamicMenuCreatedAt: new Date().toISOString(),
+        hbxDynamicMenuOptions: options,
+        routeTarget: 'atendimento',
+        queueTarget: 'atendimento',
+      },
+    });
+  }
+
+  private parsePendingAgendaChoice(metadata: Record<string, any>, normalizedText: string) {
+    const pending = metadata?.hbxAgendaPending && typeof metadata.hbxAgendaPending === 'object'
+      ? metadata.hbxAgendaPending
+      : null;
+    if (!pending || !Array.isArray(pending.options)) return null;
+    const numeric = Number(String(normalizedText || '').trim());
+    if (!Number.isInteger(numeric)) return null;
+    const option = pending.options.find((item: HbxAgendaOption) => Number(item.index) === numeric);
+    return option ? { pending, option } : null;
+  }
+
+  private async queueSimpleAgendaOptions(input: {
+    companyId: number;
+    conversationId: number;
+    from: string;
+    config: AtendimentoBotConfig;
+    agendaConfig: AtendimentoAgendaConfig;
+    group: AtendimentoAgendaGroup;
+    metadata: Record<string, any>;
+    intent: 'schedule' | 'reschedule';
+    appointmentId?: number | null;
+  }) {
+    const options = await this.buildSimpleAgendaOptions({
+      companyId: input.companyId,
+      group: input.group,
+      config: input.agendaConfig,
+      excludeAppointmentId: input.appointmentId,
+    });
+    if (!options.length) {
+      await this.conversations.queueOutboundForCompany(input.companyId, {
+        to: input.from,
+        contactId: input.from,
+        body: input.group.emptyMessage || 'Nao encontrei horario livre nos proximos dias. Vou deixar essa conversa para o Glauco ajustar manualmente.',
+        messageType: 'text',
+        sourceModule: 'atendimento_bot',
+        senderType: 'bot',
+        flowState: {
+          currentFlow: ATENDIMENTO_FLOW_ID,
+          currentStep: ATENDIMENTO_STEP.HUMAN,
+          botActive: false,
+          humanAssigned: true,
+          flowResult: null,
+          metadata: {
+            ...input.metadata,
+            hbxGateType: input.intent === 'reschedule' ? 'reschedule' : 'agenda',
+            agendaIntent: true,
+            routeTarget: 'atendimento',
+            queueTarget: 'atendimento',
+          },
+        },
+      });
+      return;
+    }
+    const lines = options.map((option) => `${option.index}. ${option.label}`).join('\n');
+    const prefix = input.intent === 'reschedule'
+      ? 'Tenho estas novas opções para reagendar com o Glauco:'
+      : 'Tenho estas opções para falar com o Glauco:';
+    await this.conversations.queueOutboundForCompany(input.companyId, {
+      to: input.from,
+      contactId: input.from,
+      body: `${prefix}\n\n${lines}\n\nResponda com o número da melhor opção.`,
+      messageType: 'text',
+      sourceModule: 'atendimento_bot',
+      senderType: 'bot',
+      variables: { options },
+      flowState: {
+        currentFlow: ATENDIMENTO_FLOW_ID,
+        currentStep: HBX_AGENDA_STEP,
+        botActive: true,
+        humanAssigned: false,
+        flowResult: null,
+        metadata: {
+          ...input.metadata,
+          hbxGateType: input.intent === 'reschedule' ? 'reschedule' : 'agenda',
+          agendaIntent: true,
+          hbxAgendaPending: {
+            intent: input.intent,
+            agendaGroupId: input.group.id,
+            appointmentId: input.appointmentId || null,
+            options,
+            createdAt: new Date().toISOString(),
+          },
+        },
+      },
+    });
+  }
+
+  private async confirmSimpleAgendaChoice(input: {
+    companyId: number;
+    conversationId: number;
+    from: string;
+    company: { name: string };
+    metadata: Record<string, any>;
+    agendaConfig: AtendimentoAgendaConfig;
+    group: AtendimentoAgendaGroup;
+    option: HbxAgendaOption;
+    intent: 'schedule' | 'reschedule';
+    appointmentId?: number | null;
+  }) {
+    const refreshedOptions = await this.buildSimpleAgendaOptions({
+      companyId: input.companyId,
+      group: input.group,
+      config: input.agendaConfig,
+      excludeAppointmentId: input.appointmentId,
+    });
+    const stillAvailable = refreshedOptions.find((option) => option.isoDate === input.option.isoDate);
+    if (!stillAvailable) {
+      await this.conversations.queueOutboundForCompany(input.companyId, {
+        to: input.from,
+        contactId: input.from,
+        body: 'Esse horario acabou de ficar indisponivel. Vou te mostrar novas opcoes livres.',
+        messageType: 'text',
+        sourceModule: 'atendimento_bot',
+        senderType: 'bot',
+        flowState: { currentFlow: ATENDIMENTO_FLOW_ID, currentStep: HBX_AGENDA_STEP, botActive: true, humanAssigned: false },
+      });
+      await this.queueSimpleAgendaOptions({
+        companyId: input.companyId,
+        conversationId: input.conversationId,
+        from: input.from,
+        config: DEFAULT_ATENDIMENTO_BOT_CONFIG,
+        agendaConfig: input.agendaConfig,
+        group: input.group,
+        metadata: input.metadata,
+        intent: input.intent,
+        appointmentId: input.appointmentId,
+      });
+      return;
+    }
+
+    const delegate = this.appointmentDelegate();
+    const customerName = String(input.metadata?.cliente || input.metadata?.customerName || input.from).trim();
+    const data = {
+      companyId: input.companyId,
+      conversationId: input.conversationId,
+      customerName,
+      customerPhone: this.normalizeAppointmentPhone(input.from),
+      agendaGroupId: input.group.id,
+      responsibleName: input.group.linkedUserName || input.group.title || 'Glauco',
+      responsibleEmail: input.group.linkedEmail || null,
+      startsAt: new Date(stillAvailable.startsAt),
+      endsAt: new Date(stillAvailable.endsAt),
+      timezone: input.agendaConfig.timezone || 'America/Sao_Paulo',
+      status: 'confirmed',
+      source: 'whatsapp_atendimento',
+      calendarSyncStatus: 'not_configured',
+      metadata: JSON.stringify({
+        hbx: true,
+        reminderMinutes: Number(input.group.reminderMinutes || 60),
+        googleCalendarConfigured: false,
+      }),
+    };
+    const appointment = input.intent === 'reschedule' && input.appointmentId
+      ? await delegate.update({
+          where: { id: Number(input.appointmentId) },
+          data: {
+            startsAt: data.startsAt,
+            endsAt: data.endsAt,
+            responsibleName: data.responsibleName,
+            responsibleEmail: data.responsibleEmail,
+            calendarSyncStatus: 'not_configured',
+            metadata: data.metadata,
+          },
+        })
+      : await delegate.create({ data });
+    const finalMessage = input.intent === 'reschedule'
+      ? `Pronto, reagendei seu atendimento com o Glauco para ${this.formatAgendaDateLabel(data.startsAt, data.timezone)} das ${stillAvailable.startTime} às ${stillAvailable.endTime}.`
+      : `Perfeito, seu horário com o Glauco ficou reservado para ${this.formatAgendaDateLabel(data.startsAt, data.timezone)} das ${stillAvailable.startTime} às ${stillAvailable.endTime}. Vou deixar tudo registrado por aqui.`;
+    const nextMetadata = {
+      ...input.metadata,
+      hbxGateType: input.intent === 'reschedule' ? 'reschedule' : 'agenda',
+      agendaIntent: true,
+      hbxLastAppointmentId: appointment.id,
+      hbxLastAppointmentStatus: 'confirmed',
+      hbxAgendaPending: null,
+      hbxAppointmentHistory: [
+        ...((Array.isArray(input.metadata?.hbxAppointmentHistory) ? input.metadata.hbxAppointmentHistory : []) as unknown[]).slice(-10),
+        {
+          action: input.intent === 'reschedule' ? 'rescheduled' : 'confirmed',
+          appointmentId: appointment.id,
+          at: new Date().toISOString(),
+          startsAt: data.startsAt.toISOString(),
+          endsAt: data.endsAt.toISOString(),
+        },
+      ],
+      routeTarget: 'atendimento',
+      queueTarget: 'atendimento',
+    };
+    await this.conversations.queueOutboundForCompany(input.companyId, {
+      to: input.from,
+      contactId: input.from,
+      body: finalMessage,
+      messageType: 'text',
+      sourceModule: 'atendimento_bot',
+      senderType: 'bot',
+      flowState: {
+        currentFlow: ATENDIMENTO_FLOW_ID,
+        currentStep: ATENDIMENTO_STEP.HUMAN,
+        botActive: false,
+        humanAssigned: true,
+        flowResult: null,
+        metadata: nextMetadata,
+      },
+    });
+    await this.appendAtendimentoSystemEvent({
+      companyId: input.companyId,
+      conversationId: input.conversationId,
+      contactId: input.from,
+      text: input.intent === 'reschedule'
+        ? `Agendamento reagendado para ${data.startsAt.toISOString()}.`
+        : `Agendamento confirmado para ${data.startsAt.toISOString()}.`,
+      eventType: input.intent === 'reschedule' ? 'appointment_rescheduled' : 'appointment_confirmed',
+      variables: { appointmentId: appointment.id, calendarSyncStatus: 'not_configured' },
+    });
+  }
+
+  private async cancelFutureAppointment(input: {
+    companyId: number;
+    conversationId: number;
+    from: string;
+    metadata: Record<string, any>;
+    appointment: any;
+  }) {
+    await this.appointmentDelegate().update({
+      where: { id: Number(input.appointment.id) },
+      data: {
+        status: 'canceled',
+        calendarSyncStatus: input.appointment.googleCalendarEventId ? 'pending' : 'not_configured',
+      },
+    });
+    await this.conversations.queueOutboundForCompany(input.companyId, {
+      to: input.from,
+      contactId: input.from,
+      body: 'Pronto, cancelei seu agendamento com o Glauco. Se quiser marcar outro dia, é só me chamar.',
+      messageType: 'text',
+      sourceModule: 'atendimento_bot',
+      senderType: 'bot',
+      flowState: {
+        currentFlow: ATENDIMENTO_FLOW_ID,
+        currentStep: ATENDIMENTO_STEP.HUMAN,
+        botActive: false,
+        humanAssigned: true,
+        flowResult: null,
+        metadata: {
+          ...input.metadata,
+          hbxGateType: 'cancel_appointment',
+          hbxCancelAppointmentId: null,
+          hbxLastAppointmentId: input.appointment.id,
+          hbxLastAppointmentStatus: 'canceled',
+          hbxAppointmentHistory: [
+            ...((Array.isArray(input.metadata?.hbxAppointmentHistory) ? input.metadata.hbxAppointmentHistory : []) as unknown[]).slice(-10),
+            { action: 'canceled', appointmentId: input.appointment.id, at: new Date().toISOString() },
+          ],
+        },
+      },
+    });
+    await this.appendAtendimentoSystemEvent({
+      companyId: input.companyId,
+      conversationId: input.conversationId,
+      contactId: input.from,
+      text: `Agendamento ${input.appointment.id} cancelado pelo cliente.`,
+      eventType: 'appointment_canceled',
+      variables: { appointmentId: input.appointment.id },
+    });
+  }
+
   private async routeAtendimentoToHumanQueue(input: {
     companyId: number;
     conversationId: number;
@@ -4686,7 +5372,7 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
           safeConversationId,
           {
             botActive: false,
-            humanAssigned: false,
+            humanAssigned: true,
             flowResult: 'personal_contact',
           },
           metadata,
@@ -4708,6 +5394,24 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
       metadata,
     });
 
+    const gate = await this.buildHbxGateContext({
+      companyId,
+      from,
+      company,
+      conversation,
+      metadata,
+      recoveryCustomer,
+      tenantContext,
+      agendaConfig,
+      config,
+      inboundProfileName,
+    });
+    metadata = {
+      ...metadata,
+      hbxGateContext: gate.hbxGateContext,
+      hbxGateLastCheckedAt: new Date().toISOString(),
+    };
+
     const isClosedConversation =
       ['manual_closed', 'encerrado_operador'].includes(
         String(conversation?.flowResult || '').trim().toLowerCase(),
@@ -4715,14 +5419,17 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     const isRecoveryConversation =
       String(conversation?.currentFlow || '').trim().toLowerCase().includes('recovery') ||
       String(conversation?.currentStep || '').trim().toLowerCase().includes('cobranca');
-    const actionId = this.normalizeAtendimentoActionId(
-      rawActionId,
-      config,
-      rawPayload,
-      normalizedText,
-      agendaConfig,
-      conversation?.currentStep,
-    );
+    let actionId = this.resolveDynamicMenuActionKey(metadata, rawActionId, normalizedText, rawPayload);
+    if (!actionId) {
+      actionId = this.normalizeAtendimentoActionId(
+        rawActionId,
+        config,
+        rawPayload,
+        normalizedText,
+        agendaConfig,
+        conversation?.currentStep,
+      );
+    }
     const actionGuide = this.getAtendimentoActionGuide(config, actionId);
     const messageCount = safeConversationId
       ? await this.prisma.companyMessage.count({
@@ -4876,7 +5583,8 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     if (
       recoveryCustomer &&
       config.routingRules.checkRecoveryBeforeReply &&
-      config.routingRules.autoRouteDebtorsToRecovery
+      config.routingRules.autoRouteDebtorsToRecovery &&
+      metadata.atendimentoRecoveryIntroPending
     ) {
       const recoveryVars = this.buildAtendimentoTemplateVars({
         companyName: company.name,
@@ -5136,6 +5844,301 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
       return { handled: true, ignoredEmptyInbound: true };
     }
 
+    if (this.containsNegativeOptOut(text)) {
+      await setInboundMeta('atendimento_optout', true);
+      await this.markAtendimentoNegativeOptOut({
+        companyId,
+        conversationId: safeConversationId,
+        from,
+        metadata,
+      });
+      return { handled: true, negativeOptOut: true };
+    }
+
+    const pendingAgendaChoice = this.parsePendingAgendaChoice(metadata, normalizedText);
+    if (pendingAgendaChoice && gate.group) {
+      await setInboundMeta('atendimento_bot', false);
+      await this.confirmSimpleAgendaChoice({
+        companyId,
+        conversationId: safeConversationId,
+        from,
+        company,
+        metadata,
+        agendaConfig,
+        group: gate.group,
+        option: pendingAgendaChoice.option,
+        intent: pendingAgendaChoice.pending.intent === 'reschedule' ? 'reschedule' : 'schedule',
+        appointmentId: pendingAgendaChoice.pending.appointmentId || null,
+      });
+      return { handled: true, agendaChoice: true };
+    }
+
+    if (metadata.hbxCancelAppointmentId && /^(sim|s|confirmo|confirmar|pode cancelar|cancelar)$/i.test(text.trim())) {
+      const appointment = await this.findFutureAtendimentoAppointment(companyId, from, gate.group?.id || null);
+      if (!appointment || Number(appointment.id) !== Number(metadata.hbxCancelAppointmentId)) {
+        await setInboundMeta('atendimento_bot', false);
+        await this.conversations.queueOutboundForCompany(companyId, {
+          to: from,
+          contactId: from,
+          body: 'Não encontrei um agendamento futuro ativo para cancelar.',
+          messageType: 'text',
+          sourceModule: 'atendimento_bot',
+          senderType: 'bot',
+          flowState: {
+            currentFlow: ATENDIMENTO_FLOW_ID,
+            currentStep: ATENDIMENTO_STEP.HUMAN,
+            botActive: false,
+            humanAssigned: true,
+            flowResult: null,
+            metadata: { ...metadata, hbxCancelAppointmentId: null },
+          },
+        });
+        return { handled: true, cancelAppointment: false };
+      }
+      await setInboundMeta('atendimento_bot', false);
+      await this.cancelFutureAppointment({
+        companyId,
+        conversationId: safeConversationId,
+        from,
+        metadata,
+        appointment,
+      });
+      return { handled: true, cancelAppointment: true };
+    }
+
+    if (actionId === 'enter_recovery' && recoveryCustomer && tenantContext.recoveryEnabled) {
+      await setInboundMeta('atendimento_router', false);
+      await this.startRecoveryFromAtendimento({
+        companyId,
+        conversationId: safeConversationId,
+        from,
+        customer: recoveryCustomer,
+        metadata,
+      });
+      return { handled: true, delegatedToRecovery: true };
+    }
+
+    if (actionId === 'schedule_service') {
+      await setInboundMeta('atendimento_bot', false);
+      if (!gate.group || !gate.hbxGateContext.canShowAgenda) {
+        await this.queueDynamicReceptionMenu({
+          companyId,
+          conversationId: safeConversationId,
+          from,
+          company,
+          config,
+          metadata,
+          hbxGateContext: gate.hbxGateContext,
+        });
+        return { handled: true, agendaUnavailable: true };
+      }
+      await this.queueSimpleAgendaOptions({
+        companyId,
+        conversationId: safeConversationId,
+        from,
+        config,
+        agendaConfig,
+        group: gate.group,
+        metadata,
+        intent: 'schedule',
+      });
+      return { handled: true, agenda: true };
+    }
+
+    if (actionId === 'reschedule_service') {
+      await setInboundMeta('atendimento_bot', false);
+      const appointment = await this.findFutureAtendimentoAppointment(companyId, from, gate.group?.id || null);
+      if (!appointment || !gate.group) {
+        await this.conversations.queueOutboundForCompany(companyId, {
+          to: from,
+          contactId: from,
+          body: 'Não encontrei um agendamento futuro ativo para reagendar. Posso te mostrar novos horários disponíveis.',
+          messageType: 'text',
+          sourceModule: 'atendimento_bot',
+          senderType: 'bot',
+          flowState: {
+            currentFlow: ATENDIMENTO_FLOW_ID,
+            currentStep: ATENDIMENTO_STEP.MAIN_MENU,
+            botActive: true,
+            humanAssigned: false,
+            flowResult: null,
+            metadata,
+          },
+        });
+        if (gate.group && gate.hbxGateContext.canShowAgenda) {
+          await this.queueSimpleAgendaOptions({
+            companyId,
+            conversationId: safeConversationId,
+            from,
+            config,
+            agendaConfig,
+            group: gate.group,
+            metadata,
+            intent: 'schedule',
+          });
+        }
+        return { handled: true, rescheduleUnavailable: true };
+      }
+      await this.conversations.queueOutboundForCompany(companyId, {
+        to: from,
+        contactId: from,
+        body: `Encontrei seu agendamento atual com o Glauco para ${this.formatAgendaDateLabel(appointment.startsAt, appointment.timezone || agendaConfig.timezone)} das ${this.getDatePartsInTimezone(appointment.startsAt, appointment.timezone || agendaConfig.timezone).hour}:${this.getDatePartsInTimezone(appointment.startsAt, appointment.timezone || agendaConfig.timezone).minute} às ${this.getDatePartsInTimezone(appointment.endsAt, appointment.timezone || agendaConfig.timezone).hour}:${this.getDatePartsInTimezone(appointment.endsAt, appointment.timezone || agendaConfig.timezone).minute}.`,
+        messageType: 'text',
+        sourceModule: 'atendimento_bot',
+        senderType: 'bot',
+        flowState: { currentFlow: ATENDIMENTO_FLOW_ID, currentStep: HBX_AGENDA_STEP, botActive: true, humanAssigned: false, flowResult: null },
+      });
+      await this.queueSimpleAgendaOptions({
+        companyId,
+        conversationId: safeConversationId,
+        from,
+        config,
+        agendaConfig,
+        group: gate.group,
+        metadata,
+        intent: 'reschedule',
+        appointmentId: appointment.id,
+      });
+      return { handled: true, reschedule: true };
+    }
+
+    if (actionId === 'cancel_appointment') {
+      await setInboundMeta('atendimento_bot', false);
+      const appointment = await this.findFutureAtendimentoAppointment(companyId, from, gate.group?.id || null);
+      if (!appointment) {
+        await this.conversations.queueOutboundForCompany(companyId, {
+          to: from,
+          contactId: from,
+          body: 'Não encontrei um agendamento futuro ativo para cancelar.',
+          messageType: 'text',
+          sourceModule: 'atendimento_bot',
+          senderType: 'bot',
+          flowState: { currentFlow: ATENDIMENTO_FLOW_ID, currentStep: ATENDIMENTO_STEP.MAIN_MENU, botActive: true, humanAssigned: false, flowResult: null, metadata },
+        });
+        return { handled: true, cancelAppointment: false };
+      }
+      const timezone = appointment.timezone || agendaConfig.timezone || 'America/Sao_Paulo';
+      const start = this.getDatePartsInTimezone(appointment.startsAt, timezone);
+      const end = this.getDatePartsInTimezone(appointment.endsAt, timezone);
+      await this.conversations.queueOutboundForCompany(companyId, {
+        to: from,
+        contactId: from,
+        body: `Encontrei seu agendamento com o Glauco para ${this.formatAgendaDateLabel(appointment.startsAt, timezone)} das ${start.hour}:${start.minute} às ${end.hour}:${end.minute}. Responda "sim" para confirmar o cancelamento.`,
+        messageType: 'text',
+        sourceModule: 'atendimento_bot',
+        senderType: 'bot',
+        flowState: {
+          currentFlow: ATENDIMENTO_FLOW_ID,
+          currentStep: HBX_CANCEL_STEP,
+          botActive: true,
+          humanAssigned: false,
+          flowResult: null,
+          metadata: { ...metadata, hbxGateType: 'cancel_appointment', hbxCancelAppointmentId: appointment.id },
+        },
+      });
+      return { handled: true, cancelAppointment: 'confirming' };
+    }
+
+    if (actionId === 'talk_owner') {
+      await setInboundMeta('atendimento_human', true);
+      await this.conversations.queueOutboundForCompany(companyId, {
+        to: from,
+        contactId: from,
+        body: 'Perfeito, vou deixar essa conversa para o Glauco responder diretamente.',
+        messageType: 'text',
+        sourceModule: 'atendimento_human',
+        senderType: 'bot',
+        flowState: {
+          currentFlow: ATENDIMENTO_FLOW_ID,
+          currentStep: ATENDIMENTO_STEP.HUMAN,
+          botActive: false,
+          humanAssigned: true,
+          flowResult: null,
+          metadata: { ...metadata, hbxGateType: 'talk_to_owner', talkToOwner: true, routeTarget: 'conversas', queueTarget: 'conversas' },
+        },
+      });
+      return { handled: true, talkToOwner: true };
+    }
+
+    if (actionId === 'supplier_contact') {
+      await setInboundMeta('atendimento_human', true);
+      await this.conversations.queueOutboundForCompany(companyId, {
+        to: from,
+        contactId: from,
+        body: 'Perfeito, vou deixar essa conversa para o Glauco avaliar a parceria.',
+        messageType: 'text',
+        sourceModule: 'atendimento_human',
+        senderType: 'bot',
+        flowState: {
+          currentFlow: ATENDIMENTO_FLOW_ID,
+          currentStep: ATENDIMENTO_STEP.HUMAN,
+          botActive: false,
+          humanAssigned: true,
+          flowResult: null,
+          metadata: { ...metadata, hbxGateType: 'supplier', supplierContact: true, routeTarget: 'conversas', queueTarget: 'conversas' },
+        },
+      });
+      return { handled: true, supplierContact: true };
+    }
+
+    if (actionId === 'personal_subject') {
+      await setInboundMeta('whatsapp_personal', false);
+      await this.conversations.queueOutboundForCompany(companyId, {
+        to: from,
+        contactId: from,
+        body: 'Perfeito, vou deixar essa conversa para o Glauco responder diretamente.',
+        messageType: 'text',
+        sourceModule: 'whatsapp_personal',
+        senderType: 'bot',
+        flowState: {
+          currentFlow: ATENDIMENTO_FLOW_ID,
+          currentStep: ATENDIMENTO_STEP.HUMAN,
+          botActive: false,
+          humanAssigned: true,
+          flowResult: 'personal_contact',
+          metadata: {
+            ...metadata,
+            hbxGateType: 'personal',
+            inboxPersonalContact: true,
+            personalContact: true,
+            whatsappPersonalContact: true,
+            routeTarget: 'conversas',
+            queueTarget: 'conversas',
+          },
+        },
+      });
+      return { handled: true, personalContact: true };
+    }
+
+    if (actionId === 'technical_support') {
+      await setInboundMeta('atendimento_bot', false);
+      const supportMetadata = {
+        ...metadata,
+        hbxGateType: 'technical_support',
+        technicalSupport: true,
+        routeTarget: 'atendimento',
+        queueTarget: 'atendimento',
+      };
+      await this.conversations.queueOutboundForCompany(companyId, {
+        to: from,
+        contactId: from,
+        body: 'Me conte em poucas palavras qual problema técnico você precisa resolver.',
+        messageType: 'text',
+        sourceModule: 'atendimento_bot',
+        senderType: 'bot',
+        variables: supportMetadata,
+        flowState: {
+          currentFlow: ATENDIMENTO_FLOW_ID,
+          currentStep: ATENDIMENTO_STEP.MAIN_MENU,
+          botActive: true,
+          humanAssigned: false,
+          flowResult: null,
+          metadata: supportMetadata,
+        },
+      });
+      return { handled: true, technicalSupport: true };
+    }
+
     const vars = this.buildAtendimentoTemplateVars({
       companyName: company.name,
       phone: from,
@@ -5143,11 +6146,28 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
       recoveryCustomer: null,
     });
 
-    const queueMainMenu = async () => queueMainMenuForVars(vars, vars);
+    const queueMainMenu = async () =>
+      this.queueDynamicReceptionMenu({
+        companyId,
+        conversationId: safeConversationId,
+        from,
+        company,
+        config,
+        metadata,
+        hbxGateContext: gate.hbxGateContext,
+      });
 
     if (actionId === 'show_main_menu') {
       await setInboundMeta('atendimento_bot', false);
-      await queueMainMenu();
+      await this.queueDynamicReceptionMenu({
+        companyId,
+        conversationId: safeConversationId,
+        from,
+        company,
+        config,
+        metadata,
+        hbxGateContext: gate.hbxGateContext,
+      });
       return { handled: true };
     }
 
@@ -5407,48 +6427,6 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     // ------- End name-collection flow -------
 
     await setInboundMeta('atendimento_bot', Boolean(normalizedText));
-    if (!hasHistory && (config.welcomeButtons || []).length > 0) {
-      await this.queueAtendimentoButtonPrompt({
-        companyId,
-        to: from,
-        contactId: from,
-        conversationId: safeConversationId,
-        body: renderTemplate(config.welcomeMessage, vars, config),
-        step: ATENDIMENTO_STEP.WELCOME,
-        buttons: config.welcomeButtons,
-        variables: vars,
-      });
-      return { handled: true };
-    }
-
-    const greetingMessage = hasHistory ? config.returningCustomerMessage : config.welcomeMessage;
-    const renderedGreetingMessage = renderTemplate(greetingMessage, vars, config);
-    if (
-      await this.hasRecentDuplicateAtendimentoReply({
-        companyId,
-        contactId: from,
-        conversationId: safeConversationId,
-        body: renderedGreetingMessage,
-      })
-    ) {
-      return { handled: true, duplicateSuppressed: true };
-    }
-    await this.conversations.queueOutboundForCompany(companyId, {
-      to: from,
-      contactId: from,
-      body: renderedGreetingMessage,
-      messageType: 'text',
-      sourceModule: 'atendimento_bot',
-      senderType: 'bot',
-      variables: vars,
-      flowState: {
-        currentFlow: ATENDIMENTO_FLOW_ID,
-        currentStep: ATENDIMENTO_STEP.WELCOME,
-        botActive: true,
-        humanAssigned: false,
-        flowResult: null,
-      },
-    });
     await queueMainMenu();
     return { handled: true };
   }

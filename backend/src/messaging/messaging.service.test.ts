@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { MessagingService } from './messaging.service';
-import { DEFAULT_ATENDIMENTO_BOT_CONFIG } from '../inbox/atendimento-config';
+import { DEFAULT_ATENDIMENTO_AGENDA_CONFIG, DEFAULT_ATENDIMENTO_BOT_CONFIG } from '../inbox/atendimento-config';
 
 const COMPLETED_ATENDIMENTO_BOT_CONFIG = {
   ...DEFAULT_ATENDIMENTO_BOT_CONFIG,
@@ -56,6 +56,13 @@ function createService(overrides?: Partial<Record<string, any>>) {
     },
     atendimentoCustomer: {
       findUnique: async () => null,
+    },
+    atendimentoAppointment: {
+      findFirst: async () => null,
+      findMany: async () => [],
+      count: async () => 0,
+      create: async ({ data }: any) => ({ id: 1, ...data }),
+      update: async ({ where, data }: any) => ({ id: where.id, ...data }),
     },
     hbxRecoveryFlowStage: {
       findFirst: async () => null,
@@ -774,10 +781,10 @@ test('handleAtendimentoInbound enters the Vendas agenda bot gate and opens the m
   assert.equal(queueCalls.length, 1);
   assert.equal((queueCalls[0].payload as any).sourceModule, 'atendimento_bot');
   assert.equal((queueCalls[0].payload as any).flowState.currentStep, 'menu_principal');
-  assert.equal(
-    (queueCalls[0].payload as any).body,
-    'Escolha abaixo como deseja continuar no Atendimento:\n\n1. Suporte\n2. Agendar visita\n3. Falar com atendente',
-  );
+  assert.match(String((queueCalls[0].payload as any).body), /Sou o assistente da HBX Solutions/);
+  assert.match(String((queueCalls[0].payload as any).body), /1\. Agendar com Glauco/);
+  assert.match(String((queueCalls[0].payload as any).body), /2\. Suporte tecnico/);
+  assert.match(String((queueCalls[0].payload as any).body), /5\. Assunto pessoal/);
   assert.equal(conversationStateCalls.length, 1);
   assert.equal((conversationStateCalls[0].payload as any).humanAssigned, false);
   assert.equal((conversationStateCalls[0].payload as any).botActive, true);
@@ -1027,4 +1034,70 @@ test('handleAtendimentoInbound handles Recovery menu actions inside Atendimento'
   );
   assert.equal(companyMessageUpdateCalls.length, 1);
   assert.equal((companyMessageUpdateCalls[0] as any).data.sourceModule, 'atendimento_bot');
+});
+
+test('Recepcionista IA dynamic menu hides unavailable agenda, recovery and appointment actions', async () => {
+  const { service } = createService();
+
+  const menu = (service as any).buildDynamicReceptionMenu({
+    canShowAgenda: false,
+    canShowReschedule: false,
+    canShowCancelAppointment: false,
+    canShowRecovery: false,
+    canShowSupport: true,
+    canShowTalkToOwner: true,
+    canShowSupplier: true,
+    canShowPersonal: true,
+  });
+
+  assert.deepEqual(
+    menu.map((option: any) => option.actionKey),
+    ['technical_support', 'talk_owner', 'supplier_contact', 'personal_subject'],
+  );
+});
+
+test('Recepcionista IA dynamic menu shows reschedule and cancel only with future appointment', async () => {
+  const { service } = createService();
+
+  const menu = (service as any).buildDynamicReceptionMenu({
+    canShowAgenda: false,
+    canShowReschedule: true,
+    canShowCancelAppointment: true,
+    canShowRecovery: false,
+    canShowSupport: true,
+    canShowTalkToOwner: true,
+    canShowSupplier: false,
+    canShowPersonal: true,
+  });
+
+  assert.deepEqual(
+    menu.map((option: any) => option.actionKey),
+    ['reschedule_service', 'cancel_appointment', 'technical_support', 'talk_owner', 'personal_subject'],
+  );
+});
+
+test('Agenda simples offers business-day 09-13 slots and skips occupied days', async () => {
+  const startsAt = new Date('2026-05-11T12:00:00.000Z');
+  const { service } = createService({
+    prisma: {
+      atendimentoAppointment: {
+        count: async ({ where }: any) =>
+          startsAt >= where.startsAt.gte && startsAt < where.startsAt.lt ? 1 : 0,
+      },
+    },
+  });
+
+  const group = DEFAULT_ATENDIMENTO_AGENDA_CONFIG.groups[0];
+  const options = await (service as any).buildSimpleAgendaOptions({
+    companyId: 7,
+    group,
+    config: DEFAULT_ATENDIMENTO_AGENDA_CONFIG,
+    fromDate: new Date('2026-05-08T12:00:00.000Z'),
+  });
+
+  assert.equal(options.length, 5);
+  assert.equal(options[0].startTime, '09:00');
+  assert.equal(options[0].endTime, '13:00');
+  assert.notEqual(options[0].isoDate, '2026-05-11');
+  assert.ok(options.every((option: any) => !['6', '0'].includes(String(new Date(`${option.isoDate}T12:00:00`).getDay()))));
 });

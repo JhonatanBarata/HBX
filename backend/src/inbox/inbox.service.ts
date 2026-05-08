@@ -4343,8 +4343,17 @@ export class InboxService {
       ...metadata,
       inboxManualQueueOverride: queue,
       inboxManualQueueOverriddenAt: now,
+      lastManualRouteChangeAt: now,
       queueTarget: nextRouteTarget,
       routeTarget: nextRouteTarget,
+      ...(queue === 'scheduled'
+        ? {
+            inboxPersonalContact: false,
+            personalContact: false,
+            whatsappPersonalContact: false,
+            inboxPersonalContactClearedAt: now,
+          }
+        : {}),
       ...(queue === 'archived' || unavailable
         ? {
             inboxLocalDeleted: true,
@@ -4397,6 +4406,11 @@ export class InboxService {
             humanAssigned: false,
             flowResult: 'local_deleted',
           }
+        : queue === 'scheduled'
+          ? {
+              humanAssigned: false,
+              flowResult: null,
+            }
         : {}),
     });
 
@@ -4481,7 +4495,7 @@ export class InboxService {
 
     await this.conversations.updateConversationState(companyId, id, {
       botActive: personal ? false : conversation.botActive,
-      humanAssigned: personal ? false : conversation.humanAssigned,
+      humanAssigned: personal ? true : conversation.humanAssigned,
       flowResult: personal ? 'personal_contact' : conversation.flowResult,
       metadata: nextMetadata,
     });

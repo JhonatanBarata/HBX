@@ -211,7 +211,10 @@ type AgendaGroupEditableField =
   | "visibleBusinessDays"
   | "searchWindowDays"
   | "suggestedSlotsCount"
-  | "fallbackFutureSlotsCount";
+  | "fallbackFutureSlotsCount"
+  | "simpleMode"
+  | "capacityPerDay"
+  | "reminderMinutes";
 
 type CurrentUserProfile = {
   id?: number | null;
@@ -5272,6 +5275,7 @@ export default function InboxClientPage() {
       onAddGroup={addAgendaGroup}
       onRemoveGroup={removeAgendaGroup}
       onResetBotAgenda={resetBotAgendaToDefault}
+      onConfigureSimpleGlaucoAgenda={configureSimpleGlaucoAgenda}
       onLinkCurrentUser={linkAgendaToCurrentUser}
       onSaveBotAgenda={() => {
         setNotice(null);
@@ -7619,6 +7623,9 @@ export default function InboxClientPage() {
           searchWindowDays: 7,
           suggestedSlotsCount: 3,
           fallbackFutureSlotsCount: 3,
+          simpleMode: false,
+          capacityPerDay: 1,
+          reminderMinutes: 60,
           slots: [],
         },
       ],
@@ -7650,10 +7657,40 @@ export default function InboxClientPage() {
     setBotConfig((current) => ({
       ...current,
       actionCatalog: current.actionCatalog.map((action) =>
-        action.actionId === "schedule_service" ? { ...action, agendaGroupId: "agenda_tecnicos" } : action,
+        ["schedule_service", "reschedule_service", "cancel_appointment"].includes(action.actionId)
+          ? { ...action, agendaGroupId: "agenda_glauco" }
+          : action,
       ),
     }));
   }, []);
+
+  const configureSimpleGlaucoAgenda = useCallback(() => {
+    const email = String(currentUserProfile?.email || "").trim().toLowerCase();
+    const name = String(currentUserProfile?.name || "Glauco").trim() || "Glauco";
+    setAgendaDirty(true);
+    setBotConfigDirtyFromAgendaReset(true);
+    setAgendaConfig((current) => {
+      const base = normalizeAgendaConfig(DEFAULT_ATENDIMENTO_AGENDA_CONFIG).groups[0];
+      const simpleGroup = {
+        ...base,
+        linkedEmail: email,
+        linkedUserName: name,
+        connectionStatus: email ? ("pending" as const) : ("not_linked" as const),
+      };
+      const groups = current.groups.some((group) => group.id === "agenda_glauco")
+        ? current.groups.map((group) => (group.id === "agenda_glauco" ? { ...group, ...simpleGroup } : group))
+        : [simpleGroup, ...current.groups].map((group, index) => ({ ...group, sortOrder: index }));
+      return normalizeAgendaConfig({ ...current, groups });
+    });
+    setBotConfig((current) => ({
+      ...current,
+      actionCatalog: current.actionCatalog.map((action) =>
+        ["schedule_service", "reschedule_service", "cancel_appointment"].includes(action.actionId)
+          ? { ...action, agendaGroupId: "agenda_glauco" }
+          : action,
+      ),
+    }));
+  }, [currentUserProfile?.email, currentUserProfile?.name]);
 
   const updateAgendaGroup = useCallback(
     (
@@ -7704,7 +7741,7 @@ export default function InboxClientPage() {
                 ...group,
                 linkedEmail: email,
                 linkedUserName: String(currentUserProfile?.name || "").trim(),
-                connectionStatus: "connected",
+                connectionStatus: "pending",
               }
             : group,
         ),
