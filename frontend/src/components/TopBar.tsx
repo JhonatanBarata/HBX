@@ -413,6 +413,269 @@ type HbxEngineLoadTone = "green" | "yellow" | "red" | "muted";
 const HBX_ENGINE_SPARK_WIDTH = 236;
 const HBX_ENGINE_SPARK_HEIGHT = 58;
 
+const HBX_TOPBAR_POLISH_CSS = `
+  .app-topbar__inner--controlCenter {
+    display: grid;
+    grid-template-columns: minmax(190px, 230px) minmax(620px, 1fr) minmax(250px, 310px);
+    align-items: stretch;
+    gap: 12px;
+    padding: 10px;
+    border: 1px solid var(--line, rgba(148, 163, 184, 0.22));
+    border-radius: calc(var(--panel-radius, 22px) + 4px);
+    background:
+      radial-gradient(circle at 18% 0%, var(--selection-accent-soft, rgba(16, 185, 129, 0.12)), transparent 34%),
+      linear-gradient(135deg, var(--header-surface, var(--surface, #ffffff)), var(--surface-soft, #f8fafc));
+    box-shadow: var(--shadow-sm, 0 18px 42px -24px rgba(15, 23, 42, 0.26));
+  }
+
+  .hbx-command-brand,
+  .hbx-command-side,
+  .hbx-command-billboard {
+    border: 1px solid var(--line, rgba(148, 163, 184, 0.2));
+    background: linear-gradient(180deg, color-mix(in srgb, var(--surface-raised, #fff) 94%, transparent), color-mix(in srgb, var(--surface-soft, #f8fafc) 92%, transparent));
+    box-shadow: var(--shadow-xs, 0 12px 24px -18px rgba(15, 23, 42, 0.22));
+  }
+
+  .hbx-command-brand {
+    min-width: 0;
+    display: grid;
+    grid-template-columns: 52px minmax(0, 1fr);
+    gap: 10px;
+    align-items: center;
+    padding: 10px;
+    border-radius: var(--panel-radius, 22px);
+    overflow: hidden;
+  }
+
+  .hbx-command-brand__mark {
+    width: 52px;
+    height: 52px;
+    border: 0;
+    border-radius: 18px;
+    display: grid;
+    place-items: center;
+    color: var(--brand-contrast, #fff);
+    background: radial-gradient(circle at 30% 20%, rgba(255,255,255,.34), transparent 30%), linear-gradient(135deg, var(--brand, #10b981), var(--button-accent, #0ea5e9));
+    box-shadow: 0 16px 34px -22px var(--brand, #10b981);
+    font-size: 11px;
+    font-weight: 900;
+    letter-spacing: .02em;
+    cursor: pointer;
+    position: relative;
+  }
+
+  .hbx-command-brand__mark span {
+    position: absolute;
+    inset: 8px;
+    border: 1px solid rgba(255,255,255,.42);
+    border-radius: 14px;
+    pointer-events: none;
+  }
+
+  .hbx-command-brand__copy { min-width: 0; display: grid; gap: 2px; }
+  .hbx-command-brand__copy strong {
+    color: var(--foreground, #0f172a);
+    font-size: 15px;
+    font-weight: 900;
+    letter-spacing: -0.03em;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .hbx-command-brand__copy span {
+    color: var(--muted, #64748b);
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .08em;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .hbx-command-center, .hbx-command-center__body { min-width: 0; height: 100%; }
+  .hbx-command-billboard {
+    position: relative;
+    height: 100%;
+    min-height: 126px;
+    border-radius: var(--panel-radius, 22px);
+    padding: 12px;
+    overflow: hidden;
+    color: var(--foreground, #0f172a);
+    cursor: pointer;
+  }
+  .hbx-command-billboard::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: radial-gradient(circle at 8% 18%, var(--selection-accent-soft, rgba(16,185,129,.14)), transparent 28%), linear-gradient(90deg, transparent, color-mix(in srgb, var(--brand, #10b981) 10%, transparent), transparent);
+    opacity: .68;
+  }
+  .hbx-command-billboard__scan {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    opacity: .26;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,.38), transparent);
+    transform: translateX(-120%);
+    animation: hbxTopbarScan 5.5s ease-in-out infinite;
+  }
+  .hbx-command-billboard__main,
+  .hbx-command-billboard__metrics,
+  .hbx-command-kpis--billboard,
+  .hbx-command-chips--billboard,
+  .hbx-command-billboard__steps,
+  .hbx-command-billboard__feed,
+  .hbx-command-engine-map { position: relative; z-index: 1; }
+
+  .hbx-command-billboard__main {
+    display: grid;
+    grid-template-columns: 42px minmax(0, 1fr) auto;
+    gap: 10px;
+    align-items: center;
+  }
+  .hbx-command-billboard__orb {
+    width: 42px;
+    height: 42px;
+    border-radius: 16px;
+    background: radial-gradient(circle at 35% 28%, rgba(255,255,255,.78), transparent 28%), linear-gradient(135deg, var(--brand, #10b981), var(--button-accent, #0ea5e9));
+    box-shadow: 0 0 0 6px var(--selection-accent-soft, rgba(16,185,129,.13));
+  }
+  .hbx-command-billboard__main span {
+    display: block;
+    color: var(--menu-active, var(--brand, #059669));
+    font-size: 10px;
+    font-weight: 900;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+  }
+  .hbx-command-billboard__main strong {
+    display: block;
+    margin-top: 2px;
+    color: var(--foreground, #0f172a);
+    font-size: clamp(16px, 1.35vw, 22px);
+    font-weight: 950;
+    letter-spacing: -0.045em;
+    line-height: 1.04;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .hbx-command-billboard__main p {
+    margin: 3px 0 0;
+    color: var(--foreground-soft, #475569);
+    font-size: 12px;
+    font-weight: 650;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .hbx-command-billboard__main b {
+    width: 44px;
+    height: 44px;
+    display: grid;
+    place-items: center;
+    border-radius: 999px;
+    color: var(--foreground, #0f172a);
+    background: conic-gradient(var(--brand, #10b981) var(--engine-usage, 0%), var(--line, rgba(148,163,184,.22)) 0), var(--surface, #fff);
+    box-shadow: inset 0 0 0 7px var(--surface, #fff), var(--shadow-xs, 0 10px 22px -16px rgba(15,23,42,.24));
+    font-size: 12px;
+  }
+  .hbx-command-billboard__track { position: relative; z-index: 1; display: block; height: 7px; margin-top: 10px; border-radius: 999px; background: var(--surface-soft, #f1f5f9); overflow: hidden; }
+  .hbx-command-billboard__track i { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--brand, #10b981), var(--button-accent, #0ea5e9)); }
+
+  .hbx-command-billboard__metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 10px; }
+  .hbx-command-billboard__metrics span,
+  .hbx-command-chips--billboard span,
+  .hbx-command-kpis--billboard button,
+  .hbx-command-billboard__steps span,
+  .hbx-command-billboard__feed span {
+    border: 1px solid var(--line, rgba(148,163,184,.18));
+    background: color-mix(in srgb, var(--surface-raised, #fff) 90%, transparent);
+    box-shadow: var(--shadow-inset, inset 0 1px 0 rgba(255,255,255,.7));
+  }
+  .hbx-command-billboard__metrics span { display: grid; gap: 2px; padding: 8px 10px; border-radius: 14px; color: var(--muted, #64748b); font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: .06em; }
+  .hbx-command-billboard__metrics strong { color: var(--foreground, #0f172a); font-size: 14px; letter-spacing: -0.02em; }
+
+  .hbx-command-kpis--billboard { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 7px; margin-top: 10px; }
+  .hbx-command-kpis--billboard button { min-width: 0; display: grid; gap: 2px; text-align: left; padding: 8px 9px; border-radius: 15px; color: var(--foreground, #0f172a); cursor: pointer; position: relative; overflow: hidden; }
+  .hbx-command-kpis--billboard button::before { content: ""; position: absolute; inset: auto 0 0 0; height: 3px; width: var(--kpi-usage, 0%); background: var(--brand, #10b981); opacity: .9; }
+  .hbx-command-kpis--billboard button[data-tone="warning"]::before { background: var(--warning, #f59e0b); }
+  .hbx-command-kpis--billboard button[data-tone="danger"]::before { background: var(--danger, #ef4444); }
+  .hbx-command-kpis--billboard button[data-tone="neutral"]::before { background: var(--muted, #64748b); }
+  .hbx-command-kpis--billboard em { color: var(--muted, #64748b); font-size: 9px; font-style: normal; font-weight: 900; letter-spacing: .05em; text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .hbx-command-kpis--billboard strong { color: var(--foreground, #0f172a); font-size: 12px; font-weight: 900; letter-spacing: -0.02em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .hbx-command-kpis--billboard small { color: var(--foreground-soft, #475569); font-size: 9px; font-weight: 650; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  .hbx-command-chips--billboard { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 9px; }
+  .hbx-command-chips--billboard span { display: inline-flex; align-items: center; gap: 6px; min-height: 26px; padding: 4px 9px; border-radius: 999px; color: var(--muted, #64748b); font-size: 10px; font-weight: 850; }
+  .hbx-command-chips--billboard strong { color: var(--foreground, #0f172a); font-size: 11px; }
+  .hbx-command-chips--billboard span::before { content: ""; width: 7px; height: 7px; border-radius: 999px; background: var(--muted, #64748b); }
+  .hbx-command-chips--billboard span[data-tone="success"]::before { background: var(--success, #10b981); box-shadow: 0 0 10px var(--success, #10b981); }
+  .hbx-command-chips--billboard span[data-tone="warning"]::before { background: var(--warning, #f59e0b); box-shadow: 0 0 10px var(--warning, #f59e0b); }
+  .hbx-command-chips--billboard span[data-tone="danger"]::before { background: var(--danger, #ef4444); box-shadow: 0 0 10px var(--danger, #ef4444); }
+
+  .hbx-command-billboard__steps, .hbx-command-billboard__feed { display: grid; gap: 6px; margin-top: 9px; }
+  .hbx-command-billboard__steps { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .hbx-command-billboard__feed { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .hbx-command-billboard__steps span { display: flex; align-items: center; gap: 6px; padding: 7px 8px; border-radius: 13px; color: var(--foreground-soft, #475569); font-size: 10px; font-weight: 800; }
+  .hbx-command-billboard__steps i { width: 8px; height: 8px; border-radius: 999px; background: var(--muted, #94a3b8); }
+  .hbx-command-billboard__steps span[data-state="active"] i { background: var(--warning, #f59e0b); box-shadow: 0 0 10px var(--warning, #f59e0b); }
+  .hbx-command-billboard__steps span[data-state="done"] i { background: var(--success, #10b981); }
+  .hbx-command-billboard__feed span { display: grid; gap: 1px; padding: 7px 8px; border-radius: 13px; min-width: 0; }
+  .hbx-command-billboard__feed strong, .hbx-command-billboard__feed small { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  .hbx-command-engine-map { height: 100%; }
+  .hbx-command-engines--billboard { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; height: 100%; }
+  .hbx-command-engine { min-width: 0; display: flex; flex-direction: column; gap: 8px; padding: 10px; border-radius: 18px; border: 1px solid color-mix(in srgb, var(--engine-tone-color, var(--brand, #10b981)) 28%, var(--line, rgba(148,163,184,.2))); background: radial-gradient(circle at 20% 0%, color-mix(in srgb, var(--engine-tone-color, #10b981) 12%, transparent), transparent 42%), color-mix(in srgb, var(--surface-raised, #fff) 94%, transparent); box-shadow: var(--shadow-inset, inset 0 1px 0 rgba(255,255,255,.72)); }
+  .hbx-command-engine__top { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+  .hbx-command-engine__range { display: block; color: var(--muted, #64748b); font-size: 10px; font-weight: 800; line-height: 1; }
+  .hbx-command-engine__top strong { display: block; margin-top: 4px; color: var(--foreground, #0f172a); font-size: 24px; font-weight: 950; letter-spacing: -0.06em; line-height: 1; }
+  .hbx-command-engine__top > span:last-child { display: inline-flex; align-items: center; gap: 5px; padding: 5px 8px; border-radius: 999px; color: var(--engine-tone-color, #059669); background: color-mix(in srgb, var(--engine-tone-color, #059669) 12%, transparent); border: 1px solid color-mix(in srgb, var(--engine-tone-color, #059669) 22%, transparent); font-size: 10px; font-weight: 900; white-space: nowrap; }
+  .hbx-command-engine__top > span:last-child::before { content: ""; width: 7px; height: 7px; border-radius: 999px; background: currentColor; box-shadow: 0 0 10px currentColor; }
+  .hbx-command-engine__mid { min-height: 58px; display: grid; grid-template-columns: 52px minmax(0, 1fr); gap: 8px; align-items: end; }
+  .hbx-command-engine__gauge { width: 52px; height: 52px; border-radius: 999px; display: grid; place-items: center; align-content: center; color: var(--foreground, #0f172a); background: conic-gradient(var(--engine-tone-color, #10b981) var(--engine-usage, 0%), var(--line, rgba(148,163,184,.22)) 0), var(--surface, #fff); box-shadow: inset 0 0 0 6px var(--surface, #fff), var(--shadow-xs, 0 10px 22px -16px rgba(15,23,42,.24)); }
+  .hbx-command-engine__gauge b { font-size: 13px; font-weight: 950; letter-spacing: -0.04em; line-height: 1; }
+  .hbx-command-engine__gauge small { margin-top: -11px; color: var(--muted, #64748b); font-size: 8px; font-weight: 900; text-transform: uppercase; }
+  .hbx-command-engine__spark { color: var(--foreground, #0f172a); mix-blend-mode: normal; }
+  .hbx-command-engine__dots { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; padding: 0 4px 0 63px; }
+  .hbx-command-engine__dots i { width: 8px; height: 8px; justify-self: center; border-radius: 999px; }
+
+  .hbx-command-side { min-width: 0; display: grid; grid-template-columns: 1fr; align-content: start; gap: 8px; padding: 10px; border-radius: var(--panel-radius, 22px); }
+  .hbx-control-accountRow, .hbx-control-masterActions, .hbx-control-vitals { min-width: 0; display: flex; flex-wrap: wrap; gap: 7px; align-items: center; }
+  .hbx-control-user { min-width: 0; flex: 1 1 150px; position: relative; }
+  .hbx-control-user__trigger, .hbx-control-logout, .hbx-control-masterActions .btn, .hbx-control-vitals span { min-height: 34px; border-radius: 999px; border: 1px solid var(--line, rgba(148,163,184,.2)); background: color-mix(in srgb, var(--surface-raised, #fff) 92%, transparent); color: var(--foreground, #0f172a); box-shadow: var(--shadow-inset, inset 0 1px 0 rgba(255,255,255,.72)); }
+  .hbx-control-user__trigger { width: 100%; display: grid; grid-template-columns: 30px minmax(0, 1fr); gap: 8px; align-items: center; padding: 3px 10px 3px 4px; }
+  .hbx-control-user .app-user__avatar { width: 30px; height: 30px; display: grid; place-items: center; border-radius: 999px; color: var(--brand-contrast, #fff); background: linear-gradient(135deg, var(--brand, #10b981), var(--button-accent, #0ea5e9)); font-size: 12px; font-weight: 950; }
+  .hbx-control-user .app-user__meta { min-width: 0; display: grid; text-align: left; }
+  .hbx-control-user .app-user__name, .hbx-control-user .app-user__company { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .hbx-control-user .app-user__name { color: var(--foreground, #0f172a); font-size: 12px; font-weight: 900; }
+  .hbx-control-user .app-user__company { color: var(--muted, #64748b); font-size: 10px; font-weight: 700; }
+  .hbx-control-logout { display: inline-flex; align-items: center; gap: 6px; padding: 0 11px; font-size: 11px; font-weight: 900; text-decoration: none; }
+  .hbx-control-masterActions .btn { padding: 0 12px; font-size: 11px; font-weight: 900; }
+  .hbx-control-vitals span { display: inline-grid; align-content: center; padding: 4px 10px; color: var(--muted, #64748b); font-size: 9px; font-weight: 900; letter-spacing: .04em; text-transform: uppercase; }
+  .hbx-control-vitals strong { color: var(--foreground, #0f172a); font-size: 12px; letter-spacing: -0.02em; }
+  .hbx-control-vitals span[data-tone="green"] strong, .hbx-control-vitals span[data-tone="success"] strong { color: var(--success, #10b981); }
+  .hbx-control-vitals span[data-tone="yellow"] strong, .hbx-control-vitals span[data-tone="warning"] strong { color: var(--warning, #f59e0b); }
+  .hbx-control-vitals span[data-tone="red"] strong, .hbx-control-vitals span[data-tone="danger"] strong { color: var(--danger, #ef4444); }
+  .hbx-control-user .app-user__menu { right: 0; left: auto; width: min(320px, calc(100vw - 24px)); border: 1px solid var(--line, rgba(148,163,184,.2)); background: var(--surface-raised, #fff); color: var(--foreground, #0f172a); box-shadow: var(--shadow-md, 0 30px 72px -32px rgba(15,23,42,.38)); }
+
+  @keyframes hbxTopbarScan { 0%, 66% { transform: translateX(-120%); } 100% { transform: translateX(120%); } }
+  @media (max-width: 1240px) {
+    .app-topbar__inner--controlCenter { grid-template-columns: minmax(150px, 190px) minmax(480px, 1fr); }
+    .hbx-command-side { grid-column: 1 / -1; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; }
+    .hbx-control-vitals { justify-content: flex-end; }
+  }
+  @media (max-width: 920px) {
+    .app-topbar__inner--controlCenter { grid-template-columns: 1fr; }
+    .hbx-command-engines--billboard { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .hbx-command-kpis--billboard { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .hbx-command-billboard__feed, .hbx-command-billboard__steps, .hbx-command-billboard__metrics { grid-template-columns: 1fr; }
+  }
+`;
+
+
 function getEngineUsageTone(usage: number, state?: string | null): HbxEngineLoadTone {
   const normalizedState = String(state || "").trim().toLowerCase();
   if (normalizedState === "offline" || normalizedState === "missing" || normalizedState === "paused") return "muted";
@@ -516,6 +779,55 @@ function buildEngineSparkSegment(
     areaPoints,
     centerX: xStart + segmentWidth / 2,
     separatorX: xStart + segmentWidth + segmentGap / 2,
+  };
+}
+
+
+function buildSyntheticGroupChildEngine(
+  engine: ScrapingEngineStatus,
+  groupIndex: number,
+  childIndex: number,
+): ScrapingEngineStatus {
+  const baseUsage = getEngineUsage(engine);
+  const pattern = [0.74, 1.18, 0.92, 1.36, 0.58][(groupIndex + childIndex) % 5];
+  const offsetPattern = [-10, 7, -2, 14, -6][(childIndex + groupIndex * 2) % 5];
+  const processed = Math.max(0, Math.trunc(Number(engine.processedLast10Min || 0)));
+  const queueShare = Math.max(0, Math.min(100, Number(engine.queueShare || 0)));
+  const pressureBoost = Math.min(18, processed * 0.7 + queueShare * 0.11);
+  const syntheticUsage = clampTopbarPercent(baseUsage * pattern + offsetPattern + pressureBoost);
+  const activeSlots = Math.max(1, Math.min(5, Math.ceil(Math.max(baseUsage, syntheticUsage) / 22)));
+  const sourceState = getScrapingEngineState(engine);
+  const childNumber = groupIndex * 5 + childIndex + 1;
+  const inheritedStatus =
+    sourceState === "offline" ||
+    sourceState === "missing" ||
+    sourceState === "paused" ||
+    sourceState === "cooldown" ||
+    sourceState === "degraded"
+      ? sourceState
+      : childIndex < activeSlots
+        ? "busy"
+        : "standby";
+
+  return {
+    ...engine,
+    id: `${engine.id || `hbx-main-${groupIndex + 1}`}:sub-${childIndex + 1}`,
+    label: `HBX Motor ${childNumber}`,
+    shortLabel: `HBX ${childNumber}`,
+    index: childNumber - 1,
+    active: Boolean(engine.active || engine.busy) && childIndex < activeSlots,
+    busy: Boolean(engine.busy || engine.active) && childIndex < activeSlots,
+    online: engine.online || engine.configured,
+    dimmed: childIndex >= activeSlots && !engine.active && !engine.busy,
+    status: inheritedStatus,
+    usagePercent: syntheticUsage,
+    processedLast10Min: Math.max(0, Math.round(processed * (0.1 + pattern * 0.18))),
+    queueShare: Math.max(0, Math.min(100, Math.round(queueShare * pattern))),
+    errorCount: childIndex === 0 ? engine.errorCount : Math.max(0, Math.floor(Number(engine.errorCount || 0) * 0.35)),
+    heartbeatAgeSeconds: Number.isFinite(Number(engine.heartbeatAgeSeconds))
+      ? Math.max(0, Math.trunc(Number(engine.heartbeatAgeSeconds || 0)) + childIndex * 3)
+      : engine.heartbeatAgeSeconds,
+    detail: `${engine.label || `M${groupIndex + 1}`} controla submotor ${childIndex + 1}/5`,
   };
 }
 
@@ -3202,14 +3514,21 @@ export default function TopBar() {
   const displayName = (user?.name || user?.username || user?.email || "").trim();
   const _initialSource = displayName || String(user?.username || user?.email || "");
   const displayInitial = _initialSource ? _initialSource.charAt(0).toUpperCase() : "U";
-  const displayLabel = displayName ? `User: ${displayName}` : user?.username ? `User: ${user.username}` : "";
+  const displayLabel = displayName || user?.username || "";
   const hbxEngineGroups = Array.from({ length: 4 }, (_, groupIndex) => {
-    const engines = scrapingEngineView.hbxEngines.length
+    const sourceEngines = scrapingEngineView.hbxEngines.length
       ? scrapingEngineView.hbxEngines
       : Array.from({ length: TOPBAR_HBX_ENGINE_COUNT }, (_, index) => buildFallbackScrapingEngine(index));
-    const groupSize = Math.max(1, Math.ceil(engines.length / 4));
-    const groupEngines = engines.slice(groupIndex * groupSize, (groupIndex + 1) * groupSize);
-    const safeGroupEngines = groupEngines.length ? groupEngines : [buildFallbackScrapingEngine(groupIndex)];
+    const mainEngineMode = sourceEngines.length <= 4;
+    const firstIndex = groupIndex * 5 + 1;
+    const lastIndex = firstIndex + 4;
+    const sourceMainEngine = sourceEngines[groupIndex] || buildFallbackScrapingEngine(groupIndex);
+    const groupEngines = mainEngineMode
+      ? Array.from({ length: 5 }, (_, childIndex) => buildSyntheticGroupChildEngine(sourceMainEngine, groupIndex, childIndex))
+      : sourceEngines.slice(firstIndex - 1, lastIndex);
+    const safeGroupEngines = groupEngines.length
+      ? groupEngines
+      : Array.from({ length: 5 }, (_, childIndex) => buildFallbackScrapingEngine(groupIndex * 5 + childIndex));
     const onlineCount = safeGroupEngines.filter((engine) => engine.configured && engine.online).length;
     const runningCount = safeGroupEngines.filter((engine) => {
       const state = getVisibleScrapingEngineState(engine);
@@ -3248,8 +3567,6 @@ export default function TopBar() {
               : state === "offline"
                 ? "Off"
                 : "Standby";
-    const firstIndex = groupIndex * groupSize + 1;
-    const lastIndex = firstIndex + safeGroupEngines.length - 1;
     const sparkSegments = safeGroupEngines.slice(0, 5).map((engine, engineIndex) => {
       const engineUsage = getEngineUsage(engine);
       const engineState = getVisibleScrapingEngineState(engine);
@@ -3434,6 +3751,7 @@ export default function TopBar() {
 
   return (
     <header className={`app-topbar${topbarHiddenByScroll ? " app-topbar--hidden" : ""}`}>
+      <style>{HBX_TOPBAR_POLISH_CSS}</style>
       <div ref={topbarFrameRef} className="app-topbar__frame">
         <div className="app-topbar__inner app-topbar__inner--controlCenter">
           <section className="hbx-command-brand" aria-label="HBXSYSTEM">
