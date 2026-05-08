@@ -2653,7 +2653,6 @@ export default function TopBar() {
   const displayInitial = _initialSource ? _initialSource.charAt(0).toUpperCase() : "U";
   const displayLabel = displayName ? `User: ${displayName}` : user?.username ? `User: ${user.username}` : "";
   const controlCenterEngines = scrapingEngineView.hbxEngines.slice(0, 4);
-  const usageSparkBars = [42, 54, 68, 55, 39, 48, 63, 70, 58, 52, 66, 74];
   if (hiddenRoutes.has(pathname)) {
     return null;
   }
@@ -2679,10 +2678,6 @@ export default function TopBar() {
             <div className="hbx-control-brand__copy">
               <strong>HBX Control Center</strong>
               <span>Central operacional</span>
-            </div>
-            <div className="hbx-control-brand__tools" aria-hidden="true">
-              <span />
-              <span />
             </div>
           </section>
 
@@ -2749,71 +2744,46 @@ export default function TopBar() {
             </div>
           </section>
 
-          <section className="hbx-control-usage" aria-label="Utilização agregada">
-            <div className="hbx-control-usage__head">
-              <strong>Utilização agregada</strong>
-              <span>Visão por hora</span>
-            </div>
-            <div className="hbx-control-usage__chart" aria-hidden="true">
-              {usageSparkBars.map((height, index) => (
-                <i
-                  key={index}
-                  style={{
-                    height: `${Math.max(14, Math.min(92, height + (hbxUsageAverage - 50) / 3))}%`,
-                    ["--bar-index" as string]: index,
-                  }}
-                />
-              ))}
-              <span />
-            </div>
-            <div className="hbx-control-usage__foot">
-              <span>
-                Uso atual
-                <strong>{hbxUsageAverage}%</strong>
+          <section className="hbx-control-billboard" aria-label="Billboard operacional HBX">
+            <article
+              key={activeBillboardSlide.id}
+              className="app-topbar__billboard"
+              data-phase={activeBillboardSlide.phase}
+              data-theater={activeBillboardSlide.isTheater ? "true" : "false"}
+            >
+              <span className="app-topbar__billboardScan" aria-hidden="true" />
+              <span className="app-topbar__billboardEqualizer" aria-hidden="true">
+                {[0, 1, 2, 3].map((item) => (
+                  <i key={item} style={{ ["--eq-index" as string]: item }} />
+                ))}
               </span>
-              <span>
-                Tendência
-                <strong>{activeBillboardProgress ?? hbxTenMinuteGaugeUsage}%</strong>
-              </span>
-            </div>
-            <div className="hbx-control-usage__gauges" aria-label="Resumo de leitura dos motores">
-              {hbxGaugePanels.map((panel) => (
-                <span key={panel.id} title={panel.title}>
-                  {panel.label}
-                  <strong>{panel.metric}</strong>
+              <div className="app-topbar__billboardMain">
+                <span className="app-topbar__billboardOrb" aria-hidden="true">
+                  <span />
                 </span>
-              ))}
-            </div>
-          </section>
-
-          <section className="hbx-control-actions" aria-label="Ações rápidas">
-            <button
-              type="button"
-              className="hbx-control-action hbx-control-action--green"
-              onClick={() => handleQueueShortcut("atendimento")}
-            >
-              <span aria-hidden="true">▱</span>
-              Monitorar Agora
-              {unreadInboxCount > 0 ? <b>{unreadInboxCount}</b> : null}
-            </button>
-            <button
-              type="button"
-              className="hbx-control-action hbx-control-action--blue"
-              onClick={() => setWhatsAppDetailOpen(true)}
-            >
-              <span aria-hidden="true">▣</span>
-              Acesso Rápido
-            </button>
-            {authenticated === true ? (
-              <button
-                type="button"
-                className="hbx-control-action hbx-control-action--purple"
-                onClick={handleSupportClick}
-              >
-                <span aria-hidden="true">☎</span>
-                Suporte
-              </button>
-            ) : null}
+                <span className="app-topbar__billboardCopy">
+                  <span className="app-topbar__billboardEyebrow">{activeBillboardSlide.eyebrow}</span>
+                  <strong>{activeBillboardSlide.title}</strong>
+                  <p>{activeBillboardSlide.description}</p>
+                </span>
+                {activeBillboardProgress !== null ? (
+                  <strong className="app-topbar__billboardPercent">{activeBillboardProgress}%</strong>
+                ) : null}
+              </div>
+              {activeBillboardProgress !== null ? (
+                <span className="app-topbar__billboardTrack" aria-hidden="true">
+                  <span style={{ width: `${activeBillboardProgress}%` }} />
+                </span>
+              ) : null}
+              <div className="app-topbar__billboardMetrics">
+                {(activeBillboardSlide.metrics?.length ? activeBillboardSlide.metrics : hbxGaugePanels).slice(0, 3).map((metricItem) => (
+                  <span key={`${metricItem.label}:${metricItem.value}`} title={"title" in metricItem ? metricItem.title : undefined}>
+                    {metricItem.label}
+                    <strong>{metricItem.value}</strong>
+                  </span>
+                ))}
+              </div>
+            </article>
           </section>
 
           <section className="hbx-control-side" aria-label="Tema e usuário">
