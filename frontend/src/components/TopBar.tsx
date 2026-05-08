@@ -266,6 +266,7 @@ type TopBarIncomingPopup = {
 
 type BillboardSlide = {
   id: string;
+  kind?: "status" | "engines";
   eyebrow: string;
   title: string;
   description: string;
@@ -2434,6 +2435,89 @@ export default function TopBar() {
     }
   }
 
+  function openWhatsAppOperationalDetail(focus: WhatsAppDiagnosticFocus = "status") {
+    setWhatsAppDetailFocus(focus);
+    setWhatsAppDetailOpen(true);
+    void loadWhatsAppCenter({ background: true, includeQr: focus === "qr" });
+  }
+
+  function handleBillboardAction(slide: BillboardSlide) {
+    if (pendingCheckoutLocked) {
+      router.push(pendingCheckoutHref);
+      return;
+    }
+
+    if (showOperationalCompanyPicker) {
+      void openMasterContextModal();
+      return;
+    }
+
+    if (slide.source === "qr" || slide.source === "modules") {
+      openWhatsAppOperationalDetail(slide.source === "qr" ? "qr" : "status");
+      return;
+    }
+
+    if (slide.source === "incoming" && incomingPopup?.href) {
+      router.push(incomingPopup.href);
+      return;
+    }
+
+    if (slide.source === "queue") {
+      handleQueueShortcut(atendimentoPendingHumanCount > 0 ? "atendimento" : "recovery");
+      return;
+    }
+
+    if (slide.source === "hostinger") {
+      router.push("/master/sistema");
+      return;
+    }
+
+    if (slide.source === "engines" || slide.source === "webscraping") {
+      router.push(user?.isSystemMaster ? "/master/webscraping" : "/radar-digital");
+      return;
+    }
+
+    if (slide.source === "operational") {
+      if (user?.isSystemMaster && !user.masterContext?.active) {
+        void openMasterContextModal();
+      } else if (user?.isSystemMaster) {
+        router.push("/master");
+      } else {
+        router.push("/boasvindas");
+      }
+    }
+  }
+
+  function handleCommandKpiAction(id: TopbarOperationalTile["id"]) {
+    if (pendingCheckoutLocked) {
+      router.push(pendingCheckoutHref);
+      return;
+    }
+
+    if (id === "qr") {
+      openWhatsAppOperationalDetail("qr");
+      return;
+    }
+
+    if (id === "messages") {
+      if (pendingHumanCount > 0) {
+        handleQueueShortcut(atendimentoPendingHumanCount > 0 ? "atendimento" : "recovery");
+      } else {
+        void toggleUnreadInboxPopup();
+      }
+      return;
+    }
+
+    if (id === "queue") {
+      router.push(user?.isSystemMaster ? "/master/webscraping" : "/radar-digital");
+      return;
+    }
+
+    if (id === "memory" || id === "disk") {
+      router.push(user?.isSystemMaster ? "/master/sistema" : "/boasvindas");
+    }
+  }
+
   async function assumeMasterContext() {
     const companyId = Number(selectedMasterCompanyId || 0);
     const selectedCompany = masterCompanyOptions.find((company) => company.id === companyId) || null;
@@ -2680,13 +2764,14 @@ export default function TopBar() {
     const capacity = scrapingEngines?.capacity;
     const slides: BillboardSlide[] = [
       {
-      id: "operational",
-      eyebrow: "Status operacional",
-      title: operationalSummaryMessage,
-      description: accountContext,
-      phase: pendingCheckoutLocked || showOperationalCompanyPicker ? "warning" : hasActiveScrapingEngine ? "loading" : "idle",
-      source: "operational",
-      progress: hasActiveScrapingEngine ? hbxUsageAverage : null,
+        id: "operational",
+        kind: "status",
+        eyebrow: "Status operacional",
+        title: operationalSummaryMessage,
+        description: accountContext,
+        phase: pendingCheckoutLocked || showOperationalCompanyPicker ? "warning" : hasActiveScrapingEngine ? "loading" : "idle",
+        source: "operational",
+        progress: hasActiveScrapingEngine ? hbxUsageAverage : null,
         metrics: [
           { label: "Uso", value: `${hbxUsageAverage}%` },
           { label: "Fila", value: String(capacity?.queuedCount ?? 0) },
@@ -2694,6 +2779,22 @@ export default function TopBar() {
         ],
       },
     ];
+
+    slides.push({
+      id: "engines",
+      kind: "engines",
+      eyebrow: "Motores HBX",
+      title: `${hbxCapacityRunningCount} rodando`,
+      description: `${hbxEngineOnlineCount}/${hbxEngineTotal || TOPBAR_HBX_ENGINE_COUNT} online • ${hbxActiveEngineLimit}/${hbxEngineTotal || TOPBAR_HBX_ENGINE_COUNT} ativos agora`,
+      phase: hbxOperationalErrorCount > 0 ? "warning" : hbxCapacityRunningCount > 0 || hasActiveScrapingEngine ? "loading" : "success",
+      source: "engines",
+      progress: hbxUsageAverage,
+      metrics: [
+        { label: "Online", value: `${hbxEngineOnlineCount}/${hbxEngineTotal || TOPBAR_HBX_ENGINE_COUNT}` },
+        { label: "Rodando", value: String(hbxCapacityRunningCount) },
+        { label: "Cooldown", value: String(hbxCooldownCount) },
+      ],
+    });
 
     if (incomingPopup) {
       slides.push({
@@ -2782,6 +2883,12 @@ export default function TopBar() {
     accountContext,
     atendimentoPendingHumanCount,
     hasActiveScrapingEngine,
+    hbxActiveEngineLimit,
+    hbxCapacityRunningCount,
+    hbxCooldownCount,
+    hbxEngineOnlineCount,
+    hbxEngineTotal,
+    hbxOperationalErrorCount,
     hostingerSummaryTile,
     hostingerVitals,
     hbxProcessedLast10Min,
@@ -3049,6 +3156,45 @@ export default function TopBar() {
       bars: visualBars,
     };
   });
+  const hbxEngineGroupCards = hbxEngineGroups.map((group) => (
+    <article
+      key={group.id}
+      className="hbx-command-engine"
+      data-state={group.state}
+      style={getEngineGaugeStyle(group.usage)}
+      title={`${group.label}: ${group.stateLabel}. Motores ${group.range}. ${group.runningCount}/${group.total} rodando, ${group.onlineCount}/${group.total} online.`}
+    >
+      <div className="hbx-command-engine__top">
+        <div>
+          <span className="hbx-command-engine__range">Motores {group.range}</span>
+          <strong>{group.label}</strong>
+        </div>
+        <span>{group.stateLabel}</span>
+      </div>
+      <div className="hbx-command-engine__mid">
+        <span className="hbx-command-engine__gauge" aria-hidden="true">
+          <b>{group.usage}%</b>
+          <small>uso</small>
+        </span>
+        <span className="hbx-command-engine__bars" aria-hidden="true">
+          {group.bars.map((bar) => (
+            <i
+              key={bar.id}
+              data-state={bar.state}
+              data-active={bar.active ? "true" : "false"}
+              style={{ height: `${bar.usage}%` }}
+              title={`${bar.label}: ${bar.usage}%`}
+            />
+          ))}
+        </span>
+      </div>
+      <div className="hbx-command-engine__dots" aria-hidden="true">
+        {group.bars.map((bar) => (
+          <i key={bar.id} data-state={bar.state} data-active={bar.active ? "true" : "false"} />
+        ))}
+      </div>
+    </article>
+  ));
   const commandKpis = [
     {
       id: "memory",
@@ -3099,7 +3245,7 @@ export default function TopBar() {
     <header className={`app-topbar${topbarHiddenByScroll ? " app-topbar--hidden" : ""}`}>
       <div ref={topbarFrameRef} className="app-topbar__frame">
         <div className="app-topbar__inner app-topbar__inner--controlCenter">
-          <section className="hbx-command-brand" aria-label="HBX Control Center">
+          <section className="hbx-command-brand" aria-label="HBXSYSTEM">
             <button
               id={MODULES_TRIGGER_ID}
               type="button"
@@ -3114,7 +3260,7 @@ export default function TopBar() {
               <span aria-hidden="true" />
             </button>
             <div className="hbx-command-brand__copy">
-              <strong>HBX Control Center</strong>
+              <strong>HBXSYSTEM</strong>
               <span>Central operacional</span>
             </div>
           </section>
@@ -3126,109 +3272,89 @@ export default function TopBar() {
             aria-label="Status operacional HBX"
           >
             <div className="hbx-command-center__body">
-              <div className="hbx-command-engines" aria-label="Motores HBX agrupados">
-                {hbxEngineGroups.map((group) => (
-                  <article
-                    key={group.id}
-                    className="hbx-command-engine"
-                    data-state={group.state}
-                    style={getEngineGaugeStyle(group.usage)}
-                    title={`${group.label}: ${group.stateLabel}. Motores ${group.range}. ${group.runningCount}/${group.total} rodando, ${group.onlineCount}/${group.total} online.`}
-                  >
-                    <div className="hbx-command-engine__top">
-                      <div>
-                        <span className="hbx-command-engine__range">Motores {group.range}</span>
-                        <strong>{group.label}</strong>
-                      </div>
-                      <span>{group.stateLabel}</span>
-                    </div>
-                    <div className="hbx-command-engine__mid">
-                      <span className="hbx-command-engine__gauge" aria-hidden="true">
-                        <b>{group.usage}%</b>
-                        <small>uso</small>
-                      </span>
-                      <span className="hbx-command-engine__bars" aria-hidden="true">
-                        {group.bars.map((bar) => (
-                          <i
-                            key={bar.id}
-                            data-state={bar.state}
-                            data-active={bar.active ? "true" : "false"}
-                            style={{ height: `${bar.usage}%` }}
-                            title={`${bar.label}: ${bar.usage}%`}
-                          />
-                        ))}
-                      </span>
-                    </div>
-                    <div className="hbx-command-engine__dots" aria-hidden="true">
-                      {group.bars.map((bar) => (
-                        <i key={bar.id} data-state={bar.state} data-active={bar.active ? "true" : "false"} />
-                      ))}
-                    </div>
-                  </article>
-                ))}
-              </div>
-
               <article
                 key={activeBillboardSlide.id}
-                className="hbx-command-billboard"
+                className={`hbx-command-billboard${activeBillboardSlide.kind === "engines" ? " hbx-command-billboard--engines" : ""}`}
                 data-phase={activeBillboardSlide.phase}
                 data-theater={activeBillboardSlide.isTheater ? "true" : "false"}
+                onClick={() => handleBillboardAction(activeBillboardSlide)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    handleBillboardAction(activeBillboardSlide);
+                  }
+                }}
                 aria-label="Billboard operacional"
+                role="button"
+                tabIndex={0}
               >
                 <span className="hbx-command-billboard__scan" aria-hidden="true" />
-                <div className="hbx-command-billboard__main">
-                  <span className="hbx-command-billboard__orb" aria-hidden="true" />
-                  <div>
-                    <span>{activeBillboardSlide.eyebrow}</span>
-                    <strong>{activeBillboardSlide.title}</strong>
-                    <p>{activeBillboardSlide.description}</p>
+                {activeBillboardSlide.kind === "engines" ? (
+                  <div className="hbx-command-engines hbx-command-engines--billboard" aria-label="Motores HBX agrupados">
+                    {hbxEngineGroupCards}
                   </div>
-                  {activeBillboardProgress !== null ? (
-                    <b>{activeBillboardProgress}%</b>
-                  ) : null}
-                </div>
-                {activeBillboardProgress !== null ? (
-                  <span className="hbx-command-billboard__track" aria-hidden="true">
-                    <i style={{ width: `${activeBillboardProgress}%` }} />
-                  </span>
-                ) : null}
-                <div className="hbx-command-billboard__metrics">
-                  {(activeBillboardSlide.metrics?.length ? activeBillboardSlide.metrics : hbxGaugePanels).slice(0, 3).map((metricItem) => (
-                    <span key={`${metricItem.label}:${metricItem.value}`}>
-                      {metricItem.label}
-                      <strong>{metricItem.value}</strong>
-                    </span>
-                  ))}
-                </div>
+                ) : (
+                  <>
+                    <div className="hbx-command-billboard__main">
+                      <span className="hbx-command-billboard__orb" aria-hidden="true" />
+                      <div>
+                        <span>{activeBillboardSlide.eyebrow}</span>
+                        <strong>{activeBillboardSlide.title}</strong>
+                        <p>{activeBillboardSlide.description}</p>
+                      </div>
+                      {activeBillboardProgress !== null ? (
+                        <b>{activeBillboardProgress}%</b>
+                      ) : null}
+                    </div>
+                    {activeBillboardProgress !== null ? (
+                      <span className="hbx-command-billboard__track" aria-hidden="true">
+                        <i style={{ width: `${activeBillboardProgress}%` }} />
+                      </span>
+                    ) : null}
+                    <div className="hbx-command-billboard__metrics">
+                      {(activeBillboardSlide.metrics?.length ? activeBillboardSlide.metrics : hbxGaugePanels).slice(0, 3).map((metricItem) => (
+                        <span key={`${metricItem.label}:${metricItem.value}`}>
+                          {metricItem.label}
+                          <strong>{metricItem.value}</strong>
+                        </span>
+                      ))}
+                    </div>
 
-                <div className="hbx-command-kpis hbx-command-kpis--billboard" aria-label="Sinais conectados ao backend">
-                  {commandKpis.map((item) => (
-                    <span
-                      key={item.id}
-                      data-tone={item.tone}
-                      title={`${item.label}: ${item.value}. ${item.detail}`}
-                      style={
-                        typeof item.usage === "number"
-                          ? ({ ["--kpi-usage" as string]: `${clampTopbarPercent(item.usage)}%` } as React.CSSProperties)
-                          : undefined
-                      }
-                    >
-                      <em>{item.label}</em>
-                      <strong>{item.value}</strong>
-                      <small>{item.detail}</small>
-                      <i aria-hidden="true" />
-                    </span>
-                  ))}
-                </div>
+                    <div className="hbx-command-kpis hbx-command-kpis--billboard" aria-label="Sinais conectados ao backend">
+                      {commandKpis.map((item) => (
+                        <button
+                          type="button"
+                          key={item.id}
+                          data-tone={item.tone}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            handleCommandKpiAction(item.id);
+                          }}
+                          title={`${item.label}: ${item.value}. ${item.detail}`}
+                          style={
+                            typeof item.usage === "number"
+                              ? ({ ["--kpi-usage" as string]: `${clampTopbarPercent(item.usage)}%` } as React.CSSProperties)
+                              : undefined
+                          }
+                        >
+                          <em>{item.label}</em>
+                          <strong>{item.value}</strong>
+                          <small>{item.detail}</small>
+                          <i aria-hidden="true" />
+                        </button>
+                      ))}
+                    </div>
 
-                <div className="hbx-command-chips hbx-command-chips--billboard" aria-label="Resumo operacional dos motores">
-                  {hbxCommandChips.slice(0, 4).map((chip) => (
-                    <span key={`${chip.label}:${chip.value}`} data-tone={chip.tone}>
-                      {chip.label}
-                      <strong>{chip.value}</strong>
-                    </span>
-                  ))}
-                </div>
+                    <div className="hbx-command-chips hbx-command-chips--billboard" aria-label="Resumo operacional dos motores">
+                      {hbxCommandChips.slice(0, 4).map((chip) => (
+                        <span key={`${chip.label}:${chip.value}`} data-tone={chip.tone}>
+                          {chip.label}
+                          <strong>{chip.value}</strong>
+                        </span>
+                      ))}
+                    </div>
+                  </>
+                )}
               </article>
             </div>
           </section>
