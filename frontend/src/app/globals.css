@@ -930,7 +930,7 @@ textarea {
   right: 0;
   left: 0;
   z-index: 90;
-  padding: 6px var(--content-gutter) 0;
+  padding: 5px var(--content-gutter) 0;
   transition: padding 320ms cubic-bezier(0.22, 1, 0.36, 1);
   will-change: padding;
 }
@@ -1034,7 +1034,7 @@ html[data-popup-open="true"] .app-topbar::after {
 }
 
 html[data-theme-switcher-open="true"] .app-topbar {
-  padding-top: 8px;
+  padding-top: 7px;
   pointer-events: auto;
 }
 
@@ -1060,15 +1060,16 @@ html[data-theme-switcher-open="true"] .app-topbar::after {
 }
 
 .app-topbar__inner--controlCenter {
-  min-height: 100px;
-  grid-template-columns: minmax(220px, 0.8fr) minmax(500px, 2fr) minmax(230px, 0.9fr) minmax(118px, 0.48fr) minmax(190px, 0.7fr);
-  gap: 0.48rem;
-  padding: 0.46rem 0.6rem;
+  min-height: 90px;
+  grid-template-columns: minmax(198px, 0.62fr) minmax(430px, 1.4fr) minmax(420px, 1.36fr) minmax(178px, 0.58fr);
+  gap: 0.44rem;
+  padding: 0.41rem 0.54rem;
   color: #eaf2ff;
 }
 
 .hbx-control-brand,
 .hbx-control-status,
+.hbx-control-billboard,
 .hbx-control-usage,
 .hbx-control-actions,
 .hbx-control-side {
@@ -1079,7 +1080,7 @@ html[data-theme-switcher-open="true"] .app-topbar::after {
 .hbx-control-brand {
   display: grid;
   grid-template-columns: 58px minmax(0, 1fr);
-  grid-template-rows: 1fr auto;
+  grid-template-rows: 1fr;
   align-items: center;
   gap: 0.54rem 0.72rem;
 }
@@ -1144,25 +1145,6 @@ html[data-theme-switcher-open="true"] .app-topbar::after {
   font-weight: 720;
 }
 
-.hbx-control-brand__tools {
-  grid-column: 2;
-  display: flex;
-  justify-content: flex-end;
-  gap: 0.72rem;
-  padding-right: 0.2rem;
-}
-
-.hbx-control-brand__tools span {
-  width: 40px;
-  height: 40px;
-  border: 1px solid rgba(17, 230, 151, 0.16);
-  border-radius: 999px;
-  background:
-    radial-gradient(circle, rgba(16, 255, 168, 0.22), transparent 58%),
-    rgba(4, 16, 38, 0.72);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
-}
-
 .hbx-control-status,
 .hbx-control-usage,
 .hbx-control-side .theme-switcher__trigger,
@@ -1180,9 +1162,9 @@ html[data-theme-switcher-open="true"] .app-topbar::after {
 .hbx-control-status {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
-  gap: 0.42rem;
+  gap: 0.36rem;
   border-radius: 14px;
-  padding: 0.58rem 0.64rem 0.5rem;
+  padding: 0.5rem 0.58rem 0.45rem;
 }
 
 .hbx-control-status__head,
@@ -1228,7 +1210,7 @@ html[data-theme-switcher-open="true"] .app-topbar::after {
 .hbx-control-engineGrid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 0.54rem;
+  gap: 0.46rem;
 }
 
 .hbx-control-engine {
@@ -1236,7 +1218,7 @@ html[data-theme-switcher-open="true"] .app-topbar::after {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
   gap: 0.28rem;
-  padding: 0.42rem 0.5rem 0.34rem;
+  padding: 0.36rem 0.44rem 0.3rem;
   border: 1px solid rgba(47, 122, 220, 0.22);
   border-radius: 10px;
   background:
@@ -1278,14 +1260,14 @@ html[data-theme-switcher-open="true"] .app-topbar::after {
 
 .hbx-control-engine__body {
   display: grid;
-  grid-template-columns: 50px minmax(0, 1fr);
+  grid-template-columns: 44px minmax(0, 1fr);
   align-items: center;
   gap: 0.34rem;
 }
 
 .hbx-control-ring {
-  width: 46px;
-  height: 46px;
+  width: 40px;
+  height: 40px;
   display: grid;
   place-items: center;
   border-radius: 999px;
@@ -1315,7 +1297,7 @@ html[data-theme-switcher-open="true"] .app-topbar::after {
 }
 
 .hbx-control-miniChart {
-  height: 40px;
+  height: 34px;
   display: flex;
   align-items: end;
   gap: 3px;
@@ -1336,7 +1318,7 @@ html[data-theme-switcher-open="true"] .app-topbar::after {
 }
 
 .hbx-control-engine__dots i {
-  height: 5px;
+  height: 4px;
   border-radius: 999px;
   background: rgba(117, 136, 177, 0.36);
 }
@@ -1477,6 +1459,52 @@ html[data-theme-switcher-open="true"] .app-topbar::after {
   align-content: stretch;
 }
 
+.hbx-control-billboard {
+  display: grid;
+  align-items: stretch;
+}
+
+.hbx-control-billboard .app-topbar__billboard {
+  height: 100%;
+  min-height: 78px;
+  border-radius: 14px;
+  padding: 0.45rem 0.58rem;
+}
+
+.hbx-control-billboard .app-topbar__billboardMain {
+  grid-template-columns: 30px minmax(0, 1fr) auto;
+  gap: 0.46rem;
+}
+
+.hbx-control-billboard .app-topbar__billboardOrb {
+  width: 28px;
+  height: 28px;
+}
+
+.hbx-control-billboard .app-topbar__billboardEyebrow {
+  font-size: 0.6rem;
+}
+
+.hbx-control-billboard .app-topbar__billboardCopy strong {
+  font-size: 0.86rem;
+}
+
+.hbx-control-billboard .app-topbar__billboardCopy p {
+  font-size: 0.6rem;
+}
+
+.hbx-control-billboard .app-topbar__billboardMetrics {
+  gap: 0.24rem;
+}
+
+.hbx-control-billboard .app-topbar__billboardMetrics span {
+  min-height: 25px;
+  border: 1px solid color-mix(in srgb, var(--line) 72%, var(--button-secondary));
+  border-radius: 8px;
+  padding: 0.22rem 0.42rem;
+  background: color-mix(in srgb, var(--surface-raised) 76%, transparent);
+}
+
 .hbx-control-action {
   min-width: 0;
   min-height: 32px;
@@ -1554,8 +1582,8 @@ html[data-theme-switcher-open="true"] .app-topbar::after {
 
 .hbx-control-side {
   display: grid;
-  grid-template-rows: auto auto auto auto;
-  gap: 0.46rem;
+  grid-template-rows: auto auto auto;
+  gap: 0.38rem;
 }
 
 .hbx-control-side .theme-switcher-wrap {
@@ -1564,26 +1592,26 @@ html[data-theme-switcher-open="true"] .app-topbar::after {
 
 .hbx-control-side .theme-switcher__trigger {
   width: 100%;
-  min-height: 46px;
+  min-height: 39px;
   justify-content: flex-start;
   border-radius: 11px;
   padding: 0.42rem 0.58rem;
 }
 
 .hbx-control-side .theme-switcher__trigger-preview {
-  width: 32px;
-  height: 32px;
+  width: 28px;
+  height: 28px;
 }
 
 .hbx-control-accountRow {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 48px;
-  gap: 0.48rem;
+  grid-template-columns: minmax(0, 1fr) 42px;
+  gap: 0.4rem;
 }
 
 .hbx-control-user__trigger {
   width: 100%;
-  min-height: 46px;
+  min-height: 39px;
   border-radius: 9px;
 }
 
@@ -1594,7 +1622,7 @@ html[data-theme-switcher-open="true"] .app-topbar::after {
 
 .hbx-control-logout {
   min-width: 0;
-  min-height: 46px;
+  min-height: 39px;
   position: relative;
   display: grid;
   place-items: center;
