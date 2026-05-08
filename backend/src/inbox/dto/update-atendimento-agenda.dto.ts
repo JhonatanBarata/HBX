@@ -197,6 +197,24 @@ class UpdateAtendimentoAgendaGroupDto {
   @IsOptional()
   fallbackFutureSlotsCount?: number;
 
+  @IsBoolean()
+  @IsOptional()
+  simpleMode?: boolean;
+
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(20)
+  @IsOptional()
+  capacityPerDay?: number;
+
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(1440)
+  @IsOptional()
+  reminderMinutes?: number;
+
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => UpdateAtendimentoAgendaSlotDto)

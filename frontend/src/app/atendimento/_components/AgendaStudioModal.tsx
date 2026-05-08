@@ -77,7 +77,10 @@ type AgendaGroupEditableField =
   | "visibleBusinessDays"
   | "searchWindowDays"
   | "suggestedSlotsCount"
-  | "fallbackFutureSlotsCount";
+  | "fallbackFutureSlotsCount"
+  | "simpleMode"
+  | "capacityPerDay"
+  | "reminderMinutes";
 
 type AgendaStudioModalProps = {
   initialTab: AgendaStudioTab;
@@ -94,6 +97,7 @@ type AgendaStudioModalProps = {
   onAddGroup: () => void;
   onRemoveGroup: (groupId: string) => void;
   onResetBotAgenda: () => void;
+  onConfigureSimpleGlaucoAgenda?: () => void;
   onLinkCurrentUser: (groupId: string) => void;
   onUpdateGroup: (
     groupId: string,
@@ -416,7 +420,7 @@ function getStandardTimeRange(group: AtendimentoAgendaGroup) {
 }
 
 function getConnectionLabel(status: AtendimentoAgendaGroup["connectionStatus"]) {
-  if (status === "connected") return "Conta conectada";
+  if (status === "connected") return "Conta conectada por token";
   if (status === "pending") return "Conexão pendente";
   return "Conta não vinculada";
 }
@@ -437,6 +441,7 @@ type AgendaBotModernLayoutProps = Pick<
   | "currentUserEmail"
   | "currentUserName"
   | "onAddGroup"
+  | "onConfigureSimpleGlaucoAgenda"
   | "onRemoveGroup"
   | "onLinkCurrentUser"
   | "onUpdateGroup"
@@ -460,6 +465,7 @@ function AgendaBotModernLayout({
   deleteMessage,
   setDeleteMessage,
   onAddGroup,
+  onConfigureSimpleGlaucoAgenda,
   onRemoveGroup,
   onLinkCurrentUser,
   onUpdateGroup,
@@ -501,6 +507,11 @@ function AgendaBotModernLayout({
             <AgendaGlyph name="plus" />
             Nova guia
           </button>
+          {onConfigureSimpleGlaucoAgenda ? (
+            <button type="button" className={styles.agendaBotSoftButton} onClick={onConfigureSimpleGlaucoAgenda} disabled={!canManageAgenda}>
+              Configurar agenda simples
+            </button>
+          ) : null}
         </div>
 
         <div className={styles.agendaBotGuideStack}>
@@ -602,6 +613,22 @@ function AgendaBotModernLayout({
                   <span>horários por vez</span>
                 </div>
               </label>
+              <label className={styles.agendaBotField}>
+                <span>Capacidade por dia</span>
+                <input className="field" type="number" min={1} max={20} value={selectedGroup.capacityPerDay || 1} disabled={!canManageAgenda} onChange={(event) => onUpdateGroup(selectedGroup.id, "capacityPerDay", Number(event.target.value) || 1)} />
+              </label>
+              <label className={styles.agendaBotField}>
+                <span>Lembrete antes</span>
+                <input className="field" type="number" min={0} max={1440} value={selectedGroup.reminderMinutes ?? 60} disabled={!canManageAgenda} onChange={(event) => onUpdateGroup(selectedGroup.id, "reminderMinutes", Number(event.target.value) || 0)} />
+              </label>
+              <label className={styles.agendaBotField}>
+                <span>Modo simples</span>
+                <label className={styles.agendaBotToggle}>
+                  <input type="checkbox" checked={Boolean(selectedGroup.simpleMode)} disabled={!canManageAgenda} onChange={(event) => onUpdateGroup(selectedGroup.id, "simpleMode", event.target.checked)} />
+                  <span />
+                  Agenda diária
+                </label>
+              </label>
             </div>
           </section>
 
@@ -690,6 +717,9 @@ function AgendaBotModernLayout({
                 Trocar conta
               </button>
             </div>
+            {selectedGroup.linkedEmail && selectedGroup.connectionStatus !== "connected" ? (
+              <div className={styles.inlineNote}>E-mail informado, mas Google Calendar ainda não conectado.</div>
+            ) : null}
           </section>
         </main>
       ) : (
@@ -1054,6 +1084,7 @@ function BotAgendaTab({
   currentUserEmail,
   currentUserName,
   onAddGroup,
+  onConfigureSimpleGlaucoAgenda,
   onRemoveGroup,
   onResetBotAgenda,
   onLinkCurrentUser,
@@ -1078,6 +1109,7 @@ function BotAgendaTab({
       currentUserEmail={currentUserEmail}
       currentUserName={currentUserName}
       onAddGroup={onAddGroup}
+      onConfigureSimpleGlaucoAgenda={onConfigureSimpleGlaucoAgenda}
       onRemoveGroup={onRemoveGroup}
       onLinkCurrentUser={onLinkCurrentUser}
       onUpdateGroup={onUpdateGroup}

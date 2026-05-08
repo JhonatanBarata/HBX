@@ -23,6 +23,7 @@ type AgendaPanelProps = {
   currentUserRole: string;
   canManageAgenda: boolean;
   onAddGroup: () => void;
+  onConfigureSimpleGlaucoAgenda?: () => void;
   onMoveGroup: (groupId: string, direction: -1 | 1) => void;
   onRemoveGroup: (groupId: string) => void;
   onLinkCurrentUser: (groupId: string) => void;
@@ -50,7 +51,10 @@ type AgendaPanelProps = {
       | "visibleBusinessDays"
       | "searchWindowDays"
       | "suggestedSlotsCount"
-      | "fallbackFutureSlotsCount",
+      | "fallbackFutureSlotsCount"
+      | "simpleMode"
+      | "capacityPerDay"
+      | "reminderMinutes",
     value: string | boolean | number | number[],
   ) => void;
   onAddSlot: (groupId: string) => void;
@@ -271,6 +275,7 @@ export default function AgendaPanel({
   currentUserRole,
   canManageAgenda,
   onAddGroup,
+  onConfigureSimpleGlaucoAgenda,
   onMoveGroup,
   onRemoveGroup,
   onLinkCurrentUser,
@@ -583,6 +588,11 @@ export default function AgendaPanel({
             <button type="button" className="btn btn-secondary btn-sm" onClick={onAddGroup} disabled={!canManageAgenda}>
               Nova guia
             </button>
+            {onConfigureSimpleGlaucoAgenda ? (
+              <button type="button" className="btn btn-secondary btn-sm" onClick={onConfigureSimpleGlaucoAgenda} disabled={!canManageAgenda}>
+                Configurar agenda simples
+              </button>
+            ) : null}
             <button
               type="button"
               className="btn btn-primary btn-sm"
@@ -768,7 +778,7 @@ export default function AgendaPanel({
                     <small>{selectedGroup.linkedEmail || "Nenhum e-mail conectado"}</small>
                   </div>
                   <div className={styles.headerActions}>
-                    <span className={styles.metaBadge}>{selectedGroup.connectionStatus === "connected" ? "Conectado" : selectedGroup.connectionStatus === "pending" ? "Pendente" : "Nao vinculado"}</span>
+                    <span className={styles.metaBadge}>{selectedGroup.connectionStatus === "connected" ? "Conectado por token" : selectedGroup.connectionStatus === "pending" ? "Pendente" : "Nao vinculado"}</span>
                     <button
                       type="button"
                       className="btn btn-secondary btn-sm"
@@ -1204,8 +1214,10 @@ export default function AgendaPanel({
                           <select className="field" value={selectedGroup.connectionStatus} disabled={!canManageAgenda} onChange={(event) => onUpdateGroup(selectedGroup.id, "connectionStatus", event.target.value)}>
                             <option value="not_linked">Nao vinculado</option>
                             <option value="pending">Pendente</option>
-                            <option value="connected">Conectado</option>
                           </select>
+                          {selectedGroup.linkedEmail && selectedGroup.connectionStatus !== "connected" ? (
+                            <small>E-mail informado, mas Google Calendar ainda nao conectado.</small>
+                          ) : null}
                         </label>
                       </div>
 
@@ -1319,7 +1331,36 @@ export default function AgendaPanel({
                             onChange={(event) => onUpdateGroup(selectedGroup.id, "fallbackFutureSlotsCount", Number(event.target.value) || 0)}
                           />
                         </label>
+                        <label className={styles.fieldBlock}>
+                          <span>Capacidade por dia</span>
+                          <input
+                            className="field"
+                            type="number"
+                            min={1}
+                            max={20}
+                            value={selectedGroup.capacityPerDay || 1}
+                            disabled={!canManageAgenda}
+                            onChange={(event) => onUpdateGroup(selectedGroup.id, "capacityPerDay", Number(event.target.value) || 1)}
+                          />
+                        </label>
+                        <label className={styles.fieldBlock}>
+                          <span>Lembrete antes do evento</span>
+                          <input
+                            className="field"
+                            type="number"
+                            min={0}
+                            max={1440}
+                            value={selectedGroup.reminderMinutes ?? 60}
+                            disabled={!canManageAgenda}
+                            onChange={(event) => onUpdateGroup(selectedGroup.id, "reminderMinutes", Number(event.target.value) || 0)}
+                          />
+                        </label>
                       </div>
+
+                      <label className={styles.switchRow}>
+                        <input type="checkbox" checked={Boolean(selectedGroup.simpleMode)} disabled={!canManageAgenda} onChange={(event) => onUpdateGroup(selectedGroup.id, "simpleMode", event.target.checked)} />
+                        <span>Modo simples: uma vaga por dia util usando o horario principal</span>
+                      </label>
 
                       <div className={styles.inlineNote}>
                         Sabado e domingo nao aparecem na agenda enquanto nao estiverem marcados aqui.

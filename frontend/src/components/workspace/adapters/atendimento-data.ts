@@ -53,11 +53,24 @@ function hasAtendimentoFinancialFlowSignal(conversation: InboxConversation) {
   return ATENDIMENTO_FINANCIAL_HINTS.some((hint) => haystack.includes(hint));
 }
 
+function getConversationMetadata(conversation: InboxConversation) {
+  return conversation?.metadata && typeof conversation.metadata === "object" && !Array.isArray(conversation.metadata)
+    ? (conversation.metadata as Record<string, unknown>)
+    : {};
+}
+
+export function isAtendimentoPersonalContact(conversation: InboxConversation) {
+  const metadata = getConversationMetadata(conversation);
+  return Boolean(
+    metadata.inboxPersonalContact ||
+      metadata.personalContact ||
+      metadata.whatsappPersonalContact ||
+      conversation.flowResult === "personal_contact",
+  );
+}
+
 export function hasAtendimentoAgendaQueueSignal(conversation: InboxConversation) {
-  const metadata =
-    conversation?.metadata && typeof conversation.metadata === "object" && !Array.isArray(conversation.metadata)
-      ? (conversation.metadata as Record<string, unknown>)
-      : null;
+  const metadata = getConversationMetadata(conversation);
   const queue =
     metadata?.vendasAgendaQueue &&
     typeof metadata.vendasAgendaQueue === "object" &&
@@ -298,6 +311,11 @@ export function buildAtendimentoQueueBadges(
   const isRecoveryPrimary =
     allowRecoveryCapability && isAtendimentoRecoveryPrimary(conversation);
   const badges: WorkspaceBadgeDescriptor[] = [];
+
+  if (isAtendimentoPersonalContact(conversation)) {
+    badges.push({ label: "Contato pessoal", tone: "success" });
+    if (conversation.botActive === false) badges.push({ label: "Bot pausado nesta conversa", tone: "neutral" });
+  }
 
   if (isRecoveryPrimary) {
     badges.push({ label: "Recovery", tone: "warning" });
