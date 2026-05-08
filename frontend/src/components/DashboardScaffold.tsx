@@ -128,7 +128,7 @@ export default function DashboardScaffold({
     const rect =
       anchorRect || document.getElementById(MODULES_TRIGGER_ID)?.getBoundingClientRect() || null;
     if (!rect) return;
-    const panelWidth = Math.min(1180, Math.max(320, Math.round(window.innerWidth * 0.8)), window.innerWidth - 24);
+    const panelWidth = Math.min(300, Math.max(236, Math.round(window.innerWidth * 0.2)), window.innerWidth - 24);
     const left = Math.min(
       Math.max(12, Math.round(rect.left)),
       Math.max(12, window.innerWidth - panelWidth - 12),
@@ -534,7 +534,7 @@ export default function DashboardScaffold({
                 navPeekPanelStyle || {
                   top: "calc(var(--topbar-total-height) + 12px)",
                   left: "12px",
-                  width: "min(80vw, 1180px)",
+                  width: "min(20vw, 300px)",
                 }
               }
               onMouseEnter={() => openNavPeek()}
@@ -554,6 +554,7 @@ export default function DashboardScaffold({
                   canEditPresentation={canEditPresentation}
                   presentationConfig={presentationConfig}
                   onUpdateModulePresentation={updateModulePresentation}
+                  compact
                 />
               </section>
             </aside>,

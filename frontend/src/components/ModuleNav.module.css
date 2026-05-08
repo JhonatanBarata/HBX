@@ -12,6 +12,10 @@
   color: var(--module-nav-text);
 }
 
+.moduleNavWrapCompact {
+  gap: 0.48rem;
+}
+
 :global(html[data-theme-mode="light"]) .moduleNavWrap {
   --module-nav-text: #18243a;
   --module-nav-heading: #071426;
@@ -324,4 +328,71 @@
   .navSectionGrid {
     grid-template-columns: 1fr;
   }
+}
+
+.moduleNavWrapCompact .navSection {
+  grid-template-columns: 1fr;
+  gap: 0.32rem;
+}
+
+.moduleNavWrapCompact .navSectionHeader {
+  position: static;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.35rem;
+  padding-top: 0;
+}
+
+.moduleNavWrapCompact .navSectionTitle {
+  font-size: 0.58rem;
+}
+
+.moduleNavWrapCompact .navSectionHint {
+  min-height: 18px;
+  padding: 0 0.36rem;
+  font-size: 0.5rem;
+}
+
+.moduleNavWrapCompact .navSectionGrid {
+  gap: 0.32rem;
+}
+
+.moduleNavWrapCompact .moduleCard,
+.moduleNavWrapCompact .moduleCardActive,
+.moduleNavWrapCompact .moduleCardDisabled,
+.moduleNavWrapCompact .moduleCardDisabledActive {
+  min-height: 52px;
+  grid-template-columns: 32px minmax(0, 1fr);
+  gap: 0.48rem;
+  padding: 0.42rem 1rem 0.42rem 0.46rem;
+  border-radius: 10px;
+}
+
+.moduleNavWrapCompact .moduleCard::before,
+.moduleNavWrapCompact .moduleCardActive::before,
+.moduleNavWrapCompact .moduleCardDisabled::before,
+.moduleNavWrapCompact .moduleCardDisabledActive::before {
+  background-size: 18px 18px;
+}
+
+.moduleNavWrapCompact .moduleCardBadge {
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  font-size: 0.58rem;
+}
+
+.moduleNavWrapCompact .moduleCardBody {
+  gap: 0.08rem;
+}
+
+.moduleNavWrapCompact .moduleCardBody strong {
+  font-size: 0.78rem;
+}
+
+.moduleNavWrapCompact .moduleCardDescription,
+.moduleNavWrapCompact .moduleCardMeta,
+.moduleNavWrapCompact .moduleCardArrow {
+  display: none;
 }

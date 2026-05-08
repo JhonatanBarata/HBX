@@ -211,6 +211,7 @@ type ModuleNavProps = {
   canEditPresentation?: boolean;
   presentationConfig?: PresentationConfig | null;
   onUpdateModulePresentation?: (href: string, patch: Partial<PresentationModuleOverride>) => void;
+  compact?: boolean;
 };
 
 type PrefetchedDashboardPayload = {
@@ -252,6 +253,7 @@ export default function ModuleNav({
   canEditPresentation = false,
   presentationConfig,
   onUpdateModulePresentation,
+  compact = false,
 }: ModuleNavProps) {
   const pathname = usePathname();
   const authenticated = useSyncExternalStore(subscribeAuth, getAuthSnapshot, getAuthServerSnapshot);
@@ -407,7 +409,7 @@ export default function ModuleNav({
   );
 
   return (
-    <nav className={styles.moduleNavWrap} aria-label="Navegação do sistema">
+    <nav className={`${styles.moduleNavWrap} ${compact ? styles.moduleNavWrapCompact : ""}`} aria-label="Navegação do sistema">
       {sections.map((section) => (
         <section key={section.category} className={styles.navSection}>
           <div className={styles.navSectionHeader}>
