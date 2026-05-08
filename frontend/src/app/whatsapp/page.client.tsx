@@ -71,6 +71,8 @@ export default function WhatsAppCenterClientPage() {
   const [pairingExpiresAt, setPairingExpiresAt] = useState<number | null>(null);
   const [pairingTick, setPairingTick] = useState(0);
   const bootstrapInFlightRef = useRef(false);
+  const modalActionInFlightRef = useRef(false);
+  const pairingCodeInFlightRef = useRef(false);
   const lastBootstrapAttemptKeyRef = useRef<string | null>(null);
   const previousModalStatusRef = useRef<string | null>(null);
 
@@ -228,6 +230,8 @@ export default function WhatsAppCenterClientPage() {
   }
 
   async function runModalAction(action: "connect" | "disconnect") {
+    if (modalActionInFlightRef.current) return;
+    modalActionInFlightRef.current = true;
     setModalSaving(action);
     setModalError(null);
     try {
@@ -310,11 +314,13 @@ export default function WhatsAppCenterClientPage() {
             : "Falha ao desconectar o QR."
       );
     } finally {
+      modalActionInFlightRef.current = false;
       setModalSaving(null);
     }
   }
 
   async function requestPairingCode() {
+    if (pairingCodeInFlightRef.current) return;
     const sessionId = modalPayload?.data.tenantKey || payload?.center.qrConnection.instanceKey || null;
     const normalizedPhone = normalizePairingPhone(pairingPhone);
     setPairingError(null);
@@ -329,6 +335,7 @@ export default function WhatsAppCenterClientPage() {
       return;
     }
 
+    pairingCodeInFlightRef.current = true;
     setPairingBusy(true);
     try {
       await ensureQrModeSelected();
@@ -357,6 +364,7 @@ export default function WhatsAppCenterClientPage() {
       setPairingError(payload?.message || (pairingCodeError instanceof Error ? pairingCodeError.message : "Falha ao gerar código por telefone."));
       setPairingExpiresAt(null);
     } finally {
+      pairingCodeInFlightRef.current = false;
       setPairingBusy(false);
     }
   }
