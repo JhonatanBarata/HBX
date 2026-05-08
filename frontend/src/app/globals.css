@@ -13545,6 +13545,188 @@ html[data-theme-mode] .app-topbar .app-topbar__frame {
   }
 }
 
+/* Engine map slide: compact live cards with real operational data. */
+.app-topbar__inner--controlCenter .hbx-command-engine-map {
+  height: 100%;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: 20px minmax(0, 1fr) 22px;
+  gap: 0.22rem;
+  padding: 0.38rem;
+}
+
+.app-topbar__inner--controlCenter .hbx-command-engine-map__head {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  color: var(--hbx-command-heading);
+  line-height: 1;
+}
+
+.app-topbar__inner--controlCenter .hbx-command-engine-map__head span {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.32rem;
+  overflow: hidden;
+  font-size: 0.54rem;
+  font-weight: 950;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-topbar__inner--controlCenter .hbx-command-engine-map__head i {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: var(--button-success);
+  box-shadow: 0 0 14px color-mix(in srgb, var(--button-success) 72%, transparent);
+}
+
+.app-topbar__inner--controlCenter .hbx-command-engine-map__head strong {
+  max-width: 158px;
+  min-height: 20px;
+  display: inline-flex;
+  align-items: center;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--line) 70%, var(--button-primary));
+  border-radius: 999px;
+  padding: 0 0.5rem;
+  background: color-mix(in srgb, var(--surface) 78%, transparent);
+  color: var(--hbx-command-muted);
+  font-size: 0.52rem;
+  font-weight: 850;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-topbar__inner--controlCenter .hbx-command-billboard--engines .hbx-command-engines--billboard {
+  min-height: 0;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.34rem;
+}
+
+.app-topbar__inner--controlCenter .hbx-command-billboard--engines .hbx-command-engine {
+  min-width: 0;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  gap: 0.12rem;
+  padding: 0.34rem;
+  border-radius: 8px;
+  background:
+    radial-gradient(circle at 50% 86%, color-mix(in srgb, var(--engine-node-tone) 18%, transparent), transparent 56%),
+    linear-gradient(180deg, color-mix(in srgb, var(--surface) 88%, transparent), color-mix(in srgb, var(--surface-soft) 82%, transparent));
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--surface) 62%, transparent),
+    0 12px 22px -20px color-mix(in srgb, var(--engine-node-tone) 52%, transparent);
+}
+
+.app-topbar__inner--controlCenter .hbx-command-billboard--engines .hbx-command-engine__range {
+  font-size: 0.42rem;
+}
+
+.app-topbar__inner--controlCenter .hbx-command-billboard--engines .hbx-command-engine__top strong {
+  font-size: 0.9rem;
+  line-height: 1;
+}
+
+.app-topbar__inner--controlCenter .hbx-command-billboard--engines .hbx-command-engine__top > span {
+  min-height: 15px;
+  padding: 0 0.28rem;
+  font-size: 0.38rem;
+}
+
+.app-topbar__inner--controlCenter .hbx-command-billboard--engines .hbx-command-engine__mid {
+  grid-template-columns: 34px minmax(0, 1fr);
+  gap: 0.18rem;
+}
+
+.app-topbar__inner--controlCenter .hbx-command-billboard--engines .hbx-command-engine__gauge {
+  width: 34px;
+  height: 34px;
+}
+
+.app-topbar__inner--controlCenter .hbx-command-billboard--engines .hbx-command-engine__gauge b {
+  font-size: 0.54rem;
+}
+
+.app-topbar__inner--controlCenter .hbx-command-billboard--engines .hbx-command-engine__gauge small {
+  font-size: 0.32rem;
+}
+
+.app-topbar__inner--controlCenter .hbx-command-billboard--engines .hbx-command-engine__bars {
+  height: 30px;
+  gap: 0.12rem;
+}
+
+.app-topbar__inner--controlCenter .hbx-command-billboard--engines .hbx-command-engine__bars i {
+  min-width: 3px;
+  max-width: 8px;
+}
+
+.app-topbar__inner--controlCenter .hbx-command-billboard--engines .hbx-command-engine__dots {
+  gap: 0.1rem;
+}
+
+.app-topbar__inner--controlCenter .hbx-command-billboard--engines .hbx-command-engine__dots i {
+  height: 4px;
+}
+
+.app-topbar__inner--controlCenter .hbx-command-engine-map__chips {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.22rem;
+  overflow: hidden;
+}
+
+.app-topbar__inner--controlCenter .hbx-command-engine-map__chips span {
+  min-width: 0;
+  min-height: 20px;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  border: 1px solid color-mix(in srgb, var(--line) 72%, var(--button-primary));
+  border-radius: 999px;
+  padding: 0 0.42rem;
+  background: color-mix(in srgb, var(--surface) 78%, transparent);
+  color: var(--hbx-command-muted);
+  font-size: 0.48rem;
+  font-weight: 850;
+  white-space: nowrap;
+}
+
+.app-topbar__inner--controlCenter .hbx-command-engine-map__chips span[data-tone="success"],
+.app-topbar__inner--controlCenter .hbx-command-engine-map__chips span[data-tone="green"] {
+  border-color: color-mix(in srgb, var(--button-success) 34%, var(--line));
+  color: color-mix(in srgb, var(--button-success) 88%, var(--foreground));
+  background: color-mix(in srgb, var(--button-success) 12%, var(--surface));
+}
+
+.app-topbar__inner--controlCenter .hbx-command-engine-map__chips span[data-tone="warning"],
+.app-topbar__inner--controlCenter .hbx-command-engine-map__chips span[data-tone="yellow"] {
+  border-color: color-mix(in srgb, var(--button-accent) 36%, var(--line));
+  color: color-mix(in srgb, var(--button-accent) 88%, var(--foreground));
+  background: color-mix(in srgb, var(--button-accent) 12%, var(--surface));
+}
+
+.app-topbar__inner--controlCenter .hbx-command-engine-map__chips span[data-tone="danger"],
+.app-topbar__inner--controlCenter .hbx-command-engine-map__chips span[data-tone="red"] {
+  border-color: color-mix(in srgb, var(--danger) 42%, var(--line));
+  color: color-mix(in srgb, var(--danger) 88%, var(--foreground));
+  background: color-mix(in srgb, var(--danger) 10%, var(--surface));
+}
+
+.app-topbar__inner--controlCenter .hbx-command-engine-map__chips strong {
+  color: var(--hbx-command-heading);
+  font-weight: 950;
+}
+
 /* Edge fit: keep the billboard visually seated on the top and lower header lines. */
 .hbx-command-center {
   align-items: stretch;
