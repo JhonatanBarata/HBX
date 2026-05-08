@@ -13,7 +13,6 @@ import {
   type DragEndEvent,
   type DragStartEvent,
 } from "@dnd-kit/core";
-import { CSS } from "@dnd-kit/utilities";
 import { useDeferredValue, useEffect, useMemo, useRef, useState, useCallback, type CSSProperties, type FormEvent } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import DashboardScaffold from "@/components/DashboardScaffold";
@@ -977,24 +976,17 @@ function DraggableLeadCard({
   onBulkToggle,
   register,
 }: LeadCardView & { disabled: boolean; hidden: boolean; register: (node: HTMLElement | null) => void }) {
-  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: lead.id,
     disabled,
     data: { type: "lead", leadId: lead.id },
   });
-
-  const style = transform
-    ? ({
-        transform: CSS.Translate.toString(transform),
-      } satisfies CSSProperties)
-    : undefined;
 
   return (
     <div
       className={styles.draggableWrap}
       data-dragging={isDragging ? "true" : "false"}
       data-flying={hidden ? "true" : "false"}
-      style={style}
       ref={(node) => {
         setNodeRef(node);
         register(node);
@@ -2274,8 +2266,8 @@ export default function VendasClientPage() {
                 lead={activeDragLead}
                 draft={activeDragDraft}
                 blockKey={activeDragRecord?.block || "today"}
-                selected={selectedLeadId === activeDragLead.id}
-                saving={savingLeadId === activeDragLead.id}
+                selected={false}
+                saving={false}
                 onFocus={() => focusLead(activeDragLead.id)}
                 onQuickAction={(action) => void runQuickAction(activeDragLead, action)}
                 onInboxAction={(targetLead) => void handleLeadInboxAction(targetLead)}

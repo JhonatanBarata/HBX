@@ -15,6 +15,15 @@ import { buildWhatsAppPhoneCandidates } from '../messaging/whatsapp-channel';
 import { PrismaService } from '../prisma/prisma.service';
 import { WebscrapingService, type WebscrapingContactResult, type WebscrapingSearchResponse } from '../webscraping/webscraping.service';
 import { StartVendasProspectingDto, UpdateVendasProspectingConfigDto } from './dto/vendas.dto';
+import {
+  SAFE_FIRST_CONTACT_TEMPLATE,
+  SAFE_FIRST_CONTACT_VARIANTS,
+  classifyProspectingAutoReply,
+  isExplicitProspectingNegativeReply,
+  normalizeFirstContactForComparison,
+  sanitizeFirstContactMessage,
+  type ProspectingAutoReplyClassification,
+} from './prospecting-safety';
 import { VendasService } from './vendas.service';
 
 type LiveAutomationStatus =
@@ -87,10 +96,10 @@ type ProcessDueJobResult =
 const BUFFER_JOB_STATUSES = ['pending', 'scheduled'] as const;
 const SUCCESSFUL_SEND_JOB_STATUSES = ['sent', 'replied_positive', 'replied_negative', 'no_response_archived'] as const;
 const DEFAULT_POSITIVE_KEYWORDS = ['tenho interesse', 'pode mandar', 'quero saber', 'me explica', 'quanto custa'];
-const DEFAULT_NEGATIVE_KEYWORDS = ['nao tenho interesse', 'não tenho interesse', 'pare', 'remover', 'sem interesse', 'spam', 'nao me chame', 'não me chame'];
-const OPT_OUT_INTENT_KEYWORDS = ['remover', 'pare', 'spam', 'nao me chame', 'não me chame'];
+const DEFAULT_NEGATIVE_KEYWORDS = ['não tenho interesse', 'não quero', 'remover', 'pare', 'não me chame', 'spam', 'bloqueia', 'não autorizei'];
+const OPT_OUT_INTENT_KEYWORDS = ['remover', 'pare', 'spam', 'nao me chame', 'não me chame', 'bloqueia', 'bloqueie'];
 const HUMAN_HANDOFF_INTENT_KEYWORDS = ['humano', 'atendente', 'ligar', 'me chama'];
-const DEFAULT_DAILY_LIMIT = 30;
+const DEFAULT_DAILY_LIMIT = 15;
 const MAX_DUE_JOBS_PER_CYCLE = 50;
 const DEFAULT_OPT_OUT_MESSAGE = 'Entendi. Vou arquivar este contato e nao chamaremos novamente.';
 const LEGACY_DEFAULT_MESSAGE_TEMPLATE =
@@ -105,8 +114,11 @@ const GENERICA_CASO_ERRO_MESSAGE =
   'Oi, tudo bem? Meu nome é Jhonatan, trabalho com uma plataforma para organizar vendas, orçamentos, prospecção de clientes e retornos pelo WhatsApp.\n' +
   'Tenho 30 dias grátis, sem compromisso. Faz sentido eu te mostrar?\n' +
   '';
-const DEFAULT_MESSAGE_TEMPLATE = GENERICA_CASO_ERRO_MESSAGE;
-const DEFAULT_SEGMENT_MISMATCH_FALLBACK_MESSAGE = GENERICA_CASO_ERRO_MESSAGE;
+const DEFAULT_MESSAGE_TEMPLATE = SAFE_FIRST_CONTACT_TEMPLATE;
+const DEFAULT_SEGMENT_MISMATCH_FALLBACK_MESSAGE = SAFE_FIRST_CONTACT_TEMPLATE;
+const FIRST_CONTACT_REPEAT_LIMIT = 3;
+const REAL_NEGATIVE_PAUSE_LIMIT = 3;
+const AUTO_REPLY_STREAK_PAUSE_LIMIT = 5;
 const EMPTY_REFILL_RETRY_MS = 10 * 60 * 1000;
 const FIRST_OUTBOUND_CONTACT_STAGES = ['sent_waiting', 'reply_received', 'expired_no_reply', 'negative_reply'] as const;
 const FIRST_OUTBOUND_CONTACT_JOB_STATUSES = ['sent', 'replied_positive', 'replied_negative', 'no_response_archived'] as const;
@@ -155,6 +167,8 @@ function isSystemGeneratedProspectingTemplate(value: unknown) {
     LEGACY_SEGMENT_MISMATCH_FALLBACK_MESSAGE,
     LEGACY_GENERICA_CASO_ERRO_MESSAGE,
     GENERICA_CASO_ERRO_MESSAGE,
+    SAFE_FIRST_CONTACT_TEMPLATE,
+    ...SAFE_FIRST_CONTACT_VARIANTS,
   ].some((template) => normalizeTemplateText(template) === normalized);
 }
 
@@ -1048,9 +1062,9 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     );
     const metadata = parseJsonObject((rule as any)?.metadata);
     return {
-      nextContactDelayMinutes: clampInteger(metadata.nextContactDelayMinutes, 12, 1, 180),
+      nextContactDelayMinutes: clampInteger(metadata.nextContactDelayMinutes, 20, 1, 180),
       typingSeconds: clampInteger(metadata.typingSeconds, 8, 0, 45),
-      typingVarianceSeconds: clampInteger(metadata.typingVarianceSeconds, 6, 0, 30),
+      typingVarianceSeconds: clampInteger(metadata.typingVarianceSeconds, 12, 0, 30),
       positiveIntentKeywords: normalizeTextList(metadata.positiveIntentKeywords, DEFAULT_POSITIVE_KEYWORDS),
       negativeIntentKeywords: normalizeTextList(
         metadata.negativeIntentKeywords || metadata.stopIntentKeywords,
@@ -1129,9 +1143,13 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
 
   private resolveCampaignMessageTemplate(payload: any, existing?: any) {
     const payloadTemplate = hasOwnValue(payload, 'messageTemplate') ? trimOrNull(payload?.messageTemplate) : null;
-    if (payloadTemplate && !isSystemGeneratedProspectingTemplate(payloadTemplate)) return payloadTemplate;
+    if (payloadTemplate && !isSystemGeneratedProspectingTemplate(payloadTemplate)) {
+      return sanitizeFirstContactMessage(payloadTemplate) || DEFAULT_MESSAGE_TEMPLATE;
+    }
     const existingTemplate = trimOrNull(existing?.messageTemplate);
-    if (existingTemplate && !isSystemGeneratedProspectingTemplate(existingTemplate)) return existingTemplate;
+    if (existingTemplate && !isSystemGeneratedProspectingTemplate(existingTemplate)) {
+      return sanitizeFirstContactMessage(existingTemplate) || DEFAULT_MESSAGE_TEMPLATE;
+    }
     return DEFAULT_MESSAGE_TEMPLATE;
   }
 
@@ -1662,7 +1680,9 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
 
   private renderOutboundMessage(campaign: any, lead: any, user: any, metadata?: Record<string, unknown> | null) {
     const body = this.renderMessageTemplate(this.resolveOutboundTemplate(campaign, lead, metadata), { lead, campaign, user });
-    return trimOrNull(body) || this.renderMessageTemplate(DEFAULT_MESSAGE_TEMPLATE, { lead, campaign, user });
+    const safeBody = sanitizeFirstContactMessage(body);
+    if (trimOrNull(safeBody)) return safeBody;
+    return sanitizeFirstContactMessage(this.renderMessageTemplate(DEFAULT_MESSAGE_TEMPLATE, { lead, campaign, user }));
   }
 
   private async dedupeSearchResults(companyId: number, results: ProspectingSearchResult[]) {
@@ -2104,12 +2124,16 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
           continue;
         }
         if (decision.mode === 'draft_only') {
+          const draftMessage = sanitizeFirstContactMessage(this.renderMessageTemplate(
+            decision.message || DEFAULT_SEGMENT_MISMATCH_FALLBACK_MESSAGE,
+            { lead, campaign, user: runtimeUser },
+          ));
           const conversationId = await this.updateProspectionConversationStage({
             companyId: campaign.companyId,
             lead,
             campaign,
             stage: 'pending_send',
-            draftMessage: decision.message || DEFAULT_SEGMENT_MISMATCH_FALLBACK_MESSAGE,
+            draftMessage,
             mismatchReason: 'segment_mismatch_fallback',
             queueTarget: 'prospeccao',
             routeTarget: 'prospeccao',
@@ -2148,13 +2172,16 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
         const lead = leads.find((candidate) => candidate.id === item.leadId);
         if (!lead) continue;
         const usesFallback = fallbackLeadIds.has(String(lead.id));
+        const draftMessage = usesFallback
+          ? sanitizeFirstContactMessage(this.renderMessageTemplate(DEFAULT_SEGMENT_MISMATCH_FALLBACK_MESSAGE, { lead, campaign, user: runtimeUser }))
+          : this.renderOutboundMessage(campaign, lead, runtimeUser);
         const conversationId = await this.updateProspectionConversationStage({
           companyId: campaign.companyId,
           lead,
           campaign,
           stage: 'scheduled_send',
           scheduledAt: item.scheduledAt,
-          draftMessage: usesFallback ? DEFAULT_SEGMENT_MISMATCH_FALLBACK_MESSAGE : this.renderOutboundMessage(campaign, lead, runtimeUser),
+          draftMessage,
           mismatchReason: usesFallback ? 'segment_mismatch_fallback' : null,
           queueTarget: 'prospeccao',
           routeTarget: 'prospeccao',
@@ -2290,12 +2317,16 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
             continue;
           }
           if (decision.mode === 'draft_only') {
+            const draftMessage = sanitizeFirstContactMessage(this.renderMessageTemplate(
+              decision.message || DEFAULT_SEGMENT_MISMATCH_FALLBACK_MESSAGE,
+              { lead, campaign, user: runtimeUser },
+            ));
             const conversationId = await this.updateProspectionConversationStage({
               companyId: campaign.companyId,
               lead,
               campaign,
               stage: 'pending_send',
-              draftMessage: decision.message || DEFAULT_SEGMENT_MISMATCH_FALLBACK_MESSAGE,
+              draftMessage,
               mismatchReason: 'segment_mismatch_fallback',
               queueTarget: 'prospeccao',
               routeTarget: 'prospeccao',
@@ -2335,13 +2366,16 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
           const lead = leads.find((candidate) => candidate.id === item.leadId);
           if (!lead) continue;
           const usesFallback = fallbackLeadIds.has(String(lead.id));
+          const draftMessage = usesFallback
+            ? sanitizeFirstContactMessage(this.renderMessageTemplate(DEFAULT_SEGMENT_MISMATCH_FALLBACK_MESSAGE, { lead, campaign, user: runtimeUser }))
+            : this.renderOutboundMessage(campaign, lead, runtimeUser);
           const conversationId = await this.updateProspectionConversationStage({
             companyId: campaign.companyId,
             lead,
             campaign,
             stage: 'scheduled_send',
             scheduledAt: item.scheduledAt,
-            draftMessage: usesFallback ? DEFAULT_SEGMENT_MISMATCH_FALLBACK_MESSAGE : this.renderOutboundMessage(campaign, lead, runtimeUser),
+            draftMessage,
             mismatchReason: usesFallback ? 'segment_mismatch_fallback' : null,
             queueTarget: 'prospeccao',
             routeTarget: 'prospeccao',
@@ -2667,6 +2701,141 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     });
   }
 
+  private async countRealNegativeBlocksToday(campaign: any, now = new Date()) {
+    return this.prisma.vendasAutomationJob.count({
+      where: {
+        campaignId: campaign.id,
+        companyId: campaign.companyId,
+        OR: [
+          {
+            status: 'replied_negative',
+            repliedAt: { gte: this.startOfDay(now), lt: this.startOfNextDay(now) },
+          },
+          {
+            classification: 'negative_or_opt_out',
+            archivedAt: { gte: this.startOfDay(now), lt: this.startOfNextDay(now) },
+          },
+        ],
+      },
+    });
+  }
+
+  private async pauseCampaignForSafety(campaign: any, text: string, type: string) {
+    await this.prisma.vendasAutomationCampaign.updateMany({
+      where: { id: campaign.id, companyId: campaign.companyId },
+      data: { status: 'paused', lastStatusText: text, lastError: text },
+    });
+    this.publishAutomationEvent({
+      companyId: campaign.companyId,
+      campaignId: campaign.id,
+      status: 'pausado',
+      text,
+      type,
+    });
+  }
+
+  private async pauseCampaignIfRealNegativeLimitReached(campaign: any, now = new Date()) {
+    const count = await this.countRealNegativeBlocksToday(campaign, now).catch(() => 0);
+    if (count < REAL_NEGATIVE_PAUSE_LIMIT) return false;
+    await this.pauseCampaignForSafety(
+      campaign,
+      `Campanha pausada por segurança: ${count} negativas/opt-outs reais hoje.`,
+      'real_negative_safety_pause',
+    );
+    return true;
+  }
+
+  private async pauseCampaignIfAutoReplyStreakReached(campaign: any, now = new Date()) {
+    const jobs = await this.prisma.vendasAutomationJob.findMany({
+      where: {
+        campaignId: campaign.id,
+        companyId: campaign.companyId,
+        sentAt: { gte: this.startOfDay(now), lt: this.startOfNextDay(now) },
+        classification: {
+          in: ['auto_reply_detected', 'bot_menu_detected', 'out_of_hours_auto_reply', 'awaiting_human'] as any,
+        },
+      },
+      orderBy: { sentAt: 'desc' },
+      take: AUTO_REPLY_STREAK_PAUSE_LIMIT,
+      select: { classification: true },
+    }).catch(() => []);
+    if (jobs.length < AUTO_REPLY_STREAK_PAUSE_LIMIT) return false;
+    await this.pauseCampaignForSafety(
+      campaign,
+      'Campanha pausada por segurança: 5 auto-respostas seguidas. Aguardando humano/fora de horário.',
+      'auto_reply_streak_safety_pause',
+    );
+    return true;
+  }
+
+  private async getSafeFirstContactBody(input: {
+    campaign: any;
+    lead: any;
+    user: any;
+    metadata?: Record<string, unknown> | null;
+    bodyOverride?: string | null;
+    now?: Date;
+  }) {
+    const baseBody = input.bodyOverride
+      ? sanitizeFirstContactMessage(this.renderMessageTemplate(input.bodyOverride, {
+          lead: input.lead,
+          campaign: input.campaign,
+          user: input.user,
+        }))
+      : this.renderOutboundMessage(input.campaign, input.lead, input.user, input.metadata);
+    const fallback = this.renderMessageTemplate(DEFAULT_MESSAGE_TEMPLATE, {
+      lead: input.lead,
+      campaign: input.campaign,
+      user: input.user,
+    });
+    const candidate = trimOrNull(baseBody) || sanitizeFirstContactMessage(fallback);
+    return this.varyRepeatedFirstContactMessage(input.campaign, input.lead, input.user, candidate, input.now || new Date());
+  }
+
+  private async varyRepeatedFirstContactMessage(campaign: any, lead: any, user: any, body: string, now: Date) {
+    const todayMessages = await this.getAutomaticFirstContactMessagesToday(campaign.companyId, now);
+    const usage = new Map<string, number>();
+    for (const message of todayMessages) {
+      const key = normalizeFirstContactForComparison(message);
+      if (!key) continue;
+      usage.set(key, (usage.get(key) || 0) + 1);
+    }
+    const currentKey = normalizeFirstContactForComparison(body);
+    if ((usage.get(currentKey) || 0) < FIRST_CONTACT_REPEAT_LIMIT) return sanitizeFirstContactMessage(body);
+
+    for (const variant of SAFE_FIRST_CONTACT_VARIANTS) {
+      const rendered = sanitizeFirstContactMessage(this.renderMessageTemplate(variant, { lead, campaign, user }));
+      const key = normalizeFirstContactForComparison(rendered);
+      if ((usage.get(key) || 0) < FIRST_CONTACT_REPEAT_LIMIT) return rendered;
+    }
+
+    return null;
+  }
+
+  private async getAutomaticFirstContactMessagesToday(companyId: number, now: Date) {
+    const conversations = await this.prisma.companyConversation.findMany({
+      where: {
+        companyId,
+        channel: 'whatsapp',
+        metadata: { contains: '"vendasAutomation"' },
+      },
+      select: { metadata: true },
+    }).catch(() => []);
+    const start = this.startOfDay(now).getTime();
+    const end = this.startOfNextDay(now).getTime();
+    const messages: string[] = [];
+    for (const conversation of conversations) {
+      const metadata = parseJsonObject((conversation as any).metadata);
+      const automation = parseJsonObject((metadata as any).vendasAutomation);
+      const queue = parseJsonObject((metadata as any).vendasAgendaQueue);
+      const sentAt = new Date(String((automation as any).sentAt || (queue as any).manualSentAt || ''));
+      if (!Number.isFinite(sentAt.getTime()) || sentAt.getTime() < start || sentAt.getTime() >= end) continue;
+      const message = trimOrNull((queue as any).draftMessage);
+      if (message) messages.push(message);
+    }
+    return messages;
+  }
+
   private async getLastSuccessfulSendAt(campaignId: string, companyId: number, currentJobId?: string | null) {
     const latestSent = await this.prisma.vendasAutomationJob.findFirst({
       where: {
@@ -2962,6 +3131,11 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
       }
       if (decision.mode === 'draft_only') {
         const errorMessage = 'Segmento divergente; mensagem generica pronta para envio manual.';
+        const runtimeUser = await this.buildAutomationUser(campaign);
+        const draftMessage = sanitizeFirstContactMessage(this.renderMessageTemplate(
+          decision.message || DEFAULT_SEGMENT_MISMATCH_FALLBACK_MESSAGE,
+          { lead, campaign, user: runtimeUser },
+        ));
         await this.prisma.vendasAutomationJob.update({
           where: { id: job.id },
           data: {
@@ -2977,7 +3151,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
           campaign,
           jobId: job.id,
           stage: 'pending_send',
-          draftMessage: decision.message || DEFAULT_SEGMENT_MISMATCH_FALLBACK_MESSAGE,
+          draftMessage,
           mismatchReason: 'segment_mismatch_fallback',
           queueTarget: 'prospeccao',
           routeTarget: 'prospeccao',
@@ -2996,6 +3170,8 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
       }
       bodyOverride = decision.message || DEFAULT_SEGMENT_MISMATCH_FALLBACK_MESSAGE;
       mismatchReason = 'segment_mismatch_fallback';
+      const runtimeUser = await this.buildAutomationUser(campaign);
+      const draftMessage = sanitizeFirstContactMessage(this.renderMessageTemplate(bodyOverride, { lead, campaign, user: runtimeUser }));
       const conversationId = await this.updateProspectionConversationStage({
         companyId: campaign.companyId,
         lead,
@@ -3003,7 +3179,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
         jobId: job.id,
         stage: 'scheduled_send',
         scheduledAt: job.scheduledAt || null,
-        draftMessage: bodyOverride,
+        draftMessage,
         mismatchReason,
         queueTarget: 'prospeccao',
         routeTarget: 'prospeccao',
@@ -3120,6 +3296,33 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
       return deferredResult('send_cooldown_active', nextAllowedSendAt);
     }
 
+    if (await this.pauseCampaignIfRealNegativeLimitReached(campaign, now)) {
+      await this.prisma.vendasAutomationJob.update({
+        where: { id: job.id },
+        data: { scheduledAt: this.moveToWorkingWindow(new Date(now.getTime() + this.getCampaignIntervalMs(campaign)), campaign) },
+      });
+      return deferredResult('real_negative_safety_pause');
+    }
+
+    const runtimeUser = await this.buildAutomationUser(campaign);
+    const body = await this.getSafeFirstContactBody({
+      campaign,
+      lead,
+      user: runtimeUser,
+      metadata: prospectionMetadata,
+      bodyOverride,
+      now,
+    });
+    if (!body) {
+      const errorMessage = 'Mensagem inicial repetida demais hoje. Campanha pausada para revisão do texto.';
+      await this.prisma.vendasAutomationJob.update({
+        where: { id: job.id },
+        data: { status: 'skipped', archivedAt: now, classification: 'repeated_first_contact_review', errorMessage },
+      });
+      await this.pauseCampaignForSafety(campaign, errorMessage, 'repeated_first_contact_safety_pause');
+      return deferredResult('repeated_first_contact_review');
+    }
+
     await this.prisma.vendasAutomationJob.update({ where: { id: job.id }, data: { status: 'sending' } });
     await this.markCampaignStage(campaign.id, campaign.companyId, 'enviando', `Enviando para ${lead.name || contact}.`, {
       type: 'send_started',
@@ -3129,8 +3332,6 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     if (delayMs > 0) {
       await new Promise((resolve) => setTimeout(resolve, delayMs));
     }
-    const runtimeUser = await this.buildAutomationUser(campaign);
-    const body = bodyOverride || this.renderOutboundMessage(campaign, lead, runtimeUser, prospectionMetadata);
     try {
       const queued = await this.conversations.queueOutboundForCompany(campaign.companyId, {
         to: contact,
@@ -3344,7 +3545,8 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     const negatives = parseJsonList(job.campaign.negativeIntentKeywordsJson, DEFAULT_NEGATIVE_KEYWORDS).map(normalizeKey);
     const optOut = containsNormalizedKeyword(normalized, OPT_OUT_INTENT_KEYWORDS);
     const humanHandoff = containsNormalizedKeyword(normalized, HUMAN_HANDOFF_INTENT_KEYWORDS);
-    const negative = optOut || containsNormalizedKeyword(normalized, negatives);
+    const autoReplyClassification = classifyProspectingAutoReply(input.text);
+    const negative = optOut || isExplicitProspectingNegativeReply(input.text, negatives);
     const positive = !negative && !humanHandoff && containsNormalizedKeyword(normalized, positives);
     const terminalStatus = ['negative', 'opt_out', 'replied_negative', 'no_response_archived'];
     const alreadyClosed =
@@ -3368,13 +3570,19 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
       return { handled: true, classification: optOut ? 'opt_out' : 'negative' };
     }
 
-    const blockedStatus = ['interested', 'neutral', 'human_assigned'];
+    const blockedStatus = ['interested', 'neutral', 'human_assigned', 'auto_reply_detected', 'bot_menu_detected', 'out_of_hours_auto_reply', 'awaiting_human'];
     const isBlocked =
       blockedStatus.includes(automationStatus) ||
       blockedStatus.includes(queueStatus) ||
       input.metadata?.humanAssigned === true ||
       (queue as any).humanAssigned === true;
     if (isBlocked) return null;
+
+    if (autoReplyClassification) {
+      await input.setInboundMeta('vendas_prospeccao_auto_reply', false);
+      await this.markAutoReply({ ...input, job, classification: autoReplyClassification });
+      return { handled: true, classification: autoReplyClassification };
+    }
 
     if (positive) {
       await input.setInboundMeta('vendas_prospeccao_interessado', false);
@@ -3489,7 +3697,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     await this.prisma.$transaction(async (tx) => {
       await tx.vendasAutomationJob.update({
         where: { id: job.id },
-        data: { status: 'replied_negative', repliedAt: now, archivedAt: now, classification: 'negative', conversationId: input.conversationId },
+        data: { status: 'replied_negative', repliedAt: now, archivedAt: now, classification: input.optOut ? 'opt_out' : 'negative', conversationId: input.conversationId },
       });
       await tx.vendasAutomationJob.updateMany({
         where: { companyId: input.companyId, leadId: job.leadId, id: { not: job.id }, status: { in: ['pending', 'scheduled'] } },
@@ -3606,6 +3814,87 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
       text: 'Lead arquivado por resposta negativa.',
       type: 'lead_archived',
     });
+    await this.pauseCampaignIfRealNegativeLimitReached(job.campaign, now).catch(() => null);
+  }
+
+  private async markAutoReply(input: any) {
+    const now = new Date();
+    const job = input.job;
+    const classification = String(input.classification || 'auto_reply_detected') as ProspectingAutoReplyClassification;
+    await this.prisma.vendasAutomationJob.update({
+      where: { id: job.id },
+      data: { classification, repliedAt: now, conversationId: input.conversationId },
+    });
+    await this.prisma.vendasAutomationJob.updateMany({
+      where: { companyId: input.companyId, leadId: job.leadId, id: { not: job.id }, status: { in: ['pending', 'scheduled'] } },
+      data: { status: 'canceled', archivedAt: now, errorMessage: 'Autoatendimento detectado. Aguardando humano.' },
+    });
+    await this.prisma.vendasLead.update({
+      where: { id: job.leadId },
+      data: {
+        status: 'retorno',
+        lastResult: classification === 'out_of_hours_auto_reply' ? 'Fora de horário; aguardando humano' : 'Autoatendimento detectado; aguardando humano',
+        returnAt: new Date(now.getTime() + 4 * 60 * 60 * 1000),
+      },
+    }).catch(() => null);
+
+    const metadata = parseJsonObject(input.metadata);
+    const queue = parseJsonObject((metadata as any).vendasAgendaQueue);
+    const prospeccao = parseJsonObject((metadata as any).vendasProspeccao);
+    await this.conversations.updateConversationState(input.companyId, input.conversationId, {
+      botActive: false,
+      humanAssigned: false,
+      flowResult: 'prospection_auto_reply',
+      metadata: {
+        ...metadata,
+        queueTarget: 'prospeccao',
+        routeTarget: 'prospeccao',
+        vendasAutomation: {
+          ...parseJsonObject((metadata as any).vendasAutomation),
+          campaignId: job.campaignId,
+          jobId: job.id,
+          leadId: job.leadId,
+          status: classification,
+          autoReplyDetected: true,
+          awaitingHuman: true,
+          autoReplyAt: now.toISOString(),
+        },
+        vendasAgendaQueue: {
+          ...queue,
+          active: true,
+          leadId: job.leadId,
+          queueTarget: 'prospeccao',
+          routeTarget: 'prospeccao',
+          status: 'awaiting_human',
+          nextAction: classification === 'out_of_hours_auto_reply' ? 'Fora de horário; não insistir agora' : 'Autoatendimento detectado; aguardando humano',
+          draftPending: false,
+          botEligible: false,
+          botEntryPending: false,
+          awaitingHuman: true,
+          autoReplyDetected: true,
+          respondedAt: now.toISOString(),
+          syncedAt: now.toISOString(),
+        },
+        vendasProspeccao: this.buildProspectionState('reply_received', {
+          current: prospeccao,
+          lead: job.lead,
+          campaign: job.campaign,
+          lastInboundAt: input.timestamp || now,
+          mismatchReason: null,
+        }),
+      },
+    });
+    this.publishAutomationEvent({
+      companyId: input.companyId,
+      campaignId: job.campaignId,
+      jobId: job.id,
+      leadId: job.leadId,
+      conversationId: input.conversationId,
+      status: 'aguardando',
+      text: classification === 'out_of_hours_auto_reply' ? 'Fora de horário detectado. Não insistir agora.' : 'Autoatendimento detectado. Aguardando humano.',
+      type: classification,
+    });
+    await this.pauseCampaignIfAutoReplyStreakReached(job.campaign, now).catch(() => null);
   }
 
   private async markNeutral(input: any) {

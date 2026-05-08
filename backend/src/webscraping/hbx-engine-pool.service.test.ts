@@ -255,6 +255,20 @@ test('eligible engines include hbx-engine-20 when active capacity is twenty', as
   });
 });
 
+test('eligible engines ignore manually paused and timed paused engines', async () => {
+  await withEnv({ NODE_ENV: 'production', HBX_ENGINE_COUNT: '4' }, async () => {
+    const service = createPoolForCapacity({ queuedCount: 100 }) as any;
+    const rows = buildEngineRows(4);
+    rows[1].status = 'paused';
+    (rows[1] as any).manualPaused = true;
+    rows[2].status = 'paused';
+    (rows[2] as any).pausedUntil = new Date(Date.now() + 60 * 60_000);
+    service.healthCheckEngines = async () => rows;
+    const eligible = await service.getEligibleEnginesForCurrentQueue();
+    assert.deepEqual(eligible.map((engine: any) => engine.id), ['hbx-engine-1', 'hbx-engine-4']);
+  });
+});
+
 test('operational turbo config with engineCount=20 activates twenty engines', async () => {
   await withEnv({ NODE_ENV: 'production', HBX_ENGINE_COUNT: '20' }, async () => {
     const service = createPoolForCapacity({

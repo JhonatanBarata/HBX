@@ -5718,14 +5718,14 @@
   --inbox-danger: #ff6f91;
   min-height: 0;
   height: min(
-    var(--workspace-stage-height, calc(100dvh - var(--topbar-total-height) - 1.1rem)),
-    calc(100dvh - var(--topbar-total-height) - 1.1rem)
+    var(--workspace-stage-height, calc(100dvh - var(--topbar-total-height) - 0.55rem)),
+    calc(100dvh - var(--topbar-total-height) - 0.55rem)
   );
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
-  gap: 0.42rem;
-  padding: 0.18rem 0.28rem 0.28rem;
-  border-radius: 30px;
+  gap: 0.3rem;
+  padding: 0.1rem 0.2rem 0.22rem;
+  border-radius: 22px;
   background:
     radial-gradient(circle at top left, rgba(79, 107, 255, 0.2), transparent 28%),
     radial-gradient(circle at top right, rgba(22, 215, 181, 0.12), transparent 24%),
@@ -5753,12 +5753,12 @@
 
 .automationPulse {
   display: grid;
-  grid-template-columns: minmax(220px, 0.8fr) minmax(380px, 1fr) auto;
+  grid-template-columns: minmax(210px, 0.72fr) minmax(360px, 1fr) auto;
   align-items: center;
-  gap: 0.7rem;
-  min-height: 54px;
-  padding: 0.48rem 0.58rem 0.48rem 0.78rem;
-  border-radius: 22px;
+  gap: 0.48rem;
+  min-height: 42px;
+  padding: 0.28rem 0.42rem 0.28rem 0.58rem;
+  border-radius: 16px;
   border: 1px solid rgba(96, 119, 186, 0.2);
   background:
     linear-gradient(135deg, rgba(10, 16, 34, 0.9), rgba(10, 18, 36, 0.78)),
@@ -5794,7 +5794,7 @@
   min-width: 0;
   display: flex;
   align-items: center;
-  gap: 0.62rem;
+  gap: 0.46rem;
 }
 
 .automationPulseDot {
@@ -5816,12 +5816,12 @@
 .automationPulseText {
   min-width: 0;
   display: grid;
-  gap: 0.1rem;
+  gap: 0.04rem;
 }
 
 .automationPulseText strong {
   color: #f8fbff;
-  font-size: 0.82rem;
+  font-size: 0.76rem;
   line-height: 1.1;
   font-weight: 900;
 }
@@ -5829,7 +5829,7 @@
 .automationPulseText span {
   min-width: 0;
   color: #b9c7e6;
-  font-size: 0.75rem;
+  font-size: 0.68rem;
   font-weight: 700;
   line-height: 1.35;
   overflow: hidden;
@@ -5840,7 +5840,7 @@
 .automationPulseCounters {
   display: flex;
   justify-content: center;
-  gap: 0.34rem;
+  gap: 0.24rem;
   flex-wrap: wrap;
 }
 
@@ -5850,15 +5850,15 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-height: 28px;
+  min-height: 24px;
   border-radius: 999px;
-  font-size: 0.68rem;
+  font-size: 0.62rem;
   font-weight: 850;
 }
 
 .automationPulseCounters span {
   gap: 0.28rem;
-  padding: 0.24rem 0.55rem;
+  padding: 0.18rem 0.44rem;
   border: 1px solid rgba(150, 174, 235, 0.28);
   background: rgba(255, 255, 255, 0.08);
   color: #c9d6f4;
@@ -5872,12 +5872,12 @@
 .automationPulseActions {
   display: flex;
   justify-content: flex-end;
-  gap: 0.42rem;
+  gap: 0.28rem;
   flex-wrap: wrap;
 }
 
 .automationPulseActions button {
-  padding: 0.24rem 0.64rem;
+  padding: 0.18rem 0.54rem;
   border: 1px solid rgba(34, 211, 184, 0.44);
   background: rgba(20, 184, 166, 0.22);
   color: #f2fffb;

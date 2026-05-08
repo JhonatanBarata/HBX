@@ -5444,9 +5444,13 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     return Number.isFinite(parsed.getTime()) ? parsed.toISOString() : null;
   }
 
-  private dashboardEngineStatus(engine: any): 'running' | 'waiting' | 'offline' | 'cooldown' {
+  private dashboardEngineStatus(engine: any): 'running' | 'waiting' | 'offline' | 'cooldown' | 'paused' {
     const status = String(engine?.status || '').trim().toLowerCase();
     const stateLabel = String(engine?.stateLabel || '').trim().toLowerCase();
+    const pausedUntil = engine?.pausedUntil ? new Date(engine.pausedUntil).getTime() : NaN;
+    if (engine?.manualPaused || status === 'paused' || stateLabel.includes('pausado') || (Number.isFinite(pausedUntil) && pausedUntil > Date.now())) {
+      return 'paused';
+    }
     if (status === 'cooldown' || status === 'degraded' || stateLabel.includes('cooldown')) return 'cooldown';
     if (!engine?.configured || !engine?.online || ['offline', 'missing', 'error'].includes(status)) {
       return 'offline';
@@ -5500,10 +5504,25 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     const capacity = engines?.capacity || null;
     const hbxEngines = (engines?.engines || []).filter((engine: any) => String(engine.id || '').startsWith('hbx-engine'));
     const configuredHbxEngines = hbxEngines.filter((engine: any) => engine.configured);
+    const isPausedEngine = (engine: any) => {
+      const pausedUntil = engine?.pausedUntil ? new Date(engine.pausedUntil).getTime() : NaN;
+      return Boolean(engine?.manualPaused)
+        || String(engine?.status || '').toLowerCase() === 'paused'
+        || String(engine?.stateLabel || '').toLowerCase().includes('pausado')
+        || (Number.isFinite(pausedUntil) && pausedUntil > now.getTime());
+    };
     const onlineHbxEngines = configuredHbxEngines.filter((engine: any) => engine.online);
-    const offlineHbxEngines = configuredHbxEngines.filter((engine: any) => !engine.online || ['offline', 'missing', 'cooldown', 'degraded'].includes(String(engine.status || '').toLowerCase()));
+    const pausedHbxEngines = configuredHbxEngines.filter((engine: any) => isPausedEngine(engine));
+    const cooldownHbxEngines = configuredHbxEngines.filter((engine: any) => !isPausedEngine(engine) && this.dashboardEngineStatus(engine) === 'cooldown');
+    const runningHbxEngines = configuredHbxEngines.filter((engine: any) => !isPausedEngine(engine) && this.dashboardEngineStatus(engine) === 'running');
+    const offlineHbxEngines = configuredHbxEngines.filter((engine: any) => {
+      if (isPausedEngine(engine) || this.dashboardEngineStatus(engine) === 'cooldown') return false;
+      const status = String(engine.status || '').toLowerCase();
+      return !engine.online || ['offline', 'missing', 'degraded', 'error'].includes(status);
+    });
     const allOffline = configuredHbxEngines.length > 0 && offlineHbxEngines.length === configuredHbxEngines.length;
     const configuredEngineCount = getConfiguredHbxEngineCount();
+    const totalConfiguredEngines = Math.max(configuredEngineCount, configuredHbxEngines.length);
     const activeEngineCount = Math.max(1, Math.min(configuredEngineCount, safeInteger(capacity?.activeEngineCount, safeInteger(config.engineCount, configuredEngineCount))));
     const activeQueue = safeInteger(capacity?.queuedCount) + safeInteger(capacity?.runningCount);
 
@@ -5669,6 +5688,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       activeQueue > 0 ? `Fila ativa com ${activeQueue} item(ns).` : 'Fila sem pendências.',
       databaseStatus === 'ok' ? 'Gravações no banco acessíveis.' : null,
       engineHealthStatus === 'ok' ? 'Motores com healthcheck saudável.' : null,
+      pausedHbxEngines.length > 0 ? `${pausedHbxEngines.length} motor(es) pausado(s) pelo painel.` : null,
       ...databaseMessages,
       ...offlineHbxEngines.slice(0, getConfiguredHbxEngineCount()).map((engine: any) => `${engine.shortLabel || engine.id}: ${engine.lastError || engine.stateLabel || 'sem resposta'}`),
       criticalReason,
@@ -5686,7 +5706,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         createdAt: now.toISOString(),
       }));
 
-    const dashboardEngineCount = Math.max(configuredEngineCount, hbxEngines.length);
+    const dashboardEngineCount = Math.max(totalConfiguredEngines, hbxEngines.length);
     const dashboardEngines = Array.from({ length: dashboardEngineCount }, (_, index) => {
       const engine = hbxEngines[index] || null;
       const id = String(engine?.id || `hbx-engine-${index + 1}`);
@@ -5698,7 +5718,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         rejected: 0,
         lastError: null,
       };
-      const queue = status === 'offline'
+      const queue = status === 'offline' || status === 'paused' || status === 'cooldown'
         ? 0
         : status === 'running'
           ? Math.max(1, safeInteger(engine?.queueShare) ? Math.ceil(activeQueue * (safeInteger(engine?.queueShare) / 100)) : safeInteger(capacity?.runningCount))
@@ -5709,8 +5729,13 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         id,
         label: `M${index + 1}`,
         status,
+        configured: Boolean(engine?.configured ?? index < totalConfiguredEngines),
         online: Boolean(engine?.online),
         busy: Boolean(engine?.busy || engine?.activeRunId || engine?.activeCampaignId),
+        active: Boolean(engine?.active),
+        usagePercent: safeInteger(engine?.usagePercent),
+        stateLabel: engine?.stateLabel || null,
+        detail: engine?.detail || null,
         cardsFabricated: productionStats.cardsFabricated,
         batches: productionStats.batches,
         duplicates: productionStats.duplicates,
@@ -5720,6 +5745,9 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         activeCampaignId: engine?.activeCampaignId || null,
         lastError: engine?.lastError || productionStats.lastError || null,
         lockUrl: engine?.lockUrl || null,
+        cooldownUntil: engine?.cooldownUntil || null,
+        manualPaused: Boolean(engine?.manualPaused),
+        pausedUntil: engine?.pausedUntil || null,
         localhostInProduction: Boolean(engine?.localhostInProduction),
       };
     });
@@ -5764,8 +5792,14 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         cardsPerMinuteAvg,
         activeQueue,
         errors24h: (errors24hParts as number[]).reduce((sum, value) => sum + safeInteger(value), 0),
+        totalConfiguredEngines,
         onlineEngines: onlineHbxEngines.length,
-        totalEngines: 4,
+        activeEngineLimit: activeEngineCount,
+        runningEngines: runningHbxEngines.length,
+        cooldownEngines: cooldownHbxEngines.length,
+        pausedEngines: pausedHbxEngines.length,
+        offlineEngines: offlineHbxEngines.length,
+        totalEngines: totalConfiguredEngines,
       },
       engines: dashboardEngines,
       production: (productionRows as any[]).map((row: any) => {
@@ -5870,7 +5904,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       state: input.state,
       city: input.city || '',
       segment: input.segment || '',
-      targetType: input.targetType || 'both',
+      targetType: input.targetType || 'pj',
       targetTotal: input.targetTotal || 0,
       batchSize: config.batchSize,
       maxAttemptsPerTask: config.maxAttemptsPerTask,

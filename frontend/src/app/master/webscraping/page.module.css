@@ -153,9 +153,9 @@
 }
 
 .pageHeader {
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: end;
-  padding: 4px 2px 0;
+  grid-template-columns: minmax(280px, 0.56fr) minmax(360px, 1fr);
+  align-items: stretch;
+  padding: 0;
 }
 
 .pageHeader span,
@@ -173,20 +173,113 @@
   text-transform: uppercase;
 }
 
-.pageHeader h2 {
+.pageHeader h2,
+.operationalHead h2 {
   margin: 0.18rem 0 0;
   color: var(--ws-text-strong);
-  font-size: clamp(1.55rem, 2vw, 2.25rem);
+  font-size: clamp(1.22rem, 1.4vw, 1.72rem);
   font-weight: 950;
   letter-spacing: 0;
 }
 
-.pageHeader p {
+.pageHeader p,
+.operationalHead p {
   max-width: 860px;
   margin: 0.35rem 0 0;
   color: var(--ws-muted);
-  font-size: 0.92rem;
+  font-size: 0.82rem;
   line-height: 1.45;
+}
+
+.speedometerPanel {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.speedometerCard,
+.operationalCenter {
+  min-width: 0;
+  border-radius: 16px;
+  border: 1px solid var(--ws-card-border);
+  background: var(--ws-card-bg);
+  box-shadow: var(--ws-card-shadow);
+}
+
+.speedometerCard {
+  --speedometer-value: 0%;
+  --speedometer-angle: 0deg;
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+  padding: 10px;
+  overflow: hidden;
+}
+
+.speedometerCard > span {
+  color: var(--ws-success);
+}
+
+.speedometerDial {
+  width: min(112px, 100%);
+  aspect-ratio: 2 / 1.05;
+  position: relative;
+  overflow: hidden;
+  border-radius: 999px 999px 14px 14px;
+  background:
+    radial-gradient(farthest-side at 50% 100%, var(--ws-card-bg) 0 54%, transparent 55%),
+    conic-gradient(from 270deg at 50% 100%, rgba(var(--ws-success-rgb), 0.88) 0 var(--speedometer-angle), rgba(148, 163, 184, 0.22) 0 180deg, transparent 180deg);
+}
+
+.speedometerDial i {
+  position: absolute;
+  left: 50%;
+  bottom: 9px;
+  width: 42%;
+  height: 3px;
+  border-radius: 999px;
+  background: var(--ws-text-strong);
+  transform: rotate(calc(180deg + var(--speedometer-angle)));
+  transform-origin: 0 50%;
+}
+
+.speedometerDial strong {
+  position: absolute;
+  left: 50%;
+  bottom: 0.34rem;
+  transform: translateX(-50%);
+  color: var(--ws-success-soft);
+  font-size: 0.84rem;
+  font-weight: 950;
+}
+
+.speedometerCard p {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  text-align: center;
+}
+
+.speedometerCard p strong {
+  color: var(--ws-text-strong);
+  font-size: 0.82rem;
+  line-height: 1;
+}
+
+.speedometerCard p span {
+  color: var(--ws-muted);
+  font-size: 0.66rem;
+  font-weight: 800;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.operationalCenter {
+  display: grid;
+  gap: 10px;
+  align-content: center;
+  padding: 12px;
 }
 
 .headerClock {
@@ -194,9 +287,9 @@
 }
 
 .headerOps {
-  min-width: min(460px, 100%);
+  min-width: 0;
   display: grid;
-  grid-template-columns: repeat(4, minmax(86px, 1fr));
+  grid-template-columns: repeat(6, minmax(72px, 1fr));
   gap: 8px;
 }
 
@@ -298,10 +391,11 @@
 }
 
 .engineGrid {
-  grid-template-columns: repeat(auto-fit, minmax(176px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
 }
 
 .engineCard,
+.smartPanel,
 .turboCard,
 .diagnosticsCard,
 .kpiGrid article,
@@ -316,13 +410,13 @@
 
 .engineCard {
   --engine-usage: 8%;
-  min-height: 154px;
+  min-height: 120px;
   position: relative;
   display: grid;
   align-content: space-between;
-  gap: 10px;
+  gap: 8px;
   overflow: hidden;
-  padding: 13px;
+  padding: 10px;
 }
 
 .engineTop,
@@ -334,23 +428,23 @@
 }
 
 .engineTop span {
-  min-width: 42px;
-  height: 34px;
+  min-width: 34px;
+  height: 28px;
   display: inline-grid;
   place-items: center;
-  border-radius: 12px;
+  border-radius: 10px;
   border: 1px solid var(--ws-subtle-border);
   background: var(--ws-subtle-bg);
   color: currentColor;
-  font-size: 0.82rem;
+  font-size: 0.74rem;
   font-weight: 950;
-  padding: 0 8px;
+  padding: 0 6px;
 }
 
 .engineTop strong,
 .cardTitle strong {
   color: var(--ws-text-strong);
-  font-size: 0.84rem;
+  font-size: 0.76rem;
   font-weight: 950;
 }
 
@@ -358,7 +452,7 @@
   display: block;
   margin-top: 0.16rem;
   color: var(--ws-text-strong);
-  font-size: 1.5rem;
+  font-size: 1.18rem;
   line-height: 1;
 }
 
@@ -379,14 +473,14 @@
 
 .engineMeta {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 6px;
+  grid-template-columns: 1fr;
+  gap: 5px;
 }
 
 .engineMeta span {
   min-width: 0;
-  border-radius: 10px;
-  padding: 7px;
+  border-radius: 8px;
+  padding: 5px 6px;
   background: var(--ws-subtle-bg);
   text-transform: none;
   letter-spacing: 0;
@@ -397,7 +491,7 @@
   display: block;
   margin-top: 0.16rem;
   color: var(--ws-text-strong);
-  font-size: 0.7rem;
+  font-size: 0.66rem;
   font-weight: 900;
 }
 
@@ -421,6 +515,382 @@
 .engineCard[data-status="cooldown"] {
   color: var(--ws-warning);
   border-color: rgba(var(--ws-warning-rgb), 0.38);
+}
+
+.engineCard[data-status="paused"] {
+  color: var(--ws-muted-strong);
+  border-color: rgba(148, 163, 184, 0.38);
+  filter: saturate(0.72);
+}
+
+.engineActions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 5px;
+}
+
+.engineActions button {
+  min-width: 0;
+  min-height: 28px;
+  border: 1px solid var(--ws-subtle-border);
+  border-radius: 8px;
+  background: var(--ws-subtle-bg);
+  color: var(--ws-text-strong);
+  font-size: 0.66rem;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.engineActions button:only-child {
+  grid-column: 1 / -1;
+}
+
+.engineActions button:hover {
+  border-color: rgba(var(--ws-info-rgb), 0.4);
+}
+
+.engineActions button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.economyNotice {
+  border-radius: 14px;
+  padding: 11px 12px;
+  border: 1px solid rgba(var(--ws-warning-rgb), 0.32);
+  background: rgba(var(--ws-warning-rgb), 0.1);
+  color: var(--ws-warning-soft);
+  font-size: 0.82rem;
+  font-weight: 850;
+  line-height: 1.35;
+}
+
+.smartPanel {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+}
+
+.smartTabs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.smartTabs button {
+  min-width: 0;
+  min-height: 62px;
+  display: grid;
+  align-content: center;
+  gap: 4px;
+  border: 1px solid var(--ws-subtle-border);
+  border-radius: 16px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.72), rgba(241, 245, 249, 0.5)),
+    var(--ws-subtle-bg);
+  color: var(--ws-text-strong);
+  padding: 10px 12px;
+  text-align: left;
+  cursor: pointer;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.56);
+}
+
+:global(html[data-theme-mode="dark"]) .smartTabs button {
+  background:
+    radial-gradient(circle at 18% 0%, rgba(var(--ws-info-rgb), 0.12), transparent 42%),
+    rgba(7, 16, 35, 0.72);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+.smartTabs button[data-active="true"] {
+  border-color: rgba(var(--ws-info-rgb), 0.58);
+  background:
+    radial-gradient(circle at 18% 0%, rgba(var(--ws-success-rgb), 0.28), transparent 38%),
+    linear-gradient(135deg, rgba(15, 118, 110, 0.95), rgba(29, 78, 216, 0.94));
+  color: #ffffff;
+  box-shadow: 0 18px 36px rgba(var(--ws-info-rgb), 0.16);
+}
+
+.smartTabs span,
+.smartWorkspaceHeader span,
+.smartSummary span {
+  color: inherit;
+  font-size: 0.68rem;
+  font-weight: 950;
+  letter-spacing: 0.08em;
+  line-height: 1.1;
+  text-transform: uppercase;
+}
+
+.smartTabs button:not([data-active="true"]) span,
+.smartWorkspaceHeader span,
+.smartSummary span {
+  color: var(--ws-muted-strong);
+}
+
+.smartTabs strong {
+  min-width: 0;
+  overflow: hidden;
+  color: inherit;
+  font-size: 0.82rem;
+  font-weight: 950;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.smartLayout {
+  display: grid;
+  grid-template-columns: minmax(220px, 0.34fr) minmax(0, 1fr);
+  gap: 12px;
+  align-items: stretch;
+}
+
+.smartSummary,
+.smartWorkspace {
+  min-width: 0;
+  border: 1px solid var(--ws-subtle-border);
+  border-radius: 18px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.62), rgba(248, 250, 252, 0.42)),
+    var(--ws-card-soft-bg);
+}
+
+:global(html[data-theme-mode="dark"]) .smartSummary,
+:global(html[data-theme-mode="dark"]) .smartWorkspace {
+  background:
+    radial-gradient(circle at 8% 0%, rgba(var(--ws-success-rgb), 0.09), transparent 42%),
+    rgba(3, 8, 20, 0.58);
+}
+
+.smartSummary {
+  display: grid;
+  align-content: start;
+  gap: 10px;
+  padding: 12px;
+}
+
+.smartSummary div {
+  display: grid;
+  gap: 4px;
+  border-radius: 14px;
+  padding: 10px;
+  border: 1px solid var(--ws-row-border);
+  background: var(--ws-row-bg);
+}
+
+.smartSummary strong {
+  color: var(--ws-text-strong);
+  font-size: 0.92rem;
+  font-weight: 950;
+  line-height: 1.1;
+}
+
+.smartSummary p {
+  margin: 0;
+  color: var(--ws-muted);
+  font-size: 0.76rem;
+  font-weight: 780;
+  line-height: 1.35;
+}
+
+.smartWorkspace {
+  display: grid;
+  gap: 12px;
+  padding: 12px;
+}
+
+.smartWorkspaceHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.smartWorkspaceHeader div {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.smartWorkspaceHeader strong {
+  color: var(--ws-text-strong);
+  font-size: 1rem;
+  font-weight: 950;
+}
+
+.smartInlineAction {
+  min-height: 34px;
+  border: 1px solid rgba(var(--ws-info-rgb), 0.34);
+  border-radius: 999px;
+  background: rgba(var(--ws-info-rgb), 0.08);
+  color: var(--ws-info-soft);
+  padding: 0 12px;
+  font-size: 0.74rem;
+  font-weight: 950;
+  cursor: pointer;
+}
+
+.smartActionGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.smartActionGrid button {
+  min-width: 0;
+  min-height: 112px;
+  display: grid;
+  align-content: end;
+  gap: 6px;
+  overflow: hidden;
+  position: relative;
+  border: 1px solid var(--ws-subtle-border);
+  border-radius: 18px;
+  background: var(--ws-subtle-bg);
+  color: var(--ws-text-strong);
+  padding: 14px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.smartActionGrid button::before {
+  content: "";
+  position: absolute;
+  inset: -34% -22% auto auto;
+  width: 120px;
+  aspect-ratio: 1;
+  border-radius: 999px;
+  background: rgba(var(--ws-info-rgb), 0.14);
+}
+
+.smartActionGrid button[data-tone="start"] {
+  border-color: rgba(var(--ws-success-rgb), 0.42);
+}
+
+.smartActionGrid button[data-tone="start"]::before {
+  background: rgba(var(--ws-success-rgb), 0.22);
+}
+
+.smartActionGrid button[data-tone="stop"] {
+  border-color: rgba(var(--ws-danger-rgb), 0.36);
+}
+
+.smartActionGrid button[data-tone="stop"]::before {
+  background: rgba(var(--ws-danger-rgb), 0.18);
+}
+
+.smartActionGrid button:disabled {
+  cursor: not-allowed;
+  opacity: 0.54;
+}
+
+.smartActionGrid span {
+  position: relative;
+  color: var(--ws-text-strong);
+  font-size: 0.88rem;
+  font-weight: 950;
+}
+
+.smartActionGrid strong {
+  position: relative;
+  color: var(--ws-muted);
+  font-size: 0.76rem;
+  font-weight: 850;
+}
+
+.smartFacts {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.smartFacts span {
+  min-width: 0;
+  border-radius: 14px;
+  padding: 10px;
+  border: 1px solid var(--ws-row-border);
+  background: var(--ws-row-bg);
+  color: var(--ws-muted-strong);
+  font-size: 0.76rem;
+  font-weight: 900;
+}
+
+.smartFacts strong {
+  display: block;
+  margin-top: 0.18rem;
+  color: var(--ws-text-strong);
+  font-size: 0.9rem;
+  overflow-wrap: anywhere;
+}
+
+.smartEngineList {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.smartEngineList article {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border: 1px solid var(--ws-row-border);
+  border-radius: 14px;
+  background: var(--ws-row-bg);
+  padding: 10px;
+}
+
+.smartEngineList article[data-status="running"] {
+  border-color: rgba(var(--ws-success-rgb), 0.38);
+}
+
+.smartEngineList article[data-status="cooldown"] {
+  border-color: rgba(var(--ws-warning-rgb), 0.38);
+}
+
+.smartEngineList article[data-status="offline"] {
+  border-color: rgba(var(--ws-danger-rgb), 0.34);
+}
+
+.smartEngineList div {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.smartEngineList span {
+  color: var(--ws-muted-strong);
+  font-size: 0.68rem;
+  font-weight: 950;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.smartEngineList strong {
+  overflow: hidden;
+  color: var(--ws-text-strong);
+  font-size: 0.82rem;
+  font-weight: 950;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.smartEngineList button {
+  min-height: 30px;
+  border: 1px solid var(--ws-subtle-border);
+  border-radius: 999px;
+  background: var(--ws-button-bg);
+  color: var(--ws-button-text);
+  padding: 0 10px;
+  font-size: 0.7rem;
+  font-weight: 950;
+  cursor: pointer;
+}
+
+.smartEngineList button:disabled {
+  cursor: not-allowed;
+  opacity: 0.54;
 }
 
 .engineIssue {
@@ -554,13 +1024,30 @@
 }
 
 .campaignForm {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
   margin-top: 14px;
 }
 
-.campaignWide {
-  grid-column: 1 / -1;
+.campaignRow {
   min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.campaignRow:first-child {
+  grid-template-columns: 1fr;
+}
+
+.campaignHelp {
+  display: grid;
+  gap: 4px;
+  border-radius: 12px;
+  padding: 10px;
+  border: 1px solid var(--ws-subtle-border);
+  background: var(--ws-subtle-bg);
+  color: var(--ws-muted);
+  font-size: 0.76rem;
+  font-weight: 850;
 }
 
 .configGrid label,
@@ -669,6 +1156,10 @@
 
 .lowerGrid {
   grid-template-columns: minmax(0, 1.35fr) minmax(320px, 0.65fr);
+}
+
+.lowerGrid > .productionCard:only-child {
+  grid-column: 1 / -1;
 }
 
 .productionTable {
@@ -790,6 +1281,7 @@
 
 @media (max-width: 1240px) {
   .engineGrid,
+  .smartEngineList,
   .engineOverview,
   .kpiGrid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -803,6 +1295,12 @@
   .configGrid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
+
+  .smartLayout,
+  .smartActionGrid,
+  .smartFacts {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 860px) {
@@ -813,11 +1311,15 @@
 
   .pageHeader,
   .headerOps,
+  .smartTabs,
+  .speedometerPanel,
   .engineOverview,
   .engineGrid,
+  .smartEngineList,
   .turboFacts,
   .configGrid,
   .campaignForm,
+  .campaignRow,
   .kpiGrid {
     grid-template-columns: 1fr;
   }

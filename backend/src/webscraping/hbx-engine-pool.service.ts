@@ -43,6 +43,8 @@ type EngineRegistryRow = {
   lockedRunId?: string | null;
   lockedUntil?: Date | null;
   cooldownUntil?: Date | null;
+  manualPaused?: boolean | null;
+  pausedUntil?: Date | null;
   lastCheckedAt?: Date | null;
   lastUsedAt?: Date | null;
 };
@@ -72,6 +74,8 @@ export type HbxEngineDashboardEngine = {
   localhostInProduction: boolean;
   lockedUntil: string | null;
   cooldownUntil: string | null;
+  manualPaused: boolean;
+  pausedUntil: string | null;
   lastCheckedAt: string | null;
   lastError: string | null;
   detail: string;
@@ -292,12 +296,16 @@ export class HbxEnginePoolService implements OnModuleInit {
       const healthFailureCount = healthStatus === 'offline'
         ? Math.min(Number(row.failureCount || 0) + 1, 6)
         : 0;
-      const healthCooldownUntil = healthStatus === 'offline' && healthFailureCount >= 3
+      const paused = this.isEnginePaused(row, now.getTime());
+      const pausedExpired = !row.manualPaused && row.pausedUntil instanceof Date && row.pausedUntil.getTime() <= now.getTime();
+      const healthCooldownUntil = !paused && healthStatus === 'offline' && healthFailureCount >= 3
         ? new Date(Date.now() + Math.min(30, 2 ** healthFailureCount) * 60_000)
         : row.cooldownUntil || null;
       const isLocked = Boolean(row.lockedRunId && row.lockedUntil && row.lockedUntil.getTime() > Date.now());
       const inCooldown = Boolean(healthCooldownUntil && healthCooldownUntil.getTime() > Date.now());
-      const status = isLocked
+      const status = paused
+        ? 'paused'
+        : isLocked
         ? 'busy'
         : inCooldown
           ? 'cooldown'
@@ -312,7 +320,8 @@ export class HbxEnginePoolService implements OnModuleInit {
           lastHealthStatus: healthStatus,
           lastError,
           failureCount: healthFailureCount,
-          cooldownUntil: healthCooldownUntil,
+          cooldownUntil: paused ? null : healthCooldownUntil,
+          ...(pausedExpired ? { pausedUntil: null } : {}),
           lastCheckedAt: now,
         },
       });
@@ -433,6 +442,8 @@ export class HbxEnginePoolService implements OnModuleInit {
     const now = Date.now();
     return engines
       .filter((engine) => engine.engineIndex < capacity.activeEngineCount)
+      .filter((engine) => !this.isEnginePaused(engine, now))
+      .filter((engine) => String(engine.status || '').toLowerCase() !== 'paused')
       .filter((engine) => String(engine.lastHealthStatus || engine.status) !== 'offline')
       .filter((engine) => !engine.cooldownUntil || engine.cooldownUntil.getTime() <= now)
       .sort((left, right) => this.compareEngineAvailability(left, right));
@@ -465,6 +476,15 @@ export class HbxEnginePoolService implements OnModuleInit {
       const updated = await (this.prisma as any).hbxEngineLock.updateMany({
         where: {
           id: engine.id,
+          manualPaused: false,
+          AND: [
+            {
+              OR: [
+                { pausedUntil: null },
+                { pausedUntil: { lt: new Date() } },
+              ],
+            },
+          ],
           OR: [
             { lockedRunId: null },
             { lockedUntil: { lt: new Date() } },
@@ -497,12 +517,13 @@ export class HbxEnginePoolService implements OnModuleInit {
   async releaseEngine(engineId: string) {
     if (!(await this.prisma.hasTable('HbxEngineLock'))) return;
     const current = await (this.prisma as any).hbxEngineLock.findUnique({ where: { id: engineId } }).catch(() => null);
+    const paused = this.isEnginePaused(current);
     const inCooldown = Boolean(current?.cooldownUntil instanceof Date && current.cooldownUntil.getTime() > Date.now());
     const degraded = String(current?.status || '') === 'degraded';
     await (this.prisma as any).hbxEngineLock.update({
       where: { id: engineId },
       data: {
-        status: inCooldown ? 'cooldown' : degraded ? 'degraded' : 'online',
+        status: paused ? 'paused' : inCooldown ? 'cooldown' : degraded ? 'degraded' : 'online',
         lockedRunId: null,
         lockedCompanyId: null,
         lockedUserId: null,
@@ -514,13 +535,15 @@ export class HbxEnginePoolService implements OnModuleInit {
 
   async markEngineBatchError(engineId: string, error: unknown) {
     if (!(await this.prisma.hasTable('HbxEngineLock'))) return;
+    const current = await (this.prisma as any).hbxEngineLock.findUnique({ where: { id: engineId } }).catch(() => null);
+    const paused = this.isEnginePaused(current);
     const message = String((error as any)?.response?.message || (error as any)?.rawMessage || (error as any)?.message || error || 'Falha no lote HBX.');
     await (this.prisma as any).hbxEngineLock.update({
       where: { id: engineId },
       data: {
-        status: 'cooldown',
+        status: paused ? 'paused' : 'cooldown',
         lastError: message.slice(0, 500),
-        cooldownUntil: new Date(Date.now() + 60_000),
+        cooldownUntil: paused ? null : new Date(Date.now() + 60_000),
         lockedRunId: null,
         lockedCompanyId: null,
         lockedUserId: null,
@@ -532,10 +555,12 @@ export class HbxEnginePoolService implements OnModuleInit {
 
   async markEngineBatchSuccess(engineId: string) {
     if (!(await this.prisma.hasTable('HbxEngineLock'))) return;
+    const current = await (this.prisma as any).hbxEngineLock.findUnique({ where: { id: engineId } }).catch(() => null);
+    const paused = this.isEnginePaused(current);
     await (this.prisma as any).hbxEngineLock.update({
       where: { id: engineId },
       data: {
-        status: 'online',
+        status: paused ? 'paused' : 'online',
         failureCount: 0,
         lastError: null,
       },
@@ -545,15 +570,16 @@ export class HbxEnginePoolService implements OnModuleInit {
   async markEngineFailed(engineId: string, error: unknown) {
     if (!(await this.prisma.hasTable('HbxEngineLock'))) return;
     const current = await (this.prisma as any).hbxEngineLock.findUnique({ where: { id: engineId } }).catch(() => null);
+    const paused = this.isEnginePaused(current);
     const failureCount = Math.min(Number(current?.failureCount || 0) + 1, 6);
     const cooldownMinutes = Math.min(30, Math.max(2, 2 ** failureCount));
     const message = String((error as any)?.response?.message || (error as any)?.message || error || 'Falha no motor HBX.');
     await (this.prisma as any).hbxEngineLock.update({
       where: { id: engineId },
       data: {
-        status: 'cooldown',
+        status: paused ? 'paused' : 'cooldown',
         failureCount,
-        cooldownUntil: new Date(Date.now() + cooldownMinutes * 60_000),
+        cooldownUntil: paused ? null : new Date(Date.now() + cooldownMinutes * 60_000),
         lastError: message.slice(0, 500),
         lockedRunId: null,
         lockedCompanyId: null,
@@ -570,6 +596,11 @@ export class HbxEnginePoolService implements OnModuleInit {
       where: {
         lockedRunId: { not: null },
         lockedUntil: { lt: new Date() },
+        manualPaused: false,
+        OR: [
+          { pausedUntil: null },
+          { pausedUntil: { lt: new Date() } },
+        ],
       },
       data: {
         status: 'online',
@@ -581,6 +612,45 @@ export class HbxEnginePoolService implements OnModuleInit {
         lastError: 'Lock expirado e liberado automaticamente.',
       },
     }).catch(() => null);
+  }
+
+  async pauseEngine(engineId: string, options: { minutes?: number | null } = {}) {
+    if (!(await this.prisma.hasTable('HbxEngineLock'))) return this.getDashboardEngineStatus();
+    const id = this.normalizeEngineId(engineId);
+    if (!id) return this.getDashboardEngineStatus();
+    await this.refreshEngineRegistryFromEnv().catch(() => []);
+    const minutes = Math.max(0, Math.trunc(Number(options.minutes || 0)));
+    const pausedUntil = minutes > 0 ? new Date(Date.now() + minutes * 60_000) : null;
+    await (this.prisma as any).hbxEngineLock.updateMany({
+      where: { id },
+      data: {
+        status: 'paused',
+        manualPaused: !pausedUntil,
+        pausedUntil,
+        cooldownUntil: null,
+      },
+    }).catch(() => null);
+    return this.getDashboardEngineStatus();
+  }
+
+  async resumeEngine(engineId: string) {
+    if (!(await this.prisma.hasTable('HbxEngineLock'))) return this.getDashboardEngineStatus();
+    const id = this.normalizeEngineId(engineId);
+    if (!id) return this.getDashboardEngineStatus();
+    await this.refreshEngineRegistryFromEnv().catch(() => []);
+    const current = await (this.prisma as any).hbxEngineLock.findUnique({ where: { id } }).catch(() => null);
+    const locked = Boolean(current?.lockedUntil instanceof Date && current.lockedUntil.getTime() > Date.now());
+    const offline = String(current?.lastHealthStatus || '').toLowerCase() === 'offline';
+    const resumedStatus = locked ? 'busy' : offline ? 'offline' : Number(current?.engineIndex || 0) === 0 ? 'online' : 'standby';
+    await (this.prisma as any).hbxEngineLock.updateMany({
+      where: { id },
+      data: {
+        status: resumedStatus,
+        manualPaused: false,
+        pausedUntil: null,
+      },
+    }).catch(() => null);
+    return this.getDashboardEngineStatus();
   }
 
   async canUseGoogleEmergencyForRun() {
@@ -612,7 +682,9 @@ export class HbxEnginePoolService implements OnModuleInit {
     for (let index = 0; index < engineCount; index += 1) {
       const row = byIndex.get(index);
       const configured = Boolean(configuredUrls[index]);
-      const status = String(row?.status || (configured ? (index === 0 ? 'online' : 'standby') : 'missing')).trim();
+      const rawStatus = String(row?.status || (configured ? (index === 0 ? 'online' : 'standby') : 'missing')).trim();
+      const paused = this.isEnginePaused(row, now) || rawStatus.toLowerCase() === 'paused';
+      const status = paused ? 'paused' : rawStatus;
       const lockUrl = String(row?.url || configuredUrls[index] || '').trim() || null;
       const locked = Boolean(row?.lockedUntil instanceof Date && row.lockedUntil.getTime() > now);
       const activity = activityStats.get(row?.id || `hbx-engine-${index + 1}`) || {
@@ -624,10 +696,10 @@ export class HbxEnginePoolService implements OnModuleInit {
       };
       const normalizedHealth = String(row?.lastHealthStatus || '').trim().toLowerCase();
       const offlineByHealthcheck = configured && (status === 'offline' || normalizedHealth === 'offline');
-      const inCooldown = status === 'cooldown' || Boolean(row?.cooldownUntil instanceof Date && row.cooldownUntil.getTime() > now);
-      const availableForQueue = configured && !offlineByHealthcheck && !['cooldown', 'degraded', 'missing'].includes(status);
+      const inCooldown = !paused && (status === 'cooldown' || Boolean(row?.cooldownUntil instanceof Date && row.cooldownUntil.getTime() > now));
+      const availableForQueue = configured && !paused && !offlineByHealthcheck && !['cooldown', 'degraded', 'missing'].includes(status);
       const queueActivated = availableForQueue && hasActiveQueue && index < activeEngineCount;
-      const running = locked || status === 'busy' || Boolean(activity.activeRunId || activity.activeCampaignId);
+      const running = !paused && (locked || status === 'busy' || Boolean(activity.activeRunId || activity.activeCampaignId));
       const online = configured && !offlineByHealthcheck;
       const heartbeatAgeSeconds = row?.lastCheckedAt instanceof Date
         ? Math.max(0, Math.round((now - row.lastCheckedAt.getTime()) / 1000))
@@ -639,6 +711,7 @@ export class HbxEnginePoolService implements OnModuleInit {
         running,
         queueActivated,
         inCooldown,
+        paused,
         index,
         capacity,
         processedLast10Min: activity.processedLast10Min,
@@ -649,6 +722,7 @@ export class HbxEnginePoolService implements OnModuleInit {
         running,
         queueActivated,
         inCooldown,
+        paused,
         status,
         hasHealthcheck: Boolean(row?.lastCheckedAt),
         isTurboArmed: Boolean(operationalConfig?.enabled && !capacity.isTurboWindowActive && !capacity.isTurboForcedNow),
@@ -661,6 +735,7 @@ export class HbxEnginePoolService implements OnModuleInit {
         running,
         queueActivated,
         inCooldown,
+        paused,
         stateLabel,
         capacity,
         lastError: row?.lastError || null,
@@ -675,15 +750,17 @@ export class HbxEnginePoolService implements OnModuleInit {
         index,
         status: running ? 'busy' : status,
         configured,
-        active: running || queueActivated || (capacity.isTurboForcedNow && index < activeEngineCount),
+        active: !paused && (running || queueActivated || (capacity.isTurboForcedNow && index < activeEngineCount)),
         online,
         busy: running,
-        dimmed: !(running || queueActivated || (capacity.isTurboForcedNow && index < activeEngineCount)),
+        dimmed: paused || !(running || queueActivated || (capacity.isTurboForcedNow && index < activeEngineCount)),
         url: null,
         lockUrl,
         localhostInProduction: Boolean(lockUrl && isProductionEnvironment(process.env.NODE_ENV) && isHbxEngineLocalhostUrl(lockUrl)),
         lockedUntil: this.serializeDate(row?.lockedUntil),
         cooldownUntil: this.serializeDate(row?.cooldownUntil),
+        manualPaused: Boolean(row?.manualPaused),
+        pausedUntil: this.serializeDate(row?.pausedUntil),
         lastCheckedAt: this.serializeDate(row?.lastCheckedAt),
         lastError: row?.lastError || null,
         detail,
@@ -729,6 +806,8 @@ export class HbxEnginePoolService implements OnModuleInit {
       localhostInProduction: false,
       lockedUntil: null,
       cooldownUntil: null,
+      manualPaused: false,
+      pausedUntil: null,
       lastCheckedAt: activeGoogleRun?.updatedAt instanceof Date ? activeGoogleRun.updatedAt.toISOString() : null,
       lastError: null,
       detail: googleDetail,
@@ -760,11 +839,13 @@ export class HbxEnginePoolService implements OnModuleInit {
     running: boolean;
     queueActivated: boolean;
     inCooldown: boolean;
+    paused: boolean;
     index: number;
     capacity: CapacityLevel;
     processedLast10Min: number;
   }) {
     if (!input.configured || !input.online) return 0;
+    if (input.paused) return 5;
     if (input.running) {
       return Math.min(100, 76 + Math.min(18, input.capacity.queuedCount * 2) + Math.min(6, input.processedLast10Min));
     }
@@ -781,6 +862,7 @@ export class HbxEnginePoolService implements OnModuleInit {
     running: boolean;
     queueActivated: boolean;
     inCooldown: boolean;
+    paused: boolean;
     status: string;
     hasHealthcheck: boolean;
     isTurboArmed: boolean;
@@ -788,6 +870,7 @@ export class HbxEnginePoolService implements OnModuleInit {
   }) {
     const status = String(input.status || '').trim().toLowerCase();
     if (!input.configured) return 'Sem healthcheck';
+    if (input.paused || status === 'paused') return 'Pausado pelo usuário';
     if (!input.online) return 'Offline';
     if (input.running) return 'Rodando';
     if (input.inCooldown || status === 'cooldown') return 'Cooldown';
@@ -804,12 +887,14 @@ export class HbxEnginePoolService implements OnModuleInit {
     running: boolean;
     queueActivated: boolean;
     inCooldown: boolean;
+    paused: boolean;
     stateLabel: string;
     capacity: CapacityLevel;
     lastError: string | null;
     forcedUntil: string | null;
   }) {
     if (!input.configured) return 'Motor sem URL configurada no pool HBX.';
+    if (input.paused) return 'Pausar no painel impede uso na fila, mas nao desliga o container.';
     if (!input.online) return input.lastError ? `Healthcheck falhou: ${input.lastError}` : 'Sem resposta no healthcheck.';
     if (input.inCooldown) return input.lastError ? `Cooldown ativo: ${input.lastError}` : 'Cooldown ativo apos falha recente.';
     if (input.running) return `Rodando agora. Fila ${input.capacity.queuedCount}, tarefas em execucao ${input.capacity.runningCount}.`;
@@ -952,6 +1037,15 @@ export class HbxEnginePoolService implements OnModuleInit {
 
   private serializeDate(value?: Date | null) {
     return value instanceof Date ? value.toISOString() : null;
+  }
+
+  private normalizeEngineId(value: unknown) {
+    const id = String(value || '').trim();
+    return /^hbx-engine-\d+$/i.test(id) ? id.toLowerCase() : null;
+  }
+
+  private isEnginePaused(row?: Partial<EngineRegistryRow> | null, nowMs = Date.now()) {
+    return Boolean(row?.manualPaused) || Boolean(row?.pausedUntil instanceof Date && row.pausedUntil.getTime() > nowMs);
   }
 
   private async getConfiguredEngineUrls() {

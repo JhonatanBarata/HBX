@@ -445,8 +445,8 @@
 }
 
 .dateFilterCard[data-dragging="true"] {
-  opacity: 0.68;
-  transform: scale(0.98);
+  opacity: 0.42;
+  transform: none;
 }
 
 .dateFilterCard[data-dragging="true"] .receiveHint {
@@ -456,7 +456,7 @@
 }
 
 .dateFilterCard[data-dragging="true"][data-dropover="false"] {
-  opacity: 0.68;
+  opacity: 0.42;
 }
 
 .receiveHint {
@@ -800,8 +800,8 @@
 }
 
 .draggableWrap[data-dragging="true"] {
-  opacity: 0.68;
-  transform: scale(0.98);
+  opacity: 0.42;
+  transform: none;
   transition: none;
 }
 
@@ -899,7 +899,7 @@
 .dragOverlayCard {
   position: relative;
   z-index: 9999;
-  width: min(92vw, 460px);
+  width: min(72vw, 320px);
   transform: none;
   filter: drop-shadow(0 32px 44px color-mix(in srgb, var(--brand) 28%, transparent));
   transform-origin: top left;
@@ -908,7 +908,8 @@
 }
 
 .dragOverlayCard .leadCard {
-  transform: translateY(-3px) scale(1.01);
+  max-height: 22rem;
+  transform: translateY(-3px) scale(1);
   border-color: color-mix(in srgb, var(--brand) 72%, var(--line));
   box-shadow:
     0 32px 44px -28px color-mix(in srgb, var(--brand) 32%, transparent),

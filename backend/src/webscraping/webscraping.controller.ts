@@ -337,6 +337,15 @@ class MasterMassDataDto extends MasterTurboConfigDto {
   targetTotal?: number;
 }
 
+class MasterEnginePauseDto {
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(1440)
+  minutes?: number;
+}
+
 class RadarPullDto extends RadarDatabaseQueryDto {
   @IsOptional()
   @Type(() => Number)
@@ -576,6 +585,18 @@ export class MasterWebscrapingController {
   @Post('mass-data')
   createMassDataCampaign(@Req() req: any, @Body() dto: MasterMassDataDto) {
     return this.webscrapingService.createMasterMassDataCampaign(req.user, dto || ({} as any));
+  }
+
+  @Post('engines/:id/pause')
+  async pauseMasterEngine(@Req() req: any, @Param('id') id: string, @Body() dto: MasterEnginePauseDto) {
+    await this.hbxEnginePool.pauseEngine(id, { minutes: dto?.minutes });
+    return this.webscrapingService.getMasterMassDataControl(req.user);
+  }
+
+  @Post('engines/:id/resume')
+  async resumeMasterEngine(@Req() req: any, @Param('id') id: string) {
+    await this.hbxEnginePool.resumeEngine(id);
+    return this.webscrapingService.getMasterMassDataControl(req.user);
   }
 
   @Post('mass-data/:id/pause')

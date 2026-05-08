@@ -49,6 +49,11 @@ import {
   resolveCompanyMercadoPagoAccess,
 } from '../modules/master-global-integrations.util';
 import {
+  classifyProspectingAutoReply,
+  isExplicitProspectingNegativeReply,
+  type ProspectingAutoReplyClassification,
+} from '../vendas/prospecting-safety';
+import {
   buildStructuredWhatsAppLog,
   buildWhatsAppPhoneCandidates,
   extractInboundTextFromPayload,
@@ -1979,10 +1984,13 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
       'spam',
       'nao me chame',
       'não me chame',
+      'bloqueia',
+      'não autorizei',
     ]).map((item) => this.normalizeVendasAutomationIntentText(item));
-    const optOut = this.containsVendasAutomationKeyword(normalizedText, ['remover', 'pare', 'spam', 'nao me chame', 'não me chame']);
+    const optOut = this.containsVendasAutomationKeyword(normalizedText, ['remover', 'pare', 'spam', 'nao me chame', 'não me chame', 'bloqueia', 'bloqueie']);
     const humanHandoff = this.containsVendasAutomationKeyword(normalizedText, ['humano', 'atendente', 'ligar', 'me chama']);
-    const negative = optOut || this.containsVendasAutomationKeyword(normalizedText, negativeKeywords);
+    const autoReplyClassification = classifyProspectingAutoReply(input.text);
+    const negative = optOut || isExplicitProspectingNegativeReply(input.text, negativeKeywords);
     const positive = !negative && !humanHandoff && this.containsVendasAutomationKeyword(normalizedText, positiveKeywords);
     const terminalStatus = new Set(['negative', 'opt_out', 'replied_negative', 'no_response_archived']);
     const alreadyClosed =
@@ -2010,6 +2018,10 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
       'interested',
       'neutral',
       'human_assigned',
+      'auto_reply_detected',
+      'bot_menu_detected',
+      'out_of_hours_auto_reply',
+      'awaiting_human',
     ]);
     const blocked =
       blockedStatus.has(automationStatus) ||
@@ -2017,6 +2029,12 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
       input.metadata?.humanAssigned === true ||
       queue.humanAssigned === true;
     if (blocked) return null;
+
+    if (autoReplyClassification) {
+      await input.setInboundMeta('vendas_prospeccao_auto_reply', false);
+      await this.markVendasAutomationAutoReply({ ...input, classification: autoReplyClassification }, job);
+      return { handled: true, classification: autoReplyClassification };
+    }
 
     const hbxEmailIntent = detectHbxPresentationEmailIntent(input.text);
     const hbxEmailHandled = await this.handleHbxPresentationEmailIntent(input, job, hbxEmailIntent);
@@ -2157,7 +2175,7 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
           status: 'replied_negative',
           repliedAt: now,
           archivedAt: now,
-          classification: 'negative',
+          classification: input.optOut ? 'opt_out' : 'negative',
           conversationId: input.conversationId,
         },
       });
@@ -2284,6 +2302,159 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
       text: 'Lead arquivado por resposta negativa.',
       type: 'lead_archived',
     });
+    await this.pauseVendasCampaignAfterRealNegativeLimit(job.campaign, now).catch(() => null);
+  }
+
+  private async pauseVendasCampaignAfterRealNegativeLimit(campaign: any, now: Date) {
+    const start = new Date(now);
+    start.setHours(0, 0, 0, 0);
+    const end = new Date(start);
+    end.setDate(end.getDate() + 1);
+    const count = await this.prisma.vendasAutomationJob.count({
+      where: {
+        campaignId: campaign.id,
+        companyId: campaign.companyId,
+        OR: [
+          { status: 'replied_negative', repliedAt: { gte: start, lt: end } },
+          { classification: 'negative_or_opt_out', archivedAt: { gte: start, lt: end } },
+        ],
+      },
+    });
+    if (count < 3) return;
+    const text = `Campanha pausada por segurança: ${count} negativas/opt-outs reais hoje.`;
+    await this.prisma.vendasAutomationCampaign.updateMany({
+      where: { id: campaign.id, companyId: campaign.companyId },
+      data: { status: 'paused', lastStatusText: text, lastError: text },
+    });
+    this.publishVendasAutomationEvent({
+      companyId: campaign.companyId,
+      campaignId: campaign.id,
+      status: 'pausado',
+      text,
+      type: 'real_negative_safety_pause',
+    });
+  }
+
+  private async pauseVendasCampaignAfterAutoReplyStreak(campaign: any, now: Date) {
+    const start = new Date(now);
+    start.setHours(0, 0, 0, 0);
+    const end = new Date(start);
+    end.setDate(end.getDate() + 1);
+    const jobs = await this.prisma.vendasAutomationJob.findMany({
+      where: {
+        campaignId: campaign.id,
+        companyId: campaign.companyId,
+        sentAt: { gte: start, lt: end },
+        classification: { in: ['auto_reply_detected', 'bot_menu_detected', 'out_of_hours_auto_reply', 'awaiting_human'] as any },
+      },
+      orderBy: { sentAt: 'desc' },
+      take: 5,
+      select: { classification: true },
+    }).catch(() => []);
+    if (jobs.length < 5) return;
+    const text = 'Campanha pausada por segurança: 5 auto-respostas seguidas. Aguardando humano/fora de horário.';
+    await this.prisma.vendasAutomationCampaign.updateMany({
+      where: { id: campaign.id, companyId: campaign.companyId },
+      data: { status: 'paused', lastStatusText: text, lastError: text },
+    });
+    this.publishVendasAutomationEvent({
+      companyId: campaign.companyId,
+      campaignId: campaign.id,
+      status: 'pausado',
+      text,
+      type: 'auto_reply_streak_safety_pause',
+    });
+  }
+
+  private async markVendasAutomationAutoReply(input: any, job: any) {
+    const now = new Date();
+    const classification = String(input.classification || 'auto_reply_detected') as ProspectingAutoReplyClassification;
+    await this.prisma.vendasAutomationJob.update({
+      where: { id: job.id },
+      data: { classification, repliedAt: now, conversationId: input.conversationId },
+    });
+    await this.prisma.vendasAutomationJob.updateMany({
+      where: {
+        companyId: input.companyId,
+        leadId: job.leadId,
+        id: { not: job.id },
+        status: { in: ['pending', 'scheduled'] },
+      },
+      data: { status: 'canceled', archivedAt: now, errorMessage: 'Autoatendimento detectado. Aguardando humano.' },
+    });
+    await this.prisma.vendasLead.update({
+      where: { id: job.leadId },
+      data: {
+        status: 'retorno',
+        lastResult: classification === 'out_of_hours_auto_reply' ? 'Fora de horário; aguardando humano' : 'Autoatendimento detectado; aguardando humano',
+        returnAt: new Date(now.getTime() + 4 * 60 * 60 * 1000),
+      },
+    }).catch(() => null);
+
+    const queue = this.readJsonRecord(input.metadata?.vendasAgendaQueue);
+    const automation = this.readJsonRecord(input.metadata?.vendasAutomation);
+    const prospeccao = this.readJsonRecord(input.metadata?.vendasProspeccao);
+    await this.updateAtendimentoConversationState(
+      input.companyId,
+      input.conversationId,
+      {
+        currentFlow: ATENDIMENTO_FLOW_ID,
+        currentStep: ATENDIMENTO_STEP.HUMAN,
+        botActive: false,
+        humanAssigned: false,
+        flowResult: 'prospection_auto_reply',
+      },
+      {
+        ...this.clearAtendimentoBlockedMetadata(input.metadata),
+        queueTarget: 'prospeccao',
+        routeTarget: 'prospeccao',
+        vendasAutomation: {
+          ...automation,
+          campaignId: job.campaignId,
+          jobId: job.id,
+          leadId: job.leadId,
+          status: classification,
+          autoReplyDetected: true,
+          awaitingHuman: true,
+          autoReplyAt: now.toISOString(),
+        },
+        vendasAgendaQueue: {
+          ...queue,
+          active: true,
+          leadId: job.leadId,
+          queueTarget: 'prospeccao',
+          routeTarget: 'prospeccao',
+          status: 'awaiting_human',
+          nextAction: classification === 'out_of_hours_auto_reply' ? 'Fora de horário; não insistir agora' : 'Autoatendimento detectado; aguardando humano',
+          draftPending: false,
+          botEligible: false,
+          botEntryPending: false,
+          awaitingHuman: true,
+          autoReplyDetected: true,
+          respondedAt: now.toISOString(),
+          syncedAt: now.toISOString(),
+        },
+        vendasProspeccao: {
+          ...prospeccao,
+          stage: 'reply_received',
+          lastInboundAt: input.timestamp instanceof Date ? input.timestamp.toISOString() : now.toISOString(),
+          leadSegment: job.lead?.segment || prospeccao.leadSegment || null,
+          campaignSegment: job.campaign?.segment || prospeccao.campaignSegment || null,
+          mismatchReason: null,
+        },
+      },
+    );
+    this.publishVendasAutomationEvent({
+      companyId: input.companyId,
+      campaignId: job.campaignId,
+      jobId: job.id,
+      leadId: job.leadId,
+      conversationId: input.conversationId,
+      status: 'aguardando',
+      text: classification === 'out_of_hours_auto_reply' ? 'Fora de horário detectado. Não insistir agora.' : 'Autoatendimento detectado. Aguardando humano.',
+      type: classification,
+    });
+    await this.pauseVendasCampaignAfterAutoReplyStreak(job.campaign, now).catch(() => null);
   }
 
   private async markVendasAutomationNeutral(input: any, job: any) {
