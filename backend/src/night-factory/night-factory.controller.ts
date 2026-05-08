@@ -1,10 +1,13 @@
 import { Body, Controller, Get, Post, Req, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
-import { MasterGuard } from '../auth/guards/master.guard';
+import { CommercialEntitlement } from '../commercial-plans/commercial-entitlement.decorator';
+import { CommercialEntitlementGuard } from '../commercial-plans/commercial-entitlement.guard';
+import { COMMERCIAL_ENTITLEMENT_KEYS } from '../commercial-plans/commercial-plan-catalog';
 import { NightFactoryService } from './night-factory.service';
 
 @Controller('modules/master/night-factory')
-@UseGuards(JwtAuthGuard, MasterGuard)
+@UseGuards(JwtAuthGuard, CommercialEntitlementGuard)
+@CommercialEntitlement(COMMERCIAL_ENTITLEMENT_KEYS.NIGHT_FACTORY)
 export class NightFactoryController {
   constructor(private readonly nightFactoryService: NightFactoryService) {}
 

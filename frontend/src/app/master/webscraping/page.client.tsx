@@ -192,14 +192,6 @@ function formatClock(value?: string | null) {
   });
 }
 
-function formatRemaining(seconds?: number | null) {
-  const safe = Math.max(0, Math.trunc(Number(seconds || 0)));
-  const hours = Math.floor(safe / 3600);
-  const minutes = Math.floor((safe % 3600) / 60);
-  if (hours <= 0) return `${minutes}min`;
-  return `${hours}h ${String(minutes).padStart(2, "0")}min`;
-}
-
 function metric(value?: number | null, suffix = "") {
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) return `0${suffix}`;
@@ -336,7 +328,7 @@ export default function MasterWebscrapingClientPage() {
       setDashboard(payload);
       hydrateForm(payload, { preserveDirty: Boolean(options?.silent) });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Falha ao carregar o dashboard de webscraping.");
+      setError(err instanceof Error ? err.message : "Falha ao carregar o banco de dados dos motores.");
     } finally {
       if (!options?.silent) setLoading(false);
     }
@@ -407,24 +399,24 @@ export default function MasterWebscrapingClientPage() {
     ];
   }, [dashboard?.summary.cardsPerMinuteAvg, engineStats.activeEngineLimit, engineStats.online, engineStats.totalConfigured]);
   const dashboardDescription = dashboard?.turbo.active
-    ? `Turbo forçado ativo até ${formatClock(dashboard.turbo.endsAt)}`
-    : `Turbo forçado pronto para operar até ${dashboard?.turbo.endLabel || form.endTime}`;
+    ? `Coleta ativa até ${formatClock(dashboard.turbo.endsAt)}`
+    : `Banco dos motores pronto para operar até ${dashboard?.turbo.endLabel || form.endTime}`;
   const clientSearchActive = Boolean(dashboard?.turbo.active);
   const clientSearchArmed = Boolean(dashboard?.config.enabled);
   const operationTabs: Array<{ id: OperationMode; label: string; detail: string }> = [
     {
       id: "search",
-      label: "Pesquisa",
+      label: "Banco",
       detail: form.state ? [form.city, form.state].filter(Boolean).join(" / ") : "Escolha praça",
     },
     {
       id: "control",
-      label: "Ativação",
+      label: "Agenda",
       detail: clientSearchActive ? "Forçada agora" : clientSearchArmed ? "Agendada" : "Desligada",
     },
     {
       id: "engines",
-      label: "Motores",
+      label: "Saúde",
       detail: `${metric(engineStats.online)} online`,
     },
   ];
@@ -445,9 +437,9 @@ export default function MasterWebscrapingClientPage() {
       });
       setDashboard(payload.control);
       hydrateForm(payload.control);
-      setFeedback(`Turbo forçado ativo até ${formatClock(payload.control.turbo.endsAt)}.`);
+      setFeedback(`Coleta ligada até ${formatClock(payload.control.turbo.endsAt)}.`);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Falha ao ativar Turbo Forçado.");
+      setError(err instanceof Error ? err.message : "Falha ao ligar a coleta dos motores.");
     } finally {
       setSaving(false);
     }
@@ -470,9 +462,9 @@ export default function MasterWebscrapingClientPage() {
       });
       setDashboard(payload.control);
       hydrateForm(payload.control);
-      setFeedback("Busca de clientes desligada. Ative novamente para retomar os motores.");
+      setFeedback("Coleta dos motores desligada. A fila normal permanece conforme configuração salva.");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Falha ao desligar o Turbo Forçado.");
+      setError(err instanceof Error ? err.message : "Falha ao desligar a coleta dos motores.");
     } finally {
       setSaving(false);
     }
@@ -491,9 +483,9 @@ export default function MasterWebscrapingClientPage() {
       });
       setDashboard(payload.control);
       hydrateForm(payload.control);
-      setFeedback("Configuração do Turbo salva.");
+      setFeedback("Configuração do banco de dados salva.");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Falha ao salvar a configuração do Turbo.");
+      setError(err instanceof Error ? err.message : "Falha ao salvar a configuração do banco de dados.");
     } finally {
       setSaving(false);
     }
@@ -501,7 +493,7 @@ export default function MasterWebscrapingClientPage() {
 
   async function createMassDataCampaign() {
     if (!form.state) {
-      setError("Escolha um estado para criar a fila de Massa de Dados.");
+      setError("Escolha um estado para criar a fila do banco de dados.");
       return;
     }
     setSaving(true);
@@ -522,9 +514,9 @@ export default function MasterWebscrapingClientPage() {
       });
       setDashboard(payload.control);
       hydrateForm(payload.control);
-      setFeedback("Fila de Massa de Dados criada com lotes pequenos.");
+      setFeedback("Fila do banco de dados criada com lotes pequenos.");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Falha ao criar a fila de Massa de Dados.");
+      setError(err instanceof Error ? err.message : "Falha ao criar a fila do banco de dados.");
     } finally {
       setSaving(false);
     }
@@ -571,7 +563,7 @@ export default function MasterWebscrapingClientPage() {
   if (!allowed) {
     return (
       <DashboardScaffold
-        title="Master Webscraping"
+        title="Banco de Dados dos Motores"
         description="Acesso exclusivo do usuário MASTER."
         actions={<Link href="/master" className="btn btn-secondary btn-sm">Voltar ao Master</Link>}
       >
@@ -584,7 +576,7 @@ export default function MasterWebscrapingClientPage() {
 
   return (
     <DashboardScaffold
-      title="Master Webscraping"
+      title="Banco de Dados dos Motores"
       description={dashboardDescription}
       actions={
         <div className={styles.heroActions}>
@@ -623,7 +615,7 @@ export default function MasterWebscrapingClientPage() {
           </div>
           <div className={styles.operationalCenter}>
             <div className={styles.operationalHead}>
-              <span>Centro operacional</span>
+              <span>Banco de dados operacional</span>
               <h2>{dashboard?.status.currentMode || "STANDBY"}</h2>
               <p>{dashboard?.status.operationalMessage || "Status operacional em leitura."}</p>
             </div>
@@ -733,10 +725,10 @@ export default function MasterWebscrapingClientPage() {
           Pausar no painel impede uso na fila, mas não desliga o container. Para economizar RAM, reduza HBX_ENGINE_COUNT ou pare os containers.
         </div>
 
-        <section className={styles.smartPanel} aria-label="Painel inteligente de busca de clientes">
+        <section className={styles.smartPanel} aria-label="Painel de banco de dados dos motores">
           <div className={styles.cardTitle}>
-            <span>Painel inteligente</span>
-            <strong>{clientSearchActive ? "Busca ativa" : Number(dashboard?.summary.activeQueue || 0) > 0 ? "Fila armada" : "Pronto"}</strong>
+            <span>Painel do banco</span>
+            <strong>{clientSearchActive ? "Coleta ativa" : Number(dashboard?.summary.activeQueue || 0) > 0 ? "Fila armada" : "Pronto"}</strong>
           </div>
 
           <div className={styles.smartTabs} role="tablist" aria-label="Menus de operação">
@@ -759,8 +751,8 @@ export default function MasterWebscrapingClientPage() {
             <aside className={styles.smartSummary}>
               <div>
                 <span>Status</span>
-                <strong>{clientSearchActive ? "Turbo forçado" : !clientSearchArmed ? "Busca desligada" : dashboard?.turbo.scheduledActive ? "Janela noturna" : "Standby"}</strong>
-                <p>{clientSearchActive ? `Ativo até ${formatClock(dashboard?.turbo.endsAt)}` : !clientSearchArmed ? "Use Ativação para retomar." : `Próxima janela salva até ${dashboard?.turbo.endLabel || form.endTime}`}</p>
+                <strong>{clientSearchActive ? "Coleta ligada" : !clientSearchArmed ? "Coleta desligada" : dashboard?.turbo.scheduledActive ? "Janela noturna" : "Standby"}</strong>
+                <p>{clientSearchActive ? `Ativa até ${formatClock(dashboard?.turbo.endsAt)}` : !clientSearchArmed ? "Use Agenda para retomar." : `Próxima janela salva até ${dashboard?.turbo.endLabel || form.endTime}`}</p>
               </div>
               <div>
                 <span>Fila ativa</span>
@@ -769,8 +761,8 @@ export default function MasterWebscrapingClientPage() {
               </div>
               <div>
                 <span>Entrega</span>
-                <strong>Vendas + Atendimento</strong>
-                <p>O master mantém a fabricação e os módulos operacionais herdam os cards.</p>
+                <strong>Radar + Vendas</strong>
+                <p>Os motores abastecem o banco; o Radar decide se usa estoque ou aciona nova coleta.</p>
               </div>
             </aside>
 
@@ -779,15 +771,15 @@ export default function MasterWebscrapingClientPage() {
                 <>
                   <div className={styles.smartWorkspaceHeader}>
                     <div>
-                      <span>Nova fila Mass Data</span>
-                      <strong>Lote pequeno</strong>
+                      <span>Nova coleta para o banco</span>
+                      <strong>Filtros em um lugar só</strong>
                     </div>
                     <button
                       type="button"
                       className={styles.smartInlineAction}
                       onClick={() => setOperationMode("control")}
                     >
-                      Ativar ou desligar
+                      Ligar/desligar
                     </button>
                   </div>
                   <div className={styles.campaignForm}>
@@ -805,7 +797,7 @@ export default function MasterWebscrapingClientPage() {
                         value={form.segment}
                         onChange={(value) => setForm((current) => ({ ...current, segment: value }))}
                         placeholder="Todos os segmentos"
-                        helperText="Deixe em branco para a Massa de Dados varrer segmentos amplos."
+                        helperText="Deixe em branco para o banco varrer segmentos amplos."
                       />
                       <HbxTargetTypeSelector
                         value={form.targetType}
@@ -823,13 +815,51 @@ export default function MasterWebscrapingClientPage() {
                         <input type="number" min={1} max={10} value={form.maxAttemptsPerTask} onChange={(event) => setForm((current) => ({ ...current, maxAttemptsPerTask: clampNumber(event.target.value, 3, 1, 10) }))} />
                       </label>
                     </div>
+                    <div className={styles.campaignRow}>
+                      <label>
+                        Horário inicial
+                        <input type="time" value={form.startTime} onChange={(event) => updateTurboConfigForm({ startTime: event.target.value })} />
+                      </label>
+                      <label>
+                        Horário final
+                        <input type="time" value={form.endTime} onChange={(event) => updateTurboConfigForm({ endTime: event.target.value })} />
+                      </label>
+                    </div>
+                    <div className={styles.campaignRow}>
+                      <label>
+                        Motores ativos
+                        <input type="number" min={1} max={MAX_HBX_ENGINE_COUNT} value={form.engineCount} onChange={(event) => updateTurboConfigForm({ engineCount: clampNumber(event.target.value, MAX_HBX_ENGINE_COUNT, 1, MAX_HBX_ENGINE_COUNT) })} />
+                      </label>
+                      <label>
+                        Intensidade
+                        <select value={form.intensity} onChange={(event) => updateTurboConfigForm({ intensity: event.target.value as Intensity })}>
+                          <option value="economico">Econômico</option>
+                          <option value="normal">Normal</option>
+                          <option value="turbo">Turbo</option>
+                        </select>
+                      </label>
+                    </div>
+                    <div className={styles.campaignRow}>
+                      <label>
+                        Memória alvo
+                        <input type="number" min={1} max={256} value={form.memoryTargetGb} onChange={(event) => updateTurboConfigForm({ memoryTargetGb: clampNumber(event.target.value, 16, 1, 256) })} />
+                      </label>
+                      <div className={styles.saveInlineBox}>
+                        <span data-dirty={turboConfigDirty ? "true" : "false"}>
+                          {turboConfigDirty ? "Configuração alterada" : "Configuração salva"}
+                        </span>
+                        <button type="button" onClick={() => void saveTurboConfig()} disabled={saving || !turboConfigDirty}>
+                          Salvar
+                        </button>
+                      </div>
+                    </div>
                     <div className={styles.campaignHelp}>
                       <span>Batch = quantidade por rodada</span>
-                      <span>Tentativas = retries por busca</span>
+                      <span>Motor livre: deixe cidade ou segmento em branco quando quiser varredura ampla.</span>
                     </div>
                   </div>
                   <button type="button" className={styles.createCampaignButton} onClick={() => void createMassDataCampaign()} disabled={saving || !form.state}>
-                    Criar fila de clientes
+                    Criar fila no banco de dados
                   </button>
                 </>
               ) : null}
@@ -838,21 +868,21 @@ export default function MasterWebscrapingClientPage() {
                 <>
                   <div className={styles.smartWorkspaceHeader}>
                     <div>
-                      <span>Controle de busca</span>
-                      <strong>{clientSearchActive ? `Ativo até ${formatClock(dashboard?.turbo.endsAt)}` : "Pronto para ativar"}</strong>
+                      <span>Controle de coleta</span>
+                      <strong>{clientSearchActive ? `Ligada até ${formatClock(dashboard?.turbo.endsAt)}` : "Pronto para ligar"}</strong>
                     </div>
                   </div>
                   <div className={styles.smartActionGrid}>
                     <button type="button" data-tone="start" onClick={() => void activateForcedTurbo()} disabled={saving}>
-                      <span>Ativar busca agora</span>
-                      <strong>Forçar motores até {form.endTime}</strong>
+                      <span>Ligar coleta agora</span>
+                      <strong>Usa a intensidade escolhida até {form.endTime}</strong>
                     </button>
                     <button type="button" data-tone="stop" onClick={() => void deactivateForcedTurbo()} disabled={saving || !clientSearchArmed}>
-                      <span>Desativar busca agora</span>
-                      <strong>Pausa janela e turbo forçado</strong>
+                      <span>Desligar coleta</span>
+                      <strong>Pausa a janela salva e a coleta forçada</strong>
                     </button>
                     <button type="button" data-tone="save" onClick={() => void saveTurboConfig()} disabled={saving || !turboConfigDirty}>
-                      <span>Salvar janela</span>
+                      <span>Salvar configuração</span>
                       <strong>{turboConfigDirty ? "Há alterações" : "Tudo salvo"}</strong>
                     </button>
                   </div>
@@ -900,62 +930,6 @@ export default function MasterWebscrapingClientPage() {
         </section>
 
         <section className={styles.mainGrid}>
-          <article className={styles.turboCard}>
-            <div className={styles.cardTitle}>
-              <span>Controle do Turbo Forçado</span>
-              <strong>{dashboard?.turbo.active ? "Ativo" : clientSearchArmed ? "Pronto" : "Desligado"}</strong>
-            </div>
-            <button
-              type="button"
-              className={styles.turboButton}
-              data-active={dashboard?.turbo.active ? "true" : "false"}
-              onClick={() => void (dashboard?.turbo.active ? deactivateForcedTurbo() : activateForcedTurbo())}
-              disabled={saving}
-            >
-              <span>{dashboard?.turbo.active ? "Desligar Turbo Forçado" : "Ativar Turbo Forçado"}</span>
-              <strong>{dashboard?.turbo.active ? `ativo até ${formatClock(dashboard.turbo.endsAt)}` : `até ${form.endTime}`}</strong>
-            </button>
-            <div className={styles.turboFacts}>
-              <span>Início do turbo <strong>{dashboard?.turbo.startedAt ? formatDateTime(dashboard.turbo.startedAt) : form.startTime}</strong></span>
-              <span>Desligamento programado <strong>{dashboard?.turbo.endsAt ? formatDateTime(dashboard.turbo.endsAt) : form.endTime}</strong></span>
-              <span>Tempo restante <strong>{dashboard?.turbo.active ? formatRemaining(dashboard.turbo.remainingSeconds) : "Aguardando ativação"}</strong></span>
-            </div>
-            <div className={styles.configGrid}>
-              <label>
-                Início
-                <input type="time" value={form.startTime} onChange={(event) => updateTurboConfigForm({ startTime: event.target.value })} />
-              </label>
-              <label>
-                Fim
-                <input type="time" value={form.endTime} onChange={(event) => updateTurboConfigForm({ endTime: event.target.value })} />
-              </label>
-              <label>
-                Motores
-                <input type="number" min={1} max={MAX_HBX_ENGINE_COUNT} value={form.engineCount} onChange={(event) => updateTurboConfigForm({ engineCount: clampNumber(event.target.value, MAX_HBX_ENGINE_COUNT, 1, MAX_HBX_ENGINE_COUNT) })} />
-              </label>
-              <label>
-                Intensidade
-                <select value={form.intensity} onChange={(event) => updateTurboConfigForm({ intensity: event.target.value as Intensity })}>
-                  <option value="economico">Econômico</option>
-                  <option value="normal">Normal</option>
-                  <option value="turbo">Turbo</option>
-                </select>
-              </label>
-              <label>
-                Memória alvo
-                <input type="number" min={1} max={256} value={form.memoryTargetGb} onChange={(event) => updateTurboConfigForm({ memoryTargetGb: clampNumber(event.target.value, 16, 1, 256) })} />
-              </label>
-            </div>
-            <div className={styles.configActions}>
-              <span data-dirty={turboConfigDirty ? "true" : "false"}>
-                {turboConfigDirty ? "Alterações pendentes" : "Configuração salva"}
-              </span>
-              <button type="button" className={styles.secondaryButton} onClick={() => void saveTurboConfig()} disabled={saving || !turboConfigDirty}>
-                {saving ? "Salvando" : "Salvar configuração"}
-              </button>
-            </div>
-          </article>
-
           <aside className={styles.diagnosticsCard}>
             <div className={styles.cardTitle}>
               <span>Diagnóstico</span>

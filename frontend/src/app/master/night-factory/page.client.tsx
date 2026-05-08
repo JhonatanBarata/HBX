@@ -5,11 +5,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import DashboardScaffold from "@/components/DashboardScaffold";
 import { apiFetch } from "@/app/_lib/api";
 import { useRequireAuth } from "@/app/_lib/useRequireAuth";
+import type { CommercialPlansPayload } from "@/lib/commercial-plans";
 import styles from "./page.module.css";
-
-type CurrentUser = {
-  isSystemMaster?: boolean;
-};
 
 type StatusPayload = {
   generatedAt: string;
@@ -132,6 +129,38 @@ function statusLabel(status?: string) {
   return "Dormindo";
 }
 
+function radarSearchUrl(params: { city?: string | null; state?: string | null; segment?: string | null; radarLeadId?: string | null }) {
+  const query = new URLSearchParams();
+  if (params.city) query.set("city", params.city);
+  if (params.state) query.set("state", params.state);
+  if (params.segment) query.set("segment", params.segment);
+  if (params.radarLeadId) query.set("radarLeadId", params.radarLeadId);
+  const suffix = query.toString();
+  return suffix ? `/radar-digital?${suffix}` : "/radar-digital";
+}
+
+function recoverySourceLabel(value?: string | null) {
+  const source = String(value || "").trim().toLowerCase();
+  if (source === "vendas") return "Retorno comercial";
+  if (source === "radar") return "Radar sem ação";
+  if (source === "atendimento") return "Atendimento pendente";
+  return "Oportunidade parada";
+}
+
+function recoveryCopy(item: RecoveryOpportunity) {
+  const reason = String(item.recoveryReason || "").trim().toLowerCase();
+  if (reason.includes("retorno")) return "Já existe histórico. Reabrir com contexto antes que esfrie.";
+  if (reason.includes("sem_resposta") || reason.includes("no_answer")) return "Contato sem resposta precisa de uma nova abordagem simples.";
+  if (reason.includes("duplicate")) return "Lead repetido pode virar follow-up correto em vez de ficar perdido.";
+  return "Clique para abrir o contexto e decidir o próximo passo.";
+}
+
+function recoveryUrl(item: RecoveryOpportunity) {
+  const source = String(item.sourceType || "").trim().toLowerCase();
+  if (source === "vendas") return `/vendas?leadId=${encodeURIComponent(item.sourceId)}`;
+  return radarSearchUrl({ radarLeadId: item.sourceId });
+}
+
 export default function MasterNightFactoryClientPage() {
   const hasToken = useRequireAuth();
   const [checkingAccess, setCheckingAccess] = useState(true);
@@ -178,15 +207,15 @@ export default function MasterNightFactoryClientPage() {
       setCheckingAccess(true);
       setError(null);
       try {
-        const user = await apiFetch<CurrentUser>("/profile/current-user", { requireAuth: true });
+        const plans = await apiFetch<CommercialPlansPayload>("/commercial-plans/me", { requireAuth: true });
         if (!mounted) return;
-        const isMaster = Boolean(user?.isSystemMaster);
-        setAllowed(isMaster);
-        if (isMaster) await loadDashboard();
+        const hasNightFactory = Boolean(plans?.current?.entitlements?.night_factory);
+        setAllowed(hasNightFactory);
+        if (hasNightFactory) await loadDashboard();
       } catch (err) {
         if (!mounted) return;
         setAllowed(false);
-        setError(err instanceof Error ? err.message : "Falha ao validar acesso MASTER.");
+        setError(err instanceof Error ? err.message : "Falha ao validar acesso ao Night Factory.");
       } finally {
         if (mounted) setCheckingAccess(false);
       }
@@ -252,11 +281,11 @@ export default function MasterNightFactoryClientPage() {
     return (
       <DashboardScaffold
         title="HBX Night Factory"
-        description="Acesso exclusivo do usuário MASTER."
-        actions={<Link href="/master" className="btn btn-secondary btn-sm">Voltar ao Master</Link>}
+        description="Disponível para planos HBX WhatsApp e superiores."
+        actions={<Link href="/planos?intent=night_factory" className="btn btn-secondary btn-sm">Ver planos</Link>}
       >
         <section className="panel p-4">
-          <p className="text-sm text-muted">Seu usuário não tem permissão para acessar esta tela.</p>
+          <p className="text-sm text-muted">Seu plano atual ainda não tem Night Factory liberado.</p>
         </section>
       </DashboardScaffold>
     );
@@ -268,7 +297,7 @@ export default function MasterNightFactoryClientPage() {
       description="Seu servidor transformando ociosidade em oportunidade comercial."
       actions={
         <div className={styles.heroActions}>
-          <Link href="/master/webscraping" className="btn btn-secondary btn-sm">Radar</Link>
+          <Link href="/master/webscraping" className="btn btn-secondary btn-sm">Banco dos motores</Link>
           <Link href="/master/sistema" className="btn btn-secondary btn-sm">Command Center</Link>
           <button type="button" className="btn btn-secondary btn-sm" onClick={() => void loadDashboard()} disabled={loading}>
             {loading ? "Atualizando" : "Atualizar"}
@@ -359,7 +388,7 @@ export default function MasterNightFactoryClientPage() {
                   <p>{lead.reason || "Oportunidade enriquecida pela Night Factory."}</p>
                   <small>{lead.recommendedOffer || "HBX Vendas + Bot IA"}</small>
                   <div className={styles.rowActions}>
-                    <Link href={`/radar-digital?radarLeadId=${encodeURIComponent(lead.radarLeadId)}`}>Enviar para Vendas</Link>
+                    <Link href={radarSearchUrl({ radarLeadId: lead.radarLeadId })}>Abrir no Radar</Link>
                     <button type="button" title={lead.miniAudit?.summary || "Mini-auditoria pronta"}>Auditoria</button>
                     <button type="button">Recovery</button>
                   </div>
@@ -383,11 +412,11 @@ export default function MasterNightFactoryClientPage() {
                 </div>
               </div>
               {(status?.topCities || []).slice(0, 6).map((city) => (
-                <div key={`${city.city}-${city.state}`} className={styles.compactRow}>
+                <Link key={`${city.city}-${city.state}`} href={radarSearchUrl({ city: city.city, state: city.state })} className={styles.compactRow}>
                   <span>{[city.city, city.state].filter(Boolean).join(" / ")}</span>
                   <strong>{city.averageScore}</strong>
                   <small>{metric(city.totalLeads)} leads</small>
-                </div>
+                </Link>
               ))}
             </section>
 
@@ -399,11 +428,11 @@ export default function MasterNightFactoryClientPage() {
                 </div>
               </div>
               {(status?.topSegments || []).slice(0, 6).map((segment) => (
-                <div key={segment.segment} className={styles.compactRow}>
+                <Link key={segment.segment} href={radarSearchUrl({ segment: segment.segment })} className={styles.compactRow}>
                   <span>{segment.segment}</span>
                   <strong>{segment.averageScore}</strong>
                   <small>{metric(segment.totalLeads)} leads</small>
-                </div>
+                </Link>
               ))}
             </section>
           </aside>
@@ -419,12 +448,12 @@ export default function MasterNightFactoryClientPage() {
           </div>
           <div className={styles.recoveryGrid}>
             {recovery.slice(0, 8).map((item) => (
-              <article key={item.id}>
-                <span>{item.sourceType}</span>
-                <strong>{item.name || item.sourceId}</strong>
-                <p>{item.recoveryReason}</p>
+              <Link key={item.id} href={recoveryUrl(item)} className={styles.recoveryCard}>
+                <span>{recoverySourceLabel(item.sourceType)}</span>
+                <strong>{item.name || "Lead com histórico"}</strong>
+                <p>{recoveryCopy(item)}</p>
                 <small>Score {item.recoveryScore} • {item.suggestedFlow || "follow-up humano"}</small>
-              </article>
+              </Link>
             ))}
             {!recovery.length ? <p className={styles.emptyInline}>Sem oportunidades de recovery agora.</p> : null}
           </div>

@@ -1,10 +1,18 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import DashboardScaffold from "@/components/DashboardScaffold";
 import {
   HbxAdvancedFilters,
+  HbxEngineSelector,
+  HbxQuantitySelector,
+  HbxSegmentCombobox,
+  HbxStateCityPicker,
+  HbxTargetTypeSelector,
+  type HbxEngineValue,
   type HbxAdvancedFiltersValue,
+  type HbxTargetTypeValue,
 } from "@/components/prospecting-filters";
 import { apiFetch } from "@/app/_lib/api";
 import { useRequireModule } from "@/app/_lib/useRequireModule";
@@ -59,6 +67,10 @@ type RadarPullResponse = {
   meta?: {
     requestedQuantity?: number;
     deliveredCount?: number;
+    replenish?: {
+      ran?: boolean;
+      fetchedCount?: number;
+    };
   };
 };
 
@@ -86,6 +98,9 @@ type FilterState = {
   state: string;
   city: string;
   segment: string;
+  quantity: number;
+  engine: HbxEngineValue;
+  targetType: HbxTargetTypeValue;
   ddd: string;
   scoreRange: string;
   noWebsite: boolean;
@@ -99,6 +114,9 @@ const DEFAULT_FILTERS: FilterState = {
   state: "",
   city: "",
   segment: "",
+  quantity: 20,
+  engine: "hbx",
+  targetType: "pj",
   ddd: "",
   scoreRange: "",
   noWebsite: false,
@@ -155,6 +173,18 @@ function opportunityLabel(score?: number | null) {
   return "Oportunidade baixa";
 }
 
+function mergeRadarLeads(items: RadarLead[]) {
+  const seen = new Set<string>();
+  const merged: RadarLead[] = [];
+  for (const item of items) {
+    const key = String(item.id || item.phoneDigits || item.phone || `${item.name}:${item.city}`).trim().toLowerCase();
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    merged.push(item);
+  }
+  return merged;
+}
+
 function eventLabel(value?: string | null) {
   const type = String(value || "").toLowerCase();
   if (type === "found") return "Encontrado";
@@ -176,6 +206,8 @@ function buildLeadQuery(filters: FilterState, page: number) {
   if (filters.state) params.set("state", filters.state);
   if (filters.city) params.set("city", filters.city);
   if (filters.segment.trim()) params.set("segment", filters.segment.trim());
+  if (filters.engine) params.set("engine", filters.engine);
+  if (filters.targetType) params.set("targetType", filters.targetType);
   if (filters.ddd.trim()) params.set("ddd", filters.ddd.replace(/\D/g, "").slice(0, 2));
   if (filters.scoreRange) params.set("scoreRange", filters.scoreRange);
   if (filters.status) params.set("status", filters.status);
@@ -195,14 +227,16 @@ function compactRadarMessage(message: string | null) {
 
 export default function RadarDigitalClientPage() {
   const hasToken = useRequireModule("webscraping");
+  const searchParams = useSearchParams();
   const [filters, setFilters] = useState<FilterState>(DEFAULT_FILTERS);
   const [appliedFilters, setAppliedFilters] = useState<FilterState>(DEFAULT_FILTERS);
   const [items, setItems] = useState<RadarLead[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [actionId, setActionId] = useState<string | null>(null);
+  const [searching, setSearching] = useState(false);
   const [bulkSending, setBulkSending] = useState(false);
   const [telonProgress, setTelonProgress] = useState(8);
   const [feedback, setFeedback] = useState<string | null>(null);
@@ -217,7 +251,55 @@ export default function RadarDigitalClientPage() {
     () => items.filter((item) => Number(item.opportunityScore || 0) >= 70).length,
     [items],
   );
-  const hasAppliedRadarPullFilters = Boolean(appliedFilters.city.trim() && appliedFilters.segment.trim());
+  const canSearchRadar = Boolean(filters.state.trim() && filters.city.trim() && filters.segment.trim());
+  const queryRadarLeadId = String(searchParams.get("radarLeadId") || "").trim();
+
+  useEffect(() => {
+    const nextState = String(searchParams.get("state") || "").trim();
+    const nextCity = String(searchParams.get("city") || "").trim();
+    const nextSegment = String(searchParams.get("segment") || "").trim();
+    if (!nextState && !nextCity && !nextSegment) return;
+    setFilters((current) => ({
+      ...current,
+      state: nextState || current.state,
+      city: nextCity || current.city,
+      segment: nextSegment || current.segment,
+    }));
+    setAppliedFilters((current) => ({
+      ...current,
+      state: nextState || current.state,
+      city: nextCity || current.city,
+      segment: nextSegment || current.segment,
+    }));
+  }, [searchParams]);
+
+  useEffect(() => {
+    if (hasToken !== true || !queryRadarLeadId) return;
+    let cancelled = false;
+    async function loadLinkedLead() {
+      setLoading(true);
+      setError(null);
+      try {
+        const lead = await apiFetch<RadarLead>(`/webscraping/radar/leads/${encodeURIComponent(queryRadarLeadId)}`, {
+          requireAuth: true,
+          timeoutMs: 15000,
+        });
+        if (cancelled) return;
+        setItems(lead ? [lead] : []);
+        setTotal(lead ? 1 : 0);
+        setPage(1);
+        setFeedback("Card aberto pelo Night Factory. Revise antes de enviar para Vendas.");
+      } catch {
+        if (!cancelled) setError("Não foi possível abrir este card do Radar.");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+    void loadLinkedLead();
+    return () => {
+      cancelled = true;
+    };
+  }, [hasToken, queryRadarLeadId]);
 
   const loadCards = useCallback(async (nextPage = 1, append = false) => {
     if (append) setLoadingMore(true);
@@ -243,8 +325,10 @@ export default function RadarDigitalClientPage() {
 
   useEffect(() => {
     if (hasToken !== true) return;
+    if (queryRadarLeadId) return;
+    if (!appliedFilters.state && !appliedFilters.city && !appliedFilters.segment && !appliedFilters.status) return;
     void loadCards(1, false);
-  }, [hasToken, loadCards]);
+  }, [hasToken, loadCards, queryRadarLeadId, appliedFilters.state, appliedFilters.city, appliedFilters.segment, appliedFilters.status]);
 
   useEffect(() => {
     if (!feedback) return;
@@ -252,7 +336,7 @@ export default function RadarDigitalClientPage() {
     return () => window.clearTimeout(timer);
   }, [feedback]);
 
-  const telonBusy = hasToken === null || loading || loadingMore || bulkSending || Boolean(actionId);
+  const telonBusy = hasToken === null || loading || loadingMore || searching || bulkSending || Boolean(actionId);
 
   useEffect(() => {
     if (!telonBusy) {
@@ -304,15 +388,31 @@ export default function RadarDigitalClientPage() {
       return;
     }
 
+    if (searching) {
+      dispatchTopbarProgress({
+        source: "radar",
+        phase: "loading",
+        title: "Radar pesquisando agora",
+        status: "Lendo o banco primeiro. Se faltar card, o backend aciona o motor escolhido.",
+        progress: Math.max(18, telonProgress),
+        metrics: [
+          { label: "Qtd", value: String(filters.quantity) },
+          { label: "Motor", value: filters.engine === "google" ? "Google" : "HBX" },
+          { label: "Tipo", value: filters.targetType.toUpperCase() },
+        ],
+      });
+      return;
+    }
+
     if (bulkSending) {
       dispatchTopbarProgress({
         source: "radar",
         phase: "loading",
-        title: "Herdando até 100 para Vendas",
-        status: "Puxando cards elegíveis do Radar e preparando importação.",
+        title: "Enviando seleção para Vendas",
+        status: "Usando somente os cards que já estão na tela.",
         progress: Math.max(18, telonProgress),
         metrics: [
-          { label: "Limite", value: "100" },
+          { label: "Selecionados", value: String(Math.min(items.length, filters.quantity)) },
           { label: "High", value: highOpportunityCount.toLocaleString("pt-BR") },
           { label: "Destino", value: "Vendas" },
         ],
@@ -362,20 +462,20 @@ export default function RadarDigitalClientPage() {
     bulkSending,
     error,
     feedback,
+    filters.engine,
+    filters.quantity,
+    filters.targetType,
     hasToken,
     highOpportunityCount,
     items.length,
     loading,
     loadingMore,
+    searching,
     telonProgress,
     total,
   ]);
 
   useEffect(() => () => clearTopbarProgress("radar"), []);
-
-  function applyFilters() {
-    setAppliedFilters(filters);
-  }
 
   function clearFilters() {
     setFilters(DEFAULT_FILTERS);
@@ -391,6 +491,74 @@ export default function RadarDigitalClientPage() {
       noWebsite: next.noWebsite === true,
       highOpportunity: next.highOpportunity === true,
     }));
+  }
+
+  async function runRadarSearch() {
+    if (!canSearchRadar) {
+      setFeedback(null);
+      setError("Escolha estado, cidade e segmento para pesquisar no Radar.");
+      return;
+    }
+
+    setSearching(true);
+    setError(null);
+    setFeedback(null);
+    setTelonProgress(12);
+    const nextFilters = { ...filters };
+    setAppliedFilters(nextFilters);
+    try {
+      const pullRadar = (targetType: Exclude<HbxTargetTypeValue, "both">, quantity: number) =>
+        apiFetch<RadarPullResponse>("/webscraping/radar/pull", {
+          method: "POST",
+          requireAuth: true,
+          timeoutMs: 45000,
+          body: JSON.stringify({
+            ...nextFilters,
+            targetType,
+            quantity,
+            minimumStock: Math.min(quantity, 20),
+            desiredStock: Math.max(quantity, 60),
+          }),
+        });
+
+      let motorRan = false;
+      let fetchedCount = 0;
+      let nextItems: RadarLead[] = [];
+
+      if (nextFilters.targetType === "both") {
+        const pjQuantity = Math.ceil(nextFilters.quantity / 2);
+        const pfQuantity = Math.max(1, nextFilters.quantity - pjQuantity);
+        const [pjResult, pfResult] = await Promise.allSettled([
+          pullRadar("pj", pjQuantity),
+          pullRadar("pf", pfQuantity),
+        ]);
+        const fulfilled = [pjResult, pfResult].filter((result): result is PromiseFulfilledResult<RadarPullResponse> => result.status === "fulfilled");
+        if (!fulfilled.length) {
+          const rejected = [pjResult, pfResult].find((result) => result.status === "rejected") as PromiseRejectedResult | undefined;
+          throw rejected?.reason || new Error("Não foi possível pesquisar CNPJ e CPF agora.");
+        }
+        nextItems = mergeRadarLeads(fulfilled.flatMap((result) => result.value.items || [])).slice(0, nextFilters.quantity);
+        motorRan = fulfilled.some((result) => Boolean(result.value.meta?.replenish?.ran));
+        fetchedCount = fulfilled.reduce((totalCount, result) => totalCount + Number(result.value.meta?.replenish?.fetchedCount || 0), 0);
+      } else {
+        const payload = await pullRadar(nextFilters.targetType === "agenda_pf" ? "pf" : nextFilters.targetType, nextFilters.quantity);
+        nextItems = payload.items || [];
+        motorRan = Boolean(payload.meta?.replenish?.ran);
+        fetchedCount = Number(payload.meta?.replenish?.fetchedCount || 0);
+      }
+
+      setItems(nextItems);
+      setTotal(nextItems.length);
+      setPage(1);
+      const motorMessage = motorRan
+        ? `Motor acionado. ${fetchedCount} novo(s) card(s) entraram no banco.`
+        : "Entregue direto do banco de dados, sem acionar motor.";
+      setFeedback(`${nextItems.length} card(s) prontos. ${motorMessage}`);
+    } catch (searchError) {
+      setError(searchError instanceof Error ? searchError.message : "Não foi possível pesquisar agora.");
+    } finally {
+      setSearching(false);
+    }
   }
 
   async function runLeadAction(
@@ -458,9 +626,9 @@ export default function RadarDigitalClientPage() {
   }
 
   async function sendFilteredToVendas() {
-    if (!hasAppliedRadarPullFilters) {
+    if (!items.length) {
       setFeedback(null);
-      setError("Escolha cidade e segmento e aplique os filtros antes de herdar leads para Vendas.");
+      setError("Pesquise primeiro. Depois envie os cards encontrados para Vendas.");
       return;
     }
 
@@ -469,20 +637,10 @@ export default function RadarDigitalClientPage() {
     setFeedback(null);
     setTelonProgress(12);
     try {
-      const payload = await apiFetch<RadarPullResponse>("/webscraping/radar/pull", {
-        method: "POST",
-        requireAuth: true,
-        timeoutMs: 30000,
-        body: JSON.stringify({
-          ...appliedFilters,
-          quantity: 100,
-          minimumStock: 20,
-          desiredStock: 100,
-        }),
-      });
-      const leads = (payload.items || []).slice(0, 100).map(buildVendasLeadPayload);
+      const selectedItems = items.slice(0, filters.quantity);
+      const leads = selectedItems.map(buildVendasLeadPayload);
       if (!leads.length) {
-        setFeedback("Nenhum lead elegível encontrado para estes filtros.");
+        setFeedback("Nenhum lead elegível encontrado para enviar.");
         return;
       }
       const imported = await apiFetch<ImportToVendasResponse>("/vendas/import/webscraping", {
@@ -495,9 +653,9 @@ export default function RadarDigitalClientPage() {
         method: "POST",
         requireAuth: true,
         timeoutMs: 15000,
-        body: JSON.stringify({ leadIds: (payload.items || []).slice(0, 100).map((lead) => lead.id) }),
+        body: JSON.stringify({ leadIds: selectedItems.map((lead) => lead.id) }),
       }).catch(() => null);
-      await loadCards(1, false);
+      setItems((current) => current.map((item) => selectedItems.some((selected) => selected.id === item.id) ? { ...item, status: "sent_to_vendas", companyStatus: "imported_to_vendas" } : item));
       setFeedback(imported.message || `${leads.length} lead(s) herdados para Vendas.`);
     } catch (bulkError) {
       setError(bulkError instanceof Error ? bulkError.message : "Não foi possível herdar leads para Vendas agora.");
@@ -515,23 +673,19 @@ export default function RadarDigitalClientPage() {
   if (!hasToken) return null;
 
   const hasMore = items.length < total;
-  const availableStates = availableFilters.states || [];
   const availableSegments = availableFilters.segments || [];
-  const availableCitiesForState = filters.state
-    ? availableFilters.citiesByState?.[filters.state] || []
-    : [];
 
   return (
     <DashboardScaffold
       title="Radar Digital"
-      description="Cards abastecidos automaticamente pela Massa de Dados HBX."
+      description="Pesquisa sob demanda usando o banco dos motores HBX."
       hideHeader
       showDashboardShortcut={false}
     >
       <section className={styles.shell}>
         <div className={styles.summaryBar}>
           <div>
-            <span>Cards disponíveis</span>
+            <span>Resultado atual</span>
             <strong>{total.toLocaleString("pt-BR")}</strong>
           </div>
           <div>
@@ -540,81 +694,87 @@ export default function RadarDigitalClientPage() {
           </div>
           <div>
             <span>Origem</span>
-            <strong>Massa de Dados HBX</strong>
+            <strong>Banco ou motor</strong>
           </div>
         </div>
 
         <section className={styles.transferPanel}>
           <div>
-            <span>Radar para Vendas</span>
-            <strong>Herdar leads com os filtros atuais</strong>
-            <p>Envia no máximo 100 contatos elegíveis por operação. Negativos, bloqueados e opt-out permanecem protegidos no Radar.</p>
+            <span>Pesquisa sob demanda</span>
+            <strong>Você escolhe o nicho; o backend decide banco ou motor.</strong>
+            <p>O Radar consulta o banco primeiro. Se faltar card, aciona o motor escolhido e grava o resultado para o estoque HBX.</p>
           </div>
-          <button
-            type="button"
-            onClick={() => void sendFilteredToVendas()}
-            disabled={bulkSending || !hasAppliedRadarPullFilters}
-            title={!hasAppliedRadarPullFilters ? "Aplique cidade e segmento antes de herdar leads." : undefined}
-          >
-            {bulkSending ? "Herdando..." : "Herdar até 100 para Vendas"}
-          </button>
+          <div className={styles.transferActions}>
+            <button
+              type="button"
+              onClick={() => void runRadarSearch()}
+              disabled={searching || !canSearchRadar}
+              title={!canSearchRadar ? "Escolha estado, cidade e segmento antes de pesquisar." : undefined}
+            >
+              {searching ? "Pesquisando..." : "Pesquisar agora"}
+            </button>
+            <button
+              type="button"
+              data-variant="secondary"
+              onClick={() => void sendFilteredToVendas()}
+              disabled={bulkSending || !items.length}
+              title={!items.length ? "Pesquise primeiro para escolher o que vai para Vendas." : undefined}
+            >
+              {bulkSending ? "Enviando..." : "Enviar resultado para Vendas"}
+            </button>
+          </div>
         </section>
 
         <form
           className={styles.filters}
           onSubmit={(event) => {
             event.preventDefault();
-            applyFilters();
+            void runRadarSearch();
           }}
         >
-          <div className={styles.filterWide}>
-            <div className={styles.locationFilters}>
-              <label>
-                <span>Estado</span>
-                <select
-                  value={filters.state}
-                  onChange={(event) => setFilters((current) => ({ ...current, state: event.target.value, city: "" }))}
-                >
-                  <option value="">Todos os estados disponíveis</option>
-                  {availableStates.map((item) => (
-                    <option key={item.value} value={item.value}>
-                      {item.label} ({item.count})
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                <span>Cidade</span>
-                <select
-                  value={filters.city}
-                  onChange={(event) => setFilters((current) => ({ ...current, city: event.target.value }))}
-                  disabled={!filters.state}
-                >
-                  <option value="">{filters.state ? "Todas as cidades disponíveis" : "Escolha um estado disponível"}</option>
-                  {availableCitiesForState.map((item) => (
-                    <option key={item.value} value={item.value}>
-                      {item.label} ({item.count})
-                    </option>
-                  ))}
-                </select>
-              </label>
-            </div>
+          <div className={styles.filterLocation}>
+            <HbxStateCityPicker
+              state={filters.state}
+              city={filters.city}
+              onStateChange={(value) => setFilters((current) => ({ ...current, state: value, city: "" }))}
+              onCityChange={(value) => setFilters((current) => ({ ...current, city: value }))}
+              requiredCity
+              helperText="Todos os estados e cidades oficiais estão disponíveis."
+            />
           </div>
-          <label>
-            <span>Segmento</span>
-            <select
+          <div className={styles.filterSegment}>
+            <HbxSegmentCombobox
               value={filters.segment}
-              onChange={(event) => setFilters((current) => ({ ...current, segment: event.target.value }))}
-            >
-              <option value="">Todos os segmentos disponíveis</option>
-              {availableSegments.map((item) => (
-                <option key={item.value} value={item.value}>
-                  {item.label} ({item.count})
-                </option>
-              ))}
-            </select>
-          </label>
-          <div className={styles.filterWide}>
+              onChange={(value) => setFilters((current) => ({ ...current, segment: value }))}
+              suggestions={availableSegments.length ? availableSegments.map((item) => item.value) : undefined}
+              placeholder="Ex.: odontologia, oficina mecânica, energia solar"
+              helperText="Digite livremente ou escolha um segmento sugerido."
+            />
+          </div>
+          <div className={styles.filterEngine}>
+            <HbxQuantitySelector
+              value={filters.quantity}
+              onChange={(value) => setFilters((current) => ({ ...current, quantity: value }))}
+              options={[10, 20, 40, 60, 100]}
+              limitLabel="Quantidade"
+              helperText="Quantidade desejada para esta pesquisa."
+            />
+          </div>
+          <div className={styles.filterEngine}>
+            <HbxEngineSelector
+              value={filters.engine}
+              onChange={(value) => setFilters((current) => ({ ...current, engine: value }))}
+              showDescription={false}
+            />
+          </div>
+          <div className={styles.filterTarget}>
+            <HbxTargetTypeSelector
+              value={filters.targetType}
+              onChange={(value) => setFilters((current) => ({ ...current, targetType: value }))}
+              allowedTypes={["pj", "pf", "both"]}
+            />
+          </div>
+          <div className={styles.filterAdvanced}>
             <HbxAdvancedFilters
               mode="radar"
               filters={filters}
@@ -622,7 +782,9 @@ export default function RadarDigitalClientPage() {
             />
           </div>
           <div className={styles.filterActions}>
-            <button type="submit">Aplicar filtros</button>
+            <button type="submit" disabled={searching || !canSearchRadar}>
+              {searching ? "Pesquisando..." : "Pesquisar"}
+            </button>
             <button type="button" onClick={clearFilters}>Limpar</button>
           </div>
         </form>
@@ -631,14 +793,14 @@ export default function RadarDigitalClientPage() {
           <div className={styles.emptyState}>
             <span aria-hidden="true">RD</span>
             <strong>Sem cards disponíveis ainda.</strong>
-            <p>A Massa de Dados MASTER ainda está abastecendo esse filtro.</p>
+            <p>Pesquise um nicho para consultar o banco ou acionar um motor.</p>
           </div>
         ) : (
           <div className={styles.grid}>
             {items.map((lead) => {
               const score = Math.max(0, Math.min(100, Math.trunc(Number(lead.opportunityScore || 0))));
               const isHigh = score >= 70;
-              const origin = [lead.sourceEngine, lead.source, ...(lead.sourceEngines || [])].filter(Boolean)[0] || "Massa de Dados HBX";
+              const origin = [lead.sourceEngine, lead.source, ...(lead.sourceEngines || [])].filter(Boolean)[0] || "Banco dos Motores HBX";
               const status = lead.companyStatus || lead.status;
               return (
                 <article key={lead.id} className={styles.card} data-high={isHigh ? "true" : "false"}>
@@ -673,7 +835,7 @@ export default function RadarDigitalClientPage() {
                         </span>
                       ))
                     ) : (
-                      <span>Recebido da Massa de Dados <small>{formatDate(lead.lastSeenAt || lead.firstSeenAt)}</small></span>
+                      <span>Recebido do banco dos motores <small>{formatDate(lead.lastSeenAt || lead.firstSeenAt)}</small></span>
                     )}
                   </div>
 

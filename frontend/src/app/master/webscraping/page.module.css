@@ -926,7 +926,7 @@
 }
 
 .mainGrid {
-  grid-template-columns: minmax(0, 1.35fr) minmax(300px, 0.65fr);
+  grid-template-columns: 1fr;
 }
 
 .turboCard,
@@ -1048,6 +1048,47 @@
   color: var(--ws-muted);
   font-size: 0.76rem;
   font-weight: 850;
+}
+
+.saveInlineBox {
+  min-width: 0;
+  min-height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border-radius: 14px;
+  padding: 10px;
+  border: 1px solid var(--ws-row-border);
+  background: var(--ws-row-bg);
+}
+
+.saveInlineBox span {
+  color: var(--ws-muted-strong);
+  font-size: 0.78rem;
+  font-weight: 900;
+}
+
+.saveInlineBox span[data-dirty="true"] {
+  color: var(--ws-warning);
+}
+
+.saveInlineBox button {
+  flex: 0 0 auto;
+  min-height: 32px;
+  border: 1px solid rgba(var(--ws-info-rgb), 0.34);
+  border-radius: 999px;
+  background: rgba(var(--ws-info-rgb), 0.08);
+  color: var(--ws-info-soft);
+  padding: 0 12px;
+  font-size: 0.74rem;
+  font-weight: 950;
+  cursor: pointer;
+}
+
+.saveInlineBox button:disabled {
+  cursor: not-allowed;
+  opacity: 0.54;
 }
 
 .configGrid label,
