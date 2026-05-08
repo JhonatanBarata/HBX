@@ -17,6 +17,7 @@ import {
 import { apiFetch } from "@/app/_lib/api";
 import { useRequireModule } from "@/app/_lib/useRequireModule";
 import { clearTopbarProgress, dispatchTopbarProgress } from "@/lib/topbar-progress";
+import type { CommercialPlansPayload } from "@/lib/commercial-plans";
 import styles from "./page.module.css";
 
 type RadarLeadHistory = {
@@ -109,6 +110,7 @@ type FilterState = {
 };
 
 const PAGE_SIZE = 24;
+const RADAR_PROGRESS_STEPS = ["lendo banco", "filtrando negativos", "selecionando melhores cards", "alimentando Vendas/Prospecção"];
 
 const DEFAULT_FILTERS: FilterState = {
   state: "",
@@ -171,6 +173,10 @@ function opportunityLabel(score?: number | null) {
   if (safeScore >= 70) return "Alta oportunidade";
   if (safeScore >= 45) return "Oportunidade média";
   return "Oportunidade baixa";
+}
+
+function topbarProgressPercentFrom(value: number) {
+  return Math.max(0, Math.min(100, Math.round(Number(value) || 0)));
 }
 
 function mergeRadarLeads(items: RadarLead[]) {
@@ -239,6 +245,8 @@ export default function RadarDigitalClientPage() {
   const [searching, setSearching] = useState(false);
   const [bulkSending, setBulkSending] = useState(false);
   const [telonProgress, setTelonProgress] = useState(8);
+  const [radarVisualCount, setRadarVisualCount] = useState(0);
+  const [commercialPlans, setCommercialPlans] = useState<CommercialPlansPayload | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [availableFilters, setAvailableFilters] = useState<RadarAvailableFilters>({
@@ -251,8 +259,35 @@ export default function RadarDigitalClientPage() {
     () => items.filter((item) => Number(item.opportunityScore || 0) >= 70).length,
     [items],
   );
+  const isHbxList = commercialPlans?.current?.planKey === "hbx_lite" || commercialPlans?.current?.selectedPlanKey === "hbx_lite";
+  const radarQuantityLimit = isHbxList ? 50 : 100;
+  const effectiveFilters = useMemo(
+    () => ({
+      ...filters,
+      quantity: Math.min(filters.quantity, radarQuantityLimit),
+    }),
+    [filters, radarQuantityLimit],
+  );
   const canSearchRadar = Boolean(filters.state.trim() && filters.city.trim() && filters.segment.trim());
   const queryRadarLeadId = String(searchParams.get("radarLeadId") || "").trim();
+
+  useEffect(() => {
+    if (hasToken !== true) return;
+    let cancelled = false;
+    apiFetch<CommercialPlansPayload>("/commercial-plans/me", { requireAuth: true })
+      .then((payload) => {
+        if (!cancelled) setCommercialPlans(payload);
+      })
+      .catch(() => null);
+    return () => {
+      cancelled = true;
+    };
+  }, [hasToken]);
+
+  useEffect(() => {
+    if (!isHbxList || filters.quantity <= radarQuantityLimit) return;
+    setFilters((current) => ({ ...current, quantity: radarQuantityLimit }));
+  }, [filters.quantity, isHbxList, radarQuantityLimit]);
 
   useEffect(() => {
     const nextState = String(searchParams.get("state") || "").trim();
@@ -341,6 +376,7 @@ export default function RadarDigitalClientPage() {
   useEffect(() => {
     if (!telonBusy) {
       setTelonProgress(8);
+      setRadarVisualCount(0);
       return undefined;
     }
 
@@ -357,12 +393,35 @@ export default function RadarDigitalClientPage() {
   }, [telonBusy]);
 
   useEffect(() => {
+    if (!searching && !bulkSending) {
+      setRadarVisualCount(0);
+      return undefined;
+    }
+    const target = Math.max(1, Math.min(effectiveFilters.quantity, searching ? radarQuantityLimit : Math.max(1, items.length)));
+    setRadarVisualCount(1);
+    const timer = window.setInterval(() => {
+      setRadarVisualCount((current) => Math.min(target, current + 1));
+    }, 180);
+    return () => window.clearInterval(timer);
+  }, [bulkSending, effectiveFilters.quantity, items.length, radarQuantityLimit, searching]);
+
+  useEffect(() => {
     const metrics = [
       { label: "Cards", value: items.length.toLocaleString("pt-BR") },
       { label: "High", value: highOpportunityCount.toLocaleString("pt-BR") },
       { label: "Total", value: total.toLocaleString("pt-BR") },
     ];
     const errorMessage = compactRadarMessage(error);
+    const activeStepIndex = Math.min(RADAR_PROGRESS_STEPS.length - 1, Math.floor(topbarProgressPercentFrom(telonProgress) / 25));
+    const visualCards = Array.from({ length: Math.min(4, radarVisualCount) }, (_, index) => {
+      const cardNumber = Math.max(1, radarVisualCount - Math.min(4, radarVisualCount) + index + 1);
+      return {
+        id: `radar:${cardNumber}`,
+        title: `Card ${cardNumber}`,
+        meta: [filters.segment || "segmento", filters.city || "cidade"].filter(Boolean).join(" • "),
+        score: `${Math.min(99, 62 + ((cardNumber * 7) % 32))}`,
+      };
+    });
 
     if (errorMessage) {
       dispatchTopbarProgress({
@@ -393,10 +452,13 @@ export default function RadarDigitalClientPage() {
         source: "radar",
         phase: "loading",
         title: "Radar pesquisando agora",
-        status: "Lendo o banco primeiro. Se faltar card, o backend aciona o motor escolhido.",
+        status: "Motores ligando: lendo banco, filtrando negativos e preparando cards elegíveis.",
         progress: Math.max(18, telonProgress),
+        steps: RADAR_PROGRESS_STEPS,
+        activeStepIndex,
+        cardFeed: visualCards,
         metrics: [
-          { label: "Qtd", value: String(filters.quantity) },
+          { label: "Qtd", value: String(effectiveFilters.quantity) },
           { label: "Motor", value: filters.engine === "google" ? "Google" : "HBX" },
           { label: "Tipo", value: filters.targetType.toUpperCase() },
         ],
@@ -409,10 +471,18 @@ export default function RadarDigitalClientPage() {
         source: "radar",
         phase: "loading",
         title: "Enviando seleção para Vendas",
-        status: "Usando somente os cards que já estão na tela.",
+        status: "Alimentando Vendas/Prospecção com cards elegíveis da tela.",
         progress: Math.max(18, telonProgress),
+        steps: RADAR_PROGRESS_STEPS,
+        activeStepIndex: 3,
+        cardFeed: items.slice(0, Math.max(1, radarVisualCount)).slice(-4).map((item) => ({
+          id: `vendas:${item.id}`,
+          title: item.name || "Card Radar",
+          meta: [item.segment, item.city].filter(Boolean).join(" • ") || "Radar Digital",
+          score: item.opportunityScore ?? undefined,
+        })),
         metrics: [
-          { label: "Selecionados", value: String(Math.min(items.length, filters.quantity)) },
+          { label: "Selecionados", value: String(Math.min(items.length, effectiveFilters.quantity)) },
           { label: "High", value: highOpportunityCount.toLocaleString("pt-BR") },
           { label: "Destino", value: "Vendas" },
         ],
@@ -464,15 +534,20 @@ export default function RadarDigitalClientPage() {
     feedback,
     filters.engine,
     filters.quantity,
+    filters.city,
+    filters.segment,
     filters.targetType,
     hasToken,
     highOpportunityCount,
+    effectiveFilters.quantity,
     items.length,
+    items,
     loading,
     loadingMore,
     searching,
     telonProgress,
     total,
+    radarVisualCount,
   ]);
 
   useEffect(() => () => clearTopbarProgress("radar"), []);
@@ -504,7 +579,7 @@ export default function RadarDigitalClientPage() {
     setError(null);
     setFeedback(null);
     setTelonProgress(12);
-    const nextFilters = { ...filters };
+    const nextFilters = { ...effectiveFilters };
     setAppliedFilters(nextFilters);
     try {
       const pullRadar = (targetType: Exclude<HbxTargetTypeValue, "both">, quantity: number) =>
@@ -637,7 +712,7 @@ export default function RadarDigitalClientPage() {
     setFeedback(null);
     setTelonProgress(12);
     try {
-      const selectedItems = items.slice(0, filters.quantity);
+      const selectedItems = items.slice(0, effectiveFilters.quantity);
       const leads = selectedItems.map(buildVendasLeadPayload);
       if (!leads.length) {
         setFeedback("Nenhum lead elegível encontrado para enviar.");
@@ -696,6 +771,12 @@ export default function RadarDigitalClientPage() {
             <span>Origem</span>
             <strong>Banco ou motor</strong>
           </div>
+          {isHbxList ? (
+            <div>
+              <span>HBX List</span>
+              <strong>50 x 3 = 150 cards</strong>
+            </div>
+          ) : null}
         </div>
 
         <section className={styles.transferPanel}>
@@ -755,9 +836,9 @@ export default function RadarDigitalClientPage() {
             <HbxQuantitySelector
               value={filters.quantity}
               onChange={(value) => setFilters((current) => ({ ...current, quantity: value }))}
-              options={[10, 20, 40, 60, 100]}
+              options={isHbxList ? [10, 20, 40, 50] : [10, 20, 40, 60, 100]}
               limitLabel="Quantidade"
-              helperText="Quantidade desejada para esta pesquisa."
+              helperText={isHbxList ? "HBX List: limite visual de 50 cards por pesquisa, 3 pesquisas e total 150 cards." : "Quantidade desejada para esta pesquisa."}
             />
           </div>
           <div className={styles.filterEngine}>

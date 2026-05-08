@@ -36,18 +36,23 @@ export const COMMERCIAL_PRICING = {
   annualDiscountPercent: 20,
 } as const;
 
-export const COMMERCIAL_PLAN_QUOTAS: Record<ActiveCommercialPlanKey, { googleSearchesPerDay: number }> = {
-  [COMMERCIAL_PLAN_KEYS.LITE]: { googleSearchesPerDay: 0 },
+export const COMMERCIAL_PLAN_QUOTAS: Record<ActiveCommercialPlanKey, {
+  googleSearchesPerDay: number;
+  cardsPerSearch?: number;
+  searchesPerCycle?: number;
+  totalCards?: number;
+}> = {
+  [COMMERCIAL_PLAN_KEYS.LITE]: { googleSearchesPerDay: 0, cardsPerSearch: 50, searchesPerCycle: 3, totalCards: 150 },
   [COMMERCIAL_PLAN_KEYS.PADRAO]: { googleSearchesPerDay: 2 },
   [COMMERCIAL_PLAN_KEYS.MELHOR]: { googleSearchesPerDay: 6 },
 };
 
 export const GOOGLE_DAILY_LIMIT_REACHED_MESSAGE =
-  'Você atingiu suas buscas Google de hoje. Os motores gratuitos continuam liberados. Para mais buscas por dia, escolha o HBX Bot IA.';
+  'Você atingiu suas buscas Google de hoje. Os motores gratuitos continuam liberados. Para mais buscas por dia, escolha o HBX Full — Bot e IA.';
 
 export const BOT_IA_PLAN_REQUIRED_PAYLOAD = {
   code: 'BOT_IA_PLAN_REQUIRED',
-  message: 'Bot de atendimento está disponível no plano HBX Bot IA.',
+  message: 'Bot de atendimento está disponível no plano HBX Full — Bot e IA.',
   redirectTo: '/planos?intent=bot_ia',
   requiredPlanKey: COMMERCIAL_PLAN_KEYS.MELHOR,
 } as const;
@@ -137,9 +142,9 @@ export function getCommercialPlanMonthlyPrice(planKey: unknown) {
 
 export function getCommercialPlanTitle(planKey: unknown) {
   const normalized = normalizeCommercialPlanKey(planKey);
-  if (normalized === COMMERCIAL_PLAN_KEYS.LITE) return 'HBX Vendas';
-  if (normalized === COMMERCIAL_PLAN_KEYS.MELHOR) return 'HBX Bot IA';
-  return 'HBX WhatsApp';
+  if (normalized === COMMERCIAL_PLAN_KEYS.LITE) return 'HBX List';
+  if (normalized === COMMERCIAL_PLAN_KEYS.MELHOR) return 'HBX Full — Bot e IA';
+  return 'HBX Lead';
 }
 
 export function computeCommercialPlanCycleAmount(planKey: unknown, billingCycleRaw: unknown) {
@@ -154,71 +159,71 @@ export function buildCommercialPlansCatalog() {
   return [
     {
       key: COMMERCIAL_PLAN_KEYS.LITE,
-      title: 'HBX Vendas',
+      title: 'HBX List',
       status: 'available',
       monthlyPrice: COMMERCIAL_PRICING.liteMonthly,
       trialDays: 0,
       annualDiscountPercent: COMMERCIAL_PRICING.annualDiscountPercent,
-      headline: 'Para encontrar clientes e organizar a prospecção.',
-      description: 'Para quem quer buscar clientes e organizar oportunidades.',
+      headline: 'Radar Digital com lista comercial pronta para Vendas.',
+      description: 'Para escolher filtros do Radar, puxar cards elegíveis do banco e abrir WhatsApp externo.',
       badge: 'Entrada',
       recommended: false,
       requiresCheckout: true,
       quotas: COMMERCIAL_PLAN_QUOTAS[COMMERCIAL_PLAN_KEYS.LITE],
       features: [
-        'Radar Digital de empresas',
-        'Leads por cidade e segmento',
-        'CRM de vendas',
-        'Radar básico com score limitado',
-        'Funil comercial',
-        'Histórico de contatos',
-        'Organização de oportunidades',
+        'Radar Digital + Vendas',
+        'Filtros por cidade, segmento e perfil',
+        'Até 50 cards por pesquisa',
+        '3 pesquisas comerciais, total 150 cards',
+        'Cards elegíveis respeitando negativos, opt-outs e descartes',
+        'WhatsApp externo ao clicar no número',
+        'Sem Atendimento interno, Night Factory ou Bot IA',
       ],
       legalCopy: 'Liberação após pagamento confirmado.',
     },
     {
       key: COMMERCIAL_PLAN_KEYS.PADRAO,
-      title: 'HBX WhatsApp',
+      title: 'HBX Lead',
       status: 'available',
       monthlyPrice: COMMERCIAL_PRICING.padraoMonthly,
       trialDays: 30,
       annualDiscountPercent: COMMERCIAL_PRICING.annualDiscountPercent,
-      headline: 'Para prospectar e atender pelo WhatsApp dentro do HBX.',
-      description: 'Para quem quer vendas + WhatsApp conectado dentro do sistema.',
+      headline: 'Para prospectar, atender e operar a Night Factory.',
+      description: 'Para quem quer Radar Digital + Vendas + Atendimento interno com oportunidades noturnas.',
       badge: 'Mais escolhido',
       recommended: true,
       requiresCheckout: false,
       quotas: COMMERCIAL_PLAN_QUOTAS[COMMERCIAL_PLAN_KEYS.PADRAO],
       features: [
-        'Tudo do HBX Vendas',
-        'WhatsApp conectado ao sistema',
-        'Conversas centralizadas',
-        'Atendimento pelo painel',
+        'Tudo do HBX List',
+        'Radar Digital + Vendas + Atendimento',
+        'Prospecção com filtros de segmento e cidade',
+        'Cards elegíveis alimentando Prospecção/Atendimento',
+        'Atendimento interno pelo painel',
+        'Night Factory liberado',
         'Controle de retornos',
         'Histórico por cliente',
-        'Radar Premium parcial',
-        'Night Factory noturna',
         'Scripts comerciais sugeridos',
-        'Organização de mensagens e leads',
+        'Sem Bot IA automático completo',
       ],
       legalCopy: 'Trial gratuito de 30 dias. Não precisa de cartão. Não haverá cobrança automática.',
     },
     {
       key: COMMERCIAL_PLAN_KEYS.MELHOR,
-      title: 'HBX Bot IA',
+      title: 'HBX Full — Bot e IA',
       status: 'available',
       monthlyPrice: COMMERCIAL_PRICING.melhorMonthly,
       trialDays: 0,
       annualDiscountPercent: COMMERCIAL_PRICING.annualDiscountPercent,
-      headline: 'Para automatizar atendimento, respostas e prospecção com segurança.',
-      description: 'Para quem quer vendas + WhatsApp + bot automático.',
+      headline: 'Automação completa com Bot IA, Radar e Night Factory.',
+      description: 'Para quem quer o HBX completo com atendimento, prospecção, bot e automação.',
       badge: 'Mais completo',
       recommended: false,
       requiresCheckout: true,
       quotas: COMMERCIAL_PLAN_QUOTAS[COMMERCIAL_PLAN_KEYS.MELHOR],
       features: [
-        'Tudo do HBX WhatsApp',
-        'Bot de atendimento',
+        'Tudo do HBX Lead',
+        'Bot IA liberado',
         'Bot de prospecção pós-resposta',
         'Respostas automáticas',
         'Qualificação de interessados',
@@ -226,7 +231,7 @@ export function buildCommercialPlansCatalog() {
         'Opportunity Score completo',
         'Mini-auditorias digitais',
         'Recovery inteligente',
-        'Regras para não responder como bot louco',
+        'Regras de segurança para automação',
         'Encaminhamento para humano',
         'Automação com limites e segurança',
       ],

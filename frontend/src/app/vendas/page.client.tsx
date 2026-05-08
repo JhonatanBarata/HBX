@@ -196,6 +196,7 @@ const BLOCK_LABELS: Record<LeadBlockKey, string> = {
   scheduled: "Programados",
   closed: "Encerrados",
 };
+const VENDAS_PROGRESS_STEPS = ["lendo banco", "filtrando negativos", "selecionando melhores cards", "alimentando Vendas/Prospecção"];
 
 const WHATSAPP_FILTER_LABELS: Record<WhatsappFilter, string> = {
   all: "Whatsapp",
@@ -1035,6 +1036,7 @@ export default function VendasClientPage() {
   const [selectedBulkLeadIds, setSelectedBulkLeadIds] = useState<Set<string>>(() => new Set());
   const [bulkSelectAllAccount, setBulkSelectAllAccount] = useState(false);
   const [bulkDeleting, setBulkDeleting] = useState(false);
+  const [vendasVisualCount, setVendasVisualCount] = useState(0);
   const [selectedDateKey, setSelectedDateKey] = useState<DateFilterKey>("today");
   const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null);
   const [editingLeadId, setEditingLeadId] = useState<string | null>(null);
@@ -1343,6 +1345,21 @@ export default function VendasClientPage() {
 
   useEffect(() => {
     const notice = todayAgendaLaunchNotice.notice;
+    const live = loading || notice?.phase === "loading";
+    if (!live) {
+      setVendasVisualCount(0);
+      return undefined;
+    }
+    const target = Math.max(1, filteredLeads.length || board?.summary.total || 12);
+    setVendasVisualCount(1);
+    const timer = window.setInterval(() => {
+      setVendasVisualCount((current) => Math.min(target, current + 1));
+    }, 210);
+    return () => window.clearInterval(timer);
+  }, [board?.summary.total, filteredLeads.length, loading, todayAgendaLaunchNotice.notice]);
+
+  useEffect(() => {
+    const notice = todayAgendaLaunchNotice.notice;
     const totalVisible = filteredLeads.length;
     const archivedCount = board?.summary.closed || 0;
     const metrics = [
@@ -1350,6 +1367,12 @@ export default function VendasClientPage() {
       { label: "Descarte", value: String(archivedCount) },
     ];
     const errorMessage = compactVendasMessage(error);
+    const liveCards = filteredLeads.slice(0, Math.max(1, vendasVisualCount)).slice(-4).map((lead) => ({
+      id: `vendas:${lead.id}`,
+      title: lead.name || "Card em Vendas",
+      meta: [lead.segment, lead.city, lead.statusLabel].filter(Boolean).join(" • ") || "Prospecção",
+      score: lead.timesSeen ? `${lead.timesSeen}x` : undefined,
+    }));
 
     if (errorMessage) {
       dispatchTopbarProgress({
@@ -1386,17 +1409,22 @@ export default function VendasClientPage() {
       title: notice?.phase === "success" ? notice.title : loading ? "Carregando Vendas" : "Sincronizando Vendas",
       status:
         notice?.statusLabel ||
-        (loading ? "Atualizando agenda comercial..." : "Preparando cards para Prospecção..."),
+        (loading ? "Motores lendo banco e preparando a agenda comercial..." : "Filtrando negativos e alimentando Prospecção..."),
       progress: notice?.progress ?? 18,
+      steps: VENDAS_PROGRESS_STEPS,
+      activeStepIndex: loading ? 0 : 3,
+      cardFeed: liveCards,
       metrics,
     });
   }, [
     board?.summary.closed,
     error,
     feedback,
+    filteredLeads,
     filteredLeads.length,
     loading,
     todayAgendaLaunchNotice.notice,
+    vendasVisualCount,
   ]);
 
   useEffect(() => () => clearTopbarProgress("vendas"), []);

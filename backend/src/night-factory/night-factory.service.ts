@@ -366,7 +366,7 @@ export class NightFactoryService {
         state: row.state || null,
         totalLeads: Number(row?._count?._all || 0),
         averageScore: Math.round(Number(row?._avg?.opportunityScore || 0)),
-        recommendedOffer: Number(row?._avg?.opportunityScore || 0) >= 65 ? 'HBX WhatsApp + Bot IA' : 'HBX Vendas',
+        recommendedOffer: Number(row?._avg?.opportunityScore || 0) >= 65 ? 'HBX Full — Bot e IA' : 'HBX List',
       }))
       .sort((left: any, right: any) => right.averageScore - left.averageScore || right.totalLeads - left.totalLeads)
       .slice(0, take);
@@ -715,7 +715,7 @@ export class NightFactoryService {
       level: metadata.opportunityLevel || (safeInteger(row?.opportunityScore) >= 85 ? 'premium' : safeInteger(row?.opportunityScore) >= 65 ? 'bom' : 'medio'),
       reason: row?.opportunityReason || metadata.opportunityReason || 'Oportunidade detectada pela Night Factory.',
       opportunityReason: row?.opportunityReason || metadata.opportunityReason || null,
-      recommendedOffer: metadata.recommendedOffer || 'HBX Vendas + Bot IA',
+      recommendedOffer: metadata.recommendedOffer || 'HBX Full — Bot e IA',
       suggestedApproach: metadata.suggestedApproach || null,
       suggestedWhatsappMessage: metadata.suggestedWhatsappMessage || null,
       suggestedHumanOpening: metadata.suggestedHumanOpening || null,

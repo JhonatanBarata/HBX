@@ -1,6 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { COMMERCIAL_PLAN_KEYS } from '../commercial-plans/commercial-plan-catalog';
+import {
+  COMMERCIAL_ENTITLEMENT_KEYS,
+  COMMERCIAL_PLAN_ENTITLEMENT_KEYS,
+  COMMERCIAL_PLAN_KEYS,
+  getCommercialPlanTitle,
+} from '../commercial-plans/commercial-plan-catalog';
 import { resolveCompanyModuleAccessPolicy } from './module-access-policy';
 
 const future = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
@@ -58,6 +63,18 @@ test('active/PAID releases modules by selected plan', () => {
   assert.equal(melhor.moduleKeys.has('vendas'), true);
   assert.equal(melhor.moduleKeys.has('webscraping'), true);
   assert.equal(melhor.moduleKeys.has('bot_ia'), true);
+});
+
+test('commercial plan catalog keeps new HBX names and premium entitlements', () => {
+  assert.equal(getCommercialPlanTitle(COMMERCIAL_PLAN_KEYS.LITE), 'HBX List');
+  assert.equal(getCommercialPlanTitle(COMMERCIAL_PLAN_KEYS.PADRAO), 'HBX Lead');
+  assert.equal(getCommercialPlanTitle(COMMERCIAL_PLAN_KEYS.MELHOR), 'HBX Full — Bot e IA');
+
+  assert.equal(COMMERCIAL_PLAN_ENTITLEMENT_KEYS[COMMERCIAL_PLAN_KEYS.LITE].includes(COMMERCIAL_ENTITLEMENT_KEYS.NIGHT_FACTORY), false);
+  assert.equal(COMMERCIAL_PLAN_ENTITLEMENT_KEYS[COMMERCIAL_PLAN_KEYS.PADRAO].includes(COMMERCIAL_ENTITLEMENT_KEYS.NIGHT_FACTORY), true);
+  assert.equal(COMMERCIAL_PLAN_ENTITLEMENT_KEYS[COMMERCIAL_PLAN_KEYS.MELHOR].includes(COMMERCIAL_ENTITLEMENT_KEYS.NIGHT_FACTORY), true);
+  assert.equal(COMMERCIAL_PLAN_ENTITLEMENT_KEYS[COMMERCIAL_PLAN_KEYS.PADRAO].includes(COMMERCIAL_ENTITLEMENT_KEYS.BOT_IA), false);
+  assert.equal(COMMERCIAL_PLAN_ENTITLEMENT_KEYS[COMMERCIAL_PLAN_KEYS.MELHOR].includes(COMMERCIAL_ENTITLEMENT_KEYS.BOT_IA), true);
 });
 
 test('MANUAL/premiumAccess releases selected plan or padrao fallback', () => {

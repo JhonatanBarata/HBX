@@ -95,38 +95,38 @@ type TrialFormState = {
 const SIGNUP_PLANS: SignupPlan[] = [
   {
     key: "hbx_lite",
-    name: "HBX Vendas",
-    badge: "Vendas",
+    name: "HBX List",
+    badge: "List",
     monthlyPrice: 49.9,
-    detail: "Para quem quer encontrar novos clientes e organizar a prospecção.",
-    cta: "Escolher HBX Vendas",
+    detail: "Radar Digital com cards elegíveis alimentando Vendas.",
+    cta: "Escolher HBX List",
     available: true,
-    features: ["Radar Digital de empresas", "Leads por cidade e segmento", "CRM de vendas", "Funil comercial", "Histórico de contatos", "Organização de oportunidades"],
+    features: ["Radar Digital + Vendas", "50 cards por pesquisa", "3 pesquisas, total 150 cards", "WhatsApp externo", "Sem Atendimento interno", "Sem Night Factory"],
   },
   {
     key: "hbx_padrao",
-    name: "HBX WhatsApp",
+    name: "HBX Lead",
     badge: "Mais escolhido",
     monthlyPrice: 89.9,
     promoPrice: 0,
     promoLabel: "Após 1º mês 89,90",
-    detail: "Para quem quer prospectar e atender pelo WhatsApp dentro do HBX.",
+    detail: "Radar, Vendas, Atendimento interno e Night Factory.",
     cta: "Começar grátis hoje",
     available: true,
     featured: true,
-    features: ["Tudo do HBX Vendas", "WhatsApp conectado ao sistema", "Conversas centralizadas", "Atendimento pelo painel", "Controle de retornos", "Histórico por cliente"],
+    features: ["Tudo do HBX List", "Atendimento interno", "Prospecção por filtros", "Night Factory liberado", "Controle de retornos", "Sem Bot IA automático completo"],
     note: "1º mês grátis",
     trialCopy: "1º mês grátis",
   },
   {
     key: "hbx_melhor",
-    name: "HBX Bot IA",
+    name: "HBX Full — Bot e IA",
     badge: "Mais completo",
     monthlyPrice: 149.9,
-    detail: "Para quem quer automatizar atendimento, respostas e prospecção com segurança.",
-    cta: "Escolher HBX Bot IA",
+    detail: "Automação completa com Bot IA, Night Factory e prospecção.",
+    cta: "Escolher HBX Full",
     available: true,
-    features: ["Tudo do HBX WhatsApp", "Bot de atendimento", "Bot de prospecção pós-resposta", "Respostas automáticas", "Qualificação de interessados", "Encaminhamento para humano"],
+    features: ["Tudo do HBX Lead", "Bot IA liberado", "Night Factory liberado", "Automação completa", "Qualificação de interessados", "Encaminhamento para humano"],
   },
 ];
 
@@ -143,7 +143,7 @@ function getErrorMessage(data: unknown) {
 }
 
 function planName(planKey?: CommercialPlanKey | null) {
-  return SIGNUP_PLANS.find((plan) => plan.key === planKey)?.name || "HBX WhatsApp";
+  return SIGNUP_PLANS.find((plan) => plan.key === planKey)?.name || "HBX Lead";
 }
 
 function normalizeEmail(value?: string | null) {
@@ -996,7 +996,7 @@ export default function RegisterPage() {
           <section className={styles.trialDialog} role="dialog" aria-modal="true" aria-labelledby="register-trial-title">
             <header className={styles.trialDialogHeader}>
               <div>
-                <span className={styles.eyebrow}>Trial HBX WhatsApp</span>
+                <span className={styles.eyebrow}>Trial HBX Lead</span>
                 <h2 id="register-trial-title">Antes de liberar seus 30 dias</h2>
                 <p>Precisamos confirmar um contato real. O telefone é usado para validar se este trial já foi utilizado.</p>
               </div>
@@ -1055,7 +1055,7 @@ export default function RegisterPage() {
                 onChange={(event) => setTrialForm((current) => ({ ...current, acceptedTerms: event.target.checked }))}
               />
               <span>
-                Aceito iniciar o trial gratuito de 30 dias do HBX WhatsApp, sem cobrança automática agora, e autorizo o uso do CPF, nome completo e telefone informado para contato e validação de elegibilidade do trial.
+                Aceito iniciar o trial gratuito de 30 dias do HBX Lead, sem cobrança automática agora, e autorizo o uso do CPF, nome completo e telefone informado para contato e validação de elegibilidade do trial.
               </span>
             </label>
 

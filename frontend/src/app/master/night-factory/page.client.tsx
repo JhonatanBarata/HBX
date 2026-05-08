@@ -1,11 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import DashboardScaffold from "@/components/DashboardScaffold";
 import { apiFetch } from "@/app/_lib/api";
 import { useRequireAuth } from "@/app/_lib/useRequireAuth";
 import type { CommercialPlansPayload } from "@/lib/commercial-plans";
+import { clearTopbarProgress, dispatchTopbarProgress } from "@/lib/topbar-progress";
 import styles from "./page.module.css";
 
 type StatusPayload = {
@@ -107,6 +108,8 @@ type ReportPayload = {
   recommendedAction: string;
 };
 
+const NIGHT_FACTORY_PROGRESS_STEPS = ["lendo banco", "filtrando negativos", "selecionando melhores cards", "alimentando Vendas/Prospecção"];
+
 function metric(value?: number | null) {
   return Number(value || 0).toLocaleString("pt-BR");
 }
@@ -173,6 +176,16 @@ export default function MasterNightFactoryClientPage() {
   const [opportunities, setOpportunities] = useState<Opportunity[]>([]);
   const [recovery, setRecovery] = useState<RecoveryOpportunity[]>([]);
   const [report, setReport] = useState<ReportPayload | null>(null);
+  const [confettiBurst, setConfettiBurst] = useState(0);
+  const [nightVisualCount, setNightVisualCount] = useState(0);
+  const premiumConfettiShownRef = useRef(false);
+
+  const triggerConfetti = useCallback(() => {
+    if (typeof window === "undefined") return;
+    if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
+    setConfettiBurst(Date.now());
+    window.setTimeout(() => setConfettiBurst(0), 1100);
+  }, []);
 
   const loadDashboard = useCallback(async (options?: { silent?: boolean }) => {
     if (!options?.silent) setLoading(true);
@@ -198,6 +211,13 @@ export default function MasterNightFactoryClientPage() {
       if (!options?.silent) setLoading(false);
     }
   }, []);
+
+  useEffect(() => {
+    const premiumCount = Number(status?.summary.premiumOpportunities || report?.summary.premiumOpportunities || opportunities.length || 0);
+    if (!allowed || loading || premiumCount <= 0 || premiumConfettiShownRef.current) return;
+    premiumConfettiShownRef.current = true;
+    triggerConfetti();
+  }, [allowed, loading, opportunities.length, report?.summary.premiumOpportunities, status?.summary.premiumOpportunities, triggerConfetti]);
 
   useEffect(() => {
     if (hasToken !== true) return;
@@ -254,12 +274,63 @@ export default function MasterNightFactoryClientPage() {
       });
       setFeedback(success);
       await loadDashboard({ silent: true });
+      const premiumCount = Number(status?.summary.premiumOpportunities || report?.summary.premiumOpportunities || opportunities.length || 0);
+      if (path === "run-now" && premiumCount > 0) triggerConfetti();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Falha ao executar ação.");
     } finally {
       setSaving(false);
     }
   }
+
+  useEffect(() => {
+    const live = loading || saving || Boolean(status?.worker.running);
+    if (!live) {
+      setNightVisualCount(0);
+      clearTopbarProgress("night_factory");
+      return undefined;
+    }
+    const target = Math.max(1, opportunities.length || Number(status?.summary.premiumOpportunities || 0) || 12);
+    setNightVisualCount(1);
+    const timer = window.setInterval(() => {
+      setNightVisualCount((current) => Math.min(target, current + 1));
+    }, 190);
+    return () => window.clearInterval(timer);
+  }, [loading, opportunities.length, saving, status?.summary.premiumOpportunities, status?.worker.running]);
+
+  useEffect(() => {
+    const live = loading || saving || Boolean(status?.worker.running);
+    if (!live) return;
+    dispatchTopbarProgress({
+      source: "night_factory",
+      phase: "loading",
+      title: saving ? "Rodando Night Factory" : "Night Factory acordada",
+      status: "A fábrica da madrugada está lendo banco, filtrando negativos e separando oportunidades premium.",
+      progress: saving ? 72 : status?.worker.running ? 58 : 34,
+      steps: NIGHT_FACTORY_PROGRESS_STEPS,
+      activeStepIndex: saving || status?.worker.running ? 2 : 0,
+      cardFeed: opportunities.slice(0, Math.max(1, nightVisualCount)).slice(-4).map((lead) => ({
+        id: `night:${lead.id}`,
+        title: lead.name || "Lead premium",
+        meta: [lead.segment, lead.city].filter(Boolean).join(" • ") || "Oportunidade quente detectada",
+        score: lead.score,
+      })),
+      metrics: [
+        { label: "Premium", value: metric(status?.summary.premiumOpportunities || opportunities.length) },
+        { label: "Recovery", value: metric(status?.summary.recoveryOpportunities) },
+        { label: "Status", value: statusLabel(status?.status) },
+      ],
+    });
+  }, [
+    loading,
+    nightVisualCount,
+    opportunities,
+    saving,
+    status?.status,
+    status?.summary.premiumOpportunities,
+    status?.summary.recoveryOpportunities,
+    status?.worker.running,
+  ]);
 
   if (hasToken === null || checkingAccess) {
     return (
@@ -281,11 +352,14 @@ export default function MasterNightFactoryClientPage() {
     return (
       <DashboardScaffold
         title="HBX Night Factory"
-        description="Disponível para planos HBX WhatsApp e superiores."
-        actions={<Link href="/planos?intent=night_factory" className="btn btn-secondary btn-sm">Ver planos</Link>}
+        description="Disponível para HBX Lead e HBX Full — Bot e IA."
+        actions={<Link href="/planos?intent=night_factory" className="btn btn-secondary btn-sm">Fazer upgrade</Link>}
       >
-        <section className="panel p-4">
-          <p className="text-sm text-muted">Seu plano atual ainda não tem Night Factory liberado.</p>
+        <section className={styles.lockedPanel}>
+          <span>Night Factory bloqueada</span>
+          <h2>A fábrica da madrugada entra no HBX Lead.</h2>
+          <p>O HBX List continua com Radar Digital + Vendas. Para rodar oportunidades premium de madrugada, libere o entitlement Night Factory no HBX Lead ou no HBX Full — Bot e IA.</p>
+          <Link href="/planos?intent=night_factory">Ver upgrade</Link>
         </section>
       </DashboardScaffold>
     );
@@ -306,6 +380,20 @@ export default function MasterNightFactoryClientPage() {
       }
     >
       <section className={styles.shell} data-status={status?.status || "dormindo"}>
+        {confettiBurst ? (
+          <div className={styles.confettiLayer} aria-hidden="true">
+            {Array.from({ length: 26 }, (_, index) => (
+              <span
+                key={`${confettiBurst}:${index}`}
+                style={{
+                  ["--x" as string]: `${8 + ((index * 17) % 86)}vw`,
+                  ["--delay" as string]: `${(index % 7) * 34}ms`,
+                  ["--rot" as string]: `${(index * 37) % 360}deg`,
+                }}
+              />
+            ))}
+          </div>
+        ) : null}
         {error ? <div className={styles.alert} data-tone="error">{error}</div> : null}
         {feedback ? <div className={styles.alert} data-tone="ok">{feedback}</div> : null}
 
@@ -314,6 +402,9 @@ export default function MasterNightFactoryClientPage() {
             <span>Night Factory</span>
             <h2>{status?.copy?.title || "Enquanto você dorme, o HBX caça oportunidades."}</h2>
             <p>{heroCopy}</p>
+            {Number(status?.summary.premiumOpportunities || report?.summary.premiumOpportunities || 0) > 0 ? (
+              <strong className={styles.emotionalLine}>A fábrica da madrugada encontrou leads premium</strong>
+            ) : null}
             <div className={styles.heroButtons}>
               <button type="button" onClick={() => void postAction("run-now", "Night Factory rodada manualmente.")} disabled={saving || status?.worker.running}>
                 Rodar agora
@@ -379,16 +470,19 @@ export default function MasterNightFactoryClientPage() {
             </div>
             <div className={styles.opportunityList}>
               {opportunities.slice(0, 12).map((lead) => (
-                <div key={lead.id} className={styles.opportunityCard}>
+                <div key={lead.id} className={styles.opportunityCard} onClick={triggerConfetti} role="button" tabIndex={0} onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") triggerConfetti();
+                }}>
                   <div>
                     <strong>{lead.name}</strong>
-                    <span>{[lead.city, lead.state, lead.segment].filter(Boolean).join(" • ") || "Sem localização"}</span>
+                    <span>{[lead.city, lead.state].filter(Boolean).join(" / ") || "Sem cidade"} • {lead.segment || "Segmento aberto"}</span>
                   </div>
                   <b>{lead.score}</b>
-                  <p>{lead.reason || "Oportunidade enriquecida pela Night Factory."}</p>
-                  <small>{lead.recommendedOffer || "HBX Vendas + Bot IA"}</small>
+                  <p>{lead.reason || "Oportunidade quente detectada pela Night Factory."}</p>
+                  <small>{lead.recommendedOffer || "Cards fodões prontos para ação"}</small>
+                  <em>Oportunidade quente detectada</em>
                   <div className={styles.rowActions}>
-                    <Link href={radarSearchUrl({ radarLeadId: lead.radarLeadId })}>Abrir no Radar</Link>
+                    <Link href={radarSearchUrl({ radarLeadId: lead.radarLeadId })} onClick={triggerConfetti}>Abrir no Radar</Link>
                     <button type="button" title={lead.miniAudit?.summary || "Mini-auditoria pronta"}>Auditoria</button>
                     <button type="button">Recovery</button>
                   </div>
