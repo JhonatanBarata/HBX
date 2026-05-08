@@ -1,0 +1,24 @@
+import { Controller, Get, Post, Req, UseGuards } from '@nestjs/common';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { NightFactoryService } from './night-factory.service';
+
+@Controller('night-factory')
+@UseGuards(JwtAuthGuard)
+export class NightFactoryPublicController {
+  constructor(private readonly nightFactoryService: NightFactoryService) {}
+
+  @Get('claim-status')
+  getClaimStatus(@Req() req: any) {
+    return this.nightFactoryService.getClaimStatus(req.user);
+  }
+
+  @Post('redeem')
+  redeem(@Req() req: any) {
+    return this.nightFactoryService.redeemReward(req.user);
+  }
+
+  @Get('my-reward')
+  getMyReward(@Req() req: any) {
+    return this.nightFactoryService.getMyReward(req.user);
+  }
+}

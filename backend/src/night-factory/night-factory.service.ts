@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { ConflictException, ForbiddenException, Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   DEFAULT_NIGHT_FACTORY_CONFIG,
@@ -8,6 +8,22 @@ import {
 
 const CONFIG_KEY = 'night_factory';
 const BLOCKED_RADAR_STATUSES = ['complaint', 'denied', 'hidden', 'rejected'];
+const REWARD_MINIMUM_REQUIRED = 5;
+const REWARD_WINDOW_MS = 24 * 60 * 60 * 1000;
+const REWARD_BLOCKED_RADAR_STATUSES = [
+  ...BLOCKED_RADAR_STATUSES,
+  'blocked',
+  'discarded',
+  'negative',
+  'opt_out',
+  'optout',
+  'duplicate_bad',
+  'bad_duplicate',
+  'invalid',
+  'invalid_phone',
+  'no_phone',
+  'no_whatsapp',
+];
 
 function safeInteger(value: unknown, fallback = 0) {
   const parsed = Number(value);
@@ -274,6 +290,194 @@ export class NightFactoryService {
       generatedAt: new Date().toISOString(),
       items: rows.map((row: any) => this.mapLeadOpportunity(row)),
     };
+  }
+
+  async getClaimStatus(user: any) {
+    const scope = this.resolveClaimScope(user);
+    const minimumRequired = REWARD_MINIMUM_REQUIRED;
+    const claimStorageAvailable = await this.prisma.hasTable('NightFactoryRewardClaim').catch(() => false);
+
+    if (!claimStorageAvailable) {
+      return {
+        eligible: false,
+        alreadyClaimed: false,
+        alreadyClaimedInWindow: false,
+        availableCount: 0,
+        minimumRequired,
+        nextAvailableAt: null,
+        secondsUntilNextClaim: 0,
+        nonCumulative: true,
+        rewardSize: REWARD_MINIMUM_REQUIRED,
+        reason: 'storage_unavailable',
+        headline: 'Missão noturna concluída',
+        title: 'Night Factory em preparação',
+        description: 'A recompensa ainda não está disponível.',
+        ctaLabel: 'Ver Night Factory',
+        href: '/night-factory',
+      };
+    }
+
+    const now = new Date();
+    const latestClaim = await this.findLatestRewardClaim(scope.scopeKey);
+    const nextAvailableAt = this.resolveNextAvailableAt(latestClaim);
+    const secondsUntilNextClaim = this.secondsUntil(nextAvailableAt, now);
+    const alreadyClaimedInWindow = Boolean(latestClaim && secondsUntilNextClaim > 0);
+
+    if (alreadyClaimedInWindow) {
+      return {
+        eligible: false,
+        alreadyClaimed: true,
+        alreadyClaimedInWindow: true,
+        availableCount: 0,
+        minimumRequired,
+        nextAvailableAt: nextAvailableAt?.toISOString() || null,
+        secondsUntilNextClaim,
+        nonCumulative: true,
+        rewardSize: REWARD_MINIMUM_REQUIRED,
+        reason: 'cooldown',
+        headline: 'Missão noturna concluída',
+        title: 'Recompensa diária já resgatada',
+        description: 'A recompensa é diária e não acumulativa.',
+        ctaLabel: 'Ver recompensa',
+        href: '/night-factory',
+      };
+    }
+
+    const rows = await this.findClaimableOpportunityRows(user, minimumRequired);
+    const availableCount = rows.length;
+    const hasEnoughLeads = availableCount >= minimumRequired;
+    return {
+      eligible: hasEnoughLeads,
+      alreadyClaimed: false,
+      alreadyClaimedInWindow: false,
+      availableCount,
+      minimumRequired,
+      nextAvailableAt: nextAvailableAt?.toISOString() || null,
+      secondsUntilNextClaim: 0,
+      nonCumulative: true,
+      rewardSize: REWARD_MINIMUM_REQUIRED,
+      reason: hasEnoughLeads ? null : 'insufficient_leads',
+      headline: 'Missão noturna concluída',
+      title: 'Você tem 5 leads premium',
+      description: 'A Night Factory separou sua recompensa diária.',
+      ctaLabel: 'Resgatar recompensa',
+      href: '/night-factory',
+    };
+  }
+
+  async getMyReward(user: any) {
+    const scope = this.resolveClaimScope(user);
+    const claim = await this.findLatestRewardClaim(scope.scopeKey);
+    const nextAvailableAt = this.resolveNextAvailableAt(claim);
+    const secondsUntilNextClaim = this.secondsUntil(nextAvailableAt);
+    const alreadyClaimedInWindow = Boolean(claim && secondsUntilNextClaim > 0);
+    if (!claim) {
+      return {
+        ok: false,
+        alreadyClaimed: false,
+        alreadyClaimedInWindow: false,
+        claimedAt: null,
+        nextAvailableAt: null,
+        secondsUntilNextClaim: 0,
+        nonCumulative: true,
+        rewardSize: REWARD_MINIMUM_REQUIRED,
+        items: [],
+      };
+    }
+
+    return {
+      ok: true,
+      alreadyClaimed: alreadyClaimedInWindow,
+      alreadyClaimedInWindow,
+      claimedAt: claim.claimedAt ? new Date(claim.claimedAt).toISOString() : null,
+      nextAvailableAt: nextAvailableAt?.toISOString() || null,
+      secondsUntilNextClaim,
+      nonCumulative: true,
+      rewardSize: REWARD_MINIMUM_REQUIRED,
+      items: await this.hydrateRewardItemsFromClaim(claim),
+    };
+  }
+
+  async redeemReward(user: any) {
+    const scope = this.resolveClaimScope(user);
+    if (!(await this.prisma.hasTable('NightFactoryRewardClaim').catch(() => false))) {
+      throw new ConflictException('A recompensa da Night Factory ainda não está disponível.');
+    }
+
+    try {
+      return await (this.prisma as any).$transaction(async (tx: any) => {
+        await this.acquireRewardScopeLock(tx, scope.scopeKey);
+        const latestClaim = await this.findLatestRewardClaim(scope.scopeKey, tx);
+        const nextAvailableAt = this.resolveNextAvailableAt(latestClaim);
+        const secondsUntilNextClaim = this.secondsUntil(nextAvailableAt);
+        if (latestClaim && secondsUntilNextClaim > 0) {
+          throw new ConflictException({
+            ok: false,
+            code: 'NIGHT_FACTORY_COOLDOWN',
+            message: 'A recompensa diária da Night Factory ainda está em cooldown.',
+            reason: 'cooldown',
+            nextAvailableAt: nextAvailableAt?.toISOString() || null,
+            secondsUntilNextClaim,
+            nonCumulative: true,
+            rewardSize: REWARD_MINIMUM_REQUIRED,
+          });
+        }
+
+        const rows = await this.findClaimableOpportunityRows(user, REWARD_MINIMUM_REQUIRED, undefined, tx);
+        if (rows.length < REWARD_MINIMUM_REQUIRED) {
+          throw new ConflictException({
+            ok: false,
+            code: 'NIGHT_FACTORY_INSUFFICIENT_LEADS',
+            message: 'A Night Factory ainda está preparando seus leads.',
+            reason: 'insufficient_leads',
+            availableCount: rows.length,
+            minimumRequired: REWARD_MINIMUM_REQUIRED,
+          });
+        }
+
+        const now = new Date();
+        const nextClaimAt = new Date(now.getTime() + REWARD_WINDOW_MS);
+        const leadIds = rows.slice(0, REWARD_MINIMUM_REQUIRED).map((row: any) => String(row.id));
+        const claim = await tx.nightFactoryRewardClaim.create({
+          data: {
+            scopeKey: scope.scopeKey,
+            userId: scope.userId,
+            companyId: scope.companyId,
+            leadIdsJson: JSON.stringify(leadIds),
+            claimedAt: now,
+            nextAvailableAt: nextClaimAt,
+            windowKey: `${scope.scopeKey}:${now.toISOString()}`,
+            metadataJson: JSON.stringify({
+              source: 'night_factory_reward',
+              minimumRequired: REWARD_MINIMUM_REQUIRED,
+              nonCumulative: true,
+              noWhatsappAutoSend: true,
+            }),
+          },
+        });
+
+        this.logger.log(`[night-factory-reward] redeemed scope=${scope.scopeKey} leads=${leadIds.length}`);
+        return {
+          ok: true,
+          alreadyClaimed: false,
+          alreadyClaimedInWindow: true,
+          claimedAt: claim.claimedAt ? new Date(claim.claimedAt).toISOString() : now.toISOString(),
+          nextAvailableAt: nextClaimAt.toISOString(),
+          secondsUntilNextClaim: Math.ceil(REWARD_WINDOW_MS / 1000),
+          nonCumulative: true,
+          rewardSize: REWARD_MINIMUM_REQUIRED,
+          items: rows.slice(0, REWARD_MINIMUM_REQUIRED).map((row: any) => this.mapRewardItem(row)),
+        };
+      });
+    } catch (error: any) {
+      if (error instanceof ConflictException) throw error;
+      throw error;
+    }
+  }
+
+  async getClaimableOpportunitiesForUser(user: any, take = REWARD_MINIMUM_REQUIRED) {
+    const rows = await this.findClaimableOpportunityRows(user, take);
+    return rows.map((row: any) => this.mapRewardItem(row));
   }
 
   async getDailyReport() {
@@ -730,6 +934,156 @@ export class NightFactoryService {
         label: 'Enviar para Vendas',
         href: `/vendas?radarLeadId=${encodeURIComponent(String(row?.id || ''))}`,
       },
+    };
+  }
+
+  private resolveClaimScope(user: any) {
+    const companyId = safeInteger(
+      user?.masterContext?.active ? user?.masterContext?.companyId : user?.companyId ?? user?.company?.id,
+      0,
+    ) || null;
+    const userId = safeInteger(user?.id, 0) || null;
+
+    if (companyId) {
+      return { scopeKey: `company:${companyId}`, companyId, userId };
+    }
+    if (userId) {
+      return { scopeKey: `user:${userId}`, companyId: null, userId };
+    }
+    throw new ForbiddenException('Usuário autenticado não identificado.');
+  }
+
+  private async findLatestRewardClaim(scopeKey: string, tx?: any) {
+    const client = tx || (this.prisma as any);
+    if (!(await this.prisma.hasTable('NightFactoryRewardClaim').catch(() => false))) return null;
+    return client.nightFactoryRewardClaim.findFirst({
+      where: { scopeKey },
+      orderBy: [{ claimedAt: 'desc' }, { createdAt: 'desc' }],
+    }).catch(() => null);
+  }
+
+  private async getClaimedRewardLeadIds(exceptScopeKey?: string, tx?: any) {
+    const client = tx || (this.prisma as any);
+    if (!(await this.prisma.hasTable('NightFactoryRewardClaim').catch(() => false))) return new Set<string>();
+    const rows = await client.nightFactoryRewardClaim.findMany({
+      where: {
+        ...(exceptScopeKey ? { NOT: { scopeKey: exceptScopeKey } } : {}),
+      },
+      select: { leadIdsJson: true },
+      take: 1000,
+    }).catch(() => []);
+
+    const ids = new Set<string>();
+    for (const row of rows) {
+      try {
+        const parsed = JSON.parse(String(row?.leadIdsJson || '[]'));
+        if (Array.isArray(parsed)) {
+          parsed.forEach((id) => {
+            const normalized = String(id || '').trim();
+            if (normalized) ids.add(normalized);
+          });
+        }
+      } catch {
+        // ignore malformed historical rows
+      }
+    }
+    return ids;
+  }
+
+  private buildRewardLeadWhere(user: any, excludedIds: string[]) {
+    const scope = this.resolveClaimScope(user);
+    const where: any = {
+      status: { notIn: REWARD_BLOCKED_RADAR_STATUSES },
+      opportunityScore: { gte: 70 },
+      OR: [{ phoneDigits: { not: null } }, { phone: { not: null } }],
+      ...(excludedIds.length ? { id: { notIn: excludedIds } } : {}),
+    };
+
+    if (scope.companyId) {
+      where.AND = [
+        {
+          OR: [{ companyId: null }, { companyId: { not: scope.companyId } }],
+        },
+      ];
+    }
+    return where;
+  }
+
+  private resolveNextAvailableAt(claim: any) {
+    if (!claim) return null;
+    if (claim.nextAvailableAt) return new Date(claim.nextAvailableAt);
+    if (claim.claimedAt) return new Date(new Date(claim.claimedAt).getTime() + REWARD_WINDOW_MS);
+    return null;
+  }
+
+  private secondsUntil(date: Date | null, now = new Date()) {
+    if (!date) return 0;
+    const delta = date.getTime() - now.getTime();
+    return delta > 0 ? Math.ceil(delta / 1000) : 0;
+  }
+
+  private async acquireRewardScopeLock(tx: any, scopeKey: string) {
+    if (!tx?.$executeRawUnsafe) return;
+    const escaped = String(scopeKey || '').replace(/'/g, "''");
+    await tx.$executeRawUnsafe(`SELECT pg_advisory_xact_lock(hashtext('night_factory_reward:${escaped}'))`).catch(() => null);
+  }
+
+  private async findClaimableOpportunityRows(user: any, take = REWARD_MINIMUM_REQUIRED, scopeKey?: string, tx?: any) {
+    if (!(await this.prisma.hasTable('RadarLeadPool').catch(() => false))) return [];
+    const client = tx || (this.prisma as any);
+    const claimedIds = await this.getClaimedRewardLeadIds(scopeKey, tx);
+    const rows = await client.radarLeadPool.findMany({
+      where: this.buildRewardLeadWhere(user, Array.from(claimedIds)),
+      orderBy: [{ opportunityScore: 'desc' }, { updatedAt: 'desc' }],
+      take: Math.max(take * 3, take),
+    }).catch(() => []);
+
+    return rows.filter((row: any) => this.isRewardLeadUsable(row)).slice(0, take);
+  }
+
+  private isRewardLeadUsable(row: any) {
+    const phone = String(row?.phoneDigits || row?.phone || '').replace(/\D/g, '');
+    if (phone.length < 10) return false;
+    const status = String(row?.status || '').trim().toLowerCase();
+    if (REWARD_BLOCKED_RADAR_STATUSES.includes(status)) return false;
+    return safeInteger(row?.opportunityScore) >= 70;
+  }
+
+  private async hydrateRewardItemsFromClaim(claim: any, tx?: any) {
+    const client = tx || (this.prisma as any);
+    const leadIds = this.parseClaimLeadIds(claim);
+    if (!leadIds.length || !(await this.prisma.hasTable('RadarLeadPool').catch(() => false))) return [];
+    const rows = await client.radarLeadPool.findMany({
+      where: { id: { in: leadIds } },
+      take: leadIds.length,
+    }).catch(() => []);
+    const byId = new Map(rows.map((row: any) => [String(row.id), row]));
+    return leadIds.map((id) => byId.get(id)).filter(Boolean).map((row: any) => this.mapRewardItem(row));
+  }
+
+  private parseClaimLeadIds(claim: any) {
+    try {
+      const parsed = JSON.parse(String(claim?.leadIdsJson || '[]'));
+      if (!Array.isArray(parsed)) return [];
+      return parsed.map((id) => String(id || '').trim()).filter(Boolean);
+    } catch {
+      return [];
+    }
+  }
+
+  private mapRewardItem(row: any) {
+    const item = this.mapLeadOpportunity(row);
+    return {
+      id: item.id,
+      name: item.name,
+      phone: item.phone,
+      city: item.city,
+      state: item.state,
+      segment: item.segment,
+      score: item.score,
+      opportunityReason: item.opportunityReason || item.reason,
+      recommendedOffer: item.recommendedOffer,
+      action: item.action,
     };
   }
 

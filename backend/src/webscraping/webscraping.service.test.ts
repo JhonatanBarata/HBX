@@ -484,6 +484,122 @@ test('busca valida retorna contatos e persiste historico nativo', async () => {
   }
 });
 
+test('Google e bloqueado para finalidade automatica e cai para HBX', async () => {
+  const previousGoogleKey = process.env.GOOGLE_PLACES_API_KEY;
+  const previousEngineUrl = process.env.HBX_SCRAPING_ENGINE_URL;
+  delete process.env.GOOGLE_PLACES_API_KEY;
+  process.env.HBX_SCRAPING_ENGINE_URL = 'http://localhost:8001';
+
+  const fetchCalls: string[] = [];
+  const previousFetch = global.fetch;
+  global.fetch = (async (input: any) => {
+    fetchCalls.push(String(input));
+    return createResponse(200, {
+      results: [
+        {
+          name: 'Loja Autonoma',
+          phone: '(19) 99999-3333',
+          phoneDigits: '19999993333',
+          source: 'hbx_scraping:web',
+        },
+      ],
+    }) as any;
+  }) as any;
+
+  const service = new WebscrapingService(createPrisma());
+
+  try {
+    const response = await service.searchContactsForUser(
+      createUser(),
+      {
+        city: 'Campinas - SP',
+        segment: 'Lojas',
+        engine: 'google',
+        targetType: 'pj',
+        quantity: 10,
+      },
+      {
+        purpose: 'mass_data',
+        skipRadarLookup: true,
+        skipRadarPersist: true,
+        skipPrivateHistory: true,
+        skipTechnicalCache: true,
+        recordUsage: false,
+      },
+    );
+
+    assert.equal(response.query.engine, 'hbx');
+    assert.equal(response.results[0].name, 'Loja Autonoma');
+    assert.equal(fetchCalls.some((url) => url.includes('googleapis.com')), false);
+    assert.equal(fetchCalls.some((url) => url.includes('/search')), true);
+  } finally {
+    global.fetch = previousFetch;
+    if (previousGoogleKey === undefined) delete process.env.GOOGLE_PLACES_API_KEY;
+    else process.env.GOOGLE_PLACES_API_KEY = previousGoogleKey;
+    if (previousEngineUrl === undefined) delete process.env.HBX_SCRAPING_ENGINE_URL;
+    else process.env.HBX_SCRAPING_ENGINE_URL = previousEngineUrl;
+  }
+});
+
+test('Google e permitido quando radar pull manual pede engine google', async () => {
+  const previousGoogleKey = process.env.GOOGLE_PLACES_API_KEY;
+  process.env.GOOGLE_PLACES_API_KEY = 'test-key';
+
+  const fetchCalls: string[] = [];
+  const previousFetch = global.fetch;
+  global.fetch = (async (input: any) => {
+    const url = String(input);
+    fetchCalls.push(url);
+    if (url.includes('places:searchText')) {
+      return createResponse(200, {
+        places: [{ id: 'place-google-1', displayName: { text: 'Clinica Manual' } }],
+      }) as any;
+    }
+    return createResponse(200, {
+      displayName: { text: 'Clinica Manual' },
+      internationalPhoneNumber: '+55 11 97777-1111',
+      nationalPhoneNumber: '(11) 97777-1111',
+      websiteUri: 'https://manual.example.com',
+      formattedAddress: 'Rua Manual, 10',
+      rating: 4.5,
+      userRatingCount: 22,
+    }) as any;
+  }) as any;
+
+  const service = new WebscrapingService(createPrisma());
+
+  try {
+    const response = await service.searchContactsForUser(
+      createUser(),
+      {
+        city: 'Sao Paulo',
+        state: 'SP',
+        segment: 'Clinicas',
+        engine: 'google',
+        targetType: 'pj',
+        quantity: 5,
+      },
+      {
+        purpose: 'radar_pull',
+        skipRadarLookup: true,
+        skipRadarPersist: true,
+        skipPrivateHistory: true,
+        skipTechnicalCache: true,
+        recordUsage: false,
+      },
+    );
+
+    assert.equal(response.query.engine, 'google');
+    assert.equal(response.meta.source, 'google');
+    assert.equal(response.results[0].name, 'Clinica Manual');
+    assert.equal(fetchCalls.some((url) => url.includes('googleapis.com')), true);
+  } finally {
+    global.fetch = previousFetch;
+    if (previousGoogleKey === undefined) delete process.env.GOOGLE_PLACES_API_KEY;
+    else process.env.GOOGLE_PLACES_API_KEY = previousGoogleKey;
+  }
+});
+
 test('busca segue funcionando com schema legado sem colunas opcionais do historico', async () => {
   const previousEngineUrl = process.env.HBX_SCRAPING_ENGINE_URL;
   process.env.HBX_SCRAPING_ENGINE_URL = 'http://localhost:8001';
@@ -1716,6 +1832,36 @@ test('campanha massa de dados reabastece fila autonoma quando a fila manual term
     task.city === 'Campinas' &&
     task.state === 'SP' &&
     task.segment === 'serviços'), false);
+});
+
+test('listagem radar tolera engine=hbx sem quebrar', async () => {
+  const { prisma, leads } = createCampaignPrisma();
+  leads.push({
+    id: 'lead-engine-hbx',
+    name: 'Loja Radar',
+    phone: '(19) 99999-4444',
+    phoneDigits: '19999994444',
+    city: 'Campinas',
+    state: 'SP',
+    segment: 'Lojas',
+    normalizedCity: 'campinas',
+    normalizedSegment: 'lojas',
+    status: 'clean',
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  });
+  const service = new WebscrapingService(prisma);
+
+  const response = await service.listRadarLeadsForUser(createUser(), {
+    city: 'Campinas',
+    state: 'SP',
+    segment: 'Lojas',
+    engine: 'hbx',
+    limit: 20,
+  });
+
+  assert.equal(response.total, 1);
+  assert.equal(response.items[0].name, 'Loja Radar');
 });
 
 test('campanha radar trata 502 como retryable e salva 2 contatos no segundo lote', async () => {

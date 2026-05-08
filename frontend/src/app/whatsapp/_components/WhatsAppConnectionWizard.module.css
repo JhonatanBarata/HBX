@@ -173,6 +173,33 @@
   animation: premiumReveal 420ms ease both;
 }
 
+.linkTabs {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: .5rem;
+}
+
+.linkTabs button {
+  min-height: 38px;
+  border: 1px solid color-mix(in srgb, var(--line) 76%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--surface-raised) 82%, transparent);
+  color: var(--foreground-soft);
+  padding: 0 .95rem;
+  font-weight: 900;
+  cursor: pointer;
+  transition: transform 220ms ease, border-color 220ms ease, background 220ms ease, color 220ms ease;
+}
+
+.linkTabs button:hover,
+.linkTabs button[data-active="true"] {
+  transform: translateY(-2px);
+  border-color: color-mix(in srgb, var(--selection-accent) 42%, var(--line));
+  background: color-mix(in srgb, var(--selection-accent-soft) 72%, var(--surface-raised));
+  color: var(--foreground);
+}
+
 .qrShell {
   min-height: clamp(340px, 48vw, 460px);
   display: grid;
@@ -183,6 +210,134 @@
     radial-gradient(circle at 50% 45%, var(--selection-accent-soft), transparent 42%),
     color-mix(in srgb, var(--surface-raised) 90%, var(--background));
   overflow: hidden;
+}
+
+.phoneShell {
+  min-height: clamp(340px, 48vw, 460px);
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  gap: 1rem;
+  padding: clamp(1rem, 2.4vw, 1.5rem);
+  border-radius: var(--radius-xl);
+  border: 1px solid color-mix(in srgb, var(--selection-accent) 22%, var(--line));
+  background:
+    radial-gradient(circle at 50% 20%, var(--selection-accent-soft), transparent 40%),
+    color-mix(in srgb, var(--surface-raised) 90%, var(--background));
+  overflow: hidden;
+}
+
+.phoneCopy {
+  display: grid;
+  gap: .35rem;
+  text-align: center;
+  max-width: 640px;
+}
+
+.phoneCopy strong {
+  color: var(--foreground);
+  font-size: 2rem;
+  font-weight: 1000;
+  letter-spacing: 0;
+}
+
+.phoneCopy p {
+  margin: 0;
+  color: var(--foreground-soft);
+  line-height: 1.5;
+}
+
+.phoneField {
+  width: min(100%, 520px);
+  display: grid;
+  gap: .4rem;
+  color: var(--foreground);
+  font-weight: 900;
+}
+
+.phoneField span {
+  font-size: .72rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: .08em;
+}
+
+.phoneField input {
+  min-height: 54px;
+  border-radius: var(--radius-xl);
+  border: 1px solid color-mix(in srgb, var(--line) 76%, transparent);
+  background: color-mix(in srgb, var(--surface) 86%, transparent);
+  color: var(--foreground);
+  padding: 0 1rem;
+  font-size: 1.05rem;
+  font-weight: 900;
+  outline: none;
+}
+
+.phoneField input:focus {
+  border-color: color-mix(in srgb, var(--selection-accent) 52%, var(--line));
+  box-shadow: 0 0 0 4px var(--selection-accent-soft);
+}
+
+.pairingCodeBox {
+  display: grid;
+  justify-items: center;
+  gap: .45rem;
+}
+
+.pairingCodeBox span {
+  color: var(--foreground-soft);
+  font-size: .82rem;
+  font-weight: 900;
+}
+
+.pairingCodeBox button {
+  border: 1px solid color-mix(in srgb, var(--button-success) 42%, var(--line));
+  border-radius: var(--radius-xl);
+  background: color-mix(in srgb, var(--button-success) 12%, var(--surface-raised));
+  color: var(--foreground);
+  padding: .8rem 1.25rem;
+  font-size: 3.5rem;
+  font-weight: 1000;
+  letter-spacing: .08em;
+  cursor: copy;
+  box-shadow: var(--shadow-md), 0 0 54px color-mix(in srgb, var(--button-success) 18%, transparent);
+}
+
+.pairingCodeBox[data-expired="true"] button {
+  opacity: .52;
+  filter: saturate(.45);
+}
+
+.instructions {
+  width: min(100%, 720px);
+  display: grid;
+  gap: .45rem;
+  padding: .8rem .95rem;
+  border-radius: var(--radius-xl);
+  border: 1px solid color-mix(in srgb, var(--line) 74%, transparent);
+  background: color-mix(in srgb, var(--surface) 78%, transparent);
+}
+
+.instructions p {
+  margin: 0;
+  color: var(--foreground-soft);
+  font-size: .84rem;
+  line-height: 1.45;
+}
+
+.instructions strong {
+  color: var(--foreground);
+}
+
+@media (max-width: 520px) {
+  .phoneCopy strong {
+    font-size: 1.55rem;
+  }
+
+  .pairingCodeBox button {
+    font-size: 2.25rem;
+  }
 }
 
 .bigAction {

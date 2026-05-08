@@ -151,6 +151,29 @@ model Company {
   commercialEntitlements CompanyCommercialEntitlement[]
   commercialUsageLogs CompanyCommercialUsageLog[]
   trialPhoneUsages    TrialPhoneUsage[]
+  nightFactoryRewardClaims NightFactoryRewardClaim[]
+}
+
+model NightFactoryRewardClaim {
+  id              String   @id @default(cuid())
+  user            User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  userId          Int?
+  company         Company? @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  companyId       Int?
+  scopeKey        String
+  leadIdsJson     String
+  claimedAt       DateTime @default(now())
+  nextAvailableAt DateTime
+  windowKey       String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  metadataJson    String?
+
+  @@index([userId])
+  @@index([companyId])
+  @@index([scopeKey, claimedAt])
+  @@index([scopeKey, nextAvailableAt])
+  @@index([windowKey])
 }
 
 model CompanyCommercialEntitlement {
@@ -777,6 +800,7 @@ model User {
   webscrapingCampaigns WebscrapingCampaign[]
   webscrapingUsageLogs WebscrapingUsageLog[]
   radarLeadEventsCreated RadarLeadEvent[] @relation("RadarLeadEventCreatedBy")
+  nightFactoryRewardClaims NightFactoryRewardClaim[]
 }
 
 model AuthSession {

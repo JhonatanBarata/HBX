@@ -157,6 +157,10 @@ class RadarDatabaseQueryDto {
   opportunityLevel?: string;
 
   @IsOptional()
+  @IsIn(['google', 'hbx'])
+  engine?: 'google' | 'hbx';
+
+  @IsOptional()
   includeHidden?: boolean | string;
 }
 
@@ -384,9 +388,6 @@ class RadarPullDto extends RadarDatabaseQueryDto {
   @Max(500)
   minimumStock?: number;
 
-  @IsOptional()
-  @IsIn(['google', 'hbx'])
-  engine?: 'google' | 'hbx';
 }
 
 class RadarNegativeDto {

@@ -264,7 +264,7 @@ export default function WhatsAppOperationalDialog({
                   <section className={styles.section} data-active={focus === "qr"}>
                     <div className={styles.sectionHeader}>
                       <strong>Conexao rapida por QR</strong>
-                      <p>Use Conectar para gerar o QR e Desconectar para encerrar a sessão.</p>
+                      <p>Use Conectar para gerar o QR e Desconectar para encerrar a sessão. Sem câmera, use a opção Vincular por telefone.</p>
                     </div>
 
                     {modalLoading && !modalPayload ? (
@@ -364,6 +364,9 @@ export default function WhatsAppOperationalDialog({
                       >
                         {busyAction === "qr-disconnect" ? "Desconectando..." : "Desconectar"}
                       </button>
+                      <Link href="/whatsapp?focus=phone" className="btn btn-secondary">
+                        Vincular por telefone
+                      </Link>
                     </div>
                   </section>
                 </div>
