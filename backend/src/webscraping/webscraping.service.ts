@@ -89,6 +89,30 @@ const ACRE_CITIES_FALLBACK = [
   'Tarauacá',
   'Xapuri',
 ];
+const AUTONOMOUS_MASS_DATA_LOCATION_FALLBACK = [
+  { city: 'São Paulo', state: 'SP' },
+  { city: 'Rio de Janeiro', state: 'RJ' },
+  { city: 'Belo Horizonte', state: 'MG' },
+  { city: 'Curitiba', state: 'PR' },
+  { city: 'Porto Alegre', state: 'RS' },
+  { city: 'Florianópolis', state: 'SC' },
+  { city: 'Salvador', state: 'BA' },
+  { city: 'Recife', state: 'PE' },
+  { city: 'Fortaleza', state: 'CE' },
+  { city: 'Goiânia', state: 'GO' },
+  { city: 'Brasília', state: 'DF' },
+  { city: 'Vitória', state: 'ES' },
+  { city: 'Cuiabá', state: 'MT' },
+  { city: 'Campo Grande', state: 'MS' },
+  { city: 'Manaus', state: 'AM' },
+  { city: 'Belém', state: 'PA' },
+  { city: 'São Luís', state: 'MA' },
+  { city: 'João Pessoa', state: 'PB' },
+  { city: 'Maceió', state: 'AL' },
+  { city: 'Natal', state: 'RN' },
+];
+const AUTONOMOUS_MASS_DATA_DEFAULT_TASKS = 60;
+const AUTONOMOUS_MASS_DATA_MAX_TASKS = 300;
 const DEFAULT_MASS_DATA_ENGINE_URLS = buildLocalHbxEngineUrls();
 const TURBO_OPERATIONAL_CONFIG_KEY = 'turbo_noturno';
 const RADAR_PROTECTED_STATUSES = [
@@ -472,6 +496,8 @@ type WebscrapingOperationalConfigInput = {
   memoryTargetGb?: number | null;
   batchSize?: number | null;
   maxAttemptsPerTask?: number | null;
+  autonomousFillEnabled?: boolean | string | null;
+  autonomousFillBatchSize?: number | null;
   forceNow?: boolean | string | null;
   forcedUntil?: string | null;
 };
@@ -5042,7 +5068,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       for (const taskSegment of segments) {
         for (const taskTargetType of targetTypes) {
           const query = this.buildMassDataTaskQuery(taskCity, state, taskSegment, 1);
-          await (this.prisma as any).webscrapingCampaignTask.upsert({
+          const inserted = await (this.prisma as any).webscrapingCampaignTask.upsert({
             where: {
               campaignId_state_city_segment_targetType: {
                 campaignId,
@@ -5070,6 +5096,118 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     return { cityCount: cities.length, taskCount: created, segmentCount: segments.length, targetTypeCount: targetTypes.length };
   }
 
+  private shuffleMassDataPool<T>(items: T[]) {
+    const shuffled = [...items];
+    for (let index = shuffled.length - 1; index > 0; index -= 1) {
+      const swapIndex = Math.floor(Math.random() * (index + 1));
+      [shuffled[index], shuffled[swapIndex]] = [shuffled[swapIndex], shuffled[index]];
+    }
+    return shuffled;
+  }
+
+  private async listAutonomousMassDataLocations() {
+    try {
+      const rows = await this.loadBrazilianCities();
+      const parsed = rows
+        .map((item) => {
+          const match = String(item || '').trim().match(/^(.*?)\s-\s([A-Za-z]{2})$/);
+          return match ? { city: match[1].trim(), state: match[2].trim().toUpperCase() } : null;
+        })
+        .filter((item): item is { city: string; state: string } => Boolean(item?.city && item?.state));
+      if (parsed.length) return parsed;
+    } catch {
+      // Fallback keeps the autonomous queue alive if IBGE is temporarily unavailable.
+    }
+    return AUTONOMOUS_MASS_DATA_LOCATION_FALLBACK;
+  }
+
+  private async hasMassDataCombinationAlreadyCovered(input: {
+    city: string;
+    state: string;
+    segment: string;
+    targetType: HbxTargetType;
+  }) {
+    const normalizedCity = normalizeLookupValue(input.city);
+    const normalizedSegment = normalizeLookupValue(input.segment);
+    const state = String(input.state || '').trim().toUpperCase();
+    const existingLead = await (this.prisma as any).radarLeadPool.findFirst({
+      where: {
+        normalizedCity,
+        state,
+        normalizedSegment,
+      },
+      select: { id: true },
+    }).catch(() => null);
+    if (existingLead) return true;
+    const existingTask = await (this.prisma as any).webscrapingCampaignTask.findFirst({
+      where: {
+        state,
+        city: input.city,
+        segment: input.segment,
+        targetType: input.targetType,
+      },
+      select: { id: true },
+    }).catch(() => null);
+    return Boolean(existingTask);
+  }
+
+  private async createAutonomousMassDataTasks(campaign: any, desiredCount: number) {
+    const campaignId = String(campaign?.id || '').trim();
+    if (!campaignId) return { created: 0, checked: 0 };
+    const maxAttempts = Math.max(1, safeInteger(campaign?.maxAttempts, 3));
+    const locations = this.shuffleMassDataPool(await this.listAutonomousMassDataLocations());
+    const explicitSegment = String(campaign?.segment || '').trim();
+    const segments = this.shuffleMassDataPool([
+      ...(explicitSegment && !['segmentos internos', 'aberto', 'todos', 'todas'].includes(normalizeLookupValue(explicitSegment)) ? [explicitSegment] : []),
+      ...MASS_DATA_INTERNAL_SEGMENTS.filter((segment) => normalizeLookupValue(segment) !== normalizeLookupValue(explicitSegment)),
+    ]);
+    const targetTypes = this.shuffleMassDataPool(this.getMassDataTargetTypes(campaign?.targetType || 'pj'));
+    const limit = Math.min(Math.max(safeInteger(desiredCount, AUTONOMOUS_MASS_DATA_DEFAULT_TASKS), 1), AUTONOMOUS_MASS_DATA_MAX_TASKS);
+    let created = 0;
+    let checked = 0;
+
+    for (const location of locations) {
+      for (const segment of segments) {
+        for (const targetType of targetTypes) {
+          if (created >= limit) return { created, checked };
+          checked += 1;
+          const covered = await this.hasMassDataCombinationAlreadyCovered({
+            city: location.city,
+            state: location.state,
+            segment,
+            targetType,
+          });
+          if (covered) continue;
+          const query = this.buildMassDataTaskQuery(location.city, location.state, segment, 1);
+          const inserted = await (this.prisma as any).webscrapingCampaignTask.upsert({
+            where: {
+              campaignId_state_city_segment_targetType: {
+                campaignId,
+                state: location.state,
+                city: location.city,
+                segment,
+                targetType,
+              },
+            },
+            create: {
+              campaignId,
+              state: location.state,
+              city: location.city,
+              segment,
+              targetType,
+              query,
+              maxAttempts,
+            },
+            update: {},
+          }).catch(() => null);
+          if (inserted) created += 1;
+        }
+      }
+    }
+
+    return { created, checked };
+  }
+
   private async recoverRadarCampaignWork() {
     if (!(await this.supportsMassDataCampaignPersistence())) return;
     const now = new Date();
@@ -5090,9 +5228,21 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       return {
         forcedUntil: typeof parsed?.forcedUntil === 'string' ? parsed.forcedUntil : null,
         forcedAt: typeof parsed?.forcedAt === 'string' ? parsed.forcedAt : null,
+        autonomousFillEnabled: parsed?.autonomousFillEnabled == null ? true : coerceBoolean(parsed.autonomousFillEnabled),
+        autonomousFillBatchSize: clampInteger(
+          parsed?.autonomousFillBatchSize,
+          AUTONOMOUS_MASS_DATA_DEFAULT_TASKS,
+          1,
+          AUTONOMOUS_MASS_DATA_MAX_TASKS,
+        ),
       };
     } catch {
-      return { forcedUntil: null, forcedAt: null };
+      return {
+        forcedUntil: null,
+        forcedAt: null,
+        autonomousFillEnabled: true,
+        autonomousFillBatchSize: AUTONOMOUS_MASS_DATA_DEFAULT_TASKS,
+      };
     }
   }
 
@@ -5164,6 +5314,15 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       engineUrlsJson: JSON.stringify(DEFAULT_MASS_DATA_ENGINE_URLS),
     };
     const existingMetadata = this.parseOperationalMetadata(existingMetadataJson);
+    const autonomousFillEnabled = input.autonomousFillEnabled == null
+      ? existingMetadata.autonomousFillEnabled
+      : coerceBoolean(input.autonomousFillEnabled);
+    const autonomousFillBatchSize = clampInteger(
+      input.autonomousFillBatchSize,
+      existingMetadata.autonomousFillBatchSize,
+      1,
+      AUTONOMOUS_MASS_DATA_MAX_TASKS,
+    );
     const explicitForcedUntil = String(input.forcedUntil || '').trim();
     const now = new Date();
     const forcedUntil = coerceBoolean(input.forceNow)
@@ -5178,8 +5337,12 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       metadataJson: JSON.stringify({
         forcedUntil,
         forcedAt: coerceBoolean(input.forceNow) ? now.toISOString() : existingMetadata.forcedAt,
+        autonomousFillEnabled,
+        autonomousFillBatchSize,
       }),
       forcedUntil,
+      autonomousFillEnabled,
+      autonomousFillBatchSize,
     };
   }
 
@@ -5210,6 +5373,8 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       metadataJson: row.metadataJson || null,
       forcedUntil: metadata.forcedUntil,
       forcedAt: metadata.forcedAt,
+      autonomousFillEnabled: metadata.autonomousFillEnabled,
+      autonomousFillBatchSize: metadata.autonomousFillBatchSize,
       isTurboForcedNow: Boolean(metadata.forcedUntil && new Date(metadata.forcedUntil).getTime() > Date.now()),
       createdAt: row.createdAt instanceof Date ? row.createdAt.toISOString() : null,
       updatedAt: row.updatedAt instanceof Date ? row.updatedAt.toISOString() : null,
@@ -5254,6 +5419,8 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       maxAttemptsPerTask: saved.maxAttemptsPerTask,
       forcedUntil,
       forcedAt: this.parseOperationalMetadata(saved.metadataJson).forcedAt,
+      autonomousFillEnabled: this.parseOperationalMetadata(saved.metadataJson).autonomousFillEnabled,
+      autonomousFillBatchSize: this.parseOperationalMetadata(saved.metadataJson).autonomousFillBatchSize,
       isTurboForcedNow: Boolean(forcedUntil && new Date(forcedUntil).getTime() > Date.now()),
       createdAt: saved.createdAt instanceof Date ? saved.createdAt.toISOString() : null,
       updatedAt: saved.updatedAt instanceof Date ? saved.updatedAt.toISOString() : null,
@@ -5897,6 +6064,8 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       memoryTargetGb: input.memoryTargetGb,
       batchSize: input.batchSize,
       maxAttemptsPerTask: input.maxAttemptsPerTask,
+      autonomousFillEnabled: input.autonomousFillEnabled,
+      autonomousFillBatchSize: input.autonomousFillBatchSize,
     });
     const context = await this.resolveMasterCampaignContext(user, input.companyId);
     const campaign = await this.createRadarCampaignForUser(context.user, {
@@ -6506,7 +6675,31 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     const rejectedCount = batches.reduce((sum: number, row: any) => sum + safeInteger(row.rejectedCount), 0);
     const reachedTarget = safeInteger(campaign.targetTotal) > 0 && approvedCount >= safeInteger(campaign.targetTotal);
     const done = total > 0 && queued === 0 && running === 0;
-    const finalStatus = reachedTarget || done ? 'completed' : 'running';
+    const config = await this.getOperationalConfig().catch(() => null);
+    const autonomousEnabled = String(campaign.mode || '') === 'mass_data' && Boolean(config?.autonomousFillEnabled);
+    if (done && autonomousEnabled && !['paused', 'canceled', 'failed'].includes(String(campaign.status || ''))) {
+      const refill = await this.createAutonomousMassDataTasks(
+        campaign,
+        safeInteger(config?.autonomousFillBatchSize, AUTONOMOUS_MASS_DATA_DEFAULT_TASKS),
+      );
+      if (refill.created > 0) {
+        await (this.prisma as any).webscrapingCampaign.update({
+          where: { id: campaignId },
+          data: {
+            status: 'running',
+            foundCount: approvedCount,
+            approvedCount,
+            duplicateCount,
+            rejectedCount,
+            lastErrorMessage: `Fila autônoma reabastecida: ${refill.created} nova(s) tarefa(s) sem dados puxados.`,
+            nextRunAt: new Date(Date.now() + 1_000),
+            finishedAt: null,
+          },
+        }).catch(() => null);
+        return;
+      }
+    }
+    const finalStatus = (!autonomousEnabled && reachedTarget) || done ? 'completed' : 'running';
     await (this.prisma as any).webscrapingCampaign.update({
       where: { id: campaignId },
       data: {
@@ -6517,7 +6710,9 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         rejectedCount,
         lastErrorMessage: latestTask
           ? `${latestTask.city}/${latestTask.state}: ${latestTask.segment} -> ${latestTask.status}`
-          : null,
+          : done && autonomousEnabled
+            ? 'Fila autônoma não encontrou novas combinações sem dados puxados.'
+            : null,
         nextRunAt: finalStatus === 'completed' ? null : new Date(Date.now() + 1_000),
         finishedAt: finalStatus === 'completed' ? new Date() : null,
       },

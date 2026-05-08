@@ -414,18 +414,26 @@ const HBX_ENGINE_SPARK_WIDTH = 236;
 const HBX_ENGINE_SPARK_HEIGHT = 58;
 
 const HBX_TOPBAR_POLISH_CSS = `
+  .app-topbar,
+  .app-topbar__frame,
+  .app-topbar__inner--controlCenter {
+    overflow: visible;
+  }
+
   .app-topbar__inner--controlCenter {
     display: grid;
-    grid-template-columns: minmax(190px, 230px) minmax(620px, 1fr) minmax(250px, 310px);
+    grid-template-columns: minmax(238px, 284px) minmax(0, 1fr) minmax(220px, 274px);
     align-items: stretch;
-    gap: 12px;
-    padding: 10px;
-    border: 1px solid var(--line, rgba(148, 163, 184, 0.22));
+    gap: 6px;
+    padding: 8px;
+    border: 1px solid color-mix(in srgb, var(--brand, #10b981) 22%, var(--line, rgba(148, 163, 184, 0.22)));
     border-radius: calc(var(--panel-radius, 22px) + 4px);
     background:
       radial-gradient(circle at 18% 0%, var(--selection-accent-soft, rgba(16, 185, 129, 0.12)), transparent 34%),
       linear-gradient(135deg, var(--header-surface, var(--surface, #ffffff)), var(--surface-soft, #f8fafc));
-    box-shadow: var(--shadow-sm, 0 18px 42px -24px rgba(15, 23, 42, 0.26));
+    box-shadow:
+      0 0 0 1px color-mix(in srgb, var(--brand, #10b981) 10%, transparent),
+      var(--shadow-sm, 0 18px 42px -24px rgba(15, 23, 42, 0.26));
   }
 
   .hbx-command-brand,
@@ -439,12 +447,12 @@ const HBX_TOPBAR_POLISH_CSS = `
   .hbx-command-brand {
     min-width: 0;
     display: grid;
-    grid-template-columns: 52px minmax(0, 1fr);
+    grid-template-columns: 52px minmax(160px, 1fr);
     gap: 10px;
     align-items: center;
     padding: 10px;
     border-radius: var(--panel-radius, 22px);
-    overflow: hidden;
+    overflow: visible;
   }
 
   .hbx-command-brand__mark {
@@ -472,28 +480,40 @@ const HBX_TOPBAR_POLISH_CSS = `
     pointer-events: none;
   }
 
-  .hbx-command-brand__copy { min-width: 0; display: grid; gap: 2px; }
+  .hbx-command-brand__copy { min-width: 0; display: grid; gap: 2px; overflow: visible; }
   .hbx-command-brand__copy strong {
     color: var(--foreground, #0f172a);
     font-size: 15px;
     font-weight: 900;
     letter-spacing: -0.03em;
     white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    overflow: visible;
+    text-overflow: clip;
   }
   .hbx-command-brand__copy span {
     color: var(--muted, #64748b);
-    font-size: 11px;
-    font-weight: 700;
+    font-size: 10px;
+    font-weight: 800;
     text-transform: uppercase;
-    letter-spacing: .08em;
+    letter-spacing: .055em;
     white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    overflow: visible;
+    text-overflow: clip;
   }
 
-  .hbx-command-center, .hbx-command-center__body { min-width: 0; height: 100%; }
+  .hbx-command-center {
+    min-width: 0;
+    height: 100%;
+    position: relative;
+    z-index: 8;
+    margin-inline: -2px;
+    overflow: visible;
+  }
+  .hbx-command-center__body {
+    min-width: 0;
+    height: 100%;
+    overflow: visible;
+  }
   .hbx-command-billboard {
     position: relative;
     height: 100%;
@@ -503,6 +523,44 @@ const HBX_TOPBAR_POLISH_CSS = `
     overflow: hidden;
     color: var(--foreground, #0f172a);
     cursor: pointer;
+    border: 2px solid color-mix(in srgb, var(--brand, #10b981) 32%, var(--line, rgba(148,163,184,.24)));
+    box-shadow:
+      0 0 0 1px color-mix(in srgb, var(--surface-raised, #fff) 80%, transparent),
+      0 18px 48px -26px color-mix(in srgb, var(--brand, #10b981) 30%, transparent),
+      var(--shadow-sm, 0 18px 42px -24px rgba(15, 23, 42, 0.26));
+    transition: border-color .18s ease, box-shadow .18s ease, transform .18s ease;
+  }
+  .hbx-command-billboard:hover,
+  .hbx-command-billboard[data-paused="true"] {
+    overflow: visible;
+    z-index: 50;
+    border-color: color-mix(in srgb, var(--brand, #10b981) 58%, var(--line, rgba(148,163,184,.24)));
+    box-shadow:
+      0 0 0 1px color-mix(in srgb, var(--brand, #10b981) 30%, transparent),
+      0 22px 64px -24px color-mix(in srgb, var(--brand, #10b981) 44%, transparent),
+      var(--shadow-md, 0 30px 72px -32px rgba(15,23,42,.38));
+    transform: translateY(-1px);
+  }
+  .hbx-command-billboard:hover::after,
+  .hbx-command-billboard[data-paused="true"]::after {
+    content: attr(data-full-title) " • " attr(data-full-description);
+    position: absolute;
+    left: 10px;
+    right: 10px;
+    top: calc(100% + 8px);
+    z-index: 70;
+    padding: 9px 12px;
+    border-radius: 16px;
+    border: 1px solid color-mix(in srgb, var(--brand, #10b981) 30%, var(--line, rgba(148,163,184,.22)));
+    background: color-mix(in srgb, var(--surface-raised, #fff) 96%, transparent);
+    color: var(--foreground, #0f172a);
+    box-shadow: var(--shadow-md, 0 30px 72px -32px rgba(15,23,42,.38));
+    font-size: 11px;
+    line-height: 1.28;
+    font-weight: 750;
+    letter-spacing: -0.01em;
+    white-space: normal;
+    pointer-events: none;
   }
   .hbx-command-billboard::before {
     content: "";
@@ -521,6 +579,35 @@ const HBX_TOPBAR_POLISH_CSS = `
     transform: translateX(-120%);
     animation: hbxTopbarScan 5.5s ease-in-out infinite;
   }
+  .hbx-command-carouselNav {
+    position: absolute;
+    top: 50%;
+    z-index: 65;
+    width: 28px;
+    height: 44px;
+    display: grid;
+    place-items: center;
+    border-radius: 999px;
+    border: 1px solid color-mix(in srgb, var(--brand, #10b981) 38%, var(--line, rgba(148,163,184,.25)));
+    background: color-mix(in srgb, var(--surface-raised, #fff) 94%, transparent);
+    color: var(--foreground, #0f172a);
+    box-shadow:
+      0 0 0 1px color-mix(in srgb, var(--surface, #fff) 70%, transparent),
+      0 18px 42px -24px color-mix(in srgb, var(--brand, #10b981) 42%, transparent);
+    font-size: 24px;
+    font-weight: 900;
+    line-height: 1;
+    cursor: pointer;
+    transform: translateY(-50%);
+    transition: transform .16s ease, border-color .16s ease, box-shadow .16s ease, background .16s ease;
+  }
+  .hbx-command-carouselNav:hover {
+    border-color: color-mix(in srgb, var(--brand, #10b981) 58%, var(--line, rgba(148,163,184,.25)));
+    background: color-mix(in srgb, var(--selection-accent-soft, rgba(16,185,129,.18)) 45%, var(--surface-raised, #fff));
+    transform: translateY(-50%) scale(1.05);
+  }
+  .hbx-command-carouselNav--prev { left: -14px; }
+  .hbx-command-carouselNav--next { right: -14px; }
   .hbx-command-billboard__main,
   .hbx-command-billboard__metrics,
   .hbx-command-kpis--billboard,
@@ -601,19 +688,25 @@ const HBX_TOPBAR_POLISH_CSS = `
   .hbx-command-kpis--billboard { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 7px; margin-top: 10px; }
   .hbx-command-kpis--billboard button { min-width: 0; display: grid; gap: 2px; text-align: left; padding: 8px 9px; border-radius: 15px; color: var(--foreground, #0f172a); cursor: pointer; position: relative; overflow: hidden; }
   .hbx-command-kpis--billboard button::before { content: ""; position: absolute; inset: auto 0 0 0; height: 3px; width: var(--kpi-usage, 0%); background: var(--brand, #10b981); opacity: .9; }
-  .hbx-command-kpis--billboard button[data-tone="warning"]::before { background: var(--warning, #f59e0b); }
+  .hbx-command-kpis--billboard button[data-tone="warning"]::before { background: var(--button-secondary, var(--selection-accent, var(--brand, #10b981))); }
   .hbx-command-kpis--billboard button[data-tone="danger"]::before { background: var(--danger, #ef4444); }
   .hbx-command-kpis--billboard button[data-tone="neutral"]::before { background: var(--muted, #64748b); }
-  .hbx-command-kpis--billboard em { color: var(--muted, #64748b); font-size: 9px; font-style: normal; font-weight: 900; letter-spacing: .05em; text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .hbx-command-kpis--billboard em { color: var(--muted, #64748b); font-size: 9px; font-style: normal; font-weight: 900; letter-spacing: .04em; text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .hbx-command-kpis--billboard strong { color: var(--foreground, #0f172a); font-size: 12px; font-weight: 900; letter-spacing: -0.02em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .hbx-command-kpis--billboard small { color: var(--foreground-soft, #475569); font-size: 9px; font-weight: 650; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .hbx-command-billboard:hover .hbx-command-kpis--billboard button,
+  .hbx-command-billboard[data-paused="true"] .hbx-command-kpis--billboard button { overflow: visible; }
+  .hbx-command-billboard:hover .hbx-command-kpis--billboard small,
+  .hbx-command-billboard[data-paused="true"] .hbx-command-kpis--billboard small,
+  .hbx-command-billboard:hover .hbx-command-kpis--billboard em,
+  .hbx-command-billboard[data-paused="true"] .hbx-command-kpis--billboard em { overflow: visible; text-overflow: clip; }
 
   .hbx-command-chips--billboard { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 9px; }
   .hbx-command-chips--billboard span { display: inline-flex; align-items: center; gap: 6px; min-height: 26px; padding: 4px 9px; border-radius: 999px; color: var(--muted, #64748b); font-size: 10px; font-weight: 850; }
   .hbx-command-chips--billboard strong { color: var(--foreground, #0f172a); font-size: 11px; }
   .hbx-command-chips--billboard span::before { content: ""; width: 7px; height: 7px; border-radius: 999px; background: var(--muted, #64748b); }
   .hbx-command-chips--billboard span[data-tone="success"]::before { background: var(--success, #10b981); box-shadow: 0 0 10px var(--success, #10b981); }
-  .hbx-command-chips--billboard span[data-tone="warning"]::before { background: var(--warning, #f59e0b); box-shadow: 0 0 10px var(--warning, #f59e0b); }
+  .hbx-command-chips--billboard span[data-tone="warning"]::before { background: var(--button-secondary, var(--selection-accent, var(--brand, #10b981))); box-shadow: 0 0 10px color-mix(in srgb, var(--button-secondary, var(--selection-accent, var(--brand, #10b981))) 60%, transparent); }
   .hbx-command-chips--billboard span[data-tone="danger"]::before { background: var(--danger, #ef4444); box-shadow: 0 0 10px var(--danger, #ef4444); }
 
   .hbx-command-billboard__steps, .hbx-command-billboard__feed { display: grid; gap: 6px; margin-top: 9px; }
@@ -621,7 +714,7 @@ const HBX_TOPBAR_POLISH_CSS = `
   .hbx-command-billboard__feed { grid-template-columns: repeat(4, minmax(0, 1fr)); }
   .hbx-command-billboard__steps span { display: flex; align-items: center; gap: 6px; padding: 7px 8px; border-radius: 13px; color: var(--foreground-soft, #475569); font-size: 10px; font-weight: 800; }
   .hbx-command-billboard__steps i { width: 8px; height: 8px; border-radius: 999px; background: var(--muted, #94a3b8); }
-  .hbx-command-billboard__steps span[data-state="active"] i { background: var(--warning, #f59e0b); box-shadow: 0 0 10px var(--warning, #f59e0b); }
+  .hbx-command-billboard__steps span[data-state="active"] i { background: var(--button-secondary, var(--selection-accent, var(--brand, #10b981))); box-shadow: 0 0 10px color-mix(in srgb, var(--button-secondary, var(--selection-accent, var(--brand, #10b981))) 60%, transparent); }
   .hbx-command-billboard__steps span[data-state="done"] i { background: var(--success, #10b981); }
   .hbx-command-billboard__feed span { display: grid; gap: 1px; padding: 7px 8px; border-radius: 13px; min-width: 0; }
   .hbx-command-billboard__feed strong, .hbx-command-billboard__feed small { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -657,13 +750,13 @@ const HBX_TOPBAR_POLISH_CSS = `
   .hbx-control-vitals span { display: inline-grid; align-content: center; padding: 4px 10px; color: var(--muted, #64748b); font-size: 9px; font-weight: 900; letter-spacing: .04em; text-transform: uppercase; }
   .hbx-control-vitals strong { color: var(--foreground, #0f172a); font-size: 12px; letter-spacing: -0.02em; }
   .hbx-control-vitals span[data-tone="green"] strong, .hbx-control-vitals span[data-tone="success"] strong { color: var(--success, #10b981); }
-  .hbx-control-vitals span[data-tone="yellow"] strong, .hbx-control-vitals span[data-tone="warning"] strong { color: var(--warning, #f59e0b); }
+  .hbx-control-vitals span[data-tone="yellow"] strong, .hbx-control-vitals span[data-tone="warning"] strong { color: var(--button-secondary, var(--selection-accent, var(--brand, #10b981))); }
   .hbx-control-vitals span[data-tone="red"] strong, .hbx-control-vitals span[data-tone="danger"] strong { color: var(--danger, #ef4444); }
   .hbx-control-user .app-user__menu { right: 0; left: auto; width: min(320px, calc(100vw - 24px)); border: 1px solid var(--line, rgba(148,163,184,.2)); background: var(--surface-raised, #fff); color: var(--foreground, #0f172a); box-shadow: var(--shadow-md, 0 30px 72px -32px rgba(15,23,42,.38)); }
 
   @keyframes hbxTopbarScan { 0%, 66% { transform: translateX(-120%); } 100% { transform: translateX(120%); } }
   @media (max-width: 1240px) {
-    .app-topbar__inner--controlCenter { grid-template-columns: minmax(150px, 190px) minmax(480px, 1fr); }
+    .app-topbar__inner--controlCenter { grid-template-columns: minmax(220px, 260px) minmax(0, 1fr); }
     .hbx-command-side { grid-column: 1 / -1; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; }
     .hbx-control-vitals { justify-content: flex-end; }
   }
@@ -689,17 +782,17 @@ function getEngineUsageTone(usage: number, state?: string | null): HbxEngineLoad
 }
 
 function getEngineToneColor(tone: HbxEngineLoadTone) {
-  if (tone === "green") return "#059669";
-  if (tone === "yellow") return "#d97706";
-  if (tone === "red") return "#dc2626";
-  return "#94a3b8";
+  if (tone === "green") return "var(--success, var(--brand, #059669))";
+  if (tone === "yellow") return "var(--button-secondary, var(--selection-accent, var(--brand, #059669)))";
+  if (tone === "red") return "var(--danger, var(--button-accent, #dc2626))";
+  return "var(--muted, #94a3b8)";
 }
 
 function getEngineToneSoftColor(tone: HbxEngineLoadTone) {
-  if (tone === "green") return "rgba(5, 150, 105, 0.14)";
-  if (tone === "yellow") return "rgba(217, 119, 6, 0.16)";
-  if (tone === "red") return "rgba(220, 38, 38, 0.14)";
-  return "rgba(148, 163, 184, 0.12)";
+  if (tone === "green") return "color-mix(in srgb, var(--success, var(--brand, #059669)) 16%, transparent)";
+  if (tone === "yellow") return "color-mix(in srgb, var(--button-secondary, var(--selection-accent, var(--brand, #059669))) 18%, transparent)";
+  if (tone === "red") return "color-mix(in srgb, var(--danger, var(--button-accent, #dc2626)) 16%, transparent)";
+  return "color-mix(in srgb, var(--muted, #94a3b8) 14%, transparent)";
 }
 
 function buildEngineSparkSamples(
@@ -1002,6 +1095,7 @@ export default function TopBar() {
   const [atendimentoPendingHumanCount, setAtendimentoPendingHumanCount] = useState(0);
   const [topbarProgress, setTopbarProgress] = useState<TopbarProgressState | null>(null);
   const [billboardSlideIndex, setBillboardSlideIndex] = useState(0);
+  const [billboardPaused, setBillboardPaused] = useState(false);
   const [scrapingEngines, setScrapingEngines] = useState<ScrapingEngineStatusPayload | null>(null);
   const [scrapingEngineStatusMessage, setScrapingEngineStatusMessage] = useState<string | null>(null);
   const [hbxGaugeBooting, setHbxGaugeBooting] = useState(true);
@@ -3363,13 +3457,16 @@ export default function TopBar() {
 
   useEffect(() => {
     setBillboardSlideIndex(0);
-    if (billboardSlides.length <= 1) return undefined;
+  }, [billboardSlideSignature]);
+
+  useEffect(() => {
+    if (billboardPaused || billboardSlides.length <= 1) return undefined;
     const timer = window.setInterval(() => {
       setBillboardSlideIndex((index) => (index + 1) % billboardSlides.length);
-    }, 4200);
+    }, 2600);
 
     return () => window.clearInterval(timer);
-  }, [billboardSlideSignature, billboardSlides.length]);
+  }, [billboardPaused, billboardSlideSignature, billboardSlides.length]);
 
   const activeBillboardSlide: BillboardSlide =
     billboardSlides[billboardSlideIndex % Math.max(1, billboardSlides.length)] || {
@@ -3780,12 +3877,51 @@ export default function TopBar() {
             data-live={liveWebscrapingProgress ? "true" : "false"}
             aria-label="Status operacional HBX"
           >
+            {billboardSlides.length > 1 ? (
+              <button
+                type="button"
+                className="hbx-command-carouselNav hbx-command-carouselNav--prev"
+                aria-label="Voltar slide operacional"
+                title="Voltar"
+                onMouseEnter={() => setBillboardPaused(true)}
+                onMouseLeave={() => setBillboardPaused(false)}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  setBillboardSlideIndex((index) => (index - 1 + billboardSlides.length) % billboardSlides.length);
+                }}
+              >
+                ‹
+              </button>
+            ) : null}
+            {billboardSlides.length > 1 ? (
+              <button
+                type="button"
+                className="hbx-command-carouselNav hbx-command-carouselNav--next"
+                aria-label="Avançar slide operacional"
+                title="Avançar"
+                onMouseEnter={() => setBillboardPaused(true)}
+                onMouseLeave={() => setBillboardPaused(false)}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  setBillboardSlideIndex((index) => (index + 1) % billboardSlides.length);
+                }}
+              >
+                ›
+              </button>
+            ) : null}
             <div className="hbx-command-center__body">
               <article
                 key={activeBillboardSlide.id}
                 className={`hbx-command-billboard${activeBillboardSlide.kind === "engines" ? " hbx-command-billboard--engines" : ""}`}
                 data-phase={activeBillboardSlide.phase}
                 data-theater={activeBillboardSlide.isTheater ? "true" : "false"}
+                data-paused={billboardPaused ? "true" : "false"}
+                data-full-title={activeBillboardSlide.title}
+                data-full-description={activeBillboardSlide.description}
+                onMouseEnter={() => setBillboardPaused(true)}
+                onMouseLeave={() => setBillboardPaused(false)}
+                onFocus={() => setBillboardPaused(true)}
+                onBlur={() => setBillboardPaused(false)}
                 onClick={() => handleBillboardAction(activeBillboardSlide)}
                 onKeyDown={(event) => {
                   if (event.key === "Enter" || event.key === " ") {

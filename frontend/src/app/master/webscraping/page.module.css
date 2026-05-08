@@ -1038,6 +1038,57 @@
   grid-template-columns: 1fr;
 }
 
+.autonomousFillBox {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(120px, 180px);
+  gap: 10px;
+  align-items: stretch;
+  border: 1px solid rgba(var(--ws-success-rgb), 0.28);
+  border-radius: 14px;
+  padding: 10px;
+  background:
+    linear-gradient(135deg, rgba(var(--ws-success-rgb), 0.1), rgba(var(--ws-info-rgb), 0.07)),
+    var(--ws-row-bg);
+}
+
+.autonomousFillBox label {
+  min-width: 0;
+}
+
+.autonomousFillBox label:first-child {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.autonomousFillBox input[type="checkbox"] {
+  flex: 0 0 auto;
+  width: 18px;
+  min-height: 18px;
+  accent-color: rgb(var(--ws-success-rgb));
+}
+
+.autonomousFillBox span {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.autonomousFillBox strong {
+  color: var(--ws-text-strong);
+  font-size: 0.84rem;
+  font-weight: 950;
+  line-height: 1.15;
+}
+
+.autonomousFillBox small {
+  color: var(--ws-muted);
+  font-size: 0.74rem;
+  font-weight: 780;
+  line-height: 1.3;
+}
+
 .campaignHelp {
   display: grid;
   gap: 4px;
@@ -1339,7 +1390,8 @@
 
   .smartLayout,
   .smartActionGrid,
-  .smartFacts {
+  .smartFacts,
+  .autonomousFillBox {
     grid-template-columns: 1fr;
   }
 }
@@ -1361,6 +1413,7 @@
   .configGrid,
   .campaignForm,
   .campaignRow,
+  .autonomousFillBox,
   .kpiGrid {
     grid-template-columns: 1fr;
   }
