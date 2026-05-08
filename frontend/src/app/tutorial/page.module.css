@@ -2386,6 +2386,33 @@
   border-radius: 16px;
 }
 
+.qrPhoneLink {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 42px;
+  width: 100%;
+  margin-top: 0.75rem;
+  border: 1px solid color-mix(in srgb, var(--button-accent, #6fe3ff) 34%, transparent);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--tutorial-inner-bg) 86%, var(--button-accent, #6fe3ff) 14%);
+  color: var(--tutorial-heading);
+  font-weight: 900;
+  text-decoration: none;
+  transition:
+    transform 160ms ease,
+    border-color 160ms ease,
+    background 160ms ease;
+}
+
+.qrPhoneLink:hover,
+.qrPhoneLink:focus-visible {
+  transform: translateY(-1px);
+  border-color: color-mix(in srgb, var(--button-accent, #6fe3ff) 58%, transparent);
+  background: color-mix(in srgb, var(--tutorial-inner-bg) 76%, var(--button-accent, #6fe3ff) 24%);
+  outline: none;
+}
+
 .upgradeNote,
 .botNote,
 .alert,
