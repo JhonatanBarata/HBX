@@ -3,10 +3,11 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useState } from "react";
-import type { WhatsAppCenterPayload, WhatsAppModalPayload } from "@/lib/whatsapp-center";
+import type { WhatsAppCenterPayload, WhatsAppModalPayload, WhatsAppPairingCodePayload } from "@/lib/whatsapp-center";
 import styles from "./WhatsAppConnectionWizard.module.css";
 
 type ConnectionMode = "QR" | "OFFICIAL";
+type QrLinkMode = "qr" | "phone";
 
 type Props = {
   payload: WhatsAppCenterPayload;
@@ -17,6 +18,15 @@ type Props = {
   qrBusy: boolean;
   qrMessage?: string | null;
   qrError?: string | null;
+  initialQrLinkMode?: QrLinkMode;
+  pairingPhone: string;
+  pairingPayload: WhatsAppPairingCodePayload | null;
+  pairingBusy: boolean;
+  pairingError?: string | null;
+  pairingExpiresInSeconds: number;
+  onPairingPhoneChange: (value: string) => void;
+  onPairingPhoneInput?: (value: string) => void;
+  onRequestPairingCode: () => void;
   onChooseMode: (mode: ConnectionMode) => void;
   onConnectQr: () => void;
   onRequestMeta: () => void;
@@ -44,11 +54,21 @@ export default function WhatsAppConnectionWizard({
   qrBusy,
   qrMessage,
   qrError,
+  initialQrLinkMode = "qr",
+  pairingPhone,
+  pairingPayload,
+  pairingBusy,
+  pairingError,
+  pairingExpiresInSeconds,
+  onPairingPhoneChange,
+  onPairingPhoneInput,
+  onRequestPairingCode,
   onChooseMode,
   onConnectQr,
   onRequestMeta,
 }: Props) {
   const [qrPanelClosed, setQrPanelClosed] = useState(false);
+  const [qrLinkMode, setQrLinkMode] = useState<QrLinkMode>(initialQrLinkMode);
   const mode = payload.center.mode;
   const qrSelected = mode === "QR";
   const metaSelected = mode === "OFFICIAL";
@@ -60,6 +80,8 @@ export default function WhatsAppConnectionWizard({
   const showQrLoader = !qrReady && (qrBusy || modalSaving === "connect" || modalPayload?.status === "starting");
   const qrBotReady = qrReady && !showQrLoader && !qrError;
   const canGoBot = qrBotReady || metaReady;
+  const pairingCode = pairingPayload?.success ? pairingPayload.code : null;
+  const pairingExpired = Boolean(pairingCode && pairingExpiresInSeconds <= 0);
 
   const chooseQr = () => {
     setQrPanelClosed(false);
@@ -73,6 +95,7 @@ export default function WhatsAppConnectionWizard({
 
   const connectQr = () => {
     setQrPanelClosed(false);
+    setQrLinkMode("qr");
     onConnectQr();
   };
 
@@ -120,44 +143,119 @@ export default function WhatsAppConnectionWizard({
 
       {qrSelected && !qrPanelClosed ? (
         <div className={styles.actionDeck} data-state={qrReady ? "ready" : showQrLoader ? "loading" : "idle"}>
-          <div className={styles.qrShell}>
-            {showQrLoader ? (
-              <div className={styles.premiumLoader} aria-label="Carregando QR Code">
-                <span />
-                <i />
-                <b />
-              </div>
-            ) : qrReady ? (
-              <div className={styles.connectedPanel}>
-                <span aria-hidden="true" />
-                <strong>Conectado</strong>
-              </div>
-            ) : qrCode ? (
-              <div className={styles.qrFrame}>
-                <Image
-                  src={qrCode}
-                  alt="QR Code"
-                  width={232}
-                  height={232}
-                  className={styles.qrImage}
-                  unoptimized
-                />
-              </div>
-            ) : (
-              <button
-                type="button"
-                className={styles.bigAction}
-                onClick={connectQr}
-                disabled={!canUseQr || modalSaving !== null}
-                aria-label="Gerar QR Code"
-              >
-                QRCODE
-              </button>
-            )}
+          <div className={styles.linkTabs} role="tablist" aria-label="Modo de vínculo WhatsApp">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={qrLinkMode === "qr"}
+              data-active={qrLinkMode === "qr"}
+              onClick={() => setQrLinkMode("qr")}
+            >
+              QR Code
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={qrLinkMode === "phone"}
+              data-active={qrLinkMode === "phone"}
+              onClick={() => setQrLinkMode("phone")}
+            >
+              Vincular por telefone
+            </button>
           </div>
 
+          {qrLinkMode === "qr" ? (
+            <div className={styles.qrShell}>
+              {showQrLoader ? (
+                <div className={styles.premiumLoader} aria-label="Carregando QR Code">
+                  <span />
+                  <i />
+                  <b />
+                </div>
+              ) : qrReady ? (
+                <div className={styles.connectedPanel}>
+                  <span aria-hidden="true" />
+                  <strong>Conectado</strong>
+                </div>
+              ) : qrCode ? (
+                <div className={styles.qrFrame}>
+                  <Image
+                    src={qrCode}
+                    alt="QR Code"
+                    width={232}
+                    height={232}
+                    className={styles.qrImage}
+                    unoptimized
+                  />
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  className={styles.bigAction}
+                  onClick={connectQr}
+                  disabled={!canUseQr || modalSaving !== null}
+                  aria-label="Gerar QR Code"
+                >
+                  QRCODE
+                </button>
+              )}
+            </div>
+          ) : (
+            <div className={styles.phoneShell} data-state={pairingCode ? "code" : "form"}>
+              <div className={styles.phoneCopy}>
+                <strong>Código por telefone</strong>
+                <p>Use um número em formato E.164. O código não é salvo no HBX e expira em poucos minutos.</p>
+              </div>
+
+              <label className={styles.phoneField}>
+                <span>Telefone</span>
+                <input
+                  type="tel"
+                  inputMode="tel"
+                  value={pairingPhone}
+                  onChange={(event) => (onPairingPhoneInput || onPairingPhoneChange)(event.target.value)}
+                  placeholder="+5519999999999"
+                  disabled={pairingBusy || qrReady}
+                />
+              </label>
+
+              {pairingCode ? (
+                <div className={styles.pairingCodeBox} data-expired={pairingExpired}>
+                  <span>{pairingExpired ? "Expirado" : `Expira em ${pairingExpiresInSeconds}s`}</span>
+                  <button
+                    type="button"
+                    onClick={() => void navigator.clipboard?.writeText(pairingCode)}
+                    title="Copiar código"
+                  >
+                    {pairingCode}
+                  </button>
+                </div>
+              ) : null}
+
+              <div className={styles.instructions}>
+                <p><strong>Android:</strong> WhatsApp &gt; Aparelhos conectados &gt; Conectar aparelho &gt; Conectar com número de telefone.</p>
+                <p><strong>iPhone:</strong> WhatsApp &gt; Configurações &gt; Aparelhos conectados &gt; Conectar aparelho &gt; Conectar com número de telefone.</p>
+              </div>
+
+              {(pairingError || pairingPayload?.message) ? (
+                <div className={styles.signal} data-error={Boolean(pairingError || !pairingPayload?.success)}>
+                  {pairingError || pairingPayload?.message}
+                </div>
+              ) : null}
+            </div>
+          )}
+
           <div className={styles.actionRow}>
-            {!qrBotReady ? (
+            {qrLinkMode === "phone" && !qrBotReady ? (
+              <button
+                type="button"
+                className={styles.primaryAction}
+                onClick={onRequestPairingCode}
+                disabled={!canUseQr || pairingBusy || modalSaving !== null || qrReady}
+              >
+                {pairingBusy ? "GERANDO..." : pairingCode && !pairingExpired ? "GERAR OUTRO" : "GERAR CÓDIGO"}
+              </button>
+            ) : !qrBotReady ? (
               <button
                 type="button"
                 className={styles.primaryAction}

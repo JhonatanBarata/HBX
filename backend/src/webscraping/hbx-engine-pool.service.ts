@@ -22,6 +22,7 @@ export type CapacityLevel = {
   isTurboForcedNow: boolean;
   forcedUntil: string | null;
   nextTurboAt: string | null;
+  scheduler?: HbxEngineSchedulerStatus;
 };
 
 export type HbxEngineLease = {
@@ -30,6 +31,18 @@ export type HbxEngineLease = {
   url: string;
   lockedUntil: Date;
   googleEmergencyMode: boolean;
+};
+
+export type HbxEnginePurpose = 'manual' | 'radar_pull' | 'vendas' | 'autonomous' | 'mass_data';
+
+export type HbxEngineSchedulerStatus = {
+  manualReservedEngines: number;
+  automaticAllowedEngines: number;
+  onlineHealthyEngines: number;
+  memoryPressurePercent: number;
+  googleMode: 'manual_only';
+  manualDemandActive: boolean;
+  productionMode: 'full' | 'reduced' | 'protected';
 };
 
 type EngineRegistryRow = {
@@ -229,6 +242,8 @@ export class HbxEnginePoolService implements OnModuleInit {
   private googleEmergencyMode = false;
   private lowQueueSinceByEngineCount = new Map<number, number>();
   private googleLowSince: number | null = null;
+  private manualDemandUntil = 0;
+  private lastSchedulerLogAt = 0;
 
   constructor(private readonly prisma: PrismaService) {}
 
@@ -355,7 +370,8 @@ export class HbxEnginePoolService implements OnModuleInit {
     this.activeEngineCount = Math.min(this.activeEngineCount, getConfiguredHbxEngineCount());
 
     const stuck = this.isQueueStuck(stats) && stats.runningCount >= this.activeEngineCount;
-    const emergencyDesired = stats.queuedCount >= this.googleEmergencyThreshold();
+    const manualEmergencyDemandCount = await this.countManualGoogleEmergencyDemand().catch(() => 0);
+    const emergencyDesired = manualEmergencyDemandCount >= this.googleEmergencyThreshold();
     if (emergencyDesired && !stuck) {
       this.googleEmergencyMode = true;
       this.googleLowSince = null;
@@ -371,7 +387,7 @@ export class HbxEnginePoolService implements OnModuleInit {
       }
     }
 
-    return {
+    const result: CapacityLevel = {
       activeEngineCount: this.activeEngineCount,
       googleEmergencyMode: this.googleEmergencyMode && !stuck,
       queuedCount: stats.queuedCount,
@@ -387,6 +403,8 @@ export class HbxEnginePoolService implements OnModuleInit {
       forcedUntil: turboForcedNow ? this.serializeDate(this.getForcedUntilDate(operationalConfig)) : null,
       nextTurboAt: operationalConfig?.enabled ? this.nextOperationalWindowAt(operationalConfig) : null,
     };
+    result.scheduler = await this.buildSchedulerStatus(result).catch(() => undefined);
+    return result;
   }
 
   async getDashboardEngineStatus(): Promise<HbxEngineDashboardStatus> {
@@ -433,15 +451,21 @@ export class HbxEnginePoolService implements OnModuleInit {
     };
   }
 
-  async getEligibleEnginesForCurrentQueue() {
+  async getEligibleEnginesForCurrentQueue(purpose: HbxEnginePurpose = 'manual') {
     await this.cleanupExpiredLocks();
     const [capacity, engines] = await Promise.all([
       this.getCurrentCapacityLevel(),
       this.healthCheckEngines(),
     ]);
+    const scheduler = await this.buildSchedulerStatus(capacity, engines).catch(() => capacity.scheduler || null);
     const now = Date.now();
+    const configuredCount = getConfiguredHbxEngineCount();
+    const automatic = this.isAutomaticPurpose(purpose);
+    const activeLimit = automatic
+      ? Math.max(0, Math.min(capacity.activeEngineCount, scheduler?.automaticAllowedEngines ?? capacity.activeEngineCount))
+      : configuredCount;
     return engines
-      .filter((engine) => engine.engineIndex < capacity.activeEngineCount)
+      .filter((engine) => engine.engineIndex < activeLimit)
       .filter((engine) => !this.isEnginePaused(engine, now))
       .filter((engine) => String(engine.status || '').toLowerCase() !== 'paused')
       .filter((engine) => String(engine.lastHealthStatus || engine.status) !== 'offline')
@@ -449,7 +473,19 @@ export class HbxEnginePoolService implements OnModuleInit {
       .sort((left, right) => this.compareEngineAvailability(left, right));
   }
 
-  async acquireEngine(runId: string, companyId: number, userId: number, avoidEngineIdOrUrl?: string): Promise<HbxEngineLease | null> {
+  async acquireEngine(
+    runId: string,
+    companyId: number,
+    userId: number,
+    avoidEngineIdOrUrl?: string | { avoidEngineIdOrUrl?: string; purpose?: HbxEnginePurpose },
+  ): Promise<HbxEngineLease | null> {
+    const acquireOptions: { avoidEngineIdOrUrl?: string; purpose?: HbxEnginePurpose } = typeof avoidEngineIdOrUrl === 'object' && avoidEngineIdOrUrl !== null
+      ? avoidEngineIdOrUrl
+      : { avoidEngineIdOrUrl: avoidEngineIdOrUrl as string | undefined };
+    const purpose = this.normalizePurpose(acquireOptions.purpose);
+    if (!this.isAutomaticPurpose(purpose)) {
+      this.manualDemandUntil = Date.now() + 30_000;
+    }
     await this.cleanupExpiredLocks();
     const capacity = await this.getCurrentCapacityLevel();
     if (capacity.operationalStatus === 'degraded') {
@@ -460,8 +496,14 @@ export class HbxEnginePoolService implements OnModuleInit {
       return null;
     }
 
-    const avoid = String(avoidEngineIdOrUrl || '').trim();
-    const eligible = (await this.getEligibleEnginesForCurrentQueue())
+    const avoid = String(acquireOptions.avoidEngineIdOrUrl || '').trim();
+    const scheduler = capacity.scheduler || await this.buildSchedulerStatus(capacity).catch(() => null);
+    if (this.isAutomaticPurpose(purpose) && scheduler && scheduler.automaticAllowedEngines <= 0) {
+      this.logSchedulerStatus(scheduler);
+      return null;
+    }
+
+    const eligible = (await this.getEligibleEnginesForCurrentQueue(purpose))
       .sort((left, right) => {
         const leftAvoided = avoid && (left.id === avoid || left.url === avoid) ? 1 : 0;
         const rightAvoided = avoid && (right.id === avoid || right.url === avoid) ? 1 : 0;
@@ -501,6 +543,8 @@ export class HbxEnginePoolService implements OnModuleInit {
         },
       });
       if (updated.count > 0) {
+        if (scheduler) this.logSchedulerStatus(scheduler);
+        this.logger.log(`[engine-scheduler] acquired engine ${engine.id} purpose=${purpose}`);
         return {
           engineId: engine.id,
           engineIndex: engine.engineIndex,
@@ -511,6 +555,9 @@ export class HbxEnginePoolService implements OnModuleInit {
       }
     }
 
+    if (!this.isAutomaticPurpose(purpose)) {
+      this.logger.warn(`[engine-scheduler] manual request waiting/freeing capacity purpose=${purpose}`);
+    }
     return null;
   }
 
@@ -663,6 +710,150 @@ export class HbxEnginePoolService implements OnModuleInit {
     return parseIntegerEnv('HBX_GOOGLE_EMERGENCY_MAX_PER_RUN', 20);
   }
 
+  async getSchedulerStatus() {
+    const capacity = await this.getCurrentCapacityLevel().catch(() => null);
+    return this.buildSchedulerStatus(capacity || undefined);
+  }
+
+  private normalizePurpose(value: unknown): HbxEnginePurpose {
+    const purpose = String(value || '').trim().toLowerCase();
+    if (purpose === 'radar_pull' || purpose === 'vendas' || purpose === 'autonomous' || purpose === 'mass_data') {
+      return purpose;
+    }
+    return 'manual';
+  }
+
+  private isAutomaticPurpose(purpose: HbxEnginePurpose) {
+    return purpose === 'autonomous' || purpose === 'mass_data';
+  }
+
+  private resolveManualReservedEngines(configuredCount = getConfiguredHbxEngineCount()) {
+    const configured = Math.max(1, Math.trunc(Number(configuredCount || 1)));
+    const parsed = parseIntegerEnv('HBX_MANUAL_RESERVED_ENGINES', 2);
+    if (configured <= 1) return 0;
+    return Math.min(Math.max(0, parsed), configured - 1);
+  }
+
+  private resolveAutonomousMinEngines() {
+    return Math.max(0, parseIntegerEnv('HBX_AUTONOMOUS_MIN_ENGINES', 1));
+  }
+
+  private autonomousMaxMemoryPressurePercent() {
+    return Math.min(Math.max(parseIntegerEnv('HBX_AUTONOMOUS_MAX_MEMORY_PRESSURE_PERCENT', 82), 1), 100);
+  }
+
+  private resolveMemoryPressurePercent(operationalConfig?: any) {
+    const memory = process.memoryUsage();
+    const heapPressure = memory.heapTotal > 0 ? (memory.heapUsed / memory.heapTotal) * 100 : 0;
+    const envLimitMb = Number(String(process.env.HBX_MEMORY_LIMIT_MB || process.env.WEBSCRAPING_MEMORY_LIMIT_MB || '').trim());
+    const targetGb = Number(operationalConfig?.memoryTargetGb || 0);
+    const limitBytes = Number.isFinite(envLimitMb) && envLimitMb > 0
+      ? envLimitMb * 1024 * 1024
+      : Number.isFinite(targetGb) && targetGb > 0
+        ? targetGb * 1024 * 1024 * 1024
+        : 0;
+    const rssPressure = limitBytes > 0 ? (memory.rss / limitBytes) * 100 : 0;
+    return Math.max(0, Math.min(100, Math.round(Math.max(heapPressure, rssPressure))));
+  }
+
+  private isHealthyEngine(engine: EngineRegistryRow, now = Date.now()) {
+    if (this.isEnginePaused(engine, now)) return false;
+    const status = String(engine.status || '').trim().toLowerCase();
+    const health = String(engine.lastHealthStatus || engine.status || '').trim().toLowerCase();
+    if (status === 'paused' || status === 'offline' || status === 'cooldown' || status === 'degraded') return false;
+    if (health === 'offline') return false;
+    if (engine.cooldownUntil instanceof Date && engine.cooldownUntil.getTime() > now) return false;
+    return true;
+  }
+
+  private async hasManualDemand() {
+    if (this.manualDemandUntil > Date.now()) return true;
+    if (!(await this.prisma.hasTable('WebscrapingSearchRun').catch(() => false))) return false;
+    const delegate = (this.prisma as any).webscrapingSearchRun;
+    if (!delegate?.count) return false;
+    const count = await delegate.count({
+      where: {
+        status: { in: ['queued', 'running'] },
+        OR: [
+          { assignedEngineId: null },
+          { nextRetryAt: { lte: new Date() } },
+        ],
+      },
+    }).catch(() => 0);
+    return count > 0;
+  }
+
+  private async countManualGoogleEmergencyDemand() {
+    if (!(await this.prisma.hasTable('WebscrapingSearchRun').catch(() => false))) return 0;
+    const delegate = (this.prisma as any).webscrapingSearchRun;
+    if (!delegate?.count) return 0;
+    return delegate.count({
+      where: {
+        status: { in: ['queued', 'running'] },
+      },
+    }).catch(() => 0);
+  }
+
+  private async buildSchedulerStatus(
+    capacity?: CapacityLevel | null,
+    engineRows?: EngineRegistryRow[],
+  ): Promise<HbxEngineSchedulerStatus> {
+    const configuredCount = getConfiguredHbxEngineCount();
+    const [engines, operationalConfig, manualDemandActive] = await Promise.all([
+      engineRows ? Promise.resolve(engineRows) : this.healthCheckEngines().catch(() => [] as EngineRegistryRow[]),
+      this.getOperationalConfig().catch(() => null),
+      this.hasManualDemand().catch(() => this.manualDemandUntil > Date.now()),
+    ]);
+    const now = Date.now();
+    const onlineHealthyEngines = engines
+      .filter((engine) => engine.engineIndex < configuredCount)
+      .filter((engine) => this.isHealthyEngine(engine, now))
+      .length;
+    const manualReservedEngines = Math.min(this.resolveManualReservedEngines(configuredCount), Math.max(0, onlineHealthyEngines - 1));
+    const memoryPressurePercent = this.resolveMemoryPressurePercent(operationalConfig);
+    const maxMemoryPressure = this.autonomousMaxMemoryPressurePercent();
+    const pressurePenalty = memoryPressurePercent > maxMemoryPressure
+      ? Math.max(1, Math.ceil((memoryPressurePercent - maxMemoryPressure) / 5))
+      : 0;
+    const autonomousMin = Math.min(this.resolveAutonomousMinEngines(), onlineHealthyEngines);
+    const degraded = String(capacity?.operationalStatus || '') === 'degraded';
+    let automaticAllowedEngines = degraded || onlineHealthyEngines <= 0
+      ? 0
+      : onlineHealthyEngines - manualReservedEngines - pressurePenalty;
+    if (manualDemandActive) {
+      automaticAllowedEngines = Math.min(automaticAllowedEngines, autonomousMin);
+    }
+    if (!manualDemandActive && !pressurePenalty && !degraded && onlineHealthyEngines > 0) {
+      automaticAllowedEngines = Math.max(automaticAllowedEngines, autonomousMin);
+    }
+    if (onlineHealthyEngines > 1) {
+      automaticAllowedEngines = Math.min(automaticAllowedEngines, onlineHealthyEngines - 1);
+    }
+    automaticAllowedEngines = Math.max(0, Math.min(onlineHealthyEngines, automaticAllowedEngines));
+    const productionMode: HbxEngineSchedulerStatus['productionMode'] = manualDemandActive
+      ? 'protected'
+      : pressurePenalty > 0 || automaticAllowedEngines < Math.max(0, onlineHealthyEngines - manualReservedEngines)
+        ? 'reduced'
+        : 'full';
+    return {
+      manualReservedEngines,
+      automaticAllowedEngines,
+      onlineHealthyEngines,
+      memoryPressurePercent,
+      googleMode: 'manual_only',
+      manualDemandActive,
+      productionMode,
+    };
+  }
+
+  private logSchedulerStatus(scheduler: HbxEngineSchedulerStatus) {
+    if (Date.now() - this.lastSchedulerLogAt < 15_000) return;
+    this.lastSchedulerLogAt = Date.now();
+    this.logger.log(
+      `[engine-scheduler] manual reserved=${scheduler.manualReservedEngines} automaticAllowed=${scheduler.automaticAllowedEngines} pressure=${scheduler.memoryPressurePercent}% manualDemand=${scheduler.manualDemandActive} mode=${scheduler.productionMode}`,
+    );
+  }
+
   private buildDashboardEngines(
     rows: EngineRegistryRow[],
     configuredUrls: string[],
@@ -786,13 +977,13 @@ export class HbxEnginePoolService implements OnModuleInit {
 
     const googleActive = Boolean(capacity.googleEmergencyMode || activeGoogleRun);
     const googleDetail = googleActive
-      ? `Google emergencial ativo. Fila ${capacity.queuedCount}, rodando ${capacity.runningCount}.`
-      : 'Google emergencial em espera.';
+      ? `Google manual/fallback ativo. Fila ${capacity.queuedCount}, rodando ${capacity.runningCount}.`
+      : 'Google reservado para pesquisa manual/fallback.';
 
     engines.push({
       id: 'google-engine',
       kind: 'google',
-      label: 'Google Emergency',
+      label: 'Google Manual',
       shortLabel: 'Google',
       index: null,
       status: googleActive ? 'emergency' : 'standby',

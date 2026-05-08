@@ -11,6 +11,7 @@ import { CompanyOperationalStatusService } from './company-operational-status.se
 import { WhatsAppModalService } from './whatsapp-modal.service';
 import { CadastrosModule } from '../cadastros/cadastros.module';
 import { CompanyWhatsAppCustomerSyncService } from './company-whatsapp-customer-sync.service';
+import { WhatsAppPairingController } from './whatsapp-pairing.controller';
 import { WebwhatsBridgeService } from '../messaging/webwhats-bridge.service';
 import { MailModule } from '../mail/mail.module';
 import { MessagingModule } from '../messaging/messaging.module';
@@ -34,7 +35,7 @@ import { MessagingModule } from '../messaging/messaging.module';
     WebwhatsBridgeService,
     CompanyWhatsAppCustomerSyncService,
   ],
-  controllers: [CompaniesController],
+  controllers: [CompaniesController, WhatsAppPairingController],
   exports: [CompaniesService, CompanyOperationalStatusService],
 })
 export class CompaniesModule {}

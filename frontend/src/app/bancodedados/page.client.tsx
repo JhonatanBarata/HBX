@@ -14,7 +14,6 @@ import styles from "./page.module.css";
 
 type TargetType = "pf" | "pj" | "both";
 type Intensity = "economico" | "normal" | "turbo";
-type OperationMode = "search" | "control" | "engines";
 type EngineStatus = "running" | "waiting" | "offline" | "cooldown" | "paused";
 type DiagnosticStatus = "ok" | "warning" | "error";
 
@@ -60,6 +59,42 @@ type ProductionCard = {
   dbStatus: "saved" | "pending" | "error";
 };
 
+type CampaignSummary = {
+  id: string;
+  status?: string | null;
+  mode?: string | null;
+  city?: string | null;
+  state?: string | null;
+  segment?: string | null;
+  targetType?: string | null;
+  foundCount?: number | null;
+  approvedCount?: number | null;
+  targetTotal?: number | null;
+  currentAttempt?: number | null;
+  maxAttempts?: number | null;
+  progressMessage?: string | null;
+  lastErrorMessage?: string | null;
+  updatedAt?: string | null;
+  createdAt?: string | null;
+};
+
+type SchedulerPayload = {
+  manualReservedEngines?: number;
+  automaticAllowedEngines?: number;
+  memoryPressurePercent?: number;
+  googleMode?: "manual_only" | string;
+  manualDemandActive?: boolean;
+  productionMode?: "full" | "reduced" | "protected" | string;
+};
+
+type AutonomousStrategyPayload = {
+  mode?: "guided" | "automatic" | string;
+  selectedState?: string | null;
+  selectedCity?: string | null;
+  selectedSegment?: string | null;
+  reason?: string | null;
+};
+
 type DashboardPayload = {
   generatedAt: string;
   turbo: {
@@ -85,8 +120,11 @@ type DashboardPayload = {
     offlineEngines?: number;
     totalEngines: number;
   };
+  scheduler?: SchedulerPayload;
+  autonomousStrategy?: AutonomousStrategyPayload;
   engines: DashboardEngine[];
   production: ProductionCard[];
+  campaigns?: CampaignSummary[];
   diagnostics: {
     queueStatus: DiagnosticStatus;
     databaseStatus: DiagnosticStatus;
@@ -119,6 +157,12 @@ type DashboardPayload = {
     maxAttemptsPerTask: number;
     autonomousFillEnabled: boolean;
     autonomousFillBatchSize: number;
+  };
+};
+
+type WebscrapingRuntimePayload = {
+  native?: {
+    googleApiKeyConfigured?: boolean;
   };
 };
 
@@ -232,11 +276,11 @@ function dbStatusLabel(value: ProductionCard["dbStatus"]) {
   return "Pendente";
 }
 
-function buildTurboPayload(form: FormState) {
+function buildTurboPayload(form: FormState, options?: { enabled?: boolean }) {
   const start = parseTime(form.startTime, 20);
   const end = parseTime(form.endTime, 8);
   return {
-    enabled: true,
+    enabled: options?.enabled ?? true,
     startHour: start.hour,
     startMinute: start.minute,
     endHour: end.hour,
@@ -256,6 +300,40 @@ function normalizeIntensity(value: unknown): Intensity {
   if (raw === "economico" || raw === "econômico") return "economico";
   if (raw === "normal") return "normal";
   return "turbo";
+}
+
+function intensityLabel(value: unknown, scheduler?: SchedulerPayload) {
+  if (scheduler) return "Inteligente";
+  const normalized = normalizeIntensity(value);
+  if (normalized === "economico") return "Econômico";
+  if (normalized === "normal") return "Normal";
+  return "Turbo";
+}
+
+function productionModeLabel(scheduler?: SchedulerPayload) {
+  if (scheduler?.manualDemandActive) return "Reserva manual ativa";
+  if (scheduler?.productionMode === "protected" || scheduler?.productionMode === "reduced") {
+    return "Produção reduzida para proteger clientes";
+  }
+  return "Banco trabalhando 24h";
+}
+
+function googleApiLabel(runtime: WebscrapingRuntimePayload | null) {
+  if (runtime?.native?.googleApiKeyConfigured === false) return "Google API não configurado";
+  if (runtime?.native?.googleApiKeyConfigured === true) return "Google API reservado para busca manual";
+  return "Google API reservado para busca manual";
+}
+
+function autonomousReasonLabel(value?: string | null) {
+  if (value === "guided_filter") return "filtros do MASTER";
+  if (value === "low_stock") return "estoque baixo no Radar";
+  if (value === "low_duplicate_recent") return "cidade/segmento com baixa duplicidade recente";
+  if (value === "unexplored") return "cidade/segmento pouco explorado";
+  return "rotação nacional controlada";
+}
+
+function workLabel(strategy?: AutonomousStrategyPayload) {
+  return [strategy?.selectedCity, strategy?.selectedState, strategy?.selectedSegment].filter(Boolean).join(" / ") || "Aguardando seleção automática";
 }
 
 function emptyEngines(engines?: DashboardEngine[], count = MAX_HBX_ENGINE_COUNT) {
@@ -284,7 +362,7 @@ function emptyEngines(engines?: DashboardEngine[], count = MAX_HBX_ENGINE_COUNT)
   });
 }
 
-export default function MasterWebscrapingClientPage() {
+export default function BancoDeDadosClientPage() {
   const hasToken = useRequireAuth();
   const [checkingAccess, setCheckingAccess] = useState(true);
   const [allowed, setAllowed] = useState(false);
@@ -293,8 +371,8 @@ export default function MasterWebscrapingClientPage() {
   const [error, setError] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
   const [dashboard, setDashboard] = useState<DashboardPayload | null>(null);
+  const [runtime, setRuntime] = useState<WebscrapingRuntimePayload | null>(null);
   const [form, setForm] = useState<FormState>(DEFAULT_FORM);
-  const [operationMode, setOperationMode] = useState<OperationMode>("search");
   const [turboConfigDirty, setTurboConfigDirtyState] = useState(false);
   const turboConfigDirtyRef = useRef(false);
 
@@ -344,6 +422,25 @@ export default function MasterWebscrapingClientPage() {
     }
   }, [hydrateForm]);
 
+  const loadRuntime = useCallback(async () => {
+    try {
+      const payload = await apiFetch<WebscrapingRuntimePayload>("/webscraping/runtime", {
+        requireAuth: true,
+        timeoutMs: 10000,
+      });
+      setRuntime(payload);
+    } catch {
+      setRuntime(null);
+    }
+  }, []);
+
+  const refreshAll = useCallback(async () => {
+    await Promise.all([
+      loadDashboard(),
+      loadRuntime(),
+    ]);
+  }, [loadDashboard, loadRuntime]);
+
   useEffect(() => {
     if (hasToken !== true) return;
     let mounted = true;
@@ -356,7 +453,12 @@ export default function MasterWebscrapingClientPage() {
         if (!mounted) return;
         const isMaster = Boolean(user?.isSystemMaster);
         setAllowed(isMaster);
-        if (isMaster) await loadDashboard();
+        if (isMaster) {
+          await Promise.all([
+            loadDashboard(),
+            loadRuntime(),
+          ]);
+        }
       } catch (err) {
         if (!mounted) return;
         setAllowed(false);
@@ -370,7 +472,7 @@ export default function MasterWebscrapingClientPage() {
     return () => {
       mounted = false;
     };
-  }, [hasToken, loadDashboard]);
+  }, [hasToken, loadDashboard, loadRuntime]);
 
   useEffect(() => {
     if (!allowed) return;
@@ -397,39 +499,27 @@ export default function MasterWebscrapingClientPage() {
     const issues = offline + cooldown + engines.filter((engine) => engine.localhostInProduction || engine.lastError).length;
     return { totalConfigured, online, activeEngineLimit, running, cooldown, paused, offline, issues };
   }, [dashboard?.summary, engines, form.engineCount]);
-  const speedometerPanels = useMemo(() => {
-    const total = Math.max(1, engineStats.totalConfigured);
-    const onlinePercent = Math.round((engineStats.online / total) * 100);
-    const activePercent = Math.round((engineStats.activeEngineLimit / total) * 100);
-    const rhythmPercent = Math.min(100, Math.round((Number(dashboard?.summary.cardsPerMinuteAvg || 0) / 2) * 100));
-    return [
-      { label: "Online", value: onlinePercent, metric: `${metric(engineStats.online)}/${metric(engineStats.totalConfigured)}`, detail: "motores com sinal" },
-      { label: "Ativos agora", value: activePercent, metric: `${metric(engineStats.activeEngineLimit)}/${metric(engineStats.totalConfigured)}`, detail: "limite da fila" },
-      { label: "Ritmo 10 min", value: rhythmPercent, metric: metric(dashboard?.summary.cardsPerMinuteAvg), detail: "cards/min médio" },
-    ];
-  }, [dashboard?.summary.cardsPerMinuteAvg, engineStats.activeEngineLimit, engineStats.online, engineStats.totalConfigured]);
-  const dashboardDescription = dashboard?.turbo.active
-    ? `Coleta ativa até ${formatClock(dashboard.turbo.endsAt)}`
-    : `Banco dos motores pronto para operar até ${dashboard?.turbo.endLabel || form.endTime}`;
+  const scheduler = dashboard?.scheduler;
+  const autonomousStrategy = dashboard?.autonomousStrategy;
+  const hasGuidedFilters = Boolean(form.state || form.city || form.segment);
+  const strategyModeLabel = hasGuidedFilters ? "Modo Guiado" : "Modo Automático Nacional";
+  const selectedWorkLabel = workLabel(autonomousStrategy);
+  const automaticAllowedEngines = scheduler?.automaticAllowedEngines ?? Math.max(1, engineStats.activeEngineLimit - 2);
+  const manualReservedEngines = scheduler?.manualReservedEngines ?? Math.max(0, Math.min(2, engineStats.totalConfigured - automaticAllowedEngines));
+  const dashboardDescription = productionModeLabel(scheduler);
   const clientSearchActive = Boolean(dashboard?.turbo.active);
   const clientSearchArmed = Boolean(dashboard?.config.enabled);
-  const operationTabs: Array<{ id: OperationMode; label: string; detail: string }> = [
-    {
-      id: "search",
-      label: "Banco",
-      detail: form.state ? [form.city, form.state].filter(Boolean).join(" / ") : "Escolha praça",
-    },
-    {
-      id: "control",
-      label: "Agenda",
-      detail: clientSearchActive ? "Forçada agora" : clientSearchArmed ? "Agendada" : "Desligada",
-    },
-    {
-      id: "engines",
-      label: "Saúde",
-      detail: `${metric(engineStats.online)} online`,
-    },
-  ];
+
+  function requestGuidedFilters() {
+    setError(null);
+    setFeedback("Use os campos de estado, cidade ou segmento para colocar o banco em Modo Guiado.");
+  }
+
+  function clearGuidedFilters() {
+    setError(null);
+    setForm((current) => ({ ...current, state: "", city: "", segment: "" }));
+    setFeedback("Sem filtros: o banco 24h vai escolher praças automaticamente.");
+  }
 
   async function activateForcedTurbo() {
     setSaving(true);
@@ -489,7 +579,7 @@ export default function MasterWebscrapingClientPage() {
         method: "PUT",
         requireAuth: true,
         timeoutMs: 15000,
-        body: JSON.stringify(buildTurboPayload(form)),
+        body: JSON.stringify(buildTurboPayload(form, { enabled: clientSearchArmed })),
       });
       setDashboard(payload.control);
       hydrateForm(payload.control);
@@ -502,10 +592,6 @@ export default function MasterWebscrapingClientPage() {
   }
 
   async function createMassDataCampaign() {
-    if (!form.state) {
-      setError("Escolha um estado para criar a fila do banco de dados.");
-      return;
-    }
     setSaving(true);
     setError(null);
     setFeedback(null);
@@ -515,7 +601,7 @@ export default function MasterWebscrapingClientPage() {
         requireAuth: true,
         timeoutMs: 30000,
         body: JSON.stringify({
-          ...buildTurboPayload(form),
+          ...buildTurboPayload(form, { enabled: clientSearchArmed }),
           state: form.state,
           city: form.city,
           segment: form.segment,
@@ -524,7 +610,7 @@ export default function MasterWebscrapingClientPage() {
       });
       setDashboard(payload.control);
       hydrateForm(payload.control);
-      setFeedback("Fila do banco de dados criada com lotes pequenos.");
+      setFeedback(form.state || form.city || form.segment ? "Fila guiada do banco de dados criada." : "Fila autônoma do banco de dados criada com rotação nacional.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Falha ao criar a fila do banco de dados.");
     } finally {
@@ -590,7 +676,7 @@ export default function MasterWebscrapingClientPage() {
       description={dashboardDescription}
       actions={
         <div className={styles.heroActions}>
-          <button type="button" className={styles.secondaryButton} onClick={() => void loadDashboard()} disabled={loading}>
+          <button type="button" className={styles.secondaryButton} onClick={() => void refreshAll()} disabled={loading}>
             {loading ? "Atualizando" : "Atualizar"}
           </button>
         </div>
@@ -600,80 +686,223 @@ export default function MasterWebscrapingClientPage() {
         {error ? <div className={styles.alert} data-tone="error">{error}</div> : null}
         {feedback ? <div className={styles.alert} data-tone="ok">{feedback}</div> : null}
 
-        <header className={styles.pageHeader}>
-          <div className={styles.speedometerPanel} aria-label="Velocímetros operacionais HBX">
-            {speedometerPanels.map((panel) => (
-              <article
-                key={panel.label}
-                className={styles.speedometerCard}
-                style={{
-                  ["--speedometer-value" as string]: `${panel.value}%`,
-                  ["--speedometer-angle" as string]: `${panel.value * 1.8}deg`,
-                }}
-              >
-                <span>{panel.label}</span>
-                <div className={styles.speedometerDial} aria-hidden="true">
-                  <i />
-                  <strong>{panel.value}%</strong>
-                </div>
-                <p>
-                  <strong>{panel.metric}</strong>
-                  <span>{panel.detail}</span>
-                </p>
-              </article>
-            ))}
-          </div>
-          <div className={styles.operationalCenter}>
-            <div className={styles.operationalHead}>
-              <span>Banco de dados operacional</span>
-              <h2>{dashboard?.status.currentMode || "STANDBY"}</h2>
-              <p>{dashboard?.status.operationalMessage || "Status operacional em leitura."}</p>
+        <section className={styles.controlCenter} aria-label="Central do Banco 24h">
+          <div className={styles.controlHeader}>
+            <div>
+              <span>Central do Banco 24h</span>
+              <h2>Banco de Dados dos Motores</h2>
+              <p>
+                {clientSearchActive
+                  ? "Banco trabalhando 24h"
+                  : clientSearchArmed
+                    ? "Banco 24h configurado para trabalhar na janela salva"
+                    : "Banco desligado"}
+              </p>
             </div>
-            <div className={styles.headerOps}>
-              <div>
-                <span>Online</span>
-                <strong>{metric(engineStats.online)} / {metric(engineStats.totalConfigured)}</strong>
-              </div>
-              <div>
-                <span>Ativos agora</span>
-                <strong>{metric(engineStats.activeEngineLimit)} / {metric(engineStats.totalConfigured)}</strong>
-              </div>
-              <div>
-                <span>Rodando</span>
-                <strong>{metric(engineStats.running)}</strong>
-              </div>
-              <div>
-                <span>Cooldown</span>
-                <strong>{metric(engineStats.cooldown)}</strong>
-              </div>
-              <div>
-                <span>Fila</span>
-                <strong>{metric(dashboard?.summary.activeQueue)}</strong>
-              </div>
-              <div className={styles.headerClock}>
-                <span>Horário</span>
-                <strong>{dashboard?.generatedAt ? formatClock(dashboard.generatedAt) : "--:--"}</strong>
-              </div>
+            <div className={styles.controlStatus} data-mode={scheduler?.productionMode || "full"}>
+              <strong>{productionModeLabel(scheduler)}</strong>
+              <span>{dashboard?.status.operationalMessage || dashboard?.status.currentMode || "Status operacional em leitura."}</span>
             </div>
           </div>
-        </header>
 
-        <section className={styles.engineOverview} aria-label="Resumo dos motores HBX">
-          <div>
-            <span>Total configurado</span>
-            <strong>{metric(engineStats.totalConfigured)} motores</strong>
+          <div className={styles.controlCards}>
+            <article className={styles.controlCard}>
+              <span>Produção</span>
+              <strong>{clientSearchActive ? "Banco trabalhando 24h" : clientSearchArmed ? "Janela salva" : "Desligado"}</strong>
+              <p>Modo {intensityLabel(form.intensity, scheduler)} · {form.startTime} até {form.endTime}</p>
+              <p>{strategyModeLabel}: {selectedWorkLabel}</p>
+              <div className={styles.cardInlineActions}>
+                <button type="button" data-tone="success" onClick={() => void activateForcedTurbo()} disabled={saving}>
+                  Ligar banco 24h
+                </button>
+                <button type="button" onClick={() => void deactivateForcedTurbo()} disabled={saving || !clientSearchArmed}>
+                  Desligar banco
+                </button>
+              </div>
+            </article>
+
+            <article className={styles.controlCard}>
+              <span>Motores HBX</span>
+              <strong>{metric(engineStats.online)} / {metric(engineStats.totalConfigured)} online</strong>
+              <p>{metric(engineStats.running)} rodando · {metric(engineStats.paused)} pausados · {metric(engineStats.cooldown)} cooldown · {metric(engineStats.offline)} offline</p>
+              <div className={styles.miniMetrics}>
+                <span>Reserva manual <strong>{metric(manualReservedEngines)}</strong></span>
+                <span>Automático permitido <strong>{metric(automaticAllowedEngines)}</strong></span>
+              </div>
+            </article>
+
+            <article className={styles.controlCard}>
+              <span>Reserva do Cliente</span>
+              <strong>{scheduler?.manualDemandActive ? "Reserva manual ativa" : "Capacidade protegida"}</strong>
+              <p>{scheduler?.manualDemandActive ? "Cliente usando busca manual. Produção automática reduzida." : "Motores reservados para Radar e Vendas manual."}</p>
+              <div className={styles.miniMetrics}>
+                <span>Manual <strong>{metric(manualReservedEngines)}</strong></span>
+                <span>Fila ativa <strong>{metric(dashboard?.summary.activeQueue)}</strong></span>
+              </div>
+            </article>
+
+            <article className={styles.controlCard}>
+              <span>Google API</span>
+              <strong>{googleApiLabel(runtime)}</strong>
+              <p>Modo: Reservado para busca manual. Nunca alimenta banco automático.</p>
+              <div className={styles.miniMetrics}>
+                <span>Status <strong>{runtime?.native?.googleApiKeyConfigured === false ? "Não configurado" : "Manual"}</strong></span>
+                <span>Banco <strong>Bloqueado</strong></span>
+              </div>
+            </article>
+
+            <article className={styles.controlCard}>
+              <span>Saúde</span>
+              <strong>{dashboard?.diagnostics.engineHealthStatus === "error" ? "Crítico" : dashboard?.diagnostics.engineHealthStatus === "warning" ? "Atenção" : "Operacional"}</strong>
+              <p>{metric(dashboard?.summary.cardsToday)} cards hoje · {metric(dashboard?.summary.errors24h)} erros 24h</p>
+              <div className={styles.miniMetrics}>
+                <span>Pressão <strong>{metric(scheduler?.memoryPressurePercent, "%")}</strong></span>
+                <span>Fila <strong>{metric(dashboard?.summary.activeQueue)}</strong></span>
+              </div>
+            </article>
           </div>
-          <div>
-            <span>Pausados</span>
-            <strong>{metric(engineStats.paused)}</strong>
+
+          <div className={styles.controlActions}>
+            <button type="button" data-tone="success" onClick={() => void activateForcedTurbo()} disabled={saving}>
+              Ligar banco 24h
+            </button>
+            <button type="button" onClick={() => void deactivateForcedTurbo()} disabled={saving || !clientSearchArmed}>
+              Desligar banco
+            </button>
+            <button type="button" data-tone="info" onClick={() => void activateForcedTurbo()} disabled={saving}>
+              Forçar turbo agora
+            </button>
+            <button type="button" data-tone="info" onClick={() => void saveTurboConfig()} disabled={saving || !turboConfigDirty}>
+              Salvar configuração
+            </button>
+            <button type="button" onClick={() => void refreshAll()} disabled={loading}>
+              Atualizar status
+            </button>
           </div>
-          <div>
-            <span>Offline</span>
-            <strong>{metric(engineStats.offline)}</strong>
+
+          <div className={styles.configPanel}>
+            <div className={styles.panelTitle}>
+              <span>Configurações editáveis</span>
+              <strong>{turboConfigDirty ? "Alterações pendentes" : "Configuração salva"}</strong>
+            </div>
+
+            <div className={styles.configGrid}>
+              <label>
+                Horário inicial
+                <input type="time" value={form.startTime} onChange={(event) => updateTurboConfigForm({ startTime: event.target.value })} />
+              </label>
+              <label>
+                Horário final
+                <input type="time" value={form.endTime} onChange={(event) => updateTurboConfigForm({ endTime: event.target.value })} />
+              </label>
+              <label>
+                Motores HBX
+                <input type="number" min={1} max={MAX_HBX_ENGINE_COUNT} value={form.engineCount} onChange={(event) => updateTurboConfigForm({ engineCount: clampNumber(event.target.value, MAX_HBX_ENGINE_COUNT, 1, MAX_HBX_ENGINE_COUNT) })} />
+              </label>
+              <label>
+                Intensidade
+                <select value={form.intensity} onChange={(event) => updateTurboConfigForm({ intensity: event.target.value as Intensity })}>
+                  <option value="economico">Econômico</option>
+                  <option value="normal">Normal</option>
+                  <option value="turbo">Turbo</option>
+                </select>
+              </label>
+              <label>
+                Memória alvo
+                <input type="number" min={1} max={256} value={form.memoryTargetGb} onChange={(event) => updateTurboConfigForm({ memoryTargetGb: clampNumber(event.target.value, 16, 1, 256) })} />
+              </label>
+              <label>
+                Batch por lote
+                <input type="number" min={1} max={20} value={form.batchSize} onChange={(event) => updateTurboConfigForm({ batchSize: clampNumber(event.target.value, 20, 1, 20) })} />
+              </label>
+              <label>
+                Tentativas por tarefa
+                <input type="number" min={1} max={10} value={form.maxAttemptsPerTask} onChange={(event) => updateTurboConfigForm({ maxAttemptsPerTask: clampNumber(event.target.value, 3, 1, 10) })} />
+              </label>
+              <label>
+                Recarga automática
+                <input
+                  type="number"
+                  min={1}
+                  max={300}
+                  value={form.autonomousFillBatchSize}
+                  onChange={(event) => updateTurboConfigForm({ autonomousFillBatchSize: clampNumber(event.target.value, 60, 1, 300) })}
+                />
+              </label>
+              <label className={styles.checkboxField}>
+                <input
+                  type="checkbox"
+                  checked={form.autonomousFillEnabled}
+                  onChange={(event) => updateTurboConfigForm({ autonomousFillEnabled: event.target.checked })}
+                />
+                <span>Banco autônomo ligado</span>
+              </label>
+              <label>
+                Reserva manual
+                <input type="number" value={manualReservedEngines} readOnly />
+              </label>
+            </div>
           </div>
-          <div>
-            <span>Batch por lote</span>
-            <strong>{metric(form.batchSize)}</strong>
+
+          <div className={styles.queuePanel}>
+            <div className={styles.panelTitle}>
+              <span>Criar fila do banco</span>
+              <strong>{strategyModeLabel}</strong>
+            </div>
+            <div className={styles.strategyBoard} data-mode={hasGuidedFilters ? "guided" : "automatic"}>
+              <div>
+                <span>Estratégia atual</span>
+                <strong>{strategyModeLabel}</strong>
+                <p>
+                  {hasGuidedFilters
+                    ? `Filtros guiados: ${[form.city, form.state, form.segment].filter(Boolean).join(" / ")}.`
+                    : "Sem filtros: o banco 24h vai escolher praças automaticamente."}
+                </p>
+              </div>
+              <div>
+                <span>Escolha atual do sistema</span>
+                <strong>{selectedWorkLabel}</strong>
+                <p>Motivo: {autonomousReasonLabel(autonomousStrategy?.reason)}.</p>
+              </div>
+              <div className={styles.strategyActions}>
+                <button type="button" data-active={hasGuidedFilters ? "true" : "false"} onClick={requestGuidedFilters}>
+                  Usar filtros guiados
+                </button>
+                <button type="button" data-active={!hasGuidedFilters ? "true" : "false"} onClick={clearGuidedFilters}>
+                  Deixar sistema escolher sozinho
+                </button>
+              </div>
+            </div>
+            {!hasGuidedFilters ? (
+              <p className={styles.strategyHint}>Sem filtros: o banco 24h vai escolher praças automaticamente.</p>
+            ) : null}
+            <div className={styles.campaignForm}>
+              <div className={styles.campaignRow}>
+                <HbxStateCityPicker
+                  state={form.state}
+                  city={form.city}
+                  onStateChange={(value) => setForm((current) => ({ ...current, state: value, city: "" }))}
+                  onCityChange={(value) => setForm((current) => ({ ...current, city: value }))}
+                  allowAllCities
+                />
+              </div>
+              <div className={styles.campaignRow}>
+                <HbxSegmentCombobox
+                  value={form.segment}
+                  onChange={(value) => setForm((current) => ({ ...current, segment: value }))}
+                  placeholder="Todos os segmentos"
+                  helperText="Deixe em branco para o banco varrer segmentos amplos."
+                />
+                <HbxTargetTypeSelector
+                  value={form.targetType}
+                  onChange={(value) => setForm((current) => ({ ...current, targetType: value as TargetType }))}
+                  allowedTypes={["pj", "pf", "both"]}
+                />
+              </div>
+            </div>
+            <button type="button" className={styles.createCampaignButton} onClick={() => void createMassDataCampaign()} disabled={saving}>
+              {form.state || form.city || form.segment ? "Criar fila guiada" : "Criar fila automática"}
+            </button>
           </div>
         </section>
 
@@ -698,6 +927,9 @@ export default function MasterWebscrapingClientPage() {
                   <span>Batches <strong>{metric(engine.batches)}</strong></span>
                   <span>Duplicados/Rejeitados <strong>{metric(engine.duplicates)} / {metric(engine.rejected)}</strong></span>
                   <span>Última atividade <strong>{formatDateTime(engine.lastActivityAt)}</strong></span>
+                  {engine.cooldownUntil ? <span>Cooldown até <strong>{formatDateTime(engine.cooldownUntil)}</strong></span> : null}
+                  {engine.pausedUntil ? <span>Pausado até <strong>{formatDateTime(engine.pausedUntil)}</strong></span> : null}
+                  {engine.status === "offline" ? <span>Estado <strong>Offline</strong></span> : null}
                 </div>
                 <div className={styles.engineActions}>
                   {engine.status === "paused" || engine.manualPaused || engine.pausedUntil ? (
@@ -734,234 +966,6 @@ export default function MasterWebscrapingClientPage() {
         <div className={styles.economyNotice}>
           Pausar no painel impede uso na fila, mas não desliga o container. Para economizar RAM, reduza HBX_ENGINE_COUNT ou pare os containers.
         </div>
-
-        <section className={styles.smartPanel} aria-label="Painel de banco de dados dos motores">
-          <div className={styles.cardTitle}>
-            <span>Painel do banco</span>
-            <strong>{clientSearchActive ? "Coleta ativa" : Number(dashboard?.summary.activeQueue || 0) > 0 ? "Fila armada" : "Pronto"}</strong>
-          </div>
-
-          <div className={styles.smartTabs} role="tablist" aria-label="Menus de operação">
-            {operationTabs.map((tab) => (
-              <button
-                key={tab.id}
-                type="button"
-                role="tab"
-                aria-selected={operationMode === tab.id}
-                data-active={operationMode === tab.id ? "true" : "false"}
-                onClick={() => setOperationMode(tab.id)}
-              >
-                <span>{tab.label}</span>
-                <strong>{tab.detail}</strong>
-              </button>
-            ))}
-          </div>
-
-          <div className={styles.smartLayout}>
-            <aside className={styles.smartSummary}>
-              <div>
-                <span>Status</span>
-                <strong>{clientSearchActive ? "Coleta ligada" : !clientSearchArmed ? "Coleta desligada" : dashboard?.turbo.scheduledActive ? "Janela noturna" : "Standby"}</strong>
-                <p>{clientSearchActive ? `Ativa até ${formatClock(dashboard?.turbo.endsAt)}` : !clientSearchArmed ? "Use Agenda para retomar." : `Próxima janela salva até ${dashboard?.turbo.endLabel || form.endTime}`}</p>
-              </div>
-              <div>
-                <span>Fila ativa</span>
-                <strong>{metric(dashboard?.summary.activeQueue)}</strong>
-                <p>Cards fabricados hoje: {metric(dashboard?.summary.cardsToday)}</p>
-              </div>
-              <div>
-                <span>Entrega</span>
-                <strong>Radar + Vendas</strong>
-                <p>Os motores abastecem o banco; o Radar decide se usa estoque ou aciona nova coleta.</p>
-              </div>
-            </aside>
-
-            <div className={styles.smartWorkspace}>
-              {operationMode === "search" ? (
-                <>
-                  <div className={styles.smartWorkspaceHeader}>
-                    <div>
-                      <span>Nova coleta para o banco</span>
-                      <strong>Filtros em um lugar só</strong>
-                    </div>
-                    <button
-                      type="button"
-                      className={styles.smartInlineAction}
-                      onClick={() => setOperationMode("control")}
-                    >
-                      Ligar/desligar
-                    </button>
-                  </div>
-                  <div className={styles.campaignForm}>
-                    <div className={styles.campaignRow}>
-                      <HbxStateCityPicker
-                        state={form.state}
-                        city={form.city}
-                        onStateChange={(value) => setForm((current) => ({ ...current, state: value, city: "" }))}
-                        onCityChange={(value) => setForm((current) => ({ ...current, city: value }))}
-                        allowAllCities
-                      />
-                    </div>
-                    <div className={styles.campaignRow}>
-                      <HbxSegmentCombobox
-                        value={form.segment}
-                        onChange={(value) => setForm((current) => ({ ...current, segment: value }))}
-                        placeholder="Todos os segmentos"
-                        helperText="Deixe em branco para o banco varrer segmentos amplos."
-                      />
-                      <HbxTargetTypeSelector
-                        value={form.targetType}
-                        onChange={(value) => setForm((current) => ({ ...current, targetType: value as TargetType }))}
-                        allowedTypes={["pj", "pf", "both"]}
-                      />
-                    </div>
-                    <div className={styles.campaignRow}>
-                      <label>
-                        Batch por lote
-                        <input type="number" min={1} max={20} value={form.batchSize} onChange={(event) => updateTurboConfigForm({ batchSize: clampNumber(event.target.value, 20, 1, 20) })} />
-                      </label>
-                      <label>
-                        Tentativas
-                        <input type="number" min={1} max={10} value={form.maxAttemptsPerTask} onChange={(event) => updateTurboConfigForm({ maxAttemptsPerTask: clampNumber(event.target.value, 3, 1, 10) })} />
-                      </label>
-                    </div>
-                    <div className={styles.autonomousFillBox}>
-                      <label>
-                        <input
-                          type="checkbox"
-                          checked={form.autonomousFillEnabled}
-                          onChange={(event) => updateTurboConfigForm({ autonomousFillEnabled: event.target.checked })}
-                        />
-                        <span>
-                          <strong>Inteligência para nunca parar</strong>
-                          <small>Quando a fila manual terminar, o banco escolhe novas cidades, estados e segmentos ainda sem dados puxados.</small>
-                        </span>
-                      </label>
-                      <label>
-                        Recarga automática
-                        <input
-                          type="number"
-                          min={1}
-                          max={300}
-                          value={form.autonomousFillBatchSize}
-                          onChange={(event) => updateTurboConfigForm({ autonomousFillBatchSize: clampNumber(event.target.value, 60, 1, 300) })}
-                        />
-                      </label>
-                    </div>
-                    <div className={styles.campaignRow}>
-                      <label>
-                        Horário inicial
-                        <input type="time" value={form.startTime} onChange={(event) => updateTurboConfigForm({ startTime: event.target.value })} />
-                      </label>
-                      <label>
-                        Horário final
-                        <input type="time" value={form.endTime} onChange={(event) => updateTurboConfigForm({ endTime: event.target.value })} />
-                      </label>
-                    </div>
-                    <div className={styles.campaignRow}>
-                      <label>
-                        Motores ativos
-                        <input type="number" min={1} max={MAX_HBX_ENGINE_COUNT} value={form.engineCount} onChange={(event) => updateTurboConfigForm({ engineCount: clampNumber(event.target.value, MAX_HBX_ENGINE_COUNT, 1, MAX_HBX_ENGINE_COUNT) })} />
-                      </label>
-                      <label>
-                        Intensidade
-                        <select value={form.intensity} onChange={(event) => updateTurboConfigForm({ intensity: event.target.value as Intensity })}>
-                          <option value="economico">Econômico</option>
-                          <option value="normal">Normal</option>
-                          <option value="turbo">Turbo</option>
-                        </select>
-                      </label>
-                    </div>
-                    <div className={styles.campaignRow}>
-                      <label>
-                        Memória alvo
-                        <input type="number" min={1} max={256} value={form.memoryTargetGb} onChange={(event) => updateTurboConfigForm({ memoryTargetGb: clampNumber(event.target.value, 16, 1, 256) })} />
-                      </label>
-                      <div className={styles.saveInlineBox}>
-                        <span data-dirty={turboConfigDirty ? "true" : "false"}>
-                          {turboConfigDirty ? "Configuração alterada" : "Configuração salva"}
-                        </span>
-                        <button type="button" onClick={() => void saveTurboConfig()} disabled={saving || !turboConfigDirty}>
-                          Salvar
-                        </button>
-                      </div>
-                    </div>
-                    <div className={styles.campaignHelp}>
-                      <span>Batch = quantidade por rodada</span>
-                      <span>Motor livre: deixe cidade ou segmento em branco quando quiser varredura ampla.</span>
-                      <span>Modo autônomo só entra depois que tudo que você pediu na fila for cumprido.</span>
-                    </div>
-                  </div>
-                  <button type="button" className={styles.createCampaignButton} onClick={() => void createMassDataCampaign()} disabled={saving || !form.state}>
-                    Criar fila no banco de dados
-                  </button>
-                </>
-              ) : null}
-
-              {operationMode === "control" ? (
-                <>
-                  <div className={styles.smartWorkspaceHeader}>
-                    <div>
-                      <span>Controle de coleta</span>
-                      <strong>{clientSearchActive ? `Ligada até ${formatClock(dashboard?.turbo.endsAt)}` : "Pronto para ligar"}</strong>
-                    </div>
-                  </div>
-                  <div className={styles.smartActionGrid}>
-                    <button type="button" data-tone="start" onClick={() => void activateForcedTurbo()} disabled={saving}>
-                      <span>Ligar coleta agora</span>
-                      <strong>Usa a intensidade escolhida até {form.endTime}</strong>
-                    </button>
-                    <button type="button" data-tone="stop" onClick={() => void deactivateForcedTurbo()} disabled={saving || !clientSearchArmed}>
-                      <span>Desligar coleta</span>
-                      <strong>Pausa a janela salva e a coleta forçada</strong>
-                    </button>
-                    <button type="button" data-tone="save" onClick={() => void saveTurboConfig()} disabled={saving || !turboConfigDirty}>
-                      <span>Salvar configuração</span>
-                      <strong>{turboConfigDirty ? "Há alterações" : "Tudo salvo"}</strong>
-                    </button>
-                  </div>
-                  <div className={styles.smartFacts}>
-                    <span>Início <strong>{form.startTime}</strong></span>
-                    <span>Fim <strong>{form.endTime}</strong></span>
-                    <span>Motores <strong>{metric(form.engineCount)}</strong></span>
-                    <span>Intensidade <strong>{form.intensity}</strong></span>
-                  </div>
-                </>
-              ) : null}
-
-              {operationMode === "engines" ? (
-                <>
-                  <div className={styles.smartWorkspaceHeader}>
-                    <div>
-                      <span>Controle rápido dos motores</span>
-                      <strong>{metric(engineStats.running)} rodando</strong>
-                    </div>
-                  </div>
-                  <div className={styles.smartEngineList}>
-                    {engines.slice(0, 8).map((engine) => {
-                      const paused = engine.status === "paused" || engine.manualPaused || engine.pausedUntil;
-                      return (
-                        <article key={engine.id} data-status={engine.status}>
-                          <div>
-                            <span>{engine.shortLabel || engine.label}</span>
-                            <strong>{statusTone(engine.status)}</strong>
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => void updateEnginePause(engine, paused ? "resume" : "pause")}
-                            disabled={saving}
-                          >
-                            {paused ? "Retomar" : "Pausar"}
-                          </button>
-                        </article>
-                      );
-                    })}
-                  </div>
-                </>
-              ) : null}
-            </div>
-          </div>
-        </section>
 
         <section className={styles.mainGrid}>
           <aside className={styles.diagnosticsCard}>
@@ -1048,6 +1052,36 @@ export default function MasterWebscrapingClientPage() {
               <div className={styles.emptyState}>
                 <strong>Nenhum card gravado ainda</strong>
                 <p>Quando os motores salvarem registros reais no banco, Vendas e Atendimento recebem automaticamente.</p>
+              </div>
+            )}
+          </article>
+
+          <article className={styles.productionCard}>
+            <div className={styles.cardTitle}>
+              <span>Campanhas e fila</span>
+              <strong>{dashboard?.campaigns?.length || 0}</strong>
+            </div>
+            {(dashboard?.campaigns?.length || 0) > 0 ? (
+              <div className={styles.campaignList}>
+                {dashboard?.campaigns?.slice(0, 8).map((campaign) => (
+                  <div key={campaign.id} className={styles.campaignItem} data-status={campaign.status || "queued"}>
+                    <div>
+                      <strong>{[campaign.city, campaign.state].filter(Boolean).join(" / ") || "Todas as cidades"}</strong>
+                      <span>{campaign.segment || "Segmentos amplos"} · {campaign.targetType || "pj"}</span>
+                    </div>
+                    <div>
+                      <span>{campaign.progressMessage || campaign.lastErrorMessage || "Fila aguardando próximo lote."}</span>
+                      <small>
+                        {metric(campaign.approvedCount)} aprovados · {metric(campaign.foundCount)} encontrados · tentativa {metric(campaign.currentAttempt)}/{metric(campaign.maxAttempts)}
+                      </small>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className={styles.emptyState}>
+                <strong>Nenhuma campanha ativa</strong>
+                <p>Crie uma fila no painel superior para o banco começar a abastecer a produção.</p>
               </div>
             )}
           </article>

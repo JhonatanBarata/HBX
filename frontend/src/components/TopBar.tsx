@@ -267,12 +267,14 @@ type TopBarIncomingPopup = {
 
 type BillboardSlide = {
   id: string;
-  kind?: "status" | "engines";
+  kind?: "status" | "engines" | "nightFactoryReward";
   eyebrow: string;
   title: string;
   description: string;
   phase: "idle" | "loading" | "success" | "warning";
   source?: string | null;
+  href?: string | null;
+  ctaLabel?: string | null;
   isTheater?: boolean;
   progress?: number | null;
   metrics?: TopbarProgressMetric[];
@@ -292,6 +294,24 @@ type TopbarOperationalTile = {
 };
 type TopbarHostingerVital = TopbarOperationalTile & {
   source?: string | null;
+};
+
+type NightFactoryClaimStatusPayload = {
+  eligible?: boolean;
+  alreadyClaimed?: boolean;
+  alreadyClaimedInWindow?: boolean;
+  availableCount?: number;
+  minimumRequired?: number;
+  nextAvailableAt?: string | null;
+  secondsUntilNextClaim?: number;
+  nonCumulative?: boolean;
+  rewardSize?: number;
+  reason?: "cooldown" | "insufficient_leads" | "storage_unavailable" | null;
+  headline?: string;
+  title?: string;
+  description?: string;
+  ctaLabel?: string;
+  href?: string;
 };
 
 type HbxPrefetchWindow = Window & {
@@ -777,6 +797,84 @@ const HBX_TOPBAR_POLISH_CSS = `
   .hbx-command-billboard__feed span { display: grid; gap: 1px; padding: 7px 8px; border-radius: 13px; min-width: 0; }
   .hbx-command-billboard__feed strong, .hbx-command-billboard__feed small { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
+  .hbx-command-billboard--reward {
+    border-color: color-mix(in srgb, var(--success, var(--brand, #10b981)) 54%, var(--line, rgba(148,163,184,.24)));
+    background:
+      radial-gradient(circle at 12% 10%, color-mix(in srgb, var(--success, var(--brand, #10b981)) 20%, transparent), transparent 34%),
+      radial-gradient(circle at 90% 0%, color-mix(in srgb, var(--button-accent, var(--brand, #0ea5e9)) 16%, transparent), transparent 30%),
+      linear-gradient(180deg, color-mix(in srgb, var(--surface-raised, #fff) 96%, transparent), color-mix(in srgb, var(--surface-soft, #f8fafc) 94%, transparent));
+  }
+  .hbx-command-reward,
+  .hbx-command-reward__main,
+  .hbx-command-reward__slots { position: relative; z-index: 1; }
+  .hbx-command-reward { display: grid; gap: 10px; }
+  .hbx-command-reward__main {
+    display: grid;
+    grid-template-columns: minmax(108px, auto) minmax(0, 1fr) auto;
+    gap: 10px;
+    align-items: center;
+  }
+  .hbx-command-reward__badge,
+  .hbx-command-reward__cta {
+    min-height: 34px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 999px;
+    border: 1px solid color-mix(in srgb, var(--success, var(--brand, #10b981)) 34%, var(--line, rgba(148,163,184,.22)));
+    background: color-mix(in srgb, var(--success, var(--brand, #10b981)) 11%, var(--surface-raised, #fff));
+    color: color-mix(in srgb, var(--success, var(--brand, #10b981)) 78%, var(--foreground, #0f172a));
+    padding: 0 11px;
+    font-size: 10px;
+    font-weight: 950;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+  .hbx-command-reward__cta {
+    background: linear-gradient(135deg, var(--brand, #10b981), var(--button-accent, #0ea5e9));
+    color: var(--brand-contrast, #fff);
+    letter-spacing: 0;
+    text-transform: none;
+    box-shadow: 0 16px 30px -22px var(--brand, #10b981);
+  }
+  .hbx-command-reward__main strong {
+    display: block;
+    color: var(--foreground, #0f172a);
+    font-size: clamp(16px, 1.35vw, 22px);
+    font-weight: 950;
+    letter-spacing: -0.035em;
+    line-height: 1.05;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .hbx-command-reward__main p {
+    margin: 3px 0 0;
+    color: var(--foreground-soft, #475569);
+    font-size: 12px;
+    font-weight: 700;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .hbx-command-reward__slots {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 8px;
+  }
+  .hbx-command-reward__slots i {
+    min-height: 20px;
+    border-radius: 999px;
+    border: 1px solid color-mix(in srgb, var(--success, var(--brand, #10b981)) 36%, var(--line, rgba(148,163,184,.22)));
+    background:
+      radial-gradient(circle at 30% 28%, color-mix(in srgb, var(--surface-raised, #fff) 80%, transparent), transparent 28%),
+      linear-gradient(135deg, var(--success, var(--brand, #10b981)), var(--button-accent, #0ea5e9));
+    box-shadow:
+      0 0 0 3px color-mix(in srgb, var(--success, var(--brand, #10b981)) 10%, transparent),
+      0 12px 22px -18px color-mix(in srgb, var(--success, var(--brand, #10b981)) 80%, transparent);
+  }
+
   .hbx-command-engine-map { height: 100%; }
   .hbx-command-engines--billboard { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; height: 100%; }
   .hbx-command-engine { min-width: 0; display: flex; flex-direction: column; gap: 8px; padding: 10px; border-radius: 18px; border: 1px solid color-mix(in srgb, var(--engine-tone-color, var(--brand, #10b981)) 28%, var(--line, rgba(148,163,184,.2))); background: radial-gradient(circle at 20% 0%, color-mix(in srgb, var(--engine-tone-color, #10b981) 12%, transparent), transparent 42%), color-mix(in srgb, var(--surface-raised, #fff) 94%, transparent); box-shadow: var(--shadow-inset, inset 0 1px 0 rgba(255,255,255,.72)); }
@@ -822,6 +920,9 @@ const HBX_TOPBAR_POLISH_CSS = `
     .app-topbar__inner--controlCenter { grid-template-columns: 1fr; }
     .hbx-command-engines--billboard { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .hbx-command-kpis--billboard { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .hbx-command-reward__main { grid-template-columns: 1fr; align-items: stretch; }
+    .hbx-command-reward__badge,
+    .hbx-command-reward__cta { width: fit-content; }
     .hbx-command-billboard__feed, .hbx-command-billboard__steps, .hbx-command-billboard__metrics { grid-template-columns: 1fr; }
   }
 `;
@@ -1154,6 +1255,7 @@ export default function TopBar() {
   const [topbarProgress, setTopbarProgress] = useState<TopbarProgressState | null>(null);
   const [billboardSlideIndex, setBillboardSlideIndex] = useState(0);
   const [billboardPaused, setBillboardPaused] = useState(false);
+  const [nightFactoryReward, setNightFactoryReward] = useState<NightFactoryClaimStatusPayload | null>(null);
   const [scrapingEngines, setScrapingEngines] = useState<ScrapingEngineStatusPayload | null>(null);
   const [scrapingEngineStatusMessage, setScrapingEngineStatusMessage] = useState<string | null>(null);
   const [hbxGaugeBooting, setHbxGaugeBooting] = useState(true);
@@ -2049,6 +2151,7 @@ export default function TopBar() {
       setRecoveryPendingHumanCount(0);
       setAtendimentoPendingHumanCount(0);
       setSupportHasInternalChat(null);
+      setNightFactoryReward(null);
       setStorageUserId(null);
       if (typeof window !== "undefined") {
         delete (window as HbxPrefetchWindow).__hbx_prefetch;
@@ -2119,6 +2222,33 @@ export default function TopBar() {
       window.removeEventListener(MODULES_CHANGED_EVENT, handleModulesChanged);
     };
   }, [authenticated, isMasterWebscrapingRoute, refreshMasterAwareState, refreshOperationalStatus, setStorageUserId, showMasterContextToast]);
+
+  useEffect(() => {
+    if (authenticated !== true || !user) {
+      setNightFactoryReward(null);
+      return;
+    }
+
+    let mounted = true;
+    const loadNightFactoryReward = () => {
+      apiFetch<NightFactoryClaimStatusPayload>("/night-factory/claim-status", { requireAuth: true, timeoutMs: 9000 })
+        .then((payload) => {
+          if (!mounted) return;
+          setNightFactoryReward(payload?.eligible ? payload : null);
+        })
+        .catch(() => {
+          if (mounted) setNightFactoryReward(null);
+        });
+    };
+
+    loadNightFactoryReward();
+    window.addEventListener("night-factory-reward-changed", loadNightFactoryReward);
+
+    return () => {
+      mounted = false;
+      window.removeEventListener("night-factory-reward-changed", loadNightFactoryReward);
+    };
+  }, [authenticated, user?.id, user?.company?.id, user?.masterContext?.active, user?.masterContext?.companyId]);
 
   useEffect(() => {
     setStorageUserId(user?.id ?? null);
@@ -3057,6 +3187,11 @@ export default function TopBar() {
       return;
     }
 
+    if (slide.source === "night-factory-reward" || slide.kind === "nightFactoryReward") {
+      router.push(slide.href || "/night-factory");
+      return;
+    }
+
     if (slide.source === "queue") {
       handleQueueShortcut(atendimentoPendingHumanCount > 0 ? "atendimento" : "recovery");
       return;
@@ -3394,6 +3529,26 @@ export default function TopBar() {
       ],
     });
 
+    if (nightFactoryReward?.eligible) {
+      slides.push({
+        id: `night-factory-reward:${nightFactoryReward.availableCount || 5}`,
+        kind: "nightFactoryReward",
+        eyebrow: "🎁 Night Factory",
+        title: "5 leads premium liberados",
+        description: "Recompensa diária disponível",
+        phase: "success",
+        source: "night-factory-reward",
+        href: nightFactoryReward.href || "/night-factory",
+        ctaLabel: nightFactoryReward.ctaLabel || "Resgatar recompensa",
+        progress: 100,
+        metrics: [
+          { label: "Leads", value: `${nightFactoryReward.rewardSize || nightFactoryReward.minimumRequired || 5}/${nightFactoryReward.rewardSize || nightFactoryReward.minimumRequired || 5}` },
+          { label: "Uso", value: "Diário" },
+          { label: "Score", value: "Premium" },
+        ],
+      });
+    }
+
     if (incomingPopup) {
       slides.push({
         id: `incoming:${incomingPopup.id}`,
@@ -3494,6 +3649,7 @@ export default function TopBar() {
     hbxUsageAverage,
     incomingPopup,
     masterContextToast,
+    nightFactoryReward,
     operationalSummaryMessage,
     pendingCheckoutLocked,
     pendingHumanCount,
@@ -3970,7 +4126,7 @@ export default function TopBar() {
             <div className="hbx-command-center__body">
               <article
                 key={activeBillboardSlide.id}
-                className={`hbx-command-billboard${activeBillboardSlide.kind === "engines" ? " hbx-command-billboard--engines" : ""}`}
+                className={`hbx-command-billboard${activeBillboardSlide.kind === "engines" ? " hbx-command-billboard--engines" : ""}${activeBillboardSlide.kind === "nightFactoryReward" ? " hbx-command-billboard--reward" : ""}`}
                 data-phase={activeBillboardSlide.phase}
                 data-theater={activeBillboardSlide.isTheater ? "true" : "false"}
                 data-paused={billboardPaused ? "true" : "false"}
@@ -3996,6 +4152,30 @@ export default function TopBar() {
                   <div className="hbx-command-engine-map" aria-label="Mapa operacional dos motores HBX">
                     <div className="hbx-command-engines hbx-command-engines--billboard" aria-label="Motores HBX agrupados">
                       {hbxEngineGroupCards}
+                    </div>
+                  </div>
+                ) : activeBillboardSlide.kind === "nightFactoryReward" ? (
+                  <div className="hbx-command-reward" aria-label="Recompensa Night Factory">
+                    <div className="hbx-command-reward__main">
+                      <span className="hbx-command-reward__badge">{activeBillboardSlide.eyebrow}</span>
+                      <div>
+                        <strong>{activeBillboardSlide.title}</strong>
+                        <p>{activeBillboardSlide.description}</p>
+                      </div>
+                      <span className="hbx-command-reward__cta">{activeBillboardSlide.ctaLabel || "Resgatar recompensa"}</span>
+                    </div>
+                    <div className="hbx-command-reward__slots" aria-hidden="true">
+                      {Array.from({ length: 5 }).map((_, index) => (
+                        <i key={index} />
+                      ))}
+                    </div>
+                    <div className="hbx-command-billboard__metrics">
+                      {(activeBillboardSlide.metrics || []).slice(0, 3).map((metricItem) => (
+                        <span key={`${metricItem.label}:${metricItem.value}`}>
+                          {metricItem.label}
+                          <strong>{metricItem.value}</strong>
+                        </span>
+                      ))}
                     </div>
                   </div>
                 ) : (

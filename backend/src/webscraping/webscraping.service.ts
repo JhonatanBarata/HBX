@@ -15,7 +15,7 @@ import * as XLSX from 'xlsx';
 import { probeWebscrapingRuntime, type WebscrapingRuntimeDiagnostic } from '../modules/webscraping-runtime.util';
 import { PrismaService } from '../prisma/prisma.service';
 import { VendasService } from '../vendas/vendas.service';
-import { buildLocalHbxEngineUrls, getConfiguredHbxEngineCount, HbxEnginePoolService, isHbxEngineLocalhostUrl, type HbxEngineLease } from './hbx-engine-pool.service';
+import { buildLocalHbxEngineUrls, getConfiguredHbxEngineCount, HbxEnginePoolService, isHbxEngineLocalhostUrl, type HbxEngineLease, type HbxEnginePurpose } from './hbx-engine-pool.service';
 import {
   COMMERCIAL_PLAN_QUOTAS,
   COMMERCIAL_PLAN_KEYS,
@@ -386,6 +386,7 @@ type SearchExecutionOptions = {
   recordUsage?: boolean;
   hbxEngineUrl?: string;
   usageEventType?: UsageEventType;
+  purpose?: HbxEnginePurpose;
 };
 
 type NormalizeSearchInputOptions = {
@@ -504,6 +505,29 @@ type WebscrapingOperationalConfigInput = {
 
 type MasterMassDataCampaignInput = RadarCampaignInput & WebscrapingOperationalConfigInput & {
   companyId?: number | string | null;
+};
+
+type AutonomousMassDataStrategyMode = 'guided' | 'automatic';
+type AutonomousMassDataWorkReason = 'guided_filter' | 'low_stock' | 'low_duplicate_recent' | 'unexplored' | 'fallback_national';
+
+type AutonomousMassDataWork = {
+  mode: AutonomousMassDataStrategyMode;
+  state: string;
+  city: string;
+  segment: string;
+  targetType: HbxTargetType;
+  desiredStock: number;
+  minimumStock: number;
+  reason: AutonomousMassDataWorkReason;
+  stockCount: number;
+};
+
+type AutonomousMassDataCandidate = AutonomousMassDataWork & {
+  key: string;
+  taskExists: boolean;
+  duplicateRatio: number;
+  explored: boolean;
+  lastWorkedAt: Date | null;
 };
 
 type NormalizedRadarFilters = {
@@ -748,6 +772,18 @@ function normalizeEngine(value: unknown): WebscrapingEngine {
   return String(value || '').trim().toLowerCase() === 'hbx' ? 'hbx' : 'google';
 }
 
+function normalizeEnginePurpose(value: unknown): HbxEnginePurpose {
+  const purpose = String(value || '').trim().toLowerCase();
+  if (purpose === 'radar_pull' || purpose === 'vendas' || purpose === 'autonomous' || purpose === 'mass_data') {
+    return purpose;
+  }
+  return 'manual';
+}
+
+function isAutomaticEnginePurpose(purpose: HbxEnginePurpose) {
+  return purpose === 'autonomous' || purpose === 'mass_data';
+}
+
 function normalizeTargetType(value: unknown): HbxTargetType {
   const targetType = String(value || '').trim().toLowerCase();
   if (targetType === 'pf' || targetType === 'agenda_pf') return targetType;
@@ -830,6 +866,11 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       this.hbxEnginePool = new HbxEnginePoolService(this.prisma);
     }
     return this.hbxEnginePool;
+  }
+
+  private async canAcquireHbxEngineFromPool() {
+    return Boolean((this.prisma as any).hbxEngineLock?.updateMany)
+      && await this.prisma.hasTable('HbxEngineLock').catch(() => false);
   }
 
   async getRuntime(user: any): Promise<WebscrapingRuntimeResponse> {
@@ -1120,7 +1161,16 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     options: SearchExecutionOptions = {},
   ): Promise<WebscrapingSearchResponse> {
     const context = this.resolveContext(user);
-    const normalized = this.normalizeSearchInput(input);
+    const purpose = normalizeEnginePurpose(options.purpose);
+    const requestedEngine = normalizeEngine(input?.engine);
+    const safeInput: SearchContactsInput = isAutomaticEnginePurpose(purpose) && requestedEngine === 'google'
+      ? { ...input, engine: 'hbx' }
+      : input;
+    if (safeInput !== input) {
+      this.logger.warn(`[engine-scheduler] google blocked for ${purpose} purpose`);
+      this.logger.warn('[autonomous-bank] skipped google for autonomous bank');
+    }
+    const normalized = this.normalizeSearchInput(safeInput);
     this.logSearchSelection(normalized);
     const hasExplicitExclusions = normalized.excludePhoneDigits.length > 0;
     const radarEnabled = !options.skipRadarLookup && normalized.targetType === 'pj'
@@ -1173,18 +1223,36 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         ...normalized.excludePhoneDigits,
       ]);
       let fetchedCount = 0;
+      let acquiredLease: HbxEngineLease | null = null;
+      let hbxEngineUrl = options.hbxEngineUrl;
 
       let hbxResults: WebscrapingContactResult[] = [];
       let hbxStatus: SearchRunStatus = 'completed';
       let hbxMessage: string | null = null;
       let hbxError: unknown = null;
       try {
-        const hbxOutput = await this.searchHbxEngine(normalized, Array.from(seenPhones), options.hbxEngineUrl);
+        if (!hbxEngineUrl && await this.canAcquireHbxEngineFromPool()) {
+          acquiredLease = await this.getEnginePool().acquireEngine(
+            `sync:${purpose}:${context.companyId}:${context.userId}:${Date.now()}`,
+            context.companyId,
+            context.userId,
+            { purpose },
+          );
+          if (!acquiredLease) {
+            throw new ServiceUnavailableException('Aguardando motor HBX livre.');
+          }
+          hbxEngineUrl = acquiredLease.url;
+        }
+        const hbxOutput = await this.searchHbxEngine(normalized, Array.from(seenPhones), hbxEngineUrl);
         hbxResults = hbxOutput.results;
         hbxStatus = hbxOutput.status;
         hbxMessage = hbxOutput.message;
       } catch (error) {
         hbxError = error;
+      } finally {
+        if (acquiredLease) {
+          await this.getEnginePool().releaseEngine(acquiredLease.engineId).catch(() => null);
+        }
       }
       for (const mapped of hbxResults) {
         if (results.length >= normalized.quantity) break;
@@ -2224,6 +2292,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
           skipRadarLookup: true,
           recordUsage: true,
           usageEventType: 'GOOGLE_EMERGENCY_EXECUTED',
+          purpose: 'manual',
         },
       );
       const incoming = Array.isArray(response.results) ? response.results : [];
@@ -2293,7 +2362,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
           run.id,
           run.companyId,
           run.userId,
-          avoidEngineId || undefined,
+          { avoidEngineIdOrUrl: avoidEngineId || undefined, purpose: 'manual' },
         );
         if (!lease) {
           const nextRetryAt = new Date(Date.now() + 5_000);
@@ -4059,13 +4128,14 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
 
   async listRadarLeadsForUser(user: any, input: RadarFiltersInput = {}) {
     const context = this.resolveContext(user);
-    const filters = this.normalizeRadarFilters(input);
+    const filters = this.normalizeRadarFilters({ ...input, engine: undefined });
     if (!(await this.supportsRadarPersistence())) {
       return { items: [], total: 0, facets: [], meta: { available: false, message: 'Banco do Radar ainda nao foi migrado neste ambiente.' } };
     }
     const baseFilters = { ...filters, filterKey: '', status: '' };
     const availabilityFilters = this.normalizeRadarFilters({
       ...input,
+      engine: undefined,
       city: '',
       state: '',
       segment: '',
@@ -4132,7 +4202,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
 
   async listRadarDatabaseForUser(user: any, input: RadarFiltersInput = {}) {
     const context = this.resolveContext(user);
-    const filters = this.normalizeRadarFilters(input);
+    const filters = this.normalizeRadarFilters({ ...input, engine: undefined });
     if (!(await this.supportsRadarPersistence())) {
       return {
         items: [],
@@ -4378,6 +4448,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
           skipPrivateHistory: true,
           skipTechnicalCache: true,
           recordUsage: false,
+          purpose: 'radar_pull',
         },
       );
       const mappedResults = (response.results || []).map((result) => ({
@@ -5096,15 +5167,6 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     return { cityCount: cities.length, taskCount: created, segmentCount: segments.length, targetTypeCount: targetTypes.length };
   }
 
-  private shuffleMassDataPool<T>(items: T[]) {
-    const shuffled = [...items];
-    for (let index = shuffled.length - 1; index > 0; index -= 1) {
-      const swapIndex = Math.floor(Math.random() * (index + 1));
-      [shuffled[index], shuffled[swapIndex]] = [shuffled[swapIndex], shuffled[index]];
-    }
-    return shuffled;
-  }
-
   private async listAutonomousMassDataLocations() {
     try {
       const rows = await this.loadBrazilianCities();
@@ -5121,27 +5183,99 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     return AUTONOMOUS_MASS_DATA_LOCATION_FALLBACK;
   }
 
-  private async hasMassDataCombinationAlreadyCovered(input: {
+  private deterministicHash(value: string) {
+    let hash = 2166136261;
+    for (let index = 0; index < value.length; index += 1) {
+      hash ^= value.charCodeAt(index);
+      hash = Math.imul(hash, 16777619);
+    }
+    return hash >>> 0;
+  }
+
+  private rotateMassDataPool<T>(items: T[], seed: string) {
+    if (!items.length) return [];
+    const offset = this.deterministicHash(seed) % items.length;
+    return [...items.slice(offset), ...items.slice(0, offset)];
+  }
+
+  private autonomousRotationSeed(campaign: any, suffix: string, now = new Date()) {
+    const hourBucket = now.toISOString().slice(0, 13);
+    return [
+      hourBucket,
+      campaign?.id || 'no-campaign',
+      campaign?.companyId || 'no-company',
+      campaign?.state || '',
+      campaign?.city || '',
+      campaign?.segment || '',
+      suffix,
+    ].join('|');
+  }
+
+  private isExplicitMassDataSegment(value: unknown) {
+    const normalized = normalizeLookupValue(String(value || ''));
+    return Boolean(normalized && !['segmentos internos', 'aberto', 'todos', 'todas'].includes(normalized));
+  }
+
+  private async buildAutonomousMassDataLocationPool(campaign: any, now = new Date()) {
+    const guidedState = String(campaign?.state || '').trim().toUpperCase();
+    const guidedCity = String(campaign?.city || '').trim();
+    if (guidedState && guidedCity) return [{ city: guidedCity, state: guidedState }];
+
+    if (guidedState) {
+      const cities = await this.listMassDataCities(guidedState, null).catch(() => []);
+      if (cities.length) {
+        return this.rotateMassDataPool(
+          cities.map((city) => ({ city, state: guidedState })),
+          this.autonomousRotationSeed(campaign, `state:${guidedState}`, now),
+        );
+      }
+      const fallback = AUTONOMOUS_MASS_DATA_LOCATION_FALLBACK.filter((item) => item.state === guidedState);
+      if (fallback.length) return this.rotateMassDataPool(fallback, this.autonomousRotationSeed(campaign, `fallback-state:${guidedState}`, now));
+    }
+
+    const national = await this.listAutonomousMassDataLocations();
+    const rotated = this.rotateMassDataPool(national, this.autonomousRotationSeed(campaign, 'national-location', now));
+    if (guidedCity) {
+      const cityKey = normalizeLookupValue(guidedCity);
+      const matches = rotated.filter((item) => normalizeLookupValue(item.city) === cityKey);
+      if (matches.length) return matches;
+    }
+    return rotated;
+  }
+
+  private buildAutonomousMassDataSegments(campaign: any, now = new Date()) {
+    const explicitSegment = String(campaign?.segment || '').trim();
+    const base = this.isExplicitMassDataSegment(explicitSegment)
+      ? [explicitSegment, ...MASS_DATA_INTERNAL_SEGMENTS.filter((segment) => normalizeLookupValue(segment) !== normalizeLookupValue(explicitSegment))]
+      : MASS_DATA_INTERNAL_SEGMENTS;
+    return this.rotateMassDataPool(base, this.autonomousRotationSeed(campaign, 'segment', now));
+  }
+
+  private buildAutonomousMassDataCandidateKey(input: {
     city: string;
     state: string;
     segment: string;
     targetType: HbxTargetType;
   }) {
-    const normalizedCity = normalizeLookupValue(input.city);
-    const normalizedSegment = normalizeLookupValue(input.segment);
-    const state = String(input.state || '').trim().toUpperCase();
-    const existingLead = await (this.prisma as any).radarLeadPool.findFirst({
-      where: {
-        normalizedCity,
-        state,
-        normalizedSegment,
-      },
-      select: { id: true },
-    }).catch(() => null);
-    if (existingLead) return true;
+    return [
+      String(input.state || '').trim().toUpperCase(),
+      normalizeLookupValue(input.city),
+      normalizeLookupValue(input.segment),
+      normalizeTargetType(input.targetType),
+    ].join('|');
+  }
+
+  private async hasMassDataTaskForCampaign(campaignId: string, input: {
+    city: string;
+    state: string;
+    segment: string;
+    targetType: HbxTargetType;
+  }) {
+    if (!campaignId) return false;
     const existingTask = await (this.prisma as any).webscrapingCampaignTask.findFirst({
       where: {
-        state,
+        campaignId,
+        state: String(input.state || '').trim().toUpperCase(),
         city: input.city,
         segment: input.segment,
         targetType: input.targetType,
@@ -5151,60 +5285,260 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     return Boolean(existingTask);
   }
 
+  private async getAutonomousMassDataCombinationMetrics(input: {
+    city: string;
+    state: string;
+    segment: string;
+    targetType: HbxTargetType;
+  }) {
+    const normalizedCity = normalizeLookupValue(input.city);
+    const normalizedSegment = normalizeLookupValue(input.segment);
+    const state = String(input.state || '').trim().toUpperCase();
+    const usableStockWhere = {
+      normalizedCity,
+      state,
+      normalizedSegment,
+      phoneDigits: { not: null },
+      status: { notIn: [...RADAR_PROTECTED_STATUSES, 'rejected', 'duplicate', 'hidden'] as any },
+    };
+    const [stockCount, taskHistory, recentBatch] = await Promise.all([
+      (this.prisma as any).radarLeadPool.count({ where: usableStockWhere }).catch(() => 0),
+      (this.prisma as any).webscrapingCampaignTask.findFirst({
+        where: {
+          state,
+          city: input.city,
+          segment: input.segment,
+          targetType: input.targetType,
+        },
+        orderBy: { updatedAt: 'desc' },
+        select: {
+          id: true,
+          foundCount: true,
+          duplicateCount: true,
+          rejectedCount: true,
+          updatedAt: true,
+        },
+      }).catch(() => null),
+      (this.prisma as any).webscrapingCampaignBatch.findFirst({
+        where: {
+          task: {
+            state,
+            city: input.city,
+            segment: input.segment,
+            targetType: input.targetType,
+          },
+        },
+        orderBy: { createdAt: 'desc' },
+        select: {
+          approvedCount: true,
+          duplicateCount: true,
+          rejectedCount: true,
+          createdAt: true,
+        },
+      }).catch(() => null),
+    ]);
+    const approved = safeInteger(recentBatch?.approvedCount) + safeInteger(taskHistory?.foundCount);
+    const duplicate = safeInteger(recentBatch?.duplicateCount) + safeInteger(taskHistory?.duplicateCount);
+    const rejected = safeInteger(recentBatch?.rejectedCount) + safeInteger(taskHistory?.rejectedCount);
+    const total = Math.max(1, approved + duplicate + rejected);
+    return {
+      stockCount: safeInteger(stockCount),
+      explored: Boolean(taskHistory),
+      duplicateRatio: duplicate / total,
+      lastWorkedAt: taskHistory?.updatedAt instanceof Date
+        ? taskHistory.updatedAt
+        : recentBatch?.createdAt instanceof Date
+          ? recentBatch.createdAt
+          : null,
+    };
+  }
+
+  private async rankAutonomousMassDataWorkCandidates(
+    campaign: any,
+    options: { limit?: number; excludeKeys?: Set<string>; now?: Date } = {},
+  ): Promise<AutonomousMassDataCandidate[]> {
+    const now = options.now || new Date();
+    const campaignId = String(campaign?.id || '').trim();
+    const desiredStock = clampInteger(campaign?.desiredStock || campaign?.targetTotal, 300, 20, 1000);
+    const minimumStock = Math.min(desiredStock, clampInteger(campaign?.minimumStock, 80, 1, 500));
+    const hasGuidedFilter = Boolean(
+      String(campaign?.state || '').trim()
+      || String(campaign?.city || '').trim()
+      || this.isExplicitMassDataSegment(campaign?.segment),
+    );
+    const mode: AutonomousMassDataStrategyMode = hasGuidedFilter ? 'guided' : 'automatic';
+    const locationLimit = hasGuidedFilter ? 160 : 80;
+    const candidateLimit = Math.min(Math.max(safeInteger(options.limit, 120), 20), 360);
+    const locations = (await this.buildAutonomousMassDataLocationPool(campaign, now)).slice(0, locationLimit);
+    const segments = this.buildAutonomousMassDataSegments(campaign, now);
+    const targetTypes = this.rotateMassDataPool(this.getMassDataTargetTypes(campaign?.targetType || 'pj'), this.autonomousRotationSeed(campaign, 'target-type', now));
+    const rawCandidates: Array<{ city: string; state: string; segment: string; targetType: HbxTargetType; key: string }> = [];
+    const seen = new Set<string>();
+
+    for (const location of locations) {
+      const state = String(location.state || '').trim().toUpperCase();
+      const city = String(location.city || '').trim();
+      if (!state || !city) continue;
+      for (const segment of segments) {
+        for (const targetType of targetTypes) {
+          const key = this.buildAutonomousMassDataCandidateKey({ state, city, segment, targetType });
+          if (seen.has(key) || options.excludeKeys?.has(key)) continue;
+          seen.add(key);
+          rawCandidates.push({ state, city, segment, targetType, key });
+          if (rawCandidates.length >= candidateLimit) break;
+        }
+        if (rawCandidates.length >= candidateLimit) break;
+      }
+      if (rawCandidates.length >= candidateLimit) break;
+    }
+
+    const scored: AutonomousMassDataCandidate[] = [];
+    for (const candidate of rawCandidates) {
+      const [taskExists, metrics] = await Promise.all([
+        this.hasMassDataTaskForCampaign(campaignId, candidate),
+        this.getAutonomousMassDataCombinationMetrics(candidate),
+      ]);
+      if (taskExists) continue;
+      const lowStock = metrics.stockCount < minimumStock;
+      const lowDuplicateRecent = metrics.explored && metrics.duplicateRatio <= 0.35;
+      const reason: AutonomousMassDataWorkReason = hasGuidedFilter
+        ? 'guided_filter'
+        : lowStock
+          ? 'low_stock'
+          : lowDuplicateRecent
+            ? 'low_duplicate_recent'
+            : !metrics.explored
+              ? 'unexplored'
+              : 'fallback_national';
+      scored.push({
+        ...candidate,
+        mode,
+        desiredStock,
+        minimumStock,
+        reason,
+        stockCount: metrics.stockCount,
+        taskExists,
+        duplicateRatio: metrics.duplicateRatio,
+        explored: metrics.explored,
+        lastWorkedAt: metrics.lastWorkedAt,
+      });
+    }
+
+    return scored.sort((left, right) => {
+      const reasonRank: Record<AutonomousMassDataWorkReason, number> = {
+        guided_filter: 0,
+        low_stock: 0,
+        low_duplicate_recent: 1,
+        unexplored: 2,
+        fallback_national: 3,
+      };
+      const leftRank = reasonRank[left.reason] ?? 3;
+      const rightRank = reasonRank[right.reason] ?? 3;
+      if (leftRank !== rightRank) return leftRank - rightRank;
+      if (left.stockCount !== right.stockCount) return left.stockCount - right.stockCount;
+      if (left.duplicateRatio !== right.duplicateRatio) return left.duplicateRatio - right.duplicateRatio;
+      const leftWorked = left.lastWorkedAt ? left.lastWorkedAt.getTime() : 0;
+      const rightWorked = right.lastWorkedAt ? right.lastWorkedAt.getTime() : 0;
+      if (leftWorked !== rightWorked) return leftWorked - rightWorked;
+      return left.key.localeCompare(right.key);
+    });
+  }
+
+  private async resolveAutonomousMassDataWork(
+    campaign: any = {},
+    options: { excludeKeys?: Set<string>; now?: Date; log?: boolean; limit?: number } = {},
+  ): Promise<AutonomousMassDataWork> {
+    const candidates = await this.rankAutonomousMassDataWorkCandidates(campaign, {
+      limit: options.limit || 120,
+      excludeKeys: options.excludeKeys,
+      now: options.now,
+    });
+    const selected = candidates[0];
+    if (selected) {
+      const work: AutonomousMassDataWork = {
+        mode: selected.mode,
+        state: selected.state,
+        city: selected.city,
+        segment: selected.segment,
+        targetType: selected.targetType,
+        desiredStock: selected.desiredStock,
+        minimumStock: selected.minimumStock,
+        reason: selected.reason,
+        stockCount: selected.stockCount,
+      };
+      if (options.log) {
+        const prefix = work.mode === 'guided' ? 'guided work selected' : 'automatic work selected';
+        this.logger.log(`[autonomous-bank] ${prefix} state=${work.state} city=${work.city} segment=${work.segment} reason=${work.reason}`);
+        this.logger.log('[autonomous-bank] skipped google for autonomous bank');
+      }
+      return work;
+    }
+
+    const fallback = this.rotateMassDataPool(AUTONOMOUS_MASS_DATA_LOCATION_FALLBACK, this.autonomousRotationSeed(campaign, 'empty-fallback', options.now || new Date()))[0]
+      || AUTONOMOUS_MASS_DATA_LOCATION_FALLBACK[0];
+    const segment = this.buildAutonomousMassDataSegments(campaign, options.now || new Date())[0] || MASS_DATA_INTERNAL_SEGMENTS[0];
+    const work: AutonomousMassDataWork = {
+      mode: this.isExplicitMassDataSegment(campaign?.segment) || String(campaign?.state || '').trim() || String(campaign?.city || '').trim() ? 'guided' : 'automatic',
+      state: fallback.state,
+      city: fallback.city,
+      segment,
+      targetType: this.getMassDataTargetTypes(campaign?.targetType || 'pj')[0] || 'pj',
+      desiredStock: 300,
+      minimumStock: 80,
+      reason: 'fallback_national',
+      stockCount: 0,
+    };
+    if (options.log) {
+      const prefix = work.mode === 'guided' ? 'guided work selected' : 'automatic work selected';
+      this.logger.log(`[autonomous-bank] ${prefix} state=${work.state} city=${work.city} segment=${work.segment} reason=${work.reason}`);
+      this.logger.log('[autonomous-bank] skipped google for autonomous bank');
+    }
+    return work;
+  }
+
   private async createAutonomousMassDataTasks(campaign: any, desiredCount: number) {
     const campaignId = String(campaign?.id || '').trim();
     if (!campaignId) return { created: 0, checked: 0 };
     const maxAttempts = Math.max(1, safeInteger(campaign?.maxAttempts, 3));
-    const locations = this.shuffleMassDataPool(await this.listAutonomousMassDataLocations());
-    const explicitSegment = String(campaign?.segment || '').trim();
-    const segments = this.shuffleMassDataPool([
-      ...(explicitSegment && !['segmentos internos', 'aberto', 'todos', 'todas'].includes(normalizeLookupValue(explicitSegment)) ? [explicitSegment] : []),
-      ...MASS_DATA_INTERNAL_SEGMENTS.filter((segment) => normalizeLookupValue(segment) !== normalizeLookupValue(explicitSegment)),
-    ]);
-    const targetTypes = this.shuffleMassDataPool(this.getMassDataTargetTypes(campaign?.targetType || 'pj'));
     const limit = Math.min(Math.max(safeInteger(desiredCount, AUTONOMOUS_MASS_DATA_DEFAULT_TASKS), 1), AUTONOMOUS_MASS_DATA_MAX_TASKS);
+    const ranked = await this.rankAutonomousMassDataWorkCandidates(campaign, { limit: Math.min(360, Math.max(80, limit * 3)) });
+    const selectedForLog = ranked[0] || await this.resolveAutonomousMassDataWork(campaign, { log: false });
     let created = 0;
-    let checked = 0;
+    let checked = ranked.length;
 
-    for (const location of locations) {
-      for (const segment of segments) {
-        for (const targetType of targetTypes) {
-          if (created >= limit) return { created, checked };
-          checked += 1;
-          const covered = await this.hasMassDataCombinationAlreadyCovered({
-            city: location.city,
-            state: location.state,
-            segment,
-            targetType,
-          });
-          if (covered) continue;
-          const query = this.buildMassDataTaskQuery(location.city, location.state, segment, 1);
-          const inserted = await (this.prisma as any).webscrapingCampaignTask.upsert({
-            where: {
-              campaignId_state_city_segment_targetType: {
-                campaignId,
-                state: location.state,
-                city: location.city,
-                segment,
-                targetType,
-              },
-            },
-            create: {
-              campaignId,
-              state: location.state,
-              city: location.city,
-              segment,
-              targetType,
-              query,
-              maxAttempts,
-            },
-            update: {},
-          }).catch(() => null);
-          if (inserted) created += 1;
-        }
-      }
+    for (const work of ranked) {
+      if (created >= limit) break;
+      const query = this.buildMassDataTaskQuery(work.city, work.state, work.segment, 1);
+      const inserted = await (this.prisma as any).webscrapingCampaignTask.upsert({
+        where: {
+          campaignId_state_city_segment_targetType: {
+            campaignId,
+            state: work.state,
+            city: work.city,
+            segment: work.segment,
+            targetType: work.targetType,
+          },
+        },
+        create: {
+          campaignId,
+          state: work.state,
+          city: work.city,
+          segment: work.segment,
+          targetType: work.targetType,
+          query,
+          maxAttempts,
+        },
+        update: {},
+      }).catch(() => null);
+      if (inserted) created += 1;
     }
 
+    if (created > 0 && selectedForLog) {
+      const mode = selectedForLog.mode || 'automatic';
+      const prefix = mode === 'guided' ? 'guided work selected' : 'automatic work selected';
+      this.logger.log(`[autonomous-bank] ${prefix} state=${selectedForLog.state} city=${selectedForLog.city} segment=${selectedForLog.segment} reason=${selectedForLog.reason}`);
+      this.logger.log('[autonomous-bank] skipped google for autonomous bank');
+    }
     return { created, checked };
   }
 
@@ -5669,6 +6003,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       return null;
     });
     const capacity = engines?.capacity || null;
+    const schedulerStatus = capacity?.scheduler || await this.getEnginePool().getSchedulerStatus().catch(() => null);
     const hbxEngines = (engines?.engines || []).filter((engine: any) => String(engine.id || '').startsWith('hbx-engine'));
     const configuredHbxEngines = hbxEngines.filter((engine: any) => engine.configured);
     const isPausedEngine = (engine: any) => {
@@ -5942,6 +6277,13 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         createdAt: now.toISOString(),
       })),
     ].slice(0, 8);
+    const autonomousWork = hasTask
+      ? await withDatabaseGuard<AutonomousMassDataWork | null>(
+          'Estratégia autônoma',
+          null,
+          () => this.resolveAutonomousMassDataWork((campaigns as any[])[0] || {}, { now, limit: 40 }),
+        )
+      : null;
 
     return {
       generatedAt: now.toISOString(),
@@ -5967,6 +6309,21 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         pausedEngines: pausedHbxEngines.length,
         offlineEngines: offlineHbxEngines.length,
         totalEngines: totalConfiguredEngines,
+      },
+      scheduler: {
+        manualReservedEngines: safeInteger(schedulerStatus?.manualReservedEngines),
+        automaticAllowedEngines: safeInteger(schedulerStatus?.automaticAllowedEngines),
+        memoryPressurePercent: safeInteger(schedulerStatus?.memoryPressurePercent),
+        googleMode: 'manual_only',
+        manualDemandActive: Boolean(schedulerStatus?.manualDemandActive),
+        productionMode: schedulerStatus?.productionMode || 'full',
+      },
+      autonomousStrategy: {
+        mode: autonomousWork?.mode || 'automatic',
+        selectedState: autonomousWork?.state || null,
+        selectedCity: autonomousWork?.city || null,
+        selectedSegment: autonomousWork?.segment || null,
+        reason: autonomousWork?.reason || 'fallback_national',
       },
       engines: dashboardEngines,
       production: (productionRows as any[]).map((row: any) => {
@@ -6015,6 +6372,38 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
+  private async ensureAutonomousMassDataCampaign(user: any, config: any) {
+    if (!config?.enabled || !config?.autonomousFillEnabled) return null;
+    if (!(await this.supportsMassDataCampaignPersistence())) return null;
+    const context = await this.resolveMasterCampaignContext(user, null);
+    const active = await (this.prisma as any).webscrapingCampaign.findFirst({
+      where: {
+        companyId: context.companyId,
+        mode: 'mass_data',
+        status: { in: ['queued', 'running', 'sleeping', 'partial_error'] },
+      },
+      orderBy: { updatedAt: 'desc' },
+      select: { id: true },
+    }).catch(() => null);
+    if (active) return active;
+    const campaign = await this.createRadarCampaignForUser(context.user, {
+      mode: 'mass_data',
+      state: '',
+      city: '',
+      segment: '',
+      targetType: 'pj',
+      targetTotal: config.autonomousFillBatchSize || AUTONOMOUS_MASS_DATA_DEFAULT_TASKS,
+      batchSize: config.batchSize,
+      maxAttemptsPerTask: config.maxAttemptsPerTask,
+      nightOnly: true,
+      allowedStartHour: config.startHour,
+      allowedEndHour: config.endHour,
+      timezone: 'America/Sao_Paulo',
+    });
+    this.logger.log(`[autonomous-bank] automatic campaign ensured campaign=${campaign?.id || 'created'} reason=no_guided_queue`);
+    return campaign;
+  }
+
   async saveMasterTurboConfig(user: any, input: WebscrapingOperationalConfigInput = {}) {
     const saved = await this.saveOperationalConfig(Number(user?.id || 0), input);
     await (this.prisma as any).webscrapingCampaign.updateMany({
@@ -6037,6 +6426,9 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       },
       data: { nextRunAt: new Date() },
     }).catch(() => null);
+    await this.ensureAutonomousMassDataCampaign(user, saved).catch((error) => {
+      this.logger.warn(`[autonomous-bank] automatic campaign ensure failed: ${error instanceof Error ? error.message : String(error || 'erro desconhecido')}`);
+    });
     this.scheduleRadarCampaignPump(0);
     return {
       config: saved,
@@ -6284,7 +6676,6 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     if (normalized.mode === 'mass_data' && !(await this.supportsMassDataCampaignPersistence())) {
       throw new ServiceUnavailableException('Estrutura de tarefas MASSA DE DADOS ainda nao foi aplicada no banco.');
     }
-    if (normalized.mode === 'mass_data' && !normalized.state) throw new BadRequestException('Estado e obrigatorio para campanha MASSA DE DADOS.');
     if (normalized.mode !== 'mass_data' && !normalized.segment.trim()) throw new BadRequestException('Informe o nicho/segmento da campanha.');
     if (normalized.mode !== 'mass_data' && normalized.targetType !== 'pj' && (!normalized.city || !normalized.state)) {
       throw new BadRequestException('Cidade e estado sao obrigatorios para campanhas PF.');
@@ -6313,20 +6704,39 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       include: { batches: { orderBy: { createdAt: 'desc' }, take: 10 } },
     });
     if (normalized.mode === 'mass_data') {
-      const taskStats = await this.createMassDataTasks(
-        campaign.id,
-        normalized.state,
-        normalized.city || null,
-        normalized.segment || null,
-        normalized.targetType,
-        normalized.maxAttemptsPerTask,
-      );
+      const guidedByState = Boolean(normalized.state);
+      const taskStats = guidedByState
+        ? await this.createMassDataTasks(
+            campaign.id,
+            normalized.state,
+            normalized.city || null,
+            normalized.segment || null,
+            normalized.targetType,
+            normalized.maxAttemptsPerTask,
+          )
+        : await this.createAutonomousMassDataTasks(
+            {
+              ...campaign,
+              state: normalized.state || null,
+              city: normalized.city || null,
+              segment: normalized.segment || null,
+              targetType: normalized.targetType,
+              targetTotal: normalized.targetTotal,
+              maxAttempts: normalized.maxAttemptsPerTask,
+            },
+            normalized.targetTotal || AUTONOMOUS_MASS_DATA_DEFAULT_TASKS,
+          );
+      if (guidedByState) {
+        this.logger.log(`[autonomous-bank] guided work selected state=${normalized.state} city=${normalized.city || '*'} segment=${normalized.segment || 'segmentos internos'} reason=guided_filter`);
+      }
       await (this.prisma as any).webscrapingCampaign.update({
         where: { id: campaign.id },
         data: {
-          targetTotal: normalized.targetTotal || taskStats.taskCount * normalized.batchSize,
+          targetTotal: normalized.targetTotal || safeInteger((taskStats as any).taskCount || (taskStats as any).created) * normalized.batchSize,
           maxAttempts: normalized.maxAttemptsPerTask,
-          lastErrorMessage: `MASSA DE DADOS pronta: ${taskStats.cityCount} cidade(s), ${taskStats.segmentCount} isca(s), ${taskStats.targetTypeCount} tipo(s), ${taskStats.taskCount} tarefa(s).`,
+          lastErrorMessage: guidedByState
+            ? `MASSA DE DADOS pronta: ${(taskStats as any).cityCount} cidade(s), ${(taskStats as any).segmentCount} isca(s), ${(taskStats as any).targetTypeCount} tipo(s), ${(taskStats as any).taskCount} tarefa(s).`
+            : `MASSA DE DADOS autônoma pronta: ${(taskStats as any).created} tarefa(s), ${(taskStats as any).checked} combinação(ões) avaliadas.`,
         },
       }).catch(() => null);
       const reloaded = await (this.prisma as any).webscrapingCampaign.findUnique({
@@ -6410,7 +6820,10 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     if (!(await this.supportsRadarCampaignPersistence().catch(() => false))) return;
     this.radarCampaignPumpActive = true;
     try {
-      const capacity = await this.getEnginePool().getCurrentCapacityLevel().catch(() => null);
+      const [capacity, scheduler] = await Promise.all([
+        this.getEnginePool().getCurrentCapacityLevel().catch(() => null),
+        this.getEnginePool().getSchedulerStatus().catch(() => null),
+      ]);
       const maxParallel = Math.min(
         Math.max(safeInteger(capacity?.activeEngineCount, parsePositiveIntegerEnv('HBX_RADAR_MAX_PARALLEL_ENGINES', getConfiguredHbxEngineCount())), 1),
         getConfiguredHbxEngineCount(),
@@ -6441,10 +6854,10 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
           continue;
         }
         if (String(campaign.mode || '') === 'mass_data') {
-          await this.processMassDataCampaignQueue(campaign, maxParallel);
+          await this.processMassDataCampaignQueue(campaign, Math.max(0, Math.min(maxParallel, safeInteger(scheduler?.automaticAllowedEngines, maxParallel))));
           continue;
         }
-        const lease = await this.getEnginePool().acquireEngine(campaign.id, campaign.companyId, campaign.userId);
+        const lease = await this.getEnginePool().acquireEngine(campaign.id, campaign.companyId, campaign.userId, { purpose: 'radar_pull' });
         if (!lease) {
           await (this.prisma as any).webscrapingCampaign.update({
             where: { id: campaign.id },
@@ -6462,6 +6875,14 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
   private async processMassDataCampaignQueue(campaign: any, maxParallel: number) {
     if (!(await this.supportsMassDataCampaignPersistence())) return;
     const now = new Date();
+    if (maxParallel <= 0) {
+      this.logger.log(`[engine-scheduler] automatic production paused campaign=${campaign.id} reason=protected`);
+      await (this.prisma as any).webscrapingCampaign.update({
+        where: { id: campaign.id },
+        data: { status: 'running', nextRunAt: new Date(Date.now() + 15_000), lastErrorMessage: 'Produção protegida: aguardando capacidade sobrar.' },
+      }).catch(() => null);
+      return;
+    }
     await (this.prisma as any).webscrapingCampaignTask.updateMany({
       where: { campaignId: campaign.id, status: 'running', OR: [{ lockedUntil: null }, { lockedUntil: { lt: now } }] },
       data: { status: 'queued', lockedByEngineId: null, lockedUntil: null, lastError: 'Lock expirado; tarefa devolvida para fila.' },
@@ -6472,9 +6893,36 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       data: { status: 'running', startedAt: campaign.startedAt || now, nextRunAt: null },
     }).catch(() => null);
 
+    const queuedTasks = await (this.prisma as any).webscrapingCampaignTask.count({
+      where: { campaignId: campaign.id, status: 'queued' },
+    }).catch(() => 0);
+    if (safeInteger(queuedTasks) <= 0) {
+      const config = await this.getOperationalConfig().catch(() => null);
+      if (config?.autonomousFillEnabled) {
+        const refill = await this.createAutonomousMassDataTasks(
+          campaign,
+          safeInteger(config.autonomousFillBatchSize, AUTONOMOUS_MASS_DATA_DEFAULT_TASKS),
+        );
+        if (refill.created > 0) {
+          await (this.prisma as any).webscrapingCampaign.update({
+            where: { id: campaign.id },
+            data: {
+              lastErrorMessage: `Fila autônoma reabastecida: ${refill.created} nova(s) tarefa(s).`,
+              nextRunAt: new Date(Date.now() + 1_000),
+            },
+          }).catch(() => null);
+        }
+      }
+    }
+
     let started = 0;
     for (let index = 0; index < maxParallel; index += 1) {
-      const lease = await this.getEnginePool().acquireEngine(`${campaign.id}:mass:${index}:${Date.now()}`, campaign.companyId, campaign.userId);
+      const lease = await this.getEnginePool().acquireEngine(
+        `${campaign.id}:mass:${index}:${Date.now()}`,
+        campaign.companyId,
+        campaign.userId,
+        { purpose: 'mass_data' },
+      );
       if (!lease) break;
       const task = await this.claimNextMassDataTask(campaign.id, lease);
       if (!task) {

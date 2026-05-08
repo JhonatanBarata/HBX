@@ -180,6 +180,11 @@ test('invalid HBX_ENGINE_COUNT respects environment fallback', () => {
   });
 });
 
+test('HBX_ENGINE_COUNT above twenty is clamped to twenty', () => {
+  assert.equal(getConfiguredHbxEngineCount({ NODE_ENV: 'production', HBX_ENGINE_COUNT: '25' }), 20);
+  assert.equal(buildLocalHbxEngineUrls(25).length, 20);
+});
+
 function createPoolForCapacity(input: {
   queuedCount?: number;
   runningCount?: number;
@@ -252,6 +257,60 @@ test('eligible engines include hbx-engine-20 when active capacity is twenty', as
     const eligible = await service.getEligibleEnginesForCurrentQueue();
     assert.equal(eligible.length, 20);
     assert.equal(eligible.at(-1)?.id, 'hbx-engine-20');
+  });
+});
+
+test('automatic queue never gets all engines when manual reservation is two', async () => {
+  await withEnv({
+    NODE_ENV: 'production',
+    HBX_ENGINE_COUNT: '20',
+    HBX_MANUAL_RESERVED_ENGINES: '2',
+    HBX_AUTONOMOUS_MAX_MEMORY_PRESSURE_PERCENT: '100',
+  }, async () => {
+    const service = createPoolForCapacity({ queuedCount: 100 }) as any;
+    service.healthCheckEngines = async () => buildEngineRows(20);
+    const automatic = await service.getEligibleEnginesForCurrentQueue('mass_data');
+    const manual = await service.getEligibleEnginesForCurrentQueue('manual');
+    assert.equal(automatic.length, 18);
+    assert.equal(manual.length, 20);
+  });
+});
+
+test('manual acquisition can use reserved engine while automatic engines are busy', async () => {
+  await withEnv({
+    NODE_ENV: 'production',
+    HBX_ENGINE_COUNT: '20',
+    HBX_MANUAL_RESERVED_ENGINES: '2',
+    HBX_AUTONOMOUS_MAX_MEMORY_PRESSURE_PERCENT: '100',
+  }, async () => {
+    const rows = buildEngineRows(20);
+    for (let index = 0; index < 18; index += 1) {
+      rows[index].status = 'busy';
+      rows[index].lockedRunId = `campaign-1:mass:${index}`;
+      rows[index].lockedUntil = new Date(Date.now() + 60_000);
+    }
+    const claimed: string[] = [];
+    const prisma = {
+      hasTable: async () => true,
+      hbxEngineLock: {
+        updateMany: async (input: any) => {
+          if (!input?.where?.id) return { count: 0 };
+          claimed.push(input.where.id);
+          return { count: 1 };
+        },
+      },
+      webscrapingSearchRun: {
+        count: async () => 0,
+      },
+    };
+    const service = createPoolForCapacity({ queuedCount: 100 }) as any;
+    service.prisma = prisma;
+    service.cleanupExpiredLocks = async () => undefined;
+    service.healthCheckEngines = async () => rows;
+
+    const lease = await service.acquireEngine('manual-run-1', 7, 9, { purpose: 'manual' });
+    assert.equal(lease?.engineId, 'hbx-engine-19');
+    assert.deepEqual(claimed, ['hbx-engine-19']);
   });
 });
 

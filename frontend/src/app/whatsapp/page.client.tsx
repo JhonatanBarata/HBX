@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import DashboardScaffold from "@/components/DashboardScaffold";
 import { apiFetch } from "@/app/_lib/api";
 import { useRequireAuth } from "@/app/_lib/useRequireAuth";
@@ -9,6 +9,7 @@ import {
   getWhatsAppModalPlanRedirect,
   type WhatsAppModalPayload,
   type WhatsAppCenterPayload,
+  type WhatsAppPairingCodePayload,
 } from "@/lib/whatsapp-center";
 import { dispatchModulesChanged } from "@/lib/module-events";
 import WhatsAppConnectionWizard from "./_components/WhatsAppConnectionWizard";
@@ -27,9 +28,31 @@ type WhatsAppBootstrapPayload = {
 
 type QrBootstrapStage = "idle" | "connecting" | "mirroring" | "ready" | "error";
 
+function normalizePairingPhone(value: string) {
+  const trimmed = value.trim();
+  if (trimmed.startsWith("+")) return `+${trimmed.slice(1).replace(/\D/g, "")}`;
+  const digits = trimmed.replace(/\D/g, "");
+  if (!digits) return "";
+  return digits.startsWith("55") ? `+${digits}` : `+55${digits}`;
+}
+
+function formatPairingPhoneInput(value: string) {
+  const digits = value.replace(/\D/g, "").slice(0, 13);
+  if (!digits) return "";
+  const national = digits.startsWith("55") ? digits.slice(2) : digits;
+  const area = national.slice(0, 2);
+  const first = national.length > 10 ? national.slice(2, 7) : national.slice(2, 6);
+  const second = national.length > 10 ? national.slice(7, 11) : national.slice(6, 10);
+  if (!area) return "+55";
+  if (!first) return `+55 (${area}`;
+  if (!second) return `+55 (${area}) ${first}`;
+  return `+55 (${area}) ${first}-${second}`;
+}
+
 export default function WhatsAppCenterClientPage() {
   const hasToken = useRequireAuth();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [loading, setLoading] = useState(true);
   const [modalLoading, setModalLoading] = useState(true);
   const [saving, setSaving] = useState<string | null>(null);
@@ -41,6 +64,12 @@ export default function WhatsAppCenterClientPage() {
   const [error, setError] = useState<string | null>(null);
   const [modalError, setModalError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [pairingPhone, setPairingPhone] = useState("");
+  const [pairingPayload, setPairingPayload] = useState<WhatsAppPairingCodePayload | null>(null);
+  const [pairingError, setPairingError] = useState<string | null>(null);
+  const [pairingBusy, setPairingBusy] = useState(false);
+  const [pairingExpiresAt, setPairingExpiresAt] = useState<number | null>(null);
+  const [pairingTick, setPairingTick] = useState(0);
   const bootstrapInFlightRef = useRef(false);
   const lastBootstrapAttemptKeyRef = useRef<string | null>(null);
   const previousModalStatusRef = useRef<string | null>(null);
@@ -285,6 +314,53 @@ export default function WhatsAppCenterClientPage() {
     }
   }
 
+  async function requestPairingCode() {
+    const sessionId = modalPayload?.data.tenantKey || payload?.center.qrConnection.instanceKey || null;
+    const normalizedPhone = normalizePairingPhone(pairingPhone);
+    setPairingError(null);
+    setPairingPayload(null);
+
+    if (!sessionId) {
+      setPairingError("Sessão técnica do WhatsApp ainda não carregada.");
+      return;
+    }
+    if (!/^\+[1-9]\d{7,14}$/.test(normalizedPhone)) {
+      setPairingError("Informe o telefone em formato E.164, exemplo +5519999999999.");
+      return;
+    }
+
+    setPairingBusy(true);
+    try {
+      await ensureQrModeSelected();
+      const response = await apiFetch<WhatsAppPairingCodePayload>(
+        `/whatsapp/sessions/${encodeURIComponent(sessionId)}/pairing-code`,
+        {
+          method: "POST",
+          body: JSON.stringify({ phoneNumber: normalizedPhone }),
+          requireAuth: true,
+        },
+      );
+      setPairingPayload(response);
+      setPairingPhone(normalizedPhone);
+      if (response.success && response.code) {
+        setPairingExpiresAt(Date.now() + Math.max(1, response.expiresInSeconds || 120) * 1000);
+        setMessage("Código por telefone gerado.");
+      } else {
+        setPairingExpiresAt(null);
+        setPairingError(response.message || "Este motor suporta apenas QR Code.");
+      }
+      void loadModalStatus(true, false);
+    } catch (pairingCodeError: any) {
+      const payload = pairingCodeError?.payload && typeof pairingCodeError.payload === "object"
+        ? pairingCodeError.payload as { message?: string; nextAllowedAt?: string }
+        : null;
+      setPairingError(payload?.message || (pairingCodeError instanceof Error ? pairingCodeError.message : "Falha ao gerar código por telefone."));
+      setPairingExpiresAt(null);
+    } finally {
+      setPairingBusy(false);
+    }
+  }
+
   useEffect(() => {
     if (hasToken !== true) return;
     void loadCenter();
@@ -334,6 +410,12 @@ export default function WhatsAppCenterClientPage() {
     return () => window.clearInterval(interval);
   }, [modalPayload?.data.available, modalPayload?.status, loadModalStatus, modalQrRequested]);
 
+  useEffect(() => {
+    if (!pairingExpiresAt) return undefined;
+    const timer = window.setInterval(() => setPairingTick((value) => value + 1), 1000);
+    return () => window.clearInterval(timer);
+  }, [pairingExpiresAt]);
+
   async function chooseMode(mode: "QR" | "OFFICIAL") {
     setSaving(mode);
     setError(null);
@@ -373,6 +455,11 @@ export default function WhatsAppCenterClientPage() {
   }
 
   const qrBootstrapBusy = qrBootstrapStage === "connecting" || qrBootstrapStage === "mirroring";
+  const initialQrLinkMode = searchParams.get("focus") === "phone" ? "phone" : "qr";
+  const pairingExpiresInSeconds = pairingExpiresAt
+    ? Math.max(0, Math.ceil((pairingExpiresAt - Date.now()) / 1000))
+    : 0;
+  void pairingTick;
 
   const qrOperationalError = useMemo(() => {
     if (!modalPayload) return null;
@@ -416,6 +503,15 @@ export default function WhatsAppCenterClientPage() {
             qrBusy={qrBootstrapBusy}
             qrMessage={message}
             qrError={qrOperationalError}
+            initialQrLinkMode={initialQrLinkMode}
+            pairingPhone={pairingPhone}
+            pairingPayload={pairingPayload}
+            pairingBusy={pairingBusy}
+            pairingError={pairingError}
+            pairingExpiresInSeconds={pairingExpiresInSeconds}
+            onPairingPhoneChange={setPairingPhone}
+            onPairingPhoneInput={(value) => setPairingPhone(formatPairingPhoneInput(value))}
+            onRequestPairingCode={() => void requestPairingCode()}
             onChooseMode={(mode) => void chooseMode(mode)}
             onConnectQr={() => void runModalAction("connect")}
             onRequestMeta={() => void requestMigration("central_whatsapp")}

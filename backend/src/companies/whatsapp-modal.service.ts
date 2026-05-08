@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException, TooManyRequestsException } from '@nestjs/common';
 import axios, { AxiosError, AxiosResponse, Method } from 'axios';
 import * as QRCode from 'qrcode';
 import { ensureMasterBillingRuntimeSchema } from '../modules/master-runtime';
@@ -12,6 +12,9 @@ type WhatsAppModalErrorCode =
   | 'WHATSAPP_MODAL_UNAVAILABLE'
   | 'WHATSAPP_MODAL_HTTP_ERROR'
   | 'WHATSAPP_MODAL_QR_UNAVAILABLE'
+  | 'WHATSAPP_MODAL_PAIRING_UNSUPPORTED'
+  | 'WHATSAPP_MODAL_PAIRING_RATE_LIMITED'
+  | 'WHATSAPP_MODAL_ALREADY_CONNECTED'
   | 'TRIAL_PHONE_ALREADY_USED';
 type ProviderHealth = 'disabled' | 'misconfigured' | 'healthy' | 'unavailable' | 'unknown';
 
@@ -99,6 +102,18 @@ export type WhatsAppModalResponse = {
   redirectTo?: string | null;
 };
 
+export type WhatsAppPairingCodeResponse = {
+  success: boolean;
+  sessionId: string;
+  status: 'waiting_code' | 'code_generated' | 'connected' | 'expired' | 'error' | 'disconnected';
+  code: string | null;
+  expiresInSeconds: number;
+  providerSupported: boolean;
+  message: string;
+  errorCode: WhatsAppModalErrorCode | null;
+  nextAllowedAt?: string | null;
+};
+
 class WhatsAppModalProviderError extends Error {
   constructor(
     readonly code: WhatsAppModalErrorCode,
@@ -116,9 +131,12 @@ export class WhatsAppModalService {
   private readonly recentConnectAttemptAt = new Map<string, number>();
   private readonly recentWebhookConfigureAt = new Map<string, number>();
   private readonly qrCodeCache = new Map<string, { dataUrl: string; capturedAtMs: number }>();
+  private readonly recentPairingCodeAttemptAt = new Map<string, number>();
   private readonly connectAttemptCooldownMs = 12000;
   private readonly webhookConfigureCooldownMs = 60000;
   private readonly qrCodeCacheTtlMs = 45000;
+  private readonly pairingCodeCooldownMs = 60_000;
+  private readonly pairingCodeTtlSeconds = 120;
 
   constructor(private readonly prisma: PrismaService) {}
 
@@ -309,6 +327,92 @@ export class WhatsAppModalService {
         return this.buildTransientFailureResponse(company, storedSnapshot, error, { success: false });
       }
       return this.buildFailureResponse(company, storedSnapshot, error, 'Falha ao obter o QR code do Modal WhatsApp.');
+    }
+  }
+
+  async requestPairingCode(companyId: number, sessionId: string, phoneNumber: string): Promise<WhatsAppPairingCodeResponse> {
+    const company = await this.loadCompany(companyId);
+    const storedSnapshot = this.buildStoredSnapshot(company);
+    const availabilityResponse = this.buildAvailabilityResponse(company, storedSnapshot, 'pairing');
+    const tenantKey = this.buildTenantKey(company);
+    if (sessionId !== tenantKey) {
+      throw new NotFoundException('Sessão WhatsApp não encontrada para esta empresa.');
+    }
+    if (availabilityResponse) {
+      return this.buildPairingUnavailableResponse(tenantKey, availabilityResponse.message, availabilityResponse.errorCode || 'WHATSAPP_MODAL_UNAVAILABLE');
+    }
+
+    const normalizedPhone = this.normalizePairingPhoneOrThrow(phoneNumber);
+    const latest = await this.fetchLiveSnapshot(company, { includeQr: false });
+    if (latest.status === 'connected') {
+      return {
+        success: false,
+        sessionId: tenantKey,
+        status: 'connected',
+        code: null,
+        expiresInSeconds: 0,
+        providerSupported: true,
+        message: 'WhatsApp já está conectado nesta sessão.',
+        errorCode: 'WHATSAPP_MODAL_ALREADY_CONNECTED',
+      };
+    }
+
+    const rateLimitKey = `${tenantKey}:${normalizedPhone}`;
+    const lastAttemptAt = this.recentPairingCodeAttemptAt.get(rateLimitKey);
+    if (typeof lastAttemptAt === 'number' && Date.now() - lastAttemptAt < this.pairingCodeCooldownMs) {
+      const nextAllowedAt = new Date(lastAttemptAt + this.pairingCodeCooldownMs);
+      throw new TooManyRequestsException({
+        code: 'WHATSAPP_MODAL_PAIRING_RATE_LIMITED',
+        message: 'Aguarde antes de gerar outro código de pareamento.',
+        nextAllowedAt: nextAllowedAt.toISOString(),
+      });
+    }
+
+    this.recentPairingCodeAttemptAt.set(rateLimitKey, Date.now());
+
+    try {
+      await this.createProviderInstance(tenantKey).catch((error) => {
+        if (!this.isExistingInstanceError(error) && !this.isTransientProviderError(error)) throw error;
+      });
+      await this.tryConfigureProviderWebhook(tenantKey, 'pairing_code');
+      const providerPayload = await this.requestProviderPairingCode(tenantKey, normalizedPhone);
+      const code = this.extractPairingCode(providerPayload);
+      if (!code) {
+        return this.buildPairingUnavailableResponse(
+          tenantKey,
+          'Este motor suporta apenas QR Code. Para conectar sem câmera, precisamos ativar o modo pairing code ou Cloud API.',
+          'WHATSAPP_MODAL_PAIRING_UNSUPPORTED',
+        );
+      }
+
+      const snapshot: ModalSnapshot = {
+        ...latest,
+        status: 'waiting_qr',
+        lastError: null,
+        updatedAt: new Date(),
+        qrCodeDataUrl: null,
+      };
+      await this.persistSnapshot(company, snapshot, 'pairing_code');
+      return {
+        success: true,
+        sessionId: tenantKey,
+        status: 'code_generated',
+        code,
+        expiresInSeconds: this.pairingCodeTtlSeconds,
+        providerSupported: true,
+        message: 'Código de pareamento gerado.',
+        errorCode: null,
+      };
+    } catch (error) {
+      const providerError = this.toProviderError(error);
+      if (providerError.code === 'WHATSAPP_MODAL_PAIRING_UNSUPPORTED' || providerError.statusCode === 404 || providerError.statusCode === 405) {
+        return this.buildPairingUnavailableResponse(
+          tenantKey,
+          'Este motor suporta apenas QR Code. Para conectar sem câmera, precisamos ativar o modo pairing code ou Cloud API.',
+          'WHATSAPP_MODAL_PAIRING_UNSUPPORTED',
+        );
+      }
+      return this.buildPairingUnavailableResponse(tenantKey, providerError.message, providerError.code);
     }
   }
 
@@ -825,6 +929,99 @@ export class WhatsAppModalService {
       qrcode: true,
       syncFullHistory: true,
     };
+  }
+
+  private normalizePairingPhoneOrThrow(value: unknown) {
+    const normalized = String(value || '').trim();
+    if (!/^\+[1-9]\d{7,14}$/.test(normalized)) {
+      throw new BadRequestException('Informe o telefone em formato E.164, exemplo +5519999999999.');
+    }
+    return normalized.replace(/^\+/, '');
+  }
+
+  private buildPairingUnavailableResponse(
+    tenantKey: string,
+    message: string,
+    errorCode: WhatsAppModalErrorCode,
+  ): WhatsAppPairingCodeResponse {
+    return {
+      success: false,
+      sessionId: tenantKey,
+      status: errorCode === 'WHATSAPP_MODAL_ALREADY_CONNECTED' ? 'connected' : 'error',
+      code: null,
+      expiresInSeconds: 0,
+      providerSupported: errorCode !== 'WHATSAPP_MODAL_PAIRING_UNSUPPORTED',
+      message,
+      errorCode,
+    };
+  }
+
+  private buildPairingCodeRequestPayload(tenantKey: string, phoneNumberWithoutPlus: string) {
+    return {
+      instanceName: tenantKey,
+      phoneNumber: phoneNumberWithoutPlus,
+      number: phoneNumberWithoutPlus,
+    };
+  }
+
+  private buildPairingCodePaths(tenantKey: string) {
+    const encoded = encodeURIComponent(tenantKey);
+    const configured = this.normalizeOptionalString(process.env.WHATSAPP_MODAL_PAIRING_CODE_PATH_TEMPLATE);
+    const paths = configured
+      ? [configured.replace(/\{tenantKey\}/g, encoded).replace(/\{instance\}/g, encoded)]
+      : [
+          `/instance/requestPairingCode/${encoded}`,
+          `/instance/pairing-code/${encoded}`,
+          `/instance/connect/${encoded}`,
+        ];
+    return Array.from(new Set(paths));
+  }
+
+  private async requestProviderPairingCode(tenantKey: string, phoneNumberWithoutPlus: string) {
+    const payload = this.buildPairingCodeRequestPayload(tenantKey, phoneNumberWithoutPlus);
+    let lastError: unknown = null;
+    for (const path of this.buildPairingCodePaths(tenantKey)) {
+      try {
+        return await this.requestProvider({
+          method: 'POST',
+          path,
+          purpose: 'codigo de pareamento da instancia',
+          data: payload,
+        });
+      } catch (error) {
+        const providerError = this.toProviderError(error);
+        lastError = providerError;
+        if (providerError.statusCode !== 404 && providerError.statusCode !== 405) {
+          throw providerError;
+        }
+      }
+    }
+    throw lastError || new WhatsAppModalProviderError(
+      'WHATSAPP_MODAL_PAIRING_UNSUPPORTED',
+      'Provider sem endpoint de pairing code.',
+      404,
+    );
+  }
+
+  private extractPairingCode(payload: unknown): string | null {
+    const { root, rootData } = this.extractPayloadParts(payload);
+    const data = this.asRecord(rootData.data) || rootData;
+    const code = this.firstString(
+      rootData.pairingCode,
+      rootData.pairing_code,
+      rootData.code,
+      rootData.pairCode,
+      data.pairingCode,
+      data.pairing_code,
+      data.code,
+      data.pairCode,
+      root.pairingCode,
+      root.pairing_code,
+      root.code,
+      root.pairCode,
+    );
+    if (!code) return null;
+    return code.replace(/\s+/g, '').toUpperCase();
   }
 
   private buildProviderWebhookEvents() {
@@ -1530,7 +1727,7 @@ export class WhatsAppModalService {
   private buildAvailabilityResponse(
     company: CompanyModalFields,
     snapshot: ModalSnapshot,
-    intent: 'status' | 'start' | 'qr' | 'disconnect' | 'restart',
+    intent: 'status' | 'start' | 'qr' | 'disconnect' | 'restart' | 'pairing',
   ) {
     const config = this.readConfig();
     if (!config.enabled) {
@@ -1580,6 +1777,25 @@ export class WhatsAppModalService {
     );
     const suffix = detail ? ` ${detail}` : '';
     const normalizedPurpose = String(purpose || '').trim().toLowerCase();
+
+    if (normalizedPurpose.includes('pareamento') || normalizedPurpose.includes('pairing')) {
+      const normalizedDetail = String(detail || '').trim().toLowerCase();
+      if (
+        response.status === 400 ||
+        response.status === 404 ||
+        response.status === 405 ||
+        normalizedDetail.includes('not support') ||
+        normalizedDetail.includes('unsupported') ||
+        normalizedDetail.includes('not implemented') ||
+        normalizedDetail.includes('pairing')
+      ) {
+        return new WhatsAppModalProviderError(
+          'WHATSAPP_MODAL_PAIRING_UNSUPPORTED',
+          'Este motor suporta apenas QR Code. Para conectar sem câmera, precisamos ativar o modo pairing code ou Cloud API.',
+          response.status,
+        );
+      }
+    }
 
     if (response.status === 409 && normalizedPurpose.includes('qr')) {
       return new WhatsAppModalProviderError(
