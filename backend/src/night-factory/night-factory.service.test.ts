@@ -2,11 +2,12 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import 'reflect-metadata';
 import { GUARDS_METADATA } from '@nestjs/common/constants';
-import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { NightFactoryPublicController } from './night-factory-public.controller';
 import { NightFactoryService } from './night-factory.service';
 
-function createLead(index: number, overrides: Record<string, any> = {}) {
+function createLead(index: number) {
+  const overrides: Record<string, any> = {};
   return {
     id: `lead-${index}`,
     name: `Lead ${index}`,

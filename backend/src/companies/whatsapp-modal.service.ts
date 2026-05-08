@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, Logger, NotFoundException, TooManyRequestsException } from '@nestjs/common';
+import { BadRequestException, HttpException, HttpStatus, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import axios, { AxiosError, AxiosResponse, Method } from 'axios';
 import * as QRCode from 'qrcode';
 import { ensureMasterBillingRuntimeSchema } from '../modules/master-runtime';
@@ -361,11 +361,11 @@ export class WhatsAppModalService {
     const lastAttemptAt = this.recentPairingCodeAttemptAt.get(rateLimitKey);
     if (typeof lastAttemptAt === 'number' && Date.now() - lastAttemptAt < this.pairingCodeCooldownMs) {
       const nextAllowedAt = new Date(lastAttemptAt + this.pairingCodeCooldownMs);
-      throw new TooManyRequestsException({
+      throw new HttpException({
         code: 'WHATSAPP_MODAL_PAIRING_RATE_LIMITED',
         message: 'Aguarde antes de gerar outro código de pareamento.',
         nextAllowedAt: nextAllowedAt.toISOString(),
-      });
+      }, HttpStatus.TOO_MANY_REQUESTS);
     }
 
     this.recentPairingCodeAttemptAt.set(rateLimitKey, Date.now());
