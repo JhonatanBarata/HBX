@@ -3292,20 +3292,8 @@ export default function TopBar() {
                 <span className="hbx-command-billboard__scan" aria-hidden="true" />
                 {activeBillboardSlide.kind === "engines" ? (
                   <div className="hbx-command-engine-map" aria-label="Mapa operacional dos motores HBX">
-                    <div className="hbx-command-engine-map__head">
-                      <span><i aria-hidden="true" />Status operacional</span>
-                      <strong>{accountContext}</strong>
-                    </div>
                     <div className="hbx-command-engines hbx-command-engines--billboard" aria-label="Motores HBX agrupados">
                       {hbxEngineGroupCards}
-                    </div>
-                    <div className="hbx-command-engine-map__chips" aria-label="Resumo operacional dos motores">
-                      {hbxCommandChips.slice(0, 6).map((chip) => (
-                        <span key={`${chip.label}:${chip.value}`} data-tone={chip.tone}>
-                          {chip.label}
-                          <strong>{chip.value}</strong>
-                        </span>
-                      ))}
                     </div>
                   </div>
                 ) : (
