@@ -1,6 +1,7 @@
 "use client";
 
 import Image from "next/image";
+import Link from "next/link";
 import type { ReactNode } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -2824,6 +2825,11 @@ function QrMockup({ qrCode, connected }: { qrCode: string | null; connected: boo
           <span>QR ainda não gerado</span>
         )}
       </div>
+      {!connected ? (
+        <Link className={styles.qrPhoneLink} href="/whatsapp?focus=phone">
+          Vincular por telefone
+        </Link>
+      ) : null}
     </div>
   );
 }

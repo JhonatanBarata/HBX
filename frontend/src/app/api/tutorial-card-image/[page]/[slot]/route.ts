@@ -23,17 +23,24 @@ export async function GET(_request: NextRequest, context: RouteContext) {
     return new NextResponse(null, { status: 404 });
   }
 
-  const imagePath = path.join(process.cwd(), "Tutorial", `pagina${pageIndex}`, `${slotIndex}.png`);
+  const imagePaths = [
+    path.join(process.cwd(), "cards", "Tutorial", `pagina${pageIndex}`, `${slotIndex}.png`),
+    path.join(process.cwd(), "Tutorial", `pagina${pageIndex}`, `${slotIndex}.png`),
+  ];
 
-  try {
-    const image = await readFile(imagePath);
-    return new NextResponse(new Uint8Array(image), {
-      headers: {
-        "cache-control": "no-store",
-        "content-type": "image/png",
-      },
-    });
-  } catch {
-    return new NextResponse(null, { status: 404 });
+  for (const imagePath of imagePaths) {
+    try {
+      const image = await readFile(imagePath);
+      return new NextResponse(new Uint8Array(image), {
+        headers: {
+          "cache-control": "public, max-age=86400",
+          "content-type": "image/png",
+        },
+      });
+    } catch {
+      continue;
+    }
   }
+
+  return new NextResponse(null, { status: 404 });
 }
