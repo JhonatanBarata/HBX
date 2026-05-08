@@ -331,9 +331,9 @@ function computeHealthTone(data: SystemHealthPayload | null, unavailable = false
 }
 
 function planLabel(company: CompanySummary) {
-  if (company.selectedPlanKey === "hbx_lite") return "Lite";
-  if (company.selectedPlanKey === "hbx_padrao") return "Padrão";
-  if (company.selectedPlanKey === "hbx_melhor") return "Melhor";
+  if (company.selectedPlanKey === "hbx_lite") return "HBX List";
+  if (company.selectedPlanKey === "hbx_padrao") return "HBX Lead";
+  if (company.selectedPlanKey === "hbx_melhor") return "HBX Full";
   return company.plan?.name || "Sem plano";
 }
 

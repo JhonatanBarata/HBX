@@ -1,4 +1,5 @@
 .shell {
+  position: relative;
   display: grid;
   gap: 18px;
   padding: 18px;
@@ -8,6 +9,105 @@
     linear-gradient(135deg, #070b14 0%, #0d1724 44%, #101018 100%);
   color: #edf7ff;
   box-shadow: 0 30px 80px rgba(2, 6, 23, 0.38);
+}
+
+.lockedPanel {
+  display: grid;
+  gap: 12px;
+  overflow: hidden;
+  border: 1px solid rgba(45, 212, 191, 0.28);
+  border-radius: 18px;
+  padding: 24px;
+  background:
+    radial-gradient(circle at 18% 0%, rgba(45, 212, 191, 0.18), transparent 42%),
+    linear-gradient(135deg, #07111d, #111827 58%, #0b1020);
+  color: #edf7ff;
+}
+
+.lockedPanel span {
+  color: #9ab2df;
+  font-size: 0.74rem;
+  font-weight: 950;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.lockedPanel h2 {
+  max-width: 720px;
+  margin: 0;
+  color: #fff;
+  font-size: clamp(1.8rem, 4vw, 3.4rem);
+  line-height: 1;
+  font-weight: 950;
+}
+
+.lockedPanel p {
+  max-width: 760px;
+  margin: 0;
+  color: #c8d8f7;
+  line-height: 1.55;
+}
+
+.lockedPanel a {
+  width: fit-content;
+  min-height: 42px;
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  background: linear-gradient(135deg, rgba(20, 184, 166, 0.9), rgba(37, 99, 235, 0.82));
+  color: #fff;
+  padding: 0 16px;
+  font-size: 0.88rem;
+  font-weight: 950;
+  text-decoration: none;
+}
+
+.confettiLayer {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.confettiLayer span {
+  --x: 50vw;
+  --delay: 0ms;
+  --rot: 0deg;
+  position: absolute;
+  top: -18px;
+  left: var(--x);
+  width: 8px;
+  height: 14px;
+  border-radius: 3px;
+  background: linear-gradient(135deg, #2dd4bf, #fde68a);
+  transform: rotate(var(--rot));
+  animation: nightConfetti 0.95s ease-out var(--delay) both;
+}
+
+.confettiLayer span:nth-child(3n) {
+  background: linear-gradient(135deg, #60a5fa, #c084fc);
+}
+
+.confettiLayer span:nth-child(4n) {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: #f9a8d4;
+}
+
+@keyframes nightConfetti {
+  0% {
+    opacity: 0;
+    transform: translate3d(0, 0, 0) scale(0.8) rotate(var(--rot));
+  }
+  15% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translate3d(-22px, 42vh, 0) scale(1) rotate(calc(var(--rot) + 220deg));
+  }
 }
 
 .shell[data-status="rodando"] {
@@ -120,6 +220,17 @@
   margin: 0;
   color: #c8d8f7;
   line-height: 1.55;
+}
+
+.emotionalLine {
+  width: fit-content;
+  border: 1px solid rgba(45, 212, 191, 0.32);
+  border-radius: 999px;
+  background: rgba(45, 212, 191, 0.1);
+  color: #b6fff4;
+  padding: 8px 12px;
+  font-size: 0.86rem;
+  font-weight: 950;
 }
 
 .heroButtons {
@@ -276,6 +387,16 @@
   gap: 8px 12px;
   padding: 13px;
   border-radius: 15px;
+  cursor: pointer;
+  transition: border-color 0.18s ease, background 0.18s ease, transform 0.18s ease;
+}
+
+.opportunityCard:hover,
+.opportunityCard:focus-visible {
+  border-color: rgba(45, 212, 191, 0.48);
+  background: linear-gradient(180deg, rgba(20, 184, 166, 0.16), rgba(7, 12, 24, 0.84));
+  transform: translateY(-1px);
+  outline: none;
 }
 
 .opportunityCard strong {
@@ -313,6 +434,14 @@
 .opportunityCard small {
   grid-column: 1 / -1;
   color: #fde68a;
+}
+
+.opportunityCard em {
+  grid-column: 1 / -1;
+  color: #a7f3d0;
+  font-size: 0.78rem;
+  font-style: normal;
+  font-weight: 950;
 }
 
 .rowActions {
@@ -457,5 +586,14 @@
   .opportunityCard b {
     width: fit-content;
     min-width: 54px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .confettiLayer,
+  .confettiLayer span,
+  .opportunityCard {
+    animation: none !important;
+    transition: none !important;
   }
 }

@@ -96,10 +96,22 @@ export function resolveCompanyModuleAccessPolicy(
       ? COMMERCIAL_PLAN_KEYS.PADRAO
       : normalizeCommercialPlanKey(company?.selectedPlanKey);
   const moduleKeys = new Set<string>(
-    active
-      ? [...(COMMERCIAL_PLAN_MODULE_KEYS[planKey] || []), ...ROUTE_GUARDED_MODULE_KEYS]
+    active && !pendingCheckout
+      ? COMMERCIAL_PLAN_MODULE_KEYS[planKey] || []
       : [],
   );
+
+  if (pendingCheckout) {
+    return {
+      accessState: 'pending_checkout',
+      active: false,
+      pendingCheckout: true,
+      planKey,
+      moduleKeys,
+      blockedCode: 'pending_checkout',
+      blockedReason: 'Finalize a contratação para liberar os módulos comerciais.',
+    };
+  }
 
   if (!active) {
     return {

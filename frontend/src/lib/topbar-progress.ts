@@ -7,12 +7,22 @@ export type TopbarProgressMetric = {
   value: string;
 };
 
+export type TopbarProgressCard = {
+  id: string;
+  title: string;
+  meta?: string;
+  score?: string | number;
+};
+
 export type TopbarProgressState = {
   source: string;
   phase: "loading" | "success" | "warning";
   title: string;
   status: string;
   progress: number;
+  steps?: string[];
+  activeStepIndex?: number;
+  cardFeed?: TopbarProgressCard[];
   activeEngineIds?: string[];
   activeEngineIndex?: number | null;
   activeEngineLabel?: string | null;

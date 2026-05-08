@@ -1313,7 +1313,7 @@ export default function VendasAutomationClientPage() {
       if (redirectTo) {
         setNotice({
           tone: "info",
-          text: "Bot de atendimento está disponível no HBX Melhor.",
+          text: "Bot de atendimento está disponível no HBX Full — Bot e IA.",
         });
         router.push(redirectTo);
         return;
@@ -1415,7 +1415,7 @@ export default function VendasAutomationClientPage() {
     if (!botAiActive) {
       setNotice({
         tone: "info",
-        text: "Bot de atendimento está disponível no HBX Melhor.",
+        text: "Bot de atendimento está disponível no HBX Full — Bot e IA.",
       });
       openBotPlans();
       return false;
@@ -1440,7 +1440,7 @@ export default function VendasAutomationClientPage() {
       if (redirectTo) {
         setNotice({
           tone: "info",
-          text: "Bot de atendimento está disponível no HBX Melhor.",
+          text: "Bot de atendimento está disponível no HBX Full — Bot e IA.",
         });
         router.push(redirectTo);
         return false;
@@ -1589,7 +1589,7 @@ export default function VendasAutomationClientPage() {
   const renderBotPlanPaywall = () => (
     <section className={styles.botPlanPaywall}>
       <span className={styles.sectionEyebrow}>Plano necessário</span>
-      <h3>Bot de atendimento está disponível no HBX Melhor</h3>
+      <h3>Bot de atendimento está disponível no HBX Full — Bot e IA</h3>
       <p>Para configurar ou ativar o bot, escolha o plano que mostra o valor antes da ativação.</p>
       <button type="button" className={styles.primaryButton} onClick={openBotPlans}>
         Ver planos

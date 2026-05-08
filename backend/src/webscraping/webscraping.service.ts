@@ -2966,7 +2966,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
 
     const planKey = normalizeCommercialPlanKey(company.selectedPlanKey);
     const message = planKey === COMMERCIAL_PLAN_KEYS.LITE
-      ? 'O HBX Lite não inclui buscas Google diárias. Os motores gratuitos continuam liberados. Para buscas Google, escolha o HBX Padrão ou HBX Melhor.'
+      ? 'O HBX List não inclui buscas Google diárias. Os motores gratuitos continuam liberados. Para buscas Google, escolha o HBX Lead ou HBX Full — Bot e IA.'
       : `${GOOGLE_DAILY_LIMIT_REACHED_MESSAGE} Seu plano permite ${dailyLimit} busca(s) Google por dia.`;
     await this.recordUsageLog(context, input, 'BLOCKED_DAILY_LIMIT', 0, message);
     throw new ForbiddenException({

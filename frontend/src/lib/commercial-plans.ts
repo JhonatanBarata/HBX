@@ -27,6 +27,9 @@ export type CommercialPlan = {
   annualDiscountPercent?: number;
   quotas?: {
     googleSearchesPerDay?: number;
+    cardsPerSearch?: number;
+    searchesPerCycle?: number;
+    totalCards?: number;
   };
 };
 
@@ -68,9 +71,9 @@ export function commercialPlanByKey(payload: CommercialPlansPayload | null, key:
 }
 
 export function getCommercialPlanTitle(key?: CommercialPlanKey | null) {
-  if (key === "hbx_lite") return "HBX Vendas";
-  if (key === "hbx_melhor") return "HBX Bot IA";
-  if (key === "hbx_padrao") return "HBX WhatsApp";
+  if (key === "hbx_lite") return "HBX List";
+  if (key === "hbx_melhor") return "HBX Full — Bot e IA";
+  if (key === "hbx_padrao") return "HBX Lead";
   return "Sem plano comercial";
 }
 
@@ -80,7 +83,7 @@ export function getBotAiPlanRedirectFromError(error: unknown, fallback = "/plano
     return typeof candidate.redirectTo === "string" ? candidate.redirectTo : fallback;
   }
   const message = String(candidate.message || "");
-  if (message.includes("Bot de atendimento") || message.includes("HBX Bot IA") || message.includes("HBX Melhor")) {
+  if (message.includes("Bot de atendimento") || message.includes("HBX Full") || message.includes("HBX Melhor")) {
     return typeof candidate.redirectTo === "string" ? candidate.redirectTo : fallback;
   }
   return null;

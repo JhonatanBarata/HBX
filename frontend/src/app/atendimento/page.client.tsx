@@ -350,6 +350,7 @@ const INBOX_BOOTSTRAP_STAGE_SEQUENCE = [
 ] as const;
 
 const ATENDIMENTO_PENDING_STORAGE_KEY = "atendimentoPendingHumanCount";
+const ATENDIMENTO_PROGRESS_STEPS = ["lendo banco", "filtrando negativos", "selecionando melhores cards", "alimentando Vendas/Prospecção"];
 const DEFAULT_META_TEMPLATES_PAYLOAD: RecoveryMetaTemplatesPayload = {
   phoneNumberId: null,
   wabaId: null,
@@ -3048,6 +3049,7 @@ export default function InboxClientPage() {
   const [savingBot, setSavingBot] = useState(false);
   const [loadingAgenda, setLoadingAgenda] = useState(false);
   const [savingAgenda, setSavingAgenda] = useState(false);
+  const [atendimentoVisualCount, setAtendimentoVisualCount] = useState(0);
   const [agendaDirty, setAgendaDirty] = useState(false);
   const [botConfigDirtyFromAgendaReset, setBotConfigDirtyFromAgendaReset] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -3203,7 +3205,7 @@ export default function InboxClientPage() {
   const openBotPlans = useCallback(() => {
     setNotice({
       tone: "info",
-      text: "Bot de atendimento está disponível no HBX Melhor.",
+      text: "Bot de atendimento está disponível no HBX Full — Bot e IA.",
     });
     router.push(INBOX_BOT_PLAN_HREF);
   }, [router]);
@@ -3222,7 +3224,7 @@ export default function InboxClientPage() {
     if (!redirectTo) return false;
     setNotice({
       tone: "info",
-      text: "Bot de atendimento está disponível no HBX Melhor.",
+      text: "Bot de atendimento está disponível no HBX Full — Bot e IA.",
     });
     router.push(redirectTo);
     return true;
@@ -7990,6 +7992,77 @@ export default function InboxClientPage() {
   }, [humanAttentionConversations.length]);
 
   useEffect(() => {
+    const live = loadingList || loadingConversation || loadingMoreConversations || loadingBot || loadingAgenda || prospectingAutomationLoading;
+    if (!live) {
+      setAtendimentoVisualCount(0);
+      clearTopbarProgress("atendimento");
+      return undefined;
+    }
+    const target = Math.max(1, conversations.length || 12);
+    setAtendimentoVisualCount(1);
+    const timer = window.setInterval(() => {
+      setAtendimentoVisualCount((current) => Math.min(target, current + 1));
+    }, 220);
+    return () => window.clearInterval(timer);
+  }, [
+    conversations.length,
+    loadingAgenda,
+    loadingBot,
+    loadingConversation,
+    loadingList,
+    loadingMoreConversations,
+    prospectingAutomationLoading,
+  ]);
+
+  useEffect(() => {
+    const live = loadingList || loadingConversation || loadingMoreConversations || loadingBot || loadingAgenda || prospectingAutomationLoading;
+    if (!live || notice || error) return;
+    const progress = loadingList ? 28 : loadingConversation ? 54 : loadingMoreConversations ? 66 : prospectingAutomationLoading ? 74 : 42;
+    const title = loadingList
+      ? "Carregando Atendimento"
+      : prospectingAutomationLoading
+        ? "Sincronizando Prospecção"
+        : loadingBot
+          ? "Lendo Bot IA"
+          : loadingAgenda
+            ? "Lendo Agenda"
+            : "Atualizando conversa";
+    dispatchTopbarProgress({
+      source: "atendimento",
+      phase: "loading",
+      title,
+      status: "Motores ligando: lendo banco, filtrando bloqueios e preparando conversas elegíveis.",
+      progress,
+      steps: ATENDIMENTO_PROGRESS_STEPS,
+      activeStepIndex: loadingList ? 0 : loadingConversation ? 2 : 3,
+      cardFeed: conversations.slice(0, Math.max(1, atendimentoVisualCount)).slice(-4).map((conversation) => ({
+        id: `atendimento:${conversation.id}`,
+        title: resolveInboxConversationDisplayName(conversation) || "Conversa",
+        meta: getInboxConversationQueue(conversation),
+        score: getInboxConversationUnreadCount(conversation) || undefined,
+      })),
+      metrics: [
+        { label: "Conversas", value: String(conversations.length) },
+        { label: "Fila", value: inboxQueue },
+        { label: "Novas", value: String(newInboundConversations.length) },
+      ],
+    });
+  }, [
+    atendimentoVisualCount,
+    conversations,
+    error,
+    inboxQueue,
+    loadingAgenda,
+    loadingBot,
+    loadingConversation,
+    loadingList,
+    loadingMoreConversations,
+    newInboundConversations.length,
+    notice,
+    prospectingAutomationLoading,
+  ]);
+
+  useEffect(() => {
     if (newAlertTimerRef.current !== null) {
       window.clearTimeout(newAlertTimerRef.current);
       newAlertTimerRef.current = null;
@@ -8129,7 +8202,7 @@ export default function InboxClientPage() {
                           : globalBotEnabled
                             ? "Bot global ativo"
                             : "Bot global desativado"
-                        : "Bot de atendimento está disponível no HBX Melhor"
+                        : "Bot de atendimento está disponível no HBX Full — Bot e IA"
                     }
                   >
                     <span>Hbot</span>

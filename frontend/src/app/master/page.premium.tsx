@@ -87,9 +87,9 @@ const TABS: Array<{ id: DrawerTab; label: string }> = [
 ];
 
 const COMMERCIAL_PLAN_OPTIONS = [
-  { key: "hbx_lite", label: "HBX Vendas", price: "R$ 49,90/mês" },
-  { key: "hbx_padrao", label: "HBX WhatsApp", price: "R$ 89,90/mês" },
-  { key: "hbx_melhor", label: "HBX Bot IA", price: "R$ 149,90/mês" },
+  { key: "hbx_lite", label: "HBX List", price: "R$ 49,90/mês" },
+  { key: "hbx_padrao", label: "HBX Lead", price: "R$ 89,90/mês" },
+  { key: "hbx_melhor", label: "HBX Full — Bot e IA", price: "R$ 149,90/mês" },
 ] as const;
 
 function commercialPlanLabel(value?: string | null) {
@@ -4423,7 +4423,7 @@ export default function MasterPremiumPage() {
         <div className={styles.modalBody}>
           <div className={styles.contextBannerStrong}>
             <strong>Catálogo operacional do HBX</strong>
-            <span>Módulo não é produto vendido. O cliente compra HBX Vendas, HBX WhatsApp ou HBX Bot IA.</span>
+            <span>Módulo não é produto vendido. O cliente compra HBX List, HBX Lead ou HBX Full — Bot e IA.</span>
           </div>
           <div className={styles.moduleCatalogGrid}>
             {commercialModuleDrafts.map((moduleItem) => (

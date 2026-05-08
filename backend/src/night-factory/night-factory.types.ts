@@ -64,7 +64,7 @@ export const SEGMENT_PLAYBOOKS: SegmentPlaybook[] = [
     key: 'dentista',
     keywords: ['dentista', 'odont', 'clinica odontologica'],
     pain: 'agenda, orçamento e retorno de pacientes',
-    offer: 'HBX WhatsApp + Bot IA',
+    offer: 'HBX Full — Bot e IA',
     approach: 'Vi que clínicas costumam perder orçamento quando o WhatsApp fica escondido ou sem triagem rápida.',
     questions: ['Hoje vocês conseguem responder orçamento fora do horário?', 'Quem pediu valor recebe retorno depois?'],
   },
@@ -72,7 +72,7 @@ export const SEGMENT_PLAYBOOKS: SegmentPlaybook[] = [
     key: 'clinica',
     keywords: ['clinica', 'estetica', 'medico', 'saude', 'fisioterapia', 'psicologia'],
     pain: 'agendamento, captação e recuperação de interessados',
-    offer: 'HBX WhatsApp + Bot IA',
+    offer: 'HBX Full — Bot e IA',
     approach: 'Vi que vocês aparecem na cidade, mas o caminho até atendimento pode virar mais agenda com automação.',
     questions: ['Quantos contatos chegam pelo WhatsApp por dia?', 'Há follow-up automático para quem pediu preço?'],
   },
@@ -80,7 +80,7 @@ export const SEGMENT_PLAYBOOKS: SegmentPlaybook[] = [
     key: 'oficina',
     keywords: ['oficina', 'auto', 'mecanica', 'funilaria', 'pneus'],
     pain: 'orçamento e retorno de serviços',
-    offer: 'HBX Vendas + WhatsApp',
+    offer: 'HBX Lead',
     approach: 'Vi que oficinas perdem muito orçamento quando o retorno não fica organizado.',
     questions: ['Vocês acompanham orçamento sem resposta?', 'O cliente recebe lembrete para aprovar serviço?'],
   },
@@ -88,7 +88,7 @@ export const SEGMENT_PLAYBOOKS: SegmentPlaybook[] = [
     key: 'restaurante',
     keywords: ['restaurante', 'pizzaria', 'lanchonete', 'delivery', 'hamburgueria', 'bar'],
     pain: 'pedido, cardápio e retorno de cliente',
-    offer: 'HBX WhatsApp',
+    offer: 'HBX Lead',
     approach: 'WhatsApp pode virar canal de pedido organizado quando cardápio e retorno ficam claros.',
     questions: ['O cardápio está fácil no WhatsApp?', 'Pedidos abandonados recebem retorno?'],
   },
@@ -96,7 +96,7 @@ export const SEGMENT_PLAYBOOKS: SegmentPlaybook[] = [
     key: 'imobiliaria',
     keywords: ['imobiliaria', 'imovel', 'corretor', 'condominio'],
     pain: 'triagem de interessados e prioridade comercial',
-    offer: 'HBX Bot IA',
+    offer: 'HBX Full — Bot e IA',
     approach: 'O bot separa curioso de comprador e entrega para o vendedor quem tem mais chance.',
     questions: ['Vocês qualificam renda, bairro e urgência antes do vendedor?', 'Existe fila de follow-up?'],
   },
@@ -237,7 +237,7 @@ export function calculateHbxOpportunityScore(lead: any, enrichment: any = {}, co
   const opportunityScore = clampScore(score);
   digitalPresenceScore = clampScore(digitalPresenceScore);
   const opportunityLevel = resolveLevel(opportunityScore);
-  const offer = playbook?.offer || (detectedProblems.some((item) => item.includes('site')) ? 'HBX Website + WhatsApp' : 'HBX Vendas + Bot IA');
+  const offer = playbook?.offer || (detectedProblems.some((item) => item.includes('site')) ? 'HBX Website + HBX Lead' : 'HBX Full — Bot e IA');
   const leadName = safeText(lead?.name, 90) || 'essa empresa';
   const segment = safeText(lead?.segment || lead?.normalizedSegment, 80) || 'seu segmento';
   const firstProblem = detectedProblems[0] || 'há espaço para melhorar a conversão digital';

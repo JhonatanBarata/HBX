@@ -10,6 +10,7 @@ import { useHbxTheme } from "@/components/ThemeProvider";
 import {
   TOPBAR_PROGRESS_EVENT,
   type TopbarProgressEventDetail,
+  type TopbarProgressCard,
   type TopbarProgressMetric,
   type TopbarProgressState,
 } from "@/lib/topbar-progress";
@@ -275,6 +276,9 @@ type BillboardSlide = {
   isTheater?: boolean;
   progress?: number | null;
   metrics?: TopbarProgressMetric[];
+  steps?: string[];
+  activeStepIndex?: number;
+  cardFeed?: TopbarProgressCard[];
 };
 
 type TopbarSignalTone = "success" | "warning" | "danger" | "neutral" | "loading";
@@ -404,6 +408,117 @@ function getEngineGaugeStyle(usage: number): React.CSSProperties {
   } as React.CSSProperties;
 }
 
+type HbxEngineLoadTone = "green" | "yellow" | "red" | "muted";
+
+const HBX_ENGINE_SPARK_WIDTH = 236;
+const HBX_ENGINE_SPARK_HEIGHT = 58;
+
+function getEngineUsageTone(usage: number, state?: string | null): HbxEngineLoadTone {
+  const normalizedState = String(state || "").trim().toLowerCase();
+  if (normalizedState === "offline" || normalizedState === "missing" || normalizedState === "paused") return "muted";
+  if (normalizedState === "degraded" || normalizedState === "error") return "red";
+  if (normalizedState === "cooldown") return "yellow";
+
+  const safeUsage = clampTopbarPercent(usage);
+  if (safeUsage <= 33) return "green";
+  if (safeUsage <= 66) return "yellow";
+  return "red";
+}
+
+function getEngineToneColor(tone: HbxEngineLoadTone) {
+  if (tone === "green") return "#059669";
+  if (tone === "yellow") return "#d97706";
+  if (tone === "red") return "#dc2626";
+  return "#94a3b8";
+}
+
+function getEngineToneSoftColor(tone: HbxEngineLoadTone) {
+  if (tone === "green") return "rgba(5, 150, 105, 0.14)";
+  if (tone === "yellow") return "rgba(217, 119, 6, 0.16)";
+  if (tone === "red") return "rgba(220, 38, 38, 0.14)";
+  return "rgba(148, 163, 184, 0.12)";
+}
+
+function buildEngineSparkSamples(
+  engine: ScrapingEngineStatus,
+  usage: number,
+  active: boolean,
+  groupIndex: number,
+  engineIndex: number,
+) {
+  const state = getScrapingEngineState(engine);
+  const safeUsage = clampTopbarPercent(usage);
+  const processed = Math.max(0, Math.min(30, Math.trunc(Number(engine.processedLast10Min || 0))));
+  const queueShare = Math.max(0, Math.min(100, Number(engine.queueShare || 0)));
+  const heartbeatAge = Math.max(0, Math.min(180, Math.trunc(Number(engine.heartbeatAgeSeconds || 0))));
+  const errors = Math.max(0, Math.min(10, Math.trunc(Number(engine.errorCount || 0))));
+  const patterns = [
+    [0.14, 0.2, 0.36, 0.28, 0.46, 0.34, 0.52, 0.42],
+    [0.2, 0.44, 0.31, 0.68, 0.56, 0.72, 0.48, 0.64],
+    [0.34, 0.3, 0.58, 0.46, 0.82, 0.62, 0.74, 0.5],
+    [0.22, 0.62, 0.38, 0.48, 0.32, 0.7, 0.42, 0.58],
+    [0.18, 0.28, 0.5, 0.76, 0.45, 0.66, 0.54, 0.86],
+  ];
+  const pattern = patterns[(groupIndex + engineIndex) % patterns.length];
+  const floor = Math.max(4, Math.min(40, safeUsage * (active ? 0.34 : 0.22)));
+  const telemetryBoost = Math.min(28, processed * 1.4 + queueShare * 0.16 + (active ? 12 : 0));
+  const heartbeatPenalty = heartbeatAge > 45 ? Math.min(18, (heartbeatAge - 45) / 6) : 0;
+  const errorBoost = errors > 0 ? Math.min(22, errors * 5) : 0;
+  const ceiling = Math.max(floor + 8, Math.min(96, safeUsage + telemetryBoost + errorBoost - heartbeatPenalty));
+  const stateFactor = state === "cooldown" ? 0.72 : state === "paused" ? 0.34 : state === "offline" || state === "missing" ? 0.22 : 1;
+
+  return pattern.map((weight, sampleIndex) => {
+    const jitter = ((groupIndex + 1) * 5 + (engineIndex + 1) * 7 + sampleIndex * 3) % 13;
+    const shaped = floor + (ceiling - floor) * weight * stateFactor + jitter - 6;
+    return Math.max(4, Math.min(96, Math.round(shaped)));
+  });
+}
+
+function buildEngineSparkSegment(
+  engine: ScrapingEngineStatus,
+  engineIndex: number,
+  groupIndex: number,
+  active: boolean,
+  visibleState: string,
+  usage: number,
+) {
+  const segmentWidth = 36;
+  const segmentGap = 10;
+  const xStart = 10 + engineIndex * (segmentWidth + segmentGap);
+  const yBase = 49;
+  const yTop = 11;
+  const samples = buildEngineSparkSamples(engine, usage, active, groupIndex, engineIndex);
+  const points = samples.map((sample, sampleIndex) => {
+    const x = xStart + (sampleIndex * segmentWidth) / Math.max(1, samples.length - 1);
+    const y = yBase - (sample / 100) * (yBase - yTop);
+    return `${Number(x.toFixed(1))},${Number(y.toFixed(1))}`;
+  });
+  const tone = getEngineUsageTone(usage, visibleState);
+  const color = getEngineToneColor(tone);
+  const softColor = getEngineToneSoftColor(tone);
+  const areaPoints = [
+    `${xStart},${yBase}`,
+    ...points,
+    `${xStart + segmentWidth},${yBase}`,
+  ].join(" ");
+
+  return {
+    id: engine.id || `${groupIndex}:${engineIndex}`,
+    label: getScrapingEngineShortLabel(engine),
+    shortLabel: String(engineIndex + 1).padStart(2, "0"),
+    usage: clampTopbarPercent(usage),
+    state: visibleState,
+    active,
+    tone,
+    color,
+    softColor,
+    points: points.join(" "),
+    areaPoints,
+    centerX: xStart + segmentWidth / 2,
+    separatorX: xStart + segmentWidth + segmentGap / 2,
+  };
+}
+
 function resolveEngineGroupState(engines: ScrapingEngineStatus[], isLive: (engine: ScrapingEngineStatus) => boolean) {
   if (engines.some((engine) => isLive(engine) || getScrapingEngineState(engine) === "busy" || engine.busy)) return "busy";
   if (engines.some((engine) => getScrapingEngineState(engine) === "degraded")) return "degraded";
@@ -428,6 +543,21 @@ function isTopbarTheaterSource(source: string | null | undefined) {
   return normalized === "vendas" ||
     normalized === "radar" ||
     normalized === "radar-digital" ||
+    normalized === "night_factory" ||
+    normalized === "night-factory" ||
+    normalized === "atendimento" ||
+    normalized.startsWith("atendimento-");
+}
+
+function isEngineProgressSource(source: string | null | undefined) {
+  const normalized = String(source || "").trim().toLowerCase();
+  return normalized === "webscraping" ||
+    normalized === "radar" ||
+    normalized === "radar-digital" ||
+    normalized === "vendas" ||
+    normalized === "night_factory" ||
+    normalized === "night-factory" ||
+    normalized === "atendimento" ||
     normalized.startsWith("atendimento-");
 }
 
@@ -994,7 +1124,7 @@ export default function TopBar() {
   }, [operationalStatus]);
 
   const scrapingEngineView = useMemo(() => normalizeScrapingEngines(scrapingEngines), [scrapingEngines]);
-  const liveWebscrapingProgress = topbarProgress?.source === "webscraping" && topbarProgress.phase === "loading";
+  const liveWebscrapingProgress = Boolean(topbarProgress && isEngineProgressSource(topbarProgress.source) && topbarProgress.phase === "loading");
   const topbarProgressPercent = Math.round(Math.max(0, Math.min(100, topbarProgress?.progress || 0)));
   const progressEngineIds = useMemo(
     () => new Set((topbarProgress?.activeEngineIds || []).map((engineId) => String(engineId || "").trim()).filter(Boolean)),
@@ -2706,15 +2836,15 @@ export default function TopBar() {
       const sourceLabel =
         theaterSource
           ? "Telão"
-          : topbarProgress.source === "webscraping"
-            ? progressEngineLabel
-              ? `${progressEngineLabel} ao vivo`
-              : "Motores HBX"
+            : isEngineProgressSource(topbarProgress.source)
+              ? progressEngineLabel
+                ? `${progressEngineLabel} ao vivo`
+                : "Motores HBX"
             : topbarProgress.phase === "warning"
               ? "Atenção"
               : "Confirmado";
       const fallbackMetrics =
-        topbarProgress.source === "webscraping"
+        isEngineProgressSource(topbarProgress.source)
           ? [
               { label: "Fila", value: String(scrapingEngines?.capacity?.queuedCount ?? 0) },
               { label: "Rodando", value: String(scrapingEngines?.capacity?.runningCount ?? hbxRunningCount) },
@@ -2743,6 +2873,9 @@ export default function TopBar() {
           isTheater: theaterSource,
           progress: topbarProgressPercent,
           metrics: (topbarProgress.metrics?.length ? topbarProgress.metrics : fallbackMetrics).slice(0, 3),
+          steps: topbarProgress.steps,
+          activeStepIndex: topbarProgress.activeStepIndex,
+          cardFeed: topbarProgress.cardFeed,
         },
       ];
     }
@@ -3117,32 +3250,21 @@ export default function TopBar() {
                 : "Standby";
     const firstIndex = groupIndex * groupSize + 1;
     const lastIndex = firstIndex + safeGroupEngines.length - 1;
-    const engineBars = safeGroupEngines.map((engine, engineIndex) => {
+    const sparkSegments = safeGroupEngines.slice(0, 5).map((engine, engineIndex) => {
       const engineUsage = getEngineUsage(engine);
       const engineState = getVisibleScrapingEngineState(engine);
       const active = engine.active || engine.busy || isLiveScrapingEngine(engine) || engineState === "busy" || engineState === "emergency";
-      const pulse = active ? Math.max(48, engineUsage) : Math.max(16, Math.min(52, engineUsage));
-      return {
-        id: engine.id || `${groupIndex}:${engineIndex}`,
-        label: getScrapingEngineShortLabel(engine),
-        usage: Math.max(12, Math.min(96, pulse)),
-        state: engineState,
-        active,
-      };
+      return buildEngineSparkSegment(engine, engineIndex, groupIndex, active, engineState, engineUsage);
     });
-    const visualBars = Array.from({ length: 9 }, (_, barIndex) => {
-      const engine = engineBars[barIndex % Math.max(1, engineBars.length)];
-      const wave = [0.36, 0.68, 0.44, 0.92, 0.58, 0.78, 0.42, 0.86, 0.62][barIndex];
-      const active = Boolean(engine?.active || (liveWebscrapingProgress && state !== "offline"));
-      const baseUsage = engine?.usage ?? usage;
-      return {
-        id: `${groupIndex}:${barIndex}:${engine?.id || "fallback"}`,
-        label: engine?.label || `${barIndex + 1}`,
-        usage: Math.max(12, Math.min(96, Math.round(baseUsage * wave + (active ? 12 : 0)))),
-        state: engine?.state || state,
-        active,
-      };
-    });
+    while (sparkSegments.length < 5) {
+      const fallbackIndex = groupIndex * 5 + sparkSegments.length;
+      const fallbackEngine = buildFallbackScrapingEngine(fallbackIndex);
+      const fallbackUsage = getEngineUsage(fallbackEngine);
+      sparkSegments.push(
+        buildEngineSparkSegment(fallbackEngine, sparkSegments.length, groupIndex, false, getScrapingEngineState(fallbackEngine), fallbackUsage),
+      );
+    }
+    const groupTone = getEngineUsageTone(usage, state);
 
     return {
       id: `hbx-group-${groupIndex + 1}`,
@@ -3151,10 +3273,12 @@ export default function TopBar() {
       state,
       stateLabel,
       usage,
+      tone: groupTone,
+      toneColor: getEngineToneColor(groupTone),
       onlineCount,
       runningCount,
       total: safeGroupEngines.length,
-      bars: visualBars,
+      sparkSegments,
     };
   });
   const hbxEngineGroupCards = hbxEngineGroups.map((group) => (
@@ -3162,7 +3286,13 @@ export default function TopBar() {
       key={group.id}
       className="hbx-command-engine"
       data-state={group.state}
-      style={getEngineGaugeStyle(group.usage)}
+      data-tone={group.tone}
+      style={
+        {
+          ...getEngineGaugeStyle(group.usage),
+          ["--engine-tone-color" as string]: group.toneColor,
+        } as React.CSSProperties
+      }
       title={`${group.label}: ${group.stateLabel}. Motores ${group.range}. ${group.runningCount}/${group.total} rodando, ${group.onlineCount}/${group.total} online.`}
     >
       <div className="hbx-command-engine__top">
@@ -3177,21 +3307,81 @@ export default function TopBar() {
           <b>{group.usage}%</b>
           <small>uso</small>
         </span>
-        <span className="hbx-command-engine__bars" aria-hidden="true">
-          {group.bars.map((bar) => (
-            <i
-              key={bar.id}
-              data-state={bar.state}
-              data-active={bar.active ? "true" : "false"}
-              style={{ height: `${bar.usage}%` }}
-              title={`${bar.label}: ${bar.usage}%`}
-            />
-          ))}
+        <span
+          className="hbx-command-engine__bars hbx-command-engine__spark"
+          aria-hidden="true"
+          style={{
+            display: "block",
+            flex: "1 1 auto",
+            minWidth: 0,
+            height: 58,
+            padding: "0 2px",
+            background: "transparent",
+          }}
+        >
+          <svg
+            viewBox={`0 0 ${HBX_ENGINE_SPARK_WIDTH} ${HBX_ENGINE_SPARK_HEIGHT}`}
+            preserveAspectRatio="none"
+            focusable="false"
+            style={{ display: "block", width: "100%", height: "100%", overflow: "visible" }}
+          >
+            <line x1="8" y1="49" x2="229" y2="49" stroke="currentColor" strokeOpacity="0.12" strokeWidth="1" />
+            <line x1="8" y1="30" x2="229" y2="30" stroke="currentColor" strokeOpacity="0.07" strokeWidth="1" />
+            {group.sparkSegments.slice(0, -1).map((segment) => (
+              <line
+                key={`${segment.id}:separator`}
+                x1={segment.separatorX}
+                y1="10"
+                x2={segment.separatorX}
+                y2="51"
+                stroke="currentColor"
+                strokeOpacity="0.18"
+                strokeWidth="1"
+                strokeDasharray="2 3"
+              />
+            ))}
+            {group.sparkSegments.map((segment) => (
+              <g key={segment.id}>
+                <text
+                  x={segment.centerX}
+                  y="7"
+                  textAnchor="middle"
+                  fontSize="7"
+                  fontWeight="700"
+                  fill="currentColor"
+                  fillOpacity="0.58"
+                >
+                  {segment.shortLabel}
+                </text>
+                <polygon points={segment.areaPoints} fill={segment.softColor} />
+                <polyline
+                  points={segment.points}
+                  fill="none"
+                  stroke={segment.color}
+                  strokeWidth={segment.active ? "2.4" : "1.75"}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  opacity={segment.state === "offline" || segment.state === "missing" ? "0.5" : "1"}
+                />
+              </g>
+            ))}
+          </svg>
         </span>
       </div>
       <div className="hbx-command-engine__dots" aria-hidden="true">
-        {group.bars.map((bar) => (
-          <i key={bar.id} data-state={bar.state} data-active={bar.active ? "true" : "false"} />
+        {group.sparkSegments.map((segment) => (
+          <i
+            key={segment.id}
+            data-state={segment.state}
+            data-tone={segment.tone}
+            data-active={segment.active ? "true" : "false"}
+            style={{
+              background: segment.color,
+              boxShadow: segment.active ? `0 0 0 3px ${segment.softColor}, 0 0 12px ${segment.color}` : undefined,
+              opacity: segment.state === "offline" || segment.state === "missing" ? 0.42 : 1,
+            }}
+            title={`${segment.label}: ${segment.usage}%`}
+          />
         ))}
       </div>
     </article>
@@ -3314,6 +3504,36 @@ export default function TopBar() {
                         <i style={{ width: `${activeBillboardProgress}%` }} />
                       </span>
                     ) : null}
+                    {activeBillboardSlide.steps?.length ? (
+                      <div className="hbx-command-billboard__steps" aria-label="Etapas do processamento">
+                        {activeBillboardSlide.steps.slice(0, 4).map((step, index) => (
+                          <span
+                            key={`${step}:${index}`}
+                            data-state={
+                              index < Number(activeBillboardSlide.activeStepIndex ?? 0)
+                                ? "done"
+                                : index === Number(activeBillboardSlide.activeStepIndex ?? 0)
+                                  ? "active"
+                                  : "pending"
+                            }
+                          >
+                            <i aria-hidden="true" />
+                            {step}
+                          </span>
+                        ))}
+                      </div>
+                    ) : null}
+                    {activeBillboardSlide.cardFeed?.length ? (
+                      <div className="hbx-command-billboard__feed" aria-label="Cards entrando no fluxo">
+                        {activeBillboardSlide.cardFeed.slice(-4).map((card) => (
+                          <span key={card.id}>
+                            <strong>{card.title}</strong>
+                            <small>{card.meta || "Card elegível"}</small>
+                            {card.score !== undefined && card.score !== null ? <b>{card.score}</b> : null}
+                          </span>
+                        ))}
+                      </div>
+                    ) : null}
                     <div className="hbx-command-billboard__metrics">
                       {(activeBillboardSlide.metrics?.length ? activeBillboardSlide.metrics : hbxGaugePanels).slice(0, 3).map((metricItem) => (
                         <span key={`${metricItem.label}:${metricItem.value}`}>
@@ -3331,7 +3551,7 @@ export default function TopBar() {
                           data-tone={item.tone}
                           onClick={(event) => {
                             event.stopPropagation();
-                            handleCommandKpiAction(item.id);
+                            handleCommandKpiAction(item.id as TopbarOperationalTile["id"]);
                           }}
                           title={`${item.label}: ${item.value}. ${item.detail}`}
                           style={
