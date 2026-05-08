@@ -117,6 +117,8 @@ type DashboardPayload = {
     memoryTargetGb: number;
     batchSize: number;
     maxAttemptsPerTask: number;
+    autonomousFillEnabled: boolean;
+    autonomousFillBatchSize: number;
   };
 };
 
@@ -132,6 +134,8 @@ type FormState = {
   memoryTargetGb: number;
   batchSize: number;
   maxAttemptsPerTask: number;
+  autonomousFillEnabled: boolean;
+  autonomousFillBatchSize: number;
 };
 
 const BRASILIA_TIME_ZONE = "America/Sao_Paulo";
@@ -150,6 +154,8 @@ const DEFAULT_FORM: FormState = {
   memoryTargetGb: 16,
   batchSize: 20,
   maxAttemptsPerTask: 3,
+  autonomousFillEnabled: true,
+  autonomousFillBatchSize: 60,
 };
 
 function clampNumber(value: unknown, fallback: number, min: number, max: number) {
@@ -240,6 +246,8 @@ function buildTurboPayload(form: FormState) {
     memoryTargetGb: form.memoryTargetGb,
     batchSize: form.batchSize,
     maxAttemptsPerTask: form.maxAttemptsPerTask,
+    autonomousFillEnabled: form.autonomousFillEnabled,
+    autonomousFillBatchSize: form.autonomousFillBatchSize,
   };
 }
 
@@ -313,6 +321,8 @@ export default function MasterWebscrapingClientPage() {
       memoryTargetGb: clampNumber(config.memoryTargetGb, 16, 1, 256),
       batchSize: clampNumber(config.batchSize, 20, 1, 20),
       maxAttemptsPerTask: clampNumber(config.maxAttemptsPerTask, 3, 1, 10),
+      autonomousFillEnabled: Boolean(config.autonomousFillEnabled),
+      autonomousFillBatchSize: clampNumber(config.autonomousFillBatchSize, 60, 1, 300),
     }));
     setTurboConfigDirty(false);
   }, [setTurboConfigDirty]);
@@ -808,11 +818,34 @@ export default function MasterWebscrapingClientPage() {
                     <div className={styles.campaignRow}>
                       <label>
                         Batch por lote
-                        <input type="number" min={1} max={20} value={form.batchSize} onChange={(event) => setForm((current) => ({ ...current, batchSize: clampNumber(event.target.value, 20, 1, 20) }))} />
+                        <input type="number" min={1} max={20} value={form.batchSize} onChange={(event) => updateTurboConfigForm({ batchSize: clampNumber(event.target.value, 20, 1, 20) })} />
                       </label>
                       <label>
                         Tentativas
-                        <input type="number" min={1} max={10} value={form.maxAttemptsPerTask} onChange={(event) => setForm((current) => ({ ...current, maxAttemptsPerTask: clampNumber(event.target.value, 3, 1, 10) }))} />
+                        <input type="number" min={1} max={10} value={form.maxAttemptsPerTask} onChange={(event) => updateTurboConfigForm({ maxAttemptsPerTask: clampNumber(event.target.value, 3, 1, 10) })} />
+                      </label>
+                    </div>
+                    <div className={styles.autonomousFillBox}>
+                      <label>
+                        <input
+                          type="checkbox"
+                          checked={form.autonomousFillEnabled}
+                          onChange={(event) => updateTurboConfigForm({ autonomousFillEnabled: event.target.checked })}
+                        />
+                        <span>
+                          <strong>Inteligência para nunca parar</strong>
+                          <small>Quando a fila manual terminar, o banco escolhe novas cidades, estados e segmentos ainda sem dados puxados.</small>
+                        </span>
+                      </label>
+                      <label>
+                        Recarga automática
+                        <input
+                          type="number"
+                          min={1}
+                          max={300}
+                          value={form.autonomousFillBatchSize}
+                          onChange={(event) => updateTurboConfigForm({ autonomousFillBatchSize: clampNumber(event.target.value, 60, 1, 300) })}
+                        />
                       </label>
                     </div>
                     <div className={styles.campaignRow}>
@@ -856,6 +889,7 @@ export default function MasterWebscrapingClientPage() {
                     <div className={styles.campaignHelp}>
                       <span>Batch = quantidade por rodada</span>
                       <span>Motor livre: deixe cidade ou segmento em branco quando quiser varredura ampla.</span>
+                      <span>Modo autônomo só entra depois que tudo que você pediu na fila for cumprido.</span>
                     </div>
                   </div>
                   <button type="button" className={styles.createCampaignButton} onClick={() => void createMassDataCampaign()} disabled={saving || !form.state}>

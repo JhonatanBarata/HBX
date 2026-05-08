@@ -222,6 +222,7 @@ function createCampaignPrisma(initialCampaign: Record<string, any> = {}) {
   };
   const batches: any[] = [];
   const leads: any[] = [];
+  const tasks: any[] = Array.isArray(initialCampaign.tasks) ? [...initialCampaign.tasks] : [];
 
   const applyCampaignData = (data: Record<string, any>) => {
     for (const [key, value] of Object.entries(data || {})) {
@@ -232,18 +233,18 @@ function createCampaignPrisma(initialCampaign: Record<string, any> = {}) {
       }
     }
     campaign.updatedAt = new Date();
-    return { ...campaign, batches: [...batches] };
+    return { ...campaign, batches: [...batches], tasks: [...tasks] };
   };
 
   const prisma = createPrisma({
     webscrapingCampaign: {
       create: async ({ data, include }: any) => {
         Object.assign(campaign, data, { id: campaign.id, createdAt: campaign.createdAt, updatedAt: new Date() });
-        return include ? { ...campaign, batches: [...batches] } : { ...campaign };
+        return include ? { ...campaign, batches: [...batches], tasks: [...tasks] } : { ...campaign };
       },
-      findUnique: async () => ({ ...campaign, batches: [...batches] }),
-      findFirst: async () => ({ ...campaign, batches: [...batches] }),
-      findMany: async () => [{ ...campaign, batches: [...batches] }],
+      findUnique: async () => ({ ...campaign, batches: [...batches], tasks: [...tasks] }),
+      findFirst: async () => ({ ...campaign, batches: [...batches], tasks: [...tasks] }),
+      findMany: async () => [{ ...campaign, batches: [...batches], tasks: [...tasks] }],
       update: async ({ data }: any) => applyCampaignData(data),
       updateMany: async ({ data }: any) => {
         applyCampaignData(data);
@@ -270,6 +271,77 @@ function createCampaignPrisma(initialCampaign: Record<string, any> = {}) {
       },
       findMany: async () => [...batches],
     },
+    webscrapingCampaignTask: {
+      groupBy: async ({ where }: any) => {
+        const filtered = tasks.filter((task) => !where?.campaignId || task.campaignId === where.campaignId);
+        const counts = new Map<string, number>();
+        for (const task of filtered) counts.set(task.status, (counts.get(task.status) || 0) + 1);
+        return Array.from(counts.entries()).map(([status, count]) => ({ status, _count: { _all: count } }));
+      },
+      findFirst: async (input?: any) => {
+        const where = input?.where || {};
+        const rows = tasks.filter((task) =>
+          (!where.campaignId || task.campaignId === where.campaignId) &&
+          (!where.state || task.state === where.state) &&
+          (!where.city || task.city === where.city) &&
+          (!where.segment || task.segment === where.segment) &&
+          (!where.targetType || task.targetType === where.targetType) &&
+          (!where.status || task.status === where.status),
+        );
+        return rows[0] || null;
+      },
+      findMany: async (input?: any) => {
+        const where = input?.where || {};
+        return tasks.filter((task) =>
+          (!where.campaignId || task.campaignId === where.campaignId) &&
+          (!where.status || task.status === where.status || (Array.isArray(where.status?.in) && where.status.in.includes(task.status))),
+        );
+      },
+      findUnique: async ({ where }: any) => tasks.find((task) => task.id === where.id) || null,
+      update: async ({ where, data }: any) => {
+        const task = tasks.find((item) => item.id === where.id);
+        if (task) Object.assign(task, data, { updatedAt: new Date() });
+        return task;
+      },
+      updateMany: async ({ where, data }: any) => {
+        let count = 0;
+        for (const task of tasks) {
+          if (where?.id && task.id !== where.id) continue;
+          if (where?.campaignId && task.campaignId !== where.campaignId) continue;
+          if (where?.status && task.status !== where.status) continue;
+          Object.assign(task, data, { updatedAt: new Date() });
+          count += 1;
+        }
+        return { count };
+      },
+      upsert: async ({ where, create, update }: any) => {
+        const key = where?.campaignId_state_city_segment_targetType;
+        const existing = tasks.find((task) =>
+          task.campaignId === key?.campaignId &&
+          task.state === key?.state &&
+          task.city === key?.city &&
+          task.segment === key?.segment &&
+          task.targetType === key?.targetType,
+        );
+        if (existing) {
+          Object.assign(existing, update || {}, { updatedAt: new Date() });
+          return existing;
+        }
+        const task = {
+          id: `task-${tasks.length + 1}`,
+          status: 'queued',
+          attemptCount: 0,
+          foundCount: 0,
+          duplicateCount: 0,
+          rejectedCount: 0,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          ...create,
+        };
+        tasks.push(task);
+        return task;
+      },
+    },
     radarLeadPool: {
       findMany: async (input?: any) => {
         const where = input?.where || {};
@@ -282,6 +354,13 @@ function createCampaignPrisma(initialCampaign: Record<string, any> = {}) {
         return [...leads];
       },
       findFirst: async (input?: any) => {
+        const where = input?.where || {};
+        if (where.normalizedCity || where.normalizedSegment || where.state) {
+          return leads.find((lead) =>
+            (!where.normalizedCity || lead.normalizedCity === where.normalizedCity) &&
+            (!where.normalizedSegment || lead.normalizedSegment === where.normalizedSegment) &&
+            (!where.state || lead.state === where.state)) || null;
+        }
         const candidates = input?.where?.OR || [];
         return leads.find((lead) => candidates.some((where: any) =>
           (where.phoneDigits && where.phoneDigits === lead.phoneDigits) ||
@@ -315,7 +394,7 @@ function createCampaignPrisma(initialCampaign: Record<string, any> = {}) {
     },
   });
 
-  return { prisma, campaign, batches, leads };
+  return { prisma, campaign, batches, leads, tasks };
 }
 
 function disableRadarCampaignAutoPump(service: WebscrapingService) {
@@ -1575,6 +1654,68 @@ test('campanha radar cria target 10000 sem executar lote no HTTP de criacao', as
   assert.equal(response.status, 'queued');
   assert.equal(campaign.currentAttempt, 0);
   assert.equal(campaign.maxAttempts >= 400, true);
+});
+
+test('campanha massa de dados reabastece fila autonoma quando a fila manual termina', async () => {
+  const { prisma, campaign, tasks, leads } = createCampaignPrisma({
+    mode: 'mass_data',
+    status: 'running',
+    city: '',
+    state: 'AC',
+    segment: 'segmentos internos',
+    targetType: 'pj',
+    targetTotal: 0,
+    batchSize: 20,
+    maxAttempts: 3,
+  });
+  tasks.push({
+    id: 'task-manual-1',
+    campaignId: 'campaign-1',
+    state: 'AC',
+    city: 'Rio Branco',
+    segment: 'empresas',
+    targetType: 'pj',
+    query: 'empresas Rio Branco AC telefone',
+    status: 'completed',
+    attemptCount: 1,
+    maxAttempts: 3,
+    foundCount: 2,
+    duplicateCount: 0,
+    rejectedCount: 0,
+    createdAt: new Date('2026-05-06T12:00:00.000Z'),
+    updatedAt: new Date('2026-05-06T12:05:00.000Z'),
+  });
+  leads.push({
+    id: 'lead-covered-1',
+    name: 'Loja ja puxada',
+    normalizedCity: 'campinas',
+    state: 'SP',
+    normalizedSegment: 'servicos',
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  });
+  const service = new WebscrapingService(prisma) as any;
+  service.getOperationalConfig = async () => ({
+    autonomousFillEnabled: true,
+    autonomousFillBatchSize: 3,
+  });
+  service.loadBrazilianCities = async () => ['Rio Branco - AC', 'Campinas - SP', 'Curitiba - PR'];
+
+  await service.refreshMassDataCampaignState('campaign-1');
+
+  const queuedTasks = tasks.filter((task) => task.status === 'queued');
+  assert.equal(campaign.status, 'running');
+  assert.equal(queuedTasks.length, 3);
+  assert.match(String(campaign.lastErrorMessage || ''), /autônoma reabastecida/i);
+  assert.equal(queuedTasks.some((task) =>
+    task.city === 'Rio Branco' &&
+    task.state === 'AC' &&
+    task.segment === 'empresas' &&
+    task.targetType === 'pj'), false);
+  assert.equal(queuedTasks.some((task) =>
+    task.city === 'Campinas' &&
+    task.state === 'SP' &&
+    task.segment === 'serviços'), false);
 });
 
 test('campanha radar trata 502 como retryable e salva 2 contatos no segundo lote', async () => {

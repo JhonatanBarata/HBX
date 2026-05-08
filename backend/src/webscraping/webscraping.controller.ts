@@ -300,6 +300,18 @@ class MasterTurboConfigDto {
   @IsOptional()
   @Type(() => Boolean)
   @IsBoolean()
+  autonomousFillEnabled?: boolean;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(300)
+  autonomousFillBatchSize?: number;
+
+  @IsOptional()
+  @Type(() => Boolean)
+  @IsBoolean()
   forceNow?: boolean;
 
   @IsOptional()
