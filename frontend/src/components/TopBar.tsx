@@ -2438,7 +2438,8 @@ export default function TopBar() {
   function openWhatsAppOperationalDetail(focus: WhatsAppDiagnosticFocus = "status") {
     setWhatsAppDetailFocus(focus);
     setWhatsAppDetailOpen(true);
-    void loadWhatsAppCenter({ background: true, includeQr: focus === "qr" });
+    void loadWhatsAppCenter({ background: true });
+    void loadWhatsAppModal({ background: true, includeQr: focus === "qr" });
   }
 
   function handleBillboardAction(slide: BillboardSlide) {
