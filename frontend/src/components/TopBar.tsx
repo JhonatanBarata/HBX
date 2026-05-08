@@ -3009,6 +3009,32 @@ export default function TopBar() {
                 : "Standby";
     const firstIndex = groupIndex * groupSize + 1;
     const lastIndex = firstIndex + safeGroupEngines.length - 1;
+    const engineBars = safeGroupEngines.map((engine, engineIndex) => {
+      const engineUsage = getEngineUsage(engine);
+      const engineState = getVisibleScrapingEngineState(engine);
+      const active = engine.active || engine.busy || isLiveScrapingEngine(engine) || engineState === "busy" || engineState === "emergency";
+      const pulse = active ? Math.max(48, engineUsage) : Math.max(16, Math.min(52, engineUsage));
+      return {
+        id: engine.id || `${groupIndex}:${engineIndex}`,
+        label: getScrapingEngineShortLabel(engine),
+        usage: Math.max(12, Math.min(96, pulse)),
+        state: engineState,
+        active,
+      };
+    });
+    const visualBars = Array.from({ length: 9 }, (_, barIndex) => {
+      const engine = engineBars[barIndex % Math.max(1, engineBars.length)];
+      const wave = [0.36, 0.68, 0.44, 0.92, 0.58, 0.78, 0.42, 0.86, 0.62][barIndex];
+      const active = Boolean(engine?.active || (liveWebscrapingProgress && state !== "offline"));
+      const baseUsage = engine?.usage ?? usage;
+      return {
+        id: `${groupIndex}:${barIndex}:${engine?.id || "fallback"}`,
+        label: engine?.label || `${barIndex + 1}`,
+        usage: Math.max(12, Math.min(96, Math.round(baseUsage * wave + (active ? 12 : 0)))),
+        state: engine?.state || state,
+        active,
+      };
+    });
 
     return {
       id: `hbx-group-${groupIndex + 1}`,
@@ -3020,17 +3046,7 @@ export default function TopBar() {
       onlineCount,
       runningCount,
       total: safeGroupEngines.length,
-      bars: safeGroupEngines.map((engine) => {
-        const engineUsage = getEngineUsage(engine);
-        const engineState = getVisibleScrapingEngineState(engine);
-        return {
-          id: engine.id,
-          label: getScrapingEngineShortLabel(engine),
-          usage: Math.max(8, engineUsage),
-          state: engineState,
-          active: engine.active || engine.busy || isLiveScrapingEngine(engine) || engineState === "busy" || engineState === "emergency",
-        };
-      }),
+      bars: visualBars,
     };
   });
   const commandKpis = [

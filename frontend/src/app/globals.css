@@ -2696,18 +2696,21 @@ html[data-theme-mode="light"] .app-topbar__inner--controlCenter {
 
 .hbx-command-engine__bars i {
   width: 100%;
-  min-width: 3px;
-  max-width: 9px;
+  min-width: 4px;
+  max-width: 12px;
   border-radius: 999px 999px 2px 2px;
-  background: color-mix(in srgb, var(--engine-node-tone) 46%, var(--hbx-command-line));
-  opacity: 0.48;
-  box-shadow: 0 0 0 transparent;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--engine-node-tone) 72%, #ffffff), color-mix(in srgb, var(--engine-node-tone) 70%, var(--hbx-command-blue)));
+  opacity: 0.72;
+  box-shadow: 0 0 8px color-mix(in srgb, var(--engine-node-tone) 22%, transparent);
+  transform-origin: bottom center;
 }
 
 .hbx-command-engine__bars i[data-active="true"] {
   opacity: 1;
   background: linear-gradient(180deg, color-mix(in srgb, var(--engine-node-tone) 92%, #ffffff), var(--engine-node-tone));
   box-shadow: 0 0 10px color-mix(in srgb, var(--engine-node-tone) 36%, transparent);
+  animation: topbar-command-eq 0.82s ease-in-out infinite alternate;
+  animation-delay: calc(var(--bar-index, 0) * 80ms);
 }
 
 .hbx-command-engine__bars i[data-state="cooldown"] {
@@ -4011,6 +4014,34 @@ html[data-theme-mode="light"] .app-topbar__inner--controlCenter {
 .hbx-command-engine__bars {
   height: 44px;
   gap: 0.16rem;
+}
+
+.hbx-command-center[data-live="true"] .hbx-command-engine__bars i,
+.hbx-command-engine[data-state="running"] .hbx-command-engine__bars i {
+  opacity: 1;
+  box-shadow:
+    0 0 10px color-mix(in srgb, var(--engine-node-tone) 38%, transparent),
+    0 0 18px color-mix(in srgb, var(--hbx-command-cyan) 20%, transparent);
+  animation: topbar-command-eq 0.78s ease-in-out infinite alternate;
+}
+
+.hbx-command-engine__bars i:nth-child(2n) {
+  animation-delay: 90ms;
+}
+
+.hbx-command-engine__bars i:nth-child(3n) {
+  animation-delay: 180ms;
+}
+
+@keyframes topbar-command-eq {
+  from {
+    transform: scaleY(0.72);
+    filter: brightness(0.96);
+  }
+  to {
+    transform: scaleY(1.08);
+    filter: brightness(1.22);
+  }
 }
 
 .hbx-command-engine__dots i {
