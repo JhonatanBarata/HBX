@@ -502,17 +502,42 @@ const HBX_TOPBAR_POLISH_CSS = `
   }
 
   .hbx-command-center {
+    --hbx-carousel-gutter: clamp(22px, 2vw, 28px);
     min-width: 0;
     height: 100%;
     position: relative;
     z-index: 8;
-    margin-inline: -2px;
+    margin-inline: 0;
+    padding-inline: var(--hbx-carousel-gutter);
     overflow: visible;
+    isolation: isolate;
+  }
+  .hbx-command-center::before,
+  .hbx-command-center::after {
+    content: "";
+    position: absolute;
+    top: 8px;
+    bottom: 8px;
+    width: calc(var(--hbx-carousel-gutter) + 8px);
+    z-index: 2;
+    pointer-events: none;
+    border-radius: 999px;
+    opacity: .5;
+  }
+  .hbx-command-center::before {
+    left: 0;
+    background: linear-gradient(90deg, color-mix(in srgb, var(--header-surface, var(--surface, #fff)) 88%, transparent), transparent);
+  }
+  .hbx-command-center::after {
+    right: 0;
+    background: linear-gradient(270deg, color-mix(in srgb, var(--header-surface, var(--surface, #fff)) 88%, transparent), transparent);
   }
   .hbx-command-center__body {
     min-width: 0;
     height: 100%;
     overflow: visible;
+    position: relative;
+    z-index: 1;
   }
   .hbx-command-billboard {
     position: relative;
@@ -520,7 +545,7 @@ const HBX_TOPBAR_POLISH_CSS = `
     min-height: 126px;
     border-radius: var(--panel-radius, 22px);
     padding: 12px;
-    overflow: hidden;
+    overflow: visible;
     color: var(--foreground, #0f172a);
     cursor: pointer;
     border: 2px solid color-mix(in srgb, var(--brand, #10b981) 32%, var(--line, rgba(148,163,184,.24)));
@@ -566,6 +591,7 @@ const HBX_TOPBAR_POLISH_CSS = `
     content: "";
     position: absolute;
     inset: 0;
+    border-radius: inherit;
     pointer-events: none;
     background: radial-gradient(circle at 8% 18%, var(--selection-accent-soft, rgba(16,185,129,.14)), transparent 28%), linear-gradient(90deg, transparent, color-mix(in srgb, var(--brand, #10b981) 10%, transparent), transparent);
     opacity: .68;
@@ -573,6 +599,7 @@ const HBX_TOPBAR_POLISH_CSS = `
   .hbx-command-billboard__scan {
     position: absolute;
     inset: 0;
+    border-radius: inherit;
     pointer-events: none;
     opacity: .26;
     background: linear-gradient(90deg, transparent, rgba(255,255,255,.38), transparent);
@@ -582,32 +609,63 @@ const HBX_TOPBAR_POLISH_CSS = `
   .hbx-command-carouselNav {
     position: absolute;
     top: 50%;
-    z-index: 65;
-    width: 28px;
-    height: 44px;
+    z-index: 140;
+    width: 22px;
+    min-width: 22px;
+    height: 38px;
     display: grid;
     place-items: center;
     border-radius: 999px;
-    border: 1px solid color-mix(in srgb, var(--brand, #10b981) 38%, var(--line, rgba(148,163,184,.25)));
-    background: color-mix(in srgb, var(--surface-raised, #fff) 94%, transparent);
-    color: var(--foreground, #0f172a);
+    border: 1px solid color-mix(in srgb, var(--line, rgba(148,163,184,.25)) 62%, transparent);
+    background: color-mix(in srgb, var(--surface-raised, #fff) 28%, transparent);
+    color: color-mix(in srgb, var(--foreground, #0f172a) 92%, var(--brand, #10b981));
     box-shadow:
-      0 0 0 1px color-mix(in srgb, var(--surface, #fff) 70%, transparent),
-      0 18px 42px -24px color-mix(in srgb, var(--brand, #10b981) 42%, transparent);
-    font-size: 24px;
-    font-weight: 900;
+      0 0 0 1px color-mix(in srgb, var(--surface, #fff) 24%, transparent),
+      0 12px 24px -20px color-mix(in srgb, var(--foreground, #0f172a) 26%, transparent);
+    -webkit-backdrop-filter: blur(9px) saturate(145%);
+    backdrop-filter: blur(9px) saturate(145%);
+    opacity: .18;
+    font-size: 22px;
+    font-weight: 950;
     line-height: 1;
     cursor: pointer;
+    transition:
+      opacity .16s ease,
+      transform .16s ease,
+      border-color .16s ease,
+      box-shadow .16s ease,
+      background .16s ease,
+      color .16s ease;
+  }
+  .hbx-command-carouselNav:hover,
+  .hbx-command-carouselNav:focus-visible,
+  .hbx-command-center:hover .hbx-command-carouselNav {
+    opacity: .72;
+  }
+  .hbx-command-carouselNav:hover,
+  .hbx-command-carouselNav:focus-visible {
+    border-color: color-mix(in srgb, var(--brand, #10b981) 44%, var(--line, rgba(148,163,184,.25)));
+    background: color-mix(in srgb, var(--surface-raised, #fff) 62%, transparent);
+    color: color-mix(in srgb, var(--brand, #10b981) 70%, var(--foreground, #0f172a));
+    box-shadow:
+      0 0 0 1px color-mix(in srgb, var(--brand, #10b981) 16%, transparent),
+      0 20px 44px -24px color-mix(in srgb, var(--brand, #10b981) 34%, transparent),
+      var(--shadow-xs, 0 12px 24px -18px rgba(15,23,42,.26));
+    opacity: .96;
+    outline: none;
+  }
+  .hbx-command-carouselNav--prev {
+    left: 1px;
     transform: translateY(-50%);
-    transition: transform .16s ease, border-color .16s ease, box-shadow .16s ease, background .16s ease;
   }
-  .hbx-command-carouselNav:hover {
-    border-color: color-mix(in srgb, var(--brand, #10b981) 58%, var(--line, rgba(148,163,184,.25)));
-    background: color-mix(in srgb, var(--selection-accent-soft, rgba(16,185,129,.18)) 45%, var(--surface-raised, #fff));
-    transform: translateY(-50%) scale(1.05);
+  .hbx-command-carouselNav--next {
+    right: 1px;
+    transform: translateY(-50%);
   }
-  .hbx-command-carouselNav--prev { left: -14px; }
-  .hbx-command-carouselNav--next { right: -14px; }
+  .hbx-command-carouselNav--prev:hover,
+  .hbx-command-carouselNav--prev:focus-visible { transform: translateY(-50%) translateX(-1px) scale(1.04); }
+  .hbx-command-carouselNav--next:hover,
+  .hbx-command-carouselNav--next:focus-visible { transform: translateY(-50%) translateX(1px) scale(1.04); }
   .hbx-command-billboard__main,
   .hbx-command-billboard__metrics,
   .hbx-command-kpis--billboard,

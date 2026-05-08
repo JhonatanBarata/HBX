@@ -94,6 +94,10 @@ class RadarDatabaseQueryDto {
   segment?: string;
 
   @IsOptional()
+  @IsIn(['pj', 'pf', 'agenda_pf', 'both'])
+  targetType?: 'pj' | 'pf' | 'agenda_pf' | 'both';
+
+  @IsOptional()
   @IsString()
   status?: string;
 
