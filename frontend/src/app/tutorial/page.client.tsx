@@ -584,6 +584,7 @@ export default function TutorialClientPage() {
   const [error, setError] = useState<string | null>(null);
   const [, setQrLoading] = useState(false);
   const [qrSuccess, setQrSuccess] = useState(false);
+  const qrGenerationInFlightRef = useRef(false);
   const [techDialogOpen, setTechDialogOpen] = useState(false);
   const [techFocus, setTechFocus] = useState<WhatsAppDiagnosticFocus>("official");
   const [techBusy, setTechBusy] = useState<string | null>(null);
@@ -849,6 +850,8 @@ export default function TutorialClientPage() {
   }
 
   async function generateQrCode() {
+    if (qrGenerationInFlightRef.current) return;
+    qrGenerationInFlightRef.current = true;
     setQrLoading(true);
     setNotice(null);
     setError(null);
@@ -869,6 +872,7 @@ export default function TutorialClientPage() {
     } catch (actionError) {
       setError(actionError instanceof Error ? actionError.message : "Falha ao gerar QR Code.");
     } finally {
+      qrGenerationInFlightRef.current = false;
       setQrLoading(false);
     }
   }
@@ -1369,7 +1373,6 @@ function FloatingTutorialPrints({ page }: { page: number }) {
       {cards.map((card, index) => (
         <article key={`${page}-${index + 1}`} className={`${styles.floatingPrint} ${card.className}`}>
           <span className={styles.printPhoto} data-photo={card.photo}>
-            <img src={`/api/tutorial-card-image/${page}/${index + 1}`} alt="" onError={(event) => { event.currentTarget.hidden = true; }} />
             <i />
             <b />
             <em />

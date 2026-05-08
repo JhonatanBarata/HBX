@@ -1297,6 +1297,7 @@ export default function TopBar() {
   const masterContextToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastScrollYRef = useRef(0);
   const previousWhatsAppModalStatusRef = useRef<string | null>(null);
+  const whatsAppQrActionInFlightRef = useRef(false);
   const scrapingEngineBackoffUntilRef = useRef(0);
   const scrapingEngineBackoffMsRef = useRef(SCRAPING_ENGINE_POLL_MS);
   const authResolved = authenticated !== null;
@@ -3061,10 +3062,12 @@ export default function TopBar() {
   }
 
   async function startQrWhatsAppConnection() {
+    if (whatsAppQrActionInFlightRef.current) return;
     if (pendingCheckoutLocked) {
       router.push(pendingCheckoutHref);
       return;
     }
+    whatsAppQrActionInFlightRef.current = true;
     setWhatsAppDetailBusy("qr-connect");
     setWhatsAppDetailError(null);
     try {
@@ -3108,15 +3111,18 @@ export default function TopBar() {
       const message = error instanceof Error ? error.message : "Falha ao iniciar a conexão rápida por QR.";
       setWhatsAppDetailError(message);
     } finally {
+      whatsAppQrActionInFlightRef.current = false;
       setWhatsAppDetailBusy(null);
     }
   }
 
   async function disconnectQrWhatsAppConnection() {
+    if (whatsAppQrActionInFlightRef.current) return;
     if (pendingCheckoutLocked) {
       router.push(pendingCheckoutHref);
       return;
     }
+    whatsAppQrActionInFlightRef.current = true;
     setWhatsAppDetailBusy("qr-disconnect");
     setWhatsAppDetailError(null);
     try {
@@ -3133,6 +3139,7 @@ export default function TopBar() {
       const message = error instanceof Error ? error.message : "Falha ao desconectar a conexão rápida por QR.";
       setWhatsAppDetailError(message);
     } finally {
+      whatsAppQrActionInFlightRef.current = false;
       setWhatsAppDetailBusy(null);
     }
   }
