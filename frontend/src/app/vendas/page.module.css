@@ -2064,3 +2064,68 @@
     min-width: 104px;
   }
 }
+/* HBX Vendas — trava o TopBar durante drag para o Filtro por Datas
+   Cole no FINAL de frontend/src/app/vendas/page.module.css */
+
+:global(html[data-vendas-dragging-card="true"]) {
+  --topbar-total-height: 0px;
+}
+
+:global(html[data-vendas-dragging-card="true"] .app-topbar),
+:global(html[data-vendas-dragging-card="true"] .app-topbar__frame),
+:global(html[data-vendas-dragging-card="true"] .app-topbar__portal),
+:global(html[data-vendas-dragging-card="true"] header[class*="topbar" i]),
+:global(html[data-vendas-dragging-card="true"] [class*="app-topbar" i]) {
+  transform: translate3d(0, -140%, 0) !important;
+  opacity: 0 !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+  transition: none !important;
+}
+
+:global(html[data-vendas-dragging-card="true"]) .filterRail {
+  position: sticky;
+  top: 0 !important;
+  z-index: 2147483000 !important;
+  isolation: isolate;
+  transform: translateZ(0);
+  overflow: visible !important;
+  border-color: color-mix(in srgb, var(--brand) 46%, var(--line)) !important;
+  box-shadow:
+    0 1px 0 color-mix(in srgb, var(--surface-raised) 94%, transparent) inset,
+    0 0 0 2px color-mix(in srgb, var(--brand) 18%, transparent),
+    0 24px 56px -24px color-mix(in srgb, var(--brand) 34%, transparent),
+    0 34px 84px -42px rgba(15, 23, 42, 0.36),
+    var(--shadow-inset) !important;
+}
+
+:global(html[data-vendas-dragging-card="true"]) .filterRail::after {
+  content: "Solte no filtro de data";
+  position: absolute;
+  right: 1rem;
+  top: -0.72rem;
+  z-index: 4;
+  padding: 0.22rem 0.58rem;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--brand) 38%, var(--line));
+  background: color-mix(in srgb, var(--surface-raised) 96%, var(--background));
+  color: color-mix(in srgb, var(--brand) 88%, var(--foreground));
+  box-shadow: 0 14px 28px -18px color-mix(in srgb, var(--brand) 44%, transparent);
+  font-size: 0.62rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  pointer-events: none;
+}
+
+:global(html[data-vendas-dragging-card="true"]) .dateFilterCard {
+  pointer-events: auto;
+}
+
+:global(html[data-vendas-dragging-card="true"]) .dateFilterCard[data-dropover="true"] {
+  z-index: 2147483001 !important;
+  border-color: color-mix(in srgb, var(--brand) 78%, var(--line)) !important;
+  box-shadow:
+    0 0 0 3px color-mix(in srgb, var(--brand) 24%, transparent),
+    0 30px 58px -26px color-mix(in srgb, var(--brand) 42%, transparent) !important;
+}

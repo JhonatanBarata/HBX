@@ -13,15 +13,29 @@ import {
   type DragEndEvent,
   type DragStartEvent,
 } from "@dnd-kit/core";
-import { useDeferredValue, useEffect, useMemo, useRef, useState, useCallback, type CSSProperties, type FormEvent } from "react";
+import {
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useCallback,
+  type CSSProperties,
+  type FormEvent,
+} from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import DashboardScaffold from "@/components/DashboardScaffold";
-import LiquidGlassCard, { liquidGlassCardStyles as glassCardStyles } from "@/components/LiquidGlassCard";
+import LiquidGlassCard, {
+  liquidGlassCardStyles as glassCardStyles,
+} from "@/components/LiquidGlassCard";
 import { useQuickLaunchNotice } from "@/components/useQuickLaunchNotice";
 import { apiFetch } from "@/app/_lib/api";
 import { useRequireModule } from "@/app/_lib/useRequireModule";
 import { HBX_WINDOW_STANDARD } from "@/lib/hbx-window-system";
-import { clearTopbarProgress, dispatchTopbarProgress } from "@/lib/topbar-progress";
+import {
+  clearTopbarProgress,
+  dispatchTopbarProgress,
+} from "@/lib/topbar-progress";
 import styles from "./page.module.css";
 
 type LeadStatus = "novo" | "contato" | "retorno" | "qualificado" | "encerrado";
@@ -58,11 +72,26 @@ type SharedProfileSummary = {
   phone?: string | null;
   origin?: string | null;
   lastContactAt?: string | null;
-  currentContext?: "vendas" | "atendimento" | "recovery" | "neutro" | string | null;
+  currentContext?:
+    | "vendas"
+    | "atendimento"
+    | "recovery"
+    | "neutro"
+    | string
+    | null;
   presence?: {
     vendas?: { present?: boolean; status?: string | null };
-    atendimento?: { present?: boolean; customerId?: string | null; conversationId?: string | number | null; lastContactAt?: string | null };
-    recovery?: { present?: boolean; status?: string | null; openAmount?: number | null };
+    atendimento?: {
+      present?: boolean;
+      customerId?: string | null;
+      conversationId?: string | number | null;
+      lastContactAt?: string | null;
+    };
+    recovery?: {
+      present?: boolean;
+      status?: string | null;
+      openAmount?: number | null;
+    };
   };
 };
 
@@ -112,7 +141,13 @@ type LeadItem = {
 };
 
 type BoardResponse = {
-  summary: { total: number; today: number; overdue: number; scheduled: number; closed: number };
+  summary: {
+    total: number;
+    today: number;
+    overdue: number;
+    scheduled: number;
+    closed: number;
+  };
   blocks: Record<LeadBlockKey, LeadItem[]>;
 };
 
@@ -196,7 +231,12 @@ const BLOCK_LABELS: Record<LeadBlockKey, string> = {
   scheduled: "Programados",
   closed: "Encerrados",
 };
-const VENDAS_PROGRESS_STEPS = ["lendo banco", "filtrando negativos", "selecionando melhores cards", "alimentando Vendas/Prospecção"];
+const VENDAS_PROGRESS_STEPS = [
+  "lendo banco",
+  "filtrando negativos",
+  "selecionando melhores cards",
+  "alimentando Vendas/Prospecção",
+];
 
 const WHATSAPP_FILTER_LABELS: Record<WhatsappFilter, string> = {
   all: "Whatsapp",
@@ -213,7 +253,12 @@ const INBOX_FILTER_LABELS: Record<InboxFilter, string> = {
 function formatDateTime(value?: string | null) {
   const parsed = value ? new Date(value) : null;
   return parsed && !Number.isNaN(parsed.getTime())
-    ? parsed.toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })
+    ? parsed.toLocaleString("pt-BR", {
+        day: "2-digit",
+        month: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+      })
     : "-";
 }
 
@@ -234,7 +279,12 @@ function toDatetimeLocal(value?: string | null) {
 function plusDaysDatetimeLocal(days: number) {
   const now = new Date();
   now.setDate(now.getDate() + days);
-  now.setHours(days > 0 ? 9 : now.getHours(), days > 0 ? 0 : now.getMinutes(), 0, 0);
+  now.setHours(
+    days > 0 ? 9 : now.getHours(),
+    days > 0 ? 0 : now.getMinutes(),
+    0,
+    0,
+  );
   const local = new Date(now.getTime() - now.getTimezoneOffset() * 60000);
   return local.toISOString().slice(0, 16);
 }
@@ -273,9 +323,9 @@ function matchesWhatsappFilter(lead: LeadItem, filter: WhatsappFilter) {
 function isLeadInInbox(lead: LeadItem) {
   return Boolean(
     lead.isInInbox ||
-      lead.inboxConversationId ||
-      lead.atendimentoConversationId ||
-      lead.sharedProfile?.presence?.atendimento?.present,
+    lead.inboxConversationId ||
+    lead.atendimentoConversationId ||
+    lead.sharedProfile?.presence?.atendimento?.present,
   );
 }
 
@@ -307,14 +357,18 @@ function nextWhatsappFilter(current: WhatsappFilter): WhatsappFilter {
 }
 
 function sourceLabel(value?: string | null) {
-  const normalized = String(value || "").trim().toLowerCase();
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase();
   if (normalized === "webscraping") return "Radar Digital";
   if (normalized === "manual") return "Manual";
   return normalized || "Sem origem";
 }
 
 function contextLabel(value?: string | null) {
-  const normalized = String(value || "").trim().toLowerCase();
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase();
   if (normalized === "vendas") return "Vendas";
   if (normalized === "atendimento") return "Atendimento";
   if (normalized === "recovery") return "Recovery";
@@ -334,6 +388,20 @@ function compactVendasMessage(message: string | null) {
   return text;
 }
 
+function setVendasCardDragLock(active: boolean) {
+  if (typeof document === "undefined") return;
+
+  const root = document.documentElement;
+  if (active) {
+    root.dataset.vendasDraggingCard = "true";
+    root.dataset.hbxTopbarDragLock = "true";
+    return;
+  }
+
+  delete root.dataset.vendasDraggingCard;
+  delete root.dataset.hbxTopbarDragLock;
+}
+
 function createDraft(lead: LeadItem): LeadDraft {
   return {
     name: String(lead.name || ""),
@@ -349,18 +417,21 @@ function createDraft(lead: LeadItem): LeadDraft {
 function buildLeadWebscrapingSummary(lead: LeadItem) {
   const parts: string[] = [];
   if (lead.rating != null) parts.push(`Nota ${Number(lead.rating).toFixed(1)}`);
-  if (Number(lead.reviews || 0) > 0) parts.push(`${Number(lead.reviews)} avaliações`);
+  if (Number(lead.reviews || 0) > 0)
+    parts.push(`${Number(lead.reviews)} avaliações`);
   return parts.join(" • ");
 }
 
 function hydrateDrafts(board: BoardResponse | null) {
   const next: Record<string, LeadDraft> = {};
   if (!board) return next;
-  (["overdue", "today", "scheduled", "closed"] as LeadBlockKey[]).forEach((blockKey) => {
-    (board.blocks[blockKey] || []).forEach((lead) => {
-      next[lead.id] = createDraft(lead);
-    });
-  });
+  (["overdue", "today", "scheduled", "closed"] as LeadBlockKey[]).forEach(
+    (blockKey) => {
+      (board.blocks[blockKey] || []).forEach((lead) => {
+        next[lead.id] = createDraft(lead);
+      });
+    },
+  );
   return next;
 }
 
@@ -379,7 +450,9 @@ function railTitle(dateKey: string) {
 
 function railDay(dateKey: string) {
   const parsed = new Date(`${dateKey}T12:00:00`);
-  return Number.isNaN(parsed.getTime()) ? "Data" : parsed.toLocaleDateString("pt-BR", { weekday: "short" });
+  return Number.isNaN(parsed.getTime())
+    ? "Data"
+    : parsed.toLocaleDateString("pt-BR", { weekday: "short" });
 }
 
 function pluralize(count: number, singular: string, plural: string) {
@@ -387,12 +460,30 @@ function pluralize(count: number, singular: string, plural: string) {
 }
 
 function returnMeta(lead: LeadItem, draft: LeadDraft, block: LeadBlockKey) {
-  const effective = draft.returnAt ? new Date(draft.returnAt).toISOString() : lead.returnAt || null;
-  if (!effective) return { label: "Sem retorno definido", tone: "neutral" } as const;
-  if (block === "overdue") return { label: `Atrasado desde ${formatDateTime(effective)}`, tone: "overdue" } as const;
-  if (block === "today") return { label: `Hoje • ${formatDateTime(effective)}`, tone: "today" } as const;
-  if (block === "scheduled") return { label: `Agendado • ${formatDateTime(effective)}`, tone: "scheduled" } as const;
-  return { label: `Arquivo • ${formatShortDate(effective)}`, tone: "closed" } as const;
+  const effective = draft.returnAt
+    ? new Date(draft.returnAt).toISOString()
+    : lead.returnAt || null;
+  if (!effective)
+    return { label: "Sem retorno definido", tone: "neutral" } as const;
+  if (block === "overdue")
+    return {
+      label: `Atrasado desde ${formatDateTime(effective)}`,
+      tone: "overdue",
+    } as const;
+  if (block === "today")
+    return {
+      label: `Hoje • ${formatDateTime(effective)}`,
+      tone: "today",
+    } as const;
+  if (block === "scheduled")
+    return {
+      label: `Agendado • ${formatDateTime(effective)}`,
+      tone: "scheduled",
+    } as const;
+  return {
+    label: `Arquivo • ${formatShortDate(effective)}`,
+    tone: "closed",
+  } as const;
 }
 
 function timelineTone(type?: LeadTimelineEventType) {
@@ -405,16 +496,26 @@ function timelineTone(type?: LeadTimelineEventType) {
 }
 
 function timelineMeta(event: LeadTimelineEvent) {
-  if (event.eventType === "origin_registered") return event.sourceType === "webscraping" ? "Origem Radar Digital" : "Origem manual";
-  if (event.eventType === "status_changed" && event.statusTo) return `Status ${event.statusTo}`;
-  if (event.eventType === "result_recorded" && event.resultLabel) return event.resultLabel;
-  if (event.eventType === "return_scheduled" && event.returnAt) return formatDateTime(event.returnAt);
+  if (event.eventType === "origin_registered")
+    return event.sourceType === "webscraping"
+      ? "Origem Radar Digital"
+      : "Origem manual";
+  if (event.eventType === "status_changed" && event.statusTo)
+    return `Status ${event.statusTo}`;
+  if (event.eventType === "result_recorded" && event.resultLabel)
+    return event.resultLabel;
+  if (event.eventType === "return_scheduled" && event.returnAt)
+    return formatDateTime(event.returnAt);
   return event.createdAt ? formatDateTime(event.createdAt) : "Agora";
 }
 
 function recomputeSummary(blocks: BoardResponse["blocks"]) {
   return {
-    total: blocks.overdue.length + blocks.today.length + blocks.scheduled.length + blocks.closed.length,
+    total:
+      blocks.overdue.length +
+      blocks.today.length +
+      blocks.scheduled.length +
+      blocks.closed.length,
     today: blocks.today.length,
     overdue: blocks.overdue.length,
     scheduled: blocks.scheduled.length,
@@ -474,38 +575,47 @@ function markBoardLeadsInInbox(
   fallbackConversationId?: string | number | null,
 ) {
   if (!board || !leadIds.length) return board;
-  const targetIds = new Set(leadIds.map((leadId) => String(leadId || "").trim()).filter(Boolean));
+  const targetIds = new Set(
+    leadIds.map((leadId) => String(leadId || "").trim()).filter(Boolean),
+  );
   if (!targetIds.size) return board;
 
   let changed = false;
-  const blocks = (Object.fromEntries(
-    (["overdue", "today", "scheduled", "closed"] as LeadBlockKey[]).map((blockKey) => [
-      blockKey,
-      (board.blocks[blockKey] || []).map((lead) => {
-        if (!targetIds.has(lead.id)) return lead;
-        const conversationId = leadConversationIds?.[lead.id] || fallbackConversationId || lead.inboxConversationId || lead.atendimentoConversationId || null;
-        if (!conversationId && isLeadInInbox(lead)) return lead;
-        changed = true;
-        return {
-          ...lead,
-          isInInbox: true,
-          inboxConversationId: conversationId,
-          atendimentoConversationId: conversationId,
-          sharedProfile: {
-            ...(lead.sharedProfile || {}),
-            presence: {
-              ...(lead.sharedProfile?.presence || {}),
-              atendimento: {
-                ...(lead.sharedProfile?.presence?.atendimento || {}),
-                present: true,
-                conversationId,
+  const blocks = Object.fromEntries(
+    (["overdue", "today", "scheduled", "closed"] as LeadBlockKey[]).map(
+      (blockKey) => [
+        blockKey,
+        (board.blocks[blockKey] || []).map((lead) => {
+          if (!targetIds.has(lead.id)) return lead;
+          const conversationId =
+            leadConversationIds?.[lead.id] ||
+            fallbackConversationId ||
+            lead.inboxConversationId ||
+            lead.atendimentoConversationId ||
+            null;
+          if (!conversationId && isLeadInInbox(lead)) return lead;
+          changed = true;
+          return {
+            ...lead,
+            isInInbox: true,
+            inboxConversationId: conversationId,
+            atendimentoConversationId: conversationId,
+            sharedProfile: {
+              ...(lead.sharedProfile || {}),
+              presence: {
+                ...(lead.sharedProfile?.presence || {}),
+                atendimento: {
+                  ...(lead.sharedProfile?.presence?.atendimento || {}),
+                  present: true,
+                  conversationId,
+                },
               },
             },
-          },
-        };
-      }),
-    ]),
-  ) as BoardResponse["blocks"]);
+          };
+        }),
+      ],
+    ),
+  ) as BoardResponse["blocks"];
 
   return changed ? { ...board, blocks } : board;
 }
@@ -519,10 +629,21 @@ function localDateKeyFromDate(date: Date) {
   return `${date.getFullYear()}-${`${date.getMonth() + 1}`.padStart(2, "0")}-${`${date.getDate()}`.padStart(2, "0")}`;
 }
 
-function buildTargetDatetimeLocal(dateKey: string, currentReturnAt?: string | null, fallbackHour = 9, fallbackMinute = 0) {
-  const base = currentReturnAt ? new Date(currentReturnAt) : new Date(`${dateKey}T09:00:00`);
+function buildTargetDatetimeLocal(
+  dateKey: string,
+  currentReturnAt?: string | null,
+  fallbackHour = 9,
+  fallbackMinute = 0,
+) {
+  const base = currentReturnAt
+    ? new Date(currentReturnAt)
+    : new Date(`${dateKey}T09:00:00`);
   const next = new Date(base);
-  next.setFullYear(Number(dateKey.slice(0, 4)), Number(dateKey.slice(5, 7)) - 1, Number(dateKey.slice(8, 10)));
+  next.setFullYear(
+    Number(dateKey.slice(0, 4)),
+    Number(dateKey.slice(5, 7)) - 1,
+    Number(dateKey.slice(8, 10)),
+  );
   if (!currentReturnAt) next.setHours(fallbackHour, fallbackMinute, 0, 0);
   return formatDatetimeLocal(next);
 }
@@ -546,8 +667,19 @@ function DateDropSlot({
   onSelect: () => void;
   register: (node: HTMLElement | null) => void;
 }) {
-  const { isOver, setNodeRef: setDropRef } = useDroppable({ id: item.key, data: { type: "date-filter", key: item.key } });
-  const { attributes, listeners, setNodeRef: setDragRef, isDragging } = useDraggable({ id: `date:${item.key}`, data: { type: "date-filter", key: item.key } });
+  const { isOver, setNodeRef: setDropRef } = useDroppable({
+    id: item.key,
+    data: { type: "date-filter", key: item.key },
+  });
+  const {
+    attributes,
+    listeners,
+    setNodeRef: setDragRef,
+    isDragging,
+  } = useDraggable({
+    id: `date:${item.key}`,
+    data: { type: "date-filter", key: item.key },
+  });
 
   const setCombinedRef = (node: HTMLElement | null) => {
     setDropRef(node);
@@ -564,11 +696,16 @@ function DateDropSlot({
       .replace(/[^\w\s]/g, "")
       .toLowerCase()
       .trim();
-    if (["sem pendencia", "fluxo principal", "sem agenda"].includes(normalized)) {
+    if (
+      ["sem pendencia", "fluxo principal", "sem agenda"].includes(normalized)
+    ) {
       showSubtitle = false;
     }
   } catch {
-    const fallback = rawSubtitle.toLowerCase().replace(/[^a-z0-9 ]/g, "").trim();
+    const fallback = rawSubtitle
+      .toLowerCase()
+      .replace(/[^a-z0-9 ]/g, "")
+      .trim();
     if (["sem pendencia", "fluxo principal", "sem agenda"].includes(fallback)) {
       showSubtitle = false;
     }
@@ -619,8 +756,20 @@ function DateDropSlot({
           title="Enviar cards visíveis desta data para Prospecção"
           aria-label="Enviar cards visíveis desta data para Prospecção"
         >
-          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+          <svg
+            width="10"
+            height="10"
+            viewBox="0 0 24 24"
+            fill="none"
+            aria-hidden="true"
+          >
+            <path
+              d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"
+              stroke="currentColor"
+              strokeWidth="1.6"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
           </svg>
         </button>
       ) : null}
@@ -690,8 +839,12 @@ function LeadCardView({
   const meta = returnMeta(lead, draft, blockKey);
   const signals = lead.signals || {
     alreadyExisted: Boolean((lead.timesSeen || 0) > 1),
-    cameFromWebscraping: lead.sourceType === "webscraping" || String(lead.primarySource || "").toLowerCase() === "webscraping",
-    hadPreviousContact: Boolean((lead.attemptCount || 0) > 0 || lead.lastContactAt),
+    cameFromWebscraping:
+      lead.sourceType === "webscraping" ||
+      String(lead.primarySource || "").toLowerCase() === "webscraping",
+    hadPreviousContact: Boolean(
+      (lead.attemptCount || 0) > 0 || lead.lastContactAt,
+    ),
     wasClosedBefore: Boolean(lead.wasClosedBefore),
   };
   const chips = [
@@ -705,14 +858,18 @@ function LeadCardView({
 
   const callUrl = buildCallUrl(draft.phone || lead.phone);
   const whatsappBlocked = lead.whatsappAvailability?.status === "unavailable";
-  const whatsappUrl = whatsappBlocked ? "" : buildWhatsAppUrl(draft.phone || lead.phone, draft.name || lead.name);
+  const whatsappUrl = whatsappBlocked
+    ? ""
+    : buildWhatsAppUrl(draft.phone || lead.phone, draft.name || lead.name);
   const leadSource = lead.primarySource || lead.sourceType;
   const inInbox = isLeadInInbox(lead);
   const webscrapingSummary = buildLeadWebscrapingSummary(lead);
 
   // inline editor mount/animation control — uses global motion timings
   const editorRef = useRef<HTMLDivElement | null>(null);
-  const [editorRendered, setEditorRendered] = useState<boolean>(Boolean(editing));
+  const [editorRendered, setEditorRendered] = useState<boolean>(
+    Boolean(editing),
+  );
   const [editorAnimating, setEditorAnimating] = useState(false);
 
   useEffect(() => {
@@ -820,7 +977,9 @@ function LeadCardView({
                 className={styles.bulkSelectCardButton}
                 data-selected={bulkSelected ? "true" : "false"}
                 aria-pressed={bulkSelected ? "true" : "false"}
-                aria-label={bulkSelected ? "Remover card da seleção" : "Selecionar card"}
+                aria-label={
+                  bulkSelected ? "Remover card da seleção" : "Selecionar card"
+                }
                 onPointerDown={(event) => event.stopPropagation()}
                 onClick={(event) => {
                   event.stopPropagation();
@@ -831,22 +990,45 @@ function LeadCardView({
               </button>
             ) : null}
             <div className={styles.leadIdentity}>
-              {leadSource && String(leadSource).trim().toLowerCase() !== "manual" && (
-                <span className={`${styles.leadEyebrow} ${glassCardStyles.eyebrow}`}>{sourceLabel(leadSource)}</span>
-              )}
-              <strong className={`${styles.leadName} ${glassCardStyles.title}`}>{draft.name || lead.name || "Lead sem nome"}</strong>
-              <span className={`${styles.returnBadge} ${glassCardStyles.pill} ${glassCardStyles.noBreak}`} data-tone={meta.tone}>{meta.label}</span>
-              <span className={`${styles.leadSubline} ${glassCardStyles.subtitle}`}>
+              {leadSource &&
+                String(leadSource).trim().toLowerCase() !== "manual" && (
+                  <span
+                    className={`${styles.leadEyebrow} ${glassCardStyles.eyebrow}`}
+                  >
+                    {sourceLabel(leadSource)}
+                  </span>
+                )}
+              <strong className={`${styles.leadName} ${glassCardStyles.title}`}>
+                {draft.name || lead.name || "Lead sem nome"}
+              </strong>
+              <span
+                className={`${styles.returnBadge} ${glassCardStyles.pill} ${glassCardStyles.noBreak}`}
+                data-tone={meta.tone}
+              >
+                {meta.label}
+              </span>
+              <span
+                className={`${styles.leadSubline} ${glassCardStyles.subtitle}`}
+              >
                 {lead.segment ? (
                   <>
                     {lead.segment}
                     {lead.city ? ` • ${lead.city}` : null}
                   </>
-                ) : lead.city ? lead.city : null}
+                ) : lead.city ? (
+                  lead.city
+                ) : null}
               </span>
             </div>
             <div className={glassCardStyles.headerAside}>
-              <button type="button" className={`${glassCardStyles.actionButton} ${glassCardStyles.noBreak}`} onClick={() => onEdit?.(lead.id)} aria-label="Editar">Editar</button>
+              <button
+                type="button"
+                className={`${glassCardStyles.actionButton} ${glassCardStyles.noBreak}`}
+                onClick={() => onEdit?.(lead.id)}
+                aria-label="Editar"
+              >
+                Editar
+              </button>
               <button
                 type="button"
                 className={`${styles.inboxLeadButton} ${glassCardStyles.actionButton} ${glassCardStyles.noBreak}`}
@@ -863,36 +1045,126 @@ function LeadCardView({
             </div>
           </div>
           <div className={glassCardStyles.cluster}>
-            {chips.slice(0, 3).map((chip) => <span key={`${lead.id}-${chip}`} className={`${styles.memoryChip} ${glassCardStyles.pill} ${glassCardStyles.noBreak}`}>{chip}</span>)}
+            {chips.slice(0, 3).map((chip) => (
+              <span
+                key={`${lead.id}-${chip}`}
+                className={`${styles.memoryChip} ${glassCardStyles.pill} ${glassCardStyles.noBreak}`}
+              >
+                {chip}
+              </span>
+            ))}
           </div>
         </div>
       }
-      lead={editorRendered ? (
-        <div
-          ref={editorRef}
-          className={styles.inlineEdit}
-          aria-hidden={!editing && editorAnimating}
-        >
-          <div className={styles.fieldGrid}>
-            <label className={styles.field}><span className={styles.fieldLabel}>Nome</span><input className={styles.fieldInput} value={draft.name} onChange={(e) => onDraftChange?.(lead.id, { name: e.target.value })} /></label>
-            <label className={styles.field}><span className={styles.fieldLabel}>Telefone</span><input className={styles.fieldInput} value={draft.phone} onChange={(e) => onDraftChange?.(lead.id, { phone: e.target.value })} /></label>
-            <label className={styles.field}><span className={styles.fieldLabel}>E-mail</span><input className={styles.fieldInput} value={draft.email} onChange={(e) => onDraftChange?.(lead.id, { email: e.target.value })} /></label>
-            <label className={styles.field}>
-              <span className={styles.fieldLabel}>Status</span>
-              <select className={styles.fieldInput} value={draft.status} onChange={(e) => onDraftChange?.(lead.id, { status: e.target.value as LeadStatus })}>
-                {STATUS_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-              </select>
-            </label>
-            <label className={styles.fieldWide}><span className={styles.fieldLabel}>Próxima ação</span><input className={styles.fieldInput} value={draft.nextAction} onChange={(e) => onDraftChange?.(lead.id, { nextAction: e.target.value })} /></label>
-            <label className={styles.field}><span className={styles.fieldLabel}>Retorno</span><input className={styles.fieldInput} type="datetime-local" value={draft.returnAt} onChange={(e) => onDraftChange?.(lead.id, { returnAt: e.target.value })} /></label>
-            <label className={styles.fieldWide}><span className={styles.fieldLabel}>Observação curta</span><textarea className={styles.fieldTextarea} rows={3} value={draft.shortNote} onChange={(e) => onDraftChange?.(lead.id, { shortNote: e.target.value })} /></label>
+      lead={
+        editorRendered ? (
+          <div
+            ref={editorRef}
+            className={styles.inlineEdit}
+            aria-hidden={!editing && editorAnimating}
+          >
+            <div className={styles.fieldGrid}>
+              <label className={styles.field}>
+                <span className={styles.fieldLabel}>Nome</span>
+                <input
+                  className={styles.fieldInput}
+                  value={draft.name}
+                  onChange={(e) =>
+                    onDraftChange?.(lead.id, { name: e.target.value })
+                  }
+                />
+              </label>
+              <label className={styles.field}>
+                <span className={styles.fieldLabel}>Telefone</span>
+                <input
+                  className={styles.fieldInput}
+                  value={draft.phone}
+                  onChange={(e) =>
+                    onDraftChange?.(lead.id, { phone: e.target.value })
+                  }
+                />
+              </label>
+              <label className={styles.field}>
+                <span className={styles.fieldLabel}>E-mail</span>
+                <input
+                  className={styles.fieldInput}
+                  value={draft.email}
+                  onChange={(e) =>
+                    onDraftChange?.(lead.id, { email: e.target.value })
+                  }
+                />
+              </label>
+              <label className={styles.field}>
+                <span className={styles.fieldLabel}>Status</span>
+                <select
+                  className={styles.fieldInput}
+                  value={draft.status}
+                  onChange={(e) =>
+                    onDraftChange?.(lead.id, {
+                      status: e.target.value as LeadStatus,
+                    })
+                  }
+                >
+                  {STATUS_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className={styles.fieldWide}>
+                <span className={styles.fieldLabel}>Próxima ação</span>
+                <input
+                  className={styles.fieldInput}
+                  value={draft.nextAction}
+                  onChange={(e) =>
+                    onDraftChange?.(lead.id, { nextAction: e.target.value })
+                  }
+                />
+              </label>
+              <label className={styles.field}>
+                <span className={styles.fieldLabel}>Retorno</span>
+                <input
+                  className={styles.fieldInput}
+                  type="datetime-local"
+                  value={draft.returnAt}
+                  onChange={(e) =>
+                    onDraftChange?.(lead.id, { returnAt: e.target.value })
+                  }
+                />
+              </label>
+              <label className={styles.fieldWide}>
+                <span className={styles.fieldLabel}>Observação curta</span>
+                <textarea
+                  className={styles.fieldTextarea}
+                  rows={3}
+                  value={draft.shortNote}
+                  onChange={(e) =>
+                    onDraftChange?.(lead.id, { shortNote: e.target.value })
+                  }
+                />
+              </label>
+            </div>
+            <div className={styles.detailFooterActions}>
+              <button
+                type="button"
+                className={`${glassCardStyles.actionButton} ${glassCardStyles.actionPrimary} ${glassCardStyles.noBreak}`}
+                onClick={() => onSave?.(lead.id)}
+                disabled={saving}
+              >
+                {saving ? "Salvando..." : "Salvar"}
+              </button>
+              <button
+                type="button"
+                className={`${glassCardStyles.actionButton} ${glassCardStyles.noBreak}`}
+                onClick={() => onEdit?.(null)}
+              >
+                Cancelar
+              </button>
+            </div>
           </div>
-          <div className={styles.detailFooterActions}>
-            <button type="button" className={`${glassCardStyles.actionButton} ${glassCardStyles.actionPrimary} ${glassCardStyles.noBreak}`} onClick={() => onSave?.(lead.id)} disabled={saving}>{saving ? "Salvando..." : "Salvar"}</button>
-            <button type="button" className={`${glassCardStyles.actionButton} ${glassCardStyles.noBreak}`} onClick={() => onEdit?.(null)}>Cancelar</button>
-          </div>
-        </div>
-      ) : null}
+        ) : null
+      }
       actions={
         <div className={styles.leadActionRow}>
           <a
@@ -901,7 +1173,11 @@ function LeadCardView({
             target={whatsappUrl ? "_blank" : undefined}
             rel={whatsappUrl ? "noreferrer" : undefined}
             aria-disabled={!whatsappUrl}
-            title={whatsappBlocked ? "Motor confirmou que este numero nao possui WhatsApp." : "Abrir conversa no WhatsApp"}
+            title={
+              whatsappBlocked
+                ? "Motor confirmou que este numero nao possui WhatsApp."
+                : "Abrir conversa no WhatsApp"
+            }
             onClick={() => {
               if (whatsappUrl) onQuickAction("tentativa_whatsapp");
             }}
@@ -918,37 +1194,106 @@ function LeadCardView({
           >
             Ligar
           </a>
-          {lead.quickActions.includes("amanha") ? <button type="button" className={`${glassCardStyles.actionButton} ${glassCardStyles.noBreak}`} onClick={() => onQuickAction("amanha")} disabled={saving}>Amanhã</button> : null}
-          {lead.quickActions.includes("encerrar") ? <button type="button" className={`${glassCardStyles.actionButton} ${glassCardStyles.noBreak}`} onClick={() => onQuickAction("encerrar")} disabled={saving}>Encerrar</button> : null}
-          {lead.quickActions.includes("reabrir") ? <button type="button" className={`${glassCardStyles.actionButton} ${glassCardStyles.noBreak}`} onClick={() => onQuickAction("reabrir")} disabled={saving}>Reabrir</button> : null}
+          {lead.quickActions.includes("amanha") ? (
+            <button
+              type="button"
+              className={`${glassCardStyles.actionButton} ${glassCardStyles.noBreak}`}
+              onClick={() => onQuickAction("amanha")}
+              disabled={saving}
+            >
+              Amanhã
+            </button>
+          ) : null}
+          {lead.quickActions.includes("encerrar") ? (
+            <button
+              type="button"
+              className={`${glassCardStyles.actionButton} ${glassCardStyles.noBreak}`}
+              onClick={() => onQuickAction("encerrar")}
+              disabled={saving}
+            >
+              Encerrar
+            </button>
+          ) : null}
+          {lead.quickActions.includes("reabrir") ? (
+            <button
+              type="button"
+              className={`${glassCardStyles.actionButton} ${glassCardStyles.noBreak}`}
+              onClick={() => onQuickAction("reabrir")}
+              disabled={saving}
+            >
+              Reabrir
+            </button>
+          ) : null}
         </div>
       }
       highlight={
-        <div className={`${glassCardStyles.stack} ${styles.leadQuickReadStack}`}>
+        <div
+          className={`${glassCardStyles.stack} ${styles.leadQuickReadStack}`}
+        >
           <div className={styles.leadInfoBlock}>
             <span className={glassCardStyles.sectionLabel}>Endereço</span>
-            <strong className={glassCardStyles.sectionTitle}>Localização</strong>
-            <p className={glassCardStyles.bodyText}>{lead.address || "Sem endereço registrado."}</p>
+            <strong className={glassCardStyles.sectionTitle}>
+              Localização
+            </strong>
+            <p className={glassCardStyles.bodyText}>
+              {lead.address || "Sem endereço registrado."}
+            </p>
           </div>
           <div className={styles.leadInfoBlock}>
             <span className={glassCardStyles.sectionLabel}>Resumo</span>
-            <strong className={glassCardStyles.sectionTitle}>Leitura rapida</strong>
-            <p className={glassCardStyles.bodyText}>{draft.shortNote || lead.shortNote || webscrapingSummary || "Sem observação curta registrada."}</p>
+            <strong className={glassCardStyles.sectionTitle}>
+              Leitura rapida
+            </strong>
+            <p className={glassCardStyles.bodyText}>
+              {draft.shortNote ||
+                lead.shortNote ||
+                webscrapingSummary ||
+                "Sem observação curta registrada."}
+            </p>
           </div>
         </div>
       }
       metrics={
         <div className={glassCardStyles.metricGrid}>
-          <div className={glassCardStyles.metricCard}><span className={glassCardStyles.metricLabel}>Tentativas</span><strong className={glassCardStyles.metricValue}>{lead.attemptCount || 0}</strong></div>
-          <div className={glassCardStyles.metricCard}><span className={glassCardStyles.metricLabel}>Ultimo contato</span><strong className={glassCardStyles.metricValue}>{formatShortDate(lead.lastContactAt)}</strong></div>
-          {lead.rating != null ? <div className={glassCardStyles.metricCard}><span className={glassCardStyles.metricLabel}>Nota</span><strong className={glassCardStyles.metricValue}>{Number(lead.rating).toFixed(1)}</strong></div> : null}
-          {Number(lead.reviews || 0) > 0 ? <div className={glassCardStyles.metricCard}><span className={glassCardStyles.metricLabel}>Avaliacoes</span><strong className={glassCardStyles.metricValue}>{lead.reviews}</strong></div> : null}
+          <div className={glassCardStyles.metricCard}>
+            <span className={glassCardStyles.metricLabel}>Tentativas</span>
+            <strong className={glassCardStyles.metricValue}>
+              {lead.attemptCount || 0}
+            </strong>
+          </div>
+          <div className={glassCardStyles.metricCard}>
+            <span className={glassCardStyles.metricLabel}>Ultimo contato</span>
+            <strong className={glassCardStyles.metricValue}>
+              {formatShortDate(lead.lastContactAt)}
+            </strong>
+          </div>
+          {lead.rating != null ? (
+            <div className={glassCardStyles.metricCard}>
+              <span className={glassCardStyles.metricLabel}>Nota</span>
+              <strong className={glassCardStyles.metricValue}>
+                {Number(lead.rating).toFixed(1)}
+              </strong>
+            </div>
+          ) : null}
+          {Number(lead.reviews || 0) > 0 ? (
+            <div className={glassCardStyles.metricCard}>
+              <span className={glassCardStyles.metricLabel}>Avaliacoes</span>
+              <strong className={glassCardStyles.metricValue}>
+                {lead.reviews}
+              </strong>
+            </div>
+          ) : null}
         </div>
       }
     >
       {lead.website ? (
         <div className={glassCardStyles.cluster}>
-          <a className={`${glassCardStyles.actionButton} ${glassCardStyles.noBreak}`} href={lead.website} target="_blank" rel="noreferrer">
+          <a
+            className={`${glassCardStyles.actionButton} ${glassCardStyles.noBreak}`}
+            href={lead.website}
+            target="_blank"
+            rel="noreferrer"
+          >
             Site
           </a>
         </div>
@@ -976,7 +1321,11 @@ function DraggableLeadCard({
   bulkSelected,
   onBulkToggle,
   register,
-}: LeadCardView & { disabled: boolean; hidden: boolean; register: (node: HTMLElement | null) => void }) {
+}: LeadCardView & {
+  disabled: boolean;
+  hidden: boolean;
+  register: (node: HTMLElement | null) => void;
+}) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: lead.id,
     disabled,
@@ -1033,17 +1382,24 @@ export default function VendasClientPage() {
   const [whatsappFilter, setWhatsappFilter] = useState<WhatsappFilter>("all");
   const [inboxFilter, setInboxFilter] = useState<InboxFilter>("all");
   const [bulkSelectionMode, setBulkSelectionMode] = useState(false);
-  const [selectedBulkLeadIds, setSelectedBulkLeadIds] = useState<Set<string>>(() => new Set());
+  const [selectedBulkLeadIds, setSelectedBulkLeadIds] = useState<Set<string>>(
+    () => new Set(),
+  );
   const [bulkSelectAllAccount, setBulkSelectAllAccount] = useState(false);
   const [bulkDeleting, setBulkDeleting] = useState(false);
   const [vendasVisualCount, setVendasVisualCount] = useState(0);
-  const [selectedDateKey, setSelectedDateKey] = useState<DateFilterKey>("today");
+  const [selectedDateKey, setSelectedDateKey] =
+    useState<DateFilterKey>("today");
   const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null);
   const [editingLeadId, setEditingLeadId] = useState<string | null>(null);
   const [composerOpen, setComposerOpen] = useState(false);
-  const [expandedTimelineEventId, setExpandedTimelineEventId] = useState<string | null>(null);
+  const [expandedTimelineEventId, setExpandedTimelineEventId] = useState<
+    string | null
+  >(null);
   const [activeDragLeadId, setActiveDragLeadId] = useState<string | null>(null);
-  const [activeDragDateKey, setActiveDragDateKey] = useState<string | null>(null);
+  const [activeDragDateKey, setActiveDragDateKey] = useState<string | null>(
+    null,
+  );
   const [pulseDateKey, setPulseDateKey] = useState<DateFilterKey | null>(null);
   const [flyAnimation, setFlyAnimation] = useState<FlyAnimation | null>(null);
   const [manualLead, setManualLead] = useState({
@@ -1060,29 +1416,37 @@ export default function VendasClientPage() {
   const lastDragEndedAtRef = useRef(0);
   const filterScrollerRef = useRef<HTMLDivElement | null>(null);
   const todayAgendaLaunchNotice = useQuickLaunchNotice();
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+  );
   const detectDateFilterCollision = useMemo<CollisionDetection>(
-    () => ({ pointerCoordinates, droppableContainers }) => {
-      if (!pointerCoordinates) return [];
+    () =>
+      ({ pointerCoordinates, droppableContainers }) => {
+        if (!pointerCoordinates) return [];
 
-      for (const container of droppableContainers) {
-        const id = String(container.id);
-        const node = dateFilterRefs.current[id];
-        const rect = node?.getBoundingClientRect();
-        if (!rect) continue;
+        for (const container of droppableContainers) {
+          const id = String(container.id);
+          const node = dateFilterRefs.current[id];
+          const rect = node?.getBoundingClientRect();
+          if (!rect) continue;
 
-        if (
-          pointerCoordinates.x >= rect.left &&
-          pointerCoordinates.x <= rect.right &&
-          pointerCoordinates.y >= rect.top &&
-          pointerCoordinates.y <= rect.bottom
-        ) {
-          return [{ id: container.id, data: { droppableContainer: container, value: 0 } }];
+          if (
+            pointerCoordinates.x >= rect.left &&
+            pointerCoordinates.x <= rect.right &&
+            pointerCoordinates.y >= rect.top &&
+            pointerCoordinates.y <= rect.bottom
+          ) {
+            return [
+              {
+                id: container.id,
+                data: { droppableContainer: container, value: 0 },
+              },
+            ];
+          }
         }
-      }
 
-      return [];
-    },
+        return [];
+      },
     [],
   );
 
@@ -1094,79 +1458,110 @@ export default function VendasClientPage() {
       setBoard(normalizedPayload);
       setDrafts(hydrateDrafts(normalizedPayload));
     } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : "Falha ao carregar o CRM de Vendas.");
+      setError(
+        loadError instanceof Error
+          ? loadError.message
+          : "Falha ao carregar o CRM de Vendas.",
+      );
     } finally {
       setLoading(false);
     }
   }
 
-  const openInboxAgenda = useCallback((conversationId?: string | number | null) => {
-    todayAgendaLaunchNotice.clear();
-    const params = new URLSearchParams({
-      atendimentoQueue: "bot",
-      atendimentoSection: "conversa",
-    });
-    if (conversationId) params.set("conversationId", String(conversationId));
-    router.push(`/atendimento?${params.toString()}`);
-  }, [router, todayAgendaLaunchNotice]);
-
-  const syncLeadsToInbox = useCallback(async (leads: LeadItem[], options?: { openAfter?: boolean; title?: string; description?: string }) => {
-    const visibleLeadIds = leads.map((lead) => lead.id).filter(Boolean);
-    if (!visibleLeadIds.length) {
-      setFeedback("Nenhum card visível para importar ao Inbox.");
-      return null;
-    }
-
-    todayAgendaLaunchNotice.start({
-      loadingTitle: options?.title || "Abrindo Inbox",
-      loadingDescription: options?.description || "Enviando os cards visíveis para Prospecção.",
-      successTitle: "Prospecção pronta",
-      successDescription: "Tudo certo. Os cards foram preparados em Prospecção.",
-      ctaLabel: "Abrir Prospecção",
-      onOpen: () => openInboxAgenda(),
-    });
-
-    try {
-      const syncResult = await apiFetch<TodayAgendaSyncResponse>("/vendas/agenda/whatsapp/sync-today", {
-        method: "POST",
-        body: JSON.stringify({ leadIds: visibleLeadIds }),
-      });
-      const todayLeadCount = Number(syncResult?.todayLeadCount || 0);
-      const mirroredLeadCount = Number(syncResult?.mirroredLeadCount || 0);
-      if (!syncResult?.ok) {
-        throw new Error(
-          syncResult?.message ||
-            "Os cards visíveis nao foram enviados para Prospecção. Recarregue e tente novamente.",
-        );
-      }
-      const firstConversationId =
-        syncResult?.conversationIds?.[0] ||
-        (syncResult?.leadConversationIds ? syncResult.leadConversationIds[visibleLeadIds[0]] : null) ||
-        null;
-      const importedLeadIds = syncResult?.leadConversationIds
-        ? Object.keys(syncResult.leadConversationIds)
-        : firstConversationId && visibleLeadIds.length === 1
-          ? visibleLeadIds
-          : [];
-      if (importedLeadIds.length) {
-        setBoard((currentBoard) => markBoardLeadsInInbox(currentBoard, importedLeadIds, syncResult?.leadConversationIds, firstConversationId));
-      }
-      todayAgendaLaunchNotice.markSuccess({
-        successDescription:
-          String(syncResult?.message || "").trim() ||
-          (todayLeadCount
-            ? `${mirroredLeadCount} card(s) foram preparados em Prospecção com roteiro pendente para envio manual.`
-            : "Nao ha cards visíveis para preparar em Prospecção."),
-      });
-      await loadBoard();
-      if (options?.openAfter) openInboxAgenda(firstConversationId);
-      return syncResult;
-    } catch (syncError) {
+  const openInboxAgenda = useCallback(
+    (conversationId?: string | number | null) => {
       todayAgendaLaunchNotice.clear();
-      setError(syncError instanceof Error ? syncError.message : "Falha ao importar cards para Prospecção.");
-      return null;
-    }
-  }, [openInboxAgenda, todayAgendaLaunchNotice]);
+      const params = new URLSearchParams({
+        atendimentoQueue: "bot",
+        atendimentoSection: "conversa",
+      });
+      if (conversationId) params.set("conversationId", String(conversationId));
+      router.push(`/atendimento?${params.toString()}`);
+    },
+    [router, todayAgendaLaunchNotice],
+  );
+
+  const syncLeadsToInbox = useCallback(
+    async (
+      leads: LeadItem[],
+      options?: { openAfter?: boolean; title?: string; description?: string },
+    ) => {
+      const visibleLeadIds = leads.map((lead) => lead.id).filter(Boolean);
+      if (!visibleLeadIds.length) {
+        setFeedback("Nenhum card visível para importar ao Inbox.");
+        return null;
+      }
+
+      todayAgendaLaunchNotice.start({
+        loadingTitle: options?.title || "Abrindo Inbox",
+        loadingDescription:
+          options?.description || "Enviando os cards visíveis para Prospecção.",
+        successTitle: "Prospecção pronta",
+        successDescription:
+          "Tudo certo. Os cards foram preparados em Prospecção.",
+        ctaLabel: "Abrir Prospecção",
+        onOpen: () => openInboxAgenda(),
+      });
+
+      try {
+        const syncResult = await apiFetch<TodayAgendaSyncResponse>(
+          "/vendas/agenda/whatsapp/sync-today",
+          {
+            method: "POST",
+            body: JSON.stringify({ leadIds: visibleLeadIds }),
+          },
+        );
+        const todayLeadCount = Number(syncResult?.todayLeadCount || 0);
+        const mirroredLeadCount = Number(syncResult?.mirroredLeadCount || 0);
+        if (!syncResult?.ok) {
+          throw new Error(
+            syncResult?.message ||
+              "Os cards visíveis nao foram enviados para Prospecção. Recarregue e tente novamente.",
+          );
+        }
+        const firstConversationId =
+          syncResult?.conversationIds?.[0] ||
+          (syncResult?.leadConversationIds
+            ? syncResult.leadConversationIds[visibleLeadIds[0]]
+            : null) ||
+          null;
+        const importedLeadIds = syncResult?.leadConversationIds
+          ? Object.keys(syncResult.leadConversationIds)
+          : firstConversationId && visibleLeadIds.length === 1
+            ? visibleLeadIds
+            : [];
+        if (importedLeadIds.length) {
+          setBoard((currentBoard) =>
+            markBoardLeadsInInbox(
+              currentBoard,
+              importedLeadIds,
+              syncResult?.leadConversationIds,
+              firstConversationId,
+            ),
+          );
+        }
+        todayAgendaLaunchNotice.markSuccess({
+          successDescription:
+            String(syncResult?.message || "").trim() ||
+            (todayLeadCount
+              ? `${mirroredLeadCount} card(s) foram preparados em Prospecção com roteiro pendente para envio manual.`
+              : "Nao ha cards visíveis para preparar em Prospecção."),
+        });
+        await loadBoard();
+        if (options?.openAfter) openInboxAgenda(firstConversationId);
+        return syncResult;
+      } catch (syncError) {
+        todayAgendaLaunchNotice.clear();
+        setError(
+          syncError instanceof Error
+            ? syncError.message
+            : "Falha ao importar cards para Prospecção.",
+        );
+        return null;
+      }
+    },
+    [openInboxAgenda, todayAgendaLaunchNotice],
+  );
 
   useEffect(() => {
     if (hasToken !== true) return;
@@ -1178,7 +1573,9 @@ export default function VendasClientPage() {
     if (searchParams?.get("agendaStudio") !== "1") return;
     const mode = searchParams?.get("agendaMode") || "sales";
     if (mode !== "sales") return;
-    router.replace("/atendimento?atendimentoQueue=scheduled&atendimentoSection=agenda&agendaStudio=1&agendaMode=sales&returnTo=%2Fvendas");
+    router.replace(
+      "/atendimento?atendimentoQueue=scheduled&atendimentoSection=agenda&agendaStudio=1&agendaMode=sales&returnTo=%2Fvendas",
+    );
   }, [hasToken, router, searchParams]);
 
   useEffect(() => {
@@ -1215,33 +1612,54 @@ export default function VendasClientPage() {
   const leadById = useMemo(() => {
     const map = new Map<string, { lead: LeadItem; block: LeadBlockKey }>();
     if (!board) return map;
-    (["overdue", "today", "scheduled", "closed"] as LeadBlockKey[]).forEach((blockKey) => {
-      (board.blocks[blockKey] || []).forEach((lead) => map.set(lead.id, { lead, block: blockKey }));
-    });
+    (["overdue", "today", "scheduled", "closed"] as LeadBlockKey[]).forEach(
+      (blockKey) => {
+        (board.blocks[blockKey] || []).forEach((lead) =>
+          map.set(lead.id, { lead, block: blockKey }),
+        );
+      },
+    );
     return map;
   }, [board]);
 
   const allLeads = useMemo(() => {
     const items: Array<{ lead: LeadItem; block: LeadBlockKey }> = [];
     if (!board) return items;
-    (["overdue", "today", "scheduled", "closed"] as LeadBlockKey[]).forEach((blockKey) => {
-      (board.blocks[blockKey] || []).forEach((lead) => items.push({ lead, block: blockKey }));
-    });
-    const orderWeight: Record<LeadBlockKey, number> = { overdue: 0, today: 1, scheduled: 2, closed: 3 };
+    (["overdue", "today", "scheduled", "closed"] as LeadBlockKey[]).forEach(
+      (blockKey) => {
+        (board.blocks[blockKey] || []).forEach((lead) =>
+          items.push({ lead, block: blockKey }),
+        );
+      },
+    );
+    const orderWeight: Record<LeadBlockKey, number> = {
+      overdue: 0,
+      today: 1,
+      scheduled: 2,
+      closed: 3,
+    };
     return items.sort((left, right) => {
       const blockDiff = orderWeight[left.block] - orderWeight[right.block];
       if (blockDiff !== 0) return blockDiff;
-      return new Date(right.lead.updatedAt || 0).getTime() - new Date(left.lead.updatedAt || 0).getTime();
+      return (
+        new Date(right.lead.updatedAt || 0).getTime() -
+        new Date(left.lead.updatedAt || 0).getTime()
+      );
     });
   }, [board]);
 
-  const loadedLeadIds = useMemo(() => allLeads.map(({ lead }) => lead.id).filter(Boolean), [allLeads]);
+  const loadedLeadIds = useMemo(
+    () => allLeads.map(({ lead }) => lead.id).filter(Boolean),
+    [allLeads],
+  );
 
   useEffect(() => {
     if (bulkSelectAllAccount) return;
     const availableIds = new Set(loadedLeadIds);
     setSelectedBulkLeadIds((current) => {
-      const next = new Set([...current].filter((leadId) => availableIds.has(leadId)));
+      const next = new Set(
+        [...current].filter((leadId) => availableIds.has(leadId)),
+      );
       return next.size === current.size ? current : next;
     });
   }, [bulkSelectAllAccount, loadedLeadIds]);
@@ -1252,7 +1670,19 @@ export default function VendasClientPage() {
     const items = allLeads.slice(0, 20);
     if (!normalized) return items;
     return items.filter(({ lead, block }) =>
-      [lead.name, lead.phone, lead.email, lead.address, lead.city, lead.segment, lead.nextAction, lead.shortNote, lead.lastResult, lead.primarySource, block]
+      [
+        lead.name,
+        lead.phone,
+        lead.email,
+        lead.address,
+        lead.city,
+        lead.segment,
+        lead.nextAction,
+        lead.shortNote,
+        lead.lastResult,
+        lead.primarySource,
+        block,
+      ]
         .filter(Boolean)
         .join(" ")
         .toLowerCase()
@@ -1265,7 +1695,10 @@ export default function VendasClientPage() {
     (board?.blocks.scheduled || []).forEach((lead) => {
       const dateKey = buildLocalDateKey(lead.returnAt || lead.updatedAt);
       if (!dateKey) return;
-      scheduledGroups.set(dateKey, [...(scheduledGroups.get(dateKey) || []), lead]);
+      scheduledGroups.set(dateKey, [
+        ...(scheduledGroups.get(dateKey) || []),
+        lead,
+      ]);
     });
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -1279,7 +1712,9 @@ export default function VendasClientPage() {
         blockKey: "scheduled" as const,
         count: leads.length,
         title: railTitle(dateKey),
-        subtitle: leads.length ? pluralize(leads.length, "retorno futuro", "retornos futuros") : "Sem agenda",
+        subtitle: leads.length
+          ? pluralize(leads.length, "retorno futuro", "retornos futuros")
+          : "Sem agenda",
         dayLabel: railDay(dateKey),
         isoDate: dateKey,
       };
@@ -1303,7 +1738,9 @@ export default function VendasClientPage() {
         blockKey: "overdue",
         count: board?.summary.overdue || 0,
         title: "Atrasados",
-        subtitle: board?.summary.overdue ? "Ontem para trás." : "Sem pendência.",
+        subtitle: board?.summary.overdue
+          ? "Ontem para trás."
+          : "Sem pendência.",
         dayLabel: "Prioridade",
       },
       {
@@ -1323,12 +1760,17 @@ export default function VendasClientPage() {
     if (!dateFilters.length) return;
     setSelectedDateKey((current) => {
       if (dateFilters.some((item) => item.key === current)) return current;
-      return dateFilters.find((item) => item.count > 0)?.key || dateFilters[0].key;
+      return (
+        dateFilters.find((item) => item.count > 0)?.key || dateFilters[0].key
+      );
     });
   }, [dateFilters]);
 
   const selectedFilter = useMemo(
-    () => dateFilters.find((item) => item.key === selectedDateKey) || dateFilters[0] || null,
+    () =>
+      dateFilters.find((item) => item.key === selectedDateKey) ||
+      dateFilters[0] ||
+      null,
     [dateFilters, selectedDateKey],
   );
 
@@ -1339,8 +1781,16 @@ export default function VendasClientPage() {
         ? board.blocks.overdue || []
         : selectedFilter.key === "today"
           ? board.blocks.today || []
-          : (board.blocks.scheduled || []).filter((lead) => buildLocalDateKey(lead.returnAt || lead.updatedAt) === selectedFilter.isoDate);
-    return scopedLeads.filter((lead) => matchesWhatsappFilter(lead, whatsappFilter) && matchesInboxFilter(lead, inboxFilter));
+          : (board.blocks.scheduled || []).filter(
+              (lead) =>
+                buildLocalDateKey(lead.returnAt || lead.updatedAt) ===
+                selectedFilter.isoDate,
+            );
+    return scopedLeads.filter(
+      (lead) =>
+        matchesWhatsappFilter(lead, whatsappFilter) &&
+        matchesInboxFilter(lead, inboxFilter),
+    );
   }, [board, selectedFilter, whatsappFilter, inboxFilter]);
 
   useEffect(() => {
@@ -1350,13 +1800,21 @@ export default function VendasClientPage() {
       setVendasVisualCount(0);
       return undefined;
     }
-    const target = Math.max(1, filteredLeads.length || board?.summary.total || 12);
+    const target = Math.max(
+      1,
+      filteredLeads.length || board?.summary.total || 12,
+    );
     setVendasVisualCount(1);
     const timer = window.setInterval(() => {
       setVendasVisualCount((current) => Math.min(target, current + 1));
     }, 210);
     return () => window.clearInterval(timer);
-  }, [board?.summary.total, filteredLeads.length, loading, todayAgendaLaunchNotice.notice]);
+  }, [
+    board?.summary.total,
+    filteredLeads.length,
+    loading,
+    todayAgendaLaunchNotice.notice,
+  ]);
 
   useEffect(() => {
     const notice = todayAgendaLaunchNotice.notice;
@@ -1367,12 +1825,18 @@ export default function VendasClientPage() {
       { label: "Descarte", value: String(archivedCount) },
     ];
     const errorMessage = compactVendasMessage(error);
-    const liveCards = filteredLeads.slice(0, Math.max(1, vendasVisualCount)).slice(-4).map((lead) => ({
-      id: `vendas:${lead.id}`,
-      title: lead.name || "Card em Vendas",
-      meta: [lead.segment, lead.city, lead.statusLabel].filter(Boolean).join(" • ") || "Prospecção",
-      score: lead.timesSeen ? `${lead.timesSeen}x` : undefined,
-    }));
+    const liveCards = filteredLeads
+      .slice(0, Math.max(1, vendasVisualCount))
+      .slice(-4)
+      .map((lead) => ({
+        id: `vendas:${lead.id}`,
+        title: lead.name || "Card em Vendas",
+        meta:
+          [lead.segment, lead.city, lead.statusLabel]
+            .filter(Boolean)
+            .join(" • ") || "Prospecção",
+        score: lead.timesSeen ? `${lead.timesSeen}x` : undefined,
+      }));
 
     if (errorMessage) {
       dispatchTopbarProgress({
@@ -1406,10 +1870,17 @@ export default function VendasClientPage() {
     dispatchTopbarProgress({
       source: "vendas",
       phase: notice?.phase || "loading",
-      title: notice?.phase === "success" ? notice.title : loading ? "Carregando Vendas" : "Sincronizando Vendas",
+      title:
+        notice?.phase === "success"
+          ? notice.title
+          : loading
+            ? "Carregando Vendas"
+            : "Sincronizando Vendas",
       status:
         notice?.statusLabel ||
-        (loading ? "Motores lendo banco e preparando a agenda comercial..." : "Filtrando negativos e alimentando Prospecção..."),
+        (loading
+          ? "Motores lendo banco e preparando a agenda comercial..."
+          : "Filtrando negativos e alimentando Prospecção..."),
       progress: notice?.progress ?? 18,
       steps: VENDAS_PROGRESS_STEPS,
       activeStepIndex: loading ? 0 : 3,
@@ -1429,6 +1900,8 @@ export default function VendasClientPage() {
 
   useEffect(() => () => clearTopbarProgress("vendas"), []);
 
+  useEffect(() => () => setVendasCardDragLock(false), []);
+
   const handleActiveDateShortcut = useCallback(async () => {
     if (!selectedFilter) return;
     await syncLeadsToInbox(filteredLeads, {
@@ -1439,8 +1912,14 @@ export default function VendasClientPage() {
 
   useEffect(() => {
     setSelectedLeadId((current) => {
-      if (current && filteredLeads.some((lead) => lead.id === current)) return current;
-      if (current && showClosed && (board?.blocks.closed || []).some((lead) => lead.id === current)) return current;
+      if (current && filteredLeads.some((lead) => lead.id === current))
+        return current;
+      if (
+        current &&
+        showClosed &&
+        (board?.blocks.closed || []).some((lead) => lead.id === current)
+      )
+        return current;
       // Do not auto-select the first lead by default. Keep selection null
       // until user explicitly focuses a lead to avoid the first card
       // being treated differently on initial render.
@@ -1451,22 +1930,32 @@ export default function VendasClientPage() {
   useEffect(() => {
     if (!showClosed || !archiveRef.current) return;
     const id = window.setTimeout(() => {
-      archiveRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      archiveRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
       archiveRef.current?.focus();
     }, 80);
     return () => window.clearTimeout(id);
   }, [showClosed]);
 
-  const selectedLeadRecord = selectedLeadId ? leadById.get(selectedLeadId) || null : null;
+  const selectedLeadRecord = selectedLeadId
+    ? leadById.get(selectedLeadId) || null
+    : null;
   const selectedLead = selectedLeadRecord?.lead || null;
   const selectedLeadBlock = selectedLeadRecord?.block || "today";
-  const selectedLeadDraft = selectedLead ? drafts[selectedLead.id] || createDraft(selectedLead) : null;
+  const selectedLeadDraft = selectedLead
+    ? drafts[selectedLead.id] || createDraft(selectedLead)
+    : null;
   const closedLeads = board?.blocks.closed || [];
 
   function scrollDateRail(direction: -1 | 1) {
     const el = filterScrollerRef.current;
     if (!el) return;
-    el.scrollBy({ left: direction * Math.max(260, Math.round(el.clientWidth * 0.72)), behavior: "smooth" });
+    el.scrollBy({
+      left: direction * Math.max(260, Math.round(el.clientWidth * 0.72)),
+      behavior: "smooth",
+    });
   }
 
   function clearBulkSelection() {
@@ -1506,7 +1995,9 @@ export default function VendasClientPage() {
     const selectedIds = Array.from(selectedBulkLeadIds);
     if (!bulkSelectAllAccount && !selectedIds.length) return;
 
-    const targetLabel = bulkSelectAllAccount ? "todos os cards da conta atual" : `${selectedIds.length} card(s) selecionado(s)`;
+    const targetLabel = bulkSelectAllAccount
+      ? "todos os cards da conta atual"
+      : `${selectedIds.length} card(s) selecionado(s)`;
     const confirmed = window.confirm(
       `Excluir ${targetLabel} do Vendas? Os cards somem da tela, mas a base do Radar Digital continua preservada.`,
     );
@@ -1515,18 +2006,31 @@ export default function VendasClientPage() {
     setBulkDeleting(true);
     setError(null);
     try {
-      const payload = await apiFetch<BulkDeleteLeadsResponse>("/vendas/leads/delete-bulk", {
-        method: "POST",
-        body: JSON.stringify(bulkSelectAllAccount ? { all: true } : { leadIds: selectedIds }),
-      });
+      const payload = await apiFetch<BulkDeleteLeadsResponse>(
+        "/vendas/leads/delete-bulk",
+        {
+          method: "POST",
+          body: JSON.stringify(
+            bulkSelectAllAccount ? { all: true } : { leadIds: selectedIds },
+          ),
+        },
+      );
       const deletedCount = Number(payload?.deletedCount || 0);
-      setFeedback(deletedCount ? `${deletedCount} card(s) excluído(s) do Vendas.` : "Nenhum card novo para excluir.");
+      setFeedback(
+        deletedCount
+          ? `${deletedCount} card(s) excluído(s) do Vendas.`
+          : "Nenhum card novo para excluir.",
+      );
       clearBulkSelection();
       setBulkSelectionMode(false);
       setSelectedLeadId(null);
       await loadBoard();
     } catch (deleteError) {
-      setError(deleteError instanceof Error ? deleteError.message : "Falha ao excluir cards em massa.");
+      setError(
+        deleteError instanceof Error
+          ? deleteError.message
+          : "Falha ao excluir cards em massa.",
+      );
     } finally {
       setBulkDeleting(false);
     }
@@ -1551,13 +2055,21 @@ export default function VendasClientPage() {
         returnAt: manualLead.returnAt || undefined,
         shortNote: manualLead.shortNote || undefined,
       };
-      if (manualLead.email && String(manualLead.email).trim()) body.email = manualLead.email;
+      if (manualLead.email && String(manualLead.email).trim())
+        body.email = manualLead.email;
 
-      const payload = await apiFetch<{ ok: boolean; action: string }>("/vendas/manual", {
-        method: "POST",
-        body: JSON.stringify(body),
-      });
-      setFeedback(payload.action === "updated" ? "Lead manual atualizado no CRM." : "Lead manual criado no CRM.");
+      const payload = await apiFetch<{ ok: boolean; action: string }>(
+        "/vendas/manual",
+        {
+          method: "POST",
+          body: JSON.stringify(body),
+        },
+      );
+      setFeedback(
+        payload.action === "updated"
+          ? "Lead manual atualizado no CRM."
+          : "Lead manual criado no CRM.",
+      );
       setManualLead({
         name: "",
         phone: "",
@@ -1569,7 +2081,11 @@ export default function VendasClientPage() {
       setComposerOpen(false);
       await loadBoard();
     } catch (createError) {
-      setError(createError instanceof Error ? createError.message : "Falha ao criar lead manual.");
+      setError(
+        createError instanceof Error
+          ? createError.message
+          : "Falha ao criar lead manual.",
+      );
     } finally {
       setCreatingManual(false);
     }
@@ -1579,15 +2095,35 @@ export default function VendasClientPage() {
     setDrafts((prev) => ({
       ...prev,
       [leadId]: {
-        ...(prev[leadId] || { name: "", phone: "", email: "", status: "novo" as LeadStatus, nextAction: "", returnAt: "", shortNote: "" }),
+        ...(prev[leadId] || {
+          name: "",
+          phone: "",
+          email: "",
+          status: "novo" as LeadStatus,
+          nextAction: "",
+          returnAt: "",
+          shortNote: "",
+        }),
         ...patch,
       },
     }));
   }
 
-  async function saveLead(leadId: string, patch?: Partial<LeadDraft>, successMessage?: string) {
+  async function saveLead(
+    leadId: string,
+    patch?: Partial<LeadDraft>,
+    successMessage?: string,
+  ) {
     const draft = {
-      ...(drafts[leadId] || { name: "", phone: "", email: "", status: "novo" as LeadStatus, nextAction: "", returnAt: "", shortNote: "" }),
+      ...(drafts[leadId] || {
+        name: "",
+        phone: "",
+        email: "",
+        status: "novo" as LeadStatus,
+        nextAction: "",
+        returnAt: "",
+        shortNote: "",
+      }),
       ...(patch || {}),
     };
     const email = String(draft.email || "").trim();
@@ -1603,19 +2139,29 @@ export default function VendasClientPage() {
         returnAt: draft.returnAt || "",
         shortNote: draft.shortNote,
       };
-      await apiFetch(`/vendas/lead/${leadId}`, { method: "PATCH", body: JSON.stringify(body) });
+      await apiFetch(`/vendas/lead/${leadId}`, {
+        method: "PATCH",
+        body: JSON.stringify(body),
+      });
       setFeedback(successMessage || "Lead atualizado com sucesso.");
       await loadBoard();
       // If the saved lead was being edited inline, close the inline editor
       if (editingLeadId === leadId) setEditingLeadId(null);
     } catch (saveError) {
-      setError(saveError instanceof Error ? saveError.message : "Falha ao atualizar o lead.");
+      setError(
+        saveError instanceof Error
+          ? saveError.message
+          : "Falha ao atualizar o lead.",
+      );
     } finally {
       setSavingLeadId(null);
     }
   }
 
-  function applyOptimisticAttemptIncrement(currentBoard: BoardResponse, leadId: string) {
+  function applyOptimisticAttemptIncrement(
+    currentBoard: BoardResponse,
+    leadId: string,
+  ) {
     const blocks: BoardResponse["blocks"] = {
       overdue: [...currentBoard.blocks.overdue],
       today: [...currentBoard.blocks.today],
@@ -1624,11 +2170,20 @@ export default function VendasClientPage() {
     };
 
     let found = false;
-    ([("overdue" as LeadBlockKey), ("today" as LeadBlockKey), ("scheduled" as LeadBlockKey), ("closed" as LeadBlockKey)]).forEach((blockKey) => {
+    [
+      "overdue" as LeadBlockKey,
+      "today" as LeadBlockKey,
+      "scheduled" as LeadBlockKey,
+      "closed" as LeadBlockKey,
+    ].forEach((blockKey) => {
       blocks[blockKey] = blocks[blockKey].map((lead) => {
         if (lead.id !== leadId) return lead;
         found = true;
-        return { ...lead, attemptCount: (lead.attemptCount || 0) + 1, updatedAt: new Date().toISOString() };
+        return {
+          ...lead,
+          attemptCount: (lead.attemptCount || 0) + 1,
+          updatedAt: new Date().toISOString(),
+        };
       });
     });
 
@@ -1655,7 +2210,9 @@ export default function VendasClientPage() {
       await loadBoard();
     } catch (err) {
       setBoard(previousBoard);
-      setError(err instanceof Error ? err.message : "Falha ao registrar tentativa.");
+      setError(
+        err instanceof Error ? err.message : "Falha ao registrar tentativa.",
+      );
     } finally {
       setSavingLeadId(null);
     }
@@ -1669,7 +2226,8 @@ export default function VendasClientPage() {
     }
     if (action === "hoje") {
       await saveLead(lead.id, {
-        status: currentDraft.status === "novo" ? "contato" : currentDraft.status,
+        status:
+          currentDraft.status === "novo" ? "contato" : currentDraft.status,
         nextAction: currentDraft.nextAction || "Retomar hoje",
         returnAt: plusDaysDatetimeLocal(0),
       });
@@ -1686,18 +2244,30 @@ export default function VendasClientPage() {
           : (leadBlock as DateFilterKey);
 
       const idx = dateFilters.findIndex((item) => item.key === currentDateKey);
-      const nextIndex = idx >= 0 ? Math.min(idx + 1, Math.max(0, dateFilters.length - 1)) : 0;
-      const targetKey = dateFilters[nextIndex]?.key || (dateFilters[0]?.key as DateFilterKey) || "today";
+      const nextIndex =
+        idx >= 0 ? Math.min(idx + 1, Math.max(0, dateFilters.length - 1)) : 0;
+      const targetKey =
+        dateFilters[nextIndex]?.key ||
+        (dateFilters[0]?.key as DateFilterKey) ||
+        "today";
 
       await handleDateMove(lead.id, targetKey);
       return;
     }
     if (action === "encerrar") {
-      await saveLead(lead.id, { status: "encerrado", nextAction: currentDraft.nextAction || "Lead encerrado", returnAt: "" });
+      await saveLead(lead.id, {
+        status: "encerrado",
+        nextAction: currentDraft.nextAction || "Lead encerrado",
+        returnAt: "",
+      });
       return;
     }
     if (action === "reabrir") {
-      await saveLead(lead.id, { status: "retorno", nextAction: currentDraft.nextAction || "Retomar lead", returnAt: plusDaysDatetimeLocal(1) });
+      await saveLead(lead.id, {
+        status: "retorno",
+        nextAction: currentDraft.nextAction || "Retomar lead",
+        returnAt: plusDaysDatetimeLocal(1),
+      });
     }
   }
 
@@ -1723,7 +2293,9 @@ export default function VendasClientPage() {
     if (current.block === "overdue") setSelectedDateKey("overdue");
     if (current.block === "today") setSelectedDateKey("today");
     if (current.block === "scheduled") {
-      const dateKey = buildLocalDateKey(current.lead.returnAt || current.lead.updatedAt);
+      const dateKey = buildLocalDateKey(
+        current.lead.returnAt || current.lead.updatedAt,
+      );
       if (dateKey) setSelectedDateKey(`scheduled:${dateKey}`);
     }
     if (current.block === "closed") setShowClosed(true);
@@ -1735,16 +2307,24 @@ export default function VendasClientPage() {
       const node = leadCardRefs.current[leadId];
       if (node) {
         try {
-          node.scrollIntoView({ behavior: "smooth", block: "center", inline: "nearest" });
+          node.scrollIntoView({
+            behavior: "smooth",
+            block: "center",
+            inline: "nearest",
+          });
         } catch (e) {
           node.scrollIntoView({ behavior: "smooth" });
         }
         // focus the primary interactive element inside the card if present
-        const focusable = (node.querySelector("button, [role=\"button\"], a, input, textarea, [tabindex]") as HTMLElement | null);
+        const focusable = node.querySelector(
+          'button, [role="button"], a, input, textarea, [tabindex]',
+        ) as HTMLElement | null;
         if (focusable) focusable.focus();
       } else {
         // fallback: ensure detail panel is visible
-        document.querySelector<HTMLElement>("[data-detail-panel='true']")?.scrollIntoView({ behavior: "smooth", block: "start" });
+        document
+          .querySelector<HTMLElement>("[data-detail-panel='true']")
+          ?.scrollIntoView({ behavior: "smooth", block: "start" });
       }
     }, 80);
   }
@@ -1753,24 +2333,40 @@ export default function VendasClientPage() {
     leadCardRefs.current[leadId] = node;
   }
 
-  function registerDateFilterRef(filterKey: DateFilterKey, node: HTMLElement | null) {
+  function registerDateFilterRef(
+    filterKey: DateFilterKey,
+    node: HTMLElement | null,
+  ) {
     dateFilterRefs.current[filterKey] = node;
   }
 
   function createPatchedDraft(lead: LeadItem, targetKey: DateFilterKey) {
     const currentDraft = drafts[lead.id] || createDraft(lead);
-    let returnAt = currentDraft.returnAt || toDatetimeLocal(lead.returnAt) || "";
+    let returnAt =
+      currentDraft.returnAt || toDatetimeLocal(lead.returnAt) || "";
     let status = currentDraft.status;
 
     if (targetKey === "today") {
-      returnAt = buildTargetDatetimeLocal(localDateKeyFromDate(new Date()), null, 12, 0);
+      returnAt = buildTargetDatetimeLocal(
+        localDateKeyFromDate(new Date()),
+        null,
+        12,
+        0,
+      );
     } else if (targetKey === "overdue") {
       const yesterday = new Date();
       yesterday.setDate(yesterday.getDate() - 1);
-      returnAt = buildTargetDatetimeLocal(localDateKeyFromDate(yesterday), returnAt || null);
+      returnAt = buildTargetDatetimeLocal(
+        localDateKeyFromDate(yesterday),
+        returnAt || null,
+      );
     } else {
-      returnAt = buildTargetDatetimeLocal(targetKey.slice("scheduled:".length), returnAt || null);
-      if (status !== "encerrado" && status !== "qualificado") status = "retorno";
+      returnAt = buildTargetDatetimeLocal(
+        targetKey.slice("scheduled:".length),
+        returnAt || null,
+      );
+      if (status !== "encerrado" && status !== "qualificado")
+        status = "retorno";
     }
 
     return {
@@ -1780,7 +2376,12 @@ export default function VendasClientPage() {
     };
   }
 
-  function applyOptimisticDateMove(currentBoard: BoardResponse, leadId: string, targetKey: DateFilterKey, nextDraft: LeadDraft) {
+  function applyOptimisticDateMove(
+    currentBoard: BoardResponse,
+    leadId: string,
+    targetKey: DateFilterKey,
+    nextDraft: LeadDraft,
+  ) {
     const blocks: BoardResponse["blocks"] = {
       overdue: [...currentBoard.blocks.overdue],
       today: [...currentBoard.blocks.today],
@@ -1789,13 +2390,15 @@ export default function VendasClientPage() {
     };
     let movingLead: LeadItem | null = null;
 
-    (["overdue", "today", "scheduled", "closed"] as LeadBlockKey[]).forEach((blockKey) => {
-      blocks[blockKey] = blocks[blockKey].filter((lead) => {
-        if (lead.id !== leadId) return true;
-        movingLead = lead;
-        return false;
-      });
-    });
+    (["overdue", "today", "scheduled", "closed"] as LeadBlockKey[]).forEach(
+      (blockKey) => {
+        blocks[blockKey] = blocks[blockKey].filter((lead) => {
+          if (lead.id !== leadId) return true;
+          movingLead = lead;
+          return false;
+        });
+      },
+    );
 
     if (!movingLead) return currentBoard;
 
@@ -1803,7 +2406,9 @@ export default function VendasClientPage() {
       ...(movingLead as LeadItem),
       status: nextDraft.status,
       statusLabel: statusLabel(nextDraft.status),
-      returnAt: nextDraft.returnAt ? new Date(nextDraft.returnAt).toISOString() : "",
+      returnAt: nextDraft.returnAt
+        ? new Date(nextDraft.returnAt).toISOString()
+        : "",
       updatedAt: new Date().toISOString(),
     };
 
@@ -1828,7 +2433,12 @@ export default function VendasClientPage() {
     const previousBoard = board;
     const previousDrafts = drafts;
     const nextDraft = createPatchedDraft(currentRecord.lead, targetKey);
-    const optimisticBoard = applyOptimisticDateMove(board, leadId, targetKey, nextDraft);
+    const optimisticBoard = applyOptimisticDateMove(
+      board,
+      leadId,
+      targetKey,
+      nextDraft,
+    );
 
     setBoard(optimisticBoard);
     setDrafts((prev) => ({ ...prev, [leadId]: nextDraft }));
@@ -1849,19 +2459,28 @@ export default function VendasClientPage() {
     } catch (moveError) {
       setBoard(previousBoard);
       setDrafts(previousDrafts);
-      setError(moveError instanceof Error ? moveError.message : "Falha ao mover o lead na agenda.");
+      setError(
+        moveError instanceof Error
+          ? moveError.message
+          : "Falha ao mover o lead na agenda.",
+      );
     } finally {
       setSavingLeadId(null);
     }
   }
-  async function moveAllLeadsFromSourceToTarget(sourceKey: DateFilterKey, targetKey: DateFilterKey) {
+  async function moveAllLeadsFromSourceToTarget(
+    sourceKey: DateFilterKey,
+    targetKey: DateFilterKey,
+  ) {
     if (!board) return;
     let leadsToMove: LeadItem[] = [];
     if (sourceKey === "overdue") leadsToMove = [...board.blocks.overdue];
     else if (sourceKey === "today") leadsToMove = [...board.blocks.today];
     else if (sourceKey.startsWith("scheduled:")) {
       const iso = sourceKey.slice("scheduled:".length);
-      leadsToMove = (board.blocks.scheduled || []).filter((l) => buildLocalDateKey(l.returnAt || l.updatedAt) === iso);
+      leadsToMove = (board.blocks.scheduled || []).filter(
+        (l) => buildLocalDateKey(l.returnAt || l.updatedAt) === iso,
+      );
     } else {
       return;
     }
@@ -1898,7 +2517,16 @@ export default function VendasClientPage() {
 
         completedMoves += 1;
         setDrafts((prev) => ({ ...prev, [lead.id]: nextDraft }));
-        setBoard((currentBoard) => (currentBoard ? applyOptimisticDateMove(currentBoard, lead.id, targetKey, nextDraft) : currentBoard));
+        setBoard((currentBoard) =>
+          currentBoard
+            ? applyOptimisticDateMove(
+                currentBoard,
+                lead.id,
+                targetKey,
+                nextDraft,
+              )
+            : currentBoard,
+        );
         setFeedback(
           completedMoves >= totalMoves
             ? `Movidos ${completedMoves} retornos.`
@@ -1935,6 +2563,9 @@ export default function VendasClientPage() {
 
   function handleDragStart(event: DragStartEvent) {
     const activeId = String(event.active.id || "");
+    const isLeadDrag = Boolean(activeId && !activeId.startsWith("date:"));
+    setVendasCardDragLock(isLeadDrag);
+
     if (activeId.startsWith("date:")) {
       setActiveDragDateKey(activeId.slice("date:".length));
       setActiveDragLeadId(null);
@@ -1945,54 +2576,70 @@ export default function VendasClientPage() {
   }
 
   function handleDragCancel() {
+    setVendasCardDragLock(false);
     setActiveDragLeadId(null);
     setActiveDragDateKey(null);
     lastDragEndedAtRef.current = performance.now();
   }
 
   async function handleDragEnd(event: DragEndEvent) {
-    const activeId = String(event.active.id || "");
-    const targetKey = event.over?.id as DateFilterKey | undefined;
-    if (!activeId || !targetKey) {
-      setActiveDragLeadId(null);
-      setActiveDragDateKey(null);
-      return;
-    }
+    try {
+      const activeId = String(event.active.id || "");
+      const targetKey = event.over?.id as DateFilterKey | undefined;
+      if (!activeId || !targetKey) {
+        setActiveDragLeadId(null);
+        setActiveDragDateKey(null);
+        return;
+      }
 
-    if (activeId.startsWith("date:")) {
-      setActiveDragLeadId(null);
-      setActiveDragDateKey(null);
-      const sourceKey = activeId.slice("date:".length) as DateFilterKey;
-      if (sourceKey === targetKey) {
+      if (activeId.startsWith("date:")) {
+        setActiveDragLeadId(null);
+        setActiveDragDateKey(null);
+        const sourceKey = activeId.slice("date:".length) as DateFilterKey;
+        if (sourceKey === targetKey) {
+          lastDragEndedAtRef.current = performance.now();
+          return;
+        }
+        setPulseDateKey(targetKey);
+        await moveAllLeadsFromSourceToTarget(sourceKey, targetKey);
         lastDragEndedAtRef.current = performance.now();
         return;
       }
-      setPulseDateKey(targetKey);
-      await moveAllLeadsFromSourceToTarget(sourceKey, targetKey);
-      lastDragEndedAtRef.current = performance.now();
-      return;
-    }
 
-    const leadId = activeId;
-    const record = leadById.get(leadId);
-    const draft = record ? drafts[leadId] || createDraft(record.lead) : null;
-    const fromRect = leadCardRefs.current[leadId]?.getBoundingClientRect();
-    const targetRect = dateFilterRefs.current[targetKey]?.getBoundingClientRect();
-    if (record && draft && fromRect && targetRect) {
-      setFlyAnimation({
-        leadId,
-        lead: record.lead,
-        draft,
-        blockKey: record.block,
-        from: { x: fromRect.left, y: fromRect.top, width: fromRect.width, height: fromRect.height },
-        to: { x: targetRect.left, y: targetRect.top, width: targetRect.width, height: targetRect.height },
-      });
+      const leadId = activeId;
+      const record = leadById.get(leadId);
+      const draft = record ? drafts[leadId] || createDraft(record.lead) : null;
+      const fromRect = leadCardRefs.current[leadId]?.getBoundingClientRect();
+      const targetRect =
+        dateFilterRefs.current[targetKey]?.getBoundingClientRect();
+      if (record && draft && fromRect && targetRect) {
+        setFlyAnimation({
+          leadId,
+          lead: record.lead,
+          draft,
+          blockKey: record.block,
+          from: {
+            x: fromRect.left,
+            y: fromRect.top,
+            width: fromRect.width,
+            height: fromRect.height,
+          },
+          to: {
+            x: targetRect.left,
+            y: targetRect.top,
+            width: targetRect.width,
+            height: targetRect.height,
+          },
+        });
+      }
+      setActiveDragLeadId(null);
+      setActiveDragDateKey(null);
+      setPulseDateKey(targetKey);
+      await handleDateMove(leadId, targetKey);
+      lastDragEndedAtRef.current = performance.now();
+    } finally {
+      setVendasCardDragLock(false);
     }
-    setActiveDragLeadId(null);
-    setActiveDragDateKey(null);
-    setPulseDateKey(targetKey);
-    await handleDateMove(leadId, targetKey);
-    lastDragEndedAtRef.current = performance.now();
   }
 
   function renderLeadCard(lead: LeadItem, blockKey: LeadBlockKey) {
@@ -2005,12 +2652,14 @@ export default function VendasClientPage() {
       saving: savingLeadId === lead.id,
       onFocus: () => focusLead(lead.id),
       onQuickAction: (action: string) => void runQuickAction(lead, action),
-      onInboxAction: (targetLead: LeadItem) => void handleLeadInboxAction(targetLead),
+      onInboxAction: (targetLead: LeadItem) =>
+        void handleLeadInboxAction(targetLead),
       onEdit: (id: string | null) => {
         setEditingLeadId((cur) => (cur === id ? null : id));
         if (id) focusLead(id);
       },
-      onDraftChange: (leadId: string, patch: Partial<LeadDraft>) => setLeadDraft(leadId, patch),
+      onDraftChange: (leadId: string, patch: Partial<LeadDraft>) =>
+        setLeadDraft(leadId, patch),
       onSave: (leadId: string) => void saveLead(leadId),
       editing: editingLeadId === lead.id,
       bulkSelectionMode,
@@ -2022,7 +2671,15 @@ export default function VendasClientPage() {
       return <LeadCardView key={lead.id} {...commonProps} />;
     }
 
-    return <DraggableLeadCard key={lead.id} {...commonProps} disabled={false} hidden={flyAnimation?.leadId === lead.id} register={(node) => registerLeadCardRef(lead.id, node)} />;
+    return (
+      <DraggableLeadCard
+        key={lead.id}
+        {...commonProps}
+        disabled={false}
+        hidden={flyAnimation?.leadId === lead.id}
+        register={(node) => registerLeadCardRef(lead.id, node)}
+      />
+    );
   }
 
   function renderDetailPanel() {
@@ -2036,54 +2693,91 @@ export default function VendasClientPage() {
           <div className={styles.detailEmpty}>
             <span className={styles.panelEyebrow}>Cliente</span>
             <strong>Escolha um card para abrir a lateral.</strong>
-            <p>O detalhe fica mais estreito e mostra só o que precisa ser operado agora.</p>
+            <p>
+              O detalhe fica mais estreito e mostra só o que precisa ser operado
+              agora.
+            </p>
           </div>
         </aside>
       );
     }
 
     const callUrl = buildCallUrl(selectedLeadDraft.phone || selectedLead.phone);
-    const whatsappUrl = buildWhatsAppUrl(selectedLeadDraft.phone || selectedLead.phone, selectedLeadDraft.name || selectedLead.name);
+    const whatsappUrl = buildWhatsAppUrl(
+      selectedLeadDraft.phone || selectedLead.phone,
+      selectedLeadDraft.name || selectedLead.name,
+    );
     const meta = returnMeta(selectedLead, selectedLeadDraft, selectedLeadBlock);
     const sharedProfile = selectedLead.sharedProfile || null;
-    const sharedLastContact = sharedProfile?.lastContactAt || sharedProfile?.presence?.atendimento?.lastContactAt || selectedLead.lastContactAt || null;
+    const sharedLastContact =
+      sharedProfile?.lastContactAt ||
+      sharedProfile?.presence?.atendimento?.lastContactAt ||
+      selectedLead.lastContactAt ||
+      null;
 
     return (
       <aside className={styles.detailPanel} data-detail-panel="true">
         <div className={styles.detailLayout}>
           <section className={styles.timelineSection}>
             <div className={styles.sectionTopline}>
-              <div><span className={styles.panelEyebrow}>Timeline</span></div>
-              <span className={styles.miniPill}>{(selectedLead.timeline || []).length} evento(s)</span>
+              <div>
+                <span className={styles.panelEyebrow}>Timeline</span>
+              </div>
+              <span className={styles.miniPill}>
+                {(selectedLead.timeline || []).length} evento(s)
+              </span>
             </div>
             {(selectedLead.timeline || []).length ? (
               <div className={styles.timelineList}>
                 {(selectedLead.timeline || []).map((event) => {
                   const isExpanded = expandedTimelineEventId === event.id;
-                  const titleText = event.eventType === "return_scheduled" ? "Retorno agendado" : event.title;
+                  const titleText =
+                    event.eventType === "return_scheduled"
+                      ? "Retorno agendado"
+                      : event.title;
                   return (
                     <article
                       key={event.id}
                       className={styles.timelineItem}
                       data-tone={timelineTone(event.eventType)}
                       data-expanded={isExpanded ? "true" : "false"}
-                      onClick={() => setExpandedTimelineEventId(isExpanded ? null : event.id)}
+                      onClick={() =>
+                        setExpandedTimelineEventId(isExpanded ? null : event.id)
+                      }
                     >
                       <div className={styles.timelineDot} />
                       <div className={styles.timelineBody}>
                         <div className={styles.timelineTopline}>
                           <strong>{titleText}</strong>
-                          <span>{isExpanded ? (event.createdAt ? formatDateTime(event.createdAt) : "Agora") : ""}</span>
+                          <span>
+                            {isExpanded
+                              ? event.createdAt
+                                ? formatDateTime(event.createdAt)
+                                : "Agora"
+                              : ""}
+                          </span>
                         </div>
-                        {isExpanded ? <p>{event.description || "Movimento comercial registrado."}</p> : null}
-                        {isExpanded ? <span className={styles.timelineMeta}>{timelineMeta(event)}</span> : null}
+                        {isExpanded ? (
+                          <p>
+                            {event.description ||
+                              "Movimento comercial registrado."}
+                          </p>
+                        ) : null}
+                        {isExpanded ? (
+                          <span className={styles.timelineMeta}>
+                            {timelineMeta(event)}
+                          </span>
+                        ) : null}
                       </div>
                     </article>
                   );
                 })}
               </div>
             ) : (
-              <div className={styles.emptyPanel}><strong>Nenhum evento registrado</strong><p>A timeline aparece conforme o lead é movimentado.</p></div>
+              <div className={styles.emptyPanel}>
+                <strong>Nenhum evento registrado</strong>
+                <p>A timeline aparece conforme o lead é movimentado.</p>
+              </div>
             )}
           </section>
         </div>
@@ -2093,10 +2787,18 @@ export default function VendasClientPage() {
 
   function renderPipelineBoard() {
     if (!selectedFilter) {
-      return <section className={styles.boardShell}><div className={styles.emptyBoard}><strong>Nenhuma janela de datas disponível</strong><p>Assim que houver agenda, os cards aparecem aqui.</p></div></section>;
+      return (
+        <section className={styles.boardShell}>
+          <div className={styles.emptyBoard}>
+            <strong>Nenhuma janela de datas disponível</strong>
+            <p>Assim que houver agenda, os cards aparecem aqui.</p>
+          </div>
+        </section>
+      );
     }
 
-    const bulkActionDisabled = bulkDeleting || (!bulkSelectAllAccount && selectedBulkLeadIds.size === 0);
+    const bulkActionDisabled =
+      bulkDeleting || (!bulkSelectAllAccount && selectedBulkLeadIds.size === 0);
     const bulkSelectionLabel = bulkSelectAllAccount
       ? "Todos os cards da conta"
       : `${selectedBulkLeadIds.size} selecionado(s)`;
@@ -2107,10 +2809,18 @@ export default function VendasClientPage() {
           <div>
             <span className={styles.panelEyebrow}>Clientes</span>
             <h2 className={styles.boardTitle}>{selectedFilter.title}</h2>
-            <p className={styles.boardSubtitle}>Acompanhe quem você já chamou e quem precisa de retorno.</p>
+            <p className={styles.boardSubtitle}>
+              Acompanhe quem você já chamou e quem precisa de retorno.
+            </p>
           </div>
           <div className={styles.toolbar}>
-            <button type="button" className={`${styles.secondaryAction} ${styles.toolbarHighlight}`} onClick={() => setComposerOpen(true)}>Criar novo Lead</button>
+            <button
+              type="button"
+              className={`${styles.secondaryAction} ${styles.toolbarHighlight}`}
+              onClick={() => setComposerOpen(true)}
+            >
+              Criar novo Lead
+            </button>
             <button
               type="button"
               className={`${styles.secondaryAction} ${styles.toolbarHighlight}`}
@@ -2136,7 +2846,9 @@ export default function VendasClientPage() {
                   disabled={bulkActionDisabled}
                   title="Remove os cards do Vendas sem apagar a base do Radar Digital"
                 >
-                  {bulkDeleting ? "Excluindo..." : `Excluir em massa (${bulkSelectionLabel})`}
+                  {bulkDeleting
+                    ? "Excluindo..."
+                    : `Excluir em massa (${bulkSelectionLabel})`}
                 </button>
               </>
             ) : null}
@@ -2144,7 +2856,9 @@ export default function VendasClientPage() {
               type="button"
               className={`${styles.secondaryAction} ${styles.toolbarHighlight} ${styles.whatsappFilterButton}`}
               data-active={whatsappFilter !== "all" ? "true" : "false"}
-              onClick={() => setWhatsappFilter((current) => nextWhatsappFilter(current))}
+              onClick={() =>
+                setWhatsappFilter((current) => nextWhatsappFilter(current))
+              }
               aria-pressed={whatsappFilter !== "all"}
               title="Alternar filtro com WhatsApp / sem WhatsApp"
             >
@@ -2154,24 +2868,37 @@ export default function VendasClientPage() {
               type="button"
               className={`${styles.secondaryAction} ${styles.toolbarHighlight} ${styles.inboxFilterButton}`}
               data-active={inboxFilter !== "all" ? "true" : "false"}
-              onClick={() => setInboxFilter((current) => nextInboxFilter(current))}
+              onClick={() =>
+                setInboxFilter((current) => nextInboxFilter(current))
+              }
               aria-pressed={inboxFilter !== "all"}
               title="Alternar filtro de presença no Inbox"
             >
               {INBOX_FILTER_LABELS[inboxFilter]}
             </button>
-            <button type="button" className={styles.secondaryAction} onClick={() => setShowClosed((current) => !current)}>
-              {showClosed ? "Ocultar arquivo" : `Arquivo (${closedLeads.length})`}
+            <button
+              type="button"
+              className={styles.secondaryAction}
+              onClick={() => setShowClosed((current) => !current)}
+            >
+              {showClosed
+                ? "Ocultar arquivo"
+                : `Arquivo (${closedLeads.length})`}
             </button>
           </div>
         </div>
 
         {filteredLeads.length ? (
           <div className={styles.cardsGrid}>
-            {filteredLeads.map((lead) => renderLeadCard(lead, selectedFilter.blockKey))}
+            {filteredLeads.map((lead) =>
+              renderLeadCard(lead, selectedFilter.blockKey),
+            )}
           </div>
         ) : (
-          <div className={styles.emptyBoard}><strong>Sem cards nesta data</strong><p>Nenhum cliente caiu nessa janela ainda.</p></div>
+          <div className={styles.emptyBoard}>
+            <strong>Sem cards nesta data</strong>
+            <p>Nenhum cliente caiu nessa janela ainda.</p>
+          </div>
         )}
       </section>
     );
@@ -2179,17 +2906,28 @@ export default function VendasClientPage() {
 
   if (hasToken === null) {
     return (
-      <DashboardScaffold title="Vendas" description="Carregando sessão do CRM comercial." hideHeader={true}>
-        <section className={styles.loadingCard}><div className={styles.skeletonHero} /><div className={styles.skeletonBoard} /></section>
+      <DashboardScaffold
+        title="Vendas"
+        description="Carregando sessão do CRM comercial."
+        hideHeader={true}
+      >
+        <section className={styles.loadingCard}>
+          <div className={styles.skeletonHero} />
+          <div className={styles.skeletonBoard} />
+        </section>
       </DashboardScaffold>
     );
   }
 
   if (!hasToken) return null;
 
-  const activeDragRecord = activeDragLeadId ? leadById.get(activeDragLeadId) || null : null;
+  const activeDragRecord = activeDragLeadId
+    ? leadById.get(activeDragLeadId) || null
+    : null;
   const activeDragLead = activeDragRecord?.lead || null;
-  const activeDragDraft = activeDragLead ? drafts[activeDragLead.id] || createDraft(activeDragLead) : null;
+  const activeDragDraft = activeDragLead
+    ? drafts[activeDragLead.id] || createDraft(activeDragLead)
+    : null;
   const flyStyle = flyAnimation
     ? ({
         ["--fly-start-x" as string]: `${flyAnimation.from.x}px`,
@@ -2203,10 +2941,78 @@ export default function VendasClientPage() {
       } satisfies CSSProperties)
     : undefined;
 
-    const activeDragDateItem = activeDragDateKey ? dateFilters.find((f) => f.key === activeDragDateKey) : null;
+  const activeDragDateItem = activeDragDateKey
+    ? dateFilters.find((f) => f.key === activeDragDateKey)
+    : null;
+
+  const vendasDragTopbarLockStyle = `
+html[data-vendas-dragging-card="true"] {
+  --topbar-total-height: 0px;
+}
+
+html[data-vendas-dragging-card="true"] .app-topbar,
+html[data-vendas-dragging-card="true"] .app-topbar__frame,
+html[data-vendas-dragging-card="true"] .app-topbar__portal,
+html[data-vendas-dragging-card="true"] header[class*="topbar" i],
+html[data-vendas-dragging-card="true"] [class*="app-topbar" i] {
+  transform: translate3d(0, -140%, 0) !important;
+  opacity: 0 !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+  transition: none !important;
+}
+
+html[data-vendas-dragging-card="true"] .${styles.filterRail} {
+  position: sticky;
+  top: 0 !important;
+  z-index: 2147483000 !important;
+  isolation: isolate;
+  transform: translateZ(0);
+  overflow: visible !important;
+  border-color: color-mix(in srgb, var(--brand) 46%, var(--line)) !important;
+  box-shadow:
+    0 1px 0 color-mix(in srgb, var(--surface-raised) 94%, transparent) inset,
+    0 0 0 2px color-mix(in srgb, var(--brand) 18%, transparent),
+    0 24px 56px -24px color-mix(in srgb, var(--brand) 34%, transparent),
+    0 34px 84px -42px rgba(15, 23, 42, 0.36),
+    var(--shadow-inset) !important;
+}
+
+html[data-vendas-dragging-card="true"] .${styles.filterRail}::after {
+  content: "Solte no filtro de data";
+  position: absolute;
+  right: 1rem;
+  top: -0.72rem;
+  z-index: 4;
+  padding: 0.22rem 0.58rem;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--brand) 38%, var(--line));
+  background: color-mix(in srgb, var(--surface-raised) 96%, var(--background));
+  color: color-mix(in srgb, var(--brand) 88%, var(--foreground));
+  box-shadow: 0 14px 28px -18px color-mix(in srgb, var(--brand) 44%, transparent);
+  font-size: 0.62rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  pointer-events: none;
+}
+
+html[data-vendas-dragging-card="true"] .${styles.dateFilterCard} {
+  pointer-events: auto;
+}
+
+html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="true"] {
+  z-index: 2147483001 !important;
+  border-color: color-mix(in srgb, var(--brand) 78%, var(--line)) !important;
+  box-shadow:
+    0 0 0 3px color-mix(in srgb, var(--brand) 24%, transparent),
+    0 30px 58px -26px color-mix(in srgb, var(--brand) 42%, transparent) !important;
+}
+`;
 
   return (
     <DashboardScaffold title="Vendas" hideHeader={true}>
+      <style dangerouslySetInnerHTML={{ __html: vendasDragTopbarLockStyle }} />
       <DndContext
         sensors={sensors}
         collisionDetection={detectDateFilterCollision}
@@ -2219,18 +3025,34 @@ export default function VendasClientPage() {
           <div className={styles.page}>
             <section className={styles.filterRail}>
               <div className={styles.filterRailHeader}>
-                <div><span className={styles.panelEyebrow}>Filtro por datas</span><strong>Agenda comercial</strong></div>
+                <div>
+                  <span className={styles.panelEyebrow}>Filtro por datas</span>
+                  <strong>Agenda comercial</strong>
+                </div>
                 <div className={styles.filterRailActions}>
-                  <Link href="/atendimento?atendimentoQueue=scheduled&atendimentoSection=agenda&agendaStudio=1&agendaMode=sales&returnTo=%2Fvendas" prefetch={false} className={styles.secondaryAction}>
+                  <Link
+                    href="/atendimento?atendimentoQueue=scheduled&atendimentoSection=agenda&agendaStudio=1&agendaMode=sales&returnTo=%2Fvendas"
+                    prefetch={false}
+                    className={styles.secondaryAction}
+                  >
                     Agenda Vendas
                   </Link>
                 </div>
               </div>
               <div className={styles.filterRailCarousel}>
-                <button type="button" className={styles.dateRailScrollButton} data-side="left" onClick={() => scrollDateRail(-1)} aria-label="Rolar datas para esquerda">
+                <button
+                  type="button"
+                  className={styles.dateRailScrollButton}
+                  data-side="left"
+                  onClick={() => scrollDateRail(-1)}
+                  aria-label="Rolar datas para esquerda"
+                >
                   <span aria-hidden="true">‹</span>
                 </button>
-                <div className={styles.filterRailScroller} ref={filterScrollerRef}>
+                <div
+                  className={styles.filterRailScroller}
+                  ref={filterScrollerRef}
+                >
                   {dateFilters.map((item) => (
                     <DateDropSlot
                       key={item.key}
@@ -2238,7 +3060,9 @@ export default function VendasClientPage() {
                       active={selectedDateKey === item.key}
                       pulse={pulseDateKey === item.key}
                       dragging={Boolean(activeDragLeadId || activeDragDateKey)}
-                      ignoreClick={() => performance.now() - lastDragEndedAtRef.current < 70}
+                      ignoreClick={() =>
+                        performance.now() - lastDragEndedAtRef.current < 70
+                      }
                       onDateShortcut={() => void handleActiveDateShortcut()}
                       onSelect={() => setSelectedDateKey(item.key)}
                       register={(node) => registerDateFilterRef(item.key, node)}
@@ -2251,7 +3075,9 @@ export default function VendasClientPage() {
                     className={`${styles.dateFilterCard} ${styles.addAgendaButton}`}
                     aria-label="+Agenda"
                     title="+Agenda"
-                    onClick={() => { /* graphical placeholder - no action */ }}
+                    onClick={() => {
+                      /* graphical placeholder - no action */
+                    }}
                   >
                     <span className={styles.dateFilterDay} />
                     <strong>+</strong>
@@ -2260,14 +3086,22 @@ export default function VendasClientPage() {
                     <span className={styles.receiveHint} />
                   </button>
                 </div>
-                <button type="button" className={styles.dateRailScrollButton} data-side="right" onClick={() => scrollDateRail(1)} aria-label="Rolar datas para direita">
+                <button
+                  type="button"
+                  className={styles.dateRailScrollButton}
+                  data-side="right"
+                  onClick={() => scrollDateRail(1)}
+                  aria-label="Rolar datas para direita"
+                >
                   <span aria-hidden="true">›</span>
                 </button>
               </div>
             </section>
 
             {loading ? (
-              <section className={styles.loadingCard}><div className={styles.skeletonBoard} /></section>
+              <section className={styles.loadingCard}>
+                <div className={styles.skeletonBoard} />
+              </section>
             ) : (
               <div className={styles.stageGrid}>
                 <div className={styles.stageMain}>{renderPipelineBoard()}</div>
@@ -2276,12 +3110,35 @@ export default function VendasClientPage() {
             )}
 
             {showClosed ? (
-              <section ref={archiveRef} tabIndex={-1} className={styles.archiveSection} aria-labelledby="archive-heading">
+              <section
+                ref={archiveRef}
+                tabIndex={-1}
+                className={styles.archiveSection}
+                aria-labelledby="archive-heading"
+              >
                 <div className={styles.sectionTopline}>
-                  <div id="archive-heading"><span className={styles.panelEyebrow}>Arquivo</span><strong>Encerrados</strong></div>
-                  <button type="button" className={styles.secondaryAction} onClick={() => setShowClosed(false)}>Ocultar arquivo</button>
+                  <div id="archive-heading">
+                    <span className={styles.panelEyebrow}>Arquivo</span>
+                    <strong>Encerrados</strong>
+                  </div>
+                  <button
+                    type="button"
+                    className={styles.secondaryAction}
+                    onClick={() => setShowClosed(false)}
+                  >
+                    Ocultar arquivo
+                  </button>
                 </div>
-                {closedLeads.length ? <div className={styles.cardsGrid}>{closedLeads.map((lead) => renderLeadCard(lead, "closed"))}</div> : <div className={styles.emptyPanel}><strong>Nenhum encerrado ainda</strong><p>Os cards arquivados aparecem aqui.</p></div>}
+                {closedLeads.length ? (
+                  <div className={styles.cardsGrid}>
+                    {closedLeads.map((lead) => renderLeadCard(lead, "closed"))}
+                  </div>
+                ) : (
+                  <div className={styles.emptyPanel}>
+                    <strong>Nenhum encerrado ainda</strong>
+                    <p>Os cards arquivados aparecem aqui.</p>
+                  </div>
+                )}
               </section>
             ) : null}
           </div>
@@ -2297,14 +3154,25 @@ export default function VendasClientPage() {
                 selected={false}
                 saving={false}
                 onFocus={() => focusLead(activeDragLead.id)}
-                onQuickAction={(action) => void runQuickAction(activeDragLead, action)}
-                onInboxAction={(targetLead) => void handleLeadInboxAction(targetLead)}
+                onQuickAction={(action) =>
+                  void runQuickAction(activeDragLead, action)
+                }
+                onInboxAction={(targetLead) =>
+                  void handleLeadInboxAction(targetLead)
+                }
               />
             </div>
           ) : activeDragDateItem ? (
-            <div className={`${styles.dragOverlayCard} ${styles.dragOverlayDateCard}`}>
-              <div className={styles.dateFilterCard} style={{ pointerEvents: "none" }}>
-                <span className={styles.dateFilterDay}>{activeDragDateItem.dayLabel}</span>
+            <div
+              className={`${styles.dragOverlayCard} ${styles.dragOverlayDateCard}`}
+            >
+              <div
+                className={styles.dateFilterCard}
+                style={{ pointerEvents: "none" }}
+              >
+                <span className={styles.dateFilterDay}>
+                  {activeDragDateItem.dayLabel}
+                </span>
                 <strong>{activeDragDateItem.title}</strong>
                 <span>{activeDragDateItem.subtitle}</span>
                 <b>{activeDragDateItem.count}</b>
@@ -2331,8 +3199,17 @@ export default function VendasClientPage() {
       </DndContext>
 
       {composerOpen ? (
-        <div className={`${styles.systemPopupOverlay} ${styles.systemPopupOverlayActive}`} onClick={() => setComposerOpen(false)}>
-          <div className={styles.systemPopupFrame} onClick={(event) => event.stopPropagation()} role="dialog" aria-modal="true" aria-labelledby="new-lead-title">
+        <div
+          className={`${styles.systemPopupOverlay} ${styles.systemPopupOverlayActive}`}
+          onClick={() => setComposerOpen(false)}
+        >
+          <div
+            className={styles.systemPopupFrame}
+            onClick={(event) => event.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="new-lead-title"
+          >
             <div className={styles.systemPopupChrome}>
               <div>
                 <p className={styles.systemPopupEyebrow}>Vendas</p>
@@ -2340,18 +3217,114 @@ export default function VendasClientPage() {
               </div>
               <div className={styles.systemPopupActions}>
                 <span className={styles.metaBadge}>Cadastro rápido</span>
-                <button type="button" className="btn btn-secondary btn-sm" onClick={() => setComposerOpen(false)}>Fechar</button>
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  onClick={() => setComposerOpen(false)}
+                >
+                  Fechar
+                </button>
               </div>
             </div>
             <div className={styles.systemPopupBody}>
-              <form className={styles.composerForm} onSubmit={handleCreateManual}>
-                <label className={styles.field}><span className={styles.fieldLabel}>Nome</span><input className={styles.fieldInput} value={manualLead.name} onChange={(event) => setManualLead((prev) => ({ ...prev, name: event.target.value }))} placeholder="Ex: Clínica Horizonte" /></label>
-                <label className={styles.field}><span className={styles.fieldLabel}>Telefone</span><input className={styles.fieldInput} value={manualLead.phone} onChange={(event) => setManualLead((prev) => ({ ...prev, phone: event.target.value }))} placeholder="Ex: (11) 99999-0000" /></label>
-                <label className={styles.field}><span className={styles.fieldLabel}>E-mail</span><input className={styles.fieldInput} value={manualLead.email} onChange={(event) => setManualLead((prev) => ({ ...prev, email: event.target.value }))} placeholder="Opcional" /></label>
-                <label className={styles.field}><span className={styles.fieldLabel}>Retorno</span><input className={styles.fieldInput} type="datetime-local" value={manualLead.returnAt} onChange={(event) => setManualLead((prev) => ({ ...prev, returnAt: event.target.value }))} /></label>
-                <label className={styles.fieldWide}><span className={styles.fieldLabel}>Próxima ação</span><input className={styles.fieldInput} value={manualLead.nextAction} onChange={(event) => setManualLead((prev) => ({ ...prev, nextAction: event.target.value }))} placeholder="Ex: Primeiro contato" /></label>
-                <label className={styles.fieldWide}><span className={styles.fieldLabel}>Observação</span><textarea className={styles.fieldTextarea} rows={4} value={manualLead.shortNote} onChange={(event) => setManualLead((prev) => ({ ...prev, shortNote: event.target.value }))} placeholder="Contexto rápido do lead." /></label>
-                <div className={styles.formFooter}><button type="submit" className={styles.primaryAction} disabled={creatingManual}>{creatingManual ? "Criando..." : "Criar lead"}</button></div>
+              <form
+                className={styles.composerForm}
+                onSubmit={handleCreateManual}
+              >
+                <label className={styles.field}>
+                  <span className={styles.fieldLabel}>Nome</span>
+                  <input
+                    className={styles.fieldInput}
+                    value={manualLead.name}
+                    onChange={(event) =>
+                      setManualLead((prev) => ({
+                        ...prev,
+                        name: event.target.value,
+                      }))
+                    }
+                    placeholder="Ex: Clínica Horizonte"
+                  />
+                </label>
+                <label className={styles.field}>
+                  <span className={styles.fieldLabel}>Telefone</span>
+                  <input
+                    className={styles.fieldInput}
+                    value={manualLead.phone}
+                    onChange={(event) =>
+                      setManualLead((prev) => ({
+                        ...prev,
+                        phone: event.target.value,
+                      }))
+                    }
+                    placeholder="Ex: (11) 99999-0000"
+                  />
+                </label>
+                <label className={styles.field}>
+                  <span className={styles.fieldLabel}>E-mail</span>
+                  <input
+                    className={styles.fieldInput}
+                    value={manualLead.email}
+                    onChange={(event) =>
+                      setManualLead((prev) => ({
+                        ...prev,
+                        email: event.target.value,
+                      }))
+                    }
+                    placeholder="Opcional"
+                  />
+                </label>
+                <label className={styles.field}>
+                  <span className={styles.fieldLabel}>Retorno</span>
+                  <input
+                    className={styles.fieldInput}
+                    type="datetime-local"
+                    value={manualLead.returnAt}
+                    onChange={(event) =>
+                      setManualLead((prev) => ({
+                        ...prev,
+                        returnAt: event.target.value,
+                      }))
+                    }
+                  />
+                </label>
+                <label className={styles.fieldWide}>
+                  <span className={styles.fieldLabel}>Próxima ação</span>
+                  <input
+                    className={styles.fieldInput}
+                    value={manualLead.nextAction}
+                    onChange={(event) =>
+                      setManualLead((prev) => ({
+                        ...prev,
+                        nextAction: event.target.value,
+                      }))
+                    }
+                    placeholder="Ex: Primeiro contato"
+                  />
+                </label>
+                <label className={styles.fieldWide}>
+                  <span className={styles.fieldLabel}>Observação</span>
+                  <textarea
+                    className={styles.fieldTextarea}
+                    rows={4}
+                    value={manualLead.shortNote}
+                    onChange={(event) =>
+                      setManualLead((prev) => ({
+                        ...prev,
+                        shortNote: event.target.value,
+                      }))
+                    }
+                    placeholder="Contexto rápido do lead."
+                  />
+                </label>
+                <div className={styles.formFooter}>
+                  <button
+                    type="submit"
+                    className={styles.primaryAction}
+                    disabled={creatingManual}
+                  >
+                    {creatingManual ? "Criando..." : "Criar lead"}
+                  </button>
+                </div>
               </form>
             </div>
           </div>
@@ -2359,26 +3332,78 @@ export default function VendasClientPage() {
       ) : null}
 
       {commandOpen ? (
-        <div className="ui-popup-backdrop" onClick={() => setCommandOpen(false)}>
-          <div className={styles.commandPalette} onClick={(event) => event.stopPropagation()}>
+        <div
+          className="ui-popup-backdrop"
+          onClick={() => setCommandOpen(false)}
+        >
+          <div
+            className={styles.commandPalette}
+            onClick={(event) => event.stopPropagation()}
+          >
             <div className={styles.sectionTopline}>
-              <div><span className={styles.panelEyebrow}>Command palette</span><strong>Buscar lead, cidade, ação, histórico ou origem</strong></div>
-              <button type="button" className={styles.secondaryAction} onClick={() => setCommandOpen(false)}>Fechar</button>
+              <div>
+                <span className={styles.panelEyebrow}>Command palette</span>
+                <strong>Buscar lead, cidade, ação, histórico ou origem</strong>
+              </div>
+              <button
+                type="button"
+                className={styles.secondaryAction}
+                onClick={() => setCommandOpen(false)}
+              >
+                Fechar
+              </button>
             </div>
-            <input className={styles.commandInput} placeholder="Digite nome, telefone, cidade, origem ou próxima ação..." value={commandQuery} onChange={(event) => setCommandQuery(event.target.value)} autoFocus />
+            <input
+              className={styles.commandInput}
+              placeholder="Digite nome, telefone, cidade, origem ou próxima ação..."
+              value={commandQuery}
+              onChange={(event) => setCommandQuery(event.target.value)}
+              autoFocus
+            />
             <div className={styles.commandList}>
-              {commandResults.length ? commandResults.map(({ lead, block }) => (
-                <article key={`command-${lead.id}`} className={styles.commandRow}>
-                  <button type="button" className={styles.commandMain} onClick={() => focusLead(lead.id)}>
-                    <strong>{lead.name || "Lead sem nome"}</strong>
-                    <span>{BLOCK_LABELS[block]} • {lead.statusLabel} • {lead.nextAction || "Sem próxima ação"}</span>
-                  </button>
-                  <div className={styles.commandActionRow}>
-                    <a className={styles.secondaryAction} href={buildCallUrl(lead.phone) || undefined}>Ligar</a>
-                    <a className={styles.secondaryAction} href={buildWhatsAppUrl(lead.phone, lead.name) || undefined} target="_blank" rel="noreferrer">WhatsApp</a>
-                  </div>
-                </article>
-              )) : <div className={styles.emptyPanel}><strong>Nenhum resultado</strong><p>Tente nome, telefone, cidade, status ou próxima ação.</p></div>}
+              {commandResults.length ? (
+                commandResults.map(({ lead, block }) => (
+                  <article
+                    key={`command-${lead.id}`}
+                    className={styles.commandRow}
+                  >
+                    <button
+                      type="button"
+                      className={styles.commandMain}
+                      onClick={() => focusLead(lead.id)}
+                    >
+                      <strong>{lead.name || "Lead sem nome"}</strong>
+                      <span>
+                        {BLOCK_LABELS[block]} • {lead.statusLabel} •{" "}
+                        {lead.nextAction || "Sem próxima ação"}
+                      </span>
+                    </button>
+                    <div className={styles.commandActionRow}>
+                      <a
+                        className={styles.secondaryAction}
+                        href={buildCallUrl(lead.phone) || undefined}
+                      >
+                        Ligar
+                      </a>
+                      <a
+                        className={styles.secondaryAction}
+                        href={
+                          buildWhatsAppUrl(lead.phone, lead.name) || undefined
+                        }
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        WhatsApp
+                      </a>
+                    </div>
+                  </article>
+                ))
+              ) : (
+                <div className={styles.emptyPanel}>
+                  <strong>Nenhum resultado</strong>
+                  <p>Tente nome, telefone, cidade, status ou próxima ação.</p>
+                </div>
+              )}
             </div>
           </div>
         </div>
