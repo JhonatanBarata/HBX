@@ -444,6 +444,7 @@ export default function ModuleNav({
                     className={active ? styles.moduleCardActive : styles.moduleCard}
                     data-ui-slot="module-card"
                     data-editing="true"
+                    draggable
                   >
                     <span className={styles.moduleCardBadge}>
                       <input
@@ -494,13 +495,14 @@ export default function ModuleNav({
                     key={item.key}
                     className={active ? styles.moduleCardDisabledActive : styles.moduleCardDisabled}
                     data-ui-slot="module-card"
+                    draggable
                     aria-disabled="true"
                   >
                     <span className={styles.moduleCardBadge}>{shortLabel}</span>
                     <span className={styles.moduleCardBody}>
                       <strong>{label}</strong>
-                      <small>{description}</small>
                     </span>
+                    <span className={styles.moduleCardDescription}>{description}</span>
                   </div>
                 );
               }
@@ -512,13 +514,14 @@ export default function ModuleNav({
                   prefetch={false}
                   className={active ? styles.moduleCardActive : styles.moduleCard}
                   data-ui-slot="module-card"
+                  draggable
                   aria-current={active ? "page" : undefined}
                 >
                   <span className={styles.moduleCardBadge}>{shortLabel}</span>
                   <span className={styles.moduleCardBody}>
                     <strong>{label}</strong>
-                    <small>{description}</small>
                   </span>
+                  <span className={styles.moduleCardDescription}>{description}</span>
                   <span className={styles.moduleCardArrow} aria-hidden="true">
                     {active ? "ATIVO" : "ABRIR"}
                   </span>

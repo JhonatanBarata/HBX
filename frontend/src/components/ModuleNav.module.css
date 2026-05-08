@@ -1,120 +1,201 @@
 .moduleNavWrap {
+  --module-nav-text: #eaf2ff;
+  --module-nav-heading: #f8fbff;
+  --module-nav-muted: rgba(196, 209, 235, 0.72);
+  --module-nav-panel: rgba(6, 20, 48, 0.82);
+  --module-nav-panel-strong: rgba(4, 14, 34, 0.88);
+  --module-nav-line: rgba(58, 116, 210, 0.22);
+  --module-nav-chip: rgba(8, 25, 56, 0.68);
+  --module-nav-active: #00f59b;
   display: grid;
-  gap: 0.95rem;
+  gap: 0.68rem;
+  color: var(--module-nav-text);
+}
+
+:global(html[data-theme-mode="light"]) .moduleNavWrap {
+  --module-nav-text: #18243a;
+  --module-nav-heading: #071426;
+  --module-nav-muted: rgba(57, 72, 104, 0.76);
+  --module-nav-panel: rgba(255, 255, 255, 0.74);
+  --module-nav-panel-strong: rgba(236, 244, 255, 0.9);
+  --module-nav-line: rgba(61, 105, 178, 0.22);
+  --module-nav-chip: rgba(255, 255, 255, 0.72);
+  --module-nav-active: #0a9f68;
 }
 
 .navSection {
+  min-width: 0;
   display: grid;
-  gap: 0.6rem;
+  grid-template-columns: 104px minmax(0, 1fr);
+  align-items: start;
+  gap: 0.58rem;
 }
 
 .navSectionHeader {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 0.45rem 0.8rem;
-  padding: 0 0.15rem;
+  position: sticky;
+  top: 0;
+  display: grid;
+  gap: 0.32rem;
+  padding: 0.18rem 0 0;
+}
+
+.navSectionTitle,
+.navSectionHint {
+  margin: 0;
 }
 
 .navSectionTitle {
-  margin: 0;
-  font-size: 0.78rem;
-  font-weight: 900;
-  letter-spacing: 0.14em;
+  color: color-mix(in srgb, var(--module-nav-heading) 88%, var(--module-nav-active));
+  font-size: 0.64rem;
+  font-weight: 950;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--foreground);
 }
 
 .navSectionHint {
-  margin: 0;
-  font-size: 0.72rem;
-  color: var(--muted);
+  width: fit-content;
+  min-height: 20px;
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--module-nav-line);
+  border-radius: 999px;
+  padding: 0 0.42rem;
+  background: var(--module-nav-chip);
+  color: var(--module-nav-muted);
+  font-size: 0.55rem;
+  font-weight: 820;
 }
 
 .navSectionGrid {
   display: grid;
-  gap: 0.7rem;
+  grid-template-columns: 1fr;
+  gap: 0.44rem;
 }
 
 .moduleNavStatus {
   margin: 0;
-  padding: 0.2rem 0.1rem 0;
-  font-size: 0.75rem;
-  line-height: 1.5;
-  color: var(--muted);
+  padding: 0.1rem 0;
+  color: var(--module-nav-muted);
+  font-size: 0.72rem;
 }
 
 .moduleCard,
 .moduleCardActive,
 .moduleCardDisabled,
 .moduleCardDisabledActive {
+  min-width: 0;
+  min-height: 78px;
+  position: relative;
+  isolation: isolate;
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: 38px minmax(180px, 0.6fr) minmax(240px, 1fr);
   align-items: center;
-  gap: 0.8rem;
-  padding: 0.92rem 0.95rem;
-  border-radius: calc(var(--control-radius) + 2px);
-  border: 1px solid color-mix(in srgb, var(--menu-inactive) 18%, var(--line));
+  gap: 0.56rem;
+  overflow: hidden;
+  border: 1px solid var(--module-nav-line);
+  border-radius: 11px;
+  padding: 0.48rem 1.05rem 0.48rem 0.54rem;
   background:
-    radial-gradient(circle at top right, var(--menu-inactive-soft), transparent 42%),
-    linear-gradient(180deg, color-mix(in srgb, var(--surface) 98%, var(--background)), color-mix(in srgb, var(--surface-soft) 94%, var(--background)));
-  box-shadow: var(--shadow-inset), var(--shadow-xs);
+    radial-gradient(circle at 8% 0%, color-mix(in srgb, var(--menu-active) 12%, transparent), transparent 34%),
+    linear-gradient(180deg, var(--module-nav-panel), var(--module-nav-panel-strong));
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, white 8%, transparent),
+    0 18px 34px -26px color-mix(in srgb, var(--menu-active) 32%, transparent),
+    0 10px 24px -22px color-mix(in srgb, black 44%, transparent);
   transition:
-    transform var(--motion-base),
-    box-shadow var(--motion-base),
-    border-color var(--motion-base),
-    background-color var(--motion-base);
+    transform var(--motion-fast),
+    border-color var(--motion-fast),
+    box-shadow var(--motion-fast),
+    background var(--motion-base);
+  cursor: grab;
+  user-select: none;
+  touch-action: manipulation;
+}
+
+.moduleCard::before,
+.moduleCardActive::before,
+.moduleCardDisabled::before,
+.moduleCardDisabledActive::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--menu-active) 12%, transparent) 0 1px, transparent 1px 100%),
+    linear-gradient(180deg, color-mix(in srgb, var(--success) 8%, transparent) 0 1px, transparent 1px 100%);
+  background-size: 22px 22px;
+  opacity: 0.35;
+}
+
+.moduleCard::after,
+.moduleCardActive::after,
+.moduleCardDisabled::after,
+.moduleCardDisabledActive::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  right: 0.42rem;
+  width: 4px;
+  height: 24px;
+  transform: translateY(-50%);
+  border-radius: 999px;
+  background:
+    radial-gradient(circle, color-mix(in srgb, var(--module-nav-active) 82%, white) 0 2px, transparent 2.5px) 0 0 / 4px 8px repeat-y;
+  opacity: 0.78;
+  filter: drop-shadow(0 0 8px color-mix(in srgb, var(--module-nav-active) 38%, transparent));
+  pointer-events: none;
 }
 
 .moduleCard:hover,
 .moduleCardActive:hover {
-  transform: translateY(calc(var(--interactive-lift) * -1)) scale(var(--interactive-scale));
-  border-color: color-mix(in srgb, var(--menu-active) 24%, var(--line));
-  box-shadow: var(--shadow-inset), var(--shadow-sm);
+  transform: translateY(-2px);
+  border-color: color-mix(in srgb, var(--menu-active) 44%, var(--module-nav-line));
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, white 10%, transparent),
+    0 24px 42px -28px color-mix(in srgb, var(--menu-active) 48%, transparent),
+    0 16px 28px -24px color-mix(in srgb, black 54%, transparent);
+}
+
+.moduleCard:active,
+.moduleCardActive:active,
+.moduleCardDisabled:active,
+.moduleCardDisabledActive:active {
+  cursor: grabbing;
+  transform: translateY(0) scale(0.985);
 }
 
 .moduleCardActive {
-  border-color: color-mix(in srgb, var(--menu-active) 36%, var(--line));
+  border-color: color-mix(in srgb, var(--module-nav-active) 52%, var(--module-nav-line));
   background:
-    radial-gradient(circle at top right, var(--menu-active-soft), transparent 38%),
-    linear-gradient(180deg, color-mix(in srgb, var(--surface) 98%, var(--background)), color-mix(in srgb, var(--surface-raised) 92%, var(--background)));
+    radial-gradient(circle at 10% 8%, color-mix(in srgb, var(--module-nav-active) 18%, transparent), transparent 36%),
+    linear-gradient(180deg, color-mix(in srgb, var(--module-nav-panel) 88%, var(--module-nav-active)), var(--module-nav-panel-strong));
 }
 
 .moduleCardDisabled,
 .moduleCardDisabledActive {
+  opacity: 0.64;
+  filter: saturate(0.7);
+  cursor: grab;
   border-style: dashed;
-  background:
-    radial-gradient(circle at top right, var(--menu-disabled-soft), transparent 42%),
-    linear-gradient(180deg, color-mix(in srgb, var(--surface-soft) 94%, var(--background)), color-mix(in srgb, var(--surface) 90%, var(--background)));
-  opacity: 0.68;
-  cursor: not-allowed;
-}
-
-.moduleCardDisabledActive {
-  border-color: color-mix(in srgb, var(--menu-disabled) 34%, var(--line));
-}
-
-.moduleCardDisabled:hover,
-.moduleCardDisabledActive:hover {
-  transform: none;
-  border-color: color-mix(in srgb, var(--menu-disabled) 28%, var(--line));
-  box-shadow: none;
 }
 
 .moduleCardBadge {
-  width: 42px;
-  height: 42px;
-  border-radius: calc(var(--control-radius) - 2px);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 0.72rem;
-  font-weight: 900;
-  letter-spacing: 0.08em;
-  color: var(--brand-contrast);
-  background: linear-gradient(145deg, var(--menu-active), color-mix(in srgb, var(--menu-active) 58%, var(--button-accent)));
-  box-shadow: 0 16px 28px -22px var(--panel-glow);
+  width: 36px;
+  height: 36px;
+  display: inline-grid;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--module-nav-active) 42%, transparent);
+  border-radius: 10px;
+  background:
+    radial-gradient(circle at 30% 18%, color-mix(in srgb, white 22%, transparent), transparent 36%),
+    linear-gradient(145deg, color-mix(in srgb, var(--menu-active) 72%, #00f59b), color-mix(in srgb, var(--button-secondary) 62%, #0b1026));
+  color: #ffffff;
+  box-shadow:
+    0 0 18px color-mix(in srgb, var(--menu-active) 28%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.18);
+  font-size: 0.62rem;
+  font-weight: 950;
+  letter-spacing: 0.04em;
 }
 
 .moduleCardBody {
@@ -124,151 +205,71 @@
 }
 
 .moduleCardBody strong {
-  font-size: 0.88rem;
-  line-height: 1.1;
-  color: var(--foreground);
-  overflow-wrap: normal;
-  word-break: normal;
-  hyphens: none;
-  white-space: nowrap;
   overflow: hidden;
+  color: var(--module-nav-heading);
+  font-size: 0.84rem;
+  font-weight: 920;
+  line-height: 1.1;
   text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .moduleCardBody small {
-  font-size: 0.73rem;
-  line-height: 1.48;
-  color: color-mix(in srgb, var(--menu-inactive) 74%, var(--muted));
-  overflow-wrap: normal;
-  word-break: normal;
-  hyphens: none;
+  display: none;
 }
 
-.moduleCardMeta {
-  display: inline-flex;
+.moduleCardDescription {
+  min-width: 0;
+  min-height: 42px;
+  display: flex;
   align-items: center;
-  width: fit-content;
-  min-height: 22px;
-  margin-top: 0.12rem;
-  padding: 0.15rem 0.48rem;
-  border-radius: 999px;
-  border: 1px solid color-mix(in srgb, var(--menu-disabled) 24%, var(--line));
-  background: color-mix(in srgb, var(--menu-disabled) 10%, var(--surface-raised));
-  color: color-mix(in srgb, var(--menu-disabled) 82%, var(--foreground));
-  font-size: 0.62rem;
-  font-style: normal;
-  font-weight: 800;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
+  border-left: 1px solid color-mix(in srgb, var(--module-nav-line) 72%, transparent);
+  padding-left: 0.58rem;
+  color: var(--module-nav-muted);
+  font-size: 0.72rem;
+  font-weight: 760;
+  line-height: 1.28;
+  overflow: hidden;
 }
 
 .moduleCardArrow {
-  min-height: 28px;
-  padding: 0.24rem 0.58rem;
-  border-radius: 999px;
-  border: 1px solid color-mix(in srgb, var(--line) 88%, var(--background));
-  background: color-mix(in srgb, var(--surface-raised) 92%, var(--background));
-  color: color-mix(in srgb, var(--menu-inactive) 82%, var(--foreground));
-  font-size: 0.62rem;
-  font-weight: 900;
-  letter-spacing: 0.12em;
-}
-
-.moduleCardDisabled .moduleCardBadge,
-.moduleCardDisabledActive .moduleCardBadge {
-  background: linear-gradient(145deg, color-mix(in srgb, var(--menu-disabled) 72%, var(--menu-active)), color-mix(in srgb, var(--menu-inactive) 74%, var(--surface-strong)));
-  box-shadow: none;
-}
-
-.moduleCardDisabled .moduleCardArrow,
-.moduleCardDisabledActive .moduleCardArrow {
-  border-color: color-mix(in srgb, var(--menu-disabled) 26%, var(--line));
-  background: color-mix(in srgb, var(--menu-disabled) 12%, var(--surface-raised));
-  color: color-mix(in srgb, var(--menu-disabled) 86%, var(--foreground));
-}
-
-.moduleCardDisabled .moduleCardBody strong,
-.moduleCardDisabledActive .moduleCardBody strong {
-  color: color-mix(in srgb, var(--foreground) 74%, var(--muted));
+  display: none;
 }
 
 .moduleEditInput,
 .moduleEditTextarea,
 .moduleBadgeInput {
   width: 100%;
-  border: 1px solid color-mix(in srgb, var(--line) 88%, var(--background));
-  border-radius: 12px;
-  background: color-mix(in srgb, var(--surface) 96%, var(--background));
-  color: var(--foreground);
-  box-shadow: var(--shadow-inset);
+  border: 1px solid var(--module-nav-line);
+  border-radius: 10px;
+  background: var(--module-nav-chip);
+  color: var(--module-nav-heading);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, white 8%, transparent);
 }
 
 .moduleEditInput,
 .moduleBadgeInput {
-  min-height: 34px;
-  padding: 0.35rem 0.55rem;
-  font-size: 0.82rem;
-  font-weight: 800;
+  min-height: 30px;
+  padding: 0.3rem 0.5rem;
+  font-size: 0.74rem;
+  font-weight: 850;
 }
 
 .moduleEditTextarea {
-  min-height: 86px;
-  padding: 0.5rem 0.6rem;
-  font-size: 0.74rem;
-  line-height: 1.45;
+  min-height: 70px;
+  padding: 0.45rem 0.54rem;
+  font-size: 0.68rem;
+  line-height: 1.35;
   resize: vertical;
 }
 
 .moduleBadgeInput {
-  width: 44px;
+  width: 36px;
   text-align: center;
   text-transform: uppercase;
 }
 
-.moduleCardActive,
-:global(html[data-theme="tabler"]) .moduleCardActive {
-  border-color: color-mix(in srgb, var(--menu-active) 30%, var(--line));
-}
-
-:global(html[data-theme="mosaic"]) .moduleCardActive {
-  box-shadow: var(--shadow-inset), var(--shadow-md);
-}
-
-.moduleCard,
-.moduleCardActive,
-.moduleCardDisabled,
-.moduleCardDisabledActive,
-:global(html[data-theme="tabler"]) .moduleCard,
-:global(html[data-theme="tabler"]) .moduleCardActive,
-:global(html[data-theme="tabler"]) .moduleCardDisabled,
-:global(html[data-theme="tabler"]) .moduleCardDisabledActive {
-  border-radius: calc(var(--control-radius) + 1px);
-}
-
-.moduleCard,
-.moduleCardActive,
-.moduleCardDisabled,
-.moduleCardDisabledActive {
-  box-shadow: none;
-}
-
-.moduleCardArrow,
-:global(html[data-theme="tabler"]) .moduleCardArrow {
-  border-radius: calc(var(--control-radius) - 2px);
-}
-
-.moduleNavWrap {
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-}
-
-.moduleCard,
-.moduleCardActive,
-.moduleCardDisabled,
-.moduleCardDisabledActive {
-  grid-template-columns: auto minmax(0, 1fr);
-}
-
-.moduleCardArrow {
+.moduleCardMeta {
   display: none;
 }
 
@@ -276,18 +277,28 @@
 :global(html[data-theme="tabler"]) .moduleCardActive,
 :global(html[data-theme="tabler"]) .moduleCardDisabled,
 :global(html[data-theme="tabler"]) .moduleCardDisabledActive {
+  border-color: var(--module-nav-line);
   background:
-    linear-gradient(180deg, color-mix(in srgb, var(--surface) 98%, var(--background)), color-mix(in srgb, var(--surface-raised) 96%, var(--background)));
-  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--surface) 05%, var(--background)), 0 12px 24px -24px color-mix(in srgb, var(--foreground) 42%, transparent);
+    radial-gradient(circle at 8% 0%, color-mix(in srgb, var(--menu-active) 10%, transparent), transparent 34%),
+    linear-gradient(180deg, var(--module-nav-panel), var(--module-nav-panel-strong));
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, white 8%, transparent),
+    0 18px 34px -28px color-mix(in srgb, var(--foreground) 42%, transparent);
 }
 
 @media (max-width: 980px) {
-  .navSectionGrid {
-    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  .navSection {
+    grid-template-columns: 1fr;
+    gap: 0.44rem;
   }
-}
 
-@media (max-width: 640px) {
+  .navSectionHeader {
+    position: static;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
   .navSectionGrid {
     grid-template-columns: 1fr;
   }
@@ -296,10 +307,21 @@
   .moduleCardActive,
   .moduleCardDisabled,
   .moduleCardDisabledActive {
-    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-columns: 36px minmax(0, 1fr);
+    padding-right: 1.05rem;
   }
 
-  .moduleCardArrow {
-    display: none;
+  .moduleCardDescription {
+    grid-column: 1 / -1;
+    min-height: auto;
+    border-left: 0;
+    border-top: 1px solid color-mix(in srgb, var(--module-nav-line) 72%, transparent);
+    padding: 0.44rem 0 0;
+  }
+}
+
+@media (max-width: 640px) {
+  .navSectionGrid {
+    grid-template-columns: 1fr;
   }
 }

@@ -922,7 +922,7 @@ model HbxEngineLock {
   id              String   @id
   engineIndex     Int
   url             String
-  status          String   @default("standby") // standby | online | busy | degraded | offline | cooldown
+  status          String   @default("standby") // standby | online | busy | degraded | offline | cooldown | paused
   lastHealthStatus String?
   lastError       String?
   failureCount    Int      @default(0)
@@ -932,6 +932,8 @@ model HbxEngineLock {
   lockedAt        DateTime?
   lockedUntil     DateTime?
   cooldownUntil   DateTime?
+  manualPaused    Boolean  @default(false)
+  pausedUntil     DateTime?
   lastCheckedAt   DateTime?
   lastUsedAt      DateTime?
   createdAt       DateTime @default(now())
@@ -941,6 +943,7 @@ model HbxEngineLock {
   @@unique([engineIndex])
   @@index([status, lockedUntil])
   @@index([cooldownUntil])
+  @@index([manualPaused, pausedUntil])
   @@index([lockedRunId])
 }
 
@@ -1396,15 +1399,15 @@ model VendasAutomationCampaign {
   filtersJson                String?
   searchSignature            String?
   messageTemplate            String
-  intervalMinutes            Int      @default(12)
-  dailyLimit                 Int      @default(30)
+  intervalMinutes            Int      @default(20)
+  dailyLimit                 Int      @default(15)
   minLeadBuffer              Int      @default(15)
   desiredLeadBuffer          Int      @default(60)
   maxAttemptsPerLead         Int      @default(1)
   workingHoursStart          String   @default("09:00")
   workingHoursEnd            String   @default("17:30")
   typingSeconds              Int      @default(8)
-  typingVarianceSeconds      Int      @default(6)
+  typingVarianceSeconds      Int      @default(12)
   positiveIntentKeywordsJson String?
   negativeIntentKeywordsJson String?
   optOutMessage              String?

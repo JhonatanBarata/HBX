@@ -2,10 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { VendasAutomationService } from './vendas-automation.service';
+import { SAFE_FIRST_CONTACT_TEMPLATE } from './prospecting-safety';
 
-const FALLBACK_MESSAGE =
-  'Oi, tudo bem? Meu nome é Jhonatan, eu sou dono de uma empresa organizadoras de vendas, orçamentos, prospectar clientes e retornos pelo WhatsApp.\n' +
-  'Tem interesse em conhecer? Eu tenho 30 dias grátis no plano, totalmente sem compromisso.\n' ;
+const FALLBACK_MESSAGE = SAFE_FIRST_CONTACT_TEMPLATE.replace('{{cliente}}', 'Empresa Teste').replace('{{cidade}}', 'Sao Paulo');
   
 function buildCampaign(overrides?: Record<string, unknown>) {
   return {
@@ -17,11 +16,11 @@ function buildCampaign(overrides?: Record<string, unknown>) {
     state: 'SP',
     segment: 'clínica odontológica',
     messageTemplate: 'Mensagem segmentada para {{segmento}}',
-    intervalMinutes: 12,
-    dailyLimit: 30,
+    intervalMinutes: 20,
+    dailyLimit: 15,
     minLeadBuffer: 1,
     desiredLeadBuffer: 1,
-    maxAttemptsPerLead: 3,
+    maxAttemptsPerLead: 1,
     workingHoursStart: '09:00',
     workingHoursEnd: '17:30',
     typingSeconds: 0,
@@ -84,6 +83,9 @@ function createService(overrides?: {
   hbotActive?: boolean;
   providerError?: string | null;
   activeProspectionConversations?: Array<Record<string, unknown>>;
+  sentFirstContactMessagesToday?: string[];
+  inboundJob?: Record<string, any> | null;
+  realNegativeBlocksToday?: number;
   scheduleLeads?: any[];
   scheduleLeadsByCall?: any[][];
   searchResponse?: Record<string, any>;
@@ -128,6 +130,7 @@ function createService(overrides?: {
     },
     vendasAutomationJob: {
       count: async ({ where }: any = {}) => {
+        if (where?.OR?.some((item: any) => item?.status === 'replied_negative')) return overrides?.realNegativeBlocksToday || 0;
         if (where?.sentAt?.gte) return successfulSendsToday;
         return 0;
       },
@@ -136,6 +139,7 @@ function createService(overrides?: {
         return [];
       },
       findFirst: async ({ where }: any = {}) => {
+        if ((where?.id || where?.OR) && overrides?.inboundJob) return overrides.inboundJob;
         if (where?.sentAt) {
           return latestSentAt ? { sentAt: latestSentAt } : overrides?.latestSentJob || null;
         }
@@ -182,7 +186,17 @@ function createService(overrides?: {
       create: async ({ data }: any) => ({ id: 'event-1', ...data }),
     },
     companyConversation: {
-      findMany: async () => overrides?.activeProspectionConversations || [],
+      findMany: async ({ select }: any = {}) => {
+        if (select?.metadata && overrides?.sentFirstContactMessagesToday) {
+          return overrides.sentFirstContactMessagesToday.map((draftMessage, index) => ({
+            metadata: JSON.stringify({
+              vendasAutomation: { sentAt: new Date(Date.now() - index * 60000).toISOString() },
+              vendasAgendaQueue: { draftMessage },
+            }),
+          }));
+        }
+        return overrides?.activeProspectionConversations || [];
+      },
       findFirst: async ({ where }: any = {}) => {
         const metadata = metadataForWhere(where);
         if (where?.id) return { id: where.id, companyId: 7, channel: 'whatsapp', contact: '+5511999998888', metadata: JSON.stringify(metadata || {}) };
@@ -520,6 +534,62 @@ test('lead without script and campaign without template uses DEFAULT_MESSAGE_TEM
   assert.equal(queueCalls[0].payload.body, FALLBACK_MESSAGE);
 });
 
+test('first contact message with URL is sent without URL', async () => {
+  const { service, queueCalls } = createService({ conversationMetadata: null });
+  const campaign = buildCampaign({
+    messageTemplate: 'Oi {{cliente}}, veja aqui: https://hbxsystem.com.br/vendas/automacao?tab=prospeccao',
+  });
+  const lead = buildLead({ segment: campaign.segment });
+
+  await service.processDueJob(buildJob({ campaign, lead, leadId: lead.id }));
+
+  assert.equal(queueCalls.length, 1);
+  assert.equal(queueCalls[0].payload.body.includes('https://'), false);
+  assert.equal(queueCalls[0].payload.body.includes('hbxsystem.com.br'), false);
+});
+
+test('Cadastre aqui followed by URL is removed from first contact', async () => {
+  const { service, queueCalls } = createService({ conversationMetadata: null });
+  const campaign = buildCampaign({
+    messageTemplate: 'Oi {{cliente}}, posso te mandar uma ideia rápida?\nCadastre aqui: https://hbxsystem.com.br/vendas/automacao',
+  });
+  const lead = buildLead({ segment: campaign.segment });
+
+  await service.processDueJob(buildJob({ campaign, lead, leadId: lead.id }));
+
+  assert.equal(queueCalls.length, 1);
+  assert.equal(queueCalls[0].payload.body, 'Oi Empresa Teste, posso te mandar uma ideia rápida?');
+});
+
+test('old saved campaign template with link is sanitized at final send', async () => {
+  const { service, queueCalls } = createService({ conversationMetadata: null });
+  const campaign = buildCampaign({
+    messageTemplate: 'Oi {{cliente}} em {{cidade}}. Link: www.hbxsystem.com.br/vendas/automacao',
+  });
+  const lead = buildLead({ segment: campaign.segment });
+
+  await service.processDueJob(buildJob({ campaign, lead, leadId: lead.id }));
+
+  assert.equal(queueCalls.length, 1);
+  assert.equal(queueCalls[0].payload.body, 'Oi Empresa Teste em Sao Paulo.');
+});
+
+test('repeated first contact automatically uses safe variant without link', async () => {
+  const repeated = 'Oi, tudo bem? Vi a Empresa Teste em Sao Paulo. Posso te mandar uma ideia rápida para organizar contatos e retornos no WhatsApp?';
+  const { service, queueCalls } = createService({
+    conversationMetadata: null,
+    sentFirstContactMessagesToday: [repeated, repeated, repeated],
+  });
+  const campaign = buildCampaign({ messageTemplate: SAFE_FIRST_CONTACT_TEMPLATE });
+  const lead = buildLead({ segment: campaign.segment });
+
+  await service.processDueJob(buildJob({ campaign, lead, leadId: lead.id }));
+
+  assert.equal(queueCalls.length, 1);
+  assert.notEqual(queueCalls[0].payload.body, repeated);
+  assert.equal(queueCalls[0].payload.body.includes('http'), false);
+});
+
 test('intervalMinutes defers the second send but still prepares future jobs', async () => {
   const sentAt = new Date();
   const futureLead = buildLead({
@@ -827,4 +897,77 @@ test('lead pre-script has priority over campaign messageTemplate and defaults', 
 
   assert.equal(queueCalls.length, 1);
   assert.equal(queueCalls[0].payload.body, 'Roteiro do lead para Empresa Teste.');
+});
+
+test('safe first contact defaults do not contain links and keep tomorrow limits', async () => {
+  const campaign = buildCampaign();
+
+  assert.equal(SAFE_FIRST_CONTACT_TEMPLATE.includes('http'), false);
+  assert.equal(SAFE_FIRST_CONTACT_TEMPLATE.includes('hbxsystem.com.br'), false);
+  assert.equal(campaign.dailyLimit, 15);
+  assert.equal(campaign.maxAttemptsPerLead, 1);
+});
+
+test('auto reply menu is not classified as negative reply', async () => {
+  const campaign = buildCampaign();
+  const lead = buildLead({ segment: campaign.segment });
+  const job = buildJob({ status: 'sent', campaign, lead, leadId: lead.id });
+  const { service, jobUpdates, stateCalls } = createService({ inboundJob: job });
+  const inboundMetaCalls: Array<Record<string, unknown>> = [];
+
+  const result = await service.classifyProspectingInbound({
+    companyId: 7,
+    conversationId: 501,
+    messageId: 1,
+    from: lead.phone,
+    text: 'Olá, eu sou a Ivet. Digite o número correspondente para selecionar uma das opções.',
+    timestamp: new Date(),
+    metadata: { vendasAutomation: { jobId: job.id }, vendasAgendaQueue: { automationJobId: job.id } },
+    setInboundMeta: async (sourceModule: string, isComplaint: boolean) => {
+      inboundMetaCalls.push({ sourceModule, isComplaint });
+    },
+  });
+
+  assert.equal(result.classification, 'bot_menu_detected');
+  assert.equal(inboundMetaCalls[0].sourceModule, 'vendas_prospeccao_auto_reply');
+  assert.ok(jobUpdates.some((call) => call.data.classification === 'bot_menu_detected'));
+  assert.equal(stateCalls.at(-1)?.payload.metadata.vendasAgendaQueue.status, 'awaiting_human');
+  assert.equal(jobUpdates.some((call) => call.data.status === 'replied_negative'), false);
+});
+
+test('explicit no-interest reply becomes negative opt-out block', async () => {
+  const campaign = buildCampaign();
+  const lead = buildLead({ segment: campaign.segment });
+  const job = buildJob({ status: 'sent', campaign, lead, leadId: lead.id });
+  const { service, jobUpdates } = createService({ inboundJob: job });
+
+  const result = await service.classifyProspectingInbound({
+    companyId: 7,
+    conversationId: 501,
+    messageId: 1,
+    from: lead.phone,
+    text: 'Não tenho interesse, por favor remover.',
+    timestamp: new Date(),
+    metadata: { vendasAutomation: { jobId: job.id }, vendasAgendaQueue: { automationJobId: job.id } },
+    setInboundMeta: async () => undefined,
+  });
+
+  assert.equal(result.classification, 'opt_out');
+  assert.ok(jobUpdates.some((call) => call.data.status === 'replied_negative' && call.data.classification === 'opt_out'));
+});
+
+test('campaign pauses when real negative limit is reached before sending', async () => {
+  const campaign = buildCampaign();
+  const lead = buildLead({ segment: campaign.segment });
+  const { service, queueCalls, campaignStageUpdates } = createService({
+    conversationMetadata: null,
+    realNegativeBlocksToday: 3,
+  });
+
+  const result = await service.processDueJob(buildJob({ campaign, lead, leadId: lead.id }));
+
+  assert.equal(result.outcome, 'blocked');
+  assert.equal(result.reason, 'real_negative_safety_pause');
+  assert.equal(queueCalls.length, 0);
+  assert.ok(campaignStageUpdates.some((data) => data.status === 'paused' && String(data.lastStatusText || '').includes('negativas')));
 });

@@ -119,6 +119,8 @@ type ScrapingEngineStatus = {
   url: string | null;
   lockedUntil: string | null;
   cooldownUntil: string | null;
+  manualPaused?: boolean | null;
+  pausedUntil?: string | null;
   lastCheckedAt: string | null;
   lastError: string | null;
   detail: string;
@@ -314,7 +316,8 @@ function buildFallbackScrapingEngine(index: number): ScrapingEngineStatus {
 
 function normalizeScrapingEngines(payload: ScrapingEngineStatusPayload | null) {
   const source = Array.isArray(payload?.engines) ? payload.engines : [];
-  const hbxEngineCount = Math.max(TOPBAR_HBX_ENGINE_COUNT, source.filter((engine) => engine.kind === "hbx").length);
+  const sourceHbxCount = source.filter((engine) => engine.kind === "hbx").length;
+  const hbxEngineCount = sourceHbxCount || TOPBAR_HBX_ENGINE_COUNT;
   const hbxEngines = Array.from({ length: hbxEngineCount }, (_, index) => {
     return source.find((engine) => engine.kind === "hbx" && engine.index === index) || buildFallbackScrapingEngine(index);
   });
@@ -328,6 +331,8 @@ function normalizeScrapingEngines(payload: ScrapingEngineStatusPayload | null) {
 
 function getScrapingEngineState(engine: ScrapingEngineStatus) {
   const status = String(engine.status || "").trim().toLowerCase();
+  const pausedUntil = engine.pausedUntil ? new Date(engine.pausedUntil).getTime() : NaN;
+  if (engine.manualPaused || status === "paused" || (Number.isFinite(pausedUntil) && pausedUntil > Date.now())) return "paused";
   if (engine.kind === "google" && engine.active) return "emergency";
   if (engine.active || status === "busy") return "busy";
   if (!engine.configured || status === "missing") return "missing";
@@ -350,6 +355,7 @@ function getScrapingEngineValue(engine: ScrapingEngineStatus) {
   }
   const state = getScrapingEngineState(engine);
   if (state === "emergency") return "ativo";
+  if (state === "paused") return "pausado";
   if (state === "busy") return "rodando";
   if (state === "cooldown") return "frio";
   if (state === "offline" || state === "missing") return "off";
@@ -391,6 +397,7 @@ function resolveEngineGroupState(engines: ScrapingEngineStatus[], isLive: (engin
   if (engines.some((engine) => isLive(engine) || getScrapingEngineState(engine) === "busy" || engine.busy)) return "busy";
   if (engines.some((engine) => getScrapingEngineState(engine) === "degraded")) return "degraded";
   if (engines.some((engine) => getScrapingEngineState(engine) === "cooldown")) return "cooldown";
+  if (engines.length && engines.every((engine) => getScrapingEngineState(engine) === "paused")) return "paused";
   if (engines.length && engines.every((engine) => getScrapingEngineState(engine) === "offline" || getScrapingEngineState(engine) === "missing")) {
     return "offline";
   }
@@ -970,7 +977,7 @@ export default function TopBar() {
     (engine: ScrapingEngineStatus) => {
       const state = getScrapingEngineState(engine);
       if (!isLiveScrapingEngine(engine)) return state;
-      if (state === "offline" || state === "degraded" || state === "cooldown") return state;
+      if (state === "offline" || state === "degraded" || state === "cooldown" || state === "paused") return state;
       return "busy";
     },
     [isLiveScrapingEngine],
@@ -1005,6 +1012,12 @@ export default function TopBar() {
   const hbxRunningCount = scrapingEngineView.hbxEngines.filter((engine) => getScrapingEngineState(engine) === "busy" || engine.busy).length;
   const hbxEngineTotal = scrapingEngineView.hbxEngines.length;
   const hbxEngineOnlineCount = scrapingEngineView.hbxEngines.filter((engine) => engine.configured && engine.online).length;
+  const hbxActiveEngineLimit = Math.max(
+    0,
+    Math.trunc(Number(scrapingEngines?.capacity?.activeEngineCount ?? (hbxEngineTotal || 0))),
+  );
+  const hbxCooldownCount = scrapingEngineView.hbxEngines.filter((engine) => getScrapingEngineState(engine) === "cooldown").length;
+  const hbxPausedCount = scrapingEngineView.hbxEngines.filter((engine) => getScrapingEngineState(engine) === "paused").length;
   const hbxMainGaugeUsage = hbxGaugeBooting ? hbxGaugeBootUsage : hbxUsageAverage;
   const hbxMainGaugeState = useMemo(
     () => (hbxGaugeBooting ? "busy" : resolveEngineGroupState(scrapingEngineView.hbxEngines, isLiveScrapingEngine)),
@@ -1013,7 +1026,7 @@ export default function TopBar() {
   const hbxMainGaugeActive = hbxGaugeBooting || hasActiveScrapingEngine || hbxMainGaugeUsage > 0;
   const hbxMainGaugeDetail = hbxGaugeBooting
     ? "Partida dos motores em varrida de luz"
-    : `${hbxEngineOnlineCount}/${hbxEngineTotal} online • ${hbxProcessedLast10Min} cards em 10 min`;
+    : `${hbxEngineOnlineCount}/${hbxEngineTotal} online • ${hbxActiveEngineLimit}/${hbxEngineTotal} ativos agora`;
   const hbxMainGaugeTitle = hbxGaugeBooting
     ? `Motores HBX aquecendo: ${hbxMainGaugeUsage}%`
     : `Motores HBX: ${hbxUsageAverage}% de uso geral. ${hbxMainGaugeDetail}.`;
@@ -1039,20 +1052,13 @@ export default function TopBar() {
     0,
   );
   const hbxOperationalErrorCount = Math.max(hbxEngineIssueCount, hbxEngineReportedErrorCount);
-  const hbxTurboStatusLabel = scrapingEngines?.capacity?.isTurboForcedNow
-    ? "Turbo forçado"
-    : scrapingEngines?.capacity?.isTurboWindowActive
-    ? "Turbo ativo"
-    : scrapingEngines?.capacity?.isTurboEnabled
-    ? "Turbo armado"
-    : "Standby";
   const hbxGaugePanels = [
     {
       id: "usage",
       label: "Uso geral",
       value: hbxMainGaugeUsage,
       metric: `${hbxEngineOnlineCount}/${hbxEngineTotal || TOPBAR_HBX_ENGINE_COUNT} online`,
-      detail: `${hbxCapacityRunningCount} rodando agora`,
+      detail: `${hbxActiveEngineLimit}/${hbxEngineTotal || TOPBAR_HBX_ENGINE_COUNT} ativos agora`,
       state: hbxMainGaugeState,
       active: hbxMainGaugeActive,
       title: hbxMainGaugeTitle,
@@ -1085,29 +1091,29 @@ export default function TopBar() {
       tone: hbxEngineOnlineCount >= hbxEngineTotal && hbxEngineTotal > 0 ? "success" : "warning",
     },
     {
+      label: "Ativos agora",
+      value: `${hbxActiveEngineLimit}/${hbxEngineTotal || TOPBAR_HBX_ENGINE_COUNT}`,
+      tone: hbxActiveEngineLimit > 0 ? "success" : "neutral",
+    },
+    {
       label: "Rodando",
       value: String(hbxCapacityRunningCount),
       tone: hbxCapacityRunningCount > 0 ? "success" : "neutral",
     },
     {
-      label: "Fila",
-      value: String(hbxQueueCount),
-      tone: hbxQueueCount > 0 ? "warning" : "neutral",
+      label: "Cooldown",
+      value: String(hbxCooldownCount),
+      tone: hbxCooldownCount > 0 ? "warning" : "neutral",
     },
     {
-      label: "10 min",
-      value: String(hbxTenMinuteCount),
-      tone: hbxTenMinuteCount > 0 ? "success" : "neutral",
+      label: "Pausados",
+      value: String(hbxPausedCount),
+      tone: hbxPausedCount > 0 ? "warning" : "neutral",
     },
     {
       label: "Erros",
       value: String(hbxOperationalErrorCount),
       tone: hbxOperationalErrorCount > 0 ? "danger" : "neutral",
-    },
-    {
-      label: "Modo",
-      value: hbxTurboStatusLabel,
-      tone: scrapingEngines?.capacity?.isTurboForcedNow || scrapingEngines?.capacity?.isTurboWindowActive ? "success" : "neutral",
     },
   ];
   const topbarSystemVitals = useMemo<TopbarSystemVital[]>(() => {
@@ -2646,6 +2652,8 @@ export default function TopBar() {
   const _initialSource = displayName || String(user?.username || user?.email || "");
   const displayInitial = _initialSource ? _initialSource.charAt(0).toUpperCase() : "U";
   const displayLabel = displayName ? `User: ${displayName}` : user?.username ? `User: ${user.username}` : "";
+  const controlCenterEngines = scrapingEngineView.hbxEngines.slice(0, 4);
+  const usageSparkBars = [42, 54, 68, 55, 39, 48, 63, 70, 58, 52, 66, 74];
   if (hiddenRoutes.has(pathname)) {
     return null;
   }
@@ -2653,268 +2661,263 @@ export default function TopBar() {
   return (
     <header className={`app-topbar${topbarHiddenByScroll ? " app-topbar--hidden" : ""}`}>
       <div ref={topbarFrameRef} className="app-topbar__frame">
-        <div className="app-topbar__inner">
-          <div className="app-topbar__left">
-            <div className="app-brand">
-              <button
-                id={MODULES_TRIGGER_ID}
-                type="button"
-                className={`app-brand__mark app-brand__markButton${modulesPeekAvailable ? " is-modules" : ""}${modulesPeekOpen ? " is-open" : ""}`}
-                onClick={handleModulesTrigger}
-                aria-controls="workspace-hover-module-nav"
-                aria-expanded={modulesPeekAvailable ? modulesPeekOpen : undefined}
-                aria-label={
-                  modulesPeekAvailable
-                    ? "Abrir modulos"
-                    : authenticated === true
-                      ? "Ir para o dashboard"
-                      : "Ir para login"
-                }
-                title={modulesPeekAvailable ? "Modulos" : authenticated === true ? "Dashboard" : "Login"}
-              >
-                <span className="app-brand__markGlyph">HB</span>
-                <span className="app-brand__markCaption">Módulos</span>
-                <span className="app-brand__markBadge" aria-hidden="true" />
-              </button>
+        <div className="app-topbar__inner app-topbar__inner--controlCenter">
+          <section className="hbx-control-brand" aria-label="HBX Control Center">
+            <button
+              id={MODULES_TRIGGER_ID}
+              type="button"
+              className={`hbx-control-brand__mark${modulesPeekOpen ? " is-open" : ""}`}
+              onClick={handleModulesTrigger}
+              aria-controls="workspace-hover-module-nav"
+              aria-expanded={modulesPeekAvailable ? modulesPeekOpen : undefined}
+              aria-label={modulesPeekAvailable ? "Abrir modulos" : "Ir para o dashboard"}
+              title={modulesPeekAvailable ? "Modulos" : "Dashboard"}
+            >
+              HBX
+              <span aria-hidden="true" />
+            </button>
+            <div className="hbx-control-brand__copy">
+              <strong>HBX Control Center</strong>
+              <span>Central operacional</span>
             </div>
+            <div className="hbx-control-brand__tools" aria-hidden="true">
+              <span />
+              <span />
+            </div>
+          </section>
 
-            {authenticated === true && user && !user.isSystemMaster && user.company?.id && !pendingCheckoutLocked ? (
-              <div className="app-topbar__signals">
-                <div ref={unreadMenuRef} className="wa-unread-wrap">
+          <section
+            className="hbx-control-status"
+            data-active={hasActiveScrapingEngine ? "true" : "false"}
+            data-live={liveWebscrapingProgress ? "true" : "false"}
+            aria-label="Status operacional dos motores HBX"
+          >
+            <div className="hbx-control-status__head">
+              <span className="hbx-control-led" aria-hidden="true" />
+              <span>Status operacional</span>
+              <strong>Empresa: {operationalStatus?.context.companyName || user?.company?.name || "HBX"}</strong>
+            </div>
+            <div className="hbx-control-engineGrid">
+              {(controlCenterEngines.length ? controlCenterEngines : scrapingEngineView.hbxEngines.slice(0, 4)).map((engine, index) => {
+                const usage = getEngineUsage(engine);
+                const state = getVisibleScrapingEngineState(engine);
+                const active = engine.active || isLiveScrapingEngine(engine);
+                const label = getScrapingEngineShortLabel(engine) || `M${index + 1}`;
+                const title = `${label}: ${usage}% (${getVisibleScrapingEngineValue(engine)}). ${getVisibleScrapingEngineDetail(engine) || ""}`;
+
+                return (
+                  <article
+                    key={engine.id || label}
+                    className="hbx-control-engine"
+                    data-state={state}
+                    data-active={active ? "true" : "false"}
+                    style={getEngineGaugeStyle(usage)}
+                    title={title}
+                  >
+                    <div className="hbx-control-engine__top">
+                      <span className="hbx-control-led" aria-hidden="true" />
+                      <strong>{label}</strong>
+                      <small>{active ? "Ativo" : state === "standby" ? "Standby" : getVisibleScrapingEngineValue(engine)}</small>
+                    </div>
+                    <div className="hbx-control-engine__body">
+                      <span className="hbx-control-ring" aria-hidden="true">
+                        <b>{usage}%</b>
+                        <small>uso</small>
+                      </span>
+                      <span className="hbx-control-miniChart" aria-hidden="true">
+                        {[22, 58, 34, 74, 42, 66, 28].map((height, chartIndex) => (
+                          <i key={chartIndex} style={{ height: `${Math.max(10, Math.min(86, height + ((usage - 50) / 6)))}%` }} />
+                        ))}
+                      </span>
+                    </div>
+                    <span className="hbx-control-engine__dots" aria-hidden="true">
+                      {[8, 16, 24, 32, 40, 48, 56, 64, 72, 80, 88, 96].map((threshold) => (
+                        <i key={threshold} data-lit={usage >= threshold ? "true" : "false"} />
+                      ))}
+                    </span>
+                  </article>
+                );
+              })}
+            </div>
+            <div className="hbx-control-status__chips" aria-label="Telemetria operacional resumida">
+              {hbxCommandChips.slice(0, 6).map((chip) => (
+                <span key={`${chip.label}:${chip.value}`} data-tone={chip.tone}>
+                  {chip.label}
+                  <strong>{chip.value}</strong>
+                </span>
+              ))}
+            </div>
+          </section>
+
+          <section className="hbx-control-usage" aria-label="Utilização agregada">
+            <div className="hbx-control-usage__head">
+              <strong>Utilização agregada</strong>
+              <span>Visão por hora</span>
+            </div>
+            <div className="hbx-control-usage__chart" aria-hidden="true">
+              {usageSparkBars.map((height, index) => (
+                <i
+                  key={index}
+                  style={{
+                    height: `${Math.max(14, Math.min(92, height + (hbxUsageAverage - 50) / 3))}%`,
+                    ["--bar-index" as string]: index,
+                  }}
+                />
+              ))}
+              <span />
+            </div>
+            <div className="hbx-control-usage__foot">
+              <span>
+                Uso atual
+                <strong>{hbxUsageAverage}%</strong>
+              </span>
+              <span>
+                Tendência
+                <strong>{activeBillboardProgress ?? hbxTenMinuteGaugeUsage}%</strong>
+              </span>
+            </div>
+            <div className="hbx-control-usage__gauges" aria-label="Resumo de leitura dos motores">
+              {hbxGaugePanels.map((panel) => (
+                <span key={panel.id} title={panel.title}>
+                  {panel.label}
+                  <strong>{panel.metric}</strong>
+                </span>
+              ))}
+            </div>
+          </section>
+
+          <section className="hbx-control-actions" aria-label="Ações rápidas">
+            <button
+              type="button"
+              className="hbx-control-action hbx-control-action--green"
+              onClick={() => handleQueueShortcut("atendimento")}
+            >
+              <span aria-hidden="true">▱</span>
+              Monitorar Agora
+              {unreadInboxCount > 0 ? <b>{unreadInboxCount}</b> : null}
+            </button>
+            <button
+              type="button"
+              className="hbx-control-action hbx-control-action--blue"
+              onClick={() => setWhatsAppDetailOpen(true)}
+            >
+              <span aria-hidden="true">▣</span>
+              Acesso Rápido
+            </button>
+            {authenticated === true ? (
+              <button
+                type="button"
+                className="hbx-control-action hbx-control-action--purple"
+                onClick={handleSupportClick}
+              >
+                <span aria-hidden="true">☎</span>
+                Suporte
+              </button>
+            ) : null}
+          </section>
+
+          <section className="hbx-control-side" aria-label="Tema e usuário">
+            <ThemeSwitcher />
+            <div className="hbx-control-accountRow">
+              {user ? (
+                <div ref={userMenuRef} className="app-user hbx-control-user">
                   <button
                     type="button"
-                    className={`wa-health-wrap ${unreadInboxCount > 0 ? "wa-health-wrap--alert" : ""}`}
-                    onClick={() => handleQueueShortcut("atendimento")}
+                    className="app-user__trigger hbx-control-user__trigger"
+                    onClick={() => setOpen((value) => !value)}
+                    aria-expanded={open}
                   >
-                    <span
-                      className={`wa-health wa-health--${whatsAppHealth}`}
-                      title={`${whatsAppHealthLabel} · Não lidas: ${unreadInboxCount}`}
-                      aria-label={`${whatsAppHealthLabel} · Não lidas: ${unreadInboxCount}`}
-                    >
-                      <svg viewBox="0 0 24 24" aria-hidden="true">
-                        <path d="M19.1 4.9A9.9 9.9 0 0 0 12 2a10 10 0 0 0-8.7 14.9L2 22l5.3-1.4A10 10 0 1 0 19.1 4.9Zm-7.1 15.4a8.2 8.2 0 0 1-4.2-1.2l-.3-.2-3.1.8.8-3-.2-.3a8.2 8.2 0 1 1 7 3.9Zm4.5-6.2c-.2-.1-1.2-.6-1.4-.7-.2-.1-.3-.1-.5.1-.1.2-.5.7-.6.8-.1.1-.2.1-.4 0s-.9-.3-1.7-1a6.4 6.4 0 0 1-1.2-1.5c-.1-.2 0-.3.1-.4l.3-.3.2-.3c.1-.1.1-.3 0-.4L10.4 8c-.1-.2-.3-.2-.4-.2h-.4c-.1 0-.4.1-.5.3-.2.2-.7.7-.7 1.6 0 1 .7 1.9.8 2 .1.1 1.3 2 3.2 2.8.5.2.9.4 1.2.5.5.1 1 .1 1.4.1.4-.1 1.2-.5 1.4-1 .2-.6.2-1 .1-1.1 0-.1-.2-.1-.4-.2Z" />
-                      </svg>
-                    </span>
-                    {unreadInboxCount > 0 ? (
-                      <span className="wa-health__queue-badge" aria-hidden="true">
-                        {unreadInboxCount}
+                    <span className="app-user__avatar">{displayInitial}</span>
+                    <span className="app-user__meta">
+                      <span className="app-user__name">{displayLabel || user?.username || ""}</span>
+                      <span className="app-user__company">
+                        {user.isSystemMaster
+                          ? user.masterContext?.active
+                            ? `MASTER em ${user.masterContext.companyName || "Empresa"}`
+                            : "Administrador"
+                          : user.company?.name ?? "Sem empresa"}
                       </span>
-                    ) : null}
+                    </span>
                   </button>
-                </div>
 
-                <button
-                  type="button"
-                  className="wa-health-wrap"
-                  onClick={() => {
-                    window.location.href = "/tutorial?start=bot&from=inbox_bot";
-                  }}
-                >
-                  <span
-                    className="wa-health wa-health--green wa-health--bot"
-                    title="Abrir tutorial do Bot IA"
-                    aria-label="Abrir tutorial do Bot IA"
-                  >
-                    <svg viewBox="0 0 24 24" aria-hidden="true">
-                      <path d="M12 3a2.4 2.4 0 0 1 2.3 1.8h2.2A3.5 3.5 0 0 1 20 8.3v5.9a3.5 3.5 0 0 1-3.5 3.5h-.7L13 20.4a1.4 1.4 0 0 1-2 0l-2.8-2.7h-.7A3.5 3.5 0 0 1 4 14.2V8.3a3.5 3.5 0 0 1 3.5-3.5h2.2A2.4 2.4 0 0 1 12 3Zm-3 8.1a1.1 1.1 0 1 0 0-2.2 1.1 1.1 0 0 0 0 2.2Zm6 0a1.1 1.1 0 1 0 0-2.2 1.1 1.1 0 0 0 0 2.2Zm-5.5 2.4a3.4 3.4 0 0 0 5 0" />
-                    </svg>
-                  </span>
-                </button>
-              </div>
-            ) : null}
-          </div>
-
-          <div className="app-topbar__center">
-            <section
-              className="hbx-engine-header"
-              data-active={hasActiveScrapingEngine ? "true" : "false"}
-              data-live={liveWebscrapingProgress ? "true" : "false"}
-              data-vitals={user?.isSystemMaster ? "true" : "false"}
-              aria-label="Painel dos motores HBX"
-            >
-              <div
-                className="hbx-engine-header__gauges"
-                tabIndex={0}
-                aria-label={`Três velocímetros dos motores HBX e M1 a M${scrapingEngineView.hbxEngines.length}`}
-              >
-                <div className="hbx-engine-header__gaugeRow">
-                  {hbxGaugePanels.map((panel) => (
-                    <article
-                      key={panel.id}
-                      className="hbx-engine-gauge"
-                      data-active={panel.active ? "true" : "false"}
-                      data-live={(panel.id === "usage" && (liveWebscrapingProgress || hbxGaugeBooting)) || (panel.id === "tempo" && liveWebscrapingProgress) ? "true" : "false"}
-                      data-overdrive={panel.value >= 90 ? "true" : "false"}
-                      data-state={panel.state}
-                      style={getEngineGaugeStyle(panel.value)}
-                      title={panel.title}
-                      aria-label={panel.title}
-                    >
-                      <span className="hbx-engine-gauge__scan" aria-hidden="true" />
-                      <div className="hbx-engine-gauge__head">
-                        <span>Motores HBX</span>
-                        <strong>{panel.label}</strong>
-                      </div>
-                      <div className="hbx-engine-gauge__dial" aria-hidden="true">
-                        <span className="hbx-engine-gauge__arc" />
-                        <span className="hbx-engine-gauge__needle">
-                          <i />
-                        </span>
-                        <span className="hbx-engine-gauge__hub" />
-                        <b>{panel.value}%</b>
-                      </div>
-                      <div className="hbx-engine-gauge__copy">
-                        <strong>{panel.metric}</strong>
-                        <span>{panel.detail}</span>
-                      </div>
-                      <span className="hbx-engine-gauge__lights" aria-hidden="true">
-                        {[16, 32, 48, 64, 80, 92].map((threshold) => (
-                          <i key={threshold} data-lit={panel.value >= threshold ? "true" : "false"} />
-                        ))}
-                      </span>
-                    </article>
-                  ))}
-                </div>
-                <div className="hbx-engine-gauge__bars" aria-label="Estado individual dos 20 motores HBX">
-                  {scrapingEngineView.hbxEngines.map((engine) => {
-                    const usage = getEngineUsage(engine);
-                    const state = getVisibleScrapingEngineState(engine);
-                    const active = engine.active || isLiveScrapingEngine(engine);
-                    const label = getScrapingEngineShortLabel(engine);
-                    const title = `${label}: ${usage}% (${getVisibleScrapingEngineValue(engine)}). ${getVisibleScrapingEngineDetail(engine) || ""}`;
-
-                    return (
-                      <span
-                        key={engine.id}
-                        className="hbx-engine-gauge__bar"
-                        data-active={active ? "true" : "false"}
-                        data-state={state}
-                        style={{ ["--engine-usage" as string]: `${usage}%` }}
-                        aria-label={title}
-                        title={title}
-                      >
-                        <i aria-hidden="true" />
-                        <strong>{label}</strong>
-                      </span>
-                    );
-                  })}
-                </div>
-              </div>
-
-              <div
-                className="hbx-engine-command"
-                data-active={hasActiveScrapingEngine ? "true" : "false"}
-                data-live={liveWebscrapingProgress ? "true" : "false"}
-                data-vitals={user?.isSystemMaster ? "true" : "false"}
-                role="status"
-                aria-live="polite"
-              >
-                <span className="hbx-engine-command__grid" aria-hidden="true" />
-                <span className="hbx-engine-command__scan" aria-hidden="true" />
-                <div className="hbx-engine-command__head">
-                  <span>Centro operacional</span>
-                  <strong>{operationalSummaryMessage}</strong>
-                  <p>{scrapingEngineStatusMessage || hbxMainGaugeDetail}</p>
-                </div>
-                <div className="hbx-engine-command__chips" aria-label="Telemetria operacional dos motores HBX">
-                  {hbxCommandChips.map((chip) => (
-                    <span key={`${chip.label}:${chip.value}`} className="hbx-engine-status-chip" data-tone={chip.tone}>
-                      <span>{chip.label}</span>
-                      <strong>{chip.value}</strong>
-                    </span>
-                  ))}
-                </div>
-                <div className="hbx-engine-command__body">
-                  <div
-                    key={activeBillboardSlide.id}
-                    className="app-topbar__billboard hbx-engine-command__billboard"
-                    data-phase={activeBillboardSlide.phase}
-                    data-source={activeBillboardSlide.source || "default"}
-                    data-theater={activeBillboardSlide.isTheater ? "true" : "false"}
-                  >
-                    <span className="app-topbar__billboardScan" aria-hidden="true" />
-                    {activeBillboardSlide.isTheater ? (
-                      <span className="app-topbar__billboardEqualizer" aria-hidden="true">
-                        {[0, 1, 2, 3, 4, 5, 6, 7].map((index) => (
-                          <i key={index} style={{ ["--eq-index" as string]: index }} />
-                        ))}
-                      </span>
-                    ) : null}
-                    <div className="app-topbar__billboardMain">
-                      <span className="app-topbar__billboardOrb" aria-hidden="true">
-                        <span />
-                      </span>
-                      <div className="app-topbar__billboardCopy">
-                        <span className="app-topbar__billboardEyebrow">{activeBillboardSlide.eyebrow}</span>
-                        <strong>{activeBillboardSlide.title}</strong>
-                        <p>{activeBillboardSlide.description}</p>
-                      </div>
-                      {activeBillboardProgress !== null ? (
-                        <span className="app-topbar__billboardPercent">{activeBillboardProgress}%</span>
-                      ) : null}
-                    </div>
-                    {activeBillboardProgress !== null ? (
-                      <div className="app-topbar__billboardTrack" aria-hidden="true">
-                        <span style={{ width: `${activeBillboardProgress}%` }} />
-                      </div>
-                    ) : null}
-                    {activeBillboardSlide.metrics?.length ? (
-                      <div className="app-topbar__billboardMetrics">
-                        {activeBillboardSlide.metrics.slice(0, 3).map((metric) => (
-                          <span key={`${activeBillboardSlide.id}:${metric.label}:${metric.value}`}>
-                            {metric.label}
-                            <strong>{metric.value}</strong>
-                          </span>
-                        ))}
-                      </div>
-                    ) : null}
-                  </div>
-                  {user?.isSystemMaster ? (
-                    <div className="app-topbar__systemVitals" aria-label="Uso ao vivo de memória e HD">
-                      <div className="app-topbar__systemVitalsHead">
-                        <span aria-hidden="true" />
-                        <strong>VPS ao vivo</strong>
-                      </div>
-                      {topbarSystemVitals.map((vital) => (
-                        <span
-                          key={vital.id}
-                          className="app-topbar__systemVital"
-                          data-tone={vital.tone}
-                          style={{ ["--vital-usage" as string]: `${vital.usage ?? 0}%` }}
-                          title={`${vital.label}: ${vital.value}. ${vital.detail}`}
+                  {open ? (
+                    <div className="app-user__menu">
+                      <p className="app-user__menu-title">Atendente/vendedor</p>
+                      <form onSubmit={handleDisplayNameSubmit} className="app-user__form">
+                        <input
+                          type="text"
+                          placeholder="Nome do atendente/vendedor"
+                          value={attendantName}
+                          onChange={(event) => setAttendantName(event.target.value)}
+                          className="field"
+                          autoComplete="name"
+                        />
+                        <button
+                          type="submit"
+                          className="btn btn-primary btn-sm"
+                          disabled={savingAttendantName || attendantName.trim().length < 2}
                         >
-                          <span className="app-topbar__systemVitalIcon" data-kind={vital.id} aria-hidden="true">
-                            {vital.id === "memory" ? (
-                              <svg viewBox="0 0 24 24">
-                                <path d="M7 4h10a3 3 0 0 1 3 3v10a3 3 0 0 1-3 3H7a3 3 0 0 1-3-3V7a3 3 0 0 1 3-3Zm1.5 4.5v7h7v-7h-7Z" />
-                                <path d="M8 2v2M12 2v2M16 2v2M8 20v2M12 20v2M16 20v2M2 8h2M2 12h2M2 16h2M20 8h2M20 12h2M20 16h2" />
-                              </svg>
-                            ) : (
-                              <svg viewBox="0 0 24 24">
-                                <path d="M5 6c0-2 3.1-3.5 7-3.5S19 4 19 6s-3.1 3.5-7 3.5S5 8 5 6Z" />
-                                <path d="M5 6v6c0 2 3.1 3.5 7 3.5s7-1.5 7-3.5V6M5 12v6c0 2 3.1 3.5 7 3.5s7-1.5 7-3.5v-6" />
-                              </svg>
-                            )}
-                          </span>
-                          <span className="app-topbar__systemVitalCopy">
-                            <span>{vital.label}</span>
-                            <strong>{vital.value}</strong>
-                            <em>{vital.detail}</em>
-                          </span>
-                          <span className="app-topbar__systemVitalTrack" aria-hidden="true">
-                            <i />
-                          </span>
-                        </span>
-                      ))}
+                          {savingAttendantName ? "Salvando..." : "Salvar nome"}
+                        </button>
+                      </form>
+                      <p className="app-user__menu-title">Editar senha</p>
+                      <form onSubmit={handlePasswordSubmit} className="app-user__form">
+                        <input
+                          type="password"
+                          placeholder="Senha atual"
+                          value={curPass}
+                          onChange={(event) => setCurPass(event.target.value)}
+                          className="field"
+                        />
+                        <input
+                          type="password"
+                          placeholder="Nova senha (mín. 8)"
+                          value={newPass}
+                          onChange={(event) => setNewPass(event.target.value)}
+                          className="field"
+                        />
+                        {changeMsg ? <p className="text-xs text-muted leading-5">{changeMsg}</p> : null}
+                        <div className="app-user__menu-actions">
+                          <button
+                            type="submit"
+                            className="btn btn-primary btn-sm"
+                            disabled={changing || newPass.length < 4}
+                          >
+                            {changing ? "Salvando..." : "Salvar senha"}
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn-secondary btn-sm"
+                            onClick={() => setOpen(false)}
+                          >
+                            Fechar
+                          </button>
+                        </div>
+                      </form>
                     </div>
                   ) : null}
                 </div>
-              </div>
-            </section>
-          </div>
-
-          <div className="app-topbar__right">
-            {authenticated === true && user?.isSystemMaster ? (
+              ) : null}
+              {authenticated === true ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    void handleLogout();
+                  }}
+                  className="hbx-control-logout"
+                  disabled={isShuttingDown}
+                >
+                  <span aria-hidden="true">↪</span>
+                  {isShuttingDown ? "Saindo..." : "Sair"}
+                </button>
+              ) : authResolved ? (
+                <Link href="/login" prefetch={false} className="hbx-control-logout">
+                  Entrar
+                </Link>
+              ) : null}
+            </div>
+            <div className="hbx-control-masterActions">
+              {authenticated === true && user?.isSystemMaster ? (
               <button
                 type="button"
                 className="btn btn-secondary btn-sm"
@@ -2933,120 +2936,18 @@ export default function TopBar() {
                 Sair contexto
               </button>
             ) : null}
-            {authenticated === true ? (
-              <button
-                type="button"
-                className="app-topbar__support"
-                onClick={handleSupportClick}
-                aria-label="Abrir suporte HBX"
-                title="Suporte HBX"
-              >
-                <span aria-hidden="true">☎</span>
-                <strong>Suporte</strong>
-              </button>
-            ) : null}
-            {authenticated === true || user ? (
-              <div className="app-topbar__accountCluster">
-                {authenticated === true ? <ThemeSwitcher /> : null}
-                {user ? (
-                  <div ref={userMenuRef} className="app-user">
-                    <button
-                      type="button"
-                      className="app-user__trigger"
-                      onClick={() => setOpen((value) => !value)}
-                      aria-expanded={open}
-                    >
-                      <span className="app-user__avatar">{displayInitial}</span>
-                      <span className="app-user__meta">
-                        <span className="app-user__name">{displayLabel || user?.username || ""}</span>
-                        <span className="app-user__company">
-                          {user.isSystemMaster
-                            ? user.masterContext?.active
-                              ? `MASTER em ${user.masterContext.companyName || "Empresa"}`
-                              : "MASTER"
-                            : user.company?.name ?? "Sem empresa"}
-                        </span>
-                      </span>
-                    </button>
-
-                    {open ? (
-                      <div className="app-user__menu">
-                        <p className="app-user__menu-title">Atendente/vendedor</p>
-                        <form onSubmit={handleDisplayNameSubmit} className="app-user__form">
-                          <input
-                            type="text"
-                            placeholder="Nome do atendente/vendedor"
-                            value={attendantName}
-                            onChange={(event) => setAttendantName(event.target.value)}
-                            className="field"
-                            autoComplete="name"
-                          />
-                          <button
-                            type="submit"
-                            className="btn btn-primary btn-sm"
-                            disabled={savingAttendantName || attendantName.trim().length < 2}
-                          >
-                            {savingAttendantName ? "Salvando..." : "Salvar nome"}
-                          </button>
-                        </form>
-                        <p className="app-user__menu-title">Editar senha</p>
-                        <form onSubmit={handlePasswordSubmit} className="app-user__form">
-                          <input
-                            type="password"
-                            placeholder="Senha atual"
-                            value={curPass}
-                            onChange={(event) => setCurPass(event.target.value)}
-                            className="field"
-                          />
-                          <input
-                            type="password"
-                            placeholder="Nova senha (mín. 8)"
-                            value={newPass}
-                            onChange={(event) => setNewPass(event.target.value)}
-                            className="field"
-                          />
-                          {changeMsg ? <p className="text-xs text-muted leading-5">{changeMsg}</p> : null}
-                          <div className="app-user__menu-actions">
-                            <button
-                              type="submit"
-                              className="btn btn-primary btn-sm"
-                              disabled={changing || newPass.length < 4}
-                            >
-                              {changing ? "Salvando..." : "Salvar senha"}
-                            </button>
-                            <button
-                              type="button"
-                              className="btn btn-secondary btn-sm"
-                              onClick={() => setOpen(false)}
-                            >
-                              Fechar
-                            </button>
-                          </div>
-                        </form>
-                      </div>
-                    ) : null}
-                  </div>
-                ) : null}
+            </div>
+            {user?.isSystemMaster ? (
+              <div className="hbx-control-vitals" aria-label="Uso ao vivo de memória e HD">
+                {topbarSystemVitals.map((vital) => (
+                  <span key={vital.id} data-tone={vital.tone} title={`${vital.label}: ${vital.value}. ${vital.detail}`}>
+                    {vital.label}
+                    <strong>{vital.value}</strong>
+                  </span>
+                ))}
               </div>
             ) : null}
-
-            {authenticated === true ? (
-              <button
-                type="button"
-                onClick={() => {
-                  void handleLogout();
-                }}
-                className="btn btn-secondary btn-sm"
-                disabled={isShuttingDown}
-              >
-                {isShuttingDown ? "Saindo..." : "Sair"}
-              </button>
-            ) : authResolved ? (
-              <Link href="/login" prefetch={false} className="btn btn-secondary btn-sm">
-                Entrar
-              </Link>
-            ) : null}
-          </div>
+          </section>
         </div>
 
         {/* dock removed: counter is shown on individual icons (wa-health__queue-badge) */}

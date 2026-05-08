@@ -144,9 +144,31 @@ const CAMPAIGN_TYPES = [
 type CampaignTypeId = (typeof CAMPAIGN_TYPES)[number]["id"];
 
 const GENERIC_ERROR_MESSAGE_TEMPLATE =
-  "Oi, tudo bem? Meu nome é Jhonatan, trabalho com uma plataforma para organizar vendas, orçamentos, prospecção de clientes e retornos pelo WhatsApp.\n" +
-  "Tenho 30 dias grátis, sem compromisso. Faz sentido eu te mostrar?\n" +
-  "";
+  "Oi, tudo bem? Vi a {{cliente}} em {{cidade}}. Posso te mandar uma ideia rápida para organizar contatos e retornos no WhatsApp?";
+
+const SAFE_FIRST_CONTACT_VARIANTS = [
+  GENERIC_ERROR_MESSAGE_TEMPLATE,
+  "Oi, tudo bem? Vi a {{cliente}} em {{cidade}}. Posso te mostrar uma ideia rápida para organizar retornos no WhatsApp?",
+  "Oii, tudo bem? Trabalho com uma ferramenta para organizar contatos e retornos. Posso te explicar em 1 minuto?",
+  "Oi! Vi a {{cliente}} e achei que o HBX talvez ajude na organização dos contatos. Posso te mandar uma explicação curta?",
+] as const;
+
+const CLICKABLE_FIRST_CONTACT_PATTERN =
+  /\b(?:https?:\/\/|www\.)[^\s<>()]+|\b(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+(?:com(?:\.br)?|br|net|org|io|app|dev|ai|co|gov|edu|info|biz|me|site|online|store|tech|digital)(?:\/[^\s<>()]*)?/gi;
+
+function sanitizeFirstContactPreview(text: string) {
+  return String(text || "")
+    .split(/\r?\n/)
+    .map((line) => line.replace(CLICKABLE_FIRST_CONTACT_PATTERN, "").replace(/\s+/g, " ").trim())
+    .filter((line) => line && !/^(cadastre(?:-se)? aqui|acesse|link|clique aqui)\s*:?$/i.test(line))
+    .join("\n")
+    .trim();
+}
+
+function hasFirstContactLink(text: string) {
+  CLICKABLE_FIRST_CONTACT_PATTERN.lastIndex = 0;
+  return CLICKABLE_FIRST_CONTACT_PATTERN.test(String(text || ""));
+}
 
 const MESSAGE_PRESETS = [
   {
@@ -163,8 +185,7 @@ const MESSAGE_PRESETS = [
     label: "Empresa local - geral",
     segment: "serviços locais",
     targetType: "pj",
-    messageTemplate:
-      "Oi, tudo bem? Vi a {{cliente}} no Google em {{cidade}}. Aqui é {{funcionario}} da {{empresa}}. Tenho uma ferramenta chamada HBX que busca possíveis clientes na sua cidade, organiza os contatos e lembra os retornos pelo WhatsApp. Estou liberando 30 dias grátis para empresas testarem. Quer que eu te mostre em 5 minutos?",
+    messageTemplate: GENERIC_ERROR_MESSAGE_TEMPLATE,
   },
   {
     id: "auto_socorro",
@@ -172,8 +193,7 @@ const MESSAGE_PRESETS = [
     label: "Auto socorro / guincho",
     segment: "auto socorro",
     targetType: "pj",
-    messageTemplate:
-      "Oi, tudo bem? Vi a {{cliente}} em {{cidade}}. Aqui é {{funcionario}} da {{empresa}}. O HBX ajuda empresas como auto socorro a encontrar mais clientes locais, organizar contatos e controlar retornos pelo WhatsApp. Estou liberando 30 dias grátis. Quer que eu te mostre rapidinho?",
+    messageTemplate: GENERIC_ERROR_MESSAGE_TEMPLATE,
   },
   {
     id: "energia_solar",
@@ -181,8 +201,7 @@ const MESSAGE_PRESETS = [
     label: "Energia solar",
     segment: "energia solar",
     targetType: "pj",
-    messageTemplate:
-      "Oi, tudo bem? Vi a {{cliente}} em {{cidade}}. Aqui é {{funcionario}} da {{empresa}}. Tenho uma ferramenta que ajuda empresas de energia solar a buscar possíveis clientes, organizar oportunidades e não esquecer retorno no WhatsApp. Posso te mostrar em 5 minutos?",
+    messageTemplate: GENERIC_ERROR_MESSAGE_TEMPLATE,
   },
   {
     id: "limpeza_piscina",
@@ -190,8 +209,7 @@ const MESSAGE_PRESETS = [
     label: "Limpeza de piscina",
     segment: "limpeza de piscina",
     targetType: "pj",
-    messageTemplate:
-      "Oi, tudo bem? Vi a {{cliente}} em {{cidade}}. Aqui é {{funcionario}} da {{empresa}}. O HBX pode ajudar empresas de limpeza de piscina a achar novos contatos na região, organizar orçamentos e lembrar retornos pelo WhatsApp. Quer testar 30 dias grátis?",
+    messageTemplate: GENERIC_ERROR_MESSAGE_TEMPLATE,
   },
   {
     id: "clinica_estetica",
@@ -199,8 +217,7 @@ const MESSAGE_PRESETS = [
     label: "Clínica estética",
     segment: "clínicas de estética",
     targetType: "pj",
-    messageTemplate:
-      "Oi, tudo bem? Vi a {{cliente}} em {{cidade}}. Aqui é {{funcionario}} da {{empresa}}. Tenho uma ferramenta que ajuda clínicas a captar contatos locais, organizar interessados e controlar retornos pelo WhatsApp. Estou liberando 30 dias grátis. Quer ver uma demonstração rápida?",
+    messageTemplate: GENERIC_ERROR_MESSAGE_TEMPLATE,
   },
   {
     id: "ar_condicionado",
@@ -208,8 +225,7 @@ const MESSAGE_PRESETS = [
     label: "Ar condicionado",
     segment: "ar condicionado",
     targetType: "pj",
-    messageTemplate:
-      "Oi, tudo bem? Vi a {{cliente}} em {{cidade}}. Aqui é {{funcionario}} da {{empresa}}. O HBX ajuda empresas de ar condicionado a encontrar possíveis clientes, organizar pedidos de orçamento e lembrar retornos pelo WhatsApp. Faz sentido eu te mostrar em 5 minutos?",
+    messageTemplate: GENERIC_ERROR_MESSAGE_TEMPLATE,
   },
   {
     id: "oficina_mecanica",
@@ -217,8 +233,7 @@ const MESSAGE_PRESETS = [
     label: "Oficina mecânica",
     segment: "oficinas mecânicas",
     targetType: "pj",
-    messageTemplate:
-      "Oi, tudo bem? Vi a {{cliente}} em {{cidade}}. Aqui é {{funcionario}} da {{empresa}}. Tenho uma ferramenta que ajuda oficinas a captar contatos locais, organizar orçamentos e acompanhar retornos pelo WhatsApp. Quer testar 30 dias grátis?",
+    messageTemplate: GENERIC_ERROR_MESSAGE_TEMPLATE,
   },
   {
     id: "orcamento_vidracaria",
@@ -226,8 +241,7 @@ const MESSAGE_PRESETS = [
     label: "Vidraçaria / serralheria / marcenaria",
     segment: "vidraçarias",
     targetType: "pj",
-    messageTemplate:
-      "Oi, tudo bem? Vi a {{cliente}} em {{cidade}}. Aqui é {{funcionario}} da {{empresa}}. O HBX ajuda empresas que vivem de orçamento a organizar contatos, lembrar retornos e buscar novos possíveis clientes na cidade. Quer que eu te mostre rápido?",
+    messageTemplate: GENERIC_ERROR_MESSAGE_TEMPLATE,
   },
   {
     id: "seguranca_eletronica",
@@ -235,8 +249,7 @@ const MESSAGE_PRESETS = [
     label: "Segurança eletrônica",
     segment: "sistemas de segurança",
     targetType: "pj",
-    messageTemplate:
-      "Oi, tudo bem? Vi a {{cliente}} em {{cidade}}. Aqui é {{funcionario}} da {{empresa}}. Tenho uma ferramenta que ajuda empresas de segurança eletrônica a encontrar possíveis clientes locais e controlar follow-up pelo WhatsApp. Quer ver em 5 minutos?",
+    messageTemplate: GENERIC_ERROR_MESSAGE_TEMPLATE,
   },
   {
     id: "odontologia_saude",
@@ -244,8 +257,7 @@ const MESSAGE_PRESETS = [
     label: "Odontologia / saúde",
     segment: "clínicas odontológicas",
     targetType: "pj",
-    messageTemplate:
-      "Oi, tudo bem? Vi a {{cliente}} em {{cidade}}. Aqui é {{funcionario}} da {{empresa}}. O HBX ajuda clínicas a organizar contatos, interessados e retornos pelo WhatsApp, sem deixar lead perdido. Estou liberando 30 dias grátis. Quer que eu te mostre?",
+    messageTemplate: GENERIC_ERROR_MESSAGE_TEMPLATE,
   },
   {
     id: "imobiliaria",
@@ -253,8 +265,7 @@ const MESSAGE_PRESETS = [
     label: "Imobiliária",
     segment: "imobiliárias",
     targetType: "pj",
-    messageTemplate:
-      "Oi, tudo bem? Vi a {{cliente}} em {{cidade}}. Aqui é {{funcionario}} da {{empresa}}. Tenho uma ferramenta que ajuda imobiliárias a organizar contatos, possíveis clientes e retornos pelo WhatsApp. Posso te mostrar em 5 minutos?",
+    messageTemplate: GENERIC_ERROR_MESSAGE_TEMPLATE,
   },
   {
     id: "provedor_internet",
@@ -262,8 +273,7 @@ const MESSAGE_PRESETS = [
     label: "Provedor de internet",
     segment: "provedores de internet",
     targetType: "pj",
-    messageTemplate:
-      "Oi, tudo bem? Vi a {{cliente}} em {{cidade}}. Aqui é {{funcionario}} da {{empresa}}. O HBX ajuda provedores a organizar contatos, oportunidades e retornos pelo WhatsApp, além de buscar possíveis clientes locais. Quer ver uma demonstração rápida?",
+    messageTemplate: GENERIC_ERROR_MESSAGE_TEMPLATE,
   },
   {
     id: "escola_curso",
@@ -271,8 +281,7 @@ const MESSAGE_PRESETS = [
     label: "Escola / curso profissionalizante",
     segment: "cursos profissionalizantes",
     targetType: "pj",
-    messageTemplate:
-      "Oi, tudo bem? Vi a {{cliente}} em {{cidade}}. Aqui é {{funcionario}} da {{empresa}}. Tenho uma ferramenta que ajuda escolas e cursos a organizar interessados, contatos e retornos pelo WhatsApp. Estou liberando 30 dias grátis. Quer ver?",
+    messageTemplate: GENERIC_ERROR_MESSAGE_TEMPLATE,
   },
   {
     id: "loja_moveis",
@@ -280,8 +289,7 @@ const MESSAGE_PRESETS = [
     label: "Loja de móveis / colchões / planejados",
     segment: "lojas de móveis",
     targetType: "pj",
-    messageTemplate:
-      "Oi, tudo bem? Vi a {{cliente}} em {{cidade}}. Aqui é {{funcionario}} da {{empresa}}. O HBX ajuda lojas que vendem por orçamento ou atendimento consultivo a organizar contatos e lembrar retornos pelo WhatsApp. Quer que eu te mostre em 5 minutos?",
+    messageTemplate: GENERIC_ERROR_MESSAGE_TEMPLATE,
   },
   {
     id: "agencia_marketing",
@@ -289,8 +297,7 @@ const MESSAGE_PRESETS = [
     label: "Agência de marketing",
     segment: "agências de marketing",
     targetType: "pj",
-    messageTemplate:
-      "Oi, tudo bem? Vi que a {{cliente}} trabalha com marketing em {{cidade}}. Aqui é {{funcionario}} da {{empresa}}. Tenho uma ferramenta que busca empresas por cidade e segmento, joga tudo em um CRM e ajuda a controlar contato e retorno pelo WhatsApp. Pode ser útil para vocês venderem prospecção para clientes. Quer ver uma demonstração rápida?",
+    messageTemplate: GENERIC_ERROR_MESSAGE_TEMPLATE,
   },
   {
     id: "gestor_trafego",
@@ -298,8 +305,7 @@ const MESSAGE_PRESETS = [
     label: "Gestor de tráfego / freelancer",
     segment: "gestores de tráfego",
     targetType: "pj",
-    messageTemplate:
-      "Oi, tudo bem? Vi a {{cliente}} em {{cidade}}. Aqui é {{funcionario}} da {{empresa}}. O HBX pode ajudar gestores de tráfego e freelancers a achar empresas por nicho, organizar leads em CRM e vender prospecção como serviço. Quer que eu te mostre em 5 minutos?",
+    messageTemplate: GENERIC_ERROR_MESSAGE_TEMPLATE,
   },
   {
     id: "agencia_revenda",
@@ -307,8 +313,7 @@ const MESSAGE_PRESETS = [
     label: "Agência que quer revender prospecção",
     segment: "agências de marketing",
     targetType: "pj",
-    messageTemplate:
-      "Oi, tudo bem? Aqui é {{funcionario}} da {{empresa}}. Vi a {{cliente}} em {{cidade}} e pensei numa oportunidade: o HBX busca empresas por cidade/segmento, organiza no CRM e facilita contato pelo WhatsApp. Vocês poderiam usar isso para vender prospecção para os clientes de vocês. Quer ver como funciona?",
+    messageTemplate: GENERIC_ERROR_MESSAGE_TEMPLATE,
   },
   {
     id: "representante_comercial",
@@ -316,8 +321,7 @@ const MESSAGE_PRESETS = [
     label: "Vendedor autônomo / representante comercial",
     segment: "representantes comerciais",
     targetType: "pj",
-    messageTemplate:
-      "Oi, tudo bem? Vi a {{cliente}} em {{cidade}}. Aqui é {{funcionario}} da {{empresa}}. Tenho uma ferramenta para vendedores que precisam achar empresas novas, organizar contatos e controlar retorno pelo WhatsApp. Quer testar 30 dias grátis?",
+    messageTemplate: GENERIC_ERROR_MESSAGE_TEMPLATE,
   },
   {
     id: "consultoria_comercial",
@@ -325,8 +329,7 @@ const MESSAGE_PRESETS = [
     label: "Consultoria comercial",
     segment: "consultorias empresariais",
     targetType: "pj",
-    messageTemplate:
-      "Oi, tudo bem? Vi a {{cliente}} em {{cidade}}. Aqui é {{funcionario}} da {{empresa}}. O HBX ajuda consultorias a montar listas de empresas por nicho, organizar oportunidades em CRM e acompanhar retornos pelo WhatsApp. Pode ser útil para entregar prospecção aos clientes. Quer ver?",
+    messageTemplate: GENERIC_ERROR_MESSAGE_TEMPLATE,
   },
   {
     id: "software_house",
@@ -334,8 +337,7 @@ const MESSAGE_PRESETS = [
     label: "Software house / web design",
     segment: "web design",
     targetType: "pj",
-    messageTemplate:
-      "Oi, tudo bem? Vi a {{cliente}} em {{cidade}}. Aqui é {{funcionario}} da {{empresa}}. Tenho uma ferramenta que busca empresas por cidade e segmento, organiza em CRM e ajuda no contato pelo WhatsApp. Pode ser útil para vocês venderem sites, sistemas ou prospecção. Quer ver uma demonstração rápida?",
+    messageTemplate: GENERIC_ERROR_MESSAGE_TEMPLATE,
   },
   {
     id: "servicos_limpeza",
@@ -343,8 +345,7 @@ const MESSAGE_PRESETS = [
     label: "Serviços de limpeza",
     segment: "serviços de limpeza",
     targetType: "pj",
-    messageTemplate:
-      "Oi, tudo bem? Vi a {{cliente}} em {{cidade}}. Aqui é {{funcionario}} da {{empresa}}. O HBX ajuda empresas de limpeza a organizar pedidos de orçamento, buscar novos contatos locais e lembrar retornos pelo WhatsApp. Quer que eu te mostre em 5 minutos?",
+    messageTemplate: GENERIC_ERROR_MESSAGE_TEMPLATE,
   },
   {
     id: "materiais_construcao",
@@ -352,8 +353,7 @@ const MESSAGE_PRESETS = [
     label: "Materiais de construção",
     segment: "materiais de construção",
     targetType: "pj",
-    messageTemplate:
-      "Oi, tudo bem? Vi a {{cliente}} em {{cidade}}. Aqui é {{funcionario}} da {{empresa}}. O HBX ajuda lojas de materiais de construção a organizar orçamentos, contatos e retornos pelo WhatsApp, sem deixar oportunidade perdida. Quer testar 30 dias grátis?",
+    messageTemplate: GENERIC_ERROR_MESSAGE_TEMPLATE,
   },
 ] as const;
 const PROSPECTING_VARIABLES = [
@@ -365,6 +365,13 @@ const PROSPECTING_VARIABLES = [
   { token: "segmento", label: "Segmento" },
 ];
 
+function getSafePresetFirstContact(presetId: string) {
+  const index = Math.abs(
+    Array.from(presetId).reduce((sum, char) => sum + char.charCodeAt(0), 0),
+  ) % SAFE_FIRST_CONTACT_VARIANTS.length;
+  return SAFE_FIRST_CONTACT_VARIANTS[index];
+}
+
 const DEFAULT_PROSPECTING_CONFIG: ProspectingAutomationConfig = {
   city: "",
   state: "",
@@ -372,17 +379,17 @@ const DEFAULT_PROSPECTING_CONFIG: ProspectingAutomationConfig = {
   engine: "hbx",
   targetType: "pj",
   messageTemplate: GENERIC_ERROR_MESSAGE_TEMPLATE,
-  intervalMinutes: 12,
+  intervalMinutes: 20,
   workingHoursStart: "09:00",
   workingHoursEnd: "17:30",
   minLeadBuffer: 15,
   desiredLeadBuffer: 60,
   maxAttemptsPerLead: 1,
   typingSeconds: 8,
-  typingVarianceSeconds: 6,
+  typingVarianceSeconds: 12,
   positiveIntentKeywords: ["tenho interesse", "pode mandar", "quero saber", "me explica", "quanto custa"],
-  dailyLimit: 30,
-  negativeIntentKeywords: ["não tenho interesse", "sem interesse", "pare", "remover", "spam", "não me chame"],
+  dailyLimit: 15,
+  negativeIntentKeywords: ["não tenho interesse", "não quero", "remover", "pare", "não me chame", "spam", "bloqueia", "não autorizei"],
   optOutMessage: "Entendi. Vou arquivar este contato e não chamaremos novamente.",
   optOutReplyEnabled: false,
   websiteFallbackEnabled: false,
@@ -488,7 +495,14 @@ function humanizeProspectingReason(value?: string | null) {
     no_whatsapp: "Contato sem WhatsApp confirmado.",
     invalid_whatsapp: "Telefone inválido ou sem WhatsApp confirmado.",
     first_contact_already_sent: "Primeiro contato já enviado para esse lead.",
-    negative_or_opt_out: "Lead com negativa ou opt-out.",
+    negative_or_opt_out: "Negativa/opt-out real; recontato bloqueado.",
+    auto_reply_detected: "Autoatendimento detectado; aguardando humano.",
+    bot_menu_detected: "Menu de bot detectado; não é negativa.",
+    out_of_hours_auto_reply: "Fora de horário; não insistir agora.",
+    awaiting_human: "Autoatendimento detectado; aguardando humano.",
+    real_negative_safety_pause: "Campanha pausada por excesso de negativas/opt-outs reais hoje.",
+    auto_reply_streak_safety_pause: "Campanha pausada por sequência de auto-respostas.",
+    repeated_first_contact_review: "Mensagem inicial repetida demais; revisar antes de continuar.",
     radar_protected: "Radar bloqueou por histórico protegido.",
     segment_mismatch_fallback: "Segmento divergente: usando mensagem genérica segura.",
     segment_mismatch_fallback_draft: "Segmento divergente: rascunho genérico preparado.",
@@ -695,6 +709,8 @@ function ProspectingAutomationPanel({
     () => MESSAGE_PRESETS.filter((preset) => preset.group === selectedCampaignTypeId),
     [selectedCampaignTypeId],
   );
+  const messageTemplateHasLink = hasFirstContactLink(config.messageTemplate);
+  const sanitizedMessagePreview = sanitizeFirstContactPreview(config.messageTemplate) || GENERIC_ERROR_MESSAGE_TEMPLATE;
   const cityRequired = requiresProspectingCity(config);
   const advancedFilters = useMemo<HbxAdvancedFiltersValue>(() => ({
     minRating: String(config.filtersJson?.minRating ?? ""),
@@ -763,7 +779,7 @@ function ProspectingAutomationPanel({
       ...current,
       segment: preset.segment,
       targetType: preset.targetType,
-      messageTemplate: preset.messageTemplate,
+      messageTemplate: getSafePresetFirstContact(preset.id),
     }));
   };
   const applyCampaignType = (campaignTypeId: CampaignTypeId) => {
@@ -778,7 +794,7 @@ function ProspectingAutomationPanel({
       ...current,
       segment: preset.segment,
       targetType: preset.targetType,
-      messageTemplate: preset.messageTemplate,
+      messageTemplate: getSafePresetFirstContact(preset.id),
     }));
   };
   const insertVariable = (token: string) => {
@@ -853,7 +869,7 @@ function ProspectingAutomationPanel({
             <HbxQuantitySelector
               value={config.dailyLimit}
               onChange={(value) => setNumberField("dailyLimit", String(value), 1)}
-              options={[10, 20, 30, 40, 50, 75, 100]}
+              options={[10, 15, 20, 30, 40, 50]}
               limitLabel="Novos contatos por dia"
               helperText="Quantidade de pessoas diferentes que podem receber uma mensagem automática com sucesso hoje."
             />
@@ -914,8 +930,8 @@ function ProspectingAutomationPanel({
           <div className={styles.riskNotice}>
             <strong>Exemplo operacional</strong>
             <p>
-              Com 10 novos contatos/dia, 1 tentativa por lead e intervalo de 12min, o bot pode abordar até 10 pessoas diferentes hoje, uma vez cada,
-              respeitando 12min entre envios reais. Leads pulados por revisão, sem WhatsApp ou já contatados não consomem limite.
+              Para amanhã, use 15 novos contatos/dia, 1 tentativa por lead, intervalo mínimo de 20min e variação de typing.
+              Leads pulados por revisão, sem WhatsApp ou já contatados não consomem limite.
             </p>
           </div>
         </section>
@@ -978,6 +994,7 @@ function ProspectingAutomationPanel({
                     setField("messageTemplate", event.target.value);
                   }}
                 />
+                <small>Primeiro contato não envia links automaticamente. Links só depois que a pessoa responder.</small>
               </label>
               <label>
                 <span>Encerramento negativo</span>
@@ -991,6 +1008,11 @@ function ProspectingAutomationPanel({
                 />
               </label>
             </div>
+            {messageTemplateHasLink ? (
+              <div className={styles.riskNotice}>
+                O link será removido no primeiro contato para proteger o número.
+              </div>
+            ) : null}
             <label className={styles.toggleCard}>
               <span>
                 <strong>Responder encerramento negativo</strong>
@@ -1063,7 +1085,7 @@ function ProspectingAutomationPanel({
                 </div>
                 <div className={styles.prospectingBotBubble}>
                   <small>Disparo inicial</small>
-                  <p>{renderProspectingPreview(config.messageTemplate, config, previewVariables)}</p>
+                  <p>{renderProspectingPreview(sanitizedMessagePreview, config, previewVariables)}</p>
                 </div>
                 <div className={styles.prospectingCustomerBubble}>Não tenho interesse, remova meu contato.</div>
                 {config.optOutReplyEnabled ? (
