@@ -54,8 +54,16 @@
   line-height: 1.4;
 }
 
-.transferPanel button {
+.transferActions {
   flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.transferPanel button {
   min-height: 42px;
   border: 1px solid color-mix(in srgb, var(--success) 34%, var(--line));
   border-radius: 10px;
@@ -64,6 +72,12 @@
   font-weight: 900;
   padding: 0 14px;
   cursor: pointer;
+}
+
+.transferPanel button[data-variant="secondary"] {
+  border-color: color-mix(in srgb, var(--brand) 28%, var(--line));
+  background: color-mix(in srgb, var(--surface-raised) 92%, var(--background));
+  color: var(--foreground);
 }
 
 .transferPanel button:disabled {
@@ -96,21 +110,31 @@
 
 .filters {
   display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-template-columns: repeat(12, minmax(0, 1fr));
   gap: 12px;
   border-radius: 16px;
   padding: 14px;
 }
 
-.filterWide {
+.filterLocation,
+.filterAdvanced {
+  grid-column: span 6;
+  min-width: 0;
+}
+
+.filterSegment {
   grid-column: span 3;
   min-width: 0;
 }
 
-.locationFilters {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
+.filterEngine {
+  grid-column: span 2;
+  min-width: 0;
+}
+
+.filterTarget {
+  grid-column: span 5;
+  min-width: 0;
 }
 
 .filters label {
@@ -158,9 +182,12 @@
 }
 
 .filterActions {
+  grid-column: 1 / -1;
   display: flex;
-  align-items: end;
+  align-items: center;
+  justify-content: flex-end;
   gap: 8px;
+  flex-wrap: wrap;
 }
 
 .filterActions button,
@@ -396,7 +423,18 @@
 
 @media (max-width: 1180px) {
   .filters {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+  }
+
+  .filterLocation,
+  .filterAdvanced,
+  .filterTarget {
+    grid-column: 1 / -1;
+  }
+
+  .filterSegment,
+  .filterEngine {
+    grid-column: span 3;
   }
 
   .grid {
@@ -408,7 +446,6 @@
   .summaryBar,
   .transferPanel,
   .filters,
-  .locationFilters,
   .grid,
   .metaGrid,
   .actions {
@@ -423,6 +460,19 @@
   .transferPanel {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .transferActions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .filterLocation,
+  .filterAdvanced,
+  .filterSegment,
+  .filterEngine,
+  .filterTarget {
+    grid-column: 1 / -1;
   }
 
   .cardHeader {

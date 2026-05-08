@@ -145,7 +145,7 @@ export class CommercialPlansService {
     const vendas = hasWithManualFallback(COMMERCIAL_ENTITLEMENT_KEYS.VENDAS) || this.isCompanyTrialingVendas(company);
     const botIa = vendas && hasWithManualFallback(COMMERCIAL_ENTITLEMENT_KEYS.BOT_IA);
     const radarPremium = hasWithManualFallback(COMMERCIAL_ENTITLEMENT_KEYS.RADAR_PREMIUM);
-    const nightFactory = botIa && hasWithManualFallback(COMMERCIAL_ENTITLEMENT_KEYS.NIGHT_FACTORY);
+    const nightFactory = hasWithManualFallback(COMMERCIAL_ENTITLEMENT_KEYS.NIGHT_FACTORY);
     const recoveryIntelligence = hasWithManualFallback(COMMERCIAL_ENTITLEMENT_KEYS.RECOVERY_INTELLIGENCE);
 
     return {

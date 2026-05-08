@@ -214,13 +214,13 @@ const MASTER_SHORTCUTS = [
     meta: "jhonatan@hbx.com.br",
   },
   {
-    title: "Webscraping/Radar",
+    title: "Banco dos Motores",
     eyebrow: "Massa de Dados",
-    description: "Radar técnico, 20 motores HBX, campanhas mass_data e retomada automática pelo banco.",
+    description: "Painel do banco HBX: 20 motores, coleta noturna, filas e saúde resumida.",
     href: "/master/webscraping",
-    action: "Abrir radar",
+    action: "Abrir banco",
     tone: "hostinger",
-    meta: "M1-M20 + Banco Radar",
+    meta: "M1-M20 + Radar",
   },
   {
     title: "Night Factory",
@@ -542,8 +542,8 @@ export default function MasterHomeClientPage() {
       const currentTime = current ? new Date(current.latest.lastSeenAt).getTime() : 0;
       const latest = !current || sessionTime > currentTime ? session : current.latest;
       const modules = new Map<string, { key: string; name: string }>();
-      for (const module of current?.modules || []) modules.set(module.key, module);
-      for (const module of session.modules || []) modules.set(module.key, module);
+      for (const moduleEntry of current?.modules || []) modules.set(moduleEntry.key, moduleEntry);
+      for (const moduleEntry of session.modules || []) modules.set(moduleEntry.key, moduleEntry);
 
       groups.set(session.userId, {
         userId: session.userId,
