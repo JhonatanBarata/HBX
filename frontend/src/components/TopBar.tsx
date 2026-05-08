@@ -162,6 +162,11 @@ type TopbarCommandPayload<TParsed = unknown> = {
   error?: string | null;
   parsed?: TParsed | null;
 };
+type TopbarServiceHealth = {
+  status?: string;
+  responseMs?: number | null;
+  error?: string | null;
+};
 type TopbarSystemHealthPayload = {
   generatedAt: string;
   memory?: TopbarCommandPayload<{
@@ -178,6 +183,19 @@ type TopbarSystemHealthPayload = {
     usagePercent?: string | number | null;
     mount?: string | null;
   }>;
+  load?: TopbarCommandPayload<{
+    oneMinute?: string | number | null;
+    fiveMinutes?: string | number | null;
+    fifteenMinutes?: string | number | null;
+  }> & { loadavg?: string | null };
+  uptime?: TopbarCommandPayload & {
+    seconds?: number | null;
+    formatted?: string | null;
+  };
+  postgres?: TopbarServiceHealth;
+  api?: TopbarServiceHealth & {
+    processUptimeSeconds?: number | null;
+  };
 };
 type TopbarSystemVital = {
   id: "memory" | "disk";
@@ -258,6 +276,19 @@ type BillboardSlide = {
   metrics?: TopbarProgressMetric[];
 };
 
+type TopbarSignalTone = "success" | "warning" | "danger" | "neutral" | "loading";
+type TopbarOperationalTile = {
+  id: string;
+  label: string;
+  value: string;
+  detail: string;
+  tone: TopbarSignalTone;
+  usage?: number | null;
+};
+type TopbarHostingerVital = TopbarOperationalTile & {
+  source?: string | null;
+};
+
 type HbxPrefetchWindow = Window & {
   __hbx_prefetch?: {
     modules: UserModule[];
@@ -276,7 +307,7 @@ const SUPPORT_MESSAGE = "Olá, preciso de ajuda com o HBX!";
 
 const hiddenRoutes = new Set(["/login", "/register", "/reset-password", "/confirm-email", "/boasvindas", "/tutorial"]);
 const SCRAPING_ENGINE_POLL_MS = 5000;
-const SYSTEM_HEALTH_POLL_MS = 5000;
+const SYSTEM_HEALTH_REFRESH_DETAIL = "Sem atualização automática";
 const TOPBAR_HBX_ENGINE_COUNT = 20;
 const HBX_GAUGE_BOOT_MS = 1350;
 
@@ -339,27 +370,6 @@ function getScrapingEngineState(engine: ScrapingEngineStatus) {
   if (status === "offline") return "offline";
   if (status === "cooldown") return "cooldown";
   if (status === "degraded") return "degraded";
-  return "standby";
-}
-
-function getScrapingEngineValue(engine: ScrapingEngineStatus) {
-  const label = String(engine.stateLabel || "").trim();
-  if (label) {
-    if (/turbo armado/i.test(label)) return "armado";
-    if (/standby/i.test(label)) return "standby";
-    if (/aguardando/i.test(label)) return "fila";
-    if (/rodando/i.test(label)) return "rodando";
-    if (/cooldown/i.test(label)) return "frio";
-    if (/offline/i.test(label)) return "off";
-    if (/healthcheck/i.test(label)) return "sem sinal";
-  }
-  const state = getScrapingEngineState(engine);
-  if (state === "emergency") return "ativo";
-  if (state === "paused") return "pausado";
-  if (state === "busy") return "rodando";
-  if (state === "cooldown") return "frio";
-  if (state === "offline" || state === "missing") return "off";
-  if (state === "degraded") return "falha";
   return "standby";
 }
 
@@ -433,6 +443,41 @@ function formatTopbarKb(value?: number | null) {
   if (gb >= 1) return `${gb >= 10 ? Math.round(gb) : gb.toFixed(1)} GB`;
   const mb = numeric / 1024;
   return `${mb >= 10 ? Math.round(mb) : mb.toFixed(1)} MB`;
+}
+
+function formatTopbarDateTime(value?: string | null) {
+  const iso = String(value || "").trim();
+  if (!iso) return "-";
+  const parsed = new Date(iso);
+  if (Number.isNaN(parsed.getTime())) return "-";
+  return parsed.toLocaleString("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+}
+
+function formatTopbarMs(value?: number | null) {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? `${Math.max(0, Math.round(numeric))} ms` : "--";
+}
+
+function serviceStatusLabel(status?: string | null) {
+  const normalized = String(status || "").trim().toLowerCase();
+  if (normalized === "ok") return "OK";
+  if (normalized === "error") return "Erro";
+  if (normalized === "unavailable") return "Indisponível";
+  return status ? String(status) : "Em leitura";
+}
+
+function serviceTone(status?: string | null): TopbarSignalTone {
+  const normalized = String(status || "").trim().toLowerCase();
+  if (normalized === "ok") return "success";
+  if (normalized === "error") return "danger";
+  return "warning";
 }
 
 function systemVitalTone(usage: number | null): TopbarSystemVital["tone"] {
@@ -808,7 +853,7 @@ export default function TopBar() {
       return payload;
     } catch (error) {
       const message = error instanceof Error ? error.message : "Falha ao carregar o diagnostico do WhatsApp.";
-      setWhatsAppDetailError(message);
+      if (!options?.background) setWhatsAppDetailError(message);
       return null;
     } finally {
       if (!options?.background) setWhatsAppDetailLoading(false);
@@ -851,7 +896,7 @@ export default function TopBar() {
       return nextPayload;
     } catch (error) {
       const message = error instanceof Error ? error.message : "Falha ao carregar a conexão rápida por QR.";
-      setWhatsAppDetailError(message);
+      if (!options?.background) setWhatsAppDetailError(message);
       return null;
     } finally {
       if (!options?.background) setWhatsAppModalLoading(false);
@@ -981,22 +1026,6 @@ export default function TopBar() {
       return "busy";
     },
     [isLiveScrapingEngine],
-  );
-
-  const getVisibleScrapingEngineValue = React.useCallback(
-    (engine: ScrapingEngineStatus) => {
-      if (isLiveScrapingEngine(engine)) return "girando";
-      return getScrapingEngineValue(engine);
-    },
-    [isLiveScrapingEngine],
-  );
-
-  const getVisibleScrapingEngineDetail = React.useCallback(
-    (engine: ScrapingEngineStatus) => {
-      if (!isLiveScrapingEngine(engine)) return engine.detail;
-      return `${engine.label} em coleta ao vivo. ${topbarProgress?.status || engine.detail}`;
-    },
-    [isLiveScrapingEngine, topbarProgress?.status],
   );
 
   const hasActiveScrapingEngine = scrapingEngineView.hasActive || liveWebscrapingProgress;
@@ -1145,6 +1174,79 @@ export default function TopBar() {
       },
     ];
   }, [systemHealth]);
+  const hostingerVitals = useMemo<TopbarHostingerVital[]>(() => {
+    const memory = systemHealth?.memory?.parsed;
+    const disk = systemHealth?.disk?.parsed;
+    const load = systemHealth?.load?.parsed;
+    const memoryUsage = normalizePercentValue(memory?.usagePercent);
+    const diskUsage = normalizePercentValue(disk?.usagePercent);
+    const postgresTone = serviceTone(systemHealth?.postgres?.status);
+    const apiTone = serviceTone(systemHealth?.api?.status);
+
+    return [
+      {
+        id: "memory",
+        label: "RAM",
+        value: memory
+          ? `${formatTopbarKb(memory.usedKb)} / ${formatTopbarKb(memory.totalKb)} (${formatTopbarPercent(memory.usagePercent)})`
+          : "--",
+        detail: systemHealth?.memory?.source || "free -h",
+        tone: memoryUsage === null ? "warning" : memoryUsage >= 86 ? "danger" : memoryUsage >= 72 ? "warning" : "success",
+        usage: memoryUsage,
+        source: systemHealth?.memory?.source || "free -h",
+      },
+      {
+        id: "load",
+        label: "CPU / Load",
+        value: load
+          ? `${load.oneMinute ?? "-"} / ${load.fiveMinutes ?? "-"} / ${load.fifteenMinutes ?? "-"}`
+          : "--",
+        detail: "1m / 5m / 15m",
+        tone: systemHealth?.load?.status === "ok" ? "success" : "warning",
+        usage: null,
+      },
+      {
+        id: "disk",
+        label: "Disco",
+        value: formatTopbarPercent(disk?.usagePercent),
+        detail: disk ? `${disk.used || "-"} usados de ${disk.size || "-"} em ${disk.mount || "/"}` : "Aguardando leitura do disco",
+        tone: diskUsage === null ? "warning" : diskUsage >= 86 ? "danger" : diskUsage >= 72 ? "warning" : "success",
+        usage: diskUsage,
+      },
+      {
+        id: "uptime",
+        label: "Uptime",
+        value: String(systemHealth?.uptime?.formatted || "--"),
+        detail: "Uptime do sistema",
+        tone: systemHealth?.uptime?.status === "ok" ? "success" : "warning",
+        usage: null,
+      },
+      {
+        id: "postgres",
+        label: "Postgres",
+        value: serviceStatusLabel(systemHealth?.postgres?.status),
+        detail: formatTopbarMs(systemHealth?.postgres?.responseMs),
+        tone: postgresTone,
+        usage: postgresTone === "success" ? 100 : postgresTone === "danger" ? 18 : 48,
+      },
+      {
+        id: "api",
+        label: "API",
+        value: serviceStatusLabel(systemHealth?.api?.status),
+        detail: formatTopbarMs(systemHealth?.api?.responseMs),
+        tone: apiTone,
+        usage: apiTone === "success" ? 100 : apiTone === "danger" ? 18 : 48,
+      },
+      {
+        id: "updated",
+        label: "Atualizado em",
+        value: formatTopbarDateTime(systemHealth?.generatedAt),
+        detail: SYSTEM_HEALTH_REFRESH_DETAIL,
+        tone: systemHealth?.generatedAt ? "neutral" : "warning",
+        usage: null,
+      },
+    ];
+  }, [systemHealth]);
 
   const operationalStatusReady = Boolean(
     authenticated &&
@@ -1189,6 +1291,119 @@ export default function TopBar() {
     }
     return `${preferred.label}: ${preferred.value}`;
   }, [operationalStatusMap]);
+  const qrOperationalTile = useMemo<TopbarOperationalTile>(() => {
+    const qrConnection = whatsAppCenter?.center.qrConnection;
+    const modalStatus = whatsAppModal?.status || null;
+    const providerHealth = whatsAppModal?.data.providerHealth || null;
+    const webWhatsChip = operationalStatusMap.get("webwhats");
+    const qrDetailSource =
+      whatsAppModal?.data.phone ||
+      qrConnection?.displayNumber ||
+      whatsAppModal?.data.lastError ||
+      qrConnection?.errorMessage ||
+      webWhatsChip?.detail ||
+      "Saúde do QR Code";
+
+    if (whatsAppModalLoading) {
+      return {
+        id: "qr",
+        label: "QR Code",
+        value: "Carregando",
+        detail: qrDetailSource,
+        tone: "loading",
+        usage: 58,
+      };
+    }
+
+    if (modalStatus === "connected" || qrConnection?.liveStatus === "connected") {
+      return {
+        id: "qr",
+        label: "QR Code",
+        value: "Conectado",
+        detail: qrDetailSource,
+        tone: "success",
+        usage: 100,
+      };
+    }
+
+    if (modalStatus === "waiting_qr" || qrConnection?.liveStatus === "qr_ready") {
+      return {
+        id: "qr",
+        label: "QR Code",
+        value: "Aguardando leitura",
+        detail: qrDetailSource,
+        tone: "warning",
+        usage: 72,
+      };
+    }
+
+    if (modalStatus === "starting") {
+      return {
+        id: "qr",
+        label: "QR Code",
+        value: "Iniciando",
+        detail: qrDetailSource,
+        tone: "loading",
+        usage: 48,
+      };
+    }
+
+    if (modalStatus === "error" || qrConnection?.liveStatus === "error" || providerHealth === "misconfigured") {
+      return {
+        id: "qr",
+        label: "QR Code",
+        value: "Atenção",
+        detail: qrDetailSource,
+        tone: "danger",
+        usage: 20,
+      };
+    }
+
+    if (
+      modalStatus === "offline" ||
+      modalStatus === "disconnected" ||
+      providerHealth === "disabled" ||
+      providerHealth === "unavailable" ||
+      qrConnection?.liveStatus === "idle"
+    ) {
+      return {
+        id: "qr",
+        label: "QR Code",
+        value: "Off",
+        detail: qrDetailSource === "Saúde do QR Code" ? "QR rápido offline, sem sessão ativa." : qrDetailSource,
+        tone: "neutral",
+        usage: 12,
+      };
+    }
+
+    if (providerHealth === "healthy" || webWhatsChip?.tone === "green") {
+      return {
+        id: "qr",
+        label: "QR Code",
+        value: webWhatsChip?.value || "Saudável",
+        detail: qrDetailSource,
+        tone: "success",
+        usage: 88,
+      };
+    }
+
+    return {
+      id: "qr",
+      label: "QR Code",
+      value: webWhatsChip?.value || "Em leitura",
+      detail: qrDetailSource,
+      tone: webWhatsChip?.tone === "red" ? "danger" : webWhatsChip?.tone === "yellow" ? "warning" : "warning",
+      usage: 42,
+    };
+  }, [
+    operationalStatusMap,
+    whatsAppCenter?.center.qrConnection,
+    whatsAppModal?.data.lastError,
+    whatsAppModal?.data.phone,
+    whatsAppModal?.data.providerHealth,
+    whatsAppModal?.status,
+    whatsAppModalLoading,
+  ]);
 
   useLayoutEffect(() => {
     function refreshAuthState() {
@@ -1358,14 +1573,36 @@ export default function TopBar() {
     }
 
     void refreshSystemHealth();
+  }, [authenticated, refreshSystemHealth, user?.isSystemMaster]);
+
+  useEffect(() => {
+    const hasWhatsAppContext = Boolean(user?.company?.id || user?.masterContext?.active);
+    if (authenticated !== true || pendingCheckoutLocked || isMasterWebscrapingRoute || !hasWhatsAppContext) {
+      setWhatsAppCenter(null);
+      setWhatsAppModal(null);
+      return;
+    }
+
+    void loadWhatsAppCenter({ background: true });
+    void loadWhatsAppModal({ background: true, includeQr: false });
+
     const timer = window.setInterval(() => {
-      void refreshSystemHealth();
-    }, SYSTEM_HEALTH_POLL_MS);
+      void loadWhatsAppCenter({ background: true });
+      void loadWhatsAppModal({ background: true, includeQr: false });
+    }, 30000);
 
     return () => {
       window.clearInterval(timer);
     };
-  }, [authenticated, refreshSystemHealth, user?.isSystemMaster]);
+  }, [
+    authenticated,
+    isMasterWebscrapingRoute,
+    loadWhatsAppCenter,
+    loadWhatsAppModal,
+    pendingCheckoutLocked,
+    user?.company?.id,
+    user?.masterContext?.active,
+  ]);
 
   useEffect(() => {
     if (!whatsAppDetailMessage) return;
@@ -2353,6 +2590,23 @@ export default function TopBar() {
       : pendingHumanCount > 0
         ? `${pendingHumanCount} na fila`
         : "Status em leitura";
+  const hostingerSummaryTile = useMemo<TopbarOperationalTile>(() => {
+    const critical = hostingerVitals.some((vital) => vital.tone === "danger");
+    const attention = hostingerVitals.some((vital) => vital.tone === "warning" || vital.tone === "loading");
+    const ram = hostingerVitals.find((vital) => vital.id === "memory");
+    const disk = hostingerVitals.find((vital) => vital.id === "disk");
+    const postgres = hostingerVitals.find((vital) => vital.id === "postgres");
+    const api = hostingerVitals.find((vital) => vital.id === "api");
+
+    return {
+      id: "hostinger",
+      label: "Hostinger",
+      value: critical ? "Atenção" : attention ? "Em leitura" : "OK",
+      detail: `${ram?.label || "RAM"} ${ram?.value || "--"} • HD ${disk?.value || "--"} • PG ${postgres?.detail || "--"} • API ${api?.detail || "--"}`,
+      tone: critical ? "danger" : attention ? "warning" : "success",
+      usage: critical ? 28 : attention ? 58 : 94,
+    };
+  }, [hostingerVitals]);
   const visibleOperationalStatusChips = useMemo(() => {
     if (pendingCheckoutLocked) return [];
     return (operationalStatus?.statuses || []).filter((chip) => {
@@ -2441,6 +2695,55 @@ export default function TopBar() {
       },
     ];
 
+    if (incomingPopup) {
+      slides.push({
+        id: `incoming:${incomingPopup.id}`,
+        eyebrow: incomingPopup.attentionLabel || "Mensagem",
+        title: `${incomingPopup.contactPhone || incomingPopup.customerLabel || "Cliente"} mandou mensagem`,
+        description: incomingPopup.preview || incomingPopup.moduleLabel || "Nova mensagem aguardando ação.",
+        phase: "warning",
+        source: "incoming",
+        progress: null,
+        metrics: [
+          { label: "Origem", value: incomingPopup.moduleLabel },
+          { label: "Fila", value: String(pendingHumanCount) },
+          { label: "Não lidas", value: String(unreadInboxCount) },
+        ],
+      });
+    }
+
+    if (qrOperationalTile.tone !== "neutral") {
+      slides.push({
+        id: `qr:${qrOperationalTile.value}:${qrOperationalTile.tone}`,
+        eyebrow: "Saúde do QR Code",
+        title: qrOperationalTile.value,
+        description: qrOperationalTile.detail,
+        phase: qrOperationalTile.tone === "danger" || qrOperationalTile.tone === "warning" ? "warning" : qrOperationalTile.tone === "loading" ? "loading" : "success",
+        source: "qr",
+        progress: qrOperationalTile.usage,
+        metrics: [
+          { label: "QR", value: qrOperationalTile.value },
+          { label: "WhatsApp", value: whatsAppHealthLabel },
+        ],
+      });
+    }
+
+    if (user?.isSystemMaster) {
+      slides.push({
+        id: `hostinger:${systemHealth?.generatedAt || "pending"}`,
+        eyebrow: "Hostinger",
+        title: hostingerSummaryTile.value,
+        description: hostingerSummaryTile.detail,
+        phase: hostingerSummaryTile.tone === "danger" || hostingerSummaryTile.tone === "warning" ? "warning" : "success",
+        source: "hostinger",
+        progress: hostingerSummaryTile.usage,
+        metrics: hostingerVitals
+          .filter((vital) => vital.id === "memory" || vital.id === "disk" || vital.id === "api")
+          .map((vital) => ({ label: vital.label, value: vital.value }))
+          .slice(0, 3),
+      });
+    }
+
     if (visibleOperationalStatusChips.length) {
       const chipMetrics = visibleOperationalStatusChips.slice(0, 3).map((chip) => ({
         label: chip.shortLabel || chip.label,
@@ -2479,20 +2782,27 @@ export default function TopBar() {
     accountContext,
     atendimentoPendingHumanCount,
     hasActiveScrapingEngine,
+    hostingerSummaryTile,
+    hostingerVitals,
     hbxProcessedLast10Min,
     hbxRunningCount,
     hbxUsageAverage,
+    incomingPopup,
     masterContextToast,
     operationalSummaryMessage,
     pendingCheckoutLocked,
     pendingHumanCount,
     progressEngineLabel,
+    qrOperationalTile,
     recoveryPendingHumanCount,
     scrapingEngines?.capacity,
     showOperationalCompanyPicker,
+    systemHealth?.generatedAt,
     topbarProgress,
     topbarProgressPercent,
+    unreadInboxCount,
     visibleOperationalStatusChips,
+    user?.isSystemMaster,
     whatsAppHealth,
     whatsAppHealthLabel,
   ]);
@@ -2652,7 +2962,119 @@ export default function TopBar() {
   const _initialSource = displayName || String(user?.username || user?.email || "");
   const displayInitial = _initialSource ? _initialSource.charAt(0).toUpperCase() : "U";
   const displayLabel = displayName ? `User: ${displayName}` : user?.username ? `User: ${user.username}` : "";
-  const controlCenterEngines = scrapingEngineView.hbxEngines.slice(0, 4);
+  const hbxEngineGroups = Array.from({ length: 4 }, (_, groupIndex) => {
+    const engines = scrapingEngineView.hbxEngines.length
+      ? scrapingEngineView.hbxEngines
+      : Array.from({ length: TOPBAR_HBX_ENGINE_COUNT }, (_, index) => buildFallbackScrapingEngine(index));
+    const groupSize = Math.max(1, Math.ceil(engines.length / 4));
+    const groupEngines = engines.slice(groupIndex * groupSize, (groupIndex + 1) * groupSize);
+    const safeGroupEngines = groupEngines.length ? groupEngines : [buildFallbackScrapingEngine(groupIndex)];
+    const onlineCount = safeGroupEngines.filter((engine) => engine.configured && engine.online).length;
+    const runningCount = safeGroupEngines.filter((engine) => {
+      const state = getVisibleScrapingEngineState(engine);
+      return engine.active || engine.busy || isLiveScrapingEngine(engine) || state === "busy" || state === "emergency";
+    }).length;
+    const cooldownCount = safeGroupEngines.filter((engine) => getVisibleScrapingEngineState(engine) === "cooldown").length;
+    const pausedCount = safeGroupEngines.filter((engine) => getVisibleScrapingEngineState(engine) === "paused").length;
+    const errorCount = safeGroupEngines.filter((engine) => {
+      const state = getVisibleScrapingEngineState(engine);
+      return state === "degraded" || state === "offline" || state === "missing";
+    }).length;
+    const usage = Math.round(
+      safeGroupEngines.reduce((sum, engine) => sum + getEngineUsage(engine), 0) / Math.max(1, safeGroupEngines.length),
+    );
+    const state =
+      errorCount > 0
+        ? "error"
+        : runningCount > 0
+          ? "running"
+          : cooldownCount > 0
+            ? "cooldown"
+            : pausedCount > 0
+              ? "paused"
+              : onlineCount > 0
+                ? "standby"
+                : "offline";
+    const stateLabel =
+      state === "running"
+        ? "Rodando"
+        : state === "cooldown"
+          ? "Cooldown"
+          : state === "paused"
+            ? "Pausado"
+            : state === "error"
+              ? "Erro"
+              : state === "offline"
+                ? "Off"
+                : "Standby";
+    const firstIndex = groupIndex * groupSize + 1;
+    const lastIndex = firstIndex + safeGroupEngines.length - 1;
+
+    return {
+      id: `hbx-group-${groupIndex + 1}`,
+      label: `M${groupIndex + 1}`,
+      range: `${firstIndex}-${lastIndex}`,
+      state,
+      stateLabel,
+      usage,
+      onlineCount,
+      runningCount,
+      total: safeGroupEngines.length,
+      bars: safeGroupEngines.map((engine) => {
+        const engineUsage = getEngineUsage(engine);
+        const engineState = getVisibleScrapingEngineState(engine);
+        return {
+          id: engine.id,
+          label: getScrapingEngineShortLabel(engine),
+          usage: Math.max(8, engineUsage),
+          state: engineState,
+          active: engine.active || engine.busy || isLiveScrapingEngine(engine) || engineState === "busy" || engineState === "emergency",
+        };
+      }),
+    };
+  });
+  const commandKpis = [
+    {
+      id: "memory",
+      label: "Memória Hostinger",
+      value: hostingerVitals.find((vital) => vital.id === "memory")?.value || "--",
+      detail: hostingerVitals.find((vital) => vital.id === "memory")?.detail || "free -h",
+      tone: hostingerVitals.find((vital) => vital.id === "memory")?.tone || "neutral",
+      usage: hostingerVitals.find((vital) => vital.id === "memory")?.usage ?? null,
+    },
+    {
+      id: "disk",
+      label: "Espaço",
+      value: hostingerVitals.find((vital) => vital.id === "disk")?.value || "--",
+      detail: hostingerVitals.find((vital) => vital.id === "disk")?.detail || "Disco da VPS",
+      tone: hostingerVitals.find((vital) => vital.id === "disk")?.tone || "neutral",
+      usage: hostingerVitals.find((vital) => vital.id === "disk")?.usage ?? null,
+    },
+    {
+      id: "messages",
+      label: "Mensagens recebidas",
+      value: String(Math.max(unreadInboxCount, pendingHumanCount)),
+      detail: pendingHumanCount > 0 ? `${pendingHumanCount} na fila humana` : "Inbox sem pressão",
+      tone: pendingHumanCount > 0 || unreadInboxCount > 0 ? "warning" : "success",
+      usage: pendingHumanCount > 0 || unreadInboxCount > 0 ? 72 : 100,
+    },
+    {
+      id: "queue",
+      label: "Cards esperando",
+      value: String(hbxQueueCount),
+      detail: `${hbxCapacityRunningCount} rodando agora`,
+      tone: hbxQueueCount > 0 ? "warning" : "success",
+      usage: hbxQueueGaugeUsage,
+    },
+    {
+      id: "qr",
+      label: "QR Code",
+      value: qrOperationalTile.value,
+      detail: qrOperationalTile.detail,
+      tone: qrOperationalTile.tone,
+      usage: qrOperationalTile.usage ?? null,
+    },
+  ];
   if (hiddenRoutes.has(pathname)) {
     return null;
   }
@@ -2661,132 +3083,141 @@ export default function TopBar() {
     <header className={`app-topbar${topbarHiddenByScroll ? " app-topbar--hidden" : ""}`}>
       <div ref={topbarFrameRef} className="app-topbar__frame">
         <div className="app-topbar__inner app-topbar__inner--controlCenter">
-          <section className="hbx-control-brand" aria-label="HBX Control Center">
+          <section className="hbx-command-brand" aria-label="HBX Control Center">
             <button
               id={MODULES_TRIGGER_ID}
               type="button"
-              className={`hbx-control-brand__mark${modulesPeekOpen ? " is-open" : ""}`}
+              className={`hbx-command-brand__mark${modulesPeekOpen ? " is-open" : ""}`}
               onClick={handleModulesTrigger}
               aria-controls="workspace-hover-module-nav"
               aria-expanded={modulesPeekAvailable ? modulesPeekOpen : undefined}
-              aria-label={modulesPeekAvailable ? "Abrir modulos" : "Ir para o dashboard"}
-              title={modulesPeekAvailable ? "Modulos" : "Dashboard"}
+              aria-label={modulesPeekAvailable ? "Abrir modulos pelo HBX" : "Ir para o dashboard"}
+              title={modulesPeekAvailable ? "HBX Modulos" : "Dashboard"}
             >
               HBX
               <span aria-hidden="true" />
             </button>
-            <div className="hbx-control-brand__copy">
+            <div className="hbx-command-brand__copy">
               <strong>HBX Control Center</strong>
               <span>Central operacional</span>
             </div>
           </section>
 
           <section
-            className="hbx-control-status"
+            className="hbx-command-center"
             data-active={hasActiveScrapingEngine ? "true" : "false"}
             data-live={liveWebscrapingProgress ? "true" : "false"}
-            aria-label="Status operacional dos motores HBX"
+            aria-label="Status operacional HBX"
           >
-            <div className="hbx-control-status__head">
-              <span className="hbx-control-led" aria-hidden="true" />
-              <span>Status operacional</span>
-              <strong>Empresa: {operationalStatus?.context.companyName || user?.company?.name || "HBX"}</strong>
-            </div>
-            <div className="hbx-control-engineGrid">
-              {(controlCenterEngines.length ? controlCenterEngines : scrapingEngineView.hbxEngines.slice(0, 4)).map((engine, index) => {
-                const usage = getEngineUsage(engine);
-                const state = getVisibleScrapingEngineState(engine);
-                const active = engine.active || isLiveScrapingEngine(engine);
-                const label = getScrapingEngineShortLabel(engine) || `M${index + 1}`;
-                const title = `${label}: ${usage}% (${getVisibleScrapingEngineValue(engine)}). ${getVisibleScrapingEngineDetail(engine) || ""}`;
-
-                return (
+            <div className="hbx-command-center__body">
+              <div className="hbx-command-engines" aria-label="Motores HBX agrupados">
+                {hbxEngineGroups.map((group) => (
                   <article
-                    key={engine.id || label}
-                    className="hbx-control-engine"
-                    data-state={state}
-                    data-active={active ? "true" : "false"}
-                    style={getEngineGaugeStyle(usage)}
-                    title={title}
+                    key={group.id}
+                    className="hbx-command-engine"
+                    data-state={group.state}
+                    style={getEngineGaugeStyle(group.usage)}
+                    title={`${group.label}: ${group.stateLabel}. Motores ${group.range}. ${group.runningCount}/${group.total} rodando, ${group.onlineCount}/${group.total} online.`}
                   >
-                    <div className="hbx-control-engine__top">
-                      <span className="hbx-control-led" aria-hidden="true" />
-                      <strong>{label}</strong>
-                      <small>{active ? "Ativo" : state === "standby" ? "Standby" : getVisibleScrapingEngineValue(engine)}</small>
+                    <div className="hbx-command-engine__top">
+                      <div>
+                        <span className="hbx-command-engine__range">Motores {group.range}</span>
+                        <strong>{group.label}</strong>
+                      </div>
+                      <span>{group.stateLabel}</span>
                     </div>
-                    <div className="hbx-control-engine__body">
-                      <span className="hbx-control-ring" aria-hidden="true">
-                        <b>{usage}%</b>
+                    <div className="hbx-command-engine__mid">
+                      <span className="hbx-command-engine__gauge" aria-hidden="true">
+                        <b>{group.usage}%</b>
                         <small>uso</small>
                       </span>
-                      <span className="hbx-control-miniChart" aria-hidden="true">
-                        {[22, 58, 34, 74, 42, 66, 28].map((height, chartIndex) => (
-                          <i key={chartIndex} style={{ height: `${Math.max(10, Math.min(86, height + ((usage - 50) / 6)))}%` }} />
+                      <span className="hbx-command-engine__bars" aria-hidden="true">
+                        {group.bars.map((bar) => (
+                          <i
+                            key={bar.id}
+                            data-state={bar.state}
+                            data-active={bar.active ? "true" : "false"}
+                            style={{ height: `${bar.usage}%` }}
+                            title={`${bar.label}: ${bar.usage}%`}
+                          />
                         ))}
                       </span>
                     </div>
-                    <span className="hbx-control-engine__dots" aria-hidden="true">
-                      {[8, 16, 24, 32, 40, 48, 56, 64, 72, 80, 88, 96].map((threshold) => (
-                        <i key={threshold} data-lit={usage >= threshold ? "true" : "false"} />
+                    <div className="hbx-command-engine__dots" aria-hidden="true">
+                      {group.bars.map((bar) => (
+                        <i key={bar.id} data-state={bar.state} data-active={bar.active ? "true" : "false"} />
                       ))}
-                    </span>
+                    </div>
                   </article>
-                );
-              })}
-            </div>
-            <div className="hbx-control-status__chips" aria-label="Telemetria operacional resumida">
-              {hbxCommandChips.slice(0, 6).map((chip) => (
-                <span key={`${chip.label}:${chip.value}`} data-tone={chip.tone}>
-                  {chip.label}
-                  <strong>{chip.value}</strong>
-                </span>
-              ))}
-            </div>
-          </section>
-
-          <section className="hbx-control-billboard" aria-label="Billboard operacional HBX">
-            <article
-              key={activeBillboardSlide.id}
-              className="app-topbar__billboard"
-              data-phase={activeBillboardSlide.phase}
-              data-theater={activeBillboardSlide.isTheater ? "true" : "false"}
-            >
-              <span className="app-topbar__billboardScan" aria-hidden="true" />
-              <span className="app-topbar__billboardEqualizer" aria-hidden="true">
-                {[0, 1, 2, 3].map((item) => (
-                  <i key={item} style={{ ["--eq-index" as string]: item }} />
                 ))}
-              </span>
-              <div className="app-topbar__billboardMain">
-                <span className="app-topbar__billboardOrb" aria-hidden="true">
-                  <span />
-                </span>
-                <span className="app-topbar__billboardCopy">
-                  <span className="app-topbar__billboardEyebrow">{activeBillboardSlide.eyebrow}</span>
-                  <strong>{activeBillboardSlide.title}</strong>
-                  <p>{activeBillboardSlide.description}</p>
-                </span>
+              </div>
+
+              <article
+                key={activeBillboardSlide.id}
+                className="hbx-command-billboard"
+                data-phase={activeBillboardSlide.phase}
+                data-theater={activeBillboardSlide.isTheater ? "true" : "false"}
+                aria-label="Billboard operacional"
+              >
+                <span className="hbx-command-billboard__scan" aria-hidden="true" />
+                <div className="hbx-command-billboard__main">
+                  <span className="hbx-command-billboard__orb" aria-hidden="true" />
+                  <div>
+                    <span>{activeBillboardSlide.eyebrow}</span>
+                    <strong>{activeBillboardSlide.title}</strong>
+                    <p>{activeBillboardSlide.description}</p>
+                  </div>
+                  {activeBillboardProgress !== null ? (
+                    <b>{activeBillboardProgress}%</b>
+                  ) : null}
+                </div>
                 {activeBillboardProgress !== null ? (
-                  <strong className="app-topbar__billboardPercent">{activeBillboardProgress}%</strong>
-                ) : null}
-              </div>
-              {activeBillboardProgress !== null ? (
-                <span className="app-topbar__billboardTrack" aria-hidden="true">
-                  <span style={{ width: `${activeBillboardProgress}%` }} />
-                </span>
-              ) : null}
-              <div className="app-topbar__billboardMetrics">
-                {(activeBillboardSlide.metrics?.length ? activeBillboardSlide.metrics : hbxGaugePanels).slice(0, 3).map((metricItem) => (
-                  <span key={`${metricItem.label}:${metricItem.value}`} title={"title" in metricItem ? metricItem.title : undefined}>
-                    {metricItem.label}
-                    <strong>{metricItem.value}</strong>
+                  <span className="hbx-command-billboard__track" aria-hidden="true">
+                    <i style={{ width: `${activeBillboardProgress}%` }} />
                   </span>
-                ))}
-              </div>
-            </article>
+                ) : null}
+                <div className="hbx-command-billboard__metrics">
+                  {(activeBillboardSlide.metrics?.length ? activeBillboardSlide.metrics : hbxGaugePanels).slice(0, 3).map((metricItem) => (
+                    <span key={`${metricItem.label}:${metricItem.value}`}>
+                      {metricItem.label}
+                      <strong>{metricItem.value}</strong>
+                    </span>
+                  ))}
+                </div>
+
+                <div className="hbx-command-kpis hbx-command-kpis--billboard" aria-label="Sinais conectados ao backend">
+                  {commandKpis.map((item) => (
+                    <span
+                      key={item.id}
+                      data-tone={item.tone}
+                      title={`${item.label}: ${item.value}. ${item.detail}`}
+                      style={
+                        typeof item.usage === "number"
+                          ? ({ ["--kpi-usage" as string]: `${clampTopbarPercent(item.usage)}%` } as React.CSSProperties)
+                          : undefined
+                      }
+                    >
+                      <em>{item.label}</em>
+                      <strong>{item.value}</strong>
+                      <small>{item.detail}</small>
+                      <i aria-hidden="true" />
+                    </span>
+                  ))}
+                </div>
+
+                <div className="hbx-command-chips hbx-command-chips--billboard" aria-label="Resumo operacional dos motores">
+                  {hbxCommandChips.slice(0, 4).map((chip) => (
+                    <span key={`${chip.label}:${chip.value}`} data-tone={chip.tone}>
+                      {chip.label}
+                      <strong>{chip.value}</strong>
+                    </span>
+                  ))}
+                </div>
+              </article>
+            </div>
           </section>
 
-          <section className="hbx-control-side" aria-label="Tema e usuário">
+          <section className="hbx-command-side" aria-label="Tema e usuário">
             <ThemeSwitcher />
             <div className="hbx-control-accountRow">
               {user ? (
