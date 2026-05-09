@@ -303,7 +303,7 @@ function HbxGenericSlide({
   }
 
   return (
-    <article className={cx("hbxp-slide-card", `hbxp-tone-${tone}`)}>
+    <article className={cx("hbxp-slide-card", isReward ? "hbxp-slide-card--reward" : null, `hbxp-tone-${tone}`)}>
       <div className="hbxp-slide-card__sheen" aria-hidden="true" />
       <div className="hbxp-slide-card__main">
         <div className="hbxp-slide-card__copy">
@@ -627,7 +627,7 @@ export const HBX_TOPBAR_COMMAND_CAROUSEL_CSS = `
   }
 
   .app-topbar__inner--controlCenter {
-    --hbxp-card-h: 100px;
+    --hbxp-card-h: 100%;
     min-height: 100px !important;
     grid-template-columns: minmax(210px, 248px) minmax(0, 1fr) minmax(210px, 270px) !important;
     align-items: stretch !important;
@@ -636,14 +636,14 @@ export const HBX_TOPBAR_COMMAND_CAROUSEL_CSS = `
   }
 
   .app-topbar__inner--controlCenter .hbx-command-center {
-    width: 100% !important;
+    width: 70% !important;
     min-width: 0 !important;
     max-width: none !important;
-    height: var(--hbxp-card-h, 100px) !important;
-    min-height: var(--hbxp-card-h, 100px) !important;
-    max-height: var(--hbxp-card-h, 100px) !important;
+    height: 100% !important;
+    min-height: 100% !important;
+    max-height: none !important;
     align-self: stretch !important;
-    justify-self: stretch !important;
+    justify-self: center !important;
     display: grid !important;
     margin: 0 !important;
     padding: 0 !important;
@@ -657,9 +657,9 @@ export const HBX_TOPBAR_COMMAND_CAROUSEL_CSS = `
   .app-topbar__inner--controlCenter .hbx-command-center__body {
     width: 100% !important;
     min-width: 0 !important;
-    height: var(--hbxp-card-h, 100px) !important;
-    min-height: var(--hbxp-card-h, 100px) !important;
-    max-height: var(--hbxp-card-h, 100px) !important;
+    height: 100% !important;
+    min-height: 100% !important;
+    max-height: none !important;
     display: grid !important;
     align-items: stretch !important;
     justify-items: stretch !important;
@@ -673,9 +673,9 @@ export const HBX_TOPBAR_COMMAND_CAROUSEL_CSS = `
     position: relative;
     width: 100%;
     max-width: none;
-    height: var(--hbxp-card-h, 100px);
-    min-height: var(--hbxp-card-h, 100px);
-    max-height: var(--hbxp-card-h, 100px);
+    height: 100%;
+    min-height: 100%;
+    max-height: none;
     border-radius: 20px;
     border: 1px solid color-mix(in srgb, var(--brand, #10b981) 38%, var(--line, rgba(148, 163, 184, .24)));
     background:
@@ -805,6 +805,57 @@ export const HBX_TOPBAR_COMMAND_CAROUSEL_CSS = `
     align-items: center;
     gap: 12px;
     min-height: 42px;
+  }
+
+  .hbxp-slide-card--reward {
+    grid-template-rows: auto 14px minmax(0, 1fr);
+    gap: 5px;
+    padding: 6px 10px;
+    align-content: stretch;
+  }
+
+  .hbxp-slide-card--reward .hbxp-slide-card__main {
+    grid-template-columns: minmax(0, 1fr) 42px;
+    align-items: start;
+    gap: 8px;
+    min-height: 0;
+  }
+
+  .hbxp-slide-card--reward .hbxp-slide-card__titleRow {
+    gap: 8px;
+  }
+
+  .hbxp-slide-card--reward h2 {
+    font-size: clamp(14px, 1vw, 16px);
+    line-height: 1;
+  }
+
+  .hbxp-slide-card--reward p {
+    margin-top: 2px;
+    font-size: 9.5px;
+    line-height: 1.1;
+  }
+
+  .hbxp-slide-card--reward .hbxp-cta {
+    flex: 0 0 136px;
+    width: 136px;
+    max-width: 136px;
+    min-height: 22px;
+    padding: 0 9px;
+    font-size: 8.5px;
+  }
+
+  .hbxp-slide-card--reward .hbxp-ring {
+    width: 40px;
+    height: 40px;
+  }
+
+  .hbxp-slide-card--reward .hbxp-ring strong {
+    font-size: 11px;
+  }
+
+  .hbxp-slide-card--reward .hbxp-ring small {
+    font-size: 5px;
   }
 
   .hbxp-slide-card__copy {
@@ -1098,6 +1149,35 @@ export const HBX_TOPBAR_COMMAND_CAROUSEL_CSS = `
     background: linear-gradient(90deg, color-mix(in srgb, var(--hbxp-tone-color, var(--brand, #10b981)) 82%, transparent), var(--hbxp-tone-color, var(--brand, #10b981)));
   }
 
+  .hbxp-slide-card--reward .hbxp-metrics {
+    gap: 6px;
+    align-items: stretch;
+  }
+
+  .hbxp-slide-card--reward .hbxp-metric {
+    min-height: 28px;
+    padding: 4px 7px 7px;
+  }
+
+  .hbxp-slide-card--reward .hbxp-metric span {
+    font-size: 7px;
+  }
+
+  .hbxp-slide-card--reward .hbxp-metric strong {
+    font-size: 10px;
+  }
+
+  .hbxp-slide-card--reward .hbxp-metric small {
+    display: none;
+  }
+
+  .hbxp-slide-card--reward .hbxp-metric__bar {
+    left: 7px;
+    right: 7px;
+    bottom: 3px;
+    height: 2px;
+  }
+
   .hbxp-reward {
     position: relative;
     z-index: 2;
@@ -1105,6 +1185,11 @@ export const HBX_TOPBAR_COMMAND_CAROUSEL_CSS = `
     grid-template-columns: repeat(5, minmax(0, 1fr));
     gap: 8px;
     margin-top: -1px;
+  }
+
+  .hbxp-slide-card--reward .hbxp-reward {
+    gap: 5px;
+    margin-top: 0;
   }
 
   .hbxp-reward span {
@@ -1118,6 +1203,10 @@ export const HBX_TOPBAR_COMMAND_CAROUSEL_CSS = `
     position: relative;
   }
 
+  .hbxp-slide-card--reward .hbxp-reward span {
+    height: 14px;
+  }
+
   .hbxp-reward strong {
     position: relative;
     z-index: 2;
@@ -1126,6 +1215,10 @@ export const HBX_TOPBAR_COMMAND_CAROUSEL_CSS = `
     font-weight: 950;
     letter-spacing: 0;
     line-height: 1;
+  }
+
+  .hbxp-slide-card--reward .hbxp-reward strong {
+    font-size: 7.5px;
   }
 
   .hbxp-reward span[data-filled="true"]::before {

@@ -4181,22 +4181,6 @@ export default function TopBar() {
       usage: qrOperationalTile.usage ?? null,
     },
   ];
-  const shouldShowTopbarWhatsAppAlert = Boolean(
-    isAtendimentoRoute &&
-      whatsAppLiveHealth.health &&
-      (
-        !whatsAppLiveHealth.health.liveConfirmed ||
-        whatsAppLiveHealth.health.status !== "healthy" ||
-        whatsAppLiveHealth.health.inboundStale
-      ),
-  );
-  const topbarWhatsAppAlertTitle = whatsAppLiveHealth.health?.liveConfirmed
-    ? "WhatsApp conectado, mas sem mensagens recentes no Atendimento."
-    : "WhatsApp pode estar desconectado. Conversas podem não estar chegando.";
-  const topbarWhatsAppAlertTone =
-    whatsAppLiveHealth.health?.status === "disconnected" || whatsAppLiveHealth.health?.status === "error"
-      ? "danger"
-      : "warning";
   if (hiddenRoutes.has(pathname)) {
     return null;
   }
@@ -4205,26 +4189,6 @@ export default function TopBar() {
     <header className={`app-topbar${topbarHiddenByScroll ? " app-topbar--hidden" : ""}`}>
       <style>{HBX_TOPBAR_POLISH_CSS}</style>
       <div ref={topbarFrameRef} className="app-topbar__frame">
-        {shouldShowTopbarWhatsAppAlert ? (
-          <div className="hbx-whatsapp-live-alert" data-tone={topbarWhatsAppAlertTone}>
-            <span className="hbx-whatsapp-live-alert__text">
-              <strong>{topbarWhatsAppAlertTitle}</strong>
-              <span>
-                {whatsAppLiveHealth.health
-                  ? `${formatWhatsAppLiveHealthStatus(whatsAppLiveHealth.health.status)}: ${whatsAppLiveHealth.health.reason}`
-                  : "Sem confirmação viva do provider."}
-              </span>
-            </span>
-            <span className="hbx-whatsapp-live-alert__actions">
-              <button type="button" className="btn btn-primary btn-sm" onClick={() => void whatsAppLiveHealth.refresh(true)}>
-                Revalidar agora
-              </button>
-              <button type="button" className="btn btn-secondary btn-sm" onClick={() => router.push("/whatsapp?focus=qr")}>
-                Abrir QR
-              </button>
-            </span>
-          </div>
-        ) : null}
         <div className="app-topbar__inner app-topbar__inner--controlCenter">
           <section className="hbx-command-brand" aria-label="HBXSYSTEM">
             <button
