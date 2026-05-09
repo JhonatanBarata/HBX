@@ -456,7 +456,7 @@ class RadarPullDto extends RadarDatabaseQueryDto {
   @IsOptional()
   @Type(() => Number)
   @IsInt()
-  @Min(20)
+  @Min(1)
   @Max(1000)
   desiredStock?: number;
 
