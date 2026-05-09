@@ -4,7 +4,7 @@ import * as QRCode from 'qrcode';
 import { ensureMasterBillingRuntimeSchema } from '../modules/master-runtime';
 import { PrismaService } from '../prisma/prisma.service';
 
-type WhatsAppModalStatus = 'offline' | 'starting' | 'waiting_qr' | 'connected' | 'disconnected' | 'error';
+type WhatsAppModalStatus = 'offline' | 'starting' | 'waiting_qr' | 'connected' | 'reconnecting' | 'disconnected' | 'error';
 type WhatsAppModalErrorCode =
   | 'WHATSAPP_MODAL_DISABLED'
   | 'WHATSAPP_MODAL_NOT_CONFIGURED'
@@ -139,6 +139,10 @@ export class WhatsAppModalService {
   private readonly qrCodeCacheTtlMs = 45000;
   private readonly pairingCodeCooldownMs = 60_000;
   private readonly pairingCodeTtlSeconds = 120;
+  private readonly reconnectGraceMs = Math.max(
+    60_000,
+    Math.min(15 * 60_000, Number(process.env.WHATSAPP_MODAL_RECONNECT_GRACE_MS || 5 * 60_000) || 5 * 60_000),
+  );
 
   constructor(private readonly prisma: PrismaService) {}
 
@@ -802,6 +806,26 @@ export class WhatsAppModalService {
   private isTransientProviderError(error: unknown) {
     const providerError = this.toProviderError(error);
     return providerError.code === 'WHATSAPP_MODAL_TIMEOUT' || providerError.code === 'WHATSAPP_MODAL_UNAVAILABLE';
+  }
+
+  private shouldPreserveSessionDuringReconnectGrace(snapshot: ModalSnapshot) {
+    if (snapshot.status === 'connected') return Boolean(snapshot.phone || snapshot.connectedAt);
+    if (snapshot.status !== 'reconnecting') return false;
+    const updatedAtMs = snapshot.updatedAt instanceof Date ? snapshot.updatedAt.getTime() : 0;
+    return Boolean(updatedAtMs && Date.now() - updatedAtMs <= this.reconnectGraceMs);
+  }
+
+  private buildReconnectingSnapshot(fallback: ModalSnapshot, reason?: string | null): ModalSnapshot {
+    return {
+      ...fallback,
+      status: 'reconnecting',
+      phone: fallback.phone,
+      connectedAt: fallback.connectedAt,
+      lastError: reason || 'Webwhats instavel ou reiniciando. Aguardando reconexao antes de derrubar a sessao.',
+      updatedAt: new Date(),
+      qrCodeDataUrl: null,
+      rawStatus: fallback.rawStatus,
+    };
   }
 
   private async probeProviderHealth() {
@@ -1618,6 +1642,7 @@ export class WhatsAppModalService {
     if (normalized === 'STARTING') return 'starting';
     if (normalized === 'WAITING_QR') return 'waiting_qr';
     if (normalized === 'CONNECTED') return 'connected';
+    if (normalized === 'RECONNECTING' || normalized === 'UNSTABLE') return 'reconnecting';
     if (normalized === 'DISCONNECTED') return 'disconnected';
     if (normalized === 'ERROR') return 'error';
     return 'offline';
@@ -1732,6 +1757,9 @@ export class WhatsAppModalService {
     }
     if (['starting', 'booting', 'initializing', 'connecting', 'launching', 'opening'].includes(normalized)) {
       return 'starting' as const;
+    }
+    if (['reconnecting', 'unstable', 'recovering', 'aguardando_reconexao'].includes(normalized)) {
+      return 'reconnecting' as const;
     }
     if (['disconnected', 'close', 'closed', 'stopped', 'logged_out', 'terminated'].includes(normalized)) {
       return 'disconnected' as const;
@@ -1907,6 +1935,9 @@ export class WhatsAppModalService {
     if (snapshot.status === 'connected') {
       return 'WhatsApp conectado.';
     }
+    if (snapshot.status === 'reconnecting') {
+      return 'Webwhats instavel. Mantendo a sessao enquanto tenta reconectar.';
+    }
     if (snapshot.status === 'error') {
       return snapshot.lastError || 'Falha ao sincronizar o Modal WhatsApp.';
     }
@@ -1954,6 +1985,9 @@ export class WhatsAppModalService {
     }
     if (snapshot.status === 'starting') {
       return 'Sessão em inicialização no Modal WhatsApp.';
+    }
+    if (snapshot.status === 'reconnecting') {
+      return 'Webwhats instável. Aguardando reconexão sem fechar o Atendimento.';
     }
     if (snapshot.status === 'disconnected') {
       return 'Sessão desconectada do Modal WhatsApp.';
@@ -2291,6 +2325,15 @@ export class WhatsAppModalService {
         treatNotFoundAsNull: true,
       });
     } catch (error) {
+      if (this.isTransientProviderError(error) && this.shouldPreserveSessionDuringReconnectGrace(fallback)) {
+        const providerError = this.toProviderError(error);
+        const reconnectingSnapshot = this.buildReconnectingSnapshot(fallback, providerError.message);
+        await this.persistSnapshot(company, reconnectingSnapshot, 'status_sync_reconnecting');
+        return {
+          snapshot: reconnectingSnapshot,
+          instanceExists: true,
+        };
+      }
       if (!this.isMissingInstanceError(error)) {
         throw error;
       }
@@ -2299,7 +2342,9 @@ export class WhatsAppModalService {
     const instanceExists = Boolean(payload) && !this.isMissingInstancePayload(payload);
     let snapshot: ModalSnapshot = instanceExists
       ? await this.extractSnapshot(payload, fallback)
-      : {
+      : this.shouldPreserveSessionDuringReconnectGrace(fallback)
+        ? this.buildReconnectingSnapshot(fallback, 'Instancia Webwhats indisponivel durante janela de reconexao.')
+        : {
           ...fallback,
           status: 'offline',
           phone: fallback.phone,
@@ -2310,6 +2355,20 @@ export class WhatsAppModalService {
           rawStatus: null,
         };
     snapshot = this.reconcileTransientSnapshot(tenantKey, snapshot);
+
+    if (
+      instanceExists &&
+      ['offline', 'disconnected', 'error'].includes(snapshot.status) &&
+      this.shouldPreserveSessionDuringReconnectGrace(fallback)
+    ) {
+      snapshot = this.buildReconnectingSnapshot(
+        {
+          ...fallback,
+          rawStatus: snapshot.rawStatus,
+        },
+        snapshot.lastError || 'Provider Webwhats retornou estado instavel durante janela de reconexao.',
+      );
+    }
 
     if (options?.includeQr && instanceExists && snapshot.status !== 'connected') {
       const connectSnapshot = await this.connectProviderSession(company, snapshot);
@@ -2369,7 +2428,7 @@ export class WhatsAppModalService {
     });
   }
 
-  private buildTransientFailureResponse(
+  private async buildTransientFailureResponse(
     company: CompanyModalFields,
     fallbackSnapshot: ModalSnapshot,
     error: unknown,
@@ -2377,8 +2436,14 @@ export class WhatsAppModalService {
   ) {
     const providerError = this.toProviderError(error);
     this.logger.warn(`Modal WhatsApp transient failure for company ${company.id}: ${providerError.message}`);
+    const snapshot = this.shouldPreserveSessionDuringReconnectGrace(fallbackSnapshot)
+      ? this.buildReconnectingSnapshot(fallbackSnapshot, providerError.message)
+      : fallbackSnapshot;
+    if (snapshot.status === 'reconnecting') {
+      await this.persistSnapshot(company, snapshot, 'transient_reconnecting');
+    }
 
-    return this.buildResponse(company, fallbackSnapshot, {
+    return this.buildResponse(company, snapshot, {
       success: options?.success ?? false,
       providerHealth: 'unknown',
       errorCode: providerError.code,

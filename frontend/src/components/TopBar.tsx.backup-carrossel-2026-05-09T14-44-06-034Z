@@ -4144,12 +4144,154 @@ export default function TopBar() {
                 ›
               </button>
             ) : null}
-                        <div className="hbx-command-center__body">
-              <TopbarCommandCarousel
-                slides={billboardSlides}
-                engines={normalizedScraping.engines}
-                onNavigate={(href) => router.push(href)}
-              />
+            <div className="hbx-command-center__body">
+              <article
+                key={activeBillboardSlide.id}
+                className={`hbx-command-billboard${activeBillboardSlide.kind === "engines" ? " hbx-command-billboard--engines" : ""}${activeBillboardSlide.kind === "nightFactoryReward" ? " hbx-command-billboard--reward" : ""}`}
+                data-phase={activeBillboardSlide.phase}
+                data-theater={activeBillboardSlide.isTheater ? "true" : "false"}
+                data-paused={billboardPaused ? "true" : "false"}
+                data-full-title={activeBillboardSlide.title}
+                data-full-description={activeBillboardSlide.description}
+                onMouseEnter={() => setBillboardPaused(true)}
+                onMouseLeave={() => setBillboardPaused(false)}
+                onFocus={() => setBillboardPaused(true)}
+                onBlur={() => setBillboardPaused(false)}
+                onClick={() => handleBillboardAction(activeBillboardSlide)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    handleBillboardAction(activeBillboardSlide);
+                  }
+                }}
+                aria-label="Billboard operacional"
+                role="button"
+                tabIndex={0}
+              >
+                <span className="hbx-command-billboard__scan" aria-hidden="true" />
+                {activeBillboardSlide.kind === "engines" ? (
+                  <div className="hbx-command-engine-map" aria-label="Mapa operacional dos motores HBX">
+                    <div className="hbx-command-engines hbx-command-engines--billboard" aria-label="Motores HBX agrupados">
+                      {hbxEngineGroupCards}
+                    </div>
+                  </div>
+                ) : activeBillboardSlide.kind === "nightFactoryReward" ? (
+                  <div className="hbx-command-reward" aria-label="Recompensa Night Factory">
+                    <div className="hbx-command-reward__main">
+                      <span className="hbx-command-reward__badge">{activeBillboardSlide.eyebrow}</span>
+                      <div>
+                        <strong>{activeBillboardSlide.title}</strong>
+                        <p>{activeBillboardSlide.description}</p>
+                      </div>
+                      <span className="hbx-command-reward__cta">{activeBillboardSlide.ctaLabel || "Resgatar recompensa"}</span>
+                    </div>
+                    <div className="hbx-command-reward__slots" aria-hidden="true">
+                      {Array.from({ length: 5 }).map((_, index) => (
+                        <i key={index} />
+                      ))}
+                    </div>
+                    <div className="hbx-command-billboard__metrics">
+                      {(activeBillboardSlide.metrics || []).slice(0, 3).map((metricItem) => (
+                        <span key={`${metricItem.label}:${metricItem.value}`}>
+                          {metricItem.label}
+                          <strong>{metricItem.value}</strong>
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <div className="hbx-command-billboard__main">
+                      <span className="hbx-command-billboard__orb" aria-hidden="true" />
+                      <div>
+                        <span>{activeBillboardSlide.eyebrow}</span>
+                        <strong>{activeBillboardSlide.title}</strong>
+                        <p>{activeBillboardSlide.description}</p>
+                      </div>
+                      {activeBillboardProgress !== null ? (
+                        <b>{activeBillboardProgress}%</b>
+                      ) : null}
+                    </div>
+                    {activeBillboardProgress !== null ? (
+                      <span className="hbx-command-billboard__track" aria-hidden="true">
+                        <i style={{ width: `${activeBillboardProgress}%` }} />
+                      </span>
+                    ) : null}
+                    {activeBillboardSlide.steps?.length ? (
+                      <div className="hbx-command-billboard__steps" aria-label="Etapas do processamento">
+                        {activeBillboardSlide.steps.slice(0, 4).map((step, index) => (
+                          <span
+                            key={`${step}:${index}`}
+                            data-state={
+                              index < Number(activeBillboardSlide.activeStepIndex ?? 0)
+                                ? "done"
+                                : index === Number(activeBillboardSlide.activeStepIndex ?? 0)
+                                  ? "active"
+                                  : "pending"
+                            }
+                          >
+                            <i aria-hidden="true" />
+                            {step}
+                          </span>
+                        ))}
+                      </div>
+                    ) : null}
+                    {activeBillboardSlide.cardFeed?.length ? (
+                      <div className="hbx-command-billboard__feed" aria-label="Cards entrando no fluxo">
+                        {activeBillboardSlide.cardFeed.slice(-4).map((card) => (
+                          <span key={card.id}>
+                            <strong>{card.title}</strong>
+                            <small>{card.meta || "Card elegível"}</small>
+                            {card.score !== undefined && card.score !== null ? <b>{card.score}</b> : null}
+                          </span>
+                        ))}
+                      </div>
+                    ) : null}
+                    <div className="hbx-command-billboard__metrics">
+                      {(activeBillboardSlide.metrics?.length ? activeBillboardSlide.metrics : hbxGaugePanels).slice(0, 3).map((metricItem) => (
+                        <span key={`${metricItem.label}:${metricItem.value}`}>
+                          {metricItem.label}
+                          <strong>{metricItem.value}</strong>
+                        </span>
+                      ))}
+                    </div>
+
+                    <div className="hbx-command-kpis hbx-command-kpis--billboard" aria-label="Sinais conectados ao backend">
+                      {commandKpis.map((item) => (
+                        <button
+                          type="button"
+                          key={item.id}
+                          data-tone={item.tone}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            handleCommandKpiAction(item.id as TopbarOperationalTile["id"]);
+                          }}
+                          title={`${item.label}: ${item.value}. ${item.detail}`}
+                          style={
+                            typeof item.usage === "number"
+                              ? ({ ["--kpi-usage" as string]: `${clampTopbarPercent(item.usage)}%` } as React.CSSProperties)
+                              : undefined
+                          }
+                        >
+                          <em>{item.label}</em>
+                          <strong>{item.value}</strong>
+                          <small>{item.detail}</small>
+                          <i aria-hidden="true" />
+                        </button>
+                      ))}
+                    </div>
+
+                    <div className="hbx-command-chips hbx-command-chips--billboard" aria-label="Resumo operacional dos motores">
+                      {hbxCommandChips.slice(0, 4).map((chip) => (
+                        <span key={`${chip.label}:${chip.value}`} data-tone={chip.tone}>
+                          {chip.label}
+                          <strong>{chip.value}</strong>
+                        </span>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </article>
             </div>
           </section>
 

@@ -36,6 +36,11 @@ function createPrisma(company = createCompany()) {
       create: async () => null,
       update: async () => null,
     },
+    whatsAppConnectionSession: {
+      updateMany: async () => ({ count: 0 }),
+      findFirst: async () => null,
+      create: async ({ data }: any) => ({ id: 'session-created', ...data }),
+    },
     $queryRawUnsafe: async () => [],
     $executeRawUnsafe: async () => 0,
   } as any;
@@ -331,4 +336,46 @@ test('provider 403 autentico ainda aponta API key', () => {
 
   assert.equal(error.code, 'WHATSAPP_MODAL_NOT_CONFIGURED');
   assert.match(error.message, /WHATSAPP_MODAL_API_KEY/);
+});
+
+test('status preserva sessao conectada como reconectando em erro transitorio do Webwhats', async () => {
+  const updates: any[] = [];
+  const company = createCompany({
+    whatsappModalStatus: 'CONNECTED',
+    whatsappModalPhone: '5519999999999',
+    whatsappModalConnectedAt: new Date('2026-05-09T10:00:00.000Z'),
+    whatsappModalUpdatedAt: new Date('2026-05-09T10:00:00.000Z'),
+    currentWhatsappConnectionSessionId: 'session-1',
+  });
+  const prisma = createPrisma(company);
+  prisma.company.update = async ({ data }: any) => {
+    updates.push(data);
+    return { ...company, ...data };
+  };
+  const service = new WhatsAppModalService(prisma) as any;
+  service.readConfig = () => ({
+    enabled: true,
+    configured: true,
+    available: true,
+    internalUrl: 'http://provider.local',
+    apiKey: 'secret',
+    timeoutMs: 1000,
+    missingConfigKeys: [],
+    setupHint: null,
+  });
+  service.requestProvider = async ({ path }: any) => {
+    if (String(path).includes('connectionState')) {
+      throw new Error('connect ECONNREFUSED 172.18.0.1:8080');
+    }
+    return { ok: true };
+  };
+
+  const response = await service.getCompanyStatus(7);
+
+  assert.equal(response.success, true);
+  assert.equal(response.status, 'reconnecting');
+  assert.equal(response.data.phone, '5519999999999');
+  const lastUpdate = updates[updates.length - 1];
+  assert.equal(lastUpdate.whatsappModalStatus, 'RECONNECTING');
+  assert.equal(lastUpdate.currentWhatsappConnectionSessionId, 'session-1');
 });

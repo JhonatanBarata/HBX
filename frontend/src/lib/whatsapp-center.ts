@@ -58,7 +58,7 @@ export type WhatsAppDiagnosticFocus = "status" | "qr" | "official";
 
 export type WhatsAppModalPayload = {
   success: boolean;
-  status: "offline" | "starting" | "waiting_qr" | "connected" | "disconnected" | "error";
+  status: "offline" | "starting" | "waiting_qr" | "connected" | "reconnecting" | "disconnected" | "error";
   message: string;
   errorCode?: string | null;
   redirectTo?: string | null;
@@ -126,6 +126,7 @@ export function whatsappModalStatusLabel(value?: string | null) {
   if (normalized === "starting") return "Iniciando";
   if (normalized === "waiting_qr") return "Aguardando QR";
   if (normalized === "connected") return "Conectado";
+  if (normalized === "reconnecting") return "Aguardando reconexao";
   if (normalized === "disconnected") return "Desconectado";
   if (normalized === "error") return "Erro";
   return "Offline";
