@@ -80,6 +80,7 @@ export default function WhatsAppCenterClientPage() {
   const pairingCodeInFlightRef = useRef(false);
   const lastBootstrapAttemptKeyRef = useRef<string | null>(null);
   const previousModalStatusRef = useRef<string | null>(null);
+  const atendimentoRedirectTimerRef = useRef<number | null>(null);
 
   function shouldLoadModalQr(nextPayload: WhatsAppModalPayload | null, includeQr: boolean) {
     if (!includeQr || !nextPayload?.data.available) return false;
@@ -132,7 +133,7 @@ export default function WhatsAppCenterClientPage() {
     }
   }, []);
 
-  const runBootstrapAfterConnect = useCallback(async (connectedPayload: WhatsAppModalPayload) => {
+  const runBootstrapAfterConnect = useCallback(async (connectedPayload: WhatsAppModalPayload, openAtendimento = false) => {
     const bootstrapKey = buildBootstrapKey(connectedPayload);
     if (
       bootstrapInFlightRef.current
@@ -156,8 +157,16 @@ export default function WhatsAppCenterClientPage() {
         throw new Error(bootstrap.error || bootstrap.message || "Falha ao executar bootstrap local do WhatsApp.");
       }
       setQrBootstrapStage("ready");
-      setMessage("Pronto");
+      setMessage(openAtendimento ? "WhatsApp conectado. Abrindo atendimento..." : "Pronto");
       void loadCenter(true);
+      if (openAtendimento) {
+        if (atendimentoRedirectTimerRef.current) {
+          window.clearTimeout(atendimentoRedirectTimerRef.current);
+        }
+        atendimentoRedirectTimerRef.current = window.setTimeout(() => {
+          router.push("/atendimento");
+        }, 1400);
+      }
     } catch (bootstrapError) {
       const detail = bootstrapError instanceof Error ? bootstrapError.message : "";
       setQrBootstrapStage("error");
@@ -170,7 +179,7 @@ export default function WhatsAppCenterClientPage() {
     } finally {
       bootstrapInFlightRef.current = false;
     }
-  }, [buildBootstrapKey, loadCenter]);
+  }, [buildBootstrapKey, loadCenter, router]);
 
   const waitForModalQrCode = useCallback(async (statusPayload: WhatsAppModalPayload) => {
     let latestPayload = statusPayload;
@@ -401,6 +410,14 @@ export default function WhatsAppCenterClientPage() {
   }, [hasToken, loadCenter, loadModalStatus]);
 
   useEffect(() => {
+    return () => {
+      if (atendimentoRedirectTimerRef.current) {
+        window.clearTimeout(atendimentoRedirectTimerRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
     if (!message) return;
     if (qrBootstrapStage === "connecting" || qrBootstrapStage === "mirroring") return;
     const timer = window.setTimeout(() => setMessage(null), 2800);
@@ -420,7 +437,7 @@ export default function WhatsAppCenterClientPage() {
     }
 
     if (modalPayload.status === "connected") {
-      void runBootstrapAfterConnect(modalPayload);
+      void runBootstrapAfterConnect(modalPayload, Boolean(previousStatus && previousStatus !== "connected"));
       return;
     }
     if (modalPayload.status === "offline" || modalPayload.status === "disconnected") {
