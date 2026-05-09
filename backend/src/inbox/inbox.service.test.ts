@@ -83,6 +83,7 @@ function createService(overrides?: Partial<Record<string, any>>) {
         whatsappStatus: null,
         whatsappStatusError: null,
       }),
+      update: async ({ where, data }: any) => ({ id: where.id, ...data }),
     },
     whatsAppConnectionSession: {
       updateMany: async () => ({ count: 0 }),
@@ -144,6 +145,12 @@ function createService(overrides?: Partial<Record<string, any>>) {
       create: async ({ data }: any) => ({ id: 'rec-1', ...data }),
       update: async ({ where, data }: any) => ({ id: where.id, ...data }),
     },
+    hbxRecoveryFlowStage: {
+      findFirst: async () => null,
+      update: async ({ where, data }: any) => ({ id: where.id, ...data }),
+      create: async ({ data }: any) => ({ id: 'flow-stage-1', ...data }),
+    },
+    $queryRaw: async () => [],
     $transaction: async (callback: (tx: any) => Promise<unknown>) => callback(prisma),
     ...(overrides?.prisma || {}),
   } as any;
@@ -258,6 +265,223 @@ test('inbox classifier keeps automatic prospection outbound in Prospecção with
 
   assert.equal(context.routeTarget, 'prospeccao');
   assert.match(context.routeReason, /aguardando resposta/i);
+});
+
+test('listConversations repara Company CONNECTED sem sessao antes de listar Atendimento', async () => {
+  const sessions: any[] = [];
+  const companyUpdates: any[] = [];
+  const { service } = createService({
+    prisma: {
+      company: {
+        findUnique: async () => ({
+          id: 7,
+          whatsappModalStatus: 'CONNECTED',
+          whatsappModalPhone: null,
+          whatsappModalConnectedAt: new Date('2026-05-09T12:00:00.000Z'),
+          whatsappStatus: null,
+          currentWhatsappConnectionSessionId: null,
+          currentWhatsappConnectionSession: null,
+        }),
+        update: async ({ data }: any) => {
+          companyUpdates.push(data);
+          return { id: 7, ...data };
+        },
+      },
+      whatsAppConnectionSession: {
+        findFirst: async ({ where }: any) => sessions.find((session) => {
+          if (where?.companyId !== undefined && Number(session.companyId) !== Number(where.companyId)) return false;
+          if (where?.provider !== undefined && session.provider !== where.provider) return false;
+          if (where?.tenantKey !== undefined && session.tenantKey !== where.tenantKey) return false;
+          if (where?.status !== undefined && session.status !== where.status) return false;
+          return true;
+        }) || null,
+        findMany: async () => [],
+        create: async ({ data }: any) => {
+          const session = { id: 'session-repaired', ...data };
+          sessions.push(session);
+          return session;
+        },
+        update: async ({ where, data }: any) => ({ id: where.id, ...data }),
+        updateMany: async () => ({ count: 0 }),
+      },
+    },
+  });
+
+  await service.listConversations({ companyId: 7 }, { take: 10 });
+
+  assert.equal(sessions.length, 1);
+  assert.equal(sessions[0].tenantKey, 'company-7');
+  assert.equal(sessions[0].status, 'active');
+  assert.equal(sessions[0].phoneNormalized, null);
+  assert.equal(companyUpdates.at(-1).currentWhatsappConnectionSessionId, 'session-repaired');
+});
+
+test('migrateAllWhatsappHistoryToCurrent junta legado e sessoes antigas sem outra empresa nem duplicar atual', async () => {
+  const sessions = [
+    {
+      id: 'session-current',
+      companyId: 7,
+      provider: 'webwhats',
+      tenantKey: 'company-7',
+      phoneNormalized: '5519998877766',
+      displayPhone: '+5519998877766',
+      status: 'active',
+      connectedAt: new Date('2026-05-09T10:00:00.000Z'),
+      disconnectedAt: null,
+      createdAt: new Date('2026-05-09T10:00:00.000Z'),
+    },
+    {
+      id: 'session-old',
+      companyId: 7,
+      provider: 'webwhats',
+      tenantKey: 'company-7',
+      phoneNormalized: '551988887777',
+      displayPhone: '+551988887777',
+      status: 'disconnected',
+      connectedAt: new Date('2026-05-01T10:00:00.000Z'),
+      disconnectedAt: new Date('2026-05-08T10:00:00.000Z'),
+      createdAt: new Date('2026-05-01T10:00:00.000Z'),
+    },
+    {
+      id: 'session-other-company',
+      companyId: 8,
+      provider: 'webwhats',
+      tenantKey: 'company-8',
+      status: 'disconnected',
+      connectedAt: new Date('2026-05-01T10:00:00.000Z'),
+      createdAt: new Date('2026-05-01T10:00:00.000Z'),
+    },
+  ];
+  const conversationsRows = [
+    { id: 101, companyId: 7, channel: 'whatsapp', contact: '+5511111111111', whatsappConnectionSessionId: null },
+    { id: 102, companyId: 7, channel: 'whatsapp', contact: '+5522222222222', whatsappConnectionSessionId: 'session-old' },
+    { id: 103, companyId: 8, channel: 'whatsapp', contact: '+5533333333333', whatsappConnectionSessionId: null },
+    { id: 104, companyId: 7, channel: 'whatsapp', contact: '+5544444444444', whatsappConnectionSessionId: 'session-current' },
+    { id: 105, companyId: 7, channel: 'whatsapp', contact: '+5544444444444', whatsappConnectionSessionId: 'session-old' },
+  ];
+  const messageUpdates: any[] = [];
+  const { service, auditCalls } = createService({
+    prisma: {
+      company: {
+        findUnique: async () => ({
+          id: 7,
+          whatsappModalStatus: 'CONNECTED',
+          whatsappModalPhone: '+5519998877766',
+          whatsappModalConnectedAt: new Date('2026-05-09T10:00:00.000Z'),
+          whatsappStatus: null,
+          currentWhatsappConnectionSessionId: 'session-current',
+          currentWhatsappConnectionSession: sessions[0],
+        }),
+        update: async ({ where, data }: any) => ({ id: where.id, ...data }),
+      },
+      whatsAppConnectionSession: {
+        findFirst: async ({ where }: any) => sessions.find((session) => {
+          if (where?.id !== undefined && String(session.id) !== String(where.id)) return false;
+          if (where?.companyId !== undefined && Number(session.companyId) !== Number(where.companyId)) return false;
+          if (where?.provider !== undefined && session.provider !== where.provider) return false;
+          if (where?.tenantKey !== undefined && session.tenantKey !== where.tenantKey) return false;
+          if (where?.status !== undefined && session.status !== where.status) return false;
+          return true;
+        }) || null,
+        findMany: async ({ where }: any) => sessions.filter((session) => {
+          if (where?.companyId !== undefined && Number(session.companyId) !== Number(where.companyId)) return false;
+          if (where?.status?.not !== undefined && session.status === where.status.not) return false;
+          if (where?.NOT?.id !== undefined && String(session.id) === String(where.NOT.id)) return false;
+          return true;
+        }),
+        updateMany: async () => ({ count: 0 }),
+        create: async ({ data }: any) => ({ id: 'session-new', ...data }),
+        update: async ({ where, data }: any) => ({ id: where.id, ...data }),
+      },
+      companyConversation: {
+        count: async ({ where }: any) => conversationsRows.filter((row) =>
+          Number(row.companyId) === Number(where.companyId) &&
+          row.channel === where.channel &&
+          row.whatsappConnectionSessionId === null
+        ).length,
+        findMany: async ({ where }: any) => conversationsRows.filter((row) => {
+          if (where?.companyId !== undefined && Number(row.companyId) !== Number(where.companyId)) return false;
+          if (where?.channel !== undefined && row.channel !== where.channel) return false;
+          if (where?.whatsappConnectionSessionId !== undefined) {
+            if (typeof where.whatsappConnectionSessionId === 'string') {
+              return row.whatsappConnectionSessionId === where.whatsappConnectionSessionId;
+            }
+          }
+          if (Array.isArray(where?.OR)) {
+            return where.OR.some((condition: any) => {
+              if ('whatsappConnectionSessionId' in condition && condition.whatsappConnectionSessionId === null) {
+                return row.whatsappConnectionSessionId === null;
+              }
+              const inValues = condition?.whatsappConnectionSessionId?.in;
+              return Array.isArray(inValues) && inValues.includes(row.whatsappConnectionSessionId);
+            });
+          }
+          return true;
+        }),
+        updateMany: async ({ where, data }: any) => {
+          const ids = new Set(where?.id?.in || []);
+          let count = 0;
+          for (const row of conversationsRows) {
+            if (Number(row.companyId) !== Number(where.companyId) || !ids.has(row.id)) continue;
+            Object.assign(row, data);
+            count += 1;
+          }
+          return { count };
+        },
+      },
+      companyMessage: {
+        updateMany: async ({ where, data }: any) => {
+          messageUpdates.push({ where, data });
+          return { count: Array.isArray(where?.conversationId?.in) ? where.conversationId.in.length : 0 };
+        },
+      },
+    },
+  });
+
+  const result = await service.migrateAllWhatsappHistoryToCurrent({ companyId: 7, role: 'ADMIN' });
+
+  assert.equal(result.success, true);
+  assert.equal(result.currentSessionId, 'session-current');
+  assert.equal(result.legacyMigrated, 1);
+  assert.equal(result.previousSessionsMigrated, 1);
+  assert.equal(result.totalMigrated, 2);
+  assert.equal(conversationsRows.find((row) => row.id === 101)?.whatsappConnectionSessionId, 'session-current');
+  assert.equal(conversationsRows.find((row) => row.id === 102)?.whatsappConnectionSessionId, 'session-current');
+  assert.equal(conversationsRows.find((row) => row.id === 103)?.whatsappConnectionSessionId, null);
+  assert.equal(conversationsRows.find((row) => row.id === 104)?.whatsappConnectionSessionId, 'session-current');
+  assert.equal(conversationsRows.find((row) => row.id === 105)?.whatsappConnectionSessionId, 'session-old');
+  assert.deepEqual(messageUpdates[0].where.conversationId.in, [101, 102]);
+  assert.equal(auditCalls.at(-1).event, 'whatsapp_history_migrated_to_current');
+});
+
+test('migrateAllWhatsappHistoryToCurrent retorna erro claro sem sessao atual', async () => {
+  const { service } = createService({
+    prisma: {
+      company: {
+        findUnique: async () => ({
+          id: 7,
+          whatsappModalStatus: null,
+          whatsappModalPhone: null,
+          whatsappModalConnectedAt: null,
+          whatsappStatus: 'CONNECTED',
+          currentWhatsappConnectionSessionId: null,
+          currentWhatsappConnectionSession: null,
+        }),
+      },
+      whatsAppConnectionSession: {
+        findMany: async () => [],
+        findFirst: async () => null,
+      },
+      companyConversation: {
+        count: async () => 0,
+      },
+    },
+  });
+
+  await assert.rejects(
+    () => service.migrateAllWhatsappHistoryToCurrent({ companyId: 7, role: 'ADMIN' }),
+    /Não há sessão atual do WhatsApp para receber o histórico\./,
+  );
 });
 
 test('inbox classifier moves prospection with customer inbound to Atendimento', async () => {

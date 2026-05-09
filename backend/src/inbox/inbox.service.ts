@@ -105,6 +105,7 @@ type InboxWhatsappSessionScope = {
   previousSessionIds: string[];
   previousSessions: any[];
   previousSessionsCount: number;
+  legacyConversationCount: number;
   mode: 'current' | 'previous' | 'all';
 };
 
@@ -488,59 +489,52 @@ export class InboxService {
     if (
       current &&
       String(current.provider || '').trim().toLowerCase() === 'webwhats' &&
-      String(current.status || '').trim().toLowerCase() === 'active'
+      String(current.status || '').trim().toLowerCase() === 'active' &&
+      String(current.tenantKey || '').trim() === `company-${Number(company.id)}`
     ) {
       return current;
     }
 
+    const tenantKey = `company-${Number(company.id)}`;
     const existingActiveSession = await this.prisma.whatsAppConnectionSession.findFirst({
       where: {
         companyId: Number(company.id),
         provider: 'webwhats',
+        tenantKey,
         status: 'active',
       },
       orderBy: [{ connectedAt: 'desc' }, { createdAt: 'desc' }],
     });
-    if (existingActiveSession?.id) {
-      if (String(company.currentWhatsappConnectionSessionId || '') !== String(existingActiveSession.id)) {
-        await this.prisma.company.update({
-          where: { id: Number(company.id) },
-          data: { currentWhatsappConnectionSessionId: String(existingActiveSession.id) },
-        });
-      }
-      return existingActiveSession;
-    }
 
     const phoneNormalized = this.normalizeConnectionPhone(company?.whatsappModalPhone);
-    if (!phoneNormalized) return null;
-    const tenantKey = `company-${Number(company.id)}`;
+    const displayPhone = String(company?.whatsappModalPhone || '').trim() || null;
     const now = new Date();
-    await this.prisma.whatsAppConnectionSession.updateMany({
-      where: {
-        companyId: Number(company.id),
-        provider: 'webwhats',
+    let session = existingActiveSession;
+    if (session?.id) {
+      const data: any = {
+        tenantKey,
         status: 'active',
-        NOT: { phoneNormalized },
-      },
-      data: { status: 'disconnected', disconnectedAt: now },
-    });
-    let session = await this.prisma.whatsAppConnectionSession.findFirst({
-      where: {
-        companyId: Number(company.id),
-        provider: 'webwhats',
-        phoneNormalized,
-        status: 'active',
-      },
-      orderBy: [{ connectedAt: 'desc' }, { createdAt: 'desc' }],
-    });
-    if (!session) {
+        connectedAt: company.whatsappModalConnectedAt || now,
+        disconnectedAt: null,
+        metadataJson: JSON.stringify({
+          source: 'inbox_session_repair',
+          recordedAt: now.toISOString(),
+        }),
+      };
+      if (phoneNormalized) data.phoneNormalized = phoneNormalized;
+      if (displayPhone) data.displayPhone = displayPhone;
+      session = await this.prisma.whatsAppConnectionSession.update({
+        where: { id: String(session.id) },
+        data,
+      });
+    } else {
       session = await this.prisma.whatsAppConnectionSession.create({
         data: {
           companyId: Number(company.id),
           provider: 'webwhats',
           tenantKey,
-          phoneNormalized,
-          displayPhone: String(company.whatsappModalPhone || '').trim() || null,
+          phoneNormalized: phoneNormalized || null,
+          displayPhone,
           status: 'active',
           connectedAt: company.whatsappModalConnectedAt || now,
           metadataJson: JSON.stringify({
@@ -550,6 +544,15 @@ export class InboxService {
         },
       });
     }
+    await this.prisma.whatsAppConnectionSession.updateMany({
+      where: {
+        companyId: Number(company.id),
+        provider: 'webwhats',
+        status: 'active',
+        NOT: { id: String(session.id) },
+      },
+      data: { status: 'disconnected', disconnectedAt: now },
+    });
     if (String(company.currentWhatsappConnectionSessionId || '') !== String(session.id)) {
       await this.prisma.company.update({
         where: { id: Number(company.id) },
@@ -618,6 +621,7 @@ export class InboxService {
       previousSessionIds: previousSessions.map((session) => String(session.id)),
       previousSessions,
       previousSessionsCount: previousSessions.length + legacyConversationCount,
+      legacyConversationCount,
       mode: opts?.includePreviousSessions ? 'previous' : currentSession?.id ? 'current' : 'all',
     };
   }
@@ -661,6 +665,7 @@ export class InboxService {
         disconnectedAt: session.disconnectedAt || null,
       })),
       previousSessionsCount: scope.previousSessionsCount,
+      legacyConversationCount: scope.legacyConversationCount,
     };
   }
 
@@ -3605,6 +3610,14 @@ export class InboxService {
     const includePreviousSessions = this.normalizeIncludePreviousSessions(options?.includePreviousSessions);
     const sessionScope = await this.resolveInboxWhatsappSessionScope(companyId, { includePreviousSessions });
     this.assertInboxWhatsappAccessible(sessionScope);
+    if (
+      String(sessionScope.reason || '') === 'webwhats_status_only' &&
+      !sessionScope.currentSessionId
+    ) {
+      throw new ServiceUnavailableException(
+        'WhatsApp consta como conectado, mas a sessão operacional do Atendimento não foi criada. Revalide a conexão.',
+      );
+    }
     if (sessionScope.mode === 'current') {
       this.triggerBackgroundInboxIndexSync(companyId, { take: options?.take });
     }
@@ -3721,6 +3734,111 @@ export class InboxService {
       targetSessionId: String(scope.currentSession.id),
       migrated: migratableIds.length,
       skipped,
+    };
+  }
+
+  async migrateAllWhatsappHistoryToCurrent(user: any) {
+    this.assertAdministrativeAction(user);
+    const companyId = this.requireCompanyIdFromUser(user);
+    const scope = await this.resolveInboxWhatsappSessionScope(companyId);
+    this.assertInboxWhatsappAccessible(scope);
+    if (!scope.currentSessionId || !scope.currentSession?.id) {
+      throw new BadRequestException('Não há sessão atual do WhatsApp para receber o histórico.');
+    }
+
+    const currentSessionId = String(scope.currentSessionId);
+    const previousSessionIds = scope.previousSessionIds.filter((id) => String(id || '').trim() && String(id) !== currentSessionId);
+    const sourceWhere = {
+      companyId,
+      channel: 'whatsapp',
+      OR: [
+        { whatsappConnectionSessionId: null },
+        ...(previousSessionIds.length ? [{ whatsappConnectionSessionId: { in: previousSessionIds } }] : []),
+      ],
+    };
+
+    const [sourceRows, currentRows] = await Promise.all([
+      this.prisma.companyConversation.findMany({
+        where: sourceWhere,
+        orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
+        select: {
+          id: true,
+          contact: true,
+          channel: true,
+          whatsappConnectionSessionId: true,
+        },
+      }),
+      this.prisma.companyConversation.findMany({
+        where: { companyId, channel: 'whatsapp', whatsappConnectionSessionId: currentSessionId },
+        select: { id: true, contact: true, channel: true },
+      }),
+    ]);
+
+    const buildConversationKey = (row: any) => {
+      const contact = String(row?.contact || '').trim().toLowerCase();
+      const channel = String(row?.channel || 'whatsapp').trim().toLowerCase() || 'whatsapp';
+      return contact ? `${channel}:${contact}` : `${channel}:conversation-${Number(row?.id || 0)}`;
+    };
+    const targetKeys = new Set(currentRows.map((row) => buildConversationKey(row)));
+    const migratableRows: any[] = [];
+    let legacyMigrated = 0;
+    let previousSessionsMigrated = 0;
+
+    for (const row of sourceRows) {
+      const key = buildConversationKey(row);
+      if (targetKeys.has(key)) continue;
+      targetKeys.add(key);
+      migratableRows.push(row);
+      if (row.whatsappConnectionSessionId) previousSessionsMigrated += 1;
+      else legacyMigrated += 1;
+    }
+
+    const migratableIds = migratableRows.map((row) => Number(row.id)).filter(Boolean);
+    if (migratableIds.length) {
+      await this.prisma.$transaction(async (tx) => {
+        await tx.companyConversation.updateMany({
+          where: { companyId, id: { in: migratableIds } },
+          data: {
+            whatsappConnectionSessionId: currentSessionId,
+            sourcePhoneNormalized: scope.currentSession.phoneNormalized || null,
+            sourceTenantKey: scope.currentSession.tenantKey || null,
+          },
+        });
+        await tx.companyMessage.updateMany({
+          where: { companyId, conversationId: { in: migratableIds } },
+          data: {
+            whatsappConnectionSessionId: currentSessionId,
+            sourcePhoneNormalized: scope.currentSession.phoneNormalized || null,
+            sourceTenantKey: scope.currentSession.tenantKey || null,
+          },
+        });
+      });
+    }
+
+    const totalMigrated = legacyMigrated + previousSessionsMigrated;
+    await this.logInboxEvent({
+      companyId,
+      event: 'whatsapp_history_migrated_to_current',
+      message: 'Histórico antigo do WhatsApp migrado para a sessão atual do Atendimento.',
+      result: 'success',
+      extra: {
+        currentSessionId,
+        legacyMigrated,
+        previousSessionsMigrated,
+        totalMigrated,
+        skippedAsDuplicates: sourceRows.length - totalMigrated,
+      },
+    });
+
+    return {
+      success: true,
+      currentSessionId,
+      legacyMigrated,
+      previousSessionsMigrated,
+      totalMigrated,
+      message: totalMigrated
+        ? 'Histórico antigo juntado neste celular.'
+        : 'Nenhum histórico antigo pendente para migrar.',
     };
   }
 

@@ -3100,6 +3100,8 @@ export default function InboxClientPage() {
   const [inboxRealtimeFallbackActive, setInboxRealtimeFallbackActive] = useState(false);
   const [lastConversationSyncAt, setLastConversationSyncAt] = useState<string | null>(null);
   const [notice, setNotice] = useState<NoticeState | null>(null);
+  const [migratingWhatsappHistory, setMigratingWhatsappHistory] = useState(false);
+  const migratingWhatsappHistoryRef = useRef(false);
   const [commercialPlans, setCommercialPlans] = useState<CommercialPlansPayload | null>(null);
   const [sendText, setSendText] = useState("");
   const [sending, setSending] = useState(false);
@@ -4149,6 +4151,41 @@ export default function InboxClientPage() {
     setOlderMessagesBefore(null);
     setOlderMessagesHasMore(false);
   }, []);
+
+  const migrateAllWhatsappHistoryToCurrent = useCallback(async () => {
+    if (migratingWhatsappHistoryRef.current) return;
+    if (!whatsappSession?.currentSessionId) {
+      setNotice({ tone: "error", text: "Conecte o WhatsApp atual antes de migrar." });
+      return;
+    }
+
+    migratingWhatsappHistoryRef.current = true;
+    setMigratingWhatsappHistory(true);
+    try {
+      await apiFetch<{
+        success?: boolean;
+        currentSessionId?: string | null;
+        legacyMigrated?: number;
+        previousSessionsMigrated?: number;
+        totalMigrated?: number;
+        message?: string;
+      }>("/inbox/whatsapp-sessions/migrate-all-current", {
+        method: "POST",
+        requireAuth: true,
+      });
+      setNotice({ tone: "success", text: "Histórico antigo juntado neste celular." });
+      switchWhatsappSessionHistory(false);
+      await bootstrapInbox({ take: INBOX_CONVERSATION_LIST_LIMIT });
+    } catch (migrateError) {
+      setNotice({
+        tone: "error",
+        text: migrateError instanceof Error ? migrateError.message : "Falha ao migrar histórico.",
+      });
+    } finally {
+      migratingWhatsappHistoryRef.current = false;
+      setMigratingWhatsappHistory(false);
+    }
+  }, [bootstrapInbox, switchWhatsappSessionHistory, whatsappSession?.currentSessionId]);
 
   useEffect(() => {
     if (hasToken !== true) return;
@@ -8381,12 +8418,40 @@ export default function InboxClientPage() {
       (latestVisibleConversationAt && parseDateMs(latestVisibleConversationAt) && Date.now() - Number(parseDateMs(latestVisibleConversationAt)) > 60 * 60 * 1000),
   );
   const previousSessionsCount = Number(whatsappSession?.previousSessionsCount || 0);
+  const legacyConversationCount = Number(whatsappSession?.legacyConversationCount || 0);
+  const previousSessionHistoryCount = Number(whatsappSession?.previousSessions?.length || 0);
   const hasPreviousWhatsappHistory = previousSessionsCount > 0 || showPreviousSessions;
   const activeWhatsappDisplay =
     whatsappSession?.currentSession?.displayPhone ||
     whatsappSession?.currentSession?.phoneNormalized ||
     null;
-  const previousWhatsappSessionId = whatsappSession?.previousSessions?.[0]?.id || null;
+  const hasCurrentWhatsappSession = Boolean(whatsappSession?.currentSessionId);
+  const canMigrateWhatsappHistory =
+    hasCurrentWhatsappSession &&
+    previousSessionsCount > 0 &&
+    !migratingWhatsappHistory;
+  const whatsappHistoryMigrateDisabledTitle = !hasCurrentWhatsappSession
+    ? "Conecte o WhatsApp atual antes de migrar."
+    : previousSessionsCount <= 0
+      ? "Não há histórico antigo para migrar."
+      : migratingWhatsappHistory
+        ? "Migração em andamento."
+        : "Juntar histórico antigo neste celular.";
+  const whatsappHistoryBannerTitle = showPreviousSessions
+    ? "Histórico do celular anterior"
+    : hasCurrentWhatsappSession && previousSessionsCount > 0
+      ? "Histórico antigo pronto para migrar"
+      : legacyConversationCount > 0 && previousSessionHistoryCount === 0
+        ? "Há histórico antigo legado sem sessão"
+        : "Há histórico antigo em outra sessão";
+  const whatsappHistoryBreakdown = [
+    previousSessionHistoryCount > 0
+      ? `${previousSessionHistoryCount} sessão(ões) antiga(s)`
+      : null,
+    legacyConversationCount > 0
+      ? `${legacyConversationCount} conversa(s) legada(s) sem sessão`
+      : null,
+  ].filter(Boolean).join(" e ");
 
   const queueActionConversationIsArchived =
     queueActionConversationId ? queueByConversationId[queueActionConversationId] === "archived" : false;
@@ -8468,15 +8533,11 @@ export default function InboxClientPage() {
                 {hasPreviousWhatsappHistory ? (
                   <div className={styles.whatsappSessionBanner}>
                     <div>
-                      <strong>
-                        {showPreviousSessions
-                          ? "Histórico do celular anterior"
-                          : "Novo WhatsApp conectado."}
-                      </strong>
+                      <strong>{whatsappHistoryBannerTitle}</strong>
                       <span>
                         {showPreviousSessions
                           ? "Você está vendo conversas separadas da sessão atual."
-                          : `O histórico do celular anterior foi separado para não misturar atendimentos.${activeWhatsappDisplay ? ` WhatsApp atual: ${activeWhatsappDisplay}.` : ""}`}
+                          : `${whatsappHistoryBreakdown || "Há histórico antigo separado do WhatsApp atual."}${activeWhatsappDisplay ? ` WhatsApp atual: ${activeWhatsappDisplay}.` : ""}`}
                       </span>
                     </div>
                     <div className={styles.whatsappSessionBannerActions}>
@@ -8499,37 +8560,12 @@ export default function InboxClientPage() {
                       )}
                       <button
                         type="button"
-                        className="btn btn-danger btn-sm"
-                        disabled={!previousWhatsappSessionId}
-                        onClick={async () => {
-                          const confirmed = window.prompt(
-                            "Digite MIGRAR para solicitar a mistura do histórico antigo com o celular atual. Essa ação exige revisão manual do suporte HBX.",
-                          );
-                          if (confirmed === "MIGRAR") {
-                            try {
-                              const result = await apiFetch<{ migrated?: number; skipped?: number }>(
-                                `/inbox/whatsapp-sessions/${previousWhatsappSessionId}/migrate-current`,
-                                {
-                                  method: "POST",
-                                  requireAuth: true,
-                                  body: JSON.stringify({ confirmation: "MIGRAR" }),
-                                },
-                              );
-                              setNotice({
-                                tone: "info",
-                                text: `Histórico migrado: ${Number(result?.migrated || 0)} conversa(s). ${Number(result?.skipped || 0)} ficaram separadas por conflito.`,
-                              });
-                              switchWhatsappSessionHistory(false);
-                            } catch (migrateError) {
-                              setNotice({
-                                tone: "error",
-                                text: migrateError instanceof Error ? migrateError.message : "Falha ao migrar histórico.",
-                              });
-                            }
-                          }
-                        }}
+                        className={`${styles.whatsappSessionMigrateButton} btn btn-danger btn-sm`}
+                        disabled={!canMigrateWhatsappHistory}
+                        title={whatsappHistoryMigrateDisabledTitle}
+                        onClick={() => void migrateAllWhatsappHistoryToCurrent()}
                       >
-                        Migrar histórico antigo para este celular
+                        {migratingWhatsappHistory ? "Migrando..." : "Migrar histórico antigo para este celular"}
                       </button>
                     </div>
                   </div>

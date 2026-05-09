@@ -34,6 +34,7 @@ function createPrisma(
     legacyInboundAt?: Date | null;
   } = {},
 ) {
+  const sessions: any[] = [];
   const inboundCompanyMessage = activity.inboundAt
     ? { timestamp: activity.inboundAt, createdAt: activity.inboundAt }
     : null;
@@ -66,9 +67,39 @@ function createPrisma(
       update: async () => null,
     },
     whatsAppConnectionSession: {
-      updateMany: async () => ({ count: 0 }),
-      findFirst: async () => null,
-      create: async ({ data }: any) => ({ id: 'session-created', ...data }),
+      updateMany: async ({ where, data }: any) => {
+        let count = 0;
+        for (const session of sessions) {
+          if (where?.companyId !== undefined && Number(session.companyId) !== Number(where.companyId)) continue;
+          if (where?.provider !== undefined && session.provider !== where.provider) continue;
+          if (where?.tenantKey !== undefined && session.tenantKey !== where.tenantKey) continue;
+          if (where?.status !== undefined && session.status !== where.status) continue;
+          if (where?.NOT?.id !== undefined && String(session.id) === String(where.NOT.id)) continue;
+          if (where?.NOT?.phoneNormalized !== undefined && String(session.phoneNormalized || '') === String(where.NOT.phoneNormalized)) continue;
+          Object.assign(session, data);
+          count += 1;
+        }
+        return { count };
+      },
+      findFirst: async ({ where }: any) => sessions.find((session) => {
+        if (where?.companyId !== undefined && Number(session.companyId) !== Number(where.companyId)) return false;
+        if (where?.provider !== undefined && session.provider !== where.provider) return false;
+        if (where?.tenantKey !== undefined && session.tenantKey !== where.tenantKey) return false;
+        if (where?.status !== undefined && session.status !== where.status) return false;
+        if (where?.phoneNormalized !== undefined && session.phoneNormalized !== where.phoneNormalized) return false;
+        return true;
+      }) || null,
+      create: async ({ data }: any) => {
+        const session = { id: `session-${sessions.length + 1}`, ...data };
+        sessions.push(session);
+        return session;
+      },
+      update: async ({ where, data }: any) => {
+        const session = sessions.find((item) => String(item.id) === String(where.id));
+        if (!session) return null;
+        Object.assign(session, data);
+        return session;
+      },
     },
     $queryRawUnsafe: async () => [],
     $executeRawUnsafe: async () => 0,
@@ -98,6 +129,64 @@ function createService(company = createCompany(), providerResponse: any = { pair
   return service as WhatsAppModalService;
 }
 
+function createSessionPrisma(company = createCompany(), initialSessions: any[] = []) {
+  const sessions = initialSessions.map((session) => ({ ...session }));
+  const companyUpdates: any[] = [];
+  const prisma = createPrisma(company);
+  prisma.company.update = async ({ data }: any) => {
+    companyUpdates.push(data);
+    Object.assign(company, data);
+    return { ...company };
+  };
+  prisma.whatsAppConnectionSession.findFirst = async ({ where }: any) => sessions.find((session) => {
+    if (where?.companyId !== undefined && Number(session.companyId) !== Number(where.companyId)) return false;
+    if (where?.provider !== undefined && session.provider !== where.provider) return false;
+    if (where?.tenantKey !== undefined && session.tenantKey !== where.tenantKey) return false;
+    if (where?.status !== undefined && session.status !== where.status) return false;
+    if (where?.phoneNormalized !== undefined && session.phoneNormalized !== where.phoneNormalized) return false;
+    return true;
+  }) || null;
+  prisma.whatsAppConnectionSession.create = async ({ data }: any) => {
+    const session = { id: `session-${sessions.length + 1}`, ...data };
+    sessions.push(session);
+    return { id: session.id };
+  };
+  prisma.whatsAppConnectionSession.update = async ({ where, data }: any) => {
+    const session = sessions.find((item) => String(item.id) === String(where.id));
+    if (!session) return null;
+    Object.assign(session, data);
+    return { id: session.id };
+  };
+  prisma.whatsAppConnectionSession.updateMany = async ({ where, data }: any) => {
+    let count = 0;
+    for (const session of sessions) {
+      if (where?.companyId !== undefined && Number(session.companyId) !== Number(where.companyId)) continue;
+      if (where?.provider !== undefined && session.provider !== where.provider) continue;
+      if (where?.tenantKey !== undefined && session.tenantKey !== where.tenantKey) continue;
+      if (where?.status !== undefined && session.status !== where.status) continue;
+      if (where?.NOT?.id !== undefined && String(session.id) === String(where.NOT.id)) continue;
+      Object.assign(session, data);
+      count += 1;
+    }
+    return { count };
+  };
+  return { prisma, sessions, companyUpdates, company };
+}
+
+function createSnapshot(overrides: Record<string, any> = {}) {
+  return {
+    status: 'connected',
+    phone: '+5519999999999',
+    connectedAt: new Date('2026-05-09T12:00:00.000Z'),
+    lastError: null,
+    updatedAt: new Date('2026-05-09T12:00:01.000Z'),
+    provider: 'external_modal',
+    qrCodeDataUrl: null,
+    rawStatus: 'CONNECTED',
+    ...overrides,
+  };
+}
+
 test('pairing-code rejeita telefone invalido', async () => {
   const service = createService();
 
@@ -105,6 +194,114 @@ test('pairing-code rejeita telefone invalido', async () => {
     () => service.requestPairingCode(7, 'company-7', 'abc'),
     BadRequestException,
   );
+});
+
+test('snapshot connected cria WhatsAppConnectionSession e aponta Company.currentWhatsappConnectionSessionId', async () => {
+  const company = createCompany({ whatsappModalStatus: 'DISCONNECTED' });
+  const { prisma, sessions, companyUpdates } = createSessionPrisma(company);
+  const service = new WhatsAppModalService(prisma) as any;
+
+  await service.persistSnapshot(company, createSnapshot(), 'test_connected');
+
+  assert.equal(sessions.length, 1);
+  assert.equal(sessions[0].provider, 'webwhats');
+  assert.equal(sessions[0].tenantKey, 'company-7');
+  assert.equal(sessions[0].status, 'active');
+  assert.equal(sessions[0].phoneNormalized, '5519999999999');
+  assert.equal(companyUpdates.at(-1).currentWhatsappConnectionSessionId, sessions[0].id);
+});
+
+test('snapshot connected reutiliza sessao existente em vez de duplicar', async () => {
+  const connectedAt = new Date('2026-05-09T10:00:00.000Z');
+  const company = createCompany({ whatsappModalStatus: 'DISCONNECTED' });
+  const { prisma, sessions, companyUpdates } = createSessionPrisma(company, [
+    {
+      id: 'session-existing',
+      companyId: 7,
+      provider: 'webwhats',
+      tenantKey: 'company-7',
+      phoneNormalized: null,
+      displayPhone: null,
+      status: 'active',
+      connectedAt,
+      createdAt: connectedAt,
+    },
+  ]);
+  const service = new WhatsAppModalService(prisma) as any;
+
+  await service.persistSnapshot(company, createSnapshot(), 'test_reuse');
+
+  assert.equal(sessions.length, 1);
+  assert.equal(sessions[0].id, 'session-existing');
+  assert.equal(sessions[0].phoneNormalized, '5519999999999');
+  assert.equal(companyUpdates.at(-1).currentWhatsappConnectionSessionId, 'session-existing');
+});
+
+test('snapshot connected cria sessao mesmo sem whatsappModalPhone', async () => {
+  const company = createCompany({ whatsappModalStatus: 'DISCONNECTED', whatsappModalPhone: null });
+  const { prisma, sessions, companyUpdates } = createSessionPrisma(company);
+  const service = new WhatsAppModalService(prisma) as any;
+
+  await service.persistSnapshot(company, createSnapshot({ phone: null }), 'test_connected_without_phone');
+
+  assert.equal(sessions.length, 1);
+  assert.equal(sessions[0].tenantKey, 'company-7');
+  assert.equal(sessions[0].phoneNormalized, null);
+  assert.equal(sessions[0].displayPhone, null);
+  assert.equal(companyUpdates.at(-1).currentWhatsappConnectionSessionId, sessions[0].id);
+});
+
+test('snapshot disconnected marca sessao ativa como disconnected e limpa currentWhatsappConnectionSessionId', async () => {
+  const company = createCompany({
+    whatsappModalStatus: 'CONNECTED',
+    currentWhatsappConnectionSessionId: 'session-active',
+  });
+  const { prisma, sessions, companyUpdates } = createSessionPrisma(company, [
+    {
+      id: 'session-active',
+      companyId: 7,
+      provider: 'webwhats',
+      tenantKey: 'company-7',
+      phoneNormalized: '5519999999999',
+      displayPhone: '+5519999999999',
+      status: 'active',
+      connectedAt: new Date('2026-05-09T10:00:00.000Z'),
+      createdAt: new Date('2026-05-09T10:00:00.000Z'),
+    },
+  ]);
+  const service = new WhatsAppModalService(prisma) as any;
+
+  await service.persistSnapshot(company, createSnapshot({ status: 'disconnected', connectedAt: null }), 'test_disconnected');
+
+  assert.equal(sessions[0].status, 'disconnected');
+  assert.ok(sessions[0].disconnectedAt instanceof Date);
+  assert.equal(companyUpdates.at(-1).currentWhatsappConnectionSessionId, null);
+});
+
+test('snapshot reconnecting nao limpa sessao ativa', async () => {
+  const company = createCompany({
+    whatsappModalStatus: 'CONNECTED',
+    currentWhatsappConnectionSessionId: 'session-active',
+  });
+  const { prisma, sessions, companyUpdates } = createSessionPrisma(company, [
+    {
+      id: 'session-active',
+      companyId: 7,
+      provider: 'webwhats',
+      tenantKey: 'company-7',
+      phoneNormalized: '5519999999999',
+      displayPhone: '+5519999999999',
+      status: 'active',
+      connectedAt: new Date('2026-05-09T10:00:00.000Z'),
+      createdAt: new Date('2026-05-09T10:00:00.000Z'),
+    },
+  ]);
+  const service = new WhatsAppModalService(prisma) as any;
+
+  await service.persistSnapshot(company, createSnapshot({ status: 'reconnecting' }), 'test_reconnecting');
+
+  assert.equal(sessions[0].status, 'active');
+  assert.equal(companyUpdates.at(-1).currentWhatsappConnectionSessionId, 'session-active');
 });
 
 test('pairing-code rejeita sessao inexistente ou de outra empresa', async () => {

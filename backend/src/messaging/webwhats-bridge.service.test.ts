@@ -45,6 +45,78 @@ function makeConversation(overrides?: Record<string, unknown>) {
   };
 }
 
+test('resolveCurrentWebwhatsSession repara Company CONNECTED sem sessao operacional', async () => {
+  const previousUrl = process.env.WHATSAPP_MODAL_INTERNAL_URL;
+  const previousKey = process.env.WHATSAPP_MODAL_API_KEY;
+  process.env.WHATSAPP_MODAL_INTERNAL_URL = 'http://webwhats.test';
+  process.env.WHATSAPP_MODAL_API_KEY = 'test-key';
+
+  const sessions: any[] = [];
+  const companyUpdates: any[] = [];
+  const prisma = {
+    company: {
+      findUnique: async () => ({
+        id: 66,
+        whatsappModalStatus: 'CONNECTED',
+        whatsappModalPhone: null,
+        whatsappModalConnectedAt: new Date('2026-05-09T12:00:00.000Z'),
+        currentWhatsappConnectionSessionId: null,
+        currentWhatsappConnectionSession: null,
+      }),
+      update: async ({ data }: any) => {
+        companyUpdates.push(data);
+        return { id: 66, ...data };
+      },
+    },
+    whatsAppConnectionSession: {
+      findFirst: async ({ where }: any) => sessions.find((session) => {
+        if (where?.companyId !== undefined && Number(session.companyId) !== Number(where.companyId)) return false;
+        if (where?.provider !== undefined && session.provider !== where.provider) return false;
+        if (where?.tenantKey !== undefined && session.tenantKey !== where.tenantKey) return false;
+        if (where?.status !== undefined && session.status !== where.status) return false;
+        return true;
+      }) || null,
+      create: async ({ data }: any) => {
+        const session = { id: 'session-repaired', ...data };
+        sessions.push(session);
+        return session;
+      },
+      update: async ({ where, data }: any) => {
+        const session = sessions.find((item) => String(item.id) === String(where.id));
+        Object.assign(session, data);
+        return session;
+      },
+      updateMany: async ({ where, data }: any) => {
+        let count = 0;
+        for (const session of sessions) {
+          if (where?.NOT?.id !== undefined && String(session.id) === String(where.NOT.id)) continue;
+          Object.assign(session, data);
+          count += 1;
+        }
+        return { count };
+      },
+    },
+  };
+  const service = new WebwhatsBridgeService(prisma as any) as any;
+
+  try {
+    const session = await service.resolveCurrentWebwhatsSession(66);
+
+    assert.equal(session.id, 'session-repaired');
+    assert.equal(session.tenantKey, 'company-66');
+    assert.equal(sessions.length, 1);
+    assert.equal(sessions[0].provider, 'webwhats');
+    assert.equal(sessions[0].status, 'active');
+    assert.equal(sessions[0].phoneNormalized, null);
+    assert.equal(companyUpdates.at(-1).currentWhatsappConnectionSessionId, 'session-repaired');
+  } finally {
+    if (previousUrl === undefined) delete process.env.WHATSAPP_MODAL_INTERNAL_URL;
+    else process.env.WHATSAPP_MODAL_INTERNAL_URL = previousUrl;
+    if (previousKey === undefined) delete process.env.WHATSAPP_MODAL_API_KEY;
+    else process.env.WHATSAPP_MODAL_API_KEY = previousKey;
+  }
+});
+
 test('sendWhatsAppAudio posts Evolution voice note payload', async () => {
   const previousUrl = process.env.WHATSAPP_MODAL_INTERNAL_URL;
   const previousKey = process.env.WHATSAPP_MODAL_API_KEY;

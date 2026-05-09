@@ -81,6 +81,12 @@
   color: var(--muted);
 }
 
+.whatsappSessionMigrateButton:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+  filter: grayscale(0.25);
+}
+
 .inboxBannerStack {
   display: grid;
   gap: 0.34rem;
