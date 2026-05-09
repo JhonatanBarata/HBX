@@ -56,7 +56,6 @@ type RadarLeadsResponse = {
   code?: string;
   message?: string;
   retryable?: boolean;
-  facets?: Array<{ key: string; label: string; count: number; tone?: string }>;
   meta?: {
     available?: boolean;
     message?: string;
@@ -81,6 +80,8 @@ type RadarPullResponse = {
     };
   };
 };
+
+type RadarLeadDetailResponse = RadarLead | { item?: RadarLead | null; events?: RadarLeadHistory[] };
 
 type ImportToVendasResponse = {
   ok: boolean;
@@ -116,7 +117,9 @@ type FilterState = {
   status: string;
 };
 
-const PAGE_SIZE = 24;
+type EngineStatus = "online" | "busy" | "standby" | "attention" | "error";
+
+const PAGE_SIZE = 100;
 const RADAR_PROGRESS_STEPS = ["lendo banco", "filtrando negativos", "selecionando melhores cards", "alimentando Vendas/Prospecção"];
 
 const DEFAULT_FILTERS: FilterState = {
@@ -125,13 +128,25 @@ const DEFAULT_FILTERS: FilterState = {
   segment: "",
   quantity: 20,
   engine: "hbx",
-  targetType: "pj",
+  targetType: "both",
   ddd: "",
   scoreRange: "",
   noWebsite: false,
   highOpportunity: false,
   status: "",
 };
+
+const ENGINE_PANELS = Array.from({ length: 5 }, (_, index) => {
+  const start = index * 20 + 1;
+  const end = start + 19;
+  return {
+    id: index + 1,
+    start,
+    end,
+    title: `Painel ${index + 1}`,
+    range: `Motores ${start}-${end}`,
+  };
+});
 
 function formatPhone(value?: string | null) {
   const digits = String(value || "").replace(/\D/g, "");
@@ -144,7 +159,7 @@ function formatDate(value?: string | null) {
   if (!value) return "";
   const date = new Date(value);
   if (!Number.isFinite(date.getTime())) return "";
-  return date.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
+  return date.toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
 }
 
 function statusLabel(value?: string | null) {
@@ -178,8 +193,8 @@ function websiteLabel(value?: string | null) {
 function opportunityLabel(score?: number | null) {
   const safeScore = Math.max(0, Math.min(100, Math.trunc(Number(score || 0))));
   if (safeScore >= 70) return "Alta oportunidade";
-  if (safeScore >= 45) return "Oportunidade média";
-  return "Oportunidade baixa";
+  if (safeScore >= 45) return "Atenção";
+  return "Baixa oportunidade";
 }
 
 function topbarProgressPercentFrom(value: number) {
@@ -219,7 +234,7 @@ function buildLeadQuery(filters: FilterState, page: number) {
   if (filters.state) params.set("state", filters.state);
   if (filters.city) params.set("city", filters.city);
   if (filters.segment.trim()) params.set("segment", filters.segment.trim());
-  if (filters.targetType) params.set("targetType", filters.targetType);
+  if (filters.targetType && filters.targetType !== "both") params.set("targetType", filters.targetType);
   if (filters.ddd.trim()) params.set("ddd", filters.ddd.replace(/\D/g, "").slice(0, 2));
   if (filters.scoreRange) params.set("scoreRange", filters.scoreRange);
   if (filters.status) params.set("status", filters.status);
@@ -232,7 +247,7 @@ function compactRadarMessage(message: string | null) {
   const text = String(message || "").trim();
   if (!text) return "";
   if (text.toLowerCase().includes("cidade e segmento")) {
-    return "Escolha cidade e segmento para puxar cards do Radar.";
+    return "Escolha cidade e segmento para acionar motores. Para histórico, clique em Pesquisar sem filtros.";
   }
   return text;
 }
@@ -258,11 +273,65 @@ function radarFriendlyError(error: unknown) {
   return message || "Não foi possível concluir a operação agora.";
 }
 
+function normalizeDetailLead(payload: RadarLeadDetailResponse): RadarLead | null {
+  if (payload && "item" in payload) return payload.item || null;
+  return payload as RadarLead;
+}
+
+function leadMatchesSearch(lead: RadarLead, search: string) {
+  const needle = search.trim().toLowerCase();
+  if (!needle) return true;
+  const haystack = [
+    lead.id,
+    lead.name,
+    lead.phone,
+    lead.phoneDigits,
+    lead.ddd,
+    lead.city,
+    lead.state,
+    lead.segment,
+    lead.website,
+    lead.status,
+    lead.companyStatus,
+  ].filter(Boolean).join(" ").toLowerCase();
+  return haystack.includes(needle);
+}
+
+function hasHistoryFilters(filters: FilterState, generalSearch: string) {
+  return Boolean(
+    generalSearch.trim()
+    || filters.state.trim()
+    || filters.city.trim()
+    || filters.segment.trim()
+    || filters.ddd.trim()
+    || filters.scoreRange
+    || filters.status
+    || filters.noWebsite
+    || filters.highOpportunity
+    || (filters.targetType && filters.targetType !== "both"),
+  );
+}
+
+function canPullWithFilters(filters: FilterState) {
+  return Boolean(filters.city.trim() && filters.segment.trim());
+}
+
+function engineStatusFor(engineNumber: number, selectedPanel: number | null, searching: boolean, error: string | null): EngineStatus {
+  if (error && selectedPanel && engineNumber > (selectedPanel - 1) * 20 && engineNumber <= selectedPanel * 20) return "attention";
+  if (searching && engineNumber <= 20) return engineNumber <= 4 ? "busy" : "online";
+  if (engineNumber <= 20) return "online";
+  return "standby";
+}
+
 export default function RadarDigitalClientPage() {
   const hasToken = useRequireModule("webscraping");
   const searchParams = useSearchParams();
   const [filters, setFilters] = useState<FilterState>(DEFAULT_FILTERS);
   const [appliedFilters, setAppliedFilters] = useState<FilterState>(DEFAULT_FILTERS);
+  const [generalSearch, setGeneralSearch] = useState("");
+  const [appliedGeneralSearch, setAppliedGeneralSearch] = useState("");
+  const [hasSearched, setHasSearched] = useState(false);
+  const [selectedEnginePanel, setSelectedEnginePanel] = useState<number | null>(null);
   const [items, setItems] = useState<RadarLead[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -282,10 +351,26 @@ export default function RadarDigitalClientPage() {
     segments: [],
   });
 
-  const highOpportunityCount = useMemo(
-    () => items.filter((item) => Number(item.opportunityScore || 0) >= 70).length,
-    [items],
+  const visibleItems = useMemo(
+    () => items.filter((item) => leadMatchesSearch(item, appliedGeneralSearch)),
+    [appliedGeneralSearch, items],
   );
+  const highOpportunityCount = useMemo(
+    () => visibleItems.filter((item) => Number(item.opportunityScore || 0) >= 70).length,
+    [visibleItems],
+  );
+  const attentionCount = useMemo(
+    () => visibleItems.filter((item) => {
+      const score = Number(item.opportunityScore || 0);
+      return score >= 45 && score < 70;
+    }).length,
+    [visibleItems],
+  );
+  const criticalCount = useMemo(
+    () => visibleItems.filter((item) => Number(item.opportunityScore || 0) < 45).length,
+    [visibleItems],
+  );
+
   const isHbxList = commercialPlans?.current?.planKey === "hbx_lite" || commercialPlans?.current?.selectedPlanKey === "hbx_lite";
   const radarQuantityLimit = isHbxList ? 50 : 100;
   const effectiveFilters = useMemo(
@@ -295,7 +380,6 @@ export default function RadarDigitalClientPage() {
     }),
     [filters, radarQuantityLimit],
   );
-  const canSearchRadar = Boolean(filters.state.trim() && filters.city.trim() && filters.segment.trim());
   const queryRadarLeadId = String(searchParams.get("radarLeadId") || "").trim();
 
   useEffect(() => {
@@ -327,12 +411,6 @@ export default function RadarDigitalClientPage() {
       city: nextCity || current.city,
       segment: nextSegment || current.segment,
     }));
-    setAppliedFilters((current) => ({
-      ...current,
-      state: nextState || current.state,
-      city: nextCity || current.city,
-      segment: nextSegment || current.segment,
-    }));
   }, [searchParams]);
 
   useEffect(() => {
@@ -342,14 +420,16 @@ export default function RadarDigitalClientPage() {
       setLoading(true);
       setError(null);
       try {
-        const lead = await apiFetch<RadarLead>(`/webscraping/radar/leads/${encodeURIComponent(queryRadarLeadId)}`, {
+        const payload = await apiFetch<RadarLeadDetailResponse>(`/webscraping/radar/leads/${encodeURIComponent(queryRadarLeadId)}`, {
           requireAuth: true,
           timeoutMs: 15000,
         });
         if (cancelled) return;
+        const lead = normalizeDetailLead(payload);
         setItems(lead ? [lead] : []);
         setTotal(lead ? 1 : 0);
         setPage(1);
+        setHasSearched(true);
         setFeedback("Card aberto pelo Night Factory. Revise antes de enviar para Vendas.");
       } catch {
         if (!cancelled) setError("Não foi possível abrir este card do Radar.");
@@ -363,17 +443,18 @@ export default function RadarDigitalClientPage() {
     };
   }, [hasToken, queryRadarLeadId]);
 
-  const loadCards = useCallback(async (nextPage = 1, append = false) => {
+  const loadCards = useCallback(async (nextPage = 1, append = false, filtersOverride?: FilterState) => {
+    const queryFilters = filtersOverride || appliedFilters;
     if (append) setLoadingMore(true);
     else setLoading(true);
     setError(null);
     try {
-      const query = buildLeadQuery(appliedFilters, nextPage);
+      const query = buildLeadQuery(queryFilters, nextPage);
       const payload = await apiFetch<RadarLeadsResponse>(`/webscraping/radar/leads?${query}`, {
         requireAuth: true,
         timeoutMs: 15000,
       });
-      setItems((current) => append ? [...current, ...(payload.items || [])] : payload.items || []);
+      setItems((current) => append ? mergeRadarLeads([...current, ...(payload.items || [])]) : payload.items || []);
       setTotal(Number(payload.total || 0));
       setAvailableFilters(payload.meta?.availableFilters || { states: [], citiesByState: {}, segments: [] });
       setPage(nextPage);
@@ -384,13 +465,6 @@ export default function RadarDigitalClientPage() {
       setLoadingMore(false);
     }
   }, [appliedFilters]);
-
-  useEffect(() => {
-    if (hasToken !== true) return;
-    if (queryRadarLeadId) return;
-    if (!appliedFilters.state && !appliedFilters.city && !appliedFilters.segment && !appliedFilters.status) return;
-    void loadCards(1, false);
-  }, [hasToken, loadCards, queryRadarLeadId, appliedFilters.state, appliedFilters.city, appliedFilters.segment, appliedFilters.status]);
 
   useEffect(() => {
     if (!feedback) return;
@@ -424,17 +498,17 @@ export default function RadarDigitalClientPage() {
       setRadarVisualCount(0);
       return undefined;
     }
-    const target = Math.max(1, Math.min(effectiveFilters.quantity, searching ? radarQuantityLimit : Math.max(1, items.length)));
+    const target = Math.max(1, Math.min(effectiveFilters.quantity, searching ? radarQuantityLimit : Math.max(1, visibleItems.length)));
     setRadarVisualCount(1);
     const timer = window.setInterval(() => {
       setRadarVisualCount((current) => Math.min(target, current + 1));
     }, 180);
     return () => window.clearInterval(timer);
-  }, [bulkSending, effectiveFilters.quantity, items.length, radarQuantityLimit, searching]);
+  }, [bulkSending, effectiveFilters.quantity, radarQuantityLimit, searching, visibleItems.length]);
 
   useEffect(() => {
     const metrics = [
-      { label: "Cards", value: items.length.toLocaleString("pt-BR") },
+      { label: "Cards", value: visibleItems.length.toLocaleString("pt-BR") },
       { label: "High", value: highOpportunityCount.toLocaleString("pt-BR") },
       { label: "Total", value: total.toLocaleString("pt-BR") },
     ];
@@ -479,7 +553,9 @@ export default function RadarDigitalClientPage() {
         source: "radar",
         phase: "loading",
         title: "Radar pesquisando agora",
-        status: "Motores ligando: lendo banco, filtrando negativos e preparando cards elegíveis.",
+        status: canPullWithFilters(effectiveFilters)
+          ? "Motores ligando: lendo banco, filtrando negativos e preparando cards elegíveis."
+          : "Listando histórico salvo do Radar sem acionar motor.",
         progress: Math.max(18, telonProgress),
         steps: RADAR_PROGRESS_STEPS,
         activeStepIndex,
@@ -487,7 +563,7 @@ export default function RadarDigitalClientPage() {
         metrics: [
           { label: "Qtd", value: String(effectiveFilters.quantity) },
           { label: "Motor", value: filters.engine === "google" ? "Google" : "HBX" },
-          { label: "Tipo", value: filters.targetType.toUpperCase() },
+          { label: "Tipo", value: effectiveFilters.targetType.toUpperCase() },
         ],
       });
       return;
@@ -502,14 +578,14 @@ export default function RadarDigitalClientPage() {
         progress: Math.max(18, telonProgress),
         steps: RADAR_PROGRESS_STEPS,
         activeStepIndex: 3,
-        cardFeed: items.slice(0, Math.max(1, radarVisualCount)).slice(-4).map((item) => ({
+        cardFeed: visibleItems.slice(0, Math.max(1, radarVisualCount)).slice(-4).map((item) => ({
           id: `vendas:${item.id}`,
           title: item.name || "Card Radar",
           meta: [item.segment, item.city].filter(Boolean).join(" • ") || "Radar Digital",
           score: item.opportunityScore ?? undefined,
         })),
         metrics: [
-          { label: "Selecionados", value: String(Math.min(items.length, effectiveFilters.quantity)) },
+          { label: "Selecionados", value: String(Math.min(visibleItems.length, effectiveFilters.quantity)) },
           { label: "High", value: highOpportunityCount.toLocaleString("pt-BR") },
           { label: "Destino", value: "Vendas" },
         ],
@@ -522,7 +598,7 @@ export default function RadarDigitalClientPage() {
         source: "radar",
         phase: "loading",
         title: "Carregando mais Radar",
-        status: "Buscando o próximo lote de cards.",
+        status: "Buscando o próximo lote de 100 cards.",
         progress: Math.max(18, telonProgress),
         metrics,
       });
@@ -534,7 +610,7 @@ export default function RadarDigitalClientPage() {
         source: "radar",
         phase: "loading",
         title: "Carregando Radar Digital",
-        status: "Lendo estoque, filtros e oportunidades.",
+        status: "Preparando painel do Radar.",
         progress: Math.max(14, telonProgress),
         metrics,
       });
@@ -557,24 +633,21 @@ export default function RadarDigitalClientPage() {
   }, [
     actionId,
     bulkSending,
+    effectiveFilters,
     error,
     feedback,
-    filters.engine,
-    filters.quantity,
     filters.city,
+    filters.engine,
     filters.segment,
-    filters.targetType,
     hasToken,
     highOpportunityCount,
-    effectiveFilters.quantity,
-    items.length,
-    items,
     loading,
     loadingMore,
+    radarVisualCount,
     searching,
     telonProgress,
     total,
-    radarVisualCount,
+    visibleItems,
   ]);
 
   useEffect(() => () => clearTopbarProgress("radar"), []);
@@ -582,6 +655,14 @@ export default function RadarDigitalClientPage() {
   function clearFilters() {
     setFilters(DEFAULT_FILTERS);
     setAppliedFilters(DEFAULT_FILTERS);
+    setGeneralSearch("");
+    setAppliedGeneralSearch("");
+    setHasSearched(false);
+    setItems([]);
+    setTotal(0);
+    setPage(1);
+    setFeedback(null);
+    setError(null);
   }
 
   function updateAdvancedFilters(next: HbxAdvancedFiltersValue) {
@@ -596,19 +677,25 @@ export default function RadarDigitalClientPage() {
   }
 
   async function runRadarSearch() {
-    if (!canSearchRadar) {
-      setFeedback(null);
-      setError("Escolha estado, cidade e segmento para pesquisar no Radar.");
-      return;
-    }
-
     setSearching(true);
     setError(null);
     setFeedback(null);
     setTelonProgress(12);
+    setHasSearched(true);
     const nextFilters = { ...effectiveFilters };
+    const nextGeneralSearch = generalSearch.trim();
     setAppliedFilters(nextFilters);
+    setAppliedGeneralSearch(nextGeneralSearch);
+
     try {
+      if (!canPullWithFilters(nextFilters)) {
+        await loadCards(1, false, nextFilters);
+        setFeedback(hasHistoryFilters(nextFilters, nextGeneralSearch)
+          ? "Histórico filtrado carregado sem acionar motor."
+          : "Histórico do Radar carregado em lotes de 100.");
+        return;
+      }
+
       const pullRadar = (targetType: Exclude<HbxTargetTypeValue, "both">, quantity: number) =>
         apiFetch<RadarPullResponse>("/webscraping/radar/pull", {
           method: "POST",
@@ -683,7 +770,6 @@ export default function RadarDigitalClientPage() {
     action: "send" | "hide" | "negative" | "csx",
   ) {
     if (action === "csx") {
-      // TODO: integrar endpoint CSX quando o serviço existir no backend.
       setFeedback("Registro CSX pendente de integração. O card não foi alterado.");
       return;
     }
@@ -743,7 +829,7 @@ export default function RadarDigitalClientPage() {
   }
 
   async function sendFilteredToVendas() {
-    if (!items.length) {
+    if (!visibleItems.length) {
       setFeedback(null);
       setError("Pesquise primeiro. Depois envie os cards encontrados para Vendas.");
       return;
@@ -754,7 +840,7 @@ export default function RadarDigitalClientPage() {
     setFeedback(null);
     setTelonProgress(12);
     try {
-      const selectedItems = items.slice(0, effectiveFilters.quantity);
+      const selectedItems = visibleItems.slice(0, effectiveFilters.quantity);
       const leads = selectedItems.map(buildVendasLeadPayload);
       if (!leads.length) {
         setFeedback("Nenhum lead elegível encontrado para enviar.");
@@ -781,7 +867,7 @@ export default function RadarDigitalClientPage() {
     }
   }
 
-  if (hasToken === null || loading && items.length === 0) {
+  if (hasToken === null || loading && items.length === 0 && hasSearched) {
     return (
       <main className="app-shell" aria-hidden="true" />
     );
@@ -789,64 +875,70 @@ export default function RadarDigitalClientPage() {
 
   if (!hasToken) return null;
 
-  const hasMore = items.length < total;
+  const hasMore = hasSearched && items.length < total;
   const availableSegments = availableFilters.segments || [];
+  const diagnosticsCount = [error, feedback, loading || searching || loadingMore || bulkSending || actionId, hasSearched].filter(Boolean).length;
+  const panelRows = selectedEnginePanel
+    ? Array.from({ length: 20 }, (_, index) => ((selectedEnginePanel - 1) * 20) + index + 1)
+    : [];
+  const diagnostics = [
+    error ? {
+      id: "erro-atual",
+      engine: selectedEnginePanel ? `Painel ${selectedEnginePanel}` : "Painel",
+      context: error,
+      status: "Atenção",
+      severity: "Alta",
+      action: "Revisar mensagem",
+    } : null,
+    feedback ? {
+      id: "feedback-atual",
+      engine: selectedEnginePanel ? `Painel ${selectedEnginePanel}` : "Painel",
+      context: feedback,
+      status: "Informativo",
+      severity: "Baixa",
+      action: "Acompanhar",
+    } : null,
+    {
+      id: "estado-busca",
+      engine: selectedEnginePanel ? `Painel ${selectedEnginePanel}` : "Painel 1",
+      context: `Derivado: ${visibleItems.length} card(s) carregados, página ${page}, ${PAGE_SIZE} por página.`,
+      status: loading || searching || loadingMore || bulkSending ? "Processando" : hasSearched ? "Pronto" : "Aguardando",
+      severity: error ? "Média" : "Baixa",
+      action: hasSearched ? "Monitorar" : "Pesquisar",
+    },
+    selectedEnginePanel ? {
+      id: "painel-selecionado",
+      engine: `Painel ${selectedEnginePanel}`,
+      context: `Derivado: visualizando motores ${((selectedEnginePanel - 1) * 20) + 1}-${selectedEnginePanel * 20}.`,
+      status: selectedEnginePanel === 1 ? "Online" : "Standby",
+      severity: selectedEnginePanel === 1 ? "Baixa" : "Média",
+      action: "Visual",
+    } : null,
+  ].filter(Boolean) as Array<{ id: string; engine: string; context: string; status: string; severity: string; action: string }>;
 
   return (
     <DashboardScaffold
       title="Radar Digital"
-      description="Pesquisa sob demanda usando o banco dos motores HBX."
+      description="Painel inteligente de pesquisa e diagnósticos."
       hideHeader
       showDashboardShortcut={false}
     >
       <section className={styles.shell}>
-        <div className={styles.summaryBar}>
+        <header className={styles.header}>
           <div>
-            <span>Resultado atual</span>
-            <strong>{total.toLocaleString("pt-BR")}</strong>
+            <span>HBX</span>
+            <h1>Radar Digital</h1>
+            <p>Painel inteligente de pesquisa e diagnósticos.</p>
           </div>
-          <div>
-            <span>Alta oportunidade</span>
-            <strong>{highOpportunityCount.toLocaleString("pt-BR")}</strong>
-          </div>
-          <div>
-            <span>Origem</span>
-            <strong>Banco ou motor</strong>
-          </div>
-          {isHbxList ? (
-            <div>
-              <span>HBX List</span>
-              <strong>50 x 3 = 150 cards</strong>
-            </div>
-          ) : null}
-        </div>
-
-        <section className={styles.transferPanel}>
-          <div>
-            <span>Pesquisa sob demanda</span>
-            <strong>Você escolhe o nicho; o backend decide banco ou motor.</strong>
-            <p>O Radar consulta o banco primeiro. Se faltar card, aciona o motor escolhido e grava o resultado para o estoque HBX.</p>
-          </div>
-          <div className={styles.transferActions}>
-            <button
-              type="button"
-              onClick={() => void runRadarSearch()}
-              disabled={searching || !canSearchRadar}
-              title={!canSearchRadar ? "Escolha estado, cidade e segmento antes de pesquisar." : undefined}
-            >
-              {searching ? "Pesquisando..." : "Pesquisar agora"}
-            </button>
-            <button
-              type="button"
-              data-variant="secondary"
-              onClick={() => void sendFilteredToVendas()}
-              disabled={bulkSending || !items.length}
-              title={!items.length ? "Pesquise primeiro para escolher o que vai para Vendas." : undefined}
-            >
-              {bulkSending ? "Enviando..." : "Enviar resultado para Vendas"}
-            </button>
-          </div>
-        </section>
+          <button
+            type="button"
+            onClick={() => void sendFilteredToVendas()}
+            disabled={bulkSending || !visibleItems.length}
+            title={!visibleItems.length ? "Pesquise primeiro para escolher o que vai para Vendas." : undefined}
+          >
+            {bulkSending ? "Enviando..." : "Enviar para Vendas"}
+          </button>
+        </header>
 
         <form
           className={styles.filters}
@@ -855,14 +947,30 @@ export default function RadarDigitalClientPage() {
             void runRadarSearch();
           }}
         >
+          <div className={styles.filtersTitle}>
+            <div>
+              <span>Pesquisa</span>
+              <strong>Filtros de Pesquisa</strong>
+            </div>
+            <small>{hasHistoryFilters(filters, generalSearch) ? "Filtros prontos para consulta." : "Pesquisar vazio abre todo o histórico salvo."}</small>
+          </div>
+
+          <label className={styles.filterGeneral}>
+            <span>Pesquisa geral</span>
+            <input
+              value={generalSearch}
+              onChange={(event) => setGeneralSearch(event.target.value)}
+              placeholder="ID, cliente, documento, telefone..."
+            />
+          </label>
+
           <div className={styles.filterLocation}>
             <HbxStateCityPicker
               state={filters.state}
               city={filters.city}
               onStateChange={(value) => setFilters((current) => ({ ...current, state: value, city: "" }))}
               onCityChange={(value) => setFilters((current) => ({ ...current, city: value }))}
-              requiredCity
-              helperText="Todos os estados e cidades oficiais estão disponíveis."
+              helperText=""
             />
           </div>
           <div className={styles.filterSegment}>
@@ -870,17 +978,41 @@ export default function RadarDigitalClientPage() {
               value={filters.segment}
               onChange={(value) => setFilters((current) => ({ ...current, segment: value }))}
               suggestions={availableSegments.length ? availableSegments.map((item) => item.value) : undefined}
-              placeholder="Ex.: odontologia, oficina mecânica, energia solar"
-              helperText="Digite livremente ou escolha um segmento sugerido."
+              placeholder="Segmento"
+              helperText=""
             />
           </div>
-          <div className={styles.filterEngine}>
+          <label className={styles.filterStatus}>
+            <span>Status</span>
+            <select value={filters.status} onChange={(event) => setFilters((current) => ({ ...current, status: event.target.value }))}>
+              <option value="">Todos</option>
+              <option value="clean">Novo</option>
+              <option value="approved">Aprovado</option>
+              <option value="sent_to_vendas">Em Vendas</option>
+              <option value="in_attendance">Em atendimento</option>
+              <option value="converted">Convertido</option>
+              <option value="contacted">Contato feito</option>
+              <option value="no_whatsapp">Contato inválido</option>
+              <option value="discarded">Descartado</option>
+              <option value="negative">Negativo</option>
+              <option value="blocked">Bloqueado</option>
+              <option value="opt_out">Opt-out</option>
+            </select>
+          </label>
+          <div className={styles.filterTarget}>
+            <HbxTargetTypeSelector
+              value={filters.targetType}
+              onChange={(value) => setFilters((current) => ({ ...current, targetType: value }))}
+              allowedTypes={["pj", "pf", "both"]}
+            />
+          </div>
+          <div className={styles.filterQuantity}>
             <HbxQuantitySelector
               value={filters.quantity}
               onChange={(value) => setFilters((current) => ({ ...current, quantity: value }))}
               options={isHbxList ? [10, 20, 40, 50] : [10, 20, 40, 60, 100]}
               limitLabel="Quantidade"
-              helperText={isHbxList ? "HBX List: limite visual de 50 cards por pesquisa, 3 pesquisas e total 150 cards." : "Quantidade desejada para esta pesquisa."}
+              helperText=""
             />
           </div>
           <div className={styles.filterEngine}>
@@ -888,13 +1020,6 @@ export default function RadarDigitalClientPage() {
               value={filters.engine}
               onChange={(value) => setFilters((current) => ({ ...current, engine: value }))}
               showDescription={false}
-            />
-          </div>
-          <div className={styles.filterTarget}>
-            <HbxTargetTypeSelector
-              value={filters.targetType}
-              onChange={(value) => setFilters((current) => ({ ...current, targetType: value }))}
-              allowedTypes={["pj", "pf", "agenda_pf", "both"]}
             />
           </div>
           <div className={styles.filterAdvanced}>
@@ -905,90 +1030,228 @@ export default function RadarDigitalClientPage() {
             />
           </div>
           <div className={styles.filterActions}>
-            <button type="submit" disabled={searching || !canSearchRadar}>
+            <button type="button" data-variant="secondary" onClick={clearFilters}>Limpar filtros</button>
+            <button type="submit" disabled={searching}>
               {searching ? "Pesquisando..." : "Pesquisar"}
             </button>
-            <button type="button" onClick={clearFilters}>Limpar</button>
           </div>
         </form>
 
-        {!loading && items.length === 0 ? (
-          <div className={styles.emptyState}>
-            <span aria-hidden="true">RD</span>
-            <strong>Sem cards disponíveis ainda.</strong>
-            <p>Pesquise um nicho para consultar o banco ou acionar um motor.</p>
+        {error ? <div className={styles.notice} data-tone="error">{compactRadarMessage(error)}</div> : null}
+        {feedback ? <div className={styles.notice} data-tone="ok">{feedback}</div> : null}
+
+        <div className={styles.summaryBar}>
+          <div>
+            <span>Diagnósticos</span>
+            <strong>{diagnosticsCount.toLocaleString("pt-BR")}</strong>
+            <small>derivados do estado</small>
           </div>
-        ) : (
-          <div className={styles.grid}>
-            {items.map((lead) => {
-              const score = Math.max(0, Math.min(100, Math.trunc(Number(lead.opportunityScore || 0))));
-              const isHigh = score >= 70;
-              const origin = [lead.sourceEngine, lead.source, ...(lead.sourceEngines || [])].filter(Boolean)[0] || "Banco dos Motores HBX";
-              const status = lead.companyStatus || lead.status;
+          <div>
+            <span>Saudáveis</span>
+            <strong>{highOpportunityCount.toLocaleString("pt-BR")}</strong>
+            <small>score alto</small>
+          </div>
+          <div>
+            <span>Atenção</span>
+            <strong>{attentionCount.toLocaleString("pt-BR")}</strong>
+            <small>score médio</small>
+          </div>
+          <div>
+            <span>Críticos</span>
+            <strong>{criticalCount.toLocaleString("pt-BR")}</strong>
+            <small>score baixo</small>
+          </div>
+          <div>
+            <span>Cards encontrados</span>
+            <strong>{visibleItems.length.toLocaleString("pt-BR")}</strong>
+            <small>{total.toLocaleString("pt-BR")} no retorno</small>
+          </div>
+        </div>
+
+        <section className={styles.engines}>
+          <div className={styles.sectionHeader}>
+            <div>
+              <span>Motores</span>
+              <strong>Painéis de execução</strong>
+            </div>
+            <small>Painéis 2 a 5 podem aparecer em standby se os motores 21+ ainda não estiverem ativos no backend.</small>
+          </div>
+          <div className={styles.enginePanelGrid}>
+            {ENGINE_PANELS.map((panel) => {
+              const isActive = selectedEnginePanel === panel.id;
+              const panelItems = Array.from({ length: 20 }, (_, index) => panel.start + index);
+              const statusCounts = panelItems.reduce<Record<EngineStatus, number>>((acc, engineNumber) => {
+                const status = engineStatusFor(engineNumber, selectedEnginePanel, searching, error);
+                acc[status] += 1;
+                return acc;
+              }, { online: 0, busy: 0, standby: 0, attention: 0, error: 0 });
               return (
-                <article key={lead.id} className={styles.card} data-high={isHigh ? "true" : "false"}>
-                  <div className={styles.cardHeader}>
-                    <div>
-                      <span>{lead.segment || "Segmento aberto"}</span>
-                      <strong>{lead.name || "Empresa sem nome"}</strong>
-                    </div>
-                    <div className={styles.score} style={{ ["--score" as string]: `${score}%` }}>
-                      <b>{score}</b>
-                      <small>{opportunityLabel(score)}</small>
-                    </div>
-                  </div>
-
-                  <div className={styles.metaGrid}>
-                    <span><b>WhatsApp</b>{formatPhone(lead.phone || lead.phoneDigits)}</span>
-                    <span><b>Cidade/UF</b>{[lead.city, lead.state].filter(Boolean).join(" / ") || "Não informado"}</span>
-                    <span><b>Website</b>{websiteLabel(lead.websiteStatus)}</span>
-                    <span><b>Origem</b>{origin}</span>
-                    <span><b>Status</b>{statusLabel(status)}</span>
-                    <span><b>DDD</b>{lead.ddd || "Não identificado"}</span>
-                  </div>
-
-                  {lead.opportunityReason ? <p className={styles.reason}>{lead.opportunityReason}</p> : null}
-
-                  <div className={styles.history}>
-                    {(lead.historySummary || []).length ? (
-                      (lead.historySummary || []).slice(0, 3).map((event) => (
-                        <span key={event.id || `${lead.id}:${event.eventType}:${event.createdAt}`}>
-                          {eventLabel(event.eventType)}
-                          {event.createdAt ? <small>{formatDate(event.createdAt)}</small> : null}
-                        </span>
-                      ))
-                    ) : (
-                      <span>Recebido do banco dos motores <small>{formatDate(lead.lastSeenAt || lead.firstSeenAt)}</small></span>
-                    )}
-                  </div>
-
-                  <div className={styles.actions}>
-                    <button type="button" onClick={() => void runLeadAction(lead, "send")} disabled={Boolean(actionId)}>
-                      Enviar para Vendas
-                    </button>
-                    <button type="button" onClick={() => void runLeadAction(lead, "csx")} disabled={Boolean(actionId)}>
-                      Criar registro no CSX
-                    </button>
-                    <button type="button" onClick={() => void runLeadAction(lead, "hide")} disabled={Boolean(actionId)}>
-                      Ocultar
-                    </button>
-                    <button type="button" data-danger="true" onClick={() => void runLeadAction(lead, "negative")} disabled={Boolean(actionId)}>
-                      Marcar negativo
-                    </button>
-                  </div>
-                </article>
+                <button
+                  key={panel.id}
+                  type="button"
+                  className={styles.enginePanelCard}
+                  data-active={isActive ? "true" : "false"}
+                  onClick={() => setSelectedEnginePanel((current) => current === panel.id ? null : panel.id)}
+                >
+                  <span>{panel.title}</span>
+                  <strong>{panel.range}</strong>
+                  <dl>
+                    <div><dt>online</dt><dd>{statusCounts.online}</dd></div>
+                    <div><dt>rodando</dt><dd>{statusCounts.busy}</dd></div>
+                    <div><dt>standby</dt><dd>{statusCounts.standby + statusCounts.attention}</dd></div>
+                    <div><dt>cards hoje</dt><dd>{panel.id === 1 ? visibleItems.length : 0}</dd></div>
+                  </dl>
+                </button>
               );
             })}
           </div>
-        )}
+          {selectedEnginePanel ? (
+            <div className={styles.engineMiniGrid}>
+              {panelRows.map((engineNumber) => {
+                const status = engineStatusFor(engineNumber, selectedEnginePanel, searching, error);
+                return (
+                  <button key={engineNumber} type="button" data-status={status} title={`Motor ${engineNumber}: ${status}`}>
+                    {engineNumber}
+                  </button>
+                );
+              })}
+            </div>
+          ) : null}
+        </section>
 
-        {hasMore ? (
-          <div className={styles.loadMore}>
-            <button type="button" onClick={() => void loadCards(page + 1, true)} disabled={loadingMore}>
-              {loadingMore ? "Carregando..." : "Carregar mais"}
-            </button>
+        <section className={styles.results}>
+          <div className={styles.resultsHeader}>
+            <div>
+              <span>Resultados</span>
+              <strong>{hasSearched ? "Cards da pesquisa" : "Aguardando pesquisa"}</strong>
+            </div>
+            {hasSearched ? (
+              <small>Mostrando {visibleItems.length.toLocaleString("pt-BR")} de {total.toLocaleString("pt-BR")} resultados — {PAGE_SIZE} por página.</small>
+            ) : null}
           </div>
-        ) : null}
+
+          {!hasSearched ? (
+            <div className={styles.emptyState}>
+              <span aria-hidden="true">RD</span>
+              <strong>Nenhum card exibido ainda</strong>
+              <p>Use os filtros acima e clique em Pesquisar. Se pesquisar sem filtrar nada, o sistema abre todo o histórico.</p>
+            </div>
+          ) : !loading && visibleItems.length === 0 ? (
+            <div className={styles.emptyState}>
+              <span aria-hidden="true">0</span>
+              <strong>Nenhum resultado encontrado</strong>
+              <p>A busca foi concluída sem cards para os filtros aplicados.</p>
+            </div>
+          ) : (
+            <div className={styles.grid}>
+              {visibleItems.map((lead) => {
+                const score = Math.max(0, Math.min(100, Math.trunc(Number(lead.opportunityScore || 0))));
+                const isHigh = score >= 70;
+                const origin = [lead.sourceEngine, lead.source, ...(lead.sourceEngines || [])].filter(Boolean)[0] || "Banco HBX";
+                const status = lead.companyStatus || lead.status;
+                return (
+                  <article key={lead.id} className={styles.card} data-high={isHigh ? "true" : "false"}>
+                    <div className={styles.cardHeader}>
+                      <div>
+                        <span>{lead.segment || "Segmento aberto"}</span>
+                        <strong>{lead.name || "Empresa sem nome"}</strong>
+                      </div>
+                      <div className={styles.score} style={{ ["--score" as string]: `${score}%` }}>
+                        <b>{score}</b>
+                        <small>{opportunityLabel(score)}</small>
+                      </div>
+                    </div>
+
+                    <div className={styles.metaGrid}>
+                      <span><b>Telefone</b>{formatPhone(lead.phone || lead.phoneDigits)}</span>
+                      <span><b>Cidade/UF</b>{[lead.city, lead.state].filter(Boolean).join(" / ") || "Não informado"}</span>
+                      <span><b>Segmento</b>{lead.segment || "Não informado"}</span>
+                      <span><b>Website</b>{lead.website ? lead.website : websiteLabel(lead.websiteStatus)}</span>
+                      <span><b>Origem</b>{origin}</span>
+                      <span><b>Status</b>{statusLabel(status)}</span>
+                    </div>
+
+                    {lead.opportunityReason ? <p className={styles.reason}>{lead.opportunityReason}</p> : null}
+
+                    <div className={styles.history}>
+                      {(lead.historySummary || []).length ? (
+                        (lead.historySummary || []).slice(0, 2).map((event) => (
+                          <span key={event.id || `${lead.id}:${event.eventType}:${event.createdAt}`}>
+                            {eventLabel(event.eventType)}
+                            {event.createdAt ? <small>{formatDate(event.createdAt)}</small> : null}
+                          </span>
+                        ))
+                      ) : (
+                        <span>Recebido <small>{formatDate(lead.lastSeenAt || lead.firstSeenAt)}</small></span>
+                      )}
+                    </div>
+
+                    <div className={styles.actions}>
+                      <button type="button" onClick={() => void runLeadAction(lead, "send")} disabled={Boolean(actionId)}>
+                        Enviar para Vendas
+                      </button>
+                      <button type="button" onClick={() => void runLeadAction(lead, "csx")} disabled={Boolean(actionId)}>
+                        CSX pendente
+                      </button>
+                      <button type="button" onClick={() => void runLeadAction(lead, "hide")} disabled={Boolean(actionId)}>
+                        Descartar
+                      </button>
+                      <button type="button" data-danger="true" onClick={() => void runLeadAction(lead, "negative")} disabled={Boolean(actionId)}>
+                        Negativo
+                      </button>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          )}
+
+          {hasMore ? (
+            <div className={styles.loadMore}>
+              <button type="button" onClick={() => void loadCards(page + 1, true)} disabled={loadingMore}>
+                {loadingMore ? "Carregando..." : "Carregar mais 100"}
+              </button>
+            </div>
+          ) : null}
+        </section>
+
+        <section className={styles.diagnostics}>
+          <div className={styles.sectionHeader}>
+            <div>
+              <span>Diagnósticos</span>
+              <strong>Leitura do estado atual</strong>
+            </div>
+            <small>Dados derivados do frontend quando não há diagnóstico real retornado pelo backend.</small>
+          </div>
+          <div className={styles.diagnosticsTable}>
+            <table>
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>Motor/Painel</th>
+                  <th>Contexto</th>
+                  <th>Data/Hora</th>
+                  <th>Status</th>
+                  <th>Severidade</th>
+                  <th>Ação</th>
+                </tr>
+              </thead>
+              <tbody>
+                {diagnostics.map((row) => (
+                  <tr key={row.id}>
+                    <td>{row.id}</td>
+                    <td>{row.engine}</td>
+                    <td>{row.context}</td>
+                    <td>{new Date().toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}</td>
+                    <td>{row.status}</td>
+                    <td>{row.severity}</td>
+                    <td>{row.action}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
       </section>
     </DashboardScaffold>
   );
