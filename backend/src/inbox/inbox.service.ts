@@ -583,7 +583,7 @@ export class InboxService {
     const modalStatus = String(company?.whatsappModalStatus || '').trim().toUpperCase();
     const modalSessionAvailable = modalStatus === 'CONNECTED' || modalStatus === 'RECONNECTING';
     const accessible = Boolean(currentSession?.id || modalSessionAvailable || metaActive);
-    const previousSessions = accessible
+    const rawPreviousSessions = accessible
       ? await this.prisma.whatsAppConnectionSession.findMany({
           where: {
             companyId,
@@ -594,14 +594,58 @@ export class InboxService {
           take: 20,
         })
       : [];
+    const rawPreviousSessionIds = rawPreviousSessions.map((session) => String(session.id));
+    const currentSessionContacts = accessible && currentSession?.id
+      ? await this.prisma.companyConversation.findMany({
+          where: {
+            companyId,
+            channel: 'whatsapp',
+            whatsappConnectionSessionId: String(currentSession.id),
+          },
+          select: { contact: true },
+        })
+      : [];
+    const buildConversationContactKey = (contact: unknown) => String(contact || '').trim().toLowerCase();
+    const currentSessionContactKeys = new Set(
+      currentSessionContacts
+        .map((row) => buildConversationContactKey(row.contact))
+        .filter(Boolean),
+    );
+    const previousSessionConversationCounts = new Map<string, number>();
+    if (accessible && rawPreviousSessionIds.length) {
+      const previousConversationRows = await this.prisma.companyConversation.findMany({
+          where: {
+            companyId,
+            channel: 'whatsapp',
+            whatsappConnectionSessionId: { in: rawPreviousSessionIds },
+          },
+          select: { whatsappConnectionSessionId: true, contact: true },
+        });
+      for (const row of previousConversationRows) {
+        const sessionId = row.whatsappConnectionSessionId ? String(row.whatsappConnectionSessionId) : null;
+        if (!sessionId) continue;
+        const contactKey = buildConversationContactKey(row.contact);
+        if (contactKey && currentSessionContactKeys.has(contactKey)) continue;
+        previousSessionConversationCounts.set(sessionId, Number(previousSessionConversationCounts.get(sessionId) || 0) + 1);
+      }
+    }
+    const previousSessions = rawPreviousSessions.filter((session) =>
+      Number(previousSessionConversationCounts.get(String(session.id)) || 0) > 0,
+    );
+    const previousSessionConversationCount = Array.from(previousSessionConversationCounts.values())
+      .reduce((total, count) => total + Number(count || 0), 0);
     const legacyConversationCount = accessible && currentSession?.id
-      ? await this.prisma.companyConversation.count({
+      ? (await this.prisma.companyConversation.findMany({
           where: {
             companyId,
             channel: 'whatsapp',
             whatsappConnectionSessionId: null,
           },
-        })
+          select: { contact: true },
+        })).filter((row) => {
+          const contactKey = buildConversationContactKey(row.contact);
+          return !contactKey || !currentSessionContactKeys.has(contactKey);
+        }).length
       : 0;
     return {
       accessible,
@@ -620,7 +664,7 @@ export class InboxService {
       currentSession,
       previousSessionIds: previousSessions.map((session) => String(session.id)),
       previousSessions,
-      previousSessionsCount: previousSessions.length + legacyConversationCount,
+      previousSessionsCount: previousSessionConversationCount + legacyConversationCount,
       legacyConversationCount,
       mode: opts?.includePreviousSessions ? 'previous' : currentSession?.id ? 'current' : 'all',
     };
@@ -3779,39 +3823,71 @@ export class InboxService {
       const channel = String(row?.channel || 'whatsapp').trim().toLowerCase() || 'whatsapp';
       return contact ? `${channel}:${contact}` : `${channel}:conversation-${Number(row?.id || 0)}`;
     };
-    const targetKeys = new Set(currentRows.map((row) => buildConversationKey(row)));
+    const targetRowsByKey = new Map(currentRows.map((row) => [buildConversationKey(row), row]));
+    const targetKeys = new Set(targetRowsByKey.keys());
     const migratableRows: any[] = [];
+    const duplicateRows: Array<{ sourceId: number; targetId: number; row: any }> = [];
     let legacyMigrated = 0;
     let previousSessionsMigrated = 0;
+    let duplicateConversationsMerged = 0;
 
     for (const row of sourceRows) {
       const key = buildConversationKey(row);
-      if (targetKeys.has(key)) continue;
+      const currentTarget = targetRowsByKey.get(key);
+      if (currentTarget?.id) {
+        duplicateRows.push({
+          sourceId: Number(row.id),
+          targetId: Number(currentTarget.id),
+          row,
+        });
+        if (row.whatsappConnectionSessionId) previousSessionsMigrated += 1;
+        else legacyMigrated += 1;
+        duplicateConversationsMerged += 1;
+        continue;
+      }
       targetKeys.add(key);
       migratableRows.push(row);
+      targetRowsByKey.set(key, row);
       if (row.whatsappConnectionSessionId) previousSessionsMigrated += 1;
       else legacyMigrated += 1;
     }
 
     const migratableIds = migratableRows.map((row) => Number(row.id)).filter(Boolean);
-    if (migratableIds.length) {
+    if (migratableIds.length || duplicateRows.length) {
       await this.prisma.$transaction(async (tx) => {
-        await tx.companyConversation.updateMany({
-          where: { companyId, id: { in: migratableIds } },
-          data: {
-            whatsappConnectionSessionId: currentSessionId,
-            sourcePhoneNormalized: scope.currentSession.phoneNormalized || null,
-            sourceTenantKey: scope.currentSession.tenantKey || null,
-          },
-        });
-        await tx.companyMessage.updateMany({
-          where: { companyId, conversationId: { in: migratableIds } },
-          data: {
-            whatsappConnectionSessionId: currentSessionId,
-            sourcePhoneNormalized: scope.currentSession.phoneNormalized || null,
-            sourceTenantKey: scope.currentSession.tenantKey || null,
-          },
-        });
+        const sessionData = {
+          whatsappConnectionSessionId: currentSessionId,
+          sourcePhoneNormalized: scope.currentSession.phoneNormalized || null,
+          sourceTenantKey: scope.currentSession.tenantKey || null,
+        };
+        if (migratableIds.length) {
+          await tx.companyConversation.updateMany({
+            where: { companyId, id: { in: migratableIds } },
+            data: sessionData,
+          });
+          await tx.companyMessage.updateMany({
+            where: { companyId, conversationId: { in: migratableIds } },
+            data: sessionData,
+          });
+        }
+        for (const duplicate of duplicateRows) {
+          await tx.companyMessage.updateMany({
+            where: { companyId, conversationId: duplicate.sourceId },
+            data: {
+              ...sessionData,
+              conversationId: duplicate.targetId,
+            },
+          });
+          if (tx.atendimentoAppointment?.updateMany) {
+            await tx.atendimentoAppointment.updateMany({
+              where: { companyId, conversationId: duplicate.sourceId },
+              data: { conversationId: duplicate.targetId },
+            });
+          }
+          await tx.companyConversation.deleteMany({
+            where: { companyId, id: duplicate.sourceId },
+          });
+        }
       });
     }
 
@@ -3826,6 +3902,7 @@ export class InboxService {
         legacyMigrated,
         previousSessionsMigrated,
         totalMigrated,
+        duplicateConversationsMerged,
         skippedAsDuplicates: sourceRows.length - totalMigrated,
       },
     });
@@ -3835,6 +3912,7 @@ export class InboxService {
       currentSessionId,
       legacyMigrated,
       previousSessionsMigrated,
+      duplicateConversationsMerged,
       totalMigrated,
       message: totalMigrated
         ? 'Histórico antigo juntado neste celular.'

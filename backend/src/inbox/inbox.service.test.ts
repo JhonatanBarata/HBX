@@ -397,14 +397,41 @@ test('migrateAllWhatsappHistoryToCurrent junta legado e sessoes antigas sem outr
         count: async ({ where }: any) => conversationsRows.filter((row) =>
           Number(row.companyId) === Number(where.companyId) &&
           row.channel === where.channel &&
-          row.whatsappConnectionSessionId === null
+          (
+            where.whatsappConnectionSessionId === null
+              ? row.whatsappConnectionSessionId === null
+              : typeof where.whatsappConnectionSessionId === 'string'
+                ? row.whatsappConnectionSessionId === where.whatsappConnectionSessionId
+                : true
+          )
         ).length,
+        groupBy: async ({ where }: any) => {
+          const allowed = new Set(where?.whatsappConnectionSessionId?.in || []);
+          const counts = new Map<string, number>();
+          for (const row of conversationsRows) {
+            if (Number(row.companyId) !== Number(where.companyId)) continue;
+            if (row.channel !== where.channel) continue;
+            if (!row.whatsappConnectionSessionId || !allowed.has(row.whatsappConnectionSessionId)) continue;
+            counts.set(row.whatsappConnectionSessionId, Number(counts.get(row.whatsappConnectionSessionId) || 0) + 1);
+          }
+          return Array.from(counts.entries()).map(([whatsappConnectionSessionId, count]) => ({
+            whatsappConnectionSessionId,
+            _count: { _all: count },
+          }));
+        },
         findMany: async ({ where }: any) => conversationsRows.filter((row) => {
           if (where?.companyId !== undefined && Number(row.companyId) !== Number(where.companyId)) return false;
           if (where?.channel !== undefined && row.channel !== where.channel) return false;
           if (where?.whatsappConnectionSessionId !== undefined) {
+            if (where.whatsappConnectionSessionId === null) {
+              return row.whatsappConnectionSessionId === null;
+            }
             if (typeof where.whatsappConnectionSessionId === 'string') {
               return row.whatsappConnectionSessionId === where.whatsappConnectionSessionId;
+            }
+            const inValues = where.whatsappConnectionSessionId?.in;
+            if (Array.isArray(inValues)) {
+              return inValues.includes(row.whatsappConnectionSessionId);
             }
           }
           if (Array.isArray(where?.OR)) {
@@ -428,6 +455,16 @@ test('migrateAllWhatsappHistoryToCurrent junta legado e sessoes antigas sem outr
           }
           return { count };
         },
+        deleteMany: async ({ where }: any) => {
+          const before = conversationsRows.length;
+          for (let index = conversationsRows.length - 1; index >= 0; index -= 1) {
+            const row = conversationsRows[index];
+            if (Number(row.companyId) === Number(where.companyId) && Number(row.id) === Number(where.id)) {
+              conversationsRows.splice(index, 1);
+            }
+          }
+          return { count: before - conversationsRows.length };
+        },
       },
       companyMessage: {
         updateMany: async ({ where, data }: any) => {
@@ -443,14 +480,17 @@ test('migrateAllWhatsappHistoryToCurrent junta legado e sessoes antigas sem outr
   assert.equal(result.success, true);
   assert.equal(result.currentSessionId, 'session-current');
   assert.equal(result.legacyMigrated, 1);
-  assert.equal(result.previousSessionsMigrated, 1);
-  assert.equal(result.totalMigrated, 2);
+  assert.equal(result.previousSessionsMigrated, 2);
+  assert.equal(result.totalMigrated, 3);
+  assert.equal(result.duplicateConversationsMerged, 1);
   assert.equal(conversationsRows.find((row) => row.id === 101)?.whatsappConnectionSessionId, 'session-current');
   assert.equal(conversationsRows.find((row) => row.id === 102)?.whatsappConnectionSessionId, 'session-current');
   assert.equal(conversationsRows.find((row) => row.id === 103)?.whatsappConnectionSessionId, null);
   assert.equal(conversationsRows.find((row) => row.id === 104)?.whatsappConnectionSessionId, 'session-current');
-  assert.equal(conversationsRows.find((row) => row.id === 105)?.whatsappConnectionSessionId, 'session-old');
+  assert.equal(conversationsRows.find((row) => row.id === 105), undefined);
   assert.deepEqual(messageUpdates[0].where.conversationId.in, [101, 102]);
+  assert.equal(messageUpdates[1].where.conversationId, 105);
+  assert.equal(messageUpdates[1].data.conversationId, 104);
   assert.equal(auditCalls.at(-1).event, 'whatsapp_history_migrated_to_current');
 });
 

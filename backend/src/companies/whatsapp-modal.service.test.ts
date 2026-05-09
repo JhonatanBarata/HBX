@@ -730,7 +730,51 @@ test('live health rebaixa status salvo quando provider confirma desconectado', a
 
   assert.equal(response.status, 'disconnected');
   assert.equal(response.liveConfirmed, false);
+  assert.equal(response.connected, false);
   assert.equal(response.providerReachable, true);
   assert.equal(response.recommendedAction, 'open_qr');
   assert.equal(updates[updates.length - 1].whatsappModalStatus, 'DISCONNECTED');
+});
+
+test('live health nao preserva reconectando quando provider confirma desconectado dentro da janela de grace', async () => {
+  const now = new Date();
+  const updates: any[] = [];
+  const company = createCompany({
+    whatsappModalStatus: 'CONNECTED',
+    whatsappModalPhone: '5519999999999',
+    whatsappModalConnectedAt: now,
+    whatsappModalUpdatedAt: now,
+    currentWhatsappConnectionSessionId: 'session-1',
+  });
+  const prisma = createPrisma(company, { inboundAt: now });
+  prisma.company.update = async ({ data }: any) => {
+    updates.push(data);
+    return { ...company, ...data };
+  };
+  const service = new WhatsAppModalService(prisma) as any;
+  service.readConfig = () => ({
+    enabled: true,
+    configured: true,
+    available: true,
+    internalUrl: 'http://provider.local',
+    apiKey: 'secret',
+    timeoutMs: 1000,
+    missingConfigKeys: [],
+    setupHint: null,
+  });
+  service.requestProvider = async ({ path }: any) => {
+    if (String(path).includes('connectionState')) {
+      return { state: 'DISCONNECTED' };
+    }
+    return { ok: true };
+  };
+
+  const response = await service.getCompanyLiveHealth(7, { forceRefresh: true });
+
+  assert.equal(response.status, 'disconnected');
+  assert.equal(response.connected, false);
+  assert.equal(response.liveConfirmed, false);
+  assert.equal(response.recommendedAction, 'open_qr');
+  assert.equal(updates[updates.length - 1].whatsappModalStatus, 'DISCONNECTED');
+  assert.equal(updates[updates.length - 1].currentWhatsappConnectionSessionId, null);
 });

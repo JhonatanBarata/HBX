@@ -332,6 +332,15 @@ export class WhatsAppModalService {
     const providerSyncAgeSeconds = lastProviderSyncAt
       ? Math.max(0, Math.floor((input.checkedAt.getTime() - lastProviderSyncAt.getTime()) / 1000))
       : null;
+    const providerConfirmedDown =
+      input.providerReachable &&
+      (
+        !input.instanceExists ||
+        input.snapshot.status === 'offline' ||
+        input.snapshot.status === 'disconnected' ||
+        input.snapshot.status === 'waiting_qr' ||
+        input.snapshot.status === 'error'
+      );
     const liveConfirmed =
       input.providerReachable &&
       input.instanceExists &&
@@ -339,11 +348,14 @@ export class WhatsAppModalService {
       input.hasOperationalSession &&
       providerSyncAgeSeconds !== null &&
       providerSyncAgeSeconds <= input.ttlSeconds;
-    const connected =
-      liveConfirmed ||
-      storedConnected ||
-      input.snapshot.status === 'connected' ||
-      input.snapshot.status === 'reconnecting';
+    const connected = providerConfirmedDown
+      ? false
+      : (
+        liveConfirmed ||
+        storedConnected ||
+        input.snapshot.status === 'connected' ||
+        input.snapshot.status === 'reconnecting'
+      );
     const inboundStaleSeconds = input.lastInboundMessageAt
       ? Math.max(0, Math.floor((input.checkedAt.getTime() - input.lastInboundMessageAt.getTime()) / 1000))
       : null;
@@ -2731,7 +2743,7 @@ export class WhatsAppModalService {
 
     if (
       instanceExists &&
-      ['offline', 'disconnected', 'error'].includes(snapshot.status) &&
+      ['offline', 'error'].includes(snapshot.status) &&
       this.shouldPreserveSessionDuringReconnectGrace(fallback)
     ) {
       snapshot = this.buildReconnectingSnapshot(
