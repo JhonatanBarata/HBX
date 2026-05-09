@@ -195,7 +195,7 @@ type CardFilters = {
 };
 
 const BRASILIA_TIME_ZONE = "America/Sao_Paulo";
-const CARD_PAGE_LIMIT = 50;
+const CARD_PAGE_LIMIT = 100;
 const ENGINE_PANEL_SIZE = 20;
 const DEFAULT_CARD_FILTERS: CardFilters = {
   state: "",
@@ -296,8 +296,13 @@ export default function BancoDeDadosClientPage() {
   const [cardPage, setCardPage] = useState(1);
   const [cardsPayload, setCardsPayload] = useState<DatabaseCardsPayload | null>(null);
   const [cardsLoading, setCardsLoading] = useState(false);
+  const [hasSearchedCards, setHasSearchedCards] = useState(false);
+  const [cardsSearchToken, setCardsSearchToken] = useState(0);
   const [exporting, setExporting] = useState(false);
   const [selectedCardIds, setSelectedCardIds] = useState<Set<string>>(() => new Set());
+  const [selectedEnginePanelId, setSelectedEnginePanelId] = useState<string | null>(null);
+  const [enginePanelBusy, setEnginePanelBusy] = useState<string | null>(null);
+  const [rotatingMetricIndex, setRotatingMetricIndex] = useState(0);
 
   const selectedTarget = useMemo(() => {
     if (!selectedTargetKey) return null;
@@ -397,31 +402,45 @@ export default function BancoDeDadosClientPage() {
 
   useEffect(() => {
     if (!allowed) return;
+    if (!hasSearchedCards) return;
     void loadCards();
-  }, [allowed, loadCards]);
+  }, [allowed, hasSearchedCards, cardsSearchToken, loadCards]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      setRotatingMetricIndex((current) => current + 1);
+    }, 3500);
+    return () => window.clearInterval(timer);
+  }, []);
 
   const summary = audit?.summary;
   const factory = audit?.factory;
   const protection = audit?.clientProtection;
   const queueActive = Number(summary?.campaignsQueued || 0) + Number(summary?.campaignsRunning || 0) + Number(summary?.searchRunsQueued || 0) + Number(summary?.searchRunsRunning || 0);
 
-  const kpis = useMemo(() => [
-    ["Total no banco", metric(summary?.totalCards)],
-    ["Novos hoje", metric(summary?.cardsToday)],
-    ["Última hora", metric(summary?.cardsLastHour)],
-    ["Últimos 10 min", metric(summary?.cardsLast10Min)],
-    ["Negativos", metric(summary?.negatives)],
-    ["Enviados para Vendas", metric(summary?.sentToVendas)],
-    ["Fila ativa", metric(queueActive)],
-    ["Motores com erro", metric(summary?.motoresErro)],
-    ["Motores reservados cliente", metric(protection?.reservedEngines)],
-    ["Fábrica Noturna", factoryStatusLabel(factory?.status, factory?.enabled)],
-  ], [factory?.enabled, factory?.status, protection?.reservedEngines, queueActive, summary]);
-  const visibleCards = cardsPayload?.items || [];
+  const visibleCards = useMemo(() => cardsPayload?.items || [], [cardsPayload?.items]);
   const selectedVisibleCount = visibleCards.filter((card) => selectedCardIds.has(card.id)).length;
   const allVisibleSelected = visibleCards.length > 0 && selectedVisibleCount === visibleCards.length;
   const cardTotal = Number(cardsPayload?.total || 0);
   const cardTotalPages = Math.max(1, Math.ceil(cardTotal / CARD_PAGE_LIMIT));
+  const rotatingStats = useMemo(() => {
+    const sourceCards = visibleCards.length ? visibleCards : (audit?.latestCards || []);
+    const countBy = (key: "city" | "state") => {
+      const map = new Map<string, number>();
+      for (const card of sourceCards) {
+        const value = String(card[key] || "").trim();
+        if (!value) continue;
+        map.set(value, (map.get(value) || 0) + 1);
+      }
+      return [...map.entries()].sort((left, right) => right[1] - left[1]);
+    };
+    const cities = countBy("city");
+    const states = countBy("state");
+    return {
+      city: cities[rotatingMetricIndex % Math.max(1, cities.length)] || null,
+      state: states[rotatingMetricIndex % Math.max(1, states.length)] || null,
+    };
+  }, [audit?.latestCards, rotatingMetricIndex, visibleCards]);
   const enginePanels = useMemo(() => {
     const engines = [...(audit?.engines || [])].sort((left, right) => left.engineIndex - right.engineIndex);
     const maxEngineNumber = Math.max(
@@ -487,9 +506,31 @@ export default function BancoDeDadosClientPage() {
         duplicatesToday,
         rejectedToday,
         lastUsedAt,
+        engines: groupEngines,
+        allPaused: groupEngines.length > 0 && groupEngines.every((engine) => engine.manualPaused || String(engine.status || "").toLowerCase() === "paused"),
+        anyActive: groupEngines.some((engine) => !engine.manualPaused && String(engine.status || "").toLowerCase() !== "paused"),
       };
     });
   }, [audit?.engines, queueActive, summary?.motoresRegistrados]);
+  const selectedEnginePanel = enginePanels.find((panel) => panel.id === selectedEnginePanelId) || null;
+  const mostLoadedPanel = enginePanels
+    .slice()
+    .sort((left, right) => right.cardsToday - left.cardsToday)[0] || null;
+  const kpis = useMemo(() => {
+    const errorCount = Number(summary?.motoresErro || 0) + Number(summary?.campaignsFailedToday || 0) + Number(summary?.searchRunsFailedToday || 0);
+    return [
+      ["Total no banco", metric(summary?.totalCards)],
+      ["Erros", metric(errorCount)],
+      ["Novos hoje", metric(summary?.cardsToday)],
+      ["Última hora", metric(summary?.cardsLastHour)],
+      ["Cidades", rotatingStats.city ? `${rotatingStats.city[0]} · ${metric(rotatingStats.city[1])}` : "-"],
+      ["Estados", rotatingStats.state ? `${rotatingStats.state[0]} · ${metric(rotatingStats.state[1])}` : metric(summary?.totalCompanyStates)],
+      ["Mais cheio", mostLoadedPanel ? `${mostLoadedPanel.label} · ${metric(mostLoadedPanel.cardsToday)}` : "-"],
+      ["Online", metric(summary?.motoresOnline)],
+      ["Permitidos", metric(protection?.factoryAllowedEngines)],
+      ["Trabalhando", metric(summary?.motoresBusy)],
+    ];
+  }, [mostLoadedPanel, protection?.factoryAllowedEngines, rotatingStats, summary]);
 
   async function runFactoryAction(path: string, successMessage: string) {
     setSaving(true);
@@ -541,12 +582,39 @@ export default function BancoDeDadosClientPage() {
   function applyCardFilters() {
     setCardPage(1);
     setAppliedCardFilters({ ...cardFilters });
+    setHasSearchedCards(true);
+    setCardsSearchToken((current) => current + 1);
   }
 
   function resetCardFilters() {
     setCardFilters(DEFAULT_CARD_FILTERS);
     setAppliedCardFilters(DEFAULT_CARD_FILTERS);
     setCardPage(1);
+    setCardsPayload(null);
+    setSelectedCardIds(new Set());
+    setHasSearchedCards(false);
+    setCardsSearchToken((current) => current + 1);
+  }
+
+  async function toggleEnginePanel(panel: (typeof enginePanels)[number]) {
+    const action = panel.allPaused ? "resume" : "pause";
+    setEnginePanelBusy(panel.id);
+    setError(null);
+    setFeedback(null);
+    try {
+      await Promise.all(panel.engines.map((engine) => apiFetch(`/modules/master/webscraping/engines/${encodeURIComponent(engine.id)}/${action}`, {
+        method: "POST",
+        requireAuth: true,
+        timeoutMs: 20000,
+        body: action === "pause" ? JSON.stringify({ minutes: null }) : undefined,
+      })));
+      await loadAudit({ silent: true });
+      setFeedback(action === "pause" ? `${panel.label} pausado.` : `${panel.label} retomado.`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Falha ao alternar motores do painel.");
+    } finally {
+      setEnginePanelBusy(null);
+    }
   }
 
   function toggleCard(cardId: string, checked: boolean) {
@@ -623,9 +691,9 @@ export default function BancoDeDadosClientPage() {
       <section className={styles.shell}>
         <header className={styles.header}>
           <div>
-            <span>Auditoria operacional</span>
+            <span>Painel master</span>
             <h1>Banco de Cards HBX</h1>
-            <p>Estoque real, produção recente, fábrica e motores. Atualizado em {formatDateTime(audit?.generatedAt)}.</p>
+            <p>Filtros, motores em blocos e fábrica noturna. Atualizado em {formatDateTime(audit?.generatedAt)}.</p>
           </div>
           <button type="button" onClick={() => void loadAudit()} disabled={loading || saving}>Atualizar</button>
         </header>
@@ -642,238 +710,13 @@ export default function BancoDeDadosClientPage() {
           ))}
         </section>
 
-        <section className={styles.factoryPanel} data-status={factoryTone(factory?.status, factory?.enabled)}>
-          <div className={styles.sectionTitle}>
-            <div>
-              <span>Fábrica Noturna</span>
-              <strong>{factoryStatusLabel(factory?.status, factory?.enabled)}</strong>
-            </div>
-            <div className={styles.actions}>
-              <button type="button" onClick={() => void runFactoryAction("start", "Fábrica ligada e próxima missão solicitada.")} disabled={saving}>Ligar fábrica</button>
-              <button type="button" onClick={() => void runFactoryAction("stop", "Fábrica pausada.")} disabled={saving}>Pausar fábrica</button>
-              <button type="button" data-danger="true" onClick={() => void runFactoryAction("stop-now", "PARAR TUDO ativo. A fábrica não pega novos motores.")} disabled={saving}>PARAR TUDO AGORA</button>
-              <button type="button" onClick={() => void runFactoryAction("resume-schedule", "Agenda da fábrica retomada.")} disabled={saving}>Retomar agenda</button>
-              <button type="button" onClick={() => void runFactoryAction("force-next", "Próximo cursor forçado.")} disabled={saving}>Criar próxima missão agora</button>
-              <button
-                type="button"
-                data-danger="true"
-                onClick={() => {
-                  if (window.confirm("Resetar o cursor da Fábrica Noturna para o início?")) {
-                    void runFactoryAction("reset-cursor", "Cursor resetado.");
-                  }
-                }}
-                disabled={saving}
-              >
-                Resetar cursor
-              </button>
-            </div>
-          </div>
-
-          <div className={styles.factoryGrid}>
-            <div><span>Configurados</span><strong>{metric(summary?.motoresRegistrados)}</strong></div>
-            <div><span>Permitidos pela agenda</span><strong>{metric(protection?.factoryAllowedEngines)}</strong></div>
-            <div><span>Permitidos por memória</span><strong>{metric(protection?.factoryMemoryGuardEngines)}</strong></div>
-            <div><span>Trabalhando agora</span><strong>{metric(summary?.motoresBusy)}</strong></div>
-            <div><span>Reservados cliente</span><strong>{metric(protection?.reservedEngines)}</strong></div>
-            <div><span>Status agenda</span><strong>{factoryReasonLabel(protection?.factoryReason)}</strong></div>
-            <div><span>Próxima parada</span><strong>{formatDateTime(protection?.factoryNextStopAt)}</strong></div>
-            <div><span>Próxima retomada</span><strong>{formatDateTime(protection?.factoryNextStartAt)}</strong></div>
-            <div><span>Agora trabalhando</span><strong>{[factory?.currentState, factory?.currentCity, factory?.currentSegment, factory?.currentTargetType?.toUpperCase()].filter(Boolean).join(" / ") || "-"}</strong></div>
-            <div><span>Próxima missão</span><strong>{factory?.nextMissionPreview?.label || "-"}</strong></div>
-            <div><span>Última campanha</span><strong>{shortId(factory?.lastCampaignId)}</strong></div>
-            <div><span>Cards salvos hoje</span><strong>{metric(summary?.cardsToday)}</strong></div>
-            <div><span>Duplicados hoje</span><strong>{metric(summary?.duplicatedItemsToday)}</strong></div>
-            <div><span>Falhas hoje</span><strong>{metric((summary?.campaignsFailedToday || 0) + (summary?.searchRunsFailedToday || 0))}</strong></div>
-            <div><span>Último lote</span><strong>{metric(factory?.lastSavedCount)} salvos · {metric(factory?.lastDuplicateCount)} dup · {metric(factory?.lastRejectedCount)} rej</strong></div>
-            <div><span>Motivo de parada</span><strong>{factory?.reasonStopped || "-"}</strong></div>
-          </div>
-
-          <div className={styles.factoryGrid}>
-            <label>
-              <span>Motores trabalhando agora</span>
-              <select
-                value={String(protection?.factoryMaxEngines ?? 16)}
-                onChange={(event) => {
-                  const maxEngines = Number(event.target.value);
-                  void saveFactorySchedule({ maxEngines, engineCount: maxEngines, emergencyStop: false }, `Limite da fábrica ajustado para ${maxEngines} motor(es).`);
-                }}
-                disabled={saving}
-              >
-                {[0, 4, 8, 12, 16, 20, 32].map((value) => <option key={value} value={value}>{value}</option>)}
-              </select>
-            </label>
-            <label>
-              <span>Horário início</span>
-              <input
-                type="time"
-                value={timeValue(factory?.schedule?.startHour ?? 22, factory?.schedule?.startMinute ?? 0)}
-                onChange={(event) => {
-                  const next = parseTimeValue(event.target.value);
-                  void saveFactorySchedule({ startHour: next.hour, startMinute: next.minute }, "Horário inicial da fábrica atualizado.");
-                }}
-                disabled={saving}
-              />
-            </label>
-            <label>
-              <span>Horário fim</span>
-              <input
-                type="time"
-                value={timeValue(factory?.schedule?.endHour ?? 7, factory?.schedule?.endMinute ?? 0)}
-                onChange={(event) => {
-                  const next = parseTimeValue(event.target.value);
-                  void saveFactorySchedule({ endHour: next.hour, endMinute: next.minute }, "Horário final da fábrica atualizado.");
-                }}
-                disabled={saving}
-              />
-            </label>
-            <div><span>Regra</span><strong>Fora desse horário, a fábrica não pega cards novos e libera recursos para clientes.</strong></div>
-          </div>
-        </section>
-
-        <section className={styles.protectionBox}>
-          <div className={styles.sectionTitle}>
-            <div>
-              <span>Radar Digital do cliente</span>
-              <strong>{protection?.reservedEngines ? "Protegido" : "Sem reserva"}</strong>
-            </div>
-          </div>
-          <div className={styles.factoryGrid}>
-            <div><span>Reserva cliente</span><strong>{metric(protection?.reservedEngines)}</strong></div>
-            <div><span>Prioridade comercial</span><strong>{protection?.clientPriorityActive ? "Ativa" : "Fora da janela"}</strong></div>
-            <div><span>Fábrica pode usar</span><strong>{metric(protection?.factoryAllowedEngines)}</strong></div>
-            <div><span>Demanda cliente</span><strong>{metric(protection?.radarDigitalActiveRequests)}</strong></div>
-          </div>
-          <p>{protection?.message || "Sem métrica de proteção carregada."}</p>
-        </section>
-
-        <section className={styles.tableCard}>
-          <div className={styles.sectionTitle}>
-            <div>
-              <span>Estoque real</span>
-              <strong>Últimos cards salvos</strong>
-            </div>
-            <small>{metric(audit?.latestCards.length)} registros recentes</small>
-          </div>
-          <div className={styles.cardTable}>
-            <div className={styles.cardHead}>
-              <span>Nome</span>
-              <span>Telefone</span>
-              <span>Cidade</span>
-              <span>Estado</span>
-              <span>Segmento</span>
-              <span>Site</span>
-              <span>Score</span>
-              <span>Criado em</span>
-            </div>
-            {(audit?.latestCards || []).map((card) => (
-              <div key={card.id} className={styles.cardRow}>
-                <span><strong>{card.name || "-"}</strong><small>{shortId(card.id)}</small></span>
-                <span>{card.phone || "-"}</span>
-                <span>{card.city || "-"}</span>
-                <span>{card.state || "-"}</span>
-                <span>{card.segment || "-"}</span>
-                <span>{card.website || card.websiteStatus || "-"}</span>
-                <span>{metric(card.opportunityScore)}</span>
-                <span>{formatDateTime(card.createdAt)}</span>
-              </div>
-            ))}
-          </div>
-        </section>
-
-        <section className={styles.tableCard}>
-          <div className={styles.sectionTitle}>
-            <div>
-              <span>Motores</span>
-              <strong>Status real em blocos de 20</strong>
-            </div>
-            <small>{metric(summary?.motoresOnline)} online · {metric(summary?.motoresBusy)} ocupados · {metric(summary?.motoresStandby)} standby</small>
-          </div>
-          <div className={styles.enginePanelGrid} aria-label="Motores agrupados de 20 em 20">
-            {enginePanels.map((panel) => (
-              <article key={panel.id} className={styles.enginePanel} data-status={panel.tone}>
-                <div className={styles.enginePanelTop}>
-                  <div>
-                    <span>Motores {panel.range}</span>
-                    <strong>{panel.label}</strong>
-                  </div>
-                  <b>{panel.statusLabel}</b>
-                </div>
-                <div className={styles.enginePanelStats}>
-                  <span><strong>{metric(panel.online)}</strong> online</span>
-                  <span><strong>{metric(panel.busy)}</strong> rodando</span>
-                  <span><strong>{metric(panel.cardsLast10Min)}</strong> 10 min</span>
-                  <span><strong>{metric(panel.cardsToday)}</strong> hoje</span>
-                </div>
-                <div className={styles.engineMiniMap} aria-label={`Mapa dos motores ${panel.range}`}>
-                  {Array.from({ length: ENGINE_PANEL_SIZE }, (_, offset) => {
-                    const engineIndex = panel.startIndex + offset;
-                    const engine = panel.byIndex.get(engineIndex);
-                    const status = engine ? engine.lastError ? "error" : statusTone(engine.status) : "idle";
-                    const label = engine
-                      ? `${engine.id}: ${engine.currentMeaning}. Hoje: ${metric(engine.cardsToday)} cards. Erro: ${engine.lastError || "nenhum"}.`
-                      : `Motor ${engineIndex + 1}: sem registro.`;
-                    return (
-                      <span key={`${panel.id}:${offset}`} data-status={status} title={label}>
-                        {engineIndex + 1}
-                      </span>
-                    );
-                  })}
-                </div>
-                <div className={styles.enginePanelFooter}>
-                  <span>{panel.meaning}</span>
-                  <span>{metric(panel.duplicatesToday)} duplicados · {metric(panel.rejectedToday)} rejeitados</span>
-                  <span>Último uso: {formatDateTime(panel.lastUsedAt)}</span>
-                </div>
-              </article>
-            ))}
-          </div>
-          <div className={styles.engineTable}>
-            <div className={styles.engineHead}>
-              <span>Motor</span>
-              <span>Status real</span>
-              <span>O que está fazendo</span>
-              <span>Último uso</span>
-              <span>Cards hoje</span>
-              <span>Últimos 10 min</span>
-              <span>Duplicados</span>
-              <span>Rejeitados</span>
-              <span>Erro</span>
-            </div>
-            {(audit?.engines || []).map((engine) => (
-              <div key={engine.id} className={styles.engineRow} data-status={statusTone(engine.status)}>
-                <span><strong>{engine.id}</strong><small>#{engine.engineIndex + 1}</small></span>
-                <span>{engine.status || "-"}</span>
-                <span>{engine.currentMeaning}</span>
-                <span>{formatDateTime(engine.lastUsedAt)}</span>
-                <span>{metric(engine.cardsToday)}</span>
-                <span>{metric(engine.cardsLast10Min)}</span>
-                <span>{metric(engine.duplicatesToday)}</span>
-                <span>{metric(engine.rejectedToday)}</span>
-                <span>{engine.lastError || "-"}</span>
-              </div>
-            ))}
-          </div>
-        </section>
-
-        <section className={styles.diagnostics}>
-          <div className={styles.sectionTitle}>
-            <div>
-              <span>Diagnóstico</span>
-              <strong>Mensagens diretas</strong>
-            </div>
-          </div>
-          {(audit?.diagnostics || []).map((message) => (
-            <p key={message}>{message}</p>
-          ))}
-        </section>
-
         <section className={styles.filterPanel}>
           <div className={styles.sectionTitle}>
             <div>
               <span>Filtro de cards</span>
-              <strong>Ver estoque e exportar para usuário</strong>
+              <strong>{hasSearchedCards ? `${metric(cardTotal)} encontrados · 100 por página` : "Comece pesquisando"}</strong>
             </div>
-            <small>{metric(cardTotal)} encontrados · {metric(selectedCardIds.size)} selecionados</small>
+            <small>{hasSearchedCards ? `Página ${metric(cardPage)} de ${metric(cardTotalPages)}` : "Clique em Pesquisar sem filtros para listar tudo"}</small>
           </div>
 
           <div className={styles.exportBar}>
@@ -959,9 +802,9 @@ export default function BancoDeDadosClientPage() {
           </div>
 
           <div className={styles.cardsActionRow}>
-            <button type="button" onClick={applyCardFilters} disabled={cardsLoading}>Filtrar</button>
+            <button type="button" onClick={applyCardFilters} disabled={cardsLoading}>Pesquisar</button>
             <button type="button" onClick={resetCardFilters} disabled={cardsLoading}>Limpar</button>
-            <button type="button" onClick={() => void loadCards()} disabled={cardsLoading}>Atualizar lista</button>
+            {hasSearchedCards ? <button type="button" onClick={() => void loadCards()} disabled={cardsLoading}>Atualizar lista</button> : null}
           </div>
 
           <div className={styles.databaseCardTable}>
@@ -978,7 +821,9 @@ export default function BancoDeDadosClientPage() {
               <span>Site</span>
               <span>Score</span>
             </div>
-            {cardsLoading ? (
+            {!hasSearchedCards ? (
+              <div className={styles.emptyRow}>Nenhum card exibido ainda. Use os filtros e clique em Pesquisar. Se pesquisar sem filtro, o sistema lista tudo em páginas de 100.</div>
+            ) : cardsLoading ? (
               <div className={styles.emptyRow}>Carregando cards...</div>
             ) : visibleCards.length ? visibleCards.map((card) => (
               <div key={card.id} className={styles.databaseCardRow}>
@@ -999,16 +844,145 @@ export default function BancoDeDadosClientPage() {
             )}
           </div>
 
-          <div className={styles.paginationRow}>
+          {hasSearchedCards ? <div className={styles.paginationRow}>
             <button type="button" onClick={() => setCardPage((page) => Math.max(1, page - 1))} disabled={cardsLoading || cardPage <= 1}>Anterior</button>
-            <span>Página {metric(cardPage)} de {metric(cardTotalPages)}</span>
+            <span>Mostrando {metric(visibleCards.length)} de {metric(cardTotal)} resultados - 100 por página.</span>
             <button type="button" onClick={() => setCardPage((page) => Math.min(cardTotalPages, page + 1))} disabled={cardsLoading || cardPage >= cardTotalPages}>Próxima</button>
-          </div>
+          </div> : null}
 
           <p className={styles.auditNote}>
             Exportar cria/atualiza o estado privado em RadarLeadCompanyState para a empresa do usuário. Negativas, bloqueios, opt-outs, tentativas e envios para Vendas continuam voltando para o banco e impedem reentrega indevida.
           </p>
         </section>
+
+        <section className={styles.tableCard}>
+          <div className={styles.sectionTitle}>
+            <div>
+              <span>Motores</span>
+              <strong>Status real em blocos de 20</strong>
+            </div>
+            <small>{metric(summary?.motoresOnline)} online · {metric(summary?.motoresBusy)} ocupados · {metric(summary?.motoresPausados)} pausados</small>
+          </div>
+          <div className={styles.enginePanelGrid} aria-label="Motores agrupados de 20 em 20">
+            {enginePanels.slice(0, 5).map((panel) => (
+              <article key={panel.id} className={styles.enginePanel} data-status={panel.allPaused ? "paused" : panel.tone}>
+                <button
+                  type="button"
+                  className={styles.enginePanelButton}
+                  onClick={() => void toggleEnginePanel(panel)}
+                  disabled={enginePanelBusy === panel.id || !panel.engines.length}
+                  title={panel.allPaused ? "Clique para ativar os 20 motores" : "Clique para desativar os 20 motores"}
+                >
+                  <span>{panel.label}</span>
+                  <strong>Motores {panel.range}</strong>
+                  <b>{panel.allPaused ? "Desativado" : panel.statusLabel}</b>
+                </button>
+                <div className={styles.enginePanelStats}>
+                  <span><strong>{metric(panel.online)}</strong> online</span>
+                  <span><strong>{metric(panel.busy)}</strong> rodando</span>
+                  <span><strong>{metric(panel.cardsToday)}</strong> hoje</span>
+                  <span><strong>{metric(panel.erro)}</strong> erros</span>
+                </div>
+                <div className={styles.enginePanelFooter}>
+                  <span>{panel.meaning}</span>
+                  <button type="button" onClick={() => setSelectedEnginePanelId(panel.id)}>Verificar</button>
+                </div>
+              </article>
+            ))}
+          </div>
+        </section>
+
+        <section className={styles.factoryPanel} data-status={factoryTone(factory?.status, factory?.enabled)}>
+          <div className={styles.sectionTitle}>
+            <div>
+              <span>Fábrica Noturna</span>
+              <strong>{factoryReasonLabel(protection?.factoryReason)} · {factoryStatusLabel(factory?.status, factory?.enabled)}</strong>
+            </div>
+            <div className={styles.actions}>
+              <button type="button" onClick={() => void runFactoryAction("start", "Fábrica ligada e próxima missão solicitada.")} disabled={saving}>Ligar</button>
+              <button type="button" onClick={() => void runFactoryAction("stop", "Fábrica pausada.")} disabled={saving}>Pausar</button>
+              <button type="button" data-danger="true" onClick={() => void runFactoryAction("stop-now", "PARAR TUDO ativo. A fábrica não pega novos motores.")} disabled={saving}>PARAR TUDO</button>
+              <button type="button" onClick={() => void runFactoryAction("resume-schedule", "Agenda da fábrica retomada.")} disabled={saving}>Retomar agenda</button>
+            </div>
+          </div>
+
+          <div className={styles.factoryGrid}>
+            <label>
+              <span>Motores trabalhando</span>
+              <select
+                value={String(protection?.factoryMaxEngines ?? 16)}
+                onChange={(event) => {
+                  const maxEngines = Number(event.target.value);
+                  void saveFactorySchedule({ maxEngines, engineCount: maxEngines, emergencyStop: false }, `Limite da fábrica ajustado para ${maxEngines} motor(es).`);
+                }}
+                disabled={saving}
+              >
+                {[0, 4, 8, 12, 16, 20, 32].map((value) => <option key={value} value={value}>{value}</option>)}
+              </select>
+            </label>
+            <label>
+              <span>Horário início</span>
+              <input
+                type="time"
+                value={timeValue(factory?.schedule?.startHour ?? 22, factory?.schedule?.startMinute ?? 0)}
+                onChange={(event) => {
+                  const next = parseTimeValue(event.target.value);
+                  void saveFactorySchedule({ startHour: next.hour, startMinute: next.minute }, "Horário inicial da fábrica atualizado.");
+                }}
+                disabled={saving}
+              />
+            </label>
+            <label>
+              <span>Horário fim</span>
+              <input
+                type="time"
+                value={timeValue(factory?.schedule?.endHour ?? 7, factory?.schedule?.endMinute ?? 0)}
+                onChange={(event) => {
+                  const next = parseTimeValue(event.target.value);
+                  void saveFactorySchedule({ endHour: next.hour, endMinute: next.minute }, "Horário final da fábrica atualizado.");
+                }}
+                disabled={saving}
+              />
+            </label>
+            <div><span>Agora</span><strong>{metric(summary?.motoresBusy)} trabalhando · {metric(protection?.factoryAllowedEngines)} permitidos</strong></div>
+          </div>
+        </section>
+
+        {selectedEnginePanel ? (
+          <div className={styles.modalBackdrop} role="dialog" aria-modal="true" aria-label={`Detalhes ${selectedEnginePanel.label}`}>
+            <div className={styles.engineModal}>
+              <div className={styles.sectionTitle}>
+                <div>
+                  <span>{selectedEnginePanel.label}</span>
+                  <strong>Motores {selectedEnginePanel.range}</strong>
+                </div>
+                <button type="button" onClick={() => setSelectedEnginePanelId(null)}>Fechar</button>
+              </div>
+              <div className={styles.engineTable}>
+                <div className={styles.engineHead}>
+                  <span>Motor</span>
+                  <span>Status</span>
+                  <span>Hoje</span>
+                  <span>10 min</span>
+                  <span>Último uso</span>
+                  <span>Função atual</span>
+                  <span>Erro</span>
+                </div>
+                {selectedEnginePanel.engines.map((engine) => (
+                  <div key={engine.id} className={styles.engineRow} data-status={statusTone(engine.status)}>
+                    <span><strong>{engine.id}</strong><small>#{engine.engineIndex + 1}</small></span>
+                    <span>{engine.manualPaused ? "paused" : engine.status || "-"}</span>
+                    <span>{metric(engine.cardsToday)}</span>
+                    <span>{metric(engine.cardsLast10Min)}</span>
+                    <span>{formatDateTime(engine.lastUsedAt)}</span>
+                    <span>{engine.currentMeaning}</span>
+                    <span>{engine.lastError || "-"}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        ) : null}
       </section>
     </DashboardScaffold>
   );
