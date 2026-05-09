@@ -7,7 +7,7 @@ import type { WhatsAppCenterPayload, WhatsAppModalPayload, WhatsAppPairingCodePa
 import styles from "./WhatsAppConnectionWizard.module.css";
 
 type ConnectionMode = "QR" | "OFFICIAL";
-type QrLinkMode = "qr" | "phone";
+type QrLinkMode = "idle" | "qr" | "phone";
 
 type Props = {
   payload: WhatsAppCenterPayload;
@@ -19,6 +19,7 @@ type Props = {
   qrMessage?: string | null;
   qrError?: string | null;
   initialQrLinkMode?: QrLinkMode;
+  qrLinkMode?: QrLinkMode;
   pairingPhone: string;
   pairingPayload: WhatsAppPairingCodePayload | null;
   pairingBusy: boolean;
@@ -26,6 +27,7 @@ type Props = {
   pairingExpiresInSeconds: number;
   onPairingPhoneChange: (value: string) => void;
   onPairingPhoneInput?: (value: string) => void;
+  onQrLinkModeChange?: (mode: QrLinkMode) => void;
   onRequestPairingCode: () => void;
   onChooseMode: (mode: ConnectionMode) => void;
   onConnectQr: () => void;
@@ -54,7 +56,8 @@ export default function WhatsAppConnectionWizard({
   qrBusy,
   qrMessage,
   qrError,
-  initialQrLinkMode = "qr",
+  initialQrLinkMode = "idle",
+  qrLinkMode,
   pairingPhone,
   pairingPayload,
   pairingBusy,
@@ -62,13 +65,15 @@ export default function WhatsAppConnectionWizard({
   pairingExpiresInSeconds,
   onPairingPhoneChange,
   onPairingPhoneInput,
+  onQrLinkModeChange,
   onRequestPairingCode,
   onChooseMode,
   onConnectQr,
   onRequestMeta,
 }: Props) {
   const [qrPanelClosed, setQrPanelClosed] = useState(false);
-  const [qrLinkMode, setQrLinkMode] = useState<QrLinkMode>(initialQrLinkMode);
+  const [localQrLinkMode, setLocalQrLinkMode] = useState<QrLinkMode>(initialQrLinkMode);
+  const activeQrLinkMode = qrLinkMode || localQrLinkMode;
   const mode = payload.center.mode;
   const qrSelected = mode === "QR";
   const metaSelected = mode === "OFFICIAL";
@@ -93,9 +98,14 @@ export default function WhatsAppConnectionWizard({
     onChooseMode("OFFICIAL");
   };
 
+  const selectQrLinkMode = (mode: QrLinkMode) => {
+    setLocalQrLinkMode(mode);
+    onQrLinkModeChange?.(mode);
+  };
+
   const connectQr = () => {
     setQrPanelClosed(false);
-    setQrLinkMode("qr");
+    selectQrLinkMode("qr");
     onConnectQr();
   };
 
@@ -147,24 +157,31 @@ export default function WhatsAppConnectionWizard({
             <button
               type="button"
               role="tab"
-              aria-selected={qrLinkMode === "qr"}
-              data-active={qrLinkMode === "qr"}
-              onClick={() => setQrLinkMode("qr")}
+              aria-selected={activeQrLinkMode === "qr"}
+              data-active={activeQrLinkMode === "qr"}
+              onClick={() => selectQrLinkMode("qr")}
             >
               QR Code
             </button>
             <button
               type="button"
               role="tab"
-              aria-selected={qrLinkMode === "phone"}
-              data-active={qrLinkMode === "phone"}
-              onClick={() => setQrLinkMode("phone")}
+              aria-selected={activeQrLinkMode === "phone"}
+              data-active={activeQrLinkMode === "phone"}
+              onClick={() => selectQrLinkMode("phone")}
             >
               Vincular por telefone
             </button>
           </div>
 
-          {qrLinkMode === "qr" ? (
+          {activeQrLinkMode === "idle" ? (
+            <div className={styles.phoneShell} data-state="choice">
+              <div className={styles.phoneCopy}>
+                <strong>Escolha o método de conexão</strong>
+                <p>Use QR Code ou código por telefone. Nenhuma instância será criada antes da sua escolha.</p>
+              </div>
+            </div>
+          ) : activeQrLinkMode === "qr" ? (
             <div className={styles.qrShell}>
               {showQrLoader ? (
                 <div className={styles.premiumLoader} aria-label="Carregando QR Code">
@@ -196,7 +213,7 @@ export default function WhatsAppConnectionWizard({
                   disabled={!canUseQr || modalSaving !== null}
                   aria-label="Gerar QR Code"
                 >
-                  QRCODE
+                  CONECTAR POR QR
                 </button>
               )}
             </div>
@@ -246,7 +263,7 @@ export default function WhatsAppConnectionWizard({
           )}
 
           <div className={styles.actionRow}>
-            {qrLinkMode === "phone" && !qrBotReady ? (
+            {activeQrLinkMode === "phone" && !qrBotReady ? (
               <button
                 type="button"
                 className={styles.primaryAction}
@@ -255,14 +272,22 @@ export default function WhatsAppConnectionWizard({
               >
                 {pairingBusy ? "GERANDO..." : pairingCode && !pairingExpired ? "GERAR OUTRO" : "GERAR CÓDIGO"}
               </button>
-            ) : !qrBotReady ? (
+            ) : activeQrLinkMode === "qr" && !qrBotReady ? (
               <button
                 type="button"
                 className={styles.primaryAction}
                 onClick={connectQr}
                 disabled={!canUseQr || modalSaving !== null || showQrLoader || qrReady}
               >
-                {qrReady ? "Bot" : qrCode ? "ATUALIZAR" : "GERAR"}
+                {qrReady ? "Bot" : qrCode ? "ATUALIZAR QR" : "CONECTAR POR QR"}
+              </button>
+            ) : activeQrLinkMode === "idle" && !qrBotReady ? (
+              <button
+                type="button"
+                className={styles.primaryAction}
+                disabled
+              >
+                ESCOLHA UM MÉTODO
               </button>
             ) : (
               <Link className={styles.primaryAction} href="/vendas/automacao?tab=flow">
