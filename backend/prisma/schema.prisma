@@ -51,6 +51,7 @@ model Company {
   whatsappModalConnectedAt DateTime?
   whatsappModalLastError   String?
   whatsappModalUpdatedAt   DateTime?
+  currentWhatsappConnectionSessionId String?
   whatsappMigrationInterestStatus String @default("NONE") // NONE | REQUESTED | CONTACTED | RESOLVED
   whatsappMigrationInterestAt DateTime?
   whatsappMigrationInterestSource String?
@@ -104,6 +105,8 @@ model Company {
 
   conversations CompanyConversation[]
   messages      CompanyMessage[]
+  currentWhatsappConnectionSession WhatsAppConnectionSession? @relation("CompanyCurrentWhatsappConnectionSession", fields: [currentWhatsappConnectionSessionId], references: [id], onDelete: SetNull)
+  whatsappConnectionSessions WhatsAppConnectionSession[] @relation("CompanyWhatsappConnectionSessions")
   atendimentoAppointments AtendimentoAppointment[]
   inboxConversations Conversation[]
 
@@ -153,6 +156,32 @@ model Company {
   commercialUsageLogs CompanyCommercialUsageLog[]
   trialPhoneUsages    TrialPhoneUsage[]
   nightFactoryRewardClaims NightFactoryRewardClaim[]
+
+  @@index([currentWhatsappConnectionSessionId])
+}
+
+model WhatsAppConnectionSession {
+  id              String    @id @default(cuid())
+  company         Company   @relation("CompanyWhatsappConnectionSessions", fields: [companyId], references: [id], onDelete: Cascade)
+  companyId       Int
+  provider        String    @default("webwhats") // webwhats | meta
+  tenantKey       String
+  phoneNormalized String?
+  displayPhone    String?
+  status          String    @default("active") // active | disconnected | archived
+  connectedAt     DateTime  @default(now())
+  disconnectedAt  DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  metadataJson    String?
+
+  currentForCompanies Company[] @relation("CompanyCurrentWhatsappConnectionSession")
+  conversations CompanyConversation[]
+  messages      CompanyMessage[]
+
+  @@index([companyId, status])
+  @@index([companyId, provider, phoneNormalized, status])
+  @@index([companyId, tenantKey, status])
 }
 
 model NightFactoryRewardClaim {
@@ -428,6 +457,10 @@ model CompanyConversation {
   id            Int      @id @default(autoincrement())
   company       Company  @relation(fields: [companyId], references: [id])
   companyId     Int
+  whatsappConnectionSession WhatsAppConnectionSession? @relation(fields: [whatsappConnectionSessionId], references: [id], onDelete: SetNull)
+  whatsappConnectionSessionId String?
+  sourcePhoneNormalized String?
+  sourceTenantKey String?
   channel       String   @default("whatsapp")
   contact       String
   currentFlow   String   @default("cobranca_recovery")
@@ -445,7 +478,9 @@ model CompanyConversation {
   messages CompanyMessage[]
   atendimentoAppointments AtendimentoAppointment[]
 
-  @@unique([companyId, channel, contact])
+  @@unique([companyId, channel, contact, whatsappConnectionSessionId])
+  @@index([companyId, channel, contact])
+  @@index([companyId, whatsappConnectionSessionId])
   @@index([companyId, lastMessageAt])
   @@index([companyId, botActive, humanAssigned, lastInteractionAt])
   @@map("Conversation")
@@ -522,6 +557,10 @@ model CompanyMessage {
   companyId      Int
   conversation   CompanyConversation @relation(fields: [conversationId], references: [id])
   conversationId Int
+  whatsappConnectionSession WhatsAppConnectionSession? @relation(fields: [whatsappConnectionSessionId], references: [id], onDelete: SetNull)
+  whatsappConnectionSessionId String?
+  sourcePhoneNormalized String?
+  sourceTenantKey String?
 
   contactId   String?
   direction String // INBOUND | OUTBOUND
@@ -544,6 +583,7 @@ model CompanyMessage {
 
   createdAt DateTime @default(now())
 
+  @@index([companyId, whatsappConnectionSessionId, timestamp])
   @@index([companyId, conversationId, timestamp])
   @@index([conversationId, senderType, timestamp])
   @@map("Message")

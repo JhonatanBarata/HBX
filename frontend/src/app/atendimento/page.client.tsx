@@ -3037,6 +3037,9 @@ export default function InboxClientPage() {
   const [conversations, setConversations] = useState<InboxConversation[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedConversation, setSelectedConversation] = useState<InboxConversation | null>(null);
+  const [showPreviousSessions, setShowPreviousSessions] = useState(false);
+  const [whatsappSession, setWhatsappSession] = useState<InboxBootstrapPayload["whatsappSession"]>(null);
+  const [whatsappAccessBlocked, setWhatsappAccessBlocked] = useState(false);
   const [bootstrapReady, setBootstrapReady] = useState(false);
   const [loadingList, setLoadingList] = useState(true);
   const [loadingMoreConversations, setLoadingMoreConversations] = useState(false);
@@ -3607,10 +3610,26 @@ export default function InboxClientPage() {
     setConversationListError(null);
     setConversationDetailError(null);
     try {
-      const payload = await apiFetch<InboxBootstrapPayload>(`/inbox/bootstrap?take=${take}`, {
+      const query = new URLSearchParams({ take: String(take) });
+      if (showPreviousSessions) query.set("includePreviousSessions", "true");
+      const payload = await apiFetch<InboxBootstrapPayload>(`/inbox/bootstrap?${query.toString()}`, {
         requireAuth: true,
         timeoutMs: 25000,
       });
+      setWhatsappSession(payload?.whatsappSession || null);
+      const blocked = payload?.whatsappSession?.accessible === false || payload?.providerWarning?.code === "WHATSAPP_REQUIRED";
+      setWhatsappAccessBlocked(blocked);
+      if (blocked) {
+        setConversations([]);
+        setSelectedId(null);
+        setSelectedConversation(null);
+        selectedIdRef.current = null;
+        selectedConversationRef.current = null;
+        setOlderMessagesBefore(null);
+        setOlderMessagesHasMore(false);
+        setBootstrapReady(true);
+        return;
+      }
       const nextList = normalizeInboxConversationList(
         Array.isArray(payload?.conversations) ? payload.conversations : [],
       ).filter(
@@ -3643,11 +3662,17 @@ export default function InboxClientPage() {
         loadError instanceof Error ? loadError.message : "Falha ao carregar a inbox.";
       setConversationListError(message);
       setError(message);
+      if (message.toLowerCase().includes("sem whatsapp") || message.toLowerCase().includes("whatsapp/celular")) {
+        setWhatsappAccessBlocked(true);
+        setConversations([]);
+        setSelectedId(null);
+        setSelectedConversation(null);
+      }
     } finally {
       setLoadingList(false);
       setLoadingConversation(false);
     }
-  }, [rememberConversationDetail]);
+  }, [rememberConversationDetail, showPreviousSessions]);
 
   const loadConversation = useCallback(async (
     id: string | null | undefined,
@@ -3705,7 +3730,8 @@ export default function InboxClientPage() {
     }
     if (!silent && !cachedDetail) setLoadingConversation(true);
     try {
-      const rawData = await apiFetch<InboxConversation>(`/inbox/conversations/${conversationId}`, {
+      const detailQuery = showPreviousSessions ? "?includePreviousSessions=true" : "";
+      const rawData = await apiFetch<InboxConversation>(`/inbox/conversations/${conversationId}${detailQuery}`, {
         requireAuth: true,
         timeoutMs: 10000,
       });
@@ -3773,12 +3799,15 @@ export default function InboxClientPage() {
         loadError instanceof Error ? loadError.message : "Falha ao carregar conversa.";
       setConversationDetailError(message);
       setError(message);
+      if (message.toLowerCase().includes("sem whatsapp") || message.toLowerCase().includes("whatsapp/celular")) {
+        setWhatsappAccessBlocked(true);
+      }
     } finally {
       if (!silent && requestToken === conversationLoadTokenRef.current) {
         setLoadingConversation(false);
       }
     }
-  }, [rememberConversationDetail]);
+  }, [rememberConversationDetail, showPreviousSessions]);
 
   const loadOlderMessages = useCallback(async () => {
     const conversationId = normalizeInboxConversationId(selectedIdRef.current || selectedId);
@@ -3794,7 +3823,7 @@ export default function InboxClientPage() {
     setConversationDetailError(null);
     try {
       const payload = await apiFetch<InboxMessagePagePayload>(
-        `/inbox/conversations/${conversationId}/messages?limit=${INBOX_RECENT_MESSAGES_LIMIT}&before=${encodeURIComponent(before)}`,
+        `/inbox/conversations/${conversationId}/messages?limit=${INBOX_RECENT_MESSAGES_LIMIT}&before=${encodeURIComponent(before)}${showPreviousSessions ? "&includePreviousSessions=true" : ""}`,
       );
       const olderMessages = Array.isArray(payload?.messages) ? payload.messages : [];
       const baseConversation =
@@ -3827,7 +3856,7 @@ export default function InboxClientPage() {
     } finally {
       setLoadingOlderMessages(false);
     }
-  }, [loadingOlderMessages, olderMessagesBefore, rememberConversationDetail, selectedId]);
+  }, [loadingOlderMessages, olderMessagesBefore, rememberConversationDetail, selectedId, showPreviousSessions]);
 
   const refreshSelectedConversationMessages = useCallback(async () => {
     const conversationId = normalizeInboxConversationId(selectedIdRef.current);
@@ -3842,7 +3871,7 @@ export default function InboxClientPage() {
       }
 
       const payload = await apiFetch<InboxMessagePagePayload>(
-        `/inbox/conversations/${conversationId}/messages?limit=${INBOX_RECENT_MESSAGES_LIMIT}`,
+        `/inbox/conversations/${conversationId}/messages?limit=${INBOX_RECENT_MESSAGES_LIMIT}${showPreviousSessions ? "&includePreviousSessions=true" : ""}`,
         {
           requireAuth: true,
           timeoutMs: 15000,
@@ -3902,7 +3931,7 @@ export default function InboxClientPage() {
         console.warn("Falha ao atualizar mensagens da conversa aberta.", refreshError);
       }
     }
-  }, [loadConversation, rememberConversationDetail]);
+  }, [loadConversation, rememberConversationDetail, showPreviousSessions]);
 
   const loadConversations = useCallback(
     async (options?: { preferredId?: string | null; silent?: boolean; append?: boolean }) => {
@@ -3940,6 +3969,9 @@ export default function InboxClientPage() {
         });
         if (append) {
           query.set("queue", appendQueue);
+        }
+        if (showPreviousSessions) {
+          query.set("includePreviousSessions", "true");
         }
         const response = await apiFetch<InboxConversation[]>(
           `/inbox/conversations?${query.toString()}`,
@@ -4054,17 +4086,38 @@ export default function InboxClientPage() {
         if (!silent || conversationsRef.current.length === 0) {
           setError(message);
         }
+        if (message.toLowerCase().includes("sem whatsapp") || message.toLowerCase().includes("whatsapp/celular")) {
+          setWhatsappAccessBlocked(true);
+          setConversations([]);
+          setSelectedId(null);
+          setSelectedConversation(null);
+        }
       } finally {
         if (!silent) setLoadingList(false);
         if (append) setLoadingMoreConversations(false);
       }
     },
-    [loadConversation],
+    [loadConversation, showPreviousSessions],
   );
 
   const loadMoreConversations = useCallback(() => {
     void loadConversations({ silent: true, append: true });
   }, [loadConversations]);
+
+  const switchWhatsappSessionHistory = useCallback((enabled: boolean) => {
+    setShowPreviousSessions(enabled);
+    setSelectedId(null);
+    selectedIdRef.current = null;
+    setSelectedConversation(null);
+    selectedConversationRef.current = null;
+    setOlderMessagesBefore(null);
+    setOlderMessagesHasMore(false);
+  }, []);
+
+  useEffect(() => {
+    if (hasToken !== true) return;
+    void bootstrapInbox({ take: INBOX_CONVERSATION_LIST_LIMIT });
+  }, [bootstrapInbox, hasToken, showPreviousSessions]);
 
   useEffect(() => {
     if (hasToken !== true || !requestedConversationId) return;
@@ -8200,6 +8253,14 @@ export default function InboxClientPage() {
 
   if (!hasToken) return null;
 
+  const previousSessionsCount = Number(whatsappSession?.previousSessionsCount || 0);
+  const hasPreviousWhatsappHistory = previousSessionsCount > 0 || showPreviousSessions;
+  const activeWhatsappDisplay =
+    whatsappSession?.currentSession?.displayPhone ||
+    whatsappSession?.currentSession?.phoneNormalized ||
+    null;
+  const previousWhatsappSessionId = whatsappSession?.previousSessions?.[0]?.id || null;
+
   const queueActionConversationIsArchived =
     queueActionConversationId ? queueByConversationId[queueActionConversationId] === "archived" : false;
 
@@ -8212,8 +8273,101 @@ export default function InboxClientPage() {
         hideNavigationRail={true}
         layoutMode="workspace"
       >
-        {activeTab === "messages" ? (
+        {whatsappAccessBlocked ? (
+          <section className={styles.whatsappAccessGate}>
+            <div className={styles.whatsappAccessGatePanel}>
+              <span className={styles.whatsappAccessGateKicker}>WhatsApp desconectado</span>
+              <h1>Atendimento fechado</h1>
+              <p>Vincule um celular por QR Code ou conecte a Meta para acessar as conversas do Atendimento.</p>
+              <div className={styles.whatsappAccessGateActions}>
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={() => router.push("/vendas/automacao?tab=qr")}
+                >
+                  Conectar WhatsApp
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={() => void bootstrapInbox({ take: INBOX_CONVERSATION_LIST_LIMIT })}
+                >
+                  Verificar novamente
+                </button>
+              </div>
+            </div>
+          </section>
+        ) : activeTab === "messages" ? (
           <section className={styles.premiumInboxShell} data-ui-no-reveal="true">
+            {hasPreviousWhatsappHistory ? (
+              <div className={styles.whatsappSessionBanner}>
+                <div>
+                  <strong>
+                    {showPreviousSessions
+                      ? "Histórico do celular anterior"
+                      : "Novo WhatsApp conectado."}
+                  </strong>
+                  <span>
+                    {showPreviousSessions
+                      ? "Você está vendo conversas separadas da sessão atual."
+                      : `O histórico do celular anterior foi separado para não misturar atendimentos.${activeWhatsappDisplay ? ` WhatsApp atual: ${activeWhatsappDisplay}.` : ""}`}
+                  </span>
+                </div>
+                <div className={styles.whatsappSessionBannerActions}>
+                  {showPreviousSessions ? (
+                    <button
+                      type="button"
+                      className="btn btn-secondary btn-sm"
+                      onClick={() => switchWhatsappSessionHistory(false)}
+                    >
+                      Voltar para WhatsApp atual
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      className="btn btn-secondary btn-sm"
+                      onClick={() => switchWhatsappSessionHistory(true)}
+                    >
+                      Ver histórico anterior
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    className="btn btn-danger btn-sm"
+                    disabled={!previousWhatsappSessionId}
+                    onClick={async () => {
+                      const confirmed = window.prompt(
+                        "Digite MIGRAR para solicitar a mistura do histórico antigo com o celular atual. Essa ação exige revisão manual do suporte HBX.",
+                      );
+                      if (confirmed === "MIGRAR") {
+                        try {
+                          const result = await apiFetch<{ migrated?: number; skipped?: number }>(
+                            `/inbox/whatsapp-sessions/${previousWhatsappSessionId}/migrate-current`,
+                            {
+                              method: "POST",
+                              requireAuth: true,
+                              body: JSON.stringify({ confirmation: "MIGRAR" }),
+                            },
+                          );
+                          setNotice({
+                            tone: "info",
+                            text: `Histórico migrado: ${Number(result?.migrated || 0)} conversa(s). ${Number(result?.skipped || 0)} ficaram separadas por conflito.`,
+                          });
+                          switchWhatsappSessionHistory(false);
+                        } catch (migrateError) {
+                          setNotice({
+                            tone: "error",
+                            text: migrateError instanceof Error ? migrateError.message : "Falha ao migrar histórico.",
+                          });
+                        }
+                      }
+                    }}
+                  >
+                    Migrar histórico antigo para este celular
+                  </button>
+                </div>
+              </div>
+            ) : null}
             <ProspectingAutomationStatus
               status={prospectingAutomationStatus}
               loading={prospectingAutomationLoading}

@@ -790,6 +790,12 @@ function normalizeTargetType(value: unknown): HbxTargetType {
   return 'pj';
 }
 
+function parsePositiveInteger(value: unknown, fallback: number) {
+  const parsed = Number(String(value || '').trim());
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+  return Math.trunc(parsed);
+}
+
 function maxQuantityFor(engine: WebscrapingEngine, targetType: HbxTargetType) {
   if (engine === 'google') return MAX_QUANTITY;
   return targetType === 'pj' ? HBX_PJ_MAX_QUANTITY : HBX_PEOPLE_MAX_QUANTITY;
@@ -808,9 +814,7 @@ function clampInteger(value: unknown, fallback: number, min: number, max: number
 }
 
 function parsePositiveIntegerEnv(name: string, fallback: number) {
-  const parsed = Number(String(process.env[name] || '').trim());
-  if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
-  return Math.trunc(parsed);
+  return parsePositiveInteger(process.env[name], fallback);
 }
 
 function minutesAgo(minutes: number) {
@@ -1223,37 +1227,73 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         ...normalized.excludePhoneDigits,
       ]);
       let fetchedCount = 0;
-      let acquiredLease: HbxEngineLease | null = null;
-      let hbxEngineUrl = options.hbxEngineUrl;
-
       let hbxResults: WebscrapingContactResult[] = [];
       let hbxStatus: SearchRunStatus = 'completed';
       let hbxMessage: string | null = null;
       let hbxError: unknown = null;
-      try {
-        if (!hbxEngineUrl && await this.canAcquireHbxEngineFromPool()) {
-          acquiredLease = await this.getEnginePool().acquireEngine(
-            `sync:${purpose}:${context.companyId}:${context.userId}:${Date.now()}`,
-            context.companyId,
-            context.userId,
-            { purpose },
-          );
-          if (!acquiredLease) {
-            throw new ServiceUnavailableException('Aguardando motor HBX livre.');
+
+      const canUsePool = !options.hbxEngineUrl && await this.canAcquireHbxEngineFromPool();
+      const maxEngineAttempts = purpose === 'radar_pull' && canUsePool ? this.getRadarPullEngineAttempts() : 1;
+      let avoidEngineIdOrUrl = '';
+
+      for (let engineAttempt = 1; engineAttempt <= maxEngineAttempts; engineAttempt += 1) {
+        let acquiredLease: HbxEngineLease | null = null;
+        let hbxEngineUrl = options.hbxEngineUrl;
+        try {
+          if (!hbxEngineUrl && canUsePool) {
+            acquiredLease = await this.getEnginePool().acquireEngine(
+              `sync:${purpose}:${context.companyId}:${context.userId}:${Date.now()}:${engineAttempt}`,
+              context.companyId,
+              context.userId,
+              { purpose, avoidEngineIdOrUrl },
+            );
+            if (!acquiredLease) {
+              throw new ServiceUnavailableException('Aguardando motor HBX livre.');
+            }
+            hbxEngineUrl = acquiredLease.url;
           }
-          hbxEngineUrl = acquiredLease.url;
-        }
-        const hbxOutput = await this.searchHbxEngine(normalized, Array.from(seenPhones), hbxEngineUrl);
-        hbxResults = hbxOutput.results;
-        hbxStatus = hbxOutput.status;
-        hbxMessage = hbxOutput.message;
-      } catch (error) {
-        hbxError = error;
-      } finally {
-        if (acquiredLease) {
-          await this.getEnginePool().releaseEngine(acquiredLease.engineId).catch(() => null);
+          const hbxOutput = await this.searchHbxEngine(normalized, Array.from(seenPhones), hbxEngineUrl);
+          hbxResults = hbxOutput.results;
+          hbxStatus = hbxOutput.status;
+          hbxMessage = hbxOutput.message;
+          hbxError = null;
+          if (acquiredLease) {
+            await this.getEnginePool().releaseEngine(acquiredLease.engineId).catch(() => null);
+          }
+          break;
+        } catch (error) {
+          hbxError = error;
+          const errorMessage = this.extractHbxErrorMessage(error);
+          if (acquiredLease) {
+            avoidEngineIdOrUrl = acquiredLease.engineId;
+            await this.getEnginePool().markEngineBatchError(acquiredLease.engineId, error).catch(() => null);
+            await this.getEnginePool().releaseEngine(acquiredLease.engineId).catch(() => null);
+            this.logger.warn(
+              `[radar] motor HBX falhou; engine=${acquiredLease.engineId} url=${acquiredLease.url} purpose=${purpose} city=${normalized.city} state=${normalized.state} segment=${normalized.segment} targetType=${normalized.targetType} companyId=${context.companyId}: ${errorMessage}`,
+            );
+          } else {
+            this.logger.warn(
+              `[radar] motor HBX indisponivel purpose=${purpose} city=${normalized.city} state=${normalized.state} segment=${normalized.segment} targetType=${normalized.targetType} companyId=${context.companyId}: ${errorMessage}`,
+            );
+          }
+          if (
+            options.hbxEngineUrl ||
+            !canUsePool ||
+            !this.isRetryableHbxError(error) ||
+            engineAttempt >= maxEngineAttempts
+          ) {
+            break;
+          }
         }
       }
+
+      if (hbxError && purpose === 'radar_pull') {
+        const errorMessage = this.extractHbxErrorMessage(hbxError);
+        this.logger.warn(
+          `[radar] todos os motores tentados falharam city=${normalized.city} state=${normalized.state} segment=${normalized.segment} targetType=${normalized.targetType} companyId=${context.companyId}: ${errorMessage}`,
+        );
+      }
+
       for (const mapped of hbxResults) {
         if (results.length >= normalized.quantity) break;
         if (!this.shouldKeepNewContact(mapped, results, seenPhones)) continue;
@@ -1904,6 +1944,13 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     return Math.max(5_000, parsePositiveIntegerEnv('HBX_SEARCH_BATCH_TIMEOUT_MS', 35_000));
   }
 
+  private getRadarPullEngineAttempts() {
+    return Math.max(1, Math.min(
+      getConfiguredHbxEngineCount(),
+      parsePositiveIntegerEnv('HBX_RADAR_PULL_ENGINE_ATTEMPTS', 3),
+    ));
+  }
+
   private getHbxRetryDelayMs(consecutiveEngineErrors: number) {
     const delays = [5_000, 15_000, 30_000, 60_000];
     return delays[Math.min(Math.max(1, consecutiveEngineErrors) - 1, delays.length - 1)];
@@ -1994,7 +2041,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
 
   private isRetryableHbxError(error: unknown) {
     const httpStatus = this.extractHbxHttpStatus(error);
-    if ([502, 503, 504].includes(Number(httpStatus))) return true;
+    if ([500, 502, 503, 504].includes(Number(httpStatus))) return true;
     if ((error as any)?.retryable === true || (error as any)?.response?.retryable === true) return true;
     const normalized = this.extractHbxErrorMessage(error).toLowerCase();
     return [
@@ -3624,6 +3671,24 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     return this.normalizeRadarLeadStatus(companyState?.status || row?.status || 'clean');
   }
 
+  private resolveRadarLeadTargetType(row: any): HbxTargetType {
+    const metadataJson = String(row?.metadataJson || '').trim();
+    if (metadataJson) {
+      try {
+        const parsed = JSON.parse(metadataJson);
+        const targetType = normalizeTargetType(parsed?.targetType);
+        if (targetType === 'pf' || targetType === 'agenda_pf') return targetType;
+        if (String(parsed?.targetType || '').trim()) return 'pj';
+      } catch {
+        // Metadata is optional and historically best-effort.
+      }
+    }
+    const placeId = String(row?.placeId || '').trim().toLowerCase();
+    if (placeId.startsWith('hbx:agenda_pf:')) return 'agenda_pf';
+    if (placeId.startsWith('hbx:pf:')) return 'pf';
+    return 'pj';
+  }
+
   private extractDdd(value: string | null | undefined) {
     const digits = normalizePhoneDigits(value);
     return digits.length >= 10 ? digits.slice(0, 2) : '';
@@ -3740,6 +3805,15 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     if (filters.scoreRange === 'medium') where.opportunityScore = { gte: 45, lt: 70 };
     if (filters.scoreRange === 'low') where.opportunityScore = { lt: 45 };
 
+    if (filters.targetType === 'pf' || filters.targetType === 'agenda_pf') {
+      and.push({
+        OR: [
+          { metadataJson: { contains: `"targetType":"${filters.targetType}"` } },
+          { placeId: { startsWith: `hbx:${filters.targetType}:` } },
+        ],
+      });
+    }
+
     if (filters.noWebsite) {
       where.websiteStatus = 'none';
     } else if (filters.weakWebsite) {
@@ -3765,7 +3839,8 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       });
     }
 
-    if (companyId && !(options.includeHidden || filters.includeHidden || filters.filterKey)) {
+    const protectedStatusRequested = this.isRadarProtectedStatus(filters.status) || this.isRadarProtectedStatus(filters.filterKey);
+    if (companyId && !(options.includeHidden || filters.includeHidden || protectedStatusRequested)) {
       and.push({
         companyStates: {
           none: {
@@ -3785,6 +3860,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
 
   private filterRadarRowsInMemory(rows: any[], filters: NormalizedRadarFilters) {
     return rows.filter((row) => {
+      if (this.resolveRadarLeadTargetType(row) !== filters.targetType) return false;
       if (filters.likelyWhatsapp && !isLikelyWhatsapp(row?.phoneDigits || row?.phone)) return false;
       if (filters.validPhone && !isLikelyValidBrPhone(row?.phoneDigits || row?.phone)) return false;
       const status = this.resolveRadarLeadStatus(row);
@@ -4144,11 +4220,11 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     });
     const availableRows = await this.queryRadarRowsForCompany(context.companyId, availabilityFilters, {
       limit: 2000,
-      includeHidden: true,
+      includeHidden: filters.includeHidden,
     });
     const allRows = await this.queryRadarRowsForCompany(context.companyId, baseFilters, {
       limit: 2000,
-      includeHidden: true,
+      includeHidden: filters.includeHidden,
     });
     const filteredRows = filters.filterKey || filters.status || filters.ddd || filters.source || filters.scoreRange
       ? this.filterRadarRowsInMemory(allRows, filters)
@@ -4282,6 +4358,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       cleanStockAfter: cleanStockBefore,
       fetchedCount: 0,
     };
+    let replenishErrorMessage: string | null = null;
 
     if (cleanStockBefore < Math.max(filters.minimumStock, filters.quantity)) {
       try {
@@ -4296,17 +4373,19 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
           targetType: filters.targetType,
         });
       } catch (error: any) {
-        const errorMessage = String(error?.message || error);
+        const errorMessage = this.extractHbxErrorMessage(error);
+        replenishErrorMessage = 'Motores em aquecimento/cooldown. Entreguei os cards disponiveis do banco; tente novamente em instantes.';
         replenish = {
           ran: true,
           reason: 'replenish_failed_using_database',
           cleanStockBefore,
           cleanStockAfter: cleanStockBefore,
           fetchedCount: 0,
-          error: errorMessage,
+          errorMessage: replenishErrorMessage,
+          technicalMessage: errorMessage,
         };
         this.logger.warn(
-          `[radar] reposicao falhou; usando estoque existente company=${context.companyId} city=${filters.normalizedCity} segment=${filters.normalizedSegment}: ${errorMessage}`,
+          `[radar] reposicao falhou; usando estoque existente company=${context.companyId} city=${filters.normalizedCity} state=${filters.state} segment=${filters.normalizedSegment} targetType=${filters.targetType}: ${errorMessage}`,
         );
       }
       rows = await this.queryRadarRowsForCompany(context.companyId, filters, {
@@ -4316,6 +4395,34 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     }
 
     const deliveredRows = rows.slice(0, filters.quantity);
+
+    if (!deliveredRows.length && replenishErrorMessage) {
+      throw new ServiceUnavailableException({
+        code: 'radar_engines_unavailable',
+        message: 'Motores em aquecimento/cooldown. Nenhum card elegivel estava disponivel no banco; tente novamente em instantes.',
+        items: [],
+        total: 0,
+        meta: {
+          requestedQuantity: filters.quantity,
+          deliveredCount: 0,
+          filters: {
+            state: filters.state,
+            city: filters.city,
+            segment: filters.segment,
+            targetType: filters.targetType,
+          },
+          replenish,
+          availableFilters: this.buildRadarAvailableFilters(await this.queryRadarRowsForCompany(context.companyId, {
+            ...filters,
+            city: '',
+            state: '',
+            segment: '',
+            normalizedCity: '',
+            normalizedSegment: '',
+          }, { limit: 2000 })),
+        },
+      });
+    }
     
     try {
       await this.markRadarDelivered(context.companyId, context.userId, deliveredRows);
@@ -4337,14 +4444,29 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
 
     return {
       items,
+      total: items.length,
       meta: {
         requestedQuantity: filters.quantity,
         deliveredCount: deliveredRows.length,
+        filters: {
+          state: filters.state,
+          city: filters.city,
+          segment: filters.segment,
+          targetType: filters.targetType,
+        },
         cleanStockBefore,
         cleanStockAfter: rows.length,
         minimumStock: filters.minimumStock,
         desiredStock: filters.desiredStock,
         replenish,
+        availableFilters: this.buildRadarAvailableFilters(await this.queryRadarRowsForCompany(context.companyId, {
+          ...filters,
+          city: '',
+          state: '',
+          segment: '',
+          normalizedCity: '',
+          normalizedSegment: '',
+        }, { limit: 2000 })),
       },
     };
   }
@@ -7900,7 +8022,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       throw new HbxBatchError(
         response.status,
         rawMessage,
-        [502, 503, 504].includes(response.status),
+        [500, 502, 503, 504].includes(response.status),
         'hbx_scraping_engine_http_error',
       );
     }

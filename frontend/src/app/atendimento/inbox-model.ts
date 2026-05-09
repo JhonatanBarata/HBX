@@ -118,6 +118,9 @@ export type InboxConversation = {
   updatedAt: string;
   lastMessageAt: string | null;
   lastRealMessageAt?: string | null;
+  whatsappConnectionSessionId?: string | null;
+  sourcePhoneNormalized?: string | null;
+  sourceTenantKey?: string | null;
   currentFlow: string | null;
   flowResult: string | null;
   routeTarget: InboxRouteTarget;
@@ -143,6 +146,33 @@ export type InboxConversation = {
 export type InboxBootstrapPayload = {
   conversations: InboxConversation[];
   selectedConversation: InboxConversation | null;
+  providerWarning?: {
+    code?: string | null;
+    message?: string | null;
+  } | null;
+  whatsappSession?: {
+    accessible?: boolean;
+    reason?: string | null;
+    mode?: "current" | "previous" | "all" | string;
+    currentSessionId?: string | null;
+    currentSession?: {
+      id: string;
+      provider?: string | null;
+      phoneNormalized?: string | null;
+      displayPhone?: string | null;
+      connectedAt?: string | null;
+    } | null;
+    previousSessions?: Array<{
+      id: string;
+      provider?: string | null;
+      phoneNormalized?: string | null;
+      displayPhone?: string | null;
+      status?: string | null;
+      connectedAt?: string | null;
+      disconnectedAt?: string | null;
+    }>;
+    previousSessionsCount?: number;
+  } | null;
 };
 
 export type MeticulousTrashPurgeCandidate = {
