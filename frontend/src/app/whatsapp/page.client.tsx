@@ -27,6 +27,7 @@ type WhatsAppBootstrapPayload = {
 };
 
 type QrBootstrapStage = "idle" | "connecting" | "mirroring" | "ready" | "error";
+type QrLinkMode = "idle" | "qr" | "phone";
 
 function normalizePairingPhone(value: string) {
   const trimmed = value.trim();
@@ -70,6 +71,9 @@ export default function WhatsAppCenterClientPage() {
   const [pairingBusy, setPairingBusy] = useState(false);
   const [pairingExpiresAt, setPairingExpiresAt] = useState<number | null>(null);
   const [pairingTick, setPairingTick] = useState(0);
+  const [qrLinkMode, setQrLinkMode] = useState<QrLinkMode>(() => (
+    searchParams.get("focus") === "phone" ? "phone" : "idle"
+  ));
   const bootstrapInFlightRef = useRef(false);
   const modalActionInFlightRef = useRef(false);
   const pairingCodeInFlightRef = useRef(false);
@@ -325,6 +329,9 @@ export default function WhatsAppCenterClientPage() {
     const normalizedPhone = normalizePairingPhone(pairingPhone);
     setPairingError(null);
     setPairingPayload(null);
+    setModalQrRequested(false);
+    setQrLinkMode("phone");
+    setQrBootstrapStage("idle");
 
     if (!sessionId) {
       setPairingError("Sessão técnica do WhatsApp ainda não carregada.");
@@ -338,7 +345,6 @@ export default function WhatsAppCenterClientPage() {
     pairingCodeInFlightRef.current = true;
     setPairingBusy(true);
     try {
-      await ensureQrModeSelected();
       const response = await apiFetch<WhatsAppPairingCodePayload>(
         `/whatsapp/sessions/${encodeURIComponent(sessionId)}/pairing-code`,
         {
@@ -409,14 +415,26 @@ export default function WhatsAppCenterClientPage() {
     if (!modalPayload?.data.available) return;
 
     const interval = window.setInterval(() => {
+      const shouldPollQr =
+        qrLinkMode === "qr"
+        && modalQrRequested
+        && modalPayload.status !== "connected";
       void loadModalStatus(
         true,
-        modalQrRequested && modalPayload.status !== "connected",
+        shouldPollQr,
       );
     }, modalPayload.status === "connected" ? 20000 : 7000);
 
     return () => window.clearInterval(interval);
-  }, [modalPayload?.data.available, modalPayload?.status, loadModalStatus, modalQrRequested]);
+  }, [modalPayload?.data.available, modalPayload?.status, loadModalStatus, modalQrRequested, qrLinkMode]);
+
+  function handleQrLinkModeChange(mode: QrLinkMode) {
+    setQrLinkMode(mode);
+    if (mode === "phone") {
+      setModalQrRequested(false);
+      setQrBootstrapStage("idle");
+    }
+  }
 
   useEffect(() => {
     if (!pairingExpiresAt) return undefined;
@@ -463,7 +481,7 @@ export default function WhatsAppCenterClientPage() {
   }
 
   const qrBootstrapBusy = qrBootstrapStage === "connecting" || qrBootstrapStage === "mirroring";
-  const initialQrLinkMode = searchParams.get("focus") === "phone" ? "phone" : "qr";
+  const initialQrLinkMode = searchParams.get("focus") === "phone" ? "phone" : "idle";
   const pairingExpiresInSeconds = pairingExpiresAt
     ? Math.max(0, Math.ceil((pairingExpiresAt - Date.now()) / 1000))
     : 0;
@@ -512,6 +530,7 @@ export default function WhatsAppCenterClientPage() {
             qrMessage={message}
             qrError={qrOperationalError}
             initialQrLinkMode={initialQrLinkMode}
+            qrLinkMode={qrLinkMode}
             pairingPhone={pairingPhone}
             pairingPayload={pairingPayload}
             pairingBusy={pairingBusy}
@@ -519,6 +538,7 @@ export default function WhatsAppCenterClientPage() {
             pairingExpiresInSeconds={pairingExpiresInSeconds}
             onPairingPhoneChange={setPairingPhone}
             onPairingPhoneInput={(value) => setPairingPhone(formatPairingPhoneInput(value))}
+            onQrLinkModeChange={handleQrLinkModeChange}
             onRequestPairingCode={() => void requestPairingCode()}
             onChooseMode={(mode) => void chooseMode(mode)}
             onConnectQr={() => void runModalAction("connect")}
