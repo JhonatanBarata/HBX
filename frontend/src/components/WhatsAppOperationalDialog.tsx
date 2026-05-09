@@ -381,6 +381,18 @@ export default function WhatsAppOperationalDialog({
                       <Link href="/whatsapp?focus=phone" className="btn btn-secondary">
                         Vincular por telefone
                       </Link>
+                      <button
+                        type="button"
+                        className="btn btn-secondary"
+                        onClick={onDisconnectQrConnection}
+                        disabled={
+                          busyAction !== null
+                          || !modalConfiguredForAction
+                          || modalStatus !== "connected"
+                        }
+                      >
+                        {busyAction === "qr-disconnect" ? "Desvinculando..." : "Desvincular telefone"}
+                      </button>
                     </div>
                   </section>
                 </div>

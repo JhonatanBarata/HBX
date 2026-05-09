@@ -330,6 +330,49 @@
   color: var(--foreground);
 }
 
+.connectedToast {
+  justify-self: center;
+  width: min(100%, 620px);
+  min-height: 74px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  column-gap: .85rem;
+  padding: .85rem 1rem;
+  border-radius: var(--radius-xl);
+  border: 1px solid color-mix(in srgb, var(--button-success) 58%, var(--line));
+  background:
+    radial-gradient(circle at 12% 50%, color-mix(in srgb, var(--button-success) 34%, transparent), transparent 34%),
+    linear-gradient(135deg, color-mix(in srgb, var(--button-success) 28%, var(--surface-raised)), color-mix(in srgb, #dcfce7 72%, var(--surface)));
+  color: #064e3b;
+  box-shadow: var(--shadow-md), 0 0 72px color-mix(in srgb, var(--button-success) 34%, transparent);
+  animation: connectedPop 420ms ease both;
+}
+
+.connectedToast span {
+  grid-row: span 2;
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: 46px;
+  border-radius: 999px;
+  background: #22c55e;
+  color: #ffffff;
+  font-size: 1.65rem;
+  font-weight: 1000;
+  box-shadow: 0 0 0 7px color-mix(in srgb, #22c55e 22%, transparent);
+}
+
+.connectedToast strong {
+  font-size: 1.08rem;
+  font-weight: 1000;
+}
+
+.connectedToast small {
+  color: #047857;
+  font-weight: 900;
+}
+
 @media (max-width: 520px) {
   .phoneCopy strong {
     font-size: 1.55rem;
@@ -511,6 +554,13 @@
 .signal[data-error="true"] {
   border-color: color-mix(in srgb, var(--button-accent) 48%, var(--line));
   background: color-mix(in srgb, var(--button-accent) 12%, var(--surface));
+}
+
+.signal[data-success="true"] {
+  border-color: color-mix(in srgb, var(--button-success) 54%, var(--line));
+  background: color-mix(in srgb, #dcfce7 84%, var(--surface));
+  color: #065f46;
+  box-shadow: 0 0 42px color-mix(in srgb, var(--button-success) 22%, transparent);
 }
 
 .metaMonolith {

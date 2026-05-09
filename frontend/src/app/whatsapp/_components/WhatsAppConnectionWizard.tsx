@@ -89,6 +89,7 @@ export default function WhatsAppConnectionWizard({
   const canGoBot = qrBotReady || metaReady;
   const pairingCode = pairingPayload?.success ? pairingPayload.code : null;
   const pairingExpired = Boolean(pairingCode && pairingExpiresInSeconds <= 0);
+  const openingAtendimento = qrBotReady && String(qrMessage || "").includes("Abrindo atendimento");
   const pairingRetryMessage = pairingRetryInSeconds > 0
     ? `Aguarde ${pairingRetryInSeconds} segundos para gerar outro código.`
     : null;
@@ -178,6 +179,14 @@ export default function WhatsAppConnectionWizard({
               Vincular por telefone
             </button>
           </div>
+
+          {qrBotReady ? (
+            <div className={styles.connectedToast} role="status">
+              <span aria-hidden="true">✓</span>
+              <strong>WhatsApp conectado</strong>
+              <small>{openingAtendimento ? "Abrindo atendimento..." : "Conexão ativa"}</small>
+            </div>
+          ) : null}
 
           {activeQrLinkMode === "idle" ? (
             <div className={styles.phoneShell} data-state="choice">
@@ -317,7 +326,7 @@ export default function WhatsAppConnectionWizard({
           </div>
 
           {(qrMessage || qrError) ? (
-            <div className={styles.signal} data-error={Boolean(qrError)}>
+            <div className={styles.signal} data-error={Boolean(qrError)} data-success={Boolean(!qrError && qrBotReady)}>
               {qrError || qrMessage}
             </div>
           ) : null}
