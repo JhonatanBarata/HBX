@@ -289,7 +289,7 @@ export class CompanyOperationalStatusService {
     const officialError =
       input.tokenChip.value === 'Falha' ||
       input.metaChip.value === 'Falha';
-    const whatsappAttention = !whatsappHealthy;
+    const whatsappAttention = !whatsappHealthy || input.webWhatsChip.value === 'Reconect.';
     const paymentError = input.paymentChip.value === 'Falha';
     const paymentAttention = !input.paymentChip.active && !paymentError;
 
@@ -476,28 +476,38 @@ export class CompanyOperationalStatusService {
             updatedAt: modalUpdatedAt,
             active: true,
           })
-        : modalAvailable && ['WAITING_QR', 'STARTING', 'ERROR'].includes(modalStatus)
+        : modalAvailable && ['WAITING_QR', 'STARTING', 'RECONNECTING', 'ERROR'].includes(modalStatus)
           ? this.buildOperationalChip({
               key: 'webwhats',
               label: 'WebWhats ativo',
               shortLabel: 'WebWhats',
               tone: 'yellow',
-              value: modalStatus === 'WAITING_QR' ? 'QR' : modalStatus === 'STARTING' ? 'Iniciando' : 'Atenção',
+              value: modalStatus === 'WAITING_QR'
+                ? 'QR'
+                : modalStatus === 'STARTING'
+                  ? 'Iniciando'
+                  : modalStatus === 'RECONNECTING'
+                    ? 'Reconect.'
+                    : 'Atenção',
               detail:
                 modalStatus === 'WAITING_QR'
                   ? 'QR disponível para concluir a conexão rápida.'
                   : modalStatus === 'STARTING'
                     ? 'Sessão do modal WhatsApp em inicialização.'
-                    : String(modalLastError || 'Conexão rápida por QR precisa de atenção.'),
+                    : modalStatus === 'RECONNECTING'
+                      ? String(modalLastError || 'WebWhats instável. Aguardando reconexão sem derrubar a sessão.')
+                      : String(modalLastError || 'Conexão rápida por QR precisa de atenção.'),
               hint:
                 modalStatus === 'WAITING_QR'
                   ? 'QR aguardando leitura.'
+                  : modalStatus === 'RECONNECTING'
+                    ? 'WebWhats aguardando reconexão.'
                   : 'WebWhats em atenção.',
               href: '/dashboard/whatsapp?focus=qr',
               quality: 'real',
               source: ['company.whatsappModalStatus', 'company.whatsappModalLastError'],
               updatedAt: modalUpdatedAt,
-              active: false,
+              active: modalStatus === 'RECONNECTING',
             })
           : modalAvailable
             ? this.buildOperationalChip({

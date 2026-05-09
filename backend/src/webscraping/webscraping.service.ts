@@ -5982,7 +5982,22 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       select: { metadataJson: true },
     }).catch(() => null);
     const normalized = this.normalizeOperationalConfigInput(input, current?.metadataJson);
-    const { forcedUntil, ...data } = normalized;
+    const { forcedUntil } = normalized;
+    const data = {
+      enabled: normalized.enabled,
+      preset: normalized.preset,
+      startHour: normalized.startHour,
+      startMinute: normalized.startMinute,
+      endHour: normalized.endHour,
+      endMinute: normalized.endMinute,
+      engineCount: normalized.engineCount,
+      intensity: normalized.intensity,
+      memoryTargetGb: normalized.memoryTargetGb,
+      batchSize: normalized.batchSize,
+      maxAttemptsPerTask: normalized.maxAttemptsPerTask,
+      engineUrlsJson: normalized.engineUrlsJson,
+      metadataJson: normalized.metadataJson,
+    };
     const saved = await (this.prisma as any).webscrapingOperationalConfig.upsert({
       where: { key: TURBO_OPERATIONAL_CONFIG_KEY },
       create: {

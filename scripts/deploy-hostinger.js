@@ -91,6 +91,19 @@ function parsePositiveInteger(value, fallback) {
   return Math.max(1, Math.trunc(parsed));
 }
 
+function resolveHbxEngineCount(env) {
+  const force100 = isTruthy(env.FORCE_100_ENGINES);
+  const requested = parsePositiveInteger(
+    env.HBX_ENGINE_COUNT || env.HBX_PUBLISH_ENGINE_COUNT,
+    force100 ? 100 : 20,
+  );
+  if (requested >= 100 && !force100) {
+    console.log('HBX_ENGINE_COUNT >= 100 ignorado sem FORCE_100_ENGINES=true; usando 20.');
+    return 20;
+  }
+  return requested;
+}
+
 function ensureRequiredEnv(env) {
   const required = [
     'HOSTINGER_SSH_HOST',
@@ -114,7 +127,7 @@ function ensureRequiredEnv(env) {
   assertNonLocalHttpUrl(backendUrl, 'PROD_BACKEND_URL');
   assertNonLocalHttpUrl(frontendUrl, 'PROD_FRONTEND_URL');
 
-  const hbxEngineCount = parsePositiveInteger(env.HBX_ENGINE_COUNT || env.HBX_PUBLISH_ENGINE_COUNT, 100);
+  const hbxEngineCount = resolveHbxEngineCount(env);
   const hbxEngineMaxCount = Math.max(
     hbxEngineCount,
     parsePositiveInteger(env.HBX_ENGINE_MAX_COUNT || env.HBX_PUBLISH_ENGINE_MAX_COUNT, 200),
@@ -129,6 +142,8 @@ function ensureRequiredEnv(env) {
     forceReboot: isTruthy(env.FORCE_REBOOT_HOSTINGER),
     hbxEngineCount,
     hbxEngineMaxCount,
+    webwhatsAppDir: String(env.WEBWHATS_APP_DIR || '/opt/Webwhats').trim(),
+    webwhatsSystemdService: String(env.WEBWHATS_SYSTEMD_SERVICE || 'webwhats').trim(),
   };
 }
 
@@ -240,6 +255,8 @@ function buildRemoteDeployScript(config, mode) {
     `FORCE_REBOOT_HOSTINGER=${shellSingleQuote(rebootValue)}`,
     `REQUESTED_HBX_ENGINE_COUNT=${shellSingleQuote(config.hbxEngineCount)}`,
     `REQUESTED_HBX_ENGINE_MAX_COUNT=${shellSingleQuote(config.hbxEngineMaxCount)}`,
+    `WEBWHATS_APP_DIR=${shellSingleQuote(config.webwhatsAppDir)}`,
+    `WEBWHATS_SYSTEMD_SERVICE=${shellSingleQuote(config.webwhatsSystemdService)}`,
     'export GIT_SSH_COMMAND="ssh -o BatchMode=yes"',
     'cd "$APP_DIR"',
     `git fetch ${remote} ${branch}`,
@@ -279,6 +296,47 @@ function buildRemoteDeployScript(config, mode) {
     'run_filtered() { set +e; "$@" 2>&1 | sed \'/legacy builder is deprecated/d;/Install the buildx component/d;/docs.docker.com\\/go\\/buildx/d\'; status="${PIPESTATUS[0]}"; set -e; return "$status"; }',
     'hbx_engine_names() { for n in $(seq 1 "$HBX_ENGINE_COUNT"); do printf " hbx-engine-%s" "$n"; done; }',
     'hbx_engine_urls() { sep=""; for n in $(seq 1 "$HBX_ENGINE_COUNT"); do printf "%shttp://hbx-engine-%s:8001" "$sep" "$n"; sep=","; done; }',
+    'http_status() { code="$(curl -ksS --max-time 20 -o /dev/null -w "%{http_code}" "$1" 2>/dev/null || true)"; [ -n "$code" ] || code=000; printf "%s" "$code"; }',
+    'require_http_ok() { url="$1"; label="$2"; code="$(http_status "$url")"; case "$code" in 2*|3*) echo "Health OK: $label HTTP $code";; *) echo "ERRO: $label falhou em $url HTTP $code"; exit 1;; esac; }',
+    'validate_webwhats_runtime() {',
+    '  echo "Validando Webwhats/Evolution..."',
+    '  if [ -d /opt/webwhats ] && [ ! -d "$WEBWHATS_APP_DIR" ]; then WEBWHATS_APP_DIR=/opt/webwhats; fi',
+    '  webwhats_running=0',
+    '  if [ -n "$WEBWHATS_SYSTEMD_SERVICE" ] && command -v systemctl >/dev/null 2>&1 && systemctl is-active --quiet "$WEBWHATS_SYSTEMD_SERVICE"; then webwhats_running=1; fi',
+    '  if command -v pm2 >/dev/null 2>&1 && pm2 describe webwhats >/dev/null 2>&1; then webwhats_running=1; fi',
+    '  if docker ps --format "{{.Names}}" | grep -Eiq "webwhats|evolution|waha"; then webwhats_running=1; fi',
+    '  if [ "$webwhats_running" != "1" ]; then echo "ERRO: Webwhats/Evolution nao esta rodando via systemd, PM2 ou Docker."; exit 1; fi',
+    '  code="$(http_status "$WHATSAPP_MODAL_INTERNAL_URL_VALUE")"; if [ "$code" = "000" ] || [ "$code" = "502" ]; then echo "ERRO: Webwhats indisponivel em $WHATSAPP_MODAL_INTERNAL_URL_VALUE HTTP $code"; exit 1; fi',
+    '  if [ ! -f "$WEBWHATS_APP_DIR/.env" ]; then echo "ERRO: .env do Webwhats nao encontrado em $WEBWHATS_APP_DIR/.env; nao da para validar storage persistente."; exit 1; fi',
+    '  db_save="$(awk -F= \'/^[[:space:]]*DATABASE_SAVE_DATA_INSTANCE[[:space:]]*=/{print tolower($2); exit}\' "$WEBWHATS_APP_DIR/.env")"',
+    '  db_uri="$(awk -F= \'/^[[:space:]]*DATABASE_CONNECTION_URI[[:space:]]*=/{print $2; exit}\' "$WEBWHATS_APP_DIR/.env")"',
+    '  redis_enabled="$(awk -F= \'/^[[:space:]]*CACHE_REDIS_ENABLED[[:space:]]*=/{print tolower($2); exit}\' "$WEBWHATS_APP_DIR/.env")"',
+    '  redis_save="$(awk -F= \'/^[[:space:]]*CACHE_REDIS_SAVE_INSTANCES[[:space:]]*=/{print tolower($2); exit}\' "$WEBWHATS_APP_DIR/.env")"',
+    '  provider_enabled="$(awk -F= \'/^[[:space:]]*PROVIDER_ENABLED[[:space:]]*=/{print tolower($2); exit}\' "$WEBWHATS_APP_DIR/.env")"',
+    '  if [ "$db_save" = "true" ] && [ -n "$db_uri" ]; then echo "Storage Webwhats persistente via banco habilitado."; return 0; fi',
+    '  if [ "$provider_enabled" = "true" ]; then echo "Storage Webwhats persistente via provider de sessoes habilitado."; return 0; fi',
+    '  if [ "$redis_enabled" = "true" ] && [ "$redis_save" = "true" ]; then',
+    '    if ! docker inspect redis >/dev/null 2>&1; then echo "ERRO: Webwhats salva sessoes no Redis, mas container redis nao foi encontrado para validar volume."; exit 1; fi',
+    '    mounts="$(docker inspect redis --format "{{range .Mounts}}{{.Destination}}:{{.Type}}:{{.Name}} {{end}}")"',
+    '    if printf "%s" "$mounts" | grep -q "/data:"; then echo "Storage Redis persistente validado: $mounts"; return 0; fi',
+    '    echo "ERRO: Redis do Webwhats sem mount persistente em /data. Mounts: $mounts"; exit 1',
+    '  fi',
+    '  echo "ERRO: Webwhats sem storage persistente validado. Habilite DATABASE_SAVE_DATA_INSTANCE, PROVIDER_ENABLED ou Redis persistente."; exit 1',
+    '}',
+    'predeploy_runtime_checks() {',
+    '  echo "Preflight runtime HBX..."',
+    '  docker ps --format "table {{.Names}}\\t{{.Status}}\\t{{.Ports}}" | grep -E "NAMES|hbx-backend|hbx-postgres" || true',
+    '  if ! docker inspect -f "{{.State.Running}}" hbx-postgres 2>/dev/null | grep -q true; then echo "ERRO: hbx-postgres nao esta running antes do deploy."; exit 1; fi',
+    '  if ! docker inspect -f "{{.State.Running}}" hbx-backend 2>/dev/null | grep -q true; then echo "ERRO: hbx-backend nao esta running antes do deploy. Abortando para evitar deploy sobre API offline."; exit 1; fi',
+    '  require_http_ok "$BACKEND_URL/health" "API publica /health pre-deploy"',
+    '  webhook_code="$(http_status "$BACKEND_URL/webhooks/webwhats/events")"; if [ "$webhook_code" = "502" ] || [ "$webhook_code" = "000" ]; then echo "ERRO: webhook Webwhats publico indisponivel HTTP $webhook_code"; exit 1; fi; echo "Webhook Webwhats publico nao esta 502: HTTP $webhook_code"',
+    '  validate_webwhats_runtime',
+    '}',
+    'final_healthchecks() {',
+    '  require_http_ok "$BACKEND_URL/health" "API publica /health final"',
+    '  require_http_ok "$FRONTEND_URL/" "Frontend / final"',
+    '  require_http_ok "$FRONTEND_URL/atendimento" "Frontend /atendimento final"',
+    '}',
     'echo "Banco esperado: hbx-postgres/hbx_prod"',
     'echo "Backend URL: $BACKEND_URL"',
     'echo "Frontend URL: $FRONTEND_URL"',
@@ -342,6 +400,7 @@ function buildRemoteDeployScript(config, mode) {
     'if ! docker inspect -f "{{.State.Running}}" hbx-postgres 2>/dev/null | grep -q true; then echo "ERRO: container hbx-postgres nao esta running."; exit 1; fi',
     'POSTGRES_DB_VALUE="$(docker exec hbx-postgres sh -lc \'printf "%s" "$POSTGRES_DB"\')"',
     'if [ "$POSTGRES_DB_VALUE" != "hbx_prod" ]; then echo "ERRO: POSTGRES_DB inesperado: $POSTGRES_DB_VALUE"; exit 1; fi',
+    'predeploy_runtime_checks',
     'ensure_pm2() {',
     '  if command -v pm2 >/dev/null 2>&1; then return 0; fi',
     '  echo "PM2 nao encontrado; instalando globalmente..."',
@@ -377,9 +436,27 @@ function buildRemoteDeployScript(config, mode) {
     '  echo "Publicando frontend fora do Docker via PM2..."',
     '  cleanup_frontend_docker',
     '  ensure_pm2',
-    '  cd "$APP_DIR/frontend"',
+    '  FRONTEND_DIR="$APP_DIR/frontend"',
+    '  BUILD_DIR="$(mktemp -d "$APP_DIR/.frontend-build.XXXXXX")"',
+    '  cleanup_build_dir() { rm -rf "$BUILD_DIR"; }',
+    '  trap cleanup_build_dir EXIT',
+    '  if command -v rsync >/dev/null 2>&1; then',
+    '    rsync -a --delete --exclude .next --exclude node_modules "$FRONTEND_DIR/" "$BUILD_DIR/"',
+    '  else',
+    '    cp -a "$FRONTEND_DIR/." "$BUILD_DIR/"',
+    '    rm -rf "$BUILD_DIR/.next" "$BUILD_DIR/node_modules"',
+    '  fi',
+    '  cd "$BUILD_DIR"',
     '  npm ci',
     '  npm run build',
+    '  cd "$FRONTEND_DIR"',
+    '  npm ci',
+    '  NEXT_STAGE="$FRONTEND_DIR/.next.new.$$"',
+    '  rm -rf "$NEXT_STAGE"',
+    '  mv "$BUILD_DIR/.next" "$NEXT_STAGE"',
+    '  rm -rf "$FRONTEND_DIR/.next.previous"',
+    '  if [ -d "$FRONTEND_DIR/.next" ]; then mv "$FRONTEND_DIR/.next" "$FRONTEND_DIR/.next.previous"; fi',
+    '  mv "$NEXT_STAGE" "$FRONTEND_DIR/.next"',
     '  if pm2 describe hbx-frontend >/dev/null 2>&1; then',
     '    pm2 restart hbx-frontend --update-env',
     '  else',
@@ -388,6 +465,8 @@ function buildRemoteDeployScript(config, mode) {
     '  pm2 save',
     '  cd "$APP_DIR"',
     '  verify_frontend_pm2',
+    '  trap - EXIT',
+    '  cleanup_build_dir',
     '}',
     'start_hbx_engines() {',
     '  echo "Buildando imagem dos motores HBX..."',
@@ -450,6 +529,17 @@ function buildRemoteDeployScript(config, mode) {
     '    -v "$APP_DIR/backend/public/uploads:/app/public/uploads" \\',
     '    hbx_backend:latest',
     '}',
+    'verify_backend_api() {',
+    '  echo "Validando backend/API..."',
+    '  for i in $(seq 1 60); do',
+    '    if docker inspect -f "{{.State.Running}}" hbx-backend 2>/dev/null | grep -q true && curl -fsS --max-time 5 http://127.0.0.1:3000/health >/dev/null 2>&1; then echo "Backend local /health OK."; break; fi',
+    '    echo "Aguardando backend/API ($i/60)..."',
+    '    sleep 2',
+    '  done',
+    '  if ! docker inspect -f "{{.State.Running}}" hbx-backend 2>/dev/null | grep -q true; then echo "ERRO: hbx-backend caiu durante o deploy."; docker logs --tail 120 hbx-backend 2>&1 || true; exit 1; fi',
+    '  require_http_ok "http://127.0.0.1:3000/health" "API local /health"',
+    '  require_http_ok "$BACKEND_URL/health" "API publica /health"',
+    '}',
     'verify_hbx_engines() {',
     '  echo "Validando variaveis e healthchecks dos motores HBX..."',
     '  for i in $(seq 1 45); do',
@@ -480,6 +570,7 @@ function buildRemoteDeployScript(config, mode) {
       'remove_compose_service_containers backend webscraping hbx-scraping-engine $(hbx_engine_names)',
       'start_hbx_engines',
       'start_hbx_backend',
+      'verify_backend_api',
       'echo "Prisma migrate deploy roda dentro do container hbx-backend via backend/scripts/start-prod.sh, usando DATABASE_URL=hbx-postgres."',
       'run_filtered $DC --env-file .env -f docker-compose.hostinger.yml up -d --build --no-deps webscraping',
       'verify_hbx_engines',
@@ -493,6 +584,7 @@ function buildRemoteDeployScript(config, mode) {
     lines.push('remove_compose_service_containers backend webscraping hbx-scraping-engine $(hbx_engine_names)');
     lines.push('start_hbx_engines');
     lines.push('start_hbx_backend');
+    lines.push('verify_backend_api');
     lines.push('echo "Prisma migrate deploy roda dentro do container hbx-backend via backend/scripts/start-prod.sh, usando DATABASE_URL=hbx-postgres."');
     lines.push('run_filtered $DC --env-file .env -f docker-compose.hostinger.yml up -d --build --no-deps webscraping');
     lines.push('verify_hbx_engines');
@@ -500,6 +592,7 @@ function buildRemoteDeployScript(config, mode) {
   }
 
   lines.push(
+    'final_healthchecks',
     'echo "Containers ativos:"',
     'docker ps --format "table {{.Names}}\\t{{.Status}}\\t{{.Ports}}" | grep -E "NAMES|hbx-backend|webscraping|hbx-scraping-engine|hbx-engine-[0-9]+|hbx-postgres" || true',
     'echo "PM2 status:"',

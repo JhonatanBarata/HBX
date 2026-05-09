@@ -99,7 +99,7 @@ type WhatsAppProviderHealth = {
 
 type InboxWhatsappSessionScope = {
   accessible: boolean;
-  reason: 'webwhats_active' | 'meta_active' | 'no_whatsapp';
+  reason: 'webwhats_active' | 'webwhats_reconnecting' | 'meta_active' | 'no_whatsapp';
   currentSessionId: string | null;
   currentSession: any | null;
   previousSessionIds: string[];
@@ -481,8 +481,9 @@ export class InboxService {
   }
 
   private async ensureWebwhatsSessionFromCompany(company: any) {
-    const connected = String(company?.whatsappModalStatus || '').trim().toUpperCase() === 'CONNECTED';
-    if (!connected) return null;
+    const modalStatus = String(company?.whatsappModalStatus || '').trim().toUpperCase();
+    const sessionAvailable = modalStatus === 'CONNECTED' || modalStatus === 'RECONNECTING';
+    if (!sessionAvailable) return null;
     const current = company?.currentWhatsappConnectionSession;
     if (
       current &&
@@ -581,7 +582,13 @@ export class InboxService {
       : 0;
     return {
       accessible,
-      reason: currentSession?.id ? 'webwhats_active' : metaActive ? 'meta_active' : 'no_whatsapp',
+      reason: currentSession?.id
+        ? String(company?.whatsappModalStatus || '').trim().toUpperCase() === 'RECONNECTING'
+          ? 'webwhats_reconnecting'
+          : 'webwhats_active'
+        : metaActive
+          ? 'meta_active'
+          : 'no_whatsapp',
       currentSessionId: currentSession?.id ? String(currentSession.id) : null,
       currentSession,
       previousSessionIds: previousSessions.map((session) => String(session.id)),

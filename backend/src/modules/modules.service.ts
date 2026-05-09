@@ -1509,7 +1509,9 @@ export class ModulesService implements OnModuleInit {
     const modalConfigured = ['1', 'true', 'yes', 'on'].includes(
       String(process.env.WHATSAPP_MODAL_ENABLED || '').trim().toLowerCase(),
     ) && Boolean(String(process.env.WHATSAPP_MODAL_INTERNAL_URL || '').trim());
-    const modalConnected = String(company?.whatsappModalStatus || '').trim().toUpperCase() === 'CONNECTED';
+    const modalConnected = ['CONNECTED', 'RECONNECTING'].includes(
+      String(company?.whatsappModalStatus || '').trim().toUpperCase(),
+    );
     const hasOperationalWhatsAppEngine = officialConnected || modalConnected;
     for (const moduleKey of normalizedKeys) {
       const category = this.getModuleCategory(moduleKey);
