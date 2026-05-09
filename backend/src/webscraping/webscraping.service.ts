@@ -1977,13 +1977,13 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
   }
 
   private getRadarClientRequestTimeoutMs() {
-    return Math.max(5_000, parsePositiveIntegerEnv('HBX_RADAR_CLIENT_REQUEST_TIMEOUT_MS', 15_000));
+    return Math.max(60_000, parsePositiveIntegerEnv('HBX_RADAR_CLIENT_REQUEST_TIMEOUT_MS', 65_000));
   }
 
   private getRadarPullEngineAttempts() {
     return Math.max(1, Math.min(
       getConfiguredHbxEngineCount(),
-      parsePositiveIntegerEnv('HBX_RADAR_PULL_ENGINE_ATTEMPTS', 2),
+      parsePositiveIntegerEnv('HBX_RADAR_PULL_ENGINE_ATTEMPTS', 1),
     ));
   }
 

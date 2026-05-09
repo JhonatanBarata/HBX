@@ -52,6 +52,7 @@ type ApiFetchInit = RequestInit & {
   skipAuth?: boolean;
   requireAuth?: boolean;
   timeoutMs?: number;
+  direct?: boolean;
 };
 
 const apiGetCache = new Map<string, ApiCacheEntry>();
@@ -287,8 +288,9 @@ export async function apiFetch<T>(
   path: string,
   init?: ApiFetchInit
 ): Promise<T> {
-  const { skipAuth, requireAuth, timeoutMs, ...fetchInit } = init || {};
-  const url = path.startsWith("http") ? path : `${getDashboardApiBaseUrl()}${path}`;
+  const { skipAuth, requireAuth, timeoutMs, direct, ...fetchInit } = init || {};
+  const apiBaseUrl = direct ? getDirectDashboardApiBaseUrl() : getDashboardApiBaseUrl();
+  const url = path.startsWith("http") ? path : `${apiBaseUrl}${path}`;
   const token = getToken();
   if (!token && requiresAuth(path, { ...init, requireAuth, skipAuth })) {
     throw new Error(SESSION_EXPIRED_MESSAGE);

@@ -686,7 +686,8 @@ export default function RadarDigitalClientPage() {
         apiFetch<RadarPullResponse>("/webscraping/radar/pull", {
           method: "POST",
           requireAuth: true,
-          timeoutMs: 90000,
+          timeoutMs: 120000,
+          direct: true,
           body: JSON.stringify({
             ...nextFilters,
             targetType,
