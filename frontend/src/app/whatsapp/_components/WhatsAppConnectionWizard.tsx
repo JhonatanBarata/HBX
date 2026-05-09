@@ -255,8 +255,8 @@ export default function WhatsAppConnectionWizard({
               ) : null}
 
               <div className={styles.instructions}>
-                <p><strong>Android:</strong> WhatsApp &gt; Aparelhos conectados &gt; Conectar aparelho &gt; Conectar com número de telefone.</p>
-                <p><strong>iPhone:</strong> WhatsApp &gt; Configurações &gt; Aparelhos conectados &gt; Conectar aparelho &gt; Conectar com número de telefone.</p>
+                <p><strong>Android:</strong> WhatsApp &gt; Dispositivos Conectados &gt; Conectar aparelho &gt; Conectar com número de telefone.</p>
+                <p><strong>iPhone:</strong> WhatsApp &gt; Configurações &gt; Dispositivos Conectados &gt; Conectar aparelho &gt; Conectar com número de telefone.</p>
               </div>
 
               {(pairingRetryMessage || pairingError || pairingPayload?.message) ? (

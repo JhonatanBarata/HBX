@@ -204,7 +204,7 @@ test('pairing-code limpa instancia antes de criar com number', async () => {
   assert.equal(paths.includes('/instance/logout/company-7'), false);
 });
 
-test('pairing-code recria uma vez se create responder instancia existente', async () => {
+test('pairing-code aguarda e recria se create responder instancia existente', async () => {
   const paths: string[] = [];
   let createAttempts = 0;
   const service = new WhatsAppModalService(createPrisma(createCompany())) as any;
@@ -223,7 +223,7 @@ test('pairing-code recria uma vez se create responder instancia existente', asyn
     if (String(path).includes('connectionState')) return { state: 'DISCONNECTED' };
     if (String(purpose).includes('criacao')) {
       createAttempts += 1;
-      if (createAttempts === 1) {
+      if (createAttempts <= 2) {
         throw new Error('Forbidden: instance already in use');
       }
       return { response: { qrcode: { pairingCode: 'RSTU-2222' } } };
@@ -236,8 +236,8 @@ test('pairing-code recria uma vez se create responder instancia existente', asyn
 
   assert.equal(response.success, true);
   assert.equal(response.code, 'RSTU-2222');
-  assert.equal(createAttempts, 2);
-  assert.equal(paths.filter((path) => path === '/instance/delete/company-7').length, 2);
+  assert.equal(createAttempts, 3);
+  assert.equal(paths.filter((path) => path === '/instance/delete/company-7').length, 3);
   assert.equal(paths.includes('/instance/logout/company-7'), false);
 });
 

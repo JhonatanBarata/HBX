@@ -1072,7 +1072,7 @@ export default function TutorialClientPage() {
         <StepFrame
           titleId={titleId}
           title="Escaneie o QR Code para conectar o WhatsApp."
-          text="Abra o WhatsApp no celular, vá em aparelhos conectados e escaneie o código. Quando a conexão estiver pronta, o HBX libera o atendimento."
+          text="Abra o WhatsApp no celular, vá em Dispositivos Conectados e escaneie o código. Quando a conexão estiver pronta, o HBX libera o atendimento."
           points={["Gere o QR Code.", "Escaneie pelo celular.", "Aguarde a confirmação de conexão."]}
           visual={<QrMockup qrCode={qrCode} connected={whatsappConnected || whatsAppModal?.status === "connected"} />}
           previousLabel="Anterior"
