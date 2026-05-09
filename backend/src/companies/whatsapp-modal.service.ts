@@ -374,16 +374,11 @@ export class WhatsAppModalService {
     try {
       const maskedPhone = this.maskPairingPhoneForLog(normalizedPhone);
       this.logger.log(`Modal WhatsApp pairing code requested for ${tenantKey} phone=${maskedPhone}.`);
-      let providerPayload = await this.createAndConnectProviderForPairing(tenantKey, normalizedPhone);
-      let code = this.extractPairingCode(providerPayload);
-      if (!code) {
-        this.logger.warn(
-          `Modal WhatsApp pairing code vazio para ${tenantKey} phone=${maskedPhone}; recriando instancia com number.`,
-        );
-        await this.resetProviderInstanceForPairing(tenantKey);
-        providerPayload = await this.createAndConnectProviderForPairing(tenantKey, normalizedPhone);
-        code = this.extractPairingCode(providerPayload);
-      }
+      await this.resetProviderInstanceForPairing(tenantKey);
+      const providerPayload = await this.createAndConnectProviderForPairing(tenantKey, normalizedPhone, {
+        retryExistingInstance: true,
+      });
+      const code = this.extractPairingCode(providerPayload);
       if (!code) {
         return this.buildPairingUnavailableResponse(
           tenantKey,
@@ -686,8 +681,24 @@ export class WhatsAppModalService {
       || (normalized.includes('instance') && normalized.includes('exists'))
       || (normalized.includes('session') && normalized.includes('exists'))
       || normalized.includes('already in use')
+      || normalized.includes('this name')
       || normalized === 'already_exists'
       || normalized === 'conflict'
+    );
+  }
+
+  private isProviderAuthenticationMessage(value: unknown) {
+    const normalized = String(value || '').trim().toLowerCase();
+    if (!normalized) return false;
+    return (
+      normalized.includes('unauthorized')
+      || normalized.includes('unauthorised')
+      || normalized.includes('api key')
+      || normalized.includes('apikey')
+      || normalized.includes('invalid key')
+      || normalized.includes('invalid token')
+      || normalized.includes('authentication')
+      || normalized.includes('auth')
     );
   }
 
@@ -789,13 +800,12 @@ export class WhatsAppModalService {
     this.recentConnectAttemptAt.delete(tenantKey);
     this.qrCodeCache.delete(tenantKey);
     await this.runSafeProviderResetStep(tenantKey, 'logout', () => this.logoutProviderSession(tenantKey));
-    await this.runSafeProviderResetStep(tenantKey, 'restart', () => this.restartProviderSession(tenantKey));
     await this.runSafeProviderResetStep(tenantKey, 'delete', () => this.deleteProviderInstance(tenantKey));
   }
 
   private async runSafeProviderResetStep(
     tenantKey: string,
-    step: 'logout' | 'restart' | 'delete',
+    step: 'logout' | 'delete',
     action: () => Promise<unknown>,
   ) {
     try {
@@ -817,9 +827,13 @@ export class WhatsAppModalService {
     }
   }
 
-  private async createAndConnectProviderForPairing(tenantKey: string, phoneNumber: string) {
-    await this.createProviderInstance(tenantKey, phoneNumber).catch((error) => {
-      if (!this.isExistingInstanceError(error) && !this.isTransientProviderError(error)) throw error;
+  private async createAndConnectProviderForPairing(
+    tenantKey: string,
+    phoneNumber: string,
+    options?: { retryExistingInstance?: boolean },
+  ) {
+    const createPayload = await this.createProviderInstanceForPairing(tenantKey, phoneNumber, {
+      retryExistingInstance: options?.retryExistingInstance !== false,
     });
     await this.tryConfigureProviderWebhook(tenantKey, 'pairing_code');
 
@@ -833,6 +847,9 @@ export class WhatsAppModalService {
     if (this.extractPairingCode(connectPayload)) {
       return connectPayload;
     }
+    if (this.extractPairingCode(createPayload)) {
+      return createPayload;
+    }
 
     const statusPayload = await this.fetchProviderConnectionStateForPairing(tenantKey);
     if (this.extractPairingCode(statusPayload)) {
@@ -844,7 +861,27 @@ export class WhatsAppModalService {
     } catch (error) {
       const providerError = this.toProviderError(error);
       if (providerError.code === 'WHATSAPP_MODAL_PAIRING_UNSUPPORTED' || providerError.statusCode === 404 || providerError.statusCode === 405) {
-        return connectPayload || statusPayload;
+        return connectPayload || createPayload || statusPayload;
+      }
+      throw providerError;
+    }
+  }
+
+  private async createProviderInstanceForPairing(
+    tenantKey: string,
+    phoneNumber: string,
+    options?: { retryExistingInstance?: boolean },
+  ) {
+    try {
+      return await this.createProviderInstance(tenantKey, phoneNumber);
+    } catch (error) {
+      const providerError = this.toProviderError(error);
+      if (options?.retryExistingInstance !== false && this.isExistingInstanceError(providerError)) {
+        this.logger.warn(
+          `Modal WhatsApp instancia existente durante pairing para ${tenantKey}: ${providerError.message}. Resetando e recriando com number.`,
+        );
+        await this.resetProviderInstanceForPairing(tenantKey);
+        return this.createProviderInstance(tenantKey, phoneNumber);
       }
       throw providerError;
     }
@@ -1023,9 +1060,8 @@ export class WhatsAppModalService {
   private buildSessionCreatePayload(tenantKey: string, phoneNumber?: string) {
     const payload: Record<string, unknown> = {
       instanceName: tenantKey,
-      integration: 'WHATSAPP-BAILEYS',
       qrcode: true,
-      syncFullHistory: true,
+      integration: 'WHATSAPP-BAILEYS',
     };
     const normalizedPhone = this.normalizeOptionalString(phoneNumber)?.replace(/\D/g, '') || '';
     if (normalizedPhone) {
@@ -1115,16 +1151,22 @@ export class WhatsAppModalService {
   private extractPairingCode(payload: unknown): string | null {
     const { root, rootData } = this.extractPayloadParts(payload);
     const data = this.asRecord(rootData.data) || rootData;
+    const response = this.asRecord(rootData.response) || this.asRecord(root.response) || this.asRecord(data.response) || null;
     const instance = this.asRecord(rootData.instance) || this.asRecord(root.instance) || null;
+    const responseInstance = this.asRecord(response?.instance) || null;
     const qrcode =
       this.asRecord(rootData.qrcode)
       || this.asRecord(rootData.qr)
       || this.asRecord(data.qrcode)
       || this.asRecord(data.qr)
+      || this.asRecord(response?.qrcode)
+      || this.asRecord(response?.qr)
       || this.asRecord(root.qrcode)
       || this.asRecord(root.qr)
       || this.asRecord(instance?.qrcode)
       || this.asRecord(instance?.qr)
+      || this.asRecord(responseInstance?.qrcode)
+      || this.asRecord(responseInstance?.qr)
       || null;
     const code = this.firstString(
       qrcode?.pairingCode,
@@ -1139,6 +1181,10 @@ export class WhatsAppModalService {
       data.pairing_code,
       data.code,
       data.pairCode,
+      response?.pairingCode,
+      response?.pairing_code,
+      response?.code,
+      response?.pairCode,
       root.pairingCode,
       root.pairing_code,
       root.code,
@@ -1890,20 +1936,41 @@ export class WhatsAppModalService {
     );
   }
 
-  private buildProviderErrorFromResponse(response: AxiosResponse<unknown>, purpose: string) {
+  private buildProviderErrorFromResponse(response: AxiosResponse<unknown>, purpose: string, path?: string) {
     const responseBody = this.asRecord(response.data) || {};
+    const dataBody = this.asRecord(responseBody.data);
+    const nestedResponse = this.asRecord(responseBody.response) || this.asRecord(dataBody?.response);
     const detail = this.firstString(
       responseBody.message,
       responseBody.error,
       responseBody.detail,
-      this.asRecord(responseBody.data)?.message,
-      this.asRecord(responseBody.response)?.message,
+      responseBody.statusReason,
+      dataBody?.message,
+      dataBody?.error,
+      dataBody?.statusReason,
+      nestedResponse?.message,
+      nestedResponse?.error,
+      nestedResponse?.statusReason,
     );
     const suffix = detail ? ` ${detail}` : '';
     const normalizedPurpose = String(purpose || '').trim().toLowerCase();
+    const normalizedDetail = String(detail || '').trim().toLowerCase();
+    const requestPath = path || this.normalizeOptionalString(response.config?.url) || 'unknown-path';
+
+    this.logger.warn(
+      `Modal WhatsApp provider HTTP ${response.status} during ${purpose} path=${requestPath} ` +
+        `message=${detail || 'sem mensagem'} body=${this.stringifyProviderBodyForLog(response.data)}`,
+    );
+
+    if (this.isExistingInstanceMessage(detail)) {
+      return new WhatsAppModalProviderError(
+        'WHATSAPP_MODAL_HTTP_ERROR',
+        `Instância WhatsApp já existe ou está em uso durante ${purpose}.${suffix}`.trim(),
+        response.status,
+      );
+    }
 
     if (normalizedPurpose.includes('pareamento') || normalizedPurpose.includes('pairing')) {
-      const normalizedDetail = String(detail || '').trim().toLowerCase();
       if (
         response.status === 400 ||
         response.status === 404 ||
@@ -1929,7 +1996,7 @@ export class WhatsAppModalService {
       );
     }
 
-    if (response.status === 401 || response.status === 403) {
+    if (response.status === 401 || (response.status === 403 && this.isProviderAuthenticationMessage(detail))) {
       return new WhatsAppModalProviderError(
         'WHATSAPP_MODAL_NOT_CONFIGURED',
         `Webwhats recusou a autenticacao durante ${purpose}. Verifique WHATSAPP_MODAL_API_KEY.${suffix}`.trim(),
@@ -1976,7 +2043,7 @@ export class WhatsAppModalService {
       );
     }
 
-    return this.buildProviderErrorFromResponse(error.response, purpose);
+    return this.buildProviderErrorFromResponse(error.response, purpose, this.normalizeOptionalString(error.config?.url) || undefined);
   }
 
   private async requestProvider(options: ExternalRequestOptions) {
@@ -2006,7 +2073,7 @@ export class WhatsAppModalService {
       }
 
       if (response.status < 200 || response.status >= 300) {
-        throw this.buildProviderErrorFromResponse(response, options.purpose);
+        throw this.buildProviderErrorFromResponse(response, options.purpose, options.path);
       }
 
       const durationMs = Date.now() - startedAt;

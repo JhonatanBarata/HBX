@@ -25,6 +25,7 @@ type Props = {
   pairingBusy: boolean;
   pairingError?: string | null;
   pairingExpiresInSeconds: number;
+  pairingRetryInSeconds: number;
   onPairingPhoneChange: (value: string) => void;
   onPairingPhoneInput?: (value: string) => void;
   onQrLinkModeChange?: (mode: QrLinkMode) => void;
@@ -63,6 +64,7 @@ export default function WhatsAppConnectionWizard({
   pairingBusy,
   pairingError,
   pairingExpiresInSeconds,
+  pairingRetryInSeconds,
   onPairingPhoneChange,
   onPairingPhoneInput,
   onQrLinkModeChange,
@@ -87,6 +89,9 @@ export default function WhatsAppConnectionWizard({
   const canGoBot = qrBotReady || metaReady;
   const pairingCode = pairingPayload?.success ? pairingPayload.code : null;
   const pairingExpired = Boolean(pairingCode && pairingExpiresInSeconds <= 0);
+  const pairingRetryMessage = pairingRetryInSeconds > 0
+    ? `Aguarde ${pairingRetryInSeconds} segundos para gerar outro código.`
+    : null;
 
   const chooseQr = () => {
     setQrPanelClosed(false);
@@ -254,9 +259,9 @@ export default function WhatsAppConnectionWizard({
                 <p><strong>iPhone:</strong> WhatsApp &gt; Configurações &gt; Aparelhos conectados &gt; Conectar aparelho &gt; Conectar com número de telefone.</p>
               </div>
 
-              {(pairingError || pairingPayload?.message) ? (
-                <div className={styles.signal} data-error={Boolean(pairingError || !pairingPayload?.success)}>
-                  {pairingError || pairingPayload?.message}
+              {(pairingRetryMessage || pairingError || pairingPayload?.message) ? (
+                <div className={styles.signal} data-error={Boolean(pairingRetryMessage || pairingError || !pairingPayload?.success)}>
+                  {pairingRetryMessage || pairingError || pairingPayload?.message}
                 </div>
               ) : null}
             </div>
@@ -268,9 +273,15 @@ export default function WhatsAppConnectionWizard({
                 type="button"
                 className={styles.primaryAction}
                 onClick={onRequestPairingCode}
-                disabled={!canUseQr || pairingBusy || modalSaving !== null || qrReady}
+                disabled={!canUseQr || pairingBusy || pairingRetryInSeconds > 0 || modalSaving !== null || qrReady}
               >
-                {pairingBusy ? "GERANDO..." : pairingCode && !pairingExpired ? "GERAR OUTRO" : "GERAR CÓDIGO"}
+                {pairingBusy
+                  ? "GERANDO..."
+                  : pairingRetryInSeconds > 0
+                    ? `AGUARDE ${pairingRetryInSeconds}s`
+                    : pairingCode && !pairingExpired
+                      ? "GERAR OUTRO"
+                      : "GERAR CÓDIGO"}
               </button>
             ) : activeQrLinkMode === "qr" && !qrBotReady ? (
               <button
