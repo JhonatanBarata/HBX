@@ -13791,11 +13791,11 @@ html[data-theme-mode] .app-topbar .app-topbar__frame {
 .app-topbar__inner--controlCenter .hbx-command-center {
   width: 100%;
   max-width: 650px;
-  height: 128px;
+  height: auto;
   min-height: 128px;
-  max-height: 128px;
+  max-height: none;
   justify-self: center;
-  align-self: center;
+  align-self: stretch;
   display: grid;
   padding: 0;
   overflow: hidden;
@@ -13807,9 +13807,9 @@ html[data-theme-mode] .app-topbar .app-topbar__frame {
 
 .app-topbar__inner--controlCenter .hbx-command-center__body {
   width: 100%;
-  height: 128px;
+  height: 100%;
   min-height: 128px;
-  max-height: 128px;
+  max-height: none;
   display: grid;
   grid-template-columns: 1fr;
   align-items: stretch;
@@ -13826,9 +13826,9 @@ html[data-theme-mode] .app-topbar .app-topbar__frame {
   width: 100%;
   min-width: 100%;
   max-width: 100%;
-  height: 128px;
+  height: 100%;
   min-height: 128px;
-  max-height: 128px;
+  max-height: none;
   align-self: stretch;
   justify-self: stretch;
   margin: 0;

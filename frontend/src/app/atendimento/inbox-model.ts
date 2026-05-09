@@ -172,6 +172,7 @@ export type InboxBootstrapPayload = {
       disconnectedAt?: string | null;
     }>;
     previousSessionsCount?: number;
+    legacyConversationCount?: number;
   } | null;
 };
 

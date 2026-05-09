@@ -856,6 +856,7 @@ export class WebwhatsBridgeService {
         id: true,
         whatsappModalStatus: true,
         whatsappModalPhone: true,
+        whatsappModalConnectedAt: true,
         currentWhatsappConnectionSessionId: true,
         currentWhatsappConnectionSession: {
           select: {
@@ -869,45 +870,35 @@ export class WebwhatsBridgeService {
         },
       },
     });
-    if (!company || !this.canUseConnectedInstance(company)) return null;
+    if (!company || !this.canUseOperationalSession(company)) return null;
 
+    const tenantKey = this.buildTenantKey(companyId);
     const current = company.currentWhatsappConnectionSession;
     if (
       current &&
       String(current.provider || '').trim().toLowerCase() === 'webwhats' &&
-      String(current.status || '').trim().toLowerCase() === 'active'
+      String(current.status || '').trim().toLowerCase() === 'active' &&
+      String(current.tenantKey || '').trim() === tenantKey
     ) {
       return {
         id: String(current.id),
-        tenantKey: String(current.tenantKey || this.buildTenantKey(companyId)),
+        tenantKey: String(current.tenantKey || tenantKey),
         phoneNormalized: this.normalizeConnectionPhone(current.phoneNormalized),
         displayPhone: this.normalizeOptionalString(current.displayPhone),
       };
     }
 
-    const tenantKey = this.buildTenantKey(companyId);
     const phoneNormalized = this.normalizeConnectionPhone(company.whatsappModalPhone);
-    if (!phoneNormalized) return null;
+    const displayPhone = this.normalizeOptionalString(company.whatsappModalPhone);
 
     const now = new Date();
-    await this.prisma.whatsAppConnectionSession.updateMany({
-      where: {
-        companyId,
-        provider: 'webwhats',
-        status: 'active',
-        NOT: { phoneNormalized },
-      },
-      data: {
-        status: 'disconnected',
-        disconnectedAt: now,
-      },
-    });
+    const connectedAt = company.whatsappModalConnectedAt || now;
 
     let session = await this.prisma.whatsAppConnectionSession.findFirst({
       where: {
         companyId,
         provider: 'webwhats',
-        phoneNormalized,
+        tenantKey,
         status: 'active',
       },
       orderBy: [{ connectedAt: 'desc' }, { createdAt: 'desc' }],
@@ -919,16 +910,39 @@ export class WebwhatsBridgeService {
       },
     });
 
-    if (!session) {
+    if (session?.id) {
+      const data: any = {
+        tenantKey,
+        status: 'active',
+        connectedAt,
+        disconnectedAt: null,
+        metadataJson: JSON.stringify({
+          source: 'webwhats_bridge_session_repair',
+          recordedAt: now.toISOString(),
+        }),
+      };
+      if (phoneNormalized) data.phoneNormalized = phoneNormalized;
+      if (displayPhone) data.displayPhone = displayPhone;
+      session = await this.prisma.whatsAppConnectionSession.update({
+        where: { id: String(session.id) },
+        data,
+        select: {
+          id: true,
+          tenantKey: true,
+          phoneNormalized: true,
+          displayPhone: true,
+        },
+      });
+    } else {
       session = await this.prisma.whatsAppConnectionSession.create({
         data: {
           companyId,
           provider: 'webwhats',
           tenantKey,
-          phoneNormalized,
-          displayPhone: this.normalizeOptionalString(company.whatsappModalPhone),
+          phoneNormalized: phoneNormalized || null,
+          displayPhone,
           status: 'active',
-          connectedAt: now,
+          connectedAt,
           metadataJson: JSON.stringify({
             source: 'webwhats_bridge_session_repair',
             recordedAt: now.toISOString(),
@@ -942,6 +956,19 @@ export class WebwhatsBridgeService {
         },
       });
     }
+
+    await this.prisma.whatsAppConnectionSession.updateMany({
+      where: {
+        companyId,
+        provider: 'webwhats',
+        status: 'active',
+        NOT: { id: String(session.id) },
+      },
+      data: {
+        status: 'disconnected',
+        disconnectedAt: now,
+      },
+    });
 
     if (String(company.currentWhatsappConnectionSessionId || '') !== String(session.id)) {
       await this.prisma.company.update({
@@ -1349,6 +1376,13 @@ export class WebwhatsBridgeService {
     const config = this.readConfig();
     if (!config.available) return false;
     return String(company?.whatsappModalStatus || '').trim().toLowerCase() === 'connected';
+  }
+
+  private canUseOperationalSession(company: { whatsappModalStatus?: string | null }) {
+    const config = this.readConfig();
+    if (!config.available) return false;
+    const status = String(company?.whatsappModalStatus || '').trim().toLowerCase();
+    return status === 'connected' || status === 'reconnecting';
   }
 
   private resolveOutboundMediaInput(raw: string) {

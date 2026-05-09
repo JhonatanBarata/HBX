@@ -318,6 +318,7 @@ export class WhatsAppModalService {
     instanceExists: boolean;
     providerHealth: ProviderHealth;
     providerErrorMessage?: string | null;
+    hasOperationalSession: boolean;
     lastInboundMessageAt: Date | null;
     lastOutboundMessageAt: Date | null;
     checkedAt: Date;
@@ -335,6 +336,7 @@ export class WhatsAppModalService {
       input.providerReachable &&
       input.instanceExists &&
       input.snapshot.status === 'connected' &&
+      input.hasOperationalSession &&
       providerSyncAgeSeconds !== null &&
       providerSyncAgeSeconds <= input.ttlSeconds;
     const connected =
@@ -457,6 +459,7 @@ export class WhatsAppModalService {
         instanceExists: false,
         providerHealth: availabilityResponse.data.providerHealth,
         providerErrorMessage: availabilityResponse.message,
+        hasOperationalSession: Boolean(company.currentWhatsappConnectionSessionId),
         lastInboundMessageAt: activity.lastInboundMessageAt,
         lastOutboundMessageAt: activity.lastOutboundMessageAt,
         checkedAt,
@@ -503,6 +506,7 @@ export class WhatsAppModalService {
     }
 
     const activity = await activityPromise;
+    const hasOperationalSession = await this.hasActiveWebwhatsConnectionSession(normalizedCompanyId);
     const payload = this.buildLiveHealthPayload({
       company,
       snapshot,
@@ -510,6 +514,7 @@ export class WhatsAppModalService {
       instanceExists,
       providerHealth,
       providerErrorMessage,
+      hasOperationalSession,
       lastInboundMessageAt: activity.lastInboundMessageAt,
       lastOutboundMessageAt: activity.lastOutboundMessageAt,
       checkedAt,
@@ -984,52 +989,73 @@ export class WhatsAppModalService {
     }
   }
 
-  private async syncConnectionSessionForSnapshot(
+  private async hasActiveWebwhatsConnectionSession(companyId: number) {
+    const session = await this.prisma.whatsAppConnectionSession.findFirst({
+      where: {
+        companyId: Number(companyId),
+        provider: 'webwhats',
+        tenantKey: this.buildTenantKey({ id: Number(companyId) }),
+        status: 'active',
+      },
+      select: { id: true },
+    });
+    return Boolean(session?.id);
+  }
+
+  private async reconcileWebwhatsConnectionSession(
     company: CompanyModalFields,
     snapshot: ModalSnapshot,
-    origin: string,
+    reason: string,
   ) {
     const tenantKey = this.buildTenantKey(company);
-    const now = snapshot.updatedAt || new Date();
+    const now = new Date();
     const phoneNormalized = this.normalizeTrialPhone(snapshot.phone);
+    const displayPhone = this.normalizeOptionalString(snapshot.phone);
 
-    if (snapshot.status === 'connected' && phoneNormalized) {
-      await this.prisma.whatsAppConnectionSession.updateMany({
-        where: {
-          companyId: Number(company.id),
-          provider: 'webwhats',
-          status: 'active',
-          NOT: { phoneNormalized },
-        },
-        data: {
-          status: 'disconnected',
-          disconnectedAt: now,
-        },
-      });
-
+    if (snapshot.status === 'connected') {
+      const connectedAt = snapshot.connectedAt || company.whatsappModalConnectedAt || now;
       let session = await this.prisma.whatsAppConnectionSession.findFirst({
         where: {
           companyId: Number(company.id),
           provider: 'webwhats',
-          phoneNormalized,
+          tenantKey,
           status: 'active',
         },
         orderBy: [{ connectedAt: 'desc' }, { createdAt: 'desc' }],
         select: { id: true },
       });
 
-      if (!session) {
+      if (session?.id) {
+        const data: any = {
+          tenantKey,
+          status: 'active',
+          connectedAt,
+          disconnectedAt: null,
+          metadataJson: JSON.stringify({
+            source: reason,
+            rawStatus: snapshot.rawStatus,
+            recordedAt: now.toISOString(),
+          }),
+        };
+        if (phoneNormalized) data.phoneNormalized = phoneNormalized;
+        if (displayPhone) data.displayPhone = displayPhone;
+        session = await this.prisma.whatsAppConnectionSession.update({
+          where: { id: String(session.id) },
+          data,
+          select: { id: true },
+        });
+      } else {
         session = await this.prisma.whatsAppConnectionSession.create({
           data: {
             companyId: Number(company.id),
             provider: 'webwhats',
             tenantKey,
-            phoneNormalized,
-            displayPhone: snapshot.phone,
+            phoneNormalized: phoneNormalized || null,
+            displayPhone,
             status: 'active',
-            connectedAt: snapshot.connectedAt || now,
+            connectedAt,
             metadataJson: JSON.stringify({
-              source: origin,
+              source: reason,
               rawStatus: snapshot.rawStatus,
               recordedAt: now.toISOString(),
             }),
@@ -1038,10 +1064,28 @@ export class WhatsAppModalService {
         });
       }
 
+      await this.prisma.whatsAppConnectionSession.updateMany({
+        where: {
+          companyId: Number(company.id),
+          provider: 'webwhats',
+          status: 'active',
+          NOT: { id: String(session.id) },
+        },
+        data: {
+          status: 'disconnected',
+          disconnectedAt: now,
+        },
+      });
+
       return String(session.id);
     }
 
-    if (snapshot.status === 'disconnected' || snapshot.status === 'offline') {
+    if (
+      snapshot.status === 'disconnected' ||
+      snapshot.status === 'offline' ||
+      snapshot.status === 'error' ||
+      snapshot.status === 'waiting_qr'
+    ) {
       await this.prisma.whatsAppConnectionSession.updateMany({
         where: {
           companyId: Number(company.id),
@@ -2620,7 +2664,7 @@ export class WhatsAppModalService {
     if (snapshot.status === 'connected' && snapshot.phone) {
       await this.registerTrialPhoneUsageOrBlock(company, snapshot.phone, snapshot, origin);
     }
-    const currentSessionId = await this.syncConnectionSessionForSnapshot(company, snapshot, origin);
+    const currentSessionId = await this.reconcileWebwhatsConnectionSession(company, snapshot, origin);
 
     await this.prisma.company.update({
       where: { id: Number(company.id) },

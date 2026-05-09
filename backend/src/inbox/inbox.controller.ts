@@ -81,6 +81,11 @@ export class InboxController {
     return this.inboxService.migrateWhatsappSessionToCurrent(req.user, id, dto || {});
   }
 
+  @Post('whatsapp-sessions/migrate-all-current')
+  migrateAllWhatsappHistoryToCurrent(@Req() req: any) {
+    return this.inboxService.migrateAllWhatsappHistoryToCurrent(req.user);
+  }
+
   @Patch('bot-config')
   updateBotConfig(@Req() req: any, @Body() dto: UpdateAtendimentoBotConfigDto) {
     return this.inboxService.updateBotConfig(req.user, dto);
