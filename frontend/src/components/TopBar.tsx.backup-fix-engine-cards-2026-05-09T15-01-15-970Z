@@ -4147,8 +4147,8 @@ export default function TopBar() {
                         <div className="hbx-command-center__body">
               <TopbarCommandCarousel
                 slides={billboardSlides}
-                engineCards={hbxEngineGroupCards}
-onNavigate={(href) => router.push(href)}
+                engines={normalizedScraping.engines}
+                onNavigate={(href) => router.push(href)}
               />
             </div>
           </section>
