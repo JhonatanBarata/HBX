@@ -8366,6 +8366,9 @@ export default function InboxClientPage() {
         (latestVisibleConversationAt && liveHealth.inboundStale)
       ),
   );
+  const liveHealthAlertTitle = liveHealth?.liveConfirmed
+    ? "WhatsApp conectado, mas sem mensagens recentes no Atendimento."
+    : "WhatsApp desconectado ou sem confirmação viva. Novas conversas podem não estar chegando.";
   const liveHealthStatusLabel = liveHealth ? formatWhatsAppLiveHealthStatus(liveHealth.status) : "Em leitura";
   const lastInboundLabel = liveHealth?.lastInboundMessageAt
     ? `${formatWhatsAppDateTime(liveHealth.lastInboundMessageAt)} (${formatSince(liveHealth.lastInboundMessageAt)})`
@@ -8429,7 +8432,7 @@ export default function InboxClientPage() {
                   <div className={styles.whatsappLiveHealthBanner} data-tone={liveHealthTone}>
                     <div className={styles.whatsappLiveHealthMain}>
                       <span className={styles.whatsappLiveHealthKicker}>Alerta operacional WhatsApp</span>
-                      <strong>WhatsApp desconectado ou sem confirmação viva. Novas conversas podem não estar chegando.</strong>
+                      <strong>{liveHealthAlertTitle}</strong>
                       <p>{liveHealth?.reason || "O HBX não confirmou a sessão viva do WhatsApp neste momento."}</p>
                       {noRecentConversationWarning ? (
                         <p className={styles.whatsappLiveHealthWarning}>
