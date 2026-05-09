@@ -117,6 +117,7 @@ type AuditFactory = {
     windowStatus: string;
     enabled: boolean;
     emergencyStop: boolean;
+    weekdaysOnly?: boolean;
     startHour: number;
     startMinute: number;
     endHour: number;
@@ -271,6 +272,7 @@ function parseTimeValue(value: string) {
 function factoryReasonLabel(value?: string | null) {
   const reason = String(value || "").toLowerCase();
   if (reason === "outside_factory_window") return "Fora do horário";
+  if (reason === "outside_business_days") return "Fora dos dias úteis";
   if (reason === "emergency_stop") return "Parado manualmente";
   if (reason === "memory_guard") return "Proteção de memória";
   if (reason === "memory_stop") return "Memória crítica";
@@ -943,6 +945,17 @@ export default function BancoDeDadosClientPage() {
                 }}
                 disabled={saving}
               />
+            </label>
+            <label className={styles.factoryCheckField}>
+              <input
+                type="checkbox"
+                checked={Boolean(factory?.schedule?.weekdaysOnly)}
+                onChange={(event) => {
+                  void saveFactorySchedule({ weekdaysOnly: event.target.checked }, event.target.checked ? "Fábrica limitada a dias úteis." : "Fábrica liberada para todos os dias.");
+                }}
+                disabled={saving}
+              />
+              <span>Dias úteis</span>
             </label>
             <div><span>Agora</span><strong>{metric(summary?.motoresBusy)} trabalhando · {metric(protection?.factoryAllowedEngines)} permitidos</strong></div>
           </div>
