@@ -369,12 +369,10 @@ export class WhatsAppModalService {
       }, HttpStatus.TOO_MANY_REQUESTS);
     }
 
-    this.recentPairingCodeAttemptAt.set(rateLimitKey, Date.now());
-
     try {
       const maskedPhone = this.maskPairingPhoneForLog(normalizedPhone);
       this.logger.log(`Modal WhatsApp pairing code requested for ${tenantKey} phone=${maskedPhone}.`);
-      await this.resetProviderInstanceForPairing(tenantKey);
+      await this.resetProviderInstanceForPairing(tenantKey, latest.status);
       const providerPayload = await this.createAndConnectProviderForPairing(tenantKey, normalizedPhone, {
         retryExistingInstance: true,
       });
@@ -386,6 +384,8 @@ export class WhatsAppModalService {
           'WHATSAPP_MODAL_PAIRING_CODE_EMPTY',
         );
       }
+      this.recentPairingCodeAttemptAt.set(rateLimitKey, Date.now());
+      this.logger.log(`pairing code extracted tenant=${tenantKey}`);
 
       const snapshot: ModalSnapshot = {
         ...latest,
@@ -702,6 +702,17 @@ export class WhatsAppModalService {
     );
   }
 
+  private isPairingResetNotConnectedMessage(value: unknown) {
+    const normalized = String(value || '').trim().toLowerCase();
+    if (!normalized) return false;
+    return (
+      normalized.includes('instance is not connected')
+      || normalized.includes('session is not connected')
+      || normalized.includes('instance is disconnected')
+      || normalized.includes('not connected')
+    );
+  }
+
   private isMissingInstanceError(error: unknown) {
     const providerError = this.toProviderError(error);
     return providerError.statusCode === 404 || this.isMissingInstanceMessage(providerError.message);
@@ -796,10 +807,14 @@ export class WhatsAppModalService {
     });
   }
 
-  private async resetProviderInstanceForPairing(tenantKey: string) {
+  private async resetProviderInstanceForPairing(tenantKey: string, status?: WhatsAppModalStatus | null) {
     this.recentConnectAttemptAt.delete(tenantKey);
     this.qrCodeCache.delete(tenantKey);
-    await this.runSafeProviderResetStep(tenantKey, 'logout', () => this.logoutProviderSession(tenantKey));
+    if (status === 'connected') {
+      await this.runSafeProviderResetStep(tenantKey, 'logout', () => this.logoutProviderSession(tenantKey));
+      await this.runSafeProviderResetStep(tenantKey, 'delete', () => this.deleteProviderInstance(tenantKey));
+      return;
+    }
     await this.runSafeProviderResetStep(tenantKey, 'delete', () => this.deleteProviderInstance(tenantKey));
   }
 
@@ -812,6 +827,17 @@ export class WhatsAppModalService {
       await action();
     } catch (error) {
       const providerError = this.toProviderError(error);
+      const notConnectedReset = providerError.statusCode === 400 && this.isPairingResetNotConnectedMessage(providerError.message);
+      if (notConnectedReset) {
+        if (step === 'logout') {
+          this.logger.warn(`pairing reset ignored logout because instance is not connected tenant=${tenantKey}`);
+        } else {
+          this.logger.warn(
+            `Modal WhatsApp reset pairing ${step} ignorado para ${tenantKey}: ${providerError.message}`,
+          );
+        }
+        return;
+      }
       if (
         this.isMissingInstanceError(providerError)
         || providerError.statusCode === 404
@@ -873,6 +899,7 @@ export class WhatsAppModalService {
     options?: { retryExistingInstance?: boolean },
   ) {
     try {
+      this.logger.log(`pairing creating instance with number tenant=${tenantKey} phone=${this.maskPairingPhoneForLog(phoneNumber)}`);
       return await this.createProviderInstance(tenantKey, phoneNumber);
     } catch (error) {
       const providerError = this.toProviderError(error);
@@ -881,6 +908,7 @@ export class WhatsAppModalService {
           `Modal WhatsApp instancia existente durante pairing para ${tenantKey}: ${providerError.message}. Resetando e recriando com number.`,
         );
         await this.resetProviderInstanceForPairing(tenantKey);
+        this.logger.log(`pairing creating instance with number tenant=${tenantKey} phone=${this.maskPairingPhoneForLog(phoneNumber)}`);
         return this.createProviderInstance(tenantKey, phoneNumber);
       }
       throw providerError;
@@ -1942,15 +1970,15 @@ export class WhatsAppModalService {
     const nestedResponse = this.asRecord(responseBody.response) || this.asRecord(dataBody?.response);
     const detail = this.firstString(
       responseBody.message,
-      responseBody.error,
       responseBody.detail,
-      responseBody.statusReason,
       dataBody?.message,
-      dataBody?.error,
-      dataBody?.statusReason,
       nestedResponse?.message,
-      nestedResponse?.error,
       nestedResponse?.statusReason,
+      nestedResponse?.error,
+      dataBody?.statusReason,
+      dataBody?.error,
+      responseBody.statusReason,
+      responseBody.error,
     );
     const suffix = detail ? ` ${detail}` : '';
     const normalizedPurpose = String(purpose || '').trim().toLowerCase();
