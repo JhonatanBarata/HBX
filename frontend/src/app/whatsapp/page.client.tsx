@@ -70,6 +70,7 @@ export default function WhatsAppCenterClientPage() {
   const [pairingError, setPairingError] = useState<string | null>(null);
   const [pairingBusy, setPairingBusy] = useState(false);
   const [pairingExpiresAt, setPairingExpiresAt] = useState<number | null>(null);
+  const [pairingRetryAt, setPairingRetryAt] = useState<number | null>(null);
   const [pairingTick, setPairingTick] = useState(0);
   const [qrLinkMode, setQrLinkMode] = useState<QrLinkMode>(() => (
     searchParams.get("focus") === "phone" ? "phone" : "idle"
@@ -332,6 +333,11 @@ export default function WhatsAppCenterClientPage() {
     setModalQrRequested(false);
     setQrLinkMode("phone");
     setQrBootstrapStage("idle");
+    const retryRemainingMs = pairingRetryAt ? pairingRetryAt - Date.now() : 0;
+    if (retryRemainingMs > 0) {
+      setPairingError(`Aguarde ${Math.ceil(retryRemainingMs / 1000)} segundos para gerar outro código.`);
+      return;
+    }
 
     if (!sessionId) {
       setPairingError("Sessão técnica do WhatsApp ainda não carregada.");
@@ -345,6 +351,7 @@ export default function WhatsAppCenterClientPage() {
     pairingCodeInFlightRef.current = true;
     setPairingBusy(true);
     try {
+      setPairingRetryAt(null);
       const response = await apiFetch<WhatsAppPairingCodePayload>(
         `/whatsapp/sessions/${encodeURIComponent(sessionId)}/pairing-code`,
         {
@@ -356,6 +363,8 @@ export default function WhatsAppCenterClientPage() {
       setPairingPayload(response);
       setPairingPhone(normalizedPhone);
       if (response.success && response.code) {
+        setPairingError(null);
+        setPairingRetryAt(null);
         setPairingExpiresAt(Date.now() + Math.max(1, response.expiresInSeconds || 120) * 1000);
         setMessage("Código por telefone gerado.");
       } else {
@@ -367,7 +376,17 @@ export default function WhatsAppCenterClientPage() {
       const payload = pairingCodeError?.payload && typeof pairingCodeError.payload === "object"
         ? pairingCodeError.payload as { message?: string; nextAllowedAt?: string }
         : null;
-      setPairingError(payload?.message || (pairingCodeError instanceof Error ? pairingCodeError.message : "Falha ao gerar código por telefone."));
+      const fallbackRetryAt = Number(pairingCodeError?.status) === 429 ? Date.now() + 60_000 : 0;
+      const payloadRetryAt = payload?.nextAllowedAt ? Date.parse(payload.nextAllowedAt) : 0;
+      const nextRetryAt = Number.isFinite(payloadRetryAt) && payloadRetryAt > Date.now()
+        ? payloadRetryAt
+        : fallbackRetryAt;
+      if (nextRetryAt > Date.now()) {
+        setPairingRetryAt(nextRetryAt);
+        setPairingError(`Aguarde ${Math.ceil((nextRetryAt - Date.now()) / 1000)} segundos para gerar outro código.`);
+      } else {
+        setPairingError(payload?.message || (pairingCodeError instanceof Error ? pairingCodeError.message : "Falha ao gerar código por telefone."));
+      }
       setPairingExpiresAt(null);
     } finally {
       pairingCodeInFlightRef.current = false;
@@ -437,10 +456,10 @@ export default function WhatsAppCenterClientPage() {
   }
 
   useEffect(() => {
-    if (!pairingExpiresAt) return undefined;
+    if (!pairingExpiresAt && !pairingRetryAt) return undefined;
     const timer = window.setInterval(() => setPairingTick((value) => value + 1), 1000);
     return () => window.clearInterval(timer);
-  }, [pairingExpiresAt]);
+  }, [pairingExpiresAt, pairingRetryAt]);
 
   async function chooseMode(mode: "QR" | "OFFICIAL") {
     setSaving(mode);
@@ -484,6 +503,9 @@ export default function WhatsAppCenterClientPage() {
   const initialQrLinkMode = searchParams.get("focus") === "phone" ? "phone" : "idle";
   const pairingExpiresInSeconds = pairingExpiresAt
     ? Math.max(0, Math.ceil((pairingExpiresAt - Date.now()) / 1000))
+    : 0;
+  const pairingRetryInSeconds = pairingRetryAt
+    ? Math.max(0, Math.ceil((pairingRetryAt - Date.now()) / 1000))
     : 0;
   void pairingTick;
 
@@ -536,6 +558,7 @@ export default function WhatsAppCenterClientPage() {
             pairingBusy={pairingBusy}
             pairingError={pairingError}
             pairingExpiresInSeconds={pairingExpiresInSeconds}
+            pairingRetryInSeconds={pairingRetryInSeconds}
             onPairingPhoneChange={setPairingPhone}
             onPairingPhoneInput={(value) => setPairingPhone(formatPairingPhoneInput(value))}
             onQrLinkModeChange={handleQrLinkModeChange}

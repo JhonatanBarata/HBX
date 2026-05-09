@@ -165,9 +165,49 @@ test('pairing-code cria instancia com number normalizado antes de conectar', asy
   assert.equal(createPayloads[0].number, '5519997024884');
 });
 
-test('pairing-code recria instancia existente em QR quando nao recebe codigo', async () => {
+test('pairing-code limpa instancia antes de criar com number', async () => {
   const paths: string[] = [];
-  let connectAttempts = 0;
+  const createPayloads: any[] = [];
+  const service = new WhatsAppModalService(createPrisma(createCompany())) as any;
+  service.readConfig = () => ({
+    enabled: true,
+    configured: true,
+    available: true,
+    internalUrl: 'http://provider.local',
+    apiKey: 'secret',
+    timeoutMs: 1000,
+    missingConfigKeys: [],
+    setupHint: null,
+  });
+  service.requestProvider = async ({ purpose, path, data }: any) => {
+    paths.push(path);
+    if (String(path).includes('connectionState')) return { state: 'DISCONNECTED' };
+    if (String(purpose).includes('criacao')) {
+      createPayloads.push(data);
+      return { qrcode: { pairingCode: 'JKLM-9999' } };
+    }
+    if (String(path).includes('/instance/connect/')) {
+      return { ok: true };
+    }
+    return { ok: true };
+  };
+  service.tryConfigureProviderWebhook = async () => null;
+
+  const response = await service.requestPairingCode(7, 'company-7', '+5519999999999');
+
+  assert.equal(response.success, true);
+  assert.equal(response.code, 'JKLM-9999');
+  assert.ok(paths.includes('/instance/logout/company-7'));
+  assert.ok(paths.includes('/instance/delete/company-7'));
+  assert.equal(createPayloads.length, 1);
+  assert.equal(createPayloads[0].number, '5519999999999');
+  assert.ok(paths.indexOf('/instance/logout/company-7') < paths.indexOf('/instance/create'));
+  assert.ok(paths.indexOf('/instance/delete/company-7') < paths.indexOf('/instance/create'));
+});
+
+test('pairing-code recria uma vez se create responder instancia existente', async () => {
+  const paths: string[] = [];
+  let createAttempts = 0;
   const service = new WhatsAppModalService(createPrisma(createCompany())) as any;
   service.readConfig = () => ({
     enabled: true,
@@ -182,12 +222,12 @@ test('pairing-code recria instancia existente em QR quando nao recebe codigo', a
   service.requestProvider = async ({ purpose, path }: any) => {
     paths.push(path);
     if (String(path).includes('connectionState')) return { state: 'DISCONNECTED' };
-    if (String(purpose).includes('criacao')) return { ok: true };
-    if (String(path).includes('/instance/connect/')) {
-      connectAttempts += 1;
-      return connectAttempts === 1
-        ? { qrcode: { base64: 'qr-mode' } }
-        : { instance: { qrcode: { pairingCode: 'JKLM-9999' } } };
+    if (String(purpose).includes('criacao')) {
+      createAttempts += 1;
+      if (createAttempts === 1) {
+        throw new Error('Forbidden: instance already in use');
+      }
+      return { response: { qrcode: { pairingCode: 'RSTU-2222' } } };
     }
     return { ok: true };
   };
@@ -196,11 +236,10 @@ test('pairing-code recria instancia existente em QR quando nao recebe codigo', a
   const response = await service.requestPairingCode(7, 'company-7', '+5519999999999');
 
   assert.equal(response.success, true);
-  assert.equal(response.code, 'JKLM-9999');
-  assert.equal(connectAttempts, 2);
-  assert.ok(paths.includes('/instance/logout/company-7'));
-  assert.ok(paths.includes('/instance/restart/company-7'));
-  assert.ok(paths.includes('/instance/delete/company-7'));
+  assert.equal(response.code, 'RSTU-2222');
+  assert.equal(createAttempts, 2);
+  assert.equal(paths.filter((path) => path === '/instance/logout/company-7').length, 2);
+  assert.equal(paths.filter((path) => path === '/instance/delete/company-7').length, 2);
 });
 
 test('pairing-code nao gera se sessao ja esta conectada', async () => {
@@ -215,4 +254,40 @@ test('pairing-code nao gera se sessao ja esta conectada', async () => {
   assert.equal(response.success, false);
   assert.equal(response.status, 'connected');
   assert.equal(response.errorCode, 'WHATSAPP_MODAL_ALREADY_CONNECTED');
+});
+
+test('provider 403 de instancia existente nao vira erro de API key', () => {
+  const service = createService() as any;
+
+  const error = service.buildProviderErrorFromResponse(
+    {
+      status: 403,
+      data: { message: 'Forbidden: instance already in use' },
+      config: { url: 'http://provider.local/instance/create' },
+    },
+    'criacao da instancia',
+    '/instance/create',
+  );
+
+  assert.equal(error.code, 'WHATSAPP_MODAL_HTTP_ERROR');
+  assert.match(error.message, /já existe|em uso/i);
+  assert.doesNotMatch(error.message, /WHATSAPP_MODAL_API_KEY/i);
+  assert.equal(service.isExistingInstanceError(error), true);
+});
+
+test('provider 403 autentico ainda aponta API key', () => {
+  const service = createService() as any;
+
+  const error = service.buildProviderErrorFromResponse(
+    {
+      status: 403,
+      data: { message: 'invalid apikey' },
+      config: { url: 'http://provider.local/instance/create' },
+    },
+    'criacao da instancia',
+    '/instance/create',
+  );
+
+  assert.equal(error.code, 'WHATSAPP_MODAL_NOT_CONFIGURED');
+  assert.match(error.message, /WHATSAPP_MODAL_API_KEY/);
 });
