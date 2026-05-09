@@ -297,13 +297,30 @@ function HbxGenericSlide({
   const metrics = Array.isArray(slide.metrics) ? slide.metrics.slice(0, 4) : [];
   const isReward = String(slide.kind || "").toLowerCase() === "nightfactoryreward";
 
-  function handleCta() {
+  function handleNavigate() {
     if (!slide.href) return;
     onNavigate?.(slide.href);
   }
 
+  function handleCta(event: React.MouseEvent<HTMLButtonElement | HTMLAnchorElement>) {
+    event.stopPropagation();
+    handleNavigate();
+  }
+
+  function handleSlideKeyDown(event: React.KeyboardEvent<HTMLElement>) {
+    if (!slide.href || (event.key !== "Enter" && event.key !== " ")) return;
+    event.preventDefault();
+    handleNavigate();
+  }
+
   return (
-    <article className={cx("hbxp-slide-card", isReward ? "hbxp-slide-card--reward" : null, `hbxp-tone-${tone}`)}>
+    <article
+      className={cx("hbxp-slide-card", slide.href ? "hbxp-slide-card--clickable" : null, isReward ? "hbxp-slide-card--reward" : null, `hbxp-tone-${tone}`)}
+      role={slide.href ? "link" : undefined}
+      tabIndex={slide.href ? 0 : undefined}
+      onClick={slide.href ? handleNavigate : undefined}
+      onKeyDown={handleSlideKeyDown}
+    >
       <div className="hbxp-slide-card__sheen" aria-hidden="true" />
       <div className="hbxp-slide-card__main">
         <div className="hbxp-slide-card__copy">
@@ -320,7 +337,7 @@ function HbxGenericSlide({
                   {slide.ctaLabel}
                 </button>
               ) : (
-                <a className="hbxp-cta" href={slide.href}>
+                <a className="hbxp-cta" href={slide.href} onClick={(event) => event.stopPropagation()}>
                   {slide.ctaLabel}
                 </a>
               )
@@ -635,6 +652,13 @@ export const HBX_TOPBAR_COMMAND_CAROUSEL_CSS = `
     padding-block: 0 !important;
   }
 
+  .app-topbar__inner--controlCenter .hbx-command-brand,
+  .app-topbar__inner--controlCenter .hbx-command-side {
+    position: relative !important;
+    z-index: 30 !important;
+    pointer-events: auto !important;
+  }
+
   .app-topbar__inner--controlCenter .hbx-command-center {
     width: 70% !important;
     min-width: 0 !important;
@@ -645,6 +669,8 @@ export const HBX_TOPBAR_COMMAND_CAROUSEL_CSS = `
     align-self: stretch !important;
     justify-self: center !important;
     display: grid !important;
+    position: relative !important;
+    z-index: 10 !important;
     margin: 0 !important;
     padding: 0 !important;
     border: 0 !important;
@@ -860,6 +886,15 @@ export const HBX_TOPBAR_COMMAND_CAROUSEL_CSS = `
 
   .hbxp-slide-card__copy {
     min-width: 0;
+  }
+
+  .hbxp-slide-card--clickable {
+    cursor: pointer;
+  }
+
+  .hbxp-slide-card--clickable:focus-visible {
+    outline: 2px solid color-mix(in srgb, var(--brand, #10b981) 64%, transparent);
+    outline-offset: -4px;
   }
 
   .hbxp-slide-card__eyebrow {
