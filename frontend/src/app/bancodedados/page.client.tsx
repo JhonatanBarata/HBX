@@ -917,7 +917,7 @@ export default function BancoDeDadosClientPage() {
                 }}
                 disabled={saving}
               >
-                {[0, 4, 8, 12, 16, 20, 32].map((value) => <option key={value} value={value}>{value}</option>)}
+                {Array.from({ length: 11 }, (_, index) => index * 10).map((value) => <option key={value} value={value}>{value}</option>)}
               </select>
             </label>
             <label>

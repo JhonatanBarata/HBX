@@ -7236,6 +7236,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     });
     const page = filters.page;
     const limit = filters.limit;
+    const offset = (page - 1) * limit;
     const readLimit = Math.min(Math.max(limit * 10, 500), 5000);
     const companyStateSelect = {
       companyId: true,
@@ -7251,6 +7252,88 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       assignedByUserId: true,
       assignedAt: true,
     };
+    const hasExplicitFilters = Boolean(
+      targetCompanyId
+      || filters.normalizedCity
+      || filters.state
+      || filters.normalizedSegment
+      || filters.filterKey
+      || filters.status
+      || filters.ddd
+      || filters.scoreRange
+      || filters.source
+      || filters.minRating != null
+      || filters.minReviews != null
+      || filters.noWebsite
+      || filters.withWebsite
+      || filters.weakWebsite
+      || filters.validPhone
+      || filters.likelyWhatsapp
+      || filters.opportunityLevel
+      || (!includeAllTargetTypes && filters.targetType !== 'pj')
+    );
+
+    if (!hasExplicitFilters) {
+      const where = this.buildRadarWhere(filters, null, { includeHidden: true });
+      const [total, rows] = await Promise.all([
+        (this.prisma as any).radarLeadPool.count({ where }).catch(() => 0),
+        (this.prisma as any).radarLeadPool.findMany({
+          where,
+          orderBy: [
+            { createdAt: 'desc' },
+            { opportunityScore: 'desc' },
+            { lastSeenAt: 'desc' },
+          ],
+          skip: offset,
+          take: limit,
+          include: {
+            companyStates: {
+              orderBy: { updatedAt: 'desc' },
+              take: 3,
+              select: companyStateSelect,
+            },
+            events: {
+              orderBy: { createdAt: 'desc' },
+              take: 3,
+              select: {
+                id: true,
+                eventType: true,
+                note: true,
+                createdAt: true,
+              },
+            },
+          },
+        }).catch(() => []),
+      ]);
+
+      return {
+        items: (rows || []).map((row: any) => ({
+          ...this.buildRadarLeadPublic(row),
+          targetType: this.resolveRadarLeadTargetType(row),
+        })),
+        total,
+        meta: {
+          available: true,
+          page,
+          limit,
+          companyId: null,
+          includeAllTargetTypes: true,
+          truncated: false,
+          filters: {
+            city: '',
+            state: '',
+            segment: '',
+            targetType: 'both',
+            status: null,
+            filterKey: null,
+            ddd: null,
+            scoreRange: null,
+            noWebsite: false,
+            highOpportunity: false,
+          },
+        },
+      };
+    }
 
     const rows = await (this.prisma as any).radarLeadPool.findMany({
       where: this.buildRadarWhere(filters, targetCompanyId, {
@@ -7308,7 +7391,6 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         ))
       : this.filterRadarRowsInMemory(rows || [], filters);
     const dedupedRows = this.dedupeRadarRows(filteredRows);
-    const offset = (page - 1) * limit;
     const pageRows = dedupedRows.slice(offset, offset + limit);
 
     return {
