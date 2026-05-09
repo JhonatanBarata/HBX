@@ -16,11 +16,15 @@ import {
 } from "@/lib/topbar-progress";
 import { usePopupTopbarLock } from "@/lib/use-popup-topbar-lock";
 import {
+  formatWhatsAppDateTime,
+  formatWhatsAppLiveHealthStatus,
   getWhatsAppModalPlanRedirect,
   type WhatsAppCenterPayload,
   type WhatsAppDiagnosticFocus,
+  type WhatsAppLiveHealthPayload,
   type WhatsAppModalPayload,
 } from "@/lib/whatsapp-center";
+import { useWhatsAppLiveHealth } from "@/lib/useWhatsAppLiveHealth";
 import {
   MASTER_CONTEXT_CHANGED_EVENT,
   dispatchMasterContextChanged,
@@ -455,6 +459,49 @@ const HBX_TOPBAR_POLISH_CSS = `
     box-shadow:
       0 0 0 1px color-mix(in srgb, var(--brand, #10b981) 10%, transparent),
       var(--shadow-sm, 0 18px 42px -24px rgba(15, 23, 42, 0.26));
+  }
+
+  .hbx-whatsapp-live-alert {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+    justify-content: space-between;
+    margin: 0 8px 6px;
+    padding: 8px 10px;
+    border: 1px solid color-mix(in srgb, #f59e0b 45%, var(--line, rgba(148, 163, 184, 0.25)));
+    border-radius: 14px;
+    background: color-mix(in srgb, #fff7ed 84%, var(--surface, #ffffff));
+    color: var(--foreground, #0f172a);
+    box-shadow: 0 12px 30px -22px rgba(180, 83, 9, 0.42);
+  }
+
+  .hbx-whatsapp-live-alert[data-tone="danger"] {
+    border-color: color-mix(in srgb, #dc2626 50%, var(--line, rgba(148, 163, 184, 0.25)));
+    background: color-mix(in srgb, #fef2f2 86%, var(--surface, #ffffff));
+  }
+
+  .hbx-whatsapp-live-alert__text {
+    min-width: 0;
+    display: grid;
+    gap: 1px;
+    font-size: 12px;
+    line-height: 1.25;
+  }
+
+  .hbx-whatsapp-live-alert__text strong {
+    font-size: 12px;
+    letter-spacing: 0;
+  }
+
+  .hbx-whatsapp-live-alert__text span {
+    color: var(--muted, #64748b);
+  }
+
+  .hbx-whatsapp-live-alert__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
   }
 
   .hbx-command-brand,
@@ -925,6 +972,8 @@ const HBX_TOPBAR_POLISH_CSS = `
     .hbx-command-reward__badge,
     .hbx-command-reward__cta { width: fit-content; }
     .hbx-command-billboard__feed, .hbx-command-billboard__steps, .hbx-command-billboard__metrics { grid-template-columns: 1fr; }
+    .hbx-whatsapp-live-alert { align-items: stretch; }
+    .hbx-whatsapp-live-alert__actions { width: 100%; }
   }
 `;
 
@@ -1235,6 +1284,39 @@ function mergeModalPayload(
   };
 }
 
+function buildWhatsAppLiveHealthDetail(health: WhatsAppLiveHealthPayload) {
+  const checked = formatWhatsAppDateTime(health.lastCheckedAt);
+  const inbound = health.lastInboundMessageAt ? formatWhatsAppDateTime(health.lastInboundMessageAt) : "sem registro";
+  return `${health.reason} Checagem: ${checked}. Última recebida: ${inbound}.`;
+}
+
+function topbarTileFromWhatsAppLiveHealth(health: WhatsAppLiveHealthPayload): TopbarOperationalTile {
+  const base = {
+    id: "qr",
+    label: "QR Code",
+    detail: buildWhatsAppLiveHealthDetail(health),
+  };
+
+  if (health.liveConfirmed && health.status === "healthy") {
+    return { ...base, value: "QR vivo confirmado", tone: "success", usage: 100 };
+  }
+  if (health.status === "reconnecting") {
+    return { ...base, value: "Reconectando", tone: "warning", usage: 58 };
+  }
+  if (health.status === "disconnected") {
+    return { ...base, value: "Desconectado", tone: "danger", usage: 12 };
+  }
+  if (health.status === "error") {
+    return { ...base, value: health.providerReachable ? "Erro" : "Provider indisponível", tone: "danger", usage: 18 };
+  }
+  return {
+    ...base,
+    value: health.inboundStale && health.liveConfirmed ? "Sem mensagens recentes" : "Status salvo, sem confirmação",
+    tone: "warning",
+    usage: 46,
+  };
+}
+
 export default function TopBar() {
   const router = useRouter();
   const pathname = usePathname();
@@ -1314,6 +1396,12 @@ export default function TopBar() {
   const isMasterWebscrapingRoute = Boolean(
     pathname?.startsWith("/master/webscraping") || pathname?.startsWith("/dashboard/master/webscraping"),
   );
+  const isAtendimentoRoute = Boolean(pathname?.startsWith("/atendimento") || pathname?.startsWith("/dashboard/atendimento"));
+  const hasWhatsAppLiveContext = Boolean(authenticated === true && !pendingCheckoutLocked && !isMasterWebscrapingRoute && (user?.company?.id || user?.masterContext?.active));
+  const whatsAppLiveHealth = useWhatsAppLiveHealth({
+    enabled: hasWhatsAppLiveContext,
+    intervalMs: isAtendimentoRoute ? 15000 : 30000,
+  });
 
   usePopupTopbarLock(whatsAppDetailOpen || masterContextModalOpen);
 
@@ -1969,6 +2057,10 @@ export default function TopBar() {
   );
 
   const whatsAppHealth = useMemo<WhatsAppHealth>(() => {
+    const liveStatus = whatsAppLiveHealth.health?.status;
+    if (whatsAppLiveHealth.health?.liveConfirmed && liveStatus === "healthy") return "green";
+    if (liveStatus === "disconnected" || liveStatus === "error") return "red";
+    if (liveStatus === "stale" || liveStatus === "reconnecting") return "yellow";
     const candidates = [
       operationalStatusMap.get("meta"),
       operationalStatusMap.get("webwhats"),
@@ -1985,9 +2077,13 @@ export default function TopBar() {
       return "red";
     }
     return "yellow";
-  }, [operationalStatusMap]);
+  }, [operationalStatusMap, whatsAppLiveHealth.health?.liveConfirmed, whatsAppLiveHealth.health?.status]);
 
   const whatsAppHealthLabel = useMemo(() => {
+    const live = whatsAppLiveHealth.health;
+    if (live) {
+      return `WebWhats: ${formatWhatsAppLiveHealthStatus(live.status)}`;
+    }
     const metaChip = operationalStatusMap.get("meta");
     const webWhatsChip = operationalStatusMap.get("webwhats");
     const tokenChip = operationalStatusMap.get("token");
@@ -1996,8 +2092,11 @@ export default function TopBar() {
       return "Motores WhatsApp: em leitura";
     }
     return `${preferred.label}: ${preferred.value}`;
-  }, [operationalStatusMap]);
+  }, [operationalStatusMap, whatsAppLiveHealth.health]);
   const qrOperationalTile = useMemo<TopbarOperationalTile>(() => {
+    if (whatsAppLiveHealth.health) {
+      return topbarTileFromWhatsAppLiveHealth(whatsAppLiveHealth.health);
+    }
     const qrConnection = whatsAppCenter?.center.qrConnection;
     const modalStatus = whatsAppModal?.status || null;
     const providerHealth = whatsAppModal?.data.providerHealth || null;
@@ -2104,6 +2203,7 @@ export default function TopBar() {
   }, [
     operationalStatusMap,
     whatsAppCenter?.center.qrConnection,
+    whatsAppLiveHealth.health,
     whatsAppModal?.data.lastError,
     whatsAppModal?.data.phone,
     whatsAppModal?.data.providerHealth,
@@ -3037,6 +3137,7 @@ export default function TopBar() {
           ? "Conexão rápida por QR selecionada para ativação inicial."
           : "Meta oficial selecionada para esta empresa.",
       );
+      void whatsAppLiveHealth.refresh(true);
       void refreshOperationalStatus(true);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Falha ao atualizar o modo do WhatsApp.";
@@ -3060,6 +3161,7 @@ export default function TopBar() {
       });
       setWhatsAppCenter(next);
       setWhatsAppDetailMessage("Aceite registrado. O time tecnico ja consegue enxergar esta necessidade.");
+      void whatsAppLiveHealth.refresh(true);
       void refreshOperationalStatus(true);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Falha ao registrar o interesse na migracao oficial.";
@@ -3113,6 +3215,7 @@ export default function TopBar() {
             ? "WhatsApp conectado."
             : "Motor respondeu. Ainda aguardando o QR code."
       );
+      void whatsAppLiveHealth.refresh(true);
       void refreshOperationalStatus(true);
     } catch (error) {
       setWhatsAppQrRequested(false);
@@ -3142,6 +3245,7 @@ export default function TopBar() {
       setWhatsAppModal(response);
       void loadWhatsAppCenter({ background: true });
       setWhatsAppDetailMessage("Conexão rápida por QR desconectada.");
+      void whatsAppLiveHealth.refresh(true);
       void refreshOperationalStatus(true);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Falha ao desconectar a conexão rápida por QR.";
@@ -4077,6 +4181,19 @@ export default function TopBar() {
       usage: qrOperationalTile.usage ?? null,
     },
   ];
+  const shouldShowTopbarWhatsAppAlert = Boolean(
+    isAtendimentoRoute &&
+      whatsAppLiveHealth.health &&
+      (
+        !whatsAppLiveHealth.health.liveConfirmed ||
+        whatsAppLiveHealth.health.status !== "healthy" ||
+        whatsAppLiveHealth.health.inboundStale
+      ),
+  );
+  const topbarWhatsAppAlertTone =
+    whatsAppLiveHealth.health?.status === "disconnected" || whatsAppLiveHealth.health?.status === "error"
+      ? "danger"
+      : "warning";
   if (hiddenRoutes.has(pathname)) {
     return null;
   }
@@ -4085,6 +4202,26 @@ export default function TopBar() {
     <header className={`app-topbar${topbarHiddenByScroll ? " app-topbar--hidden" : ""}`}>
       <style>{HBX_TOPBAR_POLISH_CSS}</style>
       <div ref={topbarFrameRef} className="app-topbar__frame">
+        {shouldShowTopbarWhatsAppAlert ? (
+          <div className="hbx-whatsapp-live-alert" data-tone={topbarWhatsAppAlertTone}>
+            <span className="hbx-whatsapp-live-alert__text">
+              <strong>WhatsApp pode estar desconectado. Conversas podem não estar chegando.</strong>
+              <span>
+                {whatsAppLiveHealth.health
+                  ? `${formatWhatsAppLiveHealthStatus(whatsAppLiveHealth.health.status)}: ${whatsAppLiveHealth.health.reason}`
+                  : "Sem confirmação viva do provider."}
+              </span>
+            </span>
+            <span className="hbx-whatsapp-live-alert__actions">
+              <button type="button" className="btn btn-primary btn-sm" onClick={() => void whatsAppLiveHealth.refresh(true)}>
+                Revalidar agora
+              </button>
+              <button type="button" className="btn btn-secondary btn-sm" onClick={() => router.push("/whatsapp?focus=qr")}>
+                Abrir QR
+              </button>
+            </span>
+          </div>
+        ) : null}
         <div className="app-topbar__inner app-topbar__inner--controlCenter">
           <section className="hbx-command-brand" aria-label="HBXSYSTEM">
             <button

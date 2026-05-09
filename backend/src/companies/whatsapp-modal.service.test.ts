@@ -14,6 +14,7 @@ function createCompany(overrides: Record<string, any> = {}) {
     whatsappModalConnectedAt: null,
     whatsappModalLastError: null,
     whatsappModalUpdatedAt: null,
+    currentWhatsappConnectionSessionId: null,
     paymentStatus: 'PAID',
     subscriptionStatus: 'active',
     onboardingStatus: 'active_paid',
@@ -25,11 +26,39 @@ function createCompany(overrides: Record<string, any> = {}) {
   };
 }
 
-function createPrisma(company = createCompany()) {
+function createPrisma(
+  company = createCompany(),
+  activity: {
+    inboundAt?: Date | null;
+    outboundAt?: Date | null;
+    legacyInboundAt?: Date | null;
+  } = {},
+) {
+  const inboundCompanyMessage = activity.inboundAt
+    ? { timestamp: activity.inboundAt, createdAt: activity.inboundAt }
+    : null;
+  const outboundCompanyMessage = activity.outboundAt
+    ? { timestamp: activity.outboundAt, createdAt: activity.outboundAt }
+    : null;
+
   return {
     company: {
       findUnique: async ({ where }: any) => Number(where.id) === Number(company.id) ? company : null,
       update: async ({ data }: any) => ({ ...company, ...data }),
+    },
+    companyMessage: {
+      findFirst: async ({ where }: any) => {
+        const directions = Array.isArray(where?.direction?.in) ? where.direction.in : [];
+        if (directions.includes('INBOUND') || directions.includes('inbound')) return inboundCompanyMessage;
+        if (directions.includes('OUTBOUND') || directions.includes('outbound')) return outboundCompanyMessage;
+        return null;
+      },
+    },
+    inboundMessage: {
+      findFirst: async () => activity.legacyInboundAt ? { receivedAt: activity.legacyInboundAt } : null,
+    },
+    outboundMessage: {
+      findFirst: async () => activity.outboundAt ? { sentAt: activity.outboundAt, createdAt: activity.outboundAt } : null,
     },
     trialPhoneUsage: {
       findUnique: async () => null,
@@ -340,11 +369,12 @@ test('provider 403 autentico ainda aponta API key', () => {
 
 test('status preserva sessao conectada como reconectando em erro transitorio do Webwhats', async () => {
   const updates: any[] = [];
+  const now = new Date();
   const company = createCompany({
     whatsappModalStatus: 'CONNECTED',
     whatsappModalPhone: '5519999999999',
-    whatsappModalConnectedAt: new Date('2026-05-09T10:00:00.000Z'),
-    whatsappModalUpdatedAt: new Date('2026-05-09T10:00:00.000Z'),
+    whatsappModalConnectedAt: now,
+    whatsappModalUpdatedAt: now,
     currentWhatsappConnectionSessionId: 'session-1',
   });
   const prisma = createPrisma(company);
@@ -378,4 +408,132 @@ test('status preserva sessao conectada como reconectando em erro transitorio do 
   const lastUpdate = updates[updates.length - 1];
   assert.equal(lastUpdate.whatsappModalStatus, 'RECONNECTING');
   assert.equal(lastUpdate.currentWhatsappConnectionSessionId, 'session-1');
+});
+
+test('live health fica healthy apenas com provider vivo e inbound recente', async () => {
+  const now = new Date();
+  const updates: any[] = [];
+  const company = createCompany({
+    whatsappModalStatus: 'CONNECTED',
+    whatsappModalPhone: '5519999999999',
+    whatsappModalConnectedAt: now,
+    whatsappModalUpdatedAt: now,
+    currentWhatsappConnectionSessionId: 'session-1',
+  });
+  const prisma = createPrisma(company, { inboundAt: now, outboundAt: now });
+  prisma.company.update = async ({ data }: any) => {
+    updates.push(data);
+    return { ...company, ...data };
+  };
+  const service = new WhatsAppModalService(prisma) as any;
+  service.readConfig = () => ({
+    enabled: true,
+    configured: true,
+    available: true,
+    internalUrl: 'http://provider.local',
+    apiKey: 'secret',
+    timeoutMs: 1000,
+    missingConfigKeys: [],
+    setupHint: null,
+  });
+  service.requestProvider = async ({ path }: any) => {
+    if (String(path).includes('connectionState')) {
+      return { state: 'CONNECTED', number: '5519999999999' };
+    }
+    return { ok: true };
+  };
+
+  const response = await service.getCompanyLiveHealth(7, { forceRefresh: true });
+
+  assert.equal(response.status, 'healthy');
+  assert.equal(response.liveConfirmed, true);
+  assert.equal(response.connected, true);
+  assert.equal(response.providerReachable, true);
+  assert.equal(response.recommendedAction, 'none');
+  assert.equal(updates[updates.length - 1].whatsappModalStatus, 'CONNECTED');
+});
+
+test('live health retorna reconectando quando provider nao responde e status salvo era conectado', async () => {
+  const now = new Date();
+  const updates: any[] = [];
+  const company = createCompany({
+    whatsappModalStatus: 'CONNECTED',
+    whatsappModalPhone: '5519999999999',
+    whatsappModalConnectedAt: now,
+    whatsappModalUpdatedAt: now,
+    currentWhatsappConnectionSessionId: 'session-1',
+  });
+  const prisma = createPrisma(company, { inboundAt: now });
+  prisma.company.update = async ({ data }: any) => {
+    updates.push(data);
+    return { ...company, ...data };
+  };
+  const service = new WhatsAppModalService(prisma) as any;
+  service.readConfig = () => ({
+    enabled: true,
+    configured: true,
+    available: true,
+    internalUrl: 'http://provider.local',
+    apiKey: 'secret',
+    timeoutMs: 1000,
+    missingConfigKeys: [],
+    setupHint: null,
+  });
+  service.requestProvider = async ({ path }: any) => {
+    if (String(path).includes('connectionState')) {
+      throw new Error('connect ECONNREFUSED 172.18.0.1:8080');
+    }
+    return { ok: true };
+  };
+
+  const response = await service.getCompanyLiveHealth(7, { forceRefresh: true });
+
+  assert.equal(response.status, 'reconnecting');
+  assert.equal(response.liveConfirmed, false);
+  assert.equal(response.providerReachable, false);
+  assert.equal(response.recommendedAction, 'refresh');
+  assert.match(response.reason, /Status salvo dizia conectado/i);
+  assert.equal(updates[updates.length - 1].whatsappModalStatus, 'RECONNECTING');
+});
+
+test('live health rebaixa status salvo quando provider confirma desconectado', async () => {
+  const oldStatusDate = new Date(Date.now() - 10 * 60 * 1000);
+  const updates: any[] = [];
+  const company = createCompany({
+    whatsappModalStatus: 'CONNECTED',
+    whatsappModalPhone: '5519999999999',
+    whatsappModalConnectedAt: oldStatusDate,
+    whatsappModalUpdatedAt: oldStatusDate,
+    currentWhatsappConnectionSessionId: 'session-1',
+  });
+  const prisma = createPrisma(company, { inboundAt: oldStatusDate });
+  prisma.company.update = async ({ data }: any) => {
+    updates.push(data);
+    return { ...company, ...data };
+  };
+  const service = new WhatsAppModalService(prisma) as any;
+  service.readConfig = () => ({
+    enabled: true,
+    configured: true,
+    available: true,
+    internalUrl: 'http://provider.local',
+    apiKey: 'secret',
+    timeoutMs: 1000,
+    missingConfigKeys: [],
+    setupHint: null,
+  });
+  service.requestProvider = async ({ path }: any) => {
+    if (String(path).includes('connectionState')) {
+      return { state: 'DISCONNECTED' };
+    }
+    return { ok: true };
+  };
+
+  const response = await service.getCompanyLiveHealth(7, { forceRefresh: true });
+
+  assert.equal(response.status, 'disconnected');
+  assert.equal(response.liveConfirmed, false);
+  assert.equal(response.providerReachable, true);
+  assert.equal(response.recommendedAction, 'open_qr');
+  assert.equal(updates[updates.length - 1].whatsappModalStatus, 'DISCONNECTED');
 });

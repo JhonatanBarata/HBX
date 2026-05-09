@@ -4,7 +4,7 @@ import { WhatsAppStatusService } from '../messaging/whatsapp-status.service';
 import { MercadoPagoClientService } from '../payments/mercado-pago-client.service';
 import { buildWhatsAppCenterSnapshot, type WhatsAppCenterSnapshot } from './whatsapp-center.util';
 import { CompaniesService } from './companies.service';
-import { WhatsAppModalService } from './whatsapp-modal.service';
+import { WhatsAppModalService, type WhatsAppLiveHealthResponse } from './whatsapp-modal.service';
 import {
   getMasterGlobalIntegrationConfig,
   pickMasterMercadoPagoCredential,
@@ -339,6 +339,7 @@ export class CompanyOperationalStatusService {
     company: any,
     masterConfig: MasterConfig | null,
     paymentValidationCache: Map<string, PaymentValidationResult | null>,
+    liveHealth?: WhatsAppLiveHealthResponse | null,
   ): CompanyOperationalStatus {
     const whatsappCenter = this.buildWhatsAppCenter(company, masterConfig);
     const officialConfigured = Boolean(whatsappCenter?.official?.configured);
@@ -349,6 +350,7 @@ export class CompanyOperationalStatusService {
     const modalPhone = this.normalizeText(company?.whatsappModalPhone);
     const modalLastError = this.normalizeText(company?.whatsappModalLastError);
     const modalUpdatedAt = this.normalizeDate(company?.whatsappModalUpdatedAt);
+    const liveHealthUpdatedAt = liveHealth?.lastCheckedAt || liveHealth?.lastProviderSyncAt || modalUpdatedAt;
 
     const tokenChip = officialConnected
       ? this.buildOperationalChip({
@@ -459,23 +461,83 @@ export class CompanyOperationalStatusService {
           });
 
     const webWhatsChip =
-      modalAvailable && modalStatus === 'CONNECTED'
+      modalAvailable && liveHealth?.liveConfirmed === true && liveHealth.status === 'healthy'
         ? this.buildOperationalChip({
             key: 'webwhats',
             label: 'WebWhats ativo',
             shortLabel: 'WebWhats',
             tone: 'green',
-            value: 'Conect.',
+            value: 'Vivo',
             detail: modalPhone
-              ? `Conexão rápida por QR ativa no modal WhatsApp com ${modalPhone}.`
-              : 'Conexão rápida por QR ativa no modal WhatsApp.',
-            hint: 'WebWhats conectado.',
+              ? `Provider confirmou sessão viva para ${modalPhone}.`
+              : 'Provider confirmou sessão viva recentemente.',
+            hint: 'WebWhats vivo confirmado.',
             href: '/dashboard/whatsapp?focus=qr',
             quality: 'real',
-            source: ['company.whatsappModalStatus', 'company.whatsappModalPhone'],
-            updatedAt: modalUpdatedAt,
+            source: ['provider.connectionState.live', 'company.whatsappModalPhone'],
+            updatedAt: liveHealthUpdatedAt,
             active: true,
           })
+        : modalAvailable && liveHealth?.status === 'stale'
+          ? this.buildOperationalChip({
+              key: 'webwhats',
+              label: 'WebWhats ativo',
+              shortLabel: 'WebWhats',
+              tone: 'yellow',
+              value: 'Sem prova',
+              detail: liveHealth.reason || 'Último status salvo era conectado, mas não houve confirmação viva recente.',
+              hint: 'Status salvo sem confirmação viva.',
+              href: '/dashboard/whatsapp?focus=qr',
+              quality: 'stale',
+              source: ['provider.liveHealth', 'company.whatsappModalStatus'],
+              updatedAt: liveHealthUpdatedAt,
+              active: false,
+            })
+        : modalAvailable && liveHealth?.status === 'reconnecting'
+          ? this.buildOperationalChip({
+              key: 'webwhats',
+              label: 'WebWhats ativo',
+              shortLabel: 'WebWhats',
+              tone: 'yellow',
+              value: 'Reconect.',
+              detail: liveHealth.reason || String(modalLastError || 'WebWhats instável. Aguardando reconexão sem derrubar a sessão.'),
+              hint: 'WebWhats aguardando reconexão.',
+              href: '/dashboard/whatsapp?focus=qr',
+              quality: 'stale',
+              source: ['provider.liveHealth', 'company.whatsappModalStatus', 'company.whatsappModalLastError'],
+              updatedAt: liveHealthUpdatedAt,
+              active: false,
+            })
+        : modalAvailable && (liveHealth?.status === 'disconnected' || liveHealth?.status === 'error')
+          ? this.buildOperationalChip({
+              key: 'webwhats',
+              label: 'WebWhats ativo',
+              shortLabel: 'WebWhats',
+              tone: 'red',
+              value: liveHealth.status === 'error' ? 'Falha' : 'Off',
+              detail: liveHealth.reason || String(modalLastError || 'WebWhats não confirmou uma sessão ativa.'),
+              hint: liveHealth.status === 'error' ? 'WebWhats com falha.' : 'WebWhats desconectado.',
+              href: '/dashboard/whatsapp?focus=qr',
+              quality: 'real',
+              source: ['provider.liveHealth', 'company.whatsappModalStatus'],
+              updatedAt: liveHealthUpdatedAt,
+              active: false,
+            })
+        : modalAvailable && modalStatus === 'CONNECTED'
+          ? this.buildOperationalChip({
+              key: 'webwhats',
+              label: 'WebWhats ativo',
+              shortLabel: 'WebWhats',
+              tone: 'yellow',
+              value: 'Sem prova',
+              detail: 'Último status salvo era conectado, mas não houve confirmação viva recente.',
+              hint: 'Status salvo sem prova viva.',
+              href: '/dashboard/whatsapp?focus=qr',
+              quality: 'stale',
+              source: ['company.whatsappModalStatus', 'provider.liveHealth.missing'],
+              updatedAt: modalUpdatedAt,
+              active: false,
+            })
         : modalAvailable && ['WAITING_QR', 'STARTING', 'RECONNECTING', 'ERROR'].includes(modalStatus)
           ? this.buildOperationalChip({
               key: 'webwhats',
@@ -504,10 +566,10 @@ export class CompanyOperationalStatusService {
                     ? 'WebWhats aguardando reconexão.'
                   : 'WebWhats em atenção.',
               href: '/dashboard/whatsapp?focus=qr',
-              quality: 'real',
+              quality: modalStatus === 'RECONNECTING' ? 'stale' : 'real',
               source: ['company.whatsappModalStatus', 'company.whatsappModalLastError'],
               updatedAt: modalUpdatedAt,
-              active: modalStatus === 'RECONNECTING',
+              active: false,
             })
           : modalAvailable
             ? this.buildOperationalChip({
@@ -723,6 +785,7 @@ export class CompanyOperationalStatusService {
     const normalizedCompanyId = Number(companyId || 0);
     if (!normalizedCompanyId) return null;
     let stale = false;
+    let liveHealth: WhatsAppLiveHealthResponse | null = null;
 
     if (opts?.refresh) {
       const timeoutMs = this.resolveRefreshTimeoutMs();
@@ -733,12 +796,19 @@ export class CompanyOperationalStatusService {
           timeoutMs,
         ),
         this.waitForTimedOperation(
-          'Validacao WebWhats',
-          this.whatsappModalService.getCompanyStatus(normalizedCompanyId),
+          'Validacao viva WebWhats',
+          this.whatsappModalService.getCompanyLiveHealth(normalizedCompanyId, { forceRefresh: true }),
           timeoutMs,
         ),
       ]);
       stale = refreshResults.some((result) => result.timedOut);
+    }
+
+    try {
+      liveHealth = await this.whatsappModalService.getCompanyLiveHealth(normalizedCompanyId);
+    } catch {
+      liveHealth = null;
+      stale = true;
     }
 
     const companies = await this.companiesService.listByIdsForMaster([normalizedCompanyId]);
@@ -751,7 +821,7 @@ export class CompanyOperationalStatusService {
       Boolean(opts?.refresh),
     );
     stale = stale || paymentValidationCache.stale;
-    const status = this.buildStatusFromCompany(company, masterConfig, paymentValidationCache.cache);
+    const status = this.buildStatusFromCompany(company, masterConfig, paymentValidationCache.cache, liveHealth);
     return stale ? this.markStatusAsStale(status) : status;
   }
 
@@ -772,7 +842,23 @@ export class CompanyOperationalStatusService {
       masterConfig,
       Boolean(opts?.validatePayments),
     );
+    const liveHealthEntries = await Promise.all(
+      companies.map(async (company) => {
+        const companyId = Number(company?.id || 0);
+        try {
+          return [companyId, await this.whatsappModalService.getCompanyLiveHealth(companyId)] as const;
+        } catch {
+          return [companyId, null] as const;
+        }
+      }),
+    );
+    const liveHealthByCompanyId = new Map(liveHealthEntries);
 
-    return companies.map((company) => this.buildStatusFromCompany(company, masterConfig, paymentValidationCache.cache));
+    return companies.map((company) => this.buildStatusFromCompany(
+      company,
+      masterConfig,
+      paymentValidationCache.cache,
+      liveHealthByCompanyId.get(Number(company?.id || 0)) || null,
+    ));
   }
 }

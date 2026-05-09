@@ -381,11 +381,14 @@ export default function WhatsAppCenterClientPage() {
         setPairingError(response.message || "Este motor suporta apenas QR Code.");
       }
       void loadModalStatus(true, false);
-    } catch (pairingCodeError: any) {
-      const payload = pairingCodeError?.payload && typeof pairingCodeError.payload === "object"
-        ? pairingCodeError.payload as { message?: string; nextAllowedAt?: string }
+    } catch (pairingCodeError: unknown) {
+      const errorRecord = pairingCodeError && typeof pairingCodeError === "object"
+        ? pairingCodeError as { payload?: unknown; status?: unknown }
         : null;
-      const fallbackRetryAt = Number(pairingCodeError?.status) === 429 ? Date.now() + 60_000 : 0;
+      const payload = errorRecord?.payload && typeof errorRecord.payload === "object"
+        ? errorRecord.payload as { message?: string; nextAllowedAt?: string }
+        : null;
+      const fallbackRetryAt = Number(errorRecord?.status) === 429 ? Date.now() + 60_000 : 0;
       const payloadRetryAt = payload?.nextAllowedAt ? Date.parse(payload.nextAllowedAt) : 0;
       const nextRetryAt = Number.isFinite(payloadRetryAt) && payloadRetryAt > Date.now()
         ? payloadRetryAt
