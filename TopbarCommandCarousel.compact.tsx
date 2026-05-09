@@ -414,6 +414,10 @@ function HbxEngineFleetSlide({ engines, slide, engineCards }: { engines: HbxTopb
   const [pageIndex, setPageIndex] = useState(0);
   const safePageIndex = clampIndex(pageIndex, Math.max(1, pages.length));
 
+  useEffect(() => {
+    if (pageIndex !== safePageIndex) setPageIndex(safePageIndex);
+  }, [pageIndex, safePageIndex]);
+
   const activeCount = sortedEngines.filter((engine) => engine.active || engine.busy).length;
   const alertCount = sortedEngines.filter((engine) => getEngineTone(engine) !== "success" && getEngineState(engine) !== "standby").length;
   const avgUsage = sortedEngines.length
@@ -471,10 +475,7 @@ function HbxEngineFleetSlide({ engines, slide, engineCards }: { engines: HbxTopb
         <div className="hbxp-engine-fleet__pager">
           <button
             type="button"
-            onClick={() => setPageIndex((current) => {
-              const currentSafePage = clampIndex(current, Math.max(1, pages.length));
-              return currentSafePage <= 0 ? pages.length - 1 : currentSafePage - 1;
-            })}
+            onClick={() => setPageIndex((current) => (current <= 0 ? pages.length - 1 : current - 1))}
             aria-label="Motores anteriores"
           >
             ‹
@@ -484,10 +485,7 @@ function HbxEngineFleetSlide({ engines, slide, engineCards }: { engines: HbxTopb
           </span>
           <button
             type="button"
-            onClick={() => setPageIndex((current) => {
-              const currentSafePage = clampIndex(current, Math.max(1, pages.length));
-              return currentSafePage >= pages.length - 1 ? 0 : currentSafePage + 1;
-            })}
+            onClick={() => setPageIndex((current) => (current >= pages.length - 1 ? 0 : current + 1))}
             aria-label="Próximos motores"
           >
             ›

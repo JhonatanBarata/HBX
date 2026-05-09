@@ -5,6 +5,14 @@ import { ensureMasterBillingRuntimeSchema } from '../modules/master-runtime';
 import { PrismaService } from '../prisma/prisma.service';
 
 type WhatsAppModalStatus = 'offline' | 'starting' | 'waiting_qr' | 'connected' | 'reconnecting' | 'disconnected' | 'error';
+type WhatsAppLiveHealthStatus = 'healthy' | 'stale' | 'reconnecting' | 'disconnected' | 'error';
+type WhatsAppLiveHealthRecommendedAction =
+  | 'none'
+  | 'refresh'
+  | 'restart'
+  | 'open_qr'
+  | 'disconnect_reconnect'
+  | 'check_provider';
 type WhatsAppModalErrorCode =
   | 'WHATSAPP_MODAL_DISABLED'
   | 'WHATSAPP_MODAL_NOT_CONFIGURED'
@@ -78,6 +86,30 @@ type ProviderDiagnosticResponse = {
   durationMs: number;
 };
 
+export type WhatsAppLiveHealthResponse = {
+  status: WhatsAppLiveHealthStatus;
+  connected: boolean;
+  liveConfirmed: boolean;
+  storedStatus: string | null;
+  providerStatus: string | null;
+  providerReachable: boolean;
+  lastCheckedAt: string;
+  lastProviderSyncAt: string | null;
+  lastInboundMessageAt: string | null;
+  lastOutboundMessageAt: string | null;
+  staleSeconds: number | null;
+  reason: string;
+  actionLabel: string;
+  actionHref: string;
+  actionFocus: 'status' | 'qr' | 'official';
+  recommendedAction: WhatsAppLiveHealthRecommendedAction;
+  providerHealth: ProviderHealth;
+  inboundStale: boolean;
+  inboundStaleSeconds: number | null;
+  ttlSeconds: number;
+  inboundStaleMinutes: number;
+};
+
 export type WhatsAppModalResponse = {
   success: boolean;
   status: WhatsAppModalStatus;
@@ -134,6 +166,7 @@ export class WhatsAppModalService {
   private readonly recentWebhookConfigureAt = new Map<string, number>();
   private readonly qrCodeCache = new Map<string, { dataUrl: string; capturedAtMs: number }>();
   private readonly recentPairingCodeAttemptAt = new Map<string, number>();
+  private readonly liveHealthCache = new Map<number, { capturedAtMs: number; payload: WhatsAppLiveHealthResponse }>();
   private readonly connectAttemptCooldownMs = 12000;
   private readonly webhookConfigureCooldownMs = 60000;
   private readonly qrCodeCacheTtlMs = 45000;
@@ -197,6 +230,294 @@ export class WhatsAppModalService {
         message: providerError.message,
       };
     }
+  }
+
+  private resolveLiveHealthTtlSeconds() {
+    const parsed = Number(process.env.WHATSAPP_LIVE_HEALTH_TTL_SECONDS || '180');
+    if (!Number.isFinite(parsed) || parsed <= 0) return 180;
+    return Math.max(30, Math.min(900, Math.trunc(parsed)));
+  }
+
+  private resolveInboundStaleMinutes() {
+    const parsed = Number(process.env.WHATSAPP_INBOUND_STALE_MINUTES || '60');
+    if (!Number.isFinite(parsed) || parsed <= 0) return 60;
+    return Math.max(5, Math.min(24 * 60, Math.trunc(parsed)));
+  }
+
+  private resolveLiveHealthCacheMs() {
+    const parsed = Number(process.env.WHATSAPP_LIVE_HEALTH_CACHE_SECONDS || '10');
+    if (!Number.isFinite(parsed) || parsed < 0) return 10_000;
+    return Math.min(30_000, Math.max(0, Math.trunc(parsed) * 1000));
+  }
+
+  private maxDate(...values: Array<Date | string | null | undefined>) {
+    let best: Date | null = null;
+    for (const value of values) {
+      if (!value) continue;
+      const parsed = value instanceof Date ? value : new Date(String(value));
+      if (Number.isNaN(parsed.getTime())) continue;
+      if (!best || parsed.getTime() > best.getTime()) {
+        best = parsed;
+      }
+    }
+    return best;
+  }
+
+  private async loadMessageActivity(companyId: number) {
+    const [
+      lastInboundCompanyMessage,
+      lastOutboundCompanyMessage,
+      lastLegacyInbound,
+      lastOutboundMessage,
+    ] = await Promise.all([
+      this.prisma.companyMessage.findFirst({
+        where: { companyId, direction: { in: ['INBOUND', 'inbound'] } },
+        orderBy: [{ timestamp: 'desc' }, { createdAt: 'desc' }],
+        select: { timestamp: true, createdAt: true },
+      }),
+      this.prisma.companyMessage.findFirst({
+        where: { companyId, direction: { in: ['OUTBOUND', 'outbound'] } },
+        orderBy: [{ timestamp: 'desc' }, { createdAt: 'desc' }],
+        select: { timestamp: true, createdAt: true },
+      }),
+      this.prisma.inboundMessage.findFirst({
+        where: { companyId },
+        orderBy: { receivedAt: 'desc' },
+        select: { receivedAt: true },
+      }),
+      this.prisma.outboundMessage.findFirst({
+        where: { companyId },
+        orderBy: [{ sentAt: 'desc' }, { createdAt: 'desc' }],
+        select: { sentAt: true, createdAt: true },
+      }),
+    ]);
+
+    return {
+      lastInboundMessageAt: this.maxDate(
+        lastInboundCompanyMessage?.timestamp,
+        lastInboundCompanyMessage?.createdAt,
+        lastLegacyInbound?.receivedAt,
+      ),
+      lastOutboundMessageAt: this.maxDate(
+        lastOutboundCompanyMessage?.timestamp,
+        lastOutboundCompanyMessage?.createdAt,
+        lastOutboundMessage?.sentAt,
+        lastOutboundMessage?.createdAt,
+      ),
+    };
+  }
+
+  private isStoredConnected(value: unknown) {
+    return String(value || '').trim().toUpperCase() === 'CONNECTED';
+  }
+
+  private buildLiveHealthPayload(input: {
+    company: CompanyModalFields;
+    snapshot: ModalSnapshot;
+    providerReachable: boolean;
+    instanceExists: boolean;
+    providerHealth: ProviderHealth;
+    providerErrorMessage?: string | null;
+    lastInboundMessageAt: Date | null;
+    lastOutboundMessageAt: Date | null;
+    checkedAt: Date;
+    ttlSeconds: number;
+    inboundStaleMinutes: number;
+  }): WhatsAppLiveHealthResponse {
+    const storedStatus = this.normalizeOptionalString(input.company.whatsappModalStatus);
+    const storedConnected = this.isStoredConnected(storedStatus);
+    const providerStatus = input.snapshot.rawStatus || input.snapshot.status || null;
+    const lastProviderSyncAt = input.snapshot.updatedAt || input.company.whatsappModalUpdatedAt || null;
+    const providerSyncAgeSeconds = lastProviderSyncAt
+      ? Math.max(0, Math.floor((input.checkedAt.getTime() - lastProviderSyncAt.getTime()) / 1000))
+      : null;
+    const liveConfirmed =
+      input.providerReachable &&
+      input.instanceExists &&
+      input.snapshot.status === 'connected' &&
+      providerSyncAgeSeconds !== null &&
+      providerSyncAgeSeconds <= input.ttlSeconds;
+    const connected =
+      liveConfirmed ||
+      storedConnected ||
+      input.snapshot.status === 'connected' ||
+      input.snapshot.status === 'reconnecting';
+    const inboundStaleSeconds = input.lastInboundMessageAt
+      ? Math.max(0, Math.floor((input.checkedAt.getTime() - input.lastInboundMessageAt.getTime()) / 1000))
+      : null;
+    const inboundStale =
+      connected &&
+      (
+        !input.lastInboundMessageAt ||
+        (inboundStaleSeconds !== null && inboundStaleSeconds > input.inboundStaleMinutes * 60)
+      );
+
+    let status: WhatsAppLiveHealthStatus = 'stale';
+    let recommendedAction: WhatsAppLiveHealthRecommendedAction = 'refresh';
+    let actionLabel = 'Revalidar agora';
+    let actionHref = '/dashboard/whatsapp?focus=qr';
+    let actionFocus: WhatsAppLiveHealthResponse['actionFocus'] = 'qr';
+    let reason = 'Status salvo não tem confirmação viva recente do provider.';
+
+    if (liveConfirmed && !inboundStale) {
+      status = 'healthy';
+      recommendedAction = 'none';
+      actionLabel = 'Conexão confirmada';
+      actionFocus = 'status';
+      reason = 'Provider confirmou sessão conectada recentemente.';
+    } else if (liveConfirmed && inboundStale) {
+      status = 'stale';
+      recommendedAction = 'refresh';
+      actionLabel = 'Revalidar agora';
+      reason = input.lastInboundMessageAt
+        ? 'Provider está vivo, mas não há mensagens recebidas recentes no Atendimento.'
+        : 'Provider está vivo, mas o Atendimento ainda não tem mensagens recebidas registradas.';
+    } else if (!input.providerReachable) {
+      status = storedConnected ? 'reconnecting' : 'error';
+      recommendedAction = storedConnected ? 'refresh' : 'check_provider';
+      actionLabel = storedConnected ? 'Revalidar agora' : 'Ver diagnóstico técnico';
+      actionFocus = storedConnected ? 'qr' : 'status';
+      reason = storedConnected
+        ? 'Status salvo dizia conectado, mas o provider não respondeu à confirmação viva.'
+        : input.providerErrorMessage || 'Provider WebWhats indisponível na confirmação viva.';
+    } else if (!input.instanceExists || input.snapshot.status === 'offline' || input.snapshot.status === 'disconnected') {
+      status = 'disconnected';
+      recommendedAction = 'open_qr';
+      actionLabel = 'Abrir QR Code';
+      reason = !input.instanceExists
+        ? 'Provider respondeu que a instância não existe ou não está ativa.'
+        : 'Provider confirmou sessão desconectada.';
+    } else if (input.snapshot.status === 'reconnecting' || input.snapshot.status === 'starting') {
+      status = 'reconnecting';
+      recommendedAction = 'restart';
+      actionLabel = 'Reiniciar sessão';
+      reason = input.snapshot.lastError || 'WebWhats está reconectando ou iniciando.';
+    } else if (input.snapshot.status === 'waiting_qr') {
+      status = 'disconnected';
+      recommendedAction = 'open_qr';
+      actionLabel = 'Abrir QR Code';
+      reason = 'QR aguardando leitura. A sessão ainda não está viva.';
+    } else if (input.snapshot.status === 'error') {
+      status = 'error';
+      recommendedAction = 'restart';
+      actionLabel = 'Reiniciar sessão';
+      reason = input.snapshot.lastError || 'Provider retornou erro para a instância.';
+    }
+
+    return {
+      status,
+      connected,
+      liveConfirmed,
+      storedStatus,
+      providerStatus,
+      providerReachable: input.providerReachable,
+      lastCheckedAt: input.checkedAt.toISOString(),
+      lastProviderSyncAt: this.toIso(lastProviderSyncAt),
+      lastInboundMessageAt: this.toIso(input.lastInboundMessageAt),
+      lastOutboundMessageAt: this.toIso(input.lastOutboundMessageAt),
+      staleSeconds: providerSyncAgeSeconds,
+      reason,
+      actionLabel,
+      actionHref,
+      actionFocus,
+      recommendedAction,
+      providerHealth: input.providerHealth,
+      inboundStale,
+      inboundStaleSeconds,
+      ttlSeconds: input.ttlSeconds,
+      inboundStaleMinutes: input.inboundStaleMinutes,
+    };
+  }
+
+  async getCompanyLiveHealth(
+    companyId: number,
+    options?: { forceRefresh?: boolean },
+  ): Promise<WhatsAppLiveHealthResponse> {
+    const normalizedCompanyId = Number(companyId || 0);
+    const cacheMs = this.resolveLiveHealthCacheMs();
+    const cached = this.liveHealthCache.get(normalizedCompanyId);
+    if (!options?.forceRefresh && cached && cacheMs > 0 && Date.now() - cached.capturedAtMs <= cacheMs) {
+      return cached.payload;
+    }
+
+    const company = await this.loadCompany(normalizedCompanyId);
+    const ttlSeconds = this.resolveLiveHealthTtlSeconds();
+    const inboundStaleMinutes = this.resolveInboundStaleMinutes();
+    const checkedAt = new Date();
+    const storedSnapshot = this.buildStoredSnapshot(company);
+    const activityPromise = this.loadMessageActivity(normalizedCompanyId);
+    const availabilityResponse = this.buildAvailabilityResponse(company, storedSnapshot, 'status');
+
+    if (availabilityResponse && !availabilityResponse.data.available) {
+      const activity = await activityPromise;
+      const payload = this.buildLiveHealthPayload({
+        company,
+        snapshot: storedSnapshot,
+        providerReachable: false,
+        instanceExists: false,
+        providerHealth: availabilityResponse.data.providerHealth,
+        providerErrorMessage: availabilityResponse.message,
+        lastInboundMessageAt: activity.lastInboundMessageAt,
+        lastOutboundMessageAt: activity.lastOutboundMessageAt,
+        checkedAt,
+        ttlSeconds,
+        inboundStaleMinutes,
+      });
+      this.liveHealthCache.set(normalizedCompanyId, { capturedAtMs: Date.now(), payload });
+      return payload;
+    }
+
+    let snapshot = storedSnapshot;
+    let providerReachable = false;
+    let instanceExists = false;
+    let providerHealth: ProviderHealth = 'unknown';
+    let providerErrorMessage: string | null = null;
+
+    try {
+      const result = await this.fetchLiveSnapshotWithMeta(company, { includeQr: false });
+      snapshot = result.snapshot;
+      providerReachable = result.providerReachable !== false;
+      instanceExists = Boolean(result.instanceExists);
+      providerHealth = providerReachable ? 'healthy' : 'unknown';
+      providerErrorMessage = result.providerErrorMessage || null;
+    } catch (error) {
+      const providerError = this.toProviderError(error);
+      providerReachable = false;
+      providerErrorMessage = providerError.message;
+      providerHealth = providerError.code === 'WHATSAPP_MODAL_NOT_CONFIGURED' ? 'misconfigured' : 'unavailable';
+      if (!this.isTransientProviderError(error)) {
+        const failureSnapshot: ModalSnapshot = {
+          ...storedSnapshot,
+          status: this.isMissingInstanceError(error) ? 'offline' : 'error',
+          connectedAt: this.isMissingInstanceError(error) ? null : storedSnapshot.connectedAt,
+          lastError: this.isMissingInstanceError(error) ? null : providerError.message,
+          updatedAt: checkedAt,
+          qrCodeDataUrl: null,
+        };
+        await this.persistSnapshot(company, failureSnapshot, 'live_health_failure');
+        snapshot = failureSnapshot;
+        providerReachable = this.isMissingInstanceError(error);
+        instanceExists = false;
+        providerHealth = providerReachable ? 'healthy' : providerHealth;
+      }
+    }
+
+    const activity = await activityPromise;
+    const payload = this.buildLiveHealthPayload({
+      company,
+      snapshot,
+      providerReachable,
+      instanceExists,
+      providerHealth,
+      providerErrorMessage,
+      lastInboundMessageAt: activity.lastInboundMessageAt,
+      lastOutboundMessageAt: activity.lastOutboundMessageAt,
+      checkedAt,
+      ttlSeconds,
+      inboundStaleMinutes,
+    });
+    this.liveHealthCache.set(normalizedCompanyId, { capturedAtMs: Date.now(), payload });
+    return payload;
   }
 
   async getCompanyStatus(companyId: number): Promise<WhatsAppModalResponse> {
@@ -809,9 +1130,15 @@ export class WhatsAppModalService {
   }
 
   private shouldPreserveSessionDuringReconnectGrace(snapshot: ModalSnapshot) {
-    if (snapshot.status === 'connected') return Boolean(snapshot.phone || snapshot.connectedAt);
-    if (snapshot.status !== 'reconnecting') return false;
     const updatedAtMs = snapshot.updatedAt instanceof Date ? snapshot.updatedAt.getTime() : 0;
+    if (snapshot.status === 'connected') {
+      return Boolean(
+        (snapshot.phone || snapshot.connectedAt)
+        && updatedAtMs
+        && Date.now() - updatedAtMs <= this.reconnectGraceMs,
+      );
+    }
+    if (snapshot.status !== 'reconnecting') return false;
     return Boolean(updatedAtMs && Date.now() - updatedAtMs <= this.reconnectGraceMs);
   }
 
@@ -2332,6 +2659,8 @@ export class WhatsAppModalService {
         return {
           snapshot: reconnectingSnapshot,
           instanceExists: true,
+          providerReachable: false,
+          providerErrorMessage: providerError.message,
         };
       }
       if (!this.isMissingInstanceError(error)) {
@@ -2391,6 +2720,8 @@ export class WhatsAppModalService {
     return {
       snapshot,
       instanceExists,
+      providerReachable: true,
+      providerErrorMessage: null,
     };
   }
 

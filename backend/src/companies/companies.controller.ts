@@ -695,6 +695,14 @@ export class CompaniesController {
     };
   }
 
+  @Get('me/whatsapp-live-health')
+  @UseGuards(JwtAuthGuard)
+  async getMyWhatsAppLiveHealth(@Req() req: any, @Query('refresh') refresh?: string) {
+    const companyId = await this.resolveOperationalCompanyIdOrThrow(req, { allowPendingCheckout: true });
+    const forceRefresh = String(refresh || '').trim().toLowerCase() === 'true';
+    return this.whatsappModalService.getCompanyLiveHealth(companyId, { forceRefresh });
+  }
+
 
   @Post('me/customer-registry/sync-whatsapp')
   @UseGuards(JwtAuthGuard)

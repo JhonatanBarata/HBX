@@ -24,7 +24,7 @@ export type WhatsAppCenterPayload = {
       available: boolean;
       configured?: boolean;
       note: string;
-      liveStatus: "idle" | "qr_ready" | "connected" | "error";
+      liveStatus: "idle" | "qr_ready" | "connected" | "stale" | "error";
       provider?: string | null;
       instanceKey?: string | null;
       pairingCode?: string | null;
@@ -94,6 +94,39 @@ export type WhatsAppPairingCodePayload = {
   nextAllowedAt?: string | null;
 };
 
+export type WhatsAppLiveHealthStatus = "healthy" | "stale" | "reconnecting" | "disconnected" | "error";
+export type WhatsAppLiveHealthRecommendedAction =
+  | "none"
+  | "refresh"
+  | "restart"
+  | "open_qr"
+  | "disconnect_reconnect"
+  | "check_provider";
+
+export type WhatsAppLiveHealthPayload = {
+  status: WhatsAppLiveHealthStatus;
+  connected: boolean;
+  liveConfirmed: boolean;
+  storedStatus: string | null;
+  providerStatus: string | null;
+  providerReachable: boolean;
+  lastCheckedAt: string;
+  lastProviderSyncAt: string | null;
+  lastInboundMessageAt: string | null;
+  lastOutboundMessageAt: string | null;
+  staleSeconds: number | null;
+  reason: string;
+  actionLabel: string;
+  actionHref: string;
+  actionFocus?: WhatsAppDiagnosticFocus;
+  recommendedAction: WhatsAppLiveHealthRecommendedAction;
+  providerHealth?: "disabled" | "misconfigured" | "healthy" | "unavailable" | "unknown";
+  inboundStale?: boolean;
+  inboundStaleSeconds?: number | null;
+  ttlSeconds?: number;
+  inboundStaleMinutes?: number;
+};
+
 export function formatWhatsAppDateTime(value?: string | null) {
   const iso = String(value || "").trim();
   if (!iso) return "-";
@@ -116,9 +149,20 @@ export function whatsappTrialModuleLabel(value?: string | null) {
 export function whatsappQrConnectionLiveLabel(value?: string | null) {
   const normalized = String(value || "").trim().toLowerCase();
   if (normalized === "connected") return "Conectado por QR";
+  if (normalized === "stale") return "Status salvo, sem confirmação";
   if (normalized === "qr_ready") return "QR aguardando leitura";
   if (normalized === "error") return "Atencao tecnica";
   return "Aguardando ativacao";
+}
+
+export function formatWhatsAppLiveHealthStatus(value?: string | null) {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (normalized === "healthy") return "QR vivo confirmado";
+  if (normalized === "stale") return "Status salvo, sem confirmação";
+  if (normalized === "reconnecting") return "Reconectando";
+  if (normalized === "disconnected") return "Desconectado";
+  if (normalized === "error") return "Provider indisponível";
+  return "Em leitura";
 }
 
 export function whatsappModalStatusLabel(value?: string | null) {

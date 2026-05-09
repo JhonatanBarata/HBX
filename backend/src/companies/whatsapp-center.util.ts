@@ -50,7 +50,7 @@ export type WhatsAppCenterSnapshot = {
     available: boolean;
     configured?: boolean;
     note: string;
-    liveStatus: 'idle' | 'qr_ready' | 'connected' | 'error';
+    liveStatus: 'idle' | 'qr_ready' | 'connected' | 'stale' | 'error';
     provider: string | null;
     instanceKey: string | null;
     pairingCode: string | null;
@@ -179,7 +179,7 @@ export function buildWhatsAppCenterSnapshot(input: {
   }
 
   const qrLiveStatus = qrStatus === 'QR'
-    ? 'connected'
+    ? 'stale'
     : qrCodeData || qrPairingCode
       ? 'qr_ready'
       : qrError
@@ -198,7 +198,7 @@ export function buildWhatsAppCenterSnapshot(input: {
       configured: qrAvailability.configured,
       note:
         qrStatus === 'QR'
-          ? 'Número conectado pelo trilho rápido por QR para ativação inicial e operação leve.'
+          ? 'Status salvo como QR ativo. A confirmação viva vem do health do WebWhats.'
           : qrCodeData || qrPairingCode
             ? 'O QR já está pronto. Falta apenas concluir o pareamento no WhatsApp.'
             : qrAvailability.configured
