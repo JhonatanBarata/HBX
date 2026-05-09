@@ -92,15 +92,10 @@ function parsePositiveInteger(value, fallback) {
 }
 
 function resolveHbxEngineCount(env) {
-  const force100 = isTruthy(env.FORCE_100_ENGINES);
   const requested = parsePositiveInteger(
     env.HBX_ENGINE_COUNT || env.HBX_PUBLISH_ENGINE_COUNT,
-    force100 ? 100 : 20,
+    100,
   );
-  if (requested >= 100 && !force100) {
-    console.log('HBX_ENGINE_COUNT >= 100 ignorado sem FORCE_100_ENGINES=true; usando 20.');
-    return 20;
-  }
   return requested;
 }
 

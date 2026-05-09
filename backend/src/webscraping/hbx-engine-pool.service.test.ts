@@ -99,6 +99,13 @@ test('parseHbxEngineUrls supports HBX_ENGINE_COUNT up to one hundred URLs', () =
   });
 });
 
+test('parseHbxEngineUrls expands numbered URL template', () => {
+  assert.deepEqual(
+    parseHbxEngineUrls('http://hbx-engine-{n}:8001', 3),
+    ['http://hbx-engine-1:8001', 'http://hbx-engine-2:8001', 'http://hbx-engine-3:8001'],
+  );
+});
+
 test('HBX_ENGINE_COUNT=100 accepts one hundred configured URLs', () => {
   assert.deepEqual(
     resolveConfiguredHbxEngineUrls({
@@ -454,6 +461,58 @@ test('manual acquisition can use reserved engine while automatic engines are bus
     const lease = await service.acquireEngine('manual-run-1', 7, 9, { purpose: 'manual' });
     assert.equal(lease?.engineId, 'hbx-engine-19');
     assert.deepEqual(claimed, ['hbx-engine-19']);
+  });
+});
+
+test('manual acquisition preempts automatic mass-data lock when every engine is busy', async () => {
+  await withEnv({
+    NODE_ENV: 'production',
+    HBX_ENGINE_COUNT: '20',
+    HBX_MANUAL_RESERVED_ENGINES: '2',
+    HBX_AUTONOMOUS_MAX_MEMORY_PRESSURE_PERCENT: '100',
+  }, async () => {
+    const rows = buildEngineRows(20);
+    for (let index = 0; index < rows.length; index += 1) {
+      rows[index].status = 'busy';
+      rows[index].lockedRunId = `campaign-1:mass:${index}`;
+      rows[index].lockedUntil = new Date(Date.now() + 60_000);
+    }
+    const updates: any[] = [];
+    const taskUpdates: any[] = [];
+    const prisma = {
+      hasTable: async () => true,
+      hbxEngineLock: {
+        updateMany: async (input: any) => {
+          updates.push(input);
+          if (input?.where?.lockedRunId) {
+            rows[0].lockedRunId = null;
+            rows[0].lockedUntil = null;
+            rows[0].status = 'online';
+            return { count: 1 };
+          }
+          if (input?.where?.id === 'hbx-engine-1') return { count: 1 };
+          return { count: 0 };
+        },
+      },
+      webscrapingCampaignTask: {
+        updateMany: async (input: any) => {
+          taskUpdates.push(input);
+          return { count: 1 };
+        },
+      },
+      webscrapingSearchRun: {
+        count: async () => 0,
+      },
+    };
+    const service = createPoolForCapacity({ queuedCount: 100 }) as any;
+    service.prisma = prisma;
+    service.cleanupExpiredLocks = async () => undefined;
+    service.healthCheckEngines = async () => rows;
+
+    const lease = await service.acquireEngine('manual-run-2', 7, 9, { purpose: 'manual' });
+    assert.equal(lease?.engineId, 'hbx-engine-1');
+    assert.equal(taskUpdates[0].data.status, 'queued');
+    assert.equal(updates.some((input) => input?.where?.lockedRunId === 'campaign-1:mass:0'), true);
   });
 });
 

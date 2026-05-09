@@ -120,8 +120,6 @@ type FilterState = {
   status: string;
 };
 
-type EngineStatus = "online" | "busy" | "standby" | "attention" | "error";
-
 const PAGE_SIZE = 100;
 const RADAR_PROGRESS_STEPS = ["lendo banco", "filtrando negativos", "selecionando melhores cards", "alimentando Vendas/Prospecção"];
 
@@ -138,18 +136,6 @@ const DEFAULT_FILTERS: FilterState = {
   highOpportunity: false,
   status: "",
 };
-
-const ENGINE_PANELS = Array.from({ length: 5 }, (_, index) => {
-  const start = index * 20 + 1;
-  const end = start + 19;
-  return {
-    id: index + 1,
-    start,
-    end,
-    title: `Painel ${index + 1}`,
-    range: `Motores ${start}-${end}`,
-  };
-});
 
 function formatPhone(value?: string | null) {
   const digits = String(value || "").replace(/\D/g, "");
@@ -335,13 +321,6 @@ function canPullWithFilters(filters: FilterState) {
   return Boolean(filters.city.trim() && filters.segment.trim());
 }
 
-function engineStatusFor(engineNumber: number, selectedPanel: number | null, searching: boolean, error: string | null): EngineStatus {
-  if (error && selectedPanel && engineNumber > (selectedPanel - 1) * 20 && engineNumber <= selectedPanel * 20) return "attention";
-  if (searching && engineNumber <= 20) return engineNumber <= 4 ? "busy" : "online";
-  if (engineNumber <= 20) return "online";
-  return "standby";
-}
-
 export default function RadarDigitalClientPage() {
   const hasToken = useRequireModule("webscraping");
   const searchParams = useSearchParams();
@@ -350,7 +329,6 @@ export default function RadarDigitalClientPage() {
   const [generalSearch, setGeneralSearch] = useState("");
   const [appliedGeneralSearch, setAppliedGeneralSearch] = useState("");
   const [hasSearched, setHasSearched] = useState(false);
-  const [selectedEnginePanel, setSelectedEnginePanel] = useState<number | null>(null);
   const [items, setItems] = useState<RadarLead[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -376,17 +354,6 @@ export default function RadarDigitalClientPage() {
   );
   const highOpportunityCount = useMemo(
     () => visibleItems.filter((item) => Number(item.opportunityScore || 0) >= 70).length,
-    [visibleItems],
-  );
-  const attentionCount = useMemo(
-    () => visibleItems.filter((item) => {
-      const score = Number(item.opportunityScore || 0);
-      return score >= 45 && score < 70;
-    }).length,
-    [visibleItems],
-  );
-  const criticalCount = useMemo(
-    () => visibleItems.filter((item) => Number(item.opportunityScore || 0) < 45).length,
     [visibleItems],
   );
 
@@ -719,7 +686,7 @@ export default function RadarDigitalClientPage() {
         apiFetch<RadarPullResponse>("/webscraping/radar/pull", {
           method: "POST",
           requireAuth: true,
-          timeoutMs: 25000,
+          timeoutMs: 90000,
           body: JSON.stringify({
             ...nextFilters,
             targetType,
@@ -896,49 +863,10 @@ export default function RadarDigitalClientPage() {
 
   const hasMore = hasSearched && items.length < total;
   const availableSegments = availableFilters.segments || [];
-  const diagnosticsCount = [error, feedback, loading || searching || loadingMore || bulkSending || actionId, hasSearched].filter(Boolean).length;
-  const panelRows = selectedEnginePanel
-    ? Array.from({ length: 20 }, (_, index) => ((selectedEnginePanel - 1) * 20) + index + 1)
-    : [];
-  const diagnostics = [
-    error ? {
-      id: "erro-atual",
-      engine: selectedEnginePanel ? `Painel ${selectedEnginePanel}` : "Painel",
-      context: error,
-      status: "Atenção",
-      severity: "Alta",
-      action: "Revisar mensagem",
-    } : null,
-    feedback ? {
-      id: "feedback-atual",
-      engine: selectedEnginePanel ? `Painel ${selectedEnginePanel}` : "Painel",
-      context: feedback,
-      status: "Informativo",
-      severity: "Baixa",
-      action: "Acompanhar",
-    } : null,
-    {
-      id: "estado-busca",
-      engine: selectedEnginePanel ? `Painel ${selectedEnginePanel}` : "Painel 1",
-      context: `Derivado: ${visibleItems.length} card(s) carregados, página ${page}, ${PAGE_SIZE} por página.`,
-      status: loading || searching || loadingMore || bulkSending ? "Processando" : hasSearched ? "Pronto" : "Aguardando",
-      severity: error ? "Média" : "Baixa",
-      action: hasSearched ? "Monitorar" : "Pesquisar",
-    },
-    selectedEnginePanel ? {
-      id: "painel-selecionado",
-      engine: `Painel ${selectedEnginePanel}`,
-      context: `Derivado: visualizando motores ${((selectedEnginePanel - 1) * 20) + 1}-${selectedEnginePanel * 20}.`,
-      status: selectedEnginePanel === 1 ? "Online" : "Standby",
-      severity: selectedEnginePanel === 1 ? "Baixa" : "Média",
-      action: "Visual",
-    } : null,
-  ].filter(Boolean) as Array<{ id: string; engine: string; context: string; status: string; severity: string; action: string }>;
-
   return (
     <DashboardScaffold
       title="Radar Digital"
-      description="Painel inteligente de pesquisa e diagnósticos."
+      description="Pesquisa de clientes e envio para Vendas."
       hideHeader
       showDashboardShortcut={false}
     >
@@ -947,7 +875,7 @@ export default function RadarDigitalClientPage() {
           <div>
             <span>HBX</span>
             <h1>Radar Digital</h1>
-            <p>Painel inteligente de pesquisa e diagnósticos.</p>
+            <p>Pesquise clientes, revise os cards e envie os melhores para Vendas.</p>
           </div>
           <button
             type="button"
@@ -1060,85 +988,6 @@ export default function RadarDigitalClientPage() {
         {error ? <div className={styles.notice} data-tone="error">{compactRadarMessage(error)}</div> : null}
         {feedback ? <div className={styles.notice} data-tone="ok">{feedback}</div> : null}
 
-        <div className={styles.summaryBar}>
-          <div>
-            <span>Diagnósticos</span>
-            <strong>{diagnosticsCount.toLocaleString("pt-BR")}</strong>
-            <small>derivados do estado</small>
-          </div>
-          <div>
-            <span>Saudáveis</span>
-            <strong>{highOpportunityCount.toLocaleString("pt-BR")}</strong>
-            <small>score alto</small>
-          </div>
-          <div>
-            <span>Atenção</span>
-            <strong>{attentionCount.toLocaleString("pt-BR")}</strong>
-            <small>score médio</small>
-          </div>
-          <div>
-            <span>Críticos</span>
-            <strong>{criticalCount.toLocaleString("pt-BR")}</strong>
-            <small>score baixo</small>
-          </div>
-          <div>
-            <span>Cards encontrados</span>
-            <strong>{visibleItems.length.toLocaleString("pt-BR")}</strong>
-            <small>{total.toLocaleString("pt-BR")} no retorno</small>
-          </div>
-        </div>
-
-        <section className={styles.engines}>
-          <div className={styles.sectionHeader}>
-            <div>
-              <span>Motores</span>
-              <strong>Painéis de execução</strong>
-            </div>
-            <small>Painéis 2 a 5 podem aparecer em standby se os motores 21+ ainda não estiverem ativos no backend.</small>
-          </div>
-          <div className={styles.enginePanelGrid}>
-            {ENGINE_PANELS.map((panel) => {
-              const isActive = selectedEnginePanel === panel.id;
-              const panelItems = Array.from({ length: 20 }, (_, index) => panel.start + index);
-              const statusCounts = panelItems.reduce<Record<EngineStatus, number>>((acc, engineNumber) => {
-                const status = engineStatusFor(engineNumber, selectedEnginePanel, searching, error);
-                acc[status] += 1;
-                return acc;
-              }, { online: 0, busy: 0, standby: 0, attention: 0, error: 0 });
-              return (
-                <button
-                  key={panel.id}
-                  type="button"
-                  className={styles.enginePanelCard}
-                  data-active={isActive ? "true" : "false"}
-                  onClick={() => setSelectedEnginePanel((current) => current === panel.id ? null : panel.id)}
-                >
-                  <span>{panel.title}</span>
-                  <strong>{panel.range}</strong>
-                  <dl>
-                    <div><dt>online</dt><dd>{statusCounts.online}</dd></div>
-                    <div><dt>rodando</dt><dd>{statusCounts.busy}</dd></div>
-                    <div><dt>standby</dt><dd>{statusCounts.standby + statusCounts.attention}</dd></div>
-                    <div><dt>cards hoje</dt><dd>{panel.id === 1 ? visibleItems.length : 0}</dd></div>
-                  </dl>
-                </button>
-              );
-            })}
-          </div>
-          {selectedEnginePanel ? (
-            <div className={styles.engineMiniGrid}>
-              {panelRows.map((engineNumber) => {
-                const status = engineStatusFor(engineNumber, selectedEnginePanel, searching, error);
-                return (
-                  <button key={engineNumber} type="button" data-status={status} title={`Motor ${engineNumber}: ${status}`}>
-                    {engineNumber}
-                  </button>
-                );
-              })}
-            </div>
-          ) : null}
-        </section>
-
         <section className={styles.results}>
           <div className={styles.resultsHeader}>
             <div>
@@ -1239,43 +1088,6 @@ export default function RadarDigitalClientPage() {
           ) : null}
         </section>
 
-        <section className={styles.diagnostics}>
-          <div className={styles.sectionHeader}>
-            <div>
-              <span>Diagnósticos</span>
-              <strong>Leitura do estado atual</strong>
-            </div>
-            <small>Dados derivados do frontend quando não há diagnóstico real retornado pelo backend.</small>
-          </div>
-          <div className={styles.diagnosticsTable}>
-            <table>
-              <thead>
-                <tr>
-                  <th>ID</th>
-                  <th>Motor/Painel</th>
-                  <th>Contexto</th>
-                  <th>Data/Hora</th>
-                  <th>Status</th>
-                  <th>Severidade</th>
-                  <th>Ação</th>
-                </tr>
-              </thead>
-              <tbody>
-                {diagnostics.map((row) => (
-                  <tr key={row.id}>
-                    <td>{row.id}</td>
-                    <td>{row.engine}</td>
-                    <td>{row.context}</td>
-                    <td>{new Date().toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}</td>
-                    <td>{row.status}</td>
-                    <td>{row.severity}</td>
-                    <td>{row.action}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </section>
       </section>
     </DashboardScaffold>
   );
