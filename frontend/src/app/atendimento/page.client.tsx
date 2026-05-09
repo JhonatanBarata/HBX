@@ -3187,6 +3187,7 @@ export default function InboxClientPage() {
   const botConfigLoadedRef = useRef(false);
   const agendaConfigLoadedRef = useRef(false);
   const sendTextDirtyRef = useRef(false);
+  const restoreComposerFocusAfterSendRef = useRef(false);
   const lastSectionChangeRef = useRef<{ section: AtendimentoSection | null; at: number }>({
     section: null,
     at: 0,
@@ -5880,6 +5881,7 @@ export default function InboxClientPage() {
       event.preventDefault();
       if (!selectedId || selectedConversationInteractionBlocked) return;
       if (!sendText.trim() && !imagePreview) return;
+      restoreComposerFocusAfterSendRef.current = document.activeElement === chatComposerInputRef.current;
       setSending(true);
       setError(null);
       try {
@@ -5952,6 +5954,12 @@ export default function InboxClientPage() {
         setError(message);
       } finally {
         setSending(false);
+        if (restoreComposerFocusAfterSendRef.current) {
+          window.requestAnimationFrame(() => {
+            chatComposerInputRef.current?.focus();
+          });
+        }
+        restoreComposerFocusAfterSendRef.current = false;
       }
     },
     [

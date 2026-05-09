@@ -898,21 +898,36 @@ export class WhatsAppModalService {
     phoneNumber: string,
     options?: { retryExistingInstance?: boolean },
   ) {
-    try {
-      this.logger.log(`pairing creating instance with number tenant=${tenantKey} phone=${this.maskPairingPhoneForLog(phoneNumber)}`);
-      return await this.createProviderInstance(tenantKey, phoneNumber);
-    } catch (error) {
-      const providerError = this.toProviderError(error);
-      if (options?.retryExistingInstance !== false && this.isExistingInstanceError(providerError)) {
+    const retryDelaysMs = options?.retryExistingInstance === false ? [0] : [0, 800, 1600, 2600];
+    let lastExistingInstanceError: WhatsAppModalProviderError | null = null;
+
+    for (let attempt = 0; attempt < retryDelaysMs.length; attempt += 1) {
+      if (retryDelaysMs[attempt] > 0) {
+        await this.sleep(retryDelaysMs[attempt]);
+      }
+
+      try {
+        this.logger.log(`pairing creating instance with number tenant=${tenantKey} phone=${this.maskPairingPhoneForLog(phoneNumber)}`);
+        return await this.createProviderInstance(tenantKey, phoneNumber);
+      } catch (error) {
+        const providerError = this.toProviderError(error);
+        if (options?.retryExistingInstance === false || !this.isExistingInstanceError(providerError)) {
+          throw providerError;
+        }
+
+        lastExistingInstanceError = providerError;
         this.logger.warn(
-          `Modal WhatsApp instancia existente durante pairing para ${tenantKey}: ${providerError.message}. Resetando e recriando com number.`,
+          `Modal WhatsApp instancia existente durante pairing para ${tenantKey} tentativa=${attempt + 1}/${retryDelaysMs.length}: ` +
+            `${providerError.message}. Resetando e aguardando exclusao antes de recriar com number.`,
         );
         await this.resetProviderInstanceForPairing(tenantKey);
-        this.logger.log(`pairing creating instance with number tenant=${tenantKey} phone=${this.maskPairingPhoneForLog(phoneNumber)}`);
-        return this.createProviderInstance(tenantKey, phoneNumber);
       }
-      throw providerError;
     }
+
+    throw lastExistingInstanceError || new WhatsAppModalProviderError(
+      'WHATSAPP_MODAL_HTTP_ERROR',
+      'Instância WhatsApp já existe ou está em uso durante criacao da instancia.',
+    );
   }
 
   private async fetchProviderConnectionStateForPairing(tenantKey: string) {
