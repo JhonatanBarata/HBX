@@ -691,8 +691,8 @@ export default function RadarDigitalClientPage() {
             ...nextFilters,
             targetType,
             quantity,
-            minimumStock: Math.min(quantity, 20),
-            desiredStock: Math.max(quantity, 60),
+            minimumStock: Math.max(1, Math.min(quantity, 10)),
+            desiredStock: Math.max(1, quantity),
           }),
         });
 

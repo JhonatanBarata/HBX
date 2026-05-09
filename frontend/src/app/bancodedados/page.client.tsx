@@ -261,12 +261,20 @@ function timeValue(hour?: number | null, minute?: number | null) {
   return `${String(Number(hour || 0)).padStart(2, "0")}:${String(Number(minute || 0)).padStart(2, "0")}`;
 }
 
-function parseTimeValue(value: string) {
-  const [hour, minute] = String(value || "").split(":").map((part) => Number(part));
-  return {
-    hour: Number.isFinite(hour) ? Math.min(Math.max(Math.trunc(hour), 0), 23) : 0,
-    minute: Number.isFinite(minute) ? Math.min(Math.max(Math.trunc(minute), 0), 59) : 0,
-  };
+function normalizeFactoryTimeInput(value: string) {
+  const digits = String(value || "").replace(/\D/g, "").slice(0, 4);
+  if (digits.length <= 2) return digits;
+  return `${digits.slice(0, 2)}:${digits.slice(2)}`;
+}
+
+function parseFactoryTimeInput(value: string) {
+  const normalized = normalizeFactoryTimeInput(value);
+  const match = normalized.match(/^(\d{1,2}):(\d{2})$/);
+  if (!match) return null;
+  const hour = Number(match[1]);
+  const minute = Number(match[2]);
+  if (!Number.isInteger(hour) || !Number.isInteger(minute) || hour < 0 || hour > 23 || minute < 0 || minute > 59) return null;
+  return { hour, minute, label: timeValue(hour, minute) };
 }
 
 function factoryReasonLabel(value?: string | null) {
@@ -305,6 +313,10 @@ export default function BancoDeDadosClientPage() {
   const [selectedEnginePanelId, setSelectedEnginePanelId] = useState<string | null>(null);
   const [enginePanelBusy, setEnginePanelBusy] = useState<string | null>(null);
   const [rotatingMetricIndex, setRotatingMetricIndex] = useState(0);
+  const [editingFactoryField, setEditingFactoryField] = useState<"maxEngines" | "startTime" | "endTime" | null>(null);
+  const [factoryMaxEnginesDraft, setFactoryMaxEnginesDraft] = useState("");
+  const [factoryStartTimeDraft, setFactoryStartTimeDraft] = useState("");
+  const [factoryEndTimeDraft, setFactoryEndTimeDraft] = useState("");
 
   const selectedTarget = useMemo(() => {
     if (!selectedTargetKey) return null;
@@ -419,6 +431,15 @@ export default function BancoDeDadosClientPage() {
   const factory = audit?.factory;
   const protection = audit?.clientProtection;
   const queueActive = Number(summary?.campaignsQueued || 0) + Number(summary?.campaignsRunning || 0) + Number(summary?.searchRunsQueued || 0) + Number(summary?.searchRunsRunning || 0);
+  const configuredFactoryMaxEngines = Number(factory?.schedule?.maxEngines ?? protection?.factoryMaxEngines ?? 16);
+  const configuredFactoryStartTime = timeValue(factory?.schedule?.startHour ?? 22, factory?.schedule?.startMinute ?? 0);
+  const configuredFactoryEndTime = timeValue(factory?.schedule?.endHour ?? 7, factory?.schedule?.endMinute ?? 0);
+
+  useEffect(() => {
+    if (editingFactoryField !== "maxEngines") setFactoryMaxEnginesDraft(String(configuredFactoryMaxEngines));
+    if (editingFactoryField !== "startTime") setFactoryStartTimeDraft(configuredFactoryStartTime);
+    if (editingFactoryField !== "endTime") setFactoryEndTimeDraft(configuredFactoryEndTime);
+  }, [configuredFactoryEndTime, configuredFactoryMaxEngines, configuredFactoryStartTime, editingFactoryField]);
 
   const visibleCards = useMemo(() => cardsPayload?.items || [], [cardsPayload?.items]);
   const selectedVisibleCount = visibleCards.filter((card) => selectedCardIds.has(card.id)).length;
@@ -570,11 +591,53 @@ export default function BancoDeDadosClientPage() {
       });
       await loadAudit({ silent: true });
       setFeedback(successMessage);
+      return true;
     } catch (err) {
       setError(err instanceof Error ? err.message : "Falha ao salvar controle da fábrica.");
+      return false;
     } finally {
       setSaving(false);
     }
+  }
+
+  async function commitFactoryMaxEngines() {
+    const maxEngines = Number(factoryMaxEnginesDraft);
+    if (!Number.isInteger(maxEngines) || maxEngines < 0 || maxEngines > 100) {
+      setError("Digite um limite de motores entre 0 e 100.");
+      return;
+    }
+    if (maxEngines === configuredFactoryMaxEngines) {
+      setEditingFactoryField(null);
+      setFactoryMaxEnginesDraft(String(maxEngines));
+      return;
+    }
+    const saved = await saveFactorySchedule({ maxEngines, engineCount: maxEngines, emergencyStop: false }, `Limite da fábrica ajustado para ${maxEngines} motor(es).`);
+    if (saved) setEditingFactoryField(null);
+  }
+
+  async function commitFactoryTime(field: "startTime" | "endTime") {
+    const parsed = parseFactoryTimeInput(field === "startTime" ? factoryStartTimeDraft : factoryEndTimeDraft);
+    if (!parsed) {
+      setError("Digite o horário no formato HH:MM, por exemplo 18:00.");
+      return;
+    }
+    if (field === "startTime") {
+      setFactoryStartTimeDraft(parsed.label);
+      if (parsed.label === configuredFactoryStartTime) {
+        setEditingFactoryField(null);
+        return;
+      }
+      const saved = await saveFactorySchedule({ startHour: parsed.hour, startMinute: parsed.minute }, "Horário inicial da fábrica atualizado.");
+      if (saved) setEditingFactoryField(null);
+      return;
+    }
+    setFactoryEndTimeDraft(parsed.label);
+    if (parsed.label === configuredFactoryEndTime) {
+      setEditingFactoryField(null);
+      return;
+    }
+    const saved = await saveFactorySchedule({ endHour: parsed.hour, endMinute: parsed.minute }, "Horário final da fábrica atualizado.");
+    if (saved) setEditingFactoryField(null);
   }
 
   function updateCardFilter<K extends keyof CardFilters>(key: K, value: CardFilters[K]) {
@@ -911,39 +974,84 @@ export default function BancoDeDadosClientPage() {
           <div className={styles.factoryGrid}>
             <label>
               <span>Motores trabalhando</span>
-              <select
-                value={String(protection?.factoryMaxEngines ?? 16)}
+              <input
+                type="text"
+                inputMode="numeric"
+                value={factoryMaxEnginesDraft}
+                onFocus={() => setEditingFactoryField("maxEngines")}
                 onChange={(event) => {
-                  const maxEngines = Number(event.target.value);
-                  void saveFactorySchedule({ maxEngines, engineCount: maxEngines, emergencyStop: false }, `Limite da fábrica ajustado para ${maxEngines} motor(es).`);
+                  setEditingFactoryField("maxEngines");
+                  setFactoryMaxEnginesDraft(event.target.value.replace(/\D/g, "").slice(0, 3));
+                }}
+                onBlur={() => void commitFactoryMaxEngines()}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.currentTarget.blur();
+                  }
+                  if (event.key === "Escape") {
+                    setFactoryMaxEnginesDraft(String(configuredFactoryMaxEngines));
+                    setEditingFactoryField(null);
+                    event.currentTarget.blur();
+                  }
                 }}
                 disabled={saving}
-              >
-                {Array.from({ length: 11 }, (_, index) => index * 10).map((value) => <option key={value} value={value}>{value}</option>)}
-              </select>
+                aria-label="Motores trabalhando"
+              />
             </label>
             <label>
               <span>Horário início</span>
               <input
-                type="time"
-                value={timeValue(factory?.schedule?.startHour ?? 22, factory?.schedule?.startMinute ?? 0)}
+                type="text"
+                inputMode="numeric"
+                maxLength={5}
+                placeholder="18:00"
+                value={factoryStartTimeDraft}
+                onFocus={() => setEditingFactoryField("startTime")}
                 onChange={(event) => {
-                  const next = parseTimeValue(event.target.value);
-                  void saveFactorySchedule({ startHour: next.hour, startMinute: next.minute }, "Horário inicial da fábrica atualizado.");
+                  setEditingFactoryField("startTime");
+                  setFactoryStartTimeDraft(normalizeFactoryTimeInput(event.target.value));
+                }}
+                onBlur={() => void commitFactoryTime("startTime")}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.currentTarget.blur();
+                  }
+                  if (event.key === "Escape") {
+                    setFactoryStartTimeDraft(configuredFactoryStartTime);
+                    setEditingFactoryField(null);
+                    event.currentTarget.blur();
+                  }
                 }}
                 disabled={saving}
+                aria-label="Horário início"
               />
             </label>
             <label>
               <span>Horário fim</span>
               <input
-                type="time"
-                value={timeValue(factory?.schedule?.endHour ?? 7, factory?.schedule?.endMinute ?? 0)}
+                type="text"
+                inputMode="numeric"
+                maxLength={5}
+                placeholder="08:00"
+                value={factoryEndTimeDraft}
+                onFocus={() => setEditingFactoryField("endTime")}
                 onChange={(event) => {
-                  const next = parseTimeValue(event.target.value);
-                  void saveFactorySchedule({ endHour: next.hour, endMinute: next.minute }, "Horário final da fábrica atualizado.");
+                  setEditingFactoryField("endTime");
+                  setFactoryEndTimeDraft(normalizeFactoryTimeInput(event.target.value));
+                }}
+                onBlur={() => void commitFactoryTime("endTime")}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.currentTarget.blur();
+                  }
+                  if (event.key === "Escape") {
+                    setFactoryEndTimeDraft(configuredFactoryEndTime);
+                    setEditingFactoryField(null);
+                    event.currentTarget.blur();
+                  }
                 }}
                 disabled={saving}
+                aria-label="Horário fim"
               />
             </label>
             <label className={styles.factoryCheckField}>
