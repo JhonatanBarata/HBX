@@ -569,6 +569,7 @@ type NormalizedRadarFilters = {
   targetType: HbxTargetType;
   desiredStock: number;
   minimumStock: number;
+  stockOverride: boolean;
 };
 
 type SearchHistoryRow = {
@@ -1276,7 +1277,14 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
             }
             hbxEngineUrl = acquiredLease.url;
           }
-          const hbxOutput = await this.searchHbxEngine(normalized, Array.from(seenPhones), hbxEngineUrl);
+          const hbxOutput = await this.searchHbxEngine(
+            normalized,
+            Array.from(seenPhones),
+            hbxEngineUrl,
+            purpose === 'radar_pull' || purpose === 'radar_digital'
+              ? { timeoutMs: this.getRadarClientRequestTimeoutMs(), batchLimit: normalized.quantity }
+              : {},
+          );
           hbxResults = hbxOutput.results;
           hbxStatus = hbxOutput.status;
           hbxMessage = hbxOutput.message;
@@ -1968,10 +1976,14 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     return Math.max(5_000, parsePositiveIntegerEnv('HBX_SEARCH_BATCH_TIMEOUT_MS', 35_000));
   }
 
+  private getRadarClientRequestTimeoutMs() {
+    return Math.max(5_000, parsePositiveIntegerEnv('HBX_RADAR_CLIENT_REQUEST_TIMEOUT_MS', 15_000));
+  }
+
   private getRadarPullEngineAttempts() {
     return Math.max(1, Math.min(
       getConfiguredHbxEngineCount(),
-      parsePositiveIntegerEnv('HBX_RADAR_PULL_ENGINE_ATTEMPTS', 3),
+      parsePositiveIntegerEnv('HBX_RADAR_PULL_ENGINE_ATTEMPTS', 2),
     ));
   }
 
@@ -3794,8 +3806,9 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       includeHidden: coerceBoolean(input.includeHidden),
       engine: normalizeEngine(input.engine),
       targetType: normalizeTargetType(input.targetType),
-      desiredStock: Math.min(Math.max(Math.trunc(Number(input.desiredStock || 300) || 300), 20), 1000),
+      desiredStock: Math.min(Math.max(Math.trunc(Number(input.desiredStock || 300) || 300), 1), 1000),
       minimumStock: Math.min(Math.max(Math.trunc(Number(input.minimumStock || 80) || 80), 1), 500),
+      stockOverride: input.desiredStock != null || input.minimumStock != null,
     };
   }
 
@@ -4587,6 +4600,14 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async getRadarStockConfig(filters: NormalizedRadarFilters) {
+    if (filters.stockOverride) {
+      return {
+        desiredStock: filters.desiredStock,
+        minimumStock: filters.minimumStock,
+        engine: filters.engine,
+        targetType: filters.targetType,
+      };
+    }
     if (!(await this.prisma.hasTable('RadarStockConfig'))) {
       return {
         desiredStock: filters.desiredStock,
