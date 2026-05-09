@@ -4316,10 +4316,27 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     }
 
     const deliveredRows = rows.slice(0, filters.quantity);
-    await this.markRadarDelivered(context.companyId, context.userId, deliveredRows);
+    
+    try {
+      await this.markRadarDelivered(context.companyId, context.userId, deliveredRows);
+    } catch (error: any) {
+      this.logger.error(`[radar] failed to mark delivered: ${error?.message || error}`);
+    }
+
+    let items: any[] = [];
+    try {
+      items = deliveredRows.map((row) => this.buildRadarLeadPublic({ ...row, companyStates: [{ status: 'delivered' }] }));
+    } catch (error: any) {
+      this.logger.error(`[radar] failed to build public leads: ${error?.message || error}`);
+      items = deliveredRows.map((row) => ({
+        placeId: row?.placeId || `radar:${row?.id}`,
+        name: String(row?.name || 'Empresa sem nome'),
+        phone: row?.phone || row?.phoneDigits || '',
+      }));
+    }
 
     return {
-      items: deliveredRows.map((row) => this.buildRadarLeadPublic({ ...row, companyStates: [{ status: 'delivered' }] })),
+      items,
       meta: {
         requestedQuantity: filters.quantity,
         deliveredCount: deliveredRows.length,
@@ -4467,27 +4484,31 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     }
 
     if (fetchedResults.length) {
-      await this.persistRadarLeadPoolBatch(
-        {
-          ...this.normalizeSearchInput({
+      try {
+        await this.persistRadarLeadPoolBatch(
+          {
+            ...this.normalizeSearchInput({
+              city: filters.city,
+              state: filters.state,
+              segment: filters.segment,
+              quantity: Math.min(fetchedResults.length, maxQuantityFor(effectiveFilters.engine, effectiveFilters.targetType)),
+              engine: effectiveFilters.engine,
+              targetType: effectiveFilters.targetType,
+              minRating: filters.minRating,
+              minReviews: filters.minReviews,
+            }),
             city: filters.city,
             state: filters.state,
             segment: filters.segment,
-            quantity: Math.min(fetchedResults.length, maxQuantityFor(effectiveFilters.engine, effectiveFilters.targetType)),
-            engine: effectiveFilters.engine,
-            targetType: effectiveFilters.targetType,
-            minRating: filters.minRating,
-            minReviews: filters.minReviews,
-          }),
-          city: filters.city,
-          state: filters.state,
-          segment: filters.segment,
-          normalizedCity: filters.normalizedCity,
-          normalizedSegment: filters.normalizedSegment,
-        },
-        fetchedResults,
-        effectiveFilters.engine,
-      );
+            normalizedCity: filters.normalizedCity,
+            normalizedSegment: filters.normalizedSegment,
+          },
+          fetchedResults,
+          effectiveFilters.engine,
+        );
+      } catch (error: any) {
+        this.logger.error(`[radar] failed to persist batch: ${error?.message || error}`);
+      }
     }
 
     const afterRows = await this.queryRadarRowsForCompany(context.companyId, effectiveFilters, {
