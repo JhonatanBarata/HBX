@@ -206,7 +206,8 @@
   gap: 10px;
 }
 
-.factoryGrid div {
+.factoryGrid div,
+.factoryGrid label {
   min-width: 0;
   display: grid;
   gap: 6px;
@@ -214,6 +215,18 @@
   border: 1px solid var(--bd-border);
   border-radius: 8px;
   background: var(--bd-soft);
+}
+
+.factoryGrid input,
+.factoryGrid select {
+  width: 100%;
+  min-height: 38px;
+  border: 1px solid var(--bd-border);
+  border-radius: 8px;
+  background: var(--bd-surface);
+  color: var(--bd-text);
+  padding: 0 10px;
+  font-weight: 800;
 }
 
 .factoryGrid strong {

@@ -185,6 +185,93 @@ test('HBX_ENGINE_COUNT=100 is accepted without the old twenty-engine clamp', () 
   assert.equal(buildLocalHbxEngineUrls(100).length, 100);
 });
 
+test('factory scheduler defaults to safe sixteen engines in production when max is empty', () => {
+  withEnv({ NODE_ENV: 'production', HBX_ENGINE_COUNT: '100', HBX_FACTORY_MAX_ENGINES: '', HBX_FACTORY_START_HOUR: '0', HBX_FACTORY_END_HOUR: '0' }, () => {
+    const service = new HbxEnginePoolService({} as any);
+    const allowed = service.resolveFactoryAllowedEngines({
+      engineCount: 100,
+      onlineHealthyEngines: 100,
+      manualReservedEngines: 2,
+      memoryPressurePercent: 50,
+      operationalConfig: { enabled: true, metadataJson: '{}' },
+    });
+    assert.equal(allowed.maxEngines, 16);
+    assert.equal(allowed.allowedEngines, 16);
+  });
+});
+
+test('factory scheduler blocks mass data outside the configured window without blocking inventory', () => {
+  withEnv({ NODE_ENV: 'production', HBX_ENGINE_COUNT: '100', HBX_FACTORY_MAX_ENGINES: '16' }, () => {
+    const service = new HbxEnginePoolService({} as any);
+    const allowed = service.resolveFactoryAllowedEngines({
+      engineCount: 100,
+      onlineHealthyEngines: 100,
+      manualReservedEngines: 2,
+      memoryPressurePercent: 50,
+      operationalConfig: { enabled: true, startHour: 22, startMinute: 0, endHour: 7, endMinute: 0, metadataJson: '{}' },
+      date: new Date('2026-05-09T15:00:00-03:00'),
+    });
+    assert.equal(allowed.windowStatus, 'closed');
+    assert.equal(allowed.reason, 'outside_factory_window');
+    assert.equal(allowed.allowedEngines, 0);
+  });
+});
+
+test('factory scheduler handles windows crossing midnight', () => {
+  withEnv({ NODE_ENV: 'production', HBX_ENGINE_COUNT: '100', HBX_FACTORY_MAX_ENGINES: '12' }, () => {
+    const service = new HbxEnginePoolService({} as any);
+    const allowed = service.resolveFactoryAllowedEngines({
+      engineCount: 100,
+      onlineHealthyEngines: 100,
+      manualReservedEngines: 2,
+      memoryPressurePercent: 50,
+      operationalConfig: { enabled: true, startHour: 22, startMinute: 0, endHour: 7, endMinute: 0, metadataJson: '{}' },
+      date: new Date('2026-05-09T23:30:00-03:00'),
+    });
+    assert.equal(allowed.windowStatus, 'open');
+    assert.equal(allowed.allowedEngines, 12);
+  });
+});
+
+test('factory scheduler memory guard reduces and stops automatic work', () => {
+  withEnv({ NODE_ENV: 'production', HBX_ENGINE_COUNT: '100', HBX_FACTORY_MAX_ENGINES: '16', HBX_FACTORY_START_HOUR: '0', HBX_FACTORY_END_HOUR: '0' }, () => {
+    const service = new HbxEnginePoolService({} as any);
+    const at80 = service.resolveFactoryAllowedEngines({
+      engineCount: 100,
+      onlineHealthyEngines: 100,
+      manualReservedEngines: 2,
+      memoryPressurePercent: 80,
+      operationalConfig: { enabled: true, metadataJson: '{}' },
+    });
+    const at90 = service.resolveFactoryAllowedEngines({
+      engineCount: 100,
+      onlineHealthyEngines: 100,
+      manualReservedEngines: 2,
+      memoryPressurePercent: 90,
+      operationalConfig: { enabled: true, metadataJson: '{}' },
+    });
+    assert.equal(at80.allowedEngines, 8);
+    assert.equal(at80.reason, 'memory_guard');
+    assert.equal(at90.allowedEngines, 0);
+    assert.equal(at90.reason, 'memory_stop');
+  });
+});
+
+test('factory scheduler emergency stop blocks automatic work immediately', () => {
+  withEnv({ NODE_ENV: 'production', HBX_ENGINE_COUNT: '100', HBX_FACTORY_MAX_ENGINES: '16', HBX_FACTORY_START_HOUR: '0', HBX_FACTORY_END_HOUR: '0' }, () => {
+    const service = new HbxEnginePoolService({} as any);
+    const allowed = service.resolveFactoryAllowedEngines({
+      engineCount: 100,
+      onlineHealthyEngines: 100,
+      manualReservedEngines: 2,
+      memoryPressurePercent: 50,
+      operationalConfig: { enabled: true, metadataJson: '{"emergencyStop":true}' },
+    });
+    assert.equal(allowed.allowedEngines, 0);
+    assert.equal(allowed.reason, 'emergency_stop');
+  });
+});
+
 test('HBX_ENGINE_MAX_COUNT can intentionally clamp engine count', () => {
   assert.equal(getConfiguredHbxEngineCount({ NODE_ENV: 'production', HBX_ENGINE_COUNT: '100', HBX_ENGINE_MAX_COUNT: '40' }), 40);
   assert.equal(getConfiguredHbxEngineCount({ NODE_ENV: 'production', HBX_ENGINE_COUNT: '220' }), 200);
@@ -270,6 +357,7 @@ test('automatic queue never gets all engines when manual reservation is two', as
     NODE_ENV: 'production',
     HBX_ENGINE_COUNT: '20',
     HBX_MANUAL_RESERVED_ENGINES: '2',
+    HBX_FACTORY_MAX_ENGINES: '18',
     HBX_AUTONOMOUS_MAX_MEMORY_PRESSURE_PERCENT: '100',
   }, async () => {
     const service = createPoolForCapacity({ queuedCount: 100 }) as any;
@@ -278,6 +366,25 @@ test('automatic queue never gets all engines when manual reservation is two', as
     const manual = await service.getEligibleEnginesForCurrentQueue('manual');
     assert.equal(automatic.length, 18);
     assert.equal(manual.length, 20);
+  });
+});
+
+test('automatic eligibility can include engines above twenty when factory limit allows it', async () => {
+  await withEnv({
+    NODE_ENV: 'production',
+    HBX_ENGINE_COUNT: '100',
+    HBX_FACTORY_MAX_ENGINES: '32',
+    HBX_FACTORY_START_HOUR: '0',
+    HBX_FACTORY_END_HOUR: '0',
+    HBX_CLIENT_RESERVED_ENGINES: '2',
+    HBX_AUTONOMOUS_MAX_MEMORY_PRESSURE_PERCENT: '100',
+  }, async () => {
+    const service = createPoolForCapacity({ queuedCount: 100 }) as any;
+    service.healthCheckEngines = async () => buildEngineRows(100);
+    const automatic = await service.getEligibleEnginesForCurrentQueue('mass_data');
+    assert.equal(automatic.length, 32);
+    assert.equal(automatic.some((engine: any) => engine.id === 'hbx-engine-21'), true);
+    assert.equal(automatic.some((engine: any) => engine.id === 'hbx-engine-32'), true);
   });
 });
 

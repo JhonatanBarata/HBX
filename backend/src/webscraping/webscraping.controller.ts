@@ -338,6 +338,41 @@ class MasterTurboConfigDto {
   @IsOptional()
   @IsString()
   forcedUntil?: string;
+
+  @IsOptional()
+  @IsString()
+  timezone?: string;
+
+  @IsOptional()
+  @Type(() => Boolean)
+  @IsBoolean()
+  emergencyStop?: boolean;
+
+  @IsOptional()
+  @Type(() => Boolean)
+  @IsBoolean()
+  stopOutsideWindow?: boolean;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Validate(MaxConfiguredHbxEngineCountConstraint)
+  maxEngines?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Validate(MaxConfiguredHbxEngineCountConstraint)
+  minEngines?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(10)
+  @Max(900)
+  drainTimeoutSeconds?: number;
 }
 
 class MasterMassDataDto extends MasterTurboConfigDto {
@@ -672,6 +707,16 @@ export class MasterWebscrapingController {
   @Post('factory/stop')
   stopFactory(@Req() req: any) {
     return this.webscrapingService.stopRadarFactory(req.user);
+  }
+
+  @Post('factory/stop-now')
+  stopFactoryNow(@Req() req: any) {
+    return this.webscrapingService.stopFactoryNow(req.user);
+  }
+
+  @Post('factory/resume-schedule')
+  resumeFactorySchedule(@Req() req: any) {
+    return this.webscrapingService.resumeFactorySchedule(req.user);
   }
 
   @Post('factory/force-next')
