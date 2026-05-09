@@ -8283,7 +8283,7 @@ export default function InboxClientPage() {
                 <button
                   type="button"
                   className="btn btn-primary"
-                  onClick={() => router.push("/vendas/automacao?tab=qr")}
+                  onClick={() => router.push("/whatsapp?focus=qr")}
                 >
                   Conectar WhatsApp
                 </button>

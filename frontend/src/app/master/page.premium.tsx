@@ -1764,7 +1764,7 @@ export default function MasterPremiumPage() {
     setError(null);
     try {
       if (userModal.mode === "create") {
-        await apiFetch(`/users/master/company/${userModal.companyId}/create`, {
+        const payload = await apiFetch<{ temporaryPassword?: string | null }>(`/users/master/company/${userModal.companyId}/create`, {
           method: "POST",
           body: JSON.stringify({
             email: userModal.email.trim().toLowerCase(),
@@ -1774,7 +1774,11 @@ export default function MasterPremiumPage() {
             password: userModal.password.trim() || undefined,
           }),
         });
-        setMessage("Usuário criado com sucesso.");
+        setMessage(
+          payload?.temporaryPassword
+            ? `Usuário criado com sucesso. Senha temporária: ${payload.temporaryPassword}`
+            : "Usuário criado com sucesso.",
+        );
       } else if (userModal.mode === "edit" && userModal.userId) {
         await apiFetch(`/users/master/${userModal.userId}`, {
           method: "PATCH",
@@ -3464,6 +3468,7 @@ export default function MasterPremiumPage() {
                       <div>
                         <p className={styles.sectionEyebrow}>Segurança operacional</p>
                         <h3>Usuários</h3>
+                        <p>Crie USER ou ADMIN para esta empresa, edite dados de acesso e preserve o fluxo de reset já existente.</p>
                       </div>
                       <button
                         type="button"
@@ -3485,6 +3490,9 @@ export default function MasterPremiumPage() {
                       </button>
                     </div>
                     <div className={styles.userList}>
+                      {activeCompany.users.length === 0 ? (
+                        <div className={styles.emptyPanel}>Nenhum usuário cadastrado para esta empresa.</div>
+                      ) : null}
                       {activeCompany.users.map((user) => (
                         <article key={user.id} className={styles.userCard}>
                           <div>

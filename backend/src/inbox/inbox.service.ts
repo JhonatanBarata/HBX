@@ -99,7 +99,7 @@ type WhatsAppProviderHealth = {
 
 type InboxWhatsappSessionScope = {
   accessible: boolean;
-  reason: 'webwhats_active' | 'webwhats_reconnecting' | 'meta_active' | 'no_whatsapp';
+  reason: 'webwhats_active' | 'webwhats_reconnecting' | 'webwhats_status_only' | 'meta_active' | 'no_whatsapp';
   currentSessionId: string | null;
   currentSession: any | null;
   previousSessionIds: string[];
@@ -493,6 +493,24 @@ export class InboxService {
       return current;
     }
 
+    const existingActiveSession = await this.prisma.whatsAppConnectionSession.findFirst({
+      where: {
+        companyId: Number(company.id),
+        provider: 'webwhats',
+        status: 'active',
+      },
+      orderBy: [{ connectedAt: 'desc' }, { createdAt: 'desc' }],
+    });
+    if (existingActiveSession?.id) {
+      if (String(company.currentWhatsappConnectionSessionId || '') !== String(existingActiveSession.id)) {
+        await this.prisma.company.update({
+          where: { id: Number(company.id) },
+          data: { currentWhatsappConnectionSessionId: String(existingActiveSession.id) },
+        });
+      }
+      return existingActiveSession;
+    }
+
     const phoneNormalized = this.normalizeConnectionPhone(company?.whatsappModalPhone);
     if (!phoneNormalized) return null;
     const tenantKey = `company-${Number(company.id)}`;
@@ -559,7 +577,9 @@ export class InboxService {
     });
     const currentSession = company ? await this.ensureWebwhatsSessionFromCompany(company) : null;
     const metaActive = String(company?.whatsappStatus || '').trim().toUpperCase() === 'CONNECTED';
-    const accessible = Boolean(currentSession?.id || metaActive);
+    const modalStatus = String(company?.whatsappModalStatus || '').trim().toUpperCase();
+    const modalSessionAvailable = modalStatus === 'CONNECTED' || modalStatus === 'RECONNECTING';
+    const accessible = Boolean(currentSession?.id || modalSessionAvailable || metaActive);
     const previousSessions = accessible
       ? await this.prisma.whatsAppConnectionSession.findMany({
           where: {
@@ -583,9 +603,13 @@ export class InboxService {
     return {
       accessible,
       reason: currentSession?.id
-        ? String(company?.whatsappModalStatus || '').trim().toUpperCase() === 'RECONNECTING'
+        ? modalStatus === 'RECONNECTING'
           ? 'webwhats_reconnecting'
           : 'webwhats_active'
+        : modalSessionAvailable
+          ? modalStatus === 'RECONNECTING'
+            ? 'webwhats_reconnecting'
+            : 'webwhats_status_only'
         : metaActive
           ? 'meta_active'
           : 'no_whatsapp',

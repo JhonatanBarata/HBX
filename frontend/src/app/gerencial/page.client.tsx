@@ -70,6 +70,82 @@ type CompanyModule = { key: string; name: string; companyEnabled: boolean };
 type CompanyUserAccess = { id: number; modules: ModulePermission[] };
 type CompanyAccessPayload = { modules: CompanyModule[]; users: CompanyUserAccess[] };
 
+type CreatedPasswordInfo = {
+  userLabel: string;
+  password: string;
+};
+
+const CREATED_PASSWORD_STORAGE_KEY = "hbx.gerencial.created-password.v1";
+
+function normalizeRole(role?: string | null): "USER" | "ADMIN" {
+  return String(role || "").toUpperCase() === "ADMIN" ? "ADMIN" : "USER";
+}
+
+function userLabel(user: Pick<UserItem, "id" | "name" | "username" | "email">) {
+  return user.name || user.username || user.email || `Usuário #${user.id}`;
+}
+
+function userInitial(user: Pick<UserItem, "id" | "name" | "username" | "email">) {
+  return userLabel(user).trim().charAt(0).toUpperCase() || "U";
+}
+
+function stableUserOrder(previous: UserItem[] | undefined, next: UserItem[]) {
+  if (!previous?.length) return next;
+  const nextById = new Map(next.map((user) => [user.id, user]));
+  const ordered = previous
+    .map((user) => nextById.get(user.id))
+    .filter((user): user is UserItem => Boolean(user));
+  const knownIds = new Set(ordered.map((user) => user.id));
+  const appended = next.filter((user) => !knownIds.has(user.id));
+  return [...ordered, ...appended];
+}
+
+function friendlyGerencialError(error: unknown, fallback: string) {
+  const raw = error instanceof Error ? error.message : fallback;
+  const message = String(raw || "").trim();
+  const lower = message.toLowerCase();
+  const status = typeof error === "object" && error && "status" in error ? Number((error as { status?: number }).status) : 0;
+
+  if (lower.includes("e-mail já cadastrado") || lower.includes("email já cadastrado")) {
+    return "Este e-mail já está cadastrado. Use outro e-mail ou confira se o usuário já existe na lista.";
+  }
+  if (lower.includes("username já cadastrado")) {
+    return "Este login já está cadastrado. Nesta tela o login segue o e-mail informado.";
+  }
+  if (lower.includes("free trial") || lower.includes("máximo 2 usuários")) {
+    return "O limite do trial foi atingido: a empresa pode ter no máximo 2 usuários ativos durante o período gratuito.";
+  }
+  if (lower.includes("senha fraca") || lower.includes("password must be longer") || lower.includes("mínimo 8")) {
+    return "Senha fraca. Use no mínimo 8 caracteres ou deixe em branco para o HBX gerar uma senha temporária.";
+  }
+  if (status === 401 || status === 403 || lower.includes("forbidden") || lower.includes("sem permissão")) {
+    return "Sem permissão para gerenciar usuários. Apenas ADMIN da empresa pode criar, ativar ou alterar perfis.";
+  }
+  return message || fallback;
+}
+
+function loadCreatedPasswordInfo(): CreatedPasswordInfo | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(CREATED_PASSWORD_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as CreatedPasswordInfo;
+    if (!parsed?.password) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function saveCreatedPasswordInfo(info: CreatedPasswordInfo | null) {
+  if (typeof window === "undefined") return;
+  if (!info) {
+    window.localStorage.removeItem(CREATED_PASSWORD_STORAGE_KEY);
+    return;
+  }
+  window.localStorage.setItem(CREATED_PASSWORD_STORAGE_KEY, JSON.stringify(info));
+}
+
 export default function GerencialClientPage() {
   const hasToken = useRequireAuth();
   const [loading, setLoading] = useState(true);
@@ -81,7 +157,9 @@ export default function GerencialClientPage() {
   const [newUserName, setNewUserName] = useState("");
   const [newUserRole, setNewUserRole] = useState<"USER" | "ADMIN">("USER");
   const [newUserPassword, setNewUserPassword] = useState("");
-  const [createdPasswordInfo, setCreatedPasswordInfo] = useState<string | null>(null);
+  const [createdPasswordInfo, setCreatedPasswordInfo] = useState<CreatedPasswordInfo | null>(() =>
+    loadCreatedPasswordInfo(),
+  );
   const [actionInfo, setActionInfo] = useState<string | null>(null);
   const [togglingMessageId, setTogglingMessageId] = useState<number | null>(null);
   const [moduleAccess, setModuleAccess] = useState<CompanyAccessPayload | null>(null);
@@ -95,12 +173,13 @@ export default function GerencialClientPage() {
         apiFetch<GerencialOverview>("/gerencial/overview"),
         apiFetch<CompanyAccessPayload>("/modules/company/access"),
       ]);
-      setData(payload);
+      setData((prev) => ({
+        ...payload,
+        users: stableUserOrder(prev?.users, payload.users || []),
+      }));
       setModuleAccess(access);
     } catch (loadError) {
-      const message =
-        loadError instanceof Error ? loadError.message : "Falha ao carregar modulo gerencial.";
-      setError(message);
+      setError(friendlyGerencialError(loadError, "Falha ao carregar módulo gerencial."));
     } finally {
       setLoading(false);
     }
@@ -153,8 +232,7 @@ export default function GerencialClientPage() {
         return { ...prev, users };
       });
     } catch (roleError) {
-      const message = roleError instanceof Error ? roleError.message : "Falha ao atualizar perfil.";
-      setError(message);
+      setError(friendlyGerencialError(roleError, "Falha ao atualizar perfil."));
     } finally {
       setChangingUserId(null);
     }
@@ -192,8 +270,7 @@ export default function GerencialClientPage() {
           "Funcionário desativado com sucesso, manteremos histórico por 730 Dias",
       );
     } catch (activeError) {
-      const message = activeError instanceof Error ? activeError.message : "Falha ao atualizar status do funcionário.";
-      setError(message);
+      setError(friendlyGerencialError(activeError, "Falha ao atualizar status do funcionário."));
     } finally {
       setTogglingActiveUserId(null);
     }
@@ -209,9 +286,7 @@ export default function GerencialClientPage() {
       });
       await load();
     } catch (toggleError) {
-      const message =
-        toggleError instanceof Error ? toggleError.message : "Falha ao marcar reclamacao.";
-      setError(message);
+      setError(friendlyGerencialError(toggleError, "Falha ao marcar reclamação."));
     } finally {
       setTogglingMessageId(null);
     }
@@ -220,7 +295,6 @@ export default function GerencialClientPage() {
   async function createCompanyUser(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError(null);
-    setCreatedPasswordInfo(null);
 
     const email = newUserEmail.trim().toLowerCase();
     if (!email) {
@@ -240,10 +314,32 @@ export default function GerencialClientPage() {
         }),
       });
 
+      if (payload?.user) {
+        const createdUser: UserItem = {
+          ...payload.user,
+          role: normalizeRole(payload.user.role),
+          createdAt: new Date().toISOString(),
+        };
+        setData((prev) =>
+          prev
+            ? {
+                ...prev,
+                totals: { ...prev.totals, users: prev.totals.users + 1 },
+                users: stableUserOrder(prev.users, [...prev.users, createdUser]),
+              }
+            : prev,
+        );
+      }
+
       if (payload?.temporaryPassword) {
-        setCreatedPasswordInfo(`Senha temporária: ${payload.temporaryPassword}`);
+        const info = {
+          userLabel: userLabel({ id: payload.user.id, name: payload.user.name, username: payload.user.username, email }),
+          password: payload.temporaryPassword,
+        };
+        setCreatedPasswordInfo(info);
+        saveCreatedPasswordInfo(info);
       } else {
-        setCreatedPasswordInfo("Usuário criado com senha definida manualmente.");
+        setActionInfo("Usuário criado com senha definida manualmente.");
       }
 
       setNewUserEmail("");
@@ -252,8 +348,7 @@ export default function GerencialClientPage() {
       setNewUserPassword("");
       await load();
     } catch (createError) {
-      const message = createError instanceof Error ? createError.message : "Falha ao cadastrar usuário.";
-      setError(message);
+      setError(friendlyGerencialError(createError, "Falha ao cadastrar usuário."));
     } finally {
       setCreatingUser(false);
     }
@@ -275,10 +370,15 @@ export default function GerencialClientPage() {
         method: "PUT",
         body: JSON.stringify({ modules: next }),
       });
-      await load();
+      setModuleAccess((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          users: prev.users.map((user) => (user.id === userId ? { ...user, modules: next } : user)),
+        };
+      });
     } catch (saveError) {
-      const message = saveError instanceof Error ? saveError.message : "Falha ao atualizar modulos do usuario.";
-      setError(message);
+      setError(friendlyGerencialError(saveError, "Falha ao atualizar módulos do usuário."));
     } finally {
       setSavingModuleUserId(null);
     }
@@ -286,6 +386,25 @@ export default function GerencialClientPage() {
 
   const topMessages = useMemo(() => data?.recentMessages?.slice(0, 20) ?? [], [data]);
   const topSurveys = useMemo(() => data?.surveys?.slice(0, 20) ?? [], [data]);
+  const enabledModules = useMemo(
+    () => (moduleAccess?.modules || []).filter((mod) => mod.companyEnabled),
+    [moduleAccess],
+  );
+
+  async function copyTemporaryPassword() {
+    if (!createdPasswordInfo?.password) return;
+    try {
+      await navigator.clipboard.writeText(createdPasswordInfo.password);
+      setActionInfo("Senha temporária copiada.");
+    } catch {
+      setError("Não foi possível copiar automaticamente. Selecione a senha no card e copie manualmente.");
+    }
+  }
+
+  function dismissCreatedPasswordInfo() {
+    setCreatedPasswordInfo(null);
+    saveCreatedPasswordInfo(null);
+  }
 
   function retentionLabel(retentionUntil?: string | null) {
     if (!retentionUntil) return null;
@@ -307,8 +426,8 @@ export default function GerencialClientPage() {
 
   return (
     <DashboardScaffold
-      title="Módulo gerencial"
-      description="Visão analítica e administrativa da operação."
+      title="Equipe e Usuários"
+      description="Crie atendentes, defina ADMIN/USER, controle acessos e mantenha o histórico da empresa."
       actions={
         <button type="button" onClick={load} className="btn btn-primary btn-sm">
           Atualizar dados
@@ -322,6 +441,226 @@ export default function GerencialClientPage() {
         <div className="panel p-4 text-sm text-muted">{loading ? "Carregando..." : "Sem dados."}</div>
       ) : (
         <>
+          <section className="panel p-4 md:p-5 rounded-[20px]">
+            <div className="grid grid-cols-1 lg:grid-cols-[1.1fr_0.9fr] gap-4">
+              <div className="min-w-0">
+                <span className="badge badge-brand">Gestão da equipe</span>
+                <h2 className="mt-3 text-xl font-semibold">Perfis simples para operar com segurança</h2>
+                <p className="mt-2 text-sm text-muted max-w-3xl">
+                  ADMIN gerencia a equipe e USER usa o sistema sem alterar permissões. Ao desativar alguém,
+                  o histórico continua preservado por 730 dias.
+                </p>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-1 gap-2">
+                <article className="rounded-[12px] border border-[var(--line)] bg-[var(--surface-soft)] p-3">
+                  <strong className="text-sm">ADMIN</strong>
+                  <p className="mt-1 text-xs text-muted">Pode criar usuários, trocar permissões e ver o gerencial.</p>
+                </article>
+                <article className="rounded-[12px] border border-[var(--line)] bg-[var(--surface-soft)] p-3">
+                  <strong className="text-sm">USER</strong>
+                  <p className="mt-1 text-xs text-muted">Usa o sistema, mas não gerencia equipe.</p>
+                </article>
+                <article className="rounded-[12px] border border-[var(--line)] bg-[var(--surface-soft)] p-3">
+                  <strong className="text-sm">Retenção</strong>
+                  <p className="mt-1 text-xs text-muted">Usuário desativado mantém histórico por 730 dias.</p>
+                </article>
+              </div>
+            </div>
+          </section>
+
+          <section className="panel p-4 md:p-5 rounded-[20px]">
+            <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3">
+              <div>
+                <h2 className="text-lg font-semibold">Cadastrar novo usuário</h2>
+                <p className="mt-1 text-sm text-muted">Se deixar senha vazia, o HBX gera uma senha temporária.</p>
+              </div>
+              <span className="badge">Apenas ADMIN</span>
+            </div>
+
+            <form onSubmit={createCompanyUser} className="mt-4 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
+              <label className="grid gap-1 text-sm">
+                <span className="font-medium">Nome</span>
+                <input
+                  type="text"
+                  placeholder="Nome do atendente"
+                  value={newUserName}
+                  onChange={(e) => setNewUserName(e.target.value)}
+                  className="field"
+                />
+              </label>
+              <label className="grid gap-1 text-sm">
+                <span className="font-medium">E-mail</span>
+                <input
+                  type="email"
+                  placeholder="email@empresa.com"
+                  value={newUserEmail}
+                  onChange={(e) => setNewUserEmail(e.target.value)}
+                  className="field"
+                  required
+                />
+              </label>
+              <label className="grid gap-1 text-sm">
+                <span className="font-medium">Perfil</span>
+                <select
+                  value={newUserRole}
+                  onChange={(e) => setNewUserRole(e.target.value as "USER" | "ADMIN")}
+                  className="field"
+                >
+                  <option value="USER">USER</option>
+                  <option value="ADMIN">ADMIN</option>
+                </select>
+              </label>
+              <label className="grid gap-1 text-sm">
+                <span className="font-medium">Senha opcional</span>
+                <input
+                  type="password"
+                  placeholder="Gerar senha temporária"
+                  value={newUserPassword}
+                  onChange={(e) => setNewUserPassword(e.target.value)}
+                  className="field"
+                />
+              </label>
+              <div className="md:col-span-2 xl:col-span-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                <p className="text-xs text-muted">USER não acessa esta gestão. ADMIN tem acesso administrativo da empresa.</p>
+                <button type="submit" disabled={creatingUser} className="btn btn-primary btn-sm">
+                  {creatingUser ? "Criando..." : "Criar usuário"}
+                </button>
+              </div>
+            </form>
+          </section>
+
+          {createdPasswordInfo ? (
+            <section className="panel p-4 rounded-[20px] border-[var(--line)]">
+              <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                <div className="min-w-0">
+                  <span className="badge badge-success">Usuário criado</span>
+                  <h2 className="mt-2 text-lg font-semibold">Senha temporária de {createdPasswordInfo.userLabel}</h2>
+                  <p className="mt-1 text-sm text-muted">Guarde esta senha antes de fechar este aviso.</p>
+                  <code className="mt-3 block w-fit max-w-full rounded-[12px] border border-[var(--line)] bg-[var(--surface-soft)] px-3 py-2 text-sm break-all">
+                    {createdPasswordInfo.password}
+                  </code>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <button type="button" className="btn btn-primary btn-sm" onClick={copyTemporaryPassword}>
+                    Copiar senha
+                  </button>
+                  <button type="button" className="btn btn-ghost btn-sm" onClick={dismissCreatedPasswordInfo}>
+                    Fechar
+                  </button>
+                </div>
+              </div>
+            </section>
+          ) : null}
+
+          <section className="panel p-4 md:p-5 rounded-[20px]">
+            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
+              <div>
+                <h2 className="text-lg font-semibold">Usuários da empresa #{data.companyId}</h2>
+                <p className="mt-1 text-sm text-muted">Altere perfil, status e módulos sem perder o histórico da operação.</p>
+              </div>
+              <span className="badge badge-brand">{data.users.length} usuários</span>
+            </div>
+
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-3 mt-4">
+              {data.users.map((user) => {
+                const role = normalizeRole(user.role);
+                const isAdmin = role === "ADMIN";
+                const userModules = moduleAccess?.users.find((item) => item.id === user.id)?.modules || [];
+
+                return (
+                  <article
+                    key={user.id}
+                    className="rounded-[20px] border border-[var(--line)] bg-[var(--surface-soft)] p-4 grid gap-4"
+                  >
+                    <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+                      <div className="flex min-w-0 gap-3">
+                        <span className="grid h-11 w-11 shrink-0 place-items-center rounded-[12px] bg-[var(--brand)] text-sm font-bold text-white">
+                          {userInitial(user)}
+                        </span>
+                        <div className="min-w-0">
+                          <h3 className="font-semibold truncate">{userLabel(user)}</h3>
+                          <p className="text-xs text-muted truncate">{user.email || "sem e-mail"}</p>
+                          <p className="text-xs text-muted truncate">Login: {user.username || "-"}</p>
+                        </div>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <span className={isAdmin ? "badge badge-brand" : "badge"}>{role}</span>
+                        <span className={user.isActive ? "badge badge-success" : "badge badge-danger"}>
+                          {user.isActive ? "ATIVO" : "DESATIVADO"}
+                        </span>
+                      </div>
+                    </div>
+
+                    {!user.isActive ? (
+                      <div className="rounded-[12px] border border-[var(--line)] bg-[var(--surface)] p-3 text-xs text-muted">
+                        Histórico preservado por 730 dias. {retentionLabel(user.retentionUntil) || ""}
+                      </div>
+                    ) : null}
+
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        disabled={changingUserId === user.id || !user.isActive || role === "USER"}
+                        onClick={() => setRole(user.id, "USER")}
+                        className="btn btn-secondary btn-sm"
+                      >
+                        Tornar USER
+                      </button>
+                      <button
+                        type="button"
+                        disabled={changingUserId === user.id || !user.isActive || role === "ADMIN"}
+                        onClick={() => setRole(user.id, "ADMIN")}
+                        className="btn btn-primary btn-sm"
+                      >
+                        Tornar ADMIN
+                      </button>
+                      <button
+                        type="button"
+                        disabled={togglingActiveUserId === user.id}
+                        onClick={() => toggleActive(user.id, Boolean(user.isActive))}
+                        className={`btn btn-sm ${user.isActive ? "btn-secondary" : "btn-primary"}`}
+                      >
+                        {user.isActive ? "Desativar" : "Reativar"}
+                      </button>
+                    </div>
+
+                    <div className="grid gap-2">
+                      <p className="text-xs font-semibold uppercase text-muted">Módulos</p>
+                      {isAdmin ? (
+                        <p className="rounded-[12px] border border-[var(--line)] bg-[var(--surface)] p-3 text-sm text-muted">
+                          ADMIN tem acesso total aos módulos liberados para a empresa.
+                        </p>
+                      ) : (
+                        <div className="flex flex-wrap gap-2">
+                          {enabledModules.length === 0 ? (
+                            <span className="text-sm text-muted">Nenhum módulo liberado para a empresa.</span>
+                          ) : (
+                            enabledModules.map((mod) => {
+                              const row = userModules.find((item) => item.key === mod.key);
+                              const allowed = row ? row.allowed : Boolean(mod.companyEnabled);
+                              return (
+                                <button
+                                  key={`${user.id}-${mod.key}`}
+                                  type="button"
+                                  disabled={savingModuleUserId === user.id || !user.isActive}
+                                  onClick={() => toggleUserModule(user.id, mod.key)}
+                                  className={`btn btn-sm ${allowed && user.isActive ? "btn-primary" : "btn-ghost"}`}
+                                  title="Clique para alternar"
+                                >
+                                  {mod.name}: {allowed && user.isActive ? "ON" : "OFF"}
+                                </button>
+                              );
+                            })
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          </section>
+
           <section className="metrics-grid">
             <article className="stat-card">
               <p className="stat-card__label">Conversas</p>
@@ -332,7 +671,7 @@ export default function GerencialClientPage() {
               <p className="stat-card__value">{data.totals.messages}</p>
             </article>
             <article className="stat-card">
-              <p className="stat-card__label">Reclamacoes</p>
+              <p className="stat-card__label">Reclamações</p>
               <p className="stat-card__value">{data.totals.complaints ?? 0}</p>
             </article>
             <article className="stat-card">
@@ -348,138 +687,9 @@ export default function GerencialClientPage() {
               <p className="stat-card__value">{data.totals.users}</p>
             </article>
             <article className="stat-card">
-              <p className="stat-card__label">Avaliacoes</p>
+              <p className="stat-card__label">Avaliações</p>
               <p className="stat-card__value">{data.totals.surveys}</p>
             </article>
-          </section>
-
-          <section className="panel p-4">
-            <div className="flex items-center justify-between gap-2">
-              <h2 className="text-lg font-semibold">Cadastrar novo usuário</h2>
-              <span className="badge">ADMIN</span>
-            </div>
-
-            <form onSubmit={createCompanyUser} className="mt-3 grid grid-cols-1 md:grid-cols-4 gap-2">
-              <input
-                type="email"
-                placeholder="E-mail"
-                value={newUserEmail}
-                onChange={(e) => setNewUserEmail(e.target.value)}
-                className="h-10 rounded-xl border border-[var(--line)] bg-[var(--surface-soft)] px-3 text-sm"
-                required
-              />
-              <input
-                type="text"
-                placeholder="Nome do atendente/vendedor"
-                value={newUserName}
-                onChange={(e) => setNewUserName(e.target.value)}
-                className="h-10 rounded-xl border border-[var(--line)] bg-[var(--surface-soft)] px-3 text-sm"
-              />
-              <select
-                value={newUserRole}
-                onChange={(e) => setNewUserRole(e.target.value as "USER" | "ADMIN")}
-                className="h-10 rounded-xl border border-[var(--line)] bg-[var(--surface-soft)] px-3 text-sm"
-              >
-                <option value="USER">USER</option>
-                <option value="ADMIN">ADMIN</option>
-              </select>
-              <input
-                type="text"
-                placeholder="Senha (opcional)"
-                value={newUserPassword}
-                onChange={(e) => setNewUserPassword(e.target.value)}
-                className="h-10 rounded-xl border border-[var(--line)] bg-[var(--surface-soft)] px-3 text-sm"
-              />
-              <div className="md:col-span-4 flex items-center justify-end">
-                <button type="submit" disabled={creatingUser} className="btn btn-primary btn-sm">
-                  {creatingUser ? "Cadastrando..." : "Cadastrar e-mail"}
-                </button>
-              </div>
-            </form>
-
-            {createdPasswordInfo ? <p className="text-xs text-muted mt-2">{createdPasswordInfo}</p> : null}
-          </section>
-
-          <section className="panel p-4">
-            <div className="flex items-center justify-between gap-2">
-              <h2 className="text-lg font-semibold">Usuários da empresa #{data.companyId}</h2>
-              <span className="badge badge-brand">{data.users.length} usuários</span>
-            </div>
-
-            <div className="space-y-2 mt-3">
-              {data.users.map((user) => (
-                <div
-                  key={user.id}
-                  className="border border-[var(--line)] rounded-[12px] p-3 bg-[var(--surface-soft)] flex flex-wrap items-center justify-between gap-2"
-                >
-                  <div className="min-w-0">
-                    <p className="font-medium truncate">
-                      {user.name || user.username || user.email || `Usuário #${user.id}`}
-                    </p>
-                    <p className="text-xs text-muted truncate">
-                      {user.email || "sem e-mail"} | Login: {user.username || "-"} | {user.role} | {user.isActive ? "ATIVO" : "DESATIVADO"}
-                    </p>
-                    {!user.isActive ? (
-                      <p className="text-xs text-muted truncate mt-1">{retentionLabel(user.retentionUntil)}</p>
-                    ) : null}
-                  </div>
-                  <div className="flex gap-2">
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        disabled={changingUserId === user.id || !user.isActive}
-                        onClick={() => setRole(user.id, "USER")}
-                        className={`btn btn-sm ${user.role === "USER" ? "btn-primary" : "btn-secondary"}`}
-                      >
-                        USER
-                      </button>
-                      <button
-                        type="button"
-                        disabled={changingUserId === user.id || !user.isActive}
-                        onClick={() => setRole(user.id, "ADMIN")}
-                        className={`btn btn-sm ${user.role === "ADMIN" ? "btn-primary" : "btn-secondary"}`}
-                      >
-                        ADMIN
-                      </button>
-                      <button
-                        type="button"
-                        disabled={togglingActiveUserId === user.id}
-                        onClick={() => toggleActive(user.id, Boolean(user.isActive))}
-                        className={`btn btn-sm ${user.isActive ? "btn-primary" : "btn-ghost"}`}
-                      >
-                        {user.isActive ? "ATIVO" : "DESATIVADO"}
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="w-full mt-2 flex flex-wrap gap-2">
-                    {(moduleAccess?.modules || [])
-                      .filter((mod) => mod.companyEnabled)
-                        .map((mod) => {
-                        const userModules = moduleAccess?.users.find((u) => u.id === user.id)?.modules || [];
-                        const row = userModules.find((m) => m.key === mod.key);
-                        const allowed = row ? row.allowed : Boolean(mod.companyEnabled);
-                        return (
-                          <button
-                            key={`${user.id}-${mod.key}`}
-                            type="button"
-                            disabled={
-                              savingModuleUserId === user.id ||
-                              String(user.role).toUpperCase() === "ADMIN" ||
-                              !user.isActive
-                            }
-                            onClick={() => toggleUserModule(user.id, mod.key)}
-                            className={`btn btn-sm ${allowed && user.isActive ? "btn-primary" : "btn-ghost"}`}
-                            title={String(user.role).toUpperCase() === "ADMIN" ? "ADMIN sempre possui acesso" : "Clique para alternar"}
-                          >
-                            {mod.name}: {allowed && user.isActive ? "ON" : "OFF"}
-                          </button>
-                        );
-                      })}
-                  </div>
-                </div>
-              ))}
-            </div>
           </section>
 
           <section className="grid grid-cols-1 xl:grid-cols-2 gap-4">

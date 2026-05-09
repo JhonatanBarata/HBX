@@ -39,6 +39,10 @@ function isQrReady(modalPayload: WhatsAppModalPayload | null) {
   return modalPayload?.status === "connected";
 }
 
+function isQrReconnecting(modalPayload: WhatsAppModalPayload | null) {
+  return modalPayload?.status === "reconnecting";
+}
+
 function isMetaReady(payload: WhatsAppCenterPayload) {
   return Boolean(payload.center.official.connected);
 }
@@ -80,11 +84,12 @@ export default function WhatsAppConnectionWizard({
   const qrSelected = mode === "QR";
   const metaSelected = mode === "OFFICIAL";
   const qrReady = isQrReady(modalPayload);
+  const qrReconnecting = isQrReconnecting(modalPayload);
   const metaReady = isMetaReady(payload);
   const qrCode = modalPayload?.data.qrCodeDataUrl || null;
   const canUseQr = modalPayload?.data.available !== false;
   const canUseMeta = true;
-  const showQrLoader = !qrReady && (qrBusy || modalSaving === "connect" || modalPayload?.status === "starting");
+  const showQrLoader = !qrReady && !qrReconnecting && (qrBusy || modalSaving === "connect" || modalPayload?.status === "starting");
   const qrBotReady = qrReady && !showQrLoader && !qrError;
   const canGoBot = qrBotReady || metaReady;
   const pairingCode = pairingPayload?.success ? pairingPayload.code : null;
@@ -158,7 +163,7 @@ export default function WhatsAppConnectionWizard({
       </div>
 
       {qrSelected && !qrPanelClosed ? (
-        <div className={styles.actionDeck} data-state={qrReady ? "ready" : showQrLoader ? "loading" : "idle"}>
+        <div className={styles.actionDeck} data-state={qrReconnecting ? "reconnecting" : qrReady ? "ready" : showQrLoader ? "loading" : "idle"}>
           <div className={styles.linkTabs} role="tablist" aria-label="Modo de vínculo WhatsApp">
             <button
               type="button"
@@ -186,6 +191,12 @@ export default function WhatsAppConnectionWizard({
               <strong>WhatsApp conectado</strong>
               <small>{openingAtendimento ? "Abrindo atendimento..." : "Conexão ativa"}</small>
             </div>
+          ) : qrReconnecting ? (
+            <div className={styles.connectedToast} data-state="reconnecting" role="status">
+              <span aria-hidden="true">!</span>
+              <strong>WhatsApp instável</strong>
+              <small>Aguardando reconexão automática</small>
+            </div>
           ) : null}
 
           {activeQrLinkMode === "idle" ? (
@@ -203,10 +214,10 @@ export default function WhatsAppConnectionWizard({
                   <i />
                   <b />
                 </div>
-              ) : qrReady ? (
-                <div className={styles.connectedPanel}>
+              ) : qrReady || qrReconnecting ? (
+                <div className={styles.connectedPanel} data-state={qrReconnecting ? "reconnecting" : "connected"}>
                   <span aria-hidden="true" />
-                  <strong>Conectado</strong>
+                  <strong>{qrReconnecting ? "Reconectando" : "Conectado"}</strong>
                 </div>
               ) : qrCode ? (
                 <div className={styles.qrFrame}>
@@ -246,7 +257,7 @@ export default function WhatsAppConnectionWizard({
                   value={pairingPhone}
                   onChange={(event) => (onPairingPhoneInput || onPairingPhoneChange)(event.target.value)}
                   placeholder="+5519999999999"
-                  disabled={pairingBusy || qrReady}
+                  disabled={pairingBusy || qrReady || qrReconnecting}
                 />
               </label>
 
@@ -282,7 +293,7 @@ export default function WhatsAppConnectionWizard({
                 type="button"
                 className={styles.primaryAction}
                 onClick={onRequestPairingCode}
-                disabled={!canUseQr || pairingBusy || pairingRetryInSeconds > 0 || modalSaving !== null || qrReady}
+                disabled={!canUseQr || pairingBusy || pairingRetryInSeconds > 0 || modalSaving !== null || qrReady || qrReconnecting}
               >
                 {pairingBusy
                   ? "GERANDO..."
@@ -297,9 +308,9 @@ export default function WhatsAppConnectionWizard({
                 type="button"
                 className={styles.primaryAction}
                 onClick={connectQr}
-                disabled={!canUseQr || modalSaving !== null || showQrLoader || qrReady}
+                disabled={!canUseQr || modalSaving !== null || showQrLoader || qrReady || qrReconnecting}
               >
-                {qrReady ? "Bot" : qrCode ? "ATUALIZAR QR" : "CONECTAR POR QR"}
+                {qrReady ? "Bot" : qrReconnecting ? "AGUARDANDO" : qrCode ? "ATUALIZAR QR" : "CONECTAR POR QR"}
               </button>
             ) : activeQrLinkMode === "idle" && !qrBotReady ? (
               <button

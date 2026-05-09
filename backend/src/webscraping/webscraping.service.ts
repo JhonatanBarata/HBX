@@ -115,6 +115,7 @@ const AUTONOMOUS_MASS_DATA_DEFAULT_TASKS = 60;
 const AUTONOMOUS_MASS_DATA_MAX_TASKS = 300;
 const DEFAULT_MASS_DATA_ENGINE_URLS = buildLocalHbxEngineUrls();
 const TURBO_OPERATIONAL_CONFIG_KEY = 'turbo_noturno';
+const RADAR_RESERVATION_TTL_MS = 72 * 60 * 60 * 1000;
 const RADAR_PROTECTED_STATUSES = [
   'negative',
   'denied',
@@ -449,11 +450,14 @@ type RadarLeadEventType =
   | 'invalid_whatsapp'
   | 'hidden'
   | 'duplicate'
+  | 'ownership_reserved'
+  | 'ownership_released'
   | 'status_changed';
 
 type RadarLeadStatus =
   | 'clean'
   | 'new'
+  | 'reserved'
   | 'delivered'
   | 'approved'
   | 'sent_to_vendas'
@@ -3647,6 +3651,15 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     return poolTable && stateTable && statusColumn;
   }
 
+  private async supportsRadarOwnershipPersistence() {
+    if (!(await this.supportsRadarPersistence())) return false;
+    const [ownerColumn, claimedColumn] = await Promise.all([
+      this.prisma.hasColumn('RadarLeadPool', 'ownerCompanyId'),
+      this.prisma.hasColumn('RadarLeadPool', 'claimedAt'),
+    ]);
+    return ownerColumn && claimedColumn;
+  }
+
   private async supportsRadarCampaignPersistence() {
     if (!(this.prisma as any).webscrapingCampaign || !(this.prisma as any).webscrapingCampaignBatch) {
       return false;
@@ -3668,12 +3681,14 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
   private normalizeRadarLeadStatus(value: unknown): RadarLeadStatus {
     const normalized = String(value || '').trim().toLowerCase();
     if (normalized === 'imported_to_vendas' || normalized === 'sent_to_vendas') return 'sent_to_vendas';
+    if (normalized === 'reservado' || normalized === 'reserved') return 'reserved';
     if (normalized === 'em_atendimento' || normalized === 'atendimento') return 'in_attendance';
+    if (normalized === 'disponivel' || normalized === 'disponível' || normalized === 'available') return 'clean';
     if (normalized === 'won') return 'converted';
     if (normalized === 'optout' || normalized === 'do_not_contact') return 'opt_out';
     if (normalized === 'lost' || normalized === 'sem_interesse') return 'negative';
     if (normalized === 'descartado') return 'discarded';
-    if (['clean', 'new', 'delivered', 'approved', 'in_attendance', 'converted', 'denied', 'negative', 'blocked', 'opt_out', 'discarded', 'complaint', 'no_answer', 'no_whatsapp', 'invalid_whatsapp', 'duplicate', 'rejected', 'hidden'].includes(normalized)) {
+    if (['clean', 'new', 'reserved', 'delivered', 'approved', 'in_attendance', 'converted', 'denied', 'negative', 'blocked', 'opt_out', 'discarded', 'complaint', 'no_answer', 'no_whatsapp', 'invalid_whatsapp', 'duplicate', 'rejected', 'hidden'].includes(normalized)) {
       return normalized as RadarLeadStatus;
     }
     return 'clean';
@@ -3800,7 +3815,13 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
   private buildRadarWhere(
     filters: NormalizedRadarFilters,
     companyId?: number | null,
-    options: { excludePhoneDigits?: string[]; requirePhone?: boolean; includeHidden?: boolean } = {},
+    options: {
+      excludePhoneDigits?: string[];
+      requirePhone?: boolean;
+      includeHidden?: boolean;
+      ownershipEnabled?: boolean;
+      availableOnly?: boolean;
+    } = {},
   ) {
     const where: any = {};
     const and: any[] = [];
@@ -3847,6 +3868,19 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
 
     if (filters.validPhone || options.requirePhone) {
       and.push({ phoneDigits: { not: null } });
+    }
+
+    if (companyId && options.ownershipEnabled) {
+      if (options.availableOnly) {
+        and.push({ ownerCompanyId: null });
+      } else {
+        and.push({
+          OR: [
+            { ownerCompanyId: null },
+            { ownerCompanyId: companyId },
+          ],
+        });
+      }
     }
 
     const excludePhoneDigits = Array.from(new Set((options.excludePhoneDigits || []).map((phone) => normalizePhoneDigits(phone)).filter(Boolean)));
@@ -3945,12 +3979,21 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
   private async queryRadarRowsForCompany(
     companyId: number,
     filters: NormalizedRadarFilters,
-    options: { limit?: number; excludePhoneDigits?: string[]; requirePhone?: boolean; includeHidden?: boolean } = {},
+    options: { limit?: number; excludePhoneDigits?: string[]; requirePhone?: boolean; includeHidden?: boolean; availableOnly?: boolean } = {},
   ) {
     if (!(await this.supportsRadarPersistence())) return [];
+    const ownershipEnabled = await this.supportsRadarOwnershipPersistence();
+    if (ownershipEnabled) {
+      await this.releaseExpiredRadarReservations({ companyId }).catch((error: any) => {
+        this.logger.warn(`[radar] falha ao liberar reservas expiradas company=${companyId}: ${String(error?.message || error)}`);
+      });
+    }
     const readLimit = Math.min(Math.max(Math.trunc(Number(options.limit || filters.limit) || filters.limit), 1), 1000);
     const rows = await (this.prisma as any).radarLeadPool.findMany({
-      where: this.buildRadarWhere(filters, companyId, options),
+      where: this.buildRadarWhere(filters, companyId, {
+        ...options,
+        ownershipEnabled,
+      }),
       orderBy: [
         { opportunityScore: 'desc' },
         { reviews: 'desc' },
@@ -4034,6 +4077,8 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
   private buildRadarLeadPublic(row: any) {
     const companyState = Array.isArray(row?.companyStates) && row.companyStates.length ? row.companyStates[0] : null;
     const status = this.resolveRadarLeadStatus(row);
+    const ownerCompanyId = Math.trunc(Number(row?.ownerCompanyId || 0)) || null;
+    const claimedAt = row?.claimedAt instanceof Date ? row.claimedAt.toISOString() : null;
     const ddd = String(row?.ddd || this.extractDdd(row?.phoneDigits || row?.phone));
     const recentEvents = Array.isArray(row?.events) ? row.events : [];
     return {
@@ -4059,6 +4104,15 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       opportunityScore: safeInteger(row?.opportunityScore),
       opportunityReason: row?.opportunityReason || null,
       status,
+      ownerCompanyId,
+      claimedAt,
+      ownershipStatus: this.isRadarProtectedStatus(companyState?.status || row?.status)
+        ? 'negative'
+        : ownerCompanyId
+          ? 'mine'
+          : status === 'sent_to_vendas' || status === 'in_attendance'
+            ? 'in_attendance'
+            : 'available',
       rejectionReason: row?.rejectionReason || null,
       complaintReason: companyState?.complaintReason || row?.complaintReason || null,
       deniedReason: companyState?.deniedReason || row?.deniedReason || null,
@@ -4340,29 +4394,23 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async markRadarDelivered(companyId: number, userId: number, rows: any[]) {
-    const now = new Date();
+    const context = { companyId, userId } as SearchExecutionContext;
+    const claimedRows: any[] = [];
     for (const row of rows) {
       const existing = Array.isArray(row?.companyStates) && row.companyStates.length ? row.companyStates[0] : null;
       if (['imported_to_vendas', 'sent_to_vendas'].includes(String(existing?.status || '')) || this.isRadarProtectedStatus(existing?.status || row?.status)) continue;
-      await (this.prisma as any).radarLeadCompanyState.upsert({
-        where: {
-          companyId_radarLeadId: {
-            companyId,
-            radarLeadId: row.id,
-          },
-        },
-        create: {
-          companyId,
-          radarLeadId: row.id,
-          status: 'delivered',
-          lastActionAt: now,
-        },
-        update: {
-          status: existing?.status && existing.status !== 'new' ? existing.status : 'delivered',
-          lastActionAt: now,
-        },
-      }).catch(() => null);
+      await this.claimRadarLeadForCompany(context, row, {
+        poolStatus: 'reserved',
+        companyStatus: existing?.status && !['new', 'clean'].includes(String(existing.status)) ? this.normalizeRadarLeadStatus(existing.status) : 'reserved',
+        eventType: 'ownership_reserved',
+        note: 'Card puxado no Radar Digital.',
+      }).then(() => {
+        claimedRows.push(row);
+      }).catch((error: any) => {
+        this.logger.warn(`[radar] card nao reservado company=${companyId} lead=${row?.id || '-'}: ${String(error?.message || error)}`);
+      });
     }
+    return claimedRows;
   }
 
   async pullRadarLeadsForUser(user: any, input: RadarFiltersInput = {}) {
@@ -4378,6 +4426,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     let rows = await this.queryRadarRowsForCompany(context.companyId, filters, {
       limit: Math.max(filters.quantity, filters.minimumStock, 100),
       requirePhone: true,
+      availableOnly: true,
     });
     const cleanStockBefore = rows.length;
     let replenish: any = {
@@ -4419,6 +4468,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       rows = await this.queryRadarRowsForCompany(context.companyId, filters, {
         limit: Math.max(filters.quantity, filters.minimumStock, 100),
         requirePhone: true,
+        availableOnly: true,
       });
     }
 
@@ -4482,18 +4532,25 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       };
     }
     
+    let claimedRows = deliveredRows;
     try {
-      await this.markRadarDelivered(context.companyId, context.userId, deliveredRows);
+      claimedRows = await this.markRadarDelivered(context.companyId, context.userId, deliveredRows);
     } catch (error: any) {
       this.logger.error(`[radar] failed to mark delivered: ${error?.message || error}`);
     }
 
     let items: any[] = [];
     try {
-      items = deliveredRows.map((row) => this.buildRadarLeadPublic({ ...row, companyStates: [{ status: 'delivered' }] }));
+      items = claimedRows.map((row) => this.buildRadarLeadPublic({
+        ...row,
+        ownerCompanyId: context.companyId,
+        claimedAt: new Date(),
+        status: 'reserved',
+        companyStates: [{ status: 'reserved' }],
+      }));
     } catch (error: any) {
       this.logger.error(`[radar] failed to build public leads: ${error?.message || error}`);
-      items = deliveredRows.map((row) => ({
+      items = claimedRows.map((row) => ({
         placeId: row?.placeId || `radar:${row?.id}`,
         name: String(row?.name || 'Empresa sem nome'),
         phone: row?.phone || row?.phoneDigits || '',
@@ -4505,7 +4562,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       total: items.length,
       meta: {
         requestedQuantity: filters.quantity,
-        deliveredCount: deliveredRows.length,
+        deliveredCount: claimedRows.length,
         filters: {
           state: filters.state,
           city: filters.city,
@@ -4818,6 +4875,179 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     }).catch(() => null);
   }
 
+  private isReleasableRadarReservation(row: any) {
+    const ownerCompanyId = Math.trunc(Number(row?.ownerCompanyId || 0)) || 0;
+    if (!ownerCompanyId || !(row?.claimedAt instanceof Date)) return false;
+    const poolStatus = this.normalizeRadarLeadStatus(row?.status);
+    if (!['clean', 'new', 'reserved', 'delivered'].includes(poolStatus)) return false;
+    const companyStates = Array.isArray(row?.companyStates) ? row.companyStates : [];
+    const state = companyStates.find((item: any) => Number(item?.companyId) === ownerCompanyId) || null;
+    const stateStatus = this.normalizeRadarLeadStatus(state?.status || poolStatus);
+    if (!['clean', 'new', 'reserved', 'delivered'].includes(stateStatus)) return false;
+    if (state?.vendasLeadId || state?.privateNotes || state?.lastContactAt) return false;
+    if (safeInteger(state?.noAnswerCount) > 0 || safeInteger(state?.contactedCount) > 0) return false;
+    return true;
+  }
+
+  private async releaseExpiredRadarReservations(options: { companyId?: number | null; limit?: number } = {}) {
+    if (!(await this.supportsRadarOwnershipPersistence())) return { releasedCount: 0 };
+    const cutoff = new Date(Date.now() - RADAR_RESERVATION_TTL_MS);
+    const where: any = {
+      ownerCompanyId: options.companyId ? Number(options.companyId) : { not: null },
+      claimedAt: { lt: cutoff },
+      status: { in: ['clean', 'new', 'reserved', 'delivered'] as any },
+    };
+    const rows = await (this.prisma as any).radarLeadPool.findMany({
+      where,
+      take: Math.min(Math.max(Math.trunc(Number(options.limit || 100) || 100), 1), 500),
+      include: {
+        companyStates: {
+          select: {
+            companyId: true,
+            status: true,
+            vendasLeadId: true,
+            privateNotes: true,
+            noAnswerCount: true,
+            contactedCount: true,
+            lastContactAt: true,
+          },
+        },
+      },
+    }).catch(() => []);
+    let releasedCount = 0;
+    const now = new Date();
+    for (const row of rows || []) {
+      if (!this.isReleasableRadarReservation(row)) continue;
+      const ownerCompanyId = Math.trunc(Number(row.ownerCompanyId || 0)) || 0;
+      if (!ownerCompanyId) continue;
+      const previousStatus = this.normalizeRadarLeadStatus(row.status);
+      const updated = await (this.prisma as any).radarLeadPool.updateMany({
+        where: {
+          id: row.id,
+          ownerCompanyId,
+          claimedAt: row.claimedAt,
+        },
+        data: {
+          ownerCompanyId: null,
+          claimedAt: null,
+          status: 'clean',
+          lastSeenAt: now,
+        },
+      }).catch(() => ({ count: 0 }));
+      if (!updated?.count) continue;
+      await (this.prisma as any).radarLeadCompanyState.updateMany({
+        where: {
+          companyId: ownerCompanyId,
+          radarLeadId: row.id,
+          status: { in: ['clean', 'new', 'reserved', 'delivered'] as any },
+          vendasLeadId: null,
+        },
+        data: {
+          status: 'new',
+          lastActionAt: now,
+        },
+      }).catch(() => null);
+      await this.recordRadarLeadEvent({
+        leadId: row.id,
+        companyId: ownerCompanyId,
+        eventType: 'ownership_released',
+        note: 'Reserva liberada automaticamente após 72h sem ação.',
+        statusFrom: previousStatus,
+        statusTo: 'clean',
+      });
+      releasedCount += 1;
+    }
+    return { releasedCount };
+  }
+
+  private async claimRadarLeadForCompany(
+    context: SearchExecutionContext,
+    row: any,
+    input: {
+      poolStatus: RadarLeadStatus;
+      companyStatus: RadarLeadStatus;
+      eventType: RadarLeadEventType;
+      note?: string | null;
+      vendasLeadId?: string | null;
+      assignedUserId?: number | null;
+      assignedByUserId?: number | null;
+    },
+  ) {
+    const now = new Date();
+    const previousStatus = this.normalizeRadarLeadStatus(row?.companyStates?.[0]?.status || row?.status);
+    const ownershipEnabled = await this.supportsRadarOwnershipPersistence();
+    if (ownershipEnabled) {
+      const ownerCompanyId = Math.trunc(Number(row?.ownerCompanyId || 0)) || 0;
+      if (ownerCompanyId && ownerCompanyId !== context.companyId) {
+        throw new ForbiddenException('Este card já está na carteira de outra empresa.');
+      }
+      const claimed = await (this.prisma as any).radarLeadPool.updateMany({
+        where: {
+          id: row.id,
+          OR: [
+            { ownerCompanyId: null },
+            { ownerCompanyId: context.companyId },
+          ],
+        },
+        data: {
+          ownerCompanyId: context.companyId,
+          claimedAt: now,
+          status: input.poolStatus,
+          lastSeenAt: now,
+        },
+      });
+      if (!claimed?.count) {
+        throw new ForbiddenException('Este card acabou de ser puxado por outra empresa.');
+      }
+    } else {
+      await (this.prisma as any).radarLeadPool.update({
+        where: { id: row.id },
+        data: {
+          status: input.poolStatus,
+          lastSeenAt: now,
+        },
+      }).catch(() => null);
+    }
+
+    await (this.prisma as any).radarLeadCompanyState.upsert({
+      where: {
+        companyId_radarLeadId: {
+          companyId: context.companyId,
+          radarLeadId: row.id,
+        },
+      },
+      create: {
+        companyId: context.companyId,
+        radarLeadId: row.id,
+        vendasLeadId: input.vendasLeadId || null,
+        status: input.companyStatus,
+        assignedUserId: input.assignedUserId || null,
+        assignedByUserId: input.assignedByUserId || null,
+        assignedAt: input.assignedUserId || input.assignedByUserId ? now : null,
+        lastActionAt: now,
+      },
+      update: {
+        vendasLeadId: input.vendasLeadId || undefined,
+        status: input.companyStatus,
+        assignedUserId: input.assignedUserId || undefined,
+        assignedByUserId: input.assignedByUserId || undefined,
+        assignedAt: input.assignedUserId || input.assignedByUserId ? now : undefined,
+        lastActionAt: now,
+      },
+    });
+
+    await this.recordRadarLeadEvent({
+      leadId: row.id,
+      companyId: context.companyId,
+      userId: context.userId,
+      eventType: input.eventType,
+      note: input.note || null,
+      statusFrom: previousStatus,
+      statusTo: input.companyStatus,
+    });
+    return { claimedAt: now };
+  }
+
   async addRadarLeadEventForUser(
     user: any,
     radarLeadId: string,
@@ -4832,6 +5062,11 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       include: { companyStates: { where: { companyId: context.companyId }, take: 1 } },
     }).catch(() => null);
     if (!row) throw new NotFoundException('Card do Radar nao encontrado.');
+    const ownershipEnabled = await this.supportsRadarOwnershipPersistence();
+    const ownerCompanyId = Math.trunc(Number(row?.ownerCompanyId || 0)) || 0;
+    if (ownershipEnabled && ownerCompanyId && ownerCompanyId !== context.companyId) {
+      throw new ForbiddenException('Este card já está na carteira de outra empresa.');
+    }
 
     const eventType = String(input.eventType || '').trim().toLowerCase() as RadarLeadEventType;
     if (!['denied', 'complaint', 'no_answer', 'hidden', 'contacted'].includes(eventType)) {
@@ -4877,6 +5112,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     await (this.prisma as any).radarLeadPool.update({
       where: { id: row.id },
       data: {
+        ...(ownershipEnabled ? { ownerCompanyId: context.companyId, claimedAt: now } : {}),
         status: nextStatus,
         lastSeenAt: now,
         ...(eventType === 'no_answer' ? { noAnswerCount: { increment: 1 }, lastContactAt: now } : {}),
@@ -4907,8 +5143,19 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     }
     const row = await (this.prisma as any).radarLeadPool.findUnique({
       where: { id: String(radarLeadId || '').trim() },
+      include: { companyStates: { where: { companyId: context.companyId }, take: 1 } },
     });
     if (!row) throw new NotFoundException('Card do Radar nao encontrado.');
+    if (this.isRadarProtectedStatus(row?.companyStates?.[0]?.status || row?.status)) {
+      throw new BadRequestException('Card protegido nao pode ser enviado para Vendas.');
+    }
+
+    await this.claimRadarLeadForCompany(context, row, {
+      poolStatus: 'in_attendance',
+      companyStatus: 'in_attendance',
+      eventType: 'ownership_reserved',
+      note: 'Card reservado para envio ao módulo Vendas.',
+    });
 
     const imported = await this.vendasService.importWebscrapingLeadsForUser(user, {
       sourceHistoryId: `radar:${row.id}`,
@@ -4954,6 +5201,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       (this.prisma as any).radarLeadPool.update({
         where: { id: row.id },
         data: {
+          ...(await this.supportsRadarOwnershipPersistence() ? { ownerCompanyId: context.companyId, claimedAt: now } : {}),
           status: 'sent_to_vendas',
           globalImportedCount: { increment: 1 },
           lastSeenAt: now,
@@ -4991,40 +5239,25 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     for (const row of rows || []) {
       const existing = Array.isArray(row?.companyStates) && row.companyStates.length ? row.companyStates[0] : null;
       if (this.isRadarProtectedStatus(existing?.status || row?.status)) continue;
-      await (this.prisma as any).radarLeadCompanyState.upsert({
-        where: {
-          companyId_radarLeadId: {
-            companyId: context.companyId,
-            radarLeadId: row.id,
-          },
-        },
-        create: {
-          companyId: context.companyId,
-          radarLeadId: row.id,
-          status: 'sent_to_vendas',
-          lastActionAt: now,
-        },
-        update: {
-          status: 'sent_to_vendas',
-          lastActionAt: now,
-        },
-      }).catch(() => null);
+      try {
+        await this.claimRadarLeadForCompany(context, row, {
+          poolStatus: 'sent_to_vendas',
+          companyStatus: 'sent_to_vendas',
+          eventType: 'imported_to_vendas',
+          note: 'Card enviado para Vendas.',
+        });
+      } catch {
+        continue;
+      }
       await (this.prisma as any).radarLeadPool.update({
         where: { id: row.id },
         data: {
+          ...(await this.supportsRadarOwnershipPersistence() ? { ownerCompanyId: context.companyId, claimedAt: now } : {}),
           status: 'sent_to_vendas',
           globalImportedCount: { increment: 1 },
           lastSeenAt: now,
         },
       }).catch(() => null);
-      await this.recordRadarLeadEvent({
-        leadId: row.id,
-        companyId: context.companyId,
-        userId: context.userId,
-        eventType: 'imported_to_vendas',
-        statusFrom: this.normalizeRadarLeadStatus(existing?.status || row.status),
-        statusTo: 'sent_to_vendas',
-      });
       updatedCount += 1;
     }
     return { ok: true, updatedCount };
@@ -5122,6 +5355,11 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       where: { id: String(radarLeadId || '').trim() },
     });
     if (!row) throw new NotFoundException('Card do Radar nao encontrado.');
+    const ownershipEnabled = await this.supportsRadarOwnershipPersistence();
+    const ownerCompanyId = Math.trunc(Number(row?.ownerCompanyId || 0)) || 0;
+    if (ownershipEnabled && ownerCompanyId && ownerCompanyId !== context.companyId) {
+      throw new ForbiddenException('Este card já está na carteira de outra empresa.');
+    }
     const normalizedStatus = String(input.status || '').trim().toLowerCase();
     const status: RadarLeadStatus =
       normalizedStatus === 'denied'
@@ -5134,7 +5372,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         ? 'discarded'
         : normalizedStatus === 'blocked' || normalizedStatus === 'bloqueado'
           ? 'blocked'
-          : normalizedStatus === 'opt_out' || normalizedStatus === 'optout'
+          : normalizedStatus === 'opt_out' || normalizedStatus === 'optout' || normalizedStatus === 'do_not_contact' || normalizedStatus === 'nao_quer_contato' || normalizedStatus === 'não_quer_contato'
             ? 'opt_out'
             : normalizedStatus === 'no_whatsapp'
               ? 'no_whatsapp'
@@ -5180,6 +5418,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       await (this.prisma as any).radarLeadPool.update({
         where: { id: row.id },
         data: {
+          ...(ownershipEnabled ? { ownerCompanyId: context.companyId, claimedAt: now } : {}),
           status,
           deniedReason: ['negative', 'denied', 'opt_out', 'blocked'].includes(status) ? String(input.reason || '').trim() || null : undefined,
           complaintReason: status === 'complaint' ? String(input.reason || '').trim() || null : undefined,
@@ -5516,7 +5755,10 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       normalizedSegment,
       phoneDigits: { not: null },
       status: { notIn: [...RADAR_PROTECTED_STATUSES, 'rejected', 'duplicate', 'hidden'] as any },
-    };
+    } as any;
+    if (await this.supportsRadarOwnershipPersistence()) {
+      usableStockWhere.ownerCompanyId = null;
+    }
     const [stockCount, taskHistory, recentBatch] = await Promise.all([
       (this.prisma as any).radarLeadPool.count({ where: usableStockWhere }).catch(() => 0),
       (this.prisma as any).webscrapingCampaignTask.findFirst({
@@ -6391,6 +6633,9 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       phoneDigits: { not: null },
       status: { notIn: [...RADAR_PROTECTED_STATUSES, 'rejected', 'duplicate', 'hidden'] as any },
     };
+    if (await this.supportsRadarOwnershipPersistence()) {
+      where.ownerCompanyId = null;
+    }
     if (input.targetType === 'pf' || input.targetType === 'agenda_pf') {
       where.OR = [
         { metadataJson: { contains: `"targetType":"${input.targetType}"` } },
@@ -7562,52 +7807,34 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     for (const row of rows || []) {
       const existing = Array.isArray(row?.companyStates) && row.companyStates.length ? row.companyStates[0] : null;
       const existingStatus = this.normalizeRadarLeadStatus(existing?.status || row?.status);
+      const ownerCompanyId = Math.trunc(Number(row?.ownerCompanyId || 0)) || 0;
+      if (ownerCompanyId && ownerCompanyId !== targetCompanyId) {
+        skippedCount += 1;
+        protectedCount += 1;
+        skipped.push({ id: row.id, reason: 'owned_by_other_company' });
+        continue;
+      }
       if (this.isRadarProtectedStatus(existing?.status || row?.status) || existingStatus === 'sent_to_vendas') {
         skippedCount += 1;
         protectedCount += 1;
         skipped.push({ id: row.id, reason: existingStatus });
         continue;
       }
-      const nextStatus = existingStatus && !['clean', 'new'].includes(existingStatus) ? existingStatus : 'delivered';
-      await (this.prisma as any).radarLeadCompanyState.upsert({
-        where: {
-          companyId_radarLeadId: {
-            companyId: targetCompanyId,
-            radarLeadId: row.id,
-          },
-        },
-        create: {
-          companyId: targetCompanyId,
-          radarLeadId: row.id,
-          status: nextStatus,
+      const nextStatus = existingStatus && !['clean', 'new'].includes(existingStatus) ? existingStatus : 'reserved';
+      await this.claimRadarLeadForCompany(
+        { companyId: targetCompanyId, userId: masterUserId || 0 } as SearchExecutionContext,
+        row,
+        {
+          poolStatus: nextStatus,
+          companyStatus: nextStatus,
+          eventType: 'status_changed',
+          note: assignedUserId
+            ? `Exportado pelo MASTER para usuario ${assignedUserId}.`
+            : `Exportado pelo MASTER para empresa ${targetCompanyId}.`,
           assignedUserId,
           assignedByUserId: masterUserId,
-          assignedAt: now,
-          lastActionAt: now,
         },
-        update: {
-          status: nextStatus,
-          assignedUserId,
-          assignedByUserId: masterUserId,
-          assignedAt: now,
-          lastActionAt: now,
-        },
-      });
-      await (this.prisma as any).radarLeadPool.update({
-        where: { id: row.id },
-        data: { lastSeenAt: now },
-      }).catch(() => null);
-      await this.recordRadarLeadEvent({
-        leadId: row.id,
-        companyId: targetCompanyId,
-        userId: masterUserId,
-        eventType: 'status_changed',
-        note: assignedUserId
-          ? `Exportado pelo MASTER para usuario ${assignedUserId}.`
-          : `Exportado pelo MASTER para empresa ${targetCompanyId}.`,
-        statusFrom: existingStatus,
-        statusTo: nextStatus,
-      });
+      );
       exportedCount += 1;
       exportedIds.push(row.id);
     }

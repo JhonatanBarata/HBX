@@ -45,6 +45,9 @@ type RadarLead = {
   sourceEngines?: string[];
   status?: string | null;
   companyStatus?: string | null;
+  ownershipStatus?: "available" | "mine" | "in_attendance" | "negative" | string | null;
+  ownerCompanyId?: number | null;
+  claimedAt?: string | null;
   historySummary?: RadarLeadHistory[];
   lastSeenAt?: string | null;
   firstSeenAt?: string | null;
@@ -165,6 +168,7 @@ function formatDate(value?: string | null) {
 function statusLabel(value?: string | null) {
   const status = String(value || "clean").toLowerCase();
   if (status === "clean" || status === "new") return "Novo";
+  if (status === "reserved") return "Reservado";
   if (status === "approved") return "Aprovado";
   if (status === "delivered") return "Recebido";
   if (status === "sent_to_vendas" || status === "imported_to_vendas") return "Em Vendas";
@@ -179,6 +183,21 @@ function statusLabel(value?: string | null) {
   if (status === "complaint") return "Reclamação";
   if (status === "hidden" || status === "discarded") return "Descartado";
   return value || "Novo";
+}
+
+function ownershipBadge(lead: RadarLead) {
+  const status = String(lead.ownershipStatus || "").toLowerCase();
+  const leadStatus = String(lead.companyStatus || lead.status || "").toLowerCase();
+  if (status === "negative" || ["negative", "denied", "blocked", "opt_out", "optout", "complaint", "discarded", "hidden"].includes(leadStatus)) {
+    return { label: "Negativo", tone: "negative" };
+  }
+  if (status === "in_attendance" || ["sent_to_vendas", "imported_to_vendas", "in_attendance"].includes(leadStatus)) {
+    return { label: "Em atendimento", tone: "attendance" };
+  }
+  if (status === "mine" || lead.ownerCompanyId) {
+    return { label: "Na minha carteira", tone: "mine" };
+  }
+  return { label: "Disponível", tone: "available" };
 }
 
 function websiteLabel(value?: string | null) {
@@ -783,7 +802,7 @@ export default function RadarDigitalClientPage() {
           requireAuth: true,
           timeoutMs: 15000,
         });
-        setItems((current) => current.map((item) => item.id === lead.id ? { ...item, status: "sent_to_vendas", companyStatus: "imported_to_vendas" } : item));
+        setItems((current) => current.map((item) => item.id === lead.id ? { ...item, status: "sent_to_vendas", companyStatus: "imported_to_vendas", ownershipStatus: "in_attendance" } : item));
         setFeedback("Card enviado para Vendas.");
       }
 
@@ -794,7 +813,7 @@ export default function RadarDigitalClientPage() {
           timeoutMs: 15000,
           body: JSON.stringify({ eventType: "hidden", note: "Ocultado no Radar Digital." }),
         });
-        setItems((current) => current.map((item) => item.id === lead.id ? { ...item, status: "discarded", companyStatus: "discarded" } : item));
+        setItems((current) => current.map((item) => item.id === lead.id ? { ...item, status: "discarded", companyStatus: "discarded", ownershipStatus: "negative" } : item));
         setFeedback("Card marcado como descartado.");
       }
 
@@ -805,7 +824,7 @@ export default function RadarDigitalClientPage() {
           timeoutMs: 15000,
           body: JSON.stringify({ status: "negative", reason: "sem_interesse", privateNotes: "Marcado no Radar Digital." }),
         });
-        setItems((current) => current.map((item) => item.id === lead.id ? { ...item, status: "negative", companyStatus: "negative" } : item));
+        setItems((current) => current.map((item) => item.id === lead.id ? { ...item, status: "negative", companyStatus: "negative", ownershipStatus: "negative" } : item));
         setFeedback("Card marcado como negativo.");
       }
     } catch {
@@ -858,7 +877,7 @@ export default function RadarDigitalClientPage() {
         timeoutMs: 15000,
         body: JSON.stringify({ leadIds: selectedItems.map((lead) => lead.id) }),
       }).catch(() => null);
-      setItems((current) => current.map((item) => selectedItems.some((selected) => selected.id === item.id) ? { ...item, status: "sent_to_vendas", companyStatus: "imported_to_vendas" } : item));
+      setItems((current) => current.map((item) => selectedItems.some((selected) => selected.id === item.id) ? { ...item, status: "sent_to_vendas", companyStatus: "imported_to_vendas", ownershipStatus: "in_attendance" } : item));
       setFeedback(imported.message || `${leads.length} lead(s) herdados para Vendas.`);
     } catch (bulkError) {
       setError(bulkError instanceof Error ? bulkError.message : "Não foi possível herdar leads para Vendas agora.");
@@ -987,6 +1006,7 @@ export default function RadarDigitalClientPage() {
             <select value={filters.status} onChange={(event) => setFilters((current) => ({ ...current, status: event.target.value }))}>
               <option value="">Todos</option>
               <option value="clean">Novo</option>
+              <option value="reserved">Na minha carteira</option>
               <option value="approved">Aprovado</option>
               <option value="sent_to_vendas">Em Vendas</option>
               <option value="in_attendance">Em atendimento</option>
@@ -1149,11 +1169,15 @@ export default function RadarDigitalClientPage() {
                 const isHigh = score >= 70;
                 const origin = [lead.sourceEngine, lead.source, ...(lead.sourceEngines || [])].filter(Boolean)[0] || "Banco HBX";
                 const status = lead.companyStatus || lead.status;
+                const ownerBadge = ownershipBadge(lead);
                 return (
                   <article key={lead.id} className={styles.card} data-high={isHigh ? "true" : "false"}>
                     <div className={styles.cardHeader}>
                       <div>
-                        <span>{lead.segment || "Segmento aberto"}</span>
+                        <div className={styles.cardBadges}>
+                          <span>{lead.segment || "Segmento aberto"}</span>
+                          <em data-tone={ownerBadge.tone}>{ownerBadge.label}</em>
+                        </div>
                         <strong>{lead.name || "Empresa sem nome"}</strong>
                       </div>
                       <div className={styles.score} style={{ ["--score" as string]: `${score}%` }}>
