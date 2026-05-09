@@ -35,7 +35,9 @@ function normalizeBaseUrl(value) {
 }
 
 function parsePositiveInteger(value, fallback) {
-  const parsed = Number(String(value || '').trim());
+  const raw = String(value ?? '').trim();
+  if (!raw) return fallback;
+  const parsed = Number(raw);
   if (!Number.isFinite(parsed)) return fallback;
   return Math.max(1, Math.trunc(parsed));
 }
