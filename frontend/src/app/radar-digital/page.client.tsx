@@ -218,6 +218,10 @@ function mergeRadarLeads(items: RadarLead[]) {
   return merged;
 }
 
+function wait(ms: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
 function eventLabel(value?: string | null) {
   const type = String(value || "").toLowerCase();
   if (type === "found") return "Encontrado";
@@ -661,6 +665,24 @@ export default function RadarDigitalClientPage() {
     }));
   }
 
+  async function appendCardsProgressively(nextCards: RadarLead[], maxTotal: number) {
+    let appendedCount = 0;
+    for (const card of nextCards) {
+      let didAppend = false;
+      setItems((current) => {
+        const merged = mergeRadarLeads([...current, card]).slice(0, maxTotal);
+        didAppend = merged.length > current.length;
+        return merged;
+      });
+      if (didAppend) {
+        appendedCount += 1;
+        setTotal((current) => Math.max(current, appendedCount));
+        await wait(70);
+      }
+    }
+    return appendedCount;
+  }
+
   async function runRadarSearch() {
     setSearching(true);
     setError(null);
@@ -685,7 +707,7 @@ export default function RadarDigitalClientPage() {
         apiFetch<RadarPullResponse>("/webscraping/radar/pull", {
           method: "POST",
           requireAuth: true,
-          timeoutMs: 120000,
+          timeoutMs: 70000,
           direct: true,
           body: JSON.stringify({
             ...nextFilters,
@@ -696,34 +718,64 @@ export default function RadarDigitalClientPage() {
           }),
         });
 
+      setItems([]);
+      setTotal(0);
+      setPage(1);
+
+      const targetType = nextFilters.targetType === "both" ? "pj" : nextFilters.targetType;
+      const chunkSize = Math.min(10, Math.max(1, nextFilters.quantity));
       let motorRan = false;
       let fetchedCount = 0;
       let replenishErrorMessage = "";
       let backendMessage = "";
-      let nextItems: RadarLead[] = [];
+      let deliveredCount = 0;
+      let emptyBatchCount = 0;
 
-      const payload = await pullRadar(nextFilters.targetType === "both" ? "pj" : nextFilters.targetType, nextFilters.quantity);
-      nextItems = payload.items || [];
-      motorRan = Boolean(payload.meta?.replenish?.ran);
-      fetchedCount = Number(payload.meta?.replenish?.fetchedCount || 0);
-      replenishErrorMessage = payload.meta?.replenish?.errorMessage || "";
-      backendMessage = payload.message || "";
+      while (deliveredCount < nextFilters.quantity && emptyBatchCount < 2) {
+        const remaining = nextFilters.quantity - deliveredCount;
+        const batchQuantity = Math.min(chunkSize, remaining);
+        let payload: RadarPullResponse;
+        try {
+          payload = await pullRadar(targetType, batchQuantity);
+        } catch (batchError) {
+          if (deliveredCount > 0) {
+            backendMessage = radarFriendlyError(batchError);
+            break;
+          }
+          throw batchError;
+        }
 
-      setItems(nextItems);
-      setTotal(nextItems.length);
-      setPage(1);
-      if (!nextItems.length) {
+        const batchItems = payload.items || [];
+        motorRan = motorRan || Boolean(payload.meta?.replenish?.ran);
+        fetchedCount += Number(payload.meta?.replenish?.fetchedCount || 0);
+        replenishErrorMessage = payload.meta?.replenish?.errorMessage || replenishErrorMessage;
+        backendMessage = payload.message || backendMessage;
+
+        const beforeBatch = deliveredCount;
+        const appended = await appendCardsProgressively(batchItems, nextFilters.quantity);
+        deliveredCount += appended;
+        setTotal(deliveredCount);
+
+        if (deliveredCount >= nextFilters.quantity) break;
+        if (!batchItems.length || deliveredCount === beforeBatch) {
+          emptyBatchCount += 1;
+          continue;
+        }
+        emptyBatchCount = 0;
+      }
+
+      if (!deliveredCount) {
         setFeedback(backendMessage || "Pesquisa concluída. Não há cards públicos suficientes para esse filtro agora.");
         return;
       }
       const motorMessage = replenishErrorMessage
-        ? replenishErrorMessage.replace("Entreguei os cards disponiveis", `Entreguei ${nextItems.length} card(s)`)
+        ? replenishErrorMessage.replace("Entreguei os cards disponiveis", `Entreguei ${deliveredCount} card(s)`)
         : backendMessage
         ? backendMessage
         : motorRan
         ? `Motor acionado. ${fetchedCount} novo(s) card(s) entraram no banco.`
         : "Entregue direto do banco de dados, sem acionar motor.";
-      setFeedback(`${nextItems.length} card(s) prontos. ${motorMessage}`);
+      setFeedback(`${deliveredCount} card(s) entregues. ${motorMessage}`);
     } catch (searchError) {
       setError(radarFriendlyError(searchError));
     } finally {
