@@ -252,6 +252,7 @@ function createCampaignPrisma(initialCampaign: Record<string, any> = {}) {
       },
     },
     webscrapingCampaignBatch: {
+      findFirst: async () => null,
       create: async ({ data }: any) => {
         const batch = {
           id: `batch-${batches.length + 1}`,
@@ -343,6 +344,16 @@ function createCampaignPrisma(initialCampaign: Record<string, any> = {}) {
       },
     },
     radarLeadPool: {
+      count: async (input?: any) => {
+        const where = input?.where || {};
+        if (where.normalizedCity || where.normalizedSegment || where.state) {
+          return leads.filter((lead) =>
+            (!where.normalizedCity || lead.normalizedCity === where.normalizedCity) &&
+            (!where.normalizedSegment || lead.normalizedSegment === where.normalizedSegment) &&
+            (!where.state || lead.state === where.state)).length;
+        }
+        return leads.length;
+      },
       findMany: async (input?: any) => {
         const where = input?.where || {};
         if (where.campaignId) return leads.filter((lead) => lead.campaignId === where.campaignId);
@@ -1209,6 +1220,99 @@ test('engine hbx aplica limite 100 para pj e envia targetType', async () => {
   }
 });
 
+test('radar_pull hbx coloca motor com falha em cooldown e tenta outro', async () => {
+  const previousAttempts = process.env.HBX_RADAR_PULL_ENGINE_ATTEMPTS;
+  process.env.HBX_RADAR_PULL_ENGINE_ATTEMPTS = '2';
+
+  const previousFetch = global.fetch;
+  const calls: Array<{ url: string; body: any }> = [];
+  global.fetch = (async (input: any, init?: any) => {
+    calls.push({
+      url: String(input),
+      body: JSON.parse(String(init?.body || '{}')),
+    });
+    if (calls.length === 1) {
+      return {
+        ok: false,
+        status: 503,
+        text: async () => 'engine warming up',
+        json: async () => ({}),
+      } as any;
+    }
+    return createResponse(200, {
+      results: [
+        {
+          name: 'Oficina Reserva',
+          phone: '(19) 98888-7777',
+          phoneDigits: '19988887777',
+          source: 'hbx_scraping:web',
+          score: 82,
+        },
+      ],
+    }) as any;
+  }) as any;
+
+  const acquired: string[] = [];
+  const markedCooldown: string[] = [];
+  const released: string[] = [];
+  const fakePool = {
+    acquireEngine: async (_runId: string, _companyId: number, _userId: number, options?: any) => {
+      const next = acquired.length === 0
+        ? { engineId: 'hbx-engine-1', engineIndex: 0, url: 'http://engine-1', lockedUntil: new Date(), googleEmergencyMode: false }
+        : { engineId: 'hbx-engine-2', engineIndex: 1, url: 'http://engine-2', lockedUntil: new Date(), googleEmergencyMode: false };
+      assert.notEqual(options?.purpose, 'mass_data');
+      acquired.push(next.engineId);
+      return next;
+    },
+    markEngineBatchError: async (engineId: string) => {
+      markedCooldown.push(engineId);
+    },
+    releaseEngine: async (engineId: string) => {
+      released.push(engineId);
+    },
+  };
+  const prisma = createPrisma({
+    hbxEngineLock: {
+      updateMany: async () => ({ count: 1 }),
+    },
+  });
+  const service = new WebscrapingService(prisma, fakePool as any);
+
+  try {
+    const response = await service.searchContactsForUser(
+      createUser(),
+      {
+        city: 'Campinas',
+        state: 'SP',
+        segment: 'oficina mecanica',
+        engine: 'hbx',
+        targetType: 'pj',
+        quantity: 10,
+      },
+      {
+        skipRadarLookup: true,
+        skipPrivateHistory: true,
+        skipTechnicalCache: true,
+        skipRadarPersist: true,
+        recordUsage: false,
+        purpose: 'radar_pull',
+      },
+    );
+
+    assert.deepEqual(acquired, ['hbx-engine-1', 'hbx-engine-2']);
+    assert.deepEqual(markedCooldown, ['hbx-engine-1']);
+    assert.deepEqual(released, ['hbx-engine-1', 'hbx-engine-2']);
+    assert.equal(calls[0].url, 'http://engine-1/search');
+    assert.equal(calls[1].url, 'http://engine-2/search');
+    assert.equal(response.results.length, 1);
+    assert.equal(response.results[0].name, 'Oficina Reserva');
+  } finally {
+    global.fetch = previousFetch;
+    if (previousAttempts === undefined) delete process.env.HBX_RADAR_PULL_ENGINE_ATTEMPTS;
+    else process.env.HBX_RADAR_PULL_ENGINE_ATTEMPTS = previousAttempts;
+  }
+});
+
 test('busca livre hbx pj aceita apenas termo e limita em 100', async () => {
   const previousEngineUrl = process.env.HBX_SCRAPING_ENGINE_URL;
   process.env.HBX_SCRAPING_ENGINE_URL = 'http://localhost:8001';
@@ -1862,6 +1966,44 @@ test('listagem radar tolera engine=hbx sem quebrar', async () => {
 
   assert.equal(response.total, 1);
   assert.equal(response.items[0].name, 'Loja Radar');
+});
+
+test('pullRadarLeadsForUser entrega banco quando reposicao do motor falha', async () => {
+  const { prisma, leads } = createCampaignPrisma();
+  leads.push({
+    id: 'lead-bank-1',
+    name: 'Loja Banco',
+    phone: '(19) 99999-4444',
+    phoneDigits: '19999994444',
+    city: 'Campinas',
+    state: 'SP',
+    segment: 'Lojas',
+    normalizedCity: 'campinas',
+    normalizedSegment: 'lojas',
+    status: 'clean',
+    metadataJson: JSON.stringify({ targetType: 'pj' }),
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  });
+  const service = new WebscrapingService(prisma);
+  (service as any).replenishRadarStockForUser = async () => {
+    throw new Error('engine timeout');
+  };
+
+  const response = await service.pullRadarLeadsForUser(createUser(), {
+    city: 'Campinas',
+    state: 'SP',
+    segment: 'Lojas',
+    targetType: 'pj',
+    quantity: 5,
+    minimumStock: 2,
+  });
+
+  assert.equal(response.items.length, 1);
+  assert.equal(response.items[0].name, 'Loja Banco');
+  assert.equal(response.meta.deliveredCount, 1);
+  assert.equal(response.meta.replenish.ran, true);
+  assert.match(response.meta.replenish.errorMessage, /Motores em aquecimento\/cooldown/);
 });
 
 test('campanha radar trata 502 como retryable e salva 2 contatos no segundo lote', async () => {

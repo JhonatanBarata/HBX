@@ -71,6 +71,7 @@ type RadarPullResponse = {
     replenish?: {
       ran?: boolean;
       fetchedCount?: number;
+      errorMessage?: string;
     };
   };
 };
@@ -212,7 +213,6 @@ function buildLeadQuery(filters: FilterState, page: number) {
   if (filters.state) params.set("state", filters.state);
   if (filters.city) params.set("city", filters.city);
   if (filters.segment.trim()) params.set("segment", filters.segment.trim());
-  if (filters.engine) params.set("engine", filters.engine);
   if (filters.targetType) params.set("targetType", filters.targetType);
   if (filters.ddd.trim()) params.set("ddd", filters.ddd.replace(/\D/g, "").slice(0, 2));
   if (filters.scoreRange) params.set("scoreRange", filters.scoreRange);
@@ -598,6 +598,7 @@ export default function RadarDigitalClientPage() {
 
       let motorRan = false;
       let fetchedCount = 0;
+      let replenishErrorMessage = "";
       let nextItems: RadarLead[] = [];
 
       if (nextFilters.targetType === "both") {
@@ -615,22 +616,31 @@ export default function RadarDigitalClientPage() {
         nextItems = mergeRadarLeads(fulfilled.flatMap((result) => result.value.items || [])).slice(0, nextFilters.quantity);
         motorRan = fulfilled.some((result) => Boolean(result.value.meta?.replenish?.ran));
         fetchedCount = fulfilled.reduce((totalCount, result) => totalCount + Number(result.value.meta?.replenish?.fetchedCount || 0), 0);
+        replenishErrorMessage = fulfilled.map((result) => result.value.meta?.replenish?.errorMessage || "").find(Boolean) || "";
       } else {
-        const payload = await pullRadar(nextFilters.targetType === "agenda_pf" ? "pf" : nextFilters.targetType, nextFilters.quantity);
+        const payload = await pullRadar(nextFilters.targetType, nextFilters.quantity);
         nextItems = payload.items || [];
         motorRan = Boolean(payload.meta?.replenish?.ran);
         fetchedCount = Number(payload.meta?.replenish?.fetchedCount || 0);
+        replenishErrorMessage = payload.meta?.replenish?.errorMessage || "";
       }
 
       setItems(nextItems);
       setTotal(nextItems.length);
       setPage(1);
-      const motorMessage = motorRan
+      const motorMessage = replenishErrorMessage
+        ? replenishErrorMessage.replace("Entreguei os cards disponiveis", `Entreguei ${nextItems.length} card(s)`)
+        : motorRan
         ? `Motor acionado. ${fetchedCount} novo(s) card(s) entraram no banco.`
         : "Entregue direto do banco de dados, sem acionar motor.";
       setFeedback(`${nextItems.length} card(s) prontos. ${motorMessage}`);
     } catch (searchError) {
-      setError(searchError instanceof Error ? searchError.message : "Não foi possível pesquisar agora.");
+      const message = searchError instanceof Error ? searchError.message : "";
+      setError(
+        message && !/internal server error/i.test(message)
+          ? message
+          : "Motores em aquecimento/cooldown. Tente novamente em instantes.",
+      );
     } finally {
       setSearching(false);
     }
@@ -852,7 +862,7 @@ export default function RadarDigitalClientPage() {
             <HbxTargetTypeSelector
               value={filters.targetType}
               onChange={(value) => setFilters((current) => ({ ...current, targetType: value }))}
-              allowedTypes={["pj", "pf", "both"]}
+              allowedTypes={["pj", "pf", "agenda_pf", "both"]}
             />
           </div>
           <div className={styles.filterAdvanced}>

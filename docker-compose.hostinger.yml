@@ -13,6 +13,12 @@ x-hbx-engine-common: &hbx-engine-common
     HBX_AGENDA_REQUEST_DELAY_MS: ${HBX_AGENDA_REQUEST_DELAY_MS:-700}
   networks:
     - hbx_net
+  healthcheck:
+    test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/health', timeout=3).read()\""]
+    interval: 30s
+    timeout: 5s
+    retries: 3
+    start_period: 20s
 
 services:
   backend:
@@ -203,6 +209,57 @@ services:
     container_name: hbx-engine-20
     volumes:
       - ./hbx-scraping-engine/data-20:/app/data
+
+  hbx-engine-watchdog:
+    image: docker:27-cli
+    container_name: hbx-engine-watchdog
+    restart: unless-stopped
+    environment:
+      HBX_ENGINE_COUNT: ${HBX_ENGINE_COUNT:-20}
+      HBX_WATCHDOG_INTERVAL_SECONDS: ${HBX_WATCHDOG_INTERVAL_SECONDS:-45}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - hbx_net
+    command: >
+      sh -c '
+        while true; do
+          for i in $$(seq 1 $${HBX_ENGINE_COUNT:-20}); do
+            name="hbx-engine-$$i";
+            status="$$(docker inspect -f "{{.State.Status}}" "$$name" 2>/dev/null || true)";
+            health="$$(docker inspect -f "{{if .State.Health}}{{.State.Health.Status}}{{else}}no-health{{end}}" "$$name" 2>/dev/null || true)";
+            if [ "$$status" != "running" ]; then
+              echo "[hbx-watchdog] starting $$name status=$$status";
+              docker start "$$name" >/dev/null 2>&1 || true;
+            elif [ "$$health" = "unhealthy" ]; then
+              echo "[hbx-watchdog] restarting $$name health=$$health";
+              docker restart "$$name" >/dev/null 2>&1 || true;
+            fi;
+          done;
+          sleep $${HBX_WATCHDOG_INTERVAL_SECONDS:-45};
+        done
+      '
+    depends_on:
+      - hbx-engine-1
+      - hbx-engine-2
+      - hbx-engine-3
+      - hbx-engine-4
+      - hbx-engine-5
+      - hbx-engine-6
+      - hbx-engine-7
+      - hbx-engine-8
+      - hbx-engine-9
+      - hbx-engine-10
+      - hbx-engine-11
+      - hbx-engine-12
+      - hbx-engine-13
+      - hbx-engine-14
+      - hbx-engine-15
+      - hbx-engine-16
+      - hbx-engine-17
+      - hbx-engine-18
+      - hbx-engine-19
+      - hbx-engine-20
 
 # Frontend de producao roda fora do Docker via PM2 pelo publish/release.
 #  frontend:

@@ -220,6 +220,62 @@ async function ensureMasterBillingRuntimeSchemaUncached(prisma: PrismaService) {
   `);
 
   await prisma.$executeRawUnsafe(`
+    CREATE TABLE IF NOT EXISTS "WhatsAppConnectionSession" (
+      "id" TEXT NOT NULL,
+      "companyId" INTEGER NOT NULL,
+      "provider" TEXT NOT NULL DEFAULT 'webwhats',
+      "tenantKey" TEXT NOT NULL,
+      "phoneNormalized" TEXT,
+      "displayPhone" TEXT,
+      "status" TEXT NOT NULL DEFAULT 'active',
+      "connectedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "disconnectedAt" TIMESTAMP(3),
+      "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "metadataJson" TEXT,
+      CONSTRAINT "WhatsAppConnectionSession_pkey" PRIMARY KEY ("id")
+    )
+  `);
+
+  await prisma.$executeRawUnsafe(`
+    ALTER TABLE "Company"
+    ADD COLUMN IF NOT EXISTS "currentWhatsappConnectionSessionId" TEXT
+  `);
+
+  await prisma.$executeRawUnsafe(`
+    ALTER TABLE "Conversation"
+    ADD COLUMN IF NOT EXISTS "whatsappConnectionSessionId" TEXT,
+    ADD COLUMN IF NOT EXISTS "sourcePhoneNormalized" TEXT,
+    ADD COLUMN IF NOT EXISTS "sourceTenantKey" TEXT
+  `);
+
+  await prisma.$executeRawUnsafe(`
+    ALTER TABLE "Message"
+    ADD COLUMN IF NOT EXISTS "whatsappConnectionSessionId" TEXT,
+    ADD COLUMN IF NOT EXISTS "sourcePhoneNormalized" TEXT,
+    ADD COLUMN IF NOT EXISTS "sourceTenantKey" TEXT
+  `);
+
+  await prisma.$executeRawUnsafe(`
+    DROP INDEX IF EXISTS "Conversation_companyId_channel_contact_key"
+  `);
+
+  await prisma.$executeRawUnsafe(`
+    CREATE UNIQUE INDEX IF NOT EXISTS "Conversation_companyId_channel_contact_whatsappConnectionSessionId_key"
+    ON "Conversation"("companyId", "channel", "contact", "whatsappConnectionSessionId")
+  `);
+
+  await prisma.$executeRawUnsafe(`
+    CREATE INDEX IF NOT EXISTS "Conversation_companyId_whatsappConnectionSessionId_idx"
+    ON "Conversation"("companyId", "whatsappConnectionSessionId")
+  `);
+
+  await prisma.$executeRawUnsafe(`
+    CREATE INDEX IF NOT EXISTS "Message_companyId_whatsappConnectionSessionId_timestamp_idx"
+    ON "Message"("companyId", "whatsappConnectionSessionId", "timestamp")
+  `);
+
+  await prisma.$executeRawUnsafe(`
     ALTER TABLE "Company"
     ADD COLUMN IF NOT EXISTS "whatsappMigrationInterestStatus" TEXT NOT NULL DEFAULT 'NONE'
   `);

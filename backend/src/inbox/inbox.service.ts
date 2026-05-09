@@ -97,6 +97,17 @@ type WhatsAppProviderHealth = {
   rawError?: string | null;
 };
 
+type InboxWhatsappSessionScope = {
+  accessible: boolean;
+  reason: 'webwhats_active' | 'meta_active' | 'no_whatsapp';
+  currentSessionId: string | null;
+  currentSession: any | null;
+  previousSessionIds: string[];
+  previousSessions: any[];
+  previousSessionsCount: number;
+  mode: 'current' | 'previous' | 'all';
+};
+
 const METICULOUS_TRASH_DEFAULT_DELAY_MS = 120000;
 const METICULOUS_TRASH_MIN_PRODUCTION_DELAY_MS = 120000;
 const METICULOUS_TRASH_DEFAULT_JITTER_MIN_MS = 5000;
@@ -452,6 +463,174 @@ export class InboxService {
     if (typeof value === 'number') return value === 1;
     const normalized = String(value || '').trim().toLowerCase();
     return ['true', '1', 'yes', 'sim'].includes(normalized);
+  }
+
+  private normalizeIncludePreviousSessions(value: unknown) {
+    const normalized = String(value || '').trim().toLowerCase();
+    return ['true', '1', 'yes', 'sim'].includes(normalized);
+  }
+
+  private normalizeConnectionPhone(value: unknown) {
+    const digits = String(value || '').replace(/\D+/g, '');
+    if (!digits) return null;
+    if (digits.length >= 12) return digits;
+    if ((digits.length === 10 || digits.length === 11) && !digits.startsWith('55')) {
+      return `55${digits}`;
+    }
+    return digits;
+  }
+
+  private async ensureWebwhatsSessionFromCompany(company: any) {
+    const connected = String(company?.whatsappModalStatus || '').trim().toUpperCase() === 'CONNECTED';
+    if (!connected) return null;
+    const current = company?.currentWhatsappConnectionSession;
+    if (
+      current &&
+      String(current.provider || '').trim().toLowerCase() === 'webwhats' &&
+      String(current.status || '').trim().toLowerCase() === 'active'
+    ) {
+      return current;
+    }
+
+    const phoneNormalized = this.normalizeConnectionPhone(company?.whatsappModalPhone);
+    if (!phoneNormalized) return null;
+    const tenantKey = `company-${Number(company.id)}`;
+    const now = new Date();
+    await this.prisma.whatsAppConnectionSession.updateMany({
+      where: {
+        companyId: Number(company.id),
+        provider: 'webwhats',
+        status: 'active',
+        NOT: { phoneNormalized },
+      },
+      data: { status: 'disconnected', disconnectedAt: now },
+    });
+    let session = await this.prisma.whatsAppConnectionSession.findFirst({
+      where: {
+        companyId: Number(company.id),
+        provider: 'webwhats',
+        phoneNormalized,
+        status: 'active',
+      },
+      orderBy: [{ connectedAt: 'desc' }, { createdAt: 'desc' }],
+    });
+    if (!session) {
+      session = await this.prisma.whatsAppConnectionSession.create({
+        data: {
+          companyId: Number(company.id),
+          provider: 'webwhats',
+          tenantKey,
+          phoneNormalized,
+          displayPhone: String(company.whatsappModalPhone || '').trim() || null,
+          status: 'active',
+          connectedAt: company.whatsappModalConnectedAt || now,
+          metadataJson: JSON.stringify({
+            source: 'inbox_session_repair',
+            recordedAt: now.toISOString(),
+          }),
+        },
+      });
+    }
+    if (String(company.currentWhatsappConnectionSessionId || '') !== String(session.id)) {
+      await this.prisma.company.update({
+        where: { id: Number(company.id) },
+        data: { currentWhatsappConnectionSessionId: String(session.id) },
+      });
+    }
+    return session;
+  }
+
+  private async resolveInboxWhatsappSessionScope(
+    companyId: number,
+    opts?: { includePreviousSessions?: boolean },
+  ): Promise<InboxWhatsappSessionScope> {
+    const company = await this.prisma.company.findUnique({
+      where: { id: companyId },
+      select: {
+        id: true,
+        whatsappModalStatus: true,
+        whatsappModalPhone: true,
+        whatsappModalConnectedAt: true,
+        whatsappStatus: true,
+        currentWhatsappConnectionSessionId: true,
+        currentWhatsappConnectionSession: true,
+      },
+    });
+    const currentSession = company ? await this.ensureWebwhatsSessionFromCompany(company) : null;
+    const metaActive = String(company?.whatsappStatus || '').trim().toUpperCase() === 'CONNECTED';
+    const accessible = Boolean(currentSession?.id || metaActive);
+    const previousSessions = accessible
+      ? await this.prisma.whatsAppConnectionSession.findMany({
+          where: {
+            companyId,
+            status: { not: 'archived' },
+            ...(currentSession?.id ? { NOT: { id: String(currentSession.id) } } : {}),
+          },
+          orderBy: [{ disconnectedAt: 'desc' }, { connectedAt: 'desc' }, { createdAt: 'desc' }],
+          take: 20,
+        })
+      : [];
+    const legacyConversationCount = accessible && currentSession?.id
+      ? await this.prisma.companyConversation.count({
+          where: {
+            companyId,
+            channel: 'whatsapp',
+            whatsappConnectionSessionId: null,
+          },
+        })
+      : 0;
+    return {
+      accessible,
+      reason: currentSession?.id ? 'webwhats_active' : metaActive ? 'meta_active' : 'no_whatsapp',
+      currentSessionId: currentSession?.id ? String(currentSession.id) : null,
+      currentSession,
+      previousSessionIds: previousSessions.map((session) => String(session.id)),
+      previousSessions,
+      previousSessionsCount: previousSessions.length + legacyConversationCount,
+      mode: opts?.includePreviousSessions ? 'previous' : currentSession?.id ? 'current' : 'all',
+    };
+  }
+
+  private assertInboxWhatsappAccessible(scope: InboxWhatsappSessionScope) {
+    if (scope.accessible) return;
+    throw new ServiceUnavailableException('Atendimento indisponível sem WhatsApp/celular vinculado.');
+  }
+
+  private isRowVisibleForWhatsappSessionScope(row: any, scope: InboxWhatsappSessionScope) {
+    if (!scope.accessible) return false;
+    if (scope.mode === 'all') return true;
+    const rowSessionId = row?.whatsappConnectionSessionId ? String(row.whatsappConnectionSessionId) : null;
+    if (scope.mode === 'current') return Boolean(scope.currentSessionId) && rowSessionId === scope.currentSessionId;
+    if (!rowSessionId) return true;
+    return scope.previousSessionIds.includes(rowSessionId);
+  }
+
+  private buildWhatsappSessionMetadata(scope: InboxWhatsappSessionScope) {
+    return {
+      accessible: scope.accessible,
+      reason: scope.reason,
+      mode: scope.mode,
+      currentSessionId: scope.currentSessionId,
+      currentSession: scope.currentSession
+        ? {
+            id: String(scope.currentSession.id),
+            provider: String(scope.currentSession.provider || 'webwhats'),
+            phoneNormalized: scope.currentSession.phoneNormalized || null,
+            displayPhone: scope.currentSession.displayPhone || null,
+            connectedAt: scope.currentSession.connectedAt || null,
+          }
+        : null,
+      previousSessions: scope.previousSessions.map((session) => ({
+        id: String(session.id),
+        provider: String(session.provider || 'webwhats'),
+        phoneNormalized: session.phoneNormalized || null,
+        displayPhone: session.displayPhone || null,
+        status: session.status || null,
+        connectedAt: session.connectedAt || null,
+        disconnectedAt: session.disconnectedAt || null,
+      })),
+      previousSessionsCount: scope.previousSessionsCount,
+    };
   }
 
   private getNestedMetadataRecord(value: unknown): Record<string, any> | null {
@@ -2088,6 +2267,13 @@ export class InboxService {
       updatedAt: conversation.updatedAt,
       lastRealMessageAt: conversation?.lastRealMessageAt || conversation?.lastMessageAt || null,
       lastMessageAt: conversation?.lastRealMessageAt || conversation?.lastMessageAt || null,
+      whatsappConnectionSessionId: conversation?.whatsappConnectionSessionId
+        ? String(conversation.whatsappConnectionSessionId)
+        : null,
+      sourcePhoneNormalized: conversation?.sourcePhoneNormalized
+        ? String(conversation.sourcePhoneNormalized)
+        : null,
+      sourceTenantKey: conversation?.sourceTenantKey ? String(conversation.sourceTenantKey) : null,
       currentFlow: String(conversation?.currentFlow || '').trim() || null,
       flowResult: String(conversation?.flowResult || '').trim() || null,
       routeTarget: routeContext.routeTarget,
@@ -2797,6 +2983,9 @@ export class InboxService {
       select: {
         id: true,
         contact: true,
+        whatsappConnectionSessionId: true,
+        sourcePhoneNormalized: true,
+        sourceTenantKey: true,
         metadata: true,
         currentFlow: true,
         currentStep: true,
@@ -2834,8 +3023,18 @@ export class InboxService {
 
   private async listPersistedConversationSummariesForCompany(
     companyId: number,
-    options?: { take?: string | number | null; skip?: string | number | null; queue?: string | null },
+    options?: {
+      take?: string | number | null;
+      skip?: string | number | null;
+      queue?: string | null;
+      includePreviousSessions?: boolean;
+      sessionScope?: InboxWhatsappSessionScope;
+    },
   ) {
+    const sessionScope = options?.sessionScope || await this.resolveInboxWhatsappSessionScope(companyId, {
+      includePreviousSessions: options?.includePreviousSessions,
+    });
+    this.assertInboxWhatsappAccessible(sessionScope);
     const take = this.normalizeConversationTakeLimit(options?.take, 200) || 200;
     const visibleSkip = this.normalizeConversationSkip(options?.skip);
     const queueFilter = this.normalizeConversationQueueFilter(options?.queue);
@@ -2844,6 +3043,7 @@ export class InboxService {
         take,
         skip: visibleSkip,
         queue: queueFilter,
+        sessionScope,
       });
     }
     const rows: Array<{
@@ -2886,6 +3086,9 @@ export class InboxService {
       querySkip += chunk.length;
 
       for (const row of chunk) {
+        if (!this.isRowVisibleForWhatsappSessionScope(row, sessionScope)) {
+          continue;
+        }
         const metadata = this.parseConversationMetadata(row.metadata);
         if (this.parseBooleanMetadataFlag(metadata.whatsappConversationDeleted || metadata.inboxWhatsAppDeleted)) {
           continue;
@@ -2908,6 +3111,9 @@ export class InboxService {
         .filter((id) => !existingIds.has(id));
       const operationalRows = await this.findConversationRowsByOrderedIds(companyId, operationalIds);
       for (const row of operationalRows) {
+        if (!this.isRowVisibleForWhatsappSessionScope(row, sessionScope)) {
+          continue;
+        }
         const metadata = this.parseConversationMetadata(row.metadata);
         if (this.parseBooleanMetadataFlag(metadata.whatsappConversationDeleted || metadata.inboxWhatsAppDeleted)) {
           continue;
@@ -2922,7 +3128,7 @@ export class InboxService {
 
   private async listPersistedConversationSummariesForCompanyQueue(
     companyId: number,
-    options: { take: number; skip: number; queue: string },
+    options: { take: number; skip: number; queue: string; sessionScope: InboxWhatsappSessionScope },
   ) {
     const take = Math.max(1, Math.min(Number(options.take || 0) || 200, 200));
     const visibleSkip = Math.max(0, Math.min(Number(options.skip || 0) || 0, 5000));
@@ -2938,6 +3144,7 @@ export class InboxService {
     const operationalRows = await this.findConversationRowsByOrderedIds(companyId, operationalIds);
     const visibleOperationalRows = operationalRows.filter((row) => {
       seenIds.add(Number(row.id));
+      if (!this.isRowVisibleForWhatsappSessionScope(row, options.sessionScope)) return false;
       const metadata = this.parseConversationMetadata(row.metadata);
       return !this.parseBooleanMetadataFlag(metadata.whatsappConversationDeleted || metadata.inboxWhatsAppDeleted);
     });
@@ -2963,6 +3170,7 @@ export class InboxService {
       const visibleRows = chunk.filter((row) => {
         if (seenIds.has(Number(row.id))) return false;
         seenIds.add(Number(row.id));
+        if (!this.isRowVisibleForWhatsappSessionScope(row, options.sessionScope)) return false;
         const metadata = this.parseConversationMetadata(row.metadata);
         return !this.parseBooleanMetadataFlag(metadata.whatsappConversationDeleted || metadata.inboxWhatsAppDeleted);
       });
@@ -2984,13 +3192,37 @@ export class InboxService {
     return conversations;
   }
 
-  private async getPersistedConversationByIdForCompany(companyId: number, id: number, options?: { messagesLimit?: number }) {
+  private async getPersistedConversationByIdForCompany(
+    companyId: number,
+    id: number,
+    options?: { messagesLimit?: number; includePreviousSessions?: boolean; sessionScope?: InboxWhatsappSessionScope },
+  ) {
     const messagesLimit = this.normalizeMessagePageLimit(options?.messagesLimit, 20);
+    const sessionScope = options?.sessionScope || await this.resolveInboxWhatsappSessionScope(companyId, {
+      includePreviousSessions: options?.includePreviousSessions,
+    });
+    this.assertInboxWhatsappAccessible(sessionScope);
+    const sessionWhere =
+      sessionScope.mode === 'current'
+        ? { whatsappConnectionSessionId: sessionScope.currentSessionId }
+        : sessionScope.mode === 'previous'
+          ? {
+              OR: [
+                ...(sessionScope.previousSessionIds.length
+                  ? [{ whatsappConnectionSessionId: { in: sessionScope.previousSessionIds } }]
+                  : []),
+                { whatsappConnectionSessionId: null },
+              ],
+            }
+          : {};
     const loadRow = () => this.prisma.companyConversation.findFirst({
-      where: { companyId, id, channel: 'whatsapp' },
+      where: { companyId, id, channel: 'whatsapp', ...sessionWhere },
       select: {
         id: true,
         contact: true,
+        whatsappConnectionSessionId: true,
+        sourcePhoneNormalized: true,
+        sourceTenantKey: true,
         metadata: true,
         currentFlow: true,
         currentStep: true,
@@ -3056,11 +3288,29 @@ export class InboxService {
     );
   }
 
-  async getBootstrap(user: any, take?: string | number) {
+  async getBootstrap(user: any, take?: string | number, opts?: { includePreviousSessions?: boolean }) {
     const companyId = this.requireCompanyIdFromUser(user);
-    this.triggerBackgroundInboxIndexSync(companyId, { take });
+    const sessionScope = await this.resolveInboxWhatsappSessionScope(companyId, {
+      includePreviousSessions: opts?.includePreviousSessions,
+    });
+    if (!sessionScope.accessible) {
+      return {
+        conversations: [],
+        selectedConversation: null,
+        providerWarning: {
+          code: 'WHATSAPP_REQUIRED',
+          message: 'Atendimento indisponível sem WhatsApp/celular vinculado.',
+        },
+        whatsappSession: this.buildWhatsappSessionMetadata(sessionScope),
+      };
+    }
+    if (sessionScope.mode === 'current') {
+      this.triggerBackgroundInboxIndexSync(companyId, { take });
+    }
     const conversations = await this.listPersistedConversationSummariesForCompany(companyId, {
       take: this.normalizeConversationTakeLimit(take, 200),
+      includePreviousSessions: opts?.includePreviousSessions,
+      sessionScope,
     });
 
     const firstConversationId = conversations[0]?.id ? Number(conversations[0].id) : null;
@@ -3070,6 +3320,8 @@ export class InboxService {
       this.triggerBackgroundInboxConversationSync(companyId, firstConversationId);
       selectedConversation = await this.getPersistedConversationByIdForCompany(companyId, firstConversationId, {
         messagesLimit: 20,
+        includePreviousSessions: opts?.includePreviousSessions,
+        sessionScope,
       });
     }
 
@@ -3077,6 +3329,7 @@ export class InboxService {
       conversations,
       selectedConversation,
       providerWarning: null,
+      whatsappSession: this.buildWhatsappSessionMetadata(sessionScope),
     };
   }
 
@@ -3127,6 +3380,11 @@ export class InboxService {
   }
 
   private async runBootstrapFullMirror(companyId: number, takeLimit: number) {
+    const sessionScope = await this.resolveInboxWhatsappSessionScope(companyId);
+    this.assertInboxWhatsappAccessible(sessionScope);
+    if (sessionScope.mode !== 'current' || !sessionScope.currentSessionId) {
+      throw new ServiceUnavailableException('WhatsApp sem sessão ativa');
+    }
     this.logger.log(
       `Inbox bootstrap inicial iniciado company=${companyId} limit=${takeLimit}.`,
     );
@@ -3153,6 +3411,7 @@ export class InboxService {
         where: {
           companyId,
           channel: 'whatsapp',
+          whatsappConnectionSessionId: sessionScope.currentSessionId,
         },
         orderBy: [{ lastMessageAt: 'desc' }, { updatedAt: 'desc' }, { id: 'desc' }],
         take: takeLimit,
@@ -3304,38 +3563,187 @@ export class InboxService {
 
   async listConversations(
     user: any,
-    options?: { take?: string | number | null; skip?: string | number | null; queue?: string | null },
+    options?: {
+      take?: string | number | null;
+      skip?: string | number | null;
+      queue?: string | null;
+      includePreviousSessions?: string | boolean | null;
+    },
   ) {
     const companyId = this.requireCompanyIdFromUser(user);
-    this.triggerBackgroundInboxIndexSync(companyId, { take: options?.take });
-    return this.listPersistedConversationSummariesForCompany(companyId, options);
+    const includePreviousSessions = this.normalizeIncludePreviousSessions(options?.includePreviousSessions);
+    const sessionScope = await this.resolveInboxWhatsappSessionScope(companyId, { includePreviousSessions });
+    this.assertInboxWhatsappAccessible(sessionScope);
+    if (sessionScope.mode === 'current') {
+      this.triggerBackgroundInboxIndexSync(companyId, { take: options?.take });
+    }
+    return this.listPersistedConversationSummariesForCompany(companyId, {
+      ...options,
+      includePreviousSessions,
+      sessionScope,
+    });
+  }
+
+  async archiveWhatsappSession(user: any, sessionId: string) {
+    this.assertAdministrativeAction(user);
+    const companyId = this.requireCompanyIdFromUser(user);
+    const normalizedSessionId = String(sessionId || '').trim();
+    if (!normalizedSessionId) throw new BadRequestException('Sessao WhatsApp obrigatoria.');
+
+    const session = await this.prisma.whatsAppConnectionSession.findFirst({
+      where: { id: normalizedSessionId, companyId },
+      select: { id: true, status: true },
+    });
+    if (!session) throw new NotFoundException('Sessao WhatsApp nao encontrada.');
+
+    await this.prisma.whatsAppConnectionSession.update({
+      where: { id: normalizedSessionId },
+      data: {
+        status: 'archived',
+        disconnectedAt: new Date(),
+      },
+    });
+
+    await this.prisma.company.updateMany({
+      where: {
+        id: companyId,
+        currentWhatsappConnectionSessionId: normalizedSessionId,
+      },
+      data: {
+        currentWhatsappConnectionSessionId: null,
+      },
+    });
+
+    return { ok: true, sessionId: normalizedSessionId, status: 'archived' };
+  }
+
+  async migrateWhatsappSessionToCurrent(user: any, sessionId: string, dto?: { confirmation?: string | null }) {
+    this.assertAdministrativeAction(user);
+    const companyId = this.requireCompanyIdFromUser(user);
+    const normalizedSessionId = String(sessionId || '').trim();
+    if (!normalizedSessionId) throw new BadRequestException('Sessao WhatsApp obrigatoria.');
+    if (String(dto?.confirmation || '').trim() !== 'MIGRAR') {
+      throw new BadRequestException('Confirmacao MIGRAR obrigatoria.');
+    }
+
+    const scope = await this.resolveInboxWhatsappSessionScope(companyId);
+    this.assertInboxWhatsappAccessible(scope);
+    if (!scope.currentSession?.id) {
+      throw new BadRequestException('WhatsApp atual sem sessao ativa para receber historico.');
+    }
+    if (String(scope.currentSession.id) === normalizedSessionId) {
+      throw new BadRequestException('A sessao informada ja e a sessao atual.');
+    }
+
+    const sourceSession = await this.prisma.whatsAppConnectionSession.findFirst({
+      where: { id: normalizedSessionId, companyId },
+      select: { id: true, status: true },
+    });
+    if (!sourceSession) throw new NotFoundException('Sessao WhatsApp nao encontrada.');
+    if (String(sourceSession.status || '').trim().toLowerCase() === 'archived') {
+      throw new BadRequestException('Sessao arquivada nao pode ser migrada.');
+    }
+
+    const [sourceRows, currentRows] = await Promise.all([
+      this.prisma.companyConversation.findMany({
+        where: { companyId, channel: 'whatsapp', whatsappConnectionSessionId: normalizedSessionId },
+        select: { id: true, contact: true, channel: true },
+      }),
+      this.prisma.companyConversation.findMany({
+        where: { companyId, channel: 'whatsapp', whatsappConnectionSessionId: String(scope.currentSession.id) },
+        select: { contact: true, channel: true },
+      }),
+    ]);
+    const currentKeys = new Set(
+      currentRows.map((row) => `${String(row.channel || 'whatsapp')}:${String(row.contact || '').trim()}`),
+    );
+    const migratableIds = sourceRows
+      .filter((row) => !currentKeys.has(`${String(row.channel || 'whatsapp')}:${String(row.contact || '').trim()}`))
+      .map((row) => Number(row.id))
+      .filter(Boolean);
+    const skipped = sourceRows.length - migratableIds.length;
+
+    if (migratableIds.length) {
+      await this.prisma.$transaction(async (tx) => {
+        await tx.companyConversation.updateMany({
+          where: { companyId, id: { in: migratableIds } },
+          data: {
+            whatsappConnectionSessionId: String(scope.currentSession.id),
+            sourcePhoneNormalized: scope.currentSession.phoneNormalized || null,
+            sourceTenantKey: scope.currentSession.tenantKey || null,
+          },
+        });
+        await tx.companyMessage.updateMany({
+          where: { companyId, conversationId: { in: migratableIds } },
+          data: {
+            whatsappConnectionSessionId: String(scope.currentSession.id),
+            sourcePhoneNormalized: scope.currentSession.phoneNormalized || null,
+            sourceTenantKey: scope.currentSession.tenantKey || null,
+          },
+        });
+      });
+    }
+
+    return {
+      ok: true,
+      sourceSessionId: normalizedSessionId,
+      targetSessionId: String(scope.currentSession.id),
+      migrated: migratableIds.length,
+      skipped,
+    };
   }
 
   private async getConversationByIdForCompany(companyId: number, id: number) {
     return this.getPersistedConversationByIdForCompany(companyId, id);
   }
 
-  async getConversationById(user: any, id: number) {
+  async getConversationById(user: any, id: number, opts?: { includePreviousSessions?: string | boolean | null }) {
     const companyId = this.requireCompanyIdFromUser(user);
-    void this.syncLatestInboxConversationWindow(companyId, id);
-    return this.getPersistedConversationByIdForCompany(companyId, id, { messagesLimit: 20 });
+    const includePreviousSessions = this.normalizeIncludePreviousSessions(opts?.includePreviousSessions);
+    const sessionScope = await this.resolveInboxWhatsappSessionScope(companyId, { includePreviousSessions });
+    this.assertInboxWhatsappAccessible(sessionScope);
+    if (sessionScope.mode === 'current') {
+      void this.syncLatestInboxConversationWindow(companyId, id);
+    }
+    return this.getPersistedConversationByIdForCompany(companyId, id, {
+      messagesLimit: 20,
+      includePreviousSessions,
+      sessionScope,
+    });
   }
 
   async listConversationMessages(
     user: any,
     id: number,
-    options?: { limit?: string | number | null; before?: string | null },
+    options?: { limit?: string | number | null; before?: string | null; includePreviousSessions?: string | boolean | null },
   ) {
     const companyId = this.requireCompanyIdFromUser(user);
+    const includePreviousSessions = this.normalizeIncludePreviousSessions(options?.includePreviousSessions);
+    const sessionScope = await this.resolveInboxWhatsappSessionScope(companyId, { includePreviousSessions });
+    this.assertInboxWhatsappAccessible(sessionScope);
     const before = this.normalizeBeforeDate(options?.before || null);
-    if (!before) {
+    if (!before && sessionScope.mode === 'current') {
       void this.syncLatestInboxConversationWindow(companyId, id);
     }
+    const sessionWhere =
+      sessionScope.mode === 'current'
+        ? { whatsappConnectionSessionId: sessionScope.currentSessionId }
+        : sessionScope.mode === 'previous'
+          ? {
+              OR: [
+                ...(sessionScope.previousSessionIds.length
+                  ? [{ whatsappConnectionSessionId: { in: sessionScope.previousSessionIds } }]
+                  : []),
+                { whatsappConnectionSessionId: null },
+              ],
+            }
+          : {};
     const conversation = await this.prisma.companyConversation.findFirst({
-      where: { companyId, id, channel: 'whatsapp' },
+      where: { companyId, id, channel: 'whatsapp', ...sessionWhere },
       select: {
         id: true,
         contact: true,
+        whatsappConnectionSessionId: true,
         metadata: true,
       },
     });

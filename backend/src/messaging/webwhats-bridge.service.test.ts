@@ -6,10 +6,27 @@ import test from 'node:test';
 
 import { WebwhatsBridgeService } from './webwhats-bridge.service';
 
+const TEST_SESSION = {
+  id: 'session-47',
+  tenantKey: 'company-47',
+  phoneNormalized: '5511999998888',
+  displayPhone: '+5511999998888',
+};
+
+const TEST_SESSION_COMPANY_7 = {
+  id: 'session-7',
+  tenantKey: 'company-7',
+  phoneNormalized: '5511999998888',
+  displayPhone: '+5511999998888',
+};
+
 function makeConversation(overrides?: Record<string, unknown>) {
   return {
     id: 70,
     contact: '+5511943171224',
+    whatsappConnectionSessionId: 'session-47',
+    sourcePhoneNormalized: '5511999998888',
+    sourceTenantKey: 'company-47',
     metadata: JSON.stringify({
       whatsappRemoteJid: '230498781634702@lid',
       whatsappRemoteJidAlt: '5511943171224@s.whatsapp.net',
@@ -40,7 +57,17 @@ test('sendWhatsAppAudio posts Evolution voice note payload', async () => {
   };
   const prisma = {
     company: {
-      findUnique: async () => ({ id: 47, whatsappModalStatus: 'connected' }),
+      findUnique: async () => ({
+        id: 47,
+        whatsappModalStatus: 'connected',
+        whatsappModalPhone: '+5511999998888',
+        currentWhatsappConnectionSessionId: TEST_SESSION.id,
+        currentWhatsappConnectionSession: {
+          ...TEST_SESSION,
+          provider: 'webwhats',
+          status: 'active',
+        },
+      }),
     },
     companyConversation: {
       findFirst: async () => ({
@@ -71,7 +98,7 @@ test('sendWhatsAppAudio posts Evolution voice note payload', async () => {
       number: '5511999998888@s.whatsapp.net',
       audio: 'https://cdn.example.test/audio.webm',
     });
-    assert.equal(result.providerMessageId, 'webwhats:company-47:AUDIO-1');
+    assert.equal(result.providerMessageId, 'webwhats:company-47:session-47:AUDIO-1');
   } finally {
     if (previousUrl === undefined) delete process.env.WHATSAPP_MODAL_INTERNAL_URL;
     else process.env.WHATSAPP_MODAL_INTERNAL_URL = previousUrl;
@@ -92,7 +119,17 @@ test('sendMedia posts sticker payload through Webwhats', async () => {
   };
   const prisma = {
     company: {
-      findUnique: async () => ({ id: 47, whatsappModalStatus: 'connected' }),
+      findUnique: async () => ({
+        id: 47,
+        whatsappModalStatus: 'connected',
+        whatsappModalPhone: '+5511999998888',
+        currentWhatsappConnectionSessionId: TEST_SESSION.id,
+        currentWhatsappConnectionSession: {
+          ...TEST_SESSION,
+          provider: 'webwhats',
+          status: 'active',
+        },
+      }),
     },
     companyConversation: {
       findFirst: async () => ({
@@ -127,7 +164,7 @@ test('sendMedia posts sticker payload through Webwhats', async () => {
       media: 'https://cdn.example.test/sticker.webp',
       mimetype: 'image/webp',
     });
-    assert.equal(result.providerMessageId, 'webwhats:company-47:STICKER-OUT-1');
+    assert.equal(result.providerMessageId, 'webwhats:company-47:session-47:STICKER-OUT-1');
   } finally {
     if (previousUrl === undefined) delete process.env.WHATSAPP_MODAL_INTERNAL_URL;
     else process.env.WHATSAPP_MODAL_INTERNAL_URL = previousUrl;
@@ -165,6 +202,7 @@ test('upsertConversationStateFromChat reuses phone conversation found by stored 
 
   const result = await (service as any).upsertConversationStateFromChat(
     1,
+    TEST_SESSION,
     { remoteJid: '230498781634702@lid' },
     null,
     null,
@@ -201,6 +239,7 @@ test('upsertConversationStateFromChat preserves group chats with group metadata'
 
   const result = await (service as any).upsertConversationStateFromChat(
     1,
+    TEST_SESSION,
     {
       remoteJid: '120363401234567890@g.us',
       name: 'Grupo Comercial',
@@ -223,7 +262,17 @@ test('syncRecentChats mirrors individual and group chats into conversations', as
   const createdContacts: string[] = [];
   const prisma = {
     company: {
-      findUnique: async () => ({ id: 7, whatsappModalStatus: 'connected' }),
+      findUnique: async () => ({
+        id: 7,
+        whatsappModalStatus: 'connected',
+        whatsappModalPhone: '+5511999998888',
+        currentWhatsappConnectionSessionId: TEST_SESSION_COMPANY_7.id,
+        currentWhatsappConnectionSession: {
+          ...TEST_SESSION_COMPANY_7,
+          provider: 'webwhats',
+          status: 'active',
+        },
+      }),
     },
     companyConversation: {
       findMany: async () => [],
@@ -330,7 +379,7 @@ test('upsertConversationMessage does not relay inbound when concurrent create al
       },
       update: async ({ where }: any) => {
         calls.updates += 1;
-        assert.equal(where.providerMessageId, 'webwhats:company-47:MSG-1');
+        assert.equal(where.providerMessageId, 'webwhats:company-47:session-47:MSG-1');
         return { id: 501 };
       },
     },
@@ -349,6 +398,7 @@ test('upsertConversationMessage does not relay inbound when concurrent create al
 
   const result = await (service as any).upsertConversationMessage(
     47,
+    TEST_SESSION,
     70,
     '5511999990000@s.whatsapp.net',
     {
@@ -373,7 +423,7 @@ test('upsertConversationMessage relays inbound only for a newly created message'
     companyMessage: {
       findUnique: async () => null,
       create: async ({ data }: any) => {
-        assert.equal(data.providerMessageId, 'webwhats:company-47:MSG-2');
+        assert.equal(data.providerMessageId, 'webwhats:company-47:session-47:MSG-2');
         return { id: 502 };
       },
     },
@@ -389,11 +439,12 @@ test('upsertConversationMessage relays inbound only for a newly created message'
   service.setInboundRelay(async (input) => {
     calls.relays += 1;
     assert.equal(input.companyMessageId, 502);
-    assert.equal(input.externalMessageId, 'webwhats:company-47:MSG-2');
+    assert.equal(input.externalMessageId, 'webwhats:company-47:session-47:MSG-2');
   });
 
   const result = await (service as any).upsertConversationMessage(
     47,
+    TEST_SESSION,
     70,
     '5511999990000@s.whatsapp.net',
     {

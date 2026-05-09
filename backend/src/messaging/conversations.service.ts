@@ -158,8 +158,9 @@ export class ConversationsService {
       createData.lastInteractionAt = at;
     }
     if (!touchLastMessage) {
-      const existing = await this.prisma.companyConversation.findUnique({
-        where: { companyId_channel_contact: { companyId, channel, contact } },
+      const existing = await this.prisma.companyConversation.findFirst({
+        where: { companyId, channel, contact },
+        orderBy: { updatedAt: 'desc' },
       });
       if (existing) return existing;
       return this.prisma.companyConversation.create({ data: createData });
@@ -169,11 +170,31 @@ export class ConversationsService {
       updateData.lastMessageAt = at;
       updateData.lastInteractionAt = at;
     }
-    return this.prisma.companyConversation.upsert({
-      where: { companyId_channel_contact: { companyId, channel, contact } },
-      create: createData,
-      update: updateData,
+    const existing = await this.prisma.companyConversation.findFirst({
+      where: { companyId, channel, contact },
+      orderBy: { updatedAt: 'desc' },
     });
+    if (existing) {
+      return this.prisma.companyConversation.update({
+        where: { id: existing.id },
+        data: updateData,
+      });
+    }
+    try {
+      return await this.prisma.companyConversation.create({ data: createData });
+    } catch (error: unknown) {
+      if (!this.isUniqueConstraintError(error)) throw error;
+      const winner = await this.prisma.companyConversation.findFirst({
+        where: { companyId, channel, contact },
+        orderBy: { updatedAt: 'desc' },
+      });
+      if (winner) return winner;
+      throw error;
+    }
+  }
+
+  private isUniqueConstraintError(error: unknown) {
+    return Boolean(error) && typeof error === 'object' && (error as any).code === 'P2002';
   }
 
   private normalizeConversationStatePatch(patch: ConversationStatePatch | undefined) {
@@ -284,6 +305,9 @@ export class ConversationsService {
     const createData = {
       companyId,
       conversationId: conversation.id,
+      whatsappConnectionSessionId: conversation.whatsappConnectionSessionId || undefined,
+      sourcePhoneNormalized: conversation.sourcePhoneNormalized || undefined,
+      sourceTenantKey: conversation.sourceTenantKey || undefined,
       contactId: from,
       direction: 'INBOUND',
       messageType,
@@ -313,6 +337,9 @@ export class ConversationsService {
           variablesJson,
           conversationId: conversation.id,
           companyId,
+          whatsappConnectionSessionId: conversation.whatsappConnectionSessionId || undefined,
+          sourcePhoneNormalized: conversation.sourcePhoneNormalized || undefined,
+          sourceTenantKey: conversation.sourceTenantKey || undefined,
         },
       });
     }
@@ -537,6 +564,9 @@ export class ConversationsService {
         data: {
           companyId,
           conversationId: conversation.id,
+          whatsappConnectionSessionId: conversation.whatsappConnectionSessionId || undefined,
+          sourcePhoneNormalized: conversation.sourcePhoneNormalized || undefined,
+          sourceTenantKey: conversation.sourceTenantKey || undefined,
           contactId: contactId || to,
           direction: 'OUTBOUND',
           messageType,
