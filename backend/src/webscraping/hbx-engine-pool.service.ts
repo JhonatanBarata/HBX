@@ -246,6 +246,9 @@ export function parseHbxEngineUrls(value: unknown, maxUrls = getConfiguredHbxEng
             return [];
           }
         }
+        if (raw.includes('{n}') || raw.includes('{index}')) {
+          return buildHbxEngineUrls(raw, maxUrls);
+        }
         return raw.split(',');
       })();
 
@@ -655,7 +658,51 @@ export class HbxEnginePoolService implements OnModuleInit {
       const isBusy = Boolean(engine.lockedRunId && engine.lockedUntil && engine.lockedUntil.getTime() > Date.now());
       if (isBusy) continue;
 
-      const updated = await (this.prisma as any).hbxEngineLock.updateMany({
+      const updated = await this.tryAcquireEngineLock(engine, runId, companyId, userId, lockedUntil);
+      if (updated.count > 0) {
+        if (engine.engineIndex >= 20) this.lastHighEngineAcquireAt = Date.now();
+        this.acquireCursorByPurpose.set(purpose, engine.engineIndex + 1);
+        if (scheduler) this.logSchedulerStatus(scheduler, { purpose, eligible, acquiredEngineId: engine.id, acquiredEngineIndex: engine.engineIndex });
+        this.logger.log(`[engine-scheduler] acquired engine ${engine.id} purpose=${purpose} engineIndex=${engine.engineIndex + 1} eligible=${eligible.length} automaticAllowed=${scheduler?.automaticAllowedEngines ?? 'n/a'} activeEngineCount=${capacity.activeEngineCount}`);
+        return {
+          engineId: engine.id,
+          engineIndex: engine.engineIndex,
+          url: engine.url,
+          lockedUntil,
+          googleEmergencyMode: capacity.googleEmergencyMode,
+        };
+      }
+    }
+
+    if (!this.isAutomaticPurpose(purpose)) {
+      const preempted = await this.preemptAutomaticEngineForClient(eligible);
+      if (preempted) {
+        const updated = await this.tryAcquireEngineLock(preempted, runId, companyId, userId, lockedUntil);
+        if (updated.count > 0) {
+          this.acquireCursorByPurpose.set(purpose, preempted.engineIndex + 1);
+          this.logger.warn(`[engine-scheduler] client request preempted automatic engine ${preempted.id} purpose=${purpose}`);
+          return {
+            engineId: preempted.id,
+            engineIndex: preempted.engineIndex,
+            url: preempted.url,
+            lockedUntil,
+            googleEmergencyMode: capacity.googleEmergencyMode,
+          };
+        }
+      }
+      this.logger.warn(`[engine-scheduler] manual request waiting/freeing capacity purpose=${purpose}`);
+    }
+    return null;
+  }
+
+  private async tryAcquireEngineLock(
+    engine: EngineRegistryRow,
+    runId: string,
+    companyId: number,
+    userId: number,
+    lockedUntil: Date,
+  ) {
+    return (this.prisma as any).hbxEngineLock.updateMany({
         where: {
           id: engine.id,
           manualPaused: false,
@@ -682,26 +729,55 @@ export class HbxEnginePoolService implements OnModuleInit {
           lastUsedAt: new Date(),
         },
       });
-      if (updated.count > 0) {
-        if (engine.engineIndex >= 20) this.lastHighEngineAcquireAt = Date.now();
-        this.acquireCursorByPurpose.set(purpose, engine.engineIndex + 1);
-        if (scheduler) this.logSchedulerStatus(scheduler, { purpose, eligible, acquiredEngineId: engine.id, acquiredEngineIndex: engine.engineIndex });
-        this.logger.log(`[engine-scheduler] acquired engine ${engine.id} purpose=${purpose} engineIndex=${engine.engineIndex + 1} eligible=${eligible.length} automaticAllowed=${scheduler?.automaticAllowedEngines ?? 'n/a'} activeEngineCount=${capacity.activeEngineCount}`);
-        return {
-          engineId: engine.id,
-          engineIndex: engine.engineIndex,
-          url: engine.url,
-          lockedUntil,
-          googleEmergencyMode: capacity.googleEmergencyMode,
-        };
-      }
-    }
-
-    if (!this.isAutomaticPurpose(purpose)) {
-      this.logger.warn(`[engine-scheduler] manual request waiting/freeing capacity purpose=${purpose}`);
-    }
-    return null;
   }
+
+  private async preemptAutomaticEngineForClient(eligible: EngineRegistryRow[]) {
+    const now = Date.now();
+    const candidate = eligible
+      .filter((engine) => engine.lockedRunId && engine.lockedUntil instanceof Date && engine.lockedUntil.getTime() > now)
+      .filter((engine) => String(engine.lockedRunId || '').includes(':mass:'))
+      .sort((left, right) => this.compareEngineAvailability(left, right))[0];
+    if (!candidate) return null;
+
+    await (this.prisma as any).webscrapingCampaignTask?.updateMany?.({
+      where: {
+        lockedByEngineId: candidate.id,
+        status: 'running',
+      },
+      data: {
+        status: 'queued',
+        lockedByEngineId: null,
+        lockedUntil: null,
+        lastError: 'Motor liberado para pesquisa do cliente no Radar Digital.',
+      },
+    }).catch(() => null);
+
+    const released = await (this.prisma as any).hbxEngineLock.updateMany({
+      where: {
+        id: candidate.id,
+        lockedRunId: candidate.lockedRunId,
+      },
+      data: {
+        status: 'online',
+        lockedRunId: null,
+        lockedCompanyId: null,
+        lockedUserId: null,
+        lockedAt: null,
+        lockedUntil: null,
+        lastError: null,
+      },
+    }).catch(() => ({ count: 0 }));
+    if (released.count <= 0) return null;
+    return {
+      ...candidate,
+      status: 'online',
+      lockedRunId: null,
+      lockedCompanyId: null,
+      lockedUserId: null,
+      lockedAt: null,
+      lockedUntil: null,
+    };
+    }
 
   async releaseEngine(engineId: string) {
     if (!(await this.prisma.hasTable('HbxEngineLock'))) return;
