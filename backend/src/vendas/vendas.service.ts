@@ -522,6 +522,100 @@ export class VendasService {
     return { companyId, userId };
   }
 
+  private extractRadarLeadId(value: unknown) {
+    const raw = String(value || '').trim();
+    const match = raw.match(/^radar:([^:\s]+)$/i);
+    return match?.[1] || null;
+  }
+
+  private async assertRadarLeadImportAllowed(context: { companyId: number }, radarLeadId?: string | null) {
+    if (!radarLeadId) return;
+    const [hasPool, hasOwnerColumn] = await Promise.all([
+      this.prisma.hasTable('RadarLeadPool').catch(() => false),
+      this.prisma.hasColumn('RadarLeadPool', 'ownerCompanyId').catch(() => false),
+    ]);
+    if (!hasPool || !hasOwnerColumn) return;
+    const row = await (this.prisma as any).radarLeadPool.findUnique({
+      where: { id: radarLeadId },
+      select: { id: true, ownerCompanyId: true, status: true },
+    }).catch(() => null);
+    if (!row) return;
+    const ownerCompanyId = Math.trunc(Number(row.ownerCompanyId || 0)) || 0;
+    if (ownerCompanyId && ownerCompanyId !== context.companyId) {
+      throw new BadRequestException('Este card do Radar já está na carteira de outra empresa.');
+    }
+    const status = String(row.status || '').trim().toLowerCase();
+    if (['negative', 'denied', 'blocked', 'opt_out', 'optout', 'do_not_contact', 'complaint', 'discarded', 'hidden', 'lost', 'no_whatsapp', 'invalid_whatsapp', 'invalid_phone'].includes(status)) {
+      throw new BadRequestException('Este card do Radar está protegido e não pode ser enviado para Vendas.');
+    }
+  }
+
+  private async syncRadarOwnershipAfterVendasImport(
+    context: { companyId: number; userId: number },
+    input: { radarLeadId?: string | null; vendasLeadId?: string | null },
+  ) {
+    if (!input.radarLeadId || !input.vendasLeadId) return;
+    const [hasPool, hasState, hasEvent, hasOwnerColumn, hasClaimedColumn] = await Promise.all([
+      this.prisma.hasTable('RadarLeadPool').catch(() => false),
+      this.prisma.hasTable('RadarLeadCompanyState').catch(() => false),
+      this.prisma.hasTable('RadarLeadEvent').catch(() => false),
+      this.prisma.hasColumn('RadarLeadPool', 'ownerCompanyId').catch(() => false),
+      this.prisma.hasColumn('RadarLeadPool', 'claimedAt').catch(() => false),
+    ]);
+    if (!hasPool || !hasState) return;
+    const now = new Date();
+    const row = await (this.prisma as any).radarLeadPool.findUnique({
+      where: { id: input.radarLeadId },
+      select: { id: true, ownerCompanyId: true, status: true },
+    }).catch(() => null);
+    if (!row) return;
+    const ownerCompanyId = Math.trunc(Number(row.ownerCompanyId || 0)) || 0;
+    if (ownerCompanyId && ownerCompanyId !== context.companyId) return;
+    const previousStatus = String(row.status || 'clean').trim().toLowerCase() || 'clean';
+    await (this.prisma as any).radarLeadPool.update({
+      where: { id: row.id },
+      data: {
+        ...(hasOwnerColumn && hasClaimedColumn ? { ownerCompanyId: context.companyId, claimedAt: now } : {}),
+        status: 'sent_to_vendas',
+        globalImportedCount: { increment: 1 },
+        lastSeenAt: now,
+      },
+    }).catch(() => null);
+    await (this.prisma as any).radarLeadCompanyState.upsert({
+      where: {
+        companyId_radarLeadId: {
+          companyId: context.companyId,
+          radarLeadId: row.id,
+        },
+      },
+      create: {
+        companyId: context.companyId,
+        radarLeadId: row.id,
+        vendasLeadId: input.vendasLeadId,
+        status: 'sent_to_vendas',
+        lastActionAt: now,
+      },
+      update: {
+        vendasLeadId: input.vendasLeadId,
+        status: 'sent_to_vendas',
+        lastActionAt: now,
+      },
+    }).catch(() => null);
+    if (hasEvent) {
+      await (this.prisma as any).radarLeadEvent.create({
+        data: {
+          leadId: row.id,
+          companyId: context.companyId,
+          eventType: 'imported_to_vendas',
+          note: 'Card enviado para Vendas.',
+          statusFrom: previousStatus,
+          statusTo: 'sent_to_vendas',
+          createdByUserId: context.userId,
+        },
+      }).catch(() => null);
+    }
+  }
+
   private async ensureCustomerProfile(input: {
     companyId: number;
     name?: string | null;
@@ -1879,14 +1973,17 @@ export class VendasService {
         });
         continue;
       }
+      const sourceHistoryId = this.normalizeText(item?.sourceHistoryId) || this.normalizeText(dto?.sourceHistoryId);
+      const radarLeadId = this.extractRadarLeadId(sourceHistoryId);
 
       let result: any;
       try {
+        await this.assertRadarLeadImportAllowed(context, radarLeadId);
         result = await this.createOrUpdateLead({
           companyId: context.companyId,
           userId: context.userId,
           sourceType: 'webscraping',
-          sourceHistoryId: this.normalizeText(item?.sourceHistoryId) || this.normalizeText(dto?.sourceHistoryId),
+          sourceHistoryId,
           sourceSignature: [this.normalizeText(item?.segment), this.normalizeText(item?.city)].filter(Boolean).join('|') || null,
           name: itemName,
           phone: itemPhone || itemPhoneDigits,
@@ -1921,6 +2018,10 @@ export class VendasService {
       }
       importedLeads.push(result.lead);
       importedLeadPairs.push({ lead: result.lead, item });
+      await this.syncRadarOwnershipAfterVendasImport(context, {
+        radarLeadId,
+        vendasLeadId: result.lead?.id || null,
+      });
     }
 
     if (!importedLeadPairs.length) {

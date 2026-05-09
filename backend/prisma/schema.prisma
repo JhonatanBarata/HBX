@@ -1108,6 +1108,8 @@ model RadarLeadPool {
   id                   String   @id @default(cuid())
   company              Company? @relation(fields: [companyId], references: [id], onDelete: SetNull)
   companyId            Int?
+  ownerCompanyId       Int?
+  claimedAt            DateTime?
   placeId              String?  @unique
   name                 String
   phone                String?
@@ -1151,6 +1153,8 @@ model RadarLeadPool {
   events               RadarLeadEvent[]
 
   @@index([companyId, status])
+  @@index([ownerCompanyId, status])
+  @@index([claimedAt])
   @@index([normalizedCity, normalizedSegment, opportunityScore])
   @@index([normalizedCity, state, normalizedSegment])
   @@index([websiteStatus])

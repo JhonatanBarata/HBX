@@ -217,8 +217,8 @@ export class UsersController {
 
 		const tempPassword = dto.password?.trim() || `Tmp@${Math.random().toString(36).slice(2, 10)}A1`;
 		const hashed = await bcrypt.hash(tempPassword, 10);
-	assertPasswordPolicy(tempPassword);
-	const role = 'USER' as const;
+		assertPasswordPolicy(tempPassword);
+		const role = (dto.role === 'ADMIN' ? 'ADMIN' : 'USER') as 'USER' | 'ADMIN';
 
 		const attendantName = String(dto?.name || '').trim();
 		const created = await this.usersService.create({

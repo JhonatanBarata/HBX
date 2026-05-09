@@ -2014,6 +2014,9 @@ export class WebwhatsBridgeService {
         lastError = error;
         const shouldRetry = attemptIndex < retryDelaysMs.length - 1 && this.isTransientReadError(error);
         if (!shouldRetry) {
+          if (this.isTransientReadError(error)) {
+            await this.markCompanyReconnectingForTransientReadError(options.path, error, options.purpose);
+          }
           throw error;
         }
         const providerError = error instanceof WebwhatsProviderError ? error : null;
@@ -2024,6 +2027,51 @@ export class WebwhatsBridgeService {
     }
 
     throw lastError;
+  }
+
+  private extractCompanyIdFromRequestPath(pathRaw: string) {
+    const match = String(pathRaw || '').match(/(?:^|\/)company-(\d+)(?:\/|$)/i);
+    const companyId = match ? Number(match[1]) : 0;
+    return Number.isFinite(companyId) && companyId > 0 ? companyId : null;
+  }
+
+  private async markCompanyReconnectingForTransientReadError(pathRaw: string, error: unknown, purpose: string) {
+    const companyId = this.extractCompanyIdFromRequestPath(pathRaw);
+    if (!companyId) return;
+
+    const providerError = error instanceof WebwhatsProviderError ? error : null;
+    const message = String(
+      providerError?.providerMessage
+      || providerError?.message
+      || (error instanceof Error ? error.message : '')
+      || `Webwhats indisponivel durante ${purpose}.`,
+    ).slice(0, 500);
+
+    try {
+      const result = await this.prisma.company.updateMany({
+        where: {
+          id: companyId,
+          OR: [
+            { whatsappModalStatus: 'CONNECTED' },
+            { whatsappModalStatus: 'connected' },
+          ],
+        },
+        data: {
+          whatsappModalStatus: 'RECONNECTING',
+          whatsappModalLastError: message,
+          whatsappModalUpdatedAt: new Date(),
+        },
+      });
+      if (result.count > 0) {
+        this.logger.warn(
+          `Webwhats instavel para company ${companyId}; status marcado como RECONNECTING durante ${purpose}: ${message}`,
+        );
+      }
+    } catch (updateError: any) {
+      this.logger.warn(
+        `Falha ao marcar Webwhats como RECONNECTING para company ${companyId}: ${String(updateError?.message || updateError)}`,
+      );
+    }
   }
 
   private isTransientReadError(error: unknown) {

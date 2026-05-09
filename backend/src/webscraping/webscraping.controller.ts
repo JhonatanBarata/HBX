@@ -471,7 +471,7 @@ class RadarPullDto extends RadarDatabaseQueryDto {
 
 class RadarNegativeDto {
   @IsOptional()
-  @IsIn(['negative', 'denied', 'discarded', 'descartado', 'blocked', 'bloqueado', 'opt_out', 'optout', 'complaint', 'hidden', 'no_whatsapp', 'invalid_whatsapp'])
+  @IsIn(['negative', 'denied', 'discarded', 'descartado', 'blocked', 'bloqueado', 'opt_out', 'optout', 'do_not_contact', 'nao_quer_contato', 'não_quer_contato', 'complaint', 'hidden', 'no_whatsapp', 'invalid_whatsapp'])
   status?: string;
 
   @IsOptional()

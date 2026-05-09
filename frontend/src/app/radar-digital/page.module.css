@@ -374,6 +374,51 @@
   text-transform: uppercase;
 }
 
+.cardBadges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.cardBadges em {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
+  padding: 0 8px;
+  color: var(--muted);
+  background: color-mix(in srgb, var(--surface-raised) 82%, transparent);
+  font-size: 0.66rem;
+  font-style: normal;
+  font-weight: 900;
+}
+
+.cardBadges em[data-tone="available"] {
+  color: color-mix(in srgb, var(--brand) 78%, var(--foreground));
+  background: color-mix(in srgb, var(--brand) 10%, transparent);
+  border-color: color-mix(in srgb, var(--brand) 24%, var(--line));
+}
+
+.cardBadges em[data-tone="mine"] {
+  color: color-mix(in srgb, var(--success) 80%, var(--foreground));
+  background: color-mix(in srgb, var(--success) 10%, transparent);
+  border-color: color-mix(in srgb, var(--success) 24%, var(--line));
+}
+
+.cardBadges em[data-tone="attendance"] {
+  color: color-mix(in srgb, var(--warning) 82%, var(--foreground));
+  background: color-mix(in srgb, var(--warning) 12%, transparent);
+  border-color: color-mix(in srgb, var(--warning) 28%, var(--line));
+}
+
+.cardBadges em[data-tone="negative"] {
+  color: color-mix(in srgb, var(--danger) 84%, var(--foreground));
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
+  border-color: color-mix(in srgb, var(--danger) 26%, var(--line));
+}
+
 .cardHeader strong {
   display: block;
   margin-top: 4px;

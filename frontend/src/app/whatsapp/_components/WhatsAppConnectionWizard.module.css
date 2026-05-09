@@ -373,6 +373,24 @@
   font-weight: 900;
 }
 
+.connectedToast[data-state="reconnecting"] {
+  border-color: color-mix(in srgb, #f59e0b 58%, var(--line));
+  background:
+    radial-gradient(circle at 12% 50%, color-mix(in srgb, #f59e0b 30%, transparent), transparent 34%),
+    linear-gradient(135deg, color-mix(in srgb, #f59e0b 22%, var(--surface-raised)), color-mix(in srgb, #fef3c7 70%, var(--surface)));
+  color: #78350f;
+  box-shadow: var(--shadow-md), 0 0 72px color-mix(in srgb, #f59e0b 28%, transparent);
+}
+
+.connectedToast[data-state="reconnecting"] span {
+  background: #f59e0b;
+  box-shadow: 0 0 0 7px color-mix(in srgb, #f59e0b 22%, transparent);
+}
+
+.connectedToast[data-state="reconnecting"] small {
+  color: #92400e;
+}
+
 @media (max-width: 520px) {
   .phoneCopy strong {
     font-size: 1.55rem;
@@ -447,6 +465,22 @@
   z-index: 2;
   font-size: clamp(2.4rem, 7vw, 5.2rem);
   line-height: .92;
+}
+
+.connectedPanel[data-state="reconnecting"] {
+  border-color: color-mix(in srgb, #f59e0b 58%, var(--line));
+  background:
+    radial-gradient(circle, color-mix(in srgb, #f59e0b 28%, transparent), transparent 62%),
+    color-mix(in srgb, var(--surface-raised) 92%, var(--background));
+  box-shadow: var(--shadow-lg), 0 0 120px color-mix(in srgb, #f59e0b 34%, transparent);
+}
+
+.connectedPanel[data-state="reconnecting"] span {
+  border-color: color-mix(in srgb, #f59e0b 52%, transparent);
+}
+
+.connectedPanel[data-state="reconnecting"] strong {
+  font-size: clamp(1.7rem, 5.3vw, 3.7rem);
 }
 
 .premiumLoader {
