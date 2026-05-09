@@ -1377,17 +1377,19 @@ export const HBX_TOPBAR_COMMAND_CAROUSEL_CSS = `
 
 
   .hbxp-engine-fleet__legacy {
-    min-height: 42px;
+    min-height: 54px;
     display: grid;
-    align-items: stretch;
+    align-items: center;
+    justify-items: center;
     overflow: hidden;
   }
 
   .hbxp-engine-fleet__legacy .hbx-command-engines,
   .hbxp-engine-fleet__legacy .hbx-command-engines--billboard {
     display: grid !important;
-    grid-template-columns: repeat(5, minmax(0, 1fr)) !important;
-    gap: 7px !important;
+    grid-template-columns: repeat(auto-fit, minmax(132px, 156px)) !important;
+    justify-content: center !important;
+    gap: 8px !important;
     width: 100% !important;
     min-width: 0 !important;
     overflow: hidden !important;
@@ -1398,12 +1400,12 @@ export const HBX_TOPBAR_COMMAND_CAROUSEL_CSS = `
   }
 
   .hbxp-engine-fleet__legacy .hbx-command-engine {
-    height: 42px !important;
-    min-height: 42px !important;
+    height: 54px !important;
+    min-height: 54px !important;
     display: grid !important;
     grid-template-rows: auto minmax(0, 1fr) !important;
-    gap: 1px !important;
-    padding: 4px 6px !important;
+    gap: 4px !important;
+    padding: 6px 8px !important;
     border-radius: 12px !important;
     overflow: hidden !important;
   }
@@ -1420,13 +1422,13 @@ export const HBX_TOPBAR_COMMAND_CAROUSEL_CSS = `
 
   .hbxp-engine-fleet__legacy .hbx-command-engine__top strong {
     margin: 0 !important;
-    font-size: 13px !important;
+    font-size: 15px !important;
     line-height: 1 !important;
     letter-spacing: 0 !important;
   }
 
   .hbxp-engine-fleet__legacy .hbx-command-engine__top > span:last-child {
-    max-width: 64px !important;
+    max-width: 72px !important;
     min-height: 16px !important;
     padding: 0 5px !important;
     font-size: 7px !important;
@@ -1435,14 +1437,14 @@ export const HBX_TOPBAR_COMMAND_CAROUSEL_CSS = `
 
   .hbxp-engine-fleet__legacy .hbx-command-engine__mid {
     min-height: 0 !important;
-    grid-template-columns: 28px minmax(0, 1fr) !important;
-    gap: 5px !important;
+    grid-template-columns: 30px minmax(0, 1fr) !important;
+    gap: 7px !important;
     align-items: center !important;
   }
 
   .hbxp-engine-fleet__legacy .hbx-command-engine__gauge {
-    width: 26px !important;
-    height: 26px !important;
+    width: 28px !important;
+    height: 28px !important;
   }
 
   .hbxp-engine-fleet__legacy .hbx-command-engine__gauge b {
@@ -1454,9 +1456,40 @@ export const HBX_TOPBAR_COMMAND_CAROUSEL_CSS = `
     display: none !important;
   }
 
-  .hbxp-engine-fleet__legacy .hbx-command-engine__bars {
-    height: 20px !important;
-    padding: 0 !important;
+  .hbxp-engine-fleet__legacy .hbx-command-engine__packageStats {
+    min-width: 0 !important;
+    display: grid !important;
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+    gap: 4px !important;
+  }
+
+  .hbxp-engine-fleet__legacy .hbx-command-engine__packageStats > span {
+    min-width: 0 !important;
+    display: grid !important;
+    gap: 1px !important;
+    padding: 3px 4px !important;
+    border-radius: 8px !important;
+    background: color-mix(in srgb, var(--surface-raised, #fff) 62%, transparent) !important;
+    border: 1px solid color-mix(in srgb, var(--line, rgba(148, 163, 184, .24)) 78%, transparent) !important;
+  }
+
+  .hbxp-engine-fleet__legacy .hbx-command-engine__packageStats b {
+    color: var(--foreground, #0f172a) !important;
+    font-size: 9px !important;
+    font-weight: 950 !important;
+    line-height: 1 !important;
+  }
+
+  .hbxp-engine-fleet__legacy .hbx-command-engine__packageStats small {
+    color: var(--muted, #64748b) !important;
+    font-size: 6px !important;
+    font-weight: 850 !important;
+    letter-spacing: 0 !important;
+    line-height: 1 !important;
+    text-transform: uppercase !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
   }
 
   .hbxp-engine-fleet__track {
