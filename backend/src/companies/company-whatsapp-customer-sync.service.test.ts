@@ -230,3 +230,24 @@ test('syncCompanyCustomers preserva origem manual ao atualizar um cadastro ja ex
   assert.equal(upsertCalls[0].registrationOrigin, 'manual');
   assert.equal(upsertCalls[0].registrationStatus, 'manual');
 });
+
+test('bootstrapAfterWhatsappConnect conclui quando WebWhats esta ativo mesmo sem contatos iniciais', async () => {
+  const { service } = createService({
+    operationalStatus: {
+      getOperationalStatusForCompany: async () => ({ metaActive: false, webWhatsActive: true }),
+    },
+    webwhatsBridge: {
+      syncRecentChats: async () => 0,
+      listContacts: async () => [],
+    },
+  });
+
+  const result = await service.bootstrapAfterWhatsappConnect(7);
+
+  assert.equal(result.success, true);
+  assert.equal(result.connected, true);
+  assert.equal(result.bootstrapOk, true);
+  assert.equal(result.engine, 'webwhats');
+  assert.equal(result.syncedContacts, 0);
+  assert.equal(result.syncedConversations, 0);
+});

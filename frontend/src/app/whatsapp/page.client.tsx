@@ -80,6 +80,7 @@ export default function WhatsAppCenterClientPage() {
   const pairingCodeInFlightRef = useRef(false);
   const lastBootstrapAttemptKeyRef = useRef<string | null>(null);
   const previousModalStatusRef = useRef<string | null>(null);
+  const pendingAtendimentoRedirectRef = useRef(false);
   const atendimentoRedirectTimerRef = useRef<number | null>(null);
 
   function shouldLoadModalQr(nextPayload: WhatsAppModalPayload | null, includeQr: boolean) {
@@ -158,6 +159,7 @@ export default function WhatsAppCenterClientPage() {
       }
       setQrBootstrapStage("ready");
       setMessage(openAtendimento ? "WhatsApp conectado. Abrindo atendimento..." : "Pronto");
+      pendingAtendimentoRedirectRef.current = false;
       void loadCenter(true);
       if (openAtendimento) {
         if (atendimentoRedirectTimerRef.current) {
@@ -169,6 +171,7 @@ export default function WhatsAppCenterClientPage() {
       }
     } catch (bootstrapError) {
       const detail = bootstrapError instanceof Error ? bootstrapError.message : "";
+      lastBootstrapAttemptKeyRef.current = null;
       setQrBootstrapStage("error");
       setMessage(null);
       setModalError(
@@ -266,6 +269,7 @@ export default function WhatsAppCenterClientPage() {
         setQrBootstrapStage("idle");
         bootstrapInFlightRef.current = false;
         lastBootstrapAttemptKeyRef.current = null;
+        pendingAtendimentoRedirectRef.current = false;
         setMessage("Encerrando a sessão no motor...");
       }
 
@@ -440,13 +444,17 @@ export default function WhatsAppCenterClientPage() {
     }
 
     if (modalPayload.status === "connected") {
-      void runBootstrapAfterConnect(modalPayload, Boolean(previousStatus && previousStatus !== "connected"));
+      if (previousStatus && previousStatus !== "connected") {
+        pendingAtendimentoRedirectRef.current = true;
+      }
+      void runBootstrapAfterConnect(modalPayload, pendingAtendimentoRedirectRef.current);
       return;
     }
     if (modalPayload.status === "offline" || modalPayload.status === "disconnected") {
       setQrBootstrapStage("idle");
       bootstrapInFlightRef.current = false;
       lastBootstrapAttemptKeyRef.current = null;
+      pendingAtendimentoRedirectRef.current = false;
     }
   }, [modalPayload, runBootstrapAfterConnect]);
 
@@ -531,8 +539,8 @@ export default function WhatsAppCenterClientPage() {
 
   const qrOperationalError = useMemo(() => {
     if (!modalPayload) return null;
-    if (modalPayload.status === "connected") return null;
     if (modalError) return modalError;
+    if (modalPayload.status === "connected") return null;
     if (modalPayload.data.missingConfigKeys.length > 0 && !modalPayload.data.available) {
       return `Configuração pendente: ${modalPayload.data.missingConfigKeys.join(", ")}.`;
     }

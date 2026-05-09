@@ -465,7 +465,7 @@ export class CompanyWhatsAppCustomerSyncService {
       this.logger.log(`QR conectado para company ${normalizedCompanyId}.`);
       const syncResult = await this.syncCompanyCustomers(normalizedCompanyId, {
         requiredEngine: 'webwhats',
-        failOnEmptySource: true,
+        failOnEmptySource: false,
       });
 
       const payload: WhatsAppConnectBootstrapResult = {

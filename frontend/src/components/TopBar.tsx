@@ -4190,6 +4190,9 @@ export default function TopBar() {
         whatsAppLiveHealth.health.inboundStale
       ),
   );
+  const topbarWhatsAppAlertTitle = whatsAppLiveHealth.health?.liveConfirmed
+    ? "WhatsApp conectado, mas sem mensagens recentes no Atendimento."
+    : "WhatsApp pode estar desconectado. Conversas podem não estar chegando.";
   const topbarWhatsAppAlertTone =
     whatsAppLiveHealth.health?.status === "disconnected" || whatsAppLiveHealth.health?.status === "error"
       ? "danger"
@@ -4205,7 +4208,7 @@ export default function TopBar() {
         {shouldShowTopbarWhatsAppAlert ? (
           <div className="hbx-whatsapp-live-alert" data-tone={topbarWhatsAppAlertTone}>
             <span className="hbx-whatsapp-live-alert__text">
-              <strong>WhatsApp pode estar desconectado. Conversas podem não estar chegando.</strong>
+              <strong>{topbarWhatsAppAlertTitle}</strong>
               <span>
                 {whatsAppLiveHealth.health
                   ? `${formatWhatsAppLiveHealthStatus(whatsAppLiveHealth.health.status)}: ${whatsAppLiveHealth.health.reason}`

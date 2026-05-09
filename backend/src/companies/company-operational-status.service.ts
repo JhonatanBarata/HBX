@@ -461,20 +461,24 @@ export class CompanyOperationalStatusService {
           });
 
     const webWhatsChip =
-      modalAvailable && liveHealth?.liveConfirmed === true && liveHealth.status === 'healthy'
+      modalAvailable && liveHealth?.liveConfirmed === true
         ? this.buildOperationalChip({
             key: 'webwhats',
             label: 'WebWhats ativo',
             shortLabel: 'WebWhats',
-            tone: 'green',
-            value: 'Vivo',
-            detail: modalPhone
-              ? `Provider confirmou sessão viva para ${modalPhone}.`
-              : 'Provider confirmou sessão viva recentemente.',
-            hint: 'WebWhats vivo confirmado.',
+            tone: liveHealth.status === 'healthy' ? 'green' : 'yellow',
+            value: liveHealth.status === 'healthy' ? 'Vivo' : 'Sem msg',
+            detail: liveHealth.status === 'healthy'
+              ? modalPhone
+                ? `Provider confirmou sessão viva para ${modalPhone}.`
+                : 'Provider confirmou sessão viva recentemente.'
+              : liveHealth.reason || 'Provider confirmou a sessão, mas ainda não há mensagens recentes no Atendimento.',
+            hint: liveHealth.status === 'healthy'
+              ? 'WebWhats vivo confirmado.'
+              : 'WebWhats conectado, sem mensagens recentes.',
             href: '/dashboard/whatsapp?focus=qr',
             quality: 'real',
-            source: ['provider.connectionState.live', 'company.whatsappModalPhone'],
+            source: ['provider.connectionState.live', 'provider.liveHealth', 'company.whatsappModalPhone'],
             updatedAt: liveHealthUpdatedAt,
             active: true,
           })

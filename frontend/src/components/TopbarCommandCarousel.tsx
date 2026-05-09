@@ -264,7 +264,9 @@ function HbxRewardProgress({ slide }: { slide: HbxTopbarSlide }) {
   return (
     <div className="hbxp-reward" aria-label={`Progresso ${progress}%`}>
       {Array.from({ length: 5 }, (_, index) => (
-        <span key={index} data-filled={index < filled ? "true" : "false"} />
+        <span key={index} data-filled={index < filled ? "true" : "false"}>
+          <strong>{index + 1}/5</strong>
+        </span>
       ))}
     </div>
   );
@@ -278,6 +280,7 @@ function HbxProgressRing({ progress, tone }: { progress: number; tone: HbxTopbar
       aria-label={`${clampPercent(progress)}%`}
     >
       <strong>{clampPercent(progress)}%</strong>
+      <small>ATUAL</small>
     </div>
   );
 }
@@ -623,38 +626,67 @@ export const HBX_TOPBAR_COMMAND_CAROUSEL_CSS = `
     pointer-events: none !important;
   }
 
-  .hbx-command-center {
-    align-self: start !important;
-    height: 108px !important;
-    min-height: 108px !important;
-    margin-top: -8px !important;
-    padding-top: 0 !important;
-    padding-bottom: 0 !important;
-    overflow: hidden !important;
+  .app-topbar__inner--controlCenter {
+    --hbxp-card-h: 100px;
+    min-height: 100px !important;
+    grid-template-columns: minmax(210px, 248px) minmax(0, 1fr) minmax(210px, 270px) !important;
+    align-items: stretch !important;
+    gap: 6px !important;
+    padding-block: 0 !important;
   }
 
-  .hbx-command-center__body {
-    height: 108px !important;
-    min-height: 108px !important;
-    overflow: hidden !important;
+  .app-topbar__inner--controlCenter .hbx-command-center {
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: none !important;
+    height: var(--hbxp-card-h, 100px) !important;
+    min-height: var(--hbxp-card-h, 100px) !important;
+    max-height: var(--hbxp-card-h, 100px) !important;
+    align-self: stretch !important;
+    justify-self: stretch !important;
+    display: grid !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: 0 !important;
+    border-radius: 20px !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    overflow: visible !important;
+  }
+
+  .app-topbar__inner--controlCenter .hbx-command-center__body {
+    width: 100% !important;
+    min-width: 0 !important;
+    height: var(--hbxp-card-h, 100px) !important;
+    min-height: var(--hbxp-card-h, 100px) !important;
+    max-height: var(--hbxp-card-h, 100px) !important;
+    display: grid !important;
+    align-items: stretch !important;
+    justify-items: stretch !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    overflow: visible !important;
   }
 
   .hbxp-carousel {
-    --hbxp-card-h: 108px;
-    --hbxp-safe-x: 30px;
+    --hbxp-safe-x: 38px;
     position: relative;
     width: 100%;
-    height: var(--hbxp-card-h);
-    min-height: var(--hbxp-card-h);
-    border-radius: calc(var(--panel-radius, 22px) + 5px);
-    border: 1px solid color-mix(in srgb, var(--brand, #10b981) 24%, var(--line, rgba(148, 163, 184, .24)));
+    max-width: none;
+    height: var(--hbxp-card-h, 100px);
+    min-height: var(--hbxp-card-h, 100px);
+    max-height: var(--hbxp-card-h, 100px);
+    border-radius: 20px;
+    border: 1px solid color-mix(in srgb, var(--brand, #10b981) 38%, var(--line, rgba(148, 163, 184, .24)));
     background:
-      radial-gradient(circle at 8% 0%, color-mix(in srgb, var(--selection-accent, var(--brand, #10b981)) 18%, transparent), transparent 34%),
-      radial-gradient(circle at 100% 12%, color-mix(in srgb, var(--button-accent, #0ea5e9) 14%, transparent), transparent 30%),
-      linear-gradient(135deg, color-mix(in srgb, var(--header-surface, var(--surface, #fff)) 94%, transparent), color-mix(in srgb, var(--surface-soft, #f8fafc) 96%, transparent));
+      radial-gradient(circle at 8% 0%, color-mix(in srgb, var(--selection-accent, var(--brand, #10b981)) 24%, transparent), transparent 34%),
+      radial-gradient(circle at 82% 8%, color-mix(in srgb, var(--button-accent, #0ea5e9) 22%, transparent), transparent 32%),
+      radial-gradient(circle at 58% 110%, color-mix(in srgb, var(--warning, #f59e0b) 12%, transparent), transparent 38%),
+      linear-gradient(135deg, color-mix(in srgb, var(--header-surface, var(--surface, #fff)) 96%, transparent), color-mix(in srgb, var(--surface-soft, #f8fafc) 98%, transparent));
     box-shadow:
       inset 0 1px 0 color-mix(in srgb, var(--surface-raised, #fff) 82%, transparent),
-      0 0 0 1px color-mix(in srgb, var(--brand, #10b981) 8%, transparent),
+      0 0 0 1px color-mix(in srgb, var(--brand, #10b981) 14%, transparent),
+      0 18px 42px -28px color-mix(in srgb, var(--brand, #10b981) 42%, transparent),
       var(--shadow-sm, 0 18px 42px -24px rgba(15, 23, 42, .26));
     overflow: hidden;
     isolation: isolate;
@@ -668,6 +700,20 @@ export const HBX_TOPBAR_COMMAND_CAROUSEL_CSS = `
       var(--shadow-md, 0 30px 72px -32px rgba(15, 23, 42, .38));
   }
 
+  html[data-theme-mode="dark"] .hbxp-carousel {
+    border-color: rgba(59, 130, 246, .34);
+    background:
+      radial-gradient(circle at 6% 0%, rgba(34, 197, 94, .26), transparent 32%),
+      radial-gradient(circle at 86% 8%, rgba(14, 165, 233, .24), transparent 31%),
+      radial-gradient(circle at 56% 112%, rgba(245, 158, 11, .13), transparent 38%),
+      linear-gradient(135deg, rgba(6, 18, 40, .98), rgba(8, 25, 55, .96));
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, .09),
+      0 0 0 1px rgba(34, 197, 94, .14),
+      0 18px 46px -28px rgba(34, 197, 94, .46),
+      0 22px 62px -42px rgba(14, 165, 233, .52);
+  }
+
   .hbxp-carousel::before {
     content: "";
     position: absolute;
@@ -678,6 +724,13 @@ export const HBX_TOPBAR_COMMAND_CAROUSEL_CSS = `
       repeating-linear-gradient(90deg, color-mix(in srgb, var(--foreground, #0f172a) 5%, transparent) 0 1px, transparent 1px 32px);
     opacity: .42;
     z-index: 2;
+  }
+
+  html[data-theme-mode="dark"] .hbxp-carousel::before {
+    background:
+      linear-gradient(90deg, rgba(255, 255, 255, .08), transparent 17%, transparent 83%, rgba(255, 255, 255, .07)),
+      repeating-linear-gradient(90deg, rgba(125, 211, 252, .045) 0 1px, transparent 1px 32px);
+    opacity: .78;
   }
 
   .hbxp-carousel__viewport {
@@ -700,7 +753,8 @@ export const HBX_TOPBAR_COMMAND_CAROUSEL_CSS = `
     min-width: 100%;
     width: 100%;
     height: 100%;
-    padding: 4px var(--hbxp-safe-x);
+    display: grid;
+    padding: 0 var(--hbxp-safe-x);
     box-sizing: border-box;
   }
 
@@ -710,15 +764,27 @@ export const HBX_TOPBAR_COMMAND_CAROUSEL_CSS = `
     min-width: 0;
     display: grid;
     grid-template-rows: minmax(0, auto) auto;
-    gap: 8px;
-    padding: 7px 10px;
-    border-radius: calc(var(--panel-radius, 22px) + 1px);
-    border: 1px solid color-mix(in srgb, var(--line, rgba(148, 163, 184, .24)) 82%, transparent);
+    gap: 6px;
+    padding: 7px 12px 8px;
+    border-radius: 18px;
+    border: 1px solid color-mix(in srgb, var(--hbxp-tone-color, var(--brand, #10b981)) 20%, var(--line, rgba(148, 163, 184, .24)));
     background:
-      radial-gradient(circle at 0% 0%, color-mix(in srgb, var(--brand, #10b981) 12%, transparent), transparent 34%),
+      radial-gradient(circle at 0% 0%, color-mix(in srgb, var(--hbxp-tone-color, var(--brand, #10b981)) 16%, transparent), transparent 34%),
+      radial-gradient(circle at 98% 10%, color-mix(in srgb, var(--button-accent, #0ea5e9) 11%, transparent), transparent 28%),
       linear-gradient(180deg, color-mix(in srgb, var(--surface-raised, #fff) 92%, transparent), color-mix(in srgb, var(--surface, #fff) 88%, transparent));
     box-shadow: var(--shadow-xs, 0 12px 24px -18px rgba(15, 23, 42, .22));
     overflow: hidden;
+  }
+
+  html[data-theme-mode="dark"] .hbxp-slide-card {
+    border-color: color-mix(in srgb, var(--hbxp-tone-color, #22c55e) 32%, rgba(96, 165, 250, .26));
+    background:
+      radial-gradient(circle at 1% 0%, color-mix(in srgb, var(--hbxp-tone-color, #22c55e) 24%, transparent), transparent 32%),
+      radial-gradient(circle at 98% 10%, rgba(56, 189, 248, .16), transparent 30%),
+      linear-gradient(180deg, rgba(13, 31, 65, .72), rgba(8, 20, 43, .82));
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, .07),
+      0 14px 30px -24px color-mix(in srgb, var(--hbxp-tone-color, #22c55e) 56%, transparent);
   }
 
   .hbxp-slide-card__sheen {
@@ -735,10 +801,10 @@ export const HBX_TOPBAR_COMMAND_CAROUSEL_CSS = `
     position: relative;
     z-index: 2;
     display: grid;
-    grid-template-columns: minmax(0, 1fr) 48px;
+    grid-template-columns: minmax(0, 1fr) 54px;
     align-items: center;
-    gap: 10px;
-    min-height: 43px;
+    gap: 12px;
+    min-height: 42px;
   }
 
   .hbxp-slide-card__copy {
@@ -748,7 +814,7 @@ export const HBX_TOPBAR_COMMAND_CAROUSEL_CSS = `
   .hbxp-slide-card__eyebrow {
     display: flex;
     align-items: center;
-    gap: 7px;
+    gap: 8px;
     min-width: 0;
     margin-bottom: 2px;
   }
@@ -758,18 +824,25 @@ export const HBX_TOPBAR_COMMAND_CAROUSEL_CSS = `
     align-items: center;
     min-width: 0;
     max-width: 64%;
-    padding: 4px 8px;
+    padding: 3px 8px;
     border-radius: 999px;
     color: color-mix(in srgb, var(--brand, #10b981) 74%, var(--foreground, #0f172a));
     background: color-mix(in srgb, var(--brand, #10b981) 12%, transparent);
     border: 1px solid color-mix(in srgb, var(--brand, #10b981) 18%, transparent);
     font-size: 9px;
     font-weight: 950;
-    letter-spacing: .115em;
+    letter-spacing: 0;
     text-transform: uppercase;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+
+  html[data-theme-mode="dark"] .hbxp-slide-card__eyebrow span {
+    color: color-mix(in srgb, var(--hbxp-tone-color, #22c55e) 82%, #eaf2ff);
+    background: color-mix(in srgb, var(--hbxp-tone-color, #22c55e) 17%, transparent);
+    border-color: color-mix(in srgb, var(--hbxp-tone-color, #22c55e) 24%, transparent);
+    text-shadow: 0 0 16px color-mix(in srgb, var(--hbxp-tone-color, #22c55e) 30%, transparent);
   }
 
   .hbxp-slide-card__eyebrow em {
@@ -778,7 +851,7 @@ export const HBX_TOPBAR_COMMAND_CAROUSEL_CSS = `
     font-size: 9px;
     font-style: normal;
     font-weight: 800;
-    letter-spacing: .05em;
+    letter-spacing: 0;
     text-transform: uppercase;
     white-space: nowrap;
     overflow: hidden;
@@ -788,7 +861,7 @@ export const HBX_TOPBAR_COMMAND_CAROUSEL_CSS = `
   .hbxp-slide-card__titleRow {
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: 12px;
     min-width: 0;
   }
 
@@ -797,13 +870,19 @@ export const HBX_TOPBAR_COMMAND_CAROUSEL_CSS = `
     margin: 0;
     min-width: 0;
     color: var(--foreground, #0f172a);
-    font-size: clamp(17px, 1.55vw, 23px);
+    font-size: 20px;
     font-weight: 950;
-    letter-spacing: -.052em;
-    line-height: 1.02;
+    letter-spacing: 0;
+    line-height: 1.04;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+
+  html[data-theme-mode="dark"] .hbxp-slide-card h2,
+  html[data-theme-mode="dark"] .hbxp-engine-fleet h2 {
+    color: #f8fbff;
+    text-shadow: 0 0 18px rgba(125, 211, 252, .18);
   }
 
   .hbxp-slide-card p,
@@ -811,18 +890,24 @@ export const HBX_TOPBAR_COMMAND_CAROUSEL_CSS = `
     margin: 3px 0 0;
     min-width: 0;
     color: var(--foreground-soft, #475569);
-    font-size: 11px;
+    font-size: 11.5px;
     font-weight: 680;
-    letter-spacing: -.012em;
+    letter-spacing: 0;
     line-height: 1.25;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
   }
 
+  html[data-theme-mode="dark"] .hbxp-slide-card p,
+  html[data-theme-mode="dark"] .hbxp-engine-fleet p {
+    color: rgba(221, 232, 255, .78);
+  }
+
   .hbxp-cta {
-    flex: 0 0 auto;
-    max-width: 160px;
+    flex: 0 0 178px;
+    width: 178px;
+    max-width: 178px;
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -837,7 +922,7 @@ export const HBX_TOPBAR_COMMAND_CAROUSEL_CSS = `
     box-shadow: 0 14px 24px -18px color-mix(in srgb, var(--brand, #10b981) 55%, transparent);
     font-size: 10px;
     font-weight: 950;
-    letter-spacing: -.01em;
+    letter-spacing: 0;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -866,8 +951,10 @@ export const HBX_TOPBAR_COMMAND_CAROUSEL_CSS = `
   }
 
   .hbxp-ring {
-    width: 46px;
-    height: 46px;
+    width: 52px;
+    height: 52px;
+    grid-template-rows: 1fr auto;
+    align-content: center;
   }
 
   .hbxp-ring strong {
@@ -876,7 +963,27 @@ export const HBX_TOPBAR_COMMAND_CAROUSEL_CSS = `
     color: var(--foreground, #0f172a);
     font-size: 13px;
     font-weight: 950;
-    letter-spacing: -.04em;
+    letter-spacing: 0;
+    line-height: 1;
+  }
+
+  .hbxp-ring small {
+    position: relative;
+    z-index: 1;
+    margin-top: -10px;
+    color: var(--muted, #64748b);
+    font-size: 6px;
+    font-weight: 950;
+    letter-spacing: 0;
+    line-height: 1;
+  }
+
+  html[data-theme-mode="dark"] .hbxp-ring strong {
+    color: #f8fbff;
+  }
+
+  html[data-theme-mode="dark"] .hbxp-ring small {
+    color: rgba(221, 232, 255, .68);
   }
 
   .hbxp-metrics {
@@ -885,7 +992,7 @@ export const HBX_TOPBAR_COMMAND_CAROUSEL_CSS = `
     min-width: 0;
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 7px;
+    gap: 8px;
     align-items: stretch;
   }
 
@@ -907,15 +1014,23 @@ export const HBX_TOPBAR_COMMAND_CAROUSEL_CSS = `
   .hbxp-metric {
     position: relative;
     min-width: 0;
-    min-height: 29px;
+    min-height: 30px;
     display: grid;
     align-content: center;
     gap: 1px;
-    padding: 4px 7px;
-    border-radius: 14px;
+    padding: 4px 8px;
+    border-radius: 12px;
     border: 1px solid color-mix(in srgb, var(--hbxp-tone-color, var(--brand, #10b981)) 16%, var(--line, rgba(148, 163, 184, .22)));
     background: color-mix(in srgb, var(--surface-raised, #fff) 68%, transparent);
     overflow: hidden;
+  }
+
+  html[data-theme-mode="dark"] .hbxp-metric {
+    border-color: color-mix(in srgb, var(--hbxp-tone-color, #22c55e) 24%, rgba(96, 165, 250, .22));
+    background: rgba(16, 36, 72, .58);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, .055),
+      0 10px 18px -18px color-mix(in srgb, var(--hbxp-tone-color, #22c55e) 55%, transparent);
   }
 
   .hbxp-metric span {
@@ -923,7 +1038,7 @@ export const HBX_TOPBAR_COMMAND_CAROUSEL_CSS = `
     color: var(--muted, #64748b);
     font-size: 8px;
     font-weight: 950;
-    letter-spacing: .1em;
+    letter-spacing: 0;
     text-transform: uppercase;
     white-space: nowrap;
     overflow: hidden;
@@ -935,10 +1050,18 @@ export const HBX_TOPBAR_COMMAND_CAROUSEL_CSS = `
     color: var(--foreground, #0f172a);
     font-size: 12px;
     font-weight: 950;
-    letter-spacing: -.035em;
+    letter-spacing: 0;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+
+  html[data-theme-mode="dark"] .hbxp-metric span {
+    color: rgba(221, 232, 255, .62);
+  }
+
+  html[data-theme-mode="dark"] .hbxp-metric strong {
+    color: #f8fbff;
   }
 
   .hbxp-metric small {
@@ -949,6 +1072,10 @@ export const HBX_TOPBAR_COMMAND_CAROUSEL_CSS = `
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+
+  html[data-theme-mode="dark"] .hbxp-metric small {
+    color: rgba(221, 232, 255, .7);
   }
 
   .hbxp-metric__bar {
@@ -976,17 +1103,29 @@ export const HBX_TOPBAR_COMMAND_CAROUSEL_CSS = `
     z-index: 2;
     display: grid;
     grid-template-columns: repeat(5, minmax(0, 1fr));
-    gap: 9px;
+    gap: 8px;
     margin-top: -1px;
   }
 
   .hbxp-reward span {
-    height: 10px;
+    height: 18px;
+    display: grid;
+    place-items: center;
     border-radius: 999px;
     border: 1px solid color-mix(in srgb, var(--brand, #10b981) 22%, transparent);
     background: color-mix(in srgb, var(--surface-raised, #fff) 66%, transparent);
     overflow: hidden;
     position: relative;
+  }
+
+  .hbxp-reward strong {
+    position: relative;
+    z-index: 2;
+    color: var(--foreground, #0f172a);
+    font-size: 9px;
+    font-weight: 950;
+    letter-spacing: 0;
+    line-height: 1;
   }
 
   .hbxp-reward span[data-filled="true"]::before {
@@ -998,6 +1137,16 @@ export const HBX_TOPBAR_COMMAND_CAROUSEL_CSS = `
       linear-gradient(90deg, color-mix(in srgb, var(--success, var(--brand, #10b981)) 88%, transparent), color-mix(in srgb, var(--brand, #10b981) 86%, var(--button-accent, #0ea5e9))),
       radial-gradient(circle at 20% 50%, rgba(255,255,255,.55), transparent 28%);
     box-shadow: 0 0 18px color-mix(in srgb, var(--brand, #10b981) 22%, transparent);
+  }
+
+  html[data-theme-mode="dark"] .hbxp-reward span {
+    border-color: rgba(34, 197, 94, .34);
+    background: rgba(14, 35, 66, .74);
+  }
+
+  html[data-theme-mode="dark"] .hbxp-reward strong {
+    color: #f8fbff;
+    text-shadow: 0 0 10px rgba(34, 197, 94, .42);
   }
 
   .hbxp-steps,
@@ -1021,9 +1170,17 @@ export const HBX_TOPBAR_COMMAND_CAROUSEL_CSS = `
     color: var(--foreground-soft, #475569);
     font-size: 9px;
     font-weight: 850;
+    letter-spacing: 0;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+
+  html[data-theme-mode="dark"] .hbxp-steps span,
+  html[data-theme-mode="dark"] .hbxp-card-feed span {
+    border-color: rgba(96, 165, 250, .2);
+    background: rgba(16, 36, 72, .52);
+    color: rgba(221, 232, 255, .75);
   }
 
   .hbxp-steps span[data-active="true"] {
@@ -1044,25 +1201,35 @@ export const HBX_TOPBAR_COMMAND_CAROUSEL_CSS = `
     color: var(--foreground, #0f172a);
     font-size: 9px;
     font-weight: 950;
+    letter-spacing: 0;
   }
 
   .hbxp-card-feed small {
     color: var(--muted, #64748b);
     font-size: 8px;
     font-weight: 700;
+    letter-spacing: 0;
+  }
+
+  html[data-theme-mode="dark"] .hbxp-card-feed strong {
+    color: #f8fbff;
+  }
+
+  html[data-theme-mode="dark"] .hbxp-card-feed small {
+    color: rgba(221, 232, 255, .62);
   }
 
   .hbxp-engine-fleet {
     grid-template-rows: auto minmax(0, 1fr) auto;
-    gap: 7px;
+    gap: 5px;
   }
 
   .hbxp-engine-fleet__head {
     position: relative;
     z-index: 2;
     display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(170px, 248px);
-    gap: 10px;
+    grid-template-columns: minmax(0, 1fr) minmax(170px, 244px);
+    gap: 9px;
     align-items: start;
   }
 
@@ -1082,7 +1249,7 @@ export const HBX_TOPBAR_COMMAND_CAROUSEL_CSS = `
 
 
   .hbxp-engine-fleet__legacy {
-    min-height: 44px;
+    min-height: 42px;
     display: grid;
     align-items: stretch;
     overflow: hidden;
@@ -1100,6 +1267,68 @@ export const HBX_TOPBAR_COMMAND_CAROUSEL_CSS = `
 
   .hbxp-engine-fleet__legacy * {
     min-width: 0;
+  }
+
+  .hbxp-engine-fleet__legacy .hbx-command-engine {
+    height: 42px !important;
+    min-height: 42px !important;
+    display: grid !important;
+    grid-template-rows: auto minmax(0, 1fr) !important;
+    gap: 1px !important;
+    padding: 4px 6px !important;
+    border-radius: 12px !important;
+    overflow: hidden !important;
+  }
+
+  .hbxp-engine-fleet__legacy .hbx-command-engine__top {
+    align-items: center !important;
+    gap: 4px !important;
+  }
+
+  .hbxp-engine-fleet__legacy .hbx-command-engine__range,
+  .hbxp-engine-fleet__legacy .hbx-command-engine__dots {
+    display: none !important;
+  }
+
+  .hbxp-engine-fleet__legacy .hbx-command-engine__top strong {
+    margin: 0 !important;
+    font-size: 13px !important;
+    line-height: 1 !important;
+    letter-spacing: 0 !important;
+  }
+
+  .hbxp-engine-fleet__legacy .hbx-command-engine__top > span:last-child {
+    max-width: 64px !important;
+    min-height: 16px !important;
+    padding: 0 5px !important;
+    font-size: 7px !important;
+    letter-spacing: 0 !important;
+  }
+
+  .hbxp-engine-fleet__legacy .hbx-command-engine__mid {
+    min-height: 0 !important;
+    grid-template-columns: 28px minmax(0, 1fr) !important;
+    gap: 5px !important;
+    align-items: center !important;
+  }
+
+  .hbxp-engine-fleet__legacy .hbx-command-engine__gauge {
+    width: 26px !important;
+    height: 26px !important;
+  }
+
+  .hbxp-engine-fleet__legacy .hbx-command-engine__gauge b {
+    font-size: 8px !important;
+    letter-spacing: 0 !important;
+  }
+
+  .hbxp-engine-fleet__legacy .hbx-command-engine__gauge small {
+    display: none !important;
+  }
+
+  .hbxp-engine-fleet__legacy .hbx-command-engine__bars {
+    height: 20px !important;
+    padding: 0 !important;
   }
 
   .hbxp-engine-fleet__track {
@@ -1150,7 +1379,7 @@ export const HBX_TOPBAR_COMMAND_CAROUSEL_CSS = `
     color: var(--foreground, #0f172a);
     font-size: 12px;
     font-weight: 950;
-    letter-spacing: -.04em;
+    letter-spacing: 0;
   }
 
   .hbxp-engine-card header b {
@@ -1163,6 +1392,7 @@ export const HBX_TOPBAR_COMMAND_CAROUSEL_CSS = `
     font-size: 7px;
     font-weight: 950;
     text-transform: uppercase;
+    letter-spacing: 0;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -1212,9 +1442,19 @@ export const HBX_TOPBAR_COMMAND_CAROUSEL_CSS = `
     color: var(--muted, #64748b);
     font-size: 7px;
     font-weight: 850;
+    letter-spacing: 0;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+
+  html[data-theme-mode="dark"] .hbxp-engine-card header span,
+  html[data-theme-mode="dark"] .hbxp-engine-card__gauge strong {
+    color: #f8fbff;
+  }
+
+  html[data-theme-mode="dark"] .hbxp-engine-card footer span {
+    color: rgba(221, 232, 255, .62);
   }
 
   .hbxp-engine-card footer strong {
@@ -1241,8 +1481,9 @@ export const HBX_TOPBAR_COMMAND_CAROUSEL_CSS = `
   }
 
   .hbxp-engine-fleet__pager button {
-    width: 22px;
-    height: 10px;
+    width: 30px;
+    min-width: 30px;
+    height: 18px;
     border-radius: 999px;
     font-size: 16px;
     font-weight: 950;
@@ -1253,7 +1494,7 @@ export const HBX_TOPBAR_COMMAND_CAROUSEL_CSS = `
     color: var(--muted, #64748b);
     font-size: 8px;
     font-weight: 950;
-    letter-spacing: .08em;
+    letter-spacing: 0;
     text-transform: uppercase;
   }
 
@@ -1273,8 +1514,9 @@ export const HBX_TOPBAR_COMMAND_CAROUSEL_CSS = `
     position: absolute;
     top: 50%;
     z-index: 8;
-    width: 24px;
-    height: 38px;
+    width: 32px;
+    min-width: 32px;
+    height: 32px;
     display: grid;
     place-items: center;
     border-radius: 999px;
@@ -1282,11 +1524,11 @@ export const HBX_TOPBAR_COMMAND_CAROUSEL_CSS = `
     -webkit-backdrop-filter: blur(10px) saturate(140%);
     backdrop-filter: blur(10px) saturate(140%);
     box-shadow: var(--shadow-xs, 0 12px 24px -18px rgba(15, 23, 42, .22));
-    opacity: .62;
-    font-size: 23px;
+    opacity: .78;
+    font-size: 24px;
     font-weight: 950;
     line-height: 1;
-    transition: opacity .16s ease, transform .16s ease, border-color .16s ease;
+    transition: opacity .16s ease, transform .16s ease, border-color .16s ease, box-shadow .16s ease;
   }
 
   .hbxp-carousel__nav:hover,
@@ -1297,21 +1539,21 @@ export const HBX_TOPBAR_COMMAND_CAROUSEL_CSS = `
   }
 
   .hbxp-carousel__nav--prev {
-    left: 7px;
+    left: 3px;
   }
 
   .hbxp-carousel__nav--next {
-    right: 7px;
+    right: 3px;
   }
 
   .hbxp-carousel__dots {
     position: absolute;
-    right: 38px;
+    right: 42px;
     bottom: 6px;
     z-index: 9;
     display: flex;
     align-items: center;
-    gap: 5px;
+    gap: 6px;
     padding: 4px;
     border-radius: 999px;
     background: color-mix(in srgb, var(--surface-raised, #fff) 42%, transparent);
@@ -1320,19 +1562,38 @@ export const HBX_TOPBAR_COMMAND_CAROUSEL_CSS = `
   }
 
   .hbxp-carousel__dots button {
-    width: 7px;
-    height: 7px;
+    width: 9px;
+    min-width: 9px;
+    height: 9px;
     padding: 0;
     border-radius: 999px;
     opacity: .58;
-    transition: width .18s ease, opacity .18s ease, background .18s ease;
+    transition: transform .18s ease, opacity .18s ease, background .18s ease, box-shadow .18s ease;
   }
 
   .hbxp-carousel__dots button[data-active="true"] {
-    width: 21px;
+    width: 9px;
+    min-width: 9px;
     opacity: 1;
+    transform: scale(1.18);
     border-color: color-mix(in srgb, var(--brand, #10b981) 44%, transparent);
     background: linear-gradient(90deg, var(--brand, #10b981), var(--button-accent, #0ea5e9));
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--brand, #10b981) 16%, transparent), 0 0 14px color-mix(in srgb, var(--button-accent, #0ea5e9) 40%, transparent);
+  }
+
+  html[data-theme-mode="dark"] .hbxp-carousel__nav,
+  html[data-theme-mode="dark"] .hbxp-carousel__dots button,
+  html[data-theme-mode="dark"] .hbxp-engine-fleet__pager button {
+    border-color: rgba(96, 165, 250, .26);
+    background: rgba(15, 35, 68, .78);
+    color: #f8fbff;
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, .07),
+      0 10px 20px -16px rgba(14, 165, 233, .48);
+  }
+
+  html[data-theme-mode="dark"] .hbxp-carousel__dots {
+    background: rgba(6, 16, 33, .64);
   }
 
   .hbxp-tone-success {
@@ -1358,7 +1619,7 @@ export const HBX_TOPBAR_COMMAND_CAROUSEL_CSS = `
 
   .hbxp-slide-card p,
   .hbxp-engine-fleet p {
-    max-width: 82%;
+    max-width: none;
   }
 
   .hbxp-slide-card__titleRow {
@@ -1394,8 +1655,16 @@ export const HBX_TOPBAR_COMMAND_CAROUSEL_CSS = `
   }
 
   @media (max-width: 1180px) {
+    .app-topbar__inner--controlCenter {
+      --hbxp-card-h: 108px;
+      grid-template-columns: minmax(190px, 240px) minmax(0, 1fr) !important;
+    }
+
+    .hbx-command-side {
+      grid-column: 1 / -1;
+    }
+
     .hbxp-carousel {
-      --hbxp-card-h: 136px;
       --hbxp-safe-x: 34px;
     }
 
@@ -1418,8 +1687,12 @@ export const HBX_TOPBAR_COMMAND_CAROUSEL_CSS = `
   }
 
   @media (max-width: 860px) {
+    .app-topbar__inner--controlCenter {
+      --hbxp-card-h: 120px;
+      grid-template-columns: 1fr !important;
+    }
+
     .hbxp-carousel {
-      --hbxp-card-h: 138px;
       --hbxp-safe-x: 32px;
     }
 
@@ -1474,13 +1747,16 @@ export const HBX_TOPBAR_COMMAND_CAROUSEL_CSS = `
   }
 
   @media (max-width: 560px) {
+    .app-topbar__inner--controlCenter {
+      --hbxp-card-h: 124px;
+    }
+
     .hbxp-carousel {
-      --hbxp-card-h: 132px;
       --hbxp-safe-x: 30px;
     }
 
     .hbxp-carousel__slide {
-      padding-block: 7px;
+      padding-block: 0;
     }
 
     .hbxp-slide-card__eyebrow em,
