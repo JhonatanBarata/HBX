@@ -197,12 +197,11 @@ test('pairing-code limpa instancia antes de criar com number', async () => {
 
   assert.equal(response.success, true);
   assert.equal(response.code, 'JKLM-9999');
-  assert.ok(paths.includes('/instance/logout/company-7'));
   assert.ok(paths.includes('/instance/delete/company-7'));
   assert.equal(createPayloads.length, 1);
   assert.equal(createPayloads[0].number, '5519999999999');
-  assert.ok(paths.indexOf('/instance/logout/company-7') < paths.indexOf('/instance/create'));
   assert.ok(paths.indexOf('/instance/delete/company-7') < paths.indexOf('/instance/create'));
+  assert.equal(paths.includes('/instance/logout/company-7'), false);
 });
 
 test('pairing-code recria uma vez se create responder instancia existente', async () => {
@@ -238,8 +237,50 @@ test('pairing-code recria uma vez se create responder instancia existente', asyn
   assert.equal(response.success, true);
   assert.equal(response.code, 'RSTU-2222');
   assert.equal(createAttempts, 2);
-  assert.equal(paths.filter((path) => path === '/instance/logout/company-7').length, 2);
   assert.equal(paths.filter((path) => path === '/instance/delete/company-7').length, 2);
+  assert.equal(paths.includes('/instance/logout/company-7'), false);
+});
+
+test('pairing reset ignora logout 400 quando instancia nao esta conectada e continua delete', async () => {
+  const paths: string[] = [];
+  const service = createService() as any;
+  service.requestProvider = async ({ purpose, path }: any) => {
+    paths.push(path);
+    if (String(purpose).includes('logout')) {
+      throw service.buildProviderErrorFromResponse(
+        {
+          status: 400,
+          data: {
+            status: 400,
+            error: 'Bad Request',
+            response: { message: ['The "company-7" instance is not connected'] },
+          },
+          config: { url: 'http://provider.local/instance/logout/company-7' },
+        },
+        'logout da instancia',
+        '/instance/logout/company-7',
+      );
+    }
+    return { ok: true };
+  };
+
+  await service.resetProviderInstanceForPairing('company-7', 'connected');
+
+  assert.deepEqual(paths, [
+    '/instance/logout/company-7',
+    '/instance/delete/company-7',
+  ]);
+});
+
+test('pairing-code sem codigo nao ativa rate limit da proxima tentativa', async () => {
+  const service = createService(createCompany(), { ok: true });
+
+  const first = await service.requestPairingCode(7, 'company-7', '+5519999999999');
+  const second = await service.requestPairingCode(7, 'company-7', '+5519999999999');
+
+  assert.equal(first.success, false);
+  assert.equal(second.success, false);
+  assert.equal(second.errorCode, 'WHATSAPP_MODAL_PAIRING_CODE_EMPTY');
 });
 
 test('pairing-code nao gera se sessao ja esta conectada', async () => {

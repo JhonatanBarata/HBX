@@ -25,6 +25,7 @@ type WhatsAppOperationalDialogProps = {
   error: string | null;
   modalError: string | null;
   message: string | null;
+  qrRequested?: boolean;
   onClose: () => void;
   onFocusChange: (focus: WhatsAppDiagnosticFocus) => void;
   onChooseMode: (mode: "QR" | "OFFICIAL") => void;
@@ -50,6 +51,7 @@ export default function WhatsAppOperationalDialog({
   error,
   modalError,
   message,
+  qrRequested = false,
   onClose,
   onFocusChange,
   onChooseMode,
@@ -126,7 +128,9 @@ export default function WhatsAppOperationalDialog({
     : whatsappQrConnectionLiveLabel(qrConnection?.liveStatus);
   const modalStatus = modalPayload?.status || "offline";
   const modalConfiguredForAction = modalPayload ? modalPayload.data.available : true;
-  const hasQrCode = Boolean(modalPayload?.data.qrCodeDataUrl);
+  const qrCodeDataUrl = modalPayload?.data.qrCodeDataUrl || null;
+  const hasQrCode = Boolean(qrCodeDataUrl);
+  const shouldShowQrCode = qrRequested && hasQrCode;
   const qrConnectionError =
     modalError ||
     (modalPayload?.data.lastError || null) ||
@@ -310,7 +314,7 @@ export default function WhatsAppOperationalDialog({
 
                     {qrConnectionError ? <div className={styles.alert}>{qrConnectionError}</div> : null}
 
-                    {modalPayload?.data.qrCodeDataUrl ? (
+                    {shouldShowQrCode && qrCodeDataUrl ? (
                       <div className={styles.qrPanel}>
                         <div className={styles.qrMeta}>
                           <strong>QR pronto</strong>
@@ -319,13 +323,23 @@ export default function WhatsAppOperationalDialog({
                         </div>
                         <div className={styles.qrImageWrap}>
                           <Image
-                            src={modalPayload.data.qrCodeDataUrl}
+                            src={qrCodeDataUrl}
                             alt="QR Code para conexão rápida por QR"
                             className={styles.qrImage}
                             width={148}
                             height={148}
                             unoptimized
                           />
+                        </div>
+                      </div>
+                    ) : null}
+
+                    {!shouldShowQrCode && modalStatus !== "connected" ? (
+                      <div className={styles.qrPanel}>
+                        <div className={styles.qrMeta}>
+                          <strong>Escolha o método</strong>
+                          <p>Este atalho não gera QR automaticamente. Clique em Conectar por QR ou use Vincular por telefone.</p>
+                          <p>Pairing code: -</p>
                         </div>
                       </div>
                     ) : null}
@@ -339,14 +353,14 @@ export default function WhatsAppOperationalDialog({
                           busyAction !== null
                           || !modalConfiguredForAction
                           || modalStatus === "connected"
-                          || (modalStatus === "waiting_qr" && hasQrCode)
+                          || (qrRequested && modalStatus === "waiting_qr" && hasQrCode)
                         }
                       >
                         {busyAction === "qr-connect"
                           ? "Conectando..."
-                          : modalStatus === "waiting_qr" && !hasQrCode
+                          : qrRequested && modalStatus === "waiting_qr" && !hasQrCode
                             ? "Atualizar QR"
-                            : "Conectar"}
+                            : "Conectar por QR"}
                       </button>
                       <button
                         type="button"

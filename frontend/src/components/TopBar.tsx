@@ -3169,8 +3169,9 @@ export default function TopBar() {
   function openWhatsAppOperationalDetail(focus: WhatsAppDiagnosticFocus = "status") {
     setWhatsAppDetailFocus(focus);
     setWhatsAppDetailOpen(true);
+    setWhatsAppQrRequested(false);
     void loadWhatsAppCenter({ background: true });
-    void loadWhatsAppModal({ background: true, includeQr: focus === "qr" });
+    void loadWhatsAppModal({ background: true, includeQr: false });
   }
 
   function handleBillboardAction(slide: BillboardSlide) {
@@ -3716,6 +3717,7 @@ export default function TopBar() {
       error={whatsAppDetailError}
       modalError={null}
       message={whatsAppDetailMessage}
+      qrRequested={whatsAppQrRequested}
       onClose={() => {
         setWhatsAppQrRequested(false);
         setWhatsAppDetailOpen(false);
@@ -3724,7 +3726,7 @@ export default function TopBar() {
         setWhatsAppDetailFocus(focus);
         void loadWhatsAppCenter({ background: true });
         if (focus === "qr") {
-          void loadWhatsAppModal({ includeQr: whatsAppQrRequested });
+          void loadWhatsAppModal({ includeQr: false });
         }
       }}
       onChooseMode={(mode) => {
