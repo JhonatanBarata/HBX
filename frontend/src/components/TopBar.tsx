@@ -4003,20 +4003,6 @@ export default function TopBar() {
               : state === "offline"
                 ? "Off"
                 : "Standby";
-    const sparkSegments = safeGroupEngines.slice(0, HBX_ENGINE_GROUP_SIZE).map((engine, engineIndex) => {
-      const engineUsage = getEngineUsage(engine);
-      const engineState = getVisibleScrapingEngineState(engine);
-      const active = engine.active || engine.busy || isLiveScrapingEngine(engine) || engineState === "busy" || engineState === "emergency";
-      return buildEngineSparkSegment(engine, engineIndex, groupIndex, active, engineState, engineUsage, HBX_ENGINE_GROUP_SIZE);
-    });
-    while (sparkSegments.length < HBX_ENGINE_GROUP_SIZE) {
-      const fallbackIndex = groupIndex * HBX_ENGINE_GROUP_SIZE + sparkSegments.length;
-      const fallbackEngine = buildFallbackScrapingEngine(fallbackIndex);
-      const fallbackUsage = getEngineUsage(fallbackEngine);
-      sparkSegments.push(
-        buildEngineSparkSegment(fallbackEngine, sparkSegments.length, groupIndex, false, getScrapingEngineState(fallbackEngine), fallbackUsage, HBX_ENGINE_GROUP_SIZE),
-      );
-    }
     const groupTone = getEngineUsageTone(usage, state);
 
     return {
@@ -4031,7 +4017,6 @@ export default function TopBar() {
       onlineCount,
       runningCount,
       total: safeGroupEngines.length,
-      sparkSegments,
     };
   });
   const hbxEngineGroupCards = hbxEngineGroups.map((group) => (
@@ -4060,82 +4045,20 @@ export default function TopBar() {
           <b>{group.usage}%</b>
           <small>uso</small>
         </span>
-        <span
-          className="hbx-command-engine__bars hbx-command-engine__spark"
-          aria-hidden="true"
-          style={{
-            display: "block",
-            flex: "1 1 auto",
-            minWidth: 0,
-            height: 58,
-            padding: "0 2px",
-            background: "transparent",
-          }}
-        >
-          <svg
-            viewBox={`0 0 ${HBX_ENGINE_SPARK_WIDTH} ${HBX_ENGINE_SPARK_HEIGHT}`}
-            preserveAspectRatio="none"
-            focusable="false"
-            style={{ display: "block", width: "100%", height: "100%", overflow: "visible" }}
-          >
-            <line x1="8" y1="49" x2="229" y2="49" stroke="currentColor" strokeOpacity="0.12" strokeWidth="1" />
-            <line x1="8" y1="30" x2="229" y2="30" stroke="currentColor" strokeOpacity="0.07" strokeWidth="1" />
-            {group.sparkSegments.slice(0, -1).map((segment) => (
-              <line
-                key={`${segment.id}:separator`}
-                x1={segment.separatorX}
-                y1="10"
-                x2={segment.separatorX}
-                y2="51"
-                stroke="currentColor"
-                strokeOpacity="0.18"
-                strokeWidth="1"
-                strokeDasharray="2 3"
-              />
-            ))}
-            {group.sparkSegments.map((segment) => (
-              <g key={segment.id}>
-                <text
-                  x={segment.centerX}
-                  y="7"
-                  textAnchor="middle"
-                  fontSize="7"
-                  fontWeight="700"
-                  fill="currentColor"
-                  fillOpacity="0.58"
-                >
-                  {segment.shortLabel}
-                </text>
-                <polygon points={segment.areaPoints} fill={segment.softColor} />
-                <polyline
-                  points={segment.points}
-                  fill="none"
-                  stroke={segment.color}
-                  strokeWidth={segment.active ? "2.4" : "1.75"}
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  opacity={segment.state === "offline" || segment.state === "missing" ? "0.5" : "1"}
-                />
-              </g>
-            ))}
-          </svg>
+        <span className="hbx-command-engine__packageStats">
+          <span>
+            <b>{group.runningCount}</b>
+            <small>rodando</small>
+          </span>
+          <span>
+            <b>{group.onlineCount}</b>
+            <small>online</small>
+          </span>
+          <span>
+            <b>{group.total}</b>
+            <small>motores</small>
+          </span>
         </span>
-      </div>
-      <div className="hbx-command-engine__dots" aria-hidden="true">
-        {group.sparkSegments.map((segment) => (
-          <i
-            key={segment.id}
-            data-state={segment.state}
-            data-tone={segment.tone}
-            data-active={segment.active ? "true" : "false"}
-            style={{
-              background: segment.color,
-              boxShadow: segment.active ? `0 0 0 3px ${segment.softColor}, 0 0 12px ${segment.color}` : undefined,
-              opacity: segment.state === "offline" || segment.state === "missing" ? 0.42 : 1,
-            }}
-            title={`${segment.label}: ${segment.usage}%`}
-          />
-        ))}
       </div>
     </article>
   ));
