@@ -13,6 +13,7 @@ type WhatsAppModalErrorCode =
   | 'WHATSAPP_MODAL_HTTP_ERROR'
   | 'WHATSAPP_MODAL_QR_UNAVAILABLE'
   | 'WHATSAPP_MODAL_PAIRING_UNSUPPORTED'
+  | 'WHATSAPP_MODAL_PAIRING_CODE_EMPTY'
   | 'WHATSAPP_MODAL_PAIRING_RATE_LIMITED'
   | 'WHATSAPP_MODAL_ALREADY_CONNECTED'
   | 'TRIAL_PHONE_ALREADY_USED';
@@ -371,17 +372,23 @@ export class WhatsAppModalService {
     this.recentPairingCodeAttemptAt.set(rateLimitKey, Date.now());
 
     try {
-      await this.createProviderInstance(tenantKey).catch((error) => {
-        if (!this.isExistingInstanceError(error) && !this.isTransientProviderError(error)) throw error;
-      });
-      await this.tryConfigureProviderWebhook(tenantKey, 'pairing_code');
-      const providerPayload = await this.requestProviderPairingCode(tenantKey, normalizedPhone);
-      const code = this.extractPairingCode(providerPayload);
+      const maskedPhone = this.maskPairingPhoneForLog(normalizedPhone);
+      this.logger.log(`Modal WhatsApp pairing code requested for ${tenantKey} phone=${maskedPhone}.`);
+      let providerPayload = await this.createAndConnectProviderForPairing(tenantKey, normalizedPhone);
+      let code = this.extractPairingCode(providerPayload);
+      if (!code) {
+        this.logger.warn(
+          `Modal WhatsApp pairing code vazio para ${tenantKey} phone=${maskedPhone}; recriando instancia com number.`,
+        );
+        await this.resetProviderInstanceForPairing(tenantKey);
+        providerPayload = await this.createAndConnectProviderForPairing(tenantKey, normalizedPhone);
+        code = this.extractPairingCode(providerPayload);
+      }
       if (!code) {
         return this.buildPairingUnavailableResponse(
           tenantKey,
-          'Este motor suporta apenas QR Code. Para conectar sem câmera, precisamos ativar o modo pairing code ou Cloud API.',
-          'WHATSAPP_MODAL_PAIRING_UNSUPPORTED',
+          'O Webwhats respondeu sem pairingCode. A instância provavelmente foi criada sem number ou já estava presa em modo QR.',
+          'WHATSAPP_MODAL_PAIRING_CODE_EMPTY',
         );
       }
 
@@ -743,12 +750,12 @@ export class WhatsAppModalService {
     return true;
   }
 
-  private async createProviderInstance(tenantKey: string) {
+  private async createProviderInstance(tenantKey: string, phoneNumber?: string) {
     return this.requestProvider({
       method: 'POST',
       path: '/instance/create',
       purpose: 'criacao da instancia',
-      data: this.buildSessionCreatePayload(tenantKey),
+      data: this.buildSessionCreatePayload(tenantKey, phoneNumber),
     });
   }
 
@@ -767,6 +774,97 @@ export class WhatsAppModalService {
       path: `/instance/restart/${encodeURIComponent(tenantKey)}`,
       purpose: 'reinicio da instancia',
     });
+  }
+
+  private async deleteProviderInstance(tenantKey: string) {
+    return this.requestProvider({
+      method: 'DELETE',
+      path: `/instance/delete/${encodeURIComponent(tenantKey)}`,
+      purpose: 'remocao da instancia',
+      treatNotFoundAsNull: true,
+    });
+  }
+
+  private async resetProviderInstanceForPairing(tenantKey: string) {
+    this.recentConnectAttemptAt.delete(tenantKey);
+    this.qrCodeCache.delete(tenantKey);
+    await this.runSafeProviderResetStep(tenantKey, 'logout', () => this.logoutProviderSession(tenantKey));
+    await this.runSafeProviderResetStep(tenantKey, 'restart', () => this.restartProviderSession(tenantKey));
+    await this.runSafeProviderResetStep(tenantKey, 'delete', () => this.deleteProviderInstance(tenantKey));
+  }
+
+  private async runSafeProviderResetStep(
+    tenantKey: string,
+    step: 'logout' | 'restart' | 'delete',
+    action: () => Promise<unknown>,
+  ) {
+    try {
+      await action();
+    } catch (error) {
+      const providerError = this.toProviderError(error);
+      if (
+        this.isMissingInstanceError(providerError)
+        || providerError.statusCode === 404
+        || providerError.statusCode === 405
+        || this.isTransientProviderError(providerError)
+      ) {
+        this.logger.warn(
+          `Modal WhatsApp reset pairing ${step} ignorado para ${tenantKey}: ${providerError.message}`,
+        );
+        return;
+      }
+      throw providerError;
+    }
+  }
+
+  private async createAndConnectProviderForPairing(tenantKey: string, phoneNumber: string) {
+    await this.createProviderInstance(tenantKey, phoneNumber).catch((error) => {
+      if (!this.isExistingInstanceError(error) && !this.isTransientProviderError(error)) throw error;
+    });
+    await this.tryConfigureProviderWebhook(tenantKey, 'pairing_code');
+
+    this.recentConnectAttemptAt.delete(tenantKey);
+    const connectPayload = await this.requestProvider({
+      method: 'GET',
+      path: `/instance/connect/${encodeURIComponent(tenantKey)}`,
+      purpose: 'conexao da instancia para codigo de pareamento',
+      treatNotFoundAsNull: true,
+    });
+    if (this.extractPairingCode(connectPayload)) {
+      return connectPayload;
+    }
+
+    const statusPayload = await this.fetchProviderConnectionStateForPairing(tenantKey);
+    if (this.extractPairingCode(statusPayload)) {
+      return statusPayload;
+    }
+
+    try {
+      return await this.requestProviderPairingCode(tenantKey, phoneNumber);
+    } catch (error) {
+      const providerError = this.toProviderError(error);
+      if (providerError.code === 'WHATSAPP_MODAL_PAIRING_UNSUPPORTED' || providerError.statusCode === 404 || providerError.statusCode === 405) {
+        return connectPayload || statusPayload;
+      }
+      throw providerError;
+    }
+  }
+
+  private async fetchProviderConnectionStateForPairing(tenantKey: string) {
+    try {
+      return await this.requestProvider({
+        method: 'GET',
+        path: `/instance/connectionState/${encodeURIComponent(tenantKey)}`,
+        purpose: 'status da instancia para codigo de pareamento',
+        treatNotFoundAsNull: true,
+      });
+    } catch (error) {
+      const providerError = this.toProviderError(error);
+      if (providerError.statusCode === 404 || providerError.statusCode === 405 || this.isMissingInstanceError(providerError)) {
+        return null;
+      }
+      throw providerError;
+    }
   }
 
   private async connectProviderSession(company: CompanyModalFields, fallback: ModalSnapshot) {
@@ -922,21 +1020,32 @@ export class WhatsAppModalService {
     return `company-${Number(company.id)}`;
   }
 
-  private buildSessionCreatePayload(tenantKey: string) {
-    return {
+  private buildSessionCreatePayload(tenantKey: string, phoneNumber?: string) {
+    const payload: Record<string, unknown> = {
       instanceName: tenantKey,
       integration: 'WHATSAPP-BAILEYS',
       qrcode: true,
       syncFullHistory: true,
     };
+    const normalizedPhone = this.normalizeOptionalString(phoneNumber)?.replace(/\D/g, '') || '';
+    if (normalizedPhone) {
+      payload.number = normalizedPhone;
+    }
+    return payload;
   }
 
   private normalizePairingPhoneOrThrow(value: unknown) {
-    const normalized = String(value || '').trim();
-    if (!/^\+[1-9]\d{7,14}$/.test(normalized)) {
-      throw new BadRequestException('Informe o telefone em formato E.164, exemplo +5519999999999.');
+    const normalized = String(value || '').replace(/\D/g, '');
+    if (!/^[1-9]\d{7,14}$/.test(normalized)) {
+      throw new BadRequestException('Informe o telefone com DDI, exemplo +5519999999999.');
     }
-    return normalized.replace(/^\+/, '');
+    return normalized;
+  }
+
+  private maskPairingPhoneForLog(phoneNumber: string) {
+    const digits = String(phoneNumber || '').replace(/\D/g, '');
+    const suffix = digits.slice(-4) || '****';
+    return `****${suffix}`;
   }
 
   private buildPairingUnavailableResponse(
@@ -1006,7 +1115,22 @@ export class WhatsAppModalService {
   private extractPairingCode(payload: unknown): string | null {
     const { root, rootData } = this.extractPayloadParts(payload);
     const data = this.asRecord(rootData.data) || rootData;
+    const instance = this.asRecord(rootData.instance) || this.asRecord(root.instance) || null;
+    const qrcode =
+      this.asRecord(rootData.qrcode)
+      || this.asRecord(rootData.qr)
+      || this.asRecord(data.qrcode)
+      || this.asRecord(data.qr)
+      || this.asRecord(root.qrcode)
+      || this.asRecord(root.qr)
+      || this.asRecord(instance?.qrcode)
+      || this.asRecord(instance?.qr)
+      || null;
     const code = this.firstString(
+      qrcode?.pairingCode,
+      qrcode?.pairing_code,
+      qrcode?.code,
+      qrcode?.pairCode,
       rootData.pairingCode,
       rootData.pairing_code,
       rootData.code,
