@@ -4154,6 +4154,127 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
+  private buildDirectRadarLeadPublic(result: Omit<WebscrapingContactResult, 'placeId'> & { placeId?: string | null }, input: NormalizedRadarFilters, index: number) {
+    const phoneDigits = normalizePhoneDigits(result.phoneDigits || result.phone);
+    const opportunityScore = result.opportunityScore ?? result.score ?? this.buildOpportunityScore(result as WebscrapingContactResult);
+    const sourceEngine = input.engine || 'hbx';
+    return {
+      id: `direct:${input.targetType}:${phoneDigits || normalizeLookupValue(`${result.name || 'card'}-${index + 1}`)}`,
+      placeId: result.placeId || null,
+      name: result.name || 'Empresa sem nome',
+      phone: result.phone || phoneDigits || '',
+      phoneDigits,
+      ddd: this.extractDdd(phoneDigits || result.phone),
+      expectedDdds: this.buildExpectedDdds(input),
+      address: result.address || null,
+      city: input.city || null,
+      state: input.state || null,
+      segment: input.segment || null,
+      website: result.website || null,
+      websiteStatus: inferWebsiteStatus(result.website),
+      rating: result.rating == null ? null : Number(result.rating),
+      reviews: safeInteger(result.reviews),
+      source: result.source || sourceEngine,
+      sourceEngine,
+      sourceUrl: null,
+      sourceEngines: [sourceEngine, result.source].filter(Boolean),
+      opportunityScore: safeInteger(opportunityScore),
+      opportunityReason: result.opportunityReason || this.buildOpportunityReason(result as WebscrapingContactResult, {
+        city: input.city,
+        state: input.state,
+        segment: input.segment,
+        quantity: input.quantity,
+        engine: input.engine,
+        targetType: input.targetType,
+        filters: {
+          minRating: input.minRating,
+          minReviews: input.minReviews,
+          onlyWithWebsite: input.withWebsite,
+        },
+        filtersJson: '{}',
+        searchSignature: '',
+        cacheSignature: '',
+        normalizedCity: input.normalizedCity,
+        normalizedSegment: input.normalizedSegment,
+        excludePhoneDigits: [],
+      }),
+      status: 'clean',
+      ownerCompanyId: null,
+      claimedAt: null,
+      ownershipStatus: 'available',
+      rejectionReason: null,
+      complaintReason: null,
+      deniedReason: null,
+      noAnswerCount: 0,
+      contactedCount: 0,
+      assignedUserId: null,
+      assignedByUserId: null,
+      assignedAt: null,
+      lastContactAt: null,
+      campaignId: null,
+      historySummary: [],
+      globalNegativeCount: 0,
+      globalImportedCount: 0,
+      globalContactedCount: 0,
+      firstSeenAt: null,
+      lastSeenAt: null,
+      companyStatus: 'clean',
+      vendasLeadId: null,
+    };
+  }
+
+  private async searchRadarDirectForUser(user: any, filters: NormalizedRadarFilters, reason: string, technicalMessage?: string | null) {
+    const response = await this.searchContactsForUser(
+      user,
+      {
+        city: filters.city,
+        state: filters.state,
+        segment: filters.segment,
+        quantity: filters.quantity,
+        engine: filters.engine,
+        targetType: filters.targetType,
+        minRating: filters.minRating,
+        minReviews: filters.minReviews,
+      },
+      {
+        skipRadarLookup: true,
+        skipPrivateHistory: true,
+        skipTechnicalCache: true,
+        recordUsage: false,
+        purpose: 'radar_digital',
+      },
+    );
+    const items = (response.results || []).map((result, index) => this.buildDirectRadarLeadPublic(result, filters, index));
+    return {
+      items,
+      total: items.length,
+      code: items.length ? 'RADAR_DIRECT_RESULTS' : 'RADAR_NO_RESULTS',
+      message: items.length
+        ? `Entreguei ${items.length} card(s) pesquisados agora.`
+        : 'Pesquisa concluida. Nao ha cards publicos suficientes para esse filtro agora.',
+      retryable: false,
+      meta: {
+        requestedQuantity: filters.quantity,
+        deliveredCount: items.length,
+        filters: {
+          state: filters.state,
+          city: filters.city,
+          segment: filters.segment,
+          targetType: filters.targetType,
+        },
+        direct: {
+          ran: true,
+          reason,
+          source: response.meta.source,
+          fetchedCount: response.meta.fetchedCount,
+          status: response.meta.status || 'completed',
+          message: response.meta.message || null,
+          technicalMessage: technicalMessage || null,
+        },
+      },
+    };
+  }
+
   private buildRadarFacet(key: string, label: string, count: number, tone = 'neutral') {
     return count > 0 ? { key, label, count, tone } : null;
   }
@@ -4433,7 +4554,32 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       throw new BadRequestException('Cidade e segmento sao obrigatorios para puxar cards do Radar.');
     }
     if (!(await this.supportsRadarPersistence())) {
-      throw new ServiceUnavailableException('Banco do Radar ainda nao foi migrado neste ambiente.');
+      try {
+        return await this.searchRadarDirectForUser(user, filters, 'radar_database_unavailable');
+      } catch (error: any) {
+        return {
+          items: [],
+          total: 0,
+          code: 'RADAR_DIRECT_UNAVAILABLE',
+          message: 'Pesquisa concluida. Nao ha cards publicos suficientes para esse filtro agora.',
+          retryable: false,
+          meta: {
+            requestedQuantity: filters.quantity,
+            deliveredCount: 0,
+            filters: {
+              state: filters.state,
+              city: filters.city,
+              segment: filters.segment,
+              targetType: filters.targetType,
+            },
+            direct: {
+              ran: true,
+              reason: 'radar_database_unavailable_direct_search_failed',
+              technicalMessage: this.extractHbxErrorMessage(error),
+            },
+          },
+        };
+      }
     }
 
     let rows = await this.queryRadarRowsForCompany(context.companyId, filters, {
@@ -4488,68 +4634,90 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     const deliveredRows = rows.slice(0, filters.quantity);
 
     if (!deliveredRows.length && replenishErrorMessage) {
-      return {
-        items: [],
-        total: 0,
-        code: 'NO_ENGINE_AVAILABLE',
-        message: 'Motores ocupados. O sistema manteve sua busca na fila.',
-        retryable: true,
-        meta: {
-          requestedQuantity: filters.quantity,
-          deliveredCount: 0,
-          filters: {
-            state: filters.state,
-            city: filters.city,
-            segment: filters.segment,
-            targetType: filters.targetType,
+      try {
+        return await this.searchRadarDirectForUser(user, filters, 'radar_database_empty_after_replenish_error', replenish.technicalMessage || replenishErrorMessage);
+      } catch (error: any) {
+        return {
+          items: [],
+          total: 0,
+          code: 'NO_ENGINE_AVAILABLE',
+          message: 'Motores ocupados. Nao havia cards disponiveis no banco para esse filtro.',
+          retryable: true,
+          meta: {
+            requestedQuantity: filters.quantity,
+            deliveredCount: 0,
+            filters: {
+              state: filters.state,
+              city: filters.city,
+              segment: filters.segment,
+              targetType: filters.targetType,
+            },
+            replenish,
+            direct: {
+              ran: true,
+              reason: 'direct_search_failed_after_replenish_error',
+              technicalMessage: this.extractHbxErrorMessage(error),
+            },
+            availableFilters: this.buildRadarAvailableFilters(await this.queryRadarRowsForCompany(context.companyId, {
+              ...filters,
+              city: '',
+              state: '',
+              segment: '',
+              normalizedCity: '',
+              normalizedSegment: '',
+            }, { limit: 2000 })),
           },
-          replenish,
-          availableFilters: this.buildRadarAvailableFilters(await this.queryRadarRowsForCompany(context.companyId, {
-            ...filters,
-            city: '',
-            state: '',
-            segment: '',
-            normalizedCity: '',
-            normalizedSegment: '',
-          }, { limit: 2000 })),
-        },
-      };
+        };
+      }
     }
 
     if (!deliveredRows.length) {
-      return {
-        items: [],
-        total: 0,
-        code: 'RADAR_STOCK_EMPTY',
-        message: 'Sem cards prontos para esse filtro. A reposição foi solicitada.',
-        retryable: true,
-        meta: {
-          requestedQuantity: filters.quantity,
-          deliveredCount: 0,
-          filters: {
-            state: filters.state,
-            city: filters.city,
-            segment: filters.segment,
-            targetType: filters.targetType,
+      try {
+        return await this.searchRadarDirectForUser(user, filters, 'radar_database_empty_after_replenish');
+      } catch (error: any) {
+        return {
+          items: [],
+          total: 0,
+          code: 'RADAR_NO_RESULTS',
+          message: 'Pesquisa concluida. Nao ha cards publicos suficientes para esse filtro agora.',
+          retryable: false,
+          meta: {
+            requestedQuantity: filters.quantity,
+            deliveredCount: 0,
+            filters: {
+              state: filters.state,
+              city: filters.city,
+              segment: filters.segment,
+              targetType: filters.targetType,
+            },
+            replenish,
+            direct: {
+              ran: true,
+              reason: 'direct_search_finished_without_cards',
+              technicalMessage: this.extractHbxErrorMessage(error),
+            },
+            availableFilters: this.buildRadarAvailableFilters(await this.queryRadarRowsForCompany(context.companyId, {
+              ...filters,
+              city: '',
+              state: '',
+              segment: '',
+              normalizedCity: '',
+              normalizedSegment: '',
+            }, { limit: 2000 })),
           },
-          replenish,
-          availableFilters: this.buildRadarAvailableFilters(await this.queryRadarRowsForCompany(context.companyId, {
-            ...filters,
-            city: '',
-            state: '',
-            segment: '',
-            normalizedCity: '',
-            normalizedSegment: '',
-          }, { limit: 2000 })),
-        },
-      };
+        };
+      }
     }
     
     let claimedRows = deliveredRows;
     try {
       claimedRows = await this.markRadarDelivered(context.companyId, context.userId, deliveredRows);
+      if (!claimedRows.length && deliveredRows.length) {
+        claimedRows = deliveredRows;
+      }
     } catch (error: any) {
       this.logger.error(`[radar] failed to mark delivered: ${error?.message || error}`);
+      claimedRows = deliveredRows;
     }
 
     let items: any[] = [];

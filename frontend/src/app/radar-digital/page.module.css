@@ -115,10 +115,6 @@
   font-weight: 950;
 }
 
-.filterGeneral {
-  grid-column: span 4;
-}
-
 .filterLocation {
   grid-column: span 4;
   min-width: 0;
@@ -129,16 +125,15 @@
   min-width: 0;
 }
 
-.filterStatus,
 .filterTarget,
 .filterQuantity,
 .filterEngine {
-  grid-column: span 3;
+  grid-column: span 4;
   min-width: 0;
 }
 
 .filterAdvanced {
-  grid-column: span 6;
+  grid-column: 1 / -1;
   min-width: 0;
 }
 
@@ -614,14 +609,12 @@
     grid-template-columns: repeat(6, minmax(0, 1fr));
   }
 
-  .filterGeneral,
   .filterLocation,
   .filterSegment,
   .filterAdvanced {
     grid-column: 1 / -1;
   }
 
-  .filterStatus,
   .filterTarget,
   .filterQuantity,
   .filterEngine {
@@ -664,10 +657,8 @@
     grid-template-columns: 1fr;
   }
 
-  .filterGeneral,
   .filterLocation,
   .filterSegment,
-  .filterStatus,
   .filterTarget,
   .filterQuantity,
   .filterEngine,

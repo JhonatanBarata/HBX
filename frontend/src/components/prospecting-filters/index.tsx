@@ -436,7 +436,6 @@ export function HbxTargetTypeSelector({
     { value: "pj", label: "PJ — Empresas/CNPJ", description: "Empresas e negócios locais." },
     { value: "pf", label: "PF — Pessoas públicas", description: "Pessoas em páginas públicas." },
     { value: "agenda_pf", label: "Agenda PF", description: "Agenda pública regional." },
-    { value: "both", label: "PF + PJ", description: "Somente MASTER." },
   ];
 
   return (
@@ -515,7 +514,6 @@ export function HbxAdvancedFilters({
     filters.highOpportunity ? "alta oportunidade" : "",
     hasAdvancedFilterValue(filters.ddd) ? `DDD ${filters.ddd}` : "",
     hasAdvancedFilterValue(filters.scoreRange) ? `score ${filters.scoreRange}` : "",
-    hasAdvancedFilterValue(filters.status) ? `status ${filters.status}` : "",
   ].filter(Boolean);
 
   const update = (patch: HbxAdvancedFiltersValue) => onChange({ ...filters, ...patch });
@@ -579,23 +577,6 @@ export function HbxAdvancedFilters({
                   <option value="high">Alta oportunidade</option>
                   <option value="medium">Média oportunidade</option>
                   <option value="low">Baixa oportunidade</option>
-                </select>
-              </label>
-              <label className={styles.field}>
-                <span className={styles.label}>Status</span>
-                <select className={styles.select} value={filters.status ?? ""} onChange={(event) => update({ status: event.target.value })}>
-                  <option value="">Todos</option>
-                  <option value="clean">Novo</option>
-                  <option value="approved">Aprovado</option>
-                  <option value="sent_to_vendas">Em Vendas</option>
-                  <option value="in_attendance">Em atendimento</option>
-                  <option value="converted">Convertido</option>
-                  <option value="contacted">Contato feito</option>
-                  <option value="no_whatsapp">Contato inválido</option>
-                  <option value="discarded">Descartado</option>
-                  <option value="negative">Negativo</option>
-                  <option value="blocked">Bloqueado</option>
-                  <option value="opt_out">Opt-out</option>
                 </select>
               </label>
             </>
