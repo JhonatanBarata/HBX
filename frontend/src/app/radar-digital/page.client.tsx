@@ -14,7 +14,7 @@ import {
   type HbxAdvancedFiltersValue,
   type HbxTargetTypeValue,
 } from "@/components/prospecting-filters";
-import { apiFetch } from "@/app/_lib/api";
+import { apiFetch, type ApiFetchError } from "@/app/_lib/api";
 import { useRequireModule } from "@/app/_lib/useRequireModule";
 import { clearTopbarProgress, dispatchTopbarProgress } from "@/lib/topbar-progress";
 import type { CommercialPlansPayload } from "@/lib/commercial-plans";
@@ -53,6 +53,9 @@ type RadarLead = {
 type RadarLeadsResponse = {
   items: RadarLead[];
   total: number;
+  code?: string;
+  message?: string;
+  retryable?: boolean;
   facets?: Array<{ key: string; label: string; count: number; tone?: string }>;
   meta?: {
     available?: boolean;
@@ -65,6 +68,9 @@ type RadarLeadsResponse = {
 
 type RadarPullResponse = {
   items: RadarLead[];
+  code?: string;
+  message?: string;
+  retryable?: boolean;
   meta?: {
     requestedQuantity?: number;
     deliveredCount?: number;
@@ -231,6 +237,27 @@ function compactRadarMessage(message: string | null) {
   return text;
 }
 
+function radarFriendlyError(error: unknown) {
+  const apiError = error as ApiFetchError;
+  if (apiError?.code === "MODULE_ACCESS_DENIED" || apiError?.status === 403) {
+    return "Acesso ao Radar Digital indisponível para este usuário. Verifique a liberação do módulo.";
+  }
+  if (apiError?.code === "NO_ENGINE_AVAILABLE") {
+    return "Motores ocupados. O sistema manteve sua busca na fila.";
+  }
+  if (apiError?.code === "RADAR_STOCK_EMPTY") {
+    return "Sem cards prontos para esse filtro. A reposição foi solicitada.";
+  }
+  if (apiError?.status && apiError.status >= 500) {
+    return "Radar temporariamente indisponível. Tente novamente em instantes.";
+  }
+  const message = error instanceof Error ? error.message : "";
+  if (/internal server error|forbidden|unauthorized/i.test(message)) {
+    return "Radar temporariamente indisponível. Tente novamente em instantes.";
+  }
+  return message || "Não foi possível concluir a operação agora.";
+}
+
 export default function RadarDigitalClientPage() {
   const hasToken = useRequireModule("webscraping");
   const searchParams = useSearchParams();
@@ -350,8 +377,8 @@ export default function RadarDigitalClientPage() {
       setTotal(Number(payload.total || 0));
       setAvailableFilters(payload.meta?.availableFilters || { states: [], citiesByState: {}, segments: [] });
       setPage(nextPage);
-    } catch {
-      setError("Não foi possível carregar os cards agora. Tente atualizar em instantes.");
+    } catch (err) {
+      setError(radarFriendlyError(err));
     } finally {
       setLoading(false);
       setLoadingMore(false);
@@ -586,7 +613,7 @@ export default function RadarDigitalClientPage() {
         apiFetch<RadarPullResponse>("/webscraping/radar/pull", {
           method: "POST",
           requireAuth: true,
-          timeoutMs: 45000,
+          timeoutMs: 25000,
           body: JSON.stringify({
             ...nextFilters,
             targetType,
@@ -599,6 +626,7 @@ export default function RadarDigitalClientPage() {
       let motorRan = false;
       let fetchedCount = 0;
       let replenishErrorMessage = "";
+      let queuedMessage = "";
       let nextItems: RadarLead[] = [];
 
       if (nextFilters.targetType === "both") {
@@ -617,30 +645,34 @@ export default function RadarDigitalClientPage() {
         motorRan = fulfilled.some((result) => Boolean(result.value.meta?.replenish?.ran));
         fetchedCount = fulfilled.reduce((totalCount, result) => totalCount + Number(result.value.meta?.replenish?.fetchedCount || 0), 0);
         replenishErrorMessage = fulfilled.map((result) => result.value.meta?.replenish?.errorMessage || "").find(Boolean) || "";
+        queuedMessage = fulfilled.map((result) => result.value.message || "").find(Boolean) || "";
       } else {
         const payload = await pullRadar(nextFilters.targetType, nextFilters.quantity);
         nextItems = payload.items || [];
         motorRan = Boolean(payload.meta?.replenish?.ran);
         fetchedCount = Number(payload.meta?.replenish?.fetchedCount || 0);
         replenishErrorMessage = payload.meta?.replenish?.errorMessage || "";
+        queuedMessage = payload.message || "";
       }
 
       setItems(nextItems);
       setTotal(nextItems.length);
       setPage(1);
+      if (!nextItems.length && queuedMessage) {
+        setFeedback("Estamos buscando novos cards para esse filtro.");
+        setError(queuedMessage);
+        return;
+      }
       const motorMessage = replenishErrorMessage
         ? replenishErrorMessage.replace("Entreguei os cards disponiveis", `Entreguei ${nextItems.length} card(s)`)
+        : queuedMessage
+        ? queuedMessage
         : motorRan
         ? `Motor acionado. ${fetchedCount} novo(s) card(s) entraram no banco.`
         : "Entregue direto do banco de dados, sem acionar motor.";
       setFeedback(`${nextItems.length} card(s) prontos. ${motorMessage}`);
     } catch (searchError) {
-      const message = searchError instanceof Error ? searchError.message : "";
-      setError(
-        message && !/internal server error/i.test(message)
-          ? message
-          : "Motores em aquecimento/cooldown. Tente novamente em instantes.",
-      );
+      setError(radarFriendlyError(searchError));
     } finally {
       setSearching(false);
     }

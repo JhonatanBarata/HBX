@@ -34,6 +34,12 @@ function normalizeBaseUrl(value) {
   return String(value || '').trim().replace(/\/$/, '');
 }
 
+function parsePositiveInteger(value, fallback) {
+  const parsed = Number(String(value || '').trim());
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(1, Math.trunc(parsed));
+}
+
 function loadOperationsEnv() {
   const files = [
     path.join(repoRoot, '.env.production.local'),
@@ -92,12 +98,20 @@ function ensureRequiredEnv(env) {
   const frontendUrl = normalizeBaseUrl(env.PROD_FRONTEND_URL);
   assertNonLocalHttpUrl(frontendUrl, 'PROD_FRONTEND_URL');
 
+  const hbxEngineCount = parsePositiveInteger(env.HBX_ENGINE_COUNT || env.HBX_PUBLISH_ENGINE_COUNT, 100);
+  const hbxEngineMaxCount = Math.max(
+    hbxEngineCount,
+    parsePositiveInteger(env.HBX_ENGINE_MAX_COUNT || env.HBX_PUBLISH_ENGINE_MAX_COUNT, 200),
+  );
+
   return {
     sshHost: String(env.HOSTINGER_SSH_HOST).trim(),
     sshUser: String(env.HOSTINGER_SSH_USER).trim(),
     appDir: String(env.HOSTINGER_APP_DIR).trim(),
     frontendUrl,
     backendUrl: normalizeBaseUrl(env.PROD_BACKEND_URL || ''),
+    hbxEngineCount,
+    hbxEngineMaxCount,
   };
 }
 
@@ -226,16 +240,30 @@ function buildRemoteReleaseScript(config, services) {
     `APP_DIR=${shellSingleQuote(config.appDir)}`,
     `SERVICES="${services.join(' ')}"`,
     `COMPOSE_SERVICES="${composeServices.join(' ')}"`,
+    `REQUESTED_HBX_ENGINE_COUNT=${shellSingleQuote(config.hbxEngineCount)}`,
+    `REQUESTED_HBX_ENGINE_MAX_COUNT=${shellSingleQuote(config.hbxEngineMaxCount)}`,
     'export GIT_SSH_COMMAND="ssh -o BatchMode=yes"',
     'cd "$APP_DIR"',
     `git fetch ${remote} ${branch}`,
     `git reset --hard ${remote}/${branch}`,
     'if [ ! -f .env ]; then echo "ERRO: .env raiz nao existe na VPS."; exit 1; fi',
+    'upsert_root_env() { key="$1"; value="$2"; tmp="$(mktemp)"; awk -v key="$key" -v value="$value" \'BEGIN{done=0} $0 ~ "^" key "=" { print key "=" value; done=1; next } { print } END{ if (!done) print key "=" value }\' .env > "$tmp"; cat "$tmp" > .env; rm -f "$tmp"; }',
+    'upsert_root_env HBX_ENGINE_COUNT "$REQUESTED_HBX_ENGINE_COUNT"',
+    'upsert_root_env HBX_ENGINE_MAX_COUNT "$REQUESTED_HBX_ENGINE_MAX_COUNT"',
+    'upsert_root_env HBX_CLIENT_RESERVED_ENGINES "${HBX_CLIENT_RESERVED_ENGINES:-2}"',
+    'upsert_root_env HBX_FACTORY_MIN_ENGINES "${HBX_FACTORY_MIN_ENGINES:-1}"',
+    'upsert_root_env HBX_RADAR_CLIENT_PRIORITY_START_HOUR "${HBX_RADAR_CLIENT_PRIORITY_START_HOUR:-8}"',
+    'upsert_root_env HBX_RADAR_CLIENT_PRIORITY_END_HOUR "${HBX_RADAR_CLIENT_PRIORITY_END_HOUR:-20}"',
+    'upsert_root_env HBX_RADAR_CLIENT_REQUEST_TIMEOUT_MS "${HBX_RADAR_CLIENT_REQUEST_TIMEOUT_MS:-25000}"',
+    'upsert_root_env HBX_RADAR_CLIENT_FALLBACK_TO_POOL "${HBX_RADAR_CLIENT_FALLBACK_TO_POOL:-true}"',
     'export HBX_ENGINE_COUNT="$(awk -F= \'/^HBX_ENGINE_COUNT=/{print substr($0, length("HBX_ENGINE_COUNT")+2); exit}\' .env)"',
+    'export HBX_ENGINE_MAX_COUNT="$(awk -F= \'/^HBX_ENGINE_MAX_COUNT=/{print substr($0, length("HBX_ENGINE_MAX_COUNT")+2); exit}\' .env)"',
+    'if [ -z "$HBX_ENGINE_MAX_COUNT" ]; then export HBX_ENGINE_MAX_COUNT=200; fi',
+    'case "$HBX_ENGINE_MAX_COUNT" in *[!0-9]*|"") echo "Aviso: HBX_ENGINE_MAX_COUNT invalido no .env; usando 200."; export HBX_ENGINE_MAX_COUNT=200;; esac',
     'if [ -z "$HBX_ENGINE_COUNT" ]; then export HBX_ENGINE_COUNT=20; fi',
     'case "$HBX_ENGINE_COUNT" in *[!0-9]*|"") echo "Aviso: HBX_ENGINE_COUNT invalido no .env; usando 20."; export HBX_ENGINE_COUNT=20;; esac',
     'if [ "$HBX_ENGINE_COUNT" -lt 1 ]; then echo "Aviso: HBX_ENGINE_COUNT=$HBX_ENGINE_COUNT abaixo do minimo; usando 1."; export HBX_ENGINE_COUNT=1; fi',
-    'if [ "$HBX_ENGINE_COUNT" -gt 20 ]; then echo "Aviso: HBX_ENGINE_COUNT=$HBX_ENGINE_COUNT acima do limite; usando 20."; export HBX_ENGINE_COUNT=20; fi',
+    'if [ "$HBX_ENGINE_COUNT" -gt "$HBX_ENGINE_MAX_COUNT" ]; then echo "Aviso: HBX_ENGINE_COUNT=$HBX_ENGINE_COUNT acima do limite; usando $HBX_ENGINE_MAX_COUNT."; export HBX_ENGINE_COUNT="$HBX_ENGINE_MAX_COUNT"; fi',
     'if docker compose version >/dev/null 2>&1; then DC="docker compose"; elif docker-compose --version >/dev/null 2>&1; then DC="docker-compose"; else echo "ERRO: docker-compose nao encontrado."; exit 1; fi',
     'if ! docker network inspect hbx_net >/dev/null 2>&1; then docker network create hbx_net >/dev/null; fi',
     'export HBX_DOCKER_NETWORK=hbx_net',
@@ -361,7 +389,15 @@ function buildRemoteReleaseScript(config, services) {
     '    --env-file "$APP_DIR/backend/.env" \\',
     '    -e HBX_SCRAPING_ENGINE_URL=http://hbx-scraping-engine:8001 \\',
     '    -e HBX_ENGINE_COUNT="$HBX_ENGINE_COUNT" \\',
+    '    -e HBX_ENGINE_MAX_COUNT="$HBX_ENGINE_MAX_COUNT" \\',
     '    -e HBX_ENGINE_URLS="$(hbx_engine_urls)" \\',
+    '    -e HBX_CLIENT_RESERVED_ENGINES="${HBX_CLIENT_RESERVED_ENGINES:-2}" \\',
+    '    -e HBX_FACTORY_MIN_ENGINES="${HBX_FACTORY_MIN_ENGINES:-1}" \\',
+    '    -e HBX_FACTORY_MAX_ENGINES="${HBX_FACTORY_MAX_ENGINES:-}" \\',
+    '    -e HBX_RADAR_CLIENT_PRIORITY_START_HOUR="${HBX_RADAR_CLIENT_PRIORITY_START_HOUR:-8}" \\',
+    '    -e HBX_RADAR_CLIENT_PRIORITY_END_HOUR="${HBX_RADAR_CLIENT_PRIORITY_END_HOUR:-20}" \\',
+    '    -e HBX_RADAR_CLIENT_REQUEST_TIMEOUT_MS="${HBX_RADAR_CLIENT_REQUEST_TIMEOUT_MS:-25000}" \\',
+    '    -e HBX_RADAR_CLIENT_FALLBACK_TO_POOL="${HBX_RADAR_CLIENT_FALLBACK_TO_POOL:-true}" \\',
     '    -e HBX_CAPACITY_ENGINE_2_QUEUE_THRESHOLD=3 \\',
     '    -e HBX_CAPACITY_ENGINE_3_QUEUE_THRESHOLD=10 \\',
     '    -e HBX_CAPACITY_ENGINE_4_QUEUE_THRESHOLD=20 \\',

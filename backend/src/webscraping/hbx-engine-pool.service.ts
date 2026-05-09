@@ -3,7 +3,9 @@ import { PrismaService } from '../prisma/prisma.service';
 
 export const DEFAULT_HBX_ENGINE_COUNT = 4;
 export const PRODUCTION_HBX_ENGINE_COUNT = 20;
-export const MAX_HBX_ENGINE_COUNT = 20;
+export const HARD_HBX_ENGINE_MAX_COUNT = 200;
+export const DEFAULT_HBX_ENGINE_MAX_COUNT = HARD_HBX_ENGINE_MAX_COUNT;
+export const MAX_HBX_ENGINE_COUNT = HARD_HBX_ENGINE_MAX_COUNT;
 const TURBO_OPERATIONAL_CONFIG_KEY = 'turbo_noturno';
 const HEALTH_CHECK_TTL_MS = 30_000;
 
@@ -33,11 +35,14 @@ export type HbxEngineLease = {
   googleEmergencyMode: boolean;
 };
 
-export type HbxEnginePurpose = 'manual' | 'radar_pull' | 'vendas' | 'autonomous' | 'mass_data';
+export type HbxEnginePurpose = 'manual' | 'radar_pull' | 'radar_digital' | 'vendas' | 'autonomous' | 'mass_data';
 
 export type HbxEngineSchedulerStatus = {
   manualReservedEngines: number;
+  clientPriorityActive: boolean;
   automaticAllowedEngines: number;
+  factoryMinEngines: number;
+  factoryMaxEngines: number | null;
   onlineHealthyEngines: number;
   memoryPressurePercent: number;
   googleMode: 'manual_only';
@@ -118,17 +123,23 @@ export type HbxEngineDashboardStatus = {
 };
 
 function parseIntegerEnv(name: string, fallback: number) {
-  const parsed = Number(String(process.env[name] || '').trim());
+  const raw = String(process.env[name] || '').trim();
+  if (!raw) return fallback;
+  const parsed = Number(raw);
   return Number.isFinite(parsed) ? Math.max(0, Math.trunc(parsed)) : fallback;
 }
 
 export function getConfiguredHbxEngineCount(env: NodeJS.ProcessEnv = process.env): number {
   const fallback = isProductionEnvironment(env.NODE_ENV) ? PRODUCTION_HBX_ENGINE_COUNT : DEFAULT_HBX_ENGINE_COUNT;
-  return clampInteger(env.HBX_ENGINE_COUNT, fallback, 1, MAX_HBX_ENGINE_COUNT);
+  return clampInteger(env.HBX_ENGINE_COUNT, fallback, 1, getConfiguredHbxEngineMaxCount(env));
+}
+
+export function getConfiguredHbxEngineMaxCount(env: NodeJS.ProcessEnv = process.env): number {
+  return clampInteger(env.HBX_ENGINE_MAX_COUNT, DEFAULT_HBX_ENGINE_MAX_COUNT, 1, HARD_HBX_ENGINE_MAX_COUNT);
 }
 
 export function buildHbxEngineUrls(prefixOrBase: string, count = getConfiguredHbxEngineCount()) {
-  const safeCount = clampInteger(count, DEFAULT_HBX_ENGINE_COUNT, 1, MAX_HBX_ENGINE_COUNT);
+  const safeCount = clampInteger(count, DEFAULT_HBX_ENGINE_COUNT, 1, getConfiguredHbxEngineMaxCount());
   const base = String(prefixOrBase || '').trim().replace(/\/+$/, '');
   if (!base) return [];
   return Array.from({ length: safeCount }, (_, index) => {
@@ -177,7 +188,7 @@ export function parseHbxEngineUrls(value: unknown, maxUrls = getConfiguredHbxEng
   return rawUrls
     .map((url) => String(url || '').trim().replace(/\/+$/, ''))
     .filter(Boolean)
-    .slice(0, clampInteger(maxUrls, DEFAULT_HBX_ENGINE_COUNT, 1, MAX_HBX_ENGINE_COUNT));
+    .slice(0, clampInteger(maxUrls, DEFAULT_HBX_ENGINE_COUNT, 1, getConfiguredHbxEngineMaxCount()));
 }
 
 function isProductionEnvironment(nodeEnv: unknown) {
@@ -277,6 +288,21 @@ export class HbxEnginePoolService implements OnModuleInit {
       });
       rows.push(row);
     }
+
+    await (this.prisma as any).hbxEngineLock.updateMany({
+      where: {
+        engineIndex: { gte: urls.length },
+        status: { not: 'inactive' },
+      },
+      data: {
+        status: 'inactive',
+        lockedRunId: null,
+        lockedCompanyId: null,
+        lockedUserId: null,
+        lockedAt: null,
+        lockedUntil: null,
+      },
+    }).catch(() => null);
 
     return rows;
   }
@@ -717,7 +743,7 @@ export class HbxEnginePoolService implements OnModuleInit {
 
   private normalizePurpose(value: unknown): HbxEnginePurpose {
     const purpose = String(value || '').trim().toLowerCase();
-    if (purpose === 'radar_pull' || purpose === 'vendas' || purpose === 'autonomous' || purpose === 'mass_data') {
+    if (purpose === 'radar_pull' || purpose === 'radar_digital' || purpose === 'vendas' || purpose === 'autonomous' || purpose === 'mass_data') {
       return purpose;
     }
     return 'manual';
@@ -729,13 +755,31 @@ export class HbxEnginePoolService implements OnModuleInit {
 
   private resolveManualReservedEngines(configuredCount = getConfiguredHbxEngineCount()) {
     const configured = Math.max(1, Math.trunc(Number(configuredCount || 1)));
-    const parsed = parseIntegerEnv('HBX_MANUAL_RESERVED_ENGINES', 2);
+    const parsed = parseIntegerEnv(
+      'HBX_CLIENT_RESERVED_ENGINES',
+      parseIntegerEnv('HBX_MANUAL_RESERVED_ENGINES', 2),
+    );
     if (configured <= 1) return 0;
     return Math.min(Math.max(0, parsed), configured - 1);
   }
 
   private resolveAutonomousMinEngines() {
-    return Math.max(0, parseIntegerEnv('HBX_AUTONOMOUS_MIN_ENGINES', 1));
+    return Math.max(0, parseIntegerEnv('HBX_FACTORY_MIN_ENGINES', parseIntegerEnv('HBX_AUTONOMOUS_MIN_ENGINES', 1)));
+  }
+
+  private resolveFactoryMaxEngines(configuredCount = getConfiguredHbxEngineCount()) {
+    const raw = String(process.env.HBX_FACTORY_MAX_ENGINES || '').trim();
+    if (!raw) return null;
+    const parsed = parseIntegerEnv('HBX_FACTORY_MAX_ENGINES', configuredCount);
+    return Math.max(0, Math.min(configuredCount, parsed));
+  }
+
+  private isWithinClientPriorityWindow(date = new Date()) {
+    const start = Math.min(Math.max(parseIntegerEnv('HBX_RADAR_CLIENT_PRIORITY_START_HOUR', 8), 0), 23);
+    const end = Math.min(Math.max(parseIntegerEnv('HBX_RADAR_CLIENT_PRIORITY_END_HOUR', 20), 0), 23);
+    const hour = date.getHours();
+    if (start === end) return true;
+    return start < end ? hour >= start && hour < end : hour >= start || hour < end;
   }
 
   private autonomousMaxMemoryPressurePercent() {
@@ -810,26 +854,35 @@ export class HbxEnginePoolService implements OnModuleInit {
       .filter((engine) => this.isHealthyEngine(engine, now))
       .length;
     const manualReservedEngines = Math.min(this.resolveManualReservedEngines(configuredCount), Math.max(0, onlineHealthyEngines - 1));
+    const clientPriorityActive = this.isWithinClientPriorityWindow();
     const memoryPressurePercent = this.resolveMemoryPressurePercent(operationalConfig);
     const maxMemoryPressure = this.autonomousMaxMemoryPressurePercent();
     const pressurePenalty = memoryPressurePercent > maxMemoryPressure
       ? Math.max(1, Math.ceil((memoryPressurePercent - maxMemoryPressure) / 5))
       : 0;
-    const autonomousMin = Math.min(this.resolveAutonomousMinEngines(), onlineHealthyEngines);
+    const factoryCapacity = Math.max(0, onlineHealthyEngines - manualReservedEngines);
+    const autonomousMin = Math.min(this.resolveAutonomousMinEngines(), factoryCapacity);
+    const factoryMaxEngines = this.resolveFactoryMaxEngines(factoryCapacity);
     const degraded = String(capacity?.operationalStatus || '') === 'degraded';
     let automaticAllowedEngines = degraded || onlineHealthyEngines <= 0
       ? 0
-      : onlineHealthyEngines - manualReservedEngines - pressurePenalty;
+      : factoryCapacity - pressurePenalty;
     if (manualDemandActive) {
       automaticAllowedEngines = Math.min(automaticAllowedEngines, autonomousMin);
+    } else if (clientPriorityActive) {
+      const reducedDayCapacity = Math.max(autonomousMin, Math.floor(factoryCapacity / 2));
+      automaticAllowedEngines = Math.min(automaticAllowedEngines, reducedDayCapacity);
     }
     if (!manualDemandActive && !pressurePenalty && !degraded && onlineHealthyEngines > 0) {
       automaticAllowedEngines = Math.max(automaticAllowedEngines, autonomousMin);
     }
+    if (factoryMaxEngines != null) {
+      automaticAllowedEngines = Math.min(automaticAllowedEngines, factoryMaxEngines);
+    }
     if (onlineHealthyEngines > 1) {
       automaticAllowedEngines = Math.min(automaticAllowedEngines, onlineHealthyEngines - 1);
     }
-    automaticAllowedEngines = Math.max(0, Math.min(onlineHealthyEngines, automaticAllowedEngines));
+    automaticAllowedEngines = Math.max(0, Math.min(factoryCapacity, automaticAllowedEngines));
     const productionMode: HbxEngineSchedulerStatus['productionMode'] = manualDemandActive
       ? 'protected'
       : pressurePenalty > 0 || automaticAllowedEngines < Math.max(0, onlineHealthyEngines - manualReservedEngines)
@@ -837,7 +890,10 @@ export class HbxEnginePoolService implements OnModuleInit {
         : 'full';
     return {
       manualReservedEngines,
+      clientPriorityActive,
       automaticAllowedEngines,
+      factoryMinEngines: autonomousMin,
+      factoryMaxEngines,
       onlineHealthyEngines,
       memoryPressurePercent,
       googleMode: 'manual_only',
@@ -850,7 +906,7 @@ export class HbxEnginePoolService implements OnModuleInit {
     if (Date.now() - this.lastSchedulerLogAt < 15_000) return;
     this.lastSchedulerLogAt = Date.now();
     this.logger.log(
-      `[engine-scheduler] manual reserved=${scheduler.manualReservedEngines} automaticAllowed=${scheduler.automaticAllowedEngines} pressure=${scheduler.memoryPressurePercent}% manualDemand=${scheduler.manualDemandActive} mode=${scheduler.productionMode}`,
+      `[engine-scheduler] clientReserved=${scheduler.manualReservedEngines} clientPriority=${scheduler.clientPriorityActive} automaticAllowed=${scheduler.automaticAllowedEngines} pressure=${scheduler.memoryPressurePercent}% manualDemand=${scheduler.manualDemandActive} mode=${scheduler.productionMode}`,
     );
   }
 

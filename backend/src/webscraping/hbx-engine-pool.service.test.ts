@@ -90,22 +90,22 @@ test('parseHbxEngineUrls trims, removes trailing slashes, and uses four URLs by 
   );
 });
 
-test('parseHbxEngineUrls supports HBX_ENGINE_COUNT up to twenty URLs', () => {
-  withHbxEngineCount('20', () => {
+test('parseHbxEngineUrls supports HBX_ENGINE_COUNT up to one hundred URLs', () => {
+  withHbxEngineCount('100', () => {
     assert.deepEqual(
-      parseHbxEngineUrls(Array.from({ length: 21 }, (_, index) => `http://engine-${index + 1}:8001`)),
-      Array.from({ length: 20 }, (_, index) => `http://engine-${index + 1}:8001`),
+      parseHbxEngineUrls(Array.from({ length: 101 }, (_, index) => `http://engine-${index + 1}:8001`)),
+      Array.from({ length: 100 }, (_, index) => `http://engine-${index + 1}:8001`),
     );
   });
 });
 
-test('HBX_ENGINE_COUNT=20 accepts twenty configured URLs', () => {
+test('HBX_ENGINE_COUNT=100 accepts one hundred configured URLs', () => {
   assert.deepEqual(
     resolveConfiguredHbxEngineUrls({
-      HBX_ENGINE_COUNT: '20',
-      HBX_ENGINE_URLS: Array.from({ length: 20 }, (_, index) => `http://engine-${index + 1}:8001`).join(','),
+      HBX_ENGINE_COUNT: '100',
+      HBX_ENGINE_URLS: Array.from({ length: 100 }, (_, index) => `http://engine-${index + 1}:8001`).join(','),
     }),
-    Array.from({ length: 20 }, (_, index) => `http://engine-${index + 1}:8001`),
+    Array.from({ length: 100 }, (_, index) => `http://engine-${index + 1}:8001`),
   );
 });
 
@@ -180,9 +180,14 @@ test('invalid HBX_ENGINE_COUNT respects environment fallback', () => {
   });
 });
 
-test('HBX_ENGINE_COUNT above twenty is clamped to twenty', () => {
-  assert.equal(getConfiguredHbxEngineCount({ NODE_ENV: 'production', HBX_ENGINE_COUNT: '25' }), 20);
-  assert.equal(buildLocalHbxEngineUrls(25).length, 20);
+test('HBX_ENGINE_COUNT=100 is accepted without the old twenty-engine clamp', () => {
+  assert.equal(getConfiguredHbxEngineCount({ NODE_ENV: 'production', HBX_ENGINE_COUNT: '100' }), 100);
+  assert.equal(buildLocalHbxEngineUrls(100).length, 100);
+});
+
+test('HBX_ENGINE_MAX_COUNT can intentionally clamp engine count', () => {
+  assert.equal(getConfiguredHbxEngineCount({ NODE_ENV: 'production', HBX_ENGINE_COUNT: '100', HBX_ENGINE_MAX_COUNT: '40' }), 40);
+  assert.equal(getConfiguredHbxEngineCount({ NODE_ENV: 'production', HBX_ENGINE_COUNT: '220' }), 200);
 });
 
 function createPoolForCapacity(input: {
@@ -328,7 +333,7 @@ test('eligible engines ignore manually paused and timed paused engines', async (
   });
 });
 
-test('operational turbo config with engineCount=20 activates twenty engines', async () => {
+test('operational turbo config respects configured engine count', async () => {
   await withEnv({ NODE_ENV: 'production', HBX_ENGINE_COUNT: '20' }, async () => {
     const service = createPoolForCapacity({
       queuedCount: 1,
