@@ -1997,13 +1997,84 @@ test('pullRadarLeadsForUser entrega banco quando reposicao do motor falha', asyn
     targetType: 'pj',
     quantity: 5,
     minimumStock: 2,
-  });
+  }) as any;
 
   assert.equal(response.items.length, 1);
   assert.equal(response.items[0].name, 'Loja Banco');
   assert.equal(response.meta.deliveredCount, 1);
   assert.equal(response.meta.replenish.ran, true);
   assert.match(response.meta.replenish.errorMessage, /Motores em aquecimento\/cooldown/);
+});
+
+test('pullRadarLeadsForUser pesquisa direto quando banco radar nao esta disponivel', async () => {
+  const previousFetch = global.fetch;
+  const previousEngineUrl = process.env.HBX_SCRAPING_ENGINE_URL;
+  process.env.HBX_SCRAPING_ENGINE_URL = 'http://localhost:8001';
+  global.fetch = (async () =>
+    createResponse(200, {
+      results: [
+        {
+          name: 'Academia Direta',
+          phone: '(11) 99999-1111',
+          phoneDigits: '11999991111',
+          source: 'hbx_scraping:free_pj',
+          score: 84,
+        },
+      ],
+    }) as any) as any;
+
+  const service = new WebscrapingService(createPrisma());
+
+  try {
+    const response = await service.pullRadarLeadsForUser(createUser(), {
+      city: 'São Paulo',
+      state: 'SP',
+      segment: 'academia',
+      targetType: 'pj',
+      engine: 'hbx',
+      quantity: 100,
+    });
+
+    assert.equal(response.items.length, 1);
+    assert.equal(response.items[0].name, 'Academia Direta');
+    assert.equal(response.items[0].city, 'São Paulo');
+    assert.equal(response.items[0].ownershipStatus, 'available');
+    assert.equal(response.code, 'RADAR_DIRECT_RESULTS');
+    assert.equal(response.meta.direct.ran, true);
+  } finally {
+    global.fetch = previousFetch;
+    if (previousEngineUrl === undefined) delete process.env.HBX_SCRAPING_ENGINE_URL;
+    else process.env.HBX_SCRAPING_ENGINE_URL = previousEngineUrl;
+  }
+});
+
+test('pullRadarLeadsForUser nao transforma resultado insuficiente em erro', async () => {
+  const previousFetch = global.fetch;
+  const previousEngineUrl = process.env.HBX_SCRAPING_ENGINE_URL;
+  process.env.HBX_SCRAPING_ENGINE_URL = 'http://localhost:8001';
+  global.fetch = (async () => createResponse(200, { results: [] }) as any) as any;
+
+  const service = new WebscrapingService(createPrisma());
+
+  try {
+    const response = await service.pullRadarLeadsForUser(createUser(), {
+      city: 'Americana',
+      state: 'SP',
+      segment: 'açougue',
+      targetType: 'pj',
+      engine: 'hbx',
+      quantity: 100,
+    });
+
+    assert.equal(response.items.length, 0);
+    assert.equal(response.code, 'RADAR_NO_RESULTS');
+    assert.equal(response.retryable, false);
+    assert.match(response.message, /Pesquisa concluida/);
+  } finally {
+    global.fetch = previousFetch;
+    if (previousEngineUrl === undefined) delete process.env.HBX_SCRAPING_ENGINE_URL;
+    else process.env.HBX_SCRAPING_ENGINE_URL = previousEngineUrl;
+  }
 });
 
 test('campanha radar trata 502 como retryable e salva 2 contatos no segundo lote', async () => {

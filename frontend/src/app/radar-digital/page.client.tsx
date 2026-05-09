@@ -129,7 +129,7 @@ const DEFAULT_FILTERS: FilterState = {
   segment: "",
   quantity: 20,
   engine: "hbx",
-  targetType: "both",
+  targetType: "pj",
   ddd: "",
   scoreRange: "",
   noWebsite: false,
@@ -310,10 +310,9 @@ function hasHistoryFilters(filters: FilterState, generalSearch: string) {
     || filters.segment.trim()
     || filters.ddd.trim()
     || filters.scoreRange
-    || filters.status
     || filters.noWebsite
     || filters.highOpportunity
-    || (filters.targetType && filters.targetType !== "both"),
+    || filters.targetType !== DEFAULT_FILTERS.targetType,
   );
 }
 
@@ -656,7 +655,7 @@ export default function RadarDigitalClientPage() {
       ...current,
       ddd: String(next.ddd || "").replace(/\D/g, "").slice(0, 2),
       scoreRange: String(next.scoreRange || ""),
-      status: String(next.status || ""),
+      status: "",
       noWebsite: next.noWebsite === true,
       highOpportunity: next.highOpportunity === true,
     }));
@@ -700,47 +699,27 @@ export default function RadarDigitalClientPage() {
       let motorRan = false;
       let fetchedCount = 0;
       let replenishErrorMessage = "";
-      let queuedMessage = "";
+      let backendMessage = "";
       let nextItems: RadarLead[] = [];
 
-      if (nextFilters.targetType === "both") {
-        const pjQuantity = Math.ceil(nextFilters.quantity / 2);
-        const pfQuantity = Math.max(1, nextFilters.quantity - pjQuantity);
-        const [pjResult, pfResult] = await Promise.allSettled([
-          pullRadar("pj", pjQuantity),
-          pullRadar("pf", pfQuantity),
-        ]);
-        const fulfilled = [pjResult, pfResult].filter((result): result is PromiseFulfilledResult<RadarPullResponse> => result.status === "fulfilled");
-        if (!fulfilled.length) {
-          const rejected = [pjResult, pfResult].find((result) => result.status === "rejected") as PromiseRejectedResult | undefined;
-          throw rejected?.reason || new Error("Não foi possível pesquisar CNPJ e CPF agora.");
-        }
-        nextItems = mergeRadarLeads(fulfilled.flatMap((result) => result.value.items || [])).slice(0, nextFilters.quantity);
-        motorRan = fulfilled.some((result) => Boolean(result.value.meta?.replenish?.ran));
-        fetchedCount = fulfilled.reduce((totalCount, result) => totalCount + Number(result.value.meta?.replenish?.fetchedCount || 0), 0);
-        replenishErrorMessage = fulfilled.map((result) => result.value.meta?.replenish?.errorMessage || "").find(Boolean) || "";
-        queuedMessage = fulfilled.map((result) => result.value.message || "").find(Boolean) || "";
-      } else {
-        const payload = await pullRadar(nextFilters.targetType, nextFilters.quantity);
-        nextItems = payload.items || [];
-        motorRan = Boolean(payload.meta?.replenish?.ran);
-        fetchedCount = Number(payload.meta?.replenish?.fetchedCount || 0);
-        replenishErrorMessage = payload.meta?.replenish?.errorMessage || "";
-        queuedMessage = payload.message || "";
-      }
+      const payload = await pullRadar(nextFilters.targetType === "both" ? "pj" : nextFilters.targetType, nextFilters.quantity);
+      nextItems = payload.items || [];
+      motorRan = Boolean(payload.meta?.replenish?.ran);
+      fetchedCount = Number(payload.meta?.replenish?.fetchedCount || 0);
+      replenishErrorMessage = payload.meta?.replenish?.errorMessage || "";
+      backendMessage = payload.message || "";
 
       setItems(nextItems);
       setTotal(nextItems.length);
       setPage(1);
-      if (!nextItems.length && queuedMessage) {
-        setFeedback("Estamos buscando novos cards para esse filtro.");
-        setError(queuedMessage);
+      if (!nextItems.length) {
+        setFeedback(backendMessage || "Pesquisa concluída. Não há cards públicos suficientes para esse filtro agora.");
         return;
       }
       const motorMessage = replenishErrorMessage
         ? replenishErrorMessage.replace("Entreguei os cards disponiveis", `Entreguei ${nextItems.length} card(s)`)
-        : queuedMessage
-        ? queuedMessage
+        : backendMessage
+        ? backendMessage
         : motorRan
         ? `Motor acionado. ${fetchedCount} novo(s) card(s) entraram no banco.`
         : "Entregue direto do banco de dados, sem acionar motor.";
@@ -903,15 +882,6 @@ export default function RadarDigitalClientPage() {
             <small>{hasHistoryFilters(filters, generalSearch) ? "Filtros prontos para consulta." : "Pesquisar vazio abre todo o histórico salvo."}</small>
           </div>
 
-          <label className={styles.filterGeneral}>
-            <span>Pesquisa geral</span>
-            <input
-              value={generalSearch}
-              onChange={(event) => setGeneralSearch(event.target.value)}
-              placeholder="ID, cliente, documento, telefone..."
-            />
-          </label>
-
           <div className={styles.filterLocation}>
             <HbxStateCityPicker
               state={filters.state}
@@ -930,29 +900,11 @@ export default function RadarDigitalClientPage() {
               helperText=""
             />
           </div>
-          <label className={styles.filterStatus}>
-            <span>Status</span>
-            <select value={filters.status} onChange={(event) => setFilters((current) => ({ ...current, status: event.target.value }))}>
-              <option value="">Todos</option>
-              <option value="clean">Novo</option>
-              <option value="reserved">Na minha carteira</option>
-              <option value="approved">Aprovado</option>
-              <option value="sent_to_vendas">Em Vendas</option>
-              <option value="in_attendance">Em atendimento</option>
-              <option value="converted">Convertido</option>
-              <option value="contacted">Contato feito</option>
-              <option value="no_whatsapp">Contato inválido</option>
-              <option value="discarded">Descartado</option>
-              <option value="negative">Negativo</option>
-              <option value="blocked">Bloqueado</option>
-              <option value="opt_out">Opt-out</option>
-            </select>
-          </label>
           <div className={styles.filterTarget}>
             <HbxTargetTypeSelector
               value={filters.targetType}
               onChange={(value) => setFilters((current) => ({ ...current, targetType: value }))}
-              allowedTypes={["pj", "pf", "both"]}
+              allowedTypes={["pj", "pf"]}
             />
           </div>
           <div className={styles.filterQuantity}>
