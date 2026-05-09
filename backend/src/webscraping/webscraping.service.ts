@@ -505,6 +505,7 @@ type WebscrapingOperationalConfigInput = {
   timezone?: string | null;
   emergencyStop?: boolean | string | null;
   stopOutsideWindow?: boolean | string | null;
+  weekdaysOnly?: boolean | string | null;
   maxEngines?: number | null;
   minEngines?: number | null;
   drainTimeoutSeconds?: number | null;
@@ -5787,6 +5788,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         timezone: typeof parsed?.timezone === 'string' && parsed.timezone.trim() ? parsed.timezone.trim() : 'America/Sao_Paulo',
         emergencyStop: parsed?.emergencyStop == null ? false : coerceBoolean(parsed.emergencyStop),
         stopOutsideWindow: parsed?.stopOutsideWindow == null ? true : coerceBoolean(parsed.stopOutsideWindow),
+        weekdaysOnly: parsed?.weekdaysOnly == null ? false : coerceBoolean(parsed.weekdaysOnly),
         factoryMaxEngines: clampInteger(parsed?.factoryMaxEngines, 16, 0, getConfiguredHbxEngineCount()),
         factoryMinEngines: clampInteger(parsed?.factoryMinEngines, 0, 0, getConfiguredHbxEngineCount()),
         drainTimeoutSeconds: clampInteger(parsed?.drainTimeoutSeconds, 90, 10, 900),
@@ -5800,6 +5802,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         timezone: 'America/Sao_Paulo',
         emergencyStop: false,
         stopOutsideWindow: true,
+        weekdaysOnly: false,
         factoryMaxEngines: 16,
         factoryMinEngines: 0,
         drainTimeoutSeconds: 90,
@@ -5887,6 +5890,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     const timezone = String(input.timezone || existingMetadata.timezone || 'America/Sao_Paulo').trim();
     const emergencyStop = input.emergencyStop == null ? existingMetadata.emergencyStop : coerceBoolean(input.emergencyStop);
     const stopOutsideWindow = input.stopOutsideWindow == null ? existingMetadata.stopOutsideWindow : coerceBoolean(input.stopOutsideWindow);
+    const weekdaysOnly = input.weekdaysOnly == null ? existingMetadata.weekdaysOnly : coerceBoolean(input.weekdaysOnly);
     const factoryMaxEngines = clampInteger(input.maxEngines ?? input.engineCount, existingMetadata.factoryMaxEngines || 16, 0, getConfiguredHbxEngineCount());
     const factoryMinEngines = clampInteger(input.minEngines, existingMetadata.factoryMinEngines || 0, 0, factoryMaxEngines);
     const drainTimeoutSeconds = clampInteger(input.drainTimeoutSeconds, existingMetadata.drainTimeoutSeconds || 90, 10, 900);
@@ -5909,6 +5913,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         timezone,
         emergencyStop,
         stopOutsideWindow,
+        weekdaysOnly,
         factoryMaxEngines,
         factoryMinEngines,
         drainTimeoutSeconds,
@@ -5919,6 +5924,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       timezone,
       emergencyStop,
       stopOutsideWindow,
+      weekdaysOnly,
       factoryMaxEngines,
       factoryMinEngines,
       drainTimeoutSeconds,
@@ -5957,6 +5963,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       timezone: metadata.timezone,
       emergencyStop: metadata.emergencyStop,
       stopOutsideWindow: metadata.stopOutsideWindow,
+      weekdaysOnly: metadata.weekdaysOnly,
       factoryMaxEngines: metadata.factoryMaxEngines,
       factoryMinEngines: metadata.factoryMinEngines,
       drainTimeoutSeconds: metadata.drainTimeoutSeconds,
@@ -6009,6 +6016,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       timezone: this.parseOperationalMetadata(saved.metadataJson).timezone,
       emergencyStop: this.parseOperationalMetadata(saved.metadataJson).emergencyStop,
       stopOutsideWindow: this.parseOperationalMetadata(saved.metadataJson).stopOutsideWindow,
+      weekdaysOnly: this.parseOperationalMetadata(saved.metadataJson).weekdaysOnly,
       factoryMaxEngines: this.parseOperationalMetadata(saved.metadataJson).factoryMaxEngines,
       factoryMinEngines: this.parseOperationalMetadata(saved.metadataJson).factoryMinEngines,
       drainTimeoutSeconds: this.parseOperationalMetadata(saved.metadataJson).drainTimeoutSeconds,
@@ -7167,6 +7175,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       nextRunAt: factoryCursor.nextRunAt || null,
       reasonStopped: factoryStatus?.reasonStopped || null,
       nextMissionPreview: factoryStatus?.nextMission || null,
+      schedule: scheduler?.factory || null,
     };
 
     const clientProtection = {

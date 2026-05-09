@@ -67,11 +67,12 @@ export type HbxFactoryAllowance = {
   memoryGuardEngines: number;
   reservedEngines: number;
   memoryPressurePercent: number;
-  reason: 'factory_disabled' | 'outside_factory_window' | 'emergency_stop' | 'memory_guard' | 'memory_stop' | 'client_priority' | 'manual_demand' | 'factory_max' | 'open';
+  reason: 'factory_disabled' | 'outside_factory_window' | 'outside_business_days' | 'emergency_stop' | 'memory_guard' | 'memory_stop' | 'client_priority' | 'manual_demand' | 'factory_max' | 'open';
   windowStatus: 'open' | 'closed' | 'disabled' | 'emergency_stop';
   enabled: boolean;
   emergencyStop: boolean;
   stopOutsideWindow: boolean;
+  weekdaysOnly: boolean;
   timezone: string;
   startHour: number;
   startMinute: number;
@@ -1652,13 +1653,14 @@ export class HbxEnginePoolService implements OnModuleInit {
         forcedUntil: typeof parsed?.forcedUntil === 'string' ? parsed.forcedUntil : null,
         emergencyStop: parsed?.emergencyStop == null ? false : Boolean(parsed.emergencyStop),
         stopOutsideWindow: parsed?.stopOutsideWindow == null ? true : Boolean(parsed.stopOutsideWindow),
+        weekdaysOnly: parsed?.weekdaysOnly == null ? false : Boolean(parsed.weekdaysOnly),
         timezone: typeof parsed?.timezone === 'string' && parsed.timezone.trim() ? parsed.timezone.trim() : null,
         factoryMaxEngines: Number.isFinite(Number(parsed?.factoryMaxEngines)) ? Math.trunc(Number(parsed.factoryMaxEngines)) : null,
         factoryMinEngines: Number.isFinite(Number(parsed?.factoryMinEngines)) ? Math.trunc(Number(parsed.factoryMinEngines)) : null,
         drainTimeoutSeconds: Number.isFinite(Number(parsed?.drainTimeoutSeconds)) ? Math.trunc(Number(parsed.drainTimeoutSeconds)) : null,
       };
     } catch {
-      return { forcedUntil: null, emergencyStop: false, stopOutsideWindow: true, timezone: null, factoryMaxEngines: null, factoryMinEngines: null, drainTimeoutSeconds: null };
+      return { forcedUntil: null, emergencyStop: false, stopOutsideWindow: true, weekdaysOnly: false, timezone: null, factoryMaxEngines: null, factoryMinEngines: null, drainTimeoutSeconds: null };
     }
   }
 
@@ -1730,7 +1732,13 @@ export class HbxEnginePoolService implements OnModuleInit {
       minute: '2-digit',
     }).formatToParts(date);
     const value = (type: string) => Number(parts.find((part) => part.type === type)?.value || 0);
-    return { hour: value('hour'), minute: value('minute') };
+    const weekday = new Intl.DateTimeFormat('en-US', { timeZone: timezone, weekday: 'short' }).format(date).toLowerCase();
+    return { hour: value('hour'), minute: value('minute'), weekday };
+  }
+
+  private isFactoryBusinessDay(timezone: string, date = new Date()) {
+    const weekday = this.getFactoryNowParts(timezone, date).weekday;
+    return weekday !== 'sat' && weekday !== 'sun';
   }
 
   private isWithinFactoryWindow(startHour: number, startMinute: number, endHour: number, endMinute: number, timezone: string, date = new Date()) {
@@ -1782,10 +1790,14 @@ export class HbxEnginePoolService implements OnModuleInit {
     const maxEngines = clampInteger(envMaxRaw || maxFromConfig, fallbackMax, 0, configuredEngineCount);
     const minEngines = clampInteger(process.env.HBX_FACTORY_MIN_ENGINES || metadata.factoryMinEngines || 0, 0, 0, maxEngines);
     const stopOutsideWindow = this.readBooleanEnv('HBX_FACTORY_STOP_OUTSIDE_WINDOW', metadata.stopOutsideWindow !== false);
+    const weekdaysOnly = this.readBooleanEnv('HBX_FACTORY_WEEKDAYS_ONLY', Boolean(metadata.weekdaysOnly));
     const emergencyStop = this.readBooleanEnv('HBX_FACTORY_EMERGENCY_STOP', Boolean(metadata.emergencyStop));
     const memoryPressurePercent = Math.max(0, Math.min(100, Math.trunc(Number(input.memoryPressurePercent || 0))));
     const memoryGuardEngines = this.resolveMemoryGuardEngines(maxEngines, memoryPressurePercent);
-    const open = this.isWithinFactoryWindow(startHour, startMinute, endHour, endMinute, timezone, input.date || new Date());
+    const factoryDate = input.date || new Date();
+    const withinWindow = this.isWithinFactoryWindow(startHour, startMinute, endHour, endMinute, timezone, factoryDate);
+    const businessDayOpen = !weekdaysOnly || this.isFactoryBusinessDay(timezone, factoryDate);
+    const open = withinWindow && businessDayOpen;
     const nextStartAt = this.nextFactoryBoundary(startHour, startMinute, endHour, endMinute, timezone, 'start', input.date || new Date());
     const nextStopAt = this.nextFactoryBoundary(startHour, startMinute, endHour, endMinute, timezone, 'stop', input.date || new Date());
     const factoryCapacity = Math.max(0, Math.min(
@@ -1804,6 +1816,9 @@ export class HbxEnginePoolService implements OnModuleInit {
       allowedEngines = 0;
       reason = 'emergency_stop';
       windowStatus = 'emergency_stop';
+    } else if (stopOutsideWindow && withinWindow && !businessDayOpen) {
+      allowedEngines = 0;
+      reason = 'outside_business_days';
     } else if (stopOutsideWindow && !open) {
       allowedEngines = 0;
       reason = 'outside_factory_window';
@@ -1835,6 +1850,7 @@ export class HbxEnginePoolService implements OnModuleInit {
       enabled,
       emergencyStop,
       stopOutsideWindow,
+      weekdaysOnly,
       timezone,
       startHour,
       startMinute,

@@ -272,6 +272,31 @@ test('factory scheduler emergency stop blocks automatic work immediately', () =>
   });
 });
 
+test('factory scheduler can restrict automatic work to business days', () => {
+  withEnv({ NODE_ENV: 'production', HBX_ENGINE_COUNT: '100', HBX_FACTORY_MAX_ENGINES: '16', HBX_FACTORY_START_HOUR: '0', HBX_FACTORY_END_HOUR: '0' }, () => {
+    const service = new HbxEnginePoolService({} as any);
+    const weekend = service.resolveFactoryAllowedEngines({
+      engineCount: 100,
+      onlineHealthyEngines: 100,
+      manualReservedEngines: 2,
+      memoryPressurePercent: 50,
+      operationalConfig: { enabled: true, metadataJson: '{"weekdaysOnly":true}' },
+      date: new Date('2026-05-09T12:00:00-03:00'),
+    });
+    const monday = service.resolveFactoryAllowedEngines({
+      engineCount: 100,
+      onlineHealthyEngines: 100,
+      manualReservedEngines: 2,
+      memoryPressurePercent: 50,
+      operationalConfig: { enabled: true, metadataJson: '{"weekdaysOnly":true}' },
+      date: new Date('2026-05-11T12:00:00-03:00'),
+    });
+    assert.equal(weekend.allowedEngines, 0);
+    assert.equal(weekend.reason, 'outside_business_days');
+    assert.equal(monday.allowedEngines, 16);
+  });
+});
+
 test('HBX_ENGINE_MAX_COUNT can intentionally clamp engine count', () => {
   assert.equal(getConfiguredHbxEngineCount({ NODE_ENV: 'production', HBX_ENGINE_COUNT: '100', HBX_ENGINE_MAX_COUNT: '40' }), 40);
   assert.equal(getConfiguredHbxEngineCount({ NODE_ENV: 'production', HBX_ENGINE_COUNT: '220' }), 200);
@@ -358,6 +383,10 @@ test('automatic queue never gets all engines when manual reservation is two', as
     HBX_ENGINE_COUNT: '20',
     HBX_MANUAL_RESERVED_ENGINES: '2',
     HBX_FACTORY_MAX_ENGINES: '18',
+    HBX_FACTORY_START_HOUR: '0',
+    HBX_FACTORY_END_HOUR: '0',
+    HBX_RADAR_CLIENT_PRIORITY_START_HOUR: '23',
+    HBX_RADAR_CLIENT_PRIORITY_END_HOUR: '0',
     HBX_AUTONOMOUS_MAX_MEMORY_PRESSURE_PERCENT: '100',
   }, async () => {
     const service = createPoolForCapacity({ queuedCount: 100 }) as any;
@@ -377,6 +406,8 @@ test('automatic eligibility can include engines above twenty when factory limit 
     HBX_FACTORY_START_HOUR: '0',
     HBX_FACTORY_END_HOUR: '0',
     HBX_CLIENT_RESERVED_ENGINES: '2',
+    HBX_RADAR_CLIENT_PRIORITY_START_HOUR: '23',
+    HBX_RADAR_CLIENT_PRIORITY_END_HOUR: '0',
     HBX_AUTONOMOUS_MAX_MEMORY_PRESSURE_PERCENT: '100',
   }, async () => {
     const service = createPoolForCapacity({ queuedCount: 100 }) as any;

@@ -354,6 +354,11 @@ class MasterTurboConfigDto {
   stopOutsideWindow?: boolean;
 
   @IsOptional()
+  @Type(() => Boolean)
+  @IsBoolean()
+  weekdaysOnly?: boolean;
+
+  @IsOptional()
   @Type(() => Number)
   @IsInt()
   @Min(0)
