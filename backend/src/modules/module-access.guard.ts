@@ -21,13 +21,24 @@ export class ModuleAccessGuard implements CanActivate {
 
     const req = context.switchToHttp().getRequest();
     const user = req.user;
-    if (!user) throw new ForbiddenException('User not authenticated');
+    if (!user) {
+      throw new ForbiddenException({
+        code: 'MODULE_AUTH_REQUIRED',
+        message: 'Sessão não identificada. Faça login novamente para acessar este módulo.',
+        retryable: false,
+      });
+    }
 
     for (const moduleKey of requiredModules) {
       const allowed = await this.modulesService.canUserAccessModule(user.id, moduleKey);
       if (allowed) return true;
     }
 
-    throw new ForbiddenException(`Modulos ${requiredModules.join(', ')} indisponiveis para este usuario`);
+    throw new ForbiddenException({
+      code: 'MODULE_ACCESS_DENIED',
+      message: 'Módulo indisponível para este usuário ou empresa.',
+      modules: requiredModules,
+      retryable: false,
+    });
   }
 }

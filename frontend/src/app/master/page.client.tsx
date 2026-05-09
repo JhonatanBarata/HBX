@@ -216,11 +216,11 @@ const MASTER_SHORTCUTS = [
   {
     title: "Banco dos Motores",
     eyebrow: "Massa de Dados",
-    description: "Painel do banco HBX: 20 motores, coleta noturna, filas e saúde resumida.",
+    description: "Painel do banco HBX: motores configurados, coleta noturna, filas e saúde resumida.",
     href: "/master/webscraping",
     action: "Abrir banco",
     tone: "hostinger",
-    meta: "M1-M20 + Radar",
+    meta: "Motores + Radar",
   },
   {
     title: "Night Factory",

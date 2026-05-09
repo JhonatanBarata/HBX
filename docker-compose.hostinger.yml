@@ -54,7 +54,15 @@ services:
     environment:
       HBX_SCRAPING_ENGINE_URL: http://hbx-scraping-engine:8001
       HBX_ENGINE_COUNT: ${HBX_ENGINE_COUNT:-20}
+      HBX_ENGINE_MAX_COUNT: ${HBX_ENGINE_MAX_COUNT:-200}
       HBX_ENGINE_URLS: ${HBX_ENGINE_URLS:-http://hbx-engine-1:8001,http://hbx-engine-2:8001,http://hbx-engine-3:8001,http://hbx-engine-4:8001,http://hbx-engine-5:8001,http://hbx-engine-6:8001,http://hbx-engine-7:8001,http://hbx-engine-8:8001,http://hbx-engine-9:8001,http://hbx-engine-10:8001,http://hbx-engine-11:8001,http://hbx-engine-12:8001,http://hbx-engine-13:8001,http://hbx-engine-14:8001,http://hbx-engine-15:8001,http://hbx-engine-16:8001,http://hbx-engine-17:8001,http://hbx-engine-18:8001,http://hbx-engine-19:8001,http://hbx-engine-20:8001}
+      HBX_CLIENT_RESERVED_ENGINES: ${HBX_CLIENT_RESERVED_ENGINES:-2}
+      HBX_FACTORY_MIN_ENGINES: ${HBX_FACTORY_MIN_ENGINES:-1}
+      HBX_FACTORY_MAX_ENGINES: ${HBX_FACTORY_MAX_ENGINES:-}
+      HBX_RADAR_CLIENT_PRIORITY_START_HOUR: ${HBX_RADAR_CLIENT_PRIORITY_START_HOUR:-8}
+      HBX_RADAR_CLIENT_PRIORITY_END_HOUR: ${HBX_RADAR_CLIENT_PRIORITY_END_HOUR:-20}
+      HBX_RADAR_CLIENT_REQUEST_TIMEOUT_MS: ${HBX_RADAR_CLIENT_REQUEST_TIMEOUT_MS:-25000}
+      HBX_RADAR_CLIENT_FALLBACK_TO_POOL: ${HBX_RADAR_CLIENT_FALLBACK_TO_POOL:-true}
     ports:
       - "3000:3000"
     volumes:

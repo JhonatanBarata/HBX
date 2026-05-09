@@ -1,13 +1,26 @@
 import { Body, Controller, Get, Param, Post, Put, Query, Req, Res, UseGuards } from '@nestjs/common';
 import { Type } from 'class-transformer';
-import { IsArray, IsBoolean, IsIn, IsInt, IsNumber, IsOptional, IsString, Max, Min } from 'class-validator';
+import { IsArray, IsBoolean, IsIn, IsInt, IsNumber, IsOptional, IsString, Max, Min, Validate, ValidationArguments, ValidatorConstraint, ValidatorConstraintInterface } from 'class-validator';
 import type { Response } from 'express';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { MasterGuard } from '../auth/guards/master.guard';
 import { ModuleAccess } from '../modules/module-feature.decorator';
 import { ModuleAccessGuard } from '../modules/module-access.guard';
-import { HbxEnginePoolService, MAX_HBX_ENGINE_COUNT } from './hbx-engine-pool.service';
+import { getConfiguredHbxEngineMaxCount, HbxEnginePoolService } from './hbx-engine-pool.service';
 import { WebscrapingService } from './webscraping.service';
+
+@ValidatorConstraint({ name: 'MaxConfiguredHbxEngineCount', async: false })
+class MaxConfiguredHbxEngineCountConstraint implements ValidatorConstraintInterface {
+  validate(value: unknown) {
+    if (value == null || value === '') return true;
+    const parsed = Number(value);
+    return Number.isInteger(parsed) && parsed >= 1 && parsed <= getConfiguredHbxEngineMaxCount();
+  }
+
+  defaultMessage(_args: ValidationArguments) {
+    return `engineCount deve respeitar HBX_ENGINE_MAX_COUNT (${getConfiguredHbxEngineMaxCount()}).`;
+  }
+}
 
 class WebscrapingSearchDto {
   @IsOptional()
@@ -277,7 +290,7 @@ class MasterTurboConfigDto {
   @Type(() => Number)
   @IsInt()
   @Min(1)
-  @Max(MAX_HBX_ENGINE_COUNT)
+  @Validate(MaxConfiguredHbxEngineCountConstraint)
   engineCount?: number;
 
   @IsOptional()
@@ -366,6 +379,32 @@ class MasterEnginePauseDto {
   minutes?: number;
 }
 
+class MasterDatabaseCardsQueryDto extends RadarDatabaseQueryDto {
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  companyId?: number;
+}
+
+class MasterExportCardsDto {
+  @IsArray()
+  @IsString({ each: true })
+  leadIds!: string[];
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  userId?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  companyId?: number;
+}
+
 class RadarPullDto extends RadarDatabaseQueryDto {
   @IsOptional()
   @Type(() => Number)
@@ -392,7 +431,7 @@ class RadarPullDto extends RadarDatabaseQueryDto {
 
 class RadarNegativeDto {
   @IsOptional()
-  @IsIn(['negative', 'discarded', 'descartado', 'blocked', 'bloqueado', 'opt_out', 'optout', 'no_whatsapp', 'invalid_whatsapp'])
+  @IsIn(['negative', 'denied', 'discarded', 'descartado', 'blocked', 'bloqueado', 'opt_out', 'optout', 'complaint', 'hidden', 'no_whatsapp', 'invalid_whatsapp'])
   status?: string;
 
   @IsOptional()
@@ -479,13 +518,21 @@ export class WebscrapingController {
   }
 
   @Get('radar/database')
-  radarDatabase(@Req() req: any, @Query() query: RadarDatabaseQueryDto) {
-    return this.webscrapingService.listRadarDatabaseForUser(req.user, query || {});
+  async radarDatabase(@Req() req: any, @Query() query: RadarDatabaseQueryDto) {
+    try {
+      return await this.webscrapingService.listRadarDatabaseForUser(req.user, query || {});
+    } catch (error) {
+      return this.webscrapingService.buildRadarClientErrorResponse(req.user, '/webscraping/radar/database', error);
+    }
   }
 
   @Get('radar/leads')
-  radarLeads(@Req() req: any, @Query() query: RadarDatabaseQueryDto) {
-    return this.webscrapingService.listRadarLeadsForUser(req.user, query || {});
+  async radarLeads(@Req() req: any, @Query() query: RadarDatabaseQueryDto) {
+    try {
+      return await this.webscrapingService.listRadarLeadsForUser(req.user, query || {});
+    } catch (error) {
+      return this.webscrapingService.buildRadarClientErrorResponse(req.user, '/webscraping/radar/leads', error);
+    }
   }
 
   @Get('radar/leads/:id')
@@ -509,13 +556,21 @@ export class WebscrapingController {
   }
 
   @Post('radar/pull')
-  radarPull(@Req() req: any, @Body() dto: RadarPullDto) {
-    return this.webscrapingService.pullRadarLeadsForUser(req.user, dto || {});
+  async radarPull(@Req() req: any, @Body() dto: RadarPullDto) {
+    try {
+      return await this.webscrapingService.pullRadarLeadsForUser(req.user, dto || {});
+    } catch (error) {
+      return this.webscrapingService.buildRadarClientErrorResponse(req.user, '/webscraping/radar/pull', error);
+    }
   }
 
   @Post('radar/replenish')
-  radarReplenish(@Req() req: any, @Body() dto: RadarPullDto) {
-    return this.webscrapingService.replenishRadarStockForUser(req.user, dto || {});
+  async radarReplenish(@Req() req: any, @Body() dto: RadarPullDto) {
+    try {
+      return await this.webscrapingService.replenishRadarStockForUser(req.user, dto || {});
+    } catch (error) {
+      return this.webscrapingService.buildRadarClientErrorResponse(req.user, '/webscraping/radar/replenish', error);
+    }
   }
 
   @Post('radar/:id/import-to-vendas')
@@ -582,6 +637,51 @@ export class MasterWebscrapingController {
   @Get('engines/status')
   getMasterEngineStatus() {
     return this.hbxEnginePool.getDashboardEngineStatus();
+  }
+
+  @Get('database-audit')
+  getDatabaseAudit(@Req() req: any) {
+    return this.webscrapingService.getMasterDatabaseAudit(req.user);
+  }
+
+  @Get('database-cards')
+  getDatabaseCards(@Req() req: any, @Query() query: MasterDatabaseCardsQueryDto) {
+    return this.webscrapingService.listMasterDatabaseCards(req.user, query || {});
+  }
+
+  @Get('export-targets')
+  getExportTargets() {
+    return this.webscrapingService.listMasterRadarExportTargets();
+  }
+
+  @Post('export-cards')
+  exportCards(@Req() req: any, @Body() dto: MasterExportCardsDto) {
+    return this.webscrapingService.exportRadarCardsToTarget(req.user, dto || ({} as any));
+  }
+
+  @Get('factory-status')
+  getFactoryStatus(@Req() req: any) {
+    return this.webscrapingService.getRadarFactoryStatus(req.user);
+  }
+
+  @Post('factory/start')
+  startFactory(@Req() req: any) {
+    return this.webscrapingService.startRadarFactory(req.user);
+  }
+
+  @Post('factory/stop')
+  stopFactory(@Req() req: any) {
+    return this.webscrapingService.stopRadarFactory(req.user);
+  }
+
+  @Post('factory/force-next')
+  forceNextFactory(@Req() req: any) {
+    return this.webscrapingService.forceNextRadarFactoryMission(req.user);
+  }
+
+  @Post('factory/reset-cursor')
+  resetFactoryCursor(@Req() req: any) {
+    return this.webscrapingService.resetRadarFactoryCursor(req.user);
   }
 
   @Get('mass-data')

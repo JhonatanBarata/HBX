@@ -333,7 +333,8 @@ const SUPPORT_MESSAGE = "Olá, preciso de ajuda com o HBX!";
 const hiddenRoutes = new Set(["/login", "/register", "/reset-password", "/confirm-email", "/boasvindas", "/tutorial"]);
 const SCRAPING_ENGINE_POLL_MS = 5000;
 const SYSTEM_HEALTH_REFRESH_DETAIL = "Sem atualização automática";
-const TOPBAR_HBX_ENGINE_COUNT = 20;
+const TOPBAR_FALLBACK_HBX_ENGINE_COUNT = 4;
+const HBX_ENGINE_GROUP_SIZE = 20;
 const HBX_GAUGE_BOOT_MS = 1350;
 
 function buildFallbackScrapingEngine(index: number): ScrapingEngineStatus {
@@ -373,7 +374,7 @@ function buildFallbackScrapingEngine(index: number): ScrapingEngineStatus {
 function normalizeScrapingEngines(payload: ScrapingEngineStatusPayload | null) {
   const source = Array.isArray(payload?.engines) ? payload.engines : [];
   const sourceHbxCount = source.filter((engine) => engine.kind === "hbx").length;
-  const hbxEngineCount = sourceHbxCount || TOPBAR_HBX_ENGINE_COUNT;
+  const hbxEngineCount = sourceHbxCount || TOPBAR_FALLBACK_HBX_ENGINE_COUNT;
   const hbxEngines = Array.from({ length: hbxEngineCount }, (_, index) => {
     return source.find((engine) => engine.kind === "hbx" && engine.index === index) || buildFallbackScrapingEngine(index);
   });
@@ -876,7 +877,7 @@ const HBX_TOPBAR_POLISH_CSS = `
   }
 
   .hbx-command-engine-map { height: 100%; }
-  .hbx-command-engines--billboard { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; height: 100%; }
+  .hbx-command-engines--billboard { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; height: 100%; }
   .hbx-command-engine { min-width: 0; display: flex; flex-direction: column; gap: 8px; padding: 10px; border-radius: 18px; border: 1px solid color-mix(in srgb, var(--engine-tone-color, var(--brand, #10b981)) 28%, var(--line, rgba(148,163,184,.2))); background: radial-gradient(circle at 20% 0%, color-mix(in srgb, var(--engine-tone-color, #10b981) 12%, transparent), transparent 42%), color-mix(in srgb, var(--surface-raised, #fff) 94%, transparent); box-shadow: var(--shadow-inset, inset 0 1px 0 rgba(255,255,255,.72)); }
   .hbx-command-engine__top { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
   .hbx-command-engine__range { display: block; color: var(--muted, #64748b); font-size: 10px; font-weight: 800; line-height: 1; }
@@ -888,8 +889,8 @@ const HBX_TOPBAR_POLISH_CSS = `
   .hbx-command-engine__gauge b { font-size: 13px; font-weight: 950; letter-spacing: -0.04em; line-height: 1; }
   .hbx-command-engine__gauge small { margin-top: -11px; color: var(--muted, #64748b); font-size: 8px; font-weight: 900; text-transform: uppercase; }
   .hbx-command-engine__spark { color: var(--foreground, #0f172a); mix-blend-mode: normal; }
-  .hbx-command-engine__dots { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; padding: 0 4px 0 63px; }
-  .hbx-command-engine__dots i { width: 8px; height: 8px; justify-self: center; border-radius: 999px; }
+  .hbx-command-engine__dots { display: grid; grid-template-columns: repeat(10, 1fr); gap: 5px; padding: 0 4px 0 63px; }
+  .hbx-command-engine__dots i { width: 7px; height: 7px; justify-self: center; border-radius: 999px; }
 
   .hbx-command-side { min-width: 0; display: grid; grid-template-columns: 1fr; align-content: start; gap: 8px; padding: 10px; border-radius: var(--panel-radius, 22px); }
   .hbx-control-accountRow, .hbx-control-masterActions, .hbx-control-vitals { min-width: 0; display: flex; flex-wrap: wrap; gap: 7px; align-items: center; }
@@ -996,10 +997,16 @@ function buildEngineSparkSegment(
   active: boolean,
   visibleState: string,
   usage: number,
+  groupSize = 5,
 ) {
-  const segmentWidth = 36;
-  const segmentGap = 10;
-  const xStart = 10 + engineIndex * (segmentWidth + segmentGap);
+  const safeGroupSize = Math.max(1, Math.trunc(Number(groupSize || 1)));
+  const segmentGap = safeGroupSize > 10 ? 3 : 10;
+  const horizontalPadding = 10;
+  const segmentWidth = Math.max(
+    4,
+    (HBX_ENGINE_SPARK_WIDTH - horizontalPadding * 2 - segmentGap * Math.max(0, safeGroupSize - 1)) / safeGroupSize,
+  );
+  const xStart = horizontalPadding + engineIndex * (segmentWidth + segmentGap);
   const yBase = 49;
   const yTop = 11;
   const samples = buildEngineSparkSamples(engine, usage, active, groupIndex, engineIndex);
@@ -1020,7 +1027,7 @@ function buildEngineSparkSegment(
   return {
     id: engine.id || `${groupIndex}:${engineIndex}`,
     label: getScrapingEngineShortLabel(engine),
-    shortLabel: String(engineIndex + 1).padStart(2, "0"),
+    shortLabel: String(groupIndex * safeGroupSize + engineIndex + 1).padStart(2, "0"),
     usage: clampTopbarPercent(usage),
     state: visibleState,
     active,
@@ -1691,6 +1698,7 @@ export default function TopBar() {
   }, [operationalStatus]);
 
   const scrapingEngineView = useMemo(() => normalizeScrapingEngines(scrapingEngines), [scrapingEngines]);
+  const visibleHbxEngineCount = Math.max(1, scrapingEngineView.hbxEngines.length || TOPBAR_FALLBACK_HBX_ENGINE_COUNT);
   const liveWebscrapingProgress = Boolean(topbarProgress && isEngineProgressSource(topbarProgress.source) && topbarProgress.phase === "loading");
   const topbarProgressPercent = Math.round(Math.max(0, Math.min(100, topbarProgress?.progress || 0)));
   const progressEngineIds = useMemo(
@@ -1699,9 +1707,9 @@ export default function TopBar() {
   );
   const progressEngineIndex =
     typeof topbarProgress?.activeEngineIndex === "number" && Number.isInteger(topbarProgress.activeEngineIndex)
-      ? Math.max(0, Math.min(TOPBAR_HBX_ENGINE_COUNT - 1, topbarProgress.activeEngineIndex))
+      ? Math.max(0, Math.min(visibleHbxEngineCount - 1, topbarProgress.activeEngineIndex))
       : liveWebscrapingProgress
-        ? Math.max(0, Math.min(TOPBAR_HBX_ENGINE_COUNT - 1, Math.floor(Math.max(0, Math.min(99, topbarProgress?.progress || 0)) / 5)))
+        ? Math.max(0, Math.min(visibleHbxEngineCount - 1, Math.floor((topbarProgressPercent / 100) * visibleHbxEngineCount)))
         : null;
   const progressEngineLabel =
     topbarProgress?.activeEngineLabel ||
@@ -1784,8 +1792,8 @@ export default function TopBar() {
       id: "usage",
       label: "Uso geral",
       value: hbxMainGaugeUsage,
-      metric: `${hbxEngineOnlineCount}/${hbxEngineTotal || TOPBAR_HBX_ENGINE_COUNT} online`,
-      detail: `${hbxActiveEngineLimit}/${hbxEngineTotal || TOPBAR_HBX_ENGINE_COUNT} ativos agora`,
+      metric: `${hbxEngineOnlineCount}/${visibleHbxEngineCount} online`,
+      detail: `${hbxActiveEngineLimit}/${visibleHbxEngineCount} ativos agora`,
       state: hbxMainGaugeState,
       active: hbxMainGaugeActive,
       title: hbxMainGaugeTitle,
@@ -1814,12 +1822,12 @@ export default function TopBar() {
   const hbxCommandChips = [
     {
       label: "Online",
-      value: `${hbxEngineOnlineCount}/${hbxEngineTotal || TOPBAR_HBX_ENGINE_COUNT}`,
+      value: `${hbxEngineOnlineCount}/${visibleHbxEngineCount}`,
       tone: hbxEngineOnlineCount >= hbxEngineTotal && hbxEngineTotal > 0 ? "success" : "warning",
     },
     {
       label: "Ativos agora",
-      value: `${hbxActiveEngineLimit}/${hbxEngineTotal || TOPBAR_HBX_ENGINE_COUNT}`,
+      value: `${hbxActiveEngineLimit}/${visibleHbxEngineCount}`,
       tone: hbxActiveEngineLimit > 0 ? "success" : "neutral",
     },
     {
@@ -3526,12 +3534,12 @@ export default function TopBar() {
       kind: "engines",
       eyebrow: "Motores HBX",
       title: `${hbxCapacityRunningCount} rodando`,
-      description: `${hbxEngineOnlineCount}/${hbxEngineTotal || TOPBAR_HBX_ENGINE_COUNT} online • ${hbxActiveEngineLimit}/${hbxEngineTotal || TOPBAR_HBX_ENGINE_COUNT} ativos agora`,
+      description: `${hbxEngineOnlineCount}/${visibleHbxEngineCount} online • ${hbxActiveEngineLimit}/${visibleHbxEngineCount} ativos agora`,
       phase: hbxOperationalErrorCount > 0 ? "warning" : hbxCapacityRunningCount > 0 || hasActiveScrapingEngine ? "loading" : "success",
       source: "engines",
       progress: hbxUsageAverage,
       metrics: [
-        { label: "Online", value: `${hbxEngineOnlineCount}/${hbxEngineTotal || TOPBAR_HBX_ENGINE_COUNT}` },
+        { label: "Online", value: `${hbxEngineOnlineCount}/${visibleHbxEngineCount}` },
         { label: "Rodando", value: String(hbxCapacityRunningCount) },
         { label: "Cooldown", value: String(hbxCooldownCount) },
       ],
@@ -3835,20 +3843,24 @@ export default function TopBar() {
   const _initialSource = displayName || String(user?.username || user?.email || "");
   const displayInitial = _initialSource ? _initialSource.charAt(0).toUpperCase() : "U";
   const displayLabel = displayName || user?.username || "";
-  const hbxEngineGroups = Array.from({ length: 4 }, (_, groupIndex) => {
+  const hbxEngineSource = scrapingEngineView.hbxEngines.length
+    ? scrapingEngineView.hbxEngines
+    : Array.from({ length: visibleHbxEngineCount }, (_, index) => buildFallbackScrapingEngine(index));
+  const hbxEngineGroupCount = Math.max(1, Math.ceil(hbxEngineSource.length / HBX_ENGINE_GROUP_SIZE));
+  const hbxEngineGroups = Array.from({ length: hbxEngineGroupCount }, (_, groupIndex) => {
     const sourceEngines = scrapingEngineView.hbxEngines.length
       ? scrapingEngineView.hbxEngines
-      : Array.from({ length: TOPBAR_HBX_ENGINE_COUNT }, (_, index) => buildFallbackScrapingEngine(index));
+      : hbxEngineSource;
     const mainEngineMode = sourceEngines.length <= 4;
-    const firstIndex = groupIndex * 5 + 1;
-    const lastIndex = firstIndex + 4;
+    const firstIndex = groupIndex * HBX_ENGINE_GROUP_SIZE + 1;
+    const lastIndex = Math.min(sourceEngines.length, firstIndex + HBX_ENGINE_GROUP_SIZE - 1);
     const sourceMainEngine = sourceEngines[groupIndex] || buildFallbackScrapingEngine(groupIndex);
     const groupEngines = mainEngineMode
-      ? Array.from({ length: 5 }, (_, childIndex) => buildSyntheticGroupChildEngine(sourceMainEngine, groupIndex, childIndex))
+      ? Array.from({ length: HBX_ENGINE_GROUP_SIZE }, (_, childIndex) => buildSyntheticGroupChildEngine(sourceMainEngine, groupIndex, childIndex))
       : sourceEngines.slice(firstIndex - 1, lastIndex);
     const safeGroupEngines = groupEngines.length
       ? groupEngines
-      : Array.from({ length: 5 }, (_, childIndex) => buildFallbackScrapingEngine(groupIndex * 5 + childIndex));
+      : Array.from({ length: HBX_ENGINE_GROUP_SIZE }, (_, childIndex) => buildFallbackScrapingEngine(groupIndex * HBX_ENGINE_GROUP_SIZE + childIndex));
     const onlineCount = safeGroupEngines.filter((engine) => engine.configured && engine.online).length;
     const runningCount = safeGroupEngines.filter((engine) => {
       const state = getVisibleScrapingEngineState(engine);
@@ -3887,18 +3899,18 @@ export default function TopBar() {
               : state === "offline"
                 ? "Off"
                 : "Standby";
-    const sparkSegments = safeGroupEngines.slice(0, 5).map((engine, engineIndex) => {
+    const sparkSegments = safeGroupEngines.slice(0, HBX_ENGINE_GROUP_SIZE).map((engine, engineIndex) => {
       const engineUsage = getEngineUsage(engine);
       const engineState = getVisibleScrapingEngineState(engine);
       const active = engine.active || engine.busy || isLiveScrapingEngine(engine) || engineState === "busy" || engineState === "emergency";
-      return buildEngineSparkSegment(engine, engineIndex, groupIndex, active, engineState, engineUsage);
+      return buildEngineSparkSegment(engine, engineIndex, groupIndex, active, engineState, engineUsage, HBX_ENGINE_GROUP_SIZE);
     });
-    while (sparkSegments.length < 5) {
-      const fallbackIndex = groupIndex * 5 + sparkSegments.length;
+    while (sparkSegments.length < HBX_ENGINE_GROUP_SIZE) {
+      const fallbackIndex = groupIndex * HBX_ENGINE_GROUP_SIZE + sparkSegments.length;
       const fallbackEngine = buildFallbackScrapingEngine(fallbackIndex);
       const fallbackUsage = getEngineUsage(fallbackEngine);
       sparkSegments.push(
-        buildEngineSparkSegment(fallbackEngine, sparkSegments.length, groupIndex, false, getScrapingEngineState(fallbackEngine), fallbackUsage),
+        buildEngineSparkSegment(fallbackEngine, sparkSegments.length, groupIndex, false, getScrapingEngineState(fallbackEngine), fallbackUsage, HBX_ENGINE_GROUP_SIZE),
       );
     }
     const groupTone = getEngineUsageTone(usage, state);

@@ -1168,6 +1168,9 @@ model RadarLeadCompanyState {
   vendasLead     VendasLead? @relation(fields: [vendasLeadId], references: [id], onDelete: SetNull)
   vendasLeadId   String?
   status         String   @default("new") // new | delivered | imported_to_vendas | contacted | negative | discarded | won | lost
+  assignedUserId Int?
+  assignedByUserId Int?
+  assignedAt     DateTime?
   lastActionAt   DateTime?
   negativeReason String?
   privateNotes   String?
@@ -1181,6 +1184,7 @@ model RadarLeadCompanyState {
 
   @@unique([companyId, radarLeadId])
   @@index([companyId, status])
+  @@index([assignedUserId, status])
   @@index([radarLeadId, status])
   @@index([vendasLeadId])
 }
@@ -1371,6 +1375,56 @@ model WebscrapingOperationalConfig {
   updatedAt          DateTime @updatedAt
 
   @@index([enabled, preset])
+}
+
+model RadarFactoryCursor {
+  id                     String    @id @default(cuid())
+  key                    String    @unique @default("main")
+  enabled                Boolean   @default(true)
+  forcedOn              Boolean   @default(false)
+  status                 String    @default("idle") // idle | running | paused | error
+  currentState           String?
+  currentCity            String?
+  currentSegment         String?
+  currentTargetType      String    @default("pj") // pj | pf
+  currentStateIndex      Int       @default(0)
+  currentCityIndex       Int       @default(0)
+  currentSegmentIndex    Int       @default(0)
+  currentTargetTypeIndex Int       @default(0)
+  lastCampaignId         String?
+  lastRunId              String?
+  lastSavedCount         Int       @default(0)
+  lastDuplicateCount     Int       @default(0)
+  lastRejectedCount      Int       @default(0)
+  consecutiveEmptyCount  Int       @default(0)
+  consecutiveFailureCount Int      @default(0)
+  lastError              String?
+  reasonStopped          String?
+  lastWorkedAt           DateTime?
+  nextRunAt              DateTime?
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+}
+
+model RadarFactoryWorkLog {
+  id             String    @id @default(cuid())
+  state          String
+  city           String
+  segment        String
+  targetType     String
+  campaignId     String?
+  runId          String?
+  status         String
+  savedCount     Int       @default(0)
+  duplicateCount Int       @default(0)
+  rejectedCount  Int       @default(0)
+  errorMessage   String?
+  startedAt      DateTime  @default(now())
+  finishedAt     DateTime?
+  createdAt      DateTime  @default(now())
+
+  @@index([state, city, segment, targetType])
+  @@index([status, createdAt])
 }
 
 model WebscrapingCampaignBatch {
