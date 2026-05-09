@@ -107,6 +107,23 @@ type AuditFactory = {
     targetType?: string | null;
     label?: string | null;
   } | null;
+  schedule?: {
+    allowedEngines: number;
+    maxEngines: number;
+    memoryGuardEngines: number;
+    reservedEngines: number;
+    memoryPressurePercent: number;
+    reason: string;
+    windowStatus: string;
+    enabled: boolean;
+    emergencyStop: boolean;
+    startHour: number;
+    startMinute: number;
+    endHour: number;
+    endMinute: number;
+    nextStartAt: string | null;
+    nextStopAt: string | null;
+  } | null;
 };
 
 type ClientProtection = {
@@ -116,6 +133,13 @@ type ClientProtection = {
   factoryAllowedEngines: number;
   manualReservedEngines: number;
   automaticAllowedEngines: number;
+  factoryReason?: string | null;
+  factoryWindowStatus?: string | null;
+  factoryMaxEngines?: number | null;
+  factoryMemoryGuardEngines?: number | null;
+  factoryNextStartAt?: string | null;
+  factoryNextStopAt?: string | null;
+  factoryEmergencyStop?: boolean;
   message: string;
 };
 
@@ -230,6 +254,30 @@ function statusTone(value?: string | null) {
   if (["paused"].includes(normalized)) return "paused";
   if (["offline", "inactive"].includes(normalized)) return "error";
   return "idle";
+}
+
+function timeValue(hour?: number | null, minute?: number | null) {
+  return `${String(Number(hour || 0)).padStart(2, "0")}:${String(Number(minute || 0)).padStart(2, "0")}`;
+}
+
+function parseTimeValue(value: string) {
+  const [hour, minute] = String(value || "").split(":").map((part) => Number(part));
+  return {
+    hour: Number.isFinite(hour) ? Math.min(Math.max(Math.trunc(hour), 0), 23) : 0,
+    minute: Number.isFinite(minute) ? Math.min(Math.max(Math.trunc(minute), 0), 59) : 0,
+  };
+}
+
+function factoryReasonLabel(value?: string | null) {
+  const reason = String(value || "").toLowerCase();
+  if (reason === "outside_factory_window") return "Fora do horário";
+  if (reason === "emergency_stop") return "Parado manualmente";
+  if (reason === "memory_guard") return "Proteção de memória";
+  if (reason === "memory_stop") return "Memória crítica";
+  if (reason === "client_priority" || reason === "manual_demand") return "Cliente em prioridade";
+  if (reason === "factory_disabled") return "Desligada";
+  if (reason === "factory_max") return "Rodando com limite";
+  return "Rodando";
 }
 
 export default function BancoDeDadosClientPage() {
@@ -462,6 +510,30 @@ export default function BancoDeDadosClientPage() {
     }
   }
 
+  async function saveFactorySchedule(patch: Record<string, unknown>, successMessage = "Controle da fábrica atualizado.") {
+    setSaving(true);
+    setError(null);
+    setFeedback(null);
+    try {
+      await apiFetch("/modules/master/webscraping/turbo-noturno", {
+        method: "PUT",
+        requireAuth: true,
+        timeoutMs: 20000,
+        body: JSON.stringify({
+          enabled: true,
+          stopOutsideWindow: true,
+          ...patch,
+        }),
+      });
+      await loadAudit({ silent: true });
+      setFeedback(successMessage);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Falha ao salvar controle da fábrica.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   function updateCardFilter<K extends keyof CardFilters>(key: K, value: CardFilters[K]) {
     setCardFilters((current) => ({ ...current, [key]: value }));
   }
@@ -579,8 +651,9 @@ export default function BancoDeDadosClientPage() {
             <div className={styles.actions}>
               <button type="button" onClick={() => void runFactoryAction("start", "Fábrica ligada e próxima missão solicitada.")} disabled={saving}>Ligar fábrica</button>
               <button type="button" onClick={() => void runFactoryAction("stop", "Fábrica pausada.")} disabled={saving}>Pausar fábrica</button>
+              <button type="button" data-danger="true" onClick={() => void runFactoryAction("stop-now", "PARAR TUDO ativo. A fábrica não pega novos motores.")} disabled={saving}>PARAR TUDO AGORA</button>
+              <button type="button" onClick={() => void runFactoryAction("resume-schedule", "Agenda da fábrica retomada.")} disabled={saving}>Retomar agenda</button>
               <button type="button" onClick={() => void runFactoryAction("force-next", "Próximo cursor forçado.")} disabled={saving}>Criar próxima missão agora</button>
-              <button type="button" onClick={() => void runFactoryAction("force-next", "Cursor avançado para o próximo eixo.")} disabled={saving}>Forçar próximo cursor</button>
               <button
                 type="button"
                 data-danger="true"
@@ -597,6 +670,14 @@ export default function BancoDeDadosClientPage() {
           </div>
 
           <div className={styles.factoryGrid}>
+            <div><span>Configurados</span><strong>{metric(summary?.motoresRegistrados)}</strong></div>
+            <div><span>Permitidos pela agenda</span><strong>{metric(protection?.factoryAllowedEngines)}</strong></div>
+            <div><span>Permitidos por memória</span><strong>{metric(protection?.factoryMemoryGuardEngines)}</strong></div>
+            <div><span>Trabalhando agora</span><strong>{metric(summary?.motoresBusy)}</strong></div>
+            <div><span>Reservados cliente</span><strong>{metric(protection?.reservedEngines)}</strong></div>
+            <div><span>Status agenda</span><strong>{factoryReasonLabel(protection?.factoryReason)}</strong></div>
+            <div><span>Próxima parada</span><strong>{formatDateTime(protection?.factoryNextStopAt)}</strong></div>
+            <div><span>Próxima retomada</span><strong>{formatDateTime(protection?.factoryNextStartAt)}</strong></div>
             <div><span>Agora trabalhando</span><strong>{[factory?.currentState, factory?.currentCity, factory?.currentSegment, factory?.currentTargetType?.toUpperCase()].filter(Boolean).join(" / ") || "-"}</strong></div>
             <div><span>Próxima missão</span><strong>{factory?.nextMissionPreview?.label || "-"}</strong></div>
             <div><span>Última campanha</span><strong>{shortId(factory?.lastCampaignId)}</strong></div>
@@ -605,6 +686,47 @@ export default function BancoDeDadosClientPage() {
             <div><span>Falhas hoje</span><strong>{metric((summary?.campaignsFailedToday || 0) + (summary?.searchRunsFailedToday || 0))}</strong></div>
             <div><span>Último lote</span><strong>{metric(factory?.lastSavedCount)} salvos · {metric(factory?.lastDuplicateCount)} dup · {metric(factory?.lastRejectedCount)} rej</strong></div>
             <div><span>Motivo de parada</span><strong>{factory?.reasonStopped || "-"}</strong></div>
+          </div>
+
+          <div className={styles.factoryGrid}>
+            <label>
+              <span>Motores trabalhando agora</span>
+              <select
+                value={String(protection?.factoryMaxEngines ?? 16)}
+                onChange={(event) => {
+                  const maxEngines = Number(event.target.value);
+                  void saveFactorySchedule({ maxEngines, engineCount: maxEngines, emergencyStop: false }, `Limite da fábrica ajustado para ${maxEngines} motor(es).`);
+                }}
+                disabled={saving}
+              >
+                {[0, 4, 8, 12, 16, 20, 32].map((value) => <option key={value} value={value}>{value}</option>)}
+              </select>
+            </label>
+            <label>
+              <span>Horário início</span>
+              <input
+                type="time"
+                value={timeValue(factory?.schedule?.startHour ?? 22, factory?.schedule?.startMinute ?? 0)}
+                onChange={(event) => {
+                  const next = parseTimeValue(event.target.value);
+                  void saveFactorySchedule({ startHour: next.hour, startMinute: next.minute }, "Horário inicial da fábrica atualizado.");
+                }}
+                disabled={saving}
+              />
+            </label>
+            <label>
+              <span>Horário fim</span>
+              <input
+                type="time"
+                value={timeValue(factory?.schedule?.endHour ?? 7, factory?.schedule?.endMinute ?? 0)}
+                onChange={(event) => {
+                  const next = parseTimeValue(event.target.value);
+                  void saveFactorySchedule({ endHour: next.hour, endMinute: next.minute }, "Horário final da fábrica atualizado.");
+                }}
+                disabled={saving}
+              />
+            </label>
+            <div><span>Regra</span><strong>Fora desse horário, a fábrica não pega cards novos e libera recursos para clientes.</strong></div>
           </div>
         </section>
 

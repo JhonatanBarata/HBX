@@ -502,6 +502,12 @@ type WebscrapingOperationalConfigInput = {
   autonomousFillBatchSize?: number | null;
   forceNow?: boolean | string | null;
   forcedUntil?: string | null;
+  timezone?: string | null;
+  emergencyStop?: boolean | string | null;
+  stopOutsideWindow?: boolean | string | null;
+  maxEngines?: number | null;
+  minEngines?: number | null;
+  drainTimeoutSeconds?: number | null;
 };
 
 type MasterMassDataCampaignInput = RadarCampaignInput & WebscrapingOperationalConfigInput & {
@@ -5778,6 +5784,12 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
           1,
           AUTONOMOUS_MASS_DATA_MAX_TASKS,
         ),
+        timezone: typeof parsed?.timezone === 'string' && parsed.timezone.trim() ? parsed.timezone.trim() : 'America/Sao_Paulo',
+        emergencyStop: parsed?.emergencyStop == null ? false : coerceBoolean(parsed.emergencyStop),
+        stopOutsideWindow: parsed?.stopOutsideWindow == null ? true : coerceBoolean(parsed.stopOutsideWindow),
+        factoryMaxEngines: clampInteger(parsed?.factoryMaxEngines, 16, 0, getConfiguredHbxEngineCount()),
+        factoryMinEngines: clampInteger(parsed?.factoryMinEngines, 0, 0, getConfiguredHbxEngineCount()),
+        drainTimeoutSeconds: clampInteger(parsed?.drainTimeoutSeconds, 90, 10, 900),
       };
     } catch {
       return {
@@ -5785,6 +5797,12 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         forcedAt: null,
         autonomousFillEnabled: true,
         autonomousFillBatchSize: AUTONOMOUS_MASS_DATA_DEFAULT_TASKS,
+        timezone: 'America/Sao_Paulo',
+        emergencyStop: false,
+        stopOutsideWindow: true,
+        factoryMaxEngines: 16,
+        factoryMinEngines: 0,
+        drainTimeoutSeconds: 90,
       };
     }
   }
@@ -5866,6 +5884,12 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       1,
       AUTONOMOUS_MASS_DATA_MAX_TASKS,
     );
+    const timezone = String(input.timezone || existingMetadata.timezone || 'America/Sao_Paulo').trim();
+    const emergencyStop = input.emergencyStop == null ? existingMetadata.emergencyStop : coerceBoolean(input.emergencyStop);
+    const stopOutsideWindow = input.stopOutsideWindow == null ? existingMetadata.stopOutsideWindow : coerceBoolean(input.stopOutsideWindow);
+    const factoryMaxEngines = clampInteger(input.maxEngines ?? input.engineCount, existingMetadata.factoryMaxEngines || 16, 0, getConfiguredHbxEngineCount());
+    const factoryMinEngines = clampInteger(input.minEngines, existingMetadata.factoryMinEngines || 0, 0, factoryMaxEngines);
+    const drainTimeoutSeconds = clampInteger(input.drainTimeoutSeconds, existingMetadata.drainTimeoutSeconds || 90, 10, 900);
     const explicitForcedUntil = String(input.forcedUntil || '').trim();
     const now = new Date();
     const forcedUntil = coerceBoolean(input.forceNow)
@@ -5882,10 +5906,22 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         forcedAt: coerceBoolean(input.forceNow) ? now.toISOString() : existingMetadata.forcedAt,
         autonomousFillEnabled,
         autonomousFillBatchSize,
+        timezone,
+        emergencyStop,
+        stopOutsideWindow,
+        factoryMaxEngines,
+        factoryMinEngines,
+        drainTimeoutSeconds,
       }),
       forcedUntil,
       autonomousFillEnabled,
       autonomousFillBatchSize,
+      timezone,
+      emergencyStop,
+      stopOutsideWindow,
+      factoryMaxEngines,
+      factoryMinEngines,
+      drainTimeoutSeconds,
     };
   }
 
@@ -5918,6 +5954,12 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       forcedAt: metadata.forcedAt,
       autonomousFillEnabled: metadata.autonomousFillEnabled,
       autonomousFillBatchSize: metadata.autonomousFillBatchSize,
+      timezone: metadata.timezone,
+      emergencyStop: metadata.emergencyStop,
+      stopOutsideWindow: metadata.stopOutsideWindow,
+      factoryMaxEngines: metadata.factoryMaxEngines,
+      factoryMinEngines: metadata.factoryMinEngines,
+      drainTimeoutSeconds: metadata.drainTimeoutSeconds,
       isTurboForcedNow: Boolean(metadata.forcedUntil && new Date(metadata.forcedUntil).getTime() > Date.now()),
       createdAt: row.createdAt instanceof Date ? row.createdAt.toISOString() : null,
       updatedAt: row.updatedAt instanceof Date ? row.updatedAt.toISOString() : null,
@@ -5964,6 +6006,12 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       forcedAt: this.parseOperationalMetadata(saved.metadataJson).forcedAt,
       autonomousFillEnabled: this.parseOperationalMetadata(saved.metadataJson).autonomousFillEnabled,
       autonomousFillBatchSize: this.parseOperationalMetadata(saved.metadataJson).autonomousFillBatchSize,
+      timezone: this.parseOperationalMetadata(saved.metadataJson).timezone,
+      emergencyStop: this.parseOperationalMetadata(saved.metadataJson).emergencyStop,
+      stopOutsideWindow: this.parseOperationalMetadata(saved.metadataJson).stopOutsideWindow,
+      factoryMaxEngines: this.parseOperationalMetadata(saved.metadataJson).factoryMaxEngines,
+      factoryMinEngines: this.parseOperationalMetadata(saved.metadataJson).factoryMinEngines,
+      drainTimeoutSeconds: this.parseOperationalMetadata(saved.metadataJson).drainTimeoutSeconds,
       isTurboForcedNow: Boolean(forcedUntil && new Date(forcedUntil).getTime() > Date.now()),
       createdAt: saved.createdAt instanceof Date ? saved.createdAt.toISOString() : null,
       updatedAt: saved.updatedAt instanceof Date ? saved.updatedAt.toISOString() : null,
@@ -6253,28 +6301,37 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
 
   private getFactoryWindowConfig() {
     return {
-      startHour: clampInteger(process.env.HBX_RADAR_CLIENT_PRIORITY_END_HOUR, 20, 0, 23),
-      endHour: clampInteger(process.env.HBX_RADAR_CLIENT_PRIORITY_START_HOUR, 8, 0, 23),
-      timezone: 'America/Sao_Paulo',
+      startHour: clampInteger(process.env.HBX_FACTORY_START_HOUR, 22, 0, 23),
+      startMinute: clampInteger(process.env.HBX_FACTORY_START_MINUTE, 0, 0, 59),
+      endHour: clampInteger(process.env.HBX_FACTORY_END_HOUR, 7, 0, 23),
+      endMinute: clampInteger(process.env.HBX_FACTORY_END_MINUTE, 0, 0, 59),
+      timezone: String(process.env.HBX_FACTORY_TIMEZONE || 'America/Sao_Paulo'),
     };
   }
 
   private isWithinFactoryWindow(cursor: any, date = new Date()) {
     if (cursor?.forcedOn) return true;
     const window = this.getFactoryWindowConfig();
-    const hour = this.getZonedHour(window.timezone, date);
-    if (window.startHour === window.endHour) return true;
-    return window.startHour < window.endHour
-      ? hour >= window.startHour && hour < window.endHour
-      : hour >= window.startHour || hour < window.endHour;
+    const parts = new Intl.DateTimeFormat('en-US', { timeZone: window.timezone, hour12: false, hour: '2-digit', minute: '2-digit' }).formatToParts(date);
+    const hour = Number(parts.find((part) => part.type === 'hour')?.value || 0);
+    const minute = Number(parts.find((part) => part.type === 'minute')?.value || 0);
+    const current = hour * 60 + minute;
+    const start = window.startHour * 60 + window.startMinute;
+    const end = window.endHour * 60 + window.endMinute;
+    if (start === end) return true;
+    return start < end ? current >= start && current < end : current >= start || current < end;
   }
 
   private nextFactoryWindowAt(date = new Date()) {
     const window = this.getFactoryWindowConfig();
-    const hour = this.getZonedHour(window.timezone, date);
-    const hoursUntilStart = (window.startHour - hour + 24) % 24 || 24;
+    const parts = new Intl.DateTimeFormat('en-US', { timeZone: window.timezone, hour12: false, hour: '2-digit', minute: '2-digit' }).formatToParts(date);
+    const hour = Number(parts.find((part) => part.type === 'hour')?.value || 0);
+    const minute = Number(parts.find((part) => part.type === 'minute')?.value || 0);
+    const current = hour * 60 + minute;
+    const start = window.startHour * 60 + window.startMinute;
+    const minutesUntilStart = (start - current + 24 * 60) % (24 * 60) || 24 * 60;
     const next = new Date(date);
-    next.setHours(next.getHours() + hoursUntilStart, 0, 0, 0);
+    next.setMinutes(next.getMinutes() + minutesUntilStart, 0, 0);
     return next;
   }
 
@@ -6828,6 +6885,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       activeCampaigns: activeCampaigns.map((campaign: any) => this.buildRadarCampaignResponse(campaign)),
       activeEngines: safeInteger(scheduler?.automaticAllowedEngines),
       reservedClientEngines: safeInteger(scheduler?.manualReservedEngines),
+      schedule: scheduler?.factory || null,
       reasonStopped: cursor.reasonStopped || null,
       lastError: cursor.lastError || null,
       cursor: {
@@ -6849,6 +6907,10 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         clientPriorityActive: Boolean(scheduler?.clientPriorityActive),
         manualReservedEngines: safeInteger(scheduler?.manualReservedEngines),
         automaticAllowedEngines: safeInteger(scheduler?.automaticAllowedEngines),
+        reason: scheduler?.factory?.reason || null,
+        windowStatus: scheduler?.factory?.windowStatus || null,
+        maxEngines: scheduler?.factory?.maxEngines ?? null,
+        memoryGuardEngines: scheduler?.factory?.memoryGuardEngines ?? null,
         message: safeInteger(scheduler?.manualReservedEngines) > 0
           ? 'Radar Digital tem motores reservados; a fábrica usa apenas o excedente.'
           : 'Radar Digital sem reserva configurada. Ajuste HBX_CLIENT_RESERVED_ENGINES.',
@@ -7082,6 +7144,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     if (duplicatedItemsToday > Math.max(10, foundItemsToday)) diagnostics.push('Muitos duplicados. Trocar cidade, segmento ou tipo.');
     if (foundItemsToday > 0 && cardsToday === 0) diagnostics.push('Itens encontrados, mas persistência no RadarLeadPool pode estar falhando.');
     if (safeInteger(scheduler?.manualReservedEngines) <= 0) diagnostics.push('Radar Digital do cliente sem reserva de motor. Risco de 500/timeout.');
+    if (scheduler?.factory?.reason) diagnostics.push(`Fábrica: ${scheduler.factory.reason}; permitidos=${safeInteger(scheduler.automaticAllowedEngines)}; janela=${scheduler.factory.windowStatus}; max=${scheduler.factory.maxEngines}; memória=${scheduler.factory.memoryPressurePercent}%.`);
     if (!diagnostics.length) diagnostics.push('Sem bloqueio crítico detectado agora.');
 
     const factoryCursor = factoryStatus?.cursor || {};
@@ -7113,6 +7176,13 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       factoryAllowedEngines: safeInteger(scheduler?.automaticAllowedEngines),
       manualReservedEngines: safeInteger(scheduler?.manualReservedEngines),
       automaticAllowedEngines: safeInteger(scheduler?.automaticAllowedEngines),
+      factoryReason: scheduler?.factory?.reason || null,
+      factoryWindowStatus: scheduler?.factory?.windowStatus || null,
+      factoryMaxEngines: scheduler?.factory?.maxEngines ?? null,
+      factoryMemoryGuardEngines: scheduler?.factory?.memoryGuardEngines ?? null,
+      factoryNextStartAt: scheduler?.factory?.nextStartAt || null,
+      factoryNextStopAt: scheduler?.factory?.nextStopAt || null,
+      factoryEmergencyStop: Boolean(scheduler?.factory?.emergencyStop),
       message: safeInteger(scheduler?.manualReservedEngines) > 0
         ? 'Radar Digital protegido: a fábrica não pode consumir os motores reservados do cliente.'
         : 'Radar Digital sem reserva configurada. Configure HBX_CLIENT_RESERVED_ENGINES=2.',
@@ -7962,6 +8032,50 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     });
   }
 
+  async stopFactoryNow(user: any) {
+    const saved = await this.saveOperationalConfig(Number(user?.id || 0), {
+      enabled: true,
+      emergencyStop: true,
+      stopOutsideWindow: true,
+    });
+    const drainUntil = new Date(Date.now() + Math.max(10, safeInteger(saved.drainTimeoutSeconds, 90)) * 1000);
+    await (this.prisma as any).webscrapingCampaign.updateMany({
+      where: { mode: 'mass_data', status: { in: ['queued', 'running', 'sleeping', 'partial_error'] } },
+      data: { status: 'paused', nextRunAt: null, lastErrorMessage: 'PARAR TUDO ativo pelo MASTER.' },
+    }).catch(() => null);
+    await (this.prisma as any).webscrapingCampaignTask.updateMany({
+      where: { status: 'running', lockedByEngineId: { not: null } },
+      data: { lockedUntil: drainUntil, lastError: 'PARAR TUDO ativo; batch atual deve drenar rapidamente.' },
+    }).catch(() => null);
+    await (this.prisma as any).hbxEngineLock?.updateMany?.({
+      where: { lockedRunId: { contains: ':mass:' } },
+      data: { lockedUntil: drainUntil, lastError: 'PARAR TUDO ativo; lock automático em drenagem curta.' },
+    }).catch(() => null);
+    this.logger.warn('[factory-stop] emergency stop active; automaticAllowed=0');
+    return {
+      config: saved,
+      control: await this.getMasterMassDataControl(user),
+    };
+  }
+
+  async resumeFactorySchedule(user: any) {
+    const saved = await this.saveOperationalConfig(Number(user?.id || 0), {
+      emergencyStop: false,
+      enabled: true,
+      stopOutsideWindow: true,
+      forcedUntil: '',
+    });
+    await (this.prisma as any).webscrapingCampaign.updateMany({
+      where: { mode: 'mass_data', status: 'paused' },
+      data: { status: 'queued', nextRunAt: new Date(), lastErrorMessage: 'Agenda da fábrica retomada pelo MASTER.' },
+    }).catch(() => null);
+    this.scheduleRadarCampaignPump(0);
+    return {
+      config: saved,
+      control: await this.getMasterMassDataControl(user),
+    };
+  }
+
   async createMasterMassDataCampaign(user: any, input: MasterMassDataCampaignInput = {}) {
     const config = await this.saveOperationalConfig(Number(user?.id || 0), {
       enabled: input.enabled ?? true,
@@ -8343,9 +8457,12 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         this.getEnginePool().getSchedulerStatus().catch(() => null),
       ]);
       const maxParallel = Math.min(
-        Math.max(safeInteger(capacity?.activeEngineCount, parsePositiveIntegerEnv('HBX_RADAR_MAX_PARALLEL_ENGINES', getConfiguredHbxEngineCount())), 1),
+        Math.max(safeInteger(scheduler?.automaticAllowedEngines, safeInteger(capacity?.activeEngineCount, parsePositiveIntegerEnv('HBX_RADAR_MAX_PARALLEL_ENGINES', getConfiguredHbxEngineCount()))), 0),
         getConfiguredHbxEngineCount(),
       );
+      if (maxParallel <= 0) {
+        this.logger.log(`[factory-scheduler] automaticAllowed=0 reason=${scheduler?.factory?.reason || 'protected'}; campaign pump will not acquire mass_data engines`);
+      }
       const due = await (this.prisma as any).webscrapingCampaign.findMany({
         where: {
           OR: [
@@ -8360,7 +8477,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
           ],
         },
         orderBy: [{ nextRunAt: 'asc' }, { createdAt: 'asc' }],
-        take: maxParallel,
+        take: Math.max(1, getConfiguredHbxEngineCount()),
       });
       for (const campaign of due) {
         if (['completed', 'completed_insufficient_results', 'failed', 'canceled', 'paused'].includes(String(campaign.status))) continue;
@@ -8434,6 +8551,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     }
 
     let started = 0;
+    let highestEngineIndex = 0;
     for (let index = 0; index < maxParallel; index += 1) {
       const lease = await this.getEnginePool().acquireEngine(
         `${campaign.id}:mass:${index}:${Date.now()}`,
@@ -8448,8 +8566,11 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         break;
       }
       started += 1;
+      highestEngineIndex = Math.max(highestEngineIndex, Number(lease.engineIndex || 0) + 1);
       void this.processMassDataTask(campaign.id, task.id, lease);
     }
+
+    this.logger.log(`[factoryPump] leased ${started} engines this cycle; highestEngineIndex=${highestEngineIndex || 0}; maxParallel=${maxParallel}; campaign=${campaign.id}`);
 
     if (started === 0) {
       await this.refreshMassDataCampaignState(campaign.id);
