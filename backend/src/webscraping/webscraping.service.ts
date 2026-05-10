@@ -4527,6 +4527,263 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
+  private buildNormalizedSearchInputFromRadarFilters(filters: NormalizedRadarFilters): NormalizedSearchInput {
+    return this.normalizeSearchInput({
+      city: filters.city,
+      state: filters.state,
+      segment: filters.segment,
+      quantity: filters.quantity,
+      engine: 'hbx',
+      targetType: filters.targetType,
+      minRating: filters.minRating,
+      minReviews: filters.minReviews,
+    });
+  }
+
+  private isTerminalRadarSearchRunStatus(status: string | null | undefined) {
+    return this.isTerminalSearchRunStatus(status);
+  }
+
+  private buildRadarSearchRunMessage(run: any, deliveredCount: number, requestedQuantity: number) {
+    const status = this.normalizeSearchRunStatus(run?.status);
+    const rawMessage = String(run?.errorMessage || '').trim();
+    if (status === 'completed') {
+      return deliveredCount >= requestedQuantity
+        ? `${deliveredCount} card(s) entregues.`
+        : `Pesquisa concluida com ${deliveredCount} card(s) disponiveis.`;
+    }
+    if (status === 'completed_insufficient_results' || status === 'partial_error') {
+      return rawMessage || `Entreguei ${deliveredCount} de ${requestedQuantity} card(s).`;
+    }
+    if (status === 'failed') {
+      return rawMessage || 'Nao foi possivel concluir a busca agora.';
+    }
+    if (deliveredCount > 0) {
+      return `Entreguei ${deliveredCount} de ${requestedQuantity} card(s). Buscando o restante em segundo plano.`;
+    }
+    return rawMessage || 'Busca criada. O Radar esta preparando os primeiros cards.';
+  }
+
+  private buildRadarFiltersFromSearchRun(run: any) {
+    return this.normalizeRadarFilters({
+      city: run?.city,
+      state: run?.state,
+      segment: run?.segment,
+      quantity: Math.max(1, safeInteger(run?.targetQuantity)),
+      limit: Math.max(100, safeInteger(run?.targetQuantity) * 4),
+      engine: 'hbx',
+      targetType: normalizeTargetType(run?.targetType),
+      validPhone: true,
+    });
+  }
+
+  private async syncRadarSearchRunItemsToPool(context: SearchExecutionContext, run: any) {
+    if (!(await this.supportsRadarPersistence())) return;
+    const foundItems = (Array.isArray(run?.items) ? run.items : []).filter((item: any) => item?.status === 'found');
+    if (!foundItems.length) return;
+
+    const normalized = this.normalizeSearchInput({
+      city: String(run?.city || ''),
+      state: String(run?.state || ''),
+      segment: String(run?.segment || ''),
+      quantity: Math.max(1, safeInteger(run?.targetQuantity)),
+      engine: 'hbx',
+      targetType: normalizeTargetType(run?.targetType),
+    });
+    const contacts = foundItems
+      .map((item: any) => this.mapRunItemToContact(item))
+      .filter((item: WebscrapingContactResult) => normalizePhoneDigits(item.phoneDigits || item.phone));
+
+    if (contacts.some((item) => String(item.source || '') !== 'radar_database')) {
+      await this.persistRadarLeadPoolBatch(normalized, contacts, 'hbx').catch((error: any) => {
+        this.logger.warn(`[radar-run] falha ao sincronizar lote no RadarLeadPool run=${run?.id || '-'}: ${String(error?.message || error)}`);
+      });
+    }
+
+    const filters = this.buildRadarFiltersFromSearchRun(run);
+    const phoneSet = new Set(contacts.map((item) => normalizePhoneDigits(item.phoneDigits || item.phone)).filter(Boolean));
+    if (!phoneSet.size) return;
+    const rows = await this.queryRadarRowsForCompany(context.companyId, filters, {
+      limit: Math.max(safeInteger(run?.targetQuantity) * 4, 100),
+      requirePhone: true,
+      includeHidden: false,
+    });
+    const rowsInRun = rows.filter((row) => phoneSet.has(normalizePhoneDigits(row?.phoneDigits || row?.phone)));
+    const maxToClaim = Math.max(0, safeInteger(run?.targetQuantity));
+    await this.markRadarDelivered(context.companyId, context.userId, rowsInRun.slice(0, maxToClaim)).catch((error: any) => {
+      this.logger.warn(`[radar-run] falha ao reservar cards do run=${run?.id || '-'}: ${String(error?.message || error)}`);
+    });
+  }
+
+  private async buildRadarSearchRunResponse(user: any, runId: string) {
+    const context = this.resolveContext(user);
+    await this.assertSearchRunPersistence();
+    const run = await this.prisma.webscrapingSearchRun.findFirst({
+      where: {
+        id: String(runId || '').trim(),
+        companyId: context.companyId,
+      },
+      include: {
+        items: {
+          orderBy: { createdAt: 'asc' },
+        },
+      },
+    });
+    if (!run) throw new NotFoundException('Pesquisa do Radar nao encontrada.');
+
+    await this.syncRadarSearchRunItemsToPool(context, run).catch((error: any) => {
+      this.logger.warn(`[radar-run] sync ignorado run=${run.id}: ${String(error?.message || error)}`);
+    });
+
+    const freshRun = await this.prisma.webscrapingSearchRun.findFirst({
+      where: { id: run.id, companyId: context.companyId },
+      include: {
+        items: {
+          orderBy: { createdAt: 'asc' },
+        },
+      },
+    });
+    const effectiveRun = freshRun || run;
+    const filters = this.buildRadarFiltersFromSearchRun(effectiveRun);
+    const foundItems = (effectiveRun.items || []).filter((item: any) => item.status === 'found');
+    const runPhoneOrder = foundItems
+      .map((item: any) => normalizePhoneDigits(item.phoneDigits || item.phone))
+      .filter(Boolean);
+    const runPhoneSet = new Set(runPhoneOrder);
+    const rows = runPhoneSet.size
+      ? await this.queryRadarRowsForCompany(context.companyId, filters, {
+          limit: Math.max(safeInteger(effectiveRun.targetQuantity) * 4, 100),
+          requirePhone: true,
+          includeHidden: false,
+        })
+      : [];
+    const rowByPhone = new Map<string, any>();
+    for (const row of rows) {
+      const phone = normalizePhoneDigits(row?.phoneDigits || row?.phone);
+      if (phone && runPhoneSet.has(phone) && !rowByPhone.has(phone)) rowByPhone.set(phone, row);
+    }
+    const orderedRows = runPhoneOrder
+      .map((phone) => rowByPhone.get(phone))
+      .filter(Boolean)
+      .slice(0, safeInteger(effectiveRun.targetQuantity));
+    const items = orderedRows.map((row) => this.buildRadarLeadPublic(row));
+    const requestedQuantity = Math.max(1, safeInteger(effectiveRun.targetQuantity));
+    const deliveredCount = items.length;
+    const status = this.normalizeSearchRunStatus(effectiveRun.status);
+    const terminal = this.isTerminalRadarSearchRunStatus(status);
+    const databaseCount = foundItems.filter((item: any) => String(item.source || '') === 'radar_database').length;
+    const fetchedCount = Math.max(0, deliveredCount - databaseCount);
+    const progress = requestedQuantity > 0
+      ? Math.min(100, Math.round((Math.max(deliveredCount, safeInteger(effectiveRun.foundCount)) / requestedQuantity) * 100))
+      : 100;
+
+    return {
+      id: effectiveRun.id,
+      runId: effectiveRun.id,
+      status,
+      items,
+      total: terminal ? deliveredCount : requestedQuantity,
+      code: terminal ? 'RADAR_SEARCH_COMPLETED' : 'RADAR_SEARCH_RUNNING',
+      message: this.buildRadarSearchRunMessage(effectiveRun, deliveredCount, requestedQuantity),
+      retryable: !terminal,
+      targetQuantity: requestedQuantity,
+      foundCount: Math.max(deliveredCount, safeInteger(effectiveRun.foundCount)),
+      errorMessage: effectiveRun.errorMessage || null,
+      meta: {
+        requestedQuantity,
+        deliveredCount,
+        databaseCount,
+        fetchedCount,
+        progress,
+        terminal,
+        status,
+        runId: effectiveRun.id,
+        nextRetryAt: effectiveRun.nextRetryAt instanceof Date ? effectiveRun.nextRetryAt.toISOString() : null,
+        attemptCount: safeInteger(effectiveRun.attemptCount),
+        filters: {
+          state: filters.state,
+          city: filters.city,
+          segment: filters.segment,
+          targetType: filters.targetType,
+        },
+      },
+    };
+  }
+
+  async startRadarSearchRunForUser(user: any, input: RadarFiltersInput = {}) {
+    const context = this.resolveContext(user);
+    const filters = this.normalizeRadarFilters(input);
+    if (!filters.normalizedCity || !filters.normalizedSegment) {
+      throw new BadRequestException('Cidade e segmento sao obrigatorios para pesquisar no Radar.');
+    }
+    await this.assertSearchRunPersistence();
+    if (!(await this.supportsRadarPersistence())) {
+      throw new ServiceUnavailableException('Banco do Radar ainda nao foi migrado neste ambiente.');
+    }
+
+    const normalized = this.buildNormalizedSearchInputFromRadarFilters(filters);
+    const stockRows = await this.queryRadarRowsForCompany(context.companyId, filters, {
+      limit: Math.max(filters.quantity, filters.minimumStock, 100),
+      requirePhone: true,
+      availableOnly: true,
+    });
+    const immediateRows = stockRows.slice(0, filters.quantity);
+    let claimedRows = immediateRows;
+    if (immediateRows.length) {
+      claimedRows = await this.markRadarDelivered(context.companyId, context.userId, immediateRows).catch((error: any) => {
+        this.logger.warn(`[radar-run] falha ao reservar estoque inicial company=${context.companyId}: ${String(error?.message || error)}`);
+        return immediateRows;
+      });
+      if (!claimedRows.length) claimedRows = immediateRows;
+    }
+
+    const now = new Date();
+    const completedFromDatabase = claimedRows.length >= filters.quantity;
+    const run = await this.prisma.webscrapingSearchRun.create({
+      data: {
+        companyId: context.companyId,
+        userId: context.userId,
+        status: completedFromDatabase ? 'completed' : 'queued',
+        city: normalized.city,
+        state: normalized.state || null,
+        segment: normalized.segment,
+        engine: 'hbx',
+        targetType: normalized.targetType,
+        targetQuantity: normalized.quantity,
+        startedAt: claimedRows.length ? now : null,
+        finishedAt: completedFromDatabase ? now : null,
+        errorMessage: completedFromDatabase
+          ? 'Entregue do banco Radar/HBX. A frota HBX nao foi acionada.'
+          : claimedRows.length
+            ? `Entreguei ${claimedRows.length} card(s) do banco. Buscando mais ${Math.max(0, filters.quantity - claimedRows.length)}.`
+            : 'Sem cards prontos no banco. Busca enviada para a fila HBX.',
+      },
+    });
+
+    if (claimedRows.length) {
+      await this.saveSearchRunResults(
+        context,
+        normalized,
+        run.id,
+        this.restoreRadarPoolResults(claimedRows).slice(0, filters.quantity),
+        'radar_database',
+      );
+      await this.recalculateSearchRunCounters(run.id);
+    }
+
+    if (completedFromDatabase) {
+      await this.persistSearchRunHistoryIfPossible(run.id, normalized, context).catch(() => null);
+    } else {
+      this.scheduleSearchRunPump(0);
+    }
+
+    return this.buildRadarSearchRunResponse(user, run.id);
+  }
+
+  async getRadarSearchRunForUser(user: any, runId: string) {
+    return this.buildRadarSearchRunResponse(user, runId);
+  }
+
   private async markRadarDelivered(companyId: number, userId: number, rows: any[]) {
     const context = { companyId, userId } as SearchExecutionContext;
     const claimedRows: any[] = [];

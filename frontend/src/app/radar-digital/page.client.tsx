@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import DashboardScaffold from "@/components/DashboardScaffold";
 import {
@@ -15,6 +15,7 @@ import {
   type HbxTargetTypeValue,
 } from "@/components/prospecting-filters";
 import { apiFetch, type ApiFetchError } from "@/app/_lib/api";
+import { startSmartPolling } from "@/app/_lib/polling";
 import { useRequireModule } from "@/app/_lib/useRequireModule";
 import { clearTopbarProgress, dispatchTopbarProgress } from "@/lib/topbar-progress";
 import type { CommercialPlansPayload } from "@/lib/commercial-plans";
@@ -81,6 +82,35 @@ type RadarPullResponse = {
       fetchedCount?: number;
       errorMessage?: string;
     };
+  };
+};
+
+type RadarSearchRunStatus =
+  | "queued"
+  | "running"
+  | "completed"
+  | "partial_error"
+  | "completed_insufficient_results"
+  | "failed"
+  | "canceled";
+
+type RadarSearchRunResponse = RadarPullResponse & {
+  id: string;
+  runId: string;
+  status: RadarSearchRunStatus;
+  total?: number;
+  targetQuantity: number;
+  foundCount: number;
+  errorMessage?: string | null;
+  meta?: RadarPullResponse["meta"] & {
+    databaseCount?: number;
+    fetchedCount?: number;
+    progress?: number;
+    terminal?: boolean;
+    status?: RadarSearchRunStatus;
+    runId?: string;
+    nextRetryAt?: string | null;
+    attemptCount?: number;
   };
 };
 
@@ -218,10 +248,6 @@ function mergeRadarLeads(items: RadarLead[]) {
   return merged;
 }
 
-function wait(ms: number) {
-  return new Promise((resolve) => window.setTimeout(resolve, ms));
-}
-
 function eventLabel(value?: string | null) {
   const type = String(value || "").toLowerCase();
   if (type === "found") return "Encontrado";
@@ -276,6 +302,12 @@ function radarFriendlyError(error: unknown) {
     return "Radar temporariamente indisponível. Tente novamente em instantes.";
   }
   const message = error instanceof Error ? error.message : "";
+  if (/failed to fetch|networkerror|load failed/i.test(message)) {
+    return "Conexão instável com o Radar. A busca fica protegida no servidor; tente atualizar em instantes.";
+  }
+  if (/tempo esgotado|timeout/i.test(message)) {
+    return "A busca demorou mais que o esperado. O Radar continua protegendo a fila; tente novamente em instantes.";
+  }
   if (/internal server error|forbidden|unauthorized/i.test(message)) {
     return "Radar temporariamente indisponível. Tente novamente em instantes.";
   }
@@ -324,6 +356,10 @@ function canPullWithFilters(filters: FilterState) {
   return Boolean(filters.city.trim() && filters.segment.trim());
 }
 
+function isTerminalRadarRun(status?: string | null) {
+  return ["completed", "partial_error", "completed_insufficient_results", "failed", "canceled"].includes(String(status || ""));
+}
+
 export default function RadarDigitalClientPage() {
   const hasToken = useRequireModule("webscraping");
   const searchParams = useSearchParams();
@@ -342,6 +378,7 @@ export default function RadarDigitalClientPage() {
   const [bulkSending, setBulkSending] = useState(false);
   const [telonProgress, setTelonProgress] = useState(8);
   const [radarVisualCount, setRadarVisualCount] = useState(0);
+  const [activeRun, setActiveRun] = useState<RadarSearchRunResponse | null>(null);
   const [commercialPlans, setCommercialPlans] = useState<CommercialPlansPayload | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -350,6 +387,7 @@ export default function RadarDigitalClientPage() {
     citiesByState: {},
     segments: [],
   });
+  const activeRunIdRef = useRef<string | null>(null);
 
   const visibleItems = useMemo(
     () => items.filter((item) => leadMatchesSearch(item, appliedGeneralSearch)),
@@ -359,7 +397,6 @@ export default function RadarDigitalClientPage() {
     () => visibleItems.filter((item) => Number(item.opportunityScore || 0) >= 70).length,
     [visibleItems],
   );
-
   const isHbxList = commercialPlans?.current?.planKey === "hbx_lite" || commercialPlans?.current?.selectedPlanKey === "hbx_lite";
   const radarQuantityLimit = isHbxList ? 50 : 100;
   const effectiveFilters = useMemo(
@@ -369,6 +406,11 @@ export default function RadarDigitalClientPage() {
     }),
     [filters, radarQuantityLimit],
   );
+  const activeRunTarget = Math.max(1, Number(activeRun?.targetQuantity || activeRun?.meta?.requestedQuantity || effectiveFilters.quantity || 1));
+  const activeRunDelivered = Math.max(visibleItems.length, Number(activeRun?.meta?.deliveredCount || activeRun?.foundCount || 0));
+  const activeRunProgress = activeRun
+    ? Math.max(4, Math.min(100, Number(activeRun.meta?.progress || Math.round((activeRunDelivered / activeRunTarget) * 100))))
+    : 0;
   const queryRadarLeadId = String(searchParams.get("radarLeadId") || "").trim();
 
   useEffect(() => {
@@ -483,17 +525,17 @@ export default function RadarDigitalClientPage() {
   }, [telonBusy]);
 
   useEffect(() => {
-    if (!searching && !bulkSending) {
+    if (!bulkSending) {
       setRadarVisualCount(0);
       return undefined;
     }
-    const target = Math.max(1, Math.min(effectiveFilters.quantity, searching ? radarQuantityLimit : Math.max(1, visibleItems.length)));
+    const target = Math.max(1, Math.min(effectiveFilters.quantity, Math.max(1, visibleItems.length)));
     setRadarVisualCount(1);
     const timer = window.setInterval(() => {
       setRadarVisualCount((current) => Math.min(target, current + 1));
     }, 180);
     return () => window.clearInterval(timer);
-  }, [bulkSending, effectiveFilters.quantity, radarQuantityLimit, searching, visibleItems.length]);
+  }, [bulkSending, effectiveFilters.quantity, visibleItems.length]);
 
   useEffect(() => {
     const metrics = [
@@ -503,15 +545,12 @@ export default function RadarDigitalClientPage() {
     ];
     const errorMessage = compactRadarMessage(error);
     const activeStepIndex = Math.min(RADAR_PROGRESS_STEPS.length - 1, Math.floor(topbarProgressPercentFrom(telonProgress) / 25));
-    const visualCards = Array.from({ length: Math.min(4, radarVisualCount) }, (_, index) => {
-      const cardNumber = Math.max(1, radarVisualCount - Math.min(4, radarVisualCount) + index + 1);
-      return {
-        id: `radar:${cardNumber}`,
-        title: `Card ${cardNumber}`,
-        meta: [filters.segment || "segmento", filters.city || "cidade"].filter(Boolean).join(" • "),
-        score: `${Math.min(99, 62 + ((cardNumber * 7) % 32))}`,
-      };
-    });
+    const realCardFeed = visibleItems.slice(-4).map((item) => ({
+      id: `radar:${item.id}`,
+      title: item.name || "Card Radar",
+      meta: [item.segment, item.city].filter(Boolean).join(" • ") || "Radar Digital",
+      score: item.opportunityScore ?? undefined,
+    }));
 
     if (errorMessage) {
       dispatchTopbarProgress({
@@ -525,7 +564,7 @@ export default function RadarDigitalClientPage() {
       return;
     }
 
-    if (feedback) {
+    if (feedback && !activeRun) {
       dispatchTopbarProgress({
         source: "radar",
         phase: "success",
@@ -548,9 +587,9 @@ export default function RadarDigitalClientPage() {
         progress: Math.max(18, telonProgress),
         steps: RADAR_PROGRESS_STEPS,
         activeStepIndex,
-        cardFeed: visualCards,
+        cardFeed: realCardFeed,
         metrics: [
-          { label: "Qtd", value: String(effectiveFilters.quantity) },
+          { label: "Entregues", value: String(visibleItems.length) },
           { label: "Motor", value: filters.engine === "google" ? "Google" : "HBX" },
           { label: "Tipo", value: effectiveFilters.targetType.toUpperCase() },
         ],
@@ -621,6 +660,7 @@ export default function RadarDigitalClientPage() {
     clearTopbarProgress("radar");
   }, [
     actionId,
+    activeRun,
     bulkSending,
     effectiveFilters,
     error,
@@ -650,6 +690,9 @@ export default function RadarDigitalClientPage() {
     setItems([]);
     setTotal(0);
     setPage(1);
+    setActiveRun(null);
+    activeRunIdRef.current = null;
+    setSearching(false);
     setFeedback(null);
     setError(null);
   }
@@ -665,28 +708,65 @@ export default function RadarDigitalClientPage() {
     }));
   }
 
-  async function appendCardsProgressively(nextCards: RadarLead[], maxTotal: number) {
-    let appendedCount = 0;
-    for (const card of nextCards) {
-      let didAppend = false;
-      setItems((current) => {
-        const merged = mergeRadarLeads([...current, card]).slice(0, maxTotal);
-        didAppend = merged.length > current.length;
-        return merged;
-      });
-      if (didAppend) {
-        appendedCount += 1;
-        setTotal((current) => Math.max(current, appendedCount));
-        await wait(70);
-      }
+  const applyRadarRunPayload = useCallback((payload: RadarSearchRunResponse) => {
+    const runId = String(payload.runId || payload.id || "");
+    if (!runId || !payload.status) {
+      activeRunIdRef.current = null;
+      setActiveRun(null);
+      setSearching(false);
+      setFeedback(payload.message || "A busca foi recebida, mas o Radar não retornou progresso detalhado agora.");
+      return;
     }
-    return appendedCount;
-  }
+    if (activeRunIdRef.current && runId && activeRunIdRef.current !== runId) return;
+
+    const nextItems = payload.items || [];
+    setItems((current) => mergeRadarLeads([...current, ...nextItems]).slice(0, Math.max(1, Number(payload.targetQuantity || payload.meta?.requestedQuantity || nextItems.length || 1))));
+    setTotal(Number(payload.targetQuantity || payload.meta?.requestedQuantity || payload.total || nextItems.length || 0));
+    setPage(1);
+    setTelonProgress(Math.max(12, Math.min(100, Number(payload.meta?.progress || 0) || 12)));
+
+    const terminal = Boolean(payload.meta?.terminal) || isTerminalRadarRun(payload.status);
+    if (terminal) {
+      activeRunIdRef.current = null;
+      setActiveRun(null);
+      setSearching(false);
+      setFeedback(payload.message || `${nextItems.length} card(s) entregues.`);
+      return;
+    }
+
+    setActiveRun(payload);
+    setFeedback(payload.message || "Busca em andamento. Os cards aparecem conforme o Radar aprova novos contatos.");
+  }, []);
+
+  useEffect(() => {
+    const runId = activeRun?.runId || activeRun?.id;
+    if (!runId) return undefined;
+    return startSmartPolling(async () => {
+      try {
+        const payload = await apiFetch<RadarSearchRunResponse>(`/webscraping/radar/search-runs/${encodeURIComponent(runId)}`, {
+          requireAuth: true,
+          timeoutMs: 15000,
+        });
+        applyRadarRunPayload(payload);
+      } catch (pollError) {
+        activeRunIdRef.current = null;
+        setActiveRun(null);
+        setSearching(false);
+        setError(radarFriendlyError(pollError));
+      }
+    }, {
+      intervalMs: 2200,
+      immediate: false,
+      pauseWhenHidden: false,
+    });
+  }, [activeRun?.id, activeRun?.runId, applyRadarRunPayload]);
 
   async function runRadarSearch() {
     setSearching(true);
     setError(null);
     setFeedback(null);
+    setActiveRun(null);
+    activeRunIdRef.current = null;
     setTelonProgress(12);
     setHasSearched(true);
     const nextFilters = { ...effectiveFilters };
@@ -703,83 +783,31 @@ export default function RadarDigitalClientPage() {
         return;
       }
 
-      const pullRadar = (targetType: Exclude<HbxTargetTypeValue, "both">, quantity: number) =>
-        apiFetch<RadarPullResponse>("/webscraping/radar/pull", {
-          method: "POST",
-          requireAuth: true,
-          timeoutMs: 70000,
-          direct: true,
-          body: JSON.stringify({
-            ...nextFilters,
-            targetType,
-            quantity,
-            minimumStock: Math.max(1, Math.min(quantity, 10)),
-            desiredStock: Math.max(1, quantity),
-          }),
-        });
-
       setItems([]);
       setTotal(0);
       setPage(1);
 
       const targetType = nextFilters.targetType === "both" ? "pj" : nextFilters.targetType;
-      const chunkSize = Math.min(10, Math.max(1, nextFilters.quantity));
-      let motorRan = false;
-      let fetchedCount = 0;
-      let replenishErrorMessage = "";
-      let backendMessage = "";
-      let deliveredCount = 0;
-      let emptyBatchCount = 0;
-
-      while (deliveredCount < nextFilters.quantity && emptyBatchCount < 2) {
-        const remaining = nextFilters.quantity - deliveredCount;
-        const batchQuantity = Math.min(chunkSize, remaining);
-        let payload: RadarPullResponse;
-        try {
-          payload = await pullRadar(targetType, batchQuantity);
-        } catch (batchError) {
-          if (deliveredCount > 0) {
-            backendMessage = radarFriendlyError(batchError);
-            break;
-          }
-          throw batchError;
-        }
-
-        const batchItems = payload.items || [];
-        motorRan = motorRan || Boolean(payload.meta?.replenish?.ran);
-        fetchedCount += Number(payload.meta?.replenish?.fetchedCount || 0);
-        replenishErrorMessage = payload.meta?.replenish?.errorMessage || replenishErrorMessage;
-        backendMessage = payload.message || backendMessage;
-
-        const beforeBatch = deliveredCount;
-        const appended = await appendCardsProgressively(batchItems, nextFilters.quantity);
-        deliveredCount += appended;
-        setTotal(deliveredCount);
-
-        if (deliveredCount >= nextFilters.quantity) break;
-        if (!batchItems.length || deliveredCount === beforeBatch) {
-          emptyBatchCount += 1;
-          continue;
-        }
-        emptyBatchCount = 0;
-      }
-
-      if (!deliveredCount) {
-        setFeedback(backendMessage || "Pesquisa concluída. Não há cards públicos suficientes para esse filtro agora.");
-        return;
-      }
-      const motorMessage = replenishErrorMessage
-        ? replenishErrorMessage.replace("Entreguei os cards disponiveis", `Entreguei ${deliveredCount} card(s)`)
-        : backendMessage
-        ? backendMessage
-        : motorRan
-        ? `Motor acionado. ${fetchedCount} novo(s) card(s) entraram no banco.`
-        : "Entregue direto do banco de dados, sem acionar motor.";
-      setFeedback(`${deliveredCount} card(s) entregues. ${motorMessage}`);
+      const payload = await apiFetch<RadarSearchRunResponse>("/webscraping/radar/search-runs", {
+        method: "POST",
+        requireAuth: true,
+        timeoutMs: 20000,
+        body: JSON.stringify({
+          ...nextFilters,
+          targetType,
+          quantity: nextFilters.quantity,
+          minimumStock: Math.max(1, Math.min(nextFilters.quantity, 10)),
+          desiredStock: Math.max(1, nextFilters.quantity),
+        }),
+      });
+      activeRunIdRef.current = payload.runId || payload.id || null;
+      applyRadarRunPayload(payload);
     } catch (searchError) {
+      activeRunIdRef.current = null;
+      setActiveRun(null);
       setError(radarFriendlyError(searchError));
     } finally {
-      setSearching(false);
+      if (!activeRunIdRef.current) setSearching(false);
     }
   }
 
@@ -893,7 +921,7 @@ export default function RadarDigitalClientPage() {
 
   if (!hasToken) return null;
 
-  const hasMore = hasSearched && items.length < total;
+  const hasMore = !activeRun && hasSearched && items.length < total;
   const availableSegments = availableFilters.segments || [];
   return (
     <DashboardScaffold
@@ -990,8 +1018,24 @@ export default function RadarDigitalClientPage() {
           </div>
         </form>
 
+        {activeRun ? (
+          <section className={styles.runProgress} aria-live="polite">
+            <div className={styles.runProgressHeader}>
+              <div>
+                <span>Pesquisa em andamento</span>
+                <strong>{activeRunDelivered.toLocaleString("pt-BR")} de até {activeRunTarget.toLocaleString("pt-BR")} cards</strong>
+              </div>
+              <small>{activeRun.status === "queued" ? "Na fila HBX" : "Verificando disponibilidade real"}</small>
+            </div>
+            <div className={styles.runProgressTrack} aria-hidden="true">
+              <span style={{ ["--progress" as string]: `${activeRunProgress}%` }} />
+            </div>
+            <p>{activeRun.message || "O Radar já entregou o que encontrou no banco e continua buscando novos cards válidos."}</p>
+          </section>
+        ) : null}
+
         {error ? <div className={styles.notice} data-tone="error">{compactRadarMessage(error)}</div> : null}
-        {feedback ? <div className={styles.notice} data-tone="ok">{feedback}</div> : null}
+        {feedback && !activeRun ? <div className={styles.notice} data-tone="ok">{feedback}</div> : null}
 
         <section className={styles.results}>
           <div className={styles.resultsHeader}>
@@ -1000,7 +1044,11 @@ export default function RadarDigitalClientPage() {
               <strong>{hasSearched ? "Cards da pesquisa" : "Aguardando pesquisa"}</strong>
             </div>
             {hasSearched ? (
-              <small>Mostrando {visibleItems.length.toLocaleString("pt-BR")} de {total.toLocaleString("pt-BR")} resultados — {PAGE_SIZE} por página.</small>
+              <small>
+                {activeRun
+                  ? `Mostrando ${visibleItems.length.toLocaleString("pt-BR")} de até ${activeRunTarget.toLocaleString("pt-BR")} solicitados.`
+                  : `Mostrando ${visibleItems.length.toLocaleString("pt-BR")} de ${total.toLocaleString("pt-BR")} resultados — ${PAGE_SIZE} por página.`}
+              </small>
             ) : null}
           </div>
 
@@ -1009,6 +1057,12 @@ export default function RadarDigitalClientPage() {
               <span aria-hidden="true">RD</span>
               <strong>Nenhum card exibido ainda</strong>
               <p>Use os filtros acima e clique em Pesquisar. Se pesquisar sem filtrar nada, o sistema abre todo o histórico.</p>
+            </div>
+          ) : activeRun && visibleItems.length === 0 ? (
+            <div className={styles.emptyState}>
+              <span aria-hidden="true">...</span>
+              <strong>Preparando os primeiros cards</strong>
+              <p>O Radar consultou o banco e está validando contatos públicos para este filtro.</p>
             </div>
           ) : !loading && visibleItems.length === 0 ? (
             <div className={styles.emptyState}>

@@ -170,7 +170,7 @@ test('sendWhatsAppAudio posts Evolution voice note payload', async () => {
       number: '5511999998888@s.whatsapp.net',
       audio: 'https://cdn.example.test/audio.webm',
     });
-    assert.equal(result.providerMessageId, 'webwhats:company-47:session-47:AUDIO-1');
+    assert.equal(result.providerMessageId, 'webwhats:company-47:AUDIO-1');
   } finally {
     if (previousUrl === undefined) delete process.env.WHATSAPP_MODAL_INTERNAL_URL;
     else process.env.WHATSAPP_MODAL_INTERNAL_URL = previousUrl;
@@ -236,7 +236,7 @@ test('sendMedia posts sticker payload through Webwhats', async () => {
       media: 'https://cdn.example.test/sticker.webp',
       mimetype: 'image/webp',
     });
-    assert.equal(result.providerMessageId, 'webwhats:company-47:session-47:STICKER-OUT-1');
+    assert.equal(result.providerMessageId, 'webwhats:company-47:STICKER-OUT-1');
   } finally {
     if (previousUrl === undefined) delete process.env.WHATSAPP_MODAL_INTERNAL_URL;
     else process.env.WHATSAPP_MODAL_INTERNAL_URL = previousUrl;
@@ -446,12 +446,13 @@ test('upsertConversationMessage does not relay inbound when concurrent create al
   const prisma = {
     companyMessage: {
       findUnique: async () => null,
+      findFirst: async () => null,
       create: async () => {
         throw uniqueError;
       },
       update: async ({ where }: any) => {
         calls.updates += 1;
-        assert.equal(where.providerMessageId, 'webwhats:company-47:session-47:MSG-1');
+        assert.equal(where.providerMessageId, 'webwhats:company-47:MSG-1');
         return { id: 501 };
       },
     },
@@ -494,8 +495,9 @@ test('upsertConversationMessage relays inbound only for a newly created message'
   const prisma = {
     companyMessage: {
       findUnique: async () => null,
+      findFirst: async () => null,
       create: async ({ data }: any) => {
-        assert.equal(data.providerMessageId, 'webwhats:company-47:session-47:MSG-2');
+        assert.equal(data.providerMessageId, 'webwhats:company-47:MSG-2');
         return { id: 502 };
       },
     },
@@ -511,7 +513,7 @@ test('upsertConversationMessage relays inbound only for a newly created message'
   service.setInboundRelay(async (input) => {
     calls.relays += 1;
     assert.equal(input.companyMessageId, 502);
-    assert.equal(input.externalMessageId, 'webwhats:company-47:session-47:MSG-2');
+    assert.equal(input.externalMessageId, 'webwhats:company-47:MSG-2');
   });
 
   const result = await (service as any).upsertConversationMessage(
@@ -530,6 +532,64 @@ test('upsertConversationMessage relays inbound only for a newly created message'
 
   assert.equal(result, 502);
   assert.equal(calls.relays, 1);
+});
+
+test('upsertConversationMessage reuses legacy session-scoped provider ids', async () => {
+  const calls = {
+    relays: 0,
+    legacySearchWhere: null as Record<string, any> | null,
+    updateData: null as Record<string, any> | null,
+  };
+  const prisma = {
+    companyMessage: {
+      findUnique: async () => null,
+      findFirst: async ({ where }: any) => {
+        if (where?.providerMessageId?.endsWith) {
+          calls.legacySearchWhere = where;
+        }
+        return {
+          id: 503,
+          providerMessageId: 'webwhats:company-47:old-session:MSG-LEGACY',
+          variablesJson: null,
+        };
+      },
+      update: async ({ where, data }: any) => {
+        assert.equal(where.id, 503);
+        calls.updateData = data;
+        return { id: 503 };
+      },
+    },
+    companyConversation: {
+      updateMany: async ({ where }: any) => {
+        assert.equal(where.id, 70);
+        assert.equal(where.companyId, 47);
+        return { count: 1 };
+      },
+    },
+  };
+  const service = new WebwhatsBridgeService(prisma as any);
+  service.setInboundRelay(async () => {
+    calls.relays += 1;
+  });
+
+  const result = await (service as any).upsertConversationMessage(
+    47,
+    TEST_SESSION,
+    70,
+    '5511999990000@s.whatsapp.net',
+    {
+      key: { id: 'MSG-LEGACY', fromMe: false, remoteJid: '5511999990000@s.whatsapp.net' },
+      messageTimestamp: 1770000000,
+      messageType: 'conversation',
+      message: { conversation: 'Oi' },
+    },
+    null,
+  );
+
+  assert.equal(result, 503);
+  assert.equal(calls.relays, 0);
+  assert.equal(calls.legacySearchWhere?.providerMessageId?.endsWith, ':MSG-LEGACY');
+  assert.equal(calls.updateData?.providerMessageId, 'webwhats:company-47:MSG-LEGACY');
 });
 
 test('resolveInboundMediaAttachment sends the full fetched message envelope to media download', async () => {
