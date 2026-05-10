@@ -604,6 +604,24 @@ export class WebscrapingController {
     }
   }
 
+  @Post('radar/search-runs')
+  async radarSearchRun(@Req() req: any, @Body() dto: RadarPullDto) {
+    try {
+      return await this.webscrapingService.startRadarSearchRunForUser(req.user, dto || {});
+    } catch (error) {
+      return this.webscrapingService.buildRadarClientErrorResponse(req.user, '/webscraping/radar/search-runs', error);
+    }
+  }
+
+  @Get('radar/search-runs/:id')
+  async radarSearchRunStatus(@Req() req: any, @Param('id') id: string) {
+    try {
+      return await this.webscrapingService.getRadarSearchRunForUser(req.user, id);
+    } catch (error) {
+      return this.webscrapingService.buildRadarClientErrorResponse(req.user, '/webscraping/radar/search-runs/:id', error);
+    }
+  }
+
   @Post('radar/replenish')
   async radarReplenish(@Req() req: any, @Body() dto: RadarPullDto) {
     try {

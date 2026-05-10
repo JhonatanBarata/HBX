@@ -175,6 +175,11 @@ export class InboxService {
     });
   }
 
+  private assertSystemMasterAction(user: any) {
+    if (Boolean(user?.isSystemMaster)) return;
+    throw new ForbiddenException('Somente o suporte HBX pode executar esta ação.');
+  }
+
   private normalizeVendasPhone(value: unknown) {
     const digits = this.customerProfileService.normalizePhone(value);
     if (!digits) return null;
@@ -3526,6 +3531,7 @@ export class InboxService {
                 limit: 120,
                 fullSync: true,
                 maxPages: 80,
+                downloadMedia: false,
                 failOnError: true,
               },
             );
@@ -3706,7 +3712,7 @@ export class InboxService {
   }
 
   async migrateWhatsappSessionToCurrent(user: any, sessionId: string, dto?: { confirmation?: string | null }) {
-    this.assertAdministrativeAction(user);
+    this.assertSystemMasterAction(user);
     const companyId = this.requireCompanyIdFromUser(user);
     const normalizedSessionId = String(sessionId || '').trim();
     if (!normalizedSessionId) throw new BadRequestException('Sessao WhatsApp obrigatoria.');
@@ -3782,7 +3788,7 @@ export class InboxService {
   }
 
   async migrateAllWhatsappHistoryToCurrent(user: any) {
-    this.assertAdministrativeAction(user);
+    this.assertSystemMasterAction(user);
     const companyId = this.requireCompanyIdFromUser(user);
     const scope = await this.resolveInboxWhatsappSessionScope(companyId);
     this.assertInboxWhatsappAccessible(scope);

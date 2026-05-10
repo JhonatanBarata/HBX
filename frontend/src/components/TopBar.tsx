@@ -271,7 +271,7 @@ type TopBarIncomingPopup = {
 
 type BillboardSlide = {
   id: string;
-  kind?: "status" | "engines" | "nightFactoryReward";
+  kind?: "status" | "engines" | "nightFactoryReward" | "whatsapp" | "attention";
   eyebrow: string;
   title: string;
   description: string;
@@ -316,6 +316,19 @@ type NightFactoryClaimStatusPayload = {
   description?: string;
   ctaLabel?: string;
   href?: string;
+};
+
+type VendasTopbarBoardPayload = {
+  summary?: {
+    today?: number | null;
+    overdue?: number | null;
+    scheduled?: number | null;
+    total?: number | null;
+    closed?: number | null;
+  } | null;
+  blocks?: {
+    scheduled?: unknown[] | null;
+  } | null;
 };
 
 type HbxPrefetchWindow = Window & {
@@ -1343,13 +1356,13 @@ export default function TopBar() {
   const [atendimentoPendingHumanCount, setAtendimentoPendingHumanCount] = useState(0);
   const [topbarProgress, setTopbarProgress] = useState<TopbarProgressState | null>(null);
   const [billboardSlideIndex, setBillboardSlideIndex] = useState(0);
-  const [billboardPaused, setBillboardPaused] = useState(false);
   const [nightFactoryReward, setNightFactoryReward] = useState<NightFactoryClaimStatusPayload | null>(null);
   const [scrapingEngines, setScrapingEngines] = useState<ScrapingEngineStatusPayload | null>(null);
   const [scrapingEngineStatusMessage, setScrapingEngineStatusMessage] = useState<string | null>(null);
   const [hbxGaugeBooting, setHbxGaugeBooting] = useState(true);
   const [hbxGaugeBootUsage, setHbxGaugeBootUsage] = useState(0);
   const [systemHealth, setSystemHealth] = useState<TopbarSystemHealthPayload | null>(null);
+  const [vendasTopbarBoard, setVendasTopbarBoard] = useState<VendasTopbarBoardPayload | null>(null);
   const [unreadInboxOpen, setUnreadInboxOpen] = useState(false);
   const [unreadInboxLoading, setUnreadInboxLoading] = useState(false);
   const [unreadInboxError, setUnreadInboxError] = useState<string | null>(null);
@@ -1396,7 +1409,9 @@ export default function TopBar() {
   const isMasterWebscrapingRoute = Boolean(
     pathname?.startsWith("/master/webscraping") || pathname?.startsWith("/dashboard/master/webscraping"),
   );
+  const isVendasRoute = Boolean(pathname?.startsWith("/vendas") || pathname?.startsWith("/dashboard/vendas"));
   const isAtendimentoRoute = Boolean(pathname?.startsWith("/atendimento") || pathname?.startsWith("/dashboard/atendimento"));
+  const isRadarDigitalRoute = Boolean(pathname?.startsWith("/radar-digital") || pathname?.startsWith("/dashboard/radar-digital"));
   const hasWhatsAppLiveContext = Boolean(authenticated === true && !pendingCheckoutLocked && !isMasterWebscrapingRoute && (user?.company?.id || user?.masterContext?.active));
   const whatsAppLiveHealth = useWhatsAppLiveHealth({
     enabled: hasWhatsAppLiveContext,
@@ -2408,6 +2423,36 @@ export default function TopBar() {
 
     void refreshSystemHealth();
   }, [authenticated, refreshSystemHealth, user?.isSystemMaster]);
+
+  useEffect(() => {
+    if (authenticated !== true || !isVendasRoute) {
+      setVendasTopbarBoard(null);
+      return;
+    }
+
+    let active = true;
+    async function loadVendasTopbarBoard() {
+      try {
+        const payload = await apiFetch<VendasTopbarBoardPayload>("/vendas/board", {
+          requireAuth: true,
+          timeoutMs: 12000,
+        });
+        if (active) setVendasTopbarBoard(payload);
+      } catch {
+        if (active) setVendasTopbarBoard(null);
+      }
+    }
+
+    void loadVendasTopbarBoard();
+    const timer = window.setInterval(() => {
+      void loadVendasTopbarBoard();
+    }, 45000);
+
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, [authenticated, isVendasRoute]);
 
   useEffect(() => {
     const hasWhatsAppContext = Boolean(user?.company?.id || user?.masterContext?.active);
@@ -3550,60 +3595,11 @@ export default function TopBar() {
     });
   }, [operationalStatus?.statuses, operationalStatusMap, pendingCheckoutLocked]);
   const billboardSlides = useMemo<BillboardSlide[]>(() => {
-    if (topbarProgress) {
-      const theaterSource = isTopbarTheaterSource(topbarProgress.source);
-      const sourceLabel =
-        theaterSource
-          ? "Telão"
-            : isEngineProgressSource(topbarProgress.source)
-              ? progressEngineLabel
-                ? `${progressEngineLabel} ao vivo`
-                : "Motores HBX"
-            : topbarProgress.phase === "warning"
-              ? "Atenção"
-              : "Confirmado";
-      const fallbackMetrics =
-        isEngineProgressSource(topbarProgress.source)
-          ? [
-              { label: "Fila", value: String(scrapingEngines?.capacity?.queuedCount ?? 0) },
-              { label: "Rodando", value: String(scrapingEngines?.capacity?.runningCount ?? hbxRunningCount) },
-              { label: "10 min", value: String(scrapingEngines?.capacity?.completedLast10Min ?? hbxProcessedLast10Min) },
-            ]
-          : [];
-
-      return [
-        {
-          id: `progress:${topbarProgress.source}:${topbarProgress.phase}:${topbarProgress.title}`,
-          eyebrow: theaterSource
-            ? topbarProgress.phase === "success"
-              ? "Telão OK"
-              : topbarProgress.phase === "warning"
-                ? "Telão Alerta"
-                : "Telão ao vivo"
-            : topbarProgress.phase === "success"
-              ? "Confirmado"
-              : topbarProgress.phase === "warning"
-                ? "Atenção"
-                : sourceLabel,
-          title: topbarProgress.title,
-          description: topbarProgress.status,
-          phase: topbarProgress.phase,
-          source: topbarProgress.source,
-          isTheater: theaterSource,
-          progress: topbarProgressPercent,
-          metrics: (topbarProgress.metrics?.length ? topbarProgress.metrics : fallbackMetrics).slice(0, 3),
-          steps: topbarProgress.steps,
-          activeStepIndex: topbarProgress.activeStepIndex,
-          cardFeed: topbarProgress.cardFeed,
-        },
-      ];
-    }
-
     if (masterContextToast) {
       return [
         {
           id: `master-context:${masterContextToast}`,
-          eyebrow: "Confirmado",
+          eyebrow: "Contexto",
           title: "Contexto atualizado",
           description: masterContextToast,
           phase: "success",
@@ -3614,176 +3610,148 @@ export default function TopBar() {
       ];
     }
 
-    const capacity = scrapingEngines?.capacity;
-    const slides: BillboardSlide[] = [
+    if (isVendasRoute) {
+      const overdue = Math.max(0, Math.trunc(Number(vendasTopbarBoard?.summary?.overdue || 0)));
+      const today = Math.max(0, Math.trunc(Number(vendasTopbarBoard?.summary?.today || 0)));
+      const future = Math.max(
+        0,
+        Math.trunc(Number(vendasTopbarBoard?.summary?.scheduled ?? vendasTopbarBoard?.blocks?.scheduled?.length ?? 0)),
+      );
+      const vendasProgress = topbarProgress?.source === "vendas" ? topbarProgress : null;
+      const hasWarning = overdue > 0 || vendasProgress?.phase === "warning";
+
+      return [
+        {
+          id: `vendas:${overdue}:${today}:${future}:${vendasProgress?.phase || "idle"}`,
+          kind: hasWarning ? "attention" : "status",
+          eyebrow: "Vendas",
+          title: vendasProgress?.phase === "warning" ? vendasProgress.title : today > 0 ? `${today} para hoje` : overdue > 0 ? `${overdue} atrasados` : "Agenda limpa",
+          description: vendasProgress?.status || `${overdue} atrasados - ${today} para hoje - ${future} futuros`,
+          phase: hasWarning ? "warning" : vendasProgress?.phase === "loading" ? "loading" : "success",
+          source: "vendas",
+          href: "/vendas",
+          progress: vendasProgress ? topbarProgressPercent : null,
+          metrics: [
+            { label: "Atrasados", value: String(overdue) },
+            { label: "Hoje", value: String(today) },
+            { label: "Futuros", value: String(future) },
+          ],
+        },
+      ];
+    }
+
+    if (isAtendimentoRoute) {
+      const badOperationalChips = visibleOperationalStatusChips.filter((chip) => chip.tone !== "green").length;
+      const qrHasIssue = qrOperationalTile.tone === "danger" || qrOperationalTile.tone === "warning";
+      const warningCount =
+        badOperationalChips +
+        (pendingHumanCount > 0 ? 1 : 0) +
+        (unreadInboxCount > 0 ? 1 : 0) +
+        (qrHasIssue ? 1 : 0) +
+        (incomingPopup ? 1 : 0);
+      const title = incomingPopup
+        ? `${incomingPopup.customerLabel || incomingPopup.contactPhone || "Cliente"} mandou mensagem`
+        : warningCount > 0
+          ? `${warningCount} aviso${warningCount === 1 ? "" : "s"} no atendimento`
+          : "Atendimento estável";
+
+      return [
+        {
+          id: `atendimento:${warningCount}:${pendingHumanCount}:${unreadInboxCount}:${qrOperationalTile.value}`,
+          kind: warningCount > 0 ? "attention" : "whatsapp",
+          eyebrow: "Atendimento",
+          title,
+          description: incomingPopup?.preview || qrOperationalTile.detail || whatsAppHealthLabel,
+          phase: warningCount > 0 ? "warning" : whatsAppHealth === "green" ? "success" : "idle",
+          source: "atendimento",
+          href: "#atendimento-alerts",
+          progress: qrOperationalTile.usage,
+          metrics: [
+            { label: "Conexão", value: whatsAppHealth === "green" ? "OK" : qrOperationalTile.value },
+            { label: "Não lidas", value: String(unreadInboxCount) },
+            { label: "Avisos", value: String(warningCount) },
+          ],
+        },
+      ];
+    }
+
+    if (isRadarDigitalRoute || isMasterWebscrapingRoute) {
+      const availableEngines = Math.max(
+        0,
+        hbxEngineOnlineCount - hbxCapacityRunningCount - hbxCooldownCount - hbxPausedCount - hbxOperationalErrorCount,
+      );
+      const radarProgress = topbarProgress && isEngineProgressSource(topbarProgress.source) ? topbarProgress : null;
+
+      return [
+        {
+          id: `radar:${availableEngines}:${hbxQueueCount}:${hbxOperationalErrorCount}:${radarProgress?.phase || "idle"}`,
+          kind: hbxOperationalErrorCount > 0 ? "attention" : "engines",
+          eyebrow: "Radar Digital",
+          title: hbxOperationalErrorCount > 0 ? `${hbxOperationalErrorCount} erro${hbxOperationalErrorCount === 1 ? "" : "s"} nos motores` : `${availableEngines} motores disponíveis`,
+          description: radarProgress?.status || `${hbxEngineOnlineCount}/${visibleHbxEngineCount} online - ${hbxCapacityRunningCount} rodando agora`,
+          phase: hbxOperationalErrorCount > 0 ? "warning" : radarProgress?.phase === "loading" || hasActiveScrapingEngine ? "loading" : "success",
+          source: "engines",
+          href: user?.isSystemMaster ? "/master/webscraping" : "/radar-digital",
+          progress: radarProgress ? topbarProgressPercent : hbxUsageAverage,
+          metrics: [
+            { label: "Disponíveis", value: String(availableEngines) },
+            { label: "Fila", value: String(hbxQueueCount) },
+            { label: "Erros", value: String(hbxOperationalErrorCount) },
+          ],
+        },
+      ];
+    }
+
+    const memory = hostingerVitals.find((vital) => vital.id === "memory");
+    const load = hostingerVitals.find((vital) => vital.id === "load");
+    const disk = hostingerVitals.find((vital) => vital.id === "disk");
+    const serverTone = hostingerSummaryTile.tone === "danger" || hostingerSummaryTile.tone === "warning" ? "warning" : "success";
+
+    return [
       {
-        id: "operational",
+        id: `server:${systemHealth?.generatedAt || "pending"}:${hostingerSummaryTile.value}`,
         kind: "status",
-        eyebrow: "Status operacional",
-        title: operationalSummaryMessage,
-        description: accountContext,
-        phase: pendingCheckoutLocked || showOperationalCompanyPicker ? "warning" : hasActiveScrapingEngine ? "loading" : "idle",
-        source: "operational",
-        progress: hasActiveScrapingEngine ? hbxUsageAverage : null,
+        eyebrow: "Servidor",
+        title: `Server ${hostingerSummaryTile.value}`,
+        description: hostingerSummaryTile.detail,
+        phase: serverTone,
+        source: "hostinger",
+        href: user?.isSystemMaster ? "/master/sistema" : "/boasvindas",
+        progress: hostingerSummaryTile.usage,
         metrics: [
-          { label: "Uso", value: `${hbxUsageAverage}%` },
-          { label: "Fila", value: String(capacity?.queuedCount ?? 0) },
-          { label: "10 min", value: String(capacity?.completedLast10Min ?? hbxProcessedLast10Min) },
+          { label: "Memória", value: memory?.value || "--" },
+          { label: "CPU", value: load?.value || "--" },
+          { label: "HD", value: disk?.value || "--" },
         ],
       },
     ];
-
-    slides.push({
-      id: "engines",
-      kind: "engines",
-      eyebrow: "Motores HBX",
-      title: `${hbxCapacityRunningCount} rodando`,
-      description: `${hbxEngineOnlineCount}/${visibleHbxEngineCount} online • ${hbxActiveEngineLimit}/${visibleHbxEngineCount} ativos agora`,
-      phase: hbxOperationalErrorCount > 0 ? "warning" : hbxCapacityRunningCount > 0 || hasActiveScrapingEngine ? "loading" : "success",
-      source: "engines",
-      progress: hbxUsageAverage,
-      metrics: [
-        { label: "Online", value: `${hbxEngineOnlineCount}/${visibleHbxEngineCount}` },
-        { label: "Rodando", value: String(hbxCapacityRunningCount) },
-        { label: "Cooldown", value: String(hbxCooldownCount) },
-      ],
-    });
-
-    if (nightFactoryReward?.eligible) {
-      slides.push({
-        id: `night-factory-reward:${nightFactoryReward.availableCount || 5}`,
-        kind: "nightFactoryReward",
-        eyebrow: "🎁 Night Factory",
-        title: "5 leads premium liberados",
-        description: "Recompensa diária disponível",
-        phase: "success",
-        source: "night-factory-reward",
-        href: nightFactoryReward.href || "/night-factory",
-        ctaLabel: nightFactoryReward.ctaLabel || "Resgatar recompensa",
-        progress: 100,
-        metrics: [
-          { label: "Leads", value: `${nightFactoryReward.rewardSize || nightFactoryReward.minimumRequired || 5}/${nightFactoryReward.rewardSize || nightFactoryReward.minimumRequired || 5}` },
-          { label: "Uso", value: "Diário" },
-          { label: "Score", value: "Premium" },
-        ],
-      });
-    }
-
-    if (incomingPopup) {
-      slides.push({
-        id: `incoming:${incomingPopup.id}`,
-        eyebrow: incomingPopup.attentionLabel || "Mensagem",
-        title: `${incomingPopup.contactPhone || incomingPopup.customerLabel || "Cliente"} mandou mensagem`,
-        description: incomingPopup.preview || incomingPopup.moduleLabel || "Nova mensagem aguardando ação.",
-        phase: "warning",
-        source: "incoming",
-        progress: null,
-        metrics: [
-          { label: "Origem", value: incomingPopup.moduleLabel },
-          { label: "Fila", value: String(pendingHumanCount) },
-          { label: "Não lidas", value: String(unreadInboxCount) },
-        ],
-      });
-    }
-
-    if (qrOperationalTile.tone !== "neutral") {
-      slides.push({
-        id: `qr:${qrOperationalTile.value}:${qrOperationalTile.tone}`,
-        eyebrow: "Saúde do QR Code",
-        title: qrOperationalTile.value,
-        description: qrOperationalTile.detail,
-        phase: qrOperationalTile.tone === "danger" || qrOperationalTile.tone === "warning" ? "warning" : qrOperationalTile.tone === "loading" ? "loading" : "success",
-        source: "qr",
-        progress: qrOperationalTile.usage,
-        metrics: [
-          { label: "QR", value: qrOperationalTile.value },
-          { label: "WhatsApp", value: whatsAppHealthLabel },
-        ],
-      });
-    }
-
-    if (user?.isSystemMaster) {
-      slides.push({
-        id: `hostinger:${systemHealth?.generatedAt || "pending"}`,
-        eyebrow: "Hostinger",
-        title: hostingerSummaryTile.value,
-        description: hostingerSummaryTile.detail,
-        phase: hostingerSummaryTile.tone === "danger" || hostingerSummaryTile.tone === "warning" ? "warning" : "success",
-        source: "hostinger",
-        progress: hostingerSummaryTile.usage,
-        metrics: hostingerVitals
-          .filter((vital) => vital.id === "memory" || vital.id === "disk" || vital.id === "api")
-          .map((vital) => ({ label: vital.label, value: vital.value }))
-          .slice(0, 3),
-      });
-    }
-
-    if (visibleOperationalStatusChips.length) {
-      const chipMetrics = visibleOperationalStatusChips.slice(0, 3).map((chip) => ({
-        label: chip.shortLabel || chip.label,
-        value: chip.value,
-      }));
-      slides.push({
-        id: "modules",
-        eyebrow: "Módulos",
-        title: visibleOperationalStatusChips.slice(0, 2).map((chip) => `${chip.shortLabel}: ${chip.value}`).join(" · "),
-        description: whatsAppHealthLabel,
-        phase: whatsAppHealth === "green" ? "success" : whatsAppHealth === "red" ? "warning" : "idle",
-        source: "modules",
-        progress: whatsAppHealth === "green" ? 100 : null,
-        metrics: chipMetrics,
-      });
-    }
-
-    if (pendingHumanCount > 0) {
-      slides.push({
-        id: "queue",
-        eyebrow: "Atenção",
-        title: `${pendingHumanCount} atendimento${pendingHumanCount === 1 ? "" : "s"} na fila humana`,
-        description: "Mensagens e cobranças aguardando operador.",
-        phase: "warning",
-        source: "queue",
-        progress: null,
-        metrics: [
-          { label: "Inbox", value: String(atendimentoPendingHumanCount) },
-          { label: "Cobrança", value: String(recoveryPendingHumanCount) },
-        ],
-      });
-    }
-
-    return slides;
   }, [
-    accountContext,
-    atendimentoPendingHumanCount,
-    hasActiveScrapingEngine,
-    hbxActiveEngineLimit,
     hbxCapacityRunningCount,
     hbxCooldownCount,
     hbxEngineOnlineCount,
-    hbxEngineTotal,
     hbxOperationalErrorCount,
+    hbxPausedCount,
+    hbxQueueCount,
+    hbxUsageAverage,
+    hasActiveScrapingEngine,
     hostingerSummaryTile,
     hostingerVitals,
-    hbxProcessedLast10Min,
-    hbxRunningCount,
-    hbxUsageAverage,
     incomingPopup,
+    isAtendimentoRoute,
+    isMasterWebscrapingRoute,
+    isRadarDigitalRoute,
+    isVendasRoute,
     masterContextToast,
-    nightFactoryReward,
-    operationalSummaryMessage,
-    pendingCheckoutLocked,
     pendingHumanCount,
-    progressEngineLabel,
     qrOperationalTile,
-    recoveryPendingHumanCount,
-    scrapingEngines?.capacity,
-    showOperationalCompanyPicker,
     systemHealth?.generatedAt,
     topbarProgress,
     topbarProgressPercent,
     unreadInboxCount,
-    visibleOperationalStatusChips,
     user?.isSystemMaster,
+    vendasTopbarBoard,
+    visibleHbxEngineCount,
+    visibleOperationalStatusChips,
     whatsAppHealth,
     whatsAppHealthLabel,
   ]);
@@ -3793,30 +3761,6 @@ export default function TopBar() {
     setBillboardSlideIndex(0);
   }, [billboardSlideSignature]);
 
-  useEffect(() => {
-    if (billboardPaused || billboardSlides.length <= 1) return undefined;
-    const timer = window.setInterval(() => {
-      setBillboardSlideIndex((index) => (index + 1) % billboardSlides.length);
-    }, 2600);
-
-    return () => window.clearInterval(timer);
-  }, [billboardPaused, billboardSlideSignature, billboardSlides.length]);
-
-  const activeBillboardSlide: BillboardSlide =
-    billboardSlides[billboardSlideIndex % Math.max(1, billboardSlides.length)] || {
-      id: "fallback",
-      eyebrow: "Status operacional",
-      title: "Status em leitura",
-      description: "Aguardando dados do sistema.",
-      phase: "idle",
-      source: "fallback",
-      progress: null,
-      metrics: [],
-    };
-  const activeBillboardProgress =
-    typeof activeBillboardSlide?.progress === "number"
-      ? Math.round(Math.max(0, Math.min(100, activeBillboardSlide.progress)))
-      : null;
   const whatsAppDialogNode = (
     <WhatsAppOperationalDialog
       isOpen={whatsAppDetailOpen}
@@ -3947,163 +3891,6 @@ export default function TopBar() {
   const _initialSource = displayName || String(user?.username || user?.email || "");
   const displayInitial = _initialSource ? _initialSource.charAt(0).toUpperCase() : "U";
   const displayLabel = displayName || user?.username || "";
-  const hbxEngineSource = scrapingEngineView.hbxEngines.length
-    ? scrapingEngineView.hbxEngines
-    : Array.from({ length: visibleHbxEngineCount }, (_, index) => buildFallbackScrapingEngine(index));
-  const hbxEngineGroupCount = Math.max(1, Math.ceil(hbxEngineSource.length / HBX_ENGINE_GROUP_SIZE));
-  const hbxEngineGroups = Array.from({ length: hbxEngineGroupCount }, (_, groupIndex) => {
-    const sourceEngines = scrapingEngineView.hbxEngines.length
-      ? scrapingEngineView.hbxEngines
-      : hbxEngineSource;
-    const mainEngineMode = sourceEngines.length <= 4;
-    const firstIndex = groupIndex * HBX_ENGINE_GROUP_SIZE + 1;
-    const lastIndex = Math.min(sourceEngines.length, firstIndex + HBX_ENGINE_GROUP_SIZE - 1);
-    const sourceMainEngine = sourceEngines[groupIndex] || buildFallbackScrapingEngine(groupIndex);
-    const groupEngines = mainEngineMode
-      ? Array.from({ length: HBX_ENGINE_GROUP_SIZE }, (_, childIndex) => buildSyntheticGroupChildEngine(sourceMainEngine, groupIndex, childIndex))
-      : sourceEngines.slice(firstIndex - 1, lastIndex);
-    const safeGroupEngines = groupEngines.length
-      ? groupEngines
-      : Array.from({ length: HBX_ENGINE_GROUP_SIZE }, (_, childIndex) => buildFallbackScrapingEngine(groupIndex * HBX_ENGINE_GROUP_SIZE + childIndex));
-    const onlineCount = safeGroupEngines.filter((engine) => engine.configured && engine.online).length;
-    const runningCount = safeGroupEngines.filter((engine) => {
-      const state = getVisibleScrapingEngineState(engine);
-      return engine.active || engine.busy || isLiveScrapingEngine(engine) || state === "busy" || state === "emergency";
-    }).length;
-    const cooldownCount = safeGroupEngines.filter((engine) => getVisibleScrapingEngineState(engine) === "cooldown").length;
-    const pausedCount = safeGroupEngines.filter((engine) => getVisibleScrapingEngineState(engine) === "paused").length;
-    const errorCount = safeGroupEngines.filter((engine) => {
-      const state = getVisibleScrapingEngineState(engine);
-      return state === "degraded" || state === "offline" || state === "missing";
-    }).length;
-    const usage = Math.round(
-      safeGroupEngines.reduce((sum, engine) => sum + getEngineUsage(engine), 0) / Math.max(1, safeGroupEngines.length),
-    );
-    const state =
-      errorCount > 0
-        ? "error"
-        : runningCount > 0
-          ? "running"
-          : cooldownCount > 0
-            ? "cooldown"
-            : pausedCount > 0
-              ? "paused"
-              : onlineCount > 0
-                ? "standby"
-                : "offline";
-    const stateLabel =
-      state === "running"
-        ? "Rodando"
-        : state === "cooldown"
-          ? "Cooldown"
-          : state === "paused"
-            ? "Pausado"
-            : state === "error"
-              ? "Erro"
-              : state === "offline"
-                ? "Off"
-                : "Standby";
-    const groupTone = getEngineUsageTone(usage, state);
-
-    return {
-      id: `hbx-group-${groupIndex + 1}`,
-      label: `M${groupIndex + 1}`,
-      range: `${firstIndex}-${lastIndex}`,
-      state,
-      stateLabel,
-      usage,
-      tone: groupTone,
-      toneColor: getEngineToneColor(groupTone),
-      onlineCount,
-      runningCount,
-      total: safeGroupEngines.length,
-    };
-  });
-  const hbxEngineGroupCards = hbxEngineGroups.map((group) => (
-    <article
-      key={group.id}
-      className="hbx-command-engine"
-      data-state={group.state}
-      data-tone={group.tone}
-      style={
-        {
-          ...getEngineGaugeStyle(group.usage),
-          ["--engine-tone-color" as string]: group.toneColor,
-        } as React.CSSProperties
-      }
-      title={`${group.label}: ${group.stateLabel}. Motores ${group.range}. ${group.runningCount}/${group.total} rodando, ${group.onlineCount}/${group.total} online.`}
-    >
-      <div className="hbx-command-engine__top">
-        <div>
-          <span className="hbx-command-engine__range">Motores {group.range}</span>
-          <strong>{group.label}</strong>
-        </div>
-        <span>{group.stateLabel}</span>
-      </div>
-      <div className="hbx-command-engine__mid">
-        <span className="hbx-command-engine__gauge" aria-hidden="true">
-          <b>{group.usage}%</b>
-          <small>uso</small>
-        </span>
-        <span className="hbx-command-engine__packageStats">
-          <span>
-            <b>{group.runningCount}</b>
-            <small>rodando</small>
-          </span>
-          <span>
-            <b>{group.onlineCount}</b>
-            <small>online</small>
-          </span>
-          <span>
-            <b>{group.total}</b>
-            <small>motores</small>
-          </span>
-        </span>
-      </div>
-    </article>
-  ));
-  const commandKpis = [
-    {
-      id: "memory",
-      label: "Memória Hostinger",
-      value: hostingerVitals.find((vital) => vital.id === "memory")?.value || "--",
-      detail: hostingerVitals.find((vital) => vital.id === "memory")?.detail || "free -h",
-      tone: hostingerVitals.find((vital) => vital.id === "memory")?.tone || "neutral",
-      usage: hostingerVitals.find((vital) => vital.id === "memory")?.usage ?? null,
-    },
-    {
-      id: "disk",
-      label: "Espaço",
-      value: hostingerVitals.find((vital) => vital.id === "disk")?.value || "--",
-      detail: hostingerVitals.find((vital) => vital.id === "disk")?.detail || "Disco da VPS",
-      tone: hostingerVitals.find((vital) => vital.id === "disk")?.tone || "neutral",
-      usage: hostingerVitals.find((vital) => vital.id === "disk")?.usage ?? null,
-    },
-    {
-      id: "messages",
-      label: "Mensagens recebidas",
-      value: String(Math.max(unreadInboxCount, pendingHumanCount)),
-      detail: pendingHumanCount > 0 ? `${pendingHumanCount} na fila humana` : "Inbox sem pressão",
-      tone: pendingHumanCount > 0 || unreadInboxCount > 0 ? "warning" : "success",
-      usage: pendingHumanCount > 0 || unreadInboxCount > 0 ? 72 : 100,
-    },
-    {
-      id: "queue",
-      label: "Cards esperando",
-      value: String(hbxQueueCount),
-      detail: `${hbxCapacityRunningCount} rodando agora`,
-      tone: hbxQueueCount > 0 ? "warning" : "success",
-      usage: hbxQueueGaugeUsage,
-    },
-    {
-      id: "qr",
-      label: "QR Code",
-      value: qrOperationalTile.value,
-      detail: qrOperationalTile.detail,
-      tone: qrOperationalTile.tone,
-      usage: qrOperationalTile.usage ?? null,
-    },
-  ];
   if (hiddenRoutes.has(pathname)) {
     return null;
   }
@@ -4139,43 +3926,30 @@ export default function TopBar() {
             data-live={liveWebscrapingProgress ? "true" : "false"}
             aria-label="Status operacional HBX"
           >
-            {billboardSlides.length > 1 ? (
-              <button
-                type="button"
-                className="hbx-command-carouselNav hbx-command-carouselNav--prev"
-                aria-label="Voltar slide operacional"
-                title="Voltar"
-                onMouseEnter={() => setBillboardPaused(true)}
-                onMouseLeave={() => setBillboardPaused(false)}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  setBillboardSlideIndex((index) => (index - 1 + billboardSlides.length) % billboardSlides.length);
-                }}
-              >
-                ‹
-              </button>
-            ) : null}
-            {billboardSlides.length > 1 ? (
-              <button
-                type="button"
-                className="hbx-command-carouselNav hbx-command-carouselNav--next"
-                aria-label="Avançar slide operacional"
-                title="Avançar"
-                onMouseEnter={() => setBillboardPaused(true)}
-                onMouseLeave={() => setBillboardPaused(false)}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  setBillboardSlideIndex((index) => (index + 1) % billboardSlides.length);
-                }}
-              >
-                ›
-              </button>
-            ) : null}
-                        <div className="hbx-command-center__body">
+            <div className="hbx-command-center__body">
               <TopbarCommandCarousel
                 slides={billboardSlides}
-                engineCards={hbxEngineGroupCards}
-onNavigate={(href) => router.push(href)}
+                activeIndex={billboardSlideIndex}
+                onIndexChange={setBillboardSlideIndex}
+                onNavigate={(href) => {
+                  if (href === "#atendimento-alerts") {
+                    if (pendingCheckoutLocked) {
+                      router.push(pendingCheckoutHref);
+                      return;
+                    }
+                    if (pendingHumanCount > 0) {
+                      handleQueueShortcut(atendimentoPendingHumanCount > 0 ? "atendimento" : "recovery");
+                      return;
+                    }
+                    if (unreadInboxCount > 0) {
+                      void toggleUnreadInboxPopup();
+                      return;
+                    }
+                    openWhatsAppOperationalDetail("status");
+                    return;
+                  }
+                  router.push(href);
+                }}
               />
             </div>
           </section>

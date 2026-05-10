@@ -3586,7 +3586,7 @@ export default function InboxClientPage() {
     inboxBootstrapLaunchNotice.start({
       loadingTitle: "Carregando WhatsApp",
       loadingDescription:
-        "Baixando conversas, nomes, fotos e midias do motor para deixar a inbox pronta no backend.",
+        "Baixando conversas, nomes e fotos do motor para deixar a inbox pronta no backend.",
       successTitle: "Inbox pronta",
       successDescription: "Tudo espelhado no backend. Vamos abrir o Atendimento.",
       ctaLabel: "Abrir inbox",
@@ -5016,6 +5016,8 @@ export default function InboxClientPage() {
     const role = String(currentUserProfile?.role || "").trim().toUpperCase();
     return role === "ADMIN";
   }, [currentUserProfile?.isSystemMaster, currentUserProfile?.role]);
+
+  const canManageWhatsappHistory = Boolean(currentUserProfile?.isSystemMaster);
 
   const providerCapabilities = useMemo<ProviderCapabilities>(
     () => getProviderCapabilitiesFromWhatsAppCenter(whatsappCenterPayload),
@@ -8488,6 +8490,7 @@ export default function InboxClientPage() {
     liveHealthPopupKey !== null &&
     liveHealthPopupKey !== dismissedWhatsappLiveHealthPopupKey;
   const shouldShowHistoryPopup =
+    canManageWhatsappHistory &&
     hasPreviousWhatsappHistory &&
     historyPopupKey !== dismissedWhatsappHistoryPopupKey;
   const whatsappOperationalPopup =

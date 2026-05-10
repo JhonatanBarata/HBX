@@ -276,6 +276,7 @@ export class WebwhatsBridgeService {
       fullSync?: boolean;
       maxPages?: number;
       failOnError?: boolean;
+      downloadMedia?: boolean;
     },
   ): Promise<WebwhatsConversationSyncResult> {
     const session = await this.resolveCurrentWebwhatsSession(companyId);
@@ -424,6 +425,7 @@ export class WebwhatsBridgeService {
           remoteJid,
           message,
           this.getMessageRemoteJidAlt(message) || remoteJidAlt,
+          { downloadMedia: opts?.downloadMedia !== false },
         );
       }
 
@@ -1005,7 +1007,7 @@ export class WebwhatsBridgeService {
       target,
       response,
       rawMessageId,
-      providerMessageId: rawMessageId ? this.buildProviderMessageId(tenantKey, rawMessageId, company.session.id) : null,
+      providerMessageId: rawMessageId ? this.buildProviderMessageId(tenantKey, rawMessageId) : null,
     };
   }
 
@@ -1044,7 +1046,7 @@ export class WebwhatsBridgeService {
       target,
       response,
       rawMessageId,
-      providerMessageId: rawMessageId ? this.buildProviderMessageId(tenantKey, rawMessageId, company.session.id) : null,
+      providerMessageId: rawMessageId ? this.buildProviderMessageId(tenantKey, rawMessageId) : null,
     };
   }
 
@@ -1078,7 +1080,7 @@ export class WebwhatsBridgeService {
       target,
       response,
       rawMessageId,
-      providerMessageId: rawMessageId ? this.buildProviderMessageId(tenantKey, rawMessageId, company.session.id) : null,
+      providerMessageId: rawMessageId ? this.buildProviderMessageId(tenantKey, rawMessageId) : null,
     };
   }
 
@@ -1168,7 +1170,7 @@ export class WebwhatsBridgeService {
       requestBody,
       response,
       rawMessageId,
-      providerMessageId: rawMessageId ? this.buildProviderMessageId(tenantKey, rawMessageId, company.session.id) : null,
+      providerMessageId: rawMessageId ? this.buildProviderMessageId(tenantKey, rawMessageId) : null,
     };
   }
 
@@ -3119,21 +3121,40 @@ export class WebwhatsBridgeService {
       rawPayload?: unknown;
     },
   ) {
-    const targetProviderMessageId = this.buildProviderMessageId(
-      this.buildTenantKey(companyId),
+    const tenantKey = this.buildTenantKey(companyId);
+    const targetProviderMessageId = this.buildProviderMessageId(tenantKey, input.targetRawMessageId);
+    const legacyTargetProviderMessageId = this.buildSessionScopedProviderMessageId(
+      tenantKey,
       input.targetRawMessageId,
       input.session?.id || null,
     );
-    const existing = await this.prisma.companyMessage.findUnique({
-      where: { providerMessageId: targetProviderMessageId },
-      select: {
-        id: true,
-        body: true,
-        messageType: true,
-        rawPayload: true,
-        variablesJson: true,
-      },
-    });
+    const existing =
+      (await this.prisma.companyMessage.findUnique({
+        where: { providerMessageId: targetProviderMessageId },
+        select: {
+          id: true,
+          body: true,
+          messageType: true,
+          rawPayload: true,
+          variablesJson: true,
+        },
+      })) ||
+      (legacyTargetProviderMessageId
+        ? await this.prisma.companyMessage.findFirst({
+            where: {
+              companyId,
+              provider: 'WEBWHATS',
+              providerMessageId: { in: [legacyTargetProviderMessageId] },
+            },
+            select: {
+              id: true,
+              body: true,
+              messageType: true,
+              rawPayload: true,
+              variablesJson: true,
+            },
+          })
+        : null);
     if (!existing?.id) return false;
 
     const variables = this.parseMetadata(existing.variablesJson);
@@ -3180,6 +3201,7 @@ export class WebwhatsBridgeService {
     remoteJid: string,
     message: WebwhatsFetchedMessage,
     remoteJidAlt?: string | null,
+    opts?: { downloadMedia?: boolean },
   ) {
     const protocolType = this.normalizeOptionalString(message?.message?.protocolMessage?.type)?.toUpperCase();
     const revokedMessageId = this.normalizeOptionalString(message?.message?.protocolMessage?.key?.id);
@@ -3198,8 +3220,12 @@ export class WebwhatsBridgeService {
     }
 
     const keyId = this.normalizeOptionalString(message?.key?.id || message?.id);
+    const tenantKey = this.buildTenantKey(companyId);
     const rawProviderMessageId = keyId
-      ? this.buildProviderMessageId(this.buildTenantKey(companyId), keyId, session.id)
+      ? this.buildProviderMessageId(tenantKey, keyId)
+      : null;
+    const legacySessionProviderMessageId = keyId
+      ? this.buildSessionScopedProviderMessageId(tenantKey, keyId, session.id)
       : null;
     const direction = message?.key?.fromMe ? 'OUTBOUND' : 'INBOUND';
     const normalizedIncoming = this.normalizeIncomingWhatsAppMessage(message);
@@ -3212,10 +3238,12 @@ export class WebwhatsBridgeService {
     const resolvedContact = this.buildConversationContact(remoteJidAlt || this.getMessageRemoteJidAlt(message) || remoteJid);
     const normalizedCustomerPhone = normalizeWhatsAppPhone(resolvedContact);
     const existingMessage = rawProviderMessageId
-      ? await this.prisma.companyMessage.findUnique({
-          where: { providerMessageId: rawProviderMessageId },
-          select: { id: true, variablesJson: true },
-        })
+      ? await this.findExistingWebwhatsMessageByProviderId(
+          companyId,
+          rawProviderMessageId,
+          legacySessionProviderMessageId,
+          keyId,
+        )
       : await this.prisma.companyMessage.findFirst({
           where: {
             companyId,
@@ -3225,16 +3253,18 @@ export class WebwhatsBridgeService {
             body,
             timestamp,
           },
-          select: { id: true, variablesJson: true },
+          select: { id: true, providerMessageId: true, variablesJson: true },
         });
     const existingVariables = this.parseMetadata(existingMessage?.variablesJson);
-    const mediaAttachment = await this.resolveInboundMediaAttachment(
-      companyId,
-      conversationId,
-      message,
-      messageType,
-      existingVariables,
-    );
+    const mediaAttachment = opts?.downloadMedia === false
+      ? this.buildStoredMediaAttachmentFromVariables(existingVariables || {})
+      : await this.resolveInboundMediaAttachment(
+          companyId,
+          conversationId,
+          message,
+          messageType,
+          existingVariables,
+        );
     const incomingNormalization =
       normalizedIncoming.kind === 'interactive_received' || normalizedIncoming.kind === 'unknown'
         ? {
@@ -3319,11 +3349,11 @@ export class WebwhatsBridgeService {
           persistedMessageId = Number(updated.id || 0);
         }
       } else {
-        const updated = await this.prisma.companyMessage.update({
-          where: { providerMessageId: rawProviderMessageId },
-          data: updateData,
-          select: { id: true },
-        });
+        const updated = await this.updateExistingWebwhatsMessage(
+          existingMessage.id,
+          rawProviderMessageId,
+          updateData,
+        );
         persistedMessageId = Number(updated.id || 0);
       }
     } else {
@@ -3550,12 +3580,80 @@ export class WebwhatsBridgeService {
     return direction === 'OUTBOUND' ? 'SENT' : 'RECEIVED';
   }
 
-  private buildProviderMessageId(tenantKey: string, rawMessageId: string, sessionId?: string | null) {
+  private buildProviderMessageId(tenantKey: string, rawMessageId: string) {
+    return `webwhats:${tenantKey}:${rawMessageId}`;
+  }
+
+  private buildSessionScopedProviderMessageId(tenantKey: string, rawMessageId: string, sessionId?: string | null) {
     const normalizedSessionId = this.normalizeOptionalString(sessionId);
     if (normalizedSessionId) {
       return `webwhats:${tenantKey}:${normalizedSessionId}:${rawMessageId}`;
     }
-    return `webwhats:${tenantKey}:${rawMessageId}`;
+    return null;
+  }
+
+  private async findExistingWebwhatsMessageByProviderId(
+    companyId: number,
+    providerMessageId: string,
+    legacySessionProviderMessageId: string | null,
+    rawMessageId: string,
+  ) {
+    const direct = await this.prisma.companyMessage.findUnique({
+      where: { providerMessageId },
+      select: { id: true, providerMessageId: true, variablesJson: true },
+    });
+    if (direct) return direct;
+
+    const legacyCandidates = new Set<string>();
+    if (legacySessionProviderMessageId) legacyCandidates.add(legacySessionProviderMessageId);
+    const suffix = `:${String(rawMessageId || '').trim()}`;
+    if (suffix.length > 1) {
+      const legacy = await this.prisma.companyMessage.findFirst({
+        where: {
+          companyId,
+          provider: 'WEBWHATS',
+          providerMessageId: { endsWith: suffix },
+        },
+        select: { id: true, providerMessageId: true, variablesJson: true },
+        orderBy: { timestamp: 'desc' },
+      });
+      if (legacy?.providerMessageId) legacyCandidates.add(String(legacy.providerMessageId));
+    }
+
+    if (!legacyCandidates.size) return null;
+    return this.prisma.companyMessage.findFirst({
+      where: {
+        companyId,
+        provider: 'WEBWHATS',
+        providerMessageId: { in: Array.from(legacyCandidates) },
+      },
+      select: { id: true, providerMessageId: true, variablesJson: true },
+      orderBy: { timestamp: 'desc' },
+    });
+  }
+
+  private async updateExistingWebwhatsMessage(
+    id: number,
+    providerMessageId: string,
+    data: Record<string, any>,
+  ) {
+    try {
+      return await this.prisma.companyMessage.update({
+        where: { id: Number(id) },
+        data: {
+          ...data,
+          providerMessageId,
+        },
+        select: { id: true },
+      });
+    } catch (error) {
+      if (!this.isUniqueConstraintError(error)) throw error;
+      return this.prisma.companyMessage.update({
+        where: { id: Number(id) },
+        data,
+        select: { id: true },
+      });
+    }
   }
 
   private async resolveSendTarget(
