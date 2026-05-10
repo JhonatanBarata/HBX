@@ -118,6 +118,7 @@ type AuditFactory = {
     enabled: boolean;
     emergencyStop: boolean;
     weekdaysOnly?: boolean;
+    weekendAlwaysOn?: boolean;
     startHour: number;
     startMinute: number;
     endHour: number;
@@ -290,6 +291,19 @@ function factoryReasonLabel(value?: string | null) {
   return "Rodando";
 }
 
+function factoryWindowLabel(schedule?: AuditFactory["schedule"]) {
+  const start = timeValue(schedule?.startHour ?? 22, schedule?.startMinute ?? 0);
+  const end = timeValue(schedule?.endHour ?? 7, schedule?.endMinute ?? 0);
+  if (start === end) return "24h por dia";
+  return `${start} até ${end}`;
+}
+
+function factoryCalendarLabel(schedule?: AuditFactory["schedule"]) {
+  if (schedule?.weekdaysOnly) return "Apenas dias úteis";
+  if (schedule?.weekendAlwaysOn) return "Fim de semana 24h";
+  return "Todos os dias na janela";
+}
+
 export default function BancoDeDadosClientPage() {
   const hasToken = useRequireAuth();
   const [checkingAccess, setCheckingAccess] = useState(true);
@@ -434,6 +448,10 @@ export default function BancoDeDadosClientPage() {
   const configuredFactoryMaxEngines = Number(factory?.schedule?.maxEngines ?? protection?.factoryMaxEngines ?? 16);
   const configuredFactoryStartTime = timeValue(factory?.schedule?.startHour ?? 22, factory?.schedule?.startMinute ?? 0);
   const configuredFactoryEndTime = timeValue(factory?.schedule?.endHour ?? 7, factory?.schedule?.endMinute ?? 0);
+  const factorySchedule = factory?.schedule;
+  const factoryStatusText = factoryStatusLabel(factory?.status, factory?.enabled);
+  const factoryReasonText = factoryReasonLabel(protection?.factoryReason);
+  const factoryEmergencyStop = Boolean(factorySchedule?.emergencyStop || protection?.factoryEmergencyStop);
 
   useEffect(() => {
     if (editingFactoryField !== "maxEngines") setFactoryMaxEnginesDraft(String(configuredFactoryMaxEngines));
@@ -958,10 +976,11 @@ export default function BancoDeDadosClientPage() {
         </section>
 
         <section className={styles.factoryPanel} data-status={factoryTone(factory?.status, factory?.enabled)}>
-          <div className={styles.sectionTitle}>
-            <div>
+          <div className={styles.factoryHeader}>
+            <div className={styles.factoryHeading}>
               <span>Fábrica Noturna</span>
-              <strong>{factoryReasonLabel(protection?.factoryReason)} · {factoryStatusLabel(factory?.status, factory?.enabled)}</strong>
+              <strong>{factoryStatusText}</strong>
+              <small>{factoryReasonText} · {factoryWindowLabel(factorySchedule)} · {factoryCalendarLabel(factorySchedule)}</small>
             </div>
             <div className={styles.actions}>
               <button type="button" onClick={() => void runFactoryAction("start", "Fábrica ligada e próxima missão solicitada.")} disabled={saving}>Ligar</button>
@@ -971,8 +990,27 @@ export default function BancoDeDadosClientPage() {
             </div>
           </div>
 
+          <div className={styles.factoryStatusStrip}>
+            <div data-tone={factoryEmergencyStop ? "danger" : factory?.enabled ? "ok" : "paused"}>
+              <span>Status</span>
+              <strong>{factoryEmergencyStop ? "Parada total" : factoryStatusText}</strong>
+            </div>
+            <div>
+              <span>Agora</span>
+              <strong>{metric(summary?.motoresBusy)} trabalhando · {metric(protection?.factoryAllowedEngines)} permitidos</strong>
+            </div>
+            <div>
+              <span>Próxima janela</span>
+              <strong>{formatDateTime(protection?.factoryNextStartAt)}</strong>
+            </div>
+            <div>
+              <span>Próxima parada</span>
+              <strong>{formatDateTime(protection?.factoryNextStopAt)}</strong>
+            </div>
+          </div>
+
           <div className={styles.factoryGrid}>
-            <label>
+            <label className={styles.factoryField}>
               <span>Motores trabalhando</span>
               <input
                 type="text"
@@ -998,12 +1036,10 @@ export default function BancoDeDadosClientPage() {
                 aria-label="Motores trabalhando"
               />
             </label>
-            <label>
+            <label className={styles.factoryField}>
               <span>Horário início</span>
               <input
-                type="text"
-                inputMode="numeric"
-                maxLength={5}
+                type="time"
                 placeholder="18:00"
                 value={factoryStartTimeDraft}
                 onFocus={() => setEditingFactoryField("startTime")}
@@ -1026,12 +1062,10 @@ export default function BancoDeDadosClientPage() {
                 aria-label="Horário início"
               />
             </label>
-            <label>
+            <label className={styles.factoryField}>
               <span>Horário fim</span>
               <input
-                type="text"
-                inputMode="numeric"
-                maxLength={5}
+                type="time"
                 placeholder="08:00"
                 value={factoryEndTimeDraft}
                 onFocus={() => setEditingFactoryField("endTime")}
@@ -1057,15 +1091,31 @@ export default function BancoDeDadosClientPage() {
             <label className={styles.factoryCheckField}>
               <input
                 type="checkbox"
-                checked={Boolean(factory?.schedule?.weekdaysOnly)}
+                checked={Boolean(factorySchedule?.weekdaysOnly)}
                 onChange={(event) => {
-                  void saveFactorySchedule({ weekdaysOnly: event.target.checked }, event.target.checked ? "Fábrica limitada a dias úteis." : "Fábrica liberada para todos os dias.");
+                  void saveFactorySchedule({
+                    weekdaysOnly: event.target.checked,
+                    weekendAlwaysOn: event.target.checked ? false : Boolean(factorySchedule?.weekendAlwaysOn),
+                  }, event.target.checked ? "Fábrica limitada a dias úteis." : "Fábrica liberada para todos os dias.");
                 }}
                 disabled={saving}
               />
               <span>Dias úteis</span>
             </label>
-            <div><span>Agora</span><strong>{metric(summary?.motoresBusy)} trabalhando · {metric(protection?.factoryAllowedEngines)} permitidos</strong></div>
+            <label className={styles.factoryCheckField}>
+              <input
+                type="checkbox"
+                checked={Boolean(factorySchedule?.weekendAlwaysOn)}
+                onChange={(event) => {
+                  void saveFactorySchedule({
+                    weekendAlwaysOn: event.target.checked,
+                    weekdaysOnly: event.target.checked ? false : Boolean(factorySchedule?.weekdaysOnly),
+                  }, event.target.checked ? "Fim de semana liberado 24h." : "Fim de semana voltou a seguir a janela.");
+                }}
+                disabled={saving}
+              />
+              <span>Fim de semana 24h</span>
+            </label>
           </div>
         </section>
 

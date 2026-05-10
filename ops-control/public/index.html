@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>HBX Ops Control</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <main>
+      <section id="login" class="login">
+        <div class="login-box">
+          <h1>HBX Ops Control</h1>
+          <label for="tokenInput">Token operacional</label>
+          <input id="tokenInput" type="password" autocomplete="off" placeholder="Cole o OPS_CONTROL_TOKEN">
+          <button id="saveToken">Entrar</button>
+          <p>Uso local: http://127.0.0.1:3099</p>
+        </div>
+      </section>
+
+      <section id="app" class="hidden">
+        <header class="topbar">
+          <div>
+            <h1>HBX Ops Control</h1>
+            <span id="generatedAt">Aguardando dados</span>
+          </div>
+          <button id="clearToken" class="secondary">Trocar token</button>
+        </header>
+
+        <section class="cards">
+          <article class="metric">
+            <span>RAM usada / total</span>
+            <strong id="ramCard">-</strong>
+            <small id="ramSub">-</small>
+          </article>
+          <article class="metric">
+            <span>CPU / load</span>
+            <strong id="loadCard">-</strong>
+            <small>1m 5m 15m</small>
+          </article>
+          <article class="metric">
+            <span>Disco</span>
+            <strong id="diskCard">-</strong>
+            <small id="diskSub">-</small>
+          </article>
+          <article class="metric">
+            <span>Containers running</span>
+            <strong id="containersCard">-</strong>
+            <small id="containersSub">-</small>
+          </article>
+        </section>
+
+        <section class="panel">
+          <div class="panel-title">
+            <h2>Ações rápidas</h2>
+            <div class="quick-title-status">
+              <span id="watchdogNotice"></span>
+              <span id="statusText"></span>
+            </div>
+          </div>
+          <div id="quickActions" class="actions">
+            <button data-refresh>Atualizar</button>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-title">
+            <h2>Motores</h2>
+            <span>Blocos de 20 containers</span>
+          </div>
+          <div id="engineBlocks" class="engine-grid"></div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-title">
+            <h2>Pastas no host</h2>
+            <span>Leitura do repo montado em modo somente leitura</span>
+          </div>
+          <div id="folders" class="folders"></div>
+        </section>
+
+        <section class="split">
+          <div class="panel">
+            <div class="panel-title">
+              <h2>Containers</h2>
+              <button data-refresh class="secondary">Atualizar</button>
+            </div>
+            <div class="table-filters">
+              <input id="containerSearch" type="search" placeholder="Buscar por nome">
+              <select id="statusFilter">
+                <option value="all">Todos</option>
+                <option value="running">Running</option>
+                <option value="exited">Exited</option>
+                <option value="restarting">Restarting</option>
+              </select>
+              <select id="groupFilter">
+                <option value="all">Todos</option>
+                <option value="engines">Só motores</option>
+                <option value="infra">Infra HBX</option>
+              </select>
+              <span id="containerCount"></span>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th><button class="sort-header" data-sort="name">Nome <span data-sort-indicator="name"></span></button></th>
+                    <th><button class="sort-header" data-sort="status">Status <span data-sort-indicator="status"></span></button></th>
+                    <th><button class="sort-header" data-sort="cpu">CPU <span data-sort-indicator="cpu"></span></button></th>
+                    <th><button class="sort-header" data-sort="memUsage">Memória <span data-sort-indicator="memUsage"></span></button></th>
+                    <th><button class="sort-header" data-sort="memPercent">Mem % <span data-sort-indicator="memPercent"></span></button></th>
+                    <th><button class="sort-header" data-sort="pids">PIDs <span data-sort-indicator="pids"></span></button></th>
+                    <th>Ações</th>
+                  </tr>
+                </thead>
+                <tbody id="containersTable"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="panel">
+            <div class="panel-title">
+              <h2>Top processos</h2>
+              <span>Ordenado por RSS</span>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>PID</th>
+                    <th>Comando</th>
+                    <th>CPU</th>
+                    <th>RAM</th>
+                    <th>RSS MB</th>
+                  </tr>
+                </thead>
+                <tbody id="processesTable"></tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <aside id="logsPanel" class="logs hidden">
+          <div class="logs-head">
+            <h2 id="logsTitle">Logs</h2>
+            <button id="closeLogs" class="secondary">Fechar</button>
+          </div>
+          <pre id="logsContent"></pre>
+        </aside>
+      </section>
+    </main>
+    <script src="/app.js"></script>
+  </body>
+</html>

@@ -205,9 +205,81 @@
   gap: 8px;
 }
 
+.factoryHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.factoryHeading {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.factoryHeading span,
+.factoryStatusStrip span {
+  color: var(--bd-muted);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.factoryHeading strong {
+  color: var(--bd-text);
+  font-size: 1.18rem;
+  line-height: 1.1;
+}
+
+.factoryHeading small {
+  color: var(--bd-muted);
+  font-size: 0.86rem;
+  font-weight: 750;
+  line-height: 1.35;
+}
+
+.factoryStatusStrip {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.factoryStatusStrip div {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+  padding: 11px;
+  border: 1px solid var(--bd-border);
+  border-radius: 8px;
+  background: var(--bd-soft);
+}
+
+.factoryStatusStrip div[data-tone="ok"] {
+  border-color: color-mix(in srgb, var(--bd-green) 36%, var(--bd-border));
+  background: color-mix(in srgb, var(--bd-green) 8%, var(--bd-soft));
+}
+
+.factoryStatusStrip div[data-tone="danger"] {
+  border-color: color-mix(in srgb, var(--bd-red) 40%, var(--bd-border));
+  background: color-mix(in srgb, var(--bd-red) 8%, var(--bd-soft));
+}
+
+.factoryStatusStrip div[data-tone="paused"] {
+  border-color: color-mix(in srgb, var(--bd-yellow) 34%, var(--bd-border));
+}
+
+.factoryStatusStrip strong {
+  color: var(--bd-text);
+  font-size: 0.95rem;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
 .factoryGrid {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: minmax(150px, 0.8fr) minmax(150px, 0.85fr) minmax(150px, 0.85fr) minmax(180px, 1fr) minmax(210px, 1.1fr);
   gap: 10px;
 }
 
@@ -220,6 +292,10 @@
   border: 1px solid var(--bd-border);
   border-radius: 8px;
   background: var(--bd-soft);
+}
+
+.factoryField {
+  align-content: start;
 }
 
 .factoryGrid input,
@@ -243,6 +319,7 @@
   grid-template-columns: 18px 1fr;
   align-content: center;
   align-items: center;
+  min-height: 72px;
 }
 
 .factoryCheckField input {
@@ -704,6 +781,7 @@
 @media (max-width: 1180px) {
   .kpiGrid,
   .factoryGrid,
+  .factoryStatusStrip,
   .enginePanelGrid,
   .filterGrid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -720,7 +798,8 @@
   }
 
   .header,
-  .sectionTitle {
+  .sectionTitle,
+  .factoryHeader {
     display: grid;
   }
 
@@ -735,6 +814,7 @@
 
   .kpiGrid,
   .factoryGrid,
+  .factoryStatusStrip,
   .enginePanelGrid,
   .filterGrid,
   .exportBar {

@@ -359,6 +359,11 @@ class MasterTurboConfigDto {
   weekdaysOnly?: boolean;
 
   @IsOptional()
+  @Type(() => Boolean)
+  @IsBoolean()
+  weekendAlwaysOn?: boolean;
+
+  @IsOptional()
   @Type(() => Number)
   @IsInt()
   @Min(0)

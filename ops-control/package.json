@@ -1,0 +1,14 @@
+{
+  "name": "hbx-ops-control",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Painel operacional local para controle Docker do HBX.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "4.22.1",
+    "ssh2": "1.17.0"
+  }
+}

@@ -510,6 +510,7 @@ type WebscrapingOperationalConfigInput = {
   emergencyStop?: boolean | string | null;
   stopOutsideWindow?: boolean | string | null;
   weekdaysOnly?: boolean | string | null;
+  weekendAlwaysOn?: boolean | string | null;
   maxEngines?: number | null;
   minEngines?: number | null;
   drainTimeoutSeconds?: number | null;
@@ -6477,6 +6478,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         emergencyStop: parsed?.emergencyStop == null ? false : coerceBoolean(parsed.emergencyStop),
         stopOutsideWindow: parsed?.stopOutsideWindow == null ? true : coerceBoolean(parsed.stopOutsideWindow),
         weekdaysOnly: parsed?.weekdaysOnly == null ? false : coerceBoolean(parsed.weekdaysOnly),
+        weekendAlwaysOn: parsed?.weekendAlwaysOn == null ? false : coerceBoolean(parsed.weekendAlwaysOn),
         factoryMaxEngines: clampInteger(parsed?.factoryMaxEngines, 16, 0, getConfiguredHbxEngineCount()),
         factoryMinEngines: clampInteger(parsed?.factoryMinEngines, 0, 0, getConfiguredHbxEngineCount()),
         drainTimeoutSeconds: clampInteger(parsed?.drainTimeoutSeconds, 90, 10, 900),
@@ -6491,6 +6493,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         emergencyStop: false,
         stopOutsideWindow: true,
         weekdaysOnly: false,
+        weekendAlwaysOn: false,
         factoryMaxEngines: 16,
         factoryMinEngines: 0,
         drainTimeoutSeconds: 90,
@@ -6544,26 +6547,27 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     return windowEnd.toISOString();
   }
 
-  private normalizeOperationalConfigInput(input: WebscrapingOperationalConfigInput = {}, existingMetadataJson?: unknown) {
-    const rawIntensity = String(input.intensity || 'turbo').trim().toLowerCase();
+  private normalizeOperationalConfigInput(input: WebscrapingOperationalConfigInput = {}, existingConfig?: any) {
+    const existingMetadataJson = existingConfig?.metadataJson;
+    const rawIntensity = String(input.intensity || existingConfig?.intensity || 'turbo').trim().toLowerCase();
     const intensity = rawIntensity === 'economico' || rawIntensity === 'econômico'
       ? 'economico'
       : rawIntensity === 'normal'
         ? 'normal'
         : 'turbo';
     const base = {
-      enabled: input.enabled == null ? true : coerceBoolean(input.enabled),
-      preset: TURBO_OPERATIONAL_CONFIG_KEY,
-      startHour: clampInteger(input.startHour, 20, 0, 23),
-      startMinute: clampInteger(input.startMinute, 0, 0, 59),
-      endHour: clampInteger(input.endHour, 8, 0, 23),
-      endMinute: clampInteger(input.endMinute, 0, 0, 59),
-      engineCount: clampInteger(input.engineCount, getConfiguredHbxEngineCount(), 1, getConfiguredHbxEngineCount()),
+      enabled: input.enabled == null ? (existingConfig?.enabled == null ? true : Boolean(existingConfig.enabled)) : coerceBoolean(input.enabled),
+      preset: String(existingConfig?.preset || TURBO_OPERATIONAL_CONFIG_KEY),
+      startHour: clampInteger(input.startHour, safeInteger(existingConfig?.startHour, 20), 0, 23),
+      startMinute: clampInteger(input.startMinute, safeInteger(existingConfig?.startMinute, 0), 0, 59),
+      endHour: clampInteger(input.endHour, safeInteger(existingConfig?.endHour, 8), 0, 23),
+      endMinute: clampInteger(input.endMinute, safeInteger(existingConfig?.endMinute, 0), 0, 59),
+      engineCount: clampInteger(input.engineCount, safeInteger(existingConfig?.engineCount, getConfiguredHbxEngineCount()), 1, getConfiguredHbxEngineCount()),
       intensity,
-      memoryTargetGb: clampInteger(input.memoryTargetGb, 16, 1, 256),
-      batchSize: clampInteger(input.batchSize, 20, 1, 20),
-      maxAttemptsPerTask: clampInteger(input.maxAttemptsPerTask, 3, 1, 10),
-      engineUrlsJson: JSON.stringify(DEFAULT_MASS_DATA_ENGINE_URLS),
+      memoryTargetGb: clampInteger(input.memoryTargetGb, safeInteger(existingConfig?.memoryTargetGb, 16), 1, 256),
+      batchSize: clampInteger(input.batchSize, safeInteger(existingConfig?.batchSize, 20), 1, 20),
+      maxAttemptsPerTask: clampInteger(input.maxAttemptsPerTask, safeInteger(existingConfig?.maxAttemptsPerTask, 3), 1, 10),
+      engineUrlsJson: existingConfig?.engineUrlsJson || JSON.stringify(DEFAULT_MASS_DATA_ENGINE_URLS),
     };
     const existingMetadata = this.parseOperationalMetadata(existingMetadataJson);
     const autonomousFillEnabled = input.autonomousFillEnabled == null
@@ -6579,6 +6583,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     const emergencyStop = input.emergencyStop == null ? existingMetadata.emergencyStop : coerceBoolean(input.emergencyStop);
     const stopOutsideWindow = input.stopOutsideWindow == null ? existingMetadata.stopOutsideWindow : coerceBoolean(input.stopOutsideWindow);
     const weekdaysOnly = input.weekdaysOnly == null ? existingMetadata.weekdaysOnly : coerceBoolean(input.weekdaysOnly);
+    const weekendAlwaysOn = input.weekendAlwaysOn == null ? existingMetadata.weekendAlwaysOn : coerceBoolean(input.weekendAlwaysOn);
     const factoryMaxEngines = clampInteger(input.maxEngines ?? input.engineCount, existingMetadata.factoryMaxEngines || 16, 0, getConfiguredHbxEngineCount());
     const factoryMinEngines = clampInteger(input.minEngines, existingMetadata.factoryMinEngines || 0, 0, factoryMaxEngines);
     const drainTimeoutSeconds = clampInteger(input.drainTimeoutSeconds, existingMetadata.drainTimeoutSeconds || 90, 10, 900);
@@ -6602,6 +6607,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         emergencyStop,
         stopOutsideWindow,
         weekdaysOnly,
+        weekendAlwaysOn,
         factoryMaxEngines,
         factoryMinEngines,
         drainTimeoutSeconds,
@@ -6613,6 +6619,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       emergencyStop,
       stopOutsideWindow,
       weekdaysOnly,
+      weekendAlwaysOn,
       factoryMaxEngines,
       factoryMinEngines,
       drainTimeoutSeconds,
@@ -6667,9 +6674,23 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     }
     const current = await (this.prisma as any).webscrapingOperationalConfig.findUnique({
       where: { key: TURBO_OPERATIONAL_CONFIG_KEY },
-      select: { metadataJson: true },
+      select: {
+        enabled: true,
+        preset: true,
+        startHour: true,
+        startMinute: true,
+        endHour: true,
+        endMinute: true,
+        engineCount: true,
+        intensity: true,
+        memoryTargetGb: true,
+        batchSize: true,
+        maxAttemptsPerTask: true,
+        engineUrlsJson: true,
+        metadataJson: true,
+      },
     }).catch(() => null);
-    const normalized = this.normalizeOperationalConfigInput(input, current?.metadataJson);
+    const normalized = this.normalizeOperationalConfigInput(input, current);
     const { forcedUntil } = normalized;
     const data = {
       enabled: normalized.enabled,
@@ -6720,6 +6741,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       emergencyStop: this.parseOperationalMetadata(saved.metadataJson).emergencyStop,
       stopOutsideWindow: this.parseOperationalMetadata(saved.metadataJson).stopOutsideWindow,
       weekdaysOnly: this.parseOperationalMetadata(saved.metadataJson).weekdaysOnly,
+      weekendAlwaysOn: this.parseOperationalMetadata(saved.metadataJson).weekendAlwaysOn,
       factoryMaxEngines: this.parseOperationalMetadata(saved.metadataJson).factoryMaxEngines,
       factoryMinEngines: this.parseOperationalMetadata(saved.metadataJson).factoryMinEngines,
       drainTimeoutSeconds: this.parseOperationalMetadata(saved.metadataJson).drainTimeoutSeconds,
