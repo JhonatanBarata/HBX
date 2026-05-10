@@ -356,6 +356,12 @@ function canPullWithFilters(filters: FilterState) {
   return Boolean(filters.city.trim() && filters.segment.trim());
 }
 
+function hasPartialRadarSearch(filters: FilterState) {
+  const hasCity = Boolean(filters.city.trim());
+  const hasSegment = Boolean(filters.segment.trim());
+  return hasCity !== hasSegment;
+}
+
 function isTerminalRadarRun(status?: string | null) {
   return ["completed", "partial_error", "completed_insufficient_results", "failed", "canceled"].includes(String(status || ""));
 }
@@ -771,6 +777,12 @@ export default function RadarDigitalClientPage() {
     setHasSearched(true);
     const nextFilters = { ...effectiveFilters };
     const nextGeneralSearch = generalSearch.trim();
+    if (hasPartialRadarSearch(nextFilters)) {
+      setSearching(false);
+      setHasSearched(false);
+      setError("Preencha cidade e segmento para pesquisar novos cards. Para ver histórico salvo, limpe esses campos.");
+      return;
+    }
     setAppliedFilters(nextFilters);
     setAppliedGeneralSearch(nextGeneralSearch);
 
