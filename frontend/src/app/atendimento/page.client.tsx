@@ -5018,6 +5018,7 @@ export default function InboxClientPage() {
   }, [currentUserProfile?.isSystemMaster, currentUserProfile?.role]);
 
   const canManageWhatsappHistory = Boolean(currentUserProfile?.isSystemMaster);
+  const canSeeWhatsappOperationalAlerts = Boolean(currentUserProfile?.isSystemMaster);
 
   const providerCapabilities = useMemo<ProviderCapabilities>(
     () => getProviderCapabilitiesFromWhatsAppCenter(whatsappCenterPayload),
@@ -8486,6 +8487,7 @@ export default function InboxClientPage() {
     showPreviousSessions ? "showing-previous" : "current-only",
   ].join(":");
   const shouldShowLiveHealthPopup =
+    canSeeWhatsappOperationalAlerts &&
     shouldShowLiveHealthAlert &&
     liveHealthPopupKey !== null &&
     liveHealthPopupKey !== dismissedWhatsappLiveHealthPopupKey;
