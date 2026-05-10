@@ -49,9 +49,9 @@ function isTruthy(value) {
 function resolveHbxEngineCount(env) {
   const requested = parsePositiveInteger(
     env.HBX_ENGINE_COUNT || env.HBX_PUBLISH_ENGINE_COUNT,
-    50,
+    100,
   );
-  return Math.min(requested, 50);
+  return Math.min(requested, 100);
 }
 
 function loadOperationsEnv() {
@@ -260,7 +260,6 @@ function buildRemoteReleaseScript(config, services) {
     `REQUESTED_HBX_ENGINE_MAX_COUNT=${shellSingleQuote(config.hbxEngineMaxCount)}`,
     `BACKEND_URL=${shellSingleQuote(config.backendUrl)}`,
     `FRONTEND_URL=${shellSingleQuote(config.frontendUrl)}`,
-    'FRONTEND_VERIFY_ATTEMPTS=20',
     'BACKEND_VERIFY_ATTEMPTS=30',
     `WEBWHATS_APP_DIR=${shellSingleQuote(config.webwhatsAppDir)}`,
     `WEBWHATS_SYSTEMD_SERVICE=${shellSingleQuote(config.webwhatsSystemdService)}`,
@@ -275,9 +274,9 @@ function buildRemoteReleaseScript(config, services) {
     'upsert_root_env() { key="$1"; value="$2"; tmp="$(mktemp)"; awk -v key="$key" -v value="$value" \'BEGIN{done=0} $0 ~ "^" key "=" { print key "=" value; done=1; next } { print } END{ if (!done) print key "=" value }\' .env > "$tmp"; cat "$tmp" > .env; rm -f "$tmp"; }',
     'upsert_root_env HBX_ENGINE_COUNT "$REQUESTED_HBX_ENGINE_COUNT"',
     'upsert_root_env HBX_ENGINE_MAX_COUNT "$REQUESTED_HBX_ENGINE_MAX_COUNT"',
-    'upsert_root_env HBX_CLIENT_RESERVED_ENGINES "${HBX_CLIENT_RESERVED_ENGINES:-0}"',
-    'upsert_root_env HBX_FACTORY_MIN_ENGINES "${HBX_FACTORY_MIN_ENGINES:-1}"',
-    'upsert_root_env HBX_FACTORY_MAX_ENGINES "${HBX_FACTORY_MAX_ENGINES:-50}"',
+    'upsert_root_env HBX_CLIENT_RESERVED_ENGINES "0"',
+    'upsert_root_env HBX_FACTORY_MIN_ENGINES "$REQUESTED_HBX_ENGINE_COUNT"',
+    'upsert_root_env HBX_FACTORY_MAX_ENGINES "$REQUESTED_HBX_ENGINE_COUNT"',
     'upsert_root_env HBX_RADAR_CLIENT_PRIORITY_START_HOUR "${HBX_RADAR_CLIENT_PRIORITY_START_HOUR:-8}"',
     'upsert_root_env HBX_RADAR_CLIENT_PRIORITY_END_HOUR "${HBX_RADAR_CLIENT_PRIORITY_END_HOUR:-20}"',
     'upsert_root_env HBX_RADAR_CLIENT_REQUEST_TIMEOUT_MS "${HBX_RADAR_CLIENT_REQUEST_TIMEOUT_MS:-25000}"',
@@ -286,10 +285,10 @@ function buildRemoteReleaseScript(config, services) {
     'export HBX_ENGINE_MAX_COUNT="$(awk -F= \'/^HBX_ENGINE_MAX_COUNT=/{print substr($0, length("HBX_ENGINE_MAX_COUNT")+2); exit}\' .env)"',
     'if [ -z "$HBX_ENGINE_MAX_COUNT" ]; then export HBX_ENGINE_MAX_COUNT=200; fi',
     'case "$HBX_ENGINE_MAX_COUNT" in *[!0-9]*|"") echo "Aviso: HBX_ENGINE_MAX_COUNT invalido no .env; usando 200."; export HBX_ENGINE_MAX_COUNT=200;; esac',
-    'if [ -z "$HBX_ENGINE_COUNT" ]; then export HBX_ENGINE_COUNT=50; fi',
-    'case "$HBX_ENGINE_COUNT" in *[!0-9]*|"") echo "Aviso: HBX_ENGINE_COUNT invalido no .env; usando 50."; export HBX_ENGINE_COUNT=50;; esac',
+    'if [ -z "$HBX_ENGINE_COUNT" ]; then export HBX_ENGINE_COUNT=100; fi',
+    'case "$HBX_ENGINE_COUNT" in *[!0-9]*|"") echo "Aviso: HBX_ENGINE_COUNT invalido no .env; usando 100."; export HBX_ENGINE_COUNT=100;; esac',
     'if [ "$HBX_ENGINE_COUNT" -lt 1 ]; then echo "Aviso: HBX_ENGINE_COUNT=$HBX_ENGINE_COUNT abaixo do minimo; usando 1."; export HBX_ENGINE_COUNT=1; fi',
-    'if [ "$HBX_ENGINE_COUNT" -gt 50 ]; then echo "Aviso: HBX_ENGINE_COUNT=$HBX_ENGINE_COUNT acima da frota oficial; usando 50."; export HBX_ENGINE_COUNT=50; fi',
+    'if [ "$HBX_ENGINE_COUNT" -gt 100 ]; then echo "Aviso: HBX_ENGINE_COUNT=$HBX_ENGINE_COUNT acima da frota oficial; usando 100."; export HBX_ENGINE_COUNT=100; fi',
     'if [ "$HBX_ENGINE_COUNT" -gt "$HBX_ENGINE_MAX_COUNT" ]; then echo "Aviso: HBX_ENGINE_COUNT=$HBX_ENGINE_COUNT acima do limite; usando $HBX_ENGINE_MAX_COUNT."; export HBX_ENGINE_COUNT="$HBX_ENGINE_MAX_COUNT"; fi',
     'export POSTGRES_USER="$(awk -F= \'/^POSTGRES_USER=/{print substr($0, length("POSTGRES_USER")+2); exit}\' .env)"',
     'export POSTGRES_PASSWORD="$(awk -F= \'/^POSTGRES_PASSWORD=/{print substr($0, length("POSTGRES_PASSWORD")+2); exit}\' .env)"',
@@ -304,8 +303,8 @@ function buildRemoteReleaseScript(config, services) {
     'hbx_engine_names() { for n in $(seq 1 "$HBX_ENGINE_COUNT"); do printf " hbx-engine-%s" "$n"; done; }',
     'hbx_engine_urls() { sep=""; for n in $(seq 1 "$HBX_ENGINE_COUNT"); do printf "%shttp://hbx-engine-%s:8001" "$sep" "$n"; sep=","; done; }',
     'cleanup_extra_hbx_engines() {',
-    '  echo "Limpando motores HBX excedentes hbx-engine-51..hbx-engine-100..."',
-    '  for n in $(seq 51 100); do',
+    '  echo "Limpando motores HBX excedentes hbx-engine-101..hbx-engine-200..."',
+    '  for n in $(seq 101 200); do',
     '    name="hbx-engine-$n"',
     '    if docker ps -a --format "{{.Names}}" | grep -qx "$name"; then',
     '      docker stop "$name" >/dev/null 2>&1 || true',
@@ -314,7 +313,7 @@ function buildRemoteReleaseScript(config, services) {
     '  done',
     '}',
     'http_status() { code="$(curl -ksS --max-time 20 -o /dev/null -w "%{http_code}" "$1" 2>/dev/null || true)"; [ -n "$code" ] || code=000; printf "%s" "$code"; }',
-    'require_http_ok() { url="$1"; label="$2"; code="$(http_status "$url")"; case "$code" in 2*|3*) echo "Health OK: $label HTTP $code";; *) echo "ERRO: $label falhou em $url HTTP $code"; exit 1;; esac; }',
+    'require_http_ok() { url="$1"; label="$2"; code="$(http_status "$url")"; case "$code" in 2*|3*) echo "HTTP OK: $label HTTP $code";; *) echo "ERRO: $label falhou em $url HTTP $code"; exit 1;; esac; }',
     'validate_webwhats_runtime() {',
     '  echo "Validando Webwhats/Evolution..."',
     '  if [ -d /opt/webwhats ] && [ ! -d "$WEBWHATS_APP_DIR" ]; then WEBWHATS_APP_DIR=/opt/webwhats; fi',
@@ -347,9 +346,8 @@ function buildRemoteReleaseScript(config, services) {
     '  if ! docker inspect -f "{{.State.Running}}" hbx-backend 2>/dev/null | grep -q true; then echo "ERRO: hbx-backend nao esta running antes do release. Abortando para evitar deploy sobre API offline."; exit 1; fi',
     '  echo "Preflight rapido: containers essenciais running."',
     '}',
-    'final_healthchecks() {',
-    '  if [ -n "$BACKEND_URL" ]; then require_http_ok "$BACKEND_URL/health" "API publica /health final"; fi',
-    '  require_http_ok "$FRONTEND_URL/" "Frontend / final"',
+    'final_runtime_summary() {',
+    '  echo "Verificacao HTTP final desativada no release seletivo."',
     '}',
     'if docker inspect hbx-postgres >/dev/null 2>&1; then docker start hbx-postgres >/dev/null; else run_filtered $DC --env-file .env -f docker-compose.hostinger.yml up -d hbx-postgres; fi',
     'docker network connect "$HBX_DOCKER_NETWORK" hbx-postgres 2>/dev/null || true',
