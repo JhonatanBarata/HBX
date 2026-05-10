@@ -1,7 +1,7 @@
 export const dynamic = "force-dynamic";
 
-import NightFactoryRewardClientPage from "./page.client";
+import { redirect } from "next/navigation";
 
 export default function Page() {
-  return <NightFactoryRewardClientPage />;
+  redirect("/bancodedados");
 }

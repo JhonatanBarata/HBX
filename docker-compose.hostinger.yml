@@ -53,12 +53,12 @@ services:
       - hbx-engine-20
     environment:
       HBX_SCRAPING_ENGINE_URL: http://hbx-scraping-engine:8001
-      HBX_ENGINE_COUNT: ${HBX_ENGINE_COUNT:-100}
+      HBX_ENGINE_COUNT: ${HBX_ENGINE_COUNT:-50}
       HBX_ENGINE_MAX_COUNT: ${HBX_ENGINE_MAX_COUNT:-200}
       HBX_ENGINE_URLS: ${HBX_ENGINE_URLS:-http://hbx-engine-{n}:8001}
-      HBX_CLIENT_RESERVED_ENGINES: ${HBX_CLIENT_RESERVED_ENGINES:-2}
+      HBX_CLIENT_RESERVED_ENGINES: ${HBX_CLIENT_RESERVED_ENGINES:-0}
       HBX_FACTORY_MIN_ENGINES: ${HBX_FACTORY_MIN_ENGINES:-1}
-      HBX_FACTORY_MAX_ENGINES: ${HBX_FACTORY_MAX_ENGINES:-}
+      HBX_FACTORY_MAX_ENGINES: ${HBX_FACTORY_MAX_ENGINES:-50}
       HBX_RADAR_CLIENT_PRIORITY_START_HOUR: ${HBX_RADAR_CLIENT_PRIORITY_START_HOUR:-8}
       HBX_RADAR_CLIENT_PRIORITY_END_HOUR: ${HBX_RADAR_CLIENT_PRIORITY_END_HOUR:-20}
       HBX_RADAR_CLIENT_REQUEST_TIMEOUT_MS: ${HBX_RADAR_CLIENT_REQUEST_TIMEOUT_MS:-25000}
@@ -223,7 +223,7 @@ services:
     container_name: hbx-engine-watchdog
     restart: unless-stopped
     environment:
-      HBX_ENGINE_COUNT: ${HBX_ENGINE_COUNT:-100}
+      HBX_ENGINE_COUNT: ${HBX_ENGINE_COUNT:-50}
       HBX_WATCHDOG_INTERVAL_SECONDS: ${HBX_WATCHDOG_INTERVAL_SECONDS:-45}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
@@ -232,7 +232,7 @@ services:
     command: >
       sh -c '
         while true; do
-          for i in $$(seq 1 $${HBX_ENGINE_COUNT:-100}); do
+          for i in $$(seq 1 $${HBX_ENGINE_COUNT:-50}); do
             name="hbx-engine-$$i";
             status="$$(docker inspect -f "{{.State.Status}}" "$$name" 2>/dev/null || true)";
             health="$$(docker inspect -f "{{if .State.Health}}{{.State.Health.Status}}{{else}}no-health{{end}}" "$$name" 2>/dev/null || true)";

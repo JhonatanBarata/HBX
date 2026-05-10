@@ -22,7 +22,6 @@ export type HbxTopbarCard = {
 export type HbxTopbarSlideKind =
   | "status"
   | "engines"
-  | "nightFactoryReward"
   | "whatsapp"
   | "attention";
 

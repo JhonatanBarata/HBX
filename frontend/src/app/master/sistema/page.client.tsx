@@ -369,7 +369,7 @@ export default function SystemHealthClientPage() {
               {data?.production?.note || "Produção, filas e oportunidades geradas pelo servidor ocioso."}
             </p>
           </div>
-          <Link href="/master/night-factory" className="btn btn-secondary btn-sm">Abrir Night Factory</Link>
+          <Link href="/bancodedados" className="btn btn-secondary btn-sm">Abrir Banco de Dados</Link>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3 mt-3">
           <MetricCard label="RadarLeadPool" value={String(data?.production?.radar.total ?? 0)} detail="Total no banco Radar" status={data?.production?.status || "unavailable"} />

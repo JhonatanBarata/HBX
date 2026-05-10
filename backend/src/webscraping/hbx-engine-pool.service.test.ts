@@ -192,18 +192,18 @@ test('HBX_ENGINE_COUNT=100 is accepted without the old twenty-engine clamp', () 
   assert.equal(buildLocalHbxEngineUrls(100).length, 100);
 });
 
-test('factory scheduler defaults to safe sixteen engines in production when max is empty', () => {
-  withEnv({ NODE_ENV: 'production', HBX_ENGINE_COUNT: '100', HBX_FACTORY_MAX_ENGINES: '', HBX_FACTORY_START_HOUR: '0', HBX_FACTORY_END_HOUR: '0' }, () => {
+test('factory scheduler defaults to configured engine count in production when max is empty', () => {
+  withEnv({ NODE_ENV: 'production', HBX_ENGINE_COUNT: '50', HBX_FACTORY_MAX_ENGINES: '', HBX_FACTORY_START_HOUR: '0', HBX_FACTORY_END_HOUR: '0' }, () => {
     const service = new HbxEnginePoolService({} as any);
     const allowed = service.resolveFactoryAllowedEngines({
-      engineCount: 100,
-      onlineHealthyEngines: 100,
-      manualReservedEngines: 2,
+      engineCount: 50,
+      onlineHealthyEngines: 50,
+      manualReservedEngines: 0,
       memoryPressurePercent: 50,
       operationalConfig: { enabled: true, metadataJson: '{}' },
     });
-    assert.equal(allowed.maxEngines, 16);
-    assert.equal(allowed.allowedEngines, 16);
+    assert.equal(allowed.maxEngines, 50);
+    assert.equal(allowed.allowedEngines, 50);
   });
 });
 
@@ -240,26 +240,26 @@ test('factory scheduler handles windows crossing midnight', () => {
   });
 });
 
-test('factory scheduler memory guard reduces and stops automatic work', () => {
-  withEnv({ NODE_ENV: 'production', HBX_ENGINE_COUNT: '100', HBX_FACTORY_MAX_ENGINES: '16', HBX_FACTORY_START_HOUR: '0', HBX_FACTORY_END_HOUR: '0' }, () => {
+test('factory scheduler memory guard is diagnostic and does not cap automatic work', () => {
+  withEnv({ NODE_ENV: 'production', HBX_ENGINE_COUNT: '50', HBX_FACTORY_MAX_ENGINES: '50', HBX_FACTORY_START_HOUR: '0', HBX_FACTORY_END_HOUR: '0' }, () => {
     const service = new HbxEnginePoolService({} as any);
     const at80 = service.resolveFactoryAllowedEngines({
-      engineCount: 100,
-      onlineHealthyEngines: 100,
-      manualReservedEngines: 2,
+      engineCount: 50,
+      onlineHealthyEngines: 50,
+      manualReservedEngines: 0,
       memoryPressurePercent: 80,
       operationalConfig: { enabled: true, metadataJson: '{}' },
     });
     const at90 = service.resolveFactoryAllowedEngines({
-      engineCount: 100,
-      onlineHealthyEngines: 100,
-      manualReservedEngines: 2,
+      engineCount: 50,
+      onlineHealthyEngines: 50,
+      manualReservedEngines: 0,
       memoryPressurePercent: 90,
       operationalConfig: { enabled: true, metadataJson: '{}' },
     });
-    assert.equal(at80.allowedEngines, 8);
+    assert.equal(at80.allowedEngines, 50);
     assert.equal(at80.reason, 'memory_guard');
-    assert.equal(at90.allowedEngines, 0);
+    assert.equal(at90.allowedEngines, 50);
     assert.equal(at90.reason, 'memory_stop');
   });
 });
@@ -449,21 +449,21 @@ test('automatic queue never gets all engines when manual reservation is two', as
 test('automatic eligibility can include engines above twenty when factory limit allows it', async () => {
   await withEnv({
     NODE_ENV: 'production',
-    HBX_ENGINE_COUNT: '100',
-    HBX_FACTORY_MAX_ENGINES: '32',
+    HBX_ENGINE_COUNT: '50',
+    HBX_FACTORY_MAX_ENGINES: '50',
     HBX_FACTORY_START_HOUR: '0',
     HBX_FACTORY_END_HOUR: '0',
-    HBX_CLIENT_RESERVED_ENGINES: '2',
+    HBX_CLIENT_RESERVED_ENGINES: '0',
     HBX_RADAR_CLIENT_PRIORITY_START_HOUR: '23',
     HBX_RADAR_CLIENT_PRIORITY_END_HOUR: '0',
     HBX_AUTONOMOUS_MAX_MEMORY_PRESSURE_PERCENT: '100',
   }, async () => {
     const service = createPoolForCapacity({ queuedCount: 100 }) as any;
-    service.healthCheckEngines = async () => buildEngineRows(100);
+    service.healthCheckEngines = async () => buildEngineRows(50);
     const automatic = await service.getEligibleEnginesForCurrentQueue('mass_data');
-    assert.equal(automatic.length, 32);
+    assert.equal(automatic.length, 50);
     assert.equal(automatic.some((engine: any) => engine.id === 'hbx-engine-21'), true);
-    assert.equal(automatic.some((engine: any) => engine.id === 'hbx-engine-32'), true);
+    assert.equal(automatic.some((engine: any) => engine.id === 'hbx-engine-50'), true);
   });
 });
 

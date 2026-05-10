@@ -1,27 +1,15 @@
 # Operacao HBX
 
-Este repositorio tem tres comandos operacionais publicos na raiz:
+Este repositorio tem seis comandos operacionais publicos na raiz:
 
-- `npm run release`
 - `npm run publish`
+- `npm run new`
+- `npm run up`
+- `npm run down`
 - `npm run force`
+- `npm run verify:prod`
 
-Scripts auxiliares ficam com prefixo `internal:*` e nao devem ser usados como fluxo principal.
-
-## `npm run release`
-
-Fluxo sem restart de producao:
-
-1. Confere que o repositorio esta no branch `master`.
-2. Mostra `git status` e arquivos alterados.
-3. Roda validacoes rapidas locais: JSON dos manifests, `backend prisma:validate` e `docker compose config --quiet` quando Docker estiver disponivel.
-4. Cria commit automatico datado se houver mudancas permitidas.
-5. Executa `git push origin master`.
-6. Verifica na Hostinger que o build Next existe, que o PM2 `hbx-frontend` esta online e que `/login` responde localmente.
-7. Verifica `PROD_BACKEND_URL/health`, `PROD_FRONTEND_URL` e `PROD_FRONTEND_URL/login`.
-8. Mostra status final.
-
-Este comando nao reinicia containers, PM2 ou processos remotos.
+Scripts auxiliares devem ser chamados diretamente por `node`/PowerShell quando forem necessarios para manutencao pontual.
 
 ## `npm run publish`
 
@@ -29,14 +17,27 @@ Fluxo de deploy normal:
 
 1. Detecta mudancas e mostra diff resumido.
 2. Cria commit automatico datado se houver mudancas permitidas.
-3. Executa `git push origin master`.
-4. Roda build local de backend e frontend.
-5. Executa o deploy Hostinger atual via `scripts/deploy-hostinger.js`.
-6. No servidor, o backend roda migrations Prisma dentro do container `hbx-backend`, usando o host Docker `hbx-postgres`.
-7. Valida backend `/health` e frontend.
-8. Mostra status final.
+3. Executa o deploy Hostinger via `scripts/deploy-hostinger.js`.
+4. O deploy roda preflight Prisma/build local uma vez, faz `git push origin master`, atualiza a VPS e sobe os containers.
+5. No servidor, o backend roda migrations Prisma dentro do container `hbx-backend`, usando o host Docker `hbx-postgres`.
+6. Valida backend `/health`, frontend `/` e health rapido dos motores HBX.
+7. Mostra status final.
 
-O build remoto falha antes de trocar o runtime se uma etapa critica falhar. O frontend de producao roda via PM2 (`hbx-frontend`) fora do Docker.
+O fluxo normal evita checks pesados como CORS completo, upload probe, `/atendimento` e varredura de todos os motores. Para forcar a verificacao completa no publish, defina `HOSTINGER_FULL_VERIFY=true`.
+
+## `npm run new`
+
+Fluxo seletivo para atualizar apenas o que mudou:
+
+1. Confere branch `master`.
+2. Cria commit automatico datado se houver mudancas permitidas.
+3. Detecta arquivos alterados contra `origin/master`.
+4. Faz `git push origin master`.
+5. Na VPS, faz `git reset --hard origin/master`.
+6. Rebuilda/reinicia apenas os servicos afetados: `backend`, `frontend`, `webscraping` e/ou `hbx-scraping-engine`.
+7. Mantem health minimo: containers essenciais, backend `/health`, frontend `/` e amostra dos motores quando eles forem afetados.
+
+Mudancas estruturais como `docker-compose.hostinger.yml`, Dockerfile ou `deploy/` viram rebuild completo dos servicos gerenciados pelo seletivo.
 
 ## `npm run force`
 
@@ -47,11 +48,21 @@ Fluxo de recuperacao/rebuild completo:
 3. Tenta criar dump de producao via `scripts/backup-prod.js` se SSH, Docker e banco estiverem seguros/disponiveis.
 4. Detecta mudancas e cria commit automatico datado se houver.
 5. Executa `git push origin master`.
-6. Para containers HBX e o processo PM2 `hbx-frontend`.
-7. Rebuilda motores HBX, backend e webscraping, e sobe frontend via PM2.
+6. Para containers HBX e remove qualquer runtime antigo `hbx-frontend` no PM2.
+7. Rebuilda motores HBX, backend e webscraping, e sobe frontend via Docker `hbx-frontend`.
 8. As migrations Prisma rodam dentro de `hbx-backend` por `backend/scripts/start-prod.sh`, evitando `npx prisma` no host contra `hbx-postgres:5432`.
-9. Verifica Docker, PM2, motores, backend, frontend e logs curtos.
+9. Verifica Docker, motores, backend, frontend e logs curtos.
 10. Valida backend `/health` e frontend antes de terminar.
+
+## `npm run verify:prod`
+
+Fluxo manual de verificacao completa:
+
+1. Valida backend `/health`.
+2. Valida e-mail transacional.
+3. Valida WhatsApp modal.
+4. Valida banco Hostinger por SSH quando configurado.
+5. Valida frontend quando `PROD_FRONTEND_URL` estiver configurado.
 
 ## Variaveis necessarias
 

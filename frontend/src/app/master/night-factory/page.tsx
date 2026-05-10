@@ -1,7 +1,7 @@
 export const dynamic = "force-dynamic";
 
-import MasterNightFactoryClientPage from "./page.client";
+import { redirect } from "next/navigation";
 
 export default function Page() {
-  return <MasterNightFactoryClientPage />;
+  redirect("/bancodedados");
 }
