@@ -969,7 +969,7 @@ export class HbxEnginePoolService implements OnModuleInit {
     const configured = Math.max(1, Math.trunc(Number(configuredCount || 1)));
     const parsed = parseIntegerEnv(
       'HBX_CLIENT_RESERVED_ENGINES',
-      parseIntegerEnv('HBX_MANUAL_RESERVED_ENGINES', 2),
+      parseIntegerEnv('HBX_MANUAL_RESERVED_ENGINES', 0),
     );
     if (configured <= 1) return 0;
     return Math.min(Math.max(0, parsed), configured - 1);
