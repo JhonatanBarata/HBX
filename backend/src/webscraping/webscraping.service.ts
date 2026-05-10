@@ -64,6 +64,42 @@ const MASS_DATA_INTERNAL_SEGMENTS = [
   'contabilidades',
   'imobiliárias',
   'academias',
+  'supermercados',
+  'padarias',
+  'açougues',
+  'postos de combustível',
+  'lava rápido',
+  'funilarias',
+  'borracharias',
+  'auto centers',
+  'clínicas veterinárias',
+  'ótica',
+  'joalherias',
+  'floriculturas',
+  'gráficas',
+  'marcenarias',
+  'serralherias',
+  'vidraçarias',
+  'transportadoras',
+  'depósitos de bebidas',
+  'lojas de móveis',
+  'lojas de eletrodomésticos',
+  'informática',
+  'assistência celular',
+  'escolas',
+  'cursos profissionalizantes',
+  'laboratórios',
+  'fisioterapia',
+  'estética',
+  'pilates',
+  'buffets',
+  'eventos',
+  'pizzarias',
+  'hamburguerias',
+  'sorveterias',
+  'cafeterias',
+  'confeitarias',
+  'lanchonetes',
 ];
 const ACRE_CITIES_FALLBACK = [
   'Acrelândia',
@@ -7450,6 +7486,20 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         orderBy: { updatedAt: 'desc' },
       }).catch(() => null);
       if (activeCampaign) {
+        const automaticAllowed = safeInteger(scheduler?.automaticAllowedEngines, getConfiguredHbxEngineCount());
+        const queuedOrRunning = await (this.prisma as any).webscrapingCampaignTask.count({
+          where: { campaignId: activeCampaign.id, status: { in: ['queued', 'running'] } },
+        }).catch(() => 0);
+        if (automaticAllowed > 0 && safeInteger(queuedOrRunning) < automaticAllowed) {
+          await this.createAutonomousMassDataTasks(
+            {
+              ...activeCampaign,
+              targetTotal: Math.max(automaticAllowed * 2, safeInteger(config?.autonomousFillBatchSize, AUTONOMOUS_MASS_DATA_DEFAULT_TASKS)),
+              maxAttempts: safeInteger(config?.maxAttemptsPerTask, 3),
+            },
+            Math.max(automaticAllowed * 2, safeInteger(config?.autonomousFillBatchSize, AUTONOMOUS_MASS_DATA_DEFAULT_TASKS)),
+          ).catch(() => null);
+        }
         await (this.prisma as any).radarFactoryCursor?.update?.({
           where: { key: 'main' },
           data: {
@@ -7552,6 +7602,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
   }
 
   async startRadarFactory(user: any) {
+    const engineCount = getConfiguredHbxEngineCount();
     if (await this.supportsRadarFactoryPersistence()) {
       await (this.prisma as any).radarFactoryCursor.upsert({
         where: { key: 'main' },
@@ -7563,8 +7614,14 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       enabled: true,
       forceNow: true,
       emergencyStop: false,
-      engineCount: getConfiguredHbxEngineCount(),
+      engineCount,
+      maxEngines: engineCount,
+      minEngines: engineCount,
+      memoryTargetGb: 16,
+      batchSize: 20,
+      maxAttemptsPerTask: 3,
       autonomousFillEnabled: true,
+      autonomousFillBatchSize: Math.min(300, Math.max(60, engineCount * 2)),
     }).catch(() => null);
     await this.ensureNightFactoryWork(user);
     return this.getRadarFactoryStatus(user);

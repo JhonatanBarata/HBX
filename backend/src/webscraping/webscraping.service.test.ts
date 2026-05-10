@@ -111,6 +111,15 @@ test('normalizeOperationalConfigInput preserves existing schedule on partial upd
   assert.equal(normalized.factoryMaxEngines, 3);
 });
 
+test('mass data guided city has enough independent segments for fifty engines', () => {
+  const service = new WebscrapingService(createPrisma()) as any;
+
+  const segments = service.getMassDataSegments('empresas');
+
+  assert.ok(segments.length >= 50);
+  assert.equal(segments[0], 'empresas');
+});
+
 function createSearchRunPrisma(initialRun: Record<string, any>) {
   const run = {
     id: 'run-1',
