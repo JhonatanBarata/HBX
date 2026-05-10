@@ -1,5 +1,4 @@
 "use client";
-import TopbarCommandCarousel from "./TopbarCommandCarousel";
 import Link from "next/link";
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
@@ -426,6 +425,142 @@ function getEngineGaugeStyle(usage: number): React.CSSProperties {
     ["--engine-glow-size" as string]: `${20 + Math.pow(ratio, 1.5) * 86}px`,
     ["--engine-neon-size" as string]: `${16 + Math.pow(ratio, 2.04) * 118}px`,
   } as React.CSSProperties;
+}
+
+type HbxHeaderIconName = "memory" | "cpu" | "disk" | "logout" | "context" | "chevron" | "metric";
+
+function HbxHeaderIcon({ name }: { name: HbxHeaderIconName }) {
+  if (name === "logout") {
+    return (
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M9 4.75H5.75A1.75 1.75 0 0 0 4 6.5v11A1.75 1.75 0 0 0 5.75 19.25H9" />
+        <path d="M14.75 7.75 19 12l-4.25 4.25" />
+        <path d="M19 12H9" />
+      </svg>
+    );
+  }
+
+  if (name === "context") {
+    return (
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M12 5.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5Z" />
+        <path d="M6.25 18.5a5.75 5.75 0 0 1 11.5 0" />
+        <path d="M5.5 8.5h2.25M16.25 8.5h2.25M12 2.75V4.5M12 19.5v1.75" />
+      </svg>
+    );
+  }
+
+  if (name === "chevron") {
+    return (
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="m7 10 5 5 5-5" />
+      </svg>
+    );
+  }
+
+  if (name === "cpu") {
+    return (
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <rect x="7" y="7" width="10" height="10" rx="2" />
+        <path d="M9.5 2.75v2.5M14.5 2.75v2.5M9.5 18.75v2.5M14.5 18.75v2.5M2.75 9.5h2.5M2.75 14.5h2.5M18.75 9.5h2.5M18.75 14.5h2.5" />
+      </svg>
+    );
+  }
+
+  if (name === "disk") {
+    return (
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M7 3.75h8.25L19 7.5v12.75H5V3.75h2Z" />
+        <path d="M8 3.75v5.5h7.75M8 16.5h8M8 19h8" />
+      </svg>
+    );
+  }
+
+  if (name === "memory") {
+    return (
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <rect x="8" y="4.75" width="8" height="14.5" rx="1.8" />
+        <path d="M5.25 7.5H8M5.25 12H8M5.25 16.5H8M16 7.5h2.75M16 12h2.75M16 16.5h2.75M10.5 8.25h3M10.5 12h3M10.5 15.75h3" />
+      </svg>
+    );
+  }
+
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <rect x="6" y="6" width="12" height="12" rx="3" />
+      <path d="M9.5 12h5" />
+    </svg>
+  );
+}
+
+function getTopbarMetricIcon(label: string): HbxHeaderIconName {
+  const normalized = label.toLowerCase();
+  if (normalized.includes("mem")) return "memory";
+  if (normalized.includes("cpu") || normalized.includes("fila") || normalized.includes("rodando")) return "cpu";
+  if (normalized.includes("hd") || normalized.includes("disco")) return "disk";
+  return "metric";
+}
+
+function TopbarCenterSummary({
+  slide,
+  onAction,
+}: {
+  slide: BillboardSlide;
+  onAction: (slide: BillboardSlide) => void;
+}) {
+  const progress = typeof slide.progress === "number" ? clampTopbarPercent(slide.progress) : null;
+  const metrics = (slide.metrics || []).slice(0, 3);
+  const canNavigate = Boolean(slide.href || slide.source);
+
+  return (
+    <button
+      type="button"
+      className="hbx-module-summary"
+      data-phase={slide.phase}
+      onClick={() => onAction(slide)}
+      disabled={!canNavigate}
+      aria-label={`${slide.eyebrow}: ${slide.title}. ${slide.description}`}
+    >
+      <span className="hbx-module-summary__copy">
+        <span className="hbx-module-summary__eyebrow">
+          <i aria-hidden="true" />
+          {slide.eyebrow}
+        </span>
+        <strong>{slide.title}</strong>
+        <span className="hbx-module-summary__description">{slide.description}</span>
+        <span className="hbx-module-summary__pulse" aria-hidden="true">
+          <svg viewBox="0 0 190 24" preserveAspectRatio="none">
+            <path d="M0 14H55L59 6L64 19L70 14H94L99 10L104 16L110 14H190" />
+          </svg>
+          <b />
+        </span>
+      </span>
+
+      <span className="hbx-module-summary__metrics">
+        {metrics.map((metric) => (
+          <span key={`${metric.label}:${metric.value}`} className="hbx-module-summary__metric">
+            <span className="hbx-module-summary__metricIcon">
+              <HbxHeaderIcon name={getTopbarMetricIcon(metric.label)} />
+            </span>
+            <span>
+              <small>{metric.label}</small>
+              <strong>{metric.value}</strong>
+            </span>
+          </span>
+        ))}
+      </span>
+
+      {progress !== null ? (
+        <span
+          className="hbx-module-summary__ring"
+          style={{ ["--topbar-progress" as string]: `${progress}%` } as React.CSSProperties}
+          aria-label={`${progress}%`}
+        >
+          <strong>{progress}%</strong>
+        </span>
+      ) : null}
+    </button>
+  );
 }
 
 type HbxEngineLoadTone = "green" | "yellow" | "red" | "muted";
@@ -970,6 +1105,826 @@ const HBX_TOPBAR_POLISH_CSS = `
     .hbx-whatsapp-live-alert { align-items: stretch; }
     .hbx-whatsapp-live-alert__actions { width: 100%; }
   }
+
+  .app-topbar {
+    padding-top: 6px !important;
+  }
+
+  .app-topbar__frame {
+    min-height: 96px !important;
+    border-radius: 30px !important;
+    overflow: visible !important;
+    border: 1px solid color-mix(in srgb, var(--button-accent, #0ea5e9) 22%, var(--line, rgba(148, 163, 184, 0.28))) !important;
+    background:
+      radial-gradient(circle at 14% 18%, color-mix(in srgb, var(--button-accent, #0ea5e9) 14%, transparent), transparent 28%),
+      radial-gradient(circle at 52% 8%, color-mix(in srgb, var(--success, #10b981) 10%, transparent), transparent 28%),
+      linear-gradient(135deg, color-mix(in srgb, var(--header-surface, #ffffff) 92%, transparent), color-mix(in srgb, #eef8ff 66%, var(--surface, #ffffff))) !important;
+    box-shadow:
+      0 0 0 2px color-mix(in srgb, var(--button-accent, #38bdf8) 10%, transparent),
+      0 20px 48px -34px rgba(15, 23, 42, 0.34),
+      inset 0 1px 0 rgba(255, 255, 255, 0.78) !important;
+  }
+
+  .app-topbar__inner--controlCenter {
+    min-height: 92px !important;
+    height: auto !important;
+    grid-template-columns: minmax(260px, 320px) minmax(430px, 1fr) minmax(430px, 520px) !important;
+    align-items: center !important;
+    gap: 16px !important;
+    padding: 10px 18px !important;
+    border: 0 !important;
+    border-radius: 28px !important;
+    background: transparent !important;
+    box-shadow: none !important;
+  }
+
+  .hbx-command-brand {
+    height: 74px !important;
+    min-height: 74px !important;
+    grid-template-columns: 62px minmax(0, 1fr) !important;
+    gap: 14px !important;
+    align-items: center !important;
+    padding: 0 26px 0 8px !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    position: relative !important;
+  }
+
+  .hbx-command-brand::after {
+    content: "";
+    position: absolute;
+    right: 0;
+    top: 9px;
+    bottom: 9px;
+    width: 1px;
+    background: linear-gradient(180deg, transparent, color-mix(in srgb, var(--button-accent, #38bdf8) 44%, transparent), transparent);
+  }
+
+  .hbx-command-brand::before {
+    content: "";
+    position: absolute;
+    right: -3px;
+    top: 50%;
+    width: 6px;
+    height: 6px;
+    border-radius: 999px;
+    background: #67e8f9;
+    box-shadow: 0 0 0 3px rgba(103, 232, 249, 0.16), 0 0 16px rgba(34, 211, 238, 0.86);
+    transform: translateY(-50%);
+  }
+
+  .hbx-command-brand__mark {
+    width: 62px !important;
+    height: 62px !important;
+    border-radius: 999px !important;
+    color: #ffffff !important;
+    background:
+      radial-gradient(circle at 28% 18%, rgba(255, 255, 255, 0.5), transparent 20%),
+      radial-gradient(circle at 72% 84%, rgba(14, 165, 233, 0.56), transparent 34%),
+      linear-gradient(145deg, #0284c7 0%, #03415f 72%) !important;
+    box-shadow:
+      0 0 0 3px rgba(103, 232, 249, 0.2),
+      0 0 0 8px rgba(14, 165, 233, 0.1),
+      0 18px 30px -20px rgba(2, 132, 199, 0.92) !important;
+    font-size: 13px !important;
+    letter-spacing: 0 !important;
+  }
+
+  .hbx-command-brand__mark span {
+    inset: 8px !important;
+    border-radius: 999px !important;
+    border-color: rgba(255, 255, 255, 0.36) !important;
+  }
+
+  .hbx-command-brand__copy strong {
+    font-size: 16px !important;
+    line-height: 1 !important;
+    letter-spacing: -0.02em !important;
+  }
+
+  .hbx-command-brand__copy span {
+    margin-top: 3px !important;
+    color: color-mix(in srgb, var(--button-accent, #0369a1) 56%, var(--muted, #64748b)) !important;
+    font-size: 10px !important;
+    letter-spacing: 0.055em !important;
+  }
+
+  .hbx-command-center {
+    height: 74px !important;
+    min-height: 74px !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    overflow: visible !important;
+    z-index: 12 !important;
+  }
+
+  .hbx-command-center::before,
+  .hbx-command-center::after {
+    display: none !important;
+  }
+
+  .hbx-command-center__body {
+    height: 74px !important;
+    min-height: 74px !important;
+  }
+
+  .hbx-module-summary {
+    width: 100%;
+    height: 74px;
+    display: grid;
+    grid-template-columns: minmax(170px, 1fr) minmax(220px, 360px) 58px;
+    align-items: center;
+    gap: 14px;
+    padding: 8px 16px 8px 20px;
+    border: 1px solid color-mix(in srgb, var(--button-accent, #38bdf8) 22%, rgba(148, 163, 184, 0.26));
+    border-radius: 20px;
+    background:
+      radial-gradient(circle at 18% 12%, rgba(125, 211, 252, 0.2), transparent 36%),
+      linear-gradient(180deg, rgba(255, 255, 255, 0.78), color-mix(in srgb, var(--surface-soft, #f8fafc) 86%, transparent));
+    color: var(--foreground, #0f172a);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.9),
+      0 18px 40px -32px rgba(15, 23, 42, 0.36);
+    cursor: pointer;
+    overflow: visible;
+    text-align: left;
+  }
+
+  .hbx-module-summary:disabled {
+    cursor: default;
+  }
+
+  .hbx-module-summary__copy,
+  .hbx-module-summary__metric,
+  .hbx-module-summary__metric > span:last-child {
+    min-width: 0;
+  }
+
+  .hbx-module-summary__copy {
+    display: grid;
+    gap: 2px;
+  }
+
+  .hbx-module-summary__eyebrow {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    color: color-mix(in srgb, var(--success, #10b981) 72%, #075985);
+    font-size: 10px;
+    font-weight: 950;
+    line-height: 1;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+
+  .hbx-module-summary__eyebrow i {
+    width: 8px;
+    height: 8px;
+    border-radius: 999px;
+    background: var(--success, #10b981);
+    box-shadow: 0 0 0 4px rgba(16, 185, 129, 0.12), 0 0 14px rgba(16, 185, 129, 0.72);
+    animation: hbxHeaderDot 1.7s ease-in-out infinite;
+  }
+
+  .hbx-module-summary[data-phase="warning"] .hbx-module-summary__eyebrow {
+    color: #b45309;
+  }
+
+  .hbx-module-summary[data-phase="warning"] .hbx-module-summary__eyebrow i {
+    background: #f59e0b;
+    box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.14), 0 0 14px rgba(245, 158, 11, 0.74);
+  }
+
+  .hbx-module-summary__copy > strong {
+    display: block;
+    color: var(--foreground, #0f172a);
+    font-size: 22px;
+    font-weight: 950;
+    line-height: 1.02;
+    letter-spacing: -0.03em;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .hbx-module-summary__description {
+    display: block;
+    max-width: 100%;
+    color: color-mix(in srgb, var(--foreground-soft, #475569) 86%, var(--button-accent, #0284c7));
+    font-size: 10.5px;
+    font-weight: 780;
+    line-height: 1.15;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .hbx-module-summary__pulse {
+    position: relative;
+    width: min(156px, 100%);
+    height: 15px;
+    margin-top: 1px;
+    color: color-mix(in srgb, var(--success, #10b981) 70%, #67e8f9);
+    opacity: 0.84;
+  }
+
+  .hbx-module-summary__pulse svg {
+    width: 100%;
+    height: 100%;
+    display: block;
+    overflow: visible;
+  }
+
+  .hbx-module-summary__pulse path {
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    stroke-dasharray: 210;
+    animation: hbxHeaderPulseLine 2.4s linear infinite;
+    filter: drop-shadow(0 0 5px rgba(45, 212, 191, 0.55));
+  }
+
+  .hbx-module-summary__pulse b {
+    position: absolute;
+    right: -3px;
+    top: 50%;
+    width: 7px;
+    height: 7px;
+    border-radius: 999px;
+    background: currentColor;
+    box-shadow: 0 0 12px currentColor;
+    transform: translateY(-50%);
+    animation: hbxHeaderDot 1.2s ease-in-out infinite;
+  }
+
+  .hbx-module-summary__metrics {
+    min-width: 0;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .hbx-module-summary__metric {
+    height: 48px;
+    display: grid;
+    grid-template-columns: 30px minmax(0, 1fr);
+    align-items: center;
+    gap: 8px;
+    padding: 5px 9px;
+    border: 1px solid color-mix(in srgb, var(--button-accent, #38bdf8) 22%, rgba(148, 163, 184, 0.22));
+    border-radius: 16px;
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.78), rgba(241, 248, 252, 0.64));
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.92), 0 12px 24px -24px rgba(15, 23, 42, 0.42);
+  }
+
+  .hbx-module-summary__metricIcon {
+    width: 30px;
+    height: 30px;
+    display: grid;
+    place-items: center;
+    border-radius: 10px;
+    color: #ffffff;
+    background: linear-gradient(145deg, #06b6d4, #0284c7);
+    box-shadow: 0 10px 20px -16px rgba(2, 132, 199, 0.95);
+  }
+
+  .hbx-module-summary__metricIcon svg,
+  .hbx-control-logout svg,
+  .hbx-control-contextButton svg,
+  .hbx-control-user__chevron svg {
+    width: 17px;
+    height: 17px;
+    display: block;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.9;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
+  .hbx-module-summary__metric small,
+  .hbx-module-summary__metric strong {
+    display: block;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .hbx-module-summary__metric small {
+    color: var(--muted, #64748b);
+    font-size: 9px;
+    font-weight: 950;
+    line-height: 1;
+    letter-spacing: 0.035em;
+    text-transform: uppercase;
+  }
+
+  .hbx-module-summary__metric strong {
+    margin-top: 3px;
+    color: var(--foreground, #0f172a);
+    font-size: 16px;
+    font-weight: 950;
+    line-height: 1;
+    letter-spacing: -0.025em;
+  }
+
+  .hbx-module-summary__ring {
+    --topbar-ring-color: var(--success, #10b981);
+    width: 56px;
+    height: 56px;
+    display: grid;
+    place-items: center;
+    border-radius: 999px;
+    background:
+      radial-gradient(circle, color-mix(in srgb, var(--surface, #ffffff) 92%, transparent) 56%, transparent 58%),
+      conic-gradient(var(--topbar-ring-color) var(--topbar-progress, 0%), rgba(148, 163, 184, 0.18) 0);
+    box-shadow:
+      inset 0 0 0 7px rgba(255, 255, 255, 0.72),
+      0 0 0 7px color-mix(in srgb, var(--topbar-ring-color) 10%, transparent),
+      0 14px 22px -18px color-mix(in srgb, var(--topbar-ring-color) 90%, transparent);
+  }
+
+  .hbx-module-summary[data-phase="warning"] .hbx-module-summary__ring {
+    --topbar-ring-color: #f59e0b;
+  }
+
+  .hbx-module-summary__ring strong {
+    color: var(--foreground, #0f172a);
+    font-size: 12px;
+    font-weight: 950;
+    line-height: 1;
+  }
+
+  .hbx-command-side {
+    height: 74px !important;
+    min-height: 74px !important;
+    display: flex !important;
+    flex-wrap: nowrap !important;
+    align-items: center !important;
+    align-content: center !important;
+    justify-content: flex-end !important;
+    gap: 10px !important;
+    margin-block: auto !important;
+    padding: 0 !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    overflow: visible !important;
+  }
+
+  .hbx-right-themeSlot {
+    flex: 0 0 56px !important;
+    width: 56px !important;
+    min-width: 56px !important;
+    height: 50px !important;
+    display: flex !important;
+    align-items: center !important;
+    align-self: center !important;
+  }
+
+  .hbx-command-side .theme-switcher-wrap,
+  .hbx-control-user,
+  .hbx-control-logout,
+  .hbx-control-contextButton {
+    height: 50px !important;
+    min-height: 50px !important;
+    align-self: center !important;
+  }
+
+  .hbx-command-side .theme-switcher-wrap {
+    width: 100% !important;
+    min-width: 0 !important;
+  }
+
+  .hbx-command-side .theme-switcher__trigger,
+  .hbx-control-user__trigger,
+  .hbx-control-logout,
+  .hbx-control-contextButton {
+    border: 1px solid color-mix(in srgb, var(--button-accent, #38bdf8) 22%, rgba(148, 163, 184, 0.28)) !important;
+    border-radius: 16px !important;
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.82), rgba(240, 248, 252, 0.74)) !important;
+    color: var(--foreground, #0f172a) !important;
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.9),
+      0 14px 26px -24px rgba(15, 23, 42, 0.36) !important;
+  }
+
+  .hbx-command-side .theme-switcher__trigger {
+    width: 56px !important;
+    height: 50px !important;
+    min-height: 50px !important;
+    display: grid !important;
+    grid-template-columns: 1fr !important;
+    place-items: center !important;
+    gap: 0 !important;
+    align-items: center !important;
+    padding: 0 !important;
+  }
+
+  .hbx-command-side .theme-switcher__trigger-preview {
+    width: 30px !important;
+    height: 30px !important;
+    border-radius: 999px !important;
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.58), 0 8px 14px -12px rgba(2, 132, 199, 0.9) !important;
+  }
+
+  .hbx-command-side .theme-switcher__trigger-copy {
+    display: none !important;
+  }
+
+  .hbx-command-side .theme-switcher__label {
+    color: color-mix(in srgb, var(--button-accent, #0284c7) 74%, var(--foreground, #0f172a)) !important;
+    font-size: 0 !important;
+    line-height: 1 !important;
+  }
+
+  .hbx-command-side .theme-switcher__label::before {
+    content: "TEMA";
+    font-size: 10px;
+    font-weight: 950;
+    letter-spacing: 0.055em;
+  }
+
+  .hbx-command-side .theme-switcher__trigger-copy strong {
+    color: var(--foreground, #0f172a) !important;
+    font-size: 11px !important;
+    font-weight: 950 !important;
+    line-height: 1 !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+  }
+
+  .hbx-command-side .theme-switcher__modeBadge {
+    display: none !important;
+  }
+
+  .hbx-command-side .theme-switcher__modeBadge::after {
+    content: "";
+    position: absolute;
+    inset: 1px 2px 3px 2px;
+    border-right: 1.8px solid color-mix(in srgb, var(--button-accent, #0284c7) 70%, var(--foreground, #0f172a));
+    border-bottom: 1.8px solid color-mix(in srgb, var(--button-accent, #0284c7) 70%, var(--foreground, #0f172a));
+    transform: rotate(45deg);
+  }
+
+  .hbx-control-user {
+    flex: 0 0 176px !important;
+    max-width: 176px !important;
+    min-width: 0 !important;
+    position: relative !important;
+  }
+
+  .hbx-control-user__trigger {
+    width: 100% !important;
+    height: 50px !important;
+    display: grid !important;
+    grid-template-columns: 36px minmax(0, 1fr) 14px !important;
+    align-items: center !important;
+    gap: 9px !important;
+    padding: 0 10px 0 7px !important;
+  }
+
+  .hbx-control-user .app-user__avatar {
+    width: 36px !important;
+    height: 36px !important;
+    border-radius: 999px !important;
+    position: relative !important;
+    color: #ffffff !important;
+    background: linear-gradient(145deg, #0284c7, #03415f) !important;
+    box-shadow: 0 0 0 3px rgba(14, 165, 233, 0.12), 0 12px 18px -16px rgba(2, 132, 199, 0.9) !important;
+    font-size: 13px !important;
+  }
+
+  .hbx-control-user .app-user__avatar::after {
+    content: "";
+    position: absolute;
+    right: -1px;
+    bottom: 1px;
+    width: 8px;
+    height: 8px;
+    border-radius: 999px;
+    background: #22c55e;
+    border: 2px solid rgba(255, 255, 255, 0.9);
+  }
+
+  .hbx-control-user .app-user__meta {
+    min-width: 0 !important;
+    display: grid !important;
+    gap: 2px !important;
+    text-align: left !important;
+  }
+
+  .hbx-control-user .app-user__name {
+    color: var(--foreground, #0f172a) !important;
+    font-size: 12px !important;
+    font-weight: 950 !important;
+    line-height: 1 !important;
+  }
+
+  .hbx-control-user .app-user__company {
+    color: var(--muted, #64748b) !important;
+    font-size: 10px !important;
+    font-weight: 780 !important;
+    line-height: 1.05 !important;
+  }
+
+  .hbx-control-user__chevron {
+    width: 14px;
+    height: 14px;
+    display: grid;
+    place-items: center;
+    color: color-mix(in srgb, var(--button-accent, #0284c7) 70%, var(--foreground, #0f172a));
+  }
+
+  .hbx-control-logout,
+  .hbx-control-contextButton {
+    min-width: 0 !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    gap: 6px !important;
+    padding: 0 12px !important;
+    font-size: 11px !important;
+    font-weight: 950 !important;
+    line-height: 1 !important;
+    text-decoration: none !important;
+    white-space: nowrap !important;
+  }
+
+  .hbx-control-logout {
+    width: 100% !important;
+    min-width: 56px !important;
+    flex: 0 0 56px !important;
+    padding: 0 !important;
+  }
+
+  .hbx-command-side .hbx-control-logout .hbx-control-logout__label {
+    position: absolute !important;
+    width: 1px !important;
+    height: 1px !important;
+    padding: 0 !important;
+    margin: -1px !important;
+    overflow: hidden !important;
+    clip: rect(0, 0, 0, 0) !important;
+    white-space: nowrap !important;
+    border: 0 !important;
+  }
+
+  .hbx-control-logout svg,
+  .hbx-control-contextButton svg {
+    width: 18px;
+    height: 18px;
+    color: color-mix(in srgb, var(--button-accent, #0284c7) 76%, var(--foreground, #0f172a));
+  }
+
+  .hbx-control-contextButton {
+    width: 100% !important;
+  }
+
+  .hbx-control-contextButton span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .hbx-control-accountRow,
+  .hbx-control-masterActions,
+  .hbx-control-vitals {
+    display: none !important;
+  }
+
+  .hbx-control-user .app-user__menu {
+    top: calc(100% + 10px) !important;
+    right: 0 !important;
+    left: auto !important;
+    width: min(320px, calc(100vw - 24px)) !important;
+    z-index: 90 !important;
+  }
+
+  @keyframes hbxHeaderDot {
+    0%, 100% { transform: scale(1); opacity: 0.86; }
+    50% { transform: scale(1.28); opacity: 1; }
+  }
+
+  @keyframes hbxHeaderPulseLine {
+    0% { stroke-dashoffset: 210; opacity: 0.35; }
+    28% { opacity: 1; }
+    100% { stroke-dashoffset: -210; opacity: 0.74; }
+  }
+
+  @media (max-width: 1380px) {
+    .app-topbar__inner--controlCenter {
+      grid-template-columns: minmax(230px, 300px) minmax(390px, 1fr) minmax(400px, 460px) !important;
+      gap: 12px !important;
+      padding-inline: 14px !important;
+    }
+
+    .hbx-command-side {
+      gap: 8px !important;
+    }
+
+    .hbx-right-themeSlot {
+      flex-basis: 56px !important;
+      width: 56px !important;
+      min-width: 56px !important;
+    }
+
+    .hbx-control-user {
+      flex-basis: 176px !important;
+    }
+
+    .hbx-control-logout {
+      flex-basis: 56px !important;
+      min-width: 56px !important;
+    }
+  }
+
+  @media (max-width: 1220px) {
+    .hbx-command-side {
+      gap: 7px !important;
+    }
+
+    .hbx-right-themeSlot {
+      flex-basis: 56px !important;
+      width: 56px !important;
+      min-width: 56px !important;
+    }
+
+    .hbx-control-user {
+      flex-basis: 176px !important;
+    }
+
+    .hbx-control-logout {
+      flex-basis: 56px !important;
+      min-width: 56px !important;
+      gap: 8px !important;
+    }
+  }
+
+  @media (max-width: 1120px) {
+    .app-topbar__inner--controlCenter {
+      grid-template-columns: minmax(220px, 280px) minmax(0, 1fr) !important;
+    }
+
+    .hbx-command-side {
+      grid-column: 1 / -1 !important;
+      justify-content: stretch !important;
+    }
+  }
+
+  @media (max-width: 760px) {
+    .app-topbar__frame {
+      min-height: 0 !important;
+      border-radius: 22px !important;
+    }
+
+    .app-topbar__inner--controlCenter {
+      grid-template-columns: 1fr !important;
+      min-height: 0 !important;
+      padding: 10px !important;
+    }
+
+    .hbx-command-brand {
+      height: 60px !important;
+      min-height: 60px !important;
+      grid-template-columns: 48px minmax(0, 1fr) !important;
+      padding-right: 0 !important;
+    }
+
+    .hbx-command-brand::before,
+    .hbx-command-brand::after {
+      display: none !important;
+    }
+
+    .hbx-command-brand__mark {
+      width: 48px !important;
+      height: 48px !important;
+    }
+
+    .hbx-module-summary {
+      height: auto;
+      min-height: 148px;
+      grid-template-columns: 1fr;
+      gap: 10px;
+      padding: 14px;
+    }
+
+    .hbx-module-summary__metrics {
+      grid-template-columns: 1fr;
+    }
+
+    .hbx-module-summary__ring {
+      position: absolute;
+      right: 14px;
+      top: 14px;
+    }
+
+    .hbx-command-center,
+    .hbx-command-center__body {
+      height: auto !important;
+      min-height: 0 !important;
+    }
+
+    .hbx-command-side {
+      height: auto !important;
+      min-height: 0 !important;
+      flex-wrap: wrap !important;
+    }
+
+    .hbx-control-user {
+      grid-column: 1 / -1;
+      max-width: none !important;
+    }
+  }
+
+  html[data-theme-mode="dark"] .app-topbar__frame,
+  html[data-theme-mode="dark"] .app-topbar .app-topbar__frame {
+    background:
+      radial-gradient(circle at 16% 10%, color-mix(in srgb, var(--button-success, #22c55e) 18%, transparent), transparent 30%),
+      radial-gradient(circle at 78% 0%, color-mix(in srgb, var(--button-secondary, #38bdf8) 13%, transparent), transparent 34%),
+      linear-gradient(135deg, color-mix(in srgb, var(--header-surface, #0f172a) 94%, #020617), color-mix(in srgb, var(--surface, #111827) 84%, #020617)) !important;
+    border-color: color-mix(in srgb, var(--button-success, #22c55e) 34%, var(--line, rgba(148, 163, 184, 0.28))) !important;
+    box-shadow:
+      0 0 0 1px color-mix(in srgb, var(--button-success, #22c55e) 18%, transparent),
+      0 22px 54px -32px rgba(0, 0, 0, 0.78),
+      inset 0 1px 0 rgba(255, 255, 255, 0.08) !important;
+  }
+
+  html[data-theme-mode="dark"] .hbx-command-brand__copy strong,
+  html[data-theme-mode="dark"] .hbx-module-summary__copy > strong,
+  html[data-theme-mode="dark"] .hbx-module-summary__metric strong,
+  html[data-theme-mode="dark"] .hbx-module-summary__ring strong,
+  html[data-theme-mode="dark"] .hbx-control-user .app-user__name,
+  html[data-theme-mode="dark"] .hbx-command-side .theme-switcher__trigger-copy strong {
+    color: color-mix(in srgb, var(--foreground, #f8fafc) 96%, #ffffff) !important;
+    text-shadow: 0 1px 0 rgba(0, 0, 0, 0.22);
+  }
+
+  html[data-theme-mode="dark"] .hbx-command-brand__copy span,
+  html[data-theme-mode="dark"] .hbx-module-summary__description,
+  html[data-theme-mode="dark"] .hbx-module-summary__metric small,
+  html[data-theme-mode="dark"] .hbx-control-user .app-user__company {
+    color: color-mix(in srgb, var(--muted, #cbd5e1) 84%, #ffffff) !important;
+  }
+
+  html[data-theme-mode="dark"] .hbx-module-summary {
+    border-color: color-mix(in srgb, var(--button-secondary, #38bdf8) 30%, var(--line, rgba(148, 163, 184, 0.24))) !important;
+    background:
+      radial-gradient(circle at 18% 12%, color-mix(in srgb, var(--button-secondary, #38bdf8) 16%, transparent), transparent 38%),
+      radial-gradient(circle at 74% 4%, color-mix(in srgb, var(--button-success, #22c55e) 14%, transparent), transparent 32%),
+      linear-gradient(180deg, color-mix(in srgb, var(--surface-raised, #172033) 88%, #020617), color-mix(in srgb, var(--surface, #0f172a) 92%, #020617)) !important;
+    color: var(--foreground, #f8fafc) !important;
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.1),
+      0 18px 40px -30px rgba(0, 0, 0, 0.86) !important;
+  }
+
+  html[data-theme-mode="dark"] .hbx-module-summary__metric {
+    border-color: color-mix(in srgb, var(--button-secondary, #38bdf8) 24%, var(--line, rgba(148, 163, 184, 0.24))) !important;
+    background:
+      linear-gradient(180deg, color-mix(in srgb, var(--surface, #111827) 88%, #020617), color-mix(in srgb, var(--surface-soft, #0b1220) 90%, #020617)) !important;
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.08),
+      0 12px 22px -20px rgba(0, 0, 0, 0.72) !important;
+  }
+
+  html[data-theme-mode="dark"] .hbx-module-summary__ring {
+    background:
+      radial-gradient(circle, color-mix(in srgb, var(--surface, #0f172a) 92%, #020617) 56%, transparent 58%),
+      conic-gradient(var(--topbar-ring-color) var(--topbar-progress, 0%), color-mix(in srgb, var(--line, #334155) 58%, transparent) 0) !important;
+    box-shadow:
+      inset 0 0 0 7px color-mix(in srgb, var(--surface, #0f172a) 76%, #020617),
+      0 0 0 7px color-mix(in srgb, var(--topbar-ring-color) 12%, transparent),
+      0 14px 22px -18px color-mix(in srgb, var(--topbar-ring-color) 80%, transparent) !important;
+  }
+
+  html[data-theme-mode="dark"] .hbx-command-side .theme-switcher__trigger,
+  html[data-theme-mode="dark"] .hbx-control-user__trigger,
+  html[data-theme-mode="dark"] .hbx-control-logout {
+    border-color: color-mix(in srgb, var(--button-success, #22c55e) 34%, var(--line, rgba(148, 163, 184, 0.24))) !important;
+    background:
+      radial-gradient(circle at 20% 0%, color-mix(in srgb, var(--button-secondary, #38bdf8) 13%, transparent), transparent 48%),
+      linear-gradient(180deg, color-mix(in srgb, var(--surface-raised, #172033) 88%, #020617), color-mix(in srgb, var(--surface, #0f172a) 90%, #020617)) !important;
+    color: var(--foreground, #f8fafc) !important;
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.1),
+      0 14px 28px -22px rgba(0, 0, 0, 0.76) !important;
+  }
+
+  html[data-theme-mode="dark"] .hbx-command-side .theme-switcher__label::before {
+    color: color-mix(in srgb, var(--button-success, #22c55e) 72%, #ffffff) !important;
+  }
+
+  html[data-theme-mode="dark"] .hbx-control-logout svg,
+  html[data-theme-mode="dark"] .hbx-control-user__chevron svg {
+    color: color-mix(in srgb, var(--button-success, #22c55e) 74%, #ffffff) !important;
+  }
 `;
 
 
@@ -1337,7 +2292,6 @@ export default function TopBar() {
   const [recoveryPendingHumanCount, setRecoveryPendingHumanCount] = useState(0);
   const [atendimentoPendingHumanCount, setAtendimentoPendingHumanCount] = useState(0);
   const [topbarProgress, setTopbarProgress] = useState<TopbarProgressState | null>(null);
-  const [billboardSlideIndex, setBillboardSlideIndex] = useState(0);
   const [scrapingEngines, setScrapingEngines] = useState<ScrapingEngineStatusPayload | null>(null);
   const [scrapingEngineStatusMessage, setScrapingEngineStatusMessage] = useState<string | null>(null);
   const [hbxGaugeBooting, setHbxGaugeBooting] = useState(true);
@@ -3559,90 +4513,92 @@ export default function TopBar() {
     }
 
     if (isVendasRoute) {
-      const overdue = Math.max(0, Math.trunc(Number(vendasTopbarBoard?.summary?.overdue || 0)));
-      const today = Math.max(0, Math.trunc(Number(vendasTopbarBoard?.summary?.today || 0)));
-      const future = Math.max(
-        0,
-        Math.trunc(Number(vendasTopbarBoard?.summary?.scheduled ?? vendasTopbarBoard?.blocks?.scheduled?.length ?? 0)),
-      );
-      const vendasProgress = topbarProgress?.source === "vendas" ? topbarProgress : null;
-      const hasWarning = overdue > 0 || vendasProgress?.phase === "warning";
+      const summary = vendasTopbarBoard?.summary || {};
+      const today = Math.max(0, Math.trunc(Number(summary.today || 0)));
+      const overdue = Math.max(0, Math.trunc(Number(summary.overdue || 0)));
+      const scheduled = Math.max(0, Math.trunc(Number(summary.scheduled || 0)));
+      const total = Math.max(0, Math.trunc(Number(summary.total || 0)));
+      const closed = Math.max(0, Math.trunc(Number(summary.closed || 0)));
+      const progress = total > 0 ? clampTopbarPercent((closed / total) * 100) : overdue > 0 ? 42 : 94;
 
       return [
         {
-          id: `vendas:${overdue}:${today}:${future}:${vendasProgress?.phase || "idle"}`,
-          kind: hasWarning ? "attention" : "status",
+          id: `vendas:${today}:${overdue}:${scheduled}:${closed}:${total}`,
+          kind: "attention",
           eyebrow: "Vendas",
-          title: vendasProgress?.phase === "warning" ? vendasProgress.title : today > 0 ? `${today} para hoje` : overdue > 0 ? `${overdue} atrasados` : "Agenda limpa",
-          description: vendasProgress?.status || `${overdue} atrasados - ${today} para hoje - ${future} futuros`,
-          phase: hasWarning ? "warning" : vendasProgress?.phase === "loading" ? "loading" : "success",
-          source: "vendas",
+          title: overdue > 0 ? `${overdue} atrasadas` : today > 0 ? `${today} para hoje` : "Agenda OK",
+          description:
+            total > 0
+              ? `${closed}/${total} tratadas hoje`
+              : scheduled > 0
+                ? `${scheduled} vendas futuras no radar`
+                : "Pipeline comercial sincronizado",
+          phase: overdue > 0 ? "warning" : "success",
+          source: "operational",
           href: "/vendas",
-          progress: vendasProgress ? topbarProgressPercent : null,
+          progress,
           metrics: [
-            { label: "Atrasados", value: String(overdue) },
+            { label: "Atrasadas", value: String(overdue) },
             { label: "Hoje", value: String(today) },
-            { label: "Futuros", value: String(future) },
+            { label: "Futuras", value: String(scheduled) },
           ],
         },
       ];
     }
 
     if (isAtendimentoRoute) {
-      const badOperationalChips = visibleOperationalStatusChips.filter((chip) => chip.tone !== "green").length;
-      const qrHasIssue = qrOperationalTile.tone === "danger" || qrOperationalTile.tone === "warning";
-      const warningCount =
-        badOperationalChips +
-        (pendingHumanCount > 0 ? 1 : 0) +
-        (unreadInboxCount > 0 ? 1 : 0) +
-        (qrHasIssue ? 1 : 0) +
+      const attentionCount =
+        pendingHumanCount +
+        unreadInboxCount +
+        (qrOperationalTile.tone === "success" ? 0 : 1) +
         (incomingPopup ? 1 : 0);
-      const title = incomingPopup
-        ? `${incomingPopup.customerLabel || incomingPopup.contactPhone || "Cliente"} mandou mensagem`
-        : warningCount > 0
-          ? `${warningCount} aviso${warningCount === 1 ? "" : "s"} no atendimento`
-          : "Atendimento estável";
+      const progress = qrOperationalTile.usage ?? (attentionCount > 0 ? 58 : 94);
 
       return [
         {
-          id: `atendimento:${warningCount}:${pendingHumanCount}:${unreadInboxCount}:${qrOperationalTile.value}`,
-          kind: warningCount > 0 ? "attention" : "whatsapp",
+          id: `atendimento:${pendingHumanCount}:${unreadInboxCount}:${qrOperationalTile.value}:${incomingPopup?.id || "none"}`,
+          kind: "whatsapp",
           eyebrow: "Atendimento",
-          title,
-          description: incomingPopup?.preview || qrOperationalTile.detail || whatsAppHealthLabel,
-          phase: warningCount > 0 ? "warning" : whatsAppHealth === "green" ? "success" : "idle",
-          source: "atendimento",
+          title: incomingPopup
+            ? incomingPopup.customerLabel
+            : pendingHumanCount > 0
+              ? `${pendingHumanCount} na fila`
+              : "Atendimento OK",
+          description: incomingPopup?.preview || whatsAppHealthLabel,
+          phase: attentionCount > 0 ? "warning" : "success",
+          source: "queue",
           href: "#atendimento-alerts",
-          progress: qrOperationalTile.usage,
+          progress,
           metrics: [
-            { label: "Conexão", value: whatsAppHealth === "green" ? "OK" : qrOperationalTile.value },
+            { label: "Conexão", value: qrOperationalTile.value },
             { label: "Não lidas", value: String(unreadInboxCount) },
-            { label: "Avisos", value: String(warningCount) },
+            { label: "Avisos", value: String(attentionCount) },
           ],
         },
       ];
     }
 
     if (isRadarDigitalRoute || isMasterWebscrapingRoute) {
-      const availableEngines = Math.max(
-        0,
-        hbxEngineOnlineCount - hbxCapacityRunningCount - hbxCooldownCount - hbxPausedCount - hbxOperationalErrorCount,
-      );
-      const radarProgress = topbarProgress && isEngineProgressSource(topbarProgress.source) ? topbarProgress : null;
+      const progress = liveWebscrapingProgress ? topbarProgressPercent : hbxMainGaugeUsage;
+      const title = liveWebscrapingProgress
+        ? `${progressEngineLabel || "HBX"} coletando`
+        : hbxOperationalErrorCount > 0
+          ? `${hbxOperationalErrorCount} alerta${hbxOperationalErrorCount === 1 ? "" : "s"} nos motores`
+          : `${hbxEngineOnlineCount}/${visibleHbxEngineCount} motores online`;
 
       return [
         {
-          id: `radar:${availableEngines}:${hbxQueueCount}:${hbxOperationalErrorCount}:${radarProgress?.phase || "idle"}`,
-          kind: hbxOperationalErrorCount > 0 ? "attention" : "engines",
-          eyebrow: "Radar Digital",
-          title: hbxOperationalErrorCount > 0 ? `${hbxOperationalErrorCount} erro${hbxOperationalErrorCount === 1 ? "" : "s"} nos motores` : `${availableEngines} motores disponíveis`,
-          description: radarProgress?.status || `${hbxEngineOnlineCount}/${visibleHbxEngineCount} online - ${hbxCapacityRunningCount} rodando agora`,
-          phase: hbxOperationalErrorCount > 0 ? "warning" : radarProgress?.phase === "loading" || hasActiveScrapingEngine ? "loading" : "success",
-          source: "engines",
+          id: `radar:${hbxEngineOnlineCount}:${visibleHbxEngineCount}:${hbxQueueCount}:${hbxOperationalErrorCount}:${progress}`,
+          kind: "engines",
+          eyebrow: "Radar digital",
+          title,
+          description: scrapingEngineStatusMessage || hbxMainGaugeDetail,
+          phase: hbxOperationalErrorCount > 0 || hbxQueueCount > visibleHbxEngineCount ? "warning" : "success",
+          source: "webscraping",
           href: user?.isSystemMaster ? "/master/webscraping" : "/radar-digital",
-          progress: radarProgress ? topbarProgressPercent : hbxUsageAverage,
+          progress,
           metrics: [
-            { label: "Disponíveis", value: String(availableEngines) },
+            { label: "Disponíveis", value: `${hbxEngineOnlineCount}/${visibleHbxEngineCount}` },
             { label: "Fila", value: String(hbxQueueCount) },
             { label: "Erros", value: String(hbxOperationalErrorCount) },
           ],
@@ -3650,10 +4606,10 @@ export default function TopBar() {
       ];
     }
 
-    const memory = hostingerVitals.find((vital) => vital.id === "memory");
-    const load = hostingerVitals.find((vital) => vital.id === "load");
-    const disk = hostingerVitals.find((vital) => vital.id === "disk");
-    const serverTone = hostingerSummaryTile.tone === "danger" || hostingerSummaryTile.tone === "warning" ? "warning" : "success";
+    const serverMemory = hostingerVitals.find((vital) => vital.id === "memory");
+    const serverLoad = hostingerVitals.find((vital) => vital.id === "load");
+    const serverDisk = hostingerVitals.find((vital) => vital.id === "disk");
+    const serverHeaderTone = hostingerSummaryTile.tone === "danger" || hostingerSummaryTile.tone === "warning" ? "warning" : "success";
 
     return [
       {
@@ -3662,26 +4618,24 @@ export default function TopBar() {
         eyebrow: "Servidor",
         title: `Server ${hostingerSummaryTile.value}`,
         description: hostingerSummaryTile.detail,
-        phase: serverTone,
+        phase: serverHeaderTone,
         source: "hostinger",
         href: user?.isSystemMaster ? "/master/sistema" : "/boasvindas",
         progress: hostingerSummaryTile.usage,
         metrics: [
-          { label: "Memória", value: memory?.value || "--" },
-          { label: "CPU", value: load?.value || "--" },
-          { label: "HD", value: disk?.value || "--" },
+          { label: "Memória", value: serverMemory?.value || "--" },
+          { label: "CPU", value: serverLoad?.value || "--" },
+          { label: "HD", value: serverDisk?.value || "--" },
         ],
       },
     ];
+
   }, [
-    hbxCapacityRunningCount,
-    hbxCooldownCount,
     hbxEngineOnlineCount,
+    hbxMainGaugeDetail,
+    hbxMainGaugeUsage,
     hbxOperationalErrorCount,
-    hbxPausedCount,
     hbxQueueCount,
-    hbxUsageAverage,
-    hasActiveScrapingEngine,
     hostingerSummaryTile,
     hostingerVitals,
     incomingPopup,
@@ -3689,25 +4643,47 @@ export default function TopBar() {
     isMasterWebscrapingRoute,
     isRadarDigitalRoute,
     isVendasRoute,
+    liveWebscrapingProgress,
     masterContextToast,
     pendingHumanCount,
+    progressEngineLabel,
     qrOperationalTile,
+    scrapingEngineStatusMessage,
     systemHealth?.generatedAt,
-    topbarProgress,
     topbarProgressPercent,
     unreadInboxCount,
     user?.isSystemMaster,
-    vendasTopbarBoard,
+    vendasTopbarBoard?.summary,
     visibleHbxEngineCount,
-    visibleOperationalStatusChips,
-    whatsAppHealth,
     whatsAppHealthLabel,
   ]);
-  const billboardSlideSignature = billboardSlides.map((slide) => slide.id).join("|");
+  const activeBillboardSlide = billboardSlides[0];
 
-  useEffect(() => {
-    setBillboardSlideIndex(0);
-  }, [billboardSlideSignature]);
+  function handleTopbarSummaryAction(slide: BillboardSlide) {
+    if (slide.href === "#atendimento-alerts") {
+      if (pendingCheckoutLocked) {
+        router.push(pendingCheckoutHref);
+        return;
+      }
+      if (pendingHumanCount > 0) {
+        handleQueueShortcut(atendimentoPendingHumanCount > 0 ? "atendimento" : "recovery");
+        return;
+      }
+      if (unreadInboxCount > 0) {
+        void toggleUnreadInboxPopup();
+        return;
+      }
+      openWhatsAppOperationalDetail("status");
+      return;
+    }
+
+    if (slide.href) {
+      router.push(slide.href);
+      return;
+    }
+
+    handleBillboardAction(slide);
+  }
 
   const whatsAppDialogNode = (
     <WhatsAppOperationalDialog
@@ -3847,7 +4823,13 @@ export default function TopBar() {
     <header className={`app-topbar${topbarHiddenByScroll ? " app-topbar--hidden" : ""}`}>
       <style>{HBX_TOPBAR_POLISH_CSS}</style>
       <div ref={topbarFrameRef} className="app-topbar__frame">
-        <div className="app-topbar__inner app-topbar__inner--controlCenter">
+        <div
+          className="app-topbar__inner app-topbar__inner--controlCenter"
+          style={{
+            gridTemplateColumns: "minmax(240px, 300px) minmax(360px, 1fr) minmax(310px, 340px)",
+            alignItems: "center",
+          }}
+        >
           <section className="hbx-command-brand" aria-label="HBXSYSTEM">
             <button
               id={MODULES_TRIGGER_ID}
@@ -3875,163 +4857,139 @@ export default function TopBar() {
             aria-label="Status operacional HBX"
           >
             <div className="hbx-command-center__body">
-              <TopbarCommandCarousel
-                slides={billboardSlides}
-                activeIndex={billboardSlideIndex}
-                onIndexChange={setBillboardSlideIndex}
-                onNavigate={(href) => {
-                  if (href === "#atendimento-alerts") {
-                    if (pendingCheckoutLocked) {
-                      router.push(pendingCheckoutHref);
-                      return;
-                    }
-                    if (pendingHumanCount > 0) {
-                      handleQueueShortcut(atendimentoPendingHumanCount > 0 ? "atendimento" : "recovery");
-                      return;
-                    }
-                    if (unreadInboxCount > 0) {
-                      void toggleUnreadInboxPopup();
-                      return;
-                    }
-                    openWhatsAppOperationalDetail("status");
-                    return;
-                  }
-                  router.push(href);
-                }}
-              />
+              {activeBillboardSlide ? (
+                <TopbarCenterSummary slide={activeBillboardSlide} onAction={handleTopbarSummaryAction} />
+              ) : null}
             </div>
           </section>
 
-          <section className="hbx-command-side" aria-label="Tema e usuário">
-            <ThemeSwitcher />
-            <div className="hbx-control-accountRow">
-              {user ? (
-                <div ref={userMenuRef} className="app-user hbx-control-user">
-                  <button
-                    type="button"
-                    className="app-user__trigger hbx-control-user__trigger"
-                    onClick={() => setOpen((value) => !value)}
-                    aria-expanded={open}
-                  >
+          <section
+            className="hbx-command-side"
+            aria-label="Tema e usuário"
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "flex-end",
+              gap: 10,
+              height: 74,
+              minHeight: 74,
+              alignSelf: "center",
+              marginBlock: "auto",
+              padding: 0,
+              border: 0,
+              background: "transparent",
+              boxShadow: "none",
+              overflow: "visible",
+            }}
+          >
+            <div className="hbx-right-themeSlot">
+              <ThemeSwitcher />
+            </div>
+            {authenticated === true ? (
+              <div
+                ref={userMenuRef}
+                className="app-user hbx-control-user"
+                style={{ flex: "0 0 176px", maxWidth: 176, minWidth: 0, height: 50, alignSelf: "center" }}
+              >
+                <button
+                  type="button"
+                  className="app-user__trigger hbx-control-user__trigger"
+                  onClick={() => setOpen((value) => !value)}
+                  aria-expanded={open}
+                >
                     <span className="app-user__avatar">{displayInitial}</span>
                     <span className="app-user__meta">
-                      <span className="app-user__name">{displayLabel || user?.username || ""}</span>
+                      <span className="app-user__name">{displayLabel || user?.username || "Usuário"}</span>
                       <span className="app-user__company">
-                        {user.isSystemMaster
-                          ? user.masterContext?.active
-                            ? `MASTER em ${user.masterContext.companyName || "Empresa"}`
-                            : "Administrador"
-                          : user.company?.name ?? "Sem empresa"}
-                      </span>
+                      {user?.isSystemMaster
+                        ? user.masterContext?.active
+                          ? `MASTER em ${user.masterContext.companyName || "Empresa"}`
+                          : "Administrador"
+                        : user?.company?.name ?? "Conta ativa"}
                     </span>
-                  </button>
+                  </span>
+                  <span className="hbx-control-user__chevron">
+                    <HbxHeaderIcon name="chevron" />
+                  </span>
+                </button>
 
-                  {open ? (
-                    <div className="app-user__menu">
-                      <p className="app-user__menu-title">Atendente/vendedor</p>
-                      <form onSubmit={handleDisplayNameSubmit} className="app-user__form">
-                        <input
-                          type="text"
-                          placeholder="Nome do atendente/vendedor"
-                          value={attendantName}
-                          onChange={(event) => setAttendantName(event.target.value)}
-                          className="field"
-                          autoComplete="name"
-                        />
+                {open ? (
+                  <div className="app-user__menu">
+                    <p className="app-user__menu-title">Atendente/vendedor</p>
+                    <form onSubmit={handleDisplayNameSubmit} className="app-user__form">
+                      <input
+                        type="text"
+                        placeholder="Nome do atendente/vendedor"
+                        value={attendantName}
+                        onChange={(event) => setAttendantName(event.target.value)}
+                        className="field"
+                        autoComplete="name"
+                      />
+                      <button
+                        type="submit"
+                        className="btn btn-primary btn-sm"
+                        disabled={savingAttendantName || attendantName.trim().length < 2}
+                      >
+                        {savingAttendantName ? "Salvando..." : "Salvar nome"}
+                      </button>
+                    </form>
+                    <p className="app-user__menu-title">Editar senha</p>
+                    <form onSubmit={handlePasswordSubmit} className="app-user__form">
+                      <input
+                        type="password"
+                        placeholder="Senha atual"
+                        value={curPass}
+                        onChange={(event) => setCurPass(event.target.value)}
+                        className="field"
+                      />
+                      <input
+                        type="password"
+                        placeholder="Nova senha (mín. 8)"
+                        value={newPass}
+                        onChange={(event) => setNewPass(event.target.value)}
+                        className="field"
+                      />
+                      {changeMsg ? <p className="text-xs text-muted leading-5">{changeMsg}</p> : null}
+                      <div className="app-user__menu-actions">
                         <button
                           type="submit"
                           className="btn btn-primary btn-sm"
-                          disabled={savingAttendantName || attendantName.trim().length < 2}
+                          disabled={changing || newPass.length < 4}
                         >
-                          {savingAttendantName ? "Salvando..." : "Salvar nome"}
+                          {changing ? "Salvando..." : "Salvar senha"}
                         </button>
-                      </form>
-                      <p className="app-user__menu-title">Editar senha</p>
-                      <form onSubmit={handlePasswordSubmit} className="app-user__form">
-                        <input
-                          type="password"
-                          placeholder="Senha atual"
-                          value={curPass}
-                          onChange={(event) => setCurPass(event.target.value)}
-                          className="field"
-                        />
-                        <input
-                          type="password"
-                          placeholder="Nova senha (mín. 8)"
-                          value={newPass}
-                          onChange={(event) => setNewPass(event.target.value)}
-                          className="field"
-                        />
-                        {changeMsg ? <p className="text-xs text-muted leading-5">{changeMsg}</p> : null}
-                        <div className="app-user__menu-actions">
-                          <button
-                            type="submit"
-                            className="btn btn-primary btn-sm"
-                            disabled={changing || newPass.length < 4}
-                          >
-                            {changing ? "Salvando..." : "Salvar senha"}
-                          </button>
-                          <button
-                            type="button"
-                            className="btn btn-secondary btn-sm"
-                            onClick={() => setOpen(false)}
-                          >
-                            Fechar
-                          </button>
-                        </div>
-                      </form>
-                    </div>
-                  ) : null}
-                </div>
-              ) : null}
-              {authenticated === true ? (
-                <button
-                  type="button"
-                  onClick={() => {
-                    void handleLogout();
-                  }}
-                  className="hbx-control-logout"
-                  disabled={isShuttingDown}
-                >
-                  <span aria-hidden="true">↪</span>
-                  {isShuttingDown ? "Saindo..." : "Sair"}
-                </button>
-              ) : authResolved ? (
-                <Link href="/login" prefetch={false} className="hbx-control-logout">
-                  Entrar
-                </Link>
-              ) : null}
-            </div>
-            <div className="hbx-control-masterActions">
-              {authenticated === true && user?.isSystemMaster ? (
-              <button
-                type="button"
-                className="btn btn-secondary btn-sm"
-                onClick={openMasterContextModal}
-              >
-                Contexto
-              </button>
-            ) : null}
-            {authenticated === true && user?.isSystemMaster && user.masterContext?.active ? (
-              <button
-                type="button"
-                className="btn btn-secondary btn-sm"
-                onClick={exitMasterContext}
-                disabled={masterContextActionBusy}
-              >
-                Sair contexto
-              </button>
-            ) : null}
-            </div>
-            {user?.isSystemMaster ? (
-              <div className="hbx-control-vitals" aria-label="Uso ao vivo de memória e HD">
-                {topbarSystemVitals.map((vital) => (
-                  <span key={vital.id} data-tone={vital.tone} title={`${vital.label}: ${vital.value}. ${vital.detail}`}>
-                    {vital.label}
-                    <strong>{vital.value}</strong>
-                  </span>
-                ))}
+                        <button
+                          type="button"
+                          className="btn btn-secondary btn-sm"
+                          onClick={() => setOpen(false)}
+                        >
+                          Fechar
+                        </button>
+                      </div>
+                    </form>
+                  </div>
+                ) : null}
               </div>
+            ) : null}
+            {authenticated === true ? (
+              <button
+                type="button"
+                onClick={() => {
+                  void handleLogout();
+                }}
+                className="hbx-control-logout"
+                disabled={isShuttingDown}
+                title="Sair do sistema"
+                aria-label="Sair do sistema"
+                style={{ flex: "0 0 56px", minWidth: 56, width: 56, height: 50, alignSelf: "center", position: "relative" }}
+              >
+                <HbxHeaderIcon name="logout" />
+                <span className="hbx-control-logout__label">{isShuttingDown ? "Saindo..." : "Sair do sistema"}</span>
+              </button>
+            ) : authResolved ? (
+              <Link href="/login" prefetch={false} className="hbx-control-logout">
+                Entrar
+              </Link>
             ) : null}
           </section>
         </div>

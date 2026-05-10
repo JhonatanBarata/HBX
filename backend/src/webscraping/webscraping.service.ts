@@ -219,8 +219,8 @@ const AUTONOMOUS_MASS_DATA_LOCATION_FALLBACK = [
   { city: 'Maceió', state: 'AL' },
   { city: 'Natal', state: 'RN' },
 ];
-const AUTONOMOUS_MASS_DATA_DEFAULT_TASKS = 60;
-const AUTONOMOUS_MASS_DATA_MAX_TASKS = 300;
+const AUTONOMOUS_MASS_DATA_DEFAULT_TASKS = 300;
+const AUTONOMOUS_MASS_DATA_MAX_TASKS = 1000;
 const DEFAULT_MASS_DATA_ENGINE_URLS = buildLocalHbxEngineUrls();
 const TURBO_OPERATIONAL_CONFIG_KEY = 'turbo_noturno';
 const RADAR_RESERVATION_TTL_MS = 72 * 60 * 60 * 1000;
@@ -6170,7 +6170,20 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
               query,
               maxAttempts,
             },
-            update: {},
+            update: {
+              query,
+              status: 'queued',
+              attemptCount: 0,
+              maxAttempts,
+              foundCount: 0,
+              duplicateCount: 0,
+              rejectedCount: 0,
+              lastError: null,
+              lockedByEngineId: null,
+              lockedUntil: null,
+              startedAt: null,
+              finishedAt: null,
+            },
           });
           created += 1;
         }
@@ -6543,7 +6556,20 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
           query,
           maxAttempts,
         },
-        update: {},
+        update: {
+          query,
+          status: 'queued',
+          attemptCount: 0,
+          maxAttempts,
+          foundCount: 0,
+          duplicateCount: 0,
+          rejectedCount: 0,
+          lastError: null,
+          lockedByEngineId: null,
+          lockedUntil: null,
+          startedAt: null,
+          finishedAt: null,
+        },
       }).catch(() => null);
       if (inserted) created += 1;
     }
@@ -6591,7 +6617,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         weekendAlwaysOn: parsed?.weekendAlwaysOn == null ? false : coerceBoolean(parsed.weekendAlwaysOn),
         factoryState: typeof parsed?.factoryState === 'string' ? parsed.factoryState.trim().toUpperCase() : '',
         factoryCity: typeof parsed?.factoryCity === 'string' ? parsed.factoryCity.trim() : '',
-        factoryMaxEngines: clampInteger(parsed?.factoryMaxEngines, 16, 0, getConfiguredHbxEngineCount()),
+        factoryMaxEngines: clampInteger(parsed?.factoryMaxEngines, getConfiguredHbxEngineCount(), 0, getConfiguredHbxEngineCount()),
         factoryMinEngines: clampInteger(parsed?.factoryMinEngines, 0, 0, getConfiguredHbxEngineCount()),
         drainTimeoutSeconds: clampInteger(parsed?.drainTimeoutSeconds, 90, 10, 900),
       };
@@ -6608,7 +6634,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         weekendAlwaysOn: false,
         factoryState: '',
         factoryCity: '',
-        factoryMaxEngines: 16,
+        factoryMaxEngines: getConfiguredHbxEngineCount(),
         factoryMinEngines: 0,
         drainTimeoutSeconds: 90,
       };
@@ -6704,8 +6730,8 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     const factoryCity = input.factoryCity == null
       ? existingMetadata.factoryCity
       : String(input.factoryCity || '').trim().slice(0, 80);
-    const factoryMaxEngines = clampInteger(input.maxEngines ?? input.engineCount, existingMetadata.factoryMaxEngines || 16, 0, getConfiguredHbxEngineCount());
-    const factoryMinEngines = clampInteger(input.minEngines, existingMetadata.factoryMinEngines || 0, 0, factoryMaxEngines);
+    const factoryMaxEngines = clampInteger(input.maxEngines ?? input.engineCount ?? base.engineCount, base.engineCount, 0, getConfiguredHbxEngineCount());
+    const factoryMinEngines = clampInteger(input.minEngines ?? factoryMaxEngines, factoryMaxEngines, 0, factoryMaxEngines);
     const drainTimeoutSeconds = clampInteger(input.drainTimeoutSeconds, existingMetadata.drainTimeoutSeconds || 90, 10, 900);
     const explicitForcedUntil = String(input.forcedUntil || '').trim();
     const now = new Date();
@@ -7561,31 +7587,38 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         const queuedOrRunning = await (this.prisma as any).webscrapingCampaignTask.count({
           where: { campaignId: activeCampaign.id, status: { in: ['queued', 'running'] } },
         }).catch(() => 0);
-        if (automaticAllowed > 0 && safeInteger(queuedOrRunning) < automaticAllowed) {
-          await this.createAutonomousMassDataTasks(
+        const desiredBacklog = Math.max(automaticAllowed * 2, safeInteger(config?.autonomousFillBatchSize, AUTONOMOUS_MASS_DATA_DEFAULT_TASKS));
+        let created = 0;
+        if (automaticAllowed > 0 && safeInteger(queuedOrRunning) < desiredBacklog) {
+          const refill = await this.createAutonomousMassDataTasks(
             {
               ...activeCampaign,
-              targetTotal: Math.max(automaticAllowed * 2, safeInteger(config?.autonomousFillBatchSize, AUTONOMOUS_MASS_DATA_DEFAULT_TASKS)),
+              targetTotal: desiredBacklog,
               maxAttempts: safeInteger(config?.maxAttemptsPerTask, 3),
             },
-            Math.max(automaticAllowed * 2, safeInteger(config?.autonomousFillBatchSize, AUTONOMOUS_MASS_DATA_DEFAULT_TASKS)),
+            desiredBacklog,
           ).catch(() => null);
+          created = safeInteger((refill as any)?.created);
         }
-        await (this.prisma as any).radarFactoryCursor?.update?.({
-          where: { key: 'main' },
-          data: {
-            status: 'running',
-            lastCampaignId: activeCampaign.id,
-            currentState: activeCampaign.state || cursor.currentState || null,
-            currentCity: activeCampaign.city || cursor.currentCity || null,
-            currentSegment: activeCampaign.segment || cursor.currentSegment || null,
-            currentTargetType: activeCampaign.targetType || cursor.currentTargetType || 'pj',
-            reasonStopped: null,
-            nextRunAt: null,
-          },
-        }).catch(() => null);
-        this.scheduleRadarCampaignPump(0);
-        return { skipped: false, reason: 'active_campaign_exists', campaignId: activeCampaign.id };
+        if (automaticAllowed > 0 && safeInteger(queuedOrRunning) + created < automaticAllowed) {
+          this.logger.log(`[radar-factory] campanha ativa com pouca fila (${queuedOrRunning}+${created}/${automaticAllowed}); criando outra missão para ocupar motores.`);
+        } else {
+          await (this.prisma as any).radarFactoryCursor?.update?.({
+            where: { key: 'main' },
+            data: {
+              status: 'running',
+              lastCampaignId: activeCampaign.id,
+              currentState: activeCampaign.state || cursor.currentState || null,
+              currentCity: activeCampaign.city || cursor.currentCity || null,
+              currentSegment: activeCampaign.segment || cursor.currentSegment || null,
+              currentTargetType: activeCampaign.targetType || cursor.currentTargetType || 'pj',
+              reasonStopped: null,
+              nextRunAt: null,
+            },
+          }).catch(() => null);
+          this.scheduleRadarCampaignPump(0);
+          return { skipped: false, reason: 'active_campaign_exists', campaignId: activeCampaign.id };
+        }
       }
 
       const mission = await this.pickRadarFactoryMission(cursor);
@@ -7699,7 +7732,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       batchSize: 20,
       maxAttemptsPerTask: 3,
       autonomousFillEnabled: true,
-      autonomousFillBatchSize: Math.min(300, Math.max(60, engineCount * 2)),
+      autonomousFillBatchSize: Math.min(AUTONOMOUS_MASS_DATA_MAX_TASKS, Math.max(AUTONOMOUS_MASS_DATA_DEFAULT_TASKS, engineCount * 4)),
     }).catch(() => null);
     await this.ensureNightFactoryWork(user);
     return this.getRadarFactoryStatus(user);
@@ -9539,26 +9572,33 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       data: { status: 'running', startedAt: campaign.startedAt || now, nextRunAt: null },
     }).catch(() => null);
 
-    const queuedTasks = await (this.prisma as any).webscrapingCampaignTask.count({
+    let queuedTasks = await (this.prisma as any).webscrapingCampaignTask.count({
       where: { campaignId: campaign.id, status: 'queued' },
     }).catch(() => 0);
-    if (safeInteger(queuedTasks) <= 0) {
+    const minimumQueued = Math.max(maxParallel * 2, AUTONOMOUS_MASS_DATA_DEFAULT_TASKS);
+    if (safeInteger(queuedTasks) < minimumQueued) {
       const config = await this.getOperationalConfig().catch(() => null);
       if (config?.autonomousFillEnabled) {
         const refill = await this.createAutonomousMassDataTasks(
           campaign,
-          safeInteger(config.autonomousFillBatchSize, AUTONOMOUS_MASS_DATA_DEFAULT_TASKS),
+          Math.max(minimumQueued, safeInteger(config.autonomousFillBatchSize, AUTONOMOUS_MASS_DATA_DEFAULT_TASKS)),
         );
         if (refill.created > 0) {
+          queuedTasks += refill.created;
           await (this.prisma as any).webscrapingCampaign.update({
             where: { id: campaign.id },
             data: {
               lastErrorMessage: `Fila autônoma reabastecida: ${refill.created} nova(s) tarefa(s).`,
-              nextRunAt: new Date(Date.now() + 1_000),
+              nextRunAt: new Date(Date.now() + 500),
             },
           }).catch(() => null);
         }
       }
+    }
+    if (safeInteger(queuedTasks) < maxParallel) {
+      void this.ensureNightFactoryWork().catch((error) => {
+        this.logger.warn(`[factoryPump] falha ao criar campanha extra para ocupar motores: ${error instanceof Error ? error.message : String(error || 'erro desconhecido')}`);
+      });
     }
 
     let started = 0;

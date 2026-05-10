@@ -1720,13 +1720,28 @@ export class HbxEnginePoolService implements OnModuleInit {
   }
 
   private async getConfiguredEngineUrls() {
-    if (hasConfiguredHbxEngineUrlEnv(process.env)) {
-      return resolveConfiguredHbxEngineUrls(process.env);
+    const operationalConfig = await this.getOperationalConfig();
+    const metadata = this.parseOperationalMetadata(operationalConfig?.metadataJson);
+    const targetCount = Math.max(
+      getConfiguredHbxEngineCount(process.env),
+      clampInteger(operationalConfig?.engineCount, 0, 0, getConfiguredHbxEngineMaxCount()),
+      clampInteger(metadata.factoryMaxEngines, 0, 0, getConfiguredHbxEngineMaxCount()),
+      clampInteger(metadata.factoryMinEngines, 0, 0, getConfiguredHbxEngineMaxCount()),
+    );
+    const effectiveEnv: NodeJS.ProcessEnv = {
+      ...process.env,
+      HBX_ENGINE_COUNT: String(targetCount || getConfiguredHbxEngineCount(process.env)),
+    };
+
+    if (hasConfiguredHbxEngineUrlEnv(effectiveEnv)) {
+      const urls = resolveConfiguredHbxEngineUrls(effectiveEnv);
+      if (urls.length >= targetCount) return urls;
+      const fallbackUrls = sanitizeProductionEngineUrls(buildLocalHbxEngineUrls(targetCount), effectiveEnv.NODE_ENV, targetCount);
+      return [...urls, ...fallbackUrls.slice(urls.length)];
     }
 
-    const operationalConfig = await this.getOperationalConfig();
     const databaseUrls = parseHbxEngineUrls(operationalConfig?.engineUrlsJson);
-    return resolveConfiguredHbxEngineUrls(process.env, databaseUrls);
+    return resolveConfiguredHbxEngineUrls(effectiveEnv, databaseUrls);
   }
 
   private async getOperationalConfig() {
@@ -1894,10 +1909,8 @@ export class HbxEnginePoolService implements OnModuleInit {
     const startMinute = this.readIntegerEnv('HBX_FACTORY_START_MINUTE', clampInteger(config?.startMinute, 0, 0, 59), 0, 59);
     const endHour = this.readIntegerEnv('HBX_FACTORY_END_HOUR', clampInteger(config?.endHour, 7, 0, 23), 0, 23);
     const endMinute = this.readIntegerEnv('HBX_FACTORY_END_MINUTE', clampInteger(config?.endMinute, 0, 0, 59), 0, 59);
-    const fallbackMax = configuredEngineCount;
-    const maxFromConfig = clampInteger(config?.engineCount, metadata.factoryMaxEngines || fallbackMax, 0, configuredEngineCount);
-    const maxEngines = clampInteger(maxFromConfig, fallbackMax, 0, configuredEngineCount);
-    const minEngines = clampInteger(metadata.factoryMinEngines || maxEngines, maxEngines, 0, maxEngines);
+    const maxEngines = configuredEngineCount;
+    const minEngines = configuredEngineCount;
     const stopOutsideWindow = false;
     const weekdaysOnly = false;
     const weekendAlwaysOn = false;
@@ -1907,15 +1920,11 @@ export class HbxEnginePoolService implements OnModuleInit {
     const emergencyStop = this.readBooleanEnv('HBX_FACTORY_EMERGENCY_STOP', Boolean(metadata.emergencyStop));
     const memoryPressurePercent = Math.max(0, Math.min(100, Math.trunc(Number(input.memoryPressurePercent || 0))));
     const memoryGuardEngines = this.resolveMemoryGuardEngines(maxEngines, memoryPressurePercent);
-    const factoryDate = input.date || new Date();
-    const withinWindow = this.isWithinFactoryWindow(startHour, startMinute, endHour, endMinute, timezone, factoryDate);
-    const businessDayOpen = !weekdaysOnly || this.isFactoryBusinessDay(timezone, factoryDate);
-    const weekendOpen = weekendAlwaysOn && this.isFactoryWeekend(timezone, factoryDate) && !weekdaysOnly;
     const open = true;
     const nextStartAt = this.nextFactoryBoundary(startHour, startMinute, endHour, endMinute, timezone, 'start', input.date || new Date());
     const nextStopAt = this.nextFactoryBoundary(startHour, startMinute, endHour, endMinute, timezone, 'stop', input.date || new Date());
     const factoryCapacity = Math.max(0, Math.min(
-      Math.max(0, Number(input.onlineHealthyEngines || 0) - Number(input.manualReservedEngines || 0)),
+      Math.max(0, Number(input.onlineHealthyEngines || 0)),
       configuredEngineCount,
     ));
 
@@ -1943,7 +1952,7 @@ export class HbxEnginePoolService implements OnModuleInit {
       maxEngines,
       minEngines,
       memoryGuardEngines,
-      reservedEngines: Number(input.manualReservedEngines || 0),
+      reservedEngines: 0,
       memoryPressurePercent,
       reason,
       windowStatus,
