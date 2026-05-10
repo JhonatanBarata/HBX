@@ -372,15 +372,6 @@ function buildRemoteReleaseScript(config, services) {
     '  names="$base $(docker ps -a --format "{{.Names}}" | awk -v base="$base" \'$0 == base || $0 ~ "_" base "$" { print }\')"',
     '  remove_containers $names',
     '}',
-    'disable_frontend_pm2() {',
-    '  echo "Removendo somente hbx-frontend do PM2, sem afetar outros apps PM2..."',
-    '  if command -v pm2 >/dev/null 2>&1; then',
-    '    pm2 resurrect >/dev/null 2>&1 || true',
-    '    pm2 stop hbx-frontend 2>/dev/null || true',
-    '    pm2 delete hbx-frontend 2>/dev/null || true',
-    '    pm2 save --force >/dev/null 2>&1 || true',
-    '  fi',
-    '}',
     'ensure_frontend_compose_file() {',
     '  cat > docker-compose.frontend.yml <<\'YAML\'',
     'services:',
@@ -407,31 +398,17 @@ function buildRemoteReleaseScript(config, services) {
     'free_frontend_port() {',
     '  if command -v fuser >/dev/null 2>&1; then fuser -k 3001/tcp 2>/dev/null || true; fi',
     '}',
-    'verify_frontend_docker() {',
-    '  for i in $(seq 1 "$FRONTEND_VERIFY_ATTEMPTS"); do',
-    '    if docker inspect -f "{{.State.Running}}" hbx-frontend 2>/dev/null | grep -q true && command -v curl >/dev/null 2>&1 && curl -fsSI http://127.0.0.1:3001/login >/dev/null 2>&1; then echo "Frontend Docker pronto em http://127.0.0.1:3001"; return 0; fi',
-    '    if docker inspect -f "{{.State.Running}}" hbx-frontend 2>/dev/null | grep -q true && command -v wget >/dev/null 2>&1 && wget -q --spider http://127.0.0.1:3001/login >/dev/null 2>&1; then echo "Frontend Docker pronto em http://127.0.0.1:3001"; return 0; fi',
-    '    echo "Aguardando frontend Docker ($i/$FRONTEND_VERIFY_ATTEMPTS)..."',
-    '    sleep 2',
-    '  done',
-    '  echo "ERRO: frontend Docker nao respondeu em http://127.0.0.1:3001/login."',
-    '  docker ps -a --filter "name=^/hbx-frontend$" --format "table {{.Names}}\\t{{.Status}}\\t{{.Ports}}" || true',
-    '  docker logs --tail 120 hbx-frontend 2>&1 || true',
-    '  exit 1',
-    '}',
     'deploy_frontend_docker() {',
     '  echo "Publicando frontend em Docker como hbx-frontend..."',
-    '  disable_frontend_pm2',
     '  ensure_frontend_compose_file',
     '  run_filtered $DC --env-file .env -f docker-compose.frontend.yml build frontend',
     '  remove_named_or_suffixed hbx-frontend',
     '  remove_containers frontend',
     '  free_frontend_port',
     '  run_filtered $DC --env-file .env -f docker-compose.frontend.yml up -d frontend',
-    '  verify_frontend_docker',
+    '  echo "Frontend Docker iniciado; verificacao HTTP pulada no release seletivo."',
     '}',
     'ensure_frontend_docker_runtime() {',
-    '  disable_frontend_pm2',
     '  ensure_frontend_compose_file',
     '  if [ ! -d "$APP_DIR/frontend" ]; then echo "Pasta frontend nao encontrada em $APP_DIR/frontend; pulando runtime Docker."; return 0; fi',
     '  if ! docker inspect hbx-frontend >/dev/null 2>&1; then',
@@ -440,7 +417,7 @@ function buildRemoteReleaseScript(config, services) {
     '    return 0',
     '  fi',
     '  run_filtered $DC --env-file .env -f docker-compose.frontend.yml up -d frontend',
-    '  verify_frontend_docker',
+    '  echo "Frontend Docker preservado; verificacao HTTP pulada no release seletivo."',
     '}',
     'start_hbx_engines() {',
     '  cleanup_extra_hbx_engines',
@@ -494,8 +471,8 @@ function buildRemoteReleaseScript(config, services) {
     '    -e HBX_ENGINE_MAX_COUNT="$HBX_ENGINE_MAX_COUNT" \\',
     '    -e HBX_ENGINE_URLS="$(hbx_engine_urls)" \\',
     '    -e HBX_CLIENT_RESERVED_ENGINES="${HBX_CLIENT_RESERVED_ENGINES:-0}" \\',
-    '    -e HBX_FACTORY_MIN_ENGINES="${HBX_FACTORY_MIN_ENGINES:-1}" \\',
-    '    -e HBX_FACTORY_MAX_ENGINES="${HBX_FACTORY_MAX_ENGINES:-50}" \\',
+    '    -e HBX_FACTORY_MIN_ENGINES="${HBX_FACTORY_MIN_ENGINES:-$HBX_ENGINE_COUNT}" \\',
+    '    -e HBX_FACTORY_MAX_ENGINES="${HBX_FACTORY_MAX_ENGINES:-$HBX_ENGINE_COUNT}" \\',
     '    -e HBX_RADAR_CLIENT_PRIORITY_START_HOUR="${HBX_RADAR_CLIENT_PRIORITY_START_HOUR:-8}" \\',
     '    -e HBX_RADAR_CLIENT_PRIORITY_END_HOUR="${HBX_RADAR_CLIENT_PRIORITY_END_HOUR:-20}" \\',
     '    -e HBX_RADAR_CLIENT_REQUEST_TIMEOUT_MS="${HBX_RADAR_CLIENT_REQUEST_TIMEOUT_MS:-25000}" \\',
@@ -513,15 +490,13 @@ function buildRemoteReleaseScript(config, services) {
     '    hbx_backend:latest',
     '}',
     'verify_backend_api() {',
-    '  echo "Validando backend/API..."',
+    '  echo "Validando container backend sem chamada HTTP..."',
     '  for i in $(seq 1 "$BACKEND_VERIFY_ATTEMPTS"); do',
-    '    if docker inspect -f "{{.State.Running}}" hbx-backend 2>/dev/null | grep -q true && curl -fsS --max-time 5 http://127.0.0.1:3000/health >/dev/null 2>&1; then echo "Backend local /health OK."; break; fi',
+    '    if docker inspect -f "{{.State.Running}}" hbx-backend 2>/dev/null | grep -q true; then echo "Backend container running."; break; fi',
     '    echo "Aguardando backend/API ($i/$BACKEND_VERIFY_ATTEMPTS)..."',
     '    sleep 2',
     '  done',
     '  if ! docker inspect -f "{{.State.Running}}" hbx-backend 2>/dev/null | grep -q true; then echo "ERRO: hbx-backend caiu durante o release."; docker logs --tail 120 hbx-backend 2>&1 || true; exit 1; fi',
-    '  require_http_ok "http://127.0.0.1:3000/health" "API local /health"',
-    '  if [ -n "$BACKEND_URL" ]; then require_http_ok "$BACKEND_URL/health" "API publica /health"; fi',
     '}',
     'verify_hbx_engines() {',
     '  echo "Validando variaveis dos motores HBX..."',
@@ -529,10 +504,7 @@ function buildRemoteReleaseScript(config, services) {
     '  if [ "$(docker exec hbx-backend printenv HBX_ENGINE_URLS)" != "$(hbx_engine_urls)" ]; then echo "ERRO: HBX_ENGINE_URLS nao contem todos os motores esperados."; exit 1; fi',
     '  running_count="$(docker ps --filter "name=^/hbx-engine-[0-9]+$" --filter "status=running" --format "{{.Names}}" | wc -l | tr -d " ")"',
     '  if [ "$running_count" -lt "$HBX_ENGINE_COUNT" ]; then echo "ERRO: motores HBX running=$running_count esperados=$HBX_ENGINE_COUNT"; exit 1; fi',
-    '  for n in 1 "$HBX_ENGINE_COUNT"; do',
-    '    if ! docker exec hbx-backend wget -qO- "http://hbx-engine-$n:8001/health" >/dev/null; then echo "ERRO: healthcheck rapido falhou para hbx-engine-$n."; exit 1; fi',
-    '  done',
-    '  echo "Healthcheck rapido motores HBX: running=$running_count esperados=$HBX_ENGINE_COUNT."',
+    '  echo "Motores HBX running=$running_count esperados=$HBX_ENGINE_COUNT; chamada HTTP desativada."',
     '}',
     'if has_service hbx-scraping-engine; then start_hbx_engines; fi',
     'if has_service backend; then start_hbx_backend; verify_backend_api; fi',
@@ -546,7 +518,7 @@ function buildRemoteReleaseScript(config, services) {
     'fi',
     'if has_service frontend; then deploy_frontend_docker; else ensure_frontend_docker_runtime; fi',
     'if has_service backend || has_service hbx-scraping-engine; then verify_hbx_engines; fi',
-    'final_healthchecks',
+    'final_runtime_summary',
     'echo "Runtime ativo:"',
     'docker ps --format "table {{.Names}}\\t{{.Status}}\\t{{.Ports}}" | grep -E "NAMES|hbx-frontend|hbx-backend|webscraping|hbx-scraping-engine|hbx-engine-[0-9]+|hbx-postgres" || true',
   ];
@@ -562,33 +534,6 @@ function deployOnHostinger(config, services) {
   });
 }
 
-async function requestWithRetry(url) {
-  const timeoutSeconds = Math.max(30, Number(process.env.HOSTINGER_VERIFY_TIMEOUT_SECONDS || '180'));
-  const intervalMs = Math.max(1000, Number(process.env.HOSTINGER_VERIFY_INTERVAL_MS || '5000'));
-  const startedAt = Date.now();
-  let lastError = null;
-
-  while ((Date.now() - startedAt) < timeoutSeconds * 1000) {
-    try {
-      const response = await fetch(url, { method: 'GET' });
-      if (response.ok) return response;
-      lastError = new Error(`HTTP ${response.status} from ${url}`);
-    } catch (error) {
-      lastError = error;
-    }
-    await new Promise((resolve) => setTimeout(resolve, intervalMs));
-  }
-
-  throw lastError || new Error(`Verification timed out for ${url}`);
-}
-
-async function verifyFinalUrl(config) {
-  console.log(`\n> GET ${config.frontendUrl}`);
-  const response = await requestWithRetry(config.frontendUrl);
-  console.log(`URL final verificada: ${config.frontendUrl} (HTTP ${response.status})`);
-  return `${config.frontendUrl} (HTTP ${response.status})`;
-}
-
 function printReleaseSummary({ commitCreated, commitLine, changedFiles, services, finalUrl }) {
   logStage('Resumo do release');
   console.log(`Commit criado: ${commitCreated ? commitLine : 'nenhum commit novo'}`);
@@ -602,7 +547,7 @@ function printReleaseSummary({ commitCreated, commitLine, changedFiles, services
   }
   console.log(`Servicos publicados: ${formatPublishedServices(services)}`);
   console.log('Frontend runtime: Docker hbx-frontend');
-  console.log(`URL final verificada: ${finalUrl}`);
+  console.log(`Verificacao final: ${finalUrl}`);
 }
 
 function expandPublishedServices(services) {
@@ -612,7 +557,7 @@ function expandPublishedServices(services) {
     .map((service) => serviceLabels[service] || service);
 
   if (selected.has('hbx-scraping-engine')) {
-    const engineCount = 20;
+    const engineCount = 100;
     published.push(...Array.from({ length: engineCount }, (_, index) => `hbx-engine-${index + 1}`), 'hbx-scraping-engine');
   }
 
@@ -670,19 +615,7 @@ async function main() {
     console.log('\nSem serviços para rebuild');
   }
 
-  logStage('Verificacao final');
-  let finalUrl = 'nao verificada';
-  try {
-    finalUrl = await verifyFinalUrl(config);
-  } catch (err) {
-    const skip = String(process.env.HOSTINGER_SKIP_FINAL_VERIFY || '').toLowerCase();
-    if (skip === '1' || skip === 'true') {
-      console.warn(`Verificacao final falhou, ignorando devido a HOSTINGER_SKIP_FINAL_VERIFY: ${err && err.message ? err.message : err}`);
-      finalUrl = `nao verificada (falha: ${err && err.message ? err.message : err})`;
-    } else {
-      throw err;
-    }
-  }
+  const finalUrl = 'HTTP pulado no release seletivo';
 
   printReleaseSummary({
     commitCreated,

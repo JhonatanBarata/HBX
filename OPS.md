@@ -35,7 +35,7 @@ Fluxo seletivo para atualizar apenas o que mudou:
 4. Faz `git push origin master`.
 5. Na VPS, faz `git reset --hard origin/master`.
 6. Rebuilda/reinicia apenas os servicos afetados: `backend`, `frontend`, `webscraping` e/ou `hbx-scraping-engine`.
-7. Mantem health minimo: containers essenciais, backend `/health`, frontend `/` e amostra dos motores quando eles forem afetados.
+7. Nao roda healthcheck HTTP; apenas lista containers e logs curtos no final.
 
 Mudancas estruturais como `docker-compose.hostinger.yml`, Dockerfile ou `deploy/` viram rebuild completo dos servicos gerenciados pelo seletivo.
 

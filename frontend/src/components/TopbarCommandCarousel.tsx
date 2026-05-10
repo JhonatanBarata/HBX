@@ -1497,4 +1497,249 @@ export const HBX_TOPBAR_COMMAND_CAROUSEL_CSS = `
       grid-row: auto !important;
     }
   }
+
+  /* Fit lock: keep the approved height, make the content fit inside it. */
+  .app-topbar__frame,
+  .app-topbar__inner--controlCenter,
+  .hbx-command-center,
+  .hbx-command-center__body,
+  .hbxp-carousel {
+    overflow: visible !important;
+  }
+
+  .app-topbar__inner--controlCenter {
+    min-height: 76px !important;
+    padding-block: 7px !important;
+  }
+
+  .hbx-command-brand,
+  .hbx-command-center,
+  .hbx-command-side,
+  .hbxp-carousel,
+  .hbxp-panel {
+    height: 62px !important;
+    min-height: 62px !important;
+    max-height: 62px !important;
+  }
+
+  .hbxp-panel {
+    grid-template-columns: minmax(210px, 1fr) minmax(220px, 340px) 42px !important;
+    gap: 9px !important;
+    align-items: center !important;
+    padding: 2px 0 !important;
+    overflow: visible !important;
+  }
+
+  .hbxp-panel__copy {
+    height: 48px !important;
+    min-height: 48px !important;
+    display: grid !important;
+    grid-template-rows: 11px 20px 12px !important;
+    align-content: center !important;
+    gap: 1px !important;
+    overflow: visible !important;
+  }
+
+  .hbxp-panel__eyebrow {
+    height: 11px !important;
+    min-height: 11px !important;
+    line-height: 1 !important;
+    gap: 5px !important;
+    overflow: visible !important;
+  }
+
+  .hbxp-panel__eyebrow button {
+    display: none !important;
+  }
+
+  .hbxp-panel__copy::after {
+    position: absolute !important;
+    left: 0 !important;
+    bottom: -5px !important;
+    width: min(150px, 52%) !important;
+    height: 2px !important;
+    margin: 0 !important;
+    display: block !important;
+    pointer-events: none !important;
+  }
+
+  .hbxp-panel__eyebrow span {
+    height: 11px !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    font-size: 8px !important;
+    line-height: 1 !important;
+    letter-spacing: .07em !important;
+  }
+
+  .hbxp-panel__eyebrow span::before {
+    width: 6px !important;
+    height: 6px !important;
+    min-width: 6px !important;
+    margin-right: 6px !important;
+    vertical-align: 0 !important;
+  }
+
+  .hbxp-panel h2 {
+    height: 20px !important;
+    min-height: 20px !important;
+    max-height: 20px !important;
+    font-size: clamp(17px, 1.12vw, 20px) !important;
+    line-height: 20px !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    white-space: nowrap !important;
+  }
+
+  .hbxp-panel p {
+    height: 12px !important;
+    min-height: 12px !important;
+    max-height: 12px !important;
+    font-size: 10px !important;
+    line-height: 12px !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    white-space: nowrap !important;
+  }
+
+  .hbxp-panel__metrics {
+    height: 36px !important;
+    align-items: center !important;
+    gap: 6px !important;
+  }
+
+  .hbxp-metric {
+    height: 36px !important;
+    min-height: 36px !important;
+    max-height: 36px !important;
+    padding: 5px 8px !important;
+    border-radius: 13px !important;
+    align-content: center !important;
+    gap: 1px !important;
+  }
+
+  .hbxp-metric small {
+    font-size: 7px !important;
+    line-height: 8px !important;
+  }
+
+  .hbxp-metric strong {
+    font-size: 12px !important;
+    line-height: 14px !important;
+  }
+
+  .hbxp-metric i {
+    left: 8px !important;
+    right: 8px !important;
+    bottom: 4px !important;
+    height: 2px !important;
+  }
+
+  .hbxp-ring {
+    width: 42px !important;
+    height: 42px !important;
+    min-width: 42px !important;
+  }
+
+  .hbxp-ring::after {
+    inset: -4px !important;
+  }
+
+  .hbxp-ring strong {
+    font-size: 11px !important;
+    line-height: 1 !important;
+  }
+
+  .hbx-command-side {
+    height: 62px !important;
+    min-height: 62px !important;
+    padding-block: 10px !important;
+    grid-auto-rows: 38px !important;
+  }
+
+  .theme-switcher__trigger,
+  .hbx-control-user__trigger,
+  .hbx-control-logout {
+    height: 38px !important;
+    min-height: 38px !important;
+  }
+
+  .hbx-command-side {
+    grid-template-columns: minmax(108px, 128px) minmax(0, 1fr) 38px auto !important;
+    grid-auto-rows: 38px !important;
+    align-items: center !important;
+    align-content: center !important;
+    gap: 7px !important;
+    padding: 12px 8px 12px 12px !important;
+    overflow: visible !important;
+  }
+
+  .hbx-command-side .theme-switcher-wrap {
+    grid-column: 1 !important;
+    grid-row: 1 !important;
+    height: 38px !important;
+  }
+
+  .hbx-control-accountRow {
+    grid-column: 2 / 4 !important;
+    grid-row: 1 !important;
+    height: 38px !important;
+    grid-template-columns: minmax(0, 1fr) 38px !important;
+    gap: 7px !important;
+  }
+
+  .hbx-control-masterActions {
+    grid-column: 4 !important;
+    grid-row: 1 !important;
+    height: 38px !important;
+    min-width: 0 !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: flex-end !important;
+    gap: 5px !important;
+    margin: 0 !important;
+  }
+
+  .hbx-control-masterActions .btn {
+    height: 30px !important;
+    min-height: 30px !important;
+    max-height: 30px !important;
+    padding: 0 9px !important;
+    border-radius: 999px !important;
+    font-size: 8px !important;
+    line-height: 1 !important;
+    white-space: nowrap !important;
+  }
+
+  .hbx-command-side .theme-switcher__trigger {
+    height: 38px !important;
+    min-height: 38px !important;
+    grid-template-columns: 26px minmax(0, 1fr) !important;
+    padding: 4px 6px !important;
+  }
+
+  .hbx-command-side .theme-switcher__trigger-preview {
+    width: 26px !important;
+    height: 26px !important;
+    min-width: 26px !important;
+  }
+
+  .hbx-control-user__trigger {
+    height: 38px !important;
+    min-height: 38px !important;
+    grid-template-columns: 26px minmax(0, 1fr) !important;
+    gap: 6px !important;
+    padding: 4px 7px 4px 5px !important;
+  }
+
+  .hbx-control-user .app-user__avatar {
+    width: 26px !important;
+    height: 26px !important;
+    font-size: 10px !important;
+  }
+
+  .hbx-control-logout {
+    width: 38px !important;
+    min-width: 38px !important;
+  }
 `;

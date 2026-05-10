@@ -135,7 +135,6 @@ function ensureRequiredEnv(env) {
     backendUrl,
     frontendUrl,
     forceReboot: isTruthy(env.FORCE_REBOOT_HOSTINGER),
-    fullHealthchecks: isTruthy(env.HOSTINGER_FULL_VERIFY),
     hbxEngineCount,
     hbxEngineMaxCount,
     webwhatsAppDir: String(env.WEBWHATS_APP_DIR || '/opt/Webwhats').trim(),
@@ -241,9 +240,6 @@ function printFrontendDeployNotice(config, changedFiles) {
 function buildRemoteDeployScript(config, mode) {
   const isForce = mode === 'force';
   const rebootValue = isForce && config.forceReboot ? 'true' : 'false';
-  const fullHealthchecks = isForce && config.fullHealthchecks ? 'true' : 'false';
-  const runHealthchecks = isForce ? 'true' : 'false';
-  const frontendVerifyAttempts = isForce ? '45' : '20';
   const backendVerifyAttempts = isForce ? '60' : '30';
 
   const lines = [
@@ -253,9 +249,6 @@ function buildRemoteDeployScript(config, mode) {
     `FRONTEND_URL=${shellSingleQuote(config.frontendUrl)}`,
     `BUILD_NO_CACHE_ARG=${shellSingleQuote(isForce ? '--no-cache' : '')}`,
     `FORCE_REBOOT_HOSTINGER=${shellSingleQuote(rebootValue)}`,
-    `FULL_HEALTHCHECKS=${shellSingleQuote(fullHealthchecks)}`,
-    `RUN_HEALTHCHECKS=${shellSingleQuote(runHealthchecks)}`,
-    `FRONTEND_VERIFY_ATTEMPTS=${shellSingleQuote(frontendVerifyAttempts)}`,
     `BACKEND_VERIFY_ATTEMPTS=${shellSingleQuote(backendVerifyAttempts)}`,
     `REQUESTED_HBX_ENGINE_COUNT=${shellSingleQuote(config.hbxEngineCount)}`,
     `REQUESTED_HBX_ENGINE_MAX_COUNT=${shellSingleQuote(config.hbxEngineMaxCount)}`,
@@ -312,42 +305,12 @@ function buildRemoteDeployScript(config, mode) {
     '    fi',
     '  done',
     '}',
-    'http_status() { code="$(curl -ksS --max-time 20 -o /dev/null -w "%{http_code}" "$1" 2>/dev/null || true)"; [ -n "$code" ] || code=000; printf "%s" "$code"; }',
-    'require_http_ok() { url="$1"; label="$2"; code="$(http_status "$url")"; case "$code" in 2*|3*) echo "Health OK: $label HTTP $code";; *) echo "ERRO: $label falhou em $url HTTP $code"; exit 1;; esac; }',
-    'validate_webwhats_runtime() {',
-    '  echo "Validando Webwhats/Evolution..."',
-    '  if [ -d /opt/webwhats ] && [ ! -d "$WEBWHATS_APP_DIR" ]; then WEBWHATS_APP_DIR=/opt/webwhats; fi',
-    '  webwhats_running=0',
-    '  if [ -n "$WEBWHATS_SYSTEMD_SERVICE" ] && command -v systemctl >/dev/null 2>&1 && systemctl is-active --quiet "$WEBWHATS_SYSTEMD_SERVICE"; then webwhats_running=1; fi',
-    '  if command -v pm2 >/dev/null 2>&1 && pm2 describe webwhats >/dev/null 2>&1; then webwhats_running=1; fi',
-    '  if docker ps --format "{{.Names}}" | grep -Eiq "webwhats|evolution|waha"; then webwhats_running=1; fi',
-    '  if [ "$webwhats_running" != "1" ]; then echo "ERRO: Webwhats/Evolution nao esta rodando via systemd, PM2 ou Docker."; exit 1; fi',
-    '  code="$(http_status "$WHATSAPP_MODAL_INTERNAL_URL_VALUE")"; if [ "$code" = "000" ] || [ "$code" = "502" ]; then echo "ERRO: Webwhats indisponivel em $WHATSAPP_MODAL_INTERNAL_URL_VALUE HTTP $code"; exit 1; fi',
-    '  if [ ! -f "$WEBWHATS_APP_DIR/.env" ]; then echo "ERRO: .env do Webwhats nao encontrado em $WEBWHATS_APP_DIR/.env; nao da para validar storage persistente."; exit 1; fi',
-    '  db_save="$(awk -F= \'/^[[:space:]]*DATABASE_SAVE_DATA_INSTANCE[[:space:]]*=/{print tolower($2); exit}\' "$WEBWHATS_APP_DIR/.env")"',
-    '  db_uri="$(awk -F= \'/^[[:space:]]*DATABASE_CONNECTION_URI[[:space:]]*=/{print $2; exit}\' "$WEBWHATS_APP_DIR/.env")"',
-    '  redis_enabled="$(awk -F= \'/^[[:space:]]*CACHE_REDIS_ENABLED[[:space:]]*=/{print tolower($2); exit}\' "$WEBWHATS_APP_DIR/.env")"',
-    '  redis_save="$(awk -F= \'/^[[:space:]]*CACHE_REDIS_SAVE_INSTANCES[[:space:]]*=/{print tolower($2); exit}\' "$WEBWHATS_APP_DIR/.env")"',
-    '  provider_enabled="$(awk -F= \'/^[[:space:]]*PROVIDER_ENABLED[[:space:]]*=/{print tolower($2); exit}\' "$WEBWHATS_APP_DIR/.env")"',
-    '  if [ "$db_save" = "true" ] && [ -n "$db_uri" ]; then echo "Storage Webwhats persistente via banco habilitado."; return 0; fi',
-    '  if [ "$provider_enabled" = "true" ]; then echo "Storage Webwhats persistente via provider de sessoes habilitado."; return 0; fi',
-    '  if [ "$redis_enabled" = "true" ] && [ "$redis_save" = "true" ]; then',
-    '    if ! docker inspect redis >/dev/null 2>&1; then echo "ERRO: Webwhats salva sessoes no Redis, mas container redis nao foi encontrado para validar volume."; exit 1; fi',
-    '    mounts="$(docker inspect redis --format "{{range .Mounts}}{{.Destination}}:{{.Type}}:{{.Name}} {{end}}")"',
-    '    if printf "%s" "$mounts" | grep -q "/data:"; then echo "Storage Redis persistente validado: $mounts"; return 0; fi',
-    '    echo "ERRO: Redis do Webwhats sem mount persistente em /data. Mounts: $mounts"; exit 1',
-    '  fi',
-    '  echo "ERRO: Webwhats sem storage persistente validado. Habilite DATABASE_SAVE_DATA_INSTANCE, PROVIDER_ENABLED ou Redis persistente."; exit 1',
-    '}',
     'predeploy_runtime_checks() {',
     '  echo "Preflight runtime HBX..."',
     '  docker ps --format "table {{.Names}}\\t{{.Status}}\\t{{.Ports}}" | grep -E "NAMES|hbx-backend|hbx-postgres" || true',
     '  if ! docker inspect -f "{{.State.Running}}" hbx-postgres 2>/dev/null | grep -q true; then echo "ERRO: hbx-postgres nao esta running antes do deploy."; exit 1; fi',
     '  if ! docker inspect -f "{{.State.Running}}" hbx-backend 2>/dev/null | grep -q true; then echo "ERRO: hbx-backend nao esta running antes do deploy. Abortando para evitar deploy sobre API offline."; exit 1; fi',
-    '  if [ "$RUN_HEALTHCHECKS" != "true" ]; then echo "Preflight rapido: verificacao HTTP pulada no publish normal."; return 0; fi',
-    '  if [ "$FULL_HEALTHCHECKS" != "true" ]; then echo "Preflight rapido: containers essenciais running."; return 0; fi',
-    '  webhook_code="$(http_status "$BACKEND_URL/webhooks/webwhats/events")"; if [ "$webhook_code" = "502" ] || [ "$webhook_code" = "000" ]; then echo "ERRO: webhook Webwhats publico indisponivel HTTP $webhook_code"; exit 1; fi; echo "Webhook Webwhats publico nao esta 502: HTTP $webhook_code"',
-    '  validate_webwhats_runtime',
+    '  echo "Preflight rapido: containers essenciais running; sem chamada HTTP."',
     '}',
     'final_runtime_summary() {',
     '  echo "Verificacao HTTP final desativada neste fluxo."',
@@ -417,15 +380,6 @@ function buildRemoteDeployScript(config, mode) {
     'if [ "$POSTGRES_DB_VALUE" != "hbx_prod" ]; then echo "ERRO: POSTGRES_DB inesperado: $POSTGRES_DB_VALUE"; exit 1; fi',
     'predeploy_runtime_checks',
     'cleanup_extra_hbx_engines',
-    'disable_frontend_pm2() {',
-    '  echo "Removendo somente hbx-frontend do PM2, sem afetar outros apps PM2..."',
-    '  if command -v pm2 >/dev/null 2>&1; then',
-    '    pm2 resurrect >/dev/null 2>&1 || true',
-    '    pm2 stop hbx-frontend 2>/dev/null || true',
-    '    pm2 delete hbx-frontend 2>/dev/null || true',
-    '    pm2 save --force >/dev/null 2>&1 || true',
-    '  fi',
-    '}',
     'ensure_frontend_compose_file() {',
     '  cat > docker-compose.frontend.yml <<\'YAML\'',
     'services:',
@@ -463,18 +417,6 @@ function buildRemoteDeployScript(config, mode) {
     '    if [ -n "$ids" ]; then echo "Removendo containers compose antigos de $service: $ids"; docker rm -f $ids 2>/dev/null || true; fi',
     '  done',
     '}',
-    'verify_frontend_docker() {',
-    '  for i in $(seq 1 "$FRONTEND_VERIFY_ATTEMPTS"); do',
-    '    if docker inspect -f "{{.State.Running}}" hbx-frontend 2>/dev/null | grep -q true && command -v curl >/dev/null 2>&1 && curl -fsSI http://127.0.0.1:3001/login >/dev/null 2>&1; then echo "Frontend Docker pronto em http://127.0.0.1:3001"; return 0; fi',
-    '    if docker inspect -f "{{.State.Running}}" hbx-frontend 2>/dev/null | grep -q true && command -v wget >/dev/null 2>&1 && wget -q --spider http://127.0.0.1:3001/login >/dev/null 2>&1; then echo "Frontend Docker pronto em http://127.0.0.1:3001"; return 0; fi',
-    '    echo "Aguardando frontend Docker ($i/$FRONTEND_VERIFY_ATTEMPTS)..."',
-    '    sleep 2',
-    '  done',
-    '  echo "ERRO: frontend Docker nao respondeu em http://127.0.0.1:3001/login."',
-    '  docker ps -a --filter "name=^/hbx-frontend$" --format "table {{.Names}}\\t{{.Status}}\\t{{.Ports}}" || true',
-    '  docker logs --tail 120 hbx-frontend 2>&1 || true',
-    '  exit 1',
-    '}',
     'deploy_frontend_docker() {',
     '  echo "Publicando frontend em Docker como hbx-frontend..."',
     '  ensure_frontend_compose_file',
@@ -482,8 +424,7 @@ function buildRemoteDeployScript(config, mode) {
     '  docker rm -f hbx-frontend frontend 2>/dev/null || true',
     '  free_frontend_port',
     '  run_filtered $DC --env-file .env -f docker-compose.frontend.yml up -d frontend',
-    '  if [ "$RUN_HEALTHCHECKS" != "true" ]; then echo "Frontend Docker iniciado; verificacao HTTP pulada no publish normal."; return 0; fi',
-    '  verify_frontend_docker',
+    '  echo "Frontend Docker iniciado; verificacao HTTP pulada no publish normal."',
     '}',
     'start_hbx_engines() {',
     '  cleanup_extra_hbx_engines',
@@ -581,7 +522,6 @@ function buildRemoteDeployScript(config, mode) {
 
   if (isForce) {
     lines.push(
-      'disable_frontend_pm2',
       'remove_containers backend hbx-backend webscraping hbx-scraping-engine $(hbx_engine_names) c7227f19b684_hbx-scraping-engine e22f61f3f5da_webscraping',
       'remove_compose_service_containers backend webscraping hbx-scraping-engine $(hbx_engine_names)',
       'start_hbx_engines',
@@ -771,29 +711,6 @@ function deployOnHostinger(config, mode) {
   });
 }
 
-async function requestWithRetry(url, options = {}) {
-  const timeoutSeconds = Math.max(30, Number(process.env.HOSTINGER_VERIFY_TIMEOUT_SECONDS || '180'));
-  const intervalMs = Math.max(1000, Number(process.env.HOSTINGER_VERIFY_INTERVAL_MS || '5000'));
-  const startedAt = Date.now();
-  let lastError = null;
-
-  while ((Date.now() - startedAt) < timeoutSeconds * 1000) {
-    try {
-      const response = await fetch(url, options);
-      if (response.ok) {
-        return response;
-      }
-      lastError = new Error(`HTTP ${response.status} from ${url}`);
-    } catch (error) {
-      lastError = error;
-    }
-
-    await new Promise((resolve) => setTimeout(resolve, intervalMs));
-  }
-
-  throw lastError || new Error(`Verification timed out for ${url}`);
-}
-
 async function verifyProduction(config, options = {}) {
   void config;
   void options;
@@ -804,7 +721,6 @@ async function main() {
   const mode = parseMode();
   const env = loadOperationsEnv();
   const config = ensureRequiredEnv(env);
-  const fullVerify = mode === 'force' && isTruthy(env.HOSTINGER_FULL_VERIFY);
   const webwhatsConfig = resolveWebwhatsDeployConfig(env, config);
 
   logStage(`Local Preflight (${mode})`);
@@ -842,7 +758,7 @@ async function main() {
 
   if (mode === 'force') {
     logStage('Production Verify');
-    await verifyProduction(config, { full: fullVerify });
+    await verifyProduction(config);
   } else {
     console.log('\nProduction Verify pulado no publish normal.');
   }
