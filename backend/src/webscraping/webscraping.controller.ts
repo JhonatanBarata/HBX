@@ -364,6 +364,14 @@ class MasterTurboConfigDto {
   weekendAlwaysOn?: boolean;
 
   @IsOptional()
+  @IsString()
+  factoryState?: string;
+
+  @IsOptional()
+  @IsString()
+  factoryCity?: string;
+
+  @IsOptional()
   @Type(() => Number)
   @IsInt()
   @Min(0)

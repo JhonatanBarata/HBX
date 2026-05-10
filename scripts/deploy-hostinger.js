@@ -231,7 +231,7 @@ function printFrontendDeployNotice(config, changedFiles) {
 
   console.log([
     '',
-    'Aviso operacional: mudancas de frontend foram detectadas e entram no build PM2 fora do Docker na Hostinger.',
+    'Aviso operacional: mudancas de frontend foram detectadas e entram no build Docker hbx-frontend na Hostinger.',
     `Frontend publicado em ${config.frontendUrl}.`,
     `Arquivos de frontend detectados neste publish: ${preview}${suffix}`,
   ].join('\n'));
@@ -396,14 +396,40 @@ function buildRemoteDeployScript(config, mode) {
     'POSTGRES_DB_VALUE="$(docker exec hbx-postgres sh -lc \'printf "%s" "$POSTGRES_DB"\')"',
     'if [ "$POSTGRES_DB_VALUE" != "hbx_prod" ]; then echo "ERRO: POSTGRES_DB inesperado: $POSTGRES_DB_VALUE"; exit 1; fi',
     'predeploy_runtime_checks',
-    'ensure_pm2() {',
-    '  if command -v pm2 >/dev/null 2>&1; then return 0; fi',
-    '  echo "PM2 nao encontrado; instalando globalmente..."',
-    '  npm i -g pm2',
+    'disable_frontend_pm2() {',
+    '  echo "Removendo somente hbx-frontend do PM2, sem afetar outros apps PM2..."',
+    '  if command -v pm2 >/dev/null 2>&1; then',
+    '    pm2 resurrect >/dev/null 2>&1 || true',
+    '    pm2 stop hbx-frontend 2>/dev/null || true',
+    '    pm2 delete hbx-frontend 2>/dev/null || true',
+    '    pm2 save --force >/dev/null 2>&1 || true',
+    '  fi',
     '}',
-    'cleanup_frontend_docker() {',
-    '  echo "Garantindo frontend fora do Docker..."',
-    '  docker rm -f hbx-frontend frontend 2>/dev/null || true',
+    'ensure_frontend_compose_file() {',
+    '  cat > docker-compose.frontend.yml <<\'YAML\'',
+    'services:',
+    '  frontend:',
+    '    container_name: hbx-frontend',
+    '    build:',
+    '      context: ./frontend',
+    '      dockerfile: Dockerfile',
+    '    restart: unless-stopped',
+    '    environment:',
+    '      NODE_ENV: production',
+    '      NEXT_TELEMETRY_DISABLED: "1"',
+    '      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}',
+    '    ports:',
+    '      - "127.0.0.1:3001:3001"',
+    '    networks:',
+    '      - hbx_net',
+    'networks:',
+    '  hbx_net:',
+    '    name: ${HBX_DOCKER_NETWORK:-hbx_net}',
+    '    external: true',
+    'YAML',
+    '}',
+    'free_frontend_port() {',
+    '  if command -v fuser >/dev/null 2>&1; then fuser -k 3001/tcp 2>/dev/null || true; fi',
     '}',
     'remove_containers() {',
     '  if [ "$#" -eq 0 ]; then return 0; fi',
@@ -416,52 +442,27 @@ function buildRemoteDeployScript(config, mode) {
     '    if [ -n "$ids" ]; then echo "Removendo containers compose antigos de $service: $ids"; docker rm -f $ids 2>/dev/null || true; fi',
     '  done',
     '}',
-    'verify_frontend_pm2() {',
+    'verify_frontend_docker() {',
     '  for i in $(seq 1 45); do',
-    '    if command -v curl >/dev/null 2>&1 && curl -fsSI http://127.0.0.1:3001 >/dev/null 2>&1; then echo "Frontend PM2 pronto em http://127.0.0.1:3001"; return 0; fi',
-    '    if command -v wget >/dev/null 2>&1 && wget -q --spider http://127.0.0.1:3001 >/dev/null 2>&1; then echo "Frontend PM2 pronto em http://127.0.0.1:3001"; return 0; fi',
-    '    echo "Aguardando frontend PM2 ($i/45)..."',
+    '    if docker inspect -f "{{.State.Running}}" hbx-frontend 2>/dev/null | grep -q true && command -v curl >/dev/null 2>&1 && curl -fsSI http://127.0.0.1:3001/login >/dev/null 2>&1; then echo "Frontend Docker pronto em http://127.0.0.1:3001"; return 0; fi',
+    '    if docker inspect -f "{{.State.Running}}" hbx-frontend 2>/dev/null | grep -q true && command -v wget >/dev/null 2>&1 && wget -q --spider http://127.0.0.1:3001/login >/dev/null 2>&1; then echo "Frontend Docker pronto em http://127.0.0.1:3001"; return 0; fi',
+    '    echo "Aguardando frontend Docker ($i/45)..."',
     '    sleep 2',
     '  done',
-    '  echo "ERRO: frontend PM2 nao respondeu em http://127.0.0.1:3001."',
-    '  pm2 logs hbx-frontend --lines 120 --nostream 2>/dev/null || true',
+    '  echo "ERRO: frontend Docker nao respondeu em http://127.0.0.1:3001/login."',
+    '  docker ps -a --filter "name=^/hbx-frontend$" --format "table {{.Names}}\\t{{.Status}}\\t{{.Ports}}" || true',
+    '  docker logs --tail 120 hbx-frontend 2>&1 || true',
     '  exit 1',
     '}',
-    'deploy_frontend_pm2() {',
-    '  echo "Publicando frontend fora do Docker via PM2..."',
-    '  cleanup_frontend_docker',
-    '  ensure_pm2',
-    '  FRONTEND_DIR="$APP_DIR/frontend"',
-    '  BUILD_DIR="$(mktemp -d "$APP_DIR/.frontend-build.XXXXXX")"',
-    '  cleanup_build_dir() { rm -rf "$BUILD_DIR"; }',
-    '  trap cleanup_build_dir EXIT',
-    '  if command -v rsync >/dev/null 2>&1; then',
-    '    rsync -a --delete --exclude .next --exclude node_modules "$FRONTEND_DIR/" "$BUILD_DIR/"',
-    '  else',
-    '    cp -a "$FRONTEND_DIR/." "$BUILD_DIR/"',
-    '    rm -rf "$BUILD_DIR/.next" "$BUILD_DIR/node_modules"',
-    '  fi',
-    '  cd "$BUILD_DIR"',
-    '  npm ci',
-    '  npm run build',
-    '  cd "$FRONTEND_DIR"',
-    '  npm ci',
-    '  NEXT_STAGE="$FRONTEND_DIR/.next.new.$$"',
-    '  rm -rf "$NEXT_STAGE"',
-    '  mv "$BUILD_DIR/.next" "$NEXT_STAGE"',
-    '  rm -rf "$FRONTEND_DIR/.next.previous"',
-    '  if [ -d "$FRONTEND_DIR/.next" ]; then mv "$FRONTEND_DIR/.next" "$FRONTEND_DIR/.next.previous"; fi',
-    '  mv "$NEXT_STAGE" "$FRONTEND_DIR/.next"',
-    '  if pm2 describe hbx-frontend >/dev/null 2>&1; then',
-    '    pm2 restart hbx-frontend --update-env',
-    '  else',
-    '    pm2 start npm --name hbx-frontend -- run start',
-    '  fi',
-    '  pm2 save',
-    '  cd "$APP_DIR"',
-    '  verify_frontend_pm2',
-    '  trap - EXIT',
-    '  cleanup_build_dir',
+    'deploy_frontend_docker() {',
+    '  echo "Publicando frontend em Docker como hbx-frontend..."',
+    '  disable_frontend_pm2',
+    '  ensure_frontend_compose_file',
+    '  run_filtered $DC --env-file .env -f docker-compose.frontend.yml build $BUILD_NO_CACHE_ARG frontend',
+    '  docker rm -f hbx-frontend frontend 2>/dev/null || true',
+    '  free_frontend_port',
+    '  run_filtered $DC --env-file .env -f docker-compose.frontend.yml up -d frontend',
+    '  verify_frontend_docker',
     '}',
     'start_hbx_engines() {',
     '  echo "Buildando imagem dos motores HBX..."',
@@ -566,9 +567,8 @@ function buildRemoteDeployScript(config, mode) {
 
   if (isForce) {
     lines.push(
-      'ensure_pm2',
-      'pm2 stop hbx-frontend 2>/dev/null || true',
-      'remove_containers backend hbx-backend hbx-frontend webscraping hbx-scraping-engine $(hbx_engine_names) c7227f19b684_hbx-scraping-engine ab1704a260e6_hbx-frontend e22f61f3f5da_webscraping',
+      'disable_frontend_pm2',
+      'remove_containers backend hbx-backend webscraping hbx-scraping-engine $(hbx_engine_names) c7227f19b684_hbx-scraping-engine e22f61f3f5da_webscraping',
       'remove_compose_service_containers backend webscraping hbx-scraping-engine $(hbx_engine_names)',
       'start_hbx_engines',
       'start_hbx_backend',
@@ -576,13 +576,13 @@ function buildRemoteDeployScript(config, mode) {
       'echo "Prisma migrate deploy roda dentro do container hbx-backend via backend/scripts/start-prod.sh, usando DATABASE_URL=hbx-postgres."',
       'run_filtered $DC --env-file .env -f docker-compose.hostinger.yml up -d --build --no-deps webscraping',
       'verify_hbx_engines',
-      'deploy_frontend_pm2',
+      'deploy_frontend_docker',
       'docker image prune -f',
       'docker builder prune -f || true',
       'if [ "$FORCE_REBOOT_HOSTINGER" = "true" ]; then echo "FORCE_REBOOT_HOSTINGER=true: reiniciando VPS."; (sudo reboot || reboot); else echo "Reboot da VPS ignorado. Defina FORCE_REBOOT_HOSTINGER=true para habilitar."; fi',
     );
   } else {
-    lines.push('remove_containers backend hbx-backend hbx-frontend webscraping hbx-scraping-engine $(hbx_engine_names) c7227f19b684_hbx-scraping-engine ab1704a260e6_hbx-frontend e22f61f3f5da_webscraping');
+    lines.push('remove_containers backend hbx-backend webscraping hbx-scraping-engine $(hbx_engine_names) c7227f19b684_hbx-scraping-engine e22f61f3f5da_webscraping');
     lines.push('remove_compose_service_containers backend webscraping hbx-scraping-engine $(hbx_engine_names)');
     lines.push('start_hbx_engines');
     lines.push('start_hbx_backend');
@@ -590,21 +590,19 @@ function buildRemoteDeployScript(config, mode) {
     lines.push('echo "Prisma migrate deploy roda dentro do container hbx-backend via backend/scripts/start-prod.sh, usando DATABASE_URL=hbx-postgres."');
     lines.push('run_filtered $DC --env-file .env -f docker-compose.hostinger.yml up -d --build --no-deps webscraping');
     lines.push('verify_hbx_engines');
-    lines.push('deploy_frontend_pm2');
+    lines.push('deploy_frontend_docker');
   }
 
   lines.push(
     'final_healthchecks',
     'echo "Containers ativos:"',
-    'docker ps --format "table {{.Names}}\\t{{.Status}}\\t{{.Ports}}" | grep -E "NAMES|hbx-backend|webscraping|hbx-scraping-engine|hbx-engine-[0-9]+|hbx-postgres" || true',
-    'echo "PM2 status:"',
-    'pm2 list 2>/dev/null || true',
+    'docker ps --format "table {{.Names}}\\t{{.Status}}\\t{{.Ports}}" | grep -E "NAMES|hbx-frontend|hbx-backend|webscraping|hbx-scraping-engine|hbx-engine-[0-9]+|hbx-postgres" || true',
     'echo "Ultimos logs backend:"',
     'docker logs --tail 80 hbx-backend 2>&1 || true',
     'echo "Ultimos logs webscraping:"',
     'docker logs --tail 40 webscraping 2>&1 || true',
-    'echo "Ultimos logs frontend PM2:"',
-    'pm2 logs hbx-frontend --lines 80 --nostream 2>/dev/null || true',
+    'echo "Ultimos logs frontend Docker:"',
+    'docker logs --tail 80 hbx-frontend 2>&1 || true',
   );
 
   return lines.join('\n');
@@ -740,7 +738,7 @@ function printDryRun(config, mode) {
   console.log('\n[dry-run] No git push, no SSH execution, no docker-compose down/up on Hostinger.');
   console.log('[dry-run] Would run: git push origin master');
   console.log(`[dry-run] Would SSH into: ${config.sshUser}@${config.sshHost}`);
-  console.log('[dry-run] Would run Hostinger remote deploy: fetch/reset, validate env/db/docker, build hbx-engine-1..N + fallback, run backend with HBX_ENGINE_COUNT/HBX_ENGINE_URLS, run frontend via PM2, list containers.');
+  console.log('[dry-run] Would run Hostinger remote deploy: fetch/reset, validate env/db/docker, build hbx-engine-1..N + fallback, run backend with HBX_ENGINE_COUNT/HBX_ENGINE_URLS, run frontend via Docker hbx-frontend, list containers.');
   if (isTruthy(process.env.PUBLISH_VERBOSE_DRY_RUN)) {
     console.log('--- remote script start ---');
     console.log(buildRemoteDeployScript(config, mode));

@@ -14,7 +14,7 @@ Os comandos auxiliares foram movidos para scripts `internal:*` para evitar fluxo
 
 `npm run publish` detecta mudancas, mostra diff resumido, cria commit automatico quando necessario, faz push, builda backend/frontend, executa o deploy Hostinger existente e valida backend/frontend.
 
-`npm run force` cria backup antes de qualquer acao destrutiva, cria commit/push quando necessario, para containers/processos HBX, sobe tudo novamente, roda migrations Prisma dentro do container `hbx-backend`, verifica Docker/PM2/backend/frontend/banco/logs e termina com o servidor em uso.
+`npm run force` cria backup antes de qualquer acao destrutiva, cria commit/push quando necessario, para containers/processos HBX, sobe tudo novamente, roda migrations Prisma dentro do container `hbx-backend`, verifica Docker/backend/frontend/banco/logs e termina com o servidor em uso.
 
 ## Ambientes
 
@@ -45,7 +45,7 @@ Para salvar o projeto antes de formatar a maquina e reconstruir o ambiente depoi
 - `npm run up` recusa `backend/.env` apontando para banco remoto no host, para evitar abrir Prisma Studio ou ferramentas locais contra produção por engano.
 - `npm run up` valida backend em `http://localhost:3000/health` e frontend em `http://localhost:3001`; Prisma Studio vira opcional se `backend/.env` nao estiver pronto para o host.
 - `npm run publish` roda preflight de Prisma, build e coerência estrutural no fluxo de deploy.
-- Mudancas em `frontend/` entram no build PM2 `hbx-frontend` na Hostinger.
+- Mudancas em `frontend/` entram no build Docker `hbx-frontend` na Hostinger.
 - `npm run force` salva backup local em `backups/ops/<timestamp>` e tenta dump seguro de producao antes de parar processos.
 - `internal:backup:prod` e `internal:verify:prod` recusam targets locais e só aceitam URLs remotas de produção.
 - O bootstrap do usuário master é controlado por ambiente; em produção o padrão oficial continua sendo `BOOTSTRAP_SYSTEM_MASTER=false`.

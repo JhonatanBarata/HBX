@@ -269,7 +269,7 @@ services:
       - hbx-engine-19
       - hbx-engine-20
 
-# Frontend de producao roda fora do Docker via PM2 pelo publish/release.
+# Frontend de producao roda em Docker via docker-compose.frontend.yml pelo publish/release.
 #  frontend:
 #    container_name: hbx-frontend
 #    build:
