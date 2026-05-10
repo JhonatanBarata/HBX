@@ -270,11 +270,32 @@
   border-color: color-mix(in srgb, var(--bd-yellow) 34%, var(--bd-border));
 }
 
+.factoryStatusStrip div[data-tone="warning"] {
+  border-color: color-mix(in srgb, var(--bd-yellow) 40%, var(--bd-border));
+  background: color-mix(in srgb, var(--bd-yellow) 10%, var(--bd-soft));
+}
+
 .factoryStatusStrip strong {
   color: var(--bd-text);
   font-size: 0.95rem;
   line-height: 1.25;
   overflow-wrap: anywhere;
+}
+
+.inlineNotice {
+  margin-top: 10px;
+  border: 1px solid var(--bd-border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  color: var(--bd-text);
+  background: var(--bd-soft);
+  font-size: 0.9rem;
+  font-weight: 750;
+}
+
+.inlineNotice[data-tone="warning"] {
+  border-color: color-mix(in srgb, var(--bd-yellow) 42%, var(--bd-border));
+  background: color-mix(in srgb, var(--bd-yellow) 10%, var(--bd-soft));
 }
 
 .factoryGrid {

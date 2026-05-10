@@ -271,7 +271,7 @@ type TopBarIncomingPopup = {
 
 type BillboardSlide = {
   id: string;
-  kind?: "status" | "engines" | "nightFactoryReward" | "whatsapp" | "attention";
+  kind?: "status" | "engines" | "whatsapp" | "attention";
   eyebrow: string;
   title: string;
   description: string;
@@ -298,24 +298,6 @@ type TopbarOperationalTile = {
 };
 type TopbarHostingerVital = TopbarOperationalTile & {
   source?: string | null;
-};
-
-type NightFactoryClaimStatusPayload = {
-  eligible?: boolean;
-  alreadyClaimed?: boolean;
-  alreadyClaimedInWindow?: boolean;
-  availableCount?: number;
-  minimumRequired?: number;
-  nextAvailableAt?: string | null;
-  secondsUntilNextClaim?: number;
-  nonCumulative?: boolean;
-  rewardSize?: number;
-  reason?: "cooldown" | "insufficient_leads" | "storage_unavailable" | null;
-  headline?: string;
-  title?: string;
-  description?: string;
-  ctaLabel?: string;
-  href?: string;
 };
 
 type VendasTopbarBoardPayload = {
@@ -1356,7 +1338,6 @@ export default function TopBar() {
   const [atendimentoPendingHumanCount, setAtendimentoPendingHumanCount] = useState(0);
   const [topbarProgress, setTopbarProgress] = useState<TopbarProgressState | null>(null);
   const [billboardSlideIndex, setBillboardSlideIndex] = useState(0);
-  const [nightFactoryReward, setNightFactoryReward] = useState<NightFactoryClaimStatusPayload | null>(null);
   const [scrapingEngines, setScrapingEngines] = useState<ScrapingEngineStatusPayload | null>(null);
   const [scrapingEngineStatusMessage, setScrapingEngineStatusMessage] = useState<string | null>(null);
   const [hbxGaugeBooting, setHbxGaugeBooting] = useState(true);
@@ -2275,7 +2256,6 @@ export default function TopBar() {
       setRecoveryPendingHumanCount(0);
       setAtendimentoPendingHumanCount(0);
       setSupportHasInternalChat(null);
-      setNightFactoryReward(null);
       setStorageUserId(null);
       if (typeof window !== "undefined") {
         delete (window as HbxPrefetchWindow).__hbx_prefetch;
@@ -2346,33 +2326,6 @@ export default function TopBar() {
       window.removeEventListener(MODULES_CHANGED_EVENT, handleModulesChanged);
     };
   }, [authenticated, isMasterWebscrapingRoute, refreshMasterAwareState, refreshOperationalStatus, setStorageUserId, showMasterContextToast]);
-
-  useEffect(() => {
-    if (authenticated !== true || !user) {
-      setNightFactoryReward(null);
-      return;
-    }
-
-    let mounted = true;
-    const loadNightFactoryReward = () => {
-      apiFetch<NightFactoryClaimStatusPayload>("/night-factory/claim-status", { requireAuth: true, timeoutMs: 9000 })
-        .then((payload) => {
-          if (!mounted) return;
-          setNightFactoryReward(payload?.eligible ? payload : null);
-        })
-        .catch(() => {
-          if (mounted) setNightFactoryReward(null);
-        });
-    };
-
-    loadNightFactoryReward();
-    window.addEventListener("night-factory-reward-changed", loadNightFactoryReward);
-
-    return () => {
-      mounted = false;
-      window.removeEventListener("night-factory-reward-changed", loadNightFactoryReward);
-    };
-  }, [authenticated, user?.id, user?.company?.id, user?.masterContext?.active, user?.masterContext?.companyId]);
 
   useEffect(() => {
     setStorageUserId(user?.id ?? null);
@@ -3349,11 +3302,6 @@ export default function TopBar() {
 
     if (slide.source === "incoming" && incomingPopup?.href) {
       router.push(incomingPopup.href);
-      return;
-    }
-
-    if (slide.source === "night-factory-reward" || slide.kind === "nightFactoryReward") {
-      router.push(slide.href || "/night-factory");
       return;
     }
 

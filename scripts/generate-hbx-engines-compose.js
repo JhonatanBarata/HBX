@@ -3,8 +3,8 @@
 const fs = require("fs");
 const path = require("path");
 
-const DEFAULT_COUNT = 20;
-const HARD_LIMIT = 200;
+const DEFAULT_COUNT = 50;
+const HARD_LIMIT = 50;
 const outputFile = path.resolve(process.cwd(), "docker-compose.hbx-engines.generated.yml");
 
 function parseCount(value) {

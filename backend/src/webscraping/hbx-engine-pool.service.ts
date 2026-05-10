@@ -1080,7 +1080,7 @@ export class HbxEnginePoolService implements OnModuleInit {
     if (factoryMaxEngines != null) {
       automaticAllowedEngines = Math.min(automaticAllowedEngines, factoryMaxEngines);
     }
-    if (!guidedLocationActive && onlineHealthyEngines > 1) {
+    if (!guidedLocationActive && manualReservedEngines > 0 && onlineHealthyEngines > 1) {
       automaticAllowedEngines = Math.min(automaticAllowedEngines, onlineHealthyEngines - 1);
     }
     automaticAllowedEngines = Math.max(0, Math.min(factoryCapacity, automaticAllowedEngines));
@@ -1856,9 +1856,7 @@ export class HbxEnginePoolService implements OnModuleInit {
   }
 
   private resolveMemoryGuardEngines(maxEngines: number, pressure: number) {
-    if (pressure >= 90) return 0;
-    if (pressure >= 80) return Math.min(maxEngines, 8);
-    if (pressure >= 70) return Math.min(maxEngines, 12);
+    void pressure;
     return maxEngines;
   }
 
@@ -1882,7 +1880,7 @@ export class HbxEnginePoolService implements OnModuleInit {
     const endHour = this.readIntegerEnv('HBX_FACTORY_END_HOUR', clampInteger(config?.endHour, 7, 0, 23), 0, 23);
     const endMinute = this.readIntegerEnv('HBX_FACTORY_END_MINUTE', clampInteger(config?.endMinute, 0, 0, 59), 0, 59);
     const envMaxRaw = String(process.env.HBX_FACTORY_MAX_ENGINES || '').trim();
-    const fallbackMax = isProductionEnvironment(process.env.NODE_ENV) ? 16 : Math.min(configuredEngineCount, 16);
+    const fallbackMax = configuredEngineCount;
     const maxFromConfig = metadata.factoryMaxEngines != null ? metadata.factoryMaxEngines : fallbackMax;
     const maxEngines = clampInteger(envMaxRaw || maxFromConfig, fallbackMax, 0, configuredEngineCount);
     const minEngines = clampInteger(process.env.HBX_FACTORY_MIN_ENGINES || metadata.factoryMinEngines || 0, 0, 0, maxEngines);
@@ -1909,7 +1907,7 @@ export class HbxEnginePoolService implements OnModuleInit {
 
     let reason: HbxFactoryAllowance['reason'] = 'open';
     let windowStatus: HbxFactoryAllowance['windowStatus'] = open ? 'open' : 'closed';
-    let allowedEngines = Math.min(factoryCapacity, Math.max(minEngines, memoryGuardEngines));
+    let allowedEngines = Math.min(factoryCapacity, Math.max(minEngines, maxEngines));
     if (!enabled) {
       allowedEngines = 0;
       reason = 'factory_disabled';
@@ -1925,17 +1923,16 @@ export class HbxEnginePoolService implements OnModuleInit {
       allowedEngines = 0;
       reason = 'outside_factory_window';
     } else if (memoryPressurePercent >= 90) {
-      allowedEngines = 0;
       reason = 'memory_stop';
-    } else if (memoryGuardEngines < maxEngines) {
+    } else if (memoryPressurePercent >= 80) {
       reason = 'memory_guard';
     } else if (guidedLocationActive) {
       reason = 'guided_location';
       windowStatus = 'open';
-    } else if (input.manualDemandActive) {
+    } else if (input.manualDemandActive && Number(input.manualReservedEngines || 0) > 0) {
       allowedEngines = 0;
       reason = 'manual_demand';
-    } else if (input.clientPriorityActive) {
+    } else if (input.clientPriorityActive && Number(input.manualReservedEngines || 0) > 0) {
       allowedEngines = 0;
       reason = 'client_priority';
     } else if (allowedEngines <= maxEngines) {

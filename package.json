@@ -3,25 +3,12 @@
 	"version": "1.0.0",
 	"private": true,
 	"scripts": {
-		"release": "node ./scripts/ops/release.js",
 		"publish": "node ./scripts/ops/publish.js",
-		"up": "npm run internal:up",
-		"down": "npm run internal:down",
+		"new": "node ./scripts/release.js",
+		"cleanup:hbx-extra": "node ./scripts/cleanup-hbx-extra-engines-vps.js",
+		"up": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/start-all.ps1",
+		"down": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/stop-all.ps1",
 		"force": "node ./scripts/ops/force.js",
-		"internal:start": "npm run internal:up",
-		"internal:up": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/start-all.ps1",
-		"internal:down": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/stop-all.ps1",
-		"internal:build": "npm --prefix backend run build && npm --prefix frontend run build",
-		"internal:commit": "node ./scripts/commit.js",
-		"internal:release:selective": "node ./scripts/release.js",
-		"internal:backup:local": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/backup-before-format.ps1",
-		"internal:setup:after-format": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/setup-after-format.ps1",
-		"internal:publish:legacy": "node ./scripts/publish.js",
-		"internal:publish:dry-run": "node ./scripts/publish.js d",
-		"internal:deploy:hostinger": "node ./scripts/deploy-hostinger.js",
-		"internal:deploy:hostinger:force": "node ./scripts/deploy-hostinger.js force",
-		"internal:seed:dev": "node ./backend/scripts/seed-dev.js",
-		"internal:backup:prod": "node ./scripts/backup-prod.js",
-		"internal:verify:prod": "node ./scripts/verify-prod.js"
+		"verify:prod": "node ./scripts/verify-prod.js"
 	}
 }

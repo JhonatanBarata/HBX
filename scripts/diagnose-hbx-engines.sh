@@ -18,7 +18,7 @@ else
 fi
 
 echo
-echo "== HBX engine containers 1..100 =="
+echo "== HBX engine containers 1..50 =="
 docker ps --format '{{.Names}}\t{{.Status}}\t{{.Ports}}' | awk '/hbx-engine-([0-9]+)(\t|$)/ { print }' | sort -V || true
 
 echo
@@ -28,7 +28,7 @@ docker exec "$BACKEND_CONTAINER" sh -lc 'printenv | grep -E "^(HBX_ENGINE_COUNT|
 
 echo
 echo "== Health from backend network =="
-for n in 1 20 21 40 60 80 100; do
+for n in 1 20 21 40 50; do
   url="http://hbx-engine-$n:8001/health"
   printf "hbx-engine-%s " "$n"
   docker exec "$BACKEND_CONTAINER" sh -lc "if command -v curl >/dev/null 2>&1; then curl -fsS --max-time 4 '$url'; elif command -v wget >/dev/null 2>&1; then wget -qO- -T 4 '$url'; else node -e \"fetch('$url').then(r=>r.text().then(t=>{console.log(r.status,t)})).catch(e=>{console.error(e.message);process.exit(1)})\"; fi" || true

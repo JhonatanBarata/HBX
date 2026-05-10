@@ -285,7 +285,7 @@ function factoryReasonLabel(value?: string | null) {
   if (reason === "outside_factory_window") return "Fora do horário";
   if (reason === "outside_business_days") return "Fora dos dias úteis";
   if (reason === "emergency_stop") return "Parado manualmente";
-  if (reason === "memory_guard") return "Proteção de memória";
+  if (reason === "memory_guard") return "Memória alta";
   if (reason === "memory_stop") return "Memória crítica";
   if (reason === "guided_location") return "Cidade fixa";
   if (reason === "client_priority" || reason === "manual_demand") return "Cliente em prioridade";
@@ -461,6 +461,7 @@ export default function BancoDeDadosClientPage() {
   const factoryStatusText = factoryStatusLabel(factory?.status, factory?.enabled);
   const factoryReasonText = factoryReasonLabel(protection?.factoryReason);
   const factoryEmergencyStop = Boolean(factorySchedule?.emergencyStop || protection?.factoryEmergencyStop);
+  const memoryPressureHigh = Number(factorySchedule?.memoryPressurePercent || 0) >= 80;
 
   useEffect(() => {
     if (editingFactoryField !== "maxEngines") setFactoryMaxEnginesDraft(String(configuredFactoryMaxEngines));
@@ -633,8 +634,8 @@ export default function BancoDeDadosClientPage() {
 
   async function commitFactoryMaxEngines() {
     const maxEngines = Number(factoryMaxEnginesDraft);
-    if (!Number.isInteger(maxEngines) || maxEngines < 0 || maxEngines > 100) {
-      setError("Digite um limite de motores entre 0 e 100.");
+    if (!Number.isInteger(maxEngines) || maxEngines < 0 || maxEngines > 50) {
+      setError("Digite um limite de motores entre 0 e 50.");
       return;
     }
     if (maxEngines === configuredFactoryMaxEngines) {
@@ -1035,8 +1036,24 @@ export default function BancoDeDadosClientPage() {
               <strong>{factoryEmergencyStop ? "Parada total" : factoryStatusText}</strong>
             </div>
             <div>
-              <span>Agora</span>
-              <strong>{metric(summary?.motoresBusy)} trabalhando · {metric(protection?.factoryAllowedEngines)} permitidos</strong>
+              <span>Motores configurados</span>
+              <strong>{metric(configuredFactoryMaxEngines)}</strong>
+            </div>
+            <div>
+              <span>Motores permitidos agora</span>
+              <strong>{metric(protection?.factoryAllowedEngines)}</strong>
+            </div>
+            <div>
+              <span>Motores trabalhando agora</span>
+              <strong>{metric(summary?.motoresBusy)}</strong>
+            </div>
+            <div>
+              <span>Containers vivos</span>
+              <strong>{metric(summary?.motoresOnline)}</strong>
+            </div>
+            <div data-tone={memoryPressureHigh ? "warning" : undefined}>
+              <span>Motivo do limite</span>
+              <strong>{factoryReasonText}</strong>
             </div>
             <div>
               <span>Próxima janela</span>
@@ -1047,6 +1064,11 @@ export default function BancoDeDadosClientPage() {
               <strong>{formatDateTime(protection?.factoryNextStopAt)}</strong>
             </div>
           </div>
+          {memoryPressureHigh ? (
+            <div className={styles.inlineNotice} data-tone="warning">
+              Memória em {metric(factorySchedule?.memoryPressurePercent)}%. Alerta visual ativo, sem reduzir automaticamente os 50 motores configurados.
+            </div>
+          ) : null}
 
           <div className={styles.factoryGrid}>
             <label className={styles.factoryField}>
@@ -1099,7 +1121,7 @@ export default function BancoDeDadosClientPage() {
               />
             </label>
             <label className={styles.factoryField}>
-              <span>Motores trabalhando</span>
+              <span>Motores configurados</span>
               <input
                 type="text"
                 inputMode="numeric"
@@ -1121,7 +1143,7 @@ export default function BancoDeDadosClientPage() {
                   }
                 }}
                 disabled={saving}
-                aria-label="Motores trabalhando"
+                aria-label="Motores configurados"
               />
             </label>
             {!factoryGuidedLocation ? <label className={styles.factoryField}>

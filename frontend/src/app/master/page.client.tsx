@@ -223,15 +223,6 @@ const MASTER_SHORTCUTS = [
     meta: "Motores + Radar",
   },
   {
-    title: "Night Factory",
-    eyebrow: "Madrugada",
-    description: "Servidor ocioso virando Radar Premium, score, scripts e Recovery para vender amanhã.",
-    href: "/master/night-factory",
-    action: "Abrir fábrica",
-    tone: "hostinger",
-    meta: "Radar Premium + Recovery",
-  },
-  {
     title: "Planos/Módulos",
     eyebrow: "Catálogo",
     description: "Preços, módulos vendáveis, padrão para empresas e uso por cliente.",
@@ -644,7 +635,7 @@ export default function MasterHomeClientPage() {
             <article><span>Cards últimos 10 min</span><strong>{health?.production?.radar.cardsLast10Min ?? 0}</strong></article>
           </div>
           <div className={styles.masterNightActions}>
-            <Link href="/master/night-factory" className="btn btn-primary btn-sm">Ver Top 20 de hoje</Link>
+            <Link href="/bancodedados" className="btn btn-primary btn-sm">Abrir Banco de Dados</Link>
             <Link href="/master/webscraping" className="btn btn-secondary btn-sm">Motores HBX</Link>
             <Link href="/master/sistema" className="btn btn-secondary btn-sm">Command Center</Link>
           </div>
