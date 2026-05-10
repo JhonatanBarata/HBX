@@ -938,4 +938,563 @@ export const HBX_TOPBAR_COMMAND_CAROUSEL_CSS = `
       font-size: 14px;
     }
   }
+
+  /* Approved liquid-header direction: lower, continuous, and unclipped. */
+  .app-topbar__frame {
+    position: relative !important;
+    border-radius: 25px !important;
+    overflow: visible !important;
+    background:
+      radial-gradient(circle at 7% 20%, color-mix(in srgb, var(--button-accent, #0ea5e9) 14%, transparent), transparent 26%),
+      radial-gradient(circle at 66% 18%, color-mix(in srgb, var(--success, #10b981) 12%, transparent), transparent 22%),
+      linear-gradient(135deg, rgba(255,255,255,.74), rgba(238,247,255,.54) 48%, rgba(255,255,255,.62)) !important;
+    border: 1px solid rgba(255,255,255,.72) !important;
+    box-shadow:
+      inset 0 1px 0 rgba(255,255,255,.96),
+      inset 0 -1px 0 rgba(126, 164, 207, .14),
+      0 22px 58px -44px rgba(15, 42, 82, .46),
+      0 10px 24px -22px color-mix(in srgb, var(--button-accent, #0ea5e9) 48%, transparent) !important;
+  }
+
+  .app-topbar__frame::before {
+    inset: 1px !important;
+    border-radius: 24px !important;
+    background:
+      linear-gradient(110deg, rgba(255,255,255,.76), transparent 18% 78%, rgba(255,255,255,.52)),
+      repeating-linear-gradient(90deg, rgba(56, 189, 248, .08) 0 1px, transparent 1px 54px) !important;
+    opacity: .78 !important;
+    mix-blend-mode: screen !important;
+  }
+
+  .app-topbar__inner--controlCenter {
+    min-height: 76px !important;
+    grid-template-columns: minmax(248px, 320px) minmax(540px, 1fr) minmax(338px, 398px) !important;
+    gap: 10px !important;
+    padding: 7px 12px !important;
+    align-items: center !important;
+    overflow: visible !important;
+  }
+
+  .hbx-command-brand,
+  .hbx-command-center,
+  .hbx-command-side,
+  .hbxp-carousel,
+  .hbxp-panel {
+    min-height: 62px !important;
+    height: 62px !important;
+    align-self: center !important;
+  }
+
+  .hbx-command-brand {
+    grid-template-columns: 48px minmax(0, 1fr) !important;
+    gap: 12px !important;
+    padding: 6px 18px 6px 10px !important;
+    border-radius: 20px !important;
+  }
+
+  .hbx-command-brand::after,
+  .hbx-command-center::after {
+    top: 9px !important;
+    bottom: 9px !important;
+    right: -6px !important;
+    background: linear-gradient(180deg, transparent, rgba(10, 92, 142, .18), transparent) !important;
+  }
+
+  .hbx-command-brand__mark {
+    width: 48px !important;
+    height: 48px !important;
+    font-size: 10px !important;
+    background:
+      radial-gradient(circle at 30% 21%, rgba(255,255,255,.45), transparent 28%),
+      linear-gradient(135deg, #0284c7, #006b91 46%, #064e5f) !important;
+    box-shadow:
+      inset 0 1px 0 rgba(255,255,255,.44),
+      inset 0 -12px 20px rgba(0, 42, 64, .26),
+      0 12px 26px -18px rgba(2,132,199,.88) !important;
+  }
+
+  .hbx-command-brand__mark span {
+    inset: 7px !important;
+  }
+
+  .hbx-command-brand__copy strong {
+    font-size: 15px !important;
+    line-height: 1 !important;
+    color: #071426 !important;
+  }
+
+  .hbx-command-brand__copy span {
+    margin-top: 4px !important;
+    font-size: 9px !important;
+    color: color-mix(in srgb, #075985 72%, var(--brand, #10b981)) !important;
+  }
+
+  .hbx-command-center {
+    padding: 0 8px !important;
+  }
+
+  .hbxp-panel {
+    grid-template-columns: minmax(210px, 1fr) minmax(240px, 360px) 48px !important;
+    gap: 10px !important;
+    padding: 5px 2px !important;
+    border-radius: 18px !important;
+    overflow: visible !important;
+  }
+
+  .hbxp-panel__copy {
+    position: relative !important;
+    gap: 1px !important;
+  }
+
+  .hbxp-panel__copy::after {
+    content: "" !important;
+    width: min(180px, 58%) !important;
+    height: 3px !important;
+    margin-top: 5px !important;
+    display: block !important;
+    border-radius: 999px !important;
+    background:
+      linear-gradient(90deg, transparent, color-mix(in srgb, var(--success, #10b981) 82%, #38bdf8), transparent),
+      repeating-linear-gradient(90deg, transparent 0 9px, color-mix(in srgb, var(--success, #10b981) 48%, transparent) 9px 12px, transparent 12px 19px) !important;
+    opacity: .78 !important;
+    box-shadow: 0 0 16px color-mix(in srgb, var(--success, #10b981) 32%, transparent) !important;
+    transform-origin: left center !important;
+    animation: hbxLivePulseLine 2.2s ease-in-out infinite !important;
+  }
+
+  .hbxp-panel__eyebrow span {
+    position: relative !important;
+    font-size: 9px !important;
+    letter-spacing: .08em !important;
+    color: color-mix(in srgb, var(--success, #059669) 82%, #075985) !important;
+  }
+
+  .hbxp-panel__eyebrow span::before {
+    content: "" !important;
+    width: 7px !important;
+    height: 7px !important;
+    margin-right: 7px !important;
+    display: inline-block !important;
+    border-radius: 999px !important;
+    background: var(--success, #10b981) !important;
+    box-shadow:
+      0 0 0 0 color-mix(in srgb, var(--success, #10b981) 36%, transparent),
+      0 0 12px color-mix(in srgb, var(--success, #10b981) 80%, transparent) !important;
+    animation: hbxLiveDot 1.45s ease-out infinite !important;
+    vertical-align: 1px !important;
+  }
+
+  .hbxp-panel h2 {
+    font-size: clamp(18px, 1.28vw, 22px) !important;
+    line-height: 1 !important;
+    color: #071426 !important;
+  }
+
+  .hbxp-panel p {
+    font-size: 11px !important;
+    line-height: 1.1 !important;
+    color: #405472 !important;
+  }
+
+  .hbxp-panel__metrics {
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+    gap: 7px !important;
+  }
+
+  .hbxp-metric {
+    position: relative !important;
+    height: 40px !important;
+    border-radius: 14px !important;
+    padding: 6px 9px !important;
+    background:
+      linear-gradient(180deg, rgba(255,255,255,.66), rgba(255,255,255,.28)) !important;
+    border-color: rgba(255,255,255,.64) !important;
+    overflow: hidden !important;
+    animation: hbxMetricBreath 4.8s ease-in-out infinite !important;
+  }
+
+  .hbxp-metric:nth-child(2) {
+    animation-delay: .38s !important;
+  }
+
+  .hbxp-metric:nth-child(3) {
+    animation-delay: .76s !important;
+  }
+
+  .hbxp-metric::after {
+    content: "" !important;
+    position: absolute !important;
+    inset: 0 !important;
+    border-radius: inherit !important;
+    background: linear-gradient(110deg, transparent 0 34%, rgba(255,255,255,.56) 46%, transparent 58% 100%) !important;
+    transform: translateX(-120%) !important;
+    opacity: .34 !important;
+    pointer-events: none !important;
+    animation: hbxMetricSheen 5.6s ease-in-out infinite !important;
+  }
+
+  .hbxp-metric:nth-child(2)::after {
+    animation-delay: .7s !important;
+  }
+
+  .hbxp-metric:nth-child(3)::after {
+    animation-delay: 1.4s !important;
+  }
+
+  .hbxp-metric small {
+    font-size: 8px !important;
+    line-height: 1 !important;
+    color: #526782 !important;
+  }
+
+  .hbxp-metric strong {
+    font-size: 14px !important;
+    line-height: 1 !important;
+    color: #071426 !important;
+  }
+
+  .hbxp-metric i {
+    left: 9px !important;
+    right: 9px !important;
+    bottom: 4px !important;
+    height: 2px !important;
+  }
+
+  .hbxp-ring {
+    position: relative !important;
+    width: 46px !important;
+    height: 46px !important;
+    background:
+      radial-gradient(circle, rgba(246, 252, 255, .96) 52%, transparent 54%),
+      conic-gradient(var(--hbxp-tone-color, #10b981) var(--hbxp-progress, 100%), rgba(148,163,184,.2) 0) !important;
+    box-shadow:
+      inset 0 1px 0 rgba(255,255,255,.9),
+      0 0 0 6px color-mix(in srgb, var(--hbxp-tone-color, #10b981) 10%, transparent),
+      0 10px 24px -18px color-mix(in srgb, var(--hbxp-tone-color, #10b981) 70%, transparent) !important;
+    animation: hbxRingAlive 2.4s ease-in-out infinite !important;
+  }
+
+  .hbxp-ring::after {
+    content: "" !important;
+    position: absolute !important;
+    inset: -6px !important;
+    border-radius: inherit !important;
+    border: 1px solid color-mix(in srgb, var(--hbxp-tone-color, #10b981) 28%, transparent) !important;
+    opacity: 0 !important;
+    transform: scale(.88) !important;
+    animation: hbxRingEcho 2.4s ease-out infinite !important;
+    pointer-events: none !important;
+  }
+
+  .hbxp-ring strong {
+    font-size: 12px !important;
+  }
+
+  .hbx-command-side {
+    grid-template-columns: minmax(122px, 146px) minmax(0, 1fr) auto !important;
+    grid-auto-rows: 40px !important;
+    align-content: center !important;
+    gap: 7px !important;
+    padding: 10px 8px 10px 12px !important;
+    border-radius: 20px !important;
+  }
+
+  .hbx-command-side .theme-switcher-wrap {
+    grid-column: 1 !important;
+    grid-row: 1 !important;
+    height: 40px !important;
+    z-index: 220 !important;
+  }
+
+  .hbx-control-accountRow {
+    grid-column: 2 / 4 !important;
+    grid-row: 1 !important;
+    grid-template-columns: minmax(0, 1fr) 40px !important;
+    height: 40px !important;
+    gap: 7px !important;
+  }
+
+  .theme-switcher__trigger,
+  .hbx-control-user__trigger,
+  .hbx-control-logout,
+  .hbx-control-masterActions .btn {
+    min-height: 40px !important;
+    height: 40px !important;
+    border-radius: 14px !important;
+    border: 1px solid rgba(255,255,255,.68) !important;
+    background:
+      linear-gradient(180deg, rgba(255,255,255,.62), rgba(255,255,255,.26)) !important;
+    -webkit-backdrop-filter: blur(18px) saturate(1.55) !important;
+    backdrop-filter: blur(18px) saturate(1.55) !important;
+    box-shadow:
+      inset 0 1px 0 rgba(255,255,255,.88),
+      0 10px 22px -20px rgba(15, 42, 82, .58) !important;
+  }
+
+  .hbx-command-side .theme-switcher__trigger {
+    grid-template-columns: 28px minmax(0, 1fr) !important;
+    padding: 4px 7px !important;
+  }
+
+  .hbx-command-side .theme-switcher__trigger-preview {
+    width: 28px !important;
+    height: 28px !important;
+    min-width: 28px !important;
+  }
+
+  .hbx-command-side .theme-switcher__label {
+    font-size: 8px !important;
+    letter-spacing: .07em !important;
+    color: #075985 !important;
+  }
+
+  .hbx-command-side .theme-switcher__trigger-copy strong {
+    font-size: 10px !important;
+    line-height: 1.05 !important;
+    color: #071426 !important;
+  }
+
+  .hbx-control-user__trigger {
+    grid-template-columns: 28px minmax(0, 1fr) !important;
+    gap: 7px !important;
+    padding: 4px 8px 4px 5px !important;
+  }
+
+  .hbx-control-user .app-user__avatar {
+    width: 28px !important;
+    height: 28px !important;
+    font-size: 11px !important;
+    background: linear-gradient(135deg, #0284c7, #0f766e) !important;
+  }
+
+  .hbx-control-user .app-user__name {
+    font-size: 11px !important;
+    line-height: 1.05 !important;
+    color: #071426 !important;
+  }
+
+  .hbx-control-user .app-user__company {
+    font-size: 9px !important;
+    line-height: 1.05 !important;
+    color: #465a76 !important;
+  }
+
+  .hbx-control-logout {
+    width: 40px !important;
+    min-width: 40px !important;
+    border-radius: 14px !important;
+    color: #2563eb !important;
+  }
+
+  .hbx-control-masterActions {
+    grid-column: 1 / -1 !important;
+    grid-row: 2 !important;
+    height: 22px !important;
+    display: flex !important;
+    justify-content: flex-end !important;
+    align-items: center !important;
+    gap: 6px !important;
+    margin-top: -2px !important;
+  }
+
+  .hbx-control-masterActions .btn {
+    min-height: 22px !important;
+    height: 22px !important;
+    padding: 0 10px !important;
+    border-radius: 999px !important;
+    font-size: 9px !important;
+    font-weight: 850 !important;
+  }
+
+  .hbx-control-vitals {
+    display: none !important;
+  }
+
+  .theme-switcher__panel {
+    z-index: 500 !important;
+  }
+
+  .hbxp-panel::before {
+    content: "" !important;
+    position: absolute !important;
+    left: 0 !important;
+    right: 0 !important;
+    top: 0 !important;
+    height: 1px !important;
+    border-radius: 999px !important;
+    background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--success, #10b981) 40%, #38bdf8), transparent) !important;
+    opacity: .42 !important;
+    transform: translateX(-26%) scaleX(.42) !important;
+    animation: hbxHeaderScan 6.2s ease-in-out infinite !important;
+    pointer-events: none !important;
+  }
+
+  @keyframes hbxLiveDot {
+    0% {
+      box-shadow:
+        0 0 0 0 color-mix(in srgb, var(--success, #10b981) 38%, transparent),
+        0 0 12px color-mix(in srgb, var(--success, #10b981) 80%, transparent);
+      transform: scale(.96);
+    }
+    70% {
+      box-shadow:
+        0 0 0 9px color-mix(in srgb, var(--success, #10b981) 0%, transparent),
+        0 0 14px color-mix(in srgb, var(--success, #10b981) 66%, transparent);
+      transform: scale(1.08);
+    }
+    100% {
+      box-shadow:
+        0 0 0 0 color-mix(in srgb, var(--success, #10b981) 0%, transparent),
+        0 0 10px color-mix(in srgb, var(--success, #10b981) 58%, transparent);
+      transform: scale(.98);
+    }
+  }
+
+  @keyframes hbxLivePulseLine {
+    0%, 100% {
+      opacity: .46;
+      transform: scaleX(.58);
+      filter: saturate(1);
+    }
+    45% {
+      opacity: .94;
+      transform: scaleX(1);
+      filter: saturate(1.35);
+    }
+    64% {
+      opacity: .62;
+      transform: scaleX(.78);
+    }
+  }
+
+  @keyframes hbxRingAlive {
+    0%, 100% {
+      filter: saturate(1);
+      transform: scale(1);
+    }
+    50% {
+      filter: saturate(1.28);
+      transform: scale(1.025);
+    }
+  }
+
+  @keyframes hbxRingEcho {
+    0% {
+      opacity: .38;
+      transform: scale(.88);
+    }
+    70%, 100% {
+      opacity: 0;
+      transform: scale(1.18);
+    }
+  }
+
+  @keyframes hbxMetricBreath {
+    0%, 100% {
+      border-color: rgba(255,255,255,.58);
+      box-shadow:
+        inset 0 1px 0 rgba(255,255,255,.78),
+        0 8px 18px -18px rgba(15, 42, 82, .34) !important;
+    }
+    50% {
+      border-color: color-mix(in srgb, var(--hbxp-tone-color, #10b981) 20%, rgba(255,255,255,.72));
+      box-shadow:
+        inset 0 1px 0 rgba(255,255,255,.9),
+        0 10px 24px -18px color-mix(in srgb, var(--hbxp-tone-color, #10b981) 26%, transparent) !important;
+    }
+  }
+
+  @keyframes hbxMetricSheen {
+    0%, 68% {
+      transform: translateX(-120%);
+    }
+    100% {
+      transform: translateX(120%);
+    }
+  }
+
+  @keyframes hbxHeaderScan {
+    0%, 62%, 100% {
+      opacity: .14;
+      transform: translateX(-30%) scaleX(.28);
+    }
+    78% {
+      opacity: .62;
+      transform: translateX(35%) scaleX(.62);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .hbxp-panel::before,
+    .hbxp-panel__copy::after,
+    .hbxp-panel__eyebrow span::before,
+    .hbxp-metric,
+    .hbxp-metric::after,
+    .hbxp-ring,
+    .hbxp-ring::after {
+      animation: none !important;
+    }
+  }
+
+  html[data-theme-mode="dark"] .app-topbar__frame {
+    background:
+      radial-gradient(circle at 8% 18%, rgba(56, 189, 248, .18), transparent 28%),
+      radial-gradient(circle at 66% 18%, rgba(16, 185, 129, .14), transparent 25%),
+      linear-gradient(135deg, rgba(15, 23, 42, .78), rgba(30, 41, 59, .58) 46%, rgba(8, 13, 24, .72)) !important;
+  }
+
+  @media (max-width: 1320px) {
+    .app-topbar__inner--controlCenter {
+      grid-template-columns: minmax(220px, 280px) minmax(0, 1fr) minmax(312px, 362px) !important;
+    }
+
+    .hbxp-panel {
+      grid-template-columns: minmax(190px, 1fr) minmax(210px, 310px) 44px !important;
+    }
+  }
+
+  @media (max-width: 1120px) {
+    .app-topbar__inner--controlCenter {
+      grid-template-columns: minmax(210px, 260px) minmax(0, 1fr) !important;
+    }
+
+    .hbx-command-side {
+      grid-column: 1 / -1 !important;
+      grid-template-columns: minmax(130px, 160px) minmax(0, 1fr) auto !important;
+    }
+  }
+
+  @media (max-width: 820px) {
+    .app-topbar__inner--controlCenter {
+      grid-template-columns: 1fr !important;
+      min-height: auto !important;
+    }
+
+    .hbx-command-brand,
+    .hbx-command-center,
+    .hbx-command-side,
+    .hbxp-carousel,
+    .hbxp-panel {
+      height: auto !important;
+      min-height: 58px !important;
+    }
+
+    .hbxp-panel {
+      grid-template-columns: 1fr !important;
+      gap: 7px !important;
+      padding: 8px !important;
+    }
+
+    .hbx-command-side {
+      grid-template-columns: 1fr !important;
+      grid-auto-rows: auto !important;
+    }
+
+    .hbx-command-side .theme-switcher-wrap,
+    .hbx-control-accountRow,
+    .hbx-control-masterActions {
+      grid-column: 1 !important;
+      grid-row: auto !important;
+    }
+  }
 `;
