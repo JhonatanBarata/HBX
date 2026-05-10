@@ -220,7 +220,7 @@ test('factory scheduler defaults to configured engine count in production when m
   });
 });
 
-test('factory scheduler blocks mass data outside the configured window without blocking inventory', () => {
+test('factory scheduler keeps all engines available outside the old window rule', () => {
   withEnv({ NODE_ENV: 'production', HBX_ENGINE_COUNT: '100', HBX_FACTORY_MAX_ENGINES: '16' }, () => {
     const service = new HbxEnginePoolService({} as any);
     const allowed = service.resolveFactoryAllowedEngines({
@@ -231,13 +231,13 @@ test('factory scheduler blocks mass data outside the configured window without b
       operationalConfig: { enabled: true, startHour: 22, startMinute: 0, endHour: 7, endMinute: 0, metadataJson: '{}' },
       date: new Date('2026-05-09T15:00:00-03:00'),
     });
-    assert.equal(allowed.windowStatus, 'closed');
-    assert.equal(allowed.reason, 'outside_factory_window');
-    assert.equal(allowed.allowedEngines, 0);
+    assert.equal(allowed.windowStatus, 'open');
+    assert.equal(allowed.reason, 'factory_max');
+    assert.equal(allowed.allowedEngines, 100);
   });
 });
 
-test('factory scheduler handles windows crossing midnight', () => {
+test('factory scheduler ignores the old window max env and uses configured count', () => {
   withEnv({ NODE_ENV: 'production', HBX_ENGINE_COUNT: '100', HBX_FACTORY_MAX_ENGINES: '12' }, () => {
     const service = new HbxEnginePoolService({} as any);
     const allowed = service.resolveFactoryAllowedEngines({
@@ -249,7 +249,7 @@ test('factory scheduler handles windows crossing midnight', () => {
       date: new Date('2026-05-09T23:30:00-03:00'),
     });
     assert.equal(allowed.windowStatus, 'open');
-    assert.equal(allowed.allowedEngines, 12);
+    assert.equal(allowed.allowedEngines, 100);
   });
 });
 
@@ -271,9 +271,9 @@ test('factory scheduler memory guard is diagnostic and does not cap automatic wo
       operationalConfig: { enabled: true, metadataJson: '{}' },
     });
     assert.equal(at80.allowedEngines, 50);
-    assert.equal(at80.reason, 'memory_guard');
+    assert.equal(at80.reason, 'factory_max');
     assert.equal(at90.allowedEngines, 50);
-    assert.equal(at90.reason, 'memory_stop');
+    assert.equal(at90.reason, 'factory_max');
   });
 });
 
@@ -292,7 +292,7 @@ test('factory scheduler emergency stop blocks automatic work immediately', () =>
   });
 });
 
-test('factory scheduler can restrict automatic work to business days', () => {
+test('factory scheduler ignores the old business-day limiter', () => {
   withEnv({ NODE_ENV: 'production', HBX_ENGINE_COUNT: '100', HBX_FACTORY_MAX_ENGINES: '16', HBX_FACTORY_START_HOUR: '0', HBX_FACTORY_END_HOUR: '0' }, () => {
     const service = new HbxEnginePoolService({} as any);
     const weekend = service.resolveFactoryAllowedEngines({
@@ -311,13 +311,13 @@ test('factory scheduler can restrict automatic work to business days', () => {
       operationalConfig: { enabled: true, metadataJson: '{"weekdaysOnly":true}' },
       date: new Date('2026-05-11T12:00:00-03:00'),
     });
-    assert.equal(weekend.allowedEngines, 0);
-    assert.equal(weekend.reason, 'outside_business_days');
-    assert.equal(monday.allowedEngines, 16);
+    assert.equal(weekend.allowedEngines, 100);
+    assert.equal(weekend.reason, 'factory_max');
+    assert.equal(monday.allowedEngines, 100);
   });
 });
 
-test('factory scheduler can keep weekends open all day', () => {
+test('factory scheduler keeps weekdays and weekends open all day', () => {
   withEnv({ NODE_ENV: 'production', HBX_ENGINE_COUNT: '100', HBX_FACTORY_MAX_ENGINES: '16' }, () => {
     const service = new HbxEnginePoolService({} as any);
     const saturdayAfternoon = service.resolveFactoryAllowedEngines({
@@ -351,10 +351,10 @@ test('factory scheduler can keep weekends open all day', () => {
       date: new Date('2026-05-11T15:00:00-03:00'),
     });
 
-    assert.equal(saturdayAfternoon.allowedEngines, 16);
+    assert.equal(saturdayAfternoon.allowedEngines, 100);
     assert.equal(saturdayAfternoon.reason, 'factory_max');
-    assert.equal(mondayAfternoon.allowedEngines, 0);
-    assert.equal(mondayAfternoon.reason, 'outside_factory_window');
+    assert.equal(mondayAfternoon.allowedEngines, 100);
+    assert.equal(mondayAfternoon.reason, 'factory_max');
   });
 });
 
@@ -438,7 +438,7 @@ test('eligible engines include hbx-engine-20 when active capacity is twenty', as
   });
 });
 
-test('automatic queue never gets all engines when manual reservation is two', async () => {
+test('automatic queue gets all engines even when old manual reservation env is set', async () => {
   await withEnv({
     NODE_ENV: 'production',
     HBX_ENGINE_COUNT: '20',
@@ -454,7 +454,7 @@ test('automatic queue never gets all engines when manual reservation is two', as
     service.healthCheckEngines = async () => buildEngineRows(20);
     const automatic = await service.getEligibleEnginesForCurrentQueue('mass_data');
     const manual = await service.getEligibleEnginesForCurrentQueue('manual');
-    assert.equal(automatic.length, 18);
+    assert.equal(automatic.length, 20);
     assert.equal(manual.length, 20);
   });
 });

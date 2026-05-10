@@ -108,7 +108,7 @@ test('normalizeOperationalConfigInput preserves existing schedule on partial upd
   assert.equal(normalized.endMinute, 15);
   assert.equal(normalized.engineCount, 4);
   assert.equal(normalized.weekendAlwaysOn, true);
-  assert.equal(normalized.factoryMaxEngines, 3);
+  assert.equal(normalized.factoryMaxEngines, 4);
 });
 
 test('mass data guided city has enough independent segments for one hundred engines', () => {
