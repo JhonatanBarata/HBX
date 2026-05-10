@@ -80,6 +80,37 @@ test('normalizeOperationalConfigInput preserves midnight start and end hours', (
   assert.equal(service.formatTimeLabel(0, 0), '00:00');
 });
 
+test('normalizeOperationalConfigInput preserves existing schedule on partial update', () => {
+  const service = new WebscrapingService(createPrisma()) as any;
+
+  const normalized = service.normalizeOperationalConfigInput(
+    { startHour: 19, startMinute: 30 },
+    {
+      enabled: true,
+      preset: 'turbo_noturno',
+      startHour: 20,
+      startMinute: 0,
+      endHour: 9,
+      endMinute: 15,
+      engineCount: 4,
+      intensity: 'normal',
+      memoryTargetGb: 24,
+      batchSize: 12,
+      maxAttemptsPerTask: 4,
+      engineUrlsJson: '[]',
+      metadataJson: '{"weekendAlwaysOn":true,"factoryMaxEngines":3}',
+    },
+  );
+
+  assert.equal(normalized.startHour, 19);
+  assert.equal(normalized.startMinute, 30);
+  assert.equal(normalized.endHour, 9);
+  assert.equal(normalized.endMinute, 15);
+  assert.equal(normalized.engineCount, 4);
+  assert.equal(normalized.weekendAlwaysOn, true);
+  assert.equal(normalized.factoryMaxEngines, 3);
+});
+
 function createSearchRunPrisma(initialRun: Record<string, any>) {
   const run = {
     id: 'run-1',

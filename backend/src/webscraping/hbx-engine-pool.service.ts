@@ -73,6 +73,7 @@ export type HbxFactoryAllowance = {
   emergencyStop: boolean;
   stopOutsideWindow: boolean;
   weekdaysOnly: boolean;
+  weekendAlwaysOn: boolean;
   timezone: string;
   startHour: number;
   startMinute: number;
@@ -1730,13 +1731,14 @@ export class HbxEnginePoolService implements OnModuleInit {
         emergencyStop: parsed?.emergencyStop == null ? false : Boolean(parsed.emergencyStop),
         stopOutsideWindow: parsed?.stopOutsideWindow == null ? true : Boolean(parsed.stopOutsideWindow),
         weekdaysOnly: parsed?.weekdaysOnly == null ? false : Boolean(parsed.weekdaysOnly),
+        weekendAlwaysOn: parsed?.weekendAlwaysOn == null ? false : Boolean(parsed.weekendAlwaysOn),
         timezone: typeof parsed?.timezone === 'string' && parsed.timezone.trim() ? parsed.timezone.trim() : null,
         factoryMaxEngines: Number.isFinite(Number(parsed?.factoryMaxEngines)) ? Math.trunc(Number(parsed.factoryMaxEngines)) : null,
         factoryMinEngines: Number.isFinite(Number(parsed?.factoryMinEngines)) ? Math.trunc(Number(parsed.factoryMinEngines)) : null,
         drainTimeoutSeconds: Number.isFinite(Number(parsed?.drainTimeoutSeconds)) ? Math.trunc(Number(parsed.drainTimeoutSeconds)) : null,
       };
     } catch {
-      return { forcedUntil: null, emergencyStop: false, stopOutsideWindow: true, weekdaysOnly: false, timezone: null, factoryMaxEngines: null, factoryMinEngines: null, drainTimeoutSeconds: null };
+      return { forcedUntil: null, emergencyStop: false, stopOutsideWindow: true, weekdaysOnly: false, weekendAlwaysOn: false, timezone: null, factoryMaxEngines: null, factoryMinEngines: null, drainTimeoutSeconds: null };
     }
   }
 
@@ -1817,6 +1819,10 @@ export class HbxEnginePoolService implements OnModuleInit {
     return weekday !== 'sat' && weekday !== 'sun';
   }
 
+  private isFactoryWeekend(timezone: string, date = new Date()) {
+    return !this.isFactoryBusinessDay(timezone, date);
+  }
+
   private isWithinFactoryWindow(startHour: number, startMinute: number, endHour: number, endMinute: number, timezone: string, date = new Date()) {
     const now = this.getFactoryNowParts(timezone, date);
     const current = now.hour * 60 + now.minute;
@@ -1867,13 +1873,15 @@ export class HbxEnginePoolService implements OnModuleInit {
     const minEngines = clampInteger(process.env.HBX_FACTORY_MIN_ENGINES || metadata.factoryMinEngines || 0, 0, 0, maxEngines);
     const stopOutsideWindow = this.readBooleanEnv('HBX_FACTORY_STOP_OUTSIDE_WINDOW', metadata.stopOutsideWindow !== false);
     const weekdaysOnly = this.readBooleanEnv('HBX_FACTORY_WEEKDAYS_ONLY', Boolean(metadata.weekdaysOnly));
+    const weekendAlwaysOn = this.readBooleanEnv('HBX_FACTORY_WEEKEND_ALWAYS_ON', Boolean(metadata.weekendAlwaysOn));
     const emergencyStop = this.readBooleanEnv('HBX_FACTORY_EMERGENCY_STOP', Boolean(metadata.emergencyStop));
     const memoryPressurePercent = Math.max(0, Math.min(100, Math.trunc(Number(input.memoryPressurePercent || 0))));
     const memoryGuardEngines = this.resolveMemoryGuardEngines(maxEngines, memoryPressurePercent);
     const factoryDate = input.date || new Date();
     const withinWindow = this.isWithinFactoryWindow(startHour, startMinute, endHour, endMinute, timezone, factoryDate);
     const businessDayOpen = !weekdaysOnly || this.isFactoryBusinessDay(timezone, factoryDate);
-    const open = withinWindow && businessDayOpen;
+    const weekendOpen = weekendAlwaysOn && this.isFactoryWeekend(timezone, factoryDate) && !weekdaysOnly;
+    const open = (withinWindow || weekendOpen) && businessDayOpen;
     const nextStartAt = this.nextFactoryBoundary(startHour, startMinute, endHour, endMinute, timezone, 'start', input.date || new Date());
     const nextStopAt = this.nextFactoryBoundary(startHour, startMinute, endHour, endMinute, timezone, 'stop', input.date || new Date());
     const factoryCapacity = Math.max(0, Math.min(
@@ -1927,6 +1935,7 @@ export class HbxEnginePoolService implements OnModuleInit {
       emergencyStop,
       stopOutsideWindow,
       weekdaysOnly,
+      weekendAlwaysOn,
       timezone,
       startHour,
       startMinute,

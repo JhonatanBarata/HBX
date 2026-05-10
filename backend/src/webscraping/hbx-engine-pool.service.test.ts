@@ -304,6 +304,47 @@ test('factory scheduler can restrict automatic work to business days', () => {
   });
 });
 
+test('factory scheduler can keep weekends open all day', () => {
+  withEnv({ NODE_ENV: 'production', HBX_ENGINE_COUNT: '100', HBX_FACTORY_MAX_ENGINES: '16' }, () => {
+    const service = new HbxEnginePoolService({} as any);
+    const saturdayAfternoon = service.resolveFactoryAllowedEngines({
+      engineCount: 100,
+      onlineHealthyEngines: 100,
+      manualReservedEngines: 2,
+      memoryPressurePercent: 50,
+      operationalConfig: {
+        enabled: true,
+        startHour: 20,
+        startMinute: 0,
+        endHour: 8,
+        endMinute: 0,
+        metadataJson: '{"weekendAlwaysOn":true}',
+      },
+      date: new Date('2026-05-09T15:00:00-03:00'),
+    });
+    const mondayAfternoon = service.resolveFactoryAllowedEngines({
+      engineCount: 100,
+      onlineHealthyEngines: 100,
+      manualReservedEngines: 2,
+      memoryPressurePercent: 50,
+      operationalConfig: {
+        enabled: true,
+        startHour: 20,
+        startMinute: 0,
+        endHour: 8,
+        endMinute: 0,
+        metadataJson: '{"weekendAlwaysOn":true}',
+      },
+      date: new Date('2026-05-11T15:00:00-03:00'),
+    });
+
+    assert.equal(saturdayAfternoon.allowedEngines, 16);
+    assert.equal(saturdayAfternoon.reason, 'factory_max');
+    assert.equal(mondayAfternoon.allowedEngines, 0);
+    assert.equal(mondayAfternoon.reason, 'outside_factory_window');
+  });
+});
+
 test('HBX_ENGINE_MAX_COUNT can intentionally clamp engine count', () => {
   assert.equal(getConfiguredHbxEngineCount({ NODE_ENV: 'production', HBX_ENGINE_COUNT: '100', HBX_ENGINE_MAX_COUNT: '40' }), 40);
   assert.equal(getConfiguredHbxEngineCount({ NODE_ENV: 'production', HBX_ENGINE_COUNT: '220' }), 200);
