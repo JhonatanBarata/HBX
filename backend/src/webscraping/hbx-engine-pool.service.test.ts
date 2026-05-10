@@ -6,6 +6,7 @@ import {
   buildLocalHbxEngineUrls,
   getConfiguredHbxEngineCount,
   HbxEnginePoolService,
+  parseHostMemoryPressurePercent,
   parseHbxEngineUrls,
   resolveConfiguredHbxEngineUrls,
 } from './hbx-engine-pool.service';
@@ -62,6 +63,18 @@ function withEnv<T>(patch: NodeJS.ProcessEnv, fn: () => T) {
     throw error;
   }
 }
+
+test('host memory pressure uses MemAvailable instead of process heap pressure', () => {
+  const pressure = parseHostMemoryPressurePercent([
+    'MemTotal:       15988000 kB',
+    'MemFree:        12000000 kB',
+    'MemAvailable:   12649000 kB',
+    'Buffers:          100000 kB',
+    'Cached:           400000 kB',
+  ].join('\n'));
+
+  assert.equal(pressure, 21);
+});
 
 test('getConfiguredHbxEngineCount uses dev/local default of four', () => {
   assert.equal(getConfiguredHbxEngineCount({ NODE_ENV: 'development' }), 4);

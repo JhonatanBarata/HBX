@@ -1,4 +1,5 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { readFileSync } from 'fs';
 import { PrismaService } from '../prisma/prisma.service';
 
 export const DEFAULT_HBX_ENGINE_COUNT = 4;
@@ -203,6 +204,22 @@ export function getConfiguredHbxEngineCount(env: NodeJS.ProcessEnv = process.env
 
 export function getConfiguredHbxEngineMaxCount(env: NodeJS.ProcessEnv = process.env): number {
   return clampInteger(env.HBX_ENGINE_MAX_COUNT, DEFAULT_HBX_ENGINE_MAX_COUNT, 1, HARD_HBX_ENGINE_MAX_COUNT);
+}
+
+export function parseHostMemoryPressurePercent(raw: string) {
+  const values = new Map<string, number>();
+  for (const line of String(raw || '').split('\n')) {
+    const match = line.match(/^([A-Za-z_()]+):\s+(\d+)/);
+    if (!match) continue;
+    values.set(match[1], Number(match[2]));
+  }
+
+  const totalKb = values.get('MemTotal') || 0;
+  const availableKb = values.get('MemAvailable') || 0;
+  if (totalKb <= 0 || availableKb < 0) return null;
+
+  const usedKb = Math.max(0, totalKb - availableKb);
+  return Math.max(0, Math.min(100, Math.round((usedKb / totalKb) * 100)));
 }
 
 export function buildHbxEngineUrls(prefixOrBase: string, count = getConfiguredHbxEngineCount()) {
@@ -982,8 +999,14 @@ export class HbxEnginePoolService implements OnModuleInit {
   }
 
   private resolveMemoryPressurePercent(operationalConfig?: any) {
+    try {
+      const hostPressure = parseHostMemoryPressurePercent(readFileSync('/proc/meminfo', 'utf8'));
+      if (hostPressure != null) return hostPressure;
+    } catch {
+      // Non-Linux/dev fallback below.
+    }
+
     const memory = process.memoryUsage();
-    const heapPressure = memory.heapTotal > 0 ? (memory.heapUsed / memory.heapTotal) * 100 : 0;
     const envLimitMb = Number(String(process.env.HBX_MEMORY_LIMIT_MB || process.env.WEBSCRAPING_MEMORY_LIMIT_MB || '').trim());
     const targetGb = Number(operationalConfig?.memoryTargetGb || 0);
     const limitBytes = Number.isFinite(envLimitMb) && envLimitMb > 0
@@ -992,7 +1015,7 @@ export class HbxEnginePoolService implements OnModuleInit {
         ? targetGb * 1024 * 1024 * 1024
         : 0;
     const rssPressure = limitBytes > 0 ? (memory.rss / limitBytes) * 100 : 0;
-    return Math.max(0, Math.min(100, Math.round(Math.max(heapPressure, rssPressure))));
+    return Math.max(0, Math.min(100, Math.round(rssPressure)));
   }
 
   private isHealthyEngine(engine: EngineRegistryRow, now = Date.now()) {

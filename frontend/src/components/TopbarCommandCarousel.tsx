@@ -229,10 +229,10 @@ export const HBX_TOPBAR_COMMAND_CAROUSEL_CSS = `
   }
 
   .app-topbar__inner--controlCenter {
-    min-height: 76px !important;
-    grid-template-columns: minmax(174px, 218px) minmax(0, 1fr) minmax(196px, 260px) !important;
-    gap: 8px !important;
-    padding: 8px !important;
+    min-height: 88px !important;
+    grid-template-columns: minmax(236px, 300px) minmax(580px, 1fr) minmax(360px, 430px) !important;
+    gap: 10px !important;
+    padding: 8px 10px !important;
     border-radius: 20px !important;
     background:
       linear-gradient(135deg, color-mix(in srgb, var(--surface-raised, #fff) 94%, transparent), color-mix(in srgb, var(--surface-soft, #f8fafc) 90%, transparent)),
@@ -244,7 +244,7 @@ export const HBX_TOPBAR_COMMAND_CAROUSEL_CSS = `
 
   .hbx-command-brand,
   .hbx-command-side {
-    min-height: 64px !important;
+    min-height: 72px !important;
     border-radius: 16px !important;
     background: color-mix(in srgb, var(--surface-raised, #fff) 72%, transparent) !important;
     border: 1px solid color-mix(in srgb, var(--line, rgba(148, 163, 184, .24)) 76%, transparent) !important;
@@ -271,9 +271,9 @@ export const HBX_TOPBAR_COMMAND_CAROUSEL_CSS = `
 
   .hbxp-panel {
     height: 100%;
-    min-height: 64px;
+    min-height: 72px;
     display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(240px, 360px) 54px;
+    grid-template-columns: minmax(220px, 1fr) minmax(260px, 390px) 56px;
     align-items: center;
     gap: 14px;
     padding: 10px 12px 10px 14px;
@@ -550,9 +550,9 @@ export const HBX_TOPBAR_COMMAND_CAROUSEL_CSS = `
   .app-topbar__inner--controlCenter {
     position: relative !important;
     z-index: 1 !important;
-    min-height: 92px !important;
-    grid-template-columns: minmax(220px, 288px) minmax(0, 1fr) minmax(230px, 296px) !important;
-    gap: 0 !important;
+    min-height: 96px !important;
+    grid-template-columns: minmax(246px, 304px) minmax(560px, 1fr) minmax(372px, 432px) !important;
+    gap: 10px !important;
     padding: 10px 12px !important;
     border: 0 !important;
     border-radius: 28px !important;
@@ -573,7 +573,7 @@ export const HBX_TOPBAR_COMMAND_CAROUSEL_CSS = `
     grid-template-columns: 54px minmax(0, 1fr) !important;
     min-height: 72px !important;
     padding: 9px 20px 9px 10px !important;
-    border-radius: 24px 0 0 24px !important;
+    border-radius: 24px !important;
     position: relative !important;
   }
 
@@ -583,7 +583,7 @@ export const HBX_TOPBAR_COMMAND_CAROUSEL_CSS = `
     position: absolute;
     top: 14px;
     bottom: 14px;
-    right: 0;
+    right: -5px;
     width: 1px;
     background: linear-gradient(180deg, transparent, color-mix(in srgb, var(--brand, #10b981) 22%, rgba(15, 23, 42, .16)), transparent);
     opacity: .85;
@@ -623,15 +623,15 @@ export const HBX_TOPBAR_COMMAND_CAROUSEL_CSS = `
 
   .hbx-command-center {
     min-height: 72px !important;
-    padding: 0 20px !important;
+    padding: 0 6px !important;
     position: relative !important;
   }
 
   .hbxp-panel {
     min-height: 72px !important;
-    grid-template-columns: minmax(0, 1fr) minmax(238px, 372px) 54px !important;
-    gap: 14px !important;
-    padding: 8px 2px !important;
+    grid-template-columns: minmax(220px, 1fr) minmax(260px, 390px) 56px !important;
+    gap: 12px !important;
+    padding: 8px 4px !important;
     color: var(--foreground, #0f172a) !important;
     overflow: visible !important;
   }
@@ -709,18 +709,75 @@ export const HBX_TOPBAR_COMMAND_CAROUSEL_CSS = `
     min-height: 72px !important;
     align-self: stretch !important;
     display: grid !important;
-    grid-template-columns: minmax(0, 1fr) auto !important;
+    grid-template-columns: minmax(136px, 164px) minmax(0, 1fr) !important;
     grid-auto-rows: min-content !important;
     align-content: center !important;
     gap: 8px !important;
-    padding: 8px 10px 8px 20px !important;
-    border-radius: 0 24px 24px 0 !important;
+    padding: 8px 8px 8px 12px !important;
+    border-radius: 24px !important;
+  }
+
+  .hbx-command-side .theme-switcher-wrap {
+    min-width: 0 !important;
+    width: 100% !important;
+    grid-column: 1 !important;
+    grid-row: 1 !important;
   }
 
   .hbx-control-accountRow {
     display: grid !important;
     grid-template-columns: minmax(0, 1fr) auto !important;
     gap: 8px !important;
+    min-width: 0 !important;
+    grid-column: 2 !important;
+    grid-row: 1 !important;
+  }
+
+  .hbx-control-masterActions,
+  .hbx-control-vitals {
+    grid-column: 1 / -1 !important;
+    min-width: 0 !important;
+  }
+
+  .hbx-control-masterActions {
+    justify-content: flex-end !important;
+  }
+
+  .hbx-control-vitals {
+    display: grid !important;
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+    gap: 6px !important;
+  }
+
+  .hbx-command-side .theme-switcher__trigger {
+    width: 100% !important;
+    min-width: 0 !important;
+    display: grid !important;
+    grid-template-columns: 30px minmax(0, 1fr) !important;
+    align-items: center !important;
+    padding-inline: 6px !important;
+    gap: 6px !important;
+  }
+
+  .hbx-command-side .theme-switcher__trigger-preview {
+    width: 30px !important;
+    height: 30px !important;
+    min-width: 30px !important;
+  }
+
+  .hbx-command-side .theme-switcher__modeBadge {
+    display: none !important;
+  }
+
+  .hbx-command-side .theme-switcher__trigger-copy,
+  .hbx-command-side .theme-switcher__trigger-copy strong,
+  .hbx-command-side .theme-switcher__label,
+  .hbx-control-user .app-user__name,
+  .hbx-control-user .app-user__company {
+    min-width: 0 !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    white-space: nowrap !important;
   }
 
   .theme-switcher__trigger,
@@ -737,6 +794,18 @@ export const HBX_TOPBAR_COMMAND_CAROUSEL_CSS = `
     display: grid !important;
     place-items: center !important;
     font-size: 0 !important;
+  }
+
+  .hbx-control-vitals span {
+    min-width: 0 !important;
+    padding-inline: 8px !important;
+  }
+
+  .hbx-control-vitals strong {
+    min-width: 0 !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    white-space: nowrap !important;
   }
 
   .hbx-control-logout span {
@@ -798,15 +867,16 @@ export const HBX_TOPBAR_COMMAND_CAROUSEL_CSS = `
 
   @media (max-width: 1180px) {
     .app-topbar__inner--controlCenter {
-      grid-template-columns: minmax(160px, 210px) minmax(0, 1fr) !important;
+      grid-template-columns: minmax(200px, 260px) minmax(0, 1fr) !important;
     }
 
     .hbx-command-side {
       grid-column: 1 / -1;
+      grid-template-columns: minmax(136px, 180px) minmax(260px, 1fr) !important;
     }
 
     .hbxp-panel {
-      grid-template-columns: minmax(0, 1fr) minmax(210px, 320px) 48px;
+      grid-template-columns: minmax(0, 1fr) minmax(210px, 320px) 48px !important;
     }
   }
 
@@ -816,8 +886,20 @@ export const HBX_TOPBAR_COMMAND_CAROUSEL_CSS = `
     }
 
     .hbxp-panel {
-      grid-template-columns: minmax(0, 1fr);
+      grid-template-columns: minmax(0, 1fr) !important;
       gap: 9px;
+    }
+
+    .hbx-command-side {
+      grid-template-columns: 1fr !important;
+    }
+
+    .hbx-command-side .theme-switcher-wrap,
+    .hbx-control-accountRow,
+    .hbx-control-masterActions,
+    .hbx-control-vitals {
+      grid-column: 1 !important;
+      grid-row: auto !important;
     }
 
     .hbxp-panel__metrics {
