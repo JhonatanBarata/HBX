@@ -119,6 +119,8 @@ type AuditFactory = {
     emergencyStop: boolean;
     weekdaysOnly?: boolean;
     weekendAlwaysOn?: boolean;
+    factoryState?: string | null;
+    factoryCity?: string | null;
     startHour: number;
     startMinute: number;
     endHour: number;
@@ -285,6 +287,7 @@ function factoryReasonLabel(value?: string | null) {
   if (reason === "emergency_stop") return "Parado manualmente";
   if (reason === "memory_guard") return "Proteção de memória";
   if (reason === "memory_stop") return "Memória crítica";
+  if (reason === "guided_location") return "Cidade fixa";
   if (reason === "client_priority" || reason === "manual_demand") return "Cliente em prioridade";
   if (reason === "factory_disabled") return "Desligada";
   if (reason === "factory_max") return "Rodando com limite";
@@ -292,6 +295,7 @@ function factoryReasonLabel(value?: string | null) {
 }
 
 function factoryWindowLabel(schedule?: AuditFactory["schedule"]) {
+  if (schedule?.factoryState && schedule?.factoryCity) return `${schedule.factoryCity}/${schedule.factoryState}`;
   const start = timeValue(schedule?.startHour ?? 22, schedule?.startMinute ?? 0);
   const end = timeValue(schedule?.endHour ?? 7, schedule?.endMinute ?? 0);
   if (start === end) return "24h por dia";
@@ -327,10 +331,12 @@ export default function BancoDeDadosClientPage() {
   const [selectedEnginePanelId, setSelectedEnginePanelId] = useState<string | null>(null);
   const [enginePanelBusy, setEnginePanelBusy] = useState<string | null>(null);
   const [rotatingMetricIndex, setRotatingMetricIndex] = useState(0);
-  const [editingFactoryField, setEditingFactoryField] = useState<"maxEngines" | "startTime" | "endTime" | null>(null);
+  const [editingFactoryField, setEditingFactoryField] = useState<"maxEngines" | "startTime" | "endTime" | "factoryState" | "factoryCity" | null>(null);
   const [factoryMaxEnginesDraft, setFactoryMaxEnginesDraft] = useState("");
   const [factoryStartTimeDraft, setFactoryStartTimeDraft] = useState("");
   const [factoryEndTimeDraft, setFactoryEndTimeDraft] = useState("");
+  const [factoryStateDraft, setFactoryStateDraft] = useState("");
+  const [factoryCityDraft, setFactoryCityDraft] = useState("");
 
   const selectedTarget = useMemo(() => {
     if (!selectedTargetKey) return null;
@@ -448,6 +454,9 @@ export default function BancoDeDadosClientPage() {
   const configuredFactoryMaxEngines = Number(factory?.schedule?.maxEngines ?? protection?.factoryMaxEngines ?? 16);
   const configuredFactoryStartTime = timeValue(factory?.schedule?.startHour ?? 22, factory?.schedule?.startMinute ?? 0);
   const configuredFactoryEndTime = timeValue(factory?.schedule?.endHour ?? 7, factory?.schedule?.endMinute ?? 0);
+  const configuredFactoryState = String(factory?.schedule?.factoryState || "").trim().toUpperCase();
+  const configuredFactoryCity = String(factory?.schedule?.factoryCity || "").trim();
+  const factoryGuidedLocation = configuredFactoryState && configuredFactoryCity ? `${configuredFactoryCity}/${configuredFactoryState}` : "";
   const factorySchedule = factory?.schedule;
   const factoryStatusText = factoryStatusLabel(factory?.status, factory?.enabled);
   const factoryReasonText = factoryReasonLabel(protection?.factoryReason);
@@ -457,7 +466,11 @@ export default function BancoDeDadosClientPage() {
     if (editingFactoryField !== "maxEngines") setFactoryMaxEnginesDraft(String(configuredFactoryMaxEngines));
     if (editingFactoryField !== "startTime") setFactoryStartTimeDraft(configuredFactoryStartTime);
     if (editingFactoryField !== "endTime") setFactoryEndTimeDraft(configuredFactoryEndTime);
-  }, [configuredFactoryEndTime, configuredFactoryMaxEngines, configuredFactoryStartTime, editingFactoryField]);
+    if (editingFactoryField !== "factoryState" && editingFactoryField !== "factoryCity") {
+      setFactoryStateDraft(configuredFactoryState);
+      setFactoryCityDraft(configuredFactoryCity);
+    }
+  }, [configuredFactoryCity, configuredFactoryEndTime, configuredFactoryMaxEngines, configuredFactoryStartTime, configuredFactoryState, editingFactoryField]);
 
   const visibleCards = useMemo(() => cardsPayload?.items || [], [cardsPayload?.items]);
   const selectedVisibleCount = visibleCards.filter((card) => selectedCardIds.has(card.id)).length;
@@ -655,6 +668,34 @@ export default function BancoDeDadosClientPage() {
       return;
     }
     const saved = await saveFactorySchedule({ endHour: parsed.hour, endMinute: parsed.minute }, "Horário final da fábrica atualizado.");
+    if (saved) setEditingFactoryField(null);
+  }
+
+  async function commitFactoryLocation() {
+    const factoryState = factoryStateDraft.trim().toUpperCase();
+    const factoryCity = factoryCityDraft.trim();
+    if ((factoryState || factoryCity) && (!factoryState || !factoryCity)) {
+      return;
+    }
+    if (factoryState && factoryState.length !== 2) {
+      setError("Estado deve ter 2 letras, por exemplo SP.");
+      return;
+    }
+    if (factoryState === configuredFactoryState && factoryCity === configuredFactoryCity) {
+      setEditingFactoryField(null);
+      return;
+    }
+    const saved = await saveFactorySchedule(
+      {
+        factoryState,
+        factoryCity,
+        emergencyStop: false,
+        stopOutsideWindow: !factoryState || !factoryCity,
+      },
+      factoryState && factoryCity
+        ? `Fábrica fixada em ${factoryCity}/${factoryState}.`
+        : "Fábrica voltou a seguir a agenda.",
+    );
     if (saved) setEditingFactoryField(null);
   }
 
@@ -984,9 +1025,7 @@ export default function BancoDeDadosClientPage() {
             </div>
             <div className={styles.actions}>
               <button type="button" onClick={() => void runFactoryAction("start", "Fábrica ligada e próxima missão solicitada.")} disabled={saving}>Ligar</button>
-              <button type="button" onClick={() => void runFactoryAction("stop", "Fábrica pausada.")} disabled={saving}>Pausar</button>
-              <button type="button" data-danger="true" onClick={() => void runFactoryAction("stop-now", "PARAR TUDO ativo. A fábrica não pega novos motores.")} disabled={saving}>PARAR TUDO</button>
-              <button type="button" onClick={() => void runFactoryAction("resume-schedule", "Agenda da fábrica retomada.")} disabled={saving}>Retomar agenda</button>
+              <button type="button" data-danger="true" onClick={() => void runFactoryAction("stop", "Fábrica desligada.")} disabled={saving}>Desligar</button>
             </div>
           </div>
 
@@ -1010,6 +1049,55 @@ export default function BancoDeDadosClientPage() {
           </div>
 
           <div className={styles.factoryGrid}>
+            <label className={styles.factoryField}>
+              <span>Estado</span>
+              <input
+                type="text"
+                value={factoryStateDraft}
+                onFocus={() => setEditingFactoryField("factoryState")}
+                onChange={(event) => {
+                  setEditingFactoryField("factoryState");
+                  setFactoryStateDraft(event.target.value.replace(/[^a-zA-Z]/g, "").toUpperCase().slice(0, 2));
+                }}
+                onBlur={() => void commitFactoryLocation()}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") event.currentTarget.blur();
+                  if (event.key === "Escape") {
+                    setFactoryStateDraft(configuredFactoryState);
+                    setEditingFactoryField(null);
+                    event.currentTarget.blur();
+                  }
+                }}
+                placeholder="SP"
+                maxLength={2}
+                disabled={saving}
+                aria-label="Estado da cidade fixa"
+              />
+            </label>
+            <label className={styles.factoryField}>
+              <span>Cidade</span>
+              <input
+                type="text"
+                value={factoryCityDraft}
+                onFocus={() => setEditingFactoryField("factoryCity")}
+                onChange={(event) => {
+                  setEditingFactoryField("factoryCity");
+                  setFactoryCityDraft(event.target.value);
+                }}
+                onBlur={() => void commitFactoryLocation()}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") event.currentTarget.blur();
+                  if (event.key === "Escape") {
+                    setFactoryCityDraft(configuredFactoryCity);
+                    setEditingFactoryField(null);
+                    event.currentTarget.blur();
+                  }
+                }}
+                placeholder="Campinas"
+                disabled={saving}
+                aria-label="Cidade fixa"
+              />
+            </label>
             <label className={styles.factoryField}>
               <span>Motores trabalhando</span>
               <input
@@ -1036,7 +1124,7 @@ export default function BancoDeDadosClientPage() {
                 aria-label="Motores trabalhando"
               />
             </label>
-            <label className={styles.factoryField}>
+            {!factoryGuidedLocation ? <label className={styles.factoryField}>
               <span>Horário início</span>
               <input
                 type="time"
@@ -1061,8 +1149,8 @@ export default function BancoDeDadosClientPage() {
                 disabled={saving}
                 aria-label="Horário início"
               />
-            </label>
-            <label className={styles.factoryField}>
+            </label> : null}
+            {!factoryGuidedLocation ? <label className={styles.factoryField}>
               <span>Horário fim</span>
               <input
                 type="time"
@@ -1087,8 +1175,8 @@ export default function BancoDeDadosClientPage() {
                 disabled={saving}
                 aria-label="Horário fim"
               />
-            </label>
-            <label className={styles.factoryCheckField}>
+            </label> : null}
+            {!factoryGuidedLocation ? <label className={styles.factoryCheckField}>
               <input
                 type="checkbox"
                 checked={Boolean(factorySchedule?.weekdaysOnly)}
@@ -1101,8 +1189,8 @@ export default function BancoDeDadosClientPage() {
                 disabled={saving}
               />
               <span>Dias úteis</span>
-            </label>
-            <label className={styles.factoryCheckField}>
+            </label> : null}
+            {!factoryGuidedLocation ? <label className={styles.factoryCheckField}>
               <input
                 type="checkbox"
                 checked={Boolean(factorySchedule?.weekendAlwaysOn)}
@@ -1115,7 +1203,7 @@ export default function BancoDeDadosClientPage() {
                 disabled={saving}
               />
               <span>Fim de semana 24h</span>
-            </label>
+            </label> : null}
           </div>
         </section>
 

@@ -67,13 +67,15 @@ export type HbxFactoryAllowance = {
   memoryGuardEngines: number;
   reservedEngines: number;
   memoryPressurePercent: number;
-  reason: 'factory_disabled' | 'outside_factory_window' | 'outside_business_days' | 'emergency_stop' | 'memory_guard' | 'memory_stop' | 'client_priority' | 'manual_demand' | 'factory_max' | 'open';
+  reason: 'factory_disabled' | 'outside_factory_window' | 'outside_business_days' | 'emergency_stop' | 'memory_guard' | 'memory_stop' | 'client_priority' | 'manual_demand' | 'factory_max' | 'guided_location' | 'open';
   windowStatus: 'open' | 'closed' | 'disabled' | 'emergency_stop';
   enabled: boolean;
   emergencyStop: boolean;
   stopOutsideWindow: boolean;
   weekdaysOnly: boolean;
   weekendAlwaysOn: boolean;
+  factoryState: string | null;
+  factoryCity: string | null;
   timezone: string;
   startHour: number;
   startMinute: number;
@@ -1047,8 +1049,10 @@ export class HbxEnginePoolService implements OnModuleInit {
       .filter((engine) => engine.engineIndex < configuredCount)
       .filter((engine) => this.isHealthyEngine(engine, now))
       .length;
-    const manualReservedEngines = Math.min(this.resolveManualReservedEngines(configuredCount), Math.max(0, onlineHealthyEngines - 1));
-    const clientPriorityActive = this.isWithinClientPriorityWindow();
+    const operationalMetadata = this.parseOperationalMetadata(operationalConfig?.metadataJson);
+    const guidedLocationActive = Boolean(String(operationalMetadata.factoryState || '').trim() && String(operationalMetadata.factoryCity || '').trim());
+    const manualReservedEngines = guidedLocationActive ? 0 : Math.min(this.resolveManualReservedEngines(configuredCount), Math.max(0, onlineHealthyEngines - 1));
+    const clientPriorityActive = guidedLocationActive ? false : this.isWithinClientPriorityWindow();
     const memoryPressurePercent = this.resolveMemoryPressurePercent(operationalConfig);
     const maxMemoryPressure = this.autonomousMaxMemoryPressurePercent();
     const pressurePenalty = memoryPressurePercent > maxMemoryPressure
@@ -1076,7 +1080,7 @@ export class HbxEnginePoolService implements OnModuleInit {
     if (factoryMaxEngines != null) {
       automaticAllowedEngines = Math.min(automaticAllowedEngines, factoryMaxEngines);
     }
-    if (onlineHealthyEngines > 1) {
+    if (!guidedLocationActive && onlineHealthyEngines > 1) {
       automaticAllowedEngines = Math.min(automaticAllowedEngines, onlineHealthyEngines - 1);
     }
     automaticAllowedEngines = Math.max(0, Math.min(factoryCapacity, automaticAllowedEngines));
@@ -1723,22 +1727,33 @@ export class HbxEnginePoolService implements OnModuleInit {
     };
   }
 
+  private parseMetadataBoolean(value: unknown, fallback: boolean) {
+    if (value == null) return fallback;
+    if (typeof value === 'boolean') return value;
+    const normalized = String(value).trim().toLowerCase();
+    if (['1', 'true', 'yes', 'sim', 'on'].includes(normalized)) return true;
+    if (['0', 'false', 'no', 'nao', 'não', 'off'].includes(normalized)) return false;
+    return fallback;
+  }
+
   private parseOperationalMetadata(value: unknown) {
     try {
       const parsed = JSON.parse(String(value || '{}'));
       return {
         forcedUntil: typeof parsed?.forcedUntil === 'string' ? parsed.forcedUntil : null,
-        emergencyStop: parsed?.emergencyStop == null ? false : Boolean(parsed.emergencyStop),
-        stopOutsideWindow: parsed?.stopOutsideWindow == null ? true : Boolean(parsed.stopOutsideWindow),
-        weekdaysOnly: parsed?.weekdaysOnly == null ? false : Boolean(parsed.weekdaysOnly),
-        weekendAlwaysOn: parsed?.weekendAlwaysOn == null ? false : Boolean(parsed.weekendAlwaysOn),
+        emergencyStop: this.parseMetadataBoolean(parsed?.emergencyStop, false),
+        stopOutsideWindow: this.parseMetadataBoolean(parsed?.stopOutsideWindow, true),
+        weekdaysOnly: this.parseMetadataBoolean(parsed?.weekdaysOnly, false),
+        weekendAlwaysOn: this.parseMetadataBoolean(parsed?.weekendAlwaysOn, false),
+        factoryState: typeof parsed?.factoryState === 'string' ? parsed.factoryState.trim().toUpperCase() : '',
+        factoryCity: typeof parsed?.factoryCity === 'string' ? parsed.factoryCity.trim() : '',
         timezone: typeof parsed?.timezone === 'string' && parsed.timezone.trim() ? parsed.timezone.trim() : null,
         factoryMaxEngines: Number.isFinite(Number(parsed?.factoryMaxEngines)) ? Math.trunc(Number(parsed.factoryMaxEngines)) : null,
         factoryMinEngines: Number.isFinite(Number(parsed?.factoryMinEngines)) ? Math.trunc(Number(parsed.factoryMinEngines)) : null,
         drainTimeoutSeconds: Number.isFinite(Number(parsed?.drainTimeoutSeconds)) ? Math.trunc(Number(parsed.drainTimeoutSeconds)) : null,
       };
     } catch {
-      return { forcedUntil: null, emergencyStop: false, stopOutsideWindow: true, weekdaysOnly: false, weekendAlwaysOn: false, timezone: null, factoryMaxEngines: null, factoryMinEngines: null, drainTimeoutSeconds: null };
+      return { forcedUntil: null, emergencyStop: false, stopOutsideWindow: true, weekdaysOnly: false, weekendAlwaysOn: false, factoryState: '', factoryCity: '', timezone: null, factoryMaxEngines: null, factoryMinEngines: null, drainTimeoutSeconds: null };
     }
   }
 
@@ -1874,6 +1889,9 @@ export class HbxEnginePoolService implements OnModuleInit {
     const stopOutsideWindow = this.readBooleanEnv('HBX_FACTORY_STOP_OUTSIDE_WINDOW', metadata.stopOutsideWindow !== false);
     const weekdaysOnly = this.readBooleanEnv('HBX_FACTORY_WEEKDAYS_ONLY', Boolean(metadata.weekdaysOnly));
     const weekendAlwaysOn = this.readBooleanEnv('HBX_FACTORY_WEEKEND_ALWAYS_ON', Boolean(metadata.weekendAlwaysOn));
+    const factoryState = String(metadata.factoryState || '').trim().toUpperCase();
+    const factoryCity = String(metadata.factoryCity || '').trim();
+    const guidedLocationActive = Boolean(factoryState && factoryCity);
     const emergencyStop = this.readBooleanEnv('HBX_FACTORY_EMERGENCY_STOP', Boolean(metadata.emergencyStop));
     const memoryPressurePercent = Math.max(0, Math.min(100, Math.trunc(Number(input.memoryPressurePercent || 0))));
     const memoryGuardEngines = this.resolveMemoryGuardEngines(maxEngines, memoryPressurePercent);
@@ -1881,7 +1899,7 @@ export class HbxEnginePoolService implements OnModuleInit {
     const withinWindow = this.isWithinFactoryWindow(startHour, startMinute, endHour, endMinute, timezone, factoryDate);
     const businessDayOpen = !weekdaysOnly || this.isFactoryBusinessDay(timezone, factoryDate);
     const weekendOpen = weekendAlwaysOn && this.isFactoryWeekend(timezone, factoryDate) && !weekdaysOnly;
-    const open = (withinWindow || weekendOpen) && businessDayOpen;
+    const open = guidedLocationActive || ((withinWindow || weekendOpen) && businessDayOpen);
     const nextStartAt = this.nextFactoryBoundary(startHour, startMinute, endHour, endMinute, timezone, 'start', input.date || new Date());
     const nextStopAt = this.nextFactoryBoundary(startHour, startMinute, endHour, endMinute, timezone, 'stop', input.date || new Date());
     const factoryCapacity = Math.max(0, Math.min(
@@ -1906,17 +1924,20 @@ export class HbxEnginePoolService implements OnModuleInit {
     } else if (stopOutsideWindow && !open) {
       allowedEngines = 0;
       reason = 'outside_factory_window';
+    } else if (memoryPressurePercent >= 90) {
+      allowedEngines = 0;
+      reason = 'memory_stop';
+    } else if (memoryGuardEngines < maxEngines) {
+      reason = 'memory_guard';
+    } else if (guidedLocationActive) {
+      reason = 'guided_location';
+      windowStatus = 'open';
     } else if (input.manualDemandActive) {
       allowedEngines = 0;
       reason = 'manual_demand';
     } else if (input.clientPriorityActive) {
       allowedEngines = 0;
       reason = 'client_priority';
-    } else if (memoryPressurePercent >= 90) {
-      allowedEngines = 0;
-      reason = 'memory_stop';
-    } else if (memoryGuardEngines < maxEngines) {
-      reason = 'memory_guard';
     } else if (allowedEngines <= maxEngines) {
       reason = 'factory_max';
     }
@@ -1936,6 +1957,8 @@ export class HbxEnginePoolService implements OnModuleInit {
       stopOutsideWindow,
       weekdaysOnly,
       weekendAlwaysOn,
+      factoryState: factoryState || null,
+      factoryCity: factoryCity || null,
       timezone,
       startHour,
       startMinute,

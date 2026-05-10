@@ -63,7 +63,9 @@ function renderOverview(data) {
   document.getElementById('generatedAt').textContent = `${target} - atualizado em ${new Date(data.generatedAt).toLocaleString('pt-BR')}`;
   document.getElementById('ramCard').textContent = data.memory ? `${data.memory.usedMb} / ${data.memory.totalMb} MB` : '-';
   document.getElementById('ramSub').textContent = data.memory ? `${data.memory.usedPercent}% usado` : '-';
-  document.getElementById('loadCard').textContent = data.load || '-';
+  const load = formatLoad(data.load);
+  document.getElementById('loadCard').textContent = load.main;
+  document.getElementById('loadSub').textContent = load.sub;
   document.getElementById('diskCard').textContent = data.disk ? data.disk.usedPercent : '-';
   document.getElementById('diskSub').textContent = data.disk ? `${data.disk.used} usado de ${data.disk.size}` : '-';
   document.getElementById('containersCard').textContent = data.runningContainers;
@@ -197,6 +199,15 @@ function parseMemoryMb(value) {
   if (unit.startsWith('g')) return number * 1024;
   if (unit.startsWith('t')) return number * 1024 * 1024;
   return number;
+}
+
+function formatLoad(value) {
+  const parts = String(value || '').trim().split(/\s+/);
+  if (parts.length < 3) return { main: '-', sub: 'Média: 1 min, 5 min, 15 min' };
+  return {
+    main: `${parts[0]} | ${parts[1]} | ${parts[2]}`,
+    sub: `1 min: ${parts[0]} · 5 min: ${parts[1]} · 15 min: ${parts[2]}`,
+  };
 }
 
 function updateSortIndicators() {

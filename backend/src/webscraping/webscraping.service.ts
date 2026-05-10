@@ -511,6 +511,8 @@ type WebscrapingOperationalConfigInput = {
   stopOutsideWindow?: boolean | string | null;
   weekdaysOnly?: boolean | string | null;
   weekendAlwaysOn?: boolean | string | null;
+  factoryState?: string | null;
+  factoryCity?: string | null;
   maxEngines?: number | null;
   minEngines?: number | null;
   drainTimeoutSeconds?: number | null;
@@ -6479,6 +6481,8 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         stopOutsideWindow: parsed?.stopOutsideWindow == null ? true : coerceBoolean(parsed.stopOutsideWindow),
         weekdaysOnly: parsed?.weekdaysOnly == null ? false : coerceBoolean(parsed.weekdaysOnly),
         weekendAlwaysOn: parsed?.weekendAlwaysOn == null ? false : coerceBoolean(parsed.weekendAlwaysOn),
+        factoryState: typeof parsed?.factoryState === 'string' ? parsed.factoryState.trim().toUpperCase() : '',
+        factoryCity: typeof parsed?.factoryCity === 'string' ? parsed.factoryCity.trim() : '',
         factoryMaxEngines: clampInteger(parsed?.factoryMaxEngines, 16, 0, getConfiguredHbxEngineCount()),
         factoryMinEngines: clampInteger(parsed?.factoryMinEngines, 0, 0, getConfiguredHbxEngineCount()),
         drainTimeoutSeconds: clampInteger(parsed?.drainTimeoutSeconds, 90, 10, 900),
@@ -6494,6 +6498,8 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         stopOutsideWindow: true,
         weekdaysOnly: false,
         weekendAlwaysOn: false,
+        factoryState: '',
+        factoryCity: '',
         factoryMaxEngines: 16,
         factoryMinEngines: 0,
         drainTimeoutSeconds: 90,
@@ -6584,6 +6590,12 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     const stopOutsideWindow = input.stopOutsideWindow == null ? existingMetadata.stopOutsideWindow : coerceBoolean(input.stopOutsideWindow);
     const weekdaysOnly = input.weekdaysOnly == null ? existingMetadata.weekdaysOnly : coerceBoolean(input.weekdaysOnly);
     const weekendAlwaysOn = input.weekendAlwaysOn == null ? existingMetadata.weekendAlwaysOn : coerceBoolean(input.weekendAlwaysOn);
+    const factoryState = input.factoryState == null
+      ? existingMetadata.factoryState
+      : String(input.factoryState || '').trim().toUpperCase().slice(0, 2);
+    const factoryCity = input.factoryCity == null
+      ? existingMetadata.factoryCity
+      : String(input.factoryCity || '').trim().slice(0, 80);
     const factoryMaxEngines = clampInteger(input.maxEngines ?? input.engineCount, existingMetadata.factoryMaxEngines || 16, 0, getConfiguredHbxEngineCount());
     const factoryMinEngines = clampInteger(input.minEngines, existingMetadata.factoryMinEngines || 0, 0, factoryMaxEngines);
     const drainTimeoutSeconds = clampInteger(input.drainTimeoutSeconds, existingMetadata.drainTimeoutSeconds || 90, 10, 900);
@@ -6608,6 +6620,8 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         stopOutsideWindow,
         weekdaysOnly,
         weekendAlwaysOn,
+        factoryState,
+        factoryCity,
         factoryMaxEngines,
         factoryMinEngines,
         drainTimeoutSeconds,
@@ -6620,6 +6634,8 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       stopOutsideWindow,
       weekdaysOnly,
       weekendAlwaysOn,
+      factoryState,
+      factoryCity,
       factoryMaxEngines,
       factoryMinEngines,
       drainTimeoutSeconds,
@@ -6659,6 +6675,9 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       emergencyStop: metadata.emergencyStop,
       stopOutsideWindow: metadata.stopOutsideWindow,
       weekdaysOnly: metadata.weekdaysOnly,
+      weekendAlwaysOn: metadata.weekendAlwaysOn,
+      factoryState: metadata.factoryState,
+      factoryCity: metadata.factoryCity,
       factoryMaxEngines: metadata.factoryMaxEngines,
       factoryMinEngines: metadata.factoryMinEngines,
       drainTimeoutSeconds: metadata.drainTimeoutSeconds,
@@ -6742,6 +6761,8 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       stopOutsideWindow: this.parseOperationalMetadata(saved.metadataJson).stopOutsideWindow,
       weekdaysOnly: this.parseOperationalMetadata(saved.metadataJson).weekdaysOnly,
       weekendAlwaysOn: this.parseOperationalMetadata(saved.metadataJson).weekendAlwaysOn,
+      factoryState: this.parseOperationalMetadata(saved.metadataJson).factoryState,
+      factoryCity: this.parseOperationalMetadata(saved.metadataJson).factoryCity,
       factoryMaxEngines: this.parseOperationalMetadata(saved.metadataJson).factoryMaxEngines,
       factoryMinEngines: this.parseOperationalMetadata(saved.metadataJson).factoryMinEngines,
       drainTimeoutSeconds: this.parseOperationalMetadata(saved.metadataJson).drainTimeoutSeconds,
@@ -7042,6 +7063,18 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
+  private getFactoryGuidedLocation(config: any) {
+    const metadata = this.parseOperationalMetadata(config?.metadataJson);
+    const state = String(config?.factoryState || metadata.factoryState || '').trim().toUpperCase();
+    const city = String(config?.factoryCity || metadata.factoryCity || '').trim();
+    return state && city ? { state, city } : null;
+  }
+
+  private isFactoryWeekendByTimezone(timezone: string, date = new Date()) {
+    const weekday = new Intl.DateTimeFormat('en-US', { timeZone: timezone, weekday: 'short' }).format(date).toLowerCase();
+    return weekday === 'sat' || weekday === 'sun';
+  }
+
   private isWithinFactoryWindow(cursor: any, date = new Date()) {
     if (cursor?.forcedOn) return true;
     const window = this.getFactoryWindowConfig();
@@ -7053,6 +7086,14 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     const end = window.endHour * 60 + window.endMinute;
     if (start === end) return true;
     return start < end ? current >= start && current < end : current >= start || current < end;
+  }
+
+  private isFactoryAllowedNow(cursor: any, config: any, date = new Date()) {
+    if (this.getFactoryGuidedLocation(config)) return true;
+    if (this.isWithinFactoryWindow(cursor, date)) return true;
+    const metadata = this.parseOperationalMetadata(config?.metadataJson);
+    const timezone = String(config?.timezone || metadata.timezone || this.getFactoryWindowConfig().timezone || 'America/Sao_Paulo').trim();
+    return Boolean(metadata.weekendAlwaysOn && !metadata.weekdaysOnly && this.isFactoryWeekendByTimezone(timezone, date));
   }
 
   private nextFactoryWindowAt(date = new Date()) {
@@ -7120,11 +7161,14 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
 
   private async pickRadarFactoryMission(cursor: any, options: { previewOnly?: boolean } = {}) {
     const locations = await this.getFactoryLocationPool();
+    const operationalConfig = await this.getOperationalConfig().catch(() => null);
+    const guidedLocation = this.getFactoryGuidedLocation(operationalConfig);
     const segments = this.getMassDataSegments(null);
     const targetTypes = this.getFactoryTargetTypes();
-    const total = Math.max(1, locations.length * segments.length * targetTypes.length);
+    const missionLocations = guidedLocation ? [guidedLocation] : locations;
+    const total = Math.max(1, missionLocations.length * segments.length * targetTypes.length);
     const start = this.buildFactoryLinearIndex({
-      cityIndex: clampInteger(cursor?.currentCityIndex, 0, 0, Math.max(0, locations.length - 1)),
+      cityIndex: guidedLocation ? 0 : clampInteger(cursor?.currentCityIndex, 0, 0, Math.max(0, missionLocations.length - 1)),
       segmentIndex: clampInteger(cursor?.currentSegmentIndex, 0, 0, Math.max(0, segments.length - 1)),
       targetTypeIndex: clampInteger(cursor?.currentTargetTypeIndex, 0, 0, Math.max(0, targetTypes.length - 1)),
       segmentCount: segments.length,
@@ -7132,12 +7176,12 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     }) % total;
     const candidateLimit = options.previewOnly ? 1 : Math.min(total, 120);
     const candidates: any[] = [];
-    const stateOrder = Array.from(new Set(locations.map((item) => item.state)));
+    const stateOrder = Array.from(new Set(missionLocations.map((item) => item.state)));
 
     for (let offset = 0; offset < candidateLimit; offset += 1) {
       const linear = (start + offset) % total;
       const indexes = this.splitFactoryLinearIndex(linear, segments.length, targetTypes.length);
-      const location = locations[indexes.cityIndex] || locations[0];
+      const location = missionLocations[indexes.cityIndex] || missionLocations[0];
       const segment = segments[indexes.segmentIndex] || segments[0] || 'empresas';
       const targetType = targetTypes[indexes.targetTypeIndex] || 'pj';
       const stockCount = options.previewOnly ? 0 : await this.getFactoryStockCount({
@@ -7205,7 +7249,9 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async buildNextFactoryCursorIndexes(cursor: any) {
-    const locations = await this.getFactoryLocationPool();
+    const operationalConfig = await this.getOperationalConfig().catch(() => null);
+    const guidedLocation = this.getFactoryGuidedLocation(operationalConfig);
+    const locations = guidedLocation ? [guidedLocation] : await this.getFactoryLocationPool();
     const segments = this.getMassDataSegments(null);
     const targetTypes = this.getFactoryTargetTypes();
     const total = Math.max(1, locations.length * segments.length * targetTypes.length);
@@ -7369,7 +7415,8 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       if (cursor.nextRunAt instanceof Date && cursor.nextRunAt.getTime() > now.getTime()) {
         return { skipped: true, reason: 'waiting_next_run_at' };
       }
-      if (!this.isWithinFactoryWindow(cursor, now)) {
+      const config = await this.getOperationalConfig().catch(() => null);
+      if (!this.isFactoryAllowedNow(cursor, config, now)) {
         const nextRunAt = this.nextFactoryWindowAt(now);
         await (this.prisma as any).radarFactoryCursor?.update?.({
           where: { key: 'main' },
@@ -7435,7 +7482,6 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         return { skipped: true, reason: 'factory_context_unavailable' };
       }
 
-      const config = await this.getOperationalConfig().catch(() => null);
       const targetTotal = clampInteger(
         process.env.HBX_FACTORY_CAMPAIGN_TARGET_TOTAL,
         safeInteger(config?.autonomousFillBatchSize, AUTONOMOUS_MASS_DATA_DEFAULT_TASKS),
@@ -7451,7 +7497,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         targetTotal,
         batchSize: safeInteger(config?.batchSize, 20),
         maxAttemptsPerTask: safeInteger(config?.maxAttemptsPerTask, 3),
-        nightOnly: !cursor.forcedOn,
+        nightOnly: !(cursor.forcedOn || this.getFactoryGuidedLocation(config)),
         allowedStartHour: this.getFactoryWindowConfig().startHour,
         allowedEndHour: this.getFactoryWindowConfig().endHour,
         timezone: 'America/Sao_Paulo',
@@ -7516,6 +7562,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     await this.saveOperationalConfig(Number(user?.id || 0), {
       enabled: true,
       forceNow: true,
+      emergencyStop: false,
       engineCount: getConfiguredHbxEngineCount(),
       autonomousFillEnabled: true,
     }).catch(() => null);
@@ -7524,7 +7571,6 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
   }
 
   async stopRadarFactory(user: any) {
-    void user;
     if (await this.supportsRadarFactoryPersistence()) {
       await (this.prisma as any).radarFactoryCursor.upsert({
         where: { key: 'main' },
@@ -7532,6 +7578,15 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         update: { enabled: false, forcedOn: false, status: 'paused', reasonStopped: 'Fábrica pausada manualmente.', nextRunAt: null },
       }).catch(() => null);
     }
+    await this.saveOperationalConfig(Number(user?.id || 0), {
+      enabled: false,
+      emergencyStop: true,
+      forcedUntil: '',
+    }).catch(() => null);
+    await (this.prisma as any).webscrapingCampaign.updateMany({
+      where: { mode: 'mass_data', status: { in: ['queued', 'running', 'sleeping', 'partial_error'] } },
+      data: { status: 'paused', nextRunAt: null, lastErrorMessage: 'Fábrica desligada manualmente.' },
+    }).catch(() => null);
     return this.getRadarFactoryStatus(user);
   }
 
@@ -8795,13 +8850,27 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
 
   async saveMasterTurboConfig(user: any, input: WebscrapingOperationalConfigInput = {}) {
     const saved = await this.saveOperationalConfig(Number(user?.id || 0), input);
+    const guidedLocationActive = Boolean(String(saved.factoryState || '').trim() && String(saved.factoryCity || '').trim());
+    if (guidedLocationActive) {
+      await (this.prisma as any).webscrapingCampaign.updateMany({
+        where: {
+          mode: 'mass_data',
+          status: { in: ['queued', 'running', 'sleeping', 'partial_error', 'paused'] },
+          OR: [
+            { state: { not: saved.factoryState } },
+            { city: { not: saved.factoryCity } },
+          ],
+        },
+        data: { status: 'canceled', finishedAt: new Date(), nextRunAt: null, lastErrorMessage: 'Substituida pela cidade fixa da fábrica.' },
+      }).catch(() => null);
+    }
     await (this.prisma as any).webscrapingCampaign.updateMany({
       where: {
         mode: 'mass_data',
         status: { in: ['queued', 'running', 'sleeping', 'partial_error', 'paused'] },
       },
       data: {
-        nightOnly: true,
+        nightOnly: !guidedLocationActive,
         allowedStartHour: saved.startHour,
         allowedEndHour: saved.endHour,
         batchSize: saved.batchSize,
@@ -8815,9 +8884,15 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       },
       data: { nextRunAt: new Date() },
     }).catch(() => null);
-    await this.ensureAutonomousMassDataCampaign(user, saved).catch((error) => {
-      this.logger.warn(`[autonomous-bank] automatic campaign ensure failed: ${error instanceof Error ? error.message : String(error || 'erro desconhecido')}`);
-    });
+    if (guidedLocationActive) {
+      await this.ensureNightFactoryWork(user).catch((error) => {
+        this.logger.warn(`[radar-factory] guided campaign ensure failed: ${error instanceof Error ? error.message : String(error || 'erro desconhecido')}`);
+      });
+    } else {
+      await this.ensureAutonomousMassDataCampaign(user, saved).catch((error) => {
+        this.logger.warn(`[autonomous-bank] automatic campaign ensure failed: ${error instanceof Error ? error.message : String(error || 'erro desconhecido')}`);
+      });
+    }
     this.scheduleRadarCampaignPump(0);
     return {
       config: saved,

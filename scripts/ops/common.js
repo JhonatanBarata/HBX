@@ -268,14 +268,13 @@ function verifyHostingerRuntime(env = loadOperationsEnv()) {
     'set -eu',
     `APP_DIR=${shellSingleQuote(appDir)}`,
     'cd "$APP_DIR"',
-    'test -f frontend/.next/prerender-manifest.json || { echo "ERRO: frontend/.next/prerender-manifest.json ausente. Rode npm run publish ou force."; exit 1; }',
-    'pm2 describe hbx-frontend >/dev/null 2>&1 || { echo "ERRO: PM2 hbx-frontend nao encontrado."; exit 1; }',
-    'pm2 describe hbx-frontend | grep -q "online" || { echo "ERRO: PM2 hbx-frontend nao esta online."; pm2 status hbx-frontend || true; exit 1; }',
-    'curl -fsSI http://127.0.0.1:3001/login >/dev/null || { echo "ERRO: frontend local /login nao respondeu."; pm2 logs hbx-frontend --lines 80 --nostream || true; exit 1; }',
-    'curl -fsSI http://127.0.0.1:3001 >/dev/null || { echo "ERRO: frontend local / nao respondeu."; pm2 logs hbx-frontend --lines 80 --nostream || true; exit 1; }',
+    'docker inspect hbx-frontend >/dev/null 2>&1 || { echo "ERRO: container Docker hbx-frontend nao encontrado."; exit 1; }',
+    'docker inspect -f "{{.State.Running}}" hbx-frontend | grep -q true || { echo "ERRO: container Docker hbx-frontend nao esta running."; docker logs --tail 80 hbx-frontend 2>&1 || true; exit 1; }',
+    'curl -fsSI http://127.0.0.1:3001/login >/dev/null || { echo "ERRO: frontend local /login nao respondeu."; docker logs --tail 80 hbx-frontend 2>&1 || true; exit 1; }',
+    'curl -fsSI http://127.0.0.1:3001 >/dev/null || { echo "ERRO: frontend local / nao respondeu."; docker logs --tail 80 hbx-frontend 2>&1 || true; exit 1; }',
     'if docker inspect hbx-backend >/dev/null 2>&1; then docker inspect -f "{{.State.Running}}" hbx-backend | grep -q true || { echo "ERRO: hbx-backend existe mas nao esta running."; exit 1; }; fi',
     'if docker inspect hbx-postgres >/dev/null 2>&1; then docker inspect -f "{{.State.Running}}" hbx-postgres | grep -q true || { echo "ERRO: hbx-postgres existe mas nao esta running."; exit 1; }; fi',
-    'echo "Hostinger runtime OK: PM2 hbx-frontend online, build Next presente, /login local respondendo."',
+    'echo "Hostinger runtime OK: Docker hbx-frontend running, /login local respondendo."',
   ].join('\n');
 
   runStep('ssh', [`${sshUser}@${sshHost}`, 'bash', '-lc', shellSingleQuote(remoteScript)], {
