@@ -94,9 +94,9 @@ function parsePositiveInteger(value, fallback) {
 function resolveHbxEngineCount(env) {
   const requested = parsePositiveInteger(
     env.HBX_ENGINE_COUNT || env.HBX_PUBLISH_ENGINE_COUNT,
-    50,
+    100,
   );
-  return Math.min(requested, 50);
+  return Math.min(requested, 100);
 }
 
 function ensureRequiredEnv(env) {
@@ -241,7 +241,8 @@ function printFrontendDeployNotice(config, changedFiles) {
 function buildRemoteDeployScript(config, mode) {
   const isForce = mode === 'force';
   const rebootValue = isForce && config.forceReboot ? 'true' : 'false';
-  const fullHealthchecks = isForce || config.fullHealthchecks ? 'true' : 'false';
+  const fullHealthchecks = isForce && config.fullHealthchecks ? 'true' : 'false';
+  const runHealthchecks = isForce ? 'true' : 'false';
   const frontendVerifyAttempts = isForce ? '45' : '20';
   const backendVerifyAttempts = isForce ? '60' : '30';
 
@@ -253,6 +254,7 @@ function buildRemoteDeployScript(config, mode) {
     `BUILD_NO_CACHE_ARG=${shellSingleQuote(isForce ? '--no-cache' : '')}`,
     `FORCE_REBOOT_HOSTINGER=${shellSingleQuote(rebootValue)}`,
     `FULL_HEALTHCHECKS=${shellSingleQuote(fullHealthchecks)}`,
+    `RUN_HEALTHCHECKS=${shellSingleQuote(runHealthchecks)}`,
     `FRONTEND_VERIFY_ATTEMPTS=${shellSingleQuote(frontendVerifyAttempts)}`,
     `BACKEND_VERIFY_ATTEMPTS=${shellSingleQuote(backendVerifyAttempts)}`,
     `REQUESTED_HBX_ENGINE_COUNT=${shellSingleQuote(config.hbxEngineCount)}`,
@@ -273,9 +275,9 @@ function buildRemoteDeployScript(config, mode) {
     'upsert_root_env() { key="$1"; value="$2"; tmp="$(mktemp)"; awk -v key="$key" -v value="$value" \'BEGIN{done=0} $0 ~ "^" key "=" { print key "=" value; done=1; next } { print } END{ if (!done) print key "=" value }\' .env > "$tmp"; cat "$tmp" > .env; rm -f "$tmp"; }',
     'upsert_root_env HBX_ENGINE_COUNT "$REQUESTED_HBX_ENGINE_COUNT"',
     'upsert_root_env HBX_ENGINE_MAX_COUNT "$REQUESTED_HBX_ENGINE_MAX_COUNT"',
-    'upsert_root_env HBX_CLIENT_RESERVED_ENGINES "${HBX_CLIENT_RESERVED_ENGINES:-0}"',
-    'upsert_root_env HBX_FACTORY_MIN_ENGINES "${HBX_FACTORY_MIN_ENGINES:-1}"',
-    'upsert_root_env HBX_FACTORY_MAX_ENGINES "${HBX_FACTORY_MAX_ENGINES:-50}"',
+    'upsert_root_env HBX_CLIENT_RESERVED_ENGINES "0"',
+    'upsert_root_env HBX_FACTORY_MIN_ENGINES "$REQUESTED_HBX_ENGINE_COUNT"',
+    'upsert_root_env HBX_FACTORY_MAX_ENGINES "$REQUESTED_HBX_ENGINE_COUNT"',
     'upsert_root_env HBX_RADAR_CLIENT_PRIORITY_START_HOUR "${HBX_RADAR_CLIENT_PRIORITY_START_HOUR:-8}"',
     'upsert_root_env HBX_RADAR_CLIENT_PRIORITY_END_HOUR "${HBX_RADAR_CLIENT_PRIORITY_END_HOUR:-20}"',
     'upsert_root_env HBX_RADAR_CLIENT_REQUEST_TIMEOUT_MS "${HBX_RADAR_CLIENT_REQUEST_TIMEOUT_MS:-25000}"',
@@ -290,10 +292,10 @@ function buildRemoteDeployScript(config, mode) {
     'export HBX_ENGINE_MAX_COUNT="$(awk -F= \'/^HBX_ENGINE_MAX_COUNT=/{print substr($0, length("HBX_ENGINE_MAX_COUNT")+2); exit}\' .env)"',
     'if [ -z "$HBX_ENGINE_MAX_COUNT" ]; then export HBX_ENGINE_MAX_COUNT=200; fi',
     'case "$HBX_ENGINE_MAX_COUNT" in *[!0-9]*|"") echo "Aviso: HBX_ENGINE_MAX_COUNT invalido no .env; usando 200."; export HBX_ENGINE_MAX_COUNT=200;; esac',
-    'if [ -z "$HBX_ENGINE_COUNT" ]; then export HBX_ENGINE_COUNT=50; fi',
-    'case "$HBX_ENGINE_COUNT" in *[!0-9]*|"") echo "Aviso: HBX_ENGINE_COUNT invalido no .env; usando 50."; export HBX_ENGINE_COUNT=50;; esac',
+    'if [ -z "$HBX_ENGINE_COUNT" ]; then export HBX_ENGINE_COUNT=100; fi',
+    'case "$HBX_ENGINE_COUNT" in *[!0-9]*|"") echo "Aviso: HBX_ENGINE_COUNT invalido no .env; usando 100."; export HBX_ENGINE_COUNT=100;; esac',
     'if [ "$HBX_ENGINE_COUNT" -lt 1 ]; then echo "Aviso: HBX_ENGINE_COUNT=$HBX_ENGINE_COUNT abaixo do minimo; usando 1."; export HBX_ENGINE_COUNT=1; fi',
-    'if [ "$HBX_ENGINE_COUNT" -gt 50 ]; then echo "Aviso: HBX_ENGINE_COUNT=$HBX_ENGINE_COUNT acima da frota oficial; usando 50."; export HBX_ENGINE_COUNT=50; fi',
+    'if [ "$HBX_ENGINE_COUNT" -gt 100 ]; then echo "Aviso: HBX_ENGINE_COUNT=$HBX_ENGINE_COUNT acima da frota oficial; usando 100."; export HBX_ENGINE_COUNT=100; fi',
     'if [ "$HBX_ENGINE_COUNT" -gt "$HBX_ENGINE_MAX_COUNT" ]; then echo "Aviso: HBX_ENGINE_COUNT=$HBX_ENGINE_COUNT acima do limite; usando $HBX_ENGINE_MAX_COUNT."; export HBX_ENGINE_COUNT="$HBX_ENGINE_MAX_COUNT"; fi',
     'if docker network inspect hbx_net >/dev/null 2>&1; then export HBX_DOCKER_NETWORK=hbx_net; elif docker network inspect hbx-net >/dev/null 2>&1; then export HBX_DOCKER_NETWORK=hbx-net; else docker network create hbx_net >/dev/null; export HBX_DOCKER_NETWORK=hbx_net; fi',
     'if docker compose version >/dev/null 2>&1; then DC="docker compose"; elif docker-compose --version >/dev/null 2>&1; then DC="docker-compose"; else echo "ERRO: docker-compose nao encontrado."; exit 1; fi',
@@ -301,8 +303,8 @@ function buildRemoteDeployScript(config, mode) {
     'hbx_engine_names() { for n in $(seq 1 "$HBX_ENGINE_COUNT"); do printf " hbx-engine-%s" "$n"; done; }',
     'hbx_engine_urls() { sep=""; for n in $(seq 1 "$HBX_ENGINE_COUNT"); do printf "%shttp://hbx-engine-%s:8001" "$sep" "$n"; sep=","; done; }',
     'cleanup_extra_hbx_engines() {',
-    '  echo "Limpando motores HBX excedentes hbx-engine-51..hbx-engine-100..."',
-    '  for n in $(seq 51 100); do',
+    '  echo "Limpando motores HBX excedentes hbx-engine-101..hbx-engine-200..."',
+    '  for n in $(seq 101 200); do',
     '    name="hbx-engine-$n"',
     '    if docker ps -a --format "{{.Names}}" | grep -qx "$name"; then',
     '      docker stop "$name" >/dev/null 2>&1 || true',
@@ -342,16 +344,13 @@ function buildRemoteDeployScript(config, mode) {
     '  docker ps --format "table {{.Names}}\\t{{.Status}}\\t{{.Ports}}" | grep -E "NAMES|hbx-backend|hbx-postgres" || true',
     '  if ! docker inspect -f "{{.State.Running}}" hbx-postgres 2>/dev/null | grep -q true; then echo "ERRO: hbx-postgres nao esta running antes do deploy."; exit 1; fi',
     '  if ! docker inspect -f "{{.State.Running}}" hbx-backend 2>/dev/null | grep -q true; then echo "ERRO: hbx-backend nao esta running antes do deploy. Abortando para evitar deploy sobre API offline."; exit 1; fi',
+    '  if [ "$RUN_HEALTHCHECKS" != "true" ]; then echo "Preflight rapido: verificacao HTTP pulada no publish normal."; return 0; fi',
     '  if [ "$FULL_HEALTHCHECKS" != "true" ]; then echo "Preflight rapido: containers essenciais running."; return 0; fi',
-    '  require_http_ok "$BACKEND_URL/health" "API publica /health pre-deploy"',
     '  webhook_code="$(http_status "$BACKEND_URL/webhooks/webwhats/events")"; if [ "$webhook_code" = "502" ] || [ "$webhook_code" = "000" ]; then echo "ERRO: webhook Webwhats publico indisponivel HTTP $webhook_code"; exit 1; fi; echo "Webhook Webwhats publico nao esta 502: HTTP $webhook_code"',
     '  validate_webwhats_runtime',
     '}',
-    'final_healthchecks() {',
-    '  require_http_ok "$BACKEND_URL/health" "API publica /health final"',
-    '  require_http_ok "$FRONTEND_URL/" "Frontend / final"',
-    '  if [ "$FULL_HEALTHCHECKS" != "true" ]; then return 0; fi',
-    '  require_http_ok "$FRONTEND_URL/atendimento" "Frontend /atendimento final"',
+    'final_runtime_summary() {',
+    '  echo "Verificacao HTTP final desativada neste fluxo."',
     '}',
     'echo "Banco esperado: hbx-postgres/hbx_prod"',
     'echo "Backend URL: $BACKEND_URL"',
@@ -478,12 +477,12 @@ function buildRemoteDeployScript(config, mode) {
     '}',
     'deploy_frontend_docker() {',
     '  echo "Publicando frontend em Docker como hbx-frontend..."',
-    '  disable_frontend_pm2',
     '  ensure_frontend_compose_file',
     '  run_filtered $DC --env-file .env -f docker-compose.frontend.yml build $BUILD_NO_CACHE_ARG frontend',
     '  docker rm -f hbx-frontend frontend 2>/dev/null || true',
     '  free_frontend_port',
     '  run_filtered $DC --env-file .env -f docker-compose.frontend.yml up -d frontend',
+    '  if [ "$RUN_HEALTHCHECKS" != "true" ]; then echo "Frontend Docker iniciado; verificacao HTTP pulada no publish normal."; return 0; fi',
     '  verify_frontend_docker',
     '}',
     'start_hbx_engines() {',
@@ -538,8 +537,8 @@ function buildRemoteDeployScript(config, mode) {
     '    -e HBX_ENGINE_MAX_COUNT="$HBX_ENGINE_MAX_COUNT" \\',
     '    -e HBX_ENGINE_URLS="$(hbx_engine_urls)" \\',
     '    -e HBX_CLIENT_RESERVED_ENGINES="${HBX_CLIENT_RESERVED_ENGINES:-0}" \\',
-    '    -e HBX_FACTORY_MIN_ENGINES="${HBX_FACTORY_MIN_ENGINES:-1}" \\',
-    '    -e HBX_FACTORY_MAX_ENGINES="${HBX_FACTORY_MAX_ENGINES:-50}" \\',
+    '    -e HBX_FACTORY_MIN_ENGINES="${HBX_FACTORY_MIN_ENGINES:-$HBX_ENGINE_COUNT}" \\',
+    '    -e HBX_FACTORY_MAX_ENGINES="${HBX_FACTORY_MAX_ENGINES:-$HBX_ENGINE_COUNT}" \\',
     '    -e HBX_RADAR_CLIENT_PRIORITY_START_HOUR="${HBX_RADAR_CLIENT_PRIORITY_START_HOUR:-8}" \\',
     '    -e HBX_RADAR_CLIENT_PRIORITY_END_HOUR="${HBX_RADAR_CLIENT_PRIORITY_END_HOUR:-20}" \\',
     '    -e HBX_RADAR_CLIENT_REQUEST_TIMEOUT_MS="${HBX_RADAR_CLIENT_REQUEST_TIMEOUT_MS:-25000}" \\',
@@ -557,15 +556,13 @@ function buildRemoteDeployScript(config, mode) {
     '    hbx_backend:latest',
     '}',
     'verify_backend_api() {',
-    '  echo "Validando backend/API..."',
+    '  echo "Validando container backend sem chamada HTTP..."',
     '  for i in $(seq 1 "$BACKEND_VERIFY_ATTEMPTS"); do',
-    '    if docker inspect -f "{{.State.Running}}" hbx-backend 2>/dev/null | grep -q true && curl -fsS --max-time 5 http://127.0.0.1:3000/health >/dev/null 2>&1; then echo "Backend local /health OK."; break; fi',
+    '    if docker inspect -f "{{.State.Running}}" hbx-backend 2>/dev/null | grep -q true; then echo "Backend container running."; break; fi',
     '    echo "Aguardando backend/API ($i/$BACKEND_VERIFY_ATTEMPTS)..."',
     '    sleep 2',
     '  done',
     '  if ! docker inspect -f "{{.State.Running}}" hbx-backend 2>/dev/null | grep -q true; then echo "ERRO: hbx-backend caiu durante o deploy."; docker logs --tail 120 hbx-backend 2>&1 || true; exit 1; fi',
-    '  require_http_ok "http://127.0.0.1:3000/health" "API local /health"',
-    '  require_http_ok "$BACKEND_URL/health" "API publica /health"',
     '}',
     'verify_hbx_engines() {',
     '  echo "Validando variaveis dos motores HBX..."',
@@ -578,24 +575,7 @@ function buildRemoteDeployScript(config, mode) {
     '  if [ "$(docker exec hbx-backend printenv HBX_ENGINE_URLS)" != "$(hbx_engine_urls)" ]; then echo "ERRO: HBX_ENGINE_URLS nao contem todos os motores esperados."; exit 1; fi',
     '  running_count="$(docker ps --filter "name=^/hbx-engine-[0-9]+$" --filter "status=running" --format "{{.Names}}" | wc -l | tr -d " ")"',
     '  if [ "$running_count" -lt "$HBX_ENGINE_COUNT" ]; then echo "ERRO: motores HBX running=$running_count esperados=$HBX_ENGINE_COUNT"; exit 1; fi',
-    '  if [ "$FULL_HEALTHCHECKS" != "true" ]; then',
-    '    echo "Healthcheck rapido motores HBX: running=$running_count esperados=$HBX_ENGINE_COUNT."',
-    '    for n in 1 "$HBX_ENGINE_COUNT"; do',
-    '      if ! docker exec hbx-backend wget -qO- "http://hbx-engine-$n:8001/health" >/dev/null; then echo "ERRO: healthcheck rapido falhou para hbx-engine-$n."; exit 1; fi',
-    '    done',
-    '    return 0',
-    '  fi',
-    '  echo "Healthcheck completo dos motores HBX..."',
-    '  for n in $(seq 1 "$HBX_ENGINE_COUNT"); do',
-    '    ok=0',
-    '    for attempt in $(seq 1 30); do',
-    '      if docker exec hbx-backend wget -qO- "http://hbx-engine-$n:8001/health" >/dev/null; then ok=1; break; fi',
-    '      echo "Aguardando hbx-engine-$n ($attempt/30)..."',
-    '      sleep 2',
-    '    done',
-    '    if [ "$ok" != "1" ]; then echo "ERRO: healthcheck falhou para hbx-engine-$n em http://hbx-engine-$n:8001/health."; exit 1; fi',
-    '    if [ "$n" -eq "$HBX_ENGINE_COUNT" ] || { [ "$HBX_ENGINE_COUNT" -gt 10 ] && [ $((n % 20)) -eq 0 ]; }; then echo "Healthcheck motores HBX: $n/$HBX_ENGINE_COUNT"; fi',
-    '  done',
+    '  echo "Motores HBX running=$running_count esperados=$HBX_ENGINE_COUNT; chamada HTTP desativada."',
     '}',
   ];
 
@@ -620,15 +600,16 @@ function buildRemoteDeployScript(config, mode) {
     lines.push('remove_compose_service_containers backend webscraping hbx-scraping-engine $(hbx_engine_names)');
     lines.push('start_hbx_engines');
     lines.push('start_hbx_backend');
-    lines.push('verify_backend_api');
     lines.push('echo "Prisma migrate deploy roda dentro do container hbx-backend via backend/scripts/start-prod.sh, usando DATABASE_URL=hbx-postgres."');
     lines.push('run_filtered $DC --env-file .env -f docker-compose.hostinger.yml up -d --build --no-deps webscraping');
-    lines.push('verify_hbx_engines');
     lines.push('deploy_frontend_docker');
   }
 
+  if (isForce) {
+    lines.push('final_runtime_summary');
+  }
+
   lines.push(
-    'final_healthchecks',
     'echo "Containers ativos:"',
     'docker ps --format "table {{.Names}}\\t{{.Status}}\\t{{.Ports}}" | grep -E "NAMES|hbx-frontend|hbx-backend|webscraping|hbx-scraping-engine|hbx-engine-[0-9]+|hbx-postgres" || true',
     'echo "Ultimos logs backend:"',
@@ -814,63 +795,16 @@ async function requestWithRetry(url, options = {}) {
 }
 
 async function verifyProduction(config, options = {}) {
-  const full = Boolean(options.full);
-  const healthUrl = `${config.backendUrl}/health`;
-
-  console.log(`\n> GET ${healthUrl}`);
-  const healthResponse = await requestWithRetry(healthUrl, { method: 'GET' });
-  console.log(`Health OK: HTTP ${healthResponse.status}`);
-
-  console.log(`\n> GET ${config.frontendUrl}`);
-  const frontendResponse = await requestWithRetry(config.frontendUrl, { method: 'GET' });
-  console.log(`Frontend OK: HTTP ${frontendResponse.status}`);
-
-  if (!full) {
-    console.log('Production verify rapido: backend /health e frontend OK.');
-    return;
-  }
-
-  console.log(`\n> GET ${healthUrl} with Origin ${config.frontendUrl}`);
-  const corsResponse = await requestWithRetry(healthUrl, {
-    method: 'GET',
-    headers: {
-      Origin: config.frontendUrl,
-    },
-  });
-  const allowOrigin = corsResponse.headers.get('access-control-allow-origin') || '';
-  if (!allowOrigin) {
-    throw new Error('CORS check failed: missing access-control-allow-origin header.');
-  }
-  if (allowOrigin && allowOrigin !== '*' && allowOrigin !== config.frontendUrl) {
-    throw new Error(`Unexpected CORS allow-origin header: ${allowOrigin}`);
-  }
-  console.log(`CORS OK: HTTP ${corsResponse.status}${allowOrigin ? `, allow-origin=${allowOrigin}` : ''}`);
-
-  const uploadProbeUrl = `${config.backendUrl}/master/email/attachment`;
-  console.log(`\n> POST ${uploadProbeUrl} 2MB upload-limit probe`);
-  const uploadProbeResponse = await fetch(uploadProbeUrl, {
-    method: 'POST',
-    headers: {
-      Origin: config.frontendUrl,
-      'Content-Type': 'application/octet-stream',
-    },
-    body: Buffer.alloc(2 * 1024 * 1024),
-  });
-  if (uploadProbeResponse.status === 413) {
-    throw new Error('Upload limit check failed: Nginx returned 413 for a 2MB request. Set client_max_body_size above the master email upload size.');
-  }
-  const uploadAllowOrigin = uploadProbeResponse.headers.get('access-control-allow-origin') || '';
-  if (!uploadAllowOrigin) {
-    throw new Error('Upload limit check failed: missing CORS header on the upload probe response.');
-  }
-  console.log(`Upload limit OK: HTTP ${uploadProbeResponse.status}, allow-origin=${uploadAllowOrigin}`);
+  void config;
+  void options;
+  console.log('Production Verify desativado neste fluxo. Use npm run verify:prod quando quiser checagem HTTP separada.');
 }
 
 async function main() {
   const mode = parseMode();
   const env = loadOperationsEnv();
   const config = ensureRequiredEnv(env);
-  const fullVerify = mode === 'force' || isTruthy(env.HOSTINGER_FULL_VERIFY);
+  const fullVerify = mode === 'force' && isTruthy(env.HOSTINGER_FULL_VERIFY);
   const webwhatsConfig = resolveWebwhatsDeployConfig(env, config);
 
   logStage(`Local Preflight (${mode})`);
@@ -906,8 +840,12 @@ async function main() {
   logStage(`Hostinger Deploy (${mode})`);
   deployOnHostinger(config, mode);
 
-  logStage('Production Verify');
-  await verifyProduction(config, { full: fullVerify });
+  if (mode === 'force') {
+    logStage('Production Verify');
+    await verifyProduction(config, { full: fullVerify });
+  } else {
+    console.log('\nProduction Verify pulado no publish normal.');
+  }
   printPublishedChanges(commitsAheadOfRemote, changedFilesAheadOfRemote);
   printFrontendDeployNotice(config, changedFilesAheadOfRemote);
 

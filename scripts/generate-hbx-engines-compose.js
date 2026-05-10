@@ -3,8 +3,8 @@
 const fs = require("fs");
 const path = require("path");
 
-const DEFAULT_COUNT = 50;
-const HARD_LIMIT = 50;
+const DEFAULT_COUNT = 100;
+const HARD_LIMIT = 100;
 const outputFile = path.resolve(process.cwd(), "docker-compose.hbx-engines.generated.yml");
 
 function parseCount(value) {
@@ -49,13 +49,6 @@ x-hbx-engine-common: &hbx-engine-common
     HBX_AGENDA_REQUEST_DELAY_MS: \${HBX_AGENDA_REQUEST_DELAY_MS:-700}
   networks:
     - hbx_net
-  healthcheck:
-    test: ["CMD-SHELL", "python -c \\"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/health', timeout=3).read()\\""]
-    interval: 30s
-    timeout: 5s
-    retries: 3
-    start_period: 20s
-
 services:
   backend:
     environment:

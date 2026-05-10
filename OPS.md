@@ -20,10 +20,10 @@ Fluxo de deploy normal:
 3. Executa o deploy Hostinger via `scripts/deploy-hostinger.js`.
 4. O deploy roda preflight Prisma/build local uma vez, faz `git push origin master`, atualiza a VPS e sobe os containers.
 5. No servidor, o backend roda migrations Prisma dentro do container `hbx-backend`, usando o host Docker `hbx-postgres`.
-6. Valida backend `/health`, frontend `/` e health rapido dos motores HBX.
+6. Nao roda healthcheck de backend, frontend ou motores no publish normal.
 7. Mostra status final.
 
-O fluxo normal evita checks pesados como CORS completo, upload probe, `/atendimento` e varredura de todos os motores. Para forcar a verificacao completa no publish, defina `HOSTINGER_FULL_VERIFY=true`.
+Use `npm run verify:prod` quando quiser verificacao de producao separada do publish.
 
 ## `npm run new`
 
