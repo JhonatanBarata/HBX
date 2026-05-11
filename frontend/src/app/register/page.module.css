@@ -809,6 +809,33 @@
   cursor: pointer;
 }
 
+.changePlanButton {
+  width: 100%;
+  min-height: 36px;
+  border: 1px solid color-mix(in srgb, var(--button-secondary) 30%, var(--line));
+  border-radius: 999px;
+  padding: 0.55rem 0.8rem;
+  color: color-mix(in srgb, var(--button-secondary) 82%, var(--foreground));
+  background: color-mix(in srgb, var(--button-secondary) 8%, transparent);
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 850;
+  cursor: pointer;
+  transition:
+    color var(--motion-fast),
+    border-color var(--motion-fast),
+    background var(--motion-fast),
+    transform var(--motion-fast);
+}
+
+.changePlanButton:hover,
+.changePlanButton:focus-visible {
+  color: var(--foreground);
+  border-color: color-mix(in srgb, var(--button-secondary) 58%, var(--line));
+  background: color-mix(in srgb, var(--button-secondary) 13%, transparent);
+  transform: translateY(-1px);
+}
+
 @media (max-width: 1180px) {
   .registerConsole {
     grid-template-columns: minmax(460px, 1fr) minmax(340px, 410px);
@@ -1567,6 +1594,79 @@
   }
 }
 
+:global(.login-console).registerConsole[data-register-step="plans"],
+:global(.login-console).registerConsole[data-register-step="form"],
+:global(.login-console).registerConsole[data-register-step="confirmation"] {
+  justify-content: center;
+}
+
+:global(.login-console).registerConsole[data-register-step="plans"] {
+  grid-template-columns: minmax(0, min(780px, 100%)) !important;
+  width: min(860px, calc(100vw - 48px)) !important;
+}
+
+:global(.login-console).registerConsole[data-register-step="form"],
+:global(.login-console).registerConsole[data-register-step="confirmation"] {
+  grid-template-columns: minmax(0, min(482px, 100%)) !important;
+  width: min(560px, calc(100vw - 48px)) !important;
+}
+
+:global(.login-console).registerConsole[data-register-step="plans"] .registerPlansPanel {
+  animation: registerStepPlansIn 420ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+:global(.login-console).registerConsole[data-register-step="form"] :global(.login-shell) {
+  animation: registerStepFormIn 420ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+:global(.login-console).registerConsole[data-register-step="plans"] .registerPlansPanel,
+:global(.login-console).registerConsole[data-register-step="form"] :global(.login-shell) {
+  transform-origin: center center;
+  will-change: opacity, transform;
+}
+
+@keyframes registerStepPlansIn {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes registerStepFormIn {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+:global(.login-console).registerConsole[data-entry-transition="from-login"][data-register-step="plans"] .registerPlansPanel,
+:global(.login-console).registerConsole[data-entry-transition="from-login"][data-register-step="form"] .registerCard {
+  animation-name: registerStepPlansIn;
+  animation-delay: 0ms;
+}
+
+@media (max-width: 768px) {
+  :global(.login-console).registerConsole[data-register-step="plans"],
+  :global(.login-console).registerConsole[data-register-step="form"],
+  :global(.login-console).registerConsole[data-register-step="confirmation"] {
+    width: min(100%, calc(100vw - 28px)) !important;
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .changePlanButton {
+    min-height: 34px;
+    font-size: 0.74rem;
+  }
+}
+
 /* Final register viewport fit and theme contrast pass. Scoped to /register only. */
 :global(.login-stage).registerStage {
   min-height: 100dvh;
@@ -1993,5 +2093,61 @@
   .registerCard {
     width: 100% !important;
     max-height: none !important;
+  }
+}
+
+/* Step split must win over the final viewport-fit overrides above. */
+:global(.login-console).registerConsole[data-register-step="plans"] {
+  grid-template-columns: minmax(0, min(1120px, 100%)) !important;
+  width: min(1180px, calc(100vw - 48px)) !important;
+  justify-content: center !important;
+  align-items: center !important;
+}
+
+:global(.login-console).registerConsole[data-register-step="form"],
+:global(.login-console).registerConsole[data-register-step="confirmation"] {
+  grid-template-columns: minmax(0, min(482px, 100%)) !important;
+  width: min(560px, calc(100vw - 48px)) !important;
+  justify-content: center !important;
+  align-items: center !important;
+}
+
+:global(.login-console).registerConsole[data-register-step="plans"] .registerPlansPanel,
+:global(.login-console).registerConsole[data-register-step="form"] :global(.login-shell),
+:global(.login-console).registerConsole[data-register-step="confirmation"] :global(.login-shell) {
+  justify-self: center !important;
+  transform: none;
+}
+
+:global(.login-console).registerConsole[data-register-step="plans"] .plansHeader {
+  max-width: none !important;
+  margin: 0 0 14px !important;
+}
+
+:global(.login-console).registerConsole[data-register-step="plans"] .plansHeader h1 {
+  max-width: none !important;
+  white-space: nowrap !important;
+  font-size: clamp(1.35rem, 2vw, 1.85rem) !important;
+  line-height: 1.05 !important;
+}
+
+:global(.login-console).registerConsole[data-register-step="plans"] .plansHeader p {
+  display: none !important;
+}
+
+@media (max-width: 768px) {
+  :global(.login-console).registerConsole[data-register-step="plans"],
+  :global(.login-console).registerConsole[data-register-step="form"],
+  :global(.login-console).registerConsole[data-register-step="confirmation"] {
+    width: min(100%, calc(100vw - 28px)) !important;
+    max-width: calc(100vw - 28px) !important;
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  :global(.login-console).registerConsole[data-register-step="plans"] .plansHeader h1 {
+    white-space: normal !important;
+    overflow-wrap: anywhere !important;
+    font-size: 1.34rem !important;
+    line-height: 1.12 !important;
   }
 }

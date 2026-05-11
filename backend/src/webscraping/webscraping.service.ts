@@ -22,6 +22,7 @@ import {
   GOOGLE_DAILY_LIMIT_REACHED_MESSAGE,
   normalizeCommercialPlanKey,
 } from '../commercial-plans/commercial-plan-catalog';
+import { WebwhatsBridgeService } from '../messaging/webwhats-bridge.service';
 
 const PLACES_NEW_TEXT_SEARCH_URL = 'https://places.googleapis.com/v1/places:searchText';
 const PLACES_NEW_DETAILS_URL = 'https://places.googleapis.com/v1/places';
@@ -514,6 +515,8 @@ type UsageExecutionMeta = {
 
 type RadarWebsiteStatus = 'none' | 'present' | 'social_only' | 'weak' | 'unreachable' | 'unknown';
 type RadarOpportunityLevel = 'high' | 'medium' | 'low' | null;
+type RadarWhatsappCheckMode = 'off' | 'enrich' | 'only_valid';
+type RadarWhatsappCheckStatus = 'confirmed' | 'missing' | 'unverified';
 
 type RadarFiltersInput = {
   city?: string | null;
@@ -541,6 +544,7 @@ type RadarFiltersInput = {
   targetType?: HbxTargetType | string | null;
   desiredStock?: number | null;
   minimumStock?: number | null;
+  whatsappCheckMode?: RadarWhatsappCheckMode | string | null;
 };
 
 type RadarLeadEventType =
@@ -681,6 +685,7 @@ type NormalizedRadarFilters = {
   desiredStock: number;
   minimumStock: number;
   stockOverride: boolean;
+  whatsappCheckMode: RadarWhatsappCheckMode;
 };
 
 type SearchHistoryRow = {
@@ -961,10 +966,12 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
   private radarFactoryPumpActive = false;
   private radarCampaignTimer: NodeJS.Timeout | null = null;
   private radarFactoryTimer: NodeJS.Timeout | null = null;
+  private radarWhatsappCheckModeByRunId = new Map<string, RadarWhatsappCheckMode>();
 
   constructor(
     private readonly prisma: PrismaService,
     @Optional() private hbxEnginePool?: HbxEnginePoolService,
+    @Optional() private readonly webwhatsBridge?: WebwhatsBridgeService,
     @Optional() @Inject(forwardRef(() => VendasService))
     private readonly vendasService?: VendasService,
   ) {}
@@ -3920,7 +3927,14 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       desiredStock: Math.min(Math.max(Math.trunc(Number(input.desiredStock || 300) || 300), 1), 1000),
       minimumStock: Math.min(Math.max(Math.trunc(Number(input.minimumStock || 80) || 80), 1), 500),
       stockOverride: input.desiredStock != null || input.minimumStock != null,
+      whatsappCheckMode: this.normalizeRadarWhatsappCheckMode(input.whatsappCheckMode),
     };
+  }
+
+  private normalizeRadarWhatsappCheckMode(value: unknown): RadarWhatsappCheckMode {
+    const normalized = String(value || '').trim().toLowerCase();
+    if (normalized === 'enrich' || normalized === 'only_valid') return normalized;
+    return 'off';
   }
 
   private buildStoredResultSource(radarResults: WebscrapingContactResult[], companyStoredResults: WebscrapingContactResult[]): SearchSource {
@@ -4334,6 +4348,95 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
+  private withRadarWhatsappStatus(item: any, status: RadarWhatsappCheckStatus) {
+    return {
+      ...item,
+      whatsappStatus: status,
+      whatsappCheckStatus: status,
+    };
+  }
+
+  private async canUseRadarWebwhatsCheck(companyId: number) {
+    const company = await this.prisma.company.findUnique({
+      where: { id: companyId },
+      select: { selectedPlanKey: true },
+    }).catch(() => null);
+    const planKey = normalizeCommercialPlanKey(company?.selectedPlanKey);
+    return planKey !== COMMERCIAL_PLAN_KEYS.LITE;
+  }
+
+  private async applyRadarWhatsappCheck(
+    context: SearchExecutionContext,
+    items: any[],
+    requestedMode: RadarWhatsappCheckMode,
+  ) {
+    const baseMeta = {
+      requestedMode,
+      effectiveMode: requestedMode,
+      checked: false,
+      message: null as string | null,
+    };
+    const safeItems = Array.isArray(items) ? items : [];
+    if (requestedMode === 'off') {
+      return {
+        items: safeItems.map((item) => this.withRadarWhatsappStatus(item, 'unverified')),
+        meta: { ...baseMeta, effectiveMode: 'off' as RadarWhatsappCheckMode },
+      };
+    }
+
+    const canUseWebwhats = this.webwhatsBridge && await this.canUseRadarWebwhatsCheck(context.companyId);
+    if (!canUseWebwhats) {
+      return {
+        items: safeItems.map((item) => this.withRadarWhatsappStatus(item, 'unverified')),
+        meta: {
+          ...baseMeta,
+          effectiveMode: 'enrich' as RadarWhatsappCheckMode,
+          message: 'Validação WebWhats disponível nos planos superiores. Entreguei os cards sem bloquear a busca.',
+        },
+      };
+    }
+
+    try {
+      const lookupResults = await this.webwhatsBridge!.checkWhatsappNumbers(
+        context.companyId,
+        safeItems.map((item) => item?.phoneDigits || item?.phone || null),
+      );
+      const byPhone = new Map<string, boolean>();
+      for (const result of lookupResults || []) {
+        const phone = normalizePhoneDigits(result?.normalizedNumber || result?.input);
+        if (phone && !byPhone.has(phone)) byPhone.set(phone, Boolean(result?.exists));
+      }
+
+      const enriched = safeItems.map((item) => {
+        const phone = normalizePhoneDigits(item?.phoneDigits || item?.phone);
+        const status: RadarWhatsappCheckStatus = !phone
+          ? 'missing'
+          : byPhone.has(phone)
+            ? byPhone.get(phone)
+              ? 'confirmed'
+              : 'missing'
+            : 'unverified';
+        return this.withRadarWhatsappStatus(item, status);
+      });
+      return {
+        items: requestedMode === 'only_valid'
+          ? enriched.filter((item) => item.whatsappCheckStatus === 'confirmed')
+          : enriched,
+        meta: { ...baseMeta, checked: true },
+      };
+    } catch (error: any) {
+      this.logger.warn(`[radar] validacao WebWhats ignorada company=${context.companyId}: ${String(error?.message || error)}`);
+      return {
+        items: safeItems.map((item) => this.withRadarWhatsappStatus(item, 'unverified')),
+        meta: {
+          ...baseMeta,
+          effectiveMode: 'enrich' as RadarWhatsappCheckMode,
+          message: 'Não consegui validar WhatsApp agora. Entreguei os cards sem bloquear a busca.',
+        },
+      };
+    }
+  }
+
   private async searchRadarDirectForUser(user: any, filters: NormalizedRadarFilters, reason: string, technicalMessage?: string | null) {
     const response = await this.searchContactsForUser(
       user,
@@ -4355,7 +4458,13 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         purpose: 'radar_digital',
       },
     );
-    const items = (response.results || []).map((result, index) => this.buildDirectRadarLeadPublic(result, filters, index));
+    const context = this.resolveContext(user);
+    const whatsapp = await this.applyRadarWhatsappCheck(
+      context,
+      (response.results || []).map((result, index) => this.buildDirectRadarLeadPublic(result, filters, index)),
+      filters.whatsappCheckMode,
+    );
+    const items = whatsapp.items;
     return {
       items,
       total: items.length,
@@ -4382,6 +4491,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
           message: response.meta.message || null,
           technicalMessage: technicalMessage || null,
         },
+        whatsappCheck: whatsapp.meta,
       },
     };
   }
@@ -4777,7 +4887,13 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       .map((phone) => rowByPhone.get(phone))
       .filter(Boolean)
       .slice(0, safeInteger(effectiveRun.targetQuantity));
-    const items = orderedRows.map((row) => this.buildRadarLeadPublic(row));
+    const whatsappMode = this.radarWhatsappCheckModeByRunId.get(effectiveRun.id) || 'off';
+    const whatsapp = await this.applyRadarWhatsappCheck(
+      context,
+      orderedRows.map((row) => this.buildRadarLeadPublic(row)),
+      whatsappMode,
+    );
+    const items = whatsapp.items;
     const requestedQuantity = Math.max(1, safeInteger(effectiveRun.targetQuantity));
     const deliveredCount = items.length;
     const status = this.normalizeSearchRunStatus(effectiveRun.status);
@@ -4817,6 +4933,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
           segment: filters.segment,
           targetType: filters.targetType,
         },
+        whatsappCheck: whatsapp.meta,
       },
     };
   }
@@ -4838,7 +4955,16 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       requirePhone: true,
       availableOnly: true,
     });
-    const immediateRows = stockRows.slice(0, filters.quantity);
+    let immediateRows = stockRows.slice(0, filters.quantity);
+    if (filters.whatsappCheckMode === 'only_valid' && immediateRows.length) {
+      const whatsappPrecheck = await this.applyRadarWhatsappCheck(
+        context,
+        immediateRows.map((row) => this.buildRadarLeadPublic(row)),
+        'only_valid',
+      );
+      const confirmedIds = new Set(whatsappPrecheck.items.map((item: any) => String(item?.id || '')).filter(Boolean));
+      immediateRows = immediateRows.filter((row) => confirmedIds.has(String(row?.id || '')));
+    }
     let claimedRows = immediateRows;
     if (immediateRows.length) {
       claimedRows = await this.markRadarDelivered(context.companyId, context.userId, immediateRows).catch((error: any) => {
@@ -4870,6 +4996,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
             : 'Sem cards prontos no banco. Busca enviada para a fila HBX.',
       },
     });
+    this.radarWhatsappCheckModeByRunId.set(run.id, filters.whatsappCheckMode);
 
     if (claimedRows.length) {
       await this.saveSearchRunResults(
@@ -4999,7 +5126,16 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       });
     }
 
-    const deliveredRows = rows.slice(0, filters.quantity);
+    let deliveredRows = rows.slice(0, filters.quantity);
+    if (filters.whatsappCheckMode === 'only_valid' && deliveredRows.length) {
+      const whatsappPrecheck = await this.applyRadarWhatsappCheck(
+        context,
+        deliveredRows.map((row) => this.buildRadarLeadPublic(row)),
+        'only_valid',
+      );
+      const confirmedIds = new Set(whatsappPrecheck.items.map((item: any) => String(item?.id || '')).filter(Boolean));
+      deliveredRows = deliveredRows.filter((row) => confirmedIds.has(String(row?.id || '')));
+    }
 
     if (!deliveredRows.length && replenishErrorMessage) {
       try {
@@ -5089,14 +5225,17 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     }
 
     let items: any[] = [];
+    let whatsapp: Awaited<ReturnType<WebscrapingService['applyRadarWhatsappCheck']>> | null = null;
     try {
-      items = claimedRows.map((row) => this.buildRadarLeadPublic({
+      const publicItems = claimedRows.map((row) => this.buildRadarLeadPublic({
         ...row,
         ownerCompanyId: context.companyId,
         claimedAt: new Date(),
         status: 'reserved',
         companyStates: [{ status: 'reserved' }],
       }));
+      whatsapp = await this.applyRadarWhatsappCheck(context, publicItems, filters.whatsappCheckMode);
+      items = whatsapp.items;
     } catch (error: any) {
       this.logger.error(`[radar] failed to build public leads: ${error?.message || error}`);
       items = claimedRows.map((row) => ({
@@ -5104,6 +5243,8 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         name: String(row?.name || 'Empresa sem nome'),
         phone: row?.phone || row?.phoneDigits || '',
       }));
+      whatsapp = await this.applyRadarWhatsappCheck(context, items, filters.whatsappCheckMode);
+      items = whatsapp.items;
     }
 
     return {
@@ -5123,6 +5264,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         minimumStock: filters.minimumStock,
         desiredStock: filters.desiredStock,
         replenish,
+        whatsappCheck: whatsapp?.meta || null,
         availableFilters: this.buildRadarAvailableFilters(await this.queryRadarRowsForCompany(context.companyId, {
           ...filters,
           city: '',

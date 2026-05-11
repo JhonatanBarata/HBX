@@ -330,7 +330,7 @@ export default function LoginPage() {
     setThemeMode(selection.mode === "dark" ? "light" : "dark");
   }
 
-  function openRegisterWithTransition() {
+  function openRegisterWithTransition(start: "form" | "plans" = "form") {
     if (registerTransitioning) return;
     setRegisterTransitioning(true);
     try {
@@ -339,7 +339,7 @@ export default function LoginPage() {
       // ignore sessionStorage errors
     }
     window.setTimeout(() => {
-      router.push("/register?from=login");
+      router.push(`/register?from=login&start=${start}`);
     }, 500);
   }
 
@@ -1118,6 +1118,18 @@ export default function LoginPage() {
               <div className="login-actionsRow">
                 <button
                   type="button"
+                  className="login-mobileThemeToggle login-themePreview__switch"
+                  data-preview="theme"
+                  data-mode={selection.mode}
+                  role="switch"
+                  aria-checked={selection.mode === "dark"}
+                  aria-label={selection.mode === "dark" ? "Ativar tema claro" : "Ativar tema escuro"}
+                  onClick={handleThemeModeToggle}
+                >
+                  <span className="login-themePreview__thumb" />
+                </button>
+                <button
+                  type="button"
                   className="login-link"
                   onClick={() => {
                     setError(null);
@@ -1130,8 +1142,7 @@ export default function LoginPage() {
                 <button
                   type="button"
                   className="btn btn-secondary login-cta"
-                  onClick={openRegisterWithTransition}
-                  style={{ marginLeft: 12 }}
+                  onClick={() => openRegisterWithTransition("form")}
                 >
                   Criar conta
                 </button>
@@ -1242,7 +1253,7 @@ export default function LoginPage() {
                           // ignore localStorage errors
                         }
 
-                        openRegisterWithTransition();
+                        openRegisterWithTransition("form");
                       }
                     : undefined
                 }
@@ -1271,22 +1282,13 @@ export default function LoginPage() {
                 )}
               </button>
 
-              {!preRegistered ? (
-                <div className="login-onboarding" aria-label="Começar contratação HBX">
-                  <p className="login-onboarding__copy">
-                    Novo por aqui? Crie sua conta e escolha o plano no próximo passo.
-                  </p>
-                  <div className="login-onboarding__actions">
-                    <button
-                      type="button"
-                      className="btn btn-secondary login-onboarding__button"
-                      onClick={openRegisterWithTransition}
-                    >
-                      Criar conta
-                    </button>
-                  </div>
-                </div>
-              ) : null}
+              <button
+                type="button"
+                className="login-plansEntry"
+                onClick={() => openRegisterWithTransition("plans")}
+              >
+                <span>Planos</span>
+              </button>
             </form>
           ) : (
             <form onSubmit={handleRecoverByEmail} className="login-form">
