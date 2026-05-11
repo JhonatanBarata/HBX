@@ -3,6 +3,10 @@
   gap: 18px;
 }
 
+.mobileRadar {
+  display: none;
+}
+
 .header,
 .filters,
 .summaryBar > div,
@@ -22,8 +26,17 @@
   align-items: center;
   justify-content: space-between;
   gap: 18px;
-  border-radius: 14px;
-  padding: 18px;
+  border-radius: 12px;
+  padding: 14px 16px;
+  background:
+    radial-gradient(circle at 12% 0%, color-mix(in srgb, var(--brand) 10%, transparent), transparent 34%),
+    linear-gradient(180deg, color-mix(in srgb, var(--surface-raised) 98%, var(--surface)), color-mix(in srgb, var(--surface) 92%, var(--surface-raised)));
+}
+
+.headerCopy {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
 }
 
 .header span,
@@ -43,12 +56,11 @@
 .header h1 {
   margin: 2px 0 0;
   color: var(--foreground);
-  font-size: clamp(1.55rem, 3vw, 2.2rem);
+  font-size: clamp(1.35rem, 2.4vw, 1.9rem);
   font-weight: 950;
   letter-spacing: 0;
 }
 
-.header p,
 .sectionHeader small,
 .resultsHeader small,
 .summaryBar small,
@@ -91,10 +103,14 @@
 
 .filters {
   display: grid;
-  grid-template-columns: repeat(12, minmax(0, 1fr));
+  grid-template-columns: 1fr;
   gap: 12px;
-  border-radius: 14px;
-  padding: 16px;
+  border-radius: 18px;
+  padding: 12px;
+  background:
+    radial-gradient(circle at 0% 0%, color-mix(in srgb, var(--brand) 12%, transparent), transparent 34%),
+    radial-gradient(circle at 100% 0%, color-mix(in srgb, var(--success) 8%, transparent), transparent 30%),
+    linear-gradient(180deg, color-mix(in srgb, var(--surface-raised) 98%, var(--surface)), color-mix(in srgb, var(--surface) 94%, var(--surface-raised)));
 }
 
 .filtersTitle {
@@ -116,26 +132,73 @@
   font-weight: 950;
 }
 
-.filterLocation {
-  grid-column: span 4;
-  min-width: 0;
+.filterMainRow,
+.primaryControls,
+.secondaryControls {
+  display: grid;
+  gap: 10px;
 }
 
-.filterSegment {
-  grid-column: span 4;
-  min-width: 0;
+.filterMainRow {
+  grid-template-columns: minmax(560px, 0.9fr) minmax(0, 1.1fr);
+  align-items: start;
 }
 
+.primaryControls {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+  border-radius: 16px;
+  padding: 10px;
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--brand) 9%, transparent), color-mix(in srgb, var(--surface-raised) 78%, transparent));
+  border: 1px solid color-mix(in srgb, var(--brand) 18%, var(--line));
+}
+
+.secondaryControls {
+  grid-template-columns: minmax(320px, 1.2fr) minmax(220px, 0.9fr) minmax(150px, 0.46fr);
+  align-items: start;
+}
+
+.filterEngine,
 .filterTarget,
-.filterQuantity,
-.filterEngine {
-  grid-column: span 4;
+.filterLocation,
+.filterSegment,
+.filterQuantity {
   min-width: 0;
 }
 
-.filterAdvanced {
+.filterFooter,
+.advancedContent {
   grid-column: 1 / -1;
   min-width: 0;
+}
+
+.filterFooter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.advancedToggle {
+  width: fit-content;
+  min-height: 36px;
+  border: 1px solid color-mix(in srgb, var(--line) 86%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--surface) 88%, var(--surface-raised));
+  color: var(--foreground);
+  padding: 0 12px;
+  font-size: 0.78rem;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.advancedContent {
+  margin-top: 0;
+  border: 1px solid color-mix(in srgb, var(--line) 72%, transparent);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--surface) 74%, transparent);
+  padding: 12px;
 }
 
 .filters label {
@@ -164,7 +227,6 @@
 }
 
 .filterActions {
-  grid-column: 1 / -1;
   display: flex;
   justify-content: flex-end;
   gap: 8px;
@@ -403,6 +465,18 @@
   border-radius: 12px;
   background: color-mix(in srgb, var(--surface) 94%, var(--surface-raised));
   padding: 14px;
+  animation: radarCardReveal 420ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation-delay: calc(min(var(--reveal-index, 0), 8) * 52ms);
+  transition:
+    transform var(--motion-fast),
+    border-color var(--motion-fast),
+    box-shadow var(--motion-fast);
+}
+
+.card:hover {
+  transform: translateY(-3px);
+  border-color: color-mix(in srgb, var(--brand) 36%, var(--line));
+  box-shadow: 0 24px 52px -40px color-mix(in srgb, var(--brand) 50%, transparent);
 }
 
 .card[data-high="true"] {
@@ -660,20 +734,15 @@
 }
 
 @media (max-width: 1180px) {
-  .filters {
-    grid-template-columns: repeat(6, minmax(0, 1fr));
+  .filterMainRow,
+  .primaryControls,
+  .secondaryControls {
+    grid-template-columns: 1fr;
   }
 
-  .filterLocation,
-  .filterSegment,
-  .filterAdvanced {
+  .primaryControls,
+  .secondaryControls {
     grid-column: 1 / -1;
-  }
-
-  .filterTarget,
-  .filterQuantity,
-  .filterEngine {
-    grid-column: span 3;
   }
 
   .summaryBar,
@@ -691,6 +760,201 @@
 }
 
 @media (max-width: 760px) {
+  .shell > .header,
+  .shell > .filters,
+  .shell > .runProgress,
+  .shell > .results {
+    display: none;
+  }
+
+  .shell {
+    gap: 12px;
+  }
+
+  .mobileRadar {
+    display: grid;
+    gap: 12px;
+  }
+
+  .mobileRadarHeader,
+  .mobileRadarForm,
+  .mobileRadarResults,
+  .mobileRadarCard,
+  .mobileRadarEmpty {
+    border: 1px solid color-mix(in srgb, var(--line) 82%, transparent);
+    background: color-mix(in srgb, var(--surface-raised) 96%, var(--surface));
+    box-shadow: 0 18px 46px -40px color-mix(in srgb, var(--foreground) 42%, transparent);
+  }
+
+  .mobileRadarHeader {
+    display: grid;
+    gap: 3px;
+    border-radius: 14px;
+    padding: 14px;
+  }
+
+  .mobileRadarHeader span,
+  .mobileRadarForm span {
+    color: var(--muted);
+    font-size: 0.72rem;
+    font-weight: 900;
+    text-transform: uppercase;
+  }
+
+  .mobileRadarHeader strong {
+    color: var(--foreground);
+    font-size: 1.35rem;
+    font-weight: 950;
+  }
+
+  .mobileRadarForm {
+    display: grid;
+    gap: 10px;
+    border-radius: 16px;
+    padding: 14px;
+  }
+
+  .mobileRadarForm label {
+    display: grid;
+    gap: 6px;
+  }
+
+  .mobileRadarForm input {
+    width: 100%;
+    min-height: 46px;
+    border: 1px solid color-mix(in srgb, var(--line) 86%, transparent);
+    border-radius: 12px;
+    background: color-mix(in srgb, var(--surface) 96%, var(--surface-raised));
+    color: var(--foreground);
+    padding: 0 12px;
+    font: inherit;
+    outline: none;
+  }
+
+  .mobileRadarForm input:focus {
+    border-color: color-mix(in srgb, var(--brand) 68%, var(--line));
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand) 14%, transparent);
+  }
+
+  .mobileRadarForm button,
+  .mobileRadarCard button {
+    min-height: 50px;
+    border: 1px solid color-mix(in srgb, var(--brand) 38%, var(--line));
+    border-radius: 13px;
+    background: linear-gradient(135deg, color-mix(in srgb, var(--brand) 82%, #0f766e), color-mix(in srgb, var(--success) 60%, var(--brand)));
+    color: white;
+    font: inherit;
+    font-weight: 950;
+    cursor: pointer;
+  }
+
+  .mobileWhatsappEngine {
+    display: grid;
+    gap: 8px;
+  }
+
+  .mobileWhatsappToggle {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .mobileRadarForm .mobileWhatsappToggle button {
+    min-height: 42px;
+    border-radius: 12px;
+    border-color: color-mix(in srgb, var(--line) 86%, transparent);
+    background: color-mix(in srgb, var(--surface) 94%, var(--surface-raised));
+    color: var(--foreground);
+    box-shadow: none;
+    font-size: 0.86rem;
+  }
+
+  .mobileRadarForm .mobileWhatsappToggle button[data-active="true"] {
+    border-color: color-mix(in srgb, var(--brand) 46%, var(--line));
+    background: color-mix(in srgb, var(--brand) 14%, var(--surface-raised));
+    color: color-mix(in srgb, var(--brand) 82%, var(--foreground));
+  }
+
+  .mobileWhatsappWarning {
+    display: grid;
+    gap: 8px;
+    border: 1px solid color-mix(in srgb, var(--warning) 40%, var(--line));
+    border-radius: 14px;
+    background: color-mix(in srgb, var(--warning) 10%, var(--surface));
+    padding: 12px;
+  }
+
+  .mobileWhatsappWarning strong {
+    color: var(--foreground);
+    font-size: 0.92rem;
+    font-weight: 950;
+  }
+
+  .mobileWhatsappWarning p {
+    margin: 0;
+    color: var(--muted);
+    font-size: 0.84rem;
+    font-weight: 800;
+    line-height: 1.38;
+  }
+
+  .mobileRadarForm .mobileWhatsappAwareButton {
+    min-height: 48px;
+    border-radius: 14px;
+    border-color: color-mix(in srgb, var(--warning) 46%, var(--line));
+    background: linear-gradient(135deg, color-mix(in srgb, var(--warning) 86%, #f59e0b), color-mix(in srgb, var(--brand) 42%, var(--warning)));
+    color: white;
+    box-shadow: 0 16px 34px -24px color-mix(in srgb, var(--warning) 68%, transparent);
+    font-size: 0.95rem;
+  }
+
+  .mobileRadarForm .mobileWhatsappAwareButton[data-accepted="true"] {
+    border-color: color-mix(in srgb, var(--success) 46%, var(--line));
+    background: linear-gradient(135deg, color-mix(in srgb, var(--success) 80%, #0f766e), color-mix(in srgb, var(--brand) 42%, var(--success)));
+  }
+
+  .mobileRadarForm button:disabled,
+  .mobileRadarCard button:disabled {
+    cursor: not-allowed;
+    opacity: 0.56;
+  }
+
+  .mobileRadarResults {
+    display: grid;
+    gap: 10px;
+    border-radius: 16px;
+    padding: 12px;
+  }
+
+  .mobileRadarCard {
+    display: grid;
+    gap: 7px;
+    border-radius: 14px;
+    padding: 12px;
+  }
+
+  .mobileRadarCard strong {
+    color: var(--foreground);
+    font-size: 1rem;
+    font-weight: 950;
+    line-height: 1.2;
+  }
+
+  .mobileRadarCard span {
+    color: var(--muted);
+    font-size: 0.86rem;
+    font-weight: 800;
+    line-height: 1.35;
+  }
+
+  .mobileRadarEmpty {
+    border-radius: 14px;
+    padding: 16px;
+    color: var(--muted);
+    font-weight: 850;
+    line-height: 1.4;
+  }
+
   .header,
   .filtersTitle,
   .sectionHeader,
@@ -704,21 +968,15 @@
   }
 
   .summaryBar,
+  .filterMainRow,
   .filters,
+  .primaryControls,
+  .secondaryControls,
   .enginePanelGrid,
   .grid,
   .metaGrid,
   .actions {
     grid-template-columns: 1fr;
-  }
-
-  .filterLocation,
-  .filterSegment,
-  .filterTarget,
-  .filterQuantity,
-  .filterEngine,
-  .filterAdvanced {
-    grid-column: 1 / -1;
   }
 
   .filterActions {
@@ -736,5 +994,19 @@
 
   .engineMiniGrid {
     grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+}
+
+@keyframes radarCardReveal {
+  from {
+    opacity: 0;
+    transform: translateY(16px) scale(0.982);
+    filter: blur(8px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    filter: blur(0);
   }
 }

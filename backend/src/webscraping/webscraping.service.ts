@@ -5690,7 +5690,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     return this.getRadarLeadForUser(user, row.id);
   }
 
-  async importRadarLeadToVendasForUser(user: any, radarLeadId: string) {
+  async importRadarLeadToVendasForUser(user: any, radarLeadId: string, options: { skipWhatsappValidation?: boolean } = {}) {
     if (!this.vendasService) {
       throw new ServiceUnavailableException('Servico de Vendas indisponivel para importacao.');
     }
@@ -5716,6 +5716,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
 
     const imported = await this.vendasService.importWebscrapingLeadsForUser(user, {
       sourceHistoryId: `radar:${row.id}`,
+      skipWhatsappValidation: Boolean(options.skipWhatsappValidation),
       leads: [
         {
           sourceHistoryId: `radar:${row.id}`,
@@ -5727,6 +5728,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
           rating: row.rating ?? undefined,
           reviews: row.reviews ?? undefined,
           city: row.city || undefined,
+          state: row.state || undefined,
           segment: row.segment || undefined,
           shortNote: row.opportunityReason || undefined,
         },

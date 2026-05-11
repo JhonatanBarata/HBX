@@ -1,4 +1,5 @@
-@import "tailwindcss";
+@import "tailwindcss" source(none);
+@source "../**/*.{js,jsx,ts,tsx,mdx,css}";
 @import "dockview/dist/styles/dockview.css";
 
 :root {
@@ -8864,6 +8865,7 @@ html[data-theme-mode="dark"] .hbx-confirmBillboard[data-destructive="true"] {
   box-shadow:
     0 22px 30px -24px color-mix(in srgb, var(--login-accent) 48%, transparent),
     inset 0 1px 0 color-mix(in srgb, var(--surface) 24%, var(--background));
+  animation: login-brand-float 4.8s ease-in-out infinite;
 }
 
 .login-card__brandMark::after {
@@ -8881,6 +8883,30 @@ html[data-theme-mode="dark"] .hbx-confirmBillboard[data-destructive="true"] {
   font-size: 0.92rem;
   font-weight: 900;
   letter-spacing: 0.14em;
+}
+
+.login-card__brandMarkCore::before,
+.login-card__brandMarkCore::after {
+  content: "";
+  position: absolute;
+  width: 0.34rem;
+  height: 0.34rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--brand-contrast) 84%, var(--button-secondary));
+  box-shadow: 0 0 18px color-mix(in srgb, var(--button-secondary) 42%, transparent);
+  opacity: 0.8;
+}
+
+.login-card__brandMarkCore::before {
+  top: -0.55rem;
+  left: -0.52rem;
+  animation: login-orbit-dot 4.2s ease-in-out infinite;
+}
+
+.login-card__brandMarkCore::after {
+  right: -0.62rem;
+  bottom: -0.52rem;
+  animation: login-orbit-dot 4.2s ease-in-out infinite reverse;
 }
 
 .login-card__themeCopy {
@@ -9012,6 +9038,62 @@ html[data-theme-mode="dark"] .hbx-confirmBillboard[data-destructive="true"] {
   min-height: 50px;
   margin-top: 0.15rem;
   font-weight: 800;
+}
+
+.login-onboarding {
+  display: grid;
+  gap: 0.7rem;
+  margin-top: 0.15rem;
+  padding: 0.82rem;
+  border: 1px solid color-mix(in srgb, var(--login-accent) 18%, var(--line));
+  border-radius: calc(var(--control-radius) + 4px);
+  background:
+    radial-gradient(circle at 12% 8%, color-mix(in srgb, var(--button-accent) 12%, transparent), transparent 42%),
+    radial-gradient(circle at 88% 16%, color-mix(in srgb, var(--button-secondary) 14%, transparent), transparent 38%),
+    color-mix(in srgb, var(--surface) 18%, transparent);
+}
+
+.login-onboarding__actions {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.login-onboarding__copy {
+  margin: 0;
+  color: color-mix(in srgb, var(--foreground) 82%, var(--muted));
+  font-size: 0.78rem;
+  font-weight: 800;
+  line-height: 1.35;
+  text-align: center;
+}
+
+.login-onboarding__button {
+  min-height: 42px;
+  padding-inline: 0.75rem;
+}
+
+@keyframes login-brand-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+
+  50% {
+    transform: translateY(-4px);
+  }
+}
+
+@keyframes login-orbit-dot {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) scale(1);
+    opacity: 0.62;
+  }
+
+  50% {
+    transform: translate3d(0.24rem, -0.16rem, 0) scale(1.18);
+    opacity: 1;
+  }
 }
 
 .login-visuals {
@@ -9806,29 +9888,142 @@ html[data-theme="tabler"] .login-card__stat {
 }
 
 /* ensure visuals hidden on small screens to avoid heavy animation */
-@media (max-width: 720px) {
+@media (max-width: 768px) {
+  html,
+  body {
+    width: 100%;
+    max-width: 100vw;
+    overflow-x: hidden;
+  }
+
+  body.app-root {
+    overflow-x: hidden;
+  }
+
+  .route-transition:has(.login-stage) {
+    opacity: 1 !important;
+    visibility: visible !important;
+    transform: none !important;
+    filter: none !important;
+    position: relative;
+    z-index: 20;
+  }
+
+  .login-video-layer,
+  .login-visuals,
+  .login-stage__grid {
+    display: none !important;
+  }
+
+  .login-stage::before,
+  .login-stage::after,
+  .login-shell::before {
+    content: none !important;
+  }
+
   .login-core,
   .login-confetti__piece { display: none; }
+
+  .login-stage [data-ui-reveal="true"] {
+    opacity: 1 !important;
+    visibility: visible !important;
+    transform: none !important;
+    filter: none !important;
+  }
+
+  .login-console,
+  .login-shell {
+    opacity: 1 !important;
+    visibility: visible !important;
+    transform: none !important;
+    filter: none !important;
+  }
+
   .login-stage {
-    padding: 1.2rem;
+    box-sizing: border-box;
+    width: 100%;
+    max-width: 100vw;
+    min-height: 100svh;
+    display: grid;
+    place-items: center;
+    padding: max(1rem, env(safe-area-inset-top)) 1rem calc(4.25rem + env(safe-area-inset-bottom));
+    position: relative;
+    z-index: 20;
+    overflow: hidden auto;
+    background:
+      radial-gradient(circle at 50% 0%, color-mix(in srgb, var(--button-secondary) 10%, transparent), transparent 34%),
+      linear-gradient(180deg, var(--background), color-mix(in srgb, var(--surface) 86%, var(--background)));
   }
 
   .login-shell {
-    width: 100%;
+    box-sizing: border-box;
+    width: calc(100vw - 32px);
+    min-width: 0;
+    max-width: min(380px, calc(100vw - 32px));
+    display: grid;
+    place-items: center;
+    position: relative;
+    z-index: 21;
   }
 
   .login-console {
-    width: 100%;
+    box-sizing: border-box;
+    width: min(100%, calc(100vw - 32px));
+    max-width: 100vw;
+    min-height: calc(100svh - 5.25rem - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+    display: grid;
+    place-items: center;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0;
+    overflow: visible;
+    padding: 0;
+    margin: 0;
+    position: relative;
+    z-index: 21;
+  }
+
+  .login-stage[data-login-video="on"] .login-console,
+  .login-stage[data-login-video="off"] .login-console {
+    width: min(100%, calc(100vw - 32px)) !important;
+    max-width: 100vw !important;
+    min-height: calc(100svh - 5.25rem - env(safe-area-inset-top) - env(safe-area-inset-bottom)) !important;
+    grid-template-columns: minmax(0, 1fr) !important;
+    gap: 0 !important;
+  }
+
+  .login-stage[data-login-video="on"] .login-shell,
+  .login-stage[data-login-video="off"] .login-shell {
+    width: calc(100vw - 32px) !important;
+    max-width: min(380px, calc(100vw - 32px)) !important;
+    gap: 0 !important;
   }
 
   .login-card {
-    width: 100%;
-    padding: 1.3rem 1.05rem 1.15rem;
+    box-sizing: border-box;
+    width: calc(100vw - 32px);
+    max-width: min(380px, calc(100vw - 32px));
+    min-width: 0;
+    max-height: calc(100svh - 6rem - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+    padding: 1rem;
+    border-radius: 18px;
+    overflow: auto;
+    overscroll-behavior: contain;
+    opacity: 1 !important;
+    visibility: visible !important;
+    transform: none !important;
+    position: relative;
+    z-index: 22;
+  }
+
+  .login-stage[data-login-video="on"] .login-card,
+  .login-stage[data-login-video="off"] .login-card {
+    width: calc(100vw - 32px) !important;
+    max-width: min(380px, calc(100vw - 32px)) !important;
+    padding: 1rem !important;
   }
 
   .login-card__themeRow {
-    flex-direction: column;
-    justify-content: center;
+    display: none;
   }
 
   .login-card__modeBadge {
@@ -9838,23 +10033,198 @@ html[data-theme="tabler"] .login-card__stat {
   .login-card__brandBlock {
     grid-template-columns: 1fr;
     justify-items: center;
+    border: 0;
+    background: transparent;
+    padding: 0;
+    box-shadow: none;
+    min-width: 0;
   }
 
   .login-card__themeCopy,
   .login-card__stat {
-    text-align: center;
+    display: none;
   }
 
   .login-card__title {
-    font-size: clamp(1.7rem, 9vw, 2.2rem);
+    display: none;
+  }
+
+  .login-card__header {
+    gap: 0.54rem;
+    margin-bottom: 0.75rem;
   }
 
   .login-card__stats {
-    gap: 0.5rem;
+    display: none;
   }
 
   .login-card__stat {
     flex-basis: 100%;
+  }
+
+  .login-form {
+    gap: 0.72rem;
+    width: 100%;
+    min-width: 0;
+  }
+
+  .login-field {
+    gap: 0.38rem;
+    min-width: 0;
+  }
+
+  .login-label {
+    font-size: 0.82rem;
+  }
+
+  .login-stage .input {
+    min-height: 52px;
+    max-width: 100%;
+    padding: 0.86rem 0.92rem;
+    font-size: 1rem;
+  }
+
+  .login-actionsRow {
+    display: none;
+  }
+
+  .login-button {
+    min-height: 52px;
+    max-width: 100%;
+    margin-top: 0.12rem;
+    font-size: 0.96rem;
+  }
+
+  .login-onboarding {
+    gap: 0.62rem;
+    padding: 0.68rem;
+    border-radius: 16px;
+  }
+
+  .login-onboarding__copy {
+    font-size: 0.74rem;
+  }
+
+  .login-onboarding__button {
+    min-height: 44px;
+    font-size: 0.8rem;
+  }
+
+  .login-card__copy {
+    display: none;
+  }
+
+  .login-stage .msg-info,
+  .login-stage .msg-error,
+  .login-stage .msg-waking-server {
+    max-width: 100%;
+    padding: 0.68rem 0.74rem;
+    font-size: 0.78rem;
+    line-height: 1.38;
+  }
+
+  .whatsapp-help[data-surface="login"] {
+    left: 1rem;
+    right: 1rem;
+    bottom: calc(0.625rem + env(safe-area-inset-bottom));
+    justify-content: center;
+    width: calc(100vw - 32px);
+    max-width: min(380px, calc(100vw - 32px));
+    margin-inline: auto;
+    min-height: 44px;
+    padding: 0.44rem 0.58rem 0.44rem 0.72rem;
+    gap: 0.5rem;
+    border-radius: 999px;
+    transform-origin: center bottom;
+  }
+
+  .whatsapp-help[data-surface="login"]:hover {
+    transform: translateY(-1px);
+  }
+
+  .whatsapp-help[data-surface="login"] .whatsapp-help__text {
+    display: block;
+    min-width: 0;
+  }
+
+  .whatsapp-help[data-surface="login"] .whatsapp-help__text strong {
+    display: block;
+    overflow: hidden;
+    font-size: 0.84rem;
+    line-height: 1.1;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+
+  .whatsapp-help[data-surface="login"] .whatsapp-help__text small {
+    display: none;
+  }
+
+  .whatsapp-help[data-surface="login"] .whatsapp-help__icon {
+    width: 34px;
+    height: 34px;
+    box-shadow: 0 8px 18px rgba(37, 211, 102, 0.28);
+    animation: none;
+  }
+
+  .whatsapp-help[data-surface="login"] .whatsapp-help__icon::before,
+  .whatsapp-help[data-surface="login"] .whatsapp-help__icon::after {
+    display: none;
+  }
+
+  .whatsapp-help[data-surface="login"] .whatsapp-help__icon svg {
+    width: 19px;
+    height: 19px;
+  }
+
+  .whatsapp-help[data-surface="register"] {
+    left: 1rem;
+    right: 1rem;
+    bottom: calc(0.625rem + env(safe-area-inset-bottom));
+    justify-content: center;
+    width: calc(100vw - 32px);
+    max-width: min(380px, calc(100vw - 32px));
+    margin-inline: auto;
+    min-height: 44px;
+    padding: 0.44rem 0.58rem 0.44rem 0.72rem;
+    gap: 0.5rem;
+    border-radius: 999px;
+    transform-origin: center bottom;
+  }
+
+  .whatsapp-help[data-surface="register"] .whatsapp-help__text {
+    display: block;
+    min-width: 0;
+  }
+
+  .whatsapp-help[data-surface="register"] .whatsapp-help__text strong {
+    display: block;
+    overflow: hidden;
+    font-size: 0.84rem;
+    line-height: 1.1;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+
+  .whatsapp-help[data-surface="register"] .whatsapp-help__text small {
+    display: none;
+  }
+
+  .whatsapp-help[data-surface="register"] .whatsapp-help__icon {
+    width: 34px;
+    height: 34px;
+    box-shadow: 0 8px 18px rgba(37, 211, 102, 0.28);
+    animation: none;
+  }
+
+  .whatsapp-help[data-surface="register"] .whatsapp-help__icon::before,
+  .whatsapp-help[data-surface="register"] .whatsapp-help__icon::after {
+    display: none;
+  }
+
+  .whatsapp-help[data-surface="register"] .whatsapp-help__icon svg {
+    width: 19px;
+    height: 19px;
   }
 }
 

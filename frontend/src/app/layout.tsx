@@ -33,7 +33,7 @@ const themeBootstrapScript = `
 (function(){
   try {
     var palettes = ${JSON.stringify(HBX_THEME_PALETTES)};
-    var ids = ["shadcn","mosaic","tabler"];
+    var ids = ["shadcn"];
     var modes = ["light","dark"];
     var defaultSelection = { themeId: "shadcn", mode: "light" };
     var doc = document.documentElement;
@@ -45,10 +45,6 @@ const themeBootstrapScript = `
     var isThemeId = function(value){ return ids.indexOf(String(value || "").trim().toLowerCase()) !== -1; };
     var isMode = function(value){ return modes.indexOf(String(value || "").trim().toLowerCase()) !== -1; };
     var mapLegacyThemeId = function(value){
-      var normalized = String(value || "").trim().toLowerCase();
-      if (normalized === "primary" || normalized === "blue" || normalized === "shadcn") return "shadcn";
-      if (normalized === "pink" || normalized === "mosaic") return "mosaic";
-      if (normalized === "neutral" || normalized === "slate" || normalized === "grey" || normalized === "tabler") return "tabler";
       return defaultSelection.themeId;
     };
     var scopedKey = function(base, userId){ return userId ? base + ":" + userId : base; };
@@ -90,7 +86,9 @@ const themeBootstrapScript = `
       : (isMode(rawMode) ? String(rawMode).trim().toLowerCase() : defaultSelection.mode);
     var theme = palettes[themeId] || palettes[defaultSelection.themeId];
     var palette = (theme && theme[mode]) || palettes[defaultSelection.themeId][defaultSelection.mode];
-    var appearance = config.appearance || {};
+    var appearanceByTheme = config.appearanceByTheme || {};
+    var themeAppearance = appearanceByTheme[themeId] || {};
+    var appearance = Object.assign({}, config.appearance || {}, themeAppearance);
     var hex = function(value, fallback){
       return /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(String(value || "").trim()) ? String(value).trim().toUpperCase() : fallback;
     };

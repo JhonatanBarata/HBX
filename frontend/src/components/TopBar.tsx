@@ -76,6 +76,7 @@ type MasterOverviewCompanyPayload = {
 };
 
 type UserModule = { key: string; accessible: boolean };
+type NavigationMode = "basic" | "advanced";
 type CommercialPlansTopbarPayload = {
   current?: {
     entitlements?: {
@@ -96,6 +97,14 @@ type OperationalStatusChip = {
   source: string[];
   updatedAt: string | null;
 };
+const NAV_MODE_STORAGE_KEY = "hbx:navigation-mode:v1";
+const NAV_MODE_CHANGED_EVENT = "hbx-navigation-mode-changed";
+
+function readNavigationMode(fallback: NavigationMode): NavigationMode {
+  if (typeof window === "undefined") return fallback;
+  const saved = window.localStorage.getItem(NAV_MODE_STORAGE_KEY);
+  return saved === "advanced" || saved === "basic" ? saved : fallback;
+}
 type OperationalStatusPayload = {
   generatedAt: string;
   context: {
@@ -576,6 +585,9 @@ const HBX_TOPBAR_POLISH_CSS = `
   }
 
   .app-topbar__inner--controlCenter {
+    --hbx-header-glow-primary: var(--hbx-header-next-primary, var(--selection-accent-soft, rgba(16, 185, 129, 0.12)));
+    --hbx-header-glow-secondary: var(--hbx-header-next-secondary, color-mix(in srgb, var(--button-secondary, #0ea5e9) 10%, transparent));
+    --hbx-header-glow-accent: var(--hbx-header-next-accent, color-mix(in srgb, var(--button-accent, #0ea5e9) 10%, transparent));
     display: grid;
     grid-template-columns: minmax(238px, 284px) minmax(0, 1fr) minmax(220px, 274px);
     align-items: stretch;
@@ -584,11 +596,17 @@ const HBX_TOPBAR_POLISH_CSS = `
     border: 1px solid color-mix(in srgb, var(--brand, #10b981) 22%, var(--line, rgba(148, 163, 184, 0.22)));
     border-radius: calc(var(--panel-radius, 22px) + 4px);
     background:
-      radial-gradient(circle at 18% 0%, var(--selection-accent-soft, rgba(16, 185, 129, 0.12)), transparent 34%),
+      radial-gradient(circle at 16% 0%, var(--hbx-header-glow-primary), transparent 34%),
+      radial-gradient(circle at 58% 6%, var(--hbx-header-glow-secondary), transparent 32%),
+      radial-gradient(circle at 92% 0%, var(--hbx-header-glow-accent), transparent 30%),
       linear-gradient(135deg, var(--header-surface, var(--surface, #ffffff)), var(--surface-soft, #f8fafc));
     box-shadow:
       0 0 0 1px color-mix(in srgb, var(--brand, #10b981) 10%, transparent),
       var(--shadow-sm, 0 18px 42px -24px rgba(15, 23, 42, 0.26));
+    transition:
+      border-color 740ms cubic-bezier(.2, .78, .2, 1),
+      box-shadow 740ms cubic-bezier(.2, .78, .2, 1),
+      filter 740ms cubic-bezier(.2, .78, .2, 1);
   }
 
   .hbx-whatsapp-live-alert {
@@ -638,8 +656,14 @@ const HBX_TOPBAR_POLISH_CSS = `
   .hbx-command-side,
   .hbx-command-billboard {
     border: 1px solid var(--line, rgba(148, 163, 184, 0.2));
-    background: linear-gradient(180deg, color-mix(in srgb, var(--surface-raised, #fff) 94%, transparent), color-mix(in srgb, var(--surface-soft, #f8fafc) 92%, transparent));
+    background:
+      radial-gradient(circle at 12% 0%, var(--hbx-header-glow-primary, transparent), transparent 42%),
+      linear-gradient(180deg, color-mix(in srgb, var(--surface-raised, #fff) 94%, transparent), color-mix(in srgb, var(--surface-soft, #f8fafc) 92%, transparent));
     box-shadow: var(--shadow-xs, 0 12px 24px -18px rgba(15, 23, 42, 0.22));
+    transition:
+      background 740ms cubic-bezier(.2, .78, .2, 1),
+      border-color 740ms cubic-bezier(.2, .78, .2, 1),
+      box-shadow 740ms cubic-bezier(.2, .78, .2, 1);
   }
 
   .hbx-command-brand {
@@ -654,6 +678,10 @@ const HBX_TOPBAR_POLISH_CSS = `
   }
 
   .hbx-command-brand__mark {
+    --hbx-mark-primary: var(--hbx-brand-mark-next-primary, var(--brand, #10b981));
+    --hbx-mark-secondary: var(--hbx-brand-mark-next-secondary, var(--button-secondary, #0ea5e9));
+    --hbx-mark-accent: var(--hbx-brand-mark-next-accent, var(--button-accent, #0ea5e9));
+    --hbx-mark-soft: var(--hbx-brand-mark-next-soft, var(--selection-accent-soft, rgba(16, 185, 129, 0.18)));
     width: 52px;
     height: 52px;
     border: 0;
@@ -661,13 +689,50 @@ const HBX_TOPBAR_POLISH_CSS = `
     display: grid;
     place-items: center;
     color: var(--brand-contrast, #fff);
-    background: radial-gradient(circle at 30% 20%, rgba(255,255,255,.34), transparent 30%), linear-gradient(135deg, var(--brand, #10b981), var(--button-accent, #0ea5e9));
-    box-shadow: 0 16px 34px -22px var(--brand, #10b981);
+    background:
+      radial-gradient(circle at 30% 20%, rgba(255,255,255,.34), transparent 30%),
+      linear-gradient(135deg, var(--hbx-mark-primary), var(--hbx-mark-accent));
+    box-shadow: 0 16px 34px -22px var(--hbx-mark-primary);
     font-size: 11px;
     font-weight: 900;
     letter-spacing: .02em;
     cursor: pointer;
     position: relative;
+    isolation: isolate;
+    overflow: hidden;
+    transition:
+      transform 640ms cubic-bezier(.18, .82, .18, 1),
+      box-shadow 920ms cubic-bezier(.18, .82, .18, 1),
+      filter 920ms cubic-bezier(.18, .82, .18, 1);
+  }
+
+  .hbx-command-brand__mark::before,
+  .hbx-command-brand__mark::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  .hbx-command-brand__mark::before {
+    background:
+      radial-gradient(circle at 22% 18%, rgba(255, 255, 255, 0.64), transparent 19%),
+      radial-gradient(circle at 74% 82%, color-mix(in srgb, var(--hbx-mark-secondary) 62%, transparent), transparent 36%),
+      linear-gradient(145deg, var(--hbx-mark-primary), color-mix(in srgb, var(--hbx-mark-primary) 34%, #020617) 72%);
+    opacity: 0;
+    transform: scale(0.42) translate(-18%, 14%);
+  }
+
+  .hbx-command-brand__mark::after {
+    background:
+      radial-gradient(circle at 38% 18%, rgba(255, 255, 255, 0.62), transparent 13%),
+      radial-gradient(circle at 50% 52%, rgba(255, 255, 255, 0.2), transparent 38%),
+      linear-gradient(105deg, transparent 0 30%, rgba(255, 255, 255, 0.28) 42%, transparent 58% 100%);
+    mix-blend-mode: screen;
+    opacity: 0.22;
+    transform: translateX(-18%) rotate(-8deg);
   }
 
   .hbx-command-brand__mark span {
@@ -676,6 +741,7 @@ const HBX_TOPBAR_POLISH_CSS = `
     border: 1px solid rgba(255,255,255,.42);
     border-radius: 14px;
     pointer-events: none;
+    z-index: 1;
   }
 
   .hbx-command-brand__copy { min-width: 0; display: grid; gap: 2px; overflow: visible; }
@@ -1072,7 +1138,7 @@ const HBX_TOPBAR_POLISH_CSS = `
   .hbx-command-side { min-width: 0; display: grid; grid-template-columns: 1fr; align-content: start; gap: 8px; padding: 10px; border-radius: var(--panel-radius, 22px); }
   .hbx-control-accountRow, .hbx-control-masterActions, .hbx-control-vitals { min-width: 0; display: flex; flex-wrap: wrap; gap: 7px; align-items: center; }
   .hbx-control-user { min-width: 0; flex: 1 1 150px; position: relative; }
-  .hbx-control-user__trigger, .hbx-control-logout, .hbx-control-masterActions .btn, .hbx-control-vitals span { min-height: 34px; border-radius: 999px; border: 1px solid var(--line, rgba(148,163,184,.2)); background: color-mix(in srgb, var(--surface-raised, #fff) 92%, transparent); color: var(--foreground, #0f172a); box-shadow: var(--shadow-inset, inset 0 1px 0 rgba(255,255,255,.72)); }
+  .hbx-control-user__trigger, .hbx-control-logout, .hbx-control-navMode, .hbx-control-masterActions .btn, .hbx-control-vitals span { min-height: 34px; border-radius: 999px; border: 1px solid var(--line, rgba(148,163,184,.2)); background: color-mix(in srgb, var(--surface-raised, #fff) 92%, transparent); color: var(--foreground, #0f172a); box-shadow: var(--shadow-inset, inset 0 1px 0 rgba(255,255,255,.72)); }
   .hbx-control-user__trigger { width: 100%; display: grid; grid-template-columns: 30px minmax(0, 1fr); gap: 8px; align-items: center; padding: 3px 10px 3px 4px; }
   .hbx-control-user .app-user__avatar { width: 30px; height: 30px; display: grid; place-items: center; border-radius: 999px; color: var(--brand-contrast, #fff); background: linear-gradient(135deg, var(--brand, #10b981), var(--button-accent, #0ea5e9)); font-size: 12px; font-weight: 950; }
   .hbx-control-user .app-user__meta { min-width: 0; display: grid; text-align: left; }
@@ -1080,6 +1146,8 @@ const HBX_TOPBAR_POLISH_CSS = `
   .hbx-control-user .app-user__name { color: var(--foreground, #0f172a); font-size: 12px; font-weight: 900; }
   .hbx-control-user .app-user__company { color: var(--muted, #64748b); font-size: 10px; font-weight: 700; }
   .hbx-control-logout { display: inline-flex; align-items: center; gap: 6px; padding: 0 11px; font-size: 11px; font-weight: 900; text-decoration: none; }
+  .hbx-control-navMode { display: inline-flex; align-items: center; justify-content: center; gap: 7px; padding: 0 12px; font-size: 11px; font-weight: 950; }
+  .hbx-control-navMode span { width: 18px; height: 18px; display: grid; place-items: center; border-radius: 999px; background: color-mix(in srgb, var(--button-accent, #0284c7) 14%, transparent); color: color-mix(in srgb, var(--button-accent, #0284c7) 82%, var(--foreground, #0f172a)); font-size: 15px; line-height: 1; }
   .hbx-control-masterActions .btn { padding: 0 12px; font-size: 11px; font-weight: 900; }
   .hbx-control-vitals span { display: inline-grid; align-content: center; padding: 4px 10px; color: var(--muted, #64748b); font-size: 9px; font-weight: 900; letter-spacing: .04em; text-transform: uppercase; }
   .hbx-control-vitals strong { color: var(--foreground, #0f172a); font-size: 12px; letter-spacing: -0.02em; }
@@ -1087,6 +1155,102 @@ const HBX_TOPBAR_POLISH_CSS = `
   .hbx-control-vitals span[data-tone="yellow"] strong, .hbx-control-vitals span[data-tone="warning"] strong { color: var(--button-secondary, var(--selection-accent, var(--brand, #10b981))); }
   .hbx-control-vitals span[data-tone="red"] strong, .hbx-control-vitals span[data-tone="danger"] strong { color: var(--danger, #ef4444); }
   .hbx-control-user .app-user__menu { right: 0; left: auto; width: min(320px, calc(100vw - 24px)); border: 1px solid var(--line, rgba(148,163,184,.2)); background: var(--surface-raised, #fff); color: var(--foreground, #0f172a); box-shadow: var(--shadow-md, 0 30px 72px -32px rgba(15,23,42,.38)); }
+
+  @keyframes hbxBrandMarkLiquidFill {
+    0% {
+      opacity: 0;
+      transform: scale(0.22) translate(-28%, 22%);
+      filter: blur(4px);
+    }
+    38% {
+      opacity: 0.86;
+      transform: scale(1.32) translate(5%, -4%);
+      filter: blur(0.5px);
+    }
+    68% {
+      opacity: 1;
+      transform: scale(0.92) translate(-1%, 1%);
+      filter: blur(0);
+    }
+    100% {
+      opacity: 1;
+      transform: scale(1) translate(0, 0);
+      filter: blur(0);
+    }
+  }
+
+  @keyframes hbxBrandMarkCrystalSweep {
+    0% {
+      opacity: 0;
+      transform: translateX(-86%) rotate(-10deg) scaleX(0.64);
+    }
+    46% {
+      opacity: 0.72;
+    }
+    100% {
+      opacity: 0.3;
+      transform: translateX(56%) rotate(-10deg) scaleX(1.14);
+    }
+  }
+
+  @keyframes hbxBrandMarkPulse {
+    0%, 100% {
+      transform: translateY(0) scale(1);
+    }
+    24% {
+      transform: translateY(-3px) scale(1.16);
+      box-shadow:
+        0 0 0 7px color-mix(in srgb, var(--brand, #10b981) 28%, transparent),
+        0 0 0 22px color-mix(in srgb, var(--button-secondary, #0ea5e9) 20%, transparent),
+        0 0 44px color-mix(in srgb, var(--button-accent, #0ea5e9) 42%, transparent),
+        0 30px 56px -18px color-mix(in srgb, var(--brand, #10b981) 86%, transparent);
+    }
+    52% {
+      transform: translateY(1px) scale(0.94);
+      box-shadow:
+        0 0 0 2px color-mix(in srgb, var(--brand, #10b981) 22%, transparent),
+        0 0 0 9px color-mix(in srgb, var(--button-secondary, #0ea5e9) 12%, transparent),
+        0 16px 32px -22px color-mix(in srgb, var(--brand, #10b981) 76%, transparent);
+    }
+    78% {
+      transform: translateY(-1px) scale(1.055);
+      box-shadow:
+        0 0 0 4px color-mix(in srgb, var(--brand, #10b981) 22%, transparent),
+        0 0 0 15px color-mix(in srgb, var(--button-secondary, #0ea5e9) 14%, transparent),
+        0 22px 42px -20px color-mix(in srgb, var(--brand, #10b981) 80%, transparent);
+    }
+  }
+
+  @keyframes hbxHeaderAccentPulse {
+    0%, 100% {
+      opacity: 1;
+      transform: translateY(-50%) scale(1);
+    }
+    46% {
+      opacity: 0.82;
+      transform: translateY(-50%) scale(1.5);
+    }
+  }
+
+  @keyframes hbxHeaderPulse {
+    0%, 100% {
+      filter: saturate(1) brightness(1);
+    }
+    32% {
+      filter: saturate(1.18) brightness(1.035);
+      box-shadow:
+        0 0 0 3px color-mix(in srgb, var(--brand, #10b981) 16%, transparent),
+        0 0 52px color-mix(in srgb, var(--button-secondary, #0ea5e9) 16%, transparent),
+        0 24px 58px -34px rgba(15, 23, 42, 0.4),
+        inset 0 1px 0 rgba(255, 255, 255, 0.82);
+    }
+    58% {
+      filter: saturate(0.96) brightness(0.99);
+    }
+    78% {
+      filter: saturate(1.08) brightness(1.015);
+    }
+  }
 
   @keyframes hbxTopbarScan { 0%, 66% { transform: translateX(-120%); } 100% { transform: translateX(120%); } }
   @media (max-width: 1240px) {
@@ -1111,18 +1275,26 @@ const HBX_TOPBAR_POLISH_CSS = `
   }
 
   .app-topbar__frame {
+    --hbx-header-glow-primary: var(--hbx-header-next-primary, color-mix(in srgb, var(--button-accent, #0ea5e9) 14%, transparent));
+    --hbx-header-glow-secondary: var(--hbx-header-next-secondary, color-mix(in srgb, var(--success, #10b981) 10%, transparent));
+    --hbx-header-glow-accent: var(--hbx-header-next-accent, color-mix(in srgb, var(--brand, #245cff) 8%, transparent));
     min-height: 96px !important;
     border-radius: 30px !important;
     overflow: visible !important;
-    border: 1px solid color-mix(in srgb, var(--button-accent, #0ea5e9) 22%, var(--line, rgba(148, 163, 184, 0.28))) !important;
+    border: 1px solid color-mix(in srgb, var(--brand, #0ea5e9) 26%, var(--line, rgba(148, 163, 184, 0.28))) !important;
     background:
-      radial-gradient(circle at 14% 18%, color-mix(in srgb, var(--button-accent, #0ea5e9) 14%, transparent), transparent 28%),
-      radial-gradient(circle at 52% 8%, color-mix(in srgb, var(--success, #10b981) 10%, transparent), transparent 28%),
-      linear-gradient(135deg, color-mix(in srgb, var(--header-surface, #ffffff) 92%, transparent), color-mix(in srgb, #eef8ff 66%, var(--surface, #ffffff))) !important;
+      radial-gradient(circle at 14% 18%, var(--hbx-header-glow-primary), transparent 30%),
+      radial-gradient(circle at 52% 8%, var(--hbx-header-glow-secondary), transparent 30%),
+      radial-gradient(circle at 88% 16%, var(--hbx-header-glow-accent), transparent 28%),
+      linear-gradient(135deg, color-mix(in srgb, var(--header-surface, #ffffff) 92%, transparent), color-mix(in srgb, var(--surface-soft, #eef8ff) 66%, var(--surface, #ffffff))) !important;
     box-shadow:
-      0 0 0 2px color-mix(in srgb, var(--button-accent, #38bdf8) 10%, transparent),
+      0 0 0 2px color-mix(in srgb, var(--brand, #38bdf8) 12%, transparent),
       0 20px 48px -34px rgba(15, 23, 42, 0.34),
       inset 0 1px 0 rgba(255, 255, 255, 0.78) !important;
+    transition:
+      border-color 980ms cubic-bezier(.16, .86, .18, 1),
+      box-shadow 980ms cubic-bezier(.16, .86, .18, 1),
+      filter 980ms cubic-bezier(.16, .86, .18, 1);
   }
 
   .app-topbar__inner--controlCenter {
@@ -1159,7 +1331,7 @@ const HBX_TOPBAR_POLISH_CSS = `
     top: 9px;
     bottom: 9px;
     width: 1px;
-    background: linear-gradient(180deg, transparent, color-mix(in srgb, var(--button-accent, #38bdf8) 44%, transparent), transparent);
+    background: linear-gradient(180deg, transparent, color-mix(in srgb, var(--brand, #38bdf8) 52%, transparent), transparent);
   }
 
   .hbx-command-brand::before {
@@ -1170,8 +1342,10 @@ const HBX_TOPBAR_POLISH_CSS = `
     width: 6px;
     height: 6px;
     border-radius: 999px;
-    background: #67e8f9;
-    box-shadow: 0 0 0 3px rgba(103, 232, 249, 0.16), 0 0 16px rgba(34, 211, 238, 0.86);
+    background: color-mix(in srgb, var(--button-secondary, #67e8f9) 84%, #ffffff);
+    box-shadow:
+      0 0 0 3px color-mix(in srgb, var(--button-secondary, #67e8f9) 18%, transparent),
+      0 0 18px color-mix(in srgb, var(--button-secondary, #22d3ee) 86%, transparent);
     transform: translateY(-50%);
   }
 
@@ -1182,12 +1356,12 @@ const HBX_TOPBAR_POLISH_CSS = `
     color: #ffffff !important;
     background:
       radial-gradient(circle at 28% 18%, rgba(255, 255, 255, 0.5), transparent 20%),
-      radial-gradient(circle at 72% 84%, rgba(14, 165, 233, 0.56), transparent 34%),
-      linear-gradient(145deg, #0284c7 0%, #03415f 72%) !important;
+      radial-gradient(circle at 72% 84%, color-mix(in srgb, var(--hbx-mark-secondary) 58%, transparent), transparent 34%),
+      linear-gradient(145deg, var(--hbx-mark-primary) 0%, color-mix(in srgb, var(--hbx-mark-primary) 32%, #020617) 72%) !important;
     box-shadow:
-      0 0 0 3px rgba(103, 232, 249, 0.2),
-      0 0 0 8px rgba(14, 165, 233, 0.1),
-      0 18px 30px -20px rgba(2, 132, 199, 0.92) !important;
+      0 0 0 3px var(--hbx-mark-soft),
+      0 0 0 8px color-mix(in srgb, var(--hbx-mark-secondary) 12%, transparent),
+      0 18px 30px -20px color-mix(in srgb, var(--hbx-mark-primary) 92%, transparent) !important;
     font-size: 13px !important;
     letter-spacing: 0 !important;
   }
@@ -1196,6 +1370,47 @@ const HBX_TOPBAR_POLISH_CSS = `
     inset: 8px !important;
     border-radius: 999px !important;
     border-color: rgba(255, 255, 255, 0.36) !important;
+  }
+
+  html[data-hbx-brand-mark-transitioning="true"] .hbx-command-brand__mark {
+    transform: translateY(-2px) scale(1.075);
+    filter: saturate(1.34) brightness(1.08);
+    box-shadow:
+      0 0 0 5px var(--hbx-mark-soft),
+      0 0 0 16px color-mix(in srgb, var(--hbx-mark-secondary) 18%, transparent),
+      0 0 32px color-mix(in srgb, var(--hbx-mark-accent) 34%, transparent),
+      0 24px 48px -18px color-mix(in srgb, var(--hbx-mark-primary) 90%, transparent) !important;
+  }
+
+  html[data-hbx-brand-mark-transitioning="true"] .app-topbar__frame {
+    filter: saturate(1.12) brightness(1.02);
+    border-color: color-mix(in srgb, var(--hbx-mark-primary) 42%, var(--line, rgba(148, 163, 184, 0.28))) !important;
+    box-shadow:
+      0 0 0 2px color-mix(in srgb, var(--hbx-mark-primary) 18%, transparent),
+      0 0 38px color-mix(in srgb, var(--hbx-mark-secondary) 16%, transparent),
+      0 22px 54px -34px rgba(15, 23, 42, 0.38),
+      inset 0 1px 0 rgba(255, 255, 255, 0.8) !important;
+  }
+
+  html[data-hbx-brand-mark-transitioning="true"] .hbx-command-brand::after,
+  html[data-hbx-brand-mark-transitioning="true"] .hbx-command-brand::before {
+    animation: hbxHeaderAccentPulse 980ms cubic-bezier(.16, .86, .18, 1) both;
+  }
+
+  html[data-hbx-brand-mark-transitioning="true"] .hbx-command-brand__mark::before {
+    animation: hbxBrandMarkLiquidFill 980ms cubic-bezier(.16, .86, .18, 1) both;
+  }
+
+  html[data-hbx-brand-mark-transitioning="true"] .hbx-command-brand__mark::after {
+    animation: hbxBrandMarkCrystalSweep 980ms cubic-bezier(.16, .86, .18, 1) both;
+  }
+
+  html[data-hbx-brand-mark-pulse="true"] .hbx-command-brand__mark {
+    animation: hbxBrandMarkPulse 1120ms cubic-bezier(.16, .86, .18, 1) both;
+  }
+
+  html[data-hbx-brand-mark-pulse="true"] .app-topbar__frame {
+    animation: hbxHeaderPulse 1120ms cubic-bezier(.16, .86, .18, 1) both;
   }
 
   .hbx-command-brand__copy strong {
@@ -1491,6 +1706,7 @@ const HBX_TOPBAR_POLISH_CSS = `
   .hbx-command-side .theme-switcher-wrap,
   .hbx-control-user,
   .hbx-control-logout,
+  .hbx-control-navMode,
   .hbx-control-contextButton {
     height: 50px !important;
     min-height: 50px !important;
@@ -1505,6 +1721,7 @@ const HBX_TOPBAR_POLISH_CSS = `
   .hbx-command-side .theme-switcher__trigger,
   .hbx-control-user__trigger,
   .hbx-control-logout,
+  .hbx-control-navMode,
   .hbx-control-contextButton {
     border: 1px solid color-mix(in srgb, var(--button-accent, #38bdf8) 22%, rgba(148, 163, 184, 0.28)) !important;
     border-radius: 16px !important;
@@ -1644,6 +1861,7 @@ const HBX_TOPBAR_POLISH_CSS = `
   }
 
   .hbx-control-logout,
+  .hbx-control-navMode,
   .hbx-control-contextButton {
     min-width: 0 !important;
     display: inline-flex !important;
@@ -1663,6 +1881,18 @@ const HBX_TOPBAR_POLISH_CSS = `
     min-width: 56px !important;
     flex: 0 0 56px !important;
     padding: 0 !important;
+  }
+
+  .hbx-control-navMode {
+    width: 100% !important;
+    min-width: 106px !important;
+    flex: 0 0 106px !important;
+    border-radius: 16px !important;
+  }
+
+  .hbx-control-navMode[aria-pressed="true"] {
+    border-color: color-mix(in srgb, var(--success, #10b981) 34%, rgba(148, 163, 184, 0.28)) !important;
+    background: linear-gradient(180deg, color-mix(in srgb, #ecfdf5 78%, var(--surface, #ffffff)), rgba(240, 248, 252, 0.74)) !important;
   }
 
   .hbx-command-side .hbx-control-logout .hbx-control-logout__label {
@@ -1720,7 +1950,7 @@ const HBX_TOPBAR_POLISH_CSS = `
 
   @media (max-width: 1380px) {
     .app-topbar__inner--controlCenter {
-      grid-template-columns: minmax(230px, 300px) minmax(390px, 1fr) minmax(400px, 460px) !important;
+      grid-template-columns: minmax(230px, 300px) minmax(390px, 1fr) minmax(430px, 500px) !important;
       gap: 12px !important;
       padding-inline: 14px !important;
     }
@@ -1737,6 +1967,11 @@ const HBX_TOPBAR_POLISH_CSS = `
 
     .hbx-control-user {
       flex-basis: 176px !important;
+    }
+
+    .hbx-control-navMode {
+      flex-basis: 106px !important;
+      min-width: 106px !important;
     }
 
     .hbx-control-logout {
@@ -1758,6 +1993,11 @@ const HBX_TOPBAR_POLISH_CSS = `
 
     .hbx-control-user {
       flex-basis: 176px !important;
+    }
+
+    .hbx-control-navMode {
+      flex-basis: 106px !important;
+      min-width: 106px !important;
     }
 
     .hbx-control-logout {
@@ -1906,7 +2146,8 @@ const HBX_TOPBAR_POLISH_CSS = `
 
   html[data-theme-mode="dark"] .hbx-command-side .theme-switcher__trigger,
   html[data-theme-mode="dark"] .hbx-control-user__trigger,
-  html[data-theme-mode="dark"] .hbx-control-logout {
+  html[data-theme-mode="dark"] .hbx-control-logout,
+  html[data-theme-mode="dark"] .hbx-control-navMode {
     border-color: color-mix(in srgb, var(--button-success, #22c55e) 34%, var(--line, rgba(148, 163, 184, 0.24))) !important;
     background:
       radial-gradient(circle at 20% 0%, color-mix(in srgb, var(--button-secondary, #38bdf8) 13%, transparent), transparent 48%),
@@ -1922,7 +2163,8 @@ const HBX_TOPBAR_POLISH_CSS = `
   }
 
   html[data-theme-mode="dark"] .hbx-control-logout svg,
-  html[data-theme-mode="dark"] .hbx-control-user__chevron svg {
+  html[data-theme-mode="dark"] .hbx-control-user__chevron svg,
+  html[data-theme-mode="dark"] .hbx-control-navMode span {
     color: color-mix(in srgb, var(--button-success, #22c55e) 74%, #ffffff) !important;
   }
 `;
@@ -2324,6 +2566,7 @@ export default function TopBar() {
   const [whatsAppModal, setWhatsAppModal] = useState<WhatsAppModalPayload | null>(null);
   const [whatsAppQrRequested, setWhatsAppQrRequested] = useState(false);
   const [supportHasInternalChat, setSupportHasInternalChat] = useState<boolean | null>(null);
+  const [navigationMode, setNavigationMode] = useState<NavigationMode>("basic");
   const recoveryLastSeenRef = useRef<Map<number, string>>(new Map());
   const recoveryHumanQueueRef = useRef<Map<number, boolean>>(new Map());
   const recoveryAlertReadyRef = useRef(false);
@@ -2354,6 +2597,22 @@ export default function TopBar() {
   });
 
   usePopupTopbarLock(whatsAppDetailOpen || masterContextModalOpen);
+
+  const navigationModeFallback: NavigationMode =
+    user?.isSystemMaster || String(user?.role || "").toUpperCase() === "ADMIN" ? "advanced" : "basic";
+
+  useEffect(() => {
+    setNavigationMode(readNavigationMode(navigationModeFallback));
+  }, [navigationModeFallback]);
+
+  function toggleNavigationMode() {
+    const nextMode: NavigationMode = navigationMode === "advanced" ? "basic" : "advanced";
+    setNavigationMode(nextMode);
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(NAV_MODE_STORAGE_KEY, nextMode);
+      window.dispatchEvent(new CustomEvent(NAV_MODE_CHANGED_EVENT, { detail: { mode: nextMode } }));
+    }
+  }
 
   useEffect(() => {
     if (window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches) {
@@ -4826,7 +5085,7 @@ export default function TopBar() {
         <div
           className="app-topbar__inner app-topbar__inner--controlCenter"
           style={{
-            gridTemplateColumns: "minmax(240px, 300px) minmax(360px, 1fr) minmax(310px, 340px)",
+            gridTemplateColumns: "minmax(240px, 300px) minmax(360px, 1fr) minmax(430px, 520px)",
             alignItems: "center",
           }}
         >
@@ -4882,6 +5141,19 @@ export default function TopBar() {
               overflow: "visible",
             }}
           >
+            {authenticated === true ? (
+              <button
+                type="button"
+                className="hbx-control-navMode"
+                onClick={toggleNavigationMode}
+                aria-pressed={navigationMode === "advanced"}
+                title={navigationMode === "advanced" ? "Menu avançado ativo" : "Menu básico ativo"}
+                style={{ flex: "0 0 106px", minWidth: 106, height: 50, alignSelf: "center" }}
+              >
+                <span aria-hidden="true">+</span>
+                <strong>{navigationMode === "advanced" ? "Avançado" : "Básico"}</strong>
+              </button>
+            ) : null}
             <div className="hbx-right-themeSlot">
               <ThemeSwitcher />
             </div>

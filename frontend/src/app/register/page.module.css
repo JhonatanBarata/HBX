@@ -1499,6 +1499,74 @@
   }
 }
 
+@media (max-width: 768px) {
+  :global(.login-stage).registerStage {
+    box-sizing: border-box;
+    min-height: 100svh;
+    max-height: none;
+    width: 100%;
+    max-width: 100vw;
+    overflow-x: hidden;
+    overflow-y: auto;
+    padding: 14px 14px calc(72px + env(safe-area-inset-bottom));
+  }
+
+  :global(.login-console).registerConsole {
+    width: min(100%, calc(100vw - 28px)) !important;
+    max-width: calc(100vw - 28px);
+    max-height: none;
+    grid-template-columns: minmax(0, 1fr) !important;
+    gap: 14px !important;
+    align-items: start;
+    justify-items: stretch;
+  }
+
+  .registerConsole :global(.login-side),
+  .registerConsole :global(.login-shell) {
+    width: 100%;
+    min-width: 0;
+    justify-self: stretch;
+  }
+
+  .registerPlansPanel {
+    box-sizing: border-box;
+    width: 100%;
+    max-height: none;
+    overflow: visible;
+    gap: 14px;
+    border: 1px solid color-mix(in srgb, var(--button-primary) 18%, var(--line));
+    border-radius: 18px;
+    padding: 16px 12px 14px;
+    background:
+      radial-gradient(circle at 12% 16%, color-mix(in srgb, var(--button-secondary) 12%, transparent), transparent 38%),
+      linear-gradient(180deg, color-mix(in srgb, var(--surface) 76%, transparent), color-mix(in srgb, var(--surface-soft) 88%, transparent));
+    box-shadow: 0 22px 56px -44px color-mix(in srgb, var(--button-primary) 42%, transparent);
+  }
+
+  .plansHeader {
+    margin: 0;
+  }
+
+  .plansHeader h1 {
+    margin: 0;
+    max-width: 15ch;
+    font-size: 1.58rem;
+    line-height: 1.08;
+  }
+
+  .plansHeader p {
+    max-width: 30ch;
+    margin-top: 8px;
+    font-size: 0.94rem;
+    line-height: 1.42;
+  }
+
+  .registerCard {
+    width: 100%;
+    max-height: none;
+  }
+}
+
 /* Final register viewport fit and theme contrast pass. Scoped to /register only. */
 :global(.login-stage).registerStage {
   min-height: 100dvh;
@@ -1857,5 +1925,73 @@
   .trustStrip div {
     min-height: 50px;
     padding-block: 8px;
+  }
+}
+
+@media (max-width: 768px) {
+  :global(.login-stage).registerStage {
+    box-sizing: border-box !important;
+    min-height: 100svh !important;
+    max-height: none !important;
+    width: 100% !important;
+    max-width: 100vw !important;
+    overflow-x: hidden !important;
+    overflow-y: auto !important;
+    padding: 14px 14px calc(72px + env(safe-area-inset-bottom)) !important;
+  }
+
+  :global(.login-console).registerConsole {
+    width: min(100%, calc(100vw - 28px)) !important;
+    max-width: calc(100vw - 28px) !important;
+    max-height: none !important;
+    grid-template-columns: minmax(0, 1fr) !important;
+    gap: 14px !important;
+    align-items: start !important;
+    justify-items: stretch !important;
+  }
+
+  .registerConsole :global(.login-side),
+  .registerConsole :global(.login-shell) {
+    width: 100% !important;
+    min-width: 0 !important;
+    justify-self: stretch !important;
+  }
+
+  .registerPlansPanel {
+    box-sizing: border-box !important;
+    width: 100% !important;
+    max-height: none !important;
+    overflow: visible !important;
+    gap: 14px !important;
+    border: 1px solid color-mix(in srgb, var(--button-primary) 18%, var(--line)) !important;
+    border-radius: 18px !important;
+    padding: 16px 12px 14px !important;
+    background:
+      radial-gradient(circle at 12% 16%, color-mix(in srgb, var(--button-secondary) 12%, transparent), transparent 38%),
+      linear-gradient(180deg, color-mix(in srgb, var(--surface) 76%, transparent), color-mix(in srgb, var(--surface-soft) 88%, transparent)) !important;
+    box-shadow: 0 22px 56px -44px color-mix(in srgb, var(--button-primary) 42%, transparent) !important;
+  }
+
+  .plansHeader {
+    margin: 0 !important;
+  }
+
+  .plansHeader h1 {
+    margin: 0 !important;
+    max-width: 15ch;
+    font-size: 1.58rem !important;
+    line-height: 1.08 !important;
+  }
+
+  .plansHeader p {
+    max-width: 30ch;
+    margin-top: 8px !important;
+    font-size: 0.94rem !important;
+    line-height: 1.42 !important;
+  }
+
+  .registerCard {
+    width: 100% !important;
+    max-height: none !important;
   }
 }

@@ -8,7 +8,7 @@ import {
   type HbxThemeConfig,
   type HbxThemeSelection,
 } from "./design-tokens";
-import { isHbxThemeId, isHbxThemeMode, type HbxThemeId, type HbxThemeMode } from "./theme-palettes";
+import { HBX_THEME_IDS, isHbxThemeId, isHbxThemeMode, type HbxThemeId, type HbxThemeMode } from "./theme-palettes";
 
 export const ACTIVE_THEME_USER_STORAGE_KEY = "hbx:active-user-id";
 export const HBX_THEME_ID_STORAGE_KEY = "hbx:theme-id";
@@ -40,19 +40,6 @@ function buildScopedKey(baseKey: string, userId?: string | number | null) {
 }
 
 function mapLegacyThemeId(value: string | null): HbxThemeId {
-  const normalized = String(value || "").trim().toLowerCase();
-  if (normalized === "primary" || normalized === "blue" || normalized === "shadcn") {
-    return "shadcn";
-  }
-  if (normalized === "secondary" || normalized === "green" || normalized === "tailadmin") {
-    return DEFAULT_THEME_SELECTION.themeId;
-  }
-  if (normalized === "neutral" || normalized === "slate" || normalized === "grey") {
-    return "tabler";
-  }
-  if (normalized === "pink" || normalized === "mosaic") return "mosaic";
-  if (normalized === "flowbite") return DEFAULT_THEME_SELECTION.themeId;
-  if (normalized === "tabler") return "tabler";
   return DEFAULT_THEME_SELECTION.themeId;
 }
 
@@ -175,6 +162,32 @@ function normalizeStoredThemeConfig(config?: HbxThemeConfig | null): HbxThemeCon
       }, {})
     : undefined;
 
+  const appearanceByTheme = sanitized.appearanceByTheme
+    ? HBX_THEME_IDS.reduce<NonNullable<HbxThemeConfig["appearanceByTheme"]>>((acc, themeId) => {
+        const themeAppearance = sanitized.appearanceByTheme?.[themeId];
+        if (!themeAppearance) return acc;
+
+        const themeDefaults = buildThemeAppearanceDefaults({
+          themeId,
+          mode: selection.mode,
+        });
+        const normalizedThemeAppearance = THEME_APPEARANCE_KEYS.reduce<NonNullable<HbxThemeConfig["appearance"]>>(
+          (themeAcc, key) => {
+            const value = themeAppearance[key];
+            if (!value || value === themeDefaults[key]) return themeAcc;
+            themeAcc[key] = value;
+            return themeAcc;
+          },
+          {},
+        );
+
+        if (Object.keys(normalizedThemeAppearance).length) {
+          acc[themeId] = normalizedThemeAppearance;
+        }
+        return acc;
+      }, {})
+    : undefined;
+
   const motion = sanitized.motion?.transitionStyle
     ? hasResolvedAppearanceArtifact && sanitized.motion.transitionStyle === DEFAULT_THEME_MOTION_STYLE
       ? undefined
@@ -185,6 +198,7 @@ function normalizeStoredThemeConfig(config?: HbxThemeConfig | null): HbxThemeCon
     sanitizeThemeConfig({
       ...(sanitized.selection ? { selection: sanitized.selection } : {}),
       ...(appearance && Object.keys(appearance).length ? { appearance } : {}),
+      ...(appearanceByTheme && Object.keys(appearanceByTheme).length ? { appearanceByTheme } : {}),
       ...(motion ? { motion } : {}),
     }) || null
   );

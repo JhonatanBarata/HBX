@@ -18,6 +18,8 @@ export default function WhatsAppHelpBubble() {
   const pathname = usePathname();
   const [hiddenByFooter, setHiddenByFooter] = useState(false);
   const visible = shouldShowHelp(pathname);
+  const isLoginSurface = (String(pathname || "/").replace(/\/+$/, "") || "/") === "/login";
+  const isRegisterSurface = (String(pathname || "/").replace(/\/+$/, "") || "/") === "/register";
   const supportUrl = useMemo(
     () => `https://wa.me/${SUPPORT_PHONE.replace(/\D/g, "")}?text=${encodeURIComponent(SUPPORT_MESSAGE)}`,
     [],
@@ -52,6 +54,7 @@ export default function WhatsAppHelpBubble() {
   return (
     <a
       className={`whatsapp-help${hiddenByFooter ? " is-hidden-by-footer" : ""}`}
+      data-surface={isLoginSurface ? "login" : isRegisterSurface ? "register" : undefined}
       href={supportUrl}
       target="_blank"
       rel="noreferrer"

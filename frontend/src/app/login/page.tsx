@@ -8,7 +8,6 @@ import { useHbxTheme } from "../../components/ThemeProvider";
 import {
   LOGIN_VIDEO_PREFERENCE_EVENT,
   LOGIN_VIDEO_PREFERENCE_STORAGE_KEY,
-  persistLoginVideoEnabled,
   readStoredLoginVideoEnabled,
 } from "../../lib/login-visual-preferences";
 import { normalizeInternalRouteAlias } from "../../lib/route-aliases";
@@ -23,7 +22,7 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL ?? DEFAULT_API_URL;
 const AUTO_LOGIN_STORAGE_KEY = "hbx_auto_login";
 const AUTO_LOGIN_RELOAD_SECONDS = 49;
 const LOGIN_SUCCESS_DELAY_MS = 3500;
-const LOGIN_VIDEO_EXPERIENCE_AVAILABLE = true;
+const LOGIN_VIDEO_EXPERIENCE_AVAILABLE = false;
 const LOGIN_IDLE_VIDEO_SRC = "/login-media/login-looping.mp4";
 const LOGIN_AUTH_VIDEO_SRC = "/login-media/login-afterauth.mp4";
 const DEFAULT_WAKING_MESSAGE =
@@ -322,7 +321,6 @@ export default function LoginPage() {
   const isLoginVideoExperienceEnabled = LOGIN_VIDEO_EXPERIENCE_AVAILABLE && isLoginVideoEnabled;
   const shouldRenderLoginVideo = isLoginVideoExperienceEnabled && isUiReady;
   const themeModeLabel = selection.mode === "dark" ? "Escuro" : "Claro";
-  const visualModeLabel = isLoginVideoExperienceEnabled ? "Vídeo ativo" : "Vídeo suave";
   const loginCardVideoStyle: CSSProperties = {
     backdropFilter: "blur(2px) saturate(1.01)",
     WebkitBackdropFilter: "blur(2px) saturate(1.01)",
@@ -330,12 +328,6 @@ export default function LoginPage() {
 
   function handleThemeModeToggle() {
     setThemeMode(selection.mode === "dark" ? "light" : "dark");
-  }
-
-  function handleLoginVideoToggle() {
-    const nextEnabled = !isLoginVideoExperienceEnabled;
-    setIsLoginVideoEnabled(nextEnabled);
-    persistLoginVideoEnabled(nextEnabled);
   }
 
   function openRegisterWithTransition() {
@@ -1038,22 +1030,6 @@ export default function LoginPage() {
                 </article>
               ))}
             </div>
-            <div className="login-themePreview login-themePreview--visual" data-preview="visual" aria-label={visualModeLabel}>
-              <span>Visual</span>
-              <button
-                type="button"
-                className="login-themePreview__switch"
-                data-preview="visual"
-                data-state={isLoginVideoExperienceEnabled ? "on" : "off"}
-                role="switch"
-                aria-checked={isLoginVideoExperienceEnabled}
-                aria-label={isLoginVideoExperienceEnabled ? "Desativar vídeo de fundo" : "Ativar vídeo de fundo"}
-                onClick={handleLoginVideoToggle}
-              >
-                <span className="login-themePreview__thumb" />
-              </button>
-              <span className="login-themePreview__moon" data-preview="visual" aria-hidden="true" />
-            </div>
             <div className="login-side__footer">
               <span>Todos os serviços operacionais</span>
               <LoginSideIconGlyph icon="shield" />
@@ -1294,6 +1270,23 @@ export default function LoginPage() {
                   "Entrar"
                 )}
               </button>
+
+              {!preRegistered ? (
+                <div className="login-onboarding" aria-label="Começar contratação HBX">
+                  <p className="login-onboarding__copy">
+                    Novo por aqui? Crie sua conta e escolha o plano no próximo passo.
+                  </p>
+                  <div className="login-onboarding__actions">
+                    <button
+                      type="button"
+                      className="btn btn-secondary login-onboarding__button"
+                      onClick={openRegisterWithTransition}
+                    >
+                      Criar conta
+                    </button>
+                  </div>
+                </div>
+              ) : null}
             </form>
           ) : (
             <form onSubmit={handleRecoverByEmail} className="login-form">

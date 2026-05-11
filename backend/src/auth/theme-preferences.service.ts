@@ -5,10 +5,11 @@ import { MASTER_GLOBAL_INTEGRATIONS_KEY, getMasterGlobalIntegrationConfig } from
 import { ensureMasterBillingRuntimeSchema } from '../modules/master-runtime';
 
 type ThemePreferenceScope = 'company' | 'system' | 'user';
+type ThemePreferenceThemeId = 'shadcn';
 
 type ThemePreferenceConfig = {
   selection?: {
-    themeId?: 'mosaic' | 'shadcn' | 'tabler';
+    themeId?: ThemePreferenceThemeId;
     mode?: 'dark' | 'light';
   };
   appearance?: {
@@ -22,12 +23,14 @@ type ThemePreferenceConfig = {
     menuInactive?: string;
     menuDisabled?: string;
   };
+  appearanceByTheme?: Partial<Record<ThemePreferenceThemeId, ThemePreferenceConfig['appearance']>>;
   motion?: {
     transitionStyle?: 'liquid-glass' | 'micro-interactions' | 'scroll-storytelling';
   };
 };
 
-const THEME_IDS = new Set(['mosaic', 'shadcn', 'tabler']);
+const THEME_IDS: ReadonlySet<ThemePreferenceThemeId> = new Set(['shadcn']);
+const THEME_ID_LIST: ThemePreferenceThemeId[] = ['shadcn'];
 const THEME_MODES = new Set(['dark', 'light']);
 const MOTION_STYLES = new Set(['liquid-glass', 'micro-interactions', 'scroll-storytelling']);
 const HEX_COLOR_PATTERN = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/;
@@ -37,11 +40,16 @@ function normalizeText(value: unknown) {
   return text || null;
 }
 
+function isThemePreferenceThemeId(value: string): value is ThemePreferenceThemeId {
+  return THEME_IDS.has(value as ThemePreferenceThemeId);
+}
+
 function hasConfigEntries(value: ThemePreferenceConfig | null | undefined) {
   if (!value) return false;
   return Boolean(
     (value.selection && Object.keys(value.selection).length > 0) ||
       (value.appearance && Object.keys(value.appearance).length > 0) ||
+      (value.appearanceByTheme && Object.keys(value.appearanceByTheme).length > 0) ||
       (value.motion && Object.keys(value.motion).length > 0),
   );
 }
@@ -68,6 +76,25 @@ function mergeThemeConfigs(
     if (!Object.keys(merged.appearance).length) delete merged.appearance;
   }
 
+  if (base?.appearanceByTheme || patch?.appearanceByTheme) {
+    merged.appearanceByTheme = {};
+
+    THEME_ID_LIST.forEach((themeId) => {
+      const baseAppearance = base?.appearanceByTheme?.[themeId];
+      const patchAppearance = patch?.appearanceByTheme?.[themeId];
+      const nextAppearance = {
+        ...(baseAppearance || {}),
+        ...(patchAppearance || {}),
+      };
+
+      if (Object.keys(nextAppearance).length > 0) {
+        merged.appearanceByTheme![themeId] = nextAppearance;
+      }
+    });
+
+    if (!Object.keys(merged.appearanceByTheme).length) delete merged.appearanceByTheme;
+  }
+
   if (base?.motion || patch?.motion) {
     merged.motion = {
       ...(base?.motion || {}),
@@ -85,15 +112,17 @@ function normalizeThemeConfig(input: any): ThemePreferenceConfig | null {
   const normalized: ThemePreferenceConfig = {};
   const selectionInput = input.selection && typeof input.selection === 'object' ? input.selection : null;
   const appearanceInput = input.appearance && typeof input.appearance === 'object' ? input.appearance : null;
+  const appearanceByThemeInput =
+    input.appearanceByTheme && typeof input.appearanceByTheme === 'object' ? input.appearanceByTheme : null;
   const motionInput = input.motion && typeof input.motion === 'object' ? input.motion : null;
 
   if (selectionInput) {
     const themeId = normalizeText(selectionInput.themeId)?.toLowerCase();
     const mode = normalizeText(selectionInput.mode)?.toLowerCase();
-    if (themeId && THEME_IDS.has(themeId)) {
+    if (themeId && isThemePreferenceThemeId(themeId)) {
       normalized.selection = {
         ...(normalized.selection || {}),
-        themeId: themeId as ThemePreferenceConfig['selection']['themeId'],
+        themeId,
       };
     }
     if (mode && THEME_MODES.has(mode)) {
@@ -114,6 +143,30 @@ function normalizeThemeConfig(input: any): ThemePreferenceConfig | null {
 
     if (Object.keys(nextAppearance).length > 0) {
       normalized.appearance = nextAppearance as ThemePreferenceConfig['appearance'];
+    }
+  }
+
+  if (appearanceByThemeInput) {
+    const nextAppearanceByTheme: NonNullable<ThemePreferenceConfig['appearanceByTheme']> = {};
+
+    THEME_ID_LIST.forEach((themeId) => {
+      const themeAppearanceInput = appearanceByThemeInput[themeId];
+      if (!themeAppearanceInput || typeof themeAppearanceInput !== 'object') return;
+
+      const nextAppearance = Object.entries(themeAppearanceInput).reduce<Record<string, string>>((acc, [key, value]) => {
+        const color = normalizeText(value);
+        if (!color || !HEX_COLOR_PATTERN.test(color)) return acc;
+        acc[key] = color.toUpperCase();
+        return acc;
+      }, {});
+
+      if (Object.keys(nextAppearance).length > 0) {
+        nextAppearanceByTheme[themeId] = nextAppearance as ThemePreferenceConfig['appearance'];
+      }
+    });
+
+    if (Object.keys(nextAppearanceByTheme).length > 0) {
+      normalized.appearanceByTheme = nextAppearanceByTheme;
     }
   }
 

@@ -7,16 +7,26 @@
 .field {
   position: relative;
   display: grid;
-  gap: 8px;
+  gap: 9px;
   min-width: 0;
   color: var(--foreground, #0b1720);
 }
 
 .label {
-  font-size: 0.78rem;
-  font-weight: 800;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  width: fit-content;
+  min-height: 24px;
+  border: 1px solid color-mix(in srgb, var(--primary, #05b6d4) 20%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--primary, #05b6d4) 7%, transparent);
+  padding: 0 9px;
+  font-size: 0.7rem;
+  font-weight: 950;
   letter-spacing: 0;
-  color: color-mix(in srgb, var(--foreground, #0b1720) 78%, transparent);
+  color: color-mix(in srgb, var(--primary, #05b6d4) 78%, var(--foreground, #0b1720));
+  text-transform: uppercase;
 }
 
 .inputWrap {
@@ -28,16 +38,24 @@
 .input,
 .select {
   width: 100%;
-  min-height: 44px;
-  border: 1px solid color-mix(in srgb, var(--foreground, #0b1720) 16%, transparent);
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--surface, #ffffff) 92%, transparent);
+  min-height: 54px;
+  border: 1px solid color-mix(in srgb, var(--primary, #05b6d4) 22%, color-mix(in srgb, var(--foreground, #0b1720) 14%, transparent));
+  border-radius: 14px;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--surface, #ffffff) 96%, transparent), color-mix(in srgb, var(--surface, #ffffff) 84%, var(--primary, #05b6d4)));
   color: var(--foreground, #0b1720);
   font: inherit;
-  font-size: 0.94rem;
+  font-size: 1rem;
+  font-weight: 850;
   outline: none;
   padding: 0 42px 0 13px;
-  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.06);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.72),
+    0 14px 30px rgba(15, 23, 42, 0.08);
+  transition:
+    border-color 180ms ease,
+    box-shadow 180ms ease,
+    transform 180ms ease;
 }
 
 .select {
@@ -54,7 +72,10 @@
 .input:focus,
 .select:focus {
   border-color: color-mix(in srgb, var(--primary, #05b6d4) 66%, #ffffff);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary, #05b6d4) 20%, transparent);
+  box-shadow:
+    0 0 0 4px color-mix(in srgb, var(--primary, #05b6d4) 20%, transparent),
+    0 18px 38px rgba(15, 23, 42, 0.1);
+  transform: translateY(-1px);
 }
 
 .chevron {
@@ -108,28 +129,72 @@
 
 .choiceGrid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(128px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(154px, 1fr));
+  gap: 10px;
+}
+
+.field[data-compact="true"] {
+  gap: 7px;
+}
+
+.field[data-compact="true"] .choiceGrid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
 }
 
 .choice,
 .choiceActive {
+  position: relative;
+  isolation: isolate;
   display: grid;
-  gap: 4px;
-  min-height: 62px;
-  border: 1px solid color-mix(in srgb, var(--foreground, #0b1720) 14%, transparent);
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--surface, #ffffff) 88%, transparent);
+  gap: 6px;
+  min-height: 84px;
+  border: 1px solid color-mix(in srgb, var(--primary, #05b6d4) 20%, color-mix(in srgb, var(--foreground, #0b1720) 14%, transparent));
+  border-radius: 16px;
+  background:
+    radial-gradient(circle at 16% 0%, color-mix(in srgb, var(--primary, #05b6d4) 12%, transparent), transparent 42%),
+    color-mix(in srgb, var(--surface, #ffffff) 90%, transparent);
   color: var(--foreground, #0b1720);
   cursor: pointer;
   font: inherit;
-  padding: 10px 11px;
+  padding: 13px 14px;
   text-align: left;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.72),
+    0 16px 34px rgba(15, 23, 42, 0.08);
+  transition:
+    transform 180ms ease,
+    border-color 180ms ease,
+    box-shadow 180ms ease,
+    background 180ms ease;
+}
+
+.choice::after,
+.choiceActive::after {
+  content: "";
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 13px;
+  height: 13px;
+  border: 1px solid color-mix(in srgb, var(--primary, #05b6d4) 42%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--surface, #ffffff) 88%, transparent);
+}
+
+.choice:hover,
+.choiceActive:hover {
+  transform: translateY(-2px);
+  border-color: color-mix(in srgb, var(--primary, #05b6d4) 46%, transparent);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.76),
+    0 20px 42px rgba(15, 23, 42, 0.12);
 }
 
 .choice strong,
 .choiceActive strong {
-  font-size: 0.9rem;
+  padding-right: 22px;
+  font-size: 1rem;
   line-height: 1.2;
 }
 
@@ -142,8 +207,46 @@
 
 .choiceActive {
   border-color: color-mix(in srgb, var(--primary, #05b6d4) 58%, transparent);
-  background: color-mix(in srgb, var(--primary, #05b6d4) 14%, var(--surface, #ffffff));
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--primary, #05b6d4) 22%, transparent);
+  background:
+    radial-gradient(circle at 18% 0%, color-mix(in srgb, var(--primary, #05b6d4) 22%, transparent), transparent 44%),
+    color-mix(in srgb, var(--primary, #05b6d4) 13%, var(--surface, #ffffff));
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--primary, #05b6d4) 22%, transparent),
+    0 20px 44px color-mix(in srgb, var(--primary, #05b6d4) 14%, transparent);
+}
+
+.choiceActive::after {
+  border-color: color-mix(in srgb, var(--primary, #05b6d4) 78%, transparent);
+  background:
+    radial-gradient(circle, #ffffff 0 27%, transparent 30%),
+    var(--primary, #05b6d4);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--primary, #05b6d4) 14%, transparent);
+}
+
+.field[data-compact="true"] .choice,
+.field[data-compact="true"] .choiceActive {
+  min-height: 46px;
+  border-radius: 12px;
+  padding: 10px 30px 10px 12px;
+  align-content: center;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.72),
+    0 10px 22px rgba(15, 23, 42, 0.06);
+}
+
+.field[data-compact="true"] .choice::after,
+.field[data-compact="true"] .choiceActive::after {
+  top: 50%;
+  right: 10px;
+  transform: translateY(-50%);
+  width: 12px;
+  height: 12px;
+}
+
+.field[data-compact="true"] .choice strong,
+.field[data-compact="true"] .choiceActive strong {
+  padding-right: 0;
+  font-size: 0.9rem;
 }
 
 .advanced {

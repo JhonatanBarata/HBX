@@ -50,6 +50,13 @@ function formatPairingPhoneInput(value: string) {
   return `+55 (${area}) ${first}-${second}`;
 }
 
+function resolveInternalNextPath(value: string | null) {
+  const raw = String(value || "").trim();
+  if (!raw || !raw.startsWith("/") || raw.startsWith("//")) return "/radar-digital";
+  if (/^\/https?:/i.test(raw)) return "/radar-digital";
+  return raw;
+}
+
 export default function WhatsAppCenterClientPage() {
   const hasToken = useRequireAuth();
   const router = useRouter();
@@ -73,8 +80,11 @@ export default function WhatsAppCenterClientPage() {
   const [pairingRetryAt, setPairingRetryAt] = useState<number | null>(null);
   const [pairingTick, setPairingTick] = useState(0);
   const [qrLinkMode, setQrLinkMode] = useState<QrLinkMode>(() => (
-    searchParams.get("focus") === "phone" ? "phone" : "idle"
+    searchParams.get("focus") === "phone" ? "phone" : searchParams.get("focus") === "qr" ? "qr" : "idle"
   ));
+  const onboardingNextPath = searchParams.get("from") === "onboarding"
+    ? resolveInternalNextPath(searchParams.get("next"))
+    : null;
   const bootstrapInFlightRef = useRef(false);
   const modalActionInFlightRef = useRef(false);
   const pairingCodeInFlightRef = useRef(false);
@@ -134,6 +144,15 @@ export default function WhatsAppCenterClientPage() {
     }
   }, []);
 
+  const redirectAfterConnection = useCallback((path: string, delayMs = 1400) => {
+    if (atendimentoRedirectTimerRef.current) {
+      window.clearTimeout(atendimentoRedirectTimerRef.current);
+    }
+    atendimentoRedirectTimerRef.current = window.setTimeout(() => {
+      router.push(path);
+    }, delayMs);
+  }, [router]);
+
   const runBootstrapAfterConnect = useCallback(async (connectedPayload: WhatsAppModalPayload, openAtendimento = false) => {
     const bootstrapKey = buildBootstrapKey(connectedPayload);
     if (
@@ -158,31 +177,41 @@ export default function WhatsAppCenterClientPage() {
         throw new Error(bootstrap.error || bootstrap.message || "Falha ao executar bootstrap local do WhatsApp.");
       }
       setQrBootstrapStage("ready");
-      setMessage(openAtendimento ? "WhatsApp conectado. Abrindo atendimento..." : "Pronto");
+      setMessage(
+        onboardingNextPath
+          ? "WhatsApp conectado. Indo para o próximo passo..."
+          : openAtendimento
+            ? "WhatsApp conectado. Abrindo atendimento..."
+            : "Pronto",
+      );
       pendingAtendimentoRedirectRef.current = false;
       void loadCenter(true);
-      if (openAtendimento) {
-        if (atendimentoRedirectTimerRef.current) {
-          window.clearTimeout(atendimentoRedirectTimerRef.current);
-        }
-        atendimentoRedirectTimerRef.current = window.setTimeout(() => {
-          router.push("/atendimento");
-        }, 1400);
+      if (onboardingNextPath) {
+        redirectAfterConnection(onboardingNextPath);
+      } else if (openAtendimento) {
+        redirectAfterConnection("/atendimento");
       }
     } catch (bootstrapError) {
       const detail = bootstrapError instanceof Error ? bootstrapError.message : "";
       lastBootstrapAttemptKeyRef.current = null;
-      setQrBootstrapStage("error");
-      setMessage(null);
-      setModalError(
-        detail
-          ? `WhatsApp conectou, mas falhou ao espelhar conversas/clientes. ${detail}`
-          : "WhatsApp conectou, mas falhou ao espelhar conversas/clientes.",
-      );
+      if (onboardingNextPath) {
+        setQrBootstrapStage("ready");
+        setMessage("WhatsApp conectado. Indo para o próximo passo...");
+        setModalError(null);
+        redirectAfterConnection(onboardingNextPath, 900);
+      } else {
+        setQrBootstrapStage("error");
+        setMessage(null);
+        setModalError(
+          detail
+            ? `WhatsApp conectou, mas falhou ao espelhar conversas/clientes. ${detail}`
+            : "WhatsApp conectou, mas falhou ao espelhar conversas/clientes.",
+        );
+      }
     } finally {
       bootstrapInFlightRef.current = false;
     }
-  }, [buildBootstrapKey, loadCenter, router]);
+  }, [buildBootstrapKey, loadCenter, onboardingNextPath, redirectAfterConnection]);
 
   const waitForModalQrCode = useCallback(async (statusPayload: WhatsAppModalPayload) => {
     let latestPayload = statusPayload;
@@ -528,7 +557,7 @@ export default function WhatsAppCenterClientPage() {
   }
 
   const qrBootstrapBusy = qrBootstrapStage === "connecting" || qrBootstrapStage === "mirroring";
-  const initialQrLinkMode = searchParams.get("focus") === "phone" ? "phone" : "idle";
+  const initialQrLinkMode = searchParams.get("focus") === "phone" ? "phone" : searchParams.get("focus") === "qr" ? "qr" : "idle";
   const pairingExpiresInSeconds = pairingExpiresAt
     ? Math.max(0, Math.ceil((pairingExpiresAt - Date.now()) / 1000))
     : 0;

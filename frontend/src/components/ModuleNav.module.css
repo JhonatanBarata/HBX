@@ -76,6 +76,25 @@
   gap: 0.44rem;
 }
 
+.moduleNavWrap[data-navigation-mode="basic"] .navSection:first-child .moduleCard,
+.moduleNavWrap[data-navigation-mode="basic"] .navSection:first-child .moduleCardActive {
+  min-height: 84px;
+}
+
+.moduleNavWrap[data-navigation-mode="basic"] .navSection:last-of-type:not(:first-child) {
+  margin-top: 0.2rem;
+  opacity: 0.82;
+}
+
+.moduleNavWrap[data-navigation-mode="basic"] .navSection:last-of-type:not(:first-child) .moduleCard,
+.moduleNavWrap[data-navigation-mode="basic"] .navSection:last-of-type:not(:first-child) .moduleCardActive,
+.moduleNavWrap[data-navigation-mode="basic"] .navSection:last-of-type:not(:first-child) .moduleCardDisabled,
+.moduleNavWrap[data-navigation-mode="basic"] .navSection:last-of-type:not(:first-child) .moduleCardDisabledActive {
+  min-height: 58px;
+  grid-template-columns: 34px minmax(130px, 0.55fr) minmax(160px, 1fr);
+  padding-block: 0.34rem;
+}
+
 .moduleNavStatus {
   margin: 0;
   padding: 0.1rem 0;

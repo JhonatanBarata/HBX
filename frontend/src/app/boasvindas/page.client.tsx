@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { apiFetch } from "@/app/_lib/api";
 import { useRequireAuth } from "@/app/_lib/useRequireAuth";
+import { normalizeUserModuleKey, type UserModule } from "@/lib/hbx-modules";
 import styles from "./page.module.css";
 
 const PAGE_EXIT_MS = 260;
@@ -12,29 +13,171 @@ type CurrentUser = {
   isSystemMaster?: boolean;
 };
 
+type OperationalStatusChip = {
+  key: "token" | "meta" | "webwhats" | "payment" | "access";
+  active?: boolean;
+  tone?: string | null;
+};
+
+type OperationalStatusPayload = {
+  statuses?: OperationalStatusChip[];
+};
+
+type WhatsAppCenterPayload = {
+  center?: {
+    official?: { connected?: boolean | null } | null;
+    qrConnection?: { liveStatus?: string | null } | null;
+  } | null;
+};
+
+type WhatsAppModalPayload = {
+  status?: string | null;
+};
+
+type VendasBoardPayload = {
+  summary?: {
+    total?: number | null;
+    today?: number | null;
+    overdue?: number | null;
+    scheduled?: number | null;
+  } | null;
+};
+
+type InboxPayload = {
+  conversations?: unknown[];
+  pendingHumanCount?: number | null;
+  total?: number | null;
+};
+
+type WelcomeState = {
+  loaded: boolean;
+  whatsappConnected: boolean;
+  radarReady: boolean;
+  atendimentoReady: boolean;
+  assistantOptional: boolean;
+  leadsCount: number;
+  conversationsCount: number;
+  pendingCount: number;
+  vendasReady: boolean;
+};
+
+const DEFAULT_WELCOME_STATE: WelcomeState = {
+  loaded: false,
+  whatsappConnected: false,
+  radarReady: false,
+  atendimentoReady: false,
+  assistantOptional: false,
+  leadsCount: 0,
+  conversationsCount: 0,
+  pendingCount: 0,
+  vendasReady: false,
+};
+
+function hasModule(modules: UserModule[], key: string) {
+  return modules.some((moduleItem) => (
+    normalizeUserModuleKey(moduleItem.key) === key &&
+    moduleItem.accessible &&
+    moduleItem.visible !== false
+  ));
+}
+
+function isWhatsAppConnected(
+  center: WhatsAppCenterPayload | null,
+  modal: WhatsAppModalPayload | null,
+  operational: OperationalStatusPayload | null,
+) {
+  if (modal?.status === "connected") return true;
+  if (center?.center?.official?.connected) return true;
+  if (center?.center?.qrConnection?.liveStatus === "connected") return true;
+  return Boolean((operational?.statuses || []).find((chip) => (
+    (chip.key === "meta" || chip.key === "webwhats") &&
+    (chip.active || chip.tone === "green")
+  )));
+}
+
+function isSmallViewport() {
+  if (typeof window === "undefined") return false;
+  return window.matchMedia("(max-width: 640px)").matches;
+}
+
 export default function BoasVindasClientPage() {
   const router = useRouter();
   const hasToken = useRequireAuth();
   const [leaving, setLeaving] = useState(false);
   const [masterCheckComplete, setMasterCheckComplete] = useState(false);
+  const [welcomeState, setWelcomeState] = useState<WelcomeState>(DEFAULT_WELCOME_STATE);
+  const [mobileViewport, setMobileViewport] = useState(false);
+
+  useEffect(() => {
+    setMobileViewport(isSmallViewport());
+    if (typeof window === "undefined") return undefined;
+    const media = window.matchMedia("(max-width: 640px)");
+    const onChange = () => setMobileViewport(media.matches);
+    media.addEventListener("change", onChange);
+    return () => media.removeEventListener("change", onChange);
+  }, []);
 
   useEffect(() => {
     if (hasToken !== true) return;
     let mounted = true;
 
-    apiFetch<CurrentUser>("/profile/current-user")
-      .then((user) => {
+    async function loadWelcomeState() {
+      try {
+        const user = await apiFetch<CurrentUser>("/profile/current-user");
         if (!mounted) return;
         if (user?.isSystemMaster) {
           setLeaving(true);
           router.replace("/master");
           return;
         }
+
+        const [center, modal, operational, modules, vendasBoard, inbox] = await Promise.all([
+          apiFetch<WhatsAppCenterPayload>("/companies/me/whatsapp-center").catch(() => null),
+          apiFetch<WhatsAppModalPayload>("/companies/me/whatsapp-modal/status").catch(() => null),
+          apiFetch<OperationalStatusPayload>("/companies/me/operational-status").catch(() => null),
+          apiFetch<UserModule[]>("/modules/me").catch(() => []),
+          apiFetch<VendasBoardPayload>("/vendas/board", { timeoutMs: 12000 }).catch(() => null),
+          apiFetch<InboxPayload>("/inbox/conversations?limit=1", { timeoutMs: 12000 }).catch(() => null),
+        ]);
+
+        if (!mounted) return;
+
+        const safeModules = Array.isArray(modules) ? modules : [];
+        const summary = vendasBoard?.summary || {};
+        const leadsCount = Math.max(0, Math.trunc(Number(summary.total || 0)));
+        const vendasPending = Math.max(
+          0,
+          Math.trunc(Number(summary.today || 0)) +
+            Math.trunc(Number(summary.overdue || 0)) +
+            Math.trunc(Number(summary.scheduled || 0)),
+        );
+        const conversationsCount = Math.max(
+          0,
+          Math.trunc(
+            Number(inbox?.total) ||
+              (Array.isArray(inbox?.conversations) ? inbox.conversations.length : 0),
+          ),
+        );
+        const pendingCount = Math.max(0, Math.trunc(Number(inbox?.pendingHumanCount || 0)));
+
+        setWelcomeState({
+          loaded: true,
+          whatsappConnected: isWhatsAppConnected(center, modal, operational),
+          radarReady: hasModule(safeModules, "webscraping") || leadsCount > 0,
+          atendimentoReady: hasModule(safeModules, "atendimento") || conversationsCount > 0 || pendingCount > 0,
+          assistantOptional: hasModule(safeModules, "atendimento") || hasModule(safeModules, "vendas"),
+          leadsCount,
+          conversationsCount,
+          pendingCount,
+          vendasReady: leadsCount > 0 || vendasPending > 0,
+        });
         setMasterCheckComplete(true);
-      })
-      .catch(() => {
+      } catch {
         if (mounted) setMasterCheckComplete(true);
-      });
+      }
+    }
+
+    void loadWelcomeState();
 
     return () => {
       mounted = false;
@@ -47,12 +190,16 @@ export default function BoasVindasClientPage() {
     window.setTimeout(() => router.push(path), PAGE_EXIT_MS);
   }
 
-  function handleStartSetup() {
-    navigateWithTransition("/tutorial");
-  }
-
-  function handleSkip() {
-    navigateWithTransition("/radar-digital");
+  function resolveNextStep() {
+    if (mobileViewport) {
+      if (!welcomeState.whatsappConnected) return "/whatsapp";
+      if (!welcomeState.vendasReady && welcomeState.leadsCount <= 0 && welcomeState.pendingCount <= 0) return "/radar-digital";
+      return "/vendas/automacao?tab=prospeccao&mode=mobile";
+    }
+    if (!welcomeState.whatsappConnected) return "/whatsapp";
+    if (welcomeState.conversationsCount > 0 || welcomeState.pendingCount > 0) return "/atendimento";
+    if (welcomeState.vendasReady) return "/vendas";
+    return "/radar-digital";
   }
 
   if (hasToken === null || (hasToken === true && !masterCheckComplete)) {
@@ -76,41 +223,55 @@ export default function BoasVindasClientPage() {
         <div className={styles.brandMark} aria-label="HBX">HBX</div>
 
         <h1 id="welcome-title" className={styles.title}>Seu centro de operação está pronto.</h1>
+        <h1 className={styles.mobileTitle}>Próximo passo</h1>
         <p className={styles.subtitle}>
-          Antes de abrir os módulos, vamos entender sua empresa, preparar o HBX conforme seu plano e te levar para o melhor ponto de partida.
+          Veja o que já está pronto e siga direto para a próxima ação.
         </p>
+        <p className={styles.mobileSubtitle}>{nextStepTitle(welcomeState, true)}</p>
 
-        <div className={styles.guideGrid} aria-label="Resumo do onboarding guiado">
-          <article className={styles.guideCard}>
-            <span className={styles.guideIcon}>01</span>
-            <h2>Entender sua empresa</h2>
-            <p>Mapeamos quem vende, atende e acompanha seus clientes.</p>
-          </article>
+        <div className={styles.nextStepPanel}>
+          <div className={styles.nextStepHeader}>
+            <span>Seu próximo passo</span>
+            <strong>{nextStepTitle(welcomeState)}</strong>
+          </div>
 
-          <article className={styles.guideCard}>
-            <span className={styles.guideIcon}>02</span>
-            <h2>Preparar seus módulos</h2>
-            <p>Liberamos o caminho certo conforme o plano contratado.</p>
-          </article>
-
-          <article className={styles.guideCard}>
-            <span className={styles.guideIcon}>03</span>
-            <h2>Começar pela rota certa</h2>
-            <p>Você entra direto no primeiro módulo útil, sem cair perdido no sistema.</p>
-          </article>
+          <div className={styles.checklist} aria-label="Checklist operacional">
+            <ChecklistItem label="WhatsApp conectado" active={welcomeState.whatsappConnected} />
+            <ChecklistItem label="Leads disponíveis / Radar pronto" active={welcomeState.radarReady || welcomeState.leadsCount > 0} />
+            <ChecklistItem label="Atendimento pronto" active={welcomeState.atendimentoReady} />
+            <ChecklistItem label="Assistente avançado opcional" active={welcomeState.assistantOptional} optional />
+          </div>
         </div>
 
         <div className={styles.actions}>
-          <button type="button" className={styles.primaryAction} onClick={handleStartSetup} disabled={leaving}>
-            Iniciar configuração →
+          <button type="button" className={styles.primaryAction} onClick={() => navigateWithTransition(resolveNextStep())} disabled={leaving}>
+            Começar agora
           </button>
-          <button type="button" className={styles.secondaryAction} onClick={handleSkip} disabled={leaving}>
-            Entrar direto no sistema
+          <button type="button" className={styles.secondaryAction} onClick={() => navigateWithTransition("/tutorial")} disabled={leaving}>
+            Configuração avançada
           </button>
         </div>
 
-        <p className={styles.footerHint}>HBX vai adaptar essa jornada ao plano contratado.</p>
+        <p className={styles.footerHint}>{welcomeState.loaded ? "HBX adaptou esta entrada ao estado da sua operação." : "Carregando leitura da operação..."}</p>
       </section>
     </main>
+  );
+}
+
+function nextStepTitle(state: WelcomeState, mobile = false) {
+  if (!state.whatsappConnected) return "Conectar o WhatsApp";
+  if (mobile && (state.vendasReady || state.leadsCount > 0 || state.pendingCount > 0 || state.conversationsCount > 0)) return "Abrir seus cards de venda";
+  if (mobile) return "Buscar cards no Radar Digital";
+  if (state.conversationsCount > 0 || state.pendingCount > 0) return "Responder atendimento";
+  if (state.vendasReady) return "Trabalhar leads em Vendas";
+  return "Buscar leads no Radar Digital";
+}
+
+function ChecklistItem({ label, active, optional = false }: { label: string; active: boolean; optional?: boolean }) {
+  return (
+    <div className={styles.checkItem} data-active={active ? "true" : "false"} data-optional={optional ? "true" : "false"}>
+      <span aria-hidden="true">{active ? "OK" : optional ? "OP" : "--"}</span>
+      <strong>{label}</strong>
+    </div>
   );
 }
