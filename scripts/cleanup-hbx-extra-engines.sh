@@ -1,7 +1,7 @@
 #!/usr/bin/env sh
 set -eu
 
-for n in $(seq 51 100); do
+for n in $(seq 51 200); do
   name="hbx-engine-$n"
   if docker ps -a --format '{{.Names}}' | grep -qx "$name"; then
     echo "Stopping/removing $name"

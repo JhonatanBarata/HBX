@@ -27,7 +27,7 @@ if (!host || !user) {
 const remote = [
   'set -eu',
   appDir ? `cd ${shellSingleQuote(appDir)}` : 'true',
-  'for n in $(seq 51 100); do',
+  'for n in $(seq 51 200); do',
   '  name="hbx-engine-$n"',
   '  if docker ps -a --format "{{.Names}}" | grep -qx "$name"; then',
   '    echo "Stopping/removing $name"',
@@ -37,11 +37,11 @@ const remote = [
   'done',
   'if [ -f .env ]; then',
   '  tmp="$(mktemp)"',
-  '  awk \'BEGIN{c=0;r=0;m=0} /^HBX_ENGINE_COUNT=/ {print "HBX_ENGINE_COUNT=50"; c=1; next} /^HBX_CLIENT_RESERVED_ENGINES=/ {print "HBX_CLIENT_RESERVED_ENGINES=0"; r=1; next} /^HBX_FACTORY_MAX_ENGINES=/ {print "HBX_FACTORY_MAX_ENGINES=50"; m=1; next} {print} END{if(!c) print "HBX_ENGINE_COUNT=50"; if(!r) print "HBX_CLIENT_RESERVED_ENGINES=0"; if(!m) print "HBX_FACTORY_MAX_ENGINES=50"}\' .env > "$tmp"',
+  '  awk \'BEGIN{c=0;mc=0;r=0;m=0} /^HBX_ENGINE_COUNT=/ {print "HBX_ENGINE_COUNT=50"; c=1; next} /^HBX_ENGINE_MAX_COUNT=/ {print "HBX_ENGINE_MAX_COUNT=50"; mc=1; next} /^HBX_CLIENT_RESERVED_ENGINES=/ {print "HBX_CLIENT_RESERVED_ENGINES=0"; r=1; next} /^HBX_FACTORY_MAX_ENGINES=/ {print "HBX_FACTORY_MAX_ENGINES=50"; m=1; next} {print} END{if(!c) print "HBX_ENGINE_COUNT=50"; if(!mc) print "HBX_ENGINE_MAX_COUNT=50"; if(!r) print "HBX_CLIENT_RESERVED_ENGINES=0"; if(!m) print "HBX_FACTORY_MAX_ENGINES=50"}\' .env > "$tmp"',
   '  cat "$tmp" > .env',
   '  rm -f "$tmp"',
   'fi',
-  'docker ps -a --format "{{.Names}}" | grep -E "^hbx-engine-([5-9][1-9]|100)$" && exit 1 || true',
+  'docker ps -a --format "{{.Names}}" | grep -E "^hbx-engine-([5-9][1-9]|[1-9][0-9]{2})$" && exit 1 || true',
   'echo "Cleanup extra HBX engines done."',
 ].join('\n');
 

@@ -17,7 +17,7 @@ const {
 const remote = 'origin';
 const branch = 'master';
 const HBX_ACTIVE_ENGINE_COUNT = 50;
-const HBX_MAX_ENGINE_COUNT = 100;
+const HBX_MAX_ENGINE_COUNT = 50;
 const rawArgs = process.argv.slice(2).map((arg) => String(arg || '').trim()).filter(Boolean);
 
 function parseMode() {
@@ -288,9 +288,9 @@ function buildRemoteDeployScript(config, mode) {
     'if [ -z "$POSTGRES_USER" ] || [ -z "$POSTGRES_PASSWORD" ] || [ -z "$POSTGRES_DB" ] || [ -z "$POSTGRES_DATA_VOLUME" ] || [ -z "$NEXT_PUBLIC_API_URL" ]; then echo "ERRO: .env raiz sem variaveis obrigatorias do docker-compose."; exit 1; fi',
     'export HBX_ENGINE_COUNT="$(awk -F= \'/^HBX_ENGINE_COUNT=/{print substr($0, length("HBX_ENGINE_COUNT")+2); exit}\' .env)"',
     'export HBX_ENGINE_MAX_COUNT="$(awk -F= \'/^HBX_ENGINE_MAX_COUNT=/{print substr($0, length("HBX_ENGINE_MAX_COUNT")+2); exit}\' .env)"',
-    'if [ -z "$HBX_ENGINE_MAX_COUNT" ]; then export HBX_ENGINE_MAX_COUNT=100; fi',
-    'case "$HBX_ENGINE_MAX_COUNT" in *[!0-9]*|"") echo "Aviso: HBX_ENGINE_MAX_COUNT invalido no .env; usando 100."; export HBX_ENGINE_MAX_COUNT=100;; esac',
-    'if [ "$HBX_ENGINE_MAX_COUNT" -gt 100 ]; then echo "Aviso: HBX_ENGINE_MAX_COUNT=$HBX_ENGINE_MAX_COUNT acima da frota reservada; usando 100."; export HBX_ENGINE_MAX_COUNT=100; fi',
+    'if [ -z "$HBX_ENGINE_MAX_COUNT" ]; then export HBX_ENGINE_MAX_COUNT=50; fi',
+    'case "$HBX_ENGINE_MAX_COUNT" in *[!0-9]*|"") echo "Aviso: HBX_ENGINE_MAX_COUNT invalido no .env; usando 50."; export HBX_ENGINE_MAX_COUNT=50;; esac',
+    'if [ "$HBX_ENGINE_MAX_COUNT" -gt 50 ]; then echo "Aviso: HBX_ENGINE_MAX_COUNT=$HBX_ENGINE_MAX_COUNT acima da frota oficial; usando 50."; export HBX_ENGINE_MAX_COUNT=50; fi',
     'if [ -z "$HBX_ENGINE_COUNT" ]; then export HBX_ENGINE_COUNT=50; fi',
     'case "$HBX_ENGINE_COUNT" in *[!0-9]*|"") echo "Aviso: HBX_ENGINE_COUNT invalido no .env; usando 50."; export HBX_ENGINE_COUNT=50;; esac',
     'if [ "$HBX_ENGINE_COUNT" -lt 1 ]; then echo "Aviso: HBX_ENGINE_COUNT=$HBX_ENGINE_COUNT abaixo do minimo; usando 1."; export HBX_ENGINE_COUNT=1; fi',
@@ -302,8 +302,8 @@ function buildRemoteDeployScript(config, mode) {
     'hbx_engine_names() { for n in $(seq 1 "$HBX_ENGINE_COUNT"); do printf " hbx-engine-%s" "$n"; done; }',
     'hbx_engine_urls() { sep=""; for n in $(seq 1 "$HBX_ENGINE_COUNT"); do printf "%shttp://hbx-engine-%s:8001" "$sep" "$n"; sep=","; done; }',
     'cleanup_extra_hbx_engines() {',
-    '  echo "Limpando motores HBX excedentes hbx-engine-101..hbx-engine-200..."',
-    '  for n in $(seq 101 200); do',
+    '  echo "Limpando motores HBX excedentes hbx-engine-51..hbx-engine-200..."',
+    '  for n in $(seq 51 200); do',
     '    name="hbx-engine-$n"',
     '    if docker ps -a --format "{{.Names}}" | grep -qx "$name"; then',
     '      docker stop "$name" >/dev/null 2>&1 || true',
