@@ -1,0 +1,2 @@
+ALTER TABLE "VendasLead"
+ADD COLUMN IF NOT EXISTS "state" TEXT;

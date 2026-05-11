@@ -988,6 +988,109 @@
   }
 }
 
+@media (max-width: 768px) {
+  .plansGrid[data-mode="signup"] {
+    width: 100%;
+    max-width: 100%;
+    gap: 10px;
+    overflow: visible;
+  }
+
+  .plansGrid[data-mode="signup"] .planCard {
+    box-sizing: border-box;
+    width: 100%;
+    min-height: 0;
+    grid-template-columns: 46px minmax(0, 1fr) auto;
+    grid-template-areas:
+      "icon title price"
+      "detail detail detail"
+      "features features features";
+    gap: 9px 10px;
+    overflow: hidden;
+    border-radius: 14px;
+    padding: 13px;
+  }
+
+  .plansGrid[data-mode="signup"] .planIcon {
+    width: 42px;
+    height: 42px;
+    border-radius: 13px;
+  }
+
+  .plansGrid[data-mode="signup"] .planIcon svg {
+    width: 25px;
+    height: 25px;
+  }
+
+  .plansGrid[data-mode="signup"] .badge,
+  .plansGrid[data-mode="signup"] .planCard[data-featured="true"] .badge {
+    display: none;
+  }
+
+  .plansGrid[data-mode="signup"] .planTitle,
+  .plansGrid[data-mode="signup"] .planCard[data-featured="true"] .planTitle {
+    min-width: 0;
+    padding-top: 0;
+  }
+
+  .plansGrid[data-mode="signup"] .planTitle strong {
+    font-size: 1.08rem;
+    line-height: 1.1;
+  }
+
+  .plansGrid[data-mode="signup"] .priceBlock {
+    min-height: 0;
+    align-self: center;
+    justify-content: end;
+    border: 0;
+    padding: 0;
+  }
+
+  .plansGrid[data-mode="signup"] .priceBlock em {
+    font-size: 1.45rem;
+    line-height: 1;
+  }
+
+  .plansGrid[data-mode="signup"] .priceBlock span {
+    font-size: 0.68rem;
+  }
+
+  .plansGrid[data-mode="signup"] .planDetail {
+    display: block;
+    min-height: 0;
+    font-size: 0.78rem;
+    line-height: 1.34;
+  }
+
+  .plansGrid[data-mode="signup"] .billingHint {
+    display: none;
+  }
+
+  .plansGrid[data-mode="signup"] .planCard ul {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 7px;
+    margin-top: 0;
+    padding-top: 10px;
+  }
+
+  .plansGrid[data-mode="signup"] .planCard li {
+    padding-left: 20px;
+    font-size: 0.76rem;
+    line-height: 1.25;
+    white-space: normal;
+  }
+
+  .plansGrid[data-mode="signup"] .planCard li:nth-child(n + 4) {
+    display: none;
+  }
+
+  .plansGrid[data-mode="signup"] .planCard li::before {
+    width: 13px;
+    height: 13px;
+  }
+}
+
 @media (min-width: 821px) {
   :global([data-entry-transition="from-login"]) .plansGrid[data-mode="signup"] .planCard {
     opacity: 0;
@@ -1533,5 +1636,108 @@
 
   .plansGrid[data-mode="plans"] .planCard ul {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 768px) {
+  .plansGrid[data-mode="signup"] {
+    width: 100%;
+    max-width: 100%;
+    gap: 10px;
+    overflow: visible;
+  }
+
+  .plansGrid[data-mode="signup"] .planCard {
+    box-sizing: border-box;
+    width: 100%;
+    min-height: 0;
+    grid-template-columns: 46px minmax(0, 1fr) auto;
+    grid-template-areas:
+      "icon title price"
+      "detail detail detail"
+      "features features features";
+    gap: 9px 10px;
+    overflow: hidden;
+    border-radius: 14px;
+    padding: 13px;
+  }
+
+  .plansGrid[data-mode="signup"] .planIcon {
+    width: 42px;
+    height: 42px;
+    border-radius: 13px;
+  }
+
+  .plansGrid[data-mode="signup"] .planIcon svg {
+    width: 25px;
+    height: 25px;
+  }
+
+  .plansGrid[data-mode="signup"] .badge,
+  .plansGrid[data-mode="signup"] .planCard[data-featured="true"] .badge {
+    display: none;
+  }
+
+  .plansGrid[data-mode="signup"] .planTitle,
+  .plansGrid[data-mode="signup"] .planCard[data-featured="true"] .planTitle {
+    min-width: 0;
+    padding-top: 0;
+  }
+
+  .plansGrid[data-mode="signup"] .planTitle strong {
+    font-size: 1.08rem;
+    line-height: 1.1;
+  }
+
+  .plansGrid[data-mode="signup"] .priceBlock {
+    min-height: 0;
+    align-self: center;
+    justify-content: end;
+    border: 0;
+    padding: 0;
+  }
+
+  .plansGrid[data-mode="signup"] .priceBlock em {
+    font-size: 1.45rem;
+    line-height: 1;
+  }
+
+  .plansGrid[data-mode="signup"] .priceBlock span {
+    font-size: 0.68rem;
+  }
+
+  .plansGrid[data-mode="signup"] .planDetail {
+    display: block;
+    min-height: 0;
+    font-size: 0.78rem;
+    line-height: 1.34;
+  }
+
+  .plansGrid[data-mode="signup"] .billingHint {
+    display: none;
+  }
+
+  .plansGrid[data-mode="signup"] .planCard ul {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 7px;
+    margin-top: 0;
+    padding-top: 10px;
+  }
+
+  .plansGrid[data-mode="signup"] .planCard li {
+    padding-left: 20px;
+    font-size: 0.76rem;
+    line-height: 1.25;
+    white-space: normal;
+  }
+
+  .plansGrid[data-mode="signup"] .planCard li:nth-child(n + 4) {
+    display: none;
+  }
+
+  .plansGrid[data-mode="signup"] .planCard li::before {
+    width: 13px;
+    height: 13px;
   }
 }

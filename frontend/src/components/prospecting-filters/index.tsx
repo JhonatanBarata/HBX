@@ -148,6 +148,7 @@ export function HbxStateCityPicker({
   const cityDisabled = disabled || !knownState || (hasConfiguredStates && !normalizedState);
   const showStateOptions = stateOpen && !disabled && stateOptions.length > 0;
   const showCityOptions = cityOpen && !cityDisabled && cityOptions.length > 0;
+  const showHelperText = helperText !== "";
 
   const selectState = (nextState: string) => {
     onStateChange(nextState);
@@ -239,7 +240,9 @@ export function HbxStateCityPicker({
             ))}
           </div>
         ) : null}
-        <small className={styles.helper}>{helperText || "Escolha um estado para carregar as cidades."}</small>
+        {showHelperText ? (
+          <small className={styles.helper}>{helperText || "Escolha um estado para carregar as cidades."}</small>
+        ) : null}
       </label>
 
       <label className={styles.field} onBlur={() => window.setTimeout(() => setCityOpen(false), 120)}>
@@ -282,9 +285,11 @@ export function HbxStateCityPicker({
             ))}
           </div>
         ) : null}
-        <small className={styles.helper}>
-          {!knownState ? "Escolha um estado para carregar as cidades." : "Cidades oficiais do estado selecionado."}
-        </small>
+        {showHelperText ? (
+          <small className={styles.helper}>
+            {!knownState ? "Escolha um estado para carregar as cidades." : "Cidades oficiais do estado selecionado."}
+          </small>
+        ) : null}
       </label>
     </div>
   );
@@ -390,19 +395,21 @@ export function HbxEngineSelector({
   onChange,
   allowedEngines = ["hbx", "google"],
   showDescription = true,
+  compact = false,
 }: {
   value: HbxEngineValue;
   onChange: (value: HbxEngineValue) => void;
   allowedEngines?: HbxEngineValue[];
   showDescription?: boolean;
+  compact?: boolean;
 }) {
   const options: Array<{ value: HbxEngineValue; label: string; description: string }> = [
-    { value: "hbx", label: "HBX", description: "Frota HBX M1-M4" },
-    { value: "google", label: "Google", description: "Google oficial / fallback controlado" },
+    { value: "hbx", label: "HBX", description: "Motor interno com base HBX" },
+    { value: "google", label: "Google", description: "Busca pública no Google" },
   ];
 
   return (
-    <div className={styles.field}>
+    <div className={styles.field} data-compact={compact ? "true" : undefined}>
       <span className={styles.label}>Engine</span>
       <div className={styles.choiceGrid} role="radiogroup" aria-label="Engine">
         {options.filter((item) => allowedEngines.includes(item.value)).map((item) => (
@@ -427,10 +434,14 @@ export function HbxTargetTypeSelector({
   value,
   onChange,
   allowedTypes = ["pj", "pf", "agenda_pf"],
+  showDescription = true,
+  compact = false,
 }: {
   value: HbxTargetTypeValue;
   onChange: (value: HbxTargetTypeValue) => void;
   allowedTypes?: HbxTargetTypeValue[];
+  showDescription?: boolean;
+  compact?: boolean;
 }) {
   const options: Array<{ value: HbxTargetTypeValue; label: string; description: string }> = [
     { value: "pj", label: "PJ — Empresas/CNPJ", description: "Empresas e negócios locais." },
@@ -439,10 +450,12 @@ export function HbxTargetTypeSelector({
   ];
 
   return (
-    <div className={styles.field}>
+    <div className={styles.field} data-compact={compact ? "true" : undefined}>
       <span className={styles.label}>Tipo</span>
       <div className={styles.choiceGrid} role="radiogroup" aria-label="Tipo">
-        {options.filter((item) => allowedTypes.includes(item.value)).map((item) => (
+        {options.filter((item) => allowedTypes.includes(item.value)).map((item) => {
+          const compactLabel = item.value === "agenda_pf" ? "Agenda PF" : item.value.toUpperCase();
+          return (
           <button
             key={item.value}
             type="button"
@@ -451,10 +464,11 @@ export function HbxTargetTypeSelector({
             role="radio"
             aria-checked={value === item.value}
           >
-            <strong>{item.label}</strong>
-            <small>{item.description}</small>
+            <strong>{compact ? compactLabel : item.label}</strong>
+            {showDescription ? <small>{item.description}</small> : null}
           </button>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
@@ -497,12 +511,15 @@ export function HbxAdvancedFilters({
   filters,
   onChange,
   mode,
+  embedded = false,
 }: {
   filters: HbxAdvancedFiltersValue;
   onChange: (value: HbxAdvancedFiltersValue) => void;
   mode: "automation" | "webscraping" | "radar" | "master";
+  embedded?: boolean;
 }) {
   const [open, setOpen] = useState(false);
+  const visible = embedded || open;
   const canUseBusinessQuality = true;
   const canUseRadarFilters = mode === "radar";
   const canUseWebsiteFilters = mode !== "master";
@@ -520,12 +537,14 @@ export function HbxAdvancedFilters({
 
   return (
     <div className={styles.advanced}>
-      <button type="button" className={styles.advancedToggle} onClick={() => setOpen((value) => !value)}>
-        <span>Filtros avançados</span>
-        <small>{activeSummary.length ? activeSummary.join(" · ") : "Nenhum filtro ativo"}</small>
-      </button>
+      {!embedded ? (
+        <button type="button" className={styles.advancedToggle} onClick={() => setOpen((value) => !value)}>
+          <span>Filtros avançados</span>
+          <small>{activeSummary.length ? activeSummary.join(" · ") : "Nenhum filtro ativo"}</small>
+        </button>
+      ) : null}
 
-      {open ? (
+      {visible ? (
         <div className={styles.advancedGrid}>
           {canUseBusinessQuality ? (
             <>

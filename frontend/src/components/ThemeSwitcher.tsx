@@ -85,7 +85,16 @@ const THEME_EDITOR_GROUPS: ReadonlyArray<{
   },
 ] as const;
 
-const THEME_COUNT_LABEL = `${HBX_THEME_IDS.length} temas HBX`;
+const THEME_COUNT_LABEL = "Tema HBX";
+const HBX_BRAND_MARK_LEAD_MS = 980;
+const HBX_BRAND_MARK_PULSE_MS = 1680;
+const HBX_BRAND_MARK_RESET_MS = 2700;
+
+function wait(ms: number) {
+  return new Promise<void>((resolve) => {
+    window.setTimeout(resolve, ms);
+  });
+}
 
 function hasThemeConfigEntries(config: HbxThemeConfig | null | undefined) {
   if (!config) return false;
@@ -93,6 +102,7 @@ function hasThemeConfigEntries(config: HbxThemeConfig | null | undefined) {
   return Boolean(
     (config.selection && Object.keys(config.selection).length) ||
       (config.appearance && Object.keys(config.appearance).length) ||
+      (config.appearanceByTheme && Object.keys(config.appearanceByTheme).length) ||
       (config.motion && Object.keys(config.motion).length),
   );
 }
@@ -119,17 +129,48 @@ function withAlpha(hex: string, alpha: number) {
   return `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${alpha})`;
 }
 
+function primeHbxBrandMarkTransition(nextThemeState: HbxResolvedThemeConfig) {
+  if (typeof document === "undefined") return;
+
+  const root = document.documentElement;
+  root.style.setProperty("--hbx-brand-mark-next-primary", nextThemeState.appearance.brand);
+  root.style.setProperty("--hbx-brand-mark-next-secondary", nextThemeState.appearance.buttonSecondary);
+  root.style.setProperty("--hbx-brand-mark-next-accent", nextThemeState.appearance.buttonAccent);
+  root.style.setProperty("--hbx-brand-mark-next-soft", withAlpha(nextThemeState.appearance.brand, 0.34));
+  root.style.setProperty("--hbx-header-next-primary", withAlpha(nextThemeState.appearance.brand, 0.2));
+  root.style.setProperty("--hbx-header-next-secondary", withAlpha(nextThemeState.appearance.buttonSecondary, 0.18));
+  root.style.setProperty("--hbx-header-next-accent", withAlpha(nextThemeState.appearance.buttonAccent, 0.16));
+  root.setAttribute("data-hbx-brand-mark-transitioning", "true");
+  root.removeAttribute("data-hbx-brand-mark-pulse");
+
+  window.setTimeout(() => {
+    root.removeAttribute("data-hbx-brand-mark-transitioning");
+  }, HBX_BRAND_MARK_LEAD_MS);
+
+  window.setTimeout(() => {
+    root.setAttribute("data-hbx-brand-mark-pulse", "true");
+  }, HBX_BRAND_MARK_LEAD_MS + HBX_BRAND_MARK_PULSE_MS);
+
+  window.setTimeout(() => {
+    root.removeAttribute("data-hbx-brand-mark-pulse");
+    root.style.removeProperty("--hbx-brand-mark-next-primary");
+    root.style.removeProperty("--hbx-brand-mark-next-secondary");
+    root.style.removeProperty("--hbx-brand-mark-next-accent");
+    root.style.removeProperty("--hbx-brand-mark-next-soft");
+    root.style.removeProperty("--hbx-header-next-primary");
+    root.style.removeProperty("--hbx-header-next-secondary");
+    root.style.removeProperty("--hbx-header-next-accent");
+  }, HBX_BRAND_MARK_LEAD_MS + HBX_BRAND_MARK_RESET_MS);
+}
+
 function resolveThemeCardPreview(
   themeId: HbxThemeId,
   mode: HbxThemeSelection["mode"],
-  appearance?: HbxThemeAppearanceConfig,
+  config?: HbxThemeConfig | null,
 ) {
   const theme = HBX_THEME_PALETTES[themeId];
   const palette = theme[mode];
-  const resolved = resolveThemeConfig({
-    selection: { themeId, mode },
-    ...(appearance ? { appearance } : {}),
-  });
+  const resolved = resolveThemeConfig(mergeThemeConfigChain(config, { selection: { themeId, mode } }));
 
   return {
     theme,
@@ -137,6 +178,8 @@ function resolveThemeCardPreview(
     appearance: resolved.appearance,
   };
 }
+
+const SINGLE_THEME_ID = HBX_THEME_IDS[0];
 
 export default function ThemeSwitcher() {
   const rootRef = React.useRef<HTMLDivElement | null>(null);
@@ -202,6 +245,24 @@ export default function ThemeSwitcher() {
   const activeEditorState: HbxResolvedThemeConfig = editorOpen
     ? draftScopedResolved[editorScope]
     : scopedResolved[editorScope];
+  const activeEditorConfig = React.useMemo(() => {
+    if (!editorOpen) {
+      if (editorScope === "system") return themeState.scopes.system;
+      if (editorScope === "company") return mergeThemeConfigChain(themeState.scopes.system, themeState.scopes.company);
+      return mergeThemeConfigChain(themeState.scopes.system, themeState.scopes.company, themeState.scopes.user);
+    }
+
+    if (editorScope === "system") return editorDraftConfig;
+    if (editorScope === "company") return mergeThemeConfigChain(themeState.scopes.system, editorDraftConfig);
+    return mergeThemeConfigChain(themeState.scopes.system, themeState.scopes.company, editorDraftConfig);
+  }, [
+    editorDraftConfig,
+    editorOpen,
+    editorScope,
+    themeState.scopes.company,
+    themeState.scopes.system,
+    themeState.scopes.user,
+  ]);
   const editorDirty = editorResetPending || draftScopeSignature !== selectedScopeSignature;
   const canResetScope = Boolean(
     (selectedScopeConfig &&
@@ -347,11 +408,12 @@ export default function ThemeSwitcher() {
   }, [open]);
 
   function resolveTransitionOrigin(target?: EventTarget | null) {
-    const sourceElement = target instanceof Element
+    const hbxBrandMark = document.getElementById("app-modules-trigger");
+    const sourceElement = hbxBrandMark || (target instanceof Element
       ? target
       : document.activeElement instanceof Element
         ? document.activeElement
-        : rootRef.current;
+        : rootRef.current);
 
     const rect = sourceElement?.getBoundingClientRect();
     if (!rect) {
@@ -364,18 +426,26 @@ export default function ThemeSwitcher() {
     };
   }
 
-  function applySelection(nextSelection: HbxThemeSelection, target?: EventTarget | null) {
-    playThemeWaveTransition(
-      nextSelection,
-      resolveTransitionOrigin(target),
-      mergeThemeConfigChain(themeState.resolved, { selection: nextSelection }),
+  async function applySelection(nextSelection: HbxThemeSelection, target?: EventTarget | null) {
+    const normalizedSelection = { ...nextSelection, themeId: SINGLE_THEME_ID };
+    const nextThemeState = resolveThemeConfig(
+      mergeThemeConfigChain(themeState.scopes.system, themeState.scopes.company, themeState.scopes.user, {
+        selection: normalizedSelection,
+      }),
     );
-    setSelection(nextSelection);
+    primeHbxBrandMarkTransition(nextThemeState);
+    await wait(HBX_BRAND_MARK_LEAD_MS);
+    playThemeWaveTransition(
+      normalizedSelection,
+      resolveTransitionOrigin(target),
+      nextThemeState,
+    );
+    setSelection(normalizedSelection);
     replayGlobalTransition();
   }
 
-  function handleThemeSelection(themeId: HbxThemeId, target?: EventTarget | null) {
-    applySelection({ themeId, mode: selection.mode }, target);
+  function handleThemeSelection(target?: EventTarget | null) {
+    void applySelection({ themeId: SINGLE_THEME_ID, mode: selection.mode }, target);
     setOpen(false);
   }
 
@@ -386,7 +456,7 @@ export default function ThemeSwitcher() {
 
   function updateScopeSelection(nextSelection: Partial<HbxThemeSelection>) {
     const mergedSelection = {
-      themeId: nextSelection.themeId || activeEditorState.selection.themeId,
+      themeId: SINGLE_THEME_ID,
       mode: nextSelection.mode || activeEditorState.selection.mode,
     } satisfies HbxThemeSelection;
 
@@ -394,18 +464,48 @@ export default function ThemeSwitcher() {
   }
 
   function updateScopeBaseColor(value: string) {
-    updateEditorDraftConfig({
-      appearance: {
-        brand: value,
-        buttonPrimary: value,
-        selectionAccent: value,
-        menuActive: value,
-      },
+    const themedKeys = ["brand", "buttonPrimary", "selectionAccent", "menuActive"] as const;
+
+    setEditorResetPending(false);
+    setEditorDraftConfig((current) => {
+      const next = mergeThemeConfigChain(current, {
+        appearanceByTheme: {
+          [activeEditorState.selection.themeId]: {
+            brand: value,
+            buttonPrimary: value,
+            selectionAccent: value,
+            menuActive: value,
+          },
+        },
+      });
+
+      if (next.appearance) {
+        themedKeys.forEach((key) => {
+          delete next.appearance?.[key];
+        });
+        if (!Object.keys(next.appearance).length) delete next.appearance;
+      }
+
+      return next;
     });
   }
 
   function updateScopeAppearance(key: keyof HbxThemeAppearanceConfig, value: string) {
-    updateEditorDraftConfig({ appearance: { [key]: value } });
+    setEditorResetPending(false);
+    setEditorDraftConfig((current) => {
+      const next = mergeThemeConfigChain(current, {
+        appearanceByTheme: {
+          [activeEditorState.selection.themeId]: { [key]: value },
+        },
+      });
+
+      if (next.appearance) {
+        delete next.appearance[key];
+        if (!Object.keys(next.appearance).length) delete next.appearance;
+      }
+
+      return next;
+    });
   }
 
   function updateScopeMotion(transitionStyle: HbxThemeMotionStyle) {
@@ -427,6 +527,8 @@ export default function ThemeSwitcher() {
     if (!editorDirty) return;
 
     if (editorScope === "user") {
+      primeHbxBrandMarkTransition(activeEditorState);
+      await wait(HBX_BRAND_MARK_LEAD_MS);
       playThemeWaveTransition(activeEditorState.selection, resolveTransitionOrigin(target), activeEditorState);
       replayGlobalTransition();
     }
@@ -471,9 +573,9 @@ export default function ThemeSwitcher() {
           <div className="theme-switcher__panelHeader">
             <div>
               <p className="theme-switcher__eyebrow">{THEME_COUNT_LABEL}</p>
-              <strong className="theme-switcher__title">Escolha a experiência visual</strong>
+              <strong className="theme-switcher__title">Personalize a experiência visual</strong>
               <p className="theme-switcher__subtitle">
-                Tema base para o seu uso diário. A engrenagem abre o editor fino de cores e transições.
+                Um tema base com controle fino de cores, modo e transições.
               </p>
             </div>
             <div className="theme-switcher__panelActions">
@@ -483,7 +585,7 @@ export default function ThemeSwitcher() {
                   value={selection.mode}
                   ariaLabel="Modo de tema"
                   onChange={(mode) => {
-                    applySelection({ themeId: selection.themeId, mode }, document.activeElement);
+                    void applySelection({ themeId: SINGLE_THEME_ID, mode }, document.activeElement);
                   }}
                 />
               </div>
@@ -508,21 +610,19 @@ export default function ThemeSwitcher() {
           </div>
 
           <div className="theme-switcher__grid">
-            {HBX_THEME_IDS.map((themeId) => {
+            {(() => {
               const { theme, palette, appearance } = resolveThemeCardPreview(
-                themeId,
+                SINGLE_THEME_ID,
                 selection.mode,
-                themeId === activeEditorState.selection.themeId ? activeEditorState.appearance : undefined,
+                activeEditorConfig,
               );
-              const active = selection.themeId === themeId;
 
               return (
                 <button
-                  key={themeId}
                   type="button"
-                  onClick={(event) => handleThemeSelection(themeId, event.currentTarget)}
-                  className={`theme-card ${active ? "is-selected" : ""}`}
-                  aria-pressed={active}
+                  onClick={(event) => handleThemeSelection(event.currentTarget)}
+                  className="theme-card is-selected"
+                  aria-pressed="true"
                 >
                   <span
                     className="theme-card__preview"
@@ -574,7 +674,7 @@ export default function ThemeSwitcher() {
                   </span>
                 </button>
               );
-            })}
+            })()}
           </div>
 
           {editorOpen ? (
@@ -605,32 +705,6 @@ export default function ThemeSwitcher() {
               </div>
 
               <section className="theme-editor__section">
-                <div className="theme-editor__sectionHeader">
-                  <div>
-                    <strong>Tema base</strong>
-                    <p>Define a base visual do escopo atual.</p>
-                  </div>
-                </div>
-
-                <div className="theme-editor__presetGrid">
-                  {HBX_THEME_IDS.map((themeId) => {
-                    const theme = HBX_THEME_PALETTES[themeId];
-                    const isActive = activeEditorState.selection.themeId === themeId;
-
-                    return (
-                      <button
-                        key={`preset-${themeId}`}
-                        type="button"
-                        className={`theme-editor__preset ${isActive ? "is-active" : ""}`}
-                        onClick={() => updateScopeSelection({ themeId })}
-                      >
-                        <strong>{theme.label}</strong>
-                        <span>{theme.shellLabel}</span>
-                      </button>
-                    );
-                  })}
-                </div>
-
                 <label className="theme-editor__baseColorField">
                   <span className="theme-editor__tokenMeta">
                     <strong>Cor base do tema</strong>

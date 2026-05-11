@@ -1495,6 +1495,7 @@ model VendasLead {
   rating            Float?
   reviews           Int      @default(0)
   city              String?
+  state             String?
   segment           String?
   status            String   @default("novo") // novo | contato | retorno | qualificado | encerrado
   nextAction        String?

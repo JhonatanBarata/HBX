@@ -1,4 +1,5 @@
 import {
+  HBX_THEME_IDS,
   HBX_THEME_PALETTES,
   isHbxThemeId,
   isHbxThemeMode,
@@ -43,6 +44,7 @@ export type HbxThemeMotionConfig = {
 export type HbxThemeConfig = {
   selection?: Partial<HbxThemeSelection>;
   appearance?: HbxThemeAppearanceConfig;
+  appearanceByTheme?: Partial<Record<HbxThemeId, HbxThemeAppearanceConfig>>;
   motion?: HbxThemeMotionConfig;
 };
 
@@ -101,6 +103,24 @@ export function mergeThemeConfigChain(...configs: Array<HbxThemeConfig | null | 
       };
     }
 
+    if (config.appearanceByTheme) {
+      acc.appearanceByTheme = {
+        ...(acc.appearanceByTheme || {}),
+      };
+
+      HBX_THEME_IDS.forEach((themeId) => {
+        const themeAppearance = config.appearanceByTheme?.[themeId];
+        if (!themeAppearance) return;
+        acc.appearanceByTheme = {
+          ...(acc.appearanceByTheme || {}),
+          [themeId]: {
+            ...(acc.appearanceByTheme?.[themeId] || {}),
+            ...themeAppearance,
+          },
+        };
+      });
+    }
+
     if (config.motion) {
       acc.motion = {
         ...(acc.motion || {}),
@@ -115,6 +135,37 @@ export function mergeThemeConfigChain(...configs: Array<HbxThemeConfig | null | 
 export function sanitizeThemeConfig(config?: HbxThemeConfig | null): HbxThemeConfig | null {
   if (!config) return null;
 
+  const sanitizeAppearance = (appearance?: HbxThemeAppearanceConfig | null) =>
+    appearance
+      ? {
+          ...(normalizeColor(appearance.brand) ? { brand: normalizeColor(appearance.brand) as string } : {}),
+          ...(normalizeColor(appearance.buttonPrimary)
+            ? { buttonPrimary: normalizeColor(appearance.buttonPrimary) as string }
+            : {}),
+          ...(normalizeColor(appearance.buttonSecondary)
+            ? { buttonSecondary: normalizeColor(appearance.buttonSecondary) as string }
+            : {}),
+          ...(normalizeColor(appearance.buttonSuccess)
+            ? { buttonSuccess: normalizeColor(appearance.buttonSuccess) as string }
+            : {}),
+          ...(normalizeColor(appearance.buttonAccent)
+            ? { buttonAccent: normalizeColor(appearance.buttonAccent) as string }
+            : {}),
+          ...(normalizeColor(appearance.selectionAccent)
+            ? { selectionAccent: normalizeColor(appearance.selectionAccent) as string }
+            : {}),
+          ...(normalizeColor(appearance.menuActive)
+            ? { menuActive: normalizeColor(appearance.menuActive) as string }
+            : {}),
+          ...(normalizeColor(appearance.menuInactive)
+            ? { menuInactive: normalizeColor(appearance.menuInactive) as string }
+            : {}),
+          ...(normalizeColor(appearance.menuDisabled)
+            ? { menuDisabled: normalizeColor(appearance.menuDisabled) as string }
+            : {}),
+        }
+      : undefined;
+
   const resolvedSelection = config.selection
     ? {
         ...(config.selection.themeId ? { themeId: resolveThemeId(config.selection.themeId) } : {}),
@@ -122,36 +173,16 @@ export function sanitizeThemeConfig(config?: HbxThemeConfig | null): HbxThemeCon
       }
     : undefined;
 
-  const resolvedAppearance = config.appearance
-    ? {
-        ...(normalizeColor(config.appearance.brand)
-          ? { brand: normalizeColor(config.appearance.brand) as string }
-          : {}),
-        ...(normalizeColor(config.appearance.buttonPrimary)
-          ? { buttonPrimary: normalizeColor(config.appearance.buttonPrimary) as string }
-          : {}),
-        ...(normalizeColor(config.appearance.buttonSecondary)
-          ? { buttonSecondary: normalizeColor(config.appearance.buttonSecondary) as string }
-          : {}),
-        ...(normalizeColor(config.appearance.buttonSuccess)
-          ? { buttonSuccess: normalizeColor(config.appearance.buttonSuccess) as string }
-          : {}),
-        ...(normalizeColor(config.appearance.buttonAccent)
-          ? { buttonAccent: normalizeColor(config.appearance.buttonAccent) as string }
-          : {}),
-        ...(normalizeColor(config.appearance.selectionAccent)
-          ? { selectionAccent: normalizeColor(config.appearance.selectionAccent) as string }
-          : {}),
-        ...(normalizeColor(config.appearance.menuActive)
-          ? { menuActive: normalizeColor(config.appearance.menuActive) as string }
-          : {}),
-        ...(normalizeColor(config.appearance.menuInactive)
-          ? { menuInactive: normalizeColor(config.appearance.menuInactive) as string }
-          : {}),
-        ...(normalizeColor(config.appearance.menuDisabled)
-          ? { menuDisabled: normalizeColor(config.appearance.menuDisabled) as string }
-          : {}),
-      }
+  const resolvedAppearance = sanitizeAppearance(config.appearance);
+
+  const resolvedAppearanceByTheme = config.appearanceByTheme
+    ? HBX_THEME_IDS.reduce<NonNullable<HbxThemeConfig["appearanceByTheme"]>>((acc, themeId) => {
+        const appearance = sanitizeAppearance(config.appearanceByTheme?.[themeId]);
+        if (appearance && Object.keys(appearance).length) {
+          acc[themeId] = appearance;
+        }
+        return acc;
+      }, {})
     : undefined;
 
   const resolvedMotion = config.motion
@@ -165,6 +196,9 @@ export function sanitizeThemeConfig(config?: HbxThemeConfig | null): HbxThemeCon
   const sanitized: HbxThemeConfig = {
     ...(resolvedSelection && Object.keys(resolvedSelection).length ? { selection: resolvedSelection } : {}),
     ...(resolvedAppearance && Object.keys(resolvedAppearance).length ? { appearance: resolvedAppearance } : {}),
+    ...(resolvedAppearanceByTheme && Object.keys(resolvedAppearanceByTheme).length
+      ? { appearanceByTheme: resolvedAppearanceByTheme }
+      : {}),
     ...(resolvedMotion && Object.keys(resolvedMotion).length ? { motion: resolvedMotion } : {}),
   };
 
@@ -194,19 +228,44 @@ export function resolveThemeConfig(config?: HbxThemeConfig | null): HbxResolvedT
     mode: resolveThemeMode(config?.selection?.mode),
   };
   const defaults = buildThemeAppearanceDefaults(selection);
+  const themeAppearance = config?.appearanceByTheme?.[selection.themeId];
 
   return {
     selection,
     appearance: {
-      brand: normalizeColor(config?.appearance?.brand) || defaults.brand,
-      buttonPrimary: normalizeColor(config?.appearance?.buttonPrimary) || defaults.buttonPrimary,
-      buttonSecondary: normalizeColor(config?.appearance?.buttonSecondary) || defaults.buttonSecondary,
-      buttonSuccess: normalizeColor(config?.appearance?.buttonSuccess) || defaults.buttonSuccess,
-      buttonAccent: normalizeColor(config?.appearance?.buttonAccent) || defaults.buttonAccent,
-      selectionAccent: normalizeColor(config?.appearance?.selectionAccent) || defaults.selectionAccent,
-      menuActive: normalizeColor(config?.appearance?.menuActive) || defaults.menuActive,
-      menuInactive: normalizeColor(config?.appearance?.menuInactive) || defaults.menuInactive,
-      menuDisabled: normalizeColor(config?.appearance?.menuDisabled) || defaults.menuDisabled,
+      brand: normalizeColor(themeAppearance?.brand) || normalizeColor(config?.appearance?.brand) || defaults.brand,
+      buttonPrimary:
+        normalizeColor(themeAppearance?.buttonPrimary) ||
+        normalizeColor(config?.appearance?.buttonPrimary) ||
+        defaults.buttonPrimary,
+      buttonSecondary:
+        normalizeColor(themeAppearance?.buttonSecondary) ||
+        normalizeColor(config?.appearance?.buttonSecondary) ||
+        defaults.buttonSecondary,
+      buttonSuccess:
+        normalizeColor(themeAppearance?.buttonSuccess) ||
+        normalizeColor(config?.appearance?.buttonSuccess) ||
+        defaults.buttonSuccess,
+      buttonAccent:
+        normalizeColor(themeAppearance?.buttonAccent) ||
+        normalizeColor(config?.appearance?.buttonAccent) ||
+        defaults.buttonAccent,
+      selectionAccent:
+        normalizeColor(themeAppearance?.selectionAccent) ||
+        normalizeColor(config?.appearance?.selectionAccent) ||
+        defaults.selectionAccent,
+      menuActive:
+        normalizeColor(themeAppearance?.menuActive) ||
+        normalizeColor(config?.appearance?.menuActive) ||
+        defaults.menuActive,
+      menuInactive:
+        normalizeColor(themeAppearance?.menuInactive) ||
+        normalizeColor(config?.appearance?.menuInactive) ||
+        defaults.menuInactive,
+      menuDisabled:
+        normalizeColor(themeAppearance?.menuDisabled) ||
+        normalizeColor(config?.appearance?.menuDisabled) ||
+        defaults.menuDisabled,
     },
     motion: {
       transitionStyle: isHbxThemeMotionStyle(config?.motion?.transitionStyle)

@@ -594,8 +594,8 @@ export class WebscrapingController {
   }
 
   @Post('radar/leads/:id/send-to-vendas')
-  radarLeadSendToVendas(@Req() req: any, @Param('id') id: string) {
-    return this.webscrapingService.importRadarLeadToVendasForUser(req.user, id);
+  radarLeadSendToVendas(@Req() req: any, @Param('id') id: string, @Body() body?: { skipWhatsappValidation?: boolean }) {
+    return this.webscrapingService.importRadarLeadToVendasForUser(req.user, id, body || {});
   }
 
   @Post('radar/leads/mark-sent-to-vendas')

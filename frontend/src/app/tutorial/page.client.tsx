@@ -59,6 +59,12 @@ type OperationalStatusChip = {
 type OperationalStatusPayload = {
   statuses?: OperationalStatusChip[];
 };
+type SimpleOnboardingSignals = {
+  vendasTotal: number;
+  vendasPending: number;
+  conversations: number;
+  pendingHuman: number;
+};
 
 const TUTORIAL_COMPLETED_KEY = "hbx:onboarding:tutorial-completed:v1";
 const STEP_TRANSITION_MS = 760;
@@ -591,6 +597,12 @@ export default function TutorialClientPage() {
   const [botConfig, setBotConfig] = useState<AtendimentoBotConfig | null>(null);
   const [botDraft, setBotDraft] = useState<BotSetupDraft>(DEFAULT_BOT_SETUP_DRAFT);
   const [botSaving, setBotSaving] = useState(false);
+  const [simpleSignals, setSimpleSignals] = useState<SimpleOnboardingSignals>({
+    vendasTotal: 0,
+    vendasPending: 0,
+    conversations: 0,
+    pendingHuman: 0,
+  });
   const botStartAppliedRef = useRef(false);
   const previousQrConnectedRef = useRef<boolean | null>(null);
 
@@ -613,17 +625,22 @@ export default function TutorialClientPage() {
   const providerLabel = getProviderLabel(provider);
   const providerCapabilities = getProviderCapabilitiesFromWhatsAppCenter(whatsAppCenter);
   const botSetupComplete = Boolean(botConfig?.setup?.completed);
+  const tutorialMode = String(searchParams?.get("mode") || "").trim().toLowerCase();
+  const startMode = String(searchParams?.get("start") || "").trim().toLowerCase();
+  const advancedTutorial = tutorialMode === "advanced" || tutorialMode === "completo" || startMode === "bot";
 
   const loadTutorialData = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const [plansPayload, modulesPayload, operationalPayload, centerPayload, modalPayload] = await Promise.all([
+      const [plansPayload, modulesPayload, operationalPayload, centerPayload, modalPayload, vendasPayload, inboxPayload] = await Promise.all([
         apiFetch<CommercialPlansPayload>("/commercial-plans/me"),
         apiFetch<UserModule[]>("/modules/me"),
         apiFetch<OperationalStatusPayload>("/companies/me/operational-status").catch(() => null),
         apiFetch<WhatsAppCenterPayload>("/companies/me/whatsapp-center").catch(() => null),
         apiFetch<WhatsAppModalPayload>("/companies/me/whatsapp-modal/status").catch(() => null),
+        apiFetch<{ summary?: { total?: number; today?: number; overdue?: number; scheduled?: number } }>("/vendas/board").catch(() => null),
+        apiFetch<{ conversations?: unknown[]; pendingHumanCount?: number; total?: number }>("/inbox/conversations?limit=1").catch(() => null),
       ]);
       const botPayload = plansPayload.current.entitlements.bot_ia
         ? await apiFetch<AtendimentoBotConfig>("/inbox/bot-config").catch(() => null)
@@ -633,6 +650,26 @@ export default function TutorialClientPage() {
       setOperationalStatus(operationalPayload);
       setWhatsAppCenter(centerPayload);
       setWhatsAppModal(modalPayload);
+      const vendasSummary = vendasPayload?.summary || {};
+      const vendasTotal = Math.max(0, Math.trunc(Number(vendasSummary.total || 0)));
+      const vendasPending = Math.max(
+        0,
+        Math.trunc(Number(vendasSummary.today || 0)) +
+          Math.trunc(Number(vendasSummary.overdue || 0)) +
+          Math.trunc(Number(vendasSummary.scheduled || 0)),
+      );
+      setSimpleSignals({
+        vendasTotal,
+        vendasPending,
+        conversations: Math.max(
+          0,
+          Math.trunc(
+            Number(inboxPayload?.total) ||
+              (Array.isArray(inboxPayload?.conversations) ? inboxPayload.conversations.length : 0),
+          ),
+        ),
+        pendingHuman: Math.max(0, Math.trunc(Number(inboxPayload?.pendingHumanCount || 0))),
+      });
       if (botPayload) {
         const normalizedBot = normalizeBotConfig(botPayload);
         setBotConfig(normalizedBot);
@@ -786,6 +823,24 @@ export default function TutorialClientPage() {
   function goToWebscraping() {
     window.localStorage.setItem(TUTORIAL_COMPLETED_KEY, "true");
     router.push("/radar-digital");
+  }
+
+  function resolveSimpleOnboardingDestination() {
+    if (!whatsappConnected) return "/whatsapp?focus=qr&from=onboarding&next=/radar-digital";
+    if (simpleSignals.conversations > 0 || simpleSignals.pendingHuman > 0) return "/atendimento";
+    if (simpleSignals.vendasTotal > 0 || simpleSignals.vendasPending > 0) {
+      return "/vendas";
+    }
+    return "/radar-digital";
+  }
+
+  function startSimpleOnboarding() {
+    window.localStorage.setItem(TUTORIAL_COMPLETED_KEY, "true");
+    router.push(resolveSimpleOnboardingDestination());
+  }
+
+  function openAdvancedTutorial() {
+    router.push("/tutorial?mode=advanced");
   }
 
   function goToPlans() {
@@ -947,6 +1002,55 @@ export default function TutorialClientPage() {
   }
 
   if (!hasToken) return null;
+
+  if (!advancedTutorial) {
+    return (
+      <main className={styles.page} data-theme-id={selection.themeId} data-theme-mode={selection.mode} data-tutorial-mode="simple">
+        <section className={`${styles.shell} ${styles.simpleShell}`} aria-labelledby="tutorial-simple-title">
+          <button type="button" className={styles.exitButton} onClick={exitTutorial}>
+            Sair
+          </button>
+          <div className={styles.topLine}>
+            <span className={styles.statusBadge}>Onboarding simples</span>
+            <span className={styles.progress}>4 passos</span>
+          </div>
+          <div className={styles.brandMark}>HBX</div>
+
+          <div className={styles.simpleHero}>
+            <p className={styles.simpleEyebrow}>Ativação comercial</p>
+            <h1 id="tutorial-simple-title" className={styles.title}>Comece vendendo sem configurar tudo agora.</h1>
+            <p className={styles.subtitle}>
+              Primeiro conecte o WhatsApp, busque leads no Radar Digital e comece a atender. Bot e ajustes técnicos ficam para depois.
+            </p>
+            <button type="button" className={styles.primaryAction} onClick={startSimpleOnboarding}>
+              Começar agora
+            </button>
+          </div>
+
+          <SimpleOnboardingSteps
+            whatsappConnected={whatsappConnected}
+            hasLeads={simpleSignals.vendasTotal > 0 || simpleSignals.vendasPending > 0}
+            hasConversations={simpleSignals.conversations > 0 || simpleSignals.pendingHuman > 0}
+            botReady={botSetupComplete}
+          />
+
+          <div className={styles.simpleAdvancedRow}>
+            <span className={styles.simpleBotGuide} aria-hidden="true">
+              <i className={styles.simpleBotHead}>
+                <b />
+              </i>
+              <i className={styles.simpleBotBody} />
+              <i className={styles.simpleBotPointer} />
+            </span>
+            <span>Bot, Meta oficial, regras e ajustes técnicos são avançados.</span>
+            <button type="button" className={styles.ghostAction} onClick={openAdvancedTutorial}>
+              Abrir avançado
+            </button>
+          </div>
+        </section>
+      </main>
+    );
+  }
 
   const floatingCardsPage = tutorialStepPage(step);
 
@@ -1379,6 +1483,59 @@ function FloatingTutorialPrints({ page }: { page: number }) {
           </span>
           <strong>{card.title}</strong>
           <small>{card.text}</small>
+        </article>
+      ))}
+    </div>
+  );
+}
+
+function SimpleOnboardingSteps({
+  whatsappConnected,
+  hasLeads,
+  hasConversations,
+  botReady,
+}: {
+  whatsappConnected: boolean;
+  hasLeads: boolean;
+  hasConversations: boolean;
+  botReady: boolean;
+}) {
+  const steps = [
+    {
+      number: "1",
+      title: "Conectar WhatsApp",
+      text: whatsappConnected ? "Canal conectado. Já pode receber e responder clientes." : "Entre pelo QR ou pela configuração disponível para sua conta.",
+      state: whatsappConnected ? "done" : "next",
+    },
+    {
+      number: "2",
+      title: "Buscar leads no Radar Digital",
+      text: hasLeads ? "Você já tem cards comerciais para trabalhar." : "Pesquise cidade e segmento, revise os cards e envie para Vendas.",
+      state: whatsappConnected ? (hasLeads ? "done" : "next") : "locked",
+    },
+    {
+      number: "3",
+      title: "Começar atendimento/prospecção",
+      text: hasConversations ? "Existem conversas ou pendências para tratar no Atendimento." : "Com leads prontos, siga para a fila comercial e fale com os contatos.",
+      state: hasConversations ? "done" : hasLeads ? "next" : "locked",
+    },
+    {
+      number: "4",
+      title: "Bot fica no Avançado",
+      text: botReady ? "Assistente configurado. Você pode revisar pelo Avançado." : "Opcional: não precisa configurar bot para começar a vender e atender.",
+      state: botReady ? "done" : "optional",
+    },
+  ];
+
+  return (
+    <div className={styles.simpleSteps} aria-label="Onboarding simples em 4 passos">
+      {steps.map((step) => (
+        <article key={step.number} className={styles.simpleStepCard} data-state={step.state}>
+          <span className={styles.simpleStepNumber}>{step.number}</span>
+          <div>
+            <strong>{step.title}</strong>
+            <p>{step.text}</p>
+          </div>
         </article>
       ))}
     </div>

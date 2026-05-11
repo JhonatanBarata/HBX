@@ -31,17 +31,22 @@ type NavItem = {
   moduleKey?: string;
 };
 
+const NAV_MODE_STORAGE_KEY = "hbx:navigation-mode:v1";
+const NAV_MODE_CHANGED_EVENT = "hbx-navigation-mode-changed";
+type NavigationMode = "basic" | "advanced";
+
+const BASIC_NAV_ORDER = ["atendimento", "radar_digital", "vendas", "whatsapp"];
+const ADVANCED_NAV_KEYS = new Set([
+  "website",
+  "financeiro",
+  "gerencial",
+  "cadastro",
+  "follow_up_internacional",
+  "planos",
+  "master",
+]);
+
 const NAV_ITEMS: NavItem[] = [
-  {
-    key: "vendas",
-    href: "/vendas",
-    label: "Vendas",
-    shortLabel: "VD",
-    description: "CRM e oportunidades.",
-    matcher: (route) => route.startsWith("/vendas"),
-    category: "commercial",
-    moduleKey: "vendas",
-  },
   {
     key: "atendimento",
     href: "/atendimento",
@@ -57,16 +62,6 @@ const NAV_ITEMS: NavItem[] = [
     moduleKey: "atendimento",
   },
   {
-    key: "website",
-    href: "/website",
-    label: "Website",
-    shortLabel: "WB",
-    description: "Site e painel.",
-    matcher: (route) => route.startsWith("/website"),
-    category: "commercial",
-    moduleKey: "website",
-  },
-  {
     key: "radar_digital",
     href: "/radar-digital",
     label: "Radar Digital",
@@ -75,6 +70,37 @@ const NAV_ITEMS: NavItem[] = [
     matcher: (route) => route.startsWith("/radar-digital") || route.startsWith("/webscraping"),
     category: "commercial",
     moduleKey: "webscraping",
+  },
+  {
+    key: "vendas",
+    href: "/vendas",
+    label: "Vendas",
+    shortLabel: "VD",
+    description: "CRM e oportunidades.",
+    matcher: (route) => route.startsWith("/vendas"),
+    category: "commercial",
+    moduleKey: "vendas",
+  },
+  {
+    key: "whatsapp",
+    href: "/whatsapp",
+    label: "WhatsApp",
+    shortLabel: "WA",
+    description: "Canal.",
+    matcher: (route) => route.startsWith("/whatsapp"),
+    category: "structural",
+    companyOnly: true,
+    moduleKey: "whatsapp",
+  },
+  {
+    key: "website",
+    href: "/website",
+    label: "Website",
+    shortLabel: "WB",
+    description: "Site e painel.",
+    matcher: (route) => route.startsWith("/website"),
+    category: "commercial",
+    moduleKey: "website",
   },
   {
     key: "follow_up_internacional",
@@ -132,17 +158,6 @@ const NAV_ITEMS: NavItem[] = [
     moduleKey: "gerencial",
   },
   {
-    key: "whatsapp",
-    href: "/whatsapp",
-    label: "WhatsApp",
-    shortLabel: "WA",
-    description: "Canal.",
-    matcher: (route) => route.startsWith("/whatsapp"),
-    category: "structural",
-    companyOnly: true,
-    moduleKey: "whatsapp",
-  },
-  {
     key: "master",
     href: "/master",
     label: "Master",
@@ -170,6 +185,20 @@ const NAV_SECTIONS: Array<{ category: HbxModuleCategory; title: string; hint: st
     category: "system",
     title: "Sistema",
     hint: "Master.",
+  },
+];
+
+const BASIC_NAV_SECTIONS: Array<{ key: string; title: string; hint: string; advanced?: boolean }> = [
+  {
+    key: "main",
+    title: "Básico",
+    hint: "Comece aqui.",
+  },
+  {
+    key: "advanced",
+    title: "Avançado",
+    hint: "Configuração.",
+    advanced: true,
   },
 ];
 
@@ -248,6 +277,12 @@ function getAuthServerSnapshot() {
   return false;
 }
 
+function readNavigationMode(fallback: NavigationMode): NavigationMode {
+  if (typeof window === "undefined") return fallback;
+  const saved = window.localStorage.getItem(NAV_MODE_STORAGE_KEY);
+  return saved === "advanced" || saved === "basic" ? saved : fallback;
+}
+
 export default function ModuleNav({
   presentationEditing = false,
   canEditPresentation = false,
@@ -262,6 +297,7 @@ export default function ModuleNav({
   const [isSystemMaster, setIsSystemMaster] = useState(false);
   const [hasCompany, setHasCompany] = useState(false);
   const [loading, setLoading] = useState(authenticated);
+  const [navigationMode, setNavigationMode] = useState<NavigationMode>("basic");
 
   useEffect(() => {
     let mounted = true;
@@ -396,20 +432,64 @@ export default function ModuleNav({
       const moduleItem = modulesByKey.get(normalizeUserModuleKey(item.moduleKey));
       if (!moduleItem) return item.category === "commercial";
       return isModuleVisible(moduleItem);
+    }).sort((left, right) => {
+      const leftIndex = BASIC_NAV_ORDER.indexOf(left.key);
+      const rightIndex = BASIC_NAV_ORDER.indexOf(right.key);
+      if (leftIndex >= 0 || rightIndex >= 0) {
+        return (leftIndex >= 0 ? leftIndex : 99) - (rightIndex >= 0 ? rightIndex : 99);
+      }
+      return 0;
     });
   }, [hasCompany, isSystemMaster, loading, modulesByKey, userRole]);
 
+  const privilegedNavigation = isSystemMaster || String(userRole || "").toUpperCase() === "ADMIN";
+
+  useEffect(() => {
+    const fallback: NavigationMode = privilegedNavigation ? "advanced" : "basic";
+    setNavigationMode(readNavigationMode(fallback));
+
+    const handleNavigationModeChanged = (event: Event) => {
+      const next = (event as CustomEvent<{ mode?: NavigationMode }>).detail?.mode;
+      setNavigationMode(next === "advanced" || next === "basic" ? next : readNavigationMode(fallback));
+    };
+
+    const handleStorage = () => setNavigationMode(readNavigationMode(fallback));
+
+    window.addEventListener(NAV_MODE_CHANGED_EVENT, handleNavigationModeChanged as EventListener);
+    window.addEventListener("storage", handleStorage);
+    return () => {
+      window.removeEventListener(NAV_MODE_CHANGED_EVENT, handleNavigationModeChanged as EventListener);
+      window.removeEventListener("storage", handleStorage);
+    };
+  }, [privilegedNavigation]);
+
   const sections = useMemo(
-    () =>
-      NAV_SECTIONS.map((section) => ({
+    () => {
+      if (!privilegedNavigation && navigationMode === "basic" && !presentationEditing) {
+        return BASIC_NAV_SECTIONS.map((section) => ({
+          category: section.key,
+          title: section.title,
+          hint: section.hint,
+          items: navItems.filter((item) => (
+            section.advanced ? ADVANCED_NAV_KEYS.has(item.key) : BASIC_NAV_ORDER.includes(item.key)
+          )),
+        })).filter((section) => section.items.length > 0);
+      }
+
+      return NAV_SECTIONS.map((section) => ({
         ...section,
         items: navItems.filter((item) => item.category === section.category),
-      })).filter((section) => section.items.length > 0),
-    [navItems],
+      })).filter((section) => section.items.length > 0);
+    },
+    [navItems, navigationMode, presentationEditing, privilegedNavigation],
   );
 
   return (
-    <nav className={`${styles.moduleNavWrap} ${compact ? styles.moduleNavWrapCompact : ""}`} aria-label="Navegação do sistema">
+    <nav
+      className={`${styles.moduleNavWrap} ${compact ? styles.moduleNavWrapCompact : ""}`}
+      data-navigation-mode={navigationMode}
+      aria-label="Navegação do sistema"
+    >
       {sections.map((section) => (
         <section key={section.category} className={styles.navSection}>
           <div className={styles.navSectionHeader}>

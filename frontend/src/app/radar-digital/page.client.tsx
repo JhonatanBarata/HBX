@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
+import { useInterfaceTransition } from "@/components/InterfaceTransitionProvider";
 import DashboardScaffold from "@/components/DashboardScaffold";
 import {
   HbxAdvancedFilters,
@@ -116,14 +117,6 @@ type RadarSearchRunResponse = RadarPullResponse & {
 
 type RadarLeadDetailResponse = RadarLead | { item?: RadarLead | null; events?: RadarLeadHistory[] };
 
-type ImportToVendasResponse = {
-  ok: boolean;
-  createdCount: number;
-  updatedCount: number;
-  skippedWithoutWhatsapp?: number;
-  message?: string;
-};
-
 type RadarFilterOption = {
   value: string;
   label: string;
@@ -199,6 +192,13 @@ function statusLabel(value?: string | null) {
   if (status === "complaint") return "Reclamação";
   if (status === "hidden" || status === "discarded") return "Descartado";
   return value || "Novo";
+}
+
+function radarWhatsappLabel(lead: RadarLead) {
+  const status = String(lead.companyStatus || lead.status || "").trim().toLowerCase();
+  if (status === "no_whatsapp" || status === "invalid_whatsapp") return "Sem WhatsApp confirmado";
+  if (lead.phone || lead.phoneDigits) return "WhatsApp confirmado";
+  return "Sem telefone informado";
 }
 
 function ownershipBadge(lead: RadarLead) {
@@ -369,6 +369,7 @@ function isTerminalRadarRun(status?: string | null) {
 export default function RadarDigitalClientPage() {
   const hasToken = useRequireModule("webscraping");
   const searchParams = useSearchParams();
+  const { replayGlobalTransition } = useInterfaceTransition();
   const [filters, setFilters] = useState<FilterState>(DEFAULT_FILTERS);
   const [appliedFilters, setAppliedFilters] = useState<FilterState>(DEFAULT_FILTERS);
   const [generalSearch, setGeneralSearch] = useState("");
@@ -381,19 +382,21 @@ export default function RadarDigitalClientPage() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [actionId, setActionId] = useState<string | null>(null);
   const [searching, setSearching] = useState(false);
-  const [bulkSending, setBulkSending] = useState(false);
   const [telonProgress, setTelonProgress] = useState(8);
-  const [radarVisualCount, setRadarVisualCount] = useState(0);
   const [activeRun, setActiveRun] = useState<RadarSearchRunResponse | null>(null);
   const [commercialPlans, setCommercialPlans] = useState<CommercialPlansPayload | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
+  const [mobileWhatsappEngineEnabled, setMobileWhatsappEngineEnabled] = useState(true);
+  const [mobileWhatsappNoEngineAccepted, setMobileWhatsappNoEngineAccepted] = useState(false);
   const [availableFilters, setAvailableFilters] = useState<RadarAvailableFilters>({
     states: [],
     citiesByState: {},
     segments: [],
   });
   const activeRunIdRef = useRef<string | null>(null);
+  const previousVisibleCountRef = useRef(0);
 
   const visibleItems = useMemo(
     () => items.filter((item) => leadMatchesSearch(item, appliedGeneralSearch)),
@@ -509,12 +512,11 @@ export default function RadarDigitalClientPage() {
     return () => window.clearTimeout(timer);
   }, [feedback]);
 
-  const telonBusy = hasToken === null || loading || loadingMore || searching || bulkSending || Boolean(actionId);
+  const telonBusy = hasToken === null || loading || loadingMore || searching || Boolean(actionId);
 
   useEffect(() => {
     if (!telonBusy) {
       setTelonProgress(8);
-      setRadarVisualCount(0);
       return undefined;
     }
 
@@ -529,19 +531,6 @@ export default function RadarDigitalClientPage() {
 
     return () => window.clearInterval(timer);
   }, [telonBusy]);
-
-  useEffect(() => {
-    if (!bulkSending) {
-      setRadarVisualCount(0);
-      return undefined;
-    }
-    const target = Math.max(1, Math.min(effectiveFilters.quantity, Math.max(1, visibleItems.length)));
-    setRadarVisualCount(1);
-    const timer = window.setInterval(() => {
-      setRadarVisualCount((current) => Math.min(target, current + 1));
-    }, 180);
-    return () => window.clearInterval(timer);
-  }, [bulkSending, effectiveFilters.quantity, visibleItems.length]);
 
   useEffect(() => {
     const metrics = [
@@ -603,30 +592,6 @@ export default function RadarDigitalClientPage() {
       return;
     }
 
-    if (bulkSending) {
-      dispatchTopbarProgress({
-        source: "radar",
-        phase: "loading",
-        title: "Enviando seleção para Vendas",
-        status: "Alimentando Vendas/Prospecção com cards elegíveis da tela.",
-        progress: Math.max(18, telonProgress),
-        steps: RADAR_PROGRESS_STEPS,
-        activeStepIndex: 3,
-        cardFeed: visibleItems.slice(0, Math.max(1, radarVisualCount)).slice(-4).map((item) => ({
-          id: `vendas:${item.id}`,
-          title: item.name || "Card Radar",
-          meta: [item.segment, item.city].filter(Boolean).join(" • ") || "Radar Digital",
-          score: item.opportunityScore ?? undefined,
-        })),
-        metrics: [
-          { label: "Selecionados", value: String(Math.min(visibleItems.length, effectiveFilters.quantity)) },
-          { label: "High", value: highOpportunityCount.toLocaleString("pt-BR") },
-          { label: "Destino", value: "Vendas" },
-        ],
-      });
-      return;
-    }
-
     if (loadingMore) {
       dispatchTopbarProgress({
         source: "radar",
@@ -667,7 +632,6 @@ export default function RadarDigitalClientPage() {
   }, [
     actionId,
     activeRun,
-    bulkSending,
     effectiveFilters,
     error,
     feedback,
@@ -678,7 +642,6 @@ export default function RadarDigitalClientPage() {
     highOpportunityCount,
     loading,
     loadingMore,
-    radarVisualCount,
     searching,
     telonProgress,
     total,
@@ -686,6 +649,16 @@ export default function RadarDigitalClientPage() {
   ]);
 
   useEffect(() => () => clearTopbarProgress("radar"), []);
+
+  useEffect(() => {
+    if (!hasSearched || visibleItems.length <= previousVisibleCountRef.current) {
+      previousVisibleCountRef.current = visibleItems.length;
+      return;
+    }
+
+    previousVisibleCountRef.current = visibleItems.length;
+    replayGlobalTransition();
+  }, [hasSearched, replayGlobalTransition, visibleItems.length]);
 
   function clearFilters() {
     setFilters(DEFAULT_FILTERS);
@@ -783,6 +756,12 @@ export default function RadarDigitalClientPage() {
       setError("Preencha cidade e segmento para pesquisar novos cards. Para ver histórico salvo, limpe esses campos.");
       return;
     }
+    if (!mobileWhatsappEngineEnabled && !mobileWhatsappNoEngineAccepted) {
+      setSearching(false);
+      setHasSearched(false);
+      setError("Confirme que está ciente antes de buscar sem validação pelo motor do WhatsApp.");
+      return;
+    }
     setAppliedFilters(nextFilters);
     setAppliedGeneralSearch(nextGeneralSearch);
 
@@ -810,6 +789,7 @@ export default function RadarDigitalClientPage() {
           quantity: nextFilters.quantity,
           minimumStock: Math.max(1, Math.min(nextFilters.quantity, 10)),
           desiredStock: Math.max(1, nextFilters.quantity),
+          whatsappValidation: mobileWhatsappEngineEnabled ? "webwhats" : "none",
         }),
       });
       activeRunIdRef.current = payload.runId || payload.id || null;
@@ -840,6 +820,7 @@ export default function RadarDigitalClientPage() {
           method: "POST",
           requireAuth: true,
           timeoutMs: 15000,
+          body: JSON.stringify({ skipWhatsappValidation: !mobileWhatsappEngineEnabled }),
         });
         setItems((current) => current.map((item) => item.id === lead.id ? { ...item, status: "sent_to_vendas", companyStatus: "imported_to_vendas", ownershipStatus: "in_attendance" } : item));
         setFeedback("Card enviado para Vendas.");
@@ -873,58 +854,6 @@ export default function RadarDigitalClientPage() {
     }
   }
 
-  function buildVendasLeadPayload(lead: RadarLead) {
-    return {
-      sourceHistoryId: `radar:${lead.id}`,
-      name: lead.name,
-      phone: lead.phone || lead.phoneDigits || "",
-      phoneDigits: lead.phoneDigits || lead.phone || "",
-      website: lead.website || undefined,
-      city: lead.city || undefined,
-      segment: lead.segment || undefined,
-      shortNote: lead.opportunityReason || undefined,
-    };
-  }
-
-  async function sendFilteredToVendas() {
-    if (!visibleItems.length) {
-      setFeedback(null);
-      setError("Pesquise primeiro. Depois envie os cards encontrados para Vendas.");
-      return;
-    }
-
-    setBulkSending(true);
-    setError(null);
-    setFeedback(null);
-    setTelonProgress(12);
-    try {
-      const selectedItems = visibleItems.slice(0, effectiveFilters.quantity);
-      const leads = selectedItems.map(buildVendasLeadPayload);
-      if (!leads.length) {
-        setFeedback("Nenhum lead elegível encontrado para enviar.");
-        return;
-      }
-      const imported = await apiFetch<ImportToVendasResponse>("/vendas/import/webscraping", {
-        method: "POST",
-        requireAuth: true,
-        timeoutMs: 30000,
-        body: JSON.stringify({ sourceHistoryId: "radar-digital:bulk", leads }),
-      });
-      await apiFetch("/webscraping/radar/leads/mark-sent-to-vendas", {
-        method: "POST",
-        requireAuth: true,
-        timeoutMs: 15000,
-        body: JSON.stringify({ leadIds: selectedItems.map((lead) => lead.id) }),
-      }).catch(() => null);
-      setItems((current) => current.map((item) => selectedItems.some((selected) => selected.id === item.id) ? { ...item, status: "sent_to_vendas", companyStatus: "imported_to_vendas", ownershipStatus: "in_attendance" } : item));
-      setFeedback(imported.message || `${leads.length} lead(s) herdados para Vendas.`);
-    } catch (bulkError) {
-      setError(bulkError instanceof Error ? bulkError.message : "Não foi possível herdar leads para Vendas agora.");
-    } finally {
-      setBulkSending(false);
-    }
-  }
-
   if (hasToken === null || loading && items.length === 0 && hasSearched) {
     return (
       <main className="app-shell" aria-hidden="true" />
@@ -943,21 +872,120 @@ export default function RadarDigitalClientPage() {
       showDashboardShortcut={false}
     >
       <section className={styles.shell}>
-        <header className={styles.header}>
-          <div>
-            <span>HBX</span>
-            <h1>Radar Digital</h1>
-            <p>Pesquise clientes, revise os cards e envie os melhores para Vendas.</p>
-          </div>
-          <button
-            type="button"
-            onClick={() => void sendFilteredToVendas()}
-            disabled={bulkSending || !visibleItems.length}
-            title={!visibleItems.length ? "Pesquise primeiro para escolher o que vai para Vendas." : undefined}
+        <div className={styles.mobileRadar}>
+          <header className={styles.mobileRadarHeader}>
+            <span>Radar Digital</span>
+            <strong>Buscar cards</strong>
+          </header>
+
+          <form
+            className={styles.mobileRadarForm}
+            onSubmit={(event) => {
+              event.preventDefault();
+              void runRadarSearch();
+            }}
           >
-            {bulkSending ? "Enviando..." : "Enviar para Vendas"}
-          </button>
-        </header>
+            <label>
+              <span>Segmento</span>
+              <input
+                value={filters.segment}
+                onChange={(event) => setFilters((current) => ({ ...current, segment: event.target.value }))}
+                placeholder="Ex: oficinas mecânicas"
+              />
+            </label>
+            <label>
+              <span>Cidade</span>
+              <input
+                value={filters.city}
+                onChange={(event) => setFilters((current) => ({ ...current, city: event.target.value }))}
+                placeholder="Ex: Campinas"
+              />
+            </label>
+            <label>
+              <span>Estado</span>
+              <input
+                value={filters.state}
+                onChange={(event) => setFilters((current) => ({ ...current, state: event.target.value.toUpperCase().slice(0, 2) }))}
+                placeholder="SP"
+                inputMode="text"
+                maxLength={2}
+              />
+            </label>
+            <div className={styles.mobileWhatsappEngine}>
+              <span>Motor WhatsApp</span>
+              <div className={styles.mobileWhatsappToggle} role="group" aria-label="Motor WhatsApp">
+                <button
+                  type="button"
+                  data-active={mobileWhatsappEngineEnabled ? "true" : "false"}
+                  onClick={() => {
+                    setMobileWhatsappEngineEnabled(true);
+                    setMobileWhatsappNoEngineAccepted(false);
+                  }}
+                >
+                  Com motor
+                </button>
+                <button
+                  type="button"
+                  data-active={!mobileWhatsappEngineEnabled ? "true" : "false"}
+                  onClick={() => {
+                    setMobileWhatsappEngineEnabled(false);
+                    setMobileWhatsappNoEngineAccepted(false);
+                  }}
+                >
+                  Sem motor
+                </button>
+              </div>
+              {!mobileWhatsappEngineEnabled ? (
+                <div className={styles.mobileWhatsappWarning}>
+                  <strong>Busca sem validação</strong>
+                  <p>Os cards podem errar se o número tem WhatsApp ou não. O status aparecerá como não confirmado.</p>
+                  <button
+                    type="button"
+                    className={styles.mobileWhatsappAwareButton}
+                    data-accepted={mobileWhatsappNoEngineAccepted ? "true" : "false"}
+                    onClick={() => setMobileWhatsappNoEngineAccepted(true)}
+                  >
+                    {mobileWhatsappNoEngineAccepted ? "Ciente confirmado" : "Ciente"}
+                  </button>
+                </div>
+              ) : null}
+            </div>
+            <button type="submit" disabled={searching || Boolean(activeRun)}>
+              {searching || activeRun ? "Buscando..." : "Buscar cards"}
+            </button>
+          </form>
+
+          <section className={styles.mobileRadarResults} aria-live="polite">
+            {!hasSearched ? (
+              <div className={styles.mobileRadarEmpty}>
+                Informe segmento, cidade e estado para buscar cards.
+              </div>
+            ) : activeRun && visibleItems.length === 0 ? (
+              <div className={styles.mobileRadarEmpty}>
+                Validando contatos encontrados...
+              </div>
+            ) : !loading && visibleItems.length === 0 ? (
+              <div className={styles.mobileRadarEmpty}>
+                Nenhum card encontrado para essa busca.
+              </div>
+            ) : (
+              visibleItems.map((lead) => (
+                <article key={`mobile-${lead.id}`} className={styles.mobileRadarCard}>
+                  <strong>{lead.name || "Empresa sem nome"}</strong>
+                  <span>{[lead.city, lead.state].filter(Boolean).join(" / ") || "Cidade não informada"}</span>
+                  <span>{formatPhone(lead.phone || lead.phoneDigits)} · {mobileWhatsappEngineEnabled ? radarWhatsappLabel(lead) : "WhatsApp não confirmado"}</span>
+                  <button
+                    type="button"
+                    onClick={() => void runLeadAction(lead, "send")}
+                    disabled={Boolean(actionId)}
+                  >
+                    Usar no Vendas
+                  </button>
+                </article>
+              ))
+            )}
+          </section>
+        </div>
 
         <form
           className={styles.filters}
@@ -966,68 +994,83 @@ export default function RadarDigitalClientPage() {
             void runRadarSearch();
           }}
         >
-          <div className={styles.filtersTitle}>
-            <div>
-              <span>Pesquisa</span>
-              <strong>Filtros de Pesquisa</strong>
+          <div className={styles.filterMainRow}>
+            <div className={styles.primaryControls}>
+              <div className={styles.filterEngine}>
+                <HbxEngineSelector
+                  value={filters.engine}
+                  onChange={(value) => setFilters((current) => ({ ...current, engine: value }))}
+                  showDescription={false}
+                  compact
+                />
+              </div>
+              <div className={styles.filterTarget}>
+                <HbxTargetTypeSelector
+                  value={filters.targetType}
+                  onChange={(value) => setFilters((current) => ({ ...current, targetType: value }))}
+                  allowedTypes={["pj", "pf"]}
+                  showDescription={false}
+                  compact
+                />
+              </div>
             </div>
-            <small>{hasHistoryFilters(filters, generalSearch) ? "Filtros prontos para consulta." : "Pesquisar vazio abre todo o histórico salvo."}</small>
-          </div>
 
-          <div className={styles.filterLocation}>
-            <HbxStateCityPicker
-              state={filters.state}
-              city={filters.city}
-              onStateChange={(value) => setFilters((current) => ({ ...current, state: value, city: "" }))}
-              onCityChange={(value) => setFilters((current) => ({ ...current, city: value }))}
-              helperText=""
-            />
+            <div className={styles.secondaryControls}>
+              <div className={styles.filterLocation}>
+                <HbxStateCityPicker
+                  state={filters.state}
+                  city={filters.city}
+                  onStateChange={(value) => setFilters((current) => ({ ...current, state: value, city: "" }))}
+                  onCityChange={(value) => setFilters((current) => ({ ...current, city: value }))}
+                  helperText=""
+                />
+              </div>
+              <div className={styles.filterSegment}>
+                <HbxSegmentCombobox
+                  value={filters.segment}
+                  onChange={(value) => setFilters((current) => ({ ...current, segment: value }))}
+                  suggestions={availableSegments.length ? availableSegments.map((item) => item.value) : undefined}
+                  placeholder="Segmento"
+                  helperText=""
+                />
+              </div>
+              <div className={styles.filterQuantity}>
+                <HbxQuantitySelector
+                  value={filters.quantity}
+                  onChange={(value) => setFilters((current) => ({ ...current, quantity: value }))}
+                  options={isHbxList ? [10, 20, 40, 50] : [10, 20, 40, 60, 100]}
+                  limitLabel="Quantidade"
+                  helperText=""
+                />
+              </div>
+            </div>
           </div>
-          <div className={styles.filterSegment}>
-            <HbxSegmentCombobox
-              value={filters.segment}
-              onChange={(value) => setFilters((current) => ({ ...current, segment: value }))}
-              suggestions={availableSegments.length ? availableSegments.map((item) => item.value) : undefined}
-              placeholder="Segmento"
-              helperText=""
-            />
-          </div>
-          <div className={styles.filterTarget}>
-            <HbxTargetTypeSelector
-              value={filters.targetType}
-              onChange={(value) => setFilters((current) => ({ ...current, targetType: value }))}
-              allowedTypes={["pj", "pf"]}
-            />
-          </div>
-          <div className={styles.filterQuantity}>
-            <HbxQuantitySelector
-              value={filters.quantity}
-              onChange={(value) => setFilters((current) => ({ ...current, quantity: value }))}
-              options={isHbxList ? [10, 20, 40, 50] : [10, 20, 40, 60, 100]}
-              limitLabel="Quantidade"
-              helperText=""
-            />
-          </div>
-          <div className={styles.filterEngine}>
-            <HbxEngineSelector
-              value={filters.engine}
-              onChange={(value) => setFilters((current) => ({ ...current, engine: value }))}
-              showDescription={false}
-            />
-          </div>
-          <div className={styles.filterAdvanced}>
-            <HbxAdvancedFilters
-              mode="radar"
-              filters={filters}
-              onChange={updateAdvancedFilters}
-            />
-          </div>
-          <div className={styles.filterActions}>
-            <button type="button" data-variant="secondary" onClick={clearFilters}>Limpar filtros</button>
-            <button type="submit" disabled={searching}>
-              {searching ? "Pesquisando..." : "Pesquisar"}
+          <div className={styles.filterFooter}>
+            <button
+              type="button"
+              className={styles.advancedToggle}
+              onClick={() => setShowAdvancedFilters((current) => !current)}
+              aria-expanded={showAdvancedFilters}
+            >
+              {showAdvancedFilters ? "Ocultar filtros avançados" : "Mostrar filtros avançados"}
             </button>
+            <div className={styles.filterActions}>
+              <button type="button" data-variant="secondary" onClick={clearFilters}>Limpar filtros</button>
+              <button type="submit" disabled={searching}>
+                {searching ? "Buscando..." : "Buscar leads agora"}
+              </button>
+            </div>
           </div>
+          {showAdvancedFilters ? (
+            <div className={styles.advancedContent}>
+              <HbxAdvancedFilters
+                mode="radar"
+                filters={filters}
+                onChange={updateAdvancedFilters}
+                embedded
+              />
+            </div>
+          ) : null}
         </form>
 
         {activeRun ? (
@@ -1053,7 +1096,7 @@ export default function RadarDigitalClientPage() {
           <div className={styles.resultsHeader}>
             <div>
               <span>Resultados</span>
-              <strong>{hasSearched ? "Cards da pesquisa" : "Aguardando pesquisa"}</strong>
+              <strong>{hasSearched ? "Leads encontrados" : "Pronto para buscar"}</strong>
             </div>
             {hasSearched ? (
               <small>
@@ -1067,8 +1110,8 @@ export default function RadarDigitalClientPage() {
           {!hasSearched ? (
             <div className={styles.emptyState}>
               <span aria-hidden="true">RD</span>
-              <strong>Nenhum card exibido ainda</strong>
-              <p>Use os filtros acima e clique em Pesquisar. Se pesquisar sem filtrar nada, o sistema abre todo o histórico.</p>
+              <strong>Comece por cidade e segmento</strong>
+              <p>Escolha onde quer vender, informe o segmento e clique em Buscar leads agora.</p>
             </div>
           ) : activeRun && visibleItems.length === 0 ? (
             <div className={styles.emptyState}>
@@ -1084,14 +1127,20 @@ export default function RadarDigitalClientPage() {
             </div>
           ) : (
             <div className={styles.grid}>
-              {visibleItems.map((lead) => {
+              {visibleItems.map((lead, index) => {
                 const score = Math.max(0, Math.min(100, Math.trunc(Number(lead.opportunityScore || 0))));
                 const isHigh = score >= 70;
                 const origin = [lead.sourceEngine, lead.source, ...(lead.sourceEngines || [])].filter(Boolean)[0] || "Banco HBX";
                 const status = lead.companyStatus || lead.status;
                 const ownerBadge = ownershipBadge(lead);
                 return (
-                  <article key={lead.id} className={styles.card} data-high={isHigh ? "true" : "false"}>
+                  <article
+                    key={lead.id}
+                    className={styles.card}
+                    data-high={isHigh ? "true" : "false"}
+                    data-ui-reveal-target="true"
+                    style={{ ["--reveal-index" as string]: index }}
+                  >
                     <div className={styles.cardHeader}>
                       <div>
                         <div className={styles.cardBadges}>

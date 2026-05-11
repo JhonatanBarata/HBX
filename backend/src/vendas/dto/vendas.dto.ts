@@ -184,6 +184,11 @@ export class ImportWebscrapingLeadItemDto {
 
   @IsOptional()
   @IsString()
+  @MaxLength(2)
+  state?: string;
+
+  @IsOptional()
+  @IsString()
   @MaxLength(120)
   segment?: string;
 
@@ -206,6 +211,14 @@ export class ImportWebscrapingLeadsDto {
   @IsOptional()
   @IsString()
   sourceHistoryId?: string;
+
+  @IsOptional()
+  @Transform(({ value }) => {
+    if (typeof value === 'boolean') return value;
+    if (typeof value === 'string') return ['1', 'true', 'yes', 'on', 'none', 'skip'].includes(value.trim().toLowerCase());
+    return value;
+  })
+  skipWhatsappValidation?: boolean;
 
   @IsArray()
   @ArrayMaxSize(100)

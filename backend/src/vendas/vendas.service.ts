@@ -221,6 +221,7 @@ export class VendasService {
       rating: true,
       reviews: true,
       city: true,
+      state: true,
       segment: true,
       status: true,
       nextAction: true,
@@ -485,6 +486,7 @@ export class VendasService {
       rating: row?.rating == null ? null : Number(row.rating),
       reviews: Math.max(0, Math.trunc(Number(row?.reviews || 0) || 0)),
       city: row?.city ? String(row.city) : null,
+      state: row?.state ? String(row.state) : null,
       segment: row?.segment ? String(row.segment) : null,
       status,
       statusLabel: this.formatStatusLabel(status),
@@ -642,6 +644,7 @@ export class VendasService {
 
   private buildImportedLeadNote(input: {
     city?: string | null;
+    state?: string | null;
     segment?: string | null;
     shortNote?: string | null;
   }) {
@@ -1391,6 +1394,7 @@ export class VendasService {
     rating?: number | null;
     reviews?: number | null;
     city?: string | null;
+    state?: string | null;
     segment?: string | null;
     status?: string | null;
     nextAction?: string | null;
@@ -1447,6 +1451,7 @@ export class VendasService {
       rating,
       reviews,
       city: this.normalizeText(input.city),
+      state: this.normalizeText(input.state)?.toUpperCase().slice(0, 2) || null,
       segment: this.normalizeText(input.segment),
       status,
       nextAction,
@@ -1510,6 +1515,7 @@ export class VendasService {
           rating: baseData.rating ?? existing.rating ?? null,
           reviews: Math.max(Math.trunc(Number(baseData.reviews || 0) || 0), Math.trunc(Number(existing.reviews || 0) || 0)),
           city: baseData.city || existing.city,
+          state: baseData.state || existing.state,
           segment: baseData.segment || existing.segment,
           nextAction: baseData.nextAction || existing.nextAction,
           returnAt: baseData.returnAt || existing.returnAt,
@@ -1738,6 +1744,7 @@ export class VendasService {
       phoneNormalized: true,
       email: true,
       city: true,
+      state: true,
       segment: true,
       status: true,
       nextAction: true,
@@ -1993,6 +2000,7 @@ export class VendasService {
           rating: item?.rating ?? null,
           reviews: item?.reviews ?? null,
           city: item?.city || null,
+          state: item?.state || null,
           segment: item?.segment || null,
           status: 'novo',
           nextAction: 'Primeiro contato',
@@ -2033,11 +2041,14 @@ export class VendasService {
     }
 
     let skippedWithoutWhatsapp = 0;
-    const whatsappAvailabilityByLeadId = await this.ensureWhatsappAvailabilityForRows(
-      context.companyId,
-      context.userId,
-      importedLeadPairs.map((entry) => entry.lead),
-    );
+    const skipWhatsappValidation = Boolean((dto as any)?.skipWhatsappValidation);
+    const whatsappAvailabilityByLeadId = skipWhatsappValidation
+      ? new Map<string, VendasWhatsappAvailabilityState>()
+      : await this.ensureWhatsappAvailabilityForRows(
+          context.companyId,
+          context.userId,
+          importedLeadPairs.map((entry) => entry.lead),
+        );
     for (const entry of importedLeadPairs) {
       const availability = whatsappAvailabilityByLeadId.get(String(entry.lead?.id || '')) || null;
       if (availability?.status === 'unavailable') {
@@ -2053,7 +2064,7 @@ export class VendasService {
       await this.syncLeadToInboxAgenda(context.companyId, entry.lead, undefined, {
         forceScheduled: true,
         draftMessageOverride: this.normalizeText(entry.item?.scriptText),
-        whatsappAvailabilityStatus: availability?.status || 'available',
+        whatsappAvailabilityStatus: skipWhatsappValidation ? 'unknown' : availability?.status || 'available',
       });
     }
 
@@ -2062,13 +2073,16 @@ export class VendasService {
       createdCount,
       updatedCount,
       skippedWithoutWhatsapp,
+      whatsappValidationSkipped: skipWhatsappValidation,
       failedCount: failedImports.length,
       failedImports,
       leads: importedLeads,
       message:
         failedImports.length > 0
           ? `${createdCount + updatedCount} lead(s) processados no CRM. ${failedImports.length} falharam e foram ignorados.`
-          : 
+          : skipWhatsappValidation
+            ? `${createdCount + updatedCount} lead(s) enviados ao CRM de Vendas sem validacao pelo motor WhatsApp.`
+            :
         skippedWithoutWhatsapp > 0
           ? `${createdCount + updatedCount} lead(s) processados no CRM. ${skippedWithoutWhatsapp} numero(s) foram bloqueados porque o motor nao encontrou WhatsApp.`
           : createdCount && updatedCount

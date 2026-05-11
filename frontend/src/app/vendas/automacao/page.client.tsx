@@ -415,6 +415,156 @@ type ProspectingPreviewVariables = {
   empresa: string;
 };
 
+type MobileLeadStatus = "novo" | "contato" | "retorno" | "qualificado" | "encerrado";
+
+type MobileLeadItem = {
+  id: string;
+  name?: string | null;
+  phone?: string | null;
+  phoneNormalized?: string | null;
+  city?: string | null;
+  state?: string | null;
+  status?: MobileLeadStatus | string;
+  statusLabel?: string | null;
+  nextAction?: string | null;
+  returnAt?: string | null;
+  shortNote?: string | null;
+  lastContactAt?: string | null;
+  attemptCount?: number | null;
+  whatsappAvailability?: {
+    status?: "unknown" | "available" | "unavailable" | string;
+    checkedAt?: string | null;
+    message?: string | null;
+  } | null;
+};
+
+type MobileBoardResponse = {
+  summary?: {
+    total?: number;
+    today?: number;
+    overdue?: number;
+    scheduled?: number;
+    closed?: number;
+  };
+  blocks?: {
+    overdue?: MobileLeadItem[];
+    today?: MobileLeadItem[];
+    scheduled?: MobileLeadItem[];
+    closed?: MobileLeadItem[];
+  };
+};
+
+type MobileDialPrefs = {
+  userDdd: string;
+  csp: string;
+};
+
+const MOBILE_DIAL_PREFS_KEY = "hbx.vendas.mobileDialPrefs.v1";
+const DEFAULT_MOBILE_DIAL_PREFS: MobileDialPrefs = { userDdd: "", csp: "15" };
+
+function useSmallViewport(query = "(max-width: 820px)") {
+  const [matches, setMatches] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return window.matchMedia(query).matches;
+  });
+
+  useEffect(() => {
+    if (typeof window === "undefined") return undefined;
+    const media = window.matchMedia(query);
+    const onChange = () => setMatches(media.matches);
+    onChange();
+    media.addEventListener("change", onChange);
+    return () => media.removeEventListener("change", onChange);
+  }, [query]);
+
+  return matches;
+}
+
+function readMobileDialPrefs(): MobileDialPrefs {
+  if (typeof window === "undefined") return DEFAULT_MOBILE_DIAL_PREFS;
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(MOBILE_DIAL_PREFS_KEY) || "null") as Partial<MobileDialPrefs> | null;
+    return {
+      userDdd: String(parsed?.userDdd || "").replace(/\D/g, "").slice(0, 2),
+      csp: String(parsed?.csp || DEFAULT_MOBILE_DIAL_PREFS.csp).replace(/\D/g, "").slice(0, 3) || DEFAULT_MOBILE_DIAL_PREFS.csp,
+    };
+  } catch {
+    return DEFAULT_MOBILE_DIAL_PREFS;
+  }
+}
+
+function saveMobileDialPrefs(prefs: MobileDialPrefs) {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(MOBILE_DIAL_PREFS_KEY, JSON.stringify(prefs));
+}
+
+function normalizeBrazilPhoneForMobile(value?: string | null) {
+  let digits = String(value || "").replace(/\D/g, "");
+  if (digits.startsWith("55") && digits.length > 11) digits = digits.slice(2);
+  return digits;
+}
+
+function getMobilePhoneParts(lead: MobileLeadItem) {
+  const digits = normalizeBrazilPhoneForMobile(lead.phoneNormalized || lead.phone);
+  if (digits.length < 10) return { ddd: "", local: digits, national: digits };
+  const national = digits.slice(-11).length === 11 ? digits.slice(-11) : digits.slice(-10);
+  return {
+    ddd: national.slice(0, 2),
+    local: national.slice(2),
+    national,
+  };
+}
+
+function buildMobileWhatsAppHref(lead: MobileLeadItem) {
+  const parts = getMobilePhoneParts(lead);
+  if (!parts.ddd || !parts.local) return "";
+  return `https://wa.me/55${parts.ddd}${parts.local}`;
+}
+
+function buildMobileCallHref(lead: MobileLeadItem, prefs: MobileDialPrefs) {
+  const parts = getMobilePhoneParts(lead);
+  if (!parts.ddd || !parts.local) return "";
+  const userDdd = String(prefs.userDdd || "").replace(/\D/g, "").slice(0, 2);
+  const csp = String(prefs.csp || "").replace(/\D/g, "");
+  if (userDdd && parts.ddd === userDdd) return `tel:${parts.local}`;
+  return `tel:0${csp}${parts.ddd}${parts.local}`;
+}
+
+function formatMobileDialPreview(lead: MobileLeadItem, prefs: MobileDialPrefs) {
+  const href = buildMobileCallHref(lead, prefs);
+  return href ? href.replace(/^tel:/, "") : "Sem telefone";
+}
+
+function formatMobileDateTime(value?: string | null) {
+  if (!value) return "Sem tentativa";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return "Sem tentativa";
+  return parsed.toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+}
+
+function mobileWhatsappStatusLabel(lead: MobileLeadItem) {
+  const status = String(lead.whatsappAvailability?.status || "unknown").toLowerCase();
+  if (status === "available") return "confirmado";
+  if (status === "unavailable") return "sem WhatsApp";
+  return "não confirmado";
+}
+
+function mobileLeadLocation(lead: MobileLeadItem) {
+  const city = String(lead.city || "").trim();
+  const state = String(lead.state || "").trim().toUpperCase();
+  if (city && state) return `${city}/${state}`;
+  return city || state || "Cidade/UF não informada";
+}
+
+function flattenMobileBoard(board: MobileBoardResponse | null) {
+  const blocks = board?.blocks || {};
+  return [
+    ...(blocks.overdue || []),
+    ...(blocks.today || []),
+    ...(blocks.scheduled || []),
+  ];
+}
+
 function renderProspectingPreview(
   template: string,
   config: ProspectingAutomationConfig,
@@ -1166,7 +1316,15 @@ export default function VendasAutomationClientPage() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const requestedMobileMode = searchParams.get("mode") === "mobile";
+  const smallViewport = useSmallViewport();
+  const mobileSalesMode = requestedMobileMode && smallViewport;
   const [loading, setLoading] = useState(true);
+  const [mobileLoading, setMobileLoading] = useState(true);
+  const [mobileBoard, setMobileBoard] = useState<MobileBoardResponse | null>(null);
+  const [mobileActionLeadId, setMobileActionLeadId] = useState<string | null>(null);
+  const [mobileSavingLeadId, setMobileSavingLeadId] = useState<string | null>(null);
+  const [mobilePrefs, setMobilePrefs] = useState<MobileDialPrefs>(() => readMobileDialPrefs());
   const [, setConnectionLoading] = useState(true);
   const [publishing, setPublishing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -1223,6 +1381,10 @@ export default function VendasAutomationClientPage() {
   useEffect(() => {
     prospectingConfigRef.current = prospectingConfig;
   }, [prospectingConfig]);
+
+  useEffect(() => {
+    saveMobileDialPrefs(mobilePrefs);
+  }, [mobilePrefs]);
 
   const openBotPlans = useCallback(() => {
     router.push(BOT_PLAN_HREF);
@@ -1344,8 +1506,26 @@ export default function VendasAutomationClientPage() {
     }
   }, []);
 
+  const loadMobileBoard = useCallback(async () => {
+    setMobileLoading(true);
+    setError(null);
+    try {
+      const payload = await apiFetch<MobileBoardResponse>("/vendas/board", { timeoutMs: 15000 });
+      setMobileBoard(payload || null);
+    } catch (boardError) {
+      setError(boardError instanceof Error ? boardError.message : "Falha ao carregar cards de Vendas.");
+    } finally {
+      setMobileLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     if (hasToken !== true) return;
+    if (mobileSalesMode) {
+      setLoading(false);
+      void loadMobileBoard();
+      return;
+    }
     void loadAutomation();
     void loadConnection(false, true);
     void apiFetch<CurrentUserProfile>("/profile/current-user")
@@ -1354,19 +1534,21 @@ export default function VendasAutomationClientPage() {
     void apiFetch<UserModule[]>("/modules/me")
       .then((modules) => setUserModules(Array.isArray(modules) ? modules : []))
       .catch(() => setUserModules([]));
-  }, [hasToken, loadAutomation, loadConnection]);
+  }, [hasToken, loadAutomation, loadConnection, loadMobileBoard, mobileSalesMode]);
 
   useEffect(() => {
     if (hasToken !== true) return;
+    if (mobileSalesMode) return;
     if (!commercialPlans || !hasBotAi(commercialPlans)) return;
     void loadProspectingStatus(false);
     const timer = window.setInterval(() => {
       void loadProspectingStatus(true);
     }, 30000);
     return () => window.clearInterval(timer);
-  }, [commercialPlans, hasToken, loadProspectingStatus]);
+  }, [commercialPlans, hasToken, loadProspectingStatus, mobileSalesMode]);
 
   useEffect(() => {
+    if (mobileSalesMode) return;
     const requestedTab = searchParams.get("tab");
     if (requestedTab === "connection") {
       router.replace("/whatsapp?focus=qr");
@@ -1379,7 +1561,7 @@ export default function VendasAutomationClientPage() {
     if (requestedTab === "publish") {
       setWorkspaceTab("flow");
     }
-  }, [router, searchParams, setWorkspaceTab]);
+  }, [mobileSalesMode, router, searchParams, setWorkspaceTab]);
 
   useEffect(() => {
     if (!notice) return;
@@ -1388,6 +1570,7 @@ export default function VendasAutomationClientPage() {
   }, [notice]);
 
   useEffect(() => {
+    if (mobileSalesMode) return;
     const currentStatus = modalPayload?.status || null;
     const previousStatus = previousConnectionStatusRef.current;
     previousConnectionStatusRef.current = currentStatus;
@@ -1401,15 +1584,16 @@ export default function VendasAutomationClientPage() {
     window.dispatchEvent(new Event(QR_PAIRED_EVENT));
     const timer = window.setTimeout(() => setConnectionPaired(false), 3200);
     return () => window.clearTimeout(timer);
-  }, [modalPayload?.status]);
+  }, [mobileSalesMode, modalPayload?.status]);
 
   useEffect(() => {
+    if (mobileSalesMode) return;
     if (!modalPayload?.data.available) return;
     const interval = window.setInterval(() => {
       void loadConnection(true, modalPayload.status !== "connected");
     }, modalPayload.status === "connected" ? 20000 : 8000);
     return () => window.clearInterval(interval);
-  }, [loadConnection, modalPayload?.data.available, modalPayload?.status]);
+  }, [loadConnection, mobileSalesMode, modalPayload?.data.available, modalPayload?.status]);
 
   const saveBotConfig = useCallback(async (nextConfig: AtendimentoBotConfig, successText: string) => {
     if (!botAiActive) {
@@ -1586,6 +1770,68 @@ export default function VendasAutomationClientPage() {
     [botAiActive, draftConfig, openBotPlans, router, saveBotConfig],
   );
 
+  const mobileLeads = useMemo(() => flattenMobileBoard(mobileBoard), [mobileBoard]);
+
+  const patchMobileLead = useCallback(async (lead: MobileLeadItem, patch: Record<string, unknown>) => {
+    setMobileSavingLeadId(lead.id);
+    setError(null);
+    try {
+      await apiFetch(`/vendas/lead/${encodeURIComponent(lead.id)}`, {
+        method: "PATCH",
+        body: JSON.stringify(patch),
+      });
+      await loadMobileBoard();
+      setNotice({ tone: "success", text: "Card atualizado." });
+    } catch (updateError) {
+      setError(updateError instanceof Error ? updateError.message : "Falha ao atualizar o card.");
+    } finally {
+      setMobileSavingLeadId(null);
+    }
+  }, [loadMobileBoard]);
+
+  const registerMobileAttempt = useCallback(async (lead: MobileLeadItem, channel: string) => {
+    setMobileSavingLeadId(lead.id);
+    try {
+      await apiFetch(`/vendas/lead/${encodeURIComponent(lead.id)}/attempt`, {
+        method: "POST",
+        body: JSON.stringify({ channel }),
+      });
+      await loadMobileBoard();
+    } catch {
+      setNotice({ tone: "error", text: "A tentativa abriu no celular, mas não foi registrada no histórico." });
+    } finally {
+      setMobileSavingLeadId(null);
+    }
+  }, [loadMobileBoard]);
+
+  function handleMobileCall(lead: MobileLeadItem) {
+    const href = buildMobileCallHref(lead, mobilePrefs);
+    if (!href) {
+      setNotice({ tone: "error", text: "Este card não tem telefone válido para ligação." });
+      return;
+    }
+    setMobileActionLeadId(lead.id);
+    void registerMobileAttempt(lead, "ligacao");
+    window.location.href = href;
+  }
+
+  function handleMobileWhatsapp(lead: MobileLeadItem) {
+    const href = buildMobileWhatsAppHref(lead);
+    if (!href) {
+      setNotice({ tone: "error", text: "Este card não tem WhatsApp válido." });
+      return;
+    }
+    void registerMobileAttempt(lead, "whatsapp");
+    window.open(href, "_blank", "noopener,noreferrer");
+  }
+
+  function mobileReturnTomorrow() {
+    const next = new Date();
+    next.setDate(next.getDate() + 1);
+    next.setHours(9, 0, 0, 0);
+    return next.toISOString();
+  }
+
   const renderBotPlanPaywall = () => (
     <section className={styles.botPlanPaywall}>
       <span className={styles.sectionEyebrow}>Plano necessário</span>
@@ -1606,6 +1852,169 @@ export default function VendasAutomationClientPage() {
   }
 
   if (!hasToken) return null;
+
+  if (mobileSalesMode) {
+    const activeQuickLead = mobileLeads.find((lead) => lead.id === mobileActionLeadId) || null;
+    const summary = mobileBoard?.summary || {};
+    return (
+      <DashboardScaffold title="Vendas Mobile" hideHeader={true}>
+        <div className={styles.mobileSalesShell}>
+          <header className={styles.mobileSalesHeader}>
+            <div>
+              <span>Vendas</span>
+              <strong>Cards comerciais</strong>
+            </div>
+            <button type="button" onClick={() => void loadMobileBoard()} disabled={mobileLoading}>
+              {mobileLoading ? "Atualizando..." : "Atualizar"}
+            </button>
+          </header>
+
+          <section className={styles.mobileSalesHero} aria-label="Resumo da fila mobile">
+            <div>
+              <span>Fila ativa</span>
+              <strong>{mobileLeads.length.toLocaleString("pt-BR")}</strong>
+            </div>
+            <div>
+              <span>Hoje</span>
+              <strong>{Number(summary.today || 0).toLocaleString("pt-BR")}</strong>
+            </div>
+            <div>
+              <span>DDD/CSP</span>
+              <strong>{mobilePrefs.userDdd || "--"} / {mobilePrefs.csp || "--"}</strong>
+            </div>
+          </section>
+
+          <section className={styles.mobileDialPrefs} aria-label="Configuração de ligação">
+            <label>
+              <span>Seu DDD</span>
+              <input
+                inputMode="numeric"
+                value={mobilePrefs.userDdd}
+                onChange={(event) => setMobilePrefs((current) => ({ ...current, userDdd: event.target.value.replace(/\D/g, "").slice(0, 2) }))}
+                placeholder="11"
+              />
+            </label>
+            <label>
+              <span>Operadora/CSP</span>
+              <select
+                value={mobilePrefs.csp}
+                onChange={(event) => setMobilePrefs((current) => ({ ...current, csp: event.target.value }))}
+              >
+                <option value="15">Vivo 15</option>
+                <option value="21">Claro/NET 21</option>
+                <option value="41">TIM 41</option>
+                <option value="31">Oi 31</option>
+                <option value="14">Brasil Telecom 14</option>
+              </select>
+            </label>
+          </section>
+
+          {notice ? <section className={styles.mobileSalesNotice} data-tone={notice.tone}>{notice.text}</section> : null}
+          {error ? <section className={styles.mobileSalesNotice} data-tone="error">{error}</section> : null}
+
+          {mobileLoading ? (
+            <section className={styles.mobileSalesEmpty}>Carregando seus cards...</section>
+          ) : mobileLeads.length ? (
+            <section className={styles.mobileSalesQueue}>
+              {mobileLeads.map((lead) => {
+                const parts = getMobilePhoneParts(lead);
+                const saving = mobileSavingLeadId === lead.id;
+                const whatsappStatus = mobileWhatsappStatusLabel(lead);
+                return (
+                  <article key={lead.id} className={styles.mobileSalesCard}>
+                    <div className={styles.mobileSalesCardTop}>
+                      <div>
+                        <strong>{lead.name || "Lead sem nome"}</strong>
+                        <span>{mobileLeadLocation(lead)}</span>
+                      </div>
+                      <em data-status={whatsappStatus}>{whatsappStatus}</em>
+                    </div>
+                    <div className={styles.mobileSalesMeta}>
+                      <span><b>DDD</b>{parts.ddd || "?"}</span>
+                      <span><b>WhatsApp</b>{whatsappStatus}</span>
+                      <span><b>Última tentativa</b>{formatMobileDateTime(lead.lastContactAt)}</span>
+                      <span><b>Observação</b>{lead.shortNote || lead.nextAction || "Sem observação"}</span>
+                    </div>
+                    <div className={styles.mobileDialPreview}>
+                      <span>Discagem</span>
+                      <strong>{formatMobileDialPreview(lead, mobilePrefs)}</strong>
+                    </div>
+                    <div className={styles.mobileSalesActions}>
+                      <button type="button" onClick={() => handleMobileWhatsapp(lead)} disabled={saving}>
+                        WhatsApp
+                      </button>
+                      <button type="button" onClick={() => handleMobileCall(lead)} disabled={saving}>
+                        Ligar
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void patchMobileLead(lead, {
+                          status: "retorno",
+                          returnAt: mobileReturnTomorrow(),
+                          nextAction: "Retornar depois",
+                          shortNote: lead.shortNote || "Retorno marcado pelo mobile.",
+                        })}
+                        disabled={saving}
+                      >
+                        Retornar
+                      </button>
+                      <button
+                        type="button"
+                        data-danger="true"
+                        onClick={() => void patchMobileLead(lead, {
+                          status: "encerrado",
+                          nextAction: "Não ligar mais",
+                          shortNote: "Não ligar mais. Bloqueado para recontato pelo modo mobile.",
+                        })}
+                        disabled={saving}
+                      >
+                        Não ligar
+                      </button>
+                    </div>
+                    {mobileActionLeadId === lead.id ? (
+                      <div className={styles.mobileQuickActions}>
+                        <span>Ação rápida</span>
+                        <button type="button" onClick={() => void patchMobileLead(lead, { status: "contato", nextAction: "Atendeu", shortNote: lead.shortNote || "Atendeu a ligação." })}>
+                          Atendeu
+                        </button>
+                        <button type="button" onClick={() => void patchMobileLead(lead, { status: "retorno", returnAt: mobileReturnTomorrow(), nextAction: "Não atendeu", shortNote: lead.shortNote || "Não atendeu. Retornar depois." })}>
+                          Não atendeu
+                        </button>
+                        <button type="button" onClick={() => void patchMobileLead(lead, { status: "retorno", returnAt: mobileReturnTomorrow(), nextAction: "Retornar depois" })}>
+                          Retornar depois
+                        </button>
+                        <button
+                          type="button"
+                          data-danger="true"
+                          onClick={() => void patchMobileLead(lead, {
+                            status: "encerrado",
+                            nextAction: "Não ligar mais",
+                            shortNote: "Não ligar mais. Negativo/opt-out/bloqueio registrado pelo modo mobile.",
+                          })}
+                        >
+                          Não ligar mais
+                        </button>
+                      </div>
+                    ) : null}
+                  </article>
+                );
+              })}
+            </section>
+          ) : (
+            <section className={styles.mobileSalesEmpty}>
+              Nenhum card disponível. Volte ao Radar Digital para buscar novos contatos.
+            </section>
+          )}
+
+          {activeQuickLead ? (
+            <button type="button" className={styles.mobileCloseQuick} onClick={() => setMobileActionLeadId(null)}>
+              Fechar ação rápida de {activeQuickLead.name || "lead"}
+            </button>
+          ) : null}
+        </div>
+      </DashboardScaffold>
+    );
+  }
 
   return (
     <DashboardScaffold title="Automacao WhatsApp" hideHeader={true}>
