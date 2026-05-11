@@ -16,6 +16,8 @@ const {
 
 const remote = 'origin';
 const branch = 'master';
+const HBX_ACTIVE_ENGINE_COUNT = 50;
+const HBX_MAX_ENGINE_COUNT = 100;
 const rawArgs = process.argv.slice(2).map((arg) => String(arg || '').trim()).filter(Boolean);
 
 function parseMode() {
@@ -94,9 +96,9 @@ function parsePositiveInteger(value, fallback) {
 function resolveHbxEngineCount(env) {
   const requested = parsePositiveInteger(
     env.HBX_ENGINE_COUNT || env.HBX_PUBLISH_ENGINE_COUNT,
-    100,
+    HBX_ACTIVE_ENGINE_COUNT,
   );
-  return Math.min(requested, 100);
+  return Math.min(requested, HBX_ACTIVE_ENGINE_COUNT);
 }
 
 function ensureRequiredEnv(env) {
@@ -123,9 +125,12 @@ function ensureRequiredEnv(env) {
   assertNonLocalHttpUrl(frontendUrl, 'PROD_FRONTEND_URL');
 
   const hbxEngineCount = resolveHbxEngineCount(env);
-  const hbxEngineMaxCount = Math.max(
-    hbxEngineCount,
-    parsePositiveInteger(env.HBX_ENGINE_MAX_COUNT || env.HBX_PUBLISH_ENGINE_MAX_COUNT, 200),
+  const hbxEngineMaxCount = Math.min(
+    Math.max(
+      hbxEngineCount,
+      parsePositiveInteger(env.HBX_ENGINE_MAX_COUNT || env.HBX_PUBLISH_ENGINE_MAX_COUNT, HBX_MAX_ENGINE_COUNT),
+    ),
+    HBX_MAX_ENGINE_COUNT,
   );
 
   return {
@@ -283,12 +288,13 @@ function buildRemoteDeployScript(config, mode) {
     'if [ -z "$POSTGRES_USER" ] || [ -z "$POSTGRES_PASSWORD" ] || [ -z "$POSTGRES_DB" ] || [ -z "$POSTGRES_DATA_VOLUME" ] || [ -z "$NEXT_PUBLIC_API_URL" ]; then echo "ERRO: .env raiz sem variaveis obrigatorias do docker-compose."; exit 1; fi',
     'export HBX_ENGINE_COUNT="$(awk -F= \'/^HBX_ENGINE_COUNT=/{print substr($0, length("HBX_ENGINE_COUNT")+2); exit}\' .env)"',
     'export HBX_ENGINE_MAX_COUNT="$(awk -F= \'/^HBX_ENGINE_MAX_COUNT=/{print substr($0, length("HBX_ENGINE_MAX_COUNT")+2); exit}\' .env)"',
-    'if [ -z "$HBX_ENGINE_MAX_COUNT" ]; then export HBX_ENGINE_MAX_COUNT=200; fi',
-    'case "$HBX_ENGINE_MAX_COUNT" in *[!0-9]*|"") echo "Aviso: HBX_ENGINE_MAX_COUNT invalido no .env; usando 200."; export HBX_ENGINE_MAX_COUNT=200;; esac',
-    'if [ -z "$HBX_ENGINE_COUNT" ]; then export HBX_ENGINE_COUNT=100; fi',
-    'case "$HBX_ENGINE_COUNT" in *[!0-9]*|"") echo "Aviso: HBX_ENGINE_COUNT invalido no .env; usando 100."; export HBX_ENGINE_COUNT=100;; esac',
+    'if [ -z "$HBX_ENGINE_MAX_COUNT" ]; then export HBX_ENGINE_MAX_COUNT=100; fi',
+    'case "$HBX_ENGINE_MAX_COUNT" in *[!0-9]*|"") echo "Aviso: HBX_ENGINE_MAX_COUNT invalido no .env; usando 100."; export HBX_ENGINE_MAX_COUNT=100;; esac',
+    'if [ "$HBX_ENGINE_MAX_COUNT" -gt 100 ]; then echo "Aviso: HBX_ENGINE_MAX_COUNT=$HBX_ENGINE_MAX_COUNT acima da frota reservada; usando 100."; export HBX_ENGINE_MAX_COUNT=100; fi',
+    'if [ -z "$HBX_ENGINE_COUNT" ]; then export HBX_ENGINE_COUNT=50; fi',
+    'case "$HBX_ENGINE_COUNT" in *[!0-9]*|"") echo "Aviso: HBX_ENGINE_COUNT invalido no .env; usando 50."; export HBX_ENGINE_COUNT=50;; esac',
     'if [ "$HBX_ENGINE_COUNT" -lt 1 ]; then echo "Aviso: HBX_ENGINE_COUNT=$HBX_ENGINE_COUNT abaixo do minimo; usando 1."; export HBX_ENGINE_COUNT=1; fi',
-    'if [ "$HBX_ENGINE_COUNT" -gt 100 ]; then echo "Aviso: HBX_ENGINE_COUNT=$HBX_ENGINE_COUNT acima da frota oficial; usando 100."; export HBX_ENGINE_COUNT=100; fi',
+    'if [ "$HBX_ENGINE_COUNT" -gt 50 ]; then echo "Aviso: HBX_ENGINE_COUNT=$HBX_ENGINE_COUNT acima da frota ativa atual; usando 50."; export HBX_ENGINE_COUNT=50; fi',
     'if [ "$HBX_ENGINE_COUNT" -gt "$HBX_ENGINE_MAX_COUNT" ]; then echo "Aviso: HBX_ENGINE_COUNT=$HBX_ENGINE_COUNT acima do limite; usando $HBX_ENGINE_MAX_COUNT."; export HBX_ENGINE_COUNT="$HBX_ENGINE_MAX_COUNT"; fi',
     'if docker network inspect hbx_net >/dev/null 2>&1; then export HBX_DOCKER_NETWORK=hbx_net; elif docker network inspect hbx-net >/dev/null 2>&1; then export HBX_DOCKER_NETWORK=hbx-net; else docker network create hbx_net >/dev/null; export HBX_DOCKER_NETWORK=hbx_net; fi',
     'if docker compose version >/dev/null 2>&1; then DC="docker compose"; elif docker-compose --version >/dev/null 2>&1; then DC="docker-compose"; else echo "ERRO: docker-compose nao encontrado."; exit 1; fi',
@@ -693,7 +699,7 @@ function printDryRun(config, mode) {
   console.log('\n[dry-run] No git push, no SSH execution, no docker-compose down/up on Hostinger.');
   console.log('[dry-run] Would run: git push origin master');
   console.log(`[dry-run] Would SSH into: ${config.sshUser}@${config.sshHost}`);
-  console.log('[dry-run] Would run Hostinger remote deploy: fetch/reset, validate env/db/docker, build hbx-engine-1..N + fallback, run backend with HBX_ENGINE_COUNT/HBX_ENGINE_URLS, run frontend via Docker hbx-frontend, list containers.');
+  console.log('[dry-run] Would run Hostinger remote deploy: fetch/reset, validate env/db/docker, build hbx-engine-1..50 + fallback, run backend with HBX_ENGINE_COUNT/HBX_ENGINE_URLS, run frontend via Docker hbx-frontend, list containers.');
   if (isTruthy(process.env.PUBLISH_VERBOSE_DRY_RUN)) {
     console.log('--- remote script start ---');
     console.log(buildRemoteDeployScript(config, mode));

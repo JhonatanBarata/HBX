@@ -10,6 +10,8 @@ const {
 
 const remote = 'origin';
 const branch = 'master';
+const HBX_ACTIVE_ENGINE_COUNT = 50;
+const HBX_MAX_ENGINE_COUNT = 100;
 const rawArgs = process.argv.slice(2).map((arg) => String(arg || '').trim()).filter(Boolean);
 const isDryRun = rawArgs.some((arg) => ['d', 'dry-run', '--dry-run'].includes(arg.toLowerCase()));
 
@@ -49,9 +51,9 @@ function isTruthy(value) {
 function resolveHbxEngineCount(env) {
   const requested = parsePositiveInteger(
     env.HBX_ENGINE_COUNT || env.HBX_PUBLISH_ENGINE_COUNT,
-    100,
+    HBX_ACTIVE_ENGINE_COUNT,
   );
-  return Math.min(requested, 100);
+  return Math.min(requested, HBX_ACTIVE_ENGINE_COUNT);
 }
 
 function loadOperationsEnv() {
@@ -113,9 +115,12 @@ function ensureRequiredEnv(env) {
   assertNonLocalHttpUrl(frontendUrl, 'PROD_FRONTEND_URL');
 
   const hbxEngineCount = resolveHbxEngineCount(env);
-  const hbxEngineMaxCount = Math.max(
-    hbxEngineCount,
-    parsePositiveInteger(env.HBX_ENGINE_MAX_COUNT || env.HBX_PUBLISH_ENGINE_MAX_COUNT, 200),
+  const hbxEngineMaxCount = Math.min(
+    Math.max(
+      hbxEngineCount,
+      parsePositiveInteger(env.HBX_ENGINE_MAX_COUNT || env.HBX_PUBLISH_ENGINE_MAX_COUNT, HBX_MAX_ENGINE_COUNT),
+    ),
+    HBX_MAX_ENGINE_COUNT,
   );
 
   return {
@@ -283,12 +288,13 @@ function buildRemoteReleaseScript(config, services) {
     'upsert_root_env HBX_RADAR_CLIENT_FALLBACK_TO_POOL "${HBX_RADAR_CLIENT_FALLBACK_TO_POOL:-true}"',
     'export HBX_ENGINE_COUNT="$(awk -F= \'/^HBX_ENGINE_COUNT=/{print substr($0, length("HBX_ENGINE_COUNT")+2); exit}\' .env)"',
     'export HBX_ENGINE_MAX_COUNT="$(awk -F= \'/^HBX_ENGINE_MAX_COUNT=/{print substr($0, length("HBX_ENGINE_MAX_COUNT")+2); exit}\' .env)"',
-    'if [ -z "$HBX_ENGINE_MAX_COUNT" ]; then export HBX_ENGINE_MAX_COUNT=200; fi',
-    'case "$HBX_ENGINE_MAX_COUNT" in *[!0-9]*|"") echo "Aviso: HBX_ENGINE_MAX_COUNT invalido no .env; usando 200."; export HBX_ENGINE_MAX_COUNT=200;; esac',
-    'if [ -z "$HBX_ENGINE_COUNT" ]; then export HBX_ENGINE_COUNT=100; fi',
-    'case "$HBX_ENGINE_COUNT" in *[!0-9]*|"") echo "Aviso: HBX_ENGINE_COUNT invalido no .env; usando 100."; export HBX_ENGINE_COUNT=100;; esac',
+    'if [ -z "$HBX_ENGINE_MAX_COUNT" ]; then export HBX_ENGINE_MAX_COUNT=100; fi',
+    'case "$HBX_ENGINE_MAX_COUNT" in *[!0-9]*|"") echo "Aviso: HBX_ENGINE_MAX_COUNT invalido no .env; usando 100."; export HBX_ENGINE_MAX_COUNT=100;; esac',
+    'if [ "$HBX_ENGINE_MAX_COUNT" -gt 100 ]; then echo "Aviso: HBX_ENGINE_MAX_COUNT=$HBX_ENGINE_MAX_COUNT acima da frota reservada; usando 100."; export HBX_ENGINE_MAX_COUNT=100; fi',
+    'if [ -z "$HBX_ENGINE_COUNT" ]; then export HBX_ENGINE_COUNT=50; fi',
+    'case "$HBX_ENGINE_COUNT" in *[!0-9]*|"") echo "Aviso: HBX_ENGINE_COUNT invalido no .env; usando 50."; export HBX_ENGINE_COUNT=50;; esac',
     'if [ "$HBX_ENGINE_COUNT" -lt 1 ]; then echo "Aviso: HBX_ENGINE_COUNT=$HBX_ENGINE_COUNT abaixo do minimo; usando 1."; export HBX_ENGINE_COUNT=1; fi',
-    'if [ "$HBX_ENGINE_COUNT" -gt 100 ]; then echo "Aviso: HBX_ENGINE_COUNT=$HBX_ENGINE_COUNT acima da frota oficial; usando 100."; export HBX_ENGINE_COUNT=100; fi',
+    'if [ "$HBX_ENGINE_COUNT" -gt 50 ]; then echo "Aviso: HBX_ENGINE_COUNT=$HBX_ENGINE_COUNT acima da frota ativa atual; usando 50."; export HBX_ENGINE_COUNT=50; fi',
     'if [ "$HBX_ENGINE_COUNT" -gt "$HBX_ENGINE_MAX_COUNT" ]; then echo "Aviso: HBX_ENGINE_COUNT=$HBX_ENGINE_COUNT acima do limite; usando $HBX_ENGINE_MAX_COUNT."; export HBX_ENGINE_COUNT="$HBX_ENGINE_MAX_COUNT"; fi',
     'export POSTGRES_USER="$(awk -F= \'/^POSTGRES_USER=/{print substr($0, length("POSTGRES_USER")+2); exit}\' .env)"',
     'export POSTGRES_PASSWORD="$(awk -F= \'/^POSTGRES_PASSWORD=/{print substr($0, length("POSTGRES_PASSWORD")+2); exit}\' .env)"',
@@ -557,7 +563,7 @@ function expandPublishedServices(services) {
     .map((service) => serviceLabels[service] || service);
 
   if (selected.has('hbx-scraping-engine')) {
-    const engineCount = 100;
+    const engineCount = HBX_ACTIVE_ENGINE_COUNT;
     published.push(...Array.from({ length: engineCount }, (_, index) => `hbx-engine-${index + 1}`), 'hbx-scraping-engine');
   }
 
