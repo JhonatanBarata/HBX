@@ -148,8 +148,8 @@ export default function PlanSelectionExperience({
               </div>
             ) : (
               <div className={styles.noPriceBlock}>
-                <strong>Plano da empresa</strong>
-                <span>Valores visíveis apenas para ADMIN</span>
+                <strong>{mode === "signup" && plan.key === "hbx_melhor" ? "Modo empresarial" : "Plano da empresa"}</strong>
+                <span>{mode === "signup" && plan.key === "hbx_melhor" ? "Valor sob consulta" : "Valores visíveis apenas para ADMIN"}</span>
               </div>
             )}
             {billingHint ? <p className={styles.billingHint}>{billingHint}</p> : null}

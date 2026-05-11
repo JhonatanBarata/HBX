@@ -1,4 +1,5 @@
 import { forwardRef, Module } from '@nestjs/common';
+import { MessagingModule } from '../messaging/messaging.module';
 import { ModulesAccessModule } from '../modules/modules.module';
 import { VendasModule } from '../vendas/vendas.module';
 import { HbxEnginePoolService } from './hbx-engine-pool.service';
@@ -6,7 +7,7 @@ import { MasterWebscrapingController, WebscrapingController } from './webscrapin
 import { WebscrapingService } from './webscraping.service';
 
 @Module({
-  imports: [ModulesAccessModule, forwardRef(() => VendasModule)],
+  imports: [ModulesAccessModule, MessagingModule, forwardRef(() => VendasModule)],
   controllers: [WebscrapingController, MasterWebscrapingController],
   providers: [WebscrapingService, HbxEnginePoolService],
   exports: [WebscrapingService, HbxEnginePoolService],

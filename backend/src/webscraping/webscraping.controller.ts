@@ -480,6 +480,9 @@ class RadarPullDto extends RadarDatabaseQueryDto {
   @Max(500)
   minimumStock?: number;
 
+  @IsOptional()
+  @IsIn(['off', 'enrich', 'only_valid'])
+  whatsappCheckMode?: 'off' | 'enrich' | 'only_valid';
 }
 
 class RadarNegativeDto {

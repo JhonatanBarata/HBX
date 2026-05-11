@@ -130,6 +130,23 @@ const SIGNUP_PLANS: SignupPlan[] = [
   },
 ];
 
+const MOBILE_SIGNUP_PLANS: SignupPlan[] = SIGNUP_PLANS.map((plan) =>
+  plan.key === "hbx_melhor"
+    ? {
+        ...plan,
+        name: "Modo empresarial",
+        badge: "Desktop",
+        monthlyPrice: null,
+        detail: "Plano para operação em desktop com automações avançadas e atendimento consultivo.",
+        cta: "Solicitar modo empresarial",
+        trialCopy: undefined,
+        promoPrice: null,
+        promoLabel: undefined,
+        note: "Valor sob consulta",
+      }
+    : plan,
+);
+
 type BillingCycle = "monthly" | "annual";
 type RegisterFieldIcon = "company" | "email" | "lock";
 
@@ -296,6 +313,10 @@ export default function RegisterPage() {
   const router = useRouter();
   const { selection } = useHbxTheme();
   const [selectedPlanKey, setSelectedPlanKey] = useState<CommercialPlanKey>("hbx_padrao");
+  const [registerStep, setRegisterStep] = useState<"plans" | "form">("plans");
+  const [registerSequence, setRegisterSequence] = useState<"plans-first" | "form-first">("plans-first");
+  const [registerTransition, setRegisterTransition] = useState<"idle" | "selecting">("idle");
+  const [mobileRegisterFlow, setMobileRegisterFlow] = useState(false);
   const billingCycle: BillingCycle = "monthly";
   const [companyName, setCompanyName] = useState("");
   const [attendantName, setAttendantName] = useState("");
@@ -322,6 +343,7 @@ export default function RegisterPage() {
     acceptedTerms: false,
   });
   const autoLoginCompletedRef = useRef(false);
+  const registerStepTimerRef = useRef<number | null>(null);
   const trialPhoneDigits = normalizeBrazilPhone(trialForm.phone);
   const trialCpfDigits = onlyDigits(trialForm.cpf);
   const trialFormReady =
@@ -342,6 +364,33 @@ export default function RegisterPage() {
     } catch {
       // ignore localStorage parsing errors
     }
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (registerStepTimerRef.current !== null) {
+        window.clearTimeout(registerStepTimerRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const mediaQuery = window.matchMedia("(max-width: 768px)");
+    const applyMobileFlow = () => {
+      const isMobile = mediaQuery.matches;
+      const params = new URLSearchParams(window.location.search);
+      const start = params.get("start");
+      const fromLogin = params.get("from") === "login";
+      const sequence = start === "plans" ? "plans-first" : start === "form" || fromLogin || isMobile ? "form-first" : "plans-first";
+      setMobileRegisterFlow(isMobile);
+      setRegisterSequence(sequence);
+      setRegisterStep(sequence === "form-first" ? "form" : "plans");
+      setRegisterTransition("idle");
+    };
+    applyMobileFlow();
+    mediaQuery.addEventListener("change", applyMobileFlow);
+    return () => mediaQuery.removeEventListener("change", applyMobileFlow);
   }, []);
 
   useEffect(() => {
@@ -560,10 +609,28 @@ export default function RegisterPage() {
 
   async function handleRegister(event: FormEvent) {
     event.preventDefault();
+    if (registerSequence === "form-first" && registerStep === "form" && !confirmationPending) {
+      setError(null);
+      if (password !== confirmPassword) {
+        setError("As senhas não conferem.");
+        return;
+      }
+      if (String(attendantName || "").trim().replace(/\s+/g, " ").length < 2) {
+        setError("Informe o nome do atendente/vendedor.");
+        return;
+      }
+      setRegisterTransition("selecting");
+      window.setTimeout(() => {
+        setRegisterStep("plans");
+        setRegisterTransition("idle");
+      }, 260);
+      return;
+    }
     await submitRegistration();
   }
 
-  async function submitRegistration(forceTrial = false) {
+  async function submitRegistration(forceTrial = false, planKeyOverride?: CommercialPlanKey) {
+    const planKey = planKeyOverride || selectedPlanKey;
     setError(null);
     setConfirmationPending(null);
     setConfirmationActionMessage(null);
@@ -576,12 +643,12 @@ export default function RegisterPage() {
       return;
     }
 
-    if (selectedPlanKey === "hbx_padrao" && !forceTrial) {
+    if (planKey === "hbx_padrao" && !forceTrial) {
       setTrialModalOpen(true);
       return;
     }
 
-    if (selectedPlanKey === "hbx_padrao" && !trialFormReady) {
+    if (planKey === "hbx_padrao" && !trialFormReady) {
       setTrialModalOpen(true);
       setError("Informe nome, CPF válido, telefone de contato e aceite os termos para iniciar o trial.");
       return;
@@ -601,8 +668,8 @@ export default function RegisterPage() {
         entityType: PUBLIC_SIGNUP_ENTITY_TYPE,
         companyName: normalizedCompanyName,
         name: normalizedAttendantName,
-        selectedPlanKey,
-        ...(selectedPlanKey === "hbx_padrao"
+        selectedPlanKey: planKey,
+        ...(planKey === "hbx_padrao"
           ? {
               trialContactName: trialForm.contactName.trim(),
               trialTaxDocument: trialCpfDigits,
@@ -656,7 +723,7 @@ export default function RegisterPage() {
               ? payload.entityType
               : PUBLIC_SIGNUP_ENTITY_TYPE,
           companyName: payload.companyName ? String(payload.companyName) : null,
-          selectedPlanKey: payload.selectedPlanKey || selectedPlanKey,
+          selectedPlanKey: payload.selectedPlanKey || planKey,
           warnings: Array.isArray(payload.warnings)
             ? payload.warnings.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
             : [],
@@ -693,6 +760,27 @@ export default function RegisterPage() {
     await submitRegistration(true);
   }
 
+  function handlePlanSelect(planKey: CommercialPlanKey) {
+    if (registerTransition === "selecting") return;
+    if (registerStepTimerRef.current !== null) {
+      window.clearTimeout(registerStepTimerRef.current);
+    }
+    setSelectedPlanKey(planKey);
+    setError(null);
+    setRegisterTransition("selecting");
+    registerStepTimerRef.current = window.setTimeout(() => {
+      if (registerSequence === "form-first" && registerStep === "plans") {
+        setRegisterTransition("idle");
+        registerStepTimerRef.current = null;
+        void submitRegistration(false, planKey);
+        return;
+      }
+      setRegisterStep("form");
+      setRegisterTransition("idle");
+      registerStepTimerRef.current = null;
+    }, 420);
+  }
+
   return (
     <main
       className={`login-stage ${styles.registerStage}`}
@@ -723,26 +811,31 @@ export default function RegisterPage() {
       <div
         className={`login-console ${styles.registerConsole}`}
         data-entry-transition={entryTransition ? "from-login" : "ready"}
+        data-register-step={confirmationPending ? "confirmation" : registerStep}
+        data-register-transition={registerTransition}
         data-confirmation-pending={confirmationPending ? "true" : "false"}
       >
+        {!confirmationPending && registerStep === "plans" ? (
         <aside className="login-side login-side--left" aria-label="Planos">
           <div className={`login-side__panel ${styles.registerPlansPanel}`}>
             <div className={styles.plansHeader}>
               <div>
-                <h1>Escolha o plano ideal para o seu negócio</h1>
-                <p>Soluções completas para empresas de todos os tamanhos.</p>
+                <h1>Escolha o plano ideal pro seu negócio</h1>
               </div>
             </div>
             <PlanSelectionExperience
-              plans={SIGNUP_PLANS}
+              plans={mobileRegisterFlow ? MOBILE_SIGNUP_PLANS : SIGNUP_PLANS}
               selectedPlanKey={selectedPlanKey}
               billingCycle={billingCycle}
               mode="signup"
-              onSelect={(planKey) => setSelectedPlanKey(planKey)}
+              onSelect={handlePlanSelect}
             />
+            {mobileRegisterFlow && error ? <div className="msg-error"><div className="text-sm">{error}</div></div> : null}
           </div>
         </aside>
+        ) : null}
 
+        {confirmationPending || registerStep === "form" ? (
         <div className="login-shell">
           <div className={`login-card card ${styles.registerCard}`}>
             <div className="login-card__chrome" aria-hidden />
@@ -819,6 +912,18 @@ export default function RegisterPage() {
                   <span className={styles.cardDivider} aria-hidden />
                   <h1 className="login-card__title">Criar conta na HBX</h1>
                   <p className="login-card__copy">Comece com segurança e teste o plano ideal para sua operação.</p>
+                  {!mobileRegisterFlow ? (
+                    <button
+                      type="button"
+                      className={styles.changePlanButton}
+                      onClick={() => {
+                        setError(null);
+                        setRegisterStep("plans");
+                      }}
+                    >
+                      Plano selecionado: {planName(selectedPlanKey)}. Trocar plano
+                    </button>
+                  ) : null}
                 </header>
 
                 <form onSubmit={handleRegister} className={`login-form ${styles.form}`}>
@@ -952,7 +1057,9 @@ export default function RegisterPage() {
 
                   <button disabled={loading} className={`btn btn-primary login-button ${styles.submitButton}`}>
                     <span>
-                      {loading
+                      {registerSequence === "form-first" && registerStep === "form"
+                        ? "Continuar para planos"
+                        : loading
                         ? "Criando..."
                         : selectedPlanKey === "hbx_padrao"
                           ? "Começar 1º mês grátis"
@@ -990,6 +1097,7 @@ export default function RegisterPage() {
             </div>
           </div>
         </div>
+        ) : null}
       </div>
       {trialModalOpen ? (
         <div className={styles.dialogOverlay} role="presentation">
