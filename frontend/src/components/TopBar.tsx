@@ -2033,8 +2033,8 @@ const HBX_TOPBAR_POLISH_CSS = `
     .hbx-command-brand {
       height: 54px !important;
       min-height: 54px !important;
-      grid-template-columns: 44px minmax(0, 1fr) !important;
-      padding: 0 10px 0 0 !important;
+      grid-template-columns: 44px minmax(0, 1fr) 42px !important;
+      padding: 0 !important;
     }
 
     .hbx-command-brand::before,
@@ -2103,9 +2103,31 @@ const HBX_TOPBAR_POLISH_CSS = `
       font-weight: 950;
       text-decoration: none;
     }
+
+    .hbx-mobile-logout {
+      min-height: 42px;
+      width: 42px;
+      display: inline-flex !important;
+      align-items: center;
+      justify-content: center;
+      border: 1px solid color-mix(in srgb, var(--button-success, #22c55e) 30%, var(--line, rgba(148, 163, 184, 0.28)));
+      border-radius: 14px;
+      background: color-mix(in srgb, var(--surface-raised, #ffffff) 92%, transparent);
+      color: color-mix(in srgb, var(--button-success, #22c55e) 78%, var(--foreground, #0f172a));
+      box-shadow: var(--shadow-inset, inset 0 1px 0 rgba(255, 255, 255, 0.72));
+    }
+
+    .hbx-mobile-logout svg {
+      width: 18px;
+      height: 18px;
+    }
   }
 
   .hbx-mobile-quicknav {
+    display: none;
+  }
+
+  .hbx-mobile-logout {
     display: none;
   }
 
@@ -5151,6 +5173,20 @@ export default function TopBar() {
               <strong>HBXSYSTEM</strong>
               <span>Central operacional</span>
             </div>
+            {authenticated === true ? (
+              <button
+                type="button"
+                className="hbx-mobile-logout"
+                onClick={() => {
+                  void handleLogout();
+                }}
+                disabled={isShuttingDown}
+                title="Sair do sistema"
+                aria-label="Sair do sistema"
+              >
+                <HbxHeaderIcon name="logout" />
+              </button>
+            ) : null}
           </section>
 
           <section
