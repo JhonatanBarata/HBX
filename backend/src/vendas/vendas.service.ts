@@ -2,6 +2,8 @@ import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundEx
 import { CustomerProfileService } from '../customer-profile/customer-profile.service';
 import { InboxService } from '../inbox/inbox.service';
 import { CommercialPlansService } from '../commercial-plans/commercial-plans.service';
+import { CommercialUsageLimitsService } from '../commercial-plans/commercial-usage-limits.service';
+import { HbxPresentationEmailService } from '../mail/hbx-presentation-email.service';
 import { ConversationsService } from '../messaging/conversations.service';
 import { WebwhatsBridgeService } from '../messaging/webwhats-bridge.service';
 import { buildWhatsAppPhoneCandidates } from '../messaging/whatsapp-channel';
@@ -95,7 +97,78 @@ type VendasWhatsappAvailabilityState = {
   message: string | null;
 };
 
+export type HbxPresentationEmailDraftInput = {
+  leadName?: string | null;
+  city?: string | null;
+  state?: string | null;
+  segment?: string | null;
+  website?: string | null;
+  contactEmail?: string | null;
+  sellerName?: string | null;
+  companyName?: string | null;
+};
+
+export type HbxPresentationEmailDraft = {
+  subject: string;
+  body: string;
+  channel: 'email';
+  tone: 'commercial_presentation';
+  warnings: string[];
+};
+
 const VENDAS_WHATSAPP_LOOKUP_SOURCE = 'webwhats_lookup';
+
+function compactText(value: unknown) {
+  return String(value || '').replace(/\s+/g, ' ').trim();
+}
+
+function buildEmailCta(contactEmail?: string | null) {
+  const localPart = String(contactEmail || '').split('@')[0]?.trim().toLowerCase();
+  if (localPart === 'compras') {
+    return 'Você poderia me indicar o responsável comercial/atendimento?';
+  }
+  if (localPart === 'vendas' || localPart === 'comercial') {
+    return 'Posso mostrar como isso ajudaria o time comercial?';
+  }
+  return 'Posso te enviar uma apresentação rápida ou mostrar em poucos minutos como funciona?';
+}
+
+export function buildHbxPresentationEmailDraft(input: HbxPresentationEmailDraftInput): HbxPresentationEmailDraft {
+  const companyName = compactText(input.companyName) || 'HBX';
+  const leadName = compactText(input.leadName) || 'sua empresa';
+  const city = compactText(input.city);
+  const state = compactText(input.state).toUpperCase().slice(0, 2);
+  const segment = compactText(input.segment).toLowerCase();
+  const cityPart = city ? ` em ${city}${state ? `/${state}` : ''}` : state ? ` em ${state}` : '';
+  const segmentPart = segment ? ` de ${segment}` : '';
+  const sellerName = compactText(input.sellerName) || companyName;
+  const cta = buildEmailCta(input.contactEmail);
+
+  return {
+    subject: 'Apresentação HBX — organização de vendas pelo WhatsApp',
+    body: [
+      'Olá, tudo bem?',
+      '',
+      `Vi a empresa ${leadName}${cityPart} e queria apresentar a ${companyName}.`,
+      '',
+      `A ${companyName} ajuda empresas${segmentPart} que atendem pelo WhatsApp a organizar leads, retornos, contatos sem resposta e oportunidades comerciais em uma fila simples de vendas.`,
+      '',
+      'Também conseguimos conectar Radar Digital, cards comerciais e atendimento, evitando que interessados fiquem perdidos no WhatsApp.',
+      '',
+      cta,
+      '',
+      'Se não fizer sentido para vocês, é só me avisar que não retorno o contato.',
+      '',
+      sellerName,
+    ].join('\n'),
+    channel: 'email',
+    tone: 'commercial_presentation',
+    warnings: [
+      'Revise antes de enviar.',
+      'Não envie em massa sem opt-out e domínio configurado.',
+    ],
+  };
+}
 
 @Injectable()
 export class VendasService {
@@ -109,6 +182,8 @@ export class VendasService {
     private readonly inboxService: InboxService,
     private readonly webwhatsBridge: WebwhatsBridgeService,
     private readonly commercialPlansService: CommercialPlansService,
+    private readonly hbxPresentationEmails: HbxPresentationEmailService,
+    private readonly commercialUsageLimits: CommercialUsageLimitsService,
   ) {}
 
   async getAutomationBotConfigForUser(user: any) {
@@ -118,11 +193,22 @@ export class VendasService {
 
   async updateAutomationBotConfigForUser(user: any, payload: unknown) {
     await this.commercialPlansService.assertBotAiEntitlementForUser(user);
+    const companyId = Number(user?.masterContext?.active ? user?.masterContext?.companyId : user?.companyId || 0);
+    const requested = payload && typeof payload === 'object' ? payload as any : {};
+    const globalBotEnabled = Boolean(requested?.routingRules?.globalBotEnabled);
+    if (companyId && globalBotEnabled) {
+      await this.commercialPlansService.assertAssistedSetupCompleteForCompany(companyId);
+    }
     return this.inboxService.updateBotConfig(user, payload);
   }
 
   async getAutomationAgendaForUser(user: any) {
     return this.inboxService.getAgendaConfig(user);
+  }
+
+  async getDailyUsageSnapshotForUser(user: any) {
+    const { companyId, userId } = this.resolveUserContext(user);
+    return this.commercialUsageLimits.getDailyUsageSnapshot(companyId, userId);
   }
 
   private normalizeText(value: unknown) {
@@ -522,6 +608,330 @@ export class VendasService {
     if (!companyId) throw new ForbiddenException('Empresa nao identificada.');
     if (!userId) throw new ForbiddenException('Usuario nao identificado.');
     return { companyId, userId };
+  }
+
+  async buildPresentationEmailDraftForUser(user: any, leadId: string) {
+    const { companyId, userId } = this.resolveUserContext(user);
+    const normalizedLeadId = this.normalizeText(leadId);
+    if (!normalizedLeadId) throw new BadRequestException('Lead nao informado.');
+
+    const lead = await this.prisma.vendasLead.findFirst({
+      where: { id: normalizedLeadId, companyId },
+      select: this.buildVendasLeadSelectWithoutAddress(),
+    });
+    if (!lead) throw new NotFoundException('Lead nao encontrado.');
+
+    const draft = buildHbxPresentationEmailDraft({
+      leadName: lead.name,
+      city: lead.city,
+      state: lead.state,
+      segment: lead.segment,
+      website: lead.website,
+      contactEmail: lead.email,
+      sellerName: user?.name || user?.displayName || user?.email || 'HBX',
+      companyName: 'HBX',
+    });
+
+    await this.prisma.vendasLeadTimelineEvent.create({
+      data: {
+        leadId: lead.id,
+        ...this.buildTimelineEvent({
+          eventType: 'presentation_draft_generated',
+          title: 'Apresentacao comercial gerada',
+          description: `Rascunho de e-mail gerado para copiar e revisar. Assunto: ${draft.subject}`,
+          sourceType: 'email_draft',
+          resultLabel: draft.channel,
+          createdByUserId: userId,
+        }),
+      },
+    });
+
+    return draft;
+  }
+
+  private buildCommercialEmailTimelineDescription(input: Record<string, any>) {
+    return JSON.stringify(input);
+  }
+
+  private async logCommercialEmailMessage(input: Record<string, any>) {
+    if (!(await this.prisma.hasTable('CommercialEmailMessageLog').catch(() => false))) return null;
+    return (this.prisma as any).commercialEmailMessageLog.create({
+      data: {
+        companyId: input.companyId || null,
+        userId: input.userId || null,
+        radarLeadId: input.radarLeadId || null,
+        vendasLeadId: input.vendasLeadId || null,
+        recipientEmail: this.normalizeEmail(input.recipientEmail) || String(input.recipientEmail || '').trim().toLowerCase(),
+        recipientName: this.normalizeText(input.recipientName),
+        subject: String(input.subject || '').trim(),
+        text: input.text || null,
+        html: input.html || null,
+        status: String(input.status || 'draft').trim(),
+        transport: input.transport || null,
+        messageId: input.messageId || null,
+        errorCode: input.errorCode || null,
+        errorMessage: input.errorMessage || null,
+        attachmentName: input.attachmentName || null,
+        sentAt: input.sentAt ? new Date(input.sentAt) : null,
+      },
+    }).catch(() => null);
+  }
+
+  private assertLeadAllowsManualEmail(row: any) {
+    const blockedStatuses = new Set([
+      'negative',
+      'opt_out',
+      'optout',
+      'do_not_contact',
+      'blocked',
+      'no_whatsapp',
+      'invalid_phone',
+      'invalid_whatsapp',
+      'negative_reply',
+    ]);
+    const candidates = [row?.status, row?.lastResult, row?.nextAction, row?.shortNote]
+      .map((value) => String(value || '').trim().toLowerCase())
+      .filter(Boolean);
+    const blocked = candidates.find((value) => blockedStatuses.has(value) || value.includes('opt-out') || value.includes('nao contactar') || value.includes('não contactar'));
+    if (blocked) {
+      throw new BadRequestException('Este card está marcado como negativo/bloqueado e não pode receber sugestão ativa de envio.');
+    }
+  }
+
+  private async assertEmailAllowsManualSend(recipientEmail: string) {
+    const email = this.normalizeEmail(recipientEmail);
+    if (!email) throw new BadRequestException('Informe o e-mail de destino.');
+    if (!(await this.prisma.hasTable('CommercialEmailMessageLog').catch(() => false))) return email;
+    const blocked = await (this.prisma as any).commercialEmailMessageLog.findFirst({
+      where: {
+        recipientEmail: email,
+        status: { in: ['opted_out', 'do_not_contact'] },
+      },
+      orderBy: { createdAt: 'desc' },
+      select: { status: true },
+    }).catch(() => null);
+    if (blocked) throw new BadRequestException('Este e-mail está marcado como não contactar.');
+    return email;
+  }
+
+  private async hasExistingVendasLeadForImport(companyId: number, phone: unknown, email: unknown) {
+    const phoneCandidates = this.buildLeadPhoneNormalizedCandidates(phone);
+    const emailNormalized = this.normalizeEmail(email);
+    const or: any[] = [];
+    if (phoneCandidates.length) or.push({ phoneNormalized: { in: phoneCandidates } });
+    if (emailNormalized) or.push({ email: emailNormalized });
+    if (!or.length) return false;
+    const existing = await this.prisma.vendasLead.findFirst({
+      where: { companyId, OR: or },
+      select: { id: true },
+    });
+    return Boolean(existing?.id);
+  }
+
+  async previewPresentationEmailForUser(user: any, leadId: string, body?: any) {
+    const { companyId, userId } = this.resolveUserContext(user);
+    const normalizedLeadId = this.normalizeText(leadId);
+    if (!normalizedLeadId) throw new BadRequestException('Lead nao informado.');
+    const lead = await this.prisma.vendasLead.findFirst({
+      where: { id: normalizedLeadId, companyId },
+      select: this.buildVendasLeadSelectWithoutAddress(),
+    });
+    if (!lead) throw new NotFoundException('Lead nao encontrado.');
+    this.assertLeadAllowsManualEmail(lead);
+
+    const fallbackDraft = buildHbxPresentationEmailDraft({
+      leadName: lead.name,
+      city: lead.city,
+      state: lead.state,
+      segment: lead.segment,
+      website: lead.website,
+      contactEmail: body?.recipientEmail || lead.email,
+      sellerName: user?.name || user?.displayName || user?.email || 'HBX',
+      companyName: 'HBX',
+    });
+    const preview = await this.hbxPresentationEmails.previewPresentationToContact({
+      companyId,
+      userId,
+      recipientName: body?.recipientName || lead.name || 'cliente',
+      recipientEmail: body?.recipientEmail || lead.email || '',
+      companyName: lead.name || null,
+      subject: body?.subject || fallbackDraft.subject,
+      text: body?.text || fallbackDraft.body,
+      html: body?.html,
+      source: 'manual',
+    });
+
+    await this.logCommercialEmailMessage({
+      companyId,
+      userId,
+      vendasLeadId: lead.id,
+      recipientEmail: preview.recipientEmail || body?.recipientEmail || lead.email || 'pendente@hbx.local',
+      recipientName: preview.recipientName,
+      subject: preview.subject,
+      text: preview.text,
+      html: preview.html,
+      status: 'draft',
+      attachmentName: preview.attachment?.originalName || null,
+    });
+    await this.prisma.vendasLeadTimelineEvent.create({
+      data: {
+        leadId: lead.id,
+        ...this.buildTimelineEvent({
+          eventType: 'presentation_email_previewed',
+          title: 'Apresentacao por e-mail preparada',
+          description: this.buildCommercialEmailTimelineDescription({
+            recipientEmail: preview.recipientEmail || null,
+            subject: preview.subject,
+          }),
+          sourceType: 'email_presentation',
+          resultLabel: 'preview',
+          createdByUserId: userId,
+        }),
+      },
+    });
+    return preview;
+  }
+
+  async sendPresentationEmailForUser(user: any, leadId: string, body?: any) {
+    const { companyId, userId } = this.resolveUserContext(user);
+    const normalizedLeadId = this.normalizeText(leadId);
+    if (!normalizedLeadId) throw new BadRequestException('Lead nao informado.');
+    const lead = await this.prisma.vendasLead.findFirst({
+      where: { id: normalizedLeadId, companyId },
+      select: this.buildVendasLeadSelectWithoutAddress(),
+    });
+    if (!lead) throw new NotFoundException('Lead nao encontrado.');
+    let recipientEmail = '';
+    try {
+      this.assertLeadAllowsManualEmail(lead);
+      recipientEmail = await this.assertEmailAllowsManualSend(body?.recipientEmail || lead.email);
+    } catch (policyError: any) {
+      await this.commercialUsageLimits.recordPresentationEmailResult(companyId, userId, {
+        vendasLeadId: lead.id,
+        recipientEmail: body?.recipientEmail || lead.email || null,
+        status: 'blocked',
+        reason: 'policy',
+        errorMessage: String(policyError?.message || policyError),
+      });
+      throw policyError;
+    }
+    await this.commercialUsageLimits.assertCanSendPresentationEmail(companyId, userId);
+    const recipientName = this.normalizeText(body?.recipientName || lead.name) || 'cliente';
+    const subject = this.normalizeText(body?.subject);
+    const text = this.normalizeText(body?.text);
+    if (!subject) throw new BadRequestException('Informe o assunto do e-mail.');
+    if (!text) throw new BadRequestException('Informe o corpo do e-mail.');
+
+    try {
+      await this.commercialUsageLimits.recordPresentationEmailAttempt(companyId, userId, {
+        vendasLeadId: lead.id,
+        recipientEmail,
+        subject,
+      });
+      const result = await this.hbxPresentationEmails.sendPresentationToContact({
+        companyId,
+        userId,
+        recipientName,
+        recipientEmail,
+        companyName: lead.name || null,
+        subject,
+        text,
+        html: body?.html,
+        source: 'manual',
+      });
+      const messageId = result.delivery?.messageId || null;
+      const transport = result.delivery?.transport || null;
+      await this.logCommercialEmailMessage({
+        companyId,
+        userId,
+        vendasLeadId: lead.id,
+        recipientEmail,
+        recipientName,
+        subject: result.subject,
+        text,
+        html: body?.html || result.delivery?.previewUrl || null,
+        status: 'sent',
+        transport,
+        messageId,
+        sentAt: result.sentAt,
+        attachmentName: result.attachment?.originalName || null,
+      });
+      const delivery: any = result.delivery || {};
+      const accepted = Array.isArray(delivery.accepted) ? delivery.accepted.map((value: any) => String(value || '').toLowerCase()) : [];
+      const consumesQuota = Boolean(result.delivery?.ok === true || messageId || accepted.includes(recipientEmail.toLowerCase()));
+      await this.commercialUsageLimits.recordPresentationEmailResult(companyId, userId, {
+        vendasLeadId: lead.id,
+        recipientEmail,
+        subject: result.subject,
+        status: consumesQuota ? 'sent' : 'failed',
+        transport,
+        messageId,
+        reason: consumesQuota ? 'provider_confirmed' : 'provider_not_confirmed',
+      });
+      await this.prisma.vendasLeadTimelineEvent.create({
+        data: {
+          leadId: lead.id,
+          ...this.buildTimelineEvent({
+            eventType: 'presentation_email_sent',
+            title: 'Apresentacao enviada por e-mail',
+            description: this.buildCommercialEmailTimelineDescription({
+              recipientEmail,
+              subject: result.subject,
+              sentAt: result.sentAt,
+              messageId,
+              transport,
+            }),
+            sourceType: 'email_presentation',
+            resultLabel: 'sent',
+            createdByUserId: userId,
+          }),
+        },
+      });
+      return result;
+    } catch (error: any) {
+      const errorMessage = String(error?.response?.message || error?.message || 'Falha ao enviar apresentacao.');
+      await this.logCommercialEmailMessage({
+        companyId,
+        userId,
+        vendasLeadId: lead.id,
+        recipientEmail,
+        recipientName,
+        subject,
+        text,
+        html: body?.html || null,
+        status: 'failed',
+        errorCode: error?.status || error?.code || null,
+        errorMessage,
+      });
+      await this.commercialUsageLimits.recordPresentationEmailResult(companyId, userId, {
+        vendasLeadId: lead.id,
+        recipientEmail,
+        subject,
+        status: 'failed',
+        reason: 'provider_error',
+        errorCode: error?.status || error?.code || null,
+        errorMessage,
+      });
+      await this.prisma.vendasLeadTimelineEvent.create({
+        data: {
+          leadId: lead.id,
+          ...this.buildTimelineEvent({
+            eventType: 'presentation_email_failed',
+            title: 'Falha no envio da apresentacao',
+            description: this.buildCommercialEmailTimelineDescription({
+              recipientEmail,
+              subject,
+              errorCode: error?.status || error?.code || null,
+              errorMessage,
+            }),
+            sourceType: 'email_presentation',
+            resultLabel: 'failed',
+            createdByUserId: userId,
+          }),
+        },
+      });
+      throw error;
+    }
   }
 
   private extractRadarLeadId(value: unknown) {
@@ -1986,6 +2396,14 @@ export class VendasService {
       let result: any;
       try {
         await this.assertRadarLeadImportAllowed(context, radarLeadId);
+        const duplicateInCompany = await this.hasExistingVendasLeadForImport(
+          context.companyId,
+          itemPhone || itemPhoneDigits,
+          item?.email || null,
+        );
+        if (!duplicateInCompany) {
+          await this.commercialUsageLimits.assertCanImportCard(context.companyId, context.userId);
+        }
         result = await this.createOrUpdateLead({
           companyId: context.companyId,
           userId: context.userId,
@@ -2021,6 +2439,12 @@ export class VendasService {
 
       if (result.action === 'created') {
         createdCount += 1;
+        await this.commercialUsageLimits.recordCardImport(context.companyId, context.userId, {
+          source: 'vendas_import',
+          radarLeadId,
+          vendasLeadId: result.lead?.id || null,
+          status: 'created',
+        });
       } else {
         updatedCount += 1;
       }

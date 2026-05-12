@@ -199,6 +199,13 @@ export type CompanySummary = {
   subscriptionStatus?: string | null;
   billingProvider?: string | null;
   premiumAccess?: boolean;
+  assistedSetup?: {
+    required: boolean;
+    status: string;
+    completedAt?: string | null;
+    completedByUserId?: number | null;
+    note?: string | null;
+  };
   trialStartsAt?: string | null;
   trialEndsAt?: string | null;
   trialRemainingDays?: number | null;

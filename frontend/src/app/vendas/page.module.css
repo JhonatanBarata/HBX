@@ -8,6 +8,787 @@
   --card-shadow: 0 28px 54px -38px rgba(15, 23, 42, 0.32);
 }
 
+.mobileVendasShell {
+  display: none;
+}
+
+.desktopVendasShell {
+  display: block;
+}
+
+@media (max-width: 760px) {
+  .desktopVendasShell {
+    display: none;
+  }
+
+  .mobileVendasShell {
+    position: relative;
+    display: grid;
+    min-height: 100dvh;
+    grid-template-rows: auto auto auto 1fr auto;
+    gap: 14px;
+    padding: 18px 14px 92px;
+    overflow: hidden;
+    background:
+      radial-gradient(circle at 16% 6%, rgba(67, 126, 255, 0.16), transparent 28%),
+      radial-gradient(circle at 92% 0%, rgba(35, 208, 215, 0.14), transparent 26%),
+      linear-gradient(180deg, #f9fbff 0%, #eef5ff 55%, #eaf4ff 100%);
+    color: #07143a;
+    font-family: var(--font-sans, inherit);
+  }
+
+  .mobileVendasHeader {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 4px 4px 0;
+  }
+
+  .mobileVendasHeader h1 {
+    margin: 0;
+    color: #08143a;
+    font-size: 1.34rem;
+    font-weight: 900;
+    letter-spacing: 0;
+  }
+
+  .mobileVendasHeaderActions {
+    display: inline-flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .mobileVendasHeaderActions button,
+  .mobileVendasSearchRow > button {
+    display: inline-grid;
+    width: 38px;
+    height: 38px;
+    place-items: center;
+    border: 1px solid rgba(190, 204, 230, 0.62);
+    border-radius: 13px;
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(237, 244, 255, 0.78));
+    color: #102155;
+    box-shadow:
+      0 16px 30px -18px rgba(29, 77, 167, 0.4),
+      inset 0 1px 0 rgba(255, 255, 255, 0.95);
+    font-size: 1rem;
+    font-weight: 900;
+  }
+
+  .mobileVendasKpis {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .mobileVendasKpis article {
+    min-width: 0;
+    min-height: 88px;
+    padding: 12px 10px 10px;
+    border: 1px solid rgba(201, 213, 235, 0.72);
+    border-radius: 14px;
+    background:
+      radial-gradient(circle at 92% 0%, rgba(255, 255, 255, 0.98), transparent 52%),
+      linear-gradient(145deg, rgba(255, 255, 255, 0.94), rgba(240, 246, 255, 0.72));
+    box-shadow:
+      0 18px 34px -25px rgba(17, 47, 103, 0.42),
+      inset 0 1px 0 rgba(255, 255, 255, 0.92);
+  }
+
+  .mobileVendasKpis article[data-tone="danger"] {
+    background:
+      radial-gradient(circle at 96% 0%, rgba(255, 255, 255, 0.96), transparent 48%),
+      linear-gradient(145deg, #fff5f7, #fffefe 76%);
+  }
+
+  .mobileVendasKpis article[data-tone="success"] {
+    background:
+      radial-gradient(circle at 96% 0%, rgba(255, 255, 255, 0.96), transparent 48%),
+      linear-gradient(145deg, #effff8, #fbffff 76%);
+  }
+
+  .mobileVendasKpis span,
+  .mobileVendasKpis small {
+    display: block;
+    overflow-wrap: anywhere;
+  }
+
+  .mobileVendasKpis span {
+    color: #235ac8;
+    font-size: 0.72rem;
+    font-weight: 850;
+  }
+
+  .mobileVendasKpis article[data-tone="danger"] span,
+  .mobileVendasKpis article[data-tone="danger"] strong {
+    color: #e12c4b;
+  }
+
+  .mobileVendasKpis article[data-tone="success"] span,
+  .mobileVendasKpis article[data-tone="success"] strong {
+    color: #05966f;
+  }
+
+  .mobileVendasKpis strong {
+    display: block;
+    margin-top: 4px;
+    color: #1f62f2;
+    font-size: 1.42rem;
+    line-height: 1;
+    font-weight: 950;
+  }
+
+  .mobileVendasKpis small {
+    margin-top: 8px;
+    color: #697895;
+    font-size: 0.58rem;
+    line-height: 1.1;
+    font-weight: 850;
+  }
+
+  .mobileVendasSearchRow {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 42px;
+    gap: 8px;
+    align-items: center;
+  }
+
+  .mobileVendasSearch {
+    display: grid;
+    min-height: 42px;
+    grid-template-columns: 30px minmax(0, 1fr);
+    align-items: center;
+    padding: 0 12px;
+    border: 1px solid rgba(203, 214, 235, 0.68);
+    border-radius: 12px;
+    background:
+      linear-gradient(180deg, rgba(247, 250, 255, 0.94), rgba(230, 238, 251, 0.9));
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.88);
+  }
+
+  .mobileVendasSearch span {
+    color: #42669f;
+    font-size: 1.15rem;
+    font-weight: 900;
+  }
+
+  .mobileVendasSearch input {
+    min-width: 0;
+    border: 0;
+    outline: none;
+    background: transparent;
+    color: #10204e;
+    font-size: 0.82rem;
+    font-weight: 750;
+  }
+
+  .mobileVendasSearch input::placeholder {
+    color: #8190ad;
+  }
+
+  .mobileVendasList {
+    display: grid;
+    align-content: start;
+    gap: 12px;
+    min-height: 0;
+    overflow: auto;
+    padding-bottom: 18px;
+    scrollbar-width: none;
+  }
+
+  .mobileVendasList::-webkit-scrollbar {
+    display: none;
+  }
+
+  .mobileVendasCard {
+    display: grid;
+    grid-template-columns: 44px minmax(0, 1fr);
+    gap: 12px;
+    padding: 14px 12px 12px;
+    border: 1px solid rgba(203, 214, 236, 0.76);
+    border-radius: 16px;
+    background:
+      radial-gradient(circle at 100% 0%, rgba(255, 255, 255, 0.98), transparent 44%),
+      linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(244, 248, 255, 0.88));
+    box-shadow:
+      0 20px 36px -24px rgba(14, 37, 86, 0.44),
+      inset 0 1px 0 rgba(255, 255, 255, 0.95);
+  }
+
+  .mobileVendasAvatar {
+    display: grid;
+    width: 40px;
+    height: 40px;
+    place-items: center;
+    border-radius: 14px;
+    background: linear-gradient(145deg, #d8fff0, #76d6bb);
+    color: #0a8b68;
+    font-size: 1.44rem;
+    font-weight: 950;
+    box-shadow: inset 0 0 0 6px rgba(255, 255, 255, 0.5);
+  }
+
+  .mobileVendasAvatar[data-variant="violet"] {
+    background: linear-gradient(145deg, #efe5ff, #a179ef);
+    color: #5a26c6;
+  }
+
+  .mobileVendasCardMain {
+    min-width: 0;
+  }
+
+  .mobileVendasCardTitle {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 30px;
+    gap: 8px;
+    align-items: start;
+  }
+
+  .mobileVendasCardTitle strong,
+  .mobileVendasNextAction strong {
+    display: block;
+    overflow: hidden;
+    color: #0a1642;
+    font-size: 0.92rem;
+    line-height: 1.15;
+    font-weight: 950;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .mobileVendasCardTitle span {
+    display: block;
+    margin-top: 3px;
+    overflow: hidden;
+    color: #5d6d8d;
+    font-size: 0.72rem;
+    font-weight: 780;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .mobileVendasCardTitle button {
+    width: 30px;
+    height: 24px;
+    border: 0;
+    border-radius: 10px;
+    background: transparent;
+    color: #0f1d4f;
+    font-size: 1rem;
+    font-weight: 950;
+    line-height: 1;
+  }
+
+  .mobileVendasCardMeta {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-top: 6px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid rgba(202, 214, 235, 0.72);
+  }
+
+  .mobileVendasCardMeta > span {
+    display: inline-flex;
+    min-height: 18px;
+    align-items: center;
+    padding: 0 8px;
+    border-radius: 999px;
+    background: #ddfae7;
+    color: #10965b;
+    font-size: 0.58rem;
+    font-weight: 900;
+  }
+
+  .mobileVendasCardMeta > span[data-status="retorno"],
+  .mobileVendasCardMeta > span[data-status="contato"] {
+    background: #fff0ce;
+    color: #d27a00;
+  }
+
+  .mobileVendasCardMeta small {
+    display: grid;
+    justify-items: end;
+    color: #667696;
+    font-size: 0.58rem;
+    line-height: 1.05;
+    font-weight: 800;
+  }
+
+  .mobileVendasCardMeta b {
+    display: block;
+    color: #14204f;
+    font-size: 0.72rem;
+    font-weight: 900;
+  }
+
+  .mobileVendasNextAction {
+    display: grid;
+    margin-top: 10px;
+  }
+
+  .mobileVendasNextAction span {
+    color: #6d7b99;
+    font-size: 0.62rem;
+    font-weight: 850;
+  }
+
+  .mobileVendasContactActions {
+    grid-column: 2;
+    display: flex;
+    justify-content: flex-end;
+    gap: 12px;
+    margin-top: -34px;
+    padding-right: 2px;
+  }
+
+  .mobileVendasContactActions a {
+    display: inline-grid;
+    width: 36px;
+    height: 36px;
+    place-items: center;
+    border-radius: 999px;
+    border: 1px solid rgba(201, 229, 213, 0.72);
+    background: linear-gradient(180deg, #dffbe9, #c8f7dc);
+    color: #05a95c;
+    text-decoration: none;
+    box-shadow: 0 12px 22px -15px rgba(13, 147, 86, 0.48);
+    font-size: 0.95rem;
+    font-weight: 950;
+  }
+
+  .mobileVendasContactActions a:nth-child(2) {
+    border-color: rgba(198, 219, 255, 0.78);
+    background: linear-gradient(180deg, #e4efff, #d4e5ff);
+    color: #2569ff;
+  }
+
+  .mobileVendasContactActions a[aria-disabled="true"] {
+    opacity: 0.42;
+    pointer-events: none;
+  }
+
+  .mobileVendasBottomNav {
+    position: fixed;
+    right: max(12px, env(safe-area-inset-right));
+    bottom: max(8px, env(safe-area-inset-bottom));
+    left: max(12px, env(safe-area-inset-left));
+    z-index: 30;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) 58px repeat(2, minmax(0, 1fr));
+    align-items: end;
+    min-height: 66px;
+    padding: 9px 10px 7px;
+    border: 1px solid rgba(206, 216, 235, 0.82);
+    border-radius: 24px;
+    background: rgba(255, 255, 255, 0.92);
+    box-shadow:
+      0 -16px 42px -26px rgba(20, 53, 111, 0.58),
+      inset 0 1px 0 rgba(255, 255, 255, 0.94);
+    backdrop-filter: blur(18px) saturate(160%);
+    -webkit-backdrop-filter: blur(18px) saturate(160%);
+  }
+
+  .mobileVendasBottomNav a,
+  .mobileVendasBottomNav button {
+    display: grid;
+    min-width: 0;
+    justify-items: center;
+    gap: 3px;
+    border: 0;
+    background: transparent;
+    color: #5c6b8a;
+    text-decoration: none;
+    font-size: 0.58rem;
+    font-weight: 850;
+  }
+
+  .mobileVendasBottomNav a[data-active="true"] {
+    color: #1e62ff;
+  }
+
+  .mobileVendasBottomNav span {
+    font-size: 1.02rem;
+    line-height: 1;
+  }
+
+  .mobileVendasBottomNav button {
+    width: 50px;
+    height: 50px;
+    place-self: center;
+    border-radius: 999px;
+    background: linear-gradient(145deg, #2552ff, #1bc7ee);
+    color: white;
+    font-size: 1.9rem;
+    line-height: 1;
+    box-shadow: 0 14px 24px -12px rgba(28, 116, 255, 0.72);
+  }
+
+  .mobileVendasSheetBackdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+    display: grid;
+    align-items: end;
+    background: linear-gradient(180deg, rgba(5, 18, 48, 0.05), rgba(5, 18, 48, 0.16));
+  }
+
+  .mobileVendasNoteSheet {
+    display: grid;
+    gap: 12px;
+    padding: 9px 16px max(18px, env(safe-area-inset-bottom));
+    border: 1px solid rgba(207, 216, 235, 0.92);
+    border-radius: 24px 24px 0 0;
+    background:
+      radial-gradient(circle at 86% 0%, rgba(255, 255, 255, 0.96), transparent 38%),
+      linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(238, 245, 255, 0.96));
+    box-shadow:
+      0 -24px 54px -28px rgba(11, 38, 96, 0.56),
+      inset 0 1px 0 rgba(255, 255, 255, 0.94);
+    backdrop-filter: blur(18px) saturate(160%);
+    -webkit-backdrop-filter: blur(18px) saturate(160%);
+  }
+
+  .mobileVendasSheetHandle {
+    justify-self: center;
+    width: 54px;
+    height: 4px;
+    border-radius: 999px;
+    background: #b9c4d8;
+  }
+
+  .mobileVendasSheetHeader,
+  .mobileVendasSheetFooter {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+
+  .mobileVendasSheetHeader h2 {
+    margin: 0;
+    color: #08143a;
+    font-size: 1.08rem;
+    font-weight: 950;
+  }
+
+  .mobileVendasSheetHeader button {
+    display: grid;
+    width: 32px;
+    height: 32px;
+    place-items: center;
+    border: 0;
+    border-radius: 999px;
+    background: #ecf2ff;
+    color: #46587a;
+    font-size: 1.28rem;
+  }
+
+  .mobileVendasNoteSheet textarea {
+    width: 100%;
+    min-height: 118px;
+    resize: none;
+    border: 1px solid rgba(198, 210, 232, 0.84);
+    border-radius: 12px;
+    padding: 12px;
+    outline: none;
+    background: linear-gradient(180deg, #f8fbff, #eef4ff);
+    color: #13204f;
+    box-shadow: inset 0 2px 7px rgba(29, 65, 128, 0.08);
+    font-size: 0.82rem;
+    line-height: 1.35;
+    font-weight: 750;
+  }
+
+  .mobileVendasSheetFooter div {
+    display: inline-flex;
+    gap: 13px;
+    color: #526589;
+    font-weight: 900;
+  }
+
+  .mobileVendasSheetFooter button {
+    min-width: 78px;
+    min-height: 40px;
+    border: 0;
+    border-radius: 12px;
+    background: linear-gradient(145deg, #3154ff, #1f75ff);
+    color: white;
+    box-shadow: 0 14px 22px -12px rgba(37, 86, 255, 0.75);
+    font-size: 0.86rem;
+    font-weight: 900;
+  }
+
+  .mobileVendasLoading,
+  .mobileVendasEmpty {
+    display: grid;
+    justify-items: center;
+    gap: 10px;
+    padding: 34px 18px;
+    color: #526589;
+    text-align: center;
+  }
+
+  .mobileVendasLoading span {
+    width: 48px;
+    height: 48px;
+    border: 7px solid rgba(49, 100, 255, 0.14);
+    border-top-color: #2462ff;
+    border-radius: 999px;
+    animation: mobileVendasSpin 900ms linear infinite;
+  }
+
+  .mobileVendasEmpty strong,
+  .mobileVendasLoading strong {
+    color: #0a1642;
+    font-weight: 950;
+  }
+}
+
+@keyframes mobileVendasSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (max-width: 760px) {
+  .mobileVendasShell {
+    grid-template-rows: auto auto auto minmax(0, 1fr);
+    gap: 12px;
+    min-height: 100dvh;
+    padding: calc(1.25rem + env(safe-area-inset-top)) 14px calc(5.75rem + env(safe-area-inset-bottom));
+    background:
+      radial-gradient(circle at 50% -8%, rgba(255, 255, 255, 0.96), transparent 32%),
+      radial-gradient(circle at 12% 6%, rgba(91, 135, 255, 0.16), transparent 28%),
+      radial-gradient(circle at 86% 0%, rgba(22, 201, 210, 0.12), transparent 27%),
+      linear-gradient(180deg, #f7faff 0%, #eef5ff 52%, #eaf3ff 100%);
+  }
+
+  .mobileVendasHeader {
+    padding: 0 6px 4px;
+  }
+
+  .mobileVendasHeader h1 {
+    font-size: 1.28rem;
+    line-height: 1;
+  }
+
+  .mobileVendasHeaderActions {
+    gap: 10px;
+  }
+
+  .mobileVendasHeaderActions button,
+  .mobileVendasSearchRow > button {
+    width: 38px;
+    height: 38px;
+    border: 0;
+    border-radius: 14px;
+    background: rgba(255, 255, 255, 0.64);
+    box-shadow: none;
+    color: #0d1a49;
+  }
+
+  .mobileVendasHeaderActions svg,
+  .mobileVendasSearchRow > button svg {
+    width: 20px;
+    height: 20px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
+  .mobileVendasKpis {
+    gap: 8px;
+  }
+
+  .mobileVendasKpis article {
+    min-height: 90px;
+    padding: 13px 10px 11px;
+    border-color: rgba(207, 217, 235, 0.78);
+    border-radius: 13px;
+    background:
+      radial-gradient(circle at 92% 0%, rgba(255, 255, 255, 0.98), transparent 56%),
+      linear-gradient(145deg, rgba(255, 255, 255, 0.9), rgba(242, 247, 255, 0.76));
+    box-shadow:
+      0 18px 32px -24px rgba(16, 44, 94, 0.4),
+      inset 0 1px 0 rgba(255, 255, 255, 0.96);
+  }
+
+  .mobileVendasKpis article[data-tone="danger"] {
+    border-color: rgba(242, 202, 210, 0.72);
+    background: linear-gradient(145deg, #fff3f6, #fffefe 78%);
+  }
+
+  .mobileVendasKpis article[data-tone="success"] {
+    border-color: rgba(193, 228, 214, 0.78);
+    background: linear-gradient(145deg, #effff8, #fbffff 78%);
+  }
+
+  .mobileVendasKpis span {
+    font-size: 0.74rem;
+  }
+
+  .mobileVendasKpis strong {
+    margin-top: 5px;
+    font-size: 1.48rem;
+  }
+
+  .mobileVendasKpis small {
+    margin-top: 8px;
+    font-size: 0.57rem;
+  }
+
+  .mobileVendasSearchRow {
+    grid-template-columns: minmax(0, 1fr) 42px;
+    gap: 8px;
+  }
+
+  .mobileVendasSearch {
+    min-height: 42px;
+    border: 0;
+    border-radius: 12px;
+    background: rgba(229, 237, 250, 0.92);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.82);
+  }
+
+  .mobileVendasList {
+    gap: 12px;
+    padding: 0 0 8px;
+  }
+
+  .mobileVendasCard {
+    position: relative;
+    grid-template-columns: 42px minmax(0, 1fr);
+    gap: 11px;
+    padding: 13px 12px 12px;
+    border-color: rgba(207, 217, 236, 0.8);
+    border-radius: 18px;
+    background:
+      radial-gradient(circle at 94% 0%, rgba(255, 255, 255, 0.98), transparent 46%),
+      linear-gradient(180deg, rgba(255, 255, 255, 0.97), rgba(246, 250, 255, 0.91));
+    box-shadow:
+      0 20px 38px -24px rgba(14, 37, 86, 0.46),
+      inset 0 1px 0 rgba(255, 255, 255, 0.96);
+  }
+
+  .mobileVendasAvatar {
+    width: 40px;
+    height: 40px;
+    border-radius: 14px;
+    color: #10946c;
+  }
+
+  .mobileVendasAvatar svg {
+    width: 25px;
+    height: 25px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.9;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
+  .mobileVendasCardTitle {
+    grid-template-columns: minmax(0, 1fr) 30px;
+  }
+
+  .mobileVendasCardTitle strong {
+    font-size: 0.91rem;
+  }
+
+  .mobileVendasCardTitle span {
+    margin-top: 3px;
+    font-size: 0.71rem;
+  }
+
+  .mobileVendasCardTitle button {
+    justify-self: end;
+    width: 30px;
+    height: 24px;
+    color: #101d4e;
+    font-size: 1.08rem;
+  }
+
+  .mobileVendasCardMeta {
+    margin-top: 6px;
+    padding-bottom: 10px;
+  }
+
+  .mobileVendasNextAction {
+    padding-right: 90px;
+  }
+
+  .mobileVendasContactActions {
+    position: absolute;
+    right: 14px;
+    bottom: 13px;
+    grid-column: auto;
+    gap: 12px;
+    margin: 0;
+    padding: 0;
+  }
+
+  .mobileVendasContactActions a {
+    width: 38px;
+    height: 38px;
+    border: 0;
+    box-shadow: 0 12px 24px -14px rgba(13, 147, 86, 0.55);
+  }
+
+  .mobileVendasContactActions svg {
+    width: 20px;
+    height: 20px;
+    fill: currentColor;
+  }
+
+  .mobileVendasContactActions a:nth-child(2) svg {
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.9;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
+  .mobileVendasBottomNav {
+    right: max(14px, env(safe-area-inset-right));
+    bottom: max(8px, env(safe-area-inset-bottom));
+    left: max(14px, env(safe-area-inset-left));
+    min-height: 68px;
+    padding: 9px 10px 7px;
+    border-color: rgba(207, 217, 236, 0.86);
+    border-radius: 26px;
+    background: rgba(255, 255, 255, 0.94);
+  }
+
+  .mobileVendasBottomNav button {
+    width: 52px;
+    height: 52px;
+    margin-top: -18px;
+    font-size: 2rem;
+  }
+
+  .mobileVendasSheetBackdrop {
+    align-items: end;
+    background: linear-gradient(180deg, rgba(6, 19, 47, 0.04), rgba(6, 19, 47, 0.18));
+  }
+
+  .mobileVendasNoteSheet {
+    gap: 11px;
+    padding: 9px 14px calc(4.75rem + env(safe-area-inset-bottom));
+    border-radius: 24px 24px 0 0;
+  }
+
+  .mobileVendasNoteSheet textarea {
+    min-height: 116px;
+    border-radius: 12px;
+    font-size: 0.82rem;
+  }
+}
+
 /* Premium backdrop overrides (UIVENDAS dark mock) */
 .premiumBackdrop {
   position: relative;

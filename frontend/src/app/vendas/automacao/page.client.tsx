@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import DashboardScaffold from "@/components/DashboardScaffold";
 import { QR_PAIRED_EVENT } from "@/components/QrPairedNextStepPrompt";
@@ -431,6 +432,8 @@ type MobileLeadItem = {
   shortNote?: string | null;
   lastContactAt?: string | null;
   attemptCount?: number | null;
+  closedAt?: string | null;
+  updatedAt?: string | null;
   whatsappAvailability?: {
     status?: "unknown" | "available" | "unavailable" | string;
     checkedAt?: string | null;
@@ -458,6 +461,8 @@ type MobileDialPrefs = {
   userDdd: string;
   csp: string;
 };
+
+type MobileAgendaTab = "agora" | "atrasados" | "hoje" | "proximos" | "fechados";
 
 const MOBILE_DIAL_PREFS_KEY = "hbx.vendas.mobileDialPrefs.v1";
 const DEFAULT_MOBILE_DIAL_PREFS: MobileDialPrefs = { userDdd: "", csp: "15" };
@@ -530,16 +535,31 @@ function buildMobileCallHref(lead: MobileLeadItem, prefs: MobileDialPrefs) {
   return `tel:0${csp}${parts.ddd}${parts.local}`;
 }
 
-function formatMobileDialPreview(lead: MobileLeadItem, prefs: MobileDialPrefs) {
-  const href = buildMobileCallHref(lead, prefs);
-  return href ? href.replace(/^tel:/, "") : "Sem telefone";
+function mobileDateMs(value?: string | null) {
+  if (!value) return Number.POSITIVE_INFINITY;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? Number.POSITIVE_INFINITY : parsed.getTime();
 }
 
-function formatMobileDateTime(value?: string | null) {
-  if (!value) return "Sem tentativa";
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return "Sem tentativa";
-  return parsed.toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+function compareMobileClosedLeads(left: MobileLeadItem, right: MobileLeadItem) {
+  return mobileDateMs(right.updatedAt || right.lastContactAt) - mobileDateMs(left.updatedAt || left.lastContactAt);
+}
+
+function mobileReturnLabel(lead: MobileLeadItem) {
+  if (!lead.returnAt) return "Entrou na fila de hoje";
+  const parsed = new Date(lead.returnAt);
+  if (Number.isNaN(parsed.getTime())) return "Sem data";
+  return parsed.toLocaleString("pt-BR", { weekday: "short", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+}
+
+function mobileOverdueText(lead: MobileLeadItem) {
+  const parsed = new Date(String(lead.returnAt || ""));
+  if (Number.isNaN(parsed.getTime())) return "Atrasado";
+  const diffMs = Date.now() - parsed.getTime();
+  const hours = Math.max(1, Math.floor(diffMs / 36e5));
+  if (hours < 24) return `Atrasado há ${hours}h`;
+  if (hours < 48) return "Atrasado desde ontem";
+  return `Atrasado há ${Math.floor(hours / 24)} dias`;
 }
 
 function mobileWhatsappStatusLabel(lead: MobileLeadItem) {
@@ -563,6 +583,618 @@ function flattenMobileBoard(board: MobileBoardResponse | null) {
     ...(blocks.today || []),
     ...(blocks.scheduled || []),
   ];
+}
+
+function getLeadReturnDate(lead: MobileLeadItem) {
+  if (!lead.returnAt) return null;
+  const parsed = new Date(lead.returnAt);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function getStartOfToday() {
+  const now = new Date();
+  return new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
+}
+
+function getStartOfTomorrow() {
+  const now = new Date();
+  return new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 0, 0);
+}
+
+function isLeadOverdue(lead: MobileLeadItem) {
+  const date = getLeadReturnDate(lead);
+  if (!date) return false;
+  return date.getTime() < getStartOfToday().getTime();
+}
+
+function isLeadToday(lead: MobileLeadItem) {
+  const date = getLeadReturnDate(lead);
+  if (!date) return true;
+  return date.getTime() >= getStartOfToday().getTime() && date.getTime() < getStartOfTomorrow().getTime();
+}
+
+function isLeadUpcoming(lead: MobileLeadItem) {
+  const date = getLeadReturnDate(lead);
+  if (!date) return false;
+  return date.getTime() >= getStartOfTomorrow().getTime();
+}
+
+function leadUrgencyLabel(lead: MobileLeadItem) {
+  const date = getLeadReturnDate(lead);
+  if (!date) return "Hoje";
+  const now = new Date();
+  if (date.getTime() < now.getTime()) {
+    const diffHours = Math.max(1, Math.round((now.getTime() - date.getTime()) / 36e5));
+    if (diffHours < 24) return `Atrasado há ${diffHours}h`;
+    return "Atrasado";
+  }
+  return date.toLocaleString("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function sortMobileAgendaLeads(leads: MobileLeadItem[]) {
+  return [...leads].sort((a, b) => {
+    const aOverdue = isLeadOverdue(a) ? 0 : 1;
+    const bOverdue = isLeadOverdue(b) ? 0 : 1;
+    if (aOverdue !== bOverdue) return aOverdue - bOverdue;
+    const aAgendaRank = isLeadToday(a) ? 0 : isLeadUpcoming(a) ? 1 : 2;
+    const bAgendaRank = isLeadToday(b) ? 0 : isLeadUpcoming(b) ? 1 : 2;
+    if (aAgendaRank !== bAgendaRank) return aAgendaRank - bAgendaRank;
+    const aDate = getLeadReturnDate(a)?.getTime() || 0;
+    const bDate = getLeadReturnDate(b)?.getTime() || 0;
+    if (aDate !== bDate) return aDate - bDate;
+    const aWhatsapp = String(a.whatsappAvailability?.status || "unknown") === "available" ? 0 : 1;
+    const bWhatsapp = String(b.whatsappAvailability?.status || "unknown") === "available" ? 0 : 1;
+    if (aWhatsapp !== bWhatsapp) return aWhatsapp - bWhatsapp;
+    return Number(a.attemptCount || 0) - Number(b.attemptCount || 0);
+  });
+}
+
+function resolveRecommendedLead(board: MobileBoardResponse | null) {
+  const leads = flattenMobileBoard(board);
+  return sortMobileAgendaLeads(leads).find((lead) => String(lead.status || "") !== "encerrado") || null;
+}
+
+function patchLeadInMobileBoard(
+  board: MobileBoardResponse | null,
+  leadId: string,
+  patch: Partial<MobileLeadItem>,
+) {
+  if (!board?.blocks) return board;
+  const patchLead = (lead: MobileLeadItem) => (lead.id === leadId ? { ...lead, ...patch } : lead);
+  return {
+    ...board,
+    blocks: {
+      ...board.blocks,
+      overdue: board.blocks.overdue?.map(patchLead),
+      today: board.blocks.today?.map(patchLead),
+      scheduled: board.blocks.scheduled?.map(patchLead),
+      closed: board.blocks.closed?.map(patchLead),
+    },
+  };
+}
+
+function MobileAgendaLeadRow({
+  lead,
+  dialPrefs,
+  onOpen,
+  onOpenNote,
+  onCall,
+  onWhatsapp,
+}: {
+  lead: MobileLeadItem;
+  dialPrefs: MobileDialPrefs;
+  onOpen: () => void;
+  onOpenNote: () => void;
+  onCall: () => void;
+  onWhatsapp: () => void;
+}) {
+  const whatsappHref = buildMobileWhatsAppHref(lead);
+  const callHref = buildMobileCallHref(lead, dialPrefs);
+  const whatsappStatus = mobileWhatsappStatusLabel(lead);
+  return (
+    <article className={styles.mobileAgendaLeadRow} data-overdue={isLeadOverdue(lead) ? "true" : "false"}>
+      <button type="button" className={styles.mobileAgendaLeadMain} onClick={onOpen}>
+        <div>
+          <strong>{lead.name || "Lead sem nome"}</strong>
+          <span>{mobileLeadLocation(lead)}</span>
+        </div>
+        <em>{leadUrgencyLabel(lead)}</em>
+      </button>
+      <div className={styles.mobileAgendaLeadMeta}>
+        <span>{lead.statusLabel || lead.status || "Novo lead"}</span>
+        <span>{whatsappStatus}</span>
+        <span>{lead.nextAction || "Sem próxima ação"}</span>
+      </div>
+      {lead.shortNote ? (
+        <p className={styles.mobileAgendaNotePreview}>{lead.shortNote}</p>
+      ) : null}
+      <div className={styles.mobileAgendaLeadActions}>
+        {whatsappHref ? (
+          <a href={whatsappHref} target="_blank" rel="noreferrer" onClick={(event) => { event.preventDefault(); onWhatsapp(); }}>
+            WhatsApp
+          </a>
+        ) : (
+          <button type="button" disabled>WhatsApp</button>
+        )}
+        {callHref ? (
+          <a href={callHref} onClick={(event) => { event.preventDefault(); onCall(); }}>
+            Ligar
+          </a>
+        ) : (
+          <button type="button" disabled>Ligar</button>
+        )}
+        <button type="button" onClick={onOpenNote}>Observação</button>
+      </div>
+    </article>
+  );
+}
+
+function MobileAgendaSheet({
+  board,
+  activeTab,
+  onTabChange,
+  onClose,
+  onOpenNote,
+  onOpenLead,
+  onCallLead,
+  onWhatsappLead,
+  dialPrefs,
+}: {
+  board: MobileBoardResponse | null;
+  activeTab: MobileAgendaTab;
+  onTabChange: (tab: MobileAgendaTab) => void;
+  onClose: () => void;
+  onOpenNote: (lead: MobileLeadItem) => void;
+  onOpenLead: (lead: MobileLeadItem) => void;
+  onCallLead: (lead: MobileLeadItem) => void;
+  onWhatsappLead: (lead: MobileLeadItem) => void;
+  dialPrefs: MobileDialPrefs;
+}) {
+  const blocks = board?.blocks || {};
+  const all = useMemo(() => flattenMobileBoard(board), [board]);
+  const agendaCounts = useMemo(() => {
+    const overdue = blocks.overdue?.length || 0;
+    const today = blocks.today?.length || 0;
+    const scheduled = blocks.scheduled?.length || 0;
+    const closed = blocks.closed?.length || 0;
+    return {
+      agora: overdue + today,
+      atrasados: overdue,
+      hoje: today,
+      proximos: scheduled,
+      fechados: closed,
+      active: overdue + today + scheduled,
+    };
+  }, [blocks.closed, blocks.overdue, blocks.scheduled, blocks.today]);
+  const leads = useMemo(() => {
+    if (activeTab === "atrasados") return sortMobileAgendaLeads(blocks.overdue || []);
+    if (activeTab === "hoje") return sortMobileAgendaLeads(blocks.today || []);
+    if (activeTab === "proximos") return sortMobileAgendaLeads(blocks.scheduled || []);
+    if (activeTab === "fechados") return [...(blocks.closed || [])].sort(compareMobileClosedLeads);
+    return sortMobileAgendaLeads(all);
+  }, [activeTab, all, blocks.closed, blocks.overdue, blocks.scheduled, blocks.today]);
+  const nextLead = resolveRecommendedLead(board);
+
+  return (
+    <div className={styles.mobileSheetOverlay} role="dialog" aria-modal="true">
+      <button className={styles.mobileSheetBackdrop} type="button" onClick={onClose} aria-label="Fechar agenda" />
+      <section className={styles.mobileAgendaSheet}>
+        <div className={styles.mobileSheetHandle} />
+        <header className={styles.mobileSheetHeader}>
+          <div>
+            <span>Central mobile</span>
+            <strong>Agenda de Cards</strong>
+            <small>
+              {agendaCounts.active.toLocaleString("pt-BR")} ativos · {agendaCounts.atrasados.toLocaleString("pt-BR")} atrasados
+            </small>
+          </div>
+          <button type="button" onClick={onClose}>×</button>
+        </header>
+        {nextLead ? (
+          <button type="button" className={styles.mobileNextLead} onClick={() => onOpenLead(nextLead)}>
+            <span>Próximo card recomendado</span>
+            <strong>{nextLead.name || "Lead sem nome"}</strong>
+            <small>{leadUrgencyLabel(nextLead)} · {nextLead.nextAction || "Executar contato"}</small>
+          </button>
+        ) : null}
+        <nav className={styles.mobileAgendaTabs}>
+          {[
+            ["agora", "Agora", agendaCounts.agora],
+            ["atrasados", "Atrasados", agendaCounts.atrasados],
+            ["hoje", "Hoje", agendaCounts.hoje],
+            ["proximos", "Próximos", agendaCounts.proximos],
+            ["fechados", "Fechados", agendaCounts.fechados],
+          ].map(([id, label]) => (
+            <button
+              key={id}
+              type="button"
+              data-active={activeTab === id ? "true" : "false"}
+              onClick={() => onTabChange(id as MobileAgendaTab)}
+            >
+              {label}<span>{Number(agendaCounts[id as MobileAgendaTab] || 0).toLocaleString("pt-BR")}</span>
+            </button>
+          ))}
+        </nav>
+        <div className={styles.mobileAgendaList}>
+          {leads.length ? leads.map((lead) => (
+            <MobileAgendaLeadRow
+              key={lead.id}
+              lead={lead}
+              dialPrefs={dialPrefs}
+              onOpen={() => onOpenLead(lead)}
+              onOpenNote={() => onOpenNote(lead)}
+              onCall={() => onCallLead(lead)}
+              onWhatsapp={() => onWhatsappLead(lead)}
+            />
+          )) : (
+            <div className={styles.mobileAgendaEmpty}>Nenhum card nesta agenda.</div>
+          )}
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function MobileVendasProspecaoV2({
+  notice,
+  error,
+  setNotice,
+  setError,
+}: {
+  notice: NoticeState | null;
+  error: string | null;
+  setNotice: (notice: NoticeState | null) => void;
+  setError: (error: string | null) => void;
+}) {
+  const [mobileLoading, setMobileLoading] = useState(true);
+  const [mobileBoard, setMobileBoard] = useState<MobileBoardResponse | null>(null);
+  const [mobileActionLeadId, setMobileActionLeadId] = useState<string | null>(null);
+  const [mobileSavingLeadId, setMobileSavingLeadId] = useState<string | null>(null);
+  const [mobilePrefs, setMobilePrefs] = useState<MobileDialPrefs>(() => readMobileDialPrefs());
+  const [mobileAgendaOpen, setMobileAgendaOpen] = useState(false);
+  const [mobileAgendaTab, setMobileAgendaTab] = useState<MobileAgendaTab>("agora");
+  const [mobileLeadSearch, setMobileLeadSearch] = useState("");
+  const [mobileDialConfigOpen, setMobileDialConfigOpen] = useState(false);
+  const [mobileNoteLead, setMobileNoteLead] = useState<MobileLeadItem | null>(null);
+  const [mobileNoteDraft, setMobileNoteDraft] = useState("");
+
+  const loadMobileBoard = useCallback(async () => {
+    setMobileLoading(true);
+    setError(null);
+    try {
+      const payload = await apiFetch<MobileBoardResponse>("/vendas/board", { timeoutMs: 15000 });
+      setMobileBoard(payload || null);
+    } catch (boardError) {
+      setError(boardError instanceof Error ? boardError.message : "Falha ao carregar cards de Vendas.");
+    } finally {
+      setMobileLoading(false);
+    }
+  }, [setError]);
+
+  useEffect(() => {
+    saveMobileDialPrefs(mobilePrefs);
+  }, [mobilePrefs]);
+
+  useEffect(() => {
+    void loadMobileBoard();
+  }, [loadMobileBoard]);
+
+  const mobileLeads = useMemo(() => flattenMobileBoard(mobileBoard), [mobileBoard]);
+  const mobileAgenda = useMemo(() => {
+    const blocks = mobileBoard?.blocks || {};
+    const overdue = sortMobileAgendaLeads(blocks.overdue || []);
+    const today = sortMobileAgendaLeads(blocks.today || []);
+    const scheduled = sortMobileAgendaLeads(blocks.scheduled || []);
+    const closed = [...(blocks.closed || [])].sort(compareMobileClosedLeads);
+    const now = [...overdue, ...today];
+    return { now, overdue, today, scheduled, closed };
+  }, [mobileBoard]);
+  const patchMobileLead = useCallback(async (
+    lead: MobileLeadItem,
+    patch: Record<string, unknown>,
+    options: { reload?: boolean; successText?: string; errorText?: string } = {},
+  ) => {
+    setMobileSavingLeadId(lead.id);
+    setError(null);
+    try {
+      await apiFetch(`/vendas/lead/${encodeURIComponent(lead.id)}`, {
+        method: "PATCH",
+        body: JSON.stringify(patch),
+      });
+      setMobileBoard((current) => patchLeadInMobileBoard(current, lead.id, patch as Partial<MobileLeadItem>));
+      if (options.reload !== false) await loadMobileBoard();
+      setNotice({ tone: "success", text: options.successText || "Card atualizado." });
+      return true;
+    } catch (updateError) {
+      const message = options.errorText || (updateError instanceof Error ? updateError.message : "Falha ao atualizar o card.");
+      setError(message);
+      setNotice({ tone: "error", text: message });
+      return false;
+    } finally {
+      setMobileSavingLeadId(null);
+    }
+  }, [loadMobileBoard, setError, setNotice]);
+
+  const registerMobileAttempt = useCallback(async (lead: MobileLeadItem, channel: string) => {
+    setMobileSavingLeadId(lead.id);
+    try {
+      await apiFetch(`/vendas/lead/${encodeURIComponent(lead.id)}/attempt`, {
+        method: "POST",
+        body: JSON.stringify({ channel }),
+      });
+      await loadMobileBoard();
+    } catch {
+      setNotice({ tone: "error", text: "A tentativa abriu no celular, mas não foi registrada no histórico." });
+    } finally {
+      setMobileSavingLeadId(null);
+    }
+  }, [loadMobileBoard, setNotice]);
+
+  function handleMobileCall(lead: MobileLeadItem) {
+    const href = buildMobileCallHref(lead, mobilePrefs);
+    if (!href) {
+      setNotice({ tone: "error", text: "Este card não tem telefone válido para ligação." });
+      return;
+    }
+    setMobileActionLeadId(lead.id);
+    void registerMobileAttempt(lead, "ligacao");
+    window.location.href = href;
+  }
+
+  function handleMobileWhatsapp(lead: MobileLeadItem) {
+    const href = buildMobileWhatsAppHref(lead);
+    if (!href) {
+      setNotice({ tone: "error", text: "Este card não tem WhatsApp válido." });
+      return;
+    }
+    void registerMobileAttempt(lead, "whatsapp");
+    window.open(href, "_blank", "noopener,noreferrer");
+  }
+
+  function openMobileNote(lead: MobileLeadItem) {
+    setMobileNoteLead(lead);
+    setMobileNoteDraft(String(lead.shortNote || ""));
+  }
+
+  async function saveMobileNote() {
+    if (!mobileNoteLead) return;
+    const noteValue = mobileNoteDraft.trim() || null;
+    const saved = await patchMobileLead(
+      mobileNoteLead,
+      { shortNote: noteValue },
+      {
+        reload: false,
+        successText: "Observação salva.",
+        errorText: "Não foi possível salvar a observação.",
+      },
+    );
+    if (!saved) return;
+    setMobileNoteLead((current) => current ? { ...current, shortNote: noteValue } : current);
+    setMobileNoteLead(null);
+    setMobileNoteDraft("");
+  }
+
+  const summary = mobileBoard?.summary || {};
+  const mobileLeadSearchText = mobileLeadSearch.trim().toLowerCase();
+  const visibleMobileLeads = [...mobileAgenda.overdue, ...mobileAgenda.today, ...mobileAgenda.scheduled].filter((lead) => {
+    if (!mobileLeadSearchText) return true;
+    return [
+      lead.name,
+      lead.city,
+      lead.state,
+      lead.statusLabel,
+      lead.nextAction,
+      lead.shortNote,
+    ].filter(Boolean).join(" ").toLowerCase().includes(mobileLeadSearchText);
+  });
+
+  const renderMobileLeadCard = (lead: MobileLeadItem, bucket: MobileAgendaTab) => {
+    const saving = mobileSavingLeadId === lead.id;
+    const whatsappStatus = mobileWhatsappStatusLabel(lead);
+    const isOverdue = bucket === "atrasados";
+    const isClosed = bucket === "fechados";
+    const dataBucket = isOverdue ? "overdue" : bucket === "proximos" ? "scheduled" : isClosed ? "closed" : "today";
+    return (
+      <article id={`mobile-lead-${lead.id}`} key={lead.id} className={styles.mobileSalesCard} data-bucket={dataBucket} data-active={mobileActionLeadId === lead.id ? "true" : "false"}>
+        <div className={styles.mobileLeadAvatar} aria-hidden>{lead.name?.trim()?.charAt(0)?.toUpperCase() || "H"}</div>
+        <div className={styles.mobileSalesCardTop}>
+          <div>
+            <strong>{lead.name || "Lead sem nome"}</strong>
+            <span>{mobileLeadLocation(lead)}</span>
+          </div>
+          <button type="button" aria-label="Abrir observação" onClick={() => openMobileNote(lead)} disabled={saving}>
+            •••
+          </button>
+        </div>
+        <div className={styles.mobileLeadStatusLine}>
+          <em data-status={whatsappStatus}>{whatsappStatus}</em>
+          <span>Retorno <strong>{isOverdue ? mobileOverdueText(lead) : mobileReturnLabel(lead)}</strong></span>
+        </div>
+        <div className={styles.mobileLeadNextAction}>
+          <small>Próxima ação</small>
+          <strong>{lead.nextAction || "Ligação de apresentação"}</strong>
+        </div>
+        <div className={styles.mobileLeadContactActions}>
+          <button type="button" data-whatsapp="true" onClick={() => handleMobileWhatsapp(lead)} disabled={saving || isClosed} aria-label="WhatsApp">
+            W
+          </button>
+          <button type="button" onClick={() => handleMobileCall(lead)} disabled={saving || isClosed} aria-label="Ligar">
+            ☎
+          </button>
+        </div>
+        <button type="button" className={styles.mobileLeadPrimaryAction} onClick={() => setMobileActionLeadId(lead.id)} disabled={saving || isClosed}>
+          Executar
+        </button>
+      </article>
+    );
+  };
+
+  return (
+    <div className={styles.mobileSalesShell}>
+      <header className={styles.mobileSalesHeader}>
+        <strong>Vendas</strong>
+        <div>
+          <button type="button" aria-label="Notificações">♧</button>
+          <button type="button" aria-label="Configurar filtros" onClick={() => setMobileDialConfigOpen((current) => !current)}>☷</button>
+        </div>
+      </header>
+
+      <section className={styles.mobileAgendaHero} aria-label="Resumo da agenda mobile">
+        <button type="button" className={styles.mobileAgendaMetric} onClick={() => { setMobileAgendaTab("atrasados"); setMobileAgendaOpen(true); }} data-tone="danger">
+          <span>Atrasados</span>
+          <strong>{Number(summary.overdue || 0).toLocaleString("pt-BR")}</strong>
+          <small>Precisam de ação</small>
+        </button>
+        <button type="button" className={styles.mobileAgendaMetric} onClick={() => { setMobileAgendaTab("hoje"); setMobileAgendaOpen(true); }} data-tone="blue">
+          <span>Hoje</span>
+          <strong>{Number(summary.today || 0).toLocaleString("pt-BR")}</strong>
+          <small>Agendados para hoje</small>
+        </button>
+        <button type="button" className={styles.mobileAgendaMetric} onClick={() => { setMobileAgendaTab("proximos"); setMobileAgendaOpen(true); }} data-tone="success">
+          <span>Próximos</span>
+          <strong>{Number(summary.scheduled || 0).toLocaleString("pt-BR")}</strong>
+          <small>Futuros</small>
+        </button>
+      </section>
+
+      {mobileDialConfigOpen ? (
+        <section className={styles.mobileDialPrefs} aria-label="Configuração de ligação">
+          <label>
+            <span>Seu DDD</span>
+            <input
+              inputMode="numeric"
+              value={mobilePrefs.userDdd}
+              onChange={(event) => setMobilePrefs((current) => ({ ...current, userDdd: event.target.value.replace(/\D/g, "").slice(0, 2) }))}
+              placeholder="11"
+            />
+          </label>
+          <label>
+            <span>Operadora/CSP</span>
+            <select
+              value={mobilePrefs.csp}
+              onChange={(event) => setMobilePrefs((current) => ({ ...current, csp: event.target.value }))}
+            >
+              <option value="15">Vivo 15</option>
+              <option value="21">Claro/NET 21</option>
+              <option value="41">TIM 41</option>
+              <option value="31">Oi 31</option>
+              <option value="14">Brasil Telecom 14</option>
+            </select>
+          </label>
+        </section>
+      ) : null}
+
+      <section className={styles.mobileSalesSearchRow} aria-label="Busca de leads">
+        <label>
+          <span>Buscar leads</span>
+          <input
+            value={mobileLeadSearch}
+            onChange={(event) => setMobileLeadSearch(event.target.value)}
+            placeholder="Buscar por nome, cidade ou status"
+          />
+        </label>
+        <button type="button" onClick={() => void loadMobileBoard()} disabled={mobileLoading} aria-label="Atualizar cards">
+          ☷
+        </button>
+      </section>
+
+      {notice ? <section className={styles.mobileSalesNotice} data-tone={notice.tone}>{notice.text}</section> : null}
+      {error ? <section className={styles.mobileSalesNotice} data-tone="error">{error}</section> : null}
+
+      {mobileLoading ? (
+        <section className={styles.mobileSalesLoading} aria-live="polite">
+          <div className={styles.mobileSalesLoadingRing}>
+            <strong>HBX</strong>
+          </div>
+          <div>
+            <span>Sincronizando Vendas</span>
+            <strong>Montando sua agenda em tempo real</strong>
+            <p>Buscando cards, retornos e prioridades da operação.</p>
+          </div>
+          <div className={styles.mobileSalesLoadingSteps} aria-hidden>
+            <i />
+            <i />
+            <i />
+          </div>
+        </section>
+      ) : mobileLeads.length ? (
+        <section className={styles.mobileSalesQueue}>
+          {visibleMobileLeads.map((lead) => {
+            const bucket = mobileAgenda.overdue.some((item) => item.id === lead.id)
+              ? "atrasados"
+              : mobileAgenda.scheduled.some((item) => item.id === lead.id)
+                ? "proximos"
+                : "hoje";
+            return renderMobileLeadCard(lead, bucket);
+          })}
+        </section>
+      ) : (
+        <section className={styles.mobileSalesEmpty}>
+          Nenhum card disponível. Volte ao Radar Digital para buscar novos contatos.
+        </section>
+      )}
+
+      {mobileAgendaOpen ? (
+        <MobileAgendaSheet
+          board={mobileBoard}
+          activeTab={mobileAgendaTab}
+          onTabChange={setMobileAgendaTab}
+          onClose={() => setMobileAgendaOpen(false)}
+          onOpenNote={openMobileNote}
+          onCallLead={handleMobileCall}
+          onWhatsappLead={handleMobileWhatsapp}
+          onOpenLead={(lead) => {
+            setMobileAgendaOpen(false);
+            setMobileActionLeadId(lead.id);
+            window.setTimeout(() => {
+              document.getElementById(`mobile-lead-${lead.id}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+            }, 80);
+          }}
+          dialPrefs={mobilePrefs}
+        />
+      ) : null}
+
+      {mobileNoteLead ? (
+        <div className={styles.mobileSheetOverlay} onClick={() => !mobileSavingLeadId && setMobileNoteLead(null)}>
+          <section className={styles.mobileNoteSheet} role="dialog" aria-modal="true" aria-label="Observação" onClick={(event) => event.stopPropagation()}>
+            <div className={styles.mobileSheetHandle} />
+            <header className={styles.mobileAgendaHeader}>
+              <div>
+                <strong>Observação</strong>
+                <span>{mobileNoteLead.name || "Lead sem nome"} · {mobileLeadLocation(mobileNoteLead)}</span>
+              </div>
+              <button type="button" onClick={() => setMobileNoteLead(null)} disabled={Boolean(mobileSavingLeadId)}>Cancelar</button>
+            </header>
+            <textarea
+              value={mobileNoteDraft}
+              onChange={(event) => setMobileNoteDraft(event.target.value)}
+              placeholder="Digite uma observação sobre este lead..."
+              maxLength={280}
+            />
+            <div className={styles.mobileNoteActions}>
+              <button type="button" onClick={() => setMobileNoteLead(null)} disabled={Boolean(mobileSavingLeadId)}>Cancelar</button>
+              <button type="button" onClick={() => void saveMobileNote()} disabled={Boolean(mobileSavingLeadId)}>
+                {mobileSavingLeadId ? "Salvando..." : "Salvar"}
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
+
+      <nav className={styles.mobileBottomNav} aria-label="Navegação mobile de Vendas">
+        <button type="button" data-active="true" onClick={() => { setMobileAgendaTab("agora"); setMobileAgendaOpen(true); }}><span>▣</span>Agenda</button>
+        <Link href="/vendas"><span>♙</span>Leads</Link>
+        <Link href="/radar-digital" data-main="true">+</Link>
+        <Link href="/dashboard/vendas"><span>▤</span>Relatórios</Link>
+        <button type="button" onClick={() => setMobileDialConfigOpen((current) => !current)}><span>•••</span>Mais</button>
+      </nav>
+    </div>
+  );
 }
 
 function renderProspectingPreview(
@@ -1316,15 +1948,7 @@ export default function VendasAutomationClientPage() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const requestedMobileMode = searchParams.get("mode") === "mobile";
-  const smallViewport = useSmallViewport();
-  const mobileSalesMode = requestedMobileMode && smallViewport;
   const [loading, setLoading] = useState(true);
-  const [mobileLoading, setMobileLoading] = useState(true);
-  const [mobileBoard, setMobileBoard] = useState<MobileBoardResponse | null>(null);
-  const [mobileActionLeadId, setMobileActionLeadId] = useState<string | null>(null);
-  const [mobileSavingLeadId, setMobileSavingLeadId] = useState<string | null>(null);
-  const [mobilePrefs, setMobilePrefs] = useState<MobileDialPrefs>(() => readMobileDialPrefs());
   const [, setConnectionLoading] = useState(true);
   const [publishing, setPublishing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -1357,6 +1981,13 @@ export default function VendasAutomationClientPage() {
     [centerPayload],
   );
   const botAiActive = hasBotAi(commercialPlans);
+  const assistedSetupPending = Boolean(
+    commercialPlans?.current.assistedSetup?.required &&
+      String(commercialPlans.current.assistedSetup.status || "").toLowerCase() !== "completed",
+  );
+  const assistedSetupMessage =
+    commercialPlans?.current.assistedSetup?.message ||
+    "Implantação assistida pendente. A HBX configura mensagens, limites, horários e handoff humano antes de liberar automação completa.";
   const previewVariables = useMemo<ProspectingPreviewVariables>(() => {
     const funcionario = String(currentUserProfile?.name || "").trim() || "time comercial";
     const empresa =
@@ -1381,10 +2012,6 @@ export default function VendasAutomationClientPage() {
   useEffect(() => {
     prospectingConfigRef.current = prospectingConfig;
   }, [prospectingConfig]);
-
-  useEffect(() => {
-    saveMobileDialPrefs(mobilePrefs);
-  }, [mobilePrefs]);
 
   const openBotPlans = useCallback(() => {
     router.push(BOT_PLAN_HREF);
@@ -1506,26 +2133,8 @@ export default function VendasAutomationClientPage() {
     }
   }, []);
 
-  const loadMobileBoard = useCallback(async () => {
-    setMobileLoading(true);
-    setError(null);
-    try {
-      const payload = await apiFetch<MobileBoardResponse>("/vendas/board", { timeoutMs: 15000 });
-      setMobileBoard(payload || null);
-    } catch (boardError) {
-      setError(boardError instanceof Error ? boardError.message : "Falha ao carregar cards de Vendas.");
-    } finally {
-      setMobileLoading(false);
-    }
-  }, []);
-
   useEffect(() => {
     if (hasToken !== true) return;
-    if (mobileSalesMode) {
-      setLoading(false);
-      void loadMobileBoard();
-      return;
-    }
     void loadAutomation();
     void loadConnection(false, true);
     void apiFetch<CurrentUserProfile>("/profile/current-user")
@@ -1534,21 +2143,19 @@ export default function VendasAutomationClientPage() {
     void apiFetch<UserModule[]>("/modules/me")
       .then((modules) => setUserModules(Array.isArray(modules) ? modules : []))
       .catch(() => setUserModules([]));
-  }, [hasToken, loadAutomation, loadConnection, loadMobileBoard, mobileSalesMode]);
+  }, [hasToken, loadAutomation, loadConnection]);
 
   useEffect(() => {
     if (hasToken !== true) return;
-    if (mobileSalesMode) return;
     if (!commercialPlans || !hasBotAi(commercialPlans)) return;
     void loadProspectingStatus(false);
     const timer = window.setInterval(() => {
       void loadProspectingStatus(true);
     }, 30000);
     return () => window.clearInterval(timer);
-  }, [commercialPlans, hasToken, loadProspectingStatus, mobileSalesMode]);
+  }, [commercialPlans, hasToken, loadProspectingStatus]);
 
   useEffect(() => {
-    if (mobileSalesMode) return;
     const requestedTab = searchParams.get("tab");
     if (requestedTab === "connection") {
       router.replace("/whatsapp?focus=qr");
@@ -1561,7 +2168,7 @@ export default function VendasAutomationClientPage() {
     if (requestedTab === "publish") {
       setWorkspaceTab("flow");
     }
-  }, [mobileSalesMode, router, searchParams, setWorkspaceTab]);
+  }, [router, searchParams, setWorkspaceTab]);
 
   useEffect(() => {
     if (!notice) return;
@@ -1570,7 +2177,6 @@ export default function VendasAutomationClientPage() {
   }, [notice]);
 
   useEffect(() => {
-    if (mobileSalesMode) return;
     const currentStatus = modalPayload?.status || null;
     const previousStatus = previousConnectionStatusRef.current;
     previousConnectionStatusRef.current = currentStatus;
@@ -1584,16 +2190,15 @@ export default function VendasAutomationClientPage() {
     window.dispatchEvent(new Event(QR_PAIRED_EVENT));
     const timer = window.setTimeout(() => setConnectionPaired(false), 3200);
     return () => window.clearTimeout(timer);
-  }, [mobileSalesMode, modalPayload?.status]);
+  }, [modalPayload?.status]);
 
   useEffect(() => {
-    if (mobileSalesMode) return;
     if (!modalPayload?.data.available) return;
     const interval = window.setInterval(() => {
       void loadConnection(true, modalPayload.status !== "connected");
     }, modalPayload.status === "connected" ? 20000 : 8000);
     return () => window.clearInterval(interval);
-  }, [loadConnection, mobileSalesMode, modalPayload?.data.available, modalPayload?.status]);
+  }, [loadConnection, modalPayload?.data.available, modalPayload?.status]);
 
   const saveBotConfig = useCallback(async (nextConfig: AtendimentoBotConfig, successText: string) => {
     if (!botAiActive) {
@@ -1602,6 +2207,10 @@ export default function VendasAutomationClientPage() {
         text: "Bot de atendimento está disponível no HBX Full — Bot e IA.",
       });
       openBotPlans();
+      return false;
+    }
+    if (assistedSetupPending && nextConfig.routingRules.globalBotEnabled) {
+      setNotice({ tone: "info", text: assistedSetupMessage });
       return false;
     }
     setPublishing(true);
@@ -1637,7 +2246,7 @@ export default function VendasAutomationClientPage() {
     } finally {
       setPublishing(false);
     }
-  }, [botAiActive, openBotPlans, router]);
+  }, [assistedSetupMessage, assistedSetupPending, botAiActive, openBotPlans, router]);
 
   const handleSaveDraft = useCallback(() => {
     void saveBotConfig(draftConfig, "Rascunho salvo no banco de dados.");
@@ -1706,6 +2315,11 @@ export default function VendasAutomationClientPage() {
         openBotPlans();
         return;
       }
+      if ((action === "start" || action === "resume") && assistedSetupPending) {
+        setError(assistedSetupMessage);
+        setNotice({ tone: "info", text: assistedSetupMessage });
+        return;
+      }
       const currentProspectingConfig = prospectingConfigRef.current;
       if (
         action === "start" &&
@@ -1767,70 +2381,8 @@ export default function VendasAutomationClientPage() {
         setProspectingAction(null);
       }
     },
-    [botAiActive, draftConfig, openBotPlans, router, saveBotConfig],
+    [assistedSetupMessage, assistedSetupPending, botAiActive, draftConfig, openBotPlans, router, saveBotConfig],
   );
-
-  const mobileLeads = useMemo(() => flattenMobileBoard(mobileBoard), [mobileBoard]);
-
-  const patchMobileLead = useCallback(async (lead: MobileLeadItem, patch: Record<string, unknown>) => {
-    setMobileSavingLeadId(lead.id);
-    setError(null);
-    try {
-      await apiFetch(`/vendas/lead/${encodeURIComponent(lead.id)}`, {
-        method: "PATCH",
-        body: JSON.stringify(patch),
-      });
-      await loadMobileBoard();
-      setNotice({ tone: "success", text: "Card atualizado." });
-    } catch (updateError) {
-      setError(updateError instanceof Error ? updateError.message : "Falha ao atualizar o card.");
-    } finally {
-      setMobileSavingLeadId(null);
-    }
-  }, [loadMobileBoard]);
-
-  const registerMobileAttempt = useCallback(async (lead: MobileLeadItem, channel: string) => {
-    setMobileSavingLeadId(lead.id);
-    try {
-      await apiFetch(`/vendas/lead/${encodeURIComponent(lead.id)}/attempt`, {
-        method: "POST",
-        body: JSON.stringify({ channel }),
-      });
-      await loadMobileBoard();
-    } catch {
-      setNotice({ tone: "error", text: "A tentativa abriu no celular, mas não foi registrada no histórico." });
-    } finally {
-      setMobileSavingLeadId(null);
-    }
-  }, [loadMobileBoard]);
-
-  function handleMobileCall(lead: MobileLeadItem) {
-    const href = buildMobileCallHref(lead, mobilePrefs);
-    if (!href) {
-      setNotice({ tone: "error", text: "Este card não tem telefone válido para ligação." });
-      return;
-    }
-    setMobileActionLeadId(lead.id);
-    void registerMobileAttempt(lead, "ligacao");
-    window.location.href = href;
-  }
-
-  function handleMobileWhatsapp(lead: MobileLeadItem) {
-    const href = buildMobileWhatsAppHref(lead);
-    if (!href) {
-      setNotice({ tone: "error", text: "Este card não tem WhatsApp válido." });
-      return;
-    }
-    void registerMobileAttempt(lead, "whatsapp");
-    window.open(href, "_blank", "noopener,noreferrer");
-  }
-
-  function mobileReturnTomorrow() {
-    const next = new Date();
-    next.setDate(next.getDate() + 1);
-    next.setHours(9, 0, 0, 0);
-    return next.toISOString();
-  }
 
   const renderBotPlanPaywall = () => (
     <section className={styles.botPlanPaywall}>
@@ -1853,175 +2405,17 @@ export default function VendasAutomationClientPage() {
 
   if (!hasToken) return null;
 
-  if (mobileSalesMode) {
-    const activeQuickLead = mobileLeads.find((lead) => lead.id === mobileActionLeadId) || null;
-    const summary = mobileBoard?.summary || {};
-    return (
-      <DashboardScaffold title="Vendas Mobile" hideHeader={true}>
-        <div className={styles.mobileSalesShell}>
-          <header className={styles.mobileSalesHeader}>
-            <div>
-              <span>Vendas</span>
-              <strong>Cards comerciais</strong>
-            </div>
-            <button type="button" onClick={() => void loadMobileBoard()} disabled={mobileLoading}>
-              {mobileLoading ? "Atualizando..." : "Atualizar"}
-            </button>
-          </header>
-
-          <section className={styles.mobileSalesHero} aria-label="Resumo da fila mobile">
-            <div>
-              <span>Fila ativa</span>
-              <strong>{mobileLeads.length.toLocaleString("pt-BR")}</strong>
-            </div>
-            <div>
-              <span>Hoje</span>
-              <strong>{Number(summary.today || 0).toLocaleString("pt-BR")}</strong>
-            </div>
-            <div>
-              <span>DDD/CSP</span>
-              <strong>{mobilePrefs.userDdd || "--"} / {mobilePrefs.csp || "--"}</strong>
-            </div>
-          </section>
-
-          <section className={styles.mobileDialPrefs} aria-label="Configuração de ligação">
-            <label>
-              <span>Seu DDD</span>
-              <input
-                inputMode="numeric"
-                value={mobilePrefs.userDdd}
-                onChange={(event) => setMobilePrefs((current) => ({ ...current, userDdd: event.target.value.replace(/\D/g, "").slice(0, 2) }))}
-                placeholder="11"
-              />
-            </label>
-            <label>
-              <span>Operadora/CSP</span>
-              <select
-                value={mobilePrefs.csp}
-                onChange={(event) => setMobilePrefs((current) => ({ ...current, csp: event.target.value }))}
-              >
-                <option value="15">Vivo 15</option>
-                <option value="21">Claro/NET 21</option>
-                <option value="41">TIM 41</option>
-                <option value="31">Oi 31</option>
-                <option value="14">Brasil Telecom 14</option>
-              </select>
-            </label>
-          </section>
-
-          {notice ? <section className={styles.mobileSalesNotice} data-tone={notice.tone}>{notice.text}</section> : null}
-          {error ? <section className={styles.mobileSalesNotice} data-tone="error">{error}</section> : null}
-
-          {mobileLoading ? (
-            <section className={styles.mobileSalesEmpty}>Carregando seus cards...</section>
-          ) : mobileLeads.length ? (
-            <section className={styles.mobileSalesQueue}>
-              {mobileLeads.map((lead) => {
-                const parts = getMobilePhoneParts(lead);
-                const saving = mobileSavingLeadId === lead.id;
-                const whatsappStatus = mobileWhatsappStatusLabel(lead);
-                return (
-                  <article key={lead.id} className={styles.mobileSalesCard}>
-                    <div className={styles.mobileSalesCardTop}>
-                      <div>
-                        <strong>{lead.name || "Lead sem nome"}</strong>
-                        <span>{mobileLeadLocation(lead)}</span>
-                      </div>
-                      <em data-status={whatsappStatus}>{whatsappStatus}</em>
-                    </div>
-                    <div className={styles.mobileSalesMeta}>
-                      <span><b>DDD</b>{parts.ddd || "?"}</span>
-                      <span><b>WhatsApp</b>{whatsappStatus}</span>
-                      <span><b>Última tentativa</b>{formatMobileDateTime(lead.lastContactAt)}</span>
-                      <span><b>Observação</b>{lead.shortNote || lead.nextAction || "Sem observação"}</span>
-                    </div>
-                    <div className={styles.mobileDialPreview}>
-                      <span>Discagem</span>
-                      <strong>{formatMobileDialPreview(lead, mobilePrefs)}</strong>
-                    </div>
-                    <div className={styles.mobileSalesActions}>
-                      <button type="button" onClick={() => handleMobileWhatsapp(lead)} disabled={saving}>
-                        WhatsApp
-                      </button>
-                      <button type="button" onClick={() => handleMobileCall(lead)} disabled={saving}>
-                        Ligar
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => void patchMobileLead(lead, {
-                          status: "retorno",
-                          returnAt: mobileReturnTomorrow(),
-                          nextAction: "Retornar depois",
-                          shortNote: lead.shortNote || "Retorno marcado pelo mobile.",
-                        })}
-                        disabled={saving}
-                      >
-                        Retornar
-                      </button>
-                      <button
-                        type="button"
-                        data-danger="true"
-                        onClick={() => void patchMobileLead(lead, {
-                          status: "encerrado",
-                          nextAction: "Não ligar mais",
-                          shortNote: "Não ligar mais. Bloqueado para recontato pelo modo mobile.",
-                        })}
-                        disabled={saving}
-                      >
-                        Não ligar
-                      </button>
-                    </div>
-                    {mobileActionLeadId === lead.id ? (
-                      <div className={styles.mobileQuickActions}>
-                        <span>Ação rápida</span>
-                        <button type="button" onClick={() => void patchMobileLead(lead, { status: "contato", nextAction: "Atendeu", shortNote: lead.shortNote || "Atendeu a ligação." })}>
-                          Atendeu
-                        </button>
-                        <button type="button" onClick={() => void patchMobileLead(lead, { status: "retorno", returnAt: mobileReturnTomorrow(), nextAction: "Não atendeu", shortNote: lead.shortNote || "Não atendeu. Retornar depois." })}>
-                          Não atendeu
-                        </button>
-                        <button type="button" onClick={() => void patchMobileLead(lead, { status: "retorno", returnAt: mobileReturnTomorrow(), nextAction: "Retornar depois" })}>
-                          Retornar depois
-                        </button>
-                        <button
-                          type="button"
-                          data-danger="true"
-                          onClick={() => void patchMobileLead(lead, {
-                            status: "encerrado",
-                            nextAction: "Não ligar mais",
-                            shortNote: "Não ligar mais. Negativo/opt-out/bloqueio registrado pelo modo mobile.",
-                          })}
-                        >
-                          Não ligar mais
-                        </button>
-                      </div>
-                    ) : null}
-                  </article>
-                );
-              })}
-            </section>
-          ) : (
-            <section className={styles.mobileSalesEmpty}>
-              Nenhum card disponível. Volte ao Radar Digital para buscar novos contatos.
-            </section>
-          )}
-
-          {activeQuickLead ? (
-            <button type="button" className={styles.mobileCloseQuick} onClick={() => setMobileActionLeadId(null)}>
-              Fechar ação rápida de {activeQuickLead.name || "lead"}
-            </button>
-          ) : null}
-        </div>
-      </DashboardScaffold>
-    );
-  }
-
   return (
     <DashboardScaffold title="Automacao WhatsApp" hideHeader={true}>
       <div className={styles.shell}>
         <div className={styles.backdrop} />
         <div className={styles.page}>
           {notice ? <section className={styles.notice} data-tone={notice.tone}>{notice.text}</section> : null}
+          {botAiActive && assistedSetupPending ? (
+            <section className={styles.notice} data-tone="info">
+              {assistedSetupMessage}
+            </section>
+          ) : null}
           {error ? <section className={styles.notice} data-tone="error">{error}</section> : null}
           {loading ? (
             <section className={styles.loadingCard}>Carregando configuracao atual da Automacao WhatsApp...</section>

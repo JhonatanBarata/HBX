@@ -5351,7 +5351,7 @@ export default function TopBar() {
           <Link href="/radar-digital" className="hbx-mobile-quicknav__item">
             <span>Radar</span>
           </Link>
-          <Link href="/vendas/automacao?tab=prospeccao&mode=mobile" className="hbx-mobile-quicknav__item">
+          <Link href="/vendas" className="hbx-mobile-quicknav__item">
             <span>Vendas</span>
           </Link>
           <button type="button" className="hbx-mobile-quicknav__item" onClick={handleMobileSupportClick}>

@@ -151,6 +151,12 @@ class SetCompanyPlanDto {
   planKey!: string;
 }
 
+class CompleteAssistedSetupDto {
+  @IsOptional()
+  @IsString()
+  note?: string;
+}
+
 class RecordManualPaymentDto {
   @Type(() => Number)
   @IsNumber({ maxDecimalPlaces: 2 })
@@ -436,6 +442,16 @@ export class ModulesController {
     @Body() dto: SetCompanyPlanDto,
   ) {
     return this.modulesService.setCompanyPlanByMaster(Number(req.user?.id), companyId, dto?.planKey);
+  }
+
+  @Post('master/company/:companyId/assisted-setup/complete')
+  @UseGuards(JwtAuthGuard, MasterGuard)
+  completeAssistedSetup(
+    @Req() req: any,
+    @Param('companyId', ParseIntPipe) companyId: number,
+    @Body() dto: CompleteAssistedSetupDto,
+  ) {
+    return this.modulesService.completeAssistedSetupByMaster(Number(req.user?.id), companyId, dto || {});
   }
 
   @Put('master/company/:companyId/global-token-usage')

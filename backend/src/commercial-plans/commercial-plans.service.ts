@@ -14,10 +14,12 @@ import {
   COMMERCIAL_PLAN_MODULE_KEYS,
   COMMERCIAL_PLAN_ENTITLEMENT_KEYS,
   COMMERCIAL_PLAN_KEYS,
+  COMMERCIAL_PRICING,
   PENDING_COMMERCIAL_ENTITLEMENT_STATUS,
   buildCommercialPlansCatalog,
   isCommercialEntitlementActive,
   normalizeCommercialPlanKey,
+  toCommercialCurrency,
   type ActiveCommercialPlanKey,
   type CommercialEntitlementKey,
   type CommercialPlanKey,
@@ -39,6 +41,24 @@ type CommercialCurrentState = {
   billingGraceEndsAt: string | null;
   billingGraceRemainingHours: number | null;
   isTrial: boolean;
+  billingBreakdown?: CommercialBillingBreakdown | null;
+  assistedSetup: {
+    required: boolean;
+    status: string;
+    completedAt: string | null;
+    message: string | null;
+  };
+};
+
+type CommercialBillingBreakdown = {
+  baseMonthly: number;
+  includedUsers: number;
+  billableUsers: number;
+  extraUsers: number;
+  extraUserMonthlyPrice: number;
+  extraUsersMonthlyAmount: number;
+  monthlyTotal: number;
+  cycleAmount: number;
 };
 
 @Injectable()
@@ -66,6 +86,52 @@ export class CommercialPlansService {
     if (!(trialEndsAt instanceof Date)) return null;
     const diff = trialEndsAt.getTime() - Date.now();
     return Math.max(0, Math.ceil(diff / (24 * 60 * 60 * 1000)));
+  }
+
+  async getBillableUserCount(companyId: number): Promise<number> {
+    return this.prisma.user.count({
+      where: {
+        companyId: Number(companyId),
+        isActive: true,
+        deactivatedAt: null,
+        isSystemMaster: false,
+      },
+    });
+  }
+
+  async computeCompanyCommercialAmount(
+    companyId: number,
+    planKeyRaw: unknown,
+    billingCycleRaw: unknown,
+  ): Promise<CommercialBillingBreakdown> {
+    const planKey = normalizeCommercialPlanKey(planKeyRaw);
+    const catalogPlan = buildCommercialPlansCatalog({ includeHidden: true }).find((plan) => plan.key === planKey);
+    const baseMonthly = toCommercialCurrency(catalogPlan?.monthlyPrice ?? 0);
+    const billableUsers = await this.getBillableUserCount(companyId);
+    const includedUsers = planKey === COMMERCIAL_PLAN_KEYS.MELHOR ? Number(catalogPlan?.includedUsers || 1) : 1;
+    const extraUserMonthlyPrice = planKey === COMMERCIAL_PLAN_KEYS.MELHOR
+      ? toCommercialCurrency(catalogPlan?.extraUserMonthlyPrice ?? 0)
+      : 0;
+    const extraUsers = planKey === COMMERCIAL_PLAN_KEYS.MELHOR
+      ? Math.max(0, billableUsers - includedUsers)
+      : 0;
+    const extraUsersMonthlyAmount = toCommercialCurrency(extraUsers * extraUserMonthlyPrice);
+    const monthlyTotal = toCommercialCurrency(baseMonthly + extraUsersMonthlyAmount);
+    const billingCycle = String(billingCycleRaw || '').trim().toUpperCase() === 'ANNUAL' ? 'ANNUAL' : 'MONTHLY';
+    const cycleAmount = billingCycle === 'ANNUAL'
+      ? toCommercialCurrency(monthlyTotal * 12 * (1 - COMMERCIAL_PRICING.annualDiscountPercent / 100))
+      : monthlyTotal;
+
+    return {
+      baseMonthly,
+      includedUsers,
+      billableUsers,
+      extraUsers,
+      extraUserMonthlyPrice,
+      extraUsersMonthlyAmount,
+      monthlyTotal,
+      cycleAmount,
+    };
   }
 
   private isCompanyTrialingVendas(company: any) {
@@ -175,7 +241,7 @@ export class CommercialPlansService {
       normalized === COMMERCIAL_PLAN_KEYS.MELHOR;
   }
 
-  private buildCurrentState(company: any): CommercialCurrentState {
+  private async buildCurrentState(company: any): Promise<CommercialCurrentState> {
     const entitlements = this.resolveEntitlements(company);
     const inferredPlanKey = entitlements.bot_ia
       ? COMMERCIAL_PLAN_KEYS.MELHOR
@@ -191,6 +257,17 @@ export class CommercialPlansService {
     const billingGraceRemainingHours = billingGraceEndsAt
       ? Math.max(0, Math.ceil((billingGraceEndsAt.getTime() - Date.now()) / (60 * 60 * 1000)))
       : null;
+
+    const billingBreakdown = planKey
+      ? await this.computeCompanyCommercialAmount(Number(company?.id || 0), planKey, company?.billingCycle)
+      : null;
+    const assistedSetupRequired = Boolean(company?.assistedSetupRequired) || planKey === COMMERCIAL_PLAN_KEYS.MELHOR;
+    const rawAssistedSetupStatus = String(company?.assistedSetupStatus || '').trim().toLowerCase();
+    const assistedSetupStatus = assistedSetupRequired
+      ? rawAssistedSetupStatus === 'completed'
+        ? 'completed'
+        : 'pending'
+      : 'not_required';
 
     return {
       planKey,
@@ -208,6 +285,18 @@ export class CommercialPlansService {
       billingGraceEndsAt: billingGraceEndsAt ? billingGraceEndsAt.toISOString() : null,
       billingGraceRemainingHours,
       isTrial,
+      billingBreakdown,
+      assistedSetup: {
+        required: assistedSetupRequired,
+        status: assistedSetupStatus,
+        completedAt: company?.assistedSetupCompletedAt instanceof Date
+          ? company.assistedSetupCompletedAt.toISOString()
+          : null,
+        message:
+          assistedSetupRequired && assistedSetupStatus !== 'completed'
+            ? 'Implantação assistida pendente. A HBX configura mensagens, limites, horários e handoff humano antes de liberar automação completa.'
+            : null,
+      },
     };
   }
 
@@ -222,9 +311,9 @@ export class CommercialPlansService {
     return company;
   }
 
-  private buildPayload(company: any, user?: any) {
+  private async buildPayload(company: any, user?: any) {
     const canSelectPlan = user ? this.canSelectPlans(user) : false;
-    const plans = buildCommercialPlansCatalog().map((plan) => canSelectPlan
+    const plans = buildCommercialPlansCatalog().filter((plan) => !plan.hidden).map((plan) => canSelectPlan
       ? plan
       : {
           ...plan,
@@ -232,7 +321,7 @@ export class CommercialPlansService {
           legalCopy: null,
         });
     return {
-      current: this.buildCurrentState(company),
+      current: await this.buildCurrentState(company),
       plans,
       permissions: {
         canSelectPlan,
@@ -289,6 +378,33 @@ export class CommercialPlansService {
     this.throwBotAiRequired(current);
   }
 
+  async assertAssistedSetupCompleteForCompany(companyId: number) {
+    const company = await this.prisma.company.findUnique({
+      where: { id: Number(companyId) },
+      select: {
+        selectedPlanKey: true,
+        assistedSetupRequired: true,
+        assistedSetupStatus: true,
+      },
+    });
+    const planKey = this.normalizePlanKey(company?.selectedPlanKey);
+    const required = planKey === COMMERCIAL_PLAN_KEYS.MELHOR || Boolean(company?.assistedSetupRequired);
+    const rawStatus = String(company?.assistedSetupStatus || '').trim().toLowerCase();
+    const status = required && rawStatus !== 'completed' ? 'pending' : rawStatus;
+    if (!required || status === 'completed') return;
+    throw new HttpException(
+      {
+        code: 'ASSISTED_SETUP_REQUIRED',
+        message: 'A automação completa precisa de implantação assistida para evitar bloqueio no WhatsApp.',
+        assistedSetup: {
+          required: true,
+          status: status || 'pending',
+        },
+      },
+      HttpStatus.CONFLICT,
+    );
+  }
+
   private throwBotAiRequired(current: CommercialCurrentState): never {
     throw new HttpException(
       {
@@ -303,7 +419,8 @@ export class CommercialPlansService {
     return this.isCompanyTrialingVendas(company) ? 'trialing' : 'active';
   }
 
-  private canStartVendasTrial(company: any) {
+  private canStartCommercialTrial(company: any, planKey: ActiveCommercialPlanKey) {
+    if (planKey !== COMMERCIAL_PLAN_KEYS.LITE && planKey !== COMMERCIAL_PLAN_KEYS.MELHOR) return false;
     if (company?.trialStartsAt || company?.trialEndsAt) return false;
     const paymentStatus = String(company?.paymentStatus || '').trim().toUpperCase();
     const subscriptionStatus = String(company?.subscriptionStatus || '').trim().toLowerCase();
@@ -407,11 +524,19 @@ export class CommercialPlansService {
     }
   }
 
-  private buildSelectionMetadata(planKey: ActiveCommercialPlanKey, selectedByUserId: number) {
+  private buildSelectionMetadata(
+    planKey: ActiveCommercialPlanKey,
+    selectedByUserId: number,
+    options: { selectedAt?: Date; trialDays?: number } = {},
+  ) {
+    const requiresAssistedSetup = planKey === COMMERCIAL_PLAN_KEYS.MELHOR;
     return {
       selectedPlanKey: planKey,
-      selectedAt: new Date().toISOString(),
+      selectedAt: (options.selectedAt || new Date()).toISOString(),
       selectedByUserId,
+      trialDays: Number(options.trialDays || 0),
+      requiresAssistedSetup,
+      setupFeeMode: requiresAssistedSetup ? 'negotiated' : 'none',
     };
   }
 
@@ -426,12 +551,7 @@ export class CommercialPlansService {
     metadata: Record<string, unknown>,
   ) {
     const activeKeys = new Set(COMMERCIAL_PLAN_ENTITLEMENT_KEYS[planKey] || []);
-    const allKeys = [
-      COMMERCIAL_ENTITLEMENT_KEYS.VENDAS,
-      COMMERCIAL_ENTITLEMENT_KEYS.ATENDIMENTO_CHAT,
-      COMMERCIAL_ENTITLEMENT_KEYS.WEBSCRAPING,
-      COMMERCIAL_ENTITLEMENT_KEYS.BOT_IA,
-    ];
+    const allKeys = Object.values(COMMERCIAL_ENTITLEMENT_KEYS);
 
     for (const key of allKeys) {
       if (activeKeys.has(key)) {
@@ -509,9 +629,16 @@ export class CommercialPlansService {
       if (!company) throw new BadRequestException('Empresa nao encontrada.');
 
       const now = new Date();
-      const startsTrial = normalizedPlanKey === COMMERCIAL_PLAN_KEYS.PADRAO && this.canStartVendasTrial(company);
+      const selectedCatalogPlan = buildCommercialPlansCatalog({ includeHidden: true })
+        .find((plan) => plan.key === normalizedPlanKey);
+      const selectedTrialDays = Number(selectedCatalogPlan?.trialDays || 0);
+      const startsTrial = selectedTrialDays > 0 && this.canStartCommercialTrial(company, normalizedPlanKey);
       const trialProfile = startsTrial ? this.validateTrialProfile(dto) : null;
-      if (normalizedPlanKey === COMMERCIAL_PLAN_KEYS.PADRAO && startsTrial && trialProfile) {
+      const selectionMetadata = this.buildSelectionMetadata(normalizedPlanKey, context.userId, {
+        selectedAt: now,
+        trialDays: startsTrial ? selectedTrialDays : 0,
+      });
+      if (startsTrial && trialProfile) {
         const existingPhoneTrial = await tx.trialPhoneUsage.findUnique({
           where: { phoneNormalized: trialProfile.contactPhone },
         });
@@ -565,7 +692,7 @@ export class CommercialPlansService {
           ? company.trialStartsAt || company.subscriptionCurrentPeriodStart || null
           : null;
       const periodEnd = startsTrial
-        ? this.addDays(now, 30)
+        ? this.addDays(now, selectedTrialDays)
         : preserveExistingAccess
           ? company.trialEndsAt || company.subscriptionCurrentPeriodEnd || null
           : null;
@@ -585,6 +712,13 @@ export class CommercialPlansService {
               paymentStatus: 'TRIAL',
               subscriptionStatus: 'trialing',
               premiumAccess: true,
+              assistedSetupRequired: normalizedPlanKey === COMMERCIAL_PLAN_KEYS.MELHOR,
+              assistedSetupStatus: normalizedPlanKey === COMMERCIAL_PLAN_KEYS.MELHOR ? 'pending' : 'not_required',
+              assistedSetupCompletedAt: null,
+              assistedSetupCompletedByUserId: null,
+              assistedSetupNote: normalizedPlanKey === COMMERCIAL_PLAN_KEYS.MELHOR
+                ? 'Implantação assistida pendente para liberar automação completa.'
+                : null,
               trialStartsAt: periodStart,
               trialEndsAt: periodEnd,
               subscriptionCurrentPeriodStart: null,
@@ -614,6 +748,21 @@ export class CommercialPlansService {
                 currentSubscriptionStatus === 'active' ||
                 currentSubscriptionStatus === 'trialing' ||
                 Boolean(company.premiumAccess),
+              assistedSetupRequired: normalizedPlanKey === COMMERCIAL_PLAN_KEYS.MELHOR,
+              assistedSetupStatus:
+                normalizedPlanKey === COMMERCIAL_PLAN_KEYS.MELHOR
+                  ? String(company.assistedSetupStatus || '').trim().toLowerCase() === 'completed'
+                    ? 'completed'
+                    : 'pending'
+                  : 'not_required',
+              assistedSetupCompletedAt:
+                normalizedPlanKey === COMMERCIAL_PLAN_KEYS.MELHOR
+                  ? company.assistedSetupCompletedAt
+                  : null,
+              assistedSetupCompletedByUserId:
+                normalizedPlanKey === COMMERCIAL_PLAN_KEYS.MELHOR
+                  ? company.assistedSetupCompletedByUserId
+                  : null,
               isActive:
                 preserveExistingAccess ||
                 currentSubscriptionStatus === 'active' ||
@@ -641,6 +790,9 @@ export class CommercialPlansService {
               taxDocumentProvided: Boolean(trialProfile.taxDocument),
               selectedPlanKey: normalizedPlanKey,
               selectedByUserId: context.userId,
+              trialDays: selectedTrialDays,
+              requiresAssistedSetup: normalizedPlanKey === COMMERCIAL_PLAN_KEYS.MELHOR,
+              setupFeeMode: normalizedPlanKey === COMMERCIAL_PLAN_KEYS.MELHOR ? 'negotiated' : 'none',
             }),
           },
         });
@@ -655,7 +807,7 @@ export class CommercialPlansService {
         selectionSource,
         periodStart,
         periodEnd,
-        this.buildSelectionMetadata(normalizedPlanKey, context.userId),
+        selectionMetadata,
       );
 
       return tx.company.findUniqueOrThrow({
@@ -667,7 +819,7 @@ export class CommercialPlansService {
     return {
       ok: true,
       selectedPlanKey: normalizedPlanKey,
-      ...this.buildPayload(updatedCompany, user),
+      ...(await this.buildPayload(updatedCompany, user)),
     };
   }
 }

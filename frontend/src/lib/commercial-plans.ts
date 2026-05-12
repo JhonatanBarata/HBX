@@ -24,6 +24,12 @@ export type CommercialPlan = {
   features?: string[];
   legalCopy?: string | null;
   recommended?: boolean;
+  includedUsers?: number;
+  extraUserMonthlyPrice?: number;
+  requiresAssistedSetup?: boolean;
+  setupFeeMode?: "none" | "negotiated";
+  hidden?: boolean;
+  requiresCheckout?: boolean;
   annualDiscountPercent?: number;
   quotas?: {
     googleSearchesPerDay?: number;
@@ -31,6 +37,17 @@ export type CommercialPlan = {
     searchesPerCycle?: number;
     totalCards?: number;
   };
+};
+
+export type CommercialBillingBreakdown = {
+  baseMonthly: number;
+  includedUsers: number;
+  billableUsers: number;
+  extraUsers: number;
+  extraUserMonthlyPrice: number;
+  extraUsersMonthlyAmount: number;
+  monthlyTotal: number;
+  cycleAmount: number;
 };
 
 export type CommercialPlansPayload = {
@@ -50,6 +67,13 @@ export type CommercialPlansPayload = {
     billingGraceEndsAt?: string | null;
     billingGraceRemainingHours?: number | null;
     isTrial?: boolean;
+    billingBreakdown?: CommercialBillingBreakdown | null;
+    assistedSetup?: {
+      required: boolean;
+      status: string;
+      completedAt?: string | null;
+      message?: string | null;
+    } | null;
   };
   plans: CommercialPlan[];
   permissions?: {

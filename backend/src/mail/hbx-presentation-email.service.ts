@@ -54,6 +54,18 @@ export type HbxPresentationEmailResult = {
   source: SendHbxPresentationInput['source'];
 };
 
+export type HbxPresentationEmailPreview = {
+  recipientName: string;
+  recipientEmail: string;
+  subject: string;
+  text: string;
+  html: string;
+  attachment: AttachmentMeta | null;
+  businessCard: AttachmentMeta | null;
+  senderSummary: ReturnType<MailService['getConfigurationSummary']>;
+  warnings: string[];
+};
+
 export type StoredEmailAsset = {
   meta: AttachmentMeta;
   content: Buffer;
@@ -417,6 +429,49 @@ export class HbxPresentationEmailService {
 
   async sendRawMail(input: Parameters<MailService['sendMail']>[0]) {
     return this.sendMasterMail(input);
+  }
+
+  async previewPresentationToContact(input: SendHbxPresentationInput): Promise<HbxPresentationEmailPreview> {
+    const recipientName = this.normalizeName(input.recipientName) || 'cliente';
+    const recipientEmail = normalizeHbxEmail(input.recipientEmail);
+    const attachmentMeta = await this.readAttachmentMeta();
+    const businessCardMeta = await this.readBusinessCardMeta(true);
+    const hasBusinessCard = Boolean(businessCardMeta);
+    const template = await this.emailTemplates.getTemplateSafe('normal');
+    const variables = {
+      nome: recipientName,
+      email: recipientEmail,
+      empresa: String(input.companyName || '').trim(),
+      ano: new Date().getFullYear(),
+    };
+    const subjectSource = this.emailTemplates.normalizeSubject(input.subject) || template.subject;
+    const textSource = this.emailTemplates.normalizeText(input.text) || template.text;
+    const htmlSource =
+      input.html === undefined
+        ? template.html || null
+        : this.emailTemplates.sanitizeHtml(String(input.html || '')) || null;
+    const renderedText = this.emailTemplates.renderString(textSource, variables);
+    const renderedSubject = this.emailTemplates.renderString(subjectSource, variables);
+    const renderedHtml = htmlSource ? this.emailTemplates.renderString(htmlSource, variables) : null;
+    const warnings: string[] = ['Envio manual por card. Não é disparo em massa.'];
+    if (!recipientEmail) warnings.push('Preencha um e-mail de destino antes de enviar.');
+    if (recipientEmail && !isValidHbxEmail(recipientEmail)) warnings.push('Revise o e-mail de destino antes de enviar.');
+    if (!attachmentMeta) warnings.push('A apresentação PPTX ainda não foi configurada no Master.');
+
+    return {
+      recipientName,
+      recipientEmail: recipientEmail || '',
+      subject: renderedSubject,
+      text: renderedText,
+      html: this.emailTemplates.buildHtmlEmail(renderedText, {
+        html: renderedHtml,
+        appendHtml: hasBusinessCard ? this.buildBusinessCardHtml() : null,
+      }),
+      attachment: attachmentMeta,
+      businessCard: businessCardMeta,
+      senderSummary: this.getConfigurationSummary(),
+      warnings,
+    };
   }
 
   async sendPresentationToContact(input: SendHbxPresentationInput): Promise<HbxPresentationEmailResult> {

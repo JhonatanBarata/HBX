@@ -4,7 +4,7 @@ Esta pasta guarda apenas pendencias acionaveis.
 
 ## Atual
 
-Nao ha pendencias ativas no momento.
+- [HBX Mobile Premium Redesign](./2026-05-12_HBX_MOBILE_PREMIUM_REDESIGN.md): redesign mobile de Vendas/Agenda, Radar e Login validado em `localhost:3001`.
 
 ## Arquivo interno
 

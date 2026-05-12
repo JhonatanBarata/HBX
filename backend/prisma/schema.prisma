@@ -77,6 +77,11 @@ model Company {
   subscriptionStatus      String    @default("trialing") // trialing | active | past_due | canceled | expired
   billingProvider         String    @default("manual") // manual | mercadopago | stripe | apple | google
   premiumAccess           Boolean   @default(false)
+  assistedSetupStatus     String    @default("not_required") // not_required | pending | completed
+  assistedSetupRequired   Boolean   @default(false)
+  assistedSetupCompletedAt DateTime?
+  assistedSetupCompletedByUserId Int?
+  assistedSetupNote       String?
   themePreferenceConfig   String?
   billingCardBrand        String?
   billingCardLast4        String?
@@ -236,6 +241,7 @@ model CompanyCommercialUsageLog {
   createdAt    DateTime @default(now())
 
   @@index([companyId, eventType, createdAt])
+  @@index([companyId, userId, eventType, createdAt])
   @@index([planKey, eventType, createdAt])
 }
 
@@ -1706,6 +1712,32 @@ model MasterEmailAsset {
   uploadedAt   DateTime @default(now())
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
+}
+
+model CommercialEmailMessageLog {
+  id             String    @id @default(cuid())
+  companyId      Int?
+  userId         Int?
+  radarLeadId    String?
+  vendasLeadId   String?
+  recipientEmail String
+  recipientName  String?
+  subject        String
+  text           String?
+  html           String?
+  status         String    @default("draft") // draft | sent | failed | opted_out | do_not_contact
+  transport      String?
+  messageId      String?
+  errorCode      String?
+  errorMessage   String?
+  attachmentName String?
+  createdAt      DateTime  @default(now())
+  sentAt         DateTime?
+
+  @@index([companyId, vendasLeadId])
+  @@index([companyId, radarLeadId])
+  @@index([recipientEmail, status])
+  @@index([status, createdAt])
 }
 
 model MasterEmailFormState {

@@ -33,6 +33,7 @@ export const COMMERCIAL_PRICING = {
   liteMonthly: 49.90,
   padraoMonthly: 89.90,
   melhorMonthly: 149.90,
+  extraUserMonthly: 29.90,
   annualDiscountPercent: 20,
 } as const;
 
@@ -155,20 +156,25 @@ export function computeCommercialPlanCycleAmount(planKey: unknown, billingCycleR
   return toCommercialCurrency(annualFull * (1 - COMMERCIAL_PRICING.annualDiscountPercent / 100));
 }
 
-export function buildCommercialPlansCatalog() {
-  return [
+export function buildCommercialPlansCatalog(options: { includeHidden?: boolean } = {}) {
+  const catalog = [
     {
       key: COMMERCIAL_PLAN_KEYS.LITE,
       title: 'HBX List',
       status: 'available',
       monthlyPrice: COMMERCIAL_PRICING.liteMonthly,
-      trialDays: 0,
+      trialDays: 7,
       annualDiscountPercent: COMMERCIAL_PRICING.annualDiscountPercent,
-      headline: 'Radar Digital com lista comercial pronta para Vendas.',
-      description: 'Para escolher filtros do Radar, puxar cards elegíveis do banco e abrir WhatsApp externo.',
+      includedUsers: 1,
+      extraUserMonthlyPrice: COMMERCIAL_PRICING.extraUserMonthly,
+      requiresAssistedSetup: false,
+      setupFeeMode: 'none',
+      hidden: false,
+      headline: 'Leads/cards para vendedores.',
+      description: 'Leads/cards para vendedores. Radar Digital + Vendas + WhatsApp externo.',
       badge: 'Entrada',
       recommended: false,
-      requiresCheckout: true,
+      requiresCheckout: false,
       quotas: COMMERCIAL_PLAN_QUOTAS[COMMERCIAL_PLAN_KEYS.LITE],
       features: [
         'Radar Digital + Vendas',
@@ -179,19 +185,24 @@ export function buildCommercialPlansCatalog() {
         'WhatsApp externo ao clicar no número',
         'Sem Atendimento interno, Night Factory ou Bot IA',
       ],
-      legalCopy: 'Liberação após pagamento confirmado.',
+      legalCopy: 'Teste de 7 dias. Após o trial, contratação segue pelo checkout.',
     },
     {
       key: COMMERCIAL_PLAN_KEYS.PADRAO,
       title: 'HBX Lead',
-      status: 'available',
+      status: 'legacy',
       monthlyPrice: COMMERCIAL_PRICING.padraoMonthly,
-      trialDays: 30,
+      trialDays: 0,
       annualDiscountPercent: COMMERCIAL_PRICING.annualDiscountPercent,
+      includedUsers: 1,
+      extraUserMonthlyPrice: COMMERCIAL_PRICING.extraUserMonthly,
+      requiresAssistedSetup: false,
+      setupFeeMode: 'none',
+      hidden: true,
       headline: 'Para prospectar, atender e operar a Night Factory.',
       description: 'Para quem quer Radar Digital + Vendas + Atendimento interno com oportunidades noturnas.',
-      badge: 'Mais escolhido',
-      recommended: true,
+      badge: 'Legado',
+      recommended: false,
       requiresCheckout: false,
       quotas: COMMERCIAL_PLAN_QUOTAS[COMMERCIAL_PLAN_KEYS.PADRAO],
       features: [
@@ -206,23 +217,29 @@ export function buildCommercialPlansCatalog() {
         'Scripts comerciais sugeridos',
         'Sem Bot IA automático completo',
       ],
-      legalCopy: 'Trial gratuito de 30 dias. Não precisa de cartão. Não haverá cobrança automática.',
+      legalCopy: 'Plano legado mantido para empresas antigas.',
     },
     {
       key: COMMERCIAL_PLAN_KEYS.MELHOR,
       title: 'HBX Full — Bot e IA',
       status: 'available',
       monthlyPrice: COMMERCIAL_PRICING.melhorMonthly,
-      trialDays: 0,
+      trialDays: 7,
       annualDiscountPercent: COMMERCIAL_PRICING.annualDiscountPercent,
-      headline: 'Automação completa com Bot IA, Radar e Night Factory.',
-      description: 'Para quem quer o HBX completo com atendimento, prospecção, bot e automação.',
+      includedUsers: 1,
+      extraUserMonthlyPrice: COMMERCIAL_PRICING.extraUserMonthly,
+      requiresAssistedSetup: true,
+      setupFeeMode: 'negotiated',
+      hidden: false,
+      headline: 'WhatsApp comercial completo com implantação assistida.',
+      description: 'WhatsApp comercial completo com Atendimento, Bot IA, Radar, Vendas e implantação assistida.',
       badge: 'Mais completo',
-      recommended: false,
-      requiresCheckout: true,
+      recommended: true,
+      requiresCheckout: false,
       quotas: COMMERCIAL_PLAN_QUOTAS[COMMERCIAL_PLAN_KEYS.MELHOR],
       features: [
-        'Tudo do HBX Lead',
+        'Tudo do HBX List',
+        'Atendimento interno pelo painel',
         'Bot IA liberado',
         'Bot de prospecção pós-resposta',
         'Respostas automáticas',
@@ -234,8 +251,11 @@ export function buildCommercialPlansCatalog() {
         'Regras de segurança para automação',
         'Encaminhamento para humano',
         'Automação com limites e segurança',
+        'Implantação e configuração assistida pela HBX',
       ],
-      legalCopy: 'Liberação após pagamento confirmado.',
+      legalCopy: 'Teste assistido de 7 dias. Automação/Bot IA precisa ser configurada com segurança pela HBX.',
     },
   ];
+
+  return options.includeHidden ? catalog : catalog.filter((plan) => !plan.hidden);
 }

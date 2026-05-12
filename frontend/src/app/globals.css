@@ -9037,6 +9037,10 @@ html[data-theme-mode="dark"] .hbx-confirmBillboard[data-destructive="true"] {
   cursor: pointer;
 }
 
+.login-mobileTerms {
+  display: none;
+}
+
 .login-link {
   border: 0;
   background: transparent;
@@ -9913,6 +9917,32 @@ html[data-theme="tabler"] .login-card__stat {
 
 /* ensure visuals hidden on small screens to avoid heavy animation */
 @media (max-width: 768px) {
+  body:has([class*="mobileSalesShell"]),
+  body:has([class*="mobileVendasShell"]),
+  body:has([class*="mobileRadar"]) {
+    --topbar-height: 0px;
+    --topbar-total-height: 0px;
+  }
+
+  body:has([class*="mobileSalesShell"]) .app-topbar,
+  body:has([class*="mobileVendasShell"]) .app-topbar,
+  body:has([class*="mobileRadar"]) .app-topbar {
+    display: none !important;
+  }
+
+  body:has([class*="mobileSalesShell"]) .app-shell,
+  body:has([class*="mobileSalesShell"]) .app-container,
+  body:has([class*="mobileSalesShell"]) .page-content,
+  body:has([class*="mobileVendasShell"]) .app-shell,
+  body:has([class*="mobileVendasShell"]) .app-container,
+  body:has([class*="mobileVendasShell"]) .page-content,
+  body:has([class*="mobileRadar"]) .app-shell,
+  body:has([class*="mobileRadar"]) .app-container,
+  body:has([class*="mobileRadar"]) .page-content {
+    padding-top: 0 !important;
+    margin-top: 0 !important;
+  }
+
   html,
   body {
     width: 100%;
@@ -10017,10 +10047,10 @@ html[data-theme="tabler"] .login-card__stat {
     z-index: 20;
     overflow: hidden auto;
     background:
-      radial-gradient(ellipse at 50% -12%, rgba(56, 189, 248, 0.46), transparent 44%),
-      radial-gradient(ellipse at 9% 36%, rgba(129, 140, 248, 0.28), transparent 40%),
-      radial-gradient(ellipse at 92% 42%, rgba(132, 204, 22, 0.24), transparent 38%),
-      linear-gradient(160deg, #eef6ff 0%, #f7fbff 46%, #ecfff5 100%);
+      radial-gradient(ellipse at 50% -12%, rgba(34, 211, 238, 0.32), transparent 44%),
+      radial-gradient(ellipse at 9% 36%, rgba(37, 99, 235, 0.28), transparent 40%),
+      radial-gradient(ellipse at 92% 42%, rgba(20, 184, 166, 0.2), transparent 38%),
+      linear-gradient(160deg, #020817 0%, #071124 48%, #041421 100%);
   }
 
   html[data-theme-mode="dark"] .login-stage {
@@ -10080,8 +10110,8 @@ html[data-theme="tabler"] .login-card__stat {
     max-width: min(520px, calc(100vw - 32px));
     min-width: 0;
     max-height: calc(100svh - 6rem - env(safe-area-inset-top) - env(safe-area-inset-bottom));
-    padding: clamp(1.2rem, 6vw, 1.9rem);
-    border-radius: 18px;
+    padding: clamp(1.25rem, 6vw, 1.9rem);
+    border-radius: 28px;
     overflow: auto;
     overscroll-behavior: contain;
     opacity: 1 !important;
@@ -10095,7 +10125,14 @@ html[data-theme="tabler"] .login-card__stat {
   .login-stage[data-login-video="off"] .login-card {
     width: calc(100vw - 32px) !important;
     max-width: min(520px, calc(100vw - 32px)) !important;
-    padding: clamp(1.2rem, 6vw, 1.9rem) !important;
+    padding: clamp(1.25rem, 6vw, 1.9rem) !important;
+    border-color: rgba(125, 211, 252, 0.22) !important;
+    background:
+      radial-gradient(circle at 50% 0%, rgba(56, 189, 248, 0.14), transparent 42%),
+      linear-gradient(180deg, rgba(5, 16, 36, 0.88), rgba(2, 7, 20, 0.92)) !important;
+    box-shadow:
+      0 24px 70px -34px rgba(14, 165, 233, 0.42),
+      inset 0 1px 0 rgba(255, 255, 255, 0.1) !important;
   }
 
   .login-card__themeRow {
@@ -10107,13 +10144,43 @@ html[data-theme="tabler"] .login-card__stat {
   }
 
   .login-card__brandBlock {
-    grid-template-columns: auto minmax(0, 1fr);
-    justify-items: stretch;
+    grid-template-columns: 1fr;
+    justify-items: center;
     min-width: 0;
+    gap: 0.48rem;
+    padding: 0.25rem 0 0.1rem;
+    border: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+  }
+
+  .login-card__brandMark {
+    width: min(46vw, 148px);
+    height: 76px;
+    border-radius: 22px;
+    background: transparent !important;
+    box-shadow: none !important;
+    animation: none;
+  }
+
+  .login-card__brandMark::after {
+    content: none;
+  }
+
+  .login-card__brandMarkCore {
+    font-size: clamp(3rem, 16vw, 5.2rem);
+    line-height: 1;
+    letter-spacing: 0;
+    color: #ffffff !important;
+    background: linear-gradient(90deg, #ffffff 0 46%, #65e4ff 72%, #2a77ff 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    text-shadow: none !important;
   }
 
   .login-card__themeCopy {
-    display: grid;
+    display: none;
   }
 
   .login-card__themeLabel {
@@ -10133,9 +10200,11 @@ html[data-theme="tabler"] .login-card__stat {
     display: block;
     width: 100%;
     text-align: center;
-    font-size: clamp(2rem, 9vw, 2.28rem);
-    line-height: 1.02;
+    font-size: clamp(1.72rem, 8.2vw, 2.34rem);
+    line-height: 1.04;
     letter-spacing: 0;
+    color: #f8fbff !important;
+    text-shadow: 0 18px 42px rgba(2, 132, 199, 0.28) !important;
   }
 
   .login-card__header {
@@ -10171,6 +10240,13 @@ html[data-theme="tabler"] .login-card__stat {
     max-width: 100%;
     padding: 0.86rem 0.92rem;
     font-size: 1rem;
+    border-radius: 16px !important;
+    background: rgba(8, 20, 42, 0.72) !important;
+    border-color: rgba(125, 211, 252, 0.18) !important;
+    color: #f8fbff !important;
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.08),
+      0 16px 34px -28px rgba(56, 189, 248, 0.52) !important;
   }
 
   .login-actionsRow {
@@ -10223,6 +10299,7 @@ html[data-theme="tabler"] .login-card__stat {
     max-width: 100%;
     margin-top: 0.12rem;
     font-size: 0.96rem;
+    border-radius: 16px !important;
   }
 
   .login-onboarding {
@@ -10241,7 +10318,519 @@ html[data-theme="tabler"] .login-card__stat {
   }
 
   .login-card__copy {
-    display: none;
+    display: block;
+    max-width: 28ch;
+    margin: 0 auto;
+    color: rgba(226, 241, 255, 0.82) !important;
+    font-size: 0.94rem;
+    line-height: 1.45;
+    text-align: center;
+  }
+
+  .login-stage[data-login-surface="hbx-mobile"] {
+    --login-mobile-width: min(100%, calc(100vw - 56px), 320px);
+    min-height: 100vh;
+    min-height: 100dvh;
+    height: 100vh;
+    height: 100dvh;
+    place-items: stretch center;
+    padding: max(1.05rem, env(safe-area-inset-top)) 1.75rem calc(1.1rem + env(safe-area-inset-bottom));
+    overflow: hidden;
+    background:
+      radial-gradient(circle at 86% 20%, rgba(49, 182, 255, 0.14) 0 1px, transparent 2px),
+      radial-gradient(circle at 17% 23%, rgba(78, 125, 255, 0.18) 0 2px, transparent 3px),
+      radial-gradient(circle at 91% 48%, rgba(50, 216, 255, 0.18) 0 2px, transparent 3px),
+      radial-gradient(circle at 82% 66%, rgba(30, 103, 255, 0.24), transparent 18%),
+      linear-gradient(115deg, transparent 0 24%, rgba(28, 119, 255, 0.13) 24% 24.4%, transparent 24.4% 100%),
+      linear-gradient(28deg, transparent 0 61%, rgba(52, 216, 255, 0.13) 61% 61.45%, transparent 61.45% 100%),
+      radial-gradient(circle at 84% 43%, rgba(31, 126, 255, 0.18), transparent 22%),
+      radial-gradient(circle at 54% 18%, rgba(12, 184, 255, 0.16), transparent 28%),
+      radial-gradient(circle at 28% 82%, rgba(22, 97, 255, 0.24), transparent 36%),
+      linear-gradient(180deg, #031025 0%, #06172f 48%, #020816 100%);
+    background-size: auto, auto, auto, 100% 100%, 100% 100%, 120% 120%, 130% 130%, 100% 100%;
+    animation: loginMobileBackground 14s ease-in-out infinite alternate;
+  }
+
+  body:has(.login-stage[data-login-surface="hbx-mobile"]) {
+    overflow: hidden;
+    background: #020a17 !important;
+  }
+
+  html:has(.login-stage[data-login-surface="hbx-mobile"]),
+  body.app-root:has(.login-stage[data-login-surface="hbx-mobile"]),
+  body:has(.login-stage[data-login-surface="hbx-mobile"]) .route-transition {
+    min-height: 100vh;
+    min-height: 100dvh;
+    background: #020a17 !important;
+  }
+
+  .login-stage[data-login-surface="hbx-mobile"]::before {
+    inset: auto -18% -10% -24%;
+    width: auto;
+    height: 42svh;
+    border-radius: 999px 999px 0 0;
+    background:
+      radial-gradient(ellipse at 44% 72%, rgba(32, 117, 255, 0.38), transparent 46%),
+      radial-gradient(ellipse at 72% 40%, rgba(48, 220, 255, 0.28), transparent 36%),
+      linear-gradient(132deg, transparent 0 44%, rgba(35, 132, 255, 0.42) 44% 44.4%, transparent 44.4% 52%, rgba(43, 219, 255, 0.25) 52% 52.3%, transparent 52.3% 100%);
+    filter: blur(18px);
+    opacity: 0.92;
+  }
+
+  .login-stage[data-login-surface="hbx-mobile"]::after {
+    inset: 0;
+    border-radius: 0;
+    background:
+      linear-gradient(rgba(55, 139, 255, 0.1) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(55, 139, 255, 0.08) 1px, transparent 1px);
+    background-size: 44px 44px;
+    mask-image:
+      radial-gradient(circle at 78% 48%, black 0 16%, transparent 28%),
+      linear-gradient(180deg, transparent 0%, black 16%, black 92%, transparent 100%);
+    filter: none;
+    opacity: 0.36;
+    animation: loginMobileCircuitDrift 16s linear infinite;
+  }
+
+  .login-stage[data-login-surface="hbx-mobile"] .login-stage__grid {
+    display: block !important;
+    background:
+      radial-gradient(circle at 26% 22%, rgba(78, 158, 255, 0.9) 0 2px, transparent 2.5px),
+      radial-gradient(circle at 76% 36%, rgba(50, 216, 255, 0.9) 0 2px, transparent 2.5px),
+      radial-gradient(circle at 88% 58%, rgba(44, 111, 255, 0.9) 0 2px, transparent 2.5px),
+      linear-gradient(122deg, transparent 0 49%, rgba(28, 119, 255, 0.16) 49% 49.45%, transparent 49.45% 100%),
+      linear-gradient(28deg, transparent 0 72%, rgba(52, 216, 255, 0.13) 72% 72.4%, transparent 72.4% 100%);
+    background-size: auto, auto, auto, 100% 100%, 100% 100%;
+    mask-image: linear-gradient(180deg, black 0%, black 100%);
+    opacity: 0.62;
+  }
+
+  .login-stage[data-login-surface="hbx-mobile"] .login-visuals {
+    display: block !important;
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    overflow: hidden;
+    pointer-events: none;
+    opacity: 1;
+  }
+
+  .login-stage[data-login-surface="hbx-mobile"] .login-visuals > .login-visuals {
+    display: block !important;
+    position: absolute;
+    inset: 0;
+  }
+
+  .login-stage[data-login-surface="hbx-mobile"] .login-side-theme,
+  .login-stage[data-login-surface="hbx-mobile"] .login-core,
+  .login-stage[data-login-surface="hbx-mobile"] .login-confetti__piece {
+    display: none !important;
+  }
+
+  .login-stage[data-login-surface="hbx-mobile"] .login-visuals::before {
+    content: "";
+    position: absolute;
+    right: -18%;
+    bottom: 2%;
+    width: 72%;
+    height: 44%;
+    border-radius: 48%;
+    background:
+      linear-gradient(118deg, transparent 0 39%, rgba(34, 126, 255, 0.5) 39% 39.5%, transparent 39.5% 47%, rgba(52, 216, 255, 0.28) 47% 47.35%, transparent 47.35% 100%),
+      linear-gradient(22deg, transparent 0 52%, rgba(30, 104, 255, 0.38) 52% 52.45%, transparent 52.45% 100%),
+      radial-gradient(circle at 42% 42%, rgba(32, 125, 255, 0.32), transparent 26%);
+    filter: blur(0.2px);
+    opacity: 0.7;
+    animation: loginMobileNetworkSweep 8.5s ease-in-out infinite alternate;
+  }
+
+  .login-stage[data-login-surface="hbx-mobile"] .login-visuals::after {
+    content: "";
+    position: absolute;
+    right: 5%;
+    top: 39%;
+    width: 92px;
+    height: 92px;
+    border-radius: 999px;
+    border: 1px solid rgba(46, 135, 255, 0.2);
+    background:
+      radial-gradient(circle at 50% 50%, rgba(42, 119, 255, 0.48) 0 8px, transparent 9px),
+      radial-gradient(circle at 72% 28%, rgba(52, 216, 255, 0.48) 0 4px, transparent 5px),
+      radial-gradient(circle at 26% 72%, rgba(33, 102, 255, 0.52) 0 4px, transparent 5px);
+    box-shadow: 0 0 48px rgba(31, 128, 255, 0.22);
+    opacity: 0.72;
+    animation: loginMobileOrbFloat 5.2s ease-in-out infinite alternate;
+  }
+
+  .login-stage[data-login-surface="hbx-mobile"] .login-meteor {
+    display: block !important;
+    top: -10%;
+    width: 2px;
+    height: 150px;
+    background: linear-gradient(180deg, rgba(98, 211, 255, 0.72), transparent);
+    opacity: 0;
+    filter: blur(0.8px);
+    animation-duration: 3.2s;
+  }
+
+  .login-stage[data-login-surface="hbx-mobile"] .login-meteor:nth-of-type(1) {
+    height: 120px;
+    animation-delay: 0.2s !important;
+  }
+
+  .login-stage[data-login-surface="hbx-mobile"] .login-meteor:nth-of-type(2) {
+    height: 168px;
+    animation-delay: 1.3s !important;
+  }
+
+  .login-stage[data-login-surface="hbx-mobile"] .login-meteor:nth-of-type(3) {
+    height: 138px;
+    animation-delay: 2.1s !important;
+  }
+
+  .login-stage[data-login-surface="hbx-mobile"] .login-meteor:nth-of-type(4) {
+    height: 178px;
+    animation-delay: 2.8s !important;
+  }
+
+  .login-stage[data-login-surface="hbx-mobile"] .login-drop {
+    display: block !important;
+    position: absolute;
+    width: 42px;
+    height: 42px;
+    border: 1px solid rgba(45, 132, 255, 0.18);
+    border-radius: 14px;
+    background:
+      radial-gradient(circle at center, rgba(36, 92, 255, 0.42) 0 7px, transparent 8px),
+      rgba(5, 23, 56, 0.34);
+    box-shadow: 0 0 26px rgba(27, 118, 255, 0.2);
+    opacity: 0.55;
+    transform: none;
+    animation: loginMobileWidgetFloat 5.8s ease-in-out infinite alternate;
+  }
+
+  .login-stage[data-login-surface="hbx-mobile"] .login-drop {
+    right: 0.8rem;
+    top: 42%;
+  }
+
+  .login-stage[data-login-surface="hbx-mobile"] .login-drop-bottom {
+    right: 2.6rem;
+    top: 51%;
+    animation-delay: 1.2s;
+  }
+
+  .login-stage[data-login-surface="hbx-mobile"] .login-drop-left,
+  .login-stage[data-login-surface="hbx-mobile"] .login-drop-right {
+    display: none !important;
+  }
+
+  .login-stage[data-login-surface="hbx-mobile"] .login-console,
+  .login-stage[data-login-surface="hbx-mobile"][data-login-video="on"] .login-console,
+  .login-stage[data-login-surface="hbx-mobile"][data-login-video="off"] .login-console {
+    width: var(--login-mobile-width) !important;
+    min-width: 0 !important;
+    min-height: calc(100dvh - 2.15rem - env(safe-area-inset-top) - env(safe-area-inset-bottom)) !important;
+    align-items: stretch;
+    place-items: stretch;
+    transform: none !important;
+  }
+
+  .login-stage[data-login-surface="hbx-mobile"] .login-shell,
+  .login-stage[data-login-surface="hbx-mobile"][data-login-video="on"] .login-shell,
+  .login-stage[data-login-surface="hbx-mobile"][data-login-video="off"] .login-shell {
+    width: var(--login-mobile-width) !important;
+    max-width: var(--login-mobile-width) !important;
+    min-width: 0 !important;
+    align-items: stretch;
+    place-items: stretch;
+  }
+
+  .login-stage[data-login-surface="hbx-mobile"] .login-card,
+  .login-stage[data-login-surface="hbx-mobile"][data-login-video="on"] .login-card,
+  .login-stage[data-login-surface="hbx-mobile"][data-login-video="off"] .login-card {
+    width: 100% !important;
+    max-width: var(--login-mobile-width) !important;
+    min-width: 0 !important;
+    max-height: none;
+    min-height: calc(100dvh - 2.15rem - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+    display: grid;
+    align-content: start;
+    padding: clamp(1.65rem, 8vw, 2.55rem) clamp(1rem, 5.2vw, 1.25rem) 0 !important;
+    border: 0 !important;
+    border-radius: 0;
+    overflow: visible;
+    background: transparent !important;
+    box-shadow: none !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+    transform: none !important;
+  }
+
+  .login-stage[data-login-surface="hbx-mobile"] .login-card::before,
+  .login-stage[data-login-surface="hbx-mobile"] .login-card::after,
+  .login-stage[data-login-surface="hbx-mobile"] .login-card__chrome {
+    content: none !important;
+    display: none !important;
+  }
+
+  .login-stage[data-login-surface="hbx-mobile"] .login-card__header {
+    justify-items: start;
+    gap: 0.7rem;
+    margin: 0 0 1.42rem;
+    text-align: left;
+  }
+
+  .login-stage[data-login-surface="hbx-mobile"] .login-card__brandBlock {
+    justify-items: center;
+    width: 100%;
+    margin: 0.1rem 0 1.65rem;
+    padding: 0;
+  }
+
+  .login-stage[data-login-surface="hbx-mobile"] .login-card__brandMark {
+    width: 100%;
+    height: 84px;
+  }
+
+  .login-stage[data-login-surface="hbx-mobile"] .login-card__brandMarkCore {
+    font-size: clamp(4.8rem, 21vw, 5.65rem);
+    font-weight: 950;
+    letter-spacing: 0;
+    filter: drop-shadow(0 18px 34px rgba(9, 104, 255, 0.34));
+    background: linear-gradient(92deg, #ffffff 0%, #f8fbff 42%, #38d8ff 72%, #2d6bff 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+
+  .login-stage[data-login-surface="hbx-mobile"] .login-card__title {
+    max-width: 12.1ch;
+    text-align: left;
+    font-size: clamp(1.85rem, 8.1vw, 2.22rem);
+    line-height: 1.04;
+    color: #ffffff !important;
+  }
+
+  .login-stage[data-login-surface="hbx-mobile"] .login-card__titleAccent {
+    color: #41a5ff;
+  }
+
+  .login-stage[data-login-surface="hbx-mobile"] .login-card__copy {
+    max-width: 100%;
+    margin: -0.18rem 0 0;
+    color: rgba(241, 247, 255, 0.84) !important;
+    font-size: 0.91rem;
+    text-align: left;
+  }
+
+  .login-stage[data-login-surface="hbx-mobile"] .login-form {
+    position: relative;
+    z-index: 1;
+    gap: 0.86rem;
+    width: 100%;
+    min-width: 0;
+  }
+
+  .login-stage[data-login-surface="hbx-mobile"] .login-form::before {
+    content: "";
+    position: absolute;
+    z-index: -1;
+    top: -4.1rem;
+    right: -1.6rem;
+    width: 132px;
+    height: 132px;
+    border: 1px solid rgba(39, 131, 255, 0.18);
+    border-radius: 999px;
+    background:
+      radial-gradient(circle at 50% 50%, rgba(28, 112, 255, 0.3) 0 9px, transparent 10px),
+      radial-gradient(circle at 22% 72%, rgba(38, 204, 255, 0.4) 0 3px, transparent 4px),
+      radial-gradient(circle at 74% 28%, rgba(43, 124, 255, 0.48) 0 3px, transparent 4px);
+    box-shadow: 0 0 54px rgba(21, 112, 255, 0.18);
+    opacity: 0.78;
+  }
+
+  .login-stage[data-login-surface="hbx-mobile"] .login-form::after {
+    content: "";
+    position: absolute;
+    z-index: -1;
+    top: -1.25rem;
+    right: 0.55rem;
+    width: 48px;
+    height: 48px;
+    border-radius: 14px;
+    border: 1px solid rgba(54, 183, 255, 0.22);
+    background:
+      radial-gradient(circle at 50% 50%, rgba(39, 124, 255, 0.62) 0 8px, transparent 9px),
+      linear-gradient(180deg, rgba(12, 55, 118, 0.56), rgba(5, 23, 57, 0.3));
+    box-shadow: 0 0 34px rgba(37, 136, 255, 0.24);
+    opacity: 0.72;
+  }
+
+  .login-stage[data-login-surface="hbx-mobile"] .login-field,
+  .login-stage[data-login-surface="hbx-mobile"] .login-button,
+  .login-stage[data-login-surface="hbx-mobile"] .login-actionsRow,
+  .login-stage[data-login-surface="hbx-mobile"] .msg-info,
+  .login-stage[data-login-surface="hbx-mobile"] .msg-error,
+  .login-stage[data-login-surface="hbx-mobile"] .msg-waking-server {
+    min-width: 0;
+  }
+
+  .login-stage[data-login-surface="hbx-mobile"] .login-field {
+    gap: 0.42rem;
+  }
+
+  .login-stage[data-login-surface="hbx-mobile"] .login-label {
+    color: rgba(255, 255, 255, 0.94);
+    font-size: 0.86rem;
+    font-weight: 900;
+    letter-spacing: 0;
+  }
+
+  .login-stage[data-login-surface="hbx-mobile"] .input {
+    min-height: 54px;
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+    border-radius: 13px !important;
+    border: 1px solid rgba(123, 170, 226, 0.25) !important;
+    background:
+      linear-gradient(180deg, rgba(16, 35, 67, 0.82), rgba(8, 24, 54, 0.78)),
+      rgba(7, 20, 44, 0.78) !important;
+    color: #ffffff !important;
+    padding: 0 1rem !important;
+    font-size: 0.94rem;
+    font-weight: 800;
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.08),
+      0 16px 38px -30px rgba(40, 140, 255, 0.58) !important;
+  }
+
+  .login-stage[data-login-surface="hbx-mobile"] .input::placeholder {
+    color: rgba(227, 238, 255, 0.72) !important;
+  }
+
+  .login-stage[data-login-surface="hbx-mobile"] .login-actionsRow {
+    justify-content: flex-start;
+    margin: -0.1rem 0 0.35rem;
+  }
+
+  .login-stage[data-login-surface="hbx-mobile"] .login-mobileThemeToggle,
+  .login-stage[data-login-surface="hbx-mobile"] .login-cta,
+  .login-stage[data-login-surface="hbx-mobile"] .login-plansEntry {
+    display: none !important;
+  }
+
+  .login-stage[data-login-surface="hbx-mobile"] .login-link {
+    color: #37b7ff;
+    font-size: 0.84rem;
+    font-weight: 850;
+  }
+
+  .login-stage[data-login-surface="hbx-mobile"] .login-button {
+    position: relative;
+    overflow: hidden;
+    min-height: 56px;
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+    margin-top: 0.18rem;
+    border: 1px solid rgba(95, 215, 255, 0.48) !important;
+    border-radius: 15px !important;
+    background:
+      linear-gradient(135deg, #2458ff 0%, #28c7ff 100%) !important;
+    color: #ffffff !important;
+    font-size: 0.95rem;
+    font-weight: 950;
+    box-shadow:
+      0 20px 42px -24px rgba(31, 150, 255, 0.86),
+      inset 0 1px 0 rgba(255, 255, 255, 0.22) !important;
+    transform: translateZ(0);
+    transition:
+      transform 180ms ease,
+      box-shadow 180ms ease,
+      filter 180ms ease;
+  }
+
+  .login-stage[data-login-surface="hbx-mobile"] .login-button::before {
+    content: "";
+    position: absolute;
+    inset: -40% auto -40% -32%;
+    width: 44%;
+    transform: skewX(-18deg) translateX(-140%);
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.42), transparent);
+    opacity: 0.78;
+    pointer-events: none;
+  }
+
+  .login-stage[data-login-surface="hbx-mobile"] .login-button::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    pointer-events: none;
+    background:
+      radial-gradient(circle at 22% 50%, rgba(255, 255, 255, 0.34) 0 17%, transparent 18%),
+      radial-gradient(circle at 78% 50%, rgba(255, 255, 255, 0.24) 0 13%, transparent 14%);
+    transition: opacity 180ms ease;
+  }
+
+  .login-stage[data-login-surface="hbx-mobile"] .login-button:hover {
+    transform: translateY(-1px);
+    filter: saturate(1.08);
+  }
+
+  .login-stage[data-login-surface="hbx-mobile"] .login-button[data-loading="true"] {
+    color: rgba(255, 255, 255, 0.9) !important;
+    box-shadow:
+      0 24px 52px -24px rgba(31, 150, 255, 0.94),
+      0 0 0 1px rgba(95, 215, 255, 0.22),
+      inset 0 1px 0 rgba(255, 255, 255, 0.24) !important;
+  }
+
+  .login-stage[data-login-surface="hbx-mobile"] .login-button[data-loading="true"]::before {
+    animation: loginMobileButtonSweep 1.15s ease-in-out infinite;
+  }
+
+  .login-stage[data-login-surface="hbx-mobile"] .login-button[data-loading="true"]::after {
+    opacity: 1;
+    animation: loginMobileButtonPulse 1.2s ease-in-out infinite alternate;
+  }
+
+  .login-stage[data-login-surface="hbx-mobile"] .login-button[data-auth-state="success"] {
+    background: linear-gradient(135deg, #0fcf76 0%, #31d8ff 100%) !important;
+    border-color: rgba(98, 255, 191, 0.56) !important;
+  }
+
+  .login-stage[data-login-surface="hbx-mobile"] .login-socialDivider {
+    display: grid;
+  }
+
+  .login-stage[data-login-surface="hbx-mobile"] .login-whatsappButton {
+    display: inline-flex;
+  }
+
+  .login-stage[data-login-surface="hbx-mobile"] .login-mobileTerms {
+    display: block;
+    width: 100%;
+    max-width: 31ch;
+    margin: auto auto 0;
+    padding: 1.95rem 0 0;
+    color: rgba(219, 234, 254, 0.74);
+    font-size: 0.71rem;
+    font-weight: 720;
+    line-height: 1.45;
+    text-align: center;
+  }
+
+  .login-stage[data-login-surface="hbx-mobile"] ~ .whatsapp-help,
+  .login-stage[data-login-surface="hbx-mobile"] .whatsapp-help,
+  body:has(.login-stage[data-login-surface="hbx-mobile"]) .whatsapp-help[data-surface="login"] {
+    display: none !important;
+  }
+
+  .login-stage[data-login-surface="hbx-mobile"] .login-mobileTerms a {
+    color: #37b7ff;
   }
 
   .login-stage .msg-info,
@@ -10254,6 +10843,7 @@ html[data-theme="tabler"] .login-card__stat {
   }
 
   .whatsapp-help[data-surface="login"] {
+    display: none !important;
     left: 1rem;
     right: 1rem;
     bottom: calc(0.625rem + env(safe-area-inset-bottom));
@@ -10355,6 +10945,1008 @@ html[data-theme="tabler"] .login-card__stat {
   .whatsapp-help[data-surface="register"] .whatsapp-help__icon svg {
     width: 19px;
     height: 19px;
+  }
+
+  @keyframes loginMobileBackground {
+    from {
+      background-position: 0 0, 0 0, 0 0, 0 0, 0 0, 48% 18%, 28% 82%, 0 0;
+    }
+    to {
+      background-position: 0 0, 0 0, 0 0, 0 0, 0 0, 54% 24%, 34% 76%, 0 0;
+    }
+  }
+
+  @keyframes loginMobileCircuitDrift {
+    from {
+      transform: translate3d(0, 0, 0);
+    }
+    to {
+      transform: translate3d(-22px, 18px, 0);
+    }
+  }
+
+  @keyframes loginMobileButtonSweep {
+    0% {
+      transform: skewX(-18deg) translateX(-140%);
+    }
+    100% {
+      transform: skewX(-18deg) translateX(420%);
+    }
+  }
+
+  @keyframes loginMobileButtonPulse {
+    from {
+      transform: scaleX(0.96);
+      opacity: 0.22;
+    }
+    to {
+      transform: scaleX(1.02);
+      opacity: 0.5;
+    }
+  }
+
+  @keyframes loginMobileNetworkSweep {
+    from {
+      transform: translate3d(-8px, 8px, 0) rotate(-2deg);
+      opacity: 0.46;
+    }
+    to {
+      transform: translate3d(8px, -6px, 0) rotate(2deg);
+      opacity: 0.82;
+    }
+  }
+
+  @keyframes loginMobileOrbFloat {
+    from {
+      transform: translate3d(0, 8px, 0) scale(0.96);
+    }
+    to {
+      transform: translate3d(-8px, -6px, 0) scale(1.04);
+    }
+  }
+
+  @keyframes loginMobileWidgetFloat {
+    from {
+      transform: translate3d(0, 6px, 0) scale(0.96);
+      opacity: 0.42;
+    }
+    to {
+      transform: translate3d(-10px, -8px, 0) scale(1.04);
+      opacity: 0.72;
+    }
+  }
+}
+
+.login-socialDivider {
+  width: 100%;
+  display: none;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 0.9rem;
+  color: rgba(209, 226, 255, 0.72);
+  font-size: 0.82rem;
+  font-weight: 760;
+}
+
+.login-socialDivider::before,
+.login-socialDivider::after {
+  content: "";
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(124, 169, 235, 0.32));
+}
+
+.login-socialDivider::after {
+  background: linear-gradient(90deg, rgba(124, 169, 235, 0.32), transparent);
+}
+
+.login-whatsappButton {
+  width: 100%;
+  min-height: 48px;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  gap: 0.72rem;
+  border: 1px solid rgba(113, 159, 225, 0.24);
+  border-radius: 14px;
+  color: #f8fbff;
+  background:
+    radial-gradient(circle at 16% 20%, rgba(37, 211, 102, 0.18), transparent 32%),
+    rgba(8, 22, 50, 0.58);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 14px 34px -28px rgba(37, 211, 102, 0.58);
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 850;
+  cursor: pointer;
+  text-decoration: none;
+  transition:
+    transform 180ms ease,
+    border-color 180ms ease,
+    background 180ms ease;
+}
+
+.login-whatsappButton:hover {
+  transform: translateY(-1px);
+  border-color: rgba(37, 211, 102, 0.46);
+  background:
+    radial-gradient(circle at 16% 20%, rgba(37, 211, 102, 0.24), transparent 34%),
+    rgba(11, 29, 62, 0.7);
+}
+
+.login-whatsappButton__mark {
+  width: 20px;
+  height: 20px;
+  display: inline-grid;
+  place-items: center;
+  color: #25d366;
+}
+
+.login-whatsappButton__mark svg {
+  width: 20px;
+  height: 20px;
+  fill: currentColor;
+}
+
+.login-waterRipples {
+  display: none;
+}
+
+.login-authBridge {
+  display: none;
+}
+
+.login-waterRipple {
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  pointer-events: none;
+  transform: translate(-50%, -50%);
+}
+
+.login-waterRipple::before,
+.login-waterRipple::after {
+  content: "";
+  position: absolute;
+  inset: -8px;
+  border-radius: inherit;
+  opacity: 0;
+  transform: scale(0.18);
+}
+
+.login-waterRipple::before {
+  border: 1px solid rgba(112, 217, 255, 0.72);
+  background:
+    radial-gradient(circle, rgba(255, 255, 255, 0.36) 0 6%, rgba(55, 185, 255, 0.18) 7% 18%, transparent 42%),
+    radial-gradient(circle, transparent 0 48%, rgba(55, 185, 255, 0.28) 50% 52%, transparent 54%);
+  box-shadow:
+    0 0 32px rgba(49, 178, 255, 0.36),
+    inset 0 0 18px rgba(162, 231, 255, 0.28);
+  animation: loginWaterRipple 980ms cubic-bezier(0.12, 0.82, 0.2, 1) forwards;
+}
+
+.login-waterRipple::after {
+  inset: -18px;
+  border: 1px solid rgba(43, 119, 255, 0.34);
+  background:
+    conic-gradient(from 18deg, transparent 0 18%, rgba(57, 191, 255, 0.22) 20% 22%, transparent 24% 48%, rgba(37, 99, 255, 0.18) 50% 52%, transparent 54% 100%);
+  filter: blur(0.4px);
+  animation: loginWaterRippleOuter 980ms cubic-bezier(0.16, 0.88, 0.22, 1) forwards;
+}
+
+@media (min-width: 769px) {
+  .login-stage[data-login-surface="hbx-mobile"] {
+    --login-mobile-width: min(100%, 318px);
+    min-height: 100vh;
+    min-height: 100dvh;
+    height: 100vh;
+    height: 100dvh;
+    place-items: stretch center;
+    padding: clamp(1rem, 2.3vh, 1.55rem) 1.75rem;
+    overflow: hidden;
+    background:
+      radial-gradient(circle at 86% 20%, rgba(49, 182, 255, 0.14) 0 1px, transparent 2px),
+      radial-gradient(circle at 17% 23%, rgba(78, 125, 255, 0.18) 0 2px, transparent 3px),
+      radial-gradient(circle at 91% 48%, rgba(50, 216, 255, 0.18) 0 2px, transparent 3px),
+      radial-gradient(circle at 82% 66%, rgba(30, 103, 255, 0.24), transparent 18%),
+      linear-gradient(115deg, transparent 0 24%, rgba(28, 119, 255, 0.13) 24% 24.4%, transparent 24.4% 100%),
+      linear-gradient(28deg, transparent 0 61%, rgba(52, 216, 255, 0.13) 61% 61.45%, transparent 61.45% 100%),
+      radial-gradient(circle at 84% 43%, rgba(31, 126, 255, 0.18), transparent 22%),
+      radial-gradient(circle at 54% 18%, rgba(12, 184, 255, 0.16), transparent 28%),
+      radial-gradient(circle at 28% 82%, rgba(22, 97, 255, 0.24), transparent 36%),
+      linear-gradient(180deg, #031025 0%, #06172f 48%, #020816 100%);
+    animation: loginMobileBackground 14s ease-in-out infinite alternate;
+  }
+
+  body:has(.login-stage[data-login-surface="hbx-mobile"]) {
+    overflow: hidden;
+    background: #020a17 !important;
+  }
+
+  html:has(.login-stage[data-login-surface="hbx-mobile"]),
+  body.app-root:has(.login-stage[data-login-surface="hbx-mobile"]),
+  body:has(.login-stage[data-login-surface="hbx-mobile"]) .route-transition {
+    min-height: 100vh;
+    min-height: 100dvh;
+    background: #020a17 !important;
+  }
+
+  .login-stage[data-login-surface="hbx-mobile"] .login-video-layer {
+    display: none !important;
+  }
+
+  .login-stage[data-login-surface="hbx-mobile"] .login-console,
+  .login-stage[data-login-surface="hbx-mobile"][data-login-video="on"] .login-console,
+  .login-stage[data-login-surface="hbx-mobile"][data-login-video="off"] .login-console {
+    width: var(--login-mobile-width) !important;
+    min-height: calc(100dvh - 2rem) !important;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) !important;
+    place-items: stretch;
+    gap: 0 !important;
+  }
+
+  .login-stage[data-login-surface="hbx-mobile"] .login-side {
+    display: none !important;
+  }
+
+  .login-stage[data-login-surface="hbx-mobile"] .login-shell,
+  .login-stage[data-login-surface="hbx-mobile"][data-login-video="on"] .login-shell,
+  .login-stage[data-login-surface="hbx-mobile"][data-login-video="off"] .login-shell {
+    width: var(--login-mobile-width) !important;
+    max-width: var(--login-mobile-width) !important;
+    place-items: stretch;
+  }
+
+  .login-stage[data-login-surface="hbx-mobile"] .login-card,
+  .login-stage[data-login-surface="hbx-mobile"][data-login-video="on"] .login-card,
+  .login-stage[data-login-surface="hbx-mobile"][data-login-video="off"] .login-card {
+    width: 100% !important;
+    max-width: var(--login-mobile-width) !important;
+    min-height: calc(100dvh - 2rem);
+    display: grid;
+    align-content: start;
+    padding: clamp(1.45rem, 3.2vh, 2.05rem) 0.85rem 0 !important;
+    border: 0 !important;
+    border-radius: 0;
+    overflow: visible;
+    background: transparent !important;
+    box-shadow: none !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+
+  .login-stage[data-login-surface="hbx-mobile"] .login-card::before,
+  .login-stage[data-login-surface="hbx-mobile"] .login-card::after,
+  .login-stage[data-login-surface="hbx-mobile"] .login-card__chrome,
+  .login-stage[data-login-surface="hbx-mobile"] .login-card__themeRow,
+  .login-stage[data-login-surface="hbx-mobile"] .login-card__themeCopy,
+  .login-stage[data-login-surface="hbx-mobile"] .login-plansEntry,
+  .login-stage[data-login-surface="hbx-mobile"] .login-mobileThemeToggle,
+  .login-stage[data-login-surface="hbx-mobile"] .login-cta {
+    display: none !important;
+  }
+
+  .login-stage[data-login-surface="hbx-mobile"] .login-card__header {
+    justify-items: start;
+    gap: 0.62rem;
+    margin: 0 0 1.22rem;
+    text-align: left;
+  }
+
+  .login-stage[data-login-surface="hbx-mobile"] .login-card__brandBlock {
+    justify-items: center;
+    width: 100%;
+    margin: 0.1rem 0 1.38rem;
+    padding: 0;
+    border: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+  }
+
+  .login-stage[data-login-surface="hbx-mobile"] .login-card__brandMark {
+    width: 100%;
+    height: 76px;
+    border-radius: 0;
+    background: transparent !important;
+    box-shadow: none !important;
+    animation: none;
+  }
+
+  .login-stage[data-login-surface="hbx-mobile"] .login-card__brandMark::after {
+    content: none;
+  }
+
+  .login-stage[data-login-surface="hbx-mobile"] .login-card__brandMarkCore {
+    font-size: clamp(4.6rem, 7.8vw, 5.2rem);
+    font-weight: 950;
+    letter-spacing: 0;
+    line-height: 1;
+    filter: drop-shadow(0 18px 34px rgba(9, 104, 255, 0.34));
+    background: linear-gradient(92deg, #ffffff 0%, #f8fbff 42%, #38d8ff 72%, #2d6bff 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    -webkit-text-fill-color: transparent;
+  }
+
+  .login-stage[data-login-surface="hbx-mobile"] .login-card__title {
+    max-width: 12.1ch;
+    text-align: left;
+    font-size: clamp(1.78rem, 3.25vw, 2.1rem);
+    line-height: 1.04;
+    letter-spacing: 0;
+    color: #ffffff !important;
+    text-shadow: 0 18px 42px rgba(2, 132, 199, 0.28) !important;
+  }
+
+  .login-stage[data-login-surface="hbx-mobile"] .login-card__titleAccent {
+    color: #41a5ff;
+  }
+
+  .login-stage[data-login-surface="hbx-mobile"] .login-card__copy {
+    max-width: 100%;
+    margin: -0.14rem 0 0;
+    color: rgba(241, 247, 255, 0.84) !important;
+    font-size: 0.86rem;
+    line-height: 1.45;
+    text-align: left;
+  }
+
+  .login-stage[data-login-surface="hbx-mobile"] .login-form {
+    position: relative;
+    z-index: 1;
+    gap: 0.74rem;
+    width: 100%;
+  }
+
+  .login-stage[data-login-surface="hbx-mobile"] .login-form::before,
+  .login-stage[data-login-surface="hbx-mobile"] .login-form::after {
+    content: "";
+    position: absolute;
+    z-index: -1;
+    pointer-events: none;
+  }
+
+  .login-stage[data-login-surface="hbx-mobile"] .login-form::before {
+    top: -3.45rem;
+    right: -1.4rem;
+    width: 116px;
+    height: 116px;
+    border: 1px solid rgba(39, 131, 255, 0.18);
+    border-radius: 999px;
+    background:
+      radial-gradient(circle at 50% 50%, rgba(28, 112, 255, 0.3) 0 9px, transparent 10px),
+      radial-gradient(circle at 22% 72%, rgba(38, 204, 255, 0.4) 0 3px, transparent 4px),
+      radial-gradient(circle at 74% 28%, rgba(43, 124, 255, 0.48) 0 3px, transparent 4px);
+    box-shadow: 0 0 54px rgba(21, 112, 255, 0.18);
+    opacity: 0.78;
+  }
+
+  .login-stage[data-login-surface="hbx-mobile"] .login-form::after {
+    top: -0.9rem;
+    right: 0.4rem;
+    width: 44px;
+    height: 44px;
+    border-radius: 14px;
+    border: 1px solid rgba(54, 183, 255, 0.22);
+    background:
+      radial-gradient(circle at 50% 50%, rgba(39, 124, 255, 0.62) 0 8px, transparent 9px),
+      linear-gradient(180deg, rgba(12, 55, 118, 0.56), rgba(5, 23, 57, 0.3));
+    box-shadow: 0 0 34px rgba(37, 136, 255, 0.24);
+    opacity: 0.72;
+  }
+
+  .login-stage[data-login-surface="hbx-mobile"] .login-label {
+    color: rgba(255, 255, 255, 0.94);
+    font-size: 0.82rem;
+    font-weight: 900;
+    letter-spacing: 0;
+  }
+
+  .login-stage[data-login-surface="hbx-mobile"] .input {
+    min-height: 48px;
+    border-radius: 13px !important;
+    border: 1px solid rgba(123, 170, 226, 0.25) !important;
+    background:
+      linear-gradient(180deg, rgba(16, 35, 67, 0.82), rgba(8, 24, 54, 0.78)),
+      rgba(7, 20, 44, 0.78) !important;
+    color: #ffffff !important;
+    padding: 0 1rem !important;
+    font-size: 0.88rem;
+    font-weight: 800;
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.08),
+      0 16px 38px -30px rgba(40, 140, 255, 0.58) !important;
+  }
+
+  .login-stage[data-login-surface="hbx-mobile"] .input::placeholder {
+    color: rgba(227, 238, 255, 0.78) !important;
+  }
+
+  .login-stage[data-login-surface="hbx-mobile"] .login-actionsRow {
+    justify-content: flex-start;
+    margin: -0.08rem 0 0.18rem;
+  }
+
+  .login-stage[data-login-surface="hbx-mobile"] .login-link {
+    color: #37b7ff;
+    font-size: 0.8rem;
+    font-weight: 850;
+    text-decoration: none;
+  }
+
+  .login-stage[data-login-surface="hbx-mobile"] .login-button {
+    min-height: 48px;
+    margin-top: 0;
+    border: 1px solid rgba(95, 215, 255, 0.48) !important;
+    border-radius: 13px !important;
+    background: linear-gradient(135deg, #2458ff 0%, #28c7ff 100%) !important;
+    color: #ffffff !important;
+    font-size: 0.9rem;
+    font-weight: 950;
+    box-shadow:
+      0 20px 42px -24px rgba(31, 150, 255, 0.86),
+      inset 0 1px 0 rgba(255, 255, 255, 0.22) !important;
+  }
+
+  .login-stage[data-login-surface="hbx-mobile"] .login-socialDivider {
+    margin: 0.72rem 0 0.12rem;
+  }
+
+  .login-stage[data-login-surface="hbx-mobile"] .login-mobileTerms {
+    display: block;
+    width: 100%;
+    max-width: 31ch;
+    margin: auto auto 0;
+    padding: 1.55rem 0 0;
+    color: rgba(219, 234, 254, 0.74);
+    font-size: 0.67rem;
+    font-weight: 720;
+    line-height: 1.42;
+    text-align: center;
+  }
+
+  .login-stage[data-login-surface="hbx-mobile"] .login-mobileTerms a {
+    color: #37b7ff;
+    text-decoration: none;
+  }
+}
+
+@media (max-width: 768px) {
+  .login-stage[data-login-surface="hbx-mobile"] .login-authBridge {
+    position: absolute;
+    inset: 0;
+    z-index: 140;
+    display: grid;
+    place-items: center;
+    pointer-events: none;
+    opacity: 0;
+    visibility: hidden;
+  }
+
+  .login-stage[data-login-surface="hbx-mobile"][data-login-state="success"] .login-authBridge {
+    visibility: visible;
+    animation: loginAuthBridgeAppear 780ms ease 860ms forwards;
+  }
+
+  .login-authBridge__lake {
+    position: absolute;
+    width: min(78vw, 330px);
+    height: min(78vw, 330px);
+    border-radius: 999px;
+    background:
+      radial-gradient(circle, rgba(122, 255, 196, 0.26) 0 12%, transparent 13%),
+      radial-gradient(circle, transparent 0 34%, rgba(39, 237, 154, 0.2) 35% 37%, transparent 38%),
+      radial-gradient(circle, rgba(22, 163, 118, 0.18), transparent 66%);
+    filter: blur(0.6px) saturate(1.1);
+    opacity: 0;
+    transform: scale(0.58);
+  }
+
+  .login-stage[data-login-surface="hbx-mobile"][data-login-state="success"] .login-authBridge__lake {
+    animation: loginAuthLake 2600ms ease-out 1220ms infinite;
+  }
+
+  .login-authBridge__pill {
+    position: relative;
+    width: min(74vw, 240px);
+    min-height: 58px;
+    display: grid;
+    place-items: center;
+    overflow: hidden;
+    border: 1px solid rgba(103, 255, 185, 0.72);
+    border-radius: 15px;
+    background:
+      radial-gradient(circle at 22% 18%, rgba(255, 255, 255, 0.28), transparent 26%),
+      linear-gradient(135deg, #0fcf76 0%, #31d8ff 100%);
+    color: #ffffff;
+    box-shadow:
+      0 0 0 1px rgba(122, 255, 196, 0.28),
+      0 28px 86px -28px rgba(24, 218, 141, 0.86),
+      inset 0 1px 0 rgba(255, 255, 255, 0.32);
+    font-size: 0.92rem;
+    font-weight: 950;
+    transform: translateY(96px) scale(0.95);
+    opacity: 0;
+  }
+
+  .login-stage[data-login-surface="hbx-mobile"][data-login-state="success"] .login-authBridge__pill {
+    animation:
+      loginAuthPillRise 1280ms cubic-bezier(0.18, 0.88, 0.2, 1) 1120ms forwards,
+      loginAuthPillFloat 1900ms ease-in-out 2500ms infinite,
+      loginAuthPillToMark 920ms cubic-bezier(0.2, 0.86, 0.2, 1) 4450ms forwards;
+  }
+
+  .login-authBridge__status,
+  .login-authBridge__brand {
+    grid-area: 1 / 1;
+    transition: none;
+  }
+
+  .login-authBridge__brand {
+    opacity: 0;
+    font-size: 1.12rem;
+    letter-spacing: 0.08em;
+  }
+
+  .login-stage[data-login-surface="hbx-mobile"][data-login-state="success"] .login-authBridge__status {
+    animation: loginAuthStatusOut 680ms ease 4140ms forwards;
+  }
+
+  .login-stage[data-login-surface="hbx-mobile"][data-login-state="success"] .login-authBridge__brand {
+    animation: loginAuthBrandIn 780ms ease 4400ms forwards;
+  }
+
+  .login-stage[data-login-surface="hbx-mobile"][data-login-state="success"] .login-console {
+    pointer-events: none;
+    animation: loginMobileAuthScreenDissolve 1400ms cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+  }
+
+  .login-stage[data-login-surface="hbx-mobile"] .login-form::before,
+  .login-stage[data-login-surface="hbx-mobile"] .login-form::after {
+    content: none !important;
+    display: none !important;
+  }
+
+  .login-stage[data-login-surface="hbx-mobile"] .login-visuals::after {
+    content: none !important;
+    display: none !important;
+  }
+
+  .login-stage[data-login-surface="hbx-mobile"]::after {
+    mask-image: linear-gradient(180deg, transparent 0%, black 16%, black 92%, transparent 100%) !important;
+  }
+
+  .login-stage[data-login-surface="hbx-mobile"] .login-waterRipples {
+    display: block;
+    position: absolute;
+    inset: 0;
+    z-index: 2;
+    overflow: hidden;
+    pointer-events: none;
+    mix-blend-mode: screen;
+  }
+
+  .login-stage[data-login-surface="hbx-mobile"] .login-waterRipple {
+    display: block;
+  }
+
+  .login-stage[data-login-surface="hbx-mobile"] .login-socialDivider {
+    display: grid;
+  }
+
+  .login-stage[data-login-surface="hbx-mobile"] .login-whatsappButton {
+    display: inline-flex !important;
+    opacity: 1 !important;
+    visibility: visible !important;
+  }
+
+  .login-stage[data-login-surface="hbx-mobile"][data-login-state="success"] .login-card__header,
+  .login-stage[data-login-surface="hbx-mobile"][data-login-state="success"] .login-field,
+  .login-stage[data-login-surface="hbx-mobile"][data-login-state="success"] .login-actionsRow,
+  .login-stage[data-login-surface="hbx-mobile"][data-login-state="success"] .login-form > .login-button,
+  .login-stage[data-login-surface="hbx-mobile"][data-login-state="success"] .login-socialDivider,
+  .login-stage[data-login-surface="hbx-mobile"][data-login-state="success"] .login-whatsappButton,
+  .login-stage[data-login-surface="hbx-mobile"][data-login-state="success"] .login-mobileTerms,
+  .login-stage[data-login-surface="hbx-mobile"][data-login-state="success"] .msg-info,
+  .login-stage[data-login-surface="hbx-mobile"][data-login-state="success"] .msg-error,
+  .login-stage[data-login-surface="hbx-mobile"][data-login-state="success"] .msg-waking-server {
+    pointer-events: none;
+    animation: loginMobileAuthDissolve 1200ms cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+  }
+
+  @keyframes loginWaterRipple {
+    0% {
+      opacity: 0.9;
+      transform: scale(0.18);
+      filter: blur(0) brightness(1.4);
+    }
+
+    38% {
+      opacity: 0.72;
+    }
+
+    100% {
+      opacity: 0;
+      transform: scale(15);
+      filter: blur(1.5px) brightness(1.08);
+    }
+  }
+
+  @keyframes loginWaterRippleOuter {
+    0% {
+      opacity: 0.72;
+      transform: scale(0.1) rotate(0deg);
+    }
+
+    48% {
+      opacity: 0.44;
+    }
+
+    100% {
+      opacity: 0;
+      transform: scale(22) rotate(42deg);
+    }
+  }
+
+  @keyframes loginAuthBridgeAppear {
+    from {
+      opacity: 0;
+    }
+
+    to {
+      opacity: 1;
+    }
+  }
+
+  @keyframes loginMobileAuthScreenDissolve {
+    0% {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+      filter: blur(0);
+    }
+
+    100% {
+      opacity: 0;
+      transform: translateY(-18px) scale(0.985);
+      filter: blur(12px);
+      visibility: hidden;
+    }
+  }
+
+  @keyframes loginAuthPillRise {
+    0% {
+      opacity: 0;
+      transform: translateY(96px) scale(0.95);
+    }
+
+    62% {
+      opacity: 1;
+      transform: translateY(-4px) scale(1.035);
+    }
+
+    100% {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+    }
+  }
+
+  @keyframes loginAuthPillFloat {
+    0%,
+    100% {
+      transform: translateY(0) scale(1);
+    }
+
+    50% {
+      transform: translateY(-4px) scale(1.025);
+    }
+  }
+
+  @keyframes loginAuthPillToMark {
+    to {
+      width: 72px;
+      min-height: 72px;
+      border-radius: 22px;
+      background:
+        radial-gradient(circle at 38% 22%, rgba(255, 255, 255, 0.28), transparent 34%),
+        linear-gradient(145deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.045)),
+        rgba(12, 31, 55, 0.82);
+      box-shadow:
+        0 0 0 1px rgba(125, 211, 252, 0.18),
+        0 32px 94px rgba(31, 161, 224, 0.3),
+        inset 0 1px 0 rgba(255, 255, 255, 0.2);
+    }
+  }
+
+  @keyframes loginAuthStatusOut {
+    to {
+      opacity: 0;
+      transform: translateY(-8px) scale(0.96);
+      filter: blur(6px);
+    }
+  }
+
+  @keyframes loginAuthBrandIn {
+    from {
+      opacity: 0;
+      transform: translateY(8px) scale(0.94);
+      filter: blur(6px);
+    }
+
+    to {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+      filter: blur(0);
+    }
+  }
+
+  @keyframes loginAuthLake {
+    0% {
+      opacity: 0;
+      transform: scale(0.58);
+      filter: blur(0) saturate(1.08);
+    }
+
+    22% {
+      opacity: 0.78;
+    }
+
+    100% {
+      opacity: 0;
+      transform: scale(1.32);
+      filter: blur(2px) saturate(1.18);
+    }
+  }
+
+  @keyframes loginMobileAuthDissolve {
+    0% {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+      filter: blur(0);
+    }
+
+    100% {
+      opacity: 0;
+      transform: translateY(-12px) scale(0.98);
+      filter: blur(10px);
+    }
+  }
+
+  @keyframes loginMobileAuthAscend {
+    0% {
+      opacity: 0.92;
+      transform: translateY(126px) scale(0.96);
+      filter: blur(0);
+    }
+
+    62% {
+      opacity: 1;
+      transform: translateY(-4px) scale(1.03);
+    }
+
+    100% {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+      filter: blur(0);
+    }
+  }
+
+  @keyframes loginMobileAuthFloat {
+    0%,
+    100% {
+      transform: translateY(0) scale(1);
+    }
+
+    50% {
+      transform: translateY(-4px) scale(1.025);
+    }
+  }
+
+  @keyframes loginMobileAuthLake {
+    0% {
+      opacity: 0;
+      transform: translate(-50%, -50%) scale(0.44);
+      filter: blur(0) saturate(1.08);
+    }
+
+    22% {
+      opacity: 0.78;
+    }
+
+    100% {
+      opacity: 0;
+      transform: translate(-50%, -50%) scale(1.44);
+      filter: blur(2px) saturate(1.18);
+    }
+  }
+
+  @keyframes loginMobileAuthLakeOuter {
+    0% {
+      opacity: 0;
+      transform: translate(-50%, -50%) scale(0.56) rotate(0deg);
+    }
+
+    28% {
+      opacity: 0.52;
+    }
+
+    100% {
+      opacity: 0;
+      transform: translate(-50%, -50%) scale(1.88) rotate(40deg);
+    }
+  }
+}
+
+@media (max-width: 768px) {
+  .login-stage[data-login-surface="hbx-mobile"][data-login-state="success"] .login-console {
+    pointer-events: none !important;
+    animation: loginAuthConsoleCleanExit 1500ms cubic-bezier(0.2, 0.8, 0.2, 1) forwards !important;
+  }
+
+  .login-stage[data-login-surface="hbx-mobile"][data-login-state="success"] .login-form > .login-button {
+    opacity: 0 !important;
+    visibility: hidden !important;
+    pointer-events: none !important;
+    transform: none !important;
+    animation: none !important;
+  }
+
+  .login-stage[data-login-surface="hbx-mobile"][data-login-state="success"] .login-form > .login-button::before,
+  .login-stage[data-login-surface="hbx-mobile"][data-login-state="success"] .login-form > .login-button::after {
+    content: none !important;
+    display: none !important;
+  }
+
+  .login-stage[data-login-surface="hbx-mobile"][data-login-state="success"] .login-authBridge {
+    position: fixed;
+    inset: 0;
+    z-index: 220;
+    display: grid !important;
+    place-items: center;
+    isolation: isolate;
+    width: 100vw;
+    height: 100dvh;
+    opacity: 1;
+    visibility: visible;
+    pointer-events: none;
+    animation: none !important;
+  }
+
+  .login-stage[data-login-surface="hbx-mobile"][data-login-state="success"] .login-authBridge__lake {
+    position: relative !important;
+    grid-area: 1 / 1;
+    justify-self: center;
+    align-self: center;
+    width: min(82vw, 320px);
+    height: min(82vw, 320px);
+    opacity: 0;
+    transform: scale(0.72);
+    animation: loginAuthLakeClean 2600ms ease-out 1300ms infinite !important;
+  }
+
+  .login-stage[data-login-surface="hbx-mobile"][data-login-state="success"] .login-authBridge__pill {
+    grid-area: 1 / 1;
+    justify-self: center;
+    align-self: center;
+    width: min(72vw, 248px);
+    min-height: 58px;
+    opacity: 0;
+    transform: translate3d(0, 22px, 0) scale(0.96);
+    animation:
+      loginAuthPillCleanIn 1050ms cubic-bezier(0.18, 0.88, 0.2, 1) 1500ms forwards,
+      loginAuthPillCleanPulse 1800ms ease-in-out 2550ms infinite,
+      loginAuthPillCleanToMark 900ms cubic-bezier(0.2, 0.86, 0.2, 1) 4700ms forwards !important;
+  }
+
+  .login-stage[data-login-surface="hbx-mobile"][data-login-state="success"] .login-authBridge__status {
+    opacity: 1;
+    animation: loginAuthStatusCleanOut 650ms ease 4400ms forwards !important;
+  }
+
+  .login-stage[data-login-surface="hbx-mobile"][data-login-state="success"] .login-authBridge__brand {
+    opacity: 0;
+    animation: loginAuthBrandCleanIn 760ms ease 4750ms forwards !important;
+  }
+
+  @keyframes loginAuthConsoleCleanExit {
+    0% {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+      filter: blur(0);
+    }
+
+    100% {
+      opacity: 0;
+      transform: translateY(-16px) scale(0.985);
+      filter: blur(14px);
+      visibility: hidden;
+    }
+  }
+
+  @keyframes loginAuthPillCleanIn {
+    0% {
+      opacity: 0;
+      transform: translate3d(0, 22px, 0) scale(0.96);
+      filter: blur(8px);
+    }
+
+    58% {
+      opacity: 1;
+      transform: translate3d(0, -3px, 0) scale(1.025);
+      filter: blur(0);
+    }
+
+    100% {
+      opacity: 1;
+      transform: translate3d(0, 0, 0) scale(1);
+      filter: blur(0);
+    }
+  }
+
+  @keyframes loginAuthPillCleanPulse {
+    0%,
+    100% {
+      transform: translate3d(0, 0, 0) scale(1);
+    }
+
+    50% {
+      transform: translate3d(0, -3px, 0) scale(1.025);
+    }
+  }
+
+  @keyframes loginAuthPillCleanToMark {
+    to {
+      width: 72px;
+      height: 72px;
+      min-height: 72px;
+      border-radius: 22px;
+      background:
+        radial-gradient(circle at 38% 22%, rgba(255, 255, 255, 0.28), transparent 34%),
+        linear-gradient(145deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.045)),
+        rgba(12, 31, 55, 0.84);
+    }
+  }
+
+  @keyframes loginAuthStatusCleanOut {
+    to {
+      opacity: 0;
+      transform: translateY(-8px) scale(0.96);
+      filter: blur(6px);
+    }
+  }
+
+  @keyframes loginAuthBrandCleanIn {
+    from {
+      opacity: 0;
+      transform: translateY(8px) scale(0.94);
+      filter: blur(6px);
+    }
+
+    to {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+      filter: blur(0);
+    }
+  }
+
+  @keyframes loginAuthLakeClean {
+    0% {
+      opacity: 0;
+      transform: scale(0.72);
+      filter: blur(0) saturate(1.08);
+    }
+
+    22% {
+      opacity: 0.72;
+    }
+
+    100% {
+      opacity: 0;
+      transform: scale(1.34);
+      filter: blur(2px) saturate(1.18);
+    }
   }
 }
 
