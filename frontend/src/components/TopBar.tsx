@@ -2031,10 +2031,10 @@ const HBX_TOPBAR_POLISH_CSS = `
     }
 
     .hbx-command-brand {
-      height: 60px !important;
-      min-height: 60px !important;
-      grid-template-columns: 48px minmax(0, 1fr) !important;
-      padding-right: 0 !important;
+      height: 54px !important;
+      min-height: 54px !important;
+      grid-template-columns: 44px minmax(0, 1fr) !important;
+      padding: 0 10px 0 0 !important;
     }
 
     .hbx-command-brand::before,
@@ -2043,8 +2043,22 @@ const HBX_TOPBAR_POLISH_CSS = `
     }
 
     .hbx-command-brand__mark {
-      width: 48px !important;
-      height: 48px !important;
+      width: 44px !important;
+      height: 44px !important;
+    }
+
+    .hbx-command-brand__copy strong {
+      font-size: 0.92rem !important;
+    }
+
+    .hbx-command-brand__copy span {
+      font-size: 0.72rem !important;
+    }
+
+    .hbx-command-center,
+    .hbx-command-center__body,
+    .hbx-command-side {
+      display: none !important;
     }
 
     .hbx-module-summary {
@@ -2065,21 +2079,39 @@ const HBX_TOPBAR_POLISH_CSS = `
       top: 14px;
     }
 
-    .hbx-command-center,
-    .hbx-command-center__body {
-      height: auto !important;
-      min-height: 0 !important;
+    .hbx-mobile-quicknav {
+      display: grid !important;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 8px;
+      padding: 0 10px 10px;
     }
 
-    .hbx-command-side {
-      height: auto !important;
-      min-height: 0 !important;
-      flex-wrap: wrap !important;
+    .hbx-mobile-quicknav__item {
+      min-height: 42px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border: 1px solid color-mix(in srgb, var(--button-secondary, #38bdf8) 28%, var(--line, rgba(148, 163, 184, 0.28)));
+      border-radius: 14px;
+      background:
+        radial-gradient(circle at 20% 0%, color-mix(in srgb, var(--button-secondary, #38bdf8) 13%, transparent), transparent 52%),
+        linear-gradient(180deg, color-mix(in srgb, var(--surface-raised, #ffffff) 92%, transparent), color-mix(in srgb, var(--surface-soft, #f8fafc) 86%, transparent));
+      color: var(--foreground, #0f172a);
+      box-shadow: var(--shadow-inset, inset 0 1px 0 rgba(255, 255, 255, 0.72));
+      font: inherit;
+      font-size: 0.8rem;
+      font-weight: 950;
+      text-decoration: none;
     }
+  }
 
-    .hbx-control-user {
-      grid-column: 1 / -1;
-      max-width: none !important;
+  .hbx-mobile-quicknav {
+    display: none;
+  }
+
+  @media (max-width: 760px) {
+    .hbx-mobile-quicknav {
+      display: grid !important;
     }
   }
 
@@ -2722,6 +2754,11 @@ export default function TopBar() {
 
       if (pendingCheckoutLocked) {
         router.push(pendingCheckoutHref);
+        return;
+      }
+
+      if (window.matchMedia("(max-width: 760px)").matches) {
+        router.push(dashboardHref);
         return;
       }
 
@@ -4170,6 +4207,13 @@ export default function TopBar() {
     window.open(url, "_blank", "noopener,noreferrer");
   }
 
+  function handleMobileSupportClick() {
+    if (typeof window === "undefined") return;
+    const phone = SUPPORT_PHONE.replace(/\D/g, "");
+    const url = `https://wa.me/${phone}?text=${encodeURIComponent(SUPPORT_MESSAGE)}`;
+    window.open(url, "_blank", "noopener,noreferrer");
+  }
+
   async function loadUnreadInboxEntries() {
     setUnreadInboxLoading(true);
     setUnreadInboxError(null);
@@ -5267,6 +5311,17 @@ export default function TopBar() {
         </div>
 
         {/* dock removed: counter is shown on individual icons (wa-health__queue-badge) */}
+        <nav className="hbx-mobile-quicknav" aria-label="Navegação mobile">
+          <Link href="/radar-digital" className="hbx-mobile-quicknav__item">
+            <span>Radar</span>
+          </Link>
+          <Link href="/vendas/automacao?tab=prospeccao&mode=mobile" className="hbx-mobile-quicknav__item">
+            <span>Vendas</span>
+          </Link>
+          <button type="button" className="hbx-mobile-quicknav__item" onClick={handleMobileSupportClick}>
+            <span>Suporte</span>
+          </button>
+        </nav>
       </div>
 
       {/* incomingPopup UI removed — notifications are disabled for now */}
