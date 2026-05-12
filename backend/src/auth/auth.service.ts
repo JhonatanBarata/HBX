@@ -23,6 +23,7 @@ import {
   COMMERCIAL_PLAN_KEYS,
   COMMERCIAL_PLAN_MODULE_KEYS,
   PENDING_COMMERCIAL_ENTITLEMENT_STATUS,
+  buildCommercialPlansCatalog,
   normalizeCommercialPlanKey,
   type ActiveCommercialPlanKey,
   type CommercialPlanKey,
@@ -213,6 +214,7 @@ export class AuthService implements OnModuleInit {
     tx: any,
     companyId: number,
     profile: { contactName: string; contactPhone: string; taxDocument: string },
+    selectedPlanKey: ActiveCommercialPlanKey,
     selectedByUserId?: number | null,
   ) {
     const now = new Date();
@@ -227,7 +229,7 @@ export class AuthService implements OnModuleInit {
         acceptedTermsAt: now.toISOString(),
         contactName: profile.contactName,
         taxDocumentProvided: Boolean(profile.taxDocument),
-        selectedPlanKey: COMMERCIAL_PLAN_KEYS.PADRAO,
+        selectedPlanKey,
         selectedByUserId: Number(selectedByUserId || 0) || null,
       }),
     };
@@ -276,8 +278,21 @@ export class AuthService implements OnModuleInit {
     return normalizeCommercialPlanKey(value);
   }
 
+  private normalizePublicSelectedPlanKey(value: string | undefined): ActiveCommercialPlanKey {
+    const normalized = String(value || '').trim().toLowerCase();
+    return normalized === COMMERCIAL_PLAN_KEYS.MELHOR
+      ? COMMERCIAL_PLAN_KEYS.MELHOR
+      : COMMERCIAL_PLAN_KEYS.LITE;
+  }
+
   private resolveTrialModuleForPlan(planKey: ActiveCommercialPlanKey): 'vendas' | null {
-    return planKey === COMMERCIAL_PLAN_KEYS.PADRAO ? 'vendas' : null;
+    return planKey === COMMERCIAL_PLAN_KEYS.LITE || planKey === COMMERCIAL_PLAN_KEYS.MELHOR ? 'vendas' : null;
+  }
+
+  private getPublicTrialDaysForPlan(planKey: ActiveCommercialPlanKey) {
+    if (planKey === COMMERCIAL_PLAN_KEYS.PADRAO) return 0;
+    const catalogPlan = buildCommercialPlansCatalog({ includeHidden: true }).find((plan) => plan.key === planKey);
+    return Number(catalogPlan?.trialDays || 0);
   }
 
   private resolveTrialEnabledModuleKeys(trialModuleSelection: 'vendas' | null) {
@@ -544,8 +559,9 @@ export class AuthService implements OnModuleInit {
   }
 
   private pendingConfirmationSuccessMessage(planKey: CommercialPlanKey) {
-    if (normalizeCommercialPlanKey(planKey) === COMMERCIAL_PLAN_KEYS.PADRAO) {
-      return 'Cadastro criado. Confirme seu e-mail para começar o trial gratuito de 30 dias.';
+    const trialDays = this.getPublicTrialDaysForPlan(normalizeCommercialPlanKey(planKey));
+    if (trialDays > 0) {
+      return `Cadastro criado. Confirme seu e-mail para começar o trial gratuito de ${trialDays} dias.`;
     }
     return 'Cadastro criado. Confirme seu e-mail para seguir para o checkout no Financeiro.';
   }
@@ -686,12 +702,7 @@ export class AuthService implements OnModuleInit {
       state: 'pending_checkout',
     };
     const activeKeys = new Set(COMMERCIAL_PLAN_ENTITLEMENT_KEYS[planKey] || []);
-    const allKeys = [
-      COMMERCIAL_ENTITLEMENT_KEYS.VENDAS,
-      COMMERCIAL_ENTITLEMENT_KEYS.ATENDIMENTO_CHAT,
-      COMMERCIAL_ENTITLEMENT_KEYS.WEBSCRAPING,
-      COMMERCIAL_ENTITLEMENT_KEYS.BOT_IA,
-    ];
+    const allKeys = Object.values(COMMERCIAL_ENTITLEMENT_KEYS);
 
     for (const key of allKeys) {
       await this.upsertEntitlementTx(
@@ -789,7 +800,8 @@ export class AuthService implements OnModuleInit {
     });
     const selectedPlanKey = this.normalizeSelectedPlanKey(company?.selectedPlanKey || undefined);
 
-    if (selectedPlanKey !== COMMERCIAL_PLAN_KEYS.PADRAO) {
+    const trialDays = this.getPublicTrialDaysForPlan(selectedPlanKey);
+    if (trialDays <= 0) {
       await tx.company.update({
         where: { id: companyId },
         data: {
@@ -813,7 +825,7 @@ export class AuthService implements OnModuleInit {
       return null;
     }
 
-    const trialEndsAt = this.addDays(activatedAt, 30);
+    const trialEndsAt = this.addDays(activatedAt, trialDays);
     const trialPhone = this.normalizeBrazilPhone(company?.contactPhone);
     if (!trialPhone || trialPhone.length < 10) {
       throw new BadRequestException({
@@ -828,7 +840,7 @@ export class AuthService implements OnModuleInit {
       activatedAt: activatedAt.toISOString(),
       contactName: this.normalizeText(company?.primaryContactName),
       taxDocumentProvided: Boolean(this.normalizeDigits(company?.taxDocument)),
-      selectedPlanKey: COMMERCIAL_PLAN_KEYS.PADRAO,
+      selectedPlanKey,
     };
     if (existingTrialPhone) {
       await tx.trialPhoneUsage.update({
@@ -857,11 +869,19 @@ export class AuthService implements OnModuleInit {
       where: { id: companyId },
       data: {
         selectedPlanKey,
+        trialModuleSelection: this.resolveTrialModuleForPlan(selectedPlanKey),
         onboardingStatus: 'active_trial',
         isActive: true,
         paymentStatus: 'TRIAL',
         subscriptionStatus: 'trialing',
         premiumAccess: true,
+        assistedSetupRequired: selectedPlanKey === COMMERCIAL_PLAN_KEYS.MELHOR,
+        assistedSetupStatus: selectedPlanKey === COMMERCIAL_PLAN_KEYS.MELHOR ? 'pending' : 'not_required',
+        assistedSetupCompletedAt: null,
+        assistedSetupCompletedByUserId: null,
+        assistedSetupNote: selectedPlanKey === COMMERCIAL_PLAN_KEYS.MELHOR
+          ? 'Implantação assistida pendente para liberar automação completa.'
+          : null,
         trialStartsAt: activatedAt,
         trialEndsAt,
         subscriptionCurrentPeriodStart: null,
@@ -869,28 +889,22 @@ export class AuthService implements OnModuleInit {
         deactivatedAt: null,
       },
     });
-    await this.syncTrialSelectedModulesTx(
-      tx,
-      companyId,
-      this.normalizeTrialModuleSelection(company?.trialModuleSelection || undefined),
-    );
-    if (this.normalizeTrialModuleSelection(company?.trialModuleSelection || undefined) === 'vendas') {
-      for (const entitlementKey of COMMERCIAL_PLAN_ENTITLEMENT_KEYS[COMMERCIAL_PLAN_KEYS.PADRAO]) {
-        await this.upsertEntitlementTx(
-          tx,
-          companyId,
-          entitlementKey,
-          'trialing',
-          'trial',
-          activatedAt,
-          trialEndsAt,
-          {
-            selectedPlanKey: COMMERCIAL_PLAN_KEYS.PADRAO,
-            activatedBy: 'email_confirmation',
-            activatedAt: activatedAt.toISOString(),
-          },
-        );
-      }
+    await this.syncPlanModulesTx(tx, companyId, selectedPlanKey);
+    for (const entitlementKey of COMMERCIAL_PLAN_ENTITLEMENT_KEYS[selectedPlanKey]) {
+      await this.upsertEntitlementTx(
+        tx,
+        companyId,
+        entitlementKey,
+        'trialing',
+        'trial',
+        activatedAt,
+        trialEndsAt,
+        {
+          selectedPlanKey,
+          activatedBy: 'email_confirmation',
+          activatedAt: activatedAt.toISOString(),
+        },
+      );
     }
     return trialEndsAt;
   }
@@ -1286,9 +1300,9 @@ export class AuthService implements OnModuleInit {
     const resolvedName = normalizedName || normalizedCompanyName || username;
     const hashed = await bcrypt.hash(password, 12);
     const entityType = this.normalizeEntityType(data.entityType) || 'PF';
-    const selectedPlanKey = this.normalizeSelectedPlanKey(data.selectedPlanKey);
+    const selectedPlanKey = this.normalizePublicSelectedPlanKey(data.selectedPlanKey);
     const trialModuleSelection = this.resolveTrialModuleForPlan(selectedPlanKey);
-    const signupTrialProfile = selectedPlanKey === COMMERCIAL_PLAN_KEYS.PADRAO
+    const signupTrialProfile = this.getPublicTrialDaysForPlan(selectedPlanKey) > 0
       ? this.validateSignupTrialProfile(data)
       : null;
     const acquisitionSource = this.normalizeAcquisitionSource(data.acquisitionSource);
@@ -1361,7 +1375,7 @@ export class AuthService implements OnModuleInit {
                 taxDocument: signupTrialProfile.taxDocument || null,
               },
             });
-            await this.reserveSignupTrialPhoneTx(tx, existingCompany.id, signupTrialProfile, updated.id);
+            await this.reserveSignupTrialPhoneTx(tx, existingCompany.id, signupTrialProfile, selectedPlanKey, updated.id);
           }
           return {
             attachedToExistingCompany: true,
@@ -1379,6 +1393,13 @@ export class AuthService implements OnModuleInit {
             entityType: entityType || 'PJ',
             trialModuleSelection,
             selectedPlanKey,
+            assistedSetupRequired: selectedPlanKey === COMMERCIAL_PLAN_KEYS.MELHOR,
+            assistedSetupStatus: selectedPlanKey === COMMERCIAL_PLAN_KEYS.MELHOR ? 'pending' : 'not_required',
+            assistedSetupCompletedAt: null,
+            assistedSetupCompletedByUserId: null,
+            assistedSetupNote: selectedPlanKey === COMMERCIAL_PLAN_KEYS.MELHOR
+              ? 'Implantação assistida pendente para liberar automação completa.'
+              : null,
             signupUsesPublicEmail: usesPublicEmail,
             acquisitionSource,
             acquisitionSourceDetail,
@@ -1419,7 +1440,7 @@ export class AuthService implements OnModuleInit {
           },
         });
         if (signupTrialProfile) {
-          await this.reserveSignupTrialPhoneTx(tx, company.id, signupTrialProfile, updated.id);
+          await this.reserveSignupTrialPhoneTx(tx, company.id, signupTrialProfile, selectedPlanKey, updated.id);
         }
         return { attachedToExistingCompany: false, companyName: company.name, user: updated };
       });
@@ -1496,7 +1517,7 @@ export class AuthService implements OnModuleInit {
               taxDocument: signupTrialProfile.taxDocument || null,
             },
           });
-          await this.reserveSignupTrialPhoneTx(tx, existingCompany.id, signupTrialProfile, user.id);
+          await this.reserveSignupTrialPhoneTx(tx, existingCompany.id, signupTrialProfile, selectedPlanKey, user.id);
         }
 
         return {
@@ -1515,6 +1536,13 @@ export class AuthService implements OnModuleInit {
           entityType: entityType || 'PJ',
           trialModuleSelection,
           selectedPlanKey,
+          assistedSetupRequired: selectedPlanKey === COMMERCIAL_PLAN_KEYS.MELHOR,
+          assistedSetupStatus: selectedPlanKey === COMMERCIAL_PLAN_KEYS.MELHOR ? 'pending' : 'not_required',
+          assistedSetupCompletedAt: null,
+          assistedSetupCompletedByUserId: null,
+          assistedSetupNote: selectedPlanKey === COMMERCIAL_PLAN_KEYS.MELHOR
+            ? 'Implantação assistida pendente para liberar automação completa.'
+            : null,
           signupUsesPublicEmail: usesPublicEmail,
           acquisitionSource,
           acquisitionSourceDetail,
@@ -1557,7 +1585,7 @@ export class AuthService implements OnModuleInit {
         },
       });
       if (signupTrialProfile) {
-        await this.reserveSignupTrialPhoneTx(tx, company.id, signupTrialProfile, user.id);
+        await this.reserveSignupTrialPhoneTx(tx, company.id, signupTrialProfile, selectedPlanKey, user.id);
       }
 
       return { attachedToExistingCompany: false, companyName: company.name, user };
@@ -1672,7 +1700,7 @@ export class AuthService implements OnModuleInit {
       email: user.email || null,
       message: user.companyId
         ? trialEndsAt
-          ? 'E-mail confirmado. O trial gratuito de 30 dias já está ativo.'
+          ? 'E-mail confirmado. O trial gratuito de 7 dias já está ativo.'
           : 'E-mail confirmado. Finalize o pagamento no Financeiro para liberar o plano.'
         : 'E-mail confirmado com sucesso.',
       trialStartsAt: user.companyId ? confirmedAt.toISOString() : null,

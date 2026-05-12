@@ -365,16 +365,6 @@ function sourceLabel(value?: string | null) {
   return normalized || "Sem origem";
 }
 
-function contextLabel(value?: string | null) {
-  const normalized = String(value || "")
-    .trim()
-    .toLowerCase();
-  if (normalized === "vendas") return "Vendas";
-  if (normalized === "atendimento") return "Atendimento";
-  if (normalized === "recovery") return "Recovery";
-  return "Neutro";
-}
-
 function statusLabel(status: LeadStatus) {
   return STATUS_OPTIONS.find((item) => item.value === status)?.label || status;
 }
@@ -1379,6 +1369,10 @@ export default function VendasClientPage() {
   const [showClosed, setShowClosed] = useState(false);
   const [commandOpen, setCommandOpen] = useState(false);
   const [commandQuery, setCommandQuery] = useState("");
+  const [mobileSearch, setMobileSearch] = useState("");
+  const [mobileNoteLead, setMobileNoteLead] = useState<LeadItem | null>(null);
+  const [mobileNoteDraft, setMobileNoteDraft] = useState("");
+  const [mobileSavingNote, setMobileSavingNote] = useState(false);
   const [whatsappFilter, setWhatsappFilter] = useState<WhatsappFilter>("all");
   const [inboxFilter, setInboxFilter] = useState<InboxFilter>("all");
   const [bulkSelectionMode, setBulkSelectionMode] = useState(false);
@@ -1647,6 +1641,30 @@ export default function VendasClientPage() {
       );
     });
   }, [board]);
+
+  const mobileLeads = useMemo(() => {
+    const normalized = mobileSearch.trim().toLowerCase();
+    const liveLeads = allLeads.filter(({ block }) => block !== "closed");
+    if (!normalized) return liveLeads.slice(0, 24);
+    return liveLeads
+      .filter(({ lead, block }) =>
+        [
+          lead.name,
+          lead.city,
+          lead.address,
+          lead.segment,
+          lead.statusLabel,
+          lead.nextAction,
+          lead.shortNote,
+          block,
+        ]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase()
+          .includes(normalized),
+      )
+      .slice(0, 24);
+  }, [allLeads, mobileSearch]);
 
   const loadedLeadIds = useMemo(
     () => allLeads.map(({ lead }) => lead.id).filter(Boolean),
@@ -1943,11 +1961,298 @@ export default function VendasClientPage() {
     ? leadById.get(selectedLeadId) || null
     : null;
   const selectedLead = selectedLeadRecord?.lead || null;
-  const selectedLeadBlock = selectedLeadRecord?.block || "today";
   const selectedLeadDraft = selectedLead
     ? drafts[selectedLead.id] || createDraft(selectedLead)
     : null;
   const closedLeads = board?.blocks.closed || [];
+  const mobileLeadCount = Math.max(
+    board?.summary.total || 0,
+    (board?.summary.overdue || 0) +
+      (board?.summary.today || 0) +
+      (board?.summary.scheduled || 0),
+  );
+  const mobileFutureCount = board?.summary.scheduled || 0;
+
+  function mobileLeadPlace(lead: LeadItem) {
+    const city = String(lead.city || "").trim();
+    const address = String(lead.address || "").trim();
+    const stateMatch = address.match(/\b([A-Z]{2})\b(?:\s*,?\s*Brasil)?$/);
+    const state = stateMatch?.[1] || "";
+    if (city && state && !city.includes(state)) return `${city} / ${state}`;
+    return city || address || "Local não informado";
+  }
+
+  function mobileReturnLabel(lead: LeadItem) {
+    const parsed = lead.returnAt ? new Date(lead.returnAt) : null;
+    if (!parsed || Number.isNaN(parsed.getTime())) return "Sem retorno";
+    const today = new Date();
+    const tomorrow = new Date();
+    tomorrow.setDate(today.getDate() + 1);
+    const sameDay = (left: Date, right: Date) =>
+      left.getFullYear() === right.getFullYear() &&
+      left.getMonth() === right.getMonth() &&
+      left.getDate() === right.getDate();
+    const time = parsed.toLocaleTimeString("pt-BR", {
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+    if (sameDay(parsed, today)) return `Hoje ${time}`;
+    if (sameDay(parsed, tomorrow)) return `Amanhã ${time}`;
+    return formatDateTime(lead.returnAt);
+  }
+
+  function openMobileNote(lead: LeadItem) {
+    setMobileNoteLead(lead);
+    setMobileNoteDraft(
+      String(
+        lead.shortNote ||
+          lead.lastResult ||
+          "Cliente interessado em solução completa. Enviar case do segmento e proposta personalizada.",
+      ),
+    );
+  }
+
+  async function saveMobileNote() {
+    if (!mobileNoteLead) return;
+    setMobileSavingNote(true);
+    try {
+      await saveLead(
+        mobileNoteLead.id,
+        { shortNote: mobileNoteDraft },
+        "Observação salva.",
+      );
+      setMobileNoteLead(null);
+    } finally {
+      setMobileSavingNote(false);
+    }
+  }
+
+  function renderMobileVendas() {
+    return (
+      <section className={styles.mobileVendasShell} aria-label="Vendas mobile">
+        <header className={styles.mobileVendasHeader}>
+          <h1>Vendas</h1>
+          <div className={styles.mobileVendasHeaderActions}>
+            <button type="button" aria-label="Notificações">
+              <span aria-hidden="true">
+                <svg viewBox="0 0 24 24">
+                  <path d="M18 16v-5.2A6 6 0 0 0 6 10.8V16l-1.5 2h15L18 16Z" />
+                  <path d="M9.5 20a2.7 2.7 0 0 0 5 0" />
+                </svg>
+              </span>
+            </button>
+            <button type="button" aria-label="Filtros">
+              <span aria-hidden="true">
+                <svg viewBox="0 0 24 24">
+                  <path d="M5 7h8" />
+                  <path d="M17 7h2" />
+                  <path d="M5 17h2" />
+                  <path d="M11 17h8" />
+                  <path d="M13 5v4" />
+                  <path d="M9 15v4" />
+                </svg>
+              </span>
+            </button>
+          </div>
+        </header>
+
+        <div className={styles.mobileVendasKpis}>
+          <article data-tone="danger">
+            <span>Atrasados</span>
+            <strong>{board?.summary.overdue ?? 0}</strong>
+            <small>Precisam de ação</small>
+          </article>
+          <article data-tone="primary">
+            <span>Hoje</span>
+            <strong>{board?.summary.today ?? mobileLeadCount}</strong>
+            <small>Agendados para hoje</small>
+          </article>
+          <article data-tone="success">
+            <span>Próximos</span>
+            <strong>{mobileFutureCount}</strong>
+            <small>Próximos 7 dias</small>
+          </article>
+        </div>
+
+        <div className={styles.mobileVendasSearchRow}>
+          <label className={styles.mobileVendasSearch}>
+            <span aria-hidden="true">⌕</span>
+            <input
+              value={mobileSearch}
+              onChange={(event) => setMobileSearch(event.target.value)}
+              placeholder="Buscar leads"
+            />
+          </label>
+          <button type="button" aria-label="Ajustar filtros">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M5 7h8" />
+              <path d="M17 7h2" />
+              <path d="M5 17h2" />
+              <path d="M11 17h8" />
+              <path d="M13 5v4" />
+              <path d="M9 15v4" />
+            </svg>
+          </button>
+        </div>
+
+        {loading ? (
+          <div className={styles.mobileVendasLoading}>
+            <span />
+            <strong>Carregando agenda</strong>
+          </div>
+        ) : (
+          <div className={styles.mobileVendasList}>
+            {mobileLeads.length ? (
+              mobileLeads.map(({ lead }, index) => {
+                const status = lead.statusLabel || statusLabel(lead.status);
+                const whatsappHref = buildWhatsAppUrl(lead.phone, lead.name);
+                const callHref = buildCallUrl(lead.phone);
+                return (
+                  <article className={styles.mobileVendasCard} key={lead.id}>
+                    <div
+                      className={styles.mobileVendasAvatar}
+                      data-variant={index % 2 === 0 ? "green" : "violet"}
+                      aria-hidden="true"
+                    >
+                      <svg viewBox="0 0 24 24">
+                        <path d="M5 21V5.8C5 4.8 5.8 4 6.8 4h10.4c1 0 1.8.8 1.8 1.8V21" />
+                        <path d="M8.5 8h2" />
+                        <path d="M13.5 8h2" />
+                        <path d="M8.5 12h2" />
+                        <path d="M13.5 12h2" />
+                        <path d="M10 21v-4h4v4" />
+                      </svg>
+                    </div>
+                    <div className={styles.mobileVendasCardMain}>
+                      <div className={styles.mobileVendasCardTitle}>
+                        <div>
+                          <strong>{lead.name || "Lead sem nome"}</strong>
+                          <span>{mobileLeadPlace(lead)}</span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => openMobileNote(lead)}
+                          aria-label={`Abrir observação de ${lead.name || "lead"}`}
+                        >
+                          ...
+                        </button>
+                      </div>
+                      <div className={styles.mobileVendasCardMeta}>
+                        <span data-status={lead.status}>{status}</span>
+                        <small>
+                          Retorno <b>{mobileReturnLabel(lead)}</b>
+                        </small>
+                      </div>
+                      <div className={styles.mobileVendasNextAction}>
+                        <span>Próxima ação</span>
+                        <strong>
+                          {lead.nextAction || "Ligação de apresentação"}
+                        </strong>
+                      </div>
+                    </div>
+                    <div className={styles.mobileVendasContactActions}>
+                      <a
+                        href={whatsappHref || undefined}
+                        target="_blank"
+                        rel="noreferrer"
+                        aria-disabled={!whatsappHref}
+                        onClick={() => void incrementAttempt(lead.id)}
+                      >
+                        <svg viewBox="0 0 24 24" aria-hidden="true">
+                          <path d="M19.05 4.94A9.8 9.8 0 0 0 12.06 2C6.59 2 2.13 6.46 2.13 11.93c0 1.75.46 3.46 1.32 4.97L2 22l5.27-1.38a9.9 9.9 0 0 0 4.79 1.22h.01c5.47 0 9.93-4.46 9.93-9.93a9.86 9.86 0 0 0-2.95-6.97ZM12.07 20.2h-.01a8.24 8.24 0 0 1-4.2-1.15l-.3-.18-3.13.82.84-3.05-.2-.31a8.2 8.2 0 0 1-1.26-4.4c0-4.53 3.69-8.22 8.24-8.22 2.2 0 4.27.85 5.82 2.4a8.17 8.17 0 0 1 2.4 5.82c0 4.54-3.69 8.23-8.2 8.23Zm4.5-6.15c-.25-.13-1.47-.72-1.7-.8-.23-.08-.4-.12-.57.12-.17.25-.65.8-.8.97-.15.17-.3.19-.56.06-.25-.13-1.06-.39-2.01-1.26-.74-.66-1.24-1.48-1.39-1.73-.15-.25-.02-.38.11-.5.11-.11.25-.3.38-.45.13-.15.17-.25.25-.42.08-.17.04-.31-.02-.44-.06-.13-.57-1.37-.78-1.88-.21-.5-.42-.43-.57-.44l-.49-.01c-.17 0-.44.06-.67.31-.23.25-.88.86-.88 2.1s.9 2.45 1.02 2.62c.13.17 1.77 2.7 4.3 3.79.6.26 1.08.42 1.44.54.61.19 1.16.16 1.6.1.49-.07 1.47-.6 1.68-1.18.21-.58.21-1.08.15-1.18-.06-.1-.23-.17-.48-.3Z" />
+                        </svg>
+                      </a>
+                      <a
+                        href={callHref || undefined}
+                        aria-disabled={!callHref}
+                        onClick={(event) => {
+                          if (!callHref) event.preventDefault();
+                          void incrementAttempt(lead.id);
+                        }}
+                      >
+                        <svg viewBox="0 0 24 24" aria-hidden="true">
+                          <path d="M6.6 10.8c1.5 3 3.6 5.1 6.6 6.6l2.2-2.2c.3-.3.8-.4 1.2-.2 1.3.4 2.6.7 4 .7.7 0 1.2.5 1.2 1.2v3.5c0 .7-.5 1.2-1.2 1.2C10.8 21.6 2.4 13.2 2.4 3.4c0-.7.5-1.2 1.2-1.2h3.5c.7 0 1.2.5 1.2 1.2 0 1.4.2 2.7.7 4 .1.4 0 .9-.3 1.2l-2.1 2.2Z" />
+                        </svg>
+                      </a>
+                    </div>
+                  </article>
+                );
+              })
+            ) : (
+              <div className={styles.mobileVendasEmpty}>
+                <strong>Nenhum lead encontrado</strong>
+                <span>Atualize os filtros ou busque outro termo.</span>
+              </div>
+            )}
+          </div>
+        )}
+
+        <nav className={styles.mobileVendasBottomNav} aria-label="Vendas mobile">
+          <a href="/vendas" data-active="true">
+            <span>▣</span>
+            Agenda
+          </a>
+          <a href="/vendas">
+            <span>♙</span>
+            Leads
+          </a>
+          <button type="button" onClick={() => setComposerOpen(true)}>
+            +
+          </button>
+          <a href="/vendas">
+            <span>▤</span>
+            Relatórios
+          </a>
+          <a href="/vendas/automacao?tab=prospeccao">
+            <span>•••</span>
+            Mais
+          </a>
+        </nav>
+
+        {mobileNoteLead ? (
+          <div
+            className={styles.mobileVendasSheetBackdrop}
+            onClick={() => setMobileNoteLead(null)}
+          >
+            <section
+              className={styles.mobileVendasNoteSheet}
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="mobile-vendas-note-title"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <span className={styles.mobileVendasSheetHandle} />
+              <div className={styles.mobileVendasSheetHeader}>
+                <h2 id="mobile-vendas-note-title">Observação</h2>
+                <button type="button" onClick={() => setMobileNoteLead(null)}>
+                  ×
+                </button>
+              </div>
+              <textarea
+                value={mobileNoteDraft}
+                onChange={(event) => setMobileNoteDraft(event.target.value)}
+                rows={5}
+              />
+              <div className={styles.mobileVendasSheetFooter}>
+                <div aria-hidden="true">
+                  <span>⌘</span>
+                  <span>▧</span>
+                  <span>♬</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => void saveMobileNote()}
+                  disabled={mobileSavingNote || savingLeadId === mobileNoteLead.id}
+                >
+                  {mobileSavingNote ? "Salvando" : "Salvar"}
+                </button>
+              </div>
+            </section>
+          </div>
+        ) : null}
+      </section>
+    );
+  }
 
   function scrollDateRail(direction: -1 | 1) {
     const el = filterScrollerRef.current;
@@ -2312,7 +2617,7 @@ export default function VendasClientPage() {
             block: "center",
             inline: "nearest",
           });
-        } catch (e) {
+        } catch {
           node.scrollIntoView({ behavior: "smooth" });
         }
         // focus the primary interactive element inside the card if present
@@ -2532,7 +2837,7 @@ export default function VendasClientPage() {
             ? `Movidos ${completedMoves} retornos.`
             : `Movendo ${completedMoves}/${totalMoves} retornos...`,
         );
-      } catch (moveError) {
+      } catch {
         failedLeadIds.push(lead.id);
       }
     }
@@ -2701,19 +3006,6 @@ export default function VendasClientPage() {
         </aside>
       );
     }
-
-    const callUrl = buildCallUrl(selectedLeadDraft.phone || selectedLead.phone);
-    const whatsappUrl = buildWhatsAppUrl(
-      selectedLeadDraft.phone || selectedLead.phone,
-      selectedLeadDraft.name || selectedLead.name,
-    );
-    const meta = returnMeta(selectedLead, selectedLeadDraft, selectedLeadBlock);
-    const sharedProfile = selectedLead.sharedProfile || null;
-    const sharedLastContact =
-      sharedProfile?.lastContactAt ||
-      sharedProfile?.presence?.atendimento?.lastContactAt ||
-      selectedLead.lastContactAt ||
-      null;
 
     return (
       <aside className={styles.detailPanel} data-detail-panel="true">
@@ -3013,13 +3305,15 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
   return (
     <DashboardScaffold title="Vendas" hideHeader={true}>
       <style dangerouslySetInnerHTML={{ __html: vendasDragTopbarLockStyle }} />
-      <DndContext
-        sensors={sensors}
-        collisionDetection={detectDateFilterCollision}
-        onDragStart={handleDragStart}
-        onDragCancel={handleDragCancel}
-        onDragEnd={(event) => void handleDragEnd(event)}
-      >
+      {renderMobileVendas()}
+      <div className={styles.desktopVendasShell}>
+        <DndContext
+          sensors={sensors}
+          collisionDetection={detectDateFilterCollision}
+          onDragStart={handleDragStart}
+          onDragCancel={handleDragCancel}
+          onDragEnd={(event) => void handleDragEnd(event)}
+        >
         <div className={styles.premiumBackdrop}>
           <div className={styles.premiumBg} />
           <div className={styles.page}>
@@ -3196,7 +3490,7 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
             />
           </div>
         ) : null}
-      </DndContext>
+        </DndContext>
 
       {composerOpen ? (
         <div
@@ -3408,6 +3702,7 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
           </div>
         </div>
       ) : null}
+      </div>
     </DashboardScaffold>
   );
 }

@@ -64,6 +64,21 @@ function createService(overrides?: Partial<Record<string, any>>) {
     ...(overrides?.commercialPlansService || {}),
   } as any;
 
+  const hbxPresentationEmails = {
+    previewPresentationToContact: async () => ({}),
+    sendPresentationToContact: async () => ({}),
+    ...(overrides?.hbxPresentationEmails || {}),
+  } as any;
+
+  const commercialUsageLimits = {
+    assertCanImportCard: async () => true,
+    recordCardImport: async () => true,
+    assertCanSendPresentationEmail: async () => true,
+    recordPresentationEmailAttempt: async () => true,
+    recordPresentationEmailResult: async () => true,
+    ...(overrides?.commercialUsageLimits || {}),
+  } as any;
+
   const service = new VendasService(
     prisma,
     customerProfileService,
@@ -71,6 +86,8 @@ function createService(overrides?: Partial<Record<string, any>>) {
     inboxService,
     webwhatsBridge,
     commercialPlansService,
+    hbxPresentationEmails,
+    commercialUsageLimits,
   );
   return { service, getOrCreateCalls, updateConversationStateCalls };
 }

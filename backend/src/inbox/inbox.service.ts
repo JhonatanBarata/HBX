@@ -4563,6 +4563,9 @@ export class InboxService {
     const companyId = this.requireCompanyIdFromUser(user);
     await this.commercialPlansService.assertBotAiEntitlementForCompany(companyId);
     const requested = normalizeAtendimentoBotConfig(payload || {});
+    if (requested.routingRules.globalBotEnabled) {
+      await this.commercialPlansService.assertAssistedSetupCompleteForCompany(companyId);
+    }
     if (
       (requested.routingRules.globalBotEnabled || requested.setup.completed) &&
       !isAtendimentoBotSetupComplete(requested)
@@ -4611,6 +4614,7 @@ export class InboxService {
     const companyId = this.requireCompanyIdFromUser(user);
     if (dto?.enabled !== false) {
       await this.commercialPlansService.assertBotAiEntitlementForCompany(companyId);
+      await this.commercialPlansService.assertAssistedSetupCompleteForCompany(companyId);
       const config = await this.getBotConfigByCompanyId(companyId);
       if (!isAtendimentoBotSetupComplete(config)) {
         throw new BadRequestException({

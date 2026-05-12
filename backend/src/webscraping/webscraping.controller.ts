@@ -611,6 +611,16 @@ export class WebscrapingController {
     return this.webscrapingService.addRadarLeadEventForUser(req.user, id, dto || ({} as any));
   }
 
+  @Post('radar/leads/:id/email/presentation/preview')
+  radarLeadPresentationPreview(@Req() req: any, @Param('id') id: string, @Body() body?: any) {
+    return this.webscrapingService.previewRadarPresentationEmailForUser(req.user, id, body || {});
+  }
+
+  @Post('radar/leads/:id/email/presentation/send')
+  radarLeadPresentationSend(@Req() req: any, @Param('id') id: string, @Body() body?: any) {
+    return this.webscrapingService.sendRadarPresentationEmailForUser(req.user, id, body || {});
+  }
+
   @Post('radar/pull')
   async radarPull(@Req() req: any, @Body() dto: RadarPullDto) {
     try {

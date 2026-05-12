@@ -1683,6 +1683,24 @@ export default function MasterPremiumPage() {
     }
   }
 
+  async function completeAssistedSetup(companyId: number) {
+    setBusyAction(`assisted-setup-${companyId}`);
+    setError(null);
+    try {
+      await apiFetch(`/modules/master/company/${companyId}/assisted-setup/complete`, {
+        method: "POST",
+        body: JSON.stringify({ note: "Implantação assistida concluída pelo MASTER." }),
+      });
+      setMessage("Implantação assistida concluída.");
+      await refreshAll(companyId);
+      dispatchModulesChanged({ reason: "assisted_setup_completed" });
+    } catch (actionError) {
+      setError(actionError instanceof Error ? actionError.message : "Falha ao concluir implantação assistida.");
+    } finally {
+      setBusyAction(null);
+    }
+  }
+
   async function setPaymentStatus(companyId: number, paymentStatus: string, successMessage: string) {
     setBusyAction(`payment-${companyId}-${paymentStatus}`);
     setError(null);
@@ -3030,7 +3048,26 @@ export default function MasterPremiumPage() {
                         <p>Website: {activeCompany.website.enabled ? "Habilitado" : "Desligado"} • {activeCompany.website.configured ? "Configurado" : "Pendente"}</p>
                         <p>Módulos ativos: {activeCompany.modules.filter((module) => module.enabled).map((module) => module.name).join(", ") || "Nenhum módulo ativo"}</p>
                         <p>Situação financeira: {buildStatusExplanation(activeCompany)}</p>
+                        <p>
+                          Implantação assistida: {activeCompany.assistedSetup?.required
+                            ? activeCompany.assistedSetup.status === "completed"
+                              ? `Concluída em ${formatDate(activeCompany.assistedSetup.completedAt)}`
+                              : "Pendente"
+                            : "Não obrigatória"}
+                        </p>
                       </div>
+                      {activeCompany.assistedSetup?.required && activeCompany.assistedSetup.status !== "completed" ? (
+                        <div className={styles.drawerQuickActions}>
+                          <button
+                            type="button"
+                            className="btn btn-primary btn-sm"
+                            disabled={busyAction === `assisted-setup-${activeCompany.id}`}
+                            onClick={() => void completeAssistedSetup(activeCompany.id)}
+                          >
+                            {busyAction === `assisted-setup-${activeCompany.id}` ? "Concluindo..." : "Concluir implantação assistida"}
+                          </button>
+                        </div>
+                      ) : null}
                     </section>
 
                     <section className={styles.summaryCard}>

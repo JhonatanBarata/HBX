@@ -124,24 +124,29 @@
   min-height: calc(100dvh - var(--topbar-total-height, 0px));
   display: grid;
   align-content: start;
-  gap: 0.82rem;
-  padding: 0.82rem;
+  gap: 0.74rem;
+  padding: 1rem 1.18rem calc(5.8rem + env(safe-area-inset-bottom));
   background:
-    radial-gradient(circle at 14% 0%, color-mix(in srgb, var(--brand, #2a77ff) 12%, transparent), transparent 34%),
-    linear-gradient(180deg, var(--background, #f8fbff), color-mix(in srgb, var(--surface, #ffffff) 88%, var(--background, #f8fbff)));
-  color: var(--foreground, #102238);
+    radial-gradient(circle at 92% 6%, rgba(52, 216, 255, 0.12), transparent 22%),
+    radial-gradient(circle at 0% 0%, rgba(105, 97, 255, 0.12), transparent 30%),
+    linear-gradient(180deg, #dce9ff 0%, #e7f1ff 45%, #eaf4ff 100%);
+  color: #101b3a;
 }
 
 .mobileSalesHeader,
+.mobileNextCard,
+.mobileSalesToolbar,
 .mobileDialPrefs,
 .mobileSalesNotice,
 .mobileSalesCard,
 .mobileSalesEmpty,
 .mobileCloseQuick {
   border: 1px solid color-mix(in srgb, var(--line, rgba(38, 93, 132, 0.16)) 86%, transparent);
-  border-radius: 18px;
-  background: color-mix(in srgb, var(--surface-raised, #ffffff) 94%, var(--background, #f8fbff));
-  box-shadow: 0 18px 42px -32px color-mix(in srgb, var(--foreground, #102238) 34%, transparent);
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.78);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.92),
+    0 18px 44px -34px rgba(15, 35, 68, 0.38);
 }
 
 .mobileSalesHeader {
@@ -149,7 +154,17 @@
   align-items: center;
   justify-content: space-between;
   gap: 0.75rem;
-  padding: 0.9rem;
+  padding: 0.02rem 0 0.2rem;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.mobileSalesHeader > div {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
 }
 
 .mobileSalesHero {
@@ -167,30 +182,225 @@
     0 24px 54px -36px color-mix(in srgb, var(--brand, #2a77ff) 46%, transparent);
 }
 
-.mobileSalesHero div {
+.mobileSalesHero button {
   min-width: 0;
   display: grid;
   gap: 0.22rem;
   min-height: 72px;
   align-content: center;
+  border: 1px solid color-mix(in srgb, var(--line, rgba(38, 93, 132, 0.16)) 82%, transparent);
   border-radius: 15px;
   background: color-mix(in srgb, var(--surface, #ffffff) 62%, transparent);
   padding: 0.62rem;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
 }
 
-.mobileSalesHero span {
+.mobileSalesHero button[data-tone="danger"] {
+  background: linear-gradient(135deg, color-mix(in srgb, var(--danger, #ef4444) 12%, transparent), color-mix(in srgb, var(--surface, #ffffff) 76%, transparent));
+}
+
+.mobileSalesHero button[data-tone="success"] {
+  background: linear-gradient(135deg, color-mix(in srgb, var(--success, #22c55e) 12%, transparent), color-mix(in srgb, var(--surface, #ffffff) 76%, transparent));
+}
+
+.mobileAgendaHero {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.62rem;
+}
+
+.mobileAgendaMetric {
+  --metric-tone: var(--brand, #2a77ff);
+  min-width: 0;
+  min-height: 96px;
+  display: grid;
+  align-content: center;
+  gap: 0.28rem;
+  border: 1px solid rgba(120, 167, 231, 0.48);
+  border-radius: 13px;
+  background:
+    radial-gradient(circle at 90% 0%, color-mix(in srgb, var(--metric-tone) 18%, transparent), transparent 50%),
+    linear-gradient(135deg, rgba(255, 255, 255, 0.94), rgba(236, 244, 255, 0.82));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.84),
+    0 14px 32px -28px rgba(31, 64, 118, 0.44);
+  padding: 0.72rem;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+}
+
+.mobileAgendaMetric[data-tone="danger"] {
+  --metric-tone: var(--danger, #ef4444);
+  background:
+    radial-gradient(circle at 88% 0%, rgba(239, 68, 68, 0.14), transparent 50%),
+    linear-gradient(135deg, rgba(255, 248, 250, 0.98), rgba(255, 236, 240, 0.7));
+}
+
+.mobileAgendaMetric[data-tone="blue"] {
+  --metric-tone: var(--brand, #2a77ff);
+}
+
+.mobileAgendaMetric[data-tone="success"] {
+  --metric-tone: var(--success, #22c55e);
+  background:
+    radial-gradient(circle at 88% 0%, rgba(34, 197, 94, 0.14), transparent 50%),
+    linear-gradient(135deg, rgba(246, 255, 251, 0.98), rgba(229, 255, 242, 0.7));
+}
+
+.mobileAgendaMetric span {
+  color: color-mix(in srgb, var(--metric-tone) 76%, var(--muted, #42617f));
+  font-size: 0.68rem;
+  font-weight: 950;
+}
+
+.mobileAgendaMetric strong {
+  color: var(--foreground, #102238);
+  font-size: 1.42rem;
+  line-height: 1;
+  font-weight: 950;
+  letter-spacing: 0;
+}
+
+.mobileAgendaMetric small {
+  color: var(--muted, rgba(40, 78, 124, 0.72));
+  font-size: 0.64rem;
+  font-weight: 850;
+  line-height: 1.12;
+}
+
+.mobileSalesSearchRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 76px;
+  gap: 0.52rem;
+}
+
+.mobileSalesSearchRow label {
+  min-width: 0;
+  position: relative;
+}
+
+.mobileSalesSearchRow span {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+}
+
+.mobileSalesSearchRow input {
+  width: 100%;
+  min-height: 42px;
+  border: 1px solid rgba(163, 189, 225, 0.64);
+  border-radius: 12px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.82), rgba(239, 246, 255, 0.76));
+  color: #101b3a;
+  padding: 0 0.9rem;
+  font: inherit;
+  font-size: 0.84rem;
+  font-weight: 800;
+  outline: none;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.88);
+}
+
+.mobileSalesSearchRow button {
+  min-height: 42px;
+  border: 1px solid rgba(162, 183, 220, 0.42);
+  border-radius: 12px;
+  background: linear-gradient(135deg, #1d64f2, #16c8f5);
+  color: #ffffff;
+  padding: 0 0.5rem;
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 950;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.88);
+}
+
+.mobileSalesSearchRow button::before {
+  content: none;
+}
+
+.mobileSalesHero span,
+.mobileNextCard span {
   color: color-mix(in srgb, var(--brand, #2a77ff) 78%, var(--muted, #42617f));
   font-size: 0.64rem;
   font-weight: 950;
   text-transform: uppercase;
 }
 
-.mobileSalesHero strong {
+.mobileSalesHero strong,
+.mobileNextCard strong {
   color: var(--foreground, #102238);
   font-size: 1.1rem;
   font-weight: 950;
   letter-spacing: 0;
   overflow-wrap: anywhere;
+}
+
+.mobileSalesHero small,
+.mobileNextCard small {
+  color: var(--muted, rgba(40, 78, 124, 0.72));
+  font-size: 0.68rem;
+  font-weight: 780;
+  line-height: 1.2;
+}
+
+.mobileNextCard {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 78px;
+  align-items: center;
+  gap: 0.72rem;
+  padding: 0.94rem;
+  border: 1px solid rgba(93, 165, 255, 0.44);
+  border-radius: 16px;
+  background:
+    radial-gradient(circle at 100% 0%, rgba(34, 180, 255, 0.14), transparent 38%),
+    linear-gradient(135deg, rgba(215, 238, 255, 0.96), rgba(196, 228, 255, 0.78));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.75),
+    0 18px 40px -30px rgba(30, 91, 164, 0.5);
+}
+
+.mobileNextCard div {
+  min-width: 0;
+  display: grid;
+  gap: 0.25rem;
+}
+
+.mobileNextCard button,
+.mobileSalesToolbar button,
+.mobileSalesToolbar a {
+  min-height: 44px;
+  border: 1px solid color-mix(in srgb, var(--brand, #2a77ff) 32%, var(--line, rgba(38, 93, 132, 0.16)));
+  border-radius: 14px;
+  background: linear-gradient(135deg, #276cff, #1ebdf4);
+  color: #ffffff;
+  padding: 0 0.8rem;
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 950;
+  text-decoration: none;
+}
+
+.mobileNextCard button:disabled {
+  opacity: 0.52;
+}
+
+.mobileSalesToolbar {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.58rem;
+  padding: 0.55rem;
+  border-radius: 17px;
+}
+
+.mobileSalesToolbar button:last-child {
+  background: color-mix(in srgb, var(--surface-soft, rgba(15, 61, 99, 0.08)) 82%, var(--surface, #ffffff));
+  color: var(--foreground, #102238);
+  box-shadow: none;
 }
 
 .mobileSalesHeader div,
@@ -212,8 +422,8 @@
 }
 
 .mobileSalesHeader strong {
-  color: var(--foreground, #102238);
-  font-size: 1.25rem;
+  color: #101b3a;
+  font-size: 1.05rem;
   font-weight: 950;
 }
 
@@ -232,9 +442,15 @@
 }
 
 .mobileSalesHeader button {
-  min-height: 40px;
-  padding: 0 0.78rem;
-  font-size: 0.82rem;
+  width: 38px;
+  min-height: 38px;
+  border-color: transparent;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.72);
+  color: #0b1740;
+  padding: 0;
+  font-size: 1rem;
+  box-shadow: 0 12px 26px -20px rgba(20, 46, 92, 0.42);
 }
 
 .mobileDialPrefs {
@@ -273,24 +489,81 @@
 }
 
 .mobileSalesCard {
+  position: relative;
   display: grid;
-  gap: 0.85rem;
-  padding: 0.9rem;
+  grid-template-columns: 44px minmax(0, 1fr) auto;
+  gap: 0.72rem 0.78rem;
+  padding: 0.92rem;
+  border: 1px solid rgba(159, 190, 230, 0.6);
+  border-radius: 15px;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 18px 36px -32px rgba(31, 64, 118, 0.48);
+}
+
+.mobileSalesCard[data-active="true"] {
+  border-color: rgba(39, 108, 255, 0.46);
+  box-shadow:
+    0 0 0 3px rgba(39, 108, 255, 0.08),
+    0 18px 36px -32px rgba(31, 64, 118, 0.48);
+}
+
+.mobileSalesCard[data-bucket="overdue"] {
+  border-color: color-mix(in srgb, var(--danger, #ef4444) 24%, var(--line, rgba(38, 93, 132, 0.16)));
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--danger, #ef4444) 7%, transparent), transparent 42%),
+    color-mix(in srgb, var(--surface-raised, #ffffff) 94%, var(--background, #f8fbff));
+}
+
+.mobileSalesCard[data-bucket="scheduled"] {
+  opacity: 0.92;
 }
 
 .mobileSalesCardTop strong {
-  color: var(--foreground, #102238);
+  color: #101b3a;
   font-size: 1.08rem;
   font-weight: 950;
   line-height: 1.18;
 }
 
 .mobileSalesCardTop {
+  grid-column: 2 / 4;
   min-width: 0;
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: 0.72rem;
+}
+
+.mobileSalesCardTop button {
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: #101b3a;
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 950;
+  letter-spacing: 0;
+  cursor: pointer;
+}
+
+.mobileLeadAvatar {
+  grid-column: 1;
+  grid-row: 1 / 4;
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  border-radius: 16px;
+  background:
+    radial-gradient(circle at 28% 22%, rgba(255, 255, 255, 0.92), transparent 24%),
+    linear-gradient(135deg, rgba(31, 191, 142, 0.2), rgba(39, 108, 255, 0.1)),
+    #d8fff0;
+  color: #099362;
+  font-size: 1rem;
+  font-weight: 950;
 }
 
 .mobileSalesCardTop div {
@@ -324,6 +597,109 @@
   text-align: center;
 }
 
+.mobileLeadStatusLine {
+  grid-column: 2 / 4;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.64rem;
+}
+
+.mobileLeadStatusLine em {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  border-radius: 999px;
+  background: #dffbec;
+  color: #08945f;
+  padding: 0 0.58rem;
+  font-size: 0.64rem;
+  font-style: normal;
+  font-weight: 950;
+}
+
+.mobileLeadStatusLine em[data-status="sem WhatsApp"] {
+  background: #ffe8ec;
+  color: #d12d54;
+}
+
+.mobileLeadStatusLine span {
+  display: grid;
+  justify-items: end;
+  gap: 0.05rem;
+  color: rgba(40, 60, 96, 0.7);
+  font-size: 0.62rem;
+  font-weight: 850;
+  text-align: right;
+}
+
+.mobileLeadStatusLine strong {
+  color: #101b3a;
+  font-size: 0.72rem;
+  font-weight: 950;
+}
+
+.mobileLeadNextAction {
+  grid-column: 1 / 3;
+  min-width: 0;
+  display: grid;
+  gap: 0.12rem;
+}
+
+.mobileLeadNextAction small {
+  color: rgba(66, 88, 124, 0.74);
+  font-size: 0.63rem;
+  font-weight: 900;
+}
+
+.mobileLeadNextAction strong {
+  color: #101b3a;
+  font-size: 0.78rem;
+  line-height: 1.15;
+  font-weight: 950;
+}
+
+.mobileLeadContactActions {
+  grid-column: 3;
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.56rem;
+}
+
+.mobileLeadContactActions button {
+  width: 42px;
+  height: 42px;
+  border: 0;
+  border-radius: 999px;
+  background: #e8efff;
+  color: #276cff;
+  font: inherit;
+  font-size: 1rem;
+  font-weight: 950;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.86);
+  cursor: pointer;
+}
+
+.mobileLeadContactActions button[data-whatsapp="true"] {
+  background: #dcfce9;
+  color: #0ea967;
+}
+
+.mobileLeadPrimaryAction {
+  grid-column: 1 / -1;
+  min-height: 54px;
+  border: 0;
+  border-radius: 15px;
+  background: linear-gradient(135deg, #236cff, #1fc0f5);
+  color: #fff;
+  font: inherit;
+  font-size: 0.96rem;
+  font-weight: 950;
+  box-shadow: 0 18px 36px -24px rgba(30, 108, 255, 0.72);
+  cursor: pointer;
+}
+
 .mobileSalesCardTop em[data-status="confirmado"] {
   border-color: color-mix(in srgb, var(--success, #22c55e) 38%, var(--line, rgba(38, 93, 132, 0.16)));
   background: color-mix(in srgb, var(--success, #22c55e) 12%, var(--surface, #ffffff));
@@ -336,6 +712,31 @@
   color: color-mix(in srgb, var(--danger, #ef4444) 82%, var(--foreground, #102238));
 }
 
+.mobileSalesStatusRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  border: 1px solid color-mix(in srgb, var(--line, rgba(38, 93, 132, 0.16)) 78%, transparent);
+  border-radius: 14px;
+  background: rgba(240, 247, 255, 0.82);
+  padding: 0.58rem 0.68rem;
+}
+
+.mobileSalesStatusRow span {
+  color: var(--muted, rgba(40, 78, 124, 0.72));
+  font-size: 0.72rem;
+  font-weight: 950;
+  text-transform: uppercase;
+}
+
+.mobileSalesStatusRow strong {
+  color: var(--foreground, #102238);
+  font-size: 0.84rem;
+  font-weight: 950;
+  text-align: right;
+}
+
 .mobileSalesMeta {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -344,9 +745,9 @@
 
 .mobileSalesMeta span {
   min-height: 62px;
-  border-radius: 13px;
-  background: color-mix(in srgb, var(--surface-soft, rgba(15, 61, 99, 0.08)) 82%, transparent);
-  color: var(--foreground, #102238);
+  border-radius: 11px;
+  background: rgba(238, 246, 255, 0.88);
+  color: #101b3a;
   padding: 0.62rem;
   font-size: 0.84rem;
   font-weight: 850;
@@ -392,7 +793,13 @@
 
 .mobileSalesActions button {
   min-height: 54px;
+  border-radius: 14px;
   font-size: 0.94rem;
+  background: linear-gradient(135deg, #236cff, #1fc0f5);
+}
+
+.mobileSalesActions button[data-primary="true"] {
+  grid-column: 1 / -1;
 }
 
 .mobileSalesActions button[data-danger="true"],
@@ -425,10 +832,557 @@
   line-height: 1.45;
 }
 
+.mobileSalesLoading {
+  min-height: 360px;
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  gap: 1.2rem;
+  border: 1px solid rgba(52, 110, 255, 0.2);
+  border-radius: 28px;
+  background:
+    radial-gradient(circle at 50% 28%, rgba(47, 111, 255, 0.18), transparent 32%),
+    radial-gradient(circle at 82% 16%, rgba(52, 216, 255, 0.16), transparent 24%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(239, 246, 255, 0.9));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.86),
+    0 24px 64px -42px rgba(20, 46, 92, 0.52);
+  padding: 1.5rem 1.1rem;
+  text-align: center;
+  overflow: hidden;
+}
+
+.mobileSalesLoadingRing {
+  width: 142px;
+  aspect-ratio: 1;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background:
+    radial-gradient(circle, #f8fbff 0 48%, transparent 49%),
+    conic-gradient(from 220deg, #2f6fff 0 38%, #34d8ff 38% 56%, rgba(47, 111, 255, 0.12) 56% 100%);
+  box-shadow: 0 20px 60px -26px rgba(47, 111, 255, 0.72);
+  animation: mobileSalesLoadingSpin 1.7s linear infinite;
+}
+
+.mobileSalesLoadingRing strong {
+  color: #101b3a;
+  font-size: 1rem;
+  font-weight: 950;
+  letter-spacing: 0;
+  animation: mobileSalesLoadingCounterSpin 1.7s linear infinite;
+}
+
+.mobileSalesLoading div:not(.mobileSalesLoadingRing):not(.mobileSalesLoadingSteps) {
+  max-width: 280px;
+  display: grid;
+  gap: 0.3rem;
+}
+
+.mobileSalesLoading span {
+  color: #2a77ff;
+  font-size: 0.72rem;
+  font-weight: 950;
+  text-transform: uppercase;
+}
+
+.mobileSalesLoading strong {
+  color: #071436;
+  font-size: 1.32rem;
+  line-height: 1.08;
+  font-weight: 950;
+}
+
+.mobileSalesLoading p {
+  margin: 0;
+  color: rgba(48, 69, 106, 0.78);
+  font-size: 0.86rem;
+  font-weight: 780;
+  line-height: 1.42;
+}
+
+.mobileSalesLoadingSteps {
+  width: min(100%, 280px);
+  display: grid;
+  gap: 0.56rem;
+}
+
+.mobileSalesLoadingSteps i {
+  height: 10px;
+  border-radius: 999px;
+  background:
+    linear-gradient(90deg, rgba(47, 111, 255, 0.78), rgba(52, 216, 255, 0.32), rgba(47, 111, 255, 0.78)) 0 0 / 220% 100%,
+    rgba(211, 224, 248, 0.82);
+  animation: mobileSalesLoadingBar 1.45s ease-in-out infinite;
+}
+
+.mobileSalesLoadingSteps i:nth-child(2) {
+  width: 84%;
+  justify-self: center;
+  animation-delay: 0.18s;
+}
+
+.mobileSalesLoadingSteps i:nth-child(3) {
+  width: 66%;
+  justify-self: center;
+  animation-delay: 0.34s;
+}
+
 .mobileCloseQuick {
   width: 100%;
   background: color-mix(in srgb, var(--surface-soft, rgba(15, 61, 99, 0.08)) 82%, var(--surface, #ffffff));
   color: var(--foreground, #102238);
+}
+
+.mobileSheetOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 180;
+  display: grid;
+  align-items: end;
+  background: rgba(4, 12, 24, 0.46);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+.mobileSheetBackdrop {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  background: transparent;
+}
+
+.mobileAgendaSheet,
+.mobileNoteSheet {
+  position: relative;
+  z-index: 1;
+  max-height: min(90dvh, 760px);
+  min-height: 80dvh;
+  display: grid;
+  grid-template-rows: auto auto auto minmax(0, 1fr);
+  gap: 0.78rem;
+  border-radius: 26px 26px 0 0;
+  border: 1px solid color-mix(in srgb, var(--line, rgba(38, 93, 132, 0.16)) 86%, transparent);
+  background:
+    radial-gradient(circle at 50% 0%, color-mix(in srgb, var(--brand, #2a77ff) 12%, transparent), transparent 32%),
+    color-mix(in srgb, var(--surface-raised, #ffffff) 98%, var(--background, #f8fbff));
+  box-shadow: 0 -24px 70px -28px rgba(2, 6, 23, 0.42);
+  padding: 0.72rem 0.82rem calc(1rem + env(safe-area-inset-bottom));
+  overflow: hidden;
+}
+
+.mobileSheetHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.mobileSheetHeader div {
+  min-width: 0;
+  display: grid;
+  gap: 0.18rem;
+}
+
+.mobileSheetHeader span {
+  color: var(--muted, rgba(40, 78, 124, 0.72));
+  font-size: 0.68rem;
+  font-weight: 950;
+  text-transform: uppercase;
+}
+
+.mobileSheetHeader strong {
+  color: var(--foreground, #102238);
+  font-size: 1.18rem;
+  font-weight: 950;
+}
+
+.mobileSheetHeader small {
+  color: var(--muted, rgba(40, 78, 124, 0.7));
+  font-weight: 800;
+}
+
+.mobileSheetHeader button {
+  width: 38px;
+  height: 38px;
+  border: 1px solid color-mix(in srgb, var(--line, rgba(38, 93, 132, 0.16)) 80%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--surface-soft, rgba(15, 61, 99, 0.08)) 86%, var(--surface, #ffffff));
+  color: var(--foreground, #102238);
+  font-size: 1.25rem;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.mobileNextLead {
+  min-width: 0;
+  display: grid;
+  gap: 0.2rem;
+  border: 1px solid color-mix(in srgb, var(--brand, #2a77ff) 28%, var(--line, rgba(38, 93, 132, 0.16)));
+  border-radius: 18px;
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--brand, #2a77ff) 14%, transparent), color-mix(in srgb, var(--button-accent, #34d8ff) 8%, transparent)),
+    color-mix(in srgb, var(--surface, #ffffff) 94%, var(--background, #f8fbff));
+  padding: 0.78rem;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+}
+
+.mobileNextLead span,
+.mobileNextLead small {
+  color: var(--muted, rgba(40, 78, 124, 0.74));
+  font-size: 0.72rem;
+  font-weight: 850;
+}
+
+.mobileNextLead strong {
+  color: var(--foreground, #102238);
+  font-size: 1rem;
+  font-weight: 950;
+}
+
+.mobileNoteSheet {
+  min-height: auto;
+  grid-template-rows: auto auto minmax(170px, auto) auto;
+}
+
+.mobileSheetHandle {
+  justify-self: center;
+  width: 54px;
+  height: 5px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--muted, #42617f) 28%, transparent);
+}
+
+.mobileAgendaHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.78rem;
+}
+
+.mobileAgendaHeader div {
+  min-width: 0;
+  display: grid;
+  gap: 0.2rem;
+}
+
+.mobileAgendaHeader strong {
+  color: var(--foreground, #102238);
+  font-size: 1.12rem;
+  font-weight: 950;
+}
+
+.mobileAgendaHeader span {
+  color: var(--muted, rgba(40, 78, 124, 0.76));
+  font-size: 0.78rem;
+  font-weight: 820;
+  line-height: 1.35;
+}
+
+.mobileAgendaHeader button {
+  min-height: 38px;
+  border: 0;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--surface-soft, rgba(15, 61, 99, 0.08)) 82%, var(--surface, #ffffff));
+  color: var(--foreground, #102238);
+  padding: 0 0.72rem;
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 950;
+}
+
+.mobileAgendaTabs {
+  display: flex;
+  gap: 0.48rem;
+  overflow-x: auto;
+  padding-bottom: 0.1rem;
+}
+
+.mobileAgendaTabs button {
+  min-height: 38px;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.34rem;
+  border: 1px solid color-mix(in srgb, var(--line, rgba(38, 93, 132, 0.16)) 86%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--surface, #ffffff) 88%, transparent);
+  color: var(--muted, rgba(40, 78, 124, 0.78));
+  padding: 0 0.72rem;
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 950;
+}
+
+.mobileAgendaTabs button[data-active="true"] {
+  border-color: color-mix(in srgb, var(--brand, #2a77ff) 38%, var(--line, rgba(38, 93, 132, 0.16)));
+  background: linear-gradient(135deg, var(--button-primary, #2a77ff), var(--button-accent, #34d8ff));
+  color: white;
+}
+
+.mobileAgendaTabs span {
+  opacity: 0.8;
+}
+
+.mobileAgendaSearch {
+  min-height: 44px;
+  border: 1px solid color-mix(in srgb, var(--line, rgba(38, 93, 132, 0.16)) 86%, transparent);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--surface, #ffffff) 92%, var(--surface-raised, #ffffff));
+  color: var(--foreground, #102238);
+  padding: 0 0.82rem;
+  font: inherit;
+  font-weight: 850;
+}
+
+.mobileAgendaList {
+  display: grid;
+  gap: 0.72rem;
+  overflow: auto;
+  padding-right: 0.1rem;
+}
+
+.mobileAgendaLeadRow {
+  display: grid;
+  gap: 0.62rem;
+  border: 1px solid color-mix(in srgb, var(--line, rgba(38, 93, 132, 0.16)) 86%, transparent);
+  border-radius: 20px;
+  background: color-mix(in srgb, var(--surface, #ffffff) 94%, var(--background, #f8fbff));
+  padding: 0.78rem;
+  box-shadow: 0 18px 42px -34px rgba(15, 23, 42, 0.42);
+}
+
+.mobileAgendaLeadRow[data-overdue="true"] {
+  border-color: color-mix(in srgb, var(--danger, #ef4444) 34%, var(--line, rgba(38, 93, 132, 0.16)));
+  background:
+    radial-gradient(circle at 100% 0%, color-mix(in srgb, var(--danger, #ef4444) 10%, transparent), transparent 42%),
+    color-mix(in srgb, var(--surface, #ffffff) 94%, var(--background, #f8fbff));
+}
+
+.mobileAgendaLeadMain {
+  min-width: 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.7rem;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.mobileAgendaLeadMain div {
+  min-width: 0;
+  display: grid;
+  gap: 0.18rem;
+}
+
+.mobileAgendaLeadMain strong {
+  color: var(--foreground, #102238);
+  font-size: 0.98rem;
+  font-weight: 950;
+  line-height: 1.15;
+}
+
+.mobileAgendaLeadMain span {
+  color: var(--muted, rgba(40, 78, 124, 0.78));
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.mobileAgendaLeadMain em {
+  flex: 0 0 auto;
+  max-width: 100px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--brand, #2a77ff) 10%, var(--surface, #ffffff));
+  color: color-mix(in srgb, var(--brand, #2a77ff) 76%, var(--foreground, #102238));
+  padding: 0.28rem 0.5rem;
+  font-size: 0.66rem;
+  font-style: normal;
+  font-weight: 950;
+  text-align: center;
+}
+
+.mobileAgendaLeadMeta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.36rem;
+}
+
+.mobileAgendaLeadMeta span {
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--surface-soft, rgba(15, 61, 99, 0.08)) 86%, transparent);
+  color: var(--muted, rgba(40, 78, 124, 0.82));
+  padding: 0.25rem 0.5rem;
+  font-size: 0.66rem;
+  font-weight: 900;
+}
+
+.mobileAgendaNotePreview {
+  margin: 0;
+  border-left: 3px solid color-mix(in srgb, var(--brand, #2a77ff) 46%, transparent);
+  color: var(--foreground, #102238);
+  background: color-mix(in srgb, var(--surface-soft, rgba(15, 61, 99, 0.08)) 78%, transparent);
+  border-radius: 12px;
+  padding: 0.52rem 0.62rem;
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+
+.mobileAgendaLeadActions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.48rem;
+}
+
+.mobileAgendaLeadActions a,
+.mobileAgendaLeadActions button {
+  min-height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid color-mix(in srgb, var(--brand, #2a77ff) 24%, var(--line, rgba(38, 93, 132, 0.16)));
+  border-radius: 13px;
+  background: color-mix(in srgb, var(--surface-soft, rgba(15, 61, 99, 0.08)) 84%, var(--surface, #ffffff));
+  color: var(--foreground, #102238);
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 950;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.mobileAgendaLeadActions button:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+}
+
+.mobileAgendaEmpty {
+  border: 1px dashed color-mix(in srgb, var(--line, rgba(38, 93, 132, 0.16)) 90%, transparent);
+  border-radius: 18px;
+  color: var(--muted, rgba(40, 78, 124, 0.78));
+  padding: 1rem;
+  font-weight: 850;
+  text-align: center;
+}
+
+.mobileNoteSheet textarea {
+  width: 100%;
+  min-height: 178px;
+  resize: vertical;
+  border: 1px solid color-mix(in srgb, var(--line, rgba(38, 93, 132, 0.16)) 86%, transparent);
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--surface, #ffffff) 94%, var(--surface-raised, #ffffff));
+  color: var(--foreground, #102238);
+  padding: 0.9rem;
+  font: inherit;
+  font-size: 0.95rem;
+  line-height: 1.45;
+}
+
+.mobileNoteActions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.62rem;
+}
+
+.mobileNoteActions button {
+  min-height: 48px;
+  border: 1px solid color-mix(in srgb, var(--line, rgba(38, 93, 132, 0.16)) 86%, transparent);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--surface-soft, rgba(15, 61, 99, 0.08)) 82%, var(--surface, #ffffff));
+  color: var(--foreground, #102238);
+  font: inherit;
+  font-weight: 950;
+}
+
+.mobileNoteActions button:last-child {
+  border-color: color-mix(in srgb, var(--brand, #2a77ff) 38%, var(--line, rgba(38, 93, 132, 0.16)));
+  background: linear-gradient(135deg, var(--button-primary, #2a77ff), var(--button-accent, #34d8ff));
+  color: white;
+}
+
+.mobileBottomNav {
+  position: fixed;
+  left: 0.82rem;
+  right: 0.82rem;
+  bottom: calc(0.64rem + env(safe-area-inset-bottom));
+  z-index: 120;
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  align-items: center;
+  gap: 0.3rem;
+  min-height: 66px;
+  border: 1px solid color-mix(in srgb, var(--line, rgba(38, 93, 132, 0.16)) 86%, transparent);
+  border-radius: 22px;
+  background: color-mix(in srgb, var(--surface-raised, #ffffff) 94%, transparent);
+  box-shadow: 0 20px 58px -28px rgba(2, 6, 23, 0.36);
+  backdrop-filter: blur(18px) saturate(150%);
+  -webkit-backdrop-filter: blur(18px) saturate(150%);
+  padding: 0.38rem;
+}
+
+.mobileBottomNav button,
+.mobileBottomNav a {
+  min-width: 0;
+  min-height: 48px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 16px;
+  background: transparent;
+  color: var(--muted, rgba(40, 78, 124, 0.78));
+  font: inherit;
+  font-size: 0.68rem;
+  font-weight: 950;
+  text-decoration: none;
+}
+
+.mobileBottomNav [data-active="true"] {
+  color: var(--brand, #2a77ff);
+}
+
+.mobileBottomNav [data-main="true"] {
+  min-height: 52px;
+  border-radius: 18px;
+  background: linear-gradient(135deg, var(--button-primary, #2a77ff), var(--button-accent, #34d8ff));
+  color: white;
+  font-size: 1.6rem;
+  line-height: 1;
+  box-shadow: 0 16px 32px -18px color-mix(in srgb, var(--brand, #2a77ff) 72%, transparent);
+}
+
+@keyframes mobileSalesLoadingSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes mobileSalesLoadingCounterSpin {
+  to {
+    transform: rotate(-360deg);
+  }
+}
+
+@keyframes mobileSalesLoadingBar {
+  0% {
+    background-position: 120% 0;
+    opacity: 0.48;
+  }
+
+  50% {
+    opacity: 1;
+  }
+
+  100% {
+    background-position: -80% 0;
+    opacity: 0.62;
+  }
 }
 
 .hero {

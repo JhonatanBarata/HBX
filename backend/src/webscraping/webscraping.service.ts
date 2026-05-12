@@ -14,7 +14,9 @@ import {
 import * as XLSX from 'xlsx';
 import { probeWebscrapingRuntime, type WebscrapingRuntimeDiagnostic } from '../modules/webscraping-runtime.util';
 import { PrismaService } from '../prisma/prisma.service';
-import { VendasService } from '../vendas/vendas.service';
+import { buildHbxPresentationEmailDraft, VendasService } from '../vendas/vendas.service';
+import { HbxPresentationEmailService } from '../mail/hbx-presentation-email.service';
+import { CommercialUsageLimitsService } from '../commercial-plans/commercial-usage-limits.service';
 import { buildLocalHbxEngineUrls, getConfiguredHbxEngineCount, HbxEnginePoolService, isHbxEngineLocalhostUrl, type HbxEngineLease, type HbxEnginePurpose } from './hbx-engine-pool.service';
 import {
   COMMERCIAL_PLAN_QUOTAS,
@@ -564,6 +566,9 @@ type RadarLeadEventType =
   | 'duplicate'
   | 'ownership_reserved'
   | 'ownership_released'
+  | 'presentation_email_previewed'
+  | 'presentation_email_sent'
+  | 'presentation_email_failed'
   | 'status_changed';
 
 type RadarLeadStatus =
@@ -884,6 +889,15 @@ function parseJsonArray(raw: string | null | undefined): string[] {
   }
 }
 
+function parseJsonObject(raw: string | null | undefined): Record<string, any> {
+  try {
+    const parsed = JSON.parse(String(raw || '{}'));
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
 function isFallbackEligible(error: GooglePlacesApiError) {
   return ['google_api_not_enabled', 'google_request_denied', 'google_upstream_error'].includes(error.code);
 }
@@ -974,6 +988,8 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     @Optional() private readonly webwhatsBridge?: WebwhatsBridgeService,
     @Optional() @Inject(forwardRef(() => VendasService))
     private readonly vendasService?: VendasService,
+    @Optional() private readonly hbxPresentationEmails?: HbxPresentationEmailService,
+    @Optional() private readonly commercialUsageLimits?: CommercialUsageLimitsService,
   ) {}
 
   onModuleInit() {
@@ -5574,6 +5590,240 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     }).catch(() => null);
   }
 
+  private inferCommercialEmailFromRadarLead(row: any) {
+    const metadata = parseJsonObject(row?.metadataJson);
+    const explicitEmail = String(metadata?.email || metadata?.contactEmail || metadata?.recipientEmail || '').trim().toLowerCase();
+    if (explicitEmail && explicitEmail.includes('@')) return explicitEmail;
+    const website = String(row?.website || '').trim();
+    if (!website) return '';
+    try {
+      const parsed = new URL(website.startsWith('http') ? website : `https://${website}`);
+      const host = parsed.hostname.replace(/^www\./i, '').toLowerCase();
+      return host ? `comercial@${host}` : '';
+    } catch {
+      const host = website.replace(/^https?:\/\//i, '').replace(/^www\./i, '').split('/')[0]?.toLowerCase();
+      return host ? `comercial@${host}` : '';
+    }
+  }
+
+  private async logCommercialEmailMessage(input: Record<string, any>) {
+    if (!(await this.prisma.hasTable('CommercialEmailMessageLog').catch(() => false))) return null;
+    return (this.prisma as any).commercialEmailMessageLog.create({
+      data: {
+        companyId: input.companyId || null,
+        userId: input.userId || null,
+        radarLeadId: input.radarLeadId || null,
+        vendasLeadId: input.vendasLeadId || null,
+        recipientEmail: String(input.recipientEmail || '').trim().toLowerCase(),
+        recipientName: String(input.recipientName || '').trim() || null,
+        subject: String(input.subject || '').trim(),
+        text: input.text || null,
+        html: input.html || null,
+        status: String(input.status || 'draft').trim(),
+        transport: input.transport || null,
+        messageId: input.messageId || null,
+        errorCode: input.errorCode ? String(input.errorCode) : null,
+        errorMessage: input.errorMessage || null,
+        attachmentName: input.attachmentName || null,
+        sentAt: input.sentAt ? new Date(input.sentAt) : null,
+      },
+    }).catch(() => null);
+  }
+
+  private async assertRadarEmailAllowsManualSend(recipientEmail: string) {
+    const email = String(recipientEmail || '').trim().toLowerCase();
+    if (!email) throw new BadRequestException('Informe o e-mail de destino.');
+    if (!(await this.prisma.hasTable('CommercialEmailMessageLog').catch(() => false))) return email;
+    const blocked = await (this.prisma as any).commercialEmailMessageLog.findFirst({
+      where: { recipientEmail: email, status: { in: ['opted_out', 'do_not_contact'] } },
+      orderBy: { createdAt: 'desc' },
+      select: { status: true },
+    }).catch(() => null);
+    if (blocked) throw new BadRequestException('Este e-mail está marcado como não contactar.');
+    return email;
+  }
+
+  async previewRadarPresentationEmailForUser(user: any, radarLeadId: string, body?: any) {
+    const context = this.resolveContext(user);
+    if (!this.hbxPresentationEmails) throw new ServiceUnavailableException('Servico de e-mail indisponivel.');
+    const row = await (this.prisma as any).radarLeadPool.findUnique({
+      where: { id: String(radarLeadId || '').trim() },
+      include: { companyStates: { where: { companyId: context.companyId }, take: 1 } },
+    }).catch(() => null);
+    if (!row) throw new NotFoundException('Card do Radar nao encontrado.');
+    if (this.isRadarProtectedStatus(row?.companyStates?.[0]?.status || row?.status)) {
+      throw new BadRequestException('Este card está marcado como negativo/bloqueado e não pode receber sugestão ativa de envio.');
+    }
+    const recipientEmail = String(body?.recipientEmail || this.inferCommercialEmailFromRadarLead(row) || '').trim().toLowerCase();
+    const draft = buildHbxPresentationEmailDraft({
+      leadName: row.name,
+      city: row.city,
+      state: row.state,
+      segment: row.segment,
+      website: row.website,
+      contactEmail: recipientEmail,
+      sellerName: user?.name || user?.displayName || user?.email || 'HBX',
+      companyName: 'HBX',
+    });
+    const preview = await this.hbxPresentationEmails.previewPresentationToContact({
+      companyId: context.companyId,
+      userId: context.userId,
+      recipientName: body?.recipientName || row.name || 'cliente',
+      recipientEmail,
+      companyName: row.name || null,
+      subject: body?.subject || draft.subject,
+      text: body?.text || draft.body,
+      html: body?.html,
+      source: 'manual',
+    });
+    await this.logCommercialEmailMessage({
+      companyId: context.companyId,
+      userId: context.userId,
+      radarLeadId: row.id,
+      recipientEmail: preview.recipientEmail || recipientEmail || 'pendente@hbx.local',
+      recipientName: preview.recipientName,
+      subject: preview.subject,
+      text: preview.text,
+      html: preview.html,
+      status: 'draft',
+      attachmentName: preview.attachment?.originalName || null,
+    });
+    await this.recordRadarLeadEvent({
+      leadId: row.id,
+      companyId: context.companyId,
+      userId: context.userId,
+      eventType: 'presentation_email_previewed',
+      note: JSON.stringify({ recipientEmail: preview.recipientEmail || null, subject: preview.subject }),
+    });
+    return preview;
+  }
+
+  async sendRadarPresentationEmailForUser(user: any, radarLeadId: string, body?: any) {
+    const context = this.resolveContext(user);
+    if (!this.hbxPresentationEmails) throw new ServiceUnavailableException('Servico de e-mail indisponivel.');
+    const row = await (this.prisma as any).radarLeadPool.findUnique({
+      where: { id: String(radarLeadId || '').trim() },
+      include: { companyStates: { where: { companyId: context.companyId }, take: 1 } },
+    }).catch(() => null);
+    if (!row) throw new NotFoundException('Card do Radar nao encontrado.');
+    if (this.isRadarProtectedStatus(row?.companyStates?.[0]?.status || row?.status)) {
+      await this.commercialUsageLimits?.recordPresentationEmailResult(context.companyId, context.userId, {
+        radarLeadId: row.id,
+        recipientEmail: body?.recipientEmail || null,
+        status: 'blocked',
+        reason: 'policy',
+      });
+      throw new BadRequestException('Este card está marcado como negativo/bloqueado e não pode receber sugestão ativa de envio.');
+    }
+    let recipientEmail = '';
+    try {
+      recipientEmail = await this.assertRadarEmailAllowsManualSend(body?.recipientEmail || this.inferCommercialEmailFromRadarLead(row));
+    } catch (policyError: any) {
+      await this.commercialUsageLimits?.recordPresentationEmailResult(context.companyId, context.userId, {
+        radarLeadId: row.id,
+        recipientEmail: body?.recipientEmail || null,
+        status: 'blocked',
+        reason: 'policy',
+        errorMessage: String(policyError?.message || policyError),
+      });
+      throw policyError;
+    }
+    await this.commercialUsageLimits?.assertCanSendPresentationEmail(context.companyId, context.userId);
+    const recipientName = String(body?.recipientName || row.name || 'cliente').trim();
+    const subject = String(body?.subject || '').trim();
+    const text = String(body?.text || '').trim();
+    if (!subject) throw new BadRequestException('Informe o assunto do e-mail.');
+    if (!text) throw new BadRequestException('Informe o corpo do e-mail.');
+
+    try {
+      await this.commercialUsageLimits?.recordPresentationEmailAttempt(context.companyId, context.userId, {
+        radarLeadId: row.id,
+        recipientEmail,
+        subject,
+      });
+      const result = await this.hbxPresentationEmails.sendPresentationToContact({
+        companyId: context.companyId,
+        userId: context.userId,
+        recipientName,
+        recipientEmail,
+        companyName: row.name || null,
+        subject,
+        text,
+        html: body?.html,
+        source: 'manual',
+      });
+      const messageId = result.delivery?.messageId || null;
+      const transport = result.delivery?.transport || null;
+      await this.logCommercialEmailMessage({
+        companyId: context.companyId,
+        userId: context.userId,
+        radarLeadId: row.id,
+        recipientEmail,
+        recipientName,
+        subject: result.subject,
+        text,
+        html: body?.html || null,
+        status: 'sent',
+        transport,
+        messageId,
+        sentAt: result.sentAt,
+        attachmentName: result.attachment?.originalName || null,
+      });
+      const delivery: any = result.delivery || {};
+      const accepted = Array.isArray(delivery.accepted) ? delivery.accepted.map((value: any) => String(value || '').toLowerCase()) : [];
+      const consumesQuota = Boolean(result.delivery?.ok === true || messageId || accepted.includes(recipientEmail.toLowerCase()));
+      await this.commercialUsageLimits?.recordPresentationEmailResult(context.companyId, context.userId, {
+        radarLeadId: row.id,
+        recipientEmail,
+        subject: result.subject,
+        status: consumesQuota ? 'sent' : 'failed',
+        transport,
+        messageId,
+        reason: consumesQuota ? 'provider_confirmed' : 'provider_not_confirmed',
+      });
+      await this.recordRadarLeadEvent({
+        leadId: row.id,
+        companyId: context.companyId,
+        userId: context.userId,
+        eventType: 'presentation_email_sent',
+        note: JSON.stringify({ recipientEmail, subject: result.subject, sentAt: result.sentAt, messageId, transport }),
+      });
+      return result;
+    } catch (error: any) {
+      const errorMessage = String(error?.response?.message || error?.message || 'Falha ao enviar apresentacao.');
+      await this.logCommercialEmailMessage({
+        companyId: context.companyId,
+        userId: context.userId,
+        radarLeadId: row.id,
+        recipientEmail,
+        recipientName,
+        subject,
+        text,
+        html: body?.html || null,
+        status: 'failed',
+        errorCode: error?.status || error?.code || null,
+        errorMessage,
+      });
+      await this.commercialUsageLimits?.recordPresentationEmailResult(context.companyId, context.userId, {
+        radarLeadId: row.id,
+        recipientEmail,
+        subject,
+        status: 'failed',
+        reason: 'provider_error',
+        errorCode: error?.status || error?.code || null,
+        errorMessage,
+      });
+      await this.recordRadarLeadEvent({
+        leadId: row.id,
+        companyId: context.companyId,
+        userId: context.userId,
+        eventType: 'presentation_email_failed',
+        note: JSON.stringify({ recipientEmail, subject, errorCode: error?.status || error?.code || null, errorMessage }),
+      });
+      throw error;
+    }
+  }
+
   private isReleasableRadarReservation(row: any) {
     const ownerCompanyId = Math.trunc(Number(row?.ownerCompanyId || 0)) || 0;
     if (!ownerCompanyId || !(row?.claimedAt instanceof Date)) return false;
@@ -5670,11 +5920,17 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       vendasLeadId?: string | null;
       assignedUserId?: number | null;
       assignedByUserId?: number | null;
+      countUsage?: boolean;
     },
   ) {
     const now = new Date();
     const previousStatus = this.normalizeRadarLeadStatus(row?.companyStates?.[0]?.status || row?.status);
     const ownershipEnabled = await this.supportsRadarOwnershipPersistence();
+    const existingCompanyState = Array.isArray(row?.companyStates) && row.companyStates.length ? row.companyStates[0] : null;
+    const alreadyClaimedByCompany = Number(row?.ownerCompanyId || 0) === context.companyId || Boolean(existingCompanyState?.id);
+    if (input.countUsage !== false && !alreadyClaimedByCompany) {
+      await this.commercialUsageLimits?.assertCanImportCard(context.companyId, context.userId);
+    }
     if (ownershipEnabled) {
       const ownerCompanyId = Math.trunc(Number(row?.ownerCompanyId || 0)) || 0;
       if (ownerCompanyId && ownerCompanyId !== context.companyId) {
@@ -5744,6 +6000,13 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       statusFrom: previousStatus,
       statusTo: input.companyStatus,
     });
+    if (input.countUsage !== false && !alreadyClaimedByCompany) {
+      await this.commercialUsageLimits?.recordCardImport(context.companyId, context.userId, {
+        source: 'radar_claim',
+        radarLeadId: row.id,
+        status: input.companyStatus,
+      });
+    }
     return { claimedAt: now };
   }
 
@@ -5854,6 +6117,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       companyStatus: 'in_attendance',
       eventType: 'ownership_reserved',
       note: 'Card reservado para envio ao módulo Vendas.',
+      countUsage: false,
     });
 
     const imported = await this.vendasService.importWebscrapingLeadsForUser(user, {

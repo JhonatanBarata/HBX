@@ -39,7 +39,7 @@ const DEFAULT_TEMPLATES: Record<EmailTemplateKind, EmailTemplate> = {
       '',
       'O HBX reúne CRM, localização de clientes, cards comerciais, WhatsApp automático com IA e bot para prospecções.',
       '',
-      'Segue uma pequena apresentação em anexo. Em uma conversa rápida eu consigo te mostrar as principais telas do sistema e explicar como ele pode ajudar sua empresa. O teste é gratuito por 30 dias.',
+      'Segue uma pequena apresentação em anexo. Em uma conversa rápida eu consigo te mostrar as principais telas do sistema e explicar como ele pode ajudar sua empresa. O teste é gratuito por 7 dias.',
       '',
       'Qualquer dúvida, fico à disposição.',
       '',

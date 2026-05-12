@@ -6,12 +6,13 @@ import { PrismaModule } from '../prisma/prisma.module';
 import { ModulesAccessModule } from '../modules/modules.module';
 import { CommercialPlansModule } from '../commercial-plans/commercial-plans.module';
 import { WebscrapingModule } from '../webscraping/webscraping.module';
+import { MailModule } from '../mail/mail.module';
 import { VendasController } from './vendas.controller';
 import { VendasAutomationService } from './vendas-automation.service';
 import { VendasService } from './vendas.service';
 
 @Module({
-  imports: [PrismaModule, CustomerProfileModule, ModulesAccessModule, MessagingModule, InboxModule, CommercialPlansModule, forwardRef(() => WebscrapingModule)],
+  imports: [PrismaModule, CustomerProfileModule, ModulesAccessModule, MessagingModule, InboxModule, CommercialPlansModule, MailModule, forwardRef(() => WebscrapingModule)],
   controllers: [VendasController],
   providers: [VendasService, VendasAutomationService],
   exports: [VendasService, VendasAutomationService],

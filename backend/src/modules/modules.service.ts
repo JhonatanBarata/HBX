@@ -2423,6 +2423,13 @@ export class ModulesService implements OnModuleInit {
       subscriptionStatus: company.subscriptionStatus,
       billingProvider: company.billingProvider,
       premiumAccess: Boolean(company.premiumAccess),
+      assistedSetup: {
+        required: Boolean(company.assistedSetupRequired),
+        status: String(company.assistedSetupStatus || 'not_required'),
+        completedAt: company.assistedSetupCompletedAt instanceof Date ? company.assistedSetupCompletedAt.toISOString() : null,
+        completedByUserId: Number(company.assistedSetupCompletedByUserId || 0) || null,
+        note: company.assistedSetupNote || null,
+      },
       trialStartsAt,
       trialEndsAt,
       trialRemainingDays,
@@ -3638,6 +3645,21 @@ export class ModulesService implements OnModuleInit {
           paymentStatus: 'MANUAL',
           subscriptionStatus: 'manual',
           premiumAccess: true,
+          assistedSetupRequired: normalizedPlanKey === COMMERCIAL_PLAN_KEYS.MELHOR,
+          assistedSetupStatus:
+            normalizedPlanKey === COMMERCIAL_PLAN_KEYS.MELHOR
+              ? String(company.assistedSetupStatus || '').trim().toLowerCase() === 'completed'
+                ? 'completed'
+                : 'pending'
+              : 'not_required',
+          assistedSetupCompletedAt:
+            normalizedPlanKey === COMMERCIAL_PLAN_KEYS.MELHOR ? company.assistedSetupCompletedAt : null,
+          assistedSetupCompletedByUserId:
+            normalizedPlanKey === COMMERCIAL_PLAN_KEYS.MELHOR ? company.assistedSetupCompletedByUserId : null,
+          assistedSetupNote:
+            normalizedPlanKey === COMMERCIAL_PLAN_KEYS.MELHOR
+              ? company.assistedSetupNote || 'Implantação assistida pendente para liberar automação completa.'
+              : null,
           trialStartsAt: null,
           trialEndsAt: null,
           subscriptionCurrentPeriodStart: now,
@@ -3665,6 +3687,46 @@ export class ModulesService implements OnModuleInit {
     });
 
     return { ok: true, companyId, planKey: normalizedPlanKey };
+  }
+
+  async completeAssistedSetupByMaster(masterUserId: number, companyId: number, dto?: { note?: string }) {
+    await this.assertMasterUser(masterUserId);
+    const company = await this.prisma.company.findUnique({ where: { id: companyId } });
+    if (!company) throw new BadRequestException('Empresa nao encontrada');
+
+    const now = new Date();
+    const updated = await this.prisma.company.update({
+      where: { id: companyId },
+      data: {
+        assistedSetupRequired: normalizeCommercialPlanKey(company.selectedPlanKey || COMMERCIAL_PLAN_KEYS.PADRAO) === COMMERCIAL_PLAN_KEYS.MELHOR,
+        assistedSetupStatus: 'completed',
+        assistedSetupCompletedAt: now,
+        assistedSetupCompletedByUserId: masterUserId,
+        assistedSetupNote: String(dto?.note || '').trim() || 'Implantação assistida concluída pelo MASTER.',
+      },
+    });
+
+    await this.masterContextService.registerSupportAction({
+      masterUserId,
+      companyId,
+      scope: 'master_company',
+      action: 'ASSISTED_SETUP_COMPLETED',
+      metadata: {
+        previousStatus: company.assistedSetupStatus || null,
+        completedAt: now.toISOString(),
+        note: updated.assistedSetupNote || null,
+      },
+    });
+
+    return {
+      ok: true,
+      companyId,
+      assistedSetup: {
+        required: Boolean(updated.assistedSetupRequired),
+        status: updated.assistedSetupStatus,
+        completedAt: updated.assistedSetupCompletedAt?.toISOString() || null,
+      },
+    };
   }
 
   async setPaymentStatus(masterUserId: number, companyId: number, paymentStatus: string) {
@@ -3705,6 +3767,13 @@ export class ModulesService implements OnModuleInit {
                 ? 'active_trial'
                 : company.onboardingStatus,
           premiumAccess: ['active', 'trialing', 'manual'].includes(subscriptionStatus),
+          assistedSetupRequired: planKey === COMMERCIAL_PLAN_KEYS.MELHOR,
+          assistedSetupStatus:
+            planKey === COMMERCIAL_PLAN_KEYS.MELHOR
+              ? String(company.assistedSetupStatus || '').trim().toLowerCase() === 'completed'
+                ? 'completed'
+                : 'pending'
+              : 'not_required',
           trialStartsAt: normalized === 'TRIAL' ? periodStart : normalized === 'MANUAL' ? null : company.trialStartsAt,
           trialEndsAt: normalized === 'TRIAL' ? periodEnd : normalized === 'MANUAL' ? null : company.trialEndsAt,
           subscriptionCurrentPeriodStart:

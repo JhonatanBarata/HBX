@@ -8,7 +8,7 @@ const SUPPORT_MESSAGE = "Olá, preciso de ajuda para finalizar minha contrataç�
 
 function shouldShowHelp(pathname: string | null) {
   const path = String(pathname || "/").replace(/\/+$/, "") || "/";
-  if (path === "/" || path === "/login" || path === "/register" || path === "/confirm-email" || path === "/reset-password") {
+  if (path === "/" || path === "/register" || path === "/confirm-email" || path === "/reset-password") {
     return true;
   }
   return path === "/pagamento" || path === "/planos" || path === "/checkout";

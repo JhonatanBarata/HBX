@@ -21,10 +21,13 @@ const DEFAULT_API_URL =
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? DEFAULT_API_URL;
 const AUTO_LOGIN_STORAGE_KEY = "hbx_auto_login";
 const AUTO_LOGIN_RELOAD_SECONDS = 49;
-const LOGIN_SUCCESS_DELAY_MS = 3500;
+const LOGIN_SUCCESS_DELAY_MS = 6500;
+const LOGIN_TO_WELCOME_TRANSITION_KEY = "hbx_login_to_welcome_transition";
 const LOGIN_VIDEO_EXPERIENCE_AVAILABLE = false;
 const LOGIN_IDLE_VIDEO_SRC = "/login-media/login-looping.mp4";
 const LOGIN_AUTH_VIDEO_SRC = "/login-media/login-afterauth.mp4";
+const SUPPORT_PHONE = "++5519997024884";
+const SUPPORT_MESSAGE = "Olá, preciso de ajuda para finalizar minha contratação no HBX.";
 const DEFAULT_WAKING_MESSAGE =
   "Estamos iniciando o ambiente seguro. A primeira conexão pode levar alguns segundos.";
 
@@ -73,6 +76,12 @@ type LoginParticleStyle = CSSProperties & {
   "--drift-y"?: string;
   "--exit-x"?: string;
   "--exit-y"?: string;
+};
+
+type LoginWaterRipple = {
+  id: number;
+  x: number;
+  y: number;
 };
 
 type LoginSideIcon = "headset" | "recovery" | "website" | "shield" | "building" | "pulse" | "theme";
@@ -291,6 +300,8 @@ export default function LoginPage() {
   const [loginState, setLoginState] = useState<LoginState>("idle");
   const [mounted, setMounted] = useState(false);
   const [isUiReady, setIsUiReady] = useState(false);
+  const [isMobileLoginSurface, setIsMobileLoginSurface] = useState(false);
+  const [waterRipples, setWaterRipples] = useState<LoginWaterRipple[]>([]);
   const [playingWelcome, setPlayingWelcome] = useState(false);
   const [visualsPlayOnLoad, setVisualsPlayOnLoad] = useState(false);
   const [isLoginVideoEnabled, setIsLoginVideoEnabled] = useState<boolean>(false);
@@ -314,17 +325,29 @@ export default function LoginPage() {
   const stageRef = useRef<HTMLElement | null>(null);
   const pointerFrameRef = useRef<number | null>(null);
   const pointerPositionRef = useRef<{ clientX: number; clientY: number } | null>(null);
+  const waterRippleIdRef = useRef(0);
 
   const isSubmitting = loginState === "submitting" || loginState === "waking_server";
   const isWakingServer = loginState === "waking_server";
   const isSuccess = loginState === "success";
+  const shouldUseInlineAuthSuccess = isSuccess && !preRegistered && !isMobileLoginSurface;
   const isLoginVideoExperienceEnabled = LOGIN_VIDEO_EXPERIENCE_AVAILABLE && isLoginVideoEnabled;
   const shouldRenderLoginVideo = isLoginVideoExperienceEnabled && isUiReady;
   const themeModeLabel = selection.mode === "dark" ? "Escuro" : "Claro";
+  const supportWhatsAppUrl = `https://wa.me/${SUPPORT_PHONE.replace(/\D/g, "")}?text=${encodeURIComponent(SUPPORT_MESSAGE)}`;
   const loginCardVideoStyle: CSSProperties = {
     backdropFilter: "blur(2px) saturate(1.01)",
     WebkitBackdropFilter: "blur(2px) saturate(1.01)",
   };
+
+  useEffect(() => {
+    const query = window.matchMedia("(max-width: 768px)");
+    const syncMobileSurface = () => setIsMobileLoginSurface(query.matches);
+
+    syncMobileSurface();
+    query.addEventListener("change", syncMobileSurface);
+    return () => query.removeEventListener("change", syncMobileSurface);
+  }, []);
 
   function handleThemeModeToggle() {
     setThemeMode(selection.mode === "dark" ? "light" : "dark");
@@ -406,6 +429,28 @@ export default function LoginPage() {
     resetStagePointerPosition();
   }
 
+  function handleMobileWaterPulse(event: ReactPointerEvent<HTMLElement>) {
+    if (!isMobileLoginSurface || event.button !== 0) return;
+
+    const target = event.target as HTMLElement | null;
+    if (target?.closest("button, a, input, textarea, select, label")) return;
+
+    const stage = stageRef.current;
+    if (!stage) return;
+
+    const rect = stage.getBoundingClientRect();
+    const ripple = {
+      id: waterRippleIdRef.current + 1,
+      x: event.clientX - rect.left,
+      y: event.clientY - rect.top,
+    };
+    waterRippleIdRef.current = ripple.id;
+    setWaterRipples((current) => [...current.slice(-3), ripple]);
+    window.setTimeout(() => {
+      setWaterRipples((current) => current.filter((item) => item.id !== ripple.id));
+    }, 980);
+  }
+
   async function completeSuccessfulLogin(token: string, data?: unknown) {
     setToken(token, { notify: false });
     setLoginState("success");
@@ -420,6 +465,14 @@ export default function LoginPage() {
     if (/^https?:\/\//i.test(destination)) {
       window.location.assign(destination);
       return;
+    }
+
+    if (destination === "/boasvindas") {
+      try {
+        sessionStorage.setItem(LOGIN_TO_WELCOME_TRANSITION_KEY, "mobile-auth");
+      } catch {
+        // ignore sessionStorage errors
+      }
     }
 
     router.replace(destination);
@@ -928,6 +981,7 @@ export default function LoginPage() {
     <main
       ref={stageRef}
       className="login-stage"
+      data-login-surface={isMobileLoginSurface ? "hbx-mobile" : undefined}
       data-login-theme={selection.themeId}
       data-login-mode={selection.mode}
       data-login-ready={isUiReady ? "true" : "false"}
@@ -936,8 +990,25 @@ export default function LoginPage() {
       data-register-transition={registerTransitioning ? "true" : "false"}
       onPointerMove={isUiReady ? handleStagePointerMove : undefined}
       onPointerLeave={isUiReady ? handleStagePointerLeave : undefined}
+      onPointerDown={handleMobileWaterPulse}
     >
       <div className="login-stage__grid" aria-hidden />
+      <div className="login-authBridge" aria-hidden={loginState === "success" ? "false" : "true"}>
+        <div className="login-authBridge__lake" />
+        <div className="login-authBridge__pill">
+          <span className="login-authBridge__status">Autenticado</span>
+          <span className="login-authBridge__brand">HBX</span>
+        </div>
+      </div>
+      <div className="login-waterRipples" aria-hidden="true">
+        {waterRipples.map((ripple) => (
+          <span
+            key={ripple.id}
+            className="login-waterRipple"
+            style={{ left: `${ripple.x}px`, top: `${ripple.y}px` }}
+          />
+        ))}
+      </div>
       {shouldRenderLoginVideo ? (
         <div className="login-video-layer" aria-hidden="true">
           <video
@@ -1065,9 +1136,17 @@ export default function LoginPage() {
               </div>
             </div>
             <h1 className="login-card__title">
-              {mode === "login" ? "Entrar no HBX" : "Recuperar acesso"}
+              {mode === "login" && isMobileLoginSurface ? (
+                <>
+                  Automação que conecta. <span className="login-card__titleAccent">Inteligência que vende.</span>
+                </>
+              ) : mode === "login" ? "Entrar no HBX" : "Recuperar acesso"}
             </h1>
-            {mode === "forgot" ? (
+            {mode === "login" && isMobileLoginSurface ? (
+              <p className="login-card__copy login-card__copy--compact">
+                Entre na sua conta para continuar.
+              </p>
+            ) : mode === "forgot" ? (
               <p className="login-card__copy login-card__copy--compact">
                 {"Informe o e-mail da conta para receber um link seguro de redefinição."}
               </p>
@@ -1089,9 +1168,10 @@ export default function LoginPage() {
                     setActiveSessionConflict(false);
                     setForceActiveSession(false);
                   }}
-                  placeholder="Digite seu e-mail"
+                  placeholder={isMobileLoginSurface ? "seu@email.com" : "Digite seu e-mail"}
                   required
                   autoComplete="username"
+                  inputMode="email"
                 />
               </div>
 
@@ -1109,7 +1189,7 @@ export default function LoginPage() {
                     setActiveSessionConflict(false);
                     setForceActiveSession(false);
                   }}
-                  placeholder="Digite sua senha"
+                  placeholder={isMobileLoginSurface ? "••••••••••" : "Digite sua senha"}
                   required
                   autoComplete="current-password"
                 />
@@ -1260,11 +1340,13 @@ export default function LoginPage() {
                 className={`btn ${
                   preRegistered ? "btn-secondary" : "btn-primary"
                 } login-button ${isWakingServer ? "opacity-75" : ""} ${
-                  isSuccess && !preRegistered ? "btn-auth-success" : ""
+                  shouldUseInlineAuthSuccess ? "btn-auth-success" : ""
                 }`}
+                data-loading={isSubmitting || isWakingServer ? "true" : "false"}
+                data-auth-state={shouldUseInlineAuthSuccess ? "success" : isSubmitting || isWakingServer ? "loading" : "idle"}
                 aria-live="polite"
               >
-                {!preRegistered && isSuccess ? (
+                {shouldUseInlineAuthSuccess ? (
                   <span className="btn-auth-success__content">
                     <span className="btn-auth-success__bar" aria-hidden />
                     <span className="btn-auth-success__label">Autenticado</span>
@@ -1282,6 +1364,25 @@ export default function LoginPage() {
                 )}
               </button>
 
+              <div className="login-socialDivider" aria-hidden="true">
+                <span>ou</span>
+              </div>
+
+              <a
+                className="login-whatsappButton"
+                href={supportWhatsAppUrl}
+                target="_blank"
+                rel="noreferrer"
+                aria-label="Pedir assistência HBX no WhatsApp"
+              >
+                <span className="login-whatsappButton__mark" aria-hidden="true">
+                  <svg viewBox="0 0 24 24">
+                    <path d="M19.05 4.94A9.8 9.8 0 0 0 12.06 2C6.59 2 2.13 6.46 2.13 11.93c0 1.75.46 3.46 1.32 4.97L2 22l5.27-1.38a9.9 9.9 0 0 0 4.79 1.22h.01c5.47 0 9.93-4.46 9.93-9.93a9.86 9.86 0 0 0-2.95-6.97ZM12.07 20.2h-.01a8.24 8.24 0 0 1-4.2-1.15l-.3-.18-3.13.82.84-3.05-.2-.31a8.2 8.2 0 0 1-1.26-4.4c0-4.53 3.69-8.22 8.24-8.22 2.2 0 4.27.85 5.82 2.4a8.17 8.17 0 0 1 2.4 5.82c0 4.54-3.69 8.23-8.2 8.23Zm4.5-6.15c-.25-.13-1.47-.72-1.7-.8-.23-.08-.4-.12-.57.12-.17.25-.65.8-.8.97-.15.17-.3.19-.56.06-.25-.13-1.06-.39-2.01-1.26-.74-.66-1.24-1.48-1.39-1.73-.15-.25-.02-.38.11-.5.11-.11.25-.3.38-.45.13-.15.17-.25.25-.42.08-.17.04-.31-.02-.44-.06-.13-.57-1.37-.78-1.88-.21-.5-.42-.43-.57-.44l-.49-.01c-.17 0-.44.06-.67.31-.23.25-.88.86-.88 2.1s.9 2.45 1.02 2.62c.13.17 1.77 2.7 4.3 3.79.6.26 1.08.42 1.44.54.61.19 1.16.16 1.6.1.49-.07 1.47-.6 1.68-1.18.21-.58.21-1.08.15-1.18-.06-.1-.23-.17-.48-.3Z" />
+                  </svg>
+                </span>
+                <span>Pedir assistência</span>
+              </a>
+
               <button
                 type="button"
                 className="login-plansEntry"
@@ -1289,6 +1390,10 @@ export default function LoginPage() {
               >
                 <span>Planos</span>
               </button>
+
+              <p className="login-mobileTerms">
+                Ao entrar, você concorda com nossos <a href="/termos">Termos de Uso</a> e <a href="/privacidade">Política de Privacidade</a>.
+              </p>
             </form>
           ) : (
             <form onSubmit={handleRecoverByEmail} className="login-form">

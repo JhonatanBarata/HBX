@@ -639,17 +639,22 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
 
   private resolveExtraSeatMonthlyAmount(pricingPolicy: any) {
     return this.normalizeCurrencyAmount(
-      pricingPolicy?.extraSeatMonthlyAmount ?? process.env.HBX_EXTRA_SEAT_MONTHLY_AMOUNT ?? 0,
+      pricingPolicy?.extraSeatMonthlyAmount ?? process.env.HBX_EXTRA_SEAT_MONTHLY_AMOUNT ?? COMMERCIAL_PRICING.extraUserMonthly,
     );
   }
 
   private buildSeatBillingSnapshot(company: any, billingCycle: string, pricingPolicy: any) {
+    const planKey = normalizeCatalogCommercialPlanKey(company?.selectedPlanKey);
     const activeUsers = Array.isArray(company?.users)
-      ? company.users.filter((user: any) => Boolean(user?.isActive) && !Boolean(user?.isSystemMaster)).length
+      ? company.users.filter((user: any) => Boolean(user?.isActive) && !user?.deactivatedAt && !Boolean(user?.isSystemMaster)).length
       : 0;
-    const includedActiveUsers = 2;
-    const extraActiveUsers = Math.max(0, activeUsers - includedActiveUsers);
-    const extraSeatMonthlyAmount = this.resolveExtraSeatMonthlyAmount(pricingPolicy);
+    const includedActiveUsers = planKey === COMMERCIAL_PLAN_KEYS.MELHOR ? 1 : Math.max(1, activeUsers);
+    const extraActiveUsers = planKey === COMMERCIAL_PLAN_KEYS.MELHOR
+      ? Math.max(0, activeUsers - includedActiveUsers)
+      : 0;
+    const extraSeatMonthlyAmount = planKey === COMMERCIAL_PLAN_KEYS.MELHOR
+      ? this.resolveExtraSeatMonthlyAmount(pricingPolicy)
+      : 0;
     const cycleMultiplier = billingCycle === 'ANNUAL' ? 12 : 1;
     const extraSeatCycleAmount = this.normalizeCurrencyAmount(
       extraActiveUsers * extraSeatMonthlyAmount * cycleMultiplier,
@@ -1008,7 +1013,7 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
             orderBy: { systemModule: { name: 'asc' } },
           },
           users: {
-            select: { id: true, isActive: true, isSystemMaster: true },
+            select: { id: true, isActive: true, isSystemMaster: true, deactivatedAt: true },
           },
           commercialEntitlements: true,
         },
@@ -1954,7 +1959,7 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
           include: { systemModule: true },
         },
         users: {
-          select: { id: true, isActive: true, isSystemMaster: true },
+          select: { id: true, isActive: true, isSystemMaster: true, deactivatedAt: true },
         },
         commercialEntitlements: true,
       },
@@ -2361,7 +2366,7 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
         orderBy: { systemModule: { name: 'asc' } },
       },
       users: {
-        select: { id: true, isActive: true, isSystemMaster: true },
+        select: { id: true, isActive: true, isSystemMaster: true, deactivatedAt: true },
       },
       commercialEntitlements: true,
     } satisfies Prisma.CompanyInclude;
@@ -2648,7 +2653,7 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
           include: { systemModule: true },
         },
         users: {
-          select: { id: true, isActive: true, isSystemMaster: true },
+          select: { id: true, isActive: true, isSystemMaster: true, deactivatedAt: true },
         },
         commercialEntitlements: true,
       },

@@ -92,6 +92,11 @@ export class VendasController {
     return this.vendasService.getBoardForUser(req.user);
   }
 
+  @Get('usage')
+  getUsage(@Req() req: any) {
+    return this.vendasService.getDailyUsageSnapshotForUser(req.user);
+  }
+
   @Post('manual')
   createManualLead(@Req() req: any, @Body() dto: CreateManualVendasLeadDto) {
     return this.vendasService.createManualLeadForUser(req.user, dto);
@@ -110,6 +115,21 @@ export class VendasController {
   @Patch('lead/:leadId')
   updateLead(@Req() req: any, @Param('leadId') leadId: string, @Body() dto: UpdateVendasLeadDto) {
     return this.vendasService.updateLeadForUser(req.user, leadId, dto);
+  }
+
+  @Post('lead/:leadId/presentation-draft')
+  buildPresentationDraft(@Req() req: any, @Param('leadId') leadId: string) {
+    return this.vendasService.buildPresentationEmailDraftForUser(req.user, leadId);
+  }
+
+  @Post('leads/:leadId/email/presentation/preview')
+  previewPresentationEmail(@Req() req: any, @Param('leadId') leadId: string, @Body() body?: any) {
+    return this.vendasService.previewPresentationEmailForUser(req.user, leadId, body || {});
+  }
+
+  @Post('leads/:leadId/email/presentation/send')
+  sendPresentationEmail(@Req() req: any, @Param('leadId') leadId: string, @Body() body?: any) {
+    return this.vendasService.sendPresentationEmailForUser(req.user, leadId, body || {});
   }
 
   @Post('leads/delete-bulk')
