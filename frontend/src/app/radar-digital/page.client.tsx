@@ -1004,6 +1004,22 @@ export default function RadarDigitalClientPage() {
               void runRadarSearch(mobileWhatsappVerified ? "enrich" : "off");
             }}
           >
+            <div className={styles.mobileEngineSelector} aria-label="Motor de busca">
+              <button
+                type="button"
+                data-active={filters.engine === "hbx" ? "true" : "false"}
+                onClick={() => setFilters((current) => ({ ...current, engine: "hbx" }))}
+              >
+                HBX branch
+              </button>
+              <button
+                type="button"
+                data-active={filters.engine === "google" ? "true" : "false"}
+                onClick={() => setFilters((current) => ({ ...current, engine: "google" }))}
+              >
+                Google API
+              </button>
+            </div>
             <label>
               <span>Estado</span>
               <button type="button" className={styles.mobilePickerButton} onClick={() => openMobilePicker("state")}>
@@ -1021,6 +1037,19 @@ export default function RadarDigitalClientPage() {
               <button type="button" className={styles.mobilePickerButton} onClick={() => openMobilePicker("segment")}>
                 {filters.segment || "Escolha o segmento"}
               </button>
+            </label>
+            <label>
+              <span>Quantidade</span>
+              <select
+                value={filters.quantity}
+                onChange={(event) => setFilters((current) => ({ ...current, quantity: Number(event.target.value) }))}
+              >
+                {(isHbxList ? [10, 20, 40, 50] : [10, 20, 40, 60, 100]).map((option) => (
+                  <option key={option} value={option}>
+                    {option} contatos
+                  </option>
+                ))}
+              </select>
             </label>
             <label className={styles.mobileWhatsappCheck}>
               <input
@@ -1067,11 +1096,7 @@ export default function RadarDigitalClientPage() {
           ) : null}
 
           <section className={styles.mobileRadarResults} aria-live="polite">
-            {!hasSearched ? (
-              <div className={styles.mobileRadarEmpty}>
-                Informe segmento, cidade e estado para buscar cards.
-              </div>
-            ) : activeRun && visibleItems.length === 0 ? (
+            {!hasSearched ? null : activeRun && visibleItems.length === 0 ? (
               <div className={styles.mobileRadarProgress}>
                 <div>
                   <span>Motor HBX em execução</span>
