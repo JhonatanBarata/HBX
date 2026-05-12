@@ -90,12 +90,43 @@ function Get-ListenerPid([int]$port) {
 	return 0
 }
 
-function Wait-HttpOk([string]$url, [int]$retries = 60, [int]$delayMs = 500) {
+function Invoke-ExternalOrThrow([string]$filePath, [string[]]$arguments, [string]$failureMessage) {
+	& $filePath @arguments
+	if ($LASTEXITCODE -ne 0) {
+		throw "$failureMessage Exit code: $LASTEXITCODE."
+	}
+}
+
+function Show-ComposeLogs([string[]]$services, [int]$tail = 120) {
+	if (-not (Test-DockerDaemonReady)) { return }
+
+	foreach ($service in $services) {
+		Write-Host "Recent logs for ${service}:"
+		try {
+			& docker compose -f $composeFile logs $service --tail $tail
+		} catch {
+			Write-Host "Could not read logs for ${service}: $($_.Exception.Message)"
+		}
+	}
+}
+
+function Wait-PortListener([int]$port, [int]$retries = 120, [int]$delayMs = 500) {
+	for ($i = 0; $i -lt $retries; $i++) {
+		$listenerPid = Get-ListenerPid -port $port
+		if ($listenerPid -gt 0) { return $listenerPid }
+		Start-Sleep -Milliseconds $delayMs
+	}
+	return 0
+}
+
+function Wait-ComposeServiceRunning([string]$service, [int]$retries = 120, [int]$delayMs = 500) {
 	for ($i = 0; $i -lt $retries; $i++) {
 		try {
-			$resp = Invoke-WebRequest -UseBasicParsing -Uri $url -Method GET -TimeoutSec 3 -ErrorAction Stop
-			if ($resp.StatusCode -ge 200 -and $resp.StatusCode -lt 500) {
-				return $true
+			$serviceId = (& docker compose -f $composeFile ps -q $service 2>$null)
+			if (-not [string]::IsNullOrWhiteSpace($serviceId)) {
+				$status = (& docker inspect -f '{{.State.Status}}' $serviceId 2>$null)
+				if ($LASTEXITCODE -eq 0 -and $status -eq 'running') { return $true }
+				if ($status -in @('exited', 'dead')) { return $false }
 			}
 		} catch {
 			# keep trying
@@ -103,13 +134,6 @@ function Wait-HttpOk([string]$url, [int]$retries = 60, [int]$delayMs = 500) {
 		Start-Sleep -Milliseconds $delayMs
 	}
 	return $false
-}
-
-function Invoke-ExternalOrThrow([string]$filePath, [string[]]$arguments, [string]$failureMessage) {
-	& $filePath @arguments
-	if ($LASTEXITCODE -ne 0) {
-		throw $failureMessage
-	}
 }
 
 function Test-DockerDaemonReady() {
@@ -161,32 +185,48 @@ if (Test-Path $pidsFile) {
 Assert-DockerReady
 
 Write-Host "1) Starting backend (docker compose) ..."
-Invoke-ExternalOrThrow -filePath 'docker' -arguments @('compose', '-f', $composeFile, 'up', '-d', '--build') -failureMessage 'Failed to start backend containers with docker compose.'
+try {
+	Invoke-ExternalOrThrow -filePath 'docker' -arguments @('compose', '-f', $composeFile, 'up', '-d', '--build') -failureMessage 'Failed to start backend containers with docker compose.'
+} catch {
+	Write-Host "Docker compose failed while starting services."
+	Show-ComposeLogs -services @('db', 'backend', 'hbx-scraping-engine') -tail 80
+	throw
+}
 
-Write-Host "1.0) Sync backend deps inside container (npm install) ..."
+Write-Host "1.0) Waiting backend container to be running ..."
+if (-not (Wait-ComposeServiceRunning -service 'backend' -retries 180 -delayMs 500)) {
+	Write-Host "Backend container did not reach running state."
+	Show-ComposeLogs -services @('backend', 'db') -tail 120
+	throw "Backend container is not running."
+}
+
+Write-Host "1.1) Sync backend deps inside container (npm install) ..."
 try {
 	Invoke-ExternalOrThrow -filePath 'docker' -arguments @('compose', '-f', $composeFile, 'exec', '-T', 'backend', 'sh', '-lc', 'npm install --no-audit --no-fund && npx prisma generate') -failureMessage 'Dependency sync failed in backend container.'
 } catch {
 	Write-Host "Failed to sync backend dependencies inside container. Showing backend logs:"
-	if (Test-DockerDaemonReady) {
-		& docker compose -f $composeFile logs backend --tail 120
-	}
-	throw "Dependency sync failed in backend container"
+	Show-ComposeLogs -services @('backend') -tail 120
+	throw "Dependency sync failed in backend container."
 }
 
-Write-Host "1.1) Waiting backend health on http://localhost:3000/health ..."
-if (-not (Wait-HttpOk -url 'http://localhost:3000/health' -retries 180 -delayMs 500)) {
-    Write-Host "Backend did not become reachable on /health. Showing recent logs:"
-	if (Test-DockerDaemonReady) {
-		& docker compose -f $composeFile logs backend --tail 120
-	}
-	throw "Backend not reachable at http://localhost:3000/health"
+Write-Host "1.2) Waiting backend port on http://localhost:3000 ..."
+$backendListenerPid = Wait-PortListener -port 3000 -retries 180 -delayMs 500
+if ($backendListenerPid -le 0) {
+	Write-Host "Backend did not open port 3000 in time."
+	Show-ComposeLogs -services @('backend', 'db') -tail 120
+	throw "Backend port 3000 is not listening."
 }
+Write-Host "Backend port 3000 is listening."
 
 Write-Host "2) Ensuring frontend deps (npm install) ..."
 Push-Location $frontendDir
-if (!(Test-Path node_modules)) { npm install }
-Pop-Location
+try {
+	if (!(Test-Path node_modules)) {
+		Invoke-ExternalOrThrow -filePath 'npm' -arguments @('install') -failureMessage 'Frontend npm install failed.'
+	}
+} finally {
+	Pop-Location
+}
 
 Write-Host "3) Starting frontend (Next) on port 3001 ..."
 $nextCli = Join-Path $frontendDir 'node_modules\next\dist\bin\next'
@@ -203,12 +243,7 @@ $frontendProc = Start-Process -FilePath "powershell.exe" -ArgumentList @(
 Write-Host "Started frontend wrapper pid=$($frontendProc.Id)"
 
 # Wait for the listener on port 3001 and capture the actual process owning the port (node)
-$listenerPid = 0
-for ($i = 0; $i -lt 40; $i++) {
-    $listenerPid = Get-ListenerPid -port 3001
-    if ($listenerPid -gt 0) { break }
-    Start-Sleep -Milliseconds 250
-}
+$listenerPid = Wait-PortListener -port 3001 -retries 80 -delayMs 250
 
 if ($listenerPid -le 0) {
 	Write-Host "Frontend did not open port 3001 in time."
@@ -219,16 +254,6 @@ if ($listenerPid -le 0) {
 $frontendPidToTrack = $frontendProc.Id
 if ($listenerPid -gt 0) { $frontendPidToTrack = $listenerPid }
 Write-Host "Frontend listener pid=$frontendPidToTrack (wrapper=$($frontendProc.Id))"
-
-Write-Host "3.1) Waiting frontend response on http://localhost:3001 ..."
-if (-not (Wait-HttpOk -url 'http://localhost:3001' -retries 120 -delayMs 500)) {
-	Write-Host "Frontend did not answer HTTP requests on port 3001."
-	Stop-IfRunning -processId ([int]$frontendPidToTrack) -name 'frontend'
-	if ($frontendProc.Id -ne $frontendPidToTrack) {
-		Stop-IfRunning -processId ([int]$frontendProc.Id) -name 'frontend-wrapper'
-	}
-	throw "Frontend not reachable at http://localhost:3001"
-}
 
 Write-Host "4) Starting Prisma Studio on port 5555 ..."
 $studioPidToTrack = 0
