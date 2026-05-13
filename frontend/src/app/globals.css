@@ -9917,6 +9917,7 @@ html[data-theme="tabler"] .login-card__stat {
 
 /* ensure visuals hidden on small screens to avoid heavy animation */
 @media (max-width: 768px) {
+  body:has(.app-topbar[data-mobile-fullscreen-route="true"]),
   body:has([class*="mobileSalesShell"]),
   body:has([class*="mobileVendasShell"]),
   body:has([class*="mobileRadar"]) {
@@ -9924,12 +9925,16 @@ html[data-theme="tabler"] .login-card__stat {
     --topbar-total-height: 0px;
   }
 
+  .app-topbar[data-mobile-fullscreen-route="true"],
   body:has([class*="mobileSalesShell"]) .app-topbar,
   body:has([class*="mobileVendasShell"]) .app-topbar,
   body:has([class*="mobileRadar"]) .app-topbar {
     display: none !important;
   }
 
+  body:has(.app-topbar[data-mobile-fullscreen-route="true"]) .app-shell,
+  body:has(.app-topbar[data-mobile-fullscreen-route="true"]) .app-container,
+  body:has(.app-topbar[data-mobile-fullscreen-route="true"]) .page-content,
   body:has([class*="mobileSalesShell"]) .app-shell,
   body:has([class*="mobileSalesShell"]) .app-container,
   body:has([class*="mobileSalesShell"]) .page-content,
@@ -11891,7 +11896,6 @@ html[data-theme="tabler"] .login-card__stat {
     transform: translate3d(0, 22px, 0) scale(0.96);
     animation:
       loginAuthPillCleanIn 1050ms cubic-bezier(0.18, 0.88, 0.2, 1) 1500ms forwards,
-      loginAuthPillCleanPulse 1800ms ease-in-out 2550ms infinite,
       loginAuthPillCleanToMark 900ms cubic-bezier(0.2, 0.86, 0.2, 1) 4700ms forwards !important;
   }
 
@@ -11963,6 +11967,7 @@ html[data-theme="tabler"] .login-card__stat {
       width: 72px;
       height: 72px;
       min-height: 72px;
+      transform: translate3d(0, 0, 0) scale(1);
       border-radius: 22px;
       background:
         radial-gradient(circle at 38% 22%, rgba(255, 255, 255, 0.28), transparent 34%),

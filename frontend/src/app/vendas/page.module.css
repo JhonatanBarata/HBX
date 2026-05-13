@@ -42,114 +42,218 @@
     padding: 4px 4px 0;
   }
 
-  .mobileRadarSalesStatus {
+  .mobileRadarMotorStatus {
+    position: relative;
     display: grid;
-    grid-template-columns: 54px minmax(0, 1fr) auto;
+    grid-template-columns: 62px 1px minmax(0, 1fr);
     align-items: center;
-    gap: 12px;
-    min-height: 72px;
-    padding: 10px 12px;
-    border: 1px solid rgba(194, 211, 238, 0.82);
-    border-radius: 20px;
+    gap: 15px;
+    min-height: 96px;
+    padding: 13px 16px 13px 13px;
+    border: 1px solid rgba(86, 255, 151, 0.26);
+    border-radius: 28px;
     background:
-      radial-gradient(circle at 7% 0%, rgba(37, 107, 255, 0.18), transparent 34%),
-      linear-gradient(135deg, rgba(255, 255, 255, 0.96), rgba(236, 245, 255, 0.84));
-    color: #08143a;
+      radial-gradient(circle at 17% 52%, rgba(86, 255, 151, 0.22), transparent 28%),
+      linear-gradient(135deg, rgba(8, 21, 22, 0.98), rgba(4, 11, 18, 0.96));
+    color: #70ff9b;
     text-decoration: none;
     box-shadow:
-      0 22px 44px -28px rgba(20, 53, 111, 0.52),
-      inset 0 1px 0 rgba(255, 255, 255, 0.96);
+      0 22px 46px -24px rgba(23, 219, 112, 0.72),
+      inset 0 1px 0 rgba(255, 255, 255, 0.1),
+      inset 0 0 0 1px rgba(112, 255, 155, 0.08);
+    transition:
+      border-color 220ms ease,
+      box-shadow 220ms ease,
+      background 220ms ease,
+      color 220ms ease;
+    overflow: hidden;
+    isolation: isolate;
   }
 
-  .mobileRadarSalesOrb {
-    position: relative;
-    display: grid;
-    width: 48px;
-    height: 48px;
-    place-items: center;
-    border-radius: 16px;
-    background:
-      conic-gradient(from 210deg, #2d66ff, #35d7ff, #14c986, #2d66ff);
-    box-shadow:
-      0 16px 28px -18px rgba(37, 96, 255, 0.9),
-      inset 0 0 0 1px rgba(255, 255, 255, 0.72);
-  }
-
-  .mobileRadarSalesOrb::before {
+  .mobileRadarMotorStatus::after {
     content: "";
     position: absolute;
-    inset: 8px;
-    border-radius: 999px;
-    background: #f8fbff;
-    box-shadow: inset 0 0 0 1px rgba(36, 96, 255, 0.12);
+    inset: 9px 12px auto auto;
+    width: 54px;
+    height: 22px;
+    border-top: 1px solid color-mix(in srgb, currentColor 28%, transparent);
+    border-right: 1px solid color-mix(in srgb, currentColor 20%, transparent);
+    border-radius: 0 18px 0 0;
+    opacity: 0.72;
+    pointer-events: none;
   }
 
-  .mobileRadarSalesOrb i {
+  .mobileRadarMotorStatus[data-state="searching"] {
+    border-color: rgba(82, 190, 255, 0.34);
+    background:
+      radial-gradient(circle at 17% 52%, rgba(82, 190, 255, 0.22), transparent 30%),
+      linear-gradient(135deg, rgba(5, 20, 34, 0.98), rgba(4, 11, 18, 0.96));
+    color: #58c8ff;
+    box-shadow:
+      0 22px 46px -24px rgba(82, 190, 255, 0.68),
+      inset 0 1px 0 rgba(255, 255, 255, 0.1),
+      inset 0 0 0 1px rgba(82, 190, 255, 0.08);
+  }
+
+  .mobileRadarMotorStatus[data-state="received"] {
+    border-color: rgba(75, 244, 224, 0.34);
+    background:
+      radial-gradient(circle at 17% 52%, rgba(75, 244, 224, 0.22), transparent 30%),
+      linear-gradient(135deg, rgba(4, 30, 31, 0.98), rgba(4, 11, 18, 0.96));
+    color: #62fff0;
+    box-shadow:
+      0 22px 46px -24px rgba(75, 244, 224, 0.68),
+      inset 0 1px 0 rgba(255, 255, 255, 0.1),
+      inset 0 0 0 1px rgba(75, 244, 224, 0.08);
+  }
+
+  .mobileRadarMotorStatus[data-state="receiving"] {
+    border-color: rgba(75, 244, 224, 0.38);
+    background:
+      radial-gradient(circle at 17% 52%, rgba(75, 244, 224, 0.24), transparent 30%),
+      linear-gradient(135deg, rgba(4, 30, 31, 0.98), rgba(4, 11, 18, 0.96));
+    color: #62fff0;
+    box-shadow:
+      0 24px 52px -24px rgba(75, 244, 224, 0.72),
+      inset 0 1px 0 rgba(255, 255, 255, 0.1),
+      inset 0 0 0 1px rgba(75, 244, 224, 0.08);
+  }
+
+  .mobileRadarMotorStatus[data-state="partial"],
+  .mobileRadarMotorStatus[data-state="warning"] {
+    border-color: rgba(255, 205, 92, 0.34);
+    background:
+      radial-gradient(circle at 17% 52%, rgba(255, 205, 92, 0.2), transparent 30%),
+      linear-gradient(135deg, rgba(35, 26, 7, 0.98), rgba(4, 11, 18, 0.96));
+    color: #ffd36c;
+    box-shadow:
+      0 22px 46px -24px rgba(255, 183, 66, 0.64),
+      inset 0 1px 0 rgba(255, 255, 255, 0.1),
+      inset 0 0 0 1px rgba(255, 205, 92, 0.08);
+  }
+
+  .mobileRadarMotorIcon {
     position: relative;
-    z-index: 1;
-    width: 11px;
-    height: 11px;
-    border-radius: 999px;
-    background: #18d38a;
-    box-shadow: 0 0 0 7px rgba(24, 211, 138, 0.16);
-  }
-
-  .mobileRadarSalesStatus[data-state="active"] .mobileRadarSalesOrb i {
-    background: #2871ff;
-    box-shadow: 0 0 0 7px rgba(40, 113, 255, 0.18);
-  }
-
-  .mobileRadarSalesStatus[data-state="full"] .mobileRadarSalesOrb {
-    background: conic-gradient(from 210deg, #ef2e55, #ff8aa0, #315cff, #ef2e55);
-  }
-
-  .mobileRadarSalesStatus[data-state="full"] .mobileRadarSalesOrb i {
-    background: #ef2e55;
-    box-shadow: 0 0 0 7px rgba(239, 46, 85, 0.16);
-  }
-
-  .mobileRadarSalesCopy {
     display: grid;
-    gap: 2px;
-    min-width: 0;
-  }
-
-  .mobileRadarSalesCopy small,
-  .mobileRadarSalesCopy em {
-    overflow: hidden;
-    color: #61708e;
-    font-size: 0.66rem;
-    font-style: normal;
-    font-weight: 850;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .mobileRadarSalesCopy strong {
-    overflow: hidden;
-    color: #08143a;
-    font-size: 0.98rem;
-    font-weight: 950;
-    line-height: 1.08;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .mobileRadarSalesStatus b {
-    display: inline-grid;
-    min-width: 46px;
-    min-height: 32px;
+    width: 58px;
+    height: 58px;
     place-items: center;
     border-radius: 999px;
-    background: rgba(37, 99, 235, 0.1);
-    color: #1d5cf2;
-    font-size: 0.78rem;
-    font-weight: 950;
+    background:
+      radial-gradient(circle at 50% 50%, rgba(112, 255, 155, 0.18), transparent 58%),
+      rgba(112, 255, 155, 0.07);
+    box-shadow:
+      inset 0 0 0 1px rgba(112, 255, 155, 0.14),
+      0 0 28px rgba(112, 255, 155, 0.16);
+    animation: mobileRadarMotorMorph 360ms ease both;
   }
 
-  .mobileRadarSalesStatus[data-state="full"] b {
-    background: rgba(239, 46, 85, 0.1);
-    color: #df2448;
+  .mobileRadarMotorIcon::before {
+    content: "";
+    position: absolute;
+    inset: 7px;
+    border-radius: 999px;
+    border: 4px solid currentColor;
+    opacity: 0.92;
+  }
+
+  .mobileRadarMotorIcon svg,
+  .mobileRadarMotorIcon i {
+    position: relative;
+    z-index: 1;
+  }
+
+  .mobileRadarMotorIcon svg {
+    width: 31px;
+    height: 31px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2.8;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    filter: drop-shadow(0 0 9px color-mix(in srgb, currentColor 68%, transparent));
+  }
+
+  .mobileRadarMotorIcon i {
+    width: 35px;
+    height: 35px;
+    border-radius: 999px;
+    border: 5px dotted currentColor;
+    animation: mobileRadarMotorSpin 980ms linear infinite;
+    filter: drop-shadow(0 0 8px rgba(82, 190, 255, 0.75));
+  }
+
+  .mobileRadarMotorStatus[data-state="searching"] .mobileRadarMotorIcon {
+    background:
+      radial-gradient(circle at 50% 50%, rgba(82, 190, 255, 0.18), transparent 58%),
+      rgba(82, 190, 255, 0.07);
+    box-shadow:
+      inset 0 0 0 1px rgba(82, 190, 255, 0.14),
+      0 0 28px rgba(82, 190, 255, 0.16);
+  }
+
+  .mobileRadarMotorStatus[data-state="searching"] .mobileRadarMotorIcon::before {
+    opacity: 0.16;
+  }
+
+  .mobileRadarMotorStatus[data-state="received"] .mobileRadarMotorIcon {
+    background:
+      radial-gradient(circle at 50% 50%, rgba(75, 244, 224, 0.18), transparent 58%),
+      rgba(75, 244, 224, 0.07);
+    box-shadow:
+      inset 0 0 0 1px rgba(75, 244, 224, 0.14),
+      0 0 28px rgba(75, 244, 224, 0.16);
+  }
+
+  .mobileRadarMotorStatus[data-state="receiving"] .mobileRadarMotorIcon {
+    background:
+      radial-gradient(circle at 50% 50%, rgba(75, 244, 224, 0.2), transparent 58%),
+      rgba(75, 244, 224, 0.08);
+    box-shadow:
+      inset 0 0 0 1px rgba(75, 244, 224, 0.16),
+      0 0 30px rgba(75, 244, 224, 0.2);
+  }
+
+  .mobileRadarMotorStatus[data-state="partial"] .mobileRadarMotorIcon,
+  .mobileRadarMotorStatus[data-state="warning"] .mobileRadarMotorIcon {
+    background:
+      radial-gradient(circle at 50% 50%, rgba(255, 205, 92, 0.18), transparent 58%),
+      rgba(255, 205, 92, 0.08);
+    box-shadow:
+      inset 0 0 0 1px rgba(255, 205, 92, 0.14),
+      0 0 28px rgba(255, 205, 92, 0.16);
+  }
+
+  .mobileRadarMotorDivider {
+    width: 1px;
+    height: 48px;
+    background: color-mix(in srgb, currentColor 34%, transparent);
+    box-shadow: 0 0 18px color-mix(in srgb, currentColor 26%, transparent);
+  }
+
+  .mobileRadarMotorCopy {
+    display: grid;
+    gap: 3px;
+    min-width: 0;
+    animation: mobileRadarCopyMorph 280ms ease both;
+  }
+
+  .mobileRadarMotorCopy small,
+  .mobileRadarMotorCopy em {
+    color: rgba(219, 238, 255, 0.56);
+    font-size: 0.66rem;
+    font-style: normal;
+    font-weight: 780;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
+  .mobileRadarMotorCopy strong {
+    color: currentColor;
+    font-size: clamp(1.22rem, 6.2vw, 1.82rem);
+    font-weight: 950;
+    line-height: 1.02;
+    text-shadow: 0 0 18px color-mix(in srgb, currentColor 38%, transparent);
   }
 
   .mobileVendasSearchRow > button {
@@ -684,6 +788,40 @@
 @keyframes mobileVendasSpin {
   to {
     transform: rotate(360deg);
+  }
+}
+
+@keyframes mobileRadarMotorSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes mobileRadarMotorMorph {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.88);
+    filter: blur(5px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    filter: blur(0);
+  }
+}
+
+@keyframes mobileRadarCopyMorph {
+  from {
+    opacity: 0;
+    transform: translateX(10px);
+    filter: blur(6px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(0);
+    filter: blur(0);
   }
 }
 

@@ -2221,6 +2221,17 @@ const HBX_TOPBAR_POLISH_CSS = `
   html[data-theme-mode="dark"] .hbx-control-navMode span {
     color: color-mix(in srgb, var(--button-success, #22c55e) 74%, #ffffff) !important;
   }
+
+  @media (max-width: 768px) {
+    .app-topbar[data-mobile-fullscreen-route="true"],
+    .app-topbar[data-mobile-fullscreen-route="true"] .app-topbar__frame,
+    .app-topbar[data-mobile-fullscreen-route="true"] .hbx-mobile-quicknav {
+      display: none !important;
+      visibility: hidden !important;
+      opacity: 0 !important;
+      pointer-events: none !important;
+    }
+  }
 `;
 
 
@@ -2644,6 +2655,7 @@ export default function TopBar() {
   const isVendasRoute = Boolean(pathname?.startsWith("/vendas") || pathname?.startsWith("/dashboard/vendas"));
   const isAtendimentoRoute = Boolean(pathname?.startsWith("/atendimento") || pathname?.startsWith("/dashboard/atendimento"));
   const isRadarDigitalRoute = Boolean(pathname?.startsWith("/radar-digital") || pathname?.startsWith("/dashboard/radar-digital"));
+  const isMobileFullscreenRoute = isVendasRoute || isRadarDigitalRoute;
   const hasWhatsAppLiveContext = Boolean(authenticated === true && !pendingCheckoutLocked && !isMasterWebscrapingRoute && (user?.company?.id || user?.masterContext?.active));
   const whatsAppLiveHealth = useWhatsAppLiveHealth({
     enabled: hasWhatsAppLiveContext,
@@ -5145,7 +5157,10 @@ export default function TopBar() {
   }
 
   return (
-    <header className={`app-topbar${topbarHiddenByScroll ? " app-topbar--hidden" : ""}`}>
+    <header
+      className={`app-topbar${topbarHiddenByScroll ? " app-topbar--hidden" : ""}`}
+      data-mobile-fullscreen-route={isMobileFullscreenRoute ? "true" : "false"}
+    >
       <style>{HBX_TOPBAR_POLISH_CSS}</style>
       <div ref={topbarFrameRef} className="app-topbar__frame">
         <div

@@ -30,8 +30,18 @@ import LiquidGlassCard, {
 } from "@/components/LiquidGlassCard";
 import { useQuickLaunchNotice } from "@/components/useQuickLaunchNotice";
 import { apiFetch } from "@/app/_lib/api";
+import { startSmartPolling } from "@/app/_lib/polling";
 import { useRequireModule } from "@/app/_lib/useRequireModule";
 import { HBX_WINDOW_STANDARD } from "@/lib/hbx-window-system";
+import {
+  clearStoredRadarRun,
+  formatPtBrReceivedCards,
+  isTerminalRadarRunStatus,
+  readStoredRadarRun,
+  saveStoredRadarRun,
+  subscribeStoredRadarRun,
+  type StoredRadarRun,
+} from "@/lib/radar-active-run";
 import {
   clearTopbarProgress,
   dispatchTopbarProgress,
@@ -43,6 +53,33 @@ type LeadBlockKey = "today" | "overdue" | "scheduled" | "closed";
 type DateFilterKey = "overdue" | "today" | `scheduled:${string}`;
 type WhatsappFilter = "all" | "with" | "without";
 type InboxFilter = "all" | "in" | "out";
+type RadarSearchRunStatus =
+  | "queued"
+  | "running"
+  | "completed"
+  | "partial_error"
+  | "completed_insufficient_results"
+  | "failed"
+  | "canceled";
+type RadarSearchRunResponse = {
+  id: string;
+  runId: string;
+  status: RadarSearchRunStatus;
+  targetQuantity: number;
+  foundCount: number;
+  message?: string | null;
+  meta?: {
+    requestedQuantity?: number;
+    deliveredCount?: number;
+    progress?: number;
+    terminal?: boolean;
+    filters?: {
+      state?: string | null;
+      city?: string | null;
+      segment?: string | null;
+    };
+  };
+};
 type LeadTimelineEventType =
   | "lead_created"
   | "origin_registered"
@@ -1394,6 +1431,8 @@ export default function VendasClientPage() {
   const [bulkSelectAllAccount, setBulkSelectAllAccount] = useState(false);
   const [bulkDeleting, setBulkDeleting] = useState(false);
   const [vendasVisualCount, setVendasVisualCount] = useState(0);
+  const [storedRadarRun, setStoredRadarRun] = useState<StoredRadarRun | null>(null);
+  const [liveRadarRun, setLiveRadarRun] = useState<RadarSearchRunResponse | null>(null);
   const [selectedDateKey, setSelectedDateKey] =
     useState<DateFilterKey>("today");
   const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null);
@@ -1473,6 +1512,60 @@ export default function VendasClientPage() {
       setLoading(false);
     }
   }
+
+  useEffect(() => {
+    const syncStoredRun = () => setStoredRadarRun(readStoredRadarRun());
+    syncStoredRun();
+    return subscribeStoredRadarRun(syncStoredRun);
+  }, []);
+
+  useEffect(() => {
+    if (hasToken !== true) return undefined;
+    const runId = storedRadarRun?.runId;
+    if (!runId) {
+      setLiveRadarRun(null);
+      return undefined;
+    }
+    const activeRunId = runId;
+
+    async function refreshRadarRun() {
+      const payload = await apiFetch<RadarSearchRunResponse>(`/webscraping/radar/search-runs/${encodeURIComponent(activeRunId)}`, {
+        requireAuth: true,
+        timeoutMs: 15000,
+      });
+      setLiveRadarRun(payload);
+      if (payload.status === "canceled") {
+        clearStoredRadarRun(activeRunId);
+        return;
+      }
+      saveStoredRadarRun({
+        runId: payload.runId || payload.id,
+        status: payload.status,
+        city: payload.meta?.filters?.city || storedRadarRun?.city || null,
+        state: payload.meta?.filters?.state || storedRadarRun?.state || null,
+        segment: payload.meta?.filters?.segment || storedRadarRun?.segment || null,
+        targetQuantity: Number(payload.targetQuantity || payload.meta?.requestedQuantity || storedRadarRun?.targetQuantity || 0) || null,
+        deliveredCount: Number(payload.meta?.deliveredCount || payload.foundCount || storedRadarRun?.deliveredCount || 0) || 0,
+      });
+    }
+
+    if (isTerminalRadarRunStatus(storedRadarRun?.status)) {
+      void refreshRadarRun().catch(() => null);
+      return undefined;
+    }
+
+    return startSmartPolling(async () => {
+      try {
+        await refreshRadarRun();
+      } catch {
+        // keep the last visible Radar status if one poll fails
+      }
+    }, {
+      intervalMs: 2200,
+      immediate: true,
+      pauseWhenHidden: false,
+    });
+  }, [hasToken, storedRadarRun?.city, storedRadarRun?.deliveredCount, storedRadarRun?.runId, storedRadarRun?.segment, storedRadarRun?.state, storedRadarRun?.status, storedRadarRun?.targetQuantity]);
 
   const openInboxAgenda = useCallback(
     (conversationId?: string | number | null) => {
@@ -2109,32 +2202,85 @@ export default function VendasClientPage() {
       0,
       (board?.summary.overdue || 0) + (board?.summary.today || 0) + (board?.summary.scheduled || 0),
     );
-    const mobileRadarState = mobilePendingCount >= 40 ? "full" : mobilePendingCount > 0 ? "active" : "ready";
+    const radarRunStatus = String(liveRadarRun?.status || storedRadarRun?.status || "");
+    const radarRunDelivered = Math.max(
+      0,
+      Number(liveRadarRun?.meta?.deliveredCount || liveRadarRun?.foundCount || storedRadarRun?.deliveredCount || 0),
+    );
+    const radarRunTarget = Math.max(1, Number(liveRadarRun?.targetQuantity || liveRadarRun?.meta?.requestedQuantity || storedRadarRun?.targetQuantity || 1));
+    const radarRunTerminal = isTerminalRadarRunStatus(radarRunStatus);
+    const radarRunActive = Boolean((liveRadarRun?.runId || storedRadarRun?.runId) && !radarRunTerminal);
+    const mobileRadarState =
+      radarRunStatus === "failed" ? "warning" :
+      radarRunStatus === "completed_insufficient_results" || radarRunStatus === "partial_error" ? "partial" :
+      radarRunActive && radarRunDelivered > 0 ? "receiving" :
+      radarRunActive || loading ? "searching" :
+      radarRunDelivered > 0 || mobilePendingCount > 0 ? "received" :
+      "ready";
     const mobileRadarStatusLabel =
-      mobileRadarState === "full"
-        ? "40 cards recebidos"
-        : mobileRadarState === "active"
-          ? `${mobilePendingCount} cards recebidos`
-          : "Motor OK";
+      mobileRadarState === "searching"
+        ? "Pesquisando leads"
+        : mobileRadarState === "receiving"
+          ? formatPtBrReceivedCards(radarRunDelivered)
+          : mobileRadarState === "partial"
+            ? formatPtBrReceivedCards(Math.max(radarRunDelivered, mobilePendingCount))
+            : mobileRadarState === "warning"
+              ? "Radar precisa de ajuste"
+              : mobileRadarState === "received"
+                ? formatPtBrReceivedCards(Math.max(radarRunDelivered, mobilePendingCount))
+                : "Motor pronto";
     const mobileRadarStatusText =
-      mobileRadarState === "full"
-        ? "Finalize ou delete"
-        : mobileRadarState === "active"
-          ? "Radar alimentando Vendas"
-          : "Buscar leads";
+      mobileRadarState === "searching"
+        ? "Motores cruzando dados"
+        : mobileRadarState === "receiving"
+          ? `${Math.min(radarRunDelivered, radarRunTarget)} de ${radarRunTarget} no alvo`
+          : mobileRadarState === "partial"
+            ? "Busca parcial, revise Vendas"
+            : mobileRadarState === "warning"
+              ? "Abra o Radar para revisar"
+              : mobileRadarState === "received"
+                ? mobilePendingCount >= 40
+            ? "Finalize ou delete para liberar"
+            : "Radar alimentou o Vendas"
+                : "Radar pronto para buscar";
     return (
       <section className={styles.mobileVendasShell} aria-label="Vendas mobile">
         <header className={styles.mobileVendasHeader}>
-          <a className={styles.mobileRadarSalesStatus} data-state={mobileRadarState} href="/radar-digital" aria-label="Abrir Radar Digital">
-            <span className={styles.mobileRadarSalesOrb} aria-hidden="true">
-              <i />
+          <a className={styles.mobileRadarMotorStatus} data-state={mobileRadarState} href="/radar-digital" aria-label="Abrir Radar Digital">
+            <span key={mobileRadarState} className={styles.mobileRadarMotorIcon} aria-hidden="true">
+              {mobileRadarState === "ready" ? (
+                <svg viewBox="0 0 24 24">
+                  <path d="M20 6 9 17l-5-5" />
+                </svg>
+              ) : mobileRadarState === "searching" ? (
+                <i />
+              ) : mobileRadarState === "receiving" ? (
+                <svg viewBox="0 0 24 24">
+                  <path d="M7 7h10" />
+                  <path d="M7 12h7" />
+                  <path d="M7 17h4" />
+                  <path d="m15 14 3 3 3-3" />
+                </svg>
+              ) : mobileRadarState === "partial" || mobileRadarState === "warning" ? (
+                <svg viewBox="0 0 24 24">
+                  <path d="M12 4 3 20h18L12 4Z" />
+                  <path d="M12 9v5" />
+                  <path d="M12 17h.01" />
+                </svg>
+              ) : (
+                <svg viewBox="0 0 24 24">
+                  <path d="M13 5h6v14h-6" />
+                  <path d="M5 12h12" />
+                  <path d="m13 8 4 4-4 4" />
+                </svg>
+              )}
             </span>
-            <span className={styles.mobileRadarSalesCopy}>
-              <small>Radar Digital</small>
+            <span className={styles.mobileRadarMotorDivider} aria-hidden="true" />
+            <span key={`${mobileRadarState}:copy`} className={styles.mobileRadarMotorCopy}>
+              <small>Status do motor - Radar Digital</small>
               <strong>{mobileRadarStatusLabel}</strong>
               <em>{mobileRadarStatusText}</em>
             </span>
-            <b>{Math.min(mobilePendingCount, 40)}/40</b>
           </a>
         </header>
 
