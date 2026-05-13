@@ -173,7 +173,7 @@ function resolveWelcomeStep(state: WelcomeState, mobileViewport: boolean, tutori
       title: "Entrada liberada",
       subtitle: "Abrindo seu módulo de vendas.",
       actionLabel: "Abrir Vendas",
-      path: "/vendas/automacao?tab=prospeccao&mode=mobile",
+      path: "/vendas",
       loadingText: "Motor conectado. Abrindo Vendas...",
     };
   }
