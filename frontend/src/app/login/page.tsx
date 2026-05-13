@@ -980,7 +980,7 @@ export default function LoginPage() {
   return (
     <main
       ref={stageRef}
-      className="login-stage"
+      className="login-stage relative min-h-[100svh] overflow-y-auto px-6 py-8 supports-[height:100dvh]:min-h-[100dvh] md:min-h-screen md:overflow-hidden"
       data-login-surface={isMobileLoginSurface ? "hbx-mobile" : undefined}
       data-login-theme={selection.themeId}
       data-login-mode={selection.mode}
@@ -1154,14 +1154,23 @@ export default function LoginPage() {
           </header>
 
           {mode === "login" ? (
-            <form onSubmit={handleLogin} className="login-form">
+            <div
+              className="
+                mx-auto flex w-full max-w-[320px] flex-col
+                gap-4
+                pb-[calc(env(safe-area-inset-bottom)+24px)]
+                pt-[calc(env(safe-area-inset-top)+18px)]
+                md:max-w-none md:gap-6 md:pb-0 md:pt-0
+              "
+            >
+              <form onSubmit={handleLogin} className="login-form">
               <div className="login-field">
                 <label className="login-label" htmlFor="login-username">
                   E-mail
                 </label>
                 <input
                   id="login-username"
-                  className="input"
+                  className="input h-12"
                   value={username}
                   onChange={(event) => {
                     setUsername(event.target.value);
@@ -1182,7 +1191,7 @@ export default function LoginPage() {
                 <input
                   id="login-password"
                   type="password"
-                  className="input"
+                  className="input h-12"
                   value={password}
                   onChange={(event) => {
                     setPassword(event.target.value);
@@ -1337,7 +1346,7 @@ export default function LoginPage() {
                       }
                     : undefined
                 }
-                className={`btn ${
+                className={`btn h-12 ${
                   preRegistered ? "btn-secondary" : "btn-primary"
                 } login-button ${isWakingServer ? "opacity-75" : ""} ${
                   shouldUseInlineAuthSuccess ? "btn-auth-success" : ""
@@ -1364,12 +1373,14 @@ export default function LoginPage() {
                 )}
               </button>
 
-              <div className="login-socialDivider" aria-hidden="true">
-                <span>ou</span>
+              <div className="my-2 flex w-full items-center gap-3 text-xs font-bold text-slate-300">
+                <div className="h-px flex-1 bg-white/15" />
+                <span className="shrink-0 leading-none">ou</span>
+                <div className="h-px flex-1 bg-white/15" />
               </div>
 
               <a
-                className="login-whatsappButton"
+                className="flex h-12 w-full items-center justify-center gap-2 rounded-xl border border-white/15 bg-white/[0.03] text-sm font-bold text-white"
                 href={supportWhatsAppUrl}
                 target="_blank"
                 rel="noreferrer"
@@ -1394,7 +1405,8 @@ export default function LoginPage() {
               <p className="login-mobileTerms">
                 Ao entrar, você concorda com nossos <a href="/termos">Termos de Uso</a> e <a href="/privacidade">Política de Privacidade</a>.
               </p>
-            </form>
+              </form>
+            </div>
           ) : (
             <form onSubmit={handleRecoverByEmail} className="login-form">
               <p className="login-card__copy login-card__copy--compact">
@@ -1407,7 +1419,7 @@ export default function LoginPage() {
                 </label>
                 <input
                   id="recovery-email"
-                  className="input"
+                  className="input h-12"
                   value={recoveryEmail}
                   onChange={(event) => setRecoveryEmail(event.target.value)}
                   placeholder="email@exemplo.com"
@@ -1428,13 +1440,13 @@ export default function LoginPage() {
                 </div>
               ) : null}
 
-              <button disabled={isSubmitting} className="btn btn-primary login-button">
+              <button disabled={isSubmitting} className="btn h-12 btn-primary login-button">
                 {isSubmitting ? "Enviando..." : "Enviar link de recuperação"}
               </button>
 
               <button
                 type="button"
-                className="btn btn-secondary login-button"
+                className="btn h-12 btn-secondary login-button"
                 onClick={() => {
                   setError(null);
                   setInfo(null);
