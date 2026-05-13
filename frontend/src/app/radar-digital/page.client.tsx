@@ -14,7 +14,7 @@ import {
   type HbxAdvancedFiltersValue,
   type HbxTargetTypeValue,
 } from "@/components/prospecting-filters";
-import { apiFetch, type ApiFetchError } from "@/app/_lib/api";
+import { apiFetch, clearToken, type ApiFetchError } from "@/app/_lib/api";
 import { startSmartPolling } from "@/app/_lib/polling";
 import { useRequireModule } from "@/app/_lib/useRequireModule";
 import { clearTopbarProgress, dispatchTopbarProgress } from "@/lib/topbar-progress";
@@ -398,6 +398,7 @@ export default function RadarDigitalClientPage() {
   const [mobilePicker, setMobilePicker] = useState<MobilePickerType | null>(null);
   const [mobilePickerSearch, setMobilePickerSearch] = useState("");
   const [mobilePickerSearchOpen, setMobilePickerSearchOpen] = useState(false);
+  const [mobileModuleMenuOpen, setMobileModuleMenuOpen] = useState(false);
   const [mobileAutoImportPending, setMobileAutoImportPending] = useState(false);
   const [mobileRadarDone, setMobileRadarDone] = useState(false);
   const [availableFilters, setAvailableFilters] = useState<RadarAvailableFilters>({
@@ -1021,6 +1022,17 @@ export default function RadarDigitalClientPage() {
     setMobilePicker(null);
     setMobilePickerSearchOpen(false);
   }
+  async function handleMobileLogout() {
+    try {
+      await apiFetch("/auth/logout", {
+        method: "POST",
+        requireAuth: true,
+      });
+    } finally {
+      clearToken();
+      window.location.href = "/login";
+    }
+  }
   const mobileRadarProcessing = searching || Boolean(activeRun) || bulkSending || mobileAutoImportPending;
   const mobileRadarProgress = activeRun
     ? activeRunProgress
@@ -1053,7 +1065,7 @@ export default function RadarDigitalClientPage() {
               <header className={styles.mobileRadarHero}>
                 <button type="button" aria-label="Voltar" onClick={() => window.history.back()}>‹</button>
                 <div className={styles.mobileRadarMark} aria-hidden />
-                <button type="button" aria-label="Limpar filtros" onClick={() => setFilters((current) => ({ ...current, state: "", city: "", segment: "" }))}>⌁</button>
+                <button type="button" aria-label="Abrir módulos" onClick={() => setMobileModuleMenuOpen(true)}>⌁</button>
                 <span>Radar Digital</span>
                 <strong>Conte para o Radar quais leads você precisa</strong>
                 <p>Defina seu público-alvo e deixe o HBX trabalhar para você.</p>
@@ -1171,6 +1183,19 @@ export default function RadarDigitalClientPage() {
                     </button>
                   ))}
                 </div>
+              </div>
+            </div>
+          ) : null}
+          {mobileModuleMenuOpen ? (
+            <div className={styles.mobileModuleMenuPanel} role="dialog" aria-modal="true" aria-label="Módulos">
+              <div className={styles.mobileModuleMenu}>
+                <div className={styles.mobileModuleMenuHeader}>
+                  <strong>Módulos</strong>
+                  <button type="button" onClick={() => setMobileModuleMenuOpen(false)}>Fechar</button>
+                </div>
+                <a href="/vendas">Vendas</a>
+                <a href="/radar-digital" aria-current="page">Radar</a>
+                <button type="button" onClick={handleMobileLogout}>Sair</button>
               </div>
             </div>
           ) : null}
