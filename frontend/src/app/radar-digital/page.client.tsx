@@ -397,6 +397,7 @@ export default function RadarDigitalClientPage() {
   const [error, setError] = useState<string | null>(null);
   const [mobilePicker, setMobilePicker] = useState<MobilePickerType | null>(null);
   const [mobilePickerSearch, setMobilePickerSearch] = useState("");
+  const [mobilePickerSearchOpen, setMobilePickerSearchOpen] = useState(false);
   const [mobileAutoImportPending, setMobileAutoImportPending] = useState(false);
   const [mobileRadarDone, setMobileRadarDone] = useState(false);
   const [availableFilters, setAvailableFilters] = useState<RadarAvailableFilters>({
@@ -1002,11 +1003,12 @@ export default function RadarDigitalClientPage() {
     mobilePicker === "state" ? "Escolha o estado" :
     "";
   const filteredMobilePickerOptions = mobilePickerOptions.filter((item) =>
-    item.toLowerCase().includes(mobilePickerSearch.trim().toLowerCase()),
+    !mobilePickerSearchOpen || item.toLowerCase().includes(mobilePickerSearch.trim().toLowerCase()),
   );
   function openMobilePicker(type: MobilePickerType) {
     setMobilePicker(type);
     setMobilePickerSearch("");
+    setMobilePickerSearchOpen(false);
   }
   function mobileEngineLabel(value: string) {
     return value === "google" ? "Google" : "Motor HBX";
@@ -1017,6 +1019,7 @@ export default function RadarDigitalClientPage() {
     if (mobilePicker === "city") setFilters((current) => ({ ...current, city: value }));
     if (mobilePicker === "state") setFilters((current) => ({ ...current, state: value, city: "" }));
     setMobilePicker(null);
+    setMobilePickerSearchOpen(false);
   }
   const mobileRadarProcessing = searching || Boolean(activeRun) || bulkSending || mobileAutoImportPending;
   const mobileRadarProgress = activeRun
@@ -1148,14 +1151,19 @@ export default function RadarDigitalClientPage() {
               <div className={styles.mobilePickerSheet}>
                 <div className={styles.mobilePickerHeader}>
                   <strong>{mobilePickerTitle}</strong>
-                  <button type="button" onClick={() => setMobilePicker(null)}>Fechar</button>
+                  <div className={styles.mobilePickerActions}>
+                    <button type="button" onClick={() => setMobilePickerSearchOpen(true)}>Buscar</button>
+                    <button type="button" onClick={() => setMobilePicker(null)}>Fechar</button>
+                  </div>
                 </div>
-                <input
-                  value={mobilePickerSearch}
-                  onChange={(event) => setMobilePickerSearch(event.target.value)}
-                  placeholder="Buscar..."
-                  autoFocus
-                />
+                {mobilePickerSearchOpen ? (
+                  <input
+                    value={mobilePickerSearch}
+                    onChange={(event) => setMobilePickerSearch(event.target.value)}
+                    placeholder="Buscar..."
+                    autoFocus
+                  />
+                ) : null}
                 <div className={styles.mobilePickerList}>
                   {filteredMobilePickerOptions.map((option) => (
                     <button key={option} type="button" onClick={() => selectMobilePickerValue(option)}>

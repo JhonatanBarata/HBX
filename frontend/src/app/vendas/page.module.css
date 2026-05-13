@@ -429,13 +429,17 @@
   .mobileVendasSheetBackdrop {
     position: fixed;
     inset: 0;
-    z-index: 50;
+    z-index: 240;
     display: grid;
     align-items: end;
+    justify-items: stretch;
     background: linear-gradient(180deg, rgba(5, 18, 48, 0.05), rgba(5, 18, 48, 0.16));
   }
 
   .mobileVendasNoteSheet {
+    width: 100%;
+    max-height: min(78dvh, 560px);
+    overflow: auto;
     display: grid;
     gap: 12px;
     padding: 9px 16px max(18px, env(safe-area-inset-bottom));
