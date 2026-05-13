@@ -135,6 +135,13 @@ export class BulkDeleteVendasLeadsDto {
   all?: boolean;
 }
 
+export class ReportVendasLeadDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(600)
+  reason?: string;
+}
+
 export class ImportWebscrapingLeadItemDto {
   @IsOptional()
   @IsString()
