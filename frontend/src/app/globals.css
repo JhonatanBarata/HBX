@@ -10331,11 +10331,10 @@ html[data-theme="tabler"] .login-card__stat {
     --login-mobile-width: min(100%, calc(100vw - 56px), 320px);
     min-height: 100vh;
     min-height: 100dvh;
-    height: 100vh;
-    height: 100dvh;
+    height: auto;
     place-items: stretch center;
     padding: max(1.05rem, env(safe-area-inset-top)) 1.75rem calc(1.1rem + env(safe-area-inset-bottom));
-    overflow: hidden;
+    overflow: visible;
     background:
       radial-gradient(circle at 86% 20%, rgba(49, 182, 255, 0.14) 0 1px, transparent 2px),
       radial-gradient(circle at 17% 23%, rgba(78, 125, 255, 0.18) 0 2px, transparent 3px),
@@ -10352,8 +10351,10 @@ html[data-theme="tabler"] .login-card__stat {
   }
 
   body:has(.login-stage[data-login-surface="hbx-mobile"]) {
-    overflow: hidden;
+    overflow-x: hidden;
+    overflow-y: auto;
     background: #020a17 !important;
+    -webkit-overflow-scrolling: touch;
   }
 
   html:has(.login-stage[data-login-surface="hbx-mobile"]),
@@ -10362,6 +10363,7 @@ html[data-theme="tabler"] .login-card__stat {
     min-height: 100vh;
     min-height: 100dvh;
     background: #020a17 !important;
+    overflow: visible;
   }
 
   .login-stage[data-login-surface="hbx-mobile"]::before {
@@ -10556,7 +10558,7 @@ html[data-theme="tabler"] .login-card__stat {
     min-height: calc(100dvh - 2.15rem - env(safe-area-inset-top) - env(safe-area-inset-bottom));
     display: grid;
     align-content: start;
-    padding: clamp(1.65rem, 8vw, 2.55rem) clamp(1rem, 5.2vw, 1.25rem) 0 !important;
+    padding: clamp(1.65rem, 8vw, 2.55rem) clamp(1rem, 5.2vw, 1.25rem) calc(1.3rem + env(safe-area-inset-bottom)) !important;
     border: 0 !important;
     border-radius: 0;
     overflow: visible;
