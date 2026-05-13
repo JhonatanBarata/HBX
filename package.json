@@ -9,6 +9,11 @@
 		"up": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/start-all.ps1",
 		"down": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/stop-all.ps1",
 		"force": "node ./scripts/ops/force.js",
-		"verify:prod": "node ./scripts/verify-prod.js"
+		"verify:prod": "node ./scripts/verify-prod.js",
+		"test:e2e": "playwright test",
+		"test:e2e:ui": "playwright test --ui"
+	},
+	"devDependencies": {
+		"@playwright/test": "^1.60.0"
 	}
 }

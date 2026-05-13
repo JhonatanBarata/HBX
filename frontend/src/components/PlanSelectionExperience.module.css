@@ -1254,6 +1254,26 @@
     transform: translateY(15px);
     box-shadow: 0 -5px 0 -3px currentColor;
   }
+
+  .plansGrid[data-mode="signup"] .planCard[data-plan-key="hbx_melhor"] {
+    cursor: default !important;
+    background:
+      radial-gradient(circle at 12% 12%, color-mix(in srgb, var(--button-warning, #facc15) 16%, transparent), transparent 42%),
+      linear-gradient(180deg, color-mix(in srgb, var(--surface) 72%, transparent), color-mix(in srgb, var(--surface-soft) 86%, transparent)) !important;
+    opacity: 1 !important;
+  }
+
+  .plansGrid[data-mode="signup"] .planCard[data-plan-key="hbx_melhor"] .planTitle small,
+  .plansGrid[data-mode="signup"] .planCard[data-plan-key="hbx_melhor"] .planNote {
+    color: #ffd66b !important;
+  }
+
+  .plansGrid[data-mode="signup"] .planCard[data-plan-key="hbx_melhor"] .deniedMessage {
+    min-height: 0 !important;
+    border-color: rgba(255, 214, 107, 0.28) !important;
+    color: #ffe9aa !important;
+    background: rgba(78, 54, 8, 0.34) !important;
+  }
 }
 
 /* Mobile register plans must stay inside the viewport. */

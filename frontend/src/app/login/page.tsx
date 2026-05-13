@@ -1137,16 +1137,10 @@ export default function LoginPage() {
             </div>
             <h1 className="login-card__title text-6xl md:text-7xl">
               {mode === "login" && isMobileLoginSurface ? (
-                <>
-                  Automação que conecta. <span className="login-card__titleAccent">Inteligência que vende.</span>
-                </>
+                "Automação que conecta."
               ) : mode === "login" ? "Entrar no HBX" : "Recuperar acesso"}
             </h1>
-            {mode === "login" && isMobileLoginSurface ? (
-              <p className="login-card__copy login-card__copy--compact text-[28px] leading-[1.08] md:text-5xl">
-                Entre na sua conta para continuar.
-              </p>
-            ) : mode === "forgot" ? (
+            {mode === "forgot" ? (
               <p className="login-card__copy login-card__copy--compact text-[28px] leading-[1.08] md:text-5xl">
                 {"Informe o e-mail da conta para receber um link seguro de redefinição."}
               </p>
@@ -1226,6 +1220,15 @@ export default function LoginPage() {
                 >
                   Esqueci minha senha
                 </button>
+                {isMobileLoginSurface ? (
+                  <button
+                    type="button"
+                    className="login-signInHint"
+                    onClick={() => openRegisterWithTransition("form")}
+                  >
+                    Criar conta
+                  </button>
+                ) : null}
                 <button
                   type="button"
                   className="btn btn-secondary login-cta"

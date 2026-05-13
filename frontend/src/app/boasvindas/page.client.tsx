@@ -1,6 +1,6 @@
 "use client";
 
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { apiFetch } from "@/app/_lib/api";
 import { useRequireAuth } from "@/app/_lib/useRequireAuth";
@@ -194,6 +194,7 @@ function resolveWelcomeStep(state: WelcomeState, mobileViewport: boolean, tutori
 
 export default function BoasVindasClientPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const hasToken = useRequireAuth();
   const [leaving, setLeaving] = useState(false);
   const [masterCheckComplete, setMasterCheckComplete] = useState(false);
@@ -224,8 +225,19 @@ export default function BoasVindasClientPage() {
 
   const welcomeStep = resolveWelcomeStep(welcomeState, mobileViewport, tutorialCompleted);
   const welcomePhase = masterCheckComplete ? "ready" : "loading";
+  const reason = String(searchParams.get("reason") || "").trim().toLowerCase();
+  const billingReason = reason === "pending_checkout" || reason === "trial_expired" ? reason : null;
+  const billingHref = billingReason ? `/pagamento?focus=payment&reason=${encodeURIComponent(billingReason)}` : null;
+  const statusText = billingReason ? "Pagamento pendente" : "Assinatura confirmada";
 
   useEffect(() => {
+    if (hasToken !== true || !billingHref) return;
+    setLeaving(true);
+    router.replace(billingHref);
+  }, [billingHref, hasToken, router]);
+
+  useEffect(() => {
+    if (billingHref) return;
     if (hasToken !== true) return;
     let mounted = true;
 
@@ -290,7 +302,7 @@ export default function BoasVindasClientPage() {
     return () => {
       mounted = false;
     };
-  }, [hasToken, router]);
+  }, [billingHref, hasToken, router]);
 
   useEffect(() => {
     if (hasToken !== true || !mobileViewport || !masterCheckComplete || leaving) return undefined;
@@ -331,7 +343,7 @@ export default function BoasVindasClientPage() {
         data-welcome-path="loading"
       >
         <section className={styles.shell} aria-live="polite">
-          <span className={styles.statusBadge}>Assinatura confirmada</span>
+          <span className={styles.statusBadge}>{statusText}</span>
           <div className={styles.brandMark}>HBX</div>
           <p className={styles.loadingText}>{welcomeStep.loadingText}</p>
         </section>
@@ -348,7 +360,7 @@ export default function BoasVindasClientPage() {
       data-welcome-path={welcomeStep.kind}
     >
       <section className={`${styles.shell} ${leaving ? styles.shellLeaving : ""}`} aria-labelledby="welcome-title">
-        <span className={styles.statusBadge}>Assinatura confirmada</span>
+        <span className={styles.statusBadge}>{statusText}</span>
         <div className={styles.brandMark} aria-label="HBX">HBX</div>
 
         <h1 id="welcome-title" className={styles.title}>Seu centro de operação está pronto.</h1>

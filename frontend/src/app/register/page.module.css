@@ -1979,11 +1979,42 @@
   accent-color: #168bff;
 }
 
+.trialError {
+  margin-top: 12px;
+  border-color: rgba(239, 68, 68, 0.34) !important;
+  color: #7f1d1d !important;
+  background: linear-gradient(180deg, rgba(255, 241, 242, 0.96), rgba(255, 228, 230, 0.82)) !important;
+}
+
 .trialDialogActions {
   display: flex;
   justify-content: flex-end;
   gap: 10px;
   margin-top: 16px;
+}
+
+.desktopBackButton {
+  position: fixed;
+  top: 18px;
+  left: 18px;
+  z-index: 30;
+  display: inline-flex;
+  min-height: 36px;
+  align-items: center;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 999px;
+  padding: 0 14px;
+  color: rgba(255, 255, 255, 0.88);
+  background: rgba(5, 18, 42, 0.48);
+  box-shadow: 0 18px 44px -34px rgba(0, 0, 0, 0.8);
+  font-size: 0.82rem;
+  font-weight: 900;
+  text-decoration: none;
+  backdrop-filter: blur(14px);
+}
+
+.enterpriseSupportButton {
+  display: none;
 }
 
 @media (max-height: 820px) and (min-width: 981px) {
@@ -2029,6 +2060,10 @@
 }
 
 @media (max-width: 768px) {
+  .desktopBackButton {
+    display: none;
+  }
+
   :global(.login-stage).registerStage {
     box-sizing: border-box !important;
     min-height: 100svh !important;
@@ -2094,6 +2129,28 @@
     width: 100% !important;
     max-height: none !important;
   }
+
+  .enterpriseSupportButton {
+    display: inline-flex;
+    min-height: 48px;
+    width: 100%;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid rgba(36, 211, 238, 0.24);
+    border-radius: 16px;
+    padding: 0 14px;
+    color: #e9feff;
+    background:
+      radial-gradient(circle at 18% 50%, rgba(28, 206, 142, 0.24), transparent 34%),
+      linear-gradient(135deg, rgba(7, 34, 54, 0.96), rgba(10, 75, 73, 0.92));
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.11),
+      0 18px 44px -34px rgba(0, 255, 210, 0.9);
+    font-size: 0.9rem;
+    font-weight: 950;
+    text-align: center;
+    text-decoration: none;
+  }
 }
 
 /* Step split must win over the final viewport-fit overrides above. */
@@ -2149,5 +2206,126 @@
     overflow-wrap: anywhere !important;
     font-size: 1.34rem !important;
     line-height: 1.12 !important;
+  }
+}
+
+@media (max-width: 768px) {
+  :global(.login-stage[data-login-surface="hbx-mobile"]).registerStage {
+    --login-mobile-width: min(100%, calc(100vw - 48px), 330px);
+    max-height: none !important;
+    overflow-x: hidden !important;
+    overflow-y: auto !important;
+    place-items: start center !important;
+    padding: 18px 24px calc(116px + env(safe-area-inset-bottom)) !important;
+    background:
+      radial-gradient(circle at 50% 12%, rgba(27, 147, 255, 0.16), transparent 34%),
+      radial-gradient(circle at 86% 80%, rgba(24, 94, 255, 0.32), transparent 30%),
+      linear-gradient(180deg, #04182d 0%, #061326 46%, #07112a 100%) !important;
+  }
+
+  :global(.login-stage[data-login-surface="hbx-mobile"]).registerStage :global(.login-console).registerConsole {
+    width: var(--login-mobile-width) !important;
+    max-width: var(--login-mobile-width) !important;
+    margin: 0 auto !important;
+    align-items: start !important;
+    justify-items: stretch !important;
+  }
+
+  :global(.login-stage[data-login-surface="hbx-mobile"]).registerStage .registerCard {
+    width: 100% !important;
+    max-height: none !important;
+    padding: 18px 0 8px !important;
+    background: transparent !important;
+    box-shadow: none !important;
+  }
+
+  :global(.login-stage[data-login-surface="hbx-mobile"]).registerStage .registerCard :global(.login-card__header) {
+    justify-items: center !important;
+    margin-bottom: 18px !important;
+    text-align: center !important;
+  }
+
+  :global(.login-stage[data-login-surface="hbx-mobile"]).registerStage .registerCard :global(.login-card__brandBlock) {
+    display: grid !important;
+    grid-template-columns: 1fr !important;
+    width: 100% !important;
+    margin: 0 0 1.38rem !important;
+    justify-items: center !important;
+  }
+
+  :global(.login-stage[data-login-surface="hbx-mobile"]).registerStage .registerCard :global(.login-card__brandMark) {
+    width: 100% !important;
+    height: 92px !important;
+    border-radius: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+  }
+
+  :global(.login-stage[data-login-surface="hbx-mobile"]).registerStage .registerCard :global(.login-card__brandMarkCore) {
+    display: block !important;
+    white-space: nowrap !important;
+    font-size: clamp(4.2rem, 18vw, 5.2rem) !important;
+    font-weight: 950 !important;
+    letter-spacing: 0 !important;
+    line-height: 1 !important;
+    filter: drop-shadow(0 18px 34px rgba(9, 104, 255, 0.34)) !important;
+    background: linear-gradient(92deg, #ffffff 0%, #f8fbff 42%, #38d8ff 72%, #2d6bff 100%) !important;
+    -webkit-background-clip: text !important;
+    background-clip: text !important;
+    color: transparent !important;
+    -webkit-text-fill-color: transparent !important;
+  }
+
+  :global(.login-stage[data-login-surface="hbx-mobile"]).registerStage .registerCard :global(.login-card__title) {
+    max-width: 11ch !important;
+    color: #ffffff !important;
+    font-size: clamp(2.05rem, 10vw, 2.72rem) !important;
+    line-height: 1.04 !important;
+    text-align: center !important;
+    text-shadow: 0 18px 42px rgba(2, 132, 199, 0.28) !important;
+  }
+
+  :global(.login-stage[data-login-surface="hbx-mobile"]).registerStage .registerCard :global(.login-label) {
+    color: rgba(255, 255, 255, 0.94) !important;
+    font-size: 0.86rem !important;
+    font-weight: 950 !important;
+  }
+
+  :global(.login-stage[data-login-surface="hbx-mobile"]).registerStage .registerCard :global(.input) {
+    min-height: 54px !important;
+    border-color: rgba(158, 190, 255, 0.72) !important;
+    background:
+      linear-gradient(180deg, rgba(18, 38, 73, 0.9), rgba(9, 27, 58, 0.86)),
+      rgba(7, 20, 44, 0.82) !important;
+    color: #ffffff !important;
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.08),
+      0 16px 38px -30px rgba(40, 140, 255, 0.58) !important;
+    padding-left: 3.1rem !important;
+    padding-right: 3.1rem !important;
+  }
+
+  :global(.login-stage[data-login-surface="hbx-mobile"]).registerStage .registerCard :global(.input::placeholder) {
+    color: rgba(227, 238, 255, 0.78) !important;
+    -webkit-text-fill-color: rgba(227, 238, 255, 0.78) !important;
+  }
+
+  :global(.login-stage[data-login-surface="hbx-mobile"]).registerStage .fieldIcon,
+  :global(.login-stage[data-login-surface="hbx-mobile"]).registerStage .passwordToggle {
+    color: rgba(227, 238, 255, 0.76) !important;
+  }
+
+  :global(.login-stage[data-login-surface="hbx-mobile"]).registerStage .submitButton {
+    min-height: 58px !important;
+    border: 1px solid rgba(95, 215, 255, 0.48) !important;
+    border-radius: 18px !important;
+    background: linear-gradient(135deg, #2458ff 0%, #28c7ff 100%) !important;
+    color: #ffffff !important;
+    box-shadow: 0 22px 48px -24px rgba(31, 150, 255, 0.86) !important;
+  }
+
+  :global(.login-stage[data-login-surface="hbx-mobile"]).registerStage .trustStrip,
+  :global(body:has(.login-stage.registerStage[data-login-surface="hbx-mobile"]) .whatsapp-help[data-surface="register"]) {
+    display: none !important;
   }
 }

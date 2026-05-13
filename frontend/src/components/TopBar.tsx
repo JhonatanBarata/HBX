@@ -2655,7 +2655,8 @@ export default function TopBar() {
   const isVendasRoute = Boolean(pathname?.startsWith("/vendas") || pathname?.startsWith("/dashboard/vendas"));
   const isAtendimentoRoute = Boolean(pathname?.startsWith("/atendimento") || pathname?.startsWith("/dashboard/atendimento"));
   const isRadarDigitalRoute = Boolean(pathname?.startsWith("/radar-digital") || pathname?.startsWith("/dashboard/radar-digital"));
-  const isMobileFullscreenRoute = isVendasRoute || isRadarDigitalRoute;
+  const isPagamentoRoute = Boolean(pathname?.startsWith("/pagamento") || pathname?.startsWith("/dashboard/financeiro"));
+  const isMobileFullscreenRoute = isVendasRoute || isRadarDigitalRoute || isPagamentoRoute;
   const hasWhatsAppLiveContext = Boolean(authenticated === true && !pendingCheckoutLocked && !isMasterWebscrapingRoute && (user?.company?.id || user?.masterContext?.active));
   const whatsAppLiveHealth = useWhatsAppLiveHealth({
     enabled: hasWhatsAppLiveContext,
