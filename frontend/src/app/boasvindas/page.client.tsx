@@ -296,15 +296,14 @@ export default function BoasVindasClientPage() {
     if (hasToken !== true || !mobileViewport || !masterCheckComplete || leaving) return undefined;
     if (welcomeStep.kind !== "sales") return undefined;
 
-    let releaseTimeout: number | null = null;
+    const destination = welcomeStep.path;
     const timeout = window.setTimeout(() => {
       setLeaving(true);
-      releaseTimeout = window.setTimeout(() => router.replace(welcomeStep.path), PAGE_EXIT_MS);
+      window.setTimeout(() => router.replace(destination), PAGE_EXIT_MS);
     }, 1700);
 
     return () => {
       window.clearTimeout(timeout);
-      if (releaseTimeout !== null) window.clearTimeout(releaseTimeout);
     };
   }, [hasToken, leaving, masterCheckComplete, mobileViewport, router, welcomeStep.kind, welcomeStep.path]);
 
