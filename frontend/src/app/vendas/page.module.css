@@ -441,9 +441,13 @@
   }
 
   .mobileVendasNoteSheet {
-    width: min(100%, 360px);
-    max-height: min(78dvh, 560px);
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    width: min(calc(100vw - 32px), 360px);
+    max-height: min(calc(100dvh - 32px - env(safe-area-inset-top) - env(safe-area-inset-bottom)), 560px);
     overflow: auto;
+    transform: translate(-50%, -50%);
     display: grid;
     gap: 12px;
     padding: 18px 16px 16px;
@@ -786,6 +790,7 @@
   .mobileVendasNoteSheet {
     gap: 11px;
     padding: 18px 14px 16px;
+    max-height: min(calc(100dvh - 32px - env(safe-area-inset-top) - env(safe-area-inset-bottom)), 520px);
   }
 
   .mobileVendasNoteSheet textarea {
