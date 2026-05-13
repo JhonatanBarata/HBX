@@ -115,6 +115,14 @@ type RadarSearchRunResponse = RadarPullResponse & {
     runId?: string;
     nextRetryAt?: string | null;
     attemptCount?: number;
+    autoImport?: {
+      ran?: boolean;
+      importedCount?: number;
+      processedCount?: number;
+      pendingCount?: number | null;
+      remaining?: number | null;
+      blocked?: boolean;
+    } | null;
   };
 };
 
@@ -127,6 +135,15 @@ type ImportToVendasResponse = {
   updatedCount: number;
   skippedWithoutWhatsapp?: number;
   message?: string;
+};
+
+type VendasPendingSummary = {
+  ok?: boolean;
+  limit?: number;
+  pendingCount?: number;
+  remaining?: number;
+  blocked?: boolean;
+  message?: string | null;
 };
 
 type RadarFilterOption = {
@@ -393,6 +410,7 @@ export default function RadarDigitalClientPage() {
   const [radarVisualCount, setRadarVisualCount] = useState(0);
   const [activeRun, setActiveRun] = useState<RadarSearchRunResponse | null>(null);
   const [commercialPlans, setCommercialPlans] = useState<CommercialPlansPayload | null>(null);
+  const [vendasPending, setVendasPending] = useState<VendasPendingSummary | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [mobilePicker, setMobilePicker] = useState<MobilePickerType | null>(null);
@@ -440,6 +458,24 @@ export default function RadarDigitalClientPage() {
         if (!cancelled) setCommercialPlans(payload);
       })
       .catch(() => null);
+    return () => {
+      cancelled = true;
+    };
+  }, [hasToken]);
+
+  useEffect(() => {
+    if (hasToken !== true) return;
+    let cancelled = false;
+    apiFetch<VendasPendingSummary>("/vendas/pending-summary", {
+      requireAuth: true,
+      timeoutMs: 12000,
+    })
+      .then((payload) => {
+        if (!cancelled) setVendasPending(payload);
+      })
+      .catch(() => {
+        if (!cancelled) setVendasPending(null);
+      });
     return () => {
       cancelled = true;
     };
@@ -749,6 +785,9 @@ export default function RadarDigitalClientPage() {
       activeRunIdRef.current = null;
       setActiveRun(null);
       setSearching(false);
+      if (Number(payload.meta?.autoImport?.processedCount || payload.meta?.autoImport?.importedCount || 0) > 0 || nextItems.length > 0) {
+        setMobileRadarDone(true);
+      }
       setFeedback(payload.message || `${nextItems.length} card(s) entregues.`);
       return;
     }
@@ -780,7 +819,10 @@ export default function RadarDigitalClientPage() {
     });
   }, [activeRun?.id, activeRun?.runId, applyRadarRunPayload]);
 
-  async function runRadarSearch(whatsappCheckMode: RadarWhatsappCheckMode = "off") {
+  async function runRadarSearch(
+    whatsappCheckMode: RadarWhatsappCheckMode = "off",
+    options?: { quantityOverride?: number },
+  ) {
     setSearching(true);
     setError(null);
     setFeedback(null);
@@ -788,7 +830,10 @@ export default function RadarDigitalClientPage() {
     activeRunIdRef.current = null;
     setTelonProgress(12);
     setHasSearched(true);
-    const nextFilters = { ...effectiveFilters };
+    const nextFilters = {
+      ...effectiveFilters,
+      quantity: Math.max(1, Math.min(radarQuantityLimit, Number(options?.quantityOverride || effectiveFilters.quantity || 1))),
+    };
     const nextGeneralSearch = generalSearch.trim();
     if (hasPartialRadarSearch(nextFilters)) {
       setSearching(false);
@@ -991,6 +1036,10 @@ export default function RadarDigitalClientPage() {
         : []
   ).filter(Boolean);
   const mobileSegmentOptions = (availableSegments.length ? availableSegments.map((item) => item.value) : HBX_SEGMENT_SUGGESTIONS).filter(Boolean);
+  const mobileVendasLimit = Math.max(1, Number(vendasPending?.limit || 40));
+  const mobileVendasPendingCount = Math.max(0, Number(vendasPending?.pendingCount || 0));
+  const mobileVendasRemaining = Math.max(0, Number(vendasPending?.remaining ?? (mobileVendasLimit - mobileVendasPendingCount)));
+  const mobileVendasBlocked = Boolean(vendasPending?.blocked || mobileVendasPendingCount >= mobileVendasLimit);
   const mobilePickerOptions =
     mobilePicker === "engine" ? ["hbx", "google"] :
     mobilePicker === "segment" ? mobileSegmentOptions :
@@ -1049,7 +1098,7 @@ export default function RadarDigitalClientPage() {
     segment: Boolean(filters.segment.trim()),
     location: Boolean(filters.city.trim() && filters.state.trim()),
     search: hasSearched || searching || Boolean(activeRun) || visibleItems.length > 0,
-    vendas: mobileRadarDone || bulkSending,
+    vendas: mobileRadarDone || bulkSending || Number(activeRun?.meta?.autoImport?.processedCount || activeRun?.meta?.autoImport?.importedCount || 0) > 0,
   };
   return (
     <DashboardScaffold
@@ -1071,40 +1120,50 @@ export default function RadarDigitalClientPage() {
                 <p>Defina seu público-alvo e deixe o HBX trabalhar para você.</p>
               </header>
 
-              <form
-                className={styles.mobileRadarBrief}
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  setMobileRadarDone(false);
-                  if (canPullWithFilters(effectiveFilters)) setMobileAutoImportPending(true);
-                  void runRadarSearch("off");
-                }}
-              >
-                <button type="button" className={styles.mobileRadarField} onClick={() => openMobilePicker("engine")}>
-                  <span data-icon="motor">Motor</span>
-                  <strong>{mobileEngineLabel(filters.engine)}</strong>
-                </button>
-                <button type="button" className={styles.mobileRadarField} onClick={() => openMobilePicker("state")}>
-                  <span data-icon="estado">Estado</span>
-                  <strong>{filters.state || "Selecione o estado"}</strong>
-                </button>
-                <button type="button" className={styles.mobileRadarField} onClick={() => openMobilePicker("city")} disabled={!filters.state}>
-                  <span data-icon="cidade">Cidade</span>
-                  <strong>{filters.city || (filters.state ? "Selecione a cidade" : "Escolha o estado primeiro")}</strong>
-                </button>
-                <button type="button" className={styles.mobileRadarField} onClick={() => openMobilePicker("segment")}>
-                  <span data-icon="segmento">Segmento</span>
-                  <strong>{filters.segment || "Selecione o segmento"}</strong>
-                </button>
-                <div className={styles.mobileRadarInfo}>
-                  O HBX vai buscar empresas que combinam com o que você precisa e enviar automaticamente para o Vendas.
+              {mobileVendasBlocked ? (
+                <div className={styles.mobileRadarBlocked}>
+                  <strong>Agenda cheia no Vendas</strong>
+                  <p>{vendasPending?.message || "40 Cards pendentes no Vendas, delete ou termine sua agenda para seguir com a busca nova"}</p>
+                  <a href="/vendas">Abrir Vendas</a>
                 </div>
-                {error ? <div className={styles.mobileRadarNotice}>{compactRadarMessage(error)}</div> : null}
-                <button type="submit" className={styles.mobileRadarSubmit} disabled={searching || Boolean(activeRun)}>
-                  <span aria-hidden="true">⌕</span>
-                  Buscar leads
-                </button>
-              </form>
+              ) : (
+                <form
+                  className={styles.mobileRadarBrief}
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    setMobileRadarDone(false);
+                    const quantityOverride = canPullWithFilters(effectiveFilters)
+                      ? Math.max(1, Math.min(mobileVendasLimit, mobileVendasRemaining || mobileVendasLimit))
+                      : undefined;
+                    void runRadarSearch("off", { quantityOverride });
+                  }}
+                >
+                  <button type="button" className={styles.mobileRadarField} onClick={() => openMobilePicker("engine")}>
+                    <span data-icon="motor">Motor</span>
+                    <strong>{mobileEngineLabel(filters.engine)}</strong>
+                  </button>
+                  <button type="button" className={styles.mobileRadarField} onClick={() => openMobilePicker("state")}>
+                    <span data-icon="estado">Estado</span>
+                    <strong>{filters.state || "Selecione o estado"}</strong>
+                  </button>
+                  <button type="button" className={styles.mobileRadarField} onClick={() => openMobilePicker("city")} disabled={!filters.state}>
+                    <span data-icon="cidade">Cidade</span>
+                    <strong>{filters.city || (filters.state ? "Selecione a cidade" : "Escolha o estado primeiro")}</strong>
+                  </button>
+                  <button type="button" className={styles.mobileRadarField} onClick={() => openMobilePicker("segment")}>
+                    <span data-icon="segmento">Segmento</span>
+                    <strong>{filters.segment || "Selecione o segmento"}</strong>
+                  </button>
+                  <div className={styles.mobileRadarInfo}>
+                    O HBX vai buscar empresas que combinam com o que você precisa e enviar automaticamente para o Vendas.
+                  </div>
+                  {error ? <div className={styles.mobileRadarNotice}>{compactRadarMessage(error)}</div> : null}
+                  <button type="submit" className={styles.mobileRadarSubmit} disabled={searching || Boolean(activeRun)}>
+                    <span aria-hidden="true">⌕</span>
+                    Buscar leads
+                  </button>
+                </form>
+              )}
             </>
           ) : (
             <section className={styles.mobileRadarProcessing} aria-live="polite">
@@ -1140,16 +1199,8 @@ export default function RadarDigitalClientPage() {
               <a
                 className={styles.mobileRadarOpenSales}
                 href="/vendas"
-                aria-disabled={bulkSending || (!mobileRadarDone && visibleItems.length === 0) ? "true" : "false"}
                 onClick={(event) => {
                   event.preventDefault();
-                  if (bulkSending || (!mobileRadarDone && visibleItems.length === 0)) return;
-                  if (!mobileRadarDone && visibleItems.length > 0) {
-                    void sendFilteredToVendas().finally(() => {
-                      window.location.href = "/vendas";
-                    });
-                    return;
-                  }
                   window.location.href = "/vendas";
                 }}
               >

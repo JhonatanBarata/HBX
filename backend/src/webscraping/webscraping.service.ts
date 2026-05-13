@@ -227,6 +227,8 @@ const AUTONOMOUS_MASS_DATA_MAX_TASKS = 1000;
 const DEFAULT_MASS_DATA_ENGINE_URLS = buildLocalHbxEngineUrls();
 const TURBO_OPERATIONAL_CONFIG_KEY = 'turbo_noturno';
 const RADAR_RESERVATION_TTL_MS = 72 * 60 * 60 * 1000;
+const RADAR_VENDAS_PENDING_LIMIT = 40;
+const RADAR_VENDAS_LIMIT_MESSAGE = '40 Cards pendentes no Vendas, delete ou termine sua agenda para seguir com a busca nova';
 const RADAR_PROTECTED_STATUSES = [
   'negative',
   'denied',
@@ -2659,6 +2661,9 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
 
     try {
       if (safeInteger(current.foundCount) >= normalized.quantity) {
+        await this.autoImportRadarSearchRunToVendas(user, runId).catch((error: any) => {
+          this.logger.warn(`[radar-vendas] auto-import final ignorado run=${runId}: ${String(error?.message || error)}`);
+        });
         await this.persistSearchRunHistoryIfPossible(runId, normalized, context);
         await this.prisma.webscrapingSearchRun.update({
           where: { id: runId },
@@ -2685,6 +2690,9 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
           ? this.buildSearchRunInsufficientMessage(counters.foundCount, safeInteger(current.attemptCount))
           : this.buildSearchRunNoCardsMessage(safeInteger(current.attemptCount), current.lastQueryUsed);
         if (counters.foundCount > 0) {
+          await this.autoImportRadarSearchRunToVendas(user, runId).catch((error: any) => {
+            this.logger.warn(`[radar-vendas] auto-import parcial ignorado run=${runId}: ${String(error?.message || error)}`);
+          });
           await this.persistSearchRunHistoryIfPossible(runId, normalized, context);
         }
         await this.prisma.webscrapingSearchRun.update({
@@ -2732,6 +2740,9 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       if (!liveRun || liveRun.status === 'canceled') return;
       if (this.isTerminalSearchRunStatus(liveRun.status)) return;
       if (safeInteger(liveRun.foundCount) >= safeInteger(liveRun.targetQuantity)) {
+        await this.autoImportRadarSearchRunToVendas(user, runId).catch((error: any) => {
+          this.logger.warn(`[radar-vendas] auto-import alvo ignorado run=${runId}: ${String(error?.message || error)}`);
+        });
         await this.persistSearchRunHistoryIfPossible(runId, normalized, context);
         await this.prisma.webscrapingSearchRun.update({
           where: { id: runId },
@@ -2780,6 +2791,9 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       }
 
       const counters = await this.recalculateSearchRunCounters(runId);
+      await this.autoImportRadarSearchRunToVendas(user, runId).catch((error: any) => {
+        this.logger.warn(`[radar-vendas] auto-import lote ignorado run=${runId}: ${String(error?.message || error)}`);
+      });
       const approvedCount = savedCounts.found;
       const rejectedCount = batchResponse.rejectedCount + savedCounts.invalid + savedCounts.skipped;
       const duplicateCount = batchResponse.duplicateCount + savedCounts.duplicate;
@@ -2806,6 +2820,9 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
 
       if (reachedTarget) {
         await this.runGoogleEmergencyComplementIfEligible(runId, user, context, normalized);
+        await this.autoImportRadarSearchRunToVendas(user, runId).catch((error: any) => {
+          this.logger.warn(`[radar-vendas] auto-import complemento ignorado run=${runId}: ${String(error?.message || error)}`);
+        });
         await this.persistSearchRunHistoryIfPossible(runId, normalized, context);
         await this.prisma.webscrapingSearchRun.update({
           where: { id: runId },
@@ -2931,6 +2948,9 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
           ? `Nenhum card valido foi encontrado apos ${attempt} lotes. Ultima query: ${queryUsed}.`
           : this.buildSearchRunNoCardsMessage(attempt, queryUsed);
       if (counters.foundCount > 0) {
+        await this.autoImportRadarSearchRunToVendas(user, runId).catch((importError: any) => {
+          this.logger.warn(`[radar-vendas] auto-import pos-erro ignorado run=${runId}: ${String(importError?.message || importError)}`);
+        });
         await this.persistSearchRunHistoryIfPossible(runId, normalized, context).catch(() => null);
       }
       await this.prisma.webscrapingSearchRun.update({
@@ -4852,6 +4872,114 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     });
   }
 
+  private async getVendasPendingCountForRadarContext(companyId: number) {
+    if (!this.vendasService) return 0;
+    return this.vendasService.getPendingVendasCardCountForCompany(companyId).catch((error: any) => {
+      this.logger.warn(`[radar-vendas] falha ao contar cards pendentes company=${companyId}: ${String(error?.message || error)}`);
+      return 0;
+    });
+  }
+
+  private async assertRadarCanFeedVendas(context: SearchExecutionContext) {
+    const pendingCount = await this.getVendasPendingCountForRadarContext(context.companyId);
+    if (pendingCount >= RADAR_VENDAS_PENDING_LIMIT) {
+      throw new BadRequestException(RADAR_VENDAS_LIMIT_MESSAGE);
+    }
+    return {
+      pendingCount,
+      remaining: Math.max(0, RADAR_VENDAS_PENDING_LIMIT - pendingCount),
+    };
+  }
+
+  private async autoImportRadarSearchRunToVendas(user: any, runId: string) {
+    if (!this.vendasService) return { ran: false, importedCount: 0, pendingCount: 0, remaining: RADAR_VENDAS_PENDING_LIMIT };
+    const context = this.resolveContext(user);
+    let pendingCount = await this.getVendasPendingCountForRadarContext(context.companyId);
+    let remaining = Math.max(0, RADAR_VENDAS_PENDING_LIMIT - pendingCount);
+    if (remaining <= 0) {
+      return { ran: true, importedCount: 0, pendingCount, remaining: 0, blocked: true };
+    }
+
+    const run = await this.prisma.webscrapingSearchRun.findFirst({
+      where: {
+        id: String(runId || '').trim(),
+        companyId: context.companyId,
+      },
+      include: {
+        items: {
+          orderBy: { createdAt: 'asc' },
+        },
+      },
+    });
+    if (!run) return { ran: false, importedCount: 0, pendingCount, remaining };
+
+    await this.syncRadarSearchRunItemsToPool(context, run).catch((error: any) => {
+      this.logger.warn(`[radar-vendas] sync antes do auto-import falhou run=${run.id}: ${String(error?.message || error)}`);
+    });
+
+    const filters = this.buildRadarFiltersFromSearchRun(run);
+    const foundItems = (run.items || []).filter((item: any) => item.status === 'found');
+    const runPhoneOrder = foundItems
+      .map((item: any) => normalizePhoneDigits(item.phoneDigits || item.phone))
+      .filter(Boolean);
+    if (!runPhoneOrder.length) {
+      return { ran: true, importedCount: 0, pendingCount, remaining };
+    }
+    const runPhoneSet = new Set(runPhoneOrder);
+    const rows = await this.queryRadarRowsForCompany(context.companyId, filters, {
+      limit: Math.max(safeInteger(run.targetQuantity) * 4, 100),
+      requirePhone: true,
+      includeHidden: false,
+    });
+    const rowByPhone = new Map<string, any>();
+    for (const row of rows) {
+      const phone = normalizePhoneDigits(row?.phoneDigits || row?.phone);
+      if (phone && runPhoneSet.has(phone) && !rowByPhone.has(phone)) rowByPhone.set(phone, row);
+    }
+    const orderedRows = runPhoneOrder
+      .map((phone) => rowByPhone.get(phone))
+      .filter(Boolean)
+      .slice(0, safeInteger(run.targetQuantity));
+
+    let importedCount = 0;
+    let processedCount = 0;
+    for (const row of orderedRows) {
+      pendingCount = await this.getVendasPendingCountForRadarContext(context.companyId);
+      remaining = Math.max(0, RADAR_VENDAS_PENDING_LIMIT - pendingCount);
+      if (remaining <= 0) break;
+      const state = Array.isArray(row?.companyStates) && row.companyStates.length ? row.companyStates[0] : null;
+      const status = this.normalizeRadarLeadStatus(state?.status || row?.status);
+      if (status === 'sent_to_vendas' || this.isRadarProtectedStatus(status)) continue;
+      try {
+        const beforeCount = pendingCount;
+        await this.importRadarLeadToVendasForUser(user, row.id, { skipWhatsappValidation: true });
+        processedCount += 1;
+        pendingCount = await this.getVendasPendingCountForRadarContext(context.companyId);
+        importedCount += Math.max(0, pendingCount - beforeCount);
+      } catch (error: any) {
+        this.logger.warn(`[radar-vendas] auto-import ignorou lead=${row?.id || '-'} run=${run.id}: ${String(error?.message || error)}`);
+      }
+    }
+
+    if (processedCount > 0) {
+      await this.prisma.webscrapingSearchRun.update({
+        where: { id: run.id },
+        data: {
+          importedCount: { increment: processedCount },
+        },
+      }).catch(() => null);
+    }
+    const finalPendingCount = await this.getVendasPendingCountForRadarContext(context.companyId);
+    return {
+      ran: true,
+      importedCount,
+      processedCount,
+      pendingCount: finalPendingCount,
+      remaining: Math.max(0, RADAR_VENDAS_PENDING_LIMIT - finalPendingCount),
+      blocked: finalPendingCount >= RADAR_VENDAS_PENDING_LIMIT,
+    };
+  }
+
   private async buildRadarSearchRunResponse(user: any, runId: string) {
     const context = this.resolveContext(user);
     await this.assertSearchRunPersistence();
@@ -4870,6 +4998,10 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
 
     await this.syncRadarSearchRunItemsToPool(context, run).catch((error: any) => {
       this.logger.warn(`[radar-run] sync ignorado run=${run.id}: ${String(error?.message || error)}`);
+    });
+    const autoImport = await this.autoImportRadarSearchRunToVendas(user, run.id).catch((error: any) => {
+      this.logger.warn(`[radar-vendas] auto-import ignorado run=${run.id}: ${String(error?.message || error)}`);
+      return null;
     });
 
     const freshRun = await this.prisma.webscrapingSearchRun.findFirst({
@@ -4943,6 +5075,12 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         runId: effectiveRun.id,
         nextRetryAt: effectiveRun.nextRetryAt instanceof Date ? effectiveRun.nextRetryAt.toISOString() : null,
         attemptCount: safeInteger(effectiveRun.attemptCount),
+        autoImport: autoImport || {
+          ran: false,
+          importedCount: safeInteger(effectiveRun.importedCount),
+          pendingCount: null,
+          remaining: null,
+        },
         filters: {
           state: filters.state,
           city: filters.city,
@@ -4964,6 +5102,9 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     if (!(await this.supportsRadarPersistence())) {
       throw new ServiceUnavailableException('Banco do Radar ainda nao foi migrado neste ambiente.');
     }
+    const vendasCapacity = await this.assertRadarCanFeedVendas(context);
+    filters.quantity = Math.max(1, Math.min(filters.quantity, vendasCapacity.remaining || 1));
+    filters.limit = Math.max(filters.limit, filters.quantity);
 
     const normalized = this.buildNormalizedSearchInputFromRadarFilters(filters);
     const stockRows = await this.queryRadarRowsForCompany(context.companyId, filters, {
@@ -5023,6 +5164,9 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         'radar_database',
       );
       await this.recalculateSearchRunCounters(run.id);
+      await this.autoImportRadarSearchRunToVendas(user, run.id).catch((error: any) => {
+        this.logger.warn(`[radar-vendas] auto-import inicial ignorado run=${run.id}: ${String(error?.message || error)}`);
+      });
     }
 
     if (completedFromDatabase) {

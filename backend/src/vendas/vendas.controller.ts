@@ -10,6 +10,7 @@ import {
   BulkDeleteVendasLeadsDto,
   CreateManualVendasLeadDto,
   ImportWebscrapingLeadsDto,
+  ReportVendasLeadDto,
   StartVendasProspectingDto,
   UpdateVendasProspectingConfigDto,
   UpdateVendasLeadDto,
@@ -97,6 +98,11 @@ export class VendasController {
     return this.vendasService.getDailyUsageSnapshotForUser(req.user);
   }
 
+  @Get('pending-summary')
+  getPendingSummary(@Req() req: any) {
+    return this.vendasService.getPendingSummaryForUser(req.user);
+  }
+
   @Post('manual')
   createManualLead(@Req() req: any, @Body() dto: CreateManualVendasLeadDto) {
     return this.vendasService.createManualLeadForUser(req.user, dto);
@@ -135,6 +141,16 @@ export class VendasController {
   @Post('leads/delete-bulk')
   deleteLeadsBulk(@Req() req: any, @Body() dto: BulkDeleteVendasLeadsDto) {
     return this.vendasService.deleteLeadsBulkForUser(req.user, dto || {});
+  }
+
+  @Post('leads/:leadId/delete')
+  deleteLead(@Req() req: any, @Param('leadId') leadId: string) {
+    return this.vendasService.deleteLeadForUser(req.user, leadId);
+  }
+
+  @Post('leads/:leadId/report-error')
+  reportLeadError(@Req() req: any, @Param('leadId') leadId: string, @Body() dto: ReportVendasLeadDto) {
+    return this.vendasService.reportLeadErrorForUser(req.user, leadId, dto || {});
   }
 
   @Post('agenda/whatsapp/sync-today')

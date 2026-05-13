@@ -38,27 +38,120 @@
   }
 
   .mobileVendasHeader {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
+    display: block;
     padding: 4px 4px 0;
   }
 
-  .mobileVendasHeader h1 {
-    margin: 0;
-    color: #08143a;
-    font-size: 1.34rem;
-    font-weight: 900;
-    letter-spacing: 0;
-  }
-
-  .mobileVendasHeaderActions {
-    display: inline-flex;
+  .mobileRadarSalesStatus {
+    display: grid;
+    grid-template-columns: 54px minmax(0, 1fr) auto;
     align-items: center;
     gap: 12px;
+    min-height: 72px;
+    padding: 10px 12px;
+    border: 1px solid rgba(194, 211, 238, 0.82);
+    border-radius: 20px;
+    background:
+      radial-gradient(circle at 7% 0%, rgba(37, 107, 255, 0.18), transparent 34%),
+      linear-gradient(135deg, rgba(255, 255, 255, 0.96), rgba(236, 245, 255, 0.84));
+    color: #08143a;
+    text-decoration: none;
+    box-shadow:
+      0 22px 44px -28px rgba(20, 53, 111, 0.52),
+      inset 0 1px 0 rgba(255, 255, 255, 0.96);
   }
 
-  .mobileVendasHeaderActions button,
+  .mobileRadarSalesOrb {
+    position: relative;
+    display: grid;
+    width: 48px;
+    height: 48px;
+    place-items: center;
+    border-radius: 16px;
+    background:
+      conic-gradient(from 210deg, #2d66ff, #35d7ff, #14c986, #2d66ff);
+    box-shadow:
+      0 16px 28px -18px rgba(37, 96, 255, 0.9),
+      inset 0 0 0 1px rgba(255, 255, 255, 0.72);
+  }
+
+  .mobileRadarSalesOrb::before {
+    content: "";
+    position: absolute;
+    inset: 8px;
+    border-radius: 999px;
+    background: #f8fbff;
+    box-shadow: inset 0 0 0 1px rgba(36, 96, 255, 0.12);
+  }
+
+  .mobileRadarSalesOrb i {
+    position: relative;
+    z-index: 1;
+    width: 11px;
+    height: 11px;
+    border-radius: 999px;
+    background: #18d38a;
+    box-shadow: 0 0 0 7px rgba(24, 211, 138, 0.16);
+  }
+
+  .mobileRadarSalesStatus[data-state="active"] .mobileRadarSalesOrb i {
+    background: #2871ff;
+    box-shadow: 0 0 0 7px rgba(40, 113, 255, 0.18);
+  }
+
+  .mobileRadarSalesStatus[data-state="full"] .mobileRadarSalesOrb {
+    background: conic-gradient(from 210deg, #ef2e55, #ff8aa0, #315cff, #ef2e55);
+  }
+
+  .mobileRadarSalesStatus[data-state="full"] .mobileRadarSalesOrb i {
+    background: #ef2e55;
+    box-shadow: 0 0 0 7px rgba(239, 46, 85, 0.16);
+  }
+
+  .mobileRadarSalesCopy {
+    display: grid;
+    gap: 2px;
+    min-width: 0;
+  }
+
+  .mobileRadarSalesCopy small,
+  .mobileRadarSalesCopy em {
+    overflow: hidden;
+    color: #61708e;
+    font-size: 0.66rem;
+    font-style: normal;
+    font-weight: 850;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .mobileRadarSalesCopy strong {
+    overflow: hidden;
+    color: #08143a;
+    font-size: 0.98rem;
+    font-weight: 950;
+    line-height: 1.08;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .mobileRadarSalesStatus b {
+    display: inline-grid;
+    min-width: 46px;
+    min-height: 32px;
+    place-items: center;
+    border-radius: 999px;
+    background: rgba(37, 99, 235, 0.1);
+    color: #1d5cf2;
+    font-size: 0.78rem;
+    font-weight: 950;
+  }
+
+  .mobileRadarSalesStatus[data-state="full"] b {
+    background: rgba(239, 46, 85, 0.1);
+    color: #df2448;
+  }
+
   .mobileVendasSearchRow > button {
     display: inline-grid;
     width: 38px;
@@ -240,7 +333,7 @@
 
   .mobileVendasCardTitle {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) 30px;
+    grid-template-columns: minmax(0, 1fr) auto;
     gap: 8px;
     align-items: start;
   }
@@ -268,16 +361,32 @@
     white-space: nowrap;
   }
 
-  .mobileVendasCardTitle button {
+  .mobileVendasCardActions {
+    display: inline-flex;
+    justify-self: end;
+    gap: 5px;
+  }
+
+  .mobileVendasCardActions button {
     width: 30px;
     height: 24px;
-    border: 0;
-    border-radius: 10px;
-    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 999px;
+    background: rgba(233, 240, 252, 0.72);
     color: #0f1d4f;
     font-size: 1rem;
     font-weight: 950;
     line-height: 1;
+  }
+
+  .mobileVendasCardActions button[data-action="report"] {
+    width: 26px;
+    color: #e12c4b;
+    border-color: rgba(225, 44, 75, 0.22);
+    background:
+      radial-gradient(circle at 35% 20%, rgba(255, 255, 255, 0.95), transparent 48%),
+      linear-gradient(145deg, #fff2f5, #ffe3e9);
+    box-shadow: 0 10px 18px -14px rgba(225, 44, 75, 0.62);
   }
 
   .mobileVendasCardMeta {
@@ -533,6 +642,19 @@
     font-weight: 900;
   }
 
+  .mobileVendasSheetFooter .mobileVendasDeleteButton {
+    background: rgba(235, 242, 255, 0.94);
+    color: #5b6a86;
+    box-shadow: none;
+  }
+
+  .mobileVendasReportLead {
+    margin: -2px 0 0;
+    color: #52617f;
+    font-size: 0.78rem;
+    font-weight: 850;
+  }
+
   .mobileVendasLoading,
   .mobileVendasEmpty {
     display: grid;
@@ -579,19 +701,9 @@
   }
 
   .mobileVendasHeader {
-    padding: 0 6px 4px;
+    padding: 0 4px 4px;
   }
 
-  .mobileVendasHeader h1 {
-    font-size: 1.28rem;
-    line-height: 1;
-  }
-
-  .mobileVendasHeaderActions {
-    gap: 10px;
-  }
-
-  .mobileVendasHeaderActions button,
   .mobileVendasSearchRow > button {
     width: 38px;
     height: 38px;
@@ -602,7 +714,6 @@
     color: #0d1a49;
   }
 
-  .mobileVendasHeaderActions svg,
   .mobileVendasSearchRow > button svg {
     width: 20px;
     height: 20px;
@@ -705,7 +816,7 @@
   }
 
   .mobileVendasCardTitle {
-    grid-template-columns: minmax(0, 1fr) 30px;
+    grid-template-columns: minmax(0, 1fr) auto;
   }
 
   .mobileVendasCardTitle strong {
@@ -717,12 +828,17 @@
     font-size: 0.71rem;
   }
 
-  .mobileVendasCardTitle button {
+  .mobileVendasCardActions button {
     justify-self: end;
     width: 30px;
     height: 24px;
     color: #101d4e;
     font-size: 1.08rem;
+  }
+
+  .mobileVendasCardActions button[data-action="report"] {
+    width: 26px;
+    color: #e12c4b;
   }
 
   .mobileVendasCardMeta {

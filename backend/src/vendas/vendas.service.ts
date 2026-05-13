@@ -12,6 +12,7 @@ import {
   BulkDeleteVendasLeadsDto,
   CreateManualVendasLeadDto,
   ImportWebscrapingLeadsDto,
+  ReportVendasLeadDto,
   UpdateVendasLeadDto,
 } from './dto/vendas.dto';
 
@@ -117,6 +118,8 @@ export type HbxPresentationEmailDraft = {
 };
 
 const VENDAS_WHATSAPP_LOOKUP_SOURCE = 'webwhats_lookup';
+const VENDAS_PENDING_CARD_LIMIT = 40;
+const VENDAS_REPORT_ADMIN_PHONE = '5519997024884';
 
 function compactText(value: unknown) {
   return String(value || '').replace(/\s+/g, ' ').trim();
@@ -209,6 +212,36 @@ export class VendasService {
   async getDailyUsageSnapshotForUser(user: any) {
     const { companyId, userId } = this.resolveUserContext(user);
     return this.commercialUsageLimits.getDailyUsageSnapshot(companyId, userId);
+  }
+
+  async getPendingVendasCardCountForCompany(companyId: number) {
+    const normalizedCompanyId = Math.trunc(Number(companyId || 0));
+    if (!normalizedCompanyId) return 0;
+    return this.prisma.vendasLead.count({
+      where: {
+        companyId: normalizedCompanyId,
+        NOT: [
+          { status: 'encerrado' },
+          { closedAt: { not: null } },
+        ],
+      },
+    });
+  }
+
+  async getPendingSummaryForUser(user: any) {
+    const { companyId } = this.resolveUserContext(user);
+    const pendingCount = await this.getPendingVendasCardCountForCompany(companyId);
+    const remaining = Math.max(0, VENDAS_PENDING_CARD_LIMIT - pendingCount);
+    return {
+      ok: true,
+      limit: VENDAS_PENDING_CARD_LIMIT,
+      pendingCount,
+      remaining,
+      blocked: pendingCount >= VENDAS_PENDING_CARD_LIMIT,
+      message: pendingCount >= VENDAS_PENDING_CARD_LIMIT
+        ? '40 Cards pendentes no Vendas, delete ou termine sua agenda para seguir com a busca nova'
+        : `${remaining} card(s) livres para o Radar alimentar o Vendas.`,
+    };
   }
 
   private normalizeText(value: unknown) {
@@ -2710,7 +2743,121 @@ export class VendasService {
     };
   }
 
-  async deleteLeadsBulkForUser(user: any, dto: BulkDeleteVendasLeadsDto) {
+  private buildAdminReportText(context: { companyId: number; userId: number }, row: any, reason: string) {
+    const radarLeadId = this.extractRadarLeadId(row?.sourceHistoryId);
+    const typeParts = [
+      'Motor HBX',
+      row?.state ? `Estado: ${String(row.state).trim().toUpperCase()}` : null,
+      row?.city ? `Cidade: ${String(row.city).trim()}` : null,
+      row?.segment ? `Segmento: ${String(row.segment).trim()}` : null,
+    ].filter(Boolean);
+    return [
+      'HBX - Reporte de card no Vendas',
+      `Cliente: ${String(row?.name || 'Lead sem nome').trim()}`,
+      `Telefone: ${String(row?.phone || row?.phoneNormalized || 'Nao informado').trim()}`,
+      `Tipo de pesquisa: ${typeParts.join(' | ') || 'Motor HBX'}`,
+      `Motivo: ${reason || 'Resultado incorreto reportado pelo usuario.'}`,
+      row?.shortNote ? `Observacao do card: ${String(row.shortNote).trim()}` : null,
+      `Empresa: ${context.companyId}`,
+      `Usuario: ${context.userId}`,
+      `Card Vendas: ${String(row?.id || '')}`,
+      radarLeadId ? `Card Radar: ${radarLeadId}` : null,
+    ].filter(Boolean).join('\n');
+  }
+
+  private buildAdminReportWhatsappUrl(text: string) {
+    return `https://wa.me/${VENDAS_REPORT_ADMIN_PHONE}?text=${encodeURIComponent(text)}`;
+  }
+
+  private async releaseRadarLeadBackToPool(
+    context: { companyId: number; userId: number },
+    row: any,
+    options: { status: 'discarded' | 'complaint'; reason?: string | null },
+  ) {
+    const radarLeadId = this.extractRadarLeadId(row?.sourceHistoryId);
+    if (!radarLeadId) return;
+    const [hasPool, hasState, hasEvent, hasOwnerColumn, hasClaimedColumn] = await Promise.all([
+      this.prisma.hasTable('RadarLeadPool').catch(() => false),
+      this.prisma.hasTable('RadarLeadCompanyState').catch(() => false),
+      this.prisma.hasTable('RadarLeadEvent').catch(() => false),
+      this.prisma.hasColumn('RadarLeadPool', 'ownerCompanyId').catch(() => false),
+      this.prisma.hasColumn('RadarLeadPool', 'claimedAt').catch(() => false),
+    ]);
+    if (!hasPool || !hasState) return;
+    const now = new Date();
+    const status = options.status === 'complaint' ? 'complaint' : 'discarded';
+    const reason = this.normalizeText(options.reason);
+    const privateNotes = this.normalizeText(row?.shortNote);
+    const poolRow = await (this.prisma as any).radarLeadPool.findUnique({
+      where: { id: radarLeadId },
+      select: { id: true, status: true, ownerCompanyId: true },
+    }).catch(() => null);
+    const previousStatus = String(poolRow?.status || 'sent_to_vendas').trim().toLowerCase() || 'sent_to_vendas';
+
+    await (this.prisma as any).radarLeadCompanyState.upsert({
+      where: {
+        companyId_radarLeadId: {
+          companyId: context.companyId,
+          radarLeadId,
+        },
+      },
+      create: {
+        companyId: context.companyId,
+        radarLeadId,
+        vendasLeadId: null,
+        status,
+        lastActionAt: now,
+        negativeReason: status === 'discarded' ? reason : null,
+        complaintReason: status === 'complaint' ? reason : null,
+        privateNotes,
+      },
+      update: {
+        vendasLeadId: null,
+        status,
+        lastActionAt: now,
+        negativeReason: status === 'discarded' ? reason : undefined,
+        complaintReason: status === 'complaint' ? reason : undefined,
+        privateNotes,
+      },
+    }).catch((error: any) => {
+      this.logger.warn(`[vendas-delete] Falha ao atualizar estado Radar lead=${radarLeadId}: ${String(error?.message || error)}`);
+    });
+
+    if (poolRow) {
+      const ownerCompanyId = Math.trunc(Number(poolRow.ownerCompanyId || 0)) || 0;
+      await (this.prisma as any).radarLeadPool.update({
+        where: { id: radarLeadId },
+        data: {
+          ...(hasOwnerColumn && (!ownerCompanyId || ownerCompanyId === context.companyId) ? { ownerCompanyId: null } : {}),
+          ...(hasClaimedColumn && (!ownerCompanyId || ownerCompanyId === context.companyId) ? { claimedAt: null } : {}),
+          status: 'clean',
+          lastSeenAt: now,
+        },
+      }).catch((error: any) => {
+        this.logger.warn(`[vendas-delete] Falha ao liberar RadarLeadPool lead=${radarLeadId}: ${String(error?.message || error)}`);
+      });
+    }
+
+    if (hasEvent) {
+      await (this.prisma as any).radarLeadEvent.create({
+        data: {
+          leadId: radarLeadId,
+          companyId: context.companyId,
+          eventType: status === 'complaint' ? 'complaint' : 'discarded',
+          note: reason || (status === 'complaint' ? 'Card reportado com erro no Vendas.' : 'Card excluido do Vendas.'),
+          statusFrom: previousStatus,
+          statusTo: status,
+          createdByUserId: context.userId,
+        },
+      }).catch(() => null);
+    }
+  }
+
+  private async deleteVendasRowsForUser(
+    user: any,
+    dto: BulkDeleteVendasLeadsDto,
+    options: { report?: boolean; reportReason?: string | null } = {},
+  ) {
     const context = this.resolveUserContext(user);
     const all = Boolean(dto?.all);
     const leadIds = Array.from(
@@ -2735,13 +2882,19 @@ export class VendasService {
         id: true,
         companyId: true,
         status: true,
+        sourceHistoryId: true,
+        name: true,
         phone: true,
         phoneNormalized: true,
+        city: true,
+        state: true,
+        segment: true,
+        shortNote: true,
       },
     });
 
     if (!rows.length) {
-      return { ok: true, deletedCount: 0 };
+      return { ok: true, deletedCount: 0, rows: [] as any[] };
     }
 
     const rowIds = rows.map((row) => row.id);
@@ -2754,7 +2907,15 @@ export class VendasService {
           row.id,
         );
       } catch (error: any) {
-        this.logger.warn(`[vendas-delete-bulk] Falha ao desativar espelho do lead ${row.id}: ${error?.message || error}`);
+        this.logger.warn(`[vendas-delete] Falha ao desativar espelho do lead ${row.id}: ${error?.message || error}`);
+      }
+      try {
+        await this.releaseRadarLeadBackToPool(context, row, {
+          status: options.report ? 'complaint' : 'discarded',
+          reason: options.report ? options.reportReason || 'Card reportado com erro no Vendas.' : 'Card excluido do Vendas.',
+        });
+      } catch (error: any) {
+        this.logger.warn(`[vendas-delete] Falha ao devolver card ao Radar lead=${row.id}: ${error?.message || error}`);
       }
     }
 
@@ -2765,7 +2926,74 @@ export class VendasService {
       },
     });
 
-    return { ok: true, deletedCount: rows.length };
+    return { ok: true, deletedCount: rows.length, rows };
+  }
+
+  async deleteLeadsBulkForUser(user: any, dto: BulkDeleteVendasLeadsDto) {
+    const result = await this.deleteVendasRowsForUser(user, dto || {});
+    return { ok: true, deletedCount: result.deletedCount };
+  }
+
+  async deleteLeadForUser(user: any, leadId: string) {
+    const result = await this.deleteVendasRowsForUser(user, {
+      leadIds: [String(leadId || '').trim()],
+    });
+    return { ok: true, deletedCount: result.deletedCount };
+  }
+
+  async reportLeadErrorForUser(user: any, leadId: string, dto: ReportVendasLeadDto) {
+    const context = this.resolveUserContext(user);
+    const normalizedLeadId = String(leadId || '').trim();
+    if (!normalizedLeadId) throw new BadRequestException('Card nao informado.');
+    const row = await this.prisma.vendasLead.findFirst({
+      where: { id: normalizedLeadId, companyId: context.companyId },
+      select: {
+        id: true,
+        companyId: true,
+        sourceHistoryId: true,
+        name: true,
+        phone: true,
+        phoneNormalized: true,
+        city: true,
+        state: true,
+        segment: true,
+        shortNote: true,
+      },
+    });
+    if (!row) throw new NotFoundException('Lead comercial nao encontrado.');
+
+    const reason = this.normalizeText(dto?.reason) || 'Resultado incorreto reportado pelo usuario.';
+    const reportText = this.buildAdminReportText(context, row, reason);
+    let autoSent = false;
+    let sendError: string | null = null;
+    try {
+      await this.webwhatsBridge.sendText(context.companyId, {
+        to: VENDAS_REPORT_ADMIN_PHONE,
+        text: reportText,
+      });
+      autoSent = true;
+    } catch (error: any) {
+      sendError = String(error?.message || error || 'Motor WhatsApp indisponivel.');
+      this.logger.warn(`[vendas-report] Envio automatico ao admin falhou lead=${row.id}: ${sendError}`);
+    }
+
+    const deleted = await this.deleteVendasRowsForUser(user, {
+      leadIds: [normalizedLeadId],
+    }, {
+      report: true,
+      reportReason: reason,
+    });
+
+    return {
+      ok: true,
+      deletedCount: deleted.deletedCount,
+      autoSent,
+      whatsappUrl: autoSent ? null : this.buildAdminReportWhatsappUrl(reportText),
+      sendError,
+      message: autoSent
+        ? 'Card reportado e removido do Vendas.'
+        : 'Card reportado e removido. Abra o WhatsApp para enviar o reporte ao suporte HBX.',
+    };
   }
 
   async registerAttemptForUser(user: any, leadId: string, dto?: { channel?: string }) {

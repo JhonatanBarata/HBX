@@ -170,6 +170,14 @@ type BulkDeleteLeadsResponse = {
   deletedCount?: number;
 };
 
+type ReportLeadErrorResponse = {
+  ok?: boolean;
+  deletedCount?: number;
+  autoSent?: boolean;
+  whatsappUrl?: string | null;
+  message?: string | null;
+};
+
 type LeadDraft = {
   name: string;
   phone: string;
@@ -1373,6 +1381,10 @@ export default function VendasClientPage() {
   const [mobileNoteLead, setMobileNoteLead] = useState<LeadItem | null>(null);
   const [mobileNoteDraft, setMobileNoteDraft] = useState("");
   const [mobileSavingNote, setMobileSavingNote] = useState(false);
+  const [mobileReportLead, setMobileReportLead] = useState<LeadItem | null>(null);
+  const [mobileReportReason, setMobileReportReason] = useState("");
+  const [mobileReporting, setMobileReporting] = useState(false);
+  const [mobileDeletingLeadId, setMobileDeletingLeadId] = useState<string | null>(null);
   const [whatsappFilter, setWhatsappFilter] = useState<WhatsappFilter>("all");
   const [inboxFilter, setInboxFilter] = useState<InboxFilter>("all");
   const [bulkSelectionMode, setBulkSelectionMode] = useState(false);
@@ -2027,33 +2039,103 @@ export default function VendasClientPage() {
     }
   }
 
+  async function deleteMobileLead(lead: LeadItem) {
+    setMobileDeletingLeadId(lead.id);
+    setError(null);
+    try {
+      const payload = await apiFetch<BulkDeleteLeadsResponse>(
+        `/vendas/leads/${encodeURIComponent(lead.id)}/delete`,
+        { method: "POST" },
+      );
+      setFeedback(
+        Number(payload?.deletedCount || 0) > 0
+          ? "Card removido do Vendas e devolvido ao banco HBX."
+          : "Card já não estava mais no Vendas.",
+      );
+      if (mobileNoteLead?.id === lead.id) setMobileNoteLead(null);
+      await loadBoard();
+    } catch (deleteError) {
+      setError(
+        deleteError instanceof Error
+          ? deleteError.message
+          : "Falha ao excluir o card.",
+      );
+    } finally {
+      setMobileDeletingLeadId(null);
+    }
+  }
+
+  function openMobileReport(lead: LeadItem) {
+    setMobileReportLead(lead);
+    setMobileReportReason("");
+  }
+
+  async function submitMobileReport() {
+    if (!mobileReportLead) return;
+    const reason = mobileReportReason.trim();
+    if (!reason) {
+      setError("Informe o motivo do erro antes de reportar.");
+      return;
+    }
+    setMobileReporting(true);
+    setError(null);
+    try {
+      const payload = await apiFetch<ReportLeadErrorResponse>(
+        `/vendas/leads/${encodeURIComponent(mobileReportLead.id)}/report-error`,
+        {
+          method: "POST",
+          body: JSON.stringify({ reason }),
+        },
+      );
+      if (payload?.whatsappUrl && !payload.autoSent) {
+        window.open(payload.whatsappUrl, "_blank", "noopener,noreferrer");
+      }
+      setFeedback(payload?.message || "Card reportado e removido do Vendas.");
+      setMobileReportLead(null);
+      await loadBoard();
+    } catch (reportError) {
+      setError(
+        reportError instanceof Error
+          ? reportError.message
+          : "Falha ao reportar o card.",
+      );
+    } finally {
+      setMobileReporting(false);
+    }
+  }
+
   function renderMobileVendas() {
+    const mobilePendingCount = Math.max(
+      0,
+      (board?.summary.overdue || 0) + (board?.summary.today || 0) + (board?.summary.scheduled || 0),
+    );
+    const mobileRadarState = mobilePendingCount >= 40 ? "full" : mobilePendingCount > 0 ? "active" : "ready";
+    const mobileRadarStatusLabel =
+      mobileRadarState === "full"
+        ? "40 cards recebidos"
+        : mobileRadarState === "active"
+          ? `${mobilePendingCount} cards recebidos`
+          : "Motor OK";
+    const mobileRadarStatusText =
+      mobileRadarState === "full"
+        ? "Finalize ou delete"
+        : mobileRadarState === "active"
+          ? "Radar alimentando Vendas"
+          : "Buscar leads";
     return (
       <section className={styles.mobileVendasShell} aria-label="Vendas mobile">
         <header className={styles.mobileVendasHeader}>
-          <h1>Vendas</h1>
-          <div className={styles.mobileVendasHeaderActions}>
-            <button type="button" aria-label="Notificações">
-              <span aria-hidden="true">
-                <svg viewBox="0 0 24 24">
-                  <path d="M18 16v-5.2A6 6 0 0 0 6 10.8V16l-1.5 2h15L18 16Z" />
-                  <path d="M9.5 20a2.7 2.7 0 0 0 5 0" />
-                </svg>
-              </span>
-            </button>
-            <button type="button" aria-label="Filtros">
-              <span aria-hidden="true">
-                <svg viewBox="0 0 24 24">
-                  <path d="M5 7h8" />
-                  <path d="M17 7h2" />
-                  <path d="M5 17h2" />
-                  <path d="M11 17h8" />
-                  <path d="M13 5v4" />
-                  <path d="M9 15v4" />
-                </svg>
-              </span>
-            </button>
-          </div>
+          <a className={styles.mobileRadarSalesStatus} data-state={mobileRadarState} href="/radar-digital" aria-label="Abrir Radar Digital">
+            <span className={styles.mobileRadarSalesOrb} aria-hidden="true">
+              <i />
+            </span>
+            <span className={styles.mobileRadarSalesCopy}>
+              <small>Radar Digital</small>
+              <strong>{mobileRadarStatusLabel}</strong>
+              <em>{mobileRadarStatusText}</em>
+            </span>
+            <b>{Math.min(mobilePendingCount, 40)}/40</b>
+          </a>
         </header>
 
         <div className={styles.mobileVendasKpis}>
@@ -2129,13 +2211,24 @@ export default function VendasClientPage() {
                           <strong>{lead.name || "Lead sem nome"}</strong>
                           <span>{mobileLeadPlace(lead)}</span>
                         </div>
-                        <button
-                          type="button"
-                          onClick={() => openMobileNote(lead)}
-                          aria-label={`Abrir observação de ${lead.name || "lead"}`}
-                        >
-                          ...
-                        </button>
+                        <div className={styles.mobileVendasCardActions}>
+                          <button
+                            type="button"
+                            data-action="report"
+                            onClick={() => openMobileReport(lead)}
+                            aria-label={`Reportar erro em ${lead.name || "lead"}`}
+                            disabled={mobileReporting || mobileDeletingLeadId === lead.id}
+                          >
+                            !
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => openMobileNote(lead)}
+                            aria-label={`Abrir observação de ${lead.name || "lead"}`}
+                          >
+                            ...
+                          </button>
+                        </div>
                       </div>
                       <div className={styles.mobileVendasCardMeta}>
                         <span data-status={lead.status}>{status}</span>
@@ -2234,17 +2327,69 @@ export default function VendasClientPage() {
                 rows={5}
               />
               <div className={styles.mobileVendasSheetFooter}>
-                <div aria-hidden="true">
-                  <span>⌘</span>
-                  <span>▧</span>
-                  <span>♬</span>
-                </div>
+                <button
+                  type="button"
+                  className={styles.mobileVendasDeleteButton}
+                  onClick={() => void deleteMobileLead(mobileNoteLead)}
+                  disabled={mobileDeletingLeadId === mobileNoteLead.id}
+                >
+                  {mobileDeletingLeadId === mobileNoteLead.id ? "Excluindo" : "Excluir"}
+                </button>
                 <button
                   type="button"
                   onClick={() => void saveMobileNote()}
                   disabled={mobileSavingNote || savingLeadId === mobileNoteLead.id}
                 >
                   {mobileSavingNote ? "Salvando" : "Salvar"}
+                </button>
+              </div>
+            </section>
+          </div>
+        ) : null}
+
+        {mobileReportLead ? (
+          <div
+            className={styles.mobileVendasSheetBackdrop}
+            onClick={() => setMobileReportLead(null)}
+          >
+            <section
+              className={styles.mobileVendasNoteSheet}
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="mobile-vendas-report-title"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <span className={styles.mobileVendasSheetHandle} />
+              <div className={styles.mobileVendasSheetHeader}>
+                <h2 id="mobile-vendas-report-title">Reportar erro</h2>
+                <button type="button" onClick={() => setMobileReportLead(null)}>
+                  ×
+                </button>
+              </div>
+              <p className={styles.mobileVendasReportLead}>
+                {mobileReportLead.name || "Lead sem nome"}
+              </p>
+              <textarea
+                value={mobileReportReason}
+                onChange={(event) => setMobileReportReason(event.target.value)}
+                rows={5}
+                placeholder="Descreva o erro encontrado neste card"
+              />
+              <div className={styles.mobileVendasSheetFooter}>
+                <button
+                  type="button"
+                  className={styles.mobileVendasDeleteButton}
+                  onClick={() => setMobileReportLead(null)}
+                  disabled={mobileReporting}
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void submitMobileReport()}
+                  disabled={mobileReporting || !mobileReportReason.trim()}
+                >
+                  {mobileReporting ? "Enviando" : "Reportar"}
                 </button>
               </div>
             </section>

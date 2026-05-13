@@ -3100,11 +3100,6 @@ export default function InboxClientPage() {
   const [inboxRealtimeFallbackActive, setInboxRealtimeFallbackActive] = useState(false);
   const [lastConversationSyncAt, setLastConversationSyncAt] = useState<string | null>(null);
   const [notice, setNotice] = useState<NoticeState | null>(null);
-  const [migratingWhatsappHistory, setMigratingWhatsappHistory] = useState(false);
-  const migratingWhatsappHistoryRef = useRef(false);
-  const [hideWhatsappHistoryAfterMigration, setHideWhatsappHistoryAfterMigration] = useState(false);
-  const [dismissedWhatsappLiveHealthPopupKey, setDismissedWhatsappLiveHealthPopupKey] = useState<string | null>(null);
-  const [dismissedWhatsappHistoryPopupKey, setDismissedWhatsappHistoryPopupKey] = useState<string | null>(null);
   const [commercialPlans, setCommercialPlans] = useState<CommercialPlansPayload | null>(null);
   const [sendText, setSendText] = useState("");
   const [sending, setSending] = useState(false);
@@ -3586,7 +3581,7 @@ export default function InboxClientPage() {
     inboxBootstrapLaunchNotice.start({
       loadingTitle: "Carregando WhatsApp",
       loadingDescription:
-        "Baixando conversas, nomes e fotos do motor para deixar a inbox pronta no backend.",
+        "Baixando conversas, nomes, fotos e midias do motor para deixar a inbox pronta no backend.",
       successTitle: "Inbox pronta",
       successDescription: "Tudo espelhado no backend. Vamos abrir o Atendimento.",
       ctaLabel: "Abrir inbox",
@@ -4154,52 +4149,6 @@ export default function InboxClientPage() {
     setOlderMessagesBefore(null);
     setOlderMessagesHasMore(false);
   }, []);
-
-  const migrateAllWhatsappHistoryToCurrent = useCallback(async () => {
-    if (migratingWhatsappHistoryRef.current) return;
-    if (!whatsappSession?.currentSessionId) {
-      setNotice({ tone: "error", text: "Conecte o WhatsApp atual antes de migrar." });
-      return;
-    }
-
-    migratingWhatsappHistoryRef.current = true;
-    setMigratingWhatsappHistory(true);
-    try {
-      await apiFetch<{
-        success?: boolean;
-        currentSessionId?: string | null;
-        legacyMigrated?: number;
-        previousSessionsMigrated?: number;
-        totalMigrated?: number;
-        message?: string;
-      }>("/inbox/whatsapp-sessions/migrate-all-current", {
-        method: "POST",
-        requireAuth: true,
-      });
-      setNotice({ tone: "success", text: "Histórico antigo juntado neste celular." });
-      setHideWhatsappHistoryAfterMigration(true);
-      setWhatsappSession((current) =>
-        current
-          ? {
-              ...current,
-              previousSessions: [],
-              previousSessionsCount: 0,
-              legacyConversationCount: 0,
-            }
-          : current,
-      );
-      switchWhatsappSessionHistory(false);
-      await bootstrapInbox({ take: INBOX_CONVERSATION_LIST_LIMIT });
-    } catch (migrateError) {
-      setNotice({
-        tone: "error",
-        text: migrateError instanceof Error ? migrateError.message : "Falha ao migrar histórico.",
-      });
-    } finally {
-      migratingWhatsappHistoryRef.current = false;
-      setMigratingWhatsappHistory(false);
-    }
-  }, [bootstrapInbox, switchWhatsappSessionHistory, whatsappSession?.currentSessionId]);
 
   useEffect(() => {
     if (hasToken !== true) return;
@@ -5016,9 +4965,6 @@ export default function InboxClientPage() {
     const role = String(currentUserProfile?.role || "").trim().toUpperCase();
     return role === "ADMIN";
   }, [currentUserProfile?.isSystemMaster, currentUserProfile?.role]);
-
-  const canManageWhatsappHistory = Boolean(currentUserProfile?.isSystemMaster);
-  const canSeeWhatsappOperationalAlerts = Boolean(currentUserProfile?.isSystemMaster);
 
   const providerCapabilities = useMemo<ProviderCapabilities>(
     () => getProviderCapabilitiesFromWhatsAppCenter(whatsappCenterPayload),
@@ -8435,164 +8381,12 @@ export default function InboxClientPage() {
       (latestVisibleConversationAt && parseDateMs(latestVisibleConversationAt) && Date.now() - Number(parseDateMs(latestVisibleConversationAt)) > 60 * 60 * 1000),
   );
   const previousSessionsCount = Number(whatsappSession?.previousSessionsCount || 0);
-  const legacyConversationCount = Number(whatsappSession?.legacyConversationCount || 0);
-  const previousSessionHistoryCount = Number(whatsappSession?.previousSessions?.length || 0);
-  const hasPreviousWhatsappHistory = !hideWhatsappHistoryAfterMigration && (previousSessionsCount > 0 || showPreviousSessions);
+  const hasPreviousWhatsappHistory = previousSessionsCount > 0 || showPreviousSessions;
   const activeWhatsappDisplay =
     whatsappSession?.currentSession?.displayPhone ||
     whatsappSession?.currentSession?.phoneNormalized ||
     null;
-  const hasCurrentWhatsappSession = Boolean(whatsappSession?.currentSessionId);
-  const canMigrateWhatsappHistory =
-    hasCurrentWhatsappSession &&
-    previousSessionsCount > 0 &&
-    !migratingWhatsappHistory;
-  const whatsappHistoryMigrateDisabledTitle = !hasCurrentWhatsappSession
-    ? "Conecte o WhatsApp atual antes de migrar."
-    : previousSessionsCount <= 0
-      ? "Não há histórico antigo para migrar."
-      : migratingWhatsappHistory
-        ? "Migração em andamento."
-        : "Juntar histórico antigo neste celular.";
-  const whatsappHistoryBannerTitle = showPreviousSessions
-    ? "Histórico do celular anterior"
-    : hasCurrentWhatsappSession && previousSessionsCount > 0
-      ? "Histórico antigo pronto para migrar"
-      : legacyConversationCount > 0 && previousSessionHistoryCount === 0
-        ? "Há histórico antigo legado sem sessão"
-        : "Há histórico antigo em outra sessão";
-  const whatsappHistoryBreakdown = [
-    previousSessionHistoryCount > 0
-      ? `${previousSessionHistoryCount} sessão(ões) antiga(s)`
-      : null,
-    legacyConversationCount > 0
-      ? `${legacyConversationCount} conversa(s) legada(s) sem sessão`
-      : null,
-  ].filter(Boolean).join(" e ");
-  const liveHealthPopupKey = liveHealth
-    ? [
-        "live",
-        liveHealth.status,
-        liveHealth.liveConfirmed ? "confirmed" : "unconfirmed",
-        liveHealth.inboundStale ? "stale" : "fresh",
-        liveHealth.lastCheckedAt || "unchecked",
-        liveHealth.lastInboundMessageAt || "no-inbound",
-      ].join(":")
-    : null;
-  const historyPopupKey = [
-    "history",
-    whatsappSession?.currentSessionId || "no-current",
-    previousSessionsCount,
-    legacyConversationCount,
-    showPreviousSessions ? "showing-previous" : "current-only",
-  ].join(":");
-  const shouldShowLiveHealthPopup =
-    canSeeWhatsappOperationalAlerts &&
-    shouldShowLiveHealthAlert &&
-    liveHealthPopupKey !== null &&
-    liveHealthPopupKey !== dismissedWhatsappLiveHealthPopupKey;
-  const shouldShowHistoryPopup =
-    canManageWhatsappHistory &&
-    hasPreviousWhatsappHistory &&
-    historyPopupKey !== dismissedWhatsappHistoryPopupKey;
-  const whatsappOperationalPopup =
-    typeof document !== "undefined" && (shouldShowLiveHealthPopup || shouldShowHistoryPopup)
-      ? createPortal(
-          <div className={styles.whatsappAlertPopupStack} aria-label="Avisos do WhatsApp">
-            {shouldShowLiveHealthPopup ? (
-              <section className={styles.whatsappAlertPopup} data-tone={liveHealthTone}>
-                <div className={styles.whatsappAlertPopupHeader}>
-                  <div>
-                    <span className={styles.whatsappAlertPopupKicker}>WhatsApp</span>
-                    <strong>{liveHealthAlertTitle}</strong>
-                  </div>
-                  <button
-                    type="button"
-                    className={styles.whatsappAlertPopupClose}
-                    aria-label="Fechar aviso"
-                    onClick={() => setDismissedWhatsappLiveHealthPopupKey(liveHealthPopupKey)}
-                  >
-                    x
-                  </button>
-                </div>
-                <p>{liveHealth?.reason || "O HBX não confirmou a sessão viva do WhatsApp neste momento."}</p>
-                {noRecentConversationWarning ? (
-                  <p className={styles.whatsappAlertPopupWarning}>
-                    Nenhuma mensagem nova desde {lastInboundLabel}.
-                  </p>
-                ) : null}
-                <div className={styles.whatsappAlertPopupFacts}>
-                  <span><b>Status</b>{liveHealthStatusLabel}</span>
-                  <span><b>Última checagem</b>{lastCheckedLabel}</span>
-                </div>
-                <div className={styles.whatsappAlertPopupActions}>
-                  <button type="button" className="btn btn-primary btn-sm" onClick={() => void refreshWhatsAppLiveHealthNow()}>
-                    Revalidar agora
-                  </button>
-                  <button type="button" className="btn btn-secondary btn-sm" onClick={() => void restartWhatsAppSession()}>
-                    Reiniciar sessão
-                  </button>
-                  <button type="button" className="btn btn-secondary btn-sm" onClick={() => router.push("/whatsapp?focus=qr")}>
-                    Abrir QR Code
-                  </button>
-                </div>
-              </section>
-            ) : null}
-            {shouldShowHistoryPopup ? (
-              <section className={styles.whatsappAlertPopup} data-tone="history">
-                <div className={styles.whatsappAlertPopupHeader}>
-                  <div>
-                    <span className={styles.whatsappAlertPopupKicker}>Histórico</span>
-                    <strong>{whatsappHistoryBannerTitle}</strong>
-                  </div>
-                  <button
-                    type="button"
-                    className={styles.whatsappAlertPopupClose}
-                    aria-label="Fechar aviso"
-                    onClick={() => setDismissedWhatsappHistoryPopupKey(historyPopupKey)}
-                  >
-                    x
-                  </button>
-                </div>
-                <p>
-                  {showPreviousSessions
-                    ? "Você está vendo conversas separadas da sessão atual."
-                    : `${whatsappHistoryBreakdown || "Há histórico antigo separado do WhatsApp atual."}${activeWhatsappDisplay ? ` WhatsApp atual: ${activeWhatsappDisplay}.` : ""}`}
-                </p>
-                <div className={styles.whatsappAlertPopupActions}>
-                  {showPreviousSessions ? (
-                    <button
-                      type="button"
-                      className="btn btn-secondary btn-sm"
-                      onClick={() => switchWhatsappSessionHistory(false)}
-                    >
-                      Voltar para WhatsApp atual
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      className="btn btn-secondary btn-sm"
-                      onClick={() => switchWhatsappSessionHistory(true)}
-                    >
-                      Ver histórico anterior
-                    </button>
-                  )}
-                  <button
-                    type="button"
-                    className={`${styles.whatsappSessionMigrateButton} btn btn-danger btn-sm`}
-                    disabled={!canMigrateWhatsappHistory}
-                    title={whatsappHistoryMigrateDisabledTitle}
-                    onClick={() => void migrateAllWhatsappHistoryToCurrent()}
-                  >
-                    {migratingWhatsappHistory ? "Migrando..." : "Migrar histórico antigo"}
-                  </button>
-                </div>
-              </section>
-            ) : null}
-          </div>,
-          document.body,
-        )
-      : null;
+  const previousWhatsappSessionId = whatsappSession?.previousSessions?.[0]?.id || null;
 
   const queueActionConversationIsArchived =
     queueActionConversationId ? queueByConversationId[queueActionConversationId] === "archived" : false;
@@ -8632,12 +8426,122 @@ export default function InboxClientPage() {
           </section>
         ) : activeTab === "messages" ? (
           <section className={styles.premiumInboxShell} data-ui-no-reveal="true">
+            {shouldShowLiveHealthAlert || hasPreviousWhatsappHistory ? (
+              <div className={styles.inboxBannerStack}>
+                {shouldShowLiveHealthAlert ? (
+                  <div className={styles.whatsappLiveHealthBanner} data-tone={liveHealthTone}>
+                    <div className={styles.whatsappLiveHealthMain}>
+                      <span className={styles.whatsappLiveHealthKicker}>Alerta operacional WhatsApp</span>
+                      <strong>{liveHealthAlertTitle}</strong>
+                      <p>{liveHealth?.reason || "O HBX não confirmou a sessão viva do WhatsApp neste momento."}</p>
+                      {noRecentConversationWarning ? (
+                        <p className={styles.whatsappLiveHealthWarning}>
+                          Nenhuma mensagem nova desde {lastInboundLabel}. Verifique a conexão antes de atender.
+                        </p>
+                      ) : null}
+                    </div>
+                    <div className={styles.whatsappLiveHealthFacts}>
+                      <span><b>Status</b>{liveHealthStatusLabel}</span>
+                      <span><b>Última checagem</b>{lastCheckedLabel}</span>
+                      <span><b>Última recebida</b>{lastInboundLabel}</span>
+                      <span><b>Ação recomendada</b>{liveHealth?.actionLabel || "Revalidar agora"}</span>
+                    </div>
+                    <div className={styles.whatsappLiveHealthActions}>
+                      <button type="button" className="btn btn-primary btn-sm" onClick={() => void refreshWhatsAppLiveHealthNow()}>
+                        Revalidar agora
+                      </button>
+                      <button type="button" className="btn btn-secondary btn-sm" onClick={() => void restartWhatsAppSession()}>
+                        Reiniciar sessão
+                      </button>
+                      <button type="button" className="btn btn-secondary btn-sm" onClick={() => router.push("/whatsapp?focus=qr")}>
+                        Abrir QR Code
+                      </button>
+                      <button type="button" className="btn btn-secondary btn-sm" onClick={() => void disconnectAndReconnectWhatsApp()}>
+                        Desconectar e conectar de novo
+                      </button>
+                      <button type="button" className="btn btn-ghost btn-sm" onClick={() => router.push("/whatsapp?focus=status")}>
+                        Ver diagnóstico técnico
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
+                {hasPreviousWhatsappHistory ? (
+                  <div className={styles.whatsappSessionBanner}>
+                    <div>
+                      <strong>
+                        {showPreviousSessions
+                          ? "Histórico do celular anterior"
+                          : "Novo WhatsApp conectado."}
+                      </strong>
+                      <span>
+                        {showPreviousSessions
+                          ? "Você está vendo conversas separadas da sessão atual."
+                          : `O histórico do celular anterior foi separado para não misturar atendimentos.${activeWhatsappDisplay ? ` WhatsApp atual: ${activeWhatsappDisplay}.` : ""}`}
+                      </span>
+                    </div>
+                    <div className={styles.whatsappSessionBannerActions}>
+                      {showPreviousSessions ? (
+                        <button
+                          type="button"
+                          className="btn btn-secondary btn-sm"
+                          onClick={() => switchWhatsappSessionHistory(false)}
+                        >
+                          Voltar para WhatsApp atual
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          className="btn btn-secondary btn-sm"
+                          onClick={() => switchWhatsappSessionHistory(true)}
+                        >
+                          Ver histórico anterior
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        className="btn btn-danger btn-sm"
+                        disabled={!previousWhatsappSessionId}
+                        onClick={async () => {
+                          const confirmed = window.prompt(
+                            "Digite MIGRAR para solicitar a mistura do histórico antigo com o celular atual. Essa ação exige revisão manual do suporte HBX.",
+                          );
+                          if (confirmed === "MIGRAR") {
+                            try {
+                              const result = await apiFetch<{ migrated?: number; skipped?: number }>(
+                                `/inbox/whatsapp-sessions/${previousWhatsappSessionId}/migrate-current`,
+                                {
+                                  method: "POST",
+                                  requireAuth: true,
+                                  body: JSON.stringify({ confirmation: "MIGRAR" }),
+                                },
+                              );
+                              setNotice({
+                                tone: "info",
+                                text: `Histórico migrado: ${Number(result?.migrated || 0)} conversa(s). ${Number(result?.skipped || 0)} ficaram separadas por conflito.`,
+                              });
+                              switchWhatsappSessionHistory(false);
+                            } catch (migrateError) {
+                              setNotice({
+                                tone: "error",
+                                text: migrateError instanceof Error ? migrateError.message : "Falha ao migrar histórico.",
+                              });
+                            }
+                          }
+                        }}
+                      >
+                        Migrar histórico antigo para este celular
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
             <ProspectingAutomationStatus
               status={prospectingAutomationStatus}
               loading={prospectingAutomationLoading}
               actionLoading={Boolean(prospectingAutomationAction)}
               disabled={!globalBotEnabled}
-              onConfigure={() => router.push("/vendas")}
+              onConfigure={() => router.push("/vendas/automacao?tab=prospeccao")}
               onPause={() => void runProspectingAutomationAction("pause")}
               onResume={() => void runProspectingAutomationAction("resume")}
             />
@@ -8754,8 +8658,6 @@ export default function InboxClientPage() {
         ) : null}
 
       </DashboardScaffold>
-
-      {whatsappOperationalPopup}
 
       {agendaStudioOpen ? (
         renderAgendaPanel()
