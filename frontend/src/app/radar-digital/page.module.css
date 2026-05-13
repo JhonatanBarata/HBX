@@ -1309,9 +1309,13 @@
   }
 
   .mobilePickerSheet {
-    width: min(100%, 360px);
-    max-height: min(78dvh, 540px);
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    width: min(calc(100vw - 32px), 360px);
+    max-height: min(calc(100dvh - 32px - env(safe-area-inset-top) - env(safe-area-inset-bottom)), 540px);
     overflow: auto;
+    transform: translate(-50%, -50%);
     display: grid;
     gap: 12px;
     border-radius: 24px;
@@ -1321,9 +1325,8 @@
     box-shadow:
       0 24px 70px -28px rgba(2, 6, 23, 0.55),
       inset 0 1px 0 rgba(255, 255, 255, 0.9);
-    position: relative;
     transform-origin: 50% 50%;
-    animation: mobilePickerRise 240ms cubic-bezier(0.2, 0.9, 0.2, 1) both;
+    animation: none;
   }
 
   .mobilePickerSheet::before {
@@ -1436,7 +1439,13 @@
   }
 
   .mobileModuleMenu {
-    width: min(100%, 340px);
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    width: min(calc(100vw - 32px), 340px);
+    max-height: min(calc(100dvh - 32px - env(safe-area-inset-top) - env(safe-area-inset-bottom)), 520px);
+    overflow: auto;
+    transform: translate(-50%, -50%);
     display: grid;
     gap: 10px;
     border: 1px solid rgba(202, 214, 236, 0.78);
