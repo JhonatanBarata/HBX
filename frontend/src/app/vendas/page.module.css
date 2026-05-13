@@ -431,20 +431,24 @@
     inset: 0;
     z-index: 240;
     display: grid;
-    align-items: end;
-    justify-items: stretch;
-    background: linear-gradient(180deg, rgba(5, 18, 48, 0.05), rgba(5, 18, 48, 0.16));
+    place-items: center;
+    padding: max(16px, env(safe-area-inset-top)) 16px max(16px, env(safe-area-inset-bottom));
+    background:
+      radial-gradient(circle at 50% 50%, rgba(48, 204, 255, 0.16), transparent 30%),
+      rgba(2, 8, 23, 0.56);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
   }
 
   .mobileVendasNoteSheet {
-    width: 100%;
+    width: min(100%, 360px);
     max-height: min(78dvh, 560px);
     overflow: auto;
     display: grid;
     gap: 12px;
-    padding: 9px 16px max(18px, env(safe-area-inset-bottom));
+    padding: 18px 16px 16px;
     border: 1px solid rgba(207, 216, 235, 0.92);
-    border-radius: 24px 24px 0 0;
+    border-radius: 24px;
     background:
       radial-gradient(circle at 86% 0%, rgba(255, 255, 255, 0.96), transparent 38%),
       linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(238, 245, 255, 0.96));
@@ -776,14 +780,12 @@
   }
 
   .mobileVendasSheetBackdrop {
-    align-items: end;
-    background: linear-gradient(180deg, rgba(6, 19, 47, 0.04), rgba(6, 19, 47, 0.18));
+    place-items: center;
   }
 
   .mobileVendasNoteSheet {
     gap: 11px;
-    padding: 9px 14px calc(4.75rem + env(safe-area-inset-bottom));
-    border-radius: 24px 24px 0 0;
+    padding: 18px 14px 16px;
   }
 
   .mobileVendasNoteSheet textarea {

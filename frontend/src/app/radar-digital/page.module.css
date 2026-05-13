@@ -1421,6 +1421,75 @@
     box-shadow: 0 16px 32px -28px rgba(47, 111, 255, 0.62);
   }
 
+  .mobileModuleMenuPanel {
+    position: fixed;
+    inset: 0;
+    z-index: 270;
+    display: grid;
+    place-items: center;
+    padding: max(16px, env(safe-area-inset-top)) 16px max(16px, env(safe-area-inset-bottom));
+    background:
+      radial-gradient(circle at 50% 50%, rgba(48, 204, 255, 0.16), transparent 30%),
+      rgba(2, 8, 23, 0.58);
+    backdrop-filter: blur(12px);
+    animation: mobilePickerBackdrop 180ms ease-out both;
+  }
+
+  .mobileModuleMenu {
+    width: min(100%, 340px);
+    display: grid;
+    gap: 10px;
+    border: 1px solid rgba(202, 214, 236, 0.78);
+    border-radius: 24px;
+    padding: 18px 16px 16px;
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(246, 250, 255, 0.98));
+    box-shadow:
+      0 24px 70px -28px rgba(2, 6, 23, 0.55),
+      inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  }
+
+  .mobileModuleMenuHeader {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+
+  .mobileModuleMenuHeader strong {
+    color: #071436;
+    font-size: 1rem;
+    font-weight: 950;
+  }
+
+  .mobileModuleMenuHeader button,
+  .mobileModuleMenu > a,
+  .mobileModuleMenu > button {
+    min-height: 44px;
+    border: 1px solid rgba(202, 214, 236, 0.72);
+    border-radius: 14px;
+    background: #fff;
+    color: #14204a;
+    font: inherit;
+    font-weight: 900;
+    text-align: left;
+    text-decoration: none;
+    padding: 0 12px;
+  }
+
+  .mobileModuleMenuHeader button {
+    min-height: 36px;
+    border: 0;
+    background: transparent;
+    color: #246aff;
+    padding: 0;
+  }
+
+  .mobileModuleMenu > a[aria-current="page"] {
+    border-color: rgba(47, 111, 255, 0.38);
+    background: rgba(235, 243, 255, 0.98);
+    color: #1d4ed8;
+  }
+
   @keyframes mobileRadarOrbit {
     to {
       transform: rotate(360deg);
