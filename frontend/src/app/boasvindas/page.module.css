@@ -468,23 +468,29 @@
     position: absolute;
     top: 50dvh;
     left: 50%;
+    width: 72px;
+    height: 72px;
     isolation: isolate;
     overflow: visible;
     margin: 0;
+    border: 1px solid rgba(103, 255, 185, 0.72);
+    border-radius: 22px;
+    background:
+      radial-gradient(circle at 38% 22%, rgba(255, 255, 255, 0.28), transparent 34%),
+      linear-gradient(145deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.045)),
+      rgba(12, 31, 55, 0.84);
+    box-shadow:
+      0 0 0 1px rgba(122, 255, 196, 0.28),
+      0 28px 86px -28px rgba(24, 218, 141, 0.86),
+      inset 0 1px 0 rgba(255, 255, 255, 0.32);
     transform: translate(-50%, -50%);
-    animation: welcomeHbxHold 1800ms ease-in-out infinite;
+    animation: none;
   }
 
   .fromLoginTransition .brandMark::before,
   .fromLoginTransition .brandMark::after {
-    content: "";
-    position: absolute;
-    inset: 50%;
-    z-index: -1;
-    border-radius: 999px;
-    pointer-events: none;
-    opacity: 0;
-    transform: translate(-50%, -50%) scale(0.52);
+    content: none;
+    display: none;
   }
 
   .fromLoginTransition .brandMark::before {
@@ -564,11 +570,11 @@
   }
 
   .fromLoginTransition[data-welcome-phase="ready"] .brandMark {
-    animation: welcomeHbxHold 1800ms ease-in-out infinite;
+    animation: none;
   }
 
   .fromLoginTransition[data-welcome-path="sales"] .brandMark {
-    animation: welcomeHbxHold 1800ms ease-in-out infinite;
+    animation: none;
   }
 
   .fromLoginTransition[data-welcome-phase="ready"] .mobileTitle {

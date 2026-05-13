@@ -18,6 +18,11 @@ import { apiFetch, clearToken, type ApiFetchError } from "@/app/_lib/api";
 import { startSmartPolling } from "@/app/_lib/polling";
 import { useRequireModule } from "@/app/_lib/useRequireModule";
 import { clearTopbarProgress, dispatchTopbarProgress } from "@/lib/topbar-progress";
+import {
+  clearStoredRadarRun,
+  readStoredRadarRun,
+  saveStoredRadarRun,
+} from "@/lib/radar-active-run";
 import type { CommercialPlansPayload } from "@/lib/commercial-plans";
 import { BRAZIL_CITIES_BY_STATE, BRAZIL_STATES } from "@/lib/brazil-locations";
 import { HBX_SEGMENT_SUGGESTIONS } from "@/lib/hbx-segment-suggestions";
@@ -123,6 +128,12 @@ type RadarSearchRunResponse = RadarPullResponse & {
       remaining?: number | null;
       blocked?: boolean;
     } | null;
+    filters?: {
+      state?: string | null;
+      city?: string | null;
+      segment?: string | null;
+      targetType?: HbxTargetTypeValue | string | null;
+    };
   };
 };
 
@@ -409,6 +420,7 @@ export default function RadarDigitalClientPage() {
   const [telonProgress, setTelonProgress] = useState(8);
   const [radarVisualCount, setRadarVisualCount] = useState(0);
   const [activeRun, setActiveRun] = useState<RadarSearchRunResponse | null>(null);
+  const [cancelingRun, setCancelingRun] = useState(false);
   const [commercialPlans, setCommercialPlans] = useState<CommercialPlansPayload | null>(null);
   const [vendasPending, setVendasPending] = useState<VendasPendingSummary | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
@@ -750,6 +762,7 @@ export default function RadarDigitalClientPage() {
     setSearching(false);
     setFeedback(null);
     setError(null);
+    clearStoredRadarRun();
   }
 
   function updateAdvancedFilters(next: HbxAdvancedFiltersValue) {
@@ -775,16 +788,49 @@ export default function RadarDigitalClientPage() {
     if (activeRunIdRef.current && runId && activeRunIdRef.current !== runId) return;
 
     const nextItems = payload.items || [];
+    const payloadFilters = payload.meta?.filters;
+    if (payloadFilters) {
+      setFilters((current) => ({
+        ...current,
+        state: payloadFilters.state || current.state,
+        city: payloadFilters.city || current.city,
+        segment: payloadFilters.segment || current.segment,
+        targetType: payloadFilters.targetType === "pf" || payloadFilters.targetType === "both" ? payloadFilters.targetType : "pj",
+        quantity: Math.max(1, Number(payload.targetQuantity || payload.meta?.requestedQuantity || current.quantity || 1)),
+      }));
+      setAppliedFilters((current) => ({
+        ...current,
+        state: payloadFilters.state || current.state,
+        city: payloadFilters.city || current.city,
+        segment: payloadFilters.segment || current.segment,
+        targetType: payloadFilters.targetType === "pf" || payloadFilters.targetType === "both" ? payloadFilters.targetType : "pj",
+        quantity: Math.max(1, Number(payload.targetQuantity || payload.meta?.requestedQuantity || current.quantity || 1)),
+      }));
+    }
     setItems((current) => mergeRadarLeads([...current, ...nextItems]).slice(0, Math.max(1, Number(payload.targetQuantity || payload.meta?.requestedQuantity || nextItems.length || 1))));
     setTotal(Number(payload.targetQuantity || payload.meta?.requestedQuantity || payload.total || nextItems.length || 0));
     setPage(1);
+    setHasSearched(true);
     setTelonProgress(Math.max(12, Math.min(100, Number(payload.meta?.progress || 0) || 12)));
+    saveStoredRadarRun({
+      runId,
+      status: payload.status,
+      city: payloadFilters?.city || null,
+      state: payloadFilters?.state || null,
+      segment: payloadFilters?.segment || null,
+      targetQuantity: Number(payload.targetQuantity || payload.meta?.requestedQuantity || 0) || null,
+      deliveredCount: Number(payload.meta?.deliveredCount || nextItems.length || 0) || 0,
+    });
 
     const terminal = Boolean(payload.meta?.terminal) || isTerminalRadarRun(payload.status);
     if (terminal) {
       activeRunIdRef.current = null;
       setActiveRun(null);
       setSearching(false);
+      if (payload.status === "canceled") {
+        clearStoredRadarRun(runId);
+        setMobileRadarDone(false);
+      }
       if (Number(payload.meta?.autoImport?.processedCount || payload.meta?.autoImport?.importedCount || 0) > 0 || nextItems.length > 0) {
         setMobileRadarDone(true);
       }
@@ -793,8 +839,37 @@ export default function RadarDigitalClientPage() {
     }
 
     setActiveRun(payload);
+    setSearching(true);
+    setMobileRadarDone(false);
     setFeedback(payload.message || "Busca em andamento. Os cards aparecem conforme o Radar aprova novos contatos.");
   }, []);
+
+  useEffect(() => {
+    if (hasToken !== true || queryRadarLeadId) return;
+    const stored = readStoredRadarRun();
+    if (!stored?.runId) return;
+    activeRunIdRef.current = stored.runId;
+    setHasSearched(true);
+    setSearching(!isTerminalRadarRun(stored.status));
+    let cancelled = false;
+    apiFetch<RadarSearchRunResponse>(`/webscraping/radar/search-runs/${encodeURIComponent(stored.runId)}`, {
+      requireAuth: true,
+      timeoutMs: 15000,
+    })
+      .then((payload) => {
+        if (!cancelled) applyRadarRunPayload(payload);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          activeRunIdRef.current = null;
+          clearStoredRadarRun(stored.runId);
+          setSearching(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [applyRadarRunPayload, hasToken, queryRadarLeadId]);
 
   useEffect(() => {
     const runId = activeRun?.runId || activeRun?.id;
@@ -856,6 +931,7 @@ export default function RadarDigitalClientPage() {
       setItems([]);
       setTotal(0);
       setPage(1);
+      clearStoredRadarRun();
 
       const targetType = nextFilters.targetType === "both" ? "pj" : nextFilters.targetType;
       const payload = await apiFetch<RadarSearchRunResponse>("/webscraping/radar/search-runs", {
@@ -879,6 +955,37 @@ export default function RadarDigitalClientPage() {
       setError(radarFriendlyError(searchError));
     } finally {
       if (!activeRunIdRef.current) setSearching(false);
+    }
+  }
+
+  async function cancelActiveRadarRun() {
+    const runId = activeRun?.runId || activeRun?.id || activeRunIdRef.current || readStoredRadarRun()?.runId;
+    if (!runId) {
+      clearStoredRadarRun();
+      setActiveRun(null);
+      setSearching(false);
+      setMobileRadarDone(false);
+      return;
+    }
+    setCancelingRun(true);
+    setError(null);
+    try {
+      const payload = await apiFetch<RadarSearchRunResponse>(`/webscraping/radar/search-runs/${encodeURIComponent(runId)}/cancel`, {
+        method: "POST",
+        requireAuth: true,
+        timeoutMs: 15000,
+      });
+      clearStoredRadarRun(runId);
+      activeRunIdRef.current = null;
+      setActiveRun(null);
+      setSearching(false);
+      setMobileAutoImportPending(false);
+      setMobileRadarDone(false);
+      setFeedback(payload.message || "Busca cancelada. Ajuste os filtros e pesquise de novo.");
+    } catch (cancelError) {
+      setError(cancelError instanceof Error ? cancelError.message : "Não foi possível cancelar a busca agora.");
+    } finally {
+      setCancelingRun(false);
     }
   }
 
@@ -1082,7 +1189,18 @@ export default function RadarDigitalClientPage() {
       window.location.href = "/login";
     }
   }
-  const mobileRadarProcessing = searching || Boolean(activeRun) || bulkSending || mobileAutoImportPending;
+  const activeRunStatus = String(activeRun?.status || "").toLowerCase();
+  const activeRunDeliveredCount = Math.max(visibleItems.length, Number(activeRun?.meta?.deliveredCount || activeRun?.foundCount || 0));
+  const mobileRadarStage =
+    error ? "error" :
+    cancelingRun ? "canceling" :
+    bulkSending || mobileAutoImportPending ? "sending" :
+    mobileRadarDone ? "completed" :
+    activeRunStatus === "queued" ? "queued" :
+    activeRunDeliveredCount > 0 && (searching || activeRun) ? "receiving" :
+    searching || activeRun ? "searching" :
+    "idle";
+  const mobileRadarProcessing = searching || Boolean(activeRun) || bulkSending || mobileAutoImportPending || cancelingRun;
   const mobileRadarProgress = activeRun
     ? activeRunProgress
     : bulkSending
@@ -1167,14 +1285,42 @@ export default function RadarDigitalClientPage() {
             </>
           ) : (
             <section className={styles.mobileRadarProcessing} aria-live="polite">
-              <div>
+              <div className={styles.mobileRadarProcessingHeader}>
                 <span>Radar Digital</span>
-                <strong>{mobileRadarDone ? "Leads enviados para o Vendas." : "Trabalhando em seus leads."}</strong>
-                <p>Você verá tudo automaticamente no Vendas.</p>
+                <strong>
+                  {mobileRadarStage === "queued"
+                    ? "Sua busca entrou na fila."
+                    : mobileRadarStage === "receiving"
+                      ? "Cards chegando ao Vendas."
+                      : mobileRadarStage === "sending"
+                        ? "Entregando cards ao Vendas."
+                        : mobileRadarStage === "completed"
+                          ? "Leads enviados para o Vendas."
+                          : mobileRadarStage === "canceling"
+                            ? "Cancelando a busca."
+                            : "Trabalhando em seus leads."}
+                </strong>
+                <p>
+                  {mobileRadarStage === "receiving"
+                    ? `${activeRunDeliveredCount} ${activeRunDeliveredCount === 1 ? "card aprovado" : "cards aprovados"} até agora.`
+                    : "Você verá tudo automaticamente no Vendas."}
+                </p>
               </div>
-              <div className={styles.mobileRadarRing} style={{ ["--progress" as string]: `${mobileRadarProgress}%` }}>
+              <div className={styles.mobileRadarRing} data-stage={mobileRadarStage} style={{ ["--progress" as string]: `${mobileRadarProgress}%` }}>
                 <strong>{mobileRadarDone ? "100" : Math.round(mobileRadarProgress)}%</strong>
-                <span>{mobileRadarDone ? "Concluído" : bulkSending || mobileAutoImportPending ? "Enviando" : "Processando"}</span>
+                <span>
+                  {mobileRadarStage === "queued"
+                    ? "Na fila"
+                    : mobileRadarStage === "receiving"
+                      ? "Recebendo"
+                      : mobileRadarStage === "sending"
+                        ? "Enviando"
+                        : mobileRadarStage === "completed"
+                          ? "Concluído"
+                          : mobileRadarStage === "canceling"
+                            ? "Parando"
+                            : "Processando"}
+                </span>
               </div>
               <ul className={styles.mobileRadarSteps}>
                 <li data-done={mobileRadarStepState.segment ? "true" : "false"} data-icon="segmento">
@@ -1196,16 +1342,27 @@ export default function RadarDigitalClientPage() {
               </ul>
               {error ? <div className={styles.mobileRadarNotice}>{compactRadarMessage(error)}</div> : null}
               {feedback ? <div className={styles.mobileRadarDone}>{feedback}</div> : null}
-              <a
-                className={styles.mobileRadarOpenSales}
-                href="/vendas"
-                onClick={(event) => {
-                  event.preventDefault();
-                  window.location.href = "/vendas";
-                }}
-              >
-                Abrir Vendas
-              </a>
+              <div className={styles.mobileRadarProcessingActions}>
+                <a
+                  className={styles.mobileRadarOpenSales}
+                  href="/vendas"
+                  onClick={(event) => {
+                    event.preventDefault();
+                    window.location.href = "/vendas";
+                  }}
+                >
+                  Abrir Vendas
+                </a>
+                {activeRun || searching ? (
+                  <button type="button" className={styles.mobileRadarCancel} onClick={cancelActiveRadarRun} disabled={cancelingRun}>
+                    {cancelingRun ? "Cancelando" : "Cancelar"}
+                  </button>
+                ) : (
+                  <button type="button" className={styles.mobileRadarCancel} onClick={clearFilters}>
+                    Nova busca
+                  </button>
+                )}
+              </div>
             </section>
           )}
 

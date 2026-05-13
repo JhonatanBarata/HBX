@@ -4980,7 +4980,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
-  private async buildRadarSearchRunResponse(user: any, runId: string) {
+  private async buildRadarSearchRunResponse(user: any, runId: string, options?: { skipAutoImport?: boolean }) {
     const context = this.resolveContext(user);
     await this.assertSearchRunPersistence();
     const run = await this.prisma.webscrapingSearchRun.findFirst({
@@ -4999,10 +4999,12 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     await this.syncRadarSearchRunItemsToPool(context, run).catch((error: any) => {
       this.logger.warn(`[radar-run] sync ignorado run=${run.id}: ${String(error?.message || error)}`);
     });
-    const autoImport = await this.autoImportRadarSearchRunToVendas(user, run.id).catch((error: any) => {
-      this.logger.warn(`[radar-vendas] auto-import ignorado run=${run.id}: ${String(error?.message || error)}`);
-      return null;
-    });
+    const autoImport = options?.skipAutoImport
+      ? null
+      : await this.autoImportRadarSearchRunToVendas(user, run.id).catch((error: any) => {
+          this.logger.warn(`[radar-vendas] auto-import ignorado run=${run.id}: ${String(error?.message || error)}`);
+          return null;
+        });
 
     const freshRun = await this.prisma.webscrapingSearchRun.findFirst({
       where: { id: run.id, companyId: context.companyId },
@@ -5180,6 +5182,11 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
 
   async getRadarSearchRunForUser(user: any, runId: string) {
     return this.buildRadarSearchRunResponse(user, runId);
+  }
+
+  async cancelRadarSearchRunForUser(user: any, runId: string) {
+    await this.cancelSearchRunForUser(user, runId);
+    return this.buildRadarSearchRunResponse(user, runId, { skipAutoImport: true });
   }
 
   private async markRadarDelivered(companyId: number, userId: number, rows: any[]) {

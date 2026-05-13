@@ -648,6 +648,15 @@ export class WebscrapingController {
     }
   }
 
+  @Post('radar/search-runs/:id/cancel')
+  async cancelRadarSearchRun(@Req() req: any, @Param('id') id: string) {
+    try {
+      return await this.webscrapingService.cancelRadarSearchRunForUser(req.user, id);
+    } catch (error) {
+      return this.webscrapingService.buildRadarClientErrorResponse(req.user, '/webscraping/radar/search-runs/:id/cancel', error);
+    }
+  }
+
   @Post('radar/replenish')
   async radarReplenish(@Req() req: any, @Body() dto: RadarPullDto) {
     try {
