@@ -8637,7 +8637,7 @@ export default function InboxClientPage() {
               loading={prospectingAutomationLoading}
               actionLoading={Boolean(prospectingAutomationAction)}
               disabled={!globalBotEnabled}
-              onConfigure={() => router.push("/vendas/automacao?tab=prospeccao")}
+              onConfigure={() => router.push("/vendas")}
               onPause={() => void runProspectingAutomationAction("pause")}
               onResume={() => void runProspectingAutomationAction("resume")}
             />

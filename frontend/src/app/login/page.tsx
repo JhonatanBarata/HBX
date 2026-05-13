@@ -1371,14 +1371,14 @@ export default function LoginPage() {
                 )}
               </button>
 
-              <div className="my-2 flex w-full items-center gap-3 text-xs font-bold text-slate-300">
+              <div className="login-socialDivider my-2 flex w-full items-center gap-3 text-xs font-bold text-slate-300">
                 <div className="h-px flex-1 bg-white/15" />
                 <span className="shrink-0 leading-none">ou</span>
                 <div className="h-px flex-1 bg-white/15" />
               </div>
 
               <a
-                className="flex h-11 w-full items-center justify-center gap-2 rounded-xl border border-white/15 bg-white/[0.03] text-sm font-bold text-white"
+                className="login-whatsappButton flex h-11 w-full items-center justify-center gap-2 rounded-xl border border-white/15 bg-white/[0.03] text-sm font-bold text-white"
                 href={supportWhatsAppUrl}
                 target="_blank"
                 rel="noreferrer"

@@ -2203,7 +2203,7 @@ export default function VendasClientPage() {
             <span>▤</span>
             Relatórios
           </a>
-          <a href="/vendas/automacao?tab=prospeccao">
+          <a href="/vendas">
             <span>•••</span>
             Mais
           </a>

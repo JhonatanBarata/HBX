@@ -10810,6 +10810,23 @@ html[data-theme="tabler"] .login-card__stat {
 
   .login-stage[data-login-surface="hbx-mobile"] .login-whatsappButton {
     display: inline-flex;
+    border-color: rgba(125, 211, 252, 0.48) !important;
+    color: #eaf6ff !important;
+    background:
+      radial-gradient(circle at 18% 50%, rgba(37, 211, 102, 0.22), transparent 30%),
+      linear-gradient(180deg, rgba(5, 18, 42, 0.94), rgba(2, 10, 28, 0.9)) !important;
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.12),
+      0 16px 36px -28px rgba(37, 211, 102, 0.68) !important;
+  }
+
+  .login-stage[data-login-surface="hbx-mobile"] .login-whatsappButton span:not(.login-whatsappButton__mark) {
+    color: #eaf6ff !important;
+  }
+
+  .login-stage[data-login-surface="hbx-mobile"] .login-whatsappButton__mark {
+    color: #25d366 !important;
+    filter: drop-shadow(0 0 8px rgba(37, 211, 102, 0.5));
   }
 
   .login-stage[data-login-surface="hbx-mobile"] .login-mobileTerms {
@@ -11088,6 +11105,22 @@ html[data-theme="tabler"] .login-card__stat {
   width: 20px;
   height: 20px;
   fill: currentColor;
+}
+
+.login-stage[data-login-surface="hbx-mobile"] .login-whatsappButton {
+  border-color: rgba(125, 211, 252, 0.38);
+  color: #dff4ff;
+  background:
+    radial-gradient(circle at 18% 50%, rgba(37, 211, 102, 0.2), transparent 30%),
+    linear-gradient(180deg, rgba(5, 18, 42, 0.9), rgba(2, 10, 28, 0.86));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.1),
+    0 16px 36px -28px rgba(37, 211, 102, 0.62);
+}
+
+.login-stage[data-login-surface="hbx-mobile"] .login-whatsappButton__mark {
+  color: #25d366;
+  filter: drop-shadow(0 0 8px rgba(37, 211, 102, 0.48));
 }
 
 .login-waterRipples {
@@ -11541,8 +11574,26 @@ html[data-theme="tabler"] .login-card__stat {
 
   .login-stage[data-login-surface="hbx-mobile"] .login-whatsappButton {
     display: inline-flex !important;
-    opacity: 1 !important;
+    opacity: 1;
     visibility: visible !important;
+    border-color: rgba(125, 211, 252, 0.48) !important;
+    color: #eaf6ff !important;
+    background:
+      radial-gradient(circle at 18% 50%, rgba(37, 211, 102, 0.22), transparent 30%),
+      linear-gradient(180deg, rgba(5, 18, 42, 0.94), rgba(2, 10, 28, 0.9)) !important;
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.12),
+      0 16px 36px -28px rgba(37, 211, 102, 0.68) !important;
+  }
+
+  .login-stage[data-login-surface="hbx-mobile"] .login-whatsappButton:visited,
+  .login-stage[data-login-surface="hbx-mobile"] .login-whatsappButton span:not(.login-whatsappButton__mark) {
+    color: #eaf6ff !important;
+  }
+
+  .login-stage[data-login-surface="hbx-mobile"] .login-whatsappButton__mark {
+    color: #25d366 !important;
+    filter: drop-shadow(0 0 8px rgba(37, 211, 102, 0.5));
   }
 
   .login-stage[data-login-surface="hbx-mobile"][data-login-state="success"] .login-card__header,
@@ -11832,6 +11883,8 @@ html[data-theme="tabler"] .login-card__stat {
     grid-area: 1 / 1;
     justify-self: center;
     align-self: center;
+    place-items: center;
+    text-align: center;
     width: min(72vw, 248px);
     min-height: 58px;
     opacity: 0;
@@ -11848,6 +11901,13 @@ html[data-theme="tabler"] .login-card__stat {
   }
 
   .login-stage[data-login-surface="hbx-mobile"][data-login-state="success"] .login-authBridge__brand {
+    width: 100%;
+    height: 100%;
+    display: grid;
+    place-items: center;
+    line-height: 1;
+    letter-spacing: 0;
+    text-align: center;
     opacity: 0;
     animation: loginAuthBrandCleanIn 760ms ease 4750ms forwards !important;
   }
