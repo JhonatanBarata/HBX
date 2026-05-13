@@ -5,7 +5,6 @@ import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import ModuleNav from "./ModuleNav";
-import QrPairedNextStepPrompt from "./QrPairedNextStepPrompt";
 import { apiFetch, getToken } from "@/app/_lib/api";
 import { MASTER_CONTEXT_CHANGED_EVENT } from "../lib/masterContextEvents";
 import {
@@ -561,7 +560,6 @@ export default function DashboardScaffold({
             document.body,
           )
         : null}
-      {!pendingCheckoutLocked ? <QrPairedNextStepPrompt /> : null}
     </main>
   );
 }

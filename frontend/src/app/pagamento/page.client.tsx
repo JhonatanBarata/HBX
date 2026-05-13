@@ -390,7 +390,14 @@ function isPendingCheckout(overview: FinanceiroOverview | null, reason?: string 
     subscriptionStatus === "manual" ||
     Boolean(overview?.company.premiumAccess);
   if (accessReleased) return false;
-  return paymentStatus === "PENDING" || subscriptionStatus === "pending_checkout" || onboardingReason === "pending_checkout";
+  return (
+    paymentStatus === "PENDING" ||
+    paymentStatus === "EXPIRED" ||
+    subscriptionStatus === "pending_checkout" ||
+    subscriptionStatus === "expired" ||
+    onboardingReason === "pending_checkout" ||
+    onboardingReason === "trial_expired"
+  );
 }
 
 function extractBrickToken(data: MercadoPagoBrickFormData | null | undefined) {
@@ -566,10 +573,8 @@ export default function FinanceiroClientPage() {
   const monthlyTotal = planCycleAmount(selectedPlanKey, "MONTHLY");
   const annualTotal = planCycleAmount(selectedPlanKey, "ANNUAL");
   const annualMonthlyEquivalent = Number((annualTotal / 12).toFixed(2));
-  const monthlyEquivalent = billingCycle === "ANNUAL" ? Number((total / 12).toFixed(2)) : total;
   const cycleLabel = billingCycle === "ANNUAL" ? "Anual" : "Mensal";
   const latestPixCharge = overview?.latestCharge?.paymentMethod === "PIX" ? overview.latestCharge : null;
-  const latestBoletoCharge = overview?.latestCharge?.paymentMethod === "BOLETO" ? overview.latestCharge : null;
   const paymentConsentPhoneDigits = normalizeBrazilPhone(paymentConsentForm.phone);
   const paymentConsentTaxDigits = onlyDigits(paymentConsentForm.cpf);
   const contactPhoneDigits = normalizeBrazilPhone(contactPhone);
@@ -1156,7 +1161,6 @@ export default function FinanceiroClientPage() {
       : checkoutPaymentMethod === "PIX"
         ? "Pix avulso"
         : "Boleto avulso";
-  const checkoutDateLabel = checkoutPaymentMethod === "CARD" ? "Próxima cobrança" : "Liberação";
   const checkoutDateValue =
     checkoutPaymentMethod === "CARD"
       ? nextBilling.toLocaleDateString("pt-BR")
@@ -1178,48 +1182,29 @@ export default function FinanceiroClientPage() {
               <div className={styles.checkoutHero}>
                 <div className={styles.checkoutLogo} aria-hidden="true">HBX</div>
                 <div>
-                  <span className={styles.eyebrow}>Contratação HBX</span>
-                  <h1 className={styles.checkoutTitle}>Finalize sua contratação</h1>
-                  <p className={styles.heroText}>Confirme o ciclo e escolha como pagar. Cartão ativa a assinatura automática; Pix e boleto quitam o ciclo atual.</p>
+                  <span className={styles.eyebrow}>Checkout seguro</span>
+                  <h1 className={styles.checkoutTitle}>Pagamento HBX</h1>
+                  <p className={styles.heroText}>Escolha o ciclo e conclua pelo Mercado Pago.</p>
                 </div>
-              </div>
-
-              <div className={styles.checkoutStepper} aria-label="Etapas da contratação">
-                <span data-state="done">
-                  <b>1</b>
-                  <strong>SignIn/Login</strong>
-                  <small>Conta criada</small>
-                </span>
-                <Link href={changePlanHref} className={styles.stepLink} data-state="done">
-                  <b>2</b>
-                  <strong>Plano</strong>
-                  <small>Trocar plano</small>
-                </Link>
-                <span data-state="current">
-                  <b>3</b>
-                  <strong>Pagamento</strong>
-                  <small>Etapa atual</small>
-                </span>
               </div>
 
               <section className={styles.checkoutSection}>
                 <div className={styles.sectionHeader}>
                   <div>
-                    <strong>Ciclo de cobrança</strong>
-                    <p className={styles.helperText}>Mensal já vem selecionado. Ele cobra mês a mês e não compromete o limite anual do cartão de uma vez.</p>
+                    <strong>Ciclo</strong>
                   </div>
                 </div>
                 <div className={styles.cycleCards} role="group" aria-label="Ciclo de cobrança">
                   <button type="button" data-active={billingCycle === "MONTHLY"} onClick={() => setBillingCycle("MONTHLY")}>
                     <span className={styles.cycleName}>Mensal</span>
                     <strong>{formatCurrency(monthlyTotal)}/mês</strong>
-                    <small>Cobrança automática todo mês. Não é compra anual parcelada.</small>
+                    <small>Cobra mês a mês.</small>
                   </button>
                   <button type="button" data-active={billingCycle === "ANNUAL"} onClick={() => setBillingCycle("ANNUAL")}>
                     <span className={styles.discountBadge}>10% de desconto</span>
                     <span className={styles.cycleName}>Anual</span>
                     <strong>{formatCurrency(annualMonthlyEquivalent)}/mês</strong>
-                    <small>Total de {formatCurrency(annualTotal)} cobrado hoje.</small>
+                    <small>{formatCurrency(annualTotal)} hoje.</small>
                   </button>
                 </div>
               </section>
@@ -1228,23 +1213,17 @@ export default function FinanceiroClientPage() {
                 <div>
                   <span>Plano</span>
                   <strong>{plan.title}</strong>
-                  <small>{plan.includes.join(" • ")}</small>
                   <Link href={changePlanHref} className={styles.changePlanButton}>Trocar plano</Link>
                 </div>
                 <div>
-                  <span>Método</span>
-                  <strong>{checkoutMethodLabel}</strong>
-                  <small>{checkoutPaymentMethod === "CARD" ? "Recorrência automática Mercado Pago." : "Pagamento avulso do ciclo selecionado."}</small>
-                </div>
-                <div>
-                  <span>{checkoutDateLabel}</span>
-                  <strong>{checkoutDateValue}</strong>
-                  <small>{checkoutPaymentMethod === "CARD" ? `${cycleLabel} selecionado.` : "O HBX atualiza o acesso automaticamente."}</small>
+                  <span>Ciclo</span>
+                  <strong>{cycleLabel}</strong>
+                  <small>{checkoutMethodLabel}</small>
                 </div>
                 <div>
                   <span>Total hoje</span>
                   <strong>{formatCurrency(total)}</strong>
-                  <small>{billingCycle === "ANNUAL" ? `${formatCurrency(monthlyEquivalent)}/mês equivalente.` : "Cobrança mês a mês no cartão."}</small>
+                  <small>{checkoutDateValue}</small>
                 </div>
               </div>
             </div>
@@ -1253,26 +1232,20 @@ export default function FinanceiroClientPage() {
           <section className={styles.checkoutSection}>
             <div className={styles.sectionHeader}>
               <div>
-                <strong>Método de pagamento</strong>
-                <p className={styles.helperText}>Cartão é recorrente automático. Pix e boleto continuam como pagamento avulso do ciclo escolhido.</p>
+                <strong>Pagamento</strong>
               </div>
               <span className={styles.statusPill}>Mercado Pago</span>
             </div>
             <div className={styles.paymentMethodGrid} role="group" aria-label="Método de pagamento">
               <button type="button" data-active={checkoutPaymentMethod === "CARD"} onClick={() => setCheckoutPaymentMethod("CARD")}>
                 <span>Cartão</span>
-                <strong>Assinatura automática</strong>
-                <small>Cobra sozinho a cada ciclo no Mercado Pago.</small>
+                <strong>Recorrente</strong>
+                <small>Melhor opção.</small>
               </button>
               <button type="button" data-active={checkoutPaymentMethod === "PIX"} onClick={() => setCheckoutPaymentMethod("PIX")}>
                 <span>Pix</span>
-                <strong>Pagamento do ciclo</strong>
-                <small>Gera QR Code e libera após confirmação.</small>
-              </button>
-              <button type="button" data-active={checkoutPaymentMethod === "BOLETO"} disabled>
-                <span>Boleto</span>
-                <strong>Pagamento do ciclo</strong>
-                <small>Indisponível no momento.</small>
+                <strong>Avulso</strong>
+                <small>Libera ao confirmar.</small>
               </button>
             </div>
           </section>
@@ -1281,8 +1254,7 @@ export default function FinanceiroClientPage() {
             <section className={styles.securePaymentBox}>
               <div className={styles.sectionHeader}>
                 <div>
-                  <strong>Cartão seguro Mercado Pago</strong>
-                  <p className={styles.helperText}>O HBX recebe apenas o token temporário de autorização. Número completo e código de segurança não passam pelo nosso servidor.</p>
+                  <strong>Cartão</strong>
                 </div>
                 <span className={styles.statusPill}>Recorrente</span>
               </div>
@@ -1297,8 +1269,7 @@ export default function FinanceiroClientPage() {
                   <div className={styles.cardPaymentStack}>
                     <div className={styles.paymentDataBox}>
                       <div>
-                        <strong>Contato HBX</strong>
-                        <p>Nome do titular e documento ficam no formulário seguro do Mercado Pago. O HBX pede só este telefone para suporte financeiro.</p>
+                        <strong>Contato financeiro</strong>
                       </div>
                       <label className={styles.field} htmlFor="checkout-card-contact-phone">
                         <span className={styles.fieldLabel}>Telefone de contato</span>
@@ -1362,15 +1333,13 @@ export default function FinanceiroClientPage() {
             <section className={styles.securePaymentBox}>
               <div className={styles.sectionHeader}>
                 <div>
-                  <strong>Pix Mercado Pago</strong>
-                  <p className={styles.helperText}>Pix quita o ciclo selecionado. Ele não cria cobrança automática para os próximos ciclos.</p>
+                  <strong>Pix</strong>
                 </div>
                 <span className={styles.statusPill}>Avulso</span>
               </div>
               <div className={styles.paymentDataBox}>
                 <div>
-                  <strong>Dados para gerar o Pix</strong>
-                  <p>Preencha uma vez. Esses dados ficam no cadastro da empresa para suporte e identificação financeira.</p>
+                  <strong>Dados do pagador</strong>
                 </div>
                 <div className={styles.paymentDataGrid}>
                   <label className={styles.field} htmlFor="checkout-pix-contact-name">
@@ -1413,7 +1382,7 @@ export default function FinanceiroClientPage() {
               <div className={styles.alternativePaymentPanel}>
                 <div>
                   <strong>{formatCurrency(total)}</strong>
-                  <p>{cycleLabel} HBX via Pix. Acesso liberado automaticamente quando o Mercado Pago confirmar.</p>
+                  <p>Liberação após confirmação.</p>
                 </div>
                 <button type="button" className="btn btn-primary" disabled={!pixContactReady || saving === "checkout-pix"} onClick={() => openPaymentConsent("PIX")}>
                   {saving === "checkout-pix" ? "Gerando Pix..." : "Gerar Pix"}
@@ -1451,43 +1420,6 @@ export default function FinanceiroClientPage() {
             </section>
           ) : null}
 
-          {checkoutPaymentMethod === "BOLETO" ? (
-            <section className={styles.securePaymentBox}>
-              <div className={styles.sectionHeader}>
-                <div>
-                  <strong>Boleto Mercado Pago</strong>
-                  <p className={styles.helperText}>Boleto quita o ciclo selecionado após compensação. Não é recorrência automática.</p>
-                </div>
-                <span className={styles.statusPill}>Avulso</span>
-              </div>
-              <div className={styles.alternativePaymentPanel}>
-                <div>
-                  <strong>{formatCurrency(total)}</strong>
-                  <p>{cycleLabel} HBX via boleto. O Mercado Pago controla emissão, vencimento e compensação.</p>
-                </div>
-                <button type="button" className="btn btn-primary" disabled>
-                  {saving === "checkout-boleto" ? "Criando boleto..." : "Criar boleto"}
-                </button>
-              </div>
-              {latestBoletoCharge?.paymentUrl ? (
-                <a className={styles.paymentLink} href={latestBoletoCharge.paymentUrl} target="_blank" rel="noreferrer">
-                  Abrir boleto no Mercado Pago
-                </a>
-              ) : null}
-              {paymentActionError && checkoutPaymentMethod === "BOLETO" ? (
-                <div className={styles.setupNotice}>
-                  <strong>Não foi possível criar o boleto.</strong>
-                  <p>{paymentActionError}</p>
-                </div>
-              ) : null}
-            </section>
-          ) : null}
-
-          <div className={styles.termsBox}>
-            <span>Mensal no cartão cobra mês a mês, sem usar o limite anual de uma vez.</span>
-            <span>Sem fidelidade: assinatura pode ser cancelada no Financeiro.</span>
-            <span>Pix e boleto são alternativas avulsas para regularizar o ciclo.</span>
-          </div>
             </div>
           </div>
         </article>

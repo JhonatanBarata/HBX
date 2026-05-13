@@ -5,7 +5,16 @@
 
 .checkoutPage {
   width: 100%;
-  padding-bottom: 118px;
+  min-height: 100dvh;
+  padding: clamp(0.8rem, 2vw, 1.4rem);
+  padding-bottom: 96px;
+  background:
+    radial-gradient(circle at 50% 14%, rgba(34, 211, 238, 0.22), transparent 26%),
+    radial-gradient(circle at 86% 82%, rgba(32, 199, 126, 0.13), transparent 30%),
+    linear-gradient(90deg, rgba(96, 165, 250, 0.06) 1px, transparent 1px),
+    linear-gradient(180deg, rgba(96, 165, 250, 0.06) 1px, transparent 1px),
+    #061225;
+  background-size: auto, auto, 34px 34px, 34px 34px, auto;
 }
 
 .hero,
@@ -1547,6 +1556,18 @@
 }
 
 @media (max-width: 640px) {
+  .checkoutPage {
+    padding: 0;
+    padding-bottom: 28px;
+    background:
+      radial-gradient(circle at 50% 4%, rgba(34, 211, 238, 0.24), transparent 28%),
+      radial-gradient(circle at 92% 86%, rgba(76, 255, 196, 0.14), transparent 34%),
+      linear-gradient(90deg, rgba(96, 165, 250, 0.08) 1px, transparent 1px),
+      linear-gradient(180deg, rgba(96, 165, 250, 0.08) 1px, transparent 1px),
+      #061225;
+    background-size: auto, auto, 32px 32px, 32px 32px, auto;
+  }
+
   .hero,
   .panelCard,
   .errorCard,
@@ -1563,17 +1584,165 @@
 
   .checkoutMain,
   .checkoutSummaryPanel {
-    padding: 0.95rem;
-    border-radius: 18px;
+    padding: 1rem;
+    border-radius: 0;
+  }
+
+  .checkoutMain {
+    min-height: 100dvh;
+    border: 0;
+    background:
+      radial-gradient(circle at 50% 10%, rgba(34, 211, 238, 0.16), transparent 30%),
+      linear-gradient(180deg, rgba(8, 28, 55, 0.92), rgba(5, 13, 28, 0.98));
+    box-shadow: none;
+  }
+
+  .checkoutMain::before {
+    opacity: 0.72;
+    background:
+      linear-gradient(90deg, rgba(96, 165, 250, 0.07) 1px, transparent 1px),
+      linear-gradient(180deg, rgba(96, 165, 250, 0.07) 1px, transparent 1px);
+    background-size: 32px 32px;
+  }
+
+  .checkoutCompactGrid,
+  .checkoutLeftRail,
+  .checkoutPaymentRail {
+    gap: 0.75rem;
   }
 
   .checkoutHero {
-    grid-template-columns: 1fr;
+    grid-template-columns: 56px minmax(0, 1fr);
+    gap: 0.75rem;
+    padding-top: 0.4rem;
   }
 
   .checkoutLogo {
-    width: 58px;
+    width: 56px;
     border-radius: 16px;
   }
 
+  .checkoutTitle {
+    color: #ffffff;
+    font-size: 2rem;
+  }
+
+  .checkoutMain .heroText {
+    color: rgba(219, 234, 254, 0.72);
+  }
+
+  .checkoutSection,
+  .securePaymentBox,
+  .paymentDataBox,
+  .alternativePaymentPanel,
+  .cardPreviewStack,
+  .checkoutFactsGrid div,
+  .cycleCards button,
+  .paymentMethodGrid button {
+    border-color: rgba(147, 197, 253, 0.22);
+    background: rgba(226, 246, 255, 0.08);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  }
+
+  .checkoutSection {
+    padding-top: 0.72rem;
+  }
+
+  .cycleCards {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.55rem;
+  }
+
+  .cycleCards button {
+    min-height: 104px;
+    border-radius: 16px;
+    padding: 0.7rem;
+  }
+
+  .cycleCards button[data-active="true"],
+  .paymentMethodGrid button[data-active="true"] {
+    border-color: rgba(34, 211, 238, 0.78);
+    background:
+      radial-gradient(circle at 90% 0%, rgba(34, 211, 238, 0.22), transparent 36%),
+      rgba(14, 116, 144, 0.16);
+    box-shadow:
+      0 0 0 3px rgba(34, 211, 238, 0.11),
+      inset 0 -3px 0 rgba(34, 211, 238, 0.8);
+  }
+
+  .cycleCards strong {
+    color: #ffffff;
+    font-size: 1.05rem;
+  }
+
+  .cycleCards small,
+  .checkoutFactsGrid small,
+  .paymentMethodGrid small,
+  .paymentDataBox p,
+  .alternativePaymentPanel p {
+    color: rgba(219, 234, 254, 0.68);
+  }
+
+  .checkoutFactsGrid {
+    grid-template-columns: 1fr;
+    gap: 0.55rem;
+  }
+
+  .checkoutFactsGrid div {
+    min-height: 64px;
+  }
+
+  .checkoutFactsGrid strong,
+  .paymentMethodGrid strong,
+  .paymentDataBox strong,
+  .alternativePaymentPanel strong {
+    color: #ffffff;
+  }
+
+  .paymentMethodGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .paymentMethodGrid button {
+    min-height: 78px;
+    border-radius: 16px;
+  }
+
+  .cardExperience {
+    gap: 0.75rem;
+  }
+
+  .cardPreviewStack {
+    padding: 0.7rem;
+  }
+
+  .cardMock {
+    width: 100%;
+    min-height: 164px;
+    border-radius: 22px;
+  }
+
+  .mpBrick {
+    min-height: 320px;
+  }
+
+  .fieldInput {
+    min-height: 50px;
+    border-color: rgba(147, 197, 253, 0.34);
+    background: rgba(226, 246, 255, 0.1);
+    color: #ffffff;
+  }
+
+  .fieldInput::placeholder {
+    color: rgba(219, 234, 254, 0.48);
+  }
+
+  .pixResult {
+    gap: 0.75rem;
+  }
+
+  .qrImage {
+    width: min(100%, 220px);
+    justify-self: center;
+  }
 }

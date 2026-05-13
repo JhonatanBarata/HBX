@@ -20,6 +20,7 @@ const PUBLIC_SIGNUP_ENTITY_TYPE = "PF" as const;
 const EMAIL_CONFIRMATION_CHANNEL = "hbx_email_confirmation";
 const EMAIL_CONFIRMATION_EVENT_KEY = "hbx_email_confirmation_event";
 const CONFIRMATION_POLL_INTERVAL_MS = 4500;
+const ENTERPRISE_SUPPORT_MESSAGE = "Olá, quero montar meu plano empresarial HBX para usar no notebook.";
 
 type ApiErrorPayload = {
   message?: string | string[];
@@ -98,10 +99,14 @@ const SIGNUP_PLANS: SignupPlan[] = [
     name: "HBX List",
     badge: "List",
     monthlyPrice: 49.9,
+    promoPrice: 0,
+    promoLabel: "Após 1º mês 49,90",
     detail: "Radar Digital com cards elegíveis alimentando Vendas.",
-    cta: "Escolher HBX List",
+    cta: "Começar grátis hoje",
     available: true,
     features: ["Radar Digital + Vendas", "50 cards por pesquisa", "3 pesquisas, total 150 cards", "WhatsApp externo", "Sem Atendimento interno", "Sem Night Factory"],
+    note: "1º mês grátis",
+    trialCopy: "1º mês grátis",
   },
   {
     key: "hbx_padrao",
@@ -136,13 +141,14 @@ const MOBILE_SIGNUP_PLANS: SignupPlan[] = SIGNUP_PLANS.map((plan) =>
         ...plan,
         name: "Modo empresarial",
         badge: "Desktop",
+        available: false,
         monthlyPrice: null,
-        detail: "Plano para operação em desktop com automações avançadas e atendimento consultivo.",
-        cta: "Solicitar modo empresarial",
+        detail: "Para notebook/desktop. Bot IA, automações avançadas e atendimento consultivo.",
+        cta: "Montar plano empresarial",
         trialCopy: undefined,
         promoPrice: null,
         promoLabel: undefined,
-        note: "Valor sob consulta",
+        note: "Disponível apenas no notebook",
       }
     : plan,
 );
@@ -157,6 +163,19 @@ function getErrorMessage(data: unknown) {
   if (typeof payload.message === "string") return payload.message;
   if (typeof payload.error === "string") return payload.error;
   return null;
+}
+
+function getSignupErrorMessage(status: number, data: unknown) {
+  const message = getErrorMessage(data);
+  if (status === 409) {
+    if (!message) return "Cadastro já existe. Altere e-mail, empresa ou telefone do trial para continuar.";
+    const normalized = message.toLowerCase();
+    if (normalized.includes("e-mail") || normalized.includes("email")) return `Conflito no e-mail: ${message}`;
+    if (normalized.includes("empresa")) return `Conflito na empresa: ${message}`;
+    if (normalized.includes("telefone")) return `Conflito no telefone do trial: ${message}`;
+    return `Conflito no cadastro: ${message}`;
+  }
+  return message ?? "Erro no registro.";
 }
 
 function planName(planKey?: CommercialPlanKey | null) {
@@ -240,6 +259,14 @@ function isLocalMockWelcomeEnabled() {
 
 function localWelcomePath(reason: "trial" | "pending_checkout") {
   return `${LOCAL_WELCOME_PATH}?reason=${reason}`;
+}
+
+function isTrialSignupPlan(planKey?: CommercialPlanKey | null) {
+  return planKey === "hbx_lite" || planKey === "hbx_padrao" || planKey === "hbx_melhor";
+}
+
+function trialDaysForPlan(planKey?: CommercialPlanKey | null) {
+  return planKey === "hbx_melhor" ? 7 : 30;
 }
 
 function FieldIcon({ icon }: { icon: RegisterFieldIcon }) {
@@ -351,6 +378,7 @@ export default function RegisterPage() {
     isValidCpf(trialCpfDigits) &&
     trialPhoneDigits.length >= 10 &&
     trialForm.acceptedTerms;
+  const enterpriseSupportUrl = `https://wa.me/5519997024884?text=${encodeURIComponent(ENTERPRISE_SUPPORT_MESSAGE)}`;
 
   useEffect(() => {
     try {
@@ -424,12 +452,12 @@ export default function RegisterPage() {
 
     function resolveDestination(signal?: EmailConfirmationSignal | ConfirmationStatusResponse | null) {
       if (isLocalMockWelcomeEnabled()) {
-        return localWelcomePath(pendingState.selectedPlanKey === "hbx_padrao" ? "trial" : "pending_checkout");
+        return localWelcomePath(isTrialSignupPlan(pendingState.selectedPlanKey) ? "trial" : "pending_checkout");
       }
       return (
         safeInternalPath(signal?.next) ||
         safeInternalPath(signal?.loginNext) ||
-        (pendingState.selectedPlanKey === "hbx_padrao"
+        (isTrialSignupPlan(pendingState.selectedPlanKey)
           ? "/boasvindas"
           : "/pagamento?focus=payment&reason=pending_checkout")
       );
@@ -643,12 +671,12 @@ export default function RegisterPage() {
       return;
     }
 
-    if (planKey === "hbx_padrao" && !forceTrial) {
+    if (isTrialSignupPlan(planKey) && !forceTrial) {
       setTrialModalOpen(true);
       return;
     }
 
-    if (planKey === "hbx_padrao" && !trialFormReady) {
+    if (isTrialSignupPlan(planKey) && !trialFormReady) {
       setTrialModalOpen(true);
       setError("Informe nome, CPF válido, telefone de contato e aceite os termos para iniciar o trial.");
       return;
@@ -669,7 +697,7 @@ export default function RegisterPage() {
         companyName: normalizedCompanyName,
         name: normalizedAttendantName,
         selectedPlanKey: planKey,
-        ...(planKey === "hbx_padrao"
+        ...(isTrialSignupPlan(planKey)
           ? {
               trialContactName: trialForm.contactName.trim(),
               trialTaxDocument: trialCpfDigits,
@@ -690,7 +718,8 @@ export default function RegisterPage() {
       const signupData: unknown = await signupRes.json().catch(() => null);
 
       if (!signupRes.ok) {
-        setError(getErrorMessage(signupData) ?? "Erro no registro.");
+        setError(getSignupErrorMessage(signupRes.status, signupData));
+        if (isTrialSignupPlan(planKey)) setTrialModalOpen(true);
         return;
       }
 
@@ -701,16 +730,18 @@ export default function RegisterPage() {
         (typeof payload?.token === "string" && payload.token);
 
       if (token) {
+        setTrialModalOpen(false);
         setToken(token);
         router.push(
           isLocalMockWelcomeEnabled()
-            ? localWelcomePath(payload?.status === "active_trial" ? "trial" : "pending_checkout")
+            ? localWelcomePath(isTrialSignupPlan(planKey) ? "trial" : "pending_checkout")
             : "/boasvindas",
         );
         return;
       }
 
       if (payload?.status === "pending_email_confirmation") {
+        setTrialModalOpen(false);
         setConfirmationPending({
           email: String(payload.email || email),
           message:
@@ -756,12 +787,17 @@ export default function RegisterPage() {
       setError("Informe nome, CPF válido, telefone de contato e aceite os termos para iniciar o trial.");
       return;
     }
-    setTrialModalOpen(false);
     await submitRegistration(true);
   }
 
   function handlePlanSelect(planKey: CommercialPlanKey) {
     if (registerTransition === "selecting") return;
+    setError(null);
+    setConfirmationPending(null);
+    if (mobileRegisterFlow && planKey === "hbx_melhor") {
+      window.open(enterpriseSupportUrl, "_blank", "noopener,noreferrer");
+      return;
+    }
     if (registerStepTimerRef.current !== null) {
       window.clearTimeout(registerStepTimerRef.current);
     }
@@ -787,9 +823,13 @@ export default function RegisterPage() {
       data-login-theme={selection.themeId}
       data-login-mode={selection.mode}
       data-login-ready="true"
+      data-login-surface={mobileRegisterFlow ? "hbx-mobile" : undefined}
       data-login-state="idle"
       data-login-video="off"
     >
+      <Link className={styles.desktopBackButton} href="/login">
+        Voltar
+      </Link>
       <div className="login-stage__grid" aria-hidden />
       <div className="login-visuals" aria-hidden>
         <div className="login-side-theme login-side-theme--left">
@@ -805,7 +845,17 @@ export default function RegisterPage() {
           <span className="login-core__pulse" />
           <span className="login-core__ring login-core__ring--outer" />
           <span className="login-core__ring login-core__ring--mid" />
+          <span className="login-core__beam login-core__beam--left" />
+          <span className="login-core__beam login-core__beam--right" />
         </div>
+        <div className="login-drop" />
+        <div className="login-drop login-drop-bottom" />
+        <div className="login-drop login-drop-left" />
+        <div className="login-drop login-drop-right" />
+        <span className="login-meteor" style={{ left: "12%", animationDelay: "120ms" }} />
+        <span className="login-meteor" style={{ left: "28%", animationDelay: "420ms" }} />
+        <span className="login-meteor" style={{ left: "68%", animationDelay: "220ms" }} />
+        <span className="login-meteor" style={{ left: "84%", animationDelay: "640ms" }} />
       </div>
 
       <div
@@ -830,6 +880,11 @@ export default function RegisterPage() {
               mode="signup"
               onSelect={handlePlanSelect}
             />
+            {mobileRegisterFlow ? (
+              <a className={styles.enterpriseSupportButton} href={enterpriseSupportUrl} target="_blank" rel="noreferrer">
+                Montar plano empresarial no WhatsApp
+              </a>
+            ) : null}
             {mobileRegisterFlow && error ? <div className="msg-error"><div className="text-sm">{error}</div></div> : null}
           </div>
         </aside>
@@ -853,12 +908,12 @@ export default function RegisterPage() {
                     </div>
                   </div>
                   <h1 className="login-card__title">
-                    {confirmationPending.selectedPlanKey === "hbx_padrao"
+                    {isTrialSignupPlan(confirmationPending.selectedPlanKey)
                       ? "Teste grátis pronto"
                       : "Confirme seu Email para continuar"}
                   </h1>
                   <p className="login-card__copy login-card__copy--compact">
-                    {confirmationPending.selectedPlanKey === "hbx_padrao"
+                    {isTrialSignupPlan(confirmationPending.selectedPlanKey)
                       ? "Confirme o e-mail para ativar seu acesso."
                       : "Confirme o e-mail e siga para o checkout."}
                   </p>
@@ -1061,7 +1116,7 @@ export default function RegisterPage() {
                         ? "Continuar para planos"
                         : loading
                         ? "Criando..."
-                        : selectedPlanKey === "hbx_padrao"
+                        : isTrialSignupPlan(selectedPlanKey)
                           ? "Começar 1º mês grátis"
                           : "Criar e ir ao checkout"}
                     </span>
@@ -1104,7 +1159,7 @@ export default function RegisterPage() {
           <section className={styles.trialDialog} role="dialog" aria-modal="true" aria-labelledby="register-trial-title">
             <header className={styles.trialDialogHeader}>
               <div>
-                <span className={styles.eyebrow}>Trial HBX Lead</span>
+                <span className={styles.eyebrow}>Trial {planName(selectedPlanKey)}</span>
                 <h2 id="register-trial-title">Antes de liberar seus 30 dias</h2>
                 <p>Precisamos confirmar um contato real. O telefone é usado para validar se este trial já foi utilizado.</p>
               </div>
@@ -1163,9 +1218,15 @@ export default function RegisterPage() {
                 onChange={(event) => setTrialForm((current) => ({ ...current, acceptedTerms: event.target.checked }))}
               />
               <span>
-                Aceito iniciar o trial gratuito de 30 dias do HBX Lead, sem cobrança automática agora, e autorizo o uso do CPF, nome completo e telefone informado para contato e validação de elegibilidade do trial.
+                Aceito iniciar o trial gratuito de {trialDaysForPlan(selectedPlanKey)} dias do {planName(selectedPlanKey)}, sem cobrança automática agora, e autorizo o uso do CPF, nome completo e telefone informado para contato e validação de elegibilidade do trial.
               </span>
             </label>
+
+            {error ? (
+              <div className={`msg-error ${styles.trialError}`} role="alert">
+                <div className="text-sm">{error}</div>
+              </div>
+            ) : null}
 
             <footer className={styles.trialDialogActions}>
               <button type="button" className="btn btn-secondary" onClick={() => setTrialModalOpen(false)}>

@@ -68,6 +68,8 @@
       color 220ms ease;
     overflow: hidden;
     isolation: isolate;
+    transform-origin: 50% 50%;
+    animation: mobileRadarStatusSettle 420ms ease both;
   }
 
   .mobileRadarMotorStatus::after {
@@ -81,6 +83,19 @@
     border-radius: 0 18px 0 0;
     opacity: 0.72;
     pointer-events: none;
+  }
+
+  .mobileRadarStatusBurst {
+    position: absolute;
+    inset: -24px;
+    z-index: 0;
+    background:
+      radial-gradient(circle at 18% 50%, color-mix(in srgb, currentColor 34%, transparent), transparent 24%),
+      linear-gradient(105deg, transparent 0 30%, rgba(255, 255, 255, 0.42) 42%, transparent 54% 100%);
+    opacity: 0;
+    transform: translateX(-42%) scale(0.94);
+    pointer-events: none;
+    animation: mobileRadarStatusBurst 900ms cubic-bezier(0.2, 0.78, 0.2, 1) both;
   }
 
   .mobileRadarMotorStatus[data-state="searching"] {
@@ -146,6 +161,7 @@
       inset 0 0 0 1px rgba(112, 255, 155, 0.14),
       0 0 28px rgba(112, 255, 155, 0.16);
     animation: mobileRadarMotorMorph 360ms ease both;
+    z-index: 1;
   }
 
   .mobileRadarMotorIcon::before {
@@ -229,6 +245,7 @@
     height: 48px;
     background: color-mix(in srgb, currentColor 34%, transparent);
     box-shadow: 0 0 18px color-mix(in srgb, currentColor 26%, transparent);
+    z-index: 1;
   }
 
   .mobileRadarMotorCopy {
@@ -236,6 +253,7 @@
     gap: 3px;
     min-width: 0;
     animation: mobileRadarCopyMorph 280ms ease both;
+    z-index: 1;
   }
 
   .mobileRadarMotorCopy small,
@@ -250,10 +268,39 @@
 
   .mobileRadarMotorCopy strong {
     color: currentColor;
-    font-size: clamp(1.22rem, 6.2vw, 1.82rem);
+    font-size: clamp(1.08rem, 5.5vw, 1.68rem);
     font-weight: 950;
     line-height: 1.02;
     text-shadow: 0 0 18px color-mix(in srgb, currentColor 38%, transparent);
+    animation: mobileRadarCountGlow 1700ms ease-in-out infinite;
+  }
+
+  .mobileRadarActionNotice {
+    display: grid;
+    gap: 3px;
+    margin-top: 8px;
+    padding: 10px 12px;
+    border: 1px solid rgba(255, 205, 92, 0.34);
+    border-radius: 18px;
+    background:
+      radial-gradient(circle at 8% 48%, rgba(255, 205, 92, 0.18), transparent 28%),
+      linear-gradient(135deg, rgba(36, 27, 8, 0.95), rgba(7, 15, 25, 0.95));
+    color: #ffd36c;
+    text-decoration: none;
+    box-shadow: 0 18px 38px -26px rgba(255, 183, 66, 0.72);
+  }
+
+  .mobileRadarActionNotice strong {
+    font-size: 0.78rem;
+    font-weight: 950;
+    text-transform: uppercase;
+  }
+
+  .mobileRadarActionNotice span {
+    color: rgba(255, 247, 218, 0.74);
+    font-size: 0.72rem;
+    line-height: 1.25;
+    font-weight: 800;
   }
 
   .mobileVendasSearchRow > button {
@@ -279,7 +326,7 @@
     gap: 8px;
   }
 
-  .mobileVendasKpis article {
+  .mobileVendasKpis button {
     min-width: 0;
     min-height: 88px;
     padding: 12px 10px 10px;
@@ -288,18 +335,29 @@
     background:
       radial-gradient(circle at 92% 0%, rgba(255, 255, 255, 0.98), transparent 52%),
       linear-gradient(145deg, rgba(255, 255, 255, 0.94), rgba(240, 246, 255, 0.72));
+    color: inherit;
+    text-align: left;
     box-shadow:
       0 18px 34px -25px rgba(17, 47, 103, 0.42),
       inset 0 1px 0 rgba(255, 255, 255, 0.92);
   }
 
-  .mobileVendasKpis article[data-tone="danger"] {
+  .mobileVendasKpis button[data-active="true"] {
+    border-color: rgba(37, 105, 255, 0.42);
+    box-shadow:
+      0 20px 36px -24px rgba(37, 105, 255, 0.58),
+      inset 0 0 0 1px rgba(37, 105, 255, 0.14),
+      inset 0 1px 0 rgba(255, 255, 255, 0.96);
+    transform: translateY(-1px);
+  }
+
+  .mobileVendasKpis button[data-tone="danger"] {
     background:
       radial-gradient(circle at 96% 0%, rgba(255, 255, 255, 0.96), transparent 48%),
       linear-gradient(145deg, #fff5f7, #fffefe 76%);
   }
 
-  .mobileVendasKpis article[data-tone="success"] {
+  .mobileVendasKpis button[data-tone="success"] {
     background:
       radial-gradient(circle at 96% 0%, rgba(255, 255, 255, 0.96), transparent 48%),
       linear-gradient(145deg, #effff8, #fbffff 76%);
@@ -317,13 +375,13 @@
     font-weight: 850;
   }
 
-  .mobileVendasKpis article[data-tone="danger"] span,
-  .mobileVendasKpis article[data-tone="danger"] strong {
+  .mobileVendasKpis button[data-tone="danger"] span,
+  .mobileVendasKpis button[data-tone="danger"] strong {
     color: #e12c4b;
   }
 
-  .mobileVendasKpis article[data-tone="success"] span,
-  .mobileVendasKpis article[data-tone="success"] strong {
+  .mobileVendasKpis button[data-tone="success"] span,
+  .mobileVendasKpis button[data-tone="success"] strong {
     color: #05966f;
   }
 
@@ -585,18 +643,20 @@
 
   .mobileVendasBottomNav {
     position: fixed;
-    right: max(12px, env(safe-area-inset-right));
-    bottom: max(8px, env(safe-area-inset-bottom));
-    left: max(12px, env(safe-area-inset-left));
-    z-index: 30;
+    right: auto;
+    bottom: max(14px, env(safe-area-inset-bottom));
+    left: 50%;
+    z-index: 160;
     display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr)) 58px repeat(2, minmax(0, 1fr));
-    align-items: end;
-    min-height: 66px;
-    padding: 9px 10px 7px;
+    place-items: center;
+    width: 76px;
+    height: 76px;
+    min-height: 0;
+    padding: 0;
+    transform: translateX(-50%);
     border: 1px solid rgba(206, 216, 235, 0.82);
-    border-radius: 24px;
-    background: rgba(255, 255, 255, 0.92);
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.72);
     box-shadow:
       0 -16px 42px -26px rgba(20, 53, 111, 0.58),
       inset 0 1px 0 rgba(255, 255, 255, 0.94);
@@ -604,32 +664,16 @@
     -webkit-backdrop-filter: blur(18px) saturate(160%);
   }
 
-  .mobileVendasBottomNav a,
   .mobileVendasBottomNav button {
     display: grid;
-    min-width: 0;
-    justify-items: center;
-    gap: 3px;
+    place-items: center;
     border: 0;
-    background: transparent;
-    color: #5c6b8a;
-    text-decoration: none;
-    font-size: 0.58rem;
-    font-weight: 850;
-  }
-
-  .mobileVendasBottomNav a[data-active="true"] {
-    color: #1e62ff;
-  }
-
-  .mobileVendasBottomNav span {
-    font-size: 1.02rem;
-    line-height: 1;
+    cursor: pointer;
   }
 
   .mobileVendasBottomNav button {
-    width: 50px;
-    height: 50px;
+    width: 58px;
+    height: 58px;
     place-self: center;
     border-radius: 999px;
     background: linear-gradient(145deg, #2552ff, #1bc7ee);
@@ -640,40 +684,53 @@
   }
 
   .mobileVendasSheetBackdrop {
-    position: fixed;
-    inset: 0;
-    z-index: 240;
+    position: fixed !important;
+    inset: 0 !important;
+    z-index: 9999;
     display: grid;
-    place-items: center;
+    align-items: center;
+    justify-items: center;
     padding: max(16px, env(safe-area-inset-top)) 16px max(16px, env(safe-area-inset-bottom));
     background:
-      radial-gradient(circle at 50% 50%, rgba(48, 204, 255, 0.16), transparent 30%),
-      rgba(2, 8, 23, 0.56);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
+      radial-gradient(circle at 50% 18%, rgba(45, 113, 255, 0.24), transparent 34%),
+      radial-gradient(circle at 88% 76%, rgba(45, 217, 184, 0.16), transparent 30%),
+      rgba(2, 8, 23, 0.64);
+    backdrop-filter: blur(16px) saturate(150%);
+    -webkit-backdrop-filter: blur(16px) saturate(150%);
+    animation: mobileVendasSheetBackdropIn 180ms ease-out both;
   }
 
   .mobileVendasNoteSheet {
-    position: fixed;
-    top: 50%;
+    position: fixed !important;
+    top: max(10px, env(safe-area-inset-top));
+    bottom: max(10px, env(safe-area-inset-bottom));
     left: 50%;
     width: min(calc(100vw - 32px), 360px);
-    max-height: min(calc(100dvh - 32px - env(safe-area-inset-top) - env(safe-area-inset-bottom)), 560px);
+    height: auto;
+    max-height: none;
     overflow: auto;
-    transform: translate(-50%, -50%);
+    transform: translateX(-50%);
     display: grid;
     gap: 12px;
     padding: 18px 16px 16px;
-    border: 1px solid rgba(207, 216, 235, 0.92);
-    border-radius: 24px;
+    border: 1px solid rgba(184, 213, 255, 0.54);
+    border-radius: 26px;
     background:
-      radial-gradient(circle at 86% 0%, rgba(255, 255, 255, 0.96), transparent 38%),
-      linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(238, 245, 255, 0.96));
+      radial-gradient(circle at 12% 0%, rgba(49, 114, 255, 0.16), transparent 35%),
+      radial-gradient(circle at 88% 4%, rgba(37, 220, 188, 0.18), transparent 34%),
+      linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(237, 245, 255, 0.98));
     box-shadow:
-      0 -24px 54px -28px rgba(11, 38, 96, 0.56),
+      0 32px 90px -26px rgba(2, 8, 23, 0.64),
+      0 0 0 1px rgba(255, 255, 255, 0.58) inset,
       inset 0 1px 0 rgba(255, 255, 255, 0.94);
     backdrop-filter: blur(18px) saturate(160%);
     -webkit-backdrop-filter: blur(18px) saturate(160%);
+    animation: mobileVendasSheetRise 220ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+    scrollbar-width: none;
+  }
+
+  .mobileVendasNoteSheet::-webkit-scrollbar {
+    display: none;
   }
 
   .mobileVendasSheetHandle {
@@ -692,10 +749,21 @@
     gap: 12px;
   }
 
+  .mobileVendasSheetHeader small {
+    display: block;
+    margin-bottom: 3px;
+    color: #2a66ff;
+    font-size: 0.65rem;
+    font-weight: 950;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
   .mobileVendasSheetHeader h2 {
     margin: 0;
     color: #08143a;
     font-size: 1.08rem;
+    line-height: 1.08;
     font-weight: 950;
   }
 
@@ -711,19 +779,180 @@
     font-size: 1.28rem;
   }
 
+  .mobileLeadDetailCard {
+    display: grid;
+    gap: 12px;
+    padding: 14px;
+    border: 1px solid rgba(188, 207, 236, 0.76);
+    border-radius: 20px;
+    background:
+      radial-gradient(circle at 12% 4%, rgba(255, 255, 255, 0.96), transparent 36%),
+      radial-gradient(circle at 92% 0%, rgba(68, 215, 187, 0.15), transparent 38%),
+      linear-gradient(145deg, rgba(255, 255, 255, 0.95), rgba(243, 248, 255, 0.9));
+    box-shadow:
+      0 20px 42px -30px rgba(27, 65, 132, 0.58),
+      inset 0 1px 0 rgba(255, 255, 255, 0.92);
+  }
+
+  .mobileLeadDetailHero {
+    display: grid;
+    grid-template-columns: 56px minmax(0, 1fr);
+    gap: 12px;
+    align-items: center;
+  }
+
+  .mobileLeadDetailAvatar {
+    display: grid;
+    width: 54px;
+    height: 54px;
+    place-items: center;
+    border-radius: 18px;
+    background:
+      radial-gradient(circle at 70% 20%, rgba(255, 255, 255, 0.88), transparent 30%),
+      linear-gradient(145deg, #dcfff3, #70d7bf);
+    color: #087a61;
+    box-shadow:
+      0 18px 28px -20px rgba(8, 122, 97, 0.6),
+      inset 0 0 0 7px rgba(255, 255, 255, 0.38);
+  }
+
+  .mobileLeadDetailAvatar svg {
+    width: 30px;
+    height: 30px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.9;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
+  .mobileLeadDetailHero span,
+  .mobileLeadDetailGrid span,
+  .mobileLeadDetailContact span,
+  .mobileLeadDetailAction span,
+  .mobileLeadNoteEditor span {
+    display: block;
+    color: #657593;
+    font-size: 0.64rem;
+    font-weight: 900;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
+  .mobileLeadDetailHero strong {
+    display: block;
+    margin-top: 3px;
+    color: #07143a;
+    font-size: 1rem;
+    line-height: 1.1;
+    font-weight: 950;
+  }
+
+  .mobileLeadDetailHero em {
+    display: block;
+    margin-top: 4px;
+    color: #4e5f82;
+    font-size: 0.78rem;
+    font-style: normal;
+    font-weight: 820;
+  }
+
+  .mobileLeadDetailGrid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .mobileLeadDetailGrid div,
+  .mobileLeadDetailContact,
+  .mobileLeadDetailAction {
+    min-width: 0;
+    border: 1px solid rgba(203, 215, 235, 0.68);
+    border-radius: 15px;
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.82), rgba(236, 244, 255, 0.72));
+    padding: 10px 11px;
+  }
+
+  .mobileLeadDetailGrid strong,
+  .mobileLeadDetailContact strong,
+  .mobileLeadDetailAction strong {
+    display: block;
+    margin-top: 4px;
+    overflow-wrap: anywhere;
+    color: #0c1949;
+    font-size: 0.82rem;
+    line-height: 1.16;
+    font-weight: 950;
+  }
+
+  .mobileLeadDetailContact {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 10px;
+  }
+
+  .mobileLeadDetailContactActions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .mobileLeadDetailContactActions a {
+    min-height: 38px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 12px;
+    background: linear-gradient(145deg, #26d78b, #48edbd);
+    color: #063c2f;
+    text-decoration: none;
+    font-size: 0.78rem;
+    font-weight: 950;
+    box-shadow: 0 14px 24px -18px rgba(18, 162, 104, 0.72);
+  }
+
+  .mobileLeadDetailContactActions a:nth-child(2) {
+    background: linear-gradient(145deg, #2c61ff, #39c7ff);
+    color: #fff;
+    box-shadow: 0 14px 24px -18px rgba(37, 98, 255, 0.72);
+  }
+
+  .mobileLeadDetailContactActions a[aria-disabled="true"] {
+    opacity: 0.42;
+    pointer-events: none;
+  }
+
+  .mobileLeadDetailAction p {
+    margin: 7px 0 0;
+    color: #526383;
+    font-size: 0.76rem;
+    font-weight: 760;
+    line-height: 1.32;
+  }
+
+  .mobileLeadNoteEditor {
+    display: grid;
+    gap: 8px;
+  }
+
   .mobileVendasNoteSheet textarea {
     width: 100%;
-    min-height: 118px;
+    min-height: 132px;
     resize: none;
-    border: 1px solid rgba(198, 210, 232, 0.84);
-    border-radius: 12px;
-    padding: 12px;
+    border: 1px solid rgba(65, 116, 255, 0.22);
+    border-radius: 16px;
+    padding: 13px;
     outline: none;
-    background: linear-gradient(180deg, #f8fbff, #eef4ff);
+    background:
+      radial-gradient(circle at 94% 0%, rgba(61, 207, 187, 0.12), transparent 38%),
+      linear-gradient(180deg, #f8fbff, #eef4ff);
     color: #13204f;
-    box-shadow: inset 0 2px 7px rgba(29, 65, 128, 0.08);
+    box-shadow:
+      inset 0 2px 7px rgba(29, 65, 128, 0.08),
+      0 16px 32px -28px rgba(37, 99, 235, 0.42);
     font-size: 0.82rem;
-    line-height: 1.35;
+    line-height: 1.42;
     font-weight: 750;
   }
 
@@ -866,7 +1095,7 @@
     gap: 8px;
   }
 
-  .mobileVendasKpis article {
+  .mobileVendasKpis button {
     min-height: 90px;
     padding: 13px 10px 11px;
     border-color: rgba(207, 217, 235, 0.78);
@@ -877,14 +1106,22 @@
     box-shadow:
       0 18px 32px -24px rgba(16, 44, 94, 0.4),
       inset 0 1px 0 rgba(255, 255, 255, 0.96);
+    transition:
+      transform 180ms ease,
+      box-shadow 180ms ease,
+      border-color 180ms ease;
   }
 
-  .mobileVendasKpis article[data-tone="danger"] {
+  .mobileVendasKpis button:active {
+    transform: translateY(1px) scale(0.99);
+  }
+
+  .mobileVendasKpis button[data-tone="danger"] {
     border-color: rgba(242, 202, 210, 0.72);
     background: linear-gradient(145deg, #fff3f6, #fffefe 78%);
   }
 
-  .mobileVendasKpis article[data-tone="success"] {
+  .mobileVendasKpis button[data-tone="success"] {
     border-color: rgba(193, 228, 214, 0.78);
     background: linear-gradient(145deg, #effff8, #fbffff 78%);
   }
@@ -933,6 +1170,32 @@
       linear-gradient(180deg, rgba(255, 255, 255, 0.97), rgba(246, 250, 255, 0.91));
     box-shadow:
       0 20px 38px -24px rgba(14, 37, 86, 0.46),
+      inset 0 1px 0 rgba(255, 255, 255, 0.96);
+    overflow: hidden;
+    animation: mobileVendasCardArrive 520ms cubic-bezier(0.2, 0.82, 0.2, 1) both;
+    animation-delay: calc(min(var(--mobile-card-index, 0), 8) * 54ms);
+    transition:
+      transform 220ms ease,
+      box-shadow 220ms ease,
+      border-color 220ms ease;
+  }
+
+  .mobileVendasCard::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background:
+      linear-gradient(112deg, transparent 0 34%, rgba(255, 255, 255, 0.82) 46%, transparent 58% 100%);
+    opacity: 0;
+    transform: translateX(-62%);
+    animation: mobileVendasCardShine 1900ms ease calc(260ms + min(var(--mobile-card-index, 0), 8) * 80ms) both;
+    pointer-events: none;
+  }
+
+  .mobileVendasCard:active {
+    transform: scale(0.992);
+    box-shadow:
+      0 18px 34px -26px rgba(14, 37, 86, 0.5),
       inset 0 1px 0 rgba(255, 255, 255, 0.96);
   }
 
@@ -984,6 +1247,10 @@
     padding-bottom: 10px;
   }
 
+  .mobileVendasCardMeta > span {
+    animation: mobileVendasBadgePulse 2400ms ease-in-out infinite;
+  }
+
   .mobileVendasNextAction {
     padding-right: 90px;
   }
@@ -1020,37 +1287,645 @@
   }
 
   .mobileVendasBottomNav {
-    right: max(14px, env(safe-area-inset-right));
-    bottom: max(8px, env(safe-area-inset-bottom));
-    left: max(14px, env(safe-area-inset-left));
-    min-height: 68px;
-    padding: 9px 10px 7px;
+    right: auto;
+    bottom: max(14px, env(safe-area-inset-bottom));
+    left: 50%;
+    width: 82px;
+    height: 82px;
+    min-height: 0;
+    padding: 0;
+    transform: translateX(-50%);
     border-color: rgba(207, 217, 236, 0.86);
-    border-radius: 26px;
-    background: rgba(255, 255, 255, 0.94);
+    border-radius: 999px;
+    background:
+      radial-gradient(circle at 50% 0%, rgba(47, 111, 255, 0.1), transparent 46%),
+      rgba(255, 255, 255, 0.94);
+    z-index: 120;
+    isolation: isolate;
   }
 
   .mobileVendasBottomNav button {
-    width: 52px;
-    height: 52px;
-    margin-top: -18px;
+    transition:
+      color 180ms ease,
+      transform 180ms ease,
+      filter 180ms ease;
+  }
+
+  .mobileVendasBottomNav button:active {
+    transform: translateY(1px) scale(0.97);
+  }
+
+  .mobileVendasBottomNav button {
+    width: 58px;
+    height: 58px;
+    margin-top: 0;
     font-size: 2rem;
+    position: relative;
+    box-shadow:
+      0 18px 32px -14px rgba(28, 116, 255, 0.82),
+      inset 0 1px 0 rgba(255, 255, 255, 0.34);
+    animation: mobilePlusBreath 2200ms ease-in-out infinite;
+  }
+
+  .mobileVendasBottomNav button::after {
+    content: "";
+    position: absolute;
+    inset: -7px;
+    z-index: -1;
+    border-radius: inherit;
+    border: 1px solid rgba(37, 117, 255, 0.18);
+    animation: mobilePlusRing 2200ms ease-in-out infinite;
   }
 
   .mobileVendasSheetBackdrop {
-    place-items: center;
+    align-items: center;
+    justify-items: center;
+  }
+
+  .systemPopupOverlay {
+    z-index: 1150;
+    align-items: end;
+    padding: max(12px, env(safe-area-inset-top)) 12px max(12px, env(safe-area-inset-bottom));
+    background:
+      radial-gradient(circle at 50% 18%, rgba(45, 113, 255, 0.22), transparent 34%),
+      rgba(2, 8, 23, 0.64);
+  }
+
+  .systemPopupFrame {
+    width: min(100%, 380px);
+    min-height: auto;
+    max-height: min(calc(100dvh - 24px - env(safe-area-inset-top) - env(safe-area-inset-bottom)), 720px);
+    align-self: end;
+    border-radius: 26px;
+    background:
+      radial-gradient(circle at 12% 0%, rgba(49, 114, 255, 0.16), transparent 35%),
+      radial-gradient(circle at 88% 4%, rgba(37, 220, 188, 0.18), transparent 34%),
+      linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(237, 245, 255, 0.98));
+    border-color: rgba(184, 213, 255, 0.54);
+    box-shadow: 0 32px 90px -26px rgba(2, 8, 23, 0.64);
+    animation: mobileVendasSheetRise 220ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  }
+
+  .systemPopupChrome {
+    min-height: 68px;
+    padding: 0.9rem 0.92rem;
+    background: rgba(247, 250, 255, 0.72);
+    border-bottom-color: rgba(198, 213, 240, 0.72);
+  }
+
+  .systemPopupChrome strong,
+  .systemPopupEyebrow {
+    color: #08143a;
+  }
+
+  .systemPopupBody {
+    padding: 0.92rem;
+  }
+
+  .systemPopupBody .composerForm {
+    grid-template-columns: 1fr;
+    gap: 0.72rem;
+    padding: 0;
+  }
+
+  .systemPopupBody .fieldWide {
+    grid-column: span 1;
+  }
+
+  .systemPopupBody .fieldInput,
+  .systemPopupBody .fieldTextarea {
+    min-height: 46px;
+    border-radius: 15px;
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(236, 244, 255, 0.82));
+    color: #10204e;
+  }
+
+  .systemPopupBody .fieldTextarea {
+    min-height: 104px;
+  }
+
+  .systemPopupActions .metaBadge {
+    background: rgba(231, 240, 255, 0.92);
+    color: #2a62e8;
   }
 
   .mobileVendasNoteSheet {
     gap: 11px;
     padding: 18px 14px 16px;
-    max-height: min(calc(100dvh - 32px - env(safe-area-inset-top) - env(safe-area-inset-bottom)), 520px);
+    top: max(10px, env(safe-area-inset-top));
+    bottom: max(10px, env(safe-area-inset-bottom));
+    max-height: none;
   }
 
   .mobileVendasNoteSheet textarea {
-    min-height: 116px;
-    border-radius: 12px;
+    min-height: 132px;
+    border-radius: 16px;
     font-size: 0.82rem;
+  }
+}
+
+@media (max-width: 760px) {
+  .mobileVendasSheetBackdrop {
+    position: fixed !important;
+    inset: 0 !important;
+    z-index: 10000 !important;
+    display: grid !important;
+    place-items: center !important;
+    padding: max(12px, env(safe-area-inset-top)) 12px max(12px, env(safe-area-inset-bottom)) !important;
+    overflow: hidden !important;
+  }
+
+  .mobileVendasLeadSheet {
+    position: relative !important;
+    top: auto !important;
+    right: auto !important;
+    bottom: auto !important;
+    left: auto !important;
+    width: min(calc(100vw - 24px), 372px) !important;
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: min(82dvh, 650px) !important;
+    transform: none !important;
+    display: grid !important;
+    grid-template-rows: auto auto minmax(0, 1fr) auto auto !important;
+    align-content: start !important;
+    gap: 10px !important;
+    padding: 13px 13px 12px !important;
+    overflow: hidden !important;
+    border-radius: 24px !important;
+  }
+
+  .mobileVendasLeadSheet .mobileVendasSheetHandle {
+    width: 44px !important;
+    height: 4px !important;
+  }
+
+  .mobileVendasLeadSheet .mobileVendasSheetHeader {
+    align-items: center !important;
+    min-height: 0 !important;
+  }
+
+  .mobileVendasLeadSheet .mobileVendasSheetHeader h2 {
+    max-width: 245px !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    white-space: nowrap !important;
+    font-size: 1rem !important;
+  }
+
+  .mobileVendasLeadSheet .mobileVendasSheetHeader small {
+    margin-bottom: 2px !important;
+    font-size: 0.58rem !important;
+  }
+
+  .mobileVendasLeadSheet .mobileLeadDetailCard {
+    min-height: 0 !important;
+    gap: 9px !important;
+    padding: 12px !important;
+    overflow: auto !important;
+    border-radius: 18px !important;
+    scrollbar-width: none !important;
+  }
+
+  .mobileVendasLeadSheet .mobileLeadDetailCard::-webkit-scrollbar {
+    display: none !important;
+  }
+
+  .mobileVendasLeadSheet .mobileLeadDetailHero {
+    grid-template-columns: 46px minmax(0, 1fr) !important;
+    gap: 10px !important;
+  }
+
+  .mobileVendasLeadSheet .mobileLeadDetailAvatar {
+    width: 46px !important;
+    height: 46px !important;
+    border-radius: 15px !important;
+  }
+
+  .mobileVendasLeadSheet .mobileLeadDetailAvatar svg {
+    width: 25px !important;
+    height: 25px !important;
+  }
+
+  .mobileVendasLeadSheet .mobileLeadDetailHero strong {
+    font-size: 0.92rem !important;
+  }
+
+  .mobileVendasLeadSheet .mobileLeadDetailHero em,
+  .mobileVendasLeadSheet .mobileLeadDetailAction p {
+    font-size: 0.72rem !important;
+  }
+
+  .mobileVendasLeadSheet .mobileLeadDetailGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 7px !important;
+  }
+
+  .mobileVendasLeadSheet .mobileLeadDetailGrid div,
+  .mobileVendasLeadSheet .mobileLeadDetailContact,
+  .mobileVendasLeadSheet .mobileLeadDetailAction {
+    padding: 9px 10px !important;
+    border-radius: 14px !important;
+  }
+
+  .mobileVendasLeadSheet .mobileLeadDetailContact {
+    gap: 8px !important;
+  }
+
+  .mobileVendasLeadSheet .mobileLeadDetailContactActions a {
+    min-height: 34px !important;
+  }
+
+  .mobileVendasLeadSheet .mobileLeadNoteEditor {
+    min-height: 0 !important;
+    gap: 6px !important;
+  }
+
+  .mobileVendasLeadSheet textarea {
+    min-height: 116px !important;
+    max-height: 150px !important;
+    overflow: auto !important;
+    border-radius: 15px !important;
+  }
+
+  .mobileVendasLeadSheet .mobileVendasSheetFooter {
+    padding-top: 0 !important;
+  }
+}
+
+@media (max-width: 760px) {
+  .mobileVendasSheetBackdrop > .mobileObservationDialog {
+    position: fixed !important;
+    top: 50dvh !important;
+    left: 50vw !important;
+    z-index: 2147483003 !important;
+    display: grid !important;
+    grid-template-rows: auto auto minmax(0, 1fr) auto auto !important;
+    gap: 10px !important;
+    width: min(calc(100vw - 24px), 370px) !important;
+    min-height: 0 !important;
+    max-height: min(78dvh, 620px) !important;
+    margin: 0 !important;
+    padding: 13px !important;
+    overflow: hidden !important;
+    transform: translate3d(-50%, -50%, 0) !important;
+    border: 1px solid rgba(184, 213, 255, 0.62) !important;
+    border-radius: 24px !important;
+    background:
+      radial-gradient(circle at 12% 0%, rgba(49, 114, 255, 0.16), transparent 35%),
+      radial-gradient(circle at 88% 4%, rgba(37, 220, 188, 0.18), transparent 34%),
+      linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(237, 245, 255, 0.98)) !important;
+    box-shadow:
+      0 32px 90px -26px rgba(2, 8, 23, 0.64),
+      0 0 0 1px rgba(255, 255, 255, 0.58) inset,
+      inset 0 1px 0 rgba(255, 255, 255, 0.94) !important;
+  }
+
+  .mobileObservationDialog .mobileVendasSheetHandle {
+    justify-self: center !important;
+    width: 44px !important;
+    height: 4px !important;
+    border-radius: 999px !important;
+    background: #b9c4d8 !important;
+  }
+
+  .mobileObservationDialog .mobileVendasSheetHeader,
+  .mobileObservationDialog .mobileVendasSheetFooter {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    gap: 10px !important;
+  }
+
+  .mobileObservationDialog .mobileVendasSheetHeader h2 {
+    max-width: 245px !important;
+    margin: 0 !important;
+    overflow: hidden !important;
+    color: #08143a !important;
+    text-overflow: ellipsis !important;
+    white-space: nowrap !important;
+    font-size: 1rem !important;
+    line-height: 1.08 !important;
+    font-weight: 950 !important;
+  }
+
+  .mobileObservationDialog .mobileVendasSheetHeader small,
+  .mobileObservationDialog .mobileLeadDetailHero span,
+  .mobileObservationDialog .mobileLeadDetailGrid span,
+  .mobileObservationDialog .mobileLeadDetailContact span,
+  .mobileObservationDialog .mobileLeadDetailAction span,
+  .mobileObservationDialog .mobileLeadNoteEditor span {
+    display: block !important;
+    color: #2a66ff !important;
+    font-size: 0.58rem !important;
+    font-weight: 950 !important;
+    letter-spacing: 0.07em !important;
+    text-transform: uppercase !important;
+  }
+
+  .mobileObservationDialog .mobileVendasSheetHeader button {
+    display: grid !important;
+    width: 32px !important;
+    height: 32px !important;
+    place-items: center !important;
+    border: 0 !important;
+    border-radius: 999px !important;
+    background: #ecf2ff !important;
+    color: #46587a !important;
+    font-size: 1.28rem !important;
+  }
+
+  .mobileObservationDialog .mobileLeadDetailCard {
+    display: grid !important;
+    min-height: 0 !important;
+    gap: 9px !important;
+    padding: 12px !important;
+    overflow: auto !important;
+    border: 1px solid rgba(188, 207, 236, 0.76) !important;
+    border-radius: 18px !important;
+    background:
+      radial-gradient(circle at 12% 4%, rgba(255, 255, 255, 0.96), transparent 36%),
+      radial-gradient(circle at 92% 0%, rgba(68, 215, 187, 0.15), transparent 38%),
+      linear-gradient(145deg, rgba(255, 255, 255, 0.95), rgba(243, 248, 255, 0.9)) !important;
+    scrollbar-width: none !important;
+  }
+
+  .mobileObservationDialog .mobileLeadDetailCard::-webkit-scrollbar {
+    display: none !important;
+  }
+
+  .mobileObservationDialog .mobileLeadDetailHero {
+    display: grid !important;
+    grid-template-columns: 46px minmax(0, 1fr) !important;
+    gap: 10px !important;
+    align-items: center !important;
+  }
+
+  .mobileObservationDialog .mobileLeadDetailAvatar {
+    display: grid !important;
+    width: 46px !important;
+    height: 46px !important;
+    place-items: center !important;
+    border-radius: 15px !important;
+    background: linear-gradient(145deg, #dcfff3, #70d7bf) !important;
+    color: #087a61 !important;
+  }
+
+  .mobileObservationDialog .mobileLeadDetailAvatar svg {
+    width: 25px !important;
+    height: 25px !important;
+    fill: none !important;
+    stroke: currentColor !important;
+    stroke-width: 1.9 !important;
+  }
+
+  .mobileObservationDialog .mobileLeadDetailHero strong {
+    display: block !important;
+    margin-top: 3px !important;
+    color: #07143a !important;
+    font-size: 0.92rem !important;
+    line-height: 1.1 !important;
+    font-weight: 950 !important;
+  }
+
+  .mobileObservationDialog .mobileLeadDetailHero em {
+    display: block !important;
+    margin-top: 3px !important;
+    color: #4e5f82 !important;
+    font-size: 0.72rem !important;
+    font-style: normal !important;
+    font-weight: 820 !important;
+  }
+
+  .mobileObservationDialog .mobileLeadDetailGrid {
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 7px !important;
+  }
+
+  .mobileObservationDialog .mobileLeadDetailGrid div,
+  .mobileObservationDialog .mobileLeadDetailContact,
+  .mobileObservationDialog .mobileLeadDetailAction {
+    min-width: 0 !important;
+    padding: 9px 10px !important;
+    border: 1px solid rgba(203, 215, 235, 0.68) !important;
+    border-radius: 14px !important;
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.82), rgba(236, 244, 255, 0.72)) !important;
+  }
+
+  .mobileObservationDialog .mobileLeadDetailGrid strong,
+  .mobileObservationDialog .mobileLeadDetailContact strong,
+  .mobileObservationDialog .mobileLeadDetailAction strong {
+    display: block !important;
+    margin-top: 4px !important;
+    overflow-wrap: anywhere !important;
+    color: #0c1949 !important;
+    font-size: 0.82rem !important;
+    line-height: 1.16 !important;
+    font-weight: 950 !important;
+  }
+
+  .mobileObservationDialog .mobileLeadDetailContact {
+    display: grid !important;
+    gap: 8px !important;
+  }
+
+  .mobileObservationDialog .mobileLeadDetailContactActions {
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 8px !important;
+  }
+
+  .mobileObservationDialog .mobileLeadDetailContactActions a {
+    min-height: 34px !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    border-radius: 12px !important;
+    background: linear-gradient(145deg, #26d78b, #48edbd) !important;
+    color: #063c2f !important;
+    text-decoration: none !important;
+    font-size: 0.78rem !important;
+    font-weight: 950 !important;
+  }
+
+  .mobileObservationDialog .mobileLeadDetailContactActions a:nth-child(2) {
+    background: linear-gradient(145deg, #2c61ff, #39c7ff) !important;
+    color: #fff !important;
+  }
+
+  .mobileObservationDialog .mobileLeadDetailAction p {
+    margin: 6px 0 0 !important;
+    color: #526383 !important;
+    font-size: 0.72rem !important;
+    font-weight: 760 !important;
+    line-height: 1.3 !important;
+  }
+
+  .mobileObservationDialog .mobileLeadNoteEditor {
+    display: grid !important;
+    min-height: 0 !important;
+    gap: 6px !important;
+  }
+
+  .mobileObservationDialog textarea {
+    width: 100% !important;
+    min-height: 116px !important;
+    max-height: 150px !important;
+    resize: none !important;
+    overflow: auto !important;
+    border: 1px solid rgba(65, 116, 255, 0.22) !important;
+    border-radius: 15px !important;
+    padding: 12px !important;
+    outline: none !important;
+    background: linear-gradient(180deg, #f8fbff, #eef4ff) !important;
+    color: #13204f !important;
+    font-size: 0.82rem !important;
+    line-height: 1.42 !important;
+    font-weight: 750 !important;
+  }
+
+  .mobileObservationDialog .mobileVendasSheetFooter button {
+    min-width: 78px !important;
+    min-height: 40px !important;
+    border: 0 !important;
+    border-radius: 12px !important;
+    background: linear-gradient(145deg, #2552ff, #1bc7ee) !important;
+    color: #fff !important;
+    font-size: 0.82rem !important;
+    font-weight: 950 !important;
+  }
+}
+
+@keyframes mobileVendasSheetBackdropIn {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes mobileVendasSheetRise {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 26px) scale(0.98);
+    filter: blur(8px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0) scale(1);
+    filter: blur(0);
+  }
+}
+
+@keyframes mobileRadarStatusSettle {
+  0% {
+    transform: translateY(-4px) scale(0.985);
+    filter: saturate(1.18);
+  }
+
+  100% {
+    transform: translateY(0) scale(1);
+    filter: saturate(1);
+  }
+}
+
+@keyframes mobileRadarStatusBurst {
+  0% {
+    opacity: 0;
+    transform: translateX(-42%) scale(0.94);
+  }
+
+  24% {
+    opacity: 0.95;
+  }
+
+  100% {
+    opacity: 0;
+    transform: translateX(42%) scale(1.05);
+  }
+}
+
+@keyframes mobileRadarCountGlow {
+  0%,
+  100% {
+    filter: drop-shadow(0 0 0 color-mix(in srgb, currentColor 0%, transparent));
+  }
+
+  50% {
+    filter: drop-shadow(0 0 12px color-mix(in srgb, currentColor 42%, transparent));
+  }
+}
+
+@keyframes mobileVendasCardArrive {
+  from {
+    opacity: 0;
+    transform: translateY(18px) scale(0.975);
+    filter: blur(8px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    filter: blur(0);
+  }
+}
+
+@keyframes mobileVendasCardShine {
+  0% {
+    opacity: 0;
+    transform: translateX(-62%);
+  }
+
+  24% {
+    opacity: 0.74;
+  }
+
+  70%,
+  100% {
+    opacity: 0;
+    transform: translateX(72%);
+  }
+}
+
+@keyframes mobileVendasBadgePulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 rgba(16, 150, 91, 0);
+  }
+
+  50% {
+    box-shadow: 0 0 0 5px rgba(16, 150, 91, 0.1);
+  }
+}
+
+@keyframes mobilePlusBreath {
+  0%,
+  100% {
+    transform: translateY(0) scale(1);
+    filter: saturate(1);
+  }
+
+  50% {
+    transform: translateY(-2px) scale(1.045);
+    filter: saturate(1.18);
+  }
+}
+
+@keyframes mobilePlusRing {
+  0%,
+  100% {
+    opacity: 0.2;
+    transform: scale(0.92);
+  }
+
+  50% {
+    opacity: 0.72;
+    transform: scale(1.08);
   }
 }
 
@@ -2852,6 +3727,103 @@
   }
 }
 
+@media (max-width: 760px) {
+  .mobileVendasBottomNav {
+    position: fixed !important;
+    right: auto !important;
+    bottom: max(14px, env(safe-area-inset-bottom)) !important;
+    left: 50% !important;
+    z-index: 900 !important;
+    display: grid !important;
+    place-items: center !important;
+    width: 82px !important;
+    height: 82px !important;
+    min-height: 0 !important;
+    padding: 0 !important;
+    transform: translateX(-50%) !important;
+    border-radius: 999px !important;
+  }
+
+  .mobileVendasBottomNav button {
+    width: 58px !important;
+    height: 58px !important;
+    margin: 0 !important;
+  }
+
+  .systemPopupOverlay {
+    position: fixed !important;
+    inset: 0 !important;
+    z-index: 10000 !important;
+    display: grid !important;
+    align-items: center !important;
+    justify-items: center !important;
+    padding: max(12px, env(safe-area-inset-top)) 12px max(12px, env(safe-area-inset-bottom)) !important;
+    background:
+      radial-gradient(circle at 50% 18%, rgba(45, 113, 255, 0.22), transparent 34%),
+      rgba(2, 8, 23, 0.64);
+  }
+
+  .systemPopupFrame {
+    width: min(calc(100vw - 24px), 380px) !important;
+    min-height: auto !important;
+    max-height: calc(100dvh - 24px - env(safe-area-inset-top) - env(safe-area-inset-bottom)) !important;
+    align-self: center !important;
+    overflow: hidden !important;
+    border-radius: 26px;
+    background:
+      radial-gradient(circle at 12% 0%, rgba(49, 114, 255, 0.16), transparent 35%),
+      radial-gradient(circle at 88% 4%, rgba(37, 220, 188, 0.18), transparent 34%),
+      linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(237, 245, 255, 0.98));
+    border-color: rgba(184, 213, 255, 0.54);
+    box-shadow: 0 32px 90px -26px rgba(2, 8, 23, 0.64);
+    animation: mobileVendasSheetRise 220ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  }
+
+  .systemPopupChrome {
+    min-height: 68px;
+    padding: 0.9rem 0.92rem;
+    background: rgba(247, 250, 255, 0.72);
+    border-bottom-color: rgba(198, 213, 240, 0.72);
+  }
+
+  .systemPopupChrome strong,
+  .systemPopupEyebrow {
+    color: #08143a;
+  }
+
+  .systemPopupBody {
+    padding: 0.92rem;
+  }
+
+  .systemPopupBody .composerForm {
+    grid-template-columns: 1fr;
+    gap: 0.72rem;
+    padding: 0;
+  }
+
+  .systemPopupBody .fieldWide {
+    grid-column: span 1;
+  }
+
+  .systemPopupBody .fieldInput,
+  .systemPopupBody .fieldTextarea {
+    min-height: 46px;
+    border-radius: 15px;
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(236, 244, 255, 0.82));
+    color: #10204e;
+  }
+
+  .systemPopupBody .fieldTextarea {
+    min-height: 104px;
+  }
+
+  .systemPopupActions .metaBadge {
+    background: rgba(231, 240, 255, 0.92);
+    color: #2a62e8;
+  }
+}
+
 /* Make timeline occupy full width of the detail layout and be clickable/collapsible */
 .timelineSection {
   grid-column: 1 / -1;
@@ -3174,4 +4146,52 @@
   box-shadow:
     0 0 0 3px color-mix(in srgb, var(--brand) 24%, transparent),
     0 30px 58px -26px color-mix(in srgb, var(--brand) 42%, transparent) !important;
+}
+
+@media (max-width: 760px) {
+  .mobileVendasSheetBackdrop {
+    position: fixed !important;
+    inset: 0 !important;
+    z-index: 2147483002 !important;
+    display: block !important;
+    padding: 0 !important;
+    overflow: hidden !important;
+  }
+
+  .mobileVendasSheetBackdrop > .mobileVendasLeadSheet {
+    position: fixed !important;
+    top: 50dvh !important;
+    right: auto !important;
+    bottom: auto !important;
+    left: 50vw !important;
+    width: min(calc(100vw - 24px), 370px) !important;
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: min(78dvh, 620px) !important;
+    margin: 0 !important;
+    transform: translate3d(-50%, -50%, 0) !important;
+    animation: none !important;
+    overflow: hidden !important;
+  }
+
+  .mobileVendasSheetBackdrop > .mobileObservationDialog {
+    position: fixed !important;
+    top: 50dvh !important;
+    right: auto !important;
+    bottom: auto !important;
+    left: 50vw !important;
+    width: min(calc(100vw - 24px), 370px) !important;
+    height: min(78dvh, 620px) !important;
+    min-height: 0 !important;
+    max-height: min(78dvh, 620px) !important;
+    margin: 0 !important;
+    transform: translate3d(-50%, -50%, 0) !important;
+    animation: none !important;
+    overflow: hidden !important;
+  }
+
+  .mobileObservationDialog .mobileLeadDetailCard {
+    min-height: 0 !important;
+    overflow: auto !important;
+  }
 }

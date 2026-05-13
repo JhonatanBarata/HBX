@@ -51,6 +51,7 @@ import styles from "./page.module.css";
 type LeadStatus = "novo" | "contato" | "retorno" | "qualificado" | "encerrado";
 type LeadBlockKey = "today" | "overdue" | "scheduled" | "closed";
 type DateFilterKey = "overdue" | "today" | `scheduled:${string}`;
+type MobileAgendaTab = "overdue" | "today" | "upcoming";
 type WhatsappFilter = "all" | "with" | "without";
 type InboxFilter = "all" | "in" | "out";
 type RadarSearchRunStatus =
@@ -1433,8 +1434,11 @@ export default function VendasClientPage() {
   const [vendasVisualCount, setVendasVisualCount] = useState(0);
   const [storedRadarRun, setStoredRadarRun] = useState<StoredRadarRun | null>(null);
   const [liveRadarRun, setLiveRadarRun] = useState<RadarSearchRunResponse | null>(null);
+  const [radarStatusPulseKey, setRadarStatusPulseKey] = useState(0);
   const [selectedDateKey, setSelectedDateKey] =
     useState<DateFilterKey>("today");
+  const [mobileAgendaTab, setMobileAgendaTab] =
+    useState<MobileAgendaTab>("today");
   const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null);
   const [editingLeadId, setEditingLeadId] = useState<string | null>(null);
   const [composerOpen, setComposerOpen] = useState(false);
@@ -1460,6 +1464,7 @@ export default function VendasClientPage() {
   const archiveRef = useRef<HTMLElement | null>(null);
   const lastDragEndedAtRef = useRef(0);
   const filterScrollerRef = useRef<HTMLDivElement | null>(null);
+  const lastRadarStatusSnapshotRef = useRef<{ count: number; status: string } | null>(null);
   const todayAgendaLaunchNotice = useQuickLaunchNotice();
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
@@ -1566,6 +1571,32 @@ export default function VendasClientPage() {
       pauseWhenHidden: false,
     });
   }, [hasToken, storedRadarRun?.city, storedRadarRun?.deliveredCount, storedRadarRun?.runId, storedRadarRun?.segment, storedRadarRun?.state, storedRadarRun?.status, storedRadarRun?.targetQuantity]);
+
+  useEffect(() => {
+    const pendingCount = Math.max(
+      0,
+      (board?.summary.overdue || 0) + (board?.summary.today || 0) + (board?.summary.scheduled || 0),
+    );
+    const deliveredCount = Math.max(
+      pendingCount,
+      Number(liveRadarRun?.meta?.deliveredCount || liveRadarRun?.foundCount || storedRadarRun?.deliveredCount || 0),
+    );
+    const status = String(liveRadarRun?.status || storedRadarRun?.status || "");
+    const previous = lastRadarStatusSnapshotRef.current;
+    if (previous && (deliveredCount > previous.count || (status && status !== previous.status))) {
+      setRadarStatusPulseKey((current) => current + 1);
+    }
+    lastRadarStatusSnapshotRef.current = { count: deliveredCount, status };
+  }, [
+    board?.summary.overdue,
+    board?.summary.scheduled,
+    board?.summary.today,
+    liveRadarRun?.foundCount,
+    liveRadarRun?.meta?.deliveredCount,
+    liveRadarRun?.status,
+    storedRadarRun?.deliveredCount,
+    storedRadarRun?.status,
+  ]);
 
   const openInboxAgenda = useCallback(
     (conversationId?: string | number | null) => {
@@ -1749,7 +1780,17 @@ export default function VendasClientPage() {
 
   const mobileLeads = useMemo(() => {
     const normalized = mobileSearch.trim().toLowerCase();
-    const liveLeads = allLeads.filter(({ block }) => block !== "closed");
+    const liveLeads = allLeads.filter(({ block }) => {
+      if (mobileAgendaTab === "overdue") return block === "overdue";
+      if (mobileAgendaTab === "today") return block === "today";
+      return block === "scheduled";
+    }).sort((left, right) => {
+      if (mobileAgendaTab !== "upcoming") return 0;
+      return (
+        new Date(left.lead.returnAt || left.lead.updatedAt || 0).getTime() -
+        new Date(right.lead.returnAt || right.lead.updatedAt || 0).getTime()
+      );
+    });
     if (!normalized) return liveLeads.slice(0, 24);
     return liveLeads
       .filter(({ lead, block }) =>
@@ -1769,7 +1810,7 @@ export default function VendasClientPage() {
           .includes(normalized),
       )
       .slice(0, 24);
-  }, [allLeads, mobileSearch]);
+  }, [allLeads, mobileAgendaTab, mobileSearch]);
 
   const loadedLeadIds = useMemo(
     () => allLeads.map(({ lead }) => lead.id).filter(Boolean),
@@ -2106,6 +2147,19 @@ export default function VendasClientPage() {
     return formatDateTime(lead.returnAt);
   }
 
+  function mobilePhoneLabel(lead: LeadItem) {
+    const digits = normalizePhoneDigits(String(lead.phone || ""));
+    if (digits.length === 11) return `(${digits.slice(0, 2)}) ${digits.slice(2, 7)}-${digits.slice(7)}`;
+    if (digits.length === 10) return `(${digits.slice(0, 2)}) ${digits.slice(2, 6)}-${digits.slice(6)}`;
+    return lead.phone || "Telefone não informado";
+  }
+
+  function mobileLeadSourceLabel(lead: LeadItem) {
+    if (lead.primarySource) return lead.primarySource;
+    if (lead.sourceType === "webscraping") return "Radar Digital";
+    return "Cadastro manual";
+  }
+
   function openMobileNote(lead: LeadItem) {
     setMobileNoteLead(lead);
     setMobileNoteDraft(
@@ -2210,6 +2264,19 @@ export default function VendasClientPage() {
     const radarRunTarget = Math.max(1, Number(liveRadarRun?.targetQuantity || liveRadarRun?.meta?.requestedQuantity || storedRadarRun?.targetQuantity || 1));
     const radarRunTerminal = isTerminalRadarRunStatus(radarRunStatus);
     const radarRunActive = Boolean((liveRadarRun?.runId || storedRadarRun?.runId) && !radarRunTerminal);
+    const radarProgressLabel = radarRunTarget > 1 && radarRunDelivered > 0
+      ? `${Math.min(radarRunDelivered, radarRunTarget)} de ${radarRunTarget} cards`
+      : formatPtBrReceivedCards(radarRunDelivered);
+    const radarAdjustParams = new URLSearchParams();
+    const radarFilters = liveRadarRun?.meta?.filters;
+    const radarState = radarFilters?.state || storedRadarRun?.state || "";
+    const radarCity = radarFilters?.city || storedRadarRun?.city || "";
+    const radarSegment = radarFilters?.segment || storedRadarRun?.segment || "";
+    if (radarState) radarAdjustParams.set("state", radarState);
+    if (radarCity) radarAdjustParams.set("city", radarCity);
+    if (radarSegment) radarAdjustParams.set("segment", radarSegment);
+    radarAdjustParams.set("quantity", String(radarRunTarget || 40));
+    const radarAdjustHref = `/radar-digital?${radarAdjustParams.toString()}`;
     const mobileRadarState =
       radarRunStatus === "failed" ? "warning" :
       radarRunStatus === "completed_insufficient_results" || radarRunStatus === "partial_error" ? "partial" :
@@ -2221,9 +2288,9 @@ export default function VendasClientPage() {
       mobileRadarState === "searching"
         ? "Pesquisando leads"
         : mobileRadarState === "receiving"
-          ? formatPtBrReceivedCards(radarRunDelivered)
+          ? radarProgressLabel
           : mobileRadarState === "partial"
-            ? formatPtBrReceivedCards(Math.max(radarRunDelivered, mobilePendingCount))
+            ? radarProgressLabel
             : mobileRadarState === "warning"
               ? "Radar precisa de ajuste"
               : mobileRadarState === "received"
@@ -2233,9 +2300,9 @@ export default function VendasClientPage() {
       mobileRadarState === "searching"
         ? "Motores cruzando dados"
         : mobileRadarState === "receiving"
-          ? `${Math.min(radarRunDelivered, radarRunTarget)} de ${radarRunTarget} no alvo`
+          ? "Abastecendo sua agenda"
           : mobileRadarState === "partial"
-            ? "Busca parcial, revise Vendas"
+            ? "Amplie cidade ou segmento"
             : mobileRadarState === "warning"
               ? "Abra o Radar para revisar"
               : mobileRadarState === "received"
@@ -2246,7 +2313,14 @@ export default function VendasClientPage() {
     return (
       <section className={styles.mobileVendasShell} aria-label="Vendas mobile">
         <header className={styles.mobileVendasHeader}>
-          <a className={styles.mobileRadarMotorStatus} data-state={mobileRadarState} href="/radar-digital" aria-label="Abrir Radar Digital">
+          <a
+            className={styles.mobileRadarMotorStatus}
+            data-state={mobileRadarState}
+            data-pulse={radarStatusPulseKey}
+            href="/radar-digital"
+            aria-label="Abrir Radar Digital"
+          >
+            <span key={`burst-${radarStatusPulseKey}`} className={styles.mobileRadarStatusBurst} aria-hidden="true" />
             <span key={mobileRadarState} className={styles.mobileRadarMotorIcon} aria-hidden="true">
               {mobileRadarState === "ready" ? (
                 <svg viewBox="0 0 24 24">
@@ -2282,24 +2356,45 @@ export default function VendasClientPage() {
               <em>{mobileRadarStatusText}</em>
             </span>
           </a>
+          {mobileRadarState === "partial" || mobileRadarState === "warning" ? (
+            <a className={styles.mobileRadarActionNotice} href={radarAdjustHref}>
+              <strong>Preciso de atenção</strong>
+              <span>O Radar entregou o que encontrou aqui. Toque para ampliar a busca e completar os 40 cards.</span>
+            </a>
+          ) : null}
         </header>
 
         <div className={styles.mobileVendasKpis}>
-          <article data-tone="danger">
+          <button
+            type="button"
+            data-tone="danger"
+            data-active={mobileAgendaTab === "overdue" ? "true" : "false"}
+            onClick={() => setMobileAgendaTab("overdue")}
+          >
             <span>Atrasados</span>
             <strong>{board?.summary.overdue ?? 0}</strong>
             <small>Precisam de ação</small>
-          </article>
-          <article data-tone="primary">
+          </button>
+          <button
+            type="button"
+            data-tone="primary"
+            data-active={mobileAgendaTab === "today" ? "true" : "false"}
+            onClick={() => setMobileAgendaTab("today")}
+          >
             <span>Hoje</span>
             <strong>{board?.summary.today ?? mobileLeadCount}</strong>
             <small>Agendados para hoje</small>
-          </article>
-          <article data-tone="success">
+          </button>
+          <button
+            type="button"
+            data-tone="success"
+            data-active={mobileAgendaTab === "upcoming" ? "true" : "false"}
+            onClick={() => setMobileAgendaTab("upcoming")}
+          >
             <span>Próximos</span>
             <strong>{mobileFutureCount}</strong>
             <small>Próximos 7 dias</small>
-          </article>
+          </button>
         </div>
 
         <div className={styles.mobileVendasSearchRow}>
@@ -2336,7 +2431,11 @@ export default function VendasClientPage() {
                 const whatsappHref = buildWhatsAppUrl(lead.phone, lead.name);
                 const callHref = buildCallUrl(lead.phone);
                 return (
-                  <article className={styles.mobileVendasCard} key={lead.id}>
+                  <article
+                    className={styles.mobileVendasCard}
+                    key={lead.id}
+                    style={{ ["--mobile-card-index" as string]: index } as CSSProperties}
+                  >
                     <div
                       className={styles.mobileVendasAvatar}
                       data-variant={index % 2 === 0 ? "green" : "violet"}
@@ -2420,32 +2519,20 @@ export default function VendasClientPage() {
             ) : (
               <div className={styles.mobileVendasEmpty}>
                 <strong>Nenhum lead encontrado</strong>
-                <span>Atualize os filtros ou busque outro termo.</span>
+                <span>Troque a guia, limpe a busca ou volte ao Radar para ampliar cidade e segmento.</span>
               </div>
             )}
           </div>
         )}
 
-        <nav className={styles.mobileVendasBottomNav} aria-label="Vendas mobile">
-          <a href="/vendas" data-active="true">
-            <span>▣</span>
-            Agenda
-          </a>
-          <a href="/vendas">
-            <span>♙</span>
-            Leads
-          </a>
-          <button type="button" onClick={() => setComposerOpen(true)}>
+        <nav className={styles.mobileVendasBottomNav} aria-label="Acoes de vendas mobile">
+          <button
+            type="button"
+            onClick={() => setComposerOpen(true)}
+            aria-label="Incluir lead manual"
+          >
             +
           </button>
-          <a href="/vendas">
-            <span>▤</span>
-            Relatórios
-          </a>
-          <a href="/vendas">
-            <span>•••</span>
-            Mais
-          </a>
         </nav>
 
         {mobileNoteLead ? (
@@ -2454,7 +2541,7 @@ export default function VendasClientPage() {
             onClick={() => setMobileNoteLead(null)}
           >
             <section
-              className={styles.mobileVendasNoteSheet}
+              className={styles.mobileObservationDialog}
               role="dialog"
               aria-modal="true"
               aria-labelledby="mobile-vendas-note-title"
@@ -2462,16 +2549,89 @@ export default function VendasClientPage() {
             >
               <span className={styles.mobileVendasSheetHandle} />
               <div className={styles.mobileVendasSheetHeader}>
-                <h2 id="mobile-vendas-note-title">Observação</h2>
+                <div>
+                  <small>Card do lead</small>
+                  <h2 id="mobile-vendas-note-title">{mobileNoteLead.name || "Lead sem nome"}</h2>
+                </div>
                 <button type="button" onClick={() => setMobileNoteLead(null)}>
                   ×
                 </button>
               </div>
+
+              <article className={styles.mobileLeadDetailCard}>
+                <div className={styles.mobileLeadDetailHero}>
+                  <div className={styles.mobileLeadDetailAvatar} aria-hidden="true">
+                    <svg viewBox="0 0 24 24">
+                      <path d="M5 21V5.8C5 4.8 5.8 4 6.8 4h10.4c1 0 1.8.8 1.8 1.8V21" />
+                      <path d="M8.5 8h2" />
+                      <path d="M13.5 8h2" />
+                      <path d="M8.5 12h2" />
+                      <path d="M13.5 12h2" />
+                      <path d="M10 21v-4h4v4" />
+                    </svg>
+                  </div>
+                  <div>
+                    <span>{mobileLeadSourceLabel(mobileNoteLead)}</span>
+                    <strong>{mobileNoteLead.segment || "Segmento não informado"}</strong>
+                    <em>{mobileLeadPlace(mobileNoteLead)}</em>
+                  </div>
+                </div>
+
+                <div className={styles.mobileLeadDetailGrid}>
+                  <div>
+                    <span>Status</span>
+                    <strong>{mobileNoteLead.statusLabel || statusLabel(mobileNoteLead.status)}</strong>
+                  </div>
+                  <div>
+                    <span>Retorno</span>
+                    <strong>{mobileReturnLabel(mobileNoteLead)}</strong>
+                  </div>
+                </div>
+
+                <div className={styles.mobileLeadDetailContact}>
+                  <div>
+                    <span>Contato</span>
+                    <strong>{mobilePhoneLabel(mobileNoteLead)}</strong>
+                  </div>
+                  <div className={styles.mobileLeadDetailContactActions}>
+                    <a
+                      href={buildWhatsAppUrl(mobileNoteLead.phone, mobileNoteLead.name) || undefined}
+                      target="_blank"
+                      rel="noreferrer"
+                      aria-disabled={!buildWhatsAppUrl(mobileNoteLead.phone, mobileNoteLead.name)}
+                      onClick={() => void incrementAttempt(mobileNoteLead.id)}
+                    >
+                      WhatsApp
+                    </a>
+                    <a
+                      href={buildCallUrl(mobileNoteLead.phone) || undefined}
+                      aria-disabled={!buildCallUrl(mobileNoteLead.phone)}
+                      onClick={(event) => {
+                        if (!buildCallUrl(mobileNoteLead.phone)) event.preventDefault();
+                        void incrementAttempt(mobileNoteLead.id);
+                      }}
+                    >
+                      Ligar
+                    </a>
+                  </div>
+                </div>
+
+                <div className={styles.mobileLeadDetailAction}>
+                  <span>Próxima ação</span>
+                  <strong>{mobileNoteLead.nextAction || "Primeiro contato"}</strong>
+                  {mobileNoteLead.lastResult ? <p>{mobileNoteLead.lastResult}</p> : null}
+                </div>
+              </article>
+
+              <label className={styles.mobileLeadNoteEditor}>
+                <span>Observação</span>
               <textarea
                 value={mobileNoteDraft}
                 onChange={(event) => setMobileNoteDraft(event.target.value)}
                 rows={5}
+                  placeholder="Escreva o contexto do atendimento, objeções, próximos passos ou qualquer detalhe importante."
               />
+              </label>
               <div className={styles.mobileVendasSheetFooter}>
                 <button
                   type="button"

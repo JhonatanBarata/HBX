@@ -280,19 +280,26 @@ export class AuthService implements OnModuleInit {
 
   private normalizePublicSelectedPlanKey(value: string | undefined): ActiveCommercialPlanKey {
     const normalized = String(value || '').trim().toLowerCase();
-    return normalized === COMMERCIAL_PLAN_KEYS.MELHOR
-      ? COMMERCIAL_PLAN_KEYS.MELHOR
-      : COMMERCIAL_PLAN_KEYS.LITE;
+    if (normalized === COMMERCIAL_PLAN_KEYS.LITE) return COMMERCIAL_PLAN_KEYS.LITE;
+    if (normalized === COMMERCIAL_PLAN_KEYS.PADRAO) return COMMERCIAL_PLAN_KEYS.PADRAO;
+    if (normalized === COMMERCIAL_PLAN_KEYS.MELHOR) return COMMERCIAL_PLAN_KEYS.MELHOR;
+    return COMMERCIAL_PLAN_KEYS.LITE;
   }
 
   private resolveTrialModuleForPlan(planKey: ActiveCommercialPlanKey): 'vendas' | null {
-    return planKey === COMMERCIAL_PLAN_KEYS.LITE || planKey === COMMERCIAL_PLAN_KEYS.MELHOR ? 'vendas' : null;
+    return (
+      planKey === COMMERCIAL_PLAN_KEYS.LITE ||
+      planKey === COMMERCIAL_PLAN_KEYS.PADRAO ||
+      planKey === COMMERCIAL_PLAN_KEYS.MELHOR
+    )
+      ? 'vendas'
+      : null;
   }
 
   private getPublicTrialDaysForPlan(planKey: ActiveCommercialPlanKey) {
-    if (planKey === COMMERCIAL_PLAN_KEYS.PADRAO) return 0;
-    const catalogPlan = buildCommercialPlansCatalog({ includeHidden: true }).find((plan) => plan.key === planKey);
-    return Number(catalogPlan?.trialDays || 0);
+    if (planKey === COMMERCIAL_PLAN_KEYS.LITE || planKey === COMMERCIAL_PLAN_KEYS.PADRAO) return 30;
+    if (planKey === COMMERCIAL_PLAN_KEYS.MELHOR) return 7;
+    return 0;
   }
 
   private resolveTrialEnabledModuleKeys(trialModuleSelection: 'vendas' | null) {
@@ -1700,7 +1707,7 @@ export class AuthService implements OnModuleInit {
       email: user.email || null,
       message: user.companyId
         ? trialEndsAt
-          ? 'E-mail confirmado. O trial gratuito de 7 dias já está ativo.'
+          ? `E-mail confirmado. O trial gratuito está ativo até ${trialEndsAt.toLocaleDateString('pt-BR')}.`
           : 'E-mail confirmado. Finalize o pagamento no Financeiro para liberar o plano.'
         : 'E-mail confirmado com sucesso.',
       trialStartsAt: user.companyId ? confirmedAt.toISOString() : null,
