@@ -980,7 +980,7 @@ export default function LoginPage() {
   return (
     <main
       ref={stageRef}
-      className="login-stage relative min-h-[100svh] overflow-y-auto px-6 py-8 supports-[height:100dvh]:min-h-[100dvh] md:min-h-screen md:overflow-hidden"
+      className="login-stage relative h-[100dvh] min-h-[100dvh] overflow-y-auto px-6 py-5 md:min-h-screen md:overflow-hidden"
       data-login-surface={isMobileLoginSurface ? "hbx-mobile" : undefined}
       data-login-theme={selection.themeId}
       data-login-mode={selection.mode}
@@ -1135,7 +1135,7 @@ export default function LoginPage() {
                 </p>
               </div>
             </div>
-            <h1 className="login-card__title">
+            <h1 className="login-card__title text-6xl md:text-7xl">
               {mode === "login" && isMobileLoginSurface ? (
                 <>
                   Automação que conecta. <span className="login-card__titleAccent">Inteligência que vende.</span>
@@ -1143,11 +1143,11 @@ export default function LoginPage() {
               ) : mode === "login" ? "Entrar no HBX" : "Recuperar acesso"}
             </h1>
             {mode === "login" && isMobileLoginSurface ? (
-              <p className="login-card__copy login-card__copy--compact">
+              <p className="login-card__copy login-card__copy--compact text-[28px] leading-[1.08] md:text-5xl">
                 Entre na sua conta para continuar.
               </p>
             ) : mode === "forgot" ? (
-              <p className="login-card__copy login-card__copy--compact">
+              <p className="login-card__copy login-card__copy--compact text-[28px] leading-[1.08] md:text-5xl">
                 {"Informe o e-mail da conta para receber um link seguro de redefinição."}
               </p>
             ) : null}
@@ -1157,10 +1157,8 @@ export default function LoginPage() {
             <div
               className="
                 mx-auto flex w-full max-w-[320px] flex-col
-                gap-4
-                pb-[calc(env(safe-area-inset-bottom)+24px)]
-                pt-[calc(env(safe-area-inset-top)+18px)]
-                md:max-w-none md:gap-6 md:pb-0 md:pt-0
+                gap-3 pt-4 pb-5
+                md:max-w-none md:gap-6
               "
             >
               <form onSubmit={handleLogin} className="login-form">
@@ -1170,7 +1168,7 @@ export default function LoginPage() {
                 </label>
                 <input
                   id="login-username"
-                  className="input h-12"
+                  className="input h-11 rounded-xl"
                   value={username}
                   onChange={(event) => {
                     setUsername(event.target.value);
@@ -1191,7 +1189,7 @@ export default function LoginPage() {
                 <input
                   id="login-password"
                   type="password"
-                  className="input h-12"
+                  className="input h-11 rounded-xl"
                   value={password}
                   onChange={(event) => {
                     setPassword(event.target.value);
@@ -1346,7 +1344,7 @@ export default function LoginPage() {
                       }
                     : undefined
                 }
-                className={`btn h-12 ${
+                className={`btn h-11 ${
                   preRegistered ? "btn-secondary" : "btn-primary"
                 } login-button ${isWakingServer ? "opacity-75" : ""} ${
                   shouldUseInlineAuthSuccess ? "btn-auth-success" : ""
@@ -1380,7 +1378,7 @@ export default function LoginPage() {
               </div>
 
               <a
-                className="flex h-12 w-full items-center justify-center gap-2 rounded-xl border border-white/15 bg-white/[0.03] text-sm font-bold text-white"
+                className="flex h-11 w-full items-center justify-center gap-2 rounded-xl border border-white/15 bg-white/[0.03] text-sm font-bold text-white"
                 href={supportWhatsAppUrl}
                 target="_blank"
                 rel="noreferrer"
@@ -1396,7 +1394,7 @@ export default function LoginPage() {
 
               <button
                 type="button"
-                className="login-plansEntry"
+                className="login-plansEntry h-11"
                 onClick={() => openRegisterWithTransition("plans")}
               >
                 <span>Planos</span>
@@ -1419,7 +1417,7 @@ export default function LoginPage() {
                 </label>
                 <input
                   id="recovery-email"
-                  className="input h-12"
+                  className="input h-11 rounded-xl"
                   value={recoveryEmail}
                   onChange={(event) => setRecoveryEmail(event.target.value)}
                   placeholder="email@exemplo.com"
@@ -1440,13 +1438,13 @@ export default function LoginPage() {
                 </div>
               ) : null}
 
-              <button disabled={isSubmitting} className="btn h-12 btn-primary login-button">
+              <button disabled={isSubmitting} className="btn h-11 btn-primary login-button">
                 {isSubmitting ? "Enviando..." : "Enviar link de recuperação"}
               </button>
 
               <button
                 type="button"
-                className="btn h-12 btn-secondary login-button"
+                className="btn h-11 btn-secondary login-button"
                 onClick={() => {
                   setError(null);
                   setInfo(null);
