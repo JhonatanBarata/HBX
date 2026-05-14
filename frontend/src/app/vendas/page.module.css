@@ -1246,8 +1246,9 @@
 }
 
 @media (max-width: 820px) {
+  /* Dois filhos diretos: contextBar + lista (dock é portal no body). Só 2 linhas: auto + 1fr. */
   .mobileVendasShell {
-    grid-template-rows: auto auto auto minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
     gap: 12px;
     min-height: 100dvh;
     padding: calc(1.25rem + env(safe-area-inset-top)) 14px calc(5.75rem + env(safe-area-inset-bottom));
