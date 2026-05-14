@@ -133,6 +133,29 @@ type SharedProfileSummary = {
   };
 };
 
+type LeadMessageTemplate = {
+  id: string;
+  context: string;
+  tone: string;
+  text: string;
+};
+
+type LeadIntelligence = {
+  email?: string | null;
+  emailStatus?: "confirmed" | "probable" | "missing" | "unverified" | string;
+  whatsappStatus?: "confirmed" | "missing" | "invalid" | "unverified" | string;
+  contactQuality?: "ready" | "review" | "weak" | "blocked" | string;
+  opportunityScore?: number | null;
+  opportunityReason?: string | null;
+  leadReasonTags?: string[];
+  nextBestAction?: "whatsapp" | "call" | "email" | "review" | "discard" | string;
+  lastVerifiedAt?: string | null;
+  verifiedBy?: "hbx_master" | "client_engine" | "manual" | string | null;
+  messageTemplate?: LeadMessageTemplate | null;
+  messageTemplates?: LeadMessageTemplate[];
+  templateLibrarySize?: number;
+};
+
 type LeadItem = {
   id: string;
   sourceType: "manual" | "webscraping";
@@ -170,6 +193,7 @@ type LeadItem = {
     checkedAt?: string | null;
     message?: string | null;
   } | null;
+  leadIntelligence?: LeadIntelligence | null;
   isInInbox?: boolean;
   inboxConversationId?: string | number | null;
   atendimentoConversationId?: string | number | null;
@@ -214,6 +238,13 @@ type ReportLeadErrorResponse = {
   autoSent?: boolean;
   whatsappUrl?: string | null;
   message?: string | null;
+};
+
+type LeadEnrichmentResponse = {
+  ok?: boolean;
+  leadId: string;
+  whatsappAvailability?: LeadItem["whatsappAvailability"];
+  leadIntelligence?: LeadIntelligence | null;
 };
 
 type LeadDraft = {
@@ -283,6 +314,60 @@ const VENDAS_PROGRESS_STEPS = [
   "selecionando melhores cards",
   "alimentando Vendas/Prospecção",
 ];
+const MOBILE_READY_MESSAGE_PREF_KEY = "hbx.vendas.mobile.readyMessagePreference.v1";
+const MOBILE_OPEN_LEAD_KEY = "hbx.vendas.mobile.openLeadId.v1";
+const MOBILE_READY_MESSAGE_LIBRARY = [
+  "Olá, {{name}}. Vi a {{company}} em {{city}} e queria te mostrar uma forma simples de organizar contatos, retornos e oportunidades sem depender de planilha.",
+  "Oi, {{name}}. Notei que empresas de {{segment}} costumam perder retorno por falta de acompanhamento. Posso te mandar uma ideia rápida para resolver isso?",
+  "Olá! Vi a {{company}} e achei que o HBX pode ajudar vocês a acompanhar interessados, lembretes e próximos contatos em um só lugar.",
+  "Oi, tudo bem? Trabalho com uma solução para organizar prospecção e atendimento pelo WhatsApp. Faz sentido eu te explicar em 1 minuto?",
+  "Olá, {{name}}. Posso te mostrar como deixar os contatos de {{segment}} mais organizados e com retorno automático no momento certo?",
+  "Oi! Passei pelo perfil da {{company}} e vi espaço para melhorar acompanhamento de clientes. Posso te enviar uma explicação curta?",
+  "Olá. O HBX ajuda empresas locais a não esquecerem retorno, orçamento e follow-up. Posso te mostrar como ficaria para {{segment}}?",
+  "Oi, {{name}}. Se hoje vocês anotam contatos em WhatsApp, agenda ou planilha, tenho uma forma mais simples de centralizar isso. Posso mandar?",
+  "Olá! Vi a {{company}} em {{city}}. Posso te mostrar uma ideia para transformar contatos soltos em uma fila clara de próximas ações?",
+  "Oi. Ajudo empresas a organizar leads, retornos e atendimentos para vender com mais previsibilidade. Posso te explicar rapidamente?",
+  "Olá, {{name}}. Tenho uma sugestão prática para melhorar o controle dos contatos que chegam pelo WhatsApp. Posso te enviar?",
+  "Oi! A ideia é simples: cada contato vira um card com status, lembrete e próxima ação. Quer ver como isso pode funcionar para {{company}}?",
+  "Olá. Vi que {{segment}} depende muito de retorno rápido. Posso te mostrar uma ferramenta para não deixar interessados esfriarem?",
+  "Oi, {{name}}. O HBX organiza quem precisa ser chamado hoje, amanhã e depois. Posso te mandar um exemplo aplicado à {{company}}?",
+  "Olá! Posso te mostrar uma forma de acompanhar orçamento, retorno e conversa sem perder histórico no WhatsApp?",
+  "Oi. Trabalho com automação comercial para pequenas empresas. A proposta é ganhar controle sem complicar a rotina. Posso explicar?",
+  "Olá, {{name}}. Se fizer sentido, te mostro como a {{company}} pode ter uma fila diária de contatos prioritários para chamar.",
+  "Oi! Vi a {{company}} e pensei em uma melhoria simples: lembrar automaticamente quem precisa de retorno. Posso mandar a ideia?",
+  "Olá. O HBX ajuda a separar contato novo, retorno e cliente interessado. Posso te mostrar como isso reduz esquecimentos?",
+  "Oi, tudo bem? Tenho uma solução para organizar atendimento e prospecção em uma visão de app. Posso te mandar um resumo?",
+  "Olá, {{name}}. Empresas de {{segment}} costumam ganhar muito quando cada conversa já nasce com próxima ação. Posso te mostrar?",
+  "Oi! Posso te enviar uma ideia para acompanhar leads por prioridade, com WhatsApp, ligação e observação no mesmo lugar?",
+  "Olá. Vi a {{company}} e queria sugerir um jeito de melhorar retorno comercial sem contratar mais gente agora.",
+  "Oi, {{name}}. O objetivo é simples: menos contato perdido e mais follow-up no dia certo. Posso te explicar como?",
+  "Olá! Se vocês recebem pedidos, dúvidas ou orçamentos pelo WhatsApp, o HBX pode organizar isso em cards. Posso mostrar?",
+  "Oi. Posso te mandar um exemplo de fluxo para a {{company}} acompanhar contatos e oportunidades com mais clareza?",
+  "Olá, {{name}}. Tenho uma ideia curta para transformar o WhatsApp em uma agenda comercial organizada. Faz sentido eu enviar?",
+  "Oi! Vi a {{company}} em {{city}} e achei que vocês podem se beneficiar de uma rotina mais clara de retorno aos clientes.",
+  "Olá. O HBX mostra o próximo contato certo e evita que leads fiquem esquecidos. Posso te mostrar a ideia?",
+  "Oi, {{name}}. Posso te explicar como organizar clientes interessados por status, data de retorno e canal de contato?",
+  "Olá! Trabalho com uma plataforma que ajuda empresas a venderem com mais organização no WhatsApp. Posso te mandar uma prévia?",
+  "Oi. Se hoje vocês dependem de memória para retornar clientes, tenho uma solução simples para automatizar lembretes. Posso mostrar?",
+  "Olá, {{name}}. Vi a {{company}} e pensei em uma forma de melhorar acompanhamento sem mudar o jeito que vocês atendem.",
+  "Oi! Posso te mandar uma ideia rápida para organizar prospecção, contatos e retornos usando o HBX?",
+  "Olá. Para {{segment}}, velocidade de retorno faz diferença. Posso te mostrar como priorizar quem chamar primeiro?",
+  "Oi, {{name}}. O HBX ajuda a enxergar quem está quente, quem precisa de retorno e quem deve ser descartado. Quer ver?",
+  "Olá! Tenho uma forma de deixar o comercial mais visual: cards, score, próxima ação e mensagem pronta. Posso enviar?",
+  "Oi. Vi a {{company}} e queria te mostrar um jeito de reduzir retrabalho no acompanhamento dos contatos.",
+  "Olá, {{name}}. Posso te mostrar como o HBX organiza WhatsApp, ligação e observações em uma rotina diária de vendas?",
+  "Oi! A proposta é ajudar a {{company}} a não perder oportunidades por falta de follow-up. Posso te explicar?",
+  "Olá. Se vocês fazem orçamento ou atendimento consultivo, o HBX pode lembrar cada próxima etapa. Posso mandar um resumo?",
+  "Oi, {{name}}. Tenho uma ideia para deixar o retorno ao cliente mais rápido e rastreável. Posso compartilhar?",
+  "Olá! Vi a {{company}} e achei que uma agenda comercial inteligente pode ajudar no dia a dia. Posso te mostrar?",
+  "Oi. Posso te enviar uma explicação bem objetiva de como o HBX organiza leads e retornos para empresas locais?",
+  "Olá, {{name}}. O HBX cria uma fila de ação para o time saber quem chamar agora. Posso mostrar como seria para {{segment}}?",
+  "Oi! Se fizer sentido, te mando um exemplo de mensagem, card e próxima ação para a rotina comercial da {{company}}.",
+  "Olá. Ajudo empresas a terem mais controle dos contatos vindos do WhatsApp. Posso te mandar uma ideia rápida?",
+  "Oi, {{name}}. Vi a {{company}} e pensei em uma melhoria simples para organizar oportunidades sem perder o histórico.",
+  "Olá! Posso te mostrar como priorizar contatos bons, descartar negativos e manter retornos no prazo?",
+  "Oi. Tenho uma sugestão curta para melhorar a cadência comercial da {{company}} com menos esforço manual. Posso enviar?",
+] as const;
 
 const WHATSAPP_FILTER_LABELS: Record<WhatsappFilter, string> = {
   all: "Whatsapp",
@@ -353,6 +438,132 @@ function buildWhatsAppUrl(phone?: string | null, leadName?: string | null) {
     ? `Olá, ${leadName}. Estou retomando nosso contato pelo HBX Vendas.`
     : "Olá. Estou retomando nosso contato pelo HBX Vendas.";
   return `https://wa.me/55${digits}?text=${encodeURIComponent(message)}`;
+}
+
+function buildWhatsAppUrlWithMessage(phone?: string | null, message?: string | null) {
+  const digits = normalizePhoneDigits(String(phone || ""));
+  if (!digits) return "";
+  const text = String(message || "").trim() || "Olá. Estou retomando nosso contato pelo HBX Vendas.";
+  return `https://wa.me/55${digits}?text=${encodeURIComponent(text)}`;
+}
+
+function leadEmailForDisplay(lead: LeadItem) {
+  return String(lead.email || lead.leadIntelligence?.email || "").trim();
+}
+
+function leadWebsiteForDisplay(lead: LeadItem) {
+  return String(lead.website || "").trim();
+}
+
+function readMobileReadyMessagePreference() {
+  if (typeof window === "undefined") return 0;
+  const value = Number(window.localStorage.getItem(MOBILE_READY_MESSAGE_PREF_KEY));
+  return Number.isFinite(value) && value >= 0 ? Math.floor(value) : 0;
+}
+
+function saveMobileReadyMessagePreference(index: number) {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(MOBILE_READY_MESSAGE_PREF_KEY, String(Math.max(0, Math.floor(index))));
+}
+
+function readMobileOpenLeadId() {
+  if (typeof window === "undefined") return "";
+  return String(window.sessionStorage.getItem(MOBILE_OPEN_LEAD_KEY) || "").trim();
+}
+
+function saveMobileOpenLeadId(leadId: string | null) {
+  if (typeof window === "undefined") return;
+  const normalized = String(leadId || "").trim();
+  if (normalized) window.sessionStorage.setItem(MOBILE_OPEN_LEAD_KEY, normalized);
+  else window.sessionStorage.removeItem(MOBILE_OPEN_LEAD_KEY);
+}
+
+function mobileMessageTokenValue(value: string | null | undefined, fallback: string) {
+  return String(value || "").trim() || fallback;
+}
+
+function personalizeMobileReadyMessage(template: string, lead: LeadItem) {
+  const company = mobileMessageTokenValue(lead.name, "sua empresa");
+  const firstName = company.split(/\s+/)[0] || "tudo bem";
+  const city = mobileMessageTokenValue(lead.city, "sua região");
+  const segment = mobileMessageTokenValue(lead.segment, "empresas locais");
+  const source = mobileMessageTokenValue(lead.primarySource, "Radar Digital");
+  return template
+    .replaceAll("{{name}}", firstName)
+    .replaceAll("{{company}}", company)
+    .replaceAll("{{city}}", city)
+    .replaceAll("{{segment}}", segment)
+    .replaceAll("{{source}}", source);
+}
+
+function buildMobileReadyMessageTemplates(lead: LeadItem) {
+  const backendTemplates = [
+    ...(lead.leadIntelligence?.messageTemplates || []),
+    ...(lead.leadIntelligence?.messageTemplate ? [lead.leadIntelligence.messageTemplate] : []),
+  ];
+  const generatedTemplates = MOBILE_READY_MESSAGE_LIBRARY.map((template, index) => ({
+    id: `mobile-smart-${index + 1}`,
+    context: "entrada_inteligente",
+    tone: "consultiva",
+    text: personalizeMobileReadyMessage(template, lead),
+  }));
+  const seen = new Set<string>();
+  return [...backendTemplates, ...generatedTemplates].filter((template) => {
+    const text = String(template.text || "").trim();
+    if (!text || seen.has(text)) return false;
+    seen.add(text);
+    return true;
+  });
+}
+
+function intelligenceScoreLabel(score?: number | null) {
+  const value = Math.max(0, Math.min(100, Math.round(Number(score || 0))));
+  if (value >= 80) return "Alta prioridade";
+  if (value >= 62) return "Boa prioridade";
+  if (value >= 42) return "Revisar";
+  return "Baixa prioridade";
+}
+
+function leadTagLabel(tag: string) {
+  const labels: Record<string, string> = {
+    sem_site: "Sem site",
+    whatsapp_confirmado: "WhatsApp confirmado",
+    email_encontrado: "E-mail encontrado",
+    cidade_alvo: "Cidade alvo",
+    segmento_alvo: "Segmento alvo",
+    boa_avaliacao: "Boa avaliação",
+    prova_social: "Prova social",
+  };
+  return labels[tag] || tag.replace(/_/g, " ");
+}
+
+function whatsappStatusLabel(status?: string | null) {
+  if (status === "confirmed") return "WhatsApp verificado";
+  if (status === "missing") return "Sem WhatsApp";
+  if (status === "invalid") return "Telefone inválido";
+  return "WhatsApp pendente";
+}
+
+function emailStatusLabel(status?: string | null) {
+  if (status === "confirmed") return "E-mail encontrado";
+  if (status === "probable") return "E-mail provável";
+  if (status === "missing") return "Sem e-mail";
+  return "E-mail pendente";
+}
+
+function contactQualityLabel(status?: string | null) {
+  if (status === "ready") return "Lead inteligente";
+  if (status === "review") return "Revisar contato";
+  if (status === "blocked") return "Não chamar";
+  return "Contato fraco";
+}
+
+function nextBestActionLabel(action?: string | null) {
+  if (action === "whatsapp") return "Chamar no WhatsApp";
+  if (action === "call") return "Tentar ligação";
+  if (action === "email") return "Enviar e-mail";
+  if (action === "discard") return "Não chamar";
+  return "Revisar card";
 }
 
 function getLeadWhatsappStatus(lead: LeadItem) {
@@ -1419,6 +1630,8 @@ export default function VendasClientPage() {
   const [mobileNoteLead, setMobileNoteLead] = useState<LeadItem | null>(null);
   const [mobileNoteDraft, setMobileNoteDraft] = useState("");
   const [mobileSavingNote, setMobileSavingNote] = useState(false);
+  const [mobileEnrichmentLoadingId, setMobileEnrichmentLoadingId] = useState<string | null>(null);
+  const [mobileTemplateIndex, setMobileTemplateIndex] = useState(() => readMobileReadyMessagePreference());
   const [mobileReportLead, setMobileReportLead] = useState<LeadItem | null>(null);
   const [mobileReportReason, setMobileReportReason] = useState("");
   const [mobileReporting, setMobileReporting] = useState(false);
@@ -1812,6 +2025,24 @@ export default function VendasClientPage() {
       .slice(0, 24);
   }, [allLeads, mobileAgendaTab, mobileSearch]);
 
+  useEffect(() => {
+    if (mobileNoteLead?.id) saveMobileOpenLeadId(mobileNoteLead.id);
+  }, [mobileNoteLead?.id]);
+
+  useEffect(() => {
+    const storedOpenLeadId = readMobileOpenLeadId();
+    if (!storedOpenLeadId || mobileNoteLead) return;
+    const record = allLeads.find(({ lead }) => lead.id === storedOpenLeadId);
+    if (record) setMobileNoteLead(record.lead);
+  }, [allLeads, mobileNoteLead]);
+
+  useEffect(() => {
+    if (!mobileNoteLead) return;
+    const record = allLeads.find(({ lead }) => lead.id === mobileNoteLead.id);
+    if (!record || record.lead === mobileNoteLead) return;
+    setMobileNoteLead(record.lead);
+  }, [allLeads, mobileNoteLead]);
+
   const loadedLeadIds = useMemo(
     () => allLeads.map(({ lead }) => lead.id).filter(Boolean),
     [allLeads],
@@ -2160,7 +2391,55 @@ export default function VendasClientPage() {
     return "Cadastro manual";
   }
 
+  function mergeMobileLeadPatch(leadId: string, patch: Partial<LeadItem>) {
+    setBoard((currentBoard) => {
+      if (!currentBoard) return currentBoard;
+      let changed = false;
+      const blocks = Object.fromEntries(
+        (["overdue", "today", "scheduled", "closed"] as LeadBlockKey[]).map(
+          (blockKey) => [
+            blockKey,
+            (currentBoard.blocks[blockKey] || []).map((lead) => {
+              if (lead.id !== leadId) return lead;
+              changed = true;
+              return { ...lead, ...patch };
+            }),
+          ],
+        ),
+      ) as BoardResponse["blocks"];
+      return changed ? { ...currentBoard, blocks } : currentBoard;
+    });
+  }
+
+  async function loadMobileLeadEnrichment(lead: LeadItem) {
+    setMobileEnrichmentLoadingId(lead.id);
+    try {
+      const payload = await apiFetch<LeadEnrichmentResponse>(
+        `/vendas/lead/${encodeURIComponent(lead.id)}/enrichment`,
+        { method: "POST", body: JSON.stringify({ templateOffset: 0 }) },
+      );
+      const patch: Partial<LeadItem> = {
+        whatsappAvailability: payload.whatsappAvailability || lead.whatsappAvailability || null,
+        leadIntelligence: payload.leadIntelligence || lead.leadIntelligence || null,
+      };
+      mergeMobileLeadPatch(lead.id, patch);
+      setMobileNoteLead((current) =>
+        current?.id === lead.id ? { ...current, ...patch } : current,
+      );
+    } catch (err) {
+      setFeedback(
+        err instanceof Error
+          ? err.message
+          : "Não foi possível enriquecer o card agora.",
+      );
+    } finally {
+      setMobileEnrichmentLoadingId((current) => (current === lead.id ? null : current));
+    }
+  }
+
   function openMobileNote(lead: LeadItem) {
+    setMobileTemplateIndex(readMobileReadyMessagePreference());
+    saveMobileOpenLeadId(lead.id);
     setMobileNoteLead(lead);
     setMobileNoteDraft(
       String(
@@ -2169,6 +2448,39 @@ export default function VendasClientPage() {
           "Cliente interessado em solução completa. Enviar case do segmento e proposta personalizada.",
       ),
     );
+    void loadMobileLeadEnrichment(lead);
+  }
+
+  function closeMobileNote() {
+    saveMobileOpenLeadId(null);
+    setMobileNoteLead(null);
+  }
+
+  function activeMobileTemplate(lead: LeadItem) {
+    const templates = buildMobileReadyMessageTemplates(lead);
+    return templates[mobileTemplateIndex % templates.length];
+  }
+
+  function refreshMobileTemplate(lead: LeadItem) {
+    const total = Math.max(1, buildMobileReadyMessageTemplates(lead).length);
+    setMobileTemplateIndex((current) => {
+      if (total <= 1) return current;
+      let next = Math.floor(Math.random() * total);
+      if (next === current % total) next = (next + 1) % total;
+      saveMobileReadyMessagePreference(next);
+      return next;
+    });
+  }
+
+  async function copyMobileText(text: string, successMessage: string) {
+    const value = String(text || "").trim();
+    if (!value) return;
+    try {
+      await navigator.clipboard.writeText(value);
+      setFeedback(successMessage);
+    } catch {
+      setFeedback("Não foi possível copiar automaticamente.");
+    }
   }
 
   async function saveMobileNote() {
@@ -2180,7 +2492,7 @@ export default function VendasClientPage() {
         { shortNote: mobileNoteDraft },
         "Observação salva.",
       );
-      setMobileNoteLead(null);
+      closeMobileNote();
     } finally {
       setMobileSavingNote(false);
     }
@@ -2199,7 +2511,7 @@ export default function VendasClientPage() {
           ? "Card removido do Vendas e devolvido ao banco HBX."
           : "Card já não estava mais no Vendas.",
       );
-      if (mobileNoteLead?.id === lead.id) setMobileNoteLead(null);
+      if (mobileNoteLead?.id === lead.id) closeMobileNote();
       await loadBoard();
     } catch (deleteError) {
       setError(
@@ -2434,6 +2746,15 @@ export default function VendasClientPage() {
                   <article
                     className={styles.mobileVendasCard}
                     key={lead.id}
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => openMobileNote(lead)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        openMobileNote(lead);
+                      }
+                    }}
                     style={{ ["--mobile-card-index" as string]: index } as CSSProperties}
                   >
                     <div
@@ -2460,7 +2781,10 @@ export default function VendasClientPage() {
                           <button
                             type="button"
                             data-action="report"
-                            onClick={() => openMobileReport(lead)}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              openMobileReport(lead);
+                            }}
                             aria-label={`Reportar erro em ${lead.name || "lead"}`}
                             disabled={mobileReporting || mobileDeletingLeadId === lead.id}
                           >
@@ -2468,7 +2792,10 @@ export default function VendasClientPage() {
                           </button>
                           <button
                             type="button"
-                            onClick={() => openMobileNote(lead)}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              openMobileNote(lead);
+                            }}
                             aria-label={`Abrir observação de ${lead.name || "lead"}`}
                           >
                             ...
@@ -2494,7 +2821,10 @@ export default function VendasClientPage() {
                         target="_blank"
                         rel="noreferrer"
                         aria-disabled={!whatsappHref}
-                        onClick={() => void incrementAttempt(lead.id)}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          void incrementAttempt(lead.id);
+                        }}
                       >
                         <svg viewBox="0 0 24 24" aria-hidden="true">
                           <path d="M19.05 4.94A9.8 9.8 0 0 0 12.06 2C6.59 2 2.13 6.46 2.13 11.93c0 1.75.46 3.46 1.32 4.97L2 22l5.27-1.38a9.9 9.9 0 0 0 4.79 1.22h.01c5.47 0 9.93-4.46 9.93-9.93a9.86 9.86 0 0 0-2.95-6.97ZM12.07 20.2h-.01a8.24 8.24 0 0 1-4.2-1.15l-.3-.18-3.13.82.84-3.05-.2-.31a8.2 8.2 0 0 1-1.26-4.4c0-4.53 3.69-8.22 8.24-8.22 2.2 0 4.27.85 5.82 2.4a8.17 8.17 0 0 1 2.4 5.82c0 4.54-3.69 8.23-8.2 8.23Zm4.5-6.15c-.25-.13-1.47-.72-1.7-.8-.23-.08-.4-.12-.57.12-.17.25-.65.8-.8.97-.15.17-.3.19-.56.06-.25-.13-1.06-.39-2.01-1.26-.74-.66-1.24-1.48-1.39-1.73-.15-.25-.02-.38.11-.5.11-.11.25-.3.38-.45.13-.15.17-.25.25-.42.08-.17.04-.31-.02-.44-.06-.13-.57-1.37-.78-1.88-.21-.5-.42-.43-.57-.44l-.49-.01c-.17 0-.44.06-.67.31-.23.25-.88.86-.88 2.1s.9 2.45 1.02 2.62c.13.17 1.77 2.7 4.3 3.79.6.26 1.08.42 1.44.54.61.19 1.16.16 1.6.1.49-.07 1.47-.6 1.68-1.18.21-.58.21-1.08.15-1.18-.06-.1-.23-.17-.48-.3Z" />
@@ -2504,6 +2834,7 @@ export default function VendasClientPage() {
                         href={callHref || undefined}
                         aria-disabled={!callHref}
                         onClick={(event) => {
+                          event.stopPropagation();
                           if (!callHref) event.preventDefault();
                           void incrementAttempt(lead.id);
                         }}
@@ -2535,123 +2866,413 @@ export default function VendasClientPage() {
           </button>
         </nav>
 
-        {mobileNoteLead ? (
-          <div
-            className={styles.mobileVendasSheetBackdrop}
-            onClick={() => setMobileNoteLead(null)}
-          >
-            <section
-              className={styles.mobileObservationDialog}
-              role="dialog"
-              aria-modal="true"
-              aria-labelledby="mobile-vendas-note-title"
-              onClick={(event) => event.stopPropagation()}
-            >
-              <span className={styles.mobileVendasSheetHandle} />
-              <div className={styles.mobileVendasSheetHeader}>
-                <div>
-                  <small>Card do lead</small>
-                  <h2 id="mobile-vendas-note-title">{mobileNoteLead.name || "Lead sem nome"}</h2>
-                </div>
-                <button type="button" onClick={() => setMobileNoteLead(null)}>
-                  ×
-                </button>
-              </div>
+        {mobileNoteLead
+          ? (() => {
+              const intelligence = mobileNoteLead.leadIntelligence || {};
+              const score = Math.max(
+                0,
+                Math.min(100, Math.round(Number(intelligence.opportunityScore || 0))),
+              );
+              const scoreLabel = intelligenceScoreLabel(score);
+              const template = activeMobileTemplate(mobileNoteLead);
+              const readyMessage = template.text;
+              const whatsappHref = buildWhatsAppUrlWithMessage(
+                mobileNoteLead.phone,
+                readyMessage,
+              );
+              const callHref = buildCallUrl(mobileNoteLead.phone);
+              const email = leadEmailForDisplay(mobileNoteLead);
+              const website = leadWebsiteForDisplay(mobileNoteLead);
+              const tags = (intelligence.leadReasonTags || []).slice(0, 4);
+              const loadingEnrichment = mobileEnrichmentLoadingId === mobileNoteLead.id;
+              const timeline = (mobileNoteLead.timeline || []).slice(0, 3);
 
-              <article className={styles.mobileLeadDetailCard}>
-                <div className={styles.mobileLeadDetailHero}>
-                  <div className={styles.mobileLeadDetailAvatar} aria-hidden="true">
-                    <svg viewBox="0 0 24 24">
-                      <path d="M5 21V5.8C5 4.8 5.8 4 6.8 4h10.4c1 0 1.8.8 1.8 1.8V21" />
-                      <path d="M8.5 8h2" />
-                      <path d="M13.5 8h2" />
-                      <path d="M8.5 12h2" />
-                      <path d="M13.5 12h2" />
-                      <path d="M10 21v-4h4v4" />
-                    </svg>
-                  </div>
-                  <div>
-                    <span>{mobileLeadSourceLabel(mobileNoteLead)}</span>
-                    <strong>{mobileNoteLead.segment || "Segmento não informado"}</strong>
-                    <em>{mobileLeadPlace(mobileNoteLead)}</em>
-                  </div>
-                </div>
-
-                <div className={styles.mobileLeadDetailGrid}>
-                  <div>
-                    <span>Status</span>
-                    <strong>{mobileNoteLead.statusLabel || statusLabel(mobileNoteLead.status)}</strong>
-                  </div>
-                  <div>
-                    <span>Retorno</span>
-                    <strong>{mobileReturnLabel(mobileNoteLead)}</strong>
-                  </div>
-                </div>
-
-                <div className={styles.mobileLeadDetailContact}>
-                  <div>
-                    <span>Contato</span>
-                    <strong>{mobilePhoneLabel(mobileNoteLead)}</strong>
-                  </div>
-                  <div className={styles.mobileLeadDetailContactActions}>
-                    <a
-                      href={buildWhatsAppUrl(mobileNoteLead.phone, mobileNoteLead.name) || undefined}
-                      target="_blank"
-                      rel="noreferrer"
-                      aria-disabled={!buildWhatsAppUrl(mobileNoteLead.phone, mobileNoteLead.name)}
-                      onClick={() => void incrementAttempt(mobileNoteLead.id)}
-                    >
-                      WhatsApp
-                    </a>
-                    <a
-                      href={buildCallUrl(mobileNoteLead.phone) || undefined}
-                      aria-disabled={!buildCallUrl(mobileNoteLead.phone)}
-                      onClick={(event) => {
-                        if (!buildCallUrl(mobileNoteLead.phone)) event.preventDefault();
-                        void incrementAttempt(mobileNoteLead.id);
-                      }}
-                    >
-                      Ligar
-                    </a>
-                  </div>
-                </div>
-
-                <div className={styles.mobileLeadDetailAction}>
-                  <span>Próxima ação</span>
-                  <strong>{mobileNoteLead.nextAction || "Primeiro contato"}</strong>
-                  {mobileNoteLead.lastResult ? <p>{mobileNoteLead.lastResult}</p> : null}
-                </div>
-              </article>
-
-              <label className={styles.mobileLeadNoteEditor}>
-                <span>Observação</span>
-              <textarea
-                value={mobileNoteDraft}
-                onChange={(event) => setMobileNoteDraft(event.target.value)}
-                rows={5}
-                  placeholder="Escreva o contexto do atendimento, objeções, próximos passos ou qualquer detalhe importante."
-              />
-              </label>
-              <div className={styles.mobileVendasSheetFooter}>
-                <button
-                  type="button"
-                  className={styles.mobileVendasDeleteButton}
-                  onClick={() => void deleteMobileLead(mobileNoteLead)}
-                  disabled={mobileDeletingLeadId === mobileNoteLead.id}
+              return (
+                <div
+                  className={styles.mobileVendasSheetBackdrop}
+                  onClick={closeMobileNote}
                 >
-                  {mobileDeletingLeadId === mobileNoteLead.id ? "Excluindo" : "Excluir"}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void saveMobileNote()}
-                  disabled={mobileSavingNote || savingLeadId === mobileNoteLead.id}
-                >
-                  {mobileSavingNote ? "Salvando" : "Salvar"}
-                </button>
-              </div>
-            </section>
-          </div>
-        ) : null}
+                  <section
+                    className={`${styles.mobileObservationDialog} ${styles.mobileLeadPlusDialog}`}
+                    role="dialog"
+                    aria-modal="true"
+                    aria-labelledby="mobile-vendas-note-title"
+                    onClick={(event) => event.stopPropagation()}
+                  >
+                    <div className={styles.mobileLeadPlusTopbar}>
+                      <div>
+                        <strong>HBX</strong>
+                      </div>
+                      <button type="button" className={styles.mobileLeadPlanBadge}>
+                        <svg viewBox="0 0 24 24" aria-hidden="true">
+                          <path d="m4 8 4 3 4-7 4 7 4-3-1.8 10H5.8L4 8Z" />
+                        </svg>
+                        Lead+
+                      </button>
+                      <button
+                        type="button"
+                        className={styles.mobileLeadCloseButton}
+                        onClick={closeMobileNote}
+                        aria-label="Fechar detalhes do lead"
+                      >
+                        ×
+                      </button>
+                    </div>
+
+                    <div className={styles.mobileLeadCarousel} aria-label="Detalhes enriquecidos do lead">
+                      <article className={styles.mobileLeadPlusPanel}>
+                        <h2 id="mobile-vendas-note-title" className={styles.mobileLeadPanelTitle}>
+                          Quem chamar hoje
+                        </h2>
+                        <header className={styles.mobileLeadPlusHero}>
+                          <div className={styles.mobileLeadPlusAvatar} aria-hidden="true">
+                            <svg viewBox="0 0 24 24">
+                              <path d="M4 19h16" />
+                              <path d="M6 19V9h12v10" />
+                              <path d="M8 9V6h8v3" />
+                              <path d="M9 13h6" />
+                              <path d="M9 16h6" />
+                              <path d="m16.5 5 1.8-1.8" />
+                              <path d="M18.6 6.4h2.2" />
+                            </svg>
+                          </div>
+                          <div className={styles.mobileLeadPlusIdentity}>
+                            <strong>{mobileNoteLead.name || "Lead sem nome"}</strong>
+                            <span>{mobileNoteLead.segment || "Segmento não informado"}</span>
+                            <em>{mobileLeadPlace(mobileNoteLead)}</em>
+                          </div>
+                          <div
+                            className={styles.mobileLeadScoreBox}
+                            style={{ ["--lead-score" as string]: `${score}%` } as CSSProperties}
+                          >
+                            <span>Score</span>
+                            <strong>{score || "-"}</strong>
+                            <small>{scoreLabel}</small>
+                          </div>
+                        </header>
+
+                        <div className={styles.mobileLeadContactRows}>
+                          <div>
+                            <span className={styles.mobileLeadRowIcon} data-tone="blue">
+                              <svg viewBox="0 0 24 24" aria-hidden="true">
+                                <path d="M6.6 10.8c1.5 3 3.6 5.1 6.6 6.6l2.2-2.2c.3-.3.8-.4 1.2-.2 1.3.4 2.6.7 4 .7.7 0 1.2.5 1.2 1.2v3.5c0 .7-.5 1.2-1.2 1.2C10.8 21.6 2.4 13.2 2.4 3.4c0-.7.5-1.2 1.2-1.2h3.5c.7 0 1.2.5 1.2 1.2 0 1.4.2 2.7.7 4 .1.4 0 .9-.3 1.2l-2.1 2.2Z" />
+                              </svg>
+                            </span>
+                            <strong>{mobilePhoneLabel(mobileNoteLead)}</strong>
+                            <b data-tone={intelligence.whatsappStatus === "confirmed" ? "success" : "muted"}>
+                              {whatsappStatusLabel(intelligence.whatsappStatus)}
+                            </b>
+                          </div>
+                          <div>
+                            <span className={styles.mobileLeadRowIcon} data-tone="blue">
+                              <svg viewBox="0 0 24 24" aria-hidden="true">
+                                <path d="M4 6h16v12H4z" />
+                                <path d="m4 7 8 6 8-6" />
+                              </svg>
+                            </span>
+                            <strong>{email || "E-mail não encontrado"}</strong>
+                            <b data-tone={email ? "success" : "muted"}>{emailStatusLabel(intelligence.emailStatus)}</b>
+                          </div>
+                          <div>
+                            <span className={styles.mobileLeadRowIcon} data-tone="blue">
+                              <svg viewBox="0 0 24 24" aria-hidden="true">
+                                <circle cx="12" cy="12" r="9" />
+                                <path d="M3 12h18" />
+                                <path d="M12 3c2.2 2.5 3.3 5.5 3.3 9s-1.1 6.5-3.3 9" />
+                                <path d="M12 3c-2.2 2.5-3.3 5.5-3.3 9s1.1 6.5 3.3 9" />
+                              </svg>
+                            </span>
+                            <strong>{website || "Sem site"}</strong>
+                            <b data-tone="smart">{contactQualityLabel(intelligence.contactQuality)}</b>
+                          </div>
+                        </div>
+
+                        <section className={styles.mobileLeadReasonBlock}>
+                          <h3>
+                            <svg viewBox="0 0 24 24" aria-hidden="true">
+                              <circle cx="12" cy="12" r="8" />
+                              <circle cx="12" cy="12" r="3" />
+                              <path d="M12 2v3" />
+                              <path d="M22 12h-3" />
+                            </svg>
+                            Motivo do lead
+                          </h3>
+                          <div>
+                            {(tags.length ? tags : ["cidade_alvo", "segmento_alvo"]).map((tag) => (
+                              <span key={tag}>{leadTagLabel(tag)}</span>
+                            ))}
+                          </div>
+                        </section>
+
+                        <section className={styles.mobileLeadNextActionBox}>
+                          <h3>Próxima ação</h3>
+                          <a
+                            href={whatsappHref || undefined}
+                            target="_blank"
+                            rel="noreferrer"
+                            aria-disabled={!whatsappHref || intelligence.nextBestAction === "discard"}
+                            onClick={(event) => {
+                              if (!whatsappHref || intelligence.nextBestAction === "discard") {
+                                event.preventDefault();
+                                return;
+                              }
+                              void incrementAttempt(mobileNoteLead.id);
+                            }}
+                          >
+                            <span>
+                              <svg viewBox="0 0 24 24" aria-hidden="true">
+                                <path d="M19.05 4.94A9.8 9.8 0 0 0 12.06 2C6.59 2 2.13 6.46 2.13 11.93c0 1.75.46 3.46 1.32 4.97L2 22l5.27-1.38a9.9 9.9 0 0 0 4.79 1.22h.01c5.47 0 9.93-4.46 9.93-9.93a9.86 9.86 0 0 0-2.95-6.97Z" />
+                              </svg>
+                            </span>
+                            {nextBestActionLabel(intelligence.nextBestAction)}
+                            <b>›</b>
+                          </a>
+                        </section>
+
+                        <section className={styles.mobileLeadReadyMessage}>
+                          <h3>
+                            <span>
+                              <svg viewBox="0 0 24 24" aria-hidden="true">
+                                <path d="M4 5h16v12H8l-4 4V5Z" />
+                              </svg>
+                              Mensagem pronta
+                            </span>
+                            <button
+                              type="button"
+                              className={styles.mobileLeadReadyRefreshIcon}
+                              onClick={() => refreshMobileTemplate(mobileNoteLead)}
+                              aria-label="Atualizar mensagem pronta"
+                              title="Atualizar mensagem pronta"
+                            >
+                              <svg viewBox="0 0 24 24" aria-hidden="true">
+                                <path d="M20 7v5h-5" />
+                                <path d="M4 17v-5h5" />
+                                <path d="M6.1 9A7 7 0 0 1 18 6.2L20 8" />
+                                <path d="M17.9 15A7 7 0 0 1 6 17.8L4 16" />
+                              </svg>
+                            </button>
+                          </h3>
+                          <p>{loadingEnrichment ? "Verificando WhatsApp no motor HBX Master..." : readyMessage}</p>
+                        </section>
+
+                        <div className={styles.mobileLeadQuickGrid}>
+                          <a
+                            href={whatsappHref || undefined}
+                            target="_blank"
+                            rel="noreferrer"
+                            aria-disabled={!whatsappHref}
+                            data-tone="whatsapp"
+                            onClick={(event) => {
+                              if (!whatsappHref) event.preventDefault();
+                              else void incrementAttempt(mobileNoteLead.id);
+                            }}
+                          >
+                            WhatsApp
+                          </a>
+                          <a
+                            href={callHref || undefined}
+                            aria-disabled={!callHref}
+                            onClick={(event) => {
+                              if (!callHref) event.preventDefault();
+                              else void incrementAttempt(mobileNoteLead.id);
+                            }}
+                          >
+                            Ligar
+                          </a>
+                          <button
+                            type="button"
+                            disabled={!email}
+                            onClick={() => void copyMobileText(email, "E-mail copiado.")}
+                          >
+                            E-mail
+                          </button>
+                          <button
+                            type="button"
+                            data-tone="primary"
+                            onClick={() => void copyMobileText(readyMessage, "Mensagem copiada.")}
+                          >
+                            Copiar msg
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void saveLead(mobileNoteLead.id, {
+                              status: "retorno",
+                              nextAction: "Retornar amanhã às 10h",
+                              returnAt: plusDaysDatetimeLocal(1),
+                            }, "Retorno marcado para amanhã.")}
+                          >
+                            Retorno
+                          </button>
+                          <button
+                            type="button"
+                            data-tone="danger"
+                            onClick={() => void saveLead(mobileNoteLead.id, {
+                              status: "encerrado",
+                              nextAction: "Não chamar",
+                              shortNote: mobileNoteDraft || "Lead marcado como negativo.",
+                            }, "Lead marcado como negativo.")}
+                          >
+                            Negativo
+                          </button>
+                        </div>
+                      </article>
+
+                      <article className={styles.mobileLeadPlusPanel}>
+                        <h2 className={styles.mobileLeadPanelTitle}>Detalhes do lead</h2>
+                        <header className={styles.mobileLeadPlusHero} data-compact="true">
+                          <div className={styles.mobileLeadPlusAvatar} aria-hidden="true">
+                            <svg viewBox="0 0 24 24">
+                              <path d="M4 19h16" />
+                              <path d="M6 19V9h12v10" />
+                              <path d="M8 9V6h8v3" />
+                              <path d="M9 13h6" />
+                              <path d="M9 16h6" />
+                            </svg>
+                          </div>
+                          <div className={styles.mobileLeadPlusIdentity}>
+                            <strong>{mobileNoteLead.name || "Lead sem nome"}</strong>
+                            <span>{mobileNoteLead.segment || "Segmento não informado"}</span>
+                            <em>{mobileLeadPlace(mobileNoteLead)}</em>
+                          </div>
+                          <div
+                            className={styles.mobileLeadScoreBox}
+                            style={{ ["--lead-score" as string]: `${score}%` } as CSSProperties}
+                          >
+                            <span>Score</span>
+                            <strong>{score || "-"}</strong>
+                            <small>{scoreLabel}</small>
+                          </div>
+                        </header>
+
+                        <section className={styles.mobileLeadObservationCard}>
+                          <div className={styles.mobileLeadObservationHeader}>
+                            <h3>
+                              <svg viewBox="0 0 24 24" aria-hidden="true">
+                                <path d="M5 4h14v13H8l-3 3V4Z" />
+                              </svg>
+                              Observações
+                            </h3>
+                            <span>⌃</span>
+                          </div>
+                          <div className={styles.mobileLeadTabs}>
+                            <span>Resumo</span>
+                            <b>Observações</b>
+                            <span>Histórico</span>
+                          </div>
+                          <label className={styles.mobileLeadNoteEditor}>
+                            <span>Nova observação</span>
+                            <textarea
+                              value={mobileNoteDraft}
+                              onChange={(event) => setMobileNoteDraft(event.target.value)}
+                              rows={4}
+                              placeholder="Escreva o contexto do atendimento, objeções, próximos passos ou qualquer detalhe importante."
+                            />
+                          </label>
+                          <div className={styles.mobileLeadSmartChips}>
+                            <button
+                              type="button"
+                              onClick={() => void saveLead(mobileNoteLead.id, {
+                                status: "qualificado",
+                                nextAction: "Lead interessado",
+                              }, "Lead marcado como interessado.")}
+                            >
+                              Interessado
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => void saveLead(mobileNoteLead.id, {
+                                status: "retorno",
+                                nextAction: "Retornar amanhã às 10h",
+                                returnAt: plusDaysDatetimeLocal(1),
+                              }, "Retorno marcado para amanhã.")}
+                            >
+                              Retorno amanhã
+                            </button>
+                            <span>{website ? "Com site" : "Sem site"}</span>
+                            <span>{intelligence.whatsappStatus === "confirmed" ? "WhatsApp ok" : "WhatsApp pendente"}</span>
+                          </div>
+                          <p className={styles.mobileLeadSuggestedAction}>
+                            Próxima ação sugerida: <strong>{mobileNoteLead.nextAction || nextBestActionLabel(intelligence.nextBestAction)}</strong>
+                          </p>
+                          <button
+                            type="button"
+                            className={styles.mobileLeadSaveNoteButton}
+                            onClick={() => void saveMobileNote()}
+                            disabled={mobileSavingNote || savingLeadId === mobileNoteLead.id}
+                          >
+                            {mobileSavingNote ? "Salvando" : "Salvar observação"}
+                          </button>
+                        </section>
+
+                        <section className={styles.mobileLeadTimeline}>
+                          <h3>Últimas observações</h3>
+                          {(timeline.length
+                            ? timeline
+                            : [
+                                {
+                                  id: "empty",
+                                  eventType: "generic",
+                                  title: "Lead validado pelo HBX",
+                                  description: intelligence.opportunityReason || "Aguardando primeira observação.",
+                                  createdAt: new Date().toISOString(),
+                                  sourceType: "hbx",
+                                } as LeadTimelineEvent,
+                              ]
+                          ).map((event) => (
+                            <div key={event.id}>
+                              <span aria-hidden="true" />
+                              <p>
+                                <strong>{timelineMeta(event)}</strong>
+                                {event.title || event.description || "Atendimento atualizado."}
+                              </p>
+                              <b>⌄</b>
+                            </div>
+                          ))}
+                        </section>
+
+                        <div className={styles.mobileLeadBottomActions}>
+                          <a
+                            href={whatsappHref || undefined}
+                            target="_blank"
+                            rel="noreferrer"
+                            aria-disabled={!whatsappHref}
+                            data-tone="whatsapp"
+                            onClick={(event) => {
+                              if (!whatsappHref) event.preventDefault();
+                              else void incrementAttempt(mobileNoteLead.id);
+                            }}
+                          >
+                            WhatsApp
+                          </a>
+                          <button
+                            type="button"
+                            onClick={() => void saveLead(mobileNoteLead.id, {
+                              status: "retorno",
+                              nextAction: "Retornar amanhã às 10h",
+                              returnAt: plusDaysDatetimeLocal(1),
+                            }, "Retorno marcado para amanhã.")}
+                          >
+                            Retorno
+                          </button>
+                          <button
+                            type="button"
+                            data-tone="danger"
+                            onClick={() => void saveLead(mobileNoteLead.id, {
+                              status: "encerrado",
+                              nextAction: "Não chamar",
+                              shortNote: mobileNoteDraft || "Lead marcado como negativo.",
+                            }, "Lead marcado como negativo.")}
+                          >
+                            Negativo
+                          </button>
+                        </div>
+                      </article>
+                    </div>
+                  </section>
+                </div>
+              );
+            })()
+          : null}
 
         {mobileReportLead ? (
           <div

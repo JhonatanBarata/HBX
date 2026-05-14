@@ -337,7 +337,7 @@ const MODULES_TRIGGER_ID = "app-modules-trigger";
 const SUPPORT_PHONE = "++5519997024884";
 const SUPPORT_MESSAGE = "Olá, preciso de ajuda com o HBX!";
 
-const hiddenRoutes = new Set(["/login", "/register", "/reset-password", "/confirm-email", "/boasvindas", "/tutorial"]);
+const hiddenRoutes = new Set(["/login", "/register", "/reset-password", "/confirm-email", "/boasvindas", "/tutorial", "/pre-checkout", "/precheckout"]);
 const SCRAPING_ENGINE_POLL_MS = 5000;
 const SYSTEM_HEALTH_REFRESH_DETAIL = "Sem atualização automática";
 const TOPBAR_FALLBACK_HBX_ENGINE_COUNT = 4;

@@ -4485,3 +4485,543 @@
     grid-template-columns: 1fr;
   }
 }
+
+@media (max-width: 820px) {
+  .mobileSalesShell {
+    position: relative;
+    isolation: isolate;
+    min-height: 100dvh;
+    overflow-x: hidden;
+    background:
+      radial-gradient(circle at 18% -6%, rgba(42, 119, 255, 0.34), transparent 30%),
+      radial-gradient(circle at 92% 8%, rgba(52, 216, 255, 0.26), transparent 28%),
+      radial-gradient(circle at 50% 108%, rgba(34, 197, 94, 0.16), transparent 34%),
+      linear-gradient(180deg, #edf5ff 0%, #f7fbff 44%, #eaf4ff 100%);
+  }
+
+  .mobileSalesShell::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: -2;
+    pointer-events: none;
+    background:
+      linear-gradient(rgba(37, 99, 235, 0.045) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(37, 99, 235, 0.045) 1px, transparent 1px);
+    background-size: 26px 26px;
+    mask-image: linear-gradient(180deg, black 0%, transparent 78%);
+  }
+
+  .mobileSalesShell::after {
+    content: "";
+    position: fixed;
+    inset: -30%;
+    z-index: -1;
+    pointer-events: none;
+    background:
+      conic-gradient(
+        from 210deg at 50% 50%,
+        transparent 0deg,
+        rgba(42, 119, 255, 0.12) 70deg,
+        transparent 130deg,
+        rgba(52, 216, 255, 0.1) 210deg,
+        transparent 300deg
+      );
+    filter: blur(42px);
+    opacity: 0.72;
+    animation: mobileAuroraSpin 18s linear infinite;
+  }
+
+  .mobileSalesHeader {
+    position: sticky;
+    top: 0;
+    z-index: 18;
+    margin: -1rem -1.18rem 0;
+    padding: 1rem 1.18rem 0.72rem;
+    background: linear-gradient(180deg, rgba(244, 249, 255, 0.96), rgba(244, 249, 255, 0.72));
+    backdrop-filter: blur(18px) saturate(1.25);
+    -webkit-backdrop-filter: blur(18px) saturate(1.25);
+    border-bottom: 1px solid rgba(95, 135, 190, 0.18);
+  }
+
+  .mobileSalesHeader strong {
+    font-size: 1.42rem;
+    letter-spacing: -0.055em;
+    background: linear-gradient(135deg, #0f2a66, #245cff 52%, #00aeea);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+
+  .mobileSalesHeader span {
+    color: rgba(25, 49, 92, 0.66);
+    font-size: 0.66rem;
+    letter-spacing: 0.15em;
+  }
+
+  .mobileSalesHeader button {
+    width: 42px;
+    min-height: 42px;
+    border: 1px solid rgba(37, 99, 235, 0.22);
+    background:
+      radial-gradient(circle at 30% 20%, rgba(255, 255, 255, 0.98), transparent 36%),
+      linear-gradient(135deg, rgba(255, 255, 255, 0.9), rgba(227, 240, 255, 0.74));
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.95),
+      0 12px 30px -18px rgba(32, 91, 191, 0.48);
+  }
+
+  .mobileNextCard {
+    position: relative;
+    overflow: hidden;
+    grid-template-columns: minmax(0, 1fr) 86px;
+    padding: 1rem;
+    border-radius: 24px;
+    border: 1px solid rgba(36, 92, 255, 0.22);
+    background:
+      radial-gradient(circle at 98% 0%, rgba(52, 216, 255, 0.36), transparent 38%),
+      radial-gradient(circle at 0% 100%, rgba(36, 92, 255, 0.16), transparent 42%),
+      linear-gradient(135deg, rgba(255, 255, 255, 0.96), rgba(229, 242, 255, 0.84));
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.9),
+      0 24px 58px -34px rgba(25, 73, 171, 0.58);
+    animation: mobileCardEnter 420ms cubic-bezier(0.18, 0.84, 0.22, 1) both;
+  }
+
+  .mobileNextCard::before {
+    content: "";
+    position: absolute;
+    inset: -2px;
+    pointer-events: none;
+    background: linear-gradient(110deg, transparent 0%, rgba(255,255,255,0.66) 42%, transparent 58%);
+    transform: translateX(-120%);
+    animation: mobileCardShine 4.8s ease-in-out infinite;
+  }
+
+  .mobileNextCard::after {
+    content: "";
+    position: absolute;
+    right: 18px;
+    top: 18px;
+    width: 10px;
+    height: 10px;
+    border-radius: 999px;
+    background: #16c8f5;
+    box-shadow:
+      0 0 0 6px rgba(22, 200, 245, 0.12),
+      0 0 28px rgba(22, 200, 245, 0.8);
+    animation: mobileLivePulse 1.7s ease-in-out infinite;
+  }
+
+  .mobileNextCard span {
+    color: #245cff;
+    font-size: 0.68rem;
+    letter-spacing: 0.13em;
+  }
+
+  .mobileNextCard strong {
+    font-size: 1.18rem;
+    letter-spacing: -0.04em;
+    line-height: 1.06;
+  }
+
+  .mobileNextCard small {
+    color: rgba(23, 45, 84, 0.68);
+    font-size: 0.74rem;
+    line-height: 1.28;
+  }
+
+  .mobileNextCard button {
+    position: relative;
+    overflow: hidden;
+    min-height: 48px;
+    border: 0;
+    border-radius: 17px;
+    background:
+      radial-gradient(circle at 28% 15%, rgba(255,255,255,0.44), transparent 30%),
+      linear-gradient(135deg, #245cff, #13c8f5);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.42),
+      0 18px 34px -22px rgba(36, 92, 255, 0.9);
+    transform: translateZ(0);
+  }
+
+  .mobileNextCard button:active,
+  .mobileSalesActions button:active,
+  .mobileLeadPrimaryAction:active {
+    transform: scale(0.97);
+  }
+
+  .mobileSalesCard {
+    position: relative;
+    overflow: hidden;
+    grid-template-columns: 50px minmax(0, 1fr) auto;
+    gap: 0.82rem 0.84rem;
+    padding: 1rem;
+    border-radius: 24px;
+    border: 1px solid rgba(125, 166, 224, 0.5);
+    background:
+      radial-gradient(circle at 100% 0%, rgba(42, 119, 255, 0.12), transparent 34%),
+      linear-gradient(180deg, rgba(255,255,255,0.98), rgba(244,249,255,0.92));
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.92),
+      0 20px 50px -36px rgba(31, 64, 118, 0.62);
+    animation: mobileCardEnter 380ms cubic-bezier(0.18, 0.84, 0.22, 1) both;
+  }
+
+  .mobileSalesCard:nth-child(2) { animation-delay: 42ms; }
+  .mobileSalesCard:nth-child(3) { animation-delay: 84ms; }
+  .mobileSalesCard:nth-child(4) { animation-delay: 126ms; }
+
+  .mobileSalesCard[data-active="true"] {
+    border-color: rgba(36, 92, 255, 0.52);
+    background:
+      radial-gradient(circle at 100% 0%, rgba(52, 216, 255, 0.2), transparent 36%),
+      radial-gradient(circle at 0% 100%, rgba(36, 92, 255, 0.12), transparent 40%),
+      linear-gradient(180deg, rgba(255,255,255,1), rgba(239,247,255,0.94));
+    box-shadow:
+      0 0 0 4px rgba(36, 92, 255, 0.08),
+      0 28px 66px -38px rgba(20, 82, 190, 0.72);
+  }
+
+  .mobileSalesCard[data-active="true"]::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 18px;
+    bottom: 18px;
+    width: 4px;
+    border-radius: 999px;
+    background: linear-gradient(180deg, #245cff, #34d8ff);
+    box-shadow: 0 0 24px rgba(36, 92, 255, 0.72);
+  }
+
+  .mobileSalesCardTop strong {
+    font-size: 1.14rem;
+    letter-spacing: -0.035em;
+    line-height: 1.08;
+  }
+
+  .mobileSalesCardTop span {
+    font-size: 0.82rem;
+    color: rgba(26, 48, 87, 0.62);
+  }
+
+  .mobileLeadAvatar {
+    width: 50px;
+    height: 50px;
+    border-radius: 19px;
+    background:
+      radial-gradient(circle at 28% 22%, rgba(255,255,255,0.95), transparent 25%),
+      linear-gradient(135deg, #dffcf2, #dceaff 62%, #ffffff);
+    color: #087a5a;
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.9),
+      0 16px 30px -22px rgba(10, 120, 94, 0.5);
+  }
+
+  .mobileLeadStatusLine {
+    padding: 0.58rem 0.68rem;
+    border: 1px solid rgba(160, 190, 230, 0.42);
+    border-radius: 16px;
+    background: rgba(240, 247, 255, 0.78);
+  }
+
+  .mobileLeadStatusLine em {
+    min-height: 28px;
+    padding: 0 0.7rem;
+    border-radius: 999px;
+    background: linear-gradient(135deg, #ddfbea, #c7ffe2);
+    color: #07835a;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.75);
+  }
+
+  .mobileLeadStatusLine em[data-status="sem WhatsApp"] {
+    background: linear-gradient(135deg, #ffe6ec, #ffd5df);
+    color: #c21d45;
+  }
+
+  .mobileLeadNextAction {
+    padding: 0.8rem;
+    border: 1px solid rgba(36, 92, 255, 0.14);
+    border-radius: 18px;
+    background:
+      radial-gradient(circle at 100% 0%, rgba(36, 92, 255, 0.1), transparent 40%),
+      rgba(244, 249, 255, 0.88);
+  }
+
+  .mobileLeadNextAction small {
+    color: #245cff;
+    font-size: 0.64rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+
+  .mobileLeadNextAction strong {
+    margin-top: 0.14rem;
+    font-size: 0.9rem;
+    line-height: 1.2;
+  }
+
+  .mobileLeadContactActions button {
+    width: 46px;
+    height: 46px;
+    border: 1px solid rgba(36, 92, 255, 0.16);
+    background:
+      radial-gradient(circle at 30% 18%, rgba(255,255,255,0.95), transparent 28%),
+      linear-gradient(135deg, #edf4ff, #dceaff);
+    color: #245cff;
+    box-shadow:
+      inset 0 1px 0 rgba(255,255,255,0.9),
+      0 14px 28px -22px rgba(36, 92, 255, 0.64);
+    transition: transform 150ms ease, box-shadow 150ms ease;
+  }
+
+  .mobileLeadContactActions button[data-whatsapp="true"] {
+    border-color: rgba(19, 178, 101, 0.18);
+    background:
+      radial-gradient(circle at 30% 18%, rgba(255,255,255,0.95), transparent 28%),
+      linear-gradient(135deg, #dcfce9, #bcffd9);
+    color: #0a9c62;
+  }
+
+  .mobileLeadContactActions button:active {
+    transform: scale(0.94);
+  }
+
+  .mobileLeadPrimaryAction {
+    position: relative;
+    overflow: hidden;
+    min-height: 58px;
+    border-radius: 18px;
+    background:
+      radial-gradient(circle at 25% 12%, rgba(255,255,255,0.42), transparent 30%),
+      linear-gradient(135deg, #245cff 0%, #1a8cff 48%, #16d4f5 100%);
+    box-shadow:
+      inset 0 1px 0 rgba(255,255,255,0.42),
+      0 20px 42px -24px rgba(36, 92, 255, 0.92);
+    letter-spacing: -0.02em;
+  }
+
+  .mobileLeadPrimaryAction::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(110deg, transparent 0%, rgba(255,255,255,0.32) 46%, transparent 60%);
+    transform: translateX(-130%);
+    animation: mobileButtonShine 3.8s ease-in-out infinite;
+  }
+
+  .mobileSalesActions {
+    position: sticky;
+    bottom: calc(0.7rem + env(safe-area-inset-bottom));
+    z-index: 22;
+    margin-top: 0.15rem;
+    padding: 0.62rem;
+    border: 1px solid rgba(137, 169, 212, 0.44);
+    border-radius: 24px;
+    background: rgba(255, 255, 255, 0.78);
+    backdrop-filter: blur(18px) saturate(1.2);
+    -webkit-backdrop-filter: blur(18px) saturate(1.2);
+    box-shadow:
+      inset 0 1px 0 rgba(255,255,255,0.86),
+      0 24px 58px -34px rgba(20, 46, 92, 0.62);
+  }
+
+  .mobileSalesActions button {
+    min-height: 54px;
+    border: 0;
+    border-radius: 18px;
+    font-size: 0.92rem;
+    letter-spacing: -0.01em;
+    box-shadow:
+      inset 0 1px 0 rgba(255,255,255,0.34),
+      0 16px 34px -24px rgba(20, 46, 92, 0.6);
+    transition: transform 150ms ease, filter 150ms ease;
+  }
+
+  .mobileSalesActions button:first-child {
+    background: linear-gradient(135deg, #10b957, #0fd16d);
+  }
+
+  .mobileSalesActions button:nth-child(2) {
+    background: linear-gradient(135deg, #245cff, #16c8f5);
+  }
+
+  .mobileSalesActions button:hover {
+    filter: brightness(1.03);
+  }
+
+  .mobileSalesMeta span,
+  .mobileSalesStatusRow,
+  .mobileDialPreview {
+    border-radius: 18px;
+    border-color: rgba(160, 190, 230, 0.42);
+    background:
+      radial-gradient(circle at 100% 0%, rgba(36, 92, 255, 0.06), transparent 42%),
+      rgba(244, 249, 255, 0.86);
+  }
+
+  .mobileSalesMeta span {
+    min-height: 68px;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.82);
+  }
+
+  .mobileQuickActions {
+    gap: 0.66rem;
+  }
+
+  .mobileQuickActions button {
+    min-height: 52px;
+    border-radius: 17px;
+    background:
+      radial-gradient(circle at 30% 16%, rgba(255,255,255,0.88), transparent 30%),
+      linear-gradient(135deg, #eef6ff, #dfeeff);
+    color: #17305b;
+    box-shadow:
+      inset 0 1px 0 rgba(255,255,255,0.88),
+      0 14px 30px -24px rgba(36, 92, 255, 0.54);
+  }
+
+  .mobileSalesEmpty,
+  .mobileSalesNotice,
+  .mobileDialPrefs,
+  .mobileSalesToolbar {
+    border-radius: 22px;
+    background:
+      radial-gradient(circle at 100% 0%, rgba(52, 216, 255, 0.08), transparent 34%),
+      rgba(255, 255, 255, 0.78);
+    backdrop-filter: blur(14px) saturate(1.12);
+    -webkit-backdrop-filter: blur(14px) saturate(1.12);
+  }
+
+  .mobileSheetOverlay {
+    background:
+      radial-gradient(circle at 50% 0%, rgba(36, 92, 255, 0.18), transparent 34%),
+      rgba(9, 20, 42, 0.42);
+    backdrop-filter: blur(18px) saturate(1.2);
+    -webkit-backdrop-filter: blur(18px) saturate(1.2);
+  }
+
+  .mobileSheetPanel,
+  .mobileNoteSheet,
+  .mobileLeadDetail,
+  .mobileCloseQuick {
+    border-radius: 30px 30px 0 0;
+    border: 1px solid rgba(190, 212, 244, 0.6);
+    background:
+      radial-gradient(circle at 86% 0%, rgba(52, 216, 255, 0.16), transparent 34%),
+      linear-gradient(180deg, rgba(255,255,255,0.98), rgba(239,247,255,0.96));
+    box-shadow:
+      inset 0 1px 0 rgba(255,255,255,0.92),
+      0 -24px 70px -34px rgba(10, 33, 79, 0.66);
+    animation: mobileSheetRise 360ms cubic-bezier(0.18, 0.84, 0.22, 1) both;
+  }
+
+  .mobileSheetPanel::before,
+  .mobileNoteSheet::before,
+  .mobileLeadDetail::before {
+    content: "";
+    display: block;
+    width: 42px;
+    height: 5px;
+    margin: 0.64rem auto 0.42rem;
+    border-radius: 999px;
+    background: rgba(89, 126, 180, 0.28);
+  }
+
+  .mobileAgendaLeadRow {
+    position: relative;
+    overflow: hidden;
+    border-radius: 22px;
+    border: 1px solid rgba(156, 190, 232, 0.54);
+    background:
+      radial-gradient(circle at 100% 0%, rgba(36, 92, 255, 0.1), transparent 34%),
+      rgba(255, 255, 255, 0.92);
+    box-shadow:
+      inset 0 1px 0 rgba(255,255,255,0.9),
+      0 18px 40px -32px rgba(31, 64, 118, 0.55);
+  }
+
+  .mobileAgendaLeadRow[data-overdue="true"] {
+    border-color: rgba(239, 68, 68, 0.26);
+    background:
+      radial-gradient(circle at 100% 0%, rgba(239, 68, 68, 0.1), transparent 36%),
+      rgba(255, 250, 251, 0.94);
+  }
+
+  .mobileAgendaLeadActions a,
+  .mobileAgendaLeadActions button {
+    min-height: 46px;
+    border-radius: 16px;
+    font-weight: 950;
+  }
+}
+
+@keyframes mobileAuroraSpin {
+  0% { transform: rotate(0deg) scale(1); }
+  50% { transform: rotate(180deg) scale(1.08); }
+  100% { transform: rotate(360deg) scale(1); }
+}
+
+@keyframes mobileCardEnter {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 14px, 0) scale(0.985);
+    filter: blur(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+    filter: blur(0);
+  }
+}
+
+@keyframes mobileSheetRise {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 28px, 0) scale(0.985);
+    filter: blur(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+    filter: blur(0);
+  }
+}
+
+@keyframes mobileCardShine {
+  0%, 58% { transform: translateX(-130%); opacity: 0; }
+  68% { opacity: 0.9; }
+  82%, 100% { transform: translateX(130%); opacity: 0; }
+}
+
+@keyframes mobileButtonShine {
+  0%, 54% { transform: translateX(-130%); opacity: 0; }
+  64% { opacity: 0.8; }
+  78%, 100% { transform: translateX(130%); opacity: 0; }
+}
+
+@keyframes mobileLivePulse {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 0.82;
+  }
+  50% {
+    transform: scale(1.22);
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mobileSalesShell::after,
+  .mobileNextCard,
+  .mobileSalesCard,
+  .mobileSheetPanel,
+  .mobileNoteSheet,
+  .mobileLeadDetail,
+  .mobileNextCard::before,
+  .mobileLeadPrimaryAction::after {
+    animation: none !important;
+  }
+}

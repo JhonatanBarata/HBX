@@ -180,6 +180,95 @@
   backdrop-filter: blur(14px);
 }
 
+.masterWhatsappEngine {
+  display: grid;
+  gap: 1rem;
+  padding: 1.2rem;
+  border-radius: 26px;
+  border: 1px solid color-mix(in srgb, var(--master-emerald) 28%, var(--master-border));
+  background:
+    linear-gradient(135deg, rgba(20, 122, 108, 0.12), transparent 42%),
+    var(--master-surface);
+  box-shadow: var(--master-shadow-soft);
+}
+
+.masterWhatsappEngineHeader {
+  display: flex;
+  gap: 1rem;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.masterWhatsappEngineHeader h2 {
+  margin: 0.15rem 0 0;
+  font-size: 1.18rem;
+  font-weight: 850;
+  color: var(--master-text);
+}
+
+.masterWhatsappEngineHeader p {
+  max-width: 760px;
+  margin: 0.35rem 0 0;
+  color: var(--master-text-soft);
+}
+
+.masterWhatsappEngineGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 220px;
+  gap: 1rem;
+  align-items: stretch;
+}
+
+.masterWhatsappEngineMeta {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.masterWhatsappEngineMeta > div {
+  display: grid;
+  gap: 0.25rem;
+  min-width: 0;
+  padding: 0.85rem;
+  border-radius: 18px;
+  border: 1px solid var(--master-border);
+  background: color-mix(in srgb, var(--surface) 74%, var(--background));
+}
+
+.masterWhatsappEngineMeta span,
+.masterWhatsappQrBox span {
+  color: var(--master-text-soft);
+  font-size: 0.82rem;
+}
+
+.masterWhatsappEngineMeta strong {
+  overflow-wrap: anywhere;
+  font-size: 0.95rem;
+}
+
+.masterWhatsappQrBox {
+  min-height: 220px;
+  display: grid;
+  place-items: center;
+  padding: 0.8rem;
+  border-radius: 20px;
+  border: 1px solid var(--master-border);
+  background: #fff;
+}
+
+.masterWhatsappQrBox img {
+  width: 100%;
+  max-width: 190px;
+  aspect-ratio: 1;
+  object-fit: contain;
+}
+
+.masterWhatsappQrBox > div {
+  display: grid;
+  gap: 0.35rem;
+  text-align: center;
+}
+
 .skeletonCard {
   min-height: 168px;
   background:
@@ -2025,6 +2114,8 @@
   .controlTowerGrid,
   .noticeGrid,
   .dangerGrid,
+  .masterWhatsappEngineGrid,
+  .masterWhatsappEngineMeta,
   .summaryMeta,
   .formGrid {
     grid-template-columns: 1fr;
@@ -2084,6 +2175,14 @@
 
   .masterHomeHero {
     grid-template-columns: 1fr;
+  }
+
+  .masterWhatsappEngineHeader {
+    flex-direction: column;
+  }
+
+  .masterWhatsappQrBox img {
+    max-width: 220px;
   }
 }
 

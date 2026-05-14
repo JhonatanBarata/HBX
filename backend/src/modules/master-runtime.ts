@@ -91,6 +91,16 @@ async function ensureMasterBillingRuntimeSchemaUncached(prisma: PrismaService) {
 
   await prisma.$executeRawUnsafe(`
     ALTER TABLE "Company"
+    ADD COLUMN IF NOT EXISTS "trialNoticeEmailStage" INTEGER NOT NULL DEFAULT 0
+  `);
+
+  await prisma.$executeRawUnsafe(`
+    ALTER TABLE "Company"
+    ADD COLUMN IF NOT EXISTS "trialNoticeLastEmailAt" TIMESTAMP(3)
+  `);
+
+  await prisma.$executeRawUnsafe(`
+    ALTER TABLE "Company"
     ADD COLUMN IF NOT EXISTS "manualDiscountPercent" DOUBLE PRECISION NOT NULL DEFAULT 0
   `);
 

@@ -276,6 +276,286 @@
   margin-top: 0.2rem;
 }
 
+.entryPage {
+  position: relative;
+  min-height: 100dvh;
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+  padding: max(1rem, env(safe-area-inset-top)) 1rem max(1rem, env(safe-area-inset-bottom));
+  color: #f8fbff;
+  font-family: var(--font-body, Inter, system-ui, sans-serif);
+  background:
+    linear-gradient(180deg, rgba(2, 8, 18, 0.22), rgba(2, 8, 18, 0.7)),
+    radial-gradient(circle at 50% 30%, rgba(31, 203, 255, 0.2), transparent 34%),
+    radial-gradient(circle at 50% 72%, rgba(37, 221, 148, 0.16), transparent 28%),
+    linear-gradient(180deg, #030a16 0%, #071629 46%, #020714 100%);
+  isolation: isolate;
+}
+
+.entryPage::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -3;
+  pointer-events: none;
+  background-image:
+    linear-gradient(rgba(86, 167, 255, 0.055) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(86, 167, 255, 0.045) 1px, transparent 1px);
+  background-size: 34px 34px;
+  mask-image: radial-gradient(circle at center, black 0%, black 42%, transparent 82%);
+}
+
+.entryPage::after {
+  content: "";
+  position: fixed;
+  inset: -20%;
+  z-index: -2;
+  pointer-events: none;
+  background:
+    conic-gradient(
+      from 225deg at 50% 48%,
+      transparent 0deg,
+      rgba(38, 132, 255, 0.14) 66deg,
+      transparent 126deg,
+      rgba(34, 225, 169, 0.12) 210deg,
+      transparent 300deg
+    );
+  filter: blur(44px);
+  opacity: 0.88;
+  animation: entryAurora 12s linear infinite;
+}
+
+.entryStage {
+  position: relative;
+  width: min(100%, 390px);
+  min-height: min(760px, calc(100dvh - 2rem));
+  display: grid;
+  grid-template-rows: 1fr auto auto auto 1fr;
+  place-items: center;
+  gap: 1.1rem;
+  padding: 2rem 1.15rem;
+  text-align: center;
+  animation: entryStageIn 520ms cubic-bezier(0.2, 0.86, 0.2, 1) both;
+}
+
+.entryAtmosphere {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  overflow: hidden;
+  border-radius: 34px;
+}
+
+.entryAtmosphere span {
+  position: absolute;
+  left: 50%;
+  width: 1px;
+  height: 46%;
+  background: linear-gradient(180deg, transparent, rgba(69, 182, 255, 0.5), transparent);
+  opacity: 0.52;
+  transform-origin: 50% 50%;
+  animation: entryBeam 3.8s ease-in-out infinite;
+}
+
+.entryAtmosphere span:nth-child(1) {
+  top: -8%;
+  transform: translateX(-130px) rotate(24deg);
+}
+
+.entryAtmosphere span:nth-child(2) {
+  top: 18%;
+  transform: translateX(128px) rotate(-22deg);
+  animation-delay: 620ms;
+}
+
+.entryAtmosphere span:nth-child(3) {
+  bottom: -12%;
+  transform: translateX(34px) rotate(18deg);
+  animation-delay: 1180ms;
+}
+
+.entryCoreWrap {
+  position: relative;
+  grid-row: 2;
+  width: 216px;
+  height: 216px;
+  display: grid;
+  place-items: center;
+}
+
+.entryOrbit {
+  position: absolute;
+  inset: 0;
+  border-radius: 999px;
+  background:
+    radial-gradient(circle, rgba(31, 221, 170, 0.18) 0 27%, transparent 28%),
+    radial-gradient(circle, transparent 0 48%, rgba(69, 210, 255, 0.26) 49% 51%, transparent 52%),
+    conic-gradient(from 0deg, transparent 0 16%, rgba(45, 210, 255, 0.68) 18% 22%, transparent 24% 58%, rgba(48, 226, 166, 0.62) 60% 64%, transparent 66% 100%);
+  filter: drop-shadow(0 0 34px rgba(38, 213, 255, 0.24));
+  animation: entryOrbit 2.9s cubic-bezier(0.2, 0.8, 0.2, 1) infinite;
+}
+
+.entryOrbit::before,
+.entryOrbit::after {
+  content: "";
+  position: absolute;
+  inset: 34px;
+  border: 1px solid rgba(127, 234, 255, 0.16);
+  border-radius: inherit;
+}
+
+.entryOrbit::after {
+  inset: 66px;
+  border-color: rgba(105, 255, 196, 0.2);
+}
+
+.entryCore {
+  position: relative;
+  width: 104px;
+  height: 104px;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  border: 1px solid rgba(184, 239, 255, 0.32);
+  border-radius: 30px;
+  background:
+    radial-gradient(circle at 34% 22%, rgba(255, 255, 255, 0.92), transparent 18%),
+    linear-gradient(135deg, rgba(36, 92, 255, 0.96), rgba(16, 204, 245, 0.94) 54%, rgba(34, 216, 135, 0.94));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.48),
+    0 0 0 8px rgba(39, 190, 255, 0.08),
+    0 34px 86px -30px rgba(25, 222, 180, 0.82);
+  animation: entryCorePulse 1.75s ease-in-out infinite;
+}
+
+.entryCore::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(110deg, transparent 0%, rgba(255, 255, 255, 0.58) 44%, transparent 58%);
+  transform: translateX(-130%);
+  animation: entryCoreShine 2.7s ease-in-out infinite;
+}
+
+.entryCore span {
+  position: relative;
+  z-index: 1;
+  color: #ffffff;
+  font-size: 1.46rem;
+  font-weight: 1000;
+  line-height: 1;
+  letter-spacing: 0;
+  text-shadow: 0 12px 28px rgba(5, 22, 45, 0.26);
+}
+
+.entryCopy {
+  grid-row: 3;
+  display: grid;
+  justify-items: center;
+  gap: 0.72rem;
+  animation: entryCopyIn 620ms ease 220ms both;
+}
+
+.entryEyebrow {
+  display: inline-flex;
+  min-height: 28px;
+  align-items: center;
+  padding: 0 0.82rem;
+  border: 1px solid rgba(112, 255, 200, 0.22);
+  border-radius: 999px;
+  background: rgba(42, 255, 185, 0.1);
+  color: rgba(195, 255, 230, 0.94);
+  font-size: 0.68rem;
+  font-weight: 950;
+  line-height: 1;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16);
+}
+
+.entryCopy h1 {
+  margin: 0;
+  color: #ffffff;
+  font-size: clamp(2rem, 11.5vw, 3rem);
+  font-weight: 920;
+  line-height: 0.96;
+  letter-spacing: 0;
+  text-shadow: 0 24px 70px rgba(17, 213, 255, 0.18);
+}
+
+.entryCopy p {
+  max-width: 26ch;
+  margin: 0;
+  color: rgba(222, 238, 249, 0.72);
+  font-size: 0.96rem;
+  font-weight: 800;
+  line-height: 1.45;
+}
+
+.entrySteps {
+  grid-row: 4;
+  width: min(100%, 330px);
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.52rem;
+  animation: entryCopyIn 620ms ease 360ms both;
+}
+
+.entrySteps span {
+  min-height: 42px;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(148, 180, 210, 0.16);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.055);
+  color: rgba(219, 232, 244, 0.5);
+  font-size: 0.76rem;
+  font-weight: 900;
+  line-height: 1;
+  backdrop-filter: blur(12px);
+}
+
+.entrySteps span[data-active="true"] {
+  border-color: rgba(104, 255, 195, 0.3);
+  background:
+    radial-gradient(circle at 50% 0%, rgba(104, 255, 195, 0.16), transparent 54%),
+    rgba(12, 42, 49, 0.56);
+  color: #eafff7;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.14);
+}
+
+.entryProgress {
+  grid-row: 5;
+  align-self: end;
+  width: min(100%, 300px);
+  height: 6px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(153, 181, 212, 0.16);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+.entryProgress span {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #2f66ff, #18c9f5 48%, #25e09a);
+  transform-origin: left center;
+  animation: entryProgress 1.9s cubic-bezier(0.18, 0.84, 0.22, 1) both;
+}
+
+.entryPage[data-entry-phase="ready"] .entryProgress span,
+.entryPage[data-entry-leaving="true"] .entryProgress span {
+  animation-duration: 720ms;
+}
+
+.entryPage[data-entry-leaving="true"] .entryStage {
+  animation: entryStageOut 420ms cubic-bezier(0.4, 0, 0.2, 1) both;
+}
+
 @keyframes shellEnter {
   from {
     opacity: 0;
@@ -304,9 +584,145 @@
   }
 }
 
+@keyframes entryStageIn {
+  from {
+    opacity: 0;
+    transform: translateY(18px) scale(0.985);
+    filter: blur(10px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    filter: blur(0);
+  }
+}
+
+@keyframes entryStageOut {
+  from {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    filter: blur(0);
+  }
+
+  to {
+    opacity: 0;
+    transform: translateY(-10px) scale(1.025);
+    filter: blur(12px);
+  }
+}
+
+@keyframes entryAurora {
+  0% {
+    transform: rotate(0deg) scale(1);
+  }
+
+  50% {
+    transform: rotate(180deg) scale(1.08);
+  }
+
+  100% {
+    transform: rotate(360deg) scale(1);
+  }
+}
+
+@keyframes entryBeam {
+  0%,
+  100% {
+    opacity: 0.18;
+    filter: blur(0);
+  }
+
+  50% {
+    opacity: 0.7;
+    filter: blur(1px);
+  }
+}
+
+@keyframes entryOrbit {
+  0% {
+    opacity: 0.82;
+    transform: rotate(0deg) scale(0.92);
+  }
+
+  50% {
+    opacity: 1;
+    transform: rotate(180deg) scale(1);
+  }
+
+  100% {
+    opacity: 0.82;
+    transform: rotate(360deg) scale(0.92);
+  }
+}
+
+@keyframes entryCorePulse {
+  0%,
+  100% {
+    transform: scale(1);
+    filter: saturate(1);
+  }
+
+  50% {
+    transform: scale(1.045);
+    filter: saturate(1.2);
+  }
+}
+
+@keyframes entryCoreShine {
+  0%,
+  54% {
+    opacity: 0;
+    transform: translateX(-130%);
+  }
+
+  66% {
+    opacity: 0.82;
+  }
+
+  82%,
+  100% {
+    opacity: 0;
+    transform: translateX(130%);
+  }
+}
+
+@keyframes entryCopyIn {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+    filter: blur(8px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+    filter: blur(0);
+  }
+}
+
+@keyframes entryProgress {
+  from {
+    transform: scaleX(0.12);
+  }
+
+  to {
+    transform: scaleX(1);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .shell,
-  .shellLeaving {
+  .shellLeaving,
+  .entryPage::after,
+  .entryStage,
+  .entryAtmosphere span,
+  .entryOrbit,
+  .entryCore,
+  .entryCore::after,
+  .entryCopy,
+  .entrySteps,
+  .entryProgress span {
     animation: none;
   }
 }
@@ -484,13 +900,19 @@
       0 28px 86px -28px rgba(24, 218, 141, 0.86),
       inset 0 1px 0 rgba(255, 255, 255, 0.32);
     transform: translate(-50%, -50%);
-    animation: none;
+    animation: welcomeHbxHold 2200ms ease-in-out infinite;
   }
 
   .fromLoginTransition .brandMark::before,
   .fromLoginTransition .brandMark::after {
-    content: none;
-    display: none;
+    content: "";
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    z-index: -1;
+    display: block;
+    border-radius: 999px;
+    pointer-events: none;
   }
 
   .fromLoginTransition .brandMark::before {
@@ -570,11 +992,11 @@
   }
 
   .fromLoginTransition[data-welcome-phase="ready"] .brandMark {
-    animation: none;
+    animation: welcomeHbxHold 2200ms ease-in-out infinite;
   }
 
   .fromLoginTransition[data-welcome-path="sales"] .brandMark {
-    animation: none;
+    animation: welcomeHbxHold 2200ms ease-in-out infinite;
   }
 
   .fromLoginTransition[data-welcome-phase="ready"] .mobileTitle {

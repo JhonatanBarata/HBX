@@ -35,6 +35,7 @@ import { MailService } from '../mail/mail.service';
 const BILLING_GRACE_WINDOW_MS = 48 * 60 * 60 * 1000;
 const BILLING_GRACE_SECOND_NOTICE_MS = 24 * 60 * 60 * 1000;
 const BILLING_GRACE_SWEEP_MS = 15 * 60 * 1000;
+const TRIAL_NOTICE_WINDOW_MS = 72 * 60 * 60 * 1000;
 
 type BillingLedgerEntryRow = {
   id: string;
@@ -78,10 +79,12 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
   onModuleInit() {
     this.billingGraceSweepHandle = setInterval(() => {
       void this.processBillingGracePeriods('interval');
+      void this.processTrialNoticeEmails('interval');
     }, BILLING_GRACE_SWEEP_MS);
 
     setTimeout(() => {
       void this.processBillingGracePeriods('startup');
+      void this.processTrialNoticeEmails('startup');
     }, 5000);
   }
 
@@ -1305,12 +1308,78 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  private async safeSendTrialNoticeEmail(company: any, stage: 1 | 2, endsAt: Date) {
+    const to = this.billingGraceEmailRecipient(company, null);
+    if (!to) {
+      this.logger.warn(`trial_notice_email_without_recipient companyId=${company?.id || 'unknown'} stage=${stage}`);
+      return false;
+    }
+
+    const supportEmail = this.supportEmail();
+    const supportPhone = this.supportPhone();
+    const supportWhatsAppUrl = this.supportWhatsAppUrl();
+    const companyName = String(company?.name || 'sua empresa').trim();
+    const endsAtLabel = this.formatDateTimePtBr(endsAt);
+    const supportText = `Se precisar de ajuda para escolher a forma de pagamento, fale com o suporte HBX pelo e-mail ${supportEmail}${supportPhone ? ` ou WhatsApp ${supportPhone}` : ''}.`;
+    const checkoutText = 'Ao finalizar o checkout, os módulos comerciais voltam a seguir a liberação do plano contratado.';
+
+    const subject =
+      stage === 1
+        ? 'HBX: seu free trial termina em breve'
+        : 'HBX: seu free trial terminou';
+
+    const intro =
+      stage === 1
+        ? `Oi, tudo bem? O free trial da empresa ${companyName} termina em ${endsAtLabel}. Para continuar usando o HBX sem interrupção, você pode concluir o checkout antes do fim do período gratuito.`
+        : `O free trial da empresa ${companyName} terminou em ${endsAtLabel}. O acesso aos módulos comerciais fica pausado até a contratação ser concluída no checkout.`;
+
+    const text = `${intro}\n\n${checkoutText}\n\n${supportText}`;
+    const html = `
+      <div style="font-family:Arial,sans-serif;line-height:1.5;color:#111827">
+        <p>${this.escapeHtml(intro)}</p>
+        <p>${this.escapeHtml(checkoutText)}</p>
+        <p>${this.escapeHtml(supportText)}</p>
+        ${
+          supportWhatsAppUrl
+            ? `<p><a href="${this.escapeHtml(supportWhatsAppUrl)}" style="color:#2563eb">Chamar suporte HBX no WhatsApp</a></p>`
+            : ''
+        }
+      </div>
+    `;
+
+    try {
+      await this.mailService.sendMail({
+        to,
+        subject,
+        text,
+        html,
+        replyTo: supportEmail,
+      });
+      return true;
+    } catch (error: any) {
+      this.logger.warn(
+        `trial_notice_email_failed companyId=${company?.id || 'unknown'} stage=${stage} error=${String(error?.message || error)}`,
+      );
+      return false;
+    }
+  }
+
   private async markBillingGraceEmailStage(companyId: number, stage: number, sentAt = new Date()) {
     await this.prisma.company.update({
       where: { id: companyId },
       data: {
         billingGraceEmailStage: stage,
         billingGraceLastEmailAt: sentAt,
+      },
+    });
+  }
+
+  private async markTrialNoticeEmailStage(companyId: number, stage: number, sentAt = new Date()) {
+    await this.prisma.company.update({
+      where: { id: companyId },
+      data: {
+        trialNoticeEmailStage: stage,
+        trialNoticeLastEmailAt: sentAt,
       },
     });
   }
@@ -1432,6 +1501,7 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
       );
     });
 
+    let initialEmailSent = false;
     if (input.sendInitialEmail && currentStage < 1) {
       const refreshedCompany = await this.prisma.company.findUnique({
         where: { id: companyId },
@@ -1445,8 +1515,10 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
           },
         },
       });
-      await this.safeSendBillingGraceEmail(refreshedCompany || company, subscription, 1, graceEndsAt);
-      await this.markBillingGraceEmailStage(companyId, 1);
+      initialEmailSent = await this.safeSendBillingGraceEmail(refreshedCompany || company, subscription, 1, graceEndsAt);
+      if (initialEmailSent) {
+        await this.markBillingGraceEmailStage(companyId, 1);
+      }
     }
 
     return {
@@ -1455,7 +1527,7 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
       startedAt: graceStartedAt.toISOString(),
       endsAt: graceEndsAt.toISOString(),
       remainingHours: Math.max(0, Math.ceil((graceEndsAt.getTime() - now.getTime()) / (60 * 60 * 1000))),
-      emailStage: input.sendInitialEmail ? Math.max(1, currentStage) : currentStage,
+      emailStage: initialEmailSent ? Math.max(1, currentStage) : currentStage,
     };
   }
 
@@ -1539,12 +1611,69 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
 
         const remainingMs = endsAt.getTime() - now.getTime();
         if (!suppressed && stage < 2 && remainingMs <= BILLING_GRACE_SECOND_NOTICE_MS) {
-          await this.safeSendBillingGraceEmail(company, subscription, 2, endsAt);
-          await this.markBillingGraceEmailStage(company.id, 2);
+          const sent = await this.safeSendBillingGraceEmail(company, subscription, 2, endsAt);
+          if (sent) {
+            await this.markBillingGraceEmailStage(company.id, 2);
+          }
         }
       }
     } catch (error: any) {
       this.logger.warn(`billing_grace_sweep_failed source=${source} error=${String(error?.message || error)}`);
+    }
+  }
+
+  private async processTrialNoticeEmails(source: 'startup' | 'interval' | 'manual' = 'manual') {
+    try {
+      await ensureMasterBillingRuntimeSchema(this.prisma);
+      const companies = await this.prisma.company.findMany({
+        where: {
+          isActive: true,
+          trialEndsAt: { not: null },
+          trialNoticeEmailStage: { lt: 2 },
+          OR: [
+            { paymentStatus: 'TRIAL' },
+            { subscriptionStatus: 'trialing' },
+            { onboardingStatus: 'active_trial' },
+          ],
+        },
+        include: {
+          users: {
+            select: {
+              email: true,
+              role: true,
+              isActive: true,
+            },
+          },
+        },
+        orderBy: { trialEndsAt: 'asc' },
+        take: 100,
+      });
+      const now = new Date();
+
+      for (const company of companies) {
+        const endsAt = company.trialEndsAt instanceof Date ? company.trialEndsAt : this.parseDate(company.trialEndsAt);
+        if (!endsAt) continue;
+
+        const stage = Math.max(0, Number(company.trialNoticeEmailStage || 0));
+        const remainingMs = endsAt.getTime() - now.getTime();
+
+        if (remainingMs <= 0) {
+          const sent = await this.safeSendTrialNoticeEmail(company, 2, endsAt);
+          if (sent) {
+            await this.markTrialNoticeEmailStage(company.id, 2);
+          }
+          continue;
+        }
+
+        if (stage < 1 && remainingMs <= TRIAL_NOTICE_WINDOW_MS) {
+          const sent = await this.safeSendTrialNoticeEmail(company, 1, endsAt);
+          if (sent) {
+            await this.markTrialNoticeEmailStage(company.id, 1);
+          }
+        }
+      }
+    } catch (error: any) {
+      this.logger.warn(`trial_notice_sweep_failed source=${source} error=${String(error?.message || error)}`);
     }
   }
 

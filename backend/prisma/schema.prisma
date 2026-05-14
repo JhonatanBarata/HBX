@@ -93,6 +93,8 @@ model Company {
   freeMonths              Int       @default(0)
   trialStartsAt           DateTime?
   trialEndsAt             DateTime?
+  trialNoticeEmailStage   Int       @default(0)
+  trialNoticeLastEmailAt  DateTime?
   subscriptionCurrentPeriodStart DateTime?
   subscriptionCurrentPeriodEnd   DateTime?
   billingGraceStartedAt DateTime?

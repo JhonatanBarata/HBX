@@ -361,8 +361,12 @@ export class AuthService implements OnModuleInit {
     return crypto.randomBytes(32).toString('base64url');
   }
 
+  private preCheckoutNextPath(reason: 'pending_checkout' | 'trial_expired' | 'payment_failed' = 'pending_checkout') {
+    return `/pre-checkout?reason=${reason}`;
+  }
+
   private pendingCheckoutNextPath() {
-    return '/pagamento?focus=payment&reason=pending_checkout';
+    return this.preCheckoutNextPath('pending_checkout');
   }
 
   private pendingTrialActivationNextPath() {
@@ -1095,6 +1099,7 @@ export class AuthService implements OnModuleInit {
             subscriptionStatus: true,
             paymentStatus: true,
             premiumAccess: true,
+            trialEndsAt: true,
           },
         })
       : null;
@@ -1116,10 +1121,34 @@ export class AuthService implements OnModuleInit {
         String(company?.subscriptionStatus || '').trim().toLowerCase() === 'pending_checkout' ||
         String(company?.paymentStatus || '').trim().toUpperCase() === 'PENDING'
       );
-    const role = String(user?.role || '').trim().toUpperCase();
-    const pendingCheckoutNext = role === 'ADMIN'
-      ? this.pendingCheckoutNextPath()
-      : '/dashboard/planos?mode=pending_checkout&reason=pending_checkout';
+    const paymentFailed =
+      !accessReleased &&
+      !pendingTrialActivation &&
+      (
+        String(company?.paymentStatus || '').trim().toUpperCase() === 'DISABLED' ||
+        String(company?.paymentStatus || '').trim().toUpperCase() === 'OVERDUE' ||
+        String(company?.subscriptionStatus || '').trim().toLowerCase() === 'past_due' ||
+        String(company?.onboardingStatus || '').trim().toLowerCase() === 'suspended'
+      );
+    const trialExpired =
+      !accessReleased &&
+      !pendingTrialActivation &&
+      (
+        String(company?.paymentStatus || '').trim().toUpperCase() === 'EXPIRED' ||
+        String(company?.subscriptionStatus || '').trim().toLowerCase() === 'expired' ||
+        (
+          company?.trialEndsAt instanceof Date &&
+          company.trialEndsAt.getTime() < Date.now() &&
+          (
+            String(company?.paymentStatus || '').trim().toUpperCase() === 'TRIAL' ||
+            String(company?.subscriptionStatus || '').trim().toLowerCase() === 'trialing' ||
+            String(company?.onboardingStatus || '').trim().toLowerCase() === 'active_trial'
+          )
+        )
+      );
+    const commercialConversionNext = this.preCheckoutNextPath(
+      trialExpired ? 'trial_expired' : paymentFailed ? 'payment_failed' : 'pending_checkout',
+    );
 
     return {
       access_token: this.jwtService.sign(payload),
@@ -1127,10 +1156,10 @@ export class AuthService implements OnModuleInit {
         ? '/dashboard/master'
         : pendingTrialActivation
           ? this.pendingTrialActivationNextPath()
-          : pendingCheckout
-          ? pendingCheckoutNext
+          : trialExpired || paymentFailed || pendingCheckout
+          ? commercialConversionNext
           : '/dashboard',
-      requiresCheckout: pendingCheckout,
+      requiresCheckout: trialExpired || paymentFailed || pendingCheckout,
       requiresTrialActivation: pendingTrialActivation,
     };
   }
@@ -1930,19 +1959,41 @@ export class AuthService implements OnModuleInit {
       paymentStatus === 'PAID' ||
       paymentStatus === 'MANUAL' ||
       Boolean(user.company?.premiumAccess);
+    const trialExpired =
+      !pendingEmailConfirmation &&
+      !pendingTrialActivation &&
+      !accessReleased &&
+      (paymentStatus === 'EXPIRED' || subscriptionStatus === 'expired');
     const pendingCheckout =
       !pendingEmailConfirmation &&
       !pendingTrialActivation &&
       !accessReleased &&
       (onboardingStatus === 'pending_checkout' || subscriptionStatus === 'pending_checkout' || paymentStatus === 'PENDING');
+    const paymentFailed =
+      !pendingEmailConfirmation &&
+      !pendingTrialActivation &&
+      !accessReleased &&
+      (onboardingStatus === 'suspended' || subscriptionStatus === 'past_due' || paymentStatus === 'DISABLED' || paymentStatus === 'OVERDUE');
     const status = pendingEmailConfirmation
       ? 'pending_email_confirmation'
       : pendingTrialActivation
         ? 'pending_trial_activation'
+      : trialExpired
+        ? 'pending_checkout'
+      : paymentFailed
+        ? 'pending_checkout'
       : pendingCheckout
         ? 'pending_checkout'
         : 'active_trial';
-    const next = pendingTrialActivation ? this.pendingTrialActivationNextPath() : pendingCheckout ? this.pendingCheckoutNextPath() : '/dashboard';
+    const next = pendingTrialActivation
+      ? this.pendingTrialActivationNextPath()
+      : trialExpired
+        ? this.preCheckoutNextPath('trial_expired')
+      : paymentFailed
+        ? this.preCheckoutNextPath('payment_failed')
+      : pendingCheckout
+        ? this.pendingCheckoutNextPath()
+        : '/dashboard';
 
     return {
       ok: true,
@@ -1952,6 +2003,10 @@ export class AuthService implements OnModuleInit {
       next,
       loginNext: pendingTrialActivation
         ? `/login?next=${encodeURIComponent(this.pendingTrialActivationNextPath())}`
+        : trialExpired
+          ? `/login?next=${encodeURIComponent(this.preCheckoutNextPath('trial_expired'))}`
+        : paymentFailed
+          ? `/login?next=${encodeURIComponent(this.preCheckoutNextPath('payment_failed'))}`
         : pendingCheckout ? `/login?next=${encodeURIComponent(this.pendingCheckoutNextPath())}` : '/login?next=/dashboard',
       requiresTrialActivation: pendingTrialActivation,
     };
