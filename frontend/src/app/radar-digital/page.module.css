@@ -24,37 +24,18 @@
   }
 
   .mobileRadar {
-    min-height: 100dvh;
     display: grid;
-    align-content: start;
-    gap: 14px;
-    padding: calc(12px + env(safe-area-inset-top)) 14px calc(20px + env(safe-area-inset-bottom));
     overflow: visible;
-    color: #07143a;
-    font-family: var(--font-sans, inherit);
   }
 
   .mobileRadarHeader {
-    min-height: 44px;
     display: grid;
     grid-template-columns: auto minmax(0, 1fr);
-    align-items: center;
-    gap: 12px;
   }
 
   .mobileRadarHeader a {
     min-height: 38px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    border: 1px solid rgba(203, 215, 235, 0.9);
-    border-radius: 10px;
-    background: #ffffff;
-    color: #0757df;
-    padding: 0 12px;
-    text-decoration: none;
     font-size: 0.82rem;
-    font-weight: 950;
   }
 
   .mobileRadarHeader div {
@@ -64,13 +45,13 @@
   }
 
   .mobileRadarHeader strong {
-    color: #07143a;
+    color: var(--hbx-mobile-text);
     font-size: 1.05rem;
     font-weight: 950;
   }
 
   .mobileRadarHeader span {
-    color: #657593;
+    color: var(--hbx-mobile-muted);
     font-size: 0.78rem;
     line-height: 1.25;
     font-weight: 760;
@@ -78,12 +59,12 @@
 
   .mobileRadarHero {
     min-height: 0;
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
     align-items: stretch;
     justify-items: stretch;
-    gap: 10px;
     padding: 0;
+    border: 0;
+    background: transparent;
+    box-shadow: none;
   }
 
   .mobileRadarHero::before,
@@ -97,11 +78,6 @@
     display: grid;
     align-content: center;
     gap: 5px;
-    border: 1px solid rgba(217, 225, 239, 0.96);
-    border-radius: 12px;
-    background: #ffffff;
-    box-shadow: 0 14px 28px -24px rgba(12, 30, 65, 0.38);
-    padding: 12px;
   }
 
   .mobileRadarHero span,
@@ -109,7 +85,7 @@
   .mobileRadarResults header span,
   .mobileRadarCard dt {
     max-width: none;
-    color: #657593;
+    color: var(--hbx-mobile-muted);
     font-size: 0.68rem;
     font-weight: 900;
     text-align: left;
@@ -119,7 +95,7 @@
   .mobileRadarHero strong {
     min-width: 0;
     overflow-wrap: anywhere;
-    color: #0c1949;
+    color: var(--hbx-mobile-text);
     font-size: 0.95rem;
     line-height: 1.18;
     font-weight: 950;
@@ -130,11 +106,6 @@
   .mobileRadarResults {
     display: grid;
     gap: 10px;
-    border: 1px solid rgba(217, 225, 239, 0.96);
-    border-radius: 12px;
-    background: #ffffff;
-    box-shadow: 0 14px 28px -24px rgba(12, 30, 65, 0.38);
-    padding: 12px;
   }
 
   .mobileRadarForm label {
@@ -167,7 +138,11 @@
   }
 
   .mobileRadarActionRow {
+    position: static;
     grid-template-columns: minmax(0, 1.45fr) minmax(0, 0.85fr);
+    border-top: 0;
+    padding: 0;
+    background: transparent;
   }
 
   .mobileRadarAdvanced {
@@ -212,38 +187,12 @@
   .mobileRadarSubmit,
   .mobileRadarClear {
     min-height: 50px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    border-radius: 10px;
-    font: inherit;
     font-size: 0.88rem;
-    font-weight: 950;
-    box-shadow: none;
-  }
-
-  .mobileRadarSubmit {
-    border: 1px solid #0757df;
-    background: #0757df;
-    color: #ffffff;
-  }
-
-  .mobileRadarClear {
-    border: 1px solid rgba(203, 215, 235, 0.92);
-    background: #ffffff;
-    color: #0757df;
   }
 
   .mobileRadarNotice,
   .mobileRadarState {
-    border: 1px solid rgba(59, 150, 255, 0.22);
-    border-radius: 10px;
-    background: #eef5ff;
-    color: #1760d8;
-    padding: 11px 12px;
     font-size: 0.84rem;
-    line-height: 1.4;
-    font-weight: 780;
   }
 
   .mobileRadarNotice[data-tone="error"] {
@@ -266,13 +215,13 @@
   }
 
   .mobileRadarResults header strong {
-    color: #07143a;
+    color: var(--hbx-mobile-text);
     font-size: 1rem;
     font-weight: 950;
   }
 
   .mobileRadarResults header small {
-    color: #0757df;
+    color: var(--hbx-mobile-primary);
     font-size: 0.78rem;
     font-weight: 850;
     text-align: right;
@@ -287,15 +236,11 @@
     min-width: 0;
     display: grid;
     gap: 9px;
-    border: 1px solid rgba(217, 225, 239, 0.96);
-    border-radius: 12px;
-    background: #ffffff;
-    padding: 12px;
   }
 
   .mobileRadarCard strong {
     overflow-wrap: anywhere;
-    color: #07143a;
+    color: var(--hbx-mobile-text);
     font-size: 1rem;
     line-height: 1.18;
     font-weight: 950;
@@ -305,7 +250,7 @@
   .mobileRadarCard p,
   .mobileRadarCard em {
     margin: 0;
-    color: #657593;
+    color: var(--hbx-mobile-muted);
     font-size: 0.82rem;
     line-height: 1.35;
     font-style: normal;
@@ -353,13 +298,7 @@
 
   .mobileRadarCard button {
     min-height: 44px;
-    border: 1px solid #0757df;
-    border-radius: 10px;
-    background: #ffffff;
-    color: #0757df;
-    font: inherit;
     font-size: 0.84rem;
-    font-weight: 950;
   }
 }
 

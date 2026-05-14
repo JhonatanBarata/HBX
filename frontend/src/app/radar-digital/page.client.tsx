@@ -1113,36 +1113,36 @@ export default function RadarDigitalClientPage() {
       showDashboardShortcut={false}
     >
       <section className={styles.shell}>
-        <div className={styles.mobileRadar}>
-          <header className={styles.mobileRadarHeader}>
-            <a href="/boasvindas" aria-label="Voltar para o início">Início</a>
+        <div className={`${styles.mobileRadar} hbx-mobile-page`}>
+          <header className={`${styles.mobileRadarHeader} hbx-mobile-header`}>
+            <a href="/boasvindas" className="hbx-mobile-secondary-button" aria-label="Voltar para o início">Início</a>
             <div>
               <strong>Radar Digital</strong>
               <span>Encontre cards com oportunidade real</span>
             </div>
           </header>
 
-          <section className={styles.mobileRadarHero}>
-            <div>
+          <section className={`${styles.mobileRadarHero} hbx-mobile-hero hbx-mobile-grid`}>
+            <div className="hbx-mobile-card">
               <span>Cidade</span>
               <strong>{filters.city || "Definir"}</strong>
             </div>
-            <div>
+            <div className="hbx-mobile-card">
               <span>Segmento</span>
               <strong>{filters.segment || "Definir"}</strong>
             </div>
-            <div>
+            <div className="hbx-mobile-card">
               <span>Quantidade</span>
               <strong>{effectiveFilters.quantity}</strong>
             </div>
-            <div>
+            <div className="hbx-mobile-card">
               <span>Motor atual</span>
               <strong>{mobileRadarEngineLabel(filters.engine)}</strong>
             </div>
           </section>
 
           <form
-            className={styles.mobileRadarForm}
+            className={`${styles.mobileRadarForm} hbx-mobile-card`}
             onSubmit={(event) => {
               event.preventDefault();
               void runRadarSearch("off");
@@ -1270,17 +1270,17 @@ export default function RadarDigitalClientPage() {
             </details>
 
             {mobileVendasBlocked ? (
-              <div className={styles.mobileRadarNotice}>
+              <div className={`${styles.mobileRadarNotice} hbx-mobile-notice`}>
                 {vendasPending?.message || "Agenda cheia no Vendas. Finalize ou delete cards pendentes para buscar mais."}
               </div>
             ) : null}
-            {error ? <div className={styles.mobileRadarNotice} data-tone="error">{compactRadarMessage(error)}</div> : null}
-            {feedback && !mobileRadarProcessing ? <div className={styles.mobileRadarNotice} data-tone="ok">{feedback}</div> : null}
+            {error ? <div className={`${styles.mobileRadarNotice} hbx-mobile-notice`} data-tone="error">{compactRadarMessage(error)}</div> : null}
+            {feedback && !mobileRadarProcessing ? <div className={`${styles.mobileRadarNotice} hbx-mobile-notice`} data-tone="ok">{feedback}</div> : null}
 
-            <div className={styles.mobileRadarActionRow}>
+            <div className={`${styles.mobileRadarActionRow} hbx-mobile-action-bar`}>
               <button
                 type={visibleItems.length && hasSearched && !mobileRadarProcessing ? "button" : "submit"}
-                className={styles.mobileRadarSubmit}
+                className={`${styles.mobileRadarSubmit} hbx-mobile-primary-button`}
                 disabled={mobileVendasBlocked || searching || Boolean(activeRun) || bulkSending}
                 onClick={(event) => {
                   if (visibleItems.length && hasSearched && !mobileRadarProcessing) {
@@ -1295,13 +1295,13 @@ export default function RadarDigitalClientPage() {
                     ? "Enviar para Vendas"
                     : "Buscar cards"}
               </button>
-              <button type="button" className={styles.mobileRadarClear} onClick={clearFilters} disabled={mobileRadarProcessing}>
+              <button type="button" className={`${styles.mobileRadarClear} hbx-mobile-secondary-button`} onClick={clearFilters} disabled={mobileRadarProcessing}>
                 Limpar filtros
               </button>
             </div>
           </form>
 
-          <section className={styles.mobileRadarResults} aria-live="polite">
+          <section className={`${styles.mobileRadarResults} hbx-mobile-card`} aria-live="polite">
             <header>
               <div>
                 <span>Resultado</span>
@@ -1311,18 +1311,18 @@ export default function RadarDigitalClientPage() {
             </header>
 
             {mobileRadarProcessing && !visibleItems.length ? (
-              <div className={styles.mobileRadarState}>Radar buscando cards...</div>
+              <div className={`${styles.mobileRadarState} hbx-mobile-empty`}>Radar buscando cards...</div>
             ) : !hasSearched ? (
-              <div className={styles.mobileRadarState}>Nenhum card encontrado ainda</div>
+              <div className={`${styles.mobileRadarState} hbx-mobile-empty`}>Nenhum card encontrado ainda</div>
             ) : !loading && !visibleItems.length ? (
-              <div className={styles.mobileRadarState}>Nenhum card encontrado ainda</div>
+              <div className={`${styles.mobileRadarState} hbx-mobile-empty`}>Nenhum card encontrado ainda</div>
             ) : (
               <div className={styles.mobileRadarList}>
                 {visibleItems.map((lead) => {
                   const score = Math.max(0, Math.min(100, Math.trunc(Number(lead.opportunityScore || 0))));
                   const ownerBadge = ownershipBadge(lead);
                   return (
-                    <article key={lead.id} className={styles.mobileRadarCard}>
+                    <article key={lead.id} className={`${styles.mobileRadarCard} hbx-mobile-card`}>
                       <div>
                         <strong>{lead.name || "Empresa sem nome"}</strong>
                         <span>{[lead.city, lead.state].filter(Boolean).join(" / ") || "Cidade não informada"}</span>
@@ -1336,6 +1336,7 @@ export default function RadarDigitalClientPage() {
                       {lead.opportunityReason ? <em>{lead.opportunityReason}</em> : null}
                       <button
                         type="button"
+                        className="hbx-mobile-secondary-button"
                         onClick={() => void runLeadAction(lead, "send")}
                         disabled={Boolean(actionId)}
                       >

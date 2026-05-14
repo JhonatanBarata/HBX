@@ -463,21 +463,21 @@ export default function BoasVindasClientPage() {
         data-welcome-path="loading"
       >
         <section className={styles.shell} aria-live="polite">
-          <div className={styles.mobileDashboard} aria-label="Painel inicial mobile">
-            <header className={styles.mobileHeader}>
+          <div className={`${styles.mobileDashboard} hbx-mobile-page`} aria-label="Painel inicial mobile">
+            <header className={`${styles.mobileHeader} hbx-mobile-header`}>
               <strong>HBX</strong>
               <span>{mobileOperationStatus(welcomeState)}</span>
             </header>
 
-            <section className={styles.mobileHero}>
+            <section className={`${styles.mobileHero} hbx-mobile-hero`}>
               <span>Olá</span>
               <h1>Sua operação hoje</h1>
               <p>{mobileHeroSubtitle(welcomeState)}</p>
             </section>
 
-            <section className={styles.mobileStatusGrid} aria-label="Status da operação">
+            <section className={`${styles.mobileStatusGrid} hbx-mobile-grid`} aria-label="Status da operação">
               {mobileCards.map((card) => (
-                <article key={card.key} className={styles.mobileStatusCard} data-ready={card.ready ? "true" : "false"}>
+                <article key={card.key} className={`${styles.mobileStatusCard} hbx-mobile-card`} data-ready={card.ready ? "true" : "false"}>
                   <span>{card.title}</span>
                   <strong>{card.state}</strong>
                   {card.value ? <small>{card.value}</small> : null}
@@ -485,7 +485,7 @@ export default function BoasVindasClientPage() {
               ))}
             </section>
 
-            <button type="button" className={styles.mobilePrimaryAction} disabled>
+            <button type="button" className={`${styles.mobilePrimaryAction} hbx-mobile-primary-button`} disabled>
               {mobilePrimary.label}
             </button>
           </div>
@@ -507,21 +507,21 @@ export default function BoasVindasClientPage() {
       data-welcome-path={welcomeStep.kind}
     >
       <section className={`${styles.shell} ${leaving ? styles.shellLeaving : ""}`} aria-labelledby="welcome-title">
-        <div className={styles.mobileDashboard} aria-label="Painel inicial mobile">
-          <header className={styles.mobileHeader}>
+        <div className={`${styles.mobileDashboard} hbx-mobile-page`} aria-label="Painel inicial mobile">
+          <header className={`${styles.mobileHeader} hbx-mobile-header`}>
             <strong>HBX</strong>
             <span>{mobileOperationStatus(welcomeState)}</span>
           </header>
 
-          <section className={styles.mobileHero}>
+          <section className={`${styles.mobileHero} hbx-mobile-hero`}>
             <span>Olá</span>
             <h1>Sua operação hoje</h1>
             <p>{mobileHeroSubtitle(welcomeState)}</p>
           </section>
 
-          <section className={styles.mobileStatusGrid} aria-label="Status da operação">
+          <section className={`${styles.mobileStatusGrid} hbx-mobile-grid`} aria-label="Status da operação">
             {mobileCards.map((card) => (
-              <article key={card.key} className={styles.mobileStatusCard} data-ready={card.ready ? "true" : "false"}>
+              <article key={card.key} className={`${styles.mobileStatusCard} hbx-mobile-card`} data-ready={card.ready ? "true" : "false"}>
                 <span>{card.title}</span>
                 <strong>{card.state}</strong>
                 {card.value ? <small>{card.value}</small> : null}
@@ -531,7 +531,7 @@ export default function BoasVindasClientPage() {
 
           <button
             type="button"
-            className={styles.mobilePrimaryAction}
+            className={`${styles.mobilePrimaryAction} hbx-mobile-primary-button`}
             onClick={() => navigateWithTransition(mobilePrimary.path)}
             disabled={leaving || !welcomeState.loaded}
           >
@@ -539,10 +539,10 @@ export default function BoasVindasClientPage() {
           </button>
 
           <nav className={styles.mobileSecondaryActions} aria-label="Atalhos">
-            <button type="button" onClick={() => navigateWithTransition("/radar-digital")} disabled={leaving}>Radar Digital</button>
-            <button type="button" onClick={() => navigateWithTransition("/vendas")} disabled={leaving}>Vendas</button>
-            <button type="button" onClick={() => navigateWithTransition("/atendimento")} disabled={leaving}>Atendimento</button>
-            <button type="button" onClick={() => navigateWithTransition("/tutorial")} disabled={leaving}>Tutorial</button>
+            <button type="button" className="hbx-mobile-secondary-button" onClick={() => navigateWithTransition("/radar-digital")} disabled={leaving}>Radar Digital</button>
+            <button type="button" className="hbx-mobile-secondary-button" onClick={() => navigateWithTransition("/vendas")} disabled={leaving}>Vendas</button>
+            <button type="button" className="hbx-mobile-secondary-button" onClick={() => navigateWithTransition("/atendimento")} disabled={leaving}>Atendimento</button>
+            <button type="button" className="hbx-mobile-secondary-button" onClick={() => navigateWithTransition("/tutorial")} disabled={leaving}>Tutorial</button>
           </nav>
         </div>
 
