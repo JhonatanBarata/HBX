@@ -1,8 +1,4 @@
 import type { Metadata } from "next";
-import {
-  IBM_Plex_Mono,
-  Plus_Jakarta_Sans,
-} from "next/font/google";
 import "./globals.css";
 import { InterfaceTransitionProvider } from "../components/InterfaceTransitionProvider";
 import PageTransition from "../components/PageTransition";
@@ -14,16 +10,12 @@ import { HBX_THEME_PALETTES } from "../lib/theme-palettes";
 
 export const dynamic = "force-dynamic";
 
-const plusJakartaSans = Plus_Jakarta_Sans({
-  variable: "--font-plus-jakarta",
-  subsets: ["latin"],
-});
-
-const ibmPlexMono = IBM_Plex_Mono({
-  variable: "--font-ibm-plex-mono",
-  subsets: ["latin"],
-  weight: ["400", "500"],
-});
+const fontVariableStyle = {
+  "--font-plus-jakarta":
+    '"Plus Jakarta Sans", Inter, "Segoe UI", Roboto, Arial, sans-serif',
+  "--font-ibm-plex-mono":
+    '"IBM Plex Mono", "SFMono-Regular", Consolas, "Liberation Mono", monospace',
+} as React.CSSProperties;
 
 export const metadata: Metadata = {
   title: "HBX Solutions",
@@ -257,7 +249,8 @@ export default function RootLayout({
         <script dangerouslySetInnerHTML={{ __html: browserCacheResetScript }} />
       </head>
       <body
-        className={`${plusJakartaSans.variable} ${ibmPlexMono.variable} antialiased app-root`}
+        className="antialiased app-root"
+        style={fontVariableStyle}
       >
         <ThemeProvider>
           <InterfaceTransitionProvider>
