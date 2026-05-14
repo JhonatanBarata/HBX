@@ -99,7 +99,8 @@
 }
 
 .mobileTitle,
-.mobileSubtitle {
+.mobileSubtitle,
+.mobileDashboard {
   display: none;
 }
 
@@ -746,6 +747,207 @@
 }
 
 @media (max-width: 560px) {
+  .page {
+    min-height: 100dvh;
+    place-items: start stretch;
+    overflow: auto;
+    padding: calc(12px + env(safe-area-inset-top)) 14px calc(18px + env(safe-area-inset-bottom));
+    background:
+      radial-gradient(circle at 50% -12%, rgba(255, 255, 255, 0.96), transparent 30%),
+      radial-gradient(circle at 12% 4%, rgba(91, 135, 255, 0.13), transparent 25%),
+      radial-gradient(circle at 88% 0%, rgba(22, 201, 210, 0.1), transparent 24%),
+      linear-gradient(180deg, #f8fbff 0%, #eef5ff 54%, #eaf3ff 100%);
+    color: #07143a;
+  }
+
+  .page::before,
+  .page::after {
+    display: none;
+  }
+
+  .shell {
+    width: 100%;
+    min-height: calc(100dvh - 30px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+    justify-items: stretch;
+    align-content: start;
+    gap: 14px;
+    padding: 0;
+    text-align: left;
+    animation: none;
+  }
+
+  .mobileDashboard {
+    width: 100%;
+    display: grid;
+    align-content: start;
+    gap: 14px;
+  }
+
+  .mobileHeader {
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+
+  .mobileHeader strong {
+    color: #07143a;
+    font-size: 1rem;
+    font-weight: 950;
+    letter-spacing: 0;
+  }
+
+  .mobileHeader span {
+    min-height: 30px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid rgba(203, 215, 235, 0.9);
+    border-radius: 999px;
+    background: #ffffff;
+    color: #526383;
+    padding: 0 10px;
+    font-size: 0.72rem;
+    font-weight: 900;
+    white-space: nowrap;
+  }
+
+  .mobileHero {
+    display: grid;
+    gap: 6px;
+    padding: 10px 0 2px;
+  }
+
+  .mobileHero span {
+    color: #0757df;
+    font-size: 0.74rem;
+    font-weight: 950;
+    text-transform: uppercase;
+  }
+
+  .mobileHero h1 {
+    margin: 0;
+    color: #07143a;
+    font-size: 1.8rem;
+    line-height: 1.05;
+    font-weight: 950;
+    letter-spacing: 0;
+  }
+
+  .mobileHero p {
+    max-width: 34ch;
+    margin: 0;
+    color: #657593;
+    font-size: 0.92rem;
+    line-height: 1.45;
+    font-weight: 760;
+  }
+
+  .mobileStatusGrid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+  }
+
+  .mobileStatusCard {
+    min-width: 0;
+    min-height: 106px;
+    display: grid;
+    align-content: space-between;
+    gap: 8px;
+    border: 1px solid rgba(217, 225, 239, 0.96);
+    border-radius: 12px;
+    background: #ffffff;
+    box-shadow: 0 14px 28px -24px rgba(12, 30, 65, 0.38);
+    padding: 12px;
+  }
+
+  .mobileStatusCard span {
+    color: #657593;
+    font-size: 0.74rem;
+    font-weight: 900;
+    text-transform: uppercase;
+  }
+
+  .mobileStatusCard strong {
+    color: #0c1949;
+    font-size: 1rem;
+    line-height: 1.15;
+    font-weight: 950;
+  }
+
+  .mobileStatusCard small {
+    color: #0757df;
+    font-size: 0.82rem;
+    line-height: 1.25;
+    font-weight: 850;
+  }
+
+  .mobileStatusCard[data-ready="true"] {
+    border-color: rgba(121, 206, 152, 0.7);
+  }
+
+  .mobileStatusCard[data-ready="true"] small,
+  .mobileStatusCard[data-ready="true"] strong {
+    color: #108943;
+  }
+
+  .mobilePrimaryAction {
+    width: 100%;
+    min-height: 52px;
+    border: 1px solid #0757df;
+    border-radius: 10px;
+    background: #0757df;
+    color: #ffffff;
+    box-shadow: 0 16px 28px -20px rgba(7, 87, 223, 0.72);
+    font: inherit;
+    font-size: 0.94rem;
+    font-weight: 950;
+  }
+
+  .mobilePrimaryAction:disabled {
+    cursor: wait;
+    opacity: 0.62;
+  }
+
+  .mobileSecondaryActions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+    padding-bottom: 4px;
+  }
+
+  .mobileSecondaryActions button {
+    min-height: 46px;
+    border: 1px solid rgba(203, 215, 235, 0.9);
+    border-radius: 10px;
+    background: #ffffff;
+    color: #0757df;
+    font: inherit;
+    font-size: 0.84rem;
+    font-weight: 950;
+  }
+
+  .mobileSecondaryActions button:disabled {
+    opacity: 0.62;
+  }
+
+  .statusBadge,
+  .brandMark,
+  .title,
+  .subtitle,
+  .mobileTitle,
+  .mobileSubtitle,
+  .nextStepPanel,
+  .actions,
+  .footerHint,
+  .loadingText {
+    display: none;
+  }
+}
+
+@media (max-width: 560px) {
   .fromLoginTransition {
     background:
       radial-gradient(circle at 86% 20%, rgba(49, 182, 255, 0.14) 0 1px, transparent 2px),
@@ -773,101 +975,6 @@
 
   .fromLoginTransition .brandMark {
     animation: fromLoginBrandSettle 760ms cubic-bezier(0.2, 0.86, 0.2, 1) both;
-  }
-
-  .page {
-    min-height: 100dvh;
-    place-items: center;
-    padding: 1rem;
-  }
-
-  .page::before,
-  .page::after {
-    opacity: 0.35;
-  }
-
-  .statusBadge,
-  .title,
-  .subtitle,
-  .nextStepPanel,
-  .footerHint {
-    display: none;
-  }
-
-  .shell {
-    width: min(100%, 380px);
-    gap: 1rem;
-    padding-top: 0;
-  }
-
-  .brandMark {
-    width: 68px;
-    height: 68px;
-    border-radius: 20px;
-  }
-
-  .mobileTitle {
-    display: block;
-    margin: 0.35rem 0 0;
-    color: #f9fcff;
-    font-size: clamp(2rem, 12vw, 2.65rem);
-    line-height: 1;
-    letter-spacing: 0;
-  }
-
-  .mobileSubtitle {
-    display: block;
-    max-width: 28ch;
-    margin: 0;
-    color: rgba(220, 234, 246, 0.76);
-    font-size: 1rem;
-    font-weight: 800;
-    line-height: 1.45;
-  }
-
-  .title {
-    font-size: clamp(2.15rem, 13vw, 3.35rem);
-  }
-
-  .subtitle {
-    font-size: 0.98rem;
-  }
-
-  .actions,
-  .primaryAction,
-  .secondaryAction {
-    width: 100%;
-  }
-
-  .actions {
-    gap: 0.62rem;
-    margin-top: 0.2rem;
-  }
-
-  .primaryAction {
-    min-height: 54px;
-    border-radius: 16px;
-    font-size: 1rem;
-  }
-
-  .secondaryAction {
-    min-height: 34px;
-    border-color: transparent;
-    background: transparent;
-    box-shadow: none;
-    color: rgba(218, 232, 245, 0.68);
-    font-size: 0.82rem;
-    text-decoration: underline;
-    text-underline-offset: 3px;
-  }
-
-  .nextStepHeader {
-    align-items: start;
-    flex-direction: column;
-  }
-
-  .checklist {
-    grid-template-columns: 1fr;
   }
 
   .fromLoginTransition .shell {
