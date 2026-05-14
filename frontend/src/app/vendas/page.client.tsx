@@ -2820,113 +2820,115 @@ export default function VendasClientPage() {
 
     return (
       <section className={`${styles.mobileVendasShell} ${styles.mobileLeadListScreen} hbx-mobile-page`} aria-label="Vendas mobile">
-        <header className={`${styles.mobileVendasHeader} hbx-mobile-header`}>
-          <a
-            className={styles.mobileRadarMotorStatus}
-            data-state={mobileRadarState}
-            data-pulse={radarStatusPulseKey}
-            href="/radar-digital"
-            aria-label="Abrir Radar Digital"
-          >
-            <span key={`burst-${radarStatusPulseKey}`} className={styles.mobileRadarStatusBurst} aria-hidden="true" />
-            <span key={mobileRadarState} className={styles.mobileRadarMotorIcon} aria-hidden="true">
-              {mobileRadarState === "ready" ? (
-                <svg viewBox="0 0 24 24">
-                  <path d="M20 6 9 17l-5-5" />
-                </svg>
-              ) : mobileRadarState === "searching" ? (
-                <i />
-              ) : mobileRadarState === "receiving" ? (
-                <svg viewBox="0 0 24 24">
-                  <path d="M7 7h10" />
-                  <path d="M7 12h7" />
-                  <path d="M7 17h4" />
-                  <path d="m15 14 3 3 3-3" />
-                </svg>
-              ) : mobileRadarState === "partial" || mobileRadarState === "warning" ? (
-                <svg viewBox="0 0 24 24">
-                  <path d="M12 4 3 20h18L12 4Z" />
-                  <path d="M12 9v5" />
-                  <path d="M12 17h.01" />
-                </svg>
-              ) : (
-                <svg viewBox="0 0 24 24">
-                  <path d="M13 5h6v14h-6" />
-                  <path d="M5 12h12" />
-                  <path d="m13 8 4 4-4 4" />
-                </svg>
-              )}
-            </span>
-            <span className={styles.mobileRadarMotorDivider} aria-hidden="true" />
-            <span key={`${mobileRadarState}:copy`} className={styles.mobileRadarMotorCopy}>
-              <small>Status do motor - Radar Digital</small>
-              <strong>{mobileRadarStatusLabel}</strong>
-              <em>{mobileRadarStatusText}</em>
-            </span>
-          </a>
-          {mobileRadarState === "partial" || mobileRadarState === "warning" ? (
-            <a className={styles.mobileRadarActionNotice} href={radarAdjustHref}>
-              <strong>Preciso de atenção</strong>
-              <span>O Radar entregou o que encontrou aqui. Toque para ampliar a busca e completar os 40 cards.</span>
+        <div className={styles.mobileVendasContextBar}>
+          <header className={`${styles.mobileVendasHeader} hbx-mobile-header`}>
+            <a
+              className={styles.mobileRadarMotorStatus}
+              data-state={mobileRadarState}
+              data-pulse={radarStatusPulseKey}
+              href="/radar-digital"
+              aria-label="Abrir Radar Digital"
+            >
+              <span key={`burst-${radarStatusPulseKey}`} className={styles.mobileRadarStatusBurst} aria-hidden="true" />
+              <span key={mobileRadarState} className={styles.mobileRadarMotorIcon} aria-hidden="true">
+                {mobileRadarState === "ready" ? (
+                  <svg viewBox="0 0 24 24">
+                    <path d="M20 6 9 17l-5-5" />
+                  </svg>
+                ) : mobileRadarState === "searching" ? (
+                  <i />
+                ) : mobileRadarState === "receiving" ? (
+                  <svg viewBox="0 0 24 24">
+                    <path d="M7 7h10" />
+                    <path d="M7 12h7" />
+                    <path d="M7 17h4" />
+                    <path d="m15 14 3 3 3-3" />
+                  </svg>
+                ) : mobileRadarState === "partial" || mobileRadarState === "warning" ? (
+                  <svg viewBox="0 0 24 24">
+                    <path d="M12 4 3 20h18L12 4Z" />
+                    <path d="M12 9v5" />
+                    <path d="M12 17h.01" />
+                  </svg>
+                ) : (
+                  <svg viewBox="0 0 24 24">
+                    <path d="M13 5h6v14h-6" />
+                    <path d="M5 12h12" />
+                    <path d="m13 8 4 4-4 4" />
+                  </svg>
+                )}
+              </span>
+              <span className={styles.mobileRadarMotorDivider} aria-hidden="true" />
+              <span key={`${mobileRadarState}:copy`} className={styles.mobileRadarMotorCopy}>
+                <small>Status do motor - Radar Digital</small>
+                <strong>{mobileRadarStatusLabel}</strong>
+                <em>{mobileRadarStatusText}</em>
+              </span>
             </a>
-          ) : null}
-        </header>
+            {mobileRadarState === "partial" || mobileRadarState === "warning" ? (
+              <a className={styles.mobileRadarActionNotice} href={radarAdjustHref}>
+                <strong>Preciso de atenção</strong>
+                <span>O Radar entregou o que encontrou aqui. Toque para ampliar a busca e completar os 40 cards.</span>
+              </a>
+            ) : null}
+          </header>
 
-        <div className={`${styles.mobileVendasKpis} hbx-mobile-grid`}>
-          <button
-            type="button"
-            className="hbx-mobile-card"
-            data-tone="danger"
-            data-active={mobileAgendaTab === "overdue" ? "true" : "false"}
-            onClick={() => setMobileAgendaTab("overdue")}
-          >
-            <span>Atrasados</span>
-            <strong>{board?.summary.overdue ?? 0}</strong>
-            <small>Precisam de ação</small>
-          </button>
-          <button
-            type="button"
-            className="hbx-mobile-card"
-            data-tone="primary"
-            data-active={mobileAgendaTab === "today" ? "true" : "false"}
-            onClick={() => setMobileAgendaTab("today")}
-          >
-            <span>Hoje</span>
-            <strong>{board?.summary.today ?? mobileLeadCount}</strong>
-            <small>Agendados para hoje</small>
-          </button>
-          <button
-            type="button"
-            className="hbx-mobile-card"
-            data-tone="success"
-            data-active={mobileAgendaTab === "upcoming" ? "true" : "false"}
-            onClick={() => setMobileAgendaTab("upcoming")}
-          >
-            <span>Próximos</span>
-            <strong>{mobileFutureCount}</strong>
-            <small>Próximos 7 dias</small>
-          </button>
-        </div>
+          <div className={`${styles.mobileVendasKpis} hbx-mobile-grid`}>
+            <button
+              type="button"
+              className="hbx-mobile-card"
+              data-tone="danger"
+              data-active={mobileAgendaTab === "overdue" ? "true" : "false"}
+              onClick={() => setMobileAgendaTab("overdue")}
+            >
+              <span>Atrasados</span>
+              <strong>{board?.summary.overdue ?? 0}</strong>
+              <small>Precisam de ação</small>
+            </button>
+            <button
+              type="button"
+              className="hbx-mobile-card"
+              data-tone="primary"
+              data-active={mobileAgendaTab === "today" ? "true" : "false"}
+              onClick={() => setMobileAgendaTab("today")}
+            >
+              <span>Hoje</span>
+              <strong>{board?.summary.today ?? mobileLeadCount}</strong>
+              <small>Agendados para hoje</small>
+            </button>
+            <button
+              type="button"
+              className="hbx-mobile-card"
+              data-tone="success"
+              data-active={mobileAgendaTab === "upcoming" ? "true" : "false"}
+              onClick={() => setMobileAgendaTab("upcoming")}
+            >
+              <span>Próximos</span>
+              <strong>{mobileFutureCount}</strong>
+              <small>Próximos 7 dias</small>
+            </button>
+          </div>
 
-        <div className={styles.mobileVendasSearchRow}>
-          <label className={styles.mobileVendasSearch}>
-            <span aria-hidden="true">⌕</span>
-            <input
-              value={mobileSearch}
-              onChange={(event) => setMobileSearch(event.target.value)}
-              placeholder="Buscar leads"
-            />
-          </label>
-          <button type="button" aria-label="Ajustar filtros">
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M5 7h8" />
-              <path d="M17 7h2" />
-              <path d="M5 17h2" />
-              <path d="M11 17h8" />
-              <path d="M13 5v4" />
-              <path d="M9 15v4" />
-            </svg>
-          </button>
+          <div className={styles.mobileVendasSearchRow}>
+            <label className={styles.mobileVendasSearch}>
+              <span aria-hidden="true">⌕</span>
+              <input
+                value={mobileSearch}
+                onChange={(event) => setMobileSearch(event.target.value)}
+                placeholder="Buscar leads"
+              />
+            </label>
+            <button type="button" aria-label="Ajustar filtros">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M5 7h8" />
+                <path d="M17 7h2" />
+                <path d="M5 17h2" />
+                <path d="M11 17h8" />
+                <path d="M13 5v4" />
+                <path d="M9 15v4" />
+              </svg>
+            </button>
+          </div>
         </div>
 
         {loading ? (

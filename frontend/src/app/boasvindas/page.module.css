@@ -801,7 +801,7 @@
     align-content: start;
     gap: 14px;
     overflow: visible;
-    padding: 0;
+    padding: 0 0 calc(var(--hbx-mobile-dock-height) + env(safe-area-inset-bottom) + 12px);
     background: transparent;
   }
 
@@ -1068,6 +1068,38 @@
     font-weight: 950;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  :global(html[data-hbx-mobile-theme="dark"]) .page {
+    background: var(--hbx-mobile-bg);
+    color: var(--hbx-mobile-text);
+  }
+
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileHeader strong,
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileHero h1,
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileMetricPill strong {
+    color: var(--hbx-mobile-text);
+  }
+
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileHeader span,
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileMetricPill,
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileSecondaryActions button {
+    border-color: var(--hbx-mobile-glass-border);
+    background: var(--hbx-mobile-glass-bg);
+    color: var(--hbx-mobile-text);
+  }
+
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileHero {
+    border-color: var(--hbx-mobile-glass-border);
+    background:
+      radial-gradient(circle at 96% 92%, var(--hbx-mobile-ripple-blue), transparent 36%),
+      radial-gradient(circle at 12% 0%, var(--hbx-mobile-ripple-green), transparent 34%),
+      var(--hbx-mobile-glass-bg);
+  }
+
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileHero p,
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileMetricPill span {
+    color: var(--hbx-mobile-muted);
   }
 
   .statusBadge,
