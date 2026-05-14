@@ -2,6 +2,7 @@
 
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { apiFetch, clearToken } from "@/app/_lib/api";
 import { useInterfaceTransition } from "@/components/InterfaceTransitionProvider";
 
@@ -116,8 +117,10 @@ export default function HbxMobileDock({
   const { runGlobalShutdown, isShuttingDown } = useInterfaceTransition();
   const [theme, setTheme] = useState<MobileTheme>("light");
   const [menuOpen, setMenuOpen] = useState(false);
+  const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
+    setMounted(true);
     const storedTheme = readMobileTheme();
     setTheme(storedTheme);
     applyMobileTheme(storedTheme);
@@ -178,7 +181,7 @@ export default function HbxMobileDock({
     });
   }
 
-  return (
+  const dock = (
     <>
       <nav className="hbx-mobile-dock-root" aria-label="Navegação mobile HBX" data-menu-open={menuOpen ? "true" : "false"}>
         <div className="hbx-mobile-dock">
@@ -269,4 +272,7 @@ export default function HbxMobileDock({
       ) : null}
     </>
   );
+
+  if (!mounted) return null;
+  return createPortal(dock, document.body);
 }
