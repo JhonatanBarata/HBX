@@ -136,6 +136,19 @@ function Wait-ComposeServiceRunning([string]$service, [int]$retries = 120, [int]
 	return $false
 }
 
+function Wait-ComposePostgresReady([int]$retries = 120, [int]$delayMs = 500) {
+	for ($i = 0; $i -lt $retries; $i++) {
+		try {
+			$null = & docker compose -f $composeFile exec -T db pg_isready -U admin -d jhonatan_dev 2>$null
+			if ($LASTEXITCODE -eq 0) { return $true }
+		} catch {
+			# keep trying while postgres finishes startup/recovery
+		}
+		Start-Sleep -Milliseconds $delayMs
+	}
+	return $false
+}
+
 function Test-DockerDaemonReady() {
 	try {
 		$previousErrorActionPreference = $ErrorActionPreference
@@ -193,7 +206,14 @@ try {
 	throw
 }
 
-Write-Host "1.0) Waiting backend container to be running ..."
+Write-Host "1.0) Waiting database to accept connections ..."
+if (-not (Wait-ComposePostgresReady -retries 180 -delayMs 500)) {
+	Write-Host "Database did not become ready in time."
+	Show-ComposeLogs -services @('db') -tail 120
+	throw "Database is not ready."
+}
+
+Write-Host "1.0.1) Waiting backend container to be running ..."
 if (-not (Wait-ComposeServiceRunning -service 'backend' -retries 180 -delayMs 500)) {
 	Write-Host "Backend container did not reach running state."
 	Show-ComposeLogs -services @('backend', 'db') -tail 120

@@ -9,12 +9,18 @@ import { WebwhatsBridgeService } from '../messaging/webwhats-bridge.service';
 import { buildWhatsAppPhoneCandidates } from '../messaging/whatsapp-channel';
 import { PrismaService } from '../prisma/prisma.service';
 import {
+  MASTER_WHATSAPP_ENGINE_COMPANY_NAME,
+  MASTER_WHATSAPP_ENGINE_COMPANY_SLUG,
+} from '../companies/master-whatsapp-company.constants';
+import { buildImportacaoPermissaoRows } from '../bootstrap/company-structural-defaults';
+import {
   BulkDeleteVendasLeadsDto,
   CreateManualVendasLeadDto,
   ImportWebscrapingLeadsDto,
   ReportVendasLeadDto,
   UpdateVendasLeadDto,
 } from './dto/vendas.dto';
+import { buildVendasLeadIntelligence } from './vendas-lead-enrichment';
 
 type VendasLeadStatus = 'novo' | 'contato' | 'retorno' | 'qualificado' | 'encerrado';
 
@@ -620,6 +626,15 @@ export class VendasService {
       createdAt: row?.createdAt instanceof Date ? row.createdAt.toISOString() : null,
       updatedAt: row?.updatedAt instanceof Date ? row.updatedAt.toISOString() : null,
       whatsappAvailability: whatsappAvailability || null,
+      leadIntelligence: buildVendasLeadIntelligence({
+        lead: row,
+        whatsappAvailability,
+        verifiedBy: String(whatsappAvailability?.message || '').includes('HBX Master')
+          ? 'hbx_master'
+          : whatsappAvailability?.checkedAt
+            ? 'client_engine'
+            : null,
+      }),
       isInInbox: Boolean(inboxPresence?.conversationId || sharedProfile?.presence?.atendimento?.present),
       inboxConversationId: inboxPresence?.conversationId ? String(inboxPresence.conversationId) : null,
       atendimentoConversationId: inboxPresence?.conversationId ? String(inboxPresence.conversationId) : null,
@@ -641,6 +656,135 @@ export class VendasService {
     if (!companyId) throw new ForbiddenException('Empresa nao identificada.');
     if (!userId) throw new ForbiddenException('Usuario nao identificado.');
     return { companyId, userId };
+  }
+
+  private async getOrCreateMasterWhatsappEngineCompanyId() {
+    const existing = await this.prisma.company.findUnique({
+      where: { slug: MASTER_WHATSAPP_ENGINE_COMPANY_SLUG },
+      select: { id: true },
+    });
+    if (existing?.id) return Number(existing.id);
+
+    try {
+      const created = await this.prisma.$transaction(async (tx) => {
+        const company = await tx.company.create({
+          data: {
+            name: MASTER_WHATSAPP_ENGINE_COMPANY_NAME,
+            slug: MASTER_WHATSAPP_ENGINE_COMPANY_SLUG,
+            onboardingStatus: 'active_paid',
+            paymentStatus: 'MANUAL',
+            subscriptionStatus: 'manual',
+            premiumAccess: true,
+            isActive: true,
+            paymentMethod: 'MANUAL',
+            billingProvider: 'manual',
+            whatsappConnectionMode: 'TEMPORARY',
+            whatsappModalProvider: 'external_modal',
+            whatsappModalStatus: 'DISCONNECTED',
+            whatsappModalUpdatedAt: new Date(),
+          },
+          select: { id: true },
+        });
+        await tx.importacaoPermissao.createMany({
+          data: buildImportacaoPermissaoRows(company.id),
+          skipDuplicates: true,
+        });
+        return company;
+      });
+      return Number(created.id);
+    } catch (error: any) {
+      if (this.isUniqueConstraintError(error)) {
+        const recovered = await this.prisma.company.findUnique({
+          where: { slug: MASTER_WHATSAPP_ENGINE_COMPANY_SLUG },
+          select: { id: true },
+        });
+        if (recovered?.id) return Number(recovered.id);
+      }
+      throw error;
+    }
+  }
+
+  async enrichLeadForUser(user: any, leadId: string, opts?: { templateOffset?: number }) {
+    const { companyId, userId } = this.resolveUserContext(user);
+    const normalizedLeadId = this.normalizeText(leadId);
+    if (!normalizedLeadId) throw new BadRequestException('Lead nao informado.');
+
+    const lead = await this.prisma.vendasLead.findFirst({
+      where: { id: normalizedLeadId, companyId },
+      include: {
+        timelineEvents: {
+          orderBy: [{ createdAt: 'desc' }],
+          take: 12,
+        },
+      },
+    });
+    if (!lead) throw new NotFoundException('Lead nao encontrado.');
+
+    let availability =
+      (await this.listWhatsappAvailabilityByLeadIds([String(lead.id)])).get(String(lead.id)) || null;
+    let verifiedBy: 'hbx_master' | 'client_engine' | 'manual' | null = String(availability?.message || '').includes('HBX Master')
+      ? 'hbx_master'
+      : availability?.checkedAt
+        ? 'client_engine'
+        : null;
+    const phoneDigits = this.normalizePhone((lead as any).phoneNormalized || (lead as any).phone);
+    const availabilityCheckedAt = availability?.checkedAt ? new Date(availability.checkedAt).getTime() : 0;
+    const shouldRefreshWhatsapp =
+      Boolean(phoneDigits) &&
+      (!availabilityCheckedAt ||
+        Number.isNaN(availabilityCheckedAt) ||
+        Date.now() - availabilityCheckedAt > 30 * 24 * 60 * 60 * 1000);
+
+    if (phoneDigits && shouldRefreshWhatsapp) {
+      try {
+        const masterCompanyId = await this.getOrCreateMasterWhatsappEngineCompanyId();
+        const [lookup] = await this.webwhatsBridge.checkWhatsappNumbers(masterCompanyId, [phoneDigits]);
+        if (lookup) {
+          const status: VendasWhatsappAvailabilityStatus = lookup.exists ? 'available' : 'unavailable';
+          const now = new Date();
+          const phoneLabel = this.buildPreferredLeadContact(phoneDigits) || `+${phoneDigits}`;
+          const message = lookup.exists
+            ? `Consulta HBX Master confirmou WhatsApp para ${phoneLabel}.`
+            : `Consulta HBX Master nao encontrou WhatsApp para ${phoneLabel}.`;
+          availability = {
+            status,
+            checkedAt: now.toISOString(),
+            phoneDigits,
+            message,
+          };
+          verifiedBy = 'hbx_master';
+          await this.prisma.vendasLeadTimelineEvent.create({
+            data: {
+              leadId: lead.id,
+              ...this.buildTimelineEvent({
+                eventType: 'generic',
+                title: lookup.exists ? 'WhatsApp verificado pela HBX' : 'HBX nao encontrou WhatsApp',
+                description: message,
+                sourceType: VENDAS_WHATSAPP_LOOKUP_SOURCE,
+                resultLabel: status,
+                createdByUserId: userId,
+              }),
+            },
+          }).catch(() => null);
+        }
+      } catch (error: any) {
+        this.logger.warn(
+          `[vendas-enrichment] Falha na verificacao Master lead=${lead.id} company=${companyId}: ${String(error?.message || error)}`,
+        );
+      }
+    }
+
+    return {
+      ok: true,
+      leadId: String(lead.id),
+      whatsappAvailability: availability,
+      leadIntelligence: buildVendasLeadIntelligence({
+        lead,
+        whatsappAvailability: availability,
+        verifiedBy,
+        templateOffset: opts?.templateOffset,
+      }),
+    };
   }
 
   async buildPresentationEmailDraftForUser(user: any, leadId: string) {

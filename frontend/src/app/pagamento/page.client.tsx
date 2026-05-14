@@ -393,10 +393,14 @@ function isPendingCheckout(overview: FinanceiroOverview | null, reason?: string 
   return (
     paymentStatus === "PENDING" ||
     paymentStatus === "EXPIRED" ||
+    paymentStatus === "DISABLED" ||
+    paymentStatus === "OVERDUE" ||
     subscriptionStatus === "pending_checkout" ||
     subscriptionStatus === "expired" ||
+    subscriptionStatus === "past_due" ||
     onboardingReason === "pending_checkout" ||
-    onboardingReason === "trial_expired"
+    onboardingReason === "trial_expired" ||
+    onboardingReason === "payment_failed"
   );
 }
 

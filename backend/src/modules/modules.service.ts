@@ -14,6 +14,7 @@ import { ensureMasterBillingRuntimeSchema } from './master-runtime';
 import { buildMasterBillingSituation } from './master-billing-situation';
 import { buildMasterWhatsAppSituation } from './master-whatsapp-situation';
 import { buildWhatsAppCenterSnapshot } from '../companies/whatsapp-center.util';
+import { MASTER_WHATSAPP_ENGINE_COMPANY_SLUG } from '../companies/master-whatsapp-company.constants';
 import {
   getMasterGlobalIntegrationConfig,
   normalizeMasterGlobalIntegrationConfig,
@@ -2509,6 +2510,12 @@ export class ModulesService implements OnModuleInit {
     await ensureMasterBillingRuntimeSchema(this.prisma);
 
     const companies = await this.prisma.company.findMany({
+      where: {
+        OR: [
+          { slug: null },
+          { slug: { not: MASTER_WHATSAPP_ENGINE_COMPANY_SLUG } },
+        ],
+      },
       include: {
         plan: {
           select: {
@@ -3364,8 +3371,9 @@ export class ModulesService implements OnModuleInit {
           where: { id: companyId },
           data: {
             isActive: false,
-            paymentStatus: 'EXPIRED',
-            subscriptionStatus: 'expired',
+            onboardingStatus: 'pending_checkout',
+            paymentStatus: 'PENDING',
+            subscriptionStatus: 'pending_checkout',
             premiumAccess: false,
             deactivatedAt: now,
           },
@@ -3410,8 +3418,9 @@ export class ModulesService implements OnModuleInit {
               trialStartsAt,
               trialEndsAt: manualEnd,
               isActive: false,
-              paymentStatus: 'EXPIRED',
-              subscriptionStatus: 'expired',
+              onboardingStatus: 'pending_checkout',
+              paymentStatus: 'PENDING',
+              subscriptionStatus: 'pending_checkout',
               premiumAccess: false,
               deactivatedAt: now,
             },
@@ -3431,6 +3440,8 @@ export class ModulesService implements OnModuleInit {
               premiumAccess: true,
               trialStartsAt,
               trialEndsAt: manualEnd,
+              trialNoticeEmailStage: 0,
+              trialNoticeLastEmailAt: null,
               subscriptionCurrentPeriodStart: null,
               subscriptionCurrentPeriodEnd: null,
               deactivatedAt: null,
@@ -3505,6 +3516,8 @@ export class ModulesService implements OnModuleInit {
           premiumAccess: true,
           trialStartsAt,
           trialEndsAt,
+          trialNoticeEmailStage: 0,
+          trialNoticeLastEmailAt: null,
           subscriptionCurrentPeriodStart: null,
           subscriptionCurrentPeriodEnd: null,
           deactivatedAt: null,

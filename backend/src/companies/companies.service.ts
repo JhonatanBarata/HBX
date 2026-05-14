@@ -10,6 +10,10 @@ import { WhatsAppModalService } from './whatsapp-modal.service';
 import { ensureWebsiteRuntimeSchema } from '../website/website-runtime';
 import { MailService } from '../mail/mail.service';
 import { ConversationsService } from '../messaging/conversations.service';
+import {
+  MASTER_WHATSAPP_ENGINE_COMPANY_NAME,
+  MASTER_WHATSAPP_ENGINE_COMPANY_SLUG,
+} from './master-whatsapp-company.constants';
 
 export const MASTER_HARD_DELETE_CONFIRM_TEXT = 'EXCLUIR EMPRESA';
 export const MASTER_HARD_DELETE_CONFIRMATION_INVALID_MESSAGE = 'Confirmacao invalida para hard delete.';
@@ -412,6 +416,41 @@ export class CompaniesService implements OnModuleInit, OnModuleDestroy {
       return company;
     });
     return this.sanitizeCompany(created);
+  }
+
+  async getOrCreateMasterWhatsAppEngineCompany() {
+    const existing = await this.prisma.company.findUnique({
+      where: { slug: MASTER_WHATSAPP_ENGINE_COMPANY_SLUG },
+    });
+    if (existing) return existing;
+
+    const created = await this.prisma.$transaction(async (tx) => {
+      const company = await tx.company.create({
+        data: {
+          name: MASTER_WHATSAPP_ENGINE_COMPANY_NAME,
+          slug: MASTER_WHATSAPP_ENGINE_COMPANY_SLUG,
+          onboardingStatus: 'active_paid',
+          paymentStatus: 'MANUAL',
+          subscriptionStatus: 'manual',
+          premiumAccess: true,
+          isActive: true,
+          paymentMethod: 'MANUAL',
+          billingProvider: 'manual',
+          whatsappConnectionMode: 'TEMPORARY',
+          whatsappModalProvider: 'external_modal',
+          whatsappModalStatus: 'DISCONNECTED',
+          whatsappModalUpdatedAt: new Date(),
+        },
+      });
+      await tx.importacaoPermissao.createMany({
+        data: buildImportacaoPermissaoRows(company.id),
+        skipDuplicates: true,
+      });
+      return company;
+    });
+
+    this.logger.log(`Empresa tecnica do WhatsApp Master criada company=${created.id}.`);
+    return created;
   }
 
   async findByIdForMaster(companyId: number) {

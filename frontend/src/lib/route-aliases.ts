@@ -20,6 +20,8 @@ const LEGACY_ROUTE_ALIASES: Array<[string, string]> = [
   ["/auto-replies", "/auto-replies"],
   ["/messages", "/messages"],
   ["/checkout", "/checkout"],
+  ["/pre-checkout", "/pre-checkout"],
+  ["/precheckout", "/pre-checkout"],
   ["/layouts", "/layouts"],
 ];
 

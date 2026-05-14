@@ -703,6 +703,74 @@ export class CompaniesController {
     return this.whatsappModalService.getCompanyLiveHealth(companyId, { forceRefresh });
   }
 
+  @Get('master/whatsapp-modal/status')
+  @UseGuards(JwtAuthGuard, MasterGuard)
+  async getMasterWhatsAppModalStatus() {
+    const company = await this.companiesService.getOrCreateMasterWhatsAppEngineCompany();
+    return this.whatsappModalService.getCompanyStatus(Number(company.id));
+  }
+
+  @Post('master/whatsapp-modal/start')
+  @UseGuards(JwtAuthGuard, MasterGuard)
+  async startMasterWhatsAppModalSession(@Req() req: any) {
+    const company = await this.companiesService.getOrCreateMasterWhatsAppEngineCompany();
+    const response = await this.whatsappModalService.startCompanySession(Number(company.id));
+    await this.masterContextService.registerSupportAction({
+      masterUserId: Number(req.user?.id),
+      companyId: Number(company.id),
+      scope: 'master_whatsapp_engine',
+      action: 'MASTER_WHATSAPP_SESSION_STARTED',
+      metadata: {
+        status: response?.status || null,
+        tenantKey: response?.data?.tenantKey || null,
+      },
+    });
+    return response;
+  }
+
+  @Get('master/whatsapp-modal/qr')
+  @UseGuards(JwtAuthGuard, MasterGuard)
+  async getMasterWhatsAppModalQrCode() {
+    const company = await this.companiesService.getOrCreateMasterWhatsAppEngineCompany();
+    return this.whatsappModalService.getCompanyQrCode(Number(company.id));
+  }
+
+  @Post('master/whatsapp-modal/disconnect')
+  @UseGuards(JwtAuthGuard, MasterGuard)
+  async disconnectMasterWhatsAppModalSession(@Req() req: any) {
+    const company = await this.companiesService.getOrCreateMasterWhatsAppEngineCompany();
+    const response = await this.whatsappModalService.disconnectCompanySession(Number(company.id));
+    await this.masterContextService.registerSupportAction({
+      masterUserId: Number(req.user?.id),
+      companyId: Number(company.id),
+      scope: 'master_whatsapp_engine',
+      action: 'MASTER_WHATSAPP_SESSION_DISCONNECTED',
+      metadata: {
+        status: response?.status || null,
+        tenantKey: response?.data?.tenantKey || null,
+      },
+    });
+    return response;
+  }
+
+  @Post('master/whatsapp-modal/restart')
+  @UseGuards(JwtAuthGuard, MasterGuard)
+  async restartMasterWhatsAppModalSession(@Req() req: any) {
+    const company = await this.companiesService.getOrCreateMasterWhatsAppEngineCompany();
+    const response = await this.whatsappModalService.restartCompanySession(Number(company.id));
+    await this.masterContextService.registerSupportAction({
+      masterUserId: Number(req.user?.id),
+      companyId: Number(company.id),
+      scope: 'master_whatsapp_engine',
+      action: 'MASTER_WHATSAPP_SESSION_RESTARTED',
+      metadata: {
+        status: response?.status || null,
+        tenantKey: response?.data?.tenantKey || null,
+      },
+    });
+    return response;
+  }
+
 
   @Post('me/customer-registry/sync-whatsapp')
   @UseGuards(JwtAuthGuard)

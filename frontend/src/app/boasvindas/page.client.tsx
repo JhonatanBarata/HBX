@@ -133,6 +133,15 @@ function hasOperationalHistory(state: WelcomeState) {
   );
 }
 
+function resolveOperationalEntryPath(state: WelcomeState, mobileViewport: boolean) {
+  if (mobileViewport) {
+    return state.vendasReady || state.leadsCount > 0 ? "/vendas" : "/radar-digital";
+  }
+  if (state.conversationsCount > 0 || state.pendingCount > 0) return "/atendimento";
+  if (state.vendasReady || state.leadsCount > 0) return "/vendas";
+  return "/radar-digital";
+}
+
 function resolveWelcomeStep(state: WelcomeState, mobileViewport: boolean, tutorialCompleted: boolean): WelcomeStep {
   if (!state.loaded) {
     return {
@@ -147,34 +156,28 @@ function resolveWelcomeStep(state: WelcomeState, mobileViewport: boolean, tutori
 
   if (mobileViewport && !tutorialCompleted && !state.whatsappConnected && !hasOperationalHistory(state)) {
     return {
-      kind: "first-access",
-      title: "Primeiro acesso",
-      subtitle: "Vamos conectar sua tela e preparar os primeiros passos.",
-      actionLabel: "Começar tutorial",
-      path: "/tutorial?from=boasvindas",
-      loadingText: "Montando seu primeiro acesso...",
-    };
-  }
-
-  if (!state.whatsappConnected) {
-    return {
-      kind: "connect",
-      title: "Próximo passo",
-      subtitle: "Vincule seu número para continuar.",
-      actionLabel: "Conectar WhatsApp",
-      path: mobileViewport ? "/whatsapp?focus=phone&from=boasvindas" : "/whatsapp?focus=qr&from=boasvindas",
-      loadingText: "Motor ainda não conectado.",
+      kind: "sales",
+      title: "Entrada liberada",
+      subtitle: "Vamos começar pelos cards e oportunidades.",
+      actionLabel: "Começar agora",
+      path: "/radar-digital",
+      loadingText: "Abrindo sua operação...",
     };
   }
 
   if (mobileViewport) {
+    const path = resolveOperationalEntryPath(state, mobileViewport);
     return {
       kind: "sales",
-      title: "Entrada liberada",
-      subtitle: "Abrindo seu módulo de vendas.",
-      actionLabel: "Abrir Vendas",
-      path: "/vendas",
-      loadingText: "Motor conectado. Abrindo Vendas...",
+      title: state.vendasReady || state.leadsCount > 0 ? "Entrada liberada" : "Buscar oportunidades",
+      subtitle: state.vendasReady || state.leadsCount > 0
+        ? "Abrindo seus cards de venda."
+        : "Abrindo o Radar Digital para gerar cards.",
+      actionLabel: state.vendasReady || state.leadsCount > 0 ? "Abrir Vendas" : "Abrir Radar",
+      path,
+      loadingText: state.vendasReady || state.leadsCount > 0
+        ? "Abrindo Vendas..."
+        : "Abrindo Radar Digital...",
     };
   }
 
@@ -183,11 +186,7 @@ function resolveWelcomeStep(state: WelcomeState, mobileViewport: boolean, tutori
     title: "Seu centro de operação está pronto.",
     subtitle: "Veja o que já está pronto e siga direto para a próxima ação.",
     actionLabel: "Começar agora",
-    path: state.conversationsCount > 0 || state.pendingCount > 0
-      ? "/atendimento"
-      : state.vendasReady
-        ? "/vendas"
-        : "/radar-digital",
+    path: resolveOperationalEntryPath(state, mobileViewport),
     loadingText: "Entrada liberada.",
   };
 }
@@ -201,27 +200,35 @@ export default function BoasVindasClientPage() {
   const [welcomeState, setWelcomeState] = useState<WelcomeState>(DEFAULT_WELCOME_STATE);
   const [mobileViewport, setMobileViewport] = useState(() => isSmallViewport());
   const [tutorialCompleted] = useState(() => readTutorialCompleted());
-  const [fromLoginTransition] = useState(() => {
-    if (typeof window === "undefined") return false;
-    try {
-      return sessionStorage.getItem(LOGIN_TO_WELCOME_TRANSITION_KEY) === "mobile-auth";
-    } catch {
-      return false;
-    }
-  });
+  const fromLoginEntryParam = String(searchParams.get("entry") || "").trim().toLowerCase() === "mobile";
+  const [clientReady, setClientReady] = useState(false);
+  const [fromLoginTransition, setFromLoginTransition] = useState(fromLoginEntryParam);
 
   useEffect(() => {
     if (typeof window === "undefined") return undefined;
+    let cameFromLogin = fromLoginEntryParam;
     try {
+      cameFromLogin = cameFromLogin || sessionStorage.getItem(LOGIN_TO_WELCOME_TRANSITION_KEY) === "mobile-auth";
       sessionStorage.removeItem(LOGIN_TO_WELCOME_TRANSITION_KEY);
     } catch {
       // ignore sessionStorage errors
     }
+    if (fromLoginEntryParam && window.location.search.includes("entry=mobile")) {
+      window.history.replaceState(null, "", "/boasvindas");
+    }
     const media = window.matchMedia("(max-width: 640px)");
     const onChange = () => setMobileViewport(media.matches);
+    const frame = window.requestAnimationFrame(() => {
+      setClientReady(true);
+      setFromLoginTransition(cameFromLogin);
+      setMobileViewport(media.matches);
+    });
     media.addEventListener("change", onChange);
-    return () => media.removeEventListener("change", onChange);
-  }, []);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      media.removeEventListener("change", onChange);
+    };
+  }, [fromLoginEntryParam]);
 
   const welcomeStep = resolveWelcomeStep(welcomeState, mobileViewport, tutorialCompleted);
   const welcomePhase = masterCheckComplete ? "ready" : "loading";
@@ -232,7 +239,6 @@ export default function BoasVindasClientPage() {
 
   useEffect(() => {
     if (hasToken !== true || !billingHref) return;
-    setLeaving(true);
     router.replace(billingHref);
   }, [billingHref, hasToken, router]);
 
@@ -326,13 +332,56 @@ export default function BoasVindasClientPage() {
   }
 
   function resolveNextStep() {
-    if (mobileViewport) {
-      return welcomeStep.path;
-    }
-    if (!welcomeState.whatsappConnected) return "/whatsapp";
-    if (welcomeState.conversationsCount > 0 || welcomeState.pendingCount > 0) return "/atendimento";
-    if (welcomeState.vendasReady) return "/vendas";
-    return "/radar-digital";
+    return welcomeStep.path || resolveOperationalEntryPath(welcomeState, mobileViewport);
+  }
+
+  const entryDestinationLabel = welcomeStep.path.includes("radar")
+    ? "Radar Digital"
+    : welcomeStep.path.includes("vendas")
+      ? "Vendas"
+      : welcomeStep.path.includes("atendimento")
+        ? "Atendimento"
+        : "Operação";
+
+  if (clientReady && mobileViewport && fromLoginTransition && hasToken !== false && !billingHref) {
+    return (
+      <main
+        className={styles.entryPage}
+        data-entry-phase={welcomePhase}
+        data-entry-leaving={leaving ? "true" : "false"}
+      >
+        <section className={styles.entryStage} role="status" aria-live="polite" aria-atomic="true">
+          <div className={styles.entryAtmosphere} aria-hidden="true">
+            <span />
+            <span />
+            <span />
+          </div>
+
+          <div className={styles.entryCoreWrap} aria-hidden="true">
+            <div className={styles.entryOrbit} />
+            <div className={styles.entryCore}>
+              <span>HBX</span>
+            </div>
+          </div>
+
+          <div className={styles.entryCopy}>
+            <span className={styles.entryEyebrow}>Acesso validado</span>
+            <h1>Entrando no HBX</h1>
+            <p>{masterCheckComplete ? `Abrindo ${entryDestinationLabel}.` : "Preparando sua operação."}</p>
+          </div>
+
+          <div className={styles.entrySteps} aria-hidden="true">
+            <span data-active="true">Sessão</span>
+            <span data-active={masterCheckComplete ? "true" : "false"}>{entryDestinationLabel}</span>
+            <span data-active={leaving ? "true" : "false"}>Cards</span>
+          </div>
+
+          <div className={styles.entryProgress} aria-hidden="true">
+            <span />
+          </div>
+        </section>
+      </main>
+    );
   }
 
   if (hasToken === null || (hasToken === true && !masterCheckComplete)) {
@@ -374,11 +423,11 @@ export default function BoasVindasClientPage() {
         <div className={styles.nextStepPanel}>
           <div className={styles.nextStepHeader}>
             <span>Seu próximo passo</span>
-            <strong>{nextStepTitle(welcomeState)}</strong>
+            <strong>{nextStepTitle(welcomeState, mobileViewport)}</strong>
           </div>
 
           <div className={styles.checklist} aria-label="Checklist operacional">
-            <ChecklistItem label="WhatsApp conectado" active={welcomeState.whatsappConnected} />
+            <ChecklistItem label="Acesso liberado" active />
             <ChecklistItem label="Leads disponíveis / Radar pronto" active={welcomeState.radarReady || welcomeState.leadsCount > 0} />
             <ChecklistItem label="Atendimento pronto" active={welcomeState.atendimentoReady} />
             <ChecklistItem label="Assistente avançado opcional" active={welcomeState.assistantOptional} optional />
@@ -405,7 +454,6 @@ export default function BoasVindasClientPage() {
 }
 
 function nextStepTitle(state: WelcomeState, mobile = false) {
-  if (!state.whatsappConnected) return "Conectar o WhatsApp";
   if (mobile && (state.vendasReady || state.leadsCount > 0 || state.pendingCount > 0 || state.conversationsCount > 0)) return "Abrir seus cards de venda";
   if (mobile) return "Buscar cards no Radar Digital";
   if (state.conversationsCount > 0 || state.pendingCount > 0) return "Responder atendimento";

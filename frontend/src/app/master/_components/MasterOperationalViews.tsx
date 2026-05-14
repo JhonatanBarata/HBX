@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import DashboardScaffold from "@/components/DashboardScaffold";
 import { apiFetch } from "@/app/_lib/api";
 import { useRequireAuth } from "@/app/_lib/useRequireAuth";
+import { whatsappModalStatusLabel, type WhatsAppModalPayload } from "@/lib/whatsapp-center";
 import { fetchMasterWorkspaceBootstrap } from "../master.bootstrap";
 import { formatCurrency, metricValue } from "../master.formatters";
 import type {
@@ -564,6 +565,9 @@ export default function MasterOperationalView({ area }: { area: MasterArea }) {
   const [selectedCompany, setSelectedCompany] = useState<CompanySummary | null>(null);
   const [drawerTab, setDrawerTab] = useState<DrawerTab>("summary");
   const [editingModuleKey, setEditingModuleKey] = useState<string | null>(null);
+  const [masterWhatsapp, setMasterWhatsapp] = useState<WhatsAppModalPayload | null>(null);
+  const [masterWhatsappBusy, setMasterWhatsappBusy] = useState<string | null>(null);
+  const [masterWhatsappError, setMasterWhatsappError] = useState<string | null>(null);
 
   async function loadWorkspace(background = false) {
     if (background) setRefreshing(true);
@@ -584,8 +588,47 @@ export default function MasterOperationalView({ area }: { area: MasterArea }) {
   useEffect(() => {
     if (hasToken !== true) return;
     void loadWorkspace();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hasToken]);
+
+  async function loadMasterWhatsapp(includeQr = false) {
+    setMasterWhatsappError(null);
+    try {
+      const status = await apiFetch<WhatsAppModalPayload>("/companies/master/whatsapp-modal/status");
+      if (includeQr && status.data.available && status.status !== "connected") {
+        const qr = await apiFetch<WhatsAppModalPayload>("/companies/master/whatsapp-modal/qr");
+        setMasterWhatsapp(qr);
+        return qr;
+      }
+      setMasterWhatsapp(status);
+      return status;
+    } catch (loadError) {
+      setMasterWhatsappError(loadError instanceof Error ? loadError.message : "Falha ao carregar WhatsApp Master.");
+      return null;
+    }
+  }
+
+  async function runMasterWhatsappAction(action: "start" | "qr" | "disconnect" | "restart") {
+    setMasterWhatsappBusy(action);
+    setMasterWhatsappError(null);
+    try {
+      const next = action === "qr"
+        ? await apiFetch<WhatsAppModalPayload>("/companies/master/whatsapp-modal/qr")
+        : await apiFetch<WhatsAppModalPayload>(`/companies/master/whatsapp-modal/${action}`, { method: "POST" });
+      setMasterWhatsapp(next);
+      if ((action === "start" || action === "restart") && next.data.available && next.status !== "connected") {
+        await loadMasterWhatsapp(true);
+      }
+    } catch (actionError) {
+      setMasterWhatsappError(actionError instanceof Error ? actionError.message : "Falha na ação do WhatsApp Master.");
+    } finally {
+      setMasterWhatsappBusy(null);
+    }
+  }
+
+  useEffect(() => {
+    if (hasToken !== true || area !== "whatsapp" || !user?.isSystemMaster) return;
+    void loadMasterWhatsapp(false);
+  }, [hasToken, area, user?.isSystemMaster]);
 
   const companies = workspace?.companies || [];
   const filteredCompanies = useMemo(() => {
@@ -813,6 +856,52 @@ export default function MasterOperationalView({ area }: { area: MasterArea }) {
 
         {area === "whatsapp" ? (
           <>
+            <section className={styles.masterWhatsappEngine}>
+              <div className={styles.masterWhatsappEngineHeader}>
+                <div>
+                  <p className={styles.sectionEyebrow}>Motor Master</p>
+                  <h2>WhatsApp de verificação dos cards</h2>
+                  <p>Esta sessão é técnica e separada dos clientes. Ela será usada depois para confirmar se o número existe no WhatsApp.</p>
+                </div>
+                <span className={badgeClass(masterWhatsapp?.status === "connected" ? "success" : masterWhatsapp?.status === "error" ? "danger" : "warning")}>
+                  {whatsappModalStatusLabel(masterWhatsapp?.status)}
+                </span>
+              </div>
+              {masterWhatsappError ? <div className="alert alert-error">{masterWhatsappError}</div> : null}
+              <div className={styles.masterWhatsappEngineGrid}>
+                <div className={styles.masterWhatsappEngineMeta}>
+                  <div><span>Tenant</span><strong>{masterWhatsapp?.data.tenantKey || "-"}</strong></div>
+                  <div><span>Número</span><strong>{masterWhatsapp?.data.phone || "Aguardando login"}</strong></div>
+                  <div><span>Conectado em</span><strong>{formatDateTime(masterWhatsapp?.data.connectedAt)}</strong></div>
+                  <div><span>Provider</span><strong>{masterWhatsapp?.data.providerHealth || "unknown"}</strong></div>
+                </div>
+                <div className={styles.masterWhatsappQrBox}>
+                  {masterWhatsapp?.data.qrCodeDataUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={masterWhatsapp.data.qrCodeDataUrl} alt="QR do WhatsApp Master" />
+                  ) : (
+                    <div>
+                      <strong>{masterWhatsapp?.status === "connected" ? "Sessão conectada" : "QR não carregado"}</strong>
+                      <span>{masterWhatsapp?.message || "Inicie a sessão para carregar o QR."}</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+              <div className={styles.rowActions}>
+                <button type="button" className="btn btn-primary btn-sm" disabled={Boolean(masterWhatsappBusy)} onClick={() => void runMasterWhatsappAction("start")}>
+                  {masterWhatsappBusy === "start" ? "Iniciando..." : "Iniciar / carregar QR"}
+                </button>
+                <button type="button" className="btn btn-secondary btn-sm" disabled={Boolean(masterWhatsappBusy)} onClick={() => void runMasterWhatsappAction("qr")}>
+                  {masterWhatsappBusy === "qr" ? "Atualizando..." : "Atualizar QR"}
+                </button>
+                <button type="button" className="btn btn-secondary btn-sm" disabled={Boolean(masterWhatsappBusy)} onClick={() => void runMasterWhatsappAction("restart")}>
+                  {masterWhatsappBusy === "restart" ? "Reiniciando..." : "Reiniciar sessão"}
+                </button>
+                <button type="button" className="btn btn-secondary btn-sm" disabled={Boolean(masterWhatsappBusy)} onClick={() => void runMasterWhatsappAction("disconnect")}>
+                  {masterWhatsappBusy === "disconnect" ? "Desconectando..." : "Desconectar"}
+                </button>
+              </div>
+            </section>
             <section className={styles.summaryCard}>
               <div className={styles.summaryStats}>
                 <div><span>Conectados</span><strong>{whatsappOverview.connected}</strong></div>

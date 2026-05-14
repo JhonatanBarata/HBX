@@ -6,6 +6,7 @@ import {
 import "./globals.css";
 import { InterfaceTransitionProvider } from "../components/InterfaceTransitionProvider";
 import PageTransition from "../components/PageTransition";
+import PreCheckoutGate from "../components/PreCheckoutGate";
 import TopBar from "../components/TopBar";
 import { ThemeProvider } from "../components/ThemeProvider";
 import WhatsAppHelpBubble from "../components/WhatsAppHelpBubble";
@@ -261,7 +262,9 @@ export default function RootLayout({
         <ThemeProvider>
           <InterfaceTransitionProvider>
             <TopBar />
-            <PageTransition>{children}</PageTransition>
+            <PreCheckoutGate>
+              <PageTransition>{children}</PageTransition>
+            </PreCheckoutGate>
             <WhatsAppHelpBubble />
           </InterfaceTransitionProvider>
         </ThemeProvider>

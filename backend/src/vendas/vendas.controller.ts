@@ -123,6 +123,13 @@ export class VendasController {
     return this.vendasService.updateLeadForUser(req.user, leadId, dto);
   }
 
+  @Post('lead/:leadId/enrichment')
+  enrichLead(@Req() req: any, @Param('leadId') leadId: string, @Body() body?: { templateOffset?: number }) {
+    return this.vendasService.enrichLeadForUser(req.user, leadId, {
+      templateOffset: Number(body?.templateOffset || 0),
+    });
+  }
+
   @Post('lead/:leadId/presentation-draft')
   buildPresentationDraft(@Req() req: any, @Param('leadId') leadId: string) {
     return this.vendasService.buildPresentationEmailDraftForUser(req.user, leadId);

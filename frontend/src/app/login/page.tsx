@@ -467,15 +467,17 @@ export default function LoginPage() {
       return;
     }
 
+    let nextDestination = destination;
     if (destination === "/boasvindas") {
       try {
         sessionStorage.setItem(LOGIN_TO_WELCOME_TRANSITION_KEY, "mobile-auth");
       } catch {
         // ignore sessionStorage errors
       }
+      nextDestination = "/boasvindas?entry=mobile";
     }
 
-    router.replace(destination);
+    router.replace(nextDestination);
   }
 
   async function authenticate(nextUsername: string, nextPassword: string, forceSession = false) {
