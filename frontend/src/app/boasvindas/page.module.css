@@ -13,6 +13,23 @@
     linear-gradient(180deg, #08111f 0%, #0b1728 48%, #060b14 100%);
 }
 
+@media (max-width: 560px) {
+  .mobileHeroVisual {
+    width: min(100%, 240px);
+    margin: 4px auto 0;
+    display: grid;
+    place-items: center;
+  }
+
+  .mobileHeroVisual img {
+    width: 100%;
+    max-height: 132px;
+    height: auto;
+    display: block;
+    object-fit: contain;
+  }
+}
+
 .page::before {
   content: "";
   position: absolute;

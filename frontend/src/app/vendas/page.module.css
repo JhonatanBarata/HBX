@@ -8,6 +8,22 @@
   --card-shadow: 0 28px 54px -38px rgba(15, 23, 42, 0.32);
 }
 
+@media (max-width: 820px) {
+  .mobileEmptyVisual {
+    width: min(100%, 230px);
+    display: grid;
+    place-items: center;
+  }
+
+  .mobileEmptyVisual img {
+    width: 100%;
+    max-height: 150px;
+    height: auto;
+    display: block;
+    object-fit: contain;
+  }
+}
+
 .mobileVendasShell {
   display: none;
 }

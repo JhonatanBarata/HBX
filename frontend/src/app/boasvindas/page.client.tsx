@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { apiFetch } from "@/app/_lib/api";
@@ -473,6 +474,15 @@ export default function BoasVindasClientPage() {
               <span>Olá</span>
               <h1>Sua operação hoje</h1>
               <p>{mobileHeroSubtitle(welcomeState)}</p>
+              <div className={styles.mobileHeroVisual} aria-hidden="true">
+                <Image
+                  src="/hbx-visuals/onboarding/welcome-mobile.webp"
+                  alt=""
+                  width={320}
+                  height={220}
+                  priority
+                />
+              </div>
             </section>
 
             <section className={`${styles.mobileStatusGrid} hbx-mobile-grid`} aria-label="Status da operação">
@@ -517,6 +527,15 @@ export default function BoasVindasClientPage() {
             <span>Olá</span>
             <h1>Sua operação hoje</h1>
             <p>{mobileHeroSubtitle(welcomeState)}</p>
+            <div className={styles.mobileHeroVisual} aria-hidden="true">
+              <Image
+                src="/hbx-visuals/onboarding/welcome-mobile.webp"
+                alt=""
+                width={320}
+                height={220}
+                priority
+              />
+            </div>
           </section>
 
           <section className={`${styles.mobileStatusGrid} hbx-mobile-grid`} aria-label="Status da operação">
