@@ -2687,6 +2687,7 @@ export default function VendasClientPage() {
               {error ? <div className={`${styles.errorBanner} hbx-mobile-notice`} data-tone="error">{error}</div> : null}
 
               <section className={`${styles.mobileLeadHeroPremium} hbx-mobile-hero hbx-mobile-glass`}>
+                <span className={styles.mobileLeadHeroVisual} aria-hidden="true" />
                 <div className={styles.mobileLeadHeroIdentity}>
                   <div className={styles.mobileLeadPlusAvatar} aria-hidden="true">
                     <svg viewBox="0 0 24 24">
@@ -2850,6 +2851,7 @@ export default function VendasClientPage() {
               </section>
 
               <section id="mobile-lead-note" className={`${styles.mobileLeadObservationCard} hbx-mobile-card`}>
+                <span className={styles.mobileLeadObservationVisual} aria-hidden="true" />
                 <div className={styles.mobileLeadObservationHeader}>
                   <h3>
                     <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -2911,6 +2913,7 @@ export default function VendasClientPage() {
               </section>
 
               <section className={`${styles.mobileLeadTimeline} hbx-mobile-card`}>
+                <span className={styles.mobileTimelineVisual} aria-hidden="true" />
                 <h3>Histórico</h3>
                 {(timeline.length
                   ? timeline
