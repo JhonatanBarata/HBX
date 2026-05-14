@@ -633,13 +633,14 @@ export default function TutorialClientPage() {
     setLoading(true);
     setError(null);
     try {
-      const [plansPayload, modulesPayload, operationalPayload, centerPayload, modalPayload, vendasPayload] = await Promise.all([
+      const [plansPayload, modulesPayload, operationalPayload, centerPayload, modalPayload, vendasPayload, inboxPayload] = await Promise.all([
         apiFetch<CommercialPlansPayload>("/commercial-plans/me"),
         apiFetch<UserModule[]>("/modules/me"),
         apiFetch<OperationalStatusPayload>("/companies/me/operational-status").catch(() => null),
         apiFetch<WhatsAppCenterPayload>("/companies/me/whatsapp-center").catch(() => null),
         apiFetch<WhatsAppModalPayload>("/companies/me/whatsapp-modal/status").catch(() => null),
         apiFetch<{ summary?: { total?: number; today?: number; overdue?: number; scheduled?: number } }>("/vendas/board").catch(() => null),
+        apiFetch<{ conversations?: unknown[]; pendingHumanCount?: number; total?: number }>("/inbox/conversations?limit=1").catch(() => null),
       ]);
       const botPayload = plansPayload.current.entitlements.bot_ia
         ? await apiFetch<AtendimentoBotConfig>("/inbox/bot-config").catch(() => null)
@@ -660,8 +661,14 @@ export default function TutorialClientPage() {
       setSimpleSignals({
         vendasTotal,
         vendasPending,
-        conversations: 0,
-        pendingHuman: 0,
+        conversations: Math.max(
+          0,
+          Math.trunc(
+            Number(inboxPayload?.total) ||
+              (Array.isArray(inboxPayload?.conversations) ? inboxPayload.conversations.length : 0),
+          ),
+        ),
+        pendingHuman: Math.max(0, Math.trunc(Number(inboxPayload?.pendingHumanCount || 0))),
       });
       if (botPayload) {
         const normalizedBot = normalizeBotConfig(botPayload);
