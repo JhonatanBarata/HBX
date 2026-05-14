@@ -29,6 +29,7 @@ import DashboardScaffold from "@/components/DashboardScaffold";
 import LiquidGlassCard, {
   liquidGlassCardStyles as glassCardStyles,
 } from "@/components/LiquidGlassCard";
+import HbxMobileDock from "@/components/mobile/HbxMobileDock";
 import { useQuickLaunchNotice } from "@/components/useQuickLaunchNotice";
 import { apiFetch } from "@/app/_lib/api";
 import { startSmartPolling } from "@/app/_lib/polling";
@@ -2809,6 +2810,7 @@ export default function VendasClientPage() {
                 {mobileSavingNote ? "Salvando" : "Salvar"}
               </button>
             </nav>
+            <HbxMobileDock primaryLabel="Incluir lead manual" onPrimaryAction={() => setComposerOpen(true)} />
           </div>
         </section>
       );
@@ -3061,15 +3063,7 @@ export default function VendasClientPage() {
           </div>
         )}
 
-        <nav className={styles.mobileVendasBottomNav} aria-label="Acoes de vendas mobile">
-          <button
-            type="button"
-            onClick={() => setComposerOpen(true)}
-            aria-label="Incluir lead manual"
-          >
-            +
-          </button>
-        </nav>
+        <HbxMobileDock primaryLabel="Incluir lead manual" onPrimaryAction={() => setComposerOpen(true)} />
 
         {mobileReportLead ? (
           <div
@@ -4360,6 +4354,7 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
           </div>
         ) : null}
         </DndContext>
+        </div>
 
       {composerOpen ? (
         <div
@@ -4571,7 +4566,6 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
           </div>
         </div>
       ) : null}
-      </div>
     </DashboardScaffold>
   );
 }

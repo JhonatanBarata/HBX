@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { apiFetch } from "@/app/_lib/api";
 import { useRequireAuth } from "@/app/_lib/useRequireAuth";
+import HbxMobileDock from "@/components/mobile/HbxMobileDock";
 import { normalizeUserModuleKey, type UserModule } from "@/lib/hbx-modules";
 import styles from "./page.module.css";
 
@@ -268,6 +269,8 @@ function MobileDashboard({
           </div>
         ))}
       </section>
+
+      <HbxMobileDock primaryHref="/radar-digital" primaryLabel="Buscar leads no Radar" />
     </div>
   );
 }

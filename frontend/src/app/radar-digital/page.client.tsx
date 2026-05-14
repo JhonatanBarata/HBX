@@ -4,6 +4,7 @@ import Image from "next/image";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import DashboardScaffold from "@/components/DashboardScaffold";
+import HbxMobileDock from "@/components/mobile/HbxMobileDock";
 import {
   HbxAdvancedFilters,
   HbxEngineSelector,
@@ -1106,6 +1107,20 @@ export default function RadarDigitalClientPage() {
   const mobileVendasPendingCount = Math.max(0, Number(vendasPending?.pendingCount || 0));
   const mobileVendasBlocked = Boolean(vendasPending?.blocked || mobileVendasPendingCount >= mobileVendasLimit);
   const mobileRadarProcessing = searching || Boolean(activeRun) || bulkSending || mobileAutoImportPending;
+  const mobileDockCanSearch = !mobileVendasBlocked && !searching && !activeRun && !bulkSending;
+
+  function handleMobileDockPrimary() {
+    if (mobileDockCanSearch && canPullWithFilters(effectiveFilters)) {
+      void runRadarSearch("off");
+      return;
+    }
+    const firstField = document.querySelector<HTMLElement>(
+      `.${styles.mobileRadarForm} select, .${styles.mobileRadarForm} input`,
+    );
+    firstField?.focus();
+    firstField?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }
+
   return (
     <DashboardScaffold
       title="Radar Digital"
@@ -1358,6 +1373,8 @@ export default function RadarDigitalClientPage() {
               </div>
             )}
           </section>
+
+          <HbxMobileDock primaryLabel="Buscar no Radar" onPrimaryAction={handleMobileDockPrimary} />
         </div>
 
         <header className={styles.header}>
