@@ -534,6 +534,8 @@ export class CompaniesService implements OnModuleInit, OnModuleDestroy {
         paymentStatus: this.normalizeOptionalString((company as any)?.paymentStatus),
         subscriptionStatus: this.normalizeOptionalString((company as any)?.subscriptionStatus),
         premiumAccess: Boolean((company as any)?.premiumAccess),
+        selectedPlanKey: this.normalizeOptionalString((company as any)?.selectedPlanKey),
+        contactPhone: this.normalizeOptionalString((company as any)?.contactPhone),
         trialModuleSelection: this.normalizeOptionalString((company as any)?.trialModuleSelection),
         whatsappConnectionMode:
           this.normalizeOptionalString((company as any)?.whatsappConnectionMode)?.toUpperCase() === 'TEMPORARY'

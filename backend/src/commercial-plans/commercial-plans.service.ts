@@ -420,7 +420,7 @@ export class CommercialPlansService {
   }
 
   private canStartCommercialTrial(company: any, planKey: ActiveCommercialPlanKey) {
-    if (planKey !== COMMERCIAL_PLAN_KEYS.LITE && planKey !== COMMERCIAL_PLAN_KEYS.MELHOR) return false;
+    if (planKey !== COMMERCIAL_PLAN_KEYS.PADRAO) return false;
     if (company?.trialStartsAt || company?.trialEndsAt) return false;
     const paymentStatus = String(company?.paymentStatus || '').trim().toUpperCase();
     const subscriptionStatus = String(company?.subscriptionStatus || '').trim().toLowerCase();

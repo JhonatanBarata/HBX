@@ -2147,3 +2147,18 @@
     box-shadow: 0 -5px 0 -3px currentColor;
   }
 }
+
+/* /register plan step: cards must be fully clickable and readable on desktop and mobile. */
+:global(.registerConsole[data-register-step="plans"]) .plansGrid[data-mode="signup"] {
+  display: grid !important;
+  grid-auto-flow: row !important;
+  grid-auto-columns: auto !important;
+  grid-template-columns: minmax(0, 1fr) !important;
+  overflow: visible !important;
+  padding: 0 !important;
+  scroll-snap-type: none !important;
+}
+
+:global(.registerConsole[data-register-step="plans"]) .plansGrid[data-mode="signup"] .planCard {
+  scroll-snap-align: none !important;
+}

@@ -89,6 +89,7 @@ function isLocalMockWelcomeEnabled() {
 
 function localWelcomePath(status?: string | null) {
   const normalized = String(status || "").trim().toLowerCase();
+  if (normalized === "pending_trial_activation") return "/register?start=trial";
   const reason = normalized === "active_trial" ? "trial" : "pending_checkout";
   return `${LOCAL_WELCOME_PATH}?reason=${reason}`;
 }
@@ -392,7 +393,9 @@ function ConfirmEmailInner() {
               router.push(destination);
             }}
           >
-            {confirmedStatus === "pending_checkout" ? "Ir para pagamento" : "Entrar no HBX"}
+              {confirmedStatus === "pending_trial_activation"
+                ? "Ativar trial"
+                : confirmedStatus === "pending_checkout" ? "Ir para pagamento" : "Entrar no HBX"}
           </button>
         ) : null}
 

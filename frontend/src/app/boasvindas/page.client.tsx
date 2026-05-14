@@ -160,9 +160,9 @@ function resolveWelcomeStep(state: WelcomeState, mobileViewport: boolean, tutori
     return {
       kind: "connect",
       title: "Próximo passo",
-      subtitle: "Conectar o WhatsApp",
+      subtitle: "Vincule seu número para continuar.",
       actionLabel: "Conectar WhatsApp",
-      path: "/whatsapp?focus=qr&from=boasvindas",
+      path: mobileViewport ? "/whatsapp?focus=phone&from=boasvindas" : "/whatsapp?focus=qr&from=boasvindas",
       loadingText: "Motor ainda não conectado.",
     };
   }

@@ -2577,6 +2577,7 @@ function topbarTileFromWhatsAppLiveHealth(health: WhatsAppLiveHealthPayload): To
 export default function TopBar() {
   const router = useRouter();
   const pathname = usePathname();
+  const isTopbarHiddenRoute = hiddenRoutes.has(pathname || "");
   const topbarFrameRef = useRef<HTMLDivElement | null>(null);
   const userMenuRef = useRef<HTMLDivElement | null>(null);
   const unreadMenuRef = useRef<HTMLDivElement | null>(null);
@@ -3494,6 +3495,10 @@ export default function TopBar() {
 
   useLayoutEffect(() => {
     function refreshAuthState() {
+      if (isTopbarHiddenRoute) {
+        setAuthenticated(false);
+        return;
+      }
       setAuthenticated(Boolean(getToken()));
     }
 
@@ -3504,7 +3509,7 @@ export default function TopBar() {
       window.removeEventListener("auth-change", refreshAuthState);
       window.removeEventListener("storage", refreshAuthState);
     };
-  }, []);
+  }, [isTopbarHiddenRoute]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -5153,7 +5158,7 @@ export default function TopBar() {
   const _initialSource = displayName || String(user?.username || user?.email || "");
   const displayInitial = _initialSource ? _initialSource.charAt(0).toUpperCase() : "U";
   const displayLabel = displayName || user?.username || "";
-  if (hiddenRoutes.has(pathname)) {
+  if (isTopbarHiddenRoute) {
     return null;
   }
 

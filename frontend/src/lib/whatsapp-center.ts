@@ -9,6 +9,8 @@ export type WhatsAppCenterPayload = {
     paymentStatus?: string | null;
     subscriptionStatus?: string | null;
     premiumAccess?: boolean;
+    selectedPlanKey?: string | null;
+    contactPhone?: string | null;
     trialModuleSelection?: string | null;
     whatsappConnectionMode?: string | null;
     whatsappTemporaryStatus?: string | null;

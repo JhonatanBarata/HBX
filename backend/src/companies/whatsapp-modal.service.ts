@@ -1,6 +1,7 @@
 import { BadRequestException, HttpException, HttpStatus, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import axios, { AxiosError, AxiosResponse, Method } from 'axios';
 import * as QRCode from 'qrcode';
+import { COMMERCIAL_PLAN_KEYS } from '../commercial-plans/commercial-plan-catalog';
 import { ensureMasterBillingRuntimeSchema } from '../modules/master-runtime';
 import { PrismaService } from '../prisma/prisma.service';
 
@@ -41,6 +42,8 @@ type CompanyModalFields = {
   paymentStatus: string | null;
   subscriptionStatus: string | null;
   onboardingStatus: string | null;
+  selectedPlanKey: string | null;
+  contactPhone: string | null;
   premiumAccess: boolean | null;
   isActive: boolean | null;
   trialStartsAt: Date | null;
@@ -687,6 +690,7 @@ export class WhatsAppModalService {
     }
 
     const normalizedPhone = this.normalizePairingPhoneOrThrow(phoneNumber);
+    this.assertLeadTrialPairingPhoneAllowed(company, normalizedPhone);
     const latest = await this.fetchLiveSnapshot(company, { includeQr: false });
     if (latest.status === 'connected') {
       return {
@@ -904,6 +908,31 @@ export class WhatsAppModalService {
       || subscriptionStatus === 'trialing'
       || onboardingStatus === 'active_trial'
     );
+  }
+
+  private isLeadTrialingCompany(company: Pick<CompanyModalFields, 'paymentStatus' | 'subscriptionStatus' | 'onboardingStatus' | 'trialEndsAt' | 'selectedPlanKey'>) {
+    const selectedPlanKey = String(company.selectedPlanKey || '').trim().toLowerCase();
+    return selectedPlanKey === COMMERCIAL_PLAN_KEYS.PADRAO && this.isTrialingCompany(company);
+  }
+
+  private assertLeadTrialPairingPhoneAllowed(company: CompanyModalFields, phoneNumber: string) {
+    if (!this.isLeadTrialingCompany(company)) return;
+
+    const lockedPhone = this.normalizeTrialPhone(company.contactPhone);
+    if (!lockedPhone) {
+      throw new BadRequestException({
+        code: 'TRIAL_CONTACT_PHONE_REQUIRED',
+        message: 'Telefone do trial não encontrado. Acione o suporte para liberar o vínculo do WhatsApp.',
+      });
+    }
+
+    const requestedPhone = this.normalizeTrialPhone(phoneNumber);
+    if (requestedPhone !== lockedPhone) {
+      throw new BadRequestException({
+        code: 'TRIAL_WHATSAPP_PHONE_LOCKED',
+        message: 'No trial HBX Lead, vincule o WhatsApp ao telefone informado na ativação. Para trocar o telefone, acione o suporte.',
+      });
+    }
   }
 
   private isPaidOrActiveCompany(company: Pick<CompanyModalFields, 'paymentStatus' | 'subscriptionStatus' | 'premiumAccess'>) {
@@ -2649,6 +2678,8 @@ export class WhatsAppModalService {
         paymentStatus: true,
         subscriptionStatus: true,
         onboardingStatus: true,
+        selectedPlanKey: true,
+        contactPhone: true,
         premiumAccess: true,
         isActive: true,
         trialStartsAt: true,

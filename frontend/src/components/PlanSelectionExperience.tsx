@@ -107,7 +107,7 @@ export default function PlanSelectionExperience({
         const billingHint =
           annual && hasPrice
             ? `20% OFF. Cobrado anualmente: ${money(annualTotal(plan))}.`
-            : plan.note || (mode === "signup" ? null : plan.key === "hbx_padrao" ? "1º mês grátis. Sem cobrança agora." : "Checkout após confirmação.");
+            : plan.note || (mode === "signup" ? null : plan.key === "hbx_padrao" ? "14 dias grátis. Sem cobrança agora." : "Checkout após confirmação.");
         return (
           <button
             key={plan.key}

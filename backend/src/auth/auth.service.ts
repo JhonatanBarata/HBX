@@ -297,8 +297,7 @@ export class AuthService implements OnModuleInit {
   }
 
   private getPublicTrialDaysForPlan(planKey: ActiveCommercialPlanKey) {
-    if (planKey === COMMERCIAL_PLAN_KEYS.LITE || planKey === COMMERCIAL_PLAN_KEYS.PADRAO) return 30;
-    if (planKey === COMMERCIAL_PLAN_KEYS.MELHOR) return 7;
+    if (planKey === COMMERCIAL_PLAN_KEYS.PADRAO) return 14;
     return 0;
   }
 
@@ -359,7 +358,11 @@ export class AuthService implements OnModuleInit {
   }
 
   private pendingCheckoutNextPath() {
-    return '/dashboard/financeiro?focus=payment&reason=pending_checkout';
+    return '/pagamento?focus=payment&reason=pending_checkout';
+  }
+
+  private pendingTrialActivationNextPath() {
+    return '/register?start=trial';
   }
 
   private buildEmailConfirmationPollToken(userId: number) {
@@ -1095,8 +1098,15 @@ export class AuthService implements OnModuleInit {
       ['active', 'authorized', 'manual'].includes(String(company?.subscriptionStatus || '').trim().toLowerCase()) ||
       ['PAID', 'MANUAL'].includes(String(company?.paymentStatus || '').trim().toUpperCase()) ||
       Boolean(company?.premiumAccess);
+    const pendingTrialActivation =
+      !accessReleased &&
+      (
+        String(company?.onboardingStatus || '').trim().toLowerCase() === 'pending_trial_activation' ||
+        String(company?.subscriptionStatus || '').trim().toLowerCase() === 'pending_trial_activation'
+      );
     const pendingCheckout =
       !accessReleased &&
+      !pendingTrialActivation &&
       (
         String(company?.onboardingStatus || '').trim().toLowerCase() === 'pending_checkout' ||
         String(company?.subscriptionStatus || '').trim().toLowerCase() === 'pending_checkout' ||
@@ -1111,10 +1121,13 @@ export class AuthService implements OnModuleInit {
       access_token: this.jwtService.sign(payload),
       next: Boolean(sessionContext.user?.isSystemMaster)
         ? '/dashboard/master'
-        : pendingCheckout
+        : pendingTrialActivation
+          ? this.pendingTrialActivationNextPath()
+          : pendingCheckout
           ? pendingCheckoutNext
           : '/dashboard',
       requiresCheckout: pendingCheckout,
+      requiresTrialActivation: pendingTrialActivation,
     };
   }
 
@@ -1184,7 +1197,33 @@ export class AuthService implements OnModuleInit {
             emailConfirmationExpiresAt: null,
           },
         });
-        await this.activateConfirmedTrialTx(tx, companyId, confirmedAt);
+        const selectedCompany = await tx.company.findUnique({
+          where: { id: companyId },
+          select: { selectedPlanKey: true },
+        });
+        const selectedPlanKey = this.normalizeSelectedPlanKey(selectedCompany?.selectedPlanKey || undefined);
+        if (this.getPublicTrialDaysForPlan(selectedPlanKey) > 0) {
+          await tx.company.update({
+            where: { id: companyId },
+            data: {
+              selectedPlanKey,
+              trialModuleSelection: this.resolveTrialModuleForPlan(selectedPlanKey),
+              onboardingStatus: 'pending_trial_activation',
+              isActive: false,
+              paymentStatus: 'PENDING',
+              subscriptionStatus: 'pending_trial_activation',
+              premiumAccess: false,
+              trialStartsAt: null,
+              trialEndsAt: null,
+              subscriptionCurrentPeriodStart: null,
+              subscriptionCurrentPeriodEnd: null,
+              deactivatedAt: confirmedAt,
+            },
+          });
+          await tx.companyModule.updateMany({ where: { companyId }, data: { enabled: false } });
+        } else {
+          await this.activateConfirmedTrialTx(tx, companyId, confirmedAt);
+        }
       });
     }
 
@@ -1308,10 +1347,10 @@ export class AuthService implements OnModuleInit {
     const hashed = await bcrypt.hash(password, 12);
     const entityType = this.normalizeEntityType(data.entityType) || 'PF';
     const selectedPlanKey = this.normalizePublicSelectedPlanKey(data.selectedPlanKey);
-    const trialModuleSelection = this.resolveTrialModuleForPlan(selectedPlanKey);
-    const signupTrialProfile = this.getPublicTrialDaysForPlan(selectedPlanKey) > 0
-      ? this.validateSignupTrialProfile(data)
+    const trialModuleSelection = this.getPublicTrialDaysForPlan(selectedPlanKey) > 0
+      ? this.resolveTrialModuleForPlan(selectedPlanKey)
       : null;
+    const signupTrialProfile = null as { contactName: string; contactPhone: string; taxDocument: string } | null;
     const acquisitionSource = this.normalizeAcquisitionSource(data.acquisitionSource);
     const acquisitionSourceDetail = String(data.acquisitionSourceDetail || '').trim() || null;
     const referralReferrerName = String(data.referralReferrerName || '').trim() || null;
@@ -1651,6 +1690,11 @@ export class AuthService implements OnModuleInit {
         role: true,
         isSystemMaster: true,
         emailConfirmationExpiresAt: true,
+        company: {
+          select: {
+            selectedPlanKey: true,
+          },
+        },
       },
     });
 
@@ -1670,6 +1714,8 @@ export class AuthService implements OnModuleInit {
 
     const confirmedAt = new Date();
     let trialEndsAt: Date | null = null;
+    const selectedPlanKey = this.normalizeSelectedPlanKey(user.company?.selectedPlanKey || undefined);
+    const requiresTrialActivation = Boolean(user.companyId && this.getPublicTrialDaysForPlan(selectedPlanKey) > 0);
 
     await this.prisma.$transaction(async (tx) => {
       await tx.user.update({
@@ -1683,7 +1729,29 @@ export class AuthService implements OnModuleInit {
       });
 
       if (user.companyId) {
-        trialEndsAt = await this.activateConfirmedTrialTx(tx, Number(user.companyId), confirmedAt);
+        if (requiresTrialActivation) {
+          await tx.company.update({
+            where: { id: Number(user.companyId) },
+            data: {
+              selectedPlanKey,
+              trialModuleSelection: this.resolveTrialModuleForPlan(selectedPlanKey),
+              onboardingStatus: 'pending_trial_activation',
+              isActive: false,
+              paymentStatus: 'PENDING',
+              subscriptionStatus: 'pending_trial_activation',
+              premiumAccess: false,
+              trialStartsAt: null,
+              trialEndsAt: null,
+              subscriptionCurrentPeriodStart: null,
+              subscriptionCurrentPeriodEnd: null,
+              deactivatedAt: confirmedAt,
+            },
+          });
+          await this.syncPlanModulesTx(tx, Number(user.companyId), selectedPlanKey);
+          await tx.companyModule.updateMany({ where: { companyId: Number(user.companyId) }, data: { enabled: false } });
+        } else {
+          trialEndsAt = await this.activateConfirmedTrialTx(tx, Number(user.companyId), confirmedAt);
+        }
       }
     });
 
@@ -1699,14 +1767,16 @@ export class AuthService implements OnModuleInit {
           { companyId: Number(user.companyId), userAgent: opts?.userAgent, ip: opts?.ip },
         )
       : null;
-    const next = loginPayload?.next || (trialEndsAt ? '/dashboard' : this.pendingCheckoutNextPath());
+    const next = loginPayload?.next || (requiresTrialActivation ? this.pendingTrialActivationNextPath() : trialEndsAt ? '/dashboard' : this.pendingCheckoutNextPath());
 
     return {
       ok: true,
-      status: user.companyId ? (trialEndsAt ? 'active_trial' : 'pending_checkout') : 'confirmed',
+      status: user.companyId ? (requiresTrialActivation ? 'pending_trial_activation' : trialEndsAt ? 'active_trial' : 'pending_checkout') : 'confirmed',
       email: user.email || null,
       message: user.companyId
-        ? trialEndsAt
+        ? requiresTrialActivation
+          ? 'E-mail confirmado. Agora ative seu trial gratuito de 14 dias.'
+          : trialEndsAt
           ? `E-mail confirmado. O trial gratuito está ativo até ${trialEndsAt.toLocaleDateString('pt-BR')}.`
           : 'E-mail confirmado. Finalize o pagamento no Financeiro para liberar o plano.'
         : 'E-mail confirmado com sucesso.',
@@ -1716,10 +1786,107 @@ export class AuthService implements OnModuleInit {
       next,
       loginNext: loginPayload?.access_token
         ? next
+        : requiresTrialActivation
+        ? `/login?next=${encodeURIComponent(this.pendingTrialActivationNextPath())}`
         : trialEndsAt
         ? '/login?next=/dashboard'
         : `/login?next=${encodeURIComponent(this.pendingCheckoutNextPath())}`,
       requiresCheckout: Boolean(loginPayload?.requiresCheckout),
+      requiresTrialActivation,
+    };
+  }
+
+  async activateTrialAfterEmailConfirmation(user: any, data: {
+    trialContactName?: string | null;
+    trialTaxDocument?: string | null;
+    trialContactPhone?: string | null;
+    acceptedTerms?: boolean | null;
+  }) {
+    const userId = Number(user?.id || 0);
+    const companyId = Number(user?.companyId || 0);
+    if (!userId || !companyId) {
+      throw new UnauthorizedException('Sessão inválida para ativar trial.');
+    }
+
+    const trialProfile = this.validateSignupTrialProfile(data);
+    const now = new Date();
+    let trialEndsAt: Date | null = null;
+
+    const company = await this.prisma.company.findUnique({
+      where: { id: companyId },
+      select: {
+        selectedPlanKey: true,
+        onboardingStatus: true,
+        subscriptionStatus: true,
+        paymentStatus: true,
+        premiumAccess: true,
+        trialEndsAt: true,
+        users: {
+          where: { id: userId },
+          select: { id: true, emailConfirmedAt: true },
+          take: 1,
+        },
+      },
+    });
+
+    if (!company || !company.users?.length) {
+      throw new UnauthorizedException('Empresa inválida para ativar trial.');
+    }
+    if (!company.users[0].emailConfirmedAt) {
+      throw new BadRequestException({
+        code: 'EMAIL_CONFIRMATION_REQUIRED',
+        message: 'Confirme seu e-mail antes de ativar o trial.',
+      });
+    }
+
+    const selectedPlanKey = this.normalizeSelectedPlanKey(company.selectedPlanKey || undefined);
+    if (this.getPublicTrialDaysForPlan(selectedPlanKey) <= 0) {
+      throw new BadRequestException({
+        code: 'TRIAL_NOT_AVAILABLE_FOR_PLAN',
+        message: 'Este plano nao possui trial gratuito. Finalize o pagamento para liberar o acesso.',
+      });
+    }
+
+    const subscriptionStatus = String(company.subscriptionStatus || '').trim().toLowerCase();
+    const paymentStatus = String(company.paymentStatus || '').trim().toUpperCase();
+    if (
+      company.premiumAccess &&
+      (subscriptionStatus === 'trialing' || paymentStatus === 'TRIAL') &&
+      company.trialEndsAt &&
+      company.trialEndsAt.getTime() > now.getTime()
+    ) {
+      return {
+        ok: true,
+        status: 'active_trial',
+        message: `Trial ja ativo ate ${company.trialEndsAt.toLocaleDateString('pt-BR')}.`,
+        trialStartsAt: null,
+        trialEndsAt: company.trialEndsAt.toISOString(),
+        next: '/boasvindas',
+      };
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.company.update({
+        where: { id: companyId },
+        data: {
+          selectedPlanKey,
+          primaryContactName: trialProfile.contactName,
+          contactPhone: trialProfile.contactPhone,
+          taxDocument: trialProfile.taxDocument || null,
+        },
+      });
+      trialEndsAt = await this.activateConfirmedTrialTx(tx, companyId, now);
+    });
+
+    return {
+      ok: true,
+      status: 'active_trial',
+      message: trialEndsAt
+        ? `Trial gratuito ativo ate ${trialEndsAt.toLocaleDateString('pt-BR')}.`
+        : 'Trial ativado.',
+      trialStartsAt: now.toISOString(),
+      trialEndsAt: trialEndsAt ? trialEndsAt.toISOString() : null,
+      next: '/boasvindas',
     };
   }
 
@@ -1737,6 +1904,7 @@ export class AuthService implements OnModuleInit {
             subscriptionStatus: true,
             paymentStatus: true,
             premiumAccess: true,
+            selectedPlanKey: true,
           },
         },
       },
@@ -1750,6 +1918,9 @@ export class AuthService implements OnModuleInit {
     const subscriptionStatus = String(user.company?.subscriptionStatus || '').trim().toLowerCase();
     const paymentStatus = String(user.company?.paymentStatus || '').trim().toUpperCase();
     const pendingEmailConfirmation = !user.emailConfirmedAt || onboardingStatus === 'pending_email_confirmation';
+    const pendingTrialActivation =
+      !pendingEmailConfirmation &&
+      (onboardingStatus === 'pending_trial_activation' || subscriptionStatus === 'pending_trial_activation');
     const accessReleased =
       ['active', 'authorized', 'manual'].includes(subscriptionStatus) ||
       paymentStatus === 'PAID' ||
@@ -1757,14 +1928,17 @@ export class AuthService implements OnModuleInit {
       Boolean(user.company?.premiumAccess);
     const pendingCheckout =
       !pendingEmailConfirmation &&
+      !pendingTrialActivation &&
       !accessReleased &&
       (onboardingStatus === 'pending_checkout' || subscriptionStatus === 'pending_checkout' || paymentStatus === 'PENDING');
     const status = pendingEmailConfirmation
       ? 'pending_email_confirmation'
+      : pendingTrialActivation
+        ? 'pending_trial_activation'
       : pendingCheckout
         ? 'pending_checkout'
         : 'active_trial';
-    const next = pendingCheckout ? this.pendingCheckoutNextPath() : '/dashboard';
+    const next = pendingTrialActivation ? this.pendingTrialActivationNextPath() : pendingCheckout ? this.pendingCheckoutNextPath() : '/dashboard';
 
     return {
       ok: true,
@@ -1772,7 +1946,10 @@ export class AuthService implements OnModuleInit {
       confirmed: !pendingEmailConfirmation,
       email: user.email || null,
       next,
-      loginNext: pendingCheckout ? `/login?next=${encodeURIComponent(this.pendingCheckoutNextPath())}` : '/login?next=/dashboard',
+      loginNext: pendingTrialActivation
+        ? `/login?next=${encodeURIComponent(this.pendingTrialActivationNextPath())}`
+        : pendingCheckout ? `/login?next=${encodeURIComponent(this.pendingCheckoutNextPath())}` : '/login?next=/dashboard',
+      requiresTrialActivation: pendingTrialActivation,
     };
   }
 

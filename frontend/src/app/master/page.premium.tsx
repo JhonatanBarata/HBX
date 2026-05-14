@@ -866,7 +866,7 @@ export default function MasterPremiumPage() {
   const [financeSettingsDraft, setFinanceSettingsDraft] = useState<FinanceSettingsDraft | null>(null);
   const [whatsAppMigrationWorkflowDraft, setWhatsAppMigrationWorkflowDraft] = useState<WhatsAppMigrationWorkflowDraft | null>(null);
   const [trialDateDraft, setTrialDateDraft] = useState("");
-  const [trialDaysDraft, setTrialDaysDraft] = useState("7");
+  const [trialDaysDraft, setTrialDaysDraft] = useState("14");
   const [moduleCatalogDrafts, setModuleCatalogDrafts] = useState<Record<string, ModuleCatalogDraft>>({});
   const [masterIntegrationsDraft, setMasterIntegrationsDraft] = useState<MasterIntegrationsDraft>({
     mercadoPagoConfigured: false,

@@ -3750,7 +3750,7 @@ export class ModulesService implements OnModuleInit {
     const periodEnd = normalized === 'PAID'
       ? new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000)
       : normalized === 'TRIAL'
-        ? (company.trialEndsAt || this.addDays(now, 30))
+        ? (company.trialEndsAt || this.addDays(now, 14))
         : null;
     await this.prisma.$transaction(async (tx) => {
       await tx.company.update({

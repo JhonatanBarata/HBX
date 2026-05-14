@@ -57,6 +57,22 @@ function resolveInternalNextPath(value: string | null) {
   return raw;
 }
 
+function isSmallWhatsAppViewport() {
+  if (typeof window === "undefined") return false;
+  return window.matchMedia("(max-width: 768px)").matches;
+}
+
+function isTrialingCompany(payload?: WhatsAppCenterPayload | null) {
+  const paymentStatus = String(payload?.company.paymentStatus || "").trim().toUpperCase();
+  const subscriptionStatus = String(payload?.company.subscriptionStatus || "").trim().toLowerCase();
+  const onboardingStatus = String(payload?.company.onboardingStatus || "").trim().toLowerCase();
+  return paymentStatus === "TRIAL" || subscriptionStatus === "trialing" || onboardingStatus === "active_trial";
+}
+
+function isLeadPlan(payload?: WhatsAppCenterPayload | null) {
+  return String(payload?.company.selectedPlanKey || "").trim().toLowerCase() === "hbx_padrao";
+}
+
 export default function WhatsAppCenterClientPage() {
   const hasToken = useRequireAuth();
   const router = useRouter();
@@ -79,6 +95,7 @@ export default function WhatsAppCenterClientPage() {
   const [pairingExpiresAt, setPairingExpiresAt] = useState<number | null>(null);
   const [pairingRetryAt, setPairingRetryAt] = useState<number | null>(null);
   const [pairingTick, setPairingTick] = useState(0);
+  const [mobileWhatsAppFlow, setMobileWhatsAppFlow] = useState(() => isSmallWhatsAppViewport());
   const [qrLinkMode, setQrLinkMode] = useState<QrLinkMode>(() => (
     searchParams.get("focus") === "phone" ? "phone" : searchParams.get("focus") === "qr" ? "qr" : "idle"
   ));
@@ -262,6 +279,15 @@ export default function WhatsAppCenterClientPage() {
     }
   }, [router]);
 
+  useEffect(() => {
+    if (typeof window === "undefined") return undefined;
+    const media = window.matchMedia("(max-width: 768px)");
+    const onChange = () => setMobileWhatsAppFlow(media.matches);
+    onChange();
+    media.addEventListener("change", onChange);
+    return () => media.removeEventListener("change", onChange);
+  }, []);
+
   async function ensureQrModeSelected() {
     if (payload?.center.mode === "QR") {
       return payload;
@@ -277,6 +303,13 @@ export default function WhatsAppCenterClientPage() {
 
   async function runModalAction(action: "connect" | "disconnect") {
     if (modalActionInFlightRef.current) return;
+    if (mobileWhatsAppFlow && action === "connect") {
+      setQrLinkMode("phone");
+      setModalQrRequested(false);
+      setQrBootstrapStage("idle");
+      setModalError("No mobile, use Vincular por telefone. QR Code e Meta ficam disponíveis no desktop.");
+      return;
+    }
     modalActionInFlightRef.current = true;
     setModalSaving(action);
     setModalError(null);
@@ -369,7 +402,10 @@ export default function WhatsAppCenterClientPage() {
   async function requestPairingCode() {
     if (pairingCodeInFlightRef.current) return;
     const sessionId = modalPayload?.data.tenantKey || payload?.center.qrConnection.instanceKey || null;
-    const normalizedPhone = normalizePairingPhone(pairingPhone);
+    const leadTrialPhoneLocked = Boolean(mobileWhatsAppFlow && isLeadPlan(payload) && isTrialingCompany(payload));
+    const lockedTrialPhone = leadTrialPhoneLocked ? formatPairingPhoneInput(payload?.company.contactPhone || "") : "";
+    const effectivePairingPhone = lockedTrialPhone || pairingPhone;
+    const normalizedPhone = normalizePairingPhone(effectivePairingPhone);
     setPairingError(null);
     setPairingPayload(null);
     setModalQrRequested(false);
@@ -385,6 +421,10 @@ export default function WhatsAppCenterClientPage() {
       setPairingError("Sessão técnica do WhatsApp ainda não carregada.");
       return;
     }
+    if (leadTrialPhoneLocked && !lockedTrialPhone) {
+      setPairingError("Telefone do trial não encontrado. Acione o suporte para liberar o vínculo do WhatsApp.");
+      return;
+    }
     if (!/^\+[1-9]\d{7,14}$/.test(normalizedPhone)) {
       setPairingError("Informe o telefone em formato E.164, exemplo +5519999999999.");
       return;
@@ -393,6 +433,9 @@ export default function WhatsAppCenterClientPage() {
     pairingCodeInFlightRef.current = true;
     setPairingBusy(true);
     try {
+      if (mobileWhatsAppFlow) {
+        await ensureQrModeSelected();
+      }
       setPairingRetryAt(null);
       const response = await apiFetch<WhatsAppPairingCodePayload>(
         `/whatsapp/sessions/${encodeURIComponent(sessionId)}/pairing-code`,
@@ -493,6 +536,7 @@ export default function WhatsAppCenterClientPage() {
     const interval = window.setInterval(() => {
       const shouldPollQr =
         qrLinkMode === "qr"
+        && !mobileWhatsAppFlow
         && modalQrRequested
         && modalPayload.status !== "connected";
       void loadModalStatus(
@@ -502,9 +546,15 @@ export default function WhatsAppCenterClientPage() {
     }, modalPayload.status === "connected" ? 20000 : 7000);
 
     return () => window.clearInterval(interval);
-  }, [modalPayload?.data.available, modalPayload?.status, loadModalStatus, modalQrRequested, qrLinkMode]);
+  }, [mobileWhatsAppFlow, modalPayload?.data.available, modalPayload?.status, loadModalStatus, modalQrRequested, qrLinkMode]);
 
   function handleQrLinkModeChange(mode: QrLinkMode) {
+    if (mobileWhatsAppFlow && mode !== "phone") {
+      setQrLinkMode("phone");
+      setModalQrRequested(false);
+      setQrBootstrapStage("idle");
+      return;
+    }
     setQrLinkMode(mode);
     if (mode === "phone") {
       setModalQrRequested(false);
@@ -519,6 +569,11 @@ export default function WhatsAppCenterClientPage() {
   }, [pairingExpiresAt, pairingRetryAt]);
 
   async function chooseMode(mode: "QR" | "OFFICIAL") {
+    if (mobileWhatsAppFlow && mode !== "QR") {
+      setQrLinkMode("phone");
+      setError("No mobile, use Vincular por telefone. Meta fica disponível no desktop.");
+      return;
+    }
     setSaving(mode);
     setError(null);
     try {
@@ -558,6 +613,9 @@ export default function WhatsAppCenterClientPage() {
 
   const qrBootstrapBusy = qrBootstrapStage === "connecting" || qrBootstrapStage === "mirroring";
   const initialQrLinkMode = searchParams.get("focus") === "phone" ? "phone" : searchParams.get("focus") === "qr" ? "qr" : "idle";
+  const mobilePhoneOnlyMode = mobileWhatsAppFlow;
+  const preferredContactPhone = payload?.company.contactPhone ? formatPairingPhoneInput(payload.company.contactPhone) : "";
+  const leadTrialPhoneLocked = Boolean(mobilePhoneOnlyMode && isLeadPlan(payload) && isTrialingCompany(payload));
   const pairingExpiresInSeconds = pairingExpiresAt
     ? Math.max(0, Math.ceil((pairingExpiresAt - Date.now()) / 1000))
     : 0;
@@ -565,6 +623,20 @@ export default function WhatsAppCenterClientPage() {
     ? Math.max(0, Math.ceil((pairingRetryAt - Date.now()) / 1000))
     : 0;
   void pairingTick;
+
+  useEffect(() => {
+    if (!mobilePhoneOnlyMode) return;
+    setQrLinkMode("phone");
+    setModalQrRequested(false);
+    setQrBootstrapStage("idle");
+    if (!preferredContactPhone) return;
+
+    const currentPhone = normalizePairingPhone(pairingPhone);
+    const preferredPhone = normalizePairingPhone(preferredContactPhone);
+    if (!currentPhone || (leadTrialPhoneLocked && currentPhone !== preferredPhone)) {
+      setPairingPhone(preferredContactPhone);
+    }
+  }, [leadTrialPhoneLocked, mobilePhoneOnlyMode, pairingPhone, preferredContactPhone]);
 
   const qrOperationalError = useMemo(() => {
     if (!modalPayload) return null;
@@ -618,6 +690,13 @@ export default function WhatsAppCenterClientPage() {
             pairingRetryInSeconds={pairingRetryInSeconds}
             onPairingPhoneChange={setPairingPhone}
             onPairingPhoneInput={(value) => setPairingPhone(formatPairingPhoneInput(value))}
+            phoneOnlyMode={mobilePhoneOnlyMode}
+            pairingPhoneLocked={leadTrialPhoneLocked}
+            lockedPhoneNotice={
+              leadTrialPhoneLocked
+                ? "No trial HBX Lead, o WhatsApp deve ser vinculado ao telefone informado na ativação. Para trocar, acione o suporte."
+                : "No mobile, o vínculo é feito por telefone. QR Code e Meta ficam disponíveis no desktop."
+            }
             onQrLinkModeChange={handleQrLinkModeChange}
             onRequestPairingCode={() => void requestPairingCode()}
             onChooseMode={(mode) => void chooseMode(mode)}

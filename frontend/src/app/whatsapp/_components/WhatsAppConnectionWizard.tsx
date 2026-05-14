@@ -28,6 +28,9 @@ type Props = {
   pairingRetryInSeconds: number;
   onPairingPhoneChange: (value: string) => void;
   onPairingPhoneInput?: (value: string) => void;
+  phoneOnlyMode?: boolean;
+  pairingPhoneLocked?: boolean;
+  lockedPhoneNotice?: string | null;
   onQrLinkModeChange?: (mode: QrLinkMode) => void;
   onRequestPairingCode: () => void;
   onChooseMode: (mode: ConnectionMode) => void;
@@ -71,6 +74,9 @@ export default function WhatsAppConnectionWizard({
   pairingRetryInSeconds,
   onPairingPhoneChange,
   onPairingPhoneInput,
+  phoneOnlyMode = false,
+  pairingPhoneLocked = false,
+  lockedPhoneNotice,
   onQrLinkModeChange,
   onRequestPairingCode,
   onChooseMode,
@@ -79,16 +85,16 @@ export default function WhatsAppConnectionWizard({
 }: Props) {
   const [qrPanelClosed, setQrPanelClosed] = useState(false);
   const [localQrLinkMode, setLocalQrLinkMode] = useState<QrLinkMode>(initialQrLinkMode);
-  const activeQrLinkMode = qrLinkMode || localQrLinkMode;
+  const activeQrLinkMode = phoneOnlyMode ? "phone" : qrLinkMode || localQrLinkMode;
   const mode = payload.center.mode;
-  const qrSelected = mode === "QR";
-  const metaSelected = mode === "OFFICIAL";
+  const qrSelected = phoneOnlyMode || mode === "QR";
+  const metaSelected = !phoneOnlyMode && mode === "OFFICIAL";
   const qrReady = isQrReady(modalPayload);
   const qrReconnecting = isQrReconnecting(modalPayload);
   const metaReady = isMetaReady(payload);
   const qrCode = modalPayload?.data.qrCodeDataUrl || null;
   const canUseQr = modalPayload?.data.available !== false;
-  const canUseMeta = true;
+  const canUseMeta = !phoneOnlyMode;
   const showQrLoader = !qrReady && !qrReconnecting && (qrBusy || modalSaving === "connect" || modalPayload?.status === "starting");
   const qrBotReady = qrReady && !showQrLoader && !qrError;
   const canGoBot = qrBotReady || metaReady;
@@ -100,21 +106,25 @@ export default function WhatsAppConnectionWizard({
     : null;
 
   const chooseQr = () => {
+    if (phoneOnlyMode) return;
     setQrPanelClosed(false);
     onChooseMode("QR");
   };
 
   const chooseMeta = () => {
+    if (phoneOnlyMode) return;
     setQrPanelClosed(false);
     onChooseMode("OFFICIAL");
   };
 
   const selectQrLinkMode = (mode: QrLinkMode) => {
+    if (phoneOnlyMode && mode !== "phone") return;
     setLocalQrLinkMode(mode);
     onQrLinkModeChange?.(mode);
   };
 
   const connectQr = () => {
+    if (phoneOnlyMode) return;
     setQrPanelClosed(false);
     selectQrLinkMode("qr");
     onConnectQr();
@@ -132,7 +142,7 @@ export default function WhatsAppConnectionWizard({
         </div>
       </div>
 
-      <div className={styles.connectionGrid}>
+      {!phoneOnlyMode ? <div className={styles.connectionGrid}>
         <button
           type="button"
           className={styles.connectionCard}
@@ -160,11 +170,11 @@ export default function WhatsAppConnectionWizard({
           <strong>META</strong>
           <span className={styles.cardIcon}>{statusGlyph(metaSelected, metaReady)}</span>
         </button>
-      </div>
+      </div> : null}
 
-      {qrSelected && !qrPanelClosed ? (
-        <div className={styles.actionDeck} data-state={qrReconnecting ? "reconnecting" : qrReady ? "ready" : showQrLoader ? "loading" : "idle"}>
-          <div className={styles.linkTabs} role="tablist" aria-label="Modo de vínculo WhatsApp">
+      {qrSelected && (!qrPanelClosed || phoneOnlyMode) ? (
+        <div className={styles.actionDeck} data-state={qrReconnecting ? "reconnecting" : qrReady ? "ready" : showQrLoader ? "loading" : "idle"} data-phone-only={phoneOnlyMode ? "true" : "false"}>
+          {!phoneOnlyMode ? <div className={styles.linkTabs} role="tablist" aria-label="Modo de vínculo WhatsApp">
             <button
               type="button"
               role="tab"
@@ -183,7 +193,7 @@ export default function WhatsAppConnectionWizard({
             >
               Vincular por telefone
             </button>
-          </div>
+          </div> : null}
 
           {qrBotReady ? (
             <div className={styles.connectedToast} role="status">
@@ -245,19 +255,26 @@ export default function WhatsAppConnectionWizard({
           ) : (
             <div className={styles.phoneShell} data-state={pairingCode ? "code" : "form"}>
               <div className={styles.phoneCopy}>
-                <strong>Código por telefone</strong>
-                <p>Use um número em formato E.164. O código não é salvo no HBX e expira em poucos minutos.</p>
+                <strong>{phoneOnlyMode ? "Vincular por telefone" : "Código por telefone"}</strong>
+                <p>{pairingPhoneLocked ? "Use o telefone informado na ativação do trial." : "Use um número em formato E.164. O código não é salvo no HBX e expira em poucos minutos."}</p>
               </div>
 
+              {lockedPhoneNotice ? (
+                <div className={styles.lockedNotice} role={pairingPhoneLocked ? "note" : "status"}>
+                  {lockedPhoneNotice}
+                </div>
+              ) : null}
+
               <label className={styles.phoneField}>
-                <span>Telefone</span>
+                <span>{pairingPhoneLocked ? "Telefone do trial" : "Telefone"}</span>
                 <input
                   type="tel"
                   inputMode="tel"
                   value={pairingPhone}
                   onChange={(event) => (onPairingPhoneInput || onPairingPhoneChange)(event.target.value)}
                   placeholder="+5519999999999"
-                  disabled={pairingBusy || qrReady || qrReconnecting}
+                  disabled={pairingPhoneLocked || pairingBusy || qrReady || qrReconnecting}
+                  readOnly={pairingPhoneLocked}
                 />
               </label>
 
@@ -329,10 +346,16 @@ export default function WhatsAppConnectionWizard({
             <button
               type="button"
               className={styles.secondaryAction}
-              onClick={() => setQrPanelClosed(true)}
+              onClick={() => {
+                if (phoneOnlyMode && typeof window !== "undefined") {
+                  window.history.back();
+                  return;
+                }
+                setQrPanelClosed(true);
+              }}
               disabled={modalSaving !== null}
             >
-              FECHAR
+              {phoneOnlyMode ? "VOLTAR" : "FECHAR"}
             </button>
           </div>
 
@@ -369,7 +392,7 @@ export default function WhatsAppConnectionWizard({
         </div>
       ) : null}
 
-      {!qrSelected && !metaSelected ? (
+      {!phoneOnlyMode && !qrSelected && !metaSelected ? (
         <div className={styles.emptyPulse} aria-hidden="true">
           <span />
           <span />
