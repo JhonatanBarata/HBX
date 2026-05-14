@@ -3,8 +3,8 @@
 import { Suspense, useEffect, useMemo, useState } from "react";
 import type { FormEvent } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { getToken, setToken } from "@/app/_lib/api";
 import { normalizeInternalRouteAlias } from "@/lib/route-aliases";
+import styles from "./page.module.css";
 
 const DEFAULT_API_URL =
   process.env.NODE_ENV === "production"
@@ -61,17 +61,6 @@ function formatDate(value?: string | null) {
   const parsed = new Date(normalized);
   if (Number.isNaN(parsed.getTime())) return null;
   return parsed.toLocaleDateString("pt-BR");
-}
-
-function getAccessToken(data: unknown) {
-  if (!data || typeof data !== "object") return null;
-  const payload = data as {
-    access_token?: unknown;
-    accessToken?: unknown;
-    token?: unknown;
-  };
-  const token = payload.access_token ?? payload.accessToken ?? payload.token;
-  return typeof token === "string" && token.trim() ? token : null;
 }
 
 function safeInternalPath(value?: string | null) {
@@ -135,6 +124,7 @@ function ConfirmEmailInner() {
     const value = searchParams?.get("token");
     return typeof value === "string" ? value.trim() : "";
   }, [searchParams]);
+  const [confirmationToken] = useState(token);
   const emailFromQuery = useMemo(() => {
     const value = searchParams?.get("email");
     return typeof value === "string" ? value.trim() : "";
@@ -145,8 +135,6 @@ function ConfirmEmailInner() {
   const [errorCode, setErrorCode] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
   const [confirmedStatus, setConfirmedStatus] = useState<string | null>(null);
-  const [nextPath, setNextPath] = useState<string | null>(null);
-  const [loginNextPath, setLoginNextPath] = useState<string | null>(null);
   const [trialEndsAt, setTrialEndsAt] = useState<string | null>(null);
   const [resendEmail, setResendEmail] = useState("");
   const [resendBusy, setResendBusy] = useState(false);
@@ -154,7 +142,6 @@ function ConfirmEmailInner() {
   const [resendPreviewUrl, setResendPreviewUrl] = useState<string | null>(null);
   const [resendConfirmUrl, setResendConfirmUrl] = useState<string | null>(null);
   const [mounted, setMounted] = useState(false);
-  const [autoRedirecting, setAutoRedirecting] = useState(false);
 
   useEffect(() => {
     setResendEmail(emailFromQuery);
@@ -166,10 +153,18 @@ function ConfirmEmailInner() {
   }, []);
 
   useEffect(() => {
+    if (!confirmationToken || typeof window === "undefined") return;
+    const cleanUrl = emailFromQuery
+      ? `/confirm-email?email=${encodeURIComponent(emailFromQuery)}`
+      : "/confirm-email";
+    window.history.replaceState(window.history.state, "", cleanUrl);
+  }, [confirmationToken, emailFromQuery]);
+
+  useEffect(() => {
     let cancelled = false;
 
     async function confirmEmail() {
-      if (!token) {
+      if (!confirmationToken) {
         setError("Link inválido. Verifique o token recebido por e-mail.");
         setLoading(false);
         return;
@@ -179,7 +174,7 @@ function ConfirmEmailInner() {
         const response = await fetch(`${API_URL}/auth/confirm-email`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ token }),
+          body: JSON.stringify({ token: confirmationToken }),
         });
         const data: unknown = await response.json().catch(() => null);
 
@@ -197,39 +192,18 @@ function ConfirmEmailInner() {
           const payloadStatus = String(payload?.status || "").trim() || null;
           const payloadNext = safeInternalPath(payload?.next) || null;
           const payloadLoginNext = safeInternalPath(payload?.loginNext) || null;
-          const accessToken = getAccessToken(payload);
           const localWelcomeDestination = isLocalMockWelcomeEnabled() ? localWelcomePath(payloadStatus) : null;
-          const destination = localWelcomeDestination || payloadNext || payloadLoginNext || "/boasvindas";
           const nextForLogin = localWelcomeDestination || payloadNext;
           const loginNextForButton = localWelcomeDestination
             ? `/login?next=${encodeURIComponent(localWelcomeDestination)}`
             : payloadLoginNext;
           setInfo(
             String(payload?.message || "").trim() ||
-              (accessToken
-                ? "E-mail confirmado. Entrando automaticamente..."
-                : "E-mail confirmado com sucesso. Seu acesso já está liberado no login."),
+              "E-mail confirmado com sucesso. Continue no dispositivo onde o cadastro ficou aguardando.",
           );
           setConfirmedStatus(payloadStatus);
-          setNextPath(nextForLogin);
-          setLoginNextPath(loginNextForButton);
           setErrorCode(null);
           setTrialEndsAt(payload?.trialEndsAt ? String(payload.trialEndsAt) : null);
-
-          if (accessToken) {
-            setToken(accessToken);
-            setAutoRedirecting(true);
-            notifyWaitingRegisterPage({
-              email: payload?.email || emailFromQuery || null,
-              status: payloadStatus,
-              next: destination,
-              loginNext: loginNextForButton,
-            });
-            window.setTimeout(() => {
-              if (!cancelled) router.replace(destination);
-            }, 900);
-            return;
-          }
 
           notifyWaitingRegisterPage({
             email: payload?.email || emailFromQuery || null,
@@ -237,19 +211,6 @@ function ConfirmEmailInner() {
             next: nextForLogin,
             loginNext: loginNextForButton,
           });
-
-          // Se já existir sessão (token), redireciona para a área logada.
-          try {
-            const existingToken = getToken();
-            if (existingToken) {
-              // sinaliza cancelamento para evitar updates adicionais e navega
-              cancelled = true;
-              router.replace(destination);
-              return;
-            }
-          } catch {
-            // ignore
-          }
         }
       } catch {
         if (!cancelled) {
@@ -267,7 +228,7 @@ function ConfirmEmailInner() {
     return () => {
       cancelled = true;
     };
-  }, [emailFromQuery, router, token]);
+  }, [confirmationToken, emailFromQuery, router]);
 
   async function handleResend(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -345,7 +306,12 @@ function ConfirmEmailInner() {
             </div>
           </header>
 
-        {loading ? <p className="text-sm text-foreground/70">Validando seu link...</p> : null}
+        {loading ? (
+          <div className={styles.confirmationLoading}>
+            <span className={styles.loadingPulse} aria-hidden />
+            <p>Validando seu link...</p>
+          </div>
+        ) : null}
 
         {!loading && error ? (
           <div className="text-sm border border-foreground/10 bg-background p-4 rounded-xl shadow-sm outline-none ring-0">
@@ -359,44 +325,55 @@ function ConfirmEmailInner() {
         ) : null}
 
         {!loading && info ? (
-          <div className="text-sm border border-foreground/10 bg-background p-4 rounded-xl shadow-sm outline-none ring-0">
-            <p className="font-medium">
-              {confirmedStatus === "active_trial" ? "Seu teste grátis está liberado" : "E-mail confirmado"}
-            </p>
-            <p className="mt-2">{info}</p>
-            {trialEndsAt ? (
-              <p className="text-xs text-foreground/60 mt-2">
-                Trial liberado até {formatDate(trialEndsAt) || trialEndsAt}.
-              </p>
-            ) : null}
-            {confirmedStatus === "pending_checkout" ? (
-              <p className="text-xs text-foreground/60 mt-2">
-                Agora finalize o pagamento para liberar seu plano.
-              </p>
-            ) : null}
-            {autoRedirecting ? (
-              <p className="text-xs text-foreground/60 mt-2">
-                Redirecionando para o HBX...
-              </p>
-            ) : null}
-          </div>
-        ) : null}
+          <section className={styles.confirmedPanel} aria-live="polite">
+            <div className={styles.confirmedGlow} aria-hidden />
+            <div className={styles.orbit} aria-hidden>
+              <span />
+              <span />
+              <span />
+              <span />
+              <span />
+              <span />
+            </div>
+            <div className={styles.mailCard} aria-hidden>
+              <div className={styles.mailIcon}>
+                <svg viewBox="0 0 24 24" fill="none" aria-hidden>
+                  <rect x="3" y="5" width="18" height="14" rx="3" />
+                  <path d="m4 7 8 7 8-7" />
+                </svg>
+              </div>
+              <div className={styles.checkBadge}>
+                <svg viewBox="0 0 24 24" fill="none" aria-hidden>
+                  <path d="M20 6 9 17l-5-5" />
+                </svg>
+              </div>
+            </div>
 
-        {!loading && info && !autoRedirecting ? (
-          <button
-            type="button"
-            className="btn btn-primary login-button py-3 rounded-xl w-full shadow-md"
-            onClick={() => {
-              const destination = confirmedStatus === "pending_checkout"
-                ? loginNextPath || `/login?next=${encodeURIComponent(nextPath || "/pagamento?focus=payment&reason=pending_checkout")}`
-                : loginNextPath || "/login?next=/boasvindas";
-              router.push(destination);
-            }}
-          >
-              {confirmedStatus === "pending_trial_activation"
-                ? "Ativar trial"
-                : confirmedStatus === "pending_checkout" ? "Ir para pagamento" : "Entrar no HBX"}
-          </button>
+            <div className={styles.successCopy}>
+              <span className={styles.successBadge}>Conta liberada</span>
+              <h1>Email confirmado.</h1>
+              <p className={styles.successLead}>Bem-vindo ao HBX.</p>
+              <p>
+                Pode fechar esta aba. Continue no dispositivo onde o cadastro ficou em
+                <strong> aguardando confirmação de email</strong>.
+              </p>
+              {confirmedStatus === "pending_trial_activation" ? (
+                <p className={styles.successHint}>
+                  A ativação do trial vai aparecer automaticamente por lá.
+                </p>
+              ) : null}
+              {confirmedStatus === "pending_checkout" ? (
+                <p className={styles.successHint}>
+                  O próximo passo de pagamento vai aparecer automaticamente por lá.
+                </p>
+              ) : null}
+              {trialEndsAt ? (
+                <p className={styles.successHint}>
+                  Trial liberado até {formatDate(trialEndsAt) || trialEndsAt}.
+                </p>
+              ) : null}
+            </div>
+          </section>
         ) : null}
 
         {!loading && error ? (
@@ -452,7 +429,7 @@ function ConfirmEmailInner() {
           </form>
         ) : null}
 
-        {!autoRedirecting ? (
+        {!info ? (
         <div className="text-sm text-foreground/70 text-center pt-2">
           <a
             href="/login"
