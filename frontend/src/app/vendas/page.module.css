@@ -25,14 +25,20 @@
 
   .mobileLeadDetailScreen {
     min-height: 100dvh;
+    height: 100dvh;
+    max-height: 100dvh;
     display: grid;
     grid-template-rows: auto minmax(0, 1fr) auto;
     margin: -18px -14px -92px;
+    overflow: hidden;
     background: #f5f8fd;
     color: #07143a;
   }
 
   .mobileLeadDetailHeader {
+    position: sticky;
+    top: 0;
+    z-index: 20;
     display: grid;
     grid-template-columns: auto minmax(0, 1fr);
     align-items: center;
@@ -62,6 +68,15 @@
     font-weight: 950;
   }
 
+  .mobileLeadDetailHeader small {
+    display: block;
+    overflow-wrap: anywhere;
+    color: #657593;
+    font-size: 0.74rem;
+    font-weight: 760;
+    line-height: 1.25;
+  }
+
   .mobileLeadBackButton {
     min-height: 40px;
     border: 1px solid rgba(203, 215, 235, 0.9);
@@ -80,7 +95,7 @@
     display: grid;
     align-content: start;
     gap: 12px;
-    padding: 12px 14px calc(88px + env(safe-area-inset-bottom));
+    padding: 12px 14px calc(116px + env(safe-area-inset-bottom));
   }
 
   .mobileLeadDetailScreen .mobileLeadDetailHero {
@@ -146,6 +161,10 @@
     text-transform: uppercase;
   }
 
+  .mobileLeadDetailInfoGrid[aria-label="Contexto do lead"] span {
+    grid-column: 1 / -1;
+  }
+
   .mobileLeadDetailScreen .mobileLeadReadyMessage,
   .mobileLeadDetailScreen .mobileLeadObservationCard,
   .mobileLeadDetailScreen .mobileLeadTimeline {
@@ -153,9 +172,25 @@
     background: #ffffff;
   }
 
+  .mobileLeadDetailScreen .mobileLeadReadyMessage p,
+  .mobileLeadSavedNote {
+    white-space: pre-wrap;
+  }
+
+  .mobileLeadSavedNote {
+    margin: 0;
+    padding: 10px 12px;
+    border: 1px solid rgba(217, 225, 239, 0.96);
+    border-radius: 10px;
+    background: #f8fbff;
+    color: #26324f;
+    font-size: 0.84rem;
+    line-height: 1.45;
+    font-weight: 650;
+  }
+
   .mobileLeadDetailActionBar {
-    position: sticky;
-    bottom: 0;
+    z-index: 20;
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 8px;
@@ -189,6 +224,10 @@
   .mobileLeadDetailActionBar a[aria-disabled="true"] {
     opacity: 0.5;
     pointer-events: none;
+  }
+
+  .mobileLeadDetailActionBar button:disabled {
+    opacity: 0.55;
   }
 }
 
@@ -837,8 +876,6 @@
     box-shadow:
       0 -16px 42px -26px rgba(20, 53, 111, 0.58),
       inset 0 1px 0 rgba(255, 255, 255, 0.94);
-    backdrop-filter: blur(18px) saturate(160%);
-    -webkit-backdrop-filter: blur(18px) saturate(160%);
   }
 
   .mobileVendasBottomNav button {
@@ -872,8 +909,6 @@
       radial-gradient(circle at 50% 18%, rgba(45, 113, 255, 0.24), transparent 34%),
       radial-gradient(circle at 88% 76%, rgba(45, 217, 184, 0.16), transparent 30%),
       rgba(2, 8, 23, 0.64);
-    backdrop-filter: blur(16px) saturate(150%);
-    -webkit-backdrop-filter: blur(16px) saturate(150%);
   }
 
   .mobileVendasNoteSheet {
@@ -899,8 +934,6 @@
       0 32px 90px -26px rgba(2, 8, 23, 0.64),
       0 0 0 1px rgba(255, 255, 255, 0.58) inset,
       inset 0 1px 0 rgba(255, 255, 255, 0.94);
-    backdrop-filter: blur(18px) saturate(160%);
-    -webkit-backdrop-filter: blur(18px) saturate(160%);
     animation: mobileVendasSheetRise 220ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
     scrollbar-width: none;
   }
@@ -1206,13 +1239,11 @@
   from {
     opacity: 0;
     transform: translateY(6px) scale(0.88);
-    filter: blur(5px);
   }
 
   to {
     opacity: 1;
     transform: translateY(0) scale(1);
-    filter: blur(0);
   }
 }
 
@@ -1220,13 +1251,11 @@
   from {
     opacity: 0;
     transform: translateX(10px);
-    filter: blur(6px);
   }
 
   to {
     opacity: 1;
     transform: translateX(0);
-    filter: blur(0);
   }
 }
 
@@ -4714,6 +4743,7 @@
     font-size: 0.9rem;
     line-height: 1.42;
     font-weight: 650;
+    white-space: pre-wrap;
   }
 
   .mobileLeadQuickGrid {
@@ -4767,9 +4797,9 @@
   .mobileLeadObservationCard {
     padding: 12px;
     border: 1px solid rgba(217, 225, 239, 0.96);
-    border-radius: 16px;
-    background: rgba(255, 255, 255, 0.92);
-    box-shadow: 0 14px 28px -22px rgba(12, 30, 65, 0.4);
+    border-radius: 12px;
+    background: #ffffff;
+    box-shadow: none;
   }
 
   .mobileLeadObservationHeader {
@@ -4780,8 +4810,21 @@
 
   .mobileLeadObservationHeader > span {
     color: #738098;
-    font-size: 1.2rem;
+    font-size: 0.76rem;
     font-weight: 950;
+  }
+
+  .mobileLeadSavedNote {
+    margin: 0;
+    padding: 10px 12px;
+    border: 1px solid rgba(217, 225, 239, 0.96);
+    border-radius: 10px;
+    background: #f8fbff;
+    color: #26324f;
+    font-size: 0.84rem;
+    line-height: 1.45;
+    font-weight: 650;
+    white-space: pre-wrap;
   }
 
   .mobileLeadTabs {
@@ -4822,7 +4865,7 @@
 
   .mobileLeadNoteEditor textarea {
     width: 100%;
-    min-height: 98px !important;
+    min-height: 136px !important;
     resize: vertical;
     border: 1px solid rgba(153, 174, 211, 0.9);
     border-radius: 10px;
