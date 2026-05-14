@@ -862,6 +862,7 @@ function MobileVendasProspecaoV2({
   const [mobileDialConfigOpen, setMobileDialConfigOpen] = useState(false);
   const [mobileNoteLead, setMobileNoteLead] = useState<MobileLeadItem | null>(null);
   const [mobileNoteDraft, setMobileNoteDraft] = useState("");
+  const [mobileSelectedLeadId, setMobileSelectedLeadId] = useState<string | null>(null);
 
   const loadMobileBoard = useCallback(async () => {
     setMobileLoading(true);
@@ -885,6 +886,10 @@ function MobileVendasProspecaoV2({
   }, [loadMobileBoard]);
 
   const mobileLeads = useMemo(() => flattenMobileBoard(mobileBoard), [mobileBoard]);
+  const selectedMobileLead = useMemo(
+    () => mobileLeads.find((lead) => lead.id === mobileSelectedLeadId) || null,
+    [mobileLeads, mobileSelectedLeadId],
+  );
   const mobileAgenda = useMemo(() => {
     const blocks = mobileBoard?.blocks || {};
     const overdue = sortMobileAgendaLeads(blocks.overdue || []);
@@ -961,11 +966,24 @@ function MobileVendasProspecaoV2({
     setMobileNoteDraft(String(lead.shortNote || ""));
   }
 
+  function openMobileLeadDetail(lead: MobileLeadItem) {
+    setMobileSelectedLeadId(lead.id);
+    setMobileNoteLead(null);
+    setMobileNoteDraft(String(lead.shortNote || ""));
+  }
+
+  function closeMobileLeadDetail() {
+    setMobileSelectedLeadId(null);
+    setMobileNoteLead(null);
+    setMobileNoteDraft("");
+  }
+
   async function saveMobileNote() {
-    if (!mobileNoteLead) return;
+    const leadToSave = mobileNoteLead || selectedMobileLead;
+    if (!leadToSave) return;
     const noteValue = mobileNoteDraft.trim() || null;
     const saved = await patchMobileLead(
-      mobileNoteLead,
+      leadToSave,
       { shortNote: noteValue },
       {
         reload: false,
@@ -975,8 +993,10 @@ function MobileVendasProspecaoV2({
     );
     if (!saved) return;
     setMobileNoteLead((current) => current ? { ...current, shortNote: noteValue } : current);
-    setMobileNoteLead(null);
-    setMobileNoteDraft("");
+    if (!selectedMobileLead) {
+      setMobileNoteLead(null);
+      setMobileNoteDraft("");
+    }
   }
 
   const summary = mobileBoard?.summary || {};
@@ -1000,14 +1020,29 @@ function MobileVendasProspecaoV2({
     const isClosed = bucket === "fechados";
     const dataBucket = isOverdue ? "overdue" : bucket === "proximos" ? "scheduled" : isClosed ? "closed" : "today";
     return (
-      <article id={`mobile-lead-${lead.id}`} key={lead.id} className={styles.mobileSalesCard} data-bucket={dataBucket} data-active={mobileActionLeadId === lead.id ? "true" : "false"}>
+      <article
+        id={`mobile-lead-${lead.id}`}
+        key={lead.id}
+        className={styles.mobileSalesCard}
+        data-bucket={dataBucket}
+        data-active={mobileActionLeadId === lead.id ? "true" : "false"}
+        role="button"
+        tabIndex={0}
+        onClick={() => openMobileLeadDetail(lead)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            openMobileLeadDetail(lead);
+          }
+        }}
+      >
         <div className={styles.mobileLeadAvatar} aria-hidden>{lead.name?.trim()?.charAt(0)?.toUpperCase() || "H"}</div>
         <div className={styles.mobileSalesCardTop}>
           <div>
             <strong>{lead.name || "Lead sem nome"}</strong>
             <span>{mobileLeadLocation(lead)}</span>
           </div>
-          <button type="button" aria-label="Abrir observação" onClick={() => openMobileNote(lead)} disabled={saving}>
+          <button type="button" aria-label="Abrir observação" onClick={(event) => { event.stopPropagation(); openMobileNote(lead); }} disabled={saving}>
             •••
           </button>
         </div>
@@ -1020,22 +1055,112 @@ function MobileVendasProspecaoV2({
           <strong>{lead.nextAction || "Ligação de apresentação"}</strong>
         </div>
         <div className={styles.mobileLeadContactActions}>
-          <button type="button" data-whatsapp="true" onClick={() => handleMobileWhatsapp(lead)} disabled={saving || isClosed} aria-label="WhatsApp">
+          <button type="button" data-whatsapp="true" onClick={(event) => { event.stopPropagation(); handleMobileWhatsapp(lead); }} disabled={saving || isClosed} aria-label="WhatsApp">
             W
           </button>
-          <button type="button" onClick={() => handleMobileCall(lead)} disabled={saving || isClosed} aria-label="Ligar">
+          <button type="button" onClick={(event) => { event.stopPropagation(); handleMobileCall(lead); }} disabled={saving || isClosed} aria-label="Ligar">
             ☎
           </button>
         </div>
-        <button type="button" className={styles.mobileLeadPrimaryAction} onClick={() => setMobileActionLeadId(lead.id)} disabled={saving || isClosed}>
-          Executar
+        <button type="button" className={styles.mobileLeadPrimaryAction} onClick={(event) => { event.stopPropagation(); openMobileLeadDetail(lead); }} disabled={saving || isClosed}>
+          Abrir card
         </button>
       </article>
     );
   };
 
+  const renderMobileLeadDetail = (lead: MobileLeadItem) => {
+    const saving = mobileSavingLeadId === lead.id;
+    const whatsappStatus = mobileWhatsappStatusLabel(lead);
+    const isClosed = Boolean(lead.closedAt || String(lead.status || "").toLowerCase() === "encerrado");
+
+    return (
+      <section className={styles.mobileLeadDetailScreen}>
+        <header className={styles.mobileLeadDetailHeader}>
+          <button type="button" className={styles.mobileLeadBackButton} onClick={closeMobileLeadDetail}>
+            Voltar
+          </button>
+          <div>
+            <span>Detalhe do lead</span>
+            <strong>{lead.name || "Lead sem nome"}</strong>
+          </div>
+        </header>
+
+        <div className={styles.mobileLeadDetailBody}>
+          {notice ? <section className={styles.mobileSalesNotice} data-tone={notice.tone}>{notice.text}</section> : null}
+          {error ? <section className={styles.mobileSalesNotice} data-tone="error">{error}</section> : null}
+
+          <section className={styles.mobileLeadDetailHero}>
+            <div className={styles.mobileLeadAvatar} aria-hidden>{lead.name?.trim()?.charAt(0)?.toUpperCase() || "H"}</div>
+            <div>
+              <strong>{lead.name || "Lead sem nome"}</strong>
+              <span>{mobileLeadLocation(lead)}</span>
+            </div>
+            <em data-status={whatsappStatus}>{whatsappStatus}</em>
+          </section>
+
+          <section className={styles.mobileLeadDetailInfoGrid}>
+            <span><b>Retorno</b>{isLeadOverdue(lead) ? mobileOverdueText(lead) : mobileReturnLabel(lead)}</span>
+            <span><b>Status</b>{lead.statusLabel || lead.status || "Novo lead"}</span>
+            <span><b>Tentativas</b>{Number(lead.attemptCount || 0).toLocaleString("pt-BR")}</span>
+            <span><b>Telefone</b>{getMobilePhoneParts(lead).national || "Não informado"}</span>
+          </section>
+
+          <section className={styles.mobileLeadNextAction}>
+            <small>Próxima ação</small>
+            <strong>{lead.nextAction || "Ligação de apresentação"}</strong>
+          </section>
+
+          <section className={styles.mobileDialPreview}>
+            <span>Mensagem pronta</span>
+            <strong>{lead.nextAction || "Contato inicial pelo WhatsApp"}</strong>
+          </section>
+
+          <section className={styles.mobileLeadDetailInfoGrid}>
+            <span><b>Último contato</b>{lead.lastContactAt ? new Date(lead.lastContactAt).toLocaleString("pt-BR") : "Sem registro"}</span>
+            <span><b>Atualizado</b>{lead.updatedAt ? new Date(lead.updatedAt).toLocaleString("pt-BR") : "Sem registro"}</span>
+          </section>
+
+          <section id="mobile-lead-note" className={styles.mobileNoteInline} aria-label="Observação do lead">
+            <div>
+              <strong>Observação</strong>
+              <span>{mobileNoteDraft.length.toLocaleString("pt-BR")}/280</span>
+            </div>
+            <textarea
+              value={mobileNoteDraft}
+              onChange={(event) => setMobileNoteDraft(event.target.value)}
+              placeholder="Digite uma observação sobre este lead..."
+              maxLength={280}
+            />
+            <button type="button" onClick={() => void saveMobileNote()} disabled={saving}>
+              {saving ? "Salvando..." : "Salvar observação"}
+            </button>
+          </section>
+        </div>
+
+        <nav className={styles.mobileLeadDetailActionBar} aria-label="Ações do lead">
+          <button type="button" data-whatsapp="true" onClick={() => handleMobileWhatsapp(lead)} disabled={saving || isClosed}>
+            WhatsApp
+          </button>
+          <button type="button" onClick={() => handleMobileCall(lead)} disabled={saving || isClosed}>
+            Ligar
+          </button>
+          <button
+            type="button"
+            onClick={() => document.getElementById("mobile-lead-note")?.scrollIntoView({ behavior: "smooth", block: "center" })}
+            disabled={saving}
+          >
+            Observação
+          </button>
+        </nav>
+      </section>
+    );
+  };
+
   return (
     <div className={styles.mobileSalesShell}>
+      {selectedMobileLead ? renderMobileLeadDetail(selectedMobileLead) : (
+      <div className={styles.mobileLeadListScreen}>
       <header className={styles.mobileSalesHeader}>
         <strong>Vendas</strong>
         <div>
@@ -1150,10 +1275,7 @@ function MobileVendasProspecaoV2({
           onWhatsappLead={handleMobileWhatsapp}
           onOpenLead={(lead) => {
             setMobileAgendaOpen(false);
-            setMobileActionLeadId(lead.id);
-            window.setTimeout(() => {
-              document.getElementById(`mobile-lead-${lead.id}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
-            }, 80);
+            openMobileLeadDetail(lead);
           }}
           dialPrefs={mobilePrefs}
         />
@@ -1193,6 +1315,8 @@ function MobileVendasProspecaoV2({
         <Link href="/dashboard/vendas"><span>▤</span>Relatórios</Link>
         <button type="button" onClick={() => setMobileDialConfigOpen((current) => !current)}><span>•••</span>Mais</button>
       </nav>
+      </div>
+      )}
     </div>
   );
 }
