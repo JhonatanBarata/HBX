@@ -46,12 +46,6 @@ type VendasBoardPayload = {
   } | null;
 };
 
-type InboxPayload = {
-  conversations?: unknown[];
-  pendingHumanCount?: number | null;
-  total?: number | null;
-};
-
 type WelcomeState = {
   loaded: boolean;
   whatsappConnected: boolean;
@@ -193,36 +187,89 @@ function resolveWelcomeStep(state: WelcomeState, mobileViewport: boolean, tutori
 }
 
 function mobileOperationStatus(state: WelcomeState) {
-  if (!state.loaded) return "Primeiro acesso";
-  if (!state.whatsappConnected) return "Falta conectar WhatsApp";
-  return "Operação pronta";
+  if (!state.loaded || !hasOperationalHistory(state)) return "Primeiro acesso";
+  return "Operação mobile";
 }
 
 function mobileHeroSubtitle(state: WelcomeState) {
-  if (!state.loaded) return "Carregando seus módulos e próximos passos.";
-  if (!state.whatsappConnected) return "Conecte o WhatsApp para liberar o fluxo completo.";
-  if (state.vendasReady) return "Seus leads já estão prontos para atendimento.";
-  if (state.pendingCount > 0) return "Existem conversas aguardando resposta.";
-  if (state.radarReady) return "Use o Radar para alimentar seus cards de venda.";
-  return "Comece pelo Radar Digital para buscar oportunidades.";
+  if (!state.loaded) return "Comece buscando oportunidades no Radar";
+  if (state.leadsCount > 0) return `${state.leadsCount} leads prontos para trabalhar`;
+  if (state.radarReady) return "Radar pronto para buscar oportunidades";
+  return "Comece buscando oportunidades no Radar";
 }
 
 function mobilePrimaryAction(state: WelcomeState) {
   if (!state.loaded) return { label: "Carregando", path: "/boasvindas" };
-  if (!state.whatsappConnected) return { label: "Conectar WhatsApp", path: "/whatsapp" };
-  if (state.vendasReady) return { label: "Abrir Vendas", path: "/vendas" };
-  if (state.pendingCount > 0) return { label: "Abrir Atendimento", path: "/atendimento" };
+  if (state.vendasReady || state.leadsCount > 0) return { label: "Abrir Vendas", path: "/vendas" };
   return { label: "Buscar leads no Radar", path: "/radar-digital" };
 }
 
-function mobileStatusLabel(ready: boolean, loaded: boolean) {
-  if (!loaded) return "Carregando";
-  return ready ? "Pronto" : "Configurar";
-}
+function MobileDashboard({
+  state,
+  primaryAction,
+  leaving = false,
+  onNavigate,
+}: {
+  state: WelcomeState;
+  primaryAction: { label: string; path: string };
+  leaving?: boolean;
+  onNavigate?: (path: string) => void;
+}) {
+  const metrics = [
+    { key: "leads", label: "Leads", value: state.loaded ? String(state.leadsCount) : "--" },
+    { key: "radar", label: "Radar", value: state.loaded && state.radarReady ? "Pronto" : "Configurar" },
+    { key: "pending", label: "Pendências", value: state.loaded ? String(state.pendingCount) : "--" },
+  ];
+  const disabled = leaving || !state.loaded || !onNavigate;
 
-function mobileNumberLabel(value: number, singular: string, plural: string) {
-  if (value <= 0) return null;
-  return `${value} ${value === 1 ? singular : plural}`;
+  return (
+    <div className={`${styles.mobileDashboard} hbx-mobile-page`} aria-label="Painel inicial mobile">
+      <header className={`${styles.mobileHeader} hbx-mobile-header`}>
+        <strong>HBX</strong>
+        <span>{mobileOperationStatus(state)}</span>
+      </header>
+
+      <section className={`${styles.mobileHero} hbx-mobile-hero`}>
+        <div className={styles.mobileHeroCopy}>
+          <span>Operação</span>
+          <h1>Sua operação hoje</h1>
+          <p>{mobileHeroSubtitle(state)}</p>
+        </div>
+        <div className={styles.mobileHeroVisual} aria-hidden="true">
+          <Image
+            src="/hbx-visuals/onboarding/welcome-mobile.webp"
+            alt=""
+            width={320}
+            height={220}
+            priority
+          />
+        </div>
+      </section>
+
+      <button
+        type="button"
+        className={`${styles.mobilePrimaryAction} hbx-mobile-primary-button`}
+        onClick={() => onNavigate?.(primaryAction.path)}
+        disabled={disabled}
+      >
+        {primaryAction.label}
+      </button>
+
+      <nav className={styles.mobileSecondaryActions} aria-label="Atalhos">
+        <button type="button" className="hbx-mobile-secondary-button" onClick={() => onNavigate?.("/radar-digital")} disabled={disabled}>Radar Digital</button>
+        <button type="button" className="hbx-mobile-secondary-button" onClick={() => onNavigate?.("/atendimento")} disabled={disabled}>Atendimento</button>
+      </nav>
+
+      <section className={styles.mobileMetricStrip} aria-label="Resumo operacional">
+        {metrics.map((metric) => (
+          <div key={metric.key} className={styles.mobileMetricPill}>
+            <span>{metric.label}</span>
+            <strong>{metric.value}</strong>
+          </div>
+        ))}
+      </section>
+    </div>
+  );
 }
 
 export default function BoasVindasClientPage() {
@@ -291,13 +338,12 @@ export default function BoasVindasClientPage() {
           return;
         }
 
-        const [center, modal, operational, modules, vendasBoard, inbox] = await Promise.all([
+        const [center, modal, operational, modules, vendasBoard] = await Promise.all([
           apiFetch<WhatsAppCenterPayload>("/companies/me/whatsapp-center").catch(() => null),
           apiFetch<WhatsAppModalPayload>("/companies/me/whatsapp-modal/status").catch(() => null),
           apiFetch<OperationalStatusPayload>("/companies/me/operational-status?refresh=true").catch(() => null),
           apiFetch<UserModule[]>("/modules/me").catch(() => []),
           apiFetch<VendasBoardPayload>("/vendas/board", { timeoutMs: 12000 }).catch(() => null),
-          apiFetch<InboxPayload>("/inbox/conversations?limit=1", { timeoutMs: 12000 }).catch(() => null),
         ]);
 
         if (!mounted) return;
@@ -311,14 +357,8 @@ export default function BoasVindasClientPage() {
             Math.trunc(Number(summary.overdue || 0)) +
             Math.trunc(Number(summary.scheduled || 0)),
         );
-        const conversationsCount = Math.max(
-          0,
-          Math.trunc(
-            Number(inbox?.total) ||
-              (Array.isArray(inbox?.conversations) ? inbox.conversations.length : 0),
-          ),
-        );
-        const pendingCount = Math.max(0, Math.trunc(Number(inbox?.pendingHumanCount || 0)));
+        const conversationsCount = 0;
+        const pendingCount = 0;
 
         setWelcomeState({
           loaded: true,
@@ -370,42 +410,6 @@ export default function BoasVindasClientPage() {
   }
 
   const mobilePrimary = mobilePrimaryAction(welcomeState);
-  const mobileCards = [
-    {
-      key: "whatsapp",
-      title: "WhatsApp",
-      state: !welcomeState.loaded
-        ? "Carregando"
-        : welcomeState.whatsappConnected
-          ? "Pronto"
-          : "Configurar",
-      value: null,
-      ready: welcomeState.whatsappConnected,
-    },
-    {
-      key: "vendas",
-      title: "Vendas",
-      state: !welcomeState.loaded ? "Carregando" : welcomeState.vendasReady ? "Pronto" : "Pendente",
-      value: mobileNumberLabel(welcomeState.leadsCount, "lead", "leads"),
-      ready: welcomeState.vendasReady,
-    },
-    {
-      key: "radar",
-      title: "Radar",
-      state: mobileStatusLabel(welcomeState.radarReady, welcomeState.loaded),
-      value: mobileNumberLabel(welcomeState.leadsCount, "card", "cards"),
-      ready: welcomeState.radarReady,
-    },
-    {
-      key: "atendimento",
-      title: "Atendimento",
-      state: !welcomeState.loaded ? "Carregando" : welcomeState.atendimentoReady ? "Pronto" : "Pendente",
-      value: welcomeState.pendingCount > 0
-        ? mobileNumberLabel(welcomeState.pendingCount, "pendência", "pendências")
-        : mobileNumberLabel(welcomeState.conversationsCount, "conversa", "conversas"),
-      ready: welcomeState.atendimentoReady,
-    },
-  ];
 
   const entryDestinationLabel = welcomeStep.path.includes("radar")
     ? "Radar Digital"
@@ -464,41 +468,7 @@ export default function BoasVindasClientPage() {
         data-welcome-path="loading"
       >
         <section className={styles.shell} aria-live="polite">
-          <div className={`${styles.mobileDashboard} hbx-mobile-page`} aria-label="Painel inicial mobile">
-            <header className={`${styles.mobileHeader} hbx-mobile-header`}>
-              <strong>HBX</strong>
-              <span>{mobileOperationStatus(welcomeState)}</span>
-            </header>
-
-            <section className={`${styles.mobileHero} hbx-mobile-hero`}>
-              <span>Olá</span>
-              <h1>Sua operação hoje</h1>
-              <p>{mobileHeroSubtitle(welcomeState)}</p>
-              <div className={styles.mobileHeroVisual} aria-hidden="true">
-                <Image
-                  src="/hbx-visuals/onboarding/welcome-mobile.webp"
-                  alt=""
-                  width={320}
-                  height={220}
-                  priority
-                />
-              </div>
-            </section>
-
-            <section className={`${styles.mobileStatusGrid} hbx-mobile-grid`} aria-label="Status da operação">
-              {mobileCards.map((card) => (
-                <article key={card.key} className={`${styles.mobileStatusCard} hbx-mobile-card`} data-ready={card.ready ? "true" : "false"}>
-                  <span>{card.title}</span>
-                  <strong>{card.state}</strong>
-                  {card.value ? <small>{card.value}</small> : null}
-                </article>
-              ))}
-            </section>
-
-            <button type="button" className={`${styles.mobilePrimaryAction} hbx-mobile-primary-button`} disabled>
-              {mobilePrimary.label}
-            </button>
-          </div>
+          <MobileDashboard state={welcomeState} primaryAction={mobilePrimary} />
 
           <span className={styles.statusBadge}>{statusText}</span>
           <div className={styles.brandMark}>HBX</div>
@@ -517,53 +487,7 @@ export default function BoasVindasClientPage() {
       data-welcome-path={welcomeStep.kind}
     >
       <section className={`${styles.shell} ${leaving ? styles.shellLeaving : ""}`} aria-labelledby="welcome-title">
-        <div className={`${styles.mobileDashboard} hbx-mobile-page`} aria-label="Painel inicial mobile">
-          <header className={`${styles.mobileHeader} hbx-mobile-header`}>
-            <strong>HBX</strong>
-            <span>{mobileOperationStatus(welcomeState)}</span>
-          </header>
-
-          <section className={`${styles.mobileHero} hbx-mobile-hero`}>
-            <span>Olá</span>
-            <h1>Sua operação hoje</h1>
-            <p>{mobileHeroSubtitle(welcomeState)}</p>
-            <div className={styles.mobileHeroVisual} aria-hidden="true">
-              <Image
-                src="/hbx-visuals/onboarding/welcome-mobile.webp"
-                alt=""
-                width={320}
-                height={220}
-                priority
-              />
-            </div>
-          </section>
-
-          <section className={`${styles.mobileStatusGrid} hbx-mobile-grid`} aria-label="Status da operação">
-            {mobileCards.map((card) => (
-              <article key={card.key} className={`${styles.mobileStatusCard} hbx-mobile-card`} data-ready={card.ready ? "true" : "false"}>
-                <span>{card.title}</span>
-                <strong>{card.state}</strong>
-                {card.value ? <small>{card.value}</small> : null}
-              </article>
-            ))}
-          </section>
-
-          <button
-            type="button"
-            className={`${styles.mobilePrimaryAction} hbx-mobile-primary-button`}
-            onClick={() => navigateWithTransition(mobilePrimary.path)}
-            disabled={leaving || !welcomeState.loaded}
-          >
-            {mobilePrimary.label}
-          </button>
-
-          <nav className={styles.mobileSecondaryActions} aria-label="Atalhos">
-            <button type="button" className="hbx-mobile-secondary-button" onClick={() => navigateWithTransition("/radar-digital")} disabled={leaving}>Radar Digital</button>
-            <button type="button" className="hbx-mobile-secondary-button" onClick={() => navigateWithTransition("/vendas")} disabled={leaving}>Vendas</button>
-            <button type="button" className="hbx-mobile-secondary-button" onClick={() => navigateWithTransition("/atendimento")} disabled={leaving}>Atendimento</button>
-            <button type="button" className="hbx-mobile-secondary-button" onClick={() => navigateWithTransition("/tutorial")} disabled={leaving}>Tutorial</button>
-          </nav>
-        </div>
+        <MobileDashboard state={welcomeState} primaryAction={mobilePrimary} leaving={leaving} onNavigate={navigateWithTransition} />
 
         <span className={styles.statusBadge}>{statusText}</span>
         <div className={styles.brandMark} aria-label="HBX">HBX</div>
