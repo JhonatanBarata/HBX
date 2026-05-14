@@ -1613,6 +1613,7 @@ export default function VendasClientPage() {
   const [commandOpen, setCommandOpen] = useState(false);
   const [commandQuery, setCommandQuery] = useState("");
   const [mobileSearch, setMobileSearch] = useState("");
+  const [selectedMobileLeadId, setSelectedMobileLeadId] = useState<string | null>(null);
   const [mobileNoteLead, setMobileNoteLead] = useState<LeadItem | null>(null);
   const [mobileNoteDraft, setMobileNoteDraft] = useState("");
   const [mobileSavingNote, setMobileSavingNote] = useState(false);
@@ -2010,23 +2011,38 @@ export default function VendasClientPage() {
       .slice(0, 24);
   }, [allLeads, mobileAgendaTab, mobileSearch]);
 
+  const selectedMobileLead = useMemo(() => {
+    if (!selectedMobileLeadId) return null;
+    return allLeads.find(({ lead }) => lead.id === selectedMobileLeadId)?.lead || null;
+  }, [allLeads, selectedMobileLeadId]);
+
   useEffect(() => {
-    if (mobileNoteLead?.id) saveMobileOpenLeadId(mobileNoteLead.id);
-  }, [mobileNoteLead?.id]);
+    if (selectedMobileLeadId) saveMobileOpenLeadId(selectedMobileLeadId);
+  }, [selectedMobileLeadId]);
 
   useEffect(() => {
     const storedOpenLeadId = readMobileOpenLeadId();
-    if (!storedOpenLeadId || mobileNoteLead) return;
+    if (!storedOpenLeadId || selectedMobileLeadId) return;
     const record = allLeads.find(({ lead }) => lead.id === storedOpenLeadId);
-    if (record) setMobileNoteLead(record.lead);
-  }, [allLeads, mobileNoteLead]);
+    if (record) {
+      setSelectedMobileLeadId(record.lead.id);
+      setMobileNoteLead(record.lead);
+      setMobileNoteDraft(
+        String(
+          record.lead.shortNote ||
+            record.lead.lastResult ||
+            "Cliente interessado em solução completa. Enviar case do segmento e proposta personalizada.",
+        ),
+      );
+    }
+  }, [allLeads, selectedMobileLeadId]);
 
   useEffect(() => {
-    if (!mobileNoteLead) return;
-    const record = allLeads.find(({ lead }) => lead.id === mobileNoteLead.id);
+    if (!selectedMobileLeadId) return;
+    const record = allLeads.find(({ lead }) => lead.id === selectedMobileLeadId);
     if (!record || record.lead === mobileNoteLead) return;
     setMobileNoteLead(record.lead);
-  }, [allLeads, mobileNoteLead]);
+  }, [allLeads, mobileNoteLead, selectedMobileLeadId]);
 
   const loadedLeadIds = useMemo(
     () => allLeads.map(({ lead }) => lead.id).filter(Boolean),
@@ -2422,9 +2438,10 @@ export default function VendasClientPage() {
     }
   }
 
-  function openMobileNote(lead: LeadItem) {
+  function openMobileLeadDetail(lead: LeadItem) {
     setMobileTemplateIndex(readMobileReadyMessagePreference());
     saveMobileOpenLeadId(lead.id);
+    setSelectedMobileLeadId(lead.id);
     setMobileNoteLead(lead);
     setMobileNoteDraft(
       String(
@@ -2436,8 +2453,9 @@ export default function VendasClientPage() {
     void loadMobileLeadEnrichment(lead);
   }
 
-  function closeMobileNote() {
+  function closeMobileLeadDetail() {
     saveMobileOpenLeadId(null);
+    setSelectedMobileLeadId(null);
     setMobileNoteLead(null);
   }
 
@@ -2469,17 +2487,18 @@ export default function VendasClientPage() {
   }
 
   async function saveMobileNote() {
-    if (!mobileNoteLead) return;
+    const targetLead = selectedMobileLead || mobileNoteLead;
+    if (!targetLead) return;
     setMobileSavingNote(true);
     try {
       await saveLead(
-        mobileNoteLead.id,
+        targetLead.id,
         { shortNote: mobileNoteDraft },
         "Observação salva.",
       );
-      mergeMobileLeadPatch(mobileNoteLead.id, { shortNote: mobileNoteDraft });
+      mergeMobileLeadPatch(targetLead.id, { shortNote: mobileNoteDraft });
       setMobileNoteLead((current) =>
-        current?.id === mobileNoteLead.id
+        current?.id === targetLead.id
           ? { ...current, shortNote: mobileNoteDraft }
           : current,
       );
@@ -2586,36 +2605,36 @@ export default function VendasClientPage() {
             ? "Finalize ou delete para liberar"
             : "Radar alimentou o Vendas"
                 : "Radar pronto para buscar";
-    if (mobileNoteLead) {
-      const intelligence = mobileNoteLead.leadIntelligence || {};
+    function renderMobileLeadDetail(lead: LeadItem) {
+      const intelligence = lead.leadIntelligence || {};
       const score = Math.max(
         0,
         Math.min(100, Math.round(Number(intelligence.opportunityScore || 0))),
       );
       const scoreLabel = intelligenceScoreLabel(score);
-      const template = activeMobileTemplate(mobileNoteLead);
+      const template = activeMobileTemplate(lead);
       const readyMessage = template.text;
       const whatsappHref = buildWhatsAppUrlWithMessage(
-        mobileNoteLead.phone,
+        lead.phone,
         readyMessage,
       );
-      const callHref = buildCallUrl(mobileNoteLead.phone);
-      const email = leadEmailForDisplay(mobileNoteLead);
-      const website = leadWebsiteForDisplay(mobileNoteLead);
+      const callHref = buildCallUrl(lead.phone);
+      const email = leadEmailForDisplay(lead);
+      const website = leadWebsiteForDisplay(lead);
       const tags = (intelligence.leadReasonTags || []).slice(0, 4);
-      const loadingEnrichment = mobileEnrichmentLoadingId === mobileNoteLead.id;
-      const timeline = (mobileNoteLead.timeline || []).slice(0, 3);
+      const loadingEnrichment = mobileEnrichmentLoadingId === lead.id;
+      const timeline = (lead.timeline || []).slice(0, 3);
 
       return (
         <section className={styles.mobileVendasShell} aria-label="Detalhe do lead mobile">
           <div className={styles.mobileLeadDetailScreen}>
             <header className={styles.mobileLeadDetailHeader}>
-              <button type="button" className={styles.mobileLeadBackButton} onClick={closeMobileNote}>
+              <button type="button" className={styles.mobileLeadBackButton} onClick={closeMobileLeadDetail}>
                 Voltar
               </button>
               <div>
                 <span>Detalhe do lead</span>
-                <strong>{mobileNoteLead.name || "Lead sem nome"}</strong>
+                <strong>{lead.name || "Lead sem nome"}</strong>
               </div>
             </header>
 
@@ -2634,19 +2653,19 @@ export default function VendasClientPage() {
                   </svg>
                 </div>
                 <div>
-                  <strong>{mobileNoteLead.name || "Lead sem nome"}</strong>
-                  <span>{mobileNoteLead.segment || "Segmento não informado"}</span>
-                  <em>{mobileLeadPlace(mobileNoteLead)}</em>
+                  <strong>{lead.name || "Lead sem nome"}</strong>
+                  <span>{lead.segment || "Segmento não informado"}</span>
+                  <em>{mobileLeadPlace(lead)}</em>
                 </div>
               </section>
 
               <section className={styles.mobileLeadDetailInfoGrid}>
                 <span><b>Score</b>{score ? `${score} - ${scoreLabel}` : "Sem score"}</span>
-                <span><b>Retorno</b>{mobileReturnLabel(mobileNoteLead)}</span>
-                <span><b>Telefone</b>{mobilePhoneLabel(mobileNoteLead)}</span>
+                <span><b>Retorno</b>{mobileReturnLabel(lead)}</span>
+                <span><b>Telefone</b>{mobilePhoneLabel(lead)}</span>
                 <span><b>WhatsApp</b>{whatsappStatusLabel(intelligence.whatsappStatus)}</span>
                 <span><b>E-mail</b>{email || "Não encontrado"}</span>
-                <span><b>Origem</b>{mobileLeadSourceLabel(mobileNoteLead)}</span>
+                <span><b>Origem</b>{mobileLeadSourceLabel(lead)}</span>
               </section>
 
               <section className={styles.mobileLeadDetailInfoGrid}>
@@ -2657,7 +2676,7 @@ export default function VendasClientPage() {
               <section className={styles.mobileLeadDetailHero}>
                 <div>
                   <strong>Próxima ação</strong>
-                  <span>{mobileNoteLead.nextAction || nextBestActionLabel(intelligence.nextBestAction)}</span>
+                  <span>{lead.nextAction || nextBestActionLabel(intelligence.nextBestAction)}</span>
                 </div>
               </section>
 
@@ -2667,7 +2686,7 @@ export default function VendasClientPage() {
                   <button
                     type="button"
                     className={styles.mobileLeadReadyRefreshIcon}
-                    onClick={() => refreshMobileTemplate(mobileNoteLead)}
+                    onClick={() => refreshMobileTemplate(lead)}
                     aria-label="Atualizar mensagem pronta"
                     title="Atualizar mensagem pronta"
                   >
@@ -2708,7 +2727,7 @@ export default function VendasClientPage() {
                   type="button"
                   className={styles.mobileLeadSaveNoteButton}
                   onClick={() => void saveMobileNote()}
-                  disabled={mobileSavingNote || savingLeadId === mobileNoteLead.id}
+                  disabled={mobileSavingNote || savingLeadId === lead.id}
                 >
                   {mobileSavingNote ? "Salvando" : "Salvar observação"}
                 </button>
@@ -2750,7 +2769,7 @@ export default function VendasClientPage() {
                 data-tone="whatsapp"
                 onClick={(event) => {
                   if (!whatsappHref) event.preventDefault();
-                  else void incrementAttempt(mobileNoteLead.id);
+                  else void incrementAttempt(lead.id);
                 }}
               >
                 WhatsApp
@@ -2760,7 +2779,7 @@ export default function VendasClientPage() {
                 aria-disabled={!callHref}
                 onClick={(event) => {
                   if (!callHref) event.preventDefault();
-                  else void incrementAttempt(mobileNoteLead.id);
+                  else void incrementAttempt(lead.id);
                 }}
               >
                 Ligar
@@ -2776,6 +2795,8 @@ export default function VendasClientPage() {
         </section>
       );
     }
+
+    if (selectedMobileLead) return renderMobileLeadDetail(selectedMobileLead);
 
     return (
       <section className={`${styles.mobileVendasShell} ${styles.mobileLeadListScreen}`} aria-label="Vendas mobile">
@@ -2903,11 +2924,11 @@ export default function VendasClientPage() {
                     key={lead.id}
                     role="button"
                     tabIndex={0}
-                    onClick={() => openMobileNote(lead)}
+                    onClick={() => openMobileLeadDetail(lead)}
                     onKeyDown={(event) => {
                       if (event.key === "Enter" || event.key === " ") {
                         event.preventDefault();
-                        openMobileNote(lead);
+                        openMobileLeadDetail(lead);
                       }
                     }}
                     style={{ ["--mobile-card-index" as string]: index } as CSSProperties}
@@ -2949,7 +2970,7 @@ export default function VendasClientPage() {
                             type="button"
                             onClick={(event) => {
                               event.stopPropagation();
-                              openMobileNote(lead);
+                              openMobileLeadDetail(lead);
                             }}
                             aria-label={`Abrir observação de ${lead.name || "lead"}`}
                           >
