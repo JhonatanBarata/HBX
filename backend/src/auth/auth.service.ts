@@ -357,6 +357,10 @@ export class AuthService implements OnModuleInit {
     return `${this.buildAppUrl()}/confirm-email?token=${encodeURIComponent(rawToken)}`;
   }
 
+  private createEmailConfirmationToken() {
+    return crypto.randomBytes(32).toString('base64url');
+  }
+
   private pendingCheckoutNextPath() {
     return '/pagamento?focus=payment&reason=pending_checkout';
   }
@@ -1387,7 +1391,7 @@ export class AuthService implements OnModuleInit {
         return this.login(updated, { companyId });
       }
 
-      const rawToken = crypto.randomBytes(32).toString('hex');
+      const rawToken = this.createEmailConfirmationToken();
       const tokenHash = this.sha256(rawToken);
       const confirmationExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
       const createdPending = await this.prisma.$transaction(async (tx) => {
@@ -1528,7 +1532,7 @@ export class AuthService implements OnModuleInit {
     }
 
     // New account: create company + user atomically.
-    const rawToken = crypto.randomBytes(32).toString('hex');
+    const rawToken = this.createEmailConfirmationToken();
     const tokenHash = this.sha256(rawToken);
     const confirmationExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
 
@@ -1988,7 +1992,7 @@ export class AuthService implements OnModuleInit {
       };
     }
 
-    const rawToken = crypto.randomBytes(32).toString('hex');
+    const rawToken = this.createEmailConfirmationToken();
     const tokenHash = this.sha256(rawToken);
     const confirmationExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
 
