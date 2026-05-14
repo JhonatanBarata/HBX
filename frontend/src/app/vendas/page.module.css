@@ -29,23 +29,22 @@
     max-height: 100dvh;
     display: grid;
     grid-template-rows: auto minmax(0, 1fr) auto;
+    gap: 0;
     margin: -18px -14px -92px;
     overflow: hidden;
-    background: #f5f8fd;
-    color: #07143a;
+    padding: 0;
+    background: var(--hbx-mobile-surface-soft);
+    color: var(--hbx-mobile-text);
   }
 
   .mobileLeadDetailHeader {
     position: sticky;
     top: 0;
     z-index: 20;
-    display: grid;
     grid-template-columns: auto minmax(0, 1fr);
-    align-items: center;
-    gap: 12px;
     padding: calc(14px + env(safe-area-inset-top)) 14px 12px;
-    border-bottom: 1px solid rgba(218, 225, 237, 0.92);
-    background: #ffffff;
+    border-bottom: 1px solid var(--hbx-mobile-border);
+    background: var(--hbx-mobile-surface);
   }
 
   .mobileLeadDetailHeader div {
@@ -55,7 +54,7 @@
   }
 
   .mobileLeadDetailHeader span {
-    color: #657593;
+    color: var(--hbx-mobile-muted);
     font-size: 0.66rem;
     font-weight: 900;
     text-transform: uppercase;
@@ -63,7 +62,7 @@
 
   .mobileLeadDetailHeader strong {
     overflow-wrap: anywhere;
-    color: #07143a;
+    color: var(--hbx-mobile-text);
     font-size: 1rem;
     font-weight: 950;
   }
@@ -71,7 +70,7 @@
   .mobileLeadDetailHeader small {
     display: block;
     overflow-wrap: anywhere;
-    color: #657593;
+    color: var(--hbx-mobile-muted);
     font-size: 0.74rem;
     font-weight: 760;
     line-height: 1.25;
@@ -79,14 +78,8 @@
 
   .mobileLeadBackButton {
     min-height: 40px;
-    border: 1px solid rgba(203, 215, 235, 0.9);
-    border-radius: 10px;
-    background: #ffffff;
-    color: #0757df;
     padding: 0 12px;
-    font: inherit;
     font-size: 0.84rem;
-    font-weight: 950;
   }
 
   .mobileLeadDetailBody {
@@ -103,10 +96,7 @@
     grid-template-columns: 56px minmax(0, 1fr);
     gap: 12px;
     align-items: center;
-    border: 1px solid rgba(217, 225, 239, 0.96);
     border-radius: 14px;
-    background: #ffffff;
-    padding: 12px;
   }
 
   .mobileLeadDetailScreen .mobileLeadDetailHero div:last-child {
@@ -116,7 +106,7 @@
   .mobileLeadDetailScreen .mobileLeadDetailHero strong {
     display: block;
     overflow-wrap: anywhere;
-    color: #07143a;
+    color: var(--hbx-mobile-text);
     font-size: 1rem;
     line-height: 1.15;
     font-weight: 950;
@@ -126,15 +116,13 @@
   .mobileLeadDetailScreen .mobileLeadDetailHero em {
     display: block;
     margin-top: 3px;
-    color: #657593;
+    color: var(--hbx-mobile-muted);
     font-size: 0.78rem;
     font-style: normal;
     font-weight: 780;
   }
 
   .mobileLeadDetailInfoGrid {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 8px;
   }
 
@@ -144,9 +132,7 @@
     display: grid;
     align-content: center;
     gap: 4px;
-    border: 1px solid rgba(217, 225, 239, 0.96);
     border-radius: 10px;
-    background: #ffffff;
     color: #0c1949;
     padding: 10px;
     font-size: 0.8rem;
@@ -155,7 +141,7 @@
   }
 
   .mobileLeadDetailInfoGrid b {
-    color: #657593;
+    color: var(--hbx-mobile-muted);
     font-size: 0.62rem;
     font-weight: 900;
     text-transform: uppercase;
@@ -169,7 +155,6 @@
   .mobileLeadDetailScreen .mobileLeadObservationCard,
   .mobileLeadDetailScreen .mobileLeadTimeline {
     border-radius: 14px;
-    background: #ffffff;
   }
 
   .mobileLeadDetailScreen .mobileLeadReadyMessage p,
@@ -191,28 +176,12 @@
 
   .mobileLeadDetailActionBar {
     z-index: 20;
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 8px;
-    border-top: 1px solid rgba(218, 225, 237, 0.92);
-    background: #ffffff;
-    padding: 10px 12px calc(10px + env(safe-area-inset-bottom));
   }
 
   .mobileLeadDetailActionBar a,
   .mobileLeadDetailActionBar button {
-    min-height: 46px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    border: 1px solid #0757df;
     border-radius: 8px;
-    background: #ffffff;
-    color: #0757df;
-    text-decoration: none;
-    font: inherit;
     font-size: 0.84rem;
-    font-weight: 950;
   }
 
   .mobileLeadDetailActionBar a[data-tone="whatsapp"] {
@@ -245,11 +214,8 @@
     gap: 14px;
     padding: 18px 14px 92px;
     overflow: hidden;
-    background:
-      radial-gradient(circle at 16% 6%, rgba(67, 126, 255, 0.16), transparent 28%),
-      radial-gradient(circle at 92% 0%, rgba(35, 208, 215, 0.14), transparent 26%),
-      linear-gradient(180deg, #f9fbff 0%, #eef5ff 55%, #eaf4ff 100%);
-    color: #07143a;
+    background: var(--hbx-mobile-bg);
+    color: var(--hbx-mobile-text);
     font-family: var(--font-sans, inherit);
   }
 

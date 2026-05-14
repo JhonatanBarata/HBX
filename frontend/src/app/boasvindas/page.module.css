@@ -752,12 +752,8 @@
     place-items: start stretch;
     overflow: auto;
     padding: calc(12px + env(safe-area-inset-top)) 14px calc(18px + env(safe-area-inset-bottom));
-    background:
-      radial-gradient(circle at 50% -12%, rgba(255, 255, 255, 0.96), transparent 30%),
-      radial-gradient(circle at 12% 4%, rgba(91, 135, 255, 0.13), transparent 25%),
-      radial-gradient(circle at 88% 0%, rgba(22, 201, 210, 0.1), transparent 24%),
-      linear-gradient(180deg, #f8fbff 0%, #eef5ff 54%, #eaf3ff 100%);
-    color: #07143a;
+    background: var(--hbx-mobile-bg);
+    color: var(--hbx-mobile-text);
   }
 
   .page::before,
@@ -778,21 +774,21 @@
 
   .mobileDashboard {
     width: 100%;
+    min-height: auto;
     display: grid;
     align-content: start;
     gap: 14px;
+    overflow: visible;
+    padding: 0;
+    background: transparent;
   }
 
   .mobileHeader {
-    min-height: 44px;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
+    width: 100%;
   }
 
   .mobileHeader strong {
-    color: #07143a;
+    color: var(--hbx-mobile-text);
     font-size: 1rem;
     font-weight: 950;
     letter-spacing: 0;
@@ -803,9 +799,9 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    border: 1px solid rgba(203, 215, 235, 0.9);
+    border: 1px solid var(--hbx-mobile-border);
     border-radius: 999px;
-    background: #ffffff;
+    background: var(--hbx-mobile-surface);
     color: #526383;
     padding: 0 10px;
     font-size: 0.72rem;
@@ -814,13 +810,11 @@
   }
 
   .mobileHero {
-    display: grid;
     gap: 6px;
-    padding: 10px 0 2px;
   }
 
   .mobileHero span {
-    color: #0757df;
+    color: var(--hbx-mobile-primary);
     font-size: 0.74rem;
     font-weight: 950;
     text-transform: uppercase;
@@ -828,7 +822,7 @@
 
   .mobileHero h1 {
     margin: 0;
-    color: #07143a;
+    color: var(--hbx-mobile-text);
     font-size: 1.8rem;
     line-height: 1.05;
     font-weight: 950;
@@ -838,16 +832,14 @@
   .mobileHero p {
     max-width: 34ch;
     margin: 0;
-    color: #657593;
+    color: var(--hbx-mobile-muted);
     font-size: 0.92rem;
     line-height: 1.45;
     font-weight: 760;
   }
 
   .mobileStatusGrid {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 10px;
+    width: 100%;
   }
 
   .mobileStatusCard {
@@ -856,29 +848,24 @@
     display: grid;
     align-content: space-between;
     gap: 8px;
-    border: 1px solid rgba(217, 225, 239, 0.96);
-    border-radius: 12px;
-    background: #ffffff;
-    box-shadow: 0 14px 28px -24px rgba(12, 30, 65, 0.38);
-    padding: 12px;
   }
 
   .mobileStatusCard span {
-    color: #657593;
+    color: var(--hbx-mobile-muted);
     font-size: 0.74rem;
     font-weight: 900;
     text-transform: uppercase;
   }
 
   .mobileStatusCard strong {
-    color: #0c1949;
+    color: var(--hbx-mobile-text);
     font-size: 1rem;
     line-height: 1.15;
     font-weight: 950;
   }
 
   .mobileStatusCard small {
-    color: #0757df;
+    color: var(--hbx-mobile-primary);
     font-size: 0.82rem;
     line-height: 1.25;
     font-weight: 850;
@@ -890,20 +877,14 @@
 
   .mobileStatusCard[data-ready="true"] small,
   .mobileStatusCard[data-ready="true"] strong {
-    color: #108943;
+    color: var(--hbx-mobile-success);
   }
 
   .mobilePrimaryAction {
     width: 100%;
     min-height: 52px;
-    border: 1px solid #0757df;
-    border-radius: 10px;
-    background: #0757df;
-    color: #ffffff;
     box-shadow: 0 16px 28px -20px rgba(7, 87, 223, 0.72);
-    font: inherit;
     font-size: 0.94rem;
-    font-weight: 950;
   }
 
   .mobilePrimaryAction:disabled {
@@ -920,13 +901,7 @@
 
   .mobileSecondaryActions button {
     min-height: 46px;
-    border: 1px solid rgba(203, 215, 235, 0.9);
-    border-radius: 10px;
-    background: #ffffff;
-    color: #0757df;
-    font: inherit;
     font-size: 0.84rem;
-    font-weight: 950;
   }
 
   .mobileSecondaryActions button:disabled {
