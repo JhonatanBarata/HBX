@@ -2624,6 +2624,11 @@ export default function VendasClientPage() {
       const tags = (intelligence.leadReasonTags || []).slice(0, 4);
       const loadingEnrichment = mobileEnrichmentLoadingId === lead.id;
       const timeline = (lead.timeline || []).slice(0, 3);
+      const detailSubtitle = [mobileLeadPlace(lead), lead.segment]
+        .map((item) => String(item || "").trim())
+        .filter(Boolean)
+        .join(" / ");
+      const status = lead.statusLabel || statusLabel(lead.status);
 
       return (
         <section className={styles.mobileVendasShell} aria-label="Detalhe do lead mobile">
@@ -2635,6 +2640,7 @@ export default function VendasClientPage() {
               <div>
                 <span>Detalhe do lead</span>
                 <strong>{lead.name || "Lead sem nome"}</strong>
+                {detailSubtitle ? <small>{detailSubtitle}</small> : null}
               </div>
             </header>
 
@@ -2659,18 +2665,22 @@ export default function VendasClientPage() {
                 </div>
               </section>
 
-              <section className={styles.mobileLeadDetailInfoGrid}>
+              <section className={styles.mobileLeadDetailInfoGrid} aria-label="Score e status do lead">
                 <span><b>Score</b>{score ? `${score} - ${scoreLabel}` : "Sem score"}</span>
+                <span><b>Status</b>{status}</span>
                 <span><b>Retorno</b>{mobileReturnLabel(lead)}</span>
-                <span><b>Telefone</b>{mobilePhoneLabel(lead)}</span>
-                <span><b>WhatsApp</b>{whatsappStatusLabel(intelligence.whatsappStatus)}</span>
-                <span><b>E-mail</b>{email || "Não encontrado"}</span>
                 <span><b>Origem</b>{mobileLeadSourceLabel(lead)}</span>
               </section>
 
-              <section className={styles.mobileLeadDetailInfoGrid}>
-                <span><b>Motivo</b>{tags.length ? tags.map(leadTagLabel).join(", ") : "cidade alvo, segmento alvo"}</span>
+              <section className={styles.mobileLeadDetailInfoGrid} aria-label="Contato do lead">
+                <span><b>Telefone</b>{mobilePhoneLabel(lead)}</span>
+                <span><b>WhatsApp</b>{whatsappStatusLabel(intelligence.whatsappStatus)}</span>
+                <span><b>E-mail</b>{email || "Não encontrado"}</span>
                 <span><b>Site</b>{website || "Sem site"}</span>
+              </section>
+
+              <section className={styles.mobileLeadDetailInfoGrid} aria-label="Contexto do lead">
+                <span><b>Motivo</b>{tags.length ? tags.map(leadTagLabel).join(", ") : "cidade alvo, segmento alvo"}</span>
               </section>
 
               <section className={styles.mobileLeadDetailHero}>
@@ -2713,6 +2723,9 @@ export default function VendasClientPage() {
                   <h3>Observação</h3>
                   <span>{mobileNoteDraft.length}/280</span>
                 </div>
+                {lead.shortNote ? (
+                  <p className={styles.mobileLeadSavedNote}>{lead.shortNote}</p>
+                ) : null}
                 <label className={styles.mobileLeadNoteEditor}>
                   <span>Nova observação</span>
                   <textarea
@@ -2786,9 +2799,10 @@ export default function VendasClientPage() {
               </a>
               <button
                 type="button"
-                onClick={() => document.getElementById("mobile-lead-note")?.scrollIntoView({ behavior: "smooth", block: "center" })}
+                onClick={() => void saveMobileNote()}
+                disabled={mobileSavingNote || savingLeadId === lead.id}
               >
-                Observação
+                {mobileSavingNote ? "Salvando" : "Salvar"}
               </button>
             </nav>
           </div>
