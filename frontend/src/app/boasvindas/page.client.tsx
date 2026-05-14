@@ -110,7 +110,7 @@ function isWhatsAppConnected(
 
 function isSmallViewport() {
   if (typeof window === "undefined") return false;
-  return window.matchMedia("(max-width: 640px)").matches;
+  return window.matchMedia("(max-width: 560px)").matches;
 }
 
 function readTutorialCompleted() {
@@ -191,6 +191,39 @@ function resolveWelcomeStep(state: WelcomeState, mobileViewport: boolean, tutori
   };
 }
 
+function mobileOperationStatus(state: WelcomeState) {
+  if (!state.loaded) return "Primeiro acesso";
+  if (!state.whatsappConnected) return "Falta conectar WhatsApp";
+  return "Operação pronta";
+}
+
+function mobileHeroSubtitle(state: WelcomeState) {
+  if (!state.loaded) return "Carregando seus módulos e próximos passos.";
+  if (!state.whatsappConnected) return "Conecte o WhatsApp para liberar o fluxo completo.";
+  if (state.vendasReady) return "Seus leads já estão prontos para atendimento.";
+  if (state.pendingCount > 0) return "Existem conversas aguardando resposta.";
+  if (state.radarReady) return "Use o Radar para alimentar seus cards de venda.";
+  return "Comece pelo Radar Digital para buscar oportunidades.";
+}
+
+function mobilePrimaryAction(state: WelcomeState) {
+  if (!state.loaded) return { label: "Carregando", path: "/boasvindas" };
+  if (!state.whatsappConnected) return { label: "Conectar WhatsApp", path: "/whatsapp" };
+  if (state.vendasReady) return { label: "Abrir Vendas", path: "/vendas" };
+  if (state.pendingCount > 0) return { label: "Abrir Atendimento", path: "/atendimento" };
+  return { label: "Buscar leads no Radar", path: "/radar-digital" };
+}
+
+function mobileStatusLabel(ready: boolean, loaded: boolean) {
+  if (!loaded) return "Carregando";
+  return ready ? "Pronto" : "Configurar";
+}
+
+function mobileNumberLabel(value: number, singular: string, plural: string) {
+  if (value <= 0) return null;
+  return `${value} ${value === 1 ? singular : plural}`;
+}
+
 export default function BoasVindasClientPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -216,7 +249,7 @@ export default function BoasVindasClientPage() {
     if (fromLoginEntryParam && window.location.search.includes("entry=mobile")) {
       window.history.replaceState(null, "", "/boasvindas");
     }
-    const media = window.matchMedia("(max-width: 640px)");
+    const media = window.matchMedia("(max-width: 560px)");
     const onChange = () => setMobileViewport(media.matches);
     const frame = window.requestAnimationFrame(() => {
       setClientReady(true);
@@ -311,7 +344,7 @@ export default function BoasVindasClientPage() {
   }, [billingHref, hasToken, router]);
 
   useEffect(() => {
-    if (hasToken !== true || !mobileViewport || !masterCheckComplete || leaving) return undefined;
+    if (hasToken !== true || !mobileViewport || !masterCheckComplete || leaving || !fromLoginTransition) return undefined;
     if (welcomeStep.kind !== "sales") return undefined;
 
     const destination = welcomeStep.path;
@@ -323,7 +356,7 @@ export default function BoasVindasClientPage() {
     return () => {
       window.clearTimeout(timeout);
     };
-  }, [hasToken, leaving, masterCheckComplete, mobileViewport, router, welcomeStep.kind, welcomeStep.path]);
+  }, [fromLoginTransition, hasToken, leaving, masterCheckComplete, mobileViewport, router, welcomeStep.kind, welcomeStep.path]);
 
   function navigateWithTransition(path: string) {
     if (leaving) return;
@@ -334,6 +367,44 @@ export default function BoasVindasClientPage() {
   function resolveNextStep() {
     return welcomeStep.path || resolveOperationalEntryPath(welcomeState, mobileViewport);
   }
+
+  const mobilePrimary = mobilePrimaryAction(welcomeState);
+  const mobileCards = [
+    {
+      key: "whatsapp",
+      title: "WhatsApp",
+      state: !welcomeState.loaded
+        ? "Carregando"
+        : welcomeState.whatsappConnected
+          ? "Pronto"
+          : "Configurar",
+      value: null,
+      ready: welcomeState.whatsappConnected,
+    },
+    {
+      key: "vendas",
+      title: "Vendas",
+      state: !welcomeState.loaded ? "Carregando" : welcomeState.vendasReady ? "Pronto" : "Pendente",
+      value: mobileNumberLabel(welcomeState.leadsCount, "lead", "leads"),
+      ready: welcomeState.vendasReady,
+    },
+    {
+      key: "radar",
+      title: "Radar",
+      state: mobileStatusLabel(welcomeState.radarReady, welcomeState.loaded),
+      value: mobileNumberLabel(welcomeState.leadsCount, "card", "cards"),
+      ready: welcomeState.radarReady,
+    },
+    {
+      key: "atendimento",
+      title: "Atendimento",
+      state: !welcomeState.loaded ? "Carregando" : welcomeState.atendimentoReady ? "Pronto" : "Pendente",
+      value: welcomeState.pendingCount > 0
+        ? mobileNumberLabel(welcomeState.pendingCount, "pendência", "pendências")
+        : mobileNumberLabel(welcomeState.conversationsCount, "conversa", "conversas"),
+      ready: welcomeState.atendimentoReady,
+    },
+  ];
 
   const entryDestinationLabel = welcomeStep.path.includes("radar")
     ? "Radar Digital"
@@ -392,6 +463,33 @@ export default function BoasVindasClientPage() {
         data-welcome-path="loading"
       >
         <section className={styles.shell} aria-live="polite">
+          <div className={styles.mobileDashboard} aria-label="Painel inicial mobile">
+            <header className={styles.mobileHeader}>
+              <strong>HBX</strong>
+              <span>{mobileOperationStatus(welcomeState)}</span>
+            </header>
+
+            <section className={styles.mobileHero}>
+              <span>Olá</span>
+              <h1>Sua operação hoje</h1>
+              <p>{mobileHeroSubtitle(welcomeState)}</p>
+            </section>
+
+            <section className={styles.mobileStatusGrid} aria-label="Status da operação">
+              {mobileCards.map((card) => (
+                <article key={card.key} className={styles.mobileStatusCard} data-ready={card.ready ? "true" : "false"}>
+                  <span>{card.title}</span>
+                  <strong>{card.state}</strong>
+                  {card.value ? <small>{card.value}</small> : null}
+                </article>
+              ))}
+            </section>
+
+            <button type="button" className={styles.mobilePrimaryAction} disabled>
+              {mobilePrimary.label}
+            </button>
+          </div>
+
           <span className={styles.statusBadge}>{statusText}</span>
           <div className={styles.brandMark}>HBX</div>
           <p className={styles.loadingText}>{welcomeStep.loadingText}</p>
@@ -409,6 +507,45 @@ export default function BoasVindasClientPage() {
       data-welcome-path={welcomeStep.kind}
     >
       <section className={`${styles.shell} ${leaving ? styles.shellLeaving : ""}`} aria-labelledby="welcome-title">
+        <div className={styles.mobileDashboard} aria-label="Painel inicial mobile">
+          <header className={styles.mobileHeader}>
+            <strong>HBX</strong>
+            <span>{mobileOperationStatus(welcomeState)}</span>
+          </header>
+
+          <section className={styles.mobileHero}>
+            <span>Olá</span>
+            <h1>Sua operação hoje</h1>
+            <p>{mobileHeroSubtitle(welcomeState)}</p>
+          </section>
+
+          <section className={styles.mobileStatusGrid} aria-label="Status da operação">
+            {mobileCards.map((card) => (
+              <article key={card.key} className={styles.mobileStatusCard} data-ready={card.ready ? "true" : "false"}>
+                <span>{card.title}</span>
+                <strong>{card.state}</strong>
+                {card.value ? <small>{card.value}</small> : null}
+              </article>
+            ))}
+          </section>
+
+          <button
+            type="button"
+            className={styles.mobilePrimaryAction}
+            onClick={() => navigateWithTransition(mobilePrimary.path)}
+            disabled={leaving || !welcomeState.loaded}
+          >
+            {mobilePrimary.label}
+          </button>
+
+          <nav className={styles.mobileSecondaryActions} aria-label="Atalhos">
+            <button type="button" onClick={() => navigateWithTransition("/radar-digital")} disabled={leaving}>Radar Digital</button>
+            <button type="button" onClick={() => navigateWithTransition("/vendas")} disabled={leaving}>Vendas</button>
+            <button type="button" onClick={() => navigateWithTransition("/atendimento")} disabled={leaving}>Atendimento</button>
+            <button type="button" onClick={() => navigateWithTransition("/tutorial")} disabled={leaving}>Tutorial</button>
+          </nav>
+        </div>
+
         <span className={styles.statusBadge}>{statusText}</span>
         <div className={styles.brandMark} aria-label="HBX">HBX</div>
 
