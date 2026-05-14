@@ -22,6 +22,8 @@
     width: clamp(208px, 58vw, 252px);
     pointer-events: none;
     opacity: 0.94;
+    filter: drop-shadow(0 24px 28px rgba(7, 87, 223, 0.18));
+    transform: translateZ(0);
   }
 
   .mobileHeroVisual img {
@@ -837,16 +839,45 @@
     display: grid;
     align-content: start;
     gap: 8px;
-    border: 1px solid rgba(185, 206, 238, 0.92);
+    border: 1px solid var(--hbx-mobile-glass-border);
     border-radius: 24px;
     background:
-      radial-gradient(circle at 96% 92%, rgba(7, 87, 223, 0.24), transparent 36%),
-      radial-gradient(circle at 12% 0%, rgba(37, 221, 148, 0.12), transparent 34%),
-      linear-gradient(145deg, #ffffff 0%, #eef5ff 58%, #dfeeff 100%);
+      radial-gradient(circle at 96% 92%, var(--hbx-mobile-ripple-blue), transparent 36%),
+      radial-gradient(circle at 12% 0%, var(--hbx-mobile-ripple-green), transparent 34%),
+      var(--hbx-mobile-glass-bg);
     box-shadow:
-      0 26px 52px -34px rgba(12, 30, 65, 0.58),
-      inset 0 1px 0 rgba(255, 255, 255, 0.86);
+      var(--hbx-mobile-glass-highlight),
+      var(--hbx-mobile-shadow-floating);
+    backdrop-filter: blur(var(--hbx-mobile-blur)) saturate(1.18);
+    -webkit-backdrop-filter: blur(var(--hbx-mobile-blur)) saturate(1.18);
     padding: 20px;
+    animation: mobileWelcomeSectionEnter var(--hbx-mobile-page-enter) both;
+  }
+
+  .mobileHero::before,
+  .mobileHero::after {
+    content: "";
+    position: absolute;
+    z-index: 0;
+    pointer-events: none;
+    border-radius: 999px;
+  }
+
+  .mobileHero::before {
+    inset: -28% auto auto -18%;
+    width: 78%;
+    aspect-ratio: 1;
+    background: radial-gradient(circle, rgba(255, 255, 255, 0.7), rgba(35, 183, 232, 0.12) 52%, transparent 72%);
+    filter: blur(10px);
+  }
+
+  .mobileHero::after {
+    right: -18%;
+    bottom: -30%;
+    width: 70%;
+    aspect-ratio: 1;
+    border: 1px solid rgba(35, 183, 232, 0.18);
+    background: radial-gradient(circle, rgba(35, 183, 232, 0.12), transparent 62%);
   }
 
   .mobileHeroCopy {
@@ -938,15 +969,21 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    border: 1px solid #0757df;
+    border: 1px solid rgba(7, 87, 223, 0.38);
     border-radius: 18px;
-    background: linear-gradient(135deg, #0757df 0%, #0b72ff 58%, #21b7e8 100%);
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.22), transparent 50%),
+      linear-gradient(135deg, #0757df 0%, #0b72ff 58%, #23b7e8 100%);
     color: #ffffff;
     margin-top: 0;
-    box-shadow: 0 20px 36px -22px rgba(7, 87, 223, 0.78);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.32),
+      0 22px 38px -24px rgba(7, 87, 223, 0.92);
     font: inherit;
     font-size: 0.96rem;
     font-weight: 950;
+    animation: mobileWelcomeSectionEnter var(--hbx-mobile-page-enter) both;
+    animation-delay: 60ms;
   }
 
   .mobilePrimaryAction:disabled {
@@ -961,17 +998,21 @@
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 10px;
+    animation: mobileWelcomeSectionEnter var(--hbx-mobile-page-enter) both;
+    animation-delay: 100ms;
   }
 
   .mobileSecondaryActions button {
-    border: 1px solid rgba(203, 215, 235, 0.92);
+    border: 1px solid var(--hbx-mobile-glass-border);
     border-radius: 999px;
-    background: rgba(255, 255, 255, 0.9);
+    background: rgba(255, 255, 255, 0.68);
     color: var(--hbx-mobile-primary);
     min-height: 44px;
     font-size: 0.84rem;
     font-weight: 900;
-    box-shadow: 0 12px 26px -24px rgba(12, 30, 65, 0.4);
+    box-shadow: var(--hbx-mobile-glass-highlight), 0 14px 32px -28px rgba(12, 30, 65, 0.44);
+    backdrop-filter: blur(12px) saturate(1.12);
+    -webkit-backdrop-filter: blur(12px) saturate(1.12);
   }
 
   .mobileSecondaryActions button:disabled {
@@ -986,6 +1027,8 @@
     overflow-x: auto;
     padding-bottom: 2px;
     scrollbar-width: none;
+    animation: mobileWelcomeSectionEnter var(--hbx-mobile-page-enter) both;
+    animation-delay: 140ms;
   }
 
   .mobileMetricStrip::-webkit-scrollbar {
@@ -998,10 +1041,12 @@
     display: grid;
     align-content: center;
     gap: 4px;
-    border: 1px solid rgba(203, 215, 235, 0.92);
-    border-radius: 16px;
-    background: rgba(255, 255, 255, 0.78);
-    box-shadow: 0 14px 30px -28px rgba(12, 30, 65, 0.42);
+    border: 1px solid var(--hbx-mobile-glass-border);
+    border-radius: 18px;
+    background: var(--hbx-mobile-glass-bg);
+    box-shadow: var(--hbx-mobile-glass-highlight), 0 16px 34px -30px rgba(12, 30, 65, 0.46);
+    backdrop-filter: blur(12px) saturate(1.14);
+    -webkit-backdrop-filter: blur(12px) saturate(1.14);
     padding: 10px;
   }
 
@@ -1036,6 +1081,27 @@
   .footerHint,
   .loadingText {
     display: none !important;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .mobileHero,
+    .mobilePrimaryAction,
+    .mobileSecondaryActions,
+    .mobileMetricStrip {
+      animation: none;
+    }
+  }
+
+  @keyframes mobileWelcomeSectionEnter {
+    from {
+      opacity: 0;
+      transform: translateY(10px) scale(0.988);
+    }
+
+    to {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+    }
   }
 }
 
