@@ -2622,85 +2622,221 @@ export default function VendasClientPage() {
       );
       const callHref = buildCallUrl(lead.phone);
       const email = leadEmailForDisplay(lead);
+      const emailHref = email ? `mailto:${email}` : "";
       const website = leadWebsiteForDisplay(lead);
+      const whatsappStatus = intelligence.whatsappStatus || lead.whatsappAvailability?.status || null;
+      const whatsappReady = whatsappStatus === "confirmed" || lead.whatsappAvailability?.status === "available";
+      const whatsappUnavailable = whatsappStatus === "missing" || whatsappStatus === "invalid" || lead.whatsappAvailability?.status === "unavailable";
       const tags = (intelligence.leadReasonTags || []).slice(0, 4);
+      const reasonChips = [
+        !website ? { label: "Sem site", tone: "danger" } : null,
+        whatsappReady ? { label: "WhatsApp confirmado", tone: "success" } : null,
+        email ? { label: "E-mail encontrado", tone: "success" } : null,
+        lead.city ? { label: "Cidade alvo", tone: "primary" } : null,
+        intelligence.contactQuality === "ready" || score >= 70
+          ? { label: "Lead inteligente", tone: "smart" }
+          : null,
+        ...tags.map((tag) => ({ label: leadTagLabel(tag), tone: "neutral" })),
+      ].filter(Boolean) as Array<{ label: string; tone: string }>;
+      const quickNotes = [
+        "Interessado",
+        "Retorno amanhã",
+        "Sem site",
+        "WhatsApp ok",
+      ];
+      const appendQuickNote = (value: string) => {
+        setMobileNoteDraft((current) => {
+          const normalized = String(current || "").trim();
+          if (normalized.toLowerCase().includes(value.toLowerCase())) return current;
+          return normalized ? `${normalized}\n${value}` : value;
+        });
+      };
       const loadingEnrichment = mobileEnrichmentLoadingId === lead.id;
-      const timeline = (lead.timeline || []).slice(0, 3);
-      const detailSubtitle = [mobileLeadPlace(lead), lead.segment]
-        .map((item) => String(item || "").trim())
-        .filter(Boolean)
-        .join(" / ");
+      const timeline = (lead.timeline || []).slice(0, 4);
+      const detailPlace = mobileLeadPlace(lead);
       const status = lead.statusLabel || statusLabel(lead.status);
+      const suggestedAction = lead.nextAction || nextBestActionLabel(intelligence.nextBestAction);
+      const priorityLabel = score ? scoreLabel : "Aguardando dados";
 
       return (
-        <section className={`${styles.mobileVendasShell} hbx-mobile-page`} aria-label="Detalhe do lead mobile">
+        <section className={`${styles.mobileVendasShell} ${styles.mobileLeadDetailShell} hbx-mobile-page`} aria-label="Detalhe do lead mobile">
           <div className={`${styles.mobileLeadDetailScreen} hbx-mobile-page`}>
             <header className={`${styles.mobileLeadDetailHeader} hbx-mobile-header`}>
-              <button type="button" className={`${styles.mobileLeadBackButton} hbx-mobile-secondary-button`} onClick={closeMobileLeadDetail}>
+              <button
+                type="button"
+                className={`${styles.mobileLeadBackButton} hbx-mobile-secondary-button`}
+                onClick={closeMobileLeadDetail}
+              >
                 Voltar
               </button>
-              <div>
-                <span>Detalhe do lead</span>
-                <strong>{lead.name || "Lead sem nome"}</strong>
-                {detailSubtitle ? <small>{detailSubtitle}</small> : null}
+              <div className={styles.mobileLeadDetailTitle}>
+                <strong>HBX</strong>
+                <span>Detalhes do lead</span>
               </div>
+              <button
+                type="button"
+                className={styles.mobileLeadPlusButton}
+                onClick={() => setComposerOpen(true)}
+              >
+                Lead+
+              </button>
             </header>
 
             <div className={styles.mobileLeadDetailBody}>
               {feedback ? <div className={`${styles.feedback} hbx-mobile-notice`}>{feedback}</div> : null}
               {error ? <div className={`${styles.errorBanner} hbx-mobile-notice`} data-tone="error">{error}</div> : null}
 
-              <section className={`${styles.mobileLeadDetailHero} hbx-mobile-hero`}>
-                <div className={styles.mobileLeadPlusAvatar} aria-hidden="true">
-                  <svg viewBox="0 0 24 24">
-                    <path d="M4 19h16" />
-                    <path d="M6 19V9h12v10" />
-                    <path d="M8 9V6h8v3" />
-                    <path d="M9 13h6" />
-                    <path d="M9 16h6" />
+              <section className={`${styles.mobileLeadHeroPremium} hbx-mobile-hero hbx-mobile-glass`}>
+                <div className={styles.mobileLeadHeroIdentity}>
+                  <div className={styles.mobileLeadPlusAvatar} aria-hidden="true">
+                    <svg viewBox="0 0 24 24">
+                      <path d="M4 19h16" />
+                      <path d="M6 19V9h12v10" />
+                      <path d="M8 9V6h8v3" />
+                      <path d="M9 13h6" />
+                      <path d="M9 16h6" />
+                    </svg>
+                  </div>
+                  <div>
+                    <strong>{lead.name || "Lead sem nome"}</strong>
+                    <span>{lead.segment || "Segmento não informado"}</span>
+                    <em>{detailPlace}</em>
+                  </div>
+                </div>
+                <div
+                  className={styles.mobileLeadScoreBox}
+                  style={{ ["--lead-score" as string]: `${score}%` } as CSSProperties}
+                  aria-label={`Score ${score || 0}`}
+                >
+                  <span>Score</span>
+                  <strong>{score || "--"}</strong>
+                  <small>{priorityLabel}</small>
+                </div>
+                <div className={styles.mobileLeadHeroMeta} aria-label="Resumo do lead">
+                  <span>{status}</span>
+                  <span>{mobileReturnLabel(lead)}</span>
+                  <span>{mobileLeadSourceLabel(lead)}</span>
+                </div>
+              </section>
+
+              <section className={`${styles.mobileLeadContactPanel} hbx-mobile-card`} aria-label="Contato do lead">
+                <div className={styles.mobileLeadContactRows}>
+                  <div>
+                    <span className={styles.mobileLeadRowIcon} aria-hidden="true">
+                      <svg viewBox="0 0 24 24">
+                        <path d="M6.6 10.8c1.5 3 3.6 5.1 6.6 6.6l2.2-2.2c.3-.3.8-.4 1.2-.2 1.3.4 2.6.7 4 .7.7 0 1.2.5 1.2 1.2v3.5c0 .7-.5 1.2-1.2 1.2C10.8 21.6 2.4 13.2 2.4 3.4c0-.7.5-1.2 1.2-1.2h3.5c.7 0 1.2.5 1.2 1.2 0 1.4.2 2.7.7 4 .1.4 0 .9-.3 1.2l-2.1 2.2Z" />
+                      </svg>
+                    </span>
+                    <strong>{mobilePhoneLabel(lead)}</strong>
+                    <b data-tone={whatsappUnavailable ? "danger" : whatsappReady ? "success" : "muted"}>
+                      {whatsappStatusLabel(whatsappStatus)}
+                    </b>
+                  </div>
+                  <div>
+                    <span className={styles.mobileLeadRowIcon} aria-hidden="true">
+                      <svg viewBox="0 0 24 24">
+                        <path d="M4 6h16v12H4z" />
+                        <path d="m4 7 8 6 8-6" />
+                      </svg>
+                    </span>
+                    <strong>{email || "E-mail não encontrado"}</strong>
+                    <b data-tone={email ? "success" : "muted"}>{email ? "E-mail encontrado" : "Sem e-mail"}</b>
+                  </div>
+                  <div>
+                    <span className={styles.mobileLeadRowIcon} aria-hidden="true">
+                      <svg viewBox="0 0 24 24">
+                        <circle cx="12" cy="12" r="9" />
+                        <path d="M3 12h18" />
+                        <path d="M12 3c2.5 2.5 3.5 5.5 3.5 9S14.5 18.5 12 21" />
+                        <path d="M12 3c-2.5 2.5-3.5 5.5-3.5 9s1 6.5 3.5 9" />
+                      </svg>
+                    </span>
+                    <strong>{website || "Sem site"}</strong>
+                    <b data-tone={website ? "smart" : "muted"}>{website ? "Site encontrado" : "Sem site"}</b>
+                  </div>
+                </div>
+              </section>
+
+              <section className={`${styles.mobileLeadReasonBlock} hbx-mobile-card`}>
+                <h3>
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <circle cx="12" cy="12" r="8" />
+                    <circle cx="12" cy="12" r="3" />
+                    <path d="M12 2v3" />
+                    <path d="M22 12h-3" />
                   </svg>
-                </div>
+                  Motivo do lead
+                </h3>
                 <div>
-                  <strong>{lead.name || "Lead sem nome"}</strong>
-                  <span>{lead.segment || "Segmento não informado"}</span>
-                  <em>{mobileLeadPlace(lead)}</em>
+                  {(reasonChips.length ? reasonChips : [{ label: "Cidade alvo", tone: "primary" }]).map((chip) => (
+                    <span key={`${chip.label}:${chip.tone}`} data-tone={chip.tone}>
+                      {chip.label}
+                    </span>
+                  ))}
                 </div>
               </section>
 
-              <section className={`${styles.mobileLeadDetailInfoGrid} hbx-mobile-grid`} aria-label="Score e status do lead">
-                <span className="hbx-mobile-card"><b>Score</b>{score ? `${score} - ${scoreLabel}` : "Sem score"}</span>
-                <span className="hbx-mobile-card"><b>Status</b>{status}</span>
-                <span className="hbx-mobile-card"><b>Retorno</b>{mobileReturnLabel(lead)}</span>
-                <span className="hbx-mobile-card"><b>Origem</b>{mobileLeadSourceLabel(lead)}</span>
-              </section>
-
-              <section className={`${styles.mobileLeadDetailInfoGrid} hbx-mobile-grid`} aria-label="Contato do lead">
-                <span className="hbx-mobile-card"><b>Telefone</b>{mobilePhoneLabel(lead)}</span>
-                <span className="hbx-mobile-card"><b>WhatsApp</b>{whatsappStatusLabel(intelligence.whatsappStatus)}</span>
-                <span className="hbx-mobile-card"><b>E-mail</b>{email || "Não encontrado"}</span>
-                <span className="hbx-mobile-card"><b>Site</b>{website || "Sem site"}</span>
-              </section>
-
-              <section className={`${styles.mobileLeadDetailInfoGrid} hbx-mobile-grid`} aria-label="Contexto do lead">
-                <span className="hbx-mobile-card"><b>Motivo</b>{tags.length ? tags.map(leadTagLabel).join(", ") : "cidade alvo, segmento alvo"}</span>
-              </section>
-
-              <section className={`${styles.mobileLeadDetailHero} hbx-mobile-hero`}>
-                <div>
-                  <strong>Próxima ação</strong>
-                  <span>{lead.nextAction || nextBestActionLabel(intelligence.nextBestAction)}</span>
-                </div>
+              <section className={`${styles.mobileLeadNextActionBox} hbx-mobile-card`}>
+                <h3>
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="m13 2-8 12h7l-1 8 8-12h-7l1-8Z" />
+                  </svg>
+                  Próxima ação
+                </h3>
+                <a
+                  href={whatsappHref || undefined}
+                  target="_blank"
+                  rel="noreferrer"
+                  aria-disabled={!whatsappHref}
+                  onClick={(event) => {
+                    if (!whatsappHref) event.preventDefault();
+                    else void incrementAttempt(lead.id);
+                  }}
+                >
+                  <span aria-hidden="true">
+                    <svg viewBox="0 0 24 24">
+                      <path d="M19.05 4.94A9.8 9.8 0 0 0 12.06 2C6.59 2 2.13 6.46 2.13 11.93c0 1.75.46 3.46 1.32 4.97L2 22l5.27-1.38a9.9 9.9 0 0 0 4.79 1.22h.01c5.47 0 9.93-4.46 9.93-9.93a9.86 9.86 0 0 0-2.95-6.97Z" />
+                    </svg>
+                  </span>
+                  {suggestedAction}
+                  <b aria-hidden="true">›</b>
+                </a>
               </section>
 
               <section className={`${styles.mobileLeadReadyMessage} hbx-mobile-card`}>
                 <h3>
-                  <span>Mensagem pronta</span>
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M4 5h16v11H7l-3 3V5Z" />
+                    <path d="M8 9h8" />
+                    <path d="M8 13h5" />
+                  </svg>
+                  Mensagem pronta
+                </h3>
+                <p>{loadingEnrichment ? "Verificando WhatsApp no motor HBX Master..." : readyMessage}</p>
+                <div className={styles.mobileLeadQuickGrid}>
+                  <a
+                    href={callHref || undefined}
+                    aria-disabled={!callHref}
+                    onClick={(event) => {
+                      if (!callHref) event.preventDefault();
+                      else void incrementAttempt(lead.id);
+                    }}
+                  >
+                    Ligar
+                  </a>
+                  <a href={emailHref || undefined} aria-disabled={!emailHref}>
+                    E-mail
+                  </a>
                   <button
                     type="button"
-                    className={styles.mobileLeadReadyRefreshIcon}
+                    data-tone="primary"
+                    onClick={() => void copyMobileText(readyMessage, "Mensagem copiada.")}
+                  >
+                    Copiar msg
+                  </button>
+                  <button
+                    type="button"
                     onClick={() => refreshMobileTemplate(lead)}
-                    aria-label="Atualizar mensagem pronta"
-                    title="Atualizar mensagem pronta"
                   >
                     <svg viewBox="0 0 24 24" aria-hidden="true">
                       <path d="M20 7v5h-5" />
@@ -2708,22 +2844,27 @@ export default function VendasClientPage() {
                       <path d="M6.1 9A7 7 0 0 1 18 6.2L20 8" />
                       <path d="M17.9 15A7 7 0 0 1 6 17.8L4 16" />
                     </svg>
+                    Atualizar
                   </button>
-                </h3>
-                <p>{loadingEnrichment ? "Verificando WhatsApp no motor HBX Master..." : readyMessage}</p>
-                <button
-                  type="button"
-                  className={`${styles.mobileLeadRefreshButton} hbx-mobile-secondary-button`}
-                  onClick={() => void copyMobileText(readyMessage, "Mensagem copiada.")}
-                >
-                  Copiar mensagem
-                </button>
+                </div>
               </section>
 
               <section id="mobile-lead-note" className={`${styles.mobileLeadObservationCard} hbx-mobile-card`}>
                 <div className={styles.mobileLeadObservationHeader}>
-                  <h3>Observação</h3>
+                  <h3>
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <path d="M5 5h14v11H8l-3 3V5Z" />
+                      <path d="M9 9h6" />
+                      <path d="M9 13h4" />
+                    </svg>
+                    Observações
+                  </h3>
                   <span>{mobileNoteDraft.length}/280</span>
+                </div>
+                <div className={styles.mobileLeadTabs} aria-label="Navegação das observações">
+                  <span>Resumo</span>
+                  <b>Observações</b>
+                  <span>Histórico</span>
                 </div>
                 {lead.shortNote ? (
                   <p className={styles.mobileLeadSavedNote}>{lead.shortNote}</p>
@@ -2738,6 +2879,20 @@ export default function VendasClientPage() {
                     placeholder="Escreva o contexto do atendimento, objeções, próximos passos ou qualquer detalhe importante."
                   />
                 </label>
+                <div className={styles.mobileLeadSmartChips} aria-label="Chips rápidos de observação">
+                  {quickNotes.map((note) => (
+                    <button
+                      type="button"
+                      key={note}
+                      onClick={() => appendQuickNote(note)}
+                    >
+                      {note}
+                    </button>
+                  ))}
+                </div>
+                <p className={styles.mobileLeadSuggestedAction}>
+                  Próxima ação sugerida: <strong>{suggestedAction}</strong>
+                </p>
                 <button
                   type="button"
                   className={`${styles.mobileLeadSaveNoteButton} hbx-mobile-primary-button`}
@@ -2746,10 +2901,17 @@ export default function VendasClientPage() {
                 >
                   {mobileSavingNote ? "Salvando" : "Salvar observação"}
                 </button>
+                <button
+                  type="button"
+                  className={`${styles.mobileLeadRefreshButton} hbx-mobile-secondary-button`}
+                  onClick={() => refreshMobileTemplate(lead)}
+                >
+                  Atualizar mensagem
+                </button>
               </section>
 
               <section className={`${styles.mobileLeadTimeline} hbx-mobile-card`}>
-                <h3>Últimas observações</h3>
+                <h3>Histórico</h3>
                 {(timeline.length
                   ? timeline
                   : [
@@ -2763,8 +2925,13 @@ export default function VendasClientPage() {
                       } as LeadTimelineEvent,
                     ]
                 ).map((event) => (
-                  <div key={event.id}>
-                    <span aria-hidden="true" />
+                  <div key={event.id} data-tone={timelineTone(event.eventType)}>
+                    <span aria-hidden="true">
+                      <svg viewBox="0 0 24 24">
+                        <path d="M12 8v4l3 2" />
+                        <circle cx="12" cy="12" r="8" />
+                      </svg>
+                    </span>
                     <p>
                       <strong>{timelineMeta(event)}</strong>
                       {event.title || event.description || "Atendimento atualizado."}
@@ -2790,24 +2957,22 @@ export default function VendasClientPage() {
               >
                 WhatsApp
               </a>
-              <a
-                className="hbx-mobile-secondary-button"
-                href={callHref || undefined}
-                aria-disabled={!callHref}
-                onClick={(event) => {
-                  if (!callHref) event.preventDefault();
-                  else void incrementAttempt(lead.id);
-                }}
-              >
-                Ligar
-              </a>
               <button
                 type="button"
                 className="hbx-mobile-secondary-button"
-                onClick={() => void saveMobileNote()}
-                disabled={mobileSavingNote || savingLeadId === lead.id}
+                onClick={() => void runQuickAction(lead, "amanha")}
+                disabled={savingLeadId === lead.id}
               >
-                {mobileSavingNote ? "Salvando" : "Salvar"}
+                Retorno
+              </button>
+              <button
+                type="button"
+                className="hbx-mobile-secondary-button"
+                data-tone="danger"
+                onClick={() => void runQuickAction(lead, "encerrar")}
+                disabled={savingLeadId === lead.id}
+              >
+                Negativo
               </button>
             </nav>
             <HbxMobileDock primaryLabel="Incluir lead manual" onPrimaryAction={() => setComposerOpen(true)} />
