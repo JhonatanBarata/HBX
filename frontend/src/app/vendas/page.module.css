@@ -5110,6 +5110,7 @@
   }
 
   .mobileLeadHeroPremium {
+    position: relative;
     display: grid;
     grid-template-columns: minmax(0, 1fr) 102px;
     gap: 14px;
@@ -5123,6 +5124,36 @@
     box-shadow:
       0 26px 54px -36px rgba(20, 52, 112, 0.62),
       inset 0 1px 0 rgba(255, 255, 255, 0.92);
+    isolation: isolate;
+    overflow: hidden;
+  }
+
+  .mobileLeadHeroVisual,
+  .mobileLeadObservationVisual,
+  .mobileTimelineVisual {
+    position: absolute;
+    pointer-events: none;
+    background-repeat: no-repeat;
+    background-position: center;
+    background-size: contain;
+    z-index: 0;
+  }
+
+  .mobileLeadHeroVisual {
+    right: -8px;
+    bottom: -18px;
+    width: 132px;
+    height: 132px;
+    background-image: url("/hbx-visuals/lead-detail/light/lead-hero.svg");
+    opacity: 0.2;
+    transform: rotate(-3deg);
+  }
+
+  .mobileLeadHeroPremium > :not(.mobileLeadHeroVisual),
+  .mobileLeadObservationCard > :not(.mobileLeadObservationVisual),
+  .mobileLeadTimeline > :not(.mobileTimelineVisual) {
+    position: relative;
+    z-index: 1;
   }
 
   .mobileLeadHeroIdentity {
@@ -5232,6 +5263,7 @@
   .mobileLeadReadyMessage,
   .mobileLeadObservationCard,
   .mobileLeadTimeline {
+    position: relative;
     padding: 14px;
     border-radius: 24px !important;
     border-color: rgba(217, 225, 239, 0.88);
@@ -5241,6 +5273,8 @@
     box-shadow:
       0 20px 44px -36px rgba(20, 52, 112, 0.5),
       inset 0 1px 0 rgba(255, 255, 255, 0.84);
+    isolation: isolate;
+    overflow: hidden;
   }
 
   .mobileLeadReasonBlock span[data-tone="primary"] {
@@ -5297,6 +5331,15 @@
     gap: 12px;
   }
 
+  .mobileLeadObservationVisual {
+    top: 8px;
+    right: 8px;
+    width: 84px;
+    height: 84px;
+    background-image: url("/hbx-visuals/lead-detail/light/observations.svg");
+    opacity: 0.13;
+  }
+
   .mobileLeadTabs {
     border-radius: 14px;
   }
@@ -5329,6 +5372,15 @@
 
   .mobileLeadTimeline {
     position: relative;
+  }
+
+  .mobileTimelineVisual {
+    top: 8px;
+    right: 10px;
+    width: 88px;
+    height: 88px;
+    background-image: url("/hbx-visuals/lead-detail/light/timeline.svg");
+    opacity: 0.12;
   }
 
   .mobileLeadTimeline > div {
@@ -5438,6 +5490,21 @@
     border-color: rgba(166, 215, 255, 0.18);
     background: var(--hbx-mobile-glass-bg);
     box-shadow: var(--hbx-mobile-shadow-premium);
+  }
+
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileLeadHeroVisual {
+    background-image: url("/hbx-visuals/lead-detail/dark/lead-hero.svg");
+    opacity: 0.2;
+  }
+
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileLeadObservationVisual {
+    background-image: url("/hbx-visuals/lead-detail/dark/observations.svg");
+    opacity: 0.16;
+  }
+
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileTimelineVisual {
+    background-image: url("/hbx-visuals/lead-detail/dark/timeline.svg");
+    opacity: 0.16;
   }
 
   :global(html[data-hbx-mobile-theme="dark"]) .mobileLeadHeroMeta span,
