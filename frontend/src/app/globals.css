@@ -1,7 +1,7 @@
 @import "tailwindcss" source(none);
-@source "../**/*.{js,jsx,ts,tsx,mdx,css}";
 @import "dockview/dist/styles/dockview.css";
 @import "./mobile-system.css";
+@source "../**/*.{js,jsx,ts,tsx,mdx,css}";
 
 :root {
   --topbar-height: 100px;
