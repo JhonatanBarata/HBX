@@ -173,6 +173,13 @@
   animation: premiumReveal 420ms ease both;
 }
 
+.actionDeck[data-phone-only="true"] {
+  border-color: color-mix(in srgb, var(--selection-accent) 28%, var(--line));
+  background:
+    radial-gradient(circle at 50% 0%, color-mix(in srgb, var(--selection-accent-soft) 58%, transparent), transparent 34%),
+    color-mix(in srgb, var(--surface) 82%, transparent);
+}
+
 .linkTabs {
   display: flex;
   flex-wrap: wrap;
@@ -247,6 +254,19 @@
   line-height: 1.5;
 }
 
+.lockedNotice {
+  width: min(100%, 620px);
+  border: 1px solid color-mix(in srgb, var(--selection-accent) 26%, var(--line));
+  border-radius: var(--radius-xl);
+  padding: .85rem 1rem;
+  color: var(--foreground);
+  background: color-mix(in srgb, var(--selection-accent-soft) 46%, var(--surface));
+  font-size: .9rem;
+  font-weight: 850;
+  line-height: 1.38;
+  text-align: center;
+}
+
 .phoneField {
   width: min(100%, 520px);
   display: grid;
@@ -277,6 +297,15 @@
 .phoneField input:focus {
   border-color: color-mix(in srgb, var(--selection-accent) 52%, var(--line));
   box-shadow: 0 0 0 4px var(--selection-accent-soft);
+}
+
+.phoneField input:disabled,
+.phoneField input:read-only {
+  opacity: 1;
+  cursor: default;
+  color: var(--foreground);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--surface-raised) 88%, transparent), color-mix(in srgb, var(--surface) 82%, transparent));
 }
 
 .pairingCodeBox {
@@ -678,6 +707,36 @@
 }
 
 @media (max-width: 760px) {
+  .stage {
+    min-height: 100dvh;
+    align-content: start;
+    padding: 18px 16px calc(22px + env(safe-area-inset-bottom));
+    border: 0;
+    border-radius: 0;
+    background:
+      radial-gradient(circle at 50% 12%, color-mix(in srgb, var(--selection-accent-soft) 48%, transparent), transparent 34%),
+      linear-gradient(180deg, #04182d 0%, #061326 46%, #07112a 100%);
+    box-shadow: none;
+  }
+
+  .stage .header {
+    justify-content: center;
+  }
+
+  .stage .dots {
+    display: none;
+  }
+
+  .stage .mark {
+    width: 68px;
+    height: 68px;
+    border-radius: 20px;
+    color: #ffffff;
+    background:
+      linear-gradient(145deg, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0.04)),
+      rgba(13, 31, 52, 0.68);
+  }
+
   .connectionGrid {
     grid-template-columns: 1fr;
   }
@@ -686,7 +745,45 @@
     min-height: 170px;
   }
 
-  .stage {
-    padding: .9rem;
+  .actionDeck[data-phone-only="true"] {
+    width: 100%;
+    margin-top: 4vh;
+    border: 0;
+    padding: 0;
+    background: transparent;
+    box-shadow: none;
+  }
+
+  .actionDeck[data-phone-only="true"] .phoneShell {
+    min-height: auto;
+    border-color: color-mix(in srgb, var(--selection-accent) 28%, transparent);
+    border-radius: 22px;
+    padding: 18px 14px;
+    background:
+      radial-gradient(circle at 50% 0%, color-mix(in srgb, var(--selection-accent-soft) 44%, transparent), transparent 42%),
+      rgba(8, 24, 52, 0.72);
+  }
+
+  .actionDeck[data-phone-only="true"] .phoneCopy strong {
+    font-size: clamp(2rem, 10vw, 2.65rem);
+    line-height: 1;
+  }
+
+  .actionDeck[data-phone-only="true"] .phoneField input {
+    min-height: 58px;
+    border-radius: 18px;
+    font-size: 1.02rem;
+  }
+
+  .actionDeck[data-phone-only="true"] .actionRow,
+  .actionDeck[data-phone-only="true"] .primaryAction,
+  .actionDeck[data-phone-only="true"] .secondaryAction {
+    width: 100%;
+  }
+
+  .actionDeck[data-phone-only="true"] .secondaryAction {
+    min-height: 42px;
+    border-color: color-mix(in srgb, var(--line) 50%, transparent);
+    background: color-mix(in srgb, var(--surface-raised) 42%, transparent);
   }
 }

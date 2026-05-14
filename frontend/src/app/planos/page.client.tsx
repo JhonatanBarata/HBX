@@ -57,10 +57,10 @@ const FALLBACK_PLANS: Record<PlanKey, CommercialPlan> = {
     description: "Para quem quer Radar Digital + Vendas + Atendimento interno.",
     annualDiscountPercent: 20,
     recommended: true,
-    trialDays: 30,
+    trialDays: 14,
     quotas: { googleSearchesPerDay: 2 },
     features: ["Tudo do HBX List", "Atendimento interno pelo painel", "Cards elegíveis para Prospecção", "Night Factory liberado", "Controle de retornos", "Sem Bot IA automático completo"],
-    legalCopy: "1º mês grátis, sem cartão e sem cobrança automática.",
+    legalCopy: "14 dias grátis, sem cartão e sem cobrança automática.",
   },
   hbx_melhor: {
     key: "hbx_melhor",
@@ -230,7 +230,7 @@ export default function PlanosClientPage() {
           badge: planBadge(key, selectedPlanKey, promotedPlanKey),
           monthlyPrice: plan.monthlyPrice,
           promoPrice: hasFreeTrial ? 0 : undefined,
-          promoLabel: hasFreeTrial ? "Após 1º mês 89,90" : undefined,
+          promoLabel: hasFreeTrial ? "Após 14 dias 89,90" : undefined,
           detail:
             key === "hbx_lite"
               ? "Para quem quer encontrar novos clientes e organizar a prospecção."
@@ -243,8 +243,8 @@ export default function PlanosClientPage() {
           available: plan.status !== "unavailable",
           featured: key === promotedPlanKey || (!selectedPlanKey && Boolean(plan.recommended)),
           features: plan.features || FALLBACK_PLANS[key].features || [],
-          note: hasFreeTrial ? "1º mês grátis" : plan.legalCopy || FALLBACK_PLANS[key].legalCopy || undefined,
-          trialCopy: hasFreeTrial ? "1º mês grátis" : undefined,
+          note: hasFreeTrial ? "14 dias grátis" : plan.legalCopy || FALLBACK_PLANS[key].legalCopy || undefined,
+          trialCopy: hasFreeTrial ? "14 dias grátis" : undefined,
         };
       }),
     [padraoTrialAvailable, plans, promotedPlanKey, selectedPlanKey],
@@ -314,7 +314,7 @@ export default function PlanosClientPage() {
       });
       setPayload(next);
       if (planKey === "hbx_padrao" && next.current.isTrial) {
-        setNotice({ tone: "success", text: "Trial do HBX Lead iniciado por 30 dias. Não haverá cobrança automática." });
+        setNotice({ tone: "success", text: "Trial do HBX Lead iniciado por 14 dias. Não haverá cobrança automática." });
         window.setTimeout(() => {
           router.push("/boasvindas");
         }, 500);
@@ -352,7 +352,7 @@ export default function PlanosClientPage() {
       });
       setPayload(next);
       setTrialModalOpen(false);
-      setNotice({ tone: "success", text: "Trial do HBX Lead iniciado por 30 dias. Não haverá cobrança automática." });
+      setNotice({ tone: "success", text: "Trial do HBX Lead iniciado por 14 dias. Não haverá cobrança automática." });
       window.setTimeout(() => {
         router.push("/boasvindas");
       }, 500);
@@ -390,7 +390,7 @@ export default function PlanosClientPage() {
                 <h1 id="plans-title">{trialModalOpen ? "Liberar trial" : "Planos HBX"}</h1>
                 <p>
                   {trialModalOpen
-                    ? "Confirme o responsável para ativar os 30 dias."
+                    ? "Confirme o responsável para ativar os 14 dias."
                     : "Compare os planos sem bloquear sua operação."}
                 </p>
               </div>
@@ -432,9 +432,9 @@ export default function PlanosClientPage() {
           {trialModalOpen ? (
             <section className={styles.trialInline} aria-labelledby="trial-title">
               <aside className={styles.trialSummary}>
-                <span className={styles.trialSummaryBadge}>30 dias grátis</span>
+                <span className={styles.trialSummaryBadge}>14 dias grátis</span>
                 <h2 id="trial-title">HBX Lead</h2>
-                <p>30 dias sem cobrança automática. Pagamento só no checkout.</p>
+                <p>14 dias sem cobrança automática. Pagamento só no checkout.</p>
                 <dl>
                   <div>
                     <dt>Validação</dt>
@@ -497,7 +497,7 @@ export default function PlanosClientPage() {
                     onChange={(event) => setTrialForm((current) => ({ ...current, acceptedTerms: event.target.checked }))}
                   />
                   <span>
-                    Aceito iniciar o trial gratuito de 30 dias do HBX Lead, sem cobrança automática agora, e autorizo o uso do CPF, Nome Completo e Telefone informado para contato e validação de elegibilidade do trial.
+                    Aceito iniciar o trial gratuito de 14 dias do HBX Lead, sem cobrança automática agora, e autorizo o uso do CPF, Nome Completo e Telefone informado para contato, validação de elegibilidade e vínculo do WhatsApp do trial. Para trocar o telefone será necessário acionar o suporte.
                   </span>
                 </label>
 
@@ -511,7 +511,7 @@ export default function PlanosClientPage() {
                     disabled={!trialFormReady || savingPlan === "hbx_padrao"}
                     onClick={() => void submitTrial()}
                   >
-                    {savingPlan === "hbx_padrao" ? "Ativando trial..." : "Iniciar 30 dias grátis"}
+                    {savingPlan === "hbx_padrao" ? "Ativando trial..." : "Iniciar 14 dias grátis"}
                   </button>
                 </footer>
               </div>

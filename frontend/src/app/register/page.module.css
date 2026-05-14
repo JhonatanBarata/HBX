@@ -1833,10 +1833,11 @@
 .dialogOverlay {
   position: fixed;
   inset: 0;
-  z-index: 120;
+  z-index: 2147483000;
   display: grid;
   place-items: center;
   padding: 18px;
+  overflow: auto;
   background: rgba(9, 25, 48, 0.34);
   backdrop-filter: blur(10px);
 }
@@ -1980,10 +1981,13 @@
 }
 
 .trialError {
+  position: relative;
+  z-index: 3;
   margin-top: 12px;
   border-color: rgba(239, 68, 68, 0.34) !important;
   color: #7f1d1d !important;
   background: linear-gradient(180deg, rgba(255, 241, 242, 0.96), rgba(255, 228, 230, 0.82)) !important;
+  box-shadow: 0 16px 38px -28px rgba(127, 29, 29, 0.75);
 }
 
 .trialDialogActions {
@@ -1991,6 +1995,112 @@
   justify-content: flex-end;
   gap: 10px;
   margin-top: 16px;
+}
+
+.mobileConfirmationWait {
+  display: grid;
+  width: min(100%, 340px);
+  min-height: calc(100svh - 72px);
+  align-content: center;
+  justify-items: center;
+  gap: 18px;
+  margin: 0 auto;
+  color: #ffffff;
+  text-align: center;
+}
+
+.mobileConfirmationLogo {
+  font-size: clamp(4.4rem, 21vw, 5.8rem);
+  font-weight: 950;
+  line-height: 0.95;
+  letter-spacing: 0;
+  filter: drop-shadow(0 22px 46px rgba(9, 104, 255, 0.42));
+  background: linear-gradient(92deg, #ffffff 0%, #f8fbff 42%, #38d8ff 72%, #2d6bff 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+}
+
+.mobileConfirmationText {
+  display: grid;
+  gap: 8px;
+}
+
+.mobileConfirmationText span {
+  color: rgba(148, 214, 255, 0.9);
+  font-size: 0.74rem;
+  font-weight: 950;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.mobileConfirmationText h1 {
+  max-width: 12ch;
+  margin: 0;
+  color: #ffffff;
+  font-size: clamp(2.1rem, 10vw, 2.85rem);
+  font-weight: 950;
+  line-height: 1.02;
+}
+
+.mobileConfirmationText p {
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: rgba(227, 238, 255, 0.78);
+  font-size: 0.9rem;
+  font-weight: 800;
+}
+
+.mobileConfirmationStatus {
+  display: flex;
+  width: 100%;
+  min-height: 52px;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  border: 1px solid rgba(95, 215, 255, 0.28);
+  border-radius: 16px;
+  padding: 12px 14px;
+  color: rgba(239, 248, 255, 0.88);
+  background: rgba(9, 27, 58, 0.72);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  font-size: 0.84rem;
+  font-weight: 850;
+  line-height: 1.35;
+}
+
+.mobileConfirmationStatus p {
+  margin: 0;
+}
+
+.mobileConfirmationStatus[data-error="true"] {
+  border-color: rgba(255, 126, 126, 0.36);
+  color: #ffe1e1;
+  background: rgba(82, 16, 29, 0.58);
+}
+
+@media (max-width: 768px) {
+  .dialogOverlay {
+    align-items: start;
+    place-items: start center;
+    padding: max(12px, env(safe-area-inset-top)) 12px max(18px, env(safe-area-inset-bottom));
+  }
+
+  .trialDialog {
+    width: min(100%, 420px);
+    max-height: none;
+    padding: 16px;
+  }
+
+  .trialFormGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .trialDialogActions {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
 }
 
 .desktopBackButton {

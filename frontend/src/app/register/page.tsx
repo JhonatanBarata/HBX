@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
+import { createPortal } from "react-dom";
 import PlanSelectionExperience, { type PlanSelectionCard } from "@/components/PlanSelectionExperience";
 import { useRouter } from "next/navigation";
 import { useHbxTheme } from "@/components/ThemeProvider";
@@ -47,6 +48,8 @@ type SignupResponse = {
     confirmUrl?: string | null;
     failed?: boolean;
   } | null;
+  next?: string | null;
+  loginNext?: string | null;
 };
 
 type ConfirmationPendingState = {
@@ -69,6 +72,9 @@ type ConfirmationStatusResponse = {
   email?: string | null;
   next?: string | null;
   loginNext?: string | null;
+  access_token?: string | null;
+  accessToken?: string | null;
+  token?: string | null;
 };
 
 type EmailConfirmationSignal = {
@@ -80,6 +86,13 @@ type EmailConfirmationSignal = {
   token?: string | null;
   access_token?: string | null;
   accessToken?: string | null;
+};
+
+type TrialActivationResponse = {
+  message?: string;
+  trialStartsAt?: string | null;
+  trialEndsAt?: string | null;
+  next?: string | null;
 };
 
 type SignupPlan = PlanSelectionCard & {
@@ -99,14 +112,11 @@ const SIGNUP_PLANS: SignupPlan[] = [
     name: "HBX List",
     badge: "List",
     monthlyPrice: 49.9,
-    promoPrice: 0,
-    promoLabel: "Após 1º mês 49,90",
     detail: "Radar Digital com cards elegíveis alimentando Vendas.",
-    cta: "Começar grátis hoje",
+    cta: "Assinar agora",
     available: true,
     features: ["Radar Digital + Vendas", "50 cards por pesquisa", "3 pesquisas, total 150 cards", "WhatsApp externo", "Sem Atendimento interno", "Sem Night Factory"],
-    note: "1º mês grátis",
-    trialCopy: "1º mês grátis",
+    note: "Cobrança imediata",
   },
   {
     key: "hbx_padrao",
@@ -114,14 +124,14 @@ const SIGNUP_PLANS: SignupPlan[] = [
     badge: "Mais escolhido",
     monthlyPrice: 89.9,
     promoPrice: 0,
-    promoLabel: "Após 1º mês 89,90",
+    promoLabel: "Após 14 dias 89,90",
     detail: "Radar, Vendas, Atendimento interno e Night Factory.",
     cta: "Começar grátis hoje",
     available: true,
     featured: true,
     features: ["Tudo do HBX List", "Atendimento interno", "Prospecção por filtros", "Night Factory liberado", "Controle de retornos", "Sem Bot IA automático completo"],
-    note: "1º mês grátis",
-    trialCopy: "1º mês grátis",
+    note: "14 dias grátis",
+    trialCopy: "14 dias grátis",
   },
   {
     key: "hbx_melhor",
@@ -262,11 +272,15 @@ function localWelcomePath(reason: "trial" | "pending_checkout") {
 }
 
 function isTrialSignupPlan(planKey?: CommercialPlanKey | null) {
-  return planKey === "hbx_lite" || planKey === "hbx_padrao" || planKey === "hbx_melhor";
+  return planKey === "hbx_padrao";
+}
+
+function needsTrialActivationStatus(status?: string | null) {
+  return String(status || "").trim().toLowerCase() === "pending_trial_activation";
 }
 
 function trialDaysForPlan(planKey?: CommercialPlanKey | null) {
-  return planKey === "hbx_melhor" ? 7 : 30;
+  return planKey === "hbx_padrao" ? 14 : 0;
 }
 
 function FieldIcon({ icon }: { icon: RegisterFieldIcon }) {
@@ -410,11 +424,16 @@ export default function RegisterPage() {
       const params = new URLSearchParams(window.location.search);
       const start = params.get("start");
       const fromLogin = params.get("from") === "login";
-      const sequence = start === "plans" ? "plans-first" : start === "form" || fromLogin || isMobile ? "form-first" : "plans-first";
+      const sequence = start === "trial" || start === "plans" ? "plans-first" : start === "form" || fromLogin || isMobile ? "form-first" : "plans-first";
       setMobileRegisterFlow(isMobile);
       setRegisterSequence(sequence);
-      setRegisterStep(sequence === "form-first" ? "form" : "plans");
+      setRegisterStep(start === "trial" ? "form" : sequence === "form-first" ? "form" : "plans");
       setRegisterTransition("idle");
+      if (start === "trial" && getToken()) {
+        setSelectedPlanKey("hbx_padrao");
+        setConfirmationPending(null);
+        setTrialModalOpen(true);
+      }
     };
     applyMobileFlow();
     mediaQuery.addEventListener("change", applyMobileFlow);
@@ -451,6 +470,9 @@ export default function RegisterPage() {
     setConfirmationAutoError(null);
 
     function resolveDestination(signal?: EmailConfirmationSignal | ConfirmationStatusResponse | null) {
+      if (needsTrialActivationStatus(signal?.status)) {
+        return "/register?start=trial";
+      }
       if (isLocalMockWelcomeEnabled()) {
         return localWelcomePath(isTrialSignupPlan(pendingState.selectedPlanKey) ? "trial" : "pending_checkout");
       }
@@ -472,7 +494,11 @@ export default function RegisterPage() {
       if (cancelled || autoLoginCompletedRef.current || !matchesCurrentEmail(signal)) return;
       autoLoginCompletedRef.current = true;
       setConfirmationAutoError(null);
-      setConfirmationAutoMessage("E-mail confirmado. Entrando automaticamente...");
+      setConfirmationAutoMessage(
+        needsTrialActivationStatus(signal?.status)
+          ? "E-mail confirmado. Abrindo ativação do trial..."
+          : "E-mail confirmado. Entrando automaticamente...",
+      );
 
       const destination = resolveDestination(signal);
       const signalToken = getPayloadToken(signal);
@@ -480,6 +506,14 @@ export default function RegisterPage() {
 
       if (existingToken) {
         setToken(existingToken);
+        if (needsTrialActivationStatus(signal?.status)) {
+          setSelectedPlanKey("hbx_padrao");
+          setConfirmationPending(null);
+          setTrialModalOpen(true);
+          setRegisterStep("form");
+          setRegisterTransition("idle");
+          return;
+        }
         router.replace(destination);
         return;
       }
@@ -512,6 +546,14 @@ export default function RegisterPage() {
         }
 
         setToken(token);
+        if (needsTrialActivationStatus(signal?.status) || safeInternalPath((data as { next?: string | null })?.next) === "/register?start=trial") {
+          setSelectedPlanKey("hbx_padrao");
+          setConfirmationPending(null);
+          setTrialModalOpen(true);
+          setRegisterStep("form");
+          setRegisterTransition("idle");
+          return;
+        }
         router.replace(safeInternalPath((data as { next?: string | null })?.next) || destination);
       } catch {
         setConfirmationAutoError("E-mail confirmado, mas houve falha ao conectar para entrar automaticamente.");
@@ -657,7 +699,7 @@ export default function RegisterPage() {
     await submitRegistration();
   }
 
-  async function submitRegistration(forceTrial = false, planKeyOverride?: CommercialPlanKey) {
+  async function submitRegistration(_forceTrial = false, planKeyOverride?: CommercialPlanKey) {
     const planKey = planKeyOverride || selectedPlanKey;
     setError(null);
     setConfirmationPending(null);
@@ -668,17 +710,6 @@ export default function RegisterPage() {
 
     if (password !== confirmPassword) {
       setError("As senhas não conferem.");
-      return;
-    }
-
-    if (isTrialSignupPlan(planKey) && !forceTrial) {
-      setTrialModalOpen(true);
-      return;
-    }
-
-    if (isTrialSignupPlan(planKey) && !trialFormReady) {
-      setTrialModalOpen(true);
-      setError("Informe nome, CPF válido, telefone de contato e aceite os termos para iniciar o trial.");
       return;
     }
 
@@ -697,14 +728,6 @@ export default function RegisterPage() {
         companyName: normalizedCompanyName,
         name: normalizedAttendantName,
         selectedPlanKey: planKey,
-        ...(isTrialSignupPlan(planKey)
-          ? {
-              trialContactName: trialForm.contactName.trim(),
-              trialTaxDocument: trialCpfDigits,
-              trialContactPhone: trialPhoneDigits,
-              acceptedTerms: trialForm.acceptedTerms,
-            }
-          : {}),
         username: username.trim() || email.trim().toLowerCase(),
         email,
         password,
@@ -719,7 +742,6 @@ export default function RegisterPage() {
 
       if (!signupRes.ok) {
         setError(getSignupErrorMessage(signupRes.status, signupData));
-        if (isTrialSignupPlan(planKey)) setTrialModalOpen(true);
         return;
       }
 
@@ -732,10 +754,14 @@ export default function RegisterPage() {
       if (token) {
         setTrialModalOpen(false);
         setToken(token);
+        const payloadNext = safeInternalPath(payload?.next);
         router.push(
-          isLocalMockWelcomeEnabled()
+          payloadNext ||
+          (isLocalMockWelcomeEnabled()
             ? localWelcomePath(isTrialSignupPlan(planKey) ? "trial" : "pending_checkout")
-            : "/boasvindas",
+            : isTrialSignupPlan(planKey)
+              ? "/register?start=trial"
+              : "/pagamento?focus=payment&reason=pending_checkout"),
         );
         return;
       }
@@ -787,7 +813,35 @@ export default function RegisterPage() {
       setError("Informe nome, CPF válido, telefone de contato e aceite os termos para iniciar o trial.");
       return;
     }
-    await submitRegistration(true);
+    setLoading(true);
+    setError(null);
+    try {
+      const response = await fetch(`${API_URL}/auth/activate-trial`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(getToken() ? { Authorization: `Bearer ${getToken()}` } : {}),
+        },
+        body: JSON.stringify({
+          trialContactName: trialForm.contactName.trim(),
+          trialTaxDocument: trialCpfDigits,
+          trialContactPhone: trialPhoneDigits,
+          acceptedTerms: trialForm.acceptedTerms,
+        }),
+      });
+      const data: unknown = await response.json().catch(() => null);
+      if (!response.ok) {
+        setError(getSignupErrorMessage(response.status, data));
+        return;
+      }
+      const payload = (data as TrialActivationResponse | null) ?? null;
+      setTrialModalOpen(false);
+      router.replace(safeInternalPath(payload?.next) || "/boasvindas");
+    } catch {
+      setError("Falha ao conectar no backend.");
+    } finally {
+      setLoading(false);
+    }
   }
 
   function handlePlanSelect(planKey: CommercialPlanKey) {
@@ -865,6 +919,32 @@ export default function RegisterPage() {
         data-register-transition={registerTransition}
         data-confirmation-pending={confirmationPending ? "true" : "false"}
       >
+        {confirmationPending && mobileRegisterFlow ? (
+          <section className={styles.mobileConfirmationWait} aria-live="polite">
+            <div className={styles.mobileConfirmationLogo}>HBX</div>
+            <div className={styles.mobileConfirmationText}>
+              <span>Cadastro criado</span>
+              <h1>Aguardando confirmação de email</h1>
+              <p>{confirmationPending.email}</p>
+            </div>
+            <div className={styles.mobileConfirmationStatus} data-error={confirmationAutoError ? "true" : "false"}>
+              {confirmationAutoError ? null : <span className={styles.autoConfirmSpinner} aria-hidden="true" />}
+              <p>{confirmationAutoError || confirmationAutoMessage}</p>
+            </div>
+            {confirmationActionMessage ? <p className={styles.muted}>{confirmationActionMessage}</p> : null}
+            {confirmationPending.canResendConfirmation ? (
+              <button
+                type="button"
+                className="btn btn-secondary login-button"
+                disabled={resendingConfirmation}
+                onClick={() => void resendConfirmation(confirmationPending.email)}
+              >
+                {resendingConfirmation ? "Reenviando..." : "Reenviar confirmação"}
+              </button>
+            ) : null}
+          </section>
+        ) : null}
+
         {!confirmationPending && registerStep === "plans" ? (
         <aside className="login-side login-side--left" aria-label="Planos">
           <div className={`login-side__panel ${styles.registerPlansPanel}`}>
@@ -890,7 +970,7 @@ export default function RegisterPage() {
         </aside>
         ) : null}
 
-        {confirmationPending || registerStep === "form" ? (
+        {(!mobileRegisterFlow && confirmationPending) || (!confirmationPending && registerStep === "form") ? (
         <div className="login-shell">
           <div className={`login-card card ${styles.registerCard}`}>
             <div className="login-card__chrome" aria-hidden />
@@ -1117,7 +1197,7 @@ export default function RegisterPage() {
                         : loading
                         ? "Criando..."
                         : isTrialSignupPlan(selectedPlanKey)
-                          ? "Começar 1º mês grátis"
+                          ? "Começar 14 dias grátis"
                           : "Criar e ir ao checkout"}
                     </span>
                     <span aria-hidden="true">→</span>
@@ -1154,14 +1234,14 @@ export default function RegisterPage() {
         </div>
         ) : null}
       </div>
-      {trialModalOpen ? (
+      {trialModalOpen && typeof document !== "undefined" ? createPortal((
         <div className={styles.dialogOverlay} role="presentation">
           <section className={styles.trialDialog} role="dialog" aria-modal="true" aria-labelledby="register-trial-title">
             <header className={styles.trialDialogHeader}>
               <div>
                 <span className={styles.eyebrow}>Trial {planName(selectedPlanKey)}</span>
-                <h2 id="register-trial-title">Antes de liberar seus 30 dias</h2>
-                <p>Precisamos confirmar um contato real. O telefone é usado para validar se este trial já foi utilizado.</p>
+                <h2 id="register-trial-title">Antes de liberar seus 14 dias</h2>
+                <p>Precisamos confirmar um contato real. Esse telefone será o único permitido para vincular o WhatsApp durante o trial.</p>
               </div>
               <button
                 type="button"
@@ -1219,6 +1299,7 @@ export default function RegisterPage() {
               />
               <span>
                 Aceito iniciar o trial gratuito de {trialDaysForPlan(selectedPlanKey)} dias do {planName(selectedPlanKey)}, sem cobrança automática agora, e autorizo o uso do CPF, nome completo e telefone informado para contato e validação de elegibilidade do trial.
+                Para trocar o telefone do WhatsApp será necessário acionar o suporte.
               </span>
             </label>
 
@@ -1238,12 +1319,12 @@ export default function RegisterPage() {
                 disabled={!trialFormReady || loading}
                 onClick={() => void submitTrialRegistration()}
               >
-                {loading ? "Criando..." : "Iniciar 30 dias grátis"}
+                {loading ? "Criando..." : "Iniciar 14 dias grátis"}
               </button>
             </footer>
           </section>
         </div>
-      ) : null}
+      ), document.body) : null}
     </main>
   );
 }

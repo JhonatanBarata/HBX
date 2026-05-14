@@ -196,6 +196,27 @@ test('pairing-code rejeita telefone invalido', async () => {
   );
 });
 
+test('pairing-code no trial HBX Lead exige o telefone informado na ativacao', async () => {
+  const service = createService(createCompany({
+    paymentStatus: 'TRIAL',
+    subscriptionStatus: 'trialing',
+    onboardingStatus: 'active_trial',
+    selectedPlanKey: 'hbx_padrao',
+    contactPhone: '19997024884',
+    premiumAccess: true,
+  }));
+
+  await assert.rejects(
+    () => service.requestPairingCode(7, 'company-7', '+5519999999999'),
+    (error: any) => {
+      assert.ok(error instanceof BadRequestException);
+      const response = error.getResponse() as { code?: string };
+      assert.equal(response.code, 'TRIAL_WHATSAPP_PHONE_LOCKED');
+      return true;
+    },
+  );
+});
+
 test('snapshot connected cria WhatsAppConnectionSession e aponta Company.currentWhatsappConnectionSessionId', async () => {
   const company = createCompany({ whatsappModalStatus: 'DISCONNECTED' });
   const { prisma, sessions, companyUpdates } = createSessionPrisma(company);
