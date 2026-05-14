@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import {
   DndContext,
   DragOverlay,
@@ -3045,7 +3046,15 @@ export default function VendasClientPage() {
               })
             ) : (
               <div className={`${styles.mobileVendasEmpty} hbx-mobile-empty`}>
-                <strong>Nenhum lead encontrado</strong>
+                <div className={styles.mobileEmptyVisual} aria-hidden="true">
+                  <Image
+                    src="/hbx-visuals/states/empty-vendas.webp"
+                    alt=""
+                    width={280}
+                    height={200}
+                  />
+                </div>
+                <strong>Nenhum lead disponível agora</strong>
                 <span>Troque a guia, limpe a busca ou volte ao Radar para ampliar cidade e segmento.</span>
               </div>
             )}

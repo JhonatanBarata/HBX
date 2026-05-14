@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import DashboardScaffold from "@/components/DashboardScaffold";
@@ -1123,6 +1124,15 @@ export default function RadarDigitalClientPage() {
           </header>
 
           <section className={`${styles.mobileRadarHero} hbx-mobile-hero hbx-mobile-grid`}>
+            <div className={`${styles.mobileModuleVisual} hbx-mobile-card`} aria-hidden="true">
+              <Image
+                src="/hbx-visuals/modules/radar-hero.webp"
+                alt=""
+                width={360}
+                height={220}
+                priority
+              />
+            </div>
             <div className="hbx-mobile-card">
               <span>Cidade</span>
               <strong>{filters.city || "Definir"}</strong>
