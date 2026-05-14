@@ -318,6 +318,7 @@ const VENDAS_PROGRESS_STEPS = [
   "alimentando Vendas/Prospecção",
 ];
 const MOBILE_READY_MESSAGE_PREF_KEY = "hbx.vendas.mobile.readyMessagePreference.v1";
+const MOBILE_PREFERRED_CALLER_NAME_KEY = "hbx.vendas.mobile.preferredCallerName.v1";
 const MOBILE_OPEN_LEAD_KEY = "hbx.vendas.mobile.openLeadId.v1";
 const MOBILE_READY_MESSAGE_LIBRARY = [
   "Olá, {{name}}. Vi a {{company}} em {{city}} e queria te mostrar uma forma simples de organizar contatos, retornos e oportunidades sem depender de planilha.",
@@ -485,21 +486,48 @@ function mobileMessageTokenValue(value: string | null | undefined, fallback: str
   return String(value || "").trim() || fallback;
 }
 
-function personalizeMobileReadyMessage(template: string, lead: LeadItem) {
+function readMobilePreferredCallerName() {
+  if (typeof window === "undefined") return "";
+  return String(window.localStorage.getItem(MOBILE_PREFERRED_CALLER_NAME_KEY) || "").trim();
+}
+
+function saveMobilePreferredCallerName(value: string) {
+  if (typeof window === "undefined") return;
+  const trimmed = String(value || "").trim();
+  if (trimmed) window.localStorage.setItem(MOBILE_PREFERRED_CALLER_NAME_KEY, trimmed);
+  else window.localStorage.removeItem(MOBILE_PREFERRED_CALLER_NAME_KEY);
+}
+
+function personalizeMobileReadyMessage(
+  template: string,
+  lead: LeadItem,
+  preferredPersonName?: string | null,
+) {
   const company = mobileMessageTokenValue(lead.name, "sua empresa");
-  const firstName = company.split(/\s+/)[0] || "tudo bem";
+  const fromPerson = String(preferredPersonName || "").trim();
+  const greetingName = fromPerson || company.split(/\s+/)[0] || "tudo bem";
   const city = mobileMessageTokenValue(lead.city, "sua região");
   const segment = mobileMessageTokenValue(lead.segment, "empresas locais");
   const source = mobileMessageTokenValue(lead.primarySource, "Radar Digital");
   return template
-    .replaceAll("{{name}}", firstName)
+    .replaceAll("{{name}}", greetingName)
     .replaceAll("{{company}}", company)
     .replaceAll("{{city}}", city)
     .replaceAll("{{segment}}", segment)
     .replaceAll("{{source}}", source);
 }
 
-function buildMobileReadyMessageTemplates(lead: LeadItem) {
+function boardsPayloadEqual(left: BoardResponse | null, right: BoardResponse | null) {
+  if (left === right) return true;
+  if (!left || !right) return false;
+  try {
+    return JSON.stringify(left) === JSON.stringify(right);
+  } catch {
+    return false;
+  }
+}
+
+function buildMobileReadyMessageTemplates(lead: LeadItem, preferredPersonName?: string | null) {
   const backendTemplates = [
     ...(lead.leadIntelligence?.messageTemplates || []),
     ...(lead.leadIntelligence?.messageTemplate ? [lead.leadIntelligence.messageTemplate] : []),
@@ -508,7 +536,7 @@ function buildMobileReadyMessageTemplates(lead: LeadItem) {
     id: `mobile-smart-${index + 1}`,
     context: "entrada_inteligente",
     tone: "consultiva",
-    text: personalizeMobileReadyMessage(template, lead),
+    text: personalizeMobileReadyMessage(template, lead, preferredPersonName),
   }));
   const seen = new Set<string>();
   return [...backendTemplates, ...generatedTemplates].filter((template) => {
@@ -1644,6 +1672,20 @@ export default function VendasClientPage() {
   const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null);
   const [editingLeadId, setEditingLeadId] = useState<string | null>(null);
   const [composerOpen, setComposerOpen] = useState(false);
+  const [accountSheetOpen, setAccountSheetOpen] = useState(false);
+  const [accountNameDraft, setAccountNameDraft] = useState("");
+  const [mobilePreferredCallerName, setMobilePreferredCallerName] = useState("");
+  const [accountProfile, setAccountProfile] = useState<{
+    email?: string | null;
+    company?: {
+      paymentStatus?: string | null;
+      subscriptionStatus?: string | null;
+      premiumAccess?: boolean | null;
+    } | null;
+  } | null>(null);
+  const [accountProfileLoading, setAccountProfileLoading] = useState(false);
+  const composerOpenRef = useRef(false);
+  const mobileSkipDraftHydrateRef = useRef(false);
   const [expandedTimelineEventId, setExpandedTimelineEventId] = useState<
     string | null
   >(null);
@@ -1662,6 +1704,7 @@ export default function VendasClientPage() {
     shortNote: "",
   });
   const leadCardRefs = useRef<Record<string, HTMLElement | null>>({});
+  const boardRef = useRef<BoardResponse | null>(null);
   const dateFilterRefs = useRef<Record<string, HTMLElement | null>>({});
   const archiveRef = useRef<HTMLElement | null>(null);
   const lastDragEndedAtRef = useRef(0);
@@ -1707,8 +1750,14 @@ export default function VendasClientPage() {
     try {
       const payload = await apiFetch<BoardResponse>("/vendas/board");
       const normalizedPayload = normalizeBoardForLocalAgenda(payload);
-      setBoard(normalizedPayload);
-      setDrafts(hydrateDrafts(normalizedPayload));
+      setBoard((previous) =>
+        boardsPayloadEqual(previous, normalizedPayload) ? previous : normalizedPayload,
+      );
+      const skipHydrate =
+        typeof window !== "undefined" &&
+        window.matchMedia("(max-width: 820px)").matches &&
+        mobileSkipDraftHydrateRef.current;
+      if (!skipHydrate) setDrafts(hydrateDrafts(normalizedPayload));
     } catch (loadError) {
       setError(
         loadError instanceof Error
@@ -1740,7 +1789,19 @@ export default function VendasClientPage() {
         requireAuth: true,
         timeoutMs: 15000,
       });
-      setLiveRadarRun(payload);
+      setLiveRadarRun((previous) => {
+        try {
+          if (
+            previous &&
+            JSON.stringify(previous) === JSON.stringify(payload)
+          ) {
+            return previous;
+          }
+        } catch {
+          // ignore compare issues
+        }
+        return payload;
+      });
       if (payload.status === "canceled") {
         clearStoredRadarRun(activeRunId);
         return;
@@ -1762,6 +1823,7 @@ export default function VendasClientPage() {
     }
 
     return startSmartPolling(async () => {
+      if (composerOpenRef.current) return;
       try {
         await refreshRadarRun();
       } catch {
@@ -1775,6 +1837,7 @@ export default function VendasClientPage() {
   }, [hasToken, storedRadarRun?.city, storedRadarRun?.deliveredCount, storedRadarRun?.runId, storedRadarRun?.segment, storedRadarRun?.state, storedRadarRun?.status, storedRadarRun?.targetQuantity]);
 
   useEffect(() => {
+    if (composerOpenRef.current || mobileSkipDraftHydrateRef.current) return;
     const pendingCount = Math.max(
       0,
       (board?.summary.overdue || 0) + (board?.summary.today || 0) + (board?.summary.scheduled || 0),
@@ -1899,6 +1962,45 @@ export default function VendasClientPage() {
     if (hasToken !== true) return;
     void loadBoard();
   }, [hasToken]);
+
+  useEffect(() => {
+    composerOpenRef.current = composerOpen;
+  }, [composerOpen]);
+
+  useEffect(() => {
+    setMobilePreferredCallerName(readMobilePreferredCallerName());
+    setAccountNameDraft(readMobilePreferredCallerName());
+  }, []);
+
+  useEffect(() => {
+    boardRef.current = board;
+  }, [board]);
+
+  useEffect(() => {
+    if (!accountSheetOpen || hasToken !== true) return;
+    let cancelled = false;
+    setAccountProfileLoading(true);
+    void (async () => {
+      try {
+        const profile = await apiFetch<{
+          email?: string | null;
+          company?: {
+            paymentStatus?: string | null;
+            subscriptionStatus?: string | null;
+            premiumAccess?: boolean | null;
+          } | null;
+        }>("/profile/current-user");
+        if (!cancelled) setAccountProfile(profile);
+      } catch {
+        if (!cancelled) setAccountProfile(null);
+      } finally {
+        if (!cancelled) setAccountProfileLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [accountSheetOpen, hasToken]);
 
   useEffect(() => {
     if (hasToken !== true) return;
@@ -2443,6 +2545,7 @@ export default function VendasClientPage() {
 
   function openMobileLeadDetail(lead: LeadItem) {
     setMobileTemplateIndex(readMobileReadyMessagePreference());
+    setMobilePreferredCallerName(readMobilePreferredCallerName());
     saveMobileOpenLeadId(lead.id);
     setSelectedMobileLeadId(lead.id);
     setMobileNoteLead(lead);
@@ -2463,12 +2566,12 @@ export default function VendasClientPage() {
   }
 
   function activeMobileTemplate(lead: LeadItem) {
-    const templates = buildMobileReadyMessageTemplates(lead);
+    const templates = buildMobileReadyMessageTemplates(lead, mobilePreferredCallerName);
     return templates[mobileTemplateIndex % templates.length];
   }
 
   function refreshMobileTemplate(lead: LeadItem) {
-    const total = Math.max(1, buildMobileReadyMessageTemplates(lead).length);
+    const total = Math.max(1, buildMobileReadyMessageTemplates(lead, mobilePreferredCallerName).length);
     setMobileTemplateIndex((current) => {
       if (total <= 1) return current;
       let next = Math.floor(Math.random() * total);
@@ -2872,6 +2975,14 @@ export default function VendasClientPage() {
                   <textarea
                     value={mobileNoteDraft}
                     onChange={(event) => setMobileNoteDraft(event.target.value)}
+                    onFocus={() => {
+                      mobileSkipDraftHydrateRef.current = true;
+                    }}
+                    onBlur={() => {
+                      mobileSkipDraftHydrateRef.current = false;
+                      const snapshot = boardRef.current;
+                      if (snapshot) setDrafts(hydrateDrafts(snapshot));
+                    }}
                     rows={4}
                     maxLength={280}
                     placeholder="Escreva o contexto do atendimento, objeções, próximos passos ou qualquer detalhe importante."
@@ -2973,7 +3084,14 @@ export default function VendasClientPage() {
                 Negativo
               </button>
             </nav>
-            <HbxMobileDock primaryLabel="Incluir lead manual" onPrimaryAction={() => setComposerOpen(true)} />
+            <HbxMobileDock
+              primaryLabel="Incluir lead manual"
+              onPrimaryAction={() => setComposerOpen(true)}
+              onConta={() => {
+                setAccountNameDraft(mobilePreferredCallerName || readMobilePreferredCallerName());
+                setAccountSheetOpen(true);
+              }}
+            />
           </div>
         </section>
       );
@@ -2982,7 +3100,7 @@ export default function VendasClientPage() {
     if (selectedMobileLead) return renderMobileLeadDetail(selectedMobileLead);
 
     return (
-      <section className={`${styles.mobileVendasShell} ${styles.mobileLeadListScreen} hbx-mobile-page`} aria-label="Vendas mobile">
+      <section className={`${styles.mobileVendasShell} ${styles.mobileLeadListScreen}`} aria-label="Vendas mobile">
         <div className={styles.mobileVendasContextBar}>
           <header className={`${styles.mobileVendasHeader} hbx-mobile-header`}>
             <a
@@ -3228,7 +3346,14 @@ export default function VendasClientPage() {
           </div>
         )}
 
-        <HbxMobileDock primaryLabel="Incluir lead manual" onPrimaryAction={() => setComposerOpen(true)} />
+        <HbxMobileDock
+          primaryLabel="Incluir lead manual"
+          onPrimaryAction={() => setComposerOpen(true)}
+          onConta={() => {
+            setAccountNameDraft(mobilePreferredCallerName || readMobilePreferredCallerName());
+            setAccountSheetOpen(true);
+          }}
+        />
 
         {mobileReportLead ? (
           <div
@@ -3236,7 +3361,7 @@ export default function VendasClientPage() {
             onClick={() => setMobileReportLead(null)}
           >
             <section
-              className={styles.mobileVendasNoteSheet}
+              className={`${styles.mobileVendasNoteSheet} ${styles.mobileVendasReportSheet}`}
               role="dialog"
               aria-modal="true"
               aria-labelledby="mobile-vendas-report-title"
@@ -4542,10 +4667,14 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
                 <span className={styles.metaBadge}>Cadastro rápido</span>
                 <button
                   type="button"
-                  className="btn btn-secondary btn-sm"
+                  className={`btn btn-secondary btn-sm ${styles.mobileComposerClose}`}
                   onClick={() => setComposerOpen(false)}
+                  aria-label="Fechar cadastro de lead"
                 >
-                  Fechar
+                  <span className={styles.mobileComposerCloseGlyph} aria-hidden="true">
+                    ×
+                  </span>
+                  <span className={styles.mobileComposerCloseText}>Fechar</span>
                 </button>
               </div>
             </div>
@@ -4651,6 +4780,81 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
               </form>
             </div>
           </div>
+        </div>,
+        document.body,
+      ) : null}
+
+      {accountSheetOpen ? createPortal(
+        <div
+          className={styles.mobileVendasSheetBackdrop}
+          onClick={() => setAccountSheetOpen(false)}
+        >
+          <section
+            className={`${styles.mobileVendasNoteSheet} ${styles.mobileVendasAccountSheet}`}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="mobile-vendas-account-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <span className={styles.mobileVendasSheetHandle} aria-hidden="true" />
+            <div className={styles.mobileVendasSheetHeader}>
+              <h2 id="mobile-vendas-account-title">Conta</h2>
+              <button type="button" onClick={() => setAccountSheetOpen(false)} aria-label="Fechar">
+                ×
+              </button>
+            </div>
+            <div className={styles.mobileVendasAccountAvatar} aria-hidden="true">
+              {(accountProfile?.email || "?").slice(0, 1).toUpperCase()}
+            </div>
+            <label className={styles.mobileVendasAccountField}>
+              <span>Como quer ser chamado</span>
+              <input
+                value={accountNameDraft}
+                onChange={(event) => setAccountNameDraft(event.target.value)}
+                placeholder="Ex.: Ana"
+                maxLength={80}
+              />
+            </label>
+            <button
+              type="button"
+              className={`${styles.mobileVendasAccountSave} hbx-mobile-primary-button`}
+              onClick={() => {
+                const trimmed = accountNameDraft.trim();
+                saveMobilePreferredCallerName(trimmed);
+                setMobilePreferredCallerName(trimmed);
+                setAccountSheetOpen(false);
+                if (trimmed) setFeedback("Preferência salva.");
+              }}
+            >
+              Salvar
+            </button>
+            <div className={styles.mobileVendasAccountBlock}>
+              <strong>Financeiro</strong>
+              <p>
+                {accountProfileLoading
+                  ? "Carregando..."
+                  : accountProfile?.company
+                    ? [
+                        accountProfile.company.subscriptionStatus &&
+                          `Plano: ${accountProfile.company.subscriptionStatus}`,
+                        accountProfile.company.paymentStatus &&
+                          `Pagamento: ${accountProfile.company.paymentStatus}`,
+                        accountProfile.company.premiumAccess ? "Premium ativo" : null,
+                      ]
+                        .filter(Boolean)
+                        .join(" · ") || "Sem dados de cobrança nesta sessão."
+                    : "Não foi possível carregar agora."}
+              </p>
+            </div>
+            <div className={styles.mobileVendasAccountActions}>
+              <Link className="hbx-mobile-secondary-button" href="/boasvindas" onClick={() => setAccountSheetOpen(false)}>
+                Upgrade
+              </Link>
+              <Link className="hbx-mobile-primary-button" href="/atendimento" onClick={() => setAccountSheetOpen(false)}>
+                Suporte
+              </Link>
+            </div>
+          </section>
         </div>,
         document.body,
       ) : null}

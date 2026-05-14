@@ -15,6 +15,7 @@ type HbxMobileDockProps = {
   primaryHref?: string;
   primaryLabel?: string;
   onPrimaryAction?: () => void;
+  onConta?: () => void;
 };
 
 function readMobileTheme(): MobileTheme {
@@ -27,7 +28,21 @@ function applyMobileTheme(theme: MobileTheme) {
   document.documentElement.dataset.hbxMobileTheme = theme;
 }
 
-function DockIcon({ name }: { name: "sales" | "radar" | "plus" | "theme" | "more" | "support" | "tutorial" | "settings" | "logout" }) {
+function DockIcon({
+  name,
+}: {
+  name:
+    | "sales"
+    | "radar"
+    | "plus"
+    | "theme"
+    | "more"
+    | "support"
+    | "tutorial"
+    | "settings"
+    | "account"
+    | "logout";
+}) {
   if (name === "sales") {
     return (
       <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -98,6 +113,14 @@ function DockIcon({ name }: { name: "sales" | "radar" | "plus" | "theme" | "more
       </svg>
     );
   }
+  if (name === "account") {
+    return (
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M12 12a4 4 0 1 0-4-4 4 4 0 0 0 4 4Z" />
+        <path d="M5 21v-1a7 7 0 0 1 14 0v1" />
+      </svg>
+    );
+  }
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
       <path d="M15 5h4v14h-4" />
@@ -111,6 +134,7 @@ export default function HbxMobileDock({
   primaryHref,
   primaryLabel = "Ação principal",
   onPrimaryAction,
+  onConta,
 }: HbxMobileDockProps) {
   const router = useRouter();
   const pathname = usePathname();
@@ -245,6 +269,19 @@ export default function HbxMobileDock({
             onClick={(event) => event.stopPropagation()}
           >
             <span className="hbx-mobile-sheet-handle" aria-hidden="true" />
+            {onConta ? (
+              <button
+                type="button"
+                className="hbx-mobile-sheet-item"
+                onClick={() => {
+                  setMenuOpen(false);
+                  onConta();
+                }}
+              >
+                <DockIcon name="account" />
+                <span>Conta</span>
+              </button>
+            ) : null}
             <button type="button" className="hbx-mobile-sheet-item" onClick={() => navigate("/atendimento")}>
               <DockIcon name="support" />
               <span>Atendimento</span>
