@@ -24,6 +24,7 @@ import {
   type CSSProperties,
   type FormEvent,
 } from "react";
+import { createPortal } from "react-dom";
 import { useRouter, useSearchParams } from "next/navigation";
 import DashboardScaffold from "@/components/DashboardScaffold";
 import LiquidGlassCard, {
@@ -2863,11 +2864,6 @@ export default function VendasClientPage() {
                   </h3>
                   <span>{mobileNoteDraft.length}/280</span>
                 </div>
-                <div className={styles.mobileLeadTabs} aria-label="Navegação das observações">
-                  <span>Resumo</span>
-                  <b>Observações</b>
-                  <span>Histórico</span>
-                </div>
                 {lead.shortNote ? (
                   <p className={styles.mobileLeadSavedNote}>{lead.shortNote}</p>
                 ) : null}
@@ -2939,7 +2935,6 @@ export default function VendasClientPage() {
                       <strong>{timelineMeta(event)}</strong>
                       {event.title || event.description || "Atendimento atualizado."}
                     </p>
-                    <b>⌄</b>
                   </div>
                 ))}
               </section>
@@ -4526,13 +4521,13 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
         </DndContext>
         </div>
 
-      {composerOpen ? (
+      {composerOpen ? createPortal(
         <div
-          className={`${styles.systemPopupOverlay} ${styles.systemPopupOverlayActive}`}
+          className={`${styles.systemPopupOverlay} ${styles.systemPopupOverlayActive} ${styles.mobileComposerOverlay}`}
           onClick={() => setComposerOpen(false)}
         >
           <div
-            className={styles.systemPopupFrame}
+            className={`${styles.systemPopupFrame} ${styles.mobileComposerSheet}`}
             onClick={(event) => event.stopPropagation()}
             role="dialog"
             aria-modal="true"
@@ -4554,7 +4549,7 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
                 </button>
               </div>
             </div>
-            <div className={styles.systemPopupBody}>
+            <div className={`${styles.systemPopupBody} ${styles.mobileComposerBody}`}>
               <form
                 className={styles.composerForm}
                 onSubmit={handleCreateManual}
@@ -4644,7 +4639,7 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
                     placeholder="Contexto rápido do lead."
                   />
                 </label>
-                <div className={styles.formFooter}>
+                <div className={`${styles.formFooter} ${styles.mobileComposerActions}`}>
                   <button
                     type="submit"
                     className={styles.primaryAction}
@@ -4656,7 +4651,8 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
               </form>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body,
       ) : null}
 
       {commandOpen ? (

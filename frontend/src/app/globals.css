@@ -16028,34 +16028,60 @@ html[data-theme-mode] .app-topbar .app-topbar__frame {
     position: relative !important;
     grid-area: 1 / 1 !important;
     display: grid !important;
+    grid-template-rows: auto auto !important;
+    align-content: center !important;
+    justify-items: center !important;
+    gap: 0.46rem !important;
     justify-self: center !important;
     align-self: center !important;
-    width: min(72vw, 248px) !important;
-    min-height: 58px !important;
-    place-items: center !important;
+    width: min(58vw, 228px) !important;
+    min-height: min(58vw, 228px) !important;
+    aspect-ratio: 1 !important;
+    padding: 1.25rem !important;
+    border-radius: 36px !important;
     opacity: 1 !important;
     visibility: visible !important;
     text-align: center !important;
     transform: translate3d(0, 0, 0) scale(1) !important;
     animation:
-      loginAuthPillCleanPulse 1500ms ease-in-out 180ms infinite !important;
+      loginAuthBridgeMarkPulse 1550ms ease-in-out 120ms infinite !important;
   }
 
   .login-stage[data-login-surface="hbx-mobile"][data-login-state="success"] .login-authBridge__status {
+    order: 2 !important;
+    display: block !important;
+    width: auto !important;
+    height: auto !important;
+    padding: 0.32rem 0.68rem !important;
+    border-radius: 999px !important;
+    background: rgba(255, 255, 255, 0.22) !important;
+    color: rgba(255, 255, 255, 0.96) !important;
+    font-size: 0.7rem !important;
+    font-weight: 950 !important;
+    line-height: 1 !important;
+    letter-spacing: 0.13em !important;
+    text-transform: uppercase !important;
     opacity: 1 !important;
-    animation: loginAuthStatusCleanOut 520ms ease 1550ms forwards !important;
+    transform: none !important;
+    filter: none !important;
+    animation: loginAuthBridgeStatusPulse 1700ms ease-in-out 180ms infinite !important;
   }
 
   .login-stage[data-login-surface="hbx-mobile"][data-login-state="success"] .login-authBridge__brand {
-    display: grid !important;
-    width: 100% !important;
-    height: 100% !important;
-    place-items: center !important;
-    opacity: 0 !important;
+    order: 1 !important;
+    display: block !important;
+    width: auto !important;
+    height: auto !important;
+    color: #ffffff !important;
+    font-size: clamp(2.45rem, 12vw, 3.3rem) !important;
+    font-weight: 1000 !important;
     line-height: 1 !important;
     letter-spacing: 0 !important;
     text-align: center !important;
-    animation: loginAuthBrandCleanIn 620ms ease 1640ms forwards !important;
+    opacity: 1 !important;
+    transform: none !important;
+    filter: none !important;
+    animation: loginAuthBridgeBrandPulse 1450ms ease-in-out infinite !important;
   }
 }
 
