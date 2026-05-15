@@ -28,6 +28,16 @@ export type ActiveCommercialPlanKey =
   | typeof COMMERCIAL_PLAN_KEYS.MELHOR;
 export type CommercialEntitlementKey =
   (typeof COMMERCIAL_ENTITLEMENT_KEYS)[keyof typeof COMMERCIAL_ENTITLEMENT_KEYS];
+export type CommercialPlanTier = 'list' | 'lead' | 'full';
+export type CommercialPlanCapabilities = {
+  canSeeLeadIntelligence: boolean;
+  canSeeOpportunityReason: boolean;
+  canSeeSocialLinks: boolean | 'teaser_only';
+  canSeeMessageTemplates: boolean;
+  canUseAdvancedFilters: boolean;
+  canUseVerifiedWhatsapp: boolean | 'limited';
+  canUseFilteredQuota: boolean;
+};
 
 export const COMMERCIAL_PRICING = {
   liteMonthly: 39.90,
@@ -148,6 +158,37 @@ export function getCommercialPlanTitle(planKey: unknown) {
   return 'HBX Lead';
 }
 
+export function getCommercialPlanTier(planKey: unknown): CommercialPlanTier {
+  const normalized = normalizeCommercialPlanKey(planKey);
+  if (normalized === COMMERCIAL_PLAN_KEYS.LITE) return 'list';
+  if (normalized === COMMERCIAL_PLAN_KEYS.MELHOR) return 'full';
+  return 'lead';
+}
+
+export function getCommercialPlanCapabilities(planKey: unknown): CommercialPlanCapabilities {
+  const tier = getCommercialPlanTier(planKey);
+  if (tier === 'list') {
+    return {
+      canSeeLeadIntelligence: false,
+      canSeeOpportunityReason: false,
+      canSeeSocialLinks: 'teaser_only',
+      canSeeMessageTemplates: false,
+      canUseAdvancedFilters: false,
+      canUseVerifiedWhatsapp: false,
+      canUseFilteredQuota: false,
+    };
+  }
+  return {
+    canSeeLeadIntelligence: true,
+    canSeeOpportunityReason: true,
+    canSeeSocialLinks: true,
+    canSeeMessageTemplates: true,
+    canUseAdvancedFilters: true,
+    canUseVerifiedWhatsapp: true,
+    canUseFilteredQuota: true,
+  };
+}
+
 export function computeCommercialPlanCycleAmount(planKey: unknown, billingCycleRaw: unknown) {
   const monthly = getCommercialPlanMonthlyPrice(planKey);
   const billingCycle = String(billingCycleRaw || '').trim().toUpperCase() === 'ANNUAL' ? 'ANNUAL' : 'MONTHLY';
@@ -170,21 +211,20 @@ export function buildCommercialPlansCatalog(options: { includeHidden?: boolean }
       requiresAssistedSetup: false,
       setupFeeMode: 'none',
       hidden: false,
-      headline: 'Cards simples para comecar barato.',
-      description: 'Leads/cards simples com telefone e site basico. WhatsApp externo e mensagem basica.',
+      headline: 'Cards simples para começar barato.',
+      description: 'Leads/cards simples com telefone, cidade, segmento e site básico. WhatsApp externo e teaser de inteligência quando houver sinal premium.',
       badge: 'Entrada',
       recommended: false,
       requiresCheckout: false,
       quotas: COMMERCIAL_PLAN_QUOTAS[COMMERCIAL_PLAN_KEYS.LITE],
       features: [
         'Radar Digital + Vendas com cards simples',
-        'Filtros por cidade, segmento e perfil',
+        'Telefone, cidade, segmento e site básico',
+        'WhatsApp externo',
         'Até 50 cards por pesquisa',
-        '3 pesquisas comerciais, total 150 cards',
-        'Cards elegíveis respeitando negativos, opt-outs e descartes',
-        'Telefone/site basico e mensagem simples',
-        'WhatsApp externo ao clicar no número',
-        'Sem lead inteligente completo',
+        '3 pesquisas comerciais / 150 cards',
+        'Negativos, opt-outs e duplicados respeitados',
+        'Teaser de inteligência quando houver sinais premium',
       ],
       legalCopy: 'Liberação após pagamento confirmado.',
     },
@@ -200,7 +240,7 @@ export function buildCommercialPlansCatalog(options: { includeHidden?: boolean }
       requiresAssistedSetup: false,
       setupFeeMode: 'none',
       hidden: true,
-      headline: 'Card inteligente: contato, canal, motivo e mensagem.',
+      headline: 'Card inteligente: prioridade, canal, motivo e mensagem pronta.',
       description: 'Leads inteligentes com WhatsApp verificado pela HBX, e-mail confirmado/provável, motivo, canal recomendado e templates comerciais.',
       badge: 'Legado',
       recommended: false,
@@ -208,15 +248,15 @@ export function buildCommercialPlansCatalog(options: { includeHidden?: boolean }
       quotas: COMMERCIAL_PLAN_QUOTAS[COMMERCIAL_PLAN_KEYS.PADRAO],
       features: [
         'Tudo do HBX List',
-        'Leads inteligentes no Radar e Vendas',
-        'WhatsApp verificado pela HBX',
-        'E-mail confirmado/provável',
-        'Prioridade e motivo do lead',
+        'WhatsApp verificado',
+        'Instagram/Facebook quando encontrados',
+        'Score de oportunidade',
+        'Motivo do score',
         'Canal recomendado',
-        'Templates comerciais e mensagem pronta',
-        'Quem chamar hoje',
-        'Controle de retornos',
-        'Agenda e histórico por cliente',
+        'Mensagem pronta por segmento',
+        'Filtros inteligentes',
+        'Limite consumido por card filtrado entregue',
+        'Histórico, retornos e agenda',
       ],
       legalCopy: 'Teste de 14 dias. Após o trial, contratação segue pelo checkout.',
     },

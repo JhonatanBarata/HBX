@@ -50,41 +50,11 @@
   line-height: 1.5;
 }
 
-.whatsappAccessGateActions,
-.whatsappSessionBannerActions {
+.whatsappAccessGateActions {
   display: flex;
   flex-wrap: wrap;
   gap: 0.55rem;
   align-items: center;
-}
-
-.whatsappSessionBanner {
-  display: flex;
-  justify-content: space-between;
-  gap: 0.85rem;
-  align-items: center;
-  padding: 0.72rem 0.82rem;
-  border: 1px solid color-mix(in srgb, #2f6f58 28%, var(--line));
-  border-radius: 10px;
-  background: color-mix(in srgb, #f4fbf8 78%, var(--surface));
-  color: var(--text);
-}
-
-.whatsappSessionBanner strong,
-.whatsappSessionBanner span {
-  display: block;
-}
-
-.whatsappSessionBanner span {
-  margin-top: 0.14rem;
-  font-size: 0.82rem;
-  color: var(--muted);
-}
-
-.whatsappSessionMigrateButton:disabled {
-  cursor: not-allowed;
-  opacity: 0.48;
-  filter: grayscale(0.25);
 }
 
 .whatsappAlertPopupStack {

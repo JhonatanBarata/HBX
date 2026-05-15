@@ -3069,7 +3069,6 @@ export default function InboxClientPage() {
   const [conversations, setConversations] = useState<InboxConversation[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedConversation, setSelectedConversation] = useState<InboxConversation | null>(null);
-  const [showPreviousSessions, setShowPreviousSessions] = useState(false);
   const [whatsappSession, setWhatsappSession] = useState<InboxBootstrapPayload["whatsappSession"]>(null);
   const [whatsappAccessBlocked, setWhatsappAccessBlocked] = useState(false);
   const whatsAppLiveHealth = useWhatsAppLiveHealth({
@@ -3647,7 +3646,6 @@ export default function InboxClientPage() {
     setConversationDetailError(null);
     try {
       const query = new URLSearchParams({ take: String(take) });
-      if (showPreviousSessions) query.set("includePreviousSessions", "true");
       const payload = await apiFetch<InboxBootstrapPayload>(`/inbox/bootstrap?${query.toString()}`, {
         requireAuth: true,
         timeoutMs: 25000,
@@ -3708,7 +3706,7 @@ export default function InboxClientPage() {
       setLoadingList(false);
       setLoadingConversation(false);
     }
-  }, [rememberConversationDetail, showPreviousSessions]);
+  }, [rememberConversationDetail]);
 
   const loadConversation = useCallback(async (
     id: string | null | undefined,
@@ -3766,8 +3764,7 @@ export default function InboxClientPage() {
     }
     if (!silent && !cachedDetail) setLoadingConversation(true);
     try {
-      const detailQuery = showPreviousSessions ? "?includePreviousSessions=true" : "";
-      const rawData = await apiFetch<InboxConversation>(`/inbox/conversations/${conversationId}${detailQuery}`, {
+      const rawData = await apiFetch<InboxConversation>(`/inbox/conversations/${conversationId}`, {
         requireAuth: true,
         timeoutMs: 10000,
       });
@@ -3843,7 +3840,7 @@ export default function InboxClientPage() {
         setLoadingConversation(false);
       }
     }
-  }, [rememberConversationDetail, showPreviousSessions]);
+  }, [rememberConversationDetail]);
 
   const loadOlderMessages = useCallback(async () => {
     const conversationId = normalizeInboxConversationId(selectedIdRef.current || selectedId);
@@ -3859,7 +3856,7 @@ export default function InboxClientPage() {
     setConversationDetailError(null);
     try {
       const payload = await apiFetch<InboxMessagePagePayload>(
-        `/inbox/conversations/${conversationId}/messages?limit=${INBOX_RECENT_MESSAGES_LIMIT}&before=${encodeURIComponent(before)}${showPreviousSessions ? "&includePreviousSessions=true" : ""}`,
+        `/inbox/conversations/${conversationId}/messages?limit=${INBOX_RECENT_MESSAGES_LIMIT}&before=${encodeURIComponent(before)}`,
       );
       const olderMessages = Array.isArray(payload?.messages) ? payload.messages : [];
       const baseConversation =
@@ -3892,7 +3889,7 @@ export default function InboxClientPage() {
     } finally {
       setLoadingOlderMessages(false);
     }
-  }, [loadingOlderMessages, olderMessagesBefore, rememberConversationDetail, selectedId, showPreviousSessions]);
+  }, [loadingOlderMessages, olderMessagesBefore, rememberConversationDetail, selectedId]);
 
   const refreshSelectedConversationMessages = useCallback(async () => {
     const conversationId = normalizeInboxConversationId(selectedIdRef.current);
@@ -3907,7 +3904,7 @@ export default function InboxClientPage() {
       }
 
       const payload = await apiFetch<InboxMessagePagePayload>(
-        `/inbox/conversations/${conversationId}/messages?limit=${INBOX_RECENT_MESSAGES_LIMIT}${showPreviousSessions ? "&includePreviousSessions=true" : ""}`,
+        `/inbox/conversations/${conversationId}/messages?limit=${INBOX_RECENT_MESSAGES_LIMIT}`,
         {
           requireAuth: true,
           timeoutMs: 15000,
@@ -3967,7 +3964,7 @@ export default function InboxClientPage() {
         console.warn("Falha ao atualizar mensagens da conversa aberta.", refreshError);
       }
     }
-  }, [loadConversation, rememberConversationDetail, showPreviousSessions]);
+  }, [loadConversation, rememberConversationDetail]);
 
   const loadConversations = useCallback(
     async (options?: { preferredId?: string | null; silent?: boolean; append?: boolean }) => {
@@ -4005,9 +4002,6 @@ export default function InboxClientPage() {
         });
         if (append) {
           query.set("queue", appendQueue);
-        }
-        if (showPreviousSessions) {
-          query.set("includePreviousSessions", "true");
         }
         const response = await apiFetch<InboxConversation[]>(
           `/inbox/conversations?${query.toString()}`,
@@ -4133,27 +4127,17 @@ export default function InboxClientPage() {
         if (append) setLoadingMoreConversations(false);
       }
     },
-    [loadConversation, showPreviousSessions],
+    [loadConversation],
   );
 
   const loadMoreConversations = useCallback(() => {
     void loadConversations({ silent: true, append: true });
   }, [loadConversations]);
 
-  const switchWhatsappSessionHistory = useCallback((enabled: boolean) => {
-    setShowPreviousSessions(enabled);
-    setSelectedId(null);
-    selectedIdRef.current = null;
-    setSelectedConversation(null);
-    selectedConversationRef.current = null;
-    setOlderMessagesBefore(null);
-    setOlderMessagesHasMore(false);
-  }, []);
-
   useEffect(() => {
     if (hasToken !== true) return;
     void bootstrapInbox({ take: INBOX_CONVERSATION_LIST_LIMIT });
-  }, [bootstrapInbox, hasToken, showPreviousSessions]);
+  }, [bootstrapInbox, hasToken]);
 
   useEffect(() => {
     if (hasToken !== true || !requestedConversationId) return;
@@ -8380,14 +8364,6 @@ export default function InboxClientPage() {
     liveHealth?.inboundStale ||
       (latestVisibleConversationAt && parseDateMs(latestVisibleConversationAt) && Date.now() - Number(parseDateMs(latestVisibleConversationAt)) > 60 * 60 * 1000),
   );
-  const previousSessionsCount = Number(whatsappSession?.previousSessionsCount || 0);
-  const hasPreviousWhatsappHistory = previousSessionsCount > 0 || showPreviousSessions;
-  const activeWhatsappDisplay =
-    whatsappSession?.currentSession?.displayPhone ||
-    whatsappSession?.currentSession?.phoneNormalized ||
-    null;
-  const previousWhatsappSessionId = whatsappSession?.previousSessions?.[0]?.id || null;
-
   const queueActionConversationIsArchived =
     queueActionConversationId ? queueByConversationId[queueActionConversationId] === "archived" : false;
 
@@ -8426,114 +8402,43 @@ export default function InboxClientPage() {
           </section>
         ) : activeTab === "messages" ? (
           <section className={styles.premiumInboxShell} data-ui-no-reveal="true">
-            {shouldShowLiveHealthAlert || hasPreviousWhatsappHistory ? (
+            {shouldShowLiveHealthAlert ? (
               <div className={styles.inboxBannerStack}>
-                {shouldShowLiveHealthAlert ? (
-                  <div className={styles.whatsappLiveHealthBanner} data-tone={liveHealthTone}>
-                    <div className={styles.whatsappLiveHealthMain}>
-                      <span className={styles.whatsappLiveHealthKicker}>Alerta operacional WhatsApp</span>
-                      <strong>{liveHealthAlertTitle}</strong>
-                      <p>{liveHealth?.reason || "O HBX não confirmou a sessão viva do WhatsApp neste momento."}</p>
-                      {noRecentConversationWarning ? (
-                        <p className={styles.whatsappLiveHealthWarning}>
-                          Nenhuma mensagem nova desde {lastInboundLabel}. Verifique a conexão antes de atender.
-                        </p>
-                      ) : null}
-                    </div>
-                    <div className={styles.whatsappLiveHealthFacts}>
-                      <span><b>Status</b>{liveHealthStatusLabel}</span>
-                      <span><b>Última checagem</b>{lastCheckedLabel}</span>
-                      <span><b>Última recebida</b>{lastInboundLabel}</span>
-                      <span><b>Ação recomendada</b>{liveHealth?.actionLabel || "Revalidar agora"}</span>
-                    </div>
-                    <div className={styles.whatsappLiveHealthActions}>
-                      <button type="button" className="btn btn-primary btn-sm" onClick={() => void refreshWhatsAppLiveHealthNow()}>
-                        Revalidar agora
-                      </button>
-                      <button type="button" className="btn btn-secondary btn-sm" onClick={() => void restartWhatsAppSession()}>
-                        Reiniciar sessão
-                      </button>
-                      <button type="button" className="btn btn-secondary btn-sm" onClick={() => router.push("/whatsapp?focus=qr")}>
-                        Abrir QR Code
-                      </button>
-                      <button type="button" className="btn btn-secondary btn-sm" onClick={() => void disconnectAndReconnectWhatsApp()}>
-                        Desconectar e conectar de novo
-                      </button>
-                      <button type="button" className="btn btn-ghost btn-sm" onClick={() => router.push("/whatsapp?focus=status")}>
-                        Ver diagnóstico técnico
-                      </button>
-                    </div>
+                <div className={styles.whatsappLiveHealthBanner} data-tone={liveHealthTone}>
+                  <div className={styles.whatsappLiveHealthMain}>
+                    <span className={styles.whatsappLiveHealthKicker}>Alerta operacional WhatsApp</span>
+                    <strong>{liveHealthAlertTitle}</strong>
+                    <p>{liveHealth?.reason || "O HBX não confirmou a sessão viva do WhatsApp neste momento."}</p>
+                    {noRecentConversationWarning ? (
+                      <p className={styles.whatsappLiveHealthWarning}>
+                        Nenhuma mensagem nova desde {lastInboundLabel}. Verifique a conexão antes de atender.
+                      </p>
+                    ) : null}
                   </div>
-                ) : null}
-                {hasPreviousWhatsappHistory ? (
-                  <div className={styles.whatsappSessionBanner}>
-                    <div>
-                      <strong>
-                        {showPreviousSessions
-                          ? "Histórico do celular anterior"
-                          : "Novo WhatsApp conectado."}
-                      </strong>
-                      <span>
-                        {showPreviousSessions
-                          ? "Você está vendo conversas separadas da sessão atual."
-                          : `O histórico do celular anterior foi separado para não misturar atendimentos.${activeWhatsappDisplay ? ` WhatsApp atual: ${activeWhatsappDisplay}.` : ""}`}
-                      </span>
-                    </div>
-                    <div className={styles.whatsappSessionBannerActions}>
-                      {showPreviousSessions ? (
-                        <button
-                          type="button"
-                          className="btn btn-secondary btn-sm"
-                          onClick={() => switchWhatsappSessionHistory(false)}
-                        >
-                          Voltar para WhatsApp atual
-                        </button>
-                      ) : (
-                        <button
-                          type="button"
-                          className="btn btn-secondary btn-sm"
-                          onClick={() => switchWhatsappSessionHistory(true)}
-                        >
-                          Ver histórico anterior
-                        </button>
-                      )}
-                      <button
-                        type="button"
-                        className="btn btn-danger btn-sm"
-                        disabled={!previousWhatsappSessionId}
-                        onClick={async () => {
-                          const confirmed = window.prompt(
-                            "Digite MIGRAR para solicitar a mistura do histórico antigo com o celular atual. Essa ação exige revisão manual do suporte HBX.",
-                          );
-                          if (confirmed === "MIGRAR") {
-                            try {
-                              const result = await apiFetch<{ migrated?: number; skipped?: number }>(
-                                `/inbox/whatsapp-sessions/${previousWhatsappSessionId}/migrate-current`,
-                                {
-                                  method: "POST",
-                                  requireAuth: true,
-                                  body: JSON.stringify({ confirmation: "MIGRAR" }),
-                                },
-                              );
-                              setNotice({
-                                tone: "info",
-                                text: `Histórico migrado: ${Number(result?.migrated || 0)} conversa(s). ${Number(result?.skipped || 0)} ficaram separadas por conflito.`,
-                              });
-                              switchWhatsappSessionHistory(false);
-                            } catch (migrateError) {
-                              setNotice({
-                                tone: "error",
-                                text: migrateError instanceof Error ? migrateError.message : "Falha ao migrar histórico.",
-                              });
-                            }
-                          }
-                        }}
-                      >
-                        Migrar histórico antigo para este celular
-                      </button>
-                    </div>
+                  <div className={styles.whatsappLiveHealthFacts}>
+                    <span><b>Status</b>{liveHealthStatusLabel}</span>
+                    <span><b>Última checagem</b>{lastCheckedLabel}</span>
+                    <span><b>Última recebida</b>{lastInboundLabel}</span>
+                    <span><b>Ação recomendada</b>{liveHealth?.actionLabel || "Revalidar agora"}</span>
                   </div>
-                ) : null}
+                  <div className={styles.whatsappLiveHealthActions}>
+                    <button type="button" className="btn btn-primary btn-sm" onClick={() => void refreshWhatsAppLiveHealthNow()}>
+                      Revalidar agora
+                    </button>
+                    <button type="button" className="btn btn-secondary btn-sm" onClick={() => void restartWhatsAppSession()}>
+                      Reiniciar sessão
+                    </button>
+                    <button type="button" className="btn btn-secondary btn-sm" onClick={() => router.push("/whatsapp?focus=qr")}>
+                      Abrir QR Code
+                    </button>
+                    <button type="button" className="btn btn-secondary btn-sm" onClick={() => void disconnectAndReconnectWhatsApp()}>
+                      Desconectar e conectar de novo
+                    </button>
+                    <button type="button" className="btn btn-ghost btn-sm" onClick={() => router.push("/whatsapp?focus=status")}>
+                      Ver diagnóstico técnico
+                    </button>
+                  </div>
+                </div>
               </div>
             ) : null}
             <ProspectingAutomationStatus

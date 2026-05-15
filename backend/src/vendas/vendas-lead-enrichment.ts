@@ -7,6 +7,8 @@ export type VendasLeadIntelligenceInput = {
   templateOffset?: number;
 };
 
+type PrimarySocial = 'instagram' | 'facebook' | 'both' | null;
+
 type TemplateContext =
   | 'primeiro_contato'
   | 'sem_site'
@@ -103,6 +105,14 @@ function extractWebsiteDomain(value: unknown) {
   }
 }
 
+function normalizeUrl(value: unknown) {
+  const raw = normalizeText(value);
+  if (!raw) return null;
+  if (/^https?:\/\//i.test(raw)) return raw;
+  if (/^[\w.-]+\.[a-z]{2,}(\/.*)?$/i.test(raw)) return `https://${raw}`;
+  return raw;
+}
+
 function parseJsonObject(value: unknown): Record<string, any> {
   const raw = normalizeText(value);
   if (!raw) return {};
@@ -133,8 +143,19 @@ function extractRadarEnrichment(lead: any) {
     painType: normalizeText(lead?.painType || fromEvent.painType || nested?.signals?.painType || direct?.signals?.painType),
     painPitch: normalizeText(lead?.painPitch || fromEvent.painPitch),
     opportunityReason: normalizeText(lead?.opportunityReason || fromEvent.opportunityReason),
+    instagramUrl: normalizeUrl(lead?.instagramUrl || fromEvent.instagramUrl || nested?.instagramUrl || direct?.instagramUrl || nested?.signals?.instagramUrl || direct?.signals?.instagramUrl),
+    facebookUrl: normalizeUrl(lead?.facebookUrl || fromEvent.facebookUrl || nested?.facebookUrl || direct?.facebookUrl || nested?.signals?.facebookUrl || direct?.signals?.facebookUrl),
+    socialStatus: normalizeText(lead?.socialStatus || fromEvent.socialStatus || nested?.socialStatus || direct?.socialStatus || nested?.signals?.socialStatus || direct?.signals?.socialStatus),
+    socialConfidence: Number(lead?.socialConfidence || fromEvent.socialConfidence || nested?.socialConfidence || direct?.socialConfidence || nested?.sourceConfidence?.social || direct?.sourceConfidence?.social || 0) || null,
     sourceConfidence: nested?.sourceConfidence || direct?.sourceConfidence || null,
   };
+}
+
+function resolvePrimarySocial(instagramUrl?: string | null, facebookUrl?: string | null): PrimarySocial {
+  if (instagramUrl && facebookUrl) return 'both';
+  if (instagramUrl) return 'instagram';
+  if (facebookUrl) return 'facebook';
+  return null;
 }
 
 function inferSegmentKeys(lead: any) {
@@ -203,6 +224,13 @@ export function buildVendasLeadIntelligence(input: VendasLeadIntelligenceInput) 
           : 'unverified';
   const email = normalizeText(lead?.email);
   const domain = extractWebsiteDomain(lead?.website);
+  const websiteStatus = normalizeKey(radarEnrichment.websiteStatus);
+  const hasWeakOrMissingWebsite = !normalizeText(lead?.website) || ['none', 'weak', 'social_only', 'unreachable', 'missing'].includes(websiteStatus);
+  const instagramUrl = normalizeUrl(radarEnrichment.instagramUrl || lead?.instagramUrl);
+  const facebookUrl = normalizeUrl(radarEnrichment.facebookUrl || lead?.facebookUrl);
+  const socialStatus = normalizeText(radarEnrichment.socialStatus) || (instagramUrl || facebookUrl ? 'found' : 'missing');
+  const socialConfidence = Number(radarEnrichment.socialConfidence || 0) || null;
+  const primarySocial = resolvePrimarySocial(instagramUrl, facebookUrl);
   const radarEmailStatus = normalizeKey(radarEnrichment.emailStatus);
   const emailStatus = radarEmailStatus && ['confirmed', 'probable', 'missing', 'invalid', 'unverified'].includes(radarEmailStatus)
     ? radarEmailStatus
@@ -221,6 +249,10 @@ export function buildVendasLeadIntelligence(input: VendasLeadIntelligenceInput) 
   if (normalizeText(lead?.segment)) tags.add('segmento_alvo');
   if (Number(lead?.rating || 0) >= 4.2) tags.add('boa_avaliacao');
   if (Number(lead?.reviews || 0) >= 20) tags.add('prova_social');
+  if (instagramUrl) tags.add('instagram_encontrado');
+  if (facebookUrl) tags.add('facebook_encontrado');
+  if (instagramUrl || facebookUrl) tags.add('rede_social_confirmada');
+  if ((instagramUrl || facebookUrl) && hasWeakOrMissingWebsite) tags.add('rede_social_sem_site');
 
   const blocked = Boolean(
     lead?.wasClosedBefore ||
@@ -241,6 +273,11 @@ export function buildVendasLeadIntelligence(input: VendasLeadIntelligenceInput) 
   if (tags.has('sem_site')) score += 7;
   if (tags.has('boa_avaliacao')) score += 5;
   if (tags.has('prova_social')) score += 4;
+  if (instagramUrl && facebookUrl) score += 8;
+  else if (instagramUrl) score += 6;
+  else if (facebookUrl) score += 4;
+  if ((instagramUrl || facebookUrl) && hasWeakOrMissingWebsite) score += 4;
+  if (normalizeKey(socialStatus) === 'weak') score += 2;
   if (blocked) score = Math.min(score, 20);
   score = Math.max(0, Math.min(99, Math.round(score)));
 
@@ -269,6 +306,7 @@ export function buildVendasLeadIntelligence(input: VendasLeadIntelligenceInput) 
     whatsappStatus === 'confirmed' ? 'WhatsApp confirmado' : whatsappStatus === 'missing' ? 'WhatsApp ausente' : normalizeText(lead?.phone || lead?.phoneNormalized) ? 'telefone disponível' : null,
     emailStatus === 'confirmed' ? 'e-mail confirmado' : emailStatus === 'probable' ? 'e-mail provável' : null,
     tags.has('sem_site') ? 'sem site' : normalizeText(lead?.website) ? 'site informado' : null,
+    instagramUrl && facebookUrl ? 'Instagram e Facebook encontrados' : instagramUrl ? 'Instagram encontrado' : facebookUrl ? 'Facebook encontrado' : null,
     Number(lead?.rating || 0) >= 4.2 ? 'boa avaliação' : null,
     Number(lead?.reviews || 0) >= 20 ? 'reviews relevantes' : null,
     radarEnrichment.painType ? `dor ${radarEnrichment.painType}` : null,
@@ -289,6 +327,11 @@ export function buildVendasLeadIntelligence(input: VendasLeadIntelligenceInput) 
   return {
     email: emailCandidate,
     emailStatus,
+    instagramUrl,
+    facebookUrl,
+    socialStatus,
+    socialConfidence,
+    primarySocial,
     whatsappStatus,
     contactQuality,
     opportunityScore: score,

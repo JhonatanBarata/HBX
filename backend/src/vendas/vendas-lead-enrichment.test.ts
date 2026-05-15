@@ -54,3 +54,61 @@ test('vendas intelligence blocks protected Radar recommendation', () => {
   assert.equal(intelligence.nextBestAction, 'discard');
   assert.equal(intelligence.contactQuality, 'blocked');
 });
+
+test('vendas intelligence scores Instagram and Facebook as commercial signals', () => {
+  const intelligence = buildVendasLeadIntelligence({
+    lead: {
+      name: 'Loja Social',
+      phone: '19999999999',
+      website: null,
+      timelineEvents: [
+        {
+          sourceType: 'radar_enrichment',
+          description: JSON.stringify({
+            instagramUrl: 'https://instagram.com/lojasocial',
+            facebookUrl: 'https://facebook.com/lojasocial',
+            socialStatus: 'found',
+            socialConfidence: 88,
+          }),
+        },
+      ],
+    },
+    whatsappAvailability: { status: 'unknown' },
+  });
+
+  assert.equal(intelligence.primarySocial, 'both');
+  assert.equal(intelligence.instagramUrl, 'https://instagram.com/lojasocial');
+  assert.equal(intelligence.facebookUrl, 'https://facebook.com/lojasocial');
+  assert.ok((intelligence.opportunityScore || 0) <= 99);
+  assert.ok(intelligence.leadReasonTags.includes('instagram_encontrado'));
+  assert.ok(intelligence.leadReasonTags.includes('facebook_encontrado'));
+  assert.ok(intelligence.leadReasonTags.includes('rede_social_confirmada'));
+  assert.ok(intelligence.leadReasonTags.includes('rede_social_sem_site'));
+  assert.match(intelligence.opportunityReason, /Instagram e Facebook/);
+});
+
+test('vendas intelligence resolves primarySocial for a single social network', () => {
+  const instagram = buildVendasLeadIntelligence({
+    lead: {
+      timelineEvents: [
+        {
+          sourceType: 'radar_enrichment',
+          description: JSON.stringify({ instagramUrl: 'instagram.com/empresa' }),
+        },
+      ],
+    },
+  });
+  const facebook = buildVendasLeadIntelligence({
+    lead: {
+      timelineEvents: [
+        {
+          sourceType: 'radar_enrichment',
+          description: JSON.stringify({ facebookUrl: 'facebook.com/empresa' }),
+        },
+      ],
+    },
+  });
+
+  assert.equal(instagram.primarySocial, 'instagram');
+  assert.equal(facebook.primarySocial, 'facebook');
+});

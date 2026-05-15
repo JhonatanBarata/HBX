@@ -790,6 +790,19 @@
     font-weight: 800;
   }
 
+  .mobileVendasCardMeta small[data-tone="social"] {
+    display: inline-flex;
+    min-height: 18px;
+    align-items: center;
+    justify-items: center;
+    padding: 0 7px;
+    border-radius: 999px;
+    background: #eef4ff;
+    color: #0757df;
+    font-size: 0.58rem;
+    font-weight: 950;
+  }
+
   .mobileVendasCardMeta b {
     display: block;
     color: #14204f;
@@ -4554,6 +4567,14 @@
     white-space: nowrap;
   }
 
+  .mobileLeadScoreBox[data-locked="true"] {
+    filter: saturate(0.9);
+  }
+
+  .mobileLeadScoreBox[data-locked="true"] strong {
+    font-size: 1.02rem;
+  }
+
   .mobileLeadContactRows {
     display: grid;
     gap: 0;
@@ -4601,6 +4622,45 @@
     color: #0757df;
   }
 
+  .mobileLeadSocialActions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 10px 2px 2px;
+  }
+
+  .mobileLeadSocialActions a,
+  .mobileLeadPremiumTeaser {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    border: 1px solid rgba(7, 87, 223, 0.14);
+    border-radius: 10px;
+    background: #eef4ff;
+    color: #0757df;
+    padding: 8px 10px;
+    font-size: 0.75rem;
+    font-weight: 900;
+    text-decoration: none;
+  }
+
+  .mobileLeadPremiumTeaser {
+    justify-content: flex-start;
+    padding: 12px 14px;
+    background: rgba(238, 244, 255, 0.72);
+  }
+
+  .mobileLeadPremiumTeaser strong,
+  .mobileLeadPremiumTeaser small {
+    display: block;
+  }
+
+  .mobileLeadPremiumTeaser small {
+    margin-top: 2px;
+    color: #5f6f91;
+    font-size: 0.7rem;
+  }
+
   .mobileLeadRowIcon {
     display: grid;
     width: 34px;
@@ -4633,6 +4693,18 @@
     display: grid;
     gap: 10px;
     padding-top: 4px;
+  }
+
+  .mobileLeadReasonBlock[data-locked="true"],
+  .mobileLeadReadyMessage:has(button:disabled) {
+    background:
+      radial-gradient(circle at 100% 0%, rgba(7, 87, 223, 0.04), transparent 36%),
+      rgba(255, 255, 255, 0.7);
+  }
+
+  .mobileLeadReasonBlock[data-locked="true"] p {
+    color: #6d7890;
+    filter: blur(0.2px);
   }
 
   .mobileLeadReasonBlock h3,

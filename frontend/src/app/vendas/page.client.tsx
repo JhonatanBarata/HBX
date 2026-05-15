@@ -146,6 +146,11 @@ type LeadMessageTemplate = {
 type LeadIntelligence = {
   email?: string | null;
   emailStatus?: "confirmed" | "probable" | "missing" | "unverified" | string;
+  instagramUrl?: string | null;
+  facebookUrl?: string | null;
+  socialStatus?: "found" | "missing" | "weak" | "unknown" | string;
+  socialConfidence?: number | null;
+  primarySocial?: "instagram" | "facebook" | "both" | null;
   whatsappStatus?: "confirmed" | "missing" | "invalid" | "unverified" | string;
   contactQuality?: "ready" | "review" | "weak" | "blocked" | string;
   opportunityScore?: number | null;
@@ -157,6 +162,20 @@ type LeadIntelligence = {
   messageTemplate?: LeadMessageTemplate | null;
   messageTemplates?: LeadMessageTemplate[];
   templateLibrarySize?: number;
+  premiumTeaser?: {
+    label?: string | null;
+    cta?: string | null;
+  } | null;
+};
+
+type VendasCapabilities = {
+  canSeeLeadIntelligence?: boolean;
+  canSeeOpportunityReason?: boolean;
+  canSeeSocialLinks?: boolean | "teaser_only";
+  canSeeMessageTemplates?: boolean;
+  canUseAdvancedFilters?: boolean;
+  canUseVerifiedWhatsapp?: boolean | "limited";
+  canUseFilteredQuota?: boolean;
 };
 
 type LeadItem = {
@@ -196,6 +215,8 @@ type LeadItem = {
     checkedAt?: string | null;
     message?: string | null;
   } | null;
+  planTier?: "list" | "lead" | "full" | string;
+  capabilities?: VendasCapabilities;
   leadIntelligence?: LeadIntelligence | null;
   isInInbox?: boolean;
   inboxConversationId?: string | number | null;
@@ -213,6 +234,8 @@ type BoardResponse = {
     scheduled: number;
     closed: number;
   };
+  planTier?: "list" | "lead" | "full" | string;
+  capabilities?: VendasCapabilities;
   blocks: Record<LeadBlockKey, LeadItem[]>;
 };
 
@@ -246,6 +269,8 @@ type ReportLeadErrorResponse = {
 type LeadEnrichmentResponse = {
   ok?: boolean;
   leadId: string;
+  planTier?: "list" | "lead" | "full" | string;
+  capabilities?: VendasCapabilities;
   whatsappAvailability?: LeadItem["whatsappAvailability"];
   leadIntelligence?: LeadIntelligence | null;
 };
@@ -460,6 +485,32 @@ function leadWebsiteForDisplay(lead: LeadItem) {
   return String(lead.website || "").trim();
 }
 
+function normalizeExternalUrl(value?: string | null) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  if (/^https?:\/\//i.test(raw)) return raw;
+  return `https://${raw}`;
+}
+
+function leadCapabilities(lead: LeadItem, board?: BoardResponse | null): VendasCapabilities {
+  return lead.capabilities || board?.capabilities || {};
+}
+
+function canSeeLeadIntelligence(lead: LeadItem, board?: BoardResponse | null) {
+  return leadCapabilities(lead, board).canSeeLeadIntelligence === true;
+}
+
+function canSeeSocialLinks(lead: LeadItem, board?: BoardResponse | null) {
+  return leadCapabilities(lead, board).canSeeSocialLinks === true;
+}
+
+function socialBadgeLabel(primarySocial?: LeadIntelligence["primarySocial"]) {
+  if (primarySocial === "instagram") return "IG";
+  if (primarySocial === "facebook") return "f";
+  if (primarySocial === "both") return "Redes";
+  return "";
+}
+
 function readMobileReadyMessagePreference() {
   if (typeof window === "undefined") return 0;
   const value = Number(window.localStorage.getItem(MOBILE_READY_MESSAGE_PREF_KEY));
@@ -542,6 +593,16 @@ function isMobileVendasViewport() {
   return typeof window !== "undefined" && window.matchMedia("(max-width: 820px)").matches;
 }
 
+function isTextEntryElementActive() {
+  if (typeof document === "undefined") return false;
+  const active = document.activeElement;
+  if (!active) return false;
+  if (active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement || active instanceof HTMLSelectElement) {
+    return true;
+  }
+  return active instanceof HTMLElement && active.isContentEditable;
+}
+
 function buildMobileReadyMessageTemplates(lead: LeadItem, preferredPersonName?: string | null) {
   const backendTemplates = [
     ...(lead.leadIntelligence?.messageTemplates || []),
@@ -579,6 +640,10 @@ function leadTagLabel(tag: string) {
     segmento_alvo: "Segmento alvo",
     boa_avaliacao: "Boa avaliação",
     prova_social: "Prova social",
+    instagram_encontrado: "Instagram",
+    facebook_encontrado: "Facebook",
+    rede_social_confirmada: "Rede social",
+    rede_social_sem_site: "Social sem site",
   };
   return labels[tag] || tag.replace(/_/g, " ");
 }
@@ -1748,6 +1813,7 @@ export default function VendasClientPage() {
   const dateFilterRefs = useRef<Record<string, HTMLElement | null>>({});
   const archiveRef = useRef<HTMLElement | null>(null);
   const editingInputActiveRef = useRef(false);
+  const pendingVisualBoardRef = useRef<BoardResponse | null>(null);
   const lastDragEndedAtRef = useRef(0);
   const filterScrollerRef = useRef<HTMLDivElement | null>(null);
   const lastRadarStatusSnapshotRef = useRef<{ count: number; status: string } | null>(null);
@@ -1788,28 +1854,43 @@ export default function VendasClientPage() {
     [],
   );
 
-  async function loadBoard(options?: { forceHydrateDrafts?: boolean }) {
+  function applyBoardPayload(
+    normalizedPayload: BoardResponse,
+    options?: { forceHydrateDrafts?: boolean },
+  ) {
+    setBoard((previous) =>
+      boardsPayloadEqual(previous, normalizedPayload) ? previous : normalizedPayload,
+    );
+    const skipHydrate =
+      !options?.forceHydrateDrafts &&
+      (composerOpenRef.current ||
+        editingInputActiveRef.current ||
+        Boolean(editingLeadId) ||
+        (typeof window !== "undefined" &&
+          window.matchMedia("(max-width: 820px)").matches &&
+          mobileSkipDraftHydrateRef.current));
+    if (skipHydrate) {
+      setDrafts((current) =>
+        mergeHydratedDraftsPreservingInput(normalizedPayload, current),
+      );
+    } else {
+      setDrafts(hydrateDrafts(normalizedPayload));
+    }
+  }
+
+  async function loadBoard(options?: {
+    forceHydrateDrafts?: boolean;
+    forceVisualRefresh?: boolean;
+  }) {
     setError(null);
     try {
       const payload = await apiFetch<BoardResponse>("/vendas/board");
       const normalizedPayload = normalizeBoardForLocalAgenda(payload);
-      setBoard((previous) =>
-        boardsPayloadEqual(previous, normalizedPayload) ? previous : normalizedPayload,
-      );
-      const skipHydrate =
-        !options?.forceHydrateDrafts &&
-        (composerOpenRef.current ||
-          editingInputActiveRef.current ||
-          Boolean(editingLeadId) ||
-          (typeof window !== "undefined" &&
-            window.matchMedia("(max-width: 820px)").matches &&
-            mobileSkipDraftHydrateRef.current));
-      if (skipHydrate) {
-        setDrafts((current) =>
-          mergeHydratedDraftsPreservingInput(normalizedPayload, current),
-        );
+      if (!options?.forceVisualRefresh && isTextEntryElementActive()) {
+        pendingVisualBoardRef.current = normalizedPayload;
       } else {
-        setDrafts(hydrateDrafts(normalizedPayload));
+        pendingVisualBoardRef.current = null;
+        applyBoardPayload(normalizedPayload, options);
       }
     } catch (loadError) {
       setError(
@@ -2039,6 +2120,21 @@ export default function VendasClientPage() {
   useEffect(() => {
     boardRef.current = board;
   }, [board]);
+
+  useEffect(() => {
+    function handleFocusOut() {
+      window.setTimeout(() => {
+        if (isTextEntryElementActive()) return;
+        const pending = pendingVisualBoardRef.current;
+        if (!pending) return;
+        pendingVisualBoardRef.current = null;
+        applyBoardPayload(pending);
+      }, 220);
+    }
+
+    document.addEventListener("focusout", handleFocusOut);
+    return () => document.removeEventListener("focusout", handleFocusOut);
+  });
 
   useEffect(() => {
     if (!accountSheetOpen || hasToken !== true) return;
@@ -2585,6 +2681,8 @@ export default function VendasClientPage() {
       const patch: Partial<LeadItem> = {
         whatsappAvailability: payload.whatsappAvailability || lead.whatsappAvailability || null,
         leadIntelligence: payload.leadIntelligence || lead.leadIntelligence || null,
+        planTier: payload.planTier || lead.planTier,
+        capabilities: payload.capabilities || lead.capabilities,
       };
       mergeMobileLeadPatch(lead.id, patch);
       setMobileNoteLead((current) =>
@@ -2693,7 +2791,7 @@ export default function VendasClientPage() {
       }
       setFeedback(payload?.message || "Card reportado e removido do Vendas.");
       setMobileReportLead(null);
-      await loadBoard({ forceHydrateDrafts: true });
+      await loadBoard({ forceHydrateDrafts: true, forceVisualRefresh: true });
     } catch (reportError) {
       setError(
         reportError instanceof Error
@@ -2766,13 +2864,18 @@ export default function VendasClientPage() {
                 : "Radar pronto para buscar";
     function renderMobileLeadDetail(lead: LeadItem) {
       const intelligence = lead.leadIntelligence || {};
+      const capabilities = leadCapabilities(lead, board);
+      const intelligenceVisible = canSeeLeadIntelligence(lead, board);
+      const socialLinksVisible = canSeeSocialLinks(lead, board);
       const score = Math.max(
         0,
-        Math.min(100, Math.round(Number(intelligence.opportunityScore || 0))),
+        Math.min(100, Math.round(Number(intelligenceVisible ? intelligence.opportunityScore || 0 : 0))),
       );
       const scoreLabel = intelligenceScoreLabel(score);
       const template = activeMobileTemplate(lead);
-      const readyMessage = template.text;
+      const readyMessage = capabilities.canSeeMessageTemplates
+        ? template.text
+        : `Olá, tudo bem? Encontrei a ${lead.name || "sua empresa"} e queria apresentar uma solução simples para organizar contatos e retornos.`;
       const whatsappHref = buildWhatsAppUrlWithMessage(
         lead.phone,
         readyMessage,
@@ -2781,6 +2884,9 @@ export default function VendasClientPage() {
       const email = leadEmailForDisplay(lead);
       const emailHref = email ? `mailto:${email}` : "";
       const website = leadWebsiteForDisplay(lead);
+      const instagramHref = socialLinksVisible ? normalizeExternalUrl(intelligence.instagramUrl) : "";
+      const facebookHref = socialLinksVisible ? normalizeExternalUrl(intelligence.facebookUrl) : "";
+      const socialBadge = socialBadgeLabel(intelligence.primarySocial);
       const whatsappStatus = intelligence.whatsappStatus || lead.whatsappAvailability?.status || null;
       const whatsappReady = whatsappStatus === "confirmed" || lead.whatsappAvailability?.status === "available";
       const whatsappUnavailable = whatsappStatus === "missing" || whatsappStatus === "invalid" || lead.whatsappAvailability?.status === "unavailable";
@@ -2790,7 +2896,7 @@ export default function VendasClientPage() {
         whatsappReady ? { label: "WhatsApp confirmado", tone: "success" } : null,
         email ? { label: "E-mail encontrado", tone: "success" } : null,
         lead.city ? { label: "Cidade alvo", tone: "primary" } : null,
-        intelligence.contactQuality === "ready" || score >= 70
+        intelligenceVisible && (intelligence.contactQuality === "ready" || score >= 70)
           ? { label: "Lead inteligente", tone: "smart" }
           : null,
         ...tags.map((tag) => ({ label: leadTagLabel(tag), tone: "neutral" })),
@@ -2814,6 +2920,9 @@ export default function VendasClientPage() {
       const status = lead.statusLabel || statusLabel(lead.status);
       const suggestedAction = lead.nextAction || nextBestActionLabel(intelligence.nextBestAction);
       const priorityLabel = score ? scoreLabel : "Aguardando dados";
+      const premiumTeaser = !intelligenceVisible && (intelligence.premiumTeaser || intelligence.primarySocial)
+        ? { label: "Disponível no HBX Lead", cta: "Ver card inteligente" }
+        : null;
 
       return (
         <section className={`${styles.mobileVendasShell} ${styles.mobileLeadDetailShell} hbx-mobile-page`} aria-label="Detalhe do lead mobile">
@@ -2863,16 +2972,18 @@ export default function VendasClientPage() {
                 </div>
                 <div
                   className={styles.mobileLeadScoreBox}
+                  data-locked={!intelligenceVisible ? "true" : "false"}
                   style={{ ["--lead-score" as string]: `${score}%` } as CSSProperties}
                   aria-label={`Score ${score || 0}`}
                 >
-                  <span>Score</span>
-                  <strong>{score || "--"}</strong>
-                  <small>{priorityLabel}</small>
+                  <span>{!intelligenceVisible ? "♕ Score" : "Score"}</span>
+                  <strong>{intelligenceVisible ? score || "--" : "Lead"}</strong>
+                  <small>{intelligenceVisible ? priorityLabel : "Disponível no HBX Lead"}</small>
                 </div>
                 <div className={styles.mobileLeadHeroMeta} aria-label="Resumo do lead">
                   <span>{status}</span>
                   <span>{mobileReturnLabel(lead)}</span>
+                  {socialBadge ? <span data-tone="social">{socialBadge}</span> : null}
                   <span>{mobileLeadSourceLabel(lead)}</span>
                 </div>
               </section>
@@ -2912,10 +3023,45 @@ export default function VendasClientPage() {
                     <strong>{website || "Sem site"}</strong>
                     <b data-tone={website ? "smart" : "muted"}>{website ? "Site encontrado" : "Sem site"}</b>
                   </div>
+                  {socialBadge ? (
+                    <div>
+                      <span className={styles.mobileLeadRowIcon} aria-hidden="true">
+                        {socialBadge}
+                      </span>
+                      <strong>{socialLinksVisible ? "Rede social encontrada" : "Rede social detectada"}</strong>
+                      <b data-tone={socialLinksVisible ? "success" : "muted"}>
+                        {socialLinksVisible ? "Links liberados" : "Disponível no HBX Lead"}
+                      </b>
+                    </div>
+                  ) : null}
                 </div>
+                {(instagramHref || facebookHref) ? (
+                  <div className={styles.mobileLeadSocialActions}>
+                    {instagramHref ? (
+                      <a href={instagramHref} target="_blank" rel="noreferrer">
+                        Abrir Instagram
+                      </a>
+                    ) : null}
+                    {facebookHref ? (
+                      <a href={facebookHref} target="_blank" rel="noreferrer">
+                        Abrir Facebook
+                      </a>
+                    ) : null}
+                  </div>
+                ) : null}
               </section>
 
-              <section className={`${styles.mobileLeadReasonBlock} hbx-mobile-card`}>
+              {premiumTeaser ? (
+                <section className={`${styles.mobileLeadPremiumTeaser} hbx-mobile-card`}>
+                  <span aria-hidden="true">♕</span>
+                  <div>
+                    <strong>{premiumTeaser.label}</strong>
+                    <small>{premiumTeaser.cta}</small>
+                  </div>
+                </section>
+              ) : null}
+
+              <section className={`${styles.mobileLeadReasonBlock} hbx-mobile-card`} data-locked={!capabilities.canSeeOpportunityReason ? "true" : "false"}>
                 <h3>
                   <svg viewBox="0 0 24 24" aria-hidden="true">
                     <circle cx="12" cy="12" r="8" />
@@ -2923,7 +3069,7 @@ export default function VendasClientPage() {
                     <path d="M12 2v3" />
                     <path d="M22 12h-3" />
                   </svg>
-                  Motivo do lead
+                  Sinais comerciais
                 </h3>
                 <div>
                   {(reasonChips.length ? reasonChips : [{ label: "Cidade alvo", tone: "primary" }]).map((chip) => (
@@ -2932,6 +3078,11 @@ export default function VendasClientPage() {
                     </span>
                   ))}
                 </div>
+                <p>
+                  {capabilities.canSeeOpportunityReason
+                    ? intelligence.opportunityReason || "Revise os sinais comerciais antes da abordagem."
+                    : "Motivo da oportunidade disponível no HBX Lead."}
+                </p>
               </section>
 
               <section className={`${styles.mobileLeadNextActionBox} hbx-mobile-card`}>
@@ -2970,7 +3121,13 @@ export default function VendasClientPage() {
                   </svg>
                   Mensagem pronta
                 </h3>
-                <p>{loadingEnrichment ? "Verificando WhatsApp no motor HBX Master..." : readyMessage}</p>
+                <p>
+                  {!capabilities.canSeeMessageTemplates
+                    ? "Mensagem pronta por segmento disponível no HBX Lead."
+                    : loadingEnrichment
+                      ? "Verificando WhatsApp no motor HBX Master..."
+                      : readyMessage}
+                </p>
                 <div className={styles.mobileLeadQuickGrid}>
                   <a
                     href={callHref || undefined}
@@ -2989,12 +3146,14 @@ export default function VendasClientPage() {
                     type="button"
                     data-tone="primary"
                     onClick={() => void copyMobileText(readyMessage, "Mensagem copiada.")}
+                    disabled={!capabilities.canSeeMessageTemplates}
                   >
                     Copiar msg
                   </button>
                   <button
                     type="button"
                     onClick={() => refreshMobileTemplate(lead)}
+                    disabled={!capabilities.canSeeMessageTemplates}
                   >
                     <svg viewBox="0 0 24 24" aria-hidden="true">
                       <path d="M20 7v5h-5" />
@@ -3277,6 +3436,7 @@ export default function VendasClientPage() {
                 const status = lead.statusLabel || statusLabel(lead.status);
                 const whatsappHref = buildWhatsAppUrl(lead.phone, lead.name);
                 const callHref = buildCallUrl(lead.phone);
+                const compactSocialBadge = socialBadgeLabel(lead.leadIntelligence?.primarySocial);
                 return (
                   <article
                     className={`${styles.mobileVendasCard} hbx-mobile-card`}
@@ -3342,6 +3502,11 @@ export default function VendasClientPage() {
                         <small>
                           Retorno <b>{mobileReturnLabel(lead)}</b>
                         </small>
+                        {compactSocialBadge ? (
+                          <small data-tone="social">
+                            {compactSocialBadge}
+                          </small>
+                        ) : null}
                       </div>
                       <div className={styles.mobileVendasNextAction}>
                         <span>Próxima ação</span>
@@ -3590,7 +3755,7 @@ export default function VendasClientPage() {
         shortNote: "",
       });
       setComposerOpen(false);
-      await loadBoard({ forceHydrateDrafts: true });
+      await loadBoard({ forceHydrateDrafts: true, forceVisualRefresh: true });
     } catch (createError) {
       setError(
         createError instanceof Error
@@ -3655,7 +3820,7 @@ export default function VendasClientPage() {
         body: JSON.stringify(body),
       });
       setFeedback(successMessage || "Lead atualizado com sucesso.");
-      await loadBoard({ forceHydrateDrafts: true });
+      await loadBoard({ forceHydrateDrafts: true, forceVisualRefresh: true });
       // If the saved lead was being edited inline, close the inline editor
       if (editingLeadId === leadId) {
         editingInputActiveRef.current = false;
