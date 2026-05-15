@@ -125,7 +125,11 @@ export class ProfileController {
   async profile(@Req() req: any) {
     const user = await this.usersService.findById(req.user.id);
     const masterContext = await this.resolveMasterContext(req, user);
-    return sanitizeUser(user, masterContext);
+    const userWithRuntimeCompany: any = user;
+    const runtimeUser = userWithRuntimeCompany && !userWithRuntimeCompany.company && req.user?.company
+      ? { ...user, company: req.user.company }
+      : user;
+    return sanitizeUser(runtimeUser, masterContext);
   }
 
   @Get('current-user')
@@ -133,7 +137,11 @@ export class ProfileController {
   async currentUser(@Req() req: any) {
     const user = await this.usersService.findById(req.user.id);
     const masterContext = await this.resolveMasterContext(req, user);
-    return sanitizeUser(user, masterContext);
+    const userWithRuntimeCompany: any = user;
+    const runtimeUser = userWithRuntimeCompany && !userWithRuntimeCompany.company && req.user?.company
+      ? { ...user, company: req.user.company }
+      : user;
+    return sanitizeUser(runtimeUser, masterContext);
   }
 
   @Get('theme-preferences')
@@ -177,6 +185,10 @@ export class ProfileController {
     await this.usersService.updateById(Number(req.user.id), { name });
     const updated = await this.usersService.findById(Number(req.user.id));
     const masterContext = await this.resolveMasterContext(req, updated);
-    return sanitizeUser(updated, masterContext);
+    const updatedWithRuntimeCompany: any = updated;
+    const runtimeUser = updatedWithRuntimeCompany && !updatedWithRuntimeCompany.company && req.user?.company
+      ? { ...updated, company: req.user.company }
+      : updated;
+    return sanitizeUser(runtimeUser, masterContext);
   }
 }

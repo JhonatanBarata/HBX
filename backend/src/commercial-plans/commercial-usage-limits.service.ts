@@ -1,4 +1,5 @@
 import { ConflictException, Injectable } from '@nestjs/common';
+import { MASTER_WHATSAPP_ENGINE_COMPANY_SLUG } from '../companies/master-whatsapp-company.constants';
 import { PrismaService } from '../prisma/prisma.service';
 import { COMMERCIAL_PLAN_KEYS, normalizeCommercialPlanKey } from './commercial-plan-catalog';
 
@@ -71,12 +72,61 @@ export class CommercialUsageLimitsService {
   private async getCompanyPlan(companyId: number) {
     const company = await this.prisma.company.findUnique({
       where: { id: Number(companyId) },
-      select: { selectedPlanKey: true, timezone: true },
+      select: { selectedPlanKey: true, timezone: true, slug: true },
     });
     const planKey = normalizeCommercialPlanKey(company?.selectedPlanKey || COMMERCIAL_PLAN_KEYS.PADRAO);
     return {
       planKey,
       timezone: this.normalizeTimezone(company?.timezone),
+      isMasterOperationalCompany: company?.slug === MASTER_WHATSAPP_ENGINE_COMPANY_SLUG,
+    };
+  }
+
+  private async isSystemMasterUser(userId?: number | null) {
+    const normalizedUserId = Number(userId || 0) || null;
+    if (!normalizedUserId) return false;
+    const user = await this.prisma.user.findUnique({
+      where: { id: normalizedUserId },
+      select: { isSystemMaster: true },
+    });
+    return Boolean(user?.isSystemMaster);
+  }
+
+  private buildUnlimitedSnapshot(input: {
+    planKey: string;
+    timezone: string;
+    dayStart: Date;
+    dayEnd: Date;
+  }) {
+    const unlimited = 999999;
+    return {
+      planKey: input.planKey,
+      timezone: input.timezone,
+      dayStart: input.dayStart.toISOString(),
+      dayEnd: input.dayEnd.toISOString(),
+      cards: {
+        used: 0,
+        limit: unlimited,
+        remaining: unlimited,
+        perUserLimit: null as number | null,
+        companyCap: unlimited,
+        userUsed: 0,
+        userLimit: unlimited,
+      },
+      emails: {
+        attempted: 0,
+        sent: 0,
+        failed: 0,
+        blocked: 0,
+        limit: unlimited,
+        remaining: unlimited,
+        perUserLimit: null as number | null,
+        companyCap: unlimited,
+        userSent: 0,
+        userLimit: unlimited,
+      },
+      billableUsers: 0,
+      resetAt: input.dayEnd.toISOString(),
     };
   }
 
@@ -118,6 +168,14 @@ export class CommercialUsageLimitsService {
   async getDailyUsageSnapshot(companyId: number, userId?: number | null) {
     const company = await this.getCompanyPlan(companyId);
     const { dayStart, dayEnd } = this.getDayBounds(company.timezone);
+    if (company.isMasterOperationalCompany || await this.isSystemMasterUser(userId)) {
+      return this.buildUnlimitedSnapshot({
+        planKey: company.isMasterOperationalCompany ? 'hbx_master' : company.planKey,
+        timezone: company.timezone,
+        dayStart,
+        dayEnd,
+      });
+    }
     const billableUsers = await this.getBillableUserCount(companyId);
     const limits = this.computeLimits(company.planKey, billableUsers);
     const normalizedUserId = Number(userId || 0) || null;

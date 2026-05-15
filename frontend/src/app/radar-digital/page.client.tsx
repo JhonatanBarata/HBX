@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type FocusEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import DashboardScaffold from "@/components/DashboardScaffold";
 import HbxMobileDock from "@/components/mobile/HbxMobileDock";
@@ -649,6 +649,8 @@ export default function RadarDigitalClientPage() {
   const [enrichmentSummary, setEnrichmentSummary] = useState<RadarEnrichmentSummary | null>(null);
   const activeRunIdRef = useRef<string | null>(null);
   const mobileSearchNoticeRef = useRef<HTMLElement | null>(null);
+  const filterEditingRef = useRef(false);
+  const filterEditingReleaseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const visibleItems = useMemo(
     () => items.filter((item) => leadMatchesSearch(item, appliedGeneralSearch)).sort(sortRadarLeadsForSales),
@@ -686,6 +688,33 @@ export default function RadarDigitalClientPage() {
     ? Math.max(4, Math.min(100, Number(activeRun.meta?.progress || Math.round((activeRunDelivered / activeRunTarget) * 100))))
     : 0;
   const queryRadarLeadId = String(searchParams.get("radarLeadId") || "").trim();
+
+  function setFilterEditing(active: boolean) {
+    if (filterEditingReleaseTimerRef.current) {
+      clearTimeout(filterEditingReleaseTimerRef.current);
+      filterEditingReleaseTimerRef.current = null;
+    }
+    if (active) {
+      filterEditingRef.current = true;
+      return;
+    }
+    filterEditingReleaseTimerRef.current = setTimeout(() => {
+      filterEditingRef.current = false;
+      filterEditingReleaseTimerRef.current = null;
+    }, 700);
+  }
+
+  function handleFilterFormBlur(event: FocusEvent<HTMLElement>) {
+    const nextTarget = event.relatedTarget;
+    if (nextTarget instanceof Node && event.currentTarget.contains(nextTarget)) return;
+    setFilterEditing(false);
+  }
+
+  useEffect(() => {
+    return () => {
+      if (filterEditingReleaseTimerRef.current) clearTimeout(filterEditingReleaseTimerRef.current);
+    };
+  }, []);
 
   useEffect(() => {
     if (hasToken !== true) return;
@@ -1028,17 +1057,19 @@ export default function RadarDigitalClientPage() {
     const nextItems = payload.items || [];
     const payloadFilters = payload.meta?.filters;
     if (payloadFilters) {
-      setFilters((current) => {
-        const next = {
-          ...current,
-          state: payloadFilters.state || current.state,
-          city: payloadFilters.city || current.city,
-          segment: payloadFilters.segment || current.segment,
-          targetType: (payloadFilters.targetType === "pf" || payloadFilters.targetType === "both" ? payloadFilters.targetType : "pj") as HbxTargetTypeValue,
-          quantity: Math.max(1, Number(payload.targetQuantity || payload.meta?.requestedQuantity || current.quantity || 1)),
-        };
-        return JSON.stringify(current) === JSON.stringify(next) ? current : next;
-      });
+      if (!filterEditingRef.current) {
+        setFilters((current) => {
+          const next = {
+            ...current,
+            state: payloadFilters.state || current.state,
+            city: payloadFilters.city || current.city,
+            segment: payloadFilters.segment || current.segment,
+            targetType: (payloadFilters.targetType === "pf" || payloadFilters.targetType === "both" ? payloadFilters.targetType : "pj") as HbxTargetTypeValue,
+            quantity: Math.max(1, Number(payload.targetQuantity || payload.meta?.requestedQuantity || current.quantity || 1)),
+          };
+          return JSON.stringify(current) === JSON.stringify(next) ? current : next;
+        });
+      }
       setAppliedFilters((current) => {
         const next = {
           ...current,
@@ -1499,6 +1530,8 @@ export default function RadarDigitalClientPage() {
 
           <form
             className={`${styles.mobileRadarForm} hbx-mobile-card`}
+            onFocus={() => setFilterEditing(true)}
+            onBlur={handleFilterFormBlur}
             onSubmit={(event) => {
               event.preventDefault();
               startMobileRadarSearch();
@@ -1797,6 +1830,8 @@ export default function RadarDigitalClientPage() {
 
         <form
           className={styles.filters}
+          onFocus={() => setFilterEditing(true)}
+          onBlur={handleFilterFormBlur}
           onSubmit={(event) => {
             event.preventDefault();
             void runRadarSearch();
