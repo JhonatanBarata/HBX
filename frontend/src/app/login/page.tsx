@@ -1406,7 +1406,13 @@ export default function LoginPage() {
               </button>
 
               <p className="login-mobileTerms">
-                Ao entrar, você concorda com nossos <a href="/termos">Termos de Uso</a> e <a href="/privacidade">Política de Privacidade</a>.
+                Ao entrar, você concorda com as normas do HBX.
+                <span className="login-legalLinks">
+                  <a href="/termos-de-uso">Termos de Uso</a>
+                  <a href="/politica-de-privacidade">Privacidade</a>
+                  <a href="/politica-de-reembolso">Reembolso</a>
+                  <a href="/direitos-autorais">Direitos Autorais</a>
+                </span>
               </p>
               </form>
             </div>

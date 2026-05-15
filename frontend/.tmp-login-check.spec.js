@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-require-imports */
 const { test } = require("@playwright/test");
 
 for (const viewport of [

@@ -9039,7 +9039,34 @@ html[data-theme-mode="dark"] .hbx-confirmBillboard[data-destructive="true"] {
 }
 
 .login-mobileTerms {
-  display: none;
+  display: block;
+  width: 100%;
+  margin: 0.4rem auto 0;
+  color: color-mix(in srgb, var(--muted) 88%, var(--foreground));
+  font-size: 0.72rem;
+  font-weight: 740;
+  line-height: 1.45;
+  text-align: center;
+}
+
+.login-legalLinks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  align-items: center;
+  justify-content: center;
+  margin-top: 0.55rem;
+}
+
+.login-mobileTerms a {
+  color: color-mix(in srgb, var(--button-primary) 82%, var(--foreground));
+  font-weight: 900;
+  text-decoration: none;
+}
+
+.login-mobileTerms a:hover {
+  text-decoration: underline;
+  text-underline-offset: 0.22em;
 }
 
 .login-link {
@@ -10858,6 +10885,11 @@ html[data-theme="tabler"] .login-card__stat {
     color: #37b7ff;
   }
 
+  .login-stage[data-login-surface="hbx-mobile"] .login-legalLinks {
+    gap: 5px 9px;
+    margin-top: 0.55rem;
+  }
+
   .login-stage .msg-info,
   .login-stage .msg-error,
   .login-stage .msg-waking-server {
@@ -11452,6 +11484,11 @@ html[data-theme="tabler"] .login-card__stat {
   .login-stage[data-login-surface="hbx-mobile"] .login-mobileTerms a {
     color: #37b7ff;
     text-decoration: none;
+  }
+
+  .login-stage[data-login-surface="hbx-mobile"] .login-legalLinks {
+    gap: 5px 9px;
+    margin-top: 0.5rem;
   }
 }
 
