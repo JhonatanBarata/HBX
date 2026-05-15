@@ -16049,30 +16049,47 @@ html[data-theme-mode] .app-topbar .app-topbar__frame {
     min-height: 0 !important;
     height: auto !important;
     max-height: none !important;
-    display: grid !important;
-    grid-auto-rows: max-content !important;
-    align-items: start !important;
-    align-content: start !important;
+    display: flex !important;
+    flex-direction: column !important;
     gap: 10px !important;
     overflow-y: auto !important;
-    overflow-x: visible !important;
+    overflow-x: hidden !important;
     padding-bottom: calc(120px + env(safe-area-inset-bottom)) !important;
   }
 
-  [class*="mobileVendasCard"] {
-    min-height: 112px !important;
+  article[class*="mobileVendasCard"].hbx-mobile-card {
+    position: relative !important;
+    display: grid !important;
+    flex: 0 0 auto !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    box-sizing: border-box !important;
+    min-height: 126px !important;
     height: auto !important;
     max-height: none !important;
-    align-self: start !important;
+    align-self: stretch !important;
     align-items: start !important;
     padding-top: 12px !important;
-    padding-bottom: 12px !important;
-    overflow: visible !important;
+    padding-bottom: 14px !important;
+    overflow: hidden !important;
     transform: none !important;
   }
 
-  [class*="mobileVendasCard"]:active,
-  [class*="mobileVendasCard"].hbx-mobile-card:active {
+  article[class*="mobileVendasCard"].hbx-mobile-card svg {
+    max-width: 26px !important;
+    max-height: 26px !important;
+  }
+
+  [class*="mobileVendasContactActions"] {
+    position: absolute !important;
+    right: 12px !important;
+    bottom: 12px !important;
+    display: flex !important;
+    width: auto !important;
+    height: auto !important;
+  }
+
+  article[class*="mobileVendasCard"].hbx-mobile-card:active {
     transform: none !important;
   }
 

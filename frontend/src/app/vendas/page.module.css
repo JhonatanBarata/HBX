@@ -4984,9 +4984,8 @@
   }
 
   .mobileVendasList {
-    grid-auto-rows: max-content;
-    align-content: start;
-    align-items: start;
+    display: flex !important;
+    flex-direction: column;
     gap: 10px;
     overflow-y: auto;
     overflow-x: hidden;
@@ -4995,24 +4994,37 @@
   }
 
   .mobileVendasCard {
-    align-self: start;
-    min-height: 112px;
+    position: relative;
+    display: grid !important;
+    flex: 0 0 auto;
+    align-self: stretch;
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+    min-height: 126px;
     height: auto;
     grid-template-columns: 40px minmax(0, 1fr);
+    align-items: start;
     gap: 10px;
-    padding: 12px;
+    padding: 12px 12px 14px;
+    overflow: hidden;
+  }
+
+  .mobileVendasCard svg {
+    max-width: 26px;
+    max-height: 26px;
   }
 
   .mobileVendasCardMain {
-    display: grid;
+    display: grid !important;
     align-content: start;
-    gap: 8px;
+    gap: 9px;
     min-height: 0;
   }
 
   .mobileVendasCardMeta {
     margin-top: 0;
-    padding-bottom: 8px;
+    padding-bottom: 7px;
   }
 
   .mobileVendasNextAction {
@@ -5021,8 +5033,13 @@
   }
 
   .mobileVendasContactActions {
+    position: absolute !important;
     right: 12px;
-    bottom: 10px;
+    bottom: 12px;
+    display: flex !important;
+    width: auto !important;
+    height: auto !important;
+    gap: 10px;
   }
 
   .mobileLeadDetailBody {

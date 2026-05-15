@@ -265,11 +265,19 @@ export class CompaniesController {
     };
   }
 
-  private async resolveOperationalContext(req: any) {
+  private async resolveOperationalContext(req: any, options?: { allowMasterWhatsappEngineFallback?: boolean }) {
     const runtimeContext = await this.masterContextService.resolveRuntimeContext(req.user);
     const effectiveCompanyId = runtimeContext.effectiveCompanyId || Number(req.user?.companyId || 0) || null;
 
     if (!effectiveCompanyId) {
+      if (options?.allowMasterWhatsappEngineFallback && req?.user?.isSystemMaster) {
+        const company = await this.companiesService.getOrCreateMasterWhatsAppEngineCompany();
+        return {
+          effectiveCompanyId: Number(company.id),
+          company,
+          masterContext: runtimeContext.masterContext,
+        };
+      }
       return {
         effectiveCompanyId: null,
         company: null,
@@ -285,9 +293,10 @@ export class CompaniesController {
     };
   }
 
-  private async resolveOperationalCompanyIdOrThrow(req: any, options?: { allowPendingCheckout?: boolean }) {
-    void options;
-    const context = await this.resolveOperationalContext(req);
+  private async resolveOperationalCompanyIdOrThrow(req: any, options?: { allowPendingCheckout?: boolean; allowMasterWhatsappEngineFallback?: boolean }) {
+    const context = await this.resolveOperationalContext(req, {
+      allowMasterWhatsappEngineFallback: Boolean(options?.allowMasterWhatsappEngineFallback),
+    });
     const companyId = Number(context.effectiveCompanyId || 0);
     if (!companyId) {
       throw new BadRequestException('Nenhuma empresa operacional selecionada para este contexto.');
@@ -310,7 +319,10 @@ export class CompaniesController {
   }
 
   private async resolveMyWhatsAppModalCompanyIdOrThrow(req: any, options?: { allowPendingCheckout?: boolean }) {
-    const companyId = await this.resolveOperationalCompanyIdOrThrow(req, options);
+    const companyId = await this.resolveOperationalCompanyIdOrThrow(req, {
+      ...options,
+      allowMasterWhatsappEngineFallback: true,
+    });
     this.assertWhatsAppModalAdminAccess(req, companyId);
     return companyId;
   }
@@ -634,7 +646,7 @@ export class CompaniesController {
   @Get('me/whatsapp-status')
   @UseGuards(JwtAuthGuard)
   async getMyWhatsAppStatus(@Req() req: any, @Query('refresh') refresh?: string) {
-    const companyId = await this.resolveOperationalCompanyIdOrThrow(req);
+    const companyId = await this.resolveOperationalCompanyIdOrThrow(req, { allowMasterWhatsappEngineFallback: true });
     const doRefresh = String(refresh || '').toLowerCase() === 'true';
     const st = await this.whatsappStatus.getStatusForCompany(companyId, { refresh: doRefresh });
     return {
@@ -648,7 +660,7 @@ export class CompaniesController {
   @UseGuards(JwtAuthGuard)
   async getMyWhatsAppCenter(@Req() req: any, @Query('refresh') refresh?: string) {
     const refreshTemporary = String(refresh || '').trim().toLowerCase() === 'true';
-    const companyId = await this.resolveOperationalCompanyIdOrThrow(req);
+    const companyId = await this.resolveOperationalCompanyIdOrThrow(req, { allowMasterWhatsappEngineFallback: true });
     return this.companiesService.getWhatsAppCenterForCompany(companyId, {
       refreshTemporary,
     });
@@ -698,7 +710,10 @@ export class CompaniesController {
   @Get('me/whatsapp-live-health')
   @UseGuards(JwtAuthGuard)
   async getMyWhatsAppLiveHealth(@Req() req: any, @Query('refresh') refresh?: string) {
-    const companyId = await this.resolveOperationalCompanyIdOrThrow(req, { allowPendingCheckout: true });
+    const companyId = await this.resolveOperationalCompanyIdOrThrow(req, {
+      allowPendingCheckout: true,
+      allowMasterWhatsappEngineFallback: true,
+    });
     const forceRefresh = String(refresh || '').trim().toLowerCase() === 'true';
     return this.whatsappModalService.getCompanyLiveHealth(companyId, { forceRefresh });
   }
@@ -795,7 +810,7 @@ export class CompaniesController {
   @Patch('me/whatsapp-center')
   @UseGuards(JwtAuthGuard)
   async updateMyWhatsAppCenter(@Req() req: any, @Body() dto: UpdateMyWhatsAppCenterDto) {
-    const companyId = await this.resolveOperationalCompanyIdOrThrow(req);
+    const companyId = await this.resolveOperationalCompanyIdOrThrow(req, { allowMasterWhatsappEngineFallback: true });
     return this.companiesService.updateWhatsAppCenterForCompany(companyId, dto || {});
   }
 
@@ -847,7 +862,7 @@ export class CompaniesController {
     @Req() req: any,
     @Body() dto: RegisterWhatsAppMigrationInterestDto,
   ) {
-    const companyId = await this.resolveOperationalCompanyIdOrThrow(req);
+    const companyId = await this.resolveOperationalCompanyIdOrThrow(req, { allowMasterWhatsappEngineFallback: true });
     return this.companiesService.registerWhatsAppMigrationInterest(companyId, dto || {});
   }
 

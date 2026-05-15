@@ -7,6 +7,8 @@ import {
   Injectable,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { CompaniesService } from '../companies/companies.service';
+import { MasterContextService } from '../master-context/master-context.service';
 import { SelectCommercialPlanDto } from './dto/select-commercial-plan.dto';
 import {
   BOT_IA_PLAN_REQUIRED_PAYLOAD,
@@ -63,13 +65,22 @@ type CommercialBillingBreakdown = {
 
 @Injectable()
 export class CommercialPlansService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly masterContextService: MasterContextService,
+    private readonly companiesService: CompaniesService,
+  ) {}
 
-  private resolveUserContext(user: any) {
-    const companyId = Number(user?.companyId || user?.company?.id || 0);
+  private async resolveUserContext(user: any) {
     const userId = Number(user?.id || 0);
-    if (!companyId) throw new ForbiddenException('Empresa nao identificada.');
     if (!userId) throw new ForbiddenException('Usuario nao identificado.');
+    const runtimeContext = await this.masterContextService.resolveRuntimeContext(user);
+    let companyId = Number(runtimeContext.effectiveCompanyId || user?.companyId || user?.company?.id || 0);
+    if (!companyId && Boolean(user?.isSystemMaster)) {
+      const company = await this.companiesService.getOrCreateMasterWhatsAppEngineCompany();
+      companyId = Number(company.id);
+    }
+    if (!companyId) throw new ForbiddenException('Empresa nao identificada.');
     return {
       companyId,
       userId,
@@ -333,7 +344,7 @@ export class CommercialPlansService {
   }
 
   async getCatalogForUser(user: any) {
-    const context = this.resolveUserContext(user);
+    const context = await this.resolveUserContext(user);
     const company = await this.loadCompany(context.companyId);
     return this.buildPayload(company, user);
   }
@@ -349,7 +360,7 @@ export class CommercialPlansService {
   }
 
   async assertEntitlementForUser(user: any, entitlement: CommercialEntitlementKey) {
-    const context = this.resolveUserContext(user);
+    const context = await this.resolveUserContext(user);
     const current = await this.getCurrentStateForCompany(context.companyId);
     if (current.entitlements[entitlement]) return current;
 
@@ -605,7 +616,7 @@ export class CommercialPlansService {
   }
 
   async selectPlanForUser(user: any, dto: SelectCommercialPlanDto) {
-    const context = this.resolveUserContext(user);
+    const context = await this.resolveUserContext(user);
     if (!context.canSelectPlan) {
       throw new ForbiddenException({
         code: 'USER_PLAN_UPGRADE_NOT_ALLOWED',
