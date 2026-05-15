@@ -21,6 +21,461 @@
   }
 }
 
+.smartBlock {
+  display: grid;
+  gap: 10px;
+}
+
+.smartChips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  min-height: 28px;
+}
+
+.smartChips span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 26px;
+  padding: 0 9px;
+  border: 1px solid rgba(31, 92, 181, 0.18);
+  border-radius: 999px;
+  background: #f3f7ff;
+  color: #174071;
+  font-size: 0.74rem;
+  font-weight: 850;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.smartChips span[data-tone="success"] {
+  border-color: rgba(21, 128, 61, 0.2);
+  background: #ecfdf3;
+  color: #116039;
+}
+
+.smartChips span[data-tone="warning"] {
+  border-color: rgba(180, 83, 9, 0.2);
+  background: #fff7ed;
+  color: #92400e;
+}
+
+.smartDetails {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.smartDetails span {
+  min-width: 0;
+  padding: 9px 10px;
+  border: 1px solid rgba(203, 215, 235, 0.78);
+  border-radius: 10px;
+  background: #ffffff;
+  color: #182745;
+  font-size: 0.8rem;
+  font-weight: 760;
+  overflow-wrap: anywhere;
+}
+
+.smartDetails b {
+  display: block;
+  margin-bottom: 3px;
+  color: #64748b;
+  font-size: 0.68rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.smartPitch {
+  color: #53637c;
+  font-size: 0.82rem;
+  line-height: 1.35;
+}
+
+.listUpsell {
+  padding: 9px 10px;
+  border: 1px solid rgba(31, 92, 181, 0.16);
+  border-radius: 10px;
+  background: #f6f9ff;
+  color: #315277;
+  font-size: 0.82rem;
+  font-weight: 850;
+}
+
+.enrichmentSummary {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 8px;
+  margin: 12px 0 16px;
+}
+
+.enrichmentSummary span {
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid rgba(203, 215, 235, 0.78);
+  border-radius: 10px;
+  background: #ffffff;
+  color: #526174;
+  font-size: 0.76rem;
+  font-weight: 820;
+}
+
+.enrichmentSummary b {
+  display: block;
+  color: #0f2457;
+  font-size: 1rem;
+  font-weight: 950;
+}
+
+@media (max-width: 820px) {
+  .smartDetails {
+    grid-template-columns: 1fr;
+  }
+
+  .enrichmentSummary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 820px) {
+  .shell {
+    min-height: 100dvh;
+    margin: 0 calc(50% - 50vw);
+    padding: 0;
+    background:
+      radial-gradient(circle at 50% -12%, rgba(255, 255, 255, 0.95), transparent 28%),
+      radial-gradient(circle at 14% 7%, rgba(45, 113, 255, 0.14), transparent 28%),
+      radial-gradient(circle at 92% 2%, rgba(23, 191, 218, 0.12), transparent 25%),
+      linear-gradient(180deg, #f8fbff 0%, #eef5ff 58%, #eaf3ff 100%);
+  }
+
+  .mobileRadar {
+    min-height: 100dvh;
+    display: grid;
+    align-content: start;
+    gap: 10px;
+    padding: calc(12px + env(safe-area-inset-top)) 12px calc(120px + env(safe-area-inset-bottom));
+    overflow-y: auto;
+    overflow-x: hidden;
+    color: #07143a;
+    font-family: var(--font-sans, inherit);
+  }
+
+  .mobileRadarHeader {
+    min-height: auto;
+    padding: 0 2px 2px;
+  }
+
+  .mobileRadarHeader strong {
+    color: #07143a;
+    font-size: 1.12rem;
+    line-height: 1.1;
+    font-weight: 950;
+  }
+
+  .mobileRadarHeader span {
+    color: #536381;
+    font-size: 0.78rem;
+    line-height: 1.25;
+    font-weight: 760;
+  }
+
+  .mobileRadarHero {
+    position: relative;
+    min-height: 0;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: stretch;
+    gap: 8px;
+    padding: 12px;
+    border: 1px solid rgba(198, 212, 237, 0.9);
+    border-radius: 18px;
+    background:
+      radial-gradient(circle at 92% 8%, rgba(33, 128, 255, 0.1), transparent 34%),
+      linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(246, 250, 255, 0.94));
+    box-shadow:
+      0 20px 44px -34px rgba(12, 30, 65, 0.48),
+      inset 0 1px 0 rgba(255, 255, 255, 0.9);
+    color: #07143a;
+    overflow: hidden;
+  }
+
+  .mobileRadarHero::before,
+  .mobileRadarHero::after {
+    content: none;
+  }
+
+  .mobileRadarHeroCopy {
+    grid-column: 1 / -1;
+    min-height: 0;
+    display: grid;
+    gap: 4px;
+    padding: 0 92px 4px 0;
+    border: 0;
+    background: transparent;
+    box-shadow: none;
+  }
+
+  .mobileRadarHeroCopy span,
+  .mobileRadarHeroStat span {
+    color: #315071;
+    font-size: 0.66rem;
+    line-height: 1.18;
+    font-weight: 950;
+    text-transform: uppercase;
+  }
+
+  .mobileRadarHeroCopy strong {
+    color: #07143a;
+    font-size: 1.34rem;
+    line-height: 1.08;
+    font-weight: 950;
+  }
+
+  .mobileRadarHeroCopy p {
+    margin: 0;
+    max-width: none;
+    color: #5d6b86;
+    font-size: 0.78rem;
+    line-height: 1.24;
+    font-weight: 760;
+  }
+
+  .mobileRadarHeroCopy small {
+    width: fit-content;
+    margin-top: 2px;
+    padding: 5px 8px;
+    border: 1px solid rgba(17, 160, 92, 0.2);
+    border-radius: 999px;
+    background: #e9fbf1;
+    color: #0f9a58;
+    font-size: 0.66rem;
+    font-weight: 950;
+  }
+
+  .mobileRadarHero .mobileModuleVisual {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    z-index: 1;
+    width: 76px;
+    height: 58px;
+    min-height: 0;
+    display: grid;
+    place-items: center;
+    padding: 0;
+    border: 1px solid rgba(23, 75, 143, 0.1);
+    border-radius: 14px;
+    background: linear-gradient(145deg, #10234b, #07142e);
+    box-shadow: none;
+    overflow: hidden;
+  }
+
+  .mobileModuleVisual img {
+    width: 70px;
+    max-height: 50px;
+    height: auto;
+    object-fit: contain;
+    filter: none;
+  }
+
+  .mobileRadarHeroStat {
+    min-width: 0;
+    min-height: 56px;
+    display: grid;
+    align-content: center;
+    gap: 3px;
+    padding: 9px 10px;
+    border: 1px solid rgba(203, 215, 235, 0.82);
+    border-radius: 13px;
+    background: #ffffff;
+    box-shadow: none;
+  }
+
+  .mobileRadarHeroStat strong {
+    min-width: 0;
+    overflow: hidden;
+    color: #0a1746;
+    font-size: 0.88rem;
+    line-height: 1.12;
+    font-weight: 950;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .mobileRadarForm.hbx-mobile-card,
+  .mobileRadarResults.hbx-mobile-card {
+    display: grid;
+    gap: 10px;
+    padding: 12px;
+    border: 1px solid rgba(203, 215, 235, 0.88);
+    border-radius: 18px;
+    background: rgba(255, 255, 255, 0.96);
+    box-shadow: 0 18px 42px -34px rgba(12, 30, 65, 0.46);
+    color: #07143a;
+  }
+
+  .mobileRadarForm label {
+    min-width: 0;
+    display: grid;
+    gap: 6px;
+  }
+
+  .mobileRadarForm label > span,
+  .mobileRadarResults header span,
+  .mobileRadarCard dt {
+    color: #4c5d7a;
+    font-size: 0.68rem;
+    line-height: 1.15;
+    font-weight: 950;
+    text-transform: uppercase;
+  }
+
+  .mobileRadarForm input,
+  .mobileRadarForm select {
+    width: 100%;
+    min-width: 0;
+    min-height: 44px;
+    border: 1px solid rgba(190, 204, 230, 0.86);
+    border-radius: 12px;
+    background: #f6f9ff;
+    color: #07143a;
+    padding: 0 11px;
+    font: inherit;
+    font-size: 0.9rem;
+    font-weight: 820;
+    outline: none;
+  }
+
+  .mobileRadarForm input::placeholder {
+    color: #8a96ad;
+  }
+
+  .mobileRadarFormRow,
+  .mobileRadarActionRow {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 9px;
+  }
+
+  .mobileRadarActionRow.hbx-mobile-action-bar {
+    position: static;
+    grid-template-columns: minmax(0, 1.35fr) minmax(0, 0.9fr);
+    padding: 0;
+    border: 0;
+    background: transparent;
+    box-shadow: none;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+
+  .mobileRadarSubmit,
+  .mobileRadarClear {
+    min-height: 48px;
+    border-radius: 12px;
+    font: inherit;
+    font-size: 0.86rem;
+    font-weight: 950;
+    box-shadow: none;
+  }
+
+  .mobileRadarSubmit {
+    border: 1px solid #0757df;
+    background: linear-gradient(135deg, #0757df, #0b72ff);
+    color: #ffffff;
+  }
+
+  .mobileRadarClear {
+    border: 1px solid rgba(190, 204, 230, 0.9);
+    background: #ffffff;
+    color: #0757df;
+  }
+
+  .mobileRadarAdvanced {
+    border: 1px solid rgba(203, 215, 235, 0.86);
+    border-radius: 13px;
+    background: #f6f9ff;
+  }
+
+  .mobileRadarAdvanced summary {
+    min-height: 42px;
+    display: flex;
+    align-items: center;
+    padding: 0 11px;
+    color: #0757df;
+    font-size: 0.84rem;
+    font-weight: 950;
+  }
+
+  .mobileRadarCheck {
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: center;
+    color: #1a294c;
+  }
+
+  .mobileRadarNotice,
+  .mobileRadarState {
+    border: 1px solid rgba(59, 150, 255, 0.2);
+    border-radius: 13px;
+    background: #eef5ff;
+    color: #1760d8;
+    padding: 12px;
+  }
+
+  .mobileRadarResults header strong,
+  .mobileRadarState strong,
+  .mobileRadarCard strong {
+    color: #07143a;
+  }
+
+  .mobileRadarResults header small {
+    color: #0757df;
+  }
+
+  .mobileRadarState span,
+  .mobileRadarCard span,
+  .mobileRadarCard p,
+  .mobileRadarCard em {
+    color: #5d6b86;
+  }
+
+  .mobileRadarList {
+    display: grid;
+    gap: 10px;
+    padding-bottom: calc(120px + env(safe-area-inset-bottom));
+  }
+
+  .mobileRadarCard {
+    min-width: 0;
+    display: grid;
+    gap: 9px;
+    padding: 12px;
+    border: 1px solid rgba(203, 215, 235, 0.86);
+    border-radius: 14px;
+    background: #ffffff;
+    box-shadow: none;
+  }
+
+  .mobileRadarCard dl div {
+    border: 1px solid rgba(203, 215, 235, 0.8);
+    border-radius: 11px;
+    background: #f6f9ff;
+  }
+
+  .mobileRadarCard dd {
+    color: #0a1746;
+  }
+
+  .mobileRadarCard button {
+    min-height: 44px;
+    border: 1px solid #0757df;
+    border-radius: 12px;
+    background: #ffffff;
+    color: #0757df;
+  }
+}
+
 @media (max-width: 820px) {
   .shell {
     min-height: 100dvh;
@@ -3117,119 +3572,218 @@
   }
 }
 
-.smartBlock {
-  display: grid;
-  gap: 10px;
-}
-
-.smartChips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 7px;
-  min-height: 28px;
-}
-
-.smartChips span {
-  display: inline-flex;
-  align-items: center;
-  min-height: 26px;
-  padding: 0 9px;
-  border: 1px solid rgba(31, 92, 181, 0.18);
-  border-radius: 999px;
-  background: #f3f7ff;
-  color: #174071;
-  font-size: 0.74rem;
-  font-weight: 850;
-  line-height: 1;
-  white-space: nowrap;
-}
-
-.smartChips span[data-tone="success"] {
-  border-color: rgba(21, 128, 61, 0.2);
-  background: #ecfdf3;
-  color: #116039;
-}
-
-.smartChips span[data-tone="warning"] {
-  border-color: rgba(180, 83, 9, 0.2);
-  background: #fff7ed;
-  color: #92400e;
-}
-
-.smartDetails {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px;
-}
-
-.smartDetails span {
-  min-width: 0;
-  padding: 9px 10px;
-  border: 1px solid rgba(203, 215, 235, 0.78);
-  border-radius: 10px;
-  background: #ffffff;
-  color: #182745;
-  font-size: 0.8rem;
-  font-weight: 760;
-  overflow-wrap: anywhere;
-}
-
-.smartDetails b {
-  display: block;
-  margin-bottom: 3px;
-  color: #64748b;
-  font-size: 0.68rem;
-  font-weight: 900;
-  text-transform: uppercase;
-}
-
-.smartPitch {
-  color: #53637c;
-  font-size: 0.82rem;
-  line-height: 1.35;
-}
-
-.listUpsell {
-  padding: 9px 10px;
-  border: 1px solid rgba(31, 92, 181, 0.16);
-  border-radius: 10px;
-  background: #f6f9ff;
-  color: #315277;
-  font-size: 0.82rem;
-  font-weight: 850;
-}
-
-.enrichmentSummary {
-  display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
-  gap: 8px;
-  margin: 12px 0 16px;
-}
-
-.enrichmentSummary span {
-  min-width: 0;
-  padding: 10px;
-  border: 1px solid rgba(203, 215, 235, 0.78);
-  border-radius: 10px;
-  background: #ffffff;
-  color: #526174;
-  font-size: 0.76rem;
-  font-weight: 820;
-}
-
-.enrichmentSummary b {
-  display: block;
-  color: #0f2457;
-  font-size: 1rem;
-  font-weight: 950;
-}
-
 @media (max-width: 820px) {
-  .smartDetails {
-    grid-template-columns: 1fr;
+  .shell {
+    background:
+      radial-gradient(circle at 50% -12%, rgba(255, 255, 255, 0.96), transparent 28%),
+      radial-gradient(circle at 14% 7%, rgba(45, 113, 255, 0.14), transparent 28%),
+      radial-gradient(circle at 92% 2%, rgba(23, 191, 218, 0.12), transparent 25%),
+      linear-gradient(180deg, #f8fbff 0%, #eef5ff 58%, #eaf3ff 100%) !important;
   }
 
-  .enrichmentSummary {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+  .mobileRadar {
+    gap: 10px !important;
+    padding: calc(12px + env(safe-area-inset-top)) 12px calc(120px + env(safe-area-inset-bottom)) !important;
+    overflow-y: auto !important;
+    color: #07143a !important;
+  }
+
+  .mobileRadarHeader strong {
+    color: #07143a !important;
+    font-size: 1.12rem !important;
+  }
+
+  .mobileRadarHeader span {
+    color: #536381 !important;
+  }
+
+  .mobileRadarHero {
+    min-height: 0 !important;
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 8px !important;
+    padding: 12px !important;
+    border: 1px solid rgba(198, 212, 237, 0.9) !important;
+    border-radius: 18px !important;
+    background:
+      radial-gradient(circle at 92% 8%, rgba(33, 128, 255, 0.1), transparent 34%),
+      linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(246, 250, 255, 0.94)) !important;
+    box-shadow:
+      0 20px 44px -34px rgba(12, 30, 65, 0.48),
+      inset 0 1px 0 rgba(255, 255, 255, 0.9) !important;
+    color: #07143a !important;
+  }
+
+  .mobileRadarHeroCopy {
+    grid-column: 1 / -1 !important;
+    min-height: 0 !important;
+    padding: 0 84px 2px 0 !important;
+    border: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+  }
+
+  .mobileRadarHeroCopy span,
+  .mobileRadarHeroStat span,
+  .mobileRadarForm label > span,
+  .mobileRadarResults header span,
+  .mobileRadarCard dt {
+    color: #4c5d7a !important;
+    font-size: 0.68rem !important;
+    line-height: 1.15 !important;
+    font-weight: 950 !important;
+    text-transform: uppercase !important;
+  }
+
+  .mobileRadarHeroCopy strong {
+    color: #07143a !important;
+    font-size: 1.22rem !important;
+    line-height: 1.08 !important;
+  }
+
+  .mobileRadarHeroCopy p,
+  .mobileRadarState span,
+  .mobileRadarCard span,
+  .mobileRadarCard p,
+  .mobileRadarCard em {
+    color: #5d6b86 !important;
+  }
+
+  .mobileRadarHeroCopy p {
+    font-size: 0.76rem !important;
+    line-height: 1.18 !important;
+  }
+
+  .mobileRadarHeroCopy small {
+    border-color: rgba(17, 160, 92, 0.2) !important;
+    background: #e9fbf1 !important;
+    color: #0f9a58 !important;
+  }
+
+  .mobileRadarHero .mobileModuleVisual {
+    position: absolute !important;
+    top: 12px !important;
+    right: 12px !important;
+    width: 68px !important;
+    height: 52px !important;
+    min-height: 0 !important;
+    display: grid !important;
+    place-items: center !important;
+    padding: 0 !important;
+    border: 1px solid rgba(23, 75, 143, 0.1) !important;
+    border-radius: 14px !important;
+    background: linear-gradient(145deg, #10234b, #07142e) !important;
+    box-shadow: none !important;
+  }
+
+  .mobileModuleVisual img {
+    width: 62px !important;
+    max-height: 46px !important;
+    filter: none !important;
+  }
+
+  .mobileRadarHeroStat {
+    min-height: 48px !important;
+    padding: 8px 10px !important;
+    border: 1px solid rgba(203, 215, 235, 0.82) !important;
+    border-radius: 13px !important;
+    background: #ffffff !important;
+    box-shadow: none !important;
+  }
+
+  .mobileRadarHeroStat strong,
+  .mobileRadarResults header strong,
+  .mobileRadarState strong,
+  .mobileRadarCard strong {
+    color: #07143a !important;
+  }
+
+  .mobileRadarHeroStat strong {
+    font-size: 0.84rem !important;
+    line-height: 1.08 !important;
+  }
+
+  .mobileRadarForm,
+  .mobileRadarResults,
+  .mobileRadarCard {
+    border: 1px solid rgba(203, 215, 235, 0.88) !important;
+    border-radius: 18px !important;
+    background: rgba(255, 255, 255, 0.96) !important;
+    box-shadow: 0 18px 42px -34px rgba(12, 30, 65, 0.46) !important;
+    color: #07143a !important;
+  }
+
+  .mobileRadarForm {
+    gap: 9px !important;
+    padding: 11px !important;
+  }
+
+  .mobileRadarForm input,
+  .mobileRadarForm select {
+    min-height: 42px !important;
+    border-color: rgba(190, 204, 230, 0.86) !important;
+    border-radius: 12px !important;
+    background: #f6f9ff !important;
+    color: #07143a !important;
+    font-size: 0.9rem !important;
+    font-weight: 820 !important;
+  }
+
+  .mobileRadarForm input::placeholder {
+    color: #7e8ba4 !important;
+    opacity: 1 !important;
+  }
+
+  .mobileRadarActionRow {
+    position: static !important;
+    padding: 0 !important;
+    border: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+
+  .mobileRadarAdvanced {
+    border: 1px solid rgba(190, 204, 230, 0.86) !important;
+    border-radius: 12px !important;
+    background: #f6f9ff !important;
+  }
+
+  .mobileRadarAdvanced summary {
+    min-height: 40px !important;
+    padding: 0 11px !important;
+    color: #0757df !important;
+    font-size: 0.84rem !important;
+    font-weight: 950 !important;
+  }
+
+  .mobileRadarSubmit {
+    border-color: #0757df !important;
+    background: linear-gradient(135deg, #0757df, #0b72ff) !important;
+    color: #ffffff !important;
+  }
+
+  .mobileRadarClear,
+  .mobileRadarCard button {
+    border-color: rgba(7, 87, 223, 0.34) !important;
+    background: #ffffff !important;
+    color: #0757df !important;
+  }
+
+  .mobileRadarNotice,
+  .mobileRadarState {
+    border-color: rgba(59, 150, 255, 0.2) !important;
+    background: #eef5ff !important;
+    color: #1760d8 !important;
+  }
+
+  .mobileRadarCard dl div {
+    border-color: rgba(203, 215, 235, 0.8) !important;
+    background: #f6f9ff !important;
+  }
+
+  .mobileRadarCard dd {
+    color: #0a1746 !important;
   }
 }

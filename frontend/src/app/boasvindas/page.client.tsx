@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { apiFetch } from "@/app/_lib/api";
 import { useRequireAuth } from "@/app/_lib/useRequireAuth";
 import HbxMobileDock from "@/components/mobile/HbxMobileDock";
@@ -10,8 +10,19 @@ import { normalizeUserModuleKey, type UserModule } from "@/lib/hbx-modules";
 import styles from "./page.module.css";
 
 const PAGE_EXIT_MS = 260;
+const MOBILE_ENTRY_MIN_VISIBLE_MS = 2100;
+const MOBILE_ENTRY_FINAL_VISIBLE_MS = 900;
 const LOGIN_TO_WELCOME_TRANSITION_KEY = "hbx_login_to_welcome_transition";
 const TUTORIAL_COMPLETED_KEY = "hbx:onboarding:tutorial-completed:v1";
+const MOBILE_ENTRY_LOADING_PHRASES = [
+  "Validando sessão",
+  "Analisando sua operação",
+  "Conectando Radar Digital",
+  "Sincronizando Vendas",
+  "Verificando Atendimento",
+  "Preparando cards",
+  "Abrindo sua operação",
+];
 
 type CurrentUser = {
   isSystemMaster?: boolean;
@@ -131,11 +142,31 @@ function hasOperationalHistory(state: WelcomeState) {
 
 function resolveOperationalEntryPath(state: WelcomeState, mobileViewport: boolean) {
   if (mobileViewport) {
+    if (!state.vendasReady && state.leadsCount <= 0 && (state.conversationsCount > 0 || state.pendingCount > 0)) {
+      return "/atendimento";
+    }
     return state.vendasReady || state.leadsCount > 0 ? "/vendas" : "/radar-digital";
   }
   if (state.conversationsCount > 0 || state.pendingCount > 0) return "/atendimento";
   if (state.vendasReady || state.leadsCount > 0) return "/vendas";
   return "/radar-digital";
+}
+
+function resolveEntryReadySubtitle(state: WelcomeState) {
+  if (state.leadsCount > 0) return `${state.leadsCount} leads prontos para trabalhar.`;
+  if (state.radarReady) return "Radar Digital pronto para buscar oportunidades.";
+  if (state.atendimentoReady) return "Atendimento sincronizado.";
+  return "Radar Digital pronto para começar sua busca.";
+}
+
+function buildEntrySteps(state: WelcomeState) {
+  return [
+    { key: "session", label: "Sessão", active: true },
+    { key: "radar", label: "Radar Digital", active: state.radarReady || state.leadsCount > 0 },
+    { key: "sales", label: "Vendas", active: state.vendasReady || state.leadsCount > 0 },
+    { key: "support", label: "Atendimento", active: state.atendimentoReady || state.conversationsCount > 0 || state.pendingCount > 0 },
+    { key: "cards", label: "Cards", active: state.leadsCount > 0 },
+  ];
 }
 
 function resolveWelcomeStep(state: WelcomeState, mobileViewport: boolean, tutorialCompleted: boolean): WelcomeStep {
@@ -287,6 +318,9 @@ export default function BoasVindasClientPage() {
   const fromLoginEntryParam = String(searchParams.get("entry") || "").trim().toLowerCase() === "mobile";
   const [clientReady, setClientReady] = useState(false);
   const [fromLoginTransition, setFromLoginTransition] = useState(fromLoginEntryParam);
+  const [entryStartedAt] = useState(() => Date.now());
+  const [entryPhraseIndex, setEntryPhraseIndex] = useState(0);
+  const [entryFinalVisible, setEntryFinalVisible] = useState(false);
 
   useEffect(() => {
     if (typeof window === "undefined") return undefined;
@@ -315,7 +349,10 @@ export default function BoasVindasClientPage() {
   }, [fromLoginEntryParam]);
 
   const welcomeStep = resolveWelcomeStep(welcomeState, mobileViewport, tutorialCompleted);
-  const welcomePhase = masterCheckComplete ? "ready" : "loading";
+  const welcomePhase =
+    fromLoginTransition && mobileViewport
+      ? entryFinalVisible ? "ready" : "loading"
+      : masterCheckComplete ? "ready" : "loading";
   const reason = String(searchParams.get("reason") || "").trim().toLowerCase();
   const billingReason = reason === "pending_checkout" || reason === "trial_expired" ? reason : null;
   const billingHref = billingReason ? `/pagamento?focus=payment&reason=${encodeURIComponent(billingReason)}` : null;
@@ -392,15 +429,23 @@ export default function BoasVindasClientPage() {
     if (welcomeStep.kind !== "sales") return undefined;
 
     const destination = welcomeStep.path;
-    const timeout = window.setTimeout(() => {
+    const elapsed = Date.now() - entryStartedAt;
+    const finalDelay = Math.max(0, MOBILE_ENTRY_MIN_VISIBLE_MS - elapsed);
+
+    const finalTimer = window.setTimeout(() => {
+      setEntryFinalVisible(true);
+    }, finalDelay);
+
+    const redirectTimer = window.setTimeout(() => {
       setLeaving(true);
       window.setTimeout(() => router.replace(destination), PAGE_EXIT_MS);
-    }, 1700);
+    }, finalDelay + MOBILE_ENTRY_FINAL_VISIBLE_MS);
 
     return () => {
-      window.clearTimeout(timeout);
+      window.clearTimeout(finalTimer);
+      window.clearTimeout(redirectTimer);
     };
-  }, [fromLoginTransition, hasToken, leaving, masterCheckComplete, mobileViewport, router, welcomeStep.kind, welcomeStep.path]);
+  }, [entryStartedAt, fromLoginTransition, hasToken, leaving, masterCheckComplete, mobileViewport, router, welcomeStep.kind, welcomeStep.path]);
 
   function navigateWithTransition(path: string) {
     if (leaving) return;
@@ -421,6 +466,17 @@ export default function BoasVindasClientPage() {
       : welcomeStep.path.includes("atendimento")
         ? "Atendimento"
         : "Operação";
+  const entrySteps = useMemo(() => buildEntrySteps(welcomeState), [welcomeState]);
+  const entryLoadingPhrase = MOBILE_ENTRY_LOADING_PHRASES[entryPhraseIndex % MOBILE_ENTRY_LOADING_PHRASES.length];
+  const entryReadySubtitle = resolveEntryReadySubtitle(welcomeState);
+
+  useEffect(() => {
+    if (!clientReady || !mobileViewport || !fromLoginTransition || entryFinalVisible || leaving) return undefined;
+    const interval = window.setInterval(() => {
+      setEntryPhraseIndex((current) => current + 1);
+    }, 520);
+    return () => window.clearInterval(interval);
+  }, [clientReady, entryFinalVisible, fromLoginTransition, leaving, mobileViewport]);
 
   if (clientReady && mobileViewport && fromLoginTransition && hasToken !== false && !billingHref) {
     return (
@@ -444,15 +500,40 @@ export default function BoasVindasClientPage() {
           </div>
 
           <div className={styles.entryCopy}>
-            <span className={styles.entryEyebrow}>Acesso validado</span>
-            <h1>Entrando no HBX</h1>
-            <p>{masterCheckComplete ? `Abrindo ${entryDestinationLabel}.` : "Preparando sua operação."}</p>
+            <span className={styles.entryEyebrow}>{entryFinalVisible ? "Leitura concluída" : "Acesso validado"}</span>
+            <h1>{entryFinalVisible ? "Operação pronta" : "Entrando no HBX"}</h1>
+            <p>{entryFinalVisible ? entryReadySubtitle : entryLoadingPhrase}</p>
           </div>
 
           <div className={styles.entrySteps} aria-hidden="true">
-            <span data-active="true">Sessão</span>
-            <span data-active={masterCheckComplete ? "true" : "false"}>{entryDestinationLabel}</span>
-            <span data-active={leaving ? "true" : "false"}>Cards</span>
+            {entryFinalVisible ? (
+              entrySteps.map((step) => (
+                <span key={step.key} data-active={step.active ? "true" : "false"}>{step.label}</span>
+              ))
+            ) : (
+              <>
+                <span data-active="true">Sessão</span>
+                <span data-active={entryPhraseIndex >= 2 || masterCheckComplete ? "true" : "false"}>Radar Digital</span>
+                <span data-active={entryPhraseIndex >= 3 || masterCheckComplete ? "true" : "false"}>Vendas</span>
+                <span data-active={entryPhraseIndex >= 4 || masterCheckComplete ? "true" : "false"}>Atendimento</span>
+                <span data-active={entryPhraseIndex >= 5 || masterCheckComplete ? "true" : "false"}>Cards</span>
+              </>
+            )}
+          </div>
+
+          <div className={styles.entryFacts} aria-label="Resumo da operação">
+            <span>
+              Leads
+              <strong>{welcomeState.loaded ? welcomeState.leadsCount : "--"}</strong>
+            </span>
+            <span>
+              Pendências
+              <strong>{welcomeState.loaded ? welcomeState.pendingCount : "--"}</strong>
+            </span>
+            <span>
+              Destino
+              <strong>{entryDestinationLabel}</strong>
+            </span>
           </div>
 
           <div className={styles.entryProgress} aria-hidden="true">
