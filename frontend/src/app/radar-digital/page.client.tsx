@@ -1,13 +1,11 @@
 "use client";
 
-import Image from "next/image";
 import { type FocusEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import DashboardScaffold from "@/components/DashboardScaffold";
 import HbxMobileDock from "@/components/mobile/HbxMobileDock";
 import {
   HbxAdvancedFilters,
-  HbxSegmentCombobox,
   HbxStateCityPicker,
   HbxTargetTypeSelector,
   type HbxEngineValue,
@@ -241,6 +239,105 @@ const DEFAULT_FILTERS: FilterState = {
   status: "",
 };
 
+type RadarSegmentGroup = {
+  key: string;
+  label: string;
+  segments: string[];
+};
+
+const MAX_RADAR_SEGMENT_SELECTIONS = 5;
+const RADAR_SEGMENT_GROUPS: RadarSegmentGroup[] = [
+  {
+    key: "saude",
+    label: "Saúde",
+    segments: ["Academia", "Clínica odontológica", "Clínica médica", "Fisioterapia", "Psicologia", "Farmácia", "Estética", "Laboratório"],
+  },
+  {
+    key: "alimentacao",
+    label: "Alimentação",
+    segments: ["Restaurante", "Lanchonete", "Pizzaria", "Padaria", "Mercado", "Bar", "Hamburgueria"],
+  },
+  {
+    key: "beleza",
+    label: "Beleza",
+    segments: ["Salão de beleza", "Barbearia", "Clínica estética", "Nail designer", "Spa", "Depilação"],
+  },
+  {
+    key: "construcao",
+    label: "Construção",
+    segments: ["Material de construção", "Engenharia", "Reformas", "Marcenaria", "Vidraçaria", "Pintura"],
+  },
+  {
+    key: "servicos",
+    label: "Serviços",
+    segments: ["Assistência técnica", "Limpeza", "Segurança", "Manutenção", "Dedetização", "Ar condicionado"],
+  },
+  {
+    key: "automotivo",
+    label: "Automotivo",
+    segments: ["Oficina mecânica", "Auto elétrica", "Funilaria", "Lava rápido", "Pneus", "Auto peças"],
+  },
+  {
+    key: "educacao",
+    label: "Educação",
+    segments: ["Escola", "Curso profissionalizante", "Curso de idiomas", "Aulas particulares", "Creche"],
+  },
+  {
+    key: "varejo",
+    label: "Varejo",
+    segments: ["Loja de roupas", "Ótica", "Pet shop", "Papelaria", "Loja de móveis", "Boutique"],
+  },
+];
+
+function normalizeSegmentLabel(value: string) {
+  return String(value || "").replace(/\s+/g, " ").trim();
+}
+
+function splitRadarSegments(value?: string | null) {
+  return uniqueStrings(String(value || "").split(",").map(normalizeSegmentLabel));
+}
+
+function joinRadarSegments(values: string[]) {
+  return uniqueStrings(values).slice(0, MAX_RADAR_SEGMENT_SELECTIONS).join(", ");
+}
+
+function isRadarCategoryValue(value: string) {
+  const normalized = normalizeSegmentLabel(value).toLowerCase();
+  return RADAR_SEGMENT_GROUPS.some((group) => group.label.toLowerCase() === normalized);
+}
+
+function radarSegmentSummary(value?: string | null) {
+  const raw = normalizeSegmentLabel(String(value || ""));
+  if (!raw) return "";
+  if (isRadarCategoryValue(raw)) return raw;
+  const segments = splitRadarSegments(raw);
+  if (segments.length <= 1) return segments[0] || raw;
+  return `${segments[0]} +${segments.length - 1}`;
+}
+
+function inferRadarSegmentCategory(value?: string | null) {
+  const raw = normalizeSegmentLabel(String(value || ""));
+  if (!raw) return RADAR_SEGMENT_GROUPS[0]?.key || "";
+  const category = RADAR_SEGMENT_GROUPS.find((group) => group.label.toLowerCase() === raw.toLowerCase());
+  if (category) return category.key;
+  const selected = splitRadarSegments(raw).map((item) => item.toLowerCase());
+  return RADAR_SEGMENT_GROUPS.find((group) =>
+    group.segments.some((segment) => selected.includes(segment.toLowerCase())),
+  )?.key || RADAR_SEGMENT_GROUPS[0]?.key || "";
+}
+
+function buildSegmentGroups(availableSegments: string[]) {
+  const known = new Set(
+    RADAR_SEGMENT_GROUPS.flatMap((group) => [group.label, ...group.segments]).map((item) => item.toLowerCase()),
+  );
+  const extras = uniqueStrings(availableSegments)
+    .filter((segment) => !known.has(segment.toLowerCase()))
+    .slice(0, 24);
+  return extras.length
+    ? [...RADAR_SEGMENT_GROUPS, { key: "sugestoes", label: "Sugestões", segments: extras }]
+    : RADAR_SEGMENT_GROUPS;
+}
+
 function formatPhone(value?: string | null) {
   const digits = String(value || "").replace(/\D/g, "");
   if (digits.length === 11) return `(${digits.slice(0, 2)}) ${digits.slice(2, 7)}-${digits.slice(7)}`;
@@ -290,15 +387,6 @@ function ownershipBadge(lead: RadarLead) {
   return { label: "Disponível", tone: "available" };
 }
 
-function websiteLabel(value?: string | null) {
-  const status = String(value || "").toLowerCase();
-  if (status === "none") return "Sem website";
-  if (status === "weak" || status === "social_only") return "Website fraco";
-  if (status === "present") return "Website ativo";
-  if (status === "unreachable") return "Website instável";
-  return "Website não avaliado";
-}
-
 function emailLabel(value?: string | null) {
   const status = String(value || "").toLowerCase();
   if (status === "confirmed") return "E-mail confirmado";
@@ -306,14 +394,6 @@ function emailLabel(value?: string | null) {
   if (status === "invalid") return "E-mail inválido";
   if (status === "unverified") return "E-mail sem validar";
   return "E-mail ausente";
-}
-
-function whatsappLabel(value?: string | null) {
-  const status = String(value || "").toLowerCase();
-  if (status === "confirmed") return "WhatsApp verificado";
-  if (status === "missing") return "Sem WhatsApp";
-  if (status === "invalid") return "WhatsApp inválido";
-  return "WhatsApp pendente";
 }
 
 function channelLabel(value?: string | null) {
@@ -753,7 +833,7 @@ function MobileFilterSheet({
                 onClose();
               }}
             >
-              Usar "{customValue}"
+              Usar {`"${customValue}"`}
             </button>
           ) : null}
           {filteredOptions.map((option) => (
@@ -769,6 +849,236 @@ function MobileFilterSheet({
               {option.label || option.value}
             </button>
           ))}
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function RadarSegmentFunnel({
+  value,
+  availableSegments,
+  onChange,
+}: {
+  value: string;
+  availableSegments: string[];
+  onChange: (value: string) => void;
+}) {
+  const groups = useMemo(() => buildSegmentGroups(availableSegments), [availableSegments]);
+  const [activeGroupKey, setActiveGroupKey] = useState(() => inferRadarSegmentCategory(value));
+  const [query, setQuery] = useState("");
+  const resolvedActiveGroupKey = groups.some((group) => group.key === activeGroupKey) ? activeGroupKey : groups[0]?.key || "";
+  const activeGroup = groups.find((group) => group.key === resolvedActiveGroupKey) || groups[0];
+  const isCategory = isRadarCategoryValue(value);
+  const selectedSegments = isCategory ? [] : splitRadarSegments(value);
+  const normalizedQuery = query.trim().toLowerCase();
+  const visibleSegments = uniqueStrings(activeGroup?.segments || [])
+    .filter((segment) => !normalizedQuery || segment.toLowerCase().includes(normalizedQuery));
+  const canAddMore = selectedSegments.length < MAX_RADAR_SEGMENT_SELECTIONS;
+
+  function toggleSegment(segment: string) {
+    const normalized = normalizeSegmentLabel(segment);
+    if (!normalized) return;
+    const exists = selectedSegments.some((item) => item.toLowerCase() === normalized.toLowerCase());
+    if (exists) {
+      onChange(joinRadarSegments(selectedSegments.filter((item) => item.toLowerCase() !== normalized.toLowerCase())));
+      return;
+    }
+    if (!canAddMore) return;
+    onChange(joinRadarSegments([...selectedSegments, normalized]));
+  }
+
+  function useCategory() {
+    if (!activeGroup) return;
+    onChange(activeGroup.label);
+  }
+
+  return (
+    <div className={styles.segmentFunnel}>
+      <div className={styles.segmentFunnelHeader}>
+        <div>
+          <span>Segmento</span>
+          <strong>{radarSegmentSummary(value) || "Escolha uma categoria"}</strong>
+        </div>
+        <small>{isCategory ? "Categoria inteira" : `${selectedSegments.length}/${MAX_RADAR_SEGMENT_SELECTIONS} selecionados`}</small>
+      </div>
+      <div className={styles.segmentCategoryTabs} role="tablist" aria-label="Categorias de segmento">
+        {groups.map((group) => (
+          <button
+            type="button"
+            key={group.key}
+            data-active={group.key === resolvedActiveGroupKey ? "true" : "false"}
+            onClick={() => {
+              setActiveGroupKey(group.key);
+              setQuery("");
+            }}
+          >
+            {group.label}
+          </button>
+        ))}
+      </div>
+      <div className={styles.segmentFunnelSearch}>
+        <input
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder={`Buscar em ${activeGroup?.label || "segmentos"}`}
+        />
+        {query.trim() ? (
+          <button
+            type="button"
+            disabled={!canAddMore}
+            onClick={() => {
+              toggleSegment(query);
+              setQuery("");
+            }}
+          >
+            Usar
+          </button>
+        ) : (
+          <button type="button" onClick={useCategory}>
+            Usar categoria
+          </button>
+        )}
+      </div>
+      <div className={styles.segmentOptions}>
+        {visibleSegments.map((segment) => {
+          const active = selectedSegments.some((item) => item.toLowerCase() === segment.toLowerCase());
+          return (
+            <button
+              type="button"
+              key={segment}
+              data-active={active ? "true" : "false"}
+              disabled={!active && !canAddMore}
+              onClick={() => toggleSegment(segment)}
+            >
+              {segment}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function MobileSegmentSheet({
+  value,
+  availableSegments,
+  onChange,
+  onClose,
+}: {
+  value: string;
+  availableSegments: string[];
+  onChange: (value: string) => void;
+  onClose: () => void;
+}) {
+  const groups = useMemo(() => buildSegmentGroups(availableSegments), [availableSegments]);
+  const [activeGroupKey, setActiveGroupKey] = useState(() => inferRadarSegmentCategory(value));
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  const resolvedActiveGroupKey = groups.some((group) => group.key === activeGroupKey) ? activeGroupKey : groups[0]?.key || "";
+  const activeGroup = groups.find((group) => group.key === resolvedActiveGroupKey) || groups[0];
+  const isCategory = isRadarCategoryValue(value);
+  const selectedSegments = isCategory ? [] : splitRadarSegments(value);
+  const canAddMore = selectedSegments.length < MAX_RADAR_SEGMENT_SELECTIONS;
+  const normalizedQuery = query.trim().toLowerCase();
+  const visibleSegments = uniqueStrings(activeGroup?.segments || [])
+    .filter((segment) => !normalizedQuery || segment.toLowerCase().includes(normalizedQuery));
+
+  useEffect(() => {
+    if (!searchOpen) return;
+    inputRef.current?.focus();
+  }, [searchOpen]);
+
+  function toggleSegment(segment: string) {
+    const normalized = normalizeSegmentLabel(segment);
+    if (!normalized) return;
+    const exists = selectedSegments.some((item) => item.toLowerCase() === normalized.toLowerCase());
+    if (exists) {
+      onChange(joinRadarSegments(selectedSegments.filter((item) => item.toLowerCase() !== normalized.toLowerCase())));
+      return;
+    }
+    if (!canAddMore) return;
+    onChange(joinRadarSegments([...selectedSegments, normalized]));
+  }
+
+  return (
+    <div className={styles.mobilePickerPanel} role="presentation" onClick={onClose}>
+      <section
+        className={styles.mobilePickerSheet}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Segmento"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className={styles.mobilePickerHeader}>
+          <div>
+            <strong>Segmento</strong>
+            <small>{isCategory ? `${value} inteiro` : `${selectedSegments.length}/${MAX_RADAR_SEGMENT_SELECTIONS} selecionados`}</small>
+          </div>
+          <div className={styles.mobilePickerActions}>
+            <button type="button" aria-label="Pesquisar" onClick={() => setSearchOpen(true)}>⌕</button>
+            <button type="button" onClick={onClose}>Fechar</button>
+          </div>
+        </div>
+        {searchOpen ? (
+          <input
+            ref={inputRef}
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Buscar ou digitar segmento"
+          />
+        ) : null}
+        <div className={styles.mobileSegmentCategories}>
+          {groups.map((group) => (
+            <button
+              type="button"
+              key={group.key}
+              data-active={group.key === resolvedActiveGroupKey ? "true" : "false"}
+              onClick={() => {
+                setActiveGroupKey(group.key);
+                setQuery("");
+              }}
+            >
+              {group.label}
+            </button>
+          ))}
+        </div>
+        <div className={styles.mobileSegmentToolbar}>
+          <button type="button" onClick={() => onChange("")}>
+            Limpar
+          </button>
+          <button type="button" onClick={() => activeGroup && onChange(activeGroup.label)}>
+            Usar categoria
+          </button>
+          {query.trim() ? (
+            <button
+              type="button"
+              disabled={!canAddMore}
+              onClick={() => {
+                toggleSegment(query);
+                setQuery("");
+              }}
+            >
+              Usar {`"${query.trim()}"`}
+            </button>
+          ) : null}
+        </div>
+        <div className={styles.mobileSegmentOptions}>
+          {visibleSegments.map((segment) => {
+            const active = selectedSegments.some((item) => item.toLowerCase() === segment.toLowerCase());
+            return (
+              <button
+                type="button"
+                key={segment}
+                data-active={active ? "true" : "false"}
+                disabled={!active && !canAddMore}
+                onClick={() => toggleSegment(segment)}
+              >
+                {segment}
+              </button>
+            );
+          })}
         </div>
       </section>
     </div>
@@ -807,6 +1117,47 @@ function MobileEngineToggle({
 function readMobileRadarSearchNoticeDismissed() {
   if (typeof window === "undefined") return false;
   return window.localStorage.getItem(MOBILE_RADAR_SEARCH_NOTICE_DISMISSED_KEY) === "true";
+}
+
+function RadarMotionBackground() {
+  const blips = [
+    { left: 21, top: 32, delay: "0s" },
+    { left: 74, top: 28, delay: "0.5s" },
+    { left: 67, top: 70, delay: "1s" },
+    { left: 32, top: 76, delay: "1.5s" },
+    { left: 59, top: 44, delay: "2s" },
+  ];
+
+  return (
+    <div className={styles.radarMotionBackdrop} aria-hidden="true">
+      <div className={styles.radarMotionAura} />
+      <div className={styles.radarMotionDisc}>
+        <span className={styles.radarMotionCircle} data-ring="outer" />
+        <span className={styles.radarMotionCircle} data-ring="one" />
+        <span className={styles.radarMotionCircle} data-ring="two" />
+        <span className={styles.radarMotionCircle} data-ring="three" />
+        <span className={styles.radarMotionCircle} data-ring="four" />
+        <span className={styles.radarMotionAxis} data-axis="vertical" />
+        <span className={styles.radarMotionAxis} data-axis="horizontal" />
+        <span className={styles.radarMotionSweep}>
+          <span className={styles.radarMotionTrail} />
+          <span className={styles.radarMotionCore} />
+        </span>
+        <span className={styles.radarMotionRing} />
+        <span className={styles.radarMotionRingReverse} />
+        {blips.map((blip) => (
+          <span
+            key={`${blip.left}:${blip.top}`}
+            className={styles.radarMotionBlip}
+            style={{ left: `${blip.left}%`, top: `${blip.top}%`, animationDelay: blip.delay }}
+          >
+            <i />
+          </span>
+        ))}
+      </div>
+      <span className={styles.radarMotionGlow} />
+    </div>
+  );
 }
 
 export default function RadarDigitalClientPage() {
@@ -1631,6 +1982,7 @@ export default function RadarDigitalClientPage() {
 
   const hasMore = !activeRun && hasSearched && items.length < total;
   const availableSegments = availableFilters.segments || [];
+  const availableSegmentValues = (availableSegments.length ? availableSegments.map((item) => item.value) : HBX_SEGMENT_SUGGESTIONS).filter(Boolean);
   const mobileStateOptions = (availableFilters.states?.length ? availableFilters.states.map((item) => item.value) : BRAZIL_STATES.map((item) => item.uf)).filter(Boolean);
   const mobileCityOptions = (
     filters.state && availableFilters.citiesByState?.[filters.state]?.length
@@ -1639,7 +1991,6 @@ export default function RadarDigitalClientPage() {
         ? BRAZIL_CITIES_BY_STATE[filters.state] || []
         : []
   ).filter(Boolean);
-  const mobileSegmentOptions = (availableSegments.length ? availableSegments.map((item) => item.value) : HBX_SEGMENT_SUGGESTIONS).filter(Boolean);
   const mobileVendasLimit = Math.max(1, Number(vendasPending?.limit || 40));
   const mobileVendasPendingCount = Math.max(0, Number(vendasPending?.pendingCount || 0));
   const mobileVendasBlocked = Boolean(vendasPending?.blocked || mobileVendasPendingCount >= mobileVendasLimit);
@@ -1683,28 +2034,12 @@ export default function RadarDigitalClientPage() {
     >
       <section className={styles.shell}>
         <div className={`${styles.mobileRadar} hbx-mobile-page`}>
-          <header className={`${styles.mobileRadarHeader} hbx-mobile-header`}>
-            <div>
-              <strong>Radar Digital</strong>
-              <span>Encontre cards com oportunidade real</span>
-            </div>
-          </header>
-
           <section className={`${styles.mobileRadarHero} hbx-mobile-hero`}>
+            <RadarMotionBackground />
             <div className={styles.mobileRadarHeroCopy}>
-              <span>Status do motor - Radar Digital</span>
               <strong>Radar Digital</strong>
               <p>Encontre cards com oportunidade real</p>
               <small>{mobileRadarProcessing ? "Motor em varredura" : `Volume definido pelo plano: ${effectiveFilters.quantity}`}</small>
-            </div>
-            <div className={styles.mobileModuleVisual} aria-hidden="true">
-              <Image
-                src="/hbx-visuals/modules/radar-scanner-mobile.svg"
-                alt=""
-                width={220}
-                height={150}
-                priority
-              />
             </div>
             <div className={styles.mobileRadarHeroStat}>
               <span>Cidade</span>
@@ -1712,7 +2047,7 @@ export default function RadarDigitalClientPage() {
             </div>
             <div className={styles.mobileRadarHeroStat}>
               <span>Segmento</span>
-              <strong>{filters.segment || "Definir"}</strong>
+              <strong>{radarSegmentSummary(filters.segment) || "Definir"}</strong>
             </div>
             <div className={styles.mobileRadarHeroStat}>
               <span>Motor atual</span>
@@ -1747,9 +2082,9 @@ export default function RadarDigitalClientPage() {
 
             <MobilePickerButton
               label="Segmento"
-              value={filters.segment}
+              value={radarSegmentSummary(filters.segment)}
               placeholder="Ex.: Clínica, academia, estética"
-              helper="Pesquise no pop-up ou escolha uma sugestão."
+              helper={isRadarCategoryValue(filters.segment) ? "Categoria inteira selecionada." : "Escolha até 5 segmentos."}
               onClick={() => setMobilePicker("segment")}
             />
 
@@ -1831,13 +2166,10 @@ export default function RadarDigitalClientPage() {
             />
           ) : null}
           {mobilePicker === "segment" ? (
-            <MobileFilterSheet
-              title="Segmento"
+            <MobileSegmentSheet
               value={filters.segment}
-              options={mobileSegmentOptions.map((segment) => ({ value: segment }))}
-              placeholder="Buscar ou digitar segmento"
-              allowCustom
-              onSelect={(value) => setFilters((current) => ({ ...current, segment: value }))}
+              availableSegments={availableSegmentValues}
+              onChange={(value) => setFilters((current) => ({ ...current, segment: value }))}
               onClose={() => setMobilePicker(null)}
             />
           ) : null}
@@ -2098,12 +2430,10 @@ export default function RadarDigitalClientPage() {
             />
           </div>
           <div className={styles.filterSegment}>
-            <HbxSegmentCombobox
+            <RadarSegmentFunnel
               value={filters.segment}
+              availableSegments={availableSegmentValues}
               onChange={(value) => setFilters((current) => ({ ...current, segment: value }))}
-              suggestions={availableSegments.length ? availableSegments.map((item) => item.value) : undefined}
-              placeholder="Ex.: Clínica, academia, estética, pet, oficina"
-              helperText="Recomendado: até 5 segmentos separados por vírgula. Aceita pesquisar com 1."
             />
           </div>
           <div className={styles.filterTarget}>
