@@ -125,6 +125,36 @@ function normalize(value: unknown) {
     .toLowerCase();
 }
 
+function parseJsonRecord(value: unknown): Record<string, any> {
+  if (!value) return {};
+  if (typeof value === 'object' && !Array.isArray(value)) return value as Record<string, any>;
+  try {
+    const parsed = JSON.parse(String(value || '{}'));
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as Record<string, any> : {};
+  } catch {
+    return {};
+  }
+}
+
+function extractQualityV2(lead: any, enrichment: any = {}) {
+  const leadEnrichment = parseJsonRecord(lead?.enrichmentJson);
+  const leadMetadata = parseJsonRecord(lead?.metadataJson);
+  const enrichmentRecord = parseJsonRecord(enrichment);
+  const qualityV2 =
+    enrichment?.qualityV2 ||
+    enrichment?.signals?.qualityV2 ||
+    enrichmentRecord?.qualityV2 ||
+    enrichmentRecord?.signals?.qualityV2 ||
+    lead?.qualityV2 ||
+    leadEnrichment?.qualityV2 ||
+    leadEnrichment?.signals?.qualityV2 ||
+    leadMetadata?.qualityV2 ||
+    leadMetadata?.signals?.qualityV2 ||
+    null;
+  if (!qualityV2 || qualityV2.version !== 'lead-quality-v2') return null;
+  return qualityV2;
+}
+
 function hasLikelyMobile(phoneDigits: unknown) {
   const digits = String(phoneDigits || '').replace(/\D/g, '');
   const national = digits.startsWith('55') ? digits.slice(2) : digits;
@@ -234,7 +264,17 @@ export function calculateHbxOpportunityScore(lead: any, enrichment: any = {}, co
   if (!safeText(lead?.name, 80) || normalize(lead?.name).length < 3) score -= 20;
   if (normalize(lead?.name).includes('empresa') || normalize(lead?.name).includes('sem nome')) score -= 20;
 
-  const opportunityScore = clampScore(score);
+  const qualityV2 = extractQualityV2(lead, enrichment);
+  let opportunityScore = clampScore(score);
+  if (qualityV2) {
+    const rank = Number(qualityV2.finalRankScore);
+    if (Number.isFinite(rank)) opportunityScore = clampScore(rank);
+    if (qualityV2.decision === 'protect' || qualityV2.decision === 'discard') {
+      opportunityScore = Math.min(opportunityScore, qualityV2.decision === 'protect' ? 0 : 25);
+      detectedProblems.push(qualityV2.protectionReason || qualityV2.discardReason || 'lead bloqueado pelo LeadQualityV2');
+    }
+    if (Array.isArray(qualityV2.reasons)) detectedAssets.push(...qualityV2.reasons.slice(0, 2));
+  }
   digitalPresenceScore = clampScore(digitalPresenceScore);
   const opportunityLevel = resolveLevel(opportunityScore);
   const offer = playbook?.offer || (detectedProblems.some((item) => item.includes('site')) ? 'HBX Website + HBX Lead' : 'HBX Full — Bot e IA');

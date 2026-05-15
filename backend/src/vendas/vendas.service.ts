@@ -1,4 +1,4 @@
-import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { CustomerProfileService } from '../customer-profile/customer-profile.service';
 import { InboxService } from '../inbox/inbox.service';
 import { CommercialPlansService } from '../commercial-plans/commercial-plans.service';
@@ -21,6 +21,7 @@ import {
   MASTER_WHATSAPP_ENGINE_COMPANY_SLUG,
 } from '../companies/master-whatsapp-company.constants';
 import { buildImportacaoPermissaoRows } from '../bootstrap/company-structural-defaults';
+import { type LeadQualityV2 } from '../webscraping/lead-quality-v2';
 import {
   BulkDeleteVendasLeadsDto,
   CreateManualVendasLeadDto,
@@ -399,6 +400,57 @@ export class VendasService {
     for (const candidate of candidates) {
       const quality = this.normalizeImportLeadQuality(candidate);
       if (quality) return quality;
+    }
+    return null;
+  }
+
+  private normalizeImportLeadQualityV2(value: unknown): LeadQualityV2 | null {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+    const raw = value as Record<string, any>;
+    const decision = String(raw.decision || '').trim() as LeadQualityV2['decision'];
+    if (raw.version !== 'lead-quality-v2' || !['deliver', 'review', 'discard', 'protect'].includes(decision)) return null;
+    return {
+      version: 'lead-quality-v2',
+      identityScore: Math.max(0, Math.trunc(Number(raw.identityScore || 0) || 0)),
+      segmentFitScore: Math.max(0, Math.trunc(Number(raw.segmentFitScore || 0) || 0)),
+      contactabilityScore: Math.max(0, Math.trunc(Number(raw.contactabilityScore || 0) || 0)),
+      commercialIntentScore: Math.max(0, Math.trunc(Number(raw.commercialIntentScore || 0) || 0)),
+      freshnessScore: Math.max(0, Math.trunc(Number(raw.freshnessScore || 0) || 0)),
+      riskScore: Math.max(0, Math.trunc(Number(raw.riskScore || 0) || 0)),
+      opportunityScore: Math.max(0, Math.trunc(Number(raw.opportunityScore || 0) || 0)),
+      finalRankScore: Math.max(0, Math.trunc(Number(raw.finalRankScore || 0) || 0)),
+      decision,
+      reasons: Array.isArray(raw.reasons) ? raw.reasons.map((reason) => String(reason || '').trim()).filter(Boolean) : [],
+      discardReason: raw.discardReason ? String(raw.discardReason) : null,
+      protectionReason: raw.protectionReason ? String(raw.protectionReason) : null,
+      recommendedChannel: ['whatsapp', 'email', 'call', 'review', 'discard'].includes(String(raw.recommendedChannel || ''))
+        ? raw.recommendedChannel
+        : 'review',
+      productFit: {
+        listFit: Math.max(0, Math.trunc(Number(raw.productFit?.listFit || 0) || 0)),
+        leadFit: Math.max(0, Math.trunc(Number(raw.productFit?.leadFit || 0) || 0)),
+        botFit: Math.max(0, Math.trunc(Number(raw.productFit?.botFit || 0) || 0)),
+        recoveryFit: Math.max(0, Math.trunc(Number(raw.productFit?.recoveryFit || 0) || 0)),
+        websiteFit: Math.max(0, Math.trunc(Number(raw.productFit?.websiteFit || 0) || 0)),
+      },
+    };
+  }
+
+  private extractLeadQualityV2FromImportItem(item: any): LeadQualityV2 | null {
+    const direct = this.parseMaybeJsonObject(item);
+    const rawJson = this.parseMaybeJsonObject(direct.rawJson);
+    const enrichmentJson = this.parseMaybeJsonObject(direct.enrichmentJson);
+    const candidates = [
+      direct.qualityV2,
+      direct.signals?.qualityV2,
+      rawJson.qualityV2,
+      rawJson.signals?.qualityV2,
+      enrichmentJson.qualityV2,
+      enrichmentJson.signals?.qualityV2,
+    ];
+    for (const candidate of candidates) {
+      const qualityV2 = this.normalizeImportLeadQualityV2(candidate);
+      if (qualityV2) return qualityV2;
     }
     return null;
   }
@@ -2706,9 +2758,23 @@ export class VendasService {
     let skippedGenericDirectoryCount = 0;
     let skippedWeakContactCount = 0;
     let skippedInvalidQualityCount = 0;
+    let skippedByQualityV2Count = 0;
+    let skippedByRiskCount = 0;
+    let skippedBySegmentFitCount = 0;
+    let skippedByContactabilityCount = 0;
     let quotaDebited = 0;
+    let pendingQuotaReservations = 0;
     const importedLeads: any[] = [];
-    const importedLeadPairs: Array<{ lead: any; item: any }> = [];
+    const importedLeadPairs: Array<{
+      lead: any;
+      item: any;
+      action: string;
+      radarLeadId: string | null;
+      duplicateInCompany: boolean;
+      billableCandidate: boolean;
+      delivered: boolean;
+      skipReason?: string | null;
+    }> = [];
     const failedImports: Array<{ name: string | null; phone: string | null; error: string }> = [];
 
     for (const item of incomingLeads) {
@@ -2723,8 +2789,39 @@ export class VendasService {
         });
         continue;
       }
-      const quality = this.extractLeadQualityFromImportItem(item);
-      const blockedByQuality = quality?.billable === false || (quality?.status && quality.status !== 'approved');
+      const qualityV2 = this.extractLeadQualityV2FromImportItem(item);
+      if (qualityV2 && (qualityV2.decision === 'protect' || qualityV2.decision === 'discard')) {
+        skippedByQualityV2Count += 1;
+        skippedByQualityCount += 1;
+        skippedByFilterCount += 1;
+        if (qualityV2.decision === 'protect' || qualityV2.riskScore >= 80) {
+          skippedByRiskCount += 1;
+          skippedProtectedCount += 1;
+        }
+        if (qualityV2.discardReason === 'segment_mismatch' || qualityV2.segmentFitScore < 35) {
+          skippedBySegmentFitCount += 1;
+          skippedBySegmentMismatchCount += 1;
+        }
+        if (qualityV2.discardReason === 'weak_contactability' || qualityV2.contactabilityScore < 30) {
+          skippedByContactabilityCount += 1;
+          skippedWeakContactCount += 1;
+        }
+        if (qualityV2.discardReason === 'generic_directory') skippedGenericDirectoryCount += 1;
+        if (qualityV2.discardReason === 'weak_identity') skippedInvalidQualityCount += 1;
+        failedImports.push({
+          name: itemName,
+          phone: itemPhone || itemPhoneDigits,
+          error: [
+            qualityV2.decision === 'protect' ? 'Lead protegido pelo LeadQualityV2.' : 'Lead descartado pelo LeadQualityV2.',
+            qualityV2.protectionReason || qualityV2.discardReason || null,
+            qualityV2.reasons?.[0] || null,
+            'Descartados nao consomem limite.',
+          ].filter(Boolean).join(' '),
+        });
+        continue;
+      }
+      const quality = qualityV2 ? null : this.extractLeadQualityFromImportItem(item);
+      const blockedByQuality = !qualityV2 && (quality?.billable === false || (quality?.status && quality.status !== 'approved'));
       if (blockedByQuality) {
         skippedByQualityCount += 1;
         if (quality?.status === 'segment_mismatch') skippedBySegmentMismatchCount += 1;
@@ -2752,7 +2849,23 @@ export class VendasService {
         );
         if (duplicateInCompany) skippedDuplicateCount += 1;
         if (!duplicateInCompany) {
-          await this.commercialUsageLimits.assertCanImportCard(context.companyId, context.userId);
+          const usageSnapshot = await this.commercialUsageLimits.assertCanImportCard(context.companyId, context.userId);
+          const companyRemaining = Number((usageSnapshot as any)?.cards?.remaining);
+          const perUserLimit = (usageSnapshot as any)?.cards?.perUserLimit;
+          const userRemaining =
+            perUserLimit != null
+              ? Number((usageSnapshot as any)?.cards?.userLimit || 0) - Number((usageSnapshot as any)?.cards?.userUsed || 0)
+              : companyRemaining;
+          const effectiveRemaining = Math.min(
+            ...[companyRemaining, userRemaining].filter((value) => Number.isFinite(value)),
+          );
+          if (Number.isFinite(effectiveRemaining) && pendingQuotaReservations >= effectiveRemaining) {
+            throw new ConflictException({
+              code: 'DAILY_CARD_LIMIT_REACHED',
+              message: 'Limite diário atingido. O contador reinicia às 00:00.',
+              usage: usageSnapshot,
+            });
+          }
         }
         result = await this.createOrUpdateLead({
           companyId: context.companyId,
@@ -2815,6 +2928,7 @@ export class VendasService {
         sourceEngine: this.normalizeText((item as any)?.sourceEngine),
         sourceUrl: this.normalizeText((item as any)?.sourceUrl),
         enrichment: (item as any)?.enrichmentJson || null,
+        qualityV2,
         quality,
       };
       if (Object.values(radarEnrichmentMetadata).some((value) => Boolean(value))) {
@@ -2835,18 +2949,23 @@ export class VendasService {
 
       if (result.action === 'created') {
         createdCount += 1;
-        await this.commercialUsageLimits.recordCardImport(context.companyId, context.userId, {
-          source: 'vendas_import',
-          radarLeadId,
-          vendasLeadId: result.lead?.id || null,
-          status: 'created',
-        });
-        quotaDebited += 1;
       } else {
         updatedCount += 1;
       }
       importedLeads.push(result.lead);
-      importedLeadPairs.push({ lead: result.lead, item });
+      importedLeadPairs.push({
+        lead: result.lead,
+        item,
+        action: result.action,
+        radarLeadId,
+        duplicateInCompany,
+        billableCandidate: result.action === 'created' && !duplicateInCompany,
+        delivered: false,
+        skipReason: null,
+      });
+      if (result.action === 'created' && !duplicateInCompany) {
+        pendingQuotaReservations += 1;
+      }
       await this.syncRadarOwnershipAfterVendasImport(context, {
         radarLeadId,
         vendasLeadId: result.lead?.id || null,
@@ -2864,6 +2983,7 @@ export class VendasService {
     }
 
     let skippedWithoutWhatsapp = 0;
+    let deliveredCount = 0;
     const skipWhatsappValidation = Boolean((dto as any)?.skipWhatsappValidation);
     const whatsappAvailabilityByLeadId = skipWhatsappValidation
       ? new Map<string, VendasWhatsappAvailabilityState>()
@@ -2877,6 +2997,8 @@ export class VendasService {
       if (availability?.status === 'unavailable') {
         skippedWithoutWhatsapp += 1;
         skippedByFilterCount += 1;
+        entry.delivered = false;
+        entry.skipReason = 'whatsapp_unavailable';
         await this.moveLeadWithoutWhatsappToInboxTrash(
           context.companyId,
           entry.lead,
@@ -2890,6 +3012,17 @@ export class VendasService {
         draftMessageOverride: this.normalizeText(entry.item?.scriptText),
         whatsappAvailabilityStatus: skipWhatsappValidation ? 'unknown' : availability?.status || 'available',
       });
+      entry.delivered = true;
+      deliveredCount += 1;
+      if (entry.billableCandidate) {
+        await this.commercialUsageLimits.recordCardImport(context.companyId, context.userId, {
+          source: 'vendas_import',
+          radarLeadId: entry.radarLeadId,
+          vendasLeadId: entry.lead?.id || null,
+          status: 'created',
+        });
+        quotaDebited += 1;
+      }
     }
 
     return {
@@ -2902,9 +3035,13 @@ export class VendasService {
       failedImports,
       rawFoundCount: incomingLeads.length,
       eligibleCount: importedLeadPairs.length,
-      deliveredCount: importedLeadPairs.length,
+      deliveredCount,
       quotaDebited,
       skippedByQualityCount,
+      skippedByQualityV2Count,
+      skippedByRiskCount,
+      skippedBySegmentFitCount,
+      skippedByContactabilityCount,
       skippedBySegmentMismatchCount,
       skippedGenericDirectoryCount,
       skippedWeakContactCount,
@@ -2915,14 +3052,13 @@ export class VendasService {
       skippedByFilterCount,
       leads: importedLeads,
       message:
-        failedImports.length > 0
-          ? `${createdCount + updatedCount} lead(s) processados no CRM. ${failedImports.length} falharam ou foram descartados. Descartados nao consomem limite.`
-          : skipWhatsappValidation
-            ? `${createdCount + updatedCount} lead(s) enviados ao CRM de Vendas sem validacao pelo motor WhatsApp. Descartados nao consomem limite.`
-            :
         skippedWithoutWhatsapp > 0
-          ? `${createdCount + updatedCount} lead(s) processados no CRM. ${skippedWithoutWhatsapp} numero(s) foram bloqueados porque o motor nao encontrou WhatsApp. Descartados nao consomem limite.`
-          : createdCount && updatedCount
+          ? `${deliveredCount} lead(s) entregues ao CRM. ${skippedWithoutWhatsapp} numero(s) foram descartados porque o motor nao encontrou WhatsApp. Descartados nao consomem limite.`
+          : failedImports.length > 0
+            ? `${deliveredCount} lead(s) entregues ao CRM. ${failedImports.length} falharam ou foram descartados. Descartados nao consomem limite.`
+            : skipWhatsappValidation
+              ? `${deliveredCount} lead(s) enviados ao CRM de Vendas sem validacao pelo motor WhatsApp. Descartados nao consomem limite.`
+              : createdCount && updatedCount
             ? `${createdCount} lead(s) novos e ${updatedCount} atualizado(s) no CRM de Vendas. Descartados nao consomem limite.`
             : createdCount
               ? `${createdCount} lead(s) enviados ao CRM de Vendas. Descartados nao consomem limite.`

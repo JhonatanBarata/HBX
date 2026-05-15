@@ -1,3 +1,5 @@
+import { calculateLeadQualityV2 } from './lead-quality-v2';
+
 export type RadarEmailStatus = 'confirmed' | 'probable' | 'missing' | 'invalid' | 'unverified';
 export type RadarEmailSource = 'website' | 'maps' | 'inferred' | 'manual' | 'none';
 export type RadarSocialStatus = 'found' | 'missing' | 'weak' | 'unknown';
@@ -323,8 +325,8 @@ export function buildRadarLeadEnrichment(input: RadarLeadEnrichmentInput): Radar
   const businessCategory = normalizeText(input.businessCategory || pickRaw(input, ['businessCategory', 'category', 'types'])) || normalizeText(input.segment) || null;
   const openingHoursStatus = normalizeText(input.openingHoursStatus || pickRaw(input, ['openingHoursStatus', 'openNow'])) || null;
   const pain = resolvePain(input);
-  const recommendedChannel = resolveRecommendedChannel(input, emailStatus);
-  const opportunityReason = buildReason(input, {
+  let recommendedChannel = resolveRecommendedChannel(input, emailStatus);
+  let opportunityReason = buildReason(input, {
     emailStatus,
     recommendedChannel,
     painLabel: pain.label,
@@ -344,7 +346,7 @@ export function buildRadarLeadEnrichment(input: RadarLeadEnrichmentInput): Radar
   if (Number(input.rating || 0) >= 4.2) score += 4;
   if (Number(input.reviews || 0) >= 20) score += 3;
   if (recommendedChannel === 'discard') score = 0;
-  const enrichmentScore = clampInt(score, 0, 100);
+  let enrichmentScore = clampInt(score, 0, 100);
   const enrichmentConfidence = clampInt(
     35 +
       (recommendedChannel === 'whatsapp' ? 25 : 0) +
@@ -354,10 +356,55 @@ export function buildRadarLeadEnrichment(input: RadarLeadEnrichmentInput): Radar
     0,
     100,
   );
+  const qualityV2 = calculateLeadQualityV2({
+    lead: input,
+    enrichment: {
+      websiteStatus: normalizeWebsiteStatus(input),
+      emailStatus,
+      emailCandidate,
+      instagramUrl,
+      facebookUrl,
+      socialStatus,
+      googleMapsUrl,
+      businessCategory,
+      recommendedChannel,
+      painType: pain.type,
+      opportunityScore: enrichmentScore,
+      whatsappStatus: input.whatsappStatus,
+    },
+    context: {
+      requestedSegment: (input.rawPayload as any)?.requestedSegment || input.segment || null,
+      requestedCity: (input.rawPayload as any)?.requestedCity || input.city || null,
+      requestedState: (input.rawPayload as any)?.requestedState || input.state || null,
+      now,
+    },
+  });
+  const hasDecisionContext = Boolean(normalizeText(input.name) || normalizeText(input.city) || normalizeText(input.segment) || normalizeText(input.businessCategory));
+  if (qualityV2.decision === 'protect') {
+    recommendedChannel = 'discard';
+    enrichmentScore = 0;
+    opportunityReason = qualityV2.reasons[0] || 'Card protegido por historico operacional.';
+  } else if (hasDecisionContext && qualityV2.decision === 'discard') {
+    recommendedChannel = qualityV2.recommendedChannel === 'discard' ? 'discard' : 'review';
+    enrichmentScore = Math.min(enrichmentScore, qualityV2.finalRankScore, 25);
+    opportunityReason = qualityV2.reasons.find((reason) => /^Descartado|^Resultado|^Identidade|^Sem evidencia|^Descartado:/i.test(reason)) || qualityV2.reasons[0] || opportunityReason;
+  } else if (hasDecisionContext && qualityV2.decision === 'review') {
+    recommendedChannel = recommendedChannel === 'discard' ? 'review' : recommendedChannel;
+    enrichmentScore = Math.min(enrichmentScore, Math.max(qualityV2.finalRankScore, 45));
+  } else {
+    enrichmentScore = Math.max(enrichmentScore, qualityV2.finalRankScore);
+  }
+  if (qualityV2.productFit.websiteFit >= 75 && (pain.type === 'sem_site' || pain.type === 'site_fraco')) {
+    opportunityReason = `${opportunityReason} Fit forte para Website/HBX Lead.`;
+  }
+  if ((instagramUrl || facebookUrl) && (pain.type === 'sem_site' || pain.type === 'site_fraco') && !/rede social|Instagram|Facebook/i.test(opportunityReason)) {
+    opportunityReason = `${opportunityReason} Rede social encontrada, mas site ausente ou fraco.`;
+  }
   const jsonPayload = {
     version: RADAR_LEAD_ENRICHMENT_VERSION,
     emailCandidate,
     whatsappStatus: normalizeText(input.whatsappStatus) || null,
+    qualityV2,
     signals: {
       websiteStatus: normalizeWebsiteStatus(input),
       socialStatus,
@@ -366,6 +413,7 @@ export function buildRadarLeadEnrichment(input: RadarLeadEnrichmentInput): Radar
       emailStatus,
       recommendedChannel,
       painType: pain.type,
+      qualityV2,
     },
     sourceConfidence: {
       email: emailConfidence,

@@ -26,6 +26,7 @@ import {
 } from '../commercial-plans/commercial-plan-catalog';
 import { WebwhatsBridgeService } from '../messaging/webwhats-bridge.service';
 import { buildRadarLeadEnrichment, RADAR_LEAD_ENRICHMENT_VERSION } from './radar-lead-enrichment';
+import { calculateLeadQualityV2, type LeadQualityV2 } from './lead-quality-v2';
 
 const PLACES_NEW_TEXT_SEARCH_URL = 'https://places.googleapis.com/v1/places:searchText';
 const PLACES_NEW_DETAILS_URL = 'https://places.googleapis.com/v1/places';
@@ -2645,6 +2646,83 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     return quality?.status === 'approved' && quality.billable !== false;
   }
 
+  private normalizeLeadQualityV2(value: unknown): LeadQualityV2 | null {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+    const raw = value as Record<string, any>;
+    const decision = String(raw.decision || '').trim() as LeadQualityV2['decision'];
+    if (raw.version !== 'lead-quality-v2' || !['deliver', 'review', 'discard', 'protect'].includes(decision)) return null;
+    return {
+      version: 'lead-quality-v2',
+      identityScore: safeInteger(raw.identityScore),
+      segmentFitScore: safeInteger(raw.segmentFitScore),
+      contactabilityScore: safeInteger(raw.contactabilityScore),
+      commercialIntentScore: safeInteger(raw.commercialIntentScore),
+      freshnessScore: safeInteger(raw.freshnessScore),
+      riskScore: safeInteger(raw.riskScore),
+      opportunityScore: safeInteger(raw.opportunityScore),
+      finalRankScore: safeInteger(raw.finalRankScore),
+      decision,
+      reasons: Array.isArray(raw.reasons) ? raw.reasons.map((reason) => String(reason || '').trim()).filter(Boolean) : [],
+      discardReason: raw.discardReason ? String(raw.discardReason) : null,
+      protectionReason: raw.protectionReason ? String(raw.protectionReason) : null,
+      recommendedChannel: ['whatsapp', 'email', 'call', 'review', 'discard'].includes(String(raw.recommendedChannel || ''))
+        ? raw.recommendedChannel
+        : 'review',
+      productFit: {
+        listFit: safeInteger(raw.productFit?.listFit),
+        leadFit: safeInteger(raw.productFit?.leadFit),
+        botFit: safeInteger(raw.productFit?.botFit),
+        recoveryFit: safeInteger(raw.productFit?.recoveryFit),
+        websiteFit: safeInteger(raw.productFit?.websiteFit),
+      },
+    };
+  }
+
+  private extractLeadQualityV2FromObject(value: unknown): LeadQualityV2 | null {
+    const direct = this.parseMaybeJsonObject(value);
+    const rawJson = this.parseMaybeJsonObject(direct.rawJson);
+    const enrichmentJson = this.parseMaybeJsonObject(direct.enrichmentJson);
+    const metadataJson = this.parseMaybeJsonObject(direct.metadataJson);
+    const candidates = [
+      direct.qualityV2,
+      direct.signals?.qualityV2,
+      rawJson.qualityV2,
+      rawJson.signals?.qualityV2,
+      enrichmentJson.qualityV2,
+      enrichmentJson.signals?.qualityV2,
+      metadataJson.qualityV2,
+      metadataJson.signals?.qualityV2,
+    ];
+    for (const candidate of candidates) {
+      const qualityV2 = this.normalizeLeadQualityV2(candidate);
+      if (qualityV2) return qualityV2;
+    }
+    return null;
+  }
+
+  private getCandidateQualityV2(candidate: Record<string, any>, input?: NormalizedSearchInput | NormalizedRadarFilters) {
+    const existing = this.extractLeadQualityV2FromObject(candidate)
+      || this.extractLeadQualityV2FromObject(candidate.rawJson)
+      || this.extractLeadQualityV2FromObject(candidate.enrichmentJson)
+      || this.extractLeadQualityV2FromObject(candidate.metadataJson);
+    if (existing) return existing;
+    return calculateLeadQualityV2({
+      lead: candidate,
+      enrichment: this.parseMaybeJsonObject(candidate.enrichmentJson),
+      context: {
+        requestedSegment: input ? String(input.segment || '') : String(candidate.segment || ''),
+        requestedCity: input?.city || candidate.city || null,
+        requestedState: input?.state || candidate.state || null,
+        targetType: (input as any)?.targetType || null,
+      },
+    });
+  }
+
+  private shouldApplyQualityV2Gate(input?: NormalizedSearchInput | NormalizedRadarFilters) {
+    const targetType = normalizeTargetType((input as any)?.targetType);
+    return targetType === 'pj';
+  }
+
   private getCandidateQuality(candidate: Record<string, any>, input: NormalizedSearchInput | NormalizedRadarFilters) {
     const existing = this.extractLeadQualityFromObject(candidate)
       || this.extractLeadQualityFromObject(candidate.rawJson)
@@ -2658,6 +2736,8 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     if (String(item?.status || '') !== 'found') return false;
     const raw = this.parseMaybeJsonObject(item?.rawJson);
     const candidate = { ...raw, ...item };
+    const qualityV2 = this.getCandidateQualityV2(candidate, input);
+    if (this.shouldApplyQualityV2Gate(input) && (qualityV2.decision === 'protect' || qualityV2.decision === 'discard')) return false;
     const quality = this.getCandidateQuality(candidate, input);
     return this.isApprovedLeadQuality(quality);
   }
@@ -4062,15 +4142,17 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       results: results
         .map((result) => ({
           result,
+          qualityV2: this.getCandidateQualityV2(result as any, input),
           quality: this.getCandidateQuality(result as any, input),
         }))
-        .filter(({ quality }) => this.isApprovedLeadQuality(quality))
-        .map(({ result, quality }) => {
+        .filter(({ quality, qualityV2 }) => (!this.shouldApplyQualityV2Gate(input) || !['protect', 'discard'].includes(qualityV2.decision)) && this.isApprovedLeadQuality(quality))
+        .map(({ result, quality, qualityV2 }) => {
         const { placeId: _placeId, ...publicResult } = result;
         const opportunityScore = this.buildOpportunityScore(result, quality);
         return {
           ...publicResult,
           quality,
+          qualityV2,
           score: publicResult.score == null ? opportunityScore : publicResult.score,
           opportunityScore,
           opportunityReason: publicResult.opportunityReason || this.buildOpportunityReason(result, input),
@@ -4197,8 +4279,10 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
 
   private sortContacts(results: WebscrapingContactResult[]) {
     return [...results].sort((left, right) => {
-      const leftScore = left.opportunityScore ?? left.score ?? this.buildOpportunityScore(left);
-      const rightScore = right.opportunityScore ?? right.score ?? this.buildOpportunityScore(right);
+      const leftQualityV2 = this.extractLeadQualityV2FromObject(left as any);
+      const rightQualityV2 = this.extractLeadQualityV2FromObject(right as any);
+      const leftScore = leftQualityV2?.finalRankScore ?? left.opportunityScore ?? left.score ?? this.buildOpportunityScore(left);
+      const rightScore = rightQualityV2?.finalRankScore ?? right.opportunityScore ?? right.score ?? this.buildOpportunityScore(right);
       const scoreDelta = rightScore - leftScore;
       if (scoreDelta !== 0) return scoreDelta;
       const ratingDelta = (right.rating || 0) - (left.rating || 0);
@@ -4669,6 +4753,9 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
   private radarCommercialRank(row: any) {
     const status = this.resolveRadarLeadStatus(row);
     if (this.isRadarProtectedStatus(status) || this.isRadarProtectedStatus(row?.companyStates?.[0]?.status)) return -10000;
+    const qualityV2 = this.extractLeadQualityV2FromObject(row) || this.extractLeadQualityV2FromObject(row?.enrichmentJson) || this.extractLeadQualityV2FromObject(row?.metadataJson);
+    if (qualityV2?.decision === 'protect' || qualityV2?.decision === 'discard') return -10000;
+    if (qualityV2) return safeInteger(qualityV2.finalRankScore) * 10 + Math.min(safeInteger(row?.reviews), 80);
     const channel = String(row?.recommendedChannel || parseJsonObject(row?.enrichmentJson)?.signals?.recommendedChannel || '').toLowerCase();
     const emailStatus = String(row?.emailStatus || parseJsonObject(row?.enrichmentJson)?.signals?.emailStatus || '').toLowerCase();
     const emailSource = String(row?.emailSource || '').toLowerCase();
@@ -4704,6 +4791,8 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
 
   private filterRowsByLeadQuality(rows: any[], filters: NormalizedRadarFilters | NormalizedSearchInput) {
     return rows.filter((row) => {
+      const qualityV2 = this.getCandidateQualityV2(row, filters);
+      if (this.shouldApplyQualityV2Gate(filters) && (qualityV2.decision === 'protect' || qualityV2.decision === 'discard')) return false;
       const quality = this.getCandidateQuality(row, filters);
       return this.isApprovedLeadQuality(quality);
     });
@@ -4804,6 +4893,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       openingHoursStatus: row?.openingHoursStatus || null,
       enrichmentJson: row?.enrichmentJson || null,
       metadataJson: row?.metadataJson || null,
+      qualityV2: this.extractLeadQualityV2FromObject(row) || this.extractLeadQualityV2FromObject(row?.enrichmentJson) || this.extractLeadQualityV2FromObject(row?.metadataJson),
       quality: this.extractLeadQualityFromObject(row) || this.extractLeadQualityFromObject(row?.enrichmentJson) || this.extractLeadQualityFromObject(row?.metadataJson),
     })).filter((row) => row.phoneDigits);
   }
@@ -4872,6 +4962,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     const includeSmartFields = options.includeSmartFields !== false;
     const protectedChannel = this.isRadarProtectedStatus(companyState?.status || row?.status);
     const whatsappStatus = this.extractRadarLeadWhatsappStatus(row) || 'unverified';
+    const qualityV2 = this.extractLeadQualityV2FromObject(row) || this.extractLeadQualityV2FromObject(row?.enrichmentJson) || this.extractLeadQualityV2FromObject(row?.metadataJson);
     const quality = this.extractLeadQualityFromObject(row) || this.extractLeadQualityFromObject(row?.enrichmentJson) || this.extractLeadQualityFromObject(row?.metadataJson);
     const smartFields = includeSmartFields ? {
       email: row?.email || enrichmentParsed?.emailCandidate || null,
@@ -4945,6 +5036,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       sourceEngines: parseJsonArray(row?.sourceEngines),
       opportunityScore: safeInteger(row?.opportunityScore),
       opportunityReason: row?.opportunityReason || null,
+      qualityV2,
       quality,
       status,
       ownerCompanyId,
@@ -5040,6 +5132,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       sourceUrl: null,
       sourceEngines: [sourceEngine, result.source].filter(Boolean),
       opportunityScore: safeInteger(opportunityScore),
+      qualityV2: parseJsonObject(enrichment.enrichmentJson)?.qualityV2 || null,
       quality,
       opportunityReason: result.opportunityReason || enrichment.opportunityReason || this.buildOpportunityReason(result as WebscrapingContactResult, {
         city: input.city,

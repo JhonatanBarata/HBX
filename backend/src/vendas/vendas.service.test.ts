@@ -99,6 +99,38 @@ function createService(overrides?: Partial<Record<string, any>>) {
   return { service, getOrCreateCalls, updateConversationStateCalls };
 }
 
+function createImportPrismaHarness(now = new Date()) {
+  const createdRows: any[] = [];
+  const prisma = {
+    $transaction: async (fn: any) => fn({
+      vendasLead: {
+        create: async ({ data }: any) => {
+          const row = {
+            id: `lead-${createdRows.length + 1}`,
+            companyId: data.companyId,
+            ...data,
+            status: data.status || 'novo',
+            returnAt: data.returnAt || now,
+            createdAt: now,
+            updatedAt: now,
+            timelineEvents: [],
+          };
+          createdRows.push(row);
+          return row;
+        },
+        findUniqueOrThrow: async ({ where }: any) => createdRows.find((row) => row.id === where.id),
+      },
+      vendasLeadTimelineEvent: {
+        createMany: async () => ({ count: 0 }),
+        create: async () => ({}),
+      },
+    }),
+    hasTable: async () => false,
+    hasColumn: async () => false,
+  };
+  return { prisma, createdRows };
+}
+
 test('syncTodayAgendaForUser mirrors today leads into Inbox prospeccao and skips leads without phone', async () => {
   const now = new Date();
   const todayAtNoon = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 12, 0, 0, 0);
@@ -322,6 +354,103 @@ test('getBoardForUser hides complete intelligence for HBX List', async () => {
   assert.ok(lead.leadIntelligence.premiumTeaser);
 });
 
+test('importWebscrapingLeadsForUser debits quota for new delivered card with WhatsApp available', async () => {
+  const { prisma } = createImportPrismaHarness();
+  let assertCanImportCalls = 0;
+  let recordCardImportCalls = 0;
+  let checkWhatsappCalls = 0;
+  const { service } = createService({
+    prisma,
+    vendasLead: {
+      findFirst: async () => null,
+    },
+    webwhatsBridge: {
+      checkWhatsappNumbers: async () => {
+        checkWhatsappCalls += 1;
+        return [{ input: '5519999990001', normalizedNumber: '5519999990001', exists: true }];
+      },
+    },
+    commercialUsageLimits: {
+      assertCanImportCard: async () => {
+        assertCanImportCalls += 1;
+      },
+      recordCardImport: async () => {
+        recordCardImportCalls += 1;
+      },
+    },
+  });
+
+  const result = await service.importWebscrapingLeadsForUser(
+    { companyId: 7, id: 99 },
+    {
+      leads: [
+        {
+          name: 'Auto Mecânica São José',
+          phone: '+55 19 99999-0001',
+          phoneDigits: '5519999990001',
+        },
+      ],
+    } as any,
+  );
+
+  assert.equal(result.createdCount, 1);
+  assert.equal(result.updatedCount, 0);
+  assert.equal(result.quotaDebited, 1);
+  assert.equal(result.deliveredCount, 1);
+  assert.equal(result.skippedWithoutWhatsapp, 0);
+  assert.equal(assertCanImportCalls, 1);
+  assert.equal(recordCardImportCalls, 1);
+  assert.equal(checkWhatsappCalls, 1);
+});
+
+test('importWebscrapingLeadsForUser does not debit quota when WhatsApp is unavailable', async () => {
+  const { prisma } = createImportPrismaHarness();
+  let assertCanImportCalls = 0;
+  let recordCardImportCalls = 0;
+  const { service } = createService({
+    prisma,
+    vendasLead: {
+      findFirst: async () => null,
+    },
+    webwhatsBridge: {
+      checkWhatsappNumbers: async () => [
+        { input: '5519999990001', normalizedNumber: '5519999990001', exists: false },
+      ],
+    },
+    commercialUsageLimits: {
+      assertCanImportCard: async () => {
+        assertCanImportCalls += 1;
+      },
+      recordCardImport: async () => {
+        recordCardImportCalls += 1;
+      },
+    },
+  });
+
+  const result = await service.importWebscrapingLeadsForUser(
+    { companyId: 7, id: 99 },
+    {
+      leads: [
+        {
+          name: 'Auto Mecânica São José',
+          phone: '+55 19 99999-0001',
+          phoneDigits: '5519999990001',
+        },
+      ],
+    } as any,
+  );
+
+  assert.equal(result.createdCount, 1);
+  assert.equal(result.quotaDebited, 0);
+  assert.equal(result.deliveredCount, 0);
+  assert.equal(result.skippedWithoutWhatsapp, 1);
+  assert.equal(result.skippedByFilterCount, 1);
+  assert.equal(assertCanImportCalls, 1);
+  assert.equal(recordCardImportCalls, 0);
+  assert.match(result.message, /0 lead\(s\) entregues ao CRM/);
+  assert.match(result.message, /Descartados nao consomem limite/);
+});
+
 test('importWebscrapingLeadsForUser does not debit quota for duplicate card', async () => {
   const now = new Date();
   let assertCanImportCalls = 0;
@@ -385,6 +514,7 @@ test('importWebscrapingLeadsForUser does not debit quota for duplicate card', as
   assert.equal(result.updatedCount, 1);
   assert.equal(result.createdCount, 0);
   assert.equal(result.quotaDebited, 0);
+  assert.equal(result.deliveredCount, 1);
   assert.equal(result.skippedDuplicateCount, 1);
   assert.equal(assertCanImportCalls, 0);
   assert.equal(recordCardImportCalls, 0);
@@ -469,10 +599,65 @@ test('importWebscrapingLeadsForUser blocks rejected quality before quota', async
   assert.equal(recordCardImportCalls, 0);
 });
 
+test('importWebscrapingLeadsForUser blocks LeadQualityV2 protect/discard before quota', async () => {
+  let assertCanImportCalls = 0;
+  let recordCardImportCalls = 0;
+  const { service } = createService({
+    commercialUsageLimits: {
+      assertCanImportCard: async () => {
+        assertCanImportCalls += 1;
+      },
+      recordCardImport: async () => {
+        recordCardImportCalls += 1;
+      },
+    },
+  });
+
+  await assert.rejects(
+    () => service.importWebscrapingLeadsForUser(
+      { companyId: 7, id: 99 },
+      {
+        skipWhatsappValidation: true,
+        leads: [
+          {
+            name: 'Lead Opt Out',
+            phone: '+55 19 99999-0001',
+            phoneDigits: '19999990001',
+            enrichmentJson: {
+              qualityV2: {
+                version: 'lead-quality-v2',
+                identityScore: 80,
+                segmentFitScore: 80,
+                contactabilityScore: 80,
+                commercialIntentScore: 50,
+                freshnessScore: 70,
+                riskScore: 95,
+                opportunityScore: 0,
+                finalRankScore: 0,
+                decision: 'protect',
+                reasons: ['Protegido: opt-out.'],
+                discardReason: null,
+                protectionReason: 'opt-out',
+                recommendedChannel: 'discard',
+                productFit: { listFit: 0, leadFit: 0, botFit: 0, recoveryFit: 0, websiteFit: 0 },
+              },
+            },
+          },
+        ],
+      } as any,
+    ),
+    /LeadQualityV2|Descartados nao consomem limite/i,
+  );
+
+  assert.equal(assertCanImportCalls, 0);
+  assert.equal(recordCardImportCalls, 0);
+});
+
 test('importWebscrapingLeadsForUser debita somente aprovado criado e reporta descartes', async () => {
   const now = new Date();
   let assertCanImportCalls = 0;
   let recordCardImportCalls = 0;
+  let checkWhatsappCalls = 0;
   const createdRows: any[] = [];
   const { service } = createService({
     prisma: {
@@ -507,6 +692,12 @@ test('importWebscrapingLeadsForUser debita somente aprovado criado e reporta des
     },
     vendasLeadTimelineEvent: {
       create: async () => ({}),
+    },
+    webwhatsBridge: {
+      checkWhatsappNumbers: async () => {
+        checkWhatsappCalls += 1;
+        return [];
+      },
     },
     commercialUsageLimits: {
       assertCanImportCard: async () => {
@@ -555,10 +746,15 @@ test('importWebscrapingLeadsForUser debita somente aprovado criado e reporta des
 
   assert.equal(result.createdCount, 1);
   assert.equal(result.quotaDebited, 1);
+  assert.equal(result.deliveredCount, 1);
+  assert.equal(result.whatsappValidationSkipped, true);
   assert.equal(result.skippedByQualityCount, 2);
   assert.equal(result.skippedGenericDirectoryCount, 1);
   assert.equal(result.skippedBySegmentMismatchCount, 1);
+  assert.equal(result.failedImports.length, 2);
+  assert.match(result.failedImports[0].error, /qualidade minima/i);
   assert.equal(assertCanImportCalls, 1);
   assert.equal(recordCardImportCalls, 1);
+  assert.equal(checkWhatsappCalls, 0);
   assert.match(result.message, /Descartados nao consomem limite/);
 });

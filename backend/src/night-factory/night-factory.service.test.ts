@@ -6,8 +6,8 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { NightFactoryPublicController } from './night-factory-public.controller';
 import { NightFactoryService } from './night-factory.service';
 
-function createLead(index: number) {
-  const overrides: Record<string, any> = {};
+function createLead(index: number, overridesOrIndex: Record<string, any> | number = {}) {
+  const overrides: Record<string, any> = typeof overridesOrIndex === 'number' ? {} : overridesOrIndex;
   return {
     id: `lead-${index}`,
     name: `Lead ${index}`,
@@ -175,4 +175,59 @@ test('selecao de recompensa nao chama Google', async () => {
   } finally {
     globalThis.fetch = previousFetch;
   }
+});
+
+test('top opportunities preferem LeadQualityV2 finalRankScore quando disponivel', async () => {
+  const lowRawHighRank = createLead(1, {
+    id: 'lead-quality-v2',
+    opportunityScore: 45,
+    enrichmentJson: JSON.stringify({
+      qualityV2: {
+        version: 'lead-quality-v2',
+        identityScore: 90,
+        segmentFitScore: 90,
+        contactabilityScore: 90,
+        commercialIntentScore: 85,
+        freshnessScore: 80,
+        riskScore: 0,
+        opportunityScore: 88,
+        finalRankScore: 96,
+        decision: 'deliver',
+        reasons: ['WhatsApp provável + sem site + boa avaliação.'],
+        discardReason: null,
+        protectionReason: null,
+        recommendedChannel: 'whatsapp',
+        productFit: { listFit: 90, leadFit: 92, botFit: 60, recoveryFit: 10, websiteFit: 85 },
+      },
+    }),
+  });
+  const highRawLowRank = createLead(2, {
+    id: 'lead-raw',
+    opportunityScore: 95,
+    enrichmentJson: JSON.stringify({
+      qualityV2: {
+        version: 'lead-quality-v2',
+        identityScore: 70,
+        segmentFitScore: 60,
+        contactabilityScore: 55,
+        commercialIntentScore: 50,
+        freshnessScore: 70,
+        riskScore: 20,
+        opportunityScore: 55,
+        finalRankScore: 52,
+        decision: 'review',
+        reasons: ['Contato pede revisão.'],
+        discardReason: null,
+        protectionReason: null,
+        recommendedChannel: 'review',
+        productFit: { listFit: 50, leadFit: 50, botFit: 40, recoveryFit: 10, websiteFit: 40 },
+      },
+    }),
+  });
+  const service = new NightFactoryService(createPrisma({ leads: [highRawLowRank, lowRawHighRank] })) as any;
+
+  const result = await service.getTopOpportunities({ take: 2 });
+
+  assert.equal(result.items[0].id, 'lead-quality-v2');
+  assert.equal(result.items[0].score, 96);
 });

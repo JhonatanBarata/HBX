@@ -52,6 +52,27 @@ function parseJsonRecord(value: unknown): Record<string, any> {
   }
 }
 
+function extractQualityV2(row: any) {
+  const enrichment = parseJsonRecord(row?.enrichmentJson);
+  const metadata = parseJsonRecord(row?.metadataJson);
+  const qualityV2 =
+    row?.qualityV2 ||
+    row?.signals?.qualityV2 ||
+    enrichment?.qualityV2 ||
+    enrichment?.signals?.qualityV2 ||
+    metadata?.qualityV2 ||
+    metadata?.signals?.qualityV2 ||
+    null;
+  if (!qualityV2 || qualityV2.version !== 'lead-quality-v2') return null;
+  return qualityV2;
+}
+
+function leadRankScore(row: any) {
+  const qualityV2 = extractQualityV2(row);
+  const finalRankScore = Number(qualityV2?.finalRankScore);
+  return Number.isFinite(finalRankScore) ? Math.round(finalRankScore) : safeInteger(row?.opportunityScore);
+}
+
 function startOfLocalDay(now = new Date()) {
   const start = new Date(now);
   start.setHours(0, 0, 0, 0);
@@ -283,12 +304,17 @@ export class NightFactoryService {
         opportunityScore: { gte: 40 },
       },
       orderBy: [{ opportunityScore: 'desc' }, { updatedAt: 'desc' }],
-      take,
+      take: Math.max(take * 3, take),
     }).catch(() => []);
+    const orderedRows = [...rows].sort((left: any, right: any) => {
+      const rankDelta = leadRankScore(right) - leadRankScore(left);
+      if (rankDelta !== 0) return rankDelta;
+      return safeInteger(right?.opportunityScore) - safeInteger(left?.opportunityScore);
+    }).slice(0, take);
 
     return {
       generatedAt: new Date().toISOString(),
-      items: rows.map((row: any) => this.mapLeadOpportunity(row)),
+      items: orderedRows.map((row: any) => this.mapLeadOpportunity(row)),
     };
   }
 
@@ -905,6 +931,8 @@ export class NightFactoryService {
 
   private mapLeadOpportunity(row: any) {
     const metadata = parseJsonRecord(row?.metadataJson).nightFactory || {};
+    const qualityV2 = extractQualityV2(row);
+    const score = leadRankScore(row);
     return {
       id: String(row?.id || ''),
       source: 'night_factory',
@@ -915,10 +943,11 @@ export class NightFactoryService {
       state: row?.state || null,
       segment: row?.segment || row?.normalizedSegment || null,
       website: row?.website || null,
-      score: safeInteger(row?.opportunityScore),
-      level: metadata.opportunityLevel || (safeInteger(row?.opportunityScore) >= 85 ? 'premium' : safeInteger(row?.opportunityScore) >= 65 ? 'bom' : 'medio'),
-      reason: row?.opportunityReason || metadata.opportunityReason || 'Oportunidade detectada pela Night Factory.',
+      score,
+      level: metadata.opportunityLevel || (score >= 85 ? 'premium' : score >= 65 ? 'bom' : 'medio'),
+      reason: qualityV2?.reasons?.[0] || row?.opportunityReason || metadata.opportunityReason || 'Oportunidade detectada pela Night Factory.',
       opportunityReason: row?.opportunityReason || metadata.opportunityReason || null,
+      qualityV2,
       recommendedOffer: metadata.recommendedOffer || 'HBX Full — Bot e IA',
       suggestedApproach: metadata.suggestedApproach || null,
       suggestedWhatsappMessage: metadata.suggestedWhatsappMessage || null,
@@ -1038,7 +1067,10 @@ export class NightFactoryService {
       take: Math.max(take * 3, take),
     }).catch(() => []);
 
-    return rows.filter((row: any) => this.isRewardLeadUsable(row)).slice(0, take);
+    return rows
+      .filter((row: any) => this.isRewardLeadUsable(row))
+      .sort((left: any, right: any) => leadRankScore(right) - leadRankScore(left))
+      .slice(0, take);
   }
 
   private isRewardLeadUsable(row: any) {
@@ -1046,7 +1078,9 @@ export class NightFactoryService {
     if (phone.length < 10) return false;
     const status = String(row?.status || '').trim().toLowerCase();
     if (REWARD_BLOCKED_RADAR_STATUSES.includes(status)) return false;
-    return safeInteger(row?.opportunityScore) >= 70;
+    const qualityV2 = extractQualityV2(row);
+    if (qualityV2?.decision === 'protect' || qualityV2?.decision === 'discard') return false;
+    return leadRankScore(row) >= 70;
   }
 
   private async hydrateRewardItemsFromClaim(claim: any, tx?: any) {
