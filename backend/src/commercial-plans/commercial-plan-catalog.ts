@@ -231,7 +231,7 @@ export function buildCommercialPlansCatalog(options: { includeHidden?: boolean }
     {
       key: COMMERCIAL_PLAN_KEYS.PADRAO,
       title: 'HBX Lead',
-      status: 'legacy',
+      status: 'available',
       monthlyPrice: COMMERCIAL_PRICING.padraoMonthly,
       trialDays: 14,
       annualDiscountPercent: COMMERCIAL_PRICING.annualDiscountPercent,
@@ -239,11 +239,11 @@ export function buildCommercialPlansCatalog(options: { includeHidden?: boolean }
       extraUserMonthlyPrice: COMMERCIAL_PRICING.extraUserMonthly,
       requiresAssistedSetup: false,
       setupFeeMode: 'none',
-      hidden: true,
+      hidden: false,
       headline: 'Card inteligente: prioridade, canal, motivo e mensagem pronta.',
       description: 'Leads inteligentes com WhatsApp verificado pela HBX, e-mail confirmado/provável, motivo, canal recomendado e templates comerciais.',
-      badge: 'Legado',
-      recommended: false,
+      badge: 'Mais vendido',
+      recommended: true,
       requiresCheckout: false,
       quotas: COMMERCIAL_PLAN_QUOTAS[COMMERCIAL_PLAN_KEYS.PADRAO],
       features: [

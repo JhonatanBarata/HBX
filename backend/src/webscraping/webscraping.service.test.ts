@@ -221,6 +221,109 @@ function disableSearchRunAutoPump(service: WebscrapingService) {
   (service as any).scheduleNextDueSearchRunPump = async () => undefined;
 }
 
+test('LeadQuality rejeita segmento errado e aprova evidencias fortes', () => {
+  const service = new WebscrapingService(createPrisma()) as any;
+
+  const tiaLuiza = service.evaluateLeadQuality({
+    name: 'Tia Luiza',
+    phone: '(19) 99999-0001',
+    phoneDigits: '19999990001',
+  }, { requestedSegment: 'oficina', targetType: 'pj' });
+  const autoMecanica = service.evaluateLeadQuality({
+    name: 'Auto Mecânica São José',
+    phone: '(19) 99999-0002',
+    phoneDigits: '19999990002',
+  }, { requestedSegment: 'oficina', targetType: 'pj' });
+  const dentista = service.evaluateLeadQuality({
+    name: 'Clínica Odontológica Sorriso',
+    phone: '(19) 99999-0003',
+    phoneDigits: '19999990003',
+  }, { requestedSegment: 'dentista', targetType: 'pj' });
+  const generic = service.evaluateLeadQuality({
+    name: 'Lista Telefônica',
+    phone: '(19) 99999-0004',
+    phoneDigits: '19999990004',
+  }, { requestedSegment: 'oficina', targetType: 'pj' });
+
+  assert.equal(tiaLuiza.status, 'segment_mismatch');
+  assert.equal(tiaLuiza.billable, false);
+  assert.equal(autoMecanica.status, 'approved');
+  assert.equal(autoMecanica.billable, true);
+  assert.equal(dentista.status, 'approved');
+  assert.equal(generic.status, 'generic_directory');
+  assert.equal(generic.billable, false);
+});
+
+test('saveSearchRunResults salva baixa aderencia como skipped e entrega so aprovado', async () => {
+  const { prisma, run, items } = createSearchRunPrisma({
+    segment: 'oficina',
+    targetQuantity: 10,
+  });
+  const service = new WebscrapingService(prisma) as any;
+  const normalized = service.normalizeSearchInput({
+    city: 'Campinas',
+    state: 'SP',
+    segment: 'oficina',
+    quantity: 10,
+    engine: 'hbx',
+    targetType: 'pj',
+  });
+
+  const counts = await service.saveSearchRunResults(
+    { companyId: 7, userId: 9, user: createUser() },
+    normalized,
+    run.id,
+    [
+      {
+        name: 'Tia Luiza',
+        phone: '(19) 99999-0001',
+        phoneDigits: '19999990001',
+        source: 'hbx_scraping:web',
+      },
+      {
+        name: 'Auto Mecânica São José',
+        phone: '(19) 99999-0002',
+        phoneDigits: '19999990002',
+        source: 'hbx_scraping:web',
+      },
+    ],
+    'hbx',
+  );
+  await service.recalculateSearchRunCounters(run.id);
+  const response = service.buildSearchRunResponse({ ...run, items });
+  const skipped = items.find((item) => item.status === 'skipped');
+
+  assert.equal(counts.found, 1);
+  assert.equal(counts.skipped, 1);
+  assert.equal(run.foundCount, 1);
+  assert.equal(response.results.length, 1);
+  assert.equal(response.results[0].name, 'Auto Mecânica São José');
+  assert.ok(skipped);
+  assert.equal(skipped.segment, null);
+  assert.equal(JSON.parse(skipped.rawJson).quality.status, 'segment_mismatch');
+});
+
+test('buildHbxBatchQueries nao gera query PJ sem nicho', () => {
+  const service = new WebscrapingService(createPrisma()) as any;
+  const normalized = service.normalizeSearchInput({
+    city: 'Campinas',
+    state: 'SP',
+    segment: 'oficina',
+    quantity: 10,
+    engine: 'hbx',
+    targetType: 'pj',
+  });
+  const queries = service.buildHbxBatchQueries(normalized) as string[];
+
+  assert.ok(queries.length > 0);
+  assert.equal(queries.some((query) => /\bempresa\s+Campinas\s+SP\s+(celular|telefone|whatsapp)\b/i.test(query)), false);
+  assert.equal(queries.every((query) => normalizeQueryForTest(query).includes('oficina')), true);
+});
+
+function normalizeQueryForTest(value: string) {
+  return String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+}
+
 function createCampaignPrisma(initialCampaign: Record<string, any> = {}) {
   const campaign = {
     id: 'campaign-1',

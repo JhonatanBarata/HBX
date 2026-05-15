@@ -251,6 +251,21 @@ type ExternalRuntimeStatus = 'online' | 'offline';
 type SearchSource = 'history' | 'google' | 'hbx' | 'hybrid' | 'global_cache' | 'radar_database';
 type WebscrapingEngine = 'google' | 'hbx';
 type HbxTargetType = 'pj' | 'pf' | 'agenda_pf';
+export type LeadQualityStatus =
+  | 'approved'
+  | 'segment_mismatch'
+  | 'weak_contact'
+  | 'generic_directory'
+  | 'invalid'
+  | 'duplicate';
+export type LeadQualityResult = {
+  status: LeadQualityStatus;
+  billable: boolean;
+  segmentMatchScore: number;
+  contactQualityScore: number;
+  commercialScore: number;
+  reasons: string[];
+};
 type SearchRunStatus = 'completed' | 'partial_error' | 'completed_with_errors' | 'completed_insufficient_results';
 type WebscrapingSearchRunStatus =
   | 'queued'
@@ -281,6 +296,60 @@ type HbxEngineSearchOutput = {
   rejectedCount: number;
   duplicateCount: number;
 };
+
+const SEGMENT_STOPWORDS = [
+  'empresa',
+  'empresas',
+  'contato',
+  'telefone',
+  'whatsapp',
+  'celular',
+  'comercial',
+  'servico',
+  'servicos',
+  'serviço',
+  'serviços',
+  'loja',
+  'lojas',
+  'profissional',
+  'profissionais',
+  'cidade',
+  'ddd',
+  'perto',
+  'maps',
+  'site',
+];
+
+const SEGMENT_ALIASES: Record<string, string[]> = {
+  dentista: ['dentista', 'odontologia', 'odontologico', 'odontológica', 'clinica odontologica', 'clínica odontológica'],
+  clinica: ['clinica', 'clínica', 'saude', 'saúde', 'medico', 'médico', 'fisioterapia', 'estetica', 'estética'],
+  oficina: ['oficina', 'mecanica', 'mecânica', 'auto center', 'funilaria', 'pneus', 'automotivo'],
+  restaurante: ['restaurante', 'pizzaria', 'lanchonete', 'lanchonetes', 'lanches', 'hamburgueria', 'delivery', 'bar'],
+  imobiliaria: ['imobiliaria', 'imobiliária', 'imovel', 'imóvel', 'corretor', 'condominio', 'condomínio'],
+  advogado: ['advogado', 'advocacia', 'juridico', 'jurídico'],
+  academia: ['academia', 'fitness', 'musculacao', 'musculação', 'crossfit', 'pilates'],
+  petshop: ['pet shop', 'petshop', 'veterinaria', 'veterinária', 'banho e tosa', 'racao', 'ração'],
+  mercado: ['mercado', 'supermercado', 'mercearia', 'atacarejo'],
+  farmacia: ['farmacia', 'farmácia', 'drogaria'],
+  salao: ['salao', 'salão', 'beleza', 'cabeleireiro', 'barbearia'],
+};
+
+const GENERIC_DIRECTORY_NAMES = [
+  'empresa',
+  'empresas',
+  'sem nome',
+  'contato',
+  'whatsapp',
+  'telefone',
+  'lista telefonica',
+  'lista telefônica',
+  'comercial',
+  'atendimento',
+  'anuncie aqui',
+  'guia comercial',
+  'guia telefone',
+  'lista de empresas',
+];
 
 let cityCache: {
   loadedAt: number;
@@ -326,6 +395,7 @@ export type WebscrapingSearchFilters = {
 };
 
 export type WebscrapingContactResult = {
+  [key: string]: any;
   placeId: string;
   name: string;
   phone: string;
@@ -338,6 +408,7 @@ export type WebscrapingContactResult = {
   score?: number | null;
   opportunityScore?: number | null;
   opportunityReason?: string | null;
+  quality?: LeadQualityResult | null;
 };
 
 export type WebscrapingSearchResponse = {
@@ -2187,13 +2258,27 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     const state = input.state;
     const ddd = this.extractDddFromSegment(input.segment);
     const { role, niche } = this.parseHbxRoleNiche(input.segment, input.targetType);
-    const queries = [
-      this.compactQuery([role, niche, city, state, 'whatsapp']),
-      this.compactQuery([role, niche, city, state, 'telefone']),
-      this.compactQuery([niche, city, state, 'contato']),
-      this.compactQuery([role, city, state, 'celular']),
-      ddd ? this.compactQuery([role, niche, 'DDD', ddd]) : this.compactQuery([role, niche, city, state]),
-    ];
+    const normalizedNiche = normalizeLookupValue(niche);
+    const normalizedRole = normalizeLookupValue(role);
+    const effectiveNiche = normalizedNiche && normalizedNiche !== 'empresa' && normalizedNiche !== normalizedRole
+      ? niche
+      : input.segment;
+    const queries = input.targetType === 'pj'
+      ? [
+          this.compactQuery([effectiveNiche, city, state, 'empresa']),
+          this.compactQuery([effectiveNiche, city, state, 'maps']),
+          this.compactQuery([effectiveNiche, city, state, 'site']),
+          this.compactQuery([effectiveNiche, city, state, 'whatsapp']),
+          this.compactQuery([effectiveNiche, city, state, 'telefone']),
+          ddd ? this.compactQuery([effectiveNiche, 'DDD', ddd]) : this.compactQuery([effectiveNiche, city, state]),
+        ]
+      : [
+          this.compactQuery([role, niche, city, state, 'whatsapp']),
+          this.compactQuery([role, niche, city, state, 'telefone']),
+          this.compactQuery([niche, city, state, 'contato']),
+          this.compactQuery([role, city, state, 'celular']),
+          ddd ? this.compactQuery([role, niche, 'DDD', ddd]) : this.compactQuery([role, niche, city, state]),
+        ];
     return Array.from(new Set(queries.filter(Boolean)));
   }
 
@@ -2279,6 +2364,307 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       duplicateCount: data.duplicateCount,
       nextRetryAt: data.nextRetryAt ? data.nextRetryAt.toISOString() : null,
     })}`);
+  }
+
+  private normalizeQualityText(value: unknown) {
+    return String(value || '').trim();
+  }
+
+  private parseMaybeJsonObject(value: unknown): Record<string, any> {
+    if (!value) return {};
+    if (typeof value === 'object' && !Array.isArray(value)) return value as Record<string, any>;
+    try {
+      const parsed = JSON.parse(String(value || '{}'));
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as Record<string, any> : {};
+    } catch {
+      return {};
+    }
+  }
+
+  private normalizeLeadQuality(value: unknown): LeadQualityResult | null {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+    const raw = value as Record<string, any>;
+    const status = String(raw.status || '').trim() as LeadQualityStatus;
+    if (!['approved', 'segment_mismatch', 'weak_contact', 'generic_directory', 'invalid', 'duplicate'].includes(status)) return null;
+    return {
+      status,
+      billable: raw.billable !== false && status === 'approved',
+      segmentMatchScore: safeInteger(raw.segmentMatchScore),
+      contactQualityScore: safeInteger(raw.contactQualityScore),
+      commercialScore: safeInteger(raw.commercialScore),
+      reasons: Array.isArray(raw.reasons)
+        ? raw.reasons.map((reason) => String(reason || '').trim()).filter(Boolean)
+        : [],
+    };
+  }
+
+  private extractLeadQualityFromObject(value: unknown): LeadQualityResult | null {
+    const direct = this.parseMaybeJsonObject(value);
+    const candidates = [
+      direct?.quality,
+      direct?.signals?.quality,
+      this.parseMaybeJsonObject(direct?.rawJson)?.quality,
+      this.parseMaybeJsonObject(direct?.rawPayload)?.quality,
+      this.parseMaybeJsonObject(direct?.enrichmentJson)?.quality,
+      this.parseMaybeJsonObject(direct?.enrichmentJson)?.signals?.quality,
+    ];
+    for (const candidate of candidates) {
+      const quality = this.normalizeLeadQuality(candidate);
+      if (quality) return quality;
+    }
+    return null;
+  }
+
+  private collectQualityEvidence(candidate: Record<string, any>) {
+    const rawJson = this.parseMaybeJsonObject(candidate.rawJson);
+    const rawPayload = this.parseMaybeJsonObject(candidate.rawPayload);
+    const enrichmentJson = this.parseMaybeJsonObject(candidate.enrichmentJson);
+    const fields = [
+      candidate.name,
+      candidate.website,
+      candidate.address,
+      candidate.source,
+      candidate.opportunityReason,
+      candidate.businessCategory,
+      candidate.category,
+      candidate.types,
+      candidate.snippet,
+      candidate.description,
+      rawJson,
+      rawPayload,
+      enrichmentJson,
+    ];
+    return fields
+      .map((field) => {
+        if (!field) return '';
+        if (Array.isArray(field)) return field.join(' ');
+        if (typeof field === 'object') return JSON.stringify(field);
+        return String(field);
+      })
+      .filter(Boolean)
+      .join(' ');
+  }
+
+  private extractSegmentTokens(segment: string) {
+    const stopwords = new Set(SEGMENT_STOPWORDS.map((word) => normalizeLookupValue(word)));
+    const tokens = normalizeLookupValue(segment)
+      .split(/[^a-z0-9]+/i)
+      .map((token) => token.trim())
+      .filter((token) => token.length >= 3 && !stopwords.has(token));
+    const expanded = tokens.flatMap((token) => {
+      const variants = [token];
+      if (token.endsWith('es') && token.length > 4) variants.push(token.slice(0, -2));
+      if (token.endsWith('s') && token.length > 4) variants.push(token.slice(0, -1));
+      return variants.filter((item) => item.length >= 3 && !stopwords.has(item));
+    });
+    return Array.from(new Set(expanded));
+  }
+
+  private buildSegmentAliases(segment: string) {
+    const normalizedSegment = normalizeLookupValue(segment);
+    const tokens = this.extractSegmentTokens(segment);
+    const aliases = new Set<string>(tokens);
+    for (const [key, values] of Object.entries(SEGMENT_ALIASES)) {
+      const normalizedKey = normalizeLookupValue(key);
+      if (normalizedSegment.includes(normalizedKey) || values.some((value) => normalizedSegment.includes(normalizeLookupValue(value)))) {
+        values.forEach((value) => aliases.add(normalizeLookupValue(value)));
+        aliases.add(normalizedKey);
+      }
+    }
+    return Array.from(aliases).filter(Boolean);
+  }
+
+  private isGenericDirectoryName(name: unknown) {
+    const normalized = normalizeLookupValue(String(name || ''));
+    if (!normalized) return false;
+    const genericNames = GENERIC_DIRECTORY_NAMES.map((item) => normalizeLookupValue(item));
+    if (genericNames.some((generic) => normalized === generic)) return true;
+    return ['lista telefonica', 'lista telefonica', 'guia comercial', 'guia telefone', 'lista de empresas', 'anuncie aqui']
+      .some((generic) => normalized.startsWith(`${generic} `) || normalized.includes(` ${generic} `));
+  }
+
+  private scoreSegmentMatch(candidate: Record<string, any>, requestedSegment: string) {
+    const segmentTokens = this.extractSegmentTokens(requestedSegment);
+    const aliases = this.buildSegmentAliases(requestedSegment);
+    if (!segmentTokens.length && !aliases.length) return { score: 80, reasons: ['Segmento amplo sem tokens especificos.'] };
+
+    const name = normalizeLookupValue(String(candidate.name || ''));
+    const categoryText = normalizeLookupValue([
+      candidate.businessCategory,
+      candidate.category,
+      Array.isArray(candidate.types) ? candidate.types.join(' ') : candidate.types,
+    ].filter(Boolean).join(' '));
+    const snippetText = normalizeLookupValue([
+      candidate.snippet,
+      candidate.description,
+      candidate.address,
+      candidate.opportunityReason,
+      this.parseMaybeJsonObject(candidate.enrichmentJson),
+      this.parseMaybeJsonObject(candidate.rawJson),
+      this.parseMaybeJsonObject(candidate.rawPayload),
+    ].map((part) => typeof part === 'object' ? JSON.stringify(part) : String(part || '')).join(' '));
+    const weakText = normalizeLookupValue([candidate.website, candidate.source].filter(Boolean).join(' '));
+    const reasons: string[] = [];
+    let score = 0;
+
+    if (aliases.some((alias) => alias && name.includes(alias))) {
+      score = Math.max(score, 85);
+      reasons.push('Nome contem evidencia forte do segmento.');
+    }
+    if (segmentTokens.some((token) => name.includes(token))) {
+      score = Math.max(score, 72);
+      reasons.push('Nome contem token do segmento.');
+    }
+    if (aliases.some((alias) => alias && categoryText.includes(alias))) {
+      score = Math.max(score, 80);
+      reasons.push('Categoria contem evidencia forte do segmento.');
+    }
+    if (aliases.some((alias) => alias && snippetText.includes(alias))) {
+      score = Math.max(score, 76);
+      reasons.push('Descricao/snippet contem evidencia do segmento.');
+    }
+    if (segmentTokens.some((token) => categoryText.includes(token) || snippetText.includes(token))) {
+      score = Math.max(score, 70);
+      reasons.push('Categoria ou descricao contem token do segmento.');
+    }
+    if (segmentTokens.some((token) => weakText.includes(token)) || aliases.some((alias) => alias && weakText.includes(alias))) {
+      score = Math.max(score, 55);
+      reasons.push('Website/source contem evidencia fraca do segmento.');
+    }
+    if (!score) {
+      score = 25;
+      reasons.push('Sem evidencia suficiente de aderencia ao segmento.');
+    }
+    return { score: Math.min(score, 100), reasons };
+  }
+
+  private evaluateLeadQuality(
+    candidate: Partial<WebscrapingContactResult> & Record<string, any>,
+    input: {
+      requestedSegment: string;
+      requestedCity?: string | null;
+      requestedState?: string | null;
+      targetType?: HbxTargetType;
+    },
+  ): LeadQualityResult {
+    const name = this.normalizeQualityText(candidate.name);
+    const phoneDigits = normalizePhoneDigits(candidate.phoneDigits || candidate.phone);
+    const reasons: string[] = [];
+
+    if (!name) {
+      return {
+        status: 'invalid',
+        billable: false,
+        segmentMatchScore: 0,
+        contactQualityScore: 0,
+        commercialScore: 0,
+        reasons: ['Nome ausente.'],
+      };
+    }
+    if (this.isGenericDirectoryName(name)) {
+      return {
+        status: 'generic_directory',
+        billable: false,
+        segmentMatchScore: 0,
+        contactQualityScore: 0,
+        commercialScore: 0,
+        reasons: ['Nome generico ou resultado de lista telefonica.'],
+      };
+    }
+    if (!phoneDigits) {
+      return {
+        status: 'invalid',
+        billable: false,
+        segmentMatchScore: 0,
+        contactQualityScore: 0,
+        commercialScore: 0,
+        reasons: ['Telefone ausente.'],
+      };
+    }
+    if (!isLikelyValidBrPhone(phoneDigits)) {
+      return {
+        status: 'weak_contact',
+        billable: false,
+        segmentMatchScore: 0,
+        contactQualityScore: 20,
+        commercialScore: 0,
+        reasons: ['Telefone invalido ou fraco.'],
+      };
+    }
+
+    const segment = this.scoreSegmentMatch(candidate, input.requestedSegment);
+    const segmentMatchScore = input.targetType === 'pj' ? segment.score : Math.max(segment.score, 65);
+    reasons.push(...segment.reasons);
+    let contactQualityScore = 0;
+    contactQualityScore += 50;
+    if (isLikelyWhatsapp(phoneDigits)) contactQualityScore += 20;
+    const websiteStatus = inferWebsiteStatus(candidate.website);
+    const hasSocial = Boolean(this.normalizeQualityText(candidate.instagramUrl || candidate.facebookUrl));
+    if (websiteStatus !== 'none' || hasSocial) contactQualityScore += 15;
+    if ((Number(candidate.rating || 0) >= 4.2 && safeInteger(candidate.reviews) >= 10) || safeInteger(candidate.reviews) >= 20) {
+      contactQualityScore += 10;
+    }
+    contactQualityScore = Math.min(contactQualityScore, 100);
+    const baseOpportunityScore = safeInteger(candidate.opportunityScore ?? candidate.score);
+    const commercialScore = Math.round(
+      segmentMatchScore * 0.45 +
+      contactQualityScore * 0.35 +
+      baseOpportunityScore * 0.20,
+    );
+
+    let status: LeadQualityStatus = 'approved';
+    if (input.targetType === 'pj' && segmentMatchScore < 55) status = 'segment_mismatch';
+    else if (contactQualityScore < 50) status = 'weak_contact';
+    else if (commercialScore < 60) status = segment.score < 55 ? 'segment_mismatch' : 'weak_contact';
+
+    if (status !== 'approved') {
+      if (status === 'segment_mismatch') reasons.push('Lead sem aderencia minima ao segmento solicitado.');
+      if (status === 'weak_contact') reasons.push('Contato insuficiente para entrega billable.');
+    }
+
+    return {
+      status,
+      billable: status === 'approved',
+      segmentMatchScore,
+      contactQualityScore,
+      commercialScore: status === 'approved' ? Math.min(commercialScore, 100) : Math.max(0, Math.min(commercialScore, 59)),
+      reasons: Array.from(new Set(reasons.filter(Boolean))),
+    };
+  }
+
+  private evaluateResultQualityForInput(candidate: Record<string, any>, input: NormalizedSearchInput | NormalizedRadarFilters) {
+    return this.evaluateLeadQuality(candidate as any, {
+      requestedSegment: String(input.segment || ''),
+      requestedCity: input.city || null,
+      requestedState: input.state || null,
+      targetType: normalizeTargetType((input as any).targetType),
+    });
+  }
+
+  private isApprovedLeadQuality(quality: LeadQualityResult | null | undefined) {
+    return quality?.status === 'approved' && quality.billable !== false;
+  }
+
+  private getCandidateQuality(candidate: Record<string, any>, input: NormalizedSearchInput | NormalizedRadarFilters) {
+    const existing = this.extractLeadQualityFromObject(candidate)
+      || this.extractLeadQualityFromObject(candidate.rawJson)
+      || this.extractLeadQualityFromObject(candidate.enrichmentJson)
+      || this.extractLeadQualityFromObject(candidate.metadataJson);
+    if (existing) return existing;
+    return this.evaluateResultQualityForInput(candidate, input);
+  }
+
+  private isRunItemQualityDeliverable(item: any, input: NormalizedSearchInput | NormalizedRadarFilters) {
+    if (String(item?.status || '') !== 'found') return false;
+    const raw = this.parseMaybeJsonObject(item?.rawJson);
+    const candidate = { ...raw, ...item };
+    const quality = this.getCandidateQuality(candidate, input);
+    return this.isApprovedLeadQuality(quality);
+  }
+
+  private getResultSegmentForRejected(result: Record<string, any>) {
+    const segment = this.normalizeQualityText(result.segment || result.businessCategory || result.category);
+    return segment || null;
   }
 
   private buildSyntheticRunPlaceId(runId: string, result: Partial<WebscrapingContactResult>, index: number) {
@@ -2399,6 +2785,21 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         state: normalized.state,
         segment: normalized.segment,
       });
+      const quality = classified.status === 'found'
+        ? this.evaluateResultQualityForInput(result as any, normalized)
+        : this.extractLeadQualityFromObject(result as any);
+      const finalStatus: WebscrapingSearchRunItemStatus = classified.status === 'found' && quality?.status !== 'approved'
+        ? 'skipped'
+        : classified.status;
+      const duplicateReason = classified.status === 'found' && quality?.status !== 'approved'
+        ? quality.reasons.join('; ') || quality.status
+        : classified.duplicateReason;
+      const rawJson = quality
+        ? JSON.stringify({ ...result, quality })
+        : JSON.stringify(result);
+      const segment = finalStatus === 'found'
+        ? normalized.segment || null
+        : this.getResultSegmentForRejected(result as any);
       await this.prisma.webscrapingSearchRunItem.create({
         data: {
           runId,
@@ -2412,16 +2813,16 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
           address: String(result.address || '').trim() || null,
           city: normalized.city || null,
           state: normalized.state || null,
-          segment: normalized.segment || null,
+          segment,
           source: String(result.source || source || '').trim() || null,
-          status: classified.status,
-          duplicateReason: classified.duplicateReason,
-          rawJson: JSON.stringify(result),
+          status: finalStatus,
+          duplicateReason,
+          rawJson,
         },
       });
-      if (classified.status === 'found') counts.found += 1;
-      else if (classified.status === 'duplicate') counts.duplicate += 1;
-      else if (classified.status === 'invalid') counts.invalid += 1;
+      if (finalStatus === 'found') counts.found += 1;
+      else if (finalStatus === 'duplicate') counts.duplicate += 1;
+      else if (finalStatus === 'invalid') counts.invalid += 1;
       else counts.skipped += 1;
     }
     return counts;
@@ -2462,7 +2863,15 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       },
       orderBy: { createdAt: 'asc' },
     });
-    const results = rows.map((row) => this.mapRunItemToContact(row));
+    const qualityInput = {
+      city: normalized.city,
+      state: normalized.state,
+      segment: normalized.segment,
+      targetType: normalized.targetType,
+    } as NormalizedRadarFilters;
+    const results = rows
+      .filter((row) => this.isRunItemQualityDeliverable(row, qualityInput))
+      .map((row) => this.mapRunItemToContact(row));
     if (!results.length) return null;
     return this.persistHistory(context, normalized, results, null).catch(() => null);
   }
@@ -2981,16 +3390,19 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
   }
 
   private mapRunItemToContact(item: any): WebscrapingContactResult {
+    const raw = this.parseMaybeJsonObject(item?.rawJson);
     return {
-      placeId: String(item.placeId || '').trim(),
-      name: String(item.name || '').trim(),
-      phone: String(item.phone || '').trim(),
-      phoneDigits: normalizePhoneDigits(item.phoneDigits || item.phone),
-      rating: null,
-      reviews: null,
-      address: String(item.address || '').trim() || null,
-      website: String(item.website || '').trim() || null,
-      source: String(item.source || '').trim() || null,
+      ...(raw as any),
+      placeId: String(item.placeId || raw.placeId || '').trim(),
+      name: String(item.name || raw.name || '').trim(),
+      phone: String(item.phone || raw.phone || '').trim(),
+      phoneDigits: normalizePhoneDigits(item.phoneDigits || raw.phoneDigits || item.phone || raw.phone),
+      rating: raw.rating == null ? null : Number(raw.rating),
+      reviews: raw.reviews == null ? null : safeInteger(raw.reviews),
+      address: String(item.address || raw.address || '').trim() || null,
+      website: String(item.website || raw.website || '').trim() || null,
+      source: String(item.source || raw.source || '').trim() || null,
+      quality: this.extractLeadQualityFromObject(raw),
     };
   }
 
@@ -3000,7 +3412,14 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     const status = this.normalizeSearchRunStatus(run.status);
     const items = Array.isArray(run.items) ? run.items : [];
     const foundItems = items.filter((item) => item.status === 'found');
-    const results = foundItems.map((item) => {
+    const qualityInput = {
+      city: String(run.city || ''),
+      state: String(run.state || ''),
+      segment: String(run.segment || ''),
+      targetType,
+    } as NormalizedRadarFilters;
+    const deliverableFoundItems = foundItems.filter((item) => this.isRunItemQualityDeliverable(item, qualityInput));
+    const results = deliverableFoundItems.map((item) => {
       const contact = this.mapRunItemToContact(item);
       const { placeId: _placeId, ...publicContact } = contact;
       return publicContact;
@@ -3018,14 +3437,14 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         onlyWithWebsite: false,
       },
     };
-    const foundSources = new Set(foundItems.map((item) => String(item.source || '').trim()).filter(Boolean));
+    const foundSources = new Set(deliverableFoundItems.map((item) => String(item.source || '').trim()).filter(Boolean));
     const source: SearchSource = foundSources.has('radar_database')
       ? (foundSources.size === 1 ? 'radar_database' : 'hybrid')
       : engine === 'hbx'
         ? 'hbx'
         : 'google';
     const databaseFirst = source === 'radar_database';
-    const radarRunItemCount = foundItems.filter((item) => String(item.source || '').trim() === 'radar_database').length;
+    const radarRunItemCount = deliverableFoundItems.filter((item) => String(item.source || '').trim() === 'radar_database').length;
     const attemptCount = safeInteger(run.attemptCount);
     const batchLimit = this.getHbxRunBatchLimit(query.quantity);
     const maxAttempts = this.getHbxRunMaxAttempts(query.quantity, batchLimit);
@@ -3640,11 +4059,18 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         filters: input.filters,
       },
       meta,
-      results: results.map((result) => {
+      results: results
+        .map((result) => ({
+          result,
+          quality: this.getCandidateQuality(result as any, input),
+        }))
+        .filter(({ quality }) => this.isApprovedLeadQuality(quality))
+        .map(({ result, quality }) => {
         const { placeId: _placeId, ...publicResult } = result;
-        const opportunityScore = this.buildOpportunityScore(result);
+        const opportunityScore = this.buildOpportunityScore(result, quality);
         return {
           ...publicResult,
+          quality,
           score: publicResult.score == null ? opportunityScore : publicResult.score,
           opportunityScore,
           opportunityReason: publicResult.opportunityReason || this.buildOpportunityReason(result, input),
@@ -3695,7 +4121,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     return true;
   }
 
-  private buildOpportunityScore(result: WebscrapingContactResult) {
+  private buildOpportunityScore(result: WebscrapingContactResult, quality?: LeadQualityResult | null) {
     const websiteStatus = inferWebsiteStatus(result.website);
     let score = 0;
     if (websiteStatus === 'none') score += 35;
@@ -3705,7 +4131,11 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     if (isLikelyWhatsapp(result.phoneDigits || result.phone)) score += 10;
     if (websiteStatus === 'present') score -= 20;
     const engineScore = Math.max(0, Math.min(10, Math.trunc(Number(result.score || 0) / 10) || 0));
-    return Math.max(0, Math.min(100, score + engineScore));
+    score = Math.max(0, Math.min(100, score + engineScore));
+    if (quality?.status === 'generic_directory') return 0;
+    if (quality && quality.segmentMatchScore < 55) return Math.min(score, 25);
+    if (quality?.status !== undefined && quality.status !== 'approved' && quality.billable === false) return Math.min(score, 25);
+    return score;
   }
 
   private buildOpportunityReason(result: WebscrapingContactResult, input: NormalizedSearchInput) {
@@ -4272,6 +4702,24 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     });
   }
 
+  private filterRowsByLeadQuality(rows: any[], filters: NormalizedRadarFilters | NormalizedSearchInput) {
+    return rows.filter((row) => {
+      const quality = this.getCandidateQuality(row, filters);
+      return this.isApprovedLeadQuality(quality);
+    });
+  }
+
+  private summarizeLeadQualityRejections(qualities: LeadQualityResult[]) {
+    const rejected = qualities.filter((quality) => !this.isApprovedLeadQuality(quality));
+    return {
+      rejectedCount: rejected.length,
+      rejectedBySegmentCount: rejected.filter((quality) => quality.status === 'segment_mismatch').length,
+      rejectedGenericCount: rejected.filter((quality) => quality.status === 'generic_directory').length,
+      rejectedWeakContactCount: rejected.filter((quality) => quality.status === 'weak_contact').length,
+      rejectedInvalidCount: rejected.filter((quality) => quality.status === 'invalid').length,
+    };
+  }
+
   private async queryRadarRowsForCompany(
     companyId: number,
     filters: NormalizedRadarFilters,
@@ -4329,7 +4777,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       },
     }).catch(() => []);
     const enrichedRows = await this.ensureRadarRowsEnriched(this.filterRadarRowsInMemory(rows, filters));
-    return this.sortRadarRowsByCommercialPriority(this.dedupeRadarRows(enrichedRows)).slice(0, readLimit);
+    return this.sortRadarRowsByCommercialPriority(this.dedupeRadarRows(this.filterRowsByLeadQuality(enrichedRows, filters))).slice(0, readLimit);
   }
 
   private restoreRadarPoolResults(rows: any[]): WebscrapingContactResult[] {
@@ -4346,6 +4794,17 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       score: safeInteger(row?.opportunityScore),
       opportunityScore: safeInteger(row?.opportunityScore),
       opportunityReason: row?.opportunityReason || null,
+      instagramUrl: row?.instagramUrl || null,
+      facebookUrl: row?.facebookUrl || null,
+      socialStatus: row?.socialStatus || null,
+      socialConfidence: safeInteger(row?.socialConfidence),
+      googleMapsUrl: row?.googleMapsUrl || null,
+      businessCategory: row?.businessCategory || null,
+      category: row?.businessCategory || null,
+      openingHoursStatus: row?.openingHoursStatus || null,
+      enrichmentJson: row?.enrichmentJson || null,
+      metadataJson: row?.metadataJson || null,
+      quality: this.extractLeadQualityFromObject(row) || this.extractLeadQualityFromObject(row?.enrichmentJson) || this.extractLeadQualityFromObject(row?.metadataJson),
     })).filter((row) => row.phoneDigits);
   }
 
@@ -4413,6 +4872,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     const includeSmartFields = options.includeSmartFields !== false;
     const protectedChannel = this.isRadarProtectedStatus(companyState?.status || row?.status);
     const whatsappStatus = this.extractRadarLeadWhatsappStatus(row) || 'unverified';
+    const quality = this.extractLeadQualityFromObject(row) || this.extractLeadQualityFromObject(row?.enrichmentJson) || this.extractLeadQualityFromObject(row?.metadataJson);
     const smartFields = includeSmartFields ? {
       email: row?.email || enrichmentParsed?.emailCandidate || null,
       emailStatus: row?.emailStatus || enrichmentParsed?.signals?.emailStatus || 'missing',
@@ -4485,6 +4945,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       sourceEngines: parseJsonArray(row?.sourceEngines),
       opportunityScore: safeInteger(row?.opportunityScore),
       opportunityReason: row?.opportunityReason || null,
+      quality,
       status,
       ownerCompanyId,
       claimedAt,
@@ -4525,7 +4986,8 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
 
   private buildDirectRadarLeadPublic(result: Omit<WebscrapingContactResult, 'placeId'> & { placeId?: string | null }, input: NormalizedRadarFilters, index: number) {
     const phoneDigits = normalizePhoneDigits(result.phoneDigits || result.phone);
-    const opportunityScore = result.opportunityScore ?? result.score ?? this.buildOpportunityScore(result as WebscrapingContactResult);
+    const quality = this.extractLeadQualityFromObject(result as any) || (result as any).quality || this.getCandidateQuality(result as any, input);
+    const opportunityScore = result.opportunityScore ?? result.score ?? this.buildOpportunityScore(result as WebscrapingContactResult, quality);
     const sourceEngine = input.engine || 'hbx';
     const enrichment = buildRadarLeadEnrichment({
       ...(result as any),
@@ -4559,6 +5021,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       instagramUrl: enrichment.instagramUrl,
       facebookUrl: enrichment.facebookUrl,
       socialStatus: enrichment.socialStatus,
+      socialConfidence: enrichment.socialConfidence,
       googleMapsUrl: enrichment.googleMapsUrl,
       businessCategory: enrichment.businessCategory,
       recommendedChannel: enrichment.recommendedChannel,
@@ -4577,6 +5040,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       sourceUrl: null,
       sourceEngines: [sourceEngine, result.source].filter(Boolean),
       opportunityScore: safeInteger(opportunityScore),
+      quality,
       opportunityReason: result.opportunityReason || enrichment.opportunityReason || this.buildOpportunityReason(result as WebscrapingContactResult, {
         city: input.city,
         state: input.state,
@@ -4753,9 +5217,16 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       },
     );
     const context = this.resolveContext(user);
+    const rawResults = response.results || [];
+    const qualityPairs = rawResults.map((result) => ({
+      result,
+      quality: this.getCandidateQuality(result as any, filters),
+    }));
+    const approvedPairs = qualityPairs.filter(({ quality }) => this.isApprovedLeadQuality(quality));
+    const rejectionMeta = this.summarizeLeadQualityRejections(qualityPairs.map((item) => item.quality));
     const whatsapp = await this.applyRadarWhatsappCheck(
       context,
-      (response.results || []).map((result, index) => this.buildDirectRadarLeadPublic(result, filters, index)),
+      approvedPairs.map(({ result, quality }, index) => this.buildDirectRadarLeadPublic({ ...(result as any), quality }, filters, index)),
       filters.whatsappCheckMode,
     );
     const items = whatsapp.items;
@@ -4766,11 +5237,17 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       total: publicItems.length,
       code: publicItems.length ? 'RADAR_DIRECT_RESULTS' : 'RADAR_NO_RESULTS',
       message: publicItems.length
-        ? `Entreguei ${publicItems.length} card(s) pesquisados agora.`
-        : 'Pesquisa concluida. Nao ha cards publicos suficientes para esse filtro agora.',
+        ? `Entreguei ${publicItems.length} card(s) uteis. Descartei ${rejectionMeta.rejectedCount} por baixa aderencia. Descartados nao consomem limite.`
+        : rawResults.length
+          ? 'O motor encontrou registros, mas nenhum passou na qualidade minima para esse segmento. Descartados nao consomem limite.'
+          : 'Pesquisa concluida. Nao ha cards publicos suficientes para esse filtro agora.',
       retryable: false,
       meta: {
         requestedQuantity: filters.quantity,
+        rawFoundCount: rawResults.length,
+        approvedCount: approvedPairs.length,
+        ...rejectionMeta,
+        qualityGate: true,
         deliveredCount: publicItems.length,
         filters: {
           state: filters.state,
@@ -5244,9 +5721,6 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
 
   private async syncRadarSearchRunItemsToPool(context: SearchExecutionContext, run: any) {
     if (!(await this.supportsRadarPersistence())) return;
-    const foundItems = (Array.isArray(run?.items) ? run.items : []).filter((item: any) => item?.status === 'found');
-    if (!foundItems.length) return;
-
     const normalized = this.normalizeSearchInput({
       city: String(run?.city || ''),
       state: String(run?.state || ''),
@@ -5255,6 +5729,15 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       engine: 'hbx',
       targetType: normalizeTargetType(run?.targetType),
     });
+    const qualityInput = {
+      city: normalized.city,
+      state: normalized.state,
+      segment: normalized.segment,
+      targetType: normalized.targetType,
+    } as NormalizedRadarFilters;
+    const foundItems = (Array.isArray(run?.items) ? run.items : [])
+      .filter((item: any) => this.isRunItemQualityDeliverable(item, qualityInput));
+    if (!foundItems.length) return;
     const contacts = foundItems
       .map((item: any) => this.mapRunItemToContact(item))
       .filter((item: WebscrapingContactResult) => normalizePhoneDigits(item.phoneDigits || item.phone));
@@ -5326,7 +5809,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     });
 
     const filters = this.buildRadarFiltersFromSearchRun(run);
-    const foundItems = (run.items || []).filter((item: any) => item.status === 'found');
+    const foundItems = (run.items || []).filter((item: any) => this.isRunItemQualityDeliverable(item, filters));
     const runPhoneOrder = foundItems
       .map((item: any) => normalizePhoneDigits(item.phoneDigits || item.phone))
       .filter(Boolean);
@@ -5424,7 +5907,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     });
     const effectiveRun = freshRun || run;
     const filters = this.buildRadarFiltersFromSearchRun(effectiveRun);
-    const foundItems = (effectiveRun.items || []).filter((item: any) => item.status === 'found');
+    const foundItems = (effectiveRun.items || []).filter((item: any) => this.isRunItemQualityDeliverable(item, filters));
     const runPhoneOrder = foundItems
       .map((item: any) => normalizePhoneDigits(item.phoneDigits || item.phone))
       .filter(Boolean);
@@ -5605,6 +6088,8 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     for (const row of rows) {
       const existing = Array.isArray(row?.companyStates) && row.companyStates.length ? row.companyStates[0] : null;
       if (['imported_to_vendas', 'sent_to_vendas'].includes(String(existing?.status || '')) || this.isRadarProtectedStatus(existing?.status || row?.status)) continue;
+      const quality = this.extractLeadQualityFromObject(row) || this.extractLeadQualityFromObject(row?.enrichmentJson) || this.extractLeadQualityFromObject(row?.metadataJson);
+      if (quality && !this.isApprovedLeadQuality(quality)) continue;
       await this.claimRadarLeadForCompany(context, row, {
         poolStatus: 'reserved',
         companyStatus: existing?.status && !['new', 'clean'].includes(String(existing.status)) ? this.normalizeRadarLeadStatus(existing.status) : 'reserved',
@@ -6061,9 +6546,10 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         ? String(result.placeId)
         : null;
       if (!phoneDigits && !placeId) continue;
+      const quality = this.getCandidateQuality({ ...(result as any), phoneDigits }, input);
       const dddMismatch = strictLocalDdd && expectedDdds.length > 0 && ddd && !expectedDdds.includes(ddd);
       const websiteStatus = inferWebsiteStatus(result.website);
-      const opportunityScore = this.buildOpportunityScore(result);
+      const opportunityScore = this.buildOpportunityScore(result, quality);
       const opportunityReason = result.opportunityReason || this.buildOpportunityReason(result, input);
       const existing = await delegate.findFirst({
         where: {
@@ -6073,6 +6559,32 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
           ],
         },
       }).catch(() => null);
+      if (!this.isApprovedLeadQuality(quality)) {
+        counts.rejectedCount += 1;
+        if (existing?.id && !this.isRadarProtectedStatus(existing.status)) {
+          const rejectedEnrichment = this.parseMaybeJsonObject(existing.enrichmentJson);
+          const rejectedMetadata = this.parseMaybeJsonObject(existing.metadataJson);
+          await delegate.update({
+            where: { id: existing.id },
+            data: {
+              status: 'rejected',
+              rejectionReason: quality.status,
+              opportunityScore: Math.min(opportunityScore, 25),
+              enrichmentJson: JSON.stringify({ ...rejectedEnrichment, quality }),
+              metadataJson: JSON.stringify({
+                ...rejectedMetadata,
+                targetType: input.targetType,
+                expectedDdds,
+                lastSourceEngine: sourceEngine,
+                quality,
+              }),
+              lastSeenAt: now,
+            },
+          }).catch(() => null);
+          counts.savedCount += 1;
+        }
+        continue;
+      }
       if (existing?.id) counts.duplicateCount += 1;
       if (dddMismatch) counts.rejectedCount += 1;
       else counts.approvedCount += 1;
@@ -6105,9 +6617,11 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         rejectionReason: dddMismatch ? 'ddd_mismatch' : existing?.rejectionReason || null,
         campaignId: options.campaignId || existing?.campaignId || null,
         metadataJson: JSON.stringify({
+          ...this.parseMaybeJsonObject(existing?.metadataJson),
           targetType: input.targetType,
           expectedDdds,
           lastSourceEngine: sourceEngine,
+          quality,
         }),
         lastSeenAt: now,
       };
@@ -6120,6 +6634,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         rawPayload: result as any,
         now,
       });
+      const enrichmentJson = this.parseMaybeJsonObject(enrichment.enrichmentJson);
       Object.assign(data, {
         email: enrichment.email || existing?.email || null,
         emailStatus: enrichment.emailStatus,
@@ -6137,7 +6652,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         painLabel: enrichment.painLabel,
         painPitch: enrichment.painPitch,
         opportunityReason: enrichment.opportunityReason || data.opportunityReason,
-        enrichmentJson: enrichment.enrichmentJson,
+        enrichmentJson: JSON.stringify({ ...enrichmentJson, quality }),
         enrichmentScore: enrichment.enrichmentScore,
         enrichmentConfidence: enrichment.enrichmentConfidence,
         lastEnrichedAt: enrichment.lastEnrichedAt,
@@ -6522,7 +7037,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     const ownershipEnabled = await this.supportsRadarOwnershipPersistence();
     const existingCompanyState = Array.isArray(row?.companyStates) && row.companyStates.length ? row.companyStates[0] : null;
     const alreadyClaimedByCompany = Number(row?.ownerCompanyId || 0) === context.companyId || Boolean(existingCompanyState?.id);
-    if (input.countUsage !== false && !alreadyClaimedByCompany) {
+    if (input.countUsage === true && !alreadyClaimedByCompany) {
       await this.commercialUsageLimits?.assertCanImportCard(context.companyId, context.userId);
     }
     if (ownershipEnabled) {
@@ -6594,7 +7109,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       statusFrom: previousStatus,
       statusTo: input.companyStatus,
     });
-    if (input.countUsage !== false && !alreadyClaimedByCompany) {
+    if (input.countUsage === true && !alreadyClaimedByCompany) {
       await this.commercialUsageLimits?.recordCardImport(context.companyId, context.userId, {
         source: 'radar_claim',
         radarLeadId: row.id,
@@ -6708,6 +7223,18 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     if (this.isRadarProtectedStatus(leadRow?.companyStates?.[0]?.status || leadRow?.status)) {
       throw new BadRequestException('Card protegido nao pode ser enviado para Vendas.');
     }
+    const quality = this.extractLeadQualityFromObject(leadRow)
+      || this.extractLeadQualityFromObject(leadRow?.enrichmentJson)
+      || this.extractLeadQualityFromObject(leadRow?.metadataJson)
+      || this.evaluateLeadQuality(leadRow, {
+        requestedSegment: String(leadRow?.segment || ''),
+        requestedCity: leadRow?.city || null,
+        requestedState: leadRow?.state || null,
+        targetType: normalizeTargetType(this.parseMaybeJsonObject(leadRow?.metadataJson)?.targetType),
+      });
+    if (!this.isApprovedLeadQuality(quality)) {
+      throw new BadRequestException('Card nao passou na qualidade minima para esse segmento. Descartados nao consomem limite.');
+    }
 
     await this.claimRadarLeadForCompany(context, leadRow, {
       poolStatus: 'in_attendance',
@@ -6742,6 +7269,16 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
           instagramUrl: includeSmartFields ? leadRow.instagramUrl || undefined : undefined,
           facebookUrl: includeSmartFields ? leadRow.facebookUrl || undefined : undefined,
           socialStatus: includeSmartFields ? leadRow.socialStatus || undefined : undefined,
+          socialConfidence: includeSmartFields ? leadRow.socialConfidence ?? undefined : undefined,
+          primarySocial: includeSmartFields
+            ? leadRow.instagramUrl && leadRow.facebookUrl
+              ? 'both'
+              : leadRow.instagramUrl
+                ? 'instagram'
+                : leadRow.facebookUrl
+                  ? 'facebook'
+                  : undefined
+            : undefined,
           googleMapsUrl: includeSmartFields ? leadRow.googleMapsUrl || undefined : undefined,
           businessCategory: includeSmartFields ? leadRow.businessCategory || undefined : undefined,
           openingHoursStatus: includeSmartFields ? leadRow.openingHoursStatus || undefined : undefined,
@@ -6757,6 +7294,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
           sourceEngine: leadRow.sourceEngine || undefined,
           sourceUrl: leadRow.sourceUrl || undefined,
           enrichmentJson: includeSmartFields && leadRow.enrichmentJson ? parseJsonObject(leadRow.enrichmentJson) : undefined,
+          quality: includeSmartFields ? quality : undefined,
           shortNote: includeSmartFields ? leadRow.opportunityReason || undefined : 'Lead herdado do Radar Digital.',
           scriptText: includeSmartFields ? leadRow.painPitch || leadRow.opportunityReason || undefined : undefined,
         },
@@ -7122,12 +7660,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
 
   private buildRadarCampaignQuery(input: NormalizedSearchInput, attempt: number) {
     if (input.targetType === 'pj') {
-      const queries = [
-        this.compactQuery([input.segment, input.city, input.state, 'telefone']),
-        this.compactQuery([input.segment, input.city, input.state, 'whatsapp']),
-        this.compactQuery([input.segment, input.city, input.state, 'site oficial']),
-        this.compactQuery([input.segment, 'perto de', input.city, input.state]),
-      ].filter(Boolean);
+      const queries = this.buildHbxBatchQueries(input);
       return queries[Math.max(0, attempt - 1) % queries.length] || input.segment;
     }
     return this.buildHbxBatchQuery(input, attempt);

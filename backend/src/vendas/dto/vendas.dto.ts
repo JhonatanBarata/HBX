@@ -244,6 +244,10 @@ export class ImportWebscrapingLeadItemDto {
   socialConfidence?: number;
 
   @IsOptional()
+  @IsIn(['instagram', 'facebook', 'both'])
+  primarySocial?: 'instagram' | 'facebook' | 'both' | null;
+
+  @IsOptional()
   @IsString()
   @MaxLength(500)
   googleMapsUrl?: string;
@@ -321,6 +325,16 @@ export class ImportWebscrapingLeadItemDto {
 
   @IsOptional()
   enrichmentJson?: unknown;
+
+  @IsOptional()
+  quality?: {
+    status?: string | null;
+    billable?: boolean | null;
+    segmentMatchScore?: number | null;
+    contactQualityScore?: number | null;
+    commercialScore?: number | null;
+    reasons?: string[];
+  } | null;
 
   @IsOptional()
   @IsString()

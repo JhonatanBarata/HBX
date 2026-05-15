@@ -117,6 +117,23 @@ type VendasPlanAccess = {
   capabilities: CommercialPlanCapabilities;
 };
 
+type ImportLeadQualityStatus =
+  | 'approved'
+  | 'segment_mismatch'
+  | 'weak_contact'
+  | 'generic_directory'
+  | 'invalid'
+  | 'duplicate';
+
+type ImportLeadQualityResult = {
+  status: ImportLeadQualityStatus;
+  billable: boolean;
+  segmentMatchScore: number;
+  contactQualityScore: number;
+  commercialScore: number;
+  reasons: string[];
+};
+
 export type HbxPresentationEmailDraftInput = {
   leadName?: string | null;
   city?: string | null;
@@ -339,6 +356,51 @@ export class VendasService {
     } catch {
       return {};
     }
+  }
+
+  private parseMaybeJsonObject(value: unknown): Record<string, any> {
+    if (!value) return {};
+    if (typeof value === 'object' && !Array.isArray(value)) return value as Record<string, any>;
+    try {
+      const parsed = JSON.parse(String(value || '{}'));
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as Record<string, any> : {};
+    } catch {
+      return {};
+    }
+  }
+
+  private normalizeImportLeadQuality(value: unknown): ImportLeadQualityResult | null {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+    const raw = value as Record<string, any>;
+    const status = String(raw.status || '').trim() as ImportLeadQualityStatus;
+    if (!['approved', 'segment_mismatch', 'weak_contact', 'generic_directory', 'invalid', 'duplicate'].includes(status)) return null;
+    return {
+      status,
+      billable: raw.billable !== false && status === 'approved',
+      segmentMatchScore: Math.max(0, Math.trunc(Number(raw.segmentMatchScore || 0) || 0)),
+      contactQualityScore: Math.max(0, Math.trunc(Number(raw.contactQualityScore || 0) || 0)),
+      commercialScore: Math.max(0, Math.trunc(Number(raw.commercialScore || 0) || 0)),
+      reasons: Array.isArray(raw.reasons)
+        ? raw.reasons.map((reason) => String(reason || '').trim()).filter(Boolean)
+        : [],
+    };
+  }
+
+  private extractLeadQualityFromImportItem(item: any): ImportLeadQualityResult | null {
+    const direct = this.parseMaybeJsonObject(item);
+    const rawJson = this.parseMaybeJsonObject(direct.rawJson);
+    const enrichmentJson = this.parseMaybeJsonObject(direct.enrichmentJson);
+    const candidates = [
+      direct.quality,
+      rawJson.quality,
+      enrichmentJson.quality,
+      enrichmentJson.signals?.quality,
+    ];
+    for (const candidate of candidates) {
+      const quality = this.normalizeImportLeadQuality(candidate);
+      if (quality) return quality;
+    }
+    return null;
   }
 
   private buildVendasLeadSelectWithoutAddress(extra: Record<string, any> = {}) {
@@ -2639,6 +2701,12 @@ export class VendasService {
     let skippedDuplicateCount = 0;
     let skippedProtectedCount = 0;
     let skippedByFilterCount = 0;
+    let skippedByQualityCount = 0;
+    let skippedBySegmentMismatchCount = 0;
+    let skippedGenericDirectoryCount = 0;
+    let skippedWeakContactCount = 0;
+    let skippedInvalidQualityCount = 0;
+    let quotaDebited = 0;
     const importedLeads: any[] = [];
     const importedLeadPairs: Array<{ lead: any; item: any }> = [];
     const failedImports: Array<{ name: string | null; phone: string | null; error: string }> = [];
@@ -2652,6 +2720,21 @@ export class VendasService {
           name: itemName,
           phone: itemPhone || itemPhoneDigits,
           error: 'Lead do Radar Digital sem nome, telefone ou telefone normalizado.',
+        });
+        continue;
+      }
+      const quality = this.extractLeadQualityFromImportItem(item);
+      const blockedByQuality = quality?.billable === false || (quality?.status && quality.status !== 'approved');
+      if (blockedByQuality) {
+        skippedByQualityCount += 1;
+        if (quality?.status === 'segment_mismatch') skippedBySegmentMismatchCount += 1;
+        if (quality?.status === 'generic_directory') skippedGenericDirectoryCount += 1;
+        if (quality?.status === 'weak_contact') skippedWeakContactCount += 1;
+        if (quality?.status === 'invalid') skippedInvalidQualityCount += 1;
+        failedImports.push({
+          name: itemName,
+          phone: itemPhone || itemPhoneDigits,
+          error: 'Lead descartado pela qualidade minima do segmento. Descartados nao consomem limite.',
         });
         continue;
       }
@@ -2716,6 +2799,7 @@ export class VendasService {
         facebookUrl: this.normalizeText((item as any)?.facebookUrl),
         socialStatus: this.normalizeText((item as any)?.socialStatus),
         socialConfidence: Number((item as any)?.socialConfidence || 0) || null,
+        primarySocial: this.normalizeText((item as any)?.primarySocial),
         googleMapsUrl: this.normalizeText((item as any)?.googleMapsUrl),
         businessCategory: this.normalizeText((item as any)?.businessCategory),
         openingHoursStatus: this.normalizeText((item as any)?.openingHoursStatus),
@@ -2731,6 +2815,7 @@ export class VendasService {
         sourceEngine: this.normalizeText((item as any)?.sourceEngine),
         sourceUrl: this.normalizeText((item as any)?.sourceUrl),
         enrichment: (item as any)?.enrichmentJson || null,
+        quality,
       };
       if (Object.values(radarEnrichmentMetadata).some((value) => Boolean(value))) {
         await this.prisma.vendasLeadTimelineEvent.create({
@@ -2756,6 +2841,7 @@ export class VendasService {
           vendasLeadId: result.lead?.id || null,
           status: 'created',
         });
+        quotaDebited += 1;
       } else {
         updatedCount += 1;
       }
@@ -2769,7 +2855,9 @@ export class VendasService {
 
     if (!importedLeadPairs.length) {
       throw new BadRequestException(
-        failedImports.length
+        skippedByQualityCount > 0 && skippedByQualityCount === incomingLeads.length
+          ? 'Nenhum lead passou na qualidade minima para esse segmento. Descartados nao consomem limite.'
+          : failedImports.length
           ? `Nenhum lead foi importado. Primeira falha: ${failedImports[0]?.error || 'erro desconhecido'}`
           : 'Nenhum lead valido do Radar Digital foi enviado para o CRM.',
       );
@@ -2815,7 +2903,12 @@ export class VendasService {
       rawFoundCount: incomingLeads.length,
       eligibleCount: importedLeadPairs.length,
       deliveredCount: importedLeadPairs.length,
-      quotaDebited: createdCount,
+      quotaDebited,
+      skippedByQualityCount,
+      skippedBySegmentMismatchCount,
+      skippedGenericDirectoryCount,
+      skippedWeakContactCount,
+      skippedInvalidQualityCount,
       skippedNegativeCount: skippedProtectedCount,
       skippedDuplicateCount,
       skippedProtectedCount,
@@ -2823,17 +2916,17 @@ export class VendasService {
       leads: importedLeads,
       message:
         failedImports.length > 0
-          ? `${createdCount + updatedCount} lead(s) processados no CRM. ${failedImports.length} falharam e foram ignorados.`
+          ? `${createdCount + updatedCount} lead(s) processados no CRM. ${failedImports.length} falharam ou foram descartados. Descartados nao consomem limite.`
           : skipWhatsappValidation
-            ? `${createdCount + updatedCount} lead(s) enviados ao CRM de Vendas sem validacao pelo motor WhatsApp.`
+            ? `${createdCount + updatedCount} lead(s) enviados ao CRM de Vendas sem validacao pelo motor WhatsApp. Descartados nao consomem limite.`
             :
         skippedWithoutWhatsapp > 0
-          ? `${createdCount + updatedCount} lead(s) processados no CRM. ${skippedWithoutWhatsapp} numero(s) foram bloqueados porque o motor nao encontrou WhatsApp.`
+          ? `${createdCount + updatedCount} lead(s) processados no CRM. ${skippedWithoutWhatsapp} numero(s) foram bloqueados porque o motor nao encontrou WhatsApp. Descartados nao consomem limite.`
           : createdCount && updatedCount
-            ? `${createdCount} lead(s) novos e ${updatedCount} atualizado(s) no CRM de Vendas.`
+            ? `${createdCount} lead(s) novos e ${updatedCount} atualizado(s) no CRM de Vendas. Descartados nao consomem limite.`
             : createdCount
-              ? `${createdCount} lead(s) enviados ao CRM de Vendas.`
-              : `${updatedCount} lead(s) já existentes foram atualizados no CRM de Vendas.`,
+              ? `${createdCount} lead(s) enviados ao CRM de Vendas. Descartados nao consomem limite.`
+              : `${updatedCount} lead(s) já existentes foram atualizados no CRM de Vendas. Descartados nao consomem limite.`,
     };
   }
 

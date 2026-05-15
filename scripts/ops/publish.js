@@ -2,6 +2,7 @@
 
 const {
   autoCommitIfNeeded,
+  ensureCleanWorkingTree,
   ensureMasterBranch,
   logStage,
   printChangedFiles,
@@ -22,6 +23,7 @@ function main() {
 
   logStage('Commit automatico');
   const commit = autoCommitIfNeeded('publish');
+  ensureCleanWorkingTree('HBX');
 
   logStage('Deploy Hostinger');
   runStep('node', ['./scripts/deploy-hostinger.js']);

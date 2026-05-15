@@ -1755,8 +1755,6 @@ function SalesMotionBackground() {
           <path d="M80 48 V202 M128 48 V202 M176 48 V202 M224 48 V202 M272 48 V202" />
         </g>
         <g className={styles.salesMotionPipeline}>
-          <rect x="248" y="46" width="78" height="44" rx="12" />
-          <path d="M263 60 H308 M263 72 H296" />
           <rect x="254" y="154" width="72" height="42" rx="12" />
           <text x="290" y="181" textAnchor="middle">$</text>
         </g>
@@ -3130,6 +3128,7 @@ export default function VendasClientPage() {
       const instagramHref = socialLinksVisible ? normalizeExternalUrl(intelligence.instagramUrl) : "";
       const facebookHref = socialLinksVisible ? normalizeExternalUrl(intelligence.facebookUrl) : "";
       const socialBadge = socialBadgeLabel(intelligence.primarySocial);
+      const socialTeaserVisible = capabilities.canSeeSocialLinks === "teaser_only" && Boolean(socialBadge);
       const whatsappStatus = intelligence.whatsappStatus || lead.whatsappAvailability?.status || null;
       const whatsappReady = whatsappStatus === "confirmed" || lead.whatsappAvailability?.status === "available";
       const whatsappUnavailable = whatsappStatus === "missing" || whatsappStatus === "invalid" || lead.whatsappAvailability?.status === "unavailable";
@@ -3185,8 +3184,10 @@ export default function VendasClientPage() {
       const status = lead.statusLabel || statusLabel(lead.status);
       const suggestedAction = lead.nextAction || nextBestActionLabel(intelligence.nextBestAction);
       const priorityLabel = score ? scoreLabel : "Aguardando dados";
-      const premiumTeaser = !intelligenceVisible && (intelligence.premiumTeaser || intelligence.primarySocial)
-        ? { label: "Disponível no HBX Lead", cta: "Ver card inteligente" }
+      const premiumTeaser = socialTeaserVisible
+        ? { label: "Redes encontradas", cta: "Disponível no HBX Lead - Ver card inteligente" }
+        : !intelligenceVisible && intelligence.premiumTeaser
+        ? { label: intelligence.premiumTeaser.label || "Disponível no HBX Lead", cta: intelligence.premiumTeaser.cta || "Ver card inteligente" }
         : null;
 
       return (
@@ -3277,15 +3278,13 @@ export default function VendasClientPage() {
                     <strong>{website || "Sem site"}</strong>
                     <b data-tone={website ? "smart" : "muted"}>{website ? "Site encontrado" : "Sem site"}</b>
                   </div>
-                  {socialBadge ? (
+                  {socialBadge && socialLinksVisible ? (
                     <div>
                       <span className={styles.mobileLeadRowIcon} aria-hidden="true">
                         {socialBadge}
                       </span>
-                      <strong>{socialLinksVisible ? "Rede social encontrada" : "Rede social detectada"}</strong>
-                      <b data-tone={socialLinksVisible ? "success" : "muted"}>
-                        {socialLinksVisible ? "Links liberados" : "Disponível no HBX Lead"}
-                      </b>
+                      <strong>Rede social encontrada</strong>
+                      <b data-tone="success">Links liberados</b>
                     </div>
                   ) : null}
                 </div>

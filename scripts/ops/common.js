@@ -174,6 +174,19 @@ function autoCommitIfNeeded(label) {
   };
 }
 
+function ensureCleanWorkingTree(label = 'HBX') {
+  const result = runStep('git', ['status', '--short'], { captureOutput: true });
+  const status = String(result.stdout || '').trim();
+
+  if (!status) {
+    console.log(`${label} working tree clean after automatic commit.`);
+    return;
+  }
+
+  console.log(status);
+  throw new Error(`Commit automatico nao deixou a arvore ${label} limpa. Push/deploy abortado.`);
+}
+
 function pushMaster() {
   runStep('git', ['push', remote, branch], { env: quietToolEnv() });
 }
@@ -388,6 +401,7 @@ module.exports = {
   autoCommitIfNeeded,
   createDatabaseBackupIfAvailable,
   createLocalOpsBackup,
+  ensureCleanWorkingTree,
   ensureMasterBranch,
   loadOperationsEnv,
   logStage,
