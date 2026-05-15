@@ -1,8 +1,9 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { InterfaceTransitionProvider } from "../components/InterfaceTransitionProvider";
 import PageTransition from "../components/PageTransition";
 import PreCheckoutGate from "../components/PreCheckoutGate";
+import PwaRegister from "../components/PwaRegister";
 import TopBar from "../components/TopBar";
 import { ThemeProvider } from "../components/ThemeProvider";
 import WhatsAppHelpBubble from "../components/WhatsAppHelpBubble";
@@ -18,8 +19,25 @@ const fontVariableStyle = {
 } as React.CSSProperties;
 
 export const metadata: Metadata = {
+  applicationName: "HBX Solutions",
   title: "HBX Solutions",
-  description: "Plataforma corporativa de operacao e atendimento",
+  description: "Plataforma corporativa de operação, atendimento, prospecção e gestão comercial.",
+  manifest: "/manifest.webmanifest",
+  appleWebApp: {
+    capable: true,
+    title: "HBX",
+    statusBarStyle: "black-translucent",
+  },
+  formatDetection: {
+    telephone: false,
+    address: false,
+    email: false,
+  },
+};
+
+export const viewport: Viewport = {
+  themeColor: "#07131d",
+  colorScheme: "light dark",
 };
 
 const themeBootstrapScript = `
@@ -214,26 +232,6 @@ const themeBootstrapScript = `
 })();
 `;
 
-const browserCacheResetScript = `
-(function(){
-  try {
-    var resetKey = "hbx:browser-cache-reset:2026-05-06-radar";
-    if (window.localStorage && window.localStorage.getItem(resetKey) === "done") return;
-    if ("serviceWorker" in navigator) {
-      navigator.serviceWorker.getRegistrations().then(function(registrations){
-        registrations.forEach(function(registration){ registration.unregister(); });
-      }).catch(function(){});
-    }
-    if ("caches" in window) {
-      window.caches.keys().then(function(keys){
-        keys.forEach(function(key){ window.caches.delete(key); });
-      }).catch(function(){});
-    }
-    if (window.localStorage) window.localStorage.setItem(resetKey, "done");
-  } catch (_) {}
-})();
-`;
-
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -246,13 +244,13 @@ export default function RootLayout({
         <meta httpEquiv="Pragma" content="no-cache" />
         <meta httpEquiv="Expires" content="0" />
         <script dangerouslySetInnerHTML={{ __html: themeBootstrapScript }} />
-        <script dangerouslySetInnerHTML={{ __html: browserCacheResetScript }} />
       </head>
       <body
         className="antialiased app-root"
         style={fontVariableStyle}
       >
         <ThemeProvider>
+          <PwaRegister />
           <InterfaceTransitionProvider>
             <TopBar />
             <PreCheckoutGate>
