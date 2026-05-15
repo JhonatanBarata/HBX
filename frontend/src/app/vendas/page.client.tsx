@@ -23,6 +23,7 @@ import {
   useCallback,
   type CSSProperties,
   type FormEvent,
+  type PointerEvent as ReactPointerEvent,
 } from "react";
 import { createPortal } from "react-dom";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -258,6 +259,13 @@ type BulkDeleteLeadsResponse = {
   deletedCount?: number;
 };
 
+type MobileBulkDeleteTarget = {
+  tab: Extract<MobileAgendaTab, "overdue" | "today">;
+  label: string;
+  count: number;
+  leadIds: string[];
+};
+
 type ReportLeadErrorResponse = {
   ok?: boolean;
   deletedCount?: number;
@@ -347,54 +355,54 @@ const MOBILE_READY_MESSAGE_PREF_KEY = "hbx.vendas.mobile.readyMessagePreference.
 const MOBILE_PREFERRED_CALLER_NAME_KEY = "hbx.vendas.mobile.preferredCallerName.v1";
 const MOBILE_OPEN_LEAD_KEY = "hbx.vendas.mobile.openLeadId.v1";
 const MOBILE_READY_MESSAGE_LIBRARY = [
-  "Olá, {{name}}. Vi a {{company}} em {{city}} e queria te mostrar uma forma simples de organizar contatos, retornos e oportunidades sem depender de planilha.",
-  "Oi, {{name}}. Notei que empresas de {{segment}} costumam perder retorno por falta de acompanhamento. Posso te mandar uma ideia rápida para resolver isso?",
+  "Olá, tudo bem? Vi a {{company}} em {{city}} e queria te mostrar uma forma simples de organizar contatos, retornos e oportunidades sem depender de planilha.",
+  "Oi, tudo bem? Notei que empresas de {{segment}} costumam perder retorno por falta de acompanhamento. Posso te mandar uma ideia rápida para resolver isso?",
   "Olá! Vi a {{company}} e achei que o HBX pode ajudar vocês a acompanhar interessados, lembretes e próximos contatos em um só lugar.",
   "Oi, tudo bem? Trabalho com uma solução para organizar prospecção e atendimento pelo WhatsApp. Faz sentido eu te explicar em 1 minuto?",
-  "Olá, {{name}}. Posso te mostrar como deixar os contatos de {{segment}} mais organizados e com retorno automático no momento certo?",
+  "Olá! Posso te mostrar como deixar os contatos de {{segment}} mais organizados e com retorno automático no momento certo?",
   "Oi! Passei pelo perfil da {{company}} e vi espaço para melhorar acompanhamento de clientes. Posso te enviar uma explicação curta?",
   "Olá. O HBX ajuda empresas locais a não esquecerem retorno, orçamento e follow-up. Posso te mostrar como ficaria para {{segment}}?",
-  "Oi, {{name}}. Se hoje vocês anotam contatos em WhatsApp, agenda ou planilha, tenho uma forma mais simples de centralizar isso. Posso mandar?",
+  "Oi, tudo bem? Se hoje vocês anotam contatos em WhatsApp, agenda ou planilha, tenho uma forma mais simples de centralizar isso. Posso mandar?",
   "Olá! Vi a {{company}} em {{city}}. Posso te mostrar uma ideia para transformar contatos soltos em uma fila clara de próximas ações?",
   "Oi. Ajudo empresas a organizar leads, retornos e atendimentos para vender com mais previsibilidade. Posso te explicar rapidamente?",
-  "Olá, {{name}}. Tenho uma sugestão prática para melhorar o controle dos contatos que chegam pelo WhatsApp. Posso te enviar?",
+  "Olá! Tenho uma sugestão prática para melhorar o controle dos contatos que chegam pelo WhatsApp. Posso te enviar?",
   "Oi! A ideia é simples: cada contato vira um card com status, lembrete e próxima ação. Quer ver como isso pode funcionar para {{company}}?",
   "Olá. Vi que {{segment}} depende muito de retorno rápido. Posso te mostrar uma ferramenta para não deixar interessados esfriarem?",
-  "Oi, {{name}}. O HBX organiza quem precisa ser chamado hoje, amanhã e depois. Posso te mandar um exemplo aplicado à {{company}}?",
+  "Oi! O HBX organiza quem precisa ser chamado hoje, amanhã e depois. Posso te mandar um exemplo aplicado à {{company}}?",
   "Olá! Posso te mostrar uma forma de acompanhar orçamento, retorno e conversa sem perder histórico no WhatsApp?",
   "Oi. Trabalho com automação comercial para pequenas empresas. A proposta é ganhar controle sem complicar a rotina. Posso explicar?",
-  "Olá, {{name}}. Se fizer sentido, te mostro como a {{company}} pode ter uma fila diária de contatos prioritários para chamar.",
+  "Olá! Se fizer sentido, te mostro como a {{company}} pode ter uma fila diária de contatos prioritários para chamar.",
   "Oi! Vi a {{company}} e pensei em uma melhoria simples: lembrar automaticamente quem precisa de retorno. Posso mandar a ideia?",
   "Olá. O HBX ajuda a separar contato novo, retorno e cliente interessado. Posso te mostrar como isso reduz esquecimentos?",
   "Oi, tudo bem? Tenho uma solução para organizar atendimento e prospecção em uma visão de app. Posso te mandar um resumo?",
-  "Olá, {{name}}. Empresas de {{segment}} costumam ganhar muito quando cada conversa já nasce com próxima ação. Posso te mostrar?",
+  "Olá! Empresas de {{segment}} costumam ganhar muito quando cada conversa já nasce com próxima ação. Posso te mostrar?",
   "Oi! Posso te enviar uma ideia para acompanhar leads por prioridade, com WhatsApp, ligação e observação no mesmo lugar?",
   "Olá. Vi a {{company}} e queria sugerir um jeito de melhorar retorno comercial sem contratar mais gente agora.",
-  "Oi, {{name}}. O objetivo é simples: menos contato perdido e mais follow-up no dia certo. Posso te explicar como?",
+  "Oi, tudo bem? O objetivo é simples: menos contato perdido e mais follow-up no dia certo. Posso te explicar como?",
   "Olá! Se vocês recebem pedidos, dúvidas ou orçamentos pelo WhatsApp, o HBX pode organizar isso em cards. Posso mostrar?",
   "Oi. Posso te mandar um exemplo de fluxo para a {{company}} acompanhar contatos e oportunidades com mais clareza?",
-  "Olá, {{name}}. Tenho uma ideia curta para transformar o WhatsApp em uma agenda comercial organizada. Faz sentido eu enviar?",
+  "Olá! Tenho uma ideia curta para transformar o WhatsApp em uma agenda comercial organizada. Faz sentido eu enviar?",
   "Oi! Vi a {{company}} em {{city}} e achei que vocês podem se beneficiar de uma rotina mais clara de retorno aos clientes.",
   "Olá. O HBX mostra o próximo contato certo e evita que leads fiquem esquecidos. Posso te mostrar a ideia?",
-  "Oi, {{name}}. Posso te explicar como organizar clientes interessados por status, data de retorno e canal de contato?",
+  "Oi, tudo bem? Posso te explicar como organizar clientes interessados por status, data de retorno e canal de contato?",
   "Olá! Trabalho com uma plataforma que ajuda empresas a venderem com mais organização no WhatsApp. Posso te mandar uma prévia?",
   "Oi. Se hoje vocês dependem de memória para retornar clientes, tenho uma solução simples para automatizar lembretes. Posso mostrar?",
-  "Olá, {{name}}. Vi a {{company}} e pensei em uma forma de melhorar acompanhamento sem mudar o jeito que vocês atendem.",
+  "Olá! Vi a {{company}} e pensei em uma forma de melhorar acompanhamento sem mudar o jeito que vocês atendem.",
   "Oi! Posso te mandar uma ideia rápida para organizar prospecção, contatos e retornos usando o HBX?",
   "Olá. Para {{segment}}, velocidade de retorno faz diferença. Posso te mostrar como priorizar quem chamar primeiro?",
-  "Oi, {{name}}. O HBX ajuda a enxergar quem está quente, quem precisa de retorno e quem deve ser descartado. Quer ver?",
+  "Oi! O HBX ajuda a enxergar quem está quente, quem precisa de retorno e quem deve ser descartado. Quer ver?",
   "Olá! Tenho uma forma de deixar o comercial mais visual: cards, score, próxima ação e mensagem pronta. Posso enviar?",
   "Oi. Vi a {{company}} e queria te mostrar um jeito de reduzir retrabalho no acompanhamento dos contatos.",
-  "Olá, {{name}}. Posso te mostrar como o HBX organiza WhatsApp, ligação e observações em uma rotina diária de vendas?",
+  "Olá! Posso te mostrar como o HBX organiza WhatsApp, ligação e observações em uma rotina diária de vendas?",
   "Oi! A proposta é ajudar a {{company}} a não perder oportunidades por falta de follow-up. Posso te explicar?",
   "Olá. Se vocês fazem orçamento ou atendimento consultivo, o HBX pode lembrar cada próxima etapa. Posso mandar um resumo?",
-  "Oi, {{name}}. Tenho uma ideia para deixar o retorno ao cliente mais rápido e rastreável. Posso compartilhar?",
+  "Oi, tudo bem? Tenho uma ideia para deixar o retorno ao cliente mais rápido e rastreável. Posso compartilhar?",
   "Olá! Vi a {{company}} e achei que uma agenda comercial inteligente pode ajudar no dia a dia. Posso te mostrar?",
   "Oi. Posso te enviar uma explicação bem objetiva de como o HBX organiza leads e retornos para empresas locais?",
-  "Olá, {{name}}. O HBX cria uma fila de ação para o time saber quem chamar agora. Posso mostrar como seria para {{segment}}?",
+  "Olá! O HBX cria uma fila de ação para o time saber quem chamar agora. Posso mostrar como seria para {{segment}}?",
   "Oi! Se fizer sentido, te mando um exemplo de mensagem, card e próxima ação para a rotina comercial da {{company}}.",
   "Olá. Ajudo empresas a terem mais controle dos contatos vindos do WhatsApp. Posso te mandar uma ideia rápida?",
-  "Oi, {{name}}. Vi a {{company}} e pensei em uma melhoria simples para organizar oportunidades sem perder o histórico.",
+  "Oi! Vi a {{company}} e pensei em uma melhoria simples para organizar oportunidades sem perder o histórico.",
   "Olá! Posso te mostrar como priorizar contatos bons, descartar negativos e manter retornos no prazo?",
   "Oi. Tenho uma sugestão curta para melhorar a cadência comercial da {{company}} com menos esforço manual. Posso enviar?",
 ] as const;
@@ -557,12 +565,13 @@ function personalizeMobileReadyMessage(
 ) {
   const company = mobileMessageTokenValue(lead.name, "sua empresa");
   const fromPerson = String(preferredPersonName || "").trim();
-  const greetingName = fromPerson || company.split(/\s+/)[0] || "tudo bem";
+  const greetingName = company === "sua empresa" ? "tudo bem" : company;
   const city = mobileMessageTokenValue(lead.city, "sua região");
   const segment = mobileMessageTokenValue(lead.segment, "empresas locais");
   const source = mobileMessageTokenValue(lead.primarySource, "Radar Digital");
   return template
     .replaceAll("{{name}}", greetingName)
+    .replaceAll("{{caller}}", fromPerson || "HBX")
     .replaceAll("{{company}}", company)
     .replaceAll("{{city}}", city)
     .replaceAll("{{segment}}", segment)
@@ -1758,6 +1767,12 @@ export default function VendasClientPage() {
   const [mobileReportLead, setMobileReportLead] = useState<LeadItem | null>(null);
   const [mobileReportReason, setMobileReportReason] = useState("");
   const [mobileReporting, setMobileReporting] = useState(false);
+  const [mobileDeletingLead, setMobileDeletingLead] = useState(false);
+  const [mobileBulkDeleteTarget, setMobileBulkDeleteTarget] =
+    useState<MobileBulkDeleteTarget | null>(null);
+  const [mobileBulkHoldTab, setMobileBulkHoldTab] = useState<
+    MobileBulkDeleteTarget["tab"] | null
+  >(null);
   const [whatsappFilter, setWhatsappFilter] = useState<WhatsappFilter>("all");
   const [inboxFilter, setInboxFilter] = useState<InboxFilter>("all");
   const [bulkSelectionMode, setBulkSelectionMode] = useState(false);
@@ -1816,6 +1831,8 @@ export default function VendasClientPage() {
   const pendingVisualBoardRef = useRef<BoardResponse | null>(null);
   const lastDragEndedAtRef = useRef(0);
   const filterScrollerRef = useRef<HTMLDivElement | null>(null);
+  const mobileBulkHoldTimerRef = useRef<number | null>(null);
+  const mobileBulkHoldCompletedRef = useRef(false);
   const lastRadarStatusSnapshotRef = useRef<{ count: number; status: string } | null>(null);
   const lastRadarBoardRefreshCountRef = useRef(0);
   const radarBoardRefreshInFlightRef = useRef(false);
@@ -2610,6 +2627,14 @@ export default function VendasClientPage() {
   );
   const mobileFutureCount = board?.summary.scheduled || 0;
 
+  useEffect(() => {
+    return () => {
+      if (mobileBulkHoldTimerRef.current) {
+        window.clearTimeout(mobileBulkHoldTimerRef.current);
+      }
+    };
+  }, []);
+
   function mobileLeadPlace(lead: LeadItem) {
     const city = String(lead.city || "").trim();
     const address = String(lead.address || "").trim();
@@ -2769,6 +2794,86 @@ export default function VendasClientPage() {
     setMobileReportReason("");
   }
 
+  function getMobileBulkTarget(
+    tab: MobileBulkDeleteTarget["tab"],
+  ): MobileBulkDeleteTarget | null {
+    const leads = tab === "overdue" ? board?.blocks.overdue || [] : board?.blocks.today || [];
+    const leadIds = leads.map((lead) => lead.id).filter(Boolean);
+    if (!leadIds.length) return null;
+    return {
+      tab,
+      label: tab === "overdue" ? "Atrasados" : "Hoje",
+      count: leadIds.length,
+      leadIds,
+    };
+  }
+
+  function cancelMobileBulkHold() {
+    if (mobileBulkHoldTimerRef.current) {
+      window.clearTimeout(mobileBulkHoldTimerRef.current);
+      mobileBulkHoldTimerRef.current = null;
+    }
+    setMobileBulkHoldTab(null);
+  }
+
+  function startMobileBulkHold(
+    event: ReactPointerEvent<HTMLButtonElement>,
+    tab: MobileBulkDeleteTarget["tab"],
+  ) {
+    if (event.pointerType === "mouse" && event.button !== 0) return;
+    const target = getMobileBulkTarget(tab);
+    if (!target || bulkDeleting) return;
+    mobileBulkHoldCompletedRef.current = false;
+    setMobileBulkHoldTab(tab);
+    mobileBulkHoldTimerRef.current = window.setTimeout(() => {
+      mobileBulkHoldTimerRef.current = null;
+      mobileBulkHoldCompletedRef.current = true;
+      setMobileBulkHoldTab(null);
+      setMobileAgendaTab(tab);
+      setMobileBulkDeleteTarget(target);
+      navigator.vibrate?.(24);
+    }, 1000);
+  }
+
+  function finishMobileBulkHold() {
+    cancelMobileBulkHold();
+    window.setTimeout(() => {
+      mobileBulkHoldCompletedRef.current = false;
+    }, 350);
+  }
+
+  async function deleteMobileLead() {
+    if (!mobileReportLead) return;
+    setMobileDeletingLead(true);
+    setError(null);
+    try {
+      const payload = await apiFetch<BulkDeleteLeadsResponse>(
+        `/vendas/leads/${encodeURIComponent(mobileReportLead.id)}/delete`,
+        { method: "POST" },
+      );
+      const deletedCount = Number(payload?.deletedCount || 0);
+      setFeedback(
+        deletedCount
+          ? "Card excluído do Vendas."
+          : "Este card já não estava mais disponível no Vendas.",
+      );
+      setMobileReportLead(null);
+      setMobileReportReason("");
+      if (selectedMobileLeadId === mobileReportLead.id) {
+        closeMobileLeadDetail();
+      }
+      await loadBoard({ forceHydrateDrafts: true, forceVisualRefresh: true });
+    } catch (deleteError) {
+      setError(
+        deleteError instanceof Error
+          ? deleteError.message
+          : "Falha ao excluir o card.",
+      );
+    } finally {
+      setMobileDeletingLead(false);
+    }
+  }
+
   async function submitMobileReport() {
     if (!mobileReportLead) return;
     const reason = mobileReportReason.trim();
@@ -2800,6 +2905,41 @@ export default function VendasClientPage() {
       );
     } finally {
       setMobileReporting(false);
+    }
+  }
+
+  async function deleteMobileBulkTarget() {
+    if (!mobileBulkDeleteTarget || !mobileBulkDeleteTarget.leadIds.length) return;
+    setBulkDeleting(true);
+    setError(null);
+    try {
+      const payload = await apiFetch<BulkDeleteLeadsResponse>(
+        "/vendas/leads/delete-bulk",
+        {
+          method: "POST",
+          body: JSON.stringify({ leadIds: mobileBulkDeleteTarget.leadIds }),
+        },
+      );
+      const deletedCount = Number(payload?.deletedCount || 0);
+      setFeedback(
+        deletedCount
+          ? `${deletedCount} card(s) excluído(s) de ${mobileBulkDeleteTarget.label}.`
+          : "Nenhum card novo para excluir.",
+      );
+      setMobileBulkDeleteTarget(null);
+      clearBulkSelection();
+      setBulkSelectionMode(false);
+      setSelectedLeadId(null);
+      setSelectedMobileLeadId(null);
+      await loadBoard({ forceHydrateDrafts: true, forceVisualRefresh: true });
+    } catch (deleteError) {
+      setError(
+        deleteError instanceof Error
+          ? deleteError.message
+          : "Falha ao excluir cards em massa.",
+      );
+    } finally {
+      setBulkDeleting(false);
     }
   }
 
@@ -3372,7 +3512,18 @@ export default function VendasClientPage() {
               className="hbx-mobile-card"
               data-tone="danger"
               data-active={mobileAgendaTab === "overdue" ? "true" : "false"}
-              onClick={() => setMobileAgendaTab("overdue")}
+              data-holding={mobileBulkHoldTab === "overdue" ? "true" : "false"}
+              onPointerDown={(event) => startMobileBulkHold(event, "overdue")}
+              onPointerUp={finishMobileBulkHold}
+              onPointerCancel={cancelMobileBulkHold}
+              onPointerLeave={cancelMobileBulkHold}
+              onClick={(event) => {
+                if (mobileBulkHoldCompletedRef.current) {
+                  event.preventDefault();
+                  return;
+                }
+                setMobileAgendaTab("overdue");
+              }}
             >
               <span>Atrasados</span>
               <strong>{board?.summary.overdue ?? 0}</strong>
@@ -3383,7 +3534,18 @@ export default function VendasClientPage() {
               className="hbx-mobile-card"
               data-tone="primary"
               data-active={mobileAgendaTab === "today" ? "true" : "false"}
-              onClick={() => setMobileAgendaTab("today")}
+              data-holding={mobileBulkHoldTab === "today" ? "true" : "false"}
+              onPointerDown={(event) => startMobileBulkHold(event, "today")}
+              onPointerUp={finishMobileBulkHold}
+              onPointerCancel={cancelMobileBulkHold}
+              onPointerLeave={cancelMobileBulkHold}
+              onClick={(event) => {
+                if (mobileBulkHoldCompletedRef.current) {
+                  event.preventDefault();
+                  return;
+                }
+                setMobileAgendaTab("today");
+              }}
             >
               <span>Hoje</span>
               <strong>{board?.summary.today ?? mobileLeadCount}</strong>
@@ -3436,7 +3598,11 @@ export default function VendasClientPage() {
                 const status = lead.statusLabel || statusLabel(lead.status);
                 const whatsappHref = buildWhatsAppUrl(lead.phone, lead.name);
                 const callHref = buildCallUrl(lead.phone);
-                const compactSocialBadge = socialBadgeLabel(lead.leadIntelligence?.primarySocial);
+                const compactScore = Math.max(
+                  0,
+                  Math.min(99, Math.round(Number(lead.leadIntelligence?.opportunityScore || 0))),
+                );
+                const compactScoreLabel = intelligenceScoreLabel(compactScore);
                 return (
                   <article
                     className={`${styles.mobileVendasCard} hbx-mobile-card`}
@@ -3472,6 +3638,17 @@ export default function VendasClientPage() {
                           <strong>{lead.name || "Lead sem nome"}</strong>
                           <span>{mobileLeadPlace(lead)}</span>
                         </div>
+                        {compactScore > 0 ? (
+                          <div
+                            className={styles.mobileVendasCardScore}
+                            style={{ ["--lead-score" as string]: `${compactScore}%` } as CSSProperties}
+                            aria-label={`Score ${compactScore}: ${compactScoreLabel}`}
+                          >
+                            <span>Score</span>
+                            <strong>{compactScore}</strong>
+                            <small>{compactScoreLabel}</small>
+                          </div>
+                        ) : null}
                         <div className={styles.mobileVendasCardActions}>
                           <button
                             type="button"
@@ -3502,11 +3679,9 @@ export default function VendasClientPage() {
                         <small>
                           Retorno <b>{mobileReturnLabel(lead)}</b>
                         </small>
-                        {compactSocialBadge ? (
-                          <small data-tone="social">
-                            {compactSocialBadge}
-                          </small>
-                        ) : null}
+                        <small data-tone="source">
+                          {mobileLeadSourceLabel(lead)}
+                        </small>
                       </div>
                       <div className={styles.mobileVendasNextAction}>
                         <span>Próxima ação</span>
@@ -3606,16 +3781,87 @@ export default function VendasClientPage() {
                   type="button"
                   className={styles.mobileVendasDeleteButton}
                   onClick={() => setMobileReportLead(null)}
-                  disabled={mobileReporting}
+                  disabled={mobileReporting || mobileDeletingLead}
                 >
                   Cancelar
                 </button>
                 <button
                   type="button"
+                  className={styles.mobileVendasDangerButton}
+                  onClick={() => void deleteMobileLead()}
+                  disabled={mobileReporting || mobileDeletingLead}
+                >
+                  {mobileDeletingLead ? "Excluindo" : "Excluir"}
+                </button>
+                <button
+                  type="button"
                   onClick={() => void submitMobileReport()}
-                  disabled={mobileReporting || !mobileReportReason.trim()}
+                  disabled={
+                    mobileReporting ||
+                    mobileDeletingLead ||
+                    !mobileReportReason.trim()
+                  }
                 >
                   {mobileReporting ? "Enviando" : "Reportar"}
+                </button>
+              </div>
+            </section>
+          </div>
+        ) : null}
+
+        {mobileBulkDeleteTarget ? (
+          <div
+            className={styles.mobileVendasSheetBackdrop}
+            onClick={() => {
+              if (!bulkDeleting) setMobileBulkDeleteTarget(null);
+            }}
+          >
+            <section
+              className={`${styles.mobileVendasNoteSheet} ${styles.mobileVendasReportSheet} ${styles.mobileVendasAttentionSheet}`}
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="mobile-vendas-bulk-delete-title"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <span className={styles.mobileVendasSheetHandle} />
+              <div className={styles.mobileVendasSheetHeader}>
+                <div>
+                  <small>Atenção</small>
+                  <h2 id="mobile-vendas-bulk-delete-title">
+                    Excluir cards de {mobileBulkDeleteTarget.label}
+                  </h2>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setMobileBulkDeleteTarget(null)}
+                  disabled={bulkDeleting}
+                >
+                  ×
+                </button>
+              </div>
+              <div className={styles.mobileVendasAttentionBody}>
+                <strong>{mobileBulkDeleteTarget.count} card(s) serão removidos do Vendas.</strong>
+                <p>
+                  A base do Radar Digital continua preservada. Esta ação só limpa
+                  os cards devidos desta guia.
+                </p>
+              </div>
+              <div className={styles.mobileVendasSheetFooter}>
+                <button
+                  type="button"
+                  className={styles.mobileVendasDeleteButton}
+                  onClick={() => setMobileBulkDeleteTarget(null)}
+                  disabled={bulkDeleting}
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  className={styles.mobileVendasDangerButton}
+                  onClick={() => void deleteMobileBulkTarget()}
+                  disabled={bulkDeleting}
+                >
+                  {bulkDeleting ? "Excluindo" : "Excluir"}
                 </button>
               </div>
             </section>
