@@ -16050,19 +16050,23 @@ html[data-theme-mode] .app-topbar .app-topbar__frame {
     height: auto !important;
     max-height: none !important;
     display: grid !important;
+    grid-auto-rows: max-content !important;
+    align-items: start !important;
     align-content: start !important;
-    gap: 14px !important;
-    overflow: visible !important;
+    gap: 10px !important;
+    overflow-y: auto !important;
+    overflow-x: visible !important;
     padding-bottom: calc(120px + env(safe-area-inset-bottom)) !important;
   }
 
   [class*="mobileVendasCard"] {
-    min-height: 122px !important;
+    min-height: 112px !important;
     height: auto !important;
     max-height: none !important;
+    align-self: start !important;
     align-items: start !important;
-    padding-top: 15px !important;
-    padding-bottom: 15px !important;
+    padding-top: 12px !important;
+    padding-bottom: 12px !important;
     overflow: visible !important;
     transform: none !important;
   }
