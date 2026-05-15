@@ -7,7 +7,6 @@ import DashboardScaffold from "@/components/DashboardScaffold";
 import HbxMobileDock from "@/components/mobile/HbxMobileDock";
 import {
   HbxAdvancedFilters,
-  HbxEngineSelector,
   HbxSegmentCombobox,
   HbxStateCityPicker,
   HbxTargetTypeSelector,
@@ -362,28 +361,52 @@ function compactLeadReason(lead: RadarLead) {
   return "Boa oportunidade: revisar sinais e escolher o melhor canal.";
 }
 
+function uniqueStrings(values: Array<string | null | undefined>) {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const value of values) {
+    const label = String(value || "").replace(/\s+/g, " ").trim();
+    const key = label.toLowerCase();
+    if (!label || seen.has(key)) continue;
+    seen.add(key);
+    result.push(label);
+  }
+  return result;
+}
+
+function uniqueByLabel<T extends { label: string }>(items: T[]) {
+  const seen = new Set<string>();
+  const result: T[] = [];
+  for (const item of items) {
+    const key = String(item.label || "").replace(/\s+/g, " ").trim().toLowerCase();
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    result.push(item);
+  }
+  return result;
+}
+
 function buildSmartChips(lead: RadarLead, max = 3) {
-  const whatsapp = whatsappTrustBadge(lead);
-  const email = emailTrustBadge(lead);
   const website = websiteTrustBadge(lead);
-  const chips = [
-    { label: whatsapp.label, tone: whatsapp.tone },
-    { label: email.label, tone: email.tone },
-    { label: lead.painLabel || website.label, tone: website.tone },
-  ];
-  return chips.slice(0, max);
+  const score = Number(lead.enrichmentScore || lead.opportunityScore || 0);
+  const socialFound = Boolean(lead.instagramUrl || lead.facebookUrl || String(lead.socialStatus || "").toLowerCase() === "found");
+  return uniqueByLabel([
+    score >= 70 ? { label: "Alta oportunidade", tone: "success" } : null,
+    lead.painLabel ? { label: lead.painLabel, tone: website.tone } : null,
+    { label: website.label, tone: website.tone },
+    socialFound ? { label: "Rede social", tone: "success" } : null,
+    Number(lead.rating || 0) >= 4.2 ? { label: "Boa avaliação", tone: "success" } : null,
+  ].filter(Boolean) as Array<{ label: string; tone: string }>).slice(0, max);
 }
 
 function buildWhyCallSignals(lead: RadarLead) {
-  const signals = [
-    whatsappTrustBadge(lead).label,
-    emailTrustBadge(lead).label,
+  return uniqueStrings([
+    lead.painLabel || null,
     websiteTrustBadge(lead).label,
     lead.rating ? `Nota ${Number(lead.rating).toLocaleString("pt-BR", { maximumFractionDigits: 1 })}` : null,
     lead.reviews ? `${Number(lead.reviews).toLocaleString("pt-BR")} avaliações` : null,
     lead.businessCategory || lead.segment || null,
-  ].filter((value): value is string => Boolean(value));
-  return Array.from(new Set(signals)).slice(0, 5);
+  ]).slice(0, 5);
 }
 
 function buildRadarDraftMessage(lead: RadarLead) {
@@ -610,6 +633,177 @@ function mobileRadarEngineLabel(value: string) {
   return value === "google" ? "Google" : "Motor HBX";
 }
 
+type MobilePickerOption = {
+  value: string;
+  label?: string;
+};
+
+function MobilePickerButton({
+  label,
+  value,
+  placeholder,
+  disabled,
+  helper,
+  onClick,
+}: {
+  label: string;
+  value?: string | null;
+  placeholder: string;
+  disabled?: boolean;
+  helper?: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      className={styles.mobilePickerButton}
+      disabled={disabled}
+      onClick={onClick}
+    >
+      <span>{label}</span>
+      <strong>{value || placeholder}</strong>
+      {helper ? <small>{helper}</small> : null}
+      <b aria-hidden="true">⌕</b>
+    </button>
+  );
+}
+
+function MobileFilterSheet({
+  title,
+  value,
+  options,
+  placeholder = "Pesquisar",
+  allowCustom = false,
+  onSelect,
+  onClose,
+}: {
+  title: string;
+  value: string;
+  options: MobilePickerOption[];
+  placeholder?: string;
+  allowCustom?: boolean;
+  onSelect: (value: string) => void;
+  onClose: () => void;
+}) {
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const inputRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    if (!searchOpen) return;
+    inputRef.current?.focus();
+  }, [searchOpen]);
+
+  const filteredOptions = useMemo(() => {
+    const normalized = query.trim().toLowerCase();
+    const base = uniqueByLabel(
+      options.map((option) => ({
+        ...option,
+        label: option.label || option.value,
+      })),
+    );
+    if (!normalized) return base.slice(0, 80);
+    return base
+      .filter((option) => String(option.label || "").toLowerCase().includes(normalized) || option.value.toLowerCase().includes(normalized))
+      .slice(0, 80);
+  }, [options, query]);
+
+  const customValue = query.trim();
+
+  return (
+    <div className={styles.mobilePickerPanel} role="presentation" onClick={onClose}>
+      <section
+        className={styles.mobilePickerSheet}
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className={styles.mobilePickerHeader}>
+          <strong>{title}</strong>
+          <div className={styles.mobilePickerActions}>
+            <button type="button" aria-label="Pesquisar" onClick={() => setSearchOpen(true)}>⌕</button>
+            <button type="button" onClick={onClose}>Fechar</button>
+          </div>
+        </div>
+        {searchOpen ? (
+          <input
+            ref={inputRef}
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder={placeholder}
+          />
+        ) : null}
+        <div className={styles.mobilePickerList}>
+          <button
+            type="button"
+            data-active={!value ? "true" : "false"}
+            onClick={() => {
+              onSelect("");
+              onClose();
+            }}
+          >
+            Limpar seleção
+          </button>
+          {allowCustom && customValue && !filteredOptions.some((option) => option.value.toLowerCase() === customValue.toLowerCase()) ? (
+            <button
+              type="button"
+              onClick={() => {
+                onSelect(customValue);
+                onClose();
+              }}
+            >
+              Usar "{customValue}"
+            </button>
+          ) : null}
+          {filteredOptions.map((option) => (
+            <button
+              type="button"
+              key={option.value}
+              data-active={option.value === value ? "true" : "false"}
+              onClick={() => {
+                onSelect(option.value);
+                onClose();
+              }}
+            >
+              {option.label || option.value}
+            </button>
+          ))}
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function MobileEngineToggle({
+  value,
+  onChange,
+  className,
+}: {
+  value: HbxEngineValue;
+  onChange: (value: HbxEngineValue) => void;
+  className?: string;
+}) {
+  return (
+    <div className={`${styles.engineToggle} ${className || ""}`} role="group" aria-label="Motor de busca">
+      {[
+        { value: "hbx" as HbxEngineValue, label: "Motor HBX" },
+        { value: "google" as HbxEngineValue, label: "Google" },
+      ].map((option) => (
+        <button
+          type="button"
+          key={option.value}
+          data-active={value === option.value ? "true" : "false"}
+          onClick={() => onChange(option.value)}
+        >
+          <span aria-hidden="true" />
+          {option.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function readMobileRadarSearchNoticeDismissed() {
   if (typeof window === "undefined") return false;
   return window.localStorage.getItem(MOBILE_RADAR_SEARCH_NOTICE_DISMISSED_KEY) === "true";
@@ -641,6 +835,8 @@ export default function RadarDigitalClientPage() {
   const [mobileAutoImportPending, setMobileAutoImportPending] = useState(false);
   const [mobileSearchNoticeOpen, setMobileSearchNoticeOpen] = useState(false);
   const [mobileSearchNoticeDismissed, setMobileSearchNoticeDismissed] = useState(readMobileRadarSearchNoticeDismissed);
+  const [mobilePicker, setMobilePicker] = useState<"state" | "city" | "segment" | null>(null);
+  const [mobileAdvancedOpen, setMobileAdvancedOpen] = useState(false);
   const [availableFilters, setAvailableFilters] = useState<RadarAvailableFilters>({
     states: [],
     citiesByState: {},
@@ -1475,11 +1671,7 @@ export default function RadarDigitalClientPage() {
       startMobileRadarSearch();
       return;
     }
-    const firstField = document.querySelector<HTMLElement>(
-      `.${styles.mobileRadarForm} select, .${styles.mobileRadarForm} input`,
-    );
-    firstField?.focus();
-    firstField?.scrollIntoView({ behavior: "smooth", block: "center" });
+    setMobilePicker(filters.state ? "city" : "state");
   }
 
   return (
@@ -1537,102 +1729,54 @@ export default function RadarDigitalClientPage() {
               startMobileRadarSearch();
             }}
           >
-            <label>
-              <span>Estado</span>
-              <select
-                value={filters.state}
-                onChange={(event) => setFilters((current) => ({ ...current, state: event.target.value, city: "" }))}
-              >
-                <option value="">Selecione</option>
-                {mobileStateOptions.map((state) => (
-                  <option key={state} value={state}>{state}</option>
-                ))}
-              </select>
-            </label>
+            <MobilePickerButton
+              label="Estado"
+              value={filters.state}
+              placeholder="Selecionar estado"
+              onClick={() => setMobilePicker("state")}
+            />
 
-            <label className={filters.state ? styles.mobileRadarFieldReady : styles.mobileRadarFieldLocked}>
-              <span>Cidade</span>
-              <select
-                value={filters.city}
-                onChange={(event) => setFilters((current) => ({ ...current, city: event.target.value }))}
-                disabled={!filters.state}
-              >
-                <option value="">{filters.state ? "Selecione" : "Escolha o estado"}</option>
-                {mobileCityOptions.map((city) => (
-                  <option key={city} value={city}>{city}</option>
-                ))}
-              </select>
-              <small>{filters.state ? "Cidade liberada para o estado selecionado." : "Escolha um estado para liberar as cidades."}</small>
-            </label>
+            <MobilePickerButton
+              label="Cidade"
+              value={filters.city}
+              placeholder={filters.state ? "Selecionar cidade" : "Escolha o estado"}
+              disabled={!filters.state}
+              helper={filters.state ? "Cidade liberada para o estado selecionado." : "Escolha um estado para liberar as cidades."}
+              onClick={() => setMobilePicker("city")}
+            />
 
-            <label>
-              <span>Segmento</span>
-              <input
-                value={filters.segment}
-                onChange={(event) => setFilters((current) => ({ ...current, segment: event.target.value }))}
-                list="mobile-radar-segments"
-                placeholder="Ex.: Clínica, academia, estética, pet, oficina"
-              />
-              <small>Escolha até 5 segmentos para destravar mais cards. Pode pesquisar com 1.</small>
-              <datalist id="mobile-radar-segments">
-                {mobileSegmentOptions.slice(0, 80).map((segment) => (
-                  <option key={segment} value={segment} />
-                ))}
-              </datalist>
-            </label>
+            <MobilePickerButton
+              label="Segmento"
+              value={filters.segment}
+              placeholder="Ex.: Clínica, academia, estética"
+              helper="Pesquise no pop-up ou escolha uma sugestão."
+              onClick={() => setMobilePicker("segment")}
+            />
 
-            <label>
+            <div className={styles.mobileRadarEngineField}>
               <span>Motor</span>
-              <select
+              <MobileEngineToggle
                 value={filters.engine}
-                onChange={(event) => setFilters((current) => ({ ...current, engine: event.target.value === "google" ? "google" : "hbx" }))}
-              >
-                <option value="hbx">Motor HBX</option>
-                <option value="google">Google</option>
-              </select>
-            </label>
+                onChange={(value) => setFilters((current) => ({ ...current, engine: value }))}
+              />
+            </div>
 
-            <details className={styles.mobileRadarAdvanced}>
-              <summary>Filtros avançados</summary>
-              <div>
-                <label>
-                  <span>DDD</span>
-                  <input
-                    inputMode="numeric"
-                    value={filters.ddd}
-                    onChange={(event) => setFilters((current) => ({ ...current, ddd: event.target.value.replace(/\D/g, "").slice(0, 2) }))}
-                    placeholder="11"
-                  />
-                </label>
-                <label>
-                  <span>Score</span>
-                  <select
-                    value={filters.scoreRange}
-                    onChange={(event) => setFilters((current) => ({ ...current, scoreRange: event.target.value }))}
-                  >
-                    <option value="">Todos</option>
-                    <option value="70-100">Alta oportunidade</option>
-                    <option value="40-69">Média oportunidade</option>
-                  </select>
-                </label>
-                <label className={styles.mobileRadarCheck}>
-                  <input
-                    type="checkbox"
-                    checked={filters.noWebsite}
-                    onChange={(event) => setFilters((current) => ({ ...current, noWebsite: event.target.checked }))}
-                  />
-                  Sem website
-                </label>
-                <label className={styles.mobileRadarCheck}>
-                  <input
-                    type="checkbox"
-                    checked={filters.highOpportunity}
-                    onChange={(event) => setFilters((current) => ({ ...current, highOpportunity: event.target.checked }))}
-                  />
-                  Só alta oportunidade
-                </label>
-              </div>
-            </details>
+            <button
+              type="button"
+              className={styles.mobileAdvancedButton}
+              onClick={() => setMobileAdvancedOpen(true)}
+            >
+              <span>Filtros avançados</span>
+              <strong>
+                {[
+                  filters.ddd ? `DDD ${filters.ddd}` : null,
+                  filters.scoreRange ? "Score" : null,
+                  filters.noWebsite ? "Sem site" : null,
+                  filters.highOpportunity ? "Alta oportunidade" : null,
+                ].filter(Boolean).join(" · ") || "Opcional"}
+              </strong>
+              <b aria-hidden="true">⌕</b>
+            </button>
 
             {mobileVendasBlocked ? (
               <div className={`${styles.mobileRadarNotice} hbx-mobile-notice`}>
@@ -1665,6 +1809,100 @@ export default function RadarDigitalClientPage() {
               </button>
             </div>
           </form>
+
+          {mobilePicker === "state" ? (
+            <MobileFilterSheet
+              title="Estado"
+              value={filters.state}
+              options={mobileStateOptions.map((state) => ({ value: state }))}
+              placeholder="Buscar estado"
+              onSelect={(value) => setFilters((current) => ({ ...current, state: value, city: "" }))}
+              onClose={() => setMobilePicker(null)}
+            />
+          ) : null}
+          {mobilePicker === "city" ? (
+            <MobileFilterSheet
+              title="Cidade"
+              value={filters.city}
+              options={mobileCityOptions.map((city) => ({ value: city }))}
+              placeholder="Buscar cidade"
+              onSelect={(value) => setFilters((current) => ({ ...current, city: value }))}
+              onClose={() => setMobilePicker(null)}
+            />
+          ) : null}
+          {mobilePicker === "segment" ? (
+            <MobileFilterSheet
+              title="Segmento"
+              value={filters.segment}
+              options={mobileSegmentOptions.map((segment) => ({ value: segment }))}
+              placeholder="Buscar ou digitar segmento"
+              allowCustom
+              onSelect={(value) => setFilters((current) => ({ ...current, segment: value }))}
+              onClose={() => setMobilePicker(null)}
+            />
+          ) : null}
+          {mobileAdvancedOpen ? (
+            <div className={styles.mobilePickerPanel} role="presentation" onClick={() => setMobileAdvancedOpen(false)}>
+              <section
+                className={styles.mobilePickerSheet}
+                role="dialog"
+                aria-modal="true"
+                aria-label="Filtros avançados"
+                onClick={(event) => event.stopPropagation()}
+              >
+                <div className={styles.mobilePickerHeader}>
+                  <strong>Filtros avançados</strong>
+                  <button type="button" onClick={() => setMobileAdvancedOpen(false)}>Fechar</button>
+                </div>
+                <div className={styles.mobileAdvancedGrid}>
+                  <label>
+                    <span>DDD</span>
+                    <input
+                      inputMode="numeric"
+                      value={filters.ddd}
+                      onChange={(event) => setFilters((current) => ({ ...current, ddd: event.target.value.replace(/\D/g, "").slice(0, 2) }))}
+                      placeholder="11"
+                    />
+                  </label>
+                  <div>
+                    <span>Score</span>
+                    <div className={styles.mobileAdvancedOptions}>
+                      {[
+                        { value: "", label: "Todos" },
+                        { value: "70-100", label: "Alta oportunidade" },
+                        { value: "40-69", label: "Média oportunidade" },
+                      ].map((option) => (
+                        <button
+                          type="button"
+                          key={option.value || "all"}
+                          data-active={filters.scoreRange === option.value ? "true" : "false"}
+                          onClick={() => setFilters((current) => ({ ...current, scoreRange: option.value }))}
+                        >
+                          {option.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <label className={styles.mobileAdvancedCheck}>
+                    <input
+                      type="checkbox"
+                      checked={filters.noWebsite}
+                      onChange={(event) => setFilters((current) => ({ ...current, noWebsite: event.target.checked }))}
+                    />
+                    Sem website
+                  </label>
+                  <label className={styles.mobileAdvancedCheck}>
+                    <input
+                      type="checkbox"
+                      checked={filters.highOpportunity}
+                      onChange={(event) => setFilters((current) => ({ ...current, highOpportunity: event.target.checked }))}
+                    />
+                    Só alta oportunidade
+                  </label>
+                </div>
+              </section>
+            </div>
+          ) : null}
 
           {mobileSearchNoticeOpen ? (
             <section
@@ -1731,14 +1969,19 @@ export default function RadarDigitalClientPage() {
                   const draftMessage = buildRadarDraftMessage(lead);
                   return (
                     <article key={lead.id} className={`${styles.mobileRadarCard} hbx-mobile-card`}>
-                      <div>
-                        <strong>{lead.name || "Empresa sem nome"}</strong>
-                        <span>{[lead.city, lead.state].filter(Boolean).join(" / ") || "Cidade não informada"}</span>
+                      <div className={styles.mobileRadarCardHeader}>
+                        <div>
+                          <strong>{lead.name || "Empresa sem nome"}</strong>
+                          <span>{[lead.city, lead.state].filter(Boolean).join(" / ") || "Cidade não informada"}</span>
+                        </div>
+                        <div className={styles.score} style={{ ["--score" as string]: `${score}%` }}>
+                          <b>{score}</b>
+                          <small>{opportunityLabel(score)}</small>
+                        </div>
                       </div>
                       <p>{lead.segment || "Segmento não informado"}</p>
                       <dl>
                         <div><dt>Telefone</dt><dd>{formatPhone(lead.phone || lead.phoneDigits)}</dd></div>
-                        <div><dt>Score</dt><dd>{score || "Sem score"}</dd></div>
                         <div><dt>Status</dt><dd data-tone={ownerBadge.tone}>{ownerBadge.label}</dd></div>
                         <div><dt>Canal</dt><dd>{channelLabel(lead.recommendedChannel)}</dd></div>
                       </dl>
@@ -1750,7 +1993,7 @@ export default function RadarDigitalClientPage() {
                           <div className={styles.mobileWhyCall}>
                             <div>
                               <span>Por que chamar?</span>
-                              <strong>{compactLeadReason(lead)}</strong>
+                              <strong title={compactLeadReason(lead)}>{compactLeadReason(lead)}</strong>
                             </div>
                             <div className={styles.mobileWhySignals}>
                               {whySignals.map((signal) => <span key={signal}>{signal}</span>)}
@@ -1871,10 +2114,9 @@ export default function RadarDigitalClientPage() {
             />
           </div>
           <div className={styles.filterEngine}>
-            <HbxEngineSelector
+            <MobileEngineToggle
               value={filters.engine}
               onChange={(value) => setFilters((current) => ({ ...current, engine: value }))}
-              showDescription={false}
             />
           </div>
           <div className={styles.filterAdvanced}>
@@ -1982,8 +2224,6 @@ export default function RadarDigitalClientPage() {
                     <div className={styles.metaGrid}>
                       <span><b>Telefone</b>{formatPhone(lead.phone || lead.phoneDigits)}</span>
                       <span><b>Cidade/UF</b>{[lead.city, lead.state].filter(Boolean).join(" / ") || "Não informado"}</span>
-                      <span><b>Segmento</b>{lead.segment || "Não informado"}</span>
-                      <span><b>Website</b>{lead.website ? lead.website : websiteLabel(lead.websiteStatus)}</span>
                       <span><b>Origem</b>{origin}</span>
                       <span><b>Status</b>{statusLabel(status)}</span>
                     </div>
@@ -1993,7 +2233,7 @@ export default function RadarDigitalClientPage() {
                         <div className={styles.smartChips}>
                           {chips.map((chip) => <span key={chip.label} data-tone={chip.tone}>{chip.label}</span>)}
                         </div>
-                        <p className={styles.reason}>{compactLeadReason(lead)}</p>
+                        <p className={styles.reason} title={compactLeadReason(lead)}>{compactLeadReason(lead)}</p>
                         <div className={styles.smartDetails}>
                           <span><b>Canal recomendado</b>{channelLabel(lead.recommendedChannel)}</span>
                           <span><b>E-mail</b>{lead.email || emailLabel(lead.emailStatus)}</span>
@@ -2003,7 +2243,7 @@ export default function RadarDigitalClientPage() {
                       </div>
                     ) : (
                       <>
-                        {lead.opportunityReason ? <p className={styles.reason}>{lead.opportunityReason}</p> : null}
+                        {lead.opportunityReason ? <p className={styles.reason} title={lead.opportunityReason}>{lead.opportunityReason}</p> : null}
                         <div className={styles.listUpsell}>Lead inteligente disponível no HBX Lead</div>
                       </>
                     )}

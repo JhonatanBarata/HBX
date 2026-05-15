@@ -145,6 +145,212 @@
 }
 
 @media (max-width: 820px) {
+  .mobilePickerButton,
+  .mobileAdvancedButton,
+  .mobileRadarEngineField {
+    min-width: 0;
+    width: 100%;
+    border: 1px solid rgba(190, 206, 235, 0.72);
+    border-radius: 14px;
+    background:
+      radial-gradient(circle at 100% 0%, rgba(47, 111, 255, 0.08), transparent 34%),
+      #ffffff;
+    color: #071436;
+    padding: 10px 42px 10px 12px;
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.9),
+      0 12px 24px -24px rgba(7, 87, 223, 0.48);
+  }
+
+  .mobilePickerButton,
+  .mobileAdvancedButton {
+    position: relative;
+    display: grid;
+    gap: 3px;
+    min-height: 62px;
+    text-align: left;
+    font: inherit;
+  }
+
+  .mobilePickerButton:disabled {
+    opacity: 0.64;
+    filter: saturate(0.78);
+  }
+
+  .mobilePickerButton > span,
+  .mobileAdvancedButton > span,
+  .mobileRadarEngineField > span {
+    color: #315071;
+    font-size: 0.66rem;
+    line-height: 1.18;
+    font-weight: 950;
+    text-transform: uppercase;
+  }
+
+  .mobilePickerButton strong,
+  .mobileAdvancedButton strong {
+    min-width: 0;
+    overflow: hidden;
+    color: #07143a;
+    font-size: 0.92rem;
+    line-height: 1.15;
+    font-weight: 930;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .mobilePickerButton small {
+    color: #657593;
+    font-size: 0.7rem;
+    line-height: 1.15;
+    font-weight: 760;
+  }
+
+  .mobilePickerButton b,
+  .mobileAdvancedButton b {
+    position: absolute;
+    top: 50%;
+    right: 12px;
+    width: 28px;
+    height: 28px;
+    transform: translateY(-50%);
+    display: grid;
+    place-items: center;
+    border-radius: 10px;
+    background: #eef4ff;
+    color: #0757df;
+    font-size: 0.9rem;
+    font-weight: 950;
+  }
+
+  .mobileRadarEngineField {
+    display: grid;
+    gap: 8px;
+    padding-right: 12px;
+  }
+
+  .mobileRadarEngineField .engineToggle button {
+    min-height: 40px;
+    border-radius: 11px;
+    background: #f7faff;
+    color: #49617f;
+    font-size: 0.78rem;
+  }
+
+  .mobileRadarEngineField .engineToggle button[data-active="true"] {
+    border-color: rgba(7, 87, 223, 0.34);
+    background:
+      radial-gradient(circle at 30% 0%, rgba(255, 255, 255, 0.46), transparent 34%),
+      linear-gradient(135deg, #0757df, #2388ff);
+    color: #ffffff;
+  }
+
+  .mobileAdvancedGrid {
+    display: grid;
+    gap: 12px;
+  }
+
+  .mobileAdvancedGrid label,
+  .mobileAdvancedGrid > div {
+    display: grid;
+    gap: 7px;
+    color: #071436;
+    font-size: 0.82rem;
+    font-weight: 850;
+  }
+
+  .mobileAdvancedGrid label > span,
+  .mobileAdvancedGrid > div > span {
+    color: #315071;
+    font-size: 0.66rem;
+    font-weight: 950;
+    text-transform: uppercase;
+  }
+
+  .mobileAdvancedOptions {
+    display: grid;
+    gap: 8px;
+  }
+
+  .mobileAdvancedOptions button {
+    min-height: 42px;
+    border: 1px solid rgba(202, 214, 236, 0.72);
+    border-radius: 12px;
+    background: #ffffff;
+    color: #14204a;
+    font: inherit;
+    font-weight: 850;
+    text-align: left;
+    padding: 0 12px;
+  }
+
+  .mobileAdvancedOptions button[data-active="true"],
+  .mobilePickerList button[data-active="true"] {
+    border-color: rgba(7, 87, 223, 0.34);
+    background: #eef4ff;
+    color: #0757df;
+  }
+
+  .mobileAdvancedCheck {
+    min-height: 42px;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: center;
+    border: 1px solid rgba(202, 214, 236, 0.72);
+    border-radius: 12px;
+    background: #ffffff;
+    padding: 0 12px;
+  }
+
+  .mobileAdvancedCheck input {
+    width: 18px;
+    height: 18px;
+    accent-color: #0757df;
+  }
+
+  .mobileRadarCardHeader {
+    min-width: 0;
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) 72px;
+    align-items: start;
+    gap: 10px !important;
+  }
+
+  .mobileRadarCardHeader > div:first-child {
+    min-width: 0;
+    display: grid;
+    gap: 4px;
+  }
+
+  .mobileRadarCardHeader .score {
+    width: 68px;
+    min-width: 68px;
+    min-height: 56px;
+    border-radius: 16px;
+  }
+
+  .mobileRadarCardHeader .score b {
+    font-size: 1.24rem;
+  }
+
+  .mobileRadarCardHeader .score small,
+  .mobileWhyCall div:first-child strong {
+    display: -webkit-box;
+    overflow: hidden;
+    -webkit-box-orient: vertical;
+  }
+
+  .mobileRadarCardHeader .score small {
+    -webkit-line-clamp: 2;
+  }
+
+  .mobileWhyCall div:first-child strong {
+    -webkit-line-clamp: 2;
+  }
+
+  .reason {
+    -webkit-line-clamp: 2;
+  }
+
   .shell {
     min-height: 100dvh;
     margin: 0 calc(50% - 50vw);
@@ -1721,29 +1927,44 @@
 .score {
   --score: 0%;
   justify-self: end;
-  width: 68px;
-  aspect-ratio: 1;
-  border-radius: 999px;
+  width: 72px;
+  min-width: 72px;
+  min-height: 60px;
+  border: 1px solid rgba(114, 174, 255, 0.42);
+  border-radius: 18px;
   display: grid;
   place-items: center;
+  align-content: center;
+  gap: 2px;
+  padding: 7px 8px;
   text-align: center;
   background:
-    radial-gradient(circle at center, color-mix(in srgb, var(--surface) 96%, var(--surface-raised)) 56%, transparent 57%),
-    conic-gradient(color-mix(in srgb, var(--success) 82%, var(--brand)) var(--score), color-mix(in srgb, var(--line) 72%, transparent) 0);
+    radial-gradient(circle at 28% 18%, rgba(255, 255, 255, 0.55), transparent 34%),
+    linear-gradient(135deg, #0757df 0%, #2388ff 54%, #1ed5ff 100%);
+  box-shadow:
+    0 16px 30px -24px rgba(7, 87, 223, 0.82),
+    inset 0 1px 0 rgba(255, 255, 255, 0.42);
+  color: #ffffff;
+  animation: radarScoreEnter 360ms cubic-bezier(.2,.78,.2,1) both;
 }
 
 .score b {
-  color: var(--foreground);
-  font-size: 1rem;
-  line-height: 1;
+  color: #ffffff;
+  font-size: 1.34rem;
+  line-height: 0.95;
+  font-weight: 950;
 }
 
 .score small {
-  width: 54px;
-  color: var(--muted);
-  font-size: 0.5rem;
-  font-weight: 800;
+  width: 100%;
+  color: rgba(255, 255, 255, 0.86);
+  font-size: 0.56rem;
+  font-weight: 900;
   line-height: 1.05;
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 .metaGrid {
@@ -1772,6 +1993,10 @@
   color: var(--muted);
   font-size: 0.84rem;
   line-height: 1.45;
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
 }
 
 .history {
@@ -1792,6 +2017,72 @@
   font-size: 0.7rem;
   font-weight: 850;
   padding: 0 9px;
+}
+
+.engineToggle {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.engineToggle button {
+  min-height: 42px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 1px solid color-mix(in srgb, var(--line) 84%, transparent);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--surface-raised) 86%, transparent);
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 900;
+  cursor: pointer;
+  transition:
+    transform 150ms ease,
+    border-color 150ms ease,
+    background 150ms ease,
+    color 150ms ease,
+    box-shadow 150ms ease;
+}
+
+.engineToggle button span {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: currentColor;
+  opacity: 0.56;
+}
+
+.engineToggle button[data-active="true"] {
+  border-color: color-mix(in srgb, var(--brand) 36%, var(--line));
+  background:
+    radial-gradient(circle at 30% 0%, color-mix(in srgb, var(--brand) 18%, transparent), transparent 36%),
+    color-mix(in srgb, var(--brand) 10%, var(--surface-raised));
+  color: color-mix(in srgb, var(--brand) 84%, var(--foreground));
+  box-shadow: 0 14px 28px -24px color-mix(in srgb, var(--brand) 74%, transparent);
+}
+
+  .engineToggle button:active {
+  transform: scale(0.98);
+}
+
+@keyframes radarScoreEnter {
+  from {
+    opacity: 0;
+    transform: scale(0.94);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .score {
+    animation: none;
+  }
 }
 
 .history small {
@@ -3919,5 +4210,243 @@
   .mobileRadarFieldReady select {
     border-color: rgba(7, 87, 223, 0.38) !important;
     background: #ffffff !important;
+  }
+}
+
+@media (max-width: 820px) {
+  .mobileRadarHeader {
+    padding-inline: 2px !important;
+  }
+
+  .mobileRadarHeader strong {
+    color: #06163f !important;
+    font-size: 1.28rem !important;
+    line-height: 1 !important;
+  }
+
+  .mobileRadarHeader span {
+    color: #52627f !important;
+    font-size: 0.82rem !important;
+    font-weight: 720 !important;
+  }
+
+  .mobileRadarHero {
+    position: relative !important;
+    display: grid !important;
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+    gap: 10px !important;
+    min-height: 248px !important;
+    padding: 18px 14px 14px !important;
+    overflow: hidden !important;
+    border: 1px solid rgba(207, 223, 247, 0.94) !important;
+    border-radius: 28px !important;
+    background:
+      linear-gradient(90deg, rgba(255, 255, 255, 0.96) 0 52%, rgba(239, 248, 255, 0.72) 52%),
+      radial-gradient(circle at 8% 10%, rgba(255, 255, 255, 0.98), rgba(232, 245, 255, 0.82) 70%) !important;
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.95),
+      0 22px 48px -38px rgba(19, 73, 142, 0.72) !important;
+  }
+
+  .mobileRadarHero::before {
+    content: "" !important;
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background:
+      linear-gradient(105deg, transparent 0 58%, rgba(8, 28, 78, 0.08) 58.4%, transparent 59%),
+      radial-gradient(circle at 78% 32%, rgba(59, 153, 255, 0.22), transparent 34%) !important;
+  }
+
+  .mobileRadarHeroCopy {
+    grid-column: 1 / 3 !important;
+    align-self: start;
+    z-index: 2;
+    padding: 0 !important;
+  }
+
+  .mobileRadarHeroCopy span {
+    display: inline-flex !important;
+    align-items: center;
+    gap: 8px;
+    width: fit-content;
+    max-width: 100%;
+    min-height: 30px;
+    padding: 0 12px !important;
+    border-radius: 999px;
+    background: rgba(225, 240, 255, 0.88);
+    color: #0757df !important;
+    font-size: 0.7rem !important;
+    font-weight: 1000 !important;
+    letter-spacing: 0.06em;
+    white-space: nowrap;
+  }
+
+  .mobileRadarHeroCopy span::before {
+    content: "";
+    width: 8px;
+    height: 8px;
+    border-radius: 999px;
+    background: #0757df;
+    box-shadow: 0 0 0 4px rgba(7, 87, 223, 0.12);
+  }
+
+  .mobileRadarHeroCopy strong {
+    display: block;
+    margin-top: 14px;
+    color: #06163f !important;
+    font-size: 2rem !important;
+    font-weight: 1000 !important;
+    line-height: 0.95 !important;
+    letter-spacing: 0 !important;
+  }
+
+  .mobileRadarHeroCopy p {
+    max-width: 168px;
+    margin-top: 8px !important;
+    color: #52627f !important;
+    font-size: 1rem !important;
+    font-weight: 650 !important;
+    line-height: 1.28 !important;
+  }
+
+  .mobileRadarHeroCopy small {
+    display: inline-flex !important;
+    align-items: center;
+    gap: 7px;
+    width: fit-content;
+    max-width: 100%;
+    min-height: 34px;
+    margin-top: 14px;
+    padding: 0 12px !important;
+    border: 1px solid rgba(30, 185, 103, 0.28) !important;
+    border-radius: 999px !important;
+    background: rgba(234, 253, 243, 0.92) !important;
+    color: #10a45d !important;
+    font-size: 0.76rem !important;
+    font-weight: 950 !important;
+    line-height: 1 !important;
+    white-space: nowrap;
+  }
+
+  .mobileRadarHeroCopy small::before {
+    content: "";
+    display: grid;
+    place-items: center;
+    width: 18px;
+    height: 18px;
+    flex: 0 0 auto;
+    border-radius: 999px;
+    background:
+      linear-gradient(135deg, transparent 44%, #ffffff 45% 55%, transparent 56%) 6px 9px / 7px 4px no-repeat,
+      linear-gradient(45deg, transparent 43%, #ffffff 44% 56%, transparent 57%) 4px 10px / 5px 3px no-repeat,
+      #16b66d;
+  }
+
+  .mobileRadarHero .mobileModuleVisual {
+    position: absolute !important;
+    top: 16px !important;
+    right: 13px !important;
+    width: 45% !important;
+    height: 142px !important;
+    min-height: 0 !important;
+    display: grid !important;
+    place-items: center !important;
+    overflow: hidden !important;
+    padding: 0 !important;
+    border: 1px solid rgba(83, 159, 255, 0.22) !important;
+    border-radius: 20px 24px 20px 48px !important;
+    background:
+      radial-gradient(circle at 50% 48%, rgba(40, 187, 255, 0.34), transparent 22%),
+      linear-gradient(145deg, #082460, #04142f 78%) !important;
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.12),
+      0 18px 34px -26px rgba(5, 34, 91, 0.9) !important;
+  }
+
+  .mobileRadarHero .mobileModuleVisual::before,
+  .mobileRadarHero .mobileModuleVisual::after {
+    content: "";
+    position: absolute;
+    inset: 18px;
+    border-radius: 999px;
+    pointer-events: none;
+  }
+
+  .mobileRadarHero .mobileModuleVisual::before {
+    border: 1px solid rgba(94, 197, 255, 0.38);
+    box-shadow: inset 0 0 0 18px rgba(20, 103, 214, 0.08);
+  }
+
+  .mobileRadarHero .mobileModuleVisual::after {
+    background: conic-gradient(from 0deg, transparent 0 75%, rgba(101, 229, 255, 0.9) 82%, transparent 89% 100%);
+    opacity: 0.85;
+    animation: mobileRadarSweep 7s linear infinite;
+  }
+
+  .mobileModuleVisual img {
+    width: 128px !important;
+    max-width: 108% !important;
+    max-height: 118px !important;
+    opacity: 0.96;
+    filter: drop-shadow(0 16px 24px rgba(0, 153, 255, 0.24)) !important;
+  }
+
+  .mobileRadarHeroStat {
+    z-index: 2;
+    align-self: end;
+    min-height: 70px !important;
+    padding: 11px 9px 10px 54px !important;
+    border: 1px solid rgba(202, 219, 244, 0.94) !important;
+    border-radius: 18px !important;
+    background: rgba(255, 255, 255, 0.92) !important;
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.96),
+      0 14px 30px -28px rgba(13, 52, 114, 0.7) !important;
+  }
+
+  .mobileRadarHeroStat::before {
+    content: "";
+    position: absolute;
+    left: 10px;
+    top: 50%;
+    width: 34px;
+    height: 34px;
+    transform: translateY(-50%);
+    border-radius: 999px;
+    background:
+      radial-gradient(circle at 30% 20%, #77c3ff, #0757df 72%);
+    box-shadow: inset 0 -8px 16px rgba(1, 58, 170, 0.22);
+  }
+
+  .mobileRadarHeroStat span {
+    color: #52627f !important;
+    font-size: 0.64rem !important;
+    font-weight: 1000 !important;
+    letter-spacing: 0.12em;
+  }
+
+  .mobileRadarHeroStat strong {
+    display: -webkit-box !important;
+    overflow: hidden !important;
+    margin-top: 7px;
+    color: #06163f !important;
+    font-size: 0.88rem !important;
+    font-weight: 1000 !important;
+    line-height: 1.05 !important;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+  }
+}
+
+@keyframes mobileRadarSweep {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mobileRadarHero .mobileModuleVisual::after {
+    animation: none !important;
   }
 }
