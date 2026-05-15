@@ -24,10 +24,6 @@ const MOBILE_ENTRY_LOADING_PHRASES = [
   "Abrindo sua operação",
 ];
 
-type CurrentUser = {
-  isSystemMaster?: boolean;
-};
-
 type OperationalStatusChip = {
   key: "token" | "meta" | "webwhats" | "payment" | "access";
   active?: boolean;
@@ -370,14 +366,6 @@ export default function BoasVindasClientPage() {
 
     async function loadWelcomeState() {
       try {
-        const user = await apiFetch<CurrentUser>("/profile/current-user");
-        if (!mounted) return;
-        if (user?.isSystemMaster) {
-          setLeaving(true);
-          router.replace("/master");
-          return;
-        }
-
         const [center, modal, operational, modules, vendasBoard] = await Promise.all([
           apiFetch<WhatsAppCenterPayload>("/companies/me/whatsapp-center").catch(() => null),
           apiFetch<WhatsAppModalPayload>("/companies/me/whatsapp-modal/status").catch(() => null),

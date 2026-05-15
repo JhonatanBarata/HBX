@@ -397,7 +397,7 @@ export default function DashboardScaffold({
   const resolvedDescription = pageOverride?.description || description || "";
   const resolvedNavEyebrow = presentationConfig?.nav.eyebrow || "Módulos";
   const resolvedNavTitle = presentationConfig?.nav.title || "Navegação principal";
-  const dashboardShortcutHref = isMasterRoute || presentationProfile?.isSystemMaster ? "/master" : "/boasvindas";
+  const dashboardShortcutHref = isMasterRoute ? "/master" : "/boasvindas";
   const dashboardShortcutLabel = dashboardShortcutHref === "/master" ? "Voltar ao Master" : "Voltar ao menu";
   const shouldShowDashboardShortcut = Boolean(
     showDashboardShortcut &&
