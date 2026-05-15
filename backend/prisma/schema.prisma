@@ -1132,6 +1132,26 @@ model RadarLeadPool {
   normalizedSegment    String
   website              String?
   websiteStatus        String   @default("unknown") // none | present | social_only | weak | unreachable | unknown
+  email                String?
+  emailStatus          String?  @default("missing") // confirmed | probable | missing | invalid | unverified
+  emailSource          String?  // website | maps | inferred | manual | none
+  emailConfidence      Int?     @default(0)
+  instagramUrl         String?
+  facebookUrl          String?
+  socialStatus         String?  @default("missing") // found | missing | weak | unknown
+  socialConfidence     Int?     @default(0)
+  googleMapsUrl        String?
+  businessCategory     String?
+  openingHoursStatus   String?  // open | closed | unknown | not_available
+  recommendedChannel   String?  // whatsapp | email | call | review | discard
+  painType             String?  // sem_site | site_fraco | whatsapp_desorganizado | alta_demanda | pouca_presenca | reativacao | unknown
+  painLabel            String?
+  painPitch            String?
+  enrichmentJson       String?
+  enrichmentScore      Int?     @default(0)
+  enrichmentConfidence Int?     @default(0)
+  lastEnrichedAt       DateTime?
+  enrichmentVersion    String?
   rating               Float?
   reviews              Int      @default(0)
   source               String?

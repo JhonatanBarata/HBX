@@ -3116,3 +3116,120 @@
     color: #73d2ff;
   }
 }
+
+.smartBlock {
+  display: grid;
+  gap: 10px;
+}
+
+.smartChips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  min-height: 28px;
+}
+
+.smartChips span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 26px;
+  padding: 0 9px;
+  border: 1px solid rgba(31, 92, 181, 0.18);
+  border-radius: 999px;
+  background: #f3f7ff;
+  color: #174071;
+  font-size: 0.74rem;
+  font-weight: 850;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.smartChips span[data-tone="success"] {
+  border-color: rgba(21, 128, 61, 0.2);
+  background: #ecfdf3;
+  color: #116039;
+}
+
+.smartChips span[data-tone="warning"] {
+  border-color: rgba(180, 83, 9, 0.2);
+  background: #fff7ed;
+  color: #92400e;
+}
+
+.smartDetails {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.smartDetails span {
+  min-width: 0;
+  padding: 9px 10px;
+  border: 1px solid rgba(203, 215, 235, 0.78);
+  border-radius: 10px;
+  background: #ffffff;
+  color: #182745;
+  font-size: 0.8rem;
+  font-weight: 760;
+  overflow-wrap: anywhere;
+}
+
+.smartDetails b {
+  display: block;
+  margin-bottom: 3px;
+  color: #64748b;
+  font-size: 0.68rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.smartPitch {
+  color: #53637c;
+  font-size: 0.82rem;
+  line-height: 1.35;
+}
+
+.listUpsell {
+  padding: 9px 10px;
+  border: 1px solid rgba(31, 92, 181, 0.16);
+  border-radius: 10px;
+  background: #f6f9ff;
+  color: #315277;
+  font-size: 0.82rem;
+  font-weight: 850;
+}
+
+.enrichmentSummary {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 8px;
+  margin: 12px 0 16px;
+}
+
+.enrichmentSummary span {
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid rgba(203, 215, 235, 0.78);
+  border-radius: 10px;
+  background: #ffffff;
+  color: #526174;
+  font-size: 0.76rem;
+  font-weight: 820;
+}
+
+.enrichmentSummary b {
+  display: block;
+  color: #0f2457;
+  font-size: 1rem;
+  font-weight: 950;
+}
+
+@media (max-width: 820px) {
+  .smartDetails {
+    grid-template-columns: 1fr;
+  }
+
+  .enrichmentSummary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

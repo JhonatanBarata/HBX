@@ -87,8 +87,8 @@ const TABS: Array<{ id: DrawerTab; label: string }> = [
 ];
 
 const COMMERCIAL_PLAN_OPTIONS = [
-  { key: "hbx_lite", label: "HBX List", price: "R$ 49,90/mês" },
-  { key: "hbx_padrao", label: "HBX Lead", price: "R$ 89,90/mês" },
+  { key: "hbx_lite", label: "HBX List", price: "R$ 39,90/mês" },
+  { key: "hbx_padrao", label: "HBX Lead", price: "R$ 99,90/mês" },
   { key: "hbx_melhor", label: "HBX Full — Bot e IA", price: "R$ 149,90/mês" },
 ] as const;
 
