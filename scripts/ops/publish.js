@@ -9,6 +9,7 @@ const {
   printDiffSummary,
   printFinalStatus,
   printStatus,
+  pushMaster,
   runStep,
 } = require('./common');
 
@@ -24,6 +25,9 @@ function main() {
   logStage('Commit automatico');
   const commit = autoCommitIfNeeded('publish');
   ensureCleanWorkingTree('HBX');
+
+  logStage('Git push');
+  pushMaster();
 
   logStage('Deploy Hostinger');
   runStep('node', ['./scripts/deploy-hostinger.js']);
