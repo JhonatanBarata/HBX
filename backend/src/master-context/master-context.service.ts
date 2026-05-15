@@ -1,10 +1,15 @@
 import { ForbiddenException, Injectable, NotFoundException, OnModuleInit } from '@nestjs/common';
 import { randomUUID } from 'crypto';
+import { buildImportacaoPermissaoRows } from '../bootstrap/company-structural-defaults';
+import {
+  MASTER_WHATSAPP_ENGINE_COMPANY_NAME,
+  MASTER_WHATSAPP_ENGINE_COMPANY_SLUG,
+} from '../companies/master-whatsapp-company.constants';
 import { PrismaService } from '../prisma/prisma.service';
 
 type MasterContextSummary = {
   active: boolean;
-  mode: 'master_puro' | 'empresa_assumida';
+  mode: 'master_puro' | 'empresa_assumida' | 'master_operacional';
   sessionId: string | null;
   companyId: number | null;
   companyName: string | null;
@@ -146,9 +151,19 @@ export class MasterContextService implements OnModuleInit {
 
     const active = await this.getActiveSessionRow(Number(user.id), { closeExpired: true });
     if (!active) {
+      const masterCompany = await this.getOrCreateMasterOperationalCompany();
       return {
-        effectiveCompanyId: fallbackCompanyId,
-        masterContext: this.buildPureContext(),
+        effectiveCompanyId: masterCompany.id || fallbackCompanyId,
+        masterContext: {
+          active: true,
+          mode: 'master_operacional',
+          sessionId: null,
+          companyId: masterCompany.id || null,
+          companyName: masterCompany.name || null,
+          reason: 'master_operational_workspace',
+          startedAt: null,
+          expiresAt: null,
+        },
       };
     }
 
@@ -305,6 +320,51 @@ export class MasterContextService implements OnModuleInit {
       startedAt: null,
       expiresAt: null,
     };
+  }
+
+  private async getOrCreateMasterOperationalCompany() {
+    const existing = await this.prisma.company.findUnique({
+      where: { slug: MASTER_WHATSAPP_ENGINE_COMPANY_SLUG },
+      select: { id: true, name: true },
+    });
+    if (existing?.id) return existing;
+
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        const company = await tx.company.create({
+          data: {
+            name: MASTER_WHATSAPP_ENGINE_COMPANY_NAME,
+            slug: MASTER_WHATSAPP_ENGINE_COMPANY_SLUG,
+            onboardingStatus: 'active_paid',
+            paymentStatus: 'MANUAL',
+            subscriptionStatus: 'manual',
+            premiumAccess: true,
+            isActive: true,
+            paymentMethod: 'MANUAL',
+            billingProvider: 'manual',
+            whatsappConnectionMode: 'TEMPORARY',
+            whatsappModalProvider: 'external_modal',
+            whatsappModalStatus: 'DISCONNECTED',
+            whatsappModalUpdatedAt: new Date(),
+          },
+          select: { id: true, name: true },
+        });
+        await tx.importacaoPermissao.createMany({
+          data: buildImportacaoPermissaoRows(company.id),
+          skipDuplicates: true,
+        });
+        return company;
+      });
+    } catch (error: any) {
+      if (String(error?.code || '') === 'P2002') {
+        const recovered = await this.prisma.company.findUnique({
+          where: { slug: MASTER_WHATSAPP_ENGINE_COMPANY_SLUG },
+          select: { id: true, name: true },
+        });
+        if (recovered?.id) return recovered;
+      }
+      throw error;
+    }
   }
 
   private safeParseJson(value: unknown) {

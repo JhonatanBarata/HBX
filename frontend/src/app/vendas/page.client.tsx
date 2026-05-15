@@ -281,6 +281,7 @@ type LeadCardView = {
   onInboxAction: (lead: LeadItem) => void;
   onEdit?: (id: string | null) => void;
   onDraftChange?: (leadId: string, patch: Partial<LeadDraft>) => void;
+  onEditingActiveChange?: (active: boolean) => void;
   onSave?: (leadId: string) => void;
   editing?: boolean;
   bulkSelectionMode?: boolean;
@@ -713,6 +714,24 @@ function hydrateDrafts(board: BoardResponse | null) {
   return next;
 }
 
+function mergeHydratedDraftsPreservingInput(
+  board: BoardResponse | null,
+  currentDrafts: Record<string, LeadDraft>,
+) {
+  const hydrated = hydrateDrafts(board);
+  const next = { ...hydrated };
+  Object.keys(currentDrafts).forEach((leadId) => {
+    if (hydrated[leadId]) next[leadId] = currentDrafts[leadId];
+  });
+  try {
+    return JSON.stringify(next) === JSON.stringify(currentDrafts)
+      ? currentDrafts
+      : next;
+  } catch {
+    return next;
+  }
+}
+
 function buildLocalDateKey(value?: string | null) {
   const parsed = value ? new Date(value) : null;
   if (!parsed || Number.isNaN(parsed.getTime())) return "";
@@ -1108,6 +1127,7 @@ function LeadCardView({
   onInboxAction,
   onEdit,
   onDraftChange,
+  onEditingActiveChange,
   onSave,
   editing,
   bulkSelectionMode,
@@ -1340,6 +1360,12 @@ function LeadCardView({
             ref={editorRef}
             className={styles.inlineEdit}
             aria-hidden={!editing && editorAnimating}
+            onFocus={() => onEditingActiveChange?.(true)}
+            onBlur={(event) => {
+              const nextTarget = event.relatedTarget;
+              if (nextTarget instanceof Node && event.currentTarget.contains(nextTarget)) return;
+              onEditingActiveChange?.(false);
+            }}
           >
             <div className={styles.fieldGrid}>
               <label className={styles.field}>
@@ -1721,6 +1747,7 @@ export default function VendasClientPage() {
   const boardRef = useRef<BoardResponse | null>(null);
   const dateFilterRefs = useRef<Record<string, HTMLElement | null>>({});
   const archiveRef = useRef<HTMLElement | null>(null);
+  const editingInputActiveRef = useRef(false);
   const lastDragEndedAtRef = useRef(0);
   const filterScrollerRef = useRef<HTMLDivElement | null>(null);
   const lastRadarStatusSnapshotRef = useRef<{ count: number; status: string } | null>(null);
@@ -1761,7 +1788,7 @@ export default function VendasClientPage() {
     [],
   );
 
-  async function loadBoard() {
+  async function loadBoard(options?: { forceHydrateDrafts?: boolean }) {
     setError(null);
     try {
       const payload = await apiFetch<BoardResponse>("/vendas/board");
@@ -1770,10 +1797,20 @@ export default function VendasClientPage() {
         boardsPayloadEqual(previous, normalizedPayload) ? previous : normalizedPayload,
       );
       const skipHydrate =
-        typeof window !== "undefined" &&
-        window.matchMedia("(max-width: 820px)").matches &&
-        mobileSkipDraftHydrateRef.current;
-      if (!skipHydrate) setDrafts(hydrateDrafts(normalizedPayload));
+        !options?.forceHydrateDrafts &&
+        (composerOpenRef.current ||
+          editingInputActiveRef.current ||
+          Boolean(editingLeadId) ||
+          (typeof window !== "undefined" &&
+            window.matchMedia("(max-width: 820px)").matches &&
+            mobileSkipDraftHydrateRef.current));
+      if (skipHydrate) {
+        setDrafts((current) =>
+          mergeHydratedDraftsPreservingInput(normalizedPayload, current),
+        );
+      } else {
+        setDrafts(hydrateDrafts(normalizedPayload));
+      }
     } catch (loadError) {
       setError(
         loadError instanceof Error
@@ -2656,7 +2693,7 @@ export default function VendasClientPage() {
       }
       setFeedback(payload?.message || "Card reportado e removido do Vendas.");
       setMobileReportLead(null);
-      await loadBoard();
+      await loadBoard({ forceHydrateDrafts: true });
     } catch (reportError) {
       setError(
         reportError instanceof Error
@@ -3553,7 +3590,7 @@ export default function VendasClientPage() {
         shortNote: "",
       });
       setComposerOpen(false);
-      await loadBoard();
+      await loadBoard({ forceHydrateDrafts: true });
     } catch (createError) {
       setError(
         createError instanceof Error
@@ -3618,9 +3655,12 @@ export default function VendasClientPage() {
         body: JSON.stringify(body),
       });
       setFeedback(successMessage || "Lead atualizado com sucesso.");
-      await loadBoard();
+      await loadBoard({ forceHydrateDrafts: true });
       // If the saved lead was being edited inline, close the inline editor
-      if (editingLeadId === leadId) setEditingLeadId(null);
+      if (editingLeadId === leadId) {
+        editingInputActiveRef.current = false;
+        setEditingLeadId(null);
+      }
     } catch (saveError) {
       setError(
         saveError instanceof Error
@@ -4129,11 +4169,16 @@ export default function VendasClientPage() {
       onInboxAction: (targetLead: LeadItem) =>
         void handleLeadInboxAction(targetLead),
       onEdit: (id: string | null) => {
-        setEditingLeadId((cur) => (cur === id ? null : id));
-        if (id) focusLead(id);
+        const next = editingLeadId === id ? null : id;
+        editingInputActiveRef.current = Boolean(next);
+        setEditingLeadId(next);
+        if (next) focusLead(next);
       },
       onDraftChange: (leadId: string, patch: Partial<LeadDraft>) =>
         setLeadDraft(leadId, patch),
+      onEditingActiveChange: (active: boolean) => {
+        editingInputActiveRef.current = active;
+      },
       onSave: (leadId: string) => void saveLead(leadId),
       editing: editingLeadId === lead.id,
       bulkSelectionMode,
