@@ -19,10 +19,6 @@ type NoticeState = {
   text: string;
 };
 
-type CurrentUser = {
-  isSystemMaster?: boolean;
-};
-
 type BillingCycle = "MONTHLY" | "ANNUAL";
 type PlanKey = PlanSelectionCard["key"];
 type TrialFormState = {
@@ -253,22 +249,15 @@ export default function PlanosClientPage() {
   const loadPlans = useCallback(async () => {
     setLoading(true);
     setError(null);
-    let redirectedToMaster = false;
     try {
-      const currentUser = await apiFetch<CurrentUser>("/profile/current-user").catch(() => null);
-      if (currentUser?.isSystemMaster) {
-        redirectedToMaster = true;
-        router.replace("/master");
-        return;
-      }
       const data = await apiFetch<CommercialPlansPayload>("/commercial-plans/me");
       setPayload(data);
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "Falha ao carregar os planos HBX.");
     } finally {
-      if (!redirectedToMaster) setLoading(false);
+      setLoading(false);
     }
-  }, [router]);
+  }, []);
 
   useEffect(() => {
     if (hasToken !== true) return;

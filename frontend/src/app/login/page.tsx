@@ -257,17 +257,21 @@ function getInternalLoginDestination(data: unknown) {
 
 async function resolvePostLoginDestination(data: unknown) {
   const explicitDestination = getInternalLoginDestination(data);
-  if (explicitDestination && explicitDestination !== "/boasvindas") {
-    return explicitDestination;
-  }
 
   try {
     const currentUser = await apiFetch<LoginCurrentUser>("/profile/current-user");
     if (currentUser?.isSystemMaster) {
-      return explicitDestination || "/boasvindas";
+      if (explicitDestination && explicitDestination !== "/master") {
+        return explicitDestination;
+      }
+      return "/boasvindas";
     }
   } catch {
     // Keep the login flow moving; /boasvindas still resolves the safest fallback.
+  }
+
+  if (explicitDestination && explicitDestination !== "/boasvindas") {
+    return explicitDestination;
   }
 
   try {
