@@ -31,6 +31,14 @@ const SUPPORT_MESSAGE = "Olá, preciso de ajuda para finalizar minha contrataç�
 const DEFAULT_WAKING_MESSAGE =
   "Estamos iniciando o ambiente seguro. A primeira conexão pode levar alguns segundos.";
 
+function getInitialMobileLoginSurface() {
+  if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
+    return false;
+  }
+
+  return window.matchMedia("(max-width: 768px)").matches;
+}
+
 type ApiErrorPayload = {
   message?: string | string[];
   error?: string;
@@ -300,7 +308,7 @@ export default function LoginPage() {
   const [loginState, setLoginState] = useState<LoginState>("idle");
   const [mounted, setMounted] = useState(false);
   const [isUiReady, setIsUiReady] = useState(false);
-  const [isMobileLoginSurface, setIsMobileLoginSurface] = useState(false);
+  const [isMobileLoginSurface, setIsMobileLoginSurface] = useState(getInitialMobileLoginSurface);
   const [waterRipples, setWaterRipples] = useState<LoginWaterRipple[]>([]);
   const [playingWelcome, setPlayingWelcome] = useState(false);
   const [visualsPlayOnLoad, setVisualsPlayOnLoad] = useState(false);
@@ -316,6 +324,7 @@ export default function LoginPage() {
   const [pendingConfirmationConfirmUrl, setPendingConfirmationConfirmUrl] = useState<string | null>(null);
   const [activeSessionConflict, setActiveSessionConflict] = useState(false);
   const [forceActiveSession, setForceActiveSession] = useState(false);
+  const [legalMenuOpen, setLegalMenuOpen] = useState(false);
   const [recoverPreviewLink, setRecoverPreviewLink] = useState<string | null>(null);
   const [recoverMailPreviewUrl, setRecoverMailPreviewUrl] = useState<string | null>(null);
   const idleVideoRef = useRef<HTMLVideoElement | null>(null);
@@ -351,6 +360,10 @@ export default function LoginPage() {
 
   function handleThemeModeToggle() {
     setThemeMode(selection.mode === "dark" ? "light" : "dark");
+  }
+
+  function toggleLegalMenu() {
+    setLegalMenuOpen((current) => !current);
   }
 
   function openRegisterWithTransition(start: "form" | "plans" = "form") {
@@ -1408,10 +1421,23 @@ export default function LoginPage() {
               <p className="login-mobileTerms">
                 Ao entrar, você concorda com as normas do HBX.
                 <span className="login-legalLinks">
-                  <a href="/termos-de-uso">Termos de Uso</a>
-                  <a href="/politica-de-privacidade">Privacidade</a>
-                  <a href="/politica-de-reembolso">Reembolso</a>
-                  <a href="/direitos-autorais">Direitos Autorais</a>
+                  <button
+                    type="button"
+                    className="login-legalTrigger"
+                    onClick={toggleLegalMenu}
+                    aria-expanded={legalMenuOpen}
+                    aria-controls="login-legal-menu"
+                  >
+                    Termos de Uso
+                  </button>
+                  {legalMenuOpen ? (
+                    <span id="login-legal-menu" className="login-legalMenu" role="menu">
+                      <a role="menuitem" href="/termos-de-uso">Termos de Uso</a>
+                      <a role="menuitem" href="/politica-de-privacidade">Privacidade</a>
+                      <a role="menuitem" href="/politica-de-reembolso">Reembolso</a>
+                      <a role="menuitem" href="/direitos-autorais">Direitos Autorais</a>
+                    </span>
+                  ) : null}
                 </span>
               </p>
               </form>

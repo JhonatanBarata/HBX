@@ -43,6 +43,14 @@ const REVEAL_TARGET_SELECTOR = [
   '[data-ui-slot="module-card"]',
 ].join(", ");
 
+function getInitialMobileTransitionSurface() {
+  if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
+    return false;
+  }
+
+  return window.matchMedia("(max-width: 768px)").matches;
+}
+
 type InterfaceTransitionPhase = "boot" | "active" | "shutdown";
 
 type InterfaceTransitionContextValue = {
@@ -107,6 +115,9 @@ export function InterfaceTransitionProvider({ children }: { children: React.Reac
   const shutdownPromiseRef = React.useRef<Promise<void> | null>(null);
   const [phase, setPhase] = React.useState<InterfaceTransitionPhase>("boot");
   const [isLoginVideoEnabled, setIsLoginVideoEnabled] = React.useState(false);
+  const [isMobileTransitionSurface, setIsMobileTransitionSurface] = React.useState(
+    getInitialMobileTransitionSurface,
+  );
   const { selection, activeTheme } = useHbxTheme();
   const shutdownCardStyle = React.useMemo<React.CSSProperties>(
     () => ({
@@ -266,6 +277,15 @@ export function InterfaceTransitionProvider({ children }: { children: React.Reac
   );
 
   React.useEffect(() => {
+    const query = window.matchMedia("(max-width: 768px)");
+    const syncMobileSurface = () => setIsMobileTransitionSurface(query.matches);
+
+    syncMobileSurface();
+    query.addEventListener("change", syncMobileSurface);
+    return () => query.removeEventListener("change", syncMobileSurface);
+  }, []);
+
+  React.useEffect(() => {
     const syncStoredVideoPreference = () => {
       setIsLoginVideoEnabled(readStoredLoginVideoEnabled());
     };
@@ -316,6 +336,7 @@ export function InterfaceTransitionProvider({ children }: { children: React.Reac
               className="ui-shutdown-overlay__frame login-stage"
               data-login-theme={selection.themeId}
               data-login-mode={selection.mode}
+              data-login-surface={isMobileTransitionSurface ? "hbx-mobile" : undefined}
               data-login-state="success"
               data-login-video={isLoginVideoEnabled ? "on" : "off"}
             >
