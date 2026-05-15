@@ -38,7 +38,6 @@ function isBypassedPath(pathname: string | null) {
 export default function PreCheckoutGate({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
-  const [checking, setChecking] = React.useState(false);
   const [blocked, setBlocked] = React.useState(false);
 
   React.useEffect(() => {
@@ -47,13 +46,10 @@ export default function PreCheckoutGate({ children }: { children: React.ReactNod
     async function checkBillingAccess() {
       if (isBypassedPath(pathname) || !getToken()) {
         if (active) {
-          setChecking(false);
           setBlocked(false);
         }
         return;
       }
-
-      setChecking(true);
 
       try {
         const profile = await apiFetch<CurrentUser>("/profile/current-user");
@@ -78,8 +74,6 @@ export default function PreCheckoutGate({ children }: { children: React.ReactNod
         router.replace(destination);
       } catch {
         if (active) setBlocked(false);
-      } finally {
-        if (active) setChecking(false);
       }
     }
 
@@ -95,17 +89,7 @@ export default function PreCheckoutGate({ children }: { children: React.ReactNod
     };
   }, [pathname, router]);
 
-  if (blocked || checking) {
-    return (
-      <main className="app-shell">
-        <div className="app-container">
-          <div className="panel p-4 text-sm text-muted" role="status" aria-live="polite">
-            Conferindo acesso comercial...
-          </div>
-        </div>
-      </main>
-    );
-  }
+  if (blocked) return null;
 
   return <>{children}</>;
 }

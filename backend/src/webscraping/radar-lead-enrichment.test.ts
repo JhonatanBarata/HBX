@@ -86,3 +86,19 @@ test('radar enrichment confirms email collected from website text', () => {
   assert.equal(enrichment.emailStatus, 'confirmed');
   assert.equal(enrichment.emailSource, 'website');
 });
+
+test('radar enrichment adds social networks to score and payload', () => {
+  const enrichment = buildRadarLeadEnrichment({
+    websiteStatus: 'none',
+    instagramUrl: 'instagram.com/empresa',
+    facebookUrl: 'https://facebook.com/empresa',
+    opportunityScore: 80,
+  });
+
+  assert.equal(enrichment.instagramUrl, 'https://instagram.com/empresa');
+  assert.equal(enrichment.facebookUrl, 'https://facebook.com/empresa');
+  assert.equal(enrichment.socialStatus, 'found');
+  assert.equal(enrichment.enrichmentScore, 99);
+  assert.match(enrichment.opportunityReason, /Instagram encontrado/);
+  assert.match(enrichment.enrichmentJson, /instagramUrl/);
+});

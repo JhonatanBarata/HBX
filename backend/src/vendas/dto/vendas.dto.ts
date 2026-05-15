@@ -40,29 +40,6 @@ export class CreateManualVendasLeadDto {
 
   @IsOptional()
   @IsString()
-  @MaxLength(32)
-  emailStatus?: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(32)
-  recommendedChannel?: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(80)
-  painType?: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(500)
-  painPitch?: string;
-
-  @IsOptional()
-  enrichmentJson?: unknown;
-
-  @IsOptional()
-  @IsString()
   @MaxLength(280)
   address?: string;
 
@@ -258,6 +235,13 @@ export class ImportWebscrapingLeadItemDto {
   @IsString()
   @MaxLength(32)
   socialStatus?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(100)
+  socialConfidence?: number;
 
   @IsOptional()
   @IsString()

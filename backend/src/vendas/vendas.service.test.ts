@@ -27,11 +27,18 @@ function createService(overrides?: Partial<Record<string, any>>) {
       findMany: async () => [],
       ...(overrides?.companyConversation || {}),
     },
+    company: {
+      findUnique: async () => ({ selectedPlanKey: 'hbx_padrao' }),
+      ...(overrides?.company || {}),
+    },
     ...(overrides?.prisma || {}),
   } as any;
 
   const customerProfileService = {
     normalizePhone,
+    normalizeEmail: (raw: unknown) => String(raw || '').trim().toLowerCase() || null,
+    buildSharedContextRegistry: async () => ({ byProfileId: new Map(), byPhoneNormalized: new Map() }),
+    upsertProfile: async () => ({ id: 'profile-1' }),
     ...(overrides?.customerProfileService || {}),
   } as any;
 
@@ -263,4 +270,159 @@ test('syncTodayAgendaForUser deactivates stale agendamento items when the lead i
     (updateConversationStateCalls[0].payload as any).metadata.vendasAgendaQueue.botEntryPending,
     false,
   );
+});
+
+test('getBoardForUser hides complete intelligence for HBX List', async () => {
+  const now = new Date();
+  const rows = [
+    {
+      id: 'lead-list',
+      companyId: 7,
+      name: 'Loja Social',
+      phone: '+5511998877766',
+      phoneNormalized: '5511998877766',
+      email: 'vendas@loja.com.br',
+      website: null,
+      status: 'novo',
+      returnAt: now,
+      updatedAt: now,
+      createdAt: now,
+      timelineEvents: [
+        {
+          id: 'evt-1',
+          sourceType: 'radar_enrichment',
+          description: JSON.stringify({
+            instagramUrl: 'https://instagram.com/loja',
+            opportunityReason: 'Instagram encontrado + sem site: oportunidade premium.',
+          }),
+          createdAt: now,
+        },
+      ],
+    },
+  ];
+
+  const { service } = createService({
+    company: {
+      findUnique: async () => ({ selectedPlanKey: 'hbx_lite' }),
+    },
+    vendasLead: {
+      findMany: async () => rows,
+    },
+  });
+
+  const result = await service.getBoardForUser({ companyId: 7, id: 99 });
+  const lead = result.blocks.today[0];
+
+  assert.equal(result.planTier, 'list');
+  assert.equal(result.capabilities.canSeeLeadIntelligence, false);
+  assert.equal(lead.leadIntelligence.opportunityScore, null);
+  assert.equal(lead.leadIntelligence.opportunityReason, null);
+  assert.equal(lead.leadIntelligence.instagramUrl, null);
+  assert.equal(lead.leadIntelligence.primarySocial, 'instagram');
+  assert.ok(lead.leadIntelligence.premiumTeaser);
+});
+
+test('importWebscrapingLeadsForUser does not debit quota for duplicate card', async () => {
+  const now = new Date();
+  let assertCanImportCalls = 0;
+  let recordCardImportCalls = 0;
+  const existing = {
+    id: 'lead-existing',
+    companyId: 7,
+    name: 'Duplicado',
+    phone: '+5511998877766',
+    phoneNormalized: '5511998877766',
+    status: 'novo',
+    returnAt: now,
+    updatedAt: now,
+    createdAt: now,
+    timelineEvents: [],
+  };
+  const { service } = createService({
+    prisma: {
+      $transaction: async (fn: any) => fn({
+        vendasLead: {
+          update: async () => existing,
+          findUniqueOrThrow: async () => existing,
+        },
+        vendasLeadTimelineEvent: {
+          create: async () => ({}),
+        },
+      }),
+      hasTable: async () => false,
+      hasColumn: async () => false,
+    },
+    vendasLead: {
+      findFirst: async () => existing,
+    },
+    vendasLeadTimelineEvent: {
+      create: async () => ({}),
+    },
+    commercialUsageLimits: {
+      assertCanImportCard: async () => {
+        assertCanImportCalls += 1;
+      },
+      recordCardImport: async () => {
+        recordCardImportCalls += 1;
+      },
+    },
+  });
+
+  const result = await service.importWebscrapingLeadsForUser(
+    { companyId: 7, id: 99 },
+    {
+      skipWhatsappValidation: true,
+      leads: [
+        {
+          name: 'Duplicado',
+          phone: '+55 11 99887-7766',
+          phoneDigits: '5511998877766',
+        },
+      ],
+    } as any,
+  );
+
+  assert.equal(result.updatedCount, 1);
+  assert.equal(result.createdCount, 0);
+  assert.equal(result.quotaDebited, 0);
+  assert.equal(result.skippedDuplicateCount, 1);
+  assert.equal(assertCanImportCalls, 0);
+  assert.equal(recordCardImportCalls, 0);
+});
+
+test('importWebscrapingLeadsForUser reports protected Radar card without quota debit', async () => {
+  let assertCanImportCalls = 0;
+  const { service } = createService({
+    prisma: {
+      hasTable: async (name: string) => name === 'RadarLeadPool',
+      hasColumn: async () => true,
+      radarLeadPool: {
+        findUnique: async () => ({ id: 'radar-1', ownerCompanyId: null, status: 'blocked' }),
+      },
+    },
+    commercialUsageLimits: {
+      assertCanImportCard: async () => {
+        assertCanImportCalls += 1;
+      },
+    },
+  });
+
+  await assert.rejects(
+    () => service.importWebscrapingLeadsForUser(
+      { companyId: 7, id: 99 },
+      {
+        sourceHistoryId: 'radar:radar-1',
+        skipWhatsappValidation: true,
+        leads: [
+          {
+            name: 'Protegido',
+            phone: '+55 11 99887-7766',
+            phoneDigits: '5511998877766',
+          },
+        ],
+      } as any,
+    ),
+    /protegido/i,
+  );
+  assert.equal(assertCanImportCalls, 0);
 });

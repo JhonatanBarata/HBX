@@ -3,6 +3,14 @@ import { CustomerProfileService } from '../customer-profile/customer-profile.ser
 import { InboxService } from '../inbox/inbox.service';
 import { CommercialPlansService } from '../commercial-plans/commercial-plans.service';
 import { CommercialUsageLimitsService } from '../commercial-plans/commercial-usage-limits.service';
+import {
+  COMMERCIAL_PLAN_KEYS,
+  getCommercialPlanCapabilities,
+  getCommercialPlanTier,
+  normalizeCommercialPlanKey,
+  type CommercialPlanCapabilities,
+  type CommercialPlanTier,
+} from '../commercial-plans/commercial-plan-catalog';
 import { HbxPresentationEmailService } from '../mail/hbx-presentation-email.service';
 import { ConversationsService } from '../messaging/conversations.service';
 import { WebwhatsBridgeService } from '../messaging/webwhats-bridge.service';
@@ -102,6 +110,11 @@ type VendasWhatsappAvailabilityState = {
   checkedAt: string | null;
   phoneDigits: string | null;
   message: string | null;
+};
+
+type VendasPlanAccess = {
+  planTier: CommercialPlanTier;
+  capabilities: CommercialPlanCapabilities;
 };
 
 export type HbxPresentationEmailDraftInput = {
@@ -575,6 +588,7 @@ export class VendasService {
     sharedProfile?: any,
     whatsappAvailability?: VendasWhatsappAvailabilityState | null,
     inboxPresence?: { conversationId?: string | number | null } | null,
+    planAccess?: VendasPlanAccess | null,
   ) {
     const status = this.normalizeStatus(row?.status);
     const block = this.classifyLeadBlock(row);
@@ -594,6 +608,16 @@ export class VendasService {
           createdAt: event?.createdAt instanceof Date ? event.createdAt.toISOString() : null,
         }))
       : [];
+    const rawIntelligence = buildVendasLeadIntelligence({
+      lead: row,
+      whatsappAvailability,
+      verifiedBy: String(whatsappAvailability?.message || '').includes('HBX Master')
+        ? 'hbx_master'
+        : whatsappAvailability?.checkedAt
+          ? 'client_engine'
+          : null,
+    });
+    const access = planAccess || this.buildPlanAccess(COMMERCIAL_PLAN_KEYS.PADRAO);
     return {
       id: String(row?.id || ''),
       customerProfileId: row?.customerProfileId ? String(row.customerProfileId) : null,
@@ -626,15 +650,9 @@ export class VendasService {
       createdAt: row?.createdAt instanceof Date ? row.createdAt.toISOString() : null,
       updatedAt: row?.updatedAt instanceof Date ? row.updatedAt.toISOString() : null,
       whatsappAvailability: whatsappAvailability || null,
-      leadIntelligence: buildVendasLeadIntelligence({
-        lead: row,
-        whatsappAvailability,
-        verifiedBy: String(whatsappAvailability?.message || '').includes('HBX Master')
-          ? 'hbx_master'
-          : whatsappAvailability?.checkedAt
-            ? 'client_engine'
-            : null,
-      }),
+      planTier: access.planTier,
+      capabilities: access.capabilities,
+      leadIntelligence: this.applyLeadIntelligenceCapabilities(rawIntelligence, access),
       isInInbox: Boolean(inboxPresence?.conversationId || sharedProfile?.presence?.atendimento?.present),
       inboxConversationId: inboxPresence?.conversationId ? String(inboxPresence.conversationId) : null,
       atendimentoConversationId: inboxPresence?.conversationId ? String(inboxPresence.conversationId) : null,
@@ -656,6 +674,59 @@ export class VendasService {
     if (!companyId) throw new ForbiddenException('Empresa nao identificada.');
     if (!userId) throw new ForbiddenException('Usuario nao identificado.');
     return { companyId, userId };
+  }
+
+  private buildPlanAccess(planKey: unknown): VendasPlanAccess {
+    const normalized = normalizeCommercialPlanKey(planKey);
+    return {
+      planTier: getCommercialPlanTier(normalized),
+      capabilities: getCommercialPlanCapabilities(normalized),
+    };
+  }
+
+  private async resolvePlanAccessForCompany(companyId: number): Promise<VendasPlanAccess> {
+    const company = await this.prisma.company.findUnique({
+      where: { id: Number(companyId) },
+      select: { selectedPlanKey: true },
+    }).catch(() => null);
+    return this.buildPlanAccess(company?.selectedPlanKey || COMMERCIAL_PLAN_KEYS.PADRAO);
+  }
+
+  private applyLeadIntelligenceCapabilities(intelligence: any, access: VendasPlanAccess) {
+    if (access.capabilities.canSeeLeadIntelligence) {
+      return intelligence;
+    }
+    return {
+      emailStatus: intelligence?.emailStatus || null,
+      whatsappStatus: access.capabilities.canUseVerifiedWhatsapp ? intelligence?.whatsappStatus || null : 'unverified',
+      contactQuality: intelligence?.contactQuality === 'blocked' ? 'blocked' : 'review',
+      opportunityScore: null,
+      opportunityReason: null,
+      painType: null,
+      painPitch: null,
+      recommendedChannel: null,
+      emailSource: null,
+      confidence: null,
+      leadReasonTags: (Array.isArray(intelligence?.leadReasonTags) ? intelligence.leadReasonTags : [])
+        .filter((tag: string) => ['sem_site', 'cidade_alvo', 'segmento_alvo'].includes(String(tag))),
+      nextBestAction: null,
+      lastVerifiedAt: null,
+      verifiedBy: null,
+      messageTemplate: null,
+      messageTemplates: [],
+      templateLibrarySize: Number(intelligence?.templateLibrarySize || 0) || 0,
+      instagramUrl: null,
+      facebookUrl: null,
+      socialStatus: intelligence?.socialStatus || null,
+      socialConfidence: null,
+      primarySocial: intelligence?.primarySocial || null,
+      premiumTeaser: intelligence?.primarySocial || intelligence?.opportunityScore
+        ? {
+            label: 'Disponível no HBX Lead',
+            cta: 'Ver card inteligente',
+          }
+        : null,
+    };
   }
 
   private async getOrCreateMasterWhatsappEngineCompanyId() {
@@ -706,6 +777,7 @@ export class VendasService {
 
   async enrichLeadForUser(user: any, leadId: string, opts?: { templateOffset?: number }) {
     const { companyId, userId } = this.resolveUserContext(user);
+    const planAccess = await this.resolvePlanAccessForCompany(companyId);
     const normalizedLeadId = this.normalizeText(leadId);
     if (!normalizedLeadId) throw new BadRequestException('Lead nao informado.');
 
@@ -777,13 +849,18 @@ export class VendasService {
     return {
       ok: true,
       leadId: String(lead.id),
+      planTier: planAccess.planTier,
+      capabilities: planAccess.capabilities,
       whatsappAvailability: availability,
-      leadIntelligence: buildVendasLeadIntelligence({
-        lead,
-        whatsappAvailability: availability,
-        verifiedBy,
-        templateOffset: opts?.templateOffset,
-      }),
+      leadIntelligence: this.applyLeadIntelligenceCapabilities(
+        buildVendasLeadIntelligence({
+          lead,
+          whatsappAvailability: availability,
+          verifiedBy,
+          templateOffset: opts?.templateOffset,
+        }),
+        planAccess,
+      ),
     };
   }
 
@@ -1987,6 +2064,7 @@ export class VendasService {
     nextAction?: string | null;
     returnAt?: Date | null;
     shortNote?: string | null;
+    planAccess?: VendasPlanAccess | null;
     uniqueRetry?: boolean;
   }) {
     const leadBaseSelectWithoutAddress: any = this.buildVendasLeadSelectWithoutAddress();
@@ -2182,7 +2260,7 @@ export class VendasService {
         return {
           action: 'updated',
           reusedExisting: true,
-          lead: this.buildLeadPayload(updated),
+          lead: this.buildLeadPayload(updated, undefined, undefined, undefined, input.planAccess),
         };
       }
     }
@@ -2311,7 +2389,7 @@ export class VendasService {
     return {
       action: 'created',
       reusedExisting: false,
-      lead: this.buildLeadPayload(created),
+      lead: this.buildLeadPayload(created, undefined, undefined, undefined, input.planAccess),
     };
   }
 
@@ -2414,6 +2492,7 @@ export class VendasService {
 
   async getBoardForUser(user: any) {
     const context = this.resolveUserContext(user);
+    const planAccess = await this.resolvePlanAccessForCompany(context.companyId);
     const leadWithTimelineSelectWithoutAddress: any = this.buildVendasLeadSelectWithoutAddress({
       timelineEvents: {
         orderBy: [{ createdAt: 'desc' }],
@@ -2495,6 +2574,7 @@ export class VendasService {
         sharedProfile,
         whatsappAvailabilityByLeadId.get(String(row.id)) || null,
         leadInboxPresence.get(String(row.id)) || null,
+        planAccess,
       );
       blocks[payload.block].push(payload);
     }
@@ -2507,12 +2587,15 @@ export class VendasService {
         scheduled: blocks.scheduled.length,
         closed: blocks.closed.length,
       },
+      planTier: planAccess.planTier,
+      capabilities: planAccess.capabilities,
       blocks,
     };
   }
 
   async createManualLeadForUser(user: any, dto: CreateManualVendasLeadDto) {
     const context = this.resolveUserContext(user);
+    const planAccess = await this.resolvePlanAccessForCompany(context.companyId);
     if (!this.normalizeText(dto?.name) && !this.normalizeText(dto?.phone) && !this.normalizeText(dto?.email)) {
       throw new BadRequestException('Informe ao menos nome, telefone ou e-mail para criar o lead.');
     }
@@ -2532,6 +2615,7 @@ export class VendasService {
       nextAction: dto?.nextAction || 'Primeiro contato',
       returnAt: this.parseDate(dto?.returnAt) || new Date(),
       shortNote: dto?.shortNote || null,
+      planAccess,
     });
 
     await this.syncLeadToInboxAgenda(context.companyId, result.lead);
@@ -2544,6 +2628,7 @@ export class VendasService {
 
   async importWebscrapingLeadsForUser(user: any, dto: ImportWebscrapingLeadsDto) {
     const context = this.resolveUserContext(user);
+    const planAccess = await this.resolvePlanAccessForCompany(context.companyId);
     const incomingLeads = Array.isArray(dto?.leads) ? dto.leads : [];
     if (!incomingLeads.length) {
       throw new BadRequestException('Nenhum lead do Radar Digital foi enviado para o CRM.');
@@ -2551,6 +2636,9 @@ export class VendasService {
 
     let createdCount = 0;
     let updatedCount = 0;
+    let skippedDuplicateCount = 0;
+    let skippedProtectedCount = 0;
+    let skippedByFilterCount = 0;
     const importedLeads: any[] = [];
     const importedLeadPairs: Array<{ lead: any; item: any }> = [];
     const failedImports: Array<{ name: string | null; phone: string | null; error: string }> = [];
@@ -2571,13 +2659,15 @@ export class VendasService {
       const radarLeadId = this.extractRadarLeadId(sourceHistoryId);
 
       let result: any;
+      let duplicateInCompany = false;
       try {
         await this.assertRadarLeadImportAllowed(context, radarLeadId);
-        const duplicateInCompany = await this.hasExistingVendasLeadForImport(
+        duplicateInCompany = await this.hasExistingVendasLeadForImport(
           context.companyId,
           itemPhone || itemPhoneDigits,
           item?.email || null,
         );
+        if (duplicateInCompany) skippedDuplicateCount += 1;
         if (!duplicateInCompany) {
           await this.commercialUsageLimits.assertCanImportCard(context.companyId, context.userId);
         }
@@ -2601,12 +2691,15 @@ export class VendasService {
           nextAction: 'Primeiro contato',
           returnAt: new Date(),
           shortNote: this.normalizeText(item?.shortNote),
+          planAccess,
         });
       } catch (error: any) {
+        const errorText = String(error?.message || error || '');
+        if (/protegido|negativo|bloque|opt-out|outra empresa/i.test(errorText)) skippedProtectedCount += 1;
         failedImports.push({
           name: this.normalizeText(item?.name),
           phone: this.normalizeText(item?.phone || item?.phoneDigits),
-          error: String(error?.message || error || 'Falha ao importar lead.'),
+          error: errorText || 'Falha ao importar lead.',
         });
         this.logger.warn(
           `[vendas-import] Lead ignorado por falha no import company=${context.companyId} phone=${this.normalizeText(item?.phone || item?.phoneDigits) || '-'} error=${String(error?.message || error)}`,
@@ -2622,6 +2715,7 @@ export class VendasService {
         instagramUrl: this.normalizeText((item as any)?.instagramUrl),
         facebookUrl: this.normalizeText((item as any)?.facebookUrl),
         socialStatus: this.normalizeText((item as any)?.socialStatus),
+        socialConfidence: Number((item as any)?.socialConfidence || 0) || null,
         googleMapsUrl: this.normalizeText((item as any)?.googleMapsUrl),
         businessCategory: this.normalizeText((item as any)?.businessCategory),
         openingHoursStatus: this.normalizeText((item as any)?.openingHoursStatus),
@@ -2694,6 +2788,7 @@ export class VendasService {
       const availability = whatsappAvailabilityByLeadId.get(String(entry.lead?.id || '')) || null;
       if (availability?.status === 'unavailable') {
         skippedWithoutWhatsapp += 1;
+        skippedByFilterCount += 1;
         await this.moveLeadWithoutWhatsappToInboxTrash(
           context.companyId,
           entry.lead,
@@ -2717,6 +2812,14 @@ export class VendasService {
       whatsappValidationSkipped: skipWhatsappValidation,
       failedCount: failedImports.length,
       failedImports,
+      rawFoundCount: incomingLeads.length,
+      eligibleCount: importedLeadPairs.length,
+      deliveredCount: importedLeadPairs.length,
+      quotaDebited: createdCount,
+      skippedNegativeCount: skippedProtectedCount,
+      skippedDuplicateCount,
+      skippedProtectedCount,
+      skippedByFilterCount,
       leads: importedLeads,
       message:
         failedImports.length > 0

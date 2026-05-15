@@ -12,6 +12,19 @@ type UseWhatsAppLiveHealthOptions = {
 
 export const WHATSAPP_LIVE_HEALTH_EVENT = "hbx:whatsapp-live-health";
 
+function liveHealthPayloadEqual(
+  left: WhatsAppLiveHealthPayload | null,
+  right: WhatsAppLiveHealthPayload | null,
+) {
+  if (left === right) return true;
+  if (!left || !right) return false;
+  try {
+    return JSON.stringify(left) === JSON.stringify(right);
+  } catch {
+    return false;
+  }
+}
+
 export function useWhatsAppLiveHealth({
   enabled,
   intervalMs,
@@ -25,26 +38,26 @@ export function useWhatsAppLiveHealth({
   const refresh = useCallback(async (force = false) => {
     if (!enabled || inFlightRef.current) return null;
     inFlightRef.current = true;
-    setLoading(true);
+    if (force) setLoading(true);
     try {
       const suffix = force ? "?refresh=true" : "";
       const payload = await apiFetch<WhatsAppLiveHealthPayload>(`/companies/me/whatsapp-live-health${suffix}`, {
         requireAuth: true,
         timeoutMs: force ? 12000 : 9000,
       });
-      setHealth(payload);
-      setError(null);
+      setHealth((current) => liveHealthPayloadEqual(current, payload) ? current : payload);
+      setError((current) => current === null ? current : null);
       if (typeof window !== "undefined") {
         window.dispatchEvent(new CustomEvent(WHATSAPP_LIVE_HEALTH_EVENT, { detail: payload }));
       }
       return payload;
     } catch (refreshError) {
       const message = refreshError instanceof Error ? refreshError.message : "Falha ao verificar o WhatsApp.";
-      setError(message);
+      setError((current) => current === message ? current : message);
       return null;
     } finally {
       inFlightRef.current = false;
-      setLoading(false);
+      if (force) setLoading(false);
     }
   }, [enabled]);
 

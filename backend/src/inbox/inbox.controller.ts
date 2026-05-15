@@ -47,9 +47,8 @@ export class InboxController {
   getBootstrap(
     @Req() req: any,
     @Query('take') take?: string,
-    @Query('includePreviousSessions') includePreviousSessions?: string,
   ) {
-    return this.inboxService.getBootstrap(req.user, take, { includePreviousSessions: includePreviousSessions === 'true' });
+    return this.inboxService.getBootstrap(req.user, take);
   }
 
   @Post('bootstrap/full')
@@ -65,25 +64,6 @@ export class InboxController {
   @Get('bot-config')
   getBotConfig(@Req() req: any) {
     return this.inboxService.getBotConfig(req.user);
-  }
-
-  @Post('whatsapp-sessions/:id/archive')
-  archiveWhatsappSession(@Req() req: any, @Param('id') id: string) {
-    return this.inboxService.archiveWhatsappSession(req.user, id);
-  }
-
-  @Post('whatsapp-sessions/:id/migrate-current')
-  migrateWhatsappSessionToCurrent(
-    @Req() req: any,
-    @Param('id') id: string,
-    @Body() dto: { confirmation?: string | null },
-  ) {
-    return this.inboxService.migrateWhatsappSessionToCurrent(req.user, id, dto || {});
-  }
-
-  @Post('whatsapp-sessions/migrate-all-current')
-  migrateAllWhatsappHistoryToCurrent(@Req() req: any) {
-    return this.inboxService.migrateAllWhatsappHistoryToCurrent(req.user);
   }
 
   @Patch('bot-config')
@@ -112,9 +92,8 @@ export class InboxController {
     @Query('take') take?: string,
     @Query('skip') skip?: string,
     @Query('queue') queue?: string,
-    @Query('includePreviousSessions') includePreviousSessions?: string,
   ) {
-    return this.inboxService.listConversations(req.user, { take, skip, queue, includePreviousSessions });
+    return this.inboxService.listConversations(req.user, { take, skip, queue });
   }
 
   @Get('conversations/:id/messages')
@@ -123,18 +102,16 @@ export class InboxController {
     @Param('id', ParseIntPipe) id: number,
     @Query('limit') limit?: string,
     @Query('before') before?: string,
-    @Query('includePreviousSessions') includePreviousSessions?: string,
   ) {
-    return this.inboxService.listConversationMessages(req.user, id, { limit, before, includePreviousSessions });
+    return this.inboxService.listConversationMessages(req.user, id, { limit, before });
   }
 
   @Get('conversations/:id')
   getConversation(
     @Req() req: any,
     @Param('id', ParseIntPipe) id: number,
-    @Query('includePreviousSessions') includePreviousSessions?: string,
   ) {
-    return this.inboxService.getConversationById(req.user, id, { includePreviousSessions });
+    return this.inboxService.getConversationById(req.user, id);
   }
 
   @Get('conversations/:id/status-card')

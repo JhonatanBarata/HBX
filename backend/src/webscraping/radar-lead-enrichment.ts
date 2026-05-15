@@ -31,6 +31,7 @@ export type RadarLeadEnrichmentInput = {
   instagramUrl?: string | null;
   facebookUrl?: string | null;
   socialStatus?: string | null;
+  socialConfidence?: number | null;
   googleMapsUrl?: string | null;
   placeId?: string | null;
   sourceUrl?: string | null;
@@ -251,6 +252,8 @@ function buildReason(input: RadarLeadEnrichmentInput, data: {
   else if (normalizeText(input.phone || input.phoneDigits)) signals.push('telefone disponível');
   if (data.emailStatus === 'confirmed') signals.push('e-mail confirmado');
   if (data.emailStatus === 'probable') signals.push('e-mail provável');
+  if (normalizeText(input.instagramUrl)) signals.push('Instagram encontrado');
+  if (normalizeText(input.facebookUrl)) signals.push('Facebook encontrado');
   signals.push(data.painLabel.toLowerCase());
   if (Number(input.rating || 0) >= 4.2) signals.push('boa avaliação');
   if (Number(input.reviews || 0) >= 20) signals.push('prova social');
@@ -311,7 +314,7 @@ export function buildRadarLeadEnrichment(input: RadarLeadEnrichmentInput): Radar
     : normalizeKey(input.socialStatus) === 'weak'
       ? 'weak'
       : 'missing';
-  const socialConfidence = socialStatus === 'found' ? 80 : socialStatus === 'weak' ? 35 : 0;
+  const socialConfidence = socialStatus === 'found' ? Math.max(80, clampInt(input.socialConfidence)) : socialStatus === 'weak' ? Math.max(35, clampInt(input.socialConfidence)) : 0;
   const googleMapsUrl = normalizeUrl(
     pickRaw(input, ['googleMapsUrl', 'mapsUrl', 'google_maps_url']) ||
     input.sourceUrl ||
@@ -333,6 +336,11 @@ export function buildRadarLeadEnrichment(input: RadarLeadEnrichmentInput): Radar
   if (emailStatus === 'confirmed') score += 8;
   if (emailStatus === 'probable') score += 5;
   if (pain.type === 'sem_site' || pain.type === 'site_fraco') score += 7;
+  if (instagramUrl && facebookUrl) score += 8;
+  else if (instagramUrl) score += 6;
+  else if (facebookUrl) score += 4;
+  if ((instagramUrl || facebookUrl) && (pain.type === 'sem_site' || pain.type === 'site_fraco')) score += 4;
+  if (socialStatus === 'weak') score += 2;
   if (Number(input.rating || 0) >= 4.2) score += 4;
   if (Number(input.reviews || 0) >= 20) score += 3;
   if (recommendedChannel === 'discard') score = 0;
@@ -353,6 +361,8 @@ export function buildRadarLeadEnrichment(input: RadarLeadEnrichmentInput): Radar
     signals: {
       websiteStatus: normalizeWebsiteStatus(input),
       socialStatus,
+      instagramUrl,
+      facebookUrl,
       emailStatus,
       recommendedChannel,
       painType: pain.type,

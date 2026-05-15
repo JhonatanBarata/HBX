@@ -153,7 +153,7 @@ export type InboxBootstrapPayload = {
   whatsappSession?: {
     accessible?: boolean;
     reason?: string | null;
-    mode?: "current" | "previous" | "all" | string;
+    mode?: "current" | "all" | string;
     currentSessionId?: string | null;
     currentSession?: {
       id: string;
@@ -162,17 +162,6 @@ export type InboxBootstrapPayload = {
       displayPhone?: string | null;
       connectedAt?: string | null;
     } | null;
-    previousSessions?: Array<{
-      id: string;
-      provider?: string | null;
-      phoneNormalized?: string | null;
-      displayPhone?: string | null;
-      status?: string | null;
-      connectedAt?: string | null;
-      disconnectedAt?: string | null;
-    }>;
-    previousSessionsCount?: number;
-    legacyConversationCount?: number;
   } | null;
 };
 
