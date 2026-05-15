@@ -2614,6 +2614,30 @@ export class VendasService {
         continue;
       }
 
+      const radarEnrichmentMetadata = {
+        emailStatus: this.normalizeText((item as any)?.emailStatus),
+        recommendedChannel: this.normalizeText((item as any)?.recommendedChannel),
+        painType: this.normalizeText((item as any)?.painType),
+        painPitch: this.normalizeText((item as any)?.painPitch),
+        opportunityReason: this.normalizeText(item?.shortNote),
+        enrichment: (item as any)?.enrichmentJson || null,
+      };
+      if (Object.values(radarEnrichmentMetadata).some((value) => Boolean(value))) {
+        await this.prisma.vendasLeadTimelineEvent.create({
+          data: {
+            leadId: result.lead?.id,
+            ...this.buildTimelineEvent({
+              eventType: 'radar_enrichment_imported',
+              title: 'Inteligencia do Radar preservada',
+              description: JSON.stringify(radarEnrichmentMetadata),
+              sourceType: 'radar_enrichment',
+              resultLabel: radarEnrichmentMetadata.recommendedChannel || null,
+              createdByUserId: context.userId,
+            }),
+          },
+        }).catch(() => null);
+      }
+
       if (result.action === 'created') {
         createdCount += 1;
         await this.commercialUsageLimits.recordCardImport(context.companyId, context.userId, {

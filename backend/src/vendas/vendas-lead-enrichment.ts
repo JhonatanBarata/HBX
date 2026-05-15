@@ -103,6 +103,40 @@ function extractWebsiteDomain(value: unknown) {
   }
 }
 
+function parseJsonObject(value: unknown): Record<string, any> {
+  const raw = normalizeText(value);
+  if (!raw) return {};
+  try {
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+    return parsed as Record<string, any>;
+  } catch {
+    return {};
+  }
+}
+
+function extractRadarEnrichment(lead: any) {
+  const direct = parseJsonObject(lead?.enrichmentJson || lead?.metadataJson);
+  const timeline = Array.isArray(lead?.timelineEvents) ? lead.timelineEvents : [];
+  const event = timeline.find((item: any) => String(item?.sourceType || '').trim().toLowerCase() === 'radar_enrichment');
+  const fromEvent = parseJsonObject(event?.description);
+  const nested = typeof fromEvent.enrichment === 'string'
+    ? parseJsonObject(fromEvent.enrichment)
+    : fromEvent.enrichment && typeof fromEvent.enrichment === 'object'
+      ? fromEvent.enrichment
+      : {};
+  return {
+    ...direct,
+    ...nested,
+    emailStatus: normalizeText(lead?.emailStatus || fromEvent.emailStatus || nested?.signals?.emailStatus || direct?.signals?.emailStatus),
+    recommendedChannel: normalizeText(lead?.recommendedChannel || fromEvent.recommendedChannel || nested?.signals?.recommendedChannel || direct?.signals?.recommendedChannel),
+    painType: normalizeText(lead?.painType || fromEvent.painType || nested?.signals?.painType || direct?.signals?.painType),
+    painPitch: normalizeText(lead?.painPitch || fromEvent.painPitch),
+    opportunityReason: normalizeText(lead?.opportunityReason || fromEvent.opportunityReason),
+    sourceConfidence: nested?.sourceConfidence || direct?.sourceConfidence || null,
+  };
+}
+
 function inferSegmentKeys(lead: any) {
   const haystack = normalizeKey(`${lead?.segment || ''} ${lead?.name || ''} ${lead?.primarySource || ''}`);
   const keys: string[] = [];
@@ -157,6 +191,7 @@ function selectTemplates(lead: any, tags: string[], offset = 0) {
 
 export function buildVendasLeadIntelligence(input: VendasLeadIntelligenceInput) {
   const lead = input.lead || {};
+  const radarEnrichment = extractRadarEnrichment(lead);
   const whatsappStatusRaw = normalizeKey(input.whatsappAvailability?.status);
   const whatsappStatus =
     whatsappStatusRaw === 'available'
@@ -168,7 +203,10 @@ export function buildVendasLeadIntelligence(input: VendasLeadIntelligenceInput) 
           : 'unverified';
   const email = normalizeText(lead?.email);
   const domain = extractWebsiteDomain(lead?.website);
-  const emailStatus = hasUsableEmail(email)
+  const radarEmailStatus = normalizeKey(radarEnrichment.emailStatus);
+  const emailStatus = radarEmailStatus && ['confirmed', 'probable', 'missing', 'invalid', 'unverified'].includes(radarEmailStatus)
+    ? radarEmailStatus
+    : hasUsableEmail(email)
     ? 'confirmed'
     : domain
       ? 'probable'
@@ -176,6 +214,7 @@ export function buildVendasLeadIntelligence(input: VendasLeadIntelligenceInput) 
   const emailCandidate = hasUsableEmail(email) ? email.toLowerCase() : domain ? `contato@${domain}` : null;
   const tags = new Set<string>();
   if (!normalizeText(lead?.website)) tags.add('sem_site');
+  if (radarEnrichment.painType) tags.add(String(radarEnrichment.painType));
   if (whatsappStatus === 'confirmed') tags.add('whatsapp_confirmado');
   if (emailStatus === 'confirmed' || emailStatus === 'probable') tags.add('email_encontrado');
   if (normalizeText(lead?.city)) tags.add('cidade_alvo');
@@ -187,6 +226,7 @@ export function buildVendasLeadIntelligence(input: VendasLeadIntelligenceInput) 
     lead?.wasClosedBefore ||
     lead?.closedAt ||
     normalizeKey(lead?.status) === 'encerrado' ||
+    normalizeKey(radarEnrichment.recommendedChannel) === 'discard' ||
     ['negativo', 'opt-out', 'opt_out', 'bloqueado'].some((needle) =>
       normalizeKey(`${lead?.lastResult || ''} ${lead?.shortNote || ''}`).includes(needle),
     )
@@ -211,8 +251,11 @@ export function buildVendasLeadIntelligence(input: VendasLeadIntelligenceInput) 
       : whatsappStatus === 'invalid' || (whatsappStatus === 'missing' && emailStatus === 'missing')
         ? 'weak'
         : 'review';
+  const radarRecommendedChannel = normalizeKey(radarEnrichment.recommendedChannel);
   const nextBestAction = blocked
     ? 'discard'
+    : ['whatsapp', 'email', 'call', 'review'].includes(radarRecommendedChannel)
+      ? radarRecommendedChannel
     : whatsappStatus === 'confirmed'
       ? 'whatsapp'
       : emailStatus === 'confirmed' || emailStatus === 'probable'
@@ -220,15 +263,27 @@ export function buildVendasLeadIntelligence(input: VendasLeadIntelligenceInput) 
         : whatsappStatus === 'missing' && normalizeText(lead?.phone)
           ? 'call'
           : 'review';
+  const painPitch = normalizeText(radarEnrichment.painPitch);
+  const radarReason = normalizeText(radarEnrichment.opportunityReason || lead?.shortNote);
+  const concreteSignals = [
+    whatsappStatus === 'confirmed' ? 'WhatsApp confirmado' : whatsappStatus === 'missing' ? 'WhatsApp ausente' : normalizeText(lead?.phone || lead?.phoneNormalized) ? 'telefone disponível' : null,
+    emailStatus === 'confirmed' ? 'e-mail confirmado' : emailStatus === 'probable' ? 'e-mail provável' : null,
+    tags.has('sem_site') ? 'sem site' : normalizeText(lead?.website) ? 'site informado' : null,
+    Number(lead?.rating || 0) >= 4.2 ? 'boa avaliação' : null,
+    Number(lead?.reviews || 0) >= 20 ? 'reviews relevantes' : null,
+    radarEnrichment.painType ? `dor ${radarEnrichment.painType}` : null,
+  ].filter(Boolean).join(' + ');
   const opportunityReason = blocked
     ? 'Lead bloqueado por histórico negativo, encerramento ou opt-out.'
+    : radarReason
+      ? radarReason
     : whatsappStatus === 'confirmed' && score >= 70
-      ? 'WhatsApp confirmado, bom contexto comercial e prioridade alta para abordagem.'
+      ? `${concreteSignals}: prioridade alta para abordagem comercial.`
       : whatsappStatus === 'missing' && emailStatus !== 'missing'
-        ? 'WhatsApp não confirmado, mas existe caminho por e-mail para abordagem.'
+        ? `${concreteSignals}: WhatsApp não confirmado, mas existe caminho por e-mail para abordagem.`
         : tags.has('sem_site')
-          ? 'Empresa com presença digital fraca e oportunidade de organizar contatos pelo WhatsApp.'
-          : 'Lead com sinais suficientes para revisão comercial rápida.';
+          ? `${concreteSignals}: presença digital fraca e oportunidade de organizar contatos pelo WhatsApp.`
+          : `${concreteSignals || 'Dados comerciais básicos'}: revisar melhor canal antes da abordagem.`;
   const templates = selectTemplates(lead, Array.from(tags), Math.max(0, Math.trunc(Number(input.templateOffset || 0))));
 
   return {
@@ -238,6 +293,14 @@ export function buildVendasLeadIntelligence(input: VendasLeadIntelligenceInput) 
     contactQuality,
     opportunityScore: score,
     opportunityReason,
+    painType: radarEnrichment.painType || null,
+    painPitch: painPitch || null,
+    recommendedChannel: nextBestAction,
+    emailSource: radarEnrichment?.sourceConfidence?.email ? 'radar' : null,
+    confidence: {
+      email: Number(radarEnrichment?.sourceConfidence?.email || 0) || null,
+      enrichment: Number(radarEnrichment?.sourceConfidence?.enrichment || 0) || null,
+    },
     leadReasonTags: Array.from(tags),
     nextBestAction,
     lastVerifiedAt: input.whatsappAvailability?.checkedAt || null,

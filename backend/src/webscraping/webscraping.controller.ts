@@ -601,6 +601,11 @@ export class WebscrapingController {
     return this.webscrapingService.importRadarLeadToVendasForUser(req.user, id, body || {});
   }
 
+  @Post('radar/leads/:id/enrich')
+  radarLeadEnrich(@Req() req: any, @Param('id') id: string) {
+    return this.webscrapingService.enrichRadarLeadForUser(req.user, id);
+  }
+
   @Post('radar/leads/mark-sent-to-vendas')
   radarLeadsMarkSentToVendas(@Req() req: any, @Body() dto: RadarMarkSentDto) {
     return this.webscrapingService.markRadarLeadsSentToVendasForUser(req.user, dto?.leadIds || []);

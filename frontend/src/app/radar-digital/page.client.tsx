@@ -48,6 +48,24 @@ type RadarLead = {
   segment?: string | null;
   website?: string | null;
   websiteStatus?: string | null;
+  email?: string | null;
+  emailStatus?: "confirmed" | "probable" | "missing" | "invalid" | "unverified" | string | null;
+  emailSource?: string | null;
+  emailConfidence?: number | null;
+  instagramUrl?: string | null;
+  facebookUrl?: string | null;
+  socialStatus?: string | null;
+  googleMapsUrl?: string | null;
+  businessCategory?: string | null;
+  recommendedChannel?: "whatsapp" | "email" | "call" | "review" | "discard" | string | null;
+  painType?: string | null;
+  painLabel?: string | null;
+  painPitch?: string | null;
+  enrichmentScore?: number | null;
+  enrichmentConfidence?: number | null;
+  enrichmentJson?: Record<string, unknown> | string | null;
+  lastEnrichedAt?: string | null;
+  enrichmentVersion?: string | null;
   opportunityScore?: number | null;
   opportunityReason?: string | null;
   source?: string | null;
@@ -77,7 +95,18 @@ type RadarLeadsResponse = {
     page?: number;
     limit?: number;
     availableFilters?: RadarAvailableFilters;
+    enrichmentSummary?: RadarEnrichmentSummary;
   };
+};
+
+type RadarEnrichmentSummary = {
+  cardsAnalyzed?: number;
+  whatsappVerified?: number;
+  emailConfirmedOrProbable?: number;
+  noWebsite?: number;
+  highPriority?: number;
+  discardedOrBlocked?: number;
+  readyToCall?: number;
 };
 
 type RadarPullResponse = {
@@ -148,6 +177,12 @@ type ImportToVendasResponse = {
   updatedCount: number;
   skippedWithoutWhatsapp?: number;
   message?: string;
+};
+
+type RadarEnrichResponse = {
+  ok?: boolean;
+  message?: string;
+  item?: RadarLead | null;
 };
 
 type VendasPendingSummary = {
@@ -261,6 +296,50 @@ function websiteLabel(value?: string | null) {
   return "Website não avaliado";
 }
 
+function emailLabel(value?: string | null) {
+  const status = String(value || "").toLowerCase();
+  if (status === "confirmed") return "E-mail confirmado";
+  if (status === "probable") return "E-mail provável";
+  if (status === "invalid") return "E-mail inválido";
+  if (status === "unverified") return "E-mail sem validar";
+  return "E-mail ausente";
+}
+
+function whatsappLabel(value?: string | null) {
+  const status = String(value || "").toLowerCase();
+  if (status === "confirmed") return "WhatsApp verificado";
+  if (status === "missing") return "Sem WhatsApp";
+  if (status === "invalid") return "WhatsApp inválido";
+  return "WhatsApp pendente";
+}
+
+function channelLabel(value?: string | null) {
+  const channel = String(value || "").toLowerCase();
+  if (channel === "whatsapp") return "WhatsApp";
+  if (channel === "email") return "E-mail";
+  if (channel === "call") return "Ligação";
+  if (channel === "discard") return "Não chamar";
+  return "Revisar";
+}
+
+function compactLeadReason(lead: RadarLead) {
+  if (lead.recommendedChannel === "discard") return "Não chamar: card protegido por negativo, bloqueio ou descarte.";
+  if (lead.opportunityReason) return lead.opportunityReason;
+  if (lead.painType === "sem_site") return "Boa oportunidade: presença digital fraca e contato acionável.";
+  if (lead.recommendedChannel === "whatsapp") return "Boa oportunidade: contato acionável pelo WhatsApp.";
+  if (lead.recommendedChannel === "email") return "Boa oportunidade: caminho por e-mail para abordagem inicial.";
+  return "Boa oportunidade: revisar sinais e escolher o melhor canal.";
+}
+
+function buildSmartChips(lead: RadarLead, max = 3) {
+  const chips = [
+    { label: whatsappLabel(lead.whatsappStatus || lead.whatsappCheckStatus), tone: String(lead.whatsappStatus || lead.whatsappCheckStatus).toLowerCase() === "confirmed" ? "success" : "neutral" },
+    { label: emailLabel(lead.emailStatus), tone: ["confirmed", "probable"].includes(String(lead.emailStatus || "").toLowerCase()) ? "success" : "neutral" },
+    { label: lead.painLabel || websiteLabel(lead.websiteStatus), tone: lead.painType === "sem_site" || String(lead.websiteStatus || "").toLowerCase() === "none" ? "warning" : "neutral" },
+  ];
+  return chips.slice(0, max);
+}
+
 function opportunityLabel(score?: number | null) {
   const safeScore = Math.max(0, Math.min(100, Math.trunc(Number(score || 0))));
   if (safeScore >= 70) return "Alta oportunidade";
@@ -294,6 +373,14 @@ function radarLeadSignature(item: RadarLead) {
     state: item.state,
     segment: item.segment,
     websiteStatus: item.websiteStatus,
+    email: item.email,
+    emailStatus: item.emailStatus,
+    recommendedChannel: item.recommendedChannel,
+    painType: item.painType,
+    painLabel: item.painLabel,
+    enrichmentScore: item.enrichmentScore,
+    enrichmentConfidence: item.enrichmentConfidence,
+    whatsappStatus: item.whatsappStatus,
     opportunityScore: item.opportunityScore,
     opportunityReason: item.opportunityReason,
     status: item.status,
@@ -480,6 +567,7 @@ export default function RadarDigitalClientPage() {
     citiesByState: {},
     segments: [],
   });
+  const [enrichmentSummary, setEnrichmentSummary] = useState<RadarEnrichmentSummary | null>(null);
   const activeRunIdRef = useRef<string | null>(null);
   const mobileSearchNoticeRef = useRef<HTMLElement | null>(null);
 
@@ -492,6 +580,7 @@ export default function RadarDigitalClientPage() {
     [visibleItems],
   );
   const isHbxList = commercialPlans?.current?.planKey === "hbx_lite" || commercialPlans?.current?.selectedPlanKey === "hbx_lite";
+  const showSmartLeadCards = !isHbxList;
   const radarQuantityLimit = isHbxList ? 50 : 100;
   const effectiveFilters = useMemo(
     () => ({
@@ -600,6 +689,7 @@ export default function RadarDigitalClientPage() {
       setItems((current) => append ? mergeRadarLeads([...current, ...(payload.items || [])]) : payload.items || []);
       setTotal(Number(payload.total || 0));
       setAvailableFilters(payload.meta?.availableFilters || { states: [], citiesByState: {}, segments: [] });
+      setEnrichmentSummary(payload.meta?.enrichmentSummary || null);
       setPage(nextPage);
     } catch (err) {
       setError(radarFriendlyError(err));
@@ -1027,7 +1117,7 @@ export default function RadarDigitalClientPage() {
 
   async function runLeadAction(
     lead: RadarLead,
-    action: "send" | "hide" | "negative" | "csx",
+    action: "send" | "hide" | "negative" | "csx" | "enrich",
   ) {
     if (action === "csx") {
       setFeedback("Registro CSX pendente de integração. O card não foi alterado.");
@@ -1037,6 +1127,18 @@ export default function RadarDigitalClientPage() {
     setActionId(`${lead.id}:${action}`);
     setError(null);
     try {
+      if (action === "enrich") {
+        const payload = await apiFetch<RadarEnrichResponse>(`/webscraping/radar/leads/${lead.id}/enrich`, {
+          method: "POST",
+          requireAuth: true,
+          timeoutMs: 18000,
+        });
+        if (payload.item) {
+          setItems((current) => current.map((item) => item.id === lead.id ? { ...item, ...payload.item } : item));
+        }
+        setFeedback(payload.message || "Card enriquecido");
+      }
+
       if (action === "send") {
         await apiFetch(`/webscraping/radar/leads/${lead.id}/send-to-vendas`, {
           method: "POST",
@@ -1069,7 +1171,7 @@ export default function RadarDigitalClientPage() {
         setFeedback("Card marcado como negativo.");
       }
     } catch {
-      setError("Não foi possível concluir esta ação agora.");
+      setError(action === "enrich" ? "Não foi possível enriquecer agora" : "Não foi possível concluir esta ação agora.");
     } finally {
       setActionId(null);
     }
@@ -1081,10 +1183,18 @@ export default function RadarDigitalClientPage() {
       name: lead.name,
       phone: lead.phone || lead.phoneDigits || "",
       phoneDigits: lead.phoneDigits || lead.phone || "",
+      email: lead.email || undefined,
+      emailStatus: lead.emailStatus || undefined,
       website: lead.website || undefined,
       city: lead.city || undefined,
+      state: lead.state || undefined,
       segment: lead.segment || undefined,
+      recommendedChannel: lead.recommendedChannel || undefined,
+      painType: lead.painType || undefined,
+      painPitch: lead.painPitch || undefined,
+      enrichmentJson: lead.enrichmentJson || undefined,
       shortNote: lead.opportunityReason || undefined,
+      scriptText: lead.painPitch || lead.opportunityReason || undefined,
     };
   }
 
@@ -1475,6 +1585,7 @@ export default function RadarDigitalClientPage() {
                 {visibleItems.map((lead) => {
                   const score = Math.max(0, Math.min(100, Math.trunc(Number(lead.opportunityScore || 0))));
                   const ownerBadge = ownershipBadge(lead);
+                  const chips = buildSmartChips(lead);
                   return (
                     <article key={lead.id} className={`${styles.mobileRadarCard} hbx-mobile-card`}>
                       <div>
@@ -1487,7 +1598,30 @@ export default function RadarDigitalClientPage() {
                         <div><dt>Score</dt><dd>{score || "Sem score"}</dd></div>
                         <div><dt>Status</dt><dd data-tone={ownerBadge.tone}>{ownerBadge.label}</dd></div>
                       </dl>
-                      {lead.opportunityReason ? <em>{lead.opportunityReason}</em> : null}
+                      {showSmartLeadCards ? (
+                        <>
+                          <div className={styles.smartChips}>
+                            {chips.map((chip) => <span key={chip.label} data-tone={chip.tone}>{chip.label}</span>)}
+                          </div>
+                          <em>{compactLeadReason(lead)}</em>
+                          <div className={styles.smartDetails}>
+                            <span>Canal: {channelLabel(lead.recommendedChannel)}</span>
+                            {lead.email ? <span>{lead.email}</span> : null}
+                          </div>
+                        </>
+                      ) : (
+                        <div className={styles.listUpsell}>Lead inteligente disponível no HBX Lead</div>
+                      )}
+                      {showSmartLeadCards ? (
+                        <button
+                          type="button"
+                          className="hbx-mobile-secondary-button"
+                          onClick={() => void runLeadAction(lead, "enrich")}
+                          disabled={Boolean(actionId)}
+                        >
+                          Enriquecer
+                        </button>
+                      ) : null}
                       <button
                         type="button"
                         className="hbx-mobile-secondary-button"
@@ -1626,6 +1760,16 @@ export default function RadarDigitalClientPage() {
               </small>
             ) : null}
           </div>
+          {hasSearched && enrichmentSummary ? (
+            <div className={styles.enrichmentSummary}>
+              <span><b>{Number(enrichmentSummary.cardsAnalyzed || 0).toLocaleString("pt-BR")}</b> analisados</span>
+              <span><b>{Number(enrichmentSummary.whatsappVerified || 0).toLocaleString("pt-BR")}</b> WhatsApp verificado</span>
+              <span><b>{Number(enrichmentSummary.emailConfirmedOrProbable || 0).toLocaleString("pt-BR")}</b> e-mail pronto</span>
+              <span><b>{Number(enrichmentSummary.noWebsite || 0).toLocaleString("pt-BR")}</b> sem site</span>
+              <span><b>{Number(enrichmentSummary.highPriority || 0).toLocaleString("pt-BR")}</b> alta prioridade</span>
+              <span><b>{Number(enrichmentSummary.readyToCall || 0).toLocaleString("pt-BR")}</b> prontos para chamar</span>
+            </div>
+          ) : null}
 
           {!hasSearched ? (
             <div className={styles.emptyState}>
@@ -1648,11 +1792,12 @@ export default function RadarDigitalClientPage() {
           ) : (
             <div className={styles.grid}>
               {visibleItems.map((lead) => {
-                const score = Math.max(0, Math.min(100, Math.trunc(Number(lead.opportunityScore || 0))));
+                const score = Math.max(0, Math.min(100, Math.trunc(Number(lead.enrichmentScore || lead.opportunityScore || 0))));
                 const isHigh = score >= 70;
                 const origin = [lead.sourceEngine, lead.source, ...(lead.sourceEngines || [])].filter(Boolean)[0] || "Banco HBX";
                 const status = lead.companyStatus || lead.status;
                 const ownerBadge = ownershipBadge(lead);
+                const chips = buildSmartChips(lead);
                 return (
                   <article key={lead.id} className={styles.card} data-high={isHigh ? "true" : "false"}>
                     <div className={styles.cardHeader}>
@@ -1678,7 +1823,25 @@ export default function RadarDigitalClientPage() {
                       <span><b>Status</b>{statusLabel(status)}</span>
                     </div>
 
-                    {lead.opportunityReason ? <p className={styles.reason}>{lead.opportunityReason}</p> : null}
+                    {showSmartLeadCards ? (
+                      <div className={styles.smartBlock}>
+                        <div className={styles.smartChips}>
+                          {chips.map((chip) => <span key={chip.label} data-tone={chip.tone}>{chip.label}</span>)}
+                        </div>
+                        <p className={styles.reason}>{compactLeadReason(lead)}</p>
+                        <div className={styles.smartDetails}>
+                          <span><b>Canal recomendado</b>{channelLabel(lead.recommendedChannel)}</span>
+                          <span><b>E-mail</b>{lead.email || emailLabel(lead.emailStatus)}</span>
+                          <span><b>Dor provável</b>{lead.painLabel || lead.painType || "Revisar"}</span>
+                        </div>
+                        {lead.painPitch ? <small className={styles.smartPitch}>{lead.painPitch}</small> : null}
+                      </div>
+                    ) : (
+                      <>
+                        {lead.opportunityReason ? <p className={styles.reason}>{lead.opportunityReason}</p> : null}
+                        <div className={styles.listUpsell}>Lead inteligente disponível no HBX Lead</div>
+                      </>
+                    )}
 
                     <div className={styles.history}>
                       {(lead.historySummary || []).length ? (
@@ -1697,6 +1860,11 @@ export default function RadarDigitalClientPage() {
                       <button type="button" onClick={() => void runLeadAction(lead, "send")} disabled={Boolean(actionId)}>
                         Enviar para Vendas
                       </button>
+                      {showSmartLeadCards ? (
+                        <button type="button" onClick={() => void runLeadAction(lead, "enrich")} disabled={Boolean(actionId)}>
+                          Enriquecer
+                        </button>
+                      ) : null}
                       <button type="button" onClick={() => void runLeadAction(lead, "csx")} disabled={Boolean(actionId)}>
                         CSX pendente
                       </button>

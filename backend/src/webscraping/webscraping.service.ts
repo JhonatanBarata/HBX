@@ -25,6 +25,7 @@ import {
   normalizeCommercialPlanKey,
 } from '../commercial-plans/commercial-plan-catalog';
 import { WebwhatsBridgeService } from '../messaging/webwhats-bridge.service';
+import { buildRadarLeadEnrichment, RADAR_LEAD_ENRICHMENT_VERSION } from './radar-lead-enrichment';
 
 const PLACES_NEW_TEXT_SEARCH_URL = 'https://places.googleapis.com/v1/places:searchText';
 const PLACES_NEW_DETAILS_URL = 'https://places.googleapis.com/v1/places';
@@ -571,6 +572,8 @@ type RadarLeadEventType =
   | 'presentation_email_previewed'
   | 'presentation_email_sent'
   | 'presentation_email_failed'
+  | 'enriched'
+  | 'whatsapp_checked'
   | 'status_changed';
 
 type RadarLeadStatus =
@@ -4248,13 +4251,92 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     return this.sortContacts(this.restoreRadarPoolResults(rows)).slice(0, input.quantity);
   }
 
-  private buildRadarLeadPublic(row: any) {
+  private async canUseRadarSmartLeadFields(companyId: number) {
+    const company = await this.prisma.company.findUnique({
+      where: { id: companyId },
+      select: { selectedPlanKey: true },
+    }).catch(() => null);
+    const planKey = normalizeCommercialPlanKey(company?.selectedPlanKey);
+    return planKey !== COMMERCIAL_PLAN_KEYS.LITE;
+  }
+
+  private maskRadarSmartFieldsForList(item: any) {
+    return {
+      ...item,
+      email: null,
+      emailSource: null,
+      emailConfidence: 0,
+      instagramUrl: null,
+      facebookUrl: null,
+      googleMapsUrl: null,
+      businessCategory: null,
+      openingHoursStatus: null,
+      recommendedChannel: this.isRadarProtectedStatus(item?.companyStatus || item?.status) ? 'discard' : null,
+      painType: null,
+      painLabel: null,
+      painPitch: null,
+      enrichmentScore: 0,
+      enrichmentConfidence: 0,
+      enrichmentJson: null,
+      lastEnrichedAt: null,
+    };
+  }
+
+  private buildRadarLeadPublic(row: any, options: { includeSmartFields?: boolean } = {}) {
     const companyState = Array.isArray(row?.companyStates) && row.companyStates.length ? row.companyStates[0] : null;
     const status = this.resolveRadarLeadStatus(row);
     const ownerCompanyId = Math.trunc(Number(row?.ownerCompanyId || 0)) || null;
     const claimedAt = row?.claimedAt instanceof Date ? row.claimedAt.toISOString() : null;
     const ddd = String(row?.ddd || this.extractDdd(row?.phoneDigits || row?.phone));
     const recentEvents = Array.isArray(row?.events) ? row.events : [];
+    const enrichmentParsed = parseJsonObject(row?.enrichmentJson);
+    const includeSmartFields = options.includeSmartFields !== false;
+    const protectedChannel = this.isRadarProtectedStatus(companyState?.status || row?.status);
+    const smartFields = includeSmartFields ? {
+      email: row?.email || enrichmentParsed?.emailCandidate || null,
+      emailStatus: row?.emailStatus || enrichmentParsed?.signals?.emailStatus || 'missing',
+      emailSource: row?.emailSource || null,
+      emailConfidence: safeInteger(row?.emailConfidence),
+      instagramUrl: row?.instagramUrl || null,
+      facebookUrl: row?.facebookUrl || null,
+      socialStatus: row?.socialStatus || enrichmentParsed?.signals?.socialStatus || 'missing',
+      socialConfidence: safeInteger(row?.socialConfidence),
+      googleMapsUrl: row?.googleMapsUrl || null,
+      businessCategory: row?.businessCategory || null,
+      openingHoursStatus: row?.openingHoursStatus || null,
+      recommendedChannel: protectedChannel
+        ? 'discard'
+        : row?.recommendedChannel || enrichmentParsed?.signals?.recommendedChannel || null,
+      painType: row?.painType || enrichmentParsed?.signals?.painType || null,
+      painLabel: row?.painLabel || null,
+      painPitch: row?.painPitch || null,
+      enrichmentScore: safeInteger(row?.enrichmentScore),
+      enrichmentConfidence: safeInteger(row?.enrichmentConfidence),
+      enrichmentJson: enrichmentParsed && Object.keys(enrichmentParsed).length ? enrichmentParsed : null,
+      lastEnrichedAt: row?.lastEnrichedAt instanceof Date ? row.lastEnrichedAt.toISOString() : null,
+      enrichmentVersion: row?.enrichmentVersion || null,
+    } : {
+      email: null,
+      emailStatus: row?.emailStatus || enrichmentParsed?.signals?.emailStatus || 'missing',
+      emailSource: null,
+      emailConfidence: 0,
+      instagramUrl: null,
+      facebookUrl: null,
+      socialStatus: row?.socialStatus || enrichmentParsed?.signals?.socialStatus || 'missing',
+      socialConfidence: 0,
+      googleMapsUrl: null,
+      businessCategory: null,
+      openingHoursStatus: null,
+      recommendedChannel: protectedChannel ? 'discard' : null,
+      painType: null,
+      painLabel: null,
+      painPitch: null,
+      enrichmentScore: 0,
+      enrichmentConfidence: 0,
+      enrichmentJson: null,
+      lastEnrichedAt: null,
+      enrichmentVersion: row?.enrichmentVersion || null,
+    };
     return {
       id: String(row?.id || ''),
       placeId: row?.placeId || null,
@@ -4269,6 +4351,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       segment: row?.segment || null,
       website: row?.website || null,
       websiteStatus: row?.websiteStatus || inferWebsiteStatus(row?.website),
+      ...smartFields,
       rating: row?.rating == null ? null : Number(row.rating),
       reviews: safeInteger(row?.reviews),
       source: row?.source || null,
@@ -4319,6 +4402,17 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     const phoneDigits = normalizePhoneDigits(result.phoneDigits || result.phone);
     const opportunityScore = result.opportunityScore ?? result.score ?? this.buildOpportunityScore(result as WebscrapingContactResult);
     const sourceEngine = input.engine || 'hbx';
+    const enrichment = buildRadarLeadEnrichment({
+      ...(result as any),
+      phoneDigits,
+      city: input.city,
+      state: input.state,
+      segment: input.segment,
+      website: result.website,
+      websiteStatus: inferWebsiteStatus(result.website),
+      opportunityScore,
+      rawPayload: result as any,
+    });
     return {
       id: `direct:${input.targetType}:${phoneDigits || normalizeLookupValue(`${result.name || 'card'}-${index + 1}`)}`,
       placeId: result.placeId || null,
@@ -4333,6 +4427,24 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       segment: input.segment || null,
       website: result.website || null,
       websiteStatus: inferWebsiteStatus(result.website),
+      email: enrichment.email,
+      emailStatus: enrichment.emailStatus,
+      emailSource: enrichment.emailSource,
+      emailConfidence: enrichment.emailConfidence,
+      instagramUrl: enrichment.instagramUrl,
+      facebookUrl: enrichment.facebookUrl,
+      socialStatus: enrichment.socialStatus,
+      googleMapsUrl: enrichment.googleMapsUrl,
+      businessCategory: enrichment.businessCategory,
+      recommendedChannel: enrichment.recommendedChannel,
+      painType: enrichment.painType,
+      painLabel: enrichment.painLabel,
+      painPitch: enrichment.painPitch,
+      enrichmentScore: enrichment.enrichmentScore,
+      enrichmentConfidence: enrichment.enrichmentConfidence,
+      enrichmentJson: enrichment.enrichmentJson,
+      lastEnrichedAt: enrichment.lastEnrichedAt.toISOString(),
+      enrichmentVersion: enrichment.enrichmentVersion,
       rating: result.rating == null ? null : Number(result.rating),
       reviews: safeInteger(result.reviews),
       source: result.source || sourceEngine,
@@ -4340,7 +4452,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       sourceUrl: null,
       sourceEngines: [sourceEngine, result.source].filter(Boolean),
       opportunityScore: safeInteger(opportunityScore),
-      opportunityReason: result.opportunityReason || this.buildOpportunityReason(result as WebscrapingContactResult, {
+      opportunityReason: result.opportunityReason || enrichment.opportunityReason || this.buildOpportunityReason(result as WebscrapingContactResult, {
         city: input.city,
         state: input.state,
         segment: input.segment,
@@ -4452,7 +4564,28 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
               ? 'confirmed'
               : 'missing'
             : 'unverified';
-        return this.withRadarWhatsappStatus(item, status);
+        const radarEnrichment = buildRadarLeadEnrichment({
+          ...item,
+          whatsappStatus: status,
+          companyStatus: item?.companyStatus || item?.status,
+        });
+        return this.withRadarWhatsappStatus({
+          ...item,
+          email: radarEnrichment.email || item?.email || null,
+          emailStatus: radarEnrichment.emailStatus,
+          emailSource: radarEnrichment.emailSource,
+          emailConfidence: radarEnrichment.emailConfidence,
+          recommendedChannel: radarEnrichment.recommendedChannel,
+          painType: radarEnrichment.painType,
+          painLabel: radarEnrichment.painLabel,
+          painPitch: radarEnrichment.painPitch,
+          opportunityReason: radarEnrichment.opportunityReason || item?.opportunityReason,
+          enrichmentScore: radarEnrichment.enrichmentScore,
+          enrichmentConfidence: radarEnrichment.enrichmentConfidence,
+          enrichmentJson: parseJsonObject(radarEnrichment.enrichmentJson),
+          lastEnrichedAt: radarEnrichment.lastEnrichedAt.toISOString(),
+          enrichmentVersion: radarEnrichment.enrichmentVersion,
+        }, status);
       });
       return {
         items: requestedMode === 'only_valid'
@@ -4501,17 +4634,19 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       filters.whatsappCheckMode,
     );
     const items = whatsapp.items;
+    const includeSmartFields = await this.canUseRadarSmartLeadFields(context.companyId);
+    const publicItems = includeSmartFields ? items : items.map((item: any) => this.maskRadarSmartFieldsForList(item));
     return {
-      items,
-      total: items.length,
-      code: items.length ? 'RADAR_DIRECT_RESULTS' : 'RADAR_NO_RESULTS',
-      message: items.length
-        ? `Entreguei ${items.length} card(s) pesquisados agora.`
+      items: publicItems,
+      total: publicItems.length,
+      code: publicItems.length ? 'RADAR_DIRECT_RESULTS' : 'RADAR_NO_RESULTS',
+      message: publicItems.length
+        ? `Entreguei ${publicItems.length} card(s) pesquisados agora.`
         : 'Pesquisa concluida. Nao ha cards publicos suficientes para esse filtro agora.',
       retryable: false,
       meta: {
         requestedQuantity: filters.quantity,
-        deliveredCount: items.length,
+        deliveredCount: publicItems.length,
         filters: {
           state: filters.state,
           city: filters.city,
@@ -4675,6 +4810,38 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     return [...fixed, ...dynamic];
   }
 
+  private buildRadarEnrichmentSummary(rows: any[]) {
+    const summary = {
+      cardsAnalyzed: rows.length,
+      whatsappVerified: 0,
+      emailConfirmedOrProbable: 0,
+      noWebsite: 0,
+      highPriority: 0,
+      discardedOrBlocked: 0,
+      readyToCall: 0,
+    };
+    for (const row of rows) {
+      const status = this.resolveRadarLeadStatus(row);
+      const enrichment = parseJsonObject(row?.enrichmentJson);
+      const whatsappEvent = Array.isArray(row?.events)
+        ? row.events.find((event: any) => String(event?.eventType || '').trim().toLowerCase() === 'whatsapp_checked')
+        : null;
+      const whatsappStatus = String((row as any)?.whatsappStatus || parseJsonObject(whatsappEvent?.note)?.whatsappStatus || enrichment?.whatsappStatus || '').toLowerCase();
+      const emailStatus = String(row?.emailStatus || enrichment?.signals?.emailStatus || '').toLowerCase();
+      const websiteStatus = String(row?.websiteStatus || inferWebsiteStatus(row?.website)).toLowerCase();
+      const recommendedChannel = this.isRadarProtectedStatus(status)
+        ? 'discard'
+        : String(row?.recommendedChannel || enrichment?.signals?.recommendedChannel || '').toLowerCase();
+      if (whatsappStatus === 'confirmed') summary.whatsappVerified += 1;
+      if (emailStatus === 'confirmed' || emailStatus === 'probable') summary.emailConfirmedOrProbable += 1;
+      if (websiteStatus === 'none') summary.noWebsite += 1;
+      if (safeInteger(row?.enrichmentScore || row?.opportunityScore) >= 70) summary.highPriority += 1;
+      if (recommendedChannel === 'discard' || this.isRadarProtectedStatus(status)) summary.discardedOrBlocked += 1;
+      if (['whatsapp', 'email', 'call'].includes(recommendedChannel) && !this.isRadarProtectedStatus(status)) summary.readyToCall += 1;
+    }
+    return summary;
+  }
+
   async listRadarLeadsForUser(user: any, input: RadarFiltersInput = {}) {
     const context = this.resolveContext(user);
     const filters = this.normalizeRadarFilters({ ...input, engine: undefined });
@@ -4704,8 +4871,9 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       : allRows;
     const offset = (filters.page - 1) * filters.limit;
     const pageRows = filteredRows.slice(offset, offset + filters.limit);
+    const includeSmartFields = await this.canUseRadarSmartLeadFields(context.companyId);
     return {
-      items: pageRows.map((row) => this.buildRadarLeadPublic(row)),
+      items: pageRows.map((row) => this.buildRadarLeadPublic(row, { includeSmartFields })),
       total: filteredRows.length,
       facets: this.buildRadarFacets(allRows),
       meta: {
@@ -4714,6 +4882,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         limit: filters.limit,
         filterKey: filters.filterKey || null,
         availableFilters: this.buildRadarAvailableFilters(availableRows),
+        enrichmentSummary: this.buildRadarEnrichmentSummary(allRows),
       },
     };
   }
@@ -4735,8 +4904,9 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       },
     }).catch(() => null);
     if (!row) throw new NotFoundException('Card do Radar nao encontrado.');
+    const includeSmartFields = await this.canUseRadarSmartLeadFields(context.companyId);
     return {
-      item: this.buildRadarLeadPublic(row),
+      item: this.buildRadarLeadPublic(row, { includeSmartFields }),
       events: (row.events || []).map((event: any) => ({
         id: event.id,
         eventType: event.eventType,
@@ -4746,6 +4916,116 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         createdByUserId: event.createdByUserId || null,
         createdAt: event.createdAt instanceof Date ? event.createdAt.toISOString() : null,
       })),
+    };
+  }
+
+  async enrichRadarLeadForUser(user: any, radarLeadId: string) {
+    const context = this.resolveContext(user);
+    if (!(await this.supportsRadarPersistence())) {
+      throw new ServiceUnavailableException('Banco do Radar ainda nao foi migrado neste ambiente.');
+    }
+    const row = await (this.prisma as any).radarLeadPool.findUnique({
+      where: { id: String(radarLeadId || '').trim() },
+      include: {
+        companyStates: { where: { companyId: context.companyId }, take: 1 },
+        events: {
+          where: { companyId: context.companyId, eventType: 'whatsapp_checked' },
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+        },
+      },
+    }).catch(() => null);
+    if (!row) throw new NotFoundException('Card do Radar nao encontrado.');
+
+    const now = new Date();
+    const protectedStatus = this.isRadarProtectedStatus(row?.companyStates?.[0]?.status || row?.status);
+    let whatsappStatus = parseJsonObject(row?.enrichmentJson)?.whatsappStatus || null;
+    const cachedWhatsappEvent = Array.isArray(row?.events) && row.events.length ? row.events[0] : null;
+    const cachedAt = cachedWhatsappEvent?.createdAt instanceof Date ? cachedWhatsappEvent.createdAt.getTime() : 0;
+    const cacheValid = cachedAt && now.getTime() - cachedAt < 30 * 24 * 60 * 60 * 1000;
+    if (cacheValid) {
+      whatsappStatus = parseJsonObject(cachedWhatsappEvent?.note)?.whatsappStatus || whatsappStatus;
+    }
+
+    const phoneDigits = normalizePhoneDigits(row.phoneDigits || row.phone);
+    if (!protectedStatus && phoneDigits && !cacheValid && this.webwhatsBridge && (await this.canUseRadarWebwhatsCheck(context.companyId))) {
+      try {
+        const [lookup] = await this.webwhatsBridge.checkWhatsappNumbers(context.companyId, [phoneDigits]);
+        if (lookup) {
+          whatsappStatus = lookup.exists ? 'confirmed' : 'missing';
+          await this.recordRadarLeadEvent({
+            leadId: row.id,
+            companyId: context.companyId,
+            userId: context.userId,
+            eventType: 'whatsapp_checked',
+            note: JSON.stringify({ whatsappStatus, phoneDigits, checkedAt: now.toISOString(), cacheDays: 30 }),
+          });
+        }
+      } catch (error: any) {
+        this.logger.warn(`[radar-enrichment] falha ao validar WhatsApp lead=${row.id}: ${String(error?.message || error)}`);
+      }
+    }
+
+    const companyState = Array.isArray(row.companyStates) && row.companyStates.length ? row.companyStates[0] : null;
+    const enrichment = buildRadarLeadEnrichment({
+      ...row,
+      companyStatus: companyState?.status || row.status,
+      whatsappStatus,
+      now,
+    });
+    const data = {
+      email: enrichment.email || row.email || null,
+      emailStatus: enrichment.emailStatus,
+      emailSource: enrichment.emailSource,
+      emailConfidence: enrichment.emailConfidence,
+      instagramUrl: enrichment.instagramUrl || row.instagramUrl || null,
+      facebookUrl: enrichment.facebookUrl || row.facebookUrl || null,
+      socialStatus: enrichment.socialStatus,
+      socialConfidence: enrichment.socialConfidence,
+      googleMapsUrl: enrichment.googleMapsUrl || row.googleMapsUrl || null,
+      businessCategory: enrichment.businessCategory || row.businessCategory || null,
+      openingHoursStatus: enrichment.openingHoursStatus || row.openingHoursStatus || null,
+      recommendedChannel: protectedStatus ? 'discard' : enrichment.recommendedChannel,
+      painType: enrichment.painType,
+      painLabel: enrichment.painLabel,
+      painPitch: enrichment.painPitch,
+      opportunityReason: enrichment.opportunityReason || row.opportunityReason || null,
+      enrichmentJson: enrichment.enrichmentJson,
+      enrichmentScore: protectedStatus ? 0 : enrichment.enrichmentScore,
+      enrichmentConfidence: enrichment.enrichmentConfidence,
+      lastEnrichedAt: enrichment.lastEnrichedAt,
+      enrichmentVersion: enrichment.enrichmentVersion,
+      lastSeenAt: now,
+    };
+    await (this.prisma as any).radarLeadPool.update({
+      where: { id: row.id },
+      data,
+    });
+    await this.recordRadarLeadEvent({
+      leadId: row.id,
+      companyId: context.companyId,
+      userId: context.userId,
+      eventType: 'enriched',
+      note: `Card enriquecido (${RADAR_LEAD_ENRICHMENT_VERSION}).`,
+    });
+    const updated = await (this.prisma as any).radarLeadPool.findUnique({
+      where: { id: row.id },
+      include: {
+        companyStates: { where: { companyId: context.companyId }, take: 1 },
+        events: {
+          where: { OR: [{ companyId: context.companyId }, { companyId: null }] },
+          orderBy: { createdAt: 'desc' },
+          take: 3,
+        },
+      },
+    });
+    return {
+      ok: true,
+      message: 'Card enriquecido',
+      item: this.buildRadarLeadPublic({
+        ...(updated || row),
+        whatsappStatus: whatsappStatus || undefined,
+      }, { includeSmartFields: await this.canUseRadarSmartLeadFields(context.companyId) }),
     };
   }
 
@@ -4766,8 +5046,9 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       limit: filters.limit,
       includeHidden: filters.includeHidden,
     });
+    const includeSmartFields = await this.canUseRadarSmartLeadFields(context.companyId);
     return {
-      items: rows.map((row) => this.buildRadarLeadPublic(row)),
+      items: rows.map((row) => this.buildRadarLeadPublic(row, { includeSmartFields })),
       total: rows.length,
       meta: {
         available: true,
@@ -5037,13 +5318,14 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       .map((phone) => rowByPhone.get(phone))
       .filter(Boolean)
       .slice(0, safeInteger(effectiveRun.targetQuantity));
+    const includeSmartFields = await this.canUseRadarSmartLeadFields(context.companyId);
     const whatsappMode = this.radarWhatsappCheckModeByRunId.get(effectiveRun.id) || 'off';
     const whatsapp = await this.applyRadarWhatsappCheck(
       context,
-      orderedRows.map((row) => this.buildRadarLeadPublic(row)),
+      orderedRows.map((row) => this.buildRadarLeadPublic(row, { includeSmartFields })),
       whatsappMode,
     );
-    const items = whatsapp.items;
+    const items = includeSmartFields ? whatsapp.items : whatsapp.items.map((item: any) => this.maskRadarSmartFieldsForList(item));
     const requestedQuantity = Math.max(1, safeInteger(effectiveRun.targetQuantity));
     const deliveredCount = items.length;
     const status = this.normalizeSearchRunStatus(effectiveRun.status);
@@ -5115,10 +5397,11 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       availableOnly: true,
     });
     let immediateRows = stockRows.slice(0, filters.quantity);
+    const includeSmartFields = await this.canUseRadarSmartLeadFields(context.companyId);
     if (filters.whatsappCheckMode === 'only_valid' && immediateRows.length) {
       const whatsappPrecheck = await this.applyRadarWhatsappCheck(
         context,
-        immediateRows.map((row) => this.buildRadarLeadPublic(row)),
+        immediateRows.map((row) => this.buildRadarLeadPublic(row, { includeSmartFields })),
         'only_valid',
       );
       const confirmedIds = new Set(whatsappPrecheck.items.map((item: any) => String(item?.id || '')).filter(Boolean));
@@ -5294,10 +5577,11 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     }
 
     let deliveredRows = rows.slice(0, filters.quantity);
+    const includeSmartFields = await this.canUseRadarSmartLeadFields(context.companyId);
     if (filters.whatsappCheckMode === 'only_valid' && deliveredRows.length) {
       const whatsappPrecheck = await this.applyRadarWhatsappCheck(
         context,
-        deliveredRows.map((row) => this.buildRadarLeadPublic(row)),
+        deliveredRows.map((row) => this.buildRadarLeadPublic(row, { includeSmartFields })),
         'only_valid',
       );
       const confirmedIds = new Set(whatsappPrecheck.items.map((item: any) => String(item?.id || '')).filter(Boolean));
@@ -5400,9 +5684,9 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         claimedAt: new Date(),
         status: 'reserved',
         companyStates: [{ status: 'reserved' }],
-      }));
+      }, { includeSmartFields }));
       whatsapp = await this.applyRadarWhatsappCheck(context, publicItems, filters.whatsappCheckMode);
-      items = whatsapp.items;
+      items = includeSmartFields ? whatsapp.items : whatsapp.items.map((item: any) => this.maskRadarSmartFieldsForList(item));
     } catch (error: any) {
       this.logger.error(`[radar] failed to build public leads: ${error?.message || error}`);
       items = claimedRows.map((row) => ({
@@ -5700,6 +5984,38 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         }),
         lastSeenAt: now,
       };
+      const enrichment = buildRadarLeadEnrichment({
+        ...(existing || {}),
+        ...data,
+        ...(result as any),
+        status: dddMismatch ? 'rejected' : existing?.status || 'clean',
+        sourceUrl: options.sourceUrl || existing?.sourceUrl || null,
+        rawPayload: result as any,
+        now,
+      });
+      Object.assign(data, {
+        email: enrichment.email || existing?.email || null,
+        emailStatus: enrichment.emailStatus,
+        emailSource: enrichment.emailSource,
+        emailConfidence: enrichment.emailConfidence,
+        instagramUrl: enrichment.instagramUrl || existing?.instagramUrl || null,
+        facebookUrl: enrichment.facebookUrl || existing?.facebookUrl || null,
+        socialStatus: enrichment.socialStatus,
+        socialConfidence: enrichment.socialConfidence,
+        googleMapsUrl: enrichment.googleMapsUrl || existing?.googleMapsUrl || null,
+        businessCategory: enrichment.businessCategory || existing?.businessCategory || null,
+        openingHoursStatus: enrichment.openingHoursStatus || existing?.openingHoursStatus || null,
+        recommendedChannel: enrichment.recommendedChannel,
+        painType: enrichment.painType,
+        painLabel: enrichment.painLabel,
+        painPitch: enrichment.painPitch,
+        opportunityReason: enrichment.opportunityReason || data.opportunityReason,
+        enrichmentJson: enrichment.enrichmentJson,
+        enrichmentScore: enrichment.enrichmentScore,
+        enrichmentConfidence: enrichment.enrichmentConfidence,
+        lastEnrichedAt: enrichment.lastEnrichedAt,
+        enrichmentVersion: enrichment.enrichmentVersion,
+      });
       if (existing?.id) {
         await delegate.update({
           where: { id: existing.id },
@@ -6232,6 +6548,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         ...(eventType === 'contacted' ? { contactedCount: { increment: 1 }, globalContactedCount: { increment: 1 }, lastContactAt: now } : {}),
         ...(eventType === 'complaint' ? { complaintReason: note || null, globalNegativeCount: { increment: 1 } } : {}),
         ...(eventType === 'denied' ? { deniedReason: note || null, globalNegativeCount: { increment: 1 } } : {}),
+        ...(this.isRadarProtectedStatus(nextStatus) ? { recommendedChannel: 'discard', enrichmentScore: 0 } : {}),
       },
     }).catch(() => null);
     await this.recordRadarLeadEvent({
@@ -6271,6 +6588,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       countUsage: false,
     });
 
+    const includeSmartFields = await this.canUseRadarSmartLeadFields(context.companyId);
     const imported = await this.vendasService.importWebscrapingLeadsForUser(user, {
       sourceHistoryId: `radar:${row.id}`,
       skipWhatsappValidation: Boolean(options.skipWhatsappValidation),
@@ -6280,6 +6598,8 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
           name: row.name,
           phone: row.phone || row.phoneDigits,
           phoneDigits: row.phoneDigits || normalizePhoneDigits(row.phone),
+          email: includeSmartFields ? row.email || undefined : undefined,
+          emailStatus: includeSmartFields ? row.emailStatus || undefined : undefined,
           address: row.address || undefined,
           website: row.website || undefined,
           rating: row.rating ?? undefined,
@@ -6287,7 +6607,12 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
           city: row.city || undefined,
           state: row.state || undefined,
           segment: row.segment || undefined,
-          shortNote: row.opportunityReason || undefined,
+          recommendedChannel: includeSmartFields ? row.recommendedChannel || undefined : undefined,
+          painType: includeSmartFields ? row.painType || undefined : undefined,
+          painPitch: includeSmartFields ? row.painPitch || undefined : undefined,
+          enrichmentJson: includeSmartFields && row.enrichmentJson ? parseJsonObject(row.enrichmentJson) : undefined,
+          shortNote: includeSmartFields ? row.opportunityReason || undefined : 'Lead herdado do Radar Digital.',
+          scriptText: includeSmartFields ? row.painPitch || row.opportunityReason || undefined : undefined,
         },
       ],
     } as any);
@@ -6538,6 +6863,8 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
           status,
           deniedReason: ['negative', 'denied', 'opt_out', 'blocked'].includes(status) ? String(input.reason || '').trim() || null : undefined,
           complaintReason: status === 'complaint' ? String(input.reason || '').trim() || null : undefined,
+          recommendedChannel: 'discard',
+          enrichmentScore: 0,
           globalNegativeCount: { increment: 1 },
           lastSeenAt: now,
         },

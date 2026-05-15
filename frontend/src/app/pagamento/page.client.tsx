@@ -234,13 +234,13 @@ const MERCADO_PAGO_BRICK_READY_WAIT_MS = 24000;
 const PLAN_CATALOG: Record<PlanKey, { title: string; monthly: number; includes: string[] }> = {
   hbx_lite: {
     title: "HBX List",
-    monthly: 49.9,
-    includes: ["Radar Digital + Vendas", "50 cards por pesquisa", "WhatsApp externo"],
+    monthly: 39.9,
+    includes: ["Leads/cards simples", "Telefone/site básico", "WhatsApp externo"],
   },
   hbx_padrao: {
     title: "HBX Lead",
-    monthly: 89.9,
-    includes: ["Tudo do HBX List", "Atendimento interno", "Night Factory liberado"],
+    monthly: 99.9,
+    includes: ["Leads inteligentes", "WhatsApp verificado", "Canal, motivo e mensagem"],
   },
   hbx_melhor: {
     title: "HBX Full — Bot e IA",
