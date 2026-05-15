@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import Image from "next/image";
 import {
   DndContext,
   DragOverlay,
@@ -39,7 +38,6 @@ import { useRequireModule } from "@/app/_lib/useRequireModule";
 import { HBX_WINDOW_STANDARD } from "@/lib/hbx-window-system";
 import {
   clearStoredRadarRun,
-  formatPtBrReceivedCards,
   isTerminalRadarRunStatus,
   readStoredRadarRun,
   saveStoredRadarRun,
@@ -1743,6 +1741,67 @@ function DraggableLeadCard({
   );
 }
 
+function SalesMotionBackground() {
+  const bars = [32, 46, 60, 76, 94];
+  const path = "M34 188 L78 158 L116 158 L156 128 L196 132 L238 92 L292 58";
+
+  return (
+    <div className={styles.salesMotionBackdrop} aria-hidden="true">
+      <div className={styles.salesMotionAura} />
+      <svg viewBox="0 0 360 250" focusable="false">
+        <g className={styles.salesMotionGrid}>
+          <path d="M32 194 H318" />
+          <path d="M42 164 H306 M42 132 H306 M42 100 H306 M42 68 H306" />
+          <path d="M80 48 V202 M128 48 V202 M176 48 V202 M224 48 V202 M272 48 V202" />
+        </g>
+        <g className={styles.salesMotionPipeline}>
+          <rect x="248" y="46" width="78" height="44" rx="12" />
+          <path d="M263 60 H308 M263 72 H296" />
+          <rect x="254" y="154" width="72" height="42" rx="12" />
+          <text x="290" y="181" textAnchor="middle">$</text>
+        </g>
+        <g transform="translate(70 32)">
+          <line className={styles.salesMotionBaseLine} x1="24" y1="190" x2="282" y2="190" />
+          {bars.map((height, index) => (
+            <rect
+              key={height}
+              className={styles.salesMotionBar}
+              x={index * 36 + 64}
+              y={190 - height}
+              width="24"
+              height={height}
+              rx="4"
+              style={{ animationDelay: `${index * 0.18}s` }}
+            />
+          ))}
+          <path className={styles.salesMotionLineShadow} d={path} />
+          <path className={styles.salesMotionLine} d={path} />
+          <circle className={styles.salesMotionDot} cx="292" cy="58" r="7" />
+          <path className={styles.salesMotionArrow} d="M292 58 l-2 25 l21 -15 z" />
+        </g>
+        <g className={styles.salesMotionDeals}>
+          <circle cx="52" cy="184" r="3" />
+          <circle cx="118" cy="142" r="2.5" />
+          <circle cx="176" cy="121" r="2.5" />
+          <circle cx="258" cy="78" r="3" />
+        </g>
+        <g className={styles.salesMotionCoins}>
+          <circle cx="310" cy="116" r="9" />
+          <text x="310" y="121" textAnchor="middle">$</text>
+          <circle cx="50" cy="64" r="6" />
+          <path d="M47 64 H53" />
+        </g>
+        <defs>
+          <linearGradient id="salesMotionBarGradient" x1="0" x2="0" y1="0" y2="1">
+            <stop offset="0%" stopColor="#75d5ff" stopOpacity="0.98" />
+            <stop offset="100%" stopColor="#1669ff" stopOpacity="0.35" />
+          </linearGradient>
+        </defs>
+      </svg>
+    </div>
+  );
+}
+
 export default function VendasClientPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -1757,8 +1816,9 @@ export default function VendasClientPage() {
   const [showClosed, setShowClosed] = useState(false);
   const [commandOpen, setCommandOpen] = useState(false);
   const [commandQuery, setCommandQuery] = useState("");
-  const [mobileSearch, setMobileSearch] = useState("");
+  const mobileSearch = "";
   const [selectedMobileLeadId, setSelectedMobileLeadId] = useState<string | null>(null);
+  const [mobileAnimatedScore, setMobileAnimatedScore] = useState(0);
   const [mobileNoteLead, setMobileNoteLead] = useState<LeadItem | null>(null);
   const [mobileNoteDraft, setMobileNoteDraft] = useState("");
   const [mobileSavingNote, setMobileSavingNote] = useState(false);
@@ -1834,6 +1894,8 @@ export default function VendasClientPage() {
   const mobileBulkHoldTimerRef = useRef<number | null>(null);
   const mobileBulkHoldCompletedRef = useRef(false);
   const lastRadarStatusSnapshotRef = useRef<{ count: number; status: string } | null>(null);
+  const mobileScoreAnimatedKeyRef = useRef<string | null>(null);
+  const mobileScoreAnimationRunRef = useRef(0);
   const lastRadarBoardRefreshCountRef = useRef(0);
   const radarBoardRefreshInFlightRef = useRef(false);
   const todayAgendaLaunchNotice = useQuickLaunchNotice();
@@ -2301,6 +2363,70 @@ export default function VendasClientPage() {
   useEffect(() => {
     if (selectedMobileLeadId) saveMobileOpenLeadId(selectedMobileLeadId);
   }, [selectedMobileLeadId]);
+
+  useEffect(() => {
+    if (!selectedMobileLead) {
+      setMobileAnimatedScore(0);
+      mobileScoreAnimatedKeyRef.current = null;
+      return;
+    }
+    const intelligenceVisible = canSeeLeadIntelligence(selectedMobileLead, board);
+    const target = Math.max(
+      0,
+      Math.min(
+        100,
+        Math.round(
+          Number(intelligenceVisible ? selectedMobileLead.leadIntelligence?.opportunityScore || 0 : 0),
+        ),
+      ),
+    );
+    const animationKey = `${selectedMobileLead.id}:${intelligenceVisible ? "visible" : "locked"}:${target}`;
+    if (typeof window === "undefined") {
+      setMobileAnimatedScore(target);
+      mobileScoreAnimatedKeyRef.current = animationKey;
+      return;
+    }
+    if (
+      target <= 0 ||
+      mobileScoreAnimatedKeyRef.current === animationKey ||
+      window.matchMedia?.("(prefers-reduced-motion: reduce)").matches
+    ) {
+      setMobileAnimatedScore(target);
+      mobileScoreAnimatedKeyRef.current = animationKey;
+      return;
+    }
+
+    const runId = mobileScoreAnimationRunRef.current + 1;
+    mobileScoreAnimationRunRef.current = runId;
+    let frame = 0;
+    let timer = 0;
+    const duration = 680;
+    setMobileAnimatedScore(0);
+
+    timer = window.setTimeout(() => {
+      if (mobileScoreAnimationRunRef.current !== runId) return;
+      mobileScoreAnimatedKeyRef.current = animationKey;
+      const startedAt = performance.now();
+
+      const tick = (now: number) => {
+        if (mobileScoreAnimationRunRef.current !== runId) return;
+        const progress = Math.min(1, (now - startedAt) / duration);
+        const eased = 1 - Math.pow(1 - progress, 2.4);
+        const nextValue = progress >= 1 ? target : Math.min(target - 1, Math.round(target * eased));
+        setMobileAnimatedScore(nextValue);
+        if (progress < 1) {
+          frame = window.requestAnimationFrame(tick);
+        }
+      };
+
+      frame = window.requestAnimationFrame(tick);
+    }, 40);
+
+    return () => {
+      window.clearTimeout(timer);
+      window.cancelAnimationFrame(frame);
+    };
+  }, [board, selectedMobileLead]);
 
   useEffect(() => {
     const storedOpenLeadId = readMobileOpenLeadId();
@@ -2948,60 +3074,36 @@ export default function VendasClientPage() {
       0,
       (board?.summary.overdue || 0) + (board?.summary.today || 0) + (board?.summary.scheduled || 0),
     );
-    const radarRunStatus = String(liveRadarRun?.status || storedRadarRun?.status || "");
-    const radarRunDelivered = Math.max(
+    const runStatus = String(liveRadarRun?.status || storedRadarRun?.status || "");
+    const runDelivered = Math.max(
       0,
       Number(liveRadarRun?.meta?.deliveredCount || liveRadarRun?.foundCount || storedRadarRun?.deliveredCount || 0),
     );
-    const radarRunTarget = Math.max(1, Number(liveRadarRun?.targetQuantity || liveRadarRun?.meta?.requestedQuantity || storedRadarRun?.targetQuantity || 1));
-    const radarRunTerminal = isTerminalRadarRunStatus(radarRunStatus);
-    const radarRunActive = Boolean((liveRadarRun?.runId || storedRadarRun?.runId) && !radarRunTerminal);
-    const radarProgressLabel = radarRunTarget > 1 && radarRunDelivered > 0
-      ? `${Math.min(radarRunDelivered, radarRunTarget)} de ${radarRunTarget} cards`
-      : formatPtBrReceivedCards(radarRunDelivered);
-    const radarAdjustParams = new URLSearchParams();
-    const radarFilters = liveRadarRun?.meta?.filters;
-    const radarState = radarFilters?.state || storedRadarRun?.state || "";
-    const radarCity = radarFilters?.city || storedRadarRun?.city || "";
-    const radarSegment = radarFilters?.segment || storedRadarRun?.segment || "";
-    if (radarState) radarAdjustParams.set("state", radarState);
-    if (radarCity) radarAdjustParams.set("city", radarCity);
-    if (radarSegment) radarAdjustParams.set("segment", radarSegment);
-    radarAdjustParams.set("quantity", String(radarRunTarget || 40));
-    const radarAdjustHref = `/radar-digital?${radarAdjustParams.toString()}`;
-    const mobileRadarState =
-      radarRunStatus === "failed" ? "warning" :
-      radarRunStatus === "completed_insufficient_results" || radarRunStatus === "partial_error" ? "partial" :
-      radarRunActive && radarRunDelivered > 0 ? "receiving" :
-      radarRunActive || loading ? "searching" :
-      radarRunDelivered > 0 || mobilePendingCount > 0 ? "received" :
-      "ready";
-    const mobileRadarStatusLabel =
-      mobileRadarState === "searching"
-        ? "Pesquisando leads"
-        : mobileRadarState === "receiving"
-          ? radarProgressLabel
-          : mobileRadarState === "partial"
-            ? radarProgressLabel
-            : mobileRadarState === "warning"
-              ? "Radar precisa de ajuste"
-              : mobileRadarState === "received"
-                ? formatPtBrReceivedCards(Math.max(radarRunDelivered, mobilePendingCount))
-                : "Motor pronto";
-    const mobileRadarStatusText =
-      mobileRadarState === "searching"
-        ? "Motores cruzando dados"
-        : mobileRadarState === "receiving"
-          ? "Abastecendo sua agenda"
-          : mobileRadarState === "partial"
-            ? "Amplie cidade ou segmento"
-            : mobileRadarState === "warning"
-              ? "Abra o Radar para revisar"
-              : mobileRadarState === "received"
-                ? mobilePendingCount >= 40
-            ? "Finalize ou delete para liberar"
-            : "Radar alimentou o Vendas"
-                : "Radar pronto para buscar";
+    const runTerminal = isTerminalRadarRunStatus(runStatus);
+    const runActive = Boolean((liveRadarRun?.runId || storedRadarRun?.runId) && !runTerminal);
+    const salesHeaderState =
+      runStatus === "failed"
+        ? "warning"
+        : runStatus === "completed_insufficient_results" || runStatus === "partial_error"
+          ? "partial"
+          : runActive && runDelivered > 0
+            ? "receiving"
+            : runActive || loading
+              ? "syncing"
+              : mobilePendingCount > 0 || runDelivered > 0
+                ? "active"
+                : "ready";
+    const salesHeaderGoal =
+      salesHeaderState === "warning"
+        ? "Atenção nos retornos pendentes"
+        : salesHeaderState === "partial"
+          ? "Agenda parcialmente abastecida"
+          : salesHeaderState === "receiving"
+            ? "Novos cards chegando"
+            : salesHeaderState === "syncing"
+              ? "Atualizando sua agenda"
+              : `${mobilePendingCount || mobileLeadCount} cards em acompanhamento`;
+
     function renderMobileLeadDetail(lead: LeadItem) {
       const intelligence = lead.leadIntelligence || {};
       const capabilities = leadCapabilities(lead, board);
@@ -3011,6 +3113,7 @@ export default function VendasClientPage() {
         0,
         Math.min(100, Math.round(Number(intelligenceVisible ? intelligence.opportunityScore || 0 : 0))),
       );
+      const visibleScore = intelligenceVisible ? mobileAnimatedScore : score;
       const scoreLabel = intelligenceScoreLabel(score);
       const template = activeMobileTemplate(lead);
       const readyMessage = capabilities.canSeeMessageTemplates
@@ -3030,8 +3133,15 @@ export default function VendasClientPage() {
       const whatsappStatus = intelligence.whatsappStatus || lead.whatsappAvailability?.status || null;
       const whatsappReady = whatsappStatus === "confirmed" || lead.whatsappAvailability?.status === "available";
       const whatsappUnavailable = whatsappStatus === "missing" || whatsappStatus === "invalid" || lead.whatsappAvailability?.status === "unavailable";
-      const tags = (intelligence.leadReasonTags || []).slice(0, 4);
-      const reasonChips = [
+      const tags = intelligence.leadReasonTags || [];
+      const reasonChipTonePriority: Record<string, number> = {
+        smart: 5,
+        success: 4,
+        primary: 3,
+        danger: 3,
+        neutral: 1,
+      };
+      const rawReasonChips = [
         !website ? { label: "Sem site", tone: "danger" } : null,
         whatsappReady ? { label: "WhatsApp confirmado", tone: "success" } : null,
         email ? { label: "E-mail encontrado", tone: "success" } : null,
@@ -3041,6 +3151,21 @@ export default function VendasClientPage() {
           : null,
         ...tags.map((tag) => ({ label: leadTagLabel(tag), tone: "neutral" })),
       ].filter(Boolean) as Array<{ label: string; tone: string }>;
+      const reasonChips = Array.from(
+        rawReasonChips.reduce((byLabel, chip) => {
+          const key = chip.label.trim().toLowerCase();
+          const current = byLabel.get(key);
+          if (
+            !current ||
+            (reasonChipTonePriority[chip.tone] || 0) >
+              (reasonChipTonePriority[current.tone] || 0)
+          ) {
+            byLabel.set(key, chip);
+          }
+          return byLabel;
+        }, new Map<string, { label: string; tone: string }>())
+          .values(),
+      ).slice(0, 5);
       const quickNotes = [
         "Interessado",
         "Retorno amanhã",
@@ -3067,24 +3192,13 @@ export default function VendasClientPage() {
       return (
         <section className={`${styles.mobileVendasShell} ${styles.mobileLeadDetailShell} hbx-mobile-page`} aria-label="Detalhe do lead mobile">
           <div className={`${styles.mobileLeadDetailScreen} hbx-mobile-page`}>
-            <header className={`${styles.mobileLeadDetailHeader} hbx-mobile-header`}>
+            <header className={`${styles.mobileLeadDetailHeader} ${styles.mobileLeadDetailCloseHeader} hbx-mobile-header`}>
               <button
                 type="button"
-                className={`${styles.mobileLeadBackButton} hbx-mobile-secondary-button`}
+                className={`${styles.mobileLeadBackButton} ${styles.mobileLeadCloseButton} hbx-mobile-secondary-button`}
                 onClick={closeMobileLeadDetail}
               >
-                Voltar
-              </button>
-              <div className={styles.mobileLeadDetailTitle}>
-                <strong>HBX</strong>
-                <span>Detalhes do lead</span>
-              </div>
-              <button
-                type="button"
-                className={styles.mobileLeadPlusButton}
-                onClick={() => setComposerOpen(true)}
-              >
-                Lead+
+                Fechar
               </button>
             </header>
 
@@ -3113,11 +3227,11 @@ export default function VendasClientPage() {
                 <div
                   className={styles.mobileLeadScoreBox}
                   data-locked={!intelligenceVisible ? "true" : "false"}
-                  style={{ ["--lead-score" as string]: `${score}%` } as CSSProperties}
+                  style={{ ["--lead-score" as string]: `${visibleScore}%` } as CSSProperties}
                   aria-label={`Score ${score || 0}`}
                 >
                   <span>{!intelligenceVisible ? "♕ Score" : "Score"}</span>
-                  <strong>{intelligenceVisible ? score || "--" : "Lead"}</strong>
+                  <strong>{intelligenceVisible ? visibleScore || "0" : "Lead"}</strong>
                   <small>{intelligenceVisible ? priorityLabel : "Disponível no HBX Lead"}</small>
                 </div>
                 <div className={styles.mobileLeadHeroMeta} aria-label="Resumo do lead">
@@ -3455,61 +3569,28 @@ export default function VendasClientPage() {
       <section className={`${styles.mobileVendasShell} ${styles.mobileLeadListScreen}`} aria-label="Vendas mobile">
         <div className={styles.mobileVendasContextBar}>
           <header className={`${styles.mobileVendasHeader} hbx-mobile-header`}>
-            <a
-              className={styles.mobileRadarMotorStatus}
-              data-state={mobileRadarState}
+            <section
+              className={styles.mobileVendasHeroPanel}
+              data-state={salesHeaderState}
               data-pulse={radarStatusPulseKey}
-              href="/radar-digital"
-              aria-label="Abrir Radar Digital"
+              aria-label="Resumo de Vendas"
             >
-              <span key={`burst-${radarStatusPulseKey}`} className={styles.mobileRadarStatusBurst} aria-hidden="true" />
-              <span key={mobileRadarState} className={styles.mobileRadarMotorIcon} aria-hidden="true">
-                {mobileRadarState === "ready" ? (
-                  <svg viewBox="0 0 24 24">
-                    <path d="M20 6 9 17l-5-5" />
-                  </svg>
-                ) : mobileRadarState === "searching" ? (
-                  <i />
-                ) : mobileRadarState === "receiving" ? (
-                  <svg viewBox="0 0 24 24">
-                    <path d="M7 7h10" />
-                    <path d="M7 12h7" />
-                    <path d="M7 17h4" />
-                    <path d="m15 14 3 3 3-3" />
-                  </svg>
-                ) : mobileRadarState === "partial" || mobileRadarState === "warning" ? (
-                  <svg viewBox="0 0 24 24">
-                    <path d="M12 4 3 20h18L12 4Z" />
-                    <path d="M12 9v5" />
-                    <path d="M12 17h.01" />
-                  </svg>
-                ) : (
-                  <svg viewBox="0 0 24 24">
-                    <path d="M13 5h6v14h-6" />
-                    <path d="M5 12h12" />
-                    <path d="m13 8 4 4-4 4" />
-                  </svg>
-                )}
+              <SalesMotionBackground />
+              <span className={styles.mobileVendasHeroCopy}>
+                <small>HBX</small>
+                <strong>Vendas</strong>
+                <em>Acompanhe retornos em tempo real.</em>
               </span>
-              <span className={styles.mobileRadarMotorDivider} aria-hidden="true" />
-              <span key={`${mobileRadarState}:copy`} className={styles.mobileRadarMotorCopy}>
-                <small>Status do motor - Radar Digital</small>
-                <strong>{mobileRadarStatusLabel}</strong>
-                <em>{mobileRadarStatusText}</em>
+              <span className={styles.mobileVendasHeroGoal} aria-hidden="true">
+                <b>✓</b>
+                <span>{salesHeaderGoal}</span>
               </span>
-            </a>
-            {mobileRadarState === "partial" || mobileRadarState === "warning" ? (
-              <a className={styles.mobileRadarActionNotice} href={radarAdjustHref}>
-                <strong>Preciso de atenção</strong>
-                <span>O Radar entregou o que encontrou aqui. Toque para ampliar a busca e completar os 40 cards.</span>
-              </a>
-            ) : null}
+            </section>
           </header>
 
-          <div className={`${styles.mobileVendasKpis} hbx-mobile-grid`}>
+          <div className={styles.mobileVendasHeroStats} aria-label="Resumo de Vendas">
             <button
               type="button"
-              className="hbx-mobile-card"
               data-tone="danger"
               data-active={mobileAgendaTab === "overdue" ? "true" : "false"}
               data-holding={mobileBulkHoldTab === "overdue" ? "true" : "false"}
@@ -3525,13 +3606,11 @@ export default function VendasClientPage() {
                 setMobileAgendaTab("overdue");
               }}
             >
-              <span>Atrasados</span>
+              <b>Atrasados</b>
               <strong>{board?.summary.overdue ?? 0}</strong>
-              <small>Precisam de ação</small>
             </button>
             <button
               type="button"
-              className="hbx-mobile-card"
               data-tone="primary"
               data-active={mobileAgendaTab === "today" ? "true" : "false"}
               data-holding={mobileBulkHoldTab === "today" ? "true" : "false"}
@@ -3547,43 +3626,20 @@ export default function VendasClientPage() {
                 setMobileAgendaTab("today");
               }}
             >
-              <span>Hoje</span>
+              <b>Hoje</b>
               <strong>{board?.summary.today ?? mobileLeadCount}</strong>
-              <small>Agendados para hoje</small>
             </button>
             <button
               type="button"
-              className="hbx-mobile-card"
               data-tone="success"
               data-active={mobileAgendaTab === "upcoming" ? "true" : "false"}
               onClick={() => setMobileAgendaTab("upcoming")}
             >
-              <span>Próximos</span>
+              <b>Próximos</b>
               <strong>{mobileFutureCount}</strong>
-              <small>Próximos 7 dias</small>
             </button>
           </div>
 
-          <div className={styles.mobileVendasSearchRow}>
-            <label className={styles.mobileVendasSearch}>
-              <span aria-hidden="true">⌕</span>
-              <input
-                value={mobileSearch}
-                onChange={(event) => setMobileSearch(event.target.value)}
-                placeholder="Buscar leads"
-              />
-            </label>
-            <button type="button" aria-label="Ajustar filtros">
-              <svg viewBox="0 0 24 24" aria-hidden="true">
-                <path d="M5 7h8" />
-                <path d="M17 7h2" />
-                <path d="M5 17h2" />
-                <path d="M11 17h8" />
-                <path d="M13 5v4" />
-                <path d="M9 15v4" />
-              </svg>
-            </button>
-          </div>
         </div>
 
         {loading ? (
@@ -3598,11 +3654,7 @@ export default function VendasClientPage() {
                 const status = lead.statusLabel || statusLabel(lead.status);
                 const whatsappHref = buildWhatsAppUrl(lead.phone, lead.name);
                 const callHref = buildCallUrl(lead.phone);
-                const compactScore = Math.max(
-                  0,
-                  Math.min(99, Math.round(Number(lead.leadIntelligence?.opportunityScore || 0))),
-                );
-                const compactScoreLabel = intelligenceScoreLabel(compactScore);
+                const compactSocialBadge = socialBadgeLabel(lead.leadIntelligence?.primarySocial);
                 return (
                   <article
                     className={`${styles.mobileVendasCard} hbx-mobile-card`}
@@ -3638,17 +3690,6 @@ export default function VendasClientPage() {
                           <strong>{lead.name || "Lead sem nome"}</strong>
                           <span>{mobileLeadPlace(lead)}</span>
                         </div>
-                        {compactScore > 0 ? (
-                          <div
-                            className={styles.mobileVendasCardScore}
-                            style={{ ["--lead-score" as string]: `${compactScore}%` } as CSSProperties}
-                            aria-label={`Score ${compactScore}: ${compactScoreLabel}`}
-                          >
-                            <span>Score</span>
-                            <strong>{compactScore}</strong>
-                            <small>{compactScoreLabel}</small>
-                          </div>
-                        ) : null}
                         <div className={styles.mobileVendasCardActions}>
                           <button
                             type="button"
@@ -3679,9 +3720,11 @@ export default function VendasClientPage() {
                         <small>
                           Retorno <b>{mobileReturnLabel(lead)}</b>
                         </small>
-                        <small data-tone="source">
-                          {mobileLeadSourceLabel(lead)}
-                        </small>
+                        {compactSocialBadge ? (
+                          <small data-tone="social">
+                            {compactSocialBadge}
+                          </small>
+                        ) : null}
                       </div>
                       <div className={styles.mobileVendasNextAction}>
                         <span>Próxima ação</span>
@@ -3724,14 +3767,6 @@ export default function VendasClientPage() {
               })
             ) : (
               <div className={`${styles.mobileVendasEmpty} hbx-mobile-empty`}>
-                <div className={styles.mobileEmptyVisual} aria-hidden="true">
-                  <Image
-                    src="/hbx-visuals/states/empty-vendas.webp"
-                    alt=""
-                    width={280}
-                    height={200}
-                  />
-                </div>
                 <strong>Nenhum lead disponível agora</strong>
                 <span>Troque a guia, limpe a busca ou volte ao Radar para ampliar cidade e segmento.</span>
               </div>

@@ -1,6 +1,5 @@
 "use client";
 
-import Image from "next/image";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { apiFetch } from "@/app/_lib/api";
@@ -104,15 +103,8 @@ function mobileOperationStatus(state: WelcomeState) {
   return "Operação mobile";
 }
 
-function mobileHeroSubtitle(state: WelcomeState) {
-  if (!state.loaded) return "Comece buscando oportunidades no Radar";
-  if (state.leadsCount > 0) return `${state.leadsCount} leads prontos para trabalhar`;
-  if (state.radarReady) return "Radar pronto para buscar oportunidades";
-  return "Comece buscando oportunidades no Radar";
-}
-
 function mobilePrimaryAction(state: WelcomeState) {
-  if (!state.loaded) return { label: "Carregando", path: "/boasvindas" };
+  if (!state.loaded) return { label: "Entrar no Radar Digital", path: "/radar-digital" };
   if (state.vendasReady || state.leadsCount > 0) return { label: "Abrir Vendas", path: "/vendas" };
   return { label: "Buscar leads no Radar", path: "/radar-digital" };
 }
@@ -128,59 +120,40 @@ function MobileDashboard({
   leaving?: boolean;
   onNavigate?: (path: string) => void;
 }) {
-  const metrics = [
-    { key: "leads", label: "Leads", value: state.loaded ? String(state.leadsCount) : "--" },
-    { key: "radar", label: "Radar", value: state.loaded && state.radarReady ? "Pronto" : "Configurar" },
-    { key: "pending", label: "Pendências", value: state.loaded ? String(state.pendingCount) : "--" },
-  ];
-  const disabled = leaving || !state.loaded || !onNavigate;
+  const disabled = leaving || !onNavigate;
+  const status = mobileOperationStatus(state);
+  const subtitle = state.loaded && state.leadsCount > 0
+    ? `${state.leadsCount} leads prontos para trabalhar no mobile.`
+    : "Radar, vendas e atendimento em uma operação simples para começar agora.";
 
   return (
-    <div className={`${styles.mobileDashboard} hbx-mobile-page`} aria-label="Painel inicial mobile">
-      <header className={`${styles.mobileHeader} hbx-mobile-header`}>
-        <strong>HBX</strong>
-        <span>{mobileOperationStatus(state)}</span>
-      </header>
+    <div className={`${styles.mobileDashboard} ${styles.mobileWelcomeExperience} hbx-mobile-page`} aria-label="Boas-vindas HBX">
+      <span className={styles.statusBadge}>{status}</span>
+      <div className={styles.brandMark} aria-hidden="true">HBX</div>
+      <h1 id="welcome-title" className={styles.mobileTitle}>Sua operação começa aqui</h1>
+      <p className={styles.mobileSubtitle}>{subtitle}</p>
+      <p className={styles.loadingText}>
+        {state.loaded ? "Escolha por onde continuar." : "Preparando sua área mobile."}
+      </p>
 
-      <section className={`${styles.mobileHero} hbx-mobile-hero`}>
-        <div className={styles.mobileHeroCopy}>
-          <span>Operação</span>
-          <h1>Sua operação hoje</h1>
-          <p>{mobileHeroSubtitle(state)}</p>
-        </div>
-        <div className={styles.mobileHeroVisual} aria-hidden="true">
-          <Image
-            src="/hbx-visuals/onboarding/welcome-mobile.webp"
-            alt=""
-            width={320}
-            height={220}
-            priority
-          />
-        </div>
-      </section>
-
-      <button
-        type="button"
-        className={`${styles.mobilePrimaryAction} hbx-mobile-primary-button`}
-        onClick={() => onNavigate?.(primaryAction.path)}
-        disabled={disabled}
-      >
-        {primaryAction.label}
-      </button>
-
-      <nav className={styles.mobileSecondaryActions} aria-label="Atalhos">
-        <button type="button" className="hbx-mobile-secondary-button" onClick={() => onNavigate?.("/radar-digital")} disabled={disabled}>Radar Digital</button>
-        <button type="button" className="hbx-mobile-secondary-button" onClick={() => onNavigate?.("/atendimento")} disabled={disabled}>Atendimento</button>
+      <nav className={styles.actions} aria-label="Começar">
+        <button
+          type="button"
+          className={styles.primaryAction}
+          onClick={() => onNavigate?.(primaryAction.path)}
+          disabled={disabled}
+        >
+          {primaryAction.label}
+        </button>
+        <button
+          type="button"
+          className={styles.secondaryAction}
+          onClick={() => onNavigate?.("/radar-digital")}
+          disabled={disabled}
+        >
+          Radar Digital
+        </button>
       </nav>
-
-      <section className={styles.mobileMetricStrip} aria-label="Resumo operacional">
-        {metrics.map((metric) => (
-          <div key={metric.key} className={styles.mobileMetricPill}>
-            <span>{metric.label}</span>
-            <strong>{metric.value}</strong>
-          </div>
-        ))}
-      </section>
 
       <HbxMobileDock primaryHref="/radar-digital" primaryLabel="Buscar leads no Radar" />
     </div>
@@ -207,7 +180,6 @@ export default function BoasVindasClientPage() {
     if (fromLoginEntryParam && window.location.search.includes("entry=mobile")) {
       window.history.replaceState(null, "", "/boasvindas");
     }
-    const media = window.matchMedia("(max-width: 560px)");
     const frame = window.requestAnimationFrame(() => {
       setClientReady(true);
     });
@@ -290,7 +262,7 @@ export default function BoasVindasClientPage() {
   if (hasToken === null || (hasToken === true && !masterCheckComplete && !clientReady)) {
     return (
       <main
-        className={styles.page}
+        className={`${styles.page} ${styles.fromLoginTransition}`}
         data-welcome-mode="single"
         data-welcome-phase="loading"
         data-welcome-path="loading"
@@ -306,7 +278,7 @@ export default function BoasVindasClientPage() {
 
   return (
     <main
-      className={styles.page}
+      className={`${styles.page} ${styles.fromLoginTransition}`}
       data-welcome-mode="single"
       data-welcome-phase={welcomePhase}
       data-welcome-path={hasOperationalHistory(welcomeState) ? "operation" : "first-access"}

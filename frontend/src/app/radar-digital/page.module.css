@@ -1571,6 +1571,113 @@
   min-width: 0;
 }
 
+.segmentFunnel {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid color-mix(in srgb, var(--line) 84%, transparent);
+  border-radius: 12px;
+  background:
+    radial-gradient(circle at 100% 0%, color-mix(in srgb, var(--brand) 8%, transparent), transparent 34%),
+    color-mix(in srgb, var(--surface) 94%, var(--surface-raised));
+}
+
+.segmentFunnelHeader {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.segmentFunnelHeader span,
+.segmentFunnelHeader small {
+  color: var(--muted);
+  font-size: 0.68rem;
+  line-height: 1.1;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.segmentFunnelHeader strong {
+  display: block;
+  margin-top: 3px;
+  color: var(--foreground);
+  font-size: 0.92rem;
+  line-height: 1.1;
+  font-weight: 950;
+}
+
+.segmentCategoryTabs {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+
+.segmentCategoryTabs button,
+.segmentOptions button,
+.segmentFunnelSearch button {
+  border: 1px solid color-mix(in srgb, var(--line) 84%, transparent);
+  background: color-mix(in srgb, var(--surface-raised) 92%, var(--surface));
+  color: var(--muted);
+  font: inherit;
+  font-weight: 880;
+  cursor: pointer;
+}
+
+.segmentCategoryTabs button {
+  flex: 0 0 auto;
+  min-height: 30px;
+  border-radius: 999px;
+  padding: 0 10px;
+  font-size: 0.74rem;
+}
+
+.segmentCategoryTabs button[data-active="true"],
+.segmentOptions button[data-active="true"] {
+  border-color: color-mix(in srgb, var(--brand) 42%, var(--line));
+  background: color-mix(in srgb, var(--brand) 12%, var(--surface-raised));
+  color: color-mix(in srgb, var(--brand) 86%, var(--foreground));
+}
+
+.segmentFunnelSearch {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
+.segmentFunnelSearch input {
+  min-height: 36px;
+}
+
+.segmentFunnelSearch button {
+  min-height: 36px;
+  border-radius: 10px;
+  padding: 0 10px;
+  color: color-mix(in srgb, var(--brand) 86%, var(--foreground));
+}
+
+.segmentFunnelSearch button:disabled,
+.segmentOptions button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.segmentOptions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  min-height: 34px;
+}
+
+.segmentOptions button {
+  min-height: 30px;
+  border-radius: 999px;
+  padding: 0 10px;
+  font-size: 0.75rem;
+}
+
 .filterTarget,
 .filterQuantity,
 .filterEngine {
@@ -2978,6 +3085,14 @@
     font-weight: 950;
   }
 
+  .mobilePickerHeader small {
+    display: block;
+    margin-top: 2px;
+    color: #64748b;
+    font-size: 0.72rem;
+    font-weight: 820;
+  }
+
   .mobilePickerHeader button {
     min-height: 36px;
     border: 0;
@@ -3040,6 +3155,67 @@
     border-color: rgba(47, 111, 255, 0.34);
     background: linear-gradient(135deg, rgba(235, 243, 255, 0.98), rgba(247, 252, 255, 0.98));
     box-shadow: 0 16px 32px -28px rgba(47, 111, 255, 0.62);
+  }
+
+  .mobileSegmentCategories,
+  .mobileSegmentToolbar {
+    display: flex;
+    gap: 8px;
+    overflow-x: auto;
+    padding-bottom: 2px;
+  }
+
+  .mobileSegmentCategories button,
+  .mobileSegmentToolbar button,
+  .mobileSegmentOptions button {
+    border: 1px solid rgba(202, 214, 236, 0.72);
+    background: #ffffff;
+    color: #14204a;
+    font: inherit;
+    font-weight: 860;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.82);
+  }
+
+  .mobileSegmentCategories button,
+  .mobileSegmentToolbar button {
+    flex: 0 0 auto;
+    min-height: 36px;
+    border-radius: 999px;
+    padding: 0 12px;
+    font-size: 0.78rem;
+  }
+
+  .mobileSegmentCategories button[data-active="true"],
+  .mobileSegmentOptions button[data-active="true"] {
+    border-color: rgba(7, 87, 223, 0.34);
+    background: #eef4ff;
+    color: #0757df;
+  }
+
+  .mobileSegmentToolbar button {
+    color: #0757df;
+    background: #f7faff;
+  }
+
+  .mobileSegmentToolbar button:disabled,
+  .mobileSegmentOptions button:disabled {
+    opacity: 0.48;
+  }
+
+  .mobileSegmentOptions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    overflow: auto;
+    max-height: min(40dvh, 300px);
+  }
+
+  .mobileSegmentOptions button {
+    min-height: 44px;
+    border-radius: 14px;
+    padding: 0 10px;
+    text-align: left;
+    font-size: 0.8rem;
   }
 
   .mobileModuleMenuPanel {
@@ -4293,9 +4469,9 @@
 
   .mobileRadarHeroCopy strong {
     display: block;
-    margin-top: 14px;
+    margin-top: 9px;
     color: #06163f !important;
-    font-size: 2rem !important;
+    font-size: 2.16rem !important;
     font-weight: 1000 !important;
     line-height: 0.95 !important;
     letter-spacing: 0 !important;
@@ -4345,20 +4521,18 @@
 
   .mobileRadarHero .mobileModuleVisual {
     position: absolute !important;
-    top: 16px !important;
+    top: 34px !important;
     right: 13px !important;
-    width: 45% !important;
-    height: 142px !important;
+    width: 40% !important;
+    height: 124px !important;
     min-height: 0 !important;
     display: grid !important;
     place-items: center !important;
     overflow: hidden !important;
     padding: 0 !important;
-    border: 1px solid rgba(83, 159, 255, 0.22) !important;
-    border-radius: 20px 24px 20px 48px !important;
-    background:
-      radial-gradient(circle at 50% 48%, rgba(40, 187, 255, 0.34), transparent 22%),
-      linear-gradient(145deg, #082460, #04142f 78%) !important;
+    border: 1px solid rgba(83, 159, 255, 0.18) !important;
+    border-radius: 18px 20px 18px 44px !important;
+    background: linear-gradient(145deg, #08255f, #041632 78%) !important;
     box-shadow:
       inset 0 1px 0 rgba(255, 255, 255, 0.12),
       0 18px 34px -26px rgba(5, 34, 91, 0.9) !important;
@@ -4366,37 +4540,35 @@
 
   .mobileRadarHero .mobileModuleVisual::before,
   .mobileRadarHero .mobileModuleVisual::after {
-    content: "";
-    position: absolute;
-    inset: 18px;
-    border-radius: 999px;
-    pointer-events: none;
+    content: none !important;
   }
 
   .mobileRadarHero .mobileModuleVisual::before {
-    border: 1px solid rgba(94, 197, 255, 0.38);
-    box-shadow: inset 0 0 0 18px rgba(20, 103, 214, 0.08);
+    border: 0;
+    box-shadow: none;
   }
 
   .mobileRadarHero .mobileModuleVisual::after {
-    background: conic-gradient(from 0deg, transparent 0 75%, rgba(101, 229, 255, 0.9) 82%, transparent 89% 100%);
-    opacity: 0.85;
-    animation: mobileRadarSweep 7s linear infinite;
+    background: none;
+    opacity: 0;
+    animation: none;
   }
 
   .mobileModuleVisual img {
-    width: 128px !important;
-    max-width: 108% !important;
-    max-height: 118px !important;
-    opacity: 0.96;
-    filter: drop-shadow(0 16px 24px rgba(0, 153, 255, 0.24)) !important;
+    width: 138px !important;
+    max-width: 122% !important;
+    max-height: 116px !important;
+    opacity: 1;
+    filter: none !important;
   }
 
   .mobileRadarHeroStat {
     z-index: 2;
+    grid-row: 2 !important;
+    grid-column: auto !important;
     align-self: end;
-    min-height: 70px !important;
-    padding: 11px 9px 10px 54px !important;
+    min-height: 62px !important;
+    padding: 8px 5px 8px 35px !important;
     border: 1px solid rgba(202, 219, 244, 0.94) !important;
     border-radius: 18px !important;
     background: rgba(255, 255, 255, 0.92) !important;
@@ -4405,13 +4577,25 @@
       0 14px 30px -28px rgba(13, 52, 114, 0.7) !important;
   }
 
+  .mobileRadarHeroStat:nth-of-type(3) {
+    grid-column: 1 !important;
+  }
+
+  .mobileRadarHeroStat:nth-of-type(4) {
+    grid-column: 2 !important;
+  }
+
+  .mobileRadarHeroStat:nth-of-type(5) {
+    grid-column: 3 !important;
+  }
+
   .mobileRadarHeroStat::before {
     content: "";
     position: absolute;
-    left: 10px;
+    left: 6px;
     top: 50%;
-    width: 34px;
-    height: 34px;
+    width: 24px;
+    height: 24px;
     transform: translateY(-50%);
     border-radius: 999px;
     background:
@@ -4421,21 +4605,24 @@
 
   .mobileRadarHeroStat span {
     color: #52627f !important;
-    font-size: 0.64rem !important;
+    font-size: 0.42rem !important;
     font-weight: 1000 !important;
-    letter-spacing: 0.12em;
+    letter-spacing: 0.03em;
+    line-height: 1.05 !important;
   }
 
   .mobileRadarHeroStat strong {
     display: -webkit-box !important;
     overflow: hidden !important;
-    margin-top: 7px;
+    margin-top: 4px;
     color: #06163f !important;
-    font-size: 0.88rem !important;
+    font-size: 0.61rem !important;
     font-weight: 1000 !important;
-    line-height: 1.05 !important;
+    line-height: 1.08 !important;
     -webkit-line-clamp: 2;
     -webkit-box-orient: vertical;
+    word-break: normal;
+    overflow-wrap: anywhere;
   }
 }
 
@@ -4448,5 +4635,1277 @@
 @media (prefers-reduced-motion: reduce) {
   .mobileRadarHero .mobileModuleVisual::after {
     animation: none !important;
+  }
+}
+
+@media (max-width: 820px) {
+  .mobileRadarHero {
+    min-height: 286px !important;
+    padding: 18px 14px 14px !important;
+    overflow: hidden !important;
+    border-radius: 28px !important;
+    border: 1px solid rgba(186, 213, 252, 0.78) !important;
+    background:
+      radial-gradient(circle at 86% 24%, rgba(82, 169, 255, 0.18), transparent 35%),
+      linear-gradient(90deg, rgba(255, 255, 255, 0.98) 0 56%, rgba(237, 247, 255, 0.78) 56% 100%),
+      linear-gradient(145deg, rgba(255, 255, 255, 0.96), rgba(239, 248, 255, 0.9)) !important;
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.96),
+      0 24px 54px -42px rgba(25, 86, 170, 0.72) !important;
+  }
+
+  .mobileRadarHero::before {
+    background:
+      linear-gradient(105deg, transparent 0 56%, rgba(28, 97, 184, 0.08) 56.4%, transparent 57%),
+      radial-gradient(circle at 78% 34%, rgba(73, 165, 255, 0.16), transparent 34%) !important;
+  }
+
+  .mobileRadarHeroCopy {
+    grid-column: 1 / 3 !important;
+    padding: 0 !important;
+  }
+
+  .mobileRadarHeroCopy span {
+    min-height: 28px;
+    padding-inline: 10px !important;
+    background: rgba(232, 242, 255, 0.88);
+    color: #0757df !important;
+    font-size: 0.68rem !important;
+    letter-spacing: 0.03em;
+  }
+
+  .mobileRadarHeroCopy strong {
+    margin-top: 14px !important;
+    max-width: 214px;
+    color: #06163f !important;
+    font-size: 2.08rem !important;
+    line-height: 0.98 !important;
+  }
+
+  .mobileRadarHeroCopy p {
+    max-width: 176px;
+    margin-top: 10px !important;
+    color: #536483 !important;
+    font-size: 1rem !important;
+    line-height: 1.28 !important;
+  }
+
+  .mobileRadarHeroCopy small {
+    min-height: 34px;
+    margin-top: 14px;
+    padding-inline: 11px !important;
+    font-size: 0.72rem !important;
+  }
+
+  .mobileRadarHero .mobileModuleVisual {
+    position: absolute !important;
+    top: 24px !important;
+    right: 8px !important;
+    width: 160px !important;
+    height: 160px !important;
+    min-height: 0 !important;
+    display: grid !important;
+    place-items: center !important;
+    overflow: visible !important;
+    padding: 0 !important;
+    border: 0 !important;
+    border-radius: 999px !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    z-index: 0 !important;
+  }
+
+  .mobileRadarDial {
+    position: relative;
+    display: block;
+    width: 156px;
+    height: 156px;
+    border: 1px solid rgba(44, 137, 255, 0.34);
+    border-radius: 999px;
+    overflow: hidden;
+    background:
+      linear-gradient(rgba(7, 87, 223, 0.12) 1px, transparent 1px) 0 0 / 24px 24px,
+      linear-gradient(90deg, rgba(7, 87, 223, 0.1) 1px, transparent 1px) 0 0 / 24px 24px,
+      repeating-radial-gradient(circle, transparent 0 28px, rgba(7, 118, 255, 0.44) 29px 30px),
+      radial-gradient(circle at center, rgba(255, 255, 255, 0.96) 0 5px, rgba(20, 163, 255, 0.34) 6px 10px, transparent 11px),
+      radial-gradient(circle at center, rgba(212, 235, 255, 0.82), rgba(237, 247, 255, 0.32) 62%, rgba(255, 255, 255, 0.02));
+    box-shadow:
+      inset 0 0 0 8px rgba(255, 255, 255, 0.42),
+      inset 0 0 34px rgba(7, 87, 223, 0.1),
+      0 18px 36px -28px rgba(7, 87, 223, 0.68);
+  }
+
+  .mobileRadarDial::before,
+  .mobileRadarDial::after {
+    content: "";
+    position: absolute;
+    inset: 50% 8px auto;
+    height: 1px;
+    background: rgba(7, 87, 223, 0.32);
+    transform: translateY(-50%);
+  }
+
+  .mobileRadarDial::after {
+    inset: 8px auto 8px 50%;
+    width: 1px;
+    height: auto;
+    transform: translateX(-50%);
+  }
+
+  .mobileRadarSweep {
+    position: absolute;
+    inset: 0;
+    z-index: 4;
+    display: block;
+    border-radius: inherit;
+    background:
+      conic-gradient(
+        from -14deg at 50% 50%,
+        transparent 0deg,
+        rgba(46, 220, 238, 0.08) 10deg,
+        rgba(46, 220, 238, 0.42) 24deg,
+        rgba(46, 220, 238, 0.14) 38deg,
+        transparent 54deg 360deg
+      );
+    transform-origin: 50% 50%;
+    animation: mobileRadarSweepSpin 3.8s linear infinite;
+  }
+
+  .mobileRadarSweep::before {
+    display: none;
+  }
+
+  .mobileRadarSweep::after {
+    content: "";
+    position: absolute;
+    left: 50%;
+    top: 12px;
+    bottom: 50%;
+    width: 4px;
+    height: auto;
+    border-radius: 999px;
+    background: linear-gradient(180deg, rgba(226, 253, 255, 1), rgba(34, 211, 238, 0.82) 62%, rgba(34, 211, 238, 0.12));
+    transform: translateX(-50%);
+    transform-origin: center bottom;
+    box-shadow:
+      0 0 10px rgba(180, 245, 255, 0.92),
+      0 0 22px rgba(34, 211, 238, 0.62);
+  }
+
+  .mobileRadarSweep > span {
+    position: absolute;
+    left: 50%;
+    top: 12px;
+    width: 11px;
+    height: 11px;
+    border-radius: 999px;
+    background: #b9f8ff;
+    transform: translate(-50%, -50%);
+    box-shadow:
+      0 0 0 3px rgba(34, 211, 238, 0.22),
+      0 0 18px rgba(34, 211, 238, 0.86);
+  }
+
+  .mobileRadarBlip {
+    position: absolute;
+    width: 8px;
+    height: 8px;
+    border: 2px solid #19c8ff;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.72);
+    box-shadow: 0 0 14px rgba(25, 200, 255, 0.6);
+  }
+
+  .mobileRadarBlip[data-position="one"] {
+    top: 39px;
+    right: 42px;
+  }
+
+  .mobileRadarBlip[data-position="two"] {
+    left: 42px;
+    bottom: 42px;
+  }
+
+  .mobileRadarBlip[data-position="three"] {
+    right: 54px;
+    bottom: 50px;
+  }
+
+  .mobileRadarHeroStat {
+    min-height: 62px !important;
+    padding: 8px 5px 8px 35px !important;
+    border-radius: 18px !important;
+    background: rgba(255, 255, 255, 0.9) !important;
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.98),
+      0 16px 30px -28px rgba(7, 87, 223, 0.72) !important;
+  }
+}
+
+@keyframes mobileRadarSweepSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (max-width: 820px) {
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileRadarHero {
+    border-color: rgba(255, 214, 102, 0.38) !important;
+    background:
+      radial-gradient(circle at 16% 12%, rgba(255, 210, 90, 0.16), transparent 26%),
+      radial-gradient(circle at 82% 24%, rgba(13, 148, 255, 0.24), transparent 34%),
+      linear-gradient(135deg, rgba(12, 16, 23, 0.96), rgba(4, 18, 38, 0.96)) !important;
+    box-shadow:
+      inset 0 1px 0 rgba(255, 216, 112, 0.28),
+      0 28px 62px -42px rgba(255, 196, 69, 0.46) !important;
+  }
+
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileRadarHeroCopy span,
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileRadarHeroCopy strong,
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileRadarHeroCopy small,
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileRadarHeroStat strong {
+    color: #ffd86a !important;
+  }
+
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileRadarHeroCopy p,
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileRadarHeroStat span {
+    color: rgba(230, 236, 248, 0.72) !important;
+  }
+
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileRadarHeroCopy span,
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileRadarHeroCopy small {
+    background: rgba(255, 211, 92, 0.1) !important;
+    border-color: rgba(255, 211, 92, 0.28) !important;
+  }
+
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileRadarDial {
+    border-color: rgba(14, 165, 255, 0.42);
+    background:
+      linear-gradient(rgba(14, 165, 255, 0.1) 1px, transparent 1px) 0 0 / 24px 24px,
+      linear-gradient(90deg, rgba(14, 165, 255, 0.1) 1px, transparent 1px) 0 0 / 24px 24px,
+      repeating-radial-gradient(circle, transparent 0 28px, rgba(14, 165, 255, 0.46) 29px 30px),
+      radial-gradient(circle at center, rgba(20, 184, 255, 0.92) 0 5px, rgba(14, 165, 255, 0.3) 6px 10px, transparent 11px),
+      radial-gradient(circle at center, rgba(8, 40, 82, 0.9), rgba(4, 18, 38, 0.16));
+    box-shadow:
+      inset 0 0 0 8px rgba(255, 216, 112, 0.04),
+      inset 0 0 36px rgba(14, 165, 255, 0.16),
+      0 18px 36px -28px rgba(14, 165, 255, 0.74);
+  }
+
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileRadarHeroStat {
+    border-color: rgba(255, 214, 102, 0.28) !important;
+    background: rgba(6, 18, 36, 0.78) !important;
+  }
+
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileRadarForm {
+    border-color: rgba(255, 214, 102, 0.22) !important;
+    background:
+      radial-gradient(circle at 14% 0%, rgba(255, 214, 102, 0.08), transparent 32%),
+      linear-gradient(145deg, rgba(7, 19, 39, 0.92), rgba(3, 14, 31, 0.88)) !important;
+    box-shadow:
+      inset 0 1px 0 rgba(255, 214, 102, 0.12),
+      0 22px 42px -34px rgba(255, 196, 69, 0.36) !important;
+  }
+
+  :global(html[data-hbx-mobile-theme="dark"]) .mobilePickerButton,
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileAdvancedButton,
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileRadarEngineField {
+    border-color: rgba(255, 214, 102, 0.22) !important;
+    background:
+      radial-gradient(circle at 96% 0%, rgba(255, 214, 102, 0.09), transparent 38%),
+      rgba(8, 22, 44, 0.9) !important;
+    color: #f8fbff !important;
+    box-shadow:
+      inset 0 1px 0 rgba(255, 214, 102, 0.1),
+      0 14px 28px -26px rgba(255, 196, 69, 0.34) !important;
+  }
+
+  :global(html[data-hbx-mobile-theme="dark"]) .mobilePickerButton > span,
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileAdvancedButton > span,
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileRadarEngineField > span {
+    color: rgba(255, 216, 106, 0.82) !important;
+  }
+
+  :global(html[data-hbx-mobile-theme="dark"]) .mobilePickerButton strong,
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileAdvancedButton strong {
+    color: #ffffff !important;
+  }
+
+  :global(html[data-hbx-mobile-theme="dark"]) .mobilePickerButton small {
+    color: rgba(225, 234, 248, 0.74) !important;
+  }
+
+  :global(html[data-hbx-mobile-theme="dark"]) .mobilePickerButton b,
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileAdvancedButton b {
+    background: rgba(255, 216, 106, 0.1) !important;
+    color: #ffd86a !important;
+  }
+
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileRadarEngineField .engineToggle button {
+    border-color: rgba(255, 214, 102, 0.2) !important;
+    background: rgba(5, 17, 36, 0.78) !important;
+    color: rgba(225, 234, 248, 0.8) !important;
+  }
+
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileRadarEngineField .engineToggle button[data-active="true"] {
+    border-color: rgba(255, 214, 102, 0.42) !important;
+    background:
+      radial-gradient(circle at 30% 0%, rgba(255, 255, 255, 0.24), transparent 34%),
+      linear-gradient(135deg, #ffd86a, #d59a28) !important;
+    color: #081322 !important;
+  }
+
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileRadarClear,
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileRadarCard button {
+    border-color: rgba(255, 214, 102, 0.26) !important;
+    background: rgba(7, 19, 39, 0.72) !important;
+    color: #ffd86a !important;
+  }
+}
+
+@media (max-width: 820px) {
+  :global(html),
+  :global(body) {
+    overflow-x: hidden !important;
+    background: #eef7ff !important;
+  }
+
+  .shell,
+  .mobileRadar {
+    width: 100vw !important;
+    max-width: 100vw !important;
+    overflow-x: hidden !important;
+    background:
+      radial-gradient(circle at 52% 8%, rgba(176, 224, 255, 0.46), transparent 30%),
+      radial-gradient(circle at 46% 92%, rgba(167, 239, 225, 0.22), transparent 30%),
+      linear-gradient(180deg, #f2fbff 0%, #eaf6ff 52%, #edf9fb 100%) !important;
+  }
+
+  :global(html[data-hbx-mobile-theme="dark"]),
+  :global(html[data-hbx-mobile-theme="dark"] body) {
+    overflow-x: hidden !important;
+    background: #031020 !important;
+  }
+
+  :global(html[data-hbx-mobile-theme="dark"]) .shell,
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileRadar {
+    width: 100vw !important;
+    max-width: 100vw !important;
+    overflow-x: hidden !important;
+    background:
+      radial-gradient(circle at 50% 18%, rgba(255, 214, 102, 0.08), transparent 28%),
+      radial-gradient(circle at 42% 88%, rgba(23, 184, 132, 0.14), transparent 32%),
+      linear-gradient(180deg, #061426 0%, #06182f 48%, #031020 100%) !important;
+  }
+
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileRadarHero {
+    overflow: hidden !important;
+  }
+
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileRadarResults {
+    border-color: rgba(255, 214, 102, 0.22) !important;
+    background:
+      radial-gradient(circle at 90% 0%, rgba(255, 214, 102, 0.06), transparent 34%),
+      linear-gradient(145deg, rgba(7, 19, 39, 0.94), rgba(3, 14, 31, 0.9)) !important;
+    color: #f8fbff !important;
+    box-shadow:
+      inset 0 1px 0 rgba(255, 214, 102, 0.1),
+      0 22px 42px -34px rgba(255, 196, 69, 0.28) !important;
+  }
+
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileRadarResults header span {
+    color: rgba(255, 216, 106, 0.82) !important;
+  }
+
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileRadarResults header strong,
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileEnrichmentSummary b,
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileRadarState strong {
+    color: #ffffff !important;
+  }
+
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileEnrichmentSummary span,
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileRadarState {
+    border-color: rgba(255, 214, 102, 0.2) !important;
+    background: rgba(8, 22, 44, 0.82) !important;
+    color: rgba(225, 234, 248, 0.78) !important;
+  }
+
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileRadarState span {
+    color: rgba(225, 234, 248, 0.76) !important;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mobileRadarSweep {
+    animation: none !important;
+  }
+}
+
+.radarMotionBackdrop {
+  position: absolute;
+  top: 24px;
+  right: 8px;
+  z-index: 0;
+  width: min(46vw, 176px);
+  aspect-ratio: 1;
+  min-height: 0 !important;
+  display: block !important;
+  overflow: hidden;
+  border-radius: 28px;
+  pointer-events: none;
+  background: #061526;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 22px 44px -32px rgba(7, 87, 223, 0.72);
+}
+
+.radarMotionBackdrop *,
+.mobileRadarHero .radarMotionBackdrop * {
+  min-width: 0;
+  min-height: 0;
+  box-sizing: border-box;
+}
+
+.radarMotionAura {
+  position: absolute;
+  inset: 0;
+  display: block !important;
+  background:
+    radial-gradient(circle at 55% 48%, rgba(28, 151, 255, 0.22), transparent 34%),
+    radial-gradient(circle at 50% 50%, rgba(3, 12, 28, 0.05), rgba(3, 12, 28, 0.82));
+}
+
+.radarMotionDisc {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  display: block !important;
+  width: 84%;
+  aspect-ratio: 1;
+  overflow: hidden;
+  border-radius: 999px;
+  transform: translate(-50%, -50%);
+}
+
+.radarMotionCircle,
+.radarMotionAxis,
+.radarMotionSweep,
+.radarMotionRing,
+.radarMotionRingReverse,
+.radarMotionGlow,
+.radarMotionBlip,
+.radarMotionBlip i,
+.radarMotionTrail,
+.radarMotionCore {
+  position: absolute;
+  display: block !important;
+}
+
+.radarMotionCircle {
+  border-radius: 999px;
+  border: 1px solid rgba(103, 232, 249, 0.25);
+}
+
+.radarMotionCircle[data-ring="outer"] {
+  inset: 0;
+}
+
+.radarMotionCircle[data-ring="one"] {
+  inset: 6%;
+  border-width: 2px;
+  border-color: rgba(34, 211, 238, 0.26);
+}
+
+.radarMotionCircle[data-ring="two"] {
+  inset: 18%;
+  border-width: 2px;
+  border-color: rgba(34, 211, 238, 0.32);
+}
+
+.radarMotionCircle[data-ring="three"] {
+  inset: 32%;
+  border-width: 2px;
+  border-color: rgba(34, 211, 238, 0.36);
+}
+
+.radarMotionCircle[data-ring="four"] {
+  inset: 46%;
+  border-width: 2px;
+  border-color: rgba(34, 211, 238, 0.4);
+}
+
+.radarMotionAxis[data-axis="vertical"] {
+  left: 50%;
+  top: 0;
+  width: 2px;
+  height: 100%;
+  background: rgba(103, 232, 249, 0.28);
+  transform: translateX(-50%);
+}
+
+.radarMotionAxis[data-axis="horizontal"] {
+  left: 0;
+  top: 50%;
+  width: 100%;
+  height: 2px;
+  background: rgba(103, 232, 249, 0.28);
+  transform: translateY(-50%);
+}
+
+.radarMotionSweep {
+  inset: 0;
+  border-radius: 999px;
+  transform-origin: center;
+  animation: radarMotionSweepSpin 3.4s linear infinite;
+}
+
+.radarMotionTrail,
+.radarMotionCore {
+  left: 50%;
+  top: 50%;
+  width: 50%;
+  height: 50%;
+  overflow: hidden;
+  transform-origin: top left;
+}
+
+.radarMotionTrail {
+  background: conic-gradient(from 45deg at 0% 0%, transparent 0deg, rgba(34, 211, 238, 0.1) 12deg, rgba(34, 211, 238, 0.24) 34deg, rgba(34, 211, 238, 0.2) 62deg, transparent 96deg);
+  filter: blur(8px);
+  transform: rotate(-14deg);
+  animation: radarMotionTrailFade 3.4s ease-in-out infinite;
+}
+
+.radarMotionCore {
+  background: conic-gradient(from 45deg at 0% 0%, rgba(125, 211, 252, 0.98) 0deg, rgba(56, 189, 248, 0.66) 16deg, rgba(37, 99, 235, 0.28) 30deg, transparent 44deg);
+  filter: drop-shadow(0 0 8px rgba(56, 189, 248, 0.55));
+}
+
+.radarMotionRing {
+  inset: 2%;
+  border-radius: 999px;
+  border: 1px dashed rgba(103, 232, 249, 0.18);
+  transform-origin: center;
+  animation: radarMotionRingSpin 18s linear infinite;
+}
+
+.radarMotionRingReverse {
+  inset: 10%;
+  border-radius: 999px;
+  border: 1px solid rgba(96, 165, 250, 0.16);
+  transform-origin: center;
+  animation: radarMotionRingSpinReverse 26s linear infinite;
+}
+
+.radarMotionBlip {
+  width: 12px;
+  height: 12px;
+  border-radius: 999px;
+  background: #67e8f9;
+  box-shadow: 0 0 16px rgba(34, 211, 238, 0.9);
+  transform: translate(-50%, -50%) scale(0.82);
+  animation: radarMotionPulse 1.8s ease-in-out infinite;
+}
+
+.radarMotionBlip i {
+  left: 50%;
+  top: 50%;
+  width: 12px;
+  height: 12px;
+  border: 2px solid rgba(103, 232, 249, 0.7);
+  border-radius: 999px;
+  transform: translate(-50%, -50%) scale(0.45);
+  animation: radarMotionRipple 3.4s ease-out infinite;
+}
+
+.radarMotionGlow {
+  left: 50%;
+  top: 50%;
+  width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  background: #67e8f9;
+  box-shadow: 0 0 22px rgba(34, 211, 238, 0.95);
+  transform: translate(-50%, -50%);
+  animation: radarMotionCenterPulse 1.4s ease-in-out infinite;
+}
+
+.mobileRadarHero > :not(.radarMotionBackdrop) {
+  position: relative;
+  z-index: 1;
+}
+
+@keyframes radarMotionSweepSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes radarMotionPulse {
+  0%,
+  100% {
+    transform: translate(-50%, -50%) scale(0.82);
+    opacity: 0.55;
+  }
+
+  50% {
+    transform: translate(-50%, -50%) scale(1.18);
+    opacity: 1;
+  }
+}
+
+@keyframes radarMotionCenterPulse {
+  0%,
+  100% {
+    transform: translate(-50%, -50%) scale(0.9);
+    opacity: 0.75;
+  }
+
+  50% {
+    transform: translate(-50%, -50%) scale(1.16);
+    opacity: 1;
+  }
+}
+
+@keyframes radarMotionRipple {
+  0%,
+  42% {
+    transform: translate(-50%, -50%) scale(0.45);
+    opacity: 0;
+  }
+
+  52% {
+    opacity: 0.8;
+  }
+
+  100% {
+    transform: translate(-50%, -50%) scale(4.2);
+    opacity: 0;
+  }
+}
+
+@keyframes radarMotionTrailFade {
+  0%,
+  100% {
+    opacity: 0.92;
+  }
+
+  50% {
+    opacity: 0.68;
+  }
+}
+
+@keyframes radarMotionRingSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes radarMotionRingSpinReverse {
+  to {
+    transform: rotate(-360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .radarMotionSweep,
+  .radarMotionTrail,
+  .radarMotionBlip,
+  .radarMotionBlip i,
+  .radarMotionGlow,
+  .radarMotionRing,
+  .radarMotionRingReverse {
+    animation: none !important;
+  }
+}
+
+/* Production mobile hero override: document scanner motion, one route only. */
+@media (max-width: 820px) {
+  .mobileRadarHero {
+    position: relative !important;
+    display: grid !important;
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+    grid-template-rows: minmax(148px, 1fr) 66px !important;
+    gap: 12px !important;
+    min-height: 284px !important;
+    padding: 22px 14px 13px !important;
+    overflow: hidden !important;
+    isolation: isolate !important;
+    border: 1px solid rgba(186, 213, 252, 0.86) !important;
+    border-radius: 26px !important;
+    background:
+      linear-gradient(90deg, rgba(255, 255, 255, 0.98) 0 55%, rgba(237, 247, 255, 0.78) 55% 100%),
+      radial-gradient(circle at 88% 6%, rgba(82, 169, 255, 0.2), transparent 36%) !important;
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.96),
+      0 24px 54px -40px rgba(25, 86, 170, 0.68) !important;
+  }
+
+  .mobileRadarHero::before {
+    content: "" !important;
+    position: absolute !important;
+    inset: 0 !important;
+    z-index: 0 !important;
+    background:
+      linear-gradient(105deg, transparent 0 56%, rgba(28, 97, 184, 0.08) 56.4%, transparent 57%),
+      radial-gradient(circle at 70% 54%, rgba(73, 165, 255, 0.15), transparent 36%) !important;
+    pointer-events: none !important;
+  }
+
+  .mobileRadarHero::after {
+    content: none !important;
+  }
+
+  .mobileRadarHeroCopy {
+    grid-column: 1 / 3 !important;
+    grid-row: 1 !important;
+    z-index: 3 !important;
+    align-content: start !important;
+    min-height: 0 !important;
+    padding: 0 !important;
+    background: transparent !important;
+    border: 0 !important;
+    box-shadow: none !important;
+  }
+
+  .mobileRadarHeroCopy strong {
+    max-width: 218px !important;
+    margin-top: 3px !important;
+    color: #06163f !important;
+    font-size: clamp(2rem, 8.2vw, 2.52rem) !important;
+    font-weight: 1000 !important;
+    line-height: 0.96 !important;
+    letter-spacing: 0 !important;
+  }
+
+  .mobileRadarHeroCopy p {
+    max-width: 166px !important;
+    margin-top: 12px !important;
+    color: #53617d !important;
+    font-size: 0.98rem !important;
+    font-weight: 850 !important;
+    line-height: 1.28 !important;
+  }
+
+  .mobileRadarHeroCopy small {
+    display: inline-flex !important;
+    align-items: center !important;
+    gap: 8px !important;
+    width: fit-content !important;
+    max-width: calc(100vw - 64px) !important;
+    min-height: 32px !important;
+    margin-top: 18px !important;
+    padding: 0 14px 0 9px !important;
+    border: 1px solid rgba(20, 170, 98, 0.28) !important;
+    border-radius: 999px !important;
+    background: rgba(234, 253, 243, 0.92) !important;
+    color: #0f9a58 !important;
+    font-size: 0.72rem !important;
+    font-weight: 950 !important;
+    line-height: 1 !important;
+    white-space: nowrap !important;
+  }
+
+  .mobileRadarHeroCopy small::before {
+    content: "✓" !important;
+    display: grid !important;
+    flex: 0 0 auto !important;
+    width: 20px !important;
+    height: 20px !important;
+    place-items: center !important;
+    border-radius: 999px !important;
+    background: #13aa63 !important;
+    color: #ffffff !important;
+    font-size: 0.82rem !important;
+    font-weight: 1000 !important;
+  }
+
+  .radarMotionBackdrop {
+    position: absolute !important;
+    top: 24px !important;
+    right: -4px !important;
+    z-index: 1 !important;
+    width: min(48vw, 184px) !important;
+    height: 176px !important;
+    min-height: 0 !important;
+    display: block !important;
+    overflow: visible !important;
+    border-radius: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    pointer-events: none !important;
+  }
+
+  .radarMotionBackdrop *,
+  .mobileRadarHero .radarMotionBackdrop * {
+    position: absolute !important;
+    display: block !important;
+    min-width: 0 !important;
+    min-height: 0 !important;
+    box-sizing: border-box !important;
+  }
+
+  .radarMotionPanel {
+    inset: 0 !important;
+    z-index: 2 !important;
+    border: 1px solid rgba(188, 205, 238, 0.92) !important;
+    border-radius: 12px !important;
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(250, 253, 255, 0.94)),
+      radial-gradient(circle at 50% 100%, rgba(103, 232, 249, 0.18), transparent 28%) !important;
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.96),
+      0 16px 34px -24px rgba(7, 87, 223, 0.48) !important;
+  }
+
+  .radarMotionPanelBack {
+    inset: 12px -8px -4px 16px !important;
+    z-index: 1 !important;
+    border: 1px solid rgba(188, 205, 238, 0.68) !important;
+    border-radius: 12px !important;
+    background: rgba(255, 255, 255, 0.64) !important;
+  }
+
+  .radarMotionLine {
+    left: 20% !important;
+    right: 8% !important;
+    z-index: 3 !important;
+    height: 3px !important;
+    border-radius: 999px !important;
+    background: rgba(103, 232, 249, 0.48) !important;
+  }
+
+  .radarMotionLine[data-line="one"] {
+    top: 22% !important;
+    right: 17% !important;
+  }
+
+  .radarMotionLine[data-line="two"] {
+    top: 38% !important;
+  }
+
+  .radarMotionLine[data-line="three"] {
+    top: 54% !important;
+    left: 37% !important;
+  }
+
+  .radarMotionLine[data-line="four"] {
+    top: 70% !important;
+    left: 30% !important;
+  }
+
+  .radarMotionScanner {
+    left: 50% !important;
+    top: 43% !important;
+    z-index: 3 !important;
+    width: 2px !important;
+    height: 44% !important;
+    background: linear-gradient(180deg, rgba(103, 232, 249, 0.08), rgba(103, 232, 249, 0.78)) !important;
+    transform: translateX(-50%) !important;
+    animation: radarScanTravel 2.8s ease-in-out infinite !important;
+  }
+
+  .radarMotionDot {
+    left: 50% !important;
+    bottom: 9% !important;
+    z-index: 4 !important;
+    width: 18px !important;
+    height: 18px !important;
+    border-radius: 999px !important;
+    background: #67e8f9 !important;
+    box-shadow:
+      0 0 0 8px rgba(103, 232, 249, 0.18),
+      0 0 20px rgba(103, 232, 249, 0.76) !important;
+    transform: translateX(-50%) !important;
+    animation: radarScanDotPulse 1.8s ease-in-out infinite !important;
+  }
+
+  .mobileRadarHeroStat {
+    position: relative !important;
+    z-index: 3 !important;
+    grid-row: 2 !important;
+    min-height: 64px !important;
+    align-content: center !important;
+    padding: 9px 8px 9px 38px !important;
+    border: 1px solid rgba(182, 211, 248, 0.86) !important;
+    border-radius: 17px !important;
+    background: rgba(255, 255, 255, 0.78) !important;
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.94),
+      0 16px 32px -26px rgba(7, 87, 223, 0.36) !important;
+  }
+
+  .mobileRadarHeroStat:nth-of-type(3) {
+    grid-column: 1 !important;
+  }
+
+  .mobileRadarHeroStat:nth-of-type(4) {
+    grid-column: 2 !important;
+  }
+
+  .mobileRadarHeroStat:nth-of-type(5) {
+    grid-column: 3 !important;
+  }
+
+  .mobileRadarHeroStat::before {
+    content: "" !important;
+    position: absolute !important;
+    left: 8px !important;
+    top: 50% !important;
+    width: 24px !important;
+    height: 24px !important;
+    border-radius: 999px !important;
+    background: radial-gradient(circle at 32% 22%, #79bdff, #0757df 72%) !important;
+    box-shadow: inset 0 -8px 16px rgba(1, 58, 170, 0.24) !important;
+    transform: translateY(-50%) !important;
+  }
+
+  .mobileRadarHeroStat span {
+    color: #52627f !important;
+    font-size: 0.43rem !important;
+    font-weight: 1000 !important;
+    letter-spacing: 0.04em !important;
+    line-height: 1.05 !important;
+  }
+
+  .mobileRadarHeroStat strong {
+    color: #06163f !important;
+    font-size: 0.64rem !important;
+    font-weight: 1000 !important;
+    line-height: 1.12 !important;
+  }
+
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileRadarHero {
+    border-color: rgba(255, 214, 102, 0.38) !important;
+    background:
+      radial-gradient(circle at 92% 8%, rgba(33, 128, 255, 0.16), transparent 34%),
+      linear-gradient(90deg, rgba(7, 17, 31, 0.96) 0 56%, rgba(4, 18, 38, 0.92) 56%),
+      linear-gradient(145deg, rgba(9, 20, 38, 0.98), rgba(3, 12, 26, 0.98)) !important;
+    box-shadow:
+      inset 0 1px 0 rgba(255, 216, 112, 0.22),
+      0 28px 62px -42px rgba(255, 196, 69, 0.48) !important;
+  }
+
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileRadarHeroCopy strong,
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileRadarHeroCopy small,
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileRadarHeroStat strong {
+    color: #ffd86a !important;
+  }
+
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileRadarHeroCopy p,
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileRadarHeroStat span {
+    color: rgba(226, 234, 248, 0.74) !important;
+  }
+
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileRadarHeroCopy small {
+    border-color: rgba(255, 214, 102, 0.24) !important;
+    background: rgba(255, 214, 102, 0.1) !important;
+  }
+
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileRadarHeroStat {
+    border-color: rgba(255, 214, 102, 0.34) !important;
+    background: rgba(5, 17, 36, 0.74) !important;
+  }
+}
+
+@keyframes radarScanTravel {
+  0%,
+  100% {
+    opacity: 0.55;
+    transform: translate(-50%, -4px);
+  }
+
+  50% {
+    opacity: 1;
+    transform: translate(-50%, 8px);
+  }
+}
+
+@keyframes radarScanDotPulse {
+  0%,
+  100% {
+    opacity: 0.74;
+    transform: translateX(-50%) scale(0.92);
+  }
+
+  50% {
+    opacity: 1;
+    transform: translateX(-50%) scale(1.12);
+  }
+}
+
+/* Final mobile hero override: use the circular radar motion in the right-side visual slot. */
+@media (max-width: 820px) {
+  .mobileRadarHero .radarMotionBackdrop {
+    position: absolute !important;
+    top: 12px !important;
+    right: -16px !important;
+    z-index: 1 !important;
+    width: min(55vw, 205px) !important;
+    height: min(55vw, 205px) !important;
+    min-height: 0 !important;
+    display: block !important;
+    overflow: visible !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    pointer-events: none !important;
+  }
+
+  .mobileRadarHero .radarMotionBackdrop *,
+  .mobileRadarHero .radarMotionDisc * {
+    position: absolute !important;
+    display: block !important;
+    min-width: 0 !important;
+    min-height: 0 !important;
+    max-width: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    color: inherit !important;
+    font: inherit !important;
+    line-height: normal !important;
+    text-align: initial !important;
+    text-transform: none !important;
+    grid-column: auto !important;
+    box-sizing: border-box !important;
+  }
+
+  .mobileRadarHero .radarMotionAura {
+    inset: -12% !important;
+    border-radius: 999px !important;
+    background: radial-gradient(circle at 55% 48%, rgba(48, 145, 255, 0.22), transparent 58%) !important;
+  }
+
+  .mobileRadarHero .radarMotionDisc {
+    left: 50% !important;
+    top: 50% !important;
+    width: 84% !important;
+    height: 84% !important;
+    overflow: hidden !important;
+    padding: 0 !important;
+    border: 0 !important;
+    border-radius: 999px !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    transform: translate(-50%, -50%) !important;
+  }
+
+  .mobileRadarHero .radarMotionCircle {
+    border-radius: 999px !important;
+    border: 1px solid rgba(96, 165, 250, 0.45) !important;
+  }
+
+  .mobileRadarHero .radarMotionCircle[data-ring="outer"] {
+    inset: 0 !important;
+  }
+
+  .mobileRadarHero .radarMotionCircle[data-ring="one"] {
+    inset: 6% !important;
+    border-width: 2px !important;
+    border-color: rgba(59, 130, 246, 0.46) !important;
+  }
+
+  .mobileRadarHero .radarMotionCircle[data-ring="two"] {
+    inset: 18% !important;
+    border-width: 2px !important;
+    border-color: rgba(59, 130, 246, 0.52) !important;
+  }
+
+  .mobileRadarHero .radarMotionCircle[data-ring="three"] {
+    inset: 32% !important;
+    border-width: 2px !important;
+    border-color: rgba(37, 99, 235, 0.54) !important;
+  }
+
+  .mobileRadarHero .radarMotionCircle[data-ring="four"] {
+    inset: 46% !important;
+    border-width: 2px !important;
+    border-color: rgba(37, 99, 235, 0.58) !important;
+  }
+
+  .mobileRadarHero .radarMotionAxis[data-axis="vertical"] {
+    left: 50% !important;
+    top: 0 !important;
+    width: 2px !important;
+    height: 100% !important;
+    background: rgba(59, 130, 246, 0.48) !important;
+    transform: translateX(-50%) !important;
+  }
+
+  .mobileRadarHero .radarMotionAxis[data-axis="horizontal"] {
+    left: 0 !important;
+    top: 50% !important;
+    width: 100% !important;
+    height: 2px !important;
+    background: rgba(59, 130, 246, 0.48) !important;
+    transform: translateY(-50%) !important;
+  }
+
+  .mobileRadarHero .radarMotionSweep {
+    inset: 0 !important;
+    border-radius: 999px !important;
+    transform-origin: center !important;
+    animation: radarMotionSweepSpin 3.4s linear infinite !important;
+  }
+
+  .mobileRadarHero .radarMotionTrail,
+  .mobileRadarHero .radarMotionCore {
+    left: 50% !important;
+    top: 50% !important;
+    width: 50% !important;
+    height: 50% !important;
+    overflow: hidden !important;
+    transform-origin: top left !important;
+  }
+
+  .mobileRadarHero .radarMotionTrail {
+    background: conic-gradient(from 45deg at 0% 0%, transparent 0deg, rgba(59, 130, 246, 0.08) 12deg, rgba(59, 130, 246, 0.18) 38deg, rgba(59, 130, 246, 0.14) 68deg, transparent 102deg) !important;
+    filter: blur(7px) !important;
+    transform: rotate(-14deg) !important;
+    animation: radarMotionTrailFade 3.4s ease-in-out infinite !important;
+  }
+
+  .mobileRadarHero .radarMotionCore {
+    background: conic-gradient(from 45deg at 0% 0%, rgba(37, 99, 235, 0.82) 0deg, rgba(59, 130, 246, 0.56) 18deg, rgba(96, 165, 250, 0.28) 34deg, transparent 48deg) !important;
+    filter: drop-shadow(0 0 5px rgba(37, 99, 235, 0.35)) !important;
+  }
+
+  .mobileRadarHero .radarMotionRing {
+    inset: 2% !important;
+    border-radius: 999px !important;
+    border: 1px dashed rgba(96, 165, 250, 0.32) !important;
+    transform-origin: center !important;
+    animation: radarMotionRingSpin 18s linear infinite !important;
+  }
+
+  .mobileRadarHero .radarMotionRingReverse {
+    inset: 10% !important;
+    border-radius: 999px !important;
+    border: 1px solid rgba(59, 130, 246, 0.24) !important;
+    transform-origin: center !important;
+    animation: radarMotionRingSpinReverse 26s linear infinite !important;
+  }
+
+  .mobileRadarHero .radarMotionBlip {
+    width: 12px !important;
+    height: 12px !important;
+    border-radius: 999px !important;
+    background: #2563eb !important;
+    box-shadow: 0 0 14px rgba(37, 99, 235, 0.45) !important;
+    transform: translate(-50%, -50%) scale(0.82) !important;
+    animation: radarMotionPulse 1.8s ease-in-out infinite !important;
+  }
+
+  .mobileRadarHero .radarMotionBlip i {
+    left: 50% !important;
+    top: 50% !important;
+    width: 12px !important;
+    height: 12px !important;
+    border: 2px solid rgba(37, 99, 235, 0.55) !important;
+    border-radius: 999px !important;
+    transform: translate(-50%, -50%) scale(0.45) !important;
+    animation: radarMotionRipple 3.4s ease-out infinite !important;
+  }
+
+  .mobileRadarHero .radarMotionGlow {
+    left: 50% !important;
+    top: 50% !important;
+    z-index: 5 !important;
+    width: 20px !important;
+    height: 20px !important;
+    border-radius: 999px !important;
+    background: #2563eb !important;
+    box-shadow: 0 0 18px rgba(37, 99, 235, 0.45) !important;
+    transform: translate(-50%, -50%) !important;
+    animation: radarMotionCenterPulse 1.4s ease-in-out infinite !important;
+  }
+
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileRadarHero .radarMotionBackdrop {
+    border-color: transparent !important;
+    background: transparent !important;
+    box-shadow: none !important;
+  }
+
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileRadarHero .radarMotionAura {
+    background: radial-gradient(circle at 55% 48%, rgba(28, 151, 255, 0.28), transparent 58%) !important;
+  }
+
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileRadarHero .radarMotionCircle {
+    border-color: rgba(103, 232, 249, 0.25) !important;
+  }
+
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileRadarHero .radarMotionCircle[data-ring="one"] {
+    border-color: rgba(34, 211, 238, 0.26) !important;
+  }
+
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileRadarHero .radarMotionCircle[data-ring="two"] {
+    border-color: rgba(34, 211, 238, 0.32) !important;
+  }
+
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileRadarHero .radarMotionCircle[data-ring="three"] {
+    border-color: rgba(34, 211, 238, 0.36) !important;
+  }
+
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileRadarHero .radarMotionCircle[data-ring="four"] {
+    border-color: rgba(34, 211, 238, 0.4) !important;
+  }
+
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileRadarHero .radarMotionAxis {
+    background: rgba(103, 232, 249, 0.28) !important;
+  }
+
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileRadarHero .radarMotionTrail {
+    background: conic-gradient(from 45deg at 0% 0%, transparent 0deg, rgba(34, 211, 238, 0.1) 12deg, rgba(34, 211, 238, 0.24) 34deg, rgba(34, 211, 238, 0.2) 62deg, transparent 96deg) !important;
+    filter: blur(8px) !important;
+  }
+
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileRadarHero .radarMotionCore {
+    background: conic-gradient(from 45deg at 0% 0%, rgba(125, 211, 252, 0.98) 0deg, rgba(56, 189, 248, 0.66) 16deg, rgba(37, 99, 235, 0.28) 30deg, transparent 44deg) !important;
+    filter: drop-shadow(0 0 8px rgba(56, 189, 248, 0.55)) !important;
+  }
+
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileRadarHero .radarMotionRing {
+    border-color: rgba(103, 232, 249, 0.18) !important;
+  }
+
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileRadarHero .radarMotionRingReverse {
+    border-color: rgba(96, 165, 250, 0.16) !important;
+  }
+
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileRadarHero .radarMotionBlip {
+    background: #67e8f9 !important;
+    box-shadow: 0 0 16px rgba(34, 211, 238, 0.9) !important;
+  }
+
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileRadarHero .radarMotionBlip i {
+    border-color: rgba(103, 232, 249, 0.7) !important;
+  }
+
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileRadarHero .radarMotionGlow {
+    background: #67e8f9 !important;
+    box-shadow: 0 0 22px rgba(34, 211, 238, 0.95) !important;
+  }
+}
+
+@media (max-width: 820px) {
+  .mobileRadarHeroCopy small {
+    border-color: rgba(20, 170, 98, 0.28) !important;
+    background: rgba(234, 253, 243, 0.58) !important;
+    color: #0f9a58 !important;
+  }
+
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileRadarHeroCopy small {
+    border-color: rgba(255, 214, 102, 0.28) !important;
+    background: rgba(255, 214, 102, 0.1) !important;
+    color: #ffd86a !important;
+  }
+
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileRadarHeroCopy small::before {
+    background: #ffd86a !important;
+    color: #081322 !important;
   }
 }
