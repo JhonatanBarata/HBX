@@ -15959,6 +15959,12 @@ html[data-theme-mode] .app-topbar .app-topbar__frame {
     visibility: hidden;
   }
 
+  .login-stage[data-login-surface="desktop"] {
+    min-height: 100dvh;
+    background: #020a17 !important;
+    visibility: hidden;
+  }
+
   .login-stage[data-login-surface="hbx-mobile"] {
     background:
       radial-gradient(circle at 78% 22%, rgba(36, 160, 255, 0.2), transparent 28%),

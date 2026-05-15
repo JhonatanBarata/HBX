@@ -60,6 +60,12 @@
   color: #92400e;
 }
 
+.smartChips span[data-tone="danger"] {
+  border-color: rgba(220, 38, 38, 0.22);
+  background: #fff1f2;
+  color: #b91c1c;
+}
+
 .smartDetails {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -705,6 +711,32 @@
     gap: 10px;
   }
 
+  .mobileEnrichmentSummary {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .mobileEnrichmentSummary span {
+    min-width: 0;
+    padding: 9px;
+    border: 1px solid rgba(217, 225, 239, 0.96);
+    border-radius: 10px;
+    background: #f8fbff;
+    color: var(--hbx-mobile-muted);
+    font-size: 0.68rem;
+    line-height: 1.18;
+    font-weight: 850;
+  }
+
+  .mobileEnrichmentSummary b {
+    display: block;
+    color: var(--hbx-mobile-text);
+    font-size: 0.98rem;
+    line-height: 1.1;
+    font-weight: 950;
+  }
+
   .mobileRadarCard {
     min-width: 0;
     display: grid;
@@ -767,6 +799,63 @@
   .mobileRadarCard dd[data-tone="attendance"],
   .mobileRadarCard dd[data-tone="mine"] {
     color: #0757df;
+  }
+
+  .mobileWhyCall {
+    display: grid;
+    gap: 7px;
+    padding: 10px;
+    border: 1px solid rgba(31, 92, 181, 0.14);
+    border-radius: 10px;
+    background: #f8fbff;
+  }
+
+  .mobileWhyCall div:first-child {
+    display: grid;
+    gap: 3px;
+  }
+
+  .mobileWhyCall div:first-child span {
+    color: #0757df;
+    font-size: 0.68rem;
+    line-height: 1.15;
+    font-weight: 950;
+    text-transform: uppercase;
+  }
+
+  .mobileWhyCall div:first-child strong {
+    color: #12224f;
+    font-size: 0.84rem;
+    line-height: 1.32;
+    font-weight: 850;
+  }
+
+  .mobileWhySignals {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .mobileWhySignals span {
+    width: fit-content;
+    min-height: 24px;
+    display: inline-flex;
+    align-items: center;
+    padding: 0 8px;
+    border: 1px solid rgba(203, 215, 235, 0.92);
+    border-radius: 999px;
+    background: #ffffff;
+    color: #315071;
+    font-size: 0.68rem;
+    line-height: 1;
+    font-weight: 850;
+    white-space: nowrap;
+  }
+
+  .mobileRadarCopyActions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
   }
 
   .mobileRadarCard button {
@@ -3785,5 +3874,50 @@
 
   .mobileRadarCard dd {
     color: #0a1746 !important;
+  }
+}
+
+@media (max-width: 820px) {
+  .mobileRadarHero {
+    grid-template-columns: minmax(0, 1fr) minmax(96px, 0.48fr) !important;
+  }
+
+  .mobileRadarHeroCopy {
+    padding-right: 78px !important;
+  }
+
+  .mobileRadarHeroStat {
+    min-height: 54px !important;
+  }
+
+  .mobileRadarForm {
+    gap: 12px !important;
+  }
+
+  .mobileRadarForm label small {
+    display: block;
+    margin-top: 2px;
+    color: #64748b;
+    font-size: 0.72rem;
+    line-height: 1.28;
+    font-weight: 760;
+  }
+
+  .mobileRadarFieldLocked select {
+    border-color: rgba(148, 163, 184, 0.58) !important;
+    background:
+      linear-gradient(135deg, rgba(226, 232, 240, 0.76), rgba(248, 251, 255, 0.88)) !important;
+    color: #7a879c !important;
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.72);
+  }
+
+  .mobileRadarFieldLocked small {
+    color: #0757df !important;
+    font-weight: 850 !important;
+  }
+
+  .mobileRadarFieldReady select {
+    border-color: rgba(7, 87, 223, 0.38) !important;
+    background: #ffffff !important;
   }
 }

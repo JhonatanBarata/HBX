@@ -113,6 +113,12 @@ function hasUsableEmail(value: unknown) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/i.test(normalizeText(value));
 }
 
+function extractFirstEmail(value: unknown) {
+  const text = normalizeText(typeof value === 'object' ? JSON.stringify(value) : value);
+  const match = text.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i);
+  return match ? match[0].toLowerCase() : '';
+}
+
 function extractDomain(value: unknown) {
   const raw = normalizeText(value);
   if (!raw) return null;
@@ -132,6 +138,39 @@ function pickRaw(input: RadarLeadEnrichmentInput, keys: string[]) {
     if (normalizeText(value)) return normalizeText(value);
   }
   return '';
+}
+
+function pickCollectedEmail(input: RadarLeadEnrichmentInput) {
+  const raw = input.rawPayload || {};
+  const sources: Array<{ source: RadarEmailSource; keys: string[] }> = [
+    { source: 'manual', keys: ['contactEmail', 'email', 'recipientEmail'] },
+    { source: 'maps', keys: ['googleEmail', 'mapsEmail', 'googleMapsEmail', 'placeEmail'] },
+    { source: 'website', keys: [
+      'websiteEmail',
+      'emails',
+      'schema',
+      'structuredData',
+      'siteText',
+      'websiteText',
+      'html',
+      'rawHtml',
+      'footerText',
+      'contactPageText',
+      'aboutPageText',
+      'contactHtml',
+      'aboutHtml',
+      'instagramBio',
+      'facebookAbout',
+    ] },
+  ];
+  for (const entry of sources) {
+    for (const key of entry.keys) {
+      const direct = entry.source === 'manual' ? raw[key] : ((input as any)[key] ?? raw[key]);
+      const email = extractFirstEmail(direct);
+      if (email) return { email, source: entry.source };
+    }
+  }
+  return { email: '', source: 'none' as RadarEmailSource };
 }
 
 function normalizeWebsiteStatus(input: RadarLeadEnrichmentInput) {
@@ -229,15 +268,21 @@ function buildReason(input: RadarLeadEnrichmentInput, data: {
 
 export function buildRadarLeadEnrichment(input: RadarLeadEnrichmentInput): RadarLeadEnrichmentResult {
   const now = input.now || new Date();
-  const explicitEmail = normalizeText(input.email || pickRaw(input, ['contactEmail', 'email', 'recipientEmail'])).toLowerCase();
+  const rawEmailStatus = normalizeKey(input.emailStatus);
+  const rawEmailSource = normalizeKey(input.emailSource);
+  const suppliedEmail = normalizeText(input.email || pickRaw(input, ['contactEmail', 'email', 'recipientEmail'])).toLowerCase();
+  const suppliedEmailIsInferred = rawEmailSource === 'inferred' || rawEmailStatus === 'probable';
+  const explicitEmail = hasUsableEmail(suppliedEmail) && !suppliedEmailIsInferred ? suppliedEmail : '';
+  const collectedEmail = explicitEmail ? { email: '', source: 'none' as RadarEmailSource } : pickCollectedEmail(input);
   const domain = extractDomain(input.website);
   const emailCandidate = hasUsableEmail(explicitEmail)
     ? explicitEmail
+    : hasUsableEmail(collectedEmail.email)
+      ? collectedEmail.email
     : domain
       ? `contato@${domain}`
       : null;
-  const rawEmailStatus = normalizeKey(input.emailStatus);
-  const emailStatus: RadarEmailStatus = hasUsableEmail(explicitEmail)
+  const emailStatus: RadarEmailStatus = hasUsableEmail(explicitEmail) || hasUsableEmail(collectedEmail.email)
     ? 'confirmed'
     : rawEmailStatus === 'invalid'
       ? 'invalid'
@@ -248,6 +293,8 @@ export function buildRadarLeadEnrichment(input: RadarLeadEnrichmentInput): Radar
           : 'missing';
   const emailSource: RadarEmailSource = hasUsableEmail(explicitEmail)
     ? (normalizeKey(input.emailSource) === 'manual' ? 'manual' : 'website')
+    : hasUsableEmail(collectedEmail.email)
+      ? collectedEmail.source
     : emailCandidate
       ? 'inferred'
       : 'none';

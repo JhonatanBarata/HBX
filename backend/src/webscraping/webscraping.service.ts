@@ -4153,6 +4153,125 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     return deduped;
   }
 
+  private extractRadarLeadWhatsappStatus(row: any) {
+    const direct = String(row?.whatsappStatus || row?.whatsappCheckStatus || '').trim().toLowerCase();
+    if (direct) return direct;
+    const recentEvents = Array.isArray(row?.events) ? row.events : [];
+    const checkedEvent = recentEvents.find((event: any) => String(event?.eventType || '').trim().toLowerCase() === 'whatsapp_checked');
+    const eventStatus = String(parseJsonObject(checkedEvent?.note)?.whatsappStatus || '').trim().toLowerCase();
+    if (eventStatus) return eventStatus;
+    const enrichmentStatus = String(parseJsonObject(row?.enrichmentJson)?.whatsappStatus || '').trim().toLowerCase();
+    return enrichmentStatus || null;
+  }
+
+  private needsRadarLeadEnrichmentRefresh(row: any) {
+    if (!row?.id) return false;
+    if (row?.enrichmentVersion !== RADAR_LEAD_ENRICHMENT_VERSION) return true;
+    if (!row?.lastEnrichedAt || !row?.enrichmentJson) return true;
+    if (!row?.recommendedChannel || !row?.painType || !row?.painLabel || !row?.opportunityReason) return true;
+    if (!row?.emailStatus || !row?.websiteStatus) return true;
+    return false;
+  }
+
+  private buildRadarLeadEnrichmentData(row: any, now = new Date()) {
+    const companyState = Array.isArray(row?.companyStates) && row.companyStates.length ? row.companyStates[0] : null;
+    const protectedStatus = this.isRadarProtectedStatus(companyState?.status || row?.status);
+    const enrichment = buildRadarLeadEnrichment({
+      ...row,
+      companyStatus: companyState?.status || row?.status,
+      websiteStatus: row?.websiteStatus || inferWebsiteStatus(row?.website),
+      whatsappStatus: this.extractRadarLeadWhatsappStatus(row),
+      now,
+    });
+    return {
+      websiteStatus: row?.websiteStatus || inferWebsiteStatus(row?.website),
+      email: enrichment.email || row?.email || null,
+      emailStatus: enrichment.emailStatus,
+      emailSource: enrichment.emailSource,
+      emailConfidence: enrichment.emailConfidence,
+      instagramUrl: enrichment.instagramUrl || row?.instagramUrl || null,
+      facebookUrl: enrichment.facebookUrl || row?.facebookUrl || null,
+      socialStatus: enrichment.socialStatus,
+      socialConfidence: enrichment.socialConfidence,
+      googleMapsUrl: enrichment.googleMapsUrl || row?.googleMapsUrl || null,
+      businessCategory: enrichment.businessCategory || row?.businessCategory || null,
+      openingHoursStatus: enrichment.openingHoursStatus || row?.openingHoursStatus || null,
+      recommendedChannel: protectedStatus ? 'discard' : enrichment.recommendedChannel,
+      painType: enrichment.painType,
+      painLabel: enrichment.painLabel,
+      painPitch: enrichment.painPitch,
+      opportunityReason: enrichment.opportunityReason || row?.opportunityReason || null,
+      enrichmentJson: enrichment.enrichmentJson,
+      enrichmentScore: protectedStatus ? 0 : enrichment.enrichmentScore,
+      enrichmentConfidence: enrichment.enrichmentConfidence,
+      lastEnrichedAt: enrichment.lastEnrichedAt,
+      enrichmentVersion: enrichment.enrichmentVersion,
+    };
+  }
+
+  private async ensureRadarRowsEnriched(rows: any[]) {
+    if (!Array.isArray(rows) || !rows.length) return [];
+    if (!(await this.supportsRadarPersistence())) return rows;
+    const now = new Date();
+    const updatedRows: any[] = [];
+    const pendingUpdates: Promise<any>[] = [];
+    for (const row of rows) {
+      if (!this.needsRadarLeadEnrichmentRefresh(row)) {
+        updatedRows.push(row);
+        continue;
+      }
+      const data = this.buildRadarLeadEnrichmentData(row, now);
+      updatedRows.push({ ...row, ...data });
+      pendingUpdates.push(
+        (this.prisma as any).radarLeadPool.update({
+          where: { id: row.id },
+          data,
+        }).catch(() => null),
+      );
+      if (pendingUpdates.length >= 25) {
+        await Promise.all(pendingUpdates.splice(0, pendingUpdates.length));
+      }
+    }
+    if (pendingUpdates.length) await Promise.all(pendingUpdates);
+    return updatedRows;
+  }
+
+  private radarCommercialRank(row: any) {
+    const status = this.resolveRadarLeadStatus(row);
+    if (this.isRadarProtectedStatus(status) || this.isRadarProtectedStatus(row?.companyStates?.[0]?.status)) return -10000;
+    const channel = String(row?.recommendedChannel || parseJsonObject(row?.enrichmentJson)?.signals?.recommendedChannel || '').toLowerCase();
+    const emailStatus = String(row?.emailStatus || parseJsonObject(row?.enrichmentJson)?.signals?.emailStatus || '').toLowerCase();
+    const emailSource = String(row?.emailSource || '').toLowerCase();
+    const whatsappStatus = String(this.extractRadarLeadWhatsappStatus(row) || '').toLowerCase();
+    const channelWeight: Record<string, number> = { whatsapp: 650, email: 540, call: 390, review: 180, discard: -1000 };
+    const whatsappWeight: Record<string, number> = { confirmed: 120, unverified: 20, missing: -80, invalid: -120 };
+    const emailWeight: Record<string, number> = { confirmed: 90, probable: emailSource === 'inferred' ? 58 : 70, unverified: 12, missing: 0, invalid: -80 };
+    const negativePenalty =
+      safeInteger(row?.globalNegativeCount) * 80 +
+      safeInteger(row?.noAnswerCount) * 12 +
+      (['denied', 'complaint', 'hidden', 'discarded'].includes(status) ? 250 : 0);
+    return (
+      (channelWeight[channel] ?? 0) +
+      (whatsappWeight[whatsappStatus] ?? 0) +
+      (emailWeight[emailStatus] ?? 0) +
+      safeInteger(row?.enrichmentScore || row?.opportunityScore) * 2 +
+      Math.min(safeInteger(row?.reviews), 80) -
+      negativePenalty
+    );
+  }
+
+  private sortRadarRowsByCommercialPriority(rows: any[]) {
+    return [...rows].sort((left, right) => {
+      const rankDelta = this.radarCommercialRank(right) - this.radarCommercialRank(left);
+      if (rankDelta !== 0) return rankDelta;
+      const scoreDelta = safeInteger(right?.enrichmentScore || right?.opportunityScore) - safeInteger(left?.enrichmentScore || left?.opportunityScore);
+      if (scoreDelta !== 0) return scoreDelta;
+      const importedDelta = safeInteger(left?.globalImportedCount) - safeInteger(right?.globalImportedCount);
+      if (importedDelta !== 0) return importedDelta;
+      return String(left?.name || '').localeCompare(String(right?.name || ''), 'pt-BR');
+    });
+  }
+
   private async queryRadarRowsForCompany(
     companyId: number,
     filters: NormalizedRadarFilters,
@@ -4209,7 +4328,8 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         },
       },
     }).catch(() => []);
-    return this.dedupeRadarRows(this.filterRadarRowsInMemory(rows, filters)).slice(0, readLimit);
+    const enrichedRows = await this.ensureRadarRowsEnriched(this.filterRadarRowsInMemory(rows, filters));
+    return this.sortRadarRowsByCommercialPriority(this.dedupeRadarRows(enrichedRows)).slice(0, readLimit);
   }
 
   private restoreRadarPoolResults(rows: any[]): WebscrapingContactResult[] {
@@ -4292,6 +4412,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     const enrichmentParsed = parseJsonObject(row?.enrichmentJson);
     const includeSmartFields = options.includeSmartFields !== false;
     const protectedChannel = this.isRadarProtectedStatus(companyState?.status || row?.status);
+    const whatsappStatus = this.extractRadarLeadWhatsappStatus(row) || 'unverified';
     const smartFields = includeSmartFields ? {
       email: row?.email || enrichmentParsed?.emailCandidate || null,
       emailStatus: row?.emailStatus || enrichmentParsed?.signals?.emailStatus || 'missing',
@@ -4315,6 +4436,8 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       enrichmentJson: enrichmentParsed && Object.keys(enrichmentParsed).length ? enrichmentParsed : null,
       lastEnrichedAt: row?.lastEnrichedAt instanceof Date ? row.lastEnrichedAt.toISOString() : null,
       enrichmentVersion: row?.enrichmentVersion || null,
+      whatsappStatus,
+      whatsappCheckStatus: whatsappStatus,
     } : {
       email: null,
       emailStatus: row?.emailStatus || enrichmentParsed?.signals?.emailStatus || 'missing',
@@ -4336,6 +4459,8 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       enrichmentJson: null,
       lastEnrichedAt: null,
       enrichmentVersion: row?.enrichmentVersion || null,
+      whatsappStatus,
+      whatsappCheckStatus: whatsappStatus,
     };
     return {
       id: String(row?.id || ''),
@@ -4904,10 +5029,12 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       },
     }).catch(() => null);
     if (!row) throw new NotFoundException('Card do Radar nao encontrado.');
+    const [enrichedRow] = await this.ensureRadarRowsEnriched([row]);
+    const leadRow = enrichedRow || row;
     const includeSmartFields = await this.canUseRadarSmartLeadFields(context.companyId);
     return {
-      item: this.buildRadarLeadPublic(row, { includeSmartFields }),
-      events: (row.events || []).map((event: any) => ({
+      item: this.buildRadarLeadPublic(leadRow, { includeSmartFields }),
+      events: (leadRow.events || []).map((event: any) => ({
         id: event.id,
         eventType: event.eventType,
         note: event.note || null,
@@ -6576,11 +6703,13 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       include: { companyStates: { where: { companyId: context.companyId }, take: 1 } },
     });
     if (!row) throw new NotFoundException('Card do Radar nao encontrado.');
-    if (this.isRadarProtectedStatus(row?.companyStates?.[0]?.status || row?.status)) {
+    const [enrichedRow] = await this.ensureRadarRowsEnriched([row]);
+    const leadRow = enrichedRow || row;
+    if (this.isRadarProtectedStatus(leadRow?.companyStates?.[0]?.status || leadRow?.status)) {
       throw new BadRequestException('Card protegido nao pode ser enviado para Vendas.');
     }
 
-    await this.claimRadarLeadForCompany(context, row, {
+    await this.claimRadarLeadForCompany(context, leadRow, {
       poolStatus: 'in_attendance',
       companyStatus: 'in_attendance',
       eventType: 'ownership_reserved',
@@ -6590,29 +6719,46 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
 
     const includeSmartFields = await this.canUseRadarSmartLeadFields(context.companyId);
     const imported = await this.vendasService.importWebscrapingLeadsForUser(user, {
-      sourceHistoryId: `radar:${row.id}`,
+      sourceHistoryId: `radar:${leadRow.id}`,
       skipWhatsappValidation: Boolean(options.skipWhatsappValidation),
       leads: [
         {
-          sourceHistoryId: `radar:${row.id}`,
-          name: row.name,
-          phone: row.phone || row.phoneDigits,
-          phoneDigits: row.phoneDigits || normalizePhoneDigits(row.phone),
-          email: includeSmartFields ? row.email || undefined : undefined,
-          emailStatus: includeSmartFields ? row.emailStatus || undefined : undefined,
-          address: row.address || undefined,
-          website: row.website || undefined,
-          rating: row.rating ?? undefined,
-          reviews: row.reviews ?? undefined,
-          city: row.city || undefined,
-          state: row.state || undefined,
-          segment: row.segment || undefined,
-          recommendedChannel: includeSmartFields ? row.recommendedChannel || undefined : undefined,
-          painType: includeSmartFields ? row.painType || undefined : undefined,
-          painPitch: includeSmartFields ? row.painPitch || undefined : undefined,
-          enrichmentJson: includeSmartFields && row.enrichmentJson ? parseJsonObject(row.enrichmentJson) : undefined,
-          shortNote: includeSmartFields ? row.opportunityReason || undefined : 'Lead herdado do Radar Digital.',
-          scriptText: includeSmartFields ? row.painPitch || row.opportunityReason || undefined : undefined,
+          sourceHistoryId: `radar:${leadRow.id}`,
+          name: leadRow.name,
+          phone: leadRow.phone || leadRow.phoneDigits,
+          phoneDigits: leadRow.phoneDigits || normalizePhoneDigits(leadRow.phone),
+          email: includeSmartFields ? leadRow.email || undefined : undefined,
+          emailStatus: includeSmartFields ? leadRow.emailStatus || undefined : undefined,
+          emailSource: includeSmartFields ? leadRow.emailSource || undefined : undefined,
+          emailConfidence: includeSmartFields ? leadRow.emailConfidence ?? undefined : undefined,
+          address: leadRow.address || undefined,
+          website: leadRow.website || undefined,
+          websiteStatus: includeSmartFields ? leadRow.websiteStatus || undefined : undefined,
+          rating: leadRow.rating ?? undefined,
+          reviews: leadRow.reviews ?? undefined,
+          city: leadRow.city || undefined,
+          state: leadRow.state || undefined,
+          segment: leadRow.segment || undefined,
+          instagramUrl: includeSmartFields ? leadRow.instagramUrl || undefined : undefined,
+          facebookUrl: includeSmartFields ? leadRow.facebookUrl || undefined : undefined,
+          socialStatus: includeSmartFields ? leadRow.socialStatus || undefined : undefined,
+          googleMapsUrl: includeSmartFields ? leadRow.googleMapsUrl || undefined : undefined,
+          businessCategory: includeSmartFields ? leadRow.businessCategory || undefined : undefined,
+          openingHoursStatus: includeSmartFields ? leadRow.openingHoursStatus || undefined : undefined,
+          recommendedChannel: includeSmartFields ? leadRow.recommendedChannel || undefined : undefined,
+          painType: includeSmartFields ? leadRow.painType || undefined : undefined,
+          painLabel: includeSmartFields ? leadRow.painLabel || undefined : undefined,
+          painPitch: includeSmartFields ? leadRow.painPitch || undefined : undefined,
+          enrichmentScore: includeSmartFields ? leadRow.enrichmentScore ?? undefined : undefined,
+          enrichmentConfidence: includeSmartFields ? leadRow.enrichmentConfidence ?? undefined : undefined,
+          opportunityScore: leadRow.opportunityScore ?? undefined,
+          opportunityReason: includeSmartFields ? leadRow.opportunityReason || undefined : undefined,
+          source: leadRow.source || undefined,
+          sourceEngine: leadRow.sourceEngine || undefined,
+          sourceUrl: leadRow.sourceUrl || undefined,
+          enrichmentJson: includeSmartFields && leadRow.enrichmentJson ? parseJsonObject(leadRow.enrichmentJson) : undefined,
+          shortNote: includeSmartFields ? leadRow.opportunityReason || undefined : 'Lead herdado do Radar Digital.',
+          scriptText: includeSmartFields ? leadRow.painPitch || leadRow.opportunityReason || undefined : undefined,
         },
       ],
     } as any);
@@ -6623,12 +6769,12 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         where: {
           companyId_radarLeadId: {
             companyId: context.companyId,
-            radarLeadId: row.id,
+            radarLeadId: leadRow.id,
           },
         },
         create: {
           companyId: context.companyId,
-          radarLeadId: row.id,
+          radarLeadId: leadRow.id,
           vendasLeadId,
           status: 'sent_to_vendas',
           lastActionAt: now,
@@ -6640,7 +6786,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         },
       }),
       (this.prisma as any).radarLeadPool.update({
-        where: { id: row.id },
+        where: { id: leadRow.id },
         data: {
           ...(await this.supportsRadarOwnershipPersistence() ? { ownerCompanyId: context.companyId, claimedAt: now } : {}),
           status: 'sent_to_vendas',
@@ -6650,17 +6796,17 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       }),
     ]).catch(() => null);
     await this.recordRadarLeadEvent({
-      leadId: row.id,
+      leadId: leadRow.id,
       companyId: context.companyId,
       userId: context.userId,
       eventType: 'imported_to_vendas',
-      statusFrom: this.normalizeRadarLeadStatus(row.status),
+      statusFrom: this.normalizeRadarLeadStatus(leadRow.status),
       statusTo: 'sent_to_vendas',
     });
 
     return {
       ok: true,
-      radarLeadId: row.id,
+      radarLeadId: leadRow.id,
       vendasLeadId,
       import: imported,
     };
