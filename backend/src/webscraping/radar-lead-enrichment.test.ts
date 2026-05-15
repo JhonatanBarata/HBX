@@ -61,3 +61,28 @@ test('radar enrichment keeps existing confirmed email when payload is sparse', (
   assert.equal(enrichment.emailStatus, 'confirmed');
   assert.ok(enrichment.enrichmentJson.includes('confirmed'));
 });
+
+test('radar enrichment does not promote inferred email to confirmed on refresh', () => {
+  const enrichment = buildRadarLeadEnrichment({
+    email: 'contato@empresa.com.br',
+    emailStatus: 'probable',
+    emailSource: 'inferred',
+    website: 'https://empresa.com.br',
+  });
+
+  assert.equal(enrichment.emailStatus, 'probable');
+  assert.equal(enrichment.emailSource, 'inferred');
+});
+
+test('radar enrichment confirms email collected from website text', () => {
+  const enrichment = buildRadarLeadEnrichment({
+    website: 'https://empresa.com.br',
+    rawPayload: {
+      contactPageText: 'Fale conosco pelo atendimento@empresa.com.br',
+    },
+  });
+
+  assert.equal(enrichment.email, 'atendimento@empresa.com.br');
+  assert.equal(enrichment.emailStatus, 'confirmed');
+  assert.equal(enrichment.emailSource, 'website');
+});

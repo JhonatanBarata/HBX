@@ -22,6 +22,7 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL ?? DEFAULT_API_URL;
 const AUTO_LOGIN_STORAGE_KEY = "hbx_auto_login";
 const AUTO_LOGIN_RELOAD_SECONDS = 49;
 const LOGIN_SUCCESS_DELAY_MS = 6500;
+const MOBILE_LOGIN_SUCCESS_DELAY_MS = 300;
 const LOGIN_TO_WELCOME_TRANSITION_KEY = "hbx_login_to_welcome_transition";
 const LOGIN_VIDEO_EXPERIENCE_AVAILABLE = false;
 const LOGIN_IDLE_VIDEO_SRC = "/login-media/login-looping.mp4";
@@ -30,14 +31,6 @@ const SUPPORT_PHONE = "++5519997024884";
 const SUPPORT_MESSAGE = "Olá, preciso de ajuda para finalizar minha contratação no HBX.";
 const DEFAULT_WAKING_MESSAGE =
   "Estamos iniciando o ambiente seguro. A primeira conexão pode levar alguns segundos.";
-
-function getInitialMobileLoginSurface() {
-  if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
-    return false;
-  }
-
-  return window.matchMedia("(max-width: 768px)").matches;
-}
 
 type ApiErrorPayload = {
   message?: string | string[];
@@ -308,7 +301,7 @@ export default function LoginPage() {
   const [loginState, setLoginState] = useState<LoginState>("idle");
   const [mounted, setMounted] = useState(false);
   const [isUiReady, setIsUiReady] = useState(false);
-  const [isMobileLoginSurface, setIsMobileLoginSurface] = useState(getInitialMobileLoginSurface);
+  const [isMobileLoginSurface, setIsMobileLoginSurface] = useState(false);
   const [waterRipples, setWaterRipples] = useState<LoginWaterRipple[]>([]);
   const [playingWelcome, setPlayingWelcome] = useState(false);
   const [visualsPlayOnLoad, setVisualsPlayOnLoad] = useState(false);
@@ -470,7 +463,8 @@ export default function LoginPage() {
 
     setPlayingWelcome(true);
     const destinationPromise = resolvePostLoginDestination(data);
-    await new Promise((resolve) => window.setTimeout(resolve, LOGIN_SUCCESS_DELAY_MS));
+    const successDelay = isMobileLoginSurface ? MOBILE_LOGIN_SUCCESS_DELAY_MS : LOGIN_SUCCESS_DELAY_MS;
+    await new Promise((resolve) => window.setTimeout(resolve, successDelay));
     const destination = await destinationPromise;
 
     setToken(token);
@@ -996,7 +990,7 @@ export default function LoginPage() {
     <main
       ref={stageRef}
       className="login-stage relative h-[100dvh] min-h-[100dvh] overflow-y-auto px-6 py-5 md:min-h-screen md:overflow-hidden"
-      data-login-surface={isMobileLoginSurface ? "hbx-mobile" : undefined}
+      data-login-surface={isMobileLoginSurface ? "hbx-mobile" : "desktop"}
       data-login-theme={selection.themeId}
       data-login-mode={selection.mode}
       data-login-ready={isUiReady ? "true" : "false"}

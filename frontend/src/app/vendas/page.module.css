@@ -5957,3 +5957,79 @@
     padding-right: 10px;
   }
 }
+
+@media (max-width: 820px) {
+  .mobileLeadHeroPremium {
+    min-height: 172px !important;
+    align-content: center !important;
+    overflow: hidden !important;
+  }
+
+  .mobileLeadHeroIdentity,
+  .mobileLeadHeroMeta,
+  .mobileLeadScoreBox {
+    min-width: 0;
+    visibility: visible !important;
+  }
+
+  .mobileLeadScoreBox small {
+    max-width: 70px;
+    white-space: normal !important;
+    text-align: center;
+    line-height: 1.05;
+  }
+
+  .mobileLeadContactPanel,
+  .mobileLeadReasonBlock,
+  .mobileLeadNextActionBox,
+  .mobileLeadReadyMessage,
+  .mobileLeadObservationCard,
+  .mobileLeadTimeline {
+    height: auto !important;
+    min-height: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
+  }
+
+  .mobileLeadReasonBlock {
+    display: grid !important;
+    gap: 10px !important;
+  }
+
+  .mobileLeadNextActionBox h3 svg {
+    width: 20px !important;
+    height: 20px !important;
+    flex: 0 0 20px;
+    fill: none !important;
+    stroke: currentColor !important;
+    stroke-width: 2 !important;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
+  .mobileLeadReasonBlock > div {
+    display: flex !important;
+    min-height: 34px;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+
+  .mobileLeadReadyMessage p {
+    max-height: none !important;
+    overflow: visible !important;
+  }
+
+  .mobileLeadNoteEditor textarea {
+    resize: none !important;
+  }
+
+  .mobileLeadDetailActionBar.mobileLeadDetailActionBar {
+    position: sticky !important;
+    left: auto !important;
+    right: auto !important;
+    bottom: calc(var(--hbx-mobile-dock-height) + env(safe-area-inset-bottom) + 8px) !important;
+    width: 100% !important;
+    max-width: none !important;
+    margin: 8px 0 calc(var(--hbx-mobile-dock-height) + env(safe-area-inset-bottom) + 10px) !important;
+  }
+}

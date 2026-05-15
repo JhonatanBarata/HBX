@@ -8,7 +8,6 @@ import HbxMobileDock from "@/components/mobile/HbxMobileDock";
 import {
   HbxAdvancedFilters,
   HbxEngineSelector,
-  HbxQuantitySelector,
   HbxSegmentCombobox,
   HbxStateCityPicker,
   HbxTargetTypeSelector,
@@ -25,7 +24,7 @@ import {
   readStoredRadarRun,
   saveStoredRadarRun,
 } from "@/lib/radar-active-run";
-import type { CommercialPlansPayload } from "@/lib/commercial-plans";
+import { commercialPlanByKey, type CommercialPlansPayload } from "@/lib/commercial-plans";
 import { BRAZIL_CITIES_BY_STATE, BRAZIL_STATES } from "@/lib/brazil-locations";
 import { HBX_SEGMENT_SUGGESTIONS } from "@/lib/hbx-segment-suggestions";
 import styles from "./page.module.css";
@@ -43,6 +42,7 @@ type RadarLead = {
   phone?: string | null;
   phoneDigits?: string | null;
   ddd?: string | null;
+  address?: string | null;
   city?: string | null;
   state?: string | null;
   segment?: string | null;
@@ -57,6 +57,7 @@ type RadarLead = {
   socialStatus?: string | null;
   googleMapsUrl?: string | null;
   businessCategory?: string | null;
+  openingHoursStatus?: string | null;
   recommendedChannel?: "whatsapp" | "email" | "call" | "review" | "discard" | string | null;
   painType?: string | null;
   painLabel?: string | null;
@@ -68,6 +69,9 @@ type RadarLead = {
   enrichmentVersion?: string | null;
   opportunityScore?: number | null;
   opportunityReason?: string | null;
+  rating?: number | null;
+  reviews?: number | null;
+  sourceUrl?: string | null;
   source?: string | null;
   sourceEngine?: string | null;
   sourceEngines?: string[];
@@ -322,6 +326,33 @@ function channelLabel(value?: string | null) {
   return "Revisar";
 }
 
+function emailTrustBadge(lead: RadarLead) {
+  const status = String(lead.emailStatus || "").toLowerCase();
+  const source = String(lead.emailSource || "").toLowerCase();
+  if (status === "confirmed") return { label: "E-mail confirmado", tone: "success", shortLabel: "Confirmado" };
+  if (status === "probable" && source === "inferred") return { label: "E-mail inferido", tone: "warning", shortLabel: "Inferido" };
+  if (status === "probable") return { label: "E-mail provável", tone: "warning", shortLabel: "Provável" };
+  if (status === "invalid") return { label: "E-mail inválido", tone: "danger", shortLabel: "Inválido" };
+  if (status === "unverified") return { label: "E-mail não verificado", tone: "neutral", shortLabel: "Não verificado" };
+  return { label: "E-mail ausente", tone: "neutral", shortLabel: "Ausente" };
+}
+
+function whatsappTrustBadge(lead: RadarLead) {
+  const status = String(lead.whatsappStatus || lead.whatsappCheckStatus || "").toLowerCase();
+  if (status === "confirmed") return { label: "WhatsApp verificado", tone: "success", shortLabel: "Confirmado" };
+  if (status === "missing") return { label: "WhatsApp ausente", tone: "danger", shortLabel: "Ausente" };
+  if (status === "invalid") return { label: "WhatsApp inválido", tone: "danger", shortLabel: "Inválido" };
+  return { label: "WhatsApp não verificado", tone: "neutral", shortLabel: "Não verificado" };
+}
+
+function websiteTrustBadge(lead: RadarLead) {
+  const status = String(lead.websiteStatus || "").toLowerCase();
+  if (status === "none") return { label: "Sem site", tone: "warning" };
+  if (status === "weak" || status === "social_only") return { label: "Site fraco", tone: "warning" };
+  if (status === "present") return { label: "Site encontrado", tone: "success" };
+  return { label: "Site não verificado", tone: "neutral" };
+}
+
 function compactLeadReason(lead: RadarLead) {
   if (lead.recommendedChannel === "discard") return "Não chamar: card protegido por negativo, bloqueio ou descarte.";
   if (lead.opportunityReason) return lead.opportunityReason;
@@ -332,12 +363,60 @@ function compactLeadReason(lead: RadarLead) {
 }
 
 function buildSmartChips(lead: RadarLead, max = 3) {
+  const whatsapp = whatsappTrustBadge(lead);
+  const email = emailTrustBadge(lead);
+  const website = websiteTrustBadge(lead);
   const chips = [
-    { label: whatsappLabel(lead.whatsappStatus || lead.whatsappCheckStatus), tone: String(lead.whatsappStatus || lead.whatsappCheckStatus).toLowerCase() === "confirmed" ? "success" : "neutral" },
-    { label: emailLabel(lead.emailStatus), tone: ["confirmed", "probable"].includes(String(lead.emailStatus || "").toLowerCase()) ? "success" : "neutral" },
-    { label: lead.painLabel || websiteLabel(lead.websiteStatus), tone: lead.painType === "sem_site" || String(lead.websiteStatus || "").toLowerCase() === "none" ? "warning" : "neutral" },
+    { label: whatsapp.label, tone: whatsapp.tone },
+    { label: email.label, tone: email.tone },
+    { label: lead.painLabel || website.label, tone: website.tone },
   ];
   return chips.slice(0, max);
+}
+
+function buildWhyCallSignals(lead: RadarLead) {
+  const signals = [
+    whatsappTrustBadge(lead).label,
+    emailTrustBadge(lead).label,
+    websiteTrustBadge(lead).label,
+    lead.rating ? `Nota ${Number(lead.rating).toLocaleString("pt-BR", { maximumFractionDigits: 1 })}` : null,
+    lead.reviews ? `${Number(lead.reviews).toLocaleString("pt-BR")} avaliações` : null,
+    lead.businessCategory || lead.segment || null,
+  ].filter((value): value is string => Boolean(value));
+  return Array.from(new Set(signals)).slice(0, 5);
+}
+
+function buildRadarDraftMessage(lead: RadarLead) {
+  return lead.painPitch
+    || lead.opportunityReason
+    || `Olá, tudo bem? Vi ${lead.name || "sua empresa"} e queria te mostrar uma forma simples de organizar contatos e oportunidades pelo WhatsApp.`;
+}
+
+function radarCommercialRank(lead: RadarLead) {
+  const status = String(lead.companyStatus || lead.status || "").toLowerCase();
+  if (["negative", "denied", "blocked", "opt_out", "optout", "complaint", "discarded", "hidden"].includes(status)) return -10000;
+  const channel = String(lead.recommendedChannel || "").toLowerCase();
+  const whatsapp = String(lead.whatsappStatus || lead.whatsappCheckStatus || "").toLowerCase();
+  const email = String(lead.emailStatus || "").toLowerCase();
+  const emailSource = String(lead.emailSource || "").toLowerCase();
+  const channelWeight: Record<string, number> = { whatsapp: 650, email: 540, call: 390, review: 180, discard: -1000 };
+  const whatsappWeight: Record<string, number> = { confirmed: 120, unverified: 20, missing: -80, invalid: -120 };
+  const emailWeight: Record<string, number> = { confirmed: 90, probable: emailSource === "inferred" ? 58 : 70, unverified: 12, missing: 0, invalid: -80 };
+  const negativePenalty = Number(lead.ownershipStatus === "negative") * 250;
+  return (
+    (channelWeight[channel] || 0)
+    + (whatsappWeight[whatsapp] || 0)
+    + (emailWeight[email] || 0)
+    + Math.max(0, Number(lead.enrichmentScore || lead.opportunityScore || 0)) * 2
+    + Math.min(80, Number(lead.reviews || 0))
+    - negativePenalty
+  );
+}
+
+function sortRadarLeadsForSales(left: RadarLead, right: RadarLead) {
+  const rankDelta = radarCommercialRank(right) - radarCommercialRank(left);
+  if (rankDelta !== 0) return rankDelta;
+  return String(left.name || "").localeCompare(String(right.name || ""), "pt-BR");
 }
 
 function opportunityLabel(score?: number | null) {
@@ -572,20 +651,32 @@ export default function RadarDigitalClientPage() {
   const mobileSearchNoticeRef = useRef<HTMLElement | null>(null);
 
   const visibleItems = useMemo(
-    () => items.filter((item) => leadMatchesSearch(item, appliedGeneralSearch)),
+    () => items.filter((item) => leadMatchesSearch(item, appliedGeneralSearch)).sort(sortRadarLeadsForSales),
     [appliedGeneralSearch, items],
   );
   const highOpportunityCount = useMemo(
     () => visibleItems.filter((item) => Number(item.opportunityScore || 0) >= 70).length,
     [visibleItems],
   );
+  const visibleEnrichmentSummary = useMemo<RadarEnrichmentSummary>(() => ({
+    cardsAnalyzed: enrichmentSummary?.cardsAnalyzed ?? visibleItems.length,
+    whatsappVerified: enrichmentSummary?.whatsappVerified ?? visibleItems.filter((item) => String(item.whatsappStatus || item.whatsappCheckStatus || "").toLowerCase() === "confirmed").length,
+    emailConfirmedOrProbable: enrichmentSummary?.emailConfirmedOrProbable ?? visibleItems.filter((item) => ["confirmed", "probable"].includes(String(item.emailStatus || "").toLowerCase())).length,
+    noWebsite: enrichmentSummary?.noWebsite ?? visibleItems.filter((item) => String(item.websiteStatus || "").toLowerCase() === "none").length,
+    highPriority: enrichmentSummary?.highPriority ?? visibleItems.filter((item) => Number(item.enrichmentScore || item.opportunityScore || 0) >= 70).length,
+    readyToCall: enrichmentSummary?.readyToCall ?? visibleItems.filter((item) => ["whatsapp", "email", "call"].includes(String(item.recommendedChannel || "").toLowerCase())).length,
+    discardedOrBlocked: enrichmentSummary?.discardedOrBlocked ?? visibleItems.filter((item) => ownershipBadge(item).tone === "negative").length,
+  }), [enrichmentSummary, visibleItems]);
   const isHbxList = commercialPlans?.current?.planKey === "hbx_lite" || commercialPlans?.current?.selectedPlanKey === "hbx_lite";
   const showSmartLeadCards = !isHbxList;
-  const radarQuantityLimit = isHbxList ? 50 : 100;
+  const currentPlanKey = commercialPlans?.current?.selectedPlanKey || commercialPlans?.current?.planKey || null;
+  const currentPlan = currentPlanKey ? commercialPlanByKey(commercialPlans, currentPlanKey) : null;
+  const planCardsPerSearch = Math.max(0, Math.trunc(Number(currentPlan?.quotas?.cardsPerSearch || 0)));
+  const radarQuantityLimit = planCardsPerSearch || (isHbxList ? 50 : 100);
   const effectiveFilters = useMemo(
     () => ({
       ...filters,
-      quantity: Math.min(filters.quantity, radarQuantityLimit),
+      quantity: radarQuantityLimit,
     }),
     [filters, radarQuantityLimit],
   );
@@ -628,9 +719,9 @@ export default function RadarDigitalClientPage() {
   }, [hasToken]);
 
   useEffect(() => {
-    if (!isHbxList || filters.quantity <= radarQuantityLimit) return;
+    if (filters.quantity <= radarQuantityLimit) return;
     setFilters((current) => ({ ...current, quantity: radarQuantityLimit }));
-  }, [filters.quantity, isHbxList, radarQuantityLimit]);
+  }, [filters.quantity, radarQuantityLimit]);
 
   useEffect(() => {
     const nextState = String(searchParams.get("state") || "").trim();
@@ -1064,7 +1155,8 @@ export default function RadarDigitalClientPage() {
     setHasSearched(true);
     const nextFilters = {
       ...effectiveFilters,
-      quantity: Math.max(1, Math.min(radarQuantityLimit, Number(options?.quantityOverride || effectiveFilters.quantity || 1))),
+      targetType: isMobileRadarViewport() ? "pj" : effectiveFilters.targetType,
+      quantity: Math.max(1, Math.min(radarQuantityLimit, Number(options?.quantityOverride || radarQuantityLimit || 1))),
     };
     const nextGeneralSearch = generalSearch.trim();
     if (hasPartialRadarSearch(nextFilters)) {
@@ -1177,6 +1269,20 @@ export default function RadarDigitalClientPage() {
     }
   }
 
+  async function copyRadarText(text: string | null | undefined, successMessage: string) {
+    const value = String(text || "").trim();
+    if (!value) {
+      setError("Não há conteúdo para copiar neste card.");
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(value);
+      setFeedback(successMessage);
+    } catch {
+      setError("Não foi possível copiar agora.");
+    }
+  }
+
   function buildVendasLeadPayload(lead: RadarLead) {
     return {
       sourceHistoryId: `radar:${lead.id}`,
@@ -1185,13 +1291,33 @@ export default function RadarDigitalClientPage() {
       phoneDigits: lead.phoneDigits || lead.phone || "",
       email: lead.email || undefined,
       emailStatus: lead.emailStatus || undefined,
+      emailSource: lead.emailSource || undefined,
+      emailConfidence: lead.emailConfidence ?? undefined,
+      address: lead.address || undefined,
       website: lead.website || undefined,
+      websiteStatus: lead.websiteStatus || undefined,
       city: lead.city || undefined,
       state: lead.state || undefined,
       segment: lead.segment || undefined,
+      rating: lead.rating ?? undefined,
+      reviews: lead.reviews ?? undefined,
+      instagramUrl: lead.instagramUrl || undefined,
+      facebookUrl: lead.facebookUrl || undefined,
+      socialStatus: lead.socialStatus || undefined,
+      googleMapsUrl: lead.googleMapsUrl || undefined,
+      businessCategory: lead.businessCategory || undefined,
+      openingHoursStatus: lead.openingHoursStatus || undefined,
       recommendedChannel: lead.recommendedChannel || undefined,
       painType: lead.painType || undefined,
+      painLabel: lead.painLabel || undefined,
       painPitch: lead.painPitch || undefined,
+      enrichmentScore: lead.enrichmentScore ?? undefined,
+      enrichmentConfidence: lead.enrichmentConfidence ?? undefined,
+      opportunityScore: lead.opportunityScore ?? undefined,
+      opportunityReason: lead.opportunityReason || undefined,
+      source: lead.source || undefined,
+      sourceEngine: lead.sourceEngine || undefined,
+      sourceUrl: lead.sourceUrl || undefined,
       enrichmentJson: lead.enrichmentJson || undefined,
       shortNote: lead.opportunityReason || undefined,
       scriptText: lead.painPitch || lead.opportunityReason || undefined,
@@ -1346,7 +1472,7 @@ export default function RadarDigitalClientPage() {
               <span>Status do motor - Radar Digital</span>
               <strong>Radar Digital</strong>
               <p>Encontre cards com oportunidade real</p>
-              <small>{mobileRadarProcessing ? "Motor em varredura" : `${effectiveFilters.quantity} cards por busca`}</small>
+              <small>{mobileRadarProcessing ? "Motor em varredura" : `Volume definido pelo plano: ${effectiveFilters.quantity}`}</small>
             </div>
             <div className={styles.mobileModuleVisual} aria-hidden="true">
               <Image
@@ -1364,10 +1490,6 @@ export default function RadarDigitalClientPage() {
             <div className={styles.mobileRadarHeroStat}>
               <span>Segmento</span>
               <strong>{filters.segment || "Definir"}</strong>
-            </div>
-            <div className={styles.mobileRadarHeroStat}>
-              <span>Quantidade</span>
-              <strong>{effectiveFilters.quantity}</strong>
             </div>
             <div className={styles.mobileRadarHeroStat}>
               <span>Motor atual</span>
@@ -1395,7 +1517,7 @@ export default function RadarDigitalClientPage() {
               </select>
             </label>
 
-            <label>
+            <label className={filters.state ? styles.mobileRadarFieldReady : styles.mobileRadarFieldLocked}>
               <span>Cidade</span>
               <select
                 value={filters.city}
@@ -1407,6 +1529,7 @@ export default function RadarDigitalClientPage() {
                   <option key={city} value={city}>{city}</option>
                 ))}
               </select>
+              <small>{filters.state ? "Cidade liberada para o estado selecionado." : "Escolha um estado para liberar as cidades."}</small>
             </label>
 
             <label>
@@ -1415,40 +1538,15 @@ export default function RadarDigitalClientPage() {
                 value={filters.segment}
                 onChange={(event) => setFilters((current) => ({ ...current, segment: event.target.value }))}
                 list="mobile-radar-segments"
-                placeholder="Ex.: Clínica, academia"
+                placeholder="Ex.: Clínica, academia, estética, pet, oficina"
               />
+              <small>Escolha até 5 segmentos para destravar mais cards. Pode pesquisar com 1.</small>
               <datalist id="mobile-radar-segments">
                 {mobileSegmentOptions.slice(0, 80).map((segment) => (
                   <option key={segment} value={segment} />
                 ))}
               </datalist>
             </label>
-
-            <div className={styles.mobileRadarFormRow}>
-              <label>
-                <span>Quantidade</span>
-                <input
-                  type="number"
-                  min={1}
-                  max={radarQuantityLimit}
-                  value={filters.quantity}
-                  onChange={(event) => setFilters((current) => ({
-                    ...current,
-                    quantity: Math.max(1, Math.min(radarQuantityLimit, Number(event.target.value || 1))),
-                  }))}
-                />
-              </label>
-              <label>
-                <span>Tipo</span>
-                <select
-                  value={filters.targetType}
-                  onChange={(event) => setFilters((current) => ({ ...current, targetType: event.target.value as HbxTargetTypeValue }))}
-                >
-                  <option value="pj">Pessoa jurídica</option>
-                  <option value="pf">Pessoa física</option>
-                </select>
-              </label>
-            </div>
 
             <label>
               <span>Motor</span>
@@ -1564,6 +1662,14 @@ export default function RadarDigitalClientPage() {
               </div>
               {mobileRadarProcessing ? <small>Radar buscando cards...</small> : null}
             </header>
+            {hasSearched && showSmartLeadCards ? (
+              <div className={styles.mobileEnrichmentSummary}>
+                <span><b>{Number(visibleEnrichmentSummary.cardsAnalyzed || 0).toLocaleString("pt-BR")}</b> analisados</span>
+                <span><b>{Number(visibleEnrichmentSummary.whatsappVerified || 0).toLocaleString("pt-BR")}</b> WhatsApp verificado</span>
+                <span><b>{Number(visibleEnrichmentSummary.emailConfirmedOrProbable || 0).toLocaleString("pt-BR")}</b> e-mail pronto</span>
+                <span><b>{Number(visibleEnrichmentSummary.readyToCall || 0).toLocaleString("pt-BR")}</b> prontos para chamar</span>
+              </div>
+            ) : null}
 
             {mobileRadarProcessing && !visibleItems.length ? (
               <div className={`${styles.mobileRadarState} hbx-mobile-empty`}>
@@ -1583,9 +1689,13 @@ export default function RadarDigitalClientPage() {
             ) : (
               <div className={styles.mobileRadarList}>
                 {visibleItems.map((lead) => {
-                  const score = Math.max(0, Math.min(100, Math.trunc(Number(lead.opportunityScore || 0))));
+                  const score = Math.max(0, Math.min(100, Math.trunc(Number(lead.enrichmentScore || lead.opportunityScore || 0))));
                   const ownerBadge = ownershipBadge(lead);
                   const chips = buildSmartChips(lead);
+                  const emailBadge = emailTrustBadge(lead);
+                  const whatsappBadge = whatsappTrustBadge(lead);
+                  const whySignals = buildWhyCallSignals(lead);
+                  const draftMessage = buildRadarDraftMessage(lead);
                   return (
                     <article key={lead.id} className={`${styles.mobileRadarCard} hbx-mobile-card`}>
                       <div>
@@ -1597,21 +1707,50 @@ export default function RadarDigitalClientPage() {
                         <div><dt>Telefone</dt><dd>{formatPhone(lead.phone || lead.phoneDigits)}</dd></div>
                         <div><dt>Score</dt><dd>{score || "Sem score"}</dd></div>
                         <div><dt>Status</dt><dd data-tone={ownerBadge.tone}>{ownerBadge.label}</dd></div>
+                        <div><dt>Canal</dt><dd>{channelLabel(lead.recommendedChannel)}</dd></div>
                       </dl>
                       {showSmartLeadCards ? (
                         <>
                           <div className={styles.smartChips}>
                             {chips.map((chip) => <span key={chip.label} data-tone={chip.tone}>{chip.label}</span>)}
                           </div>
-                          <em>{compactLeadReason(lead)}</em>
+                          <div className={styles.mobileWhyCall}>
+                            <div>
+                              <span>Por que chamar?</span>
+                              <strong>{compactLeadReason(lead)}</strong>
+                            </div>
+                            <div className={styles.mobileWhySignals}>
+                              {whySignals.map((signal) => <span key={signal}>{signal}</span>)}
+                            </div>
+                          </div>
                           <div className={styles.smartDetails}>
-                            <span>Canal: {channelLabel(lead.recommendedChannel)}</span>
-                            {lead.email ? <span>{lead.email}</span> : null}
+                            <span><b>WhatsApp</b>{whatsappBadge.shortLabel}</span>
+                            <span><b>E-mail</b>{lead.email ? `${emailBadge.shortLabel}: ${lead.email}` : emailBadge.shortLabel}</span>
+                            <span><b>Origem</b>{lead.sourceEngine || lead.source || "Banco HBX"}</span>
                           </div>
                         </>
                       ) : (
                         <div className={styles.listUpsell}>Lead inteligente disponível no HBX Lead</div>
                       )}
+                      {showSmartLeadCards ? (
+                        <div className={styles.mobileRadarCopyActions}>
+                          <button
+                            type="button"
+                            className="hbx-mobile-secondary-button"
+                            onClick={() => void copyRadarText(lead.email, "E-mail copiado.")}
+                            disabled={!lead.email}
+                          >
+                            Copiar e-mail
+                          </button>
+                          <button
+                            type="button"
+                            className="hbx-mobile-secondary-button"
+                            onClick={() => void copyRadarText(draftMessage, "Mensagem copiada.")}
+                          >
+                            Copiar mensagem
+                          </button>
+                        </div>
+                      ) : null}
                       {showSmartLeadCards ? (
                         <button
                           type="button"
@@ -1685,8 +1824,8 @@ export default function RadarDigitalClientPage() {
               value={filters.segment}
               onChange={(value) => setFilters((current) => ({ ...current, segment: value }))}
               suggestions={availableSegments.length ? availableSegments.map((item) => item.value) : undefined}
-              placeholder="Segmento"
-              helperText=""
+              placeholder="Ex.: Clínica, academia, estética, pet, oficina"
+              helperText="Recomendado: até 5 segmentos separados por vírgula. Aceita pesquisar com 1."
             />
           </div>
           <div className={styles.filterTarget}>
@@ -1694,15 +1833,6 @@ export default function RadarDigitalClientPage() {
               value={filters.targetType}
               onChange={(value) => setFilters((current) => ({ ...current, targetType: value }))}
               allowedTypes={["pj", "pf"]}
-            />
-          </div>
-          <div className={styles.filterQuantity}>
-            <HbxQuantitySelector
-              value={filters.quantity}
-              onChange={(value) => setFilters((current) => ({ ...current, quantity: value }))}
-              options={isHbxList ? [10, 20, 40, 50] : [10, 20, 40, 60, 100]}
-              limitLabel="Quantidade"
-              helperText=""
             />
           </div>
           <div className={styles.filterEngine}>
@@ -1760,14 +1890,14 @@ export default function RadarDigitalClientPage() {
               </small>
             ) : null}
           </div>
-          {hasSearched && enrichmentSummary ? (
+          {hasSearched && visibleEnrichmentSummary ? (
             <div className={styles.enrichmentSummary}>
-              <span><b>{Number(enrichmentSummary.cardsAnalyzed || 0).toLocaleString("pt-BR")}</b> analisados</span>
-              <span><b>{Number(enrichmentSummary.whatsappVerified || 0).toLocaleString("pt-BR")}</b> WhatsApp verificado</span>
-              <span><b>{Number(enrichmentSummary.emailConfirmedOrProbable || 0).toLocaleString("pt-BR")}</b> e-mail pronto</span>
-              <span><b>{Number(enrichmentSummary.noWebsite || 0).toLocaleString("pt-BR")}</b> sem site</span>
-              <span><b>{Number(enrichmentSummary.highPriority || 0).toLocaleString("pt-BR")}</b> alta prioridade</span>
-              <span><b>{Number(enrichmentSummary.readyToCall || 0).toLocaleString("pt-BR")}</b> prontos para chamar</span>
+              <span><b>{Number(visibleEnrichmentSummary.cardsAnalyzed || 0).toLocaleString("pt-BR")}</b> analisados</span>
+              <span><b>{Number(visibleEnrichmentSummary.whatsappVerified || 0).toLocaleString("pt-BR")}</b> WhatsApp verificado</span>
+              <span><b>{Number(visibleEnrichmentSummary.emailConfirmedOrProbable || 0).toLocaleString("pt-BR")}</b> e-mail pronto</span>
+              <span><b>{Number(visibleEnrichmentSummary.noWebsite || 0).toLocaleString("pt-BR")}</b> sem site</span>
+              <span><b>{Number(visibleEnrichmentSummary.highPriority || 0).toLocaleString("pt-BR")}</b> alta prioridade</span>
+              <span><b>{Number(visibleEnrichmentSummary.readyToCall || 0).toLocaleString("pt-BR")}</b> prontos para chamar</span>
             </div>
           ) : null}
 

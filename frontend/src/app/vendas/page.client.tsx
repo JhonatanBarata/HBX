@@ -2159,13 +2159,7 @@ export default function VendasClientPage() {
     if (record) {
       setSelectedMobileLeadId(record.lead.id);
       setMobileNoteLead(record.lead);
-      setMobileNoteDraft(
-        String(
-          record.lead.shortNote ||
-            record.lead.lastResult ||
-            "Cliente interessado em solução completa. Enviar case do segmento e proposta personalizada.",
-        ),
-      );
+      setMobileNoteDraft("");
     }
   }, [allLeads, selectedMobileLeadId]);
 
@@ -2576,13 +2570,7 @@ export default function VendasClientPage() {
     saveMobileOpenLeadId(lead.id);
     setSelectedMobileLeadId(lead.id);
     setMobileNoteLead(lead);
-    setMobileNoteDraft(
-      String(
-        lead.shortNote ||
-          lead.lastResult ||
-          "Cliente interessado em solução completa. Enviar case do segmento e proposta personalizada.",
-      ),
-    );
+    setMobileNoteDraft("");
     void loadMobileLeadEnrichment(lead);
   }
 
@@ -2590,6 +2578,7 @@ export default function VendasClientPage() {
     saveMobileOpenLeadId(null);
     setSelectedMobileLeadId(null);
     setMobileNoteLead(null);
+    setMobileNoteDraft("");
   }
 
   function activeMobileTemplate(lead: LeadItem) {

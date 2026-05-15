@@ -72,6 +72,11 @@ export class CreateManualVendasLeadDto {
   website?: string;
 
   @IsOptional()
+  @IsString()
+  @MaxLength(32)
+  websiteStatus?: string;
+
+  @IsOptional()
   @Type(() => Number)
   @IsNumber({ maxDecimalPlaces: 1 })
   @Min(0)
@@ -221,6 +226,117 @@ export class ImportWebscrapingLeadItemDto {
   @IsString()
   @MaxLength(120)
   segment?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(32)
+  emailStatus?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(32)
+  emailSource?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(100)
+  emailConfidence?: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  instagramUrl?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  facebookUrl?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(32)
+  socialStatus?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  googleMapsUrl?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  businessCategory?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  openingHoursStatus?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(32)
+  recommendedChannel?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  painType?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  painLabel?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  painPitch?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(100)
+  enrichmentScore?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(100)
+  enrichmentConfidence?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(100)
+  opportunityScore?: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  opportunityReason?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  source?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  sourceEngine?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  sourceUrl?: string;
+
+  @IsOptional()
+  enrichmentJson?: unknown;
 
   @IsOptional()
   @IsString()

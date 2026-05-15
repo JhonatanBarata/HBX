@@ -2616,10 +2616,26 @@ export class VendasService {
 
       const radarEnrichmentMetadata = {
         emailStatus: this.normalizeText((item as any)?.emailStatus),
+        emailSource: this.normalizeText((item as any)?.emailSource),
+        emailConfidence: Number((item as any)?.emailConfidence || 0) || null,
+        websiteStatus: this.normalizeText((item as any)?.websiteStatus),
+        instagramUrl: this.normalizeText((item as any)?.instagramUrl),
+        facebookUrl: this.normalizeText((item as any)?.facebookUrl),
+        socialStatus: this.normalizeText((item as any)?.socialStatus),
+        googleMapsUrl: this.normalizeText((item as any)?.googleMapsUrl),
+        businessCategory: this.normalizeText((item as any)?.businessCategory),
+        openingHoursStatus: this.normalizeText((item as any)?.openingHoursStatus),
         recommendedChannel: this.normalizeText((item as any)?.recommendedChannel),
         painType: this.normalizeText((item as any)?.painType),
+        painLabel: this.normalizeText((item as any)?.painLabel),
         painPitch: this.normalizeText((item as any)?.painPitch),
-        opportunityReason: this.normalizeText(item?.shortNote),
+        enrichmentScore: Number((item as any)?.enrichmentScore || 0) || null,
+        enrichmentConfidence: Number((item as any)?.enrichmentConfidence || 0) || null,
+        opportunityScore: Number((item as any)?.opportunityScore || 0) || null,
+        opportunityReason: this.normalizeText((item as any)?.opportunityReason || item?.shortNote),
+        source: this.normalizeText((item as any)?.source),
+        sourceEngine: this.normalizeText((item as any)?.sourceEngine),
+        sourceUrl: this.normalizeText((item as any)?.sourceUrl),
         enrichment: (item as any)?.enrichmentJson || null,
       };
       if (Object.values(radarEnrichmentMetadata).some((value) => Boolean(value))) {
