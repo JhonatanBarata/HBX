@@ -4984,8 +4984,45 @@
   }
 
   .mobileVendasList {
+    grid-auto-rows: max-content;
+    align-content: start;
+    align-items: start;
+    gap: 10px;
+    overflow-y: auto;
+    overflow-x: hidden;
     padding-top: 4px;
-    padding-bottom: 10px;
+    padding-bottom: calc(120px + env(safe-area-inset-bottom));
+  }
+
+  .mobileVendasCard {
+    align-self: start;
+    min-height: 112px;
+    height: auto;
+    grid-template-columns: 40px minmax(0, 1fr);
+    gap: 10px;
+    padding: 12px;
+  }
+
+  .mobileVendasCardMain {
+    display: grid;
+    align-content: start;
+    gap: 8px;
+    min-height: 0;
+  }
+
+  .mobileVendasCardMeta {
+    margin-top: 0;
+    padding-bottom: 8px;
+  }
+
+  .mobileVendasNextAction {
+    margin-top: 0;
+    padding-right: 88px;
+  }
+
+  .mobileVendasContactActions {
+    right: 12px;
+    bottom: 10px;
   }
 
   .mobileLeadDetailBody {
