@@ -4,7 +4,6 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { apiFetch } from "@/app/_lib/api";
 import { useRequireAuth } from "@/app/_lib/useRequireAuth";
-import HbxMobileDock from "@/components/mobile/HbxMobileDock";
 import { normalizeUserModuleKey, type UserModule } from "@/lib/hbx-modules";
 import styles from "./page.module.css";
 
@@ -103,10 +102,8 @@ function mobileOperationStatus(state: WelcomeState) {
   return "Operação mobile";
 }
 
-function mobilePrimaryAction(state: WelcomeState) {
-  if (!state.loaded) return { label: "Entrar no Radar Digital", path: "/radar-digital" };
-  if (state.vendasReady || state.leadsCount > 0) return { label: "Abrir Vendas", path: "/vendas" };
-  return { label: "Buscar leads no Radar", path: "/radar-digital" };
+function mobilePrimaryAction() {
+  return { label: "Abrir Vendas", path: "/vendas" };
 }
 
 function MobileDashboard({
@@ -136,26 +133,19 @@ function MobileDashboard({
         {state.loaded ? "Escolha por onde continuar." : "Preparando sua área mobile."}
       </p>
 
-      <nav className={styles.actions} aria-label="Começar">
-        <button
-          type="button"
-          className={styles.primaryAction}
-          onClick={() => onNavigate?.(primaryAction.path)}
-          disabled={disabled}
-        >
-          {primaryAction.label}
-        </button>
-        <button
-          type="button"
-          className={styles.secondaryAction}
-          onClick={() => onNavigate?.("/radar-digital")}
-          disabled={disabled}
-        >
-          Radar Digital
-        </button>
-      </nav>
+      {state.loaded ? (
+        <nav className={styles.actions} aria-label="Começar">
+          <button
+            type="button"
+            className={styles.primaryAction}
+            onClick={() => onNavigate?.(primaryAction.path)}
+            disabled={disabled}
+          >
+            {primaryAction.label}
+          </button>
+        </nav>
+      ) : null}
 
-      <HbxMobileDock primaryHref="/radar-digital" primaryLabel="Buscar leads no Radar" />
     </div>
   );
 }
@@ -257,7 +247,7 @@ export default function BoasVindasClientPage() {
     window.setTimeout(() => router.push(path), PAGE_EXIT_MS);
   }
 
-  const mobilePrimary = mobilePrimaryAction(welcomeState);
+  const mobilePrimary = mobilePrimaryAction();
 
   if (hasToken === null || (hasToken === true && !masterCheckComplete && !clientReady)) {
     return (
@@ -283,7 +273,7 @@ export default function BoasVindasClientPage() {
       data-welcome-phase={welcomePhase}
       data-welcome-path={hasOperationalHistory(welcomeState) ? "operation" : "first-access"}
     >
-      <section className={`${styles.shell} ${leaving ? styles.shellLeaving : ""}`} aria-labelledby="welcome-title">
+      <section className={`${styles.shell} ${leaving ? styles.shellLeaving : ""}`} aria-label="Boas-vindas HBX">
         <MobileDashboard state={welcomeState} primaryAction={mobilePrimary} leaving={leaving} onNavigate={navigateWithTransition} />
       </section>
     </main>

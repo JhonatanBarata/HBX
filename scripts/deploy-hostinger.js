@@ -3,6 +3,7 @@
 const path = require('path');
 const {
   assertNonLocalHttpUrl,
+  formatTimestamp,
   loadEnvFromFiles,
   repoRoot,
   run,
@@ -170,7 +171,35 @@ function ensureCleanWorkingTree(mode, cwd = repoRoot, label = 'HBX') {
     return;
   }
 
-  throw new Error(`Publish requires a clean ${label} working tree. Run npm run commit first, then npm run publish.`);
+  throw new Error(`Commit automatico nao deixou a arvore ${label} limpa. Push/deploy abortado.`);
+}
+
+function getHead(cwd = repoRoot) {
+  const result = runStep('git', ['rev-parse', 'HEAD'], { cwd, captureOutput: true });
+  return String(result.stdout || '').trim();
+}
+
+function getLatestCommitLine(cwd = repoRoot) {
+  const result = runStep('git', ['log', '-1', '--oneline'], { cwd, captureOutput: true });
+  return String(result.stdout || '').trim();
+}
+
+function autoCommitLocalChanges(mode, label = 'publish') {
+  if (mode === 'dry-run') {
+    console.log('[dry-run] Commit automatico pulado; dry-run nao faz push.');
+    return { created: false, commitLine: '' };
+  }
+
+  const headBefore = getHead();
+  const message = `chore: ${label} ${formatTimestamp()}`;
+  runStep('node', ['./scripts/commit.js', '--message', message], {
+    env: quietToolEnv({ HUSKY: '0' }),
+  });
+  const headAfter = getHead();
+  const created = headBefore !== headAfter;
+  const commitLine = created ? getLatestCommitLine() : '';
+  console.log(created ? `Commit criado antes do push: ${commitLine}` : 'Nenhuma mudanca local para commitar antes do push.');
+  return { created, commitLine };
 }
 
 function listChangedFilesAheadOfRemote(cwd = repoRoot, gitRemote = remote, gitBranch = branch) {
@@ -732,9 +761,8 @@ async function main() {
   console.log(`Frontend URL: ${config.frontendUrl}`);
   runStep('git', ['rev-parse', '--is-inside-work-tree']);
   ensureGitBranch(branch);
+  autoCommitLocalChanges(mode, 'publish');
   ensureCleanWorkingTree(mode);
-  const changedFilesAheadOfRemote = listChangedFilesAheadOfRemote();
-  const commitsAheadOfRemote = listCommitsAheadOfRemote();
   const toolEnv = quietToolEnv();
   runStep('npm', ['--prefix', 'backend', 'run', 'prisma:generate'], { env: toolEnv });
   runStep('npm', ['--prefix', 'backend', 'run', 'prisma:validate'], { env: toolEnv });
@@ -748,6 +776,12 @@ async function main() {
     printDryRun(config, 'normal');
     return;
   }
+
+  logStage('Commit final antes do push');
+  autoCommitLocalChanges(mode, 'publish');
+  ensureCleanWorkingTree(mode);
+  const changedFilesAheadOfRemote = listChangedFilesAheadOfRemote();
+  const commitsAheadOfRemote = listCommitsAheadOfRemote();
 
   logStage('Git Push');
   runStep('git', ['push', remote, branch]);

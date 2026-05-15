@@ -426,3 +426,139 @@ test('importWebscrapingLeadsForUser reports protected Radar card without quota d
   );
   assert.equal(assertCanImportCalls, 0);
 });
+
+test('importWebscrapingLeadsForUser blocks rejected quality before quota', async () => {
+  let assertCanImportCalls = 0;
+  let recordCardImportCalls = 0;
+  const { service } = createService({
+    commercialUsageLimits: {
+      assertCanImportCard: async () => {
+        assertCanImportCalls += 1;
+      },
+      recordCardImport: async () => {
+        recordCardImportCalls += 1;
+      },
+    },
+  });
+
+  await assert.rejects(
+    () => service.importWebscrapingLeadsForUser(
+      { companyId: 7, id: 99 },
+      {
+        skipWhatsappValidation: true,
+        leads: [
+          {
+            name: 'Tia Luiza',
+            phone: '+55 19 99999-0001',
+            phoneDigits: '19999990001',
+            quality: {
+              status: 'segment_mismatch',
+              billable: false,
+              segmentMatchScore: 20,
+              contactQualityScore: 70,
+              commercialScore: 30,
+              reasons: ['Sem aderencia.'],
+            },
+          },
+        ],
+      } as any,
+    ),
+    /Nenhum lead passou na qualidade minima|Descartados nao consomem limite/i,
+  );
+  assert.equal(assertCanImportCalls, 0);
+  assert.equal(recordCardImportCalls, 0);
+});
+
+test('importWebscrapingLeadsForUser debita somente aprovado criado e reporta descartes', async () => {
+  const now = new Date();
+  let assertCanImportCalls = 0;
+  let recordCardImportCalls = 0;
+  const createdRows: any[] = [];
+  const { service } = createService({
+    prisma: {
+      $transaction: async (fn: any) => fn({
+        vendasLead: {
+          create: async ({ data }: any) => {
+            const row = {
+              id: `lead-${createdRows.length + 1}`,
+              companyId: data.companyId,
+              ...data,
+              status: data.status || 'novo',
+              returnAt: data.returnAt || now,
+              createdAt: now,
+              updatedAt: now,
+              timelineEvents: [],
+            };
+            createdRows.push(row);
+            return row;
+          },
+          findUniqueOrThrow: async ({ where }: any) => createdRows.find((row) => row.id === where.id),
+        },
+        vendasLeadTimelineEvent: {
+          createMany: async () => ({ count: 0 }),
+          create: async () => ({}),
+        },
+      }),
+      hasTable: async () => false,
+      hasColumn: async () => false,
+    },
+    vendasLead: {
+      findFirst: async () => null,
+    },
+    vendasLeadTimelineEvent: {
+      create: async () => ({}),
+    },
+    commercialUsageLimits: {
+      assertCanImportCard: async () => {
+        assertCanImportCalls += 1;
+      },
+      recordCardImport: async () => {
+        recordCardImportCalls += 1;
+      },
+    },
+  });
+
+  const approvedQuality = {
+    status: 'approved',
+    billable: true,
+    segmentMatchScore: 80,
+    contactQualityScore: 70,
+    commercialScore: 75,
+    reasons: [],
+  };
+  const result = await service.importWebscrapingLeadsForUser(
+    { companyId: 7, id: 99 },
+    {
+      skipWhatsappValidation: true,
+      leads: [
+        {
+          name: 'Auto Mecânica São José',
+          phone: '+55 19 99999-0001',
+          phoneDigits: '19999990001',
+          quality: approvedQuality,
+        },
+        {
+          name: 'Guia Comercial',
+          phone: '+55 19 99999-0002',
+          phoneDigits: '19999990002',
+          quality: { ...approvedQuality, status: 'generic_directory', billable: false },
+        },
+        {
+          name: 'Tia Luiza',
+          phone: '+55 19 99999-0003',
+          phoneDigits: '19999990003',
+          quality: { ...approvedQuality, status: 'segment_mismatch', billable: false },
+        },
+      ],
+    } as any,
+  );
+
+  assert.equal(result.createdCount, 1);
+  assert.equal(result.quotaDebited, 1);
+  assert.equal(result.skippedByQualityCount, 2);
+  assert.equal(result.skippedGenericDirectoryCount, 1);
+  assert.equal(result.skippedBySegmentMismatchCount, 1);
+  assert.equal(assertCanImportCalls, 1);
+  assert.equal(recordCardImportCalls, 1);
+  assert.match(result.message, /Descartados nao consomem limite/);
+});

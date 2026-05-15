@@ -182,6 +182,22 @@ function getLatestCommitLine() {
   return String(result.stdout || '').trim();
 }
 
+function getStatusShort() {
+  const result = runStep('git', ['status', '--short'], { captureOutput: true });
+  return String(result.stdout || '').trim();
+}
+
+function ensureCleanWorkingTreeAfterCommit() {
+  const status = getStatusShort();
+  if (!status) {
+    console.log('Working tree clean after automatic commit.');
+    return;
+  }
+
+  console.log(status);
+  throw new Error('Commit automatico nao deixou a arvore limpa. Push abortado para nao publicar mudanca sem commit.');
+}
+
 function runCommitScript() {
   const passthroughArgs = rawArgs.filter((arg) => !['d', 'dry-run', '--dry-run'].includes(arg.toLowerCase()));
   if (isDryRun) {
@@ -583,6 +599,9 @@ async function main() {
   const headAfterCommit = getHead();
   const commitCreated = headBeforeCommit !== headAfterCommit;
   const commitLine = commitCreated ? getLatestCommitLine() : '';
+  if (!isDryRun) {
+    ensureCleanWorkingTreeAfterCommit();
+  }
 
   logStage('Detectar alteracoes');
   runStep('git', ['fetch', remote, branch]);
