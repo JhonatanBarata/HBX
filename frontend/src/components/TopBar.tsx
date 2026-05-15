@@ -2649,7 +2649,11 @@ export default function TopBar() {
   const authResolved = authenticated !== null;
   const pendingCheckoutLocked = false;
   const pendingCheckoutHref = "/pagamento?focus=payment&reason=pending_checkout";
-  const dashboardHref = pendingCheckoutLocked ? pendingCheckoutHref : user?.isSystemMaster ? "/master" : "/boasvindas";
+  const dashboardHref = pendingCheckoutLocked
+    ? pendingCheckoutHref
+    : pathname?.startsWith("/master")
+      ? "/master"
+      : "/boasvindas";
   const isMasterWebscrapingRoute = Boolean(
     pathname?.startsWith("/master/webscraping") || pathname?.startsWith("/dashboard/master/webscraping"),
   );
@@ -4621,7 +4625,7 @@ export default function TopBar() {
       if (user?.isSystemMaster && !user.masterContext?.active) {
         void openMasterContextModal();
       } else if (user?.isSystemMaster) {
-        router.push("/master");
+        router.push("/boasvindas");
       } else {
         router.push("/boasvindas");
       }

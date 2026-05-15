@@ -264,7 +264,7 @@ async function resolvePostLoginDestination(data: unknown) {
   try {
     const currentUser = await apiFetch<LoginCurrentUser>("/profile/current-user");
     if (currentUser?.isSystemMaster) {
-      return "/master";
+      return explicitDestination || "/boasvindas";
     }
   } catch {
     // Keep the login flow moving; /boasvindas still resolves the safest fallback.
