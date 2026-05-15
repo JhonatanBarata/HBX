@@ -102,3 +102,22 @@ test('radar enrichment adds social networks to score and payload', () => {
   assert.match(enrichment.opportunityReason, /Instagram encontrado/);
   assert.match(enrichment.enrichmentJson, /instagramUrl/);
 });
+
+test('radar enrichment includes LeadQualityV2 in payload', () => {
+  const enrichment = buildRadarLeadEnrichment({
+    name: 'Oficina Mecânica São José',
+    phoneDigits: '19999990001',
+    city: 'Campinas',
+    state: 'SP',
+    segment: 'oficina',
+    websiteStatus: 'none',
+    whatsappStatus: 'confirmed',
+    rating: 4.6,
+    reviews: 50,
+  });
+  const payload = JSON.parse(enrichment.enrichmentJson);
+
+  assert.equal(payload.qualityV2.version, 'lead-quality-v2');
+  assert.ok(payload.qualityV2.finalRankScore > 0);
+  assert.ok(['deliver', 'review'].includes(payload.qualityV2.decision));
+});
