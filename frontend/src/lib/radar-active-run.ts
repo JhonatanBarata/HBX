@@ -19,6 +19,20 @@ function emitRadarRunChange() {
   window.dispatchEvent(new CustomEvent(RADAR_ACTIVE_RUN_EVENT));
 }
 
+function storedRadarRunHasSameMeaning(left: StoredRadarRun | null, right: StoredRadarRun | null) {
+  if (left === right) return true;
+  if (!left || !right) return false;
+  return (
+    left.runId === right.runId &&
+    String(left.status || "") === String(right.status || "") &&
+    String(left.city || "") === String(right.city || "") &&
+    String(left.state || "") === String(right.state || "") &&
+    String(left.segment || "") === String(right.segment || "") &&
+    Number(left.targetQuantity || 0) === Number(right.targetQuantity || 0) &&
+    Number(left.deliveredCount || 0) === Number(right.deliveredCount || 0)
+  );
+}
+
 export function isTerminalRadarRunStatus(status?: string | null) {
   return ["completed", "partial_error", "completed_insufficient_results", "failed", "canceled"].includes(String(status || ""));
 }
@@ -48,6 +62,13 @@ export function readStoredRadarRun() {
 
 export function saveStoredRadarRun(input: Omit<StoredRadarRun, "updatedAt"> & { updatedAt?: number }) {
   if (typeof window === "undefined" || !input.runId) return;
+  const current = readStoredRadarRun();
+  const nextWithoutTimestamp: StoredRadarRun = {
+    ...input,
+    updatedAt: current?.updatedAt || Date.now(),
+  };
+  if (storedRadarRunHasSameMeaning(current, nextWithoutTimestamp)) return;
+
   const payload: StoredRadarRun = {
     ...input,
     updatedAt: input.updatedAt || Date.now(),

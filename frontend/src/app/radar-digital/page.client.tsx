@@ -187,6 +187,7 @@ type FilterState = {
 
 const PAGE_SIZE = 100;
 const RADAR_PROGRESS_STEPS = ["lendo banco", "filtrando negativos", "selecionando melhores cards", "alimentando Vendas/Prospecção"];
+const MOBILE_RADAR_SEARCH_NOTICE_DISMISSED_KEY = "hbx.radar.mobile.searchNoticeDismissed.v1";
 
 const DEFAULT_FILTERS: FilterState = {
   state: "",
@@ -281,6 +282,44 @@ function mergeRadarLeads(items: RadarLead[]) {
     merged.push(item);
   }
   return merged;
+}
+
+function radarLeadSignature(item: RadarLead) {
+  return JSON.stringify({
+    id: item.id,
+    name: item.name,
+    phone: item.phone,
+    phoneDigits: item.phoneDigits,
+    city: item.city,
+    state: item.state,
+    segment: item.segment,
+    websiteStatus: item.websiteStatus,
+    opportunityScore: item.opportunityScore,
+    opportunityReason: item.opportunityReason,
+    status: item.status,
+    companyStatus: item.companyStatus,
+    ownershipStatus: item.ownershipStatus,
+  });
+}
+
+function radarLeadListEqual(left: RadarLead[], right: RadarLead[]) {
+  if (left === right) return true;
+  if (left.length !== right.length) return false;
+  return left.every((item, index) => radarLeadSignature(item) === radarLeadSignature(right[index]));
+}
+
+function radarRunPayloadEqual(left: RadarSearchRunResponse | null, right: RadarSearchRunResponse | null) {
+  if (left === right) return true;
+  if (!left || !right) return false;
+  try {
+    return JSON.stringify(left) === JSON.stringify(right);
+  } catch {
+    return false;
+  }
+}
+
+function isMobileRadarViewport() {
+  return typeof window !== "undefined" && window.matchMedia("(max-width: 820px)").matches;
 }
 
 function eventLabel(value?: string | null) {
@@ -405,6 +444,11 @@ function mobileRadarEngineLabel(value: string) {
   return value === "google" ? "Google" : "Motor HBX";
 }
 
+function readMobileRadarSearchNoticeDismissed() {
+  if (typeof window === "undefined") return false;
+  return window.localStorage.getItem(MOBILE_RADAR_SEARCH_NOTICE_DISMISSED_KEY) === "true";
+}
+
 export default function RadarDigitalClientPage() {
   const hasToken = useRequireModule("webscraping");
   const searchParams = useSearchParams();
@@ -429,12 +473,15 @@ export default function RadarDigitalClientPage() {
   const [feedback, setFeedback] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [mobileAutoImportPending, setMobileAutoImportPending] = useState(false);
+  const [mobileSearchNoticeOpen, setMobileSearchNoticeOpen] = useState(false);
+  const [mobileSearchNoticeDismissed, setMobileSearchNoticeDismissed] = useState(readMobileRadarSearchNoticeDismissed);
   const [availableFilters, setAvailableFilters] = useState<RadarAvailableFilters>({
     states: [],
     citiesByState: {},
     segments: [],
   });
   const activeRunIdRef = useRef<string | null>(null);
+  const mobileSearchNoticeRef = useRef<HTMLElement | null>(null);
 
   const visibleItems = useMemo(
     () => items.filter((item) => leadMatchesSearch(item, appliedGeneralSearch)),
@@ -568,6 +615,14 @@ export default function RadarDigitalClientPage() {
     return () => window.clearTimeout(timer);
   }, [feedback]);
 
+  useEffect(() => {
+    if (!mobileSearchNoticeOpen) return;
+    const timer = window.setTimeout(() => {
+      mobileSearchNoticeRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 80);
+    return () => window.clearTimeout(timer);
+  }, [mobileSearchNoticeOpen]);
+
   const telonBusy = hasToken === null || loading || loadingMore || searching || bulkSending || Boolean(actionId);
 
   useEffect(() => {
@@ -578,6 +633,10 @@ export default function RadarDigitalClientPage() {
     }
 
     setTelonProgress((current) => (current > 8 && current < 96 ? current : 8));
+    if (isMobileRadarViewport()) {
+      return undefined;
+    }
+
     const timer = window.setInterval(() => {
       setTelonProgress((current) => {
         if (current >= 96) return 96;
@@ -788,28 +847,40 @@ export default function RadarDigitalClientPage() {
     const nextItems = payload.items || [];
     const payloadFilters = payload.meta?.filters;
     if (payloadFilters) {
-      setFilters((current) => ({
-        ...current,
-        state: payloadFilters.state || current.state,
-        city: payloadFilters.city || current.city,
-        segment: payloadFilters.segment || current.segment,
-        targetType: payloadFilters.targetType === "pf" || payloadFilters.targetType === "both" ? payloadFilters.targetType : "pj",
-        quantity: Math.max(1, Number(payload.targetQuantity || payload.meta?.requestedQuantity || current.quantity || 1)),
-      }));
-      setAppliedFilters((current) => ({
-        ...current,
-        state: payloadFilters.state || current.state,
-        city: payloadFilters.city || current.city,
-        segment: payloadFilters.segment || current.segment,
-        targetType: payloadFilters.targetType === "pf" || payloadFilters.targetType === "both" ? payloadFilters.targetType : "pj",
-        quantity: Math.max(1, Number(payload.targetQuantity || payload.meta?.requestedQuantity || current.quantity || 1)),
-      }));
+      setFilters((current) => {
+        const next = {
+          ...current,
+          state: payloadFilters.state || current.state,
+          city: payloadFilters.city || current.city,
+          segment: payloadFilters.segment || current.segment,
+          targetType: (payloadFilters.targetType === "pf" || payloadFilters.targetType === "both" ? payloadFilters.targetType : "pj") as HbxTargetTypeValue,
+          quantity: Math.max(1, Number(payload.targetQuantity || payload.meta?.requestedQuantity || current.quantity || 1)),
+        };
+        return JSON.stringify(current) === JSON.stringify(next) ? current : next;
+      });
+      setAppliedFilters((current) => {
+        const next = {
+          ...current,
+          state: payloadFilters.state || current.state,
+          city: payloadFilters.city || current.city,
+          segment: payloadFilters.segment || current.segment,
+          targetType: (payloadFilters.targetType === "pf" || payloadFilters.targetType === "both" ? payloadFilters.targetType : "pj") as HbxTargetTypeValue,
+          quantity: Math.max(1, Number(payload.targetQuantity || payload.meta?.requestedQuantity || current.quantity || 1)),
+        };
+        return JSON.stringify(current) === JSON.stringify(next) ? current : next;
+      });
     }
-    setItems((current) => mergeRadarLeads([...current, ...nextItems]).slice(0, Math.max(1, Number(payload.targetQuantity || payload.meta?.requestedQuantity || nextItems.length || 1))));
-    setTotal(Number(payload.targetQuantity || payload.meta?.requestedQuantity || payload.total || nextItems.length || 0));
-    setPage(1);
+    const nextLimit = Math.max(1, Number(payload.targetQuantity || payload.meta?.requestedQuantity || nextItems.length || 1));
+    setItems((current) => {
+      const merged = mergeRadarLeads([...current, ...nextItems]).slice(0, nextLimit);
+      return radarLeadListEqual(current, merged) ? current : merged;
+    });
+    const nextTotal = Number(payload.targetQuantity || payload.meta?.requestedQuantity || payload.total || nextItems.length || 0);
+    setTotal((current) => current === nextTotal ? current : nextTotal);
+    setPage((current) => current === 1 ? current : 1);
     setHasSearched(true);
-    setTelonProgress(Math.max(12, Math.min(100, Number(payload.meta?.progress || 0) || 12)));
+    const nextProgress = Math.max(12, Math.min(100, Number(payload.meta?.progress || 0) || 12));
+    setTelonProgress((current) => current === nextProgress ? current : nextProgress);
     saveStoredRadarRun({
       runId,
       status: payload.status,
@@ -823,18 +894,20 @@ export default function RadarDigitalClientPage() {
     const terminal = Boolean(payload.meta?.terminal) || isTerminalRadarRun(payload.status);
     if (terminal) {
       activeRunIdRef.current = null;
-      setActiveRun(null);
+      setActiveRun((current) => current === null ? current : null);
       setSearching(false);
       if (payload.status === "canceled") {
         clearStoredRadarRun(runId);
       }
-      setFeedback(payload.message || `${nextItems.length} card(s) entregues.`);
+      const nextFeedback = payload.message || `${nextItems.length} card(s) entregues.`;
+      setFeedback((current) => current === nextFeedback ? current : nextFeedback);
       return;
     }
 
-    setActiveRun(payload);
+    setActiveRun((current) => radarRunPayloadEqual(current, payload) ? current : payload);
     setSearching(true);
-    setFeedback(payload.message || "Busca em andamento. Os cards aparecem conforme o Radar aprova novos contatos.");
+    const nextFeedback = payload.message || "Busca em andamento. Os cards aparecem conforme o Radar aprova novos contatos.";
+    setFeedback((current) => current === nextFeedback ? current : nextFeedback);
   }, []);
 
   useEffect(() => {
@@ -867,6 +940,7 @@ export default function RadarDigitalClientPage() {
   useEffect(() => {
     const runId = activeRun?.runId || activeRun?.id;
     if (!runId) return undefined;
+    const intervalMs = isMobileRadarViewport() ? 6500 : 2200;
     return startSmartPolling(async () => {
       try {
         const payload = await apiFetch<RadarSearchRunResponse>(`/webscraping/radar/search-runs/${encodeURIComponent(runId)}`, {
@@ -881,9 +955,9 @@ export default function RadarDigitalClientPage() {
         setError(radarFriendlyError(pollError));
       }
     }, {
-      intervalMs: 2200,
+      intervalMs,
       immediate: false,
-      pauseWhenHidden: false,
+      pauseWhenHidden: true,
     });
   }, [activeRun?.id, activeRun?.runId, applyRadarRunPayload]);
 
@@ -1109,9 +1183,29 @@ export default function RadarDigitalClientPage() {
   const mobileRadarProcessing = searching || Boolean(activeRun) || bulkSending || mobileAutoImportPending;
   const mobileDockCanSearch = !mobileVendasBlocked && !searching && !activeRun && !bulkSending;
 
+  function startMobileRadarSearch() {
+    if (!mobileDockCanSearch) return;
+    if (canPullWithFilters(effectiveFilters)) {
+      if (!mobileSearchNoticeDismissed) setMobileSearchNoticeOpen(true);
+      setMobileAutoImportPending(true);
+    }
+    void runRadarSearch("off");
+  }
+
+  function dismissMobileSearchNotice(permanent = false) {
+    setMobileSearchNoticeOpen(false);
+    if (!permanent) return;
+    setMobileSearchNoticeDismissed(true);
+    try {
+      window.localStorage.setItem(MOBILE_RADAR_SEARCH_NOTICE_DISMISSED_KEY, "true");
+    } catch {
+      // localStorage is best-effort for this mobile hint.
+    }
+  }
+
   function handleMobileDockPrimary() {
     if (mobileDockCanSearch && canPullWithFilters(effectiveFilters)) {
-      void runRadarSearch("off");
+      startMobileRadarSearch();
       return;
     }
     const firstField = document.querySelector<HTMLElement>(
@@ -1131,36 +1225,41 @@ export default function RadarDigitalClientPage() {
       <section className={styles.shell}>
         <div className={`${styles.mobileRadar} hbx-mobile-page`}>
           <header className={`${styles.mobileRadarHeader} hbx-mobile-header`}>
-            <a href="/boasvindas" className="hbx-mobile-secondary-button" aria-label="Voltar para o início">Início</a>
             <div>
               <strong>Radar Digital</strong>
               <span>Encontre cards com oportunidade real</span>
             </div>
           </header>
 
-          <section className={`${styles.mobileRadarHero} hbx-mobile-hero hbx-mobile-grid`}>
-            <div className={`${styles.mobileModuleVisual} hbx-mobile-card`} aria-hidden="true">
+          <section className={`${styles.mobileRadarHero} hbx-mobile-hero`}>
+            <div className={styles.mobileRadarHeroCopy}>
+              <span>Status do motor - Radar Digital</span>
+              <strong>Radar Digital</strong>
+              <p>Encontre cards com oportunidade real</p>
+              <small>{mobileRadarProcessing ? "Motor em varredura" : `${effectiveFilters.quantity} cards por busca`}</small>
+            </div>
+            <div className={styles.mobileModuleVisual} aria-hidden="true">
               <Image
-                src="/hbx-visuals/modules/radar-hero.webp"
+                src="/hbx-visuals/modules/radar-scanner-mobile.svg"
                 alt=""
-                width={360}
-                height={220}
+                width={220}
+                height={150}
                 priority
               />
             </div>
-            <div className="hbx-mobile-card">
+            <div className={styles.mobileRadarHeroStat}>
               <span>Cidade</span>
               <strong>{filters.city || "Definir"}</strong>
             </div>
-            <div className="hbx-mobile-card">
+            <div className={styles.mobileRadarHeroStat}>
               <span>Segmento</span>
               <strong>{filters.segment || "Definir"}</strong>
             </div>
-            <div className="hbx-mobile-card">
+            <div className={styles.mobileRadarHeroStat}>
               <span>Quantidade</span>
               <strong>{effectiveFilters.quantity}</strong>
             </div>
-            <div className="hbx-mobile-card">
+            <div className={styles.mobileRadarHeroStat}>
               <span>Motor atual</span>
               <strong>{mobileRadarEngineLabel(filters.engine)}</strong>
             </div>
@@ -1170,7 +1269,7 @@ export default function RadarDigitalClientPage() {
             className={`${styles.mobileRadarForm} hbx-mobile-card`}
             onSubmit={(event) => {
               event.preventDefault();
-              void runRadarSearch("off");
+              startMobileRadarSearch();
             }}
           >
             <label>
@@ -1326,6 +1425,27 @@ export default function RadarDigitalClientPage() {
             </div>
           </form>
 
+          {mobileSearchNoticeOpen ? (
+            <section
+              ref={mobileSearchNoticeRef}
+              className={`${styles.mobileRadarSearchNotice} hbx-mobile-notice`}
+              onClick={() => dismissMobileSearchNotice(false)}
+            >
+              <div>
+                <strong>Busca rodando em segundo plano</strong>
+                <span>Você pode continuar navegando. Os cards aprovados entram em Vendas/Prospecção automaticamente; toque aqui para ocultar.</span>
+              </div>
+              <label onClick={(event) => event.stopPropagation()}>
+                <input
+                  type="checkbox"
+                  checked={mobileSearchNoticeDismissed}
+                  onChange={(event) => dismissMobileSearchNotice(event.target.checked)}
+                />
+                Não exibir novamente
+              </label>
+            </section>
+          ) : null}
+
           <section className={`${styles.mobileRadarResults} hbx-mobile-card`} aria-live="polite">
             <header>
               <div>
@@ -1336,11 +1456,20 @@ export default function RadarDigitalClientPage() {
             </header>
 
             {mobileRadarProcessing && !visibleItems.length ? (
-              <div className={`${styles.mobileRadarState} hbx-mobile-empty`}>Radar buscando cards...</div>
+              <div className={`${styles.mobileRadarState} hbx-mobile-empty`}>
+                <strong>Radar buscando cards</strong>
+                <span>A varredura continua em segundo plano e os aprovados entram em Vendas/Prospecção.</span>
+              </div>
             ) : !hasSearched ? (
-              <div className={`${styles.mobileRadarState} hbx-mobile-empty`}>Nenhum card encontrado ainda</div>
+              <div className={`${styles.mobileRadarState} hbx-mobile-empty`}>
+                <strong>Pronto para buscar</strong>
+                <span>Escolha estado, cidade e segmento para ligar o motor.</span>
+              </div>
             ) : !loading && !visibleItems.length ? (
-              <div className={`${styles.mobileRadarState} hbx-mobile-empty`}>Nenhum card encontrado ainda</div>
+              <div className={`${styles.mobileRadarState} hbx-mobile-empty`}>
+                <strong>Nenhum card encontrado ainda</strong>
+                <span>Tente ampliar o segmento ou trocar cidade para abrir mais oportunidades.</span>
+              </div>
             ) : (
               <div className={styles.mobileRadarList}>
                 {visibleItems.map((lead) => {

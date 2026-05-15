@@ -527,6 +527,20 @@ function boardsPayloadEqual(left: BoardResponse | null, right: BoardResponse | n
   }
 }
 
+function radarRunResponseEqual(left: RadarSearchRunResponse | null, right: RadarSearchRunResponse | null) {
+  if (left === right) return true;
+  if (!left || !right) return false;
+  try {
+    return JSON.stringify(left) === JSON.stringify(right);
+  } catch {
+    return false;
+  }
+}
+
+function isMobileVendasViewport() {
+  return typeof window !== "undefined" && window.matchMedia("(max-width: 820px)").matches;
+}
+
 function buildMobileReadyMessageTemplates(lead: LeadItem, preferredPersonName?: string | null) {
   const backendTemplates = [
     ...(lead.leadIntelligence?.messageTemplates || []),
@@ -1710,6 +1724,8 @@ export default function VendasClientPage() {
   const lastDragEndedAtRef = useRef(0);
   const filterScrollerRef = useRef<HTMLDivElement | null>(null);
   const lastRadarStatusSnapshotRef = useRef<{ count: number; status: string } | null>(null);
+  const lastRadarBoardRefreshCountRef = useRef(0);
+  const radarBoardRefreshInFlightRef = useRef(false);
   const todayAgendaLaunchNotice = useQuickLaunchNotice();
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
@@ -1770,7 +1786,16 @@ export default function VendasClientPage() {
   }
 
   useEffect(() => {
-    const syncStoredRun = () => setStoredRadarRun(readStoredRadarRun());
+    const syncStoredRun = () => {
+      const next = readStoredRadarRun();
+      setStoredRadarRun((previous) => {
+        try {
+          return JSON.stringify(previous) === JSON.stringify(next) ? previous : next;
+        } catch {
+          return next;
+        }
+      });
+    };
     syncStoredRun();
     return subscribeStoredRadarRun(syncStoredRun);
   }, []);
@@ -1790,22 +1815,13 @@ export default function VendasClientPage() {
         timeoutMs: 15000,
       });
       setLiveRadarRun((previous) => {
-        try {
-          if (
-            previous &&
-            JSON.stringify(previous) === JSON.stringify(payload)
-          ) {
-            return previous;
-          }
-        } catch {
-          // ignore compare issues
-        }
-        return payload;
+        return radarRunResponseEqual(previous, payload) ? previous : payload;
       });
       if (payload.status === "canceled") {
         clearStoredRadarRun(activeRunId);
         return;
       }
+      const deliveredCount = Number(payload.meta?.deliveredCount || payload.foundCount || storedRadarRun?.deliveredCount || 0) || 0;
       saveStoredRadarRun({
         runId: payload.runId || payload.id,
         status: payload.status,
@@ -1813,8 +1829,19 @@ export default function VendasClientPage() {
         state: payload.meta?.filters?.state || storedRadarRun?.state || null,
         segment: payload.meta?.filters?.segment || storedRadarRun?.segment || null,
         targetQuantity: Number(payload.targetQuantity || payload.meta?.requestedQuantity || storedRadarRun?.targetQuantity || 0) || null,
-        deliveredCount: Number(payload.meta?.deliveredCount || payload.foundCount || storedRadarRun?.deliveredCount || 0) || 0,
+        deliveredCount,
       });
+      if (
+        deliveredCount > lastRadarBoardRefreshCountRef.current &&
+        !composerOpenRef.current &&
+        !radarBoardRefreshInFlightRef.current
+      ) {
+        lastRadarBoardRefreshCountRef.current = deliveredCount;
+        radarBoardRefreshInFlightRef.current = true;
+        void loadBoard().finally(() => {
+          radarBoardRefreshInFlightRef.current = false;
+        });
+      }
     }
 
     if (isTerminalRadarRunStatus(storedRadarRun?.status)) {
@@ -1830,9 +1857,9 @@ export default function VendasClientPage() {
         // keep the last visible Radar status if one poll fails
       }
     }, {
-      intervalMs: 2200,
+      intervalMs: isMobileVendasViewport() ? 6500 : 2200,
       immediate: true,
-      pauseWhenHidden: false,
+      pauseWhenHidden: true,
     });
   }, [hasToken, storedRadarRun?.city, storedRadarRun?.deliveredCount, storedRadarRun?.runId, storedRadarRun?.segment, storedRadarRun?.state, storedRadarRun?.status, storedRadarRun?.targetQuantity]);
 
