@@ -980,7 +980,10 @@ export class VendasService {
       id: profile.id,
       whatDoYouSell: profile.whatDoYouSell,
       offerCategory: profile.offerCategory,
+      targetAudience: profile.targetAudience || [],
       targetSegments: (profile.targetSegments || []).slice(0, 1),
+      avoidSegments: profile.avoidSegments || [],
+      hardRejectSegments: profile.hardRejectSegments || [],
       preferredCities: (profile.preferredCities || []).slice(0, 1),
       preferredStates: (profile.preferredStates || []).slice(0, 1),
       preferredChannels: ['whatsapp'],
@@ -1037,6 +1040,10 @@ export class VendasService {
 
   private buildSalesProfileDataFromDto(dto: UpdateSalesProfileDto, existing?: EffectiveSalesProfile | null) {
     const fallback = existing || this.defaultSalesProfile();
+    const whatDoYouSell = this.sanitizeSalesProfileString(dto.whatDoYouSell ?? fallback.whatDoYouSell, 160);
+    if (!whatDoYouSell) {
+      throw new BadRequestException('Informe o que voce vende para salvar o Perfil de Venda.');
+    }
     const targetAudience = {
       labels: this.sanitizeSalesProfileArray(dto.targetAudience?.labels ?? fallback.targetAudience),
       notes: this.sanitizeSalesProfileString(dto.targetAudience?.notes, 500) || undefined,
@@ -1059,7 +1066,7 @@ export class VendasService {
     };
     return {
       profileName: 'Perfil de Venda',
-      whatDoYouSell: this.sanitizeSalesProfileString(dto.whatDoYouSell ?? fallback.whatDoYouSell, 160),
+      whatDoYouSell,
       offerCategory: this.sanitizeSalesProfileString(dto.offerCategory ?? fallback.offerCategory, 120),
       targetAudienceJson: this.serializeSalesProfileJson(targetAudience),
       targetSegmentsJson: this.serializeSalesProfileJson(targetSegments),

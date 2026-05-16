@@ -135,6 +135,62 @@ const SEGMENT_INTENTS: SegmentIntentMap[] = [
   },
 ];
 
+const AUDIENCE_INTENTS: Array<{ key: string; aliases: string[]; match: string[] }> = [
+  {
+    key: 'idosos',
+    aliases: ['idoso', 'idosos', 'terceira idade', 'sênior', 'senior'],
+    match: ['idoso', 'terceira idade', 'senior', 'geriatria', 'geriatra', 'cuidador', 'cuidadores', 'home care', 'casa de repouso', 'residencial senior', 'lar de idosos', 'fisioterapia', 'farmacia', 'ortopedia'],
+  },
+  {
+    key: 'familias',
+    aliases: ['familia', 'familias', 'famílias', 'pais', 'maes', 'mães'],
+    match: ['familia', 'familias', 'infantil', 'crianca', 'criança', 'pediatria', 'escola', 'colegio', 'bercario', 'buffet infantil', 'condominio', 'mercado', 'padaria'],
+  },
+  {
+    key: 'empresas pequenas',
+    aliases: ['empresa pequena', 'empresas pequenas', 'pequenos negocios', 'pequenos negócios', 'mei', 'microempresa'],
+    match: ['mei', 'microempresa', 'pequena empresa', 'comercio local', 'loja', 'assistencia tecnica', 'prestador', 'barbearia', 'salao', 'oficina', 'clinica', 'restaurante'],
+  },
+  {
+    key: 'comercios locais',
+    aliases: ['comercio local', 'comercios locais', 'comércios locais', 'loja local'],
+    match: ['loja', 'comercio', 'mercado', 'padaria', 'restaurante', 'lanchonete', 'barbearia', 'salao', 'pet shop', 'oficina', 'assistencia tecnica'],
+  },
+  {
+    key: 'profissionais autonomos',
+    aliases: ['profissional autonomo', 'profissionais autonomos', 'profissionais autônomos', 'autonomo', 'autônomo'],
+    match: ['autonomo', 'profissional liberal', 'consultorio', 'personal', 'corretor', 'advogado', 'contador', 'psicologo', 'fisioterapeuta', 'designer', 'eletricista'],
+  },
+  {
+    key: 'clinicas',
+    aliases: ['clinica', 'clinicas', 'clínicas', 'consultorio', 'consultórios'],
+    match: ['clinica', 'consultorio', 'odontologia', 'medico', 'fisioterapia', 'estetica', 'psicologia', 'laboratorio', 'pilates', 'nutricao'],
+  },
+];
+
+const OFFER_INTENTS: Array<{ key: string; aliases: string[]; leadSignals: string[] }> = [
+  {
+    key: 'site',
+    aliases: ['site', 'website', 'landing page', 'pagina', 'página', 'presenca digital', 'presença digital'],
+    leadSignals: ['loja', 'clinica', 'restaurante', 'salao', 'barbearia', 'pet shop', 'oficina', 'imobiliaria', 'consultorio'],
+  },
+  {
+    key: 'whatsapp',
+    aliases: ['whatsapp', 'bot', 'chatbot', 'atendimento', 'automacao', 'automação', 'ia', 'resposta automatica', 'resposta automática'],
+    leadSignals: ['clinica', 'consultorio', 'imobiliaria', 'restaurante', 'delivery', 'agenda', 'orcamento', 'orçamento', 'atendimento', 'suporte'],
+  },
+  {
+    key: 'sistema',
+    aliases: ['sistema', 'software', 'crm', 'gestao', 'gestão', 'agenda', 'erp', 'saas'],
+    leadSignals: ['clinica', 'consultorio', 'oficina', 'restaurante', 'salao', 'barbearia', 'pet shop', 'imobiliaria', 'contador', 'advogado'],
+  },
+  {
+    key: 'marketing',
+    aliases: ['marketing', 'trafego', 'tráfego', 'anuncio', 'anúncio', 'social media', 'instagram', 'design'],
+    leadSignals: ['instagram', 'facebook', 'loja', 'restaurante', 'salao', 'barbearia', 'clinica', 'estetica', 'delivery'],
+  },
+];
+
 function normalizeText(value: unknown, max = 500) {
   return String(value || '')
     .replace(/\s+/g, ' ')
@@ -234,6 +290,99 @@ function resolveSegmentIntent(requestedSegment: unknown) {
   const requested = normalizeKey(requestedSegment);
   if (!requested) return null;
   return SEGMENT_INTENTS.find((item) => item.aliases.some((alias) => requested.includes(normalizeKey(alias)))) || null;
+}
+
+function resolveAudienceIntent(label: unknown) {
+  const requested = normalizeKey(label);
+  if (!requested || requested === 'todos') return null;
+  return AUDIENCE_INTENTS.find((item) => item.aliases.some((alias) => requested.includes(normalizeKey(alias)))) || {
+    key: requested,
+    aliases: [requested],
+    match: [requested],
+  };
+}
+
+function scoreAudienceFit(input: { targetAudience: string[]; leadText: string; reasons: string[] }) {
+  const intents = input.targetAudience
+    .map(resolveAudienceIntent)
+    .filter(Boolean) as Array<{ key: string; aliases: string[]; match: string[] }>;
+  if (!intents.length) return { scoreDelta: 0, matched: false };
+
+  const matched = intents.find((intent) => includesAny(input.leadText, intent.match));
+  if (matched) {
+    input.reasons.push(`Publico-alvo compativel: ${matched.key}.`);
+    input.reasons.push('Combina com seu Perfil de Venda.');
+    return { scoreDelta: 12, matched: true };
+  }
+
+  input.reasons.push('Publico-alvo configurado sem evidencia forte neste card.');
+  return { scoreDelta: -6, matched: false };
+}
+
+function resolveOfferIntents(profile: LeadQualityV2SalesProfile | null | undefined) {
+  const offerText = normalizeKey(`${profile?.whatDoYouSell || ''} ${profile?.offerCategory || ''}`);
+  if (!offerText) return [];
+  const matched = OFFER_INTENTS.filter((intent) => intent.aliases.some((alias) => offerText.includes(normalizeKey(alias))));
+  if (matched.length) return matched;
+  return [{
+    key: offerText,
+    aliases: [offerText],
+    leadSignals: offerText.split(' ').filter((part) => part.length >= 4).slice(0, 6),
+  }];
+}
+
+function scoreOfferFit(input: {
+  salesProfile: LeadQualityV2SalesProfile | null | undefined;
+  leadText: string;
+  websiteStatus: string;
+  website: string;
+  hasSocial: boolean;
+  whatsappConfirmed: boolean;
+  likelyMobile: boolean;
+  reasons: string[];
+}) {
+  const intents = resolveOfferIntents(input.salesProfile);
+  if (!intents.length) return { scoreDelta: 0, matched: false };
+
+  let scoreDelta = 0;
+  const matchedLabels: string[] = [];
+  const weakWebsite = !input.website || ['none', 'weak', 'broken', 'unreachable', 'social_only'].includes(input.websiteStatus);
+  const hasDirectContact = input.whatsappConfirmed || input.likelyMobile;
+
+  for (const intent of intents) {
+    const signalMatch = includesAny(input.leadText, intent.leadSignals);
+    if (intent.key === 'site' && weakWebsite && signalMatch) {
+      scoreDelta += 16;
+      matchedLabels.push('site/presenca digital');
+      continue;
+    }
+    if (intent.key === 'whatsapp' && hasDirectContact && signalMatch) {
+      scoreDelta += 14;
+      matchedLabels.push('WhatsApp/atendimento');
+      continue;
+    }
+    if (intent.key === 'sistema' && signalMatch) {
+      scoreDelta += 12;
+      matchedLabels.push('sistema/gestao');
+      continue;
+    }
+    if (intent.key === 'marketing' && (input.hasSocial || weakWebsite) && signalMatch) {
+      scoreDelta += 10;
+      matchedLabels.push('marketing');
+      continue;
+    }
+    if (signalMatch) {
+      scoreDelta += 8;
+      matchedLabels.push(intent.key);
+    }
+  }
+
+  if (matchedLabels.length) {
+    input.reasons.push(`O que voce vende combina com este card: ${Array.from(new Set(matchedLabels)).slice(0, 2).join(', ')}.`);
+    return { scoreDelta: Math.min(18, scoreDelta), matched: true };
+  }
+
+  return { scoreDelta: -3, matched: false };
 }
 
 function scoreSegmentFit(input: {
@@ -377,6 +526,7 @@ export function calculateLeadQualityV2(input: {
     reasons,
   });
   let segmentFitScore = clampScore(segmentFit.score);
+  const profileTargetAudience = normalizeStringArray(salesProfile?.targetAudience);
   const profileTargetSegments = normalizeStringArray(salesProfile?.targetSegments);
   const profileAvoidSegments = normalizeStringArray(salesProfile?.avoidSegments);
   const profileHardRejectSegments = normalizeStringArray(salesProfile?.hardRejectSegments);
@@ -386,6 +536,7 @@ export function calculateLeadQualityV2(input: {
   const profileMatchesTargetSegment = profileTargetSegments.some((segment) => leadText.includes(normalizeKey(segment)));
   const profileMatchesAvoidSegment = profileAvoidSegments.some((segment) => leadText.includes(normalizeKey(segment)));
   const profileMatchesHardReject = profileHardRejectSegments.some((segment) => leadText.includes(normalizeKey(segment)));
+  const audienceFit = scoreAudienceFit({ targetAudience: profileTargetAudience, leadText, reasons });
   const profileCity = normalizeKey(row?.city);
   const profileState = normalizeText(row?.state).toUpperCase();
   const profilePreferredCityMatch = profilePreferredCities.some((city) => profileCity === normalizeKey(city));
@@ -394,6 +545,9 @@ export function calculateLeadQualityV2(input: {
     segmentFitScore = clampScore(segmentFitScore + 16);
     reasons.push('Segmento prioritario no seu perfil.');
     reasons.push('Combina com seu Perfil de Venda.');
+  }
+  if (audienceFit.scoreDelta) {
+    segmentFitScore = clampScore(segmentFitScore + audienceFit.scoreDelta);
   }
   if (profileMatchesAvoidSegment) {
     segmentFitScore = clampScore(segmentFitScore - 35);
@@ -436,6 +590,16 @@ export function calculateLeadQualityV2(input: {
   if (hasSocial) reasons.push(instagramUrl && !website ? 'Instagram encontrado, mas site ausente.' : 'Rede social encontrada.');
 
   const playbookKnown = Boolean(resolveSegmentIntent(row?.segment || input.context?.requestedSegment)) || includesAny(leadText, ['clinica', 'oficina', 'restaurante', 'salao', 'barbearia', 'pet', 'imobiliaria']);
+  const offerFit = scoreOfferFit({
+    salesProfile,
+    leadText,
+    websiteStatus,
+    website,
+    hasSocial,
+    whatsappConfirmed,
+    likelyMobile,
+    reasons,
+  });
   let commercialIntentScore = 25;
   if (!website || websiteStatus === 'none') commercialIntentScore += 22;
   if (['weak', 'broken', 'unreachable', 'social_only'].includes(websiteStatus)) commercialIntentScore += 18;
@@ -454,6 +618,8 @@ export function calculateLeadQualityV2(input: {
       commercialIntentScore += 6;
     }
   }
+  if (offerFit.scoreDelta) commercialIntentScore += offerFit.scoreDelta;
+  if (audienceFit.matched) commercialIntentScore += 4;
   if (whatsappConfirmed || likelyMobile) commercialIntentScore += 8;
   if (playbookKnown) commercialIntentScore += 8;
   if (normalizeText(row?.painType || row?.signals?.painType || row?.opportunityReason)) commercialIntentScore += 8;

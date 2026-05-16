@@ -3,6 +3,7 @@
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { apiFetch } from "@/app/_lib/api";
+import { mobileDestinationFromVendasBoard } from "@/app/_lib/mobileOperationalDestination";
 import { useRequireAuth } from "@/app/_lib/useRequireAuth";
 import { normalizeUserModuleKey, type UserModule } from "@/lib/hbx-modules";
 import styles from "./page.module.css";
@@ -99,7 +100,7 @@ function hasOperationalHistory(state: WelcomeState) {
 }
 
 function mobileOperationStatus(state: WelcomeState) {
-  if (!state.loaded || !hasOperationalHistory(state)) return "Primeiro acesso";
+  if (!state.loaded || !hasOperationalHistory(state)) return "";
   return "Operação mobile";
 }
 
@@ -157,7 +158,7 @@ function MobileDashboard({
       <h1 id="welcome-title" className={styles.mobileTitle}>Sua operação começa aqui</h1>
       <p className={styles.mobileSubtitle}>{subtitle}</p>
       <p className={styles.loadingText}>
-        {state.loaded ? "Escolha por onde continuar." : "Preparando seu primeiro acesso."}
+        {state.loaded ? "Escolha por onde continuar." : "Preparando seu acesso."}
       </p>
 
       {state.loaded ? (
@@ -231,6 +232,10 @@ export default function BoasVindasClientPage() {
   const [welcomeState, setWelcomeState] = useState<WelcomeState>(DEFAULT_WELCOME_STATE);
   const [tutorialCompleted, setTutorialCompleted] = useState(false);
   const fromLoginEntryParam = String(searchParams.get("entry") || "").trim().toLowerCase() === "mobile";
+  const [fromLoginEntry] = useState(() => (
+    fromLoginEntryParam ||
+    (typeof window !== "undefined" && window.sessionStorage.getItem(LOGIN_TO_WELCOME_TRANSITION_KEY) === "mobile-auth")
+  ));
   const [clientReady, setClientReady] = useState(false);
 
   useEffect(() => {
@@ -303,8 +308,16 @@ export default function BoasVindasClientPage() {
           vendasReady: leadsCount > 0 || vendasPending > 0,
         });
         setMasterCheckComplete(true);
+        if (!fromLoginEntry) {
+          router.replace(mobileDestinationFromVendasBoard(vendasBoard));
+        }
       } catch {
-        if (mounted) setMasterCheckComplete(true);
+        if (mounted) {
+          setMasterCheckComplete(true);
+          if (!fromLoginEntry) {
+            router.replace("/radar-digital");
+          }
+        }
       }
     }
 
@@ -313,7 +326,7 @@ export default function BoasVindasClientPage() {
     return () => {
       mounted = false;
     };
-  }, [billingHref, hasToken, router]);
+  }, [billingHref, fromLoginEntry, hasToken, router]);
 
   function navigateWithTransition(path: string) {
     if (leaving) return;
