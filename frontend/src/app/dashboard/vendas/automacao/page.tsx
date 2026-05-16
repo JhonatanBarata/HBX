@@ -8,5 +8,11 @@ type LegacyRedirectProps = {
 };
 
 export default async function Page({ searchParams }: LegacyRedirectProps) {
-  redirect(withLegacySearchParams("/vendas/automacao", await searchParams));
+  const params = await searchParams;
+  const tab = Array.isArray(params?.tab) ? params?.tab[0] : params?.tab;
+  const mode = Array.isArray(params?.mode) ? params?.mode[0] : params?.mode;
+  if (String(tab || "").trim() === "prospeccao" || String(mode || "").trim().toLowerCase() === "mobile") {
+    redirect("/vendas");
+  }
+  redirect(withLegacySearchParams("/vendas/automacao", params));
 }
