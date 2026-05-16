@@ -175,6 +175,9 @@ type RadarSearchRunResponse = RadarPullResponse & {
       city?: string | null;
       segment?: string | null;
       targetType?: HbxTargetTypeValue | string | null;
+      preferredChannels?: RadarChannel[];
+      requiredChannels?: RadarChannel[];
+      channelMatchMode?: ChannelMatchMode;
     };
     qualitySummary?: RadarQualitySummary;
   };
@@ -233,7 +236,13 @@ type FilterState = {
   minRating: string;
   minReviews: string;
   status: string;
+  preferredChannels: RadarChannel[];
+  requiredChannels: RadarChannel[];
+  channelMatchMode: ChannelMatchMode;
 };
+
+type RadarChannel = "whatsapp" | "instagram" | "email" | "website" | "phone" | "facebook";
+type ChannelMatchMode = "prefer" | "any_required" | "all_required";
 
 const PAGE_SIZE = 100;
 const RADAR_PROGRESS_STEPS = ["lendo banco", "filtrando negativos", "selecionando melhores cards", "alimentando Vendas/Prospecção"];
@@ -254,7 +263,123 @@ const DEFAULT_FILTERS: FilterState = {
   minRating: "",
   minReviews: "",
   status: "",
+  preferredChannels: [],
+  requiredChannels: [],
+  channelMatchMode: "prefer",
 };
+
+const RADAR_CHANNELS: Array<{ value: RadarChannel; label: string; icon: string; darkIcon: string }> = [
+  { value: "whatsapp", label: "WhatsApp", icon: "/icons/hbx-channels/whatsapp.webp", darkIcon: "/icons/hbx-channels/whatsapp_dark.webp" },
+  { value: "instagram", label: "Instagram", icon: "/icons/hbx-channels/instagram.webp", darkIcon: "/icons/hbx-channels/instagram_dark.webp" },
+  { value: "email", label: "E-mail", icon: "/icons/hbx-channels/email.webp", darkIcon: "/icons/hbx-channels/email_dark.webp" },
+  { value: "website", label: "Site", icon: "/icons/hbx-channels/site_globe.webp", darkIcon: "/icons/hbx-channels/site_globe_dark.webp" },
+  { value: "phone", label: "Telefone", icon: "/icons/hbx-channels/telefone.webp", darkIcon: "/icons/hbx-channels/telefone_dark.webp" },
+  { value: "facebook", label: "Facebook", icon: "/icons/hbx-channels/facebook.webp", darkIcon: "/icons/hbx-channels/facebook_dark.webp" },
+];
+
+function normalizeRadarChannels(value: unknown): RadarChannel[] {
+  if (!Array.isArray(value)) return [];
+  const allowed = new Set<RadarChannel>(RADAR_CHANNELS.map((channel) => channel.value));
+  return Array.from(new Set(value.filter((item): item is RadarChannel => allowed.has(item as RadarChannel)))).slice(0, 6);
+}
+
+function normalizeChannelMatchMode(value: unknown): ChannelMatchMode {
+  return value === "any_required" || value === "all_required" ? value : "prefer";
+}
+
+function RadarChannelFilter({
+  value,
+  onChange,
+  locked,
+}: {
+  value: Pick<FilterState, "preferredChannels" | "requiredChannels" | "channelMatchMode">;
+  onChange: (next: Pick<FilterState, "preferredChannels" | "requiredChannels" | "channelMatchMode">) => void;
+  locked?: boolean;
+}) {
+  const requiredMode = value.channelMatchMode !== "prefer";
+  const activeChannels = requiredMode ? value.requiredChannels : value.preferredChannels;
+
+  function toggleChannel(channel: RadarChannel) {
+    if (locked) return;
+    const activeSet = new Set(activeChannels);
+    if (activeSet.has(channel)) activeSet.delete(channel);
+    else activeSet.add(channel);
+    const nextChannels = Array.from(activeSet);
+    onChange(requiredMode
+      ? { ...value, requiredChannels: nextChannels }
+      : { ...value, preferredChannels: nextChannels });
+  }
+
+  function setRequiredMode(enabled: boolean) {
+    if (locked) return;
+    onChange({
+      ...value,
+      channelMatchMode: enabled ? "any_required" : "prefer",
+      requiredChannels: enabled ? value.requiredChannels : [],
+    });
+  }
+
+  return (
+    <div className={styles.radarChannelFilter} data-locked={locked ? "true" : "false"}>
+      <div className={styles.radarChannelHeader}>
+        <span>Canais</span>
+        <label>
+          <input
+            type="checkbox"
+            checked={requiredMode}
+            disabled={locked}
+            onChange={(event) => setRequiredMode(event.target.checked)}
+          />
+          Obrigatório
+        </label>
+      </div>
+      <div className={styles.radarChannelIcons}>
+        {RADAR_CHANNELS.map((channel) => {
+          const active = activeChannels.includes(channel.value);
+          return (
+            <button
+              type="button"
+              key={channel.value}
+              data-active={active ? "true" : "false"}
+              data-channel={channel.value}
+              disabled={locked}
+              onClick={() => toggleChannel(channel.value)}
+              aria-label={`${requiredMode ? "Exigir" : "Preferir"} ${channel.label}`}
+              title={channel.label}
+            >
+              <span className={styles.radarChannelIcon}>
+                <img src={channel.icon} alt="" aria-hidden="true" data-theme="light" />
+                <img src={channel.darkIcon} alt="" aria-hidden="true" data-theme="dark" />
+              </span>
+              <span>{channel.label}</span>
+            </button>
+          );
+        })}
+      </div>
+      {requiredMode ? (
+        <div className={styles.radarChannelModes}>
+          <button
+            type="button"
+            data-active={value.channelMatchMode === "any_required" ? "true" : "false"}
+            disabled={locked}
+            onClick={() => onChange({ ...value, channelMatchMode: "any_required" })}
+          >
+            Qualquer canal
+          </button>
+          <button
+            type="button"
+            data-active={value.channelMatchMode === "all_required" ? "true" : "false"}
+            disabled={locked}
+            onClick={() => onChange({ ...value, channelMatchMode: "all_required" })}
+          >
+            Todos os canais
+          </button>
+        </div>
+      ) : null}
+      {locked ? <p>Canais obrigatórios estão disponíveis no HBX Lead+.</p> : null}
+    </div>
+  );
+}
 
 function HeroPremiumCrown({ active }: { active: boolean }) {
   return (
@@ -843,6 +968,9 @@ function buildLeadQuery(filters: FilterState, page: number) {
   if (filters.highOpportunity) params.set("highOpportunity", "true");
   if (filters.minRating.trim()) params.set("minRating", filters.minRating.trim());
   if (filters.minReviews.trim()) params.set("minReviews", filters.minReviews.trim());
+  filters.preferredChannels.forEach((channel) => params.append("preferredChannels", channel));
+  filters.requiredChannels.forEach((channel) => params.append("requiredChannels", channel));
+  if (filters.channelMatchMode !== "prefer") params.set("channelMatchMode", filters.channelMatchMode);
   return params.toString();
 }
 
@@ -1893,6 +2021,9 @@ export default function RadarDigitalClientPage() {
             segment: payloadFilters.segment || current.segment,
             targetType: (payloadFilters.targetType === "pf" || payloadFilters.targetType === "both" ? payloadFilters.targetType : "pj") as HbxTargetTypeValue,
             quantity: Math.max(1, Number(payload.targetQuantity || payload.meta?.requestedQuantity || current.quantity || 1)),
+            preferredChannels: normalizeRadarChannels(payloadFilters.preferredChannels ?? current.preferredChannels),
+            requiredChannels: normalizeRadarChannels(payloadFilters.requiredChannels ?? current.requiredChannels),
+            channelMatchMode: normalizeChannelMatchMode(payloadFilters.channelMatchMode ?? current.channelMatchMode),
           };
           return JSON.stringify(current) === JSON.stringify(next) ? current : next;
         });
@@ -1905,6 +2036,9 @@ export default function RadarDigitalClientPage() {
           segment: payloadFilters.segment || current.segment,
           targetType: (payloadFilters.targetType === "pf" || payloadFilters.targetType === "both" ? payloadFilters.targetType : "pj") as HbxTargetTypeValue,
           quantity: Math.max(1, Number(payload.targetQuantity || payload.meta?.requestedQuantity || current.quantity || 1)),
+          preferredChannels: normalizeRadarChannels(payloadFilters.preferredChannels ?? current.preferredChannels),
+          requiredChannels: normalizeRadarChannels(payloadFilters.requiredChannels ?? current.requiredChannels),
+          channelMatchMode: normalizeChannelMatchMode(payloadFilters.channelMatchMode ?? current.channelMatchMode),
         };
         return JSON.stringify(current) === JSON.stringify(next) ? current : next;
       });
@@ -2053,6 +2187,7 @@ export default function RadarDigitalClientPage() {
           minimumStock: Math.max(1, Math.min(nextFilters.quantity, 10)),
           desiredStock: Math.max(1, nextFilters.quantity),
           whatsappCheckMode,
+          qualityMode: hasLeadCapabilities ? "lead_plus" : "list",
         }),
       });
       activeRunIdRef.current = payload.runId || payload.id || null;
@@ -2474,11 +2609,19 @@ export default function RadarDigitalClientPage() {
                   <div className={styles.mobileAdvancedPremiumLock}>
                     <span aria-hidden="true">👑</span>
                     <strong>Filtros avançados disponíveis no HBX Lead</strong>
-                    <p>Filtre qualidade, oportunidade, DDD, fonte, site, avaliação e volume de reviews no plano Lead.</p>
+                    <p>Filtre qualidade, oportunidade, canais obrigatórios, DDD, fonte, site, avaliação e volume de reviews no plano Lead.</p>
                     <a href="/planos?intent=lead">Fazer upgrade</a>
                   </div>
                 ) : (
                   <div className={styles.mobileAdvancedGrid}>
+                    <RadarChannelFilter
+                      value={{
+                        preferredChannels: filters.preferredChannels,
+                        requiredChannels: filters.requiredChannels,
+                        channelMatchMode: filters.channelMatchMode,
+                      }}
+                      onChange={(next) => setFilters((current) => ({ ...current, ...next }))}
+                    />
                     <div>
                       <span>Fonte de busca</span>
                       <MobileEngineToggle
@@ -2790,6 +2933,15 @@ export default function RadarDigitalClientPage() {
             />
           </div>
           <div className={styles.filterAdvanced}>
+            <RadarChannelFilter
+              value={{
+                preferredChannels: filters.preferredChannels,
+                requiredChannels: filters.requiredChannels,
+                channelMatchMode: filters.channelMatchMode,
+              }}
+              locked={isHbxList}
+              onChange={(next) => setFilters((current) => ({ ...current, ...next }))}
+            />
             <HbxAdvancedFilters
               mode="radar"
               filters={{ ...filters, onlyWithWebsite: filters.withWebsite }}

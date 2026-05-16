@@ -870,7 +870,14 @@ export default function TutorialClientPage() {
     const state = normalizeText(profile.state).toUpperCase();
     const city = normalizeText(profile.city);
     const segment = normalizeText(profile.segment);
+    const firstSegment = splitRadarSegments(segment)[0] || segment;
     if (!state || !city || !segment) return false;
+    const isLeadPlus = profile.currentPlan === "premium";
+    const avoidNoWhatsapp = profile.avoid.some((item) => /sem whatsapp/i.test(item));
+    const wantsWhatsapp = true;
+    const whatsappCheckMode = isLeadPlus
+      ? (wantsWhatsapp || avoidNoWhatsapp ? "only_valid" : "enrich")
+      : "off";
     const payload = await apiFetch<RadarSearchRunResponse>("/webscraping/radar/search-runs", {
       method: "POST",
       requireAuth: true,
@@ -878,13 +885,15 @@ export default function TutorialClientPage() {
       body: JSON.stringify({
         state,
         city,
-        segment,
+        segment: firstSegment,
         targetType: "pj",
         engine: "hbx",
         quantity: 10,
         minimumStock: 10,
         desiredStock: 10,
-        whatsappCheckMode: "off",
+        qualityMode: isLeadPlus ? "lead_plus" : "list",
+        preferredChannels: ["whatsapp"],
+        whatsappCheckMode,
       }),
     });
     const runId = normalizeText(payload.runId || payload.id);
@@ -897,7 +906,7 @@ export default function TutorialClientPage() {
         status: payload.status || "queued",
         city: payload.meta?.filters?.city || city,
         state: payload.meta?.filters?.state || state,
-        segment: payload.meta?.filters?.segment || segment,
+        segment: payload.meta?.filters?.segment || firstSegment,
         targetQuantity: Number(payload.targetQuantity || payload.meta?.requestedQuantity || 10),
         deliveredCount: Number(payload.meta?.deliveredCount || payload.foundCount || 0),
       });
