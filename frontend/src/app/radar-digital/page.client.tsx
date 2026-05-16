@@ -1,6 +1,7 @@
 "use client";
 
 import { type FocusEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import DashboardScaffold from "@/components/DashboardScaffold";
 import HbxMobileDock from "@/components/mobile/HbxMobileDock";
@@ -254,6 +255,26 @@ const DEFAULT_FILTERS: FilterState = {
   minReviews: "",
   status: "",
 };
+
+function HeroPremiumCrown({ active }: { active: boolean }) {
+  return (
+    <Link
+      href="/planos?intent=lead"
+      className={styles.mobileHeroPremiumCrown}
+      data-active={active ? "true" : "false"}
+      aria-label={active ? "HBX Lead ativo" : "Fazer upgrade para HBX Lead"}
+      title={active ? "HBX Lead ativo" : "Upgrade para HBX Lead"}
+    >
+      <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
+        <path d="M4.2 18.5h15.6l.7-9.9-4.6 3.5L12 4.7 8.1 12.1 3.5 8.6l.7 9.9Z" />
+        <path d="M5.2 20.2h13.6" />
+        <circle cx="12" cy="4.7" r="1.25" />
+        <circle cx="3.5" cy="8.6" r="1.15" />
+        <circle cx="20.5" cy="8.6" r="1.15" />
+      </svg>
+    </Link>
+  );
+}
 
 type RadarSegmentGroup = {
   key: string;
@@ -1457,6 +1478,7 @@ export default function RadarDigitalClientPage() {
     commercialPlans?.current?.entitlements?.ai_sales_scripts ||
     commercialPlans?.current?.entitlements?.bot_ia,
   );
+  const mobileHeroPremiumActive = Boolean(hasLeadCapabilities || commercialPlans?.current?.premiumAccess);
   const isHbxList = !hasLeadCapabilities && (
     commercialPlans?.current?.planKey === "hbx_lite" ||
     commercialPlans?.current?.selectedPlanKey === "hbx_lite"
@@ -2295,6 +2317,7 @@ export default function RadarDigitalClientPage() {
         <div className={`${styles.mobileRadar} hbx-mobile-page`}>
           <section className={`${styles.mobileRadarHero} hbx-mobile-hero`}>
             <RadarMotionBackground />
+            <HeroPremiumCrown active={mobileHeroPremiumActive} />
             <div className={styles.mobileRadarHeroCopy}>
               <strong>Radar Digital</strong>
               <p>Encontre cards com oportunidade real</p>

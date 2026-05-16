@@ -349,16 +349,6 @@ function planCycleAmount(planKey: PlanKey, billingCycle: BillingCycle) {
   return Number(monthly.toFixed(2));
 }
 
-function planMobileDescription(planKey: PlanKey) {
-  if (planKey === "hbx_lite") {
-    return "Cards simples, telefone, cidade, segmento, site básico e WhatsApp externo.";
-  }
-  if (planKey === "hbx_melhor") {
-    return "Bot, automação e atendimento completo exigem configuração com a HBX.";
-  }
-  return "Cards inteligentes, WhatsApp verificado, score, motivo, canal e mensagem.";
-}
-
 function openHbxFullSupport() {
   if (typeof window === "undefined") return;
   window.open(
@@ -599,7 +589,6 @@ export default function FinanceiroClientPage() {
   const monthlyTotal = planCycleAmount(selectedPlanKey, "MONTHLY");
   const annualTotal = planCycleAmount(selectedPlanKey, "ANNUAL");
   const annualMonthlyEquivalent = Number((annualTotal / 12).toFixed(2));
-  const cycleLabel = billingCycle === "ANNUAL" ? "Anual" : "Mensal";
   const latestPixCharge = overview?.latestCharge?.paymentMethod === "PIX" ? overview.latestCharge : null;
   const paymentConsentPhoneDigits = normalizeBrazilPhone(paymentConsentForm.phone);
   const paymentConsentTaxDigits = onlyDigits(paymentConsentForm.cpf);
@@ -1185,20 +1174,6 @@ export default function FinanceiroClientPage() {
     );
   }
 
-  const nextBilling = new Date();
-  nextBilling.setMonth(nextBilling.getMonth() + (billingCycle === "ANNUAL" ? 12 : 1));
-  const checkoutMethodLabel =
-    checkoutPaymentMethod === "CARD"
-      ? "Cartão recorrente"
-      : checkoutPaymentMethod === "PIX"
-        ? "Pix avulso"
-        : "Boleto avulso";
-  const checkoutDateValue =
-    checkoutPaymentMethod === "CARD"
-      ? nextBilling.toLocaleDateString("pt-BR")
-      : checkoutPaymentMethod === "PIX"
-        ? "Após confirmação do Pix"
-        : "Após compensação do boleto";
   const changePlanHref = "/planos?mode=pending_checkout&reason=change_plan";
 
   const assistedCheckout = (
@@ -1255,17 +1230,15 @@ export default function FinanceiroClientPage() {
         <article className={styles.checkoutMain}>
           <div className={styles.checkoutCompactGrid}>
             <div className={styles.checkoutLeftRail}>
-              <div className={styles.checkoutHero}>
+              <div className={`${styles.checkoutHero} ${styles.checkoutHeroCompact}`}>
                 <div className={styles.checkoutLogo} aria-hidden="true">HBX</div>
-                <div>
-                  <span className={styles.eyebrow}>Checkout seguro</span>
-                  <h1 className={styles.checkoutTitle}>Contratar {plan.title}</h1>
-                  <p className={styles.heroText}>{planMobileDescription(selectedPlanKey)}</p>
-                </div>
+                <p className={styles.checkoutSecureLine}>Checkout seguro: <strong>Mercado Pago</strong></p>
               </div>
 
               <div className={styles.checkoutStepper} aria-label="Etapas do checkout">
-                <span data-state="done"><b>1</b><strong>Plano</strong><small>{plan.title}</small></span>
+                <Link href={changePlanHref} className={styles.stepLink} data-state="done">
+                  <b>1</b><strong>Plano</strong><small>Trocar plano</small>
+                </Link>
                 <span data-state="current"><b>2</b><strong>Dados</strong><small>Contato e CPF/CNPJ</small></span>
                 <span><b>3</b><strong>Pagamento</strong><small>Pix ou cartão</small></span>
               </div>
@@ -1280,34 +1253,21 @@ export default function FinanceiroClientPage() {
                   <button type="button" data-active={billingCycle === "MONTHLY"} onClick={() => setBillingCycle("MONTHLY")}>
                     <span className={styles.cycleName}>Mensal</span>
                     <strong>{formatCurrency(monthlyTotal)}/mês</strong>
-                    <small>Cobra mês a mês.</small>
+                    <small>Mês a mês.</small>
                   </button>
                   <button type="button" data-active={billingCycle === "ANNUAL"} onClick={() => setBillingCycle("ANNUAL")}>
                     <span className={styles.discountBadge}>10% de desconto</span>
                     <span className={styles.cycleName}>Anual</span>
                     <strong>{formatCurrency(annualMonthlyEquivalent)}/mês</strong>
-                    <small>{formatCurrency(annualTotal)} hoje.</small>
+                    <small>Cobrança anual.</small>
                   </button>
                 </div>
               </section>
 
-              <div className={styles.checkoutFactsGrid} aria-label="Dados da contratação">
-                <div>
-                  <span>Plano</span>
-                  <strong>{plan.title}</strong>
-                  <small>{planMobileDescription(selectedPlanKey)}</small>
-                  <Link href={changePlanHref} className={styles.changePlanButton}>Trocar plano</Link>
-                </div>
-                <div>
-                  <span>Ciclo</span>
-                  <strong>{cycleLabel}</strong>
-                  <small>{checkoutMethodLabel}</small>
-                </div>
-                <div>
-                  <span>Total hoje</span>
-                  <strong>{formatCurrency(total)}</strong>
-                  <small>{checkoutDateValue}</small>
-                </div>
+              <div className={styles.checkoutPlanLine} aria-label="Plano escolhido">
+                <span>{plan.title}</span>
+                <strong>{formatCurrency(total)}</strong>
+                <Link href={changePlanHref}>Trocar plano</Link>
               </div>
             </div>
 

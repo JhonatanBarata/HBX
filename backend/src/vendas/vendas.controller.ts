@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, Query, Req, Res, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Headers, Param, Patch, Post, Query, Req, Res, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { UpdateAtendimentoBotConfigDto } from '../inbox/dto/update-atendimento-bot-config.dto';
 import { CommercialEntitlement } from '../commercial-plans/commercial-entitlement.decorator';
@@ -110,8 +110,35 @@ export class VendasController {
   }
 
   @Patch('sales-profile')
-  updateSalesProfile(@Req() req: any, @Body() dto: UpdateSalesProfileDto) {
-    return this.vendasService.updateSalesProfileForUser(req.user, dto || {});
+  async updateSalesProfile(
+    @Req() req: any,
+    @Body() dto: UpdateSalesProfileDto,
+    @Headers('x-hbx-onboarding') onboardingSource?: string,
+  ) {
+    try {
+      return await this.vendasService.updateSalesProfileForUser(req.user, dto || {});
+    } catch (error: any) {
+      if (/Informe o que voce vende/i.test(String(error?.message || ''))) throw error;
+      if (String(onboardingSource || '').trim().toLowerCase() !== 'mobile') throw error;
+
+      return {
+        ok: false,
+        persisted: false,
+        source: 'onboarding_fallback',
+        message: String(error?.message || 'Perfil salvo localmente. A persistencia remota sera aplicada quando o perfil estiver disponivel.'),
+        effectiveProfile: {
+          whatDoYouSell: dto?.whatDoYouSell || null,
+          offerCategory: dto?.offerCategory || null,
+          targetAudience: Array.isArray(dto?.targetAudience?.labels) ? dto.targetAudience.labels : [],
+          targetSegments: Array.isArray(dto?.targetSegments?.labels) ? dto.targetSegments.labels : [],
+          avoidSegments: Array.isArray(dto?.avoidSegments?.labels) ? dto.avoidSegments.labels : [],
+          preferredCities: Array.isArray(dto?.preferredCities) ? dto.preferredCities : [],
+          preferredStates: Array.isArray(dto?.preferredStates) ? dto.preferredStates : [],
+          preferredChannels: Array.isArray(dto?.preferredChannels) ? dto.preferredChannels : [],
+          weeklyAutoUpdateEnabled: Boolean(dto?.weeklyAutoUpdateEnabled),
+        },
+      };
+    }
   }
 
   @Post('sales-profile/suggest-weekly')

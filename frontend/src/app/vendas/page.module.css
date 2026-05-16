@@ -10,11 +10,11 @@
 
 .mobileVendasRecommendedCard {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: stretch;
   gap: 10px;
   margin: 0 14px 12px;
-  padding: 12px;
+  padding: 13px 14px 12px;
   border: 1px solid rgba(24, 94, 255, 0.18);
   border-radius: 18px;
   background:
@@ -24,9 +24,10 @@
 }
 
 .mobileVendasRecommendedCard > button {
+  width: 100%;
   min-width: 0;
   display: grid;
-  gap: 3px;
+  gap: 4px;
   border: 0;
   background: transparent;
   color: #07143a;
@@ -35,17 +36,20 @@
 }
 
 .mobileVendasRecommendedCard span {
+  max-width: 100%;
   color: #0b66ff;
   font-size: 0.62rem;
   font-weight: 950;
   letter-spacing: 0.04em;
   text-transform: uppercase;
+  line-height: 1.1;
+  white-space: nowrap;
 }
 
 .mobileVendasRecommendedCard strong {
   overflow: hidden;
   color: #07143a;
-  font-size: 0.98rem;
+  font-size: 1rem;
   line-height: 1.12;
   font-weight: 950;
   text-overflow: ellipsis;
@@ -55,34 +59,70 @@
 .mobileVendasRecommendedCard small {
   overflow: hidden;
   color: #5d6d8d;
-  font-size: 0.68rem;
+  font-size: 0.7rem;
   font-weight: 800;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.mobileVendasRecommendedCard > div {
+.mobileVendasRecommendedFooter {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  justify-content: space-between;
+  gap: 9px;
+  min-width: 0;
+}
+
+.mobileVendasRecommendedChannels {
+  min-width: 0;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
 }
 
-.mobileVendasRecommendedCard a,
-.mobileVendasRecommendedCard > div button {
-  min-width: 40px;
+.mobileVendasRecommendedChannels[data-channel-count="5"],
+.mobileVendasRecommendedChannels[data-channel-count="6"],
+.mobileVendasRecommendedChannels[data-channel-count="7"] {
+  gap: 4px;
+}
+
+.mobileVendasRecommendedChannels[data-channel-count="5"] .mobileVendasChannelIcon[data-compact="true"] {
+  width: 31px;
+  height: 31px;
+}
+
+.mobileVendasRecommendedChannels[data-channel-count="6"] .mobileVendasChannelIcon[data-compact="true"],
+.mobileVendasRecommendedChannels[data-channel-count="7"] .mobileVendasChannelIcon[data-compact="true"] {
+  width: 28px;
+  height: 28px;
+}
+
+.mobileVendasRecommendedChannels[data-channel-count="6"] .mobileVendasChannelIcon[data-channel="site"][data-compact="true"],
+.mobileVendasRecommendedChannels[data-channel-count="7"] .mobileVendasChannelIcon[data-channel="site"][data-compact="true"] {
+  font-size: 0.48rem;
+}
+
+.mobileVendasRecommendedCard .mobileVendasChannelIcon[data-compact="true"] {
+  width: 34px;
+  height: 34px;
+  box-shadow: 0 12px 24px -16px rgba(37, 105, 255, 0.46);
+}
+
+.mobileVendasRecommendedCard .mobileVendasPremiumChannels[data-compact="true"] {
+  min-height: 34px;
+  max-width: 155px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mobileVendasRecommendedFooter > button {
+  min-width: 92px;
   height: 40px;
-  display: inline-grid;
-  place-items: center;
-  border: 0;
-  border-radius: 999px;
-  background: linear-gradient(180deg, #dffbe9, #c8f7dc);
-  color: #05a95c;
-  box-shadow: 0 12px 24px -16px rgba(13, 147, 86, 0.55);
-}
-
-.mobileVendasRecommendedCard > div button {
-  min-width: 82px;
   border-radius: 14px;
+  border: 0;
   background: linear-gradient(135deg, #0b66ff, #16c8f5);
   color: #ffffff;
   padding: 0 12px;
@@ -91,15 +131,9 @@
   font-weight: 950;
 }
 
-.mobileVendasRecommendedCard a[aria-disabled="true"] {
-  opacity: 0.42;
-  pointer-events: none;
-}
-
 .mobileVendasRecommendedCard svg {
-  width: 20px;
-  height: 20px;
-  fill: currentColor;
+  width: 18px;
+  height: 18px;
 }
 
 .mobileVendasReportPanel,
@@ -1125,7 +1159,7 @@
     color: #ffd86a;
   }
 
-  @keyframes mobileVendasHeaderPulse {
+@keyframes mobileVendasHeaderPulse {
     0%,
     100% {
       filter: saturate(1);
@@ -1136,6 +1170,19 @@
       filter: saturate(1.18);
       transform: scale(1.025);
     }
+  }
+}
+
+@keyframes mobilePremiumCrownGlow {
+  0%,
+  100% {
+    opacity: 0.56;
+    transform: scale(0.92);
+  }
+
+  50% {
+    opacity: 1;
+    transform: scale(1.08);
   }
 }
 
@@ -1201,6 +1248,78 @@
   .mobileVendasHeroPanel > :not(.mobileRadarStatusBurst) {
     position: relative;
     z-index: 1;
+  }
+
+  .mobileHeroPremiumCrown {
+    position: absolute !important;
+    top: 8px;
+    right: 8px;
+    z-index: 5 !important;
+    width: 32px;
+    height: 32px;
+    display: grid;
+    place-items: center;
+    border: 1px solid rgba(240, 180, 35, 0.42);
+    border-radius: 12px;
+    background:
+      radial-gradient(circle at 32% 20%, rgba(255, 255, 255, 0.9), transparent 34%),
+      linear-gradient(145deg, rgba(255, 248, 213, 0.96), rgba(255, 203, 54, 0.62));
+    color: #f2ad12;
+    text-decoration: none;
+    box-shadow:
+      0 0 0 4px rgba(255, 212, 77, 0.18),
+      0 12px 28px -16px rgba(195, 117, 0, 0.9),
+      0 0 34px rgba(255, 198, 44, 0.46);
+    opacity: 0.8;
+    filter: saturate(1.12);
+  }
+
+  .mobileHeroPremiumCrown::after {
+    content: "";
+    position: absolute;
+    inset: -6px;
+    z-index: -1;
+    border-radius: 16px;
+    background: radial-gradient(circle, rgba(255, 214, 64, 0.42), transparent 68%);
+    opacity: 0.88;
+    animation: mobilePremiumCrownGlow 2.2s ease-in-out infinite;
+  }
+
+  .mobileHeroPremiumCrown svg {
+    width: 21px;
+    height: 21px;
+    overflow: visible;
+    filter: drop-shadow(0 5px 8px rgba(198, 124, 0, 0.32));
+  }
+
+  .mobileHeroPremiumCrown path:first-child,
+  .mobileHeroPremiumCrown circle {
+    fill: currentColor;
+    stroke: #c97800;
+    stroke-width: 0.7;
+  }
+
+  .mobileHeroPremiumCrown path:nth-child(2) {
+    fill: none;
+    stroke: #c97800;
+    stroke-width: 1.8;
+    stroke-linecap: round;
+  }
+
+  .mobileHeroPremiumCrown[data-active="false"] {
+    border-color: rgba(26, 36, 55, 0.16);
+    background:
+      radial-gradient(circle at 32% 20%, rgba(255, 255, 255, 0.42), transparent 34%),
+      linear-gradient(145deg, rgba(229, 234, 242, 0.82), rgba(123, 134, 153, 0.42));
+    color: #303845;
+    opacity: 0.62;
+    box-shadow: 0 10px 22px -18px rgba(20, 29, 45, 0.7);
+    filter: grayscale(0.9) saturate(0.5);
+  }
+
+  .mobileHeroPremiumCrown[data-active="false"]::after {
+    opacity: 0;
+    animation: none;
   }
 
   .mobileVendasHeroCopy {
@@ -1457,6 +1576,12 @@
       repeating-radial-gradient(circle, transparent 0 27px, rgba(28, 134, 255, 0.28) 28px 29px);
   }
 
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileHeroPremiumCrown[data-active="false"] {
+    background: linear-gradient(145deg, rgba(24, 33, 49, 0.92), rgba(7, 12, 23, 0.72));
+    color: #8b96aa;
+    border-color: rgba(148, 163, 184, 0.16);
+  }
+
   :global(html[data-hbx-mobile-theme="dark"]) .mobileVendasHeroCopy small {
     color: rgba(226, 234, 248, 0.72);
   }
@@ -1585,7 +1710,7 @@
     box-shadow: inset 0 0 0 1px rgba(122, 255, 184, 0.16) !important;
   }
 
-  :global(html[data-hbx-mobile-theme="dark"]) .mobileVendasRecommendedCard > div button {
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileVendasRecommendedFooter > button {
     background: linear-gradient(135deg, #1769ff, #06b6d4) !important;
     color: #ffffff !important;
   }
@@ -2544,67 +2669,102 @@
   }
 
   .mobileVendasChannelIcon {
+    position: relative;
+    isolation: isolate;
     display: inline-grid;
     width: 34px;
     height: 34px;
     place-items: center;
-    border: 1px solid rgba(198, 219, 255, 0.78);
+    overflow: hidden;
+    border: 1px solid rgba(186, 211, 255, 0.54);
     border-radius: 999px;
-    background: linear-gradient(180deg, #e4efff, #d4e5ff);
-    color: #2569ff;
-    box-shadow: 0 12px 22px -16px rgba(37, 105, 255, 0.46);
-    font-size: 0.66rem;
-    font-weight: 950;
-    line-height: 1;
+    background:
+      radial-gradient(circle at 30% 20%, rgba(255, 255, 255, 0.98), transparent 42%),
+      linear-gradient(145deg, rgba(246, 251, 255, 0.98), rgba(223, 239, 255, 0.86));
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.96),
+      0 12px 22px -16px rgba(37, 105, 255, 0.48);
+    transition:
+      transform 150ms ease,
+      border-color 150ms ease,
+      box-shadow 150ms ease;
   }
 
-  .mobileVendasChannelIcon svg {
-    width: 18px;
-    height: 18px;
-    fill: none;
-    stroke: currentColor;
-    stroke-width: 1.9;
-    stroke-linecap: round;
-    stroke-linejoin: round;
+  .mobileVendasChannelIcon::before {
+    content: "";
+    position: absolute;
+    inset: 4px;
+    z-index: -1;
+    border-radius: inherit;
+    background: rgba(255, 255, 255, 0.42);
+    opacity: 0.72;
+  }
+
+  .mobileVendasChannelIcon:active {
+    transform: scale(0.94);
+  }
+
+  .mobileVendasChannelAssetLight,
+  .mobileVendasChannelAssetDark {
+    width: 48px;
+    height: 48px;
+    display: block;
+    object-fit: cover;
+    pointer-events: none;
+    user-select: none;
+    transform: translate3d(0, -7px, 0);
+    filter: none;
+  }
+
+  .mobileVendasChannelAssetDark {
+    display: none;
+  }
+
+  .mobileVendasChannelSrOnly {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
   }
 
   .mobileVendasChannelIcon[data-channel="whatsapp"] {
-    border-color: rgba(201, 229, 213, 0.72);
-    background: linear-gradient(180deg, #dffbe9, #c8f7dc);
-    color: #05a95c;
-  }
-
-  .mobileVendasChannelIcon[data-channel="whatsapp"] svg {
-    fill: currentColor;
-    stroke: none;
+    border-color: rgba(97, 220, 151, 0.32);
+    background:
+      radial-gradient(circle at 30% 20%, rgba(255, 255, 255, 0.96), transparent 42%),
+      linear-gradient(145deg, rgba(232, 255, 242, 0.98), rgba(198, 247, 221, 0.86));
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.96),
+      0 12px 22px -16px rgba(5, 169, 92, 0.52);
   }
 
   .mobileVendasChannelIcon[data-channel="instagram"] {
     border-color: rgba(236, 72, 153, 0.18);
-    background: linear-gradient(145deg, #fff0f7, #fce7f3);
-    color: #be185d;
+    background:
+      radial-gradient(circle at 30% 20%, rgba(255, 255, 255, 0.96), transparent 42%),
+      linear-gradient(145deg, rgba(255, 244, 250, 0.98), rgba(252, 231, 243, 0.9));
   }
 
   .mobileVendasChannelIcon[data-channel="facebook"] {
     border-color: rgba(37, 99, 235, 0.18);
-    background: linear-gradient(145deg, #eff6ff, #dbeafe);
-    color: #1d4ed8;
-    font-size: 1.05rem;
-    font-family: Arial, sans-serif;
+    background:
+      radial-gradient(circle at 30% 20%, rgba(255, 255, 255, 0.96), transparent 42%),
+      linear-gradient(145deg, rgba(239, 246, 255, 0.98), rgba(219, 234, 254, 0.9));
   }
 
   .mobileVendasChannelIcon[data-channel="email"] {
     border-color: rgba(15, 118, 110, 0.16);
-    background: linear-gradient(145deg, #ecfeff, #ccfbf1);
-    color: #0f766e;
-    font-size: 0.95rem;
+    background:
+      radial-gradient(circle at 30% 20%, rgba(255, 255, 255, 0.96), transparent 42%),
+      linear-gradient(145deg, rgba(236, 254, 255, 0.98), rgba(204, 251, 241, 0.88));
   }
 
   .mobileVendasChannelIcon[data-channel="site"] {
     border-color: rgba(99, 102, 241, 0.16);
-    background: linear-gradient(145deg, #eef2ff, #e0e7ff);
-    color: #4338ca;
-    font-size: 0.5rem;
+    background:
+      radial-gradient(circle at 30% 20%, rgba(255, 255, 255, 0.96), transparent 42%),
+      linear-gradient(145deg, rgba(238, 242, 255, 0.98), rgba(224, 231, 255, 0.9));
   }
 
   .mobileVendasPremiumChannels {
@@ -9019,21 +9179,64 @@
 
   :global(html[data-hbx-mobile-theme="dark"]) .mobileVendasChannelIcon,
   :global(html[data-hbx-mobile-theme="dark"]) .mobileVendasPremiumChannels {
-    border-color: rgba(166, 215, 255, 0.28) !important;
-    background: rgba(13, 33, 62, 0.88) !important;
-    color: #9fdcff !important;
+    border: 1px solid rgba(91, 152, 235, 0.24) !important;
+    background:
+      radial-gradient(circle at 32% 18%, rgba(86, 155, 255, 0.18), transparent 42%),
+      linear-gradient(145deg, rgba(12, 36, 66, 0.96), rgba(7, 22, 45, 0.92)) !important;
+    box-shadow:
+      inset 0 1px 0 rgba(140, 196, 255, 0.12),
+      0 12px 24px -16px rgba(41, 128, 255, 0.54) !important;
+  }
+
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileVendasChannelIcon::before {
+    background: rgba(23, 62, 103, 0.46) !important;
+    opacity: 1 !important;
+  }
+
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileVendasChannelAssetLight {
+    display: none;
+  }
+
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileVendasChannelAssetDark {
+    display: block;
   }
 
   :global(html[data-hbx-mobile-theme="dark"]) .mobileVendasChannelIcon[data-channel="whatsapp"] {
-    border-color: rgba(97, 255, 171, 0.3) !important;
-    background: rgba(20, 184, 104, 0.24) !important;
-    color: #8dffc6 !important;
+    border-color: rgba(97, 255, 171, 0.22) !important;
+    background:
+      radial-gradient(circle at 32% 18%, rgba(75, 255, 159, 0.2), transparent 42%),
+      linear-gradient(145deg, rgba(7, 55, 45, 0.96), rgba(4, 35, 34, 0.92)) !important;
+    box-shadow:
+      inset 0 1px 0 rgba(122, 255, 184, 0.12),
+      0 12px 24px -16px rgba(20, 184, 104, 0.62) !important;
   }
 
   :global(html[data-hbx-mobile-theme="dark"]) .mobileVendasChannelIcon[data-channel="instagram"] {
-    border-color: rgba(244, 114, 182, 0.28) !important;
-    background: rgba(219, 39, 119, 0.18) !important;
-    color: #f9a8d4 !important;
+    border-color: rgba(244, 114, 182, 0.2) !important;
+    background:
+      radial-gradient(circle at 32% 18%, rgba(244, 114, 182, 0.2), transparent 42%),
+      linear-gradient(145deg, rgba(53, 18, 54, 0.96), rgba(30, 20, 51, 0.92)) !important;
+  }
+
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileVendasChannelIcon[data-channel="facebook"] {
+    border-color: rgba(96, 165, 250, 0.22) !important;
+    background:
+      radial-gradient(circle at 32% 18%, rgba(96, 165, 250, 0.22), transparent 42%),
+      linear-gradient(145deg, rgba(13, 36, 72, 0.96), rgba(9, 25, 52, 0.92)) !important;
+  }
+
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileVendasChannelIcon[data-channel="email"] {
+    border-color: rgba(45, 212, 191, 0.2) !important;
+    background:
+      radial-gradient(circle at 32% 18%, rgba(45, 212, 191, 0.18), transparent 42%),
+      linear-gradient(145deg, rgba(9, 49, 58, 0.96), rgba(6, 33, 43, 0.92)) !important;
+  }
+
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileVendasChannelIcon[data-channel="site"] {
+    border-color: rgba(129, 140, 248, 0.22) !important;
+    background:
+      radial-gradient(circle at 32% 18%, rgba(129, 140, 248, 0.2), transparent 42%),
+      linear-gradient(145deg, rgba(31, 33, 74, 0.96), rgba(18, 25, 55, 0.92)) !important;
   }
 
   :global(html[data-hbx-mobile-theme="dark"]) .mobileLeadDetailActionBar.mobileLeadDetailActionBar {

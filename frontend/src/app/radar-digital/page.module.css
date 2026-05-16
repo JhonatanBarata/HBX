@@ -21,6 +21,19 @@
   }
 }
 
+@keyframes mobilePremiumCrownGlow {
+  0%,
+  100% {
+    opacity: 0.56;
+    transform: scale(0.92);
+  }
+
+  50% {
+    opacity: 1;
+    transform: scale(1.08);
+  }
+}
+
 .smartBlock {
   display: grid;
   gap: 10px;
@@ -5433,6 +5446,78 @@
 
   .mobileRadarHero::after {
     content: none !important;
+  }
+
+  .mobileHeroPremiumCrown {
+    position: absolute !important;
+    top: 8px !important;
+    right: 8px !important;
+    z-index: 8 !important;
+    width: 32px !important;
+    height: 32px !important;
+    display: grid !important;
+    place-items: center !important;
+    border: 1px solid rgba(240, 180, 35, 0.42) !important;
+    border-radius: 12px !important;
+    background:
+      radial-gradient(circle at 32% 20%, rgba(255, 255, 255, 0.9), transparent 34%),
+      linear-gradient(145deg, rgba(255, 248, 213, 0.96), rgba(255, 203, 54, 0.62)) !important;
+    color: #f2ad12 !important;
+    text-decoration: none !important;
+    box-shadow:
+      0 0 0 4px rgba(255, 212, 77, 0.18),
+      0 12px 28px -16px rgba(195, 117, 0, 0.9),
+      0 0 34px rgba(255, 198, 44, 0.46) !important;
+    opacity: 0.8 !important;
+    filter: saturate(1.12);
+  }
+
+  .mobileHeroPremiumCrown::after {
+    content: "" !important;
+    position: absolute !important;
+    inset: -6px !important;
+    z-index: -1 !important;
+    border-radius: 16px !important;
+    background: radial-gradient(circle, rgba(255, 214, 64, 0.42), transparent 68%) !important;
+    opacity: 0.88 !important;
+    animation: mobilePremiumCrownGlow 2.2s ease-in-out infinite !important;
+  }
+
+  .mobileHeroPremiumCrown svg {
+    width: 21px !important;
+    height: 21px !important;
+    overflow: visible !important;
+    filter: drop-shadow(0 5px 8px rgba(198, 124, 0, 0.32));
+  }
+
+  .mobileHeroPremiumCrown path:first-child,
+  .mobileHeroPremiumCrown circle {
+    fill: currentColor !important;
+    stroke: #c97800 !important;
+    stroke-width: 0.7 !important;
+  }
+
+  .mobileHeroPremiumCrown path:nth-child(2) {
+    fill: none !important;
+    stroke: #c97800 !important;
+    stroke-width: 1.8 !important;
+    stroke-linecap: round !important;
+  }
+
+  .mobileHeroPremiumCrown[data-active="false"] {
+    border-color: rgba(26, 36, 55, 0.16) !important;
+    background:
+      radial-gradient(circle at 32% 20%, rgba(255, 255, 255, 0.42), transparent 34%),
+      linear-gradient(145deg, rgba(229, 234, 242, 0.82), rgba(123, 134, 153, 0.42)) !important;
+    color: #303845 !important;
+    opacity: 0.62 !important;
+    box-shadow: 0 10px 22px -18px rgba(20, 29, 45, 0.7) !important;
+    filter: grayscale(0.9) saturate(0.5) !important;
+  }
+
+  .mobileHeroPremiumCrown[data-active="false"]::after {
+    opacity: 0 !important;
+    animation: none !important;
   }
 
   .mobileRadarHeroCopy {
