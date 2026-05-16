@@ -3,8 +3,8 @@ import { readFileSync } from 'fs';
 import { PrismaService } from '../prisma/prisma.service';
 
 export const DEFAULT_HBX_ENGINE_COUNT = 4;
-export const PRODUCTION_HBX_ENGINE_COUNT = 20;
-export const HARD_HBX_ENGINE_MAX_COUNT = 200;
+export const PRODUCTION_HBX_ENGINE_COUNT = 50;
+export const HARD_HBX_ENGINE_MAX_COUNT = 50;
 export const DEFAULT_HBX_ENGINE_MAX_COUNT = HARD_HBX_ENGINE_MAX_COUNT;
 export const MAX_HBX_ENGINE_COUNT = HARD_HBX_ENGINE_MAX_COUNT;
 const TURBO_OPERATIONAL_CONFIG_KEY = 'turbo_noturno';

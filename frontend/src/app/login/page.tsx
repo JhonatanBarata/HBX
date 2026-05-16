@@ -30,7 +30,7 @@ const LOGIN_AUTH_VIDEO_SRC = "/login-media/login-afterauth.mp4";
 const SUPPORT_PHONE = "++5519997024884";
 const SUPPORT_MESSAGE = "Olá, preciso de ajuda para finalizar minha contratação no HBX.";
 const DEFAULT_WAKING_MESSAGE =
-  "Estamos iniciando o ambiente seguro. A primeira conexão pode levar alguns segundos.";
+  "sem conexão com o banco de dados - falar com suporte";
 
 type ApiErrorPayload = {
   message?: string | string[];
@@ -582,7 +582,7 @@ export default function LoginPage() {
         setLoginState("waking_server");
       }
     } catch {
-      setError("Falha ao conectar no backend.");
+      setError(DEFAULT_WAKING_MESSAGE);
       setLoginState("error");
     }
   }
@@ -624,7 +624,7 @@ export default function LoginPage() {
           : null,
       );
     } catch {
-      setError("Falha ao conectar no backend.");
+      setError(DEFAULT_WAKING_MESSAGE);
     } finally {
       setPendingConfirmationBusy(false);
     }
@@ -983,7 +983,7 @@ export default function LoginPage() {
       );
       setLoginState("idle");
     } catch {
-      setError("Falha ao conectar no backend.");
+      setError(DEFAULT_WAKING_MESSAGE);
       setLoginState("error");
     }
   }

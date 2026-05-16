@@ -51,6 +51,36 @@ services:
       - hbx-engine-18
       - hbx-engine-19
       - hbx-engine-20
+      - hbx-engine-21
+      - hbx-engine-22
+      - hbx-engine-23
+      - hbx-engine-24
+      - hbx-engine-25
+      - hbx-engine-26
+      - hbx-engine-27
+      - hbx-engine-28
+      - hbx-engine-29
+      - hbx-engine-30
+      - hbx-engine-31
+      - hbx-engine-32
+      - hbx-engine-33
+      - hbx-engine-34
+      - hbx-engine-35
+      - hbx-engine-36
+      - hbx-engine-37
+      - hbx-engine-38
+      - hbx-engine-39
+      - hbx-engine-40
+      - hbx-engine-41
+      - hbx-engine-42
+      - hbx-engine-43
+      - hbx-engine-44
+      - hbx-engine-45
+      - hbx-engine-46
+      - hbx-engine-47
+      - hbx-engine-48
+      - hbx-engine-49
+      - hbx-engine-50
     environment:
       HBX_SCRAPING_ENGINE_URL: http://hbx-scraping-engine:8001
       HBX_ENGINE_COUNT: ${HBX_ENGINE_COUNT:-50}
@@ -218,6 +248,186 @@ services:
     volumes:
       - ./hbx-scraping-engine/data-20:/app/data
 
+  hbx-engine-21:
+    <<: *hbx-engine-common
+    container_name: hbx-engine-21
+    volumes:
+      - ./hbx-scraping-engine/data-21:/app/data
+
+  hbx-engine-22:
+    <<: *hbx-engine-common
+    container_name: hbx-engine-22
+    volumes:
+      - ./hbx-scraping-engine/data-22:/app/data
+
+  hbx-engine-23:
+    <<: *hbx-engine-common
+    container_name: hbx-engine-23
+    volumes:
+      - ./hbx-scraping-engine/data-23:/app/data
+
+  hbx-engine-24:
+    <<: *hbx-engine-common
+    container_name: hbx-engine-24
+    volumes:
+      - ./hbx-scraping-engine/data-24:/app/data
+
+  hbx-engine-25:
+    <<: *hbx-engine-common
+    container_name: hbx-engine-25
+    volumes:
+      - ./hbx-scraping-engine/data-25:/app/data
+
+  hbx-engine-26:
+    <<: *hbx-engine-common
+    container_name: hbx-engine-26
+    volumes:
+      - ./hbx-scraping-engine/data-26:/app/data
+
+  hbx-engine-27:
+    <<: *hbx-engine-common
+    container_name: hbx-engine-27
+    volumes:
+      - ./hbx-scraping-engine/data-27:/app/data
+
+  hbx-engine-28:
+    <<: *hbx-engine-common
+    container_name: hbx-engine-28
+    volumes:
+      - ./hbx-scraping-engine/data-28:/app/data
+
+  hbx-engine-29:
+    <<: *hbx-engine-common
+    container_name: hbx-engine-29
+    volumes:
+      - ./hbx-scraping-engine/data-29:/app/data
+
+  hbx-engine-30:
+    <<: *hbx-engine-common
+    container_name: hbx-engine-30
+    volumes:
+      - ./hbx-scraping-engine/data-30:/app/data
+
+  hbx-engine-31:
+    <<: *hbx-engine-common
+    container_name: hbx-engine-31
+    volumes:
+      - ./hbx-scraping-engine/data-31:/app/data
+
+  hbx-engine-32:
+    <<: *hbx-engine-common
+    container_name: hbx-engine-32
+    volumes:
+      - ./hbx-scraping-engine/data-32:/app/data
+
+  hbx-engine-33:
+    <<: *hbx-engine-common
+    container_name: hbx-engine-33
+    volumes:
+      - ./hbx-scraping-engine/data-33:/app/data
+
+  hbx-engine-34:
+    <<: *hbx-engine-common
+    container_name: hbx-engine-34
+    volumes:
+      - ./hbx-scraping-engine/data-34:/app/data
+
+  hbx-engine-35:
+    <<: *hbx-engine-common
+    container_name: hbx-engine-35
+    volumes:
+      - ./hbx-scraping-engine/data-35:/app/data
+
+  hbx-engine-36:
+    <<: *hbx-engine-common
+    container_name: hbx-engine-36
+    volumes:
+      - ./hbx-scraping-engine/data-36:/app/data
+
+  hbx-engine-37:
+    <<: *hbx-engine-common
+    container_name: hbx-engine-37
+    volumes:
+      - ./hbx-scraping-engine/data-37:/app/data
+
+  hbx-engine-38:
+    <<: *hbx-engine-common
+    container_name: hbx-engine-38
+    volumes:
+      - ./hbx-scraping-engine/data-38:/app/data
+
+  hbx-engine-39:
+    <<: *hbx-engine-common
+    container_name: hbx-engine-39
+    volumes:
+      - ./hbx-scraping-engine/data-39:/app/data
+
+  hbx-engine-40:
+    <<: *hbx-engine-common
+    container_name: hbx-engine-40
+    volumes:
+      - ./hbx-scraping-engine/data-40:/app/data
+
+  hbx-engine-41:
+    <<: *hbx-engine-common
+    container_name: hbx-engine-41
+    volumes:
+      - ./hbx-scraping-engine/data-41:/app/data
+
+  hbx-engine-42:
+    <<: *hbx-engine-common
+    container_name: hbx-engine-42
+    volumes:
+      - ./hbx-scraping-engine/data-42:/app/data
+
+  hbx-engine-43:
+    <<: *hbx-engine-common
+    container_name: hbx-engine-43
+    volumes:
+      - ./hbx-scraping-engine/data-43:/app/data
+
+  hbx-engine-44:
+    <<: *hbx-engine-common
+    container_name: hbx-engine-44
+    volumes:
+      - ./hbx-scraping-engine/data-44:/app/data
+
+  hbx-engine-45:
+    <<: *hbx-engine-common
+    container_name: hbx-engine-45
+    volumes:
+      - ./hbx-scraping-engine/data-45:/app/data
+
+  hbx-engine-46:
+    <<: *hbx-engine-common
+    container_name: hbx-engine-46
+    volumes:
+      - ./hbx-scraping-engine/data-46:/app/data
+
+  hbx-engine-47:
+    <<: *hbx-engine-common
+    container_name: hbx-engine-47
+    volumes:
+      - ./hbx-scraping-engine/data-47:/app/data
+
+  hbx-engine-48:
+    <<: *hbx-engine-common
+    container_name: hbx-engine-48
+    volumes:
+      - ./hbx-scraping-engine/data-48:/app/data
+
+  hbx-engine-49:
+    <<: *hbx-engine-common
+    container_name: hbx-engine-49
+    volumes:
+      - ./hbx-scraping-engine/data-49:/app/data
+
+  hbx-engine-50:
+    <<: *hbx-engine-common
+    container_name: hbx-engine-50
+    volumes:
+      - ./hbx-scraping-engine/data-50:/app/data
+
   hbx-engine-watchdog:
     image: docker:27-cli
     container_name: hbx-engine-watchdog
@@ -268,6 +478,36 @@ services:
       - hbx-engine-18
       - hbx-engine-19
       - hbx-engine-20
+      - hbx-engine-21
+      - hbx-engine-22
+      - hbx-engine-23
+      - hbx-engine-24
+      - hbx-engine-25
+      - hbx-engine-26
+      - hbx-engine-27
+      - hbx-engine-28
+      - hbx-engine-29
+      - hbx-engine-30
+      - hbx-engine-31
+      - hbx-engine-32
+      - hbx-engine-33
+      - hbx-engine-34
+      - hbx-engine-35
+      - hbx-engine-36
+      - hbx-engine-37
+      - hbx-engine-38
+      - hbx-engine-39
+      - hbx-engine-40
+      - hbx-engine-41
+      - hbx-engine-42
+      - hbx-engine-43
+      - hbx-engine-44
+      - hbx-engine-45
+      - hbx-engine-46
+      - hbx-engine-47
+      - hbx-engine-48
+      - hbx-engine-49
+      - hbx-engine-50
 
 # Frontend de producao roda em Docker via docker-compose.frontend.yml pelo publish/release.
 #  frontend:
