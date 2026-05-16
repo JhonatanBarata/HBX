@@ -1,12 +1,15 @@
 # HBX — RULE
 
-Este documento define a regra-mãe do produto HBX. Ele deve ser usado como referência antes de qualquer decisão de design, motor, mobile, desktop, onboarding, checkout, CRM, automação ou priorização de feature.
+Este documento define a regra-mãe do produto HBX. Ele deve orientar decisões de design, motor, mobile, desktop, onboarding, checkout, CRM, automação e priorização.
 
 ## Pensamento-mãe
 
-**HBX é uma máquina simples de prospecção para pequenos negócios: o usuário encontra empresas no Radar, transforma em cards de venda, chama no WhatsApp e controla retornos sem se perder.**
+**HBX é uma máquina de prospecção: no mobile, simples o bastante para qualquer usuário achar, chamar e acompanhar; no desktop, grande o bastante para operar campanhas, inteligência comercial e prospecções massivas.**
 
-Tudo que não ajuda diretamente esse fluxo deve ser tratado como secundário, avançado ou futuro.
+O HBX tem duas naturezas oficiais:
+
+- **Mobile:** simplicidade máxima, ação imediata, zero confusão.
+- **Desktop:** criatividade máxima, visão gigante, operação avançada e preparação para prospecções grandes.
 
 ## Fluxo principal
 
@@ -14,61 +17,83 @@ Tudo que não ajuda diretamente esse fluxo deve ser tratado como secundário, av
 
 Essa é a espinha dorsal do produto.
 
-Toda tela, botão, card, módulo, automação ou motor deve responder a uma pergunta:
+Toda tela, botão, card, módulo, automação ou motor deve responder:
 
 **Isso ajuda o usuário a achar, chamar, acompanhar e não repetir erro?**
 
-Se sim, fortalece o HBX.
-Se não, deve ser simplificado, escondido, adiado ou movido para contexto avançado.
+## Regra 1 — Mobile e Desktop têm filosofias diferentes
 
-## Regras fixas do produto
+### Mobile: simples, intuitivo e guiado
 
-### 1. HBX vende prospecção simples, não sistema gigante
+Mobile é o produto de venda e uso rápido.
 
-O cliente não deve sentir que está comprando um CRM complexo, uma central operacional pesada ou um sistema cheio de módulos.
-
-A promessa comercial precisa ser simples:
+A promessa mobile é:
 
 **Procure cards, fale no WhatsApp, marque retorno e venda.**
 
-### 2. Mobile é o produto de venda
+O mobile deve ter:
 
-O mobile deve ser o caminho mais simples para o cliente comum entender e usar o HBX.
+- poucos botões;
+- próxima ação evidente;
+- textos curtos;
+- cards objetivos;
+- fluxo guiado;
+- menos módulos expostos;
+- menos configuração;
+- decisões rápidas: chamar, retornar, qualificar, descartar e negativar.
 
-No celular, o usuário precisa conseguir:
+No mobile, criatividade só entra se deixar o usuário entender mais rápido.
 
-- buscar cards no Radar;
-- abrir cards em Vendas;
-- chamar no WhatsApp;
-- marcar retorno;
-- descartar ou negativar leads ruins;
-- entender o próximo passo sem treinamento longo.
+### Desktop: criatividade máxima e pensamento gigante
 
-Mobile deve ter pouca opção, ação clara e fluxo guiado.
+Desktop é o cockpit avançado do HBX.
 
-### 3. Desktop é cockpit avançado
-
-Desktop não é o self-checkout principal e não deve tentar ser a primeira experiência obrigatória do cliente leigo.
+No desktop, o HBX pode e deve parecer maior, mais poderoso e mais criativo.
 
 Desktop serve para:
 
-- visão ampla;
-- gestão pesada;
+- operação pesada;
+- campanhas grandes;
+- inteligência comercial;
+- visão de funil;
+- auditoria;
+- automações;
+- motores;
+- segmentação;
 - configuração;
+- relatórios;
 - master/admin;
 - saúde do sistema;
-- automações;
-- auditoria;
-- relatórios mais completos;
-- operação avançada.
+- futuras prospecções em escala.
 
-Se algo é complexo demais para mobile, provavelmente pertence primeiro ao desktop/cockpit.
+No desktop, a pergunta central é:
 
-### 4. Motor é invisível
+**Isso mostra que o HBX pode virar uma central gigante de prospecção, sem quebrar o fluxo principal?**
 
-O cliente não compra "motor".
+Desktop pode ter mapas, painéis, cockpit, visão kanban, filtros avançados, inteligência de score, histórico, filas, motores, relatórios e experiências visuais mais ousadas.
 
-O cliente compra resultado:
+Mas tudo deve continuar apontando para:
+
+**Radar → Vendas → WhatsApp → Retorno.**
+
+## Regra 2 — HBX vende prospecção, não complexidade
+
+O cliente não deve comprar "um CRM".
+
+O cliente deve comprar uma solução clara:
+
+**Achar empresas, falar com elas, organizar retornos e não repetir erro.**
+
+A complexidade existe, mas deve estar organizada por contexto:
+
+- mobile mostra o essencial;
+- desktop mostra o poder;
+- master mostra o controle;
+- motor entrega resultado invisível.
+
+## Regra 3 — Motor é invisível no mobile e poderoso no desktop
+
+O cliente não compra "motor". O cliente compra resultado:
 
 - cards bons;
 - menos duplicidade;
@@ -77,48 +102,58 @@ O cliente compra resultado:
 - próxima ação clara;
 - contatos que não se repetem quando já deram negativo.
 
-A complexidade do motor deve ficar escondida. O usuário final deve ver apenas o benefício.
+No mobile, o motor deve aparecer como benefício simples: card pronto, lead bom, WhatsApp encontrado, lead já descartado antes e melhor próximo passo.
 
-### 5. Criatividade deve servir clareza
+No desktop, o motor pode aparecer como cockpit: filas, status dos motores, origem dos cards, score, duplicidade, rejeições, negativos, performance por cidade/segmento e inteligência para prospecções grandes.
 
-Design bonito é bem-vindo, mas não pode atrapalhar entendimento.
+## Regra 4 — Criatividade tem papéis diferentes
 
-Criatividade boa:
+No mobile, criatividade deve reduzir esforço mental.
 
-- reduz confusão;
-- destaca a próxima ação;
-- faz o produto parecer premium;
-- aumenta confiança;
-- deixa o usuário agir mais rápido.
+No desktop, criatividade deve mostrar ambição, escala e diferenciação.
 
-Criatividade ruim:
+Criatividade boa no mobile deixa a ação principal óbvia.
 
-- cria distração;
-- esconde botão importante;
-- transforma tarefa simples em espetáculo;
-- faz o produto parecer maior e mais difícil do que é.
+Criatividade boa no desktop transforma dados em visão e mostra que o HBX não é um CRM comum.
 
-### 6. Negativos são parte vital do banco
+## Regra 5 — Negativos são parte vital do banco
 
-Recusas, bloqueios, opt-outs, números ruins, duplicados, leads descartados e motivos de descarte não são lixo.
+Recusas, opt-outs, números ruins, duplicados, leads descartados e motivos de descarte não são lixo.
 
 Eles são memória operacional.
 
 O Radar Digital deve ser o banco único de leads e oportunidades, incluindo os negativos, para evitar repetição, duplicidade e bagunça em Vendas/Prospecção.
 
-## Perguntas obrigatórias antes de aprovar qualquer mudança
+## Regra 6 — Entrega pública precisa privilegiar venda e confiança
 
-Antes de aprovar uma tela, feature, card, automação ou motor, responder:
+Para lançamento público, priorizar:
+
+1. promessa clara;
+2. fluxo mobile funcional;
+3. Radar gerando cards;
+4. Vendas organizando cards;
+5. WhatsApp abrindo rápido;
+6. retorno fácil;
+7. negativo/descartar seguro;
+8. desktop demonstrando poder e futuro.
+
+Não priorizar features que parecem incríveis mas não ajudam o primeiro cliente a vender ou confiar.
+
+## Perguntas obrigatórias antes de aprovar qualquer mudança
 
 1. Isso fortalece o fluxo Radar → Vendas → WhatsApp → Retorno?
 2. Isso ajuda o cliente a vender mais rápido?
-3. Isso reduz confusão para um usuário leigo?
-4. Isso deveria aparecer no mobile ou ficar no desktop/cockpit?
-5. O motor está entregando benefício visível ou só complexidade visível?
-6. Estamos guardando negativos e evitando repetir erro?
+3. No mobile, isso está simples o bastante para um usuário leigo?
+4. No desktop, isso mostra poder, escala e visão de futuro?
+5. Isso deveria aparecer no mobile, no desktop/cockpit ou só no master?
+6. O motor está entregando benefício visível ou só complexidade visível?
+7. Estamos guardando negativos e evitando repetir erro?
+8. Isso ajuda a vender nos próximos 2 dias ou é evolução pós-lançamento?
 
 ## Frase de decisão
 
-**HBX não é um CRM. HBX é uma esteira de prospecção: achar, chamar, acompanhar e não repetir erro.**
+**HBX não é um CRM comum. HBX é uma esteira de prospecção: achar, chamar, acompanhar e não repetir erro.**
 
-Quando houver dúvida entre duas direções, escolher a que deixa essa frase mais verdadeira.
+**Mobile vende pela simplicidade. Desktop vende pela visão gigante. Motor vende pelo resultado invisível.**
+
+Quando houver dúvida entre duas direções, escolher a que deixa essas frases mais verdadeiras.
