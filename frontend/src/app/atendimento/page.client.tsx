@@ -2931,6 +2931,11 @@ function formatInboxMessageDayLabel(dateStr: string | null | undefined, mounted:
   });
 }
 
+function isMobileAtendimentoViewport() {
+  if (typeof window === "undefined") return false;
+  return window.matchMedia("(max-width: 820px)").matches;
+}
+
 function isInboxSameCalendarDay(
   leftDate: string | null | undefined,
   rightDate: string | null | undefined,
@@ -3017,6 +3022,39 @@ function MessageStatusTick({ status }: { status: string }) {
 }
 
 export default function InboxClientPage() {
+  const router = useRouter();
+  const [mobileBlocked, setMobileBlocked] = useState<boolean | null>(() =>
+    typeof window === "undefined" ? null : isMobileAtendimentoViewport(),
+  );
+
+  useEffect(() => {
+    if (typeof window === "undefined") return undefined;
+    const media = window.matchMedia("(max-width: 820px)");
+    const sync = () => setMobileBlocked(media.matches);
+    sync();
+    media.addEventListener("change", sync);
+    return () => media.removeEventListener("change", sync);
+  }, []);
+
+  useEffect(() => {
+    if (mobileBlocked) router.replace("/vendas");
+  }, [mobileBlocked, router]);
+
+  if (mobileBlocked !== false) {
+    return (
+      <main className={styles.mobileAtendimentoRedirect} aria-live="polite">
+        <div>
+          <span>HBX Mobile</span>
+          <strong>Abrindo Vendas</strong>
+        </div>
+      </main>
+    );
+  }
+
+  return <InboxDesktopClientPage />;
+}
+
+function InboxDesktopClientPage() {
   const hasToken = useRequireModule("atendimento");
   const router = useRouter();
   const pathname = usePathname();

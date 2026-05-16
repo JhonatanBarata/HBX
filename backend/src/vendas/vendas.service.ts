@@ -268,9 +268,9 @@ export class VendasService {
     return this.inboxService.getAgendaConfig(user);
   }
 
-  async getDailyUsageSnapshotForUser(user: any) {
+  async getUsageSnapshotForUser(user: any) {
     const { companyId, userId } = this.resolveUserContext(user);
-    return this.commercialUsageLimits.getDailyUsageSnapshot(companyId, userId);
+    return this.commercialUsageLimits.getUsageSnapshot(companyId, userId);
   }
 
   async getPendingVendasCardCountForCompany(companyId: number) {
@@ -3393,6 +3393,23 @@ export class VendasService {
         });
         continue;
       }
+      const explicitQuality = this.extractLeadQualityFromImportItem(item);
+      const blockedByExplicitQuality = explicitQuality?.billable === false ||
+        (explicitQuality?.status && explicitQuality.status !== 'approved');
+      if (blockedByExplicitQuality) {
+        skippedByQualityCount += 1;
+        skippedByFilterCount += 1;
+        if (explicitQuality?.status === 'segment_mismatch') skippedBySegmentMismatchCount += 1;
+        if (explicitQuality?.status === 'generic_directory') skippedGenericDirectoryCount += 1;
+        if (explicitQuality?.status === 'weak_contact') skippedWeakContactCount += 1;
+        if (explicitQuality?.status === 'invalid') skippedInvalidQualityCount += 1;
+        failedImports.push({
+          name: itemName,
+          phone: itemPhone || itemPhoneDigits,
+          error: 'Lead descartado pela qualidade minima do segmento. Descartados nao consomem limite.',
+        });
+        continue;
+      }
       const qualityV2 = this.extractLeadQualityV2FromImportItem(item) || calculateLeadQualityV2({
         lead: item,
         enrichment: (item as any)?.enrichmentJson || {},
@@ -3433,7 +3450,7 @@ export class VendasService {
         });
         continue;
       }
-      const quality = qualityV2 ? null : this.extractLeadQualityFromImportItem(item);
+      const quality = qualityV2 ? null : explicitQuality;
       const blockedByQuality = !qualityV2 && (quality?.billable === false || (quality?.status && quality.status !== 'approved'));
       if (blockedByQuality) {
         skippedByQualityCount += 1;
@@ -3464,18 +3481,22 @@ export class VendasService {
         if (!duplicateInCompany) {
           const usageSnapshot = await this.commercialUsageLimits.assertCanImportCard(context.companyId, context.userId);
           const companyRemaining = Number((usageSnapshot as any)?.cards?.remaining);
+          const dailyRemaining = Number((usageSnapshot as any)?.cards?.dailyRemaining);
           const perUserLimit = (usageSnapshot as any)?.cards?.perUserLimit;
           const userRemaining =
             perUserLimit != null
               ? Number((usageSnapshot as any)?.cards?.userLimit || 0) - Number((usageSnapshot as any)?.cards?.userUsed || 0)
               : companyRemaining;
           const effectiveRemaining = Math.min(
-            ...[companyRemaining, userRemaining].filter((value) => Number.isFinite(value)),
+            ...[companyRemaining, dailyRemaining, userRemaining].filter((value) => Number.isFinite(value)),
           );
           if (Number.isFinite(effectiveRemaining) && pendingQuotaReservations >= effectiveRemaining) {
+            const monthlyBlocked = Number.isFinite(companyRemaining) && pendingQuotaReservations >= companyRemaining;
             throw new ConflictException({
-              code: 'DAILY_CARD_LIMIT_REACHED',
-              message: 'Limite diário atingido. O contador reinicia às 00:00.',
+              code: monthlyBlocked ? 'MONTHLY_CARD_LIMIT_REACHED' : 'DAILY_CARD_SAFETY_LIMIT_REACHED',
+              message: monthlyBlocked
+                ? 'Limite mensal de cards atingido. O contador reinicia no próximo ciclo mensal.'
+                : 'Trava diária de segurança atingida. O limite mensal continua o mesmo; tente novamente após 00:00.',
               usage: usageSnapshot,
             });
           }

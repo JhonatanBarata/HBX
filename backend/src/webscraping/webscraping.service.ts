@@ -294,8 +294,28 @@ type HbxEngineSearchOutput = {
   message: string | null;
   httpStatus: number | null;
   rawErrorMessage: string | null;
+  urlsDiscovered: number;
+  pagesFetched: number;
+  parsedContacts: number;
   rejectedCount: number;
   duplicateCount: number;
+};
+
+type RadarSearchRunMetrics = {
+  urlsDiscovered: number;
+  pagesFetched: number;
+  parsedContacts: number;
+  approvedContacts: number;
+  rejectedLowScore: number;
+  rejectedBlockedDomain: number;
+  rejectedInvalidPhone: number;
+  rejectedGenericName: number;
+  durationMs: number;
+  engineId: string | null;
+  engineIndex: number | null;
+  sourceEngine: string | null;
+  cacheHit: boolean;
+  status: string;
 };
 
 const SEGMENT_STOPWORDS = [
@@ -1282,6 +1302,11 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         'radar_database',
       );
       await this.recalculateSearchRunCounters(run.id);
+      await this.updateSearchRunMetrics(run.id, {
+        sourceEngine: 'radar_database',
+        cacheHit: true,
+        status: 'completed',
+      }).catch(() => null);
       await this.persistSearchRunHistoryIfPossible(run.id, normalized, context).catch(() => null);
 
       return {
@@ -2876,6 +2901,15 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       skipped: 0,
       invalid: 0,
     };
+    const metricIncrements: Partial<RadarSearchRunMetrics> = {
+      parsedContacts: 0,
+      approvedContacts: 0,
+      rejectedLowScore: 0,
+      rejectedBlockedDomain: 0,
+      rejectedInvalidPhone: 0,
+      rejectedGenericName: 0,
+    };
+    const sourceQualityRows: Array<{ domain: string; sourceEngine: string; status: WebscrapingSearchRunItemStatus }> = [];
     for (const [index, result] of results.entries()) {
       const classified = this.classifyRunItem(result, dedup, {
         runId,
@@ -2919,11 +2953,28 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
           rawJson,
         },
       });
+      metricIncrements.parsedContacts = safeInteger(metricIncrements.parsedContacts) + 1;
       if (finalStatus === 'found') counts.found += 1;
       else if (finalStatus === 'duplicate') counts.duplicate += 1;
       else if (finalStatus === 'invalid') counts.invalid += 1;
       else counts.skipped += 1;
+      if (finalStatus === 'found') {
+        metricIncrements.approvedContacts = safeInteger(metricIncrements.approvedContacts) + 1;
+      } else {
+        const metricKey = this.classifyRunRejectionMetric(finalStatus, duplicateReason);
+        (metricIncrements as any)[metricKey] = safeInteger((metricIncrements as any)[metricKey]) + 1;
+      }
+      const domain = getWebsiteHost(result.website);
+      if (domain) {
+        sourceQualityRows.push({
+          domain,
+          sourceEngine: String(result.source || source || '').trim() || 'unknown',
+          status: finalStatus,
+        });
+      }
     }
+    await this.recordSourceQualityFromRunItems(results, sourceQualityRows);
+    await this.updateSearchRunMetrics(runId, { increment: metricIncrements });
     return counts;
   }
 
@@ -2951,6 +3002,149 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       },
     });
     return { foundCount, duplicateCount, skippedCount };
+  }
+
+  private emptySearchRunMetrics(status = 'queued'): RadarSearchRunMetrics {
+    return {
+      urlsDiscovered: 0,
+      pagesFetched: 0,
+      parsedContacts: 0,
+      approvedContacts: 0,
+      rejectedLowScore: 0,
+      rejectedBlockedDomain: 0,
+      rejectedInvalidPhone: 0,
+      rejectedGenericName: 0,
+      durationMs: 0,
+      engineId: null,
+      engineIndex: null,
+      sourceEngine: null,
+      cacheHit: false,
+      status,
+    };
+  }
+
+  private parseSearchRunMetrics(value: unknown): RadarSearchRunMetrics {
+    const parsed = this.parseMaybeJsonObject(value);
+    const base = this.emptySearchRunMetrics(String(parsed?.status || 'queued'));
+    return {
+      ...base,
+      urlsDiscovered: safeInteger(parsed?.urlsDiscovered),
+      pagesFetched: safeInteger(parsed?.pagesFetched),
+      parsedContacts: safeInteger(parsed?.parsedContacts),
+      approvedContacts: safeInteger(parsed?.approvedContacts),
+      rejectedLowScore: safeInteger(parsed?.rejectedLowScore),
+      rejectedBlockedDomain: safeInteger(parsed?.rejectedBlockedDomain),
+      rejectedInvalidPhone: safeInteger(parsed?.rejectedInvalidPhone),
+      rejectedGenericName: safeInteger(parsed?.rejectedGenericName),
+      durationMs: safeInteger(parsed?.durationMs),
+      engineId: parsed?.engineId ? String(parsed.engineId) : null,
+      engineIndex: Number.isInteger(parsed?.engineIndex) ? Number(parsed.engineIndex) : null,
+      sourceEngine: parsed?.sourceEngine ? String(parsed.sourceEngine) : null,
+      cacheHit: Boolean(parsed?.cacheHit),
+      status: String(parsed?.status || base.status),
+    };
+  }
+
+  private classifyRunRejectionMetric(status: WebscrapingSearchRunItemStatus, reason?: string | null) {
+    const normalized = normalizeLookupValue(String(reason || ''));
+    if (status === 'invalid' || normalized.includes('telefone') || normalized.includes('phone')) return 'rejectedInvalidPhone';
+    if (normalized.includes('generico') || normalized.includes('generic') || normalized.includes('lista') || normalized.includes('diretorio')) return 'rejectedGenericName';
+    if (normalized.includes('blocked') || normalized.includes('bloque') || normalized.includes('opt-out') || normalized.includes('negative')) return 'rejectedBlockedDomain';
+    return 'rejectedLowScore';
+  }
+
+  private async updateSearchRunMetrics(runId: string, patch: Partial<RadarSearchRunMetrics> & { increment?: Partial<RadarSearchRunMetrics> }) {
+    try {
+      const delegate = (this.prisma as any).webscrapingSearchRun;
+      const current = await delegate.findUnique({
+        where: { id: runId },
+        select: { metricsJson: true, startedAt: true, finishedAt: true, status: true },
+      });
+      const metrics = this.parseSearchRunMetrics(current?.metricsJson);
+      for (const [key, value] of Object.entries(patch.increment || {})) {
+        if (typeof value === 'number') {
+          (metrics as any)[key] = safeInteger((metrics as any)[key]) + safeInteger(value);
+        }
+      }
+      const next: RadarSearchRunMetrics = {
+        ...metrics,
+        ...Object.fromEntries(Object.entries(patch).filter(([key]) => key !== 'increment')),
+      } as RadarSearchRunMetrics;
+      const startedAt = current?.startedAt instanceof Date ? current.startedAt.getTime() : 0;
+      const finishedAt = current?.finishedAt instanceof Date ? current.finishedAt.getTime() : Date.now();
+      if (!next.durationMs && startedAt) next.durationMs = Math.max(0, finishedAt - startedAt);
+      await delegate.update({
+        where: { id: runId },
+        data: { metricsJson: JSON.stringify(next) },
+      });
+      return next;
+    } catch (error: any) {
+      this.logger.warn(`[radar-metrics] falha ao atualizar metricas run=${runId}: ${String(error?.message || error)}`);
+      return null;
+    }
+  }
+
+  private buildSearchRunQualitySummary(run: any, deliveredCount: number) {
+    const metrics = this.parseSearchRunMetrics(run?.metricsJson);
+    const rejected = safeInteger(metrics.rejectedLowScore)
+      + safeInteger(metrics.rejectedBlockedDomain)
+      + safeInteger(metrics.rejectedInvalidPhone)
+      + safeInteger(metrics.rejectedGenericName)
+      + safeInteger(run?.skippedCount);
+    const durationMs = metrics.durationMs || (
+      run?.startedAt instanceof Date
+        ? Math.max(0, (run?.finishedAt instanceof Date ? run.finishedAt.getTime() : Date.now()) - run.startedAt.getTime())
+        : 0
+    );
+    return {
+      found: Math.max(deliveredCount, safeInteger(run?.foundCount)),
+      approved: deliveredCount,
+      rejected,
+      discarded: rejected,
+      durationMs,
+      label: `${deliveredCount} cards aprovados${rejected > 0 ? ` • ${rejected} descartados por baixa qualidade` : ''}`,
+    };
+  }
+
+  private async recordSourceQualityFromRunItems(
+    results: Array<Omit<WebscrapingContactResult, 'placeId'> & { placeId?: string | null }>,
+    classifiedRows: Array<{ domain: string; sourceEngine: string; status: WebscrapingSearchRunItemStatus }>,
+  ) {
+    void results;
+    const delegate = (this.prisma as any).webscrapingSourceQuality;
+    if (!delegate || !(await this.prisma.hasTable('WebscrapingSourceQuality').catch(() => false))) return;
+    const now = new Date();
+    const grouped = new Map<string, { domain: string; sourceEngine: string; discoveredCount: number; fetchedCount: number; approvedCount: number; rejectedCount: number }>();
+    for (const row of classifiedRows) {
+      if (!row.domain) continue;
+      const key = `${row.domain}|${row.sourceEngine}`;
+      const current = grouped.get(key) || {
+        domain: row.domain,
+        sourceEngine: row.sourceEngine,
+        discoveredCount: 0,
+        fetchedCount: 0,
+        approvedCount: 0,
+        rejectedCount: 0,
+      };
+      current.discoveredCount += 1;
+      current.fetchedCount += 1;
+      if (row.status === 'found') current.approvedCount += 1;
+      else current.rejectedCount += 1;
+      grouped.set(key, current);
+    }
+    await Promise.all(Array.from(grouped.values()).map((row) => delegate.upsert({
+      where: { domain_sourceEngine: { domain: row.domain, sourceEngine: row.sourceEngine } },
+      create: { ...row, lastSeenAt: now },
+      update: {
+        discoveredCount: { increment: row.discoveredCount },
+        fetchedCount: { increment: row.fetchedCount },
+        approvedCount: { increment: row.approvedCount },
+        rejectedCount: { increment: row.rejectedCount },
+        lastSeenAt: now,
+      },
+    }).catch((error: any) => {
+      this.logger.warn(`[radar-source-quality] falha ao registrar fonte=${row.domain}: ${String(error?.message || error)}`);
+    })));
   }
 
   private async persistSearchRunHistoryIfPossible(runId: string, normalized: NormalizedSearchInput, context: SearchExecutionContext) {
@@ -3287,6 +3481,17 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
           timeoutMs: this.getHbxBatchTimeoutMs(),
         },
       );
+      await this.updateSearchRunMetrics(runId, {
+        engineId: lease?.engineId || current.assignedEngineId || null,
+        engineIndex: lease?.engineIndex ?? current.assignedEngineIndex ?? null,
+        sourceEngine: 'hbx',
+        cacheHit: false,
+        status: 'running',
+        increment: {
+          urlsDiscovered: batchResponse.urlsDiscovered,
+          pagesFetched: batchResponse.pagesFetched,
+        },
+      });
       const incoming = Array.isArray(batchResponse.results) ? batchResponse.results : [];
       const savedCounts = await this.saveSearchRunResults(
         context,
@@ -6061,6 +6266,13 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     const progress = requestedQuantity > 0
       ? Math.min(100, Math.round((Math.max(deliveredCount, safeInteger(effectiveRun.foundCount)) / requestedQuantity) * 100))
       : 100;
+    const qualitySummary = this.buildSearchRunQualitySummary(effectiveRun, deliveredCount);
+    if (terminal) {
+      await this.updateSearchRunMetrics(effectiveRun.id, {
+        status,
+        durationMs: safeInteger(qualitySummary.durationMs),
+      }).catch(() => null);
+    }
 
     return {
       id: effectiveRun.id,
@@ -6097,6 +6309,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
           segment: filters.segment,
           targetType: filters.targetType,
         },
+        qualitySummary,
         whatsappCheck: whatsapp.meta,
       },
     };
@@ -6175,6 +6388,11 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         'radar_database',
       );
       await this.recalculateSearchRunCounters(run.id);
+      await this.updateSearchRunMetrics(run.id, {
+        sourceEngine: 'radar_database',
+        cacheHit: true,
+        status: completedFromDatabase ? 'completed' : 'queued',
+      }).catch(() => null);
       await this.autoImportRadarSearchRunToVendas(user, run.id).catch((error: any) => {
         this.logger.warn(`[radar-vendas] auto-import inicial ignorado run=${run.id}: ${String(error?.message || error)}`);
       });
@@ -12295,6 +12513,9 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
           : null,
       httpStatus: response.status,
       rawErrorMessage: errors.length > 0 ? errors.join('; ') : null,
+      urlsDiscovered: safeInteger(payload?.urlsDiscovered ?? payload?.urls_discovered ?? payload?.discoveredCount ?? items.length),
+      pagesFetched: safeInteger(payload?.pagesFetched ?? payload?.pages_fetched ?? payload?.fetchedCount ?? items.length),
+      parsedContacts: safeInteger(payload?.parsedContacts ?? payload?.parsed_contacts ?? items.length),
       rejectedCount,
       duplicateCount,
     };

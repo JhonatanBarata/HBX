@@ -103,11 +103,11 @@ test('parseHbxEngineUrls trims, removes trailing slashes, and uses four URLs by 
   );
 });
 
-test('parseHbxEngineUrls supports HBX_ENGINE_COUNT up to one hundred URLs', () => {
-  withHbxEngineCount('100', () => {
+test('parseHbxEngineUrls supports HBX_ENGINE_COUNT up to fifty URLs', () => {
+  withHbxEngineCount('50', () => {
     assert.deepEqual(
-      parseHbxEngineUrls(Array.from({ length: 101 }, (_, index) => `http://engine-${index + 1}:8001`)),
-      Array.from({ length: 100 }, (_, index) => `http://engine-${index + 1}:8001`),
+      parseHbxEngineUrls(Array.from({ length: 51 }, (_, index) => `http://engine-${index + 1}:8001`)),
+      Array.from({ length: 50 }, (_, index) => `http://engine-${index + 1}:8001`),
     );
   });
 });
@@ -119,13 +119,13 @@ test('parseHbxEngineUrls expands numbered URL template', () => {
   );
 });
 
-test('HBX_ENGINE_COUNT=100 accepts one hundred configured URLs', () => {
+test('HBX_ENGINE_COUNT=50 accepts fifty configured URLs', () => {
   assert.deepEqual(
     resolveConfiguredHbxEngineUrls({
-      HBX_ENGINE_COUNT: '100',
-      HBX_ENGINE_URLS: Array.from({ length: 100 }, (_, index) => `http://engine-${index + 1}:8001`).join(','),
+      HBX_ENGINE_COUNT: '50',
+      HBX_ENGINE_URLS: Array.from({ length: 50 }, (_, index) => `http://engine-${index + 1}:8001`).join(','),
     }),
-    Array.from({ length: 100 }, (_, index) => `http://engine-${index + 1}:8001`),
+    Array.from({ length: 50 }, (_, index) => `http://engine-${index + 1}:8001`),
   );
 });
 
@@ -171,15 +171,15 @@ test('resolveConfiguredHbxEngineUrls uses mass data engine URL sources before sc
 });
 
 test('resolveConfiguredHbxEngineUrls never returns localhost defaults in production', () => {
-  const dockerUrls = Array.from({ length: 20 }, (_, index) => `http://hbx-engine-${index + 1}:8001`);
+  const dockerUrls = Array.from({ length: 50 }, (_, index) => `http://hbx-engine-${index + 1}:8001`);
 
-  withHbxEngineCount('20', () => {
-    assert.deepEqual(resolveConfiguredHbxEngineUrls({ NODE_ENV: 'production', HBX_ENGINE_COUNT: '20' }), dockerUrls);
+  withHbxEngineCount('50', () => {
+    assert.deepEqual(resolveConfiguredHbxEngineUrls({ NODE_ENV: 'production', HBX_ENGINE_COUNT: '50' }), dockerUrls);
     assert.deepEqual(
       resolveConfiguredHbxEngineUrls({
         NODE_ENV: 'production',
-        HBX_ENGINE_COUNT: '20',
-        HBX_ENGINE_URLS: Array.from({ length: 20 }, (_, index) => `http://localhost:${8001 + index}`).join(','),
+        HBX_ENGINE_COUNT: '50',
+        HBX_ENGINE_URLS: Array.from({ length: 50 }, (_, index) => `http://localhost:${8001 + index}`).join(','),
       }),
       dockerUrls,
     );
@@ -190,7 +190,7 @@ test('resolveConfiguredHbxEngineUrls never returns localhost defaults in product
 
 test('invalid HBX_ENGINE_COUNT respects environment fallback', () => {
   assert.equal(getConfiguredHbxEngineCount({ NODE_ENV: 'development', HBX_ENGINE_COUNT: 'invalid' }), 4);
-  assert.equal(getConfiguredHbxEngineCount({ NODE_ENV: 'production', HBX_ENGINE_COUNT: 'invalid' }), 20);
+  assert.equal(getConfiguredHbxEngineCount({ NODE_ENV: 'production', HBX_ENGINE_COUNT: 'invalid' }), 50);
 
   withEnv({ NODE_ENV: 'development', HBX_ENGINE_COUNT: 'invalid' }, () => {
     assert.deepEqual(
@@ -200,9 +200,9 @@ test('invalid HBX_ENGINE_COUNT respects environment fallback', () => {
   });
 });
 
-test('HBX_ENGINE_COUNT=100 is accepted without the old twenty-engine clamp', () => {
-  assert.equal(getConfiguredHbxEngineCount({ NODE_ENV: 'production', HBX_ENGINE_COUNT: '100' }), 100);
-  assert.equal(buildLocalHbxEngineUrls(100).length, 100);
+test('HBX_ENGINE_COUNT=50 is accepted without the old twenty-engine clamp', () => {
+  assert.equal(getConfiguredHbxEngineCount({ NODE_ENV: 'production', HBX_ENGINE_COUNT: '50' }), 50);
+  assert.equal(buildLocalHbxEngineUrls(50).length, 50);
 });
 
 test('factory scheduler defaults to configured engine count in production when max is empty', () => {
@@ -360,7 +360,7 @@ test('factory scheduler keeps weekdays and weekends open all day', () => {
 
 test('HBX_ENGINE_MAX_COUNT can intentionally clamp engine count', () => {
   assert.equal(getConfiguredHbxEngineCount({ NODE_ENV: 'production', HBX_ENGINE_COUNT: '100', HBX_ENGINE_MAX_COUNT: '40' }), 40);
-  assert.equal(getConfiguredHbxEngineCount({ NODE_ENV: 'production', HBX_ENGINE_COUNT: '220' }), 200);
+  assert.equal(getConfiguredHbxEngineCount({ NODE_ENV: 'production', HBX_ENGINE_COUNT: '220' }), 50);
 });
 
 function createPoolForCapacity(input: {

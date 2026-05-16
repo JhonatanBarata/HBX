@@ -230,22 +230,24 @@ const MERCADO_PAGO_BRICK_CONTAINER_ID = "mp-card-payment-brick";
 const MERCADO_PAGO_BRICK_MAX_ATTEMPTS = 3;
 const MERCADO_PAGO_SDK_WAIT_MS = 22000;
 const MERCADO_PAGO_BRICK_READY_WAIT_MS = 24000;
+const HBX_SUPPORT_PHONE = "5519997024884";
+const HBX_FULL_SUPPORT_MESSAGE = "Olá, quero falar com a HBX sobre implantação assistida do HBX Full.";
 
 const PLAN_CATALOG: Record<PlanKey, { title: string; monthly: number; includes: string[] }> = {
   hbx_lite: {
     title: "HBX List",
     monthly: 39.9,
-    includes: ["Leads/cards simples", "Telefone/site básico", "WhatsApp externo"],
+    includes: ["Cards simples", "Telefone, cidade e segmento", "Site básico", "WhatsApp externo"],
   },
   hbx_padrao: {
     title: "HBX Lead",
     monthly: 99.9,
-    includes: ["Leads inteligentes", "WhatsApp verificado", "Canal, motivo e mensagem"],
+    includes: ["Cards inteligentes", "WhatsApp verificado", "Score, motivo, canal e mensagem"],
   },
   hbx_melhor: {
-    title: "HBX Full — Bot e IA",
+    title: "HBX Full — implantação assistida",
     monthly: 149.9,
-    includes: ["Tudo do HBX Lead", "Bot IA liberado", "Automação completa"],
+    includes: ["Bot e automação", "Atendimento completo", "Configuração com a HBX"],
   },
 };
 
@@ -345,6 +347,25 @@ function planCycleAmount(planKey: PlanKey, billingCycle: BillingCycle) {
   const monthly = PLAN_CATALOG[planKey].monthly;
   if (billingCycle === "ANNUAL") return Number((monthly * 12 * 0.9).toFixed(2));
   return Number(monthly.toFixed(2));
+}
+
+function planMobileDescription(planKey: PlanKey) {
+  if (planKey === "hbx_lite") {
+    return "Cards simples, telefone, cidade, segmento, site básico e WhatsApp externo.";
+  }
+  if (planKey === "hbx_melhor") {
+    return "Bot, automação e atendimento completo exigem configuração com a HBX.";
+  }
+  return "Cards inteligentes, WhatsApp verificado, score, motivo, canal e mensagem.";
+}
+
+function openHbxFullSupport() {
+  if (typeof window === "undefined") return;
+  window.open(
+    `https://wa.me/${HBX_SUPPORT_PHONE}?text=${encodeURIComponent(HBX_FULL_SUPPORT_MESSAGE)}`,
+    "_blank",
+    "noopener,noreferrer",
+  );
 }
 
 function subscriptionLabel(value?: string | null) {
@@ -545,7 +566,7 @@ export default function FinanceiroClientPage() {
   const [overview, setOverview] = useState<FinanceiroOverview | null>(null);
   const [billingCycle, setBillingCycle] = useState<BillingCycle>("MONTHLY");
   const [checkoutPaymentMethod, setCheckoutPaymentMethod] = useState<CheckoutPaymentMethod>("CARD");
-  const [selectedPlanKey, setSelectedPlanKey] = useState<PlanKey>("hbx_melhor");
+  const [selectedPlanKey, setSelectedPlanKey] = useState<PlanKey>("hbx_padrao");
   const [contactName, setContactName] = useState("");
   const [contactPhone, setContactPhone] = useState("");
   const [payerTaxDocument, setPayerTaxDocument] = useState("");
@@ -573,6 +594,7 @@ export default function FinanceiroClientPage() {
   const checkoutMode = Boolean(overview && canManageBilling && (forceCheckout || isPendingCheckout(overview, reason)));
   const shouldRenderBrick = Boolean(overview && canManageBilling && !isMockPayments && publicKey && ((checkoutMode && checkoutPaymentMethod === "CARD") || showCardUpdate));
   const plan = PLAN_CATALOG[selectedPlanKey];
+  const selectedPlanIsAssisted = selectedPlanKey === "hbx_melhor";
   const total = planCycleAmount(selectedPlanKey, billingCycle);
   const monthlyTotal = planCycleAmount(selectedPlanKey, "MONTHLY");
   const annualTotal = planCycleAmount(selectedPlanKey, "ANNUAL");
@@ -693,6 +715,9 @@ export default function FinanceiroClientPage() {
   const executeSubscription = useCallback(async (cardFormData: MercadoPagoBrickFormData, profile: PaymentProfile) => {
     const context = checkoutSubmissionRef.current;
     if (!context) throw new Error("Checkout ainda não está pronto. Tente novamente.");
+    if (context.selectedPlanKey === "hbx_melhor") {
+      throw new Error("HBX Full exige implantação assistida com a HBX.");
+    }
     const cardTokenId = extractBrickToken(cardFormData);
     const email = extractBrickEmail(cardFormData, profile.payerEmail || context.payerEmail);
     if (!cardTokenId) throw new Error("Mercado Pago não retornou token do cartão.");
@@ -857,6 +882,9 @@ export default function FinanceiroClientPage() {
   const executeOneOffCheckout = useCallback(async (paymentMethod: Exclude<CheckoutPaymentMethod, "CARD">, profile: PaymentProfile) => {
     const context = checkoutSubmissionRef.current;
     if (!context) throw new Error("Checkout ainda não está pronto. Tente novamente.");
+    if (context.selectedPlanKey === "hbx_melhor") {
+      throw new Error("HBX Full exige implantação assistida com a HBX.");
+    }
     const savingKey = paymentMethod === "PIX" ? "checkout-pix" : "checkout-boleto";
     setSaving(savingKey);
     setError(null);
@@ -1173,7 +1201,51 @@ export default function FinanceiroClientPage() {
         : "Após compensação do boleto";
   const changePlanHref = "/planos?mode=pending_checkout&reason=change_plan";
 
-  const checkout = (
+  const assistedCheckout = (
+    <div className={`${styles.page} ${styles.checkoutPage}`}>
+      <section className={styles.checkoutShell}>
+        <article className={styles.checkoutMain}>
+          <div className={styles.checkoutHero}>
+            <div className={styles.checkoutLogo} aria-hidden="true">HBX</div>
+            <div>
+              <span className={styles.eyebrow}>Venda assistida</span>
+              <h1 className={styles.checkoutTitle}>HBX Full — implantação assistida</h1>
+              <p className={styles.heroText}>Bot, automação e atendimento completo exigem configuração com a HBX.</p>
+            </div>
+          </div>
+          <div className={styles.checkoutFactsGrid} aria-label="Implantação HBX Full">
+            <div>
+              <span>Plano</span>
+              <strong>HBX Full</strong>
+              <small>Automação completa</small>
+            </div>
+            <div>
+              <span>Modelo</span>
+              <strong>Assistido</strong>
+              <small>Configuração HBX</small>
+            </div>
+            <div>
+              <span>Próximo passo</span>
+              <strong>Falar com HBX</strong>
+              <small>Sem compra automática</small>
+            </div>
+          </div>
+          <div className={styles.alternativePaymentPanel}>
+            <div>
+              <strong>Falar com HBX</strong>
+              <p>Vamos configurar bot, automação e atendimento completo com segurança.</p>
+            </div>
+            <button type="button" className="btn btn-primary" onClick={openHbxFullSupport}>
+              Falar com HBX
+            </button>
+          </div>
+          <Link href="/planos" className={styles.changePlanButton}>Voltar aos planos List e Lead</Link>
+        </article>
+      </section>
+    </div>
+  );
+
+  const checkout = selectedPlanIsAssisted ? assistedCheckout : (
     <div className={`${styles.page} ${styles.checkoutPage}`}>
       <Script src="https://sdk.mercadopago.com/js/v2" strategy="afterInteractive" onLoad={() => setMpScriptReady(true)} />
       {error ? <section className={styles.errorCard}>{error}</section> : null}
@@ -1187,9 +1259,15 @@ export default function FinanceiroClientPage() {
                 <div className={styles.checkoutLogo} aria-hidden="true">HBX</div>
                 <div>
                   <span className={styles.eyebrow}>Checkout seguro</span>
-                  <h1 className={styles.checkoutTitle}>Pagamento HBX</h1>
-                  <p className={styles.heroText}>Escolha o ciclo e conclua pelo Mercado Pago.</p>
+                  <h1 className={styles.checkoutTitle}>Contratar {plan.title}</h1>
+                  <p className={styles.heroText}>{planMobileDescription(selectedPlanKey)}</p>
                 </div>
+              </div>
+
+              <div className={styles.checkoutStepper} aria-label="Etapas do checkout">
+                <span data-state="done"><b>1</b><strong>Plano</strong><small>{plan.title}</small></span>
+                <span data-state="current"><b>2</b><strong>Dados</strong><small>Contato e CPF/CNPJ</small></span>
+                <span><b>3</b><strong>Pagamento</strong><small>Pix ou cartão</small></span>
               </div>
 
               <section className={styles.checkoutSection}>
@@ -1217,6 +1295,7 @@ export default function FinanceiroClientPage() {
                 <div>
                   <span>Plano</span>
                   <strong>{plan.title}</strong>
+                  <small>{planMobileDescription(selectedPlanKey)}</small>
                   <Link href={changePlanHref} className={styles.changePlanButton}>Trocar plano</Link>
                 </div>
                 <div>

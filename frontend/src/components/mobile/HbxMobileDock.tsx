@@ -7,7 +7,6 @@ import { apiFetch, clearToken } from "@/app/_lib/api";
 import { useInterfaceTransition } from "@/components/InterfaceTransitionProvider";
 
 const MOBILE_THEME_KEY = "hbx-mobile-theme";
-const SETTINGS_PATH = "/boasvindas";
 
 type MobileTheme = "light" | "dark";
 
@@ -283,43 +282,33 @@ export default function HbxMobileDock({
             onClick={(event) => event.stopPropagation()}
           >
             <span className="hbx-mobile-sheet-handle" aria-hidden="true" />
-            {onConta ? (
-              <button
-                type="button"
-                className="hbx-mobile-sheet-item"
-                onClick={() => {
-                  setMenuOpen(false);
-                  onConta();
-                }}
-              >
-                <DockIcon name="account" />
-                <span>Conta</span>
-              </button>
-            ) : null}
-            <button type="button" className="hbx-mobile-sheet-item" onClick={() => navigate("/atendimento")}>
-              <DockIcon name="support" />
-              <span>Atendimento</span>
+            <button
+              type="button"
+              className="hbx-mobile-sheet-item"
+              onClick={() => {
+                setMenuOpen(false);
+                if (onConta) onConta();
+                else navigate("/vendas?mobileSheet=account");
+              }}
+            >
+              <DockIcon name="account" />
+              <span>Conta</span>
             </button>
             <button type="button" className="hbx-mobile-sheet-item" onClick={() => navigate("/tutorial")}>
               <DockIcon name="tutorial" />
               <span>Tutorial</span>
             </button>
-            {onRelatorio ? (
-              <button
-                type="button"
-                className="hbx-mobile-sheet-item"
-                onClick={() => {
-                  setMenuOpen(false);
-                  onRelatorio();
-                }}
-              >
-                <DockIcon name="report" />
-                <span>Relatório</span>
-              </button>
-            ) : null}
-            <button type="button" className="hbx-mobile-sheet-item" onClick={() => navigate(SETTINGS_PATH)}>
-              <DockIcon name="settings" />
-              <span>Configurações</span>
+            <button
+              type="button"
+              className="hbx-mobile-sheet-item"
+              onClick={() => {
+                setMenuOpen(false);
+                if (onRelatorio) onRelatorio();
+                else navigate("/vendas?mobileSection=report");
+              }}
+            >
+              <DockIcon name="report" />
+              <span>Relatório</span>
             </button>
             <button
               type="button"

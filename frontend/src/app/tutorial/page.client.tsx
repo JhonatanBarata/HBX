@@ -16,7 +16,7 @@ import {
   type AtendimentoBotConfig,
   type AtendimentoBotType,
 } from "@/app/atendimento/inbox-model";
-import type { CommercialPlansPayload } from "@/lib/commercial-plans";
+import { getCommercialPlanTitle, type CommercialPlansPayload } from "@/lib/commercial-plans";
 import { mergeThemeConfigChain, playThemeWaveTransition, type HbxThemeSelection } from "@/lib/design-tokens";
 import { normalizeUserModuleKey, type UserModule } from "@/lib/hbx-modules";
 import {
@@ -67,6 +67,7 @@ type SimpleOnboardingSignals = {
 };
 
 const TUTORIAL_COMPLETED_KEY = "hbx:onboarding:tutorial-completed:v1";
+const MOBILE_PREFERRED_CALLER_NAME_KEY = "hbx.vendas.mobile.preferredCallerName.v1";
 const STEP_TRANSITION_MS = 760;
 const TUTORIAL_STEP_ORDER: TutorialStep[] = [
   "theme",
@@ -117,6 +118,18 @@ function getNextThemeId(themeId: HbxThemeId) {
 function tutorialStepPage(step: TutorialStep) {
   const index = stepIndex(step);
   return index >= 0 && index < 6 ? index + 1 : null;
+}
+
+function readMobileTutorialName() {
+  if (typeof window === "undefined") return "";
+  return String(window.localStorage.getItem(MOBILE_PREFERRED_CALLER_NAME_KEY) || "").trim();
+}
+
+function saveMobileTutorialName(value: string) {
+  if (typeof window === "undefined") return;
+  const trimmed = String(value || "").trim();
+  if (trimmed) window.localStorage.setItem(MOBILE_PREFERRED_CALLER_NAME_KEY, trimmed);
+  else window.localStorage.removeItem(MOBILE_PREFERRED_CALLER_NAME_KEY);
 }
 
 type BotSetupDraft = {
@@ -603,6 +616,14 @@ export default function TutorialClientPage() {
     conversations: 0,
     pendingHuman: 0,
   });
+  const [mobileTutorialStep, setMobileTutorialStep] = useState(0);
+  const [tutorialName, setTutorialName] = useState("");
+  const [tutorialOffer, setTutorialOffer] = useState("Sistema/serviço comercial");
+  const [tutorialAudience, setTutorialAudience] = useState<string[]>(["comércios locais"]);
+  const [tutorialAvoid, setTutorialAvoid] = useState<string[]>(["órgão público"]);
+  const [tutorialChannel, setTutorialChannel] = useState("whatsapp");
+  const [tutorialWeekly, setTutorialWeekly] = useState(false);
+  const [tutorialSavingProfile, setTutorialSavingProfile] = useState(false);
   const botStartAppliedRef = useRef(false);
   const previousQrConnectedRef = useRef<boolean | null>(null);
 
@@ -687,6 +708,12 @@ export default function TutorialClientPage() {
   useEffect(() => {
     if (hasToken === true) void loadTutorialData();
   }, [hasToken, loadTutorialData]);
+
+  useEffect(() => {
+    if (hasToken !== true) return;
+    const storedName = readMobileTutorialName();
+    setTutorialName(storedName || plans?.current.contactName || "");
+  }, [hasToken, plans?.current.contactName]);
 
   useEffect(() => {
     if (loading || botStartAppliedRef.current) return;
@@ -825,22 +852,54 @@ export default function TutorialClientPage() {
     router.push("/radar-digital");
   }
 
-  function resolveSimpleOnboardingDestination() {
-    if (!whatsappConnected) return "/whatsapp?focus=qr&from=onboarding&next=/radar-digital";
-    if (simpleSignals.conversations > 0 || simpleSignals.pendingHuman > 0) return "/atendimento";
-    if (simpleSignals.vendasTotal > 0 || simpleSignals.vendasPending > 0) {
-      return "/vendas";
-    }
-    return "/radar-digital";
-  }
-
-  function startSimpleOnboarding() {
+  function finishMobileTutorial(destination = "/radar-digital") {
+    saveMobileTutorialName(tutorialName);
     window.localStorage.setItem(TUTORIAL_COMPLETED_KEY, "true");
-    router.push(resolveSimpleOnboardingDestination());
+    router.push(destination);
   }
 
-  function openAdvancedTutorial() {
-    router.push("/tutorial?mode=advanced");
+  function toggleTutorialChip(value: string, setter: (next: string[]) => void, current: string[]) {
+    setter(current.includes(value) ? current.filter((item) => item !== value) : [...current, value]);
+  }
+
+  async function saveMobileTutorialProfile() {
+    if (tutorialSavingProfile) return;
+    saveMobileTutorialName(tutorialName);
+    setTutorialSavingProfile(true);
+    try {
+      await apiFetch("/vendas/sales-profile", {
+        method: "PATCH",
+        body: JSON.stringify({
+          whatDoYouSell: tutorialOffer || "Sistema/serviço comercial",
+          offerCategory: tutorialOffer || "Sistema/serviço comercial",
+          targetAudience: { labels: tutorialAudience.length ? tutorialAudience : ["comércios locais"] },
+          targetSegments: { labels: [] },
+          avoidSegments: { labels: tutorialAvoid },
+          preferredChannels: [tutorialChannel],
+          leadPreferences: {
+            preferSmallBusiness: true,
+            preferNoWebsite: true,
+            preferInstagram: tutorialChannel === "instagram",
+            preferWhatsapp: tutorialChannel === "whatsapp",
+            preferHighReviews: true,
+            preferLocalBusiness: true,
+          },
+          negativeRules: {
+            avoidPublicSector: tutorialAvoid.some((item) => /órgão|orgao/i.test(item)),
+            avoidLargeCompanies: tutorialAvoid.some((item) => /grande/i.test(item)),
+            avoidDirectories: tutorialAvoid.some((item) => /diretório|diretorio|lista/i.test(item)),
+            avoidNoPhone: tutorialAvoid.some((item) => /sem telefone/i.test(item)),
+            avoidNoWhatsapp: tutorialAvoid.some((item) => /sem whatsapp/i.test(item)),
+            avoidOutOfCity: tutorialAvoid.some((item) => /fora da cidade/i.test(item)),
+          },
+          weeklyAutoUpdateEnabled: tutorialWeekly,
+        }),
+      });
+    } catch {
+      // O tutorial continua mesmo se o perfil ainda não puder ser salvo.
+    } finally {
+      setTutorialSavingProfile(false);
+    }
   }
 
   function goToPlans() {
@@ -1004,48 +1063,272 @@ export default function TutorialClientPage() {
   if (!hasToken) return null;
 
   if (!advancedTutorial) {
+    const currentPlanKey = plans?.current.selectedPlanKey || plans?.current.planKey || null;
+    const currentPlanTitle = getCommercialPlanTitle(currentPlanKey);
+    const accountFacts = [
+      { label: "Plano", value: currentPlanTitle },
+      { label: "Pagamento", value: plans?.current.paymentStatus || "Pendente" },
+    ];
+    const mobileSlides = [
+      {
+        key: "welcome",
+        eyebrow: "Boas-vindas",
+        title: "Vamos deixar tudo pronto.",
+        text: "Nome, perfil, Radar e Vendas. Só o necessário para começar bem.",
+      },
+      {
+        key: "account",
+        eyebrow: "Conta",
+        title: "Conta simples.",
+        text: "Confirme como quer ser chamado e confira seu plano.",
+      },
+      {
+        key: "profile",
+        eyebrow: "Perfil",
+        title: "O HBX aprende seu alvo.",
+        text: "Diga o que vende, para quem vender e o que evitar.",
+      },
+      {
+        key: "radar",
+        eyebrow: "Radar Digital",
+        title: "Cidade, segmento, buscar.",
+        text: "O Radar separa cards úteis e descarta baixa qualidade.",
+      },
+      {
+        key: "vendas",
+        eyebrow: "Vendas",
+        title: "Trabalhe os cards.",
+        text: "Card comum é direto. Card enriquecido mostra score, motivo e mensagem.",
+      },
+    ];
+    const currentSlide = mobileSlides[Math.max(0, Math.min(mobileTutorialStep, mobileSlides.length - 1))];
+    const isAccountSlide = currentSlide.key === "account";
+    const isProfileSlide = currentSlide.key === "profile";
+    const isRadarSlide = currentSlide.key === "radar";
+    const isVendasSlide = currentSlide.key === "vendas";
+
     return (
-      <main className={styles.page} data-theme-id={selection.themeId} data-theme-mode={selection.mode} data-tutorial-mode="simple">
-        <section className={`${styles.shell} ${styles.simpleShell}`} aria-labelledby="tutorial-simple-title">
-          <button type="button" className={styles.exitButton} onClick={exitTutorial}>
-            Sair
-          </button>
-          <div className={styles.topLine}>
-            <span className={styles.statusBadge}>Onboarding simples</span>
-            <span className={styles.progress}>4 passos</span>
-          </div>
-          <div className={styles.brandMark}>HBX</div>
-
-          <div className={styles.simpleHero}>
-            <p className={styles.simpleEyebrow}>Ativação comercial</p>
-            <h1 id="tutorial-simple-title" className={styles.title}>Comece vendendo sem configurar tudo agora.</h1>
-            <p className={styles.subtitle}>
-              Primeiro conecte o WhatsApp, busque leads no Radar Digital e comece a atender. Bot e ajustes técnicos ficam para depois.
-            </p>
-            <button type="button" className={styles.primaryAction} onClick={startSimpleOnboarding}>
-              Começar agora
-            </button>
+      <main className={styles.mobileTutorialPage} data-theme-id={selection.themeId} data-theme-mode={selection.mode} data-tutorial-mode="mobile">
+        <section className={styles.mobileTutorialShell} aria-labelledby="tutorial-mobile-title">
+          <div className={styles.mobileTutorialTopbar}>
+            <span>HBX Mobile</span>
           </div>
 
-          <SimpleOnboardingSteps
-            whatsappConnected={whatsappConnected}
-            hasLeads={simpleSignals.vendasTotal > 0 || simpleSignals.vendasPending > 0}
-            hasConversations={simpleSignals.conversations > 0 || simpleSignals.pendingHuman > 0}
-            botReady={botSetupComplete}
-          />
+          <div className={styles.mobileTutorialProgress} aria-label="Progresso do tutorial">
+            {mobileSlides.map((slide, index) => (
+              <span
+                key={slide.key}
+                data-active={index === mobileTutorialStep ? "true" : "false"}
+                aria-label={slide.eyebrow}
+              />
+            ))}
+          </div>
 
-          <div className={styles.simpleAdvancedRow}>
-            <span className={styles.simpleBotGuide} aria-hidden="true">
-              <i className={styles.simpleBotHead}>
-                <b />
-              </i>
-              <i className={styles.simpleBotBody} />
-              <i className={styles.simpleBotPointer} />
-            </span>
-            <span>Bot, Meta oficial, regras e ajustes técnicos são avançados.</span>
-            <button type="button" className={styles.ghostAction} onClick={openAdvancedTutorial}>
-              Abrir avançado
+          <article className={styles.mobileTutorialSlide} key={currentSlide.key}>
+            <div className={styles.mobileTutorialCopy}>
+              <span>{currentSlide.eyebrow}</span>
+              <h1 id="tutorial-mobile-title">{currentSlide.title}</h1>
+              <p>{currentSlide.text}</p>
+            </div>
+
+            <div className={styles.mobileTutorialPhone} data-slide={currentSlide.key}>
+              <span className={styles.mobileTutorialHandle} aria-hidden="true" />
+
+              {currentSlide.key === "welcome" ? (
+                <div className={styles.mobileTutorialWelcome}>
+                  <span className={styles.mobileTutorialPulseLogo}>HBX</span>
+                  <strong>Primeiro acesso</strong>
+                  <p>Configure a base uma vez. Depois é Radar e Vendas.</p>
+                  <div>
+                    <span>01</span>
+                    <b>Conta preenchida</b>
+                  </div>
+                  <div>
+                    <span>02</span>
+                    <b>Perfil de venda</b>
+                  </div>
+                  <div>
+                    <span>03</span>
+                    <b>Cards no Radar</b>
+                  </div>
+                </div>
+              ) : null}
+
+              {isAccountSlide ? (
+                <div className={styles.mobileTutorialAccount}>
+                  <div className={styles.mobileTutorialSheetHeader}>
+                    <strong>Conta</strong>
+                    <span>×</span>
+                  </div>
+                  <div className={styles.mobileTutorialAvatar}>{(tutorialName || plans?.current.contactName || "H").slice(0, 1).toUpperCase()}</div>
+                  <label>
+                    <span>Como quer ser chamado</span>
+                    <input
+                      value={tutorialName}
+                      onChange={(event) => setTutorialName(event.target.value)}
+                      placeholder="Ex.: Ana"
+                      maxLength={80}
+                    />
+                  </label>
+                  <button type="button" onClick={() => saveMobileTutorialName(tutorialName)}>Salvar</button>
+                  <div className={styles.mobileTutorialFacts}>
+                    {accountFacts.map((fact) => (
+                      <div key={fact.label}>
+                        <small>{fact.label}</small>
+                        <b>{fact.value}</b>
+                      </div>
+                    ))}
+                  </div>
+                  <p className={styles.mobileTutorialMiniText}>Configurações de venda ficam dentro da Conta.</p>
+                </div>
+              ) : null}
+
+              {isProfileSlide ? (
+                <div className={styles.mobileTutorialProfile}>
+                  <div className={styles.mobileTutorialProfileHero}>
+                    <small>Perfil ativo</small>
+                    <strong>{tutorialOffer || "Sistema/serviço comercial"}</strong>
+                    <span>O HBX usa isso para escolher melhores cards.</span>
+                  </div>
+                  <label>
+                    <span>O que você vende?</span>
+                    <input
+                      value={tutorialOffer}
+                      onChange={(event) => setTutorialOffer(event.target.value)}
+                      placeholder="Ex.: plano de saúde"
+                    />
+                  </label>
+                  <div className={styles.mobileTutorialChipBlock}>
+                    <strong>Para quem vender?</strong>
+                    {["idosos", "famílias", "empresas pequenas", "comércios locais", "profissionais autônomos", "clínicas"].map((item) => (
+                      <button
+                        type="button"
+                        key={item}
+                        data-active={tutorialAudience.includes(item) ? "true" : "false"}
+                        onClick={() => toggleTutorialChip(item, setTutorialAudience, tutorialAudience)}
+                      >
+                        {item}
+                      </button>
+                    ))}
+                  </div>
+                  <div className={styles.mobileTutorialChipBlock}>
+                    <strong>O que evitar?</strong>
+                    {["empresa grande", "órgão público", "sem telefone", "sem WhatsApp", "diretório/lista genérica", "fora da cidade"].map((item) => (
+                      <button
+                        type="button"
+                        key={item}
+                        data-active={tutorialAvoid.includes(item) ? "true" : "false"}
+                        onClick={() => toggleTutorialChip(item, setTutorialAvoid, tutorialAvoid)}
+                      >
+                        {item}
+                      </button>
+                    ))}
+                  </div>
+                  <div className={styles.mobileTutorialChannelRow}>
+                    {["whatsapp", "ligação", "e-mail", "instagram"].map((item) => (
+                      <button
+                        type="button"
+                        key={item}
+                        data-active={tutorialChannel === item ? "true" : "false"}
+                        onClick={() => setTutorialChannel(item)}
+                      >
+                        {item}
+                      </button>
+                    ))}
+                  </div>
+                  <label className={styles.mobileTutorialCheck}>
+                    <input
+                      type="checkbox"
+                      checked={tutorialWeekly}
+                      onChange={(event) => setTutorialWeekly(event.target.checked)}
+                    />
+                    <span>Deixar o HBX sugerir ajustes toda segunda-feira</span>
+                  </label>
+                  <button type="button" onClick={() => void saveMobileTutorialProfile()} disabled={tutorialSavingProfile}>
+                    {tutorialSavingProfile ? "Salvando..." : "Salvar perfil"}
+                  </button>
+                </div>
+              ) : null}
+
+              {isRadarSlide ? (
+                <div className={styles.mobileTutorialRadar}>
+                  <div className={styles.mobileTutorialRadarRoute}>
+                    <span>Cidade</span>
+                    <b>Campinas</b>
+                    <i />
+                    <span>Segmento</span>
+                    <b>Clínicas</b>
+                  </div>
+                  <button type="button">Buscar cards</button>
+                  <p>18 aprovados • 7 descartados por baixa qualidade</p>
+                  <div className={styles.mobileTutorialRadarFlow}>
+                    <span>Encontrados</span>
+                    <b>25</b>
+                    <span>Aprovados</span>
+                    <b>18</b>
+                    <span>Tempo</span>
+                    <b>42s</b>
+                  </div>
+                  <article className={styles.mobileTutorialCardMini} data-tone="smart">
+                    <small>Card enriquecido</small>
+                    <b>Clínica Horizonte</b>
+                    <span>Score 82 • Motivo claro • Mensagem pronta</span>
+                  </article>
+                </div>
+              ) : null}
+
+              {isVendasSlide ? (
+                <div className={styles.mobileTutorialVendas}>
+                  <strong>Vendas</strong>
+                  <div className={styles.mobileTutorialStats}>
+                    <span><b>{simpleSignals.vendasPending || 6}</b> hoje</span>
+                    <span><b>{simpleSignals.vendasTotal || 18}</b> cards</span>
+                  </div>
+                  <article className={styles.mobileTutorialLeadCard} data-kind="list">
+                    <small>HBX List</small>
+                    <b>Auto Peças Central</b>
+                    <span>telefone • cidade • segmento • site básico</span>
+                  </article>
+                  <article className={styles.mobileTutorialLeadCard} data-kind="lead">
+                    <small>HBX Lead</small>
+                    <b>Clínica Horizonte</b>
+                    <span>score • motivo • canal • mensagem</span>
+                  </article>
+                  <div className={styles.mobileTutorialActions}>
+                    <button type="button">Chamar</button>
+                    <button type="button">Retorno</button>
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          </article>
+
+          <div className={styles.mobileTutorialActionsBar}>
+            <button
+              type="button"
+              className={styles.mobileTutorialSecondary}
+              onClick={() => setMobileTutorialStep((current) => Math.max(0, current - 1))}
+              disabled={mobileTutorialStep === 0}
+            >
+              Voltar
             </button>
+            {mobileTutorialStep < mobileSlides.length - 1 ? (
+              <button
+                type="button"
+                className={styles.mobileTutorialPrimary}
+                onClick={() => {
+                  if (isAccountSlide) saveMobileTutorialName(tutorialName);
+                  if (isProfileSlide) void saveMobileTutorialProfile();
+                  setMobileTutorialStep((current) => Math.min(mobileSlides.length - 1, current + 1));
+                }}
+              >
+                Próximo
+              </button>
+            ) : (
+              <button type="button" className={styles.mobileTutorialPrimary} onClick={() => finishMobileTutorial("/radar-digital")}>
+                Abrir Radar
+              </button>
+            )}
           </div>
         </section>
       </main>
@@ -1483,59 +1766,6 @@ function FloatingTutorialPrints({ page }: { page: number }) {
           </span>
           <strong>{card.title}</strong>
           <small>{card.text}</small>
-        </article>
-      ))}
-    </div>
-  );
-}
-
-function SimpleOnboardingSteps({
-  whatsappConnected,
-  hasLeads,
-  hasConversations,
-  botReady,
-}: {
-  whatsappConnected: boolean;
-  hasLeads: boolean;
-  hasConversations: boolean;
-  botReady: boolean;
-}) {
-  const steps = [
-    {
-      number: "1",
-      title: "Conectar WhatsApp",
-      text: whatsappConnected ? "Canal conectado. Já pode receber e responder clientes." : "Entre pelo QR ou pela configuração disponível para sua conta.",
-      state: whatsappConnected ? "done" : "next",
-    },
-    {
-      number: "2",
-      title: "Buscar leads no Radar Digital",
-      text: hasLeads ? "Você já tem cards comerciais para trabalhar." : "Pesquise cidade e segmento, revise os cards e envie para Vendas.",
-      state: whatsappConnected ? (hasLeads ? "done" : "next") : "locked",
-    },
-    {
-      number: "3",
-      title: "Começar atendimento/prospecção",
-      text: hasConversations ? "Existem conversas ou pendências para tratar no Atendimento." : "Com leads prontos, siga para a fila comercial e fale com os contatos.",
-      state: hasConversations ? "done" : hasLeads ? "next" : "locked",
-    },
-    {
-      number: "4",
-      title: "Bot fica no Avançado",
-      text: botReady ? "Assistente configurado. Você pode revisar pelo Avançado." : "Opcional: não precisa configurar bot para começar a vender e atender.",
-      state: botReady ? "done" : "optional",
-    },
-  ];
-
-  return (
-    <div className={styles.simpleSteps} aria-label="Onboarding simples em 4 passos">
-      {steps.map((step) => (
-        <article key={step.number} className={styles.simpleStepCard} data-state={step.state}>
-          <span className={styles.simpleStepNumber}>{step.number}</span>
-          <div>
-            <strong>{step.title}</strong>
-            <p>{step.text}</p>
-          </div>
         </article>
       ))}
     </div>

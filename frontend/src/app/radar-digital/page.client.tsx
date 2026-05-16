@@ -110,6 +110,15 @@ type RadarEnrichmentSummary = {
   readyToCall?: number;
 };
 
+type RadarQualitySummary = {
+  found?: number;
+  approved?: number;
+  rejected?: number;
+  discarded?: number;
+  durationMs?: number | null;
+  label?: string | null;
+};
+
 type RadarPullResponse = {
   items: RadarLead[];
   code?: string;
@@ -166,6 +175,7 @@ type RadarSearchRunResponse = RadarPullResponse & {
       segment?: string | null;
       targetType?: HbxTargetTypeValue | string | null;
     };
+    qualitySummary?: RadarQualitySummary;
   };
 };
 
@@ -809,7 +819,10 @@ function compactRadarMessage(message: string | null) {
   const text = String(message || "").trim();
   if (!text) return "";
   if (text.toLowerCase().includes("cidade e segmento")) {
-    return "Escolha cidade e segmento para acionar motores. Para histórico, clique em Pesquisar sem filtros.";
+    return "Escolha cidade e segmento para buscar cards. Para histórico, clique em Pesquisar sem filtros.";
+  }
+  if (/nenhum|sem cards|no results|insufficient/i.test(text)) {
+    return "Não achei cards suficientes para esse filtro. Tente segmento mais amplo ou cidade próxima.";
   }
   return text;
 }
@@ -820,20 +833,23 @@ function radarFriendlyError(error: unknown) {
     return "Acesso ao Radar Digital indisponível para este usuário. Verifique a liberação do módulo.";
   }
   if (apiError?.code === "NO_ENGINE_AVAILABLE") {
-    return "Motores ocupados. O sistema manteve sua busca na fila.";
+    return "A busca entrou na fila. Tente novamente em instantes.";
   }
   if (apiError?.code === "RADAR_STOCK_EMPTY") {
-    return "Sem cards prontos para esse filtro. A reposição foi solicitada.";
+    return "Não achei cards suficientes para esse filtro. Tente segmento mais amplo ou cidade próxima.";
+  }
+  if (apiError?.code === "RADAR_NO_RESULTS") {
+    return "Não achei cards suficientes para esse filtro. Tente segmento mais amplo ou cidade próxima.";
   }
   if (apiError?.status && apiError.status >= 500) {
     return "Radar temporariamente indisponível. Tente novamente em instantes.";
   }
   const message = error instanceof Error ? error.message : "";
   if (/failed to fetch|networkerror|load failed/i.test(message)) {
-    return "Conexão instável com o Radar. A busca fica protegida no servidor; tente atualizar em instantes.";
+    return "Conexão instável com o Radar. Tente atualizar em instantes.";
   }
   if (/tempo esgotado|timeout/i.test(message)) {
-    return "A busca demorou mais que o esperado. O Radar continua protegendo a fila; tente novamente em instantes.";
+    return "A busca demorou mais que o esperado. Tente novamente em instantes.";
   }
   if (/internal server error|forbidden|unauthorized/i.test(message)) {
     return "Radar temporariamente indisponível. Tente novamente em instantes.";
@@ -894,7 +910,7 @@ function isTerminalRadarRun(status?: string | null) {
 }
 
 function mobileRadarEngineLabel(value: string) {
-  return value === "google" ? "Google" : "Motor HBX";
+  return value === "google" ? "Google" : "HBX";
 }
 
 type MobilePickerOption = {
@@ -1301,9 +1317,9 @@ function MobileEngineToggle({
   className?: string;
 }) {
   return (
-    <div className={`${styles.engineToggle} ${className || ""}`} role="group" aria-label="Motor de busca">
+    <div className={`${styles.engineToggle} ${className || ""}`} role="group" aria-label="Fonte de busca">
       {[
-        { value: "hbx" as HbxEngineValue, label: "Motor HBX" },
+        { value: "hbx" as HbxEngineValue, label: "HBX" },
         { value: "google" as HbxEngineValue, label: "Google" },
       ].map((option) => (
         <button
@@ -1400,6 +1416,7 @@ export default function RadarDigitalClientPage() {
     segments: [],
   });
   const [enrichmentSummary, setEnrichmentSummary] = useState<RadarEnrichmentSummary | null>(null);
+  const [qualitySummary, setQualitySummary] = useState<RadarQualitySummary | null>(null);
   const activeRunIdRef = useRef<string | null>(null);
   const mobileSearchNoticeRef = useRef<HTMLElement | null>(null);
   const filterEditingRef = useRef(false);
@@ -1448,6 +1465,15 @@ export default function RadarDigitalClientPage() {
   const activeRunProgress = activeRun
     ? Math.max(4, Math.min(100, Number(activeRun.meta?.progress || Math.round((activeRunDelivered / activeRunTarget) * 100))))
     : 0;
+  const mobileQualityLine = useMemo(() => {
+    const summary = qualitySummary || activeRun?.meta?.qualitySummary || null;
+    const approved = Math.max(0, Math.trunc(Number(summary?.approved ?? visibleItems.length)));
+    const rejected = Math.max(0, Math.trunc(Number(summary?.rejected ?? summary?.discarded ?? visibleEnrichmentSummary.discardedOrBlocked ?? 0)));
+    if (!hasSearched || (!approved && !rejected)) return "";
+    const parts = [`${approved.toLocaleString("pt-BR")} cards aprovados`];
+    if (rejected > 0) parts.push(`${rejected.toLocaleString("pt-BR")} descartados por baixa qualidade`);
+    return parts.join(" • ");
+  }, [activeRun?.meta?.qualitySummary, hasSearched, qualitySummary, visibleEnrichmentSummary.discardedOrBlocked, visibleItems.length]);
   const queryRadarLeadId = String(searchParams.get("radarLeadId") || "").trim();
 
   function setFilterEditing(active: boolean) {
@@ -1571,6 +1597,7 @@ export default function RadarDigitalClientPage() {
       setTotal(Number(payload.total || 0));
       setAvailableFilters(payload.meta?.availableFilters || { states: [], citiesByState: {}, segments: [] });
       setEnrichmentSummary(payload.meta?.enrichmentSummary || null);
+      if (!append) setQualitySummary(null);
       setPage(nextPage);
     } catch (err) {
       setError(radarFriendlyError(err));
@@ -1677,15 +1704,15 @@ export default function RadarDigitalClientPage() {
         phase: "loading",
         title: "Radar pesquisando agora",
         status: canPullWithFilters(effectiveFilters)
-          ? "Motores ligando: lendo banco, filtrando negativos e preparando cards elegíveis."
-          : "Listando histórico salvo do Radar sem acionar motor.",
+          ? "Buscando contatos, filtrando negativos e preparando cards elegíveis."
+          : "Listando histórico salvo do Radar.",
         progress: Math.max(18, telonProgress),
         steps: RADAR_PROGRESS_STEPS,
         activeStepIndex,
         cardFeed: realCardFeed,
         metrics: [
           { label: "Entregues", value: String(visibleItems.length) },
-          { label: "Motor", value: filters.engine === "google" ? "Google" : "HBX" },
+          { label: "Fonte", value: filters.engine === "google" ? "Google" : "HBX" },
           { label: "Tipo", value: effectiveFilters.targetType.toUpperCase() },
         ],
       });
@@ -1790,6 +1817,7 @@ export default function RadarDigitalClientPage() {
     setSearching(false);
     setFeedback(null);
     setError(null);
+    setQualitySummary(null);
     clearStoredRadarRun();
   }
 
@@ -1854,6 +1882,7 @@ export default function RadarDigitalClientPage() {
     setHasSearched(true);
     const nextProgress = Math.max(12, Math.min(100, Number(payload.meta?.progress || 0) || 12));
     setTelonProgress((current) => current === nextProgress ? current : nextProgress);
+    setQualitySummary(payload.meta?.qualitySummary || null);
     saveStoredRadarRun({
       runId,
       status: payload.status,
@@ -1964,7 +1993,7 @@ export default function RadarDigitalClientPage() {
       if (!canPullWithFilters(nextFilters)) {
         await loadCards(1, false, nextFilters);
         setFeedback(hasHistoryFilters(nextFilters, nextGeneralSearch)
-          ? "Histórico filtrado carregado sem acionar motor."
+          ? "Histórico filtrado carregado."
           : "Histórico do Radar carregado em lotes de 100.");
         return;
       }
@@ -2253,7 +2282,7 @@ export default function RadarDigitalClientPage() {
             <div className={styles.mobileRadarHeroCopy}>
               <strong>Radar Digital</strong>
               <p>Encontre cards com oportunidade real</p>
-              <small>{mobileRadarProcessing ? "Motor em varredura" : `Volume definido pelo plano: ${effectiveFilters.quantity}`}</small>
+              <small>{mobileRadarProcessing ? "Busca em andamento" : `Volume definido pelo plano: ${effectiveFilters.quantity}`}</small>
             </div>
             <div className={styles.mobileRadarHeroStat}>
               <span>Cidade</span>
@@ -2264,7 +2293,7 @@ export default function RadarDigitalClientPage() {
               <strong>{radarSegmentSummary(filters.segment) || "Definir"}</strong>
             </div>
             <div className={styles.mobileRadarHeroStat}>
-              <span>Motor atual</span>
+              <span>Fonte atual</span>
               <strong>{mobileRadarEngineLabel(filters.engine)}</strong>
             </div>
           </section>
@@ -2301,14 +2330,6 @@ export default function RadarDigitalClientPage() {
               helper={isRadarCategoryValue(filters.segment) ? "Categoria inteira selecionada." : "Escolha até 5 segmentos."}
               onClick={() => setMobilePicker("segment")}
             />
-
-            <div className={styles.mobileRadarEngineField}>
-              <span>Motor</span>
-              <MobileEngineToggle
-                value={filters.engine}
-                onChange={(value) => setFilters((current) => ({ ...current, engine: value }))}
-              />
-            </div>
 
             <button
               type="button"
@@ -2406,6 +2427,13 @@ export default function RadarDigitalClientPage() {
                   <button type="button" onClick={() => setMobileAdvancedOpen(false)}>Fechar</button>
                 </div>
                 <div className={styles.mobileAdvancedGrid}>
+                  <div>
+                    <span>Fonte de busca</span>
+                    <MobileEngineToggle
+                      value={filters.engine}
+                      onChange={(value) => setFilters((current) => ({ ...current, engine: value }))}
+                    />
+                  </div>
                   <label>
                     <span>DDD</span>
                     <input
@@ -2486,9 +2514,8 @@ export default function RadarDigitalClientPage() {
             </header>
             {hasSearched && showSmartLeadCards ? (
               <div className={styles.mobileEnrichmentSummary}>
-                <span><b>{Number(visibleEnrichmentSummary.cardsAnalyzed || 0).toLocaleString("pt-BR")}</b> analisados</span>
+                {mobileQualityLine ? <span>{mobileQualityLine}</span> : null}
                 <span><b>{Number(visibleEnrichmentSummary.whatsappVerified || 0).toLocaleString("pt-BR")}</b> WhatsApp verificado</span>
-                <span><b>{Number(visibleEnrichmentSummary.emailConfirmedOrProbable || 0).toLocaleString("pt-BR")}</b> e-mail pronto</span>
                 <span><b>{Number(visibleEnrichmentSummary.readyToCall || 0).toLocaleString("pt-BR")}</b> prontos para chamar</span>
               </div>
             ) : null}
@@ -2501,12 +2528,12 @@ export default function RadarDigitalClientPage() {
             ) : !hasSearched ? (
               <div className={`${styles.mobileRadarState} hbx-mobile-empty`}>
                 <strong>Pronto para buscar</strong>
-                <span>Escolha estado, cidade e segmento para ligar o motor.</span>
+                <span>Escolha estado, cidade e segmento para buscar cards.</span>
               </div>
             ) : !loading && !visibleItems.length ? (
               <div className={`${styles.mobileRadarState} hbx-mobile-empty`}>
-                <strong>Nenhum card encontrado ainda</strong>
-                <span>Tente ampliar o segmento ou trocar cidade para abrir mais oportunidades.</span>
+                <strong>Não achei cards suficientes para esse filtro</strong>
+                <span>Tente segmento mais amplo ou cidade próxima.</span>
               </div>
             ) : (
               <div className={styles.mobileRadarList}>
@@ -2603,7 +2630,7 @@ export default function RadarDigitalClientPage() {
             )}
           </section>
 
-          <HbxMobileDock primaryLabel="Buscar no Radar" onPrimaryAction={handleMobileDockPrimary} />
+          <HbxMobileDock primaryLabel="Buscar cards" onPrimaryAction={handleMobileDockPrimary} />
         </div>
 
         <header className={styles.header}>

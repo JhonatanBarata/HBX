@@ -33,6 +33,8 @@ export type CommercialPlan = {
   annualDiscountPercent?: number;
   quotas?: {
     googleSearchesPerDay?: number;
+    cardsPerMonth?: number;
+    dailyCardSafetyLimit?: number;
     cardsPerSearch?: number;
     searchesPerCycle?: number;
     totalCards?: number;

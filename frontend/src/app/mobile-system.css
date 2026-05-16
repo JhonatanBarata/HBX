@@ -607,6 +607,7 @@
   html[data-hbx-mobile-theme="dark"] [class*="mobileRadarForm"],
   html[data-hbx-mobile-theme="dark"] [class*="mobileRadarResults"],
   html[data-hbx-mobile-theme="dark"] [class*="mobileVendasCard"],
+  html[data-hbx-mobile-theme="dark"] [class*="mobileVendasReportGrid"] span,
   html[data-hbx-mobile-theme="dark"] [class*="mobileLeadDetailHero"],
   html[data-hbx-mobile-theme="dark"] [class*="mobileLeadObservationCard"],
   html[data-hbx-mobile-theme="dark"] [class*="mobileLeadReadyMessage"],
@@ -618,6 +619,7 @@
 
   html[data-hbx-mobile-theme="dark"] [class*="mobileRadar"] strong,
   html[data-hbx-mobile-theme="dark"] [class*="mobileVendas"] strong,
+  html[data-hbx-mobile-theme="dark"] [class*="mobileVendasReportGrid"] strong,
   html[data-hbx-mobile-theme="dark"] [class*="mobileLead"] strong,
   html[data-hbx-mobile-theme="dark"] [class*="mobileRadar"] dd {
     color: var(--hbx-mobile-text) !important;
