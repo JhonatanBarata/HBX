@@ -693,6 +693,13 @@ export class CommercialPlansService {
       });
     }
     const normalizedPlanKey = normalizeCommercialPlanKey(dto.planKey);
+    const isAssistedSetupPlan = normalizedPlanKey === COMMERCIAL_PLAN_KEYS.MELHOR;
+    if (isAssistedSetupPlan) {
+      throw new BadRequestException({
+        code: 'ASSISTED_SETUP_REQUIRED',
+        message: 'HBX Full exige implantação assistida. Fale com a HBX para configurar bot, automação e atendimento completo.',
+      });
+    }
 
     const updatedCompany = await this.prisma.$transaction(async (tx) => {
       const company = await tx.company.findUnique({
@@ -785,11 +792,11 @@ export class CommercialPlansService {
               paymentStatus: 'TRIAL',
               subscriptionStatus: 'trialing',
               premiumAccess: true,
-              assistedSetupRequired: normalizedPlanKey === COMMERCIAL_PLAN_KEYS.MELHOR,
-              assistedSetupStatus: normalizedPlanKey === COMMERCIAL_PLAN_KEYS.MELHOR ? 'pending' : 'not_required',
+              assistedSetupRequired: isAssistedSetupPlan,
+              assistedSetupStatus: isAssistedSetupPlan ? 'pending' : 'not_required',
               assistedSetupCompletedAt: null,
               assistedSetupCompletedByUserId: null,
-              assistedSetupNote: normalizedPlanKey === COMMERCIAL_PLAN_KEYS.MELHOR
+              assistedSetupNote: isAssistedSetupPlan
                 ? 'Implantação assistida pendente para liberar automação completa.'
                 : null,
               trialStartsAt: periodStart,
@@ -821,19 +828,19 @@ export class CommercialPlansService {
                 currentSubscriptionStatus === 'active' ||
                 currentSubscriptionStatus === 'trialing' ||
                 Boolean(company.premiumAccess),
-              assistedSetupRequired: normalizedPlanKey === COMMERCIAL_PLAN_KEYS.MELHOR,
+              assistedSetupRequired: isAssistedSetupPlan,
               assistedSetupStatus:
-                normalizedPlanKey === COMMERCIAL_PLAN_KEYS.MELHOR
+                isAssistedSetupPlan
                   ? String(company.assistedSetupStatus || '').trim().toLowerCase() === 'completed'
                     ? 'completed'
                     : 'pending'
                   : 'not_required',
               assistedSetupCompletedAt:
-                normalizedPlanKey === COMMERCIAL_PLAN_KEYS.MELHOR
+                isAssistedSetupPlan
                   ? company.assistedSetupCompletedAt
                   : null,
               assistedSetupCompletedByUserId:
-                normalizedPlanKey === COMMERCIAL_PLAN_KEYS.MELHOR
+                isAssistedSetupPlan
                   ? company.assistedSetupCompletedByUserId
                   : null,
               isActive:
@@ -864,8 +871,8 @@ export class CommercialPlansService {
               selectedPlanKey: normalizedPlanKey,
               selectedByUserId: context.userId,
               trialDays: selectedTrialDays,
-              requiresAssistedSetup: normalizedPlanKey === COMMERCIAL_PLAN_KEYS.MELHOR,
-              setupFeeMode: normalizedPlanKey === COMMERCIAL_PLAN_KEYS.MELHOR ? 'negotiated' : 'none',
+              requiresAssistedSetup: isAssistedSetupPlan,
+              setupFeeMode: isAssistedSetupPlan ? 'negotiated' : 'none',
             }),
           },
         });

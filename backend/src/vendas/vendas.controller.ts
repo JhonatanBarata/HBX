@@ -96,7 +96,7 @@ export class VendasController {
 
   @Get('usage')
   getUsage(@Req() req: any) {
-    return this.vendasService.getDailyUsageSnapshotForUser(req.user);
+    return this.vendasService.getUsageSnapshotForUser(req.user);
   }
 
   @Get('pending-summary')

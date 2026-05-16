@@ -20,6 +20,7 @@ function createService(overrides?: Partial<Record<string, any>>) {
     vendasLeadTimelineEvent: {
       findMany: async () => [],
       createMany: async () => ({ count: 0 }),
+      create: async () => ({}),
       ...(overrides?.vendasLeadTimelineEvent || {}),
     },
     companyConversation: {
@@ -31,6 +32,8 @@ function createService(overrides?: Partial<Record<string, any>>) {
       findUnique: async () => ({ selectedPlanKey: 'hbx_padrao' }),
       ...(overrides?.company || {}),
     },
+    hasTable: async () => false,
+    hasColumn: async () => false,
     ...(overrides?.prisma || {}),
   } as any;
 

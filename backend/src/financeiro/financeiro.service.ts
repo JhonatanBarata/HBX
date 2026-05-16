@@ -2790,6 +2790,12 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
     if (!company) throw new BadRequestException('Empresa nao encontrada.');
     const masterConfig = await getMasterGlobalIntegrationConfig(this.prisma);
     const selectedPlanKey = this.normalizeCommercialPlanKey(dto?.planKey || company.selectedPlanKey);
+    if (selectedPlanKey === COMMERCIAL_PLAN_KEYS.MELHOR) {
+      throw new BadRequestException({
+        code: 'ASSISTED_SETUP_REQUIRED',
+        message: 'HBX Full exige implantação assistida. Fale com a HBX para configurar bot, automação e atendimento completo.',
+      });
+    }
     const requestedBillingCycle =
       dto?.billingCycle !== undefined
         ? this.normalizeBillingCycle(dto.billingCycle)
@@ -3109,6 +3115,12 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
     const billingContactPhone = paymentProfile?.contactPhone || this.normalizeContactPhone(dto?.contactPhone) || this.normalizeContactPhone(company.contactPhone);
     const companyContactData = paymentProfile ? this.companyContactUpdateFromPaymentProfile(paymentProfile) : null;
     const plan = this.buildCommercialPlanProviderSnapshot(dto?.planKey || company.selectedPlanKey, dto?.billingCycle || 'ANNUAL');
+    if (plan.planKey === COMMERCIAL_PLAN_KEYS.MELHOR) {
+      throw new BadRequestException({
+        code: 'ASSISTED_SETUP_REQUIRED',
+        message: 'HBX Full exige implantação assistida. Fale com a HBX para configurar bot, automação e atendimento completo.',
+      });
+    }
     const payerEmail =
       this.normalizePayerEmail(dto?.payerEmail) ||
       this.normalizePayerEmail(company.contactEmail) ||

@@ -281,6 +281,1025 @@
   font-weight: 950;
 }
 
+.mobileTutorialPage {
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  background:
+    radial-gradient(circle at 78% 0%, rgba(45, 212, 191, 0.18), transparent 34%),
+    radial-gradient(circle at 18% 10%, rgba(37, 99, 235, 0.2), transparent 36%),
+    linear-gradient(180deg, #eef6ff 0%, #f7fbff 52%, #edf5ff 100%);
+  color: #0b1732;
+  overflow-x: hidden;
+}
+
+.mobileTutorialPage[data-theme-mode="dark"] {
+  background:
+    radial-gradient(circle at 78% 0%, rgba(45, 212, 191, 0.16), transparent 34%),
+    radial-gradient(circle at 18% 8%, rgba(37, 99, 235, 0.2), transparent 38%),
+    linear-gradient(180deg, #061222 0%, #08182c 54%, #050d19 100%);
+  color: #edf6ff;
+}
+
+.mobileTutorialShell {
+  width: min(430px, 100%);
+  min-height: min(812px, calc(100dvh - 36px));
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr) auto auto;
+  gap: 14px;
+}
+
+.mobileTutorialTopbar,
+.mobileTutorialProgress,
+.mobileTutorialActionsBar {
+  display: flex;
+  align-items: center;
+}
+
+.mobileTutorialTopbar {
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 0.78rem;
+  font-weight: 950;
+}
+
+.mobileTutorialTopbar span {
+  color: currentColor;
+  opacity: 0.78;
+}
+
+.mobileTutorialTopbar button,
+.mobileTutorialSkip,
+.mobileTutorialSecondary,
+.mobileTutorialPrimary {
+  border: 1px solid rgba(11, 102, 255, 0.18);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.74);
+  color: #0b1732;
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.mobileTutorialPage[data-theme-mode="dark"] .mobileTutorialTopbar button,
+.mobileTutorialPage[data-theme-mode="dark"] .mobileTutorialSkip,
+.mobileTutorialPage[data-theme-mode="dark"] .mobileTutorialSecondary {
+  border-color: rgba(125, 211, 252, 0.2);
+  background: rgba(226, 234, 248, 0.08);
+  color: #e7f0ff;
+}
+
+.mobileTutorialTopbar button {
+  min-height: 38px;
+  padding: 0 12px;
+}
+
+.mobileTutorialProgress {
+  justify-content: center;
+  gap: 8px;
+}
+
+.mobileTutorialProgress button,
+.mobileTutorialProgress span {
+  width: 34px;
+  height: 6px;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(30, 64, 175, 0.18);
+}
+
+.mobileTutorialProgress button[data-active="true"],
+.mobileTutorialProgress span[data-active="true"] {
+  background: linear-gradient(90deg, #0b66ff, #1cc8f5);
+}
+
+.mobileTutorialPage[data-theme-mode="dark"] .mobileTutorialProgress button,
+.mobileTutorialPage[data-theme-mode="dark"] .mobileTutorialProgress span {
+  background: rgba(226, 234, 248, 0.16);
+}
+
+.mobileTutorialSlide {
+  min-height: 0;
+  display: grid;
+  align-content: start;
+  gap: 16px;
+  animation: mobileTutorialIn 360ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+.mobileTutorialCopy {
+  display: grid;
+  gap: 8px;
+  text-align: left;
+}
+
+.mobileTutorialCopy span {
+  color: #0b66ff;
+  font-size: 0.72rem;
+  font-weight: 950;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.mobileTutorialPage[data-theme-mode="dark"] .mobileTutorialCopy span {
+  color: #7dd3fc;
+}
+
+.mobileTutorialCopy h1 {
+  margin: 0;
+  font-size: 2.15rem;
+  line-height: 0.96;
+  letter-spacing: 0;
+  font-weight: 950;
+}
+
+.mobileTutorialCopy p {
+  max-width: 34ch;
+  margin: 0;
+  color: #526589;
+  font-size: 0.98rem;
+  line-height: 1.42;
+  font-weight: 750;
+}
+
+.mobileTutorialPage[data-theme-mode="dark"] .mobileTutorialCopy p {
+  color: rgba(226, 234, 248, 0.78);
+}
+
+.mobileTutorialPhone {
+  position: relative;
+  min-height: 466px;
+  border: 1px solid rgba(11, 102, 255, 0.14);
+  border-radius: 30px;
+  padding: 24px 16px 16px;
+  background:
+    radial-gradient(circle at 84% 0%, rgba(45, 212, 191, 0.18), transparent 34%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(232, 243, 255, 0.96));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.9),
+    0 34px 74px -42px rgba(2, 16, 42, 0.52);
+  overflow: hidden;
+}
+
+.mobileTutorialPage[data-theme-mode="dark"] .mobileTutorialPhone {
+  border-color: rgba(125, 211, 252, 0.22);
+  background:
+    radial-gradient(circle at 84% 0%, rgba(45, 212, 191, 0.13), transparent 34%),
+    linear-gradient(180deg, rgba(9, 25, 48, 0.98), rgba(5, 14, 29, 0.98));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 34px 88px -42px rgba(0, 0, 0, 0.9);
+}
+
+.mobileTutorialHandle {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  width: 52px;
+  height: 4px;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.16);
+  transform: translateX(-50%);
+}
+
+.mobileTutorialPage[data-theme-mode="dark"] .mobileTutorialHandle {
+  background: rgba(226, 234, 248, 0.24);
+}
+
+.mobileTutorialWelcome,
+.mobileTutorialAccount,
+.mobileTutorialRadar,
+.mobileTutorialVendas {
+  display: grid;
+  gap: 12px;
+  color: inherit;
+}
+
+.mobileTutorialWelcome strong,
+.mobileTutorialRadar > strong,
+.mobileTutorialVendas > strong {
+  color: currentColor;
+  font-size: 1.35rem;
+  line-height: 1.02;
+  font-weight: 950;
+}
+
+.mobileTutorialWelcome p {
+  margin: 0;
+  color: #526589;
+  font-weight: 780;
+  line-height: 1.35;
+}
+
+.mobileTutorialPage[data-theme-mode="dark"] .mobileTutorialWelcome p {
+  color: rgba(226, 234, 248, 0.74);
+}
+
+.mobileTutorialWelcome div,
+.mobileTutorialRadar label,
+.mobileTutorialCardMini,
+.mobileTutorialVendas article,
+.mobileTutorialFacts div {
+  border: 1px solid rgba(11, 102, 255, 0.12);
+  border-radius: 16px;
+  background: rgba(248, 251, 255, 0.9);
+}
+
+.mobileTutorialPage[data-theme-mode="dark"] .mobileTutorialWelcome div,
+.mobileTutorialPage[data-theme-mode="dark"] .mobileTutorialRadar label,
+.mobileTutorialPage[data-theme-mode="dark"] .mobileTutorialCardMini,
+.mobileTutorialPage[data-theme-mode="dark"] .mobileTutorialVendas article,
+.mobileTutorialPage[data-theme-mode="dark"] .mobileTutorialFacts div {
+  border-color: rgba(125, 211, 252, 0.18);
+  background: rgba(226, 234, 248, 0.08);
+}
+
+.mobileTutorialWelcome div {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 66px;
+  padding: 12px;
+}
+
+.mobileTutorialWelcome div span {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #0b66ff, #16c8f5);
+  color: #fff;
+  font-weight: 950;
+}
+
+.mobileTutorialWelcome div b {
+  font-size: 1rem;
+}
+
+.mobileTutorialSheetHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.mobileTutorialSheetHeader strong {
+  font-size: 1.12rem;
+}
+
+.mobileTutorialSheetHeader span {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: rgba(11, 102, 255, 0.08);
+  color: #0b66ff;
+}
+
+.mobileTutorialAvatar {
+  width: 64px;
+  height: 64px;
+  display: grid;
+  place-items: center;
+  justify-self: center;
+  border: 1px solid rgba(11, 102, 255, 0.16);
+  border-radius: 999px;
+  background: linear-gradient(145deg, #e8f2ff, #d7e8ff);
+  color: #0757df;
+  font-size: 1.75rem;
+  font-weight: 950;
+}
+
+.mobileTutorialPage[data-theme-mode="dark"] .mobileTutorialAvatar,
+.mobileTutorialPage[data-theme-mode="dark"] .mobileTutorialSheetHeader span {
+  border-color: rgba(125, 211, 252, 0.18);
+  background: rgba(226, 234, 248, 0.08);
+  color: #7dd3fc;
+}
+
+.mobileTutorialAccount label {
+  display: grid;
+  gap: 6px;
+}
+
+.mobileTutorialAccount label span,
+.mobileTutorialRadar label span,
+.mobileTutorialFacts small,
+.mobileTutorialVendas small {
+  color: #526589;
+  font-size: 0.72rem;
+  font-weight: 900;
+}
+
+.mobileTutorialPage[data-theme-mode="dark"] .mobileTutorialAccount label span,
+.mobileTutorialPage[data-theme-mode="dark"] .mobileTutorialRadar label span,
+.mobileTutorialPage[data-theme-mode="dark"] .mobileTutorialFacts small,
+.mobileTutorialPage[data-theme-mode="dark"] .mobileTutorialVendas small {
+  color: rgba(226, 234, 248, 0.68);
+}
+
+.mobileTutorialAccount input {
+  width: 100%;
+  min-height: 50px;
+  border: 1px solid rgba(203, 214, 235, 0.88);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.92);
+  color: #10204e;
+  font: inherit;
+  font-size: 0.92rem;
+  font-weight: 800;
+  padding: 0 12px;
+}
+
+.mobileTutorialPage[data-theme-mode="dark"] .mobileTutorialAccount input {
+  border-color: rgba(125, 211, 252, 0.2);
+  background: rgba(4, 14, 28, 0.78);
+  color: #f8fbff;
+}
+
+.mobileTutorialAccount > button,
+.mobileTutorialRadar > button {
+  min-height: 52px;
+  border: 0;
+  border-radius: 16px;
+  background: linear-gradient(135deg, #0b66ff, #16c8f5);
+  color: #fff;
+  font: inherit;
+  font-weight: 950;
+}
+
+.mobileTutorialFacts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 9px;
+}
+
+.mobileTutorialFacts div {
+  display: grid;
+  gap: 4px;
+  min-height: 74px;
+  padding: 10px;
+}
+
+.mobileTutorialFacts b,
+.mobileTutorialRadar label b,
+.mobileTutorialCardMini b,
+.mobileTutorialVendas article b {
+  color: currentColor;
+  font-size: 0.9rem;
+  line-height: 1.16;
+  font-weight: 950;
+}
+
+.mobileTutorialRadar label {
+  display: grid;
+  gap: 5px;
+  padding: 12px;
+}
+
+.mobileTutorialRadar p {
+  margin: 0;
+  color: #0b66ff;
+  font-size: 0.8rem;
+  font-weight: 900;
+}
+
+.mobileTutorialPage[data-theme-mode="dark"] .mobileTutorialRadar p {
+  color: #7dd3fc;
+}
+
+.mobileTutorialCardMini {
+  display: grid;
+  gap: 4px;
+  padding: 12px;
+}
+
+.mobileTutorialCardMini span,
+.mobileTutorialVendas article span {
+  color: #14a760;
+  font-size: 0.78rem;
+  font-weight: 900;
+}
+
+.mobileTutorialStats,
+.mobileTutorialActions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.mobileTutorialStats span {
+  min-height: 74px;
+  display: grid;
+  align-content: center;
+  gap: 3px;
+  border: 1px solid rgba(11, 102, 255, 0.12);
+  border-radius: 16px;
+  background: rgba(11, 102, 255, 0.08);
+  padding: 12px;
+  color: #526589;
+  font-size: 0.76rem;
+  font-weight: 900;
+}
+
+.mobileTutorialStats b {
+  color: #0b1732;
+  font-size: 1.55rem;
+}
+
+.mobileTutorialPage[data-theme-mode="dark"] .mobileTutorialStats span {
+  border-color: rgba(125, 211, 252, 0.18);
+  background: rgba(37, 99, 235, 0.12);
+  color: rgba(226, 234, 248, 0.72);
+}
+
+.mobileTutorialPage[data-theme-mode="dark"] .mobileTutorialStats b {
+  color: #f8fbff;
+}
+
+.mobileTutorialVendas article {
+  display: grid;
+  gap: 6px;
+  padding: 14px;
+}
+
+.mobileTutorialActions button {
+  min-height: 48px;
+  border: 1px solid rgba(11, 102, 255, 0.2);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.84);
+  color: #0b66ff;
+  font: inherit;
+  font-weight: 950;
+}
+
+.mobileTutorialActions button:first-child {
+  border: 0;
+  background: linear-gradient(135deg, #18c55c, #0dab48);
+  color: #fff;
+}
+
+.mobileTutorialPage[data-theme-mode="dark"] .mobileTutorialActions button {
+  border-color: rgba(125, 211, 252, 0.2);
+  background: rgba(226, 234, 248, 0.08);
+  color: #7dd3fc;
+}
+
+.mobileTutorialPage[data-theme-mode="dark"] .mobileTutorialActions button:first-child {
+  background: linear-gradient(135deg, #18c55c, #0dab48);
+  color: #fff;
+}
+
+.mobileTutorialActionsBar {
+  display: grid;
+  grid-template-columns: 0.78fr 1.22fr;
+  gap: 10px;
+}
+
+.mobileTutorialSecondary,
+.mobileTutorialPrimary,
+.mobileTutorialSkip {
+  min-height: 52px;
+}
+
+.mobileTutorialPrimary {
+  border: 0;
+  background: linear-gradient(135deg, #0b66ff, #16c8f5);
+  color: #fff;
+  box-shadow: 0 18px 34px -24px rgba(11, 102, 255, 0.58);
+}
+
+.mobileTutorialSecondary:disabled {
+  opacity: 0.42;
+}
+
+.mobileTutorialSkip {
+  min-height: 44px;
+}
+
+@keyframes mobileTutorialIn {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@media (max-width: 420px) {
+  .mobileTutorialPage {
+    padding: 10px;
+  }
+
+  .mobileTutorialShell {
+    min-height: calc(100dvh - 20px);
+  }
+
+  .mobileTutorialCopy h1 {
+    font-size: 1.92rem;
+  }
+
+  .mobileTutorialPhone {
+    min-height: 438px;
+  }
+}
+
+.mobileTutorialPage[data-tutorial-mode="mobile"] {
+  padding: 8px;
+  background:
+    radial-gradient(circle at 90% 0%, rgba(45, 212, 191, 0.28), transparent 30%),
+    radial-gradient(circle at 6% 12%, rgba(11, 102, 255, 0.24), transparent 32%),
+    linear-gradient(180deg, #dff1ff 0%, #f7fbff 44%, #e7f9f7 100%);
+}
+
+.mobileTutorialPage[data-theme-mode="dark"][data-tutorial-mode="mobile"] {
+  background:
+    radial-gradient(circle at 86% 0%, rgba(45, 212, 191, 0.18), transparent 28%),
+    radial-gradient(circle at 10% 10%, rgba(11, 102, 255, 0.24), transparent 34%),
+    linear-gradient(180deg, #061222 0%, #08182f 48%, #030913 100%);
+}
+
+.mobileTutorialShell {
+  width: min(410px, 100%);
+  min-height: calc(100dvh - 16px);
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  gap: 10px;
+}
+
+.mobileTutorialTopbar {
+  justify-content: center;
+  min-height: 34px;
+}
+
+.mobileTutorialTopbar span {
+  min-height: 32px;
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid rgba(11, 102, 255, 0.12);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.62);
+  color: #0b1732;
+  padding: 0 18px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.86);
+}
+
+.mobileTutorialTopbar button {
+  display: none;
+}
+
+.mobileTutorialPage[data-theme-mode="dark"] .mobileTutorialTopbar span {
+  border-color: rgba(125, 211, 252, 0.2);
+  background: rgba(226, 234, 248, 0.08);
+  color: #f8fbff;
+}
+
+.mobileTutorialProgress {
+  gap: 7px;
+}
+
+.mobileTutorialProgress button,
+.mobileTutorialProgress span {
+  width: 32px;
+  height: 5px;
+  transition: width 220ms ease, background 220ms ease, transform 220ms ease;
+}
+
+.mobileTutorialProgress button[data-active="true"],
+.mobileTutorialProgress span[data-active="true"] {
+  width: 42px;
+  transform: translateY(-1px);
+}
+
+.mobileTutorialSlide {
+  gap: 10px;
+}
+
+.mobileTutorialCopy {
+  gap: 5px;
+}
+
+.mobileTutorialCopy h1 {
+  font-size: clamp(1.78rem, 8vw, 2.18rem);
+  line-height: 0.98;
+}
+
+.mobileTutorialCopy p {
+  max-width: 31ch;
+  font-size: 0.9rem;
+}
+
+.mobileTutorialPhone {
+  min-height: 0;
+  height: min(540px, calc(100dvh - 228px));
+  padding: 22px 14px 14px;
+  border-radius: 28px;
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+
+.mobileTutorialPhone::-webkit-scrollbar {
+  display: none;
+}
+
+.mobileTutorialPhone::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    linear-gradient(rgba(11, 102, 255, 0.045) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(11, 102, 255, 0.035) 1px, transparent 1px);
+  background-size: 34px 34px;
+  mask-image: radial-gradient(circle at center, #000 0%, transparent 78%);
+}
+
+.mobileTutorialPage[data-theme-mode="dark"] .mobileTutorialPhone::before {
+  background-image:
+    linear-gradient(rgba(125, 211, 252, 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(125, 211, 252, 0.04) 1px, transparent 1px);
+}
+
+.mobileTutorialWelcome,
+.mobileTutorialAccount,
+.mobileTutorialProfile,
+.mobileTutorialRadar,
+.mobileTutorialVendas {
+  position: relative;
+  z-index: 1;
+  animation: mobileTutorialCardIn 360ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+.mobileTutorialPulseLogo {
+  width: 72px;
+  height: 72px;
+  display: grid;
+  place-items: center;
+  justify-self: center;
+  border-radius: 24px;
+  background:
+    radial-gradient(circle at 34% 20%, rgba(255, 255, 255, 0.92), transparent 30%),
+    linear-gradient(145deg, #0b66ff, #16c8f5);
+  color: #fff;
+  font-weight: 950;
+  box-shadow: 0 24px 46px -26px rgba(11, 102, 255, 0.9);
+  animation: mobileTutorialPulse 1800ms ease-in-out infinite;
+}
+
+.mobileTutorialMiniText {
+  margin: -2px 0 0;
+  color: #526589;
+  font-size: 0.76rem;
+  font-weight: 850;
+}
+
+.mobileTutorialPage[data-theme-mode="dark"] .mobileTutorialMiniText {
+  color: rgba(226, 234, 248, 0.72);
+}
+
+.mobileTutorialFacts {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.mobileTutorialProfile {
+  display: grid;
+  gap: 10px;
+}
+
+.mobileTutorialProfileHero,
+.mobileTutorialChipBlock,
+.mobileTutorialCheck {
+  border: 1px solid rgba(11, 102, 255, 0.14);
+  border-radius: 18px;
+  background:
+    radial-gradient(circle at 96% 0%, rgba(45, 212, 191, 0.12), transparent 36%),
+    rgba(248, 251, 255, 0.9);
+  padding: 12px;
+}
+
+.mobileTutorialPage[data-theme-mode="dark"] .mobileTutorialProfileHero,
+.mobileTutorialPage[data-theme-mode="dark"] .mobileTutorialChipBlock,
+.mobileTutorialPage[data-theme-mode="dark"] .mobileTutorialCheck {
+  border-color: rgba(125, 211, 252, 0.18);
+  background:
+    radial-gradient(circle at 96% 0%, rgba(45, 212, 191, 0.08), transparent 36%),
+    rgba(226, 234, 248, 0.07);
+}
+
+.mobileTutorialProfileHero {
+  display: grid;
+  gap: 5px;
+}
+
+.mobileTutorialProfileHero small {
+  color: #0b66ff;
+  font-size: 0.66rem;
+  font-weight: 950;
+  text-transform: uppercase;
+}
+
+.mobileTutorialProfileHero strong,
+.mobileTutorialChipBlock strong {
+  color: currentColor;
+  font-size: 0.98rem;
+  line-height: 1.18;
+  font-weight: 950;
+}
+
+.mobileTutorialProfileHero span {
+  color: #526589;
+  font-size: 0.78rem;
+  font-weight: 820;
+}
+
+.mobileTutorialPage[data-theme-mode="dark"] .mobileTutorialProfileHero span {
+  color: rgba(226, 234, 248, 0.72);
+}
+
+.mobileTutorialProfile label:not(.mobileTutorialCheck) {
+  display: grid;
+  gap: 6px;
+}
+
+.mobileTutorialProfile label:not(.mobileTutorialCheck) span {
+  color: #526589;
+  font-size: 0.72rem;
+  font-weight: 900;
+}
+
+.mobileTutorialProfile input[type="text"],
+.mobileTutorialProfile label:not(.mobileTutorialCheck) input {
+  width: 100%;
+  min-height: 46px;
+  border: 1px solid rgba(203, 214, 235, 0.9);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.92);
+  color: #10204e;
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 850;
+  padding: 0 12px;
+}
+
+.mobileTutorialPage[data-theme-mode="dark"] .mobileTutorialProfile label:not(.mobileTutorialCheck) input {
+  border-color: rgba(125, 211, 252, 0.2);
+  background: rgba(4, 14, 28, 0.78);
+  color: #f8fbff;
+}
+
+.mobileTutorialChipBlock {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.mobileTutorialChipBlock strong {
+  flex: 0 0 100%;
+}
+
+.mobileTutorialChipBlock button,
+.mobileTutorialChannelRow button {
+  min-height: 34px;
+  border: 1px solid rgba(24, 94, 255, 0.16);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.82);
+  color: #172554;
+  font: inherit;
+  font-size: 0.76rem;
+  font-weight: 900;
+  padding: 0 11px;
+}
+
+.mobileTutorialChipBlock button[data-active="true"],
+.mobileTutorialChannelRow button[data-active="true"] {
+  border-color: rgba(11, 102, 255, 0.46);
+  background: rgba(11, 102, 255, 0.12);
+  color: #0b66ff;
+}
+
+.mobileTutorialPage[data-theme-mode="dark"] .mobileTutorialChipBlock button,
+.mobileTutorialPage[data-theme-mode="dark"] .mobileTutorialChannelRow button {
+  border-color: rgba(125, 211, 252, 0.18);
+  background: rgba(226, 234, 248, 0.1);
+  color: #e7f0ff;
+}
+
+.mobileTutorialPage[data-theme-mode="dark"] .mobileTutorialChipBlock button[data-active="true"],
+.mobileTutorialPage[data-theme-mode="dark"] .mobileTutorialChannelRow button[data-active="true"] {
+  border-color: rgba(56, 189, 248, 0.56);
+  background: rgba(11, 102, 255, 0.22);
+  color: #7dd3fc;
+}
+
+.mobileTutorialChannelRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.mobileTutorialCheck {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #526589;
+  font-size: 0.78rem;
+  font-weight: 850;
+}
+
+.mobileTutorialCheck input {
+  width: 20px;
+  height: 20px;
+}
+
+.mobileTutorialProfile > button {
+  min-height: 48px;
+  border: 0;
+  border-radius: 16px;
+  background: linear-gradient(135deg, #0b66ff, #16c8f5);
+  color: #fff;
+  font: inherit;
+  font-weight: 950;
+}
+
+.mobileTutorialRadarRoute {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr auto;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid rgba(11, 102, 255, 0.14);
+  border-radius: 18px;
+  background: rgba(248, 251, 255, 0.9);
+  padding: 12px;
+}
+
+.mobileTutorialRadarRoute span {
+  color: #526589;
+  font-size: 0.7rem;
+  font-weight: 900;
+}
+
+.mobileTutorialRadarRoute b {
+  color: currentColor;
+  font-size: 0.82rem;
+  font-weight: 950;
+}
+
+.mobileTutorialRadarRoute i {
+  width: 20px;
+  height: 2px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #0b66ff, #16c8f5);
+}
+
+.mobileTutorialRadarFlow {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.mobileTutorialRadarFlow span,
+.mobileTutorialRadarFlow b {
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(11, 102, 255, 0.12);
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.mobileTutorialRadarFlow span {
+  min-height: 30px;
+  border-radius: 12px 12px 6px 6px;
+  color: #526589;
+  font-size: 0.66rem;
+  font-weight: 900;
+}
+
+.mobileTutorialRadarFlow b {
+  min-height: 40px;
+  margin-top: -8px;
+  border-radius: 6px 6px 12px 12px;
+  color: #0b66ff;
+  font-size: 1.1rem;
+  font-weight: 950;
+}
+
+.mobileTutorialCardMini[data-tone="smart"] {
+  border-color: rgba(45, 212, 191, 0.28);
+  background:
+    radial-gradient(circle at 96% 0%, rgba(45, 212, 191, 0.18), transparent 36%),
+    rgba(248, 251, 255, 0.92);
+}
+
+.mobileTutorialCardMini small,
+.mobileTutorialLeadCard small {
+  color: #0b66ff;
+  font-size: 0.68rem;
+  font-weight: 950;
+  text-transform: uppercase;
+}
+
+.mobileTutorialLeadCard {
+  display: grid;
+  gap: 5px;
+  border: 1px solid rgba(11, 102, 255, 0.12);
+  border-radius: 16px;
+  padding: 12px;
+  background: rgba(248, 251, 255, 0.9);
+}
+
+.mobileTutorialLeadCard[data-kind="lead"] {
+  border-color: rgba(45, 212, 191, 0.28);
+  background:
+    radial-gradient(circle at 96% 0%, rgba(45, 212, 191, 0.16), transparent 36%),
+    rgba(248, 251, 255, 0.94);
+}
+
+.mobileTutorialLeadCard b {
+  color: currentColor;
+  font-size: 0.94rem;
+  font-weight: 950;
+}
+
+.mobileTutorialLeadCard span {
+  color: #526589;
+  font-size: 0.78rem;
+  font-weight: 850;
+}
+
+.mobileTutorialPage[data-theme-mode="dark"] .mobileTutorialRadarRoute,
+.mobileTutorialPage[data-theme-mode="dark"] .mobileTutorialRadarFlow span,
+.mobileTutorialPage[data-theme-mode="dark"] .mobileTutorialRadarFlow b,
+.mobileTutorialPage[data-theme-mode="dark"] .mobileTutorialLeadCard,
+.mobileTutorialPage[data-theme-mode="dark"] .mobileTutorialCardMini[data-tone="smart"] {
+  border-color: rgba(125, 211, 252, 0.18);
+  background: rgba(226, 234, 248, 0.08);
+}
+
+.mobileTutorialPage[data-theme-mode="dark"] .mobileTutorialRadarRoute span,
+.mobileTutorialPage[data-theme-mode="dark"] .mobileTutorialRadarFlow span,
+.mobileTutorialPage[data-theme-mode="dark"] .mobileTutorialLeadCard span {
+  color: rgba(226, 234, 248, 0.72);
+}
+
+.mobileTutorialActionsBar {
+  grid-template-columns: 0.8fr 1.2fr;
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+.mobileTutorialSecondary,
+.mobileTutorialPrimary {
+  min-height: 50px;
+  border-radius: 16px;
+}
+
+@keyframes mobileTutorialCardIn {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(0.98);
+    filter: blur(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    filter: blur(0);
+  }
+}
+
+@keyframes mobileTutorialPulse {
+  0%,
+  100% {
+    transform: translateY(0) scale(1);
+  }
+  50% {
+    transform: translateY(-3px) scale(1.035);
+  }
+}
+
+@media (max-width: 420px) {
+  .mobileTutorialPage[data-tutorial-mode="mobile"] {
+    padding: 6px;
+  }
+
+  .mobileTutorialShell {
+    min-height: calc(100dvh - 12px);
+  }
+
+  .mobileTutorialPhone {
+    height: min(530px, calc(100dvh - 218px));
+    padding-inline: 12px;
+  }
+
+  .mobileTutorialCopy h1 {
+    font-size: 1.72rem;
+  }
+
+  .mobileTutorialCopy p {
+    font-size: 0.86rem;
+  }
+}
+
 .exitButton {
   position: absolute;
   top: 0.2rem;

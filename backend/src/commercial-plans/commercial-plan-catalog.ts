@@ -53,13 +53,30 @@ export const COMMERCIAL_PRICING = {
 
 export const COMMERCIAL_PLAN_QUOTAS: Record<ActiveCommercialPlanKey, {
   googleSearchesPerDay: number;
+  cardsPerMonth: number;
+  dailyCardSafetyLimit: number;
   cardsPerSearch?: number;
   searchesPerCycle?: number;
   totalCards?: number;
 }> = {
-  [COMMERCIAL_PLAN_KEYS.LITE]: { googleSearchesPerDay: 0, cardsPerSearch: 50, searchesPerCycle: 3, totalCards: 150 },
-  [COMMERCIAL_PLAN_KEYS.PADRAO]: { googleSearchesPerDay: 2 },
-  [COMMERCIAL_PLAN_KEYS.MELHOR]: { googleSearchesPerDay: 6 },
+  [COMMERCIAL_PLAN_KEYS.LITE]: {
+    googleSearchesPerDay: 0,
+    cardsPerMonth: 150,
+    dailyCardSafetyLimit: 50,
+    cardsPerSearch: 50,
+    searchesPerCycle: 3,
+    totalCards: 150,
+  },
+  [COMMERCIAL_PLAN_KEYS.PADRAO]: {
+    googleSearchesPerDay: 2,
+    cardsPerMonth: 500,
+    dailyCardSafetyLimit: 100,
+  },
+  [COMMERCIAL_PLAN_KEYS.MELHOR]: {
+    googleSearchesPerDay: 6,
+    cardsPerMonth: 1500,
+    dailyCardSafetyLimit: 250,
+  },
 };
 
 export const GOOGLE_DAILY_LIMIT_REACHED_MESSAGE =
@@ -252,8 +269,9 @@ export function buildCommercialPlansCatalog(options: { includeHidden?: boolean }
         'Radar Digital + Vendas com cards simples',
         'Telefone, cidade, segmento e site básico',
         'WhatsApp externo',
+        '150 cards por mês',
         'Até 50 cards por pesquisa',
-        '3 pesquisas comerciais / 150 cards',
+        '3 pesquisas comerciais por mês',
         'Negativos, opt-outs e duplicados respeitados',
         'Teaser de inteligência quando houver sinais premium',
       ],
@@ -286,7 +304,9 @@ export function buildCommercialPlansCatalog(options: { includeHidden?: boolean }
         'Canal recomendado',
         'Mensagem pronta por segmento',
         'Filtros inteligentes',
-        'Limite consumido por card filtrado entregue',
+        '500 cards inteligentes por mês',
+        'Trava diária técnica anti-abuso',
+        'Limite consumido por card entregue',
         'Histórico, retornos e agenda',
       ],
       legalCopy: 'Teste de 14 dias. Após o trial, contratação segue pelo checkout.',
@@ -320,6 +340,7 @@ export function buildCommercialPlansCatalog(options: { includeHidden?: boolean }
         'Opportunity Score completo',
         'Mini-auditorias digitais',
         'Recovery inteligente',
+        '1.500 cards inteligentes por mês',
         'Regras de segurança para automação',
         'Encaminhamento para humano',
         'Automação com limites e segurança',

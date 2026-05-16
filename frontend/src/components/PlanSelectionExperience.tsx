@@ -74,6 +74,7 @@ function PlanGlyph({ planKey }: { planKey: PlanSelectionCard["key"] }) {
 }
 
 function actionLabel(plan: PlanSelectionCard, mode: PlanSelectionMode, selected: boolean, busy: boolean) {
+  if (plan.key === "hbx_melhor") return "Falar com HBX";
   if (selected && mode === "upgrade") return "Plano ativo";
   if (selected && mode === "signup") return "Selecionado";
   if (busy) return mode === "signup" ? "Criando..." : "Abrindo checkout...";
@@ -148,10 +149,10 @@ export default function PlanSelectionExperience({
               </div>
             ) : (
               <div className={styles.noPriceBlock}>
-                <strong>{mode === "signup" && plan.key === "hbx_melhor" ? "Modo empresarial" : "Plano da empresa"}</strong>
+                <strong>{plan.key === "hbx_melhor" ? "Implantação assistida" : "Plano da empresa"}</strong>
                 <span>
-                  {mode === "signup" && plan.key === "hbx_melhor"
-                    ? "Somente notebook/desktop"
+                  {plan.key === "hbx_melhor"
+                    ? "Configuração com a HBX"
                     : "Valores visíveis apenas para ADMIN"}
                 </span>
               </div>

@@ -54,9 +54,16 @@ type LeadStatus = "novo" | "contato" | "retorno" | "qualificado" | "encerrado";
 type LeadBlockKey = "today" | "overdue" | "scheduled" | "closed";
 type DateFilterKey = "overdue" | "today" | `scheduled:${string}`;
 type MobileAgendaTab = "overdue" | "today" | "upcoming";
-type MobileVendasSection = "today" | "cards" | "report" | "settings";
+type MobileVendasSection = "today" | "cards" | "report";
 type WhatsappFilter = "all" | "with" | "without";
 type InboxFilter = "all" | "in" | "out";
+type MobileReturnScheduler = {
+  leadId: string;
+  leadName: string;
+  dateText: string;
+  timeValue: string;
+  monthKey: string;
+};
 type RadarSearchRunStatus =
   | "queued"
   | "running"
@@ -535,6 +542,95 @@ function plusDaysDatetimeLocal(days: number) {
   );
   const local = new Date(now.getTime() - now.getTimezoneOffset() * 60000);
   return local.toISOString().slice(0, 16);
+}
+
+function padDatePart(value: number) {
+  return String(value).padStart(2, "0");
+}
+
+function dateKeyToShortBrazilianDate(dateKey: string) {
+  const [year, month, day] = dateKey.split("-");
+  return day && month && year ? `${day}/${month}/${year.slice(-2)}` : "";
+}
+
+function parseShortBrazilianDate(value: string) {
+  const match = String(value || "").trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{2}|\d{4})$/);
+  if (!match) return "";
+  const day = Number(match[1]);
+  const month = Number(match[2]);
+  const rawYear = Number(match[3]);
+  const year = rawYear < 100 ? 2000 + rawYear : rawYear;
+  const parsed = new Date(year, month - 1, day, 12, 0, 0, 0);
+  if (
+    Number.isNaN(parsed.getTime()) ||
+    parsed.getFullYear() !== year ||
+    parsed.getMonth() !== month - 1 ||
+    parsed.getDate() !== day
+  ) {
+    return "";
+  }
+  return `${year}-${padDatePart(month)}-${padDatePart(day)}`;
+}
+
+function normalizeReturnTime(value: string) {
+  const match = String(value || "").trim().match(/^(\d{1,2}):(\d{2})$/);
+  if (!match) return "";
+  const hour = Number(match[1]);
+  const minute = Number(match[2]);
+  if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return "";
+  return `${padDatePart(hour)}:${padDatePart(minute)}`;
+}
+
+function monthKeyFromDateKey(dateKey: string) {
+  return dateKey ? dateKey.slice(0, 7) : localDateKeyFromDate(new Date()).slice(0, 7);
+}
+
+function getMobileReturnDefaultDate(lead?: LeadItem | null) {
+  const existing = lead?.returnAt ? new Date(lead.returnAt) : null;
+  const base = existing && !Number.isNaN(existing.getTime()) ? existing : new Date();
+  if (!existing || Number.isNaN(existing.getTime())) {
+    base.setDate(base.getDate() + 1);
+    base.setHours(9, 0, 0, 0);
+  }
+  return base;
+}
+
+function buildMobileReturnScheduler(lead: LeadItem): MobileReturnScheduler {
+  const base = getMobileReturnDefaultDate(lead);
+  const dateKey = localDateKeyFromDate(base);
+  return {
+    leadId: lead.id,
+    leadName: lead.name || "Lead sem nome",
+    dateText: dateKeyToShortBrazilianDate(dateKey),
+    timeValue: `${padDatePart(base.getHours())}:${padDatePart(base.getMinutes())}`,
+    monthKey: monthKeyFromDateKey(dateKey),
+  };
+}
+
+function shiftMonthKey(monthKey: string, direction: -1 | 1) {
+  const base = new Date(`${monthKey || monthKeyFromDateKey("")}-01T12:00:00`);
+  if (Number.isNaN(base.getTime())) return monthKeyFromDateKey("");
+  base.setMonth(base.getMonth() + direction);
+  return localDateKeyFromDate(base).slice(0, 7);
+}
+
+function buildCalendarDays(monthKey: string) {
+  const [yearValue, monthValue] = String(monthKey || "").split("-");
+  const year = Number(yearValue);
+  const month = Number(monthValue);
+  const first = new Date(year, month - 1, 1, 12, 0, 0, 0);
+  if (Number.isNaN(first.getTime())) return [];
+  const startOffset = first.getDay();
+  const daysInMonth = new Date(year, month, 0).getDate();
+  const days: Array<{ key: string; day: number | null }> = [];
+  for (let i = 0; i < startOffset; i += 1) days.push({ key: `empty-${i}`, day: null });
+  for (let day = 1; day <= daysInMonth; day += 1) {
+    days.push({
+      key: `${year}-${padDatePart(month)}-${padDatePart(day)}`,
+      day,
+    });
+  }
+  return days;
 }
 
 function normalizePhoneDigits(raw: string) {
@@ -1666,7 +1762,7 @@ function LeadCardView({
             aria-disabled={!whatsappUrl}
             title={
               whatsappBlocked
-                ? "Motor confirmou que este numero nao possui WhatsApp."
+                ? "Este numero nao possui WhatsApp."
                 : "Abrir conversa no WhatsApp"
             }
             onClick={() => {
@@ -1931,6 +2027,10 @@ export default function VendasClientPage() {
   const [commandQuery, setCommandQuery] = useState("");
   const mobileSearch = "";
   const [selectedMobileLeadId, setSelectedMobileLeadId] = useState<string | null>(null);
+  const [mobileReturnScheduler, setMobileReturnScheduler] =
+    useState<MobileReturnScheduler | null>(null);
+  const [mobileReturnScheduleError, setMobileReturnScheduleError] =
+    useState<string | null>(null);
   const [mobileAnimatedScore, setMobileAnimatedScore] = useState(0);
   const [mobileNoteLead, setMobileNoteLead] = useState<LeadItem | null>(null);
   const [mobileNoteDraft, setMobileNoteDraft] = useState("");
@@ -2014,6 +2114,7 @@ export default function VendasClientPage() {
   const filterScrollerRef = useRef<HTMLDivElement | null>(null);
   const mobileBulkHoldTimerRef = useRef<number | null>(null);
   const mobileBulkHoldCompletedRef = useRef(false);
+  const mobileDeepLinkHandledRef = useRef("");
   const lastRadarStatusSnapshotRef = useRef<{ count: number; status: string } | null>(null);
   const mobileScoreAnimatedKeyRef = useRef<string | null>(null);
   const mobileScoreAnimationRunRef = useRef(0);
@@ -2204,6 +2305,29 @@ export default function VendasClientPage() {
       setError(pdfError instanceof Error ? pdfError.message : "Falha ao exportar PDF.");
     }
   }
+
+  useEffect(() => {
+    const requestedSection = String(searchParams?.get("mobileSection") || "").trim();
+    const requestedSheet = String(searchParams?.get("mobileSheet") || "").trim();
+    const deepLinkKey = `${requestedSection}:${requestedSheet}`;
+    if (!requestedSection && !requestedSheet) return;
+    if (mobileDeepLinkHandledRef.current === deepLinkKey) return;
+    mobileDeepLinkHandledRef.current = deepLinkKey;
+
+    if (requestedSection === "report") setMobileSection("report");
+    if (requestedSection === "cards") {
+      setMobileSection("cards");
+      setMobileAgendaTab("upcoming");
+    }
+    if (requestedSection === "today") {
+      setMobileSection("today");
+      setMobileAgendaTab("today");
+    }
+    if (requestedSheet === "account") {
+      setAccountNameDraft(mobilePreferredCallerName || readMobilePreferredCallerName());
+      setAccountSheetOpen(true);
+    }
+  }, [mobilePreferredCallerName, searchParams]);
 
   useEffect(() => {
     const syncStoredRun = () => {
@@ -2910,7 +3034,7 @@ export default function VendasClientPage() {
       status:
         notice?.statusLabel ||
         (loading
-          ? "Motores lendo banco e preparando a agenda comercial..."
+          ? "Preparando a agenda comercial..."
           : "Filtrando negativos e alimentando Prospecção..."),
       progress: notice?.progress ?? 18,
       steps: VENDAS_PROGRESS_STEPS,
@@ -3167,6 +3291,71 @@ export default function VendasClientPage() {
     }
   }
 
+  function openMobileReturnScheduler(lead: LeadItem) {
+    setMobileReturnScheduleError(null);
+    setMobileReturnScheduler(buildMobileReturnScheduler(lead));
+  }
+
+  function updateMobileReturnDateText(value: string) {
+    const sanitized = value.replace(/[^\d/]/g, "").slice(0, 10);
+    const parsedDateKey = parseShortBrazilianDate(sanitized);
+    setMobileReturnScheduler((current) => current
+      ? {
+          ...current,
+          dateText: sanitized,
+          monthKey: parsedDateKey ? monthKeyFromDateKey(parsedDateKey) : current.monthKey,
+        }
+      : current);
+    if (mobileReturnScheduleError) setMobileReturnScheduleError(null);
+  }
+
+  function selectMobileReturnCalendarDay(dateKey: string) {
+    setMobileReturnScheduler((current) => current
+      ? {
+          ...current,
+          dateText: dateKeyToShortBrazilianDate(dateKey),
+          monthKey: monthKeyFromDateKey(dateKey),
+        }
+      : current);
+    setMobileReturnScheduleError(null);
+  }
+
+  function shiftMobileReturnCalendarMonth(direction: -1 | 1) {
+    setMobileReturnScheduler((current) => current
+      ? { ...current, monthKey: shiftMonthKey(current.monthKey, direction) }
+      : current);
+  }
+
+  async function saveMobileReturnSchedule() {
+    if (!mobileReturnScheduler) return;
+    const leadRecord = leadById.get(mobileReturnScheduler.leadId);
+    const lead = leadRecord?.lead;
+    const dateKey = parseShortBrazilianDate(mobileReturnScheduler.dateText);
+    const timeValue = normalizeReturnTime(mobileReturnScheduler.timeValue);
+    if (!dateKey) {
+      setMobileReturnScheduleError("Informe a data no formato DD/MM/YY.");
+      return;
+    }
+    if (!timeValue) {
+      setMobileReturnScheduleError("Informe um horário válido.");
+      return;
+    }
+    const currentDraft = drafts[mobileReturnScheduler.leadId] || (lead ? createDraft(lead) : null);
+    setMobileReturnScheduleError(null);
+    await saveLead(
+      mobileReturnScheduler.leadId,
+      {
+        status: "retorno",
+        nextAction: currentDraft?.nextAction || "Retomar lead",
+        returnAt: `${dateKey}T${timeValue}`,
+      },
+      `Retorno agendado para ${mobileReturnScheduler.dateText} às ${timeValue}.`,
+    );
+    setSelectedDateKey(`scheduled:${dateKey}`);
+    setMobileAgendaTab("upcoming");
+    setMobileReturnScheduler(null);
+  }
+
   function openMobileReport(lead: LeadItem) {
     setMobileReportLead(lead);
     setMobileReportReason("");
@@ -3358,36 +3547,8 @@ export default function VendasClientPage() {
 
     const activeCapabilities = board?.capabilities || salesProfile?.capabilities || {};
     const reportMetrics = conversionReport?.metrics || {};
-    const profileSummary = `${salesProfileDraft.whatDoYouSell || "Perfil"} para ${(salesProfileDraft.targetAudience || [])[0] || "pequenos negócios"}`;
     const nextRecommendedMobileLead =
       allLeads.find(({ block }) => block !== "closed")?.lead || null;
-
-    function renderMobileSectionTabs() {
-      const items: Array<{ key: MobileVendasSection; label: string }> = [
-        { key: "today", label: "Hoje" },
-        { key: "cards", label: "Cards" },
-        { key: "report", label: "Relatório" },
-        { key: "settings", label: "Configurações" },
-      ];
-      return (
-        <div className={styles.mobileVendasSectionTabs}>
-          {items.map((item) => (
-            <button
-              key={item.key}
-              type="button"
-              data-active={mobileSection === item.key ? "true" : "false"}
-              onClick={() => {
-                setMobileSection(item.key);
-                if (item.key === "today") setMobileAgendaTab("today");
-                if (item.key === "cards") setMobileAgendaTab("upcoming");
-              }}
-            >
-              {item.label}
-            </button>
-          ))}
-        </div>
-      );
-    }
 
     function renderMobileReport() {
       return (
@@ -3446,104 +3607,6 @@ export default function VendasClientPage() {
               <small className={styles.mobileVendasReportLock}>Exportação PDF disponível no HBX Lead</small>
             ) : null}
           </section>
-        </div>
-      );
-    }
-
-    function renderChipEditor(
-      title: string,
-      values: string[],
-      examples: string[],
-      onChange: (values: string[]) => void,
-    ) {
-      return (
-        <section className={`${styles.mobileSalesProfileBlock} hbx-mobile-card`}>
-          <strong>{title}</strong>
-          <div className={styles.mobileSalesProfileChips}>
-            {examples.map((item) => {
-              const active = values.some((value) => value.toLowerCase() === item.toLowerCase());
-              return (
-                <button
-                  key={item}
-                  type="button"
-                  data-active={active ? "true" : "false"}
-                  onClick={() => onChange(toggleStringValue(values, item))}
-                >
-                  {item}
-                </button>
-              );
-            })}
-          </div>
-        </section>
-      );
-    }
-
-    function renderMobileSettings() {
-      return (
-        <div className={styles.mobileVendasList}>
-          <section className={`${styles.mobileSalesProfileHero} hbx-mobile-card`}>
-            <span>Perfil ativo: {profileSummary}</span>
-            <strong>Perfil de Venda</strong>
-            <p>O HBX usa isso para escolher melhores leads para você.</p>
-          </section>
-          <section className={`${styles.mobileSalesProfileBlock} hbx-mobile-card`}>
-            <strong>O que você vende?</strong>
-            <input
-              value={salesProfileDraft.whatDoYouSell}
-              onChange={(event) => setSalesProfileDraft((current) => ({ ...current, whatDoYouSell: event.target.value }))}
-              placeholder="Ex.: Plano de saúde"
-              maxLength={160}
-            />
-            <div className={styles.mobileSalesProfileChips}>
-              {SALES_PROFILE_SELL_EXAMPLES.map((item) => (
-                <button
-                  key={item}
-                  type="button"
-                  data-active={salesProfileDraft.whatDoYouSell === item ? "true" : "false"}
-                  onClick={() => setSalesProfileDraft((current) => ({ ...current, whatDoYouSell: item }))}
-                >
-                  {item}
-                </button>
-              ))}
-            </div>
-          </section>
-          {renderChipEditor("Para quem você quer vender?", salesProfileDraft.targetAudience, SALES_PROFILE_AUDIENCE_EXAMPLES, (values) =>
-            setSalesProfileDraft((current) => ({ ...current, targetAudience: values })),
-          )}
-          {renderChipEditor("O que você quer evitar?", salesProfileDraft.avoidSegments, SALES_PROFILE_AVOID_EXAMPLES, (values) =>
-            setSalesProfileDraft((current) => ({ ...current, avoidSegments: values })),
-          )}
-          {renderChipEditor("Canal preferido", salesProfileDraft.preferredChannels, SALES_PROFILE_CHANNELS, (values) =>
-            setSalesProfileDraft((current) => ({ ...current, preferredChannels: values })),
-          )}
-          <section className={`${styles.mobileSalesProfileBlock} hbx-mobile-card`}>
-            <label className={styles.mobileSalesProfileToggle}>
-              <input
-                type="checkbox"
-                checked={salesProfileDraft.weeklyAutoUpdateEnabled}
-                onChange={(event) => setSalesProfileDraft((current) => ({ ...current, weeklyAutoUpdateEnabled: event.target.checked }))}
-              />
-              <span>Deixar o HBX sugerir ajustes toda segunda-feira</span>
-            </label>
-            <p>Você revisa antes de aplicar.</p>
-          </section>
-          {salesProfileSuggestion?.diff?.length ? (
-            <section className={`${styles.mobileSalesProfileBlock} hbx-mobile-card`}>
-              <strong>Sugestão da semana</strong>
-              {salesProfileSuggestion.diff.map((item: string) => <p key={item}>{item}</p>)}
-            </section>
-          ) : null}
-          <div className={styles.mobileSalesProfileActions}>
-            <button type="button" className="hbx-mobile-primary-button" onClick={() => void saveSalesProfile()} disabled={salesProfileSaving}>
-              {salesProfileSaving ? "Salvando" : "Salvar perfil"}
-            </button>
-            <button type="button" className="hbx-mobile-secondary-button" onClick={() => void suggestSalesProfile()} disabled={salesProfileSaving || !activeCapabilities.canUseWeeklyProfileSuggestions}>
-              Gerar sugestão com base na semana
-            </button>
-            <button type="button" className="hbx-mobile-secondary-button" onClick={() => setSalesProfileDraft(SALES_PROFILE_DEFAULT_DRAFT)}>
-              Restaurar padrão
-            </button>
-          </div>
         </div>
       );
     }
@@ -3848,7 +3911,7 @@ export default function VendasClientPage() {
                   {!capabilities.canSeeMessageTemplates
                     ? "Mensagem pronta por segmento disponível no HBX Lead."
                     : loadingEnrichment
-                      ? "Verificando WhatsApp no motor HBX Master..."
+                      ? "Verificando WhatsApp..."
                       : readyMessage}
                 </p>
                 <div className={styles.mobileLeadQuickGrid}>
@@ -4004,7 +4067,7 @@ export default function VendasClientPage() {
               <button
                 type="button"
                 className="hbx-mobile-secondary-button"
-                onClick={() => void runQuickAction(lead, "amanha")}
+                onClick={() => openMobileReturnScheduler(lead)}
                 disabled={savingLeadId === lead.id}
               >
                 Retorno
@@ -4076,6 +4139,7 @@ export default function VendasClientPage() {
                   event.preventDefault();
                   return;
                 }
+                setMobileSection("today");
                 setMobileAgendaTab("overdue");
               }}
             >
@@ -4096,6 +4160,7 @@ export default function VendasClientPage() {
                   event.preventDefault();
                   return;
                 }
+                setMobileSection("today");
                 setMobileAgendaTab("today");
               }}
             >
@@ -4106,14 +4171,17 @@ export default function VendasClientPage() {
               type="button"
               data-tone="success"
               data-active={mobileAgendaTab === "upcoming" ? "true" : "false"}
-              onClick={() => setMobileAgendaTab("upcoming")}
+              onClick={() => {
+                setMobileSection("today");
+                setMobileAgendaTab("upcoming");
+              }}
             >
               <b>Próximos</b>
               <strong>{mobileFutureCount}</strong>
             </button>
           </div>
 
-          {nextRecommendedMobileLead && mobileSection !== "report" && mobileSection !== "settings" ? (
+          {nextRecommendedMobileLead && mobileSection !== "report" ? (
             <section className={styles.mobileVendasRecommendedCard} aria-label="Próximo card recomendado">
               <button
                 type="button"
@@ -4153,11 +4221,9 @@ export default function VendasClientPage() {
             </section>
           ) : null}
 
-          {renderMobileSectionTabs()}
-
         </div>
 
-        {mobileSection === "report" ? renderMobileReport() : mobileSection === "settings" ? renderMobileSettings() : loading ? (
+        {mobileSection === "report" ? renderMobileReport() : loading ? (
           <div className={`${styles.mobileVendasLoading} hbx-mobile-empty`}>
             <span />
             <strong>Carregando agenda</strong>
@@ -4282,8 +4348,21 @@ export default function VendasClientPage() {
               })
             ) : (
               <div className={`${styles.mobileVendasEmpty} hbx-mobile-empty`}>
-                <strong>Nenhum lead disponível agora</strong>
-                <span>Troque a guia, limpe a busca ou volte ao Radar para ampliar cidade e segmento.</span>
+                <strong>
+                  {(board?.summary.total || 0) <= 0
+                    ? "Você ainda não tem cards para trabalhar"
+                    : "Nenhum lead disponível agora"}
+                </strong>
+                <span>
+                  {(board?.summary.total || 0) <= 0
+                    ? "Busque seus primeiros contatos no Radar Digital e envie para Vendas."
+                    : "Troque a guia, limpe a busca ou volte ao Radar para ampliar cidade e segmento."}
+                </span>
+                {(board?.summary.total || 0) <= 0 ? (
+                  <Link className="hbx-mobile-primary-button" href="/radar-digital">
+                    Buscar cards agora
+                  </Link>
+                ) : null}
               </div>
             )}
           </div>
@@ -5481,6 +5560,120 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
 }
 `;
 
+  const accountCapabilities = board?.capabilities || salesProfile?.capabilities || {};
+  const accountProfileSummary = `${salesProfileDraft.whatDoYouSell || "Perfil"} para ${(salesProfileDraft.targetAudience || [])[0] || "pequenos negócios"}`;
+
+  function renderAccountChipEditor(
+    title: string,
+    values: string[],
+    examples: string[],
+    onChange: (values: string[]) => void,
+  ) {
+    return (
+      <section className={`${styles.mobileSalesProfileBlock} hbx-mobile-card`}>
+        <strong>{title}</strong>
+        <div className={styles.mobileSalesProfileChips}>
+          {examples.map((item) => {
+            const active = values.some((value) => value.toLowerCase() === item.toLowerCase());
+            return (
+              <button
+                key={item}
+                type="button"
+                data-active={active ? "true" : "false"}
+                onClick={() => onChange(toggleStringValue(values, item))}
+              >
+                {item}
+              </button>
+            );
+          })}
+        </div>
+      </section>
+    );
+  }
+
+  function renderAccountSalesProfileSettings() {
+    return (
+      <div className={styles.mobileVendasAccountSettings}>
+        <section className={`${styles.mobileSalesProfileHero} hbx-mobile-card`}>
+          <span>Perfil ativo: {accountProfileSummary}</span>
+          <strong>Perfil de Venda</strong>
+          <p>O HBX usa isso para escolher melhores cards para você.</p>
+        </section>
+        <section className={`${styles.mobileSalesProfileBlock} hbx-mobile-card`}>
+          <strong>O que você vende?</strong>
+          <input
+            value={salesProfileDraft.whatDoYouSell}
+            onChange={(event) => setSalesProfileDraft((current) => ({ ...current, whatDoYouSell: event.target.value }))}
+            placeholder="Ex.: Plano de saúde"
+            maxLength={160}
+          />
+          <div className={styles.mobileSalesProfileChips}>
+            {SALES_PROFILE_SELL_EXAMPLES.map((item) => (
+              <button
+                key={item}
+                type="button"
+                data-active={salesProfileDraft.whatDoYouSell === item ? "true" : "false"}
+                onClick={() => setSalesProfileDraft((current) => ({ ...current, whatDoYouSell: item }))}
+              >
+                {item}
+              </button>
+            ))}
+          </div>
+        </section>
+        {renderAccountChipEditor("Para quem você quer vender?", salesProfileDraft.targetAudience, SALES_PROFILE_AUDIENCE_EXAMPLES, (values) =>
+          setSalesProfileDraft((current) => ({ ...current, targetAudience: values })),
+        )}
+        {renderAccountChipEditor("O que você quer evitar?", salesProfileDraft.avoidSegments, SALES_PROFILE_AVOID_EXAMPLES, (values) =>
+          setSalesProfileDraft((current) => ({ ...current, avoidSegments: values })),
+        )}
+        {renderAccountChipEditor("Canal preferido", salesProfileDraft.preferredChannels, SALES_PROFILE_CHANNELS, (values) =>
+          setSalesProfileDraft((current) => ({ ...current, preferredChannels: values })),
+        )}
+        <section className={`${styles.mobileSalesProfileBlock} hbx-mobile-card`}>
+          <label className={styles.mobileSalesProfileToggle}>
+            <input
+              type="checkbox"
+              checked={salesProfileDraft.weeklyAutoUpdateEnabled}
+              onChange={(event) => setSalesProfileDraft((current) => ({ ...current, weeklyAutoUpdateEnabled: event.target.checked }))}
+            />
+            <span>Deixar o HBX sugerir ajustes toda segunda-feira</span>
+          </label>
+          <p>Você revisa antes de aplicar.</p>
+        </section>
+        {salesProfileSuggestion?.diff?.length ? (
+          <section className={`${styles.mobileSalesProfileBlock} hbx-mobile-card`}>
+            <strong>Sugestão da semana</strong>
+            {salesProfileSuggestion.diff.map((item: string) => <p key={item}>{item}</p>)}
+          </section>
+        ) : null}
+        <div className={styles.mobileSalesProfileActions}>
+          <button type="button" className="hbx-mobile-primary-button" onClick={() => void saveSalesProfile()} disabled={salesProfileSaving}>
+            {salesProfileSaving ? "Salvando" : "Salvar perfil"}
+          </button>
+          <button type="button" className="hbx-mobile-secondary-button" onClick={() => void suggestSalesProfile()} disabled={salesProfileSaving || !accountCapabilities.canUseWeeklyProfileSuggestions}>
+            Gerar sugestão com base na semana
+          </button>
+          <button type="button" className="hbx-mobile-secondary-button" onClick={() => setSalesProfileDraft(SALES_PROFILE_DEFAULT_DRAFT)}>
+            Restaurar padrão
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  const mobileReturnDateKey = mobileReturnScheduler
+    ? parseShortBrazilianDate(mobileReturnScheduler.dateText)
+    : "";
+  const mobileReturnCalendarDays = mobileReturnScheduler
+    ? buildCalendarDays(mobileReturnScheduler.monthKey)
+    : [];
+  const mobileReturnMonthLabel = mobileReturnScheduler
+    ? new Date(`${mobileReturnScheduler.monthKey}-01T12:00:00`).toLocaleDateString("pt-BR", {
+        month: "long",
+        year: "numeric",
+      })
+    : "";
+
   return (
     <DashboardScaffold title="Vendas" hideHeader={true}>
       <style dangerouslySetInnerHTML={{ __html: vendasDragTopbarLockStyle }} />
@@ -5810,6 +6003,109 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
         document.body,
       ) : null}
 
+      {mobileReturnScheduler ? createPortal(
+        <div className={styles.mobileReturnSchedulerBackdrop}>
+          <section
+            className={styles.mobileReturnSchedulerDialog}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="mobile-return-scheduler-title"
+          >
+            <div className={styles.mobileReturnSchedulerHeader}>
+              <div>
+                <small>Retorno</small>
+                <h2 id="mobile-return-scheduler-title">Agendar horário</h2>
+                <p>{mobileReturnScheduler.leadName}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setMobileReturnScheduler(null)}
+                aria-label="Fechar calendário de retorno"
+              >
+                ×
+              </button>
+            </div>
+
+            <div className={styles.mobileReturnSchedulerFields}>
+              <label>
+                <span>Data</span>
+                <input
+                  inputMode="numeric"
+                  value={mobileReturnScheduler.dateText}
+                  onChange={(event) => updateMobileReturnDateText(event.target.value)}
+                  placeholder="DD/MM/YY"
+                  maxLength={10}
+                />
+              </label>
+              <label>
+                <span>Horário</span>
+                <input
+                  type="time"
+                  value={mobileReturnScheduler.timeValue}
+                  onChange={(event) => {
+                    setMobileReturnScheduleError(null);
+                    setMobileReturnScheduler((current) =>
+                      current ? { ...current, timeValue: event.target.value } : current,
+                    );
+                  }}
+                />
+              </label>
+            </div>
+
+            <div className={styles.mobileReturnCalendarCard}>
+              <div className={styles.mobileReturnCalendarHeader}>
+                <button type="button" onClick={() => shiftMobileReturnCalendarMonth(-1)} aria-label="Mês anterior">
+                  ‹
+                </button>
+                <strong>{mobileReturnMonthLabel}</strong>
+                <button type="button" onClick={() => shiftMobileReturnCalendarMonth(1)} aria-label="Próximo mês">
+                  ›
+                </button>
+              </div>
+              <div className={styles.mobileReturnWeekdays} aria-hidden="true">
+                {["D", "S", "T", "Q", "Q", "S", "S"].map((label, index) => (
+                  <span key={`${label}-${index}`}>{label}</span>
+                ))}
+              </div>
+              <div className={styles.mobileReturnCalendarGrid}>
+                {mobileReturnCalendarDays.map((day) => (
+                  day.day ? (
+                    <button
+                      type="button"
+                      key={day.key}
+                      data-selected={day.key === mobileReturnDateKey ? "true" : "false"}
+                      onClick={() => selectMobileReturnCalendarDay(day.key)}
+                    >
+                      {day.day}
+                    </button>
+                  ) : (
+                    <span key={day.key} aria-hidden="true" />
+                  )
+                ))}
+              </div>
+            </div>
+
+            {mobileReturnScheduleError ? (
+              <p className={styles.mobileReturnSchedulerError}>{mobileReturnScheduleError}</p>
+            ) : (
+              <p className={styles.mobileReturnSchedulerHint}>
+                O card entra na agenda exatamente na data e no horário escolhidos.
+              </p>
+            )}
+
+            <button
+              type="button"
+              className={styles.mobileReturnSchedulerSave}
+              onClick={() => void saveMobileReturnSchedule()}
+              disabled={savingLeadId === mobileReturnScheduler.leadId}
+            >
+              {savingLeadId === mobileReturnScheduler.leadId ? "Salvando..." : "Salvar retorno"}
+            </button>
+          </section>
+        </div>,
+        document.body,
+      ) : null}
+
       {accountSheetOpen ? createPortal(
         <div
           className={styles.mobileVendasSheetBackdrop}
@@ -5870,14 +6166,19 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
                         .filter(Boolean)
                         .join(" · ") || "Sem dados de cobrança nesta sessão."
                     : "Não foi possível carregar agora."}
-              </p>
+                  </p>
+                </div>
+            <div className={styles.mobileVendasAccountBlock}>
+              <strong>Configurações</strong>
+              <p>Ajuste seu perfil de venda, público ideal e filtros de qualidade.</p>
             </div>
+            {renderAccountSalesProfileSettings()}
             <div className={styles.mobileVendasAccountActions}>
               <Link className="hbx-mobile-secondary-button" href="/boasvindas" onClick={() => setAccountSheetOpen(false)}>
                 Upgrade
               </Link>
-              <Link className="hbx-mobile-primary-button" href="/atendimento" onClick={() => setAccountSheetOpen(false)}>
-                Suporte
+              <Link className="hbx-mobile-primary-button" href="/tutorial" onClick={() => setAccountSheetOpen(false)}>
+                Tutorial
               </Link>
             </div>
           </section>

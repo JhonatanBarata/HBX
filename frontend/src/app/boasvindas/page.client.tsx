@@ -9,6 +9,7 @@ import styles from "./page.module.css";
 
 const PAGE_EXIT_MS = 260;
 const LOGIN_TO_WELCOME_TRANSITION_KEY = "hbx_login_to_welcome_transition";
+const TUTORIAL_COMPLETED_KEY = "hbx:onboarding:tutorial-completed:v1";
 
 type OperationalStatusChip = {
   key: "token" | "meta" | "webwhats" | "payment" | "access";
@@ -102,7 +103,13 @@ function mobileOperationStatus(state: WelcomeState) {
   return "Operação mobile";
 }
 
-function mobilePrimaryAction() {
+function mobilePrimaryAction(state: WelcomeState, tutorialCompleted: boolean) {
+  if (state.loaded && !tutorialCompleted && !hasOperationalHistory(state)) {
+    return { label: "Abrir tutorial", path: "/tutorial" };
+  }
+  if (state.loaded && state.leadsCount <= 0) {
+    return { label: "Buscar primeiros cards", path: "/radar-digital" };
+  }
   return { label: "Abrir Vendas", path: "/vendas" };
 }
 
@@ -119,9 +126,29 @@ function MobileDashboard({
 }) {
   const disabled = leaving || !onNavigate;
   const status = mobileOperationStatus(state);
-  const subtitle = state.loaded && state.leadsCount > 0
-    ? `${state.leadsCount} leads prontos para trabalhar no mobile.`
-    : "Radar, vendas e atendimento em uma operação simples para começar agora.";
+  const subtitle = "Busque cards no Radar, chame pelo WhatsApp e organize retornos.";
+  const desktopCards = [
+    {
+      label: "Radar",
+      title: state.leadsCount > 0 ? "Fonte ativa" : "Buscar primeiros cards",
+      text: "Escolha cidade e segmento para montar sua fila comercial.",
+      path: "/radar-digital",
+    },
+    {
+      label: "Vendas",
+      title: state.leadsCount > 0 ? `${state.leadsCount} cards` : "Fila limpa",
+      text: state.leadsCount > 0
+        ? "Abra os cards, chame pelo WhatsApp e marque retornos."
+        : "Os contatos aprovados pelo Radar aparecem aqui.",
+      path: "/vendas",
+    },
+    {
+      label: "Primeiro acesso",
+      title: "Tutorial mobile",
+      text: "Veja o básico de Conta, Radar e Vendas em poucos passos.",
+      path: "/tutorial",
+    },
+  ];
 
   return (
     <div className={`${styles.mobileDashboard} ${styles.mobileWelcomeExperience} hbx-mobile-page`} aria-label="Boas-vindas HBX">
@@ -130,7 +157,7 @@ function MobileDashboard({
       <h1 id="welcome-title" className={styles.mobileTitle}>Sua operação começa aqui</h1>
       <p className={styles.mobileSubtitle}>{subtitle}</p>
       <p className={styles.loadingText}>
-        {state.loaded ? "Escolha por onde continuar." : "Preparando sua área mobile."}
+        {state.loaded ? "Escolha por onde continuar." : "Preparando seu primeiro acesso."}
       </p>
 
       {state.loaded ? (
@@ -146,6 +173,51 @@ function MobileDashboard({
         </nav>
       ) : null}
 
+      <section className={styles.desktopWelcomeBoard} aria-label="Resumo da operação HBX">
+        <div className={styles.desktopWelcomeHero}>
+          <span>Próximo passo</span>
+          <strong>{state.loaded ? primaryAction.label : "Preparando sua operação"}</strong>
+          <p>{subtitle}</p>
+          {state.loaded ? (
+            <button
+              type="button"
+              className={styles.desktopWelcomePrimary}
+              onClick={() => onNavigate?.(primaryAction.path)}
+              disabled={disabled}
+            >
+              {primaryAction.label}
+            </button>
+          ) : null}
+        </div>
+        <div className={styles.desktopWelcomeMetrics}>
+          <span>
+            <small>Cards</small>
+            <b>{state.loaded ? state.leadsCount : "..."}</b>
+          </span>
+          <span>
+            <small>WhatsApp</small>
+            <b>{state.whatsappConnected ? "Conectado" : "Opcional"}</b>
+          </span>
+          <span>
+            <small>Status</small>
+            <b>{status}</b>
+          </span>
+        </div>
+        <div className={styles.desktopWelcomeCards}>
+          {desktopCards.map((card) => (
+            <button
+              type="button"
+              key={card.label}
+              onClick={() => onNavigate?.(card.path)}
+              disabled={disabled || !state.loaded}
+            >
+              <small>{card.label}</small>
+              <strong>{card.title}</strong>
+              <span>{card.text}</span>
+            </button>
+          ))}
+        </div>
+      </section>
     </div>
   );
 }
@@ -157,6 +229,7 @@ export default function BoasVindasClientPage() {
   const [leaving, setLeaving] = useState(false);
   const [masterCheckComplete, setMasterCheckComplete] = useState(false);
   const [welcomeState, setWelcomeState] = useState<WelcomeState>(DEFAULT_WELCOME_STATE);
+  const [tutorialCompleted, setTutorialCompleted] = useState(false);
   const fromLoginEntryParam = String(searchParams.get("entry") || "").trim().toLowerCase() === "mobile";
   const [clientReady, setClientReady] = useState(false);
 
@@ -164,8 +237,9 @@ export default function BoasVindasClientPage() {
     if (typeof window === "undefined") return undefined;
     try {
       sessionStorage.removeItem(LOGIN_TO_WELCOME_TRANSITION_KEY);
+      setTutorialCompleted(window.localStorage.getItem(TUTORIAL_COMPLETED_KEY) === "true");
     } catch {
-      // ignore sessionStorage errors
+      // ignore storage errors
     }
     if (fromLoginEntryParam && window.location.search.includes("entry=mobile")) {
       window.history.replaceState(null, "", "/boasvindas");
@@ -247,7 +321,7 @@ export default function BoasVindasClientPage() {
     window.setTimeout(() => router.push(path), PAGE_EXIT_MS);
   }
 
-  const mobilePrimary = mobilePrimaryAction();
+  const mobilePrimary = mobilePrimaryAction(welcomeState, tutorialCompleted);
 
   if (hasToken === null || (hasToken === true && !masterCheckComplete && !clientReady)) {
     return (

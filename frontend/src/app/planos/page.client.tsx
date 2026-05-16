@@ -29,6 +29,8 @@ type TrialFormState = {
 };
 
 const PLAN_ORDER: PlanKey[] = ["hbx_lite", "hbx_padrao", "hbx_melhor"];
+const HBX_SUPPORT_PHONE = "5519997024884";
+const HBX_FULL_SUPPORT_MESSAGE = "Olá, quero falar com a HBX sobre implantação assistida do HBX Full.";
 
 const FALLBACK_PLANS: Record<PlanKey, CommercialPlan> = {
   hbx_lite: {
@@ -40,8 +42,8 @@ const FALLBACK_PLANS: Record<PlanKey, CommercialPlan> = {
     description: "Leads/cards simples com telefone, site básico, mensagem básica e WhatsApp externo.",
     annualDiscountPercent: 20,
     trialDays: 0,
-    quotas: { googleSearchesPerDay: 0, cardsPerSearch: 50, searchesPerCycle: 3, totalCards: 150 },
-    features: ["Leads/cards simples", "50 cards por pesquisa", "3 pesquisas, total 150 cards", "Telefone/site básico", "Mensagem básica", "Sem lead inteligente completo"],
+    quotas: { googleSearchesPerDay: 0, cardsPerMonth: 150, dailyCardSafetyLimit: 50, cardsPerSearch: 50, searchesPerCycle: 3, totalCards: 150 },
+    features: ["Leads/cards simples", "150 cards por mês", "50 cards por pesquisa", "3 pesquisas comerciais por mês", "Telefone/site básico", "Mensagem básica", "Sem lead inteligente completo"],
     legalCopy: "Liberação após pagamento confirmado.",
   },
   hbx_padrao: {
@@ -54,30 +56,39 @@ const FALLBACK_PLANS: Record<PlanKey, CommercialPlan> = {
     annualDiscountPercent: 20,
     recommended: true,
     trialDays: 14,
-    quotas: { googleSearchesPerDay: 2 },
-    features: ["Leads inteligentes", "WhatsApp verificado pela HBX", "E-mail confirmado/provável", "Prioridade e motivo do lead", "Canal recomendado", "Templates comerciais", "Quem chamar hoje", "Retorno/agenda"],
+    quotas: { googleSearchesPerDay: 2, cardsPerMonth: 500, dailyCardSafetyLimit: 100 },
+    features: ["Leads inteligentes", "500 cards por mês", "WhatsApp verificado pela HBX", "E-mail confirmado/provável", "Prioridade e motivo do lead", "Canal recomendado", "Templates comerciais", "Quem chamar hoje", "Retorno/agenda"],
     legalCopy: "14 dias grátis, sem cartão e sem cobrança automática.",
   },
   hbx_melhor: {
     key: "hbx_melhor",
-    title: "HBX Full — Bot e IA",
+    title: "HBX Full — implantação assistida",
     status: "available",
-    monthlyPrice: 149.9,
-    headline: "Automação completa com Bot IA, Radar e Night Factory.",
-    description: "Para quem quer o HBX completo com atendimento, prospecção, bot e automação.",
+    monthlyPrice: null,
+    headline: "Bot, automação e atendimento completo com configuração HBX.",
+    description: "Bot, automação e atendimento completo exigem configuração com a HBX.",
     annualDiscountPercent: 20,
     trialDays: 0,
-    quotas: { googleSearchesPerDay: 6 },
-    features: ["Tudo do HBX Lead", "Bot IA liberado", "Bot de prospecção pós-resposta", "Respostas automáticas", "Qualificação de interessados", "Night Factory liberado", "Automação completa", "Encaminhamento para humano"],
-    legalCopy: "Liberação após pagamento confirmado.",
+    quotas: { googleSearchesPerDay: 6, cardsPerMonth: 1500, dailyCardSafetyLimit: 250 },
+    features: ["Tudo do HBX Lead", "Bot IA com configuração assistida", "Automação completa com limites de segurança", "Atendimento e encaminhamento humano", "Implantação feita com a HBX"],
+    legalCopy: "Bot, automação e atendimento completo exigem configuração com a HBX.",
   },
 };
 
 const PLAN_LABELS: Record<PlanKey, string> = {
   hbx_lite: "HBX List",
   hbx_padrao: "HBX Lead",
-  hbx_melhor: "HBX Full — Bot e IA",
+  hbx_melhor: "HBX Full — implantação assistida",
 };
+
+function openHbxFullSupport() {
+  if (typeof window === "undefined") return;
+  window.open(
+    `https://wa.me/${HBX_SUPPORT_PHONE}?text=${encodeURIComponent(HBX_FULL_SUPPORT_MESSAGE)}`,
+    "_blank",
+    "noopener,noreferrer",
+  );
+}
 
 function isPendingCheckout(payload: CommercialPlansPayload | null) {
   if (isPaidOrActive(payload)) return false;
@@ -234,12 +245,14 @@ export default function PlanosClientPage() {
                 ? hasFreeTrial
                   ? "Teste vendas + WhatsApp conectado dentro do sistema sem pagar agora."
                   : "Para quem quer prospectar e atender pelo WhatsApp dentro do HBX."
-                : "Para quem quer automatizar atendimento, respostas e prospecção com segurança.",
-          cta: isCurrent ? "Plano atual" : key === promotedPlanKey ? "Subir de plano" : "Escolher plano",
+                : "Bot, automação e atendimento completo exigem configuração com a HBX.",
+          cta: key === "hbx_melhor" ? "Falar com HBX" : isCurrent ? "Plano atual" : key === promotedPlanKey ? "Subir de plano" : "Escolher plano",
           available: plan.status !== "unavailable",
           featured: key === promotedPlanKey || (!selectedPlanKey && Boolean(plan.recommended)),
           features: plan.features || FALLBACK_PLANS[key].features || [],
-          note: hasFreeTrial ? "14 dias grátis" : plan.legalCopy || FALLBACK_PLANS[key].legalCopy || undefined,
+          note: key === "hbx_melhor"
+            ? "Implantação assistida"
+            : hasFreeTrial ? "14 dias grátis" : plan.legalCopy || FALLBACK_PLANS[key].legalCopy || undefined,
           trialCopy: hasFreeTrial ? "14 dias grátis" : undefined,
         };
       }),
@@ -265,6 +278,17 @@ export default function PlanosClientPage() {
   }, [hasToken, loadPlans]);
 
   async function selectPlan(planKey: PlanKey) {
+    if (planKey === "hbx_melhor") {
+      setNotice({
+        tone: "info",
+        text: "HBX Full — implantação assistida. Bot, automação e atendimento completo exigem configuração com a HBX.",
+      });
+      setTrialModalOpen(false);
+      setError(null);
+      openHbxFullSupport();
+      return;
+    }
+
     if (!canSelectPlan) {
       setNotice({ tone: "info", text: adminDeniedMessage });
       return;
