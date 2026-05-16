@@ -31,6 +31,100 @@
   box-shadow: 0 12px 26px rgba(11, 102, 255, 0.22);
 }
 
+.mobileVendasRecommendedCard {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  margin: 0 14px 12px;
+  padding: 12px;
+  border: 1px solid rgba(24, 94, 255, 0.18);
+  border-radius: 18px;
+  background:
+    radial-gradient(circle at 100% 0%, rgba(31, 190, 255, 0.18), transparent 42%),
+    linear-gradient(135deg, rgba(255, 255, 255, 0.96), rgba(229, 242, 255, 0.9));
+  box-shadow: 0 18px 36px -28px rgba(7, 87, 223, 0.42);
+}
+
+.mobileVendasRecommendedCard > button {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+  border: 0;
+  background: transparent;
+  color: #07143a;
+  padding: 0;
+  text-align: left;
+}
+
+.mobileVendasRecommendedCard span {
+  color: #0b66ff;
+  font-size: 0.62rem;
+  font-weight: 950;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.mobileVendasRecommendedCard strong {
+  overflow: hidden;
+  color: #07143a;
+  font-size: 0.98rem;
+  line-height: 1.12;
+  font-weight: 950;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mobileVendasRecommendedCard small {
+  overflow: hidden;
+  color: #5d6d8d;
+  font-size: 0.68rem;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mobileVendasRecommendedCard > div {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.mobileVendasRecommendedCard a,
+.mobileVendasRecommendedCard > div button {
+  min-width: 40px;
+  height: 40px;
+  display: inline-grid;
+  place-items: center;
+  border: 0;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #dffbe9, #c8f7dc);
+  color: #05a95c;
+  box-shadow: 0 12px 24px -16px rgba(13, 147, 86, 0.55);
+}
+
+.mobileVendasRecommendedCard > div button {
+  min-width: 82px;
+  border-radius: 14px;
+  background: linear-gradient(135deg, #0b66ff, #16c8f5);
+  color: #ffffff;
+  padding: 0 12px;
+  font: inherit;
+  font-size: 0.76rem;
+  font-weight: 950;
+}
+
+.mobileVendasRecommendedCard a[aria-disabled="true"] {
+  opacity: 0.42;
+  pointer-events: none;
+}
+
+.mobileVendasRecommendedCard svg {
+  width: 20px;
+  height: 20px;
+  fill: currentColor;
+}
+
 .mobileVendasReportPanel,
 .mobileSalesProfileHero,
 .mobileSalesProfileBlock {
