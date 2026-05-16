@@ -28,6 +28,20 @@ export type LeadQualityV2 = {
   };
 };
 
+export type LeadQualityV2SalesProfile = {
+  whatDoYouSell?: string | null;
+  offerCategory?: string | null;
+  targetAudience?: string[];
+  targetSegments?: string[];
+  avoidSegments?: string[];
+  hardRejectSegments?: string[];
+  preferredCities?: string[];
+  preferredStates?: string[];
+  preferredChannels?: string[];
+  leadPreferences?: Record<string, any>;
+  negativeRules?: Record<string, any>;
+};
+
 type SegmentIntentGroup = 'core' | 'adjacent_good' | 'adjacent_review' | 'reject';
 
 type SegmentIntentMap = {
@@ -200,6 +214,22 @@ function includesAny(haystack: string, needles: string[]) {
   return needles.some((needle) => haystack.includes(normalizeKey(needle)));
 }
 
+function normalizeStringArray(value: unknown, limit = 40) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => normalizeText(item, 80))
+    .filter(Boolean)
+    .slice(0, limit);
+}
+
+function profileHasPreference(profile: LeadQualityV2SalesProfile | null | undefined, key: string) {
+  return Boolean(profile?.leadPreferences && (profile.leadPreferences as any)[key] === true);
+}
+
+function profileHasNegativeRule(profile: LeadQualityV2SalesProfile | null | undefined, key: string) {
+  return Boolean(profile?.negativeRules && (profile.negativeRules as any)[key] === true);
+}
+
 function resolveSegmentIntent(requestedSegment: unknown) {
   const requested = normalizeKey(requestedSegment);
   if (!requested) return null;
@@ -273,6 +303,7 @@ export function calculateLeadQualityV2(input: {
     requestedState?: string | null;
     targetType?: string | null;
     now?: Date;
+    salesProfile?: LeadQualityV2SalesProfile | null;
   };
 }): LeadQualityV2 {
   const row = mergeLeadInput(input.lead || {}, input.enrichment || {});
@@ -307,6 +338,7 @@ export function calculateLeadQualityV2(input: {
   const protectedStatus = Array.from(PROTECTED_STATUSES).some((status) => statusText.includes(status));
   const directoryLike = includesAny(`${nameKey} ${normalizeKey(row?.source)} ${normalizeKey(row?.sourceUrl)}`, DIRECTORY_PATTERNS);
   const genericName = !name || nameKey.length < 3 || GENERIC_NAME_PATTERNS.some((term) => nameKey === normalizeKey(term) || nameKey.includes(normalizeKey(term)));
+  const salesProfile = input.context?.salesProfile || null;
 
   let identityScore = 20;
   if (name && !genericName) identityScore += 24;
@@ -344,7 +376,39 @@ export function calculateLeadQualityV2(input: {
     leadText,
     reasons,
   });
-  const segmentFitScore = clampScore(segmentFit.score);
+  let segmentFitScore = clampScore(segmentFit.score);
+  const profileTargetSegments = normalizeStringArray(salesProfile?.targetSegments);
+  const profileAvoidSegments = normalizeStringArray(salesProfile?.avoidSegments);
+  const profileHardRejectSegments = normalizeStringArray(salesProfile?.hardRejectSegments);
+  const profilePreferredCities = normalizeStringArray(salesProfile?.preferredCities);
+  const profilePreferredStates = normalizeStringArray(salesProfile?.preferredStates).map((state) => state.toUpperCase());
+  const profilePreferredChannels = normalizeStringArray(salesProfile?.preferredChannels).map(normalizeKey);
+  const profileMatchesTargetSegment = profileTargetSegments.some((segment) => leadText.includes(normalizeKey(segment)));
+  const profileMatchesAvoidSegment = profileAvoidSegments.some((segment) => leadText.includes(normalizeKey(segment)));
+  const profileMatchesHardReject = profileHardRejectSegments.some((segment) => leadText.includes(normalizeKey(segment)));
+  const profileCity = normalizeKey(row?.city);
+  const profileState = normalizeText(row?.state).toUpperCase();
+  const profilePreferredCityMatch = profilePreferredCities.some((city) => profileCity === normalizeKey(city));
+  const profilePreferredStateMatch = profilePreferredStates.some((state) => profileState === state);
+  if (profileMatchesTargetSegment) {
+    segmentFitScore = clampScore(segmentFitScore + 16);
+    reasons.push('Segmento prioritario no seu perfil.');
+    reasons.push('Combina com seu Perfil de Venda.');
+  }
+  if (profileMatchesAvoidSegment) {
+    segmentFitScore = clampScore(segmentFitScore - 35);
+    reasons.push('Evita perfil configurado pelo vendedor.');
+  }
+  if (profileMatchesHardReject) {
+    segmentFitScore = Math.min(segmentFitScore, 10);
+    reasons.push('Evita perfil configurado pelo vendedor.');
+  }
+  if (profilePreferredCities.length && profilePreferredCityMatch) {
+    segmentFitScore = clampScore(segmentFitScore + 6);
+  }
+  if (profilePreferredStates.length && profilePreferredStateMatch) {
+    segmentFitScore = clampScore(segmentFitScore + 4);
+  }
 
   let contactabilityScore = 0;
   if (whatsappConfirmed) contactabilityScore += 72;
@@ -353,6 +417,14 @@ export function calculateLeadQualityV2(input: {
   if (emailConfirmed) contactabilityScore += 20;
   else if (emailProbable) contactabilityScore += 13;
   if (hasSocial) contactabilityScore += 12;
+  if (profileHasPreference(salesProfile, 'preferInstagram') && instagramUrl) {
+    contactabilityScore += 8;
+    reasons.push('Combina com seu Perfil de Venda.');
+  }
+  if (profileHasPreference(salesProfile, 'preferWhatsapp') && (whatsappConfirmed || likelyMobile)) {
+    contactabilityScore += 10;
+    reasons.push('Canal preferido: WhatsApp.');
+  }
   if (normalizeText(row?.googleMapsUrl || row?.signals?.googleMapsUrl)) contactabilityScore += 8;
   if (!phoneValid) contactabilityScore -= 20;
   if (whatsappUnavailable) contactabilityScore -= 24;
@@ -370,6 +442,18 @@ export function calculateLeadQualityV2(input: {
   if (hasSocial && (!website || ['none', 'weak', 'social_only'].includes(websiteStatus))) commercialIntentScore += 14;
   if (Number(row?.rating || 0) >= 4.2) commercialIntentScore += 8;
   if (Number(row?.reviews || 0) >= 20) commercialIntentScore += 8;
+  if (profileHasPreference(salesProfile, 'preferNoWebsite') && (!website || ['none', 'weak', 'social_only'].includes(websiteStatus))) {
+    commercialIntentScore += 14;
+    reasons.push('Boa oportunidade para o que voce vende.');
+  }
+  if (profileHasPreference(salesProfile, 'preferInstagram') && instagramUrl) commercialIntentScore += 8;
+  if (profileHasPreference(salesProfile, 'preferHighReviews')) {
+    const minRating = Number((salesProfile?.leadPreferences || {}).minRating || 0);
+    const minReviews = Number((salesProfile?.leadPreferences || {}).minReviews || 0);
+    if ((!minRating || Number(row?.rating || 0) >= minRating) && (!minReviews || Number(row?.reviews || 0) >= minReviews)) {
+      commercialIntentScore += 6;
+    }
+  }
   if (whatsappConfirmed || likelyMobile) commercialIntentScore += 8;
   if (playbookKnown) commercialIntentScore += 8;
   if (normalizeText(row?.painType || row?.signals?.painType || row?.opportunityReason)) commercialIntentScore += 8;
@@ -380,6 +464,8 @@ export function calculateLeadQualityV2(input: {
 
   let riskScore = 0;
   const protectionReasons: string[] = [];
+  const publicSectorLike = includesAny(leadText, ['prefeitura', 'camara municipal', 'governo', 'secretaria municipal', 'orgao publico', 'ministerio']);
+  const largeCompanyLike = includesAny(leadText, ['multinacional', 'franquia nacional', 'shopping', 'grupo empresarial', 'holding', 'banco']);
   if (protectedStatus) {
     riskScore += 90;
     protectionReasons.push('status protegido');
@@ -402,6 +488,24 @@ export function calculateLeadQualityV2(input: {
   if (row?.ownerCompanyId && input.context?.targetType !== 'owner') riskScore += 45;
   if (statusText.includes('opt-out') || statusText.includes('opt_out')) riskScore += 80;
   if (statusText.includes('invalid_phone') || statusText.includes('invalid_whatsapp')) riskScore += 80;
+  if (profileHasNegativeRule(salesProfile, 'avoidDirectories') && directoryLike) riskScore += 35;
+  if (profileHasNegativeRule(salesProfile, 'avoidPublicSector') && publicSectorLike) {
+    riskScore += 55;
+    protectionReasons.push('orgao publico');
+    reasons.push('Evita perfil configurado pelo vendedor.');
+  }
+  if ((profileHasNegativeRule(salesProfile, 'avoidLargeCompanies') || profileHasPreference(salesProfile, 'preferSmallBusiness')) && largeCompanyLike) {
+    riskScore += 28;
+    reasons.push('Evita perfil configurado pelo vendedor.');
+  }
+  if (profileHasNegativeRule(salesProfile, 'avoidNoPhone') && !phoneValid) {
+    riskScore += 70;
+    protectionReasons.push('sem telefone');
+  }
+  if (profileHasNegativeRule(salesProfile, 'avoidNoWhatsapp') && !whatsappConfirmed && !likelyMobile) {
+    riskScore += 45;
+    protectionReasons.push('sem WhatsApp');
+  }
   riskScore = clampScore(riskScore);
   if (riskScore >= 40) reasons.push(`Risco elevado: ${protectionReasons.join(', ') || 'historico operacional ruim'}.`);
 
@@ -415,7 +519,7 @@ export function calculateLeadQualityV2(input: {
     Math.min(35, riskScore * 0.35),
   );
   const riskPenalty = riskScore >= 80 ? 100 : riskScore >= 60 ? 35 : riskScore >= 40 ? 15 : 0;
-  const finalRankScore = clampScore(
+  let finalRankScore = clampScore(
     opportunityScore * 0.30 +
     contactabilityScore * 0.25 +
     segmentFitScore * 0.20 +
@@ -446,6 +550,15 @@ export function calculateLeadQualityV2(input: {
   else if (emailConfirmed || emailProbable) recommendedChannel = 'email';
   else if (phoneValid) recommendedChannel = 'call';
   else recommendedChannel = 'review';
+  if (profilePreferredChannels.includes('whatsapp') && (whatsappConfirmed || likelyMobile)) {
+    recommendedChannel = 'whatsapp';
+  } else if (profilePreferredChannels.includes('instagram') && instagramUrl && recommendedChannel === 'review') {
+    recommendedChannel = 'review';
+  } else if (profilePreferredChannels.includes('email') && (emailConfirmed || emailProbable)) {
+    recommendedChannel = 'email';
+  } else if (profilePreferredChannels.includes('ligacao') && phoneValid) {
+    recommendedChannel = 'call';
+  }
 
   let decision: LeadQualityV2Decision = 'review';
   let discardReason: string | null = null;
@@ -460,6 +573,19 @@ export function calculateLeadQualityV2(input: {
   } else if (directoryLike) {
     decision = 'discard';
     discardReason = 'generic_directory';
+  } else if (profileMatchesHardReject) {
+    decision = 'discard';
+    discardReason = 'segment_mismatch';
+  } else if (profileHasNegativeRule(salesProfile, 'avoidPublicSector') && publicSectorLike) {
+    decision = 'discard';
+    discardReason = 'segment_mismatch';
+  } else if (profileHasNegativeRule(salesProfile, 'avoidNoPhone') && !phoneValid) {
+    decision = 'discard';
+    discardReason = 'weak_contactability';
+  } else if (profileHasNegativeRule(salesProfile, 'avoidNoWhatsapp') && !whatsappConfirmed && !likelyMobile) {
+    decision = 'review';
+    discardReason = null;
+    finalRankScore = Math.min(finalRankScore, 45);
   } else if (segmentFit.group === 'reject' || (normalizeKey(input.context?.requestedSegment) && segmentFitScore < 25)) {
     decision = 'discard';
     discardReason = 'segment_mismatch';

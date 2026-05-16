@@ -5941,3 +5941,142 @@
     filter: drop-shadow(0 0 8px rgba(0, 92, 255, 0.58)) !important;
   }
 }
+
+@media (max-width: 820px) {
+  .mobileRadarForm.hbx-mobile-card {
+    width: min(100%, 430px) !important;
+    justify-self: center !important;
+    gap: 12px !important;
+    padding: 14px !important;
+  }
+
+  .mobilePickerButton,
+  .mobileAdvancedButton,
+  .mobileRadarEngineField {
+    min-height: 72px !important;
+    border-radius: 17px !important;
+    padding: 13px 52px 13px 14px !important;
+  }
+
+  .mobilePickerButton strong,
+  .mobileAdvancedButton strong {
+    font-size: 1.02rem !important;
+    line-height: 1.18 !important;
+  }
+
+  .mobilePickerButton > span,
+  .mobileAdvancedButton > span,
+  .mobileRadarEngineField > span {
+    font-size: 0.72rem !important;
+  }
+
+  .mobilePickerButton small {
+    font-size: 0.76rem !important;
+  }
+
+  .mobilePickerButton b,
+  .mobileAdvancedButton b {
+    right: 13px !important;
+    width: 36px !important;
+    height: 36px !important;
+    display: grid !important;
+    place-items: center !important;
+    border-radius: 12px !important;
+    font-size: 1.28rem !important;
+    line-height: 1 !important;
+  }
+
+  .mobilePickerButton b svg,
+  .mobileAdvancedButton b svg,
+  .mobilePickerActions button[aria-label="Pesquisar"] svg {
+    width: 23px !important;
+    height: 23px !important;
+    display: block !important;
+    fill: none !important;
+    stroke: currentColor !important;
+    stroke-width: 2.6 !important;
+    stroke-linecap: round !important;
+    stroke-linejoin: round !important;
+  }
+
+  .mobileRadarEngineField {
+    padding-right: 14px !important;
+  }
+
+  .mobileRadarEngineField .engineToggle button {
+    min-height: 46px !important;
+    font-size: 0.88rem !important;
+  }
+
+  .mobilePickerPanel {
+    align-items: center !important;
+    justify-items: center !important;
+    padding: max(18px, env(safe-area-inset-top)) 14px max(18px, env(safe-area-inset-bottom)) !important;
+    overflow: hidden !important;
+    overscroll-behavior: contain !important;
+  }
+
+  .mobilePickerSheet {
+    top: 50dvh !important;
+    left: 50% !important;
+    width: min(calc(100vw - 28px), 390px) !important;
+    max-height: min(calc(100dvh - 36px - env(safe-area-inset-top) - env(safe-area-inset-bottom)), 620px) !important;
+    gap: 14px !important;
+    padding: 22px 16px 17px !important;
+    border-radius: 26px !important;
+    transform: translate(-50%, -50%) !important;
+  }
+
+  .mobilePickerHeader {
+    align-items: center !important;
+    gap: 14px !important;
+  }
+
+  .mobilePickerHeader strong {
+    font-size: 1.08rem !important;
+  }
+
+  .mobilePickerActions {
+    gap: 9px !important;
+  }
+
+  .mobilePickerActions button[aria-label="Pesquisar"] {
+    width: 42px !important;
+    min-width: 42px !important;
+    height: 42px !important;
+    min-height: 42px !important;
+    display: grid !important;
+    place-items: center !important;
+    padding: 0 !important;
+    border-radius: 13px !important;
+    background: #eef4ff !important;
+    color: #0757df !important;
+    font-size: 1.45rem !important;
+    line-height: 1 !important;
+  }
+
+  .mobilePickerHeader button:not([aria-label="Pesquisar"]) {
+    min-height: 42px !important;
+    font-size: 0.94rem !important;
+  }
+
+  .mobilePickerSheet input {
+    min-height: 52px !important;
+    border-radius: 16px !important;
+    font-size: 1rem !important;
+  }
+
+  .mobilePickerList {
+    gap: 10px !important;
+    max-height: min(54dvh, 430px) !important;
+  }
+
+  .mobilePickerList button,
+  .mobileSegmentToolbar button,
+  .mobileSegmentCategories button,
+  .mobileSegmentOptions button {
+    min-height: 52px !important;
+    border-radius: 15px !important;
+    font-size: 0.96rem !important;
+  }
+}

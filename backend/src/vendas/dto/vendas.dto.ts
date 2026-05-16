@@ -8,6 +8,8 @@ import {
   IsNumber,
   IsOptional,
   IsString,
+  IsObject,
+  IsBoolean,
   MaxLength,
   Max,
   Min,
@@ -497,3 +499,72 @@ export class UpdateVendasProspectingConfigDto {
 }
 
 export class StartVendasProspectingDto extends UpdateVendasProspectingConfigDto {}
+
+export class UpdateSalesProfileDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(160)
+  whatDoYouSell?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  offerCategory?: string;
+
+  @IsOptional()
+  @IsObject()
+  targetAudience?: { labels?: string[]; notes?: string };
+
+  @IsOptional()
+  @IsObject()
+  targetSegments?: { labels?: string[]; weights?: Record<string, number> };
+
+  @IsOptional()
+  @IsObject()
+  avoidSegments?: { labels?: string[]; hardReject?: string[] };
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(30)
+  @IsString({ each: true })
+  preferredCities?: string[];
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(30)
+  @IsString({ each: true })
+  preferredStates?: string[];
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(8)
+  @IsString({ each: true })
+  preferredChannels?: string[];
+
+  @IsOptional()
+  @IsObject()
+  leadPreferences?: Record<string, any>;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  ticketRange?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(160)
+  salesGoal?: string;
+
+  @IsOptional()
+  @IsObject()
+  negativeRules?: Record<string, any>;
+
+  @IsOptional()
+  @Transform(({ value }) => {
+    if (typeof value === 'boolean') return value;
+    if (typeof value === 'string') return ['1', 'true', 'yes', 'on'].includes(value.trim().toLowerCase());
+    return value;
+  })
+  @IsBoolean()
+  weeklyAutoUpdateEnabled?: boolean;
+}

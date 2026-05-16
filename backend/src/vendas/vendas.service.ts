@@ -8,6 +8,7 @@ import {
   getCommercialPlanCapabilities,
   getCommercialPlanTier,
   normalizeCommercialPlanKey,
+  resolveCommercialPlanKeyForCapabilities,
   type CommercialPlanCapabilities,
   type CommercialPlanTier,
 } from '../commercial-plans/commercial-plan-catalog';
@@ -21,12 +22,13 @@ import {
   MASTER_WHATSAPP_ENGINE_COMPANY_SLUG,
 } from '../companies/master-whatsapp-company.constants';
 import { buildImportacaoPermissaoRows } from '../bootstrap/company-structural-defaults';
-import { type LeadQualityV2 } from '../webscraping/lead-quality-v2';
+import { calculateLeadQualityV2, type LeadQualityV2, type LeadQualityV2SalesProfile } from '../webscraping/lead-quality-v2';
 import {
   BulkDeleteVendasLeadsDto,
   CreateManualVendasLeadDto,
   ImportWebscrapingLeadsDto,
   ReportVendasLeadDto,
+  UpdateSalesProfileDto,
   UpdateVendasLeadDto,
 } from './dto/vendas.dto';
 import { buildVendasLeadIntelligence } from './vendas-lead-enrichment';
@@ -116,6 +118,26 @@ type VendasWhatsappAvailabilityState = {
 type VendasPlanAccess = {
   planTier: CommercialPlanTier;
   capabilities: CommercialPlanCapabilities;
+};
+
+type SalesProfileSource = 'user' | 'company' | 'default';
+
+type EffectiveSalesProfile = LeadQualityV2SalesProfile & {
+  id?: string | null;
+  profileName?: string | null;
+  targetAudienceJson?: any;
+  targetSegmentsJson?: any;
+  avoidSegmentsJson?: any;
+  preferredCitiesJson?: string[];
+  preferredStatesJson?: string[];
+  preferredChannelsJson?: string[];
+  ticketRange?: string | null;
+  salesGoal?: string | null;
+  weeklyAutoUpdateEnabled?: boolean;
+  source?: string | null;
+  lastAppliedAt?: string | null;
+  lastSuggestedAt?: string | null;
+  suggestedProfile?: any;
 };
 
 type ImportLeadQualityStatus =
@@ -801,9 +823,9 @@ export class VendasService {
   private async resolvePlanAccessForCompany(companyId: number): Promise<VendasPlanAccess> {
     const company = await this.prisma.company.findUnique({
       where: { id: Number(companyId) },
-      select: { selectedPlanKey: true },
+      select: { selectedPlanKey: true, premiumAccess: true, paymentStatus: true, subscriptionStatus: true },
     }).catch(() => null);
-    return this.buildPlanAccess(company?.selectedPlanKey || COMMERCIAL_PLAN_KEYS.PADRAO);
+    return this.buildPlanAccess(resolveCommercialPlanKeyForCapabilities(company || {}));
   }
 
   private applyLeadIntelligenceCapabilities(intelligence: any, access: VendasPlanAccess) {
@@ -841,6 +863,586 @@ export class VendasService {
           }
         : null,
     };
+  }
+
+  private defaultSalesProfile(): EffectiveSalesProfile {
+    return {
+      profileName: 'Perfil de Venda',
+      whatDoYouSell: 'Sistema/serviço comercial',
+      offerCategory: 'serviço comercial',
+      targetAudience: ['pequenos negócios', 'comércios locais', 'prestadores de serviço'],
+      targetSegments: ['oficina', 'clínica', 'beleza', 'restaurante', 'pet', 'imobiliária', 'serviços locais'],
+      avoidSegments: ['órgão público', 'empresa muito grande', 'diretório', 'lista genérica'],
+      hardRejectSegments: ['órgão público', 'diretório', 'lista genérica'],
+      preferredCities: [],
+      preferredStates: [],
+      preferredChannels: ['whatsapp'],
+      leadPreferences: {
+        preferSmallBusiness: true,
+        preferNoWebsite: true,
+        preferInstagram: true,
+        preferWhatsapp: true,
+        preferHighReviews: true,
+        preferLocalBusiness: true,
+        companySize: 'small',
+      },
+      negativeRules: {
+        avoidPublicSector: true,
+        avoidLargeCompanies: true,
+        avoidDirectories: true,
+        avoidNoPhone: true,
+        avoidNoWhatsapp: false,
+      },
+      weeklyAutoUpdateEnabled: false,
+      source: 'system_default',
+    };
+  }
+
+  private parseSalesProfileJson(value: unknown, fallback: any) {
+    if (!value) return fallback;
+    if (typeof value === 'object') return value;
+    try {
+      const parsed = JSON.parse(String(value || ''));
+      return parsed == null ? fallback : parsed;
+    } catch {
+      return fallback;
+    }
+  }
+
+  private sanitizeSalesProfileString(value: unknown, max = 160) {
+    return this.normalizeText(value).slice(0, max) || null;
+  }
+
+  private sanitizeSalesProfileArray(value: unknown, limit = 30, maxLength = 80) {
+    const raw = Array.isArray(value) ? value : [];
+    const seen = new Set<string>();
+    const output: string[] = [];
+    for (const item of raw) {
+      const normalized = this.normalizeText(item).slice(0, maxLength);
+      const key = normalized.toLowerCase();
+      if (!normalized || seen.has(key)) continue;
+      seen.add(key);
+      output.push(normalized);
+      if (output.length >= limit) break;
+    }
+    return output;
+  }
+
+  private serializeSalesProfileJson(value: any) {
+    return JSON.stringify(value == null ? null : value).slice(0, 12000);
+  }
+
+  private rowToSalesProfile(row: any): EffectiveSalesProfile {
+    const fallback = this.defaultSalesProfile();
+    if (!row) return fallback;
+    const targetAudienceJson = this.parseSalesProfileJson(row.targetAudienceJson, { labels: [] });
+    const targetSegmentsJson = this.parseSalesProfileJson(row.targetSegmentsJson, { labels: [] });
+    const avoidSegmentsJson = this.parseSalesProfileJson(row.avoidSegmentsJson, { labels: [] });
+    const preferredCities = this.parseSalesProfileJson(row.preferredCitiesJson, []);
+    const preferredStates = this.parseSalesProfileJson(row.preferredStatesJson, []);
+    const preferredChannels = this.parseSalesProfileJson(row.preferredChannelsJson, []);
+    const leadPreferences = this.parseSalesProfileJson(row.leadPreferencesJson, {});
+    const negativeRules = this.parseSalesProfileJson(row.negativeRulesJson, {});
+    return {
+      id: row.id ? String(row.id) : null,
+      profileName: row.profileName || fallback.profileName,
+      whatDoYouSell: row.whatDoYouSell || fallback.whatDoYouSell,
+      offerCategory: row.offerCategory || fallback.offerCategory,
+      targetAudienceJson,
+      targetSegmentsJson,
+      avoidSegmentsJson,
+      targetAudience: this.sanitizeSalesProfileArray(targetAudienceJson?.labels || fallback.targetAudience),
+      targetSegments: this.sanitizeSalesProfileArray(targetSegmentsJson?.labels || fallback.targetSegments),
+      avoidSegments: this.sanitizeSalesProfileArray(avoidSegmentsJson?.labels || fallback.avoidSegments),
+      hardRejectSegments: this.sanitizeSalesProfileArray(avoidSegmentsJson?.hardReject || fallback.hardRejectSegments),
+      preferredCities: this.sanitizeSalesProfileArray(preferredCities),
+      preferredStates: this.sanitizeSalesProfileArray(preferredStates, 30, 2).map((state) => state.toUpperCase()),
+      preferredChannels: this.sanitizeSalesProfileArray(preferredChannels.length ? preferredChannels : fallback.preferredChannels, 8, 24),
+      preferredCitiesJson: this.sanitizeSalesProfileArray(preferredCities),
+      preferredStatesJson: this.sanitizeSalesProfileArray(preferredStates, 30, 2).map((state) => state.toUpperCase()),
+      preferredChannelsJson: this.sanitizeSalesProfileArray(preferredChannels.length ? preferredChannels : fallback.preferredChannels, 8, 24),
+      leadPreferences: { ...fallback.leadPreferences, ...leadPreferences },
+      negativeRules: { ...fallback.negativeRules, ...negativeRules },
+      ticketRange: row.ticketRange || null,
+      salesGoal: row.salesGoal || null,
+      weeklyAutoUpdateEnabled: Boolean(row.weeklyAutoUpdateEnabled),
+      source: row.source || 'manual',
+      lastAppliedAt: row.lastAppliedAt instanceof Date ? row.lastAppliedAt.toISOString() : null,
+      lastSuggestedAt: row.lastSuggestedAt instanceof Date ? row.lastSuggestedAt.toISOString() : null,
+      suggestedProfile: this.parseSalesProfileJson(row.suggestedProfileJson, null),
+    };
+  }
+
+  private applySalesProfileCapabilities(profile: EffectiveSalesProfile, access: VendasPlanAccess): EffectiveSalesProfile {
+    if (access.capabilities.canUseSalesProfileAdvanced) return profile;
+    return {
+      ...this.defaultSalesProfile(),
+      id: profile.id,
+      whatDoYouSell: profile.whatDoYouSell,
+      offerCategory: profile.offerCategory,
+      targetSegments: (profile.targetSegments || []).slice(0, 1),
+      preferredCities: (profile.preferredCities || []).slice(0, 1),
+      preferredStates: (profile.preferredStates || []).slice(0, 1),
+      preferredChannels: ['whatsapp'],
+      leadPreferences: {
+        preferSmallBusiness: true,
+        preferNoWebsite: false,
+        preferInstagram: false,
+        preferWhatsapp: true,
+        preferHighReviews: false,
+        preferLocalBusiness: true,
+      },
+      negativeRules: {
+        avoidDirectories: true,
+        avoidNoPhone: true,
+        avoidNoWhatsapp: false,
+      },
+      weeklyAutoUpdateEnabled: false,
+      source: profile.source,
+    };
+  }
+
+  private async getEffectiveSalesProfileForContext(context: { companyId: number; userId: number }, access?: VendasPlanAccess) {
+    const planAccess = access || await this.resolvePlanAccessForCompany(context.companyId);
+    const tableAvailable = await this.prisma.hasTable('SalesProfile').catch(() => false);
+    if (!tableAvailable) {
+      return { profile: null, effectiveProfile: this.applySalesProfileCapabilities(this.defaultSalesProfile(), planAccess), source: 'default' as SalesProfileSource };
+    }
+    const [userProfile, companyProfile] = await Promise.all([
+      (this.prisma as any).salesProfile.findFirst({
+        where: { companyId: context.companyId, userId: context.userId },
+        orderBy: { updatedAt: 'desc' },
+      }).catch(() => null),
+      (this.prisma as any).salesProfile.findFirst({
+        where: { companyId: context.companyId, userId: null },
+        orderBy: { updatedAt: 'desc' },
+      }).catch(() => null),
+    ]);
+    const row = userProfile || companyProfile || null;
+    const source: SalesProfileSource = userProfile ? 'user' : companyProfile ? 'company' : 'default';
+    const effectiveProfile = this.applySalesProfileCapabilities(this.rowToSalesProfile(row), planAccess);
+    return {
+      profile: row ? this.rowToSalesProfile(row) : null,
+      effectiveProfile,
+      source,
+    };
+  }
+
+  async getSalesProfileForUser(user: any) {
+    const context = this.resolveUserContext(user);
+    const planAccess = await this.resolvePlanAccessForCompany(context.companyId);
+    const result = await this.getEffectiveSalesProfileForContext(context, planAccess);
+    return { ok: true, ...result, capabilities: planAccess.capabilities };
+  }
+
+  private buildSalesProfileDataFromDto(dto: UpdateSalesProfileDto, existing?: EffectiveSalesProfile | null) {
+    const fallback = existing || this.defaultSalesProfile();
+    const targetAudience = {
+      labels: this.sanitizeSalesProfileArray(dto.targetAudience?.labels ?? fallback.targetAudience),
+      notes: this.sanitizeSalesProfileString(dto.targetAudience?.notes, 500) || undefined,
+    };
+    const targetSegments = {
+      labels: this.sanitizeSalesProfileArray(dto.targetSegments?.labels ?? fallback.targetSegments),
+      weights: dto.targetSegments?.weights && typeof dto.targetSegments.weights === 'object' ? dto.targetSegments.weights : {},
+    };
+    const avoidSegments = {
+      labels: this.sanitizeSalesProfileArray(dto.avoidSegments?.labels ?? fallback.avoidSegments),
+      hardReject: this.sanitizeSalesProfileArray(dto.avoidSegments?.hardReject ?? fallback.hardRejectSegments),
+    };
+    const leadPreferences = {
+      ...(fallback.leadPreferences || {}),
+      ...(dto.leadPreferences && typeof dto.leadPreferences === 'object' ? dto.leadPreferences : {}),
+    };
+    const negativeRules = {
+      ...(fallback.negativeRules || {}),
+      ...(dto.negativeRules && typeof dto.negativeRules === 'object' ? dto.negativeRules : {}),
+    };
+    return {
+      profileName: 'Perfil de Venda',
+      whatDoYouSell: this.sanitizeSalesProfileString(dto.whatDoYouSell ?? fallback.whatDoYouSell, 160),
+      offerCategory: this.sanitizeSalesProfileString(dto.offerCategory ?? fallback.offerCategory, 120),
+      targetAudienceJson: this.serializeSalesProfileJson(targetAudience),
+      targetSegmentsJson: this.serializeSalesProfileJson(targetSegments),
+      avoidSegmentsJson: this.serializeSalesProfileJson(avoidSegments),
+      preferredCitiesJson: this.serializeSalesProfileJson(this.sanitizeSalesProfileArray(dto.preferredCities ?? fallback.preferredCities)),
+      preferredStatesJson: this.serializeSalesProfileJson(this.sanitizeSalesProfileArray(dto.preferredStates ?? fallback.preferredStates, 30, 2).map((state) => state.toUpperCase())),
+      preferredChannelsJson: this.serializeSalesProfileJson(this.sanitizeSalesProfileArray(dto.preferredChannels ?? fallback.preferredChannels, 8, 24)),
+      leadPreferencesJson: this.serializeSalesProfileJson(leadPreferences),
+      ticketRange: this.sanitizeSalesProfileString(dto.ticketRange ?? fallback.ticketRange, 80),
+      salesGoal: this.sanitizeSalesProfileString(dto.salesGoal ?? fallback.salesGoal, 160),
+      negativeRulesJson: this.serializeSalesProfileJson(negativeRules),
+      weeklyAutoUpdateEnabled: Boolean(dto.weeklyAutoUpdateEnabled ?? fallback.weeklyAutoUpdateEnabled),
+      source: 'manual',
+      lastAppliedAt: new Date(),
+    };
+  }
+
+  async updateSalesProfileForUser(user: any, dto: UpdateSalesProfileDto) {
+    const context = this.resolveUserContext(user);
+    const planAccess = await this.resolvePlanAccessForCompany(context.companyId);
+    if (!(await this.prisma.hasTable('SalesProfile').catch(() => false))) {
+      throw new BadRequestException('Tabela SalesProfile ainda nao foi migrada.');
+    }
+    const current = await this.getEffectiveSalesProfileForContext(context, planAccess);
+    const data = this.buildSalesProfileDataFromDto(dto || {}, current.profile || current.effectiveProfile);
+    const existing = await (this.prisma as any).salesProfile.findFirst({
+      where: { companyId: context.companyId, userId: context.userId },
+      orderBy: { updatedAt: 'desc' },
+    }).catch(() => null);
+    const row = existing
+      ? await (this.prisma as any).salesProfile.update({ where: { id: existing.id }, data })
+      : await (this.prisma as any).salesProfile.create({ data: { companyId: context.companyId, userId: context.userId, ...data } });
+    const effective = await this.getEffectiveSalesProfileForContext(context, planAccess);
+    return { ok: true, profile: this.rowToSalesProfile(row), effectiveProfile: effective.effectiveProfile, source: 'user' as SalesProfileSource, capabilities: planAccess.capabilities };
+  }
+
+  private resolveReportPeriod(periodRaw: unknown) {
+    const period = String(periodRaw || '7d').trim().toLowerCase();
+    const now = new Date();
+    const start = new Date(now);
+    if (period === 'today' || period === 'hoje') {
+      start.setHours(0, 0, 0, 0);
+      return { key: 'today', label: 'Hoje', start, end: now };
+    }
+    const days = period === '30d' ? 30 : 7;
+    start.setDate(start.getDate() - Math.max(1, days - 1));
+    start.setHours(0, 0, 0, 0);
+    return { key: `${days}d`, label: `${days} dias`, start, end: now };
+  }
+
+  private incrementRanking(map: Map<string, number>, value: unknown) {
+    const label = this.normalizeText(value) || 'Não informado';
+    map.set(label, (map.get(label) || 0) + 1);
+  }
+
+  private mapToRanking(map: Map<string, number>, limit = 5) {
+    return Array.from(map.entries())
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+      .slice(0, limit)
+      .map(([label, count]) => ({ label, count }));
+  }
+
+  private extractTimelineJson(description: unknown) {
+    const raw = this.normalizeText(description);
+    if (!raw || !raw.startsWith('{')) return {};
+    try {
+      const parsed = JSON.parse(raw);
+      return parsed && typeof parsed === 'object' ? parsed : {};
+    } catch {
+      return {};
+    }
+  }
+
+  async getConversionReportForUser(user: any, periodRaw?: string) {
+    const context = this.resolveUserContext(user);
+    const planAccess = await this.resolvePlanAccessForCompany(context.companyId);
+    const period = this.resolveReportPeriod(periodRaw);
+    const leads = await this.prisma.vendasLead.findMany({
+      where: {
+        companyId: context.companyId,
+        OR: [
+          { createdAt: { gte: period.start, lte: period.end } },
+          { updatedAt: { gte: period.start, lte: period.end } },
+          { lastContactAt: { gte: period.start, lte: period.end } },
+        ],
+      },
+      include: {
+        timelineEvents: {
+          where: { createdAt: { gte: period.start, lte: period.end } },
+          orderBy: [{ createdAt: 'desc' }],
+        },
+      },
+      orderBy: [{ updatedAt: 'desc' }],
+      take: 1000,
+    });
+    const segmentCounts = new Map<string, number>();
+    const cityCounts = new Map<string, number>();
+    const channelCounts = new Map<string, number>();
+    let cardsChamados = 0;
+    let respostas = 0;
+    let retornos = 0;
+    let interessados = 0;
+    let recusas = 0;
+    let bloqueios = 0;
+    let descartados = 0;
+    let scoreCalledSum = 0;
+    let scoreCalledCount = 0;
+    let scoreReplySum = 0;
+    let scoreReplyCount = 0;
+    const discardReasons = new Map<string, number>();
+
+    for (const lead of leads as any[]) {
+      this.incrementRanking(segmentCounts, lead.segment);
+      this.incrementRanking(cityCounts, lead.city);
+      const timeline = Array.isArray(lead.timelineEvents) ? lead.timelineEvents : [];
+      const called = Number(lead.attemptCount || 0) > 0 || timeline.some((event: any) => event.eventType === 'contact_made');
+      const replied = timeline.some((event: any) => ['reply_received', 'inbound_reply'].includes(String(event.eventType || ''))) || /respondeu|reply|retorno/i.test(String(lead.lastResult || ''));
+      const interested = String(lead.status || '') === 'qualificado' || /interess|qualific|positivo/i.test(String(lead.lastResult || ''));
+      const refused = /sem interesse|recus|negative|negativo/i.test(String(lead.lastResult || ''));
+      const blocked = /opt.?out|bloque|complaint/i.test(String(lead.lastResult || ''));
+      if (called) cardsChamados += 1;
+      if (replied) respostas += 1;
+      if (timeline.some((event: any) => event.eventType === 'return_scheduled') || String(lead.status || '') === 'retorno') retornos += 1;
+      if (interested) interessados += 1;
+      if (refused) recusas += 1;
+      if (blocked) bloqueios += 1;
+      if (String(lead.status || '') === 'encerrado' && !interested) descartados += 1;
+      for (const event of timeline) {
+        const metadata = this.extractTimelineJson(event.description);
+        const channel = metadata?.recommendedChannel || metadata?.qualityV2?.recommendedChannel || event.resultLabel;
+        if (channel) this.incrementRanking(channelCounts, channel);
+        const score = Number(metadata?.qualityV2?.finalRankScore || metadata?.opportunityScore || metadata?.enrichmentScore || 0);
+        if (score > 0 && called) {
+          scoreCalledSum += score;
+          scoreCalledCount += 1;
+        }
+        if (score > 0 && replied) {
+          scoreReplySum += score;
+          scoreReplyCount += 1;
+        }
+        const reason = metadata?.qualityV2?.discardReason || metadata?.quality?.status || null;
+        if (reason) this.incrementRanking(discardReasons, reason);
+      }
+    }
+    const topSegments = this.mapToRanking(segmentCounts);
+    const topCities = this.mapToRanking(cityCounts);
+    const topChannels = this.mapToRanking(channelCounts);
+    const taxaResposta = cardsChamados ? respostas / cardsChamados : 0;
+    const taxaConversao = cardsChamados ? interessados / cardsChamados : 0;
+    const report = {
+      ok: true,
+      period,
+      capabilities: planAccess.capabilities,
+      isComplete: Boolean(planAccess.capabilities.canSeeConversionReport && planAccess.capabilities.canUseSalesProfileAdvanced),
+      metrics: {
+        cardsRecebidos: leads.length,
+        cardsEntregues: leads.length,
+        cardsChamados,
+        respostas,
+        retornos,
+        interessados,
+        recusas,
+        bloqueios,
+        descartados,
+        taxaResposta,
+        taxaConversao,
+        melhorSegmento: topSegments[0]?.label || 'Sem dados',
+        melhorCidade: topCities[0]?.label || 'Sem dados',
+        melhorCanal: topChannels[0]?.label || 'WhatsApp',
+        scoreMedioChamados: scoreCalledCount ? Math.round(scoreCalledSum / scoreCalledCount) : null,
+        scoreMedioRespondidos: scoreReplyCount ? Math.round(scoreReplySum / scoreReplyCount) : null,
+      },
+      rankings: {
+        segments: topSegments,
+        cities: topCities,
+        channels: topChannels,
+        discardReasons: this.mapToRanking(discardReasons),
+      },
+      recommendation: topSegments[0]
+        ? `Nesta semana, o HBX identificou que seus melhores resultados vieram de ${topSegments[0].label}, ${topCities[0]?.label || 'sua região'} e ${topChannels[0]?.label || 'WhatsApp'}.`
+        : 'Meça alguns contatos para o HBX recomendar segmentos, cidades e canais com mais precisão.',
+    };
+    if (!planAccess.capabilities.canUseSalesProfileAdvanced) {
+      return {
+        ...report,
+        rankings: { segments: topSegments.slice(0, 1), cities: topCities.slice(0, 1), channels: [], discardReasons: [] },
+        recommendation: 'Relatório inteligente disponível no HBX Lead.',
+      };
+    }
+    return report;
+  }
+
+  private pct(value: number) {
+    return `${Math.round((Number(value || 0) || 0) * 100)}%`;
+  }
+
+  private buildSimplePdf(lines: string[]) {
+    const escapePdf = (value: string) => String(value || '').replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)');
+    const objects: string[] = [];
+    const pages: number[] = [];
+    const chunks = [lines.slice(0, 16), lines.slice(16, 32), lines.slice(32, 48)].filter((chunk) => chunk.length);
+    const regularFontId = 3 + chunks.length * 2;
+    const boldFontId = regularFontId + 1;
+    objects.push('<< /Type /Catalog /Pages 2 0 R >>');
+    objects.push('<< /Type /Pages /Kids [] /Count 0 >>');
+    for (const chunk of chunks) {
+      const pageIndex = objects.length + 1;
+      const contentIndex = pageIndex + 1;
+      pages.push(pageIndex);
+      objects.push(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 ${regularFontId} 0 R /F2 ${boldFontId} 0 R >> >> /Contents ${contentIndex} 0 R >>`);
+      const content = [
+        'BT',
+        '/F2 20 Tf 48 790 Td (HBX - Relatorio de Conversao Comercial) Tj',
+        '/F1 11 Tf 0 -34 Td',
+        ...chunk.map((line) => `0 -22 Td (${escapePdf(line)}) Tj`),
+        'ET',
+      ].join('\n');
+      objects.push(`<< /Length ${Buffer.byteLength(content, 'utf8')} >>\nstream\n${content}\nendstream`);
+    }
+    objects.push('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>');
+    objects.push('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>');
+    objects[1] = `<< /Type /Pages /Kids [${pages.map((id) => `${id} 0 R`).join(' ')}] /Count ${pages.length} >>`;
+    const bodyParts = objects.map((object, index) => `${index + 1} 0 obj\n${object}\nendobj\n`);
+    let offset = '%PDF-1.4\n'.length;
+    const xref = [0];
+    for (const part of bodyParts) {
+      xref.push(offset);
+      offset += Buffer.byteLength(part, 'utf8');
+    }
+    const body = bodyParts.join('');
+    const xrefOffset = Buffer.byteLength('%PDF-1.4\n' + body, 'utf8');
+    const table = [
+      'xref',
+      `0 ${objects.length + 1}`,
+      '0000000000 65535 f ',
+      ...xref.slice(1).map((item) => `${String(item).padStart(10, '0')} 00000 n `),
+      'trailer',
+      `<< /Size ${objects.length + 1} /Root 1 0 R >>`,
+      'startxref',
+      String(xrefOffset),
+      '%%EOF',
+    ].join('\n');
+    return Buffer.from(`%PDF-1.4\n${body}${table}`, 'utf8');
+  }
+
+  async exportConversionReportPdfForUser(user: any, periodRaw?: string) {
+    const context = this.resolveUserContext(user);
+    const planAccess = await this.resolvePlanAccessForCompany(context.companyId);
+    if (!planAccess.capabilities.canExportConversionPdf) {
+      throw new ForbiddenException('Exportação PDF disponível no HBX Lead.');
+    }
+    const [report, company] = await Promise.all([
+      this.getConversionReportForUser(user, periodRaw),
+      this.prisma.company.findUnique({ where: { id: context.companyId }, select: { name: true } }).catch(() => null),
+    ]);
+    const m = (report as any).metrics || {};
+    const lines = [
+      `Empresa/vendedor: ${company?.name || `Empresa ${context.companyId}`}`,
+      `Periodo: ${(report as any).period?.label || '7 dias'}`,
+      '',
+      'Resumo executivo',
+      `Cards trabalhados: ${m.cardsChamados || 0}`,
+      `Respostas: ${m.respostas || 0}`,
+      `Conversoes/interessados: ${m.interessados || 0}`,
+      `Taxa de resposta: ${this.pct(m.taxaResposta)}`,
+      `Taxa de conversao: ${this.pct(m.taxaConversao)}`,
+      (report as any).recommendation || '',
+      '',
+      'Funil',
+      `Recebidos: ${m.cardsRecebidos || 0}`,
+      `Entregues: ${m.cardsEntregues || 0}`,
+      `Chamados: ${m.cardsChamados || 0}`,
+      `Responderam: ${m.respostas || 0}`,
+      `Interessados: ${m.interessados || 0}`,
+      '',
+      'Ranking',
+      `Top segmentos: ${((report as any).rankings?.segments || []).map((item: any) => `${item.label} (${item.count})`).join(', ') || 'Sem dados'}`,
+      `Top cidades: ${((report as any).rankings?.cities || []).map((item: any) => `${item.label} (${item.count})`).join(', ') || 'Sem dados'}`,
+      `Top canais: ${((report as any).rankings?.channels || []).map((item: any) => `${item.label} (${item.count})`).join(', ') || 'Sem dados'}`,
+      '',
+      'Qualidade',
+      `Score medio dos chamados: ${m.scoreMedioChamados ?? 'Sem dados'}`,
+      `Score medio dos respondidos: ${m.scoreMedioRespondidos ?? 'Sem dados'}`,
+      `Motivos comuns de descarte: ${((report as any).rankings?.discardReasons || []).map((item: any) => `${item.label} (${item.count})`).join(', ') || 'Sem dados'}`,
+      '',
+      'Recomendacoes HBX',
+      `Priorize: ${m.melhorSegmento || 'segmentos com resposta'}`,
+      `Cidade foco: ${m.melhorCidade || 'sua região'}`,
+      `Canal foco: ${m.melhorCanal || 'WhatsApp'}`,
+      'Seu Perfil de Venda pode ser ajustado com base nesses padrões.',
+      '',
+      'Gerado por HBX',
+    ];
+    const fileDate = new Date().toISOString().slice(0, 10);
+    return {
+      filename: `hbx-relatorio-conversao-${fileDate}.pdf`,
+      buffer: this.buildSimplePdf(lines),
+    };
+  }
+
+  async suggestWeeklySalesProfileForUser(user: any) {
+    const context = this.resolveUserContext(user);
+    const planAccess = await this.resolvePlanAccessForCompany(context.companyId);
+    if (!planAccess.capabilities.canUseWeeklyProfileSuggestions) {
+      throw new ForbiddenException('Sugestão semanal disponível no HBX Lead.');
+    }
+    const [profilePayload, report] = await Promise.all([
+      this.getEffectiveSalesProfileForContext(context, planAccess),
+      this.getConversionReportForUser(user, '7d'),
+    ]);
+    const profile = profilePayload.effectiveProfile;
+    const topSegments = ((report as any).rankings?.segments || []).map((item: any) => item.label).filter(Boolean).slice(0, 5);
+    const topCities = ((report as any).rankings?.cities || []).map((item: any) => item.label).filter(Boolean).slice(0, 5);
+    const topChannels = ((report as any).rankings?.channels || []).map((item: any) => item.label).filter(Boolean).slice(0, 4);
+    const suggested = {
+      whatDoYouSell: profile.whatDoYouSell,
+      offerCategory: profile.offerCategory,
+      targetAudience: { labels: profile.targetAudience || [] },
+      targetSegments: { labels: this.sanitizeSalesProfileArray([...(profile.targetSegments || []), ...topSegments]) },
+      avoidSegments: { labels: profile.avoidSegments || [], hardReject: profile.hardRejectSegments || [] },
+      preferredCities: this.sanitizeSalesProfileArray([...(profile.preferredCities || []), ...topCities]),
+      preferredStates: profile.preferredStates || [],
+      preferredChannels: this.sanitizeSalesProfileArray(topChannels.length ? topChannels : profile.preferredChannels || ['whatsapp'], 8, 24),
+      leadPreferences: {
+        ...(profile.leadPreferences || {}),
+        preferWhatsapp: true,
+        preferInstagram: true,
+        preferNoWebsite: true,
+      },
+      negativeRules: {
+        ...(profile.negativeRules || {}),
+        avoidDirectories: true,
+        avoidNoPhone: true,
+      },
+      diff: [
+        ...topSegments.filter((segment: string) => !(profile.targetSegments || []).includes(segment)).map((segment: string) => `Adicionar segmento: ${segment}`),
+        ...topCities.filter((city: string) => !(profile.preferredCities || []).includes(city)).map((city: string) => `Priorizar cidade: ${city}`),
+        'Evitar: sem telefone',
+      ].slice(0, 8),
+      generatedAt: new Date().toISOString(),
+    };
+    const existing = await (this.prisma as any).salesProfile.findFirst({
+      where: { companyId: context.companyId, userId: context.userId },
+      orderBy: { updatedAt: 'desc' },
+    }).catch(() => null);
+    if (existing) {
+      await (this.prisma as any).salesProfile.update({
+        where: { id: existing.id },
+        data: { suggestedProfileJson: this.serializeSalesProfileJson(suggested), lastSuggestedAt: new Date() },
+      }).catch(() => null);
+    }
+    return { ok: true, suggestion: suggested, effectiveProfile: profile };
+  }
+
+  async applySalesProfileSuggestionForUser(user: any) {
+    const context = this.resolveUserContext(user);
+    const row = await (this.prisma as any).salesProfile.findFirst({
+      where: { companyId: context.companyId, userId: context.userId },
+      orderBy: { updatedAt: 'desc' },
+    }).catch(() => null);
+    const suggestion = this.parseSalesProfileJson(row?.suggestedProfileJson, null);
+    if (!suggestion) throw new BadRequestException('Nenhuma sugestão semanal disponível.');
+    return this.updateSalesProfileForUser(user, {
+      ...suggestion,
+      weeklyAutoUpdateEnabled: Boolean(row?.weeklyAutoUpdateEnabled),
+    });
+  }
+
+  async runWeeklySalesProfileSuggestions() {
+    if (!(await this.prisma.hasTable('SalesProfile').catch(() => false))) return { ok: true, processed: 0 };
+    const rows = await (this.prisma as any).salesProfile.findMany({
+      where: { weeklyAutoUpdateEnabled: true },
+      take: 200,
+      orderBy: { updatedAt: 'asc' },
+    }).catch(() => []);
+    let processed = 0;
+    for (const row of rows) {
+      if (!row?.companyId || !row?.userId) continue;
+      const fakeUser = { id: row.userId, companyId: row.companyId };
+      await this.suggestWeeklySalesProfileForUser(fakeUser).catch(() => null);
+      processed += 1;
+    }
+    return { ok: true, processed };
   }
 
   private async getOrCreateMasterWhatsappEngineCompanyId() {
@@ -2743,6 +3345,8 @@ export class VendasService {
   async importWebscrapingLeadsForUser(user: any, dto: ImportWebscrapingLeadsDto) {
     const context = this.resolveUserContext(user);
     const planAccess = await this.resolvePlanAccessForCompany(context.companyId);
+    const salesProfilePayload = await this.getEffectiveSalesProfileForContext(context, planAccess);
+    const salesProfile = salesProfilePayload.effectiveProfile;
     const incomingLeads = Array.isArray(dto?.leads) ? dto.leads : [];
     if (!incomingLeads.length) {
       throw new BadRequestException('Nenhum lead do Radar Digital foi enviado para o CRM.');
@@ -2789,7 +3393,16 @@ export class VendasService {
         });
         continue;
       }
-      const qualityV2 = this.extractLeadQualityV2FromImportItem(item);
+      const qualityV2 = this.extractLeadQualityV2FromImportItem(item) || calculateLeadQualityV2({
+        lead: item,
+        enrichment: (item as any)?.enrichmentJson || {},
+        context: {
+          requestedSegment: item?.segment || null,
+          requestedCity: item?.city || null,
+          requestedState: item?.state || null,
+          salesProfile,
+        },
+      });
       if (qualityV2 && (qualityV2.decision === 'protect' || qualityV2.decision === 'discard')) {
         skippedByQualityV2Count += 1;
         skippedByQualityCount += 1;

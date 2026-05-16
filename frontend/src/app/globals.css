@@ -16769,3 +16769,130 @@ html[data-theme-mode] .app-topbar .app-topbar__frame {
     max-width: 100%;
   }
 }
+
+@media (max-width: 768px) {
+  .login-stage[data-login-surface="hbx-mobile"][data-login-state="success"] {
+    overflow: hidden !important;
+    background:
+      radial-gradient(circle at 50% 44%, rgba(53, 225, 255, 0.28), transparent 30%),
+      radial-gradient(circle at 50% 56%, rgba(31, 223, 152, 0.22), transparent 38%),
+      linear-gradient(180deg, #061a38 0%, #04142b 48%, #020816 100%) !important;
+  }
+
+  .login-stage[data-login-surface="hbx-mobile"][data-login-state="success"] .login-authBridge::before {
+    content: "";
+    position: fixed;
+    inset: -18%;
+    grid-area: 1 / 1;
+    background:
+      conic-gradient(from 160deg, transparent 0 18%, rgba(63, 224, 255, 0.18) 24%, transparent 38% 58%, rgba(35, 239, 166, 0.16) 66%, transparent 82% 100%),
+      radial-gradient(circle at 50% 50%, rgba(125, 211, 252, 0.2), transparent 36%);
+    opacity: 0;
+    filter: blur(18px) saturate(1.2);
+    transform: scale(0.82) rotate(-8deg);
+    animation: loginAuthWelcomeAura 2000ms cubic-bezier(0.18, 0.84, 0.22, 1) both !important;
+  }
+
+  .login-stage[data-login-surface="hbx-mobile"][data-login-state="success"] .login-authBridge__lake {
+    animation: loginAuthWelcomeLake 2000ms cubic-bezier(0.16, 0.84, 0.22, 1) both !important;
+  }
+
+  .login-stage[data-login-surface="hbx-mobile"][data-login-state="success"] .login-authBridge__pill {
+    animation: loginAuthWelcomeMark 2000ms cubic-bezier(0.18, 0.84, 0.22, 1) both !important;
+  }
+
+  .login-stage[data-login-surface="hbx-mobile"][data-login-state="success"] .login-authBridge__brand {
+    animation: loginAuthWelcomeBrand 2000ms cubic-bezier(0.18, 0.84, 0.22, 1) both !important;
+  }
+
+  .login-stage[data-login-surface="hbx-mobile"][data-login-state="success"] .login-authBridge__status {
+    animation: loginAuthWelcomeStatus 2000ms cubic-bezier(0.18, 0.84, 0.22, 1) both !important;
+  }
+}
+
+@keyframes loginAuthWelcomeAura {
+  0% {
+    opacity: 0;
+    transform: scale(0.82) rotate(-8deg);
+  }
+
+  34% {
+    opacity: 1;
+  }
+
+  100% {
+    opacity: 0.58;
+    transform: scale(1.08) rotate(10deg);
+  }
+}
+
+@keyframes loginAuthWelcomeLake {
+  0% {
+    opacity: 0;
+    transform: scale(0.58);
+    filter: blur(0) saturate(1.06);
+  }
+
+  34% {
+    opacity: 1;
+    transform: scale(0.9);
+  }
+
+  100% {
+    opacity: 0.42;
+    transform: scale(1.18);
+    filter: blur(3px) saturate(1.28);
+  }
+}
+
+@keyframes loginAuthWelcomeMark {
+  0% {
+    opacity: 0;
+    transform: translate3d(0, 28px, 0) scale(0.86);
+    filter: blur(8px);
+  }
+
+  38% {
+    opacity: 1;
+    transform: translate3d(0, -5px, 0) scale(1.04);
+    filter: blur(0);
+  }
+
+  72% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+
+  100% {
+    opacity: 1;
+    transform: translate3d(0, -7px, 0) scale(1.035);
+    filter: blur(0);
+  }
+}
+
+@keyframes loginAuthWelcomeBrand {
+  0%,
+  18% {
+    opacity: 0;
+    transform: translateY(10px) scale(0.9);
+  }
+
+  46%,
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes loginAuthWelcomeStatus {
+  0%,
+  24% {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+
+  52%,
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}

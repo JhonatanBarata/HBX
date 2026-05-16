@@ -37,6 +37,10 @@ export type CommercialPlanCapabilities = {
   canUseAdvancedFilters: boolean;
   canUseVerifiedWhatsapp: boolean | 'limited';
   canUseFilteredQuota: boolean;
+  canUseSalesProfileAdvanced: boolean;
+  canSeeConversionReport: boolean;
+  canExportConversionPdf: boolean;
+  canUseWeeklyProfileSuggestions: boolean;
 };
 
 export const COMMERCIAL_PRICING = {
@@ -144,6 +148,25 @@ export function normalizeCommercialPlanKey(value: unknown): ActiveCommercialPlan
   return COMMERCIAL_PLAN_KEYS.PADRAO;
 }
 
+export function resolveCommercialPlanKeyForCapabilities(input: {
+  selectedPlanKey?: unknown;
+  premiumAccess?: unknown;
+  paymentStatus?: unknown;
+  subscriptionStatus?: unknown;
+}): ActiveCommercialPlanKey {
+  const rawSelected = String(input.selectedPlanKey || '').trim();
+  const selected = rawSelected ? normalizeCommercialPlanKey(rawSelected) : null;
+  const paymentStatus = String(input.paymentStatus || '').trim().toUpperCase();
+  const subscriptionStatus = String(input.subscriptionStatus || '').trim().toLowerCase();
+  const manualOverride = paymentStatus === 'MANUAL' || subscriptionStatus === 'manual';
+
+  if (selected === COMMERCIAL_PLAN_KEYS.MELHOR) return COMMERCIAL_PLAN_KEYS.MELHOR;
+  if (manualOverride && Boolean(input.premiumAccess)) return COMMERCIAL_PLAN_KEYS.MELHOR;
+  if (!selected && Boolean(input.premiumAccess)) return COMMERCIAL_PLAN_KEYS.MELHOR;
+  if (selected) return selected;
+  return COMMERCIAL_PLAN_KEYS.PADRAO;
+}
+
 export function getCommercialPlanMonthlyPrice(planKey: unknown) {
   const normalized = normalizeCommercialPlanKey(planKey);
   if (normalized === COMMERCIAL_PLAN_KEYS.LITE) return COMMERCIAL_PRICING.liteMonthly;
@@ -176,6 +199,10 @@ export function getCommercialPlanCapabilities(planKey: unknown): CommercialPlanC
       canUseAdvancedFilters: false,
       canUseVerifiedWhatsapp: false,
       canUseFilteredQuota: false,
+      canUseSalesProfileAdvanced: false,
+      canSeeConversionReport: true,
+      canExportConversionPdf: false,
+      canUseWeeklyProfileSuggestions: false,
     };
   }
   return {
@@ -186,6 +213,10 @@ export function getCommercialPlanCapabilities(planKey: unknown): CommercialPlanC
     canUseAdvancedFilters: true,
     canUseVerifiedWhatsapp: true,
     canUseFilteredQuota: true,
+    canUseSalesProfileAdvanced: true,
+    canSeeConversionReport: true,
+    canExportConversionPdf: true,
+    canUseWeeklyProfileSuggestions: true,
   };
 }
 
