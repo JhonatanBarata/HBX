@@ -28,6 +28,8 @@ interface LoginPhaseUpdate {
   message?: string;
 }
 
+const LOGIN_DATABASE_CONNECTION_MESSAGE = "sem conexão com o banco de dados - falar com suporte";
+
 /**
  * Hook que gerencia login com detecção elegante de cold start.
  * 
@@ -111,7 +113,7 @@ export function useLoginColdStart(options: UseLoginColdStartOptions) {
             if ([502, 503, 504].includes(res.status)) {
               return {
                 state: "waking_server" as LoginState,
-                message: "Servidor acordando...",
+                message: LOGIN_DATABASE_CONNECTION_MESSAGE,
                 needsRetry: true,
                 data: null,
               };
@@ -176,7 +178,7 @@ export function useLoginColdStart(options: UseLoginColdStartOptions) {
               timedOut = true;
               resolve({
                 state: "waking_server" as LoginState,
-                message: "Servidor acordando...",
+                message: LOGIN_DATABASE_CONNECTION_MESSAGE,
                 needsRetry: true,
               });
               controller.abort();
@@ -195,7 +197,7 @@ export function useLoginColdStart(options: UseLoginColdStartOptions) {
           if (timedOut) {
             return {
               state: "waking_server" as LoginState,
-              message: "Servidor acordando...",
+              message: LOGIN_DATABASE_CONNECTION_MESSAGE,
               needsRetry: true,
               data: null,
             };
@@ -210,7 +212,7 @@ export function useLoginColdStart(options: UseLoginColdStartOptions) {
 
         return {
           state: "waking_server" as LoginState,
-          message: "Falha ao conectar. Tentando reconectar...",
+          message: LOGIN_DATABASE_CONNECTION_MESSAGE,
           needsRetry: true,
           data: null,
         };
@@ -244,9 +246,7 @@ export function useLoginColdStart(options: UseLoginColdStartOptions) {
         if (response.needsRetry && retryCountRef.current < maxRetries - 1) {
           onPhaseUpdate?.({
             state: "waking_server",
-            message:
-              response.message ??
-              "Estamos iniciando o ambiente seguro. A primeira conexao pode levar alguns segundos.",
+            message: response.message ?? LOGIN_DATABASE_CONNECTION_MESSAGE,
           });
           retryCountRef.current++;
 
@@ -271,8 +271,7 @@ export function useLoginColdStart(options: UseLoginColdStartOptions) {
       retryCountRef.current = 0;
       return {
         state: "error" as LoginState,
-        message:
-          "Servidor ainda está iniciando. Tente novamente em alguns segundos.",
+        message: LOGIN_DATABASE_CONNECTION_MESSAGE,
         data: null,
       };
     },
