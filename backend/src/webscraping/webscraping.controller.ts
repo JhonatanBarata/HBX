@@ -72,6 +72,24 @@ class WebscrapingSearchDto {
   @IsArray()
   @IsString({ each: true })
   excludePhoneDigits?: string[];
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  preferredChannels?: string[];
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  requiredChannels?: string[];
+
+  @IsOptional()
+  @IsIn(['prefer', 'any_required', 'all_required'])
+  channelMatchMode?: 'prefer' | 'any_required' | 'all_required';
+
+  @IsOptional()
+  @IsIn(['list', 'lead_plus'])
+  qualityMode?: 'list' | 'lead_plus';
 }
 
 class WebscrapingSearchMoreDto {
@@ -175,6 +193,24 @@ class RadarDatabaseQueryDto {
 
   @IsOptional()
   includeHidden?: boolean | string;
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  preferredChannels?: string[];
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  requiredChannels?: string[];
+
+  @IsOptional()
+  @IsIn(['prefer', 'any_required', 'all_required'])
+  channelMatchMode?: 'prefer' | 'any_required' | 'all_required';
+
+  @IsOptional()
+  @IsIn(['list', 'lead_plus'])
+  qualityMode?: 'list' | 'lead_plus';
 }
 
 class RadarLeadEventDto {

@@ -26,7 +26,7 @@ import {
 } from '../commercial-plans/commercial-plan-catalog';
 import { WebwhatsBridgeService } from '../messaging/webwhats-bridge.service';
 import { buildRadarLeadEnrichment, RADAR_LEAD_ENRICHMENT_VERSION } from './radar-lead-enrichment';
-import { calculateLeadQualityV2, type LeadQualityV2 } from './lead-quality-v2';
+import { calculateLeadQualityV2, type LeadQualityV2, type LeadQualityV2SalesProfile } from './lead-quality-v2';
 
 const PLACES_NEW_TEXT_SEARCH_URL = 'https://places.googleapis.com/v1/places:searchText';
 const PLACES_NEW_DETAILS_URL = 'https://places.googleapis.com/v1/places';
@@ -545,6 +545,10 @@ export type SearchContactsInput = {
   minReviews?: number | null;
   onlyWithWebsite?: boolean;
   excludePhoneDigits?: string[];
+  preferredChannels?: string[];
+  requiredChannels?: string[];
+  channelMatchMode?: 'prefer' | 'any_required' | 'all_required' | string | null;
+  qualityMode?: 'list' | 'lead_plus' | string | null;
 };
 
 type SearchPlacesCandidate = {
@@ -582,6 +586,7 @@ type NormalizedSearchInput = {
   normalizedCity: string;
   normalizedSegment: string;
   excludePhoneDigits: string[];
+  qualityMode: 'list' | 'lead_plus';
 };
 
 type SearchExecutionOptions = {
@@ -642,6 +647,10 @@ type RadarFiltersInput = {
   desiredStock?: number | null;
   minimumStock?: number | null;
   whatsappCheckMode?: RadarWhatsappCheckMode | string | null;
+  preferredChannels?: string[] | null;
+  requiredChannels?: string[] | null;
+  channelMatchMode?: 'prefer' | 'any_required' | 'all_required' | string | null;
+  qualityMode?: 'list' | 'lead_plus' | string | null;
 };
 
 type RadarLeadEventType =
@@ -788,7 +797,14 @@ type NormalizedRadarFilters = {
   minimumStock: number;
   stockOverride: boolean;
   whatsappCheckMode: RadarWhatsappCheckMode;
+  preferredChannels: RadarChannelFilter[];
+  requiredChannels: RadarChannelFilter[];
+  channelMatchMode: RadarChannelMatchMode;
+  qualityMode: 'list' | 'lead_plus';
 };
+
+type RadarChannelFilter = 'whatsapp' | 'instagram' | 'email' | 'website' | 'phone' | 'facebook';
+type RadarChannelMatchMode = 'prefer' | 'any_required' | 'all_required';
 
 type SearchHistoryRow = {
   id: string;
@@ -2171,6 +2187,8 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
   }
 
   private buildRunInputFromRow(run: any): SearchContactsInput {
+    const metrics = parseJsonObject(run?.metricsJson);
+    const channelFilters = parseJsonObject(metrics?.channelFilters || metrics?.filters || run?.filtersJson);
     return {
       city: String(run?.city || ''),
       state: String(run?.state || ''),
@@ -2178,6 +2196,10 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       quantity: Math.max(1, Math.trunc(Number(run?.targetQuantity || 1))),
       engine: normalizeEngine(run?.engine),
       targetType: normalizeTargetType(run?.targetType),
+      preferredChannels: this.normalizeRadarChannels(channelFilters.preferredChannels),
+      requiredChannels: this.normalizeRadarChannels(channelFilters.requiredChannels),
+      channelMatchMode: this.normalizeChannelMatchMode(channelFilters.channelMatchMode),
+      qualityMode: String(channelFilters.qualityMode || '').trim() === 'lead_plus' ? 'lead_plus' : 'list',
     };
   }
 
@@ -2712,6 +2734,16 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       recommendedChannel: ['whatsapp', 'email', 'call', 'review', 'discard'].includes(String(raw.recommendedChannel || ''))
         ? raw.recommendedChannel
         : 'review',
+      channelAvailability: raw.channelAvailability && typeof raw.channelAvailability === 'object' && !Array.isArray(raw.channelAvailability)
+        ? {
+          whatsapp: raw.channelAvailability.whatsapp === true,
+          instagram: raw.channelAvailability.instagram === true,
+          email: raw.channelAvailability.email === true,
+          website: raw.channelAvailability.website === true,
+          phone: raw.channelAvailability.phone === true,
+          facebook: raw.channelAvailability.facebook === true,
+        }
+        : undefined,
       productFit: {
         listFit: safeInteger(raw.productFit?.listFit),
         leadFit: safeInteger(raw.productFit?.leadFit),
@@ -2745,11 +2777,12 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
   }
 
   private getCandidateQualityV2(candidate: Record<string, any>, input?: NormalizedSearchInput | NormalizedRadarFilters) {
+    const salesProfile = input ? this.buildLeadQualitySalesProfileFromFilters(input) : null;
     const existing = this.extractLeadQualityV2FromObject(candidate)
       || this.extractLeadQualityV2FromObject(candidate.rawJson)
       || this.extractLeadQualityV2FromObject(candidate.enrichmentJson)
       || this.extractLeadQualityV2FromObject(candidate.metadataJson);
-    if (existing) return existing;
+    if (existing && !salesProfile) return existing;
     return calculateLeadQualityV2({
       lead: candidate,
       enrichment: this.parseMaybeJsonObject(candidate.enrichmentJson),
@@ -2758,6 +2791,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         requestedCity: input?.city || candidate.city || null,
         requestedState: input?.state || candidate.state || null,
         targetType: (input as any)?.targetType || null,
+        salesProfile,
       },
     });
   }
@@ -2765,6 +2799,16 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
   private shouldApplyQualityV2Gate(input?: NormalizedSearchInput | NormalizedRadarFilters) {
     const targetType = normalizeTargetType((input as any)?.targetType);
     return targetType === 'pj';
+  }
+
+  private resolveQualityMode(input?: NormalizedSearchInput | NormalizedRadarFilters): 'list' | 'lead_plus' {
+    return String((input as any)?.qualityMode || '').trim() === 'lead_plus' ? 'lead_plus' : 'list';
+  }
+
+  private isQualityV2Deliverable(qualityV2: LeadQualityV2, input?: NormalizedSearchInput | NormalizedRadarFilters) {
+    if (!this.shouldApplyQualityV2Gate(input)) return true;
+    if (qualityV2.decision === 'protect' || qualityV2.decision === 'discard') return false;
+    return this.resolveQualityMode(input) === 'lead_plus' ? qualityV2.decision === 'deliver' : true;
   }
 
   private getCandidateQuality(candidate: Record<string, any>, input: NormalizedSearchInput | NormalizedRadarFilters) {
@@ -2781,7 +2825,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     const raw = this.parseMaybeJsonObject(item?.rawJson);
     const candidate = { ...raw, ...item };
     const qualityV2 = this.getCandidateQualityV2(candidate, input);
-    if (this.shouldApplyQualityV2Gate(input) && (qualityV2.decision === 'protect' || qualityV2.decision === 'discard')) return false;
+    if (!this.isQualityV2Deliverable(qualityV2, input)) return false;
     const quality = this.getCandidateQuality(candidate, input);
     return this.isApprovedLeadQuality(quality);
   }
@@ -4196,8 +4240,15 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       minReviews: this.normalizeMinReviews(input.minReviews),
       onlyWithWebsite: false,
     };
+    const channelFilters = this.buildChannelFiltersJson({
+      preferredChannels: input.preferredChannels,
+      requiredChannels: input.requiredChannels,
+      channelMatchMode: input.channelMatchMode,
+      qualityMode: input.qualityMode,
+    });
     const filtersJson = JSON.stringify({
       ...filters,
+      ...channelFilters,
       engine,
       targetType,
       state,
@@ -4241,6 +4292,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       normalizedCity,
       normalizedSegment,
       excludePhoneDigits,
+      qualityMode: channelFilters.qualityMode,
     };
   }
 
@@ -4336,6 +4388,69 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     return part ? part.slice(prefix.length).trim() : '';
   }
 
+  private normalizeRadarChannel(value: unknown): RadarChannelFilter | null {
+    const normalized = normalizeLookupValue(String(value || ''));
+    if (!normalized) return null;
+    if (['whatsapp', 'zap', 'wpp'].includes(normalized)) return 'whatsapp';
+    if (['instagram', 'insta'].includes(normalized)) return 'instagram';
+    if (['email', 'e-mail', 'mail'].includes(normalized)) return 'email';
+    if (['website', 'site', 'web', 'www'].includes(normalized)) return 'website';
+    if (['phone', 'telefone', 'ligacao', 'call', 'celular'].includes(normalized)) return 'phone';
+    if (['facebook', 'face', 'fb'].includes(normalized)) return 'facebook';
+    return null;
+  }
+
+  private normalizeRadarChannels(value: unknown): RadarChannelFilter[] {
+    if (!Array.isArray(value)) return [];
+    return Array.from(new Set(value.map((item) => this.normalizeRadarChannel(item)).filter(Boolean) as RadarChannelFilter[])).slice(0, 6);
+  }
+
+  private normalizeChannelMatchMode(value: unknown): RadarChannelMatchMode {
+    const normalized = String(value || '').trim();
+    if (normalized === 'any_required' || normalized === 'all_required') return normalized;
+    return 'prefer';
+  }
+
+  private buildChannelFiltersJson(input: {
+    preferredChannels?: string[];
+    requiredChannels?: string[];
+    channelMatchMode?: string | null;
+    qualityMode?: string | null;
+  }): {
+    preferredChannels: RadarChannelFilter[];
+    requiredChannels: RadarChannelFilter[];
+    channelMatchMode: RadarChannelMatchMode;
+    qualityMode: 'list' | 'lead_plus';
+  } {
+    const preferredChannels = this.normalizeRadarChannels(input.preferredChannels);
+    const requiredChannels = this.normalizeRadarChannels(input.requiredChannels);
+    const channelMatchMode = requiredChannels.length ? this.normalizeChannelMatchMode(input.channelMatchMode) : 'prefer';
+    return {
+      preferredChannels,
+      requiredChannels,
+      channelMatchMode,
+      qualityMode: String(input.qualityMode || '').trim() === 'lead_plus' ? 'lead_plus' : 'list',
+    };
+  }
+
+  private buildLeadQualitySalesProfileFromFilters(input: Partial<NormalizedRadarFilters | NormalizedSearchInput>): LeadQualityV2SalesProfile | null {
+    const segment = String((input as any)?.segment || '').trim();
+    const city = String((input as any)?.city || '').trim();
+    const state = String((input as any)?.state || '').trim().toUpperCase();
+    const channelFilters = this.buildChannelFiltersJson({
+      preferredChannels: (input as any)?.preferredChannels,
+      requiredChannels: (input as any)?.requiredChannels,
+      channelMatchMode: (input as any)?.channelMatchMode,
+      qualityMode: (input as any)?.qualityMode,
+    });
+    return {
+      ...channelFilters,
+      targetSegments: segment ? this.splitHbxBatchSegments(segment) : [],
+      preferredCities: city ? [city] : [],
+      preferredStates: state ? [state] : [],
+    };
+  }
+
   private buildSearchResponse(
     input: NormalizedSearchInput,
     results: WebscrapingContactResult[],
@@ -4369,7 +4484,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
           qualityV2: this.getCandidateQualityV2(result as any, input),
           quality: this.getCandidateQuality(result as any, input),
         }))
-        .filter(({ quality, qualityV2 }) => (!this.shouldApplyQualityV2Gate(input) || !['protect', 'discard'].includes(qualityV2.decision)) && this.isApprovedLeadQuality(quality))
+        .filter(({ quality, qualityV2 }) => this.isQualityV2Deliverable(qualityV2, input) && this.isApprovedLeadQuality(quality))
         .map(({ result, quality, qualityV2 }) => {
         const { placeId: _placeId, ...publicResult } = result;
         const opportunityScore = this.buildOpportunityScore(result, quality);
@@ -4673,8 +4788,12 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         : rawOpportunityLevel === 'medium' || rawOpportunityLevel === 'media' || rawOpportunityLevel === 'média'
           ? 'medium'
           : rawOpportunityLevel === 'low' || rawOpportunityLevel === 'baixa'
-            ? 'low'
+          ? 'low'
             : null;
+    const preferredChannels = this.normalizeRadarChannels(input.preferredChannels);
+    const requiredChannels = this.normalizeRadarChannels(input.requiredChannels);
+    const channelMatchMode = requiredChannels.length ? this.normalizeChannelMatchMode(input.channelMatchMode) : 'prefer';
+    const qualityMode = String(input.qualityMode || '').trim() === 'lead_plus' ? 'lead_plus' : 'list';
 
     return {
       city,
@@ -4705,6 +4824,10 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       minimumStock: Math.min(Math.max(Math.trunc(Number(input.minimumStock || 80) || 80), 1), 500),
       stockOverride: input.desiredStock != null || input.minimumStock != null,
       whatsappCheckMode: this.normalizeRadarWhatsappCheckMode(input.whatsappCheckMode),
+      preferredChannels,
+      requiredChannels,
+      channelMatchMode,
+      qualityMode,
     };
   }
 
@@ -4789,6 +4912,20 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       and.push({ phoneDigits: { not: null } });
     }
 
+    if (filters.requiredChannels.length) {
+      const requiredClauses = filters.requiredChannels.map((channel) => {
+        if (channel === 'whatsapp' || channel === 'phone') return { phoneDigits: { not: null } };
+        if (channel === 'email') return { email: { not: null } };
+        if (channel === 'website') return { AND: [{ website: { not: null } }, { websiteStatus: { notIn: ['broken', 'unreachable', 'none'] } }] };
+        if (channel === 'instagram') return { instagramUrl: { not: null } };
+        if (channel === 'facebook') return { facebookUrl: { not: null } };
+        return null;
+      }).filter(Boolean);
+      if (requiredClauses.length) {
+        and.push(filters.channelMatchMode === 'all_required' ? { AND: requiredClauses } : { OR: requiredClauses });
+      }
+    }
+
     if (companyId && options.ownershipEnabled) {
       if (options.availableOnly) {
         and.push({ ownerCompanyId: null });
@@ -4836,6 +4973,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       if (this.resolveRadarLeadTargetType(row) !== filters.targetType) return false;
       if (filters.likelyWhatsapp && !isLikelyWhatsapp(row?.phoneDigits || row?.phone)) return false;
       if (filters.validPhone && !isLikelyValidBrPhone(row?.phoneDigits || row?.phone)) return false;
+      if (!this.matchesRadarChannelFilters(row, filters)) return false;
       const status = this.resolveRadarLeadStatus(row);
       const ddd = String(row?.ddd || this.extractDdd(row?.phoneDigits || row?.phone));
       const expectedDdds = parseJsonArray(row?.expectedDddsJson);
@@ -4877,6 +5015,31 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       }
       return true;
     });
+  }
+
+  private getRadarChannelAvailability(row: any): Record<RadarChannelFilter, boolean> {
+    const parsedEnrichment = parseJsonObject(row?.enrichmentJson);
+    const qualityAvailability = parseJsonObject(parsedEnrichment?.qualityV2?.channelAvailability || row?.qualityV2?.channelAvailability);
+    const websiteStatus = String(row?.websiteStatus || parsedEnrichment?.websiteStatus || inferWebsiteStatus(row?.website)).trim().toLowerCase();
+    const emailStatus = String(row?.emailStatus || parsedEnrichment?.emailStatus || '').trim().toLowerCase();
+    const whatsappStatus = String(row?.whatsappStatus || row?.whatsappCheckStatus || parsedEnrichment?.whatsappStatus || '').trim().toLowerCase();
+    return {
+      whatsapp: qualityAvailability.whatsapp === true || ['confirmed', 'available', 'valid', 'exists', 'true'].includes(whatsappStatus) || isLikelyWhatsapp(row?.phoneDigits || row?.phone),
+      phone: qualityAvailability.phone === true || isLikelyValidBrPhone(row?.phoneDigits || row?.phone),
+      email: qualityAvailability.email === true || Boolean(row?.email || parsedEnrichment?.email) && ['confirmed', 'probable', ''].includes(emailStatus),
+      website: qualityAvailability.website === true || Boolean(row?.website) && !['broken', 'unreachable', 'none'].includes(websiteStatus),
+      instagram: qualityAvailability.instagram === true || Boolean(row?.instagramUrl || parsedEnrichment?.instagramUrl),
+      facebook: qualityAvailability.facebook === true || Boolean(row?.facebookUrl || parsedEnrichment?.facebookUrl),
+    };
+  }
+
+  private matchesRadarChannelFilters(row: any, filters: NormalizedRadarFilters) {
+    if (!filters.requiredChannels.length) return true;
+    const availability = this.getRadarChannelAvailability(row);
+    if (filters.channelMatchMode === 'all_required') {
+      return filters.requiredChannels.every((channel) => availability[channel]);
+    }
+    return filters.requiredChannels.some((channel) => availability[channel]);
   }
 
   private dedupeRadarRows(rows: any[]) {
@@ -5020,7 +5183,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
   private filterRowsByLeadQuality(rows: any[], filters: NormalizedRadarFilters | NormalizedSearchInput) {
     return rows.filter((row) => {
       const qualityV2 = this.getCandidateQualityV2(row, filters);
-      if (this.shouldApplyQualityV2Gate(filters) && (qualityV2.decision === 'protect' || qualityV2.decision === 'discard')) return false;
+      if (!this.isQualityV2Deliverable(qualityV2, filters)) return false;
       const quality = this.getCandidateQuality(row, filters);
       return this.isApprovedLeadQuality(quality);
     });
@@ -5319,6 +5482,8 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       websiteStatus: inferWebsiteStatus(result.website),
       opportunityScore,
       rawPayload: result as any,
+      qualityMode: input.qualityMode,
+      salesProfile: this.buildLeadQualitySalesProfileFromFilters(input),
     });
     return {
       id: `direct:${input.targetType}:${phoneDigits || normalizeLookupValue(`${result.name || 'card'}-${index + 1}`)}`,
@@ -5380,6 +5545,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         normalizedCity: input.normalizedCity,
         normalizedSegment: input.normalizedSegment,
         excludePhoneDigits: [],
+        qualityMode: input.qualityMode,
       }),
       status: 'clean',
       ownerCompanyId: null,
@@ -5575,6 +5741,10 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
           city: filters.city,
           segment: filters.segment,
           targetType: filters.targetType,
+          preferredChannels: filters.preferredChannels,
+          requiredChannels: filters.requiredChannels,
+          channelMatchMode: filters.channelMatchMode,
+          qualityMode: filters.qualityMode,
         },
         direct: {
           ran: true,
@@ -6028,6 +6198,8 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
   }
 
   private buildRadarFiltersFromSearchRun(run: any) {
+    const metrics = parseJsonObject(run?.metricsJson);
+    const channelFilters = parseJsonObject(metrics?.channelFilters || {});
     return this.normalizeRadarFilters({
       city: run?.city,
       state: run?.state,
@@ -6037,6 +6209,10 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       engine: 'hbx',
       targetType: normalizeTargetType(run?.targetType),
       validPhone: true,
+      preferredChannels: channelFilters.preferredChannels,
+      requiredChannels: channelFilters.requiredChannels,
+      channelMatchMode: channelFilters.channelMatchMode,
+      qualityMode: channelFilters.qualityMode,
     });
   }
 
@@ -6049,6 +6225,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       quantity: Math.max(1, safeInteger(run?.targetQuantity)),
       engine: 'hbx',
       targetType: normalizeTargetType(run?.targetType),
+      ...this.buildChannelFiltersJson(parseJsonObject(parseJsonObject(run?.metricsJson)?.channelFilters || {})),
     });
     const qualityInput = {
       city: normalized.city,
@@ -6375,6 +6552,14 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
           : claimedRows.length
             ? `Entreguei ${claimedRows.length} card(s) do banco. Buscando mais ${Math.max(0, filters.quantity - claimedRows.length)}.`
             : 'Sem cards prontos no banco. Busca enviada para a fila HBX.',
+        metricsJson: JSON.stringify({
+          channelFilters: this.buildChannelFiltersJson({
+            preferredChannels: filters.preferredChannels,
+            requiredChannels: filters.requiredChannels,
+            channelMatchMode: filters.channelMatchMode,
+            qualityMode: filters.qualityMode,
+          }),
+        }),
       },
     });
     this.radarWhatsappCheckModeByRunId.set(run.id, filters.whatsappCheckMode);
@@ -6792,6 +6977,10 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
           minRating: filters.minRating,
           minReviews: filters.minReviews,
           excludePhoneDigits: Array.from(seenPhones),
+          preferredChannels: filters.preferredChannels,
+          requiredChannels: filters.requiredChannels,
+          channelMatchMode: filters.channelMatchMode,
+          qualityMode: filters.qualityMode,
         },
         {
           skipRadarLookup: true,
@@ -6829,6 +7018,10 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
               targetType: effectiveFilters.targetType,
               minRating: filters.minRating,
               minReviews: filters.minReviews,
+              preferredChannels: filters.preferredChannels,
+              requiredChannels: filters.requiredChannels,
+              channelMatchMode: filters.channelMatchMode,
+              qualityMode: filters.qualityMode,
             }),
             city: filters.city,
             state: filters.state,
@@ -6966,6 +7159,8 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         status: dddMismatch ? 'rejected' : existing?.status || 'clean',
         sourceUrl: options.sourceUrl || existing?.sourceUrl || null,
         rawPayload: result as any,
+        qualityMode: input.qualityMode,
+        salesProfile: this.buildLeadQualitySalesProfileFromFilters(input),
         now,
       });
       const enrichmentJson = this.parseMaybeJsonObject(enrichment.enrichmentJson);
