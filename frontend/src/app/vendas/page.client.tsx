@@ -687,6 +687,18 @@ function canSeeSocialLinks(lead: LeadItem, board?: BoardResponse | null) {
   return leadCapabilities(lead, board).canSeeSocialLinks === true;
 }
 
+function hasLockedSocialLinks(lead: LeadItem, board?: BoardResponse | null) {
+  const capabilities = leadCapabilities(lead, board);
+  return capabilities.canSeeSocialLinks === "teaser_only" && Boolean(lead.leadIntelligence?.primarySocial);
+}
+
+function isLeadWhatsappConfirmed(lead: LeadItem) {
+  return (
+    lead.leadIntelligence?.whatsappStatus === "confirmed" ||
+    lead.whatsappAvailability?.status === "available"
+  );
+}
+
 function socialBadgeLabel(primarySocial?: LeadIntelligence["primarySocial"]) {
   if (primarySocial === "instagram") return "IG";
   if (primarySocial === "facebook") return "f";
@@ -3675,19 +3687,6 @@ export default function VendasClientPage() {
         }, new Map<string, { label: string; tone: string }>())
           .values(),
       ).slice(0, 5);
-      const quickNotes = [
-        "Interessado",
-        "Retorno amanhã",
-        "Sem site",
-        "WhatsApp ok",
-      ];
-      const appendQuickNote = (value: string) => {
-        setMobileNoteDraft((current) => {
-          const normalized = String(current || "").trim();
-          if (normalized.toLowerCase().includes(value.toLowerCase())) return current;
-          return normalized ? `${normalized}\n${value}` : value;
-        });
-      };
       const loadingEnrichment = mobileEnrichmentLoadingId === lead.id;
       const timeline = (lead.timeline || []).slice(0, 4);
       const detailPlace = mobileLeadPlace(lead);
@@ -3699,6 +3698,41 @@ export default function VendasClientPage() {
         : !intelligenceVisible && intelligence.premiumTeaser
         ? { label: intelligence.premiumTeaser.label || "Disponível no HBX Lead", cta: intelligence.premiumTeaser.cta || "Ver card inteligente" }
         : null;
+      const mobileLeadActionBar = (
+        <nav className={`${styles.mobileLeadDetailActionBar} hbx-mobile-action-bar`} aria-label="Ações do lead">
+          <a
+            className="hbx-mobile-primary-button"
+            href={whatsappHref || undefined}
+            target="_blank"
+            rel="noreferrer"
+            aria-disabled={!whatsappHref}
+            data-tone="whatsapp"
+            onClick={(event) => {
+              if (!whatsappHref) event.preventDefault();
+              else void incrementAttempt(lead.id);
+            }}
+          >
+            WhatsApp
+          </a>
+          <button
+            type="button"
+            className="hbx-mobile-secondary-button"
+            onClick={() => openMobileReturnScheduler(lead)}
+            disabled={savingLeadId === lead.id}
+          >
+            Retorno
+          </button>
+          <button
+            type="button"
+            className="hbx-mobile-secondary-button"
+            data-tone="danger"
+            onClick={() => void runQuickAction(lead, "encerrar")}
+            disabled={savingLeadId === lead.id}
+          >
+            Negativo
+          </button>
+        </nav>
+      );
 
       return (
         <section className={`${styles.mobileVendasShell} ${styles.mobileLeadDetailShell} hbx-mobile-page`} aria-label="Detalhe do lead mobile">
@@ -3986,20 +4020,6 @@ export default function VendasClientPage() {
                     placeholder="Escreva o contexto do atendimento, objeções, próximos passos ou qualquer detalhe importante."
                   />
                 </label>
-                <div className={styles.mobileLeadSmartChips} aria-label="Chips rápidos de observação">
-                  {quickNotes.map((note) => (
-                    <button
-                      type="button"
-                      key={note}
-                      onClick={() => appendQuickNote(note)}
-                    >
-                      {note}
-                    </button>
-                  ))}
-                </div>
-                <p className={styles.mobileLeadSuggestedAction}>
-                  Próxima ação sugerida: <strong>{suggestedAction}</strong>
-                </p>
                 <button
                   type="button"
                   className={`${styles.mobileLeadSaveNoteButton} hbx-mobile-primary-button`}
@@ -4049,39 +4069,9 @@ export default function VendasClientPage() {
               </section>
             </div>
 
-            <nav className={`${styles.mobileLeadDetailActionBar} hbx-mobile-action-bar`} aria-label="Ações do lead">
-              <a
-                className="hbx-mobile-primary-button"
-                href={whatsappHref || undefined}
-                target="_blank"
-                rel="noreferrer"
-                aria-disabled={!whatsappHref}
-                data-tone="whatsapp"
-                onClick={(event) => {
-                  if (!whatsappHref) event.preventDefault();
-                  else void incrementAttempt(lead.id);
-                }}
-              >
-                WhatsApp
-              </a>
-              <button
-                type="button"
-                className="hbx-mobile-secondary-button"
-                onClick={() => openMobileReturnScheduler(lead)}
-                disabled={savingLeadId === lead.id}
-              >
-                Retorno
-              </button>
-              <button
-                type="button"
-                className="hbx-mobile-secondary-button"
-                data-tone="danger"
-                onClick={() => void runQuickAction(lead, "encerrar")}
-                disabled={savingLeadId === lead.id}
-              >
-                Negativo
-              </button>
-            </nav>
+            {typeof document !== "undefined"
+              ? createPortal(mobileLeadActionBar, document.body)
+              : mobileLeadActionBar}
             <HbxMobileDock
               primaryLabel="Incluir lead manual"
               onPrimaryAction={() => setComposerOpen(true)}
@@ -4233,9 +4223,21 @@ export default function VendasClientPage() {
             {mobileLeads.length ? (
               mobileLeads.map(({ lead }, index) => {
                 const status = lead.statusLabel || statusLabel(lead.status);
-                const whatsappHref = buildWhatsAppUrl(lead.phone, lead.name);
                 const callHref = buildCallUrl(lead.phone);
-                const compactSocialBadge = socialBadgeLabel(lead.leadIntelligence?.primarySocial);
+                const whatsappHref = isLeadWhatsappConfirmed(lead)
+                  ? buildWhatsAppUrl(lead.phone, lead.name)
+                  : "";
+                const socialLinksVisible = canSeeSocialLinks(lead, board);
+                const instagramHref = socialLinksVisible
+                  ? normalizeExternalUrl(lead.leadIntelligence?.instagramUrl)
+                  : "";
+                const facebookHref = socialLinksVisible
+                  ? normalizeExternalUrl(lead.leadIntelligence?.facebookUrl)
+                  : "";
+                const email = String(lead.email || "").trim();
+                const emailHref = email ? `mailto:${email}` : "";
+                const websiteHref = normalizeExternalUrl(leadWebsiteForDisplay(lead));
+                const lockedSocialLinks = hasLockedSocialLinks(lead, board);
                 return (
                   <article
                     className={`${styles.mobileVendasCard} hbx-mobile-card`}
@@ -4301,47 +4303,104 @@ export default function VendasClientPage() {
                         <small>
                           Retorno <b>{mobileReturnLabel(lead)}</b>
                         </small>
-                        {compactSocialBadge ? (
-                          <small data-tone="social">
-                            {compactSocialBadge}
-                          </small>
+                      </div>
+                      <div className={styles.mobileVendasChannelRow} aria-label="Canais disponíveis">
+                        {callHref ? (
+                          <a
+                            href={callHref}
+                            className={styles.mobileVendasChannelIcon}
+                            data-channel="phone"
+                            aria-label={`Ligar para ${lead.name || "lead"}`}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              void incrementAttempt(lead.id);
+                            }}
+                          >
+                            <svg viewBox="0 0 24 24" aria-hidden="true">
+                              <path d="M6.6 10.8c1.5 3 3.6 5.1 6.6 6.6l2.2-2.2c.3-.3.8-.4 1.2-.2 1.3.4 2.6.7 4 .7.7 0 1.2.5 1.2 1.2v3.5c0 .7-.5 1.2-1.2 1.2C10.8 21.6 2.4 13.2 2.4 3.4c0-.7.5-1.2 1.2-1.2h3.5c.7 0 1.2.5 1.2 1.2 0 1.4.2 2.7.7 4 .1.4 0 .9-.3 1.2l-2.1 2.2Z" />
+                            </svg>
+                          </a>
+                        ) : null}
+                        {whatsappHref ? (
+                          <a
+                            href={whatsappHref}
+                            target="_blank"
+                            rel="noreferrer"
+                            className={styles.mobileVendasChannelIcon}
+                            data-channel="whatsapp"
+                            aria-label={`Abrir WhatsApp de ${lead.name || "lead"}`}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              void incrementAttempt(lead.id);
+                            }}
+                          >
+                            <svg viewBox="0 0 24 24" aria-hidden="true">
+                              <path d="M19.05 4.94A9.8 9.8 0 0 0 12.06 2C6.59 2 2.13 6.46 2.13 11.93c0 1.75.46 3.46 1.32 4.97L2 22l5.27-1.38a9.9 9.9 0 0 0 4.79 1.22h.01c5.47 0 9.93-4.46 9.93-9.93a9.86 9.86 0 0 0-2.95-6.97ZM12.07 20.2h-.01a8.24 8.24 0 0 1-4.2-1.15l-.3-.18-3.13.82.84-3.05-.2-.31a8.2 8.2 0 0 1-1.26-4.4c0-4.53 3.69-8.22 8.24-8.22 2.2 0 4.27.85 5.82 2.4a8.17 8.17 0 0 1 2.4 5.82c0 4.54-3.69 8.23-8.2 8.23Zm4.5-6.15c-.25-.13-1.47-.72-1.7-.8-.23-.08-.4-.12-.57.12-.17.25-.65.8-.8.97-.15.17-.3.19-.56.06-.25-.13-1.06-.39-2.01-1.26-.74-.66-1.24-1.48-1.39-1.73-.15-.25-.02-.38.11-.5.11-.11.25-.3.38-.45.13-.15.17-.25.25-.42.08-.17.04-.31-.02-.44-.06-.13-.57-1.37-.78-1.88-.21-.5-.42-.43-.57-.44l-.49-.01c-.17 0-.44.06-.67.31-.23.25-.88.86-.88 2.1s.9 2.45 1.02 2.62c.13.17 1.77 2.7 4.3 3.79.6.26 1.08.42 1.44.54.61.19 1.16.16 1.6.1.49-.07 1.47-.6 1.68-1.18.21-.58.21-1.08.15-1.18-.06-.1-.23-.17-.48-.3Z" />
+                            </svg>
+                          </a>
+                        ) : null}
+                        {instagramHref ? (
+                          <a
+                            href={instagramHref}
+                            target="_blank"
+                            rel="noreferrer"
+                            className={styles.mobileVendasChannelIcon}
+                            data-channel="instagram"
+                            aria-label={`Abrir Instagram de ${lead.name || "lead"}`}
+                            onClick={(event) => event.stopPropagation()}
+                          >
+                            IG
+                          </a>
+                        ) : null}
+                        {facebookHref ? (
+                          <a
+                            href={facebookHref}
+                            target="_blank"
+                            rel="noreferrer"
+                            className={styles.mobileVendasChannelIcon}
+                            data-channel="facebook"
+                            aria-label={`Abrir Facebook de ${lead.name || "lead"}`}
+                            onClick={(event) => event.stopPropagation()}
+                          >
+                            f
+                          </a>
+                        ) : null}
+                        {emailHref ? (
+                          <a
+                            href={emailHref}
+                            className={styles.mobileVendasChannelIcon}
+                            data-channel="email"
+                            aria-label={`Enviar e-mail para ${lead.name || "lead"}`}
+                            onClick={(event) => event.stopPropagation()}
+                          >
+                            @
+                          </a>
+                        ) : null}
+                        {websiteHref ? (
+                          <a
+                            href={websiteHref}
+                            target="_blank"
+                            rel="noreferrer"
+                            className={styles.mobileVendasChannelIcon}
+                            data-channel="site"
+                            aria-label={`Abrir site de ${lead.name || "lead"}`}
+                            onClick={(event) => event.stopPropagation()}
+                          >
+                            WWW
+                          </a>
+                        ) : null}
+                        {lockedSocialLinks ? (
+                          <Link
+                            href="/planos?intent=lead"
+                            className={styles.mobileVendasPremiumChannels}
+                            aria-label="Redes encontradas no HBX Lead"
+                            onClick={(event) => event.stopPropagation()}
+                          >
+                            <span aria-hidden="true">👑</span>
+                            Redes encontradas no HBX Lead
+                          </Link>
                         ) : null}
                       </div>
-                      <div className={styles.mobileVendasNextAction}>
-                        <span>Próxima ação</span>
-                        <strong>
-                          {lead.nextAction || "Ligação de apresentação"}
-                        </strong>
-                      </div>
-                    </div>
-                    <div className={styles.mobileVendasContactActions}>
-                      <a
-                        href={whatsappHref || undefined}
-                        target="_blank"
-                        rel="noreferrer"
-                        aria-disabled={!whatsappHref}
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          void incrementAttempt(lead.id);
-                        }}
-                      >
-                        <svg viewBox="0 0 24 24" aria-hidden="true">
-                          <path d="M19.05 4.94A9.8 9.8 0 0 0 12.06 2C6.59 2 2.13 6.46 2.13 11.93c0 1.75.46 3.46 1.32 4.97L2 22l5.27-1.38a9.9 9.9 0 0 0 4.79 1.22h.01c5.47 0 9.93-4.46 9.93-9.93a9.86 9.86 0 0 0-2.95-6.97ZM12.07 20.2h-.01a8.24 8.24 0 0 1-4.2-1.15l-.3-.18-3.13.82.84-3.05-.2-.31a8.2 8.2 0 0 1-1.26-4.4c0-4.53 3.69-8.22 8.24-8.22 2.2 0 4.27.85 5.82 2.4a8.17 8.17 0 0 1 2.4 5.82c0 4.54-3.69 8.23-8.2 8.23Zm4.5-6.15c-.25-.13-1.47-.72-1.7-.8-.23-.08-.4-.12-.57.12-.17.25-.65.8-.8.97-.15.17-.3.19-.56.06-.25-.13-1.06-.39-2.01-1.26-.74-.66-1.24-1.48-1.39-1.73-.15-.25-.02-.38.11-.5.11-.11.25-.3.38-.45.13-.15.17-.25.25-.42.08-.17.04-.31-.02-.44-.06-.13-.57-1.37-.78-1.88-.21-.5-.42-.43-.57-.44l-.49-.01c-.17 0-.44.06-.67.31-.23.25-.88.86-.88 2.1s.9 2.45 1.02 2.62c.13.17 1.77 2.7 4.3 3.79.6.26 1.08.42 1.44.54.61.19 1.16.16 1.6.1.49-.07 1.47-.6 1.68-1.18.21-.58.21-1.08.15-1.18-.06-.1-.23-.17-.48-.3Z" />
-                        </svg>
-                      </a>
-                      <a
-                        href={callHref || undefined}
-                        aria-disabled={!callHref}
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          if (!callHref) event.preventDefault();
-                          void incrementAttempt(lead.id);
-                        }}
-                      >
-                        <svg viewBox="0 0 24 24" aria-hidden="true">
-                          <path d="M6.6 10.8c1.5 3 3.6 5.1 6.6 6.6l2.2-2.2c.3-.3.8-.4 1.2-.2 1.3.4 2.6.7 4 .7.7 0 1.2.5 1.2 1.2v3.5c0 .7-.5 1.2-1.2 1.2C10.8 21.6 2.4 13.2 2.4 3.4c0-.7.5-1.2 1.2-1.2h3.5c.7 0 1.2.5 1.2 1.2 0 1.4.2 2.7.7 4 .1.4 0 .9-.3 1.2l-2.1 2.2Z" />
-                        </svg>
-                      </a>
                     </div>
                   </article>
                 );

@@ -307,6 +307,62 @@
     accent-color: #0757df;
   }
 
+  .mobileAdvancedPremiumLock {
+    display: grid;
+    justify-items: center;
+    gap: 10px;
+    border: 1px solid rgba(7, 87, 223, 0.18);
+    border-radius: 18px;
+    background:
+      radial-gradient(circle at 50% 0%, rgba(7, 87, 223, 0.1), transparent 42%),
+      #eef4ff;
+    color: #0f2457;
+    padding: 20px 14px;
+    text-align: center;
+  }
+
+  .mobileAdvancedPremiumLock > span {
+    display: grid;
+    width: 42px;
+    height: 42px;
+    place-items: center;
+    border-radius: 999px;
+    background: #ffffff;
+    box-shadow: 0 14px 26px -20px rgba(7, 87, 223, 0.48);
+    font-size: 1.15rem;
+  }
+
+  .mobileAdvancedPremiumLock strong {
+    max-width: 25ch;
+    color: #07143a;
+    font-size: 0.98rem;
+    line-height: 1.15;
+    font-weight: 950;
+  }
+
+  .mobileAdvancedPremiumLock p {
+    max-width: 31ch;
+    margin: 0;
+    color: #526589;
+    font-size: 0.78rem;
+    line-height: 1.35;
+    font-weight: 760;
+  }
+
+  .mobileAdvancedPremiumLock a {
+    min-height: 42px;
+    display: inline-grid;
+    place-items: center;
+    border-radius: 13px;
+    background: #0757df;
+    color: #ffffff;
+    padding: 0 16px;
+    text-decoration: none;
+    font-size: 0.86rem;
+    font-weight: 950;
+    box-shadow: 0 16px 30px -20px rgba(7, 87, 223, 0.72);
+  }
+
   .mobileRadarCardHeader {
     min-width: 0;
     display: grid !important;
@@ -4960,6 +5016,28 @@
     border-color: rgba(255, 214, 102, 0.26) !important;
     background: rgba(7, 19, 39, 0.72) !important;
     color: #ffd86a !important;
+  }
+
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileAdvancedPremiumLock {
+    border-color: rgba(255, 214, 102, 0.26) !important;
+    background:
+      radial-gradient(circle at 50% 0%, rgba(255, 214, 102, 0.12), transparent 42%),
+      rgba(7, 19, 39, 0.88) !important;
+    color: #f8fbff !important;
+  }
+
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileAdvancedPremiumLock > span,
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileAdvancedPremiumLock a {
+    background: #ffd86a !important;
+    color: #081322 !important;
+  }
+
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileAdvancedPremiumLock strong {
+    color: #ffffff !important;
+  }
+
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileAdvancedPremiumLock p {
+    color: rgba(225, 234, 248, 0.76) !important;
   }
 }
 

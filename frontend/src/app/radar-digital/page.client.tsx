@@ -227,7 +227,10 @@ type FilterState = {
   ddd: string;
   scoreRange: string;
   noWebsite: boolean;
+  withWebsite: boolean;
   highOpportunity: boolean;
+  minRating: string;
+  minReviews: string;
   status: string;
 };
 
@@ -245,7 +248,10 @@ const DEFAULT_FILTERS: FilterState = {
   ddd: "",
   scoreRange: "",
   noWebsite: false,
+  withWebsite: false,
   highOpportunity: false,
+  minRating: "",
+  minReviews: "",
   status: "",
 };
 
@@ -807,11 +813,15 @@ function buildLeadQuery(filters: FilterState, page: number) {
   if (filters.city) params.set("city", filters.city);
   if (filters.segment.trim()) params.set("segment", filters.segment.trim());
   if (filters.targetType && filters.targetType !== "both") params.set("targetType", filters.targetType);
+  if (filters.engine) params.set("engine", filters.engine);
   if (filters.ddd.trim()) params.set("ddd", filters.ddd.replace(/\D/g, "").slice(0, 2));
   if (filters.scoreRange) params.set("scoreRange", filters.scoreRange);
   if (filters.status) params.set("status", filters.status);
   if (filters.noWebsite) params.set("noWebsite", "true");
+  if (filters.withWebsite) params.set("withWebsite", "true");
   if (filters.highOpportunity) params.set("highOpportunity", "true");
+  if (filters.minRating.trim()) params.set("minRating", filters.minRating.trim());
+  if (filters.minReviews.trim()) params.set("minReviews", filters.minReviews.trim());
   return params.toString();
 }
 
@@ -890,7 +900,10 @@ function hasHistoryFilters(filters: FilterState, generalSearch: string) {
     || filters.ddd.trim()
     || filters.scoreRange
     || filters.noWebsite
+    || filters.withWebsite
     || filters.highOpportunity
+    || filters.minRating.trim()
+    || filters.minReviews.trim()
     || filters.targetType !== DEFAULT_FILTERS.targetType,
   );
 }
@@ -1828,7 +1841,10 @@ export default function RadarDigitalClientPage() {
       scoreRange: String(next.scoreRange || ""),
       status: "",
       noWebsite: next.noWebsite === true,
+      withWebsite: next.onlyWithWebsite === true,
       highOpportunity: next.highOpportunity === true,
+      minRating: String(next.minRating || "").replace(/[^\d.,]/g, "").replace(",", ".").slice(0, 3),
+      minReviews: String(next.minReviews || "").replace(/\D/g, "").slice(0, 5),
     }));
   }
 
@@ -2336,14 +2352,19 @@ export default function RadarDigitalClientPage() {
               className={styles.mobileAdvancedButton}
               onClick={() => setMobileAdvancedOpen(true)}
             >
-              <span>Filtros avançados</span>
+              <span>{isHbxList ? "👑 Filtros avançados disponíveis no HBX Lead" : "Filtros avançados"}</span>
               <strong>
-                {[
-                  filters.ddd ? `DDD ${filters.ddd}` : null,
-                  filters.scoreRange ? "Score" : null,
-                  filters.noWebsite ? "Sem site" : null,
-                  filters.highOpportunity ? "Alta oportunidade" : null,
-                ].filter(Boolean).join(" · ") || "Opcional"}
+                {isHbxList
+                  ? "Fazer upgrade"
+                  : [
+                      filters.ddd ? `DDD ${filters.ddd}` : null,
+                      filters.scoreRange ? "Score" : null,
+                      filters.noWebsite ? "Sem site" : null,
+                      filters.withWebsite ? "Com site" : null,
+                      filters.highOpportunity ? "Alta oportunidade" : null,
+                      filters.minRating ? `Nota ${filters.minRating}+` : null,
+                      filters.minReviews ? `${filters.minReviews}+ avaliações` : null,
+                    ].filter(Boolean).join(" · ") || "Opcional"}
               </strong>
               <b aria-hidden="true">
                 <svg viewBox="0 0 24 24">
@@ -2426,59 +2447,109 @@ export default function RadarDigitalClientPage() {
                   <strong>Filtros avançados</strong>
                   <button type="button" onClick={() => setMobileAdvancedOpen(false)}>Fechar</button>
                 </div>
-                <div className={styles.mobileAdvancedGrid}>
-                  <div>
-                    <span>Fonte de busca</span>
-                    <MobileEngineToggle
-                      value={filters.engine}
-                      onChange={(value) => setFilters((current) => ({ ...current, engine: value }))}
-                    />
+                {isHbxList ? (
+                  <div className={styles.mobileAdvancedPremiumLock}>
+                    <span aria-hidden="true">👑</span>
+                    <strong>Filtros avançados disponíveis no HBX Lead</strong>
+                    <p>Filtre qualidade, oportunidade, DDD, fonte, site, avaliação e volume de reviews no plano Lead.</p>
+                    <a href="/planos?intent=lead">Fazer upgrade</a>
                   </div>
-                  <label>
-                    <span>DDD</span>
-                    <input
-                      inputMode="numeric"
-                      value={filters.ddd}
-                      onChange={(event) => setFilters((current) => ({ ...current, ddd: event.target.value.replace(/\D/g, "").slice(0, 2) }))}
-                      placeholder="11"
-                    />
-                  </label>
-                  <div>
-                    <span>Score</span>
-                    <div className={styles.mobileAdvancedOptions}>
-                      {[
-                        { value: "", label: "Todos" },
-                        { value: "70-100", label: "Alta oportunidade" },
-                        { value: "40-69", label: "Média oportunidade" },
-                      ].map((option) => (
-                        <button
-                          type="button"
-                          key={option.value || "all"}
-                          data-active={filters.scoreRange === option.value ? "true" : "false"}
-                          onClick={() => setFilters((current) => ({ ...current, scoreRange: option.value }))}
-                        >
-                          {option.label}
-                        </button>
-                      ))}
+                ) : (
+                  <div className={styles.mobileAdvancedGrid}>
+                    <div>
+                      <span>Fonte de busca</span>
+                      <MobileEngineToggle
+                        value={filters.engine}
+                        onChange={(value) => setFilters((current) => ({ ...current, engine: value }))}
+                      />
                     </div>
+                    <label>
+                      <span>DDD</span>
+                      <input
+                        inputMode="numeric"
+                        value={filters.ddd}
+                        onChange={(event) => setFilters((current) => ({ ...current, ddd: event.target.value.replace(/\D/g, "").slice(0, 2) }))}
+                        placeholder="11"
+                      />
+                    </label>
+                    <div>
+                      <span>Score/oportunidade</span>
+                      <div className={styles.mobileAdvancedOptions}>
+                        {[
+                          { value: "", label: "Todos" },
+                          { value: "high", label: "Alta oportunidade" },
+                          { value: "medium", label: "Média oportunidade" },
+                          { value: "low", label: "Baixa oportunidade" },
+                        ].map((option) => (
+                          <button
+                            type="button"
+                            key={option.value || "all"}
+                            data-active={filters.scoreRange === option.value ? "true" : "false"}
+                            onClick={() => setFilters((current) => ({ ...current, scoreRange: option.value }))}
+                          >
+                            {option.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <label className={styles.mobileAdvancedCheck}>
+                      <input
+                        type="checkbox"
+                        checked={filters.noWebsite}
+                        onChange={(event) => setFilters((current) => ({
+                          ...current,
+                          noWebsite: event.target.checked,
+                          withWebsite: event.target.checked ? false : current.withWebsite,
+                        }))}
+                      />
+                      Sem website
+                    </label>
+                    <label className={styles.mobileAdvancedCheck}>
+                      <input
+                        type="checkbox"
+                        checked={filters.withWebsite}
+                        onChange={(event) => setFilters((current) => ({
+                          ...current,
+                          withWebsite: event.target.checked,
+                          noWebsite: event.target.checked ? false : current.noWebsite,
+                        }))}
+                      />
+                      Somente com website
+                    </label>
+                    <label className={styles.mobileAdvancedCheck}>
+                      <input
+                        type="checkbox"
+                        checked={filters.highOpportunity}
+                        onChange={(event) => setFilters((current) => ({ ...current, highOpportunity: event.target.checked }))}
+                      />
+                      Somente alta oportunidade
+                    </label>
+                    <label>
+                      <span>Avaliação mínima</span>
+                      <input
+                        inputMode="decimal"
+                        value={filters.minRating}
+                        onChange={(event) => setFilters((current) => ({
+                          ...current,
+                          minRating: event.target.value.replace(/[^\d.,]/g, "").replace(",", ".").slice(0, 3),
+                        }))}
+                        placeholder="4.5"
+                      />
+                    </label>
+                    <label>
+                      <span>Mínimo de avaliações</span>
+                      <input
+                        inputMode="numeric"
+                        value={filters.minReviews}
+                        onChange={(event) => setFilters((current) => ({
+                          ...current,
+                          minReviews: event.target.value.replace(/\D/g, "").slice(0, 5),
+                        }))}
+                        placeholder="20"
+                      />
+                    </label>
                   </div>
-                  <label className={styles.mobileAdvancedCheck}>
-                    <input
-                      type="checkbox"
-                      checked={filters.noWebsite}
-                      onChange={(event) => setFilters((current) => ({ ...current, noWebsite: event.target.checked }))}
-                    />
-                    Sem website
-                  </label>
-                  <label className={styles.mobileAdvancedCheck}>
-                    <input
-                      type="checkbox"
-                      checked={filters.highOpportunity}
-                      onChange={(event) => setFilters((current) => ({ ...current, highOpportunity: event.target.checked }))}
-                    />
-                    Só alta oportunidade
-                  </label>
-                </div>
+                )}
               </section>
             </div>
           ) : null}
@@ -2698,7 +2769,7 @@ export default function RadarDigitalClientPage() {
           <div className={styles.filterAdvanced}>
             <HbxAdvancedFilters
               mode="radar"
-              filters={filters}
+              filters={{ ...filters, onlyWithWebsite: filters.withWebsite }}
               onChange={updateAdvancedFilters}
             />
           </div>
