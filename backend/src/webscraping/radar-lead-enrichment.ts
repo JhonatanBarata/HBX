@@ -1,4 +1,4 @@
-import { calculateLeadQualityV2 } from './lead-quality-v2';
+import { calculateLeadQualityV2, type LeadQualityV2SalesProfile } from './lead-quality-v2';
 
 export type RadarEmailStatus = 'confirmed' | 'probable' | 'missing' | 'invalid' | 'unverified';
 export type RadarEmailSource = 'website' | 'maps' | 'inferred' | 'manual' | 'none';
@@ -44,6 +44,7 @@ export type RadarLeadEnrichmentInput = {
   opportunityScore?: number | null;
   opportunityReason?: string | null;
   whatsappStatus?: 'confirmed' | 'missing' | 'unverified' | 'invalid' | string | null;
+  salesProfile?: LeadQualityV2SalesProfile | null;
   rawPayload?: Record<string, any> | null;
   now?: Date;
 };
@@ -376,6 +377,7 @@ export function buildRadarLeadEnrichment(input: RadarLeadEnrichmentInput): Radar
       requestedSegment: (input.rawPayload as any)?.requestedSegment || input.segment || null,
       requestedCity: (input.rawPayload as any)?.requestedCity || input.city || null,
       requestedState: (input.rawPayload as any)?.requestedState || input.state || null,
+      salesProfile: input.salesProfile || (input.rawPayload as any)?.salesProfile || null,
       now,
     },
   });

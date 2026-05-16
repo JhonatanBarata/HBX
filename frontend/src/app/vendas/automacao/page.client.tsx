@@ -715,20 +715,20 @@ function MobileAgendaLeadRow({
       ) : null}
       <div className={styles.mobileAgendaLeadActions}>
         {whatsappHref ? (
-          <a href={whatsappHref} target="_blank" rel="noreferrer" onClick={(event) => { event.preventDefault(); onWhatsapp(); }}>
-            WhatsApp
+          <a href={whatsappHref} target="_blank" rel="noreferrer" onClick={(event) => { event.preventDefault(); onWhatsapp(); }} aria-label="Abrir WhatsApp">
+            <MobileSalesIcon name="whatsapp" />
           </a>
         ) : (
-          <button type="button" disabled>WhatsApp</button>
+          <button type="button" disabled aria-label="WhatsApp indisponível"><MobileSalesIcon name="whatsapp" /></button>
         )}
         {callHref ? (
-          <a href={callHref} onClick={(event) => { event.preventDefault(); onCall(); }}>
-            Ligar
+          <a href={callHref} onClick={(event) => { event.preventDefault(); onCall(); }} aria-label="Ligar">
+            <MobileSalesIcon name="phone" />
           </a>
         ) : (
-          <button type="button" disabled>Ligar</button>
+          <button type="button" disabled aria-label="Ligação indisponível"><MobileSalesIcon name="phone" /></button>
         )}
-        <button type="button" onClick={onOpenNote}>Observação</button>
+        <button type="button" onClick={onOpenNote} aria-label="Abrir observação"><MobileSalesIcon name="note" /></button>
       </div>
     </article>
   );
@@ -838,6 +838,120 @@ function MobileAgendaSheet({
       </section>
     </div>
   );
+}
+
+type MobileSalesIconName =
+  | "agenda"
+  | "cards"
+  | "config"
+  | "filter"
+  | "note"
+  | "phone"
+  | "refresh"
+  | "report"
+  | "whatsapp";
+
+function MobileSalesIcon({ name }: { name: MobileSalesIconName }) {
+  if (name === "whatsapp") {
+    return (
+      <svg viewBox="0 0 24 24" aria-hidden="true" data-fill="true">
+        <path d="M19.05 4.94A9.8 9.8 0 0 0 12.06 2C6.59 2 2.13 6.46 2.13 11.93c0 1.75.46 3.46 1.32 4.97L2 22l5.27-1.38a9.9 9.9 0 0 0 4.79 1.22h.01c5.47 0 9.93-4.46 9.93-9.93a9.86 9.86 0 0 0-2.95-6.97ZM12.07 20.2h-.01a8.24 8.24 0 0 1-4.2-1.15l-.3-.18-3.13.82.84-3.05-.2-.31a8.2 8.2 0 0 1-1.26-4.4c0-4.53 3.69-8.22 8.24-8.22 2.2 0 4.27.85 5.82 2.4a8.17 8.17 0 0 1 2.4 5.82c0 4.54-3.69 8.23-8.2 8.23Zm4.5-6.15c-.25-.13-1.47-.72-1.7-.8-.23-.08-.4-.12-.57.12-.17.25-.65.8-.8.97-.15.17-.3.19-.56.06-.25-.13-1.06-.39-2.01-1.26-.74-.66-1.24-1.48-1.39-1.73-.15-.25-.02-.38.11-.5.11-.11.25-.3.38-.45.13-.15.17-.25.25-.42.08-.17.04-.31-.02-.44-.06-.13-.57-1.37-.78-1.88-.21-.5-.42-.43-.57-.44l-.49-.01c-.17 0-.44.06-.67.31-.23.25-.88.86-.88 2.1s.9 2.45 1.02 2.62c.13.17 1.77 2.7 4.3 3.79.6.26 1.08.42 1.44.54.61.19 1.16.16 1.6.1.49-.07 1.47-.6 1.68-1.18.21-.58.21-1.08.15-1.18-.06-.1-.23-.17-.48-.3Z" />
+      </svg>
+    );
+  }
+
+  if (name === "phone") {
+    return (
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M6.6 10.8c1.5 3 3.6 5.1 6.6 6.6l2.2-2.2c.3-.3.8-.4 1.2-.2 1.3.4 2.6.7 4 .7.7 0 1.2.5 1.2 1.2v3.5c0 .7-.5 1.2-1.2 1.2C10.8 21.6 2.4 13.2 2.4 3.4c0-.7.5-1.2 1.2-1.2h3.5c.7 0 1.2.5 1.2 1.2 0 1.4.2 2.7.7 4 .1.4 0 .9-.3 1.2l-2.1 2.2Z" />
+      </svg>
+    );
+  }
+
+  if (name === "note") {
+    return (
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M5 4h14v16H5z" />
+        <path d="M8 8h8" />
+        <path d="M8 12h8" />
+        <path d="M8 16h5" />
+      </svg>
+    );
+  }
+
+  if (name === "refresh") {
+    return (
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M20 6v5h-5" />
+        <path d="M4 18v-5h5" />
+        <path d="M18.2 9A7 7 0 0 0 6.4 6.4L4 8.8" />
+        <path d="M5.8 15A7 7 0 0 0 17.6 17.6L20 15.2" />
+      </svg>
+    );
+  }
+
+  if (name === "filter") {
+    return (
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M4 7h10" />
+        <path d="M18 7h2" />
+        <path d="M16 5v4" />
+        <path d="M4 12h3" />
+        <path d="M11 12h9" />
+        <path d="M9 10v4" />
+        <path d="M4 17h12" />
+        <path d="M20 17h0" />
+        <path d="M18 15v4" />
+      </svg>
+    );
+  }
+
+  if (name === "agenda") {
+    return (
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M5 5h14v15H5z" />
+        <path d="M8 3v4" />
+        <path d="M16 3v4" />
+        <path d="M5 10h14" />
+        <path d="M8 14h3" />
+        <path d="M8 17h6" />
+      </svg>
+    );
+  }
+
+  if (name === "cards") {
+    return (
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M5 21V5.8C5 4.8 5.8 4 6.8 4h10.4c1 0 1.8.8 1.8 1.8V21" />
+        <path d="M8 9h8" />
+        <path d="M8 13h8" />
+        <path d="M10 21v-4h4v4" />
+      </svg>
+    );
+  }
+
+  if (name === "report") {
+    return (
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M4 19V5" />
+        <path d="M4 19h16" />
+        <path d="M8 16v-5" />
+        <path d="M12 16V8" />
+        <path d="M16 16v-3" />
+      </svg>
+    );
+  }
+
+  if (name === "config") {
+    return (
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M12 15.5A3.5 3.5 0 1 0 12 8a3.5 3.5 0 0 0 0 7.5Z" />
+        <path d="M19 12a7.1 7.1 0 0 0-.1-1l2-1.5-2-3.4-2.4 1a7 7 0 0 0-1.7-1L14.5 3h-5l-.3 3.1a7 7 0 0 0-1.7 1l-2.4-1-2 3.4 2 1.5a7.1 7.1 0 0 0 0 2l-2 1.5 2 3.4 2.4-1a7 7 0 0 0 1.7 1l.3 3.1h5l.3-3.1a7 7 0 0 0 1.7-1l2.4 1 2-3.4-2-1.5c.1-.3.1-.7.1-1Z" />
+      </svg>
+    );
+  }
+
+  return null;
 }
 
 function MobileVendasProspecaoV2({
@@ -956,6 +1070,22 @@ function MobileVendasProspecaoV2({
     window.open(href, "_blank", "noopener,noreferrer");
   }
 
+  function executeMobileLead(lead: MobileLeadItem) {
+    setMobileActionLeadId(lead.id);
+    const whatsappHref = buildMobileWhatsAppHref(lead);
+    if (whatsappHref) {
+      handleMobileWhatsapp(lead);
+      return;
+    }
+    const callHref = buildMobileCallHref(lead, mobilePrefs);
+    if (callHref) {
+      handleMobileCall(lead);
+      return;
+    }
+    openMobileNote(lead);
+    setNotice({ tone: "info", text: "Sem WhatsApp ou ligação disponível. Revise o card e registre uma observação." });
+  }
+
   function openMobileNote(lead: MobileLeadItem) {
     setMobileNoteLead(lead);
     setMobileNoteDraft(String(lead.shortNote || ""));
@@ -981,6 +1111,7 @@ function MobileVendasProspecaoV2({
 
   const summary = mobileBoard?.summary || {};
   const mobileLeadSearchText = mobileLeadSearch.trim().toLowerCase();
+  const nextRecommendedLead = mobileAgenda.now[0] || mobileAgenda.scheduled[0] || mobileLeads[0] || null;
   const visibleMobileLeads = [...mobileAgenda.overdue, ...mobileAgenda.today, ...mobileAgenda.scheduled].filter((lead) => {
     if (!mobileLeadSearchText) return true;
     return [
@@ -1008,7 +1139,7 @@ function MobileVendasProspecaoV2({
             <span>{mobileLeadLocation(lead)}</span>
           </div>
           <button type="button" aria-label="Abrir observação" onClick={() => openMobileNote(lead)} disabled={saving}>
-            •••
+            <MobileSalesIcon name="note" />
           </button>
         </div>
         <div className={styles.mobileLeadStatusLine}>
@@ -1021,13 +1152,13 @@ function MobileVendasProspecaoV2({
         </div>
         <div className={styles.mobileLeadContactActions}>
           <button type="button" data-whatsapp="true" onClick={() => handleMobileWhatsapp(lead)} disabled={saving || isClosed} aria-label="WhatsApp">
-            W
+            <MobileSalesIcon name="whatsapp" />
           </button>
           <button type="button" onClick={() => handleMobileCall(lead)} disabled={saving || isClosed} aria-label="Ligar">
-            ☎
+            <MobileSalesIcon name="phone" />
           </button>
         </div>
-        <button type="button" className={styles.mobileLeadPrimaryAction} onClick={() => setMobileActionLeadId(lead.id)} disabled={saving || isClosed}>
+        <button type="button" className={styles.mobileLeadPrimaryAction} onClick={() => executeMobileLead(lead)} disabled={saving || isClosed}>
           Executar
         </button>
       </article>
@@ -1039,8 +1170,8 @@ function MobileVendasProspecaoV2({
       <header className={styles.mobileSalesHeader}>
         <strong>Vendas</strong>
         <div>
-          <button type="button" aria-label="Notificações">♧</button>
-          <button type="button" aria-label="Configurar filtros" onClick={() => setMobileDialConfigOpen((current) => !current)}>☷</button>
+          <button type="button" aria-label="Atualizar cards" onClick={() => void loadMobileBoard()} disabled={mobileLoading}><MobileSalesIcon name="refresh" /></button>
+          <button type="button" aria-label="Configurar filtros" onClick={() => setMobileDialConfigOpen((current) => !current)}><MobileSalesIcon name="filter" /></button>
         </div>
       </header>
 
@@ -1061,6 +1192,24 @@ function MobileVendasProspecaoV2({
           <small>Futuros</small>
         </button>
       </section>
+
+      {nextRecommendedLead ? (
+        <section className={styles.mobileNextCard} aria-label="Próximo card recomendado">
+          <div>
+            <span>Próximo card recomendado</span>
+            <strong>{nextRecommendedLead.name || "Lead sem nome"}</strong>
+            <small>{mobileLeadLocation(nextRecommendedLead)} · {nextRecommendedLead.nextAction || "Executar contato"}</small>
+          </div>
+          <div>
+            <button type="button" onClick={() => handleMobileWhatsapp(nextRecommendedLead)} disabled={!buildMobileWhatsAppHref(nextRecommendedLead)} aria-label="Abrir WhatsApp do próximo recomendado">
+              <MobileSalesIcon name="whatsapp" />
+            </button>
+            <button type="button" onClick={() => executeMobileLead(nextRecommendedLead)}>
+              Executar
+            </button>
+          </div>
+        </section>
+      ) : null}
 
       {mobileDialConfigOpen ? (
         <section className={styles.mobileDialPrefs} aria-label="Configuração de ligação">
@@ -1099,7 +1248,7 @@ function MobileVendasProspecaoV2({
           />
         </label>
         <button type="button" onClick={() => void loadMobileBoard()} disabled={mobileLoading} aria-label="Atualizar cards">
-          ☷
+          <MobileSalesIcon name="refresh" />
         </button>
       </section>
 
@@ -1187,11 +1336,11 @@ function MobileVendasProspecaoV2({
       ) : null}
 
       <nav className={styles.mobileBottomNav} aria-label="Navegação mobile de Vendas">
-        <button type="button" data-active="true" onClick={() => { setMobileAgendaTab("agora"); setMobileAgendaOpen(true); }}><span>▣</span>Agenda</button>
-        <Link href="/vendas"><span>♙</span>Leads</Link>
+        <button type="button" data-active="true" onClick={() => { setMobileAgendaTab("agora"); setMobileAgendaOpen(true); }}><span><MobileSalesIcon name="agenda" /></span>Agenda</button>
+        <Link href="/vendas"><span><MobileSalesIcon name="cards" /></span>Leads</Link>
         <Link href="/radar-digital" data-main="true">+</Link>
-        <Link href="/dashboard/vendas"><span>▤</span>Relatórios</Link>
-        <button type="button" onClick={() => setMobileDialConfigOpen((current) => !current)}><span>•••</span>Mais</button>
+        <Link href="/dashboard/vendas"><span><MobileSalesIcon name="report" /></span>Relatórios</Link>
+        <button type="button" onClick={() => setMobileDialConfigOpen((current) => !current)}><span><MobileSalesIcon name="config" /></span>Mais</button>
       </nav>
     </div>
   );
@@ -1967,6 +2116,7 @@ export default function VendasAutomationClientPage() {
   const [commercialPlans, setCommercialPlans] = useState<CommercialPlansPayload | null>(null);
   const [currentUserProfile, setCurrentUserProfile] = useState<CurrentUserProfile | null>(null);
   const [userModules, setUserModules] = useState<UserModule[]>([]);
+  const [isMobileViewport, setIsMobileViewport] = useState(false);
   const [, setDraftSavedAt] = useState<string | null>(null);
   const [, setPublishedAt] = useState<string | null>(null);
   const previousConnectionStatusRef = useRef<WhatsAppModalPayload["status"] | null>(null);
@@ -2144,6 +2294,15 @@ export default function VendasAutomationClientPage() {
       .then((modules) => setUserModules(Array.isArray(modules) ? modules : []))
       .catch(() => setUserModules([]));
   }, [hasToken, loadAutomation, loadConnection]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const query = window.matchMedia("(max-width: 820px)");
+    const update = () => setIsMobileViewport(query.matches);
+    update();
+    query.addEventListener("change", update);
+    return () => query.removeEventListener("change", update);
+  }, []);
 
   useEffect(() => {
     if (hasToken !== true) return;
@@ -2404,6 +2563,22 @@ export default function VendasAutomationClientPage() {
   }
 
   if (!hasToken) return null;
+
+  const requestedMobileMode = String(searchParams.get("mode") || "").trim().toLowerCase() === "mobile";
+  const shouldRenderMobileV2 =
+    requestedMobileMode ||
+    (isMobileViewport && String(searchParams.get("tab") || activeTab) === "prospeccao");
+
+  if (shouldRenderMobileV2) {
+    return (
+      <MobileVendasProspecaoV2
+        notice={notice}
+        error={error}
+        setNotice={setNotice}
+        setError={setError}
+      />
+    );
+  }
 
   return (
     <DashboardScaffold title="Automacao WhatsApp" hideHeader={true}>

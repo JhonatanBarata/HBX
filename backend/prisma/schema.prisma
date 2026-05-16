@@ -157,6 +157,7 @@ model Company {
   radarLeadCompanyStates RadarLeadCompanyState[]
   radarLeadEvents RadarLeadEvent[]
   vendasLeads         VendasLead[]
+  salesProfiles       SalesProfile[]
   vendasAutomationCampaigns VendasAutomationCampaign[]
   vendasAutomationJobs VendasAutomationJob[]
   commercialEntitlements CompanyCommercialEntitlement[]
@@ -878,6 +879,7 @@ model User {
   webscrapingUsageLogs WebscrapingUsageLog[]
   radarLeadEventsCreated RadarLeadEvent[] @relation("RadarLeadEventCreatedBy")
   nightFactoryRewardClaims NightFactoryRewardClaim[]
+  salesProfiles SalesProfile[]
 }
 
 model AuthSession {
@@ -1563,6 +1565,39 @@ model VendasLeadTimelineEvent {
   createdAt       DateTime   @default(now())
 
   @@index([leadId, createdAt])
+}
+
+model SalesProfile {
+  id                      String   @id @default(cuid())
+  company                 Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  companyId               Int
+  user                    User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId                  Int?
+  profileName             String   @default("Perfil de Venda")
+  whatDoYouSell           String?
+  offerCategory           String?
+  targetAudienceJson      String?
+  targetSegmentsJson      String?
+  avoidSegmentsJson       String?
+  preferredCitiesJson     String?
+  preferredStatesJson     String?
+  preferredChannelsJson   String?
+  leadPreferencesJson     String?
+  ticketRange             String?
+  salesGoal               String?
+  negativeRulesJson       String?
+  weeklyAutoUpdateEnabled Boolean  @default(false)
+  source                  String   @default("manual") // manual | weekly_auto | admin | system_default
+  lastAppliedAt           DateTime?
+  lastSuggestedAt         DateTime?
+  suggestedProfileJson    String?
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+
+  @@unique([companyId, userId])
+  @@index([companyId])
+  @@index([userId])
+  @@index([companyId, weeklyAutoUpdateEnabled])
 }
 
 model VendasAutomationCampaign {

@@ -22,6 +22,7 @@ import {
   buildCommercialPlansCatalog,
   isCommercialEntitlementActive,
   normalizeCommercialPlanKey,
+  resolveCommercialPlanKeyForCapabilities,
   toCommercialCurrency,
   type ActiveCommercialPlanKey,
   type CommercialEntitlementKey,
@@ -221,7 +222,12 @@ export class CommercialPlansService {
     const paymentStatus = String(company?.paymentStatus || '').trim().toUpperCase();
     const subscriptionStatus = String(company?.subscriptionStatus || '').trim().toLowerCase();
     const manualAccess = Boolean(company?.premiumAccess) || paymentStatus === 'MANUAL' || subscriptionStatus === 'manual';
-    const manualPlanKey = this.normalizePlanKey(company?.selectedPlanKey) || COMMERCIAL_PLAN_KEYS.PADRAO;
+    const manualPlanKey = resolveCommercialPlanKeyForCapabilities({
+      selectedPlanKey: company?.selectedPlanKey,
+      premiumAccess: company?.premiumAccess,
+      paymentStatus,
+      subscriptionStatus,
+    });
     const manualPlanKeys = new Set(COMMERCIAL_PLAN_ENTITLEMENT_KEYS[manualPlanKey] || []);
     const hasWithManualFallback = (key: CommercialEntitlementKey) =>
       has(key) || (manualAccess && manualPlanKeys.has(key));
@@ -291,7 +297,22 @@ export class CommercialPlansService {
       : entitlements.vendas
         ? COMMERCIAL_PLAN_KEYS.PADRAO
         : null;
-    const selectedPlanKey = masterOperational ? COMMERCIAL_PLAN_KEYS.MELHOR : this.normalizePlanKey(company?.selectedPlanKey);
+    const hasExplicitCommercialPlan = Boolean(
+      String(company?.selectedPlanKey || '').trim() ||
+      Boolean(company?.premiumAccess) ||
+      String(company?.paymentStatus || '').trim().toUpperCase() === 'MANUAL' ||
+      String(company?.subscriptionStatus || '').trim().toLowerCase() === 'manual',
+    );
+    const selectedPlanKey = masterOperational
+      ? COMMERCIAL_PLAN_KEYS.MELHOR
+      : hasExplicitCommercialPlan
+        ? resolveCommercialPlanKeyForCapabilities({
+            selectedPlanKey: company?.selectedPlanKey,
+            premiumAccess: company?.premiumAccess,
+            paymentStatus: company?.paymentStatus,
+            subscriptionStatus: company?.subscriptionStatus,
+          })
+        : null;
     const planKey = selectedPlanKey || inferredPlanKey;
     const isTrial = this.isCompanyTrialingVendas(company);
     const billingGraceEndsAt = company?.billingGraceEndsAt instanceof Date ? company.billingGraceEndsAt : null;

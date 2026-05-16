@@ -22,7 +22,7 @@ import {
   COMMERCIAL_PLAN_QUOTAS,
   COMMERCIAL_PLAN_KEYS,
   GOOGLE_DAILY_LIMIT_REACHED_MESSAGE,
-  normalizeCommercialPlanKey,
+  resolveCommercialPlanKeyForCapabilities,
 } from '../commercial-plans/commercial-plan-catalog';
 import { WebwhatsBridgeService } from '../messaging/webwhats-bridge.service';
 import { buildRadarLeadEnrichment, RADAR_LEAD_ENRICHMENT_VERSION } from './radar-lead-enrichment';
@@ -2254,32 +2254,51 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       .trim();
   }
 
+  private splitHbxBatchSegments(segment: string) {
+    const raw = String(segment || '').trim();
+    const segments = raw.includes(',')
+      ? raw.split(',').map((item) => item.replace(/\s+/g, ' ').trim()).filter(Boolean)
+      : [raw].filter(Boolean);
+    return Array.from(new Set(segments)).slice(0, 32);
+  }
+
   private buildHbxBatchQueries(input: NormalizedSearchInput) {
     const city = input.city;
     const state = input.state;
-    const ddd = this.extractDddFromSegment(input.segment);
-    const { role, niche } = this.parseHbxRoleNiche(input.segment, input.targetType);
-    const normalizedNiche = normalizeLookupValue(niche);
-    const normalizedRole = normalizeLookupValue(role);
-    const effectiveNiche = normalizedNiche && normalizedNiche !== 'empresa' && normalizedNiche !== normalizedRole
-      ? niche
-      : input.segment;
-    const queries = input.targetType === 'pj'
-      ? [
-          this.compactQuery([effectiveNiche, city, state, 'empresa']),
-          this.compactQuery([effectiveNiche, city, state, 'maps']),
-          this.compactQuery([effectiveNiche, city, state, 'site']),
-          this.compactQuery([effectiveNiche, city, state, 'whatsapp']),
-          this.compactQuery([effectiveNiche, city, state, 'telefone']),
-          ddd ? this.compactQuery([effectiveNiche, 'DDD', ddd]) : this.compactQuery([effectiveNiche, city, state]),
-        ]
-      : [
-          this.compactQuery([role, niche, city, state, 'whatsapp']),
-          this.compactQuery([role, niche, city, state, 'telefone']),
-          this.compactQuery([niche, city, state, 'contato']),
-          this.compactQuery([role, city, state, 'celular']),
-          ddd ? this.compactQuery([role, niche, 'DDD', ddd]) : this.compactQuery([role, niche, city, state]),
-        ];
+    const segmentQueries = this.splitHbxBatchSegments(input.segment).map((segment) => {
+      const ddd = this.extractDddFromSegment(segment);
+      const { role, niche } = this.parseHbxRoleNiche(segment, input.targetType);
+      const normalizedNiche = normalizeLookupValue(niche);
+      const normalizedRole = normalizeLookupValue(role);
+      const effectiveNiche = normalizedNiche && normalizedNiche !== 'empresa' && normalizedNiche !== normalizedRole
+        ? niche
+        : segment;
+      return input.targetType === 'pj'
+        ? [
+            this.compactQuery([effectiveNiche, city, state, 'empresa']),
+            this.compactQuery([effectiveNiche, city, state, 'maps']),
+            this.compactQuery([effectiveNiche, city, state, 'site']),
+            this.compactQuery([effectiveNiche, city, state, 'instagram']),
+            this.compactQuery([effectiveNiche, city, state, 'facebook']),
+            this.compactQuery([effectiveNiche, city, state, 'whatsapp']),
+            this.compactQuery([effectiveNiche, city, state, 'telefone']),
+            ddd ? this.compactQuery([effectiveNiche, 'DDD', ddd]) : this.compactQuery([effectiveNiche, city, state]),
+          ]
+        : [
+            this.compactQuery([role, niche, city, state, 'whatsapp']),
+            this.compactQuery([role, niche, city, state, 'telefone']),
+            this.compactQuery([niche, city, state, 'contato']),
+            this.compactQuery([role, city, state, 'celular']),
+            ddd ? this.compactQuery([role, niche, 'DDD', ddd]) : this.compactQuery([role, niche, city, state]),
+          ];
+    });
+    const queries: string[] = [];
+    const maxVariants = Math.max(0, ...segmentQueries.map((items) => items.length));
+    for (let variantIndex = 0; variantIndex < maxVariants; variantIndex += 1) {
+      for (const items of segmentQueries) {
+        if (items[variantIndex]) queries.push(items[variantIndex]);
+      }
+    }
     return Array.from(new Set(queries.filter(Boolean)));
   }
 
@@ -3637,7 +3656,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
   }
 
   private resolveGoogleSearchesPerDay(company: any) {
-    const planKey = normalizeCommercialPlanKey(company?.selectedPlanKey);
+    const planKey = resolveCommercialPlanKeyForCapabilities(company || {});
     return COMMERCIAL_PLAN_QUOTAS[planKey]?.googleSearchesPerDay ?? COMMERCIAL_PLAN_QUOTAS[COMMERCIAL_PLAN_KEYS.PADRAO].googleSearchesPerDay;
   }
 
@@ -3798,7 +3817,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       return;
     }
 
-    const planKey = normalizeCommercialPlanKey(company.selectedPlanKey);
+    const planKey = resolveCommercialPlanKeyForCapabilities(company);
     const message = planKey === COMMERCIAL_PLAN_KEYS.LITE
       ? 'O HBX List não inclui buscas Google diárias. Os motores gratuitos continuam liberados. Para buscas Google, escolha o HBX Lead ou HBX Full — Bot e IA.'
       : `${GOOGLE_DAILY_LIMIT_REACHED_MESSAGE} Seu plano permite ${dailyLimit} busca(s) Google por dia.`;
@@ -4519,7 +4538,11 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
 
     if (filters.normalizedCity) where.normalizedCity = filters.normalizedCity;
     if (filters.state) where.state = filters.state;
-    if (filters.normalizedSegment) where.normalizedSegment = filters.normalizedSegment;
+    const normalizedSegments = this.splitHbxBatchSegments(filters.segment)
+      .map((segment) => normalizeLookupValue(segment))
+      .filter(Boolean);
+    if (normalizedSegments.length > 1) where.normalizedSegment = { in: normalizedSegments };
+    else if (filters.normalizedSegment) where.normalizedSegment = filters.normalizedSegment;
     if (filters.minRating != null) where.rating = { gte: filters.minRating };
     if (filters.minReviews != null) where.reviews = { gte: filters.minReviews };
     if (filters.ddd) where.ddd = filters.ddd;
@@ -4923,9 +4946,9 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
   private async canUseRadarSmartLeadFields(companyId: number) {
     const company = await this.prisma.company.findUnique({
       where: { id: companyId },
-      select: { selectedPlanKey: true },
+      select: { selectedPlanKey: true, premiumAccess: true, paymentStatus: true, subscriptionStatus: true },
     }).catch(() => null);
-    const planKey = normalizeCommercialPlanKey(company?.selectedPlanKey);
+    const planKey = resolveCommercialPlanKeyForCapabilities(company || {});
     return planKey !== COMMERCIAL_PLAN_KEYS.LITE;
   }
 
@@ -5189,9 +5212,9 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
   private async canUseRadarWebwhatsCheck(companyId: number) {
     const company = await this.prisma.company.findUnique({
       where: { id: companyId },
-      select: { selectedPlanKey: true },
+      select: { selectedPlanKey: true, premiumAccess: true, paymentStatus: true, subscriptionStatus: true },
     }).catch(() => null);
-    const planKey = normalizeCommercialPlanKey(company?.selectedPlanKey);
+    const planKey = resolveCommercialPlanKeyForCapabilities(company || {});
     return planKey !== COMMERCIAL_PLAN_KEYS.LITE;
   }
 

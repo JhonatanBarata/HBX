@@ -1,7 +1,7 @@
 import { ConflictException, Injectable } from '@nestjs/common';
 import { MASTER_WHATSAPP_ENGINE_COMPANY_SLUG } from '../companies/master-whatsapp-company.constants';
 import { PrismaService } from '../prisma/prisma.service';
-import { COMMERCIAL_PLAN_KEYS, normalizeCommercialPlanKey } from './commercial-plan-catalog';
+import { COMMERCIAL_PLAN_KEYS, resolveCommercialPlanKeyForCapabilities } from './commercial-plan-catalog';
 
 const FALLBACK_TIMEZONE = 'America/Sao_Paulo';
 const CARD_SUCCESS_EVENTS = ['card_import_success', 'vendas_card_imported', 'radar_card_claimed'];
@@ -72,9 +72,11 @@ export class CommercialUsageLimitsService {
   private async getCompanyPlan(companyId: number) {
     const company = await this.prisma.company.findUnique({
       where: { id: Number(companyId) },
-      select: { selectedPlanKey: true, timezone: true, slug: true },
+      select: { selectedPlanKey: true, premiumAccess: true, paymentStatus: true, subscriptionStatus: true, timezone: true, slug: true },
     });
-    const planKey = normalizeCommercialPlanKey(company?.selectedPlanKey || COMMERCIAL_PLAN_KEYS.PADRAO);
+    const planKey = company?.slug === MASTER_WHATSAPP_ENGINE_COMPANY_SLUG
+      ? COMMERCIAL_PLAN_KEYS.MELHOR
+      : resolveCommercialPlanKeyForCapabilities(company || {});
     return {
       planKey,
       timezone: this.normalizeTimezone(company?.timezone),

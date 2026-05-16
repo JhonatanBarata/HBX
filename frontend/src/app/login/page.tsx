@@ -21,8 +21,8 @@ const DEFAULT_API_URL =
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? DEFAULT_API_URL;
 const AUTO_LOGIN_STORAGE_KEY = "hbx_auto_login";
 const AUTO_LOGIN_RELOAD_SECONDS = 49;
-const LOGIN_SUCCESS_DELAY_MS = 6500;
-const MOBILE_LOGIN_SUCCESS_DELAY_MS = 300;
+const LOGIN_SUCCESS_DELAY_MS = 2000;
+const MOBILE_LOGIN_SUCCESS_DELAY_MS = 2000;
 const LOGIN_TO_WELCOME_TRANSITION_KEY = "hbx_login_to_welcome_transition";
 const LOGIN_VIDEO_EXPERIENCE_AVAILABLE = false;
 const LOGIN_IDLE_VIDEO_SRC = "/login-media/login-looping.mp4";
@@ -478,17 +478,15 @@ export default function LoginPage() {
       return;
     }
 
-    let nextDestination = destination;
     if (destination === "/boasvindas") {
       try {
         sessionStorage.setItem(LOGIN_TO_WELCOME_TRANSITION_KEY, "mobile-auth");
       } catch {
         // ignore sessionStorage errors
       }
-      nextDestination = "/boasvindas?entry=mobile";
     }
 
-    router.replace(nextDestination);
+    router.replace(destination);
   }
 
   async function authenticate(nextUsername: string, nextPassword: string, forceSession = false) {

@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Query, Req, Res, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { UpdateAtendimentoBotConfigDto } from '../inbox/dto/update-atendimento-bot-config.dto';
 import { CommercialEntitlement } from '../commercial-plans/commercial-entitlement.decorator';
@@ -12,6 +12,7 @@ import {
   ImportWebscrapingLeadsDto,
   ReportVendasLeadDto,
   StartVendasProspectingDto,
+  UpdateSalesProfileDto,
   UpdateVendasProspectingConfigDto,
   UpdateVendasLeadDto,
 } from './dto/vendas.dto';
@@ -101,6 +102,39 @@ export class VendasController {
   @Get('pending-summary')
   getPendingSummary(@Req() req: any) {
     return this.vendasService.getPendingSummaryForUser(req.user);
+  }
+
+  @Get('sales-profile')
+  getSalesProfile(@Req() req: any) {
+    return this.vendasService.getSalesProfileForUser(req.user);
+  }
+
+  @Patch('sales-profile')
+  updateSalesProfile(@Req() req: any, @Body() dto: UpdateSalesProfileDto) {
+    return this.vendasService.updateSalesProfileForUser(req.user, dto || {});
+  }
+
+  @Post('sales-profile/suggest-weekly')
+  suggestSalesProfile(@Req() req: any) {
+    return this.vendasService.suggestWeeklySalesProfileForUser(req.user);
+  }
+
+  @Post('sales-profile/apply-suggestion')
+  applySalesProfileSuggestion(@Req() req: any) {
+    return this.vendasService.applySalesProfileSuggestionForUser(req.user);
+  }
+
+  @Get('report')
+  getConversionReport(@Req() req: any, @Query('period') period?: string) {
+    return this.vendasService.getConversionReportForUser(req.user, period);
+  }
+
+  @Get('report/export.pdf')
+  async exportConversionReportPdf(@Req() req: any, @Query('period') period: string | undefined, @Res() res: any) {
+    const pdf = await this.vendasService.exportConversionReportPdfForUser(req.user, period);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${pdf.filename}"`);
+    res.send(pdf.buffer);
   }
 
   @Post('manual')

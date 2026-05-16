@@ -32,7 +32,7 @@ import LiquidGlassCard, {
 } from "@/components/LiquidGlassCard";
 import HbxMobileDock from "@/components/mobile/HbxMobileDock";
 import { useQuickLaunchNotice } from "@/components/useQuickLaunchNotice";
-import { apiFetch } from "@/app/_lib/api";
+import { apiFetch, getDashboardApiBaseUrl, getToken } from "@/app/_lib/api";
 import { startSmartPolling } from "@/app/_lib/polling";
 import { useRequireModule } from "@/app/_lib/useRequireModule";
 import { HBX_WINDOW_STANDARD } from "@/lib/hbx-window-system";
@@ -54,6 +54,7 @@ type LeadStatus = "novo" | "contato" | "retorno" | "qualificado" | "encerrado";
 type LeadBlockKey = "today" | "overdue" | "scheduled" | "closed";
 type DateFilterKey = "overdue" | "today" | `scheduled:${string}`;
 type MobileAgendaTab = "overdue" | "today" | "upcoming";
+type MobileVendasSection = "today" | "cards" | "report" | "settings";
 type WhatsappFilter = "all" | "with" | "without";
 type InboxFilter = "all" | "in" | "out";
 type RadarSearchRunStatus =
@@ -175,6 +176,47 @@ type VendasCapabilities = {
   canUseAdvancedFilters?: boolean;
   canUseVerifiedWhatsapp?: boolean | "limited";
   canUseFilteredQuota?: boolean;
+  canUseSalesProfileAdvanced?: boolean;
+  canSeeConversionReport?: boolean;
+  canExportConversionPdf?: boolean;
+  canUseWeeklyProfileSuggestions?: boolean;
+};
+
+type SalesProfileDraft = {
+  whatDoYouSell: string;
+  offerCategory: string;
+  targetAudience: string[];
+  targetSegments: string[];
+  avoidSegments: string[];
+  preferredChannels: string[];
+  weeklyAutoUpdateEnabled: boolean;
+};
+
+type SalesProfileResponse = {
+  ok?: boolean;
+  effectiveProfile?: {
+    whatDoYouSell?: string | null;
+    offerCategory?: string | null;
+    targetAudience?: string[];
+    targetSegments?: string[];
+    avoidSegments?: string[];
+    preferredChannels?: string[];
+    weeklyAutoUpdateEnabled?: boolean;
+  };
+  source?: "user" | "company" | "default";
+  capabilities?: VendasCapabilities;
+};
+
+type ConversionReportResponse = {
+  ok?: boolean;
+  capabilities?: VendasCapabilities;
+  metrics?: Record<string, any>;
+  rankings?: {
+    segments?: Array<{ label: string; count: number }>;
+    cities?: Array<{ label: string; count: number }>;
+    channels?: Array<{ label: string; count: number }>;
+  };
+  recommendation?: string;
 };
 
 type LeadItem = {
@@ -352,6 +394,45 @@ const VENDAS_PROGRESS_STEPS = [
 const MOBILE_READY_MESSAGE_PREF_KEY = "hbx.vendas.mobile.readyMessagePreference.v1";
 const MOBILE_PREFERRED_CALLER_NAME_KEY = "hbx.vendas.mobile.preferredCallerName.v1";
 const MOBILE_OPEN_LEAD_KEY = "hbx.vendas.mobile.openLeadId.v1";
+const SALES_PROFILE_DEFAULT_DRAFT: SalesProfileDraft = {
+  whatDoYouSell: "Sistema/Software",
+  offerCategory: "serviço comercial",
+  targetAudience: ["empresas pequenas", "comércios locais"],
+  targetSegments: ["clínicas", "oficinas", "restaurantes"],
+  avoidSegments: ["empresa grande", "órgão público", "sem telefone", "diretório/lista genérica"],
+  preferredChannels: ["whatsapp"],
+  weeklyAutoUpdateEnabled: false,
+};
+const SALES_PROFILE_SELL_EXAMPLES = [
+  "Plano de saúde",
+  "Sistema/Software",
+  "Serviços locais",
+  "Consultoria",
+  "Imobiliária",
+  "Estética/beleza",
+  "Outro",
+];
+const SALES_PROFILE_AUDIENCE_EXAMPLES = [
+  "idosos",
+  "famílias",
+  "empresas pequenas",
+  "comércios locais",
+  "profissionais autônomos",
+  "clínicas",
+  "oficinas",
+  "restaurantes",
+  "salões",
+];
+const SALES_PROFILE_AVOID_EXAMPLES = [
+  "empresa grande",
+  "órgão público",
+  "sem telefone",
+  "sem WhatsApp",
+  "diretório/lista genérica",
+  "fora da cidade",
+  "segmento errado",
+];
+const SALES_PROFILE_CHANNELS = ["whatsapp", "ligação", "e-mail", "instagram"];
 const MOBILE_READY_MESSAGE_LIBRARY = [
   "Olá, tudo bem? Vi a {{company}} em {{city}} e queria te mostrar uma forma simples de organizar contatos, retornos e oportunidades sem depender de planilha.",
   "Oi, tudo bem? Notei que empresas de {{segment}} costumam perder retorno por falta de acompanhamento. Posso te mandar uma ideia rápida para resolver isso?",
@@ -531,6 +612,39 @@ function saveMobileReadyMessagePreference(index: number) {
 function readMobileOpenLeadId() {
   if (typeof window === "undefined") return "";
   return String(window.sessionStorage.getItem(MOBILE_OPEN_LEAD_KEY) || "").trim();
+}
+
+function salesProfileDraftFromResponse(payload?: SalesProfileResponse | null): SalesProfileDraft {
+  const profile = payload?.effectiveProfile || {};
+  return {
+    whatDoYouSell: String(profile.whatDoYouSell || SALES_PROFILE_DEFAULT_DRAFT.whatDoYouSell),
+    offerCategory: String(profile.offerCategory || SALES_PROFILE_DEFAULT_DRAFT.offerCategory),
+    targetAudience: Array.isArray(profile.targetAudience) && profile.targetAudience.length
+      ? profile.targetAudience
+      : SALES_PROFILE_DEFAULT_DRAFT.targetAudience,
+    targetSegments: Array.isArray(profile.targetSegments) && profile.targetSegments.length
+      ? profile.targetSegments
+      : SALES_PROFILE_DEFAULT_DRAFT.targetSegments,
+    avoidSegments: Array.isArray(profile.avoidSegments) && profile.avoidSegments.length
+      ? profile.avoidSegments
+      : SALES_PROFILE_DEFAULT_DRAFT.avoidSegments,
+    preferredChannels: Array.isArray(profile.preferredChannels) && profile.preferredChannels.length
+      ? profile.preferredChannels
+      : SALES_PROFILE_DEFAULT_DRAFT.preferredChannels,
+    weeklyAutoUpdateEnabled: Boolean(profile.weeklyAutoUpdateEnabled),
+  };
+}
+
+function toggleStringValue(values: string[], value: string) {
+  const normalized = value.trim();
+  if (!normalized) return values;
+  return values.some((item) => item.toLowerCase() === normalized.toLowerCase())
+    ? values.filter((item) => item.toLowerCase() !== normalized.toLowerCase())
+    : [...values, normalized].slice(0, 30);
+}
+
+function formatReportPercent(value: unknown) {
+  return `${Math.round((Number(value || 0) || 0) * 100)}%`;
 }
 
 function saveMobileOpenLeadId(leadId: string | null) {
@@ -1231,6 +1345,7 @@ function LeadCardView({
   const whatsappUrl = whatsappBlocked
     ? ""
     : buildWhatsAppUrl(draft.phone || lead.phone, draft.name || lead.name);
+  const leadWebsiteHref = normalizeExternalUrl(leadWebsiteForDisplay(lead));
   const leadSource = lead.primarySource || lead.sourceType;
   const inInbox = isLeadInInbox(lead);
   const webscrapingSummary = buildLeadWebscrapingSummary(lead);
@@ -1662,11 +1777,11 @@ function LeadCardView({
         </div>
       }
     >
-      {lead.website ? (
+      {leadWebsiteHref ? (
         <div className={glassCardStyles.cluster}>
           <a
             className={`${glassCardStyles.actionButton} ${glassCardStyles.noBreak}`}
-            href={lead.website}
+            href={leadWebsiteHref}
             target="_blank"
             rel="noreferrer"
           >
@@ -1847,6 +1962,14 @@ export default function VendasClientPage() {
     useState<DateFilterKey>("today");
   const [mobileAgendaTab, setMobileAgendaTab] =
     useState<MobileAgendaTab>("today");
+  const [mobileSection, setMobileSection] = useState<MobileVendasSection>("today");
+  const [salesProfile, setSalesProfile] = useState<SalesProfileResponse | null>(null);
+  const [salesProfileDraft, setSalesProfileDraft] = useState<SalesProfileDraft>(SALES_PROFILE_DEFAULT_DRAFT);
+  const [salesProfileSaving, setSalesProfileSaving] = useState(false);
+  const [salesProfileSuggestion, setSalesProfileSuggestion] = useState<any>(null);
+  const [conversionReport, setConversionReport] = useState<ConversionReportResponse | null>(null);
+  const [conversionReportPeriod, setConversionReportPeriod] = useState<"today" | "7d" | "30d">("7d");
+  const [conversionReportLoading, setConversionReportLoading] = useState(false);
   const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null);
   const [editingLeadId, setEditingLeadId] = useState<string | null>(null);
   const [composerOpen, setComposerOpen] = useState(false);
@@ -1977,6 +2100,108 @@ export default function VendasClientPage() {
       );
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function loadSalesProfile() {
+    try {
+      const payload = await apiFetch<SalesProfileResponse>("/vendas/sales-profile");
+      setSalesProfile(payload);
+      setSalesProfileDraft(salesProfileDraftFromResponse(payload));
+    } catch {
+      setSalesProfile(null);
+      setSalesProfileDraft(SALES_PROFILE_DEFAULT_DRAFT);
+    }
+  }
+
+  async function saveSalesProfile() {
+    setSalesProfileSaving(true);
+    setError(null);
+    try {
+      const payload = await apiFetch<SalesProfileResponse>("/vendas/sales-profile", {
+        method: "PATCH",
+        body: JSON.stringify({
+          whatDoYouSell: salesProfileDraft.whatDoYouSell,
+          offerCategory: salesProfileDraft.offerCategory,
+          targetAudience: { labels: salesProfileDraft.targetAudience },
+          targetSegments: { labels: salesProfileDraft.targetSegments },
+          avoidSegments: {
+            labels: salesProfileDraft.avoidSegments,
+            hardReject: salesProfileDraft.avoidSegments.filter((item) =>
+              /órgão|orgao|diretório|diretorio|sem telefone|segmento errado/i.test(item),
+            ),
+          },
+          preferredChannels: salesProfileDraft.preferredChannels,
+          leadPreferences: {
+            preferSmallBusiness: true,
+            preferNoWebsite: true,
+            preferInstagram: salesProfileDraft.preferredChannels.includes("instagram"),
+            preferWhatsapp: salesProfileDraft.preferredChannels.includes("whatsapp"),
+            preferHighReviews: true,
+            preferLocalBusiness: true,
+          },
+          negativeRules: {
+            avoidPublicSector: salesProfileDraft.avoidSegments.some((item) => /órgão|orgao/i.test(item)),
+            avoidLargeCompanies: salesProfileDraft.avoidSegments.some((item) => /grande/i.test(item)),
+            avoidDirectories: salesProfileDraft.avoidSegments.some((item) => /diretório|diretorio|lista/i.test(item)),
+            avoidNoPhone: salesProfileDraft.avoidSegments.some((item) => /sem telefone/i.test(item)),
+            avoidNoWhatsapp: salesProfileDraft.avoidSegments.some((item) => /sem whatsapp/i.test(item)),
+            avoidOutOfCity: salesProfileDraft.avoidSegments.some((item) => /fora da cidade/i.test(item)),
+          },
+          weeklyAutoUpdateEnabled: salesProfileDraft.weeklyAutoUpdateEnabled,
+        }),
+      });
+      setSalesProfile(payload);
+      setSalesProfileDraft(salesProfileDraftFromResponse(payload));
+      setFeedback("Perfil de Venda salvo.");
+    } catch (profileError) {
+      setError(profileError instanceof Error ? profileError.message : "Falha ao salvar Perfil de Venda.");
+    } finally {
+      setSalesProfileSaving(false);
+    }
+  }
+
+  async function suggestSalesProfile() {
+    setSalesProfileSaving(true);
+    setError(null);
+    try {
+      const payload = await apiFetch<{ suggestion?: any }>("/vendas/sales-profile/suggest-weekly", {
+        method: "POST",
+      });
+      setSalesProfileSuggestion(payload.suggestion || null);
+      setFeedback("Sugestão gerada com base na semana.");
+    } catch (profileError) {
+      setError(profileError instanceof Error ? profileError.message : "Falha ao gerar sugestão.");
+    } finally {
+      setSalesProfileSaving(false);
+    }
+  }
+
+  async function loadConversionReport(period = conversionReportPeriod) {
+    setConversionReportLoading(true);
+    try {
+      const payload = await apiFetch<ConversionReportResponse>(`/vendas/report?period=${encodeURIComponent(period)}`);
+      setConversionReport(payload);
+    } catch (reportError) {
+      setError(reportError instanceof Error ? reportError.message : "Falha ao carregar relatório.");
+    } finally {
+      setConversionReportLoading(false);
+    }
+  }
+
+  async function exportConversionReportPdf() {
+    try {
+      const token = getToken();
+      const response = await fetch(`${getDashboardApiBaseUrl()}/vendas/report/export.pdf?period=${encodeURIComponent(conversionReportPeriod)}`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!response.ok) throw new Error(await response.text());
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      window.open(url, "_blank", "noopener,noreferrer");
+      window.setTimeout(() => URL.revokeObjectURL(url), 30000);
+    } catch (pdfError) {
+      setError(pdfError instanceof Error ? pdfError.message : "Falha ao exportar PDF.");
     }
   }
 
@@ -2241,6 +2466,16 @@ export default function VendasClientPage() {
 
   useEffect(() => {
     if (hasToken !== true) return;
+    void loadSalesProfile();
+  }, [hasToken]);
+
+  useEffect(() => {
+    if (hasToken !== true || mobileSection !== "report") return;
+    void loadConversionReport(conversionReportPeriod);
+  }, [hasToken, mobileSection, conversionReportPeriod]);
+
+  useEffect(() => {
+    if (hasToken !== true) return;
     if (searchParams?.get("agendaStudio") !== "1") return;
     const mode = searchParams?.get("agendaMode") || "sales";
     if (mode !== "sales") return;
@@ -2321,11 +2556,11 @@ export default function VendasClientPage() {
 
   const mobileLeads = useMemo(() => {
     const normalized = mobileSearch.trim().toLowerCase();
-    const liveLeads = allLeads.filter(({ block }) => {
+    const liveLeads = (mobileSection === "cards" ? allLeads.filter(({ block }) => block !== "closed") : allLeads.filter(({ block }) => {
       if (mobileAgendaTab === "overdue") return block === "overdue";
       if (mobileAgendaTab === "today") return block === "today";
       return block === "scheduled";
-    }).sort((left, right) => {
+    })).sort((left, right) => {
       if (mobileAgendaTab !== "upcoming") return 0;
       return (
         new Date(left.lead.returnAt || left.lead.updatedAt || 0).getTime() -
@@ -2351,7 +2586,7 @@ export default function VendasClientPage() {
           .includes(normalized),
       )
       .slice(0, 24);
-  }, [allLeads, mobileAgendaTab, mobileSearch]);
+  }, [allLeads, mobileAgendaTab, mobileSearch, mobileSection]);
 
   const selectedMobileLead = useMemo(() => {
     if (!selectedMobileLeadId) return null;
@@ -3102,6 +3337,196 @@ export default function VendasClientPage() {
               ? "Atualizando sua agenda"
               : `${mobilePendingCount || mobileLeadCount} cards em acompanhamento`;
 
+    const activeCapabilities = board?.capabilities || salesProfile?.capabilities || {};
+    const reportMetrics = conversionReport?.metrics || {};
+    const profileSummary = `${salesProfileDraft.whatDoYouSell || "Perfil"} para ${(salesProfileDraft.targetAudience || [])[0] || "pequenos negócios"}`;
+
+    function renderMobileSectionTabs() {
+      const items: Array<{ key: MobileVendasSection; label: string }> = [
+        { key: "today", label: "Hoje" },
+        { key: "cards", label: "Cards" },
+        { key: "report", label: "Relatório" },
+        { key: "settings", label: "Configurações" },
+      ];
+      return (
+        <div className={styles.mobileVendasSectionTabs}>
+          {items.map((item) => (
+            <button
+              key={item.key}
+              type="button"
+              data-active={mobileSection === item.key ? "true" : "false"}
+              onClick={() => {
+                setMobileSection(item.key);
+                if (item.key === "today") setMobileAgendaTab("today");
+                if (item.key === "cards") setMobileAgendaTab("upcoming");
+              }}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
+      );
+    }
+
+    function renderMobileReport() {
+      return (
+        <div className={styles.mobileVendasList}>
+          <section className={`${styles.mobileVendasReportPanel} hbx-mobile-card`}>
+            <div className={styles.mobileVendasReportHeader}>
+              <div>
+                <span>HBX</span>
+                <strong>Relatório de Conversão</strong>
+                <p>{conversionReport?.recommendation || "Carregando leitura comercial..."}</p>
+              </div>
+              <select
+                value={conversionReportPeriod}
+                onChange={(event) => setConversionReportPeriod(event.target.value as "today" | "7d" | "30d")}
+              >
+                <option value="today">Hoje</option>
+                <option value="7d">7 dias</option>
+                <option value="30d">30 dias</option>
+              </select>
+            </div>
+            {!activeCapabilities.canSeeConversionReport ? (
+              <div className={styles.mobileVendasTeaser}>
+                Relatório inteligente disponível no HBX Lead
+              </div>
+            ) : null}
+            <div className={styles.mobileVendasReportGrid}>
+              {[
+                ["Recebidos", reportMetrics.cardsRecebidos],
+                ["Chamados", reportMetrics.cardsChamados],
+                ["Respostas", reportMetrics.respostas],
+                ["Interessados", reportMetrics.interessados],
+                ["Taxa resposta", formatReportPercent(reportMetrics.taxaResposta)],
+                ["Conversão", formatReportPercent(reportMetrics.taxaConversao)],
+              ].map(([label, value]) => (
+                <span key={label}>
+                  <small>{label}</small>
+                  <strong>{conversionReportLoading ? "..." : value ?? 0}</strong>
+                </span>
+              ))}
+            </div>
+            <div className={styles.mobileVendasReportRanking}>
+              <strong>Melhores sinais</strong>
+              <p>Segmento: {reportMetrics.melhorSegmento || "Sem dados"}</p>
+              <p>Cidade: {reportMetrics.melhorCidade || "Sem dados"}</p>
+              <p>Canal: {reportMetrics.melhorCanal || "WhatsApp"}</p>
+            </div>
+            <button
+              type="button"
+              className="hbx-mobile-primary-button"
+              onClick={() => void exportConversionReportPdf()}
+              disabled={!activeCapabilities.canExportConversionPdf}
+            >
+              Exportar PDF
+            </button>
+            {!activeCapabilities.canExportConversionPdf ? (
+              <small className={styles.mobileVendasReportLock}>Exportação PDF disponível no HBX Lead</small>
+            ) : null}
+          </section>
+        </div>
+      );
+    }
+
+    function renderChipEditor(
+      title: string,
+      values: string[],
+      examples: string[],
+      onChange: (values: string[]) => void,
+    ) {
+      return (
+        <section className={`${styles.mobileSalesProfileBlock} hbx-mobile-card`}>
+          <strong>{title}</strong>
+          <div className={styles.mobileSalesProfileChips}>
+            {examples.map((item) => {
+              const active = values.some((value) => value.toLowerCase() === item.toLowerCase());
+              return (
+                <button
+                  key={item}
+                  type="button"
+                  data-active={active ? "true" : "false"}
+                  onClick={() => onChange(toggleStringValue(values, item))}
+                >
+                  {item}
+                </button>
+              );
+            })}
+          </div>
+        </section>
+      );
+    }
+
+    function renderMobileSettings() {
+      return (
+        <div className={styles.mobileVendasList}>
+          <section className={`${styles.mobileSalesProfileHero} hbx-mobile-card`}>
+            <span>Perfil ativo: {profileSummary}</span>
+            <strong>Perfil de Venda</strong>
+            <p>O HBX usa isso para escolher melhores leads para você.</p>
+          </section>
+          <section className={`${styles.mobileSalesProfileBlock} hbx-mobile-card`}>
+            <strong>O que você vende?</strong>
+            <input
+              value={salesProfileDraft.whatDoYouSell}
+              onChange={(event) => setSalesProfileDraft((current) => ({ ...current, whatDoYouSell: event.target.value }))}
+              placeholder="Ex.: Plano de saúde"
+              maxLength={160}
+            />
+            <div className={styles.mobileSalesProfileChips}>
+              {SALES_PROFILE_SELL_EXAMPLES.map((item) => (
+                <button
+                  key={item}
+                  type="button"
+                  data-active={salesProfileDraft.whatDoYouSell === item ? "true" : "false"}
+                  onClick={() => setSalesProfileDraft((current) => ({ ...current, whatDoYouSell: item }))}
+                >
+                  {item}
+                </button>
+              ))}
+            </div>
+          </section>
+          {renderChipEditor("Para quem você quer vender?", salesProfileDraft.targetAudience, SALES_PROFILE_AUDIENCE_EXAMPLES, (values) =>
+            setSalesProfileDraft((current) => ({ ...current, targetAudience: values })),
+          )}
+          {renderChipEditor("O que você quer evitar?", salesProfileDraft.avoidSegments, SALES_PROFILE_AVOID_EXAMPLES, (values) =>
+            setSalesProfileDraft((current) => ({ ...current, avoidSegments: values })),
+          )}
+          {renderChipEditor("Canal preferido", salesProfileDraft.preferredChannels, SALES_PROFILE_CHANNELS, (values) =>
+            setSalesProfileDraft((current) => ({ ...current, preferredChannels: values })),
+          )}
+          <section className={`${styles.mobileSalesProfileBlock} hbx-mobile-card`}>
+            <label className={styles.mobileSalesProfileToggle}>
+              <input
+                type="checkbox"
+                checked={salesProfileDraft.weeklyAutoUpdateEnabled}
+                onChange={(event) => setSalesProfileDraft((current) => ({ ...current, weeklyAutoUpdateEnabled: event.target.checked }))}
+              />
+              <span>Deixar o HBX sugerir ajustes toda segunda-feira</span>
+            </label>
+            <p>Você revisa antes de aplicar.</p>
+          </section>
+          {salesProfileSuggestion?.diff?.length ? (
+            <section className={`${styles.mobileSalesProfileBlock} hbx-mobile-card`}>
+              <strong>Sugestão da semana</strong>
+              {salesProfileSuggestion.diff.map((item: string) => <p key={item}>{item}</p>)}
+            </section>
+          ) : null}
+          <div className={styles.mobileSalesProfileActions}>
+            <button type="button" className="hbx-mobile-primary-button" onClick={() => void saveSalesProfile()} disabled={salesProfileSaving}>
+              {salesProfileSaving ? "Salvando" : "Salvar perfil"}
+            </button>
+            <button type="button" className="hbx-mobile-secondary-button" onClick={() => void suggestSalesProfile()} disabled={salesProfileSaving || !activeCapabilities.canUseWeeklyProfileSuggestions}>
+              Gerar sugestão com base na semana
+            </button>
+            <button type="button" className="hbx-mobile-secondary-button" onClick={() => setSalesProfileDraft(SALES_PROFILE_DEFAULT_DRAFT)}>
+              Restaurar padrão
+            </button>
+          </div>
+        </div>
+      );
+    }
+
     function renderMobileLeadDetail(lead: LeadItem) {
       const intelligence = lead.leadIntelligence || {};
       const capabilities = leadCapabilities(lead, board);
@@ -3125,6 +3550,7 @@ export default function VendasClientPage() {
       const email = leadEmailForDisplay(lead);
       const emailHref = email ? `mailto:${email}` : "";
       const website = leadWebsiteForDisplay(lead);
+      const websiteHref = normalizeExternalUrl(website);
       const instagramHref = socialLinksVisible ? normalizeExternalUrl(intelligence.instagramUrl) : "";
       const facebookHref = socialLinksVisible ? normalizeExternalUrl(intelligence.facebookUrl) : "";
       const socialBadge = socialBadgeLabel(intelligence.primarySocial);
@@ -3198,8 +3624,9 @@ export default function VendasClientPage() {
                 type="button"
                 className={`${styles.mobileLeadBackButton} ${styles.mobileLeadCloseButton} hbx-mobile-secondary-button`}
                 onClick={closeMobileLeadDetail}
+                aria-label="Fechar observações"
               >
-                Fechar
+                X
               </button>
             </header>
 
@@ -3263,7 +3690,17 @@ export default function VendasClientPage() {
                         <path d="m4 7 8 6 8-6" />
                       </svg>
                     </span>
-                    <strong>{email || "E-mail não encontrado"}</strong>
+                    {emailHref ? (
+                      <a
+                        className={styles.mobileLeadContactLink}
+                        href={emailHref}
+                        aria-label={`Enviar e-mail para ${email}`}
+                      >
+                        {email}
+                      </a>
+                    ) : (
+                      <strong>E-mail não encontrado</strong>
+                    )}
                     <b data-tone={email ? "success" : "muted"}>{email ? "E-mail encontrado" : "Sem e-mail"}</b>
                   </div>
                   <div>
@@ -3275,7 +3712,19 @@ export default function VendasClientPage() {
                         <path d="M12 3c-2.5 2.5-3.5 5.5-3.5 9s1 6.5 3.5 9" />
                       </svg>
                     </span>
-                    <strong>{website || "Sem site"}</strong>
+                    {websiteHref ? (
+                      <a
+                        className={styles.mobileLeadContactLink}
+                        href={websiteHref}
+                        target="_blank"
+                        rel="noreferrer"
+                        aria-label={`Abrir site de ${lead.name || "lead"}`}
+                      >
+                        {website}
+                      </a>
+                    ) : (
+                      <strong>Sem site</strong>
+                    )}
                     <b data-tone={website ? "smart" : "muted"}>{website ? "Site encontrado" : "Sem site"}</b>
                   </div>
                   {socialBadge && socialLinksVisible ? (
@@ -3552,6 +4001,10 @@ export default function VendasClientPage() {
             <HbxMobileDock
               primaryLabel="Incluir lead manual"
               onPrimaryAction={() => setComposerOpen(true)}
+              onRelatorio={() => {
+                setSelectedMobileLeadId(null);
+                setMobileSection("report");
+              }}
               onConta={() => {
                 setAccountNameDraft(mobilePreferredCallerName || readMobilePreferredCallerName());
                 setAccountSheetOpen(true);
@@ -3639,9 +4092,11 @@ export default function VendasClientPage() {
             </button>
           </div>
 
+          {renderMobileSectionTabs()}
+
         </div>
 
-        {loading ? (
+        {mobileSection === "report" ? renderMobileReport() : mobileSection === "settings" ? renderMobileSettings() : loading ? (
           <div className={`${styles.mobileVendasLoading} hbx-mobile-empty`}>
             <span />
             <strong>Carregando agenda</strong>
@@ -3776,6 +4231,10 @@ export default function VendasClientPage() {
         <HbxMobileDock
           primaryLabel="Incluir lead manual"
           onPrimaryAction={() => setComposerOpen(true)}
+          onRelatorio={() => {
+            setMobileSection("report");
+            setSelectedMobileLeadId(null);
+          }}
           onConta={() => {
             setAccountNameDraft(mobilePreferredCallerName || readMobilePreferredCallerName());
             setAccountSheetOpen(true);

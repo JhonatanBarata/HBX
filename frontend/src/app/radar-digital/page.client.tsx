@@ -249,43 +249,211 @@ const MAX_RADAR_SEGMENT_SELECTIONS = 5;
 const RADAR_SEGMENT_GROUPS: RadarSegmentGroup[] = [
   {
     key: "saude",
-    label: "Saúde",
-    segments: ["Academia", "Clínica odontológica", "Clínica médica", "Fisioterapia", "Psicologia", "Farmácia", "Estética", "Laboratório"],
+    label: "Saúde e bem-estar",
+    segments: [
+      "academias",
+      "clínicas médicas",
+      "clínicas odontológicas",
+      "clínicas veterinárias",
+      "farmácias",
+      "laboratórios",
+      "quadras esportivas",
+      "serviços médicos",
+      "serviços odontológicos",
+      "yoga e pilates",
+    ],
   },
   {
     key: "alimentacao",
     label: "Alimentação",
-    segments: ["Restaurante", "Lanchonete", "Pizzaria", "Padaria", "Mercado", "Bar", "Hamburgueria"],
+    segments: [
+      "açougues",
+      "alimentos naturais",
+      "bares",
+      "buffets",
+      "cafeterias",
+      "casa de carnes",
+      "confeitarias",
+      "depósitos de bebidas",
+      "docerias",
+      "lanchonetes",
+      "mercados",
+      "panificadoras",
+      "pizzarias",
+      "restaurantes",
+      "supermercados",
+    ],
   },
   {
     key: "beleza",
     label: "Beleza",
-    segments: ["Salão de beleza", "Barbearia", "Clínica estética", "Nail designer", "Spa", "Depilação"],
+    segments: [
+      "barbearias",
+      "clínicas de estética",
+      "cosméticos",
+      "perfumarias",
+      "salões de beleza",
+    ],
   },
   {
     key: "construcao",
-    label: "Construção",
-    segments: ["Material de construção", "Engenharia", "Reformas", "Marcenaria", "Vidraçaria", "Pintura"],
+    label: "Casa e construção",
+    segments: [
+      "aluguel de equipamentos",
+      "construtoras",
+      "elétricas",
+      "energia solar",
+      "engenharias",
+      "escritórios de arquitetura",
+      "ferragens",
+      "instaladoras",
+      "lojas de tintas",
+      "madeireiras",
+      "manutenção predial",
+      "marcenarias",
+      "materiais de construção",
+      "marmorarias",
+      "serralherias",
+      "vidraçarias",
+    ],
   },
   {
     key: "servicos",
-    label: "Serviços",
-    segments: ["Assistência técnica", "Limpeza", "Segurança", "Manutenção", "Dedetização", "Ar condicionado"],
+    label: "Serviços locais",
+    segments: [
+      "alarmes e segurança",
+      "chaveiros",
+      "dedetizadoras",
+      "funerárias",
+      "lavanderias",
+      "serviços de limpeza",
+      "serviços terceirizados",
+      "sistemas de segurança",
+      "vigilância",
+      "zeladoria",
+    ],
   },
   {
     key: "automotivo",
     label: "Automotivo",
-    segments: ["Oficina mecânica", "Auto elétrica", "Funilaria", "Lava rápido", "Pneus", "Auto peças"],
+    segments: [
+      "acessórios automotivos",
+      "auto elétricas",
+      "auto escolas",
+      "auto peças",
+      "borracharias",
+      "centros automotivos",
+      "concessionárias",
+      "despachantes",
+      "estacionamentos",
+      "lava rápidos",
+      "mecânicas",
+      "oficinas mecânicas",
+      "postos de combustível",
+      "revendas de veículos",
+      "vistorias veiculares",
+    ],
   },
   {
     key: "educacao",
     label: "Educação",
-    segments: ["Escola", "Curso profissionalizante", "Curso de idiomas", "Aulas particulares", "Creche"],
+    segments: [
+      "colégios",
+      "cursos profissionalizantes",
+      "educação infantil",
+      "escolas",
+      "papelarias",
+      "universidades",
+      "xérox e copiadoras",
+    ],
   },
   {
     key: "varejo",
     label: "Varejo",
-    segments: ["Loja de roupas", "Ótica", "Pet shop", "Papelaria", "Loja de móveis", "Boutique"],
+    segments: [
+      "bicicletarias",
+      "bijuterias",
+      "calçados",
+      "comércio varejista",
+      "e-commerce",
+      "eletrodomésticos",
+      "eletrônicas",
+      "floriculturas",
+      "joalherias",
+      "lojas de brinquedos",
+      "lojas de celulares",
+      "lojas de colchões",
+      "lojas de conveniência",
+      "lojas de eletrônicos",
+      "lojas de móveis",
+      "lojas de roupas",
+      "moda feminina",
+      "moda masculina",
+      "ótica",
+      "pet shops",
+      "uniformes",
+    ],
+  },
+  {
+    key: "negocios",
+    label: "Negócios",
+    segments: [
+      "advocacias",
+      "contabilidades",
+      "consultorias empresariais",
+      "corretoras de seguros",
+      "coworkings",
+      "escritórios administrativos",
+      "financeiras",
+      "imobiliárias",
+      "lotéricas",
+      "serviços contábeis",
+      "serviços jurídicos",
+    ],
+  },
+  {
+    key: "digital",
+    label: "Digital",
+    segments: [
+      "agências de marketing",
+      "estúdios de fotografia",
+      "gráficas",
+      "informática",
+      "lojas de celulares",
+      "lojas de eletrônicos",
+      "provedores de internet",
+      "serviços gráficos",
+      "telecomunicações",
+      "web design",
+    ],
+  },
+  {
+    key: "turismo_eventos",
+    label: "Turismo e eventos",
+    segments: [
+      "agências de turismo",
+      "casas de festas",
+      "eventos",
+      "hospedagens",
+      "hotéis",
+      "motéis",
+      "turismo",
+    ],
+  },
+  {
+    key: "industria",
+    label: "Indústria",
+    segments: [
+      "agronegócios",
+      "distribuidoras",
+      "fornecedoras industriais",
+      "indústrias alimentícias",
+      "indústrias metalúrgicas",
+      "metalúrgicas",
+      "químicas",
+      "transportadoras",
+      "usinagem",
+    ],
   },
 ];
 
@@ -301,15 +469,31 @@ function joinRadarSegments(values: string[]) {
   return uniqueStrings(values).slice(0, MAX_RADAR_SEGMENT_SELECTIONS).join(", ");
 }
 
+function buildRadarCategorySegmentValue(group: RadarSegmentGroup) {
+  return uniqueStrings(group.segments).join(", ");
+}
+
+function resolveRadarCategory(value?: string | null) {
+  const raw = normalizeSegmentLabel(String(value || ""));
+  if (!raw) return null;
+  const normalized = raw.toLowerCase();
+  const direct = RADAR_SEGMENT_GROUPS.find((group) => group.label.toLowerCase() === normalized);
+  if (direct) return direct;
+  const selected = new Set(splitRadarSegments(raw).map((item) => item.toLowerCase()));
+  return RADAR_SEGMENT_GROUPS.find((group) =>
+    group.segments.length > 0 && group.segments.every((segment) => selected.has(segment.toLowerCase())),
+  ) || null;
+}
+
 function isRadarCategoryValue(value: string) {
-  const normalized = normalizeSegmentLabel(value).toLowerCase();
-  return RADAR_SEGMENT_GROUPS.some((group) => group.label.toLowerCase() === normalized);
+  return Boolean(resolveRadarCategory(value));
 }
 
 function radarSegmentSummary(value?: string | null) {
   const raw = normalizeSegmentLabel(String(value || ""));
   if (!raw) return "";
-  if (isRadarCategoryValue(raw)) return raw;
+  const category = resolveRadarCategory(raw);
+  if (category) return category.label;
   const segments = splitRadarSegments(raw);
   if (segments.length <= 1) return segments[0] || raw;
   return `${segments[0]} +${segments.length - 1}`;
@@ -318,7 +502,7 @@ function radarSegmentSummary(value?: string | null) {
 function inferRadarSegmentCategory(value?: string | null) {
   const raw = normalizeSegmentLabel(String(value || ""));
   if (!raw) return RADAR_SEGMENT_GROUPS[0]?.key || "";
-  const category = RADAR_SEGMENT_GROUPS.find((group) => group.label.toLowerCase() === raw.toLowerCase());
+  const category = resolveRadarCategory(raw);
   if (category) return category.key;
   const selected = splitRadarSegments(raw).map((item) => item.toLowerCase());
   return RADAR_SEGMENT_GROUPS.find((group) =>
@@ -743,7 +927,12 @@ function MobilePickerButton({
       <span>{label}</span>
       <strong>{value || placeholder}</strong>
       {helper ? <small>{helper}</small> : null}
-      <b aria-hidden="true">⌕</b>
+      <b aria-hidden="true">
+        <svg viewBox="0 0 24 24">
+          <circle cx="10.5" cy="10.5" r="6.5" />
+          <path d="m16 16 4.2 4.2" />
+        </svg>
+      </b>
     </button>
   );
 }
@@ -802,7 +991,12 @@ function MobileFilterSheet({
         <div className={styles.mobilePickerHeader}>
           <strong>{title}</strong>
           <div className={styles.mobilePickerActions}>
-            <button type="button" aria-label="Pesquisar" onClick={() => setSearchOpen(true)}>⌕</button>
+            <button type="button" aria-label="Pesquisar" onClick={() => setSearchOpen(true)}>
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <circle cx="10.5" cy="10.5" r="6.5" />
+                <path d="m16 16 4.2 4.2" />
+              </svg>
+            </button>
             <button type="button" onClick={onClose}>Fechar</button>
           </div>
         </div>
@@ -870,7 +1064,7 @@ function RadarSegmentFunnel({
   const resolvedActiveGroupKey = groups.some((group) => group.key === activeGroupKey) ? activeGroupKey : groups[0]?.key || "";
   const activeGroup = groups.find((group) => group.key === resolvedActiveGroupKey) || groups[0];
   const isCategory = isRadarCategoryValue(value);
-  const selectedSegments = isCategory ? [] : splitRadarSegments(value);
+  const selectedSegments = splitRadarSegments(value);
   const normalizedQuery = query.trim().toLowerCase();
   const visibleSegments = uniqueStrings(activeGroup?.segments || [])
     .filter((segment) => !normalizedQuery || segment.toLowerCase().includes(normalizedQuery));
@@ -890,7 +1084,7 @@ function RadarSegmentFunnel({
 
   function useCategory() {
     if (!activeGroup) return;
-    onChange(activeGroup.label);
+    onChange(buildRadarCategorySegmentValue(activeGroup));
   }
 
   return (
@@ -979,7 +1173,7 @@ function MobileSegmentSheet({
   const resolvedActiveGroupKey = groups.some((group) => group.key === activeGroupKey) ? activeGroupKey : groups[0]?.key || "";
   const activeGroup = groups.find((group) => group.key === resolvedActiveGroupKey) || groups[0];
   const isCategory = isRadarCategoryValue(value);
-  const selectedSegments = isCategory ? [] : splitRadarSegments(value);
+  const selectedSegments = splitRadarSegments(value);
   const canAddMore = selectedSegments.length < MAX_RADAR_SEGMENT_SELECTIONS;
   const normalizedQuery = query.trim().toLowerCase();
   const visibleSegments = uniqueStrings(activeGroup?.segments || [])
@@ -1014,10 +1208,15 @@ function MobileSegmentSheet({
         <div className={styles.mobilePickerHeader}>
           <div>
             <strong>Segmento</strong>
-            <small>{isCategory ? `${value} inteiro` : `${selectedSegments.length}/${MAX_RADAR_SEGMENT_SELECTIONS} selecionados`}</small>
+            <small>{isCategory ? `${radarSegmentSummary(value)} inteiro` : `${selectedSegments.length}/${MAX_RADAR_SEGMENT_SELECTIONS} selecionados`}</small>
           </div>
           <div className={styles.mobilePickerActions}>
-            <button type="button" aria-label="Pesquisar" onClick={() => setSearchOpen(true)}>⌕</button>
+            <button type="button" aria-label="Pesquisar" onClick={() => setSearchOpen(true)}>
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <circle cx="10.5" cy="10.5" r="6.5" />
+                <path d="m16 16 4.2 4.2" />
+              </svg>
+            </button>
             <button type="button" onClick={onClose}>Fechar</button>
           </div>
         </div>
@@ -1048,7 +1247,14 @@ function MobileSegmentSheet({
           <button type="button" onClick={() => onChange("")}>
             Limpar
           </button>
-          <button type="button" onClick={() => activeGroup && onChange(activeGroup.label)}>
+          <button
+            type="button"
+            onClick={() => {
+              if (!activeGroup) return;
+              onChange(buildRadarCategorySegmentValue(activeGroup));
+              onClose();
+            }}
+          >
             Usar categoria
           </button>
           {query.trim() ? (
@@ -1216,7 +1422,15 @@ export default function RadarDigitalClientPage() {
     readyToCall: enrichmentSummary?.readyToCall ?? visibleItems.filter((item) => ["whatsapp", "email", "call"].includes(String(item.recommendedChannel || "").toLowerCase())).length,
     discardedOrBlocked: enrichmentSummary?.discardedOrBlocked ?? visibleItems.filter((item) => ownershipBadge(item).tone === "negative").length,
   }), [enrichmentSummary, visibleItems]);
-  const isHbxList = commercialPlans?.current?.planKey === "hbx_lite" || commercialPlans?.current?.selectedPlanKey === "hbx_lite";
+  const hasLeadCapabilities = Boolean(
+    commercialPlans?.current?.entitlements?.radar_premium ||
+    commercialPlans?.current?.entitlements?.ai_sales_scripts ||
+    commercialPlans?.current?.entitlements?.bot_ia,
+  );
+  const isHbxList = !hasLeadCapabilities && (
+    commercialPlans?.current?.planKey === "hbx_lite" ||
+    commercialPlans?.current?.selectedPlanKey === "hbx_lite"
+  );
   const showSmartLeadCards = !isHbxList;
   const currentPlanKey = commercialPlans?.current?.selectedPlanKey || commercialPlans?.current?.planKey || null;
   const currentPlan = currentPlanKey ? commercialPlanByKey(commercialPlans, currentPlanKey) : null;
@@ -2110,7 +2324,12 @@ export default function RadarDigitalClientPage() {
                   filters.highOpportunity ? "Alta oportunidade" : null,
                 ].filter(Boolean).join(" · ") || "Opcional"}
               </strong>
-              <b aria-hidden="true">⌕</b>
+              <b aria-hidden="true">
+                <svg viewBox="0 0 24 24">
+                  <circle cx="10.5" cy="10.5" r="6.5" />
+                  <path d="m16 16 4.2 4.2" />
+                </svg>
+              </b>
             </button>
 
             {mobileVendasBlocked ? (

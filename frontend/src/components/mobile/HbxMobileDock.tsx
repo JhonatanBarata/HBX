@@ -16,6 +16,7 @@ type HbxMobileDockProps = {
   primaryLabel?: string;
   onPrimaryAction?: () => void;
   onConta?: () => void;
+  onRelatorio?: () => void;
 };
 
 function readMobileTheme(): MobileTheme {
@@ -39,6 +40,7 @@ function DockIcon({
     | "more"
     | "support"
     | "tutorial"
+    | "report"
     | "settings"
     | "account"
     | "logout";
@@ -105,6 +107,17 @@ function DockIcon({
       </svg>
     );
   }
+  if (name === "report") {
+    return (
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M4 19V5" />
+        <path d="M4 19h16" />
+        <path d="M8 16v-5" />
+        <path d="M12 16V8" />
+        <path d="M16 16v-3" />
+      </svg>
+    );
+  }
   if (name === "settings") {
     return (
       <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -135,6 +148,7 @@ export default function HbxMobileDock({
   primaryLabel = "Ação principal",
   onPrimaryAction,
   onConta,
+  onRelatorio,
 }: HbxMobileDockProps) {
   const router = useRouter();
   const pathname = usePathname();
@@ -290,6 +304,19 @@ export default function HbxMobileDock({
               <DockIcon name="tutorial" />
               <span>Tutorial</span>
             </button>
+            {onRelatorio ? (
+              <button
+                type="button"
+                className="hbx-mobile-sheet-item"
+                onClick={() => {
+                  setMenuOpen(false);
+                  onRelatorio();
+                }}
+              >
+                <DockIcon name="report" />
+                <span>Relatório</span>
+              </button>
+            ) : null}
             <button type="button" className="hbx-mobile-sheet-item" onClick={() => navigate(SETTINGS_PATH)}>
               <DockIcon name="settings" />
               <span>Configurações</span>
