@@ -2455,8 +2455,8 @@ export default function RadarDigitalClientPage() {
             <HeroPremiumCrown active={mobileHeroPremiumActive} />
             <div className={styles.mobileRadarHeroCopy}>
               <strong>Radar Digital</strong>
-              <p>Encontre cards com oportunidade real</p>
-              <small>{mobileRadarProcessing ? "Busca em andamento" : `Volume definido pelo plano: ${effectiveFilters.quantity}`}</small>
+              <p>Busque empresas e receba cards em Vendas</p>
+              <small>{mobileRadarProcessing ? "Enviando cards aprovados para Vendas" : `Até ${effectiveFilters.quantity} cards por busca`}</small>
             </div>
             <div className={styles.mobileRadarHeroStat}>
               <span>Cidade</span>
@@ -2555,8 +2555,8 @@ export default function RadarDigitalClientPage() {
                 {bulkSending
                   ? "Enviando..."
                   : visibleItems.length && hasSearched && !mobileRadarProcessing
-                    ? "Enviar para Vendas"
-                    : "Buscar cards"}
+                    ? "Reenviar para Vendas"
+                    : "Buscar e abastecer Vendas"}
               </button>
               <button type="button" className={`${styles.mobileRadarClear} hbx-mobile-secondary-button`} onClick={clearFilters} disabled={mobileRadarProcessing}>
                 Limpar filtros
@@ -2727,8 +2727,8 @@ export default function RadarDigitalClientPage() {
               onClick={() => dismissMobileSearchNotice(false)}
             >
               <div>
-                <strong>Busca rodando em segundo plano</strong>
-                <span>Você pode continuar navegando. Os cards aprovados entram em Vendas/Prospecção automaticamente; toque aqui para ocultar.</span>
+                <strong>Radar alimentando Vendas</strong>
+                <span>Você pode continuar navegando. Os cards aprovados aparecem em Vendas para você chamar, retornar e acompanhar.</span>
               </div>
               <label onClick={(event) => event.stopPropagation()}>
                 <input
@@ -2744,10 +2744,10 @@ export default function RadarDigitalClientPage() {
           <section className={`${styles.mobileRadarResults} hbx-mobile-card`} aria-live="polite">
             <header>
               <div>
-                <span>Resultado</span>
-                <strong>{hasSearched ? `${visibleItems.length} cards encontrados` : "Nenhum card encontrado ainda"}</strong>
+                <span>Cards prontos</span>
+                <strong>{hasSearched ? `${visibleItems.length} cards encontrados` : "Busque empresas para abordar"}</strong>
               </div>
-              {mobileRadarProcessing ? <small>Radar buscando cards...</small> : null}
+              {mobileRadarProcessing ? <small>Enviando aprovados para Vendas...</small> : null}
             </header>
             {hasSearched && showSmartLeadCards ? (
               <div className={styles.mobileEnrichmentSummary}>
@@ -2764,8 +2764,8 @@ export default function RadarDigitalClientPage() {
               </div>
             ) : !hasSearched ? (
               <div className={`${styles.mobileRadarState} hbx-mobile-empty`}>
-                <strong>Pronto para buscar</strong>
-                <span>Escolha estado, cidade e segmento para buscar cards.</span>
+                <strong>Pronto para abastecer Vendas</strong>
+                <span>Escolha estado, cidade e segmento. O Radar envia os aprovados para Vendas.</span>
               </div>
             ) : !loading && !visibleItems.length ? (
               <div className={`${styles.mobileRadarState} hbx-mobile-empty`}>
@@ -2867,7 +2867,7 @@ export default function RadarDigitalClientPage() {
             )}
           </section>
 
-          <HbxMobileDock primaryLabel="Buscar cards" onPrimaryAction={handleMobileDockPrimary} />
+          <HbxMobileDock primaryLabel="Buscar e abastecer Vendas" onPrimaryAction={handleMobileDockPrimary} />
         </div>
 
         <header className={styles.header}>
