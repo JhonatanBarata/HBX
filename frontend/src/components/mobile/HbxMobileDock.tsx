@@ -7,6 +7,7 @@ import { apiFetch, clearToken } from "@/app/_lib/api";
 import { useInterfaceTransition } from "@/components/InterfaceTransitionProvider";
 
 const MOBILE_THEME_KEY = "hbx-mobile-theme";
+const MOBILE_VIEWPORT_QUERY = "(max-width: 820px)";
 
 type MobileTheme = "light" | "dark";
 
@@ -26,6 +27,15 @@ function readMobileTheme(): MobileTheme {
 function applyMobileTheme(theme: MobileTheme) {
   if (typeof document === "undefined") return;
   document.documentElement.dataset.hbxMobileTheme = theme;
+}
+
+function clearMobileTheme() {
+  if (typeof document === "undefined") return;
+  delete document.documentElement.dataset.hbxMobileTheme;
+}
+
+function isMobileViewport() {
+  return typeof window !== "undefined" && window.matchMedia(MOBILE_VIEWPORT_QUERY).matches;
 }
 
 function DockIcon({
@@ -160,8 +170,22 @@ export default function HbxMobileDock({
     setMounted(true);
     const storedTheme = readMobileTheme();
     setTheme(storedTheme);
-    applyMobileTheme(storedTheme);
   }, []);
+
+  useEffect(() => {
+    const viewport = window.matchMedia(MOBILE_VIEWPORT_QUERY);
+    const syncTheme = () => {
+      if (viewport.matches) applyMobileTheme(theme);
+      else clearMobileTheme();
+    };
+
+    syncTheme();
+    viewport.addEventListener("change", syncTheme);
+    return () => {
+      viewport.removeEventListener("change", syncTheme);
+      clearMobileTheme();
+    };
+  }, [theme]);
 
   useEffect(() => {
     if (!menuOpen) return undefined;
@@ -188,7 +212,8 @@ export default function HbxMobileDock({
   function toggleTheme() {
     const nextTheme: MobileTheme = theme === "dark" ? "light" : "dark";
     setTheme(nextTheme);
-    applyMobileTheme(nextTheme);
+    if (isMobileViewport()) applyMobileTheme(nextTheme);
+    else clearMobileTheme();
     try {
       window.localStorage.setItem(MOBILE_THEME_KEY, nextTheme);
     } catch {

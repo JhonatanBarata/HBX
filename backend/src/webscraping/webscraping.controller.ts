@@ -1,6 +1,6 @@
 import { Body, Controller, Get, Param, Post, Put, Query, Req, Res, UseGuards } from '@nestjs/common';
 import { Type } from 'class-transformer';
-import { IsArray, IsBoolean, IsIn, IsInt, IsNumber, IsOptional, IsString, Max, Min, Validate, ValidationArguments, ValidatorConstraint, ValidatorConstraintInterface } from 'class-validator';
+import { IsArray, IsBoolean, IsIn, IsInt, IsNumber, IsObject, IsOptional, IsString, Max, Min, Validate, ValidationArguments, ValidatorConstraint, ValidatorConstraintInterface } from 'class-validator';
 import type { Response } from 'express';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { MasterGuard } from '../auth/guards/master.guard';
@@ -30,6 +30,27 @@ class WebscrapingSearchDto {
   @IsOptional()
   @IsString()
   state?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(100)
+  radiusKm?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(-90)
+  @Max(90)
+  originLat?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(-180)
+  @Max(180)
+  originLng?: number;
 
   @IsOptional()
   @IsString()
@@ -90,6 +111,38 @@ class WebscrapingSearchDto {
   @IsOptional()
   @IsIn(['list', 'lead_plus'])
   qualityMode?: 'list' | 'lead_plus';
+
+  @IsOptional()
+  @IsString()
+  whatDoYouSell?: string;
+
+  @IsOptional()
+  @IsString()
+  offerCategory?: string;
+
+  @IsOptional()
+  @IsObject()
+  salesProfile?: Record<string, any>;
+
+  @IsOptional()
+  @IsObject()
+  targetAudience?: Record<string, any>;
+
+  @IsOptional()
+  @IsObject()
+  targetSegments?: Record<string, any>;
+
+  @IsOptional()
+  @IsObject()
+  avoidSegments?: Record<string, any>;
+
+  @IsOptional()
+  @IsObject()
+  leadPreferences?: Record<string, any>;
+
+  @IsOptional()
+  @IsObject()
+  negativeRules?: Record<string, any>;
 }
 
 class WebscrapingSearchMoreDto {
@@ -119,6 +172,27 @@ class RadarDatabaseQueryDto {
   @IsOptional()
   @IsString()
   state?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(100)
+  radiusKm?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(-90)
+  @Max(90)
+  originLat?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(-180)
+  @Max(180)
+  originLng?: number;
 
   @IsOptional()
   @IsString()
@@ -537,6 +611,38 @@ class RadarPullDto extends RadarDatabaseQueryDto {
   @IsOptional()
   @IsIn(['list', 'lead_plus'])
   declare qualityMode?: 'list' | 'lead_plus';
+
+  @IsOptional()
+  @IsString()
+  declare whatDoYouSell?: string;
+
+  @IsOptional()
+  @IsString()
+  declare offerCategory?: string;
+
+  @IsOptional()
+  @IsObject()
+  declare salesProfile?: Record<string, any>;
+
+  @IsOptional()
+  @IsObject()
+  declare targetAudience?: Record<string, any>;
+
+  @IsOptional()
+  @IsObject()
+  declare targetSegments?: Record<string, any>;
+
+  @IsOptional()
+  @IsObject()
+  declare avoidSegments?: Record<string, any>;
+
+  @IsOptional()
+  @IsObject()
+  declare leadPreferences?: Record<string, any>;
+
+  @IsOptional()
+  @IsObject()
+  declare negativeRules?: Record<string, any>;
 }
 
 class RadarNegativeDto {
@@ -695,6 +801,15 @@ export class WebscrapingController {
       return await this.webscrapingService.startRadarSearchRunForUser(req.user, dto || {});
     } catch (error) {
       return this.webscrapingService.buildRadarClientErrorResponse(req.user, '/webscraping/radar/search-runs', error);
+    }
+  }
+
+  @Get('radar/search-runs/latest')
+  async latestRadarSearchRun(@Req() req: any) {
+    try {
+      return await this.webscrapingService.getLatestRadarSearchRunForUser(req.user);
+    } catch (error) {
+      return this.webscrapingService.buildRadarClientErrorResponse(req.user, '/webscraping/radar/search-runs/latest', error);
     }
   }
 

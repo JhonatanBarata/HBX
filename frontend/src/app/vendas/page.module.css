@@ -516,6 +516,31 @@
     border-bottom-color: rgba(255, 214, 102, 0.16) !important;
   }
 
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileVendasAvatar {
+    border: 1px solid rgba(140, 220, 255, 0.32) !important;
+    background:
+      radial-gradient(circle at 35% 20%, rgba(255, 255, 255, 0.2), transparent 36%),
+      linear-gradient(145deg, rgba(24, 117, 137, 0.96), rgba(9, 57, 86, 0.94)) !important;
+    color: #e9fbff !important;
+    box-shadow:
+      inset 0 0 0 1px rgba(255, 255, 255, 0.16),
+      0 12px 24px -18px rgba(72, 214, 255, 0.86) !important;
+  }
+
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileVendasAvatar[data-variant="violet"] {
+    border-color: rgba(196, 181, 253, 0.42) !important;
+    background:
+      radial-gradient(circle at 35% 20%, rgba(255, 255, 255, 0.18), transparent 36%),
+      linear-gradient(145deg, rgba(91, 75, 168, 0.96), rgba(43, 38, 105, 0.94)) !important;
+    color: #f2eeff !important;
+  }
+
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileVendasAvatar svg {
+    stroke: currentColor !important;
+    stroke-width: 2.25 !important;
+    filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.42));
+  }
+
   :global(html[data-hbx-mobile-theme="dark"]) .mobileVendasCardMeta > span {
     background: rgba(51, 214, 137, 0.14) !important;
     color: #8dffc6 !important;
@@ -977,6 +1002,23 @@
     box-shadow:
       inset 0 1px 0 rgba(255, 214, 102, 0.08),
       0 18px 34px -30px rgba(0, 0, 0, 0.82) !important;
+  }
+
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileVendasSwipeActions button {
+    background: rgba(7, 19, 39, 0.62) !important;
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.08),
+      0 14px 28px -24px rgba(0, 0, 0, 0.72) !important;
+  }
+
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileVendasSwipeActions button[data-action="report"] {
+    border-color: rgba(255, 214, 102, 0.44) !important;
+    color: #ffd86a !important;
+  }
+
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileVendasSwipeActions button[data-action="delete"] {
+    border-color: rgba(255, 91, 123, 0.48) !important;
+    color: #ff7593 !important;
   }
 
   :global(html[data-hbx-mobile-theme="dark"]) .mobileVendasCardTitle strong,
@@ -2036,6 +2078,10 @@
     isolation: isolate;
     transform-origin: 50% 50%;
     animation: mobileRadarStatusSettle 420ms ease both;
+  }
+
+  .mobileVendasHeroPanel + .mobileRadarMotorStatus {
+    margin-top: 10px;
   }
 
   .mobileRadarMotorStatus::after {
@@ -7091,21 +7137,87 @@
     padding-bottom: calc(120px + env(safe-area-inset-bottom));
   }
 
+  .mobileVendasSwipeShell {
+    position: relative;
+    flex: 0 0 auto;
+    width: 100%;
+    display: flex;
+    overflow-x: auto;
+    overflow-y: hidden;
+    overscroll-behavior-x: contain;
+    scroll-snap-type: x mandatory;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+    border-radius: 18px;
+    background: linear-gradient(90deg, rgba(255, 96, 126, 0.12), rgba(255, 255, 255, 0));
+    touch-action: pan-x pan-y pinch-zoom;
+  }
+
+  .mobileVendasSwipeShell::-webkit-scrollbar {
+    display: none;
+  }
+
+  .mobileVendasSwipeActions {
+    position: relative;
+    z-index: 1;
+    flex: 0 0 148px;
+    display: flex;
+    width: 148px;
+    align-items: stretch;
+    justify-content: flex-end;
+    overflow: hidden;
+    border-radius: inherit;
+    scroll-snap-align: end;
+    gap: 6px;
+    padding: 7px 0 7px 6px;
+  }
+
+  .mobileVendasSwipeActions button {
+    width: 68px;
+    border: 1px solid transparent;
+    border-radius: 14px;
+    background: rgba(255, 255, 255, 0.72);
+    font-size: 0.72rem;
+    font-weight: 950;
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.58),
+      0 14px 28px -24px rgba(15, 23, 42, 0.36);
+  }
+
+  .mobileVendasSwipeActions button[data-action="report"] {
+    border-color: rgba(245, 158, 11, 0.56);
+    color: #d97706;
+  }
+
+  .mobileVendasSwipeActions button[data-action="delete"] {
+    border-color: rgba(239, 35, 60, 0.56);
+    color: #ef233c;
+  }
+
   .mobileVendasCard {
     position: relative;
     display: grid !important;
-    flex: 0 0 auto;
+    flex: 0 0 100%;
     align-self: stretch;
     width: 100%;
     max-width: 100%;
     box-sizing: border-box;
-    min-height: 126px;
+    min-height: 104px;
     height: auto;
     grid-template-columns: 40px minmax(0, 1fr);
     align-items: start;
     gap: 10px;
-    padding: 12px 12px 14px;
+    padding: 12px 12px 0;
     overflow: hidden;
+    z-index: 2;
+    scroll-snap-align: start;
+    touch-action: pan-x pan-y pinch-zoom;
+    transform: none;
+    transition: box-shadow 180ms ease, border-color 180ms ease;
+  }
+
+  .mobileVendasSwipeShell .mobileVendasCard:active {
+    transform: scale(0.992);
   }
 
   .mobileVendasCard svg {
@@ -7123,6 +7235,12 @@
   .mobileVendasCardMeta {
     margin-top: 0;
     padding-bottom: 7px;
+  }
+
+  .mobileVendasChannelRow {
+    min-height: 34px;
+    margin-top: -6px;
+    margin-bottom: -7px;
   }
 
   .mobileVendasNextAction {
@@ -9145,8 +9263,14 @@
 
   :global(html[data-hbx-mobile-theme="dark"]) .mobileVendasCardActions button,
   :global(html[data-hbx-mobile-theme="dark"]) .mobileLeadHeroMeta span,
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileLeadNextActionBox a,
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileLeadQuickGrid a,
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileLeadQuickGrid button,
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileLeadBottomActions a,
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileLeadBottomActions button,
   :global(html[data-hbx-mobile-theme="dark"]) .mobileLeadReadyMessage p,
   :global(html[data-hbx-mobile-theme="dark"]) .mobileLeadSavedNote,
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileLeadNoteEditor,
   :global(html[data-hbx-mobile-theme="dark"]) .mobileLeadTimeline > div,
   :global(html[data-hbx-mobile-theme="dark"]) .mobileLeadTabs,
   :global(html[data-hbx-mobile-theme="dark"]) .mobileLeadNoteEditor textarea,
@@ -9157,6 +9281,49 @@
     border-color: rgba(166, 215, 255, 0.32) !important;
     background: rgba(13, 33, 62, 0.9) !important;
     color: #c7e6ff !important;
+  }
+
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileLeadNextActionBox a span {
+    background: rgba(69, 152, 255, 0.16) !important;
+    color: #7fc7ff !important;
+  }
+
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileLeadNextActionBox a b,
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileLeadQuickGrid button svg {
+    color: #7fc7ff !important;
+    stroke: currentColor !important;
+  }
+
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileLeadQuickGrid [data-tone="primary"],
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileLeadSaveNoteButton {
+    border-color: rgba(69, 152, 255, 0.48) !important;
+    background: rgba(17, 92, 210, 0.78) !important;
+    color: #ffffff !important;
+  }
+
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileLeadQuickGrid [data-tone="danger"],
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileLeadBottomActions [data-tone="danger"] {
+    border-color: rgba(255, 91, 123, 0.48) !important;
+    background: rgba(255, 91, 123, 0.1) !important;
+    color: #ff7593 !important;
+  }
+
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileLeadQuickGrid a[aria-disabled="true"],
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileLeadQuickGrid button:disabled {
+    background: rgba(148, 163, 184, 0.18) !important;
+    border-color: rgba(148, 163, 184, 0.24) !important;
+    color: rgba(226, 234, 248, 0.52) !important;
+  }
+
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileLeadReadyMessage p,
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileLeadNextActionBox a {
+    background:
+      radial-gradient(circle at 96% 0%, rgba(91, 152, 235, 0.12), transparent 36%),
+      rgba(13, 33, 62, 0.9) !important;
+  }
+
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileLeadNoteEditor textarea {
+    caret-color: #ffd86a;
   }
 
   :global(html[data-hbx-mobile-theme="dark"]) .mobileVendasCardActions button[data-action="report"] {

@@ -27,6 +27,7 @@ import {
 import { WebwhatsBridgeService } from '../messaging/webwhats-bridge.service';
 import { buildRadarLeadEnrichment, RADAR_LEAD_ENRICHMENT_VERSION } from './radar-lead-enrichment';
 import { calculateLeadQualityV2, type LeadQualityV2, type LeadQualityV2SalesProfile } from './lead-quality-v2';
+import { BRAZIL_CITY_COORDINATES } from './brazil-city-coordinates';
 
 const PLACES_NEW_TEXT_SEARCH_URL = 'https://places.googleapis.com/v1/places:searchText';
 const PLACES_NEW_DETAILS_URL = 'https://places.googleapis.com/v1/places';
@@ -231,6 +232,8 @@ const TURBO_OPERATIONAL_CONFIG_KEY = 'turbo_noturno';
 const RADAR_RESERVATION_TTL_MS = 72 * 60 * 60 * 1000;
 const RADAR_VENDAS_PENDING_LIMIT = 40;
 const RADAR_VENDAS_LIMIT_MESSAGE = '40 Cards pendentes no Vendas, delete ou termine sua agenda para seguir com a busca nova';
+const RADAR_REGION_MAX_RADIUS_KM = 100;
+const RADAR_REGION_MAX_CITIES = 30;
 const RADAR_PROTECTED_STATUSES = [
   'negative',
   'denied',
@@ -413,6 +416,7 @@ export type WebscrapingSearchFilters = {
   minRating: number | null;
   minReviews: number | null;
   onlyWithWebsite: boolean;
+  radiusKm?: number;
 };
 
 export type WebscrapingContactResult = {
@@ -539,6 +543,9 @@ export type SearchContactsInput = {
   segment?: string;
   quantity: number;
   state?: string | null;
+  radiusKm?: number | null;
+  originLat?: number | null;
+  originLng?: number | null;
   engine?: WebscrapingEngine;
   targetType?: HbxTargetType;
   minRating?: number | null;
@@ -549,6 +556,14 @@ export type SearchContactsInput = {
   requiredChannels?: string[];
   channelMatchMode?: 'prefer' | 'any_required' | 'all_required' | string | null;
   qualityMode?: 'list' | 'lead_plus' | string | null;
+  salesProfile?: Partial<LeadQualityV2SalesProfile> | null;
+  whatDoYouSell?: string | null;
+  offerCategory?: string | null;
+  targetAudience?: string[] | { labels?: string[]; notes?: string } | null;
+  targetSegments?: string[] | { labels?: string[]; weights?: Record<string, number> } | null;
+  avoidSegments?: string[] | { labels?: string[]; hardReject?: string[] } | null;
+  leadPreferences?: Record<string, any> | null;
+  negativeRules?: Record<string, any> | null;
 };
 
 type SearchPlacesCandidate = {
@@ -576,6 +591,10 @@ type NormalizedSearchInput = {
   city: string;
   state: string;
   segment: string;
+  radiusKm: number;
+  originLat: number | null;
+  originLng: number | null;
+  regionalCities: RegionalCity[];
   quantity: number;
   engine: WebscrapingEngine;
   targetType: HbxTargetType;
@@ -587,6 +606,7 @@ type NormalizedSearchInput = {
   normalizedSegment: string;
   excludePhoneDigits: string[];
   qualityMode: 'list' | 'lead_plus';
+  salesProfile: LeadQualityV2SalesProfile | null;
 };
 
 type SearchExecutionOptions = {
@@ -599,6 +619,13 @@ type SearchExecutionOptions = {
   hbxEngineUrl?: string;
   usageEventType?: UsageEventType;
   purpose?: HbxEnginePurpose;
+};
+
+type RegionalCity = {
+  city: string;
+  state: string;
+  normalizedCity: string;
+  distanceKm: number;
 };
 
 type NormalizeSearchInputOptions = {
@@ -624,6 +651,9 @@ type RadarFiltersInput = {
   city?: string | null;
   state?: string | null;
   segment?: string | null;
+  radiusKm?: number | null;
+  originLat?: number | null;
+  originLng?: number | null;
   quantity?: number | null;
   limit?: number | null;
   page?: number | null;
@@ -651,6 +681,14 @@ type RadarFiltersInput = {
   requiredChannels?: string[] | null;
   channelMatchMode?: 'prefer' | 'any_required' | 'all_required' | string | null;
   qualityMode?: 'list' | 'lead_plus' | string | null;
+  salesProfile?: Partial<LeadQualityV2SalesProfile> | null;
+  whatDoYouSell?: string | null;
+  offerCategory?: string | null;
+  targetAudience?: string[] | { labels?: string[]; notes?: string } | null;
+  targetSegments?: string[] | { labels?: string[]; weights?: Record<string, number> } | null;
+  avoidSegments?: string[] | { labels?: string[]; hardReject?: string[] } | null;
+  leadPreferences?: Record<string, any> | null;
+  negativeRules?: Record<string, any> | null;
 };
 
 type RadarLeadEventType =
@@ -772,6 +810,10 @@ type NormalizedRadarFilters = {
   city: string;
   state: string;
   segment: string;
+  radiusKm: number;
+  originLat: number | null;
+  originLng: number | null;
+  regionalCities: RegionalCity[];
   normalizedCity: string;
   normalizedSegment: string;
   quantity: number;
@@ -801,6 +843,7 @@ type NormalizedRadarFilters = {
   requiredChannels: RadarChannelFilter[];
   channelMatchMode: RadarChannelMatchMode;
   qualityMode: 'list' | 'lead_plus';
+  salesProfile: LeadQualityV2SalesProfile | null;
 };
 
 type RadarChannelFilter = 'whatsapp' | 'instagram' | 'email' | 'website' | 'phone' | 'facebook';
@@ -1296,6 +1339,16 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
           startedAt: now,
           finishedAt: now,
           errorMessage: 'Entregue do banco Radar/HBX. A frota M1-M4 nao foi acionada.',
+          metricsJson: JSON.stringify({
+            radiusKm: normalized.radiusKm,
+            originLat: normalized.originLat,
+            originLng: normalized.originLng,
+            regionalCities: normalized.regionalCities.map((item) => ({
+              city: item.city,
+              state: item.state,
+              distanceKm: item.distanceKm,
+            })),
+          }),
         },
         select: {
           id: true,
@@ -1353,6 +1406,16 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         engine: normalized.engine,
         targetType: normalized.targetType,
         targetQuantity: normalized.quantity,
+        metricsJson: JSON.stringify({
+          radiusKm: normalized.radiusKm,
+          originLat: normalized.originLat,
+          originLng: normalized.originLng,
+          regionalCities: normalized.regionalCities.map((item) => ({
+            city: item.city,
+            state: item.state,
+            distanceKm: item.distanceKm,
+          })),
+        }),
       },
       select: {
         id: true,
@@ -2196,6 +2259,9 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       quantity: Math.max(1, Math.trunc(Number(run?.targetQuantity || 1))),
       engine: normalizeEngine(run?.engine),
       targetType: normalizeTargetType(run?.targetType),
+      radiusKm: this.normalizeRadiusKm(metrics?.radiusKm),
+      originLat: this.normalizeCoordinate(metrics?.originLat),
+      originLng: this.normalizeCoordinate(metrics?.originLng),
       preferredChannels: this.normalizeRadarChannels(channelFilters.preferredChannels),
       requiredChannels: this.normalizeRadarChannels(channelFilters.requiredChannels),
       channelMatchMode: this.normalizeChannelMatchMode(channelFilters.channelMatchMode),
@@ -2309,10 +2375,40 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     return Array.from(new Set(segments)).slice(0, 32);
   }
 
+  private getSearchCityTargets(input: NormalizedSearchInput) {
+    const region = input.radiusKm > 0 && input.regionalCities.length > 0
+      ? input.regionalCities
+      : [];
+    if (region.length) return region;
+    return [{
+      city: input.city,
+      state: input.state,
+      normalizedCity: input.normalizedCity,
+      distanceKm: 0,
+    }].filter((item) => item.city || item.state);
+  }
+
+  private buildSearchInputForAttempt(input: NormalizedSearchInput, attempt: number) {
+    const targets = this.getSearchCityTargets(input);
+    if (targets.length <= 1) return input;
+    const target = targets[Math.max(0, attempt - 1) % targets.length];
+    return {
+      ...input,
+      city: target.city,
+      state: target.state,
+      normalizedCity: target.normalizedCity,
+      radiusKm: 0,
+      originLat: null,
+      originLng: null,
+      regionalCities: [],
+    };
+  }
+
   private buildHbxBatchQueries(input: NormalizedSearchInput) {
-    const city = input.city;
-    const state = input.state;
-    const segmentQueries = this.splitHbxBatchSegments(input.segment).map((segment) => {
+    const targets = this.getSearchCityTargets(input);
+    const segmentQueries = this.splitHbxBatchSegments(input.segment).flatMap((segment) => targets.map((target) => {
+      const city = target.city;
+      const state = target.state;
       const ddd = this.extractDddFromSegment(segment);
       const { role, niche } = this.parseHbxRoleNiche(segment, input.targetType);
       const normalizedNiche = normalizeLookupValue(niche);
@@ -2338,7 +2434,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
             this.compactQuery([role, city, state, 'celular']),
             ddd ? this.compactQuery([role, niche, 'DDD', ddd]) : this.compactQuery([role, niche, city, state]),
           ];
-    });
+    }));
     const queries: string[] = [];
     const maxVariants = Math.max(0, ...segmentQueries.map((items) => items.length));
     for (let variantIndex = 0; variantIndex < maxVariants; variantIndex += 1) {
@@ -2955,11 +3051,13 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     };
     const sourceQualityRows: Array<{ domain: string; sourceEngine: string; status: WebscrapingSearchRunItemStatus }> = [];
     for (const [index, result] of results.entries()) {
+      const resultCity = String((result as any).city || normalized.city || '').trim();
+      const resultState = String((result as any).state || normalized.state || '').trim().toUpperCase();
       const classified = this.classifyRunItem(result, dedup, {
         runId,
         index: baseIndex + index,
-        city: normalized.city,
-        state: normalized.state,
+        city: resultCity,
+        state: resultState,
         segment: normalized.segment,
       });
       const quality = classified.status === 'found'
@@ -2988,8 +3086,8 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
           website: String(result.website || '').trim() || null,
           websiteKey: classified.websiteKey || null,
           address: String(result.address || '').trim() || null,
-          city: normalized.city || null,
-          state: normalized.state || null,
+          city: resultCity || null,
+          state: resultState || null,
           segment,
           source: String(result.source || source || '').trim() || null,
           status: finalStatus,
@@ -3405,7 +3503,8 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     const maxFailedBatches = this.getHbxRunMaxFailedBatches();
     const attempt = safeInteger(current.attemptCount) + 1;
     const quantity = Math.min(batchLimit, Math.max(1, normalized.quantity - safeInteger(current.foundCount)));
-    const queryUsed = this.buildHbxBatchQuery(normalized, attempt);
+    const attemptInput = this.buildSearchInputForAttempt(normalized, attempt);
+    const queryUsed = this.buildHbxBatchQuery(attemptInput, attempt);
     const engineUrl = lease?.url || String(current.assignedEngineUrl || current.lastEngineUrl || this.getHbxScrapingEngineUrl());
 
     try {
@@ -3512,7 +3611,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       const dedup = await this.snapshotSearchRunDedup(runId);
       const excludePhoneDigits = Array.from(dedup.phoneDigits);
       const batchInput: NormalizedSearchInput = {
-        ...normalized,
+        ...attemptInput,
         quantity,
       };
       const batchResponse = await this.searchHbxEngine(
@@ -3539,7 +3638,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       const incoming = Array.isArray(batchResponse.results) ? batchResponse.results : [];
       const savedCounts = await this.saveSearchRunResults(
         context,
-        normalized,
+        batchInput,
         runId,
         incoming,
         'hbx',
@@ -3758,6 +3857,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     const engine = normalizeEngine(run.engine);
     const targetType = normalizeTargetType(run.targetType);
     const status = this.normalizeSearchRunStatus(run.status);
+    const metrics = parseJsonObject(run?.metricsJson);
     const items = Array.isArray(run.items) ? run.items : [];
     const foundItems = items.filter((item) => item.status === 'found');
     const qualityInput = {
@@ -3783,6 +3883,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         minRating: null,
         minReviews: null,
         onlyWithWebsite: false,
+        radiusKm: this.normalizeRadiusKm(metrics?.radiusKm),
       },
     };
     const foundSources = new Set(deliverableFoundItems.map((item) => String(item.source || '').trim()).filter(Boolean));
@@ -4206,6 +4307,80 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
+  private normalizeRadiusKm(value: unknown) {
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric)) return 0;
+    return Math.min(Math.max(Math.trunc(numeric), 0), RADAR_REGION_MAX_RADIUS_KM);
+  }
+
+  private normalizeCoordinate(value: unknown) {
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? numeric : null;
+  }
+
+  private haversineDistanceKm(lat1: number, lng1: number, lat2: number, lng2: number) {
+    const earthKm = 6371;
+    const toRad = (degrees: number) => degrees * Math.PI / 180;
+    const dLat = toRad(lat2 - lat1);
+    const dLng = toRad(lng2 - lng1);
+    const a = Math.sin(dLat / 2) ** 2
+      + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+    return earthKm * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  }
+
+  private resolveRegionalCities(input: {
+    city: string;
+    state: string;
+    radiusKm: number;
+    originLat?: number | null;
+    originLng?: number | null;
+  }): RegionalCity[] {
+    const city = String(input.city || '').trim();
+    const state = String(input.state || '').trim().toUpperCase();
+    const radiusKm = this.normalizeRadiusKm(input.radiusKm);
+    if (!city || !state || radiusKm <= 0) return [];
+
+    const normalizedCity = normalizeLookupValue(city);
+    const normalizedOrigin = {
+      lat: this.normalizeCoordinate(input.originLat),
+      lng: this.normalizeCoordinate(input.originLng),
+    };
+    const origin = normalizedOrigin.lat != null && normalizedOrigin.lng != null
+      ? { city, state, lat: normalizedOrigin.lat, lng: normalizedOrigin.lng }
+      : BRAZIL_CITY_COORDINATES
+        .map(([rowState, rowCity, lat, lng]) => ({ state: rowState, city: rowCity, lat, lng }))
+        .find((row) => row.state === state && normalizeLookupValue(row.city) === normalizedCity);
+    if (!origin) return [];
+
+    const maxCities = radiusKm <= 25 ? 10 : radiusKm <= 50 ? 18 : RADAR_REGION_MAX_CITIES;
+    const seen = new Set<string>();
+    const nearby = BRAZIL_CITY_COORDINATES
+      .map(([rowState, rowCity, lat, lng]) => {
+        const distanceKm = this.haversineDistanceKm(origin.lat, origin.lng, lat, lng);
+        return {
+          city: rowCity,
+          state: rowState,
+          normalizedCity: normalizeLookupValue(rowCity),
+          distanceKm: Number(distanceKm.toFixed(1)),
+        };
+      })
+      .filter((row) => row.distanceKm <= radiusKm)
+      .sort((left, right) => left.distanceKm - right.distanceKm || left.city.localeCompare(right.city, 'pt-BR'));
+
+    const ordered: RegionalCity[] = [{
+      city,
+      state,
+      normalizedCity,
+      distanceKm: 0,
+    }, ...nearby];
+    return ordered.filter((row) => {
+      const key = `${row.state}:${row.normalizedCity}`;
+      if (!row.normalizedCity || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    }).slice(0, maxCities);
+  }
+
   private normalizeSearchInput(
     input: SearchContactsInput,
     options: NormalizeSearchInputOptions = {},
@@ -4220,6 +4395,12 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     const state = parsedCityState.state;
     const segment = String(input.segment || '').trim();
     const quantity = clampQuantity(input.quantity, maxQuantityFor(engine, targetType));
+    const radiusKm = this.normalizeRadiusKm(input.radiusKm);
+    const originLat = this.normalizeCoordinate(input.originLat);
+    const originLng = this.normalizeCoordinate(input.originLng);
+    const regionalCities = engine === 'hbx'
+      ? this.resolveRegionalCities({ city, state, radiusKm, originLat, originLng })
+      : [];
 
     if (!city) {
       if (!(engine === 'hbx' && targetType === 'pj')) {
@@ -4239,6 +4420,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       minRating: this.normalizeMinRating(input.minRating),
       minReviews: this.normalizeMinReviews(input.minReviews),
       onlyWithWebsite: false,
+      radiusKm,
     };
     const channelFilters = this.buildChannelFiltersJson({
       preferredChannels: input.preferredChannels,
@@ -4246,12 +4428,22 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       channelMatchMode: input.channelMatchMode,
       qualityMode: input.qualityMode,
     });
+    const salesProfile = this.normalizeLeadQualitySalesProfileInput(input);
     const filtersJson = JSON.stringify({
       ...filters,
       ...channelFilters,
+      ...(salesProfile ? { salesProfile } : {}),
       engine,
       targetType,
       state,
+      radiusKm,
+      originLat,
+      originLng,
+      regionalCities: regionalCities.map((item) => ({
+        city: item.city,
+        state: item.state,
+        distanceKm: item.distanceKm,
+      })),
     });
     const excludePhoneDigits = Array.from(
       new Set(
@@ -4267,6 +4459,10 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       city,
       state,
       segment,
+      radiusKm,
+      originLat,
+      originLng,
+      regionalCities,
       quantity,
       engine,
       targetType,
@@ -4278,6 +4474,8 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         `city:${normalizedCity}`,
         `state:${normalizeLookupValue(state)}`,
         `segment:${normalizedSegment}`,
+        `radiusKm:${radiusKm}`,
+        `region:${regionalCities.map((item) => `${item.state}:${item.normalizedCity}`).join(',')}`,
         `filters:${filtersJson}`,
       ].join('|'),
       searchSignature: [
@@ -4286,6 +4484,8 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         `city:${normalizedCity}`,
         `state:${normalizeLookupValue(state)}`,
         `segment:${normalizedSegment}`,
+        `radiusKm:${radiusKm}`,
+        `region:${regionalCities.map((item) => `${item.state}:${item.normalizedCity}`).join(',')}`,
         ...(engine === 'hbx' ? [] : [`quantity:${quantity}`]),
         `filters:${filtersJson}`,
       ].join('|'),
@@ -4293,6 +4493,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       normalizedSegment,
       excludePhoneDigits,
       qualityMode: channelFilters.qualityMode,
+      salesProfile,
     };
   }
 
@@ -4433,20 +4634,92 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
+  private sanitizeLeadProfileText(value: unknown, maxLength = 160) {
+    const normalized = String(value || '').trim();
+    return normalized ? normalized.slice(0, maxLength) : null;
+  }
+
+  private normalizeLeadProfileLabels(value: unknown, limit = 30, maxLength = 80): string[] {
+    const raw = Array.isArray(value)
+      ? value
+      : value && typeof value === 'object' && Array.isArray((value as any).labels)
+        ? (value as any).labels
+        : [];
+    return Array.from(new Set<string>(
+      raw
+        .map((item) => String(item || '').trim())
+        .filter(Boolean)
+        .map((item) => item.slice(0, maxLength)),
+    )).slice(0, limit);
+  }
+
+  private normalizeLeadProfileObject(value: unknown): Record<string, any> | undefined {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+    const output: Record<string, any> = {};
+    for (const [key, raw] of Object.entries(value as Record<string, any>).slice(0, 40)) {
+      const cleanKey = String(key || '').trim().slice(0, 80);
+      if (!cleanKey) continue;
+      if (typeof raw === 'boolean') output[cleanKey] = raw;
+      else if (typeof raw === 'number' && Number.isFinite(raw)) output[cleanKey] = raw;
+      else if (typeof raw === 'string') output[cleanKey] = raw.trim().slice(0, 120);
+    }
+    return Object.keys(output).length ? output : undefined;
+  }
+
+  private normalizeLeadQualitySalesProfileInput(input: Partial<SearchContactsInput | RadarFiltersInput> | null | undefined): LeadQualityV2SalesProfile | null {
+    if (!input) return null;
+    const nested = input.salesProfile && typeof input.salesProfile === 'object' && !Array.isArray(input.salesProfile)
+      ? input.salesProfile as Partial<LeadQualityV2SalesProfile>
+      : {};
+    const whatDoYouSell = this.sanitizeLeadProfileText((input as any).whatDoYouSell ?? nested.whatDoYouSell, 160);
+    const offerCategory = this.sanitizeLeadProfileText((input as any).offerCategory ?? nested.offerCategory, 120);
+    const targetAudience = this.normalizeLeadProfileLabels((input as any).targetAudience ?? nested.targetAudience);
+    const targetSegments = this.normalizeLeadProfileLabels((input as any).targetSegments ?? nested.targetSegments);
+    const avoidSegmentsInput = (input as any).avoidSegments ?? nested.avoidSegments;
+    const avoidSegments = this.normalizeLeadProfileLabels(avoidSegmentsInput);
+    const hardRejectSegments = this.normalizeLeadProfileLabels(
+      avoidSegmentsInput && typeof avoidSegmentsInput === 'object' && !Array.isArray(avoidSegmentsInput)
+        ? (avoidSegmentsInput as any).hardReject
+        : nested.hardRejectSegments,
+    );
+    const preferredChannels = this.normalizeRadarChannels((input as any).preferredChannels ?? nested.preferredChannels);
+    const requiredChannels = this.normalizeRadarChannels((input as any).requiredChannels ?? nested.requiredChannels);
+    const leadPreferences = this.normalizeLeadProfileObject((input as any).leadPreferences ?? nested.leadPreferences);
+    const negativeRules = this.normalizeLeadProfileObject((input as any).negativeRules ?? nested.negativeRules);
+    const profile: LeadQualityV2SalesProfile = {
+      ...(whatDoYouSell ? { whatDoYouSell } : {}),
+      ...(offerCategory ? { offerCategory } : {}),
+      ...(targetAudience.length ? { targetAudience } : {}),
+      ...(targetSegments.length ? { targetSegments } : {}),
+      ...(avoidSegments.length ? { avoidSegments } : {}),
+      ...(hardRejectSegments.length ? { hardRejectSegments } : {}),
+      ...(preferredChannels.length ? { preferredChannels } : {}),
+      ...(requiredChannels.length ? { requiredChannels } : {}),
+      ...(leadPreferences ? { leadPreferences } : {}),
+      ...(negativeRules ? { negativeRules } : {}),
+    };
+    return Object.keys(profile).length ? profile : null;
+  }
+
   private buildLeadQualitySalesProfileFromFilters(input: Partial<NormalizedRadarFilters | NormalizedSearchInput>): LeadQualityV2SalesProfile | null {
     const segment = String((input as any)?.segment || '').trim();
     const city = String((input as any)?.city || '').trim();
     const state = String((input as any)?.state || '').trim().toUpperCase();
+    const explicitProfile = this.normalizeLeadQualitySalesProfileInput((input as any)?.salesProfile || input as any);
     const channelFilters = this.buildChannelFiltersJson({
-      preferredChannels: (input as any)?.preferredChannels,
-      requiredChannels: (input as any)?.requiredChannels,
+      preferredChannels: (input as any)?.preferredChannels || explicitProfile?.preferredChannels,
+      requiredChannels: (input as any)?.requiredChannels || explicitProfile?.requiredChannels,
       channelMatchMode: (input as any)?.channelMatchMode,
       qualityMode: (input as any)?.qualityMode,
     });
+    const requestedTargetSegments = segment ? this.splitHbxBatchSegments(segment) : [];
     return {
+      ...(explicitProfile || {}),
       ...channelFilters,
-      targetSegments: segment ? this.splitHbxBatchSegments(segment) : [],
-      preferredCities: city ? [city] : [],
+      targetSegments: Array.from(new Set([...(explicitProfile?.targetSegments || []), ...requestedTargetSegments])),
+      preferredCities: (input as any)?.regionalCities?.length
+        ? (input as any).regionalCities.map((item: RegionalCity) => item.city).slice(0, 10)
+        : city ? [city] : [],
       preferredStates: state ? [state] : [],
     };
   }
@@ -4780,6 +5053,10 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     const city = String(input.city || '').trim();
     const state = String(input.state || '').trim().toUpperCase();
     const segment = String(input.segment || '').trim();
+    const radiusKm = this.normalizeRadiusKm(input.radiusKm);
+    const originLat = this.normalizeCoordinate(input.originLat);
+    const originLng = this.normalizeCoordinate(input.originLng);
+    const regionalCities = this.resolveRegionalCities({ city, state, radiusKm, originLat, originLng });
     const highOpportunity = coerceBoolean(input.highOpportunity);
     const rawOpportunityLevel = String(input.opportunityLevel || '').trim().toLowerCase();
     const opportunityLevel: RadarOpportunityLevel =
@@ -4794,11 +5071,16 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     const requiredChannels = this.normalizeRadarChannels(input.requiredChannels);
     const channelMatchMode = requiredChannels.length ? this.normalizeChannelMatchMode(input.channelMatchMode) : 'prefer';
     const qualityMode = String(input.qualityMode || '').trim() === 'lead_plus' ? 'lead_plus' : 'list';
+    const salesProfile = this.normalizeLeadQualitySalesProfileInput(input);
 
     return {
       city,
       state,
       segment,
+      radiusKm,
+      originLat,
+      originLng,
+      regionalCities,
       normalizedCity: normalizeLookupValue(city),
       normalizedSegment: normalizeLookupValue(segment),
       quantity: Math.min(Math.max(Math.trunc(Number(input.quantity || 20) || 20), 1), 100),
@@ -4828,6 +5110,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       requiredChannels,
       channelMatchMode,
       qualityMode,
+      salesProfile,
     };
   }
 
@@ -4864,8 +5147,17 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     const where: any = {};
     const and: any[] = [];
 
-    if (filters.normalizedCity) where.normalizedCity = filters.normalizedCity;
-    if (filters.state) where.state = filters.state;
+    if (filters.regionalCities.length > 1) {
+      and.push({
+        OR: filters.regionalCities.map((item) => ({
+          normalizedCity: item.normalizedCity,
+          state: item.state,
+        })),
+      });
+    } else {
+      if (filters.normalizedCity) where.normalizedCity = filters.normalizedCity;
+      if (filters.state) where.state = filters.state;
+    }
     const normalizedSegments = this.splitHbxBatchSegments(filters.segment)
       .map((segment) => normalizeLookupValue(segment))
       .filter(Boolean);
@@ -4884,9 +5176,11 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         ],
       });
     }
-    if (filters.scoreRange === 'high') where.opportunityScore = { gte: 70 };
-    if (filters.scoreRange === 'medium') where.opportunityScore = { gte: 45, lt: 70 };
-    if (filters.scoreRange === 'low') where.opportunityScore = { lt: 45 };
+    const minimumScore = Math.max(0, Math.min(100, Math.trunc(Number(filters.scoreRange || 0) || 0)));
+    if (minimumScore > 0) where.opportunityScore = { gte: minimumScore };
+    else if (filters.scoreRange === 'high') where.opportunityScore = { gte: 70 };
+    else if (filters.scoreRange === 'medium') where.opportunityScore = { gte: 45, lt: 70 };
+    else if (filters.scoreRange === 'low') where.opportunityScore = { lt: 45 };
 
     if (filters.targetType === 'pf' || filters.targetType === 'agenda_pf') {
       and.push({
@@ -5271,6 +5565,9 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       address: row?.address || null,
       website: row?.website || null,
       source: 'radar_database',
+      city: row?.city || null,
+      state: row?.state || null,
+      segment: row?.segment || row?.businessCategory || null,
       score: safeInteger(row?.opportunityScore),
       opportunityScore: safeInteger(row?.opportunityScore),
       opportunityReason: row?.opportunityReason || null,
@@ -5531,6 +5828,10 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         city: input.city,
         state: input.state,
         segment: input.segment,
+        radiusKm: input.radiusKm,
+        originLat: input.originLat,
+        originLng: input.originLng,
+        regionalCities: input.regionalCities,
         quantity: input.quantity,
         engine: input.engine,
         targetType: input.targetType,
@@ -5546,6 +5847,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         normalizedSegment: input.normalizedSegment,
         excludePhoneDigits: [],
         qualityMode: input.qualityMode,
+        salesProfile: input.salesProfile,
       }),
       status: 'clean',
       ownerCompanyId: null,
@@ -6151,6 +6453,12 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
           city: filters.city,
           state: filters.state,
           segment: filters.segment,
+          radiusKm: filters.radiusKm,
+          regionalCities: filters.regionalCities.map((item) => ({
+            city: item.city,
+            state: item.state,
+            distanceKm: item.distanceKm,
+          })),
           noWebsite: filters.noWebsite,
           highOpportunity: filters.opportunityLevel === 'high',
           minRating: filters.minRating,
@@ -6165,11 +6473,19 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       city: filters.city,
       state: filters.state,
       segment: filters.segment,
+      radiusKm: filters.radiusKm,
+      originLat: filters.originLat,
+      originLng: filters.originLng,
       quantity: filters.quantity,
       engine: 'hbx',
       targetType: filters.targetType,
       minRating: filters.minRating,
       minReviews: filters.minReviews,
+      salesProfile: filters.salesProfile,
+      preferredChannels: filters.preferredChannels,
+      requiredChannels: filters.requiredChannels,
+      channelMatchMode: filters.channelMatchMode,
+      qualityMode: filters.qualityMode,
     });
   }
 
@@ -6204,6 +6520,9 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       city: run?.city,
       state: run?.state,
       segment: run?.segment,
+      radiusKm: this.normalizeRadiusKm(metrics?.radiusKm),
+      originLat: this.normalizeCoordinate(metrics?.originLat),
+      originLng: this.normalizeCoordinate(metrics?.originLng),
       quantity: Math.max(1, safeInteger(run?.targetQuantity)),
       limit: Math.max(100, safeInteger(run?.targetQuantity) * 4),
       engine: 'hbx',
@@ -6213,6 +6532,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       requiredChannels: channelFilters.requiredChannels,
       channelMatchMode: channelFilters.channelMatchMode,
       qualityMode: channelFilters.qualityMode,
+      salesProfile: metrics?.salesProfile || null,
     });
   }
 
@@ -6222,9 +6542,13 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       city: String(run?.city || ''),
       state: String(run?.state || ''),
       segment: String(run?.segment || ''),
+      radiusKm: this.normalizeRadiusKm(parseJsonObject(run?.metricsJson)?.radiusKm),
+      originLat: this.normalizeCoordinate(parseJsonObject(run?.metricsJson)?.originLat),
+      originLng: this.normalizeCoordinate(parseJsonObject(run?.metricsJson)?.originLng),
       quantity: Math.max(1, safeInteger(run?.targetQuantity)),
       engine: 'hbx',
       targetType: normalizeTargetType(run?.targetType),
+      salesProfile: parseJsonObject(run?.metricsJson)?.salesProfile || null,
       ...this.buildChannelFiltersJson(parseJsonObject(parseJsonObject(run?.metricsJson)?.channelFilters || {})),
     });
     const qualityInput = {
@@ -6232,6 +6556,12 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       state: normalized.state,
       segment: normalized.segment,
       targetType: normalized.targetType,
+      regionalCities: normalized.regionalCities,
+      preferredChannels: normalized.salesProfile?.preferredChannels || [],
+      requiredChannels: normalized.salesProfile?.requiredChannels || [],
+      channelMatchMode: normalized.salesProfile?.channelMatchMode || 'prefer',
+      qualityMode: normalized.qualityMode,
+      salesProfile: normalized.salesProfile,
     } as NormalizedRadarFilters;
     const foundItems = (Array.isArray(run?.items) ? run.items : [])
       .filter((item: any) => this.isRunItemQualityDeliverable(item, qualityInput));
@@ -6484,6 +6814,12 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
           state: filters.state,
           city: filters.city,
           segment: filters.segment,
+          radiusKm: filters.radiusKm,
+          regionalCities: filters.regionalCities.map((item) => ({
+            city: item.city,
+            state: item.state,
+            distanceKm: item.distanceKm,
+          })),
           targetType: filters.targetType,
         },
         qualitySummary,
@@ -6553,12 +6889,21 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
             ? `Entreguei ${claimedRows.length} card(s) do banco. Buscando mais ${Math.max(0, filters.quantity - claimedRows.length)}.`
             : 'Sem cards prontos no banco. Busca enviada para a fila HBX.',
         metricsJson: JSON.stringify({
+          radiusKm: filters.radiusKm,
+          originLat: filters.originLat,
+          originLng: filters.originLng,
+          regionalCities: filters.regionalCities.map((item) => ({
+            city: item.city,
+            state: item.state,
+            distanceKm: item.distanceKm,
+          })),
           channelFilters: this.buildChannelFiltersJson({
             preferredChannels: filters.preferredChannels,
             requiredChannels: filters.requiredChannels,
             channelMatchMode: filters.channelMatchMode,
             qualityMode: filters.qualityMode,
           }),
+          ...(filters.salesProfile ? { salesProfile: filters.salesProfile } : {}),
         }),
       },
     });
@@ -6594,6 +6939,23 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
 
   async getRadarSearchRunForUser(user: any, runId: string) {
     return this.buildRadarSearchRunResponse(user, runId);
+  }
+
+  async getLatestRadarSearchRunForUser(user: any) {
+    const context = this.resolveContext(user);
+    await this.assertSearchRunPersistence();
+    const run = await this.prisma.webscrapingSearchRun.findFirst({
+      where: {
+        companyId: context.companyId,
+        engine: 'hbx',
+      },
+      orderBy: [
+        { updatedAt: 'desc' },
+        { createdAt: 'desc' },
+      ],
+    });
+    if (!run) return null;
+    return this.buildRadarSearchRunResponse(user, run.id);
   }
 
   async cancelRadarSearchRunForUser(user: any, runId: string) {

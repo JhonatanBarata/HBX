@@ -131,10 +131,67 @@ function isForbiddenCommitPath(filePath, options = {}) {
   return false;
 }
 
+function isLocalGeneratedDataPath(filePath) {
+  const normalized = String(filePath || '').replace(/\\/g, '/').toLowerCase();
+  if (!normalized.startsWith('hbx-scraping-engine/data')) return false;
+  return (
+    /^hbx-scraping-engine\/data(?:-\d+)?\/?$/.test(normalized)
+    || /^hbx-scraping-engine\/data(?:-\d+)?\//.test(normalized)
+  );
+}
+
+function isTracked(cwd, filePath) {
+  const result = run('git', ['ls-files', '--error-unmatch', filePath], {
+    cwd,
+    captureOutput: true,
+    allowFailure: true,
+  });
+  return result.status === 0;
+}
+
+function ensureLocalExclude(cwd) {
+  const excludePath = path.join(cwd, '.git', 'info', 'exclude');
+  const patterns = [
+    'hbx-scraping-engine/data/',
+    'hbx-scraping-engine/data-*/',
+  ];
+  const current = require('fs').existsSync(excludePath)
+    ? require('fs').readFileSync(excludePath, 'utf8')
+    : '';
+  const missing = patterns.filter((pattern) => !current.split(/\r?\n/).includes(pattern));
+  if (!missing.length) return;
+  require('fs').appendFileSync(
+    excludePath,
+    `${current.endsWith('\n') || !current ? '' : '\n'}# HBX local scraping runtime data\n${missing.join('\n')}\n`,
+    'utf8',
+  );
+}
+
+function hideLocalGeneratedDataFromGitStatus(statusText, cwd) {
+  const localDataPaths = String(statusText || '')
+    .split(/\r?\n/)
+    .flatMap(normalizeStatusPath)
+    .filter(isLocalGeneratedDataPath);
+
+  if (!localDataPaths.length) return false;
+
+  ensureLocalExclude(cwd);
+
+  const tracked = localDataPaths.filter((filePath) => isTracked(cwd, filePath));
+  if (tracked.length) {
+    runStep('git', ['update-index', '--skip-worktree', '--', ...tracked], { cwd });
+  }
+
+  console.log('\nDados locais do scraping ignorados no commit/publish:');
+  for (const filePath of localDataPaths) console.log(`- ${filePath}`);
+  return true;
+}
+
 function ensureNoForbiddenFilesInStatus(statusText, options = {}) {
   const forbidden = String(statusText || '')
     .split(/\r?\n/)
     .flatMap(normalizeStatusPath)
+    .filter((filePath) => !isLocalGeneratedDataPath(filePath))
     .filter((filePath) => isForbiddenCommitPath(filePath, options));
 
   if (forbidden.length) {
@@ -166,7 +223,11 @@ function commitRepository(config) {
   runStep('git', ['rev-parse', '--is-inside-work-tree'], { cwd: config.cwd });
   ensureNoMergeConflicts(config.cwd);
 
-  const statusBefore = printGitStatus(`Status before commit (${config.label})`, config.cwd);
+  let statusBefore = printGitStatus(`Status before commit (${config.label})`, config.cwd);
+  if (hideLocalGeneratedDataFromGitStatus(statusBefore, config.cwd)) {
+    statusBefore = printGitStatus(`Status before commit sem dados locais (${config.label})`, config.cwd);
+  }
+
   const currentChanges = statusBefore
     .split(/\r?\n/)
     .filter((line) => line && !line.startsWith('##'))

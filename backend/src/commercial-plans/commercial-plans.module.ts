@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { CompaniesModule } from '../companies/companies.module';
 import { MasterContextModule } from '../master-context/master-context.module';
 import { PrismaModule } from '../prisma/prisma.module';
@@ -8,7 +8,7 @@ import { CommercialPlansService } from './commercial-plans.service';
 import { CommercialUsageLimitsService } from './commercial-usage-limits.service';
 
 @Module({
-  imports: [PrismaModule, MasterContextModule, CompaniesModule],
+  imports: [PrismaModule, MasterContextModule, forwardRef(() => CompaniesModule)],
   controllers: [CommercialPlansController],
   providers: [CommercialPlansService, CommercialUsageLimitsService, CommercialEntitlementGuard],
   exports: [CommercialPlansService, CommercialUsageLimitsService, CommercialEntitlementGuard],

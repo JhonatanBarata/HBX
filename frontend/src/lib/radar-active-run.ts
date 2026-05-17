@@ -11,8 +11,36 @@ export type StoredRadarRun = {
   updatedAt: number;
 };
 
+export type StoredRadarFilters = {
+  filters: {
+    state?: string | null;
+    city?: string | null;
+    segment?: string | null;
+    radiusKm?: number | null;
+    originLat?: number | null;
+    originLng?: number | null;
+    quantity?: number | null;
+    engine?: string | null;
+    targetType?: string | null;
+    ddd?: string | null;
+    scoreRange?: string | null;
+    noWebsite?: boolean | null;
+    withWebsite?: boolean | null;
+    highOpportunity?: boolean | null;
+    minRating?: string | null;
+    minReviews?: string | null;
+    status?: string | null;
+    preferredChannels?: string[];
+    requiredChannels?: string[];
+    channelMatchMode?: string | null;
+  };
+  generalSearch?: string | null;
+  updatedAt: number;
+};
+
 export const RADAR_ACTIVE_RUN_STORAGE_KEY = "hbx_active_radar_run_v1";
 export const RADAR_ACTIVE_RUN_EVENT = "hbx:active-radar-run";
+export const RADAR_FILTER_DRAFT_STORAGE_KEY = "hbx_radar_filter_draft_v1";
 
 function emitRadarRunChange() {
   if (typeof window === "undefined") return;
@@ -106,4 +134,38 @@ export function subscribeStoredRadarRun(listener: () => void) {
     window.removeEventListener(RADAR_ACTIVE_RUN_EVENT, listener);
     window.removeEventListener("storage", handleStorage);
   };
+}
+
+export function readStoredRadarFilters() {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(RADAR_FILTER_DRAFT_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as StoredRadarFilters | null;
+    if (!parsed?.filters || typeof parsed.filters !== "object") return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+export function saveStoredRadarFilters(input: Omit<StoredRadarFilters, "updatedAt"> & { updatedAt?: number }) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(RADAR_FILTER_DRAFT_STORAGE_KEY, JSON.stringify({
+      ...input,
+      updatedAt: input.updatedAt || Date.now(),
+    }));
+  } catch {
+    // localStorage is best-effort; the backend run remains the source of truth.
+  }
+}
+
+export function clearStoredRadarFilters() {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.removeItem(RADAR_FILTER_DRAFT_STORAGE_KEY);
+  } catch {
+    // ignore storage failures
+  }
 }

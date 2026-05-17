@@ -1,4 +1,5 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { randomUUID } from 'crypto';
 import { CustomerProfileService } from '../customer-profile/customer-profile.service';
 import { InboxService } from '../inbox/inbox.service';
 import { CommercialPlansService } from '../commercial-plans/commercial-plans.service';
@@ -31,6 +32,7 @@ import {
   UpdateVendasLeadDto,
 } from './dto/vendas.dto';
 import { buildVendasLeadIntelligence } from './vendas-lead-enrichment';
+import { ensureVendasComplaintsRuntimeSchema } from './vendas-complaints-runtime';
 
 type VendasLeadStatus = 'novo' | 'contato' | 'retorno' | 'qualificado' | 'encerrado';
 
@@ -3921,6 +3923,72 @@ export class VendasService {
     return `https://wa.me/${VENDAS_REPORT_ADMIN_PHONE}?text=${encodeURIComponent(text)}`;
   }
 
+  private async createVendasCardComplaint(
+    context: { companyId: number; userId: number },
+    row: any,
+    reason: string,
+  ) {
+    await ensureVendasComplaintsRuntimeSchema(this.prisma);
+    const now = new Date();
+    const radarLeadId = this.extractRadarLeadId(row?.sourceHistoryId);
+    const existing = String(row?.id || '').trim()
+      ? await this.prisma.$queryRaw<Array<{ id: string }>>`
+        SELECT "id"
+        FROM "VendasCardComplaint"
+        WHERE "companyId" = ${Number(context.companyId)}
+          AND "vendasLeadId" = ${String(row.id)}
+        ORDER BY "createdAt" DESC
+        LIMIT 1
+      `
+      : [];
+    if (existing[0]?.id) {
+      await this.prisma.$executeRaw`
+        UPDATE "VendasCardComplaint"
+        SET
+          "reason" = ${reason},
+          "status" = ${'new'},
+          "updatedAt" = ${now}
+        WHERE "id" = ${existing[0].id}
+      `;
+      return;
+    }
+    await this.prisma.$executeRaw`
+      INSERT INTO "VendasCardComplaint"
+      (
+        "id",
+        "companyId",
+        "userId",
+        "vendasLeadId",
+        "radarLeadId",
+        "leadName",
+        "leadPhone",
+        "leadCity",
+        "leadState",
+        "leadSegment",
+        "reason",
+        "status",
+        "createdAt",
+        "updatedAt"
+      )
+      VALUES (
+        ${randomUUID()},
+        ${Number(context.companyId)},
+        ${Number(context.userId) || null},
+        ${String(row?.id || '') || null},
+        ${radarLeadId || null},
+        ${this.normalizeText(row?.name) || null},
+        ${this.normalizeText(row?.phone || row?.phoneNormalized) || null},
+        ${this.normalizeText(row?.city) || null},
+        ${this.normalizeText(row?.state) || null},
+        ${this.normalizeText(row?.segment) || null},
+        ${reason},
+        ${'new'},
+        ${now},
+        ${now}
+      )
+    `;
+  }
+
   private async releaseRadarLeadBackToPool(
     context: { companyId: number; userId: number },
     row: any,
@@ -4064,7 +4132,7 @@ export class VendasService {
       try {
         await this.releaseRadarLeadBackToPool(context, row, {
           status: options.report ? 'complaint' : 'discarded',
-          reason: options.report ? options.reportReason || 'Card reportado com erro no Vendas.' : 'Card excluido do Vendas.',
+          reason: options.report ? options.reportReason || 'Card reclamado com erro no Vendas.' : 'Card ocultado do Vendas.',
         });
       } catch (error: any) {
         this.logger.warn(`[vendas-delete] Falha ao devolver card ao Radar lead=${row.id}: ${error?.message || error}`);
@@ -4115,6 +4183,7 @@ export class VendasService {
     if (!row) throw new NotFoundException('Lead comercial nao encontrado.');
 
     const reason = this.normalizeText(dto?.reason) || 'Resultado incorreto reportado pelo usuario.';
+    await this.createVendasCardComplaint(context, row, reason);
     const reportText = this.buildAdminReportText(context, row, reason);
     let autoSent = false;
     let sendError: string | null = null;
@@ -4143,8 +4212,8 @@ export class VendasService {
       whatsappUrl: autoSent ? null : this.buildAdminReportWhatsappUrl(reportText),
       sendError,
       message: autoSent
-        ? 'Card reportado e removido do Vendas.'
-        : 'Card reportado e removido. Abra o WhatsApp para enviar o reporte ao suporte HBX.',
+        ? 'Reclamação registrada e card removido do Vendas.'
+        : 'Reclamação registrada e card removido. Abra o WhatsApp para enviar o reporte ao suporte HBX.',
     };
   }
 

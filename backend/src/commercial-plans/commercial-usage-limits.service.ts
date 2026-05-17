@@ -5,6 +5,7 @@ import { COMMERCIAL_PLAN_KEYS, COMMERCIAL_PLAN_QUOTAS, resolveCommercialPlanKeyF
 
 const FALLBACK_TIMEZONE = 'America/Sao_Paulo';
 const CARD_SUCCESS_EVENTS = ['card_import_success', 'vendas_card_imported', 'radar_card_claimed'];
+const CARD_REFUND_EVENTS = ['vendas_card_refunded'];
 
 type UsageKind = 'cards' | 'emails';
 
@@ -216,17 +217,25 @@ export class CommercialUsageLimitsService {
     const limits = this.computeLimits(company.planKey, billableUsers);
     const normalizedUserId = Number(userId || 0) || null;
 
-    const [cardsUsed, cardsUserUsed, cardsDailyUsed, cardsDailyUserUsed, emailAttempted, emailSent, emailFailed, emailBlocked, emailUserSent] = await Promise.all([
+    const [cardsGrossUsed, cardsUserGrossUsed, cardsDailyGrossUsed, cardsDailyUserGrossUsed, cardsRefunded, cardsUserRefunded, cardsDailyRefunded, cardsDailyUserRefunded, emailAttempted, emailSent, emailFailed, emailBlocked, emailUserSent] = await Promise.all([
       this.countLogs(companyId, CARD_SUCCESS_EVENTS, monthStart, monthEnd),
       normalizedUserId ? this.countLogs(companyId, CARD_SUCCESS_EVENTS, monthStart, monthEnd, normalizedUserId) : Promise.resolve(0),
       this.countLogs(companyId, CARD_SUCCESS_EVENTS, dayStart, dayEnd),
       normalizedUserId ? this.countLogs(companyId, CARD_SUCCESS_EVENTS, dayStart, dayEnd, normalizedUserId) : Promise.resolve(0),
+      this.countLogs(companyId, CARD_REFUND_EVENTS, monthStart, monthEnd),
+      normalizedUserId ? this.countLogs(companyId, CARD_REFUND_EVENTS, monthStart, monthEnd, normalizedUserId) : Promise.resolve(0),
+      this.countLogs(companyId, CARD_REFUND_EVENTS, dayStart, dayEnd),
+      normalizedUserId ? this.countLogs(companyId, CARD_REFUND_EVENTS, dayStart, dayEnd, normalizedUserId) : Promise.resolve(0),
       this.countLogs(companyId, ['presentation_email_attempt'], dayStart, dayEnd),
       this.countLogs(companyId, ['presentation_email_sent'], dayStart, dayEnd),
       this.countLogs(companyId, ['presentation_email_failed'], dayStart, dayEnd),
       this.countLogs(companyId, ['presentation_email_blocked_limit', 'presentation_email_blocked_policy'], dayStart, dayEnd),
       normalizedUserId ? this.countLogs(companyId, ['presentation_email_sent'], dayStart, dayEnd, normalizedUserId) : Promise.resolve(0),
     ]);
+    const cardsUsed = Math.max(0, cardsGrossUsed - cardsRefunded);
+    const cardsUserUsed = Math.max(0, cardsUserGrossUsed - cardsUserRefunded);
+    const cardsDailyUsed = Math.max(0, cardsDailyGrossUsed - cardsDailyRefunded);
+    const cardsDailyUserUsed = Math.max(0, cardsDailyUserGrossUsed - cardsDailyUserRefunded);
 
     return {
       planKey: company.planKey,
@@ -251,6 +260,10 @@ export class CommercialUsageLimitsService {
         dailyUserUsed: cardsDailyUserUsed,
         dailySafetyLimit: limits.cards.dailySafetyLimit,
         dailyRemaining: Math.max(0, limits.cards.dailySafetyLimit - cardsDailyUsed),
+        refunded: cardsRefunded,
+        grossUsed: cardsGrossUsed,
+        dailyRefunded: cardsDailyRefunded,
+        dailyGrossUsed: cardsDailyGrossUsed,
       },
       emails: {
         attempted: emailAttempted,
@@ -313,6 +326,19 @@ export class CommercialUsageLimitsService {
     const source = String(metadata.source || 'vendas');
     const eventType = metadata.eventType || (source === 'radar_claim' ? 'radar_card_claimed' : 'vendas_card_imported');
     return this.log(companyId, userId, eventType, source, { status: 'success', ...metadata });
+  }
+
+  async recordCardRefund(companyId: number, userId: number | null, metadata: Record<string, any> = {}) {
+    const count = Math.max(1, Math.min(100, Math.trunc(Number(metadata.count || 1) || 1)));
+    const writes = Array.from({ length: count }, (_, index) =>
+      this.log(companyId, userId, 'vendas_card_refunded', 'vendas_complaint_refund', {
+        status: 'refunded',
+        refundIndex: index + 1,
+        ...metadata,
+        count,
+      }),
+    );
+    return Promise.all(writes);
   }
 
   async assertCanSendPresentationEmail(companyId: number, userId?: number | null) {

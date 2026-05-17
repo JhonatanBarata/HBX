@@ -1,6 +1,7 @@
 "use client";
 
 import { useId, useMemo, useState, type KeyboardEvent } from "react";
+import MobileLeadScoreGauge from "@/components/mobile/MobileLeadScoreGauge";
 import { BRAZIL_CITIES_BY_STATE, BRAZIL_STATES } from "@/lib/brazil-locations";
 import { HBX_SEGMENT_SUGGESTIONS } from "@/lib/hbx-segment-suggestions";
 import styles from "./prospecting-filters.module.css";
@@ -512,123 +513,68 @@ export function HbxAdvancedFilters({
   onChange,
   mode,
   embedded = false,
+  locked = false,
 }: {
   filters: HbxAdvancedFiltersValue;
   onChange: (value: HbxAdvancedFiltersValue) => void;
   mode: "automation" | "webscraping" | "radar" | "master";
   embedded?: boolean;
+  locked?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const visible = embedded || open;
-  const canUseBusinessQuality = true;
-  const canUseRadarFilters = mode === "radar";
-  const canUseWebsiteFilters = mode !== "master";
+  const scoreValue = Math.max(0, Math.min(100, Math.round(Number(filters.scoreRange || 0) || 0)));
   const activeSummary = [
-    hasAdvancedFilterValue(filters.minRating) ? `nota >= ${filters.minRating}` : "",
-    hasAdvancedFilterValue(filters.minReviews) ? `${filters.minReviews} avaliações` : "",
-    filters.onlyWithWebsite ? "com website" : "",
-    filters.noWebsite ? "sem website" : "",
-    filters.highOpportunity ? "alta oportunidade" : "",
-    hasAdvancedFilterValue(filters.ddd) ? `DDD ${filters.ddd}` : "",
-    hasAdvancedFilterValue(filters.scoreRange) ? `score ${filters.scoreRange}` : "",
+    scoreValue > 0 ? `score ${scoreValue}+` : "",
   ].filter(Boolean);
 
   const update = (patch: HbxAdvancedFiltersValue) => onChange({ ...filters, ...patch });
+  const updateScore = (value: number) => {
+    const safeValue = Math.max(0, Math.min(100, Math.round(value)));
+    update({
+      scoreRange: safeValue > 0 ? String(safeValue) : "",
+      minRating: "",
+      minReviews: "",
+      onlyWithWebsite: false,
+      noWebsite: false,
+      highOpportunity: false,
+      ddd: "",
+    });
+  };
 
   return (
     <div className={styles.advanced}>
       {!embedded ? (
         <button type="button" className={styles.advancedToggle} onClick={() => setOpen((value) => !value)}>
-          <span>Filtros avançados</span>
-          <small>{activeSummary.length ? activeSummary.join(" · ") : "Nenhum filtro ativo"}</small>
+          <span>{locked ? "👑" : "Filtros avançados"}</span>
+          <small>{locked ? "Lead+" : activeSummary.length ? activeSummary.join(" · ") : "0+"}</small>
         </button>
       ) : null}
 
       {visible ? (
         <div className={styles.advancedGrid}>
-          {canUseBusinessQuality ? (
-            <>
-              <label className={styles.field}>
-                <span className={styles.label}>Avaliação mínima</span>
-                <input
-                  className={styles.input}
-                  type="number"
-                  min="0"
-                  max="5"
-                  step="0.1"
-                  value={filters.minRating ?? ""}
-                  onChange={(event) => update({ minRating: event.target.value })}
-                  placeholder="Opcional"
-                />
-              </label>
-              <label className={styles.field}>
-                <span className={styles.label}>Mínimo de avaliações</span>
-                <input
-                  className={styles.input}
-                  type="number"
-                  min="0"
-                  step="1"
-                  value={filters.minReviews ?? ""}
-                  onChange={(event) => update({ minReviews: event.target.value })}
-                  placeholder="Opcional"
-                />
-              </label>
-            </>
-          ) : null}
-
-          {canUseRadarFilters ? (
-            <>
-              <label className={styles.field}>
-                <span className={styles.label}>DDD</span>
-                <input
-                  className={styles.input}
-                  value={filters.ddd ?? ""}
-                  onChange={(event) => update({ ddd: event.target.value.replace(/\D/g, "").slice(0, 2) })}
-                  placeholder="19"
-                  inputMode="numeric"
-                  maxLength={2}
-                />
-              </label>
-              <label className={styles.field}>
-                <span className={styles.label}>Score/oportunidade</span>
-                <select className={styles.select} value={filters.scoreRange ?? ""} onChange={(event) => update({ scoreRange: event.target.value })}>
-                  <option value="">Todos</option>
-                  <option value="high">Alta oportunidade</option>
-                  <option value="medium">Média oportunidade</option>
-                  <option value="low">Baixa oportunidade</option>
-                </select>
-              </label>
-            </>
-          ) : null}
-
-          {canUseWebsiteFilters ? (
-            <div className={styles.checkGrid}>
-              <label className={styles.check}>
-                <input
-                  type="checkbox"
-                  checked={filters.onlyWithWebsite === true}
-                  onChange={(event) => update({ onlyWithWebsite: event.target.checked, noWebsite: event.target.checked ? false : filters.noWebsite })}
-                />
-                <span>Somente com website</span>
-              </label>
-              <label className={styles.check}>
-                <input
-                  type="checkbox"
-                  checked={filters.noWebsite === true}
-                  onChange={(event) => update({ noWebsite: event.target.checked, onlyWithWebsite: event.target.checked ? false : filters.onlyWithWebsite })}
-                />
-                <span>Sem website</span>
-              </label>
-              <label className={styles.check}>
-                <input
-                  type="checkbox"
-                  checked={filters.highOpportunity === true}
-                  onChange={(event) => update({ highOpportunity: event.target.checked })}
-                />
-                <span>Alta oportunidade</span>
-              </label>
-            </div>
-          ) : null}
+          <div className={styles.scoreControl} data-locked={locked ? "true" : "false"}>
+            <MobileLeadScoreGauge
+              premium
+              locked={locked}
+              value={scoreValue}
+              label={locked ? "♕ Score" : "Score"}
+              caption={locked ? "Lead" : scoreValue > 0 ? `${scoreValue}+` : "0+"}
+            />
+            <label className={styles.scoreSlider}>
+              <span className={styles.label}>Score mínimo</span>
+              <input
+                type="range"
+                min="0"
+                max="100"
+                step="5"
+                value={scoreValue}
+                disabled={locked}
+                onChange={(event) => updateScore(Number(event.target.value))}
+                aria-label="Score mínimo"
+              />
+            </label>
+          </div>
         </div>
       ) : null}
     </div>

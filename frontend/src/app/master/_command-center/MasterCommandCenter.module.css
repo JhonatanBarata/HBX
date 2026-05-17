@@ -837,6 +837,138 @@
   padding: 12px;
 }
 
+.complaintQueue {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.complaintToolbar,
+.complaintCard {
+  border: 1px solid var(--master-border);
+  border-radius: 8px;
+  background: var(--master-surface-soft);
+}
+
+.complaintToolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px;
+}
+
+.complaintToolbar div {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.complaintToolbar span,
+.complaintCard small,
+.complaintMetaGrid span {
+  color: var(--master-muted);
+  font-size: 12px;
+}
+
+.complaintCard {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+}
+
+.complaintCard[data-status="new"] {
+  border-color: color-mix(in srgb, var(--master-warn-text) 44%, var(--master-border));
+}
+
+.complaintCard[data-status="refunded"] {
+  border-color: color-mix(in srgb, var(--master-good-text) 44%, var(--master-border));
+}
+
+.complaintCard header,
+.complaintActions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.complaintCard header div {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.complaintCard header span {
+  width: fit-content;
+  border: 1px solid var(--master-border);
+  border-radius: 999px;
+  padding: 4px 8px;
+  background: var(--master-muted-bg);
+  color: var(--master-muted-text);
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.complaintCard header a {
+  min-height: 34px;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--master-good-text) 45%, var(--master-border));
+  padding: 8px 10px;
+  background: var(--master-good-bg);
+  color: var(--master-good-text);
+  font-size: 12px;
+  font-weight: 900;
+  text-decoration: none;
+}
+
+.complaintCard p {
+  margin: 0;
+  color: var(--master-text);
+  font-weight: 700;
+  line-height: 1.45;
+}
+
+.complaintMetaGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.complaintMetaGrid span {
+  border: 1px solid var(--master-border);
+  border-radius: 8px;
+  padding: 8px;
+  background: var(--master-surface);
+}
+
+.complaintCard textarea,
+.complaintActions select,
+.complaintActions input {
+  border: 1px solid var(--master-border);
+  border-radius: 8px;
+  background: var(--master-surface);
+  color: var(--master-text);
+}
+
+.complaintCard textarea {
+  min-height: 72px;
+  padding: 10px;
+  resize: vertical;
+}
+
+.complaintActions {
+  flex-wrap: wrap;
+}
+
+.complaintActions select,
+.complaintActions input {
+  min-height: 38px;
+  padding: 0 10px;
+  font-weight: 800;
+}
+
 @media (max-width: 1180px) {
   .commandLayout,
   .topCommandBar {
@@ -868,6 +1000,7 @@
   .actionCards,
   .dangerActions,
   .operationStats,
+  .complaintMetaGrid,
   .inlineForm,
   .integrationEditor,
   .catalogRow,
@@ -885,8 +1018,12 @@
   .rowActions,
   .heroActions,
   .actionCluster,
+  .complaintToolbar,
+  .complaintCard header,
+  .complaintActions,
   .commandActions {
     align-items: stretch;
+    flex-direction: column;
   }
 
   .rowActions > *,

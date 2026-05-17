@@ -320,6 +320,77 @@
   accent-color: #0757df;
 }
 
+.mobileScoreControl {
+  align-items: center;
+  grid-template-columns: auto minmax(0, 1fr);
+}
+
+.mobileScoreControl input[type="range"] {
+  width: 100%;
+  accent-color: #0757df;
+}
+
+.mobileGpsButton,
+.radarGpsButton {
+  position: relative;
+  width: 44px;
+  aspect-ratio: 1;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(7, 87, 223, 0.28);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.9);
+  color: #0757df;
+  box-shadow: 0 12px 26px -18px rgba(7, 87, 223, 0.55);
+}
+
+.mobileGpsButton {
+  justify-self: end;
+  margin-top: -2px;
+}
+
+.mobileGpsButton::before,
+.mobileGpsButton::after,
+.radarGpsButton::before,
+.radarGpsButton::after {
+  content: "";
+  position: absolute;
+  border: 2px solid currentColor;
+  border-radius: 999px;
+  opacity: 0.36;
+}
+
+.mobileGpsButton::before,
+.radarGpsButton::before {
+  inset: 12px;
+}
+
+.mobileGpsButton::after,
+.radarGpsButton::after {
+  inset: -3px;
+  border-width: 1px;
+  animation: radarGpsPulse 1.35s ease-out infinite;
+}
+
+.mobileGpsButton span,
+.radarGpsButton span {
+  width: 11px;
+  aspect-ratio: 1;
+  border-radius: 999px;
+  background: currentColor;
+  box-shadow: 0 0 0 4px rgba(7, 87, 223, 0.12);
+}
+
+.mobileGpsButton[data-loading="true"],
+.radarGpsButton[data-loading="true"] {
+  color: #08a64b;
+}
+
+@keyframes radarGpsPulse {
+  0% { transform: scale(0.78); opacity: 0.44; }
+  100% { transform: scale(1.22); opacity: 0; }
+}
+
 .radarChannelFilter {
   display: grid;
   gap: 10px;
@@ -1669,6 +1740,26 @@
   padding: 18px;
 }
 
+.header[data-state="searching"],
+.header[data-state="receiving"] {
+  border-color: color-mix(in srgb, var(--brand) 38%, var(--line));
+  background:
+    radial-gradient(circle at 8% 24%, color-mix(in srgb, var(--brand) 16%, transparent), transparent 34%),
+    color-mix(in srgb, var(--surface-raised) 94%, var(--surface));
+}
+
+.header[data-state="partial"],
+.header[data-state="warning"] {
+  border-color: color-mix(in srgb, #f59e0b 42%, var(--line));
+  background:
+    radial-gradient(circle at 8% 24%, rgba(245, 158, 11, 0.14), transparent 34%),
+    color-mix(in srgb, var(--surface-raised) 94%, var(--surface));
+}
+
+.header[data-state="received"] {
+  border-color: color-mix(in srgb, var(--success) 32%, var(--line));
+}
+
 .header span,
 .filtersTitle span,
 .sectionHeader span,
@@ -1762,11 +1853,76 @@
 .filterLocation {
   grid-column: span 4;
   min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 10px;
 }
 
 .filterSegment {
   grid-column: span 4;
   min-width: 0;
+}
+
+.filterRadius {
+  grid-column: span 4;
+  min-width: 0;
+}
+
+.radiusSelector,
+.mobileRadiusSelector {
+  min-width: 0;
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid color-mix(in srgb, var(--line) 84%, transparent);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--surface) 94%, var(--surface-raised));
+}
+
+.radiusSelector > span,
+.mobileRadiusSelector > span {
+  color: var(--muted);
+  font-size: 0.68rem;
+  line-height: 1.1;
+  font-weight: 950;
+  text-transform: uppercase;
+}
+
+.radiusSelector > div,
+.mobileRadiusSelector > div {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.radiusSelector button,
+.mobileRadiusSelector button {
+  min-width: 0;
+  min-height: 34px;
+  border: 1px solid color-mix(in srgb, var(--line) 84%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--surface-raised) 94%, var(--surface));
+  color: var(--foreground);
+  font: inherit;
+  font-size: 0.74rem;
+  font-weight: 920;
+  cursor: pointer;
+}
+
+.radiusSelector button[data-active="true"],
+.mobileRadiusSelector button[data-active="true"] {
+  border-color: color-mix(in srgb, var(--brand) 46%, var(--line));
+  background: color-mix(in srgb, var(--brand) 13%, var(--surface-raised));
+  color: color-mix(in srgb, var(--brand) 88%, var(--foreground));
+}
+
+.radiusSelector small,
+.mobileRadiusSelector small {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 780;
+  line-height: 1.25;
 }
 
 .segmentFunnel {
@@ -2618,6 +2774,7 @@
 
   .filterLocation,
   .filterSegment,
+  .filterRadius,
   .filterAdvanced {
     grid-column: 1 / -1;
   }
@@ -5224,7 +5381,8 @@
 
   :global(html[data-hbx-mobile-theme="dark"]) .mobilePickerButton,
   :global(html[data-hbx-mobile-theme="dark"]) .mobileAdvancedButton,
-  :global(html[data-hbx-mobile-theme="dark"]) .mobileRadarEngineField {
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileRadarEngineField,
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileRadiusSelector {
     border-color: rgba(255, 214, 102, 0.22) !important;
     background:
       radial-gradient(circle at 96% 0%, rgba(255, 214, 102, 0.09), transparent 38%),
@@ -5237,7 +5395,8 @@
 
   :global(html[data-hbx-mobile-theme="dark"]) .mobilePickerButton > span,
   :global(html[data-hbx-mobile-theme="dark"]) .mobileAdvancedButton > span,
-  :global(html[data-hbx-mobile-theme="dark"]) .mobileRadarEngineField > span {
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileRadarEngineField > span,
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileRadiusSelector > span {
     color: rgba(255, 216, 106, 0.82) !important;
   }
 
@@ -5246,8 +5405,24 @@
     color: #ffffff !important;
   }
 
-  :global(html[data-hbx-mobile-theme="dark"]) .mobilePickerButton small {
+  :global(html[data-hbx-mobile-theme="dark"]) .mobilePickerButton small,
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileRadiusSelector small {
     color: rgba(225, 234, 248, 0.74) !important;
+  }
+
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileRadiusSelector button {
+    border-color: rgba(126, 176, 255, 0.24) !important;
+    background: rgba(12, 35, 70, 0.82) !important;
+    color: #dcecff !important;
+    box-shadow: inset 0 1px 0 rgba(151, 201, 255, 0.12) !important;
+  }
+
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileRadiusSelector button[data-active="true"] {
+    border-color: rgba(255, 214, 102, 0.46) !important;
+    background:
+      radial-gradient(circle at 32% 0%, rgba(255, 255, 255, 0.2), transparent 34%),
+      rgba(255, 216, 106, 0.16) !important;
+    color: #ffd86a !important;
   }
 
   :global(html[data-hbx-mobile-theme="dark"]) .mobilePickerButton b,
@@ -5869,6 +6044,42 @@
     color: #ffffff !important;
     font-size: 0.82rem !important;
     font-weight: 1000 !important;
+  }
+
+  .mobileRadarHero[data-state="searching"] .mobileRadarHeroCopy small,
+  .mobileRadarHero[data-state="receiving"] .mobileRadarHeroCopy small {
+    border-color: rgba(0, 112, 255, 0.28) !important;
+    background: rgba(231, 243, 255, 0.92) !important;
+    color: #0757df !important;
+  }
+
+  .mobileRadarHero[data-state="searching"] .mobileRadarHeroCopy small::before,
+  .mobileRadarHero[data-state="receiving"] .mobileRadarHeroCopy small::before {
+    content: "" !important;
+    border: 3px dotted currentColor !important;
+    background: transparent !important;
+    color: #0757df !important;
+    animation: radarMobileBadgeSpin 980ms linear infinite;
+  }
+
+  .mobileRadarHero[data-state="partial"] .mobileRadarHeroCopy small,
+  .mobileRadarHero[data-state="warning"] .mobileRadarHeroCopy small {
+    border-color: rgba(217, 119, 6, 0.32) !important;
+    background: rgba(255, 247, 223, 0.94) !important;
+    color: #a16207 !important;
+  }
+
+  .mobileRadarHero[data-state="partial"] .mobileRadarHeroCopy small::before,
+  .mobileRadarHero[data-state="warning"] .mobileRadarHeroCopy small::before {
+    content: "!" !important;
+    background: #d97706 !important;
+    color: #ffffff !important;
+  }
+
+  @keyframes radarMobileBadgeSpin {
+    to {
+      transform: rotate(360deg);
+    }
   }
 
   .radarMotionBackdrop {

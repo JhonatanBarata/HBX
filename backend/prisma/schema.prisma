@@ -159,6 +159,7 @@ model Company {
   vendasAutomationJobs VendasAutomationJob[]
   commercialEntitlements CompanyCommercialEntitlement[]
   commercialUsageLogs CompanyCommercialUsageLog[]
+  vendasCardComplaints VendasCardComplaint[]
   trialPhoneUsages    TrialPhoneUsage[]
   nightFactoryRewardClaims NightFactoryRewardClaim[]
 
@@ -874,6 +875,34 @@ model User {
   radarLeadEventsCreated RadarLeadEvent[] @relation("RadarLeadEventCreatedBy")
   nightFactoryRewardClaims NightFactoryRewardClaim[]
   salesProfiles SalesProfile[]
+  vendasCardComplaints VendasCardComplaint[]
+}
+
+model VendasCardComplaint {
+  id               String   @id
+  company          Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  companyId        Int
+  user             User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  userId           Int?
+  vendasLeadId     String?
+  radarLeadId      String?
+  leadName         String?
+  leadPhone        String?
+  leadCity         String?
+  leadState        String?
+  leadSegment      String?
+  reason           String
+  status           String   @default("new")
+  refundedCards    Int      @default(0)
+  resolvedByUserId Int?
+  resolvedAt       DateTime?
+  internalNote     String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([status, createdAt])
+  @@index([companyId, createdAt])
+  @@index([radarLeadId])
 }
 
 model AuthSession {
