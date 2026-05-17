@@ -69,9 +69,16 @@ type RadarSearchRunResponse = {
   } | null;
 };
 
-const TUTORIAL_COMPLETED_KEY = "hbx:onboarding:tutorial-completed:v1";
+type TutorialSurface = "mobile" | "desktop";
+
+const LEGACY_TUTORIAL_COMPLETED_KEY = "hbx:onboarding:tutorial-completed:v1";
+const TUTORIAL_COMPLETED_KEY = "hbx:onboarding:tutorial-completed:mobile:v1";
 const MOBILE_PREFERRED_CALLER_NAME_KEY = "hbx.vendas.mobile.preferredCallerName.v1";
-const ONBOARDING_PROFILE_KEY = "hbx:onboarding:profile:v1";
+const LEGACY_ONBOARDING_PROFILE_KEY = "hbx:onboarding:profile:v1";
+const ONBOARDING_PROFILE_KEYS: Record<TutorialSurface, string> = {
+  mobile: "hbx:onboarding:profile:mobile:v1",
+  desktop: "hbx:onboarding:profile:desktop:v1",
+};
 
 const STEPS = [
   "Boas-vindas",
@@ -251,10 +258,27 @@ function buildSegmentGroups(availableSegments: string[]) {
     : RADAR_SEGMENT_GROUPS;
 }
 
-function readStoredOnboardingProfile(): Partial<OnboardingProfile> {
+function onboardingProfileKey(surface: TutorialSurface) {
+  return ONBOARDING_PROFILE_KEYS[surface];
+}
+
+function markMobileTutorialCompleted() {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(TUTORIAL_COMPLETED_KEY, "true");
+  window.localStorage.setItem(LEGACY_TUTORIAL_COMPLETED_KEY, "true");
+}
+
+function clearMobileTutorialCompleted() {
+  if (typeof window === "undefined") return;
+  window.localStorage.removeItem(TUTORIAL_COMPLETED_KEY);
+  window.localStorage.removeItem(LEGACY_TUTORIAL_COMPLETED_KEY);
+}
+
+function readStoredOnboardingProfile(surface: TutorialSurface = "mobile"): Partial<OnboardingProfile> {
   if (typeof window === "undefined") return {};
   try {
-    const raw = window.localStorage.getItem(ONBOARDING_PROFILE_KEY);
+    const raw = window.localStorage.getItem(onboardingProfileKey(surface))
+      || (surface === "mobile" ? window.localStorage.getItem(LEGACY_ONBOARDING_PROFILE_KEY) : null);
     if (!raw) return {};
     const parsed = JSON.parse(raw) as Partial<OnboardingProfile>;
     return parsed && typeof parsed === "object" ? parsed : {};
@@ -263,11 +287,14 @@ function readStoredOnboardingProfile(): Partial<OnboardingProfile> {
   }
 }
 
-function saveOnboardingProfile(profile: OnboardingProfile) {
+function saveOnboardingProfile(profile: OnboardingProfile, surface: TutorialSurface = "mobile") {
   if (typeof window === "undefined") return;
-  window.localStorage.setItem(ONBOARDING_PROFILE_KEY, JSON.stringify(profile));
-  const name = normalizeText(profile.name);
-  if (name) window.localStorage.setItem(MOBILE_PREFERRED_CALLER_NAME_KEY, name);
+  window.localStorage.setItem(onboardingProfileKey(surface), JSON.stringify(profile));
+  if (surface === "mobile") {
+    window.localStorage.setItem(LEGACY_ONBOARDING_PROFILE_KEY, JSON.stringify(profile));
+    const name = normalizeText(profile.name);
+    if (name) window.localStorage.setItem(MOBILE_PREFERRED_CALLER_NAME_KEY, name);
+  }
 }
 
 function planTierFromPayload(plans: CommercialPlansPayload | null, user: CurrentUser | null): PlanTier {
@@ -949,7 +976,7 @@ export default function TutorialClientPage() {
       };
       setProfile(completedProfile);
       saveOnboardingProfile(completedProfile);
-      window.localStorage.setItem(TUTORIAL_COMPLETED_KEY, "true");
+      markMobileTutorialCompleted();
       router.push("/vendas");
     } catch (actionError) {
       setError(actionError instanceof Error ? actionError.message : "Não foi possível iniciar o Radar agora.");
@@ -981,7 +1008,7 @@ export default function TutorialClientPage() {
     const nextProfile = { ...profile, completed: false };
     setProfile(nextProfile);
     saveOnboardingProfile(nextProfile);
-    window.localStorage.removeItem(TUTORIAL_COMPLETED_KEY);
+    clearMobileTutorialCompleted();
     goToStep(0);
   }
 

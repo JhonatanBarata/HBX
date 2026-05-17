@@ -519,6 +519,24 @@ class RadarPullDto extends RadarDatabaseQueryDto {
   @IsOptional()
   @IsIn(['off', 'enrich', 'only_valid'])
   whatsappCheckMode?: 'off' | 'enrich' | 'only_valid';
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  declare preferredChannels?: string[];
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  declare requiredChannels?: string[];
+
+  @IsOptional()
+  @IsIn(['prefer', 'any_required', 'all_required'])
+  declare channelMatchMode?: 'prefer' | 'any_required' | 'all_required';
+
+  @IsOptional()
+  @IsIn(['list', 'lead_plus'])
+  declare qualityMode?: 'list' | 'lead_plus';
 }
 
 class RadarNegativeDto {
@@ -875,3 +893,4 @@ export class MasterWebscrapingController {
     return this.webscrapingService.cancelRadarCampaignByMaster(id);
   }
 }
+
