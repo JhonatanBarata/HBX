@@ -8,5 +8,5 @@ type LegacyRedirectProps = {
 };
 
 export default async function Page({ searchParams }: LegacyRedirectProps) {
-  redirect(withLegacySearchParams("/master/clientes", await searchParams));
+  redirect(withLegacySearchParams("/master?tab=clientes", await searchParams));
 }

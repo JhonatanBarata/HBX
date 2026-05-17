@@ -72,14 +72,6 @@ function equalValue(left, right) {
   return (left ?? null) === (right ?? null);
 }
 
-function isImportacaoPermissaoCompanyForeignKeyError(error) {
-  return Boolean(
-    error
-    && error.code === 'P2003'
-    && String(error.meta?.field_name || '').includes('ImportacaoPermissao_empresaId_fkey'),
-  );
-}
-
 function normalizeCurrencyAmount(value) {
   const numeric = Number(value || 0);
   if (!Number.isFinite(numeric)) return 0;
@@ -309,61 +301,6 @@ async function ensureCompanyModules(prisma, mode, summary) {
   summary.companyModules = await prisma.companyModule.count();
 }
 
-async function ensureCompanyPermissions(prisma, mode, summary) {
-  const companies = await prisma.company.findMany({ select: { id: true } });
-  const roles = Object.keys(structuralDefaults.companyRolePermissions);
-
-  companyLoop:
-  for (const company of companies) {
-    for (const role of roles) {
-      const actions = structuralDefaults.companyRolePermissions[role];
-      for (const [acao, allowed] of Object.entries(actions)) {
-        if (mode === 'check') {
-          const existing = await prisma.importacaoPermissao.findUnique({
-            where: {
-              empresaId_role_acao: {
-                empresaId: company.id,
-                role,
-                acao,
-              },
-            },
-          });
-
-          if (!existing) {
-            summary.errors.push(`Missing ImportacaoPermissao default row for company ${company.id}, role ${role}, action ${acao}`);
-          }
-          continue;
-        }
-
-        try {
-          await prisma.importacaoPermissao.upsert({
-            where: {
-              empresaId_role_acao: {
-                empresaId: company.id,
-                role,
-                acao,
-              },
-            },
-            update: {},
-            create: {
-              empresaId: company.id,
-              role,
-              acao,
-              allowed,
-            },
-          });
-        } catch (error) {
-          if (isImportacaoPermissaoCompanyForeignKeyError(error)) {
-            continue companyLoop;
-          }
-          throw error;
-        }
-        summary.permissions += 1;
-      }
-    }
-  }
-}
-
 async function runStructuralSeed(options = {}) {
   const mode = options.mode || 'apply';
   const databaseUrl = resolveDatabaseUrl(options.databaseUrl);
@@ -374,7 +311,6 @@ async function runStructuralSeed(options = {}) {
     features: 0,
     plans: 0,
     companyModules: 0,
-    permissions: 0,
     errors: [],
   };
 
@@ -383,7 +319,6 @@ async function runStructuralSeed(options = {}) {
     await ensureSystemModules(prisma, mode, summary);
     await ensurePlansAndFeatures(prisma, mode, summary);
     await ensureCompanyModules(prisma, mode, summary);
-    await ensureCompanyPermissions(prisma, mode, summary);
 
     if (summary.errors.length > 0) {
       throw new Error(summary.errors.join('\n'));

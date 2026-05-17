@@ -41,7 +41,6 @@ const ADVANCED_NAV_KEYS = new Set([
   "financeiro",
   "gerencial",
   "cadastro",
-  "follow_up_internacional",
   "planos",
   "master",
 ]);
@@ -103,25 +102,12 @@ const NAV_ITEMS: NavItem[] = [
     moduleKey: "website",
   },
   {
-    key: "follow_up_internacional",
-    href: "/followup-global",
-    label: "Follow Up",
-    shortLabel: "FU",
-    description: "Importações.",
-    matcher: (route) =>
-      route.startsWith("/followup-global") ||
-      route.startsWith("/importacoes/historico") ||
-      route.startsWith("/importacoes/novo"),
-    category: "commercial",
-    moduleKey: "follow_up_internacional",
-  },
-  {
     key: "cadastro",
     href: "/cadastros",
     label: "Cadastros",
     shortLabel: "CD",
     description: "Clientes.",
-    matcher: (route) => route.startsWith("/cadastros") || route.startsWith("/importacoes/cadastros"),
+    matcher: (route) => route.startsWith("/cadastros"),
     category: "structural",
     companyOnly: true,
     moduleKey: "cadastro",

@@ -173,7 +173,7 @@ function getNormalSendBlocker(input: {
   return null;
 }
 
-export default function MasterEmailClientPage() {
+export function MasterEmailWorkspace({ embedded = false }: { embedded?: boolean }) {
   const hasToken = useRequireAuth();
   const [activeTemplate, setActiveTemplate] = useState<TemplateKind>("normal");
   const [templates, setTemplates] = useState<Record<TemplateKind, EmailTemplate | null>>({
@@ -530,6 +530,9 @@ export default function MasterEmailClientPage() {
   }
 
   if (hasToken === null || loadingKind === "all") {
+    if (embedded) {
+      return <div className="panel p-4 text-sm text-muted">Carregando central de e-mails...</div>;
+    }
     return (
       <main className="app-shell">
         <div className="app-container">
@@ -540,6 +543,265 @@ export default function MasterEmailClientPage() {
   }
 
   if (!hasToken) return null;
+
+  const content = (
+    <div className={styles.page}>
+      <section className={styles.panel}>
+        <div className={styles.header}>
+          <div>
+            <span>Central de modelos</span>
+            <h2>{TEMPLATE_LABELS[activeTemplate]}</h2>
+          </div>
+          <strong data-ready={senderReady ? "true" : "false"}>
+            {senderReady ? "SMTP pronto" : "SMTP incompleto"}
+          </strong>
+        </div>
+
+        <div className={styles.tabs} role="tablist" aria-label="Modelos de e-mail">
+          {TEMPLATE_ORDER.map((kind) => (
+            <button
+              key={kind}
+              type="button"
+              role="tab"
+              aria-selected={activeTemplate === kind}
+              className={styles.tabButton}
+              data-active={activeTemplate === kind ? "true" : "false"}
+              onClick={() => {
+                setActiveTemplate(kind);
+                setError(null);
+                setMessage(null);
+              }}
+            >
+              {TEMPLATE_LABELS[kind]}
+            </button>
+          ))}
+        </div>
+
+        {!isNormal ? (
+          <div className={styles.warning}>
+            {activeTemplate === "password_reset"
+              ? "Este modelo é usado automaticamente quando o usuário pede recuperação de senha."
+              : "Este modelo é usado automaticamente no cadastro e reenvio de confirmação."}
+          </div>
+        ) : null}
+
+        {isNormal ? (
+          <div className={styles.grid}>
+            <label className={styles.field}>
+              <span>Nome do contato</span>
+              <input value={recipientName} onChange={(event) => setRecipientName(event.target.value)} placeholder="Amanda" />
+            </label>
+            <label className={styles.field}>
+              <span>E-mail do contato</span>
+              <input type="email" value={recipientEmail} onChange={(event) => setRecipientEmail(event.target.value)} placeholder="cliente@empresa.com.br" />
+            </label>
+          </div>
+        ) : null}
+
+        <label className={styles.field}>
+          <span>Assunto</span>
+          <input value={activeDraft.subject} onChange={(event) => updateDraft({ subject: event.target.value })} placeholder="Assunto do e-mail" />
+        </label>
+
+        <div className={styles.editorHeader}>
+          <span>Mensagem</span>
+          <div className={styles.editorTools}>
+            <button type="button" className="btn btn-secondary btn-sm" onClick={() => updateDraft({ text: "", html: "" })} disabled={operationBusy}>
+              Limpar mensagem
+            </button>
+            <button type="button" className="btn btn-secondary btn-sm" onClick={restoreTemplate} disabled={operationBusy}>
+              Usar modelo padrão
+            </button>
+          </div>
+        </div>
+
+        <textarea
+          className={styles.emailEditor}
+          value={activeDraft.text}
+          onChange={(event) => updateDraft({ text: event.target.value, html: "" })}
+          onPaste={(event) => {
+            const hasImage = Array.from(event.clipboardData?.items || []).some((item) => item.kind === "file" && item.type.startsWith("image/"));
+            if (hasImage) event.preventDefault();
+          }}
+          onDrop={(event) => {
+            if (Array.from(event.dataTransfer?.files || []).some((file) => file.type.startsWith("image/"))) {
+              event.preventDefault();
+            }
+          }}
+          placeholder="Escreva o corpo do e-mail"
+          spellCheck
+          disabled={loadingKind === activeTemplate}
+        />
+
+        {activeTemplateData?.variables?.length ? (
+          <div className={styles.variables}>
+            <span>Variáveis disponíveis</span>
+            <div>
+              {activeTemplateData.variables.map((variable) => (
+                <button
+                  key={variable}
+                  type="button"
+                  onClick={() => updateDraft({ text: `${activeDraft.text}${activeDraft.text ? "\n" : ""}${variable}`, html: "" })}
+                  className={styles.variableChip}
+                >
+                  {variable}
+                </button>
+              ))}
+            </div>
+            {requiredVariable ? <p>Obrigatória: {requiredVariable}</p> : null}
+          </div>
+        ) : null}
+
+        {isNormal ? (
+          <div className={styles.attachmentBox}>
+            <div>
+              <span>Anexo PPTX</span>
+              <strong>{state?.attachment?.originalName || "Nenhum PPTX salvo"}</strong>
+              <p>
+                {state?.attachment
+                  ? `Salvo no servidor • ${formatFileSize(state.attachment.size)} • ${formatDate(state.attachment.uploadedAt)}`
+                  : "Não há PPTX salvo no servidor. Faça upload antes do envio comercial."}
+              </p>
+            </div>
+            <span className={styles.statusBadge} data-ok={hasSavedAttachment ? "true" : "false"}>
+              {hasSavedAttachment ? "Salvo no servidor" : "Pendente"}
+            </span>
+            <label className={styles.uploadButton}>
+              {uploading ? "Enviando..." : "Trocar PPTX"}
+              <input
+                type="file"
+                accept=".pptx,application/vnd.openxmlformats-officedocument.presentationml.presentation"
+                onChange={(event) => {
+                  const file = event.currentTarget.files?.[0] ?? null;
+                  event.currentTarget.value = "";
+                  void uploadAttachment(file);
+                }}
+                disabled={uploading || sending}
+              />
+            </label>
+          </div>
+        ) : null}
+
+        {!senderReady ? (
+          <div className={styles.warning}>
+            Configure SMTP/MAIL no servidor antes do envio real. Pendências: {state?.sender.missing.join(", ") || "provedor não configurado"}.
+          </div>
+        ) : null}
+
+        <div className={styles.actions}>
+          <button type="button" className="btn btn-primary btn-sm" onClick={saveTemplate} disabled={operationBusy}>
+            {saving ? "Salvando..." : "Salvar modelo"}
+          </button>
+          <button type="button" className="btn btn-secondary btn-sm" onClick={restoreTemplate} disabled={operationBusy}>
+            Restaurar padrão
+          </button>
+          <button type="button" className="btn btn-secondary btn-sm" onClick={sendTemplateTest} disabled={operationBusy}>
+            {testing ? "Enviando teste..." : "Enviar teste"}
+          </button>
+          {isNormal ? (
+            <button type="button" className="btn btn-primary btn-sm" onClick={sendNormalEmail} disabled={operationBusy}>
+              {sending ? "Enviando..." : "Enviar e-mail"}
+            </button>
+          ) : null}
+        </div>
+      </section>
+
+      <aside className={styles.side}>
+        <div className={styles.sideCard}>
+          <span>Teste</span>
+          <label className={styles.sideField}>
+            E-mail
+            <input type="email" value={testEmail} onChange={(event) => setTestEmail(event.target.value)} placeholder="email@teste.com" />
+          </label>
+          <label className={styles.sideField}>
+            Nome
+            <input value={sampleName} onChange={(event) => setSampleName(event.target.value)} placeholder="Amanda" />
+          </label>
+          <label className={styles.sideField}>
+            Empresa
+            <input value={sampleCompany} onChange={(event) => setSampleCompany(event.target.value)} placeholder="Empresa Teste" />
+          </label>
+        </div>
+
+        {isNormal ? (
+          <div className={styles.sideCard}>
+            <span>Assinatura digital</span>
+            <strong>{hasSavedSignature ? "Imagem salva no servidor" : "Sem imagem salva"}</strong>
+            <p>{state?.businessCard ? `Salva no servidor • ${formatFileSize(state.businessCard.size)} • ${formatDate(state.businessCard.uploadedAt)}` : "Opcional. Entra automaticamente no final do e-mail e na prévia."}</p>
+            <span className={styles.statusBadge} data-ok={hasSavedSignature ? "true" : "false"}>
+              {hasSavedSignature ? "Salva no servidor" : "Pendente"}
+            </span>
+            <label className={`${styles.uploadButton} ${styles.fullButton}`}>
+              {uploadingBusinessCard ? "Salvando..." : "Atualizar assinatura"}
+              <input
+                type="file"
+                accept="image/png,image/jpeg,image/webp"
+                onChange={(event) => {
+                  const file = event.currentTarget.files?.[0] ?? null;
+                  event.currentTarget.value = "";
+                  void uploadBusinessCard(file);
+                }}
+                disabled={uploadingBusinessCard || sending}
+              />
+            </label>
+            {state?.businessCard?.previewDataUrl ? (
+              <img className={styles.signaturePreview} src={state.businessCard.previewDataUrl} alt="Assinatura comercial" />
+            ) : null}
+          </div>
+        ) : null}
+
+        <div className={styles.previewCard}>
+          <span>Prévia</span>
+          <strong>{preview.subject || "Sem assunto"}</strong>
+          <div className={styles.previewBody} dangerouslySetInnerHTML={{ __html: preview.html || "&nbsp;" }} />
+          {isNormal && state?.businessCard?.previewDataUrl ? (
+            <>
+              <div className={styles.previewDivider}>Assinatura digital anexada ao final</div>
+              <img className={styles.previewSignature} src={state.businessCard.previewDataUrl} alt="Assinatura digital no e-mail" />
+            </>
+          ) : null}
+        </div>
+
+        <div className={styles.sideCard}>
+          <span>Remetente</span>
+          <strong>{state?.sender.from || "HBX <jhonatan@hbxsystem.com.br>"}</strong>
+          <p>Resposta para {state?.sender.replyTo || "jhonatan@hbxsystem.com.br"}</p>
+        </div>
+
+        {lastSent ? (
+          <div className={styles.sideCard}>
+            <span>Último envio</span>
+            <strong>{lastSent.recipientName}</strong>
+            <p>{lastSent.recipientEmail} • {formatDate(lastSent.sentAt)}</p>
+          </div>
+        ) : null}
+      </aside>
+    </div>
+  );
+
+  const toast = typeof document !== "undefined" && (error || message)
+    ? createPortal(
+        <div className={styles.toastDock} aria-live="polite">
+          <div
+            className={`${styles.toast} ${error ? styles.toastError : styles.toastSuccess}`}
+            role={error ? "alert" : "status"}
+          >
+            <span className={styles.toastEyebrow}>{error ? "Atenção" : "Confirmado"}</span>
+            <strong>{error || message}</strong>
+          </div>
+        </div>,
+        document.body,
+      )
+    : null;
+
+  if (embedded) {
+    return (
+      <>
+        {content}
+        {toast}
+      </>
+    );
+  }
 
   return (
     <>
@@ -798,4 +1060,8 @@ export default function MasterEmailClientPage() {
         : null}
     </>
   );
+}
+
+export default function MasterEmailClientPage() {
+  return <MasterEmailWorkspace />;
 }

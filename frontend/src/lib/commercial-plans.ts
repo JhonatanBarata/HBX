@@ -5,7 +5,6 @@ export type CommercialEntitlementKey =
   | "webscraping"
   | "bot_ia"
   | "recovery"
-  | "night_factory"
   | "radar_premium"
   | "recovery_intelligence"
   | "digital_audit"

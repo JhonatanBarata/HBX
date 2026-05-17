@@ -16,7 +16,6 @@ import { EmailTemplateService } from '../mail/email-template.service';
 import { MailService } from '../mail/mail.service';
 import * as crypto from 'crypto';
 import { assertPasswordPolicy } from './password-policy';
-import { buildImportacaoPermissaoRows } from '../bootstrap/company-structural-defaults';
 import {
   COMMERCIAL_ENTITLEMENT_KEYS,
   COMMERCIAL_PLAN_ENTITLEMENT_KEYS,
@@ -1498,10 +1497,6 @@ export class AuthService implements OnModuleInit {
             deactivatedAt: new Date(),
           },
         });
-        await tx.importacaoPermissao.createMany({
-          data: buildImportacaoPermissaoRows(company.id),
-          skipDuplicates: true,
-        });
         await this.seedDefaultCompanyModulesTx(tx, company.id);
         await this.syncPlanModulesTx(tx, company.id, selectedPlanKey);
         const updated = await tx.user.update({
@@ -1642,10 +1637,6 @@ export class AuthService implements OnModuleInit {
         },
       });
 
-      await tx.importacaoPermissao.createMany({
-        data: buildImportacaoPermissaoRows(company.id),
-        skipDuplicates: true,
-      });
       await this.seedDefaultCompanyModulesTx(tx, company.id);
       await this.syncPlanModulesTx(tx, company.id, selectedPlanKey);
 

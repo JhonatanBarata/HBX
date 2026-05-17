@@ -8,5 +8,5 @@ type LegacyRedirectProps = {
 };
 
 export default async function Page({ searchParams }: LegacyRedirectProps) {
-  redirect(withLegacySearchParams("/master/whatsapp", await searchParams));
+  redirect(withLegacySearchParams("/master?tab=whatsapp", await searchParams));
 }

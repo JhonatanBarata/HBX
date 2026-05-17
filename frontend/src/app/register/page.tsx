@@ -138,10 +138,10 @@ const SIGNUP_PLANS: SignupPlan[] = [
     name: "HBX Full — Bot e IA",
     badge: "Mais completo",
     monthlyPrice: 149.9,
-    detail: "Automação completa com Bot IA, Night Factory e prospecção.",
+    detail: "Automação completa com Bot IA e prospecção.",
     cta: "Escolher HBX Full",
     available: true,
-    features: ["Tudo do HBX Lead", "Bot IA liberado", "Night Factory liberado", "Automação completa", "Qualificação de interessados", "Encaminhamento para humano"],
+    features: ["Tudo do HBX Lead", "Bot IA liberado", "Automação completa", "Qualificação de interessados", "Encaminhamento para humano"],
   },
 ];
 

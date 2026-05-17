@@ -29,6 +29,7 @@ import {
   COMMERCIAL_PLAN_KEYS,
   COMMERCIAL_PLAN_MODULE_KEYS,
   getCommercialPlanMonthlyPrice,
+  getCommercialPlanTitle,
   normalizeCommercialPlanKey,
   type ActiveCommercialPlanKey,
 } from '../commercial-plans/commercial-plan-catalog';
@@ -79,7 +80,6 @@ const MODULE_DISPLAY_ORDER = [
   'website',
   'webscraping',
   'cadastro',
-  'follow_up_internacional',
   'financeiro',
   'gerencial',
   'master',
@@ -504,6 +504,24 @@ export class ModulesService implements OnModuleInit {
       subscriptionCurrentPeriodStart: this.toAuditIso(company?.subscriptionCurrentPeriodStart),
       subscriptionCurrentPeriodEnd: this.toAuditIso(company?.subscriptionCurrentPeriodEnd),
       deactivatedAt: this.toAuditIso(company?.deactivatedAt),
+    };
+  }
+
+  private buildCompanyBillingAuditSnapshot(company: any) {
+    return {
+      paymentStatus: this.normalizeOptionalString(company?.paymentStatus),
+      subscriptionStatus: this.normalizeOptionalString(company?.subscriptionStatus),
+      billingProvider: this.normalizeOptionalString(company?.billingProvider),
+      paymentMethod: this.normalizeOptionalString(company?.paymentMethod),
+    };
+  }
+
+  private diffStringSets(previousItems: Iterable<string>, currentItems: Iterable<string>) {
+    const previous = new Set([...previousItems].map((item) => String(item || '').trim()).filter(Boolean));
+    const current = new Set([...currentItems].map((item) => String(item || '').trim()).filter(Boolean));
+    return {
+      added: [...current].filter((item) => !previous.has(item)).sort(),
+      removed: [...previous].filter((item) => !current.has(item)).sort(),
     };
   }
 
@@ -3598,12 +3616,7 @@ export class ModulesService implements OnModuleInit {
     periodEnd: Date | null,
   ) {
     const activeKeys = new Set(COMMERCIAL_PLAN_ENTITLEMENT_KEYS[planKey] || []);
-    const allKeys = [
-      COMMERCIAL_ENTITLEMENT_KEYS.VENDAS,
-      COMMERCIAL_ENTITLEMENT_KEYS.ATENDIMENTO_CHAT,
-      COMMERCIAL_ENTITLEMENT_KEYS.WEBSCRAPING,
-      COMMERCIAL_ENTITLEMENT_KEYS.BOT_IA,
-    ];
+    const allKeys = Object.values(COMMERCIAL_ENTITLEMENT_KEYS);
 
     for (const key of allKeys) {
       const active = activeKeys.has(key);
@@ -3644,8 +3657,66 @@ export class ModulesService implements OnModuleInit {
     if (!company) throw new BadRequestException('Empresa nao encontrada');
 
     const previousState = this.buildCompanyAccessAuditSnapshot(company);
-    const now = new Date();
-    const periodEnd = this.addDays(now, 30);
+    const previousBillingState = this.buildCompanyBillingAuditSnapshot(company);
+    const previousPlanKey = this.normalizeOptionalString(company.selectedPlanKey);
+    const previousNormalizedPlanKey = previousPlanKey
+      ? normalizeCommercialPlanKey(previousPlanKey)
+      : null;
+    const previousModuleRows = await this.prisma.companyModule.findMany({
+      where: { companyId, enabled: true },
+      include: { systemModule: { select: { key: true } } },
+    });
+    const previousModuleKeys = previousModuleRows
+      .map((row) => this.normalizeOptionalString(row.systemModule?.key))
+      .filter(Boolean) as string[];
+    const previousEntitlementKeys =
+      previousNormalizedPlanKey
+        ? COMMERCIAL_PLAN_ENTITLEMENT_KEYS[previousNormalizedPlanKey]
+        : [];
+
+    const paymentStatus = String(company.paymentStatus || 'PENDING').trim().toUpperCase();
+    const subscriptionStatus = String(
+      company.subscriptionStatus || this.mapPaymentStatusToSubscriptionStatus(paymentStatus),
+    )
+      .trim()
+      .toLowerCase();
+    const isManualAccess = paymentStatus === 'MANUAL' || subscriptionStatus === 'manual';
+    const isTrialAccess = paymentStatus === 'TRIAL' || subscriptionStatus === 'trialing';
+    const isPaidAccess = paymentStatus === 'PAID' || subscriptionStatus === 'active';
+    const blockedStatuses = new Set(['PENDING', 'OVERDUE', 'EXPIRED', 'DISABLED']);
+    const blockedSubscriptionStatuses = new Set(['pending_checkout', 'past_due', 'expired', 'canceled']);
+    const isBlockedAccess =
+      blockedStatuses.has(paymentStatus) || blockedSubscriptionStatuses.has(subscriptionStatus);
+    const accessIsAvailable = isManualAccess || isTrialAccess || isPaidAccess;
+    const entitlementStatus: 'paid' | 'manual' | 'trialing' | 'pending_checkout' =
+      isManualAccess
+        ? 'manual'
+        : isTrialAccess
+          ? 'trialing'
+          : isPaidAccess
+            ? 'paid'
+            : 'pending_checkout';
+    const nextIsActive = accessIsAvailable ? true : isBlockedAccess ? false : Boolean(company.isActive);
+    const nextPremiumAccess = isManualAccess || isTrialAccess || isPaidAccess
+      ? true
+      : isBlockedAccess
+        ? false
+        : Boolean(company.premiumAccess);
+    const nextModuleKeys = nextIsActive && nextPremiumAccess
+      ? (COMMERCIAL_PLAN_MODULE_KEYS[normalizedPlanKey] || [])
+      : [];
+    const currentEntitlementKeys = COMMERCIAL_PLAN_ENTITLEMENT_KEYS[normalizedPlanKey] || [];
+    const moduleDiff = this.diffStringSets(previousModuleKeys, nextModuleKeys);
+    const entitlementDiff = this.diffStringSets(previousEntitlementKeys, currentEntitlementKeys);
+    const periodStart = isTrialAccess
+      ? company.trialStartsAt
+      : company.subscriptionCurrentPeriodStart;
+    const periodEnd = isTrialAccess
+      ? company.trialEndsAt
+      : company.subscriptionCurrentPeriodEnd;
+    const assistedSetupCompleted =
+      String(company.assistedSetupStatus || '').trim().toLowerCase() === 'completed';
+    const assistedSetupRequired = normalizedPlanKey === COMMERCIAL_PLAN_KEYS.MELHOR;
 
     await this.prisma.$transaction(async (tx) => {
       await tx.company.update({
@@ -3653,36 +3724,88 @@ export class ModulesService implements OnModuleInit {
         data: {
           selectedPlanKey: normalizedPlanKey,
           trialModuleSelection: normalizedPlanKey === COMMERCIAL_PLAN_KEYS.PADRAO ? 'vendas' : null,
-          isActive: true,
-          onboardingStatus: 'active_paid',
-          paymentStatus: 'MANUAL',
-          subscriptionStatus: 'manual',
-          premiumAccess: true,
-          assistedSetupRequired: normalizedPlanKey === COMMERCIAL_PLAN_KEYS.MELHOR,
+          isActive: nextIsActive,
+          premiumAccess: nextPremiumAccess,
+          assistedSetupRequired,
           assistedSetupStatus:
-            normalizedPlanKey === COMMERCIAL_PLAN_KEYS.MELHOR
-              ? String(company.assistedSetupStatus || '').trim().toLowerCase() === 'completed'
+            assistedSetupRequired
+              ? assistedSetupCompleted
                 ? 'completed'
                 : 'pending'
               : 'not_required',
           assistedSetupCompletedAt:
-            normalizedPlanKey === COMMERCIAL_PLAN_KEYS.MELHOR ? company.assistedSetupCompletedAt : null,
+            assistedSetupRequired ? company.assistedSetupCompletedAt : null,
           assistedSetupCompletedByUserId:
-            normalizedPlanKey === COMMERCIAL_PLAN_KEYS.MELHOR ? company.assistedSetupCompletedByUserId : null,
+            assistedSetupRequired ? company.assistedSetupCompletedByUserId : null,
           assistedSetupNote:
-            normalizedPlanKey === COMMERCIAL_PLAN_KEYS.MELHOR
+            assistedSetupRequired
               ? company.assistedSetupNote || 'Implantação assistida pendente para liberar automação completa.'
               : null,
-          trialStartsAt: null,
-          trialEndsAt: null,
-          subscriptionCurrentPeriodStart: now,
-          subscriptionCurrentPeriodEnd: periodEnd,
-          deactivatedAt: null,
+          deactivatedAt: nextIsActive ? null : company.deactivatedAt || new Date(),
         },
       });
-      await this.syncCompanyModulesForPlanTx(tx, companyId, normalizedPlanKey);
-      await this.syncCompanyEntitlementsForPlanTx(tx, companyId, normalizedPlanKey, 'manual', 'master_plan_change', now, periodEnd);
+      if (nextIsActive && nextPremiumAccess) {
+        await this.syncCompanyModulesForPlanTx(tx, companyId, normalizedPlanKey);
+      } else {
+        await tx.companyModule.updateMany({ where: { companyId }, data: { enabled: false } });
+      }
+      await this.syncCompanyEntitlementsForPlanTx(
+        tx,
+        companyId,
+        normalizedPlanKey,
+        entitlementStatus,
+        'master_plan_change',
+        periodStart,
+        periodEnd,
+      );
     });
+
+    const updatedCompany = await this.prisma.company.findUnique({ where: { id: companyId } });
+    const currentState = this.buildCompanyAccessAuditSnapshot(updatedCompany);
+    const currentBillingState = this.buildCompanyBillingAuditSnapshot(updatedCompany);
+    const billingPreserved =
+      previousBillingState.paymentStatus === currentBillingState.paymentStatus &&
+      previousBillingState.subscriptionStatus === currentBillingState.subscriptionStatus &&
+      previousBillingState.billingProvider === currentBillingState.billingProvider &&
+      previousBillingState.paymentMethod === currentBillingState.paymentMethod;
+    const accessPreserved =
+      previousState.isActive === currentState.isActive &&
+      previousState.premiumAccess === currentState.premiumAccess &&
+      previousState.trialStartsAt === currentState.trialStartsAt &&
+      previousState.trialEndsAt === currentState.trialEndsAt &&
+      previousState.subscriptionCurrentPeriodStart === currentState.subscriptionCurrentPeriodStart &&
+      previousState.subscriptionCurrentPeriodEnd === currentState.subscriptionCurrentPeriodEnd;
+    const planTitle = getCommercialPlanTitle(normalizedPlanKey);
+    const billingLabel =
+      paymentStatus === 'PAID'
+        ? 'Pago'
+        : paymentStatus === 'MANUAL'
+          ? 'Manual'
+          : paymentStatus === 'TRIAL'
+            ? 'Trial'
+            : paymentStatus === 'OVERDUE'
+              ? 'Atrasado'
+              : paymentStatus === 'EXPIRED'
+                ? 'Expirado'
+                : paymentStatus === 'DISABLED'
+                  ? 'Suspenso'
+                  : 'Pendente';
+    const warning = isManualAccess
+      ? 'Acesso manual ativo'
+      : !nextIsActive || !nextPremiumAccess
+        ? paymentStatus === 'OVERDUE'
+          ? 'Empresa continua sem acesso por cobrança em atraso.'
+          : paymentStatus === 'DISABLED'
+            ? 'Empresa continua suspensa.'
+            : paymentStatus === 'EXPIRED'
+              ? 'Empresa continua sem acesso por assinatura expirada.'
+              : 'Empresa continua sem acesso por cobrança pendente.'
+        : null;
+    const message = isManualAccess
+      ? `Plano alterado para ${planTitle}. Acesso manual continua ativo.`
+      : !nextIsActive || !nextPremiumAccess
+        ? `Plano alterado para ${planTitle}. ${warning}`
+        : `Plano alterado para ${planTitle}. Cobrança mantida como ${billingLabel}.`;
 
     await this.masterContextService.registerSupportAction({
       masterUserId,
@@ -3690,16 +3813,43 @@ export class ModulesService implements OnModuleInit {
       scope: 'master_plan',
       action: 'COMMERCIAL_PLAN_CHANGED',
       metadata: {
-        previousPlanKey: company.selectedPlanKey || null,
+        previousPlanKey: previousPlanKey || null,
         currentPlanKey: normalizedPlanKey,
+        previousPaymentStatus: previousState.paymentStatus,
+        previousSubscriptionStatus: previousState.subscriptionStatus,
+        previousPremiumAccess: previousState.premiumAccess,
+        previousIsActive: previousState.isActive,
+        currentPaymentStatus: currentState.paymentStatus,
+        currentSubscriptionStatus: currentState.subscriptionStatus,
+        currentPremiumAccess: currentState.premiumAccess,
+        currentIsActive: currentState.isActive,
         previousState,
-        currentState: this.buildCompanyAccessAuditSnapshot(
-          await this.prisma.company.findUnique({ where: { id: companyId } }),
-        ),
+        currentState,
+        billingPreserved,
+        accessPreserved,
+        modulesAdded: moduleDiff.added,
+        modulesRemoved: moduleDiff.removed,
+        entitlementsAdded: entitlementDiff.added,
+        entitlementsRemoved: entitlementDiff.removed,
       },
     });
 
-    return { ok: true, companyId, planKey: normalizedPlanKey };
+    return {
+      ok: true,
+      companyId,
+      previousPlanKey: previousPlanKey || null,
+      planKey: normalizedPlanKey,
+      paymentStatus: currentState.paymentStatus,
+      subscriptionStatus: currentState.subscriptionStatus,
+      premiumAccess: currentState.premiumAccess,
+      isActive: currentState.isActive,
+      accessPreserved,
+      billingPreserved,
+      modulesChanged: moduleDiff.added.length > 0 || moduleDiff.removed.length > 0,
+      entitlementsChanged: entitlementDiff.added.length > 0 || entitlementDiff.removed.length > 0,
+      warning,
+      message,
+    };
   }
 
   async completeAssistedSetupByMaster(masterUserId: number, companyId: number, dto?: { note?: string }) {

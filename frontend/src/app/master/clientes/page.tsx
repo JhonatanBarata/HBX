@@ -1,7 +1,12 @@
 export const dynamic = "force-dynamic";
 
-import MasterOperationalView from "../_components/MasterOperationalViews";
+import { redirect } from "next/navigation";
+import { withLegacySearchParams, type LegacySearchParams } from "@/app/_lib/legacyRedirect";
 
-export default function Page() {
-  return <MasterOperationalView area="clientes" />;
+export default async function Page({
+  searchParams,
+}: {
+  searchParams?: Promise<LegacySearchParams> | LegacySearchParams;
+}) {
+  redirect(withLegacySearchParams("/master?tab=clientes", await searchParams));
 }

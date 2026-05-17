@@ -8,5 +8,5 @@ export default async function DashboardMasterEmailRedirect({
 }: {
   searchParams?: Promise<LegacySearchParams> | LegacySearchParams;
 }) {
-  redirect(withLegacySearchParams("/master/email", await searchParams));
+  redirect(withLegacySearchParams("/master?panel=email", await searchParams));
 }

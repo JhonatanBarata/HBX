@@ -64,15 +64,6 @@
       "serviceUrl": "/dashboard/website"
     },
     {
-      "key": "follow_up_internacional",
-      "name": "Follow Up Internacional",
-      "description": "Acompanhamento visual de importacoes, historico e alertas.",
-      "monthlyPrice": 0,
-      "defaultEnabled": false,
-      "companyAssignable": true,
-      "serviceUrl": "/dashboard/importacoes/followup-global"
-    },
-    {
       "key": "master",
       "name": "Master",
       "description": "Gestao global do sistema (empresas, modulos, usuarios e billing).",
@@ -180,24 +171,6 @@
       ]
     }
   ],
-  "companyRolePermissions": {
-    "ADMIN": {
-      "CRIAR_IMPORTACAO": true,
-      "EDITAR_IMPORTACAO": true,
-      "FINALIZAR_IMPORTACAO": true,
-      "REABRIR_IMPORTACAO": true,
-      "CRIAR_ALERTA": true,
-      "VER_HISTORICO_FINANCEIRO": true
-    },
-    "USUARIO": {
-      "CRIAR_IMPORTACAO": true,
-      "EDITAR_IMPORTACAO": true,
-      "FINALIZAR_IMPORTACAO": false,
-      "REABRIR_IMPORTACAO": false,
-      "CRIAR_ALERTA": false,
-      "VER_HISTORICO_FINANCEIRO": false
-    }
-  },
   "developmentSeed": {
     "company": {
       "name": "HBX Dev Sandbox",

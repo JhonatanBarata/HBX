@@ -3,8 +3,9 @@ import { normalizeInternalRouteAlias } from "@/lib/route-aliases";
 export type LegacySearchParams = Record<string, string | string[] | undefined>;
 
 export function withLegacySearchParams(pathname: string, searchParams?: LegacySearchParams | null) {
-  const params = new URLSearchParams();
-  const cleanPathname = normalizeInternalRouteAlias(pathname) || "/boasvindas";
+  const [rawPathname, rawQuery = ""] = pathname.split("?", 2);
+  const params = new URLSearchParams(rawQuery);
+  const cleanPathname = normalizeInternalRouteAlias(rawPathname) || "/boasvindas";
 
   for (const [key, value] of Object.entries(searchParams || {})) {
     if (Array.isArray(value)) {

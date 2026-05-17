@@ -252,21 +252,6 @@ export class UsersService {
         data: { authorId: null },
       });
 
-      await tx.importacao.updateMany({
-        where: {
-          OR: [
-            { createdBy: userId },
-            { finalizedBy: userId },
-            { reabertoPor: userId },
-          ],
-        },
-        data: {
-          createdBy: null,
-          finalizedBy: null,
-          reabertoPor: null,
-        },
-      });
-
       await tx.deletionRecord.updateMany({
         where: { deletedByUserId: userId },
         data: { deletedByUserId: null },
