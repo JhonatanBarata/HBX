@@ -1,5 +1,5 @@
-import TutorialClientPage from "./page.client";
+import TutorialSurfaceRouter from "./TutorialSurfaceRouter";
 
 export default function TutorialPage() {
-  return <TutorialClientPage />;
+  return <TutorialSurfaceRouter />;
 }
