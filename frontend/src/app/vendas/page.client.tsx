@@ -85,6 +85,14 @@ type RadarSearchRunResponse = {
     deliveredCount?: number;
     progress?: number;
     terminal?: boolean;
+    autoImport?: {
+      ran?: boolean;
+      importedCount?: number;
+      processedCount?: number;
+      pendingCount?: number | null;
+      remaining?: number | null;
+      blocked?: boolean;
+    } | null;
     filters?: {
       state?: string | null;
       city?: string | null;
@@ -407,8 +415,8 @@ function HeroPremiumCrown({ active }: { active: boolean }) {
       href="/planos?intent=lead"
       className={styles.mobileHeroPremiumCrown}
       data-active={active ? "true" : "false"}
-      aria-label={active ? "HBX Lead ativo" : "Fazer upgrade para HBX Lead"}
-      title={active ? "HBX Lead ativo" : "Upgrade para HBX Lead"}
+      aria-label={active ? "Ver plano HBX Lead" : "Fazer upgrade para HBX Lead"}
+      title={active ? "Ver plano HBX Lead" : "Upgrade para HBX Lead"}
     >
       <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
         <path d="M4.2 18.5h15.6l.7-9.9-4.6 3.5L12 4.7 8.1 12.1 3.5 8.6l.7 9.9Z" />
@@ -1235,6 +1243,7 @@ function normalizeBoardForLocalAgenda(input: BoardResponse) {
   }
 
   return {
+    ...input,
     blocks,
     summary: recomputeSummary(blocks),
   };
@@ -2212,6 +2221,7 @@ export default function VendasClientPage() {
   const mobileScoreAnimatedKeyRef = useRef<string | null>(null);
   const mobileScoreAnimationRunRef = useRef(0);
   const lastRadarBoardRefreshCountRef = useRef(0);
+  const lastRadarAutoImportRefreshKeyRef = useRef("");
   const radarBoardRefreshInFlightRef = useRef(false);
   const latestRadarRunHydratedRef = useRef(false);
   const todayAgendaLaunchNotice = useQuickLaunchNotice();
@@ -2504,6 +2514,32 @@ export default function VendasClientPage() {
         lastRadarBoardRefreshCountRef.current = deliveredCount;
         radarBoardRefreshInFlightRef.current = true;
         void loadBoard().finally(() => {
+          radarBoardRefreshInFlightRef.current = false;
+        });
+      }
+      const autoImport = payload.meta?.autoImport || null;
+      const autoImportKey = autoImport
+        ? [
+            payload.runId || payload.id || activeRunId,
+            Number(autoImport.processedCount || 0),
+            Number(autoImport.importedCount || 0),
+            Number(autoImport.pendingCount || 0),
+          ].join(":")
+        : "";
+      const autoImportTouchedAgenda =
+        Number(autoImport?.processedCount || 0) > 0 ||
+        Number(autoImport?.importedCount || 0) > 0 ||
+        Number(autoImport?.pendingCount || 0) > 0;
+      if (
+        autoImportKey &&
+        autoImportKey !== lastRadarAutoImportRefreshKeyRef.current &&
+        autoImportTouchedAgenda &&
+        !composerOpenRef.current &&
+        !radarBoardRefreshInFlightRef.current
+      ) {
+        lastRadarAutoImportRefreshKeyRef.current = autoImportKey;
+        radarBoardRefreshInFlightRef.current = true;
+        void loadBoard({ forceVisualRefresh: true }).finally(() => {
           radarBoardRefreshInFlightRef.current = false;
         });
       }
@@ -3770,6 +3806,7 @@ export default function VendasClientPage() {
       (board?.summary.overdue || 0) + (board?.summary.today || 0) + (board?.summary.scheduled || 0),
     );
     const runStatus = String(liveRadarRun?.status || storedRadarRun?.status || "");
+    const runAutoImport = liveRadarRun?.meta?.autoImport || null;
     const runDelivered = Math.max(
       0,
       Number(liveRadarRun?.meta?.deliveredCount || liveRadarRun?.foundCount || storedRadarRun?.deliveredCount || 0),
@@ -3780,6 +3817,10 @@ export default function VendasClientPage() {
     );
     const runTerminal = isTerminalRadarRunStatus(runStatus);
     const runActive = Boolean((liveRadarRun?.runId || storedRadarRun?.runId) && !runTerminal);
+    const autoImportPendingCount = Math.max(0, Number(runAutoImport?.pendingCount || 0));
+    const autoImportImportedCount = Math.max(0, Number(runAutoImport?.importedCount || 0));
+    const agendaReceivedCount = Math.max(mobilePendingCount, autoImportPendingCount, autoImportImportedCount);
+    const radarFoundWithoutAgenda = runDelivered > 0 && agendaReceivedCount <= 0;
     const runFilters = liveRadarRun?.meta?.filters;
     const radarState = runFilters?.state || storedRadarRun?.state || "";
     const radarCity = runFilters?.city || storedRadarRun?.city || "";
@@ -3802,28 +3843,36 @@ export default function VendasClientPage() {
         ? "warning"
         : runStatus === "completed_insufficient_results" || runStatus === "partial_error"
           ? "partial"
-          : runActive && runDelivered > 0
+          : runActive && agendaReceivedCount > 0
             ? "receiving"
+            : runActive && radarFoundWithoutAgenda
+              ? "preparing"
             : runActive || loading
               ? "searching"
-              : runDelivered > 0 || mobilePendingCount > 0
+              : agendaReceivedCount > 0
                 ? "received"
+                : radarFoundWithoutAgenda
+                  ? "preparing"
                 : "ready";
     const mobileRadarStatusLabel =
       mobileRadarState === "searching"
         ? "Pesquisando leads"
+        : mobileRadarState === "preparing"
+          ? `${runDelivered} ${runDelivered === 1 ? "card encontrado" : "cards encontrados"}`
         : mobileRadarState === "receiving"
-          ? radarProgressLabel
+          ? `${agendaReceivedCount} ${agendaReceivedCount === 1 ? "card no Vendas" : "cards no Vendas"}`
           : mobileRadarState === "partial"
             ? radarProgressLabel
             : mobileRadarState === "warning"
               ? "Radar precisa de ajuste"
               : mobileRadarState === "received"
-                ? `${Math.max(runDelivered, mobilePendingCount)} ${Math.max(runDelivered, mobilePendingCount) === 1 ? "card recebido" : "cards recebidos"}`
+                ? `${agendaReceivedCount} ${agendaReceivedCount === 1 ? "card no Vendas" : "cards no Vendas"}`
                 : "Motor pronto";
     const mobileRadarStatusText =
       mobileRadarState === "searching"
         ? "Motores cruzando dados"
+        : mobileRadarState === "preparing"
+          ? "Preparando sua agenda"
         : mobileRadarState === "receiving"
           ? "Abastecendo sua agenda"
           : mobileRadarState === "partial"
@@ -3831,7 +3880,7 @@ export default function VendasClientPage() {
             : mobileRadarState === "warning"
               ? "Abra o Radar para revisar"
               : mobileRadarState === "received"
-                ? mobilePendingCount >= 40
+                ? agendaReceivedCount >= 40
                   ? "Finalize ou delete para liberar"
                   : "Radar alimentou o Vendas"
                 : "Radar pronto para buscar";
@@ -3840,30 +3889,22 @@ export default function VendasClientPage() {
         ? "warning"
         : runStatus === "completed_insufficient_results" || runStatus === "partial_error"
           ? "partial"
-          : runActive && runDelivered > 0
+          : runActive && agendaReceivedCount > 0
             ? "receiving"
+            : runActive && radarFoundWithoutAgenda
+              ? "syncing"
             : runActive || loading
               ? "syncing"
-              : mobilePendingCount > 0 || runDelivered > 0
+              : agendaReceivedCount > 0
                 ? "active"
                 : "ready";
-    const salesHeaderGoal =
-      salesHeaderState === "warning"
-        ? "Radar precisa de ajuste"
-        : salesHeaderState === "partial"
-          ? `Radar entregou ${radarProgressLabel}`
-          : salesHeaderState === "receiving"
-            ? `Recebendo ${radarProgressLabel}`
-            : salesHeaderState === "syncing"
-              ? "Radar buscando agora"
-              : mobileRadarState === "received"
-                ? `${Math.max(runDelivered, mobilePendingCount)} cards para trabalhar`
-                : `${mobilePendingCount || mobileLeadCount} cards em acompanhamento`;
     const salesHeaderSubtitle =
       mobileRadarState === "ready"
         ? "Receba cards do Radar e acompanhe retornos."
         : mobileRadarState === "searching"
           ? `Buscando em ${radarContextLabel}.`
+          : mobileRadarState === "preparing"
+            ? `Radar encontrou cards em ${radarContextLabel}. Preparando Vendas.`
           : mobileRadarState === "receiving"
             ? `Cards aprovados chegando de ${radarContextLabel}.`
             : mobileRadarState === "partial"
@@ -4432,61 +4473,33 @@ export default function VendasClientPage() {
                 <strong>Vendas</strong>
                 <em>{salesHeaderSubtitle}</em>
               </span>
-              <span className={styles.mobileVendasHeroGoal} aria-hidden="true">
-                <b>✓</b>
-                <span>{salesHeaderGoal}</span>
+              <span className={styles.mobileVendasHeroGoal}>
+                <b>
+                  {mobileRadarState === "searching" ? (
+                    <i />
+                  ) : mobileRadarState === "partial" || mobileRadarState === "warning" ? (
+                    "!"
+                  ) : (
+                    "✓"
+                  )}
+                </b>
+                <span>
+                  <strong>{mobileRadarStatusLabel}</strong>
+                  <em>{mobileRadarStatusText}</em>
+                </span>
               </span>
+              <Link
+                className={styles.mobileVendasHeroAction}
+                href={mobileRadarState === "partial" || mobileRadarState === "warning" ? radarAdjustHref : "/radar-digital"}
+                aria-label={
+                  mobileRadarState === "partial" || mobileRadarState === "warning"
+                    ? "Ajustar Radar Digital"
+                    : "Abrir Radar Digital"
+                }
+              >
+                {mobileRadarState === "partial" || mobileRadarState === "warning" ? "Ajustar Radar" : "Abrir Radar"}
+              </Link>
             </section>
-            <a
-              className={styles.mobileRadarMotorStatus}
-              data-state={mobileRadarState}
-              data-pulse={radarStatusPulseKey}
-              href={mobileRadarState === "partial" || mobileRadarState === "warning" ? radarAdjustHref : "/radar-digital"}
-              aria-label="Abrir Radar Digital"
-            >
-              <span key={`burst-${radarStatusPulseKey}`} className={styles.mobileRadarStatusBurst} aria-hidden="true" />
-              <span key={mobileRadarState} className={styles.mobileRadarMotorIcon} aria-hidden="true">
-                {mobileRadarState === "ready" ? (
-                  <svg viewBox="0 0 24 24">
-                    <path d="M20 6 9 17l-5-5" />
-                  </svg>
-                ) : mobileRadarState === "searching" ? (
-                  <i />
-                ) : mobileRadarState === "receiving" ? (
-                  <svg viewBox="0 0 24 24">
-                    <path d="M7 7h10" />
-                    <path d="M7 12h7" />
-                    <path d="M7 17h4" />
-                    <path d="m15 14 3 3 3-3" />
-                  </svg>
-                ) : mobileRadarState === "partial" || mobileRadarState === "warning" ? (
-                  <svg viewBox="0 0 24 24">
-                    <path d="M12 4 3 20h18L12 4Z" />
-                    <path d="M12 9v5" />
-                    <path d="M12 17h.01" />
-                  </svg>
-                ) : (
-                  <svg viewBox="0 0 24 24">
-                    <path d="M13 5h6v14h-6" />
-                    <path d="M5 7h8" />
-                    <path d="M5 12h8" />
-                    <path d="M5 17h8" />
-                  </svg>
-                )}
-              </span>
-              <span className={styles.mobileRadarMotorDivider} aria-hidden="true" />
-              <span key={`${mobileRadarState}:copy`} className={styles.mobileRadarMotorCopy}>
-                <small>Status do motor - Radar Digital</small>
-                <strong>{mobileRadarStatusLabel}</strong>
-                <em>{mobileRadarStatusText}</em>
-              </span>
-            </a>
-            {mobileRadarState === "partial" || mobileRadarState === "warning" ? (
-              <a className={styles.mobileRadarActionNotice} href={radarAdjustHref}>
-                <strong>Preciso de atenção</strong>
-                <span>Toque para ampliar a busca e completar os cards do Vendas.</span>
-              </a>
-            ) : null}
           </header>
 
           <div className={styles.mobileVendasHeroStats} aria-label="Resumo de Vendas">
@@ -4665,16 +4678,20 @@ export default function VendasClientPage() {
             ) : (
               <div className={`${styles.mobileVendasEmpty} hbx-mobile-empty`}>
                 <strong>
-                  {(board?.summary.total || 0) <= 0
+                  {(board?.summary.total || 0) <= 0 && radarFoundWithoutAgenda
+                    ? "Cards encontrados, preparando sua agenda"
+                    : (board?.summary.total || 0) <= 0
                     ? "Sua lista de abordagem está vazia"
                     : "Nenhum lead disponível agora"}
                 </strong>
                 <span>
-                  {(board?.summary.total || 0) <= 0
+                  {(board?.summary.total || 0) <= 0 && radarFoundWithoutAgenda
+                    ? "O Radar encontrou cards aprovados. Mantenha esta tela aberta enquanto o Vendas sincroniza."
+                    : (board?.summary.total || 0) <= 0
                     ? "Busque empresas no Radar. Os cards aprovados chegam aqui prontos para chamar."
                     : "Troque a guia, limpe a busca ou volte ao Radar para ampliar cidade e segmento."}
                 </span>
-                {(board?.summary.total || 0) <= 0 ? (
+                {(board?.summary.total || 0) <= 0 && !radarFoundWithoutAgenda ? (
                   <Link className="hbx-mobile-primary-button" href="/radar-digital">
                     Buscar cards agora
                   </Link>
