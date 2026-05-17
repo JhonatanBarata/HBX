@@ -14,6 +14,7 @@ type MobileTheme = "light" | "dark";
 type HbxMobileDockProps = {
   primaryHref?: string;
   primaryLabel?: string;
+  primaryTone?: "default" | "danger";
   onPrimaryAction?: () => void;
   onConta?: () => void;
   onRelatorio?: () => void;
@@ -155,6 +156,7 @@ function DockIcon({
 export default function HbxMobileDock({
   primaryHref,
   primaryLabel = "Ação principal",
+  primaryTone = "default",
   onPrimaryAction,
   onConta,
   onRelatorio,
@@ -264,6 +266,7 @@ export default function HbxMobileDock({
           <button
             type="button"
             className="hbx-mobile-dock-primary"
+            data-tone={primaryTone}
             onClick={runPrimaryAction}
             aria-label={primaryLabel}
             title={primaryLabel}

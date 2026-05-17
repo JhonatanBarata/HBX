@@ -149,6 +149,24 @@ function Wait-ComposePostgresReady([int]$retries = 120, [int]$delayMs = 500) {
 	return $false
 }
 
+function Wait-BackendHealth([int]$retries = 120, [int]$delayMs = 500) {
+	for ($i = 0; $i -lt $retries; $i++) {
+		try {
+			$response = Invoke-WebRequest -Uri 'http://127.0.0.1:3000/health' -UseBasicParsing -TimeoutSec 5
+			if ($response.StatusCode -ge 200 -and $response.StatusCode -lt 300) {
+				$payload = $response.Content | ConvertFrom-Json
+				if ($payload.status -eq 'ok' -and $payload.database -eq 'connected') {
+					return $true
+				}
+			}
+		} catch {
+			# keep trying while Nest or Prisma finishes startup
+		}
+		Start-Sleep -Milliseconds $delayMs
+	}
+	return $false
+}
+
 function Test-DockerDaemonReady() {
 	try {
 		$previousErrorActionPreference = $ErrorActionPreference
@@ -237,6 +255,14 @@ if ($backendListenerPid -le 0) {
 	throw "Backend port 3000 is not listening."
 }
 Write-Host "Backend port 3000 is listening."
+
+Write-Host "1.3) Waiting backend health on http://127.0.0.1:3000/health ..."
+if (-not (Wait-BackendHealth -retries 180 -delayMs 500)) {
+	Write-Host "Backend did not pass healthcheck in time."
+	Show-ComposeLogs -services @('backend', 'db') -tail 120
+	throw "Backend healthcheck failed."
+}
+Write-Host "Backend healthcheck passed."
 
 Write-Host "2) Ensuring frontend deps (npm install) ..."
 Push-Location $frontendDir

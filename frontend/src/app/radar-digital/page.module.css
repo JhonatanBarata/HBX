@@ -7107,6 +7107,13 @@
     color: #25395f !important;
   }
 
+  .mobileRadarSubmit[data-tone="danger"] {
+    border-color: rgba(185, 28, 28, 0.82) !important;
+    background: linear-gradient(135deg, #b91c1c, #ef4444) !important;
+    color: #ffffff !important;
+    box-shadow: 0 16px 30px -22px rgba(185, 28, 28, 0.95) !important;
+  }
+
   :global(html[data-hbx-mobile-theme="dark"]) .mobileRadarHero {
     border-color: rgba(255, 214, 102, 0.34) !important;
     background:
@@ -7147,4 +7154,298 @@
     background: rgba(5, 17, 36, 0.7) !important;
     color: #f8fbff !important;
   }
+
+  :global(html[data-theme-mode="dark"]) .mobileRadarHeroCopy small,
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileRadarHeroCopy small {
+    border-color: rgba(255, 214, 102, 0.28) !important;
+    background: rgba(5, 17, 36, 0.78) !important;
+    color: #ffd86a !important;
+    box-shadow:
+      inset 0 1px 0 rgba(255, 214, 102, 0.12),
+      0 12px 24px -20px rgba(255, 196, 69, 0.36) !important;
+  }
+
+  :global(html[data-theme-mode="dark"]) .mobileRadarHeroStat,
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileRadarHeroStat {
+    border-color: rgba(255, 214, 102, 0.24) !important;
+    background: rgba(5, 17, 36, 0.78) !important;
+    box-shadow:
+      inset 0 1px 0 rgba(255, 214, 102, 0.12),
+      0 12px 26px -22px rgba(255, 196, 69, 0.32) !important;
+  }
+
+  :global(html[data-theme-mode="dark"]) .mobileRadarHeroStat strong,
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileRadarHeroStat strong {
+    color: #f8fbff !important;
+  }
+
+  :global(html[data-theme-mode="dark"]) .mobileRadarHeroStat span,
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileRadarHeroStat span {
+    color: rgba(226, 234, 248, 0.68) !important;
+  }
+
+  :global(html[data-theme-mode="dark"]) .mobileGpsButton,
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileGpsButton {
+    border-color: rgba(255, 214, 102, 0.24) !important;
+    background: rgba(5, 17, 36, 0.78) !important;
+    color: #ffd86a !important;
+    box-shadow:
+      inset 0 1px 0 rgba(255, 214, 102, 0.12),
+      0 12px 24px -20px rgba(255, 196, 69, 0.34) !important;
+  }
+}
+:global(html) .dailyQuotaGauge {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 148px;
+  padding: 9px 11px;
+  border: 1px solid rgba(59, 130, 246, 0.18);
+  border-radius: 16px;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.92), rgba(239, 246, 255, 0.78));
+  box-shadow: 0 18px 38px rgba(15, 23, 42, 0.12);
+  color: #0f2557;
+  font-family: var(--font-body, "Plus Jakarta Sans", Inter, "Segoe UI", Roboto, Arial, sans-serif);
+}
+
+.dailyQuotaGauge > b {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  flex: 0 0 42px;
+  border: 1px solid rgba(37, 99, 235, 0.14);
+  border-radius: 14px;
+  background:
+    radial-gradient(circle at 32% 20%, rgba(255, 255, 255, 0.9), transparent 34%),
+    linear-gradient(145deg, rgba(239, 246, 255, 0.98), rgba(219, 234, 254, 0.78));
+  color: #0b3f91;
+  font-size: 16px;
+  font-weight: 800;
+  letter-spacing: 0;
+  line-height: 1;
+}
+
+.dailyQuotaText {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.dailyQuotaText span {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: rgba(15, 37, 87, 0.62);
+}
+
+.dailyQuotaText strong {
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0;
+  color: #0f2557;
+}
+
+.dailyQuotaText small {
+  font-size: 11px;
+  font-weight: 700;
+  color: rgba(15, 37, 87, 0.58);
+}
+
+.dailyQuotaGauge[data-compact="true"] {
+  min-width: 0;
+  width: 100%;
+}
+
+.mobileRadarHero .dailyQuotaGauge[data-compact="true"] {
+  position: absolute !important;
+  z-index: 8 !important;
+  top: auto !important;
+  bottom: 12px !important;
+  right: 8px !important;
+  display: grid !important;
+  place-items: center !important;
+  width: 32px !important;
+  min-width: 32px !important;
+  max-width: 32px !important;
+  height: 32px !important;
+  min-height: 32px !important;
+  max-height: 32px !important;
+  aspect-ratio: 1 / 1 !important;
+  padding: 0 !important;
+  gap: 0 !important;
+  overflow: hidden !important;
+  border-radius: 50% !important;
+  background:
+    radial-gradient(circle at 34% 24%, rgba(255, 255, 255, 0.96), transparent 25%),
+    radial-gradient(circle at 64% 74%, rgba(147, 197, 253, 0.42), transparent 42%),
+    linear-gradient(145deg, rgba(255, 255, 255, 0.98), rgba(219, 234, 254, 0.86)) !important;
+  box-shadow:
+    inset -3px -4px 8px rgba(37, 99, 235, 0.14),
+    inset 2px 2px 7px rgba(255, 255, 255, 0.9),
+    0 0 0 4px rgba(59, 130, 246, 0.12),
+    0 10px 22px -18px rgba(20, 65, 130, 0.84) !important;
+}
+
+.mobileRadarHero .dailyQuotaGauge[data-compact="true"] .dailyQuotaText {
+  display: none;
+}
+
+.mobileRadarHero .dailyQuotaGauge[data-compact="true"] > b {
+  width: auto !important;
+  height: auto !important;
+  min-width: 0 !important;
+  min-height: 0 !important;
+  flex-basis: auto !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  color: #0f4ed8 !important;
+  font-size: 11px !important;
+  font-weight: 800 !important;
+  line-height: 1 !important;
+  z-index: 3 !important;
+}
+
+.radarQuantitySelector {
+  display: grid;
+  gap: 10px;
+  min-width: 190px;
+  padding: 12px;
+  border: 1px solid rgba(59, 130, 246, 0.16);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.74);
+  color: #0f2557;
+  font-family: var(--font-body, "Plus Jakarta Sans", Inter, "Segoe UI", Roboto, Arial, sans-serif);
+}
+
+.radarQuantitySelector[data-compact="true"] {
+  min-width: 0;
+  width: 100%;
+}
+
+.radarQuantitySelector > div:first-child {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.radarQuantitySelector span {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: rgba(15, 37, 87, 0.62);
+}
+
+.radarQuantitySelector strong {
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0;
+  color: #0f2557;
+  white-space: nowrap;
+}
+
+.radarQuantityControls {
+  display: grid;
+  grid-template-columns: 34px minmax(90px, 1fr) 34px;
+  align-items: center;
+  gap: 8px;
+}
+
+.radarQuantityControls button {
+  width: 34px;
+  height: 34px;
+  border: 1px solid rgba(37, 99, 235, 0.18);
+  border-radius: 50%;
+  background: #f8fbff;
+  color: #0f63d7;
+  font-size: 18px;
+  font-weight: 800;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.radarQuantityControls button:disabled {
+  opacity: 0.42;
+  cursor: not-allowed;
+}
+
+.radarQuantityControls input[type="range"] {
+  width: 100%;
+  accent-color: #1478f2;
+}
+
+.radarQuantitySelector[data-disabled="true"] {
+  opacity: 0.72;
+}
+
+:global(html[data-hbx-mobile-theme="dark"]) .dailyQuotaGauge,
+:global(html[data-theme-mode="dark"]) .dailyQuotaGauge {
+  border-color: rgba(96, 165, 250, 0.24);
+  background: linear-gradient(135deg, rgba(15, 23, 42, 0.94), rgba(30, 41, 59, 0.82));
+  color: #eaf2ff;
+  box-shadow: 0 18px 38px rgba(0, 0, 0, 0.32);
+}
+
+:global(html[data-hbx-mobile-theme="dark"]) .dailyQuotaGauge > b,
+:global(html[data-theme-mode="dark"]) .dailyQuotaGauge > b {
+  background:
+    radial-gradient(circle at 32% 20%, rgba(255, 255, 255, 0.08), transparent 34%),
+    linear-gradient(145deg, rgba(30, 41, 59, 0.92), rgba(15, 23, 42, 0.78));
+  border-color: rgba(147, 197, 253, 0.22);
+  color: #bfdbfe;
+}
+
+:global(html[data-hbx-mobile-theme="dark"]) .dailyQuotaText strong,
+:global(html[data-theme-mode="dark"]) .dailyQuotaText strong {
+  color: #f8fbff;
+}
+
+:global(html[data-hbx-mobile-theme="dark"]) .dailyQuotaText span,
+:global(html[data-theme-mode="dark"]) .dailyQuotaText span,
+:global(html[data-hbx-mobile-theme="dark"]) .dailyQuotaText small,
+:global(html[data-theme-mode="dark"]) .dailyQuotaText small {
+  color: rgba(226, 232, 240, 0.68);
+}
+
+:global(html[data-hbx-mobile-theme="dark"]) .radarQuantitySelector,
+:global(html[data-theme-mode="dark"]) .radarQuantitySelector {
+  border-color: rgba(96, 165, 250, 0.2);
+  background: rgba(15, 23, 42, 0.72);
+}
+
+:global(html[data-hbx-mobile-theme="dark"]) .radarQuantityControls button,
+:global(html[data-theme-mode="dark"]) .radarQuantityControls button {
+  border-color: rgba(147, 197, 253, 0.18);
+  background: rgba(30, 41, 59, 0.84);
+  color: #dbeafe;
+}
+
+:global(html[data-hbx-mobile-theme="dark"]) .radarQuantitySelector span,
+:global(html[data-theme-mode="dark"]) .radarQuantitySelector span {
+  color: rgba(226, 232, 240, 0.68);
+}
+
+:global(html[data-hbx-mobile-theme="dark"]) .radarQuantitySelector strong,
+:global(html[data-theme-mode="dark"]) .radarQuantitySelector strong {
+  color: #f8fbff;
+}
+
+:global(html[data-theme-mode="dark"]) .mobileRadar .mobileRadarHero .mobileRadarHeroCopy small,
+:global(html[data-hbx-mobile-theme="dark"]) .mobileRadar .mobileRadarHero .mobileRadarHeroCopy small {
+  border-color: rgba(255, 214, 102, 0.32) !important;
+  background: rgba(4, 15, 31, 0.88) !important;
+  color: #ffd86a !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 214, 102, 0.14),
+    0 12px 24px -18px rgba(255, 196, 69, 0.34) !important;
+}
+
+:global(html[data-theme-mode="dark"]) .mobileRadar .mobileRadarHero .mobileRadarHeroCopy small::before,
+:global(html[data-hbx-mobile-theme="dark"]) .mobileRadar .mobileRadarHero .mobileRadarHeroCopy small::before {
+  background: #ffd86a !important;
+  box-shadow: 0 0 0 5px rgba(255, 216, 106, 0.14) !important;
 }

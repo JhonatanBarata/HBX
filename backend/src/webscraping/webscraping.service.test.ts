@@ -320,6 +320,57 @@ test('buildHbxBatchQueries nao gera query PJ sem nicho', () => {
   assert.equal(queries.every((query) => normalizeQueryForTest(query).includes('oficina')), true);
 });
 
+test('buildHbxBatchAttemptTask percorre cidade, segmento e variacao em ordem', () => {
+  const service = new WebscrapingService(createPrisma()) as any;
+  const normalized = service.normalizeSearchInput({
+    city: 'Americana',
+    state: 'SP',
+    segment: 'açougues, alimentos naturais, bares',
+    radiusKm: 0,
+    quantity: 40,
+    engine: 'hbx',
+    targetType: 'pj',
+  });
+
+  const first = service.buildHbxBatchAttemptTask(normalized, 1);
+  const eighth = service.buildHbxBatchAttemptTask(normalized, 8);
+  const ninth = service.buildHbxBatchAttemptTask(normalized, 9);
+
+  assert.equal(first.input.city, 'Americana');
+  assert.equal(first.input.segment, 'açougues');
+  assert.equal(eighth.input.segment, 'açougues');
+  assert.equal(ninth.input.segment, 'alimentos naturais');
+  assert.equal(first.searchScope.segmentCount, 3);
+});
+
+test('updateSearchRunMetrics preserva metadados de alcance e filtros', async () => {
+  const { prisma, run } = createSearchRunPrisma({
+    metricsJson: JSON.stringify({
+      radiusKm: 100,
+      originLat: -22.74,
+      originLng: -47.33,
+      regionalCities: [{ city: 'Americana', state: 'SP', distanceKm: 0 }],
+      channelFilters: { preferredChannels: ['whatsapp'], channelMatchMode: 'prefer' },
+      salesProfile: { targetSegments: ['açougues'] },
+      status: 'queued',
+    }),
+  });
+  const service = new WebscrapingService(prisma) as any;
+
+  await service.updateSearchRunMetrics(run.id, {
+    status: 'running',
+    increment: { parsedContacts: 2 },
+  });
+  const metrics = JSON.parse((run as any).metricsJson);
+
+  assert.equal(metrics.radiusKm, 100);
+  assert.equal(metrics.regionalCities[0].city, 'Americana');
+  assert.equal(metrics.channelFilters.preferredChannels[0], 'whatsapp');
+  assert.equal(metrics.salesProfile.targetSegments[0], 'açougues');
+  assert.equal(metrics.parsedContacts, 2);
+  assert.equal(metrics.status, 'running');
+});
+
 function normalizeQueryForTest(value: string) {
   return String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
 }

@@ -321,6 +321,11 @@ type RadarSearchRunMetrics = {
   status: string;
 };
 
+type RadarSearchRunMetricsPatch = Partial<RadarSearchRunMetrics> & {
+  increment?: Partial<RadarSearchRunMetrics>;
+  [key: string]: any;
+};
+
 const SEGMENT_STOPWORDS = [
   'empresa',
   'empresas',
@@ -417,6 +422,7 @@ export type WebscrapingSearchFilters = {
   minReviews: number | null;
   onlyWithWebsite: boolean;
   radiusKm?: number;
+  scoreRange?: string | null;
 };
 
 export type WebscrapingContactResult = {
@@ -1481,6 +1487,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       select: {
         id: true,
         status: true,
+        assignedEngineId: true,
       },
     });
     if (!current) throw new NotFoundException('Pesquisa nao encontrada.');
@@ -1492,8 +1499,15 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
           status: 'canceled',
           finishedAt: new Date(),
           errorMessage: 'Pesquisa cancelada pelo usuario.',
+          nextRetryAt: null,
+          assignedEngineId: null,
+          assignedEngineUrl: null,
+          assignedEngineIndex: null,
         },
       });
+      if (current.assignedEngineId) {
+        await this.getEnginePool().releaseEngine(String(current.assignedEngineId)).catch(() => null);
+      }
     }
 
     return this.getSearchRunForUser(user, current.id);
@@ -2266,6 +2280,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       requiredChannels: this.normalizeRadarChannels(channelFilters.requiredChannels),
       channelMatchMode: this.normalizeChannelMatchMode(channelFilters.channelMatchMode),
       qualityMode: String(channelFilters.qualityMode || '').trim() === 'lead_plus' ? 'lead_plus' : 'list',
+      salesProfile: metrics?.salesProfile || null,
     };
   }
 
@@ -2402,6 +2417,124 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       originLng: null,
       regionalCities: [],
     };
+  }
+
+  private buildSingleScopeSearchInput(input: NormalizedSearchInput, target: RegionalCity, segment: string): NormalizedSearchInput {
+    return {
+      ...input,
+      city: target.city,
+      state: target.state,
+      segment,
+      normalizedCity: target.normalizedCity,
+      normalizedSegment: normalizeLookupValue(segment),
+      radiusKm: 0,
+      originLat: null,
+      originLng: null,
+      regionalCities: [],
+    };
+  }
+
+  private buildHbxBatchQueryVariants(input: NormalizedSearchInput, segment: string, target: RegionalCity) {
+    const city = target.city;
+    const state = target.state;
+    const ddd = this.extractDddFromSegment(segment);
+    const { role, niche } = this.parseHbxRoleNiche(segment, input.targetType);
+    const normalizedNiche = normalizeLookupValue(niche);
+    const normalizedRole = normalizeLookupValue(role);
+    const effectiveNiche = normalizedNiche && normalizedNiche !== 'empresa' && normalizedNiche !== normalizedRole
+      ? niche
+      : segment;
+    return input.targetType === 'pj'
+      ? [
+          this.compactQuery([effectiveNiche, city, state, 'empresa']),
+          this.compactQuery([effectiveNiche, city, state, 'maps']),
+          this.compactQuery([effectiveNiche, city, state, 'site']),
+          this.compactQuery([effectiveNiche, city, state, 'instagram']),
+          this.compactQuery([effectiveNiche, city, state, 'facebook']),
+          this.compactQuery([effectiveNiche, city, state, 'whatsapp']),
+          this.compactQuery([effectiveNiche, city, state, 'telefone']),
+          ddd ? this.compactQuery([effectiveNiche, 'DDD', ddd]) : this.compactQuery([effectiveNiche, city, state]),
+        ].filter(Boolean)
+      : [
+          this.compactQuery([role, niche, city, state, 'whatsapp']),
+          this.compactQuery([role, niche, city, state, 'telefone']),
+          this.compactQuery([niche, city, state, 'contato']),
+          this.compactQuery([role, city, state, 'celular']),
+          ddd ? this.compactQuery([role, niche, 'DDD', ddd]) : this.compactQuery([role, niche, city, state]),
+        ].filter(Boolean);
+  }
+
+  private buildHbxBatchQueryTasks(input: NormalizedSearchInput) {
+    const cities = this.getSearchCityTargets(input);
+    const segments = this.splitHbxBatchSegments(input.segment);
+    const tasks: Array<{
+      input: NormalizedSearchInput;
+      query: string;
+      searchScope: Record<string, any>;
+    }> = [];
+    for (const [cityIndex, cityTarget] of cities.entries()) {
+      for (const [segmentIndex, segment] of segments.entries()) {
+        const scopedInput = this.buildSingleScopeSearchInput(input, cityTarget, segment);
+        const variants = Array.from(new Set(this.buildHbxBatchQueryVariants(input, segment, cityTarget))).filter(Boolean);
+        for (const [queryIndex, query] of variants.entries()) {
+          tasks.push({
+            input: scopedInput,
+            query,
+            searchScope: {
+              currentCity: cityTarget.city,
+              currentState: cityTarget.state,
+              currentSegment: segment,
+              cityIndex: cityIndex + 1,
+              cityCount: cities.length,
+              segmentIndex: segmentIndex + 1,
+              segmentCount: segments.length,
+              queryIndex: queryIndex + 1,
+              queryCount: variants.length,
+              taskIndex: tasks.length + 1,
+              taskCount: 0,
+              radiusKm: input.radiusKm,
+              regionalCities: cities.map((item) => ({
+                city: item.city,
+                state: item.state,
+                distanceKm: item.distanceKm,
+              })),
+              selectedSegments: segments,
+            },
+          });
+        }
+      }
+    }
+    for (const task of tasks) {
+      task.searchScope.taskCount = tasks.length;
+    }
+    return tasks;
+  }
+
+  private buildHbxBatchAttemptTask(input: NormalizedSearchInput, attempt: number) {
+    const tasks = this.buildHbxBatchQueryTasks(input);
+    if (!tasks.length) {
+      return {
+        input,
+        query: input.segment,
+        searchScope: {
+          currentCity: input.city,
+          currentState: input.state,
+          currentSegment: input.segment,
+          cityIndex: 1,
+          cityCount: 1,
+          segmentIndex: 1,
+          segmentCount: 1,
+          queryIndex: 1,
+          queryCount: 1,
+          taskIndex: 1,
+          taskCount: 1,
+          radiusKm: input.radiusKm,
+          regionalCities: [],
+          selectedSegments: this.splitHbxBatchSegments(input.segment),
+        },
+      };
+    }
+    return tasks[Math.max(0, attempt - 1) % tasks.length];
   }
 
   private buildHbxBatchQueries(input: NormalizedSearchInput) {
@@ -3053,12 +3186,13 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     for (const [index, result] of results.entries()) {
       const resultCity = String((result as any).city || normalized.city || '').trim();
       const resultState = String((result as any).state || normalized.state || '').trim().toUpperCase();
+      const resultSegment = String((result as any).segment || (result as any).businessCategory || (result as any).category || '').trim() || normalized.segment;
       const classified = this.classifyRunItem(result, dedup, {
         runId,
         index: baseIndex + index,
         city: resultCity,
         state: resultState,
-        segment: normalized.segment,
+        segment: resultSegment,
       });
       const quality = classified.status === 'found'
         ? this.evaluateResultQualityForInput(result as any, normalized)
@@ -3073,7 +3207,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         ? JSON.stringify({ ...result, quality })
         : JSON.stringify(result);
       const segment = finalStatus === 'found'
-        ? normalized.segment || null
+        ? resultSegment || null
         : this.getResultSegmentForRejected(result as any);
       await this.prisma.webscrapingSearchRunItem.create({
         data: {
@@ -3195,23 +3329,26 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     return 'rejectedLowScore';
   }
 
-  private async updateSearchRunMetrics(runId: string, patch: Partial<RadarSearchRunMetrics> & { increment?: Partial<RadarSearchRunMetrics> }) {
+  private async updateSearchRunMetrics(runId: string, patch: RadarSearchRunMetricsPatch) {
     try {
       const delegate = (this.prisma as any).webscrapingSearchRun;
       const current = await delegate.findUnique({
         where: { id: runId },
         select: { metricsJson: true, startedAt: true, finishedAt: true, status: true },
       });
-      const metrics = this.parseSearchRunMetrics(current?.metricsJson);
+      const rawMetrics = this.parseMaybeJsonObject(current?.metricsJson);
+      const metrics = this.parseSearchRunMetrics(rawMetrics);
       for (const [key, value] of Object.entries(patch.increment || {})) {
         if (typeof value === 'number') {
           (metrics as any)[key] = safeInteger((metrics as any)[key]) + safeInteger(value);
         }
       }
-      const next: RadarSearchRunMetrics = {
+      const patchWithoutIncrement = Object.fromEntries(Object.entries(patch).filter(([key]) => key !== 'increment'));
+      const next = {
+        ...rawMetrics,
         ...metrics,
-        ...Object.fromEntries(Object.entries(patch).filter(([key]) => key !== 'increment')),
-      } as RadarSearchRunMetrics;
+        ...patchWithoutIncrement,
+      } as Record<string, any>;
       const startedAt = current?.startedAt instanceof Date ? current.startedAt.getTime() : 0;
       const finishedAt = current?.finishedAt instanceof Date ? current.finishedAt.getTime() : Date.now();
       if (!next.durationMs && startedAt) next.durationMs = Math.max(0, finishedAt - startedAt);
@@ -3498,13 +3635,18 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
 
     const normalized = initialInput || this.normalizeSearchInput(this.buildRunInputFromRow(current));
     const batchLimit = this.getHbxRunBatchLimit(normalized.quantity);
-    const maxAttempts = this.getHbxRunMaxAttempts(normalized.quantity, batchLimit);
-    const maxEmptyBatches = this.getHbxRunMaxEmptyBatches();
+    const queryTaskCount = this.buildHbxBatchQueryTasks(normalized).length;
+    const maxAttempts = Math.max(this.getHbxRunMaxAttempts(normalized.quantity, batchLimit), queryTaskCount);
+    const hasExpandedScope = this.getSearchCityTargets(normalized).length > 1 || this.splitHbxBatchSegments(normalized.segment).length > 1;
+    const maxEmptyBatches = hasExpandedScope
+      ? Math.max(this.getHbxRunMaxEmptyBatches(), Math.min(Math.max(queryTaskCount, 1), 120))
+      : this.getHbxRunMaxEmptyBatches();
     const maxFailedBatches = this.getHbxRunMaxFailedBatches();
     const attempt = safeInteger(current.attemptCount) + 1;
     const quantity = Math.min(batchLimit, Math.max(1, normalized.quantity - safeInteger(current.foundCount)));
-    const attemptInput = this.buildSearchInputForAttempt(normalized, attempt);
-    const queryUsed = this.buildHbxBatchQuery(attemptInput, attempt);
+    const attemptTask = this.buildHbxBatchAttemptTask(normalized, attempt);
+    const attemptInput = attemptTask.input;
+    const queryUsed = attemptTask.query;
     const engineUrl = lease?.url || String(current.assignedEngineUrl || current.lastEngineUrl || this.getHbxScrapingEngineUrl());
 
     try {
@@ -3576,6 +3718,9 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
           errorMessage: `Rodando lote ${attempt}/${maxAttempts}.`,
         },
       });
+      await this.updateSearchRunMetrics(runId, {
+        searchScope: attemptTask.searchScope,
+      }).catch(() => null);
 
       const liveRun = await this.prisma.webscrapingSearchRun.findUnique({
         where: { id: runId },
@@ -3624,6 +3769,11 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
           timeoutMs: this.getHbxBatchTimeoutMs(),
         },
       );
+      const runAfterEngine = await this.prisma.webscrapingSearchRun.findUnique({
+        where: { id: runId },
+        select: { status: true },
+      }).catch(() => null);
+      if (!runAfterEngine || runAfterEngine.status === 'canceled') return;
       await this.updateSearchRunMetrics(runId, {
         engineId: lease?.engineId || current.assignedEngineId || null,
         engineIndex: lease?.engineIndex ?? current.assignedEngineIndex ?? null,
@@ -6523,6 +6673,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       radiusKm: this.normalizeRadiusKm(metrics?.radiusKm),
       originLat: this.normalizeCoordinate(metrics?.originLat),
       originLng: this.normalizeCoordinate(metrics?.originLng),
+      scoreRange: metrics?.scoreRange || null,
       quantity: Math.max(1, safeInteger(run?.targetQuantity)),
       limit: Math.max(100, safeInteger(run?.targetQuantity) * 4),
       engine: 'hbx',
@@ -6534,6 +6685,86 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       qualityMode: channelFilters.qualityMode,
       salesProfile: metrics?.salesProfile || null,
     });
+  }
+
+  private async findRadarPoolRowsForRunItems(companyId: number, items: any[], limit: number) {
+    if (!(await this.supportsRadarPersistence())) return [];
+    const foundItems = (Array.isArray(items) ? items : []).filter((item) => String(item?.status || '') === 'found');
+    const phoneOrder = foundItems.map((item) => normalizePhoneDigits(item?.phoneDigits || item?.phone)).filter(Boolean);
+    const placeOrder = foundItems.map((item) => String(item?.placeId || '').trim()).filter(Boolean);
+    const phoneSet = new Set(phoneOrder);
+    const placeSet = new Set(placeOrder);
+    if (!phoneSet.size && !placeSet.size) return [];
+    const or: any[] = [];
+    if (phoneSet.size) or.push({ phoneDigits: { in: Array.from(phoneSet) } });
+    if (placeSet.size) or.push({ placeId: { in: Array.from(placeSet) } });
+    const rows = await (this.prisma as any).radarLeadPool.findMany({
+      where: { OR: or },
+      take: Math.min(Math.max(limit * 4, 100), 1000),
+      include: {
+        companyStates: {
+          where: { companyId },
+          take: 1,
+          select: {
+            status: true,
+            vendasLeadId: true,
+            lastActionAt: true,
+            noAnswerCount: true,
+            contactedCount: true,
+            lastContactAt: true,
+            complaintReason: true,
+            deniedReason: true,
+            assignedUserId: true,
+            assignedByUserId: true,
+            assignedAt: true,
+          },
+        },
+        events: {
+          where: { OR: [{ companyId }, { companyId: null }] },
+          orderBy: { createdAt: 'desc' },
+          take: 3,
+          select: {
+            id: true,
+            eventType: true,
+            note: true,
+            createdAt: true,
+          },
+        },
+      },
+    }).catch(() => []);
+    const usableRows = rows.filter((row: any) => {
+      const state = Array.isArray(row?.companyStates) && row.companyStates.length ? row.companyStates[0] : null;
+      return !this.isRadarProtectedStatus(state?.status || row?.status);
+    });
+    const byPhone = new Map<string, any>();
+    const byPlace = new Map<string, any>();
+    for (const row of usableRows) {
+      const phone = normalizePhoneDigits(row?.phoneDigits || row?.phone);
+      const placeId = String(row?.placeId || '').trim();
+      if (phone && !byPhone.has(phone)) byPhone.set(phone, row);
+      if (placeId && !byPlace.has(placeId)) byPlace.set(placeId, row);
+    }
+    const ordered: any[] = [];
+    const seen = new Set<string>();
+    for (const item of foundItems) {
+      const phone = normalizePhoneDigits(item?.phoneDigits || item?.phone);
+      const placeId = String(item?.placeId || '').trim();
+      const row = (phone && byPhone.get(phone)) || (placeId && byPlace.get(placeId));
+      if (!row?.id || seen.has(String(row.id))) continue;
+      seen.add(String(row.id));
+      ordered.push(row);
+      if (ordered.length >= limit) break;
+    }
+    return ordered;
+  }
+
+  private summarizeAutoImportFailures(failures: Array<{ reason: string }>) {
+    const counts = new Map<string, number>();
+    for (const failure of failures) {
+      const reason = String(failure.reason || 'erro_desconhecido');
+      counts.set(reason, (counts.get(reason) || 0) + 1);
+    }
+    return Array.from(counts.entries()).map(([reason, count]) => ({ reason, count })).slice(0, 6);
   }
 
   private async syncRadarSearchRunItemsToPool(context: SearchExecutionContext, run: any) {
@@ -6571,20 +6802,39 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       .filter((item: WebscrapingContactResult) => normalizePhoneDigits(item.phoneDigits || item.phone));
 
     if (contacts.some((item) => String(item.source || '') !== 'radar_database')) {
-      await this.persistRadarLeadPoolBatch(normalized, contacts, 'hbx').catch((error: any) => {
-        this.logger.warn(`[radar-run] falha ao sincronizar lote no RadarLeadPool run=${run?.id || '-'}: ${String(error?.message || error)}`);
-      });
+      const groups = new Map<string, WebscrapingContactResult[]>();
+      for (const contact of contacts) {
+        const city = String((contact as any).city || normalized.city || '').trim();
+        const state = String((contact as any).state || normalized.state || '').trim().toUpperCase();
+        const segment = String((contact as any).segment || normalized.segment || '').trim();
+        const key = `${state}|${normalizeLookupValue(city)}|${normalizeLookupValue(segment)}`;
+        const current = groups.get(key) || [];
+        current.push(contact);
+        groups.set(key, current);
+      }
+      for (const groupContacts of groups.values()) {
+        const first = groupContacts[0] as any;
+        const groupInput = this.normalizeSearchInput({
+          city: first.city || normalized.city,
+          state: first.state || normalized.state,
+          segment: first.segment || normalized.segment,
+          quantity: Math.max(1, groupContacts.length),
+          engine: 'hbx',
+          targetType: normalized.targetType,
+          salesProfile: normalized.salesProfile,
+          qualityMode: normalized.qualityMode,
+        });
+        await this.persistRadarLeadPoolBatch(groupInput, groupContacts, 'hbx').catch((error: any) => {
+          this.logger.warn(`[radar-run] falha ao sincronizar lote no RadarLeadPool run=${run?.id || '-'}: ${String(error?.message || error)}`);
+        });
+      }
     }
 
-    const filters = this.buildRadarFiltersFromSearchRun(run);
-    const phoneSet = new Set(contacts.map((item) => normalizePhoneDigits(item.phoneDigits || item.phone)).filter(Boolean));
-    if (!phoneSet.size) return;
-    const rows = await this.queryRadarRowsForCompany(context.companyId, filters, {
-      limit: Math.max(safeInteger(run?.targetQuantity) * 4, 100),
-      requirePhone: true,
-      includeHidden: false,
-    });
-    const rowsInRun = rows.filter((row) => phoneSet.has(normalizePhoneDigits(row?.phoneDigits || row?.phone)));
+    const rowsInRun = await this.findRadarPoolRowsForRunItems(
+      context.companyId,
+      foundItems,
+      Math.max(safeInteger(run?.targetQuantity) * 2, 100),
+    );
     const maxToClaim = Math.max(0, safeInteger(run?.targetQuantity));
     await this.markRadarDelivered(context.companyId, context.userId, rowsInRun.slice(0, maxToClaim)).catch((error: any) => {
       this.logger.warn(`[radar-run] falha ao reservar cards do run=${run?.id || '-'}: ${String(error?.message || error)}`);
@@ -6642,23 +6892,17 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       .map((item: any) => normalizePhoneDigits(item.phoneDigits || item.phone))
       .filter(Boolean);
     if (!runPhoneOrder.length) {
-      return { ran: true, importedCount: 0, pendingCount, remaining };
+      return { ran: true, importedCount: 0, pendingCount, remaining, failures: [] };
     }
-    const runPhoneSet = new Set(runPhoneOrder);
-    const rows = await this.queryRadarRowsForCompany(context.companyId, filters, {
-      limit: Math.max(safeInteger(run.targetQuantity) * 4, 100),
-      requirePhone: true,
-      includeHidden: false,
-    });
-    const rowByPhone = new Map<string, any>();
-    for (const row of rows) {
-      const phone = normalizePhoneDigits(row?.phoneDigits || row?.phone);
-      if (phone && runPhoneSet.has(phone) && !rowByPhone.has(phone)) rowByPhone.set(phone, row);
+    const orderedRows = await this.findRadarPoolRowsForRunItems(
+      context.companyId,
+      foundItems,
+      safeInteger(run.targetQuantity),
+    );
+    const failures: Array<{ reason: string }> = [];
+    if (orderedRows.length < foundItems.length) {
+      failures.push({ reason: 'card_nao_materializado_no_pool' });
     }
-    const orderedRows = runPhoneOrder
-      .map((phone) => rowByPhone.get(phone))
-      .filter(Boolean)
-      .slice(0, safeInteger(run.targetQuantity));
 
     let importedCount = 0;
     let processedCount = 0;
@@ -6668,7 +6912,10 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       if (remaining <= 0) break;
       const state = Array.isArray(row?.companyStates) && row.companyStates.length ? row.companyStates[0] : null;
       const status = this.normalizeRadarLeadStatus(state?.status || row?.status);
-      if (status === 'sent_to_vendas' || this.isRadarProtectedStatus(status)) continue;
+      if (status === 'sent_to_vendas' || this.isRadarProtectedStatus(status)) {
+        failures.push({ reason: status === 'sent_to_vendas' ? 'ja_enviado_para_vendas' : 'estado_protegido' });
+        continue;
+      }
       try {
         const beforeCount = pendingCount;
         await this.importRadarLeadToVendasForUser(user, row.id, { skipWhatsappValidation: true });
@@ -6676,6 +6923,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         pendingCount = await this.getVendasPendingCountForRadarContext(context.companyId);
         importedCount += Math.max(0, pendingCount - beforeCount);
       } catch (error: any) {
+        failures.push({ reason: String(error?.response?.code || error?.code || 'falha_importacao_vendas') });
         this.logger.warn(`[radar-vendas] auto-import ignorou lead=${row?.id || '-'} run=${run.id}: ${String(error?.message || error)}`);
       }
     }
@@ -6696,6 +6944,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       pendingCount: finalPendingCount,
       remaining: Math.max(0, RADAR_VENDAS_PENDING_LIMIT - finalPendingCount),
       blocked: finalPendingCount >= RADAR_VENDAS_PENDING_LIMIT,
+      failures: this.summarizeAutoImportFailures(failures),
     };
   }
 
@@ -6734,28 +6983,14 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       },
     });
     const effectiveRun = freshRun || run;
+    const metrics = parseJsonObject(effectiveRun.metricsJson);
     const filters = this.buildRadarFiltersFromSearchRun(effectiveRun);
     const foundItems = (effectiveRun.items || []).filter((item: any) => this.isRunItemQualityDeliverable(item, filters));
-    const runPhoneOrder = foundItems
-      .map((item: any) => normalizePhoneDigits(item.phoneDigits || item.phone))
-      .filter(Boolean);
-    const runPhoneSet = new Set(runPhoneOrder);
-    const rows = runPhoneSet.size
-      ? await this.queryRadarRowsForCompany(context.companyId, filters, {
-          limit: Math.max(safeInteger(effectiveRun.targetQuantity) * 4, 100),
-          requirePhone: true,
-          includeHidden: false,
-        })
-      : [];
-    const rowByPhone = new Map<string, any>();
-    for (const row of rows) {
-      const phone = normalizePhoneDigits(row?.phoneDigits || row?.phone);
-      if (phone && runPhoneSet.has(phone) && !rowByPhone.has(phone)) rowByPhone.set(phone, row);
-    }
-    const orderedRows = runPhoneOrder
-      .map((phone) => rowByPhone.get(phone))
-      .filter(Boolean)
-      .slice(0, safeInteger(effectiveRun.targetQuantity));
+    const orderedRows = await this.findRadarPoolRowsForRunItems(
+      context.companyId,
+      foundItems,
+      safeInteger(effectiveRun.targetQuantity),
+    );
     const includeSmartFields = await this.canUseRadarSmartLeadFields(context.companyId);
     const whatsappMode = this.radarWhatsappCheckModeByRunId.get(effectiveRun.id) || 'off';
     const whatsapp = await this.applyRadarWhatsappCheck(
@@ -6809,6 +7044,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
           importedCount: safeInteger(effectiveRun.importedCount),
           pendingCount: null,
           remaining: null,
+          failures: [],
         },
         filters: {
           state: filters.state,
@@ -6820,7 +7056,22 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
             state: item.state,
             distanceKm: item.distanceKm,
           })),
+          selectedSegments: this.splitHbxBatchSegments(filters.segment),
           targetType: filters.targetType,
+        },
+        searchScope: metrics?.searchScope || {
+          currentCity: filters.city,
+          currentState: filters.state,
+          currentSegment: this.splitHbxBatchSegments(filters.segment)[0] || filters.segment,
+          cityIndex: 1,
+          cityCount: Math.max(1, filters.regionalCities.length || 1),
+          segmentIndex: 1,
+          segmentCount: Math.max(1, this.splitHbxBatchSegments(filters.segment).length || 1),
+          queryIndex: 0,
+          queryCount: 0,
+          taskIndex: 0,
+          taskCount: 0,
+          radiusKm: filters.radiusKm,
         },
         qualitySummary,
         whatsappCheck: whatsapp.meta,
@@ -6838,8 +7089,25 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     if (!(await this.supportsRadarPersistence())) {
       throw new ServiceUnavailableException('Banco do Radar ainda nao foi migrado neste ambiente.');
     }
-    const vendasCapacity = await this.assertRadarCanFeedVendas(context);
-    filters.quantity = Math.max(1, Math.min(filters.quantity, vendasCapacity.remaining || 1));
+    await this.assertRadarCanFeedVendas(context);
+    if (this.commercialUsageLimits) {
+      const usage = await this.commercialUsageLimits.getUsageSnapshot(context.companyId, context.userId).catch(() => null);
+      const cardLimits = usage ? (usage as any).cards || {} : {};
+      const dailyRemaining = Number(cardLimits.dailyRemaining);
+      const monthlyRemaining = Number(cardLimits.remaining);
+      const perUserRemaining = cardLimits.perUserLimit != null
+        ? Number(cardLimits.userLimit || 0) - Number(cardLimits.userUsed || 0)
+        : monthlyRemaining;
+      const quotaRemaining = Math.min(
+        ...[dailyRemaining, monthlyRemaining, perUserRemaining].filter((value) => Number.isFinite(value)),
+      );
+      if (Number.isFinite(quotaRemaining)) {
+        if (quotaRemaining <= 0) {
+          throw new BadRequestException('Limite diário de cards atingido. O contador reinicia após 00:00.');
+        }
+        filters.quantity = Math.max(1, Math.min(filters.quantity, Math.max(0, Math.trunc(quotaRemaining))));
+      }
+    }
     filters.limit = Math.max(filters.limit, filters.quantity);
 
     const normalized = this.buildNormalizedSearchInputFromRadarFilters(filters);
@@ -6892,11 +7160,33 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
           radiusKm: filters.radiusKm,
           originLat: filters.originLat,
           originLng: filters.originLng,
+          scoreRange: filters.scoreRange,
           regionalCities: filters.regionalCities.map((item) => ({
             city: item.city,
             state: item.state,
             distanceKm: item.distanceKm,
           })),
+          selectedSegments: this.splitHbxBatchSegments(filters.segment),
+          searchScope: {
+            currentCity: filters.city,
+            currentState: filters.state,
+            currentSegment: this.splitHbxBatchSegments(filters.segment)[0] || filters.segment,
+            cityIndex: 1,
+            cityCount: Math.max(1, filters.regionalCities.length || 1),
+            segmentIndex: 1,
+            segmentCount: Math.max(1, this.splitHbxBatchSegments(filters.segment).length || 1),
+            queryIndex: 0,
+            queryCount: 0,
+            taskIndex: 0,
+            taskCount: 0,
+            radiusKm: filters.radiusKm,
+            regionalCities: filters.regionalCities.map((item) => ({
+              city: item.city,
+              state: item.state,
+              distanceKm: item.distanceKm,
+            })),
+            selectedSegments: this.splitHbxBatchSegments(filters.segment),
+          },
           channelFilters: this.buildChannelFiltersJson({
             preferredChannels: filters.preferredChannels,
             requiredChannels: filters.requiredChannels,

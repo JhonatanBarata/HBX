@@ -97,9 +97,13 @@ type RadarSearchRunResponse = {
       state?: string | null;
       city?: string | null;
       segment?: string | null;
+      radiusKm?: number | null;
+      regionalCities?: Array<{ city?: string | null; state?: string | null; distanceKm?: number | null }>;
+      selectedSegments?: string[];
     };
   };
 };
+
 type LeadTimelineEventType =
   | "lead_created"
   | "origin_registered"
@@ -2055,8 +2059,8 @@ function DraggableLeadCard({
 }
 
 function SalesMotionBackground() {
-  const bars = [32, 46, 60, 76, 94];
-  const path = "M34 188 L78 158 L116 158 L156 128 L196 132 L238 92 L292 58";
+  const bars = [32, 46, 60, 76, 94, 112, 130];
+  const path = "M34 188 L58 188 L76 158 L96 170 L112 144 L130 156 L148 130 L166 142 L184 114 L202 126 L220 96 L238 108 L256 78 L274 90 L292 60";
 
   return (
     <div className={styles.salesMotionBackdrop} aria-hidden="true">
@@ -2085,10 +2089,19 @@ function SalesMotionBackground() {
               style={{ animationDelay: `${index * 0.18}s` }}
             />
           ))}
-          <path className={styles.salesMotionLineShadow} d={path} />
           <path className={styles.salesMotionLine} d={path} />
-          <circle className={styles.salesMotionDot} cx="292" cy="58" r="7" />
-          <path className={styles.salesMotionArrow} d="M292 58 l-2 25 l21 -15 z" />
+          {bars.map((height, index) => (
+            <circle
+              key={`hit-${height}`}
+              className={styles.salesMotionHitDot}
+              cx={index * 36 + 76}
+              cy={190 - height}
+              r="4.5"
+              style={{ animationDelay: `${0.72 + index * 0.39}s` }}
+            />
+          ))}
+          <circle className={styles.salesMotionDot} cx="292" cy="60" r="5" />
+          <path className={styles.salesMotionArrow} d="M292 60 l-2 22 l19 -13 z" />
         </g>
         <g className={styles.salesMotionDeals}>
           <circle cx="52" cy="184" r="3" />
@@ -2465,6 +2478,9 @@ export default function VendasClientPage() {
           city: payload.meta?.filters?.city || null,
           state: payload.meta?.filters?.state || null,
           segment: payload.meta?.filters?.segment || null,
+          radiusKm: Number(payload.meta?.filters?.radiusKm ?? 0) || 0,
+          regionalCities: payload.meta?.filters?.regionalCities || null,
+          selectedSegments: payload.meta?.filters?.selectedSegments || null,
           targetQuantity: Number(payload.targetQuantity || payload.meta?.requestedQuantity || 0) || null,
           deliveredCount: Number(payload.meta?.deliveredCount || payload.foundCount || 0) || 0,
         });
@@ -2503,6 +2519,9 @@ export default function VendasClientPage() {
         city: payload.meta?.filters?.city || storedRadarRun?.city || null,
         state: payload.meta?.filters?.state || storedRadarRun?.state || null,
         segment: payload.meta?.filters?.segment || storedRadarRun?.segment || null,
+        radiusKm: Number(payload.meta?.filters?.radiusKm ?? storedRadarRun?.radiusKm ?? 0) || 0,
+        regionalCities: payload.meta?.filters?.regionalCities || storedRadarRun?.regionalCities || null,
+        selectedSegments: payload.meta?.filters?.selectedSegments || storedRadarRun?.selectedSegments || null,
         targetQuantity: Number(payload.targetQuantity || payload.meta?.requestedQuantity || storedRadarRun?.targetQuantity || 0) || null,
         deliveredCount,
       });
@@ -3819,8 +3838,11 @@ export default function VendasClientPage() {
     const runActive = Boolean((liveRadarRun?.runId || storedRadarRun?.runId) && !runTerminal);
     const autoImportPendingCount = Math.max(0, Number(runAutoImport?.pendingCount || 0));
     const autoImportImportedCount = Math.max(0, Number(runAutoImport?.importedCount || 0));
-    const agendaReceivedCount = Math.max(mobilePendingCount, autoImportPendingCount, autoImportImportedCount);
-    const radarFoundWithoutAgenda = runDelivered > 0 && agendaReceivedCount <= 0;
+    const liveAgendaCount = mobilePendingCount;
+    const incomingAgendaCount = runActive ? Math.max(autoImportPendingCount, autoImportImportedCount) : 0;
+    const agendaReceivedCount = liveAgendaCount;
+    const activeAgendaCount = liveAgendaCount > 0 ? liveAgendaCount : incomingAgendaCount;
+    const radarFoundWithoutAgenda = runDelivered > 0 && activeAgendaCount <= 0;
     const runFilters = liveRadarRun?.meta?.filters;
     const radarState = runFilters?.state || storedRadarRun?.state || "";
     const radarCity = runFilters?.city || storedRadarRun?.city || "";
@@ -3839,28 +3861,28 @@ export default function VendasClientPage() {
         : `${runDelivered} ${runDelivered === 1 ? "card recebido" : "cards recebidos"}`;
     const radarContextLabel = [radarCity, radarState].filter(Boolean).join(" / ") || radarSegment || "Radar Digital";
     const mobileRadarState =
-      runStatus === "failed"
+      !runActive && agendaReceivedCount > 0
+        ? "received"
+      : runStatus === "failed"
         ? "warning"
         : runStatus === "completed_insufficient_results" || runStatus === "partial_error"
           ? "partial"
-          : runActive && agendaReceivedCount > 0
+          : runActive && activeAgendaCount > 0
             ? "receiving"
             : runActive && radarFoundWithoutAgenda
               ? "preparing"
             : runActive || loading
               ? "searching"
-              : agendaReceivedCount > 0
-                ? "received"
-                : radarFoundWithoutAgenda
+              : radarFoundWithoutAgenda
                   ? "preparing"
-                : "ready";
+                  : "ready";
     const mobileRadarStatusLabel =
       mobileRadarState === "searching"
         ? "Pesquisando leads"
         : mobileRadarState === "preparing"
           ? `${runDelivered} ${runDelivered === 1 ? "card encontrado" : "cards encontrados"}`
         : mobileRadarState === "receiving"
-          ? `${agendaReceivedCount} ${agendaReceivedCount === 1 ? "card no Vendas" : "cards no Vendas"}`
+          ? `${activeAgendaCount} ${activeAgendaCount === 1 ? "card no Vendas" : "cards no Vendas"}`
           : mobileRadarState === "partial"
             ? radarProgressLabel
             : mobileRadarState === "warning"
@@ -3885,19 +3907,19 @@ export default function VendasClientPage() {
                   : "Radar alimentou o Vendas"
                 : "Radar pronto para buscar";
     const salesHeaderState =
-      runStatus === "failed"
+      !runActive && agendaReceivedCount > 0
+        ? "active"
+      : runStatus === "failed"
         ? "warning"
         : runStatus === "completed_insufficient_results" || runStatus === "partial_error"
           ? "partial"
-          : runActive && agendaReceivedCount > 0
+          : runActive && activeAgendaCount > 0
             ? "receiving"
             : runActive && radarFoundWithoutAgenda
               ? "syncing"
             : runActive || loading
               ? "syncing"
-              : agendaReceivedCount > 0
-                ? "active"
-                : "ready";
+              : "ready";
     const salesHeaderSubtitle =
       mobileRadarState === "ready"
         ? "Receba cards do Radar e acompanhe retornos."

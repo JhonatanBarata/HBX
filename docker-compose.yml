@@ -133,6 +133,12 @@ services:
     networks:
       - hbx_net
     command: sh -lc "npm run prisma:generate && npx prisma migrate deploy --schema=./prisma/schema.prisma && npm run start:dev"
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:3000/health').then((response) => process.exit(response.ok ? 0 : 1)).catch(() => process.exit(1))\""]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
 
   webscraping:
     build:
