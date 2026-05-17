@@ -3751,7 +3751,7 @@ export default function VendasClientPage() {
         : salesHeaderState === "partial"
           ? "Agenda parcialmente abastecida"
           : salesHeaderState === "receiving"
-            ? "Novos cards chegando"
+            ? "Recebendo cards do Radar"
             : salesHeaderState === "syncing"
               ? "Atualizando sua agenda"
               : `${mobilePendingCount || mobileLeadCount} cards em acompanhamento`;
@@ -4315,7 +4315,7 @@ export default function VendasClientPage() {
               <span className={styles.mobileVendasHeroCopy}>
                 <small>HBX</small>
                 <strong>Vendas</strong>
-                <em>Acompanhe retornos em tempo real.</em>
+                <em>Receba cards do Radar e acompanhe retornos.</em>
               </span>
               <span className={styles.mobileVendasHeroGoal} aria-hidden="true">
                 <b>✓</b>
@@ -4502,7 +4502,7 @@ export default function VendasClientPage() {
                 </strong>
                 <span>
                   {(board?.summary.total || 0) <= 0
-                    ? "Busque seus primeiros contatos no Radar Digital e envie para Vendas."
+                    ? "Busque seus primeiros contatos no Radar Digital. Os aprovados chegam aqui para você trabalhar."
                     : "Troque a guia, limpe a busca ou volte ao Radar para ampliar cidade e segmento."}
                 </span>
                 {(board?.summary.total || 0) <= 0 ? (
