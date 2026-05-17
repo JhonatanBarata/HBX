@@ -354,6 +354,7 @@ export function useMasterCommandCenterActions({
         body: JSON.stringify({
           name: draft.name.trim(),
           description: draft.description.trim(),
+          monthlyPrice: Number(draft.monthlyPrice || 0),
           defaultEnabled: draft.defaultEnabled,
         }),
       });
@@ -970,6 +971,81 @@ export function useMasterCommandCenterActions({
     }
   }
 
+  async function saveAndValidateMercadoPagoConfig() {
+    if (!activeCompany || !mercadoPagoDraft) return;
+    const hasNewToken = Boolean(mercadoPagoDraft.mercadoPagoAccessToken.trim());
+    setBusyAction(`mp-save-validate-${activeCompany.id}`);
+    setError(null);
+    try {
+      if (hasNewToken) {
+        await apiFetch(`/companies/master/${activeCompany.id}/mercadopago`, {
+          method: "PATCH",
+          body: JSON.stringify({ mercadoPagoAccessToken: mercadoPagoDraft.mercadoPagoAccessToken.trim() }),
+        });
+      }
+      const payload = await apiFetch<{
+        status: string;
+        statusError: string | null;
+        accountEmail: string | null;
+        accountUserId: string | null;
+        lastValidatedAt: string | null;
+        accessTokenConfigured: boolean;
+      }>(`/companies/master/${activeCompany.id}/mercadopago/validate`, { method: "POST" });
+      setMercadoPagoDraft((current) =>
+        current
+          ? {
+              ...current,
+              mercadoPagoAccessToken: "",
+              status: payload.status,
+              statusError: payload.statusError,
+              accountEmail: payload.accountEmail,
+              accountUserId: payload.accountUserId,
+              lastValidatedAt: payload.lastValidatedAt,
+              accessTokenConfigured: payload.accessTokenConfigured,
+            }
+          : current,
+      );
+      setMessage(hasNewToken ? "Token Mercado Pago salvo e validado." : "Validação Mercado Pago concluída.");
+      await refreshAll(activeCompany.id);
+    } catch (actionError) {
+      setError(actionError instanceof Error ? actionError.message : "Falha ao salvar e validar Mercado Pago.");
+    } finally {
+      setBusyAction(null);
+    }
+  }
+
+  async function validateWhatsAppConfig() {
+    if (!activeCompany) return;
+    setBusyAction(`whatsapp-validate-${activeCompany.id}`);
+    setError(null);
+    try {
+      await apiFetch(`/companies/master/${activeCompany.id}/whatsapp/validate`, { method: "POST" });
+      setMessage("Validação WhatsApp concluída.");
+      await refreshAll(activeCompany.id);
+    } catch (actionError) {
+      setError(actionError instanceof Error ? actionError.message : "Falha ao validar WhatsApp.");
+    } finally {
+      setBusyAction(null);
+    }
+  }
+
+  async function validateWhatsAppEndpoint(endpointId: string) {
+    if (!activeCompany) return;
+    setBusyAction(`whatsapp-endpoint-${endpointId}`);
+    setError(null);
+    try {
+      await apiFetch(`/companies/master/${activeCompany.id}/whatsapp-endpoints/${encodeURIComponent(endpointId)}/validate`, {
+        method: "POST",
+      });
+      setMessage("Endpoint WhatsApp validado.");
+      await refreshAll(activeCompany.id);
+    } catch (actionError) {
+      setError(actionError instanceof Error ? actionError.message : "Falha ao validar endpoint WhatsApp.");
+    } finally {
+      setBusyAction(null);
+    }
+  }
+
   async function setCompanyMasterTokenUsage(next: {
     useMasterMercadoPagoToken?: boolean;
     useMasterWhatsAppToken?: boolean;
@@ -1227,6 +1303,9 @@ export function useMasterCommandCenterActions({
     changeCompanyPlan,
     saveMercadoPagoConfig,
     validateMercadoPagoConfig,
+    saveAndValidateMercadoPagoConfig,
+    validateWhatsAppConfig,
+    validateWhatsAppEndpoint,
     setCompanyMasterTokenUsage,
     importActiveCompanyTokensToMaster,
     saveWhatsAppMigrationWorkflow,

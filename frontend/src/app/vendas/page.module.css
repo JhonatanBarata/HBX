@@ -8915,8 +8915,7 @@
   font-size: 12px;
 }
 
-:global(html[data-hbx-mobile-theme="dark"]) .salesMotionLine,
-:global(html[data-theme-mode="dark"]) .salesMotionLine {
+:global(html[data-hbx-mobile-theme="dark"]) .salesMotionLine {
   stroke: #b8f7ff;
   filter:
     drop-shadow(0 0 5px rgba(255, 255, 255, 0.95))
@@ -8924,11 +8923,8 @@
 }
 
 :global(html[data-hbx-mobile-theme="dark"]) .salesMotionDot,
-:global(html[data-theme-mode="dark"]) .salesMotionDot,
 :global(html[data-hbx-mobile-theme="dark"]) .salesMotionArrow,
-:global(html[data-theme-mode="dark"]) .salesMotionArrow,
-:global(html[data-hbx-mobile-theme="dark"]) .salesMotionHitDot,
-:global(html[data-theme-mode="dark"]) .salesMotionHitDot {
+:global(html[data-hbx-mobile-theme="dark"]) .salesMotionHitDot {
   fill: #c7fbff;
   filter:
     drop-shadow(0 0 5px rgba(255, 255, 255, 0.95))
@@ -9366,7 +9362,6 @@
     -webkit-box-orient: vertical;
   }
 
-  :global(html[data-theme-mode="dark"]) .mobileLeadHeroPremium .mobileLeadScoreBox::before,
   :global(html[data-hbx-mobile-theme="dark"]) .mobileLeadHeroPremium .mobileLeadScoreBox::before {
     background:
       radial-gradient(circle at 34% 24%, rgba(147, 197, 253, 0.2) 0 14%, transparent 25%),
@@ -9378,7 +9373,6 @@
       0 14px 28px -18px rgba(88, 166, 255, 0.65) !important;
   }
 
-  :global(html[data-theme-mode="dark"]) .mobileLeadHeroPremium .mobileLeadScoreBox::after,
   :global(html[data-hbx-mobile-theme="dark"]) .mobileLeadHeroPremium .mobileLeadScoreBox::after {
     border-color: #8cc4ff !important;
     background: #0b2445 !important;
@@ -9387,13 +9381,11 @@
       0 0 14px rgba(88, 166, 255, 0.5) !important;
   }
 
-  :global(html[data-theme-mode="dark"]) .mobileLeadHeroPremium .mobileLeadScoreBox span,
   :global(html[data-hbx-mobile-theme="dark"]) .mobileLeadHeroPremium .mobileLeadScoreBox span {
     color: #bfdbfe !important;
     text-shadow: none !important;
   }
 
-  :global(html[data-theme-mode="dark"]) .mobileLeadHeroPremium .mobileLeadScoreBox strong,
   :global(html[data-hbx-mobile-theme="dark"]) .mobileLeadHeroPremium .mobileLeadScoreBox strong {
     color: #f8fbff !important;
     text-shadow:
@@ -9401,7 +9393,6 @@
       0 1px 0 rgba(0, 0, 0, 0.45) !important;
   }
 
-  :global(html[data-theme-mode="dark"]) .mobileLeadHeroPremium .mobileLeadScoreBox small,
   :global(html[data-hbx-mobile-theme="dark"]) .mobileLeadHeroPremium .mobileLeadScoreBox small {
     color: #86efac !important;
     text-shadow: none !important;

@@ -1868,90 +1868,90 @@
   }
 }
 
-:global(html[data-theme-mode="dark"]) .page {
+:global(html[data-hbx-mobile-theme="dark"]) .page {
   background:
     radial-gradient(circle at 88% 6%, rgba(19, 172, 199, 0.24), transparent 32rem),
     linear-gradient(135deg, #071526 0%, #0a1d32 52%, #07283a 100%);
   color: #edf7ff;
 }
 
-:global(html[data-theme-mode="dark"]) .brandPill,
-:global(html[data-theme-mode="dark"]) .card,
-:global(html[data-theme-mode="dark"]) .heroCard,
-:global(html[data-theme-mode="dark"]) .radarCard,
-:global(html[data-theme-mode="dark"]) .salesCard,
-:global(html[data-theme-mode="dark"]) .successCard,
-:global(html[data-theme-mode="dark"]) .introItem,
-:global(html[data-theme-mode="dark"]) .planCard,
-:global(html[data-theme-mode="dark"]) .innerPanel,
-:global(html[data-theme-mode="dark"]) .leadPreview,
-:global(html[data-theme-mode="dark"]) .salesLead,
-:global(html[data-theme-mode="dark"]) .salesCallouts span,
-:global(html[data-theme-mode="dark"]) .summaryList,
-:global(html[data-theme-mode="dark"]) .compareBox,
-:global(html[data-theme-mode="dark"]) .secondaryButton,
-:global(html[data-theme-mode="dark"]) .field input,
-:global(html[data-theme-mode="dark"]) .radarFields,
-:global(html[data-theme-mode="dark"]) .radarPickers,
-:global(html[data-theme-mode="dark"]) .radarStats,
-:global(html[data-theme-mode="dark"]) .salesMetrics,
-:global(html[data-theme-mode="dark"]) .infoBox,
-:global(html[data-theme-mode="dark"]) .legend,
-:global(html[data-theme-mode="dark"]) .pickerButton,
-:global(html[data-theme-mode="dark"]) .pickerSheet,
-:global(html[data-theme-mode="dark"]) .pickerHeader button,
-:global(html[data-theme-mode="dark"]) .pickerSheet input,
-:global(html[data-theme-mode="dark"]) .pickerList button {
+:global(html[data-hbx-mobile-theme="dark"]) .brandPill,
+:global(html[data-hbx-mobile-theme="dark"]) .card,
+:global(html[data-hbx-mobile-theme="dark"]) .heroCard,
+:global(html[data-hbx-mobile-theme="dark"]) .radarCard,
+:global(html[data-hbx-mobile-theme="dark"]) .salesCard,
+:global(html[data-hbx-mobile-theme="dark"]) .successCard,
+:global(html[data-hbx-mobile-theme="dark"]) .introItem,
+:global(html[data-hbx-mobile-theme="dark"]) .planCard,
+:global(html[data-hbx-mobile-theme="dark"]) .innerPanel,
+:global(html[data-hbx-mobile-theme="dark"]) .leadPreview,
+:global(html[data-hbx-mobile-theme="dark"]) .salesLead,
+:global(html[data-hbx-mobile-theme="dark"]) .salesCallouts span,
+:global(html[data-hbx-mobile-theme="dark"]) .summaryList,
+:global(html[data-hbx-mobile-theme="dark"]) .compareBox,
+:global(html[data-hbx-mobile-theme="dark"]) .secondaryButton,
+:global(html[data-hbx-mobile-theme="dark"]) .field input,
+:global(html[data-hbx-mobile-theme="dark"]) .radarFields,
+:global(html[data-hbx-mobile-theme="dark"]) .radarPickers,
+:global(html[data-hbx-mobile-theme="dark"]) .radarStats,
+:global(html[data-hbx-mobile-theme="dark"]) .salesMetrics,
+:global(html[data-hbx-mobile-theme="dark"]) .infoBox,
+:global(html[data-hbx-mobile-theme="dark"]) .legend,
+:global(html[data-hbx-mobile-theme="dark"]) .pickerButton,
+:global(html[data-hbx-mobile-theme="dark"]) .pickerSheet,
+:global(html[data-hbx-mobile-theme="dark"]) .pickerHeader button,
+:global(html[data-hbx-mobile-theme="dark"]) .pickerSheet input,
+:global(html[data-hbx-mobile-theme="dark"]) .pickerList button {
   background-color: rgba(10, 28, 49, 0.74);
   border-color: rgba(92, 149, 214, 0.42);
   color: #edf7ff;
 }
 
-:global(html[data-theme-mode="dark"]) .header h1,
-:global(html[data-theme-mode="dark"]) .heroCard h2,
-:global(html[data-theme-mode="dark"]) .card h2,
-:global(html[data-theme-mode="dark"]) .salesCard h2,
-:global(html[data-theme-mode="dark"]) .successCard h2,
-:global(html[data-theme-mode="dark"]) .introItem strong,
-:global(html[data-theme-mode="dark"]) .leadPreview strong,
-:global(html[data-theme-mode="dark"]) .salesLead strong,
-:global(html[data-theme-mode="dark"]) .salesCallouts span,
-:global(html[data-theme-mode="dark"]) .summaryRow strong,
-:global(html[data-theme-mode="dark"]) .field input,
-:global(html[data-theme-mode="dark"]) .pickerButton strong,
-:global(html[data-theme-mode="dark"]) .pickerHeader strong,
-:global(html[data-theme-mode="dark"]) .pickerSheet input,
-:global(html[data-theme-mode="dark"]) .chip {
+:global(html[data-hbx-mobile-theme="dark"]) .header h1,
+:global(html[data-hbx-mobile-theme="dark"]) .heroCard h2,
+:global(html[data-hbx-mobile-theme="dark"]) .card h2,
+:global(html[data-hbx-mobile-theme="dark"]) .salesCard h2,
+:global(html[data-hbx-mobile-theme="dark"]) .successCard h2,
+:global(html[data-hbx-mobile-theme="dark"]) .introItem strong,
+:global(html[data-hbx-mobile-theme="dark"]) .leadPreview strong,
+:global(html[data-hbx-mobile-theme="dark"]) .salesLead strong,
+:global(html[data-hbx-mobile-theme="dark"]) .salesCallouts span,
+:global(html[data-hbx-mobile-theme="dark"]) .summaryRow strong,
+:global(html[data-hbx-mobile-theme="dark"]) .field input,
+:global(html[data-hbx-mobile-theme="dark"]) .pickerButton strong,
+:global(html[data-hbx-mobile-theme="dark"]) .pickerHeader strong,
+:global(html[data-hbx-mobile-theme="dark"]) .pickerSheet input,
+:global(html[data-hbx-mobile-theme="dark"]) .chip {
   color: #edf7ff;
 }
 
-:global(html[data-theme-mode="dark"]) .header p,
-:global(html[data-theme-mode="dark"]) .introItem small,
-:global(html[data-theme-mode="dark"]) .lockHint,
-:global(html[data-theme-mode="dark"]) .legend,
-:global(html[data-theme-mode="dark"]) .currentPlan,
-:global(html[data-theme-mode="dark"]) .saveHint,
-:global(html[data-theme-mode="dark"]) .infoBox,
-:global(html[data-theme-mode="dark"]) .field span,
-:global(html[data-theme-mode="dark"]) .chipSection h3,
-:global(html[data-theme-mode="dark"]) .card p,
-:global(html[data-theme-mode="dark"]) .leadPreview p,
-:global(html[data-theme-mode="dark"]) .salesLead p,
-:global(html[data-theme-mode="dark"]) .summaryRow span {
+:global(html[data-hbx-mobile-theme="dark"]) .header p,
+:global(html[data-hbx-mobile-theme="dark"]) .introItem small,
+:global(html[data-hbx-mobile-theme="dark"]) .lockHint,
+:global(html[data-hbx-mobile-theme="dark"]) .legend,
+:global(html[data-hbx-mobile-theme="dark"]) .currentPlan,
+:global(html[data-hbx-mobile-theme="dark"]) .saveHint,
+:global(html[data-hbx-mobile-theme="dark"]) .infoBox,
+:global(html[data-hbx-mobile-theme="dark"]) .field span,
+:global(html[data-hbx-mobile-theme="dark"]) .chipSection h3,
+:global(html[data-hbx-mobile-theme="dark"]) .card p,
+:global(html[data-hbx-mobile-theme="dark"]) .leadPreview p,
+:global(html[data-hbx-mobile-theme="dark"]) .salesLead p,
+:global(html[data-hbx-mobile-theme="dark"]) .summaryRow span {
   color: rgba(205, 225, 246, 0.78);
 }
 
-:global(html[data-theme-mode="dark"]) .pickerButton span {
+:global(html[data-hbx-mobile-theme="dark"]) .pickerButton span {
   color: rgba(205, 225, 246, 0.68);
 }
 
-:global(html[data-theme-mode="dark"]) .summaryRow i,
-:global(html[data-theme-mode="dark"]) .summaryChips b,
-:global(html[data-theme-mode="dark"]) .radarReadyBox::before {
+:global(html[data-hbx-mobile-theme="dark"]) .summaryRow i,
+:global(html[data-hbx-mobile-theme="dark"]) .summaryChips b,
+:global(html[data-hbx-mobile-theme="dark"]) .radarReadyBox::before {
   background: rgba(18, 49, 82, 0.82);
   border-color: rgba(92, 149, 214, 0.42);
 }
 
-:global(html[data-theme-mode="dark"]) .summaryChips b {
+:global(html[data-hbx-mobile-theme="dark"]) .summaryChips b {
   color: #8dc2ff;
 }

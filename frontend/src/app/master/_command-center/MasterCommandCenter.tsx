@@ -506,8 +506,10 @@ function MasterCompanyInspector({
         onOpenWhatsapp={() => actions.navigateOperational(company, "whatsapp")}
       />
       <MasterRealityPanel company={company} actions={actions} state={state} />
+      <MasterCompanyProfilePanel company={company} actions={actions} state={state} />
       <MasterPlanAccessPanel key={`${company.id}-${company.selectedPlanKey || "none"}`} company={company} actions={actions} state={state} />
       <MasterBillingPanel company={company} actions={actions} state={state} />
+      <MasterTrialPanel company={company} actions={actions} state={state} />
       <MasterOperationPanel workspace={workspace} company={company} actions={actions} state={state} />
       <MasterRiskPanel company={company} />
       <MasterDangerZone company={company} actions={actions} state={state} />
@@ -637,6 +639,82 @@ function RealityTile({ label, value, tone }: { label: string; value: string; ton
       <span>{label}</span>
       <strong>{value}</strong>
     </article>
+  );
+}
+
+function MasterCompanyProfilePanel({ company, actions, state }: { company: CompanyDetailPayload["company"]; actions: CommandActions; state: CommandState }) {
+  const draft = state.profileDraft;
+  if (!draft) return null;
+
+  return (
+    <section className={styles.panelSection}>
+      <div className={styles.sectionTitle}>
+        <span>Perfil</span>
+        <h3>Dados comerciais da empresa</h3>
+      </div>
+      <div className={styles.profileForm}>
+        <label>
+          <span>Nome</span>
+          <input value={draft.name} onChange={(event) => actions.setProfileDraft((current) => current ? { ...current, name: event.target.value } : current)} />
+        </label>
+        <label>
+          <span>Responsável</span>
+          <input value={draft.primaryContactName} onChange={(event) => actions.setProfileDraft((current) => current ? { ...current, primaryContactName: event.target.value } : current)} />
+        </label>
+        <label>
+          <span>E-mail</span>
+          <input type="email" value={draft.contactEmail} onChange={(event) => actions.setProfileDraft((current) => current ? { ...current, contactEmail: event.target.value } : current)} />
+        </label>
+        <label>
+          <span>Telefone</span>
+          <input value={draft.contactPhone} onChange={(event) => actions.setProfileDraft((current) => current ? { ...current, contactPhone: event.target.value } : current)} />
+        </label>
+        <label>
+          <span>Documento</span>
+          <input value={draft.taxDocument} onChange={(event) => actions.setProfileDraft((current) => current ? { ...current, taxDocument: event.target.value } : current)} />
+        </label>
+        <label>
+          <span>Método de pagamento</span>
+          <select value={draft.paymentMethod} onChange={(event) => actions.setProfileDraft((current) => current ? { ...current, paymentMethod: event.target.value } : current)}>
+            <option value="NONE">Sem método</option>
+            <option value="CARD">Cartão</option>
+            <option value="PIX">Pix</option>
+            <option value="BOLETO">Boleto</option>
+            <option value="MANUAL">Manual</option>
+          </select>
+        </label>
+        <label>
+          <span>Provider de cobrança</span>
+          <select value={draft.billingProvider} onChange={(event) => actions.setProfileDraft((current) => current ? { ...current, billingProvider: event.target.value } : current)}>
+            <option value="manual">Manual</option>
+            <option value="mercadopago">Mercado Pago</option>
+            <option value="stripe">Stripe</option>
+            <option value="apple">Apple</option>
+            <option value="google">Google</option>
+          </select>
+        </label>
+        <label>
+          <span>Status assinatura</span>
+          <select value={draft.subscriptionStatus} onChange={(event) => actions.setProfileDraft((current) => current ? { ...current, subscriptionStatus: event.target.value } : current)}>
+            <option value="trialing">Trial</option>
+            <option value="active">Ativa</option>
+            <option value="manual">Manual</option>
+            <option value="past_due">Pendente</option>
+            <option value="canceled">Cancelada</option>
+            <option value="expired">Expirada</option>
+          </select>
+        </label>
+        <label className={styles.switchField}>
+          <input type="checkbox" checked={draft.premiumAccess} onChange={(event) => actions.setProfileDraft((current) => current ? { ...current, premiumAccess: event.target.checked } : current)} />
+          <span>Premium manual</span>
+        </label>
+      </div>
+      <div className={styles.actionCluster}>
+        <MasterActionButton onClick={actions.saveProfile} disabled={state.busyAction === `profile-${company.id}`}>
+          {state.busyAction === `profile-${company.id}` ? "Salvando..." : "Salvar perfil"}
+        </MasterActionButton>
+      </div>
+    </section>
   );
 }
 
@@ -795,6 +873,71 @@ function MasterBillingPanel({ company, actions, state }: { company: CompanyDetai
   );
 }
 
+function MasterTrialPanel({ company, actions, state }: { company: CompanyDetailPayload["company"]; actions: CommandActions; state: CommandState }) {
+  const trialBusy = state.busyAction === `trial-${company.id}`;
+  const days = Math.max(1, Math.trunc(Number(state.trialDaysDraft || 14) || 14));
+  const endsAt = state.trialDateDraft ? new Date(`${state.trialDateDraft}T12:00:00`).toISOString() : "";
+
+  return (
+    <section className={styles.panelSection}>
+      <div className={styles.sectionTitle}>
+        <span>Trial</span>
+        <h3>Janela de avaliação</h3>
+      </div>
+      <div className={styles.billingGrid}>
+        <InfoItem label="Início" value={formatDate(company.trialStartsAt)} />
+        <InfoItem label="Fim" value={formatDate(company.trialEndsAt)} />
+        <InfoItem label="Dias restantes" value={company.trialRemainingDays == null ? "-" : String(company.trialRemainingDays)} />
+        <InfoItem label="Status" value={subscriptionLabel(company.subscriptionStatus)} />
+      </div>
+      <div className={styles.inlineForm}>
+        <input
+          type="number"
+          min={1}
+          max={365}
+          value={state.trialDaysDraft}
+          onChange={(event) => actions.setTrialDaysDraft(event.target.value)}
+          placeholder="Dias de trial"
+        />
+        <input
+          type="date"
+          value={state.trialDateDraft}
+          onChange={(event) => actions.setTrialDateDraft(event.target.value)}
+          aria-label="Data final do trial"
+        />
+        <MasterActionButton onClick={() => actions.runTrialAction(company.id, { action: "grant", days }, `Trial concedido por ${days} dias.`)} disabled={trialBusy}>
+          Conceder trial
+        </MasterActionButton>
+        <MasterActionButton variant="secondary" onClick={() => actions.runTrialAction(company.id, { action: "reactivate", days }, `Trial reativado por ${days} dias.`)} disabled={trialBusy}>
+          Reativar trial
+        </MasterActionButton>
+        <MasterActionButton variant="secondary" onClick={() => actions.runTrialAction(company.id, { action: "extend", days }, `Trial estendido por ${days} dias.`)} disabled={trialBusy}>
+          Estender trial
+        </MasterActionButton>
+        <MasterActionButton variant="secondary" onClick={() => endsAt ? actions.runTrialAction(company.id, { action: "set_date", endsAt }, "Data final do trial definida.") : actions.setError("Informe a data final do trial.")} disabled={trialBusy}>
+          Definir data de fim
+        </MasterActionButton>
+        <MasterActionButton
+          variant="danger"
+          onClick={() => actions.setConfirmAction({
+            title: "Encerrar trial",
+            description: `${company.name} perderá o trial agora.`,
+            confirmLabel: "Encerrar trial",
+            tone: "danger",
+            run: async () => {
+              actions.setConfirmAction(null);
+              await actions.runTrialAction(company.id, { action: "end" }, "Trial encerrado.");
+            },
+          })}
+          disabled={trialBusy}
+        >
+          Encerrar trial
+        </MasterActionButton>
+      </div>
+    </section>
+  );
+}
+
 function MasterOperationPanel({
   workspace,
   company,
@@ -894,8 +1037,12 @@ function MasterOperationPanel({
           <div className={styles.operationBody}>
             <div className={styles.operationStats}>
               <InfoItem label="Modo" value={company.whatsappSituation?.mode || company.whatsappCenter.mode} />
+              <InfoItem label="Status atual" value={company.whatsappSituation?.statusLabel || company.whatsappCenter.statusLabel} />
+              <InfoItem label="Número" value={company.whatsapp.masterDisplayNumber || company.whatsappCenter.official.displayNumber || company.whatsapp.endpoints.find((endpoint) => endpoint.isPrimary)?.whatsappDisplayNumber || company.whatsapp.endpoints.find((endpoint) => endpoint.isPrimary)?.whatsappNumber || "-"} />
               <InfoItem label="Token Master" value={company.whatsapp.usingMasterToken ? "Vinculado" : "Token próprio"} />
+              <InfoItem label="Credencial MASTER" value={company.whatsapp.masterCredentialLabel || company.whatsapp.masterCredentialKey || "-"} />
               <InfoItem label="Endpoints" value={String(company.whatsapp.endpoints.length)} />
+              <InfoItem label="Phone ID MASTER" value={company.whatsapp.masterPhoneNumberId || "-"} />
             </div>
             <div className={styles.inlineForm}>
               <select
@@ -911,7 +1058,44 @@ function MasterOperationPanel({
               <MasterActionButton variant="secondary" onClick={() => actions.setCompanyMasterTokenUsage({ useMasterWhatsAppToken: !company.whatsapp.usingMasterToken })}>
                 {company.whatsapp.usingMasterToken ? "Usar token próprio" : "Usar Token MASTER"}
               </MasterActionButton>
+              <MasterActionButton variant="secondary" onClick={actions.validateWhatsAppConfig} disabled={state.busyAction === `whatsapp-validate-${company.id}`}>
+                {state.busyAction === `whatsapp-validate-${company.id}` ? "Validando..." : "Validar WhatsApp"}
+              </MasterActionButton>
               <MasterActionButton variant="secondary" onClick={() => actions.setMasterIntegrationsOpen(true)}>Biblioteca de tokens</MasterActionButton>
+            </div>
+            <div className={styles.endpointList}>
+              {company.whatsapp.endpoints.map((endpoint) => {
+                const canValidate = endpoint.id !== "legacy-primary" && (endpoint.accessTokenConfigured || company.whatsapp.usingMasterToken);
+                return (
+                  <article key={endpoint.id} className={styles.endpointRow} data-active={endpoint.isActive ? "true" : "false"}>
+                    <div>
+                      <strong>{endpoint.label || endpoint.whatsappDisplayNumber || endpoint.whatsappNumber || endpoint.id}</strong>
+                      <span>
+                        {endpoint.moduleKey || "geral"} · {endpoint.isPrimary ? "primário" : "secundário"} · {endpoint.accessTokenConfigured ? "token configurado" : "sem token próprio"}
+                      </span>
+                    </div>
+                    <div>
+                      <MasterStatusBadge tone={String(endpoint.whatsappStatus || "").toUpperCase() === "CONNECTED" ? "good" : endpoint.whatsappStatusError ? "danger" : "warn"}>
+                        {endpoint.whatsappStatus || "Sem status"}
+                      </MasterStatusBadge>
+                      {endpoint.whatsappStatusUpdatedAt ? <small>{formatDateTime(endpoint.whatsappStatusUpdatedAt)}</small> : null}
+                    </div>
+                    <div className={styles.endpointMeta}>
+                      <span>{endpoint.whatsappDisplayNumber || endpoint.whatsappNumber || "Sem número"}</span>
+                      <span>{endpoint.whatsappPhoneNumberId || "Sem Phone ID"}</span>
+                      {endpoint.whatsappStatusError ? <span>{endpoint.whatsappStatusError}</span> : null}
+                    </div>
+                    <MasterActionButton
+                      variant="secondary"
+                      onClick={() => actions.validateWhatsAppEndpoint(endpoint.id)}
+                      disabled={!canValidate || state.busyAction === `whatsapp-endpoint-${endpoint.id}`}
+                    >
+                      {state.busyAction === `whatsapp-endpoint-${endpoint.id}` ? "Validando..." : "Validar endpoint"}
+                    </MasterActionButton>
+                  </article>
+                );
+              })}
+              {!company.whatsapp.endpoints.length ? <MasterEmptyState title="Sem endpoints WhatsApp cadastrados" /> : null}
             </div>
             {state.whatsAppMigrationWorkflowDraft ? (
               <div className={styles.inlineForm}>
@@ -951,8 +1135,14 @@ function MasterOperationPanel({
                 {company.mercadoPago.usingMasterToken ? "Usar token próprio" : "Usar Token MASTER"}
               </MasterActionButton>
               <input value={state.mercadoPagoDraft?.mercadoPagoAccessToken || ""} onChange={(event) => actions.setMercadoPagoDraft((current) => current ? { ...current, mercadoPagoAccessToken: event.target.value } : current)} placeholder="Access token Mercado Pago" />
-              <MasterActionButton variant="secondary" onClick={actions.validateMercadoPagoConfig}>Validar</MasterActionButton>
-              <MasterActionButton onClick={actions.saveMercadoPagoConfig}>Salvar</MasterActionButton>
+              <MasterActionButton
+                variant={state.mercadoPagoDraft?.mercadoPagoAccessToken.trim() ? "primary" : "secondary"}
+                onClick={state.mercadoPagoDraft?.mercadoPagoAccessToken.trim() ? actions.saveAndValidateMercadoPagoConfig : actions.validateMercadoPagoConfig}
+                disabled={state.busyAction === `mp-save-validate-${company.id}` || state.busyAction === `mp-validate-${company.id}`}
+              >
+                {state.mercadoPagoDraft?.mercadoPagoAccessToken.trim() ? "Salvar e validar" : "Validar"}
+              </MasterActionButton>
+              <MasterActionButton variant="secondary" onClick={actions.saveMercadoPagoConfig}>Salvar</MasterActionButton>
             </div>
             {state.mercadoPagoDraft?.statusError ? <div className={styles.alertDanger}>{state.mercadoPagoDraft.statusError}</div> : null}
           </div>
@@ -1529,6 +1719,7 @@ function ModuleCatalogModal({ state, actions }: { state: CommandState; actions: 
           <article key={draft.key} className={styles.catalogRow}>
             <input value={draft.name} onChange={(event) => actions.setModuleCatalogDrafts((current) => ({ ...current, [draft.key]: { ...draft, name: event.target.value } }))} />
             <input value={draft.description} onChange={(event) => actions.setModuleCatalogDrafts((current) => ({ ...current, [draft.key]: { ...draft, description: event.target.value } }))} />
+            <input type="number" min={0} step="0.01" value={draft.monthlyPrice} onChange={(event) => actions.setModuleCatalogDrafts((current) => ({ ...current, [draft.key]: { ...draft, monthlyPrice: event.target.value } }))} placeholder="Preço mensal" />
             <label><input type="checkbox" checked={draft.defaultEnabled} onChange={(event) => actions.setModuleCatalogDrafts((current) => ({ ...current, [draft.key]: { ...draft, defaultEnabled: event.target.checked } }))} /> Padrão</label>
             <MasterActionButton variant="secondary" onClick={() => actions.saveSystemModule(draft.key)}>Salvar</MasterActionButton>
           </article>

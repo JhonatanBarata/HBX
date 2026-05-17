@@ -477,11 +477,15 @@ export type CompanyDetailPayload = {
         label?: string | null;
         moduleKey?: string | null;
         whatsappNumber?: string | null;
+        whatsappPhoneNumberId?: string | null;
+        whatsappWabaId?: string | null;
         whatsappDisplayNumber?: string | null;
         whatsappStatus?: string | null;
         whatsappStatusError?: string | null;
+        whatsappStatusUpdatedAt?: string | null;
         accessTokenConfigured: boolean;
         accessTokenValue?: string | null;
+        accessTokenPreview?: string | null;
         isActive: boolean;
         isPrimary: boolean;
       }>;

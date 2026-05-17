@@ -776,7 +776,6 @@ export class ModulesService implements OnModuleInit {
     if (company?.isActive === false) return 'SUSPENDED';
     if (paymentStatus === 'MANUAL' || subscriptionStatus === 'manual') return 'MANUAL_PREMIUM';
     if (subscriptionStatus === 'authorized') return 'PAYING';
-    if (!paymentMethod || paymentMethod === 'NONE') return 'NO_METHOD';
     if (paymentStatus === 'DISABLED' || paymentStatus === 'EXPIRED' || subscriptionStatus === 'canceled' || subscriptionStatus === 'expired') {
       return 'SUSPENDED';
     }
@@ -786,6 +785,7 @@ export class ModulesService implements OnModuleInit {
       }
       return 'TRIAL';
     }
+    if (!paymentMethod || paymentMethod === 'NONE') return 'NO_METHOD';
     if (paymentStatus === 'OVERDUE' || paymentStatus === 'PENDING' || subscriptionStatus === 'past_due') {
       return 'OVERDUE';
     }
