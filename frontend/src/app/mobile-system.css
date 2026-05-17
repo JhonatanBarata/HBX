@@ -442,6 +442,15 @@
     height: 26px;
   }
 
+  .hbx-mobile-dock-primary[data-tone="danger"] {
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.2), transparent 48%),
+      linear-gradient(135deg, #b91c1c 0%, #ef4444 58%, #fb7185 100%);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.28),
+      0 22px 42px -22px rgba(185, 28, 28, 0.94);
+  }
+
   .hbx-mobile-dock-item:active {
     transform: scale(0.95);
   }

@@ -6,6 +6,9 @@ export type StoredRadarRun = {
   city?: string | null;
   state?: string | null;
   segment?: string | null;
+  radiusKm?: number | null;
+  regionalCities?: Array<{ city?: string | null; state?: string | null; distanceKm?: number | null }> | null;
+  selectedSegments?: string[] | null;
   targetQuantity?: number | null;
   deliveredCount?: number | null;
   updatedAt: number;
@@ -56,6 +59,9 @@ function storedRadarRunHasSameMeaning(left: StoredRadarRun | null, right: Stored
     String(left.city || "") === String(right.city || "") &&
     String(left.state || "") === String(right.state || "") &&
     String(left.segment || "") === String(right.segment || "") &&
+    Number(left.radiusKm || 0) === Number(right.radiusKm || 0) &&
+    JSON.stringify(left.regionalCities || []) === JSON.stringify(right.regionalCities || []) &&
+    JSON.stringify(left.selectedSegments || []) === JSON.stringify(right.selectedSegments || []) &&
     Number(left.targetQuantity || 0) === Number(right.targetQuantity || 0) &&
     Number(left.deliveredCount || 0) === Number(right.deliveredCount || 0)
   );

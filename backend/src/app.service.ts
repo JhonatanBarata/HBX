@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, ServiceUnavailableException } from '@nestjs/common';
 import { PrismaService } from './prisma/prisma.service';
 
 @Injectable()
@@ -11,7 +11,6 @@ export class AppService {
 
   async healthWithDb() {
     try {
-      // Try a simple database query to verify connection
       await this.prisma.$queryRaw`SELECT 1`;
 
       return {
@@ -20,13 +19,12 @@ export class AppService {
         timestamp: new Date().toISOString(),
       };
     } catch (error) {
-      // Database is not available yet (cold start)
-      return {
-        status: 'ok',
+      throw new ServiceUnavailableException({
+        status: 'unavailable',
         database: 'connecting',
         timestamp: new Date().toISOString(),
         error: error instanceof Error ? error.message : 'Database unavailable',
-      };
+      });
     }
   }
 }
