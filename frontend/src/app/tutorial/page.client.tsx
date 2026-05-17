@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { apiFetch, clearApiCache } from "@/app/_lib/api";
 import { fetchMobileOperationalDestination } from "@/app/_lib/mobileOperationalDestination";
@@ -22,6 +23,9 @@ type OnboardingProfile = {
   avoid: string[];
   state: string;
   city: string;
+  radiusKm: number;
+  originLat?: number | null;
+  originLng?: number | null;
   segment: string;
   radarReady: boolean;
 };
@@ -171,9 +175,19 @@ const DEFAULT_PROFILE: OnboardingProfile = {
   avoid: [NO_AVOID_OPTION],
   state: "",
   city: "",
+  radiusKm: 50,
+  originLat: null,
+  originLng: null,
   segment: "",
   radarReady: false,
 };
+
+const RADAR_RADIUS_OPTIONS = [0, 25, 50, 100] as const;
+
+function radarRadiusLabel(value?: number | null) {
+  const radius = Math.max(0, Number(value || 0));
+  return radius > 0 ? `${radius} km` : "Cidade";
+}
 
 function normalizeText(value: unknown) {
   return String(value || "").trim().replace(/\s+/g, " ");
@@ -320,6 +334,63 @@ function planLabel(tier: PlanTier, plans: CommercialPlansPayload | null) {
   return tier === "premium" ? "Premium" : "Leads";
 }
 
+function normalizeLocationLookup(value: unknown) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function resolveBrazilStateUf(value?: string | null) {
+  const raw = normalizeText(value).replace(/^BR-/i, "").toUpperCase();
+  if (BRAZIL_STATES.some((item) => item.uf === raw)) return raw;
+  const normalized = normalizeLocationLookup(value);
+  return BRAZIL_STATES.find((item) => normalizeLocationLookup(item.name) === normalized)?.uf || "";
+}
+
+async function reverseGeocodeCurrentPosition(position: GeolocationPosition) {
+  const latitude = position.coords.latitude;
+  const longitude = position.coords.longitude;
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), 9000);
+  try {
+    const url = new URL("https://api.bigdatacloud.net/data/reverse-geocode-client");
+    url.searchParams.set("latitude", String(latitude));
+    url.searchParams.set("longitude", String(longitude));
+    url.searchParams.set("localityLanguage", "pt-BR");
+    const response = await fetch(url.toString(), { signal: controller.signal });
+    if (!response.ok) throw new Error("Localização indisponível.");
+    const payload = await response.json() as {
+      city?: string | null;
+      locality?: string | null;
+      principalSubdivision?: string | null;
+      principalSubdivisionCode?: string | null;
+    };
+    const state = resolveBrazilStateUf(payload.principalSubdivisionCode || payload.principalSubdivision);
+    const city = normalizeText(payload.city || payload.locality);
+    if (!state || !city) throw new Error("Não consegui identificar cidade e estado.");
+    return { state, city, lat: latitude, lng: longitude };
+  } finally {
+    window.clearTimeout(timeout);
+  }
+}
+
+function getCurrentBrowserPosition() {
+  return new Promise<GeolocationPosition>((resolve, reject) => {
+    if (typeof navigator === "undefined" || !navigator.geolocation) {
+      reject(new Error("Seu navegador não liberou localização."));
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(resolve, reject, {
+      enableHighAccuracy: false,
+      maximumAge: 1000 * 60 * 15,
+      timeout: 10000,
+    });
+  });
+}
+
 function initials(name: string) {
   const value = normalizeText(name);
   if (!value) return "N";
@@ -370,6 +441,58 @@ function avoidPayload(values: string[]) {
   return selected.some((item) => item.toLowerCase() === NO_AVOID_OPTION.toLowerCase()) ? [] : selected;
 }
 
+function buildSalesProfilePayload(nextProfile: OnboardingProfile) {
+  const sells = normalizeText(nextProfile.sells);
+  const targetAudience = uniqueValues(nextProfile.targetAudience);
+  const avoid = uniqueValues(nextProfile.avoid);
+  const persistedTargetAudience = audiencePayload(targetAudience);
+  const persistedAvoid = avoidPayload(avoid);
+  const state = normalizeText(nextProfile.state).toUpperCase();
+  const city = normalizeText(nextProfile.city);
+  const segment = normalizeText(nextProfile.segment);
+
+  return {
+    normalized: {
+      sells,
+      targetAudience: normalizeAudienceSelection(targetAudience),
+      avoid: normalizeAvoidSelection(avoid),
+      state,
+      city,
+      segment,
+    },
+    body: {
+      whatDoYouSell: sells,
+      offerCategory: sells,
+      targetAudience: { labels: persistedTargetAudience },
+      targetSegments: { labels: segment ? [segment] : [] },
+      preferredCities: city ? [city] : [],
+      preferredStates: state ? [state] : [],
+      avoidSegments: {
+        labels: persistedAvoid,
+        hardReject: persistedAvoid.filter((item) => /órgão|orgao|diretório|diretorio|lista|sem telefone|sem whatsapp|fora da cidade/i.test(item)),
+      },
+      preferredChannels: ["whatsapp"],
+      leadPreferences: {
+        preferSmallBusiness: true,
+        preferNoWebsite: true,
+        preferInstagram: false,
+        preferWhatsapp: true,
+        preferHighReviews: true,
+        preferLocalBusiness: true,
+      },
+      negativeRules: {
+        avoidPublicSector: persistedAvoid.some((item) => /órgão|orgao/i.test(item)),
+        avoidLargeCompanies: persistedAvoid.some((item) => /grande/i.test(item)),
+        avoidDirectories: persistedAvoid.some((item) => /diretório|diretorio|lista/i.test(item)),
+        avoidNoPhone: persistedAvoid.some((item) => /sem telefone/i.test(item)),
+        avoidNoWhatsapp: persistedAvoid.some((item) => /sem whatsapp/i.test(item)),
+        avoidOutOfCity: persistedAvoid.some((item) => /fora da cidade/i.test(item)),
+      },
+      weeklyAutoUpdateEnabled: false,
+    },
+  };
+}
+
 type PickerKind = "state" | "city" | "segment";
 
 type PickerOption = {
@@ -396,6 +519,32 @@ function PickerButton({
       <strong>{value || placeholder}</strong>
       <b>⌄</b>
     </button>
+  );
+}
+
+function RadiusSelector({
+  value,
+  onChange,
+}: {
+  value: number;
+  onChange: (value: number) => void;
+}) {
+  return (
+    <div className={styles.radiusSelector} role="radiogroup" aria-label="Alcance regional">
+      <span>Alcance</span>
+      <div>
+        {RADAR_RADIUS_OPTIONS.map((option) => (
+          <button
+            key={option}
+            type="button"
+            data-active={Number(value || 0) === option ? "true" : "false"}
+            onClick={() => onChange(option)}
+          >
+            {radarRadiusLabel(option)}
+          </button>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -601,58 +750,17 @@ function PremiumMark({ large = false }: { large?: boolean }) {
 }
 
 function ChannelIcon({ type }: { type: "whatsapp" | "facebook" | "instagram" | "site" | "phone" | "email" }) {
-  if (type === "whatsapp") {
-    return (
-      <span className={styles.channelIcon} data-channel={type} aria-hidden="true">
-        <svg viewBox="0 0 24 24" focusable="false">
-          <path d="M19.05 4.94A9.8 9.8 0 0 0 12.06 2C6.59 2 2.13 6.46 2.13 11.93c0 1.75.46 3.46 1.32 4.97L2 22l5.27-1.38a9.9 9.9 0 0 0 4.79 1.22h.01c5.47 0 9.93-4.46 9.93-9.93a9.86 9.86 0 0 0-2.95-6.97ZM12.07 20.2h-.01a8.24 8.24 0 0 1-4.2-1.15l-.3-.18-3.13.82.84-3.05-.2-.31a8.2 8.2 0 0 1-1.26-4.4c0-4.53 3.69-8.22 8.24-8.22 2.2 0 4.27.85 5.82 2.4a8.17 8.17 0 0 1 2.4 5.82c0 4.54-3.69 8.23-8.2 8.23Zm4.5-6.15c-.25-.13-1.47-.72-1.7-.8-.23-.08-.4-.12-.57.12-.17.25-.65.8-.8.97-.15.17-.3.19-.56.06-.25-.13-1.06-.39-2.01-1.26-.74-.66-1.24-1.48-1.39-1.73-.15-.25-.02-.38.11-.5.11-.11.25-.3.38-.45.13-.15.17-.25.25-.42.08-.17.04-.31-.02-.44-.06-.13-.57-1.37-.78-1.88-.21-.5-.42-.43-.57-.44l-.49-.01c-.17 0-.44.06-.67.31-.23.25-.88.86-.88 2.1s.9 2.45 1.02 2.62c.13.17 1.77 2.7 4.3 3.79.6.26 1.08.42 1.44.54.61.19 1.16.16 1.6.1.49-.07 1.47-.6 1.68-1.18.21-.58.21-1.08.15-1.18-.06-.1-.23-.17-.48-.3Z" />
-        </svg>
-      </span>
-    );
-  }
-  if (type === "instagram") {
-    return (
-      <span className={styles.channelIcon} data-channel={type} aria-hidden="true">
-        <svg viewBox="0 0 24 24" focusable="false">
-          <rect x="4" y="4" width="16" height="16" rx="5" />
-          <circle cx="12" cy="12" r="3.2" />
-          <circle cx="16.7" cy="7.3" r="1" />
-        </svg>
-      </span>
-    );
-  }
-  if (type === "site") {
-    return (
-      <span className={styles.channelIcon} data-channel={type} aria-hidden="true">
-        <svg viewBox="0 0 24 24" focusable="false">
-          <circle cx="12" cy="12" r="8.5" />
-          <path d="M3.8 12h16.4M12 3.5c2.4 2.5 3.6 5.3 3.6 8.5S14.4 18 12 20.5C9.6 18 8.4 15.2 8.4 12S9.6 6 12 3.5Z" />
-        </svg>
-      </span>
-    );
-  }
-  if (type === "phone") {
-    return (
-      <span className={styles.channelIcon} data-channel={type} aria-hidden="true">
-        <svg viewBox="0 0 24 24" focusable="false">
-          <path d="M6.6 10.8c1.5 3 3.6 5.1 6.6 6.6l2.2-2.2c.3-.3.8-.4 1.2-.2 1.3.4 2.6.7 4 .7.7 0 1.2.5 1.2 1.2v3.5c0 .7-.5 1.2-1.2 1.2C10.8 21.6 2.4 13.2 2.4 3.4c0-.7.5-1.2 1.2-1.2h3.5c.7 0 1.2.5 1.2 1.2 0 1.4.2 2.7.7 4 .1.4 0 .9-.3 1.2l-2.1 2.2Z" />
-        </svg>
-      </span>
-    );
-  }
-  if (type === "email") {
-    return (
-      <span className={styles.channelIcon} data-channel={type} aria-hidden="true">
-        <svg viewBox="0 0 24 24" focusable="false">
-          <rect x="3.5" y="6" width="17" height="12" rx="2" />
-          <path d="m4.5 7.4 7.5 6 7.5-6" />
-        </svg>
-      </span>
-    );
-  }
+  const iconByType = {
+    whatsapp: "/icons/hbx-channels/whatsapp.webp",
+    facebook: "/icons/hbx-channels/facebook.webp",
+    instagram: "/icons/hbx-channels/instagram.webp",
+    site: "/icons/hbx-channels/site_globe.webp",
+    phone: "/icons/hbx-channels/telefone.webp",
+    email: "/icons/hbx-channels/email.webp",
+  } satisfies Record<typeof type, string>;
   return (
     <span className={styles.channelIcon} data-channel={type} aria-hidden="true">
-      f
+      <Image src={iconByType[type]} alt="" width={34} height={34} />
     </span>
   );
 }
@@ -730,6 +838,9 @@ export default function TutorialClientPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [picker, setPicker] = useState<PickerKind | null>(null);
+  const [locating, setLocating] = useState(false);
+  const salesProfileAutosaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const salesProfileAutosaveKeyRef = useRef("");
 
   const currentStep = STEPS[step];
   const planTier = profile.currentPlan;
@@ -760,11 +871,16 @@ export default function TutorialClientPage() {
         ...stored,
         currentPlan: nextPlan,
         name: normalizeText(stored.name) || normalizeText(user?.name || user?.username || user?.email),
-        sells: normalizeText(stored.sells) || effectiveSells,
+        sells: effectiveSells || normalizeText(stored.sells),
         targetAudience: normalizeAudienceSelection(stored.targetAudience, normalizeAudienceSelection(effective.targetAudience)),
         avoid: normalizeAvoidSelection(stored.avoid, normalizeAvoidSelection(effective.avoidSegments)),
         state: normalizeText(stored.state) || uniqueValues(effective.preferredStates, [])[0] || "",
         city: normalizeText(stored.city) || uniqueValues(effective.preferredCities, [])[0] || "",
+        radiusKm: RADAR_RADIUS_OPTIONS.includes(Number(stored.radiusKm) as typeof RADAR_RADIUS_OPTIONS[number])
+          ? Number(stored.radiusKm)
+          : DEFAULT_PROFILE.radiusKm,
+        originLat: typeof stored.originLat === "number" ? stored.originLat : null,
+        originLng: typeof stored.originLng === "number" ? stored.originLng : null,
         segment: normalizeText(stored.segment) || uniqueValues(effective.targetSegments, [])[0] || "",
         radarReady: Boolean(stored.radarReady),
         completed: Boolean(stored.completed),
@@ -785,6 +901,35 @@ export default function TutorialClientPage() {
   useEffect(() => {
     if (!profileHydrated) return;
     saveOnboardingProfile(profile);
+  }, [profile, profileHydrated]);
+
+  useEffect(() => {
+    if (!profileHydrated) return;
+    const { normalized, body } = buildSalesProfilePayload(profile);
+    if (!normalized.sells) return;
+    const autosaveKey = JSON.stringify(body);
+    if (autosaveKey === salesProfileAutosaveKeyRef.current) return;
+    if (salesProfileAutosaveTimerRef.current) clearTimeout(salesProfileAutosaveTimerRef.current);
+    salesProfileAutosaveTimerRef.current = setTimeout(() => {
+      salesProfileAutosaveTimerRef.current = null;
+      salesProfileAutosaveKeyRef.current = autosaveKey;
+      apiFetch<SalesProfileResponse>("/vendas/sales-profile", {
+        method: "PATCH",
+        requireAuth: true,
+        headers: { "x-hbx-onboarding": "mobile" },
+        body: JSON.stringify(body),
+      })
+        .then(() => clearApiCache("/vendas/sales-profile"))
+        .catch(() => {
+          salesProfileAutosaveKeyRef.current = "";
+        });
+    }, 700);
+    return () => {
+      if (salesProfileAutosaveTimerRef.current) {
+        clearTimeout(salesProfileAutosaveTimerRef.current);
+        salesProfileAutosaveTimerRef.current = null;
+      }
+    };
   }, [profile, profileHydrated]);
 
   function updateProfile(patch: Partial<OnboardingProfile>) {
@@ -819,55 +964,21 @@ export default function TutorialClientPage() {
   }
 
   async function persistSalesProfile(nextProfile = profile) {
-    const sells = normalizeText(nextProfile.sells);
+    const { normalized, body } = buildSalesProfilePayload(nextProfile);
+    const sells = normalized.sells;
     if (!sells) {
       setError("Informe o que você vende para avançar.");
       return false;
     }
-    const targetAudience = uniqueValues(nextProfile.targetAudience);
-    const avoid = uniqueValues(nextProfile.avoid);
-    const persistedTargetAudience = audiencePayload(targetAudience);
-    const persistedAvoid = avoidPayload(avoid);
-    const state = normalizeText(nextProfile.state).toUpperCase();
-    const city = normalizeText(nextProfile.city);
-    const segment = normalizeText(nextProfile.segment);
-
     await apiFetch<SalesProfileResponse>("/vendas/sales-profile", {
       method: "PATCH",
       requireAuth: true,
       headers: { "x-hbx-onboarding": "mobile" },
-      body: JSON.stringify({
-        whatDoYouSell: sells,
-        offerCategory: sells,
-        targetAudience: { labels: persistedTargetAudience },
-        targetSegments: { labels: segment ? [segment] : [] },
-        preferredCities: city ? [city] : [],
-        preferredStates: state ? [state] : [],
-        avoidSegments: {
-          labels: persistedAvoid,
-          hardReject: persistedAvoid.filter((item) => /órgão|orgao|diretório|diretorio|lista|sem telefone|sem whatsapp|fora da cidade/i.test(item)),
-        },
-        preferredChannels: ["whatsapp"],
-        leadPreferences: {
-          preferSmallBusiness: true,
-          preferNoWebsite: true,
-          preferInstagram: false,
-          preferWhatsapp: true,
-          preferHighReviews: true,
-          preferLocalBusiness: true,
-        },
-        negativeRules: {
-          avoidPublicSector: persistedAvoid.some((item) => /órgão|orgao/i.test(item)),
-          avoidLargeCompanies: persistedAvoid.some((item) => /grande/i.test(item)),
-          avoidDirectories: persistedAvoid.some((item) => /diretório|diretorio|lista/i.test(item)),
-          avoidNoPhone: persistedAvoid.some((item) => /sem telefone/i.test(item)),
-          avoidNoWhatsapp: persistedAvoid.some((item) => /sem whatsapp/i.test(item)),
-          avoidOutOfCity: persistedAvoid.some((item) => /fora da cidade/i.test(item)),
-        },
-        weeklyAutoUpdateEnabled: false,
-      }),
+      body: JSON.stringify(body),
     });
-    updateProfile({ sells, targetAudience: normalizeAudienceSelection(targetAudience), avoid: normalizeAvoidSelection(avoid), state, city, segment });
+    clearApiCache("/vendas/sales-profile");
+    salesProfileAutosaveKeyRef.current = JSON.stringify(body);
+    updateProfile(normalized);
     return true;
   }
 
@@ -875,6 +986,9 @@ export default function TutorialClientPage() {
     const state = normalizeText(nextProfile.state).toUpperCase();
     const city = normalizeText(nextProfile.city);
     const segment = normalizeText(nextProfile.segment);
+    const radiusKm = RADAR_RADIUS_OPTIONS.includes(Number(nextProfile.radiusKm) as typeof RADAR_RADIUS_OPTIONS[number])
+      ? Number(nextProfile.radiusKm)
+      : DEFAULT_PROFILE.radiusKm;
     if (!state) {
       setError("Informe o estado para preparar o Radar.");
       return false;
@@ -887,9 +1001,9 @@ export default function TutorialClientPage() {
       setError("Informe o segmento para preparar o Radar.");
       return false;
     }
-    const persistedProfile = { ...nextProfile, state, city, segment, radarReady: true };
+    const persistedProfile = { ...nextProfile, state, city, segment, radiusKm, radarReady: true };
     await persistSalesProfile(persistedProfile);
-    updateProfile({ state, city, segment, radarReady: true });
+    updateProfile({ state, city, segment, radiusKm, radarReady: true });
     return true;
   }
 
@@ -897,6 +1011,9 @@ export default function TutorialClientPage() {
     const state = normalizeText(profile.state).toUpperCase();
     const city = normalizeText(profile.city);
     const segment = normalizeText(profile.segment);
+    const radiusKm = RADAR_RADIUS_OPTIONS.includes(Number(profile.radiusKm) as typeof RADAR_RADIUS_OPTIONS[number])
+      ? Number(profile.radiusKm)
+      : DEFAULT_PROFILE.radiusKm;
     const firstSegment = splitRadarSegments(segment)[0] || segment;
     if (!state || !city || !segment) return false;
     const isLeadPlus = profile.currentPlan === "premium";
@@ -905,13 +1022,19 @@ export default function TutorialClientPage() {
     const whatsappCheckMode = isLeadPlus
       ? (wantsWhatsapp || avoidNoWhatsapp ? "only_valid" : "enrich")
       : "off";
+    const { body: rawSalesProfilePayload } = buildSalesProfilePayload(profile);
+    const { preferredCities: _preferredCities, preferredStates: _preferredStates, weeklyAutoUpdateEnabled: _weeklyAutoUpdateEnabled, ...salesProfilePayload } = rawSalesProfilePayload;
     const payload = await apiFetch<RadarSearchRunResponse>("/webscraping/radar/search-runs", {
       method: "POST",
       requireAuth: true,
       timeoutMs: 20000,
       body: JSON.stringify({
+        ...salesProfilePayload,
         state,
         city,
+        radiusKm,
+        originLat: profile.originLat ?? undefined,
+        originLng: profile.originLng ?? undefined,
         segment: firstSegment,
         targetType: "pj",
         engine: "hbx",
@@ -1043,6 +1166,21 @@ export default function TutorialClientPage() {
     }
   }
 
+  async function handleCurrentLocation() {
+    if (locating) return;
+    setLocating(true);
+    setError("");
+    try {
+      const position = await getCurrentBrowserPosition();
+      const location = await reverseGeocodeCurrentPosition(position);
+      updateProfile({ state: location.state, city: location.city, originLat: location.lat, originLng: location.lng });
+    } catch (locationError) {
+      setError(locationError instanceof Error ? locationError.message : "Não consegui usar sua localização agora.");
+    } finally {
+      setLocating(false);
+    }
+  }
+
   const stepContent = useMemo(() => {
     if (step === 0) {
       return (
@@ -1084,13 +1222,17 @@ export default function TutorialClientPage() {
             <Field label="Como quer ser chamado" value={profile.name} placeholder="Seu nome" onChange={(name) => updateProfile({ name })} />
           </section>
           <section className={styles.planSection}>
-            <h3>Entenda seus planos de leads</h3>
             <div className={styles.planGrid}>
               <div className={styles.planCard} data-plan="list" data-active={planTier === "leads"}>
                 <span className={styles.planIcon}>◎</span>
                 <strong>HBX LIST</strong>
                 <small>dados básicos</small>
                 <p>telefone • cidade • segmento</p>
+                <div className={styles.planFeatureGrid} aria-label="Recursos HBX List">
+                  <span>☎ Telefone</span>
+                  <span>⌖ Cidade</span>
+                  <span>▦ Segmento</span>
+                </div>
               </div>
               <div className={styles.planCard} data-plan="premium" data-active={planTier === "premium"}>
                 <span className={styles.planIcon}><PremiumMark large /></span>
@@ -1099,11 +1241,15 @@ export default function TutorialClientPage() {
                   <small>Acesse mais contatos e canais</small>
                   <p>score • motivo • mensagem</p>
                 </div>
+                <div className={styles.premiumMetricStrip} aria-label="Recursos HBX Lead">
+                  <span>Score</span>
+                  <span>Motivo</span>
+                  <span>Msg</span>
+                </div>
                 <PremiumChannelStrip />
               </div>
             </div>
             <p className={styles.currentPlan}>Plano atual: <strong>{resolvedPlanLabel}</strong></p>
-            <p className={styles.saveHint}>Tudo é salvo ao avançar.</p>
           </section>
         </>
       );
@@ -1137,8 +1283,9 @@ export default function TutorialClientPage() {
             <PickerButton label="Cidade" value={profile.city} placeholder="Cidade" disabled={!profile.state} onClick={() => setPicker("city")} />
             <PickerButton label="Segmento" value={radarSegmentSummary(profile.segment)} placeholder="Segmento" onClick={() => setPicker("segment")} />
           </div>
+          <RadiusSelector value={profile.radiusKm} onChange={(radiusKm) => updateProfile({ radiusKm })} />
           <div className={styles.searchPreview}>
-            Buscar cards
+            Buscar cards em {radarRadiusLabel(profile.radiusKm)}
           </div>
           <div className={styles.radarStats}>
             <div><span>Encontrados</span><strong>25</strong></div>
@@ -1207,6 +1354,7 @@ export default function TutorialClientPage() {
       { icon: "group", label: "Para quem vender", chips: profile.targetAudience.length ? profile.targetAudience : ["-"] },
       { icon: "shield", label: "O que evitar", chips: profile.avoid.length ? profile.avoid : ["-"] },
       { icon: "pin", label: "Cidade", value: [profile.city, profile.state].filter(Boolean).join("/") || "-" },
+      { icon: "radar", label: "Alcance", value: radarRadiusLabel(profile.radiusKm) },
       { icon: "target", label: "Segmento", value: profile.segment || "-" },
     ];
 
@@ -1260,6 +1408,18 @@ export default function TutorialClientPage() {
     <main className={styles.page} data-direction={direction}>
       <section className={styles.shell} data-step={step} aria-labelledby="tutorial-title">
         <div className={styles.brandPill}>HBX Mobile</div>
+        {step === 3 ? (
+          <button
+            type="button"
+            className={styles.gpsButton}
+            data-loading={locating ? "true" : "false"}
+            onClick={() => void handleCurrentLocation()}
+            aria-label="Usar minha localização"
+            title="Usar minha localização"
+          >
+            <span aria-hidden="true" />
+          </button>
+        ) : null}
         <div className={styles.progressWrap} aria-label={`Progresso ${step + 1} de ${STEPS.length}`}>
           <div className={styles.progressBars}>
             {STEPS.map((item, index) => (
@@ -1280,7 +1440,6 @@ export default function TutorialClientPage() {
           </h1>
           <p>
             {step === 0 ? "Conta, Perfil, Radar e Vendas. Leva menos de 2 minutos." : null}
-            {step === 1 ? "Seu nome e plano. Só isso." : null}
             {step === 2 ? "Defina o que vender, para quem e o que evitar." : null}
             {step === 3 ? "O Radar encontra cards e separa o que vale a pena." : null}
             {step === 4 ? "Chame, faça retorno e avance no funil." : null}

@@ -284,6 +284,40 @@ test('LeadQualityV2 Lead+ entrega clinica boa com WhatsApp confirmado e fit corr
   assert.ok(quality.finalRankScore >= 68);
 });
 
+test('LeadQualityV2 nao bloqueia card bom quando publico-alvo nao tem evidencia forte', () => {
+  const quality = calculateLeadQualityV2({
+    lead: {
+      name: 'Clínica Boa Vida',
+      phoneDigits: '19999990001',
+      city: 'Campinas',
+      state: 'SP',
+      address: 'Rua Dois, 200',
+      segment: 'clínica médica',
+      website: 'https://clinicaboavida.com.br',
+      websiteStatus: 'present',
+      whatsappStatus: 'confirmed',
+      rating: 4.9,
+      reviews: 160,
+    },
+    context: {
+      requestedSegment: 'clinica',
+      qualityMode: 'lead_plus',
+      salesProfile: {
+        qualityMode: 'lead_plus',
+        whatDoYouSell: 'software para clínicas',
+        targetAudience: ['restaurantes e bares'],
+        targetSegments: ['clínicas médicas'],
+        preferredChannels: ['whatsapp'],
+      },
+    },
+  });
+
+  assert.notEqual(quality.decision, 'discard');
+  assert.notEqual(quality.decision, 'protect');
+  assert.ok(quality.finalRankScore >= 60);
+  assert.match(quality.reasons.join(' '), /sem evidencia forte/i);
+});
+
 test('LeadQualityV2 Lead+ manda para review quando email e provavel e WhatsApp ausente', () => {
   const quality = calculateLeadQualityV2({
     lead: {

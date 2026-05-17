@@ -590,6 +590,7 @@ function HBXLogoutScreen() {
   );
 }
 
+
 function TechRobot() {
   return (
     <svg width="245" height="245" viewBox="0 0 245 245" fill="none" className="hbx-logout-robot" aria-hidden="true">

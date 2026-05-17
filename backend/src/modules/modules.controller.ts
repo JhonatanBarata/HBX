@@ -93,6 +93,23 @@ class UpdateMasterBillingPolicyDto {
   referralDiscountMode?: string;
 }
 
+class UpdateVendasComplaintDto {
+  @IsOptional()
+  @IsIn(['new', 'reviewing', 'refunded', 'denied', 'resolved'])
+  status?: string;
+
+  @IsOptional()
+  @IsString()
+  internalNote?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(100)
+  refundCards?: number;
+}
+
 class UpdateCompanyMasterTokenUsageDto {
   @IsOptional()
   @Type(() => Boolean)
@@ -327,6 +344,29 @@ export class ModulesController {
   @UseGuards(JwtAuthGuard, MasterGuard)
   getMasterWorkspace(@Req() req: any) {
     return this.modulesService.getMasterWorkspace(Number(req.user?.id));
+  }
+
+  @Get('master/vendas-complaints')
+  @UseGuards(JwtAuthGuard, MasterGuard)
+  listMasterVendasComplaints(
+    @Req() req: any,
+    @Query('status') status?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.modulesService.listMasterVendasComplaints(Number(req.user?.id), {
+      status,
+      limit: Number(limit || 0) || undefined,
+    });
+  }
+
+  @Patch('master/vendas-complaints/:complaintId')
+  @UseGuards(JwtAuthGuard, MasterGuard)
+  updateMasterVendasComplaint(
+    @Req() req: any,
+    @Param('complaintId') complaintId: string,
+    @Body() dto: UpdateVendasComplaintDto,
+  ) {
+    return this.modulesService.updateMasterVendasComplaint(Number(req.user?.id), complaintId, dto || {});
   }
 
   @Get('master/system-modules')

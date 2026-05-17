@@ -4,7 +4,9 @@ import {
   ForbiddenException,
   HttpException,
   HttpStatus,
+  Inject,
   Injectable,
+  forwardRef,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CompaniesService } from '../companies/companies.service';
@@ -70,6 +72,7 @@ export class CommercialPlansService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly masterContextService: MasterContextService,
+    @Inject(forwardRef(() => CompaniesService))
     private readonly companiesService: CompaniesService,
   ) {}
 

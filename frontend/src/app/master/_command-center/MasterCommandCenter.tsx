@@ -2,6 +2,7 @@
 
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
+import { apiFetch } from "@/app/_lib/api";
 import type {
   CompanyDetailPayload,
   CompanyIntegrationConnection,
@@ -47,6 +48,45 @@ import styles from "./MasterCommandCenter.module.css";
 type CommandActions = ReturnType<typeof useMasterCommandCenterActions>["actions"];
 type CommandState = ReturnType<typeof useMasterCommandCenterActions>["state"];
 
+type VendasComplaintStatus = "new" | "reviewing" | "refunded" | "denied" | "resolved";
+
+type VendasComplaint = {
+  id: string;
+  companyId: number;
+  companyName: string;
+  userName?: string | null;
+  userEmail?: string | null;
+  vendasLeadId?: string | null;
+  radarLeadId?: string | null;
+  leadName?: string | null;
+  leadPhone?: string | null;
+  leadCity?: string | null;
+  leadState?: string | null;
+  leadSegment?: string | null;
+  reason: string;
+  status: VendasComplaintStatus;
+  refundedCards: number;
+  internalNote?: string | null;
+  createdAt: string;
+  resolvedAt?: string | null;
+  contactPhone?: string | null;
+  contactWhatsappUrl?: string | null;
+};
+
+type VendasComplaintPayload = {
+  ok: boolean;
+  items: VendasComplaint[];
+  summary: Record<string, number>;
+};
+
+const VENDAS_COMPLAINT_STATUS_LABELS: Record<VendasComplaintStatus, string> = {
+  new: "Novo",
+  reviewing: "Em análise",
+  refunded: "Reembolsado",
+  denied: "Negado",
+  resolved: "Resolvido",
+};
+
 function featureLabel(value: string) {
   const normalized = String(value || "").trim();
   const labels: Record<string, string> = {
@@ -81,6 +121,13 @@ export default function MasterCommandCenter(props: MasterCommandCenterProps) {
   const { workspace, currentUser, loading, refreshing, initialCompanyId, initialSection, initialPanel, onReload, setWorkspace, setCurrentUser } = props;
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<MasterCommandFilterId>(() => initialFilterFromSection(initialSection));
+  const [complaintsOpen, setComplaintsOpen] = useState(false);
+  const [complaintsLoading, setComplaintsLoading] = useState(false);
+  const [complaintsError, setComplaintsError] = useState<string | null>(null);
+  const [complaints, setComplaints] = useState<VendasComplaint[]>([]);
+  const [complaintNotes, setComplaintNotes] = useState<Record<string, string>>({});
+  const [complaintRefunds, setComplaintRefunds] = useState<Record<string, string>>({});
+  const [complaintBusyId, setComplaintBusyId] = useState<string | null>(null);
   const deferredSearch = useDeferredValue(search);
   const deepLinkHandled = useRef<string | null>(null);
   const initialPanelHandled = useRef<string | null>(null);
@@ -117,6 +164,45 @@ export default function MasterCommandCenter(props: MasterCommandCenterProps) {
   );
   const kpis = useMemo(() => buildCommandKpis(companies), [companies]);
 
+  async function loadComplaints() {
+    setComplaintsLoading(true);
+    setComplaintsError(null);
+    try {
+      const payload = await apiFetch<VendasComplaintPayload>("/modules/master/vendas-complaints?limit=100");
+      const items = payload.items || [];
+      setComplaints(items);
+      setComplaintNotes(Object.fromEntries(items.map((item) => [item.id, item.internalNote || ""])));
+      setComplaintRefunds(Object.fromEntries(items.map((item) => [item.id, String(item.refundedCards || 1)])));
+    } catch (error) {
+      setComplaintsError(error instanceof Error ? error.message : "Falha ao carregar reclamações.");
+    } finally {
+      setComplaintsLoading(false);
+    }
+  }
+
+  async function updateComplaint(complaint: VendasComplaint, patch: { status?: VendasComplaintStatus; refundCards?: number }) {
+    setComplaintBusyId(complaint.id);
+    setComplaintsError(null);
+    try {
+      const payload = await apiFetch<VendasComplaintPayload>(`/modules/master/vendas-complaints/${encodeURIComponent(complaint.id)}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          ...patch,
+          internalNote: complaintNotes[complaint.id] || "",
+        }),
+      });
+      const items = payload.items || [];
+      setComplaints(items);
+      setComplaintNotes(Object.fromEntries(items.map((item) => [item.id, item.internalNote || ""])));
+      setComplaintRefunds(Object.fromEntries(items.map((item) => [item.id, String(item.refundedCards || 1)])));
+      void onReload(true);
+    } catch (error) {
+      setComplaintsError(error instanceof Error ? error.message : "Falha ao atualizar reclamação.");
+    } finally {
+      setComplaintBusyId(null);
+    }
+  }
+
   return (
     <MasterShell>
       <MasterTopCommandBar
@@ -129,6 +215,10 @@ export default function MasterCommandCenter(props: MasterCommandCenterProps) {
         onReload={() => void onReload(true)}
         onCreateCompany={() => actions.setCreateCompanyOpen(true)}
         onOpenEmail={() => actions.setMasterEmailOpen(true)}
+        onOpenComplaints={() => {
+          setComplaintsOpen(true);
+          void loadComplaints();
+        }}
         onOpenTokens={() => actions.setMasterIntegrationsOpen(true)}
         onOpenModules={() => actions.setModuleCatalogOpen(true)}
         onExitContext={actions.exitContext}
@@ -166,6 +256,20 @@ export default function MasterCommandCenter(props: MasterCommandCenterProps) {
       <ManualPaymentModal state={state} actions={actions} />
       <ConfirmActionModal state={state} actions={actions} />
       <MasterIntegrationsModal state={state} actions={actions} />
+      <VendasComplaintsModal
+        open={complaintsOpen}
+        complaints={complaints}
+        loading={complaintsLoading}
+        error={complaintsError}
+        notes={complaintNotes}
+        refunds={complaintRefunds}
+        busyId={complaintBusyId}
+        onClose={() => setComplaintsOpen(false)}
+        onReload={() => void loadComplaints()}
+        onNoteChange={(id, value) => setComplaintNotes((current) => ({ ...current, [id]: value }))}
+        onRefundChange={(id, value) => setComplaintRefunds((current) => ({ ...current, [id]: value }))}
+        onUpdate={updateComplaint}
+      />
       <MasterEmailModal state={state} actions={actions} />
       <ModuleCatalogModal state={state} actions={actions} />
     </MasterShell>
@@ -186,6 +290,7 @@ function MasterTopCommandBar({
   onReload,
   onCreateCompany,
   onOpenEmail,
+  onOpenComplaints,
   onOpenTokens,
   onOpenModules,
   onExitContext,
@@ -199,6 +304,7 @@ function MasterTopCommandBar({
   onReload: () => void;
   onCreateCompany: () => void;
   onOpenEmail: () => void;
+  onOpenComplaints: () => void;
   onOpenTokens: () => void;
   onOpenModules: () => void;
   onExitContext: () => void;
@@ -240,6 +346,7 @@ function MasterTopCommandBar({
       <div className={styles.commandActions}>
         <MasterActionButton onClick={onCreateCompany}>Nova empresa</MasterActionButton>
         <MasterActionButton variant="secondary" onClick={onOpenEmail}>Email</MasterActionButton>
+        <MasterActionButton variant="secondary" onClick={onOpenComplaints}>Reclamações</MasterActionButton>
         <MasterActionButton variant="secondary" onClick={onOpenTokens}>Tokens MASTER</MasterActionButton>
         <MasterActionButton variant="secondary" onClick={onOpenModules}>Módulos</MasterActionButton>
         <MasterActionButton variant="secondary" onClick={onReload}>{refreshing ? "Atualizando..." : "Atualizar"}</MasterActionButton>
@@ -557,7 +664,7 @@ function MasterPlanAccessPanel({ company, actions, state }: { company: CompanyDe
             type="button"
             className={styles.planCard}
             data-active={targetPlan === plan.key ? "true" : "false"}
-            aria-selected={targetPlan === plan.key ? "true" : "false"}
+            aria-pressed={targetPlan === plan.key ? "true" : "false"}
             onClick={() => setTargetPlan(plan.key)}
           >
             <span>{plan.badge}</span>
@@ -1229,6 +1336,130 @@ function MasterIntegrationsModal({ state, actions }: { state: CommandState; acti
           <MasterActionButton variant="secondary" onClick={actions.saveMasterBillingPolicy}>Salvar política financeira</MasterActionButton>
           <MasterActionButton onClick={actions.saveMasterIntegrations}>Salvar credenciais</MasterActionButton>
         </div>
+      </div>
+    </Modal>
+  );
+}
+
+function VendasComplaintsModal({
+  open,
+  complaints,
+  loading,
+  error,
+  notes,
+  refunds,
+  busyId,
+  onClose,
+  onReload,
+  onNoteChange,
+  onRefundChange,
+  onUpdate,
+}: {
+  open: boolean;
+  complaints: VendasComplaint[];
+  loading: boolean;
+  error: string | null;
+  notes: Record<string, string>;
+  refunds: Record<string, string>;
+  busyId: string | null;
+  onClose: () => void;
+  onReload: () => void;
+  onNoteChange: (id: string, value: string) => void;
+  onRefundChange: (id: string, value: string) => void;
+  onUpdate: (complaint: VendasComplaint, patch: { status?: VendasComplaintStatus; refundCards?: number }) => void;
+}) {
+  const summary = useMemo(() => ({
+    new: complaints.filter((item) => item.status === "new").length,
+    reviewing: complaints.filter((item) => item.status === "reviewing").length,
+    refunded: complaints.filter((item) => item.status === "refunded").length,
+    denied: complaints.filter((item) => item.status === "denied").length,
+    resolved: complaints.filter((item) => item.status === "resolved").length,
+  }), [complaints]);
+
+  return (
+    <Modal open={open} title="Reclamações de cards" onClose={onClose} wide>
+      <div className={styles.complaintQueue}>
+        <div className={styles.complaintToolbar}>
+          <div>
+            <strong>{complaints.length} reclamação(ões)</strong>
+            <span>
+              Novas {summary.new} · Em análise {summary.reviewing} · Reembolsadas {summary.refunded}
+            </span>
+          </div>
+          <MasterActionButton variant="secondary" onClick={onReload} disabled={loading}>
+            {loading ? "Atualizando..." : "Atualizar"}
+          </MasterActionButton>
+        </div>
+        {error ? <div className={styles.alertDanger}>{error}</div> : null}
+        {!loading && !complaints.length ? (
+          <div className={styles.emptyState}>Nenhuma reclamação de card por enquanto.</div>
+        ) : null}
+        {complaints.map((complaint) => {
+          const busy = busyId === complaint.id;
+          const refundValue = Math.max(1, Math.trunc(Number(refunds[complaint.id] || complaint.refundedCards || 1) || 1));
+          return (
+            <article key={complaint.id} className={styles.complaintCard} data-status={complaint.status}>
+              <header>
+                <div>
+                  <span>{VENDAS_COMPLAINT_STATUS_LABELS[complaint.status]}</span>
+                  <strong>{complaint.leadName || "Card sem nome"}</strong>
+                  <small>
+                    {complaint.companyName} · {formatDateTime(complaint.createdAt)}
+                  </small>
+                </div>
+                {complaint.contactWhatsappUrl ? (
+                  <a href={complaint.contactWhatsappUrl} target="_blank" rel="noreferrer">
+                    Chamar cliente
+                  </a>
+                ) : null}
+              </header>
+              <p>{complaint.reason}</p>
+              <div className={styles.complaintMetaGrid}>
+                <span>Lead: {complaint.leadPhone || "sem telefone"}</span>
+                <span>{[complaint.leadCity, complaint.leadState].filter(Boolean).join("/") || "sem cidade"}</span>
+                <span>{complaint.leadSegment || "sem segmento"}</span>
+                <span>{complaint.userName || complaint.userEmail || "usuário não identificado"}</span>
+              </div>
+              <textarea
+                value={notes[complaint.id] || ""}
+                onChange={(event) => onNoteChange(complaint.id, event.target.value)}
+                placeholder="Nota interna para análise/reembolso"
+              />
+              <div className={styles.complaintActions}>
+                <select
+                  value={complaint.status}
+                  onChange={(event) => onUpdate(complaint, { status: event.target.value as VendasComplaintStatus })}
+                  disabled={busy}
+                >
+                  {Object.entries(VENDAS_COMPLAINT_STATUS_LABELS).map(([value, label]) => (
+                    <option key={value} value={value}>{label}</option>
+                  ))}
+                </select>
+                <input
+                  type="number"
+                  min={1}
+                  max={100}
+                  value={refunds[complaint.id] || String(complaint.refundedCards || 1)}
+                  onChange={(event) => onRefundChange(complaint.id, event.target.value)}
+                  aria-label="Cards para reembolsar"
+                />
+                <MasterActionButton
+                  variant="secondary"
+                  onClick={() => onUpdate(complaint, { status: complaint.status })}
+                  disabled={busy}
+                >
+                  Salvar análise
+                </MasterActionButton>
+                <MasterActionButton
+                  onClick={() => onUpdate(complaint, { status: "refunded", refundCards: refundValue })}
+                  disabled={busy}
+                >
+                  {busy ? "Processando..." : "Reembolsar card"}
+                </MasterActionButton>
+              </div>
+            </article>
+          );
+        })}
       </div>
     </Modal>
   );

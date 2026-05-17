@@ -646,9 +646,9 @@ export default function DesktopTutorialClient() {
   const providerLabel = getProviderLabel(provider);
   const providerCapabilities = getProviderCapabilitiesFromWhatsAppCenter(whatsAppCenter);
   const botSetupComplete = Boolean(botConfig?.setup?.completed);
-  const tutorialMode = String(searchParams?.get("mode") || "").trim().toLowerCase();
-  const startMode = String(searchParams?.get("start") || "").trim().toLowerCase();
+  const currentContactName = plans?.current.contactName || "";
   const advancedTutorial = true;
+  const desktopTutorialChromeMode: HbxThemeMode = "light";
 
   const loadTutorialData = useCallback(async () => {
     setLoading(true);
@@ -712,8 +712,8 @@ export default function DesktopTutorialClient() {
   useEffect(() => {
     if (hasToken !== true) return;
     const storedName = readMobileTutorialName();
-    setTutorialName(storedName || plans?.current.contactName || "");
-  }, [hasToken, plans?.current.contactName]);
+    setTutorialName(storedName || currentContactName);
+  }, [currentContactName, hasToken]);
 
   useEffect(() => {
     if (loading || botStartAppliedRef.current) return;
@@ -1050,7 +1050,7 @@ export default function DesktopTutorialClient() {
 
   if (hasToken === null || loading) {
     return (
-      <main className={styles.page}>
+      <main className={styles.page} data-theme-mode={desktopTutorialChromeMode}>
         <section className={styles.shell}>
           <span className={styles.statusBadge}>Tutorial HBX</span>
           <div className={styles.brandMark}>HBX</div>
@@ -1649,7 +1649,7 @@ export default function DesktopTutorialClient() {
   }
 
   return (
-    <main className={styles.page} data-theme-id={selection.themeId} data-theme-mode={selection.mode} data-tutorial-step={step}>
+    <main className={styles.page} data-theme-id={selection.themeId} data-theme-mode={desktopTutorialChromeMode} data-tutorial-step={step}>
       {floatingCardsPage ? <FloatingTutorialPrints key={floatingCardsPage} page={floatingCardsPage} /> : null}
 
       <section className={styles.shell} aria-labelledby={`tutorial-title-${step}`}>

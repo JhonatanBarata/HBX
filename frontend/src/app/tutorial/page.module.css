@@ -14,6 +14,7 @@
 }
 
 .shell {
+  position: relative;
   width: min(100%, 414px);
   min-height: 100svh;
   margin: 0 auto;
@@ -21,6 +22,30 @@
   display: flex;
   flex-direction: column;
   gap: 0.58rem;
+}
+
+.shell[data-step="1"] {
+  gap: 0.42rem;
+  padding-top: 0.64rem;
+  padding-bottom: 0.58rem;
+}
+
+.shell[data-step="1"] .brandPill {
+  padding-block: 0.38rem;
+  font-size: 0.86rem;
+}
+
+.shell[data-step="1"] .header {
+  gap: 0;
+  padding-top: 0.22rem;
+}
+
+.shell[data-step="1"] .header h1 {
+  font-size: 1.68rem;
+}
+
+.shell[data-step="1"] .header p {
+  display: none;
 }
 
 .brandPill {
@@ -114,8 +139,8 @@
 
 .stepBody[data-step="1"] {
   align-content: stretch;
-  grid-template-rows: minmax(19rem, 1fr) auto auto;
-  gap: 0.95rem;
+  grid-template-rows: auto auto;
+  gap: 0.48rem;
 }
 
 .stepBody[data-direction="next"] {
@@ -144,16 +169,16 @@
 
 .heroCard {
   min-height: 100%;
-  padding: 1.25rem 0.92rem 0.92rem;
+  padding: 1.52rem 0.92rem 1.08rem;
   display: grid;
-  grid-template-rows: auto auto auto 1fr;
-  gap: 0.72rem;
+  grid-template-rows: auto auto auto auto;
+  gap: 1.02rem;
   justify-items: center;
-  align-content: center;
+  align-content: start;
 }
 
 .appIcon {
-  width: 4.85rem;
+  width: 5.55rem;
   aspect-ratio: 1;
   display: grid;
   place-items: center;
@@ -180,11 +205,11 @@
 .introList {
   width: 100%;
   display: grid;
-  gap: 0.68rem;
+  gap: 1rem;
 }
 
 .introItem {
-  min-height: 4.42rem;
+  min-height: 5.25rem;
   display: grid;
   grid-template-columns: auto 1fr auto;
   align-items: center;
@@ -249,6 +274,12 @@
   font-size: 0.82rem;
 }
 
+.stepBody[data-step="1"] .currentPlan,
+.stepBody[data-step="1"] .saveHint {
+  font-size: 0.74rem;
+  line-height: 1.18;
+}
+
 .saveHint {
   display: grid;
   justify-items: center;
@@ -269,19 +300,23 @@
   font-size: 0.82rem;
 }
 
+.stepBody[data-step="1"] .saveHint::before {
+  content: none;
+}
+
 .heroCard .lockHint {
-  align-self: end;
+  align-self: start;
   display: grid;
   justify-items: center;
   gap: 0.48rem;
   width: 100%;
-  padding: 0.4rem 0 0.1rem;
+  padding: 0.88rem 0 0.1rem;
   text-align: center;
   font-size: 0.9rem;
 }
 
 .heroCard .lockHint::before {
-  content: "▣";
+  content: "🔒";
   width: 2rem;
   aspect-ratio: 1;
   display: grid;
@@ -289,7 +324,7 @@
   border-radius: 50%;
   color: #1069f4;
   background: rgba(219, 243, 255, 0.86);
-  font-size: 0.82rem;
+  font-size: 1.23rem;
 }
 
 .card {
@@ -299,10 +334,10 @@
 }
 
 .stepBody[data-step="1"] > .card {
-  min-height: min(39svh, 23rem);
-  padding: 1.28rem 1.08rem 1.12rem;
-  align-content: space-between;
-  gap: 1rem;
+  min-height: 13.9rem;
+  padding: 0.9rem 0.95rem;
+  align-content: center;
+  gap: 0.76rem;
 }
 
 .cardHeader {
@@ -324,8 +359,8 @@
 }
 
 .stepBody[data-step="1"] .iconButton {
-  width: 3.18rem;
-  font-size: 1.72rem;
+  width: 2.58rem;
+  font-size: 1.42rem;
 }
 
 .avatar {
@@ -343,8 +378,9 @@
 }
 
 .stepBody[data-step="1"] .avatar {
-  width: 5.9rem;
-  font-size: 2.25rem;
+  width: 5.28rem;
+  font-size: 2.14rem;
+  box-shadow: 0 14px 30px rgba(16, 105, 244, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.9);
 }
 
 .field {
@@ -353,7 +389,7 @@
 }
 
 .stepBody[data-step="1"] .field {
-  gap: 0.5rem;
+  gap: 0.34rem;
 }
 
 .field span,
@@ -364,7 +400,7 @@
 }
 
 .stepBody[data-step="1"] .field span {
-  font-size: 0.92rem;
+  font-size: 0.8rem;
 }
 
 .field input {
@@ -383,10 +419,10 @@
 }
 
 .stepBody[data-step="1"] .field input {
-  min-height: 3.92rem;
-  border-radius: 1.02rem;
-  padding-inline: 1.02rem;
-  font-size: 1.08rem;
+  min-height: 3.22rem;
+  border-radius: 0.88rem;
+  padding-inline: 0.86rem;
+  font-size: 0.92rem;
 }
 
 .field input:focus {
@@ -401,7 +437,7 @@
 }
 
 .stepBody[data-step="1"] .planSection {
-  gap: 0.78rem;
+  gap: 0.42rem;
 }
 
 .planSection h3 {
@@ -412,7 +448,7 @@
 }
 
 .stepBody[data-step="1"] .planSection h3 {
-  font-size: 1.02rem;
+  font-size: 0.88rem;
 }
 
 .planGrid {
@@ -422,8 +458,9 @@
 }
 
 .stepBody[data-step="1"] .planGrid {
-  grid-template-columns: minmax(0, 0.86fr) minmax(0, 1.14fr);
-  gap: 0.72rem;
+  grid-template-columns: minmax(0, 0.72fr) minmax(0, 1.28fr);
+  align-items: stretch;
+  gap: 0.52rem;
 }
 
 .planCard {
@@ -440,46 +477,30 @@
 }
 
 .stepBody[data-step="1"] .planCard {
-  min-height: 10.1rem;
-  padding: 0.9rem 0.58rem;
-  border-radius: 1.08rem;
-  align-content: center;
-  gap: 0.42rem;
+  min-height: 9.05rem;
+  padding: 0.62rem 0.46rem;
+  border-radius: 0.94rem;
+  align-content: stretch;
+  gap: 0.34rem;
 }
 
 .stepBody[data-step="1"] .planCard[data-plan="premium"] {
-  grid-column: 1 / -1;
-  min-height: 5.95rem;
-  grid-template-columns: auto minmax(0, 0.9fr) minmax(0, 1.1fr);
+  min-height: 9.05rem;
+  grid-template-columns: 1fr;
   align-items: center;
-  justify-items: stretch;
-  gap: 0.58rem;
-  padding: 0.72rem 0.76rem;
+  align-content: stretch;
+  justify-items: center;
+  gap: 0.42rem;
+  padding: 0.68rem 0.72rem;
   border-color: rgba(43, 207, 150, 0.62);
   background: linear-gradient(135deg, rgba(247, 255, 252, 0.94), rgba(229, 253, 245, 0.72));
-  text-align: left;
+  text-align: center;
+  animation: premiumCardPulse 2.8s ease-in-out infinite;
 }
 
 .stepBody[data-step="1"] .planCard[data-plan="premium"]::before,
 .stepBody[data-step="1"] .planCard[data-plan="premium"]::after {
-  content: "";
-  width: 1px;
-  height: 3.45rem;
-  background: rgba(77, 214, 166, 0.26);
-}
-
-.stepBody[data-step="1"] .planCard[data-plan="premium"]::before {
-  grid-column: 2;
-  grid-row: 1;
-  justify-self: start;
-  transform: translateX(-0.3rem);
-}
-
-.stepBody[data-step="1"] .planCard[data-plan="premium"]::after {
-  grid-column: 3;
-  grid-row: 1;
-  justify-self: start;
-  transform: translateX(-0.34rem);
+  content: none;
 }
 
 .planCard[data-active="true"] {
@@ -501,9 +522,9 @@
 
 .stepBody[data-step="1"] .planCard[data-plan="premium"] > .planIcon {
   grid-column: 1;
-  grid-row: 1;
-  width: 3.15rem;
-  border-radius: 1rem;
+  grid-row: auto;
+  width: 3.22rem;
+  border-radius: 0.92rem;
   color: #f2ad12;
   background: rgba(255, 249, 220, 0.88);
   box-shadow: 0 10px 22px rgba(219, 154, 16, 0.12);
@@ -546,8 +567,8 @@
 }
 
 .stepBody[data-step="1"] .planIcon {
-  width: 3.45rem;
-  font-size: 1.62rem;
+  width: 2.65rem;
+  font-size: 1.25rem;
 }
 
 .planCopy {
@@ -557,9 +578,11 @@
 }
 
 .stepBody[data-step="1"] .planCard[data-plan="premium"] .planCopy {
-  grid-column: 2;
-  grid-row: 1;
-  padding-left: 0.28rem;
+  grid-column: 1;
+  grid-row: auto;
+  padding-left: 0;
+  justify-items: center;
+  text-align: center;
 }
 
 .planCard strong {
@@ -573,13 +596,13 @@
 }
 
 .stepBody[data-step="1"] .planCard strong {
-  font-size: 1.36rem;
+  font-size: 1.02rem;
 }
 
 .stepBody[data-step="1"] .planCard[data-plan="premium"] strong {
-  justify-content: flex-start;
+  justify-content: center;
   color: #0aac69;
-  font-size: 1.06rem;
+  font-size: 0.98rem;
   line-height: 1.02;
   white-space: nowrap;
 }
@@ -596,86 +619,94 @@
 }
 
 .stepBody[data-step="1"] .planCard small {
-  font-size: 0.9rem;
+  font-size: 0.74rem;
 }
 
 .stepBody[data-step="1"] .planCard p {
-  font-size: 0.78rem;
+  font-size: 0.66rem;
   line-height: 1.25;
 }
 
 .stepBody[data-step="1"] .planCard[data-plan="premium"] small {
   color: #061947;
-  font-size: 0.78rem;
+  font-size: 0.66rem;
   line-height: 1.22;
 }
 
 .stepBody[data-step="1"] .planCard[data-plan="premium"] p {
   color: rgba(65, 88, 130, 0.76);
-  font-size: 0.68rem;
+  font-size: 0.62rem;
   line-height: 1.12;
 }
 
+.planFeatureGrid {
+  width: 100%;
+  display: grid;
+  gap: 0.22rem;
+  margin-top: 0.12rem;
+}
+
+.planFeatureGrid span,
+.premiumMetricStrip span {
+  min-width: 0;
+  border: 1px solid rgba(178, 207, 244, 0.76);
+  border-radius: 999px;
+  background: rgba(244, 249, 255, 0.82);
+  color: rgba(42, 67, 110, 0.82);
+  font-size: 0.55rem;
+  line-height: 1.1;
+  font-weight: 920;
+  text-align: center;
+  padding: 0.2rem 0.28rem;
+  white-space: nowrap;
+}
+
+.premiumMetricStrip {
+  grid-column: 1 / -1;
+  width: 100%;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.36rem;
+  margin-top: 0.14rem;
+}
+
+.premiumMetricStrip span {
+  min-height: 1.94rem;
+  display: grid;
+  place-items: center;
+  border-color: rgba(43, 207, 150, 0.54);
+  background: rgba(226, 252, 241, 0.86);
+  color: #078554;
+  box-shadow: 0 8px 18px rgba(16, 185, 129, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.74);
+}
+
 .premiumChannelStrip {
-  grid-column: 3;
-  grid-row: 1;
+  grid-column: 1 / -1;
   min-width: 0;
   display: flex;
   align-items: center;
-  justify-content: flex-end;
-  gap: 0.28rem;
-  padding-left: 0.28rem;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 0.34rem;
+  padding-left: 0;
+  padding-top: 0.34rem;
 }
 
 .channelIcon {
-  width: 1.82rem;
+  width: 2.79rem;
   aspect-ratio: 1;
   display: grid;
   place-items: center;
-  flex: 0 1 1.82rem;
+  flex: 0 0 2.79rem;
   border-radius: 50%;
-  color: #08a963;
-  background: linear-gradient(180deg, rgba(222, 250, 237, 0.98), rgba(205, 246, 225, 0.82));
-  font-size: 1.08rem;
-  font-weight: 950;
-  line-height: 1;
-  box-shadow: 0 10px 20px -16px rgba(8, 169, 99, 0.62);
+  background: rgba(255, 255, 255, 0.78);
+  box-shadow: 0 10px 20px -14px rgba(8, 169, 99, 0.52), inset 0 1px 0 rgba(255, 255, 255, 0.82);
 }
 
-.channelIcon svg {
-  width: 1.08rem;
-  height: 1.08rem;
-  overflow: visible;
-}
-
-.channelIcon path,
-.channelIcon rect,
-.channelIcon circle {
-  fill: currentColor;
-  stroke: none;
-}
-
-.channelIcon[data-channel="facebook"] {
-  color: #1877f2;
-  font-size: 1.34rem;
-  font-family: Arial, sans-serif;
-}
-
-.channelIcon[data-channel="instagram"] {
-  color: #d62976;
-}
-
-.channelIcon[data-channel="instagram"] rect,
-.channelIcon[data-channel="instagram"] circle,
-.channelIcon[data-channel="site"] circle,
-.channelIcon[data-channel="site"] path,
-.channelIcon[data-channel="email"] rect,
-.channelIcon[data-channel="email"] path {
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 2.4;
-  stroke-linecap: round;
-  stroke-linejoin: round;
+.channelIcon img {
+  width: 1.92rem;
+  height: 1.92rem;
+  object-fit: contain;
 }
 
 .badge,
@@ -726,16 +757,16 @@
 .chipGrid {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.42rem;
+  gap: 0.5rem;
 }
 
 .chip {
-  min-height: 2.12rem;
+  min-height: 2.38rem;
   border: 1px solid rgba(170, 185, 207, 0.72);
   border-radius: 999px;
   background: rgba(235, 240, 247, 0.86);
   color: rgba(49, 67, 98, 0.76);
-  padding: 0 0.72rem;
+  padding: 0 0.86rem;
   font: inherit;
   font-size: 0.78rem;
   font-weight: 900;
@@ -751,9 +782,63 @@
 }
 
 .radarCard {
-  padding: 0.82rem;
+  min-height: min(68svh, 31.8rem);
+  padding: 1.08rem 0.9rem;
   display: grid;
-  gap: 0.62rem;
+  align-content: space-between;
+  gap: 0.82rem;
+}
+
+.gpsButton {
+  position: absolute;
+  top: 0.78rem;
+  right: 0.98rem;
+  z-index: 3;
+  width: 2.72rem;
+  aspect-ratio: 1;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(16, 105, 244, 0.34);
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.92);
+  color: #1069f4;
+  box-shadow: 0 12px 28px rgba(16, 105, 244, 0.16), inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+.gpsButton::before,
+.gpsButton::after {
+  content: "";
+  position: absolute;
+  inset: 0.34rem;
+  border: 2px solid currentColor;
+  border-radius: 50%;
+  opacity: 0.38;
+}
+
+.gpsButton::before {
+  inset: 0.48rem;
+}
+
+.gpsButton::after {
+  inset: -0.18rem;
+  border-width: 1px;
+  animation: gpsPulse 1.35s ease-out infinite;
+}
+
+.gpsButton span {
+  width: 0.7rem;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: 0 0 0 0.22rem rgba(16, 105, 244, 0.14);
+}
+
+.gpsButton[data-loading="true"] {
+  color: #0aac69;
+}
+
+.gpsButton[data-loading="true"] span {
+  animation: gpsDot 0.7s ease-in-out infinite alternate;
 }
 
 .radarSteps {
@@ -783,8 +868,8 @@
 .radarPickers {
   display: grid;
   grid-template-columns: 0.72fr 1fr 1.08fr;
-  gap: 0.52rem;
-  padding: 0.62rem;
+  gap: 0.58rem;
+  padding: 0.68rem;
   border-radius: 0.98rem;
   background: rgba(255, 255, 255, 0.82);
   box-shadow: 0 14px 32px rgba(34, 89, 156, 0.1);
@@ -792,7 +877,7 @@
 
 .pickerButton {
   min-width: 0;
-  min-height: 3.18rem;
+  min-height: 3.3rem;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-content: center;
@@ -834,27 +919,71 @@
   line-height: 1;
 }
 
+.radiusSelector {
+  display: grid;
+  gap: 0.44rem;
+  padding: 0.64rem;
+  border: 1px solid rgba(158, 194, 246, 0.72);
+  border-radius: 0.98rem;
+  background: rgba(255, 255, 255, 0.78);
+  box-shadow: 0 12px 28px rgba(34, 89, 156, 0.08);
+}
+
+.radiusSelector > span {
+  color: rgba(62, 86, 130, 0.78);
+  font-size: 0.6rem;
+  font-weight: 950;
+  text-transform: uppercase;
+}
+
+.radiusSelector > div {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.4rem;
+}
+
+.radiusSelector button {
+  min-width: 0;
+  min-height: 2.46rem;
+  border: 1px solid rgba(158, 194, 246, 0.74);
+  border-radius: 0.72rem;
+  background: rgba(246, 250, 255, 0.88);
+  color: #061947;
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 950;
+}
+
+.radiusSelector button[data-active="true"] {
+  border-color: rgba(16, 105, 244, 0.6);
+  background: linear-gradient(135deg, rgba(229, 244, 255, 0.96), rgba(216, 249, 255, 0.86));
+  color: #1069f4;
+  box-shadow: 0 10px 22px rgba(16, 105, 244, 0.12);
+}
+
 .pickerPanel {
   position: fixed;
   inset: 0;
   z-index: 80;
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   justify-content: center;
   padding: 1rem;
   background: rgba(3, 15, 34, 0.32);
+  overflow: hidden;
+  overscroll-behavior: contain;
   animation: mobilePickerBackdrop 180ms ease-out both;
 }
 
 .pickerSheet {
   width: min(100%, 414px);
-  max-height: min(72svh, 560px);
+  max-height: min(calc(100dvh - 2rem), 560px);
   display: grid;
   grid-template-rows: auto auto minmax(0, 1fr);
   gap: 0.68rem;
   padding: 0.9rem;
   border: 1px solid rgba(181, 211, 247, 0.86);
-  border-radius: 1.25rem 1.25rem 0.92rem 0.92rem;
+  border-radius: 1.25rem;
   background: rgba(248, 252, 255, 0.96);
   box-shadow: 0 24px 70px rgba(4, 28, 66, 0.28);
   animation: mobilePickerRise 240ms cubic-bezier(0.22, 1, 0.36, 1) both;
@@ -1132,12 +1261,14 @@
 }
 
 .salesCard {
-  width: min(100% - 3.65rem, 296px);
-  justify-self: end;
-  margin-left: 3.42rem;
-  padding: 0.88rem;
+  width: min(100% - 2.2rem, 318px);
+  justify-self: center;
+  margin-left: 1.65rem;
+  padding: 1.02rem;
   display: grid;
-  gap: 0.6rem;
+  gap: 0.72rem;
+  min-height: min(67svh, 31rem);
+  align-content: center;
 }
 
 .salesMetrics {
@@ -1146,7 +1277,7 @@
 
 .salesLead {
   position: relative;
-  padding: 0.62rem 1.7rem 0.62rem 0.66rem;
+  padding: 0.74rem 1.7rem 0.74rem 0.72rem;
   border-radius: 0.92rem;
   background: rgba(255, 255, 255, 0.82);
   border: 1px solid rgba(185, 213, 249, 0.86);
@@ -1175,7 +1306,7 @@
 }
 
 .salesActions span {
-  min-height: 2.55rem;
+  min-height: 2.78rem;
   display: grid;
   place-items: center;
   border-radius: 0.9rem;
@@ -1365,6 +1496,10 @@
 
 .summaryRow i[data-icon="pin"]::before {
   content: "⌖";
+}
+
+.summaryRow i[data-icon="radar"]::before {
+  content: "◌";
 }
 
 .summaryRow i[data-icon="target"]::before {
@@ -1660,6 +1795,10 @@
     grid-template-columns: 1fr;
   }
 
+  .stepBody[data-step="1"] .planGrid {
+    grid-template-columns: minmax(0, 0.72fr) minmax(0, 1.28fr);
+  }
+
   .salesCard {
     width: min(100% - 3.2rem, 292px);
     margin-left: 2.95rem;
@@ -1689,11 +1828,43 @@
 @keyframes mobilePickerRise {
   from {
     opacity: 0;
-    transform: translateY(24px) scale(0.98);
+    transform: translateY(12px) scale(0.98);
   }
   to {
     opacity: 1;
     transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes gpsPulse {
+  0% {
+    opacity: 0.52;
+    transform: scale(0.75);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.38);
+  }
+}
+
+@keyframes gpsDot {
+  from {
+    transform: scale(0.82);
+  }
+  to {
+    transform: scale(1.18);
+  }
+}
+
+@keyframes premiumCardPulse {
+  0%,
+  100% {
+    box-shadow: 0 16px 30px rgba(16, 185, 129, 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.88);
+    transform: scale(1);
+  }
+  50% {
+    box-shadow: 0 18px 38px rgba(16, 185, 129, 0.22), 0 0 0 3px rgba(43, 207, 150, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.92);
+    transform: scale(1.008);
   }
 }
 

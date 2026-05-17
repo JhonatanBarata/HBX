@@ -9,6 +9,7 @@ import { UsersService } from '../users/users.service';
 import structuralDefaults from '../bootstrap/structural-defaults.json';
 import { MasterContextService } from '../master-context/master-context.service';
 import { CompanyOperationalStatusService } from '../companies/company-operational-status.service';
+import { CommercialUsageLimitsService } from '../commercial-plans/commercial-usage-limits.service';
 import { ensureWebsiteRuntimeSchema, listCompanyWebsiteConfigs } from '../website/website-runtime';
 import { ensureMasterBillingRuntimeSchema } from './master-runtime';
 import { buildMasterBillingSituation } from './master-billing-situation';
@@ -33,6 +34,7 @@ import {
   normalizeCommercialPlanKey,
   type ActiveCommercialPlanKey,
 } from '../commercial-plans/commercial-plan-catalog';
+import { ensureVendasComplaintsRuntimeSchema } from '../vendas/vendas-complaints-runtime';
 import {
   PRIMARY_COMMERCIAL_MODULE_KEYS,
   ROUTE_GUARDED_MODULE_KEYS,
@@ -143,6 +145,7 @@ export class ModulesService implements OnModuleInit {
     private readonly usersService: UsersService,
     private readonly masterContextService: MasterContextService,
     private readonly companyOperationalStatus: CompanyOperationalStatusService,
+    private readonly commercialUsageLimits: CommercialUsageLimitsService,
   ) {}
 
   private async supportsWhatsAppEndpointTable() {
@@ -4384,6 +4387,179 @@ export class ModulesService implements OnModuleInit {
     });
 
     return { ok: true, companyId, billingCycle, manualDiscountPercent, freeMonths };
+  }
+
+  private normalizeVendasComplaintStatus(value: unknown) {
+    const status = String(value || '').trim().toLowerCase();
+    const allowed = ['new', 'reviewing', 'refunded', 'denied', 'resolved'];
+    return allowed.includes(status) ? status : 'new';
+  }
+
+  private normalizeNullableText(value: unknown, max = 600) {
+    const normalized = String(value || '').replace(/\s+/g, ' ').trim();
+    return normalized ? normalized.slice(0, max) : null;
+  }
+
+  private buildVendasComplaintPayload(row: any) {
+    const leadPhone = this.normalizeNullableText(row.leadPhone, 40);
+    const companyPhone = this.normalizeNullableText(row.companyContactPhone || row.companyWhatsappNumber, 40);
+    const contactDigits = String(companyPhone || '').replace(/\D/g, '');
+    return {
+      id: String(row.id),
+      companyId: Number(row.companyId || 0),
+      companyName: String(row.companyName || 'Empresa'),
+      userId: Number(row.userId || 0) || null,
+      userName: row.userName ? String(row.userName) : null,
+      userEmail: row.userEmail ? String(row.userEmail) : null,
+      vendasLeadId: row.vendasLeadId ? String(row.vendasLeadId) : null,
+      radarLeadId: row.radarLeadId ? String(row.radarLeadId) : null,
+      leadName: row.leadName ? String(row.leadName) : null,
+      leadPhone,
+      leadCity: row.leadCity ? String(row.leadCity) : null,
+      leadState: row.leadState ? String(row.leadState) : null,
+      leadSegment: row.leadSegment ? String(row.leadSegment) : null,
+      reason: String(row.reason || ''),
+      status: this.normalizeVendasComplaintStatus(row.status),
+      refundedCards: Math.max(0, Math.trunc(Number(row.refundedCards || 0) || 0)),
+      internalNote: row.internalNote ? String(row.internalNote) : null,
+      createdAt: row.createdAt instanceof Date ? row.createdAt.toISOString() : String(row.createdAt || ''),
+      updatedAt: row.updatedAt instanceof Date ? row.updatedAt.toISOString() : null,
+      resolvedAt: row.resolvedAt instanceof Date ? row.resolvedAt.toISOString() : null,
+      contactPhone: companyPhone,
+      contactWhatsappUrl: contactDigits ? `https://wa.me/55${contactDigits.replace(/^55/, '')}` : null,
+    };
+  }
+
+  async listMasterVendasComplaints(masterUserId: number, input: { status?: string; limit?: number } = {}) {
+    await this.assertMasterUser(masterUserId);
+    await ensureVendasComplaintsRuntimeSchema(this.prisma);
+    const normalizedStatus = String(input.status || '').trim().toLowerCase();
+    const limit = Math.max(1, Math.min(200, Math.trunc(Number(input.limit || 80) || 80)));
+    const rows = normalizedStatus && normalizedStatus !== 'all'
+      ? await this.prisma.$queryRaw<Array<any>>(
+        Prisma.sql`
+          SELECT
+            c.*,
+            co."name" AS "companyName",
+            co."contactPhone" AS "companyContactPhone",
+            co."whatsappNumber" AS "companyWhatsappNumber",
+            u."name" AS "userName",
+            u."email" AS "userEmail"
+          FROM "VendasCardComplaint" c
+          INNER JOIN "Company" co ON co."id" = c."companyId"
+          LEFT JOIN "User" u ON u."id" = c."userId"
+          WHERE c."status" = ${this.normalizeVendasComplaintStatus(normalizedStatus)}
+          ORDER BY c."createdAt" DESC
+          LIMIT ${limit}
+        `,
+      )
+      : await this.prisma.$queryRaw<Array<any>>(
+        Prisma.sql`
+          SELECT
+            c.*,
+            co."name" AS "companyName",
+            co."contactPhone" AS "companyContactPhone",
+            co."whatsappNumber" AS "companyWhatsappNumber",
+            u."name" AS "userName",
+            u."email" AS "userEmail"
+          FROM "VendasCardComplaint" c
+          INNER JOIN "Company" co ON co."id" = c."companyId"
+          LEFT JOIN "User" u ON u."id" = c."userId"
+          ORDER BY
+            CASE c."status"
+              WHEN 'new' THEN 0
+              WHEN 'reviewing' THEN 1
+              WHEN 'refunded' THEN 2
+              WHEN 'denied' THEN 3
+              ELSE 4
+            END,
+            c."createdAt" DESC
+          LIMIT ${limit}
+        `,
+      );
+
+    const items = rows.map((row) => this.buildVendasComplaintPayload(row));
+    return {
+      ok: true,
+      items,
+      summary: {
+        total: items.length,
+        new: items.filter((item) => item.status === 'new').length,
+        reviewing: items.filter((item) => item.status === 'reviewing').length,
+        refunded: items.filter((item) => item.status === 'refunded').length,
+        denied: items.filter((item) => item.status === 'denied').length,
+        resolved: items.filter((item) => item.status === 'resolved').length,
+      },
+    };
+  }
+
+  async updateMasterVendasComplaint(masterUserId: number, complaintId: string, dto: { status?: string; internalNote?: string; refundCards?: number } = {}) {
+    await this.assertMasterUser(masterUserId);
+    await ensureVendasComplaintsRuntimeSchema(this.prisma);
+    const id = String(complaintId || '').trim();
+    if (!id) throw new BadRequestException('Reclamacao nao informada.');
+
+    const rows = await this.prisma.$queryRaw<Array<any>>(
+      Prisma.sql`
+        SELECT * FROM "VendasCardComplaint"
+        WHERE "id" = ${id}
+        LIMIT 1
+      `,
+    );
+    const existing = rows[0] || null;
+    if (!existing) throw new BadRequestException('Reclamacao nao encontrada.');
+
+    const refundCards = Math.max(0, Math.min(100, Math.trunc(Number(dto.refundCards || 0) || 0)));
+    const previousRefunded = Math.max(0, Math.trunc(Number(existing.refundedCards || 0) || 0));
+    const refundDelta = Math.max(0, refundCards - previousRefunded);
+    const requestedStatus = dto.status !== undefined
+      ? this.normalizeVendasComplaintStatus(dto.status)
+      : refundDelta > 0
+        ? 'refunded'
+        : this.normalizeVendasComplaintStatus(existing.status);
+    const note = this.normalizeNullableText(dto.internalNote, 1200);
+    const now = new Date();
+
+    if (refundDelta > 0) {
+      await this.commercialUsageLimits.recordCardRefund(Number(existing.companyId), Number(existing.userId || 0) || null, {
+        count: refundDelta,
+        complaintId: id,
+        vendasLeadId: existing.vendasLeadId || null,
+        radarLeadId: existing.radarLeadId || null,
+        reason: existing.reason || null,
+        refundedByUserId: masterUserId,
+      });
+    }
+
+    await this.prisma.$executeRaw`
+      UPDATE "VendasCardComplaint"
+      SET
+        "status" = ${requestedStatus},
+        "refundedCards" = ${Math.max(previousRefunded, refundCards)},
+        "internalNote" = ${note},
+        "resolvedByUserId" = ${['refunded', 'denied', 'resolved'].includes(requestedStatus) ? Number(masterUserId) : null},
+        "resolvedAt" = ${['refunded', 'denied', 'resolved'].includes(requestedStatus) ? now : null},
+        "updatedAt" = ${now}
+      WHERE "id" = ${id}
+    `;
+
+    await this.masterContextService.registerSupportAction({
+      masterUserId,
+      companyId: Number(existing.companyId),
+      scope: 'vendas_complaint',
+      action: refundDelta > 0 ? 'VENDAS_COMPLAINT_REFUNDED' : 'VENDAS_COMPLAINT_UPDATED',
+      severity: refundDelta > 0 ? 'WARN' : 'INFO',
+      metadata: {
+        complaintId: id,
+        previousStatus: existing.status || null,
+        status: requestedStatus,
+        refundDelta,
+        refundedCards: Math.max(previousRefunded, refundCards),
+        note,
+      },
+    });
+
+    return this.listMasterVendasComplaints(masterUserId, { limit: 80 });
   }
 
   async listMasterExclusoes(

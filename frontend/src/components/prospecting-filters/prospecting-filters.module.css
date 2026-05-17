@@ -291,6 +291,28 @@
   padding: 14px;
 }
 
+.scoreControl {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 16px;
+}
+
+.scoreControl[data-locked="true"] {
+  opacity: 0.92;
+}
+
+.scoreSlider {
+  display: grid;
+  gap: 10px;
+}
+
+.scoreSlider input[type="range"] {
+  width: 100%;
+  accent-color: var(--primary, #05b6d4);
+}
+
 .checkGrid {
   grid-column: 1 / -1;
   display: grid;
@@ -356,6 +378,29 @@
   .advancedGrid,
   .checkGrid {
     grid-template-columns: 1fr;
+  }
+
+  .menu {
+    position: fixed;
+    z-index: 380;
+    top: 50dvh;
+    left: 50%;
+    right: auto;
+    width: min(calc(100vw - 28px), 390px);
+    max-height: min(54dvh, 430px);
+    transform: translate(-50%, -50%);
+    border-radius: 18px;
+    padding: 10px;
+    box-shadow: 0 28px 80px rgba(2, 8, 23, 0.32);
+    overscroll-behavior: contain;
+  }
+
+  .option,
+  .optionActive {
+    min-height: 48px;
+    border-radius: 12px;
+    font-size: 0.95rem;
+    font-weight: 850;
   }
 
   .advancedToggle {
