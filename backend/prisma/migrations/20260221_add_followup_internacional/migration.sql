@@ -1,1 +1,0 @@
--- No-op on PostgreSQL: covered by baseline migration 20260206_add_plans.

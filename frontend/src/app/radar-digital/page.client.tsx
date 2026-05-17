@@ -1732,7 +1732,7 @@ export default function RadarDigitalClientPage() {
         setTotal(lead ? 1 : 0);
         setPage(1);
         setHasSearched(true);
-        setFeedback("Card aberto pelo Night Factory. Revise antes de enviar para Vendas.");
+        setFeedback("Card aberto automaticamente. Revise antes de enviar para Vendas.");
       } catch {
         if (!cancelled) setError("Não foi possível abrir este card do Radar.");
       } finally {

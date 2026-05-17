@@ -101,7 +101,7 @@ export class WhatsAppController {
   }
 
   @Post('send')
-  @ModuleAccess('atendimento', 'webscraping', 'follow_up_internacional')
+  @ModuleAccess('atendimento', 'webscraping')
   async send(@Req() req: any, @Body() dto: SendTestMessageDto) {
     const companyId = this.requireCompanyId(req);
     const sourceModule = String(dto.sourceModule || 'atendimento').trim().toLowerCase() || 'atendimento';

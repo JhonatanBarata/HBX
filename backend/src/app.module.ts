@@ -17,7 +17,6 @@ import { APP_GUARD } from '@nestjs/core';
 import { InboxModule } from './inbox/inbox.module';
 import { GerencialModule } from './gerencial/gerencial.module';
 import { ModulesAccessModule } from './modules/modules.module';
-import { ImportacoesModule } from './importacoes/importacoes.module';
 import { CadastrosModule } from './cadastros/cadastros.module';
 import { WebsiteModule } from './website/website.module';
 import { HbxRecoveryModule } from './hbx-recovery/hbx-recovery.module';
@@ -55,7 +54,6 @@ import { CommercialPlansModule } from './commercial-plans/commercial-plans.modul
     InboxModule,
     GerencialModule,
     ModulesAccessModule,
-    ImportacoesModule,
     CadastrosModule,
     WebsiteModule,
     HbxRecoveryModule,

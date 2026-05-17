@@ -21,7 +21,6 @@ import {
   MASTER_WHATSAPP_ENGINE_COMPANY_NAME,
   MASTER_WHATSAPP_ENGINE_COMPANY_SLUG,
 } from '../companies/master-whatsapp-company.constants';
-import { buildImportacaoPermissaoRows } from '../bootstrap/company-structural-defaults';
 import { calculateLeadQualityV2, type LeadQualityV2, type LeadQualityV2SalesProfile } from '../webscraping/lead-quality-v2';
 import {
   BulkDeleteVendasLeadsDto,
@@ -1478,10 +1477,6 @@ export class VendasService {
             whatsappModalUpdatedAt: new Date(),
           },
           select: { id: true },
-        });
-        await tx.importacaoPermissao.createMany({
-          data: buildImportacaoPermissaoRows(company.id),
-          skipDuplicates: true,
         });
         return company;
       });

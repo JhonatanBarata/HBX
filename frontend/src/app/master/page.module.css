@@ -1879,50 +1879,10 @@
   text-transform: uppercase;
 }
 
-.hostingerStatus {
-  display: grid;
-  gap: 0.7rem;
-  align-content: start;
-  min-width: 0;
-  padding: 1rem;
-  border: 1px solid rgba(255, 255, 255, 0.18);
-  border-radius: 22px;
-  background: rgba(255, 255, 255, 0.1);
-}
-
-.hostingerStatus span {
-  color: rgba(255, 255, 255, 0.74);
-  font-size: 0.72rem;
-  font-weight: 900;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-}
-
-.hostingerStatus strong {
-  font-size: 1.15rem;
-  font-weight: 900;
-}
-
-.hostingerStatus p {
-  margin: 0;
-  font-size: 0.92rem;
-}
-
-.hostingerLinks,
 .masterHomeCard {
   display: flex;
   flex-wrap: wrap;
   gap: 0.6rem;
-}
-
-.hostingerLinks a {
-  border-radius: 999px;
-  padding: 0.58rem 0.78rem;
-  background: rgba(255, 255, 255, 0.16);
-  color: #fff;
-  font-size: 0.78rem;
-  font-weight: 900;
-  text-decoration: none;
 }
 
 .masterHomeGrid {
@@ -2007,13 +1967,6 @@
 .masterHomeCard b {
   color: var(--master-navy);
   font-size: 0.88rem;
-}
-
-.masterHomeCard[data-tone="hostinger"] {
-  border-color: rgba(20, 122, 108, 0.22);
-  background:
-    linear-gradient(180deg, rgba(20, 122, 108, 0.11), transparent 48%),
-    var(--master-surface);
 }
 
 .masterHomeCard[data-tone="master"] {

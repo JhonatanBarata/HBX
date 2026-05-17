@@ -169,55 +169,6 @@ type ScrapingEngineStatusPayload = {
   };
   engines: ScrapingEngineStatus[];
 };
-type TopbarCommandPayload<TParsed = unknown> = {
-  status?: string;
-  raw?: string | null;
-  error?: string | null;
-  parsed?: TParsed | null;
-};
-type TopbarServiceHealth = {
-  status?: string;
-  responseMs?: number | null;
-  error?: string | null;
-};
-type TopbarSystemHealthPayload = {
-  generatedAt: string;
-  memory?: TopbarCommandPayload<{
-    totalKb?: number | null;
-    availableKb?: number | null;
-    usedKb?: number | null;
-    usagePercent?: number | null;
-  }> & { source?: string | null };
-  disk?: TopbarCommandPayload<{
-    filesystem?: string | null;
-    size?: string | null;
-    used?: string | null;
-    available?: string | null;
-    usagePercent?: string | number | null;
-    mount?: string | null;
-  }>;
-  load?: TopbarCommandPayload<{
-    oneMinute?: string | number | null;
-    fiveMinutes?: string | number | null;
-    fifteenMinutes?: string | number | null;
-  }> & { loadavg?: string | null };
-  uptime?: TopbarCommandPayload & {
-    seconds?: number | null;
-    formatted?: string | null;
-  };
-  postgres?: TopbarServiceHealth;
-  api?: TopbarServiceHealth & {
-    processUptimeSeconds?: number | null;
-  };
-};
-type TopbarSystemVital = {
-  id: "memory" | "disk";
-  label: string;
-  value: string;
-  detail: string;
-  usage: number | null;
-  tone: "green" | "yellow" | "red";
-};
 type WhatsAppHealth = "green" | "yellow" | "red";
 type RecoveryAlertConversation = {
   conversationId: number;
@@ -304,9 +255,6 @@ type TopbarOperationalTile = {
   tone: TopbarSignalTone;
   usage?: number | null;
 };
-type TopbarHostingerVital = TopbarOperationalTile & {
-  source?: string | null;
-};
 
 type VendasTopbarBoardPayload = {
   summary?: {
@@ -339,7 +287,6 @@ const SUPPORT_MESSAGE = "Olá, preciso de ajuda com o HBX!";
 
 const hiddenRoutes = new Set(["/login", "/register", "/reset-password", "/confirm-email", "/boasvindas", "/tutorial", "/pre-checkout", "/precheckout"]);
 const SCRAPING_ENGINE_POLL_MS = 5000;
-const SYSTEM_HEALTH_REFRESH_DETAIL = "Sem atualização automática";
 const TOPBAR_FALLBACK_HBX_ENGINE_COUNT = 4;
 const HBX_ENGINE_GROUP_SIZE = 20;
 const HBX_GAUGE_BOOT_MS = 1350;
@@ -2407,21 +2354,11 @@ function resolveEngineGroupState(engines: ScrapingEngineStatus[], isLive: (engin
   return "standby";
 }
 
-function normalizePercentValue(value?: string | number | null) {
-  if (typeof value === "number") {
-    return Number.isFinite(value) ? Math.max(0, Math.min(100, Math.round(value * 10) / 10)) : null;
-  }
-  const parsed = Number(String(value || "").replace("%", "").replace(",", ".").trim());
-  return Number.isFinite(parsed) ? Math.max(0, Math.min(100, Math.round(parsed * 10) / 10)) : null;
-}
-
 function isTopbarTheaterSource(source: string | null | undefined) {
   const normalized = String(source || "").trim().toLowerCase();
   return normalized === "vendas" ||
     normalized === "radar" ||
     normalized === "radar-digital" ||
-    normalized === "night_factory" ||
-    normalized === "night-factory" ||
     normalized === "atendimento" ||
     normalized.startsWith("atendimento-");
 }
@@ -2432,67 +2369,8 @@ function isEngineProgressSource(source: string | null | undefined) {
     normalized === "radar" ||
     normalized === "radar-digital" ||
     normalized === "vendas" ||
-    normalized === "night_factory" ||
-    normalized === "night-factory" ||
     normalized === "atendimento" ||
     normalized.startsWith("atendimento-");
-}
-
-function formatTopbarPercent(value?: string | number | null) {
-  const parsed = normalizePercentValue(value);
-  if (parsed === null) return "--";
-  return Number.isInteger(parsed) ? `${parsed}%` : `${parsed.toFixed(1)}%`;
-}
-
-function formatTopbarKb(value?: number | null) {
-  const numeric = Number(value);
-  if (!Number.isFinite(numeric) || numeric <= 0) return "-";
-  const gb = numeric / 1024 / 1024;
-  if (gb >= 1) return `${gb >= 10 ? Math.round(gb) : gb.toFixed(1)} GB`;
-  const mb = numeric / 1024;
-  return `${mb >= 10 ? Math.round(mb) : mb.toFixed(1)} MB`;
-}
-
-function formatTopbarDateTime(value?: string | null) {
-  const iso = String(value || "").trim();
-  if (!iso) return "-";
-  const parsed = new Date(iso);
-  if (Number.isNaN(parsed.getTime())) return "-";
-  return parsed.toLocaleString("pt-BR", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  });
-}
-
-function formatTopbarMs(value?: number | null) {
-  const numeric = Number(value);
-  return Number.isFinite(numeric) ? `${Math.max(0, Math.round(numeric))} ms` : "--";
-}
-
-function serviceStatusLabel(status?: string | null) {
-  const normalized = String(status || "").trim().toLowerCase();
-  if (normalized === "ok") return "OK";
-  if (normalized === "error") return "Erro";
-  if (normalized === "unavailable") return "Indisponível";
-  return status ? String(status) : "Em leitura";
-}
-
-function serviceTone(status?: string | null): TopbarSignalTone {
-  const normalized = String(status || "").trim().toLowerCase();
-  if (normalized === "ok") return "success";
-  if (normalized === "error") return "danger";
-  return "warning";
-}
-
-function systemVitalTone(usage: number | null): TopbarSystemVital["tone"] {
-  if (usage === null) return "yellow";
-  if (usage >= 86) return "red";
-  if (usage >= 72) return "yellow";
-  return "green";
 }
 
 function extractEntryNumberLabel(metadata?: Record<string, unknown> | null) {
@@ -2604,7 +2482,6 @@ export default function TopBar() {
   const [scrapingEngineStatusMessage, setScrapingEngineStatusMessage] = useState<string | null>(null);
   const [hbxGaugeBooting, setHbxGaugeBooting] = useState(true);
   const [hbxGaugeBootUsage, setHbxGaugeBootUsage] = useState(0);
-  const [systemHealth, setSystemHealth] = useState<TopbarSystemHealthPayload | null>(null);
   const [vendasTopbarBoard, setVendasTopbarBoard] = useState<VendasTopbarBoardPayload | null>(null);
   const [unreadInboxOpen, setUnreadInboxOpen] = useState(false);
   const [unreadInboxLoading, setUnreadInboxLoading] = useState(false);
@@ -2896,24 +2773,6 @@ export default function TopBar() {
       return null;
     }
   }, [authenticated, modules, pendingCheckoutLocked, user]);
-
-  const refreshSystemHealth = React.useCallback(async () => {
-    if (authenticated !== true || !user?.isSystemMaster) {
-      setSystemHealth(null);
-      return null;
-    }
-
-    try {
-      const payload = await apiFetch<TopbarSystemHealthPayload>("/admin/system-health", {
-        requireAuth: true,
-        timeoutMs: 15000,
-      });
-      setSystemHealth(payload);
-      return payload;
-    } catch {
-      return null;
-    }
-  }, [authenticated, user?.isSystemMaster]);
 
   const loadWhatsAppCenter = React.useCallback(async (options?: { background?: boolean }) => {
     if (authenticated !== true) return null;
@@ -3225,109 +3084,6 @@ export default function TopBar() {
       tone: hbxOperationalErrorCount > 0 ? "danger" : "neutral",
     },
   ];
-  const topbarSystemVitals = useMemo<TopbarSystemVital[]>(() => {
-    const memory = systemHealth?.memory?.parsed;
-    const disk = systemHealth?.disk?.parsed;
-    const memoryUsage = normalizePercentValue(memory?.usagePercent);
-    const diskUsage = normalizePercentValue(disk?.usagePercent);
-
-    return [
-      {
-        id: "memory",
-        label: "Memória",
-        value: formatTopbarPercent(memory?.usagePercent),
-        detail: memory
-          ? `${formatTopbarKb(memory.usedKb)} usados • ${formatTopbarKb(memory.availableKb)} livres`
-          : "Aguardando leitura da VPS",
-        usage: memoryUsage,
-        tone: systemVitalTone(memoryUsage),
-      },
-      {
-        id: "disk",
-        label: "HD",
-        value: formatTopbarPercent(disk?.usagePercent),
-        detail: disk
-          ? `${disk.used || "-"} usados • ${disk.available || "-"} livres`
-          : "Aguardando leitura do disco",
-        usage: diskUsage,
-        tone: systemVitalTone(diskUsage),
-      },
-    ];
-  }, [systemHealth]);
-  const hostingerVitals = useMemo<TopbarHostingerVital[]>(() => {
-    const memory = systemHealth?.memory?.parsed;
-    const disk = systemHealth?.disk?.parsed;
-    const load = systemHealth?.load?.parsed;
-    const memoryUsage = normalizePercentValue(memory?.usagePercent);
-    const diskUsage = normalizePercentValue(disk?.usagePercent);
-    const postgresTone = serviceTone(systemHealth?.postgres?.status);
-    const apiTone = serviceTone(systemHealth?.api?.status);
-
-    return [
-      {
-        id: "memory",
-        label: "RAM",
-        value: memory
-          ? `${formatTopbarKb(memory.usedKb)} / ${formatTopbarKb(memory.totalKb)} (${formatTopbarPercent(memory.usagePercent)})`
-          : "--",
-        detail: systemHealth?.memory?.source || "free -h",
-        tone: memoryUsage === null ? "warning" : memoryUsage >= 86 ? "danger" : memoryUsage >= 72 ? "warning" : "success",
-        usage: memoryUsage,
-        source: systemHealth?.memory?.source || "free -h",
-      },
-      {
-        id: "load",
-        label: "CPU / Load",
-        value: load
-          ? `${load.oneMinute ?? "-"} / ${load.fiveMinutes ?? "-"} / ${load.fifteenMinutes ?? "-"}`
-          : "--",
-        detail: "1m / 5m / 15m",
-        tone: systemHealth?.load?.status === "ok" ? "success" : "warning",
-        usage: null,
-      },
-      {
-        id: "disk",
-        label: "Disco",
-        value: formatTopbarPercent(disk?.usagePercent),
-        detail: disk ? `${disk.used || "-"} usados de ${disk.size || "-"} em ${disk.mount || "/"}` : "Aguardando leitura do disco",
-        tone: diskUsage === null ? "warning" : diskUsage >= 86 ? "danger" : diskUsage >= 72 ? "warning" : "success",
-        usage: diskUsage,
-      },
-      {
-        id: "uptime",
-        label: "Uptime",
-        value: String(systemHealth?.uptime?.formatted || "--"),
-        detail: "Uptime do sistema",
-        tone: systemHealth?.uptime?.status === "ok" ? "success" : "warning",
-        usage: null,
-      },
-      {
-        id: "postgres",
-        label: "Postgres",
-        value: serviceStatusLabel(systemHealth?.postgres?.status),
-        detail: formatTopbarMs(systemHealth?.postgres?.responseMs),
-        tone: postgresTone,
-        usage: postgresTone === "success" ? 100 : postgresTone === "danger" ? 18 : 48,
-      },
-      {
-        id: "api",
-        label: "API",
-        value: serviceStatusLabel(systemHealth?.api?.status),
-        detail: formatTopbarMs(systemHealth?.api?.responseMs),
-        tone: apiTone,
-        usage: apiTone === "success" ? 100 : apiTone === "danger" ? 18 : 48,
-      },
-      {
-        id: "updated",
-        label: "Atualizado em",
-        value: formatTopbarDateTime(systemHealth?.generatedAt),
-        detail: SYSTEM_HEALTH_REFRESH_DETAIL,
-        tone: systemHealth?.generatedAt ? "neutral" : "warning",
-        usage: null,
-      },
-    ];
-  }, [systemHealth]);
-
   const operationalStatusReady = Boolean(
     authenticated &&
       !pendingCheckoutLocked &&
@@ -3661,15 +3417,6 @@ export default function TopBar() {
       window.clearInterval(timer);
     };
   }, [authenticated, modules, pendingCheckoutLocked, refreshScrapingEngines, user]);
-
-  useEffect(() => {
-    if (authenticated !== true || !user?.isSystemMaster) {
-      setSystemHealth(null);
-      return;
-    }
-
-    void refreshSystemHealth();
-  }, [authenticated, refreshSystemHealth, user?.isSystemMaster]);
 
   useEffect(() => {
     if (authenticated !== true || !isVendasRoute) {
@@ -4611,11 +4358,6 @@ export default function TopBar() {
       return;
     }
 
-    if (slide.source === "hostinger") {
-      router.push("/master/sistema");
-      return;
-    }
-
     if (slide.source === "engines" || slide.source === "webscraping") {
       router.push(user?.isSystemMaster ? "/master/webscraping" : "/radar-digital");
       return;
@@ -4657,9 +4399,6 @@ export default function TopBar() {
       return;
     }
 
-    if (id === "memory" || id === "disk") {
-      router.push(user?.isSystemMaster ? "/master/sistema" : "/boasvindas");
-    }
   }
 
   async function assumeMasterContext() {
@@ -4818,23 +4557,6 @@ export default function TopBar() {
       : pendingHumanCount > 0
         ? `${pendingHumanCount} na fila`
         : "Status em leitura";
-  const hostingerSummaryTile = useMemo<TopbarOperationalTile>(() => {
-    const critical = hostingerVitals.some((vital) => vital.tone === "danger");
-    const attention = hostingerVitals.some((vital) => vital.tone === "warning" || vital.tone === "loading");
-    const ram = hostingerVitals.find((vital) => vital.id === "memory");
-    const disk = hostingerVitals.find((vital) => vital.id === "disk");
-    const postgres = hostingerVitals.find((vital) => vital.id === "postgres");
-    const api = hostingerVitals.find((vital) => vital.id === "api");
-
-    return {
-      id: "hostinger",
-      label: "Hostinger",
-      value: critical ? "Atenção" : attention ? "Em leitura" : "OK",
-      detail: `${ram?.label || "RAM"} ${ram?.value || "--"} • HD ${disk?.value || "--"} • PG ${postgres?.detail || "--"} • API ${api?.detail || "--"}`,
-      tone: critical ? "danger" : attention ? "warning" : "success",
-      usage: critical ? 28 : attention ? 58 : 94,
-    };
-  }, [hostingerVitals]);
   const visibleOperationalStatusChips = useMemo(() => {
     if (pendingCheckoutLocked) return [];
     return (operationalStatus?.statuses || []).filter((chip) => {
@@ -4953,26 +4675,27 @@ export default function TopBar() {
       ];
     }
 
-    const serverMemory = hostingerVitals.find((vital) => vital.id === "memory");
-    const serverLoad = hostingerVitals.find((vital) => vital.id === "load");
-    const serverDisk = hostingerVitals.find((vital) => vital.id === "disk");
-    const serverHeaderTone = hostingerSummaryTile.tone === "danger" || hostingerSummaryTile.tone === "warning" ? "warning" : "success";
-
     return [
       {
-        id: `server:${systemHealth?.generatedAt || "pending"}:${hostingerSummaryTile.value}`,
+        id: `operational:${operationalSummaryMessage}:${pendingHumanCount}:${hbxEngineOnlineCount}:${visibleHbxEngineCount}`,
         kind: "status",
-        eyebrow: "Servidor",
-        title: `Server ${hostingerSummaryTile.value}`,
-        description: hostingerSummaryTile.detail,
-        phase: serverHeaderTone,
-        source: "hostinger",
-        href: user?.isSystemMaster ? "/master/sistema" : "/boasvindas",
-        progress: hostingerSummaryTile.usage,
+        eyebrow: "Operação",
+        title: showOperationalCompanyPicker
+          ? "Selecionar empresa"
+          : pendingHumanCount > 0
+            ? `${pendingHumanCount} pendente${pendingHumanCount === 1 ? "" : "s"}`
+            : operationalStatusReady
+              ? "Operação ativa"
+              : "Painel ativo",
+        description: operationalSummaryMessage,
+        phase: showOperationalCompanyPicker || pendingHumanCount > 0 ? "warning" : "success",
+        source: "operational",
+        href: showOperationalCompanyPicker ? null : "/boasvindas",
+        progress: showOperationalCompanyPicker ? 42 : pendingHumanCount > 0 ? 62 : 94,
         metrics: [
-          { label: "Memória", value: serverMemory?.value || "--" },
-          { label: "CPU", value: serverLoad?.value || "--" },
-          { label: "HD", value: serverDisk?.value || "--" },
+          { label: "WhatsApp", value: qrOperationalTile.value },
+          { label: "Fila", value: String(pendingHumanCount) },
+          { label: "Motores", value: `${hbxEngineOnlineCount}/${visibleHbxEngineCount}` },
         ],
       },
     ];
@@ -4983,8 +4706,6 @@ export default function TopBar() {
     hbxMainGaugeUsage,
     hbxOperationalErrorCount,
     hbxQueueCount,
-    hostingerSummaryTile,
-    hostingerVitals,
     incomingPopup,
     isAtendimentoRoute,
     isMasterWebscrapingRoute,
@@ -4992,11 +4713,13 @@ export default function TopBar() {
     isVendasRoute,
     liveWebscrapingProgress,
     masterContextToast,
+    operationalStatusReady,
+    operationalSummaryMessage,
     pendingHumanCount,
     progressEngineLabel,
     qrOperationalTile,
     scrapingEngineStatusMessage,
-    systemHealth?.generatedAt,
+    showOperationalCompanyPicker,
     topbarProgressPercent,
     unreadInboxCount,
     user?.isSystemMaster,

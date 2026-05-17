@@ -1,0 +1,898 @@
+.masterShell {
+  --master-bg: #f5f7fb;
+  --master-surface: #ffffff;
+  --master-surface-soft: #eef3f7;
+  --master-border: #d7e0ea;
+  --master-text: #101827;
+  --master-muted: #5f6f82;
+  --master-active-bg: #101827;
+  --master-active-text: #ffffff;
+  --master-muted-bg: #e8eef5;
+  --master-muted-text: #263548;
+  --master-danger-bg: #fff0f0;
+  --master-danger-text: #951f1f;
+  --master-warn-bg: #fff6df;
+  --master-warn-text: #7b4b00;
+  --master-good-bg: #e8f8f1;
+  --master-good-text: #11643d;
+  min-height: 100vh;
+  color: var(--master-text);
+  background:
+    linear-gradient(180deg, rgba(16, 24, 39, 0.04), transparent 220px),
+    var(--master-bg);
+  padding: 18px;
+}
+
+@media (prefers-color-scheme: dark) {
+  .masterShell {
+    --master-bg: #0f141b;
+    --master-surface: #171e27;
+    --master-surface-soft: #202936;
+    --master-border: #344154;
+    --master-text: #edf3fa;
+    --master-muted: #aab7c7;
+    --master-active-bg: #f1f6fb;
+    --master-active-text: #111827;
+    --master-muted-bg: #243043;
+    --master-muted-text: #d9e4f1;
+    --master-danger-bg: #3b171b;
+    --master-danger-text: #ffb9bd;
+    --master-warn-bg: #35270d;
+    --master-warn-text: #ffd37a;
+    --master-good-bg: #102f24;
+    --master-good-text: #9ee7c2;
+  }
+}
+
+.topCommandBar {
+  display: grid;
+  grid-template-columns: minmax(190px, 240px) minmax(280px, 1fr);
+  gap: 12px;
+  align-items: stretch;
+  margin-bottom: 12px;
+}
+
+.commandIdentity,
+.searchBox,
+.companyBoard,
+.inspector,
+.panelSection,
+.kpiCard,
+.modalCard,
+.operationCard,
+.companyRow {
+  background: var(--master-surface);
+  border: 1px solid var(--master-border);
+  border-radius: 8px;
+  box-shadow: 0 12px 30px rgba(16, 24, 39, 0.06);
+}
+
+.commandIdentity {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 14px;
+}
+
+.commandIdentity span,
+.sectionTitle span,
+.boardHeader span,
+.currentPlanCard span,
+.previewHeader span,
+.infoItem span,
+.realityTile span,
+.kpiCard span {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0;
+  text-transform: uppercase;
+  color: var(--master-muted);
+}
+
+.commandIdentity strong {
+  font-size: 24px;
+  line-height: 1.05;
+}
+
+.commandIdentity small,
+.contextLine,
+.panelLead {
+  color: var(--master-muted);
+}
+
+.searchBox {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px;
+}
+
+.searchBox label {
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--master-muted);
+}
+
+.searchBox input,
+.inlineForm input,
+.inlineForm select,
+.inlineForm textarea,
+.modalForm input,
+.modalForm select,
+.modalForm textarea,
+.integrationEditor input,
+.integrationEditor select,
+.catalogRow input {
+  width: 100%;
+  min-height: 42px;
+  border-radius: 8px;
+  border: 1px solid var(--master-border);
+  background: var(--master-surface);
+  color: var(--master-text);
+  padding: 10px 12px;
+  font: inherit;
+}
+
+.searchBox input:focus-visible,
+.inlineForm input:focus-visible,
+.inlineForm select:focus-visible,
+.inlineForm textarea:focus-visible,
+.modalForm input:focus-visible,
+.modalForm select:focus-visible,
+.modalForm textarea:focus-visible,
+.filterButton:focus-visible,
+.actionButton:focus-visible,
+.planCard:focus-visible,
+.kpiCard:focus-visible,
+.moduleToggle:focus-visible,
+.actionConsequence:focus-visible {
+  outline: 3px solid rgba(35, 115, 255, 0.45);
+  outline-offset: 2px;
+}
+
+.filterRail {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.filterButton {
+  min-height: 38px;
+  border-radius: 999px;
+  border: 1px solid var(--master-border);
+  background: var(--master-muted-bg);
+  color: var(--master-muted-text);
+  padding: 0 14px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.filterButton:hover,
+.filterButton[aria-current="true"],
+.filterButton[data-active="true"] {
+  background: var(--master-active-bg);
+  color: var(--master-active-text);
+  border-color: var(--master-active-bg);
+  font-weight: 900;
+}
+
+.commandActions {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.secondaryLink,
+.actionButton {
+  min-height: 38px;
+  border-radius: 8px;
+  border: 1px solid var(--master-active-bg);
+  background: var(--master-active-bg);
+  color: var(--master-active-text);
+  padding: 0 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.actionButton[data-variant="secondary"],
+.secondaryLink {
+  background: var(--master-muted-bg);
+  color: var(--master-muted-text);
+  border-color: var(--master-border);
+}
+
+.actionButton[data-variant="danger"] {
+  background: var(--master-danger-bg);
+  color: var(--master-danger-text);
+  border-color: color-mix(in srgb, var(--master-danger-text) 45%, transparent);
+}
+
+.actionButton[data-variant="ghost"] {
+  background: transparent;
+  color: var(--master-muted-text);
+  border-color: var(--master-border);
+}
+
+.actionButton:hover,
+.secondaryLink:hover {
+  transform: translateY(-1px);
+}
+
+.actionButton:disabled,
+.actionButton[disabled] {
+  opacity: 0.55;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.kpiStrip {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(120px, 1fr));
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.kpiCard {
+  min-height: 86px;
+  text-align: left;
+  padding: 14px;
+  cursor: pointer;
+  color: var(--master-text);
+}
+
+.kpiCard strong {
+  display: block;
+  font-size: 28px;
+  margin-top: 8px;
+}
+
+.kpiCard[data-tone="danger"] strong { color: var(--master-danger-text); }
+.kpiCard[data-tone="warn"] strong { color: var(--master-warn-text); }
+.kpiCard[data-tone="good"] strong { color: var(--master-good-text); }
+
+.kpiCard[data-active="true"] {
+  background: var(--master-active-bg);
+  color: var(--master-active-text);
+  border-color: var(--master-active-bg);
+  font-weight: 900;
+}
+
+.kpiCard[data-active="true"] span,
+.kpiCard[data-active="true"] strong {
+  color: var(--master-active-text);
+}
+
+.commandLayout {
+  display: grid;
+  grid-template-columns: minmax(430px, 0.9fr) minmax(520px, 1.1fr);
+  gap: 12px;
+  align-items: start;
+}
+
+.companyBoard {
+  position: sticky;
+  top: 10px;
+  max-height: calc(100vh - 20px);
+  overflow: auto;
+  padding: 12px;
+}
+
+.boardHeader {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.companyRows {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.companyRow {
+  display: grid;
+  grid-template-columns: minmax(150px, 1fr) minmax(130px, 0.8fr) minmax(130px, 0.8fr);
+  gap: 10px;
+  align-items: center;
+  padding: 12px;
+  box-shadow: none;
+}
+
+.companyRow[data-active="true"] {
+  border-color: var(--master-active-bg);
+  background: color-mix(in srgb, var(--master-active-bg) 6%, var(--master-surface));
+}
+
+.companyMain,
+.rowStatus,
+.rowFacts {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.companyMain strong,
+.rowStatus span,
+.rowFacts span,
+.rowNext {
+  overflow-wrap: anywhere;
+}
+
+.companyMain span,
+.rowFacts,
+.rowNext {
+  color: var(--master-muted);
+  font-size: 13px;
+}
+
+.rowActions {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.inspector {
+  padding: 12px;
+}
+
+.companyHero {
+  border-radius: 8px;
+  padding: 18px;
+  margin-bottom: 12px;
+  background:
+    linear-gradient(135deg, rgba(16, 24, 39, 0.92), rgba(39, 52, 69, 0.86)),
+    var(--master-active-bg);
+  color: #ffffff;
+}
+
+.companyHero h2 {
+  margin: 2px 0 10px;
+  font-size: clamp(24px, 4vw, 38px);
+  line-height: 1;
+}
+
+.companyHero span,
+.companyHero small,
+.companyHero .contextLine {
+  color: rgba(255, 255, 255, 0.76);
+}
+
+.heroBadges,
+.heroActions,
+.actionCluster,
+.dangerActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.heroActions {
+  margin-top: 14px;
+}
+
+.panelSection {
+  padding: 16px;
+  margin-bottom: 12px;
+}
+
+.sectionTitle {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 12px;
+}
+
+.sectionTitle h3 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.realityGrid,
+.billingGrid,
+.previewGrid,
+.diffGrid,
+.operationStats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(130px, 1fr));
+  gap: 10px;
+}
+
+.realityTile,
+.infoItem,
+.previewGrid div,
+.diffGrid div {
+  border: 1px solid var(--master-border);
+  border-radius: 8px;
+  background: var(--master-surface-soft);
+  padding: 12px;
+  min-height: 76px;
+}
+
+.realityTile strong,
+.infoItem strong,
+.previewGrid strong,
+.diffGrid strong {
+  display: block;
+  margin-top: 5px;
+  overflow-wrap: anywhere;
+}
+
+.realityTile[data-tone="danger"],
+.statusBadge[data-tone="danger"],
+.actionConsequence[data-tone="danger"],
+.riskBand[data-tone="danger"] {
+  background: var(--master-danger-bg);
+  color: var(--master-danger-text);
+  border-color: color-mix(in srgb, var(--master-danger-text) 38%, transparent);
+}
+
+.realityTile[data-tone="warn"],
+.statusBadge[data-tone="warn"],
+.actionConsequence[data-tone="warn"],
+.riskBand[data-tone="warn"] {
+  background: var(--master-warn-bg);
+  color: var(--master-warn-text);
+  border-color: color-mix(in srgb, var(--master-warn-text) 38%, transparent);
+}
+
+.realityTile[data-tone="good"],
+.statusBadge[data-tone="good"],
+.riskBand[data-tone="good"] {
+  background: var(--master-good-bg);
+  color: var(--master-good-text);
+  border-color: color-mix(in srgb, var(--master-good-text) 38%, transparent);
+}
+
+.statusBadge {
+  display: inline-flex;
+  min-height: 28px;
+  align-items: center;
+  border: 1px solid var(--master-border);
+  border-radius: 999px;
+  background: var(--master-muted-bg);
+  color: var(--master-muted-text);
+  padding: 0 10px;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.technicalDetails {
+  margin-top: 12px;
+  border-top: 1px solid var(--master-border);
+  padding-top: 10px;
+}
+
+.technicalDetails summary {
+  cursor: pointer;
+  color: var(--master-muted-text);
+  font-weight: 900;
+}
+
+.techGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(160px, 1fr));
+  gap: 8px;
+  margin-top: 10px;
+  color: var(--master-muted);
+}
+
+.currentPlanCard,
+.planPreview,
+.riskBand {
+  border: 1px solid var(--master-border);
+  border-radius: 8px;
+  background: var(--master-surface-soft);
+  padding: 14px;
+  margin-bottom: 12px;
+}
+
+.currentPlanCard strong {
+  display: block;
+  font-size: 22px;
+}
+
+.planCards {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(150px, 1fr));
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.planCard {
+  min-height: 132px;
+  text-align: left;
+  border-radius: 8px;
+  border: 1px solid var(--master-border);
+  background: var(--master-surface);
+  color: var(--master-text);
+  padding: 14px;
+  cursor: pointer;
+}
+
+.planCard span {
+  color: var(--master-muted);
+  font-weight: 800;
+  font-size: 12px;
+}
+
+.planCard strong {
+  display: block;
+  font-size: 20px;
+  margin: 12px 0 4px;
+}
+
+.planCard:hover,
+.planCard[aria-selected="true"],
+.planCard[data-active="true"] {
+  background: var(--master-active-bg);
+  color: var(--master-active-text);
+  border-color: var(--master-active-bg);
+  font-weight: 900;
+}
+
+.planCard[data-active="true"] span,
+.planCard[data-active="true"] small {
+  color: var(--master-active-text);
+}
+
+.previewHeader {
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 10px;
+}
+
+.diffGrid {
+  margin-top: 10px;
+  grid-template-columns: repeat(2, minmax(160px, 1fr));
+}
+
+.warningLine,
+.alertInfo,
+.alertDanger {
+  border-radius: 8px;
+  padding: 12px;
+  margin: 10px 0;
+  font-weight: 800;
+}
+
+.alertInfo {
+  background: var(--master-good-bg);
+  color: var(--master-good-text);
+  border: 1px solid color-mix(in srgb, var(--master-good-text) 35%, transparent);
+}
+
+.alertDanger {
+  background: var(--master-danger-bg);
+  color: var(--master-danger-text);
+  border: 1px solid color-mix(in srgb, var(--master-danger-text) 35%, transparent);
+}
+
+.warningLine {
+  background: var(--master-warn-bg);
+  color: var(--master-warn-text);
+}
+
+.moduleMatrix {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(160px, 1fr));
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.moduleToggle,
+.actionConsequence {
+  border: 1px solid var(--master-border);
+  border-radius: 8px;
+  background: var(--master-surface);
+  color: var(--master-text);
+  padding: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.moduleToggle[data-active="true"] {
+  background: var(--master-good-bg);
+  color: var(--master-good-text);
+  border-color: color-mix(in srgb, var(--master-good-text) 35%, transparent);
+}
+
+.moduleToggle span,
+.moduleToggle strong,
+.actionConsequence strong,
+.actionConsequence span {
+  display: block;
+}
+
+.actionCards {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(130px, 1fr));
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.inlineForm,
+.integrationEditor,
+.catalogRow {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(120px, 1fr));
+  gap: 8px;
+  align-items: center;
+  margin: 10px 0;
+}
+
+.inlineForm label,
+.modalForm label,
+.integrationEditor label,
+.catalogRow label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--master-muted-text);
+  font-weight: 800;
+}
+
+.ledgerList,
+.collapseStack,
+.userGrid,
+.integrationList,
+.auditTimeline,
+.modalStack {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ledgerItem,
+.userCard,
+.integrationRow,
+.auditItem,
+.catalogRow {
+  border: 1px solid var(--master-border);
+  border-radius: 8px;
+  background: var(--master-surface-soft);
+  padding: 12px;
+}
+
+.ledgerItem,
+.integrationRow,
+.userCard {
+  display: grid;
+  grid-template-columns: minmax(160px, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+}
+
+.ledgerItem span,
+.userCard span,
+.integrationRow span,
+.auditItem span {
+  color: var(--master-muted);
+  overflow-wrap: anywhere;
+}
+
+.ledgerItem button,
+.miniActions button {
+  min-height: 32px;
+  border-radius: 8px;
+  border: 1px solid var(--master-border);
+  background: var(--master-muted-bg);
+  color: var(--master-muted-text);
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.operationCard {
+  box-shadow: none;
+  overflow: hidden;
+}
+
+.operationCard summary {
+  padding: 14px;
+  cursor: pointer;
+  font-weight: 900;
+  color: var(--master-text);
+}
+
+.operationCard summary:hover {
+  background: var(--master-muted-bg);
+  color: var(--master-muted-text);
+}
+
+.operationBody {
+  padding: 0 14px 14px;
+}
+
+.miniActions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.riskBand {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.auditItem {
+  display: grid;
+  grid-template-columns: 150px minmax(140px, 0.6fr) 1fr;
+  gap: 10px;
+}
+
+.dangerZone {
+  border-color: color-mix(in srgb, var(--master-danger-text) 40%, var(--master-border));
+}
+
+.dangerActions {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(140px, 1fr));
+}
+
+.emptyState,
+.loadingState {
+  border: 1px dashed var(--master-border);
+  border-radius: 8px;
+  min-height: 130px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: 8px;
+  color: var(--master-muted);
+  text-align: center;
+  padding: 20px;
+}
+
+.loadingState div {
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  border: 3px solid var(--master-border);
+  border-top-color: var(--master-active-bg);
+  animation: spin 0.9s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.modalRoot {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+}
+
+.modalBackdrop {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  background: rgba(3, 8, 16, 0.62);
+}
+
+.modalCard {
+  position: relative;
+  width: min(680px, 100%);
+  max-height: min(860px, 92vh);
+  overflow: auto;
+  padding: 16px;
+}
+
+.modalCard[data-wide="true"] {
+  width: min(1100px, 100%);
+}
+
+.modalCard header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.modalCard header h3 {
+  margin: 0;
+}
+
+.modalCard header button {
+  min-height: 36px;
+  border-radius: 8px;
+  border: 1px solid var(--master-border);
+  background: var(--master-muted-bg);
+  color: var(--master-muted-text);
+  font-weight: 900;
+}
+
+.modalForm {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.confirmDetail {
+  display: block;
+  border: 1px solid var(--master-border);
+  border-radius: 8px;
+  padding: 10px;
+  background: var(--master-surface-soft);
+}
+
+.credentialLibrary {
+  border: 1px solid var(--master-border);
+  border-radius: 8px;
+  padding: 12px;
+}
+
+@media (max-width: 1180px) {
+  .commandLayout,
+  .topCommandBar {
+    grid-template-columns: 1fr;
+  }
+
+  .companyBoard {
+    position: static;
+    max-height: none;
+  }
+
+  .kpiStrip {
+    grid-template-columns: repeat(3, minmax(120px, 1fr));
+  }
+}
+
+@media (max-width: 760px) {
+  .masterShell {
+    padding: 10px;
+  }
+
+  .kpiStrip,
+  .realityGrid,
+  .billingGrid,
+  .previewGrid,
+  .diffGrid,
+  .planCards,
+  .moduleMatrix,
+  .actionCards,
+  .dangerActions,
+  .operationStats,
+  .inlineForm,
+  .integrationEditor,
+  .catalogRow,
+  .auditItem,
+  .ledgerItem,
+  .integrationRow,
+  .userCard {
+    grid-template-columns: 1fr;
+  }
+
+  .companyRow {
+    grid-template-columns: 1fr;
+  }
+
+  .rowActions,
+  .heroActions,
+  .actionCluster,
+  .commandActions {
+    align-items: stretch;
+  }
+
+  .rowActions > *,
+  .heroActions > *,
+  .actionCluster > *,
+  .commandActions > * {
+    width: 100%;
+  }
+}

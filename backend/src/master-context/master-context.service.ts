@@ -1,6 +1,5 @@
 import { ForbiddenException, Injectable, NotFoundException, OnModuleInit } from '@nestjs/common';
 import { randomUUID } from 'crypto';
-import { buildImportacaoPermissaoRows } from '../bootstrap/company-structural-defaults';
 import {
   MASTER_WHATSAPP_ENGINE_COMPANY_NAME,
   MASTER_WHATSAPP_ENGINE_COMPANY_SLUG,
@@ -348,10 +347,6 @@ export class MasterContextService implements OnModuleInit {
             whatsappModalUpdatedAt: new Date(),
           },
           select: { id: true, name: true },
-        });
-        await tx.importacaoPermissao.createMany({
-          data: buildImportacaoPermissaoRows(company.id),
-          skipDuplicates: true,
         });
         return company;
       });

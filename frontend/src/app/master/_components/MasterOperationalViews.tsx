@@ -34,9 +34,8 @@ type ClientFilterId =
   | "high_usage"
   | "critical_error";
 
-const MASTER_NAV: Array<{ id: MasterArea | "home" | "sistema" | "operacao"; label: string; href: string }> = [
+const MASTER_NAV: Array<{ id: MasterArea | "home" | "operacao"; label: string; href: string }> = [
   { id: "home", label: "Home", href: "/master" },
-  { id: "sistema", label: "Sistema/Hostinger", href: "/master/sistema" },
   { id: "clientes", label: "Clientes", href: "/master/clientes" },
   { id: "financeiro", label: "Financeiro", href: "/master/financeiro" },
   { id: "whatsapp", label: "WhatsApp", href: "/master/whatsapp" },

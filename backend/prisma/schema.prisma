@@ -123,9 +123,6 @@ model Company {
   conversationSessions ConversationSession[]
   orderDrafts          OrderDraft[]
   companyModules       CompanyModule[]
-  importacoes          Importacao[]
-  importacaoPermissoes ImportacaoPermissao[]
-  alertasImportacao    AlertaImportacao[]
   cadastroFornecedores CadastroFornecedor[]
   cadastroPaises       CadastroPais[]
   cadastroPortos       CadastroPorto[]
@@ -865,9 +862,6 @@ model User {
   productVersions ProductVersion[]
   passwordResets  PasswordReset[]
   moduleAccesses  UserModuleAccess[]
-  importacoesCriadas     Importacao[]    @relation("ImportacaoCriadaPor")
-  importacoesFinalizadas Importacao[]    @relation("ImportacaoFinalizadaPor")
-  importacoesReabertas   Importacao[]    @relation("ImportacaoReabertaPor")
   deletionRecords        DeletionRecord[]
   techAssistantInteractions TechAssistantInteraction[]
   masterContextSessions MasterAssumedContextSession[] @relation("MasterAssumedContextUser")
@@ -2070,90 +2064,6 @@ model SatisfactionSurvey {
   createdAt      DateTime @default(now())
 
   conversation Conversation @relation(fields: [conversationId], references: [id])
-}
-
-model Importacao {
-  id             Int      @id @default(autoincrement())
-  company        Company  @relation(fields: [empresaId], references: [id])
-  empresaId      Int
-  numeroPedido   String
-  fornecedorId   String?
-  pais           String?
-  portoOrigem    String?
-  portoDestino   String?
-  dataEmbarque   DateTime?
-  dataAtracacao  DateTime?
-  valorUsd       Float?
-  valorDolar     Float?
-  pesoKg         Float?
-  valorTotalReal Float?
-  status         String   @default("EM_CADASTRO")
-  pdfPath        String?
-  createdAt      DateTime @default(now())
-  createdBy      Int?
-  finalizedAt    DateTime?
-  finalizedBy    Int?
-  reabertoPor    Int?
-  updatedAt      DateTime @updatedAt
-  versao         Int      @default(1)
-
-  criador    User? @relation("ImportacaoCriadaPor", fields: [createdBy], references: [id])
-  finalizador User? @relation("ImportacaoFinalizadaPor", fields: [finalizedBy], references: [id])
-  reabertura  User? @relation("ImportacaoReabertaPor", fields: [reabertoPor], references: [id])
-
-  logs    ImportacaoLog[]
-  alertas AlertaImportacao[]
-
-  @@index([empresaId, status])
-  @@index([empresaId, numeroPedido])
-}
-
-model ImportacaoLog {
-  id          Int       @id @default(autoincrement())
-  importacao  Importacao @relation(fields: [importacaoId], references: [id])
-  importacaoId Int
-  alteracao   String
-  usuario     String
-  data        DateTime  @default(now())
-  versao      Int?
-  dadosAntes  String?
-  dadosDepois String?
-
-  @@index([importacaoId, data])
-}
-
-model AlertaImportacao {
-  id             Int       @id @default(autoincrement())
-  importacao     Importacao @relation(fields: [importacaoId], references: [id])
-  importacaoId   Int
-  company        Company   @relation(fields: [empresaId], references: [id])
-  empresaId      Int
-  diasAntes      Int
-  enviarEmail    Boolean   @default(false)
-  enviarWhatsapp Boolean   @default(false)
-  listaEmails    String?
-  listaWhatsapp  String?
-  disparado      Boolean   @default(false)
-  disparadoEm    DateTime?
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
-
-  @@index([empresaId, disparado])
-  @@index([importacaoId, diasAntes])
-}
-
-model ImportacaoPermissao {
-  id        Int      @id @default(autoincrement())
-  company   Company  @relation(fields: [empresaId], references: [id])
-  empresaId Int
-  role      String
-  acao      String
-  allowed   Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@unique([empresaId, role, acao])
-  @@index([empresaId, role])
 }
 
 model CadastroFornecedor {

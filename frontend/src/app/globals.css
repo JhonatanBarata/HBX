@@ -1466,8 +1466,7 @@ html[data-theme-mode] .app-topbar__inner--controlCenter {
   --signal-tone: #7aa2d8;
 }
 
-.hbx-control-tv__signals em,
-.hbx-control-hostingerGrid em {
+.hbx-control-tv__signals em {
   overflow: hidden;
   color: color-mix(in srgb, var(--signal-tone, var(--hbx-control-cyan)) 78%, var(--hbx-control-muted));
   font-size: 0.48rem;
@@ -1479,8 +1478,7 @@ html[data-theme-mode] .app-topbar__inner--controlCenter {
   white-space: nowrap;
 }
 
-.hbx-control-tv__signals strong,
-.hbx-control-hostingerGrid strong {
+.hbx-control-tv__signals strong {
   overflow: hidden;
   color: var(--hbx-control-heading);
   font-size: 0.64rem;
@@ -1490,8 +1488,7 @@ html[data-theme-mode] .app-topbar__inner--controlCenter {
   white-space: nowrap;
 }
 
-.hbx-control-tv__signals small,
-.hbx-control-hostingerGrid small {
+.hbx-control-tv__signals small {
   overflow: hidden;
   color: var(--hbx-control-muted);
   font-size: 0.48rem;
@@ -1501,8 +1498,7 @@ html[data-theme-mode] .app-topbar__inner--controlCenter {
   white-space: nowrap;
 }
 
-.hbx-control-tv__signals i,
-.hbx-control-hostingerGrid i {
+.hbx-control-tv__signals i {
   position: absolute;
   right: 0.34rem;
   bottom: 0.18rem;
@@ -1513,11 +1509,10 @@ html[data-theme-mode] .app-topbar__inner--controlCenter {
   background: color-mix(in srgb, var(--signal-tone, var(--hbx-control-cyan)) 10%, var(--hbx-control-line));
 }
 
-.hbx-control-tv__signals i::before,
-.hbx-control-hostingerGrid i::before {
+.hbx-control-tv__signals i::before {
   content: "";
   display: block;
-  width: var(--signal-usage, var(--hostinger-usage, 0%));
+  width: var(--signal-usage, 0%);
   height: 100%;
   min-width: 8%;
   border-radius: inherit;
@@ -1764,59 +1759,6 @@ html[data-theme-mode] .app-topbar__inner--controlCenter {
 .hbx-control-vitals span[data-tone="red"] {
   border-color: rgba(255, 77, 125, 0.28);
   color: rgba(255, 113, 151, 0.86);
-}
-
-.hbx-control-hostingerGrid {
-  min-width: 0;
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 0.28rem;
-}
-
-.hbx-control-hostingerGrid span {
-  --signal-tone: var(--hbx-control-cyan);
-  --hostinger-usage: 0%;
-  min-width: 0;
-  position: relative;
-  display: grid;
-  gap: 0.05rem;
-  overflow: hidden;
-  border: 1px solid color-mix(in srgb, var(--signal-tone) 16%, var(--hbx-control-line));
-  border-radius: 8px;
-  padding: 0.24rem 0.34rem 0.34rem;
-  background:
-    radial-gradient(circle at 0% 0%, color-mix(in srgb, var(--signal-tone) 10%, transparent), transparent 42%),
-    color-mix(in srgb, var(--hbx-control-chip) 82%, transparent);
-}
-
-.hbx-control-hostingerGrid span[data-tone="success"] {
-  --signal-tone: #00f59b;
-}
-
-.hbx-control-hostingerGrid span[data-tone="warning"] {
-  --signal-tone: #ffcd74;
-}
-
-.hbx-control-hostingerGrid span[data-tone="danger"] {
-  --signal-tone: #ff5f8f;
-}
-
-.hbx-control-hostingerGrid span[data-tone="neutral"] {
-  --signal-tone: var(--hbx-control-cyan);
-}
-
-.hbx-control-hostingerGrid em {
-  font-size: 0.44rem;
-}
-
-.hbx-control-hostingerGrid strong {
-  font-size: 0.56rem;
-  white-space: normal;
-}
-
-.hbx-control-hostingerGrid small {
-  font-size: 0.43rem;
-  white-space: normal;
 }
 
 .hbx-control-usage {
@@ -14493,10 +14435,6 @@ html[data-theme="tabler"] .workspace-context {
     grid-template-rows: auto;
   }
 
-  .hbx-control-hostingerGrid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-
   .app-topbar__center,
   .app-topbar__left,
   .app-topbar__right {
@@ -14613,10 +14551,6 @@ html[data-theme="tabler"] .workspace-context {
   }
 
   .hbx-control-tv__signals {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .hbx-control-hostingerGrid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 

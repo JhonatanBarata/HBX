@@ -2,7 +2,6 @@ import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundEx
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateCompanyDto } from './dto/create-company.dto';
 import { UpdateCompanyDto } from './dto/update-company.dto';
-import { buildImportacaoPermissaoRows } from '../bootstrap/company-structural-defaults';
 import { getMasterGlobalIntegrationConfig, pickMasterWhatsAppCredential } from '../modules/master-global-integrations.util';
 import { ensureMasterBillingRuntimeSchema } from '../modules/master-runtime';
 import { buildWhatsAppCenterSnapshot } from './whatsapp-center.util';
@@ -268,7 +267,6 @@ export class CompaniesService implements OnModuleInit, OnModuleDestroy {
           select: {
             users: true,
             companyModules: true,
-            importacoes: true,
             products: true,
             inboundMessages: true,
             outboundMessages: true,
@@ -377,10 +375,6 @@ export class CompaniesService implements OnModuleInit, OnModuleDestroy {
           slug: dto.slug,
         },
       });
-      await tx.importacaoPermissao.createMany({
-        data: buildImportacaoPermissaoRows(company.id),
-        skipDuplicates: true,
-      });
       return company;
     });
     return this.sanitizeCompany(created);
@@ -408,10 +402,6 @@ export class CompaniesService implements OnModuleInit, OnModuleDestroy {
           name,
           slug: candidate,
         },
-      });
-      await tx.importacaoPermissao.createMany({
-        data: buildImportacaoPermissaoRows(company.id),
-        skipDuplicates: true,
       });
       return company;
     });
@@ -441,10 +431,6 @@ export class CompaniesService implements OnModuleInit, OnModuleDestroy {
           whatsappModalStatus: 'DISCONNECTED',
           whatsappModalUpdatedAt: new Date(),
         },
-      });
-      await tx.importacaoPermissao.createMany({
-        data: buildImportacaoPermissaoRows(company.id),
-        skipDuplicates: true,
       });
       return company;
     });
@@ -1052,10 +1038,6 @@ export class CompaniesService implements OnModuleInit, OnModuleDestroy {
       await tx.masterSupportAuditLog.deleteMany({ where: { companyId: id } });
       await tx.masterAssumedContextSession.deleteMany({ where: { companyId: id } });
 
-      await tx.importacaoLog.deleteMany({ where: { importacao: { empresaId: id } } });
-      await tx.alertaImportacao.deleteMany({ where: { empresaId: id } });
-      await tx.importacao.deleteMany({ where: { empresaId: id } });
-      await tx.importacaoPermissao.deleteMany({ where: { empresaId: id } });
       await tx.cadastroTransitTime.deleteMany({ where: { empresaId: id } });
       await tx.cadastroFornecedor.deleteMany({ where: { empresaId: id } });
       await tx.cadastroPorto.deleteMany({ where: { empresaId: id } });
@@ -1068,20 +1050,6 @@ export class CompaniesService implements OnModuleInit, OnModuleDestroy {
       await tx.product.deleteMany({ where: { companyId: id } });
 
       if (userIds.length > 0) {
-        await tx.importacao.updateMany({
-          where: {
-            OR: [
-              { createdBy: { in: userIds } },
-              { finalizedBy: { in: userIds } },
-              { reabertoPor: { in: userIds } },
-            ],
-          },
-          data: {
-            createdBy: null,
-            finalizedBy: null,
-            reabertoPor: null,
-          },
-        });
         await tx.productVersion.updateMany({
           where: { authorId: { in: userIds } },
           data: { authorId: null },

@@ -171,10 +171,6 @@ async function deleteCompanyCascade(companyId, deletedByUserId = null) {
     await tx.masterSupportAuditLog.deleteMany({ where: { companyId: company.id } });
     await tx.masterAssumedContextSession.deleteMany({ where: { companyId: company.id } });
 
-    await tx.importacaoLog.deleteMany({ where: { importacao: { empresaId: company.id } } });
-    await tx.alertaImportacao.deleteMany({ where: { empresaId: company.id } });
-    await tx.importacao.deleteMany({ where: { empresaId: company.id } });
-    await tx.importacaoPermissao.deleteMany({ where: { empresaId: company.id } });
     await tx.cadastroTransitTime.deleteMany({ where: { empresaId: company.id } });
     await tx.cadastroFornecedor.deleteMany({ where: { empresaId: company.id } });
     await tx.cadastroPorto.deleteMany({ where: { empresaId: company.id } });
