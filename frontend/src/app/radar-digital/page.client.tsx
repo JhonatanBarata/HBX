@@ -470,7 +470,16 @@ function RadarChannelFilter({
     onChange({
       ...value,
       channelMatchMode: enabled ? "any_required" : "prefer",
-      requiredChannels: enabled ? value.requiredChannels : [],
+      requiredChannels: enabled ? (value.requiredChannels.length ? value.requiredChannels : value.preferredChannels) : [],
+    });
+  }
+
+  function requireAllChannels() {
+    if (locked) return;
+    onChange({
+      ...value,
+      channelMatchMode: "all_required",
+      requiredChannels: RADAR_CHANNELS.map((channel) => channel.value),
     });
   }
 
@@ -519,13 +528,13 @@ function RadarChannelFilter({
             disabled={locked}
             onClick={() => onChange({ ...value, channelMatchMode: "any_required" })}
           >
-            Qualquer canal
+            Obrigatório
           </button>
           <button
             type="button"
             data-active={value.channelMatchMode === "all_required" ? "true" : "false"}
             disabled={locked}
-            onClick={() => onChange({ ...value, channelMatchMode: "all_required" })}
+            onClick={requireAllChannels}
           >
             Todos os canais
           </button>
@@ -541,8 +550,8 @@ function HeroPremiumCrown({ active }: { active: boolean }) {
       href="/planos?intent=lead"
       className={styles.mobileHeroPremiumCrown}
       data-active={active ? "true" : "false"}
-      aria-label={active ? "HBX Lead ativo" : "Fazer upgrade para HBX Lead"}
-      title={active ? "HBX Lead ativo" : "Upgrade para HBX Lead"}
+      aria-label={active ? "Ver plano HBX Lead" : "Fazer upgrade para HBX Lead"}
+      title={active ? "Ver plano HBX Lead" : "Upgrade para HBX Lead"}
     >
       <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
         <path d="M4.2 18.5h15.6l.7-9.9-4.6 3.5L12 4.7 8.1 12.1 3.5 8.6l.7 9.9Z" />
@@ -2778,6 +2787,9 @@ export default function RadarDigitalClientPage() {
               <p>{radarMomentDescription}</p>
               <small>{radarMomentBadge}</small>
             </div>
+          </section>
+
+          <div className={styles.mobileRadarHeroStats}>
             <div className={styles.mobileRadarHeroStat}>
               <span>Cidade</span>
               <strong>{filters.city || "Definir"}</strong>
@@ -2794,7 +2806,7 @@ export default function RadarDigitalClientPage() {
               <span>Fonte atual</span>
               <strong>{mobileRadarEngineLabel(filters.engine)}</strong>
             </div>
-          </section>
+          </div>
 
           <form
             className={`${styles.mobileRadarForm} hbx-mobile-card`}
@@ -2805,30 +2817,6 @@ export default function RadarDigitalClientPage() {
               startMobileRadarSearch();
             }}
           >
-            <MobilePickerButton
-              label="Estado"
-              value={filters.state}
-              placeholder="Selecionar estado"
-              onClick={() => setMobilePicker("state")}
-            />
-
-            <MobilePickerButton
-              label="Cidade"
-              value={filters.city}
-              placeholder={filters.state ? "Selecionar cidade" : "Escolha o estado"}
-              disabled={!filters.state}
-              helper={filters.state ? "Cidade liberada para o estado selecionado." : "Escolha um estado para liberar as cidades."}
-              onClick={() => setMobilePicker("city")}
-            />
-
-            <MobilePickerButton
-              label="Segmento"
-              value={radarSegmentSummary(filters.segment)}
-              placeholder="Ex.: Clínica, academia, estética"
-              helper={isRadarCategoryValue(filters.segment) ? "Categoria inteira selecionada." : "Escolha até 5 segmentos."}
-              onClick={() => setMobilePicker("segment")}
-            />
-
             <button
               type="button"
               className={styles.mobileGpsButton}
@@ -2838,7 +2826,33 @@ export default function RadarDigitalClientPage() {
               title="Usar minha localização"
             >
               <span aria-hidden="true" />
+              Localização
             </button>
+
+            <div className={styles.mobileRadarLocationRow}>
+              <MobilePickerButton
+                label="Estado"
+                value={filters.state}
+                placeholder="UF"
+                onClick={() => setMobilePicker("state")}
+              />
+
+              <MobilePickerButton
+                label="Cidade"
+                value={filters.city}
+                placeholder={filters.state ? "Selecionar cidade" : "Escolha o estado"}
+                disabled={!filters.state}
+                onClick={() => setMobilePicker("city")}
+              />
+            </div>
+
+            <MobilePickerButton
+              label="Segmento"
+              value={radarSegmentSummary(filters.segment)}
+              placeholder="Ex.: Clínica, academia, estética"
+              helper={isRadarCategoryValue(filters.segment) ? "Categoria inteira selecionada." : "Escolha até 5 segmentos."}
+              onClick={() => setMobilePicker("segment")}
+            />
 
             <RadarRadiusSelector
               compact

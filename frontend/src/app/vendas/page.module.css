@@ -1243,9 +1243,9 @@
     display: grid;
     grid-template-columns: minmax(0, 1fr);
     grid-template-rows: auto auto auto;
-    gap: 12px 10px;
-    min-height: 218px;
-    padding: 22px 18px 16px;
+    gap: 10px;
+    min-height: 184px;
+    padding: 18px 16px 14px;
     overflow: hidden;
     isolation: isolate;
     border: 1px solid rgba(170, 205, 255, 0.7);
@@ -1308,6 +1308,8 @@
       linear-gradient(145deg, rgba(255, 248, 213, 0.96), rgba(255, 203, 54, 0.62));
     color: #f2ad12;
     text-decoration: none;
+    pointer-events: auto;
+    cursor: pointer;
     box-shadow:
       0 0 0 4px rgba(255, 212, 77, 0.18),
       0 12px 28px -16px rgba(195, 117, 0, 0.9),
@@ -1368,8 +1370,9 @@
     grid-column: 1 / -1;
     display: grid;
     align-content: start;
-    gap: 8px;
+    gap: 6px;
     min-width: 0;
+    padding-right: 42px;
   }
 
   .mobileVendasHeroCopy small {
@@ -1382,7 +1385,7 @@
 
   .mobileVendasHeroCopy strong {
     color: #07143a;
-    font-size: clamp(2rem, 8.8vw, 2.75rem);
+    font-size: clamp(1.8rem, 8vw, 2.4rem);
     line-height: 0.94;
     font-weight: 1000;
     letter-spacing: 0;
@@ -1392,7 +1395,7 @@
   .mobileVendasHeroCopy em {
     max-width: 100%;
     color: #536483;
-    font-size: 1rem;
+    font-size: 0.88rem;
     line-height: 1.28;
     font-style: normal;
     font-weight: 820;
@@ -1451,18 +1454,17 @@
 
   .mobileVendasHeroGoal {
     grid-column: 1 / -1;
-    width: fit-content;
+    width: 100%;
     max-width: 100%;
-    min-height: 40px;
+    min-height: 48px;
     display: inline-flex;
     align-items: center;
     gap: 10px;
-    padding: 6px 14px 6px 8px;
+    padding: 7px 12px 7px 8px;
     border: 1px solid rgba(20, 170, 98, 0.26);
-    border-radius: 999px;
+    border-radius: 16px;
     background: rgba(232, 251, 241, 0.9);
     color: #0f9a58;
-    font-size: 0.78rem;
     font-weight: 950;
   }
 
@@ -1478,11 +1480,103 @@
     line-height: 1;
   }
 
+  .mobileVendasHeroGoal b i {
+    width: 17px;
+    height: 17px;
+    border-radius: 999px;
+    border: 3px dotted currentColor;
+    animation: mobileRadarMotorSpin 980ms linear infinite;
+  }
+
   .mobileVendasHeroGoal span {
+    display: grid;
+    gap: 2px;
     min-width: 0;
+  }
+
+  .mobileVendasHeroGoal span strong {
+    min-width: 0;
+    overflow: hidden;
+    color: currentColor;
+    font-size: clamp(0.9rem, 4.8vw, 1.18rem);
+    line-height: 1.06;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .mobileVendasHeroGoal span em {
+    min-width: 0;
+    overflow: hidden;
+    color: color-mix(in srgb, currentColor 70%, #07143a);
+    font-size: 0.66rem;
+    line-height: 1.15;
+    font-style: normal;
+    font-weight: 900;
+    letter-spacing: 0.02em;
+    text-overflow: ellipsis;
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+
+  .mobileVendasHeroAction {
+    grid-column: 1 / -1;
+    justify-self: start;
+    min-height: 32px;
+    display: inline-grid;
+    align-items: center;
+    max-width: 100%;
+    padding: 7px 12px;
+    border: 1px solid rgba(11, 114, 255, 0.22);
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.68);
+    color: #0b4fbf;
+    font-size: 0.72rem;
+    font-weight: 950;
+    line-height: 1;
+    text-decoration: none;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    box-shadow: 0 12px 24px -20px rgba(7, 87, 223, 0.5);
+  }
+
+  .mobileVendasHeroPanel[data-radar-state="searching"] .mobileVendasHeroGoal {
+    border-color: rgba(82, 190, 255, 0.34);
+    background: rgba(226, 246, 255, 0.92);
+    color: #0878c9;
+  }
+
+  .mobileVendasHeroPanel[data-radar-state="searching"] .mobileVendasHeroGoal b {
+    background: #1590d6;
+    color: #ffffff;
+  }
+
+  .mobileVendasHeroPanel[data-radar-state="receiving"] .mobileVendasHeroGoal,
+  .mobileVendasHeroPanel[data-radar-state="received"] .mobileVendasHeroGoal {
+    border-color: rgba(20, 170, 98, 0.3);
+    background: rgba(226, 252, 239, 0.94);
+    color: #0b9b5a;
+  }
+
+  .mobileVendasHeroPanel[data-radar-state="partial"] .mobileVendasHeroGoal,
+  .mobileVendasHeroPanel[data-radar-state="warning"] .mobileVendasHeroGoal {
+    border-color: rgba(229, 154, 0, 0.38);
+    background: rgba(255, 246, 219, 0.96);
+    color: #b87500;
+  }
+
+  .mobileVendasHeroPanel[data-radar-state="partial"] .mobileVendasHeroGoal b,
+  .mobileVendasHeroPanel[data-radar-state="warning"] .mobileVendasHeroGoal b {
+    background: #e59a00;
+    color: #fffaf0;
+  }
+
+  .mobileVendasHeroPanel[data-radar-state="partial"] .mobileVendasHeroAction,
+  .mobileVendasHeroPanel[data-radar-state="warning"] .mobileVendasHeroAction {
+    border-color: rgba(229, 154, 0, 0.34);
+    background: #fff2bf;
+    color: #8a5800;
+    box-shadow: 0 14px 28px -20px rgba(229, 154, 0, 0.58);
   }
 
   .mobileVendasHeroStats {
@@ -1678,6 +1772,51 @@
   :global(html[data-hbx-mobile-theme="dark"]) .mobileVendasHeroGoal b {
     background: #ffd86a;
     color: #081322;
+  }
+
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileVendasHeroAction {
+    border-color: rgba(84, 168, 255, 0.28);
+    background: rgba(7, 28, 58, 0.82);
+    color: #d9ebff;
+    box-shadow: 0 14px 30px -22px rgba(20, 134, 255, 0.52);
+  }
+
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileVendasHeroPanel[data-radar-state="searching"] .mobileVendasHeroGoal {
+    border-color: rgba(84, 190, 255, 0.36);
+    background: rgba(36, 145, 214, 0.14);
+    color: #7ad5ff;
+  }
+
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileVendasHeroPanel[data-radar-state="searching"] .mobileVendasHeroGoal b {
+    background: #58c8ff;
+    color: #041323;
+  }
+
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileVendasHeroPanel[data-radar-state="receiving"] .mobileVendasHeroGoal,
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileVendasHeroPanel[data-radar-state="received"] .mobileVendasHeroGoal {
+    border-color: rgba(87, 235, 155, 0.32);
+    background: rgba(29, 196, 105, 0.12);
+    color: #72f2a7;
+  }
+
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileVendasHeroPanel[data-radar-state="receiving"] .mobileVendasHeroGoal b,
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileVendasHeroPanel[data-radar-state="received"] .mobileVendasHeroGoal b {
+    background: #57eb9b;
+    color: #04140c;
+  }
+
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileVendasHeroPanel[data-radar-state="partial"] .mobileVendasHeroGoal,
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileVendasHeroPanel[data-radar-state="warning"] .mobileVendasHeroGoal {
+    border-color: rgba(255, 214, 102, 0.36);
+    background: rgba(255, 214, 102, 0.12);
+    color: #ffd86a;
+  }
+
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileVendasHeroPanel[data-radar-state="partial"] .mobileVendasHeroAction,
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileVendasHeroPanel[data-radar-state="warning"] .mobileVendasHeroAction {
+    border-color: rgba(255, 214, 102, 0.34);
+    background: rgba(255, 214, 102, 0.14);
+    color: #ffe8a3;
   }
 
   :global(html[data-hbx-mobile-theme="dark"]) .mobileVendasHeroStats > button {

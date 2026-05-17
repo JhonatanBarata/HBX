@@ -100,7 +100,16 @@ function isPendingCheckout(payload: CommercialPlansPayload | null) {
   return subscriptionStatus === "pending_checkout" || paymentStatus === "PENDING" || onboardingStatus === "pending_checkout";
 }
 
+function isImplementationAccess(payload: CommercialPlansPayload | null) {
+  const subscriptionStatus = String(payload?.current.subscriptionStatus || "").trim().toLowerCase();
+  const paymentStatus = String(payload?.current.paymentStatus || "").trim().toUpperCase();
+  const assistedSetupRequired = Boolean(payload?.current.assistedSetup?.required);
+  if (payload?.current.isTrial) return false;
+  return assistedSetupRequired || subscriptionStatus === "manual" || paymentStatus === "MANUAL";
+}
+
 function currentPlanKey(payload: CommercialPlansPayload | null): PlanKey | null {
+  if (isImplementationAccess(payload)) return null;
   const key = payload?.current.planKey || payload?.current.selectedPlanKey || null;
   return PLAN_ORDER.includes(key as PlanKey) ? (key as PlanKey) : null;
 }
@@ -123,6 +132,7 @@ function canStartPadraoTrial(payload: CommercialPlansPayload | null) {
 }
 
 function promotedPlanFor(current: PlanKey | null, intent: string): PlanKey | null {
+  if (intent === "lead") return current === "hbx_padrao" ? null : "hbx_padrao";
   if (intent === "bot_ia") return "hbx_melhor";
   if (current === "hbx_lite") return "hbx_padrao";
   if (current === "hbx_padrao") return "hbx_melhor";
@@ -185,6 +195,12 @@ function normalizeBrazilPhone(value: string) {
   return digits.startsWith("55") && digits.length > 11 ? digits.slice(2, 13) : digits.slice(0, 11);
 }
 
+function safeInternalPath(value: string | null) {
+  const path = String(value || "").trim();
+  if (!path.startsWith("/") || path.startsWith("//")) return "";
+  return path;
+}
+
 export default function PlanosClientPage() {
   const hasToken = useRequireAuth();
   const router = useRouter();
@@ -204,12 +220,22 @@ export default function PlanosClientPage() {
   });
 
   const intent = String(searchParams.get("intent") || "").trim();
+  const from = String(searchParams.get("from") || "").trim();
+  const explicitReturnTo = safeInternalPath(searchParams.get("returnTo"));
+  const closeFallback =
+    explicitReturnTo ||
+    (from === "vendas_automacao" || intent === "bot_ia"
+      ? "/vendas/automacao"
+      : intent === "lead"
+        ? "/vendas"
+        : "/boasvindas");
   const canSelectPlan = Boolean(payload?.permissions?.canSelectPlan);
   const adminDeniedMessage =
     payload?.permissions?.selectPlanDeniedMessage || "USER não pode fazer upgrade. Contate seu ADMIN ou o suporte da empresa.";
   const pendingCheckout = isPendingCheckout(payload);
+  const implementationAccess = isImplementationAccess(payload);
   const selectedPlanKey = currentPlanKey(payload);
-  const promotedPlanKey = promotedPlanFor(selectedPlanKey, intent);
+  const promotedPlanKey = implementationAccess ? null : promotedPlanFor(selectedPlanKey, intent);
   const padraoTrialAvailable = canStartPadraoTrial(payload);
   const trialPhoneDigits = normalizeBrazilPhone(trialForm.phone);
   const trialCpfDigits = onlyDigits(trialForm.cpf);
@@ -219,9 +245,14 @@ export default function PlanosClientPage() {
     trialPhoneDigits.length >= 10 &&
     trialForm.acceptedTerms;
 
+  const planDisplayOrder = useMemo(
+    () => (intent === "lead" ? PLAN_ORDER.filter((key) => key !== "hbx_melhor") : PLAN_ORDER),
+    [intent],
+  );
+
   const plans = useMemo(
-    () => PLAN_ORDER.map((key) => commercialPlanByKey(payload, key) || FALLBACK_PLANS[key]),
-    [payload],
+    () => planDisplayOrder.map((key) => commercialPlanByKey(payload, key) || FALLBACK_PLANS[key]),
+    [payload, planDisplayOrder],
   );
 
   const planCards = useMemo<PlanSelectionCard[]>(
@@ -276,6 +307,18 @@ export default function PlanosClientPage() {
     if (hasToken !== true) return;
     void loadPlans();
   }, [hasToken, loadPlans]);
+
+  function closePlansPage() {
+    if (typeof window !== "undefined") {
+      const referrer = document.referrer;
+      const sameOriginReferrer = Boolean(referrer && referrer.startsWith(window.location.origin));
+      if (sameOriginReferrer && window.history.length > 1) {
+        router.back();
+        return;
+      }
+    }
+    router.push(closeFallback);
+  }
 
   async function selectPlan(planKey: PlanKey) {
     if (planKey === "hbx_melhor") {
@@ -411,9 +454,9 @@ export default function PlanosClientPage() {
 
             <div className={styles.headerActions}>
               <span className={styles.currentPill}>
-                {trialModalOpen ? "Plano:" : "Atual:"} <strong>{trialModalOpen ? "HBX Lead trial" : selectedPlanKey ? PLAN_LABELS[selectedPlanKey] : "nenhum"}</strong>
+                {trialModalOpen ? "Plano:" : "Atual:"} <strong>{trialModalOpen ? "HBX Lead trial" : implementationAccess ? "Implantação HBX" : selectedPlanKey ? PLAN_LABELS[selectedPlanKey] : "nenhum"}</strong>
               </span>
-              <Link href="/boasvindas" className={styles.closeButton} aria-label="Voltar ao dashboard">X</Link>
+              <button type="button" className={styles.closeButton} aria-label="Voltar" onClick={closePlansPage}>X</button>
             </div>
           </header>
 
@@ -537,7 +580,7 @@ export default function PlanosClientPage() {
                 plans={planCards}
                 selectedPlanKey={selectedPlanKey}
                 billingCycle={billingCycle === "ANNUAL" ? "annual" : "monthly"}
-                mode="signup"
+                mode="plans"
                 canSelect={canSelectPlan}
                 hidePrices={!canSelectPlan}
                 highlightPlanKey={promotedPlanKey}
