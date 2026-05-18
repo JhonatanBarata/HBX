@@ -1,3 +1,4 @@
+import unicodedata
 from urllib.parse import urlparse
 
 from ddgs import DDGS
@@ -89,6 +90,14 @@ def requested_social_channels(
     return {str(value or "").strip().lower() for value in values if str(value or "").strip().lower() in {"instagram", "facebook"}}
 
 
+def text_variants(value: str) -> list[str]:
+    text = " ".join(str(value or "").split())
+    if not text:
+        return []
+    ascii_text = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode("ascii")
+    return list(dict.fromkeys([text, ascii_text]))
+
+
 def build_social_queries(segment: str, city: str, state: str, channels: set[str]) -> list[str]:
     city_text = " ".join(str(city or "").split())
     state_text = " ".join(str(state or "").split())
@@ -100,6 +109,12 @@ def build_social_queries(segment: str, city: str, state: str, channels: set[str]
         if channel not in channels:
             continue
         domain = "instagram.com" if channel == "instagram" else "facebook.com"
+
+        if channel == "instagram":
+            for city_variant in text_variants(city_text):
+                profile_term = " ".join(part for part in [segment_text, city_variant] if part).strip()
+                if profile_term:
+                    queries.append(f"site:{domain} {profile_term} -/p/ -/reel/ -/stories/")
 
         base_terms = [
             f"{segment_text} {location}",
