@@ -529,6 +529,7 @@ class SearchService:
                 request.limit,
                 request.preferredChannels,
                 request.requiredChannels,
+                target_override=request.limit if required_social_channels else None,
             )
             print(f"[social_discovery] profiles={len(social_profiles)} channels={','.join(sorted(requested_social_channels))}")
             social_first_candidates = self.social_profile_candidates(

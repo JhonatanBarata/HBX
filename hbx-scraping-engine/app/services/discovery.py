@@ -135,17 +135,22 @@ def discover_social_profiles(
     limit: int,
     preferred_channels: list[str] | None = None,
     required_channels: list[str] | None = None,
+    target_override: int | None = None,
 ) -> list[SocialProfileCandidate]:
     channels = requested_social_channels(preferred_channels, required_channels)
     if not channels:
         return []
 
     queries = build_social_queries(segment, city, state, channels)
-    target = max(SOCIAL_DISCOVERY_MIN_TARGET, limit * SOCIAL_DISCOVERY_LIMIT_MULTIPLIER)
+    target = max(1, int(target_override)) if target_override is not None else max(SOCIAL_DISCOVERY_MIN_TARGET, limit * SOCIAL_DISCOVERY_LIMIT_MULTIPLIER)
     seen: set[str] = set()
     profiles: list[SocialProfileCandidate] = []
 
-    with DDGS() as ddgs:
+    try:
+        ddgs = DDGS(timeout=6)
+    except TypeError:
+        ddgs = DDGS()
+    with ddgs:
         for query in queries:
             try:
                 rows = ddgs.text(query, region="br-pt", safesearch="off", max_results=SOCIAL_DISCOVERY_MAX_RESULTS_PER_QUERY)
@@ -215,7 +220,11 @@ def discover_urls(
     seen: set[str] = {str(url or "").strip().rstrip("/") for url in (exclude_urls or []) if str(url or "").strip()}
     urls: list[str] = []
 
-    with DDGS() as ddgs:
+    try:
+        ddgs = DDGS(timeout=6)
+    except TypeError:
+        ddgs = DDGS()
+    with ddgs:
         for query in queries:
             try:
                 results = ddgs.text(query, region="br-pt", safesearch="off", max_results=per_query)
