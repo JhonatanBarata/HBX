@@ -351,7 +351,7 @@ test('buildHbxBatchQueries nao gera query PJ sem nicho', () => {
   assert.equal(queries.every((query) => normalizeQueryForTest(query).includes('oficina')), true);
 });
 
-test('buildHbxBatchQueries adiciona redes sociais apenas quando canal foi pedido', () => {
+test('buildHbxBatchQueries nao usa rede social como fonte primaria quando canal foi pedido', () => {
   const service = new WebscrapingService(createPrisma()) as any;
   const normalized = service.normalizeSearchInput({
     city: 'Campinas',
@@ -364,8 +364,85 @@ test('buildHbxBatchQueries adiciona redes sociais apenas quando canal foi pedido
   });
   const queries = service.buildHbxBatchQueries(normalized) as string[];
 
-  assert.equal(queries.some((query) => /\binstagram\b/i.test(query)), true);
+  assert.equal(queries.some((query) => /\binstagram\b/i.test(query)), false);
   assert.equal(queries.some((query) => /\bfacebook\b/i.test(query)), false);
+});
+
+test('buildSearchRunResponse items preserva campos sociais do rawJson', () => {
+  const { run, items } = createSearchRunPrisma({
+    foundCount: 1,
+    targetQuantity: 1,
+  });
+  const service = new WebscrapingService(createPrisma()) as any;
+  items.push({
+    id: 'item-social',
+    runId: run.id,
+    placeId: 'hbx:pj:19999990002',
+    name: 'Auto Social',
+    phone: '(19) 99999-0002',
+    phoneDigits: '19999990002',
+    website: 'https://autosocial.example.com',
+    status: 'found',
+    source: 'hbx',
+    createdAt: new Date('2026-05-06T12:01:00.000Z'),
+    rawJson: JSON.stringify({
+      name: 'Auto Social',
+      phone: '(19) 99999-0002',
+      phoneDigits: '19999990002',
+      instagramUrl: 'https://instagram.com/autosocial',
+      facebookUrl: 'https://facebook.com/autosocial',
+      email: 'contato@autosocial.com.br',
+      emailStatus: 'confirmed',
+      socialStatus: 'found',
+      whatsappStatus: 'confirmed',
+      whatsappCheckStatus: 'confirmed',
+      recommendedChannel: 'whatsapp',
+      opportunityScore: 82,
+      opportunityReason: 'Contato acionavel.',
+      enrichmentScore: 77,
+      qualityV2: { decision: 'deliver', finalRankScore: 82, channelAvailability: { instagram: true } },
+    }),
+  });
+
+  const response = service.buildSearchRunResponse({ ...run, items });
+  const item = response.items[0];
+
+  assert.equal(item.instagramUrl, 'https://instagram.com/autosocial');
+  assert.equal(item.facebookUrl, 'https://facebook.com/autosocial');
+  assert.equal(item.email, 'contato@autosocial.com.br');
+  assert.equal(item.whatsappStatus, 'confirmed');
+  assert.equal(item.recommendedChannel, 'whatsapp');
+  assert.equal(item.opportunityScore, 82);
+  assert.equal(item.enrichmentScore, 77);
+  assert.equal(item.qualityV2?.channelAvailability?.instagram, true);
+});
+
+test('mapRunItemToContact preserva social fields do rawJson', () => {
+  const service = new WebscrapingService(createPrisma()) as any;
+  const contact = service.mapRunItemToContact({
+    placeId: 'hbx:pj:19999990003',
+    name: 'Auto Mapeada',
+    phone: '(19) 99999-0003',
+    phoneDigits: '19999990003',
+    rawJson: JSON.stringify({
+      instagramUrl: 'https://instagram.com/automapeada',
+      facebookUrl: 'https://facebook.com/automapeada',
+      email: 'oi@automapeada.com.br',
+      whatsappStatus: 'confirmed',
+      recommendedChannel: 'whatsapp',
+      opportunityScore: 71,
+      opportunityReason: 'Bom contato.',
+      qualityV2: { decision: 'review', finalRankScore: 71 },
+    }),
+  });
+
+  assert.equal(contact.instagramUrl, 'https://instagram.com/automapeada');
+  assert.equal(contact.facebookUrl, 'https://facebook.com/automapeada');
+  assert.equal(contact.email, 'oi@automapeada.com.br');
+  assert.equal(contact.whatsappStatus, 'confirmed');
+  assert.equal(contact.recommendedChannel, 'whatsapp');
+  assert.equal(contact.opportunityScore, 71);
+  assert.equal(contact.qualityV2?.finalRankScore, 71);
 });
 
 test('buildHbxBatchAttemptTask percorre cidade, segmento e variacao em ordem', () => {

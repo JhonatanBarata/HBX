@@ -795,6 +795,33 @@ function isLeadWhatsappConfirmed(lead: LeadItem) {
   );
 }
 
+type LeadChannelAsset = {
+  channel: MobileChannelAsset;
+  href: string;
+  external?: boolean;
+  locked?: boolean;
+};
+
+function buildLeadChannelAssets(lead: LeadItem): LeadChannelAsset[] {
+  const socialLinksVisible = canSeeSocialLinks(lead);
+  const phoneHref = lead.phone ? buildCallUrl(lead.phone) : "";
+  const whatsappHref = lead.phone && lead.whatsappAvailability?.status !== "unavailable"
+    ? buildWhatsAppUrl(lead.phone, lead.name)
+    : "";
+  const instagramHref = normalizeExternalUrl(lead.leadIntelligence?.instagramUrl);
+  const facebookHref = normalizeExternalUrl(lead.leadIntelligence?.facebookUrl);
+  const email = String(lead.email || lead.leadIntelligence?.email || "").trim();
+  const websiteHref = normalizeExternalUrl(lead.website);
+  return [
+    phoneHref ? { channel: "phone", href: phoneHref } : null,
+    whatsappHref ? { channel: "whatsapp", href: whatsappHref, external: true } : null,
+    instagramHref ? { channel: "instagram", href: socialLinksVisible ? instagramHref : "", external: true, locked: !socialLinksVisible } : null,
+    facebookHref ? { channel: "facebook", href: socialLinksVisible ? facebookHref : "", external: true, locked: !socialLinksVisible } : null,
+    email ? { channel: "email", href: `mailto:${email}` } : null,
+    websiteHref ? { channel: "site", href: websiteHref, external: true } : null,
+  ].filter(Boolean) as LeadChannelAsset[];
+}
+
 function socialBadgeLabel(primarySocial?: LeadIntelligence["primarySocial"]) {
   if (primarySocial === "instagram") return "IG";
   if (primarySocial === "facebook") return "f";
@@ -1578,6 +1605,7 @@ function LeadCardView({
   const leadSource = lead.primarySource || lead.sourceType;
   const inInbox = isLeadInInbox(lead);
   const webscrapingSummary = buildLeadWebscrapingSummary(lead);
+  const channelAssets = buildLeadChannelAssets(lead);
 
   // inline editor mount/animation control — uses global motion timings
   const editorRef = useRef<HTMLDivElement | null>(null);
@@ -1733,6 +1761,47 @@ function LeadCardView({
                   lead.city
                 ) : null}
               </span>
+              {channelAssets.length ? (
+                <div className={styles.leadCardChannelRow} aria-label="Canais disponíveis">
+                  {channelAssets.map((asset) => {
+                    const icon = (
+                      <span
+                        className={styles.mobileVendasChannelIcon}
+                        data-channel={asset.channel}
+                        data-compact="true"
+                        data-locked={asset.locked ? "true" : "false"}
+                        title={MOBILE_CHANNEL_ASSETS[asset.channel].label}
+                      >
+                        <MobileChannelIconAsset channel={asset.channel} />
+                      </span>
+                    );
+                    if (asset.locked) {
+                      return (
+                        <Link
+                          key={asset.channel}
+                          href={toMobileRoute("/planos?intent=lead")}
+                          aria-label={`${MOBILE_CHANNEL_ASSETS[asset.channel].label} disponível no HBX Lead`}
+                          onClick={(event) => event.stopPropagation()}
+                        >
+                          {icon}
+                        </Link>
+                      );
+                    }
+                    return (
+                      <a
+                        key={asset.channel}
+                        href={asset.href}
+                        target={asset.external ? "_blank" : undefined}
+                        rel={asset.external ? "noreferrer" : undefined}
+                        aria-label={MOBILE_CHANNEL_ASSETS[asset.channel].label}
+                        onClick={(event) => event.stopPropagation()}
+                      >
+                        {icon}
+                      </a>
+                    );
+                  })}
+                </div>
+              ) : null}
             </div>
             <div className={glassCardStyles.headerAside}>
               <button

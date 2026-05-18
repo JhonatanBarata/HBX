@@ -433,10 +433,21 @@ export type WebscrapingContactResult = {
   reviews: number | null;
   address: string | null;
   website: string | null;
+  instagramUrl?: string | null;
+  facebookUrl?: string | null;
+  email?: string | null;
+  emailStatus?: string | null;
+  socialStatus?: string | null;
+  whatsappStatus?: string | null;
+  whatsappCheckStatus?: string | null;
+  recommendedChannel?: string | null;
   source?: string | null;
   score?: number | null;
   opportunityScore?: number | null;
   opportunityReason?: string | null;
+  enrichmentScore?: number | null;
+  enrichmentJson?: Record<string, any> | string | null;
+  qualityV2?: LeadQualityV2 | Record<string, any> | null;
   quality?: LeadQualityResult | null;
 };
 
@@ -462,6 +473,14 @@ export type WebscrapingSearchResponse = {
     technicalCacheUsed: boolean;
     technicalCacheReusedCount: number;
     technicalCacheValidUntil: string | null;
+    attempts?: number;
+    queryTaskCount?: number;
+    currentCity?: string | null;
+    currentSegment?: string | null;
+    currentQuery?: string | null;
+    approved?: number;
+    skipped?: number;
+    duplicate?: number;
   };
   results: Array<Omit<WebscrapingContactResult, 'placeId'>>;
 };
@@ -514,6 +533,18 @@ export type WebscrapingSearchRunResponse = {
     phone: string;
     phoneDigits: string;
     website: string | null;
+    instagramUrl?: string | null;
+    facebookUrl?: string | null;
+    email?: string | null;
+    emailStatus?: string | null;
+    socialStatus?: string | null;
+    whatsappStatus?: string | null;
+    whatsappCheckStatus?: string | null;
+    recommendedChannel?: string | null;
+    opportunityScore?: number | null;
+    opportunityReason?: string | null;
+    enrichmentScore?: number | null;
+    qualityV2?: LeadQualityV2 | Record<string, any> | null;
     websiteKey: string | null;
     address: string | null;
     city: string | null;
@@ -2491,17 +2522,11 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     const effectiveNiche = normalizedNiche && normalizedNiche !== 'empresa' && normalizedNiche !== normalizedRole
       ? niche
       : segment;
-    const requestedChannels = new Set([...(input.preferredChannels || []), ...(input.requiredChannels || [])]);
-    const socialQueries = [
-      requestedChannels.has('instagram') ? this.compactQuery([effectiveNiche, city, state, 'instagram']) : '',
-      requestedChannels.has('facebook') ? this.compactQuery([effectiveNiche, city, state, 'facebook']) : '',
-    ].filter(Boolean);
     return input.targetType === 'pj'
       ? [
           this.compactQuery([effectiveNiche, city, state, 'empresa']),
           this.compactQuery([effectiveNiche, city, state, 'maps']),
           this.compactQuery([effectiveNiche, city, state, 'site']),
-          ...socialQueries,
           this.compactQuery([effectiveNiche, city, state, 'whatsapp']),
           this.compactQuery([effectiveNiche, city, state, 'telefone']),
           ddd ? this.compactQuery([effectiveNiche, 'DDD', ddd]) : this.compactQuery([effectiveNiche, city, state]),
@@ -2601,17 +2626,11 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       const effectiveNiche = normalizedNiche && normalizedNiche !== 'empresa' && normalizedNiche !== normalizedRole
         ? niche
         : segment;
-      const requestedChannels = new Set([...(input.preferredChannels || []), ...(input.requiredChannels || [])]);
-      const socialQueries = [
-        requestedChannels.has('instagram') ? this.compactQuery([effectiveNiche, city, state, 'instagram']) : '',
-        requestedChannels.has('facebook') ? this.compactQuery([effectiveNiche, city, state, 'facebook']) : '',
-      ].filter(Boolean);
       return input.targetType === 'pj'
         ? [
             this.compactQuery([effectiveNiche, city, state, 'empresa']),
             this.compactQuery([effectiveNiche, city, state, 'maps']),
             this.compactQuery([effectiveNiche, city, state, 'site']),
-            ...socialQueries,
             this.compactQuery([effectiveNiche, city, state, 'whatsapp']),
             this.compactQuery([effectiveNiche, city, state, 'telefone']),
             ddd ? this.compactQuery([effectiveNiche, 'DDD', ddd]) : this.compactQuery([effectiveNiche, city, state]),
@@ -3693,7 +3712,8 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     const batchLimit = this.getHbxRunBatchLimit(normalized.quantity);
     const queryTaskCount = this.buildHbxBatchQueryTasks(normalized).length;
     const maxAttempts = Math.max(this.getHbxRunMaxAttempts(normalized.quantity, batchLimit), queryTaskCount);
-    const hasExpandedScope = this.getSearchCityTargets(normalized).length > 1 || this.splitHbxBatchSegments(normalized.segment).length > 1;
+    const hasExpandedScope = normalized.radiusKm > 0 || this.getSearchCityTargets(normalized).length > 1 || this.splitHbxBatchSegments(normalized.segment).length > 1;
+    const requiredSocialChannels = normalized.requiredChannels.filter((channel) => channel === 'instagram' || channel === 'facebook');
     const maxEmptyBatches = hasExpandedScope
       ? Math.max(this.getHbxRunMaxEmptyBatches(), Math.min(Math.max(queryTaskCount, 1), 120))
       : this.getHbxRunMaxEmptyBatches();
@@ -3867,7 +3887,13 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         : 0;
       const reachedTarget = counters.foundCount >= normalized.quantity;
       const reachedMaxAttempts = attempt >= maxAttempts;
-      const reachedMaxEmptyBatches = approvedCount === 0 && consecutiveEmptyBatchCount >= maxEmptyBatches;
+      const completedSocialWarmup = !requiredSocialChannels.length || attempt >= Math.max(1, Math.ceil(Math.max(queryTaskCount, 1) * 0.3));
+      const completedPrimaryTasksOnce = attempt >= Math.max(queryTaskCount, 1);
+      const reachedMaxEmptyBatches = approvedCount === 0
+        && consecutiveEmptyBatchCount >= maxEmptyBatches
+        && completedSocialWarmup
+        && (counters.foundCount <= 0 || completedPrimaryTasksOnce);
+      const batchDebugMeta = `attempts=${attempt}/${maxAttempts}; queryTaskCount=${queryTaskCount}; currentCity=${attemptTask.searchScope?.currentCity || normalized.city}; currentSegment=${attemptTask.searchScope?.currentSegment || normalized.segment}; currentQuery=${queryUsed}; approved=${approvedCount}; skipped=${savedCounts.skipped + savedCounts.invalid + batchResponse.rejectedCount}; duplicate=${duplicateCount}`;
 
       this.logHbxBatch({
         runId,
@@ -3914,6 +3940,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         const finalMessage = counters.foundCount > 0
           ? this.buildSearchRunInsufficientMessage(counters.foundCount, attempt)
           : this.buildSearchRunNoCardsMessage(attempt, queryUsed);
+        const finalMessageWithMeta = `${finalMessage} ${batchDebugMeta}`;
         if (counters.foundCount > 0) {
           await this.persistSearchRunHistoryIfPossible(runId, normalized, context);
         }
@@ -3922,7 +3949,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
           data: {
             status: finalStatus,
             lastBatchStatus: finalStatus,
-            errorMessage: finalMessage,
+            errorMessage: finalMessageWithMeta,
             nextRetryAt: null,
             assignedEngineId: null,
             assignedEngineUrl: null,
@@ -3941,7 +3968,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         data: {
           status: 'running',
           lastBatchStatus: approvedCount > 0 ? 'batch_success' : 'empty_batch',
-          errorMessage: message,
+          errorMessage: `${message} ${batchDebugMeta}`,
           nextRetryAt: null,
           assignedEngineId: null,
           assignedEngineUrl: null,
@@ -4044,6 +4071,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
 
   private mapRunItemToContact(item: any): WebscrapingContactResult {
     const raw = this.parseMaybeJsonObject(item?.rawJson);
+    const enrichmentJson = this.parseMaybeJsonObject(item?.enrichmentJson || raw.enrichmentJson);
     return {
       ...(raw as any),
       placeId: String(item.placeId || raw.placeId || '').trim(),
@@ -4054,6 +4082,19 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       reviews: raw.reviews == null ? null : safeInteger(raw.reviews),
       address: String(item.address || raw.address || '').trim() || null,
       website: String(item.website || raw.website || '').trim() || null,
+      instagramUrl: String(raw.instagramUrl || '').trim() || null,
+      facebookUrl: String(raw.facebookUrl || '').trim() || null,
+      email: String(raw.email || '').trim() || null,
+      emailStatus: raw.emailStatus || raw.signals?.emailStatus || null,
+      socialStatus: raw.socialStatus || raw.signals?.socialStatus || null,
+      whatsappStatus: raw.whatsappStatus || raw.whatsappCheckStatus || raw.signals?.whatsappStatus || null,
+      whatsappCheckStatus: raw.whatsappCheckStatus || raw.whatsappStatus || raw.signals?.whatsappStatus || null,
+      recommendedChannel: raw.recommendedChannel || raw.signals?.recommendedChannel || null,
+      opportunityScore: raw.opportunityScore == null ? null : safeInteger(raw.opportunityScore),
+      opportunityReason: String(raw.opportunityReason || '').trim() || null,
+      enrichmentScore: raw.enrichmentScore == null ? null : safeInteger(raw.enrichmentScore),
+      enrichmentJson: Object.keys(enrichmentJson).length ? enrichmentJson : raw.enrichmentJson || null,
+      qualityV2: this.extractLeadQualityV2FromObject(raw) || this.extractLeadQualityV2FromObject(enrichmentJson) || raw.qualityV2 || enrichmentJson.qualityV2 || null,
       source: String(item.source || raw.source || '').trim() || null,
       quality: this.extractLeadQualityFromObject(raw),
     };
@@ -4163,24 +4204,49 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         duplicateCount: safeInteger(run.duplicateCount),
         skippedCount: safeInteger(run.skippedCount),
         importedCount: safeInteger(run.importedCount),
+        attempts: attemptCount,
+        queryTaskCount: safeInteger(metrics?.searchScope?.taskCount),
+        currentCity: metrics?.searchScope?.currentCity || null,
+        currentSegment: metrics?.searchScope?.currentSegment || null,
+        currentQuery: run.lastQueryUsed || null,
+        approved: safeInteger(run.foundCount),
+        skipped: safeInteger(run.skippedCount),
+        duplicate: safeInteger(run.duplicateCount),
       },
-      items: items.map((item) => ({
-        id: item.id,
-        placeId: String(item.placeId || ''),
-        name: String(item.name || ''),
-        phone: String(item.phone || ''),
-        phoneDigits: String(item.phoneDigits || ''),
-        website: item.website || null,
-        websiteKey: item.websiteKey || null,
-        address: item.address || null,
-        city: item.city || null,
-        state: item.state || null,
-        segment: item.segment || null,
-        source: item.source || null,
-        status: this.normalizeRunItemStatus(item.status),
-        duplicateReason: item.duplicateReason || null,
-        createdAt: item.createdAt instanceof Date ? item.createdAt.toISOString() : new Date().toISOString(),
-      })),
+      items: items.map((item) => {
+        const raw = this.parseMaybeJsonObject(item?.rawJson);
+        const enrichmentJson = this.parseMaybeJsonObject(item?.enrichmentJson || raw.enrichmentJson);
+        const qualityV2 = this.extractLeadQualityV2FromObject(raw) || this.extractLeadQualityV2FromObject(enrichmentJson) || raw.qualityV2 || enrichmentJson.qualityV2 || null;
+        return {
+          id: item.id,
+          placeId: String(item.placeId || raw.placeId || ''),
+          name: String(item.name || raw.name || ''),
+          phone: String(item.phone || raw.phone || ''),
+          phoneDigits: String(item.phoneDigits || raw.phoneDigits || ''),
+          website: item.website || raw.website || null,
+          instagramUrl: raw.instagramUrl || null,
+          facebookUrl: raw.facebookUrl || null,
+          email: raw.email || null,
+          emailStatus: raw.emailStatus || raw.signals?.emailStatus || null,
+          socialStatus: raw.socialStatus || raw.signals?.socialStatus || null,
+          whatsappStatus: raw.whatsappStatus || raw.whatsappCheckStatus || raw.signals?.whatsappStatus || null,
+          whatsappCheckStatus: raw.whatsappCheckStatus || raw.whatsappStatus || raw.signals?.whatsappStatus || null,
+          recommendedChannel: raw.recommendedChannel || raw.signals?.recommendedChannel || null,
+          opportunityScore: raw.opportunityScore == null ? null : safeInteger(raw.opportunityScore),
+          opportunityReason: raw.opportunityReason || null,
+          enrichmentScore: raw.enrichmentScore == null ? null : safeInteger(raw.enrichmentScore),
+          qualityV2,
+          websiteKey: item.websiteKey || null,
+          address: item.address || raw.address || null,
+          city: item.city || raw.city || null,
+          state: item.state || raw.state || null,
+          segment: item.segment || raw.segment || null,
+          source: item.source || raw.source || null,
+          status: this.normalizeRunItemStatus(item.status),
+          duplicateReason: item.duplicateReason || null,
+          createdAt: item.createdAt instanceof Date ? item.createdAt.toISOString() : new Date().toISOString(),
+        };
+      }),
       results,
     };
   }

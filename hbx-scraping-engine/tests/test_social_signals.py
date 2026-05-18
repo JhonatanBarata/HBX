@@ -13,7 +13,7 @@ def test_instagram_is_social_signal_not_blocked_lead_source() -> None:
     assert is_blocked_lead_source_domain("https://youtube.com/watch?v=1")
 
 
-def test_discovery_required_instagram_adds_social_search_and_rejects_posts(monkeypatch) -> None:
+def test_discovery_required_instagram_does_not_use_social_as_primary_source(monkeypatch) -> None:
     queries: list[str] = []
 
     class FakeDDGS:
@@ -42,23 +42,40 @@ def test_discovery_required_instagram_adds_social_search_and_rejects_posts(monke
         required_channels=["instagram"],
     )
 
-    assert any('site:instagram.com "oficina" "Araraquara"' in query for query in queries)
-    assert "https://instagram.com/oficina_araraquara" in urls
+    assert not any("instagram" in query.lower() for query in queries)
+    assert "https://instagram.com/oficina_araraquara" not in urls
     assert all("/reel/" not in url and "/p/" not in url for url in urls)
     assert not _is_allowed_url("https://instagram.com/oficina/reel/123", required_channels=["instagram"])
     assert not _is_allowed_url("https://instagram.com/p/abc", required_channels=["instagram"])
 
 
-def test_search_service_keeps_requested_instagram_signal_with_phone_and_name(monkeypatch) -> None:
+def test_search_service_enriches_required_instagram_after_base_contact(monkeypatch) -> None:
     class FakeFetcher:
         def __init__(self, *args, **kwargs) -> None:
             pass
 
         async def fetch_all(self, urls):
-            return [SimpleNamespace(html="<html></html>", url="https://instagram.com/barbeariaestilo")]
+            return [SimpleNamespace(html="<html></html>", url="https://barbeariaestilo.example.com")]
 
-    monkeypatch.setattr("app.services.search_service.discover_urls", lambda *args, **kwargs: ["https://instagram.com/barbeariaestilo"])
+    class FakeDDGS:
+        def __init__(self, *args, **kwargs) -> None:
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
+        def text(self, query, **kwargs):
+            return [
+                {"href": "https://instagram.com/barbeariaestilo"},
+                {"href": "https://instagram.com/barbeariaestilo/reel/123"},
+            ]
+
+    monkeypatch.setattr("app.services.search_service.discover_urls", lambda *args, **kwargs: ["https://barbeariaestilo.example.com"])
     monkeypatch.setattr("app.services.search_service.Fetcher", FakeFetcher)
+    monkeypatch.setattr("app.services.search_service.DDGS", FakeDDGS)
     monkeypatch.setattr(
         "app.services.search_service.parse_page",
         lambda *args, **kwargs: (
@@ -70,10 +87,9 @@ def test_search_service_keeps_requested_instagram_signal_with_phone_and_name(mon
                     "rating": None,
                     "reviews": None,
                     "address": "Araraquara SP",
-                    "website": None,
-                    "instagramUrl": "https://instagram.com/barbeariaestilo",
+                    "website": "https://barbeariaestilo.example.com",
                     "source": "hbx_scraping:web",
-                    "_pageUrl": "https://instagram.com/barbeariaestilo",
+                    "_pageUrl": "https://barbeariaestilo.example.com",
                 }
             ],
             "Barbearia Estilo Araraquara telefone",
@@ -97,4 +113,4 @@ def test_search_service_keeps_requested_instagram_signal_with_phone_and_name(mon
 
     assert response.count == 1
     assert response.results[0].instagramUrl == "https://instagram.com/barbeariaestilo"
-    assert response.results[0].website is None
+    assert response.results[0].website == "https://barbeariaestilo.example.com"

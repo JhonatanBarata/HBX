@@ -480,49 +480,38 @@ function RadarChannelFilter({
   onChange: (next: Pick<FilterState, "preferredChannels" | "requiredChannels" | "channelMatchMode">) => void;
   locked?: boolean;
 }) {
-  const [channelWarning, setChannelWarning] = useState<string | null>(null);
-  const activeChannels = value.preferredChannels;
+  const activeChannels = value.requiredChannels;
   const requiredCount = value.requiredChannels.length;
-  const activeCount = activeChannels.length;
   const pressure = requiredCount >= 4 ? "low" : requiredCount >= 3 ? "medium" : requiredCount > 0 ? "good" : "none";
+  const requiredLabels = value.requiredChannels
+    .map((channel) => RADAR_CHANNELS.find((item) => item.value === channel)?.label || channel)
+    .filter(Boolean);
 
   function toggleChannel(channel: RadarChannel) {
     if (locked) return;
-    const activeSet = new Set(activeChannels);
-    if (activeSet.has(channel)) activeSet.delete(channel);
-    else activeSet.add(channel);
-    const nextChannels = Array.from(activeSet);
-    const nextRequiredChannels = value.requiredChannels.filter((required) => nextChannels.includes(required));
+    const requiredSet = new Set(value.requiredChannels);
+    if (requiredSet.has(channel)) requiredSet.delete(channel);
+    else requiredSet.add(channel);
+    const nextRequiredChannels = Array.from(requiredSet);
     onChange({
-      ...value,
-      channelMatchMode: nextRequiredChannels.length ? "all_required" : "prefer",
+      preferredChannels: [],
       requiredChannels: nextRequiredChannels,
-      preferredChannels: nextChannels,
+      channelMatchMode: nextRequiredChannels.length ? "any_required" : "prefer",
     });
-    setChannelWarning(null);
-  }
-
-  function requireSelectedChannels() {
-    if (locked) return;
-    if (!activeChannels.length) {
-      setChannelWarning("Selecione ao menos um canal antes de ativar obrigatório.");
-      return;
-    }
-    onChange({
-      ...value,
-      channelMatchMode: "all_required",
-      requiredChannels: activeChannels,
-      preferredChannels: activeChannels,
-    });
-    setChannelWarning(null);
   }
 
   return (
-    <div className={styles.radarChannelFilter} data-locked={locked ? "true" : "false"} data-pressure={pressure}>
+    <div
+      className={styles.radarChannelFilter}
+      data-locked={locked ? "true" : "false"}
+      data-pressure={pressure}
+      data-density={requiredCount >= 3 ? "strong" : "normal"}
+    >
       <div className={styles.radarChannelHeader}>
         <span>Canais</span>
-        <b>{requiredCount ? `${requiredCount} obrigatório${requiredCount > 1 ? "s" : ""}` : activeCount ? `${activeCount} preferido${activeCount > 1 ? "s" : ""}` : "0+"}</b>
+        <b>{requiredCount ? `${requiredCount} obrigatório${requiredCount > 1 ? "s" : ""}` : "0 obrigatório"}</b>
       </div>
+      <p>Toque nos ícones para exigir canais obrigatórios.</p>
       <div className={styles.radarChannelIcons}>
         {RADAR_CHANNELS.map((channel) => {
           const active = activeChannels.includes(channel.value);
@@ -534,7 +523,7 @@ function RadarChannelFilter({
               data-channel={channel.value}
               disabled={locked}
               onClick={() => toggleChannel(channel.value)}
-              aria-label={`${active ? "Remover preferência por" : "Preferir"} ${channel.label}`}
+              aria-label={`${active ? "Remover exigência de" : "Exigir"} ${channel.label}`}
               title={channel.label}
             >
               <span className={styles.radarChannelIcon}>
@@ -546,23 +535,19 @@ function RadarChannelFilter({
           );
         })}
       </div>
-      <button type="button" className={styles.radarChannelRequireButton} onClick={requireSelectedChannels} disabled={locked}>
-        Todos os canais
-      </button>
-      {channelWarning ? <p>{channelWarning}</p> : null}
-      <p>Toque para preferir canais. Ative Obrigatório só se quiser reduzir bastante os cards.</p>
+      <p>Tudo que estiver marcado será obrigatório. Isso pode reduzir bastante os cards encontrados.</p>
+      {requiredCount === 0 ? (
+        <p>Nenhum canal obrigatório selecionado.</p>
+      ) : requiredCount === 1 ? (
+        <p>Exigindo: {requiredLabels[0]}</p>
+      ) : (
+        <p>Filtro forte: exigindo {requiredCount} canais. Pode reduzir muito os resultados.</p>
+      )}
       {requiredCount >= 2 ? (
-        <p>Filtro obrigatório forte: pode reduzir muito ou zerar os cards.</p>
+        <p>Filtro obrigatório forte: pode reduzir muito os cards.</p>
       ) : null}
       {value.requiredChannels.some((channel) => channel === "instagram" || channel === "facebook") ? (
         <p>Rede social obrigatória depende de enriquecimento. Pode demorar mais e encontrar menos cards.</p>
-      ) : null}
-      {requiredCount >= 4 ? (
-        <p>Possibilidade baixa de encontrar leads, talvez seja necessário remover alguma obrigatoriedade!</p>
-      ) : requiredCount >= 3 ? (
-        <p>Chance média de localizar leads.</p>
-      ) : requiredCount > 0 ? (
-        <p>Os canais selecionados serão obrigatórios no resultado.</p>
       ) : null}
     </div>
   );
@@ -1266,6 +1251,50 @@ function radarLeadMatchesRequiredChannels(lead: RadarLead, requiredChannels: Rad
   return requiredChannels.every((channel) => radarLeadHasRequiredChannel(lead, channel));
 }
 
+function radarDigits(value?: string | null) {
+  let digits = String(value || "").replace(/\D/g, "");
+  if (digits.startsWith("55") && digits.length > 11) digits = digits.slice(2);
+  return digits;
+}
+
+function radarLikelyMobile(value?: string | null) {
+  const digits = radarDigits(value);
+  return digits.length === 11 && digits[2] === "9";
+}
+
+function buildRadarLeadChannelAssets(lead: RadarLead): RadarChannel[] {
+  const whatsappStatus = String(lead.whatsappCheckStatus || lead.whatsappStatus || "").trim().toLowerCase();
+  const recommendedChannel = String(lead.recommendedChannel || "").trim().toLowerCase();
+  return ([
+    lead.phone || lead.phoneDigits ? "phone" : null,
+    (["confirmed", "available", "valid", "exists"].includes(whatsappStatus) || recommendedChannel === "whatsapp" || radarLikelyMobile(lead.phoneDigits || lead.phone)) ? "whatsapp" : null,
+    lead.instagramUrl ? "instagram" : null,
+    lead.facebookUrl ? "facebook" : null,
+    lead.email ? "email" : null,
+    lead.website ? "website" : null,
+  ].filter(Boolean) as RadarChannel[]);
+}
+
+function RadarLeadChannelIcons({ lead }: { lead: RadarLead }) {
+  const channels = buildRadarLeadChannelAssets(lead);
+  if (!channels.length) return null;
+  return (
+    <div className={styles.radarLeadChannelRow} aria-label="Canais encontrados">
+      {channels.map((channel) => {
+        const asset = RADAR_CHANNELS.find((item) => item.value === channel);
+        if (!asset) return null;
+        return (
+          <span key={channel} className={styles.radarLeadChannelIcon} data-channel={channel} title={asset.label}>
+            <img src={asset.icon} alt="" aria-hidden="true" data-theme="light" />
+            <img src={asset.darkIcon} alt="" aria-hidden="true" data-theme="dark" />
+            <span>{asset.label}</span>
+          </span>
+        );
+      })}
+    </div>
+  );
+}
+
 function normalizeDetailLead(payload: RadarLeadDetailResponse): RadarLead | null {
   if (payload && "item" in payload) return payload.item || null;
   return payload as RadarLead;
@@ -1937,6 +1966,10 @@ export default function RadarDigitalClientPage() {
   const activeRunProgress = activeRun
     ? Math.max(4, Math.min(100, Number(activeRun.meta?.progress || Math.round((activeRunDelivered / activeRunTarget) * 100))))
     : 0;
+  const instagramRequiredWithoutDeliveredProfile = hasSearched
+    && effectiveFilters.requiredChannels.includes("instagram")
+    && visibleItems.length > 0
+    && visibleItems.every((item) => !String(item.instagramUrl || "").trim());
   const queryRadarLeadId = String(searchParams.get("radarLeadId") || "").trim();
 
   function setFilterEditing(active: boolean) {
@@ -3390,6 +3423,11 @@ export default function RadarDigitalClientPage() {
 
         {error ? <div className={styles.notice} data-tone="error">{compactRadarMessage(error)}</div> : null}
         {feedback && !activeRun ? <div className={styles.notice} data-tone="ok">{feedback}</div> : null}
+        {instagramRequiredWithoutDeliveredProfile ? (
+          <div className={styles.notice} data-tone="warning">
+            Instagram foi exigido, mas nenhum perfil foi confirmado nos cards entregues. Desmarque Instagram obrigatório para ampliar a busca.
+          </div>
+        ) : null}
 
         <section className={styles.results}>
           <div className={styles.resultsHeader}>
@@ -3470,6 +3508,7 @@ export default function RadarDigitalClientPage() {
                       <span><b>Origem</b>{origin}</span>
                       <span><b>Status</b>{statusLabel(status)}</span>
                     </div>
+                    <RadarLeadChannelIcons lead={lead} />
 
                     {showSmartLeadCards ? (
                       <div className={styles.smartBlock}>

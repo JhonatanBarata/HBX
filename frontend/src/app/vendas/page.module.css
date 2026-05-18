@@ -5433,6 +5433,74 @@
   font-size: 0.75rem;
 }
 
+.leadCardChannelRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 7px;
+  margin-top: 0.45rem;
+}
+
+.leadCardChannelRow a {
+  display: inline-grid;
+  text-decoration: none;
+}
+
+.leadCardChannelRow .mobileVendasChannelIcon {
+  position: relative;
+  isolation: isolate;
+  display: inline-grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--line) 78%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--surface-soft) 90%, var(--surface));
+}
+
+.leadCardChannelRow .mobileVendasChannelIcon[data-locked="true"] {
+  opacity: 0.62;
+  filter: saturate(0.78);
+}
+
+.leadCardChannelRow .mobileVendasChannelAssetLight,
+.leadCardChannelRow .mobileVendasChannelAssetDark {
+  grid-area: 1 / 1;
+  width: 45px;
+  height: 45px;
+  object-fit: cover;
+  pointer-events: none;
+  user-select: none;
+  transform: translateY(-7px);
+}
+
+.leadCardChannelRow .mobileVendasChannelAssetDark {
+  display: none;
+}
+
+.leadCardChannelRow .mobileVendasChannelSrOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+:global(html[data-theme-mode="dark"]) .leadCardChannelRow .mobileVendasChannelIcon {
+  border-color: color-mix(in srgb, var(--line) 70%, transparent);
+  background: color-mix(in srgb, var(--surface-raised) 86%, var(--surface));
+}
+
+:global(html[data-theme-mode="dark"]) .leadCardChannelRow .mobileVendasChannelAssetLight {
+  display: none;
+}
+
+:global(html[data-theme-mode="dark"]) .leadCardChannelRow .mobileVendasChannelAssetDark {
+  display: block;
+}
+
 .leadSubline,
 .detailText,
 .leadSummaryPanel p,
