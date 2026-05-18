@@ -81,6 +81,31 @@ def test_discover_social_profiles_returns_requested_instagram(monkeypatch) -> No
     assert calls[0]["max_results"] == 50
 
 
+def test_discover_social_profiles_can_stop_at_social_first_target(monkeypatch) -> None:
+    calls: list[str] = []
+
+    class FakeDDGS:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
+        def text(self, query, **kwargs):
+            calls.append(query)
+            return [
+                {"href": "https://instagram.com/farmaciasocial", "title": "Farmácia Social"},
+                {"href": "https://instagram.com/farmaciasocial2", "title": "Farmácia Social 2"},
+            ]
+
+    monkeypatch.setattr("app.services.discovery.DDGS", FakeDDGS)
+
+    profiles = discover_social_profiles("São Paulo", "SP", "farmacia", 1, required_channels=["instagram"], target_override=1)
+
+    assert len(profiles) == 1
+    assert len(calls) == 1
+
+
 def test_discover_urls_keeps_social_out_but_social_discovery_returns_it(monkeypatch) -> None:
     class FakeDDGS:
         def __enter__(self):
