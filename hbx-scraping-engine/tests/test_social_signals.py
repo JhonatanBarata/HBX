@@ -2,7 +2,7 @@ import asyncio
 from types import SimpleNamespace
 
 from app.schemas import SearchRequest
-from app.services.discovery import _is_allowed_url, discover_social_profiles, discover_urls
+from app.services.discovery import _is_allowed_url, build_social_queries, discover_social_profiles, discover_urls
 from app.services.filters import is_blocked_lead_source_domain, is_social_signal_domain
 from app.services.search_service import SearchService
 from app.services.social import is_valid_social_profile_url, normalize_social_url
@@ -79,6 +79,13 @@ def test_discover_social_profiles_returns_requested_instagram(monkeypatch) -> No
     assert profiles[0]["url"] == "https://instagram.com/barbeariacampinas"
     assert profiles[0]["channel"] == "instagram"
     assert calls[0]["max_results"] == 50
+
+
+def test_instagram_social_queries_prioritize_profile_results() -> None:
+    queries = build_social_queries("farmacia", "São Paulo", "SP", {"instagram"})
+
+    assert queries[0] == "site:instagram.com farmacia São Paulo -/p/ -/reel/ -/stories/"
+    assert "site:instagram.com farmacia Sao Paulo -/p/ -/reel/ -/stories/" in queries
 
 
 def test_discover_social_profiles_can_stop_at_social_first_target(monkeypatch) -> None:
