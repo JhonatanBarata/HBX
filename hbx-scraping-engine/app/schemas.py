@@ -18,6 +18,7 @@ class SearchRequest(BaseModel):
     excludeUrls: list[str] = Field(default_factory=list)
     preferredChannels: list[str] = Field(default_factory=list)
     requiredChannels: list[str] = Field(default_factory=list)
+    channelMatchMode: str | None = None
 
     @field_validator("city", "state", "segment", "query")
     @classmethod
