@@ -116,3 +116,5 @@ class SearchResponse(BaseModel):
     results: list[ContactResult]
     status: Literal["completed", "completed_with_errors", "partial_error"] = "completed"
     errors: list[str] = Field(default_factory=list)
+    stats: dict | None = None
+    social: dict | None = None
