@@ -289,6 +289,7 @@ class SearchService:
             "profilesDiscovered": len(profiles),
             "profilesAttached": 0,
             "profilesUnmatched": 0,
+            "profilesPromoted": 0,
         }
 
         for profile in profiles:
@@ -323,6 +324,119 @@ class SearchService:
                 stats["profilesUnmatched"] += 1
 
         return stats
+
+    def social_profile_name(self, profile: dict, city: str, segment: str) -> str:
+        url = normalize_social_url(str(profile.get("url") or "")) or str(profile.get("url") or "")
+        title = " ".join(str(profile.get("title") or "").split())
+        for marker in ("|", "•", " - Instagram", " - Facebook", " Instagram", " Facebook"):
+            if marker in title:
+                title = title.split(marker, 1)[0].strip()
+        title = re.sub(r"\(@[^)]+\)", "", title).strip(" -:|•")
+        if title and not self.is_bad_social_candidate_name(title, city, segment):
+            return title
+
+        parsed = urlparse(url)
+        parts = [part for part in parsed.path.split("/") if part]
+        slug = parts[-1] if parts else ""
+        slug = re.sub(r"[_\-.]+", " ", slug)
+        slug = re.sub(r"\s+", " ", slug).strip()
+        if slug and not self.is_bad_social_candidate_name(slug, city, segment):
+            return " ".join(token.capitalize() for token in slug.split())
+
+        fallback = " ".join(part for part in [segment, city] if str(part or "").strip()).strip()
+        return fallback or "Perfil social encontrado"
+
+    def social_profile_candidates(
+        self,
+        profiles: list[dict],
+        city: str,
+        state: str,
+        segment: str,
+        required_social: set[str],
+        limit: int,
+    ) -> list[dict]:
+        if not profiles or not required_social:
+            return []
+        candidates: list[dict] = []
+        seen_urls: set[str] = set()
+        for profile in profiles:
+            channel = str(profile.get("channel") or "").strip().lower()
+            field = "instagramUrl" if channel == "instagram" else "facebookUrl" if channel == "facebook" else None
+            url = normalize_social_url(str(profile.get("url") or ""))
+            if not field or not url or url in seen_urls:
+                continue
+            item = {
+                "name": self.social_profile_name(profile, city, segment),
+                "phone": "",
+                "phoneDigits": "",
+                "rating": None,
+                "reviews": None,
+                "address": " ".join(part for part in [city, state] if str(part or "").strip()).strip() or None,
+                "website": None,
+                field: url,
+                "source": "hbx_scraping:social_discovery",
+                "score": 70,
+                "_pageUrl": url,
+                "_socialFirst": True,
+            }
+            if not self.has_required_social_channels(item, required_social):
+                continue
+            seen_urls.add(url)
+            candidates.append(item)
+            if len(candidates) >= limit:
+                break
+        return candidates
+
+    def build_social_first_response(
+        self,
+        request: SearchRequest,
+        candidates: list[dict],
+        social_discovery_stats: dict,
+    ) -> SearchResponse:
+        allowed_fields = {"name", "phone", "phoneDigits", "rating", "reviews", "address", "website", "instagramUrl", "facebookUrl", "source", "score"}
+        public_items = [{key: value for key, value in item.items() if key in allowed_fields} for item in candidates[: request.limit]]
+        valid = [ContactResult.model_validate(item).model_dump() for item in public_items]
+        response_stats = {
+            "parsed": 0,
+            "approved": len(valid),
+            "invalidPhone": 0,
+            "blockedDomain": 0,
+            "lowScore": 0,
+            "missingRequiredChannel": 0,
+            "rawFound": len(candidates),
+            "deduped": len(candidates),
+            "socialProfilesDiscovered": social_discovery_stats["profilesDiscovered"],
+            "socialProfilesAttached": 0,
+            "socialProfilesUnmatched": social_discovery_stats["profilesUnmatched"],
+            "socialProfilesPromoted": len(valid),
+        }
+        social_stats = {
+            "requestedChannels": sorted(self.requested_social_channels(request.preferredChannels, request.requiredChannels)),
+            "requiredChannels": sorted(self.required_social_channels(request.requiredChannels)),
+            "enrichmentRan": False,
+            "mode": "required",
+            "processed": 0,
+            "skippedBadCandidate": 0,
+            "enrichedCount": 0,
+            "missingRequiredChannel": 0,
+            "discovery": social_discovery_stats,
+            "socialFirstCandidates": len(candidates),
+        }
+        print(
+            "[social_first] "
+            f"profiles={social_discovery_stats['profilesDiscovered']} "
+            f"promoted={len(valid)} "
+            f"required={','.join(sorted(self.required_social_channels(request.requiredChannels)))}"
+        )
+        return SearchResponse(
+            query=QueryPayload(city=request.city, state=request.state, segment=request.segment, query=request.query, targetType=request.targetType, limit=request.limit),
+            count=len(valid),
+            results=[ContactResult.model_validate(item) for item in valid],
+            status="completed",
+            errors=[],
+            stats=response_stats,
+            social=social_stats,
+        )
 
     def enrich_social_links_for_contacts(
         self,
@@ -417,6 +531,22 @@ class SearchService:
                 request.requiredChannels,
             )
             print(f"[social_discovery] profiles={len(social_profiles)} channels={','.join(sorted(requested_social_channels))}")
+            social_first_candidates = self.social_profile_candidates(
+                social_profiles,
+                request.city,
+                request.state,
+                request.segment,
+                required_social_channels,
+                request.limit,
+            )
+            if required_social_channels and social_first_candidates:
+                social_discovery_stats = {
+                    "profilesDiscovered": len(social_profiles),
+                    "profilesAttached": 0,
+                    "profilesUnmatched": max(0, len(social_profiles) - len(social_first_candidates)),
+                    "profilesPromoted": len(social_first_candidates),
+                }
+                return self.build_social_first_response(request, social_first_candidates, social_discovery_stats)
 
         urls = await asyncio.to_thread(
             discover_urls,
@@ -469,6 +599,7 @@ class SearchService:
             "profilesDiscovered": len(social_profiles),
             "profilesAttached": 0,
             "profilesUnmatched": 0,
+            "profilesPromoted": 0,
         }
         if request.targetType == "pj" and social_profiles:
             social_discovery_stats = self.attach_discovered_social_profiles(
@@ -560,6 +691,7 @@ class SearchService:
             "socialProfilesDiscovered": social_discovery_stats["profilesDiscovered"],
             "socialProfilesAttached": social_discovery_stats["profilesAttached"],
             "socialProfilesUnmatched": social_discovery_stats["profilesUnmatched"],
+            "socialProfilesPromoted": social_discovery_stats.get("profilesPromoted", 0),
         }
         print(
             "[search] "

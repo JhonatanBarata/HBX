@@ -1680,7 +1680,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         if (results.length >= normalized.quantity) break;
         if (!this.shouldKeepNewContact(mapped, results, seenPhones)) continue;
         if (!this.matchesFilters(mapped, normalized.filters)) continue;
-        seenPhones.add(mapped.phoneDigits);
+        if (mapped.phoneDigits) seenPhones.add(mapped.phoneDigits);
         results.push(mapped);
         fetchedCount += 1;
       }
@@ -1714,7 +1714,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
             const candidate = { ...fallbackResult, source: fallbackResult.source || 'google' } as WebscrapingContactResult;
             if (!this.shouldKeepNewContact(candidate, results, seenPhones)) continue;
             if (!this.matchesFilters(candidate, normalized.filters)) continue;
-            seenPhones.add(candidate.phoneDigits);
+            if (candidate.phoneDigits) seenPhones.add(candidate.phoneDigits);
             results.push(candidate);
             fetchedCount += 1;
             googleFallbackCount += 1;
@@ -1727,11 +1727,12 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       const historyResults = hasExplicitExclusions
         ? this.sortContacts(this.mergeDedupedContacts([...storedResults, ...results]))
         : orderedResults;
+      const persistableHistoryResults = historyResults.filter((result) => normalizePhoneDigits(result.phoneDigits || result.phone));
       if (!options.skipRadarPersist && orderedResults.length > 0) {
         await this.persistRadarLeadPoolBatch(normalized, orderedResults, normalized.engine);
       }
       const historyId = historyEnabled
-        ? await this.persistHistory(context, normalized, historyResults, existingHistory?.id || null)
+        ? await this.persistHistory(context, normalized, persistableHistoryResults, existingHistory?.id || null)
         : existingHistory?.id || null;
       const source: SearchSource = fetchedCount > 0
         ? (storedResults.length > 0 || googleFallbackCount > 0 ? 'hybrid' : 'hbx')
@@ -2936,10 +2937,21 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       requestedCity?: string | null;
       requestedState?: string | null;
       targetType?: HbxTargetType;
+      requiredChannels?: string[] | null;
+      channelMatchMode?: RadarChannelMatchMode | string | null;
     },
   ): LeadQualityResult {
     const name = this.normalizeQualityText(candidate.name);
     const phoneDigits = normalizePhoneDigits(candidate.phoneDigits || candidate.phone);
+    const requiredChannels = this.normalizeRadarChannels(input.requiredChannels);
+    const requiredSocialChannels = requiredChannels.filter((channel) => channel === 'instagram' || channel === 'facebook');
+    const hasInstagram = Boolean(this.normalizeQualityText(candidate.instagramUrl));
+    const hasFacebook = Boolean(this.normalizeQualityText(candidate.facebookUrl));
+    const hasRequiredSocial = input.targetType === 'pj' && requiredSocialChannels.length > 0 && (
+      requiredSocialChannels.includes('instagram') && requiredSocialChannels.includes('facebook')
+        ? hasInstagram || hasFacebook
+        : requiredSocialChannels.every((channel) => channel === 'instagram' ? hasInstagram : hasFacebook)
+    );
     const reasons: string[] = [];
 
     if (!name) {
@@ -2962,7 +2974,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         reasons: ['Nome generico ou resultado de lista telefonica.'],
       };
     }
-    if (!phoneDigits) {
+    if (!phoneDigits && !hasRequiredSocial) {
       return {
         status: 'invalid',
         billable: false,
@@ -2972,7 +2984,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         reasons: ['Telefone ausente.'],
       };
     }
-    if (!isLikelyValidBrPhone(phoneDigits)) {
+    if (phoneDigits && !isLikelyValidBrPhone(phoneDigits) && !hasRequiredSocial) {
       return {
         status: 'weak_contact',
         billable: false,
@@ -2992,6 +3004,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     const websiteStatus = inferWebsiteStatus(candidate.website);
     const hasSocial = Boolean(this.normalizeQualityText(candidate.instagramUrl || candidate.facebookUrl));
     if (websiteStatus !== 'none' || hasSocial) contactQualityScore += 15;
+    if (!phoneDigits && hasRequiredSocial) reasons.push('Canal social obrigatorio encontrado.');
     if ((Number(candidate.rating || 0) >= 4.2 && safeInteger(candidate.reviews) >= 10) || safeInteger(candidate.reviews) >= 20) {
       contactQualityScore += 10;
     }
@@ -3029,6 +3042,8 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       requestedCity: input.city || null,
       requestedState: input.state || null,
       targetType: normalizeTargetType((input as any).targetType),
+      requiredChannels: (input as any).requiredChannels || null,
+      channelMatchMode: (input as any).channelMatchMode || null,
     });
   }
 
@@ -5259,11 +5274,15 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     const name = normalizeLookupValue(result.name || '');
     const phone = normalizePhoneDigits(result.phoneDigits || result.phone);
     const website = normalizeWebsiteKey(result.website);
+    const instagram = String(result.instagramUrl || '').trim().replace(/\/+$/, '').toLowerCase();
+    const facebook = String(result.facebookUrl || '').trim().replace(/\/+$/, '').toLowerCase();
     const cityOrAddress = normalizeLookupValue(String(result.address || ''));
     return [
       phone ? `phone:${phone}` : '',
       name && phone ? `name_phone:${name}:${phone}` : '',
       website ? `website:${website}` : '',
+      instagram ? `instagram:${instagram}` : '',
+      facebook ? `facebook:${facebook}` : '',
       name && cityOrAddress ? `name_location:${name}:${cityOrAddress}` : '',
     ].filter(Boolean);
   }
@@ -5277,7 +5296,8 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     existing: WebscrapingContactResult[],
     seenPhones: Set<string>,
   ) {
-    if (!candidate.phoneDigits || seenPhones.has(candidate.phoneDigits)) return false;
+    if (candidate.phoneDigits && seenPhones.has(candidate.phoneDigits)) return false;
+    if (!candidate.phoneDigits && !candidate.instagramUrl && !candidate.facebookUrl && !candidate.website) return false;
     const seenKeys = new Set<string>();
     for (const item of existing) {
       for (const key of this.buildContactDedupeKeys(item)) seenKeys.add(key);
@@ -6428,6 +6448,10 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         targetType: filters.targetType,
         minRating: filters.minRating,
         minReviews: filters.minReviews,
+        preferredChannels: filters.preferredChannels,
+        requiredChannels: filters.requiredChannels,
+        channelMatchMode: filters.channelMatchMode,
+        qualityMode: filters.qualityMode,
       },
       {
         skipRadarLookup: true,
@@ -13566,6 +13590,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       };
       if (input.preferredChannels.length) body.preferredChannels = input.preferredChannels;
       if (input.requiredChannels.length) body.requiredChannels = input.requiredChannels;
+      if ((input.preferredChannels.length || input.requiredChannels.length) && input.channelMatchMode) body.channelMatchMode = input.channelMatchMode;
       if (queryText) {
         body.query = queryText;
         body.batchLimit = batchLimit;
@@ -13620,20 +13645,21 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     let duplicateCount = 0;
 
     for (const item of items) {
-      const mapped = this.mapHbxContactResult(item, input.targetType);
+      const mapped = this.mapHbxContactResult(item, input);
       if (!mapped) {
         rejectedCount += 1;
         continue;
       }
-      if (normalizedExcludePhoneDigits.includes(mapped.phoneDigits)) {
+      const mappedKey = mapped.phoneDigits || mapped.instagramUrl || mapped.facebookUrl || mapped.website || mapped.placeId;
+      if (mapped.phoneDigits && normalizedExcludePhoneDigits.includes(mapped.phoneDigits)) {
         duplicateCount += 1;
         continue;
       }
-      if (seenPhones.has(mapped.phoneDigits)) {
+      if (mappedKey && seenPhones.has(mappedKey)) {
         duplicateCount += 1;
         continue;
       }
-      seenPhones.add(mapped.phoneDigits);
+      if (mappedKey) seenPhones.add(mappedKey);
       results.push(mapped);
       if (results.length >= batchLimit) break;
     }
@@ -13661,29 +13687,43 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
-  private mapHbxContactResult(item: any, targetType: HbxTargetType): WebscrapingContactResult | null {
+  private mapHbxContactResult(item: any, inputOrTargetType: HbxTargetType | NormalizedSearchInput): WebscrapingContactResult | null {
+    const input = typeof inputOrTargetType === 'string' ? null : inputOrTargetType;
+    const targetType = typeof inputOrTargetType === 'string' ? inputOrTargetType : inputOrTargetType.targetType;
     const name = String(item?.name || '').trim();
     const phone = String(item?.phone || '').trim();
     const phoneDigits = normalizePhoneDigits(item?.phoneDigits || phone);
+    const instagramUrl = String(item?.instagramUrl || '').trim() || null;
+    const facebookUrl = String(item?.facebookUrl || '').trim() || null;
+    const hasSocial = Boolean(instagramUrl || facebookUrl);
+    const requiredSocialChannels = input?.requiredChannels?.filter((channel) => channel === 'instagram' || channel === 'facebook') || [];
+    const socialRequiredAndMatched = targetType === 'pj'
+      && requiredSocialChannels.length > 0
+      && Boolean(input)
+      && this.candidateHasRequiredChannels(
+        { ...item, instagramUrl, facebookUrl, phone, phoneDigits },
+        input as NormalizedSearchInput,
+      );
 
-    if (!name || !phone || !isLikelyValidBrPhone(phoneDigits)) {
+    if (!name || (!isLikelyValidBrPhone(phoneDigits) && !(hasSocial && socialRequiredAndMatched))) {
       return null;
     }
 
     const score = toNumberOrNull(item?.score);
     const source = String(item?.source || '').trim() || (targetType === 'pj' ? 'hbx_scraping:free_pj' : null);
+    const fallbackIdentity = normalizeLookupValue(instagramUrl || facebookUrl || item?.website || name).replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
 
     return {
-      placeId: `hbx:${targetType}:${phoneDigits}`,
+      placeId: phoneDigits ? `hbx:${targetType}:${phoneDigits}` : `hbx:${targetType}:social:${fallbackIdentity || 'profile'}`,
       name,
-      phone,
-      phoneDigits,
+      phone: phone || phoneDigits || '',
+      phoneDigits: phoneDigits || '',
       rating: toNumberOrNull(item?.rating),
       reviews: item?.reviews == null ? null : safeInteger(item?.reviews),
       address: String(item?.address || '').trim() || null,
       website: String(item?.website || '').trim() || null,
-      instagramUrl: String(item?.instagramUrl || '').trim() || null,
-      facebookUrl: String(item?.facebookUrl || '').trim() || null,
+      instagramUrl,
+      facebookUrl,
       source,
       score,
     };

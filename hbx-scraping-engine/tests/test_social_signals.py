@@ -598,6 +598,47 @@ def test_required_instagram_accepts_social_from_html(monkeypatch) -> None:
     assert response.stats["missingRequiredChannel"] == 0
 
 
+def test_required_instagram_promotes_discovered_social_profile_without_phone(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "app.services.search_service.discover_social_profiles",
+        lambda *args, **kwargs: [
+            {
+                "url": "https://instagram.com/farmaciasocial",
+                "channel": "instagram",
+                "title": "Farmácia Social São Paulo • Instagram",
+                "snippet": "Farmácia em São Paulo",
+                "query": "site:instagram.com farmacia São Paulo",
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        "app.services.search_service.discover_urls",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("social-first should not call web discovery")),
+    )
+
+    response = asyncio.run(
+        SearchService().search(
+            SearchRequest(
+                city="São Paulo",
+                state="SP",
+                segment="farmacia",
+                targetType="pj",
+                limit=1,
+                fresh=True,
+                requiredChannels=["instagram"],
+            )
+        )
+    )
+
+    assert response.count == 1
+    assert response.results[0].name == "Farmácia Social São Paulo"
+    assert response.results[0].phone == ""
+    assert response.results[0].phoneDigits == ""
+    assert response.results[0].instagramUrl == "https://instagram.com/farmaciasocial"
+    assert response.results[0].source == "hbx_scraping:social_discovery"
+    assert response.social["socialFirstCandidates"] == 1
+
+
 def test_required_instagram_and_facebook_accepts_when_one_channel_exists(monkeypatch) -> None:
     class FakeFetcher:
         def __init__(self, *args, **kwargs) -> None:

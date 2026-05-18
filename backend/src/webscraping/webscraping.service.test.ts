@@ -665,6 +665,73 @@ test('search-run worker repassa requiredChannels reconstruido da run para motor 
   assert.deepEqual(receivedRequiredChannels, ['instagram']);
 });
 
+test('Radar Direct repassa filtros sociais para searchContactsForUser', async () => {
+  const service = new WebscrapingService(createPrisma()) as any;
+  let receivedInput: Record<string, any> | null = null;
+  service.searchContactsForUser = async (_user: any, input: Record<string, any>) => {
+    receivedInput = input;
+    return {
+      results: [],
+      meta: {
+        source: 'hbx',
+        fetchedCount: 0,
+        status: 'completed',
+        message: null,
+      },
+    };
+  };
+  service.applyRadarWhatsappCheck = async (_context: any, items: any[]) => ({ items, meta: { checked: false } });
+  service.canUseRadarSmartLeadFields = async () => true;
+
+  const filters = service.normalizeRadarFilters({
+    city: 'São Paulo',
+    state: 'SP',
+    segment: 'farmacia',
+    quantity: 1,
+    engine: 'hbx',
+    targetType: 'pj',
+    requiredChannels: ['instagram'],
+    channelMatchMode: 'any_required',
+    qualityMode: 'list',
+  });
+
+  await service.searchRadarDirectForUser(createUser(), filters, 'test');
+
+  assert.deepEqual(receivedInput?.requiredChannels, ['instagram']);
+  assert.equal(receivedInput?.channelMatchMode, 'any_required');
+  assert.equal(receivedInput?.qualityMode, 'list');
+});
+
+test('mapHbxContactResult aceita card social-first quando canal social e obrigatorio', () => {
+  const service = new WebscrapingService(createPrisma()) as any;
+  const normalized = service.normalizeSearchInput({
+    city: 'São Paulo',
+    state: 'SP',
+    segment: 'farmacia',
+    quantity: 1,
+    engine: 'hbx',
+    targetType: 'pj',
+    requiredChannels: ['instagram'],
+    channelMatchMode: 'any_required',
+    qualityMode: 'list',
+  });
+
+  const mapped = service.mapHbxContactResult({
+    name: 'Farmácia Social São Paulo',
+    phone: '',
+    phoneDigits: '',
+    instagramUrl: 'https://instagram.com/farmaciasocial',
+    source: 'hbx_scraping:social_discovery',
+    score: 70,
+  }, normalized);
+  const quality = service.getCandidateQuality(mapped, normalized);
+
+  assert.ok(mapped);
+  assert.equal(mapped.phoneDigits, '');
+  assert.equal(mapped.instagramUrl, 'https://instagram.com/farmaciasocial');
+  assert.equal(service.isApprovedLeadQuality(quality), true);
+});
+
 function normalizeQueryForTest(value: string) {
   return String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
 }
