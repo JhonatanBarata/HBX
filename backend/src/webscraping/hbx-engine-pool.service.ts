@@ -36,7 +36,7 @@ export type HbxEngineLease = {
   googleEmergencyMode: boolean;
 };
 
-export type HbxEnginePurpose = 'manual' | 'radar_pull' | 'radar_digital' | 'vendas' | 'autonomous' | 'mass_data';
+export type HbxEnginePurpose = 'manual' | 'radar_pull' | 'radar_digital' | 'lead_plus_enrichment' | 'vendas' | 'autonomous' | 'mass_data';
 
 export type HbxEngineSchedulerStatus = {
   configuredEngineCount?: number;
@@ -195,6 +195,41 @@ function parseIntegerEnv(name: string, fallback: number) {
   if (!raw) return fallback;
   const parsed = Number(raw);
   return Number.isFinite(parsed) ? Math.max(0, Math.trunc(parsed)) : fallback;
+}
+
+function resolveListEngineCount(configuredCount = getConfiguredHbxEngineCount()) {
+  return Math.min(
+    Math.max(1, parseIntegerEnv('HBX_LIST_ENGINE_COUNT', 40)),
+    Math.max(1, configuredCount),
+  );
+}
+
+function resolveLeadPlusEnrichmentEngineCount(configuredCount = getConfiguredHbxEngineCount()) {
+  return Math.min(
+    Math.max(1, parseIntegerEnv('HBX_LEAD_PLUS_ENRICHMENT_ENGINE_COUNT', 10)),
+    Math.max(1, configuredCount),
+  );
+}
+
+export function getHbxEnginePurposeRange(purpose: HbxEnginePurpose, configuredCount = getConfiguredHbxEngineCount()) {
+  const safeConfigured = Math.max(1, Math.trunc(Number(configuredCount || 1)));
+  const listCount = resolveListEngineCount(safeConfigured);
+  const enrichmentCount = resolveLeadPlusEnrichmentEngineCount(safeConfigured);
+  if (purpose === 'lead_plus_enrichment') {
+    const start = listCount < safeConfigured
+      ? listCount
+      : Math.max(0, safeConfigured - enrichmentCount);
+    return {
+      start,
+      endExclusive: safeConfigured,
+      label: `${start + 1}-${safeConfigured}`,
+    };
+  }
+  return {
+    start: 0,
+    endExclusive: listCount,
+    label: `1-${listCount}`,
+  };
 }
 
 export function getConfiguredHbxEngineCount(env: NodeJS.ProcessEnv = process.env): number {
@@ -955,7 +990,7 @@ export class HbxEnginePoolService implements OnModuleInit {
 
   private normalizePurpose(value: unknown): HbxEnginePurpose {
     const purpose = String(value || '').trim().toLowerCase();
-    if (purpose === 'radar_pull' || purpose === 'radar_digital' || purpose === 'vendas' || purpose === 'autonomous' || purpose === 'mass_data') {
+    if (purpose === 'radar_pull' || purpose === 'radar_digital' || purpose === 'lead_plus_enrichment' || purpose === 'vendas' || purpose === 'autonomous' || purpose === 'mass_data') {
       return purpose;
     }
     return 'manual';
@@ -1153,11 +1188,13 @@ export class HbxEnginePoolService implements OnModuleInit {
     const now = Date.now();
     const configuredCount = getConfiguredHbxEngineCount();
     const automatic = this.isAutomaticPurpose(purpose);
+    const range = getHbxEnginePurposeRange(purpose, configuredCount);
     const activeLimit = automatic
       ? Math.max(0, Math.min(configuredCount, scheduler?.automaticAllowedEngines ?? capacity.activeEngineCount))
       : configuredCount;
     return engines
       .filter((engine) => engine.engineIndex < activeLimit)
+      .filter((engine) => engine.engineIndex >= range.start && engine.engineIndex < range.endExclusive)
       .filter((engine) => !this.isEnginePaused(engine, now))
       .filter((engine) => String(engine.status || '').toLowerCase() !== 'paused')
       .filter((engine) => String(engine.lastHealthStatus || engine.status) !== 'offline')
@@ -1909,8 +1946,12 @@ export class HbxEnginePoolService implements OnModuleInit {
     const startMinute = this.readIntegerEnv('HBX_FACTORY_START_MINUTE', clampInteger(config?.startMinute, 0, 0, 59), 0, 59);
     const endHour = this.readIntegerEnv('HBX_FACTORY_END_HOUR', clampInteger(config?.endHour, 7, 0, 23), 0, 23);
     const endMinute = this.readIntegerEnv('HBX_FACTORY_END_MINUTE', clampInteger(config?.endMinute, 0, 0, 59), 0, 59);
-    const maxEngines = configuredEngineCount;
-    const minEngines = configuredEngineCount;
+    const maxEngines = metadata.factoryMaxEngines == null
+      ? configuredEngineCount
+      : clampInteger(metadata.factoryMaxEngines, configuredEngineCount, 0, configuredEngineCount);
+    const minEngines = metadata.factoryMinEngines == null
+      ? maxEngines
+      : clampInteger(metadata.factoryMinEngines, maxEngines, 0, maxEngines);
     const stopOutsideWindow = false;
     const weekdaysOnly = false;
     const weekendAlwaysOn = false;

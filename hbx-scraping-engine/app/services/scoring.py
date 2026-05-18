@@ -9,6 +9,7 @@ from .filters import (
     is_pf_weak_domain,
     is_social_signal_domain,
     has_pf_role_text,
+    name_conflicts_with_requested_segment,
     looks_like_person_name,
     looks_like_company_or_institution_name,
     phone_ddd,
@@ -31,6 +32,7 @@ def score_contact(contact: dict, city: str, state: str, segment: str, page_text:
     address_l = address.lower()
     name_l = name.lower()
     page_l = page_text.lower()
+    page_url_l = page_url.lower()
     segment_tokens = _tokens(segment)
     automotive_tokens = {"oficina", "mecanica", "mecânica", "auto", "automotivo", "automotiva", "centro"}
     content_tokens = {"software", "academ", "acadêm", "engenharia", "curso", "faculdade", "universidade"}
@@ -72,10 +74,11 @@ def score_contact(contact: dict, city: str, state: str, segment: str, page_text:
 
     if contact.get("phoneDigits"):
         score += 40
-    if name and not is_generic_name(name, city, "pj", segment) and len(name) > 2:
+    generic_name = is_generic_name(name, city, "pj", segment)
+    if name and not generic_name and len(name) > 2:
         score += 20
     else:
-        score -= 35
+        score -= 80
     if expected and ddd in expected:
         score += 20
     elif ddd:
@@ -83,6 +86,8 @@ def score_contact(contact: dict, city: str, state: str, segment: str, page_text:
     if address:
         if city_l in address_l:
             score += 15
+        elif city_l in page_l or city_l in page_url_l:
+            score += 5
         else:
             score -= 45
     elif city_l in page_l or city_l in name_l:
@@ -107,7 +112,11 @@ def score_contact(contact: dict, city: str, state: str, segment: str, page_text:
         score -= 100
     if is_directory or is_directory_domain(website) or is_directory_domain(page_url):
         score -= 25
-    if is_generic_name(name, city, "pj", segment):
-        score -= 35
+    if generic_name:
+        score -= 80
+    if name_conflicts_with_requested_segment(name, segment):
+        score -= 45
+    if looks_like_person_name(name) and not looks_like_company_or_institution_name(name) and not relevant_name:
+        score -= 45
 
     return max(0, min(100, score))

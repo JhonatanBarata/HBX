@@ -5,6 +5,7 @@ import {
   buildHbxEngineUrls,
   buildLocalHbxEngineUrls,
   getConfiguredHbxEngineCount,
+  getHbxEnginePurposeRange,
   HbxEnginePoolService,
   parseHostMemoryPressurePercent,
   parseHbxEngineUrls,
@@ -79,6 +80,31 @@ test('host memory pressure uses MemAvailable instead of process heap pressure', 
 test('getConfiguredHbxEngineCount uses dev/local default of four', () => {
   assert.equal(getConfiguredHbxEngineCount({ NODE_ENV: 'development' }), 4);
   assert.deepEqual(resolveConfiguredHbxEngineUrls({ NODE_ENV: 'development' }), buildLocalHbxEngineUrls(4));
+});
+
+test('HBX engine purposes split List and Lead+ enrichment pools as 40/10 on fifty engines', () => {
+  withEnv({
+    NODE_ENV: 'production',
+    HBX_ENGINE_COUNT: '50',
+    HBX_LIST_ENGINE_COUNT: '40',
+    HBX_LEAD_PLUS_ENRICHMENT_ENGINE_COUNT: '10',
+  }, () => {
+    assert.deepEqual(getHbxEnginePurposeRange('mass_data', 50), {
+      start: 0,
+      endExclusive: 40,
+      label: '1-40',
+    });
+    assert.deepEqual(getHbxEnginePurposeRange('manual', 50), {
+      start: 0,
+      endExclusive: 40,
+      label: '1-40',
+    });
+    assert.deepEqual(getHbxEnginePurposeRange('lead_plus_enrichment', 50), {
+      start: 40,
+      endExclusive: 50,
+      label: '41-50',
+    });
+  });
 });
 
 test('buildHbxEngineUrls builds local and docker URL ranges without hardcoded arrays', () => {
@@ -217,6 +243,37 @@ test('factory scheduler defaults to configured engine count in production when m
     });
     assert.equal(allowed.maxEngines, 50);
     assert.equal(allowed.allowedEngines, 50);
+  });
+});
+
+test('factory scheduler respects configured database engine quantity', () => {
+  withEnv({ NODE_ENV: 'production', HBX_ENGINE_COUNT: '50', HBX_FACTORY_MAX_ENGINES: '' }, () => {
+    const service = new HbxEnginePoolService({} as any);
+    const allowed = service.resolveFactoryAllowedEngines({
+      engineCount: 50,
+      onlineHealthyEngines: 50,
+      manualReservedEngines: 0,
+      memoryPressurePercent: 50,
+      operationalConfig: { enabled: true, metadataJson: '{"factoryMaxEngines":12,"factoryMinEngines":12}' },
+    });
+    assert.equal(allowed.maxEngines, 12);
+    assert.equal(allowed.minEngines, 12);
+    assert.equal(allowed.allowedEngines, 12);
+  });
+});
+
+test('factory scheduler keeps automatic work stopped when configured quantity is zero', () => {
+  withEnv({ NODE_ENV: 'production', HBX_ENGINE_COUNT: '50', HBX_FACTORY_MAX_ENGINES: '' }, () => {
+    const service = new HbxEnginePoolService({} as any);
+    const allowed = service.resolveFactoryAllowedEngines({
+      engineCount: 50,
+      onlineHealthyEngines: 50,
+      manualReservedEngines: 0,
+      memoryPressurePercent: 50,
+      operationalConfig: { enabled: true, metadataJson: '{"factoryMaxEngines":0,"factoryMinEngines":0}' },
+    });
+    assert.equal(allowed.maxEngines, 0);
+    assert.equal(allowed.allowedEngines, 0);
   });
 });
 
@@ -459,7 +516,7 @@ test('automatic queue gets all engines even when old manual reservation env is s
   });
 });
 
-test('automatic eligibility can include engines above twenty when factory limit allows it', async () => {
+test('automatic List eligibility stays in first forty when factory limit allows fifty', async () => {
   await withEnv({
     NODE_ENV: 'production',
     HBX_ENGINE_COUNT: '50',
@@ -474,9 +531,13 @@ test('automatic eligibility can include engines above twenty when factory limit 
     const service = createPoolForCapacity({ queuedCount: 100 }) as any;
     service.healthCheckEngines = async () => buildEngineRows(50);
     const automatic = await service.getEligibleEnginesForCurrentQueue('mass_data');
-    assert.equal(automatic.length, 50);
+    const enrichment = await service.getEligibleEnginesForCurrentQueue('lead_plus_enrichment');
+    assert.equal(automatic.length, 40);
     assert.equal(automatic.some((engine: any) => engine.id === 'hbx-engine-21'), true);
-    assert.equal(automatic.some((engine: any) => engine.id === 'hbx-engine-50'), true);
+    assert.equal(automatic.some((engine: any) => engine.id === 'hbx-engine-50'), false);
+    assert.equal(enrichment.length, 10);
+    assert.equal(enrichment[0]?.id, 'hbx-engine-41');
+    assert.equal(enrichment.at(-1)?.id, 'hbx-engine-50');
   });
 });
 

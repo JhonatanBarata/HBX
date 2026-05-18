@@ -93,6 +93,306 @@ function createUser() {
   };
 }
 
+test('buildSearchResponse entrega leads List fracos sem aplicar corte Lead+', () => {
+  const service = new WebscrapingService(createPrisma()) as any;
+  const input = service.normalizeSearchInput({
+    city: 'Boituva',
+    state: 'SP',
+    segment: 'farmacias',
+    quantity: 1,
+    engine: 'hbx',
+    targetType: 'pj',
+    qualityMode: 'list',
+  });
+
+  const response = service.buildSearchResponse(input, [{
+    placeId: 'hbx:pj:1532631284',
+    name: 'Farmacia Teste',
+    phone: '(15) 3263-1284',
+    phoneDigits: '1532631284',
+    rating: null,
+    reviews: 0,
+    address: 'Boituva, SP',
+    website: null,
+    source: 'hbx_scraping:free_pj',
+    score: 0,
+  }], {
+    historyId: null,
+    source: 'hbx',
+    reusedCount: 0,
+    fetchedCount: 1,
+    technicalCacheUsed: false,
+    technicalCacheReusedCount: 0,
+    technicalCacheValidUntil: null,
+  });
+
+  assert.equal(response.results.length, 1);
+  assert.equal(response.meta.deliveredCount, 1);
+  assert.equal(response.meta.filteredOutCount, 0);
+});
+
+test('buildSearchResponse usa score HBX como evidencia de segmento no List', () => {
+  const service = new WebscrapingService(createPrisma()) as any;
+  const input = service.normalizeSearchInput({
+    city: 'Boituva',
+    state: 'SP',
+    segment: 'farmacias',
+    quantity: 1,
+    engine: 'hbx',
+    targetType: 'pj',
+    qualityMode: 'list',
+  });
+
+  const response = service.buildSearchResponse(input, [{
+    placeId: 'hbx:pj:1532632490',
+    name: 'Celio Cesar Marcusso & Cia. Ltda',
+    phone: '(15) 3263-2490',
+    phoneDigits: '1532632490',
+    rating: null,
+    reviews: 0,
+    address: 'Avenida Alexandrina Bertoldi Vercellino, 249, Boituva',
+    website: null,
+    source: 'hbx_scraping:free_pj',
+    score: 70,
+  }], {
+    historyId: null,
+    source: 'hbx',
+    reusedCount: 0,
+    fetchedCount: 1,
+    technicalCacheUsed: false,
+    technicalCacheReusedCount: 0,
+    technicalCacheValidUntil: null,
+  });
+
+  assert.equal(response.results.length, 1);
+  assert.equal(response.results[0].quality?.segmentMatchScore, 60);
+});
+
+test('buildSearchResponse bloqueia nomes genericos mesmo com score HBX no List', () => {
+  const service = new WebscrapingService(createPrisma()) as any;
+  const input = service.normalizeSearchInput({
+    city: 'Boituva',
+    state: 'SP',
+    segment: 'bares',
+    quantity: 1,
+    engine: 'hbx',
+    targetType: 'pj',
+    qualityMode: 'list',
+  });
+
+  const response = service.buildSearchResponse(input, [{
+    placeId: 'hbx:pj:15999999999',
+    name: 'Pesquise outros bares em Boituva',
+    phone: '(15) 99999-9999',
+    phoneDigits: '15999999999',
+    rating: null,
+    reviews: 0,
+    address: 'Boituva, SP',
+    website: null,
+    source: 'hbx_scraping:free_pj',
+    score: 70,
+  }], {
+    historyId: null,
+    source: 'hbx',
+    reusedCount: 0,
+    fetchedCount: 1,
+    technicalCacheUsed: false,
+    technicalCacheReusedCount: 0,
+    technicalCacheValidUntil: null,
+  });
+
+  assert.equal(response.results.length, 0);
+  assert.equal(response.meta.filteredOutCount, 1);
+});
+
+test('buildSearchResponse bloqueia padroes ruins aprendidos do banco no List', () => {
+  const service = new WebscrapingService(createPrisma()) as any;
+  const input = service.normalizeSearchInput({
+    city: 'Rubiácea',
+    state: 'SP',
+    segment: 'imobiliárias',
+    quantity: 10,
+    engine: 'hbx',
+    targetType: 'pj',
+    qualityMode: 'list',
+  });
+
+  const response = service.buildSearchResponse(input, [
+    {
+      placeId: 'bad:category',
+      name: 'Imobiliárias em Rubiácea',
+      phone: '(18) 99999-0001',
+      phoneDigits: '18999990001',
+      rating: null,
+      reviews: 0,
+      address: 'Rubiácea, SP',
+      website: null,
+      source: 'hbx_scraping:free_pj',
+      score: 90,
+    },
+    {
+      placeId: 'bad:tourism',
+      name: 'Conheça o Rio Paraná',
+      phone: '(18) 99999-0002',
+      phoneDigits: '18999990002',
+      rating: null,
+      reviews: 0,
+      address: 'Rubiácea, SP',
+      website: null,
+      source: 'hbx_scraping:free_pj',
+      score: 90,
+    },
+    {
+      placeId: 'bad:other-segment',
+      name: 'Favelas modas & Barbearia',
+      phone: '(18) 99999-0003',
+      phoneDigits: '18999990003',
+      rating: null,
+      reviews: 0,
+      address: 'Rubiácea, SP',
+      website: null,
+      source: 'hbx_scraping:free_pj',
+      score: 90,
+    },
+    {
+      placeId: 'good:company',
+      name: 'Imobiliária Meu Imóvel em Rubiácea',
+      phone: '(18) 99999-0004',
+      phoneDigits: '18999990004',
+      rating: null,
+      reviews: 0,
+      address: 'Rubiácea, SP',
+      website: null,
+      source: 'hbx_scraping:free_pj',
+      score: 90,
+    },
+  ], {
+    historyId: null,
+    source: 'hbx',
+    reusedCount: 0,
+    fetchedCount: 4,
+    technicalCacheUsed: false,
+    technicalCacheReusedCount: 0,
+    technicalCacheValidUntil: null,
+  });
+
+  assert.deepEqual(response.results.map((item: any) => item.name), ['Imobiliária Meu Imóvel em Rubiácea']);
+  assert.equal(response.meta.filteredOutCount, 3);
+});
+
+test('buildSearchResponse bloqueia titulos de conteudo e html entity antigos', () => {
+  const service = new WebscrapingService(createPrisma()) as any;
+  const input = service.normalizeSearchInput({
+    city: 'Rio Claro',
+    state: 'SP',
+    segment: 'salões de beleza',
+    quantity: 10,
+    engine: 'hbx',
+    targetType: 'pj',
+    qualityMode: 'list',
+  });
+
+  const response = service.buildSearchResponse(input, [
+    {
+      placeId: 'bad:whatsapp-title',
+      name: 'WhatsApp da Mateus Auto Peças e Acessórios em Araraquara SP',
+      phone: '(19) 99999-1001',
+      phoneDigits: '19999991001',
+      rating: null,
+      reviews: 0,
+      address: 'Rio Claro, SP',
+      website: null,
+      source: 'hbx_scraping:free_pj',
+      score: 100,
+    },
+    {
+      placeId: 'bad:best',
+      name: 'Os 40 melhores salões de beleza do Brasil',
+      phone: '(19) 99999-1002',
+      phoneDigits: '19999991002',
+      rating: null,
+      reviews: 0,
+      address: 'Rio Claro, SP',
+      website: null,
+      source: 'hbx_scraping:free_pj',
+      score: 90,
+    },
+    {
+      placeId: 'bad:html',
+      name: 'Itapevi &#8211; SP',
+      phone: '(19) 99999-1003',
+      phoneDigits: '19999991003',
+      rating: null,
+      reviews: 0,
+      address: 'Rio Claro, SP',
+      website: null,
+      source: 'hbx_scraping:free_pj',
+      score: 90,
+    },
+    {
+      placeId: 'good:barber',
+      name: 'Barbearia Santa Fé',
+      phone: '(19) 99999-1004',
+      phoneDigits: '19999991004',
+      rating: null,
+      reviews: 0,
+      address: 'Rio Claro, SP',
+      website: null,
+      source: 'hbx_scraping:free_pj',
+      score: 70,
+    },
+  ], {
+    historyId: null,
+    source: 'hbx',
+    reusedCount: 0,
+    fetchedCount: 4,
+    technicalCacheUsed: false,
+    technicalCacheReusedCount: 0,
+    technicalCacheValidUntil: null,
+  });
+
+  assert.deepEqual(response.results.map((item: any) => item.name), ['Barbearia Santa Fé']);
+  assert.equal(response.meta.filteredOutCount, 3);
+});
+
+test('buildSearchResponse mantem Lead+ exigindo qualidade aprovada', () => {
+  const service = new WebscrapingService(createPrisma()) as any;
+  const input = service.normalizeSearchInput({
+    city: 'Boituva',
+    state: 'SP',
+    segment: 'farmacias',
+    quantity: 1,
+    engine: 'hbx',
+    targetType: 'pj',
+    qualityMode: 'lead_plus',
+  });
+
+  const response = service.buildSearchResponse(input, [{
+    placeId: 'hbx:pj:1532631284',
+    name: 'Farmacia Teste',
+    phone: '(15) 3263-1284',
+    phoneDigits: '1532631284',
+    rating: null,
+    reviews: 0,
+    address: 'Boituva, SP',
+    website: null,
+    source: 'hbx_scraping:free_pj',
+    score: 0,
+  }], {
+    historyId: null,
+    source: 'hbx',
+    reusedCount: 0,
+    fetchedCount: 1,
+    technicalCacheUsed: false,
+    technicalCacheReusedCount: 0,
+    technicalCacheValidUntil: null,
+  });
+
+  assert.equal(response.results.length, 0);
+  assert.equal(response.meta.deliveredCount, 0);
+  assert.equal(response.meta.filteredOutCount, 1);
+});
+
 test('normalizeOperationalConfigInput preserves midnight start and end hours', () => {
   const service = new WebscrapingService(createPrisma()) as any;
 

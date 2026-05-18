@@ -378,6 +378,107 @@ const GENERIC_DIRECTORY_NAMES = [
   'lista de empresas',
 ];
 
+const GENERIC_DIRECTORY_PREFIXES = [
+  '10 melhores',
+  '20 melhores',
+  '30 melhores',
+  '40 melhores',
+  '50 melhores',
+  'melhores',
+  'as melhores',
+  'as melhores condicoes',
+  'todos os estabelecimentos',
+  'lista de empresas',
+  'confira as melhores',
+  'procurando',
+  'encontre aqui',
+  'conheca',
+  'portal',
+  'guia',
+  'blog',
+  'preco de',
+  'quanto custa',
+  'sms para',
+  'otimizacao seo',
+  'whatsapp da',
+  'whatsapp do',
+  'whatsapp de',
+  'contato encontrado',
+];
+
+const GENERIC_DIRECTORY_CONTAINS = [
+  'pesquise outros',
+  'pesquisar outros',
+  'busque outros',
+  'buscar outros',
+  'resultado de pesquisa',
+  'resultados de pesquisa',
+  'confira as melhores',
+  ' melhores ',
+  'todos os estabelecimentos',
+  'lista de empresas',
+  'conheca o rio',
+  'conheca santa',
+  'noticias',
+  'abre vagas',
+  'lanca campanha',
+  'reserve ja',
+  'reserva ja',
+  'quanto custa',
+  'preco de',
+  'orcamento',
+  'sms para',
+  'otimizacao seo',
+  'marketing digital para',
+  'terceirizacao',
+  'trocar tela iphone',
+  'locacao de aparelho',
+  'telhado com',
+];
+
+const GENERIC_CATEGORY_HEADS = [
+  'academias',
+  'acessorios automotivos',
+  'assistencia tecnica',
+  'bares',
+  'bares e restaurantes',
+  'bijuterias',
+  'borracharias',
+  'calcados infantis',
+  'clinicas de estetica',
+  'clinicas medicas',
+  'contabilidades',
+  'dentistas',
+  'distribuidores de bebidas',
+  'farmacias',
+  'farmacias e drogarias',
+  'gesso',
+  'imobiliarias',
+  'loja de automotivo',
+  'lojas de celulares',
+  'malharias',
+  'materiais de construcao',
+  'moveis de escritorio',
+  'oficinas',
+  'oficinas mecanicas',
+  'perfumarias',
+  'perfumarias e cosmeticos',
+  'planos de saude',
+  'saloes de beleza',
+  'transporte',
+  'transportes',
+];
+
+const VERTICAL_TOKEN_GROUPS: Record<string, string[]> = {
+  academia: ['academia', 'fitness', 'crossfit', 'pilates'],
+  barbearia: ['barbearia', 'barbearias', 'salao', 'saloes', 'beleza', 'cabeleireiro'],
+  farmacia: ['farmacia', 'farmacias', 'drogaria', 'drogarias'],
+  imobiliaria: ['imobiliaria', 'imobiliarias', 'imovel', 'imoveis', 'corretor'],
+  moda: ['moda', 'roupas', 'malharia', 'calcados', 'bijuterias'],
+  oficina: ['oficina', 'oficinas', 'mecanica', 'automotivo', 'automotiva', 'auto'],
+  restaurante: ['restaurante', 'restaurantes', 'bar', 'bares', 'lanchonete', 'pizzaria'],
+};
+
 let cityCache: {
   loadedAt: number;
   items: string[];
@@ -473,6 +574,10 @@ export type WebscrapingSearchResponse = {
     technicalCacheUsed: boolean;
     technicalCacheReusedCount: number;
     technicalCacheValidUntil: string | null;
+    requestedCount?: number;
+    candidateCount?: number;
+    deliveredCount?: number;
+    filteredOutCount?: number;
     attempts?: number;
     requiredChannels?: RadarChannelFilter[];
     channelMatchMode?: RadarChannelMatchMode;
@@ -1033,6 +1138,34 @@ function normalizeWebsiteKey(value: string | null | undefined) {
   }
 }
 
+const RADAR_THIRD_PARTY_SOCIAL_PROFILE_HINTS = [
+  'editoramanole',
+  'fresha',
+  'guiatemdigital',
+  'oficialmanole',
+  'petdiretorio',
+  'qconcursos',
+  'setorenergetico',
+  'socorroauto',
+];
+
+function normalizeSocialProfileKey(value: string | null | undefined) {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  try {
+    const parsed = new URL(raw.startsWith('http') ? raw : `https://${raw}`);
+    return normalizeLookupValue(`${parsed.hostname} ${parsed.pathname}`).replace(/[^a-z0-9]+/g, ' ');
+  } catch {
+    return normalizeLookupValue(raw).replace(/[^a-z0-9]+/g, ' ');
+  }
+}
+
+function looksLikeThirdPartySocialProfile(value: string | null | undefined) {
+  const key = normalizeSocialProfileKey(value);
+  if (!key) return false;
+  return RADAR_THIRD_PARTY_SOCIAL_PROFILE_HINTS.some((hint) => key.includes(normalizeLookupValue(hint)));
+}
+
 function getWebsiteHost(value: string | null | undefined) {
   const raw = String(value || '').trim();
   if (!raw) return '';
@@ -1118,7 +1251,7 @@ function normalizeEngine(value: unknown): WebscrapingEngine {
 
 function normalizeEnginePurpose(value: unknown): HbxEnginePurpose {
   const purpose = String(value || '').trim().toLowerCase();
-  if (purpose === 'radar_pull' || purpose === 'radar_digital' || purpose === 'vendas' || purpose === 'autonomous' || purpose === 'mass_data') {
+  if (purpose === 'radar_pull' || purpose === 'radar_digital' || purpose === 'lead_plus_enrichment' || purpose === 'vendas' || purpose === 'autonomous' || purpose === 'mass_data') {
     return purpose;
   }
   return 'manual';
@@ -1540,7 +1673,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     options: SearchExecutionOptions = {},
   ): Promise<WebscrapingSearchResponse> {
     const context = this.resolveContext(user);
-    const purpose = normalizeEnginePurpose(options.purpose);
+    let purpose = normalizeEnginePurpose(options.purpose);
     const requestedEngine = normalizeEngine(input?.engine);
     const safeInput: SearchContactsInput = isAutomaticEnginePurpose(purpose) && requestedEngine === 'google'
       ? { ...input, engine: 'hbx' }
@@ -1549,7 +1682,14 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       this.logger.warn(`[engine-scheduler] google blocked for ${purpose} purpose`);
       this.logger.warn('[autonomous-bank] skipped google for autonomous bank');
     }
-    const normalized = this.normalizeSearchInput(safeInput);
+    const hbxPrimaryInput = normalizeEngine(safeInput?.engine) === 'hbx'
+      ? {
+          ...safeInput,
+          preferredChannels: (safeInput?.preferredChannels || []).filter((channel) => !['instagram', 'facebook'].includes(String(channel || '').toLowerCase())),
+          requiredChannels: (safeInput?.requiredChannels || []).filter((channel) => !['instagram', 'facebook'].includes(String(channel || '').toLowerCase())),
+        }
+      : safeInput;
+    const normalized = this.normalizeSearchInput(hbxPrimaryInput);
     this.logSearchSelection(normalized);
     const hasExplicitExclusions = normalized.excludePhoneDigits.length > 0;
     const radarEnabled = !options.skipRadarLookup && normalized.targetType === 'pj'
@@ -1575,7 +1715,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     const cachedPublicResults = this.sortContacts(this.restoreGlobalCacheResults(globalCacheEntry))
       .filter((result) => this.matchesFilters(result, normalized.filters));
 
-    if (storedResults.length >= normalized.quantity) {
+    if (this.countDeliverableResults(normalized, storedResults) >= normalized.quantity) {
       if (existingHistory) {
         await this.touchHistory(existingHistory.id, context.userId);
       }
@@ -1677,7 +1817,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       }
 
       for (const mapped of hbxResults) {
-        if (results.length >= normalized.quantity) break;
+        if (this.countDeliverableResults(normalized, results) >= normalized.quantity) break;
         if (!this.shouldKeepNewContact(mapped, results, seenPhones)) continue;
         if (!this.matchesFilters(mapped, normalized.filters)) continue;
         if (mapped.phoneDigits) seenPhones.add(mapped.phoneDigits);
@@ -1685,10 +1825,10 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         fetchedCount += 1;
       }
 
-      let orderedResults = this.sortContacts(results).slice(0, normalized.quantity);
+      let orderedResults = this.sortContacts(results);
       const sourceEnginesUsed = new Set<string>(['hbx']);
       let googleFallbackCount = 0;
-      if (orderedResults.length < normalized.quantity && this.shouldUseGoogleFallbackAfterHbx(normalized, options)) {
+      if (this.countDeliverableResults(normalized, orderedResults) < normalized.quantity && this.shouldUseGoogleFallbackAfterHbx(normalized, options)) {
         try {
           const fallbackResponse = await this.searchContactsForUser(
             user,
@@ -1710,7 +1850,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
           );
           sourceEnginesUsed.add('google');
           for (const fallbackResult of fallbackResponse.results as WebscrapingContactResult[]) {
-            if (results.length >= normalized.quantity) break;
+            if (this.countDeliverableResults(normalized, results) >= normalized.quantity) break;
             const candidate = { ...fallbackResult, source: fallbackResult.source || 'google' } as WebscrapingContactResult;
             if (!this.shouldKeepNewContact(candidate, results, seenPhones)) continue;
             if (!this.matchesFilters(candidate, normalized.filters)) continue;
@@ -1719,7 +1859,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
             fetchedCount += 1;
             googleFallbackCount += 1;
           }
-          orderedResults = this.sortContacts(results).slice(0, normalized.quantity);
+          orderedResults = this.sortContacts(results);
         } catch (error) {
           this.logger.warn(`[radar] fallback Google falhou apos HBX: ${String((error as any)?.message || error)}`);
         }
@@ -2866,11 +3006,68 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     return Array.from(aliases).filter(Boolean);
   }
 
-  private isGenericDirectoryName(name: unknown) {
-    const normalized = normalizeLookupValue(String(name || ''));
+  private qualityKey(value: unknown) {
+    return normalizeLookupValue(String(value || ''))
+      .replace(/[^a-z0-9]+/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  private segmentNameVariants(segment: unknown) {
+    const key = this.qualityKey(segment);
+    if (!key) return [];
+    const variants = new Set<string>([key]);
+    const [first, ...rest] = key.split(' ');
+    if (rest.length && !first.endsWith('s')) variants.add([`${first}s`, ...rest].join(' '));
+    if (key.endsWith('s') && key.length > 4) variants.add(key.slice(0, -1));
+    else variants.add(`${key}s`);
+    return Array.from(variants).filter(Boolean);
+  }
+
+  private isCategoryLocationTitle(nameKey: string, cityKey = '', segment?: unknown) {
+    const heads = new Set([...GENERIC_CATEGORY_HEADS.map((item) => this.qualityKey(item)), ...this.segmentNameVariants(segment)]);
+    for (const head of heads) {
+      if (!head) continue;
+      if (nameKey === head) return true;
+      if (nameKey.startsWith(`${head} em `)) return true;
+      if (cityKey && nameKey === `${head} em ${cityKey}`) return true;
+      if (cityKey && head.endsWith('s') && nameKey === `${head} ${cityKey}`) return true;
+      if (cityKey && nameKey.startsWith(`${head} em ${cityKey} `)) return true;
+    }
+    return /^(10|20|30|40|50)\s+melhores\s+/.test(nameKey);
+  }
+
+  private nameConflictsWithRequestedSegment(name: unknown, segment: unknown) {
+    const nameKey = this.qualityKey(name);
+    const segmentKey = this.qualityKey(segment);
+    if (!nameKey || !segmentKey) return false;
+    const requestedGroups = Object.entries(VERTICAL_TOKEN_GROUPS)
+      .filter(([, tokens]) => tokens.some((token) => segmentKey.includes(this.qualityKey(token))))
+      .map(([group]) => group);
+    const nameGroups = Object.entries(VERTICAL_TOKEN_GROUPS)
+      .filter(([, tokens]) => tokens.some((token) => new RegExp(`\\b${this.qualityKey(token)}\\b`).test(nameKey)))
+      .map(([group]) => group);
+    return Boolean(nameGroups.length && requestedGroups.length && nameGroups.every((group) => !requestedGroups.includes(group)));
+  }
+
+  private isGenericDirectoryName(name: unknown, context?: { city?: unknown; segment?: unknown }) {
+    const raw = String(name || '');
+    if (/&[#a-zA-Z0-9]+;/.test(raw)) return true;
+    const normalized = this.qualityKey(raw);
     if (!normalized) return false;
-    const genericNames = GENERIC_DIRECTORY_NAMES.map((item) => normalizeLookupValue(item));
+    const cityKey = this.qualityKey(context?.city);
+    const segmentVariants = this.segmentNameVariants(context?.segment);
+    const genericNames = [
+      ...GENERIC_DIRECTORY_NAMES.map((item) => this.qualityKey(item)),
+      ...segmentVariants,
+      ...segmentVariants.map((segment) => cityKey ? `${segment} em ${cityKey}` : '').filter(Boolean),
+    ];
     if (genericNames.some((generic) => normalized === generic)) return true;
+    if (GENERIC_DIRECTORY_CONTAINS.some((generic) => normalized.includes(this.qualityKey(generic)))) {
+      return true;
+    }
+    if (this.isCategoryLocationTitle(normalized, cityKey, context?.segment)) return true;
+    if (GENERIC_DIRECTORY_PREFIXES.some((prefix) => normalized.startsWith(this.qualityKey(prefix)))) return true;
     return ['lista telefonica', 'lista telefonica', 'guia comercial', 'guia telefone', 'lista de empresas', 'anuncie aqui']
       .some((generic) => normalized.startsWith(`${generic} `) || normalized.includes(` ${generic} `));
   }
@@ -2923,6 +3120,12 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       score = Math.max(score, 55);
       reasons.push('Website/source contem evidencia fraca do segmento.');
     }
+    const hasHygieneBlock = this.isGenericDirectoryName(candidate.name, { city: candidate.city, segment: requestedSegment })
+      || this.nameConflictsWithRequestedSegment(candidate.name, requestedSegment);
+    if (!score && safeInteger(candidate.score) >= 50 && !hasHygieneBlock) {
+      score = 60;
+      reasons.push('Motor HBX classificou o card como aderente ao segmento.');
+    }
     if (!score) {
       score = 25;
       reasons.push('Sem evidencia suficiente de aderencia ao segmento.');
@@ -2965,7 +3168,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         reasons: ['Nome ausente.'],
       };
     }
-    if (this.isGenericDirectoryName(name)) {
+    if (this.isGenericDirectoryName(name, { city: input.requestedCity, segment: input.requestedSegment })) {
       return {
         status: 'generic_directory',
         billable: false,
@@ -2973,6 +3176,16 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         contactQualityScore: 0,
         commercialScore: 0,
         reasons: ['Nome generico ou resultado de lista telefonica.'],
+      };
+    }
+    if (input.targetType === 'pj' && this.nameConflictsWithRequestedSegment(name, input.requestedSegment)) {
+      return {
+        status: 'segment_mismatch',
+        billable: false,
+        segmentMatchScore: 0,
+        contactQualityScore: 0,
+        commercialScore: 0,
+        reasons: ['Nome indica outro segmento comercial.'],
       };
     }
     if (!hasUsablePublicContact && !hasRequiredSocial) {
@@ -3050,6 +3263,31 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
 
   private isApprovedLeadQuality(quality: LeadQualityResult | null | undefined) {
     return quality?.status === 'approved' && quality.billable !== false;
+  }
+
+  private isListLeadQualityDeliverable(quality: LeadQualityResult | null | undefined) {
+    if (!quality) return true;
+    return !['invalid', 'generic_directory', 'segment_mismatch', 'duplicate'].includes(quality.status);
+  }
+
+  private buildDeliverableResultEntries(input: NormalizedSearchInput, results: WebscrapingContactResult[]) {
+    return results
+      .map((result) => ({
+        result,
+        qualityV2: this.getCandidateQualityV2(result as any, input),
+        quality: this.getCandidateQuality(result as any, input),
+      }))
+      .filter(({ result, quality, qualityV2 }) => {
+        if (!this.isQualityV2Deliverable(qualityV2, input)) return false;
+        if (!this.candidateHasRequiredChannels(result as any, input, qualityV2)) return false;
+        return this.resolveQualityMode(input) === 'lead_plus'
+          ? this.isApprovedLeadQuality(quality)
+          : this.isListLeadQualityDeliverable(quality);
+      });
+  }
+
+  private countDeliverableResults(input: NormalizedSearchInput, results: WebscrapingContactResult[]) {
+    return this.buildDeliverableResultEntries(input, results).length;
   }
 
   private normalizeLeadQualityV2(value: unknown): LeadQualityV2 | null {
@@ -5180,6 +5418,19 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       technicalCacheValidUntil: string | null;
     },
   ): WebscrapingSearchResponse {
+    const publicResults = this.buildDeliverableResultEntries(input, results)
+      .map(({ result, quality, qualityV2 }) => {
+        const { placeId: _placeId, ...publicResult } = result;
+        const opportunityScore = this.buildOpportunityScore(result, quality);
+        return {
+          ...publicResult,
+          quality,
+          qualityV2,
+          score: publicResult.score == null ? opportunityScore : publicResult.score,
+          opportunityScore,
+          opportunityReason: publicResult.opportunityReason || this.buildOpportunityReason(result, input),
+        };
+      });
     return {
       query: {
         city: input.city,
@@ -5192,27 +5443,13 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       },
       meta: {
         ...meta,
+        requestedCount: input.quantity,
+        candidateCount: results.length,
+        deliveredCount: publicResults.length,
+        filteredOutCount: Math.max(0, results.length - publicResults.length),
         sourceEngines: meta.sourceEngines || this.buildResponseSourceEngines(meta.source, results),
       },
-      results: results
-        .map((result) => ({
-          result,
-          qualityV2: this.getCandidateQualityV2(result as any, input),
-          quality: this.getCandidateQuality(result as any, input),
-        }))
-        .filter(({ result, quality, qualityV2 }) => this.isQualityV2Deliverable(qualityV2, input) && this.candidateHasRequiredChannels(result as any, input, qualityV2) && this.isApprovedLeadQuality(quality))
-        .map(({ result, quality, qualityV2 }) => {
-        const { placeId: _placeId, ...publicResult } = result;
-        const opportunityScore = this.buildOpportunityScore(result, quality);
-        return {
-          ...publicResult,
-          quality,
-          qualityV2,
-          score: publicResult.score == null ? opportunityScore : publicResult.score,
-          opportunityScore,
-          opportunityReason: publicResult.opportunityReason || this.buildOpportunityReason(result, input),
-        };
-      }),
+      results: publicResults,
     };
   }
 
@@ -5797,13 +6034,17 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     const websiteStatus = String(row?.websiteStatus || parsedEnrichment?.websiteStatus || inferWebsiteStatus(row?.website)).trim().toLowerCase();
     const emailStatus = String(row?.emailStatus || parsedEnrichment?.emailStatus || '').trim().toLowerCase();
     const whatsappStatus = String(row?.whatsappStatus || row?.whatsappCheckStatus || parsedEnrichment?.whatsappStatus || '').trim().toLowerCase();
+    const instagramUrl = row?.instagramUrl || parsedEnrichment?.instagramUrl;
+    const facebookUrl = row?.facebookUrl || parsedEnrichment?.facebookUrl;
+    const instagramAvailable = Boolean(instagramUrl) && !looksLikeThirdPartySocialProfile(instagramUrl);
+    const facebookAvailable = Boolean(facebookUrl) && !looksLikeThirdPartySocialProfile(facebookUrl);
     return {
       whatsapp: qualityAvailability.whatsapp === true || ['confirmed', 'available', 'valid', 'exists', 'true'].includes(whatsappStatus) || isLikelyWhatsapp(row?.phoneDigits || row?.phone),
       phone: qualityAvailability.phone === true || isLikelyValidBrPhone(row?.phoneDigits || row?.phone),
       email: qualityAvailability.email === true || Boolean(row?.email || parsedEnrichment?.email) && ['confirmed', 'probable', ''].includes(emailStatus),
       website: qualityAvailability.website === true || Boolean(row?.website) && !['broken', 'unreachable', 'none'].includes(websiteStatus),
-      instagram: qualityAvailability.instagram === true || Boolean(row?.instagramUrl || parsedEnrichment?.instagramUrl),
-      facebook: qualityAvailability.facebook === true || Boolean(row?.facebookUrl || parsedEnrichment?.facebookUrl),
+      instagram: (qualityAvailability.instagram === true || instagramAvailable) && instagramAvailable,
+      facebook: (qualityAvailability.facebook === true || facebookAvailable) && facebookAvailable,
     };
   }
 
@@ -6814,6 +7055,54 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
+  private async enrichRadarLeadViaLeadPlusEngine(context: SearchExecutionContext, row: any) {
+    let lease: HbxEngineLease | null = null;
+    let engineUrl = this.getHbxScrapingEngineUrl();
+    const runKey = `lead-plus-enrich:${context.companyId}:${context.userId}:${row?.id || Date.now()}`;
+    try {
+      if (await this.canAcquireHbxEngineFromPool()) {
+        lease = await this.getEnginePool().acquireEngine(
+          runKey,
+          context.companyId,
+          context.userId,
+          { purpose: 'lead_plus_enrichment' },
+        );
+        if (lease) engineUrl = lease.url;
+      }
+      const body = {
+        name: row?.name || '',
+        phone: row?.phone || '',
+        phoneDigits: row?.phoneDigits || '',
+        city: row?.city || '',
+        state: row?.state || '',
+        segment: row?.segment || row?.businessCategory || '',
+        website: row?.website || null,
+        email: row?.email || null,
+        instagramUrl: row?.instagramUrl || null,
+        facebookUrl: row?.facebookUrl || null,
+        preferredChannels: ['instagram', 'facebook'],
+        requiredChannels: [],
+      };
+      const response = await fetch(`${String(engineUrl).replace(/\/+$/, '')}/enrich-lead`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(Math.max(5_000, this.getHbxBatchTimeoutMs())),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(String(payload?.detail || payload?.message || `Lead+ enrichment HTTP ${response.status}`));
+      }
+      return payload && typeof payload === 'object' ? payload : null;
+    } catch (error: any) {
+      if (lease) await this.getEnginePool().markEngineBatchError(lease.engineId, error).catch(() => null);
+      this.logger.warn(`[lead-plus-enrichment] falha lead=${row?.id || 'unknown'}: ${String(error?.message || error)}`);
+      return null;
+    } finally {
+      if (lease) await this.getEnginePool().releaseEngine(lease.engineId).catch(() => null);
+    }
+  }
+
   async enrichRadarLeadForUser(user: any, radarLeadId: string) {
     const context = this.resolveContext(user);
     if (!(await this.supportsRadarPersistence())) {
@@ -6862,10 +7151,33 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     }
 
     const companyState = Array.isArray(row.companyStates) && row.companyStates.length ? row.companyStates[0] : null;
+    const leadPlus = protectedStatus ? null : await this.enrichRadarLeadViaLeadPlusEngine(context, row);
+    const leadPlusEmail = String(leadPlus?.email || '').trim() || null;
+    const leadPlusEmailStatus = ['confirmed', 'probable', 'missing', 'invalid', 'unverified'].includes(String(leadPlus?.emailStatus || ''))
+      ? String(leadPlus.emailStatus)
+      : row.emailStatus;
+    const leadPlusEmailSource = ['website', 'maps', 'inferred', 'manual', 'none'].includes(String(leadPlus?.emailSource || ''))
+      ? String(leadPlus.emailSource)
+      : row.emailSource;
+    const leadPlusInstagram = String(leadPlus?.instagramUrl || '').trim() || null;
+    const leadPlusFacebook = String(leadPlus?.facebookUrl || '').trim() || null;
+    const leadPlusSocialStatus = leadPlusInstagram || leadPlusFacebook ? 'found' : row.socialStatus;
     const enrichment = buildRadarLeadEnrichment({
       ...row,
+      email: leadPlusEmail || row.email,
+      emailStatus: leadPlusEmailStatus,
+      emailSource: leadPlusEmailSource,
+      emailConfidence: safeInteger(leadPlus?.emailConfidence || row.emailConfidence),
+      instagramUrl: leadPlusInstagram || row.instagramUrl,
+      facebookUrl: leadPlusFacebook || row.facebookUrl,
+      socialStatus: leadPlusSocialStatus,
+      socialConfidence: safeInteger(leadPlus?.socialConfidence || row.socialConfidence),
       companyStatus: companyState?.status || row.status,
       whatsappStatus,
+      rawPayload: {
+        ...parseJsonObject(row?.metadataJson),
+        leadPlusEnrichment: leadPlus,
+      },
       now,
     });
     const data = {
@@ -10827,7 +11139,12 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
   }
 
   async startRadarFactory(user: any) {
-    const engineCount = getConfiguredHbxEngineCount();
+    const existingConfig = await this.getOperationalConfig().catch(() => null);
+    const savedMaxEngines = safeInteger(existingConfig?.factoryMaxEngines, 0);
+    const engineCount = Math.min(
+      getConfiguredHbxEngineCount(),
+      Math.max(0, savedMaxEngines || safeInteger(existingConfig?.engineCount, getConfiguredHbxEngineCount())),
+    );
     if (await this.supportsRadarFactoryPersistence()) {
       await (this.prisma as any).radarFactoryCursor.upsert({
         where: { key: 'main' },
@@ -10846,7 +11163,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       stopOutsideWindow: false,
       weekdaysOnly: false,
       weekendAlwaysOn: false,
-      engineCount,
+      engineCount: Math.max(1, engineCount),
       maxEngines: engineCount,
       minEngines: engineCount,
       memoryTargetGb: 16,
@@ -13648,9 +13965,8 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         limit: batchLimit,
         fresh: normalizedExcludePhoneDigits.length > 0,
       };
-      if (input.preferredChannels.length) body.preferredChannels = input.preferredChannels;
-      if (input.requiredChannels.length) body.requiredChannels = input.requiredChannels;
-      if ((input.preferredChannels.length || input.requiredChannels.length) && input.channelMatchMode) body.channelMatchMode = input.channelMatchMode;
+      // HBX List is the primary finder. Instagram/Facebook/email enrichment is handled
+      // by the Lead+ enrichment endpoint so List motors do not spend time on social search.
       if (queryText) {
         body.query = queryText;
         body.batchLimit = batchLimit;

@@ -23,6 +23,22 @@ function Stop-IfRunning([int]$processId, [string]$name) {
     }
 }
 
+function Resolve-PidValue($value) {
+    if ($null -eq $value) { return 0 }
+    if ($value -is [array]) {
+        for ($i = $value.Count - 1; $i -ge 0; $i--) {
+            $resolved = Resolve-PidValue $value[$i]
+            if ($resolved -gt 0) { return $resolved }
+        }
+        return 0
+    }
+    try {
+        return [int]$value
+    } catch {
+        return 0
+    }
+}
+
 Write-Host "Stopping orchestrated processes (wrapper, frontend, studio) if present..."
 
 # First: stop wrapper/frontend/studio processes recorded in pids file
@@ -36,9 +52,10 @@ if (Test-Path $pidsFile) {
     }
 
     if ($null -ne $pids) {
-        Write-Host "Stopping frontend (pid=$($pids.frontend)) and prisma-studio (pid=$($pids.studio)) if running..."
-        Stop-IfRunning -processId ([int]$pids.studio) -name 'prisma-studio'
-        Stop-IfRunning -processId ([int]$pids.frontend) -name 'frontend'
+        Write-Host "Stopping frontend (pid=$($pids.frontend)), prisma-studio (pid=$($pids.studio)) and webwhats (pid=$($pids.webwhats)) if running..."
+        Stop-IfRunning -processId (Resolve-PidValue $pids.webwhats) -name 'webwhats'
+        Stop-IfRunning -processId (Resolve-PidValue $pids.studio) -name 'prisma-studio'
+        Stop-IfRunning -processId (Resolve-PidValue $pids.frontend) -name 'frontend'
         # remove pid file now that we've attempted to stop these processes
         Remove-Item -Force $pidsFile -ErrorAction SilentlyContinue
     }
@@ -55,9 +72,9 @@ try {
 
 # (PID handling performed above before docker compose down)
 
-# Ports used by frontend (Next) and Prisma Studio
+# Ports used by Webwhats, frontend (Next) and Prisma Studio
 # Ensure any remaining Node processes on these ports are stopped (be conservative)
-$ports = @(3001,5555)
+$ports = @(8080,3001,5555)
 foreach ($p in $ports) {
     Write-Host "Checking for processes listening on port $p ..."
     try {

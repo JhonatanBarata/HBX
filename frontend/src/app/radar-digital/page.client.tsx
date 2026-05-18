@@ -2508,12 +2508,21 @@ export default function RadarDigitalClientPage() {
   }, []);
 
   useEffect(() => {
-    if (hasToken !== true || queryRadarLeadId) return;
+    if (hasToken !== true || queryRadarLeadId || !radarFilterDraftReady) return;
     let cancelled = false;
 
     async function hydrateRadarRun() {
       const stored = readStoredRadarRun();
       if (stored?.runId) {
+        if (
+          (filters.state && stored.state && normalizedRadarFilterText(filters.state) !== normalizedRadarFilterText(stored.state)) ||
+          (filters.city && stored.city && normalizedRadarFilterText(filters.city) !== normalizedRadarFilterText(stored.city)) ||
+          (filters.segment && stored.segment && normalizedRadarFilterText(filters.segment) !== normalizedRadarFilterText(stored.segment)) ||
+          Number(filters.radiusKm || 0) !== Number(stored.radiusKm ?? filters.radiusKm ?? 0)
+        ) {
+          clearStoredRadarRun(stored.runId);
+          return;
+        }
         activeRunIdRef.current = stored.runId;
         setHasSearched(true);
         setSearching(!isTerminalRadarRun(stored.status));
@@ -2522,7 +2531,7 @@ export default function RadarDigitalClientPage() {
             requireAuth: true,
             timeoutMs: 15000,
           });
-          if (!cancelled) applyRadarRunPayload(payload);
+          if (!cancelled && radarRunMatchesVisibleFilters(payload, filters)) applyRadarRunPayload(payload);
           return;
         } catch {
           if (cancelled) return;
@@ -2538,6 +2547,7 @@ export default function RadarDigitalClientPage() {
           timeoutMs: 15000,
         });
         if (cancelled || !payload?.runId) return;
+        if (!radarRunMatchesVisibleFilters(payload, filters)) return;
         activeRunIdRef.current = payload.runId || payload.id || null;
         setHasSearched(true);
         setSearching(!isTerminalRadarRun(payload.status));
@@ -2554,7 +2564,7 @@ export default function RadarDigitalClientPage() {
     return () => {
       cancelled = true;
     };
-  }, [applyRadarRunPayload, hasToken, queryRadarLeadId]);
+  }, [applyRadarRunPayload, filters, hasToken, queryRadarLeadId, radarFilterDraftReady]);
 
   useEffect(() => {
     const runId = activeRun?.runId || activeRun?.id;

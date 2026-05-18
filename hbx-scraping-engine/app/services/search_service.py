@@ -1,12 +1,12 @@
 import asyncio
 import re
 import unicodedata
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
 
 from ddgs import DDGS
 
 from app.config import DB_PATH, get_settings
-from app.schemas import ContactResult, QueryPayload, SearchRequest, SearchResponse
+from app.schemas import ContactResult, EnrichLeadRequest, EnrichLeadResponse, QueryPayload, SearchRequest, SearchResponse
 
 from .agenda_sources import dedupe_by_phone, search_abctelefonos
 from .discovery import discover_social_profiles, discover_urls
@@ -19,6 +19,12 @@ from .social import is_valid_social_profile_url, normalize_social_url, social_fi
 from .storage import Storage
 
 SOCIAL_ENRICH_MAX_RESULTS_PER_QUERY = 30
+SOCIAL_ENRICH_MAX_CONTACTS_REQUIRED = 4
+SOCIAL_ENRICH_MAX_CONTACTS_PREFERRED = 2
+SOCIAL_ENRICH_MAX_QUERIES_PER_CHANNEL = 2
+EMAIL_RE = re.compile(r"[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}", re.I)
+BAD_EMAIL_LOCAL_PARTS = {"example", "email", "teste", "test", "usuario", "user"}
+BAD_EMAIL_DOMAINS = {"example.com", "example.com.br", "dominio.com", "teste.com", "test.com"}
 
 SOCIAL_QUERY_BAD_NAME_HINTS = (
     "confira as melhores",
@@ -210,13 +216,13 @@ class SearchService:
     def search_social_profile_url(self, contact: dict, query: str, channel: str, city: str, segment: str) -> tuple[str | None, int]:
         try:
             try:
-                ddgs = DDGS(timeout=6)
+                ddgs = DDGS(timeout=2)
             except TypeError:
                 ddgs = DDGS()
             best_url: str | None = None
             best_score = -10_000
             with ddgs as client:
-                rows = client.text(query, region="br-pt", safesearch="off", max_results=SOCIAL_ENRICH_MAX_RESULTS_PER_QUERY)
+                rows = client.text(query, region="br-pt", safesearch="off", max_results=8)
                 for row in rows or []:
                     raw_url = str(row.get("href") or row.get("url") or "").strip()
                     url = normalize_social_url(raw_url)
@@ -428,7 +434,7 @@ class SearchService:
         candidates: list[dict],
         social_discovery_stats: dict,
     ) -> SearchResponse:
-        allowed_fields = {"name", "phone", "phoneDigits", "rating", "reviews", "address", "website", "instagramUrl", "facebookUrl", "source", "score"}
+        allowed_fields = {"name", "phone", "phoneDigits", "rating", "reviews", "address", "website", "source", "score"}
         public_items = [{key: value for key, value in item.items() if key in allowed_fields} for item in candidates[: request.limit]]
         valid = [ContactResult.model_validate(item).model_dump() for item in public_items]
         response_stats = {
@@ -486,45 +492,57 @@ class SearchService:
         required_social = self.required_social_channels(required_channels)
         mode = "required" if required_social else "best_effort"
         if not requested_channels:
-            requested_channels = {"instagram", "facebook"}
+            return contacts, {
+                "requestedChannels": [],
+                "requiredChannels": [],
+                "enrichmentRan": False,
+                "mode": "off",
+                "processed": 0,
+                "skippedBadCandidate": 0,
+                "enrichedCount": 0,
+                "missingRequiredChannel": 0,
+            }
         stats = {
             "requestedChannels": sorted(requested_channels),
             "requiredChannels": sorted(required_social),
-            "enrichmentRan": True,
+            "enrichmentRan": False,
             "mode": mode,
             "processed": 0,
             "skippedBadCandidate": 0,
             "enrichedCount": 0,
             "missingRequiredChannel": 0,
         }
-        processed = 0
-        for contact in contacts:
-            if not required_social and processed >= 20:
-                break
-            if not self.should_try_social_enrichment(contact, city, segment, required_social):
-                stats["skippedBadCandidate"] += 1
-                continue
-            processed += 1
-            stats["processed"] = processed
-            had_social = any(contact.get("instagramUrl" if channel == "instagram" else "facebookUrl") for channel in requested_channels)
-            touched = False
-            for channel in ("instagram", "facebook"):
-                if channel not in requested_channels:
-                    continue
+        eligible_contacts = [
+            contact
+            for contact in contacts
+            if self.should_try_social_enrichment(contact, city, segment, required_social)
+        ]
+        stats["skippedBadCandidate"] = max(0, len(contacts) - len(eligible_contacts))
+        max_contacts = SOCIAL_ENRICH_MAX_CONTACTS_REQUIRED if required_social else SOCIAL_ENRICH_MAX_CONTACTS_PREFERRED
+        for contact in eligible_contacts[:max_contacts]:
+            stats["processed"] += 1
+            for channel in sorted(requested_channels):
                 field = "instagramUrl" if channel == "instagram" else "facebookUrl"
                 if contact.get(field):
                     continue
-                for query in self.social_queries_for_contact(contact, city, segment, channel):
-                    url, _score = self.search_social_profile_url(contact, query, channel, city, segment)
-                    if url:
-                        contact[field] = url
-                        touched = True
-                        break
+                queries = self.social_queries_for_contact(contact, city, segment, channel)[:SOCIAL_ENRICH_MAX_QUERIES_PER_CHANNEL]
+                for query in queries:
+                    url, score = self.search_social_profile_url(contact, query, channel, city, segment)
+                    if not url:
+                        continue
+                    contact[field] = url
+                    contact.setdefault("_socialEnrichment", {})[field] = {
+                        "score": score,
+                        "query": query,
+                    }
+                    break
+        for contact in contacts:
             has_social = any(contact.get("instagramUrl" if channel == "instagram" else "facebookUrl") for channel in requested_channels)
-            if has_social and (touched or had_social):
+            if has_social:
                 stats["enrichedCount"] += 1
             if required_social and not self.has_required_social_channels(contact, required_social):
                 stats["missingRequiredChannel"] += 1
+        stats["enrichmentRan"] = stats["processed"] > 0
         if requested_channels:
             print(
                 "[social_enrich] "
@@ -537,12 +555,124 @@ class SearchService:
             )
         return contacts, stats
 
+    def normalize_email_candidate(self, value: str | None) -> str | None:
+        email = " ".join(str(value or "").strip().split()).lower()
+        match = EMAIL_RE.search(email)
+        if not match:
+            return None
+        candidate = match.group(0).lower()
+        local, _, domain = candidate.partition("@")
+        if not local or not domain or domain in BAD_EMAIL_DOMAINS or local in BAD_EMAIL_LOCAL_PARTS:
+            return None
+        return candidate
+
+    def email_status_for_candidate(self, email: str | None, website: str | None, source: str) -> tuple[str, int]:
+        normalized = self.normalize_email_candidate(email)
+        if not normalized:
+            return "missing", 0
+        website_domain = domain_from_url(website)
+        email_domain = normalized.split("@", 1)[1]
+        same_domain = bool(website_domain and (email_domain == website_domain or email_domain.endswith(f".{website_domain}")))
+        if source == "website":
+            return "confirmed", 92 if same_domain else 82
+        if source == "manual":
+            return "confirmed" if same_domain or not website_domain else "unverified", 78 if same_domain else 62
+        return "probable", 55
+
+    async def discover_email_for_contact(self, contact: dict) -> tuple[str | None, str, str, int, dict]:
+        supplied = self.normalize_email_candidate(contact.get("email"))
+        if supplied:
+            status, confidence = self.email_status_for_candidate(supplied, contact.get("website"), "manual")
+            return supplied, status, "manual", confidence, {"pagesFetched": 0, "emailsFound": 1}
+
+        website = str(contact.get("website") or "").strip()
+        website_domain = domain_from_url(website)
+        stats = {"pagesFetched": 0, "emailsFound": 0}
+        if website:
+            root = website if website.startswith(("http://", "https://")) else f"https://{website}"
+            urls = list(dict.fromkeys([
+                root,
+                urljoin(root.rstrip("/") + "/", "contato"),
+                urljoin(root.rstrip("/") + "/", "contact"),
+                urljoin(root.rstrip("/") + "/", "sobre"),
+            ]))
+            fetcher = Fetcher(
+                self.settings.user_agent,
+                min(self.settings.timeout_seconds, 5),
+                min(self.settings.concurrency, 3),
+                self.settings.max_page_bytes,
+            )
+            pages = await fetcher.fetch_all(urls)
+            stats["pagesFetched"] = len(pages)
+            for page in pages:
+                for match in EMAIL_RE.findall(page.html or ""):
+                    email = self.normalize_email_candidate(match)
+                    if not email:
+                        continue
+                    stats["emailsFound"] += 1
+                    status, confidence = self.email_status_for_candidate(email, website, "website")
+                    return email, status, "website", confidence, stats
+
+        if website_domain:
+            email = f"contato@{website_domain}"
+            return email, "probable", "inferred", 55, stats
+        return None, "missing", "none", 0, stats
+
+    async def enrich_lead(self, request: EnrichLeadRequest) -> EnrichLeadResponse:
+        phone_digits = re.sub(r"\D", "", request.phoneDigits or request.phone or "")
+        contact = {
+            "name": request.name,
+            "phone": request.phone or phone_digits,
+            "phoneDigits": phone_digits,
+            "city": request.city,
+            "state": request.state,
+            "segment": request.segment,
+            "website": request.website,
+            "email": request.email,
+            "instagramUrl": request.instagramUrl,
+            "facebookUrl": request.facebookUrl,
+            "source": "hbx_scraping:lead_plus_enrichment",
+            "score": 70,
+        }
+        contacts, social_stats = self.enrich_social_links_for_contacts(
+            [contact],
+            request.city,
+            request.state,
+            request.segment,
+            request.preferredChannels or ["instagram", "facebook"],
+            request.requiredChannels,
+        )
+        enriched = contacts[0] if contacts else contact
+        email, email_status, email_source, email_confidence, email_stats = await self.discover_email_for_contact(enriched)
+        has_social = bool(enriched.get("instagramUrl") or enriched.get("facebookUrl"))
+        social_confidence = 90 if enriched.get("instagramUrl") and enriched.get("facebookUrl") else 82 if has_social else 0
+        return EnrichLeadResponse(
+            name=request.name,
+            phone=request.phone or phone_digits,
+            phoneDigits=phone_digits,
+            website=request.website,
+            email=email,
+            emailStatus=email_status,
+            emailSource=email_source,
+            emailConfidence=email_confidence,
+            instagramUrl=enriched.get("instagramUrl"),
+            facebookUrl=enriched.get("facebookUrl"),
+            socialStatus="found" if has_social else "missing",
+            socialConfidence=social_confidence,
+            stats={
+                "social": social_stats,
+                "email": email_stats,
+            },
+        )
+
     async def search(self, request: SearchRequest) -> SearchResponse:
         excluded_phones = set(request.excludePhoneDigits or [])
         excluded_urls = set(request.excludeUrls or [])
-        social_requested = request.targetType == "pj" or bool(self.requested_social_channels(request.preferredChannels, request.requiredChannels))
+        # HBX List is the primary finder: it must only find real companies with phone.
+        # Social/email enrichment belongs to the Lead+ /enrich-lead flow.
+        social_requested = False
 
-        if not request.fresh and not excluded_phones and not excluded_urls and not social_requested:
+        if request.targetType != "pj" and not request.fresh and not excluded_phones and not excluded_urls and not social_requested:
             cached = await asyncio.to_thread(self.storage.get_cached, request)
             if cached:
                 return SearchResponse.model_validate(cached)
@@ -552,37 +682,9 @@ class SearchService:
             await asyncio.to_thread(self.storage.save_run, request, response.model_dump())
             return response
 
-        required_social_channels = self.required_social_channels(request.requiredChannels)
-        requested_social_channels = self.requested_social_channels(request.preferredChannels, request.requiredChannels)
+        required_social_channels: set[str] = set()
+        requested_social_channels: set[str] = set()
         social_profiles: list[dict] = []
-        if request.targetType == "pj" and requested_social_channels:
-            social_profiles = await asyncio.to_thread(
-                discover_social_profiles,
-                request.city,
-                request.state,
-                request.segment,
-                request.limit,
-                request.preferredChannels,
-                request.requiredChannels,
-                target_override=max(request.limit * 6, 6) if required_social_channels else None,
-            )
-            print(f"[social_discovery] profiles={len(social_profiles)} channels={','.join(sorted(requested_social_channels))}")
-            social_first_candidates = self.social_profile_candidates(
-                social_profiles,
-                request.city,
-                request.state,
-                request.segment,
-                required_social_channels,
-                request.limit,
-            )
-            if required_social_channels and social_first_candidates:
-                social_discovery_stats = {
-                    "profilesDiscovered": len(social_profiles),
-                    "profilesAttached": 0,
-                    "profilesUnmatched": max(0, len(social_profiles) - len(social_first_candidates)),
-                    "profilesPromoted": len(social_first_candidates),
-                }
-                return self.build_social_first_response(request, social_first_candidates, social_discovery_stats)
 
         urls = await asyncio.to_thread(
             discover_urls,
@@ -644,7 +746,7 @@ class SearchService:
                 request.city,
                 request.segment,
             )
-        effective_social_channels = requested_social_channels or ({"instagram", "facebook"} if request.targetType == "pj" else set())
+        effective_social_channels = requested_social_channels
         social_stats = {
             "requestedChannels": sorted(effective_social_channels),
             "requiredChannels": sorted(required_social_channels),
@@ -656,7 +758,7 @@ class SearchService:
             "missingRequiredChannel": 0,
             "discovery": social_discovery_stats,
         }
-        if request.targetType == "pj":
+        if request.targetType == "pj" and requested_social_channels:
             deduped, social_stats = await asyncio.to_thread(
                 self.enrich_social_links_for_contacts,
                 deduped,
@@ -667,7 +769,7 @@ class SearchService:
                 request.requiredChannels,
             )
             social_stats["discovery"] = social_discovery_stats
-        allowed_fields = {"name", "phone", "phoneDigits", "rating", "reviews", "address", "website", "instagramUrl", "facebookUrl", "source", "score"}
+        allowed_fields = {"name", "phone", "phoneDigits", "rating", "reviews", "address", "website", "source", "score"}
         min_score = 0 if request.targetType == "pf" else 50
         public_items: list[dict] = []
         stats = {"parsed": len(parsed), "invalid_phone": 0, "blocked_domain": 0, "low_score": 0, "missing_required_channel": 0, "approved": 0}
