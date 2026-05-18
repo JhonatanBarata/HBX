@@ -3,10 +3,11 @@ from urllib.parse import urlparse
 from ddgs import DDGS
 
 from .filters import is_blocked_lead_source_domain
-from .social import is_valid_social_profile_url, social_channel_for_url
+from .social import is_valid_social_profile_url, normalize_social_url, social_channel_for_url
 
 BLOCKED_HOST_PARTS = ("pinterest.", "linkedin.com")
 BLOCKED_EXTENSIONS = (".pdf", ".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg", ".zip", ".rar")
+SocialProfileCandidate = dict[str, str]
 
 
 def build_queries(segment: str, city: str, state: str, target_type: str = "pj", query: str = "") -> list[str]:
@@ -73,6 +74,87 @@ def _is_allowed_url(
     if path.endswith(BLOCKED_EXTENSIONS):
         return False
     return True
+
+
+def requested_social_channels(
+    preferred_channels: list[str] | None = None,
+    required_channels: list[str] | None = None,
+) -> set[str]:
+    values = [*(preferred_channels or []), *(required_channels or [])]
+    return {str(value or "").strip().lower() for value in values if str(value or "").strip().lower() in {"instagram", "facebook"}}
+
+
+def build_social_queries(segment: str, city: str, state: str, channels: set[str]) -> list[str]:
+    location = " ".join(part for part in [city, state] if str(part or "").strip()).strip()
+    queries: list[str] = []
+    for channel in ("instagram", "facebook"):
+        if channel not in channels:
+            continue
+        domain = "instagram.com" if channel == "instagram" else "facebook.com"
+        if location:
+            queries.extend([
+                f"site:{domain} {segment} {location}",
+                f"site:{domain} {segment} {city}",
+                f"{segment} {location} {channel}",
+                f"{segment} {city} {channel}",
+            ])
+        else:
+            queries.extend([
+                f"site:{domain} {segment}",
+                f"{segment} {channel}",
+            ])
+    return list(dict.fromkeys(" ".join(query.split()) for query in queries if query.strip()))
+
+
+def discover_social_profiles(
+    city: str,
+    state: str,
+    segment: str,
+    limit: int,
+    preferred_channels: list[str] | None = None,
+    required_channels: list[str] | None = None,
+) -> list[SocialProfileCandidate]:
+    channels = requested_social_channels(preferred_channels, required_channels)
+    if not channels:
+        return []
+
+    queries = build_social_queries(segment, city, state, channels)
+    target = max(20, limit * 4)
+    seen: set[str] = set()
+    profiles: list[SocialProfileCandidate] = []
+
+    with DDGS() as ddgs:
+        for query in queries:
+            try:
+                rows = ddgs.text(query, region="br-pt", safesearch="off", max_results=20)
+            except Exception as error:
+                print(f"[social_discovery] query falhou: {query} error={error}")
+                continue
+
+            for row in rows or []:
+                raw_url = str(row.get("href") or row.get("url") or "").strip()
+                url = normalize_social_url(raw_url)
+                channel = social_channel_for_url(url or "")
+                if not url or not channel or channel not in channels:
+                    continue
+                if url in seen:
+                    continue
+                if not is_valid_social_profile_url(url):
+                    continue
+
+                seen.add(url)
+                profiles.append({
+                    "url": url,
+                    "channel": channel,
+                    "title": str(row.get("title") or ""),
+                    "snippet": str(row.get("body") or row.get("snippet") or row.get("description") or ""),
+                    "query": query,
+                })
+
+                if len(profiles) >= target:
+                    return profiles
+
+    return profiles
 
 
 def discovery_target(limit: int, max_discovery_results: int, target_type: str = "pj", exclude_count: int = 0) -> int:

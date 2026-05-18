@@ -2,7 +2,7 @@ import asyncio
 from types import SimpleNamespace
 
 from app.schemas import SearchRequest
-from app.services.discovery import _is_allowed_url, discover_urls
+from app.services.discovery import _is_allowed_url, discover_social_profiles, discover_urls
 from app.services.filters import is_blocked_lead_source_domain, is_social_signal_domain
 from app.services.search_service import SearchService
 from app.services.social import is_valid_social_profile_url, normalize_social_url
@@ -49,6 +49,99 @@ def test_discovery_recognizes_social_signal_but_does_not_use_as_primary_source(m
     assert not _is_allowed_url("https://instagram.com/oficina_araraquara", required_channels=["instagram"])
     assert not _is_allowed_url("https://instagram.com/oficina/reel/123", required_channels=["instagram"])
     assert not _is_allowed_url("https://instagram.com/p/abc", required_channels=["instagram"])
+
+
+def test_discover_social_profiles_returns_requested_instagram(monkeypatch) -> None:
+    class FakeDDGS:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
+        def text(self, query, **kwargs):
+            return [
+                {
+                    "href": "https://instagram.com/barbeariacampinas",
+                    "title": "Barbearia Campinas",
+                    "body": "Barbearia em Campinas SP",
+                }
+            ]
+
+    monkeypatch.setattr("app.services.discovery.DDGS", FakeDDGS)
+
+    profiles = discover_social_profiles("Campinas", "SP", "barbearia", 10, required_channels=["instagram"])
+
+    assert len(profiles) == 1
+    assert profiles[0]["url"] == "https://instagram.com/barbeariacampinas"
+    assert profiles[0]["channel"] == "instagram"
+
+
+def test_discover_urls_keeps_social_out_but_social_discovery_returns_it(monkeypatch) -> None:
+    class FakeDDGS:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
+        def text(self, query, **kwargs):
+            return [
+                {"href": "https://instagram.com/barbeariacampinas", "title": "Barbearia Campinas", "body": "Barbearia em Campinas SP"},
+                {"href": "https://barbeariacampinas.example.com", "title": "Barbearia Campinas", "body": "Contato"},
+            ]
+
+    monkeypatch.setattr("app.services.discovery.DDGS", FakeDDGS)
+
+    urls = discover_urls("Campinas", "SP", "barbearia", 10, 30, required_channels=["instagram"])
+    profiles = discover_social_profiles("Campinas", "SP", "barbearia", 10, required_channels=["instagram"])
+
+    assert "https://instagram.com/barbeariacampinas" not in urls
+    assert "https://barbeariacampinas.example.com" in urls
+    assert profiles[0]["url"] == "https://instagram.com/barbeariacampinas"
+
+
+def test_attach_discovered_social_profiles_matches_real_contact() -> None:
+    service = SearchService()
+    contacts = [
+        {
+            "name": "Barbearia Campinas",
+            "phone": "(19) 99999-9999",
+            "phoneDigits": "19999999999",
+            "score": 80,
+            "website": "https://barbeariacampinas.com.br",
+        }
+    ]
+    profiles = [
+        {
+            "url": "https://instagram.com/barbeariacampinas",
+            "channel": "instagram",
+            "title": "Barbearia Campinas",
+            "snippet": "Barbearia em Campinas SP",
+            "query": "site:instagram.com barbearia Campinas SP",
+        }
+    ]
+
+    stats = service.attach_discovered_social_profiles(contacts, profiles, "Campinas", "barbearia")
+
+    assert contacts[0]["instagramUrl"] == "https://instagram.com/barbeariacampinas"
+    assert stats["profilesAttached"] == 1
+
+
+def test_required_instagram_and_facebook_requires_both_channels() -> None:
+    service = SearchService()
+
+    assert not service.has_required_social_channels(
+        {"instagramUrl": "https://instagram.com/barbearia"},
+        {"instagram", "facebook"},
+    )
+    assert service.has_required_social_channels(
+        {
+            "instagramUrl": "https://instagram.com/barbearia",
+            "facebookUrl": "https://facebook.com/barbearia",
+        },
+        {"instagram", "facebook"},
+    )
 
 
 def test_invalid_social_urls_are_rejected() -> None:
@@ -137,6 +230,7 @@ def test_search_service_enriches_required_instagram_after_base_contact(monkeypat
             ]
 
     monkeypatch.setattr("app.services.search_service.discover_urls", lambda *args, **kwargs: ["https://barbeariaestilo.example.com"])
+    monkeypatch.setattr("app.services.search_service.discover_social_profiles", lambda *args, **kwargs: [])
     monkeypatch.setattr("app.services.search_service.Fetcher", FakeFetcher)
     monkeypatch.setattr("app.services.search_service.DDGS", FakeDDGS)
     monkeypatch.setattr(
@@ -214,6 +308,7 @@ def test_search_service_best_effort_uses_social_from_html_without_required_chann
             return []
 
     monkeypatch.setattr("app.services.search_service.discover_urls", lambda *args, **kwargs: ["https://barbeariaestilo.example.com"])
+    monkeypatch.setattr("app.services.search_service.discover_social_profiles", lambda *args, **kwargs: [])
     monkeypatch.setattr("app.services.search_service.Fetcher", FakeFetcher)
     monkeypatch.setattr("app.services.search_service.DDGS", FakeDDGS)
     monkeypatch.setattr("app.services.search_service.score_contact", lambda *args, **kwargs: 80)
@@ -264,6 +359,7 @@ def test_search_service_enriches_top_pj_contacts_best_effort_without_required_ch
             return []
 
     monkeypatch.setattr("app.services.search_service.discover_urls", lambda *args, **kwargs: ["https://barbeariaestilo.example.com"])
+    monkeypatch.setattr("app.services.search_service.discover_social_profiles", lambda *args, **kwargs: [])
     monkeypatch.setattr("app.services.search_service.Fetcher", FakeFetcher)
     monkeypatch.setattr("app.services.search_service.DDGS", FakeDDGS)
     monkeypatch.setattr(
@@ -330,6 +426,7 @@ def test_required_instagram_discards_contact_missing_social(monkeypatch) -> None
             return []
 
     monkeypatch.setattr("app.services.search_service.discover_urls", lambda *args, **kwargs: ["https://barbeariaestilo.example.com"])
+    monkeypatch.setattr("app.services.search_service.discover_social_profiles", lambda *args, **kwargs: [])
     monkeypatch.setattr("app.services.search_service.Fetcher", FakeFetcher)
     monkeypatch.setattr("app.services.search_service.DDGS", FakeDDGS)
     monkeypatch.setattr(
@@ -405,6 +502,7 @@ def test_required_instagram_accepts_social_from_html(monkeypatch) -> None:
             return []
 
     monkeypatch.setattr("app.services.search_service.discover_urls", lambda *args, **kwargs: ["https://barbeariaestilo.example.com"])
+    monkeypatch.setattr("app.services.search_service.discover_social_profiles", lambda *args, **kwargs: [])
     monkeypatch.setattr("app.services.search_service.Fetcher", FakeFetcher)
     monkeypatch.setattr("app.services.search_service.DDGS", FakeDDGS)
     monkeypatch.setattr("app.services.search_service.score_contact", lambda *args, **kwargs: 80)
@@ -428,7 +526,7 @@ def test_required_instagram_accepts_social_from_html(monkeypatch) -> None:
     assert response.stats["missingRequiredChannel"] == 0
 
 
-def test_required_instagram_and_facebook_accepts_at_least_one_social(monkeypatch) -> None:
+def test_required_instagram_and_facebook_rejects_when_one_channel_is_missing(monkeypatch) -> None:
     class FakeFetcher:
         def __init__(self, *args, **kwargs) -> None:
             pass
@@ -452,6 +550,7 @@ def test_required_instagram_and_facebook_accepts_at_least_one_social(monkeypatch
             return []
 
     monkeypatch.setattr("app.services.search_service.discover_urls", lambda *args, **kwargs: ["https://barbeariaestilo.example.com"])
+    monkeypatch.setattr("app.services.search_service.discover_social_profiles", lambda *args, **kwargs: [])
     monkeypatch.setattr("app.services.search_service.Fetcher", FakeFetcher)
     monkeypatch.setattr("app.services.search_service.DDGS", FakeDDGS)
     monkeypatch.setattr(
@@ -489,6 +588,5 @@ def test_required_instagram_and_facebook_accepts_at_least_one_social(monkeypatch
         )
     )
 
-    assert response.count == 1
-    assert response.results[0].facebookUrl == "https://facebook.com/barbeariaestilo"
-    assert response.stats["missingRequiredChannel"] == 0
+    assert response.count == 0
+    assert response.stats["missingRequiredChannel"] == 1
