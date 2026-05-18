@@ -52,6 +52,8 @@ def test_discovery_recognizes_social_signal_but_does_not_use_as_primary_source(m
 
 
 def test_discover_social_profiles_returns_requested_instagram(monkeypatch) -> None:
+    calls: list[dict] = []
+
     class FakeDDGS:
         def __enter__(self):
             return self
@@ -60,6 +62,7 @@ def test_discover_social_profiles_returns_requested_instagram(monkeypatch) -> No
             return None
 
         def text(self, query, **kwargs):
+            calls.append({"query": query, **kwargs})
             return [
                 {
                     "href": "https://instagram.com/barbeariacampinas",
@@ -75,6 +78,7 @@ def test_discover_social_profiles_returns_requested_instagram(monkeypatch) -> No
     assert len(profiles) == 1
     assert profiles[0]["url"] == "https://instagram.com/barbeariacampinas"
     assert profiles[0]["channel"] == "instagram"
+    assert calls[0]["max_results"] == 50
 
 
 def test_discover_urls_keeps_social_out_but_social_discovery_returns_it(monkeypatch) -> None:
@@ -99,6 +103,53 @@ def test_discover_urls_keeps_social_out_but_social_discovery_returns_it(monkeypa
     assert "https://instagram.com/barbeariacampinas" not in urls
     assert "https://barbeariacampinas.example.com" in urls
     assert profiles[0]["url"] == "https://instagram.com/barbeariacampinas"
+
+
+def test_discover_social_profiles_does_not_stop_at_twenty(monkeypatch) -> None:
+    class FakeDDGS:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
+        def text(self, query, **kwargs):
+            return [
+                {
+                    "href": f"https://instagram.com/barbeariacampinas{i}",
+                    "title": f"Barbearia Campinas {i}",
+                    "body": "Barbearia em Campinas SP",
+                }
+                for i in range(50)
+            ]
+
+    monkeypatch.setattr("app.services.discovery.DDGS", FakeDDGS)
+
+    profiles = discover_social_profiles("Campinas", "SP", "barbearia", 20, required_channels=["instagram"])
+
+    assert len(profiles) > 20
+
+
+def test_discover_urls_with_required_social_uses_aggressive_max_results(monkeypatch) -> None:
+    calls: list[dict] = []
+
+    class FakeDDGS:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
+        def text(self, query, **kwargs):
+            calls.append({"query": query, **kwargs})
+            return [{"href": "https://barbeariacampinas.example.com"}]
+
+    monkeypatch.setattr("app.services.discovery.DDGS", FakeDDGS)
+
+    discover_urls("Campinas", "SP", "barbearia", 20, 500, required_channels=["instagram"])
+
+    assert calls
+    assert calls[0]["max_results"] >= 30
 
 
 def test_attach_discovered_social_profiles_matches_real_contact() -> None:
@@ -128,12 +179,28 @@ def test_attach_discovered_social_profiles_matches_real_contact() -> None:
     assert stats["profilesAttached"] == 1
 
 
-def test_required_instagram_and_facebook_requires_both_channels() -> None:
+def test_required_instagram_and_facebook_accepts_either_channel() -> None:
     service = SearchService()
 
-    assert not service.has_required_social_channels(
+    assert service.has_required_social_channels(
         {"instagramUrl": "https://instagram.com/barbearia"},
         {"instagram", "facebook"},
+    )
+    assert service.has_required_social_channels(
+        {"facebookUrl": "https://facebook.com/barbearia"},
+        {"instagram", "facebook"},
+    )
+    assert not service.has_required_social_channels(
+        {},
+        {"instagram", "facebook"},
+    )
+    assert not service.has_required_social_channels(
+        {"facebookUrl": "https://facebook.com/barbearia"},
+        {"instagram"},
+    )
+    assert not service.has_required_social_channels(
+        {"instagramUrl": "https://instagram.com/barbearia"},
+        {"facebook"},
     )
     assert service.has_required_social_channels(
         {
@@ -402,6 +469,11 @@ def test_search_service_enriches_top_pj_contacts_best_effort_without_required_ch
     assert response.social["processed"] == 1
     assert response.social["enrichedCount"] == 1
     assert response.stats["missingRequiredChannel"] == 0
+    assert response.stats["rawFound"] == 1
+    assert response.stats["deduped"] == 1
+    assert "socialProfilesDiscovered" in response.stats
+    assert "socialProfilesAttached" in response.stats
+    assert "socialProfilesUnmatched" in response.stats
 
 
 def test_required_instagram_discards_contact_missing_social(monkeypatch) -> None:
@@ -526,7 +598,7 @@ def test_required_instagram_accepts_social_from_html(monkeypatch) -> None:
     assert response.stats["missingRequiredChannel"] == 0
 
 
-def test_required_instagram_and_facebook_rejects_when_one_channel_is_missing(monkeypatch) -> None:
+def test_required_instagram_and_facebook_accepts_when_one_channel_exists(monkeypatch) -> None:
     class FakeFetcher:
         def __init__(self, *args, **kwargs) -> None:
             pass
@@ -588,5 +660,6 @@ def test_required_instagram_and_facebook_rejects_when_one_channel_is_missing(mon
         )
     )
 
-    assert response.count == 0
-    assert response.stats["missingRequiredChannel"] == 1
+    assert response.count == 1
+    assert response.results[0].facebookUrl == "https://facebook.com/barbeariaestilo"
+    assert response.stats["missingRequiredChannel"] == 0

@@ -7,6 +7,11 @@ from .social import is_valid_social_profile_url, normalize_social_url, social_ch
 
 BLOCKED_HOST_PARTS = ("pinterest.", "linkedin.com")
 BLOCKED_EXTENSIONS = (".pdf", ".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg", ".zip", ".rar")
+PJ_DISCOVERY_MIN_TARGET = 200
+PJ_DISCOVERY_LIMIT_MULTIPLIER = 10
+SOCIAL_DISCOVERY_MIN_TARGET = 80
+SOCIAL_DISCOVERY_LIMIT_MULTIPLIER = 12
+SOCIAL_DISCOVERY_MAX_RESULTS_PER_QUERY = 50
 SocialProfileCandidate = dict[str, str]
 
 
@@ -85,24 +90,41 @@ def requested_social_channels(
 
 
 def build_social_queries(segment: str, city: str, state: str, channels: set[str]) -> list[str]:
-    location = " ".join(part for part in [city, state] if str(part or "").strip()).strip()
+    city_text = " ".join(str(city or "").split())
+    state_text = " ".join(str(state or "").split())
+    segment_text = " ".join(str(segment or "").split())
+    location = " ".join(part for part in [city_text, state_text] if part).strip()
     queries: list[str] = []
+
     for channel in ("instagram", "facebook"):
         if channel not in channels:
             continue
         domain = "instagram.com" if channel == "instagram" else "facebook.com"
-        if location:
-            queries.extend([
-                f"site:{domain} {segment} {location}",
-                f"site:{domain} {segment} {city}",
-                f"{segment} {location} {channel}",
-                f"{segment} {city} {channel}",
-            ])
-        else:
-            queries.extend([
-                f"site:{domain} {segment}",
-                f"{segment} {channel}",
-            ])
+
+        base_terms = [
+            f"{segment_text} {location}",
+            f"{segment_text} {city_text}",
+            f"{segment_text} em {city_text}",
+            f"{segment_text} perto {city_text}",
+            f"{segment_text} {state_text}",
+        ]
+
+        commercial_terms = [
+            "telefone",
+            "whatsapp",
+            "contato",
+            "agendamento",
+            "oficial",
+        ]
+
+        for term in base_terms:
+            if not term.strip():
+                continue
+            queries.append(f"site:{domain} {term}")
+            queries.append(f"{term} {channel}")
+            for extra in commercial_terms:
+                queries.append(f"site:{domain} {term} {extra}")
+
     return list(dict.fromkeys(" ".join(query.split()) for query in queries if query.strip()))
 
 
@@ -119,14 +141,14 @@ def discover_social_profiles(
         return []
 
     queries = build_social_queries(segment, city, state, channels)
-    target = max(20, limit * 4)
+    target = max(SOCIAL_DISCOVERY_MIN_TARGET, limit * SOCIAL_DISCOVERY_LIMIT_MULTIPLIER)
     seen: set[str] = set()
     profiles: list[SocialProfileCandidate] = []
 
     with DDGS() as ddgs:
         for query in queries:
             try:
-                rows = ddgs.text(query, region="br-pt", safesearch="off", max_results=20)
+                rows = ddgs.text(query, region="br-pt", safesearch="off", max_results=SOCIAL_DISCOVERY_MAX_RESULTS_PER_QUERY)
             except Exception as error:
                 print(f"[social_discovery] query falhou: {query} error={error}")
                 continue
@@ -180,9 +202,16 @@ def discover_urls(
     preferred_channels: list[str] | None = None,
     required_channels: list[str] | None = None,
 ) -> list[str]:
-    target = discovery_target(limit, max_discovery_results, target_type, exclude_count)
     queries = build_queries(segment, city, state, target_type, query)
-    per_query = max(8, target // len(queries) + 2)
+    social_channels = requested_social_channels(preferred_channels, required_channels)
+    if target_type == "pj" and social_channels:
+        target = min(max_discovery_results, max(PJ_DISCOVERY_MIN_TARGET, limit * PJ_DISCOVERY_LIMIT_MULTIPLIER))
+    else:
+        target = discovery_target(limit, max_discovery_results, target_type, exclude_count)
+    if target_type == "pj" and social_channels:
+        per_query = max(30, target // len(queries) + 5)
+    else:
+        per_query = max(8, target // len(queries) + 2)
     seen: set[str] = {str(url or "").strip().rstrip("/") for url in (exclude_urls or []) if str(url or "").strip()}
     urls: list[str] = []
 
