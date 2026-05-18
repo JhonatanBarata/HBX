@@ -158,6 +158,8 @@ def discover_social_profiles(
 
     queries = build_social_queries(segment, city, state, channels)
     target = max(1, int(target_override)) if target_override is not None else max(SOCIAL_DISCOVERY_MIN_TARGET, limit * SOCIAL_DISCOVERY_LIMIT_MULTIPLIER)
+    per_query_results = min(SOCIAL_DISCOVERY_MAX_RESULTS_PER_QUERY, max(target * 2, 6)) if target_override is not None else SOCIAL_DISCOVERY_MAX_RESULTS_PER_QUERY
+    backend = "google" if target_override is not None else "auto"
     seen: set[str] = set()
     profiles: list[SocialProfileCandidate] = []
 
@@ -168,7 +170,7 @@ def discover_social_profiles(
     with ddgs:
         for query in queries:
             try:
-                rows = ddgs.text(query, region="br-pt", safesearch="off", max_results=SOCIAL_DISCOVERY_MAX_RESULTS_PER_QUERY)
+                rows = ddgs.text(query, region="br-pt", safesearch="off", max_results=per_query_results, backend=backend)
             except Exception as error:
                 print(f"[social_discovery] query falhou: {query} error={error}")
                 continue
