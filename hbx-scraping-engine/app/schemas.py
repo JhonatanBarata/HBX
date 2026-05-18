@@ -105,7 +105,7 @@ class ContactResult(BaseModel):
     instagramUrl: str | None = None
     facebookUrl: str | None = None
     source: str = "hbx_scraping:web"
-    score: int
+    score: int | None = None
 
 
 class EnrichLeadRequest(BaseModel):

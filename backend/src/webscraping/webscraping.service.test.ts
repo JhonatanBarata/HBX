@@ -165,7 +165,8 @@ test('buildSearchResponse usa score HBX como evidencia de segmento no List', () 
   });
 
   assert.equal(response.results.length, 1);
-  assert.equal(response.results[0].quality?.segmentMatchScore, 60);
+  assert.equal(response.results[0].score, undefined);
+  assert.equal(response.results[0].quality, undefined);
 });
 
 test('buildSearchResponse bloqueia nomes genericos mesmo com score HBX no List', () => {
@@ -590,6 +591,32 @@ test('LeadQuality rejeita segmento errado e aprova evidencias fortes', () => {
   assert.equal(generic.billable, false);
 });
 
+test('LeadQuality reconhece restaurantes reais em busca ampla de alimentacao', () => {
+  const service = new WebscrapingService(createPrisma()) as any;
+  const input = {
+    requestedSegment: 'alimentos naturais, pizzarias, restaurantes',
+    requestedCity: 'Rio Claro',
+    requestedState: 'SP',
+    targetType: 'pj',
+  };
+
+  const pizza = service.evaluateLeadQuality({
+    name: "Domino's Pizza",
+    phone: '(19) 3525-5459',
+    phoneDigits: '1935255459',
+  }, input);
+  const espetinho = service.evaluateLeadQuality({
+    name: 'Espetinho da 26',
+    phone: '(19) 99957-2299',
+    phoneDigits: '19999572299',
+  }, input);
+
+  assert.notEqual(pizza.status, 'segment_mismatch');
+  assert.notEqual(espetinho.status, 'segment_mismatch');
+  assert.ok(pizza.segmentMatchScore >= 55);
+  assert.ok(espetinho.segmentMatchScore >= 55);
+});
+
 test('saveSearchRunResults salva baixa aderencia como skipped e entrega so aprovado', async () => {
   const { prisma, run, items } = createSearchRunPrisma({
     segment: 'oficina',
@@ -637,6 +664,51 @@ test('saveSearchRunResults salva baixa aderencia como skipped e entrega so aprov
   assert.ok(skipped);
   assert.equal(skipped.segment, null);
   assert.equal(JSON.parse(skipped.rawJson).quality.status, 'segment_mismatch');
+});
+
+test('saveSearchRunResults no List entrega card real com telefone mesmo sem enriquecimento', async () => {
+  const { prisma, run, items } = createSearchRunPrisma({
+    city: 'Rio Claro',
+    state: 'SP',
+    segment: 'alimentos naturais, pizzarias, restaurantes',
+    targetQuantity: 30,
+  });
+  const service = new WebscrapingService(prisma) as any;
+  const normalized = service.normalizeSearchInput({
+    city: 'Rio Claro',
+    state: 'SP',
+    segment: 'alimentos naturais, pizzarias, restaurantes',
+    quantity: 30,
+    engine: 'hbx',
+    targetType: 'pj',
+    qualityMode: 'list',
+  });
+
+  const counts = await service.saveSearchRunResults(
+    { companyId: 7, userId: 9, user: createUser() },
+    normalized,
+    run.id,
+    [
+      {
+        name: 'Pizzaria A Grandona',
+        phone: '(19) 3023-1067',
+        phoneDigits: '1930231067',
+        source: 'hbx_scraping:free_pj',
+      },
+      {
+        name: 'Barril 2000 Restaurante',
+        phone: '(19) 3524-6857',
+        phoneDigits: '1935246857',
+        source: 'hbx_scraping:free_pj',
+      },
+    ],
+    'hbx',
+  );
+
+  assert.equal(counts.found, 2);
+  assert.equal(items.length, 2);
+  assert.equal(items[0].status, 'found');
+  assert.equal(items[1].status, 'found');
 });
 
 test('Radar entrega Facebook obrigatorio sem descartar telefone quando existir', async () => {
@@ -836,6 +908,7 @@ test('buildSearchRunResponse items preserva campos sociais do rawJson', () => {
   const { run, items } = createSearchRunPrisma({
     foundCount: 1,
     targetQuantity: 1,
+    metricsJson: JSON.stringify({ channelFilters: { qualityMode: 'lead_plus' } }),
   });
   const service = new WebscrapingService(createPrisma()) as any;
   items.push({

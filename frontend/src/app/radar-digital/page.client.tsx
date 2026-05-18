@@ -538,19 +538,19 @@ function RadarChannelFilter({
           );
         })}
       </div>
-      <p>Tudo que estiver marcado será obrigatório. Isso pode reduzir bastante os cards encontrados.</p>
+      <p>Obrigatório mostra só cards que confirmarem o canal.</p>
       {requiredCount === 0 ? (
         <p>Nenhum canal obrigatório selecionado.</p>
       ) : requiredCount === 1 ? (
         <p>Exigindo: {requiredLabels[0]}</p>
       ) : (
-        <p>Filtro forte: exigindo {requiredCount} canais. Pode reduzir muito os resultados.</p>
+        <p>Filtro avançado ativo: a entrega pode ficar menor.</p>
       )}
       {requiredCount >= 2 ? (
-        <p>Filtro obrigatório forte: pode reduzir muito os cards.</p>
+        <p>Mais canais obrigatórios deixam a seleção mais precisa.</p>
       ) : null}
       {value.requiredChannels.some((channel) => channel === "instagram" || channel === "facebook") ? (
-        <p>Rede social obrigatória depende de enriquecimento. Pode demorar mais e encontrar menos cards.</p>
+        <p>Rede social depende do enriquecimento. Pode levar mais tempo.</p>
       ) : null}
     </div>
   );
@@ -2004,6 +2004,12 @@ export default function RadarDigitalClientPage() {
   const socialPairRequiredOnlyConfirmedProfile = hasSearched
     && socialPairRequired
     && visibleItems.length > 0;
+  const socialRequiredEmptyMessage = socialPairRequired
+    ? "Poucos cards confirmaram rede social. Amplie os filtros ou aguarde mais enriquecimento."
+    : "Poucos cards confirmaram Instagram. Amplie os filtros ou aguarde mais enriquecimento.";
+  const socialRequiredActiveMessage = socialPairRequired
+    ? "Rede social obrigatória: mostrando só perfis confirmados."
+    : "Instagram obrigatório: mostrando só perfis confirmados.";
   const queryRadarLeadId = String(searchParams.get("radarLeadId") || "").trim();
 
   function setFilterEditing(active: boolean) {
@@ -3165,22 +3171,22 @@ export default function RadarDigitalClientPage() {
             {feedback && !mobileRadarProcessing ? <div className={`${styles.mobileRadarNotice} hbx-mobile-notice`} data-tone="ok">{feedback}</div> : null}
             {instagramRequiredWithoutDeliveredProfile ? (
               <div className={`${styles.mobileRadarNotice} hbx-mobile-notice`} data-tone="warning">
-                O Radar encontrou cards, mas nenhum confirmou Instagram. Desmarque Instagram obrigatório para ampliar.
+                {socialRequiredEmptyMessage}
               </div>
             ) : null}
             {socialPairRequiredWithoutDeliveredProfile ? (
               <div className={`${styles.mobileRadarNotice} hbx-mobile-notice`} data-tone="warning">
-                O Radar encontrou cards, mas nenhum confirmou Instagram ou Facebook. Desmarque rede social obrigatória para ampliar.
+                {socialRequiredEmptyMessage}
               </div>
             ) : null}
             {instagramRequiredOnlyConfirmedProfiles ? (
               <div className={`${styles.mobileRadarNotice} hbx-mobile-notice`} data-tone="ok">
-                Instagram obrigatório: exibindo somente cards com perfil confirmado.
+                {socialRequiredActiveMessage}
               </div>
             ) : null}
             {socialPairRequiredOnlyConfirmedProfile ? (
               <div className={`${styles.mobileRadarNotice} hbx-mobile-notice`} data-tone="ok">
-                Rede social obrigatória: exibindo somente cards com Instagram ou Facebook confirmado.
+                {socialRequiredActiveMessage}
               </div>
             ) : null}
 
@@ -3500,22 +3506,22 @@ export default function RadarDigitalClientPage() {
         {feedback && !activeRun ? <div className={styles.notice} data-tone="ok">{feedback}</div> : null}
         {instagramRequiredWithoutDeliveredProfile ? (
           <div className={styles.notice} data-tone="warning">
-            O Radar encontrou cards, mas nenhum confirmou Instagram. Desmarque Instagram obrigatório para ampliar.
+            {socialRequiredEmptyMessage}
           </div>
         ) : null}
         {socialPairRequiredWithoutDeliveredProfile ? (
           <div className={styles.notice} data-tone="warning">
-            O Radar encontrou cards, mas nenhum confirmou Instagram ou Facebook. Desmarque rede social obrigatória para ampliar.
+            {socialRequiredEmptyMessage}
           </div>
         ) : null}
         {instagramRequiredOnlyConfirmedProfiles ? (
           <div className={styles.notice} data-tone="ok">
-            Instagram obrigatório: exibindo somente cards com perfil confirmado.
+            {socialRequiredActiveMessage}
           </div>
         ) : null}
         {socialPairRequiredOnlyConfirmedProfile ? (
           <div className={styles.notice} data-tone="ok">
-            Rede social obrigatória: exibindo somente cards com Instagram ou Facebook confirmado.
+            {socialRequiredActiveMessage}
           </div>
         ) : null}
 
@@ -3564,8 +3570,8 @@ export default function RadarDigitalClientPage() {
           ) : !loading && visibleItems.length === 0 ? (
             <div className={styles.emptyState}>
               <span aria-hidden="true">0</span>
-              <strong>Nenhum resultado encontrado</strong>
-              <p>A busca foi concluída sem cards para os filtros aplicados.</p>
+              <strong>{requiredChannelsFilteredEverything ? "Seleção muito específica" : "Nenhum resultado encontrado"}</strong>
+              <p>{requiredChannelsFilteredEverything ? socialRequiredEmptyMessage : "A busca foi concluída sem cards para os filtros aplicados."}</p>
             </div>
           ) : (
             <div className={styles.grid}>

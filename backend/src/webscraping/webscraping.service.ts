@@ -351,7 +351,7 @@ const SEGMENT_ALIASES: Record<string, string[]> = {
   dentista: ['dentista', 'odontologia', 'odontologico', 'odontológica', 'clinica odontologica', 'clínica odontológica'],
   clinica: ['clinica', 'clínica', 'saude', 'saúde', 'medico', 'médico', 'fisioterapia', 'estetica', 'estética'],
   oficina: ['oficina', 'mecanica', 'mecânica', 'auto center', 'funilaria', 'pneus', 'automotivo'],
-  restaurante: ['restaurante', 'pizzaria', 'lanchonete', 'lanchonetes', 'lanches', 'hamburgueria', 'delivery', 'bar'],
+  restaurante: ['restaurante', 'pizzaria', 'pizza', 'pizzaiolo', 'lanchonete', 'lanchonetes', 'lanches', 'hamburgueria', 'delivery', 'bar', 'choperia', 'marmitaria', 'marmitex', 'gastronomia', 'espetinho', 'japones', 'japonês', 'sushi'],
   imobiliaria: ['imobiliaria', 'imobiliária', 'imovel', 'imóvel', 'corretor', 'condominio', 'condomínio'],
   advogado: ['advogado', 'advocacia', 'juridico', 'jurídico'],
   academia: ['academia', 'fitness', 'musculacao', 'musculação', 'crossfit', 'pilates'],
@@ -476,7 +476,7 @@ const VERTICAL_TOKEN_GROUPS: Record<string, string[]> = {
   imobiliaria: ['imobiliaria', 'imobiliarias', 'imovel', 'imoveis', 'corretor'],
   moda: ['moda', 'roupas', 'malharia', 'calcados', 'bijuterias'],
   oficina: ['oficina', 'oficinas', 'mecanica', 'automotivo', 'automotiva', 'auto'],
-  restaurante: ['restaurante', 'restaurantes', 'bar', 'bares', 'lanchonete', 'pizzaria'],
+  restaurante: ['restaurante', 'restaurantes', 'bar', 'bares', 'lanchonete', 'pizzaria', 'pizza', 'pizzaiolo', 'choperia', 'marmitaria', 'marmitex', 'gastronomia', 'espetinho', 'japones', 'japonês', 'sushi'],
 };
 
 let cityCache: {
@@ -3389,6 +3389,30 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     return this.resolveQualityMode(input) === 'lead_plus' ? qualityV2.decision === 'deliver' : true;
   }
 
+  private stripListPremiumFields<T extends Record<string, any>>(contact: T, input?: NormalizedSearchInput | NormalizedRadarFilters): T {
+    if (this.resolveQualityMode(input) === 'lead_plus') return contact;
+    const clean = { ...contact };
+    [
+      'instagramUrl',
+      'facebookUrl',
+      'socialStatus',
+      'whatsappStatus',
+      'whatsappCheckStatus',
+      'emailStatus',
+      'emailSource',
+      'emailConfidence',
+      'recommendedChannel',
+      'score',
+      'opportunityScore',
+      'opportunityReason',
+      'enrichmentScore',
+      'enrichmentJson',
+      'quality',
+      'qualityV2',
+    ].forEach((key) => delete clean[key]);
+    return clean as T;
+  }
+
   private candidateHasRequiredChannel(candidate: Record<string, any>, channel: RadarChannelFilter, qualityV2?: LeadQualityV2 | null) {
     const raw = this.parseMaybeJsonObject(candidate?.rawJson);
     const enrichment = this.parseMaybeJsonObject(candidate?.enrichmentJson || raw.enrichmentJson);
@@ -3646,10 +3670,13 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       const quality = classified.status === 'found'
         ? this.evaluateResultQualityForInput(result as any, normalized)
         : this.extractLeadQualityFromObject(result as any);
-      const finalStatus: WebscrapingSearchRunItemStatus = classified.status === 'found' && quality?.status !== 'approved'
+      const qualityDeliverable = this.resolveQualityMode(normalized) === 'lead_plus'
+        ? this.isApprovedLeadQuality(quality)
+        : this.isListLeadQualityDeliverable(quality);
+      const finalStatus: WebscrapingSearchRunItemStatus = classified.status === 'found' && !qualityDeliverable
         ? 'skipped'
         : classified.status;
-      const duplicateReason = classified.status === 'found' && quality?.status !== 'approved'
+      const duplicateReason = classified.status === 'found' && !qualityDeliverable
         ? quality.reasons.join('; ') || quality.status
         : classified.duplicateReason;
       const rawJson = quality
@@ -4511,7 +4538,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     const results = deliverableFoundItems.map((item) => {
       const contact = this.mapRunItemToContact(item);
       const { placeId: _placeId, ...publicContact } = contact;
-      return publicContact;
+      return this.stripListPremiumFields(publicContact, qualityInput);
     });
     const query = {
       city: String(run.city || ''),
@@ -4618,7 +4645,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         const raw = this.parseMaybeJsonObject(item?.rawJson);
         const enrichmentJson = this.parseMaybeJsonObject(item?.enrichmentJson || raw.enrichmentJson);
         const qualityV2 = this.extractLeadQualityV2FromObject(raw) || this.extractLeadQualityV2FromObject(enrichmentJson) || raw.qualityV2 || enrichmentJson.qualityV2 || null;
-        return {
+        return this.stripListPremiumFields({
           id: item.id,
           placeId: String(item.placeId || raw.placeId || ''),
           name: String(item.name || raw.name || ''),
@@ -4646,7 +4673,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
           status: this.normalizeRunItemStatus(item.status),
           duplicateReason: item.duplicateReason || null,
           createdAt: item.createdAt instanceof Date ? item.createdAt.toISOString() : new Date().toISOString(),
-        };
+        }, qualityInput);
       }),
       results,
     };
@@ -5422,14 +5449,14 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       .map(({ result, quality, qualityV2 }) => {
         const { placeId: _placeId, ...publicResult } = result;
         const opportunityScore = this.buildOpportunityScore(result, quality);
-        return {
+        return this.stripListPremiumFields({
           ...publicResult,
           quality,
           qualityV2,
           score: publicResult.score == null ? opportunityScore : publicResult.score,
           opportunityScore,
           opportunityReason: publicResult.opportunityReason || this.buildOpportunityReason(result, input),
-        };
+        }, input);
       });
     return {
       query: {

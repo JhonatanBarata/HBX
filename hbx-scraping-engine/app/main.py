@@ -12,7 +12,7 @@ def health() -> dict:
     return {"ok": True, "engine": "hbx_scraping", "status": "online"}
 
 
-@app.post("/search", response_model=SearchResponse)
+@app.post("/search", response_model=SearchResponse, response_model_exclude_none=True)
 async def search(request: SearchRequest) -> SearchResponse:
     return await service.search(request)
 
