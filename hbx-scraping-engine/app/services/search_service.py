@@ -346,6 +346,37 @@ class SearchService:
         fallback = " ".join(part for part in [segment, city] if str(part or "").strip()).strip()
         return fallback or "Perfil social encontrado"
 
+    def social_first_profile_score(self, profile: dict, url: str, city: str, segment: str) -> int:
+        title = str(profile.get("title") or "")
+        snippet = str(profile.get("snippet") or "")
+        combined = f"{url} {title} {snippet}"
+        combined_key = text_key(combined)
+        combined_compact = self.compact_key(combined)
+        city_key = text_key(city)
+        city_compact = self.compact_key(city)
+        segment_tokens = [token for token in text_key(segment).split() if len(token) >= 4]
+        segment_compact = self.compact_key(segment)
+        url_path = " ".join(part for part in urlparse(url).path.split("/") if part)
+        path_key = text_key(url_path)
+        generic_title = text_key(title) in {"link to instagram com", "link to facebook com", "instagram", "facebook"}
+
+        score = 0
+        if segment_tokens and any(token in combined_key for token in segment_tokens):
+            score += 45
+        if segment_compact and segment_compact in combined_compact:
+            score += 30
+        if city_key and city_key in combined_key:
+            score += 30
+        elif city_compact and city_compact in combined_compact:
+            score += 20
+        if segment_tokens and any(token in path_key for token in segment_tokens):
+            score += 25
+        if generic_title:
+            score -= 45
+        if not segment_tokens and not city_key:
+            score -= 40
+        return score
+
     def social_profile_candidates(
         self,
         profiles: list[dict],
@@ -364,6 +395,8 @@ class SearchService:
             field = "instagramUrl" if channel == "instagram" else "facebookUrl" if channel == "facebook" else None
             url = normalize_social_url(str(profile.get("url") or ""))
             if not field or not url or url in seen_urls:
+                continue
+            if self.social_first_profile_score(profile, url, city, segment) < 35:
                 continue
             item = {
                 "name": self.social_profile_name(profile, city, segment),
@@ -529,7 +562,7 @@ class SearchService:
                 request.limit,
                 request.preferredChannels,
                 request.requiredChannels,
-                target_override=request.limit if required_social_channels else None,
+                target_override=max(request.limit * 12, 12) if required_social_channels else None,
             )
             print(f"[social_discovery] profiles={len(social_profiles)} channels={','.join(sorted(requested_social_channels))}")
             social_first_candidates = self.social_profile_candidates(
