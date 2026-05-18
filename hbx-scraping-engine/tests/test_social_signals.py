@@ -59,6 +59,59 @@ def test_invalid_social_urls_are_rejected() -> None:
     assert not is_valid_social_profile_url("https://facebook.com/sharer/sharer.php?u=https://x.test")
 
 
+def test_social_queries_escape_internal_quotes() -> None:
+    service = SearchService()
+
+    queries = service.social_queries_for_contact(
+        {
+            "name": 'Auto "Center" Silva',
+            "phone": "(19) 99999-1234",
+            "phoneDigits": "19999991234",
+            "website": "https://autocentersilva.com.br",
+        },
+        "Campinas",
+        "oficina",
+        "instagram",
+    )
+
+    assert queries
+    assert any('"Auto Center Silva"' in query for query in queries)
+    assert all('"Center"' not in query for query in queries)
+    assert all(query.count('"') % 2 == 0 for query in queries)
+
+
+def test_social_enrichment_skips_bad_directory_candidate_without_ddgs(monkeypatch) -> None:
+    service = SearchService()
+    calls: list[str] = []
+
+    def fake_search(*args, **kwargs):
+        calls.append("called")
+        return None, 0
+
+    monkeypatch.setattr(service, "search_social_profile_url", fake_search)
+
+    contacts, stats = service.enrich_social_links_for_contacts(
+        [
+            {
+                "name": "Todos os estabelecimentos em CAMPINAS, SP",
+                "phone": "(19) 99999-9999",
+                "phoneDigits": "19999999999",
+                "score": 80,
+                "website": "https://diretorio.example.com",
+            }
+        ],
+        "Campinas",
+        "SP",
+        "oficina",
+        required_channels=["instagram"],
+    )
+
+    assert contacts[0].get("instagramUrl") is None
+    assert calls == []
+    assert stats["processed"] == 0
+    assert stats["skippedBadCandidate"] == 1
+
+
 def test_search_service_enriches_required_instagram_after_base_contact(monkeypatch) -> None:
     class FakeFetcher:
         def __init__(self, *args, **kwargs) -> None:
