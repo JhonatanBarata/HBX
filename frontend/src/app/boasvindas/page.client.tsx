@@ -4,13 +4,14 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { apiFetch } from "@/app/_lib/api";
 import { mobileDestinationFromVendasBoard } from "@/app/_lib/mobileOperationalDestination";
+import { toMobileRoute } from "@/app/_lib/mobileRoutes";
 import { useRequireAuth } from "@/app/_lib/useRequireAuth";
 import { normalizeUserModuleKey, type UserModule } from "@/lib/hbx-modules";
 import styles from "./page.module.css";
 
 const PAGE_EXIT_MS = 260;
 const LOGIN_TO_WELCOME_TRANSITION_KEY = "hbx_login_to_welcome_transition";
-const TUTORIAL_COMPLETED_KEY = "hbx:onboarding:tutorial-completed:v1";
+const TUTORIAL_COMPLETED_KEY = "hbx:onboarding:tutorial-completed:mobile:v1";
 
 type OperationalStatusChip = {
   key: "token" | "meta" | "webwhats" | "payment" | "access";
@@ -112,6 +113,13 @@ function mobilePrimaryAction(state: WelcomeState, tutorialCompleted: boolean) {
     return { label: "Buscar primeiros cards", path: "/radar-digital" };
   }
   return { label: "Abrir Vendas", path: "/vendas" };
+}
+
+function desktopRouteFromMobileDestination(path: string) {
+  return path
+    .replace(/^\/mobile\/boas-vindas/, "/boasvindas")
+    .replace(/^\/mobile\/radar-digital/, "/radar-digital")
+    .replace(/^\/mobile\/vendas/, "/vendas");
 }
 
 function MobileDashboard({
@@ -223,14 +231,21 @@ function MobileDashboard({
   );
 }
 
-export default function BoasVindasClientPage() {
+export default function BoasVindasClientPage({ mobileRoute = false }: { mobileRoute?: boolean } = {}) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const hasToken = useRequireAuth();
   const [leaving, setLeaving] = useState(false);
   const [masterCheckComplete, setMasterCheckComplete] = useState(false);
   const [welcomeState, setWelcomeState] = useState<WelcomeState>(DEFAULT_WELCOME_STATE);
-  const [tutorialCompleted, setTutorialCompleted] = useState(false);
+  const [tutorialCompleted] = useState(() => {
+    if (typeof window === "undefined") return false;
+    try {
+      return window.localStorage.getItem(TUTORIAL_COMPLETED_KEY) === "true";
+    } catch {
+      return false;
+    }
+  });
   const fromLoginEntryParam = String(searchParams.get("entry") || "").trim().toLowerCase() === "mobile";
   const [fromLoginEntry] = useState(() => (
     fromLoginEntryParam ||
@@ -242,12 +257,11 @@ export default function BoasVindasClientPage() {
     if (typeof window === "undefined") return undefined;
     try {
       sessionStorage.removeItem(LOGIN_TO_WELCOME_TRANSITION_KEY);
-      setTutorialCompleted(window.localStorage.getItem(TUTORIAL_COMPLETED_KEY) === "true");
     } catch {
       // ignore storage errors
     }
     if (fromLoginEntryParam && window.location.search.includes("entry=mobile")) {
-      window.history.replaceState(null, "", "/boasvindas");
+      window.history.replaceState(null, "", mobileRoute ? "/mobile/boas-vindas" : "/boasvindas");
     }
     const frame = window.requestAnimationFrame(() => {
       setClientReady(true);
@@ -255,7 +269,7 @@ export default function BoasVindasClientPage() {
     return () => {
       window.cancelAnimationFrame(frame);
     };
-  }, [fromLoginEntryParam]);
+  }, [fromLoginEntryParam, mobileRoute]);
 
   const welcomePhase = masterCheckComplete ? "ready" : "loading";
   const reason = String(searchParams.get("reason") || "").trim().toLowerCase();
@@ -309,13 +323,14 @@ export default function BoasVindasClientPage() {
         });
         setMasterCheckComplete(true);
         if (!fromLoginEntry) {
-          router.replace(mobileDestinationFromVendasBoard(vendasBoard));
+          const destination = mobileDestinationFromVendasBoard(vendasBoard);
+          router.replace(mobileRoute ? destination : desktopRouteFromMobileDestination(destination));
         }
       } catch {
         if (mounted) {
           setMasterCheckComplete(true);
           if (!fromLoginEntry) {
-            router.replace("/radar-digital");
+            router.replace(mobileRoute ? toMobileRoute("/radar-digital") : "/radar-digital");
           }
         }
       }
@@ -326,12 +341,12 @@ export default function BoasVindasClientPage() {
     return () => {
       mounted = false;
     };
-  }, [billingHref, fromLoginEntry, hasToken, router]);
+  }, [billingHref, fromLoginEntry, hasToken, mobileRoute, router]);
 
   function navigateWithTransition(path: string) {
     if (leaving) return;
     setLeaving(true);
-    window.setTimeout(() => router.push(path), PAGE_EXIT_MS);
+    window.setTimeout(() => router.push(mobileRoute ? toMobileRoute(path) : path), PAGE_EXIT_MS);
   }
 
   const mobilePrimary = mobilePrimaryAction(welcomeState, tutorialCompleted);

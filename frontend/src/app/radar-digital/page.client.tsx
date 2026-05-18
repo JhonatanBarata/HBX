@@ -15,6 +15,7 @@ import {
   type HbxTargetTypeValue,
 } from "@/components/prospecting-filters";
 import { apiFetch, type ApiFetchError } from "@/app/_lib/api";
+import { toMobileRoute } from "@/app/_lib/mobileRoutes";
 import { startSmartPolling } from "@/app/_lib/polling";
 import { useRequireModule } from "@/app/_lib/useRequireModule";
 import { clearTopbarProgress, dispatchTopbarProgress } from "@/lib/topbar-progress";
@@ -87,6 +88,8 @@ type RadarLead = {
   firstSeenAt?: string | null;
   whatsappStatus?: "confirmed" | "missing" | "unverified" | string | null;
   whatsappCheckStatus?: "confirmed" | "missing" | "unverified" | string | null;
+  quality?: Record<string, unknown> | null;
+  qualityV2?: Record<string, unknown> | null;
 };
 
 type RadarLeadsResponse = {
@@ -237,15 +240,6 @@ type RadarEnrichResponse = {
   item?: RadarLead | null;
 };
 
-type VendasPendingSummary = {
-  ok?: boolean;
-  limit?: number;
-  pendingCount?: number;
-  remaining?: number;
-  blocked?: boolean;
-  message?: string | null;
-};
-
 type VendasUsageSnapshot = {
   cards?: {
     remaining?: number;
@@ -325,6 +319,8 @@ const DEFAULT_FILTERS: FilterState = {
   requiredChannels: [],
   channelMatchMode: "prefer",
 };
+
+const MAX_CARDS_PER_RADAR_SEARCH = 100;
 
 const RADAR_RADIUS_OPTIONS = [0, 25, 50, 100] as const;
 
@@ -484,8 +480,11 @@ function RadarChannelFilter({
   onChange: (next: Pick<FilterState, "preferredChannels" | "requiredChannels" | "channelMatchMode">) => void;
   locked?: boolean;
 }) {
-  const requiredMode = value.channelMatchMode !== "prefer";
-  const activeChannels = requiredMode ? value.requiredChannels : value.preferredChannels;
+  const [channelWarning, setChannelWarning] = useState<string | null>(null);
+  const activeChannels = value.preferredChannels;
+  const requiredCount = value.requiredChannels.length;
+  const activeCount = activeChannels.length;
+  const pressure = requiredCount >= 4 ? "low" : requiredCount >= 3 ? "medium" : requiredCount > 0 ? "good" : "none";
 
   function toggleChannel(channel: RadarChannel) {
     if (locked) return;
@@ -493,42 +492,36 @@ function RadarChannelFilter({
     if (activeSet.has(channel)) activeSet.delete(channel);
     else activeSet.add(channel);
     const nextChannels = Array.from(activeSet);
-    onChange(requiredMode
-      ? { ...value, requiredChannels: nextChannels }
-      : { ...value, preferredChannels: nextChannels });
-  }
-
-  function setRequiredMode(enabled: boolean) {
-    if (locked) return;
+    const nextRequiredChannels = value.requiredChannels.filter((required) => nextChannels.includes(required));
     onChange({
       ...value,
-      channelMatchMode: enabled ? "any_required" : "prefer",
-      requiredChannels: enabled ? (value.requiredChannels.length ? value.requiredChannels : value.preferredChannels) : [],
+      channelMatchMode: nextRequiredChannels.length ? "all_required" : "prefer",
+      requiredChannels: nextRequiredChannels,
+      preferredChannels: nextChannels,
     });
+    setChannelWarning(null);
   }
 
-  function requireAllChannels() {
+  function requireSelectedChannels() {
     if (locked) return;
+    if (!activeChannels.length) {
+      setChannelWarning("Selecione ao menos um canal antes de ativar obrigatório.");
+      return;
+    }
     onChange({
       ...value,
       channelMatchMode: "all_required",
-      requiredChannels: RADAR_CHANNELS.map((channel) => channel.value),
+      requiredChannels: activeChannels,
+      preferredChannels: activeChannels,
     });
+    setChannelWarning(null);
   }
 
   return (
-    <div className={styles.radarChannelFilter} data-locked={locked ? "true" : "false"}>
+    <div className={styles.radarChannelFilter} data-locked={locked ? "true" : "false"} data-pressure={pressure}>
       <div className={styles.radarChannelHeader}>
         <span>Canais</span>
-        <label>
-          <input
-            type="checkbox"
-            checked={requiredMode}
-            disabled={locked}
-            onChange={(event) => setRequiredMode(event.target.checked)}
-          />
-          Obrigatório
-        </label>
+        <b>{requiredCount ? `${requiredCount} obrigatório${requiredCount > 1 ? "s" : ""}` : activeCount ? `${activeCount} preferido${activeCount > 1 ? "s" : ""}` : "0+"}</b>
       </div>
       <div className={styles.radarChannelIcons}>
         {RADAR_CHANNELS.map((channel) => {
@@ -541,7 +534,7 @@ function RadarChannelFilter({
               data-channel={channel.value}
               disabled={locked}
               onClick={() => toggleChannel(channel.value)}
-              aria-label={`${requiredMode ? "Exigir" : "Preferir"} ${channel.label}`}
+              aria-label={`${active ? "Remover preferência por" : "Preferir"} ${channel.label}`}
               title={channel.label}
             >
               <span className={styles.radarChannelIcon}>
@@ -553,25 +546,23 @@ function RadarChannelFilter({
           );
         })}
       </div>
-      {requiredMode ? (
-        <div className={styles.radarChannelModes}>
-          <button
-            type="button"
-            data-active={value.channelMatchMode === "any_required" ? "true" : "false"}
-            disabled={locked}
-            onClick={() => onChange({ ...value, channelMatchMode: "any_required" })}
-          >
-            Obrigatório
-          </button>
-          <button
-            type="button"
-            data-active={value.channelMatchMode === "all_required" ? "true" : "false"}
-            disabled={locked}
-            onClick={requireAllChannels}
-          >
-            Todos os canais
-          </button>
-        </div>
+      <button type="button" className={styles.radarChannelRequireButton} onClick={requireSelectedChannels} disabled={locked}>
+        Todos os canais
+      </button>
+      {channelWarning ? <p>{channelWarning}</p> : null}
+      <p>Toque para preferir canais. Ative Obrigatório só se quiser reduzir bastante os cards.</p>
+      {requiredCount >= 2 ? (
+        <p>Filtro obrigatório forte: pode reduzir muito ou zerar os cards.</p>
+      ) : null}
+      {value.requiredChannels.some((channel) => channel === "instagram" || channel === "facebook") ? (
+        <p>Rede social obrigatória depende de enriquecimento. Pode demorar mais e encontrar menos cards.</p>
+      ) : null}
+      {requiredCount >= 4 ? (
+        <p>Possibilidade baixa de encontrar leads, talvez seja necessário remover alguma obrigatoriedade!</p>
+      ) : requiredCount >= 3 ? (
+        <p>Chance média de localizar leads.</p>
+      ) : requiredCount > 0 ? (
+        <p>Os canais selecionados serão obrigatórios no resultado.</p>
       ) : null}
     </div>
   );
@@ -580,7 +571,7 @@ function RadarChannelFilter({
 function HeroPremiumCrown({ active }: { active: boolean }) {
   return (
     <Link
-      href="/planos?intent=lead"
+      href={toMobileRoute("/planos?intent=lead")}
       className={styles.mobileHeroPremiumCrown}
       data-active={active ? "true" : "false"}
       aria-label={active ? "Ver plano HBX Lead" : "Fazer upgrade para HBX Lead"}
@@ -1248,6 +1239,33 @@ function radarFriendlyError(error: unknown) {
   return message || "Não foi possível concluir a operação agora.";
 }
 
+function radarLeadHasRequiredChannel(lead: RadarLead, channel: RadarChannel) {
+  const qualityAvailability = lead.qualityV2?.channelAvailability;
+  if (qualityAvailability && typeof qualityAvailability === "object" && !Array.isArray(qualityAvailability)) {
+    const value = (qualityAvailability as Record<string, unknown>)[channel];
+    if (typeof value === "boolean") return value;
+  }
+
+  if (channel === "whatsapp") {
+    const whatsappStatus = String(lead.whatsappCheckStatus || lead.whatsappStatus || "").trim().toLowerCase();
+    return ["confirmed", "available", "valid", "exists"].includes(whatsappStatus);
+  }
+  if (channel === "instagram") return Boolean(String(lead.instagramUrl || "").trim());
+  if (channel === "facebook") return Boolean(String(lead.facebookUrl || "").trim());
+  if (channel === "email") {
+    const emailStatus = String(lead.emailStatus || "").trim().toLowerCase();
+    return Boolean(String(lead.email || "").trim()) && !["missing", "invalid"].includes(emailStatus);
+  }
+  if (channel === "website") return Boolean(String(lead.website || "").trim());
+  if (channel === "phone") return Boolean(String(lead.phoneDigits || lead.phone || "").trim());
+  return false;
+}
+
+function radarLeadMatchesRequiredChannels(lead: RadarLead, requiredChannels: RadarChannel[]) {
+  if (!requiredChannels.length) return true;
+  return requiredChannels.every((channel) => radarLeadHasRequiredChannel(lead, channel));
+}
+
 function normalizeDetailLead(payload: RadarLeadDetailResponse): RadarLead | null {
   if (payload && "item" in payload) return payload.item || null;
   return payload as RadarLead;
@@ -1838,7 +1856,6 @@ export default function RadarDigitalClientPage() {
   const [activeRun, setActiveRun] = useState<RadarSearchRunResponse | null>(null);
   const [terminalRunSnapshot, setTerminalRunSnapshot] = useState<RadarSearchRunResponse | null>(null);
   const [commercialPlans, setCommercialPlans] = useState<CommercialPlansPayload | null>(null);
-  const [vendasPending, setVendasPending] = useState<VendasPendingSummary | null>(null);
   const [vendasUsage, setVendasUsage] = useState<VendasUsageSnapshot | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -1900,9 +1917,10 @@ export default function RadarDigitalClientPage() {
   const quotaRemaining = Math.min(
     ...[dailyRemaining, monthlyRemaining, perUserRemaining].filter((value) => Number.isFinite(value)),
   );
-  const fallbackSearchLimit = planCardsPerSearch || (isHbxList ? 50 : 100);
+  const fallbackSearchLimit = planCardsPerSearch || (isHbxList ? 50 : MAX_CARDS_PER_RADAR_SEARCH);
+  const perSearchLimit = Math.max(1, Math.min(MAX_CARDS_PER_RADAR_SEARCH, fallbackSearchLimit));
   const availableSpendLimit = Number.isFinite(quotaRemaining) ? quotaRemaining : fallbackSearchLimit;
-  const searchSpendLimit = Math.max(0, availableSpendLimit);
+  const searchSpendLimit = Math.max(0, Math.min(perSearchLimit, availableSpendLimit));
   const radarQuantityLimit = Math.max(0, searchSpendLimit);
   const selectedSearchQuantity = radarQuantityLimit > 0
     ? Math.max(1, Math.min(radarQuantityLimit, Math.trunc(Number(filters.quantity || DEFAULT_FILTERS.quantity) || DEFAULT_FILTERS.quantity)))
@@ -1986,24 +2004,16 @@ export default function RadarDigitalClientPage() {
   useEffect(() => {
     if (hasToken !== true) return;
     let cancelled = false;
-    Promise.all([
-      apiFetch<VendasPendingSummary>("/vendas/pending-summary", {
-        requireAuth: true,
-        timeoutMs: 12000,
-      }),
-      apiFetch<VendasUsageSnapshot>("/vendas/usage", {
-        requireAuth: true,
-        timeoutMs: 12000,
-      }).catch(() => null),
-    ])
-      .then(([pendingPayload, usagePayload]) => {
+    apiFetch<VendasUsageSnapshot>("/vendas/usage", {
+      requireAuth: true,
+      timeoutMs: 12000,
+    })
+      .then((usagePayload) => {
         if (cancelled) return;
-        setVendasPending(pendingPayload);
         setVendasUsage(usagePayload);
       })
       .catch(() => {
         if (!cancelled) {
-          setVendasPending(null);
           setVendasUsage(null);
         }
       });
@@ -2580,6 +2590,9 @@ export default function RadarDigitalClientPage() {
         .catch(() => ({}));
       const profilePreferredChannels = normalizeRadarChannels((salesProfilePayload as { preferredChannels?: unknown }).preferredChannels);
       const preferredChannels = nextFilters.preferredChannels.length ? nextFilters.preferredChannels : profilePreferredChannels;
+      const effectiveWhatsappCheckMode: RadarWhatsappCheckMode = nextFilters.requiredChannels.includes("whatsapp")
+        ? "only_valid"
+        : whatsappCheckMode;
       const payload = await apiFetch<RadarSearchRunResponse>("/webscraping/radar/search-runs", {
         method: "POST",
         requireAuth: true,
@@ -2592,7 +2605,7 @@ export default function RadarDigitalClientPage() {
           minimumStock: Math.max(1, Math.min(nextFilters.quantity, 10)),
           desiredStock: Math.max(1, nextFilters.quantity),
           preferredChannels,
-          whatsappCheckMode,
+          whatsappCheckMode: effectiveWhatsappCheckMode,
           qualityMode: hasLeadCapabilities ? "lead_plus" : "list",
         }),
       });
@@ -2705,6 +2718,8 @@ export default function RadarDigitalClientPage() {
       sourceEngine: lead.sourceEngine || undefined,
       sourceUrl: lead.sourceUrl || undefined,
       enrichmentJson: lead.enrichmentJson || undefined,
+      quality: lead.quality || undefined,
+      qualityV2: lead.qualityV2 || undefined,
       shortNote: lead.opportunityReason || undefined,
       scriptText: lead.painPitch || lead.opportunityReason || undefined,
     };
@@ -2723,9 +2738,12 @@ export default function RadarDigitalClientPage() {
     setTelonProgress(12);
     try {
       const selectedItems = visibleItems.slice(0, effectiveFilters.quantity);
-      const leads = selectedItems.map(buildVendasLeadPayload);
+      const deliverableItems = effectiveFilters.requiredChannels.length
+        ? selectedItems.filter((lead) => radarLeadMatchesRequiredChannels(lead, effectiveFilters.requiredChannels))
+        : selectedItems;
+      const leads = deliverableItems.map(buildVendasLeadPayload);
       if (!leads.length) {
-        setFeedback("Nenhum lead elegível encontrado para enviar.");
+        setFeedback("0 cards passaram por todos os filtros obrigatórios.");
         return;
       }
       const imported = await apiFetch<ImportToVendasResponse>("/vendas/import/webscraping", {
@@ -2738,16 +2756,20 @@ export default function RadarDigitalClientPage() {
         method: "POST",
         requireAuth: true,
         timeoutMs: 15000,
-        body: JSON.stringify({ leadIds: selectedItems.map((lead) => lead.id) }),
+        body: JSON.stringify({ leadIds: deliverableItems.map((lead) => lead.id) }),
       }).catch(() => null);
-      setItems((current) => current.map((item) => selectedItems.some((selected) => selected.id === item.id) ? { ...item, status: "sent_to_vendas", companyStatus: "imported_to_vendas", ownershipStatus: "in_attendance" } : item));
+      setItems((current) => current.map((item) => deliverableItems.some((selected) => selected.id === item.id) ? { ...item, status: "sent_to_vendas", companyStatus: "imported_to_vendas", ownershipStatus: "in_attendance" } : item));
+      apiFetch<VendasUsageSnapshot>("/vendas/usage", {
+        requireAuth: true,
+        timeoutMs: 12000,
+      }).then(setVendasUsage).catch(() => null);
       setFeedback(imported.message || `${leads.length} lead(s) herdados para Vendas.`);
     } catch (bulkError) {
       setError(bulkError instanceof Error ? bulkError.message : "Não foi possível herdar leads para Vendas agora.");
     } finally {
       setBulkSending(false);
     }
-  }, [effectiveFilters.quantity, visibleItems]);
+  }, [effectiveFilters.quantity, effectiveFilters.requiredChannels, visibleItems]);
 
   useEffect(() => {
     if (!mobileAutoImportPending) return;
@@ -2799,10 +2821,8 @@ export default function RadarDigitalClientPage() {
         ? BRAZIL_CITIES_BY_STATE[filters.state] || []
         : []
   ).filter(Boolean);
-  const mobileVendasLimit = Math.max(1, Number(vendasPending?.limit || 40));
-  const mobileVendasPendingCount = Math.max(0, Number(vendasPending?.pendingCount || 0));
   const dailyQuotaBlocked = vendasUsage ? dailyRemaining <= 0 || radarQuantityLimit <= 0 : false;
-  const mobileVendasBlocked = Boolean(vendasPending?.blocked || mobileVendasPendingCount >= mobileVendasLimit || dailyQuotaBlocked);
+  const mobileVendasBlocked = dailyQuotaBlocked;
   const mobileRadarProcessing = searching || Boolean(activeRun) || bulkSending || mobileAutoImportPending || radarCanceling;
   const mobileDockCanSearch = !mobileVendasBlocked && !searching && !activeRun && !bulkSending;
   const rawRadarMomentRun = activeRun || terminalRunSnapshot;
@@ -3050,9 +3070,7 @@ export default function RadarDigitalClientPage() {
 
             {mobileVendasBlocked ? (
               <div className={`${styles.mobileRadarNotice} hbx-mobile-notice`}>
-                {dailyQuotaBlocked
-                  ? "Limite diário de cards atingido. O contador reinicia após 00:00."
-                  : vendasPending?.message || "Agenda cheia no Vendas. Finalize ou delete cards pendentes para buscar mais."}
+                Limite diário de cards atingido. O contador reinicia após 00:00.
               </div>
             ) : null}
             {error ? <div className={`${styles.mobileRadarNotice} hbx-mobile-notice`} data-tone="error">{compactRadarMessage(error)}</div> : null}

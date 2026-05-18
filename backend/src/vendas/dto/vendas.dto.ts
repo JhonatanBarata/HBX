@@ -339,6 +339,9 @@ export class ImportWebscrapingLeadItemDto {
   } | null;
 
   @IsOptional()
+  qualityV2?: unknown;
+
+  @IsOptional()
   @IsString()
   @MaxLength(280)
   shortNote?: string;

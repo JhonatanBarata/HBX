@@ -5,7 +5,7 @@ from urllib.parse import urlparse
 
 from bs4 import BeautifulSoup
 
-from .filters import domain_from_url, is_blocked_domain, is_directory_domain
+from .filters import domain_from_url, is_blocked_domain, is_directory_domain, is_social_signal_domain
 from .normalizer import clean_name, extract_phone_from_url, fallback_name, format_phone, normalize_phone_digits
 
 PHONE_RE = re.compile(r"(?<!\d)(?:\+?55\s*)?(?:\(\d{2}\)|\d{2}[\s.-]+)\s*9?\d{4}[-.\s]+\d{4}(?!\d)")
@@ -67,13 +67,36 @@ def is_directory_url(url: str) -> bool:
     return is_directory_domain(url)
 
 
+def _social_field_for_url(url: str) -> str | None:
+    host = urlparse(url).netloc.lower()
+    if "instagram.com" in host:
+        return "instagramUrl"
+    if "facebook.com" in host:
+        return "facebookUrl"
+    return None
+
+
 def _official_website(page_url: str, jsonld_url: str | None, directory: bool) -> str | None:
     page_host = urlparse(page_url).netloc.lower().removeprefix("www.")
     if jsonld_url:
         jsonld_host = urlparse(jsonld_url).netloc.lower().removeprefix("www.")
-        if jsonld_host and not is_blocked_domain(jsonld_host) and (not directory or jsonld_host != page_host):
+        if jsonld_host and not is_social_signal_domain(jsonld_host) and not is_blocked_domain(jsonld_host) and (not directory or jsonld_host != page_host):
             return jsonld_url
-    return None if directory else f"{urlparse(page_url).scheme}://{urlparse(page_url).netloc}"
+    return None if directory or is_social_signal_domain(page_host) else f"{urlparse(page_url).scheme}://{urlparse(page_url).netloc}"
+
+
+def _external_website_from_links(soup: BeautifulSoup, page_url: str) -> str | None:
+    page_host = urlparse(page_url).netloc.lower().removeprefix("www.")
+    for link in soup.find_all("a", href=True):
+        href = str(link.get("href") or "").strip()
+        parsed = urlparse(href)
+        host = parsed.netloc.lower().removeprefix("www.")
+        if parsed.scheme not in ("http", "https") or not host:
+            continue
+        if host == page_host or is_social_signal_domain(host) or is_blocked_domain(host):
+            continue
+        return f"{parsed.scheme}://{parsed.netloc}"
+    return None
 
 
 def _title_name(soup: BeautifulSoup, target_type: str = "pj") -> str | None:
@@ -94,6 +117,7 @@ def parse_page(html: str, url: str, target_type: str = "pj", city: str | None = 
     soup = BeautifulSoup(html, "lxml")
     directory = is_directory_url(url)
     page_domain = domain_from_url(url)
+    social_field = _social_field_for_url(url)
     contacts: list[dict] = []
 
     for script in soup.find_all("script", attrs={"type": re.compile("ld\\+json", re.I)}):
@@ -115,26 +139,28 @@ def parse_page(html: str, url: str, target_type: str = "pj", city: str | None = 
             for phone in _as_list(item.get("telephone")):
                 digits = normalize_phone_digits(str(phone))
                 if digits and name:
-                    contacts.append(
-                        {
-                            "name": name,
-                            "phone": format_phone(digits),
-                            "phoneDigits": digits,
-                            "rating": rating,
-                            "reviews": reviews,
-                            "address": address,
-                            "website": website,
-                            "source": "hbx_scraping:web",
-                            "_domain": page_domain,
-                            "_pageUrl": url,
-                        }
-                    )
+                    contact = {
+                        "name": name,
+                        "phone": format_phone(digits),
+                        "phoneDigits": digits,
+                        "rating": rating,
+                        "reviews": reviews,
+                        "address": address,
+                        "website": website,
+                        "source": "hbx_scraping:web",
+                        "_domain": page_domain,
+                        "_pageUrl": url,
+                    }
+                    if social_field:
+                        contact["website"] = website
+                        contact[social_field] = url
+                    contacts.append(contact)
 
     for tag in soup(["script", "style", "noscript"]):
         tag.decompose()
     visible_text = soup.get_text(" ", strip=True)[:20000]
     resolved_fallback_name = fallback_name(_title_name(soup, target_type), city, target_type)
-    fallback_website = _official_website(url, None, directory)
+    fallback_website = _external_website_from_links(soup, url) if social_field else _official_website(url, None, directory)
     phones: set[str] = set()
     for link in soup.find_all("a", href=True):
         digits = extract_phone_from_url(str(link.get("href")))
@@ -147,19 +173,20 @@ def parse_page(html: str, url: str, target_type: str = "pj", city: str | None = 
 
     for digits in phones:
         if resolved_fallback_name:
-            contacts.append(
-                {
-                    "name": resolved_fallback_name,
-                    "phone": format_phone(digits),
-                    "phoneDigits": digits,
-                    "rating": None,
-                    "reviews": None,
-                    "address": None,
-                    "website": fallback_website,
-                    "source": "hbx_scraping:web",
-                    "_domain": page_domain,
-                    "_pageUrl": url,
-                }
-            )
+            contact = {
+                "name": resolved_fallback_name,
+                "phone": format_phone(digits),
+                "phoneDigits": digits,
+                "rating": None,
+                "reviews": None,
+                "address": None,
+                "website": fallback_website,
+                "source": "hbx_scraping:web",
+                "_domain": page_domain,
+                "_pageUrl": url,
+            }
+            if social_field:
+                contact[social_field] = url
+            contacts.append(contact)
 
     return contacts, visible_text

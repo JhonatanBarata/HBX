@@ -16,6 +16,8 @@ class SearchRequest(BaseModel):
     fresh: bool = False
     excludePhoneDigits: list[str] = Field(default_factory=list)
     excludeUrls: list[str] = Field(default_factory=list)
+    preferredChannels: list[str] = Field(default_factory=list)
+    requiredChannels: list[str] = Field(default_factory=list)
 
     @field_validator("city", "state", "segment", "query")
     @classmethod
@@ -53,6 +55,19 @@ class SearchRequest(BaseModel):
                 normalized.append(url)
         return normalized
 
+    @field_validator("preferredChannels", "requiredChannels")
+    @classmethod
+    def normalize_channels(cls, values: list[str]) -> list[str]:
+        allowed = {"whatsapp", "instagram", "email", "website", "phone", "facebook"}
+        seen: set[str] = set()
+        normalized: list[str] = []
+        for value in values or []:
+            channel = str(value or "").strip().lower()
+            if channel in allowed and channel not in seen:
+                seen.add(channel)
+                normalized.append(channel)
+        return normalized
+
     @model_validator(mode="after")
     def validate_limit_by_target_type(self) -> "SearchRequest":
         if self.batchLimit is not None:
@@ -86,6 +101,8 @@ class ContactResult(BaseModel):
     reviews: int | None = None
     address: str | None = None
     website: str | None = None
+    instagramUrl: str | None = None
+    facebookUrl: str | None = None
     source: str = "hbx_scraping:web"
     score: int
 

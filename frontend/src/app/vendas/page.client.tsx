@@ -34,6 +34,7 @@ import HbxMobileDock from "@/components/mobile/HbxMobileDock";
 import MobileLeadScoreGauge from "@/components/mobile/MobileLeadScoreGauge";
 import { useQuickLaunchNotice } from "@/components/useQuickLaunchNotice";
 import { apiFetch, getDashboardApiBaseUrl, getToken } from "@/app/_lib/api";
+import { toMobileRoute } from "@/app/_lib/mobileRoutes";
 import { startSmartPolling } from "@/app/_lib/polling";
 import { useRequireModule } from "@/app/_lib/useRequireModule";
 import { HBX_WINDOW_STANDARD } from "@/lib/hbx-window-system";
@@ -416,7 +417,7 @@ function MobileChannelIconAsset({ channel }: { channel: MobileChannelAsset }) {
 function HeroPremiumCrown({ active }: { active: boolean }) {
   return (
     <Link
-      href="/planos?intent=lead"
+      href={toMobileRoute("/planos?intent=lead")}
       className={styles.mobileHeroPremiumCrown}
       data-active={active ? "true" : "false"}
       aria-label={active ? "Ver plano HBX Lead" : "Fazer upgrade para HBX Lead"}
@@ -786,9 +787,11 @@ function hasLockedSocialLinks(lead: LeadItem, board?: BoardResponse | null) {
 }
 
 function isLeadWhatsappConfirmed(lead: LeadItem) {
+  const intelligenceStatus = String(lead.leadIntelligence?.whatsappStatus || "").trim().toLowerCase();
+  const availabilityStatus = String(lead.whatsappAvailability?.status || "").trim().toLowerCase();
   return (
-    lead.leadIntelligence?.whatsappStatus === "confirmed" ||
-    lead.whatsappAvailability?.status === "available"
+    ["confirmed", "available", "valid", "exists"].includes(intelligenceStatus) ||
+    availabilityStatus === "available"
   );
 }
 
@@ -951,6 +954,30 @@ function intelligenceScoreLabel(score?: number | null) {
   if (value >= 62) return "Boa prioridade";
   if (value >= 42) return "Revisar";
   return "Baixa prioridade";
+}
+
+function buildSellerScoreBreakdown(lead: LeadItem) {
+  const intelligence = lead.leadIntelligence || {};
+  const tags = new Set((intelligence.leadReasonTags || []).map((tag) => String(tag || "").trim()));
+  const whatsappReady = isLeadWhatsappConfirmed(lead);
+  const email = leadEmailForDisplay(lead);
+  const website = leadWebsiteForDisplay(lead);
+  const instagram = normalizeExternalUrl(intelligence.instagramUrl);
+  const facebook = normalizeExternalUrl(intelligence.facebookUrl);
+  const rows = [
+    { label: "Base do card", points: 44, active: true },
+    { label: "WhatsApp confirmado", points: 24, active: whatsappReady },
+    { label: "Telefone válido", points: 16, active: Boolean(buildCallUrl(lead.phone)) },
+    { label: "E-mail encontrado", points: String(intelligence.emailStatus || "").toLowerCase() === "probable" ? 8 : 14, active: Boolean(email) },
+    { label: "Instagram", points: facebook ? 4 : 6, active: Boolean(instagram) },
+    { label: "Facebook", points: instagram ? 4 : 4, active: Boolean(facebook) },
+    { label: "Site fraco ou ausente", points: 7, active: !website || tags.has("sem_site") },
+    { label: "Você selecionou cidade", points: 5, active: tags.has("cidade_alvo") || Boolean(lead.city) },
+    { label: "Você selecionou segmento", points: 5, active: tags.has("segmento_alvo") || Boolean(lead.segment) },
+    { label: "Boa avaliação pública", points: 5, active: tags.has("boa_avaliacao") || Number(lead.rating || 0) >= 4.2 },
+    { label: "Prova social", points: 4, active: tags.has("prova_social") || Number(lead.reviews || 0) >= 20 },
+  ].filter((row) => row.active);
+  return rows.slice(0, 8);
 }
 
 function leadTagLabel(tag: string) {
@@ -2147,6 +2174,7 @@ export default function VendasClientPage() {
   const [mobileReturnScheduleError, setMobileReturnScheduleError] =
     useState<string | null>(null);
   const [mobileAnimatedScore, setMobileAnimatedScore] = useState(0);
+  const [mobileScoreLead, setMobileScoreLead] = useState<LeadItem | null>(null);
   const [mobileNoteLead, setMobileNoteLead] = useState<LeadItem | null>(null);
   const [mobileNoteDraft, setMobileNoteDraft] = useState("");
   const [mobileSavingNote, setMobileSavingNote] = useState(false);
@@ -3518,7 +3546,7 @@ export default function VendasClientPage() {
         ) : null}
         {lockedSocialLinks ? (
           <Link
-            href="/planos?intent=lead"
+            href={toMobileRoute("/planos?intent=lead")}
             className={styles.mobileVendasPremiumChannels}
             data-compact={compact ? "true" : "false"}
             aria-label="Redes encontradas no HBX Lead"
@@ -3550,6 +3578,7 @@ export default function VendasClientPage() {
     setSelectedMobileLeadId(null);
     setMobileNoteLead(null);
     setMobileNoteDraft("");
+    setMobileScoreLead(null);
   }
 
   function activeMobileTemplate(lead: LeadItem) {
@@ -3826,7 +3855,7 @@ export default function VendasClientPage() {
     );
     const runStatus = String(liveRadarRun?.status || storedRadarRun?.status || "");
     const runAutoImport = liveRadarRun?.meta?.autoImport || null;
-    const runDelivered = Math.max(
+    const runFoundRaw = Math.max(
       0,
       Number(liveRadarRun?.meta?.deliveredCount || liveRadarRun?.foundCount || storedRadarRun?.deliveredCount || 0),
     );
@@ -3836,12 +3865,15 @@ export default function VendasClientPage() {
     );
     const runTerminal = isTerminalRadarRunStatus(runStatus);
     const runActive = Boolean((liveRadarRun?.runId || storedRadarRun?.runId) && !runTerminal);
+    const autoImportRan = Boolean(runAutoImport?.ran);
     const autoImportPendingCount = Math.max(0, Number(runAutoImport?.pendingCount || 0));
     const autoImportImportedCount = Math.max(0, Number(runAutoImport?.importedCount || 0));
+    const runDelivered = autoImportRan ? autoImportImportedCount : runFoundRaw;
     const liveAgendaCount = mobilePendingCount;
     const incomingAgendaCount = runActive ? Math.max(autoImportPendingCount, autoImportImportedCount) : 0;
     const agendaReceivedCount = liveAgendaCount;
     const activeAgendaCount = liveAgendaCount > 0 ? liveAgendaCount : incomingAgendaCount;
+    const radarBlockedByStrictFilters = autoImportRan && runFoundRaw > 0 && runDelivered <= 0 && activeAgendaCount <= 0;
     const radarFoundWithoutAgenda = runDelivered > 0 && activeAgendaCount <= 0;
     const runFilters = liveRadarRun?.meta?.filters;
     const radarState = runFilters?.state || storedRadarRun?.state || "";
@@ -3856,7 +3888,7 @@ export default function VendasClientPage() {
       ? `/radar-digital?${radarAdjustParams.toString()}`
       : "/radar-digital";
     const radarProgressLabel =
-      runTarget > 1 && runDelivered > 0
+      runTarget > 1
         ? `${Math.min(runDelivered, runTarget)} de ${runTarget} cards`
         : `${runDelivered} ${runDelivered === 1 ? "card recebido" : "cards recebidos"}`;
     const radarContextLabel = [radarCity, radarState].filter(Boolean).join(" / ") || radarSegment || "Radar Digital";
@@ -3867,6 +3899,8 @@ export default function VendasClientPage() {
         ? "warning"
         : runStatus === "completed_insufficient_results" || runStatus === "partial_error"
           ? "partial"
+          : radarBlockedByStrictFilters
+            ? "partial"
           : runActive && activeAgendaCount > 0
             ? "receiving"
             : runActive && radarFoundWithoutAgenda
@@ -3898,7 +3932,9 @@ export default function VendasClientPage() {
         : mobileRadarState === "receiving"
           ? "Abastecendo sua agenda"
           : mobileRadarState === "partial"
-            ? "Amplie cidade ou segmento"
+            ? radarBlockedByStrictFilters
+              ? "Filtros barraram todos"
+              : "Amplie cidade ou segmento"
             : mobileRadarState === "warning"
               ? "Abra o Radar para revisar"
               : mobileRadarState === "received"
@@ -3913,6 +3949,8 @@ export default function VendasClientPage() {
         ? "warning"
         : runStatus === "completed_insufficient_results" || runStatus === "partial_error"
           ? "partial"
+          : radarBlockedByStrictFilters
+            ? "partial"
           : runActive && activeAgendaCount > 0
             ? "receiving"
             : runActive && radarFoundWithoutAgenda
@@ -3930,7 +3968,9 @@ export default function VendasClientPage() {
           : mobileRadarState === "receiving"
             ? `Cards aprovados chegando de ${radarContextLabel}.`
             : mobileRadarState === "partial"
-              ? "O Radar entregou o que encontrou. Ajuste filtros para completar."
+              ? radarBlockedByStrictFilters
+                ? "O Radar achou cards brutos, mas nenhum passou por todos os filtros obrigatórios."
+                : "O Radar entregou o que encontrou. Ajuste filtros para completar."
               : mobileRadarState === "warning"
                 ? "Revise o Radar para destravar a busca."
                 : "Radar alimentou sua agenda comercial.";
@@ -4158,14 +4198,21 @@ export default function VendasClientPage() {
                     <em>{detailPlace}</em>
                   </div>
                 </div>
-                <MobileLeadScoreGauge
-                  className={styles.mobileLeadScoreBox}
-                  premium
-                  locked={!intelligenceVisible}
-                  value={visibleScore}
-                  label={!intelligenceVisible ? "♕ Score" : "Score"}
-                  caption={intelligenceVisible ? priorityLabel : "HBX Lead"}
-                />
+                <button
+                  type="button"
+                  className={styles.mobileLeadScoreButton}
+                  onClick={() => setMobileScoreLead(lead)}
+                  aria-label="Ver explicação do score"
+                >
+                  <MobileLeadScoreGauge
+                    className={styles.mobileLeadScoreBox}
+                    premium
+                    locked={!intelligenceVisible}
+                    value={visibleScore}
+                    label={!intelligenceVisible ? "♕ Score" : "Score"}
+                    caption={intelligenceVisible ? priorityLabel : "HBX Lead"}
+                  />
+                </button>
                 <div className={styles.mobileLeadHeroMeta} aria-label="Resumo do lead">
                   <span>{status}</span>
                   <span>{mobileReturnLabel(lead)}</span>
@@ -4173,6 +4220,39 @@ export default function VendasClientPage() {
                   <span>{mobileLeadSourceLabel(lead)}</span>
                 </div>
               </section>
+
+              {mobileScoreLead?.id === lead.id ? (
+                <div className={styles.mobileScoreSheetBackdrop} role="presentation" onClick={() => setMobileScoreLead(null)}>
+                  <section
+                    className={styles.mobileScoreSheet}
+                    role="dialog"
+                    aria-modal="true"
+                    aria-label="Explicação do score"
+                    onClick={(event) => event.stopPropagation()}
+                  >
+                    <header>
+                      <div>
+                        <span>Score do card</span>
+                        <strong>{lead.name || "Lead"}</strong>
+                      </div>
+                      <button type="button" onClick={() => setMobileScoreLead(null)} aria-label="Fechar explicação do score">
+                        X
+                      </button>
+                    </header>
+                    <p>
+                      O score mostra quão fácil parece abordar esse lead agora, somando contato disponível, fit com sua busca e sinais comerciais.
+                    </p>
+                    <div className={styles.mobileScoreBreakdown}>
+                      {buildSellerScoreBreakdown(lead).map((row) => (
+                        <span key={row.label}>
+                          <b>{row.label}</b>
+                          <strong>+{row.points}</strong>
+                        </span>
+                      ))}
+                    </div>
+                  </section>
+                </div>
+              ) : null}
 
               <section className={`${styles.mobileLeadContactPanel} hbx-mobile-card`} aria-label="Contato do lead">
                 <div className={styles.mobileLeadContactRows}>
@@ -4700,21 +4780,25 @@ export default function VendasClientPage() {
             ) : (
               <div className={`${styles.mobileVendasEmpty} hbx-mobile-empty`}>
                 <strong>
-                  {(board?.summary.total || 0) <= 0 && radarFoundWithoutAgenda
+                  {(board?.summary.total || 0) <= 0 && radarBlockedByStrictFilters
+                    ? "0 cards passaram pelos filtros"
+                    : (board?.summary.total || 0) <= 0 && radarFoundWithoutAgenda
                     ? "Cards encontrados, preparando sua agenda"
                     : (board?.summary.total || 0) <= 0
                     ? "Sua lista de abordagem está vazia"
                     : "Nenhum lead disponível agora"}
                 </strong>
                 <span>
-                  {(board?.summary.total || 0) <= 0 && radarFoundWithoutAgenda
+                  {(board?.summary.total || 0) <= 0 && radarBlockedByStrictFilters
+                    ? "O Radar achou empresas, mas nenhuma cumpriu todos os canais obrigatórios."
+                    : (board?.summary.total || 0) <= 0 && radarFoundWithoutAgenda
                     ? "O Radar encontrou cards aprovados. Mantenha esta tela aberta enquanto o Vendas sincroniza."
                     : (board?.summary.total || 0) <= 0
                     ? "Busque empresas no Radar. Os cards aprovados chegam aqui prontos para chamar."
                     : "Troque a guia, limpe a busca ou volte ao Radar para ampliar cidade e segmento."}
                 </span>
                 {(board?.summary.total || 0) <= 0 && !radarFoundWithoutAgenda ? (
-                  <Link className="hbx-mobile-primary-button" href="/radar-digital">
+                  <Link className="hbx-mobile-primary-button" href={toMobileRoute("/radar-digital")}>
                     Buscar cards agora
                   </Link>
                 ) : null}
@@ -6529,10 +6613,10 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
             </div>
             {renderAccountSalesProfileSettings()}
             <div className={styles.mobileVendasAccountActions}>
-              <Link className="hbx-mobile-secondary-button" href="/boasvindas" onClick={() => setAccountSheetOpen(false)}>
+              <Link className="hbx-mobile-secondary-button" href={toMobileRoute("/boasvindas")} onClick={() => setAccountSheetOpen(false)}>
                 Upgrade
               </Link>
-              <Link className="hbx-mobile-primary-button" href="/tutorial" onClick={() => setAccountSheetOpen(false)}>
+              <Link className="hbx-mobile-primary-button" href={toMobileRoute("/tutorial")} onClick={() => setAccountSheetOpen(false)}>
                 Tutorial
               </Link>
             </div>

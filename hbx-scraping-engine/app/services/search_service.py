@@ -6,7 +6,7 @@ from app.schemas import ContactResult, QueryPayload, SearchRequest, SearchRespon
 from .agenda_sources import dedupe_by_phone, search_abctelefonos
 from .discovery import discover_urls
 from .fetcher import Fetcher
-from .filters import is_blocked_domain, is_generic_name, is_pf_technical_blocked_domain
+from .filters import is_blocked_lead_source_domain, is_generic_name, is_pf_technical_blocked_domain, is_social_signal_domain
 from .normalizer import dedupe_contacts
 from .parser import is_directory_url, parse_page
 from .scoring import score_contact
@@ -43,6 +43,8 @@ class SearchService:
             len(excluded_phones),
             request.query,
             list(excluded_urls),
+            request.preferredChannels,
+            request.requiredChannels,
         )
         print(f"[search] URLs encontradas: {len(urls)}")
 
@@ -77,7 +79,7 @@ class SearchService:
                 parsed.append(contact)
 
         deduped = dedupe_contacts(parsed, request.city, request.targetType)
-        allowed_fields = {"name", "phone", "phoneDigits", "rating", "reviews", "address", "website", "source", "score"}
+        allowed_fields = {"name", "phone", "phoneDigits", "rating", "reviews", "address", "website", "instagramUrl", "facebookUrl", "source", "score"}
         min_score = 0 if request.targetType == "pf" else 50
         public_items: list[dict] = []
         stats = {"parsed": len(parsed), "invalid_phone": 0, "blocked_domain": 0, "low_score": 0, "approved": 0}
@@ -87,10 +89,13 @@ class SearchService:
                 continue
             if item.get("phoneDigits") in excluded_phones:
                 continue
+            requested_channels = {str(channel or "").lower() for channel in [*(request.preferredChannels or []), *(request.requiredChannels or [])]}
+            social_requested = bool(requested_channels & {"instagram", "facebook"})
+            social_page_allowed = request.targetType == "pj" and social_requested and is_social_signal_domain(item.get("_pageUrl"))
             blocked_domain = (
                 is_pf_technical_blocked_domain(item.get("website")) or is_pf_technical_blocked_domain(item.get("_pageUrl"))
                 if request.targetType == "pf"
-                else is_blocked_domain(item.get("website")) or is_blocked_domain(item.get("_pageUrl"))
+                else is_blocked_lead_source_domain(item.get("website")) or (is_blocked_lead_source_domain(item.get("_pageUrl")) and not social_page_allowed)
             )
             if blocked_domain:
                 stats["blocked_domain"] += 1
@@ -161,6 +166,8 @@ class SearchService:
                 0,
                 request.query,
                 list(excluded_urls),
+                request.preferredChannels,
+                request.requiredChannels,
             )
             discovered_count = len(urls)
             print(f"[search:agenda_pf] urls_descobertas={discovered_count}")
@@ -195,7 +202,7 @@ class SearchService:
             parsed_web_count = len(web_contacts)
             contacts = dedupe_by_phone([*contacts, *web_contacts])
 
-        allowed_fields = {"name", "phone", "phoneDigits", "rating", "reviews", "address", "website", "source", "score"}
+        allowed_fields = {"name", "phone", "phoneDigits", "rating", "reviews", "address", "website", "instagramUrl", "facebookUrl", "source", "score"}
         public_items = [
             {key: value for key, value in item.items() if key in allowed_fields}
             for item in contacts

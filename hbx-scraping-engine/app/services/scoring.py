@@ -2,11 +2,12 @@ import re
 
 from .filters import (
     expected_ddds,
-    is_blocked_domain,
+    is_blocked_lead_source_domain,
     is_directory_domain,
     is_generic_name,
     is_mobile_phone,
     is_pf_weak_domain,
+    is_social_signal_domain,
     has_pf_role_text,
     looks_like_person_name,
     looks_like_company_or_institution_name,
@@ -24,6 +25,7 @@ def score_contact(contact: dict, city: str, state: str, segment: str, page_text:
     address = str(contact.get("address") or "")
     website = str(contact.get("website") or "")
     page_url = str(contact.get("_pageUrl") or "")
+    has_social_signal = bool(contact.get("instagramUrl") or contact.get("facebookUrl"))
     city_l = city.lower()
     state_l = state.lower()
     address_l = address.lower()
@@ -60,7 +62,7 @@ def score_contact(contact: dict, city: str, state: str, segment: str, page_text:
             score -= 10
         if looks_like_company_or_institution_name(name):
             score -= 10
-        if is_blocked_domain(website) or is_blocked_domain(page_url):
+        if is_blocked_lead_source_domain(website) or is_blocked_lead_source_domain(page_url):
             score -= 100
         if is_pf_weak_domain(website) or is_pf_weak_domain(page_url):
             score -= 40
@@ -89,6 +91,8 @@ def score_contact(contact: dict, city: str, state: str, segment: str, page_text:
         score -= 30
     if website:
         score += 10
+    if has_social_signal:
+        score += 8
     if contact.get("address"):
         score += 10
     if contact.get("rating") is not None or contact.get("reviews") is not None:
@@ -97,7 +101,9 @@ def score_contact(contact: dict, city: str, state: str, segment: str, page_text:
         score -= 40
     if any(token in name_l for token in content_tokens):
         score -= 35
-    if is_blocked_domain(website) or is_blocked_domain(page_url):
+    if is_blocked_lead_source_domain(website) or (is_blocked_lead_source_domain(page_url) and not has_social_signal):
+        score -= 100
+    if website and is_social_signal_domain(website) and not has_social_signal:
         score -= 100
     if is_directory or is_directory_domain(website) or is_directory_domain(page_url):
         score -= 25

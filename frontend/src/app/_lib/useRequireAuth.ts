@@ -1,6 +1,6 @@
 "use client";
 
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useSyncExternalStore } from "react";
 import { getToken } from "./api";
 
@@ -23,6 +23,8 @@ function getServerSnapshot(): boolean | null {
 
 export function useRequireAuth() {
   const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const hasToken = useSyncExternalStore(
     subscribeAuth,
     getAuthSnapshot,
@@ -31,9 +33,15 @@ export function useRequireAuth() {
 
   useEffect(() => {
     if (hasToken === false) {
-      router.push("/login");
+      const query = searchParams.toString();
+      const currentPath = `${pathname || ""}${query ? `?${query}` : ""}`;
+      const shouldUseMobileLogin =
+        String(pathname || "").startsWith("/mobile") ||
+        (window.matchMedia && window.matchMedia("(max-width: 820px)").matches);
+      const loginPath = shouldUseMobileLogin ? "/mobile/login" : "/login";
+      router.push(`${loginPath}?from=${encodeURIComponent(currentPath || "/")}`);
     }
-  }, [hasToken, router]);
+  }, [hasToken, pathname, router, searchParams]);
 
   return hasToken;
 }

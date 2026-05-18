@@ -1,4 +1,5 @@
 import { apiFetch } from "./api";
+import { toMobileRoute } from "./mobileRoutes";
 
 type VendasBoardPayload = {
   summary?: {
@@ -17,7 +18,7 @@ export function mobileDestinationFromVendasBoard(board: VendasBoardPayload | nul
   const summary = board?.summary || {};
   const total = safeCount(summary.total);
   const activeQueue = safeCount(summary.today) + safeCount(summary.overdue) + safeCount(summary.scheduled);
-  return total > 0 || activeQueue > 0 ? "/vendas" : "/radar-digital";
+  return toMobileRoute(total > 0 || activeQueue > 0 ? "/vendas" : "/radar-digital");
 }
 
 export async function fetchMobileOperationalDestination() {
