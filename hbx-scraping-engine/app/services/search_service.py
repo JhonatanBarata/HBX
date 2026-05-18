@@ -9,7 +9,7 @@ from app.config import DB_PATH, get_settings
 from app.schemas import ContactResult, QueryPayload, SearchRequest, SearchResponse
 
 from .agenda_sources import dedupe_by_phone, search_abctelefonos
-from .discovery import discover_urls
+from .discovery import discover_social_profiles, discover_urls
 from .fetcher import Fetcher
 from .filters import domain_from_url, is_blocked_lead_source_domain, is_generic_name, is_pf_technical_blocked_domain, is_social_signal_domain, text_key
 from .normalizer import dedupe_contacts
@@ -72,9 +72,10 @@ class SearchService:
             "instagram": bool(contact.get("instagramUrl")),
             "facebook": bool(contact.get("facebookUrl")),
         }
-        if required_channels == {"instagram", "facebook"}:
-            return available["instagram"] or available["facebook"]
         return all(available[channel] for channel in required_channels)
+
+    def compact_key(self, value: str) -> str:
+        return re.sub(r"[^a-z0-9]+", "", text_key(value))
 
     def quote_query_part(self, value: str) -> str:
         text = " ".join(str(value or "").replace('"', " ").replace("'", " ").split())
@@ -227,6 +228,98 @@ class SearchService:
             print(f"[social_enrich] query falhou: {query} error={error}")
         return None, 0
 
+    def score_social_profile_for_contact(self, contact: dict, profile: dict, city: str, segment: str) -> int:
+        url = str(profile.get("url") or "")
+        title = str(profile.get("title") or "")
+        snippet = str(profile.get("snippet") or "")
+        combined = f"{url} {title} {snippet}"
+        combined_key = text_key(combined)
+        combined_compact = self.compact_key(combined)
+
+        name = str(contact.get("name") or "")
+        name_key = text_key(name)
+        name_compact = self.compact_key(name)
+        city_key = text_key(city)
+        segment_key = text_key(segment)
+        website_domain = domain_from_url(contact.get("website"))
+        website_stem = text_key(website_domain.split(".")[0] if website_domain else "")
+        phone_digits = re.sub(r"\D", "", str(contact.get("phoneDigits") or contact.get("phone") or ""))
+        phone_tail = phone_digits[-8:] if len(phone_digits) >= 8 else ""
+
+        name_tokens = self.social_name_tokens(name)
+        token_hits = sum(1 for token in name_tokens if token in combined_key)
+
+        score = 0
+        if name_key and name_key in combined_key:
+            score += 50
+        if name_compact and name_compact in combined_compact:
+            score += 45
+        if name_tokens and token_hits >= max(1, min(2, len(name_tokens))):
+            score += 35
+        elif token_hits == 1:
+            score += 18
+        if city_key and city_key in combined_key:
+            score += 20
+        if segment_key and segment_key in combined_key:
+            score += 10
+        if website_stem and len(website_stem) >= 4 and website_stem in combined_key:
+            score += 25
+        if phone_tail and phone_tail in re.sub(r"\D", "", combined):
+            score += 30
+
+        if not name_tokens and not website_stem:
+            score -= 50
+        if score <= 0:
+            score = -20
+
+        return score
+
+    def attach_discovered_social_profiles(
+        self,
+        contacts: list[dict],
+        profiles: list[dict],
+        city: str,
+        segment: str,
+    ) -> dict:
+        stats = {
+            "profilesDiscovered": len(profiles),
+            "profilesAttached": 0,
+            "profilesUnmatched": 0,
+        }
+
+        for profile in profiles:
+            channel = str(profile.get("channel") or "")
+            field = "instagramUrl" if channel == "instagram" else "facebookUrl" if channel == "facebook" else None
+            url = normalize_social_url(str(profile.get("url") or ""))
+            if not field or not url:
+                continue
+
+            best_contact = None
+            best_score = -999
+
+            for contact in contacts:
+                if contact.get(field):
+                    continue
+                if not self.should_try_social_enrichment(contact, city, segment, {"instagram", "facebook"}):
+                    continue
+                score = self.score_social_profile_for_contact(contact, profile, city, segment)
+                if score > best_score:
+                    best_contact = contact
+                    best_score = score
+
+            if best_contact and best_score >= 35:
+                best_contact[field] = url
+                best_contact.setdefault("_socialDiscovery", {})[field] = {
+                    "score": best_score,
+                    "title": profile.get("title"),
+                    "query": profile.get("query"),
+                }
+                stats["profilesAttached"] += 1
+            else:
+                stats["profilesUnmatched"] += 1
+
+        return stats
+
     def enrich_social_links_for_contacts(
         self,
         contacts: list[dict],
@@ -306,6 +399,21 @@ class SearchService:
             await asyncio.to_thread(self.storage.save_run, request, response.model_dump())
             return response
 
+        required_social_channels = self.required_social_channels(request.requiredChannels)
+        requested_social_channels = self.requested_social_channels(request.preferredChannels, request.requiredChannels)
+        social_profiles: list[dict] = []
+        if request.targetType == "pj" and requested_social_channels:
+            social_profiles = await asyncio.to_thread(
+                discover_social_profiles,
+                request.city,
+                request.state,
+                request.segment,
+                request.limit,
+                request.preferredChannels,
+                request.requiredChannels,
+            )
+            print(f"[social_discovery] profiles={len(social_profiles)} channels={','.join(sorted(requested_social_channels))}")
+
         urls = await asyncio.to_thread(
             discover_urls,
             request.city,
@@ -353,10 +461,21 @@ class SearchService:
                 parsed.append(contact)
 
         deduped = dedupe_contacts(parsed, request.city, request.targetType)
-        required_social_channels = self.required_social_channels(request.requiredChannels)
-        requested_social_channels = self.requested_social_channels(request.preferredChannels, request.requiredChannels) or ({"instagram", "facebook"} if request.targetType == "pj" else set())
+        social_discovery_stats = {
+            "profilesDiscovered": len(social_profiles),
+            "profilesAttached": 0,
+            "profilesUnmatched": 0,
+        }
+        if request.targetType == "pj" and social_profiles:
+            social_discovery_stats = self.attach_discovered_social_profiles(
+                deduped,
+                social_profiles,
+                request.city,
+                request.segment,
+            )
+        effective_social_channels = requested_social_channels or ({"instagram", "facebook"} if request.targetType == "pj" else set())
         social_stats = {
-            "requestedChannels": sorted(requested_social_channels),
+            "requestedChannels": sorted(effective_social_channels),
             "requiredChannels": sorted(required_social_channels),
             "enrichmentRan": False,
             "mode": "required" if required_social_channels else "best_effort",
@@ -364,6 +483,7 @@ class SearchService:
             "skippedBadCandidate": 0,
             "enrichedCount": 0,
             "missingRequiredChannel": 0,
+            "discovery": social_discovery_stats,
         }
         if request.targetType == "pj":
             deduped, social_stats = await asyncio.to_thread(
@@ -375,6 +495,7 @@ class SearchService:
                 request.preferredChannels,
                 request.requiredChannels,
             )
+            social_stats["discovery"] = social_discovery_stats
         allowed_fields = {"name", "phone", "phoneDigits", "rating", "reviews", "address", "website", "instagramUrl", "facebookUrl", "source", "score"}
         min_score = 0 if request.targetType == "pf" else 50
         public_items: list[dict] = []
