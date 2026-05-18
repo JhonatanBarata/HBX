@@ -1,10 +1,12 @@
 import asyncio
 
+from ddgs import DDGS
+
 from app.config import DB_PATH, get_settings
 from app.schemas import ContactResult, QueryPayload, SearchRequest, SearchResponse
 
 from .agenda_sources import dedupe_by_phone, search_abctelefonos
-from .discovery import discover_urls
+from .discovery import _is_valid_social_profile_url, discover_urls
 from .fetcher import Fetcher
 from .filters import is_blocked_lead_source_domain, is_generic_name, is_pf_technical_blocked_domain, is_social_signal_domain
 from .normalizer import dedupe_contacts
@@ -18,11 +20,89 @@ class SearchService:
         self.settings = get_settings()
         self.storage = Storage(DB_PATH, self.settings.cache_ttl_hours)
 
+    def requested_social_channels(
+        self,
+        preferred_channels: list[str] | None = None,
+        required_channels: list[str] | None = None,
+    ) -> set[str]:
+        values = [*(preferred_channels or []), *(required_channels or [])]
+        return {str(channel or "").strip().lower() for channel in values if str(channel or "").strip().lower() in {"instagram", "facebook"}}
+
+    def social_queries_for_contact(self, contact: dict, city: str, segment: str, channel: str) -> list[str]:
+        name = " ".join(str(contact.get("name") or "").split())
+        city_text = " ".join(str(city or "").split())
+        segment_text = " ".join(str(segment or "").split())
+        if not name or not city_text:
+            return []
+        domain = "instagram.com" if channel == "instagram" else "facebook.com"
+        return [
+            f'site:{domain} "{name}" "{city_text}"',
+            f'"{name}" "{segment_text}" "{city_text}" {channel}'.replace('"" ', ""),
+        ][:2]
+
+    def search_social_profile_url(self, query: str, channel: str) -> str | None:
+        try:
+            try:
+                ddgs = DDGS(timeout=4)
+            except TypeError:
+                ddgs = DDGS()
+            with ddgs as client:
+                rows = client.text(query, region="br-pt", safesearch="off", max_results=4)
+                for row in rows or []:
+                    url = str(row.get("href") or row.get("url") or "").strip().rstrip("/")
+                    if channel not in url.lower():
+                        continue
+                    if _is_valid_social_profile_url(url):
+                        return url
+        except Exception as error:
+            print(f"[social_enrich] query falhou: {query} error={error}")
+        return None
+
+    def enrich_social_links_for_contacts(
+        self,
+        contacts: list[dict],
+        city: str,
+        state: str,
+        segment: str,
+        preferred_channels: list[str] | None = None,
+        required_channels: list[str] | None = None,
+    ) -> list[dict]:
+        requested_channels = self.requested_social_channels(preferred_channels, required_channels)
+        if not requested_channels:
+            return contacts
+        enriched = 0
+        processed = 0
+        for contact in contacts:
+            if processed >= 20:
+                break
+            if not contact.get("name") or not contact.get("phone"):
+                continue
+            processed += 1
+            touched = False
+            for channel in ("instagram", "facebook"):
+                if channel not in requested_channels:
+                    continue
+                field = "instagramUrl" if channel == "instagram" else "facebookUrl"
+                if contact.get(field):
+                    continue
+                for query in self.social_queries_for_contact(contact, city, segment, channel):
+                    url = self.search_social_profile_url(query, channel)
+                    if url:
+                        contact[field] = url
+                        touched = True
+                        break
+            if touched:
+                enriched += 1
+        if requested_channels:
+            print(f"[social_enrich] canais={','.join(sorted(requested_channels))} contatos_enriquecidos={enriched}")
+        return contacts
+
     async def search(self, request: SearchRequest) -> SearchResponse:
         excluded_phones = set(request.excludePhoneDigits or [])
         excluded_urls = set(request.excludeUrls or [])
+        social_requested = bool(self.requested_social_channels(request.preferredChannels, request.requiredChannels))
 
-        if not request.fresh and not excluded_phones and not excluded_urls:
+        if not request.fresh and not excluded_phones and not excluded_urls and not social_requested:
             cached = await asyncio.to_thread(self.storage.get_cached, request)
             if cached:
                 return SearchResponse.model_validate(cached)
@@ -79,6 +159,16 @@ class SearchService:
                 parsed.append(contact)
 
         deduped = dedupe_contacts(parsed, request.city, request.targetType)
+        if request.targetType == "pj":
+            deduped = await asyncio.to_thread(
+                self.enrich_social_links_for_contacts,
+                deduped,
+                request.city,
+                request.state,
+                request.segment,
+                request.preferredChannels,
+                request.requiredChannels,
+            )
         allowed_fields = {"name", "phone", "phoneDigits", "rating", "reviews", "address", "website", "instagramUrl", "facebookUrl", "source", "score"}
         min_score = 0 if request.targetType == "pf" else 50
         public_items: list[dict] = []

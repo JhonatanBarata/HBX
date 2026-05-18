@@ -114,10 +114,9 @@ def _is_allowed_url(
     full = url.lower()
     if parsed.scheme not in ("http", "https") or not host:
         return False
-    requested_social = _requested_social_channels(preferred_channels, required_channels)
     social_channel = _social_channel_for_url(url)
     if social_channel:
-        return social_channel in requested_social and _is_valid_social_profile_url(url)
+        return False
     if is_blocked_lead_source_domain(host) or any(part in host for part in BLOCKED_HOST_PARTS):
         return False
     if "google.com/maps" in full or "/login" in path or "signin" in path:
@@ -151,11 +150,7 @@ def discover_urls(
     required_channels: list[str] | None = None,
 ) -> list[str]:
     target = discovery_target(limit, max_discovery_results, target_type, exclude_count)
-    requested_social = _requested_social_channels(preferred_channels, required_channels)
-    queries = [
-        *build_queries(segment, city, state, target_type, query),
-        *([] if query else _social_queries(segment, city, requested_social)),
-    ]
+    queries = build_queries(segment, city, state, target_type, query)
     per_query = max(8, target // len(queries) + 2)
     seen: set[str] = {str(url or "").strip().rstrip("/") for url in (exclude_urls or []) if str(url or "").strip()}
     urls: list[str] = []

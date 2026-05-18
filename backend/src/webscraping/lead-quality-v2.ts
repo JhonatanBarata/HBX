@@ -1068,6 +1068,9 @@ export function calculateLeadQualityV2(input: {
     const absentChannelKeys = channelMatchMode === 'any_required' ? profileRequiredChannels : missingRequiredChannels;
     const absentChannels = absentChannelKeys.map((channel) => CHANNEL_LABELS[channel]);
     reasons.push(`Canal obrigatório ausente após enriquecimento: ${absentChannels.join('/')}.`);
+    if (absentChannelKeys.includes('instagram')) reasons.push('Instagram obrigatório ausente após enriquecimento.');
+    if (absentChannelKeys.includes('facebook')) reasons.push('Facebook obrigatório ausente após enriquecimento.');
+    reasons.push('Filtro obrigatório forte reduziu a entrega.');
     const onlyMissingSocial = absentChannelKeys.length > 0 && absentChannelKeys.every((channel) => channel === 'instagram' || channel === 'facebook');
     const hasStrongDirectContact = whatsappConfirmed || likelyMobile || phoneValid || emailConfirmed || emailProbable;
     decision = qualityMode === 'list' || (qualityMode === 'lead_plus' && onlyMissingSocial && hasStrongDirectContact)
