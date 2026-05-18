@@ -100,10 +100,13 @@ services:
       DATABASE_URL: postgresql://admin:admin123@db:5432/jhonatan_dev
       DIRECT_URL: postgresql://admin:admin123@db:5432/jhonatan_dev
       NODE_ENV: development
+      WHATSAPP_MODAL_INTERNAL_URL: http://host.docker.internal:8080
       HBX_SCRAPING_ENGINE_URL: http://hbx-scraping-engine:8001
       HBX_ENGINE_COUNT: ${HBX_ENGINE_COUNT:-50}
       HBX_ENGINE_MAX_COUNT: ${HBX_ENGINE_MAX_COUNT:-50}
       HBX_ENGINE_URLS: ${HBX_ENGINE_URLS:-http://hbx-engine-{n}:8001}
+      HBX_LIST_ENGINE_COUNT: ${HBX_LIST_ENGINE_COUNT:-40}
+      HBX_LEAD_PLUS_ENRICHMENT_ENGINE_COUNT: ${HBX_LEAD_PLUS_ENRICHMENT_ENGINE_COUNT:-10}
       HBX_CLIENT_RESERVED_ENGINES: ${HBX_CLIENT_RESERVED_ENGINES:-2}
       HBX_FACTORY_MIN_ENGINES: ${HBX_FACTORY_MIN_ENGINES:-1}
       HBX_FACTORY_MAX_ENGINES: ${HBX_FACTORY_MAX_ENGINES:-50}
@@ -126,6 +129,8 @@ services:
 
     ports:
       - "3000:3000"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - ./backend:/app:cached
       - ./backend/prisma:/app/prisma:cached

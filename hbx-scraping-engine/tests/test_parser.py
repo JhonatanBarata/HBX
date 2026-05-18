@@ -39,6 +39,56 @@ def test_parse_jsonld_local_business() -> None:
     assert "googleMapsUrl" not in contacts[0]
 
 
+def test_parse_jsonld_item_list_local_businesses() -> None:
+    html = """
+    <html><head>
+      <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "ItemList",
+        "itemListElement": [
+          {
+            "@type": "ListItem",
+            "position": 1,
+            "url": "https://www.solutudo.com.br/empresas/sp/boituva/farmacias/farmacia-bifarma-156947",
+            "item": {
+              "@type": "LocalBusiness",
+              "name": "Farmacia Bifarma",
+              "address": {
+                "@type": "PostalAddress",
+                "streetAddress": "R Coronel Eugenio Motta, 453",
+                "addressCountry": "BR"
+              },
+              "telephone": "+55 15 3268-7519"
+            }
+          },
+          {
+            "@type": "ListItem",
+            "position": 2,
+            "url": "https://www.solutudo.com.br/empresas/sp/boituva/farmacias/pharmapele-boituva-farmacia-de-manipulacao-21679603",
+            "item": {
+              "@type": "LocalBusiness",
+              "name": "Pharmapele Boituva - Farmácia de Manipulação",
+              "telephone": "+55 15 99768-6417"
+            }
+          }
+        ]
+      }
+      </script>
+    </head><body></body></html>
+    """
+
+    contacts, _ = parse_page(html, "https://www.solutudo.com.br/empresas/sp/boituva/farmacias", city="Boituva")
+
+    assert [contact["name"] for contact in contacts] == [
+        "Farmacia Bifarma",
+        "Pharmapele Boituva",
+    ]
+    assert contacts[0]["phoneDigits"] == "1532687519"
+    assert contacts[0]["website"] is None
+    assert contacts[1]["phoneDigits"] == "15997686417"
+
+
 def test_parse_tel_link() -> None:
     html = """
     <html>
@@ -115,5 +165,21 @@ def test_parse_blocks_generic_name() -> None:
     """
 
     contacts, _ = parse_page(html, "https://oficinagenerica.example.com.br")
+
+    assert contacts == []
+
+
+def test_parse_blocks_directory_listing_title_as_generic_name() -> None:
+    html = """
+    <html>
+      <head><title>Confira as melhores opções em "Farmácias" em Boituva, SP</title></head>
+      <body>
+        <h1>Confira as melhores opções em "Farmácias" em Boituva, SP</h1>
+        <a href="https://api.whatsapp.com/send?phone=5514996340966">WhatsApp</a>
+      </body>
+    </html>
+    """
+
+    contacts, _ = parse_page(html, "https://www.solutudo.com.br/empresas/sp/boituva/farmacias", city="Boituva")
 
     assert contacts == []

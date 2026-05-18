@@ -1,5 +1,6 @@
 import unicodedata
-from urllib.parse import urlparse
+import re
+from urllib.parse import quote, urlparse
 
 from ddgs import DDGS
 
@@ -13,7 +14,30 @@ PJ_DISCOVERY_LIMIT_MULTIPLIER = 10
 SOCIAL_DISCOVERY_MIN_TARGET = 80
 SOCIAL_DISCOVERY_LIMIT_MULTIPLIER = 12
 SOCIAL_DISCOVERY_MAX_RESULTS_PER_QUERY = 50
+SOCIAL_DISCOVERY_FORCED_QUERY_LIMIT_PER_CHANNEL = 3
 SocialProfileCandidate = dict[str, str]
+
+
+def slugify_path_part(value: str) -> str:
+    normalized = unicodedata.normalize("NFKD", str(value or "").strip().lower())
+    ascii_text = normalized.encode("ascii", "ignore").decode("ascii")
+    return re.sub(r"-+", "-", re.sub(r"[^a-z0-9]+", "-", ascii_text)).strip("-")
+
+
+def build_directory_seed_urls(segment: str, city: str, state: str) -> list[str]:
+    segment_slug = slugify_path_part(segment)
+    city_slug = slugify_path_part(city)
+    state_slug = slugify_path_part(state)
+    if not segment_slug or not city_slug or not state_slug:
+        return []
+
+    query_slug = quote(f"{segment_slug}-{city_slug}-{state_slug}", safe="-")
+    return [
+        f"https://www.solutudo.com.br/empresas/{state_slug}/{city_slug}/{segment_slug}",
+        f"https://listaamarela.com.br/busca/{query_slug}",
+        f"https://www.apontador.com.br/local/{state_slug}/{city_slug}/{segment_slug}.html",
+        f"https://www.guiamais.com.br/busca/{segment_slug}/{city_slug}-{state_slug}",
+    ]
 
 
 def build_queries(segment: str, city: str, state: str, target_type: str = "pj", query: str = "") -> list[str]:
@@ -155,16 +179,21 @@ def discover_social_profiles(
     channels = requested_social_channels(preferred_channels, required_channels)
     if not channels:
         return []
+    if target_override is not None:
+        return []
 
     queries = build_social_queries(segment, city, state, channels)
     target = max(1, int(target_override)) if target_override is not None else max(SOCIAL_DISCOVERY_MIN_TARGET, limit * SOCIAL_DISCOVERY_LIMIT_MULTIPLIER)
-    per_query_results = min(SOCIAL_DISCOVERY_MAX_RESULTS_PER_QUERY, max(target * 2, 6)) if target_override is not None else SOCIAL_DISCOVERY_MAX_RESULTS_PER_QUERY
-    backend = "google" if target_override is not None else "auto"
+    if target_override is not None:
+        channels_count = max(1, len(channels))
+        queries = queries[: max(1, channels_count * SOCIAL_DISCOVERY_FORCED_QUERY_LIMIT_PER_CHANNEL)]
+    per_query_results = min(8, max(target * 2, 6)) if target_override is not None else SOCIAL_DISCOVERY_MAX_RESULTS_PER_QUERY
+    backend = "auto"
     seen: set[str] = set()
     profiles: list[SocialProfileCandidate] = []
 
     try:
-        ddgs = DDGS(timeout=6)
+        ddgs = DDGS(timeout=2 if target_override is not None else 6)
     except TypeError:
         ddgs = DDGS()
     with ddgs:
@@ -237,6 +266,18 @@ def discover_urls(
     seen: set[str] = {str(url or "").strip().rstrip("/") for url in (exclude_urls or []) if str(url or "").strip()}
     urls: list[str] = []
 
+    if target_type == "pj":
+        for url in build_directory_seed_urls(segment, city, state):
+            normalized = url.rstrip("/")
+            if normalized in seen or not _is_allowed_url(normalized, preferred_channels, required_channels):
+                continue
+            seen.add(normalized)
+            urls.append(normalized)
+        if social_channels and urls:
+            return urls
+        if len(urls) >= max(1, min(limit, 4)):
+            return urls
+
     try:
         ddgs = DDGS(timeout=6)
     except TypeError:
@@ -259,5 +300,13 @@ def discover_urls(
                 urls.append(normalized)
                 if len(urls) >= target:
                     return urls
+
+    if target_type == "pj" and len(urls) < max(1, min(limit, 4)):
+        for url in build_directory_seed_urls(segment, city, state):
+            normalized = url.rstrip("/")
+            if normalized in seen or not _is_allowed_url(normalized, preferred_channels, required_channels):
+                continue
+            seen.add(normalized)
+            urls.append(normalized)
 
     return urls

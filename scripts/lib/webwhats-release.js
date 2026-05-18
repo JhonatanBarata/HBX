@@ -18,6 +18,11 @@ function resolveWebwhatsRepoPath(env = process.env) {
     return path.resolve(repoRoot, configuredPath);
   }
 
+  const localRepoPath = path.resolve(repoRoot, 'Webwhats');
+  if (isWebwhatsRepoAvailable(localRepoPath)) {
+    return localRepoPath;
+  }
+
   return path.resolve(repoRoot, '..', 'Webwhats');
 }
 

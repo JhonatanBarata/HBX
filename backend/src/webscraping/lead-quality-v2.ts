@@ -101,6 +101,105 @@ const DIRECTORY_PATTERNS = [
   'telefone empresas',
 ];
 
+const GENERIC_CATEGORY_TITLE_HEADS = [
+  'academias',
+  'bares',
+  'bares e restaurantes',
+  'clinicas',
+  'clinicas de estetica',
+  'clinicas de estetica e esteticistas',
+  'clinicas medicas',
+  'dentistas',
+  'esteticistas',
+  'farmacias',
+  'farmacias e drogarias',
+  'imobiliarias',
+  'loja de maquinas e ferramentas',
+  'oficinas',
+  'oficinas mecanicas',
+  'perfumarias',
+  'perfumarias e cosmeticos',
+  'produtora de video',
+  'produtoras de video',
+  'saloes de beleza',
+  'vidracarias',
+];
+
+const BAD_CONTENT_TITLE_PREFIXES = [
+  'associado ',
+  'assistencia tecnica da ',
+  'cep ',
+  'conheca ',
+  'contaminacao em ',
+  'consulta de optante ',
+  'duvidas frequentes',
+  'encontre seu proximo lar',
+  'encontre seu imovel',
+  'governo lanca ',
+  'hospedagem pe na areia',
+  'papel de parede ',
+  'prefeitura ',
+  'relacao das secretarias',
+  'servicos de ',
+  'te damos la bienvenida ',
+  'vidracarias no ',
+  'o que e ',
+  'opiniones sobre ',
+  'produtos em destaque',
+  'produtora de video em ',
+  'piscinas prefabricadas',
+  'que es ',
+];
+
+const BAD_CONTENT_TITLE_CONTAINS = [
+  ' tudo o que voce precisa saber',
+  ' dicas de ',
+  ' materia ',
+  ' materias ',
+  ' melhores ',
+  ' opiniones ',
+  ' produto ',
+  ' produtos em destaque',
+  ' redefinindo ',
+  ' realiza provas ',
+  ' resenas reales',
+  ' resenhas reais',
+  ' tipos de seguros y telefonos',
+  ' veja mais',
+  ' acesse sua area exclusiva',
+  ' anos e executado',
+  ' abre processo seletivo ',
+  ' combina tecnologia',
+  ' e executado dentro',
+  ' ganha nova ',
+  ' nova associada ',
+  ' variedade ',
+  ' so pra socio',
+  ' tendencia que pede ',
+  ' venda direta',
+  'btus',
+  'inverter',
+  'seducao olfativa',
+  'so frio 220v',
+];
+
+const BAD_CONTENT_TITLE_EXACTS = [
+  'duvidas frequentes',
+  'loja de maquinas e ferramentas',
+  'piscinas de areia',
+];
+
+const THIRD_PARTY_SOCIAL_PROFILE_HINTS = [
+  'editoramanole',
+  'fresha',
+  'guiatemdigital',
+  'oficialmanole',
+  'petdiretorio',
+  'qconcursos',
+  'setorenergetico',
+  'socorroauto',
+];
+
 const SEGMENT_INTENTS: SegmentIntentMap[] = [
   {
     key: 'oficina',
@@ -447,6 +546,51 @@ function includesAny(haystack: string, needles: string[]) {
   return needles.some((needle) => haystack.includes(normalizeKey(needle)));
 }
 
+function looksLikeCategoryLocationTitle(nameKey: string, cityKey: string, requestedSegmentKey: string) {
+  const heads = new Set([
+    ...GENERIC_CATEGORY_TITLE_HEADS,
+    requestedSegmentKey,
+    requestedSegmentKey.endsWith('s') ? requestedSegmentKey.slice(0, -1) : `${requestedSegmentKey}s`,
+  ].map(normalizeKey).filter(Boolean));
+  for (const head of heads) {
+    if (!head) continue;
+    if (nameKey === head) return true;
+    if (/^(em|no|na|nos|nas)\s+/.test(nameKey.slice(head.length).trim())) return nameKey.startsWith(`${head} `);
+    if (cityKey && (
+      nameKey === `${head} em ${cityKey}` ||
+      nameKey === `${head} no ${cityKey}` ||
+      nameKey === `${head} na ${cityKey}` ||
+      nameKey.startsWith(`${head} em ${cityKey} `)
+    )) return true;
+  }
+  return /^(10|20|30|40|50)\s+melhores\s+/.test(nameKey);
+}
+
+function looksLikeBadContentTitle(input: { rawName: string; nameKey: string; cityKey: string; requestedSegmentKey: string }) {
+  if (/[&][#a-zA-Z0-9]+;/.test(input.rawName)) return true;
+  if (looksLikeCategoryLocationTitle(input.nameKey, input.cityKey, input.requestedSegmentKey)) return true;
+  if (BAD_CONTENT_TITLE_EXACTS.some((exact) => input.nameKey === normalizeKey(exact))) return true;
+  if (BAD_CONTENT_TITLE_PREFIXES.some((prefix) => input.nameKey.startsWith(normalizeKey(prefix)))) return true;
+  if (BAD_CONTENT_TITLE_CONTAINS.some((term) => ` ${input.nameKey} `.includes(normalizeKey(term)))) return true;
+  if (/\b\d+(?:[,.]\d+)?\s*(?:g|kg|ml|l|btus?)\b/.test(input.nameKey)) return true;
+  if (/^deposito de bebidas?$/.test(input.nameKey)) return true;
+  return false;
+}
+
+function socialProfileKey(url: string) {
+  try {
+    const parsed = new URL(/^https?:\/\//i.test(url) ? url : `https://${url}`);
+    return normalizeKey(`${parsed.hostname} ${parsed.pathname}`).replace(/[^a-z0-9]+/g, ' ');
+  } catch {
+    return normalizeKey(url).replace(/[^a-z0-9]+/g, ' ');
+  }
+}
+
+function looksLikeThirdPartySocialProfile(url: string) {
+  const key = socialProfileKey(url);
+  return THIRD_PARTY_SOCIAL_PROFILE_HINTS.some((hint) => key.includes(normalizeKey(hint)));
+}
+
 function normalizeStringArray(value: unknown, limit = 40) {
   if (!Array.isArray(value)) return [];
   return value
@@ -696,6 +840,8 @@ export function calculateLeadQualityV2(input: {
   const reasons: string[] = [];
   const name = normalizeText(row?.name);
   const nameKey = normalizeKey(name);
+  const cityKey = normalizeKey(row?.city || input.context?.requestedCity);
+  const requestedSegmentKey = normalizeKey(input.context?.requestedSegment || row?.requestedSegment || row?.segment);
   const phone = row?.phoneDigits || row?.phone || row?.phoneNormalized;
   const phoneValid = isValidPhone(phone);
   const likelyMobile = isLikelyMobile(phone);
@@ -703,7 +849,9 @@ export function calculateLeadQualityV2(input: {
   const website = normalizeText(row?.website || row?.websiteUrl);
   const instagramUrl = normalizeText(row?.instagramUrl || row?.signals?.instagramUrl);
   const facebookUrl = normalizeText(row?.facebookUrl || row?.signals?.facebookUrl);
-  const hasSocial = Boolean(instagramUrl || facebookUrl);
+  const instagramAvailable = Boolean(instagramUrl) && !looksLikeThirdPartySocialProfile(instagramUrl);
+  const facebookAvailable = Boolean(facebookUrl) && !looksLikeThirdPartySocialProfile(facebookUrl);
+  const hasSocial = instagramAvailable || facebookAvailable;
   const emailStatus = normalizeKey(row?.emailStatus || row?.signals?.emailStatus);
   const email = row?.email || row?.emailCandidate;
   const emailConfirmed = emailStatus === 'confirmed' || hasEmail(email);
@@ -717,8 +865,8 @@ export function calculateLeadQualityV2(input: {
     phone: phoneValid,
     email: emailConfirmed || emailProbable,
     website: websiteAvailable,
-    instagram: Boolean(instagramUrl),
-    facebook: Boolean(facebookUrl),
+    instagram: instagramAvailable,
+    facebook: facebookAvailable,
   };
   const statusText = [
     row?.status,
@@ -731,7 +879,8 @@ export function calculateLeadQualityV2(input: {
   ].map(normalizeKey).filter(Boolean).join(' ');
   const protectedStatus = Array.from(PROTECTED_STATUSES).some((status) => statusText.includes(status));
   const directoryLike = includesAny(`${nameKey} ${normalizeKey(row?.source)} ${normalizeKey(row?.sourceUrl)}`, DIRECTORY_PATTERNS);
-  const genericName = !name || nameKey.length < 3 || GENERIC_NAME_PATTERNS.some((term) => nameKey === normalizeKey(term) || nameKey.includes(normalizeKey(term)));
+  const badContentTitle = looksLikeBadContentTitle({ rawName: name, nameKey, cityKey, requestedSegmentKey });
+  const genericName = !name || nameKey.length < 3 || badContentTitle || GENERIC_NAME_PATTERNS.some((term) => nameKey === normalizeKey(term) || nameKey.includes(normalizeKey(term)));
   const salesProfile = input.context?.salesProfile || null;
 
   let identityScore = 20;
@@ -746,6 +895,10 @@ export function calculateLeadQualityV2(input: {
   if (genericName) {
     identityScore -= 30;
     reasons.push('Identidade fraca: nome generico ou placeholder.');
+  }
+  if (badContentTitle) {
+    identityScore -= 18;
+    reasons.push('Resultado parece titulo de categoria, materia ou produto, nao uma empresa.');
   }
   if (!phoneValid) identityScore -= 18;
   if (!normalizeText(row?.address)) identityScore -= 6;
@@ -1018,6 +1171,9 @@ export function calculateLeadQualityV2(input: {
   } else if (directoryLike) {
     decision = 'discard';
     discardReason = 'generic_directory';
+  } else if (badContentTitle) {
+    decision = 'discard';
+    discardReason = 'weak_identity';
   } else if (identityScore < 35) {
     decision = 'discard';
     discardReason = 'weak_identity';

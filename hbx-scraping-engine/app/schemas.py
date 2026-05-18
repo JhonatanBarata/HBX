@@ -108,6 +108,55 @@ class ContactResult(BaseModel):
     score: int
 
 
+class EnrichLeadRequest(BaseModel):
+    name: str
+    phone: str = ""
+    phoneDigits: str = ""
+    city: str = ""
+    state: str = ""
+    segment: str = ""
+    website: str | None = None
+    email: str | None = None
+    instagramUrl: str | None = None
+    facebookUrl: str | None = None
+    preferredChannels: list[str] = Field(default_factory=lambda: ["instagram", "facebook"])
+    requiredChannels: list[str] = Field(default_factory=list)
+
+    @field_validator("name", "phone", "phoneDigits", "city", "state", "segment")
+    @classmethod
+    def normalize_optional_text(cls, value: str) -> str:
+        return " ".join(str(value or "").split())
+
+    @field_validator("preferredChannels", "requiredChannels")
+    @classmethod
+    def normalize_enrichment_channels(cls, values: list[str]) -> list[str]:
+        allowed = {"instagram", "facebook"}
+        seen: set[str] = set()
+        normalized: list[str] = []
+        for value in values or []:
+            channel = str(value or "").strip().lower()
+            if channel in allowed and channel not in seen:
+                seen.add(channel)
+                normalized.append(channel)
+        return normalized
+
+
+class EnrichLeadResponse(BaseModel):
+    name: str
+    phone: str = ""
+    phoneDigits: str = ""
+    website: str | None = None
+    email: str | None = None
+    emailStatus: str = "missing"
+    emailSource: str = "none"
+    emailConfidence: int = 0
+    instagramUrl: str | None = None
+    facebookUrl: str | None = None
+    socialStatus: str = "missing"
+    socialConfidence: int = 0
+    stats: dict | None = None
+
+
 class SearchResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

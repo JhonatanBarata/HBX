@@ -5,8 +5,10 @@ $scriptRoot = Split-Path -Parent $MyInvocation.MyCommand.Definition
 $composeFile = Join-Path $scriptRoot "..\docker-compose.yml"
 $frontendDir = Join-Path $scriptRoot "..\frontend"
 $backendDir = Join-Path $scriptRoot "..\backend"
+$webwhatsDir = Join-Path $scriptRoot "..\Webwhats"
 $orchestratorDir = Join-Path $scriptRoot "..\.orchestrator"
 $pidsFile = Join-Path $orchestratorDir "pids.json"
+$webwhatsLogFile = Join-Path $orchestratorDir "webwhats.log"
 
 $ErrorActionPreference = 'Stop'
 
@@ -95,6 +97,135 @@ function Invoke-ExternalOrThrow([string]$filePath, [string[]]$arguments, [string
 	if ($LASTEXITCODE -ne 0) {
 		throw "$failureMessage Exit code: $LASTEXITCODE."
 	}
+}
+
+function Resolve-PidValue($value) {
+	if ($null -eq $value) { return 0 }
+	if ($value -is [array]) {
+		for ($i = $value.Count - 1; $i -ge 0; $i--) {
+			$resolved = Resolve-PidValue $value[$i]
+			if ($resolved -gt 0) { return $resolved }
+		}
+		return 0
+	}
+	try {
+		return [int]$value
+	} catch {
+		return 0
+	}
+}
+
+function Ensure-WebwhatsEnv() {
+	if (!(Test-Path -LiteralPath $webwhatsDir)) {
+		throw "Webwhats directory not found at $webwhatsDir"
+	}
+
+	$envPath = Join-Path $webwhatsDir ".env"
+	if (Test-Path -LiteralPath $envPath) { return }
+
+	@(
+		"SERVER_TYPE=http",
+		"SERVER_PORT=8080",
+		"SERVER_URL=http://localhost:8080",
+		"CORS_ORIGIN=*",
+		"CORS_METHODS=POST,GET,PUT,DELETE",
+		"CORS_CREDENTIALS=true",
+		"DATABASE_PROVIDER=postgresql",
+		"DATABASE_CONNECTION_URI=postgresql://admin:admin123@localhost:5432/jhonatan_dev?schema=webwhats",
+		"DATABASE_CONNECTION_CLIENT_NAME=webwhats_local",
+		"DATABASE_SAVE_DATA_INSTANCE=true",
+		"DATABASE_SAVE_DATA_NEW_MESSAGE=true",
+		"DATABASE_SAVE_MESSAGE_UPDATE=true",
+		"DATABASE_SAVE_DATA_CONTACTS=true",
+		"DATABASE_SAVE_DATA_CHATS=true",
+		"DATABASE_SAVE_DATA_LABELS=true",
+		"DATABASE_SAVE_DATA_HISTORIC=true",
+		"DATABASE_SAVE_IS_ON_WHATSAPP=true",
+		"DATABASE_SAVE_IS_ON_WHATSAPP_DAYS=7",
+		"DATABASE_DELETE_MESSAGE=false",
+		"CACHE_REDIS_ENABLED=false",
+		"CACHE_REDIS_SAVE_INSTANCES=false",
+		"CACHE_LOCAL_ENABLED=true",
+		"AUTHENTICATION_API_KEY=HBXEVOLUTION2026",
+		"AUTHENTICATION_EXPOSE_IN_FETCH_INSTANCES=true",
+		"CONFIG_SESSION_PHONE_CLIENT=HBX",
+		"CONFIG_SESSION_PHONE_NAME=Chrome",
+		"LOG_LEVEL=ERROR,WARN,INFO,LOG",
+		"LOG_BAILEYS=error",
+		"DEL_INSTANCE=false",
+		"QRCODE_LIMIT=0",
+		"TELEMETRY_ENABLED=false",
+		"WEBHOOK_GLOBAL_ENABLED=false",
+		"WEBSOCKET_ENABLED=false"
+	) | Set-Content -Path $envPath -Encoding UTF8
+	Write-Host "Created local Webwhats env at $envPath"
+}
+
+function Get-ProcessCommandLine([int]$processId) {
+	if (!$processId) { return "" }
+	try {
+		$proc = Get-CimInstance Win32_Process -Filter "ProcessId = $processId" -ErrorAction Stop
+		return [string]$proc.CommandLine
+	} catch {
+		return ""
+	}
+}
+
+function Test-WebwhatsProcess([int]$processId) {
+	$cmd = Get-ProcessCommandLine -processId $processId
+	return $cmd -like "*Webwhats*" -or $cmd -like "*dist/main.js*" -or $cmd -like "*src/main.ts*"
+}
+
+function Start-Webwhats() {
+	Ensure-WebwhatsEnv
+
+	Push-Location $webwhatsDir
+	try {
+		if (!(Test-Path node_modules)) {
+			Write-Host "2.0) Ensuring Webwhats deps (npm ci) ..."
+			Invoke-ExternalOrThrow -filePath 'npm' -arguments @('ci') -failureMessage 'Webwhats npm ci failed.' | Out-Host
+		}
+
+		Write-Host "2.1) Preparing Webwhats Prisma schema ..."
+		$migrationsDir = Join-Path $webwhatsDir "prisma\migrations"
+		$sourceMigrationsDir = Join-Path $webwhatsDir "prisma\postgresql-migrations"
+		if ((Resolve-Path -LiteralPath $migrationsDir -ErrorAction SilentlyContinue) -and (Resolve-Path -LiteralPath $migrationsDir).Path.StartsWith((Resolve-Path -LiteralPath $webwhatsDir).Path)) {
+			Remove-Item -LiteralPath $migrationsDir -Recurse -Force
+		}
+		Copy-Item -LiteralPath $sourceMigrationsDir -Destination $migrationsDir -Recurse
+		Invoke-ExternalOrThrow -filePath 'npx' -arguments @('prisma', 'generate', '--schema', 'prisma/postgresql-schema.prisma') -failureMessage 'Webwhats prisma generate failed.' | Out-Host
+		Invoke-ExternalOrThrow -filePath 'npx' -arguments @('prisma', 'migrate', 'deploy', '--schema', 'prisma/postgresql-schema.prisma') -failureMessage 'Webwhats prisma migrate deploy failed.' | Out-Host
+	} finally {
+		Pop-Location
+	}
+
+	$existingPid = Get-ListenerPid -port 8080
+	if ($existingPid -gt 0) {
+		if (Test-WebwhatsProcess -processId $existingPid) {
+			Write-Host "Webwhats already listening on port 8080 pid=$existingPid"
+			return $existingPid
+		}
+		throw "Port 8080 is already in use by pid=$existingPid. Stop it before starting Webwhats."
+	}
+
+	Write-Host "2.2) Starting Webwhats on port 8080 ..."
+	$webwhatsCmd = "`$ErrorActionPreference='Stop'; Set-Location -LiteralPath '${webwhatsDir}'; & npm run start *> '${webwhatsLogFile}'"
+	$webwhatsProc = Start-Process -FilePath "powershell.exe" -ArgumentList @(
+		"-NoProfile",
+		"-ExecutionPolicy", "Bypass",
+		"-Command", $webwhatsCmd
+	) -PassThru -WindowStyle Hidden
+
+	$listenerPid = Wait-PortListener -port 8080 -retries 120 -delayMs 500
+	if ($listenerPid -le 0) {
+		Write-Host "Webwhats did not open port 8080 in time. Recent logs:"
+		if (Test-Path -LiteralPath $webwhatsLogFile) { Get-Content -LiteralPath $webwhatsLogFile -Tail 120 }
+		Stop-IfRunning -processId ([int]$webwhatsProc.Id) -name 'webwhats-wrapper'
+		throw "Webwhats not reachable at http://localhost:8080"
+	}
+
+	Write-Host "Webwhats listener pid=$listenerPid (wrapper=$($webwhatsProc.Id))"
+	return $listenerPid
 }
 
 function Show-ComposeLogs([string[]]$services, [int]$tail = 120) {
@@ -210,6 +341,7 @@ if (Test-Path $pidsFile) {
 	if ($null -ne $prev) {
 		Stop-IfRunning -processId ([int]$prev.frontend) -name 'frontend'
 		Stop-IfRunning -processId ([int]$prev.studio) -name 'prisma-studio'
+		Stop-IfRunning -processId (Resolve-PidValue $prev.webwhats) -name 'webwhats'
 	}
 }
 
@@ -230,6 +362,9 @@ if (-not (Wait-ComposePostgresReady -retries 180 -delayMs 500)) {
 	Show-ComposeLogs -services @('db') -tail 120
 	throw "Database is not ready."
 }
+
+Write-Host "2) Starting Webwhats engine ..."
+$webwhatsPidToTrack = [int](Start-Webwhats | Select-Object -Last 1)
 
 Write-Host "1.0.1) Waiting backend container to be running ..."
 if (-not (Wait-ComposeServiceRunning -service 'backend' -retries 180 -delayMs 500)) {
@@ -264,7 +399,7 @@ if (-not (Wait-BackendHealth -retries 180 -delayMs 500)) {
 }
 Write-Host "Backend healthcheck passed."
 
-Write-Host "2) Ensuring frontend deps (npm install) ..."
+Write-Host "3) Ensuring frontend deps (npm install) ..."
 Push-Location $frontendDir
 try {
 	if (!(Test-Path node_modules)) {
@@ -274,7 +409,7 @@ try {
 	Pop-Location
 }
 
-Write-Host "3) Starting frontend (Next) on port 3001 ..."
+Write-Host "4) Starting frontend (Next) on port 3001 ..."
 $nextCli = Join-Path $frontendDir 'node_modules\next\dist\bin\next'
 if (!(Test-Path -LiteralPath $nextCli)) {
 	throw "Frontend CLI not found at $nextCli. Run npm install in frontend first."
@@ -301,7 +436,7 @@ $frontendPidToTrack = $frontendProc.Id
 if ($listenerPid -gt 0) { $frontendPidToTrack = $listenerPid }
 Write-Host "Frontend listener pid=$frontendPidToTrack (wrapper=$($frontendProc.Id))"
 
-Write-Host "4) Starting Prisma Studio on port 5555 ..."
+Write-Host "5) Starting Prisma Studio on port 5555 ..."
 $studioPidToTrack = 0
 $backendEnvPath = Join-Path $backendDir '.env'
 if (Test-Path -LiteralPath $backendEnvPath) {
@@ -353,8 +488,9 @@ $tmpPidsFile = "${pidsFile}.tmp"
 @{
 	frontend = $frontendPidToTrack
 	studio   = $studioPidToTrack
+	webwhats = $webwhatsPidToTrack
 } | ConvertTo-Json | Set-Content -Path $tmpPidsFile -Encoding UTF8
 Move-Item -Force $tmpPidsFile $pidsFile
 
 $studioStatus = if ($studioPidToTrack -gt 0) { 'Prisma Studio: http://localhost:5555' } else { 'Prisma Studio: skipped' }
-Write-Host "OK. All processes started. Backend: http://localhost:3000, Frontend: http://localhost:3001, $studioStatus"
+Write-Host "OK. All processes started. Backend: http://localhost:3000, Webwhats: http://localhost:8080, Frontend: http://localhost:3001, $studioStatus"

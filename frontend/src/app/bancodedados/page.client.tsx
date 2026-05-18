@@ -580,7 +580,6 @@ export default function BancoDeDadosClientPage() {
         requireAuth: true,
         timeoutMs: 20000,
         body: JSON.stringify({
-          enabled: true,
           stopOutsideWindow: false,
           ...patch,
         }),
@@ -607,7 +606,7 @@ export default function BancoDeDadosClientPage() {
       setFactoryMaxEnginesDraft(String(maxEngines));
       return;
     }
-    const saved = await saveFactorySchedule({ maxEngines, minEngines: maxEngines, engineCount: maxEngines, emergencyStop: false, stopOutsideWindow: false }, `Limite da fábrica ajustado para ${maxEngines} motor(es).`);
+    const saved = await saveFactorySchedule({ maxEngines, minEngines: maxEngines, engineCount: maxEngines, stopOutsideWindow: false }, `Limite da fábrica ajustado para ${maxEngines} motor(es).`);
     if (saved) setEditingFactoryField(null);
   }
 
@@ -629,7 +628,6 @@ export default function BancoDeDadosClientPage() {
       {
         factoryState,
         factoryCity,
-        emergencyStop: false,
         stopOutsideWindow: false,
       },
       factoryState && factoryCity

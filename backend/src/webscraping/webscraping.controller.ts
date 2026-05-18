@@ -1,5 +1,5 @@
 import { Body, Controller, Get, Param, Post, Put, Query, Req, Res, UseGuards } from '@nestjs/common';
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import { IsArray, IsBoolean, IsIn, IsInt, IsNumber, IsObject, IsOptional, IsString, Max, Min, Validate, ValidationArguments, ValidatorConstraint, ValidatorConstraintInterface } from 'class-validator';
 import type { Response } from 'express';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -95,11 +95,13 @@ class WebscrapingSearchDto {
   excludePhoneDigits?: string[];
 
   @IsOptional()
+  @Transform(({ value }) => value == null || value === '' ? [] : Array.isArray(value) ? value : [value])
   @IsArray()
   @IsString({ each: true })
   preferredChannels?: string[];
 
   @IsOptional()
+  @Transform(({ value }) => value == null || value === '' ? [] : Array.isArray(value) ? value : [value])
   @IsArray()
   @IsString({ each: true })
   requiredChannels?: string[];
@@ -269,11 +271,13 @@ class RadarDatabaseQueryDto {
   includeHidden?: boolean | string;
 
   @IsOptional()
+  @Transform(({ value }) => value == null || value === '' ? [] : Array.isArray(value) ? value : [value])
   @IsArray()
   @IsString({ each: true })
   preferredChannels?: string[];
 
   @IsOptional()
+  @Transform(({ value }) => value == null || value === '' ? [] : Array.isArray(value) ? value : [value])
   @IsArray()
   @IsString({ each: true })
   requiredChannels?: string[];

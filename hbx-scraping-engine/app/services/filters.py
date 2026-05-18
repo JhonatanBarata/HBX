@@ -61,6 +61,9 @@ GENERIC_NAME_EXACT = {
     "negocio",
     "curso online",
     "relacao de unidades",
+    "duvidas frequentes",
+    "loja de maquinas e ferramentas",
+    "piscinas de areia",
     "protecao que voce pode confiar",
     "oficina mecanica",
     "mecanica em americana",
@@ -70,18 +73,171 @@ GENERIC_NAME_EXACT = {
 GENERIC_NAME_PREFIXES = (
     "10 melhores ",
     "melhores oficinas ",
+    "melhores ",
+    "as melhores ",
+    "as melhores condicoes",
+    "todos os estabelecimentos",
+    "lista de empresas",
     "oficinas mecanicas em ",
     "oficina mecanica em ",
     "oficina mecanica e ",
     "mecanica em ",
     "como funciona",
     "como realmente funciona",
+    "confira as melhores",
+    "procurando ",
+    "encontre aqui",
+    "conheca ",
+    "portal ",
+    "guia ",
+    "blog ",
+    "preco de ",
+    "quanto custa ",
+    "sms para ",
+    "otimizacao seo",
+    "whatsapp da ",
+    "whatsapp do ",
+    "whatsapp de ",
+    "contato encontrado",
     "vale a pena",
     "relacao de unidades",
     "secretaria municipal",
     "curso online",
     "negocios",
+    "pesquise outros",
+    "pesquisar outros",
+    "busque outros",
+    "buscar outros",
+    "veja outros",
+    "ver outros",
+    "outros ",
+    "associado ",
+    "assistencia tecnica da ",
+    "cep ",
+    "consulta de optante ",
+    "duvidas frequentes",
+    "encontre seu proximo lar",
+    "encontre seu imovel",
+    "contaminacao em ",
+    "governo lanca ",
+    "hospedagem pe na areia",
+    "papel de parede ",
+    "prefeitura ",
+    "relacao das secretarias",
+    "servicos de ",
+    "te damos la bienvenida ",
+    "vidracarias no ",
+    "o que e ",
+    "opiniones sobre ",
+    "produtos em destaque",
+    "produtora de video em ",
+    "piscinas prefabricadas",
+    "que es ",
 )
+
+GENERIC_NAME_CONTAINS = (
+    "pesquise outros",
+    "pesquisar outros",
+    "busque outros",
+    "buscar outros",
+    "resultado de pesquisa",
+    "resultados de pesquisa",
+    "confira as melhores",
+    " melhores ",
+    "todos os estabelecimentos",
+    "lista de empresas",
+    "conheca o rio",
+    "conheca santa",
+    "noticias",
+    "abre vagas",
+    "lanca campanha",
+    "reserve ja",
+    "reserva ja",
+    "quanto custa",
+    "preco de",
+    "orcamento",
+    "sms para",
+    "otimizacao seo",
+    "marketing digital para",
+    "terceirizacao",
+    "trocar tela iphone",
+    "locacao de aparelho",
+    "telhado com",
+    "tudo o que voce precisa saber",
+    " abre processo seletivo ",
+    "dicas de ",
+    " materia ",
+    " materias ",
+    "opiniones ",
+    " produto ",
+    "produtos em destaque",
+    "redefinindo ",
+    "realiza provas ",
+    "resenas reales",
+    "resenhas reais",
+    "tipos de seguros y telefonos",
+    "veja mais",
+    "acesse sua area exclusiva",
+    "anos e executado",
+    "combina tecnologia",
+    "e executado dentro",
+    "ganha nova ",
+    "nova associada ",
+    "so pra socio",
+    "tendencia que pede ",
+    " variedade ",
+    "venda direta",
+    "btus",
+    "inverter",
+    "seducao olfativa",
+    "so frio 220v",
+)
+
+GENERIC_CATEGORY_HEADS = {
+    "academias",
+    "acessorios automotivos",
+    "assistencia tecnica",
+    "bares",
+    "bares e restaurantes",
+    "bijuterias",
+    "borracharias",
+    "calcados infantis",
+    "clinicas de estetica",
+    "clinicas de estetica e esteticistas",
+    "clinicas medicas",
+    "contabilidades",
+    "dentistas",
+    "distribuidores de bebidas",
+    "farmacias",
+    "farmacias e drogarias",
+    "gesso",
+    "imobiliarias",
+    "loja de automotivo",
+    "loja de maquinas e ferramentas",
+    "lojas de celulares",
+    "malharias",
+    "materiais de construcao",
+    "moveis de escritorio",
+    "oficinas",
+    "oficinas mecanicas",
+    "perfumarias",
+    "perfumarias e cosmeticos",
+    "planos de saude",
+    "saloes de beleza",
+    "transporte",
+    "transportes",
+    "vidracarias",
+}
+
+VERTICAL_TOKEN_GROUPS = {
+    "academia": {"academia", "fitness", "crossfit", "pilates"},
+    "barbearia": {"barbearia", "barbearias", "salao", "saloes", "beleza", "cabeleireiro"},
+    "farmacia": {"farmacia", "farmacias", "drogaria", "drogarias"},
+    "imobiliaria": {"imobiliaria", "imobiliarias", "imovel", "imoveis", "corretor"},
+    "oficina": {"oficina", "oficinas", "mecanica", "automotivo", "automotiva", "auto"},
+    "restaurante": {"restaurante", "restaurantes", "bar", "bares", "lanchonete", "pizzaria"},
+    "moda": {"moda", "roupas", "malharia", "calcados", "bijuterias"},
+}
 
 PF_GENERIC_PREFIXES = (
     "como ",
@@ -206,8 +362,68 @@ def is_pf_weak_domain(url_or_host: str | None) -> bool:
     return any(part in host for part in PF_WEAK_HOST_PARTS)
 
 
+def _segment_variants(segment: str | None) -> set[str]:
+    key = text_key(segment)
+    if not key:
+        return set()
+    variants = {key}
+    first, _, rest = key.partition(" ")
+    if rest and not first.endswith("s"):
+        variants.add(f"{first}s {rest}")
+    if key.endswith("s") and len(key) > 4:
+        variants.add(key[:-1])
+    else:
+        variants.add(f"{key}s")
+    return {variant for variant in variants if variant}
+
+
+def _looks_like_category_location_title(key: str, city_key: str = "", segment: str | None = None) -> bool:
+    heads = GENERIC_CATEGORY_HEADS | _segment_variants(segment)
+    for head in heads:
+        if not head:
+            continue
+        if key == head:
+            return True
+        if key.startswith(f"{head} em "):
+            return True
+        if key.startswith(f"{head} no ") or key.startswith(f"{head} na "):
+            return True
+        if city_key and key == f"{head} em {city_key}":
+            return True
+        if city_key and key in {f"{head} no {city_key}", f"{head} na {city_key}"}:
+            return True
+        if city_key and head.endswith("s") and key == f"{head} {city_key}":
+            return True
+        if city_key and key.startswith(f"{head} em {city_key} "):
+            return True
+    if re.match(r"^(10|20|30|40|50)\s+melhores\s+", key):
+        return True
+    return False
+
+
+def name_conflicts_with_requested_segment(name: str | None, segment: str | None) -> bool:
+    name_key = text_key(name)
+    segment_key = text_key(segment)
+    if not name_key or not segment_key:
+        return False
+    requested_groups = {
+        group
+        for group, tokens in VERTICAL_TOKEN_GROUPS.items()
+        if any(token in segment_key for token in tokens)
+    }
+    name_groups = {
+        group
+        for group, tokens in VERTICAL_TOKEN_GROUPS.items()
+        if any(re.search(rf"\b{re.escape(token)}\b", name_key) for token in tokens)
+    }
+    return bool(name_groups and requested_groups and name_groups.isdisjoint(requested_groups))
+
+
 def is_generic_name(name: str | None, city: str | None = None, target_type: str = "pj", segment: str | None = None) -> bool:
-    key = text_key(name)
+    raw = str(name or "")
+    if re.search(r"&[#a-zA-Z0-9]+;", raw):
+        return True
+    key = text_key(raw)
     if not key:
         return True
     city_key = text_key(city)
@@ -215,10 +431,7 @@ def is_generic_name(name: str | None, city: str | None = None, target_type: str 
         return True
     segment_key = text_key(segment)
     if segment_key:
-        segment_variants = {segment_key}
-        first, _, rest = segment_key.partition(" ")
-        if rest and not first.endswith("s"):
-            segment_variants.add(f"{first}s {rest}")
+        segment_variants = _segment_variants(segment)
         generic_segment_names = set(segment_variants)
         if city_key:
             generic_segment_names.update({f"{variant} em {city_key}" for variant in segment_variants})
@@ -228,7 +441,15 @@ def is_generic_name(name: str | None, city: str | None = None, target_type: str 
         if key in GENERIC_NAME_EXACT or key in {"contato", "home", "inicio", "pagina inicial", "telefone", "enderecos", "categorias"}:
             return True
         return any(key.startswith(prefix) for prefix in PF_GENERIC_PREFIXES)
+    if re.match(r"^deposito de bebidas?$", key):
+        return True
+    if re.search(r"\b\d+(?:[,.]\d+)?\s*(?:g|kg|ml|l|btus?)\b", key):
+        return True
     if key in GENERIC_NAME_EXACT:
+        return True
+    if any(phrase in key for phrase in GENERIC_NAME_CONTAINS):
+        return True
+    if _looks_like_category_location_title(key, city_key, segment):
         return True
     if city_key and key in {f"mecanica em {city_key}", f"oficina mecanica em {city_key}", f"oficinas mecanicas em {city_key}"}:
         return True

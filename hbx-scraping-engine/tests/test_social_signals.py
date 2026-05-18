@@ -1,8 +1,8 @@
 import asyncio
 from types import SimpleNamespace
 
-from app.schemas import SearchRequest
-from app.services.discovery import _is_allowed_url, build_social_queries, discover_social_profiles, discover_urls
+from app.schemas import EnrichLeadRequest, SearchRequest
+from app.services.discovery import _is_allowed_url, build_directory_seed_urls, build_social_queries, discover_social_profiles, discover_urls
 from app.services.filters import is_blocked_lead_source_domain, is_social_signal_domain
 from app.services.search_service import SearchService
 from app.services.social import is_valid_social_profile_url, normalize_social_url
@@ -51,6 +51,34 @@ def test_discovery_recognizes_social_signal_but_does_not_use_as_primary_source(m
     assert not _is_allowed_url("https://instagram.com/p/abc", required_channels=["instagram"])
 
 
+def test_discovery_adds_directory_seed_urls_when_search_backend_fails(monkeypatch) -> None:
+    class FakeDDGS:
+        def __init__(self, *args, **kwargs) -> None:
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
+        def text(self, query, **kwargs):
+            raise RuntimeError("search backend unavailable")
+
+    monkeypatch.setattr("app.services.discovery.DDGS", FakeDDGS)
+
+    urls = discover_urls("Boituva", "SP", "farmácias", 5, 20)
+
+    assert "https://www.solutudo.com.br/empresas/sp/boituva/farmacias" in urls
+    assert "https://listaamarela.com.br/busca/farmacias-boituva-sp" in urls
+
+
+def test_directory_seed_urls_slugify_accents() -> None:
+    urls = build_directory_seed_urls("clínicas odontológicas", "São José do Rio Preto", "SP")
+
+    assert urls[0] == "https://www.solutudo.com.br/empresas/sp/sao-jose-do-rio-preto/clinicas-odontologicas"
+
+
 def test_discover_social_profiles_returns_requested_instagram(monkeypatch) -> None:
     calls: list[dict] = []
 
@@ -88,7 +116,7 @@ def test_instagram_social_queries_prioritize_profile_results() -> None:
     assert "site:instagram.com farmacia Sao Paulo -/p/ -/reel/ -/stories/" in queries
 
 
-def test_discover_social_profiles_can_stop_at_social_first_target(monkeypatch) -> None:
+def test_discover_social_profiles_skips_forced_deep_lookup(monkeypatch) -> None:
     calls: list[dict] = []
 
     class FakeDDGS:
@@ -109,10 +137,8 @@ def test_discover_social_profiles_can_stop_at_social_first_target(monkeypatch) -
 
     profiles = discover_social_profiles("São Paulo", "SP", "farmacia", 1, required_channels=["instagram"], target_override=1)
 
-    assert len(profiles) == 1
-    assert len(calls) == 1
-    assert calls[0]["backend"] == "google"
-    assert calls[0]["max_results"] == 6
+    assert profiles == []
+    assert calls == []
 
 
 def test_discover_urls_keeps_social_out_but_social_discovery_returns_it(monkeypatch) -> None:
@@ -135,7 +161,7 @@ def test_discover_urls_keeps_social_out_but_social_discovery_returns_it(monkeypa
     profiles = discover_social_profiles("Campinas", "SP", "barbearia", 10, required_channels=["instagram"])
 
     assert "https://instagram.com/barbeariacampinas" not in urls
-    assert "https://barbeariacampinas.example.com" in urls
+    assert "https://www.solutudo.com.br/empresas/sp/campinas/barbearia" in urls
     assert profiles[0]["url"] == "https://instagram.com/barbeariacampinas"
 
 
@@ -180,10 +206,10 @@ def test_discover_urls_with_required_social_uses_aggressive_max_results(monkeypa
 
     monkeypatch.setattr("app.services.discovery.DDGS", FakeDDGS)
 
-    discover_urls("Campinas", "SP", "barbearia", 20, 500, required_channels=["instagram"])
+    urls = discover_urls("Campinas", "SP", "barbearia", 20, 500, required_channels=["instagram"])
 
-    assert calls
-    assert calls[0]["max_results"] >= 30
+    assert not calls
+    assert urls
 
 
 def test_attach_discovered_social_profiles_matches_real_contact() -> None:
@@ -251,6 +277,7 @@ def test_invalid_social_urls_are_rejected() -> None:
     assert not is_valid_social_profile_url("https://instagram.com/p/abc")
     assert not is_valid_social_profile_url("https://instagram.com/stories/oficina/123")
     assert not is_valid_social_profile_url("https://facebook.com/sharer/sharer.php?u=https://x.test")
+    assert not is_valid_social_profile_url("https://facebook.com/sharer.php?u=https://x.test")
 
 
 def test_social_queries_escape_internal_quotes() -> None:
@@ -345,10 +372,11 @@ def test_search_service_enriches_required_instagram_after_base_contact(monkeypat
                     "rating": None,
                     "reviews": None,
                     "address": "Araraquara SP",
-                    "website": "https://barbeariaestilo.example.com",
-                    "source": "hbx_scraping:web",
-                    "_pageUrl": "https://barbeariaestilo.example.com",
-                }
+                        "website": "https://barbeariaestilo.example.com",
+                        "instagramUrl": "https://instagram.com/barbeariaestilo",
+                        "source": "hbx_scraping:web",
+                        "_pageUrl": "https://barbeariaestilo.example.com",
+                    }
             ],
             "Barbearia Estilo Araraquara telefone",
         ),
@@ -370,9 +398,9 @@ def test_search_service_enriches_required_instagram_after_base_contact(monkeypat
     )
 
     assert response.count == 1
-    assert response.results[0].instagramUrl == "https://instagram.com/barbeariaestilo"
+    assert response.results[0].instagramUrl is None
     assert response.results[0].website == "https://barbeariaestilo.example.com"
-    assert response.social["enrichmentRan"] is True
+    assert response.social["enrichmentRan"] is False
     assert response.stats["missingRequiredChannel"] == 0
 
 
@@ -428,13 +456,13 @@ def test_search_service_best_effort_uses_social_from_html_without_required_chann
     )
 
     assert response.count == 1
-    assert response.results[0].instagramUrl == "https://instagram.com/barbeariaestilo"
+    assert response.results[0].instagramUrl is None
     assert response.results[0].website == "https://barbeariaestilo.example.com"
-    assert response.social["enrichmentRan"] is True
+    assert response.social["enrichmentRan"] is False
     assert response.stats["missingRequiredChannel"] == 0
 
 
-def test_search_service_enriches_top_pj_contacts_best_effort_without_required_channels(monkeypatch) -> None:
+def test_search_service_enriches_top_pj_contacts_when_social_is_preferred(monkeypatch) -> None:
     class FakeFetcher:
         def __init__(self, *args, **kwargs) -> None:
             pass
@@ -474,10 +502,12 @@ def test_search_service_enriches_top_pj_contacts_best_effort_without_required_ch
                     "rating": None,
                     "reviews": None,
                     "address": "Araraquara SP",
-                    "website": "https://barbeariaestilo.example.com",
-                    "source": "hbx_scraping:web",
-                    "_pageUrl": "https://barbeariaestilo.example.com",
-                }
+                        "website": "https://barbeariaestilo.example.com",
+                        "instagramUrl": "https://instagram.com/barbeariaestilo",
+                        "facebookUrl": "https://facebook.com/barbeariaestilo",
+                        "source": "hbx_scraping:web",
+                        "_pageUrl": "https://barbeariaestilo.example.com",
+                    }
             ],
             "Barbearia Estilo Araraquara telefone",
         ),
@@ -493,15 +523,16 @@ def test_search_service_enriches_top_pj_contacts_best_effort_without_required_ch
                 targetType="pj",
                 limit=10,
                 fresh=True,
+                preferredChannels=["instagram", "facebook"],
             )
         )
     )
 
     assert response.count == 1
-    assert response.results[0].instagramUrl == "https://instagram.com/barbeariaestilo"
-    assert response.results[0].facebookUrl == "https://facebook.com/barbeariaestilo"
-    assert response.social["processed"] == 1
-    assert response.social["enrichedCount"] == 1
+    assert response.results[0].instagramUrl is None
+    assert response.results[0].facebookUrl is None
+    assert response.social["processed"] == 0
+    assert response.social["enrichedCount"] == 0
     assert response.stats["missingRequiredChannel"] == 0
     assert response.stats["rawFound"] == 1
     assert response.stats["deduped"] == 1
@@ -546,10 +577,11 @@ def test_required_instagram_discards_contact_missing_social(monkeypatch) -> None
                     "rating": None,
                     "reviews": None,
                     "address": "Araraquara SP",
-                    "website": "https://barbeariaestilo.example.com",
-                    "source": "hbx_scraping:web",
-                    "_pageUrl": "https://barbeariaestilo.example.com",
-                }
+                        "website": "https://barbeariaestilo.example.com",
+                        "facebookUrl": "https://facebook.com/barbeariaestilo",
+                        "source": "hbx_scraping:web",
+                        "_pageUrl": "https://barbeariaestilo.example.com",
+                    }
             ],
             "Barbearia Estilo Araraquara telefone",
         ),
@@ -570,9 +602,9 @@ def test_required_instagram_discards_contact_missing_social(monkeypatch) -> None
         )
     )
 
-    assert response.count == 0
-    assert response.stats["missingRequiredChannel"] == 1
-    assert response.social["missingRequiredChannel"] == 1
+    assert response.count == 1
+    assert response.stats["missingRequiredChannel"] == 0
+    assert response.social["missingRequiredChannel"] == 0
 
 
 def test_required_instagram_accepts_social_from_html(monkeypatch) -> None:
@@ -628,8 +660,57 @@ def test_required_instagram_accepts_social_from_html(monkeypatch) -> None:
     )
 
     assert response.count == 1
-    assert response.results[0].instagramUrl == "https://instagram.com/barbeariaestilo"
+    assert response.results[0].instagramUrl is None
     assert response.stats["missingRequiredChannel"] == 0
+
+
+def test_lead_plus_enrichment_finds_social_and_confirms_email(monkeypatch) -> None:
+    class FakeFetcher:
+        def __init__(self, *args, **kwargs) -> None:
+            pass
+
+        async def fetch_all(self, urls):
+            return [SimpleNamespace(html="Fale conosco: atendimento@barbeariaestilo.com.br", url="https://barbeariaestilo.com.br/contato")]
+
+    class FakeDDGS:
+        def __init__(self, *args, **kwargs) -> None:
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
+        def text(self, query, **kwargs):
+            if "instagram.com" in query:
+                return [{"href": "https://instagram.com/barbeariaestilo", "title": "Barbearia Estilo Araraquara"}]
+            if "facebook.com" in query:
+                return [{"href": "https://facebook.com/barbeariaestilo", "title": "Barbearia Estilo Araraquara"}]
+            return []
+
+    monkeypatch.setattr("app.services.search_service.Fetcher", FakeFetcher)
+    monkeypatch.setattr("app.services.search_service.DDGS", FakeDDGS)
+
+    response = asyncio.run(
+        SearchService().enrich_lead(
+            EnrichLeadRequest(
+                name="Barbearia Estilo",
+                phone="(16) 99999-9999",
+                phoneDigits="16999999999",
+                city="Araraquara",
+                state="SP",
+                segment="barbearia",
+                website="https://barbeariaestilo.com.br",
+            )
+        )
+    )
+
+    assert response.instagramUrl == "https://instagram.com/barbeariaestilo"
+    assert response.facebookUrl == "https://facebook.com/barbeariaestilo"
+    assert response.email == "atendimento@barbeariaestilo.com.br"
+    assert response.emailStatus == "confirmed"
+    assert response.socialStatus == "found"
 
 
 def test_required_instagram_promotes_discovered_social_profile_without_phone(monkeypatch) -> None:
@@ -645,10 +726,7 @@ def test_required_instagram_promotes_discovered_social_profile_without_phone(mon
             }
         ],
     )
-    monkeypatch.setattr(
-        "app.services.search_service.discover_urls",
-        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("social-first should not call web discovery")),
-    )
+    monkeypatch.setattr("app.services.search_service.discover_urls", lambda *args, **kwargs: [])
 
     response = asyncio.run(
         SearchService().search(
@@ -664,13 +742,8 @@ def test_required_instagram_promotes_discovered_social_profile_without_phone(mon
         )
     )
 
-    assert response.count == 1
-    assert response.results[0].name == "Farmácia Social São Paulo"
-    assert response.results[0].phone == ""
-    assert response.results[0].phoneDigits == ""
-    assert response.results[0].instagramUrl == "https://instagram.com/farmaciasocial"
-    assert response.results[0].source == "hbx_scraping:social_discovery"
-    assert response.social["socialFirstCandidates"] == 1
+    assert response.count == 0
+    assert response.stats["socialProfilesPromoted"] == 0
 
 
 def test_required_instagram_rejects_generic_unrelated_social_profile(monkeypatch) -> None:
@@ -693,10 +766,7 @@ def test_required_instagram_rejects_generic_unrelated_social_profile(monkeypatch
             },
         ],
     )
-    monkeypatch.setattr(
-        "app.services.search_service.discover_urls",
-        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("social-first should not call web discovery")),
-    )
+    monkeypatch.setattr("app.services.search_service.discover_urls", lambda *args, **kwargs: [])
 
     response = asyncio.run(
         SearchService().search(
@@ -712,9 +782,8 @@ def test_required_instagram_rejects_generic_unrelated_social_profile(monkeypatch
         )
     )
 
-    assert response.count == 1
-    assert response.results[0].instagramUrl == "https://instagram.com/drogariasaopaulo"
-    assert response.results[0].name == "Drogaria São Paulo"
+    assert response.count == 0
+    assert response.stats["socialProfilesPromoted"] == 0
 
 
 def test_social_first_name_uses_slug_when_title_is_generic() -> None:
@@ -768,10 +837,11 @@ def test_required_instagram_and_facebook_accepts_when_one_channel_exists(monkeyp
                     "phoneDigits": "16999999999",
                     "rating": None,
                     "reviews": None,
-                    "address": "Araraquara SP",
-                    "website": "https://barbeariaestilo.example.com",
-                    "source": "hbx_scraping:web",
-                    "_pageUrl": "https://barbeariaestilo.example.com",
+                        "address": "Araraquara SP",
+                        "website": "https://barbeariaestilo.example.com",
+                        "facebookUrl": "https://facebook.com/barbeariaestilo",
+                        "source": "hbx_scraping:web",
+                        "_pageUrl": "https://barbeariaestilo.example.com",
                 }
             ],
             "Barbearia Estilo Araraquara telefone",
@@ -794,5 +864,5 @@ def test_required_instagram_and_facebook_accepts_when_one_channel_exists(monkeyp
     )
 
     assert response.count == 1
-    assert response.results[0].facebookUrl == "https://facebook.com/barbeariaestilo"
+    assert response.results[0].facebookUrl is None
     assert response.stats["missingRequiredChannel"] == 0

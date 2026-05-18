@@ -6,7 +6,7 @@ from .filters import is_social_signal_domain
 
 BLOCKED_EXTENSIONS = (".pdf", ".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg", ".zip", ".rar")
 SOCIAL_BLOCKED_PATH_PARTS = ("/p/", "/reel/", "/stories/", "/explore/", "/accounts/", "/login")
-SOCIAL_BLOCKED_FIRST_PATH_PARTS = {"share", "sharer", "plugins", "dialog", "events", "marketplace", "watch"}
+SOCIAL_BLOCKED_FIRST_PATH_PARTS = {"share", "sharer", "sharer.php", "plugins", "dialog", "events", "marketplace", "watch"}
 SOCIAL_BLOCKED_QUERY_KEYS = {"next", "login", "hl", "__coig_restricted", "utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content", "fbclid", "gclid"}
 
 

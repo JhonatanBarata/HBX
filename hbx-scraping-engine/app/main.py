@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 
-from app.schemas import SearchRequest, SearchResponse
+from app.schemas import EnrichLeadRequest, EnrichLeadResponse, SearchRequest, SearchResponse
 from app.services.search_service import SearchService
 
 app = FastAPI(title="HBX Scraping Engine", version="0.1.0")
@@ -15,3 +15,8 @@ def health() -> dict:
 @app.post("/search", response_model=SearchResponse)
 async def search(request: SearchRequest) -> SearchResponse:
     return await service.search(request)
+
+
+@app.post("/enrich-lead", response_model=EnrichLeadResponse)
+async def enrich_lead(request: EnrichLeadRequest) -> EnrichLeadResponse:
+    return await service.enrich_lead(request)

@@ -153,6 +153,109 @@ test('LeadQualityV2 List descarta diretorio ou lista generica', () => {
   assert.equal(quality.discardReason, 'generic_directory');
 });
 
+test('LeadQualityV2 List descarta titulo de categoria local sem bloquear empresa real', () => {
+  const generic = calculateLeadQualityV2({
+    lead: {
+      name: 'Clínicas de Estética e Esteticistas em Altair, SP',
+      phoneDigits: '14996340966',
+      city: 'Altair',
+      state: 'SP',
+      segment: 'barbearias, clínicas de estética, cosméticos, perfumarias, salões de beleza',
+    },
+    context: { requestedSegment: 'Beleza', qualityMode: 'list' },
+  });
+  const real = calculateLeadQualityV2({
+    lead: {
+      name: 'Clínica de Estética Bella Forma',
+      phoneDigits: '14996340966',
+      city: 'Altair',
+      state: 'SP',
+      segment: 'clínicas de estética',
+    },
+    context: { requestedSegment: 'Beleza', qualityMode: 'list' },
+  });
+
+  assert.equal(generic.decision, 'discard');
+  assert.equal(generic.discardReason, 'weak_identity');
+  assert.notEqual(real.decision, 'discard');
+});
+
+test('LeadQualityV2 List descarta materia ou produto com telefone capturado', () => {
+  for (const name of [
+    'Assistência Técnica da Brastemp: Tudo o Que Você Precisa Saber para Contratar o Serviço Ideal',
+    'Ar-Condicionado Split HW Inverter Hitachi AirHome 600 12.000 BTUs Só Frio 220V',
+    'Produtos em destaque',
+    'Opiniones sobre Meridiano Seguros y reseñas reales de clientes',
+    'Hospedagem pé na areia na Praia das Toninhas em Ubatuba!',
+    'Aromas para motéis: Redefinindo o conforto e a sedução olfativa',
+    'Meridiano seguros: tipos de seguros y teléfonos',
+    'Barbeiro de 26 anos é executado dentro de estabelecimento em Ubatuba',
+    'CEP 15430-959 Avenida Quatro, 290',
+    'Morango do amor: a tendência que pede embalagens criativas',
+    'DEPÓSITO DE BEBIDAS',
+    'UNIFIPA realiza provas para Fellow Nível 4 nas áreas de Radiologia e Ginecologia',
+    'Centro de Saúde Alécio Ravanelli ganha nova dentista e am...',
+    'Contaminação em posto de combustível',
+    'Governo lança sistema para aluno buscar instrutor e autoescola',
+    'Zyone Cosméticos, nova associada da ABEVD, combina tecnologia, reconhecimento e expansão na venda direta',
+    'Associado Sindautoescola.SP, acesse sua área exclusiva. SÓ PRA SÓCIO',
+    'Dúvidas Frequentes',
+    'Relação das secretarias, diretorias e departamentos da Prefeitura Municipal de Catiguá e respectivos responsáveis',
+    'Loja de máquinas e ferramentas',
+    'Encontre seu imóvel aqui',
+    'Café Mourisco variedade Catiguá 500g',
+    'Vidraçarias no Ipiranga',
+    'Te damos la bienvenida a Occident',
+    'Prefeitura de Catiguá SP abre processo seletivo para psicólogo e assistente social',
+    'Produtora de vídeo em Fortaleza',
+    'Consulta de optante do Simples Nacional: veja como fazer e evitar erros',
+    'PISCINAS PREFABRICADAS: CALIDAD PRECIO Y MODELOS PARA CADA ESPACIO',
+    'Papel de Parede Cantinho do Café Coffee Time',
+    'Piscinas de areia',
+  ]) {
+    const quality = calculateLeadQualityV2({
+      lead: {
+        name,
+        phoneDigits: '11999990001',
+        city: 'Altair',
+        state: 'SP',
+        segment: 'beleza',
+      },
+      context: { requestedSegment: 'Beleza', qualityMode: 'list' },
+    });
+
+    assert.equal(quality.decision, 'discard', name);
+  }
+});
+
+test('LeadQualityV2 nao conta rede social de plataforma ou diretorio como canal obrigatorio', () => {
+  for (const instagramUrl of [
+    'https://instagram.com/fresha',
+    'https://instagram.com/petdiretorio',
+    'https://instagram.com/oficialmanole',
+    'https://instagram.com/setorenergetico',
+  ]) {
+    const quality = calculateLeadQualityV2({
+      lead: {
+        name: 'Barbearia Social Terceiro',
+        phoneDigits: '11999990001',
+        city: 'Sao Paulo',
+        state: 'SP',
+        segment: 'barbearia',
+        instagramUrl,
+      },
+      context: {
+        requestedSegment: 'barbearia',
+        qualityMode: 'list',
+        salesProfile: { requiredChannels: ['instagram'], channelMatchMode: 'all_required', qualityMode: 'list' },
+      },
+    });
+
+    assert.equal(quality.channelAvailability?.instagram, false, instagramUrl);
+    assert.equal(quality.discardReason, 'required_channel_missing', instagramUrl);
+  }
+});
+
 test('LeadQualityV2 List protege opt_out', () => {
   const quality = calculateLeadQualityV2({
     lead: {

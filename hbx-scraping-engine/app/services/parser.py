@@ -25,6 +25,14 @@ def _flatten_jsonld(value) -> Iterable[dict]:
     elif isinstance(value, dict):
         if isinstance(value.get("@graph"), list):
             yield from _flatten_jsonld(value["@graph"])
+        if isinstance(value.get("itemListElement"), list):
+            for element in value["itemListElement"]:
+                if isinstance(element, dict) and isinstance(element.get("item"), (dict, list)):
+                    yield from _flatten_jsonld(element["item"])
+                else:
+                    yield from _flatten_jsonld(element)
+        if isinstance(value.get("item"), (dict, list)):
+            yield from _flatten_jsonld(value["item"])
         yield value
 
 
