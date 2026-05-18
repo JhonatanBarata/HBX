@@ -58,6 +58,28 @@ def test_parse_tel_link() -> None:
     assert contacts[0]["phoneDigits"] == "1934611234"
 
 
+def test_parse_official_page_extracts_social_links_before_scoring() -> None:
+    html = """
+    <html>
+      <head><title>Oficina Boa - Contato</title></head>
+      <body>
+        <h1>Oficina Boa</h1>
+        <a href="tel:+551934611234">Ligar</a>
+        <a href="https://instagram.com/oficinaboa">Instagram</a>
+        <a href="https://facebook.com/oficinaboa/">Facebook</a>
+        <a href="https://instagram.com/oficinaboa/reel/123">Reel</a>
+      </body>
+    </html>
+    """
+
+    contacts, _ = parse_page(html, "https://oficinaboa.example.com.br/contato")
+
+    assert len(contacts) == 1
+    assert contacts[0]["instagramUrl"] == "https://instagram.com/oficinaboa"
+    assert contacts[0]["facebookUrl"] == "https://facebook.com/oficinaboa"
+    assert contacts[0]["website"] == "https://oficinaboa.example.com.br"
+
+
 def test_parse_blocks_generic_name() -> None:
     html = """
     <html>

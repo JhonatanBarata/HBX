@@ -152,6 +152,9 @@ def discover_urls(
     target = discovery_target(limit, max_discovery_results, target_type, exclude_count)
     queries = build_queries(segment, city, state, target_type, query)
     per_query = max(8, target // len(queries) + 2)
+    social_signal_channels = _requested_social_channels(preferred_channels, required_channels)
+    if target_type == "pj":
+        social_signal_channels = social_signal_channels or {"instagram", "facebook"}
     seen: set[str] = {str(url or "").strip().rstrip("/") for url in (exclude_urls or []) if str(url or "").strip()}
     urls: list[str] = []
 
@@ -165,7 +168,13 @@ def discover_urls(
             for row in results or []:
                 url = str(row.get("href") or row.get("url") or "").strip()
                 normalized = url.rstrip("/")
-                if normalized in seen or not _is_allowed_url(normalized, preferred_channels, required_channels):
+                social_channel = _social_channel_for_url(normalized)
+                is_social_signal = bool(
+                    social_channel
+                    and social_channel in social_signal_channels
+                    and _is_valid_social_profile_url(normalized)
+                )
+                if normalized in seen or (not is_social_signal and not _is_allowed_url(normalized, preferred_channels, required_channels)):
                     continue
                 seen.add(normalized)
                 urls.append(normalized)

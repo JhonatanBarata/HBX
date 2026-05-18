@@ -9885,3 +9885,102 @@
     color: #8dffc6 !important;
   }
 }
+
+/* Final Vendas mobile polish override: keep type sharp after legacy mobile rules. */
+@media (max-width: 820px) {
+  .mobileVendasShell,
+  .mobileLeadDetailShell,
+  .mobileLeadDetailScreen,
+  .mobileVendasShell :where(button, input, select, textarea, a, p, span, strong, small, b, em, label, h1, h2, h3, h4),
+  .mobileLeadDetailScreen :where(button, input, select, textarea, a, p, span, strong, small, b, em, label, h1, h2, h3, h4) {
+    font-family: var(--font-display, var(--font-body, "Plus Jakarta Sans", Inter, "Segoe UI", Roboto, Arial, sans-serif)) !important;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: geometricPrecision;
+  }
+
+  .mobileVendasShell :where(h1, h2, h3, strong, b),
+  .mobileLeadDetailScreen :where(h1, h2, h3, strong, b) {
+    font-weight: 720 !important;
+    letter-spacing: 0 !important;
+    text-shadow: none !important;
+  }
+
+  .mobileVendasShell :where(p, small, span, em, label, input, select, textarea),
+  .mobileLeadDetailScreen :where(p, small, span, em, label, input, select, textarea) {
+    font-weight: 560 !important;
+    letter-spacing: 0 !important;
+    text-shadow: none !important;
+  }
+
+  .mobileVendasShell :where(button, a),
+  .mobileLeadDetailScreen :where(button, a) {
+    font-weight: 680 !important;
+    letter-spacing: 0 !important;
+    text-shadow: none !important;
+  }
+
+  .mobileVendasHeroCopy small,
+  .mobileVendasHeroStats b,
+  .mobileVendasCardTitle span,
+  .mobileVendasCardMeta small,
+  .mobileVendasNextAction span,
+  .mobileLeadDetailTitle span,
+  .mobileLeadHeroIdentity span,
+  .mobileLeadHeroIdentity em,
+  .mobileLeadHeroMeta span,
+  .mobileLeadContactRows span,
+  .mobileLeadReasonBlock p,
+  .mobileLeadNextActionBox p,
+  .mobileLeadObservationHeader span,
+  .mobileLeadTimeline p {
+    font-weight: 560 !important;
+    letter-spacing: 0 !important;
+    text-shadow: none !important;
+  }
+
+  .mobileVendasHeroCopy strong,
+  .mobileVendasHeroStats strong,
+  .mobileVendasCardTitle strong,
+  .mobileVendasNextAction strong,
+  .mobileLeadDetailTitle strong,
+  .mobileLeadHeroIdentity strong,
+  .mobileLeadContactRows strong,
+  .mobileLeadReasonBlock h3,
+  .mobileLeadNextActionBox h3,
+  .mobileLeadReadyMessage h3,
+  .mobileLeadObservationHeader strong,
+  .mobileLeadTimeline h3,
+  .mobileLeadScoreBox span,
+  .mobileLeadScoreBox strong,
+  .mobileLeadScoreBox small {
+    font-weight: 720 !important;
+    letter-spacing: 0 !important;
+    text-shadow: none !important;
+  }
+
+  .mobileVendasHeroCopy strong {
+    font-size: clamp(1.76rem, 7vw, 2.16rem) !important;
+    line-height: 1 !important;
+  }
+
+  .mobileVendasHeroAction,
+  .mobileVendasHeroGoal,
+  .mobileVendasHeroStats > button,
+  .mobileVendasCardActions button,
+  .mobileVendasContactActions a,
+  .mobileLeadNextActionBox a,
+  .mobileLeadQuickGrid a,
+  .mobileLeadQuickGrid button,
+  .mobileLeadBottomActions a,
+  .mobileLeadBottomActions button,
+  .mobileLeadSaveNoteButton,
+  .mobileLeadRefreshButton,
+  .mobileLeadPlusButton,
+  .mobileLeadSmartChips span,
+  .mobileLeadSmartChips button {
+    font-weight: 680 !important;
+    letter-spacing: 0 !important;
+    text-shadow: none !important;
+  }
+}

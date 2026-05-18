@@ -1087,7 +1087,10 @@ function parseJsonArray(raw: string | null | undefined): string[] {
   }
 }
 
-function parseJsonObject(raw: string | null | undefined): Record<string, any> {
+function parseJsonObject(raw: unknown): Record<string, any> {
+  if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+    return raw as Record<string, any>;
+  }
   try {
     const parsed = JSON.parse(String(raw || '{}'));
     return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
@@ -1381,16 +1384,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
           startedAt: now,
           finishedAt: now,
           errorMessage: 'Entregue do banco Radar/HBX. A frota M1-M4 nao foi acionada.',
-          metricsJson: JSON.stringify({
-            radiusKm: normalized.radiusKm,
-            originLat: normalized.originLat,
-            originLng: normalized.originLng,
-            regionalCities: normalized.regionalCities.map((item) => ({
-              city: item.city,
-              state: item.state,
-              distanceKm: item.distanceKm,
-            })),
-          }),
+          metricsJson: this.buildSearchRunMetricsJson(normalized),
         },
         select: {
           id: true,
@@ -1448,16 +1442,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         engine: normalized.engine,
         targetType: normalized.targetType,
         targetQuantity: normalized.quantity,
-        metricsJson: JSON.stringify({
-          radiusKm: normalized.radiusKm,
-          originLat: normalized.originLat,
-          originLng: normalized.originLng,
-          regionalCities: normalized.regionalCities.map((item) => ({
-            city: item.city,
-            state: item.state,
-            distanceKm: item.distanceKm,
-          })),
-        }),
+        metricsJson: this.buildSearchRunMetricsJson(normalized),
       },
       select: {
         id: true,
@@ -2340,7 +2325,19 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
 
   private buildRunInputFromRow(run: any): SearchContactsInput {
     const metrics = parseJsonObject(run?.metricsJson);
-    const channelFilters = parseJsonObject(metrics?.channelFilters || metrics?.filters || run?.filtersJson);
+    const storedFilters = parseJsonObject(run?.filtersJson);
+    const metricsFilters = parseJsonObject(metrics?.filters);
+    const metricsChannelFilters = parseJsonObject(metrics?.channelFilters);
+    const channelFilters: Record<string, any> = {
+      ...storedFilters,
+      ...metricsFilters,
+      ...metricsChannelFilters,
+      ...(Array.isArray(metrics?.preferredChannels) ? { preferredChannels: metrics.preferredChannels } : {}),
+      ...(Array.isArray(metrics?.requiredChannels) ? { requiredChannels: metrics.requiredChannels } : {}),
+      ...(metrics?.channelMatchMode ? { channelMatchMode: metrics.channelMatchMode } : {}),
+      ...(metrics?.qualityMode ? { qualityMode: metrics.qualityMode } : {}),
+    };
+    const salesProfile = metrics?.salesProfile || channelFilters.salesProfile || storedFilters.salesProfile || null;
     return {
       city: String(run?.city || ''),
       state: String(run?.state || ''),
@@ -2355,8 +2352,28 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       requiredChannels: this.normalizeRadarChannels(channelFilters.requiredChannels),
       channelMatchMode: this.normalizeChannelMatchMode(channelFilters.channelMatchMode),
       qualityMode: String(channelFilters.qualityMode || '').trim() === 'lead_plus' ? 'lead_plus' : 'list',
-      salesProfile: metrics?.salesProfile || null,
+      salesProfile,
     };
+  }
+
+  private buildSearchRunMetricsJson(normalized: NormalizedSearchInput) {
+    return JSON.stringify({
+      radiusKm: normalized.radiusKm,
+      originLat: normalized.originLat,
+      originLng: normalized.originLng,
+      regionalCities: normalized.regionalCities.map((item) => ({
+        city: item.city,
+        state: item.state,
+        distanceKm: item.distanceKm,
+      })),
+      channelFilters: {
+        preferredChannels: normalized.preferredChannels,
+        requiredChannels: normalized.requiredChannels,
+        channelMatchMode: normalized.channelMatchMode,
+        qualityMode: normalized.qualityMode,
+      },
+      ...(normalized.salesProfile ? { salesProfile: normalized.salesProfile } : {}),
+    });
   }
 
   private getHbxRunBatchLimit(targetQuantity: number) {
@@ -3581,6 +3598,11 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       state: normalized.state,
       segment: normalized.segment,
       targetType: normalized.targetType,
+      preferredChannels: normalized.preferredChannels,
+      requiredChannels: normalized.requiredChannels,
+      channelMatchMode: normalized.channelMatchMode,
+      qualityMode: normalized.qualityMode,
+      salesProfile: normalized.salesProfile,
     } as NormalizedRadarFilters;
     const results = rows
       .filter((row) => this.isRunItemQualityDeliverable(row, qualityInput))

@@ -1,7 +1,7 @@
 import json
 import re
 from collections.abc import Iterable
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urljoin, urlparse
 
 from bs4 import BeautifulSoup
 
@@ -9,6 +9,8 @@ from .filters import domain_from_url, is_blocked_domain, is_directory_domain, is
 from .normalizer import clean_name, extract_phone_from_url, fallback_name, format_phone, normalize_phone_digits
 
 PHONE_RE = re.compile(r"(?<!\d)(?:\+?55\s*)?(?:\(\d{2}\)|\d{2}[\s.-]+)\s*9?\d{4}[-.\s]+\d{4}(?!\d)")
+SOCIAL_BLOCKED_PATH_PARTS = ("/p/", "/reel/", "/stories/", "/explore/", "/accounts/", "/login")
+SOCIAL_BLOCKED_QUERY_KEYS = {"next", "login", "hl", "__coig_restricted"}
 
 
 def _as_list(value) -> list:
@@ -76,6 +78,41 @@ def _social_field_for_url(url: str) -> str | None:
     return None
 
 
+def _is_valid_social_profile_url(url: str) -> bool:
+    parsed = urlparse(url)
+    host = parsed.netloc.lower()
+    path = parsed.path.lower()
+    if parsed.scheme not in ("http", "https") or not host or not is_social_signal_domain(host):
+        return False
+    if any(part in path for part in SOCIAL_BLOCKED_PATH_PARTS):
+        return False
+    if any(key in parse_qs(parsed.query) for key in SOCIAL_BLOCKED_QUERY_KEYS):
+        return False
+    clean_parts = [part for part in path.split("/") if part]
+    if not clean_parts:
+        return False
+    if clean_parts[0] in {"share", "sharer", "plugins", "dialog", "events", "marketplace", "watch"}:
+        return False
+    return len(clean_parts) <= 2
+
+
+def _social_links_from_links(soup: BeautifulSoup, page_url: str) -> dict[str, str]:
+    links: dict[str, str] = {}
+    for link in soup.find_all("a", href=True):
+        href = urljoin(page_url, str(link.get("href") or "").strip()).rstrip("/")
+        field = _social_field_for_url(href)
+        if not field or field in links or not _is_valid_social_profile_url(href):
+            continue
+        links[field] = href
+    return links
+
+
+def _apply_social_links(contact: dict, links: dict[str, str]) -> dict:
+    for field, value in links.items():
+        contact.setdefault(field, value)
+    return contact
+
+
 def _official_website(page_url: str, jsonld_url: str | None, directory: bool) -> str | None:
     page_host = urlparse(page_url).netloc.lower().removeprefix("www.")
     if jsonld_url:
@@ -118,6 +155,9 @@ def parse_page(html: str, url: str, target_type: str = "pj", city: str | None = 
     directory = is_directory_url(url)
     page_domain = domain_from_url(url)
     social_field = _social_field_for_url(url)
+    social_links = _social_links_from_links(soup, url) if not directory else {}
+    if social_field and _is_valid_social_profile_url(url):
+        social_links.setdefault(social_field, url.rstrip("/"))
     contacts: list[dict] = []
 
     for script in soup.find_all("script", attrs={"type": re.compile("ld\\+json", re.I)}):
@@ -153,8 +193,7 @@ def parse_page(html: str, url: str, target_type: str = "pj", city: str | None = 
                     }
                     if social_field:
                         contact["website"] = website
-                        contact[social_field] = url
-                    contacts.append(contact)
+                    contacts.append(_apply_social_links(contact, social_links))
 
     for tag in soup(["script", "style", "noscript"]):
         tag.decompose()
@@ -186,7 +225,7 @@ def parse_page(html: str, url: str, target_type: str = "pj", city: str | None = 
                 "_pageUrl": url,
             }
             if social_field:
-                contact[social_field] = url
-            contacts.append(contact)
+                contact[social_field] = url.rstrip("/")
+            contacts.append(_apply_social_links(contact, social_links))
 
     return contacts, visible_text

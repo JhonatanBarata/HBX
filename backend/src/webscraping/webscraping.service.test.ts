@@ -205,6 +205,12 @@ function createSearchRunPrisma(initialRun: Record<string, any>) {
     webscrapingSearchRun: {
       findFirst: async () => ({ ...run, items: [...items] }),
       findUnique: async () => ({ ...run, items: [...items] }),
+      create: async ({ data, select }: any) => {
+        applyData(data);
+        const row = { ...run, items: [...items] };
+        if (!select) return row;
+        return Object.fromEntries(Object.keys(select).map((key) => [key, (row as any)[key]]));
+      },
       update: async ({ data }: any) => applyData(data),
       updateMany: async ({ data }: any) => {
         applyData(data);
@@ -604,6 +610,59 @@ test('updateSearchRunMetrics preserva metadados de alcance e filtros', async () 
   assert.equal(metrics.salesProfile.targetSegments[0], 'açougues');
   assert.equal(metrics.parsedContacts, 2);
   assert.equal(metrics.status, 'running');
+});
+
+test('search-run worker repassa requiredChannels reconstruido da run para motor HBX', async () => {
+  const { prisma, run } = createSearchRunPrisma({
+    status: 'queued',
+    city: 'Campinas',
+    state: 'SP',
+    segment: 'barbearia',
+    targetQuantity: 5,
+  });
+  const service = new WebscrapingService(prisma) as any;
+  disableSearchRunAutoPump(service);
+  service.processNextQueuedSearchRun = async () => undefined;
+  let receivedRequiredChannels: string[] = [];
+  service.searchHbxEngine = async (input: any) => {
+    receivedRequiredChannels = [...(input.requiredChannels || [])];
+    return {
+      results: [],
+      status: 'completed',
+      message: null,
+      urlsDiscovered: 0,
+      pagesFetched: 0,
+      rejectedCount: 0,
+      duplicateCount: 0,
+      httpStatus: 200,
+    };
+  };
+
+  await service.startSearchRunForUser(createUser(), {
+    city: 'Campinas',
+    state: 'SP',
+    segment: 'barbearia',
+    engine: 'hbx',
+    targetType: 'pj',
+    quantity: 5,
+    requiredChannels: ['instagram'],
+    channelMatchMode: 'all_required',
+    qualityMode: 'list',
+  });
+
+  const savedMetrics = JSON.parse(String((run as any).metricsJson || '{}'));
+  assert.deepEqual(savedMetrics.channelFilters.requiredChannels, ['instagram']);
+
+  const lease = {
+    engineId: 'hbx-engine-1',
+    engineIndex: 0,
+    url: 'http://engine-1',
+    lockedUntil: new Date(Date.now() + 60_000),
+    googleEmergencyMode: false,
+  };
+  await service.processSearchRun(run.id, createUser(), undefined, lease);
+
+  assert.deepEqual(receivedRequiredChannels, ['instagram']);
 });
 
 function normalizeQueryForTest(value: string) {
