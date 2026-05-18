@@ -1,13 +1,12 @@
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import urlparse
 
 from ddgs import DDGS
 
-from .filters import is_blocked_lead_source_domain, is_social_signal_domain, text_key
+from .filters import is_blocked_lead_source_domain
+from .social import is_valid_social_profile_url, social_channel_for_url
 
 BLOCKED_HOST_PARTS = ("pinterest.", "linkedin.com")
 BLOCKED_EXTENSIONS = (".pdf", ".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg", ".zip", ".rar")
-SOCIAL_BLOCKED_PATH_PARTS = ("/p/", "/reel/", "/stories/", "/explore/", "/accounts/", "/login")
-SOCIAL_BLOCKED_QUERY_KEYS = {"next", "login", "hl", "__coig_restricted"}
 
 
 def build_queries(segment: str, city: str, state: str, target_type: str = "pj", query: str = "") -> list[str]:
@@ -53,56 +52,6 @@ def build_queries(segment: str, city: str, state: str, target_type: str = "pj", 
     ]
 
 
-def _requested_social_channels(
-    preferred_channels: list[str] | None = None,
-    required_channels: list[str] | None = None,
-) -> set[str]:
-    values = [*(preferred_channels or []), *(required_channels or [])]
-    return {text_key(value) for value in values if text_key(value) in {"instagram", "facebook"}}
-
-
-def _social_channel_for_url(url_or_host: str) -> str | None:
-    host = urlparse(url_or_host).netloc.lower() or str(url_or_host or "").lower()
-    if "instagram.com" in host:
-        return "instagram"
-    if "facebook.com" in host:
-        return "facebook"
-    return None
-
-
-def _is_valid_social_profile_url(url: str) -> bool:
-    parsed = urlparse(url)
-    host = parsed.netloc.lower()
-    path = parsed.path.lower()
-    if parsed.scheme not in ("http", "https") or not host or not is_social_signal_domain(host):
-        return False
-    if path.endswith(BLOCKED_EXTENSIONS):
-        return False
-    if any(part in path for part in SOCIAL_BLOCKED_PATH_PARTS):
-        return False
-    if any(key in parse_qs(parsed.query) for key in SOCIAL_BLOCKED_QUERY_KEYS):
-        return False
-    clean_parts = [part for part in path.split("/") if part]
-    if not clean_parts:
-        return False
-    if clean_parts[0] in {"share", "sharer", "plugins", "dialog", "events", "marketplace", "watch"}:
-        return False
-    return len(clean_parts) <= 2
-
-
-def _social_queries(segment: str, city: str, channels: set[str]) -> list[str]:
-    queries: list[str] = []
-    for channel in ("instagram", "facebook"):
-        if channel not in channels:
-            continue
-        domain = "instagram.com" if channel == "instagram" else "facebook.com"
-        queries.extend([
-            f'site:{domain} "{segment}" "{city}"',
-            f'"{segment}" "{city}" {channel}',
-        ])
-    return queries
-
-
 def _is_allowed_url(
     url: str,
     preferred_channels: list[str] | None = None,
@@ -114,7 +63,7 @@ def _is_allowed_url(
     full = url.lower()
     if parsed.scheme not in ("http", "https") or not host:
         return False
-    social_channel = _social_channel_for_url(url)
+    social_channel = social_channel_for_url(url)
     if social_channel:
         return False
     if is_blocked_lead_source_domain(host) or any(part in host for part in BLOCKED_HOST_PARTS):
@@ -152,9 +101,6 @@ def discover_urls(
     target = discovery_target(limit, max_discovery_results, target_type, exclude_count)
     queries = build_queries(segment, city, state, target_type, query)
     per_query = max(8, target // len(queries) + 2)
-    social_signal_channels = _requested_social_channels(preferred_channels, required_channels)
-    if target_type == "pj":
-        social_signal_channels = social_signal_channels or {"instagram", "facebook"}
     seen: set[str] = {str(url or "").strip().rstrip("/") for url in (exclude_urls or []) if str(url or "").strip()}
     urls: list[str] = []
 
@@ -168,13 +114,9 @@ def discover_urls(
             for row in results or []:
                 url = str(row.get("href") or row.get("url") or "").strip()
                 normalized = url.rstrip("/")
-                social_channel = _social_channel_for_url(normalized)
-                is_social_signal = bool(
-                    social_channel
-                    and social_channel in social_signal_channels
-                    and _is_valid_social_profile_url(normalized)
-                )
-                if normalized in seen or (not is_social_signal and not _is_allowed_url(normalized, preferred_channels, required_channels)):
+                if social_channel_for_url(normalized) and is_valid_social_profile_url(normalized):
+                    continue
+                if normalized in seen or not _is_allowed_url(normalized, preferred_channels, required_channels):
                     continue
                 seen.add(normalized)
                 urls.append(normalized)

@@ -80,6 +80,29 @@ def test_parse_official_page_extracts_social_links_before_scoring() -> None:
     assert contacts[0]["website"] == "https://oficinaboa.example.com.br"
 
 
+def test_parse_rejects_invalid_social_urls() -> None:
+    html = """
+    <html>
+      <head><title>Oficina Boa - Contato</title></head>
+      <body>
+        <h1>Oficina Boa</h1>
+        <a href="tel:+551934611234">Ligar</a>
+        <a href="https://instagram.com/p/abc">Post</a>
+        <a href="https://instagram.com/oficinaboa/reel/123">Reel</a>
+        <a href="https://instagram.com/stories/oficinaboa/123">Stories</a>
+        <a href="https://facebook.com/sharer/sharer.php?u=https://oficinaboa.example.com.br">Share</a>
+      </body>
+    </html>
+    """
+
+    contacts, _ = parse_page(html, "https://oficinaboa.example.com.br/contato")
+
+    assert len(contacts) == 1
+    assert "instagramUrl" not in contacts[0]
+    assert "facebookUrl" not in contacts[0]
+    assert contacts[0]["website"] == "https://oficinaboa.example.com.br"
+
+
 def test_parse_blocks_generic_name() -> None:
     html = """
     <html>
