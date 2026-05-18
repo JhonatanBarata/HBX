@@ -2947,6 +2947,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     const requiredSocialChannels = requiredChannels.filter((channel) => channel === 'instagram' || channel === 'facebook');
     const hasInstagram = Boolean(this.normalizeQualityText(candidate.instagramUrl));
     const hasFacebook = Boolean(this.normalizeQualityText(candidate.facebookUrl));
+    const hasUsablePublicContact = this.hasUsablePublicContactChannel(candidate);
     const hasRequiredSocial = input.targetType === 'pj' && requiredSocialChannels.length > 0 && (
       requiredSocialChannels.includes('instagram') && requiredSocialChannels.includes('facebook')
         ? hasInstagram || hasFacebook
@@ -2974,17 +2975,17 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         reasons: ['Nome generico ou resultado de lista telefonica.'],
       };
     }
-    if (!phoneDigits && !hasRequiredSocial) {
+    if (!hasUsablePublicContact && !hasRequiredSocial) {
       return {
         status: 'invalid',
         billable: false,
         segmentMatchScore: 0,
         contactQualityScore: 0,
         commercialScore: 0,
-        reasons: ['Telefone ausente.'],
+        reasons: ['Contato publico ausente.'],
       };
     }
-    if (phoneDigits && !isLikelyValidBrPhone(phoneDigits) && !hasRequiredSocial) {
+    if (phoneDigits && !isLikelyValidBrPhone(phoneDigits) && !hasUsablePublicContact && !hasRequiredSocial) {
       return {
         status: 'weak_contact',
         billable: false,
@@ -2999,12 +3000,12 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     const segmentMatchScore = input.targetType === 'pj' ? segment.score : Math.max(segment.score, 65);
     reasons.push(...segment.reasons);
     let contactQualityScore = 0;
-    contactQualityScore += 50;
+    contactQualityScore += isLikelyValidBrPhone(phoneDigits) ? 50 : hasUsablePublicContact ? 55 : 0;
     if (isLikelyWhatsapp(phoneDigits)) contactQualityScore += 20;
     const websiteStatus = inferWebsiteStatus(candidate.website);
     const hasSocial = Boolean(this.normalizeQualityText(candidate.instagramUrl || candidate.facebookUrl));
     if (websiteStatus !== 'none' || hasSocial) contactQualityScore += 15;
-    if (!phoneDigits && hasRequiredSocial) reasons.push('Canal social obrigatorio encontrado.');
+    if (!phoneDigits && (hasRequiredSocial || hasUsablePublicContact)) reasons.push('Canal publico encontrado sem telefone.');
     if ((Number(candidate.rating || 0) >= 4.2 && safeInteger(candidate.reviews) >= 10) || safeInteger(candidate.reviews) >= 20) {
       contactQualityScore += 10;
     }
@@ -3212,6 +3213,33 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     return required.some((channel) => this.candidateHasRequiredChannel(candidate, channel, qualityV2));
   }
 
+  private hasUsablePublicContactChannel(candidate: Record<string, any>) {
+    const merged = {
+      ...candidate,
+      ...this.parseMaybeJsonObject(candidate?.rawJson),
+      ...this.parseMaybeJsonObject(candidate?.enrichmentJson),
+      ...this.parseMaybeJsonObject(candidate?.metadataJson),
+    };
+    const phoneDigits = normalizePhoneDigits(merged.phoneDigits || merged.phone || merged.phoneNormalized);
+    if (isLikelyValidBrPhone(phoneDigits)) return true;
+    if (String(merged.instagramUrl || merged.signals?.instagramUrl || '').trim()) return true;
+    if (String(merged.facebookUrl || merged.signals?.facebookUrl || '').trim()) return true;
+    if (String(merged.email || merged.signals?.email || '').trim()) return true;
+    const website = String(merged.website || '').trim();
+    return Boolean(website && inferWebsiteStatus(website) !== 'none');
+  }
+
+  private canDeliverRequiredSocialWithoutPhone(input?: Partial<NormalizedSearchInput | NormalizedRadarFilters> | null) {
+    const profile = (input as any)?.salesProfile || null;
+    const required = this.normalizeRadarChannels((input as any)?.requiredChannels || profile?.requiredChannels);
+    const hasRequiredSocial = required.some((channel) => channel === 'instagram' || channel === 'facebook');
+    if (!hasRequiredSocial) return false;
+    const explicitMode = this.normalizeChannelMatchMode((input as any)?.channelMatchMode || profile?.channelMatchMode);
+    const channelMatchMode = explicitMode === 'prefer' ? 'all_required' : explicitMode;
+    if (channelMatchMode !== 'all_required') return true;
+    return !required.some((channel) => channel === 'phone' || channel === 'whatsapp');
+  }
+
   private getCandidateQuality(candidate: Record<string, any>, input: NormalizedSearchInput | NormalizedRadarFilters) {
     const existing = this.extractLeadQualityFromObject(candidate)
       || this.extractLeadQualityFromObject(candidate.rawJson)
@@ -3284,10 +3312,16 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     result: Omit<WebscrapingContactResult, 'placeId'> & { placeId?: string | null },
     dedup: Awaited<ReturnType<WebscrapingService['snapshotSearchRunDedup']>>,
     fallback: { runId: string; index: number; city: string; state: string; segment: string },
+    input?: NormalizedSearchInput | NormalizedRadarFilters,
   ) {
     const phoneDigits = normalizePhoneDigits(result.phoneDigits || result.phone);
     const websiteKey = normalizeWebsiteKey(result.website);
     const name = String(result.name || '').trim();
+    const hasUsablePublicContact = this.hasUsablePublicContactChannel(result as any);
+    const hasRequiredChannelGate = this.normalizeRadarChannels((input as any)?.requiredChannels || (input as any)?.salesProfile?.requiredChannels).length > 0;
+    const requiredChannelsMatched = !hasRequiredChannelGate || this.candidateHasRequiredChannels(result as any, input);
+    const socialRequiredAndMatched = this.canDeliverRequiredSocialWithoutPhone(input)
+      && requiredChannelsMatched;
     const placeId = String(result.placeId || '').trim()
       || this.buildSyntheticRunPlaceId(fallback.runId, result, fallback.index);
     const compositeKey = this.buildRunCompositeKey({
@@ -3297,13 +3331,17 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       segment: fallback.segment,
     });
 
-    if (!name || !phoneDigits) {
+    if (!name || (!hasUsablePublicContact && !socialRequiredAndMatched) || !requiredChannelsMatched) {
       return {
         placeId,
         phoneDigits,
         websiteKey,
         status: 'invalid' as WebscrapingSearchRunItemStatus,
-        duplicateReason: !name ? 'Nome ausente.' : 'Telefone invalido ou ausente.',
+        duplicateReason: !name
+          ? 'Nome ausente.'
+          : !requiredChannelsMatched
+            ? 'Canal obrigatorio ausente.'
+            : 'Contato publico ausente.',
       };
     }
     if (placeId && dedup.placeIds.has(placeId)) {
@@ -3326,7 +3364,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     }
 
     dedup.placeIds.add(placeId);
-    dedup.phoneDigits.add(phoneDigits);
+    if (phoneDigits) dedup.phoneDigits.add(phoneDigits);
     if (websiteKey) dedup.websiteKeys.add(websiteKey);
     if (compositeKey !== '|||') dedup.compositeKeys.add(compositeKey);
     return { placeId, phoneDigits, websiteKey, status: 'found' as const, duplicateReason: null };
@@ -3366,7 +3404,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         city: resultCity,
         state: resultState,
         segment: resultSegment,
-      });
+      }, normalized);
       const quality = classified.status === 'found'
         ? this.evaluateResultQualityForInput(result as any, normalized)
         : this.extractLeadQualityFromObject(result as any);
@@ -5631,7 +5669,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     const opportunityWhere = this.buildRadarOpportunityWhere(filters.opportunityLevel);
     if (opportunityWhere) where.opportunityScore = opportunityWhere;
 
-    if (filters.validPhone || options.requirePhone) {
+    if ((filters.validPhone || options.requirePhone) && !this.canDeliverRequiredSocialWithoutPhone(filters)) {
       and.push({ phoneDigits: { not: null } });
     }
 
@@ -6032,7 +6070,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       metadataJson: row?.metadataJson || null,
       qualityV2: this.extractLeadQualityV2FromObject(row) || this.extractLeadQualityV2FromObject(row?.enrichmentJson) || this.extractLeadQualityV2FromObject(row?.metadataJson),
       quality: this.extractLeadQualityFromObject(row) || this.extractLeadQualityFromObject(row?.enrichmentJson) || this.extractLeadQualityFromObject(row?.metadataJson),
-    })).filter((row) => row.phoneDigits);
+    })).filter((row) => row.phoneDigits || row.instagramUrl || row.facebookUrl || row.website);
   }
 
   private async listRadarContactsForSearch(
@@ -6047,12 +6085,16 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       limit: Math.max(input.quantity * 3, 20),
       minRating: input.filters.minRating,
       minReviews: input.filters.minReviews,
-      validPhone: true,
+      validPhone: false,
+      preferredChannels: input.preferredChannels,
+      requiredChannels: input.requiredChannels,
+      channelMatchMode: input.channelMatchMode,
+      qualityMode: input.qualityMode,
     });
     const rows = await this.queryRadarRowsForCompany(context.companyId, filters, {
       limit: Math.max(input.quantity * 3, 20),
       excludePhoneDigits: input.excludePhoneDigits,
-      requirePhone: true,
+      requirePhone: false,
     });
     return this.sortContacts(this.restoreRadarPoolResults(rows)).slice(0, input.quantity);
   }
@@ -6984,7 +7026,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       limit: Math.max(100, safeInteger(run?.targetQuantity) * 4),
       engine: 'hbx',
       targetType: normalizeTargetType(run?.targetType),
-      validPhone: true,
+      validPhone: false,
       preferredChannels: channelFilters.preferredChannels,
       requiredChannels: channelFilters.requiredChannels,
       channelMatchMode: channelFilters.channelMatchMode,
@@ -7428,7 +7470,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     const normalized = this.buildNormalizedSearchInputFromRadarFilters(filters);
     const stockRows = await this.queryRadarRowsForCompany(context.companyId, filters, {
       limit: Math.max(filters.quantity, filters.minimumStock, 100),
-      requirePhone: true,
+      requirePhone: false,
       availableOnly: true,
     });
     let immediateRows = stockRows.slice(0, filters.quantity);
@@ -7627,7 +7669,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
 
     let rows = await this.queryRadarRowsForCompany(context.companyId, filters, {
       limit: Math.max(filters.quantity, filters.minimumStock, 100),
-      requirePhone: true,
+      requirePhone: false,
       availableOnly: true,
     });
     const cleanStockBefore = rows.length;
@@ -7669,7 +7711,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       }
       rows = await this.queryRadarRowsForCompany(context.companyId, filters, {
         limit: Math.max(filters.quantity, filters.minimumStock, 100),
-        requirePhone: true,
+        requirePhone: false,
         availableOnly: true,
       });
     }
@@ -7905,11 +7947,11 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     };
     const beforeRows = await this.queryRadarRowsForCompany(context.companyId, effectiveFilters, {
       limit: Math.max(effectiveFilters.desiredStock, effectiveFilters.minimumStock, effectiveFilters.quantity),
-      requirePhone: true,
+      requirePhone: false,
     });
     const allKnownRows = await this.queryRadarRowsForCompany(context.companyId, effectiveFilters, {
       limit: Math.max(effectiveFilters.desiredStock, effectiveFilters.minimumStock, effectiveFilters.quantity, 1000),
-      requirePhone: true,
+      requirePhone: false,
       includeHidden: true,
     });
     const cleanStockBefore = beforeRows.length;
@@ -7927,6 +7969,12 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
 
     const fetchedResults: WebscrapingContactResult[] = [];
     const seenPhones = new Set(allKnownRows.map((row) => normalizePhoneDigits(row?.phoneDigits || row?.phone)).filter(Boolean));
+    const seenSocialProfiles = new Set(
+      allKnownRows
+        .flatMap((row) => [row?.instagramUrl, row?.facebookUrl])
+        .map((url) => String(url || '').trim().replace(/\/+$/, '').toLowerCase())
+        .filter(Boolean),
+    );
     const shortage = Math.max(0, effectiveFilters.desiredStock - cleanStockBefore);
     let attempts = 0;
     while (fetchedResults.length < shortage && attempts < 6) {
@@ -7959,13 +8007,20 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       );
       const mappedResults = (response.results || []).map((result) => ({
         ...result,
-        placeId: `radar_external:${normalizePhoneDigits(result.phoneDigits || result.phone) || result.name}`,
+        placeId: result.placeId || `radar_external:${normalizePhoneDigits(result.phoneDigits || result.phone) || result.name}`,
       })) as WebscrapingContactResult[];
       let acceptedInBatch = 0;
       for (const result of mappedResults) {
         const phone = normalizePhoneDigits(result.phoneDigits || result.phone);
-        if (!phone || seenPhones.has(phone)) continue;
-        seenPhones.add(phone);
+        const socialKeys = [result.instagramUrl, result.facebookUrl]
+          .map((url) => String(url || '').trim().replace(/\/+$/, '').toLowerCase())
+          .filter(Boolean);
+        const socialRequiredAndMatched = this.canDeliverRequiredSocialWithoutPhone(effectiveFilters)
+          && this.candidateHasRequiredChannels(result as any, effectiveFilters);
+        const hasUsablePublicContact = this.hasUsablePublicContactChannel(result as any);
+        if ((!hasUsablePublicContact && !socialRequiredAndMatched) || (phone && seenPhones.has(phone)) || socialKeys.some((key) => seenSocialProfiles.has(key))) continue;
+        if (phone) seenPhones.add(phone);
+        socialKeys.forEach((key) => seenSocialProfiles.add(key));
         fetchedResults.push(result);
         acceptedInBatch += 1;
       }
@@ -8006,7 +8061,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
 
     const afterRows = await this.queryRadarRowsForCompany(context.companyId, effectiveFilters, {
       limit: Math.max(effectiveFilters.desiredStock, effectiveFilters.minimumStock, effectiveFilters.quantity),
-      requirePhone: true,
+      requirePhone: false,
     });
 
     return {
@@ -8036,9 +8091,14 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     for (const result of this.mergeDedupedContacts(results)) {
       const phoneDigits = normalizePhoneDigits(result.phoneDigits || result.phone);
       const ddd = this.extractDdd(phoneDigits || result.phone);
+      const socialIdentity = normalizeLookupValue(result.instagramUrl || result.facebookUrl || result.website || '')
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '');
       const placeId = result.placeId && !String(result.placeId).startsWith('radar:') && !String(result.placeId).startsWith('radar_external:')
         ? String(result.placeId)
-        : null;
+        : socialIdentity
+          ? `hbx:${input.targetType}:social:${socialIdentity}`
+          : null;
       if (!phoneDigits && !placeId) continue;
       const quality = this.getCandidateQuality({ ...(result as any), phoneDigits }, input);
       const dddMismatch = strictLocalDdd && expectedDdds.length > 0 && ddd && !expectedDdds.includes(ddd);
@@ -13696,6 +13756,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     const instagramUrl = String(item?.instagramUrl || '').trim() || null;
     const facebookUrl = String(item?.facebookUrl || '').trim() || null;
     const hasSocial = Boolean(instagramUrl || facebookUrl);
+    const hasUsablePublicContact = this.hasUsablePublicContactChannel({ ...item, phone, phoneDigits, instagramUrl, facebookUrl });
     const requiredSocialChannels = input?.requiredChannels?.filter((channel) => channel === 'instagram' || channel === 'facebook') || [];
     const socialRequiredAndMatched = targetType === 'pj'
       && requiredSocialChannels.length > 0
@@ -13705,7 +13766,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         input as NormalizedSearchInput,
       );
 
-    if (!name || (!isLikelyValidBrPhone(phoneDigits) && !(hasSocial && socialRequiredAndMatched))) {
+    if (!name || (!hasUsablePublicContact && !(hasSocial && socialRequiredAndMatched))) {
       return null;
     }
 

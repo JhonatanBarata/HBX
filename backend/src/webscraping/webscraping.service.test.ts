@@ -339,6 +339,164 @@ test('saveSearchRunResults salva baixa aderencia como skipped e entrega so aprov
   assert.equal(JSON.parse(skipped.rawJson).quality.status, 'segment_mismatch');
 });
 
+test('Radar entrega Facebook obrigatorio sem descartar telefone quando existir', async () => {
+  const { prisma, run, items } = createSearchRunPrisma({
+    segment: 'lanchonete',
+    targetQuantity: 10,
+  });
+  const service = new WebscrapingService(prisma) as any;
+  const normalized = service.normalizeSearchInput({
+    city: 'Campinas',
+    state: 'SP',
+    segment: 'lanchonete',
+    quantity: 10,
+    engine: 'hbx',
+    targetType: 'pj',
+    requiredChannels: ['facebook'],
+    channelMatchMode: 'all_required',
+  });
+
+  const counts = await service.saveSearchRunResults(
+    { companyId: 7, userId: 9, user: createUser() },
+    normalized,
+    run.id,
+    [
+      {
+        name: 'Lanchonete Social',
+        phone: '',
+        phoneDigits: '',
+        facebookUrl: 'https://facebook.com/lanchonetesocial',
+        businessCategory: 'lanchonete',
+        source: 'hbx_scraping:web',
+      },
+      {
+        name: 'Lanchonete Central',
+        phone: '(19) 99999-0002',
+        phoneDigits: '19999990002',
+        facebookUrl: 'https://facebook.com/lanchonetecentral',
+        businessCategory: 'lanchonete',
+        source: 'hbx_scraping:web',
+      },
+    ],
+    'hbx',
+  );
+
+  assert.equal(counts.found, 2);
+  assert.equal(items.length, 2);
+  assert.equal(items[0].status, 'found');
+  assert.equal(items[0].phoneDigits, '');
+  assert.equal(items[1].status, 'found');
+  assert.equal(items[1].phoneDigits, '19999990002');
+});
+
+test('Radar com telefone e Facebook obrigatorios continua exigindo telefone', async () => {
+  const { prisma, run, items } = createSearchRunPrisma({
+    segment: 'lanchonete',
+    targetQuantity: 10,
+  });
+  const service = new WebscrapingService(prisma) as any;
+  const normalized = service.normalizeSearchInput({
+    city: 'Campinas',
+    state: 'SP',
+    segment: 'lanchonete',
+    quantity: 10,
+    engine: 'hbx',
+    targetType: 'pj',
+    requiredChannels: ['phone', 'facebook'],
+    channelMatchMode: 'all_required',
+  });
+
+  const counts = await service.saveSearchRunResults(
+    { companyId: 7, userId: 9, user: createUser() },
+    normalized,
+    run.id,
+    [
+      {
+        name: 'Lanchonete Sem Telefone',
+        phone: '',
+        phoneDigits: '',
+        facebookUrl: 'https://facebook.com/lanchonetesemtelefone',
+        businessCategory: 'lanchonete',
+        source: 'hbx_scraping:web',
+      },
+      {
+        name: 'Lanchonete Com Telefone',
+        phone: '(19) 99999-0003',
+        phoneDigits: '19999990003',
+        facebookUrl: 'https://facebook.com/lanchonetecomtelefone',
+        businessCategory: 'lanchonete',
+        source: 'hbx_scraping:web',
+      },
+    ],
+    'hbx',
+  );
+
+  assert.equal(counts.invalid, 1);
+  assert.equal(counts.found, 1);
+  assert.equal(items[0].status, 'invalid');
+  assert.equal(items[0].duplicateReason, 'Canal obrigatorio ausente.');
+  assert.equal(items[1].status, 'found');
+  assert.equal(items[1].phoneDigits, '19999990003');
+});
+
+test('Radar sem filtro de canal entrega card social-only da VPS', async () => {
+  const { prisma, run, items } = createSearchRunPrisma({
+    segment: 'lanchonete',
+    targetQuantity: 10,
+  });
+  const service = new WebscrapingService(prisma) as any;
+  const normalized = service.normalizeSearchInput({
+    city: 'Campinas',
+    state: 'SP',
+    segment: 'lanchonete',
+    quantity: 10,
+    engine: 'hbx',
+    targetType: 'pj',
+  });
+
+  const counts = await service.saveSearchRunResults(
+    { companyId: 7, userId: 9, user: createUser() },
+    normalized,
+    run.id,
+    [
+      {
+        name: 'Lanchonete Social',
+        phone: '',
+        phoneDigits: '',
+        instagramUrl: 'https://instagram.com/lanchonetesocial',
+        businessCategory: 'lanchonete',
+        source: 'hbx_scraping:web',
+      },
+    ],
+    'hbx',
+  );
+
+  assert.equal(counts.found, 1);
+  assert.equal(items[0].status, 'found');
+  assert.equal(items[0].phoneDigits, '');
+});
+
+test('buildRadarWhere nao adiciona telefone invisivel quando canal obrigatorio e so social', () => {
+  const service = new WebscrapingService(createPrisma()) as any;
+  const facebookOnly = service.normalizeRadarFilters({
+    city: 'Campinas',
+    state: 'SP',
+    segment: 'lanchonete',
+    requiredChannels: ['facebook'],
+    channelMatchMode: 'all_required',
+  });
+  const phoneAndFacebook = service.normalizeRadarFilters({
+    city: 'Campinas',
+    state: 'SP',
+    segment: 'lanchonete',
+    requiredChannels: ['phone', 'facebook'],
+    channelMatchMode: 'all_required',
+  });
+
+  assert.equal(JSON.stringify(service.buildRadarWhere(facebookOnly, 7, { requirePhone: true })).includes('"phoneDigits":{"not":null}'), false);
+  assert.equal(JSON.stringify(service.buildRadarWhere(phoneAndFacebook, 7, { requirePhone: true })).includes('"phoneDigits":{"not":null}'), true);
+});
+
 test('buildHbxBatchQueries nao gera query PJ sem nicho', () => {
   const service = new WebscrapingService(createPrisma()) as any;
   const normalized = service.normalizeSearchInput({
@@ -729,6 +887,33 @@ test('mapHbxContactResult aceita card social-first quando canal social e obrigat
   assert.ok(mapped);
   assert.equal(mapped.phoneDigits, '');
   assert.equal(mapped.instagramUrl, 'https://instagram.com/farmaciasocial');
+  assert.equal(service.isApprovedLeadQuality(quality), true);
+});
+
+test('mapHbxContactResult aceita card social-first na busca padrao sem filtro', () => {
+  const service = new WebscrapingService(createPrisma()) as any;
+  const normalized = service.normalizeSearchInput({
+    city: 'Campinas',
+    state: 'SP',
+    segment: 'lanchonete',
+    quantity: 1,
+    engine: 'hbx',
+    targetType: 'pj',
+  });
+
+  const mapped = service.mapHbxContactResult({
+    name: 'Lanchonete Social Campinas',
+    phone: '',
+    phoneDigits: '',
+    instagramUrl: 'https://instagram.com/lanchonetesocialcampinas',
+    source: 'hbx_scraping:social_discovery',
+    score: 70,
+  }, normalized);
+  const quality = service.getCandidateQuality(mapped, normalized);
+
+  assert.ok(mapped);
+  assert.equal(mapped.phoneDigits, '');
+  assert.equal(mapped.instagramUrl, 'https://instagram.com/lanchonetesocialcampinas');
   assert.equal(service.isApprovedLeadQuality(quality), true);
 });
 
