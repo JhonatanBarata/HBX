@@ -332,13 +332,15 @@ class SearchService:
             if marker in title:
                 title = title.split(marker, 1)[0].strip()
         title = re.sub(r"\(@[^)]+\)", "", title).strip(" -:|•")
-        if title and not self.is_bad_social_candidate_name(title, city, segment):
+        generic_title = text_key(title) in {"link to instagram com", "link to facebook com", "instagram", "facebook"}
+        if title and not generic_title and not self.is_bad_social_candidate_name(title, city, segment):
             return title
 
         parsed = urlparse(url)
         parts = [part for part in parsed.path.split("/") if part]
         slug = parts[-1] if parts else ""
         slug = re.sub(r"[_\-.]+", " ", slug)
+        slug = re.sub(r"\b\d{6,}\b", " ", slug)
         slug = re.sub(r"\s+", " ", slug).strip()
         if slug and not self.is_bad_social_candidate_name(slug, city, segment):
             return " ".join(token.capitalize() for token in slug.split())
@@ -562,7 +564,7 @@ class SearchService:
                 request.limit,
                 request.preferredChannels,
                 request.requiredChannels,
-                target_override=max(request.limit * 12, 12) if required_social_channels else None,
+                target_override=max(request.limit * 6, 6) if required_social_channels else None,
             )
             print(f"[social_discovery] profiles={len(social_profiles)} channels={','.join(sorted(requested_social_channels))}")
             social_first_candidates = self.social_profile_candidates(

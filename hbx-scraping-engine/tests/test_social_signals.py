@@ -715,6 +715,20 @@ def test_required_instagram_rejects_generic_unrelated_social_profile(monkeypatch
     assert response.results[0].name == "Drogaria São Paulo"
 
 
+def test_social_first_name_uses_slug_when_title_is_generic() -> None:
+    service = SearchService()
+    name = service.social_profile_name(
+        {
+            "url": "https://facebook.com/Farmácia-são-Paulo-106481897893596",
+            "title": "Link to facebook.com",
+        },
+        "São Paulo",
+        "farmacia",
+    )
+
+    assert name == "Farmácia São Paulo"
+
+
 def test_required_instagram_and_facebook_accepts_when_one_channel_exists(monkeypatch) -> None:
     class FakeFetcher:
         def __init__(self, *args, **kwargs) -> None:
