@@ -89,7 +89,7 @@ def test_instagram_social_queries_prioritize_profile_results() -> None:
 
 
 def test_discover_social_profiles_can_stop_at_social_first_target(monkeypatch) -> None:
-    calls: list[str] = []
+    calls: list[dict] = []
 
     class FakeDDGS:
         def __enter__(self):
@@ -99,7 +99,7 @@ def test_discover_social_profiles_can_stop_at_social_first_target(monkeypatch) -
             return None
 
         def text(self, query, **kwargs):
-            calls.append(query)
+            calls.append({"query": query, **kwargs})
             return [
                 {"href": "https://instagram.com/farmaciasocial", "title": "Farmácia Social"},
                 {"href": "https://instagram.com/farmaciasocial2", "title": "Farmácia Social 2"},
@@ -111,6 +111,8 @@ def test_discover_social_profiles_can_stop_at_social_first_target(monkeypatch) -
 
     assert len(profiles) == 1
     assert len(calls) == 1
+    assert calls[0]["backend"] == "google"
+    assert calls[0]["max_results"] == 6
 
 
 def test_discover_urls_keeps_social_out_but_social_discovery_returns_it(monkeypatch) -> None:
