@@ -440,7 +440,7 @@ test('LeadQualityV2 Instagram preferido pontua e nao descarta quando ausente', (
   assert.match(matched.reasons.join(' '), /Canal preferido disponivel: Instagram/i);
 });
 
-test('LeadQualityV2 canal Instagram obrigatorio em List vira review se ausente', () => {
+test('LeadQualityV2 canal Instagram obrigatorio em List descarta se ausente', () => {
   const quality = calculateLeadQualityV2({
     lead: {
       name: 'Barbearia List',
@@ -457,9 +457,77 @@ test('LeadQualityV2 canal Instagram obrigatorio em List vira review se ausente',
     },
   });
 
-  assert.equal(quality.decision, 'review');
-  assert.equal(quality.discardReason, null);
+  assert.equal(quality.decision, 'discard');
+  assert.equal(quality.discardReason, 'required_channel_missing');
   assert.match(quality.reasons.join(' '), /Canal obrigatório ausente após enriquecimento: Instagram/i);
+  assert.match(quality.reasons.join(' '), /Filtro obrigatório forte reduziu a entrega/i);
+});
+
+test('LeadQualityV2 canal Facebook obrigatorio descarta se ausente', () => {
+  const quality = calculateLeadQualityV2({
+    lead: {
+      name: 'Barbearia Face',
+      phoneDigits: '19999990001',
+      city: 'Campinas',
+      state: 'SP',
+      address: 'Rua Um, 10',
+      segment: 'barbearia',
+    },
+    context: {
+      requestedSegment: 'salao',
+      qualityMode: 'list',
+      salesProfile: { requiredChannels: ['facebook'], channelMatchMode: 'all_required', qualityMode: 'list' },
+    },
+  });
+
+  assert.equal(quality.decision, 'discard');
+  assert.equal(quality.discardReason, 'required_channel_missing');
+  assert.match(quality.reasons.join(' '), /Canal obrigatório ausente após enriquecimento: Facebook/i);
+});
+
+test('LeadQualityV2 canal Instagram obrigatorio presente nao descarta por canal', () => {
+  const quality = calculateLeadQualityV2({
+    lead: {
+      name: 'Barbearia Instagram',
+      phoneDigits: '19999990001',
+      city: 'Campinas',
+      state: 'SP',
+      address: 'Rua Um, 10',
+      segment: 'barbearia',
+      instagramUrl: 'https://instagram.com/barbeariainstagram',
+    },
+    context: {
+      requestedSegment: 'salao',
+      qualityMode: 'list',
+      salesProfile: { requiredChannels: ['instagram'], channelMatchMode: 'all_required', qualityMode: 'list' },
+    },
+  });
+
+  assert.notEqual(quality.discardReason, 'required_channel_missing');
+  assert.equal(quality.channelAvailability?.instagram, true);
+});
+
+test('LeadQualityV2 Instagram e Facebook obrigatorios aceita uma rede social presente', () => {
+  const quality = calculateLeadQualityV2({
+    lead: {
+      name: 'Barbearia Social',
+      phoneDigits: '19999990001',
+      city: 'Campinas',
+      state: 'SP',
+      address: 'Rua Um, 10',
+      segment: 'barbearia',
+      instagramUrl: 'https://instagram.com/barbeariasocial',
+    },
+    context: {
+      requestedSegment: 'salao',
+      qualityMode: 'list',
+      salesProfile: { requiredChannels: ['instagram', 'facebook'], channelMatchMode: 'all_required', qualityMode: 'list' },
+    },
+  });
+
+  assert.notEqual(quality.discardReason, 'required_channel_missing');
+  assert.equal(quality.channelAvailability?.instagram, true);
+  assert.equal(quality.channelAvailability?.facebook, false);
 });
 
 test('LeadQualityV2 canal Instagram obrigatorio em Lead+ descarta contato fraco', () => {

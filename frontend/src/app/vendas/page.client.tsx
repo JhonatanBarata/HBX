@@ -3960,6 +3960,10 @@ export default function VendasClientPage() {
       runTarget > 1
         ? `${Math.min(runDelivered, runTarget)} de ${runTarget} cards`
         : `${runDelivered} ${runDelivered === 1 ? "card recebido" : "cards recebidos"}`;
+    const radarLocatedCount = Math.max(runFoundRaw, activeAgendaCount, agendaReceivedCount);
+    const radarLocatedLabel = `${radarLocatedCount.toLocaleString("pt-BR")} ${radarLocatedCount === 1 ? "card localizado" : "cards localizados"}`;
+    const radarVendasLabel = `${activeAgendaCount.toLocaleString("pt-BR")} no Vendas`;
+    const radarReceivedVendasLabel = `${agendaReceivedCount.toLocaleString("pt-BR")} no Vendas`;
     const radarContextLabel = [radarCity, radarState].filter(Boolean).join(" / ") || radarSegment || "Radar Digital";
     const mobileRadarState =
       !runActive && agendaReceivedCount > 0
@@ -3985,13 +3989,13 @@ export default function VendasClientPage() {
         : mobileRadarState === "preparing"
           ? `${runDelivered} ${runDelivered === 1 ? "card encontrado" : "cards encontrados"}`
         : mobileRadarState === "receiving"
-          ? `${activeAgendaCount} ${activeAgendaCount === 1 ? "card no Vendas" : "cards no Vendas"}`
+          ? `${radarLocatedLabel}, ${radarVendasLabel}`
           : mobileRadarState === "partial"
             ? radarProgressLabel
             : mobileRadarState === "warning"
               ? "Radar precisa de ajuste"
               : mobileRadarState === "received"
-                ? `${agendaReceivedCount} ${agendaReceivedCount === 1 ? "card no Vendas" : "cards no Vendas"}`
+                ? `${radarLocatedLabel}, ${radarReceivedVendasLabel}`
                 : "Motor pronto";
     const mobileRadarStatusText =
       mobileRadarState === "searching"
@@ -3999,7 +4003,7 @@ export default function VendasClientPage() {
         : mobileRadarState === "preparing"
           ? "Preparando sua agenda"
         : mobileRadarState === "receiving"
-          ? "Abastecendo sua agenda"
+          ? "ABASTECENDO SUA AGENDA"
           : mobileRadarState === "partial"
             ? radarBlockedByStrictFilters
               ? "Filtros barraram todos"

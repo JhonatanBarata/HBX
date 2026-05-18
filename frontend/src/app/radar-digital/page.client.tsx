@@ -135,6 +135,9 @@ type RadarPullResponse = {
   meta?: {
     requestedQuantity?: number;
     deliveredCount?: number;
+    rawFoundCount?: number;
+    approvedCount?: number;
+    rejectedCount?: number;
     replenish?: {
       ran?: boolean;
       fetchedCount?: number;
@@ -496,7 +499,7 @@ function RadarChannelFilter({
     onChange({
       preferredChannels: [],
       requiredChannels: nextRequiredChannels,
-      channelMatchMode: nextRequiredChannels.length ? "any_required" : "prefer",
+      channelMatchMode: nextRequiredChannels.length ? "all_required" : "prefer",
     });
   }
 
@@ -1228,12 +1231,12 @@ function radarLeadHasRequiredChannel(lead: RadarLead, channel: RadarChannel) {
   const qualityAvailability = lead.qualityV2?.channelAvailability;
   if (qualityAvailability && typeof qualityAvailability === "object" && !Array.isArray(qualityAvailability)) {
     const value = (qualityAvailability as Record<string, unknown>)[channel];
-    if (typeof value === "boolean") return value;
+    if (typeof value === "boolean" && !value) return false;
   }
 
   if (channel === "whatsapp") {
     const whatsappStatus = String(lead.whatsappCheckStatus || lead.whatsappStatus || "").trim().toLowerCase();
-    return ["confirmed", "available", "valid", "exists"].includes(whatsappStatus);
+    return ["confirmed", "available", "valid", "exists"].includes(whatsappStatus) || radarLikelyMobile(lead.phoneDigits || lead.phone);
   }
   if (channel === "instagram") return Boolean(String(lead.instagramUrl || "").trim());
   if (channel === "facebook") return Boolean(String(lead.facebookUrl || "").trim());
@@ -1248,7 +1251,13 @@ function radarLeadHasRequiredChannel(lead: RadarLead, channel: RadarChannel) {
 
 function radarLeadMatchesRequiredChannels(lead: RadarLead, requiredChannels: RadarChannel[]) {
   if (!requiredChannels.length) return true;
-  return requiredChannels.every((channel) => radarLeadHasRequiredChannel(lead, channel));
+  const socialRequired = requiredChannels.filter((channel) => channel === "instagram" || channel === "facebook");
+  const nonSocialRequired = requiredChannels.filter((channel) => channel !== "instagram" && channel !== "facebook");
+  if (!nonSocialRequired.every((channel) => radarLeadHasRequiredChannel(lead, channel))) return false;
+  if (socialRequired.includes("instagram") && socialRequired.includes("facebook")) {
+    return socialRequired.some((channel) => radarLeadHasRequiredChannel(lead, channel));
+  }
+  return socialRequired.every((channel) => radarLeadHasRequiredChannel(lead, channel));
 }
 
 function radarDigits(value?: string | null) {
@@ -1906,9 +1915,15 @@ export default function RadarDigitalClientPage() {
   const filterEditingRef = useRef(false);
   const filterEditingReleaseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const visibleItems = useMemo(
-    () => items.filter((item) => leadMatchesSearch(item, appliedGeneralSearch)).sort(sortRadarLeadsForSales),
+  const searchMatchedItems = useMemo(
+    () => items.filter((item) => leadMatchesSearch(item, appliedGeneralSearch)),
     [appliedGeneralSearch, items],
+  );
+  const visibleItems = useMemo(
+    () => searchMatchedItems
+      .filter((item) => radarLeadMatchesRequiredChannels(item, appliedFilters.requiredChannels))
+      .sort(sortRadarLeadsForSales),
+    [appliedFilters.requiredChannels, searchMatchedItems],
   );
   const highOpportunityCount = useMemo(
     () => visibleItems.filter((item) => Number(item.opportunityScore || 0) >= 70).length,
@@ -1966,10 +1981,29 @@ export default function RadarDigitalClientPage() {
   const activeRunProgress = activeRun
     ? Math.max(4, Math.min(100, Number(activeRun.meta?.progress || Math.round((activeRunDelivered / activeRunTarget) * 100))))
     : 0;
+  const instagramRequired = appliedFilters.requiredChannels.includes("instagram");
+  const facebookRequired = appliedFilters.requiredChannels.includes("facebook");
+  const socialPairRequired = instagramRequired && facebookRequired;
   const instagramRequiredWithoutDeliveredProfile = hasSearched
-    && effectiveFilters.requiredChannels.includes("instagram")
-    && visibleItems.length > 0
-    && visibleItems.every((item) => !String(item.instagramUrl || "").trim());
+    && instagramRequired
+    && !socialPairRequired
+    && searchMatchedItems.length > 0
+    && visibleItems.length === 0;
+  const socialPairRequiredWithoutDeliveredProfile = hasSearched
+    && socialPairRequired
+    && searchMatchedItems.length > 0
+    && visibleItems.length === 0;
+  const requiredChannelsFilteredEverything = hasSearched
+    && appliedFilters.requiredChannels.length > 0
+    && searchMatchedItems.length > 0
+    && visibleItems.length === 0;
+  const instagramRequiredOnlyConfirmedProfiles = hasSearched
+    && instagramRequired
+    && !socialPairRequired
+    && visibleItems.length > 0;
+  const socialPairRequiredOnlyConfirmedProfile = hasSearched
+    && socialPairRequired
+    && visibleItems.length > 0;
   const queryRadarLeadId = String(searchParams.get("radarLeadId") || "").trim();
 
   function setFilterEditing(active: boolean) {
@@ -2771,8 +2805,8 @@ export default function RadarDigitalClientPage() {
     setTelonProgress(12);
     try {
       const selectedItems = visibleItems.slice(0, effectiveFilters.quantity);
-      const deliverableItems = effectiveFilters.requiredChannels.length
-        ? selectedItems.filter((lead) => radarLeadMatchesRequiredChannels(lead, effectiveFilters.requiredChannels))
+      const deliverableItems = appliedFilters.requiredChannels.length
+        ? selectedItems.filter((lead) => radarLeadMatchesRequiredChannels(lead, appliedFilters.requiredChannels))
         : selectedItems;
       const leads = deliverableItems.map(buildVendasLeadPayload);
       if (!leads.length) {
@@ -2802,7 +2836,7 @@ export default function RadarDigitalClientPage() {
     } finally {
       setBulkSending(false);
     }
-  }, [effectiveFilters.quantity, effectiveFilters.requiredChannels, visibleItems]);
+  }, [appliedFilters.requiredChannels, effectiveFilters.quantity, visibleItems]);
 
   useEffect(() => {
     if (!mobileAutoImportPending) return;
@@ -2867,6 +2901,17 @@ export default function RadarDigitalClientPage() {
   const radarMomentTarget = radarMomentIsActive
     ? activeRunTarget
     : Math.max(1, Number(radarMomentRun?.targetQuantity || radarMomentRun?.meta?.requestedQuantity || effectiveFilters.quantity || 1));
+  const radarMomentQuality = radarMomentRun?.meta?.qualitySummary;
+  const radarMomentDiscarded = Math.max(
+    0,
+    Number(radarMomentQuality?.discarded ?? radarMomentQuality?.rejected ?? radarMomentRun?.meta?.rejectedCount ?? 0),
+  );
+  const radarMomentLocated = Math.max(
+    radarMomentDelivered,
+    Number(radarMomentRun?.meta?.rawFoundCount ?? radarMomentQuality?.found ?? 0),
+    radarMomentDelivered + radarMomentDiscarded,
+  );
+  const radarMomentApprovedLine = `${Math.min(radarMomentDelivered, radarMomentTarget).toLocaleString("pt-BR")} de até ${radarMomentTarget.toLocaleString("pt-BR")} cards aprovados para o Vendas`;
   const radarMomentProgress = radarMomentIsActive
     ? activeRunProgress
     : Math.max(0, Math.min(100, Number(radarMomentRun?.meta?.progress || Math.round((radarMomentDelivered / radarMomentTarget) * 100) || 0)));
@@ -2902,10 +2947,10 @@ export default function RadarDigitalClientPage() {
       ? radarMomentRun?.errorMessage || radarMomentRun?.message || "Revise os filtros e rode uma nova busca."
       : radarMomentState === "partial"
         ? activeRunRemaining > 0
-          ? `Entregou ${radarMomentDelivered.toLocaleString("pt-BR")} e faltam ${activeRunRemaining.toLocaleString("pt-BR")} para a meta. Amplie cidade ou segmento.`
-          : "O Radar entregou o que encontrou neste filtro."
+          ? `Localizado ${radarMomentLocated.toLocaleString("pt-BR")}, filtrado ${radarMomentApprovedLine}. Amplie cidade ou segmento para completar.`
+          : `Localizado ${radarMomentLocated.toLocaleString("pt-BR")}, filtrado ${radarMomentApprovedLine}.`
         : radarMomentState === "receiving"
-          ? `${radarMomentDelivered.toLocaleString("pt-BR")} de até ${radarMomentTarget.toLocaleString("pt-BR")} cards aprovados para Vendas.`
+          ? `Localizado ${radarMomentLocated.toLocaleString("pt-BR")}, filtrado ${radarMomentApprovedLine}.`
           : radarMomentState === "searching"
             ? "Consultando banco, filtrando negativos e validando contatos públicos."
             : radarMomentState === "received"
@@ -2931,7 +2976,7 @@ export default function RadarDigitalClientPage() {
     .map((failure) => `${failure.count || 0} ${String(failure.reason || "falha").replace(/_/g, " ")}`)
     .filter(Boolean)
     .join(" · ");
-  const preparingDelivery = hasSearched && !visibleItems.length && radarMomentDelivered > 0;
+  const preparingDelivery = hasSearched && !visibleItems.length && radarMomentDelivered > 0 && !requiredChannelsFilteredEverything;
 
   function startMobileRadarSearch() {
     if (activeRun) {
@@ -3108,6 +3153,26 @@ export default function RadarDigitalClientPage() {
             ) : null}
             {error ? <div className={`${styles.mobileRadarNotice} hbx-mobile-notice`} data-tone="error">{compactRadarMessage(error)}</div> : null}
             {feedback && !mobileRadarProcessing ? <div className={`${styles.mobileRadarNotice} hbx-mobile-notice`} data-tone="ok">{feedback}</div> : null}
+            {instagramRequiredWithoutDeliveredProfile ? (
+              <div className={`${styles.mobileRadarNotice} hbx-mobile-notice`} data-tone="warning">
+                O Radar encontrou cards, mas nenhum confirmou Instagram. Desmarque Instagram obrigatório para ampliar.
+              </div>
+            ) : null}
+            {socialPairRequiredWithoutDeliveredProfile ? (
+              <div className={`${styles.mobileRadarNotice} hbx-mobile-notice`} data-tone="warning">
+                O Radar encontrou cards, mas nenhum confirmou Instagram ou Facebook. Desmarque rede social obrigatória para ampliar.
+              </div>
+            ) : null}
+            {instagramRequiredOnlyConfirmedProfiles ? (
+              <div className={`${styles.mobileRadarNotice} hbx-mobile-notice`} data-tone="ok">
+                Instagram obrigatório: exibindo somente cards com perfil confirmado.
+              </div>
+            ) : null}
+            {socialPairRequiredOnlyConfirmedProfile ? (
+              <div className={`${styles.mobileRadarNotice} hbx-mobile-notice`} data-tone="ok">
+                Rede social obrigatória: exibindo somente cards com Instagram ou Facebook confirmado.
+              </div>
+            ) : null}
 
             <div className={`${styles.mobileRadarActionRow} hbx-mobile-action-bar`}>
               <button
@@ -3425,7 +3490,22 @@ export default function RadarDigitalClientPage() {
         {feedback && !activeRun ? <div className={styles.notice} data-tone="ok">{feedback}</div> : null}
         {instagramRequiredWithoutDeliveredProfile ? (
           <div className={styles.notice} data-tone="warning">
-            Instagram foi exigido, mas nenhum perfil foi confirmado nos cards entregues. Desmarque Instagram obrigatório para ampliar a busca.
+            O Radar encontrou cards, mas nenhum confirmou Instagram. Desmarque Instagram obrigatório para ampliar.
+          </div>
+        ) : null}
+        {socialPairRequiredWithoutDeliveredProfile ? (
+          <div className={styles.notice} data-tone="warning">
+            O Radar encontrou cards, mas nenhum confirmou Instagram ou Facebook. Desmarque rede social obrigatória para ampliar.
+          </div>
+        ) : null}
+        {instagramRequiredOnlyConfirmedProfiles ? (
+          <div className={styles.notice} data-tone="ok">
+            Instagram obrigatório: exibindo somente cards com perfil confirmado.
+          </div>
+        ) : null}
+        {socialPairRequiredOnlyConfirmedProfile ? (
+          <div className={styles.notice} data-tone="ok">
+            Rede social obrigatória: exibindo somente cards com Instagram ou Facebook confirmado.
           </div>
         ) : null}
 
