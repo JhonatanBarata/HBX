@@ -1,6 +1,7 @@
 import asyncio
 import re
 import unicodedata
+from urllib.parse import urlparse
 
 from ddgs import DDGS
 
@@ -16,6 +17,36 @@ from .parser import is_directory_url, parse_page
 from .scoring import score_contact
 from .social import is_valid_social_profile_url, normalize_social_url, social_field_for_url
 from .storage import Storage
+
+SOCIAL_QUERY_BAD_NAME_HINTS = (
+    "confira as melhores",
+    "todos os estabelecimentos",
+    "melhores opcoes",
+    "melhores opções",
+    "diversos",
+    "papai noel",
+    "guia",
+    "lista",
+    "catalogo",
+    "catálogo",
+)
+
+SOCIAL_QUERY_STOP_TOKENS = {
+    "confira",
+    "melhores",
+    "opcoes",
+    "opções",
+    "opcao",
+    "opção",
+    "todos",
+    "estabelecimentos",
+    "diversos",
+    "cidade",
+    "telefone",
+    "contato",
+    "guia",
+    "lista",
+}
 
 
 class SearchService:
@@ -45,8 +76,38 @@ class SearchService:
             return available["instagram"] or available["facebook"]
         return all(available[channel] for channel in required_channels)
 
+    def quote_query_part(self, value: str) -> str:
+        text = " ".join(str(value or "").replace('"', " ").replace("'", " ").split())
+        return f'"{text}"' if text else ""
+
+    def social_name_tokens(self, value: str) -> list[str]:
+        key = text_key(value)
+        return [token for token in key.split() if len(token) >= 4 and token not in SOCIAL_QUERY_STOP_TOKENS]
+
+    def is_bad_social_candidate_name(self, name: str, city: str, segment: str) -> bool:
+        key = text_key(name)
+        if not key:
+            return True
+        if any(text_key(hint) in key for hint in SOCIAL_QUERY_BAD_NAME_HINTS):
+            return True
+        if key in {text_key(city), text_key(segment), "home", "contato", "telefone", "inicio", "pagina inicial"}:
+            return True
+        tokens = self.social_name_tokens(name)
+        return len(tokens) == 0
+
+    def should_try_social_enrichment(self, contact: dict, city: str, segment: str, required_social: set[str]) -> bool:
+        if not contact.get("name") or not contact.get("phone"):
+            return False
+        if self.is_bad_social_candidate_name(str(contact.get("name") or ""), city, segment):
+            return False
+        if is_generic_name(contact.get("name"), city, "pj", segment):
+            return False
+        if int(contact.get("score") or 0) < 50 and not required_social:
+            return False
+        return True
+
     def text_variants(self, value: str) -> list[str]:
-        text = " ".join(str(value or "").split())
+        text = " ".join(str(value or "").replace('"', " ").split())
         if not text:
             return []
         ascii_text = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode("ascii")
@@ -56,35 +117,51 @@ class SearchService:
         name = " ".join(str(contact.get("name") or "").split())
         city_text = " ".join(str(city or "").split())
         segment_text = " ".join(str(segment or "").split())
-        if not name or not city_text:
+        if not name or not city_text or self.is_bad_social_candidate_name(name, city_text, segment_text):
             return []
         domain = "instagram.com" if channel == "instagram" else "facebook.com"
         phone_digits = re.sub(r"\D", "", str(contact.get("phoneDigits") or contact.get("phone") or ""))
         phone_tail = phone_digits[-8:] if len(phone_digits) >= 8 else ""
         website_domain = domain_from_url(contact.get("website"))
+        website_stem = text_key(website_domain.split(".")[0] if website_domain else "")
+        name_tokens = self.social_name_tokens(name)
+        compact_name = "".join(name_tokens)
         queries: list[str] = []
         for name_variant in self.text_variants(name):
+            q_name = self.quote_query_part(name_variant)
+            if not q_name:
+                continue
             for city_variant in self.text_variants(city_text):
-                queries.append(f'site:{domain} "{name_variant}" "{city_variant}"')
-                queries.append(f'"{name_variant}" "{city_variant}" {channel}')
+                q_city = self.quote_query_part(city_variant)
+                queries.append(f"site:{domain} {q_name} {q_city}".strip())
+                queries.append(f"{q_name} {q_city} {channel}".strip())
                 if segment_text:
-                    queries.append(f'"{name_variant}" "{segment_text}" "{city_variant}" {channel}')
+                    queries.append(f"{q_name} {self.quote_query_part(segment_text)} {q_city} {channel}".strip())
             if phone_tail:
-                queries.append(f'"{name_variant}" "{phone_tail}" {channel}')
+                queries.append(f"{q_name} {self.quote_query_part(phone_tail)} {channel}".strip())
             if website_domain:
-                queries.append(f'"{name_variant}" "{website_domain}" {channel}')
-        return list(dict.fromkeys(query.replace('"" ', "").strip() for query in queries if query.strip()))[:6]
+                queries.append(f"{q_name} {self.quote_query_part(website_domain)} {channel}".strip())
+        if compact_name:
+            queries.append(f"site:{domain} {compact_name}")
+            queries.append(f"{compact_name} {channel}")
+        if website_stem and len(website_stem) >= 4:
+            queries.append(f"site:{domain} {website_stem}")
+        return list(dict.fromkeys(query.strip() for query in queries if query.strip()))[:10]
 
     def score_social_candidate(self, contact: dict, row: dict, url: str, channel: str, city: str, segment: str) -> int:
         score = 0
         normalized_url = normalize_social_url(url)
         if not normalized_url or social_field_for_url(normalized_url) != ("instagramUrl" if channel == "instagram" else "facebookUrl"):
-            score -= 40
+            return -100
         raw_text = " ".join(
             str(row.get(key) or "")
             for key in ("title", "body", "snippet", "description", "href", "url")
         )
-        combined = f"{raw_text} {url}"
+        parsed_url = urlparse(normalized_url)
+        path_text = " ".join(part for part in parsed_url.path.split("/") if part)
+        path_key = text_key(path_text)
+        path_compact = re.sub(r"[^a-z0-9]+", "", path_key)
+        combined = f"{raw_text} {normalized_url} {path_text}"
         combined_key = text_key(combined)
         combined_compact = re.sub(r"[^a-z0-9]+", "", combined_key)
         name_key = text_key(contact.get("name"))
@@ -94,23 +171,33 @@ class SearchService:
         phone_tail = phone_digits[-8:] if len(phone_digits) >= 8 else ""
         website_domain = domain_from_url(contact.get("website"))
         domain_key = text_key(website_domain)
-        name_tokens = [token for token in name_key.split() if len(token) >= 4]
+        website_stem = text_key(website_domain.split(".")[0] if website_domain else "")
+        name_tokens = self.social_name_tokens(str(contact.get("name") or ""))
         has_name_match = bool(
             name_key and name_key in combined_key
             or name_compact and name_compact in combined_compact
             or name_tokens and sum(1 for token in name_tokens if token in combined_key) >= max(1, min(2, len(name_tokens)))
         )
-        has_min_similarity = has_name_match or bool(name_tokens and any(token in combined_key for token in name_tokens))
+        path_token_matches = sum(1 for token in name_tokens if token in path_key)
+        path_has_name = bool(
+            name_compact and name_compact in path_compact
+            or path_token_matches >= max(1, min(2, len(name_tokens)))
+        )
+        has_min_similarity = has_name_match or path_has_name or bool(name_tokens and any(token in combined_key for token in name_tokens))
         if has_name_match:
             score += 40
+        if path_has_name:
+            score += 35
         if city_key and city_key in combined_key:
             score += 25
         if phone_tail and phone_tail in re.sub(r"\D", "", combined):
             score += 25
         if domain_key and (domain_key in combined_key or website_domain in combined.lower()):
             score += 15
-        if not is_valid_social_profile_url(url):
-            score -= 40
+        if website_stem and website_stem in path_key:
+            score += 15
+        if not is_valid_social_profile_url(normalized_url):
+            return -100
         if not has_min_similarity:
             score -= 30
         return score
@@ -118,13 +205,13 @@ class SearchService:
     def search_social_profile_url(self, contact: dict, query: str, channel: str, city: str, segment: str) -> tuple[str | None, int]:
         try:
             try:
-                ddgs = DDGS(timeout=4)
+                ddgs = DDGS(timeout=6)
             except TypeError:
                 ddgs = DDGS()
             best_url: str | None = None
             best_score = -10_000
             with ddgs as client:
-                rows = client.text(query, region="br-pt", safesearch="off", max_results=8)
+                rows = client.text(query, region="br-pt", safesearch="off", max_results=12)
                 for row in rows or []:
                     raw_url = str(row.get("href") or row.get("url") or "").strip()
                     url = normalize_social_url(raw_url)
@@ -134,7 +221,7 @@ class SearchService:
                     if candidate_score > best_score:
                         best_url = url
                         best_score = candidate_score
-            if best_url and best_score >= 40:
+            if best_url and best_score >= 35:
                 return best_url, best_score
         except Exception as error:
             print(f"[social_enrich] query falhou: {query} error={error}")
@@ -160,6 +247,7 @@ class SearchService:
             "enrichmentRan": True,
             "mode": mode,
             "processed": 0,
+            "skippedBadCandidate": 0,
             "enrichedCount": 0,
             "missingRequiredChannel": 0,
         }
@@ -167,7 +255,8 @@ class SearchService:
         for contact in contacts:
             if not required_social and processed >= 20:
                 break
-            if not contact.get("name") or not contact.get("phone"):
+            if not self.should_try_social_enrichment(contact, city, segment, required_social):
+                stats["skippedBadCandidate"] += 1
                 continue
             processed += 1
             stats["processed"] = processed
@@ -196,6 +285,7 @@ class SearchService:
                 f"mode={mode} "
                 f"requested={','.join(sorted(requested_channels))} "
                 f"processed={stats['processed']} "
+                f"skippedBadCandidate={stats['skippedBadCandidate']} "
                 f"enriched={stats['enrichedCount']} "
                 f"missingRequired={stats['missingRequiredChannel']}"
             )
@@ -271,6 +361,7 @@ class SearchService:
             "enrichmentRan": False,
             "mode": "required" if required_social_channels else "best_effort",
             "processed": 0,
+            "skippedBadCandidate": 0,
             "enrichedCount": 0,
             "missingRequiredChannel": 0,
         }
