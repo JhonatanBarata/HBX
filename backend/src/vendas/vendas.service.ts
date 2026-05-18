@@ -178,7 +178,6 @@ export type HbxPresentationEmailDraft = {
 };
 
 const VENDAS_WHATSAPP_LOOKUP_SOURCE = 'webwhats_lookup';
-const VENDAS_PENDING_CARD_LIMIT = 40;
 const VENDAS_REPORT_ADMIN_PHONE = '5519997024884';
 
 function compactText(value: unknown) {
@@ -291,16 +290,13 @@ export class VendasService {
   async getPendingSummaryForUser(user: any) {
     const { companyId } = this.resolveUserContext(user);
     const pendingCount = await this.getPendingVendasCardCountForCompany(companyId);
-    const remaining = Math.max(0, VENDAS_PENDING_CARD_LIMIT - pendingCount);
     return {
       ok: true,
-      limit: VENDAS_PENDING_CARD_LIMIT,
+      limit: null,
       pendingCount,
-      remaining,
-      blocked: pendingCount >= VENDAS_PENDING_CARD_LIMIT,
-      message: pendingCount >= VENDAS_PENDING_CARD_LIMIT
-        ? '40 Cards pendentes no Vendas, delete ou termine sua agenda para seguir com a busca nova'
-        : `${remaining} card(s) livres para o Radar alimentar o Vendas.`,
+      remaining: null,
+      blocked: false,
+      message: `${pendingCount} card(s) pendentes no Vendas.`,
     };
   }
 
@@ -476,6 +472,12 @@ export class VendasService {
       if (qualityV2) return qualityV2;
     }
     return null;
+  }
+
+  private qualityV2FailedRequiredChannelRule(qualityV2?: LeadQualityV2 | null) {
+    if (!qualityV2) return false;
+    if (qualityV2.discardReason === 'required_channel_missing') return true;
+    return (qualityV2.reasons || []).some((reason) => /canal obrigat[oó]rio ausente/i.test(String(reason || '')));
   }
 
   private buildVendasLeadSelectWithoutAddress(extra: Record<string, any> = {}) {
@@ -3424,7 +3426,10 @@ export class VendasService {
           salesProfile,
         },
       });
-      if (qualityV2 && (qualityV2.decision === 'protect' || qualityV2.decision === 'discard')) {
+      if (
+        qualityV2 &&
+        (qualityV2.decision === 'protect' || qualityV2.decision === 'discard' || this.qualityV2FailedRequiredChannelRule(qualityV2))
+      ) {
         skippedByQualityV2Count += 1;
         skippedByQualityCount += 1;
         skippedByFilterCount += 1;
@@ -3436,7 +3441,12 @@ export class VendasService {
           skippedBySegmentFitCount += 1;
           skippedBySegmentMismatchCount += 1;
         }
-        if (qualityV2.discardReason === 'weak_contactability' || qualityV2.contactabilityScore < 30) {
+        if (
+          qualityV2.discardReason === 'weak_contactability' ||
+          qualityV2.discardReason === 'required_channel_missing' ||
+          this.qualityV2FailedRequiredChannelRule(qualityV2) ||
+          qualityV2.contactabilityScore < 30
+        ) {
           skippedByContactabilityCount += 1;
           skippedWeakContactCount += 1;
         }

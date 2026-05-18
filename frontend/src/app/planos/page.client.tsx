@@ -11,6 +11,7 @@ import {
   type CommercialPlansPayload,
 } from "@/lib/commercial-plans";
 import { apiFetch } from "@/app/_lib/api";
+import { toMobileRoute } from "@/app/_lib/mobileRoutes";
 import { useRequireAuth } from "@/app/_lib/useRequireAuth";
 import styles from "./page.module.css";
 
@@ -201,7 +202,7 @@ function safeInternalPath(value: string | null) {
   return path;
 }
 
-export default function PlanosClientPage() {
+export default function PlanosClientPage({ mobileRoute = false }: { mobileRoute?: boolean } = {}) {
   const hasToken = useRequireAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -222,13 +223,14 @@ export default function PlanosClientPage() {
   const intent = String(searchParams.get("intent") || "").trim();
   const from = String(searchParams.get("from") || "").trim();
   const explicitReturnTo = safeInternalPath(searchParams.get("returnTo"));
-  const closeFallback =
+  const closeFallbackBase =
     explicitReturnTo ||
     (from === "vendas_automacao" || intent === "bot_ia"
       ? "/vendas/automacao"
       : intent === "lead"
         ? "/vendas"
         : "/boasvindas");
+  const closeFallback = mobileRoute ? toMobileRoute(closeFallbackBase) : closeFallbackBase;
   const canSelectPlan = Boolean(payload?.permissions?.canSelectPlan);
   const adminDeniedMessage =
     payload?.permissions?.selectPlanDeniedMessage || "USER não pode fazer upgrade. Contate seu ADMIN ou o suporte da empresa.";
@@ -372,7 +374,7 @@ export default function PlanosClientPage() {
       if (planKey === "hbx_padrao" && next.current.isTrial) {
         setNotice({ tone: "success", text: "Trial do HBX Lead iniciado por 14 dias. Não haverá cobrança automática." });
         window.setTimeout(() => {
-          router.push("/boasvindas");
+          router.push(mobileRoute ? toMobileRoute("/boasvindas") : "/boasvindas");
         }, 500);
         return;
       }
@@ -410,7 +412,7 @@ export default function PlanosClientPage() {
       setTrialModalOpen(false);
       setNotice({ tone: "success", text: "Trial do HBX Lead iniciado por 14 dias. Não haverá cobrança automática." });
       window.setTimeout(() => {
-        router.push("/boasvindas");
+        router.push(mobileRoute ? toMobileRoute("/boasvindas") : "/boasvindas");
       }, 500);
     } catch (actionError) {
       const message = actionError instanceof Error ? actionError.message : "Falha ao iniciar o trial.";

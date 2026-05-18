@@ -779,7 +779,10 @@ export function calculateLeadQualityV2(input: {
   const profilePreferredStates = normalizeStringArray(salesProfile?.preferredStates).map((state) => state.toUpperCase());
   const profilePreferredChannels = normalizeChannels(salesProfile?.preferredChannels);
   const profileRequiredChannels = normalizeChannels(salesProfile?.requiredChannels);
-  const channelMatchMode = normalizeChannelMatchMode(salesProfile?.channelMatchMode);
+  const explicitChannelMatchMode = normalizeChannelMatchMode(salesProfile?.channelMatchMode);
+  const channelMatchMode = profileRequiredChannels.length && explicitChannelMatchMode === 'prefer'
+    ? 'all_required'
+    : explicitChannelMatchMode;
   const qualityMode: LeadQualityV2QualityMode = normalizeKey(input.context?.qualityMode || salesProfile?.qualityMode) === 'lead_plus' ? 'lead_plus' : 'list';
   const preferredChannelMatches = profilePreferredChannels.filter((channel) => channelAvailability[channel]);
   const missingRequiredChannels = profileRequiredChannels.filter((channel) => !channelAvailability[channel]);
@@ -1062,16 +1065,17 @@ export function calculateLeadQualityV2(input: {
     (channelMatchMode === 'all_required' && missingRequiredChannels.length > 0)
   );
   if (requiredChannelRuleFailed && decision !== 'protect') {
-    const absentChannels = (channelMatchMode === 'any_required' ? profileRequiredChannels : missingRequiredChannels)
-      .map((channel) => CHANNEL_LABELS[channel]);
-    reasons.push(`Canal obrigatório ausente: ${absentChannels.join('/')}.`);
-    if (channelMatchMode === 'all_required') {
-      decision = qualityMode === 'list' ? 'review' : 'discard';
-    } else {
-      decision = qualityMode === 'list' ? 'review' : 'discard';
-    }
+    const absentChannelKeys = channelMatchMode === 'any_required' ? profileRequiredChannels : missingRequiredChannels;
+    const absentChannels = absentChannelKeys.map((channel) => CHANNEL_LABELS[channel]);
+    reasons.push(`Canal obrigatório ausente após enriquecimento: ${absentChannels.join('/')}.`);
+    const onlyMissingSocial = absentChannelKeys.length > 0 && absentChannelKeys.every((channel) => channel === 'instagram' || channel === 'facebook');
+    const hasStrongDirectContact = whatsappConfirmed || likelyMobile || phoneValid || emailConfirmed || emailProbable;
+    decision = qualityMode === 'list' || (qualityMode === 'lead_plus' && onlyMissingSocial && hasStrongDirectContact)
+      ? 'review'
+      : 'discard';
     discardReason = decision === 'discard' ? 'required_channel_missing' : null;
     if (decision === 'discard') finalRankScore = Math.min(finalRankScore, 39);
+    else finalRankScore = Math.min(finalRankScore, qualityMode === 'lead_plus' ? 45 : finalRankScore);
   }
 
   if (discardReason) reasons.push(`Descartado: ${discardReason}.`);

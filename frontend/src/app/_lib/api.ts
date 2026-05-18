@@ -104,8 +104,12 @@ function queueAuthChangeEvent() {
 function redirectToLogin() {
   if (typeof window === "undefined") return;
   const currentPath = `${window.location.pathname}${window.location.search}`;
-  if (window.location.pathname === "/login") return;
-  window.location.assign(`/login?from=${encodeURIComponent(currentPath)}`);
+  if (window.location.pathname === "/login" || window.location.pathname === "/mobile/login") return;
+  const shouldUseMobileLogin =
+    window.location.pathname.startsWith("/mobile") ||
+    (window.matchMedia && window.matchMedia("(max-width: 820px)").matches);
+  const loginPath = shouldUseMobileLogin ? "/mobile/login" : "/login";
+  window.location.assign(`${loginPath}?from=${encodeURIComponent(currentPath)}`);
 }
 
 function removeStoredTokens(options?: { notify?: boolean }) {

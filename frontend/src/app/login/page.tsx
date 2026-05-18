@@ -4,6 +4,7 @@ import type { CSSProperties, FormEvent, PointerEvent as ReactPointerEvent } from
 import { useEffect, useEffectEvent, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { apiFetch, setToken } from "@/app/_lib/api";
+import { toMobileRoute } from "@/app/_lib/mobileRoutes";
 import { useHbxTheme } from "../../components/ThemeProvider";
 import {
   LOGIN_VIDEO_PREFERENCE_EVENT,
@@ -286,7 +287,7 @@ async function resolvePostLoginDestination(data: unknown) {
   return explicitDestination || "/boasvindas";
 }
 
-export default function LoginPage() {
+export default function LoginPage({ mobileRoute = false }: { mobileRoute?: boolean } = {}) {
   const router = useRouter();
   const { selection, activeTheme, setMode: setThemeMode } = useHbxTheme();
   const { executeLoginWithRetry, cancel: cancelLogin } = useLoginColdStart({
@@ -347,13 +348,18 @@ export default function LoginPage() {
   };
 
   useEffect(() => {
+    if (mobileRoute) {
+      setIsMobileLoginSurface(true);
+      return undefined;
+    }
+
     const query = window.matchMedia("(max-width: 768px)");
     const syncMobileSurface = () => setIsMobileLoginSurface(query.matches);
 
     syncMobileSurface();
     query.addEventListener("change", syncMobileSurface);
     return () => query.removeEventListener("change", syncMobileSurface);
-  }, []);
+  }, [mobileRoute]);
 
   function handleThemeModeToggle() {
     setThemeMode(selection.mode === "dark" ? "light" : "dark");
@@ -470,15 +476,16 @@ export default function LoginPage() {
     const successDelay = isMobileLoginSurface ? MOBILE_LOGIN_SUCCESS_DELAY_MS : LOGIN_SUCCESS_DELAY_MS;
     await new Promise((resolve) => window.setTimeout(resolve, successDelay));
     const destination = await destinationPromise;
+    const routeDestination = mobileRoute ? toMobileRoute(destination) : destination;
 
     setToken(token);
 
-    if (/^https?:\/\//i.test(destination)) {
-      window.location.assign(destination);
+    if (/^https?:\/\//i.test(routeDestination)) {
+      window.location.assign(routeDestination);
       return;
     }
 
-    if (destination === "/boasvindas") {
+    if (destination === "/boasvindas" || routeDestination === "/mobile/boas-vindas") {
       try {
         sessionStorage.setItem(LOGIN_TO_WELCOME_TRANSITION_KEY, "mobile-auth");
       } catch {
@@ -486,7 +493,7 @@ export default function LoginPage() {
       }
     }
 
-    router.replace(destination);
+    router.replace(routeDestination);
   }
 
   async function authenticate(nextUsername: string, nextPassword: string, forceSession = false) {

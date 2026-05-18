@@ -11,8 +11,7 @@ function resolveTutorialSurface(params: URLSearchParams | ReadonlyURLSearchParam
   const surface = String(params?.get("surface") || params?.get("mode") || "").trim().toLowerCase();
   if (surface === "desktop" || surface === "advanced" || surface === "completo") return "desktop";
   if (surface === "mobile" || surface === "simple" || surface === "simples") return "mobile";
-  if (typeof window === "undefined") return "mobile";
-  return window.matchMedia("(max-width: 820px)").matches ? "mobile" : "desktop";
+  return "desktop";
 }
 
 type ReadonlyURLSearchParams = ReturnType<typeof useSearchParams>;

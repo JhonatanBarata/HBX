@@ -2455,7 +2455,7 @@ function topbarTileFromWhatsAppLiveHealth(health: WhatsAppLiveHealthPayload): To
 export default function TopBar() {
   const router = useRouter();
   const pathname = usePathname();
-  const isTopbarHiddenRoute = hiddenRoutes.has(pathname || "");
+  const isTopbarHiddenRoute = hiddenRoutes.has(pathname || "") || String(pathname || "").startsWith("/mobile");
   const topbarFrameRef = useRef<HTMLDivElement | null>(null);
   const userMenuRef = useRef<HTMLDivElement | null>(null);
   const unreadMenuRef = useRef<HTMLDivElement | null>(null);

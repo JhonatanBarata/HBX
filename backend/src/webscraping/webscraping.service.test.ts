@@ -51,6 +51,36 @@ function createPrisma(overrides?: Record<string, any>) {
   } as any;
 }
 
+test('HBX batch divide segmentos com virgula em no maximo 5 tarefas alternando cidade antes de relaxar segmento', () => {
+  const service = new WebscrapingService(createPrisma()) as any;
+  const input = {
+    city: 'Araraquara',
+    state: 'SP',
+    segment: 'oficina, auto center, funilaria, pneus, borracharia, guincho',
+    radiusKm: 100,
+    originLat: null,
+    originLng: null,
+    regionalCities: [
+      { city: 'Araraquara', state: 'SP', normalizedCity: 'araraquara', distanceKm: 0 },
+      { city: 'Sao Carlos', state: 'SP', normalizedCity: 'sao carlos', distanceKm: 42 },
+    ],
+    normalizedCity: 'araraquara',
+    normalizedSegment: 'oficina auto center funilaria pneus borracharia guincho',
+    targetType: 'pj',
+  };
+
+  const segments = service.splitHbxBatchSegments(input.segment);
+  const tasks = service.buildHbxBatchQueryTasks(input);
+
+  assert.deepEqual(segments, ['oficina', 'auto center', 'funilaria', 'pneus', 'borracharia']);
+  assert.equal(tasks[0].searchScope.currentCity, 'Araraquara');
+  assert.equal(tasks[0].searchScope.currentSegment, 'oficina');
+  assert.equal(tasks[6].searchScope.currentCity, 'Araraquara');
+  assert.equal(tasks[6].searchScope.currentSegment, 'auto center');
+  assert.equal(tasks[30].searchScope.currentCity, 'Sao Carlos');
+  assert.equal(tasks[30].searchScope.currentSegment, 'oficina');
+});
+
 function createUser() {
   return {
     id: 9,
@@ -317,7 +347,25 @@ test('buildHbxBatchQueries nao gera query PJ sem nicho', () => {
 
   assert.ok(queries.length > 0);
   assert.equal(queries.some((query) => /\bempresa\s+Campinas\s+SP\s+(celular|telefone|whatsapp)\b/i.test(query)), false);
+  assert.equal(queries.some((query) => /\binstagram\b|\bfacebook\b/i.test(query)), false);
   assert.equal(queries.every((query) => normalizeQueryForTest(query).includes('oficina')), true);
+});
+
+test('buildHbxBatchQueries adiciona redes sociais apenas quando canal foi pedido', () => {
+  const service = new WebscrapingService(createPrisma()) as any;
+  const normalized = service.normalizeSearchInput({
+    city: 'Campinas',
+    state: 'SP',
+    segment: 'oficina',
+    quantity: 10,
+    engine: 'hbx',
+    targetType: 'pj',
+    preferredChannels: ['instagram'],
+  });
+  const queries = service.buildHbxBatchQueries(normalized) as string[];
+
+  assert.equal(queries.some((query) => /\binstagram\b/i.test(query)), true);
+  assert.equal(queries.some((query) => /\bfacebook\b/i.test(query)), false);
 });
 
 test('buildHbxBatchAttemptTask percorre cidade, segmento e variacao em ordem', () => {
@@ -333,13 +381,13 @@ test('buildHbxBatchAttemptTask percorre cidade, segmento e variacao em ordem', (
   });
 
   const first = service.buildHbxBatchAttemptTask(normalized, 1);
-  const eighth = service.buildHbxBatchAttemptTask(normalized, 8);
-  const ninth = service.buildHbxBatchAttemptTask(normalized, 9);
+  const sixth = service.buildHbxBatchAttemptTask(normalized, 6);
+  const seventh = service.buildHbxBatchAttemptTask(normalized, 7);
 
   assert.equal(first.input.city, 'Americana');
   assert.equal(first.input.segment, 'açougues');
-  assert.equal(eighth.input.segment, 'açougues');
-  assert.equal(ninth.input.segment, 'alimentos naturais');
+  assert.equal(sixth.input.segment, 'açougues');
+  assert.equal(seventh.input.segment, 'alimentos naturais');
   assert.equal(first.searchScope.segmentCount, 3);
 });
 

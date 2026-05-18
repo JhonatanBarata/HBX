@@ -5,6 +5,7 @@ import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { apiFetch, clearApiCache } from "@/app/_lib/api";
 import { fetchMobileOperationalDestination } from "@/app/_lib/mobileOperationalDestination";
+import { toMobileRoute } from "@/app/_lib/mobileRoutes";
 import { useRequireAuth } from "@/app/_lib/useRequireAuth";
 import { getCommercialPlanTitle, type CommercialPlansPayload } from "@/lib/commercial-plans";
 import { saveStoredRadarRun } from "@/lib/radar-active-run";
@@ -1100,7 +1101,7 @@ export default function TutorialClientPage() {
       setProfile(completedProfile);
       saveOnboardingProfile(completedProfile);
       markMobileTutorialCompleted();
-      router.push("/vendas");
+      router.push(toMobileRoute("/vendas"));
     } catch (actionError) {
       setError(actionError instanceof Error ? actionError.message : "Não foi possível iniciar o Radar agora.");
     } finally {

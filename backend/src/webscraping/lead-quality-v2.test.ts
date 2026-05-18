@@ -401,3 +401,106 @@ test('LeadQualityV2 segmento oficina continua rejeitando auto escola', () => {
   assert.equal(quality.decision, 'discard');
   assert.equal(quality.discardReason, 'segment_mismatch');
 });
+
+test('LeadQualityV2 Instagram preferido pontua e nao descarta quando ausente', () => {
+  const preferred = calculateLeadQualityV2({
+    lead: {
+      name: 'Barbearia Sem Insta',
+      phoneDigits: '19999990001',
+      city: 'Campinas',
+      state: 'SP',
+      address: 'Rua Um, 10',
+      segment: 'barbearia',
+    },
+    context: {
+      requestedSegment: 'salao',
+      qualityMode: 'list',
+      salesProfile: { preferredChannels: ['instagram'] },
+    },
+  });
+  const matched = calculateLeadQualityV2({
+    lead: {
+      name: 'Barbearia Com Insta',
+      phoneDigits: '19999990002',
+      city: 'Campinas',
+      state: 'SP',
+      address: 'Rua Dois, 10',
+      segment: 'barbearia',
+      instagramUrl: 'https://instagram.com/barbeariacominsta',
+    },
+    context: {
+      requestedSegment: 'salao',
+      qualityMode: 'list',
+      salesProfile: { preferredChannels: ['instagram'] },
+    },
+  });
+
+  assert.notEqual(preferred.decision, 'discard');
+  assert.ok(matched.finalRankScore > preferred.finalRankScore);
+  assert.match(matched.reasons.join(' '), /Canal preferido disponivel: Instagram/i);
+});
+
+test('LeadQualityV2 canal Instagram obrigatorio em List vira review se ausente', () => {
+  const quality = calculateLeadQualityV2({
+    lead: {
+      name: 'Barbearia List',
+      phoneDigits: '19999990001',
+      city: 'Campinas',
+      state: 'SP',
+      address: 'Rua Um, 10',
+      segment: 'barbearia',
+    },
+    context: {
+      requestedSegment: 'salao',
+      qualityMode: 'list',
+      salesProfile: { requiredChannels: ['instagram'], channelMatchMode: 'all_required', qualityMode: 'list' },
+    },
+  });
+
+  assert.equal(quality.decision, 'review');
+  assert.equal(quality.discardReason, null);
+  assert.match(quality.reasons.join(' '), /Canal obrigatório ausente após enriquecimento: Instagram/i);
+});
+
+test('LeadQualityV2 canal Instagram obrigatorio em Lead+ descarta contato fraco', () => {
+  const quality = calculateLeadQualityV2({
+    lead: {
+      name: 'Barbearia Fraca',
+      city: 'Campinas',
+      state: 'SP',
+      address: 'Rua Um, 10',
+      segment: 'barbearia',
+    },
+    context: {
+      requestedSegment: 'salao',
+      qualityMode: 'lead_plus',
+      salesProfile: { requiredChannels: ['instagram'], channelMatchMode: 'all_required', qualityMode: 'lead_plus' },
+    },
+  });
+
+  assert.equal(quality.decision, 'discard');
+  assert.equal(quality.discardReason, 'required_channel_missing');
+});
+
+test('LeadQualityV2 canal WhatsApp obrigatorio continua forte em Lead+', () => {
+  const quality = calculateLeadQualityV2({
+    lead: {
+      name: 'Clínica Sem Wpp',
+      phoneDigits: '1933334444',
+      city: 'Campinas',
+      state: 'SP',
+      address: 'Rua Um, 10',
+      segment: 'clínica médica',
+      emailStatus: 'confirmed',
+      email: 'contato@clinicasemwpp.com.br',
+    },
+    context: {
+      requestedSegment: 'clinica',
+      qualityMode: 'lead_plus',
+      salesProfile: { requiredChannels: ['whatsapp'], channelMatchMode: 'all_required', qualityMode: 'lead_plus', targetSegments: ['clínicas médicas'] },
+    },
+  });
+
+  assert.equal(quality.decision, 'discard');
+  assert.equal(quality.discardReason, 'required_channel_missing');
+});

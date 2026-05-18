@@ -8,10 +8,9 @@ BLOCKED_HOST_PARTS = (
     "youtube.com",
     "youtu.be",
     "tiktok.com",
-    "instagram.com",
-    "facebook.com",
     "querobolsa.com.br",
 )
+SOCIAL_SIGNAL_HOST_PARTS = ("instagram.com", "facebook.com")
 PF_TECHNICAL_BLOCKED_HOST_PARTS = (
     "google.",
     "maps.google",
@@ -174,6 +173,16 @@ def domain_from_url(url: str | None) -> str:
 
 
 def is_blocked_domain(url_or_host: str | None) -> bool:
+    return is_blocked_lead_source_domain(url_or_host)
+
+
+def is_social_signal_domain(url_or_host: str | None) -> bool:
+    value = str(url_or_host or "").lower()
+    host = domain_from_url(value) or value
+    return any(part in host for part in SOCIAL_SIGNAL_HOST_PARTS)
+
+
+def is_blocked_lead_source_domain(url_or_host: str | None) -> bool:
     value = str(url_or_host or "").lower()
     host = domain_from_url(value) or value
     return any(part in host for part in BLOCKED_HOST_PARTS)

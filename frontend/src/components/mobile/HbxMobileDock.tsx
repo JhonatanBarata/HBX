@@ -4,10 +4,11 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { apiFetch, clearToken } from "@/app/_lib/api";
+import { mobileRouteIsActive, toMobileRoute } from "@/app/_lib/mobileRoutes";
 import { useInterfaceTransition } from "@/components/InterfaceTransitionProvider";
 
-const MOBILE_THEME_KEY = "hbx-mobile-theme";
 const MOBILE_VIEWPORT_QUERY = "(max-width: 820px)";
+const MOBILE_THEME_STORAGE_KEY = "hbx-mobile-theme";
 
 type MobileTheme = "light" | "dark";
 
@@ -20,9 +21,8 @@ type HbxMobileDockProps = {
   onRelatorio?: () => void;
 };
 
-function readMobileTheme(): MobileTheme {
-  if (typeof window === "undefined") return "light";
-  return window.localStorage.getItem(MOBILE_THEME_KEY) === "dark" ? "dark" : "light";
+function normalizeMobileTheme(value: unknown): MobileTheme {
+  return value === "light" ? "light" : "dark";
 }
 
 function applyMobileTheme(theme: MobileTheme) {
@@ -86,7 +86,15 @@ function DockIcon({
   if (name === "theme") {
     return (
       <svg viewBox="0 0 24 24" aria-hidden="true">
-        <path d="M12 3a6 6 0 0 0 9 7.4A9 9 0 1 1 12 3Z" />
+        <path d="M12 3v2" />
+        <path d="M12 19v2" />
+        <path d="m4.2 4.2 1.4 1.4" />
+        <path d="m18.4 18.4 1.4 1.4" />
+        <path d="M3 12h2" />
+        <path d="M19 12h2" />
+        <path d="m4.2 19.8 1.4-1.4" />
+        <path d="m18.4 5.6 1.4-1.4" />
+        <path d="M12 16a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z" />
       </svg>
     );
   }
@@ -164,14 +172,20 @@ export default function HbxMobileDock({
   const router = useRouter();
   const pathname = usePathname();
   const { runGlobalShutdown, isShuttingDown } = useInterfaceTransition();
-  const [theme, setTheme] = useState<MobileTheme>("light");
+  const [theme, setTheme] = useState<MobileTheme>("dark");
   const [menuOpen, setMenuOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
     setMounted(true);
-    const storedTheme = readMobileTheme();
-    setTheme(storedTheme);
+    try {
+      const storedTheme = normalizeMobileTheme(window.localStorage.getItem(MOBILE_THEME_STORAGE_KEY));
+      setTheme(storedTheme);
+      if (isMobileViewport()) applyMobileTheme(storedTheme);
+    } catch {
+      // localStorage can be blocked in private contexts.
+      if (isMobileViewport()) applyMobileTheme("dark");
+    }
   }, []);
 
   useEffect(() => {
@@ -200,8 +214,8 @@ export default function HbxMobileDock({
 
   const items = useMemo(
     () => [
-      { key: "sales", label: "Vendas", path: "/vendas", icon: "sales" as const },
-      { key: "radar", label: "Radar", path: "/radar-digital", icon: "radar" as const },
+      { key: "sales", label: "Vendas", path: toMobileRoute("/vendas"), icon: "sales" as const },
+      { key: "radar", label: "Radar", path: toMobileRoute("/radar-digital"), icon: "radar" as const },
     ],
     [],
   );
@@ -212,12 +226,12 @@ export default function HbxMobileDock({
   }
 
   function toggleTheme() {
-    const nextTheme: MobileTheme = theme === "dark" ? "light" : "dark";
+    const nextTheme = theme === "dark" ? "light" : "dark";
     setTheme(nextTheme);
     if (isMobileViewport()) applyMobileTheme(nextTheme);
     else clearMobileTheme();
     try {
-      window.localStorage.setItem(MOBILE_THEME_KEY, nextTheme);
+      window.localStorage.setItem(MOBILE_THEME_STORAGE_KEY, nextTheme);
     } catch {
       // localStorage can be blocked in private contexts.
     }
@@ -228,7 +242,7 @@ export default function HbxMobileDock({
       onPrimaryAction();
       return;
     }
-    router.push(primaryHref || "/radar-digital");
+    router.push(toMobileRoute(primaryHref || "/radar-digital"));
   }
 
   async function handleLogout() {
@@ -240,7 +254,7 @@ export default function HbxMobileDock({
         });
       } finally {
         clearToken();
-        router.push("/login");
+        router.push(toMobileRoute("/login"));
       }
     });
   }
@@ -254,7 +268,7 @@ export default function HbxMobileDock({
               key={item.key}
               type="button"
               className="hbx-mobile-dock-item"
-              data-active={pathname === item.path ? "true" : "false"}
+              data-active={mobileRouteIsActive(pathname, item.path) ? "true" : "false"}
               onClick={() => navigate(item.path)}
               aria-label={item.label}
             >
@@ -278,10 +292,10 @@ export default function HbxMobileDock({
             type="button"
             className="hbx-mobile-dock-item"
             onClick={toggleTheme}
-            aria-label={`Alternar para tema ${theme === "dark" ? "claro" : "escuro"}`}
+            aria-label={theme === "dark" ? "Ativar tema claro no mobile" : "Ativar tema escuro no mobile"}
           >
             <DockIcon name="theme" />
-            <span>Tema</span>
+            <span>{theme === "dark" ? "Escuro" : "Claro"}</span>
           </button>
 
           <button
@@ -316,13 +330,13 @@ export default function HbxMobileDock({
               onClick={() => {
                 setMenuOpen(false);
                 if (onConta) onConta();
-                else navigate("/vendas?mobileSheet=account");
+                else navigate(toMobileRoute("/vendas?mobileSheet=account"));
               }}
             >
               <DockIcon name="account" />
               <span>Conta</span>
             </button>
-            <button type="button" className="hbx-mobile-sheet-item" onClick={() => navigate("/tutorial")}>
+            <button type="button" className="hbx-mobile-sheet-item" onClick={() => navigate(toMobileRoute("/tutorial"))}>
               <DockIcon name="tutorial" />
               <span>Tutorial</span>
             </button>
@@ -332,7 +346,7 @@ export default function HbxMobileDock({
               onClick={() => {
                 setMenuOpen(false);
                 if (onRelatorio) onRelatorio();
-                else navigate("/vendas?mobileSection=report");
+                else navigate(toMobileRoute("/vendas?mobileSection=report"));
               }}
             >
               <DockIcon name="report" />

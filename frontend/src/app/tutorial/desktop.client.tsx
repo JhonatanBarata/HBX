@@ -1108,7 +1108,7 @@ export default function DesktopTutorialClient() {
     const isVendasSlide = currentSlide.key === "vendas";
 
     return (
-      <main className={styles.mobileTutorialPage} data-theme-id={selection.themeId} data-theme-mode={selection.mode} data-tutorial-mode="mobile">
+      <main className={styles.mobileTutorialPage} data-theme-id={selection.themeId} data-theme-mode="light" data-tutorial-mode="mobile">
         <section className={styles.mobileTutorialShell} aria-labelledby="tutorial-mobile-title">
           <div className={styles.mobileTutorialTopbar}>
             <span>HBX Mobile</span>
