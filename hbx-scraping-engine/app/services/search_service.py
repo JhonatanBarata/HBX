@@ -18,6 +18,8 @@ from .scoring import score_contact
 from .social import is_valid_social_profile_url, normalize_social_url, social_field_for_url
 from .storage import Storage
 
+SOCIAL_ENRICH_MAX_RESULTS_PER_QUERY = 30
+
 SOCIAL_QUERY_BAD_NAME_HINTS = (
     "confira as melhores",
     "todos os estabelecimentos",
@@ -72,6 +74,8 @@ class SearchService:
             "instagram": bool(contact.get("instagramUrl")),
             "facebook": bool(contact.get("facebookUrl")),
         }
+        if required_channels == {"instagram", "facebook"}:
+            return available["instagram"] or available["facebook"]
         return all(available[channel] for channel in required_channels)
 
     def compact_key(self, value: str) -> str:
@@ -212,7 +216,7 @@ class SearchService:
             best_url: str | None = None
             best_score = -10_000
             with ddgs as client:
-                rows = client.text(query, region="br-pt", safesearch="off", max_results=12)
+                rows = client.text(query, region="br-pt", safesearch="off", max_results=SOCIAL_ENRICH_MAX_RESULTS_PER_QUERY)
                 for row in rows or []:
                     raw_url = str(row.get("href") or row.get("url") or "").strip()
                     url = normalize_social_url(raw_url)
@@ -551,6 +555,11 @@ class SearchService:
             "blockedDomain": stats["blocked_domain"],
             "lowScore": stats["low_score"],
             "missingRequiredChannel": stats["missing_required_channel"],
+            "rawFound": len(parsed),
+            "deduped": len(deduped),
+            "socialProfilesDiscovered": social_discovery_stats["profilesDiscovered"],
+            "socialProfilesAttached": social_discovery_stats["profilesAttached"],
+            "socialProfilesUnmatched": social_discovery_stats["profilesUnmatched"],
         }
         print(
             "[search] "
@@ -559,6 +568,15 @@ class SearchService:
             f"invalid_phone={stats['invalid_phone']} "
             f"blocked_domain={stats['blocked_domain']} "
             f"low_score={stats['low_score']} "
+            f"missing_required_channel={stats['missing_required_channel']}"
+        )
+        print(
+            "[search:funnel] "
+            f"raw_found={len(parsed)} "
+            f"deduped={len(deduped)} "
+            f"social_profiles={social_discovery_stats['profilesDiscovered']} "
+            f"social_attached={social_discovery_stats['profilesAttached']} "
+            f"approved={response_stats['approved']} "
             f"missing_required_channel={stats['missing_required_channel']}"
         )
 
