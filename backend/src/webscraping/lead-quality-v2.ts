@@ -211,9 +211,9 @@ const SEGMENT_INTENTS: SegmentIntentMap[] = [
   },
   {
     key: 'restaurante',
-    aliases: ['restaurante', 'alimentacao', 'comida'],
-    core: ['restaurante', 'pizzaria', 'lanchonete', 'hamburgueria', 'delivery'],
-    adjacent_good: ['padaria', 'cafeteria', 'bar'],
+    aliases: ['restaurante', 'alimentacao', 'comida', 'alimentos naturais'],
+    core: ['restaurante', 'pizzaria', 'pizza', 'pizzaiolo', 'lanchonete', 'hamburgueria', 'delivery', 'marmitaria', 'marmitex', 'gastronomia', 'espetinho', 'choperia', 'japones', 'japonês', 'sushi'],
+    adjacent_good: ['padaria', 'cafeteria', 'bar', 'pastelaria', 'sorveteria'],
     adjacent_review: ['mercado', 'conveniencia'],
     reject: ['fornecedor', 'distribuidora'],
   },

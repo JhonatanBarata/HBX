@@ -108,7 +108,7 @@ class Storage:
                         item.get("address"),
                         item.get("website"),
                         item.get("source"),
-                        item["score"],
+                        int(item.get("score") or 0),
                         now,
                     ),
                 )

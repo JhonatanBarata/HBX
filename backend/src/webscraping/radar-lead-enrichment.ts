@@ -94,6 +94,25 @@ const PROTECTED_STATUSES = new Set([
   'rejected',
 ]);
 
+const BLOCKED_EMAIL_DOMAINS = new Set([
+  'bit.ly',
+  'example.com',
+  'example.com.br',
+  'facebook.com',
+  'fb.com',
+  'goo.gl',
+  'google.com',
+  'instagram.com',
+  'linktr.ee',
+  'maps.app.goo.gl',
+  'test.com',
+  'teste.com',
+  'wa.me',
+  'whatsapp.com',
+  'wixsite.com',
+  'dominio.com',
+]);
+
 function normalizeText(value: unknown) {
   return String(value || '').trim();
 }
@@ -115,13 +134,16 @@ function clampInt(value: unknown, min = 0, max = 100) {
 }
 
 function hasUsableEmail(value: unknown) {
-  return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/i.test(normalizeText(value));
+  const email = normalizeText(value).toLowerCase();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/i.test(email)) return false;
+  const domain = email.split('@')[1] || '';
+  return !isBlockedEmailDomain(domain);
 }
 
 function extractFirstEmail(value: unknown) {
   const text = normalizeText(typeof value === 'object' ? JSON.stringify(value) : value);
-  const match = text.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i);
-  return match ? match[0].toLowerCase() : '';
+  const matches = text.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi) || [];
+  return matches.map((match) => match.toLowerCase()).find((email) => hasUsableEmail(email)) || '';
 }
 
 function extractDomain(value: unknown) {
@@ -134,6 +156,11 @@ function extractDomain(value: unknown) {
     const host = raw.replace(/^https?:\/\//i, '').replace(/^www\./i, '').split('/')[0]?.toLowerCase();
     return host && host.includes('.') ? host : null;
   }
+}
+
+function isBlockedEmailDomain(domain: string | null | undefined) {
+  const normalized = normalizeText(domain).toLowerCase().replace(/^www\./i, '');
+  return Boolean(normalized && Array.from(BLOCKED_EMAIL_DOMAINS).some((blocked) => normalized === blocked || normalized.endsWith(`.${blocked}`)));
 }
 
 function pickRaw(input: RadarLeadEnrichmentInput, keys: string[]) {
@@ -286,7 +313,7 @@ export function buildRadarLeadEnrichment(input: RadarLeadEnrichmentInput): Radar
     ? explicitEmail
     : hasUsableEmail(collectedEmail.email)
       ? collectedEmail.email
-    : domain
+    : domain && !isBlockedEmailDomain(domain)
       ? `contato@${domain}`
       : null;
   const emailStatus: RadarEmailStatus = hasUsableEmail(explicitEmail) || hasUsableEmail(collectedEmail.email)
