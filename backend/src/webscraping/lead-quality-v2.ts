@@ -785,7 +785,15 @@ export function calculateLeadQualityV2(input: {
     : explicitChannelMatchMode;
   const qualityMode: LeadQualityV2QualityMode = normalizeKey(input.context?.qualityMode || salesProfile?.qualityMode) === 'lead_plus' ? 'lead_plus' : 'list';
   const preferredChannelMatches = profilePreferredChannels.filter((channel) => channelAvailability[channel]);
-  const missingRequiredChannels = profileRequiredChannels.filter((channel) => !channelAvailability[channel]);
+  const requiredSocialChannels = profileRequiredChannels.filter((channel) => channel === 'instagram' || channel === 'facebook');
+  const requiredNonSocialChannels = profileRequiredChannels.filter((channel) => channel !== 'instagram' && channel !== 'facebook');
+  const socialPairRequired = requiredSocialChannels.includes('instagram') && requiredSocialChannels.includes('facebook');
+  const missingRequiredChannels = [
+    ...requiredNonSocialChannels.filter((channel) => !channelAvailability[channel]),
+    ...(socialPairRequired
+      ? requiredSocialChannels.some((channel) => channelAvailability[channel]) ? [] : requiredSocialChannels
+      : requiredSocialChannels.filter((channel) => !channelAvailability[channel])),
+  ];
   const requiredChannelMatched = profileRequiredChannels.some((channel) => channelAvailability[channel]);
   const targetSegmentFit = scoreTargetSegmentFit(profileTargetSegments, leadText);
   const profileMatchesTargetSegment = targetSegmentFit.matched;
@@ -1071,14 +1079,9 @@ export function calculateLeadQualityV2(input: {
     if (absentChannelKeys.includes('instagram')) reasons.push('Instagram obrigatório ausente após enriquecimento.');
     if (absentChannelKeys.includes('facebook')) reasons.push('Facebook obrigatório ausente após enriquecimento.');
     reasons.push('Filtro obrigatório forte reduziu a entrega.');
-    const onlyMissingSocial = absentChannelKeys.length > 0 && absentChannelKeys.every((channel) => channel === 'instagram' || channel === 'facebook');
-    const hasStrongDirectContact = whatsappConfirmed || likelyMobile || phoneValid || emailConfirmed || emailProbable;
-    decision = qualityMode === 'list' || (qualityMode === 'lead_plus' && onlyMissingSocial && hasStrongDirectContact)
-      ? 'review'
-      : 'discard';
-    discardReason = decision === 'discard' ? 'required_channel_missing' : null;
-    if (decision === 'discard') finalRankScore = Math.min(finalRankScore, 39);
-    else finalRankScore = Math.min(finalRankScore, qualityMode === 'lead_plus' ? 45 : finalRankScore);
+    decision = 'discard';
+    discardReason = 'required_channel_missing';
+    finalRankScore = Math.min(finalRankScore, 39);
   }
 
   if (discardReason) reasons.push(`Descartado: ${discardReason}.`);

@@ -445,6 +445,116 @@ test('mapRunItemToContact preserva social fields do rawJson', () => {
   assert.equal(contact.qualityV2?.finalRankScore, 71);
 });
 
+test('isRunItemQualityDeliverable rejeita item sem Instagram quando filtro exige Instagram', () => {
+  const service = new WebscrapingService(createPrisma()) as any;
+  const input = {
+    city: 'Campinas',
+    state: 'SP',
+    segment: 'barbearia',
+    targetType: 'pj',
+    requiredChannels: ['instagram'],
+    channelMatchMode: 'all_required',
+    qualityMode: 'list',
+  };
+  const item = {
+    id: 'item-sem-instagram',
+    status: 'found',
+    name: 'Barbearia Sem Insta',
+    phone: '(19) 99999-0001',
+    phoneDigits: '19999990001',
+    rawJson: JSON.stringify({
+      name: 'Barbearia Sem Insta',
+      phone: '(19) 99999-0001',
+      phoneDigits: '19999990001',
+      segment: 'barbearia',
+      quality: { status: 'approved', billable: true },
+      qualityV2: {
+        version: 'lead-quality-v2',
+        decision: 'review',
+        finalRankScore: 72,
+        recommendedChannel: 'whatsapp',
+        channelAvailability: { instagram: false, phone: true, whatsapp: true },
+      },
+    }),
+  };
+
+  assert.equal(service.isRunItemQualityDeliverable(item, input), false);
+});
+
+test('isRunItemQualityDeliverable aceita item com Instagram quando filtro exige Instagram', () => {
+  const service = new WebscrapingService(createPrisma()) as any;
+  const input = {
+    city: 'Campinas',
+    state: 'SP',
+    segment: 'barbearia',
+    targetType: 'pj',
+    requiredChannels: ['instagram'],
+    channelMatchMode: 'all_required',
+    qualityMode: 'list',
+  };
+  const item = {
+    id: 'item-com-instagram',
+    status: 'found',
+    name: 'Barbearia Com Insta',
+    phone: '(19) 99999-0001',
+    phoneDigits: '19999990001',
+    rawJson: JSON.stringify({
+      name: 'Barbearia Com Insta',
+      phone: '(19) 99999-0001',
+      phoneDigits: '19999990001',
+      segment: 'barbearia',
+      instagramUrl: 'https://instagram.com/barbeariacominsta',
+      quality: { status: 'approved', billable: true },
+      qualityV2: {
+        version: 'lead-quality-v2',
+        decision: 'review',
+        finalRankScore: 72,
+        recommendedChannel: 'review',
+        channelAvailability: { instagram: true, phone: true },
+      },
+    }),
+  };
+
+  assert.equal(service.isRunItemQualityDeliverable(item, input), true);
+});
+
+test('isRunItemQualityDeliverable aceita Facebook quando Instagram e Facebook exigem rede social', () => {
+  const service = new WebscrapingService(createPrisma()) as any;
+  const input = {
+    city: 'Campinas',
+    state: 'SP',
+    segment: 'barbearia',
+    targetType: 'pj',
+    requiredChannels: ['instagram', 'facebook'],
+    channelMatchMode: 'all_required',
+    qualityMode: 'list',
+  };
+  const item = {
+    id: 'item-com-facebook',
+    status: 'found',
+    name: 'Barbearia Com Face',
+    phone: '(19) 99999-0001',
+    phoneDigits: '19999990001',
+    rawJson: JSON.stringify({
+      name: 'Barbearia Com Face',
+      phone: '(19) 99999-0001',
+      phoneDigits: '19999990001',
+      segment: 'barbearia',
+      facebookUrl: 'https://facebook.com/barbeariacomface',
+      quality: { status: 'approved', billable: true },
+      qualityV2: {
+        version: 'lead-quality-v2',
+        decision: 'review',
+        finalRankScore: 72,
+        recommendedChannel: 'review',
+        channelAvailability: { instagram: false, facebook: true, phone: true },
+      },
+    }),
+  };
+
+  assert.equal(service.isRunItemQualityDeliverable(item, input), true);
+});
+
 test('buildHbxBatchAttemptTask percorre cidade, segmento e variacao em ordem', () => {
   const service = new WebscrapingService(createPrisma()) as any;
   const normalized = service.normalizeSearchInput({
