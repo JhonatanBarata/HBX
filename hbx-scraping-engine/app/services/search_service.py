@@ -28,6 +28,20 @@ class SearchService:
         values = [*(preferred_channels or []), *(required_channels or [])]
         return {str(channel or "").strip().lower() for channel in values if str(channel or "").strip().lower() in {"instagram", "facebook"}}
 
+    def required_social_channels(self, required_channels: list[str] | None = None) -> set[str]:
+        return {str(channel or "").strip().lower() for channel in (required_channels or []) if str(channel or "").strip().lower() in {"instagram", "facebook"}}
+
+    def has_required_social_channels(self, contact: dict, required_channels: set[str]) -> bool:
+        if not required_channels:
+            return True
+        available = {
+            "instagram": bool(contact.get("instagramUrl")),
+            "facebook": bool(contact.get("facebookUrl")),
+        }
+        if required_channels == {"instagram", "facebook"}:
+            return available["instagram"] or available["facebook"]
+        return all(available[channel] for channel in required_channels)
+
     def social_queries_for_contact(self, contact: dict, city: str, segment: str, channel: str) -> list[str]:
         name = " ".join(str(contact.get("name") or "").split())
         city_text = " ".join(str(city or "").split())
@@ -68,12 +82,13 @@ class SearchService:
         required_channels: list[str] | None = None,
     ) -> list[dict]:
         requested_channels = self.requested_social_channels(preferred_channels, required_channels)
+        required_social = self.required_social_channels(required_channels)
         if not requested_channels:
-            return contacts
+            requested_channels = {"instagram", "facebook"}
         enriched = 0
         processed = 0
         for contact in contacts:
-            if processed >= 20:
+            if not required_social and processed >= 20:
                 break
             if not contact.get("name") or not contact.get("phone"):
                 continue
@@ -100,7 +115,7 @@ class SearchService:
     async def search(self, request: SearchRequest) -> SearchResponse:
         excluded_phones = set(request.excludePhoneDigits or [])
         excluded_urls = set(request.excludeUrls or [])
-        social_requested = bool(self.requested_social_channels(request.preferredChannels, request.requiredChannels))
+        social_requested = request.targetType == "pj" or bool(self.requested_social_channels(request.preferredChannels, request.requiredChannels))
 
         if not request.fresh and not excluded_phones and not excluded_urls and not social_requested:
             cached = await asyncio.to_thread(self.storage.get_cached, request)
@@ -159,6 +174,7 @@ class SearchService:
                 parsed.append(contact)
 
         deduped = dedupe_contacts(parsed, request.city, request.targetType)
+        required_social_channels = self.required_social_channels(request.requiredChannels)
         if request.targetType == "pj":
             deduped = await asyncio.to_thread(
                 self.enrich_social_links_for_contacts,
@@ -194,6 +210,9 @@ class SearchService:
                 stats["low_score"] += 1
                 continue
             if request.targetType != "pf" and int(item.get("score") or 0) < min_score:
+                stats["low_score"] += 1
+                continue
+            if request.targetType == "pj" and not self.has_required_social_channels(item, required_social_channels):
                 stats["low_score"] += 1
                 continue
             public_item = {key: value for key, value in item.items() if key in allowed_fields}

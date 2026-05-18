@@ -594,3 +594,37 @@
     width: 100%;
   }
 }
+
+/* Mobile plan route typography follows the sharper Radar mobile treatment. */
+@media (max-width: 820px) {
+  .page,
+  .page :where(button, input, select, textarea, a, p, span, strong, small, b, em, label, h1, h2, h3, h4, dt, dd) {
+    font-family: var(--font-display, var(--font-body, "Plus Jakarta Sans", Inter, "Segoe UI", Roboto, Arial, sans-serif)) !important;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: geometricPrecision;
+  }
+
+  .page :where(h1, h2, h3, h4, strong, b, dt, dd) {
+    font-weight: 720 !important;
+    letter-spacing: 0 !important;
+    text-shadow: none !important;
+  }
+
+  .page :where(p, small, span, em, label, input, select, textarea) {
+    font-weight: 560 !important;
+    letter-spacing: 0 !important;
+    text-shadow: none !important;
+  }
+
+  .page :where(button, a) {
+    font-weight: 680 !important;
+    letter-spacing: 0 !important;
+    text-shadow: none !important;
+  }
+
+  .modalHeader h1 {
+    font-size: clamp(1.64rem, 7vw, 2.04rem);
+    line-height: 1;
+  }
+}

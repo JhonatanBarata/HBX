@@ -14,20 +14,24 @@
 .gauge span {
   color: #727d92;
   font-size: 0.74rem;
-  font-weight: 850;
+  font-weight: 680;
+  letter-spacing: 0;
 }
 
 .gauge strong {
   color: #0757df;
   font-size: 1.7rem;
   line-height: 0.9;
-  font-weight: 950;
+  font-weight: 780;
+  letter-spacing: 0;
+  text-shadow: none;
 }
 
 .gauge small {
   color: #ff1e1e;
   font-size: 0.68rem;
-  font-weight: 850;
+  font-weight: 680;
+  letter-spacing: 0;
   white-space: nowrap;
 }
 
@@ -98,18 +102,18 @@
 .gauge[data-premium="true"] span {
   color: #53627e;
   font-size: 0.64rem;
-  font-weight: 950;
+  font-weight: 680;
   line-height: 1;
+  letter-spacing: 0;
 }
 
 .gauge[data-premium="true"] strong {
   color: #0757df;
   font-size: 2.42rem;
   line-height: 0.86;
-  font-weight: 1000;
-  text-shadow:
-    0 1px 0 rgba(255, 255, 255, 0.9),
-    0 7px 12px rgba(7, 87, 223, 0.16);
+  font-weight: 780;
+  letter-spacing: 0;
+  text-shadow: none;
 }
 
 .gauge[data-premium="true"] small {
@@ -118,8 +122,9 @@
   max-width: 62px;
   color: #08a64b;
   font-size: 0.58rem;
-  font-weight: 1000;
+  font-weight: 680;
   line-height: 0.98;
+  letter-spacing: 0;
   text-align: center;
   white-space: normal;
   -webkit-line-clamp: 2;

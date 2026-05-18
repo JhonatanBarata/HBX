@@ -16830,3 +16830,37 @@ html[data-theme-mode] .app-topbar .app-topbar__frame {
     transform: translateY(0);
   }
 }
+
+/* Final mobile login typography polish: matches Radar Digital mobile sharpness. */
+@media (max-width: 820px) {
+  .login-stage[data-login-surface="hbx-mobile"],
+  .login-stage[data-login-surface="hbx-mobile"] :where(button, input, select, textarea, a, p, span, strong, small, b, em, label, h1, h2, h3, h4) {
+    font-family: var(--font-display, var(--font-body, "Plus Jakarta Sans", Inter, "Segoe UI", Roboto, Arial, sans-serif)) !important;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: geometricPrecision;
+  }
+
+  .login-stage[data-login-surface="hbx-mobile"] :where(h1, h2, h3, h4, strong, b, .login-card__title, .login-card__brandMarkCore, .login-authBridge__brand) {
+    font-weight: 720 !important;
+    letter-spacing: 0 !important;
+    text-shadow: none !important;
+  }
+
+  .login-stage[data-login-surface="hbx-mobile"] :where(p, small, span, em, label, input, select, textarea, .login-card__copy, .login-mobileTerms, .login-authBridge__status) {
+    font-weight: 560 !important;
+    letter-spacing: 0 !important;
+    text-shadow: none !important;
+  }
+
+  .login-stage[data-login-surface="hbx-mobile"] :where(button, a, .login-button, .login-link, .login-cta, .login-plansEntry, .login-whatsappButton, .login-legalMenu a) {
+    font-weight: 680 !important;
+    letter-spacing: 0 !important;
+    text-shadow: none !important;
+  }
+
+  .login-stage[data-login-surface="hbx-mobile"] .login-card__title {
+    font-size: clamp(1.76rem, 7vw, 2.16rem);
+    line-height: 1;
+  }
+}
