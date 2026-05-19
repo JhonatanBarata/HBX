@@ -148,7 +148,8 @@ class EvidenceScorer:
         reasons: list[str] = []
 
         identity = 30 if name else 0
-        if name and not is_generic_name(name, intent.city, intent.targetType, intent.segments[0] if intent.segments else ""):
+        generic_identity = is_generic_name(name, intent.city, intent.targetType, intent.segments[0] if intent.segments else "") if name else True
+        if name and not generic_identity:
             identity += 35
             reasons.append("Nome comercial identificado.")
         else:
@@ -211,6 +212,15 @@ class EvidenceScorer:
             raw = 0
         if directory and not (contact.get("website") or contact.get("instagramUrl") or contact.get("facebookUrl")):
             raw = min(raw, 54)
+
+        # Operational safety net: Radar must not return zero just because a useful
+        # live contact from a directory/source scored slightly below the approval
+        # threshold. Hard rejects and contacts without any actionable channel still
+        # stay blocked; actionable candidates become review/list cards.
+        if channels and "commercial_hard_reject" not in penalties and not generic_identity:
+            raw = max(raw, 52)
+            if raw < 56:
+                reasons.append("Mantido para revisão por ter canal acionável e identidade comercial.")
 
         final = max(0, min(100, round(raw)))
         return Evidence(
