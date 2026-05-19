@@ -2566,12 +2566,19 @@ export default function RadarDigitalClientPage() {
 
     try {
       if (!canPullWithFilters(nextFilters)) {
-        await loadCards(1, false, nextFilters);
-        setFeedback(hasHistoryFilters(nextFilters, nextGeneralSearch)
-          ? "Histórico filtrado carregado."
-          : "Histórico do Radar carregado em lotes de 100.");
-        return;
-      }
+  setSearching(false);
+  setHasSearched(false);
+  setItems([]);
+  setTotal(0);
+  setPage(1);
+  setActiveRun(null);
+  setTerminalRunSnapshot(null);
+  activeRunIdRef.current = null;
+  setTelonProgress(0);
+  setFeedback(null);
+  setError("Para buscar novos cards, escolha cidade e segmento. Para ver histórico salvo, use Ver histórico.");
+  return;
+}
 
       setItems([]);
       setTotal(0);

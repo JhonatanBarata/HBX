@@ -144,6 +144,11 @@ class EvidenceScorer:
         page_url = str(contact.get("_pageUrl") or contact.get("sourceUrl") or "")
         source = str(contact.get("source") or "")
         channels = _channels(contact)
+        required_social_present = any(
+            channel in channels
+            for channel in getattr(intent, "requiredChannels", [])
+            if channel in {"instagram", "facebook"}
+        )
         penalties: list[str] = []
         reasons: list[str] = []
 
@@ -155,6 +160,8 @@ class EvidenceScorer:
             penalties.append("generic_identity")
 
         contact_score = min(100, len(channels) * 24 + (18 if _has_phone(contact) else 0))
+        if required_social_present:
+            contact_score = max(contact_score, 44)
         if channels:
             reasons.append("Canal publico acionavel encontrado.")
         else:
@@ -168,6 +175,8 @@ class EvidenceScorer:
             reasons.append("Site proprio encontrado.")
         if any(hint in f"{source} {page_url}".lower() for hint in OFFICIAL_SOURCE_HINTS):
             source_score += 12
+        if required_social_present:
+            source_score += 8
         if directory:
             source_score -= 35
             penalties.append("generic_directory_source")
@@ -205,7 +214,7 @@ class EvidenceScorer:
             + min(commercial_fit, 100) * 0.20
             + min(freshness, 100) * 0.05
         ) - penalty_score
-        if "missing_actionable_channel" in penalties:
+        if "missing_actionable_channel" in penalties and not required_social_present:
             raw = min(raw, 35)
         if "commercial_hard_reject" in penalties:
             raw = 0
