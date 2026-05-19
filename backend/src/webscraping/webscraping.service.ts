@@ -268,6 +268,21 @@ export type LeadQualityResult = {
   commercialScore: number;
   reasons: string[];
 };
+type HbxVisibilityTier =
+  | 'candidate'
+  | 'list_basic'
+  | 'enrichment_pending'
+  | 'lead_plus_qualified'
+  | 'review_backup'
+  | 'blocked';
+type HbxDeliveryProduct = 'list' | 'lead_plus';
+type HbxDeliveryClassification = {
+  visibilityTier: HbxVisibilityTier;
+  billable: boolean;
+  debitEligible: boolean;
+  deliveryProduct: HbxDeliveryProduct;
+  qualityReason: string;
+};
 type SearchRunStatus = 'completed' | 'partial_error' | 'completed_with_errors' | 'completed_insufficient_results';
 type WebscrapingSearchRunStatus =
   | 'queued'
@@ -2626,7 +2641,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     const segments = raw.includes(',')
       ? raw.split(',').map((item) => item.replace(/\s+/g, ' ').trim()).filter(Boolean)
       : [raw].filter(Boolean);
-    return Array.from(new Set(segments)).slice(0, 5);
+    return Array.from(new Set(segments)).slice(0, 20);
   }
 
   private getSearchCityTargets(input: NormalizedSearchInput) {
@@ -3270,6 +3285,170 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     return !['invalid', 'generic_directory', 'segment_mismatch', 'duplicate'].includes(quality.status);
   }
 
+  private buildQualityReason(
+    quality: LeadQualityResult | null | undefined,
+    qualityV2: LeadQualityV2 | null | undefined,
+    fallback: string,
+  ) {
+    const v2Reason = qualityV2?.protectionReason || qualityV2?.discardReason || qualityV2?.reasons?.[0];
+    const qualityReason = quality?.reasons?.[0] || quality?.status;
+    return String(v2Reason || qualityReason || fallback).trim();
+  }
+
+  private requiredChannelsForInput(input?: NormalizedSearchInput | NormalizedRadarFilters | null) {
+    const profile = (input as any)?.salesProfile || null;
+    return this.normalizeRadarChannels((input as any)?.requiredChannels || profile?.requiredChannels);
+  }
+
+  private hasExplicitRequiredChannels(input?: NormalizedSearchInput | NormalizedRadarFilters | null) {
+    return this.requiredChannelsForInput(input).length > 0;
+  }
+
+  private withoutPrimarySocialRequiredChannels<T extends NormalizedSearchInput | NormalizedRadarFilters | undefined | null>(input: T): T {
+    if (!input) return input;
+    const requiredChannels = this.requiredChannelsForInput(input).filter((channel) => channel !== 'instagram' && channel !== 'facebook');
+    return {
+      ...(input as any),
+      requiredChannels,
+      salesProfile: {
+        ...((input as any).salesProfile || {}),
+        requiredChannels,
+      },
+    } as T;
+  }
+
+  private isQualityV2HardBlockForList(qualityV2: LeadQualityV2 | null | undefined, input?: NormalizedSearchInput | NormalizedRadarFilters) {
+    if (!qualityV2 || !this.shouldApplyQualityV2Gate(input)) return false;
+    if (qualityV2.decision === 'protect') return true;
+    if (qualityV2.decision !== 'discard') return false;
+
+    const reason = String(qualityV2.discardReason || '').trim();
+    if (reason === 'weak_contactability') return false;
+    if (reason === 'required_channel_missing') return this.hasExplicitRequiredChannels(input);
+    if (reason === 'segment_mismatch') return safeInteger(qualityV2.segmentFitScore) < 25;
+    if (reason === 'location_mismatch') return false;
+    return !reason || ['generic_directory', 'weak_identity'].includes(reason);
+  }
+
+  private isListDeliverableCard(
+    candidate: Record<string, any>,
+    input: NormalizedSearchInput | NormalizedRadarFilters,
+    quality?: LeadQualityResult | null,
+    qualityV2?: LeadQualityV2 | null,
+  ) {
+    const effectiveQuality = quality ?? this.getCandidateQuality(candidate, input);
+    if (!this.isListLeadQualityDeliverable(effectiveQuality)) return false;
+
+    const effectiveQualityV2 = qualityV2 ?? this.extractLeadQualityV2FromObject(candidate);
+    if (this.isQualityV2HardBlockForList(effectiveQualityV2, input)) return false;
+    if (!this.candidateHasRequiredChannels(candidate, input, effectiveQualityV2)) return false;
+    return this.hasUsablePublicContactChannel(candidate);
+  }
+
+  private isStrongLeadPlusReview(candidate: Record<string, any>, quality: LeadQualityResult | null | undefined, qualityV2: LeadQualityV2 | null | undefined) {
+    if (!qualityV2 || qualityV2.decision !== 'review') return false;
+    if (!this.isApprovedLeadQuality(quality)) return false;
+    if (qualityV2.finalRankScore < 78 || qualityV2.contactabilityScore < 60 || qualityV2.riskScore >= 40) return false;
+    if (qualityV2.recommendedChannel === 'discard' || qualityV2.recommendedChannel === 'review') return false;
+    return this.hasUsablePublicContactChannel(candidate);
+  }
+
+  private classifyCardDelivery(
+    candidate: Record<string, any>,
+    input: NormalizedSearchInput | NormalizedRadarFilters,
+    quality?: LeadQualityResult | null,
+    qualityV2?: LeadQualityV2 | null,
+  ): HbxDeliveryClassification {
+    const deliveryProduct: HbxDeliveryProduct = this.resolveQualityMode(input) === 'lead_plus' ? 'lead_plus' : 'list';
+    const effectiveQuality = quality ?? this.getCandidateQuality(candidate, input);
+    const effectiveQualityV2 = qualityV2 ?? this.extractLeadQualityV2FromObject(candidate);
+    const qualityReason = (fallback: string) => this.buildQualityReason(effectiveQuality, effectiveQualityV2, fallback);
+
+    if (this.isQualityV2HardBlockForList(effectiveQualityV2, input) || !this.isListLeadQualityDeliverable(effectiveQuality)) {
+      return {
+        visibilityTier: 'blocked',
+        billable: false,
+        debitEligible: false,
+        deliveryProduct,
+        qualityReason: qualityReason('Bloqueado por qualidade, risco ou aderencia.'),
+      };
+    }
+    if (!this.candidateHasRequiredChannels(candidate, input, effectiveQualityV2)) {
+      return {
+        visibilityTier: 'blocked',
+        billable: false,
+        debitEligible: false,
+        deliveryProduct,
+        qualityReason: 'Canal obrigatorio ausente.',
+      };
+    }
+    if (!this.hasUsablePublicContactChannel(candidate)) {
+      return {
+        visibilityTier: 'candidate',
+        billable: false,
+        debitEligible: false,
+        deliveryProduct,
+        qualityReason: 'Contato publico ausente.',
+      };
+    }
+
+    const leadPlusQualified =
+      this.isApprovedLeadQuality(effectiveQuality)
+      && (
+        effectiveQualityV2?.decision === 'deliver'
+        || this.isStrongLeadPlusReview(candidate, effectiveQuality, effectiveQualityV2)
+      );
+
+    if (deliveryProduct === 'lead_plus') {
+      if (leadPlusQualified) {
+        return {
+          visibilityTier: 'lead_plus_qualified',
+          billable: true,
+          debitEligible: true,
+          deliveryProduct,
+          qualityReason: qualityReason('Lead+ qualificado.'),
+        };
+      }
+      return {
+        visibilityTier: effectiveQualityV2 ? 'review_backup' : 'enrichment_pending',
+        billable: false,
+        debitEligible: false,
+        deliveryProduct,
+        qualityReason: qualityReason('Card real, aguardando enriquecimento Lead+.'),
+      };
+    }
+
+    return {
+      visibilityTier: 'list_basic',
+      billable: true,
+      debitEligible: true,
+      deliveryProduct,
+      qualityReason: qualityReason('Card basico valido para List.'),
+    };
+  }
+
+  private attachDeliveryClassification<T extends Record<string, any>>(
+    contact: T,
+    input: NormalizedSearchInput | NormalizedRadarFilters,
+    quality?: LeadQualityResult | null,
+    qualityV2?: LeadQualityV2 | null,
+  ): T & HbxDeliveryClassification {
+    return {
+      ...contact,
+      ...this.classifyCardDelivery(contact, input, quality, qualityV2),
+    };
+  }
+
+  private isPrimarySearchRunQualityDeliverable(
+    candidate: Record<string, any>,
+    input: NormalizedSearchInput,
+    quality: LeadQualityResult | null | undefined,
+  ) {
+    // Search runs persist first-pass finder cards. Lead+ scoring/enrichment gates happen after
+    // the primary card exists; otherwise real List-quality businesses with only phone are lost.
+    return this.isListDeliverableCard(candidate, this.withoutPrimarySocialRequiredChannels(input), quality, this.extractLeadQualityV2FromObject(candidate));
+  }
+
   private buildDeliverableResultEntries(input: NormalizedSearchInput, results: WebscrapingContactResult[]) {
     return results
       .map((result) => ({
@@ -3278,11 +3457,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         quality: this.getCandidateQuality(result as any, input),
       }))
       .filter(({ result, quality, qualityV2 }) => {
-        if (!this.isQualityV2Deliverable(qualityV2, input)) return false;
-        if (!this.candidateHasRequiredChannels(result as any, input, qualityV2)) return false;
-        return this.resolveQualityMode(input) === 'lead_plus'
-          ? this.isApprovedLeadQuality(quality)
-          : this.isListLeadQualityDeliverable(quality);
+        return this.isListDeliverableCard(result as any, input, quality, qualityV2);
       });
   }
 
@@ -3392,6 +3567,15 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
   private stripListPremiumFields<T extends Record<string, any>>(contact: T, input?: NormalizedSearchInput | NormalizedRadarFilters): T {
     if (this.resolveQualityMode(input) === 'lead_plus') return contact;
     const clean = { ...contact };
+    const hadPremiumSignal = Boolean(
+      clean.instagramUrl
+      || clean.facebookUrl
+      || clean.email
+      || clean.recommendedChannel
+      || clean.opportunityScore
+      || clean.enrichmentScore
+      || clean.qualityV2,
+    );
     [
       'instagramUrl',
       'facebookUrl',
@@ -3410,6 +3594,9 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       'quality',
       'qualityV2',
     ].forEach((key) => delete clean[key]);
+    (clean as any).premiumLocked = true;
+    (clean as any).premiumFeatureStatus = 'locked';
+    (clean as any).premiumTeaser = hadPremiumSignal;
     return clean as T;
   }
 
@@ -3445,12 +3632,12 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
 
     if (channel === 'instagram') return qualityValue !== false && Boolean(String(merged.instagramUrl || merged.signals?.instagramUrl || '').trim());
     if (channel === 'facebook') return qualityValue !== false && Boolean(String(merged.facebookUrl || merged.signals?.facebookUrl || '').trim());
-    if (channel === 'website') return qualityValue !== false && Boolean(String(merged.website || '').trim()) && !['broken', 'unreachable', 'none'].includes(websiteStatus);
+    if (channel === 'website') return qualityValue !== false && Boolean(String(merged.website || '').trim()) && websiteStatus === 'present';
     if (channel === 'email') return qualityValue !== false && Boolean(String(merged.email || '').trim()) && !['missing', 'invalid'].includes(emailStatus);
-    if (channel === 'phone') return qualityValue === true || Boolean(normalizePhoneDigits(phoneValue));
+    if (channel === 'phone') return qualityValue === true && isLikelyValidBrPhone(phoneValue) || isLikelyValidBrPhone(phoneValue);
     if (channel === 'whatsapp') {
-      return qualityValue === true
-        || ['confirmed', 'available', 'valid', 'exists', 'true'].includes(whatsappStatus)
+      return (qualityValue === true && isLikelyValidBrPhone(phoneValue))
+        || (['confirmed', 'available', 'valid', 'exists', 'true'].includes(whatsappStatus) && isLikelyValidBrPhone(phoneValue))
         || isLikelyWhatsapp(phoneValue);
     }
     return false;
@@ -3458,7 +3645,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
 
   private candidateHasRequiredChannels(candidate: Record<string, any>, input?: NormalizedSearchInput | NormalizedRadarFilters, qualityV2?: LeadQualityV2 | null) {
     const profile = (input as any)?.salesProfile || null;
-    const required = this.normalizeRadarChannels((input as any)?.requiredChannels || profile?.requiredChannels);
+    const required = this.requiredChannelsForInput(input);
     if (!required.length) return true;
     const explicitMode = this.normalizeChannelMatchMode((input as any)?.channelMatchMode || profile?.channelMatchMode);
     const channelMatchMode = explicitMode === 'prefer' ? 'all_required' : explicitMode;
@@ -3467,9 +3654,6 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       const nonSocialRequired = required.filter((channel) => channel !== 'instagram' && channel !== 'facebook');
       const nonSocialOk = nonSocialRequired.every((channel) => this.candidateHasRequiredChannel(candidate, channel, qualityV2));
       if (!nonSocialOk) return false;
-      if (socialRequired.includes('instagram') && socialRequired.includes('facebook')) {
-        return socialRequired.some((channel) => this.candidateHasRequiredChannel(candidate, channel, qualityV2));
-      }
       return socialRequired.every((channel) => this.candidateHasRequiredChannel(candidate, channel, qualityV2));
     }
     return required.some((channel) => this.candidateHasRequiredChannel(candidate, channel, qualityV2));
@@ -3486,9 +3670,11 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     if (isLikelyValidBrPhone(phoneDigits)) return true;
     if (String(merged.instagramUrl || merged.signals?.instagramUrl || '').trim()) return true;
     if (String(merged.facebookUrl || merged.signals?.facebookUrl || '').trim()) return true;
-    if (String(merged.email || merged.signals?.email || '').trim()) return true;
+    const emailStatus = String(merged.emailStatus || merged.signals?.emailStatus || '').trim().toLowerCase();
+    const email = String(merged.email || merged.signals?.email || '').trim();
+    if (email && email.includes('@') && !['missing', 'invalid'].includes(emailStatus)) return true;
     const website = String(merged.website || '').trim();
-    return Boolean(website && inferWebsiteStatus(website) !== 'none');
+    return Boolean(website && inferWebsiteStatus(website) === 'present');
   }
 
   private canDeliverRequiredSocialWithoutPhone(input?: Partial<NormalizedSearchInput | NormalizedRadarFilters> | null) {
@@ -3515,11 +3701,9 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     if (String(item?.status || '') !== 'found') return false;
     const raw = this.parseMaybeJsonObject(item?.rawJson);
     const candidate = { ...raw, ...item };
-    const qualityV2 = this.getCandidateQualityV2(candidate, input);
-    if (!this.isQualityV2Deliverable(qualityV2, input)) return false;
-    if (!this.candidateHasRequiredChannels(candidate, input, qualityV2)) return false;
+    const qualityV2 = this.extractLeadQualityV2FromObject(candidate) || this.getCandidateQualityV2(candidate, input);
     const quality = this.getCandidateQuality(candidate, input);
-    return this.isApprovedLeadQuality(quality);
+    return this.isListDeliverableCard(candidate, input, quality, qualityV2);
   }
 
   private getResultSegmentForRejected(result: Record<string, any>) {
@@ -3580,8 +3764,9 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     const websiteKey = normalizeWebsiteKey(result.website);
     const name = String(result.name || '').trim();
     const hasUsablePublicContact = this.hasUsablePublicContactChannel(result as any);
-    const hasRequiredChannelGate = this.normalizeRadarChannels((input as any)?.requiredChannels || (input as any)?.salesProfile?.requiredChannels).length > 0;
-    const requiredChannelsMatched = !hasRequiredChannelGate || this.candidateHasRequiredChannels(result as any, input);
+    const primaryInput = this.withoutPrimarySocialRequiredChannels(input);
+    const hasRequiredChannelGate = this.hasExplicitRequiredChannels(primaryInput);
+    const requiredChannelsMatched = !hasRequiredChannelGate || this.candidateHasRequiredChannels(result as any, primaryInput);
     const socialRequiredAndMatched = this.canDeliverRequiredSocialWithoutPhone(input)
       && requiredChannelsMatched;
     const placeId = String(result.placeId || '').trim()
@@ -3670,9 +3855,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       const quality = classified.status === 'found'
         ? this.evaluateResultQualityForInput(result as any, normalized)
         : this.extractLeadQualityFromObject(result as any);
-      const qualityDeliverable = this.resolveQualityMode(normalized) === 'lead_plus'
-        ? this.isApprovedLeadQuality(quality)
-        : this.isListLeadQualityDeliverable(quality);
+      const qualityDeliverable = this.isPrimarySearchRunQualityDeliverable(result as any, normalized, quality);
       const finalStatus: WebscrapingSearchRunItemStatus = classified.status === 'found' && !qualityDeliverable
         ? 'skipped'
         : classified.status;
@@ -4017,6 +4200,23 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       await this.assertSearchRunPersistence();
       await this.getEnginePool().refreshEngineRegistryFromEnv();
       await this.getEnginePool().cleanupExpiredLocks();
+      const staleRunningBefore = new Date(Date.now() - Math.max(this.getHbxBatchTimeoutMs() + 60_000, 180_000));
+      await this.prisma.webscrapingSearchRun.updateMany({
+        where: {
+          status: 'running',
+          assignedEngineId: { not: null },
+          updatedAt: { lt: staleRunningBefore },
+        },
+        data: {
+          assignedEngineId: null,
+          assignedEngineUrl: null,
+          assignedEngineIndex: null,
+          lastBatchStatus: 'stale_requeued',
+          lastBatchError: 'Lote travado reencaminhado automaticamente.',
+          errorMessage: 'A busca demorou demais em um motor e foi retomada em outro.',
+          nextRetryAt: new Date(),
+        },
+      }).catch(() => null);
 
       for (;;) {
         const now = new Date();
@@ -4282,9 +4482,6 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       }
 
       const counters = await this.recalculateSearchRunCounters(runId);
-      await this.autoImportRadarSearchRunToVendas(user, runId).catch((error: any) => {
-        this.logger.warn(`[radar-vendas] auto-import lote ignorado run=${runId}: ${String(error?.message || error)}`);
-      });
       const approvedCount = savedCounts.found;
       const rejectedCount = batchResponse.rejectedCount + savedCounts.invalid + savedCounts.skipped;
       const duplicateCount = batchResponse.duplicateCount + savedCounts.duplicate;
@@ -4538,7 +4735,11 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     const results = deliverableFoundItems.map((item) => {
       const contact = this.mapRunItemToContact(item);
       const { placeId: _placeId, ...publicContact } = contact;
-      return this.stripListPremiumFields(publicContact, qualityInput);
+      const qualityV2 = this.extractLeadQualityV2FromObject(contact) || null;
+      return this.stripListPremiumFields(
+        this.attachDeliveryClassification(publicContact, qualityInput, contact.quality || null, qualityV2),
+        qualityInput,
+      );
     });
     const query = {
       city: String(run.city || ''),
@@ -4645,7 +4846,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         const raw = this.parseMaybeJsonObject(item?.rawJson);
         const enrichmentJson = this.parseMaybeJsonObject(item?.enrichmentJson || raw.enrichmentJson);
         const qualityV2 = this.extractLeadQualityV2FromObject(raw) || this.extractLeadQualityV2FromObject(enrichmentJson) || raw.qualityV2 || enrichmentJson.qualityV2 || null;
-        return this.stripListPremiumFields({
+        const publicItem = {
           id: item.id,
           placeId: String(item.placeId || raw.placeId || ''),
           name: String(item.name || raw.name || ''),
@@ -4673,7 +4874,11 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
           status: this.normalizeRunItemStatus(item.status),
           duplicateReason: item.duplicateReason || null,
           createdAt: item.createdAt instanceof Date ? item.createdAt.toISOString() : new Date().toISOString(),
-        }, qualityInput);
+        };
+        return this.stripListPremiumFields(
+          this.attachDeliveryClassification(publicItem, qualityInput, raw.quality || null, qualityV2),
+          qualityInput,
+        );
       }),
       results,
     };
@@ -5028,6 +5233,40 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     return earthKm * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   }
 
+  private findBrazilCityCoordinate(city: string, state: string) {
+    const normalizedCity = normalizeLookupValue(city);
+    const normalizedState = String(state || '').trim().toUpperCase();
+    if (!normalizedCity || !normalizedState) return null;
+    const row = BRAZIL_CITY_COORDINATES.find(([rowState, rowCity]) => (
+      rowState === normalizedState && normalizeLookupValue(rowCity) === normalizedCity
+    ));
+    if (!row) return null;
+    return { state: row[0], city: row[1], lat: row[2], lng: row[3] };
+  }
+
+  private resolveSearchOrigin(input: {
+    city: string;
+    state: string;
+    originLat?: number | null;
+    originLng?: number | null;
+  }) {
+    const cityOrigin = this.findBrazilCityCoordinate(input.city, input.state);
+    const suppliedLat = this.normalizeCoordinate(input.originLat);
+    const suppliedLng = this.normalizeCoordinate(input.originLng);
+    if (cityOrigin && suppliedLat != null && suppliedLng != null) {
+      const distanceFromSelectedCity = this.haversineDistanceKm(cityOrigin.lat, cityOrigin.lng, suppliedLat, suppliedLng);
+      if (distanceFromSelectedCity <= 20) {
+        return { city: input.city, state: input.state, lat: suppliedLat, lng: suppliedLng };
+      }
+      return cityOrigin;
+    }
+    if (cityOrigin) return cityOrigin;
+    if (suppliedLat != null && suppliedLng != null) {
+      return { city: input.city, state: input.state, lat: suppliedLat, lng: suppliedLng };
+    }
+    return null;
+  }
+
   private resolveRegionalCities(input: {
     city: string;
     state: string;
@@ -5041,15 +5280,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     if (!city || !state || radiusKm <= 0) return [];
 
     const normalizedCity = normalizeLookupValue(city);
-    const normalizedOrigin = {
-      lat: this.normalizeCoordinate(input.originLat),
-      lng: this.normalizeCoordinate(input.originLng),
-    };
-    const origin = normalizedOrigin.lat != null && normalizedOrigin.lng != null
-      ? { city, state, lat: normalizedOrigin.lat, lng: normalizedOrigin.lng }
-      : BRAZIL_CITY_COORDINATES
-        .map(([rowState, rowCity, lat, lng]) => ({ state: rowState, city: rowCity, lat, lng }))
-        .find((row) => row.state === state && normalizeLookupValue(row.city) === normalizedCity);
+    const origin = this.resolveSearchOrigin({ city, state, originLat: input.originLat, originLng: input.originLng });
     if (!origin) return [];
 
     const maxCities = radiusKm <= 25 ? 10 : radiusKm <= 50 ? 18 : RADAR_REGION_MAX_CITIES;
@@ -5096,8 +5327,14 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     const segment = String(input.segment || '').trim();
     const quantity = clampQuantity(input.quantity, maxQuantityFor(engine, targetType));
     const radiusKm = this.normalizeRadiusKm(input.radiusKm);
-    const originLat = this.normalizeCoordinate(input.originLat);
-    const originLng = this.normalizeCoordinate(input.originLng);
+    const resolvedOrigin = this.resolveSearchOrigin({
+      city,
+      state,
+      originLat: input.originLat,
+      originLng: input.originLng,
+    });
+    const originLat = resolvedOrigin?.lat ?? null;
+    const originLng = resolvedOrigin?.lng ?? null;
     const regionalCities = engine === 'hbx'
       ? this.resolveRegionalCities({ city, state, radiusKm, originLat, originLng })
       : [];
@@ -5449,14 +5686,15 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       .map(({ result, quality, qualityV2 }) => {
         const { placeId: _placeId, ...publicResult } = result;
         const opportunityScore = this.buildOpportunityScore(result, quality);
-        return this.stripListPremiumFields({
+        const classified = this.attachDeliveryClassification({
           ...publicResult,
           quality,
           qualityV2,
           score: publicResult.score == null ? opportunityScore : publicResult.score,
           opportunityScore,
           opportunityReason: publicResult.opportunityReason || this.buildOpportunityReason(result, input),
-        }, input);
+        }, input, quality, qualityV2);
+        return this.stripListPremiumFields(classified, input);
       });
     return {
       query: {
@@ -5766,11 +6004,21 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     const state = String(input.state || '').trim().toUpperCase();
     const known: Record<string, string> = {
       americana: '19',
+      'americo brasiliense': '16',
+      araraquara: '16',
       araras: '19',
       campinas: '19',
+      conchal: '19',
+      cordeiropolis: '19',
+      ibate: '16',
       limeira: '19',
+      matao: '16',
+      piracicaba: '19',
+      'porto ferreira': '19',
       'rio claro': '19',
       'ribeirao preto': '16',
+      'santa gertrudes': '19',
+      'sao carlos': '16',
       'sao paulo': '11',
     };
     const ddd = known[cityKey] || known[cityKey.replace(/\s+-\s+[a-z]{2}$/i, '')] || '';
@@ -5784,8 +6032,14 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     const state = String(input.state || '').trim().toUpperCase();
     const segment = String(input.segment || '').trim();
     const radiusKm = this.normalizeRadiusKm(input.radiusKm);
-    const originLat = this.normalizeCoordinate(input.originLat);
-    const originLng = this.normalizeCoordinate(input.originLng);
+    const resolvedOrigin = this.resolveSearchOrigin({
+      city,
+      state,
+      originLat: input.originLat,
+      originLng: input.originLng,
+    });
+    const originLat = resolvedOrigin?.lat ?? null;
+    const originLng = resolvedOrigin?.lng ?? null;
     const regionalCities = this.resolveRegionalCities({ city, state, radiusKm, originLat, originLng });
     const highOpportunity = coerceBoolean(input.highOpportunity);
     const rawOpportunityLevel = String(input.opportunityLevel || '').trim().toLowerCase();
@@ -6082,9 +6336,6 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       const socialRequired = filters.requiredChannels.filter((channel) => channel === 'instagram' || channel === 'facebook');
       const nonSocialRequired = filters.requiredChannels.filter((channel) => channel !== 'instagram' && channel !== 'facebook');
       if (!nonSocialRequired.every((channel) => availability[channel])) return false;
-      if (socialRequired.includes('instagram') && socialRequired.includes('facebook')) {
-        return socialRequired.some((channel) => availability[channel]);
-      }
       return socialRequired.every((channel) => availability[channel]);
     }
     return filters.requiredChannels.some((channel) => availability[channel]);
@@ -6193,7 +6444,11 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     const status = this.resolveRadarLeadStatus(row);
     if (this.isRadarProtectedStatus(status) || this.isRadarProtectedStatus(row?.companyStates?.[0]?.status)) return -10000;
     const qualityV2 = this.extractLeadQualityV2FromObject(row) || this.extractLeadQualityV2FromObject(row?.enrichmentJson) || this.extractLeadQualityV2FromObject(row?.metadataJson);
-    if (qualityV2?.decision === 'protect' || qualityV2?.decision === 'discard') return -10000;
+    if (qualityV2?.decision === 'protect') return -10000;
+    if (qualityV2?.decision === 'discard') {
+      const reason = String(qualityV2.discardReason || '').trim();
+      if (!['weak_contactability', 'required_channel_missing', 'location_mismatch'].includes(reason)) return -10000;
+    }
     if (qualityV2) return safeInteger(qualityV2.finalRankScore) * 10 + Math.min(safeInteger(row?.reviews), 80);
     const channel = String(row?.recommendedChannel || parseJsonObject(row?.enrichmentJson)?.signals?.recommendedChannel || '').toLowerCase();
     const emailStatus = String(row?.emailStatus || parseJsonObject(row?.enrichmentJson)?.signals?.emailStatus || '').toLowerCase();
@@ -6230,11 +6485,9 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
 
   private filterRowsByLeadQuality(rows: any[], filters: NormalizedRadarFilters | NormalizedSearchInput) {
     return rows.filter((row) => {
-      const qualityV2 = this.getCandidateQualityV2(row, filters);
-      if (!this.isQualityV2Deliverable(qualityV2, filters)) return false;
-      if (!this.candidateHasRequiredChannels(row, filters, qualityV2)) return false;
+      const qualityV2 = this.extractLeadQualityV2FromObject(row) || this.getCandidateQualityV2(row, filters);
       const quality = this.getCandidateQuality(row, filters);
-      return this.isApprovedLeadQuality(quality);
+      return this.isListDeliverableCard(row, filters, quality, qualityV2);
     });
   }
 
@@ -6377,6 +6630,16 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
   }
 
   private maskRadarSmartFieldsForList(item: any) {
+    const hadPremiumSignal = Boolean(
+      item?.email
+      || item?.instagramUrl
+      || item?.facebookUrl
+      || item?.recommendedChannel
+      || item?.opportunityScore
+      || item?.enrichmentScore
+      || item?.qualityV2
+      || item?.enrichmentJson,
+    );
     return {
       ...item,
       email: null,
@@ -6395,6 +6658,9 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       enrichmentConfidence: 0,
       enrichmentJson: null,
       lastEnrichedAt: null,
+      premiumLocked: true,
+      premiumFeatureStatus: 'locked',
+      premiumTeaser: hadPremiumSignal,
     };
   }
 
@@ -6460,7 +6726,18 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       whatsappStatus,
       whatsappCheckStatus: whatsappStatus,
     };
-    return {
+    const qualityInput = {
+      city: String(row?.city || ''),
+      state: String(row?.state || ''),
+      segment: String(row?.segment || ''),
+      targetType: normalizeTargetType(this.parseMaybeJsonObject(row?.metadataJson)?.targetType),
+      requiredChannels: [],
+      preferredChannels: [],
+      channelMatchMode: 'prefer',
+      qualityMode: includeSmartFields ? 'lead_plus' : 'list',
+      salesProfile: null,
+    } as NormalizedRadarFilters;
+    const publicLead = {
       id: String(row?.id || ''),
       placeId: row?.placeId || null,
       name: row?.name || '',
@@ -6520,7 +6797,11 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       lastSeenAt: row?.lastSeenAt instanceof Date ? row.lastSeenAt.toISOString() : null,
       companyStatus: companyState?.status || status,
       vendasLeadId: companyState?.vendasLeadId || null,
+      premiumLocked: !includeSmartFields,
+      premiumFeatureStatus: includeSmartFields ? 'available' : 'locked',
+      premiumTeaser: !includeSmartFields && Boolean(row?.email || row?.instagramUrl || row?.facebookUrl || row?.recommendedChannel || row?.enrichmentScore || qualityV2),
     };
+    return this.attachDeliveryClassification(publicLead, qualityInput, quality || null, qualityV2 || null);
   }
 
   private buildDirectRadarLeadPublic(result: Omit<WebscrapingContactResult, 'placeId'> & { placeId?: string | null }, input: NormalizedRadarFilters, index: number) {
@@ -6541,7 +6822,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       qualityMode: input.qualityMode,
       salesProfile: this.buildLeadQualitySalesProfileFromFilters(input),
     });
-    return {
+    const publicLead = {
       id: `direct:${input.targetType}:${phoneDigits || normalizeLookupValue(`${result.name || 'card'}-${index + 1}`)}`,
       placeId: result.placeId || null,
       name: result.name || 'Empresa sem nome',
@@ -6634,6 +6915,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       companyStatus: 'clean',
       vendasLeadId: null,
     };
+    return this.attachDeliveryClassification(publicLead, input, quality || null, publicLead.qualityV2 || null);
   }
 
   private withRadarWhatsappStatus(item: any, status: RadarWhatsappCheckStatus) {
@@ -7645,13 +7927,6 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     await this.syncRadarSearchRunItemsToPool(context, run).catch((error: any) => {
       this.logger.warn(`[radar-run] sync ignorado run=${run.id}: ${String(error?.message || error)}`);
     });
-    const autoImport = options?.skipAutoImport
-      ? null
-      : await this.autoImportRadarSearchRunToVendas(user, run.id).catch((error: any) => {
-          this.logger.warn(`[radar-vendas] auto-import ignorado run=${run.id}: ${String(error?.message || error)}`);
-          return null;
-        });
-
     const freshRun = await this.prisma.webscrapingSearchRun.findFirst({
       where: { id: run.id, companyId: context.companyId },
       include: {
@@ -7671,23 +7946,86 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
           return !this.candidateHasRequiredChannels({ ...raw, ...item }, filters);
         }).length
       : 0;
-    const orderedRows = await this.findRadarPoolRowsForRunItems(
+    let orderedRows = await this.findRadarPoolRowsForRunItems(
       context.companyId,
       foundItems,
       safeInteger(effectiveRun.targetQuantity),
     );
+    const status = this.normalizeSearchRunStatus(effectiveRun.status);
+    const terminal = this.isTerminalRadarSearchRunStatus(status);
+    const autoImport = !options?.skipAutoImport && terminal
+      ? await this.autoImportRadarSearchRunToVendas(user, effectiveRun.id).catch((error: any) => {
+          this.logger.warn(`[radar-vendas] auto-import ignorado run=${effectiveRun.id}: ${String(error?.message || error)}`);
+          return null;
+        })
+      : null;
+    if (autoImport?.processedCount || autoImport?.importedCount) {
+      orderedRows = await this.findRadarPoolRowsForRunItems(
+        context.companyId,
+        foundItems,
+        safeInteger(effectiveRun.targetQuantity),
+      );
+    }
     const includeSmartFields = await this.canUseRadarSmartLeadFields(context.companyId);
+    const requestedQuantity = Math.max(1, safeInteger(effectiveRun.targetQuantity));
+    const rowPublicItems = orderedRows.map((row) => this.buildRadarLeadPublic(row, { includeSmartFields }));
+    const seenPhones = new Set(
+      rowPublicItems
+        .map((item: any) => normalizePhoneDigits(item?.phoneDigits || item?.phone))
+        .filter(Boolean),
+    );
+    const seenPlaces = new Set(
+      rowPublicItems
+        .map((item: any) => String(item?.placeId || '').trim())
+        .filter(Boolean),
+    );
+    const seenNames = new Set(
+      rowPublicItems
+        .map((item: any) => normalizeLookupValue(`${item?.name || ''}-${item?.city || filters.city}-${item?.state || filters.state}`))
+        .filter(Boolean),
+    );
+    const fallbackRunItems = foundItems.filter((item: any) => {
+      const contact = this.mapRunItemToContact(item);
+      const phone = normalizePhoneDigits(contact.phoneDigits || contact.phone || item?.phoneDigits || item?.phone);
+      const place = String(contact.placeId || item?.placeId || '').trim();
+      const nameKey = normalizeLookupValue(`${contact.name || item?.name || ''}-${(contact as any).city || item?.city || filters.city}-${(contact as any).state || item?.state || filters.state}`);
+      if (phone && seenPhones.has(phone)) return false;
+      if (place && seenPlaces.has(place)) return false;
+      if (nameKey && seenNames.has(nameKey)) return false;
+      if (phone) seenPhones.add(phone);
+      if (place) seenPlaces.add(place);
+      if (nameKey) seenNames.add(nameKey);
+      return true;
+    }).slice(0, Math.max(0, requestedQuantity - rowPublicItems.length));
+    const fallbackPublicItems = fallbackRunItems.map((item: any, index: number) => {
+      const contact = this.mapRunItemToContact(item) as any;
+      const localFilters = {
+        ...filters,
+        city: String(contact.city || item?.city || filters.city || '').trim(),
+        state: String(contact.state || item?.state || filters.state || '').trim(),
+        segment: String(contact.segment || item?.segment || filters.segment || '').trim(),
+        normalizedCity: normalizeLookupValue(contact.city || item?.city || filters.city || ''),
+        normalizedSegment: normalizeLookupValue(contact.segment || item?.segment || filters.segment || ''),
+      } as NormalizedRadarFilters;
+      return {
+        ...this.buildDirectRadarLeadPublic(contact, localFilters, rowPublicItems.length + index),
+        id: `run:${effectiveRun.id}:${item.id}`,
+        radarRunId: effectiveRun.id,
+        radarRunItemId: item.id,
+        premiumFeatureStatus: includeSmartFields ? 'enrichment_pending' : 'locked',
+        premiumLocked: !includeSmartFields,
+        premiumTeaser: true,
+      };
+    });
+    const publicCandidates = [...rowPublicItems, ...fallbackPublicItems].slice(0, requestedQuantity);
     const whatsappMode = this.radarWhatsappCheckModeByRunId.get(effectiveRun.id) || 'off';
     const whatsapp = await this.applyRadarWhatsappCheck(
       context,
-      orderedRows.map((row) => this.buildRadarLeadPublic(row, { includeSmartFields })),
+      publicCandidates,
       whatsappMode,
     );
     const items = includeSmartFields ? whatsapp.items : whatsapp.items.map((item: any) => this.maskRadarSmartFieldsForList(item));
-    const requestedQuantity = Math.max(1, safeInteger(effectiveRun.targetQuantity));
     const deliveredCount = items.length;
-    const status = this.normalizeSearchRunStatus(effectiveRun.status);
-    const terminal = this.isTerminalRadarSearchRunStatus(status);
     const databaseCount = foundItems.filter((item: any) => String(item.source || '') === 'radar_database').length;
     const fetchedCount = Math.max(0, deliveredCount - databaseCount);
     const progress = requestedQuantity > 0
@@ -7909,9 +8247,6 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         cacheHit: true,
         status: completedFromDatabase ? 'completed' : 'queued',
       }).catch(() => null);
-      await this.autoImportRadarSearchRunToVendas(user, run.id).catch((error: any) => {
-        this.logger.warn(`[radar-vendas] auto-import inicial ignorado run=${run.id}: ${String(error?.message || error)}`);
-      });
     }
 
     if (completedFromDatabase) {
@@ -8425,11 +8760,21 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     const delegate = (this.prisma as any).radarLeadPool;
     const now = new Date();
     const expectedDdds = this.buildExpectedDdds(input);
-    const strictLocalDdd = options.strictLocalDdd ?? input.targetType === 'pf';
+    const strictLocalDdd = options.strictLocalDdd ?? (input.targetType === 'pf' || this.normalizeRadiusKm((input as any).radiusKm) <= 0);
     const counts = { approvedCount: 0, duplicateCount: 0, rejectedCount: 0, savedCount: 0 };
     for (const result of this.mergeDedupedContacts(results)) {
       const phoneDigits = normalizePhoneDigits(result.phoneDigits || result.phone);
       const ddd = this.extractDdd(phoneDigits || result.phone);
+      const resultCity = String((result as any).city || input.city || '').trim();
+      const resultState = String((result as any).state || input.state || '').trim().toUpperCase();
+      const resultSegment = String((result as any).segment || input.segment || '').trim();
+      const resultNormalizedCity = normalizeLookupValue(resultCity || input.city || '');
+      const resultNormalizedSegment = normalizeLookupValue(resultSegment || input.segment || '');
+      const resultExpectedDdds = this.buildExpectedDdds({
+        city: resultCity || input.city,
+        state: resultState || input.state,
+        segment: resultSegment || input.segment,
+      });
       const socialIdentity = normalizeLookupValue(result.instagramUrl || result.facebookUrl || result.website || '')
         .replace(/[^a-z0-9]+/g, '-')
         .replace(/^-+|-+$/g, '');
@@ -8440,10 +8785,12 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
           : null;
       if (!phoneDigits && !placeId) continue;
       const quality = this.getCandidateQuality({ ...(result as any), phoneDigits }, input);
-      const dddMismatch = strictLocalDdd && expectedDdds.length > 0 && ddd && !expectedDdds.includes(ddd);
+      const dddMismatch = strictLocalDdd && resultExpectedDdds.length > 0 && ddd && !resultExpectedDdds.includes(ddd);
       const websiteStatus = inferWebsiteStatus(result.website);
       const opportunityScore = this.buildOpportunityScore(result, quality);
       const opportunityReason = result.opportunityReason || this.buildOpportunityReason(result, input);
+      const qualityV2 = this.extractLeadQualityV2FromObject(result as any);
+      const delivery = this.classifyCardDelivery({ ...(result as any), phoneDigits }, input, quality, qualityV2);
       const existing = await delegate.findFirst({
         where: {
           OR: [
@@ -8452,7 +8799,8 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
           ],
         },
       }).catch(() => null);
-      if (!this.isApprovedLeadQuality(quality)) {
+      const listDeliverable = this.isListDeliverableCard({ ...(result as any), phoneDigits }, this.withoutPrimarySocialRequiredChannels(input), quality, qualityV2);
+      if (!listDeliverable) {
         counts.rejectedCount += 1;
         if (existing?.id && !this.isRadarProtectedStatus(existing.status)) {
           const rejectedEnrichment = this.parseMaybeJsonObject(existing.enrichmentJson);
@@ -8463,13 +8811,14 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
               status: 'rejected',
               rejectionReason: quality.status,
               opportunityScore: Math.min(opportunityScore, 25),
-              enrichmentJson: JSON.stringify({ ...rejectedEnrichment, quality }),
+              enrichmentJson: JSON.stringify({ ...rejectedEnrichment, quality, delivery }),
               metadataJson: JSON.stringify({
                 ...rejectedMetadata,
                 targetType: input.targetType,
                 expectedDdds,
                 lastSourceEngine: sourceEngine,
                 quality,
+                delivery,
               }),
               lastSeenAt: now,
             },
@@ -8489,13 +8838,13 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         phone: result.phone || existing?.phone || phoneDigits || null,
         phoneDigits: phoneDigits || existing?.phoneDigits || null,
         ddd: ddd || existing?.ddd || null,
-        expectedDddsJson: expectedDdds.length ? JSON.stringify(expectedDdds) : existing?.expectedDddsJson || null,
+        expectedDddsJson: resultExpectedDdds.length ? JSON.stringify(resultExpectedDdds) : expectedDdds.length ? JSON.stringify(expectedDdds) : existing?.expectedDddsJson || null,
         address: result.address || existing?.address || null,
-        city: input.city || existing?.city || null,
-        state: input.state || existing?.state || null,
-        normalizedCity: input.normalizedCity,
-        segment: input.segment || existing?.segment || null,
-        normalizedSegment: input.normalizedSegment,
+        city: resultCity || existing?.city || input.city || null,
+        state: resultState || existing?.state || input.state || null,
+        normalizedCity: resultNormalizedCity || input.normalizedCity,
+        segment: resultSegment || existing?.segment || input.segment || null,
+        normalizedSegment: resultNormalizedSegment || input.normalizedSegment,
         website: result.website || existing?.website || null,
         websiteStatus,
         rating: result.rating == null ? existing?.rating ?? null : result.rating,
@@ -8512,9 +8861,16 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         metadataJson: JSON.stringify({
           ...this.parseMaybeJsonObject(existing?.metadataJson),
           targetType: input.targetType,
-          expectedDdds,
+          expectedDdds: resultExpectedDdds.length ? resultExpectedDdds : expectedDdds,
+          searchCity: input.city,
+          searchState: input.state,
+          searchSegment: input.segment,
+          resultCity: resultCity || null,
+          resultState: resultState || null,
+          resultSegment: resultSegment || null,
           lastSourceEngine: sourceEngine,
           quality,
+          delivery,
         }),
         lastSeenAt: now,
       };
@@ -8547,7 +8903,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         painLabel: enrichment.painLabel,
         painPitch: enrichment.painPitch,
         opportunityReason: enrichment.opportunityReason || data.opportunityReason,
-        enrichmentJson: JSON.stringify({ ...enrichmentJson, quality }),
+        enrichmentJson: JSON.stringify({ ...enrichmentJson, quality, delivery }),
         enrichmentScore: enrichment.enrichmentScore,
         enrichmentConfidence: enrichment.enrichmentConfidence,
         lastEnrichedAt: enrichment.lastEnrichedAt,
@@ -9048,6 +9404,16 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
           : eventType as RadarLeadStatus;
     const now = new Date();
     const note = String(input.note || '').trim();
+    const alreadyContacted = safeInteger(row?.contactedCount) > 0 || safeInteger(row?.companyStates?.[0]?.contactedCount) > 0;
+    let usageDebit: { debited: boolean; alreadyDebited: boolean } | null = null;
+    if (eventType === 'contacted' && !alreadyContacted) {
+      usageDebit = await this.commercialUsageLimits?.recordCardCommercialUseOnce(context.companyId, context.userId, {
+        source: 'radar_contact_click',
+        usageKey: `radar:${row.id}`,
+        radarLeadId: row.id,
+        status: 'contacted',
+      }) || null;
+    }
     await (this.prisma as any).radarLeadCompanyState.upsert({
       where: {
         companyId_radarLeadId: {
@@ -9093,14 +9459,14 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       companyId: context.companyId,
       userId: context.userId,
       eventType,
-      note,
+      note: usageDebit?.debited ? [note, 'Uso comercial debitado no primeiro contato.'].filter(Boolean).join(' ') : note,
       statusFrom: previousStatus,
       statusTo: nextStatus,
     });
     return this.getRadarLeadForUser(user, row.id);
   }
 
-  async importRadarLeadToVendasForUser(user: any, radarLeadId: string, options: { skipWhatsappValidation?: boolean } = {}) {
+  async importRadarLeadToVendasForUser(user: any, radarLeadId: string, options: { skipWhatsappValidation?: boolean; debitOnImport?: boolean } = {}) {
     if (!this.vendasService) {
       throw new ServiceUnavailableException('Servico de Vendas indisponivel para importacao.');
     }
@@ -9114,7 +9480,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     });
     if (!row) throw new NotFoundException('Card do Radar nao encontrado.');
     const [enrichedRow] = await this.ensureRadarRowsEnriched([row]);
-    const leadRow = enrichedRow || row;
+    let leadRow = enrichedRow || row;
     if (this.isRadarProtectedStatus(leadRow?.companyStates?.[0]?.status || leadRow?.status)) {
       throw new BadRequestException('Card protegido nao pode ser enviado para Vendas.');
     }
@@ -9127,9 +9493,25 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         requestedState: leadRow?.state || null,
         targetType: normalizeTargetType(this.parseMaybeJsonObject(leadRow?.metadataJson)?.targetType),
       });
-    if (!this.isApprovedLeadQuality(quality)) {
+    const metadata = this.parseMaybeJsonObject(leadRow?.metadataJson);
+    const importQualityInput = {
+      city: String(leadRow?.city || ''),
+      state: String(leadRow?.state || ''),
+      segment: String(leadRow?.segment || ''),
+      targetType: normalizeTargetType(metadata?.targetType),
+      requiredChannels: [],
+      preferredChannels: [],
+      channelMatchMode: 'prefer',
+      qualityMode: 'list',
+      salesProfile: null,
+    } as NormalizedRadarFilters;
+    const qualityV2 = this.extractLeadQualityV2FromObject(leadRow)
+      || this.extractLeadQualityV2FromObject(leadRow?.enrichmentJson)
+      || this.extractLeadQualityV2FromObject(leadRow?.metadataJson);
+    if (!this.isListDeliverableCard(leadRow, importQualityInput, quality, qualityV2)) {
       throw new BadRequestException('Card nao passou na qualidade minima para esse segmento. Descartados nao consomem limite.');
     }
+    const deliveryClassification = this.classifyCardDelivery(leadRow, importQualityInput, quality, qualityV2);
 
     await this.claimRadarLeadForCompany(context, leadRow, {
       poolStatus: 'in_attendance',
@@ -9143,6 +9525,8 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     const imported = await this.vendasService.importWebscrapingLeadsForUser(user, {
       sourceHistoryId: `radar:${leadRow.id}`,
       skipWhatsappValidation: Boolean(options.skipWhatsappValidation),
+      debitOnImport: Boolean(options.debitOnImport),
+      qualityMode: 'list',
       leads: [
         {
           sourceHistoryId: `radar:${leadRow.id}`,
@@ -9190,6 +9574,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
           sourceUrl: leadRow.sourceUrl || undefined,
           enrichmentJson: includeSmartFields && leadRow.enrichmentJson ? parseJsonObject(leadRow.enrichmentJson) : undefined,
           quality: includeSmartFields ? quality : undefined,
+          ...deliveryClassification,
           shortNote: includeSmartFields ? leadRow.opportunityReason || undefined : 'Lead herdado do Radar Digital.',
           scriptText: includeSmartFields ? leadRow.painPitch || leadRow.opportunityReason || undefined : undefined,
         },
@@ -9235,6 +9620,9 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       eventType: 'imported_to_vendas',
       statusFrom: this.normalizeRadarLeadStatus(leadRow.status),
       statusTo: 'sent_to_vendas',
+    });
+    void this.enrichRadarLeadForUser(user, leadRow.id).catch((error: any) => {
+      this.logger.warn(`[radar-vendas] enriquecimento assíncrono ignorado lead=${leadRow?.id || '-'}: ${String(error?.message || error)}`);
     });
 
     return {

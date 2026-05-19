@@ -2,12 +2,12 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildRadarLeadEnrichment } from './radar-lead-enrichment';
 
-test('radar enrichment infers probable email from website domain', () => {
+test('radar enrichment does not invent email from website domain', () => {
   const enrichment = buildRadarLeadEnrichment({ website: 'https://exemplo.com.br' });
 
-  assert.equal(enrichment.emailStatus, 'probable');
-  assert.equal(enrichment.emailSource, 'inferred');
-  assert.equal(enrichment.emailCandidate, 'contato@exemplo.com.br');
+  assert.equal(enrichment.emailStatus, 'missing');
+  assert.equal(enrichment.emailSource, 'none');
+  assert.equal(enrichment.emailCandidate, null);
 });
 
 test('radar enrichment marks missing website as sem_site pain', () => {
@@ -28,15 +28,15 @@ test('radar enrichment prefers whatsapp when confirmed', () => {
   assert.match(enrichment.opportunityReason, /WhatsApp confirmado/);
 });
 
-test('radar enrichment recommends email when whatsapp is missing and email is probable', () => {
+test('radar enrichment recommends call when whatsapp is missing and email was not collected', () => {
   const enrichment = buildRadarLeadEnrichment({
     phone: '(19) 99999-9999',
     website: 'cliente.com.br',
     whatsappStatus: 'missing',
   });
 
-  assert.equal(enrichment.emailStatus, 'probable');
-  assert.equal(enrichment.recommendedChannel, 'email');
+  assert.equal(enrichment.emailStatus, 'missing');
+  assert.equal(enrichment.recommendedChannel, 'call');
 });
 
 test('radar enrichment discards protected leads', () => {
@@ -62,7 +62,7 @@ test('radar enrichment keeps existing confirmed email when payload is sparse', (
   assert.ok(enrichment.enrichmentJson.includes('confirmed'));
 });
 
-test('radar enrichment does not promote inferred email to confirmed on refresh', () => {
+test('radar enrichment drops previously inferred email on refresh', () => {
   const enrichment = buildRadarLeadEnrichment({
     email: 'contato@empresa.com.br',
     emailStatus: 'probable',
@@ -70,8 +70,8 @@ test('radar enrichment does not promote inferred email to confirmed on refresh',
     website: 'https://empresa.com.br',
   });
 
-  assert.equal(enrichment.emailStatus, 'probable');
-  assert.equal(enrichment.emailSource, 'inferred');
+  assert.equal(enrichment.emailStatus, 'missing');
+  assert.equal(enrichment.emailSource, 'none');
 });
 
 test('radar enrichment confirms email collected from website text', () => {

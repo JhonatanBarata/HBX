@@ -199,6 +199,15 @@ export type CompanySummary = {
   subscriptionStatus?: string | null;
   billingProvider?: string | null;
   premiumAccess?: boolean;
+  commercialCardQuota?: {
+    planKey: string;
+    monthlyDefault: number;
+    dailyDefault: number;
+    monthlyOverride?: number | null;
+    dailyOverride?: number | null;
+    monthlyEffective: number;
+    dailyEffective: number;
+  };
   assistedSetup?: {
     required: boolean;
     status: string;

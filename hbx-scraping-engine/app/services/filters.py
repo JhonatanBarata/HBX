@@ -35,6 +35,8 @@ DIRECTORY_HOST_HINTS = (
     "qualotelefone",
     "brasilapifacil",
     "lista11",
+    "locaisdobrasil",
+    "directmap",
 )
 
 PF_WEAK_HOST_PARTS = (

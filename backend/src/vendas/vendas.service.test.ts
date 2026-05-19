@@ -83,6 +83,7 @@ function createService(overrides?: Partial<Record<string, any>>) {
   const commercialUsageLimits = {
     assertCanImportCard: async () => true,
     recordCardImport: async () => true,
+    recordCardCommercialUseOnce: async () => ({ debited: true, alreadyDebited: false }),
     assertCanSendPresentationEmail: async () => true,
     recordPresentationEmailAttempt: async () => true,
     recordPresentationEmailResult: async () => true,
@@ -377,8 +378,9 @@ test('importWebscrapingLeadsForUser debits quota for new delivered card with Wha
       assertCanImportCard: async () => {
         assertCanImportCalls += 1;
       },
-      recordCardImport: async () => {
+      recordCardCommercialUseOnce: async () => {
         recordCardImportCalls += 1;
+        return { debited: true, alreadyDebited: false };
       },
     },
   });
@@ -386,6 +388,7 @@ test('importWebscrapingLeadsForUser debits quota for new delivered card with Wha
   const result = await service.importWebscrapingLeadsForUser(
     { companyId: 7, id: 99 },
     {
+      debitOnImport: true,
       leads: [
         {
           name: 'Auto Mecânica São José',
@@ -406,6 +409,115 @@ test('importWebscrapingLeadsForUser debits quota for new delivered card with Wha
   assert.equal(checkWhatsappCalls, 1);
 });
 
+test('importWebscrapingLeadsForUser no modo List importa weak_contact sem cortar', async () => {
+  const { prisma } = createImportPrismaHarness();
+  let assertCanImportCalls = 0;
+  let recordCardImportCalls = 0;
+  const { service } = createService({
+    prisma,
+    vendasLead: {
+      findFirst: async () => null,
+    },
+    commercialUsageLimits: {
+      assertCanImportCard: async () => {
+        assertCanImportCalls += 1;
+      },
+      recordCardCommercialUseOnce: async () => {
+        recordCardImportCalls += 1;
+        return { debited: true, alreadyDebited: false };
+      },
+    },
+  });
+
+  const result = await service.importWebscrapingLeadsForUser(
+    { companyId: 7, id: 99 },
+    {
+      debitOnImport: true,
+      qualityMode: 'list',
+      skipWhatsappValidation: true,
+      leads: [
+        {
+          name: 'Humanitarian Calçados',
+          phone: '+55 19 3513-9668',
+          phoneDigits: '1935139668',
+          quality: {
+            status: 'weak_contact',
+            billable: false,
+            segmentMatchScore: 85,
+            contactQualityScore: 50,
+            commercialScore: 56,
+          },
+          enrichmentJson: {
+            qualityV2: {
+              version: 'lead-quality-v2',
+              identityScore: 55,
+              segmentFitScore: 85,
+              contactabilityScore: 33,
+              commercialIntentScore: 50,
+              freshnessScore: 50,
+              riskScore: 0,
+              opportunityScore: 45,
+              finalRankScore: 35,
+              decision: 'discard',
+              reasons: ['Contato fraco.'],
+              discardReason: 'weak_contactability',
+              protectionReason: null,
+              recommendedChannel: 'call',
+              productFit: { listFit: 45, leadFit: 35, botFit: 30, recoveryFit: 20, websiteFit: 10 },
+            },
+          },
+        },
+      ],
+    } as any,
+  );
+
+  assert.equal(result.createdCount, 1);
+  assert.equal(result.deliveredCount, 1);
+  assert.equal(assertCanImportCalls, 1);
+  assert.equal(recordCardImportCalls, 1);
+});
+
+test('importWebscrapingLeadsForUser entrega card sem debitar quando importacao nao e uso comercial', async () => {
+  const { prisma } = createImportPrismaHarness();
+  let assertCanImportCalls = 0;
+  let recordCardImportCalls = 0;
+  const { service } = createService({
+    prisma,
+    vendasLead: {
+      findFirst: async () => null,
+    },
+    commercialUsageLimits: {
+      assertCanImportCard: async () => {
+        assertCanImportCalls += 1;
+      },
+      recordCardCommercialUseOnce: async () => {
+        recordCardImportCalls += 1;
+        return { debited: true, alreadyDebited: false };
+      },
+    },
+  });
+
+  const result = await service.importWebscrapingLeadsForUser(
+    { companyId: 7, id: 99 },
+    {
+      skipWhatsappValidation: true,
+      leads: [
+        {
+          name: 'Pizzaria do Roberto',
+          phone: '+55 19 99836-8311',
+          phoneDigits: '19998368311',
+        },
+      ],
+    } as any,
+  );
+
+  assert.equal(result.createdCount, 1);
+  assert.equal(result.deliveredCount, 1);
+  assert.equal(result.quotaDebited, 0);
+  assert.equal(assertCanImportCalls, 0);
+  assert.equal(recordCardImportCalls, 0);
+});
+
 test('importWebscrapingLeadsForUser does not debit quota when WhatsApp is unavailable', async () => {
   const { prisma } = createImportPrismaHarness();
   let assertCanImportCalls = 0;
@@ -424,8 +536,9 @@ test('importWebscrapingLeadsForUser does not debit quota when WhatsApp is unavai
       assertCanImportCard: async () => {
         assertCanImportCalls += 1;
       },
-      recordCardImport: async () => {
+      recordCardCommercialUseOnce: async () => {
         recordCardImportCalls += 1;
+        return { debited: true, alreadyDebited: false };
       },
     },
   });
@@ -433,6 +546,7 @@ test('importWebscrapingLeadsForUser does not debit quota when WhatsApp is unavai
   const result = await service.importWebscrapingLeadsForUser(
     { companyId: 7, id: 99 },
     {
+      debitOnImport: true,
       leads: [
         {
           name: 'Auto Mecânica São José',
@@ -494,8 +608,9 @@ test('importWebscrapingLeadsForUser does not debit quota for duplicate card', as
       assertCanImportCard: async () => {
         assertCanImportCalls += 1;
       },
-      recordCardImport: async () => {
+      recordCardCommercialUseOnce: async () => {
         recordCardImportCalls += 1;
+        return { debited: true, alreadyDebited: false };
       },
     },
   });
@@ -568,8 +683,9 @@ test('importWebscrapingLeadsForUser blocks rejected quality before quota', async
       assertCanImportCard: async () => {
         assertCanImportCalls += 1;
       },
-      recordCardImport: async () => {
+      recordCardCommercialUseOnce: async () => {
         recordCardImportCalls += 1;
+        return { debited: true, alreadyDebited: false };
       },
     },
   });
@@ -610,8 +726,9 @@ test('importWebscrapingLeadsForUser blocks LeadQualityV2 protect/discard before 
       assertCanImportCard: async () => {
         assertCanImportCalls += 1;
       },
-      recordCardImport: async () => {
+      recordCardCommercialUseOnce: async () => {
         recordCardImportCalls += 1;
+        return { debited: true, alreadyDebited: false };
       },
     },
   });
@@ -706,8 +823,9 @@ test('importWebscrapingLeadsForUser debita somente aprovado criado e reporta des
       assertCanImportCard: async () => {
         assertCanImportCalls += 1;
       },
-      recordCardImport: async () => {
+      recordCardCommercialUseOnce: async () => {
         recordCardImportCalls += 1;
+        return { debited: true, alreadyDebited: false };
       },
     },
   });
@@ -723,6 +841,7 @@ test('importWebscrapingLeadsForUser debita somente aprovado criado e reporta des
   const result = await service.importWebscrapingLeadsForUser(
     { companyId: 7, id: 99 },
     {
+      debitOnImport: true,
       skipWhatsappValidation: true,
       leads: [
         {

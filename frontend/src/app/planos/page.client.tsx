@@ -43,8 +43,8 @@ const FALLBACK_PLANS: Record<PlanKey, CommercialPlan> = {
     description: "Leads/cards simples com telefone, site básico, mensagem básica e WhatsApp externo.",
     annualDiscountPercent: 20,
     trialDays: 0,
-    quotas: { googleSearchesPerDay: 0, cardsPerMonth: 150, dailyCardSafetyLimit: 50, cardsPerSearch: 50, searchesPerCycle: 3, totalCards: 150 },
-    features: ["Leads/cards simples", "150 cards por mês", "50 cards por pesquisa", "3 pesquisas comerciais por mês", "Telefone/site básico", "Mensagem básica", "Sem lead inteligente completo"],
+    quotas: { googleSearchesPerDay: 0, cardsPerMonth: 880, dailyCardSafetyLimit: 50, cardsPerSearch: 50, searchesPerCycle: 3, totalCards: 880 },
+    features: ["Leads/cards simples", "880 cards por mês", "50 cards por pesquisa", "3 pesquisas comerciais por mês", "Telefone/site básico", "Mensagem básica", "Sem lead inteligente completo"],
     legalCopy: "Liberação após pagamento confirmado.",
   },
   hbx_padrao: {
@@ -57,8 +57,8 @@ const FALLBACK_PLANS: Record<PlanKey, CommercialPlan> = {
     annualDiscountPercent: 20,
     recommended: true,
     trialDays: 14,
-    quotas: { googleSearchesPerDay: 2, cardsPerMonth: 500, dailyCardSafetyLimit: 100 },
-    features: ["Leads inteligentes", "500 cards por mês", "WhatsApp verificado pela HBX", "E-mail confirmado/provável", "Prioridade e motivo do lead", "Canal recomendado", "Templates comerciais", "Quem chamar hoje", "Retorno/agenda"],
+    quotas: { googleSearchesPerDay: 2, cardsPerMonth: 2200, dailyCardSafetyLimit: 100 },
+    features: ["Leads inteligentes", "2.200 cards por mês", "WhatsApp verificado pela HBX", "E-mail confirmado/provável", "Prioridade e motivo do lead", "Canal recomendado", "Templates comerciais", "Quem chamar hoje", "Retorno/agenda"],
     legalCopy: "14 dias grátis, sem cartão e sem cobrança automática.",
   },
   hbx_melhor: {
@@ -70,8 +70,8 @@ const FALLBACK_PLANS: Record<PlanKey, CommercialPlan> = {
     description: "Bot, automação e atendimento completo exigem configuração com a HBX.",
     annualDiscountPercent: 20,
     trialDays: 0,
-    quotas: { googleSearchesPerDay: 6, cardsPerMonth: 1500, dailyCardSafetyLimit: 250 },
-    features: ["Tudo do HBX Lead", "Bot IA com configuração assistida", "Automação completa com limites de segurança", "Atendimento e encaminhamento humano", "Implantação feita com a HBX"],
+    quotas: { googleSearchesPerDay: 6, cardsPerMonth: 5000, dailyCardSafetyLimit: 250 },
+    features: ["Tudo do HBX Lead", "5.000 cards por mês", "Bot IA com configuração assistida", "Automação completa com limites de segurança", "Atendimento e encaminhamento humano", "Implantação feita com a HBX"],
     legalCopy: "Bot, automação e atendimento completo exigem configuração com a HBX.",
   },
 };

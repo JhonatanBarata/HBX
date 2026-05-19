@@ -569,6 +569,7 @@
 }
 
 .currentPlanCard,
+.quotaEditor,
 .planPreview,
 .riskBand {
   border: 1px solid var(--master-border);
@@ -581,6 +582,18 @@
 .currentPlanCard strong {
   display: block;
   font-size: 22px;
+}
+
+.quotaEditor {
+  display: grid;
+  gap: 10px;
+}
+
+.helperText {
+  margin: 0;
+  color: var(--master-muted-text);
+  font-size: 12px;
+  font-weight: 750;
 }
 
 .planCards {
