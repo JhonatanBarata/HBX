@@ -1,0 +1,46 @@
+diff --git a/frontend/src/app/radar-digital/page.client.tsx b/frontend/src/app/radar-digital/page.client.tsx
+index 56d30ec..fix-radar 100644
+--- a/frontend/src/app/radar-digital/page.client.tsx
++++ b/frontend/src/app/radar-digital/page.client.tsx
+@@ -2562,6 +2562,14 @@ async function runRadarSearch(
+       setError("Preencha cidade e segmento para pesquisar novos cards. Para ver histórico salvo, limpe esses campos.");
+       return;
+     }
++
++    if (!canPullWithFilters(nextFilters)) {
++      setSearching(false);
++      setHasSearched(false);
++      setError("Para buscar novos cards, escolha cidade e segmento. Histórico salvo deve ser aberto por ação separada, sem parecer busca nova.");
++      return;
++    }
++
+     setAppliedFilters(nextFilters);
+     setAppliedGeneralSearch(nextGeneralSearch);
+ 
+@@ -2569,14 +2577,6 @@ async function runRadarSearch(
+-      if (!canPullWithFilters(nextFilters)) {
+-        await loadCards(1, false, nextFilters);
+-        setFeedback(hasHistoryFilters(nextFilters, nextGeneralSearch)
+-          ? "Histórico filtrado carregado."
+-          : "Histórico do Radar carregado em lotes de 100.");
+-        return;
+-      }
+-
+       setItems([]);
+       setTotal(0);
+       setPage(1);
+
+# Objetivo
+# - Parar o falso positivo: hoje clicar em Pesquisar sem cidade+segmento NÃO liga o motor; só carrega histórico e parece que a busca falhou.
+# - Depois deste patch, sem cidade+segmento a tela avisa claramente e não mostra estado de busca.
+# - Com cidade+segmento, o POST /webscraping/radar/search-runs continua sendo o caminho obrigatório.
+#
+# Escopo travado
+# - Alterar somente frontend/src/app/radar-digital/page.client.tsx.
+# - Não mexer em backend.
+# - Não mexer em hbx-scraping-engine.
+# - Não rodar smoke live.
+#
+# Próximo diff depois deste
+# - Criar botão separado “Ver histórico salvo”, se ainda for necessário.
+# - Só depois corrigir social-first no motor quando Instagram/Facebook forem obrigatórios.
