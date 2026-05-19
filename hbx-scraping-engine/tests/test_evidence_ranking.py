@@ -198,5 +198,8 @@ def test_source_metrics_is_returned_by_search(monkeypatch) -> None:
     )
 
     assert response.count == 1
+    assert response.stats["urlsDiscovered"] == 1
+    assert response.stats["pagesFetched"] == 1
+    assert any("pizzaria" in query.lower() for query in response.stats["queriesGenerated"])
     assert response.stats["sourceMetrics"][0]["approved"] == 1
     assert response.stats["sourceMetrics"][0]["approvalRate"] == 1

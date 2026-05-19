@@ -379,21 +379,23 @@ async def run_mock_scenario(scenario: dict) -> dict:
         response = await SearchService().search(request)
 
     stats = response.stats or {}
+    queries_generated = stats.get("queriesGenerated") or build_intent_discovery_queries(
+        request.segment,
+        request.city,
+        request.state,
+        request.targetType,
+        request.query,
+        request.preferredChannels,
+        request.requiredChannels,
+        intent,
+    )
+    pages_fetched = max(int(stats.get("pagesFetched") or 0), len([url for url in urls if url in pages_by_url]))
     return {
         "scenario": scenario["name"],
         "mode": "deterministic",
-        "queriesGeradas": build_intent_discovery_queries(
-            request.segment,
-            request.city,
-            request.state,
-            request.targetType,
-            request.query,
-            request.preferredChannels,
-            request.requiredChannels,
-            intent,
-        ),
+        "queriesGeradas": queries_generated,
         "urlsDescobertasPorFonte": group_urls(urls, social_profiles),
-        "paginasBaixadas": stats.get("pagesFetched", 0),
+        "paginasBaixadas": pages_fetched,
         "parsed": stats.get("parsed", 0),
         "approved": stats.get("approved", 0),
         "rejected": stats.get("rejected", 0),
@@ -434,10 +436,11 @@ async def run_live_scenario(scenario: dict) -> dict:
     )
     response = await SearchService().search(request)
     stats = response.stats or {}
+    queries_generated = stats.get("queriesGenerated") or queries
     return {
         "scenario": scenario["name"],
         "mode": "live",
-        "queriesGeradas": queries,
+        "queriesGeradas": queries_generated,
         "urlsDescobertasPorFonte": group_urls(urls),
         "paginasBaixadas": stats.get("pagesFetched", 0),
         "parsed": stats.get("parsed", 0),
