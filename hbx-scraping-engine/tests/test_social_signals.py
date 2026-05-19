@@ -174,7 +174,7 @@ def test_discovery_recognizes_social_signal_but_does_not_use_as_primary_source(m
         required_channels=["instagram"],
     )
 
-    assert not any("instagram" in query.lower() for query in queries)
+    assert any("instagram" in query.lower() for query in queries)
     assert is_valid_social_profile_url("https://instagram.com/oficina_araraquara")
     assert "https://instagram.com/oficina_araraquara" not in urls
     assert not _is_allowed_url("https://instagram.com/oficina_araraquara", required_channels=["instagram"])
@@ -339,8 +339,32 @@ def test_discover_urls_with_required_social_uses_aggressive_max_results(monkeypa
 
     urls = discover_urls("Campinas", "SP", "barbearia", 20, 500, required_channels=["instagram"])
 
-    assert not calls
+    assert calls
+    assert any("instagram" in call["query"].lower() for call in calls)
+    assert calls[0]["max_results"] >= 30
     assert urls
+
+
+def test_required_website_prioritizes_official_search_before_directory(monkeypatch) -> None:
+    calls: list[str] = []
+
+    class FakeDDGS:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
+        def text(self, query, **kwargs):
+            calls.append(query)
+            return [{"href": "https://barbeariacampinas.com.br"}]
+
+    monkeypatch.setattr("app.services.discovery.DDGS", FakeDDGS)
+
+    urls = discover_urls("Campinas", "SP", "barbearia", 10, 30, required_channels=["website"])
+
+    assert "site oficial" in calls[0]
+    assert urls[0] == "https://barbeariacampinas.com.br"
 
 
 def test_attach_discovered_social_profiles_matches_real_contact() -> None:

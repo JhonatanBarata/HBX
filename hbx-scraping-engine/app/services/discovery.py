@@ -1,5 +1,6 @@
 import unicodedata
 import re
+from typing import Any
 from urllib.parse import quote, urlparse
 
 from ddgs import DDGS
@@ -16,6 +17,18 @@ SOCIAL_DISCOVERY_LIMIT_MULTIPLIER = 12
 SOCIAL_DISCOVERY_MAX_RESULTS_PER_QUERY = 50
 SOCIAL_DISCOVERY_FORCED_QUERY_LIMIT_PER_CHANNEL = 3
 SocialProfileCandidate = dict[str, str]
+HEALTH_SENIOR_DISCOVERY_SEGMENTS = (
+    "clínicas geriátricas",
+    "cuidadores de idosos",
+    "farmácias",
+    "laboratórios",
+    "fisioterapia",
+    "óticas",
+    "casas de repouso",
+    "associações terceira idade",
+)
+SENIOR_TERMS = ("idosos", "60+", "aposentados", "melhor idade", "terceira idade")
+HEALTH_PLAN_TERMS = ("plano de saúde", "plano de saude", "convênio médico", "convenio medico", "saúde", "saude")
 
 
 def slugify_path_part(value: str) -> str:
@@ -81,6 +94,77 @@ def build_queries(segment: str, city: str, state: str, target_type: str = "pj", 
         f"{segment} site oficial",
         f"{segment} empresas telefone",
     ]
+
+
+def profile_labels(value: Any) -> list[str]:
+    if isinstance(value, list):
+        return [str(item or "").strip() for item in value if str(item or "").strip()]
+    if isinstance(value, dict):
+        labels = value.get("labels") if isinstance(value.get("labels"), list) else []
+        hard = value.get("hardReject") if isinstance(value.get("hardReject"), list) else []
+        return [str(item or "").strip() for item in [*labels, *hard] if str(item or "").strip()]
+    return []
+
+
+def intent_sales_profile(intent: Any = None, sales_profile: dict | None = None) -> dict:
+    if sales_profile:
+        return sales_profile
+    profile = getattr(intent, "salesProfile", None)
+    return profile if isinstance(profile, dict) else {}
+
+
+def is_senior_health_profile(intent: Any = None, sales_profile: dict | None = None) -> bool:
+    profile = intent_sales_profile(intent, sales_profile)
+    what = " ".join(str(profile.get(key) or "") for key in ("whatDoYouSell", "offerCategory")).lower()
+    audience = " ".join(profile_labels(profile.get("targetAudience"))).lower()
+    return any(term in what for term in HEALTH_PLAN_TERMS) and any(term in audience for term in SENIOR_TERMS)
+
+
+def build_channel_discovery_queries(
+    segment: str,
+    city: str,
+    state: str,
+    preferred_channels: list[str] | None = None,
+    required_channels: list[str] | None = None,
+) -> list[str]:
+    channels = {str(value or "").strip().lower() for value in [*(preferred_channels or []), *(required_channels or [])] if str(value or "").strip()}
+    location = " ".join(part for part in [city, state] if str(part or "").strip()).strip()
+    base = " ".join(part for part in [segment, location] if part).strip()
+    queries: list[str] = []
+
+    if {"instagram", "facebook"} & channels:
+        queries.extend(build_social_queries(segment, city, state, requested_social_channels(preferred_channels, required_channels)))
+        queries.extend([
+            f"{base} instagram site oficial",
+            f"{base} facebook contato",
+            f"{base} redes sociais contato",
+        ])
+    if {"website", "email"} & channels:
+        queries.extend([
+            f"{base} site oficial",
+            f"{base} página oficial",
+            f"{base} contato email",
+            f"{base} fale conosco",
+            f"{base} sobre",
+            f"{base} endereço telefone site",
+        ])
+    return list(dict.fromkeys(" ".join(query.split()) for query in queries if query.strip()))
+
+
+def build_commercial_fit_discovery_queries(segment: str, city: str, state: str, intent: Any = None, sales_profile: dict | None = None) -> list[str]:
+    if not is_senior_health_profile(intent, sales_profile):
+        return []
+    location = " ".join(part for part in [city, state] if str(part or "").strip()).strip()
+    queries: list[str] = []
+    for compatible_segment in HEALTH_SENIOR_DISCOVERY_SEGMENTS:
+        queries.extend([
+            f"{compatible_segment} {location} telefone",
+            f"{compatible_segment} {location} contato",
+            f"{compatible_segment} {location} site oficial",
+        ])
+    if segment:
+        queries.append(f"{segment} {location} idosos plano de saúde")
+    return list(dict.fromkeys(" ".join(query.split()) for query in queries if query.strip()))
 
 
 def _is_allowed_url(
@@ -252,9 +336,20 @@ def discover_urls(
     exclude_urls: list[str] | None = None,
     preferred_channels: list[str] | None = None,
     required_channels: list[str] | None = None,
+    intent: Any = None,
+    sales_profile: dict | None = None,
 ) -> list[str]:
-    queries = build_queries(segment, city, state, target_type, query)
-    social_channels = requested_social_channels(preferred_channels, required_channels)
+    effective_preferred = list(preferred_channels or getattr(intent, "preferredChannels", []) or [])
+    effective_required = list(required_channels or getattr(intent, "requiredChannels", []) or [])
+    base_queries = build_queries(segment, city, state, target_type, query)
+    intent_queries = [
+        *build_channel_discovery_queries(segment, city, state, effective_preferred, effective_required),
+        *build_commercial_fit_discovery_queries(segment, city, state, intent, sales_profile),
+    ]
+    queries = list(dict.fromkeys([*intent_queries, *base_queries]))
+    social_channels = requested_social_channels(effective_preferred, effective_required)
+    required_channel_set = {str(value or "").strip().lower() for value in effective_required}
+    intent_sensitive = bool(intent_queries or required_channel_set)
     if target_type == "pj" and social_channels:
         target = min(max_discovery_results, max(PJ_DISCOVERY_MIN_TARGET, limit * PJ_DISCOVERY_LIMIT_MULTIPLIER))
     else:
@@ -266,15 +361,13 @@ def discover_urls(
     seen: set[str] = {str(url or "").strip().rstrip("/") for url in (exclude_urls or []) if str(url or "").strip()}
     urls: list[str] = []
 
-    if target_type == "pj":
+    if target_type == "pj" and not intent_sensitive:
         for url in build_directory_seed_urls(segment, city, state):
             normalized = url.rstrip("/")
-            if normalized in seen or not _is_allowed_url(normalized, preferred_channels, required_channels):
+            if normalized in seen or not _is_allowed_url(normalized, effective_preferred, effective_required):
                 continue
             seen.add(normalized)
             urls.append(normalized)
-        if social_channels and urls:
-            return urls
         if len(urls) >= max(1, min(limit, 4)):
             return urls
 
@@ -294,7 +387,7 @@ def discover_urls(
                 normalized = url.rstrip("/")
                 if social_channel_for_url(normalized) and is_valid_social_profile_url(normalized):
                     continue
-                if normalized in seen or not _is_allowed_url(normalized, preferred_channels, required_channels):
+                if normalized in seen or not _is_allowed_url(normalized, effective_preferred, effective_required):
                     continue
                 seen.add(normalized)
                 urls.append(normalized)
@@ -304,7 +397,7 @@ def discover_urls(
     if target_type == "pj" and len(urls) < max(1, min(limit, 4)):
         for url in build_directory_seed_urls(segment, city, state):
             normalized = url.rstrip("/")
-            if normalized in seen or not _is_allowed_url(normalized, preferred_channels, required_channels):
+            if normalized in seen or not _is_allowed_url(normalized, effective_preferred, effective_required):
                 continue
             seen.add(normalized)
             urls.append(normalized)

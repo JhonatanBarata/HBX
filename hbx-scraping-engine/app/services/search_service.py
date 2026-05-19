@@ -1734,8 +1734,9 @@ class SearchService:
             len(excluded_phones),
             request.query,
             list(excluded_urls),
-            [],
-            [],
+            list(request.preferredChannels or []),
+            list(request.requiredChannels or []),
+            intent,
         )
         print(f"[search] URLs encontradas: {len(urls)}")
 
