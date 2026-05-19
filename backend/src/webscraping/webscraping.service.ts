@@ -2979,18 +2979,26 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
   }
 
 
+  
   private splitHbxBatchSegments(segment: string) {
-    const raw = String(segment || '').trim();
+    const raw = String(segment || '').replace(/\s+/g, ' ').trim();
+    if (!raw) return [];
+
     const categoryKey = normalizeLookupValue(raw);
     if (categoryKey && HBX_CATEGORY_SEGMENTS[categoryKey]) {
-      return this.expandHbxSegmentAliases(HBX_CATEGORY_SEGMENTS[categoryKey].slice(0, 20)).slice(0, 30);
+      return Array.from(new Set(
+        HBX_CATEGORY_SEGMENTS[categoryKey]
+          .map((item) => String(item || '').replace(/\s+/g, ' ').trim())
+          .filter(Boolean),
+      )).slice(0, 20);
     }
+
     const segments = raw.includes(',')
       ? raw.split(',').map((item) => item.replace(/\s+/g, ' ').trim()).filter(Boolean)
-      : [raw].filter(Boolean);
-    return this.expandHbxSegmentAliases(Array.from(new Set(segments))).slice(0, 30);
-  }
+      : [raw];
 
+    return Array.from(new Set(segments)).slice(0, 12);
+  }
 
   private getSearchCityTargets(input: NormalizedSearchInput) {
     const primary = {
@@ -3045,6 +3053,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
   }
 
 
+  
   private buildHbxBatchQueryVariants(input: NormalizedSearchInput, segment: string, target: RegionalCity) {
     const city = target.city;
     const state = target.state;
@@ -3055,26 +3064,24 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     const effectiveNiche = normalizedNiche && normalizedNiche !== 'empresa' && normalizedNiche !== normalizedRole
       ? niche
       : segment;
-    return input.targetType === 'pj'
-      ? [
-          this.compactQuery([effectiveNiche, city, state]),
-          this.compactQuery([effectiveNiche, city, state, 'telefone']),
-          this.compactQuery([effectiveNiche, city, state, 'whatsapp']),
-          this.compactQuery([effectiveNiche, city, state, 'empresa']),
-          this.compactQuery([effectiveNiche, city, state, 'maps']),
-          this.compactQuery([effectiveNiche, city, state, 'site']),
-          this.compactQuery(['site:solutudo.com.br', effectiveNiche, city, state]),
-          this.compactQuery(['site:guiamais.com.br', effectiveNiche, city, state]),
-          this.compactQuery(['site:instagram.com', effectiveNiche, city, state]),
-          ddd ? this.compactQuery([effectiveNiche, 'DDD', ddd]) : this.compactQuery([effectiveNiche, city, state]),
-        ].filter(Boolean)
-      : [
-          this.compactQuery([role, niche, city, state, 'whatsapp']),
-          this.compactQuery([role, niche, city, state, 'telefone']),
-          this.compactQuery([niche, city, state, 'contato']),
-          this.compactQuery([role, city, state, 'celular']),
-          ddd ? this.compactQuery([role, niche, 'DDD', ddd]) : this.compactQuery([role, niche, city, state]),
-        ].filter(Boolean);
+
+    if (input.targetType === 'pj') {
+      const base = this.compactQuery([effectiveNiche, city, state]);
+      return Array.from(new Set([
+        base,
+        this.compactQuery([effectiveNiche, city, state, 'telefone']),
+        this.compactQuery([effectiveNiche, city, state, 'whatsapp']),
+        this.compactQuery([effectiveNiche, city, state, 'contato']),
+        ddd ? this.compactQuery([effectiveNiche, 'DDD', ddd]) : '',
+      ].filter(Boolean)));
+    }
+
+    return Array.from(new Set([
+      this.compactQuery([role, niche, city, state, 'whatsapp']),
+      this.compactQuery([role, niche, city, state, 'telefone']),
+      this.compactQuery([niche, city, state, 'contato']),
+      ddd ? this.compactQuery([role, niche, 'DDD', ddd]) : '',
+    ].filter(Boolean)));
   }
 
   private buildHbxBatchQueryTasks(input: NormalizedSearchInput) {
