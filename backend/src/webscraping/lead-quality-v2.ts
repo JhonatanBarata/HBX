@@ -930,24 +930,9 @@ export function calculateLeadQualityV2(input: {
   const profileHardRejectSegments = normalizeSegmentArray(salesProfile?.hardRejectSegments);
   const profilePreferredCities = normalizeStringArray(salesProfile?.preferredCities);
   const profilePreferredStates = normalizeStringArray(salesProfile?.preferredStates).map((state) => state.toUpperCase());
-  const profilePreferredChannels = normalizeChannels(salesProfile?.preferredChannels);
-  const profileRequiredChannels = normalizeChannels(salesProfile?.requiredChannels);
-  const explicitChannelMatchMode = normalizeChannelMatchMode(salesProfile?.channelMatchMode);
-  const channelMatchMode = profileRequiredChannels.length && explicitChannelMatchMode === 'prefer'
-    ? 'all_required'
-    : explicitChannelMatchMode;
+  const profilePreferredChannels: LeadQualityV2Channel[] = [];
   const qualityMode: LeadQualityV2QualityMode = normalizeKey(input.context?.qualityMode || salesProfile?.qualityMode) === 'lead_plus' ? 'lead_plus' : 'list';
   const preferredChannelMatches = profilePreferredChannels.filter((channel) => channelAvailability[channel]);
-  const requiredSocialChannels = profileRequiredChannels.filter((channel) => channel === 'instagram' || channel === 'facebook');
-  const requiredNonSocialChannels = profileRequiredChannels.filter((channel) => channel !== 'instagram' && channel !== 'facebook');
-  const socialPairRequired = requiredSocialChannels.includes('instagram') && requiredSocialChannels.includes('facebook');
-  const missingRequiredChannels = [
-    ...requiredNonSocialChannels.filter((channel) => !channelAvailability[channel]),
-    ...(socialPairRequired
-      ? requiredSocialChannels.some((channel) => channelAvailability[channel]) ? [] : requiredSocialChannels
-      : requiredSocialChannels.filter((channel) => !channelAvailability[channel])),
-  ];
-  const requiredChannelMatched = profileRequiredChannels.some((channel) => channelAvailability[channel]);
   const targetSegmentFit = scoreTargetSegmentFit(profileTargetSegments, leadText);
   const profileMatchesTargetSegment = targetSegmentFit.matched;
   const profileMatchesAvoidSegment = profileAvoidSegments.some((segment) => leadText.includes(normalizeKey(segment)));
@@ -1222,22 +1207,6 @@ export function calculateLeadQualityV2(input: {
     decision = 'deliver';
   } else {
     decision = 'review';
-  }
-
-  const requiredChannelRuleFailed = profileRequiredChannels.length > 0 && (
-    (channelMatchMode === 'any_required' && !requiredChannelMatched) ||
-    (channelMatchMode === 'all_required' && missingRequiredChannels.length > 0)
-  );
-  if (requiredChannelRuleFailed && decision !== 'protect') {
-    const absentChannelKeys = channelMatchMode === 'any_required' ? profileRequiredChannels : missingRequiredChannels;
-    const absentChannels = absentChannelKeys.map((channel) => CHANNEL_LABELS[channel]);
-    reasons.push(`Canal obrigatório ausente após enriquecimento: ${absentChannels.join('/')}.`);
-    if (absentChannelKeys.includes('instagram')) reasons.push('Instagram obrigatório ausente após enriquecimento.');
-    if (absentChannelKeys.includes('facebook')) reasons.push('Facebook obrigatório ausente após enriquecimento.');
-    reasons.push('Filtro obrigatório forte reduziu a entrega.');
-    decision = 'discard';
-    discardReason = 'required_channel_missing';
-    finalRankScore = Math.min(finalRankScore, 39);
   }
 
   if (discardReason) reasons.push(`Descartado: ${discardReason}.`);

@@ -228,7 +228,7 @@ test('LeadQualityV2 List descarta materia ou produto com telefone capturado', ()
   }
 });
 
-test('LeadQualityV2 nao conta rede social de plataforma ou diretorio como canal obrigatorio', () => {
+test('LeadQualityV2 ignora canal obrigatorio e nao descarta por rede social ausente/incompativel', () => {
   for (const instagramUrl of [
     'https://instagram.com/fresha',
     'https://instagram.com/petdiretorio',
@@ -252,7 +252,7 @@ test('LeadQualityV2 nao conta rede social de plataforma ou diretorio como canal 
     });
 
     assert.equal(quality.channelAvailability?.instagram, false, instagramUrl);
-    assert.equal(quality.discardReason, 'required_channel_missing', instagramUrl);
+    assert.notEqual(quality.discardReason, 'required_channel_missing', instagramUrl);
   }
 });
 
@@ -505,7 +505,7 @@ test('LeadQualityV2 segmento oficina continua rejeitando auto escola', () => {
   assert.equal(quality.discardReason, 'segment_mismatch');
 });
 
-test('LeadQualityV2 Instagram preferido pontua e nao descarta quando ausente', () => {
+test('LeadQualityV2 Instagram preferido nao vira regra de bloqueio', () => {
   const preferred = calculateLeadQualityV2({
     lead: {
       name: 'Barbearia Sem Insta',
@@ -539,11 +539,11 @@ test('LeadQualityV2 Instagram preferido pontua e nao descarta quando ausente', (
   });
 
   assert.notEqual(preferred.decision, 'discard');
-  assert.ok(matched.finalRankScore > preferred.finalRankScore);
-  assert.match(matched.reasons.join(' '), /Canal preferido disponivel: Instagram/i);
+  assert.notEqual(preferred.discardReason, 'required_channel_missing');
+  assert.notEqual(matched.discardReason, 'required_channel_missing');
 });
 
-test('LeadQualityV2 canal Instagram obrigatorio em List descarta se ausente', () => {
+test('LeadQualityV2 canal Instagram obrigatorio em List nao descarta se ausente', () => {
   const quality = calculateLeadQualityV2({
     lead: {
       name: 'Barbearia List',
@@ -560,13 +560,11 @@ test('LeadQualityV2 canal Instagram obrigatorio em List descarta se ausente', ()
     },
   });
 
-  assert.equal(quality.decision, 'discard');
-  assert.equal(quality.discardReason, 'required_channel_missing');
-  assert.match(quality.reasons.join(' '), /Canal obrigatório ausente após enriquecimento: Instagram/i);
-  assert.match(quality.reasons.join(' '), /Filtro obrigatório forte reduziu a entrega/i);
+  assert.notEqual(quality.discardReason, 'required_channel_missing');
+  assert.notEqual(quality.decision, 'protect');
 });
 
-test('LeadQualityV2 canal Facebook obrigatorio descarta se ausente', () => {
+test('LeadQualityV2 canal Facebook obrigatorio nao descarta se ausente', () => {
   const quality = calculateLeadQualityV2({
     lead: {
       name: 'Barbearia Face',
@@ -583,9 +581,8 @@ test('LeadQualityV2 canal Facebook obrigatorio descarta se ausente', () => {
     },
   });
 
-  assert.equal(quality.decision, 'discard');
-  assert.equal(quality.discardReason, 'required_channel_missing');
-  assert.match(quality.reasons.join(' '), /Canal obrigatório ausente após enriquecimento: Facebook/i);
+  assert.notEqual(quality.discardReason, 'required_channel_missing');
+  assert.notEqual(quality.decision, 'protect');
 });
 
 test('LeadQualityV2 canal Instagram obrigatorio presente nao descarta por canal', () => {
@@ -633,7 +630,7 @@ test('LeadQualityV2 Instagram e Facebook obrigatorios aceita uma rede social pre
   assert.equal(quality.channelAvailability?.facebook, false);
 });
 
-test('LeadQualityV2 canal Instagram obrigatorio em Lead+ descarta contato fraco', () => {
+test('LeadQualityV2 canal Instagram obrigatorio em Lead+ nao vira motivo de descarte', () => {
   const quality = calculateLeadQualityV2({
     lead: {
       name: 'Barbearia Fraca',
@@ -649,11 +646,10 @@ test('LeadQualityV2 canal Instagram obrigatorio em Lead+ descarta contato fraco'
     },
   });
 
-  assert.equal(quality.decision, 'discard');
-  assert.equal(quality.discardReason, 'required_channel_missing');
+  assert.notEqual(quality.discardReason, 'required_channel_missing');
 });
 
-test('LeadQualityV2 canal WhatsApp obrigatorio continua forte em Lead+', () => {
+test('LeadQualityV2 canal WhatsApp obrigatorio nao vira regra de bloqueio Lead+', () => {
   const quality = calculateLeadQualityV2({
     lead: {
       name: 'Clínica Sem Wpp',
@@ -672,6 +668,5 @@ test('LeadQualityV2 canal WhatsApp obrigatorio continua forte em Lead+', () => {
     },
   });
 
-  assert.equal(quality.decision, 'discard');
-  assert.equal(quality.discardReason, 'required_channel_missing');
+  assert.notEqual(quality.discardReason, 'required_channel_missing');
 });

@@ -7,11 +7,9 @@ import DashboardScaffold from "@/components/DashboardScaffold";
 import HbxMobileDock from "@/components/mobile/HbxMobileDock";
 import MobileLeadScoreGauge from "@/components/mobile/MobileLeadScoreGauge";
 import {
-  HbxAdvancedFilters,
   HbxStateCityPicker,
   HbxTargetTypeSelector,
   type HbxEngineValue,
-  type HbxAdvancedFiltersValue,
   type HbxTargetTypeValue,
 } from "@/components/prospecting-filters";
 import { apiFetch, type ApiFetchError } from "@/app/_lib/api";
@@ -430,7 +428,6 @@ function buildRadarSalesProfilePayload(profile: SalesProfileResponse["effectiveP
   const targetSegments = normalizeProfileLabels(profile.targetSegments);
   const avoidSegments = normalizeProfileLabels(profile.avoidSegments);
   const hardReject = normalizeProfileLabels(profile.hardRejectSegments);
-  const preferredChannels = normalizeRadarChannels(profile.preferredChannels);
   const leadPreferences = normalizeProfileObject(profile.leadPreferences);
   const negativeRules = normalizeProfileObject(profile.negativeRules);
   return {
@@ -439,7 +436,6 @@ function buildRadarSalesProfilePayload(profile: SalesProfileResponse["effectiveP
     ...(targetAudience.length ? { targetAudience: { labels: targetAudience } } : {}),
     ...(targetSegments.length ? { targetSegments: { labels: targetSegments } } : {}),
     ...(avoidSegments.length || hardReject.length ? { avoidSegments: { labels: avoidSegments, hardReject } } : {}),
-    ...(preferredChannels.length ? { preferredChannels } : {}),
     ...(leadPreferences ? { leadPreferences } : {}),
     ...(negativeRules ? { negativeRules } : {}),
   };
@@ -476,92 +472,10 @@ function normalizeStoredRadarFilterDraft(value: unknown): FilterState {
     minRating: "",
     minReviews: "",
     status: String(input.status || ""),
-    preferredChannels: normalizeRadarChannels(input.preferredChannels),
-    requiredChannels: normalizeRadarChannels(input.requiredChannels),
-    channelMatchMode: normalizeChannelMatchMode(input.channelMatchMode),
+    preferredChannels: [],
+    requiredChannels: [],
+    channelMatchMode: "prefer",
   };
-}
-
-function RadarChannelFilter({
-  value,
-  onChange,
-  locked,
-}: {
-  value: Pick<FilterState, "preferredChannels" | "requiredChannels" | "channelMatchMode">;
-  onChange: (next: Pick<FilterState, "preferredChannels" | "requiredChannels" | "channelMatchMode">) => void;
-  locked?: boolean;
-}) {
-  const activeChannels = value.requiredChannels;
-  const requiredCount = value.requiredChannels.length;
-  const pressure = requiredCount >= 4 ? "low" : requiredCount >= 3 ? "medium" : requiredCount > 0 ? "good" : "none";
-  const requiredLabels = value.requiredChannels
-    .map((channel) => RADAR_CHANNELS.find((item) => item.value === channel)?.label || channel)
-    .filter(Boolean);
-
-  function toggleChannel(channel: RadarChannel) {
-    if (locked) return;
-    const requiredSet = new Set(value.requiredChannels);
-    if (requiredSet.has(channel)) requiredSet.delete(channel);
-    else requiredSet.add(channel);
-    const nextRequiredChannels = Array.from(requiredSet);
-    onChange({
-      preferredChannels: [],
-      requiredChannels: nextRequiredChannels,
-      channelMatchMode: nextRequiredChannels.length ? "all_required" : "prefer",
-    });
-  }
-
-  return (
-    <div
-      className={styles.radarChannelFilter}
-      data-locked={locked ? "true" : "false"}
-      data-pressure={pressure}
-      data-density={requiredCount >= 3 ? "strong" : "normal"}
-    >
-      <div className={styles.radarChannelHeader}>
-        <span>Canais</span>
-        <b>{requiredCount ? `${requiredCount} obrigatório${requiredCount > 1 ? "s" : ""}` : "0 obrigatório"}</b>
-      </div>
-      <p>Toque nos ícones para exigir canais obrigatórios.</p>
-      <div className={styles.radarChannelIcons}>
-        {RADAR_CHANNELS.map((channel) => {
-          const active = activeChannels.includes(channel.value);
-          return (
-            <button
-              type="button"
-              key={channel.value}
-              data-active={active ? "true" : "false"}
-              data-channel={channel.value}
-              disabled={locked}
-              onClick={() => toggleChannel(channel.value)}
-              aria-label={`${active ? "Remover exigência de" : "Exigir"} ${channel.label}`}
-              title={channel.label}
-            >
-              <span className={styles.radarChannelIcon}>
-                <img src={channel.icon} alt="" aria-hidden="true" data-theme="light" />
-                <img src={channel.darkIcon} alt="" aria-hidden="true" data-theme="dark" />
-              </span>
-              <span>{channel.label}</span>
-            </button>
-          );
-        })}
-      </div>
-      <p>Obrigatório mostra só cards que confirmarem o canal.</p>
-      {requiredCount === 0 ? (
-        <p>Nenhum canal obrigatório selecionado.</p>
-      ) : requiredCount === 1 ? (
-        <p>Exigindo: {requiredLabels[0]}</p>
-      ) : (
-        <p>Filtro avançado ativo: a entrega pode ficar menor.</p>
-      )}
-      {requiredCount >= 2 ? (
-        <p>Mais canais obrigatórios deixam a seleção mais precisa.</p>
-      ) : null}
-      {value.requiredChannels.some((channel) => channel === "instagram" || channel === "facebook") ? (
-        <p>Rede social depende do enriquecimento. Pode levar mais tempo.</p>
-      ) : null}
-    </div>
-  );
 }
 
 function HeroPremiumCrown({ active }: { active: boolean }) {
@@ -1187,9 +1101,6 @@ function buildLeadQuery(filters: FilterState, page: number) {
   if (filters.engine) params.set("engine", filters.engine);
   if (filters.scoreRange) params.set("scoreRange", filters.scoreRange);
   if (filters.status) params.set("status", filters.status);
-  filters.preferredChannels.forEach((channel) => params.append("preferredChannels", channel));
-  filters.requiredChannels.forEach((channel) => params.append("requiredChannels", channel));
-  if (filters.channelMatchMode !== "prefer") params.set("channelMatchMode", filters.channelMatchMode);
   return params.toString();
 }
 
@@ -1233,39 +1144,6 @@ function radarFriendlyError(error: unknown) {
     return "Radar temporariamente indisponível. Tente novamente em instantes.";
   }
   return message || "Não foi possível concluir a operação agora.";
-}
-
-function radarLeadHasRequiredChannel(lead: RadarLead, channel: RadarChannel) {
-  const qualityAvailability = lead.qualityV2?.channelAvailability;
-  if (qualityAvailability && typeof qualityAvailability === "object" && !Array.isArray(qualityAvailability)) {
-    const value = (qualityAvailability as Record<string, unknown>)[channel];
-    if (typeof value === "boolean" && !value) return false;
-  }
-
-  if (channel === "whatsapp") {
-    const whatsappStatus = String(lead.whatsappCheckStatus || lead.whatsappStatus || "").trim().toLowerCase();
-    return ["confirmed", "available", "valid", "exists"].includes(whatsappStatus) || radarLikelyMobile(lead.phoneDigits || lead.phone);
-  }
-  if (channel === "instagram") return Boolean(String(lead.instagramUrl || "").trim());
-  if (channel === "facebook") return Boolean(String(lead.facebookUrl || "").trim());
-  if (channel === "email") {
-    const emailStatus = String(lead.emailStatus || "").trim().toLowerCase();
-    return Boolean(String(lead.email || "").trim()) && !["missing", "invalid"].includes(emailStatus);
-  }
-  if (channel === "website") return Boolean(String(lead.website || "").trim());
-  if (channel === "phone") return Boolean(String(lead.phoneDigits || lead.phone || "").trim());
-  return false;
-}
-
-function radarLeadMatchesRequiredChannels(lead: RadarLead, requiredChannels: RadarChannel[]) {
-  if (!requiredChannels.length) return true;
-  const socialRequired = requiredChannels.filter((channel) => channel === "instagram" || channel === "facebook");
-  const nonSocialRequired = requiredChannels.filter((channel) => channel !== "instagram" && channel !== "facebook");
-  if (!nonSocialRequired.every((channel) => radarLeadHasRequiredChannel(lead, channel))) return false;
-  if (socialRequired.includes("instagram") && socialRequired.includes("facebook")) {
-    return socialRequired.some((channel) => radarLeadHasRequiredChannel(lead, channel));
-  }
-  return socialRequired.every((channel) => radarLeadHasRequiredChannel(lead, channel));
 }
 
 function radarDigits(value?: string | null) {
@@ -1909,7 +1787,6 @@ export default function RadarDigitalClientPage() {
   const [mobileSearchNoticeOpen, setMobileSearchNoticeOpen] = useState(false);
   const [mobileSearchNoticeDismissed, setMobileSearchNoticeDismissed] = useState(readMobileRadarSearchNoticeDismissed);
   const [mobilePicker, setMobilePicker] = useState<"state" | "city" | "segment" | null>(null);
-  const [mobileAdvancedOpen, setMobileAdvancedOpen] = useState(false);
   const [locating, setLocating] = useState(false);
   const [availableFilters, setAvailableFilters] = useState<RadarAvailableFilters>({
     states: [],
@@ -1929,9 +1806,8 @@ export default function RadarDigitalClientPage() {
   );
   const visibleItems = useMemo(
     () => searchMatchedItems
-      .filter((item) => radarLeadMatchesRequiredChannels(item, appliedFilters.requiredChannels))
       .sort(sortRadarLeadsForSales),
-    [appliedFilters.requiredChannels, searchMatchedItems],
+    [searchMatchedItems],
   );
   const highOpportunityCount = useMemo(
     () => visibleItems.filter((item) => Number(item.opportunityScore || 0) >= 70).length,
@@ -1989,35 +1865,6 @@ export default function RadarDigitalClientPage() {
   const activeRunProgress = activeRun
     ? Math.max(4, Math.min(100, Number(activeRun.meta?.progress || Math.round((activeRunDelivered / activeRunTarget) * 100))))
     : 0;
-  const instagramRequired = appliedFilters.requiredChannels.includes("instagram");
-  const facebookRequired = appliedFilters.requiredChannels.includes("facebook");
-  const socialPairRequired = instagramRequired && facebookRequired;
-  const instagramRequiredWithoutDeliveredProfile = hasSearched
-    && instagramRequired
-    && !socialPairRequired
-    && searchMatchedItems.length > 0
-    && visibleItems.length === 0;
-  const socialPairRequiredWithoutDeliveredProfile = hasSearched
-    && socialPairRequired
-    && searchMatchedItems.length > 0
-    && visibleItems.length === 0;
-  const requiredChannelsFilteredEverything = hasSearched
-    && appliedFilters.requiredChannels.length > 0
-    && searchMatchedItems.length > 0
-    && visibleItems.length === 0;
-  const instagramRequiredOnlyConfirmedProfiles = hasSearched
-    && instagramRequired
-    && !socialPairRequired
-    && visibleItems.length > 0;
-  const socialPairRequiredOnlyConfirmedProfile = hasSearched
-    && socialPairRequired
-    && visibleItems.length > 0;
-  const socialRequiredEmptyMessage = socialPairRequired
-    ? "Poucos cards confirmaram rede social. Amplie os filtros ou aguarde mais enriquecimento."
-    : "Poucos cards confirmaram Instagram. Amplie os filtros ou aguarde mais enriquecimento.";
-  const socialRequiredActiveMessage = socialPairRequired
-    ? "Rede social obrigatória: mostrando só perfis confirmados."
-    : "Instagram obrigatório: mostrando só perfis confirmados.";
   const queryRadarLeadId = String(searchParams.get("radarLeadId") || "").trim();
 
   function setFilterEditing(active: boolean) {
@@ -2417,20 +2264,6 @@ export default function RadarDigitalClientPage() {
     }
   }
 
-  function updateAdvancedFilters(next: HbxAdvancedFiltersValue) {
-    setFilters((current) => ({
-      ...current,
-      ddd: "",
-      scoreRange: String(next.scoreRange || "").replace(/\D/g, "").slice(0, 3),
-      status: "",
-      noWebsite: false,
-      withWebsite: false,
-      highOpportunity: false,
-      minRating: "",
-      minReviews: "",
-    }));
-  }
-
   const applyRadarRunPayload = useCallback((payload: RadarSearchRunResponse) => {
     const runId = String(payload.runId || payload.id || "");
     if (!runId || !payload.status) {
@@ -2448,31 +2281,31 @@ export default function RadarDigitalClientPage() {
     if (payloadFilters) {
       if (!filterEditingRef.current) {
         setFilters((current) => {
-          const next = {
+          const next: FilterState = {
             ...current,
             state: payloadFilters.state || current.state,
             city: payloadFilters.city || current.city,
             segment: payloadFilters.segment || current.segment,
             radiusKm: Number(payloadFilters.radiusKm ?? current.radiusKm ?? DEFAULT_FILTERS.radiusKm),
             targetType: (payloadFilters.targetType === "pf" || payloadFilters.targetType === "both" ? payloadFilters.targetType : "pj") as HbxTargetTypeValue,
-            preferredChannels: normalizeRadarChannels(payloadFilters.preferredChannels ?? current.preferredChannels),
-            requiredChannels: normalizeRadarChannels(payloadFilters.requiredChannels ?? current.requiredChannels),
-            channelMatchMode: normalizeChannelMatchMode(payloadFilters.channelMatchMode ?? current.channelMatchMode),
+            preferredChannels: [],
+            requiredChannels: [],
+            channelMatchMode: "prefer" as const,
           };
           return JSON.stringify(current) === JSON.stringify(next) ? current : next;
         });
       }
       setAppliedFilters((current) => {
-        const next = {
+        const next: FilterState = {
           ...current,
           state: payloadFilters.state || current.state,
           city: payloadFilters.city || current.city,
           segment: payloadFilters.segment || current.segment,
           radiusKm: Number(payloadFilters.radiusKm ?? current.radiusKm ?? DEFAULT_FILTERS.radiusKm),
           targetType: (payloadFilters.targetType === "pf" || payloadFilters.targetType === "both" ? payloadFilters.targetType : "pj") as HbxTargetTypeValue,
-          preferredChannels: normalizeRadarChannels(payloadFilters.preferredChannels ?? current.preferredChannels),
-          requiredChannels: normalizeRadarChannels(payloadFilters.requiredChannels ?? current.requiredChannels),
-          channelMatchMode: normalizeChannelMatchMode(payloadFilters.channelMatchMode ?? current.channelMatchMode),
+          preferredChannels: [],
+          requiredChannels: [],
+          channelMatchMode: "prefer" as const,
         };
         return JSON.stringify(current) === JSON.stringify(next) ? current : next;
       });
@@ -2674,15 +2507,6 @@ export default function RadarDigitalClientPage() {
       const salesProfilePayload = await apiFetch<SalesProfileResponse>("/vendas/sales-profile", { requireAuth: true })
         .then((response) => buildRadarSalesProfilePayload(response?.effectiveProfile || null))
         .catch(() => ({}));
-      const profilePreferredChannels = normalizeRadarChannels((salesProfilePayload as { preferredChannels?: unknown }).preferredChannels);
-      const preferredChannels = normalizeRadarChannels([
-        ...(nextFilters.preferredChannels.length ? nextFilters.preferredChannels : profilePreferredChannels),
-        "instagram",
-        "facebook",
-      ]);
-      const effectiveWhatsappCheckMode: RadarWhatsappCheckMode = nextFilters.requiredChannels.includes("whatsapp")
-        ? "only_valid"
-        : whatsappCheckMode;
       const payload = await apiFetch<RadarSearchRunResponse>("/webscraping/radar/search-runs", {
         method: "POST",
         requireAuth: true,
@@ -2694,8 +2518,10 @@ export default function RadarDigitalClientPage() {
           quantity: nextFilters.quantity,
           minimumStock: Math.max(1, Math.min(nextFilters.quantity, 10)),
           desiredStock: Math.max(1, nextFilters.quantity),
-          preferredChannels,
-          whatsappCheckMode: effectiveWhatsappCheckMode,
+          preferredChannels: [],
+          requiredChannels: [],
+          channelMatchMode: "prefer",
+          whatsappCheckMode,
           qualityMode: hasLeadCapabilities ? "lead_plus" : "list",
         }),
       });
@@ -2832,13 +2658,10 @@ export default function RadarDigitalClientPage() {
     setFeedback(null);
     setTelonProgress(12);
     try {
-      const selectedItems = visibleItems.slice(0, effectiveFilters.quantity);
-      const deliverableItems = appliedFilters.requiredChannels.length
-        ? selectedItems.filter((lead) => radarLeadMatchesRequiredChannels(lead, appliedFilters.requiredChannels))
-        : selectedItems;
+      const deliverableItems = visibleItems.slice(0, effectiveFilters.quantity);
       const leads = deliverableItems.map(buildVendasLeadPayload);
       if (!leads.length) {
-        setFeedback("0 cards passaram por todos os filtros obrigatórios.");
+        setFeedback("0 cards disponíveis para enviar.");
         return;
       }
       const imported = await apiFetch<ImportToVendasResponse>("/vendas/import/webscraping", {
@@ -2864,7 +2687,7 @@ export default function RadarDigitalClientPage() {
     } finally {
       setBulkSending(false);
     }
-  }, [appliedFilters.requiredChannels, effectiveFilters.quantity, visibleItems]);
+  }, [effectiveFilters.quantity, visibleItems]);
 
   useEffect(() => {
     if (!mobileAutoImportPending) return;
@@ -3006,7 +2829,7 @@ export default function RadarDigitalClientPage() {
     .map((failure) => `${failure.count || 0} ${String(failure.reason || "falha").replace(/_/g, " ")}`)
     .filter(Boolean)
     .join(" · ");
-  const preparingDelivery = hasSearched && !visibleItems.length && radarMomentDelivered > 0 && !requiredChannelsFilteredEverything;
+  const preparingDelivery = hasSearched && !visibleItems.length && radarMomentDelivered > 0;
 
   function startMobileRadarSearch() {
     if (canCancelRadarRun) {
@@ -3155,27 +2978,6 @@ export default function RadarDigitalClientPage() {
               onChange={(quantity) => setFilters((current) => ({ ...current, quantity }))}
             />
 
-            <button
-              type="button"
-              className={styles.mobileAdvancedButton}
-              onClick={() => setMobileAdvancedOpen(true)}
-            >
-              <span>{isHbxList ? "👑" : "Filtros avançados"}</span>
-              <strong>
-                {isHbxList
-                  ? "Lead+"
-                  : [
-                      filters.scoreRange ? `Score ${filters.scoreRange}+` : null,
-                    ].filter(Boolean).join(" · ") || "0+"}
-              </strong>
-              <b aria-hidden="true">
-                <svg viewBox="0 0 24 24">
-                  <circle cx="10.5" cy="10.5" r="6.5" />
-                  <path d="m16 16 4.2 4.2" />
-                </svg>
-              </b>
-            </button>
-
             {mobileVendasBlocked ? (
               <div className={`${styles.mobileRadarNotice} hbx-mobile-notice`}>
                 Limite diário de cards atingido. O contador reinicia após 00:00.
@@ -3183,26 +2985,6 @@ export default function RadarDigitalClientPage() {
             ) : null}
             {error ? <div className={`${styles.mobileRadarNotice} hbx-mobile-notice`} data-tone="error">{compactRadarMessage(error)}</div> : null}
             {feedback && !mobileRadarProcessing ? <div className={`${styles.mobileRadarNotice} hbx-mobile-notice`} data-tone="ok">{feedback}</div> : null}
-            {instagramRequiredWithoutDeliveredProfile ? (
-              <div className={`${styles.mobileRadarNotice} hbx-mobile-notice`} data-tone="warning">
-                {socialRequiredEmptyMessage}
-              </div>
-            ) : null}
-            {socialPairRequiredWithoutDeliveredProfile ? (
-              <div className={`${styles.mobileRadarNotice} hbx-mobile-notice`} data-tone="warning">
-                {socialRequiredEmptyMessage}
-              </div>
-            ) : null}
-            {instagramRequiredOnlyConfirmedProfiles ? (
-              <div className={`${styles.mobileRadarNotice} hbx-mobile-notice`} data-tone="ok">
-                {socialRequiredActiveMessage}
-              </div>
-            ) : null}
-            {socialPairRequiredOnlyConfirmedProfile ? (
-              <div className={`${styles.mobileRadarNotice} hbx-mobile-notice`} data-tone="ok">
-                {socialRequiredActiveMessage}
-              </div>
-            ) : null}
 
             <div className={`${styles.mobileRadarActionRow} hbx-mobile-action-bar`}>
               <button
@@ -3266,63 +3048,6 @@ export default function RadarDigitalClientPage() {
               onClose={() => setMobilePicker(null)}
             />
           ) : null}
-          {mobileAdvancedOpen ? (
-            <div className={styles.mobilePickerPanel} role="presentation" onClick={() => setMobileAdvancedOpen(false)}>
-              <section
-                className={styles.mobilePickerSheet}
-                role="dialog"
-                aria-modal="true"
-                aria-label="Filtros avançados"
-                onClick={(event) => event.stopPropagation()}
-              >
-                <div className={styles.mobilePickerHeader}>
-                  <strong>Filtros avançados</strong>
-                  <button type="button" onClick={() => setMobileAdvancedOpen(false)}>Fechar</button>
-                </div>
-                <div className={styles.mobileAdvancedGrid}>
-                    <RadarChannelFilter
-                      value={{
-                        preferredChannels: filters.preferredChannels,
-                        requiredChannels: filters.requiredChannels,
-                        channelMatchMode: filters.channelMatchMode,
-                      }}
-                      locked={isHbxList}
-                      onChange={(next) => setFilters((current) => ({ ...current, ...next }))}
-                    />
-                    <div>
-                      <span>Fonte de busca</span>
-                      <MobileEngineToggle
-                        value={filters.engine}
-                        onChange={(value) => setFilters((current) => ({ ...current, engine: value }))}
-                      />
-                    </div>
-                    <div className={styles.mobileScoreControl} data-locked={isHbxList ? "true" : "false"}>
-                      <MobileLeadScoreGauge
-                        premium
-                        locked={isHbxList}
-                        value={Number(filters.scoreRange || 0)}
-                        label={isHbxList ? "♕ Score" : "Score"}
-                        caption={isHbxList ? "Lead+" : filters.scoreRange ? `${filters.scoreRange}+` : "0+"}
-                      />
-                      <input
-                        type="range"
-                        min="0"
-                        max="100"
-                        step="5"
-                        disabled={isHbxList}
-                        value={Number(filters.scoreRange || 0)}
-                        onChange={(event) => setFilters((current) => ({
-                          ...current,
-                          scoreRange: Number(event.target.value) > 0 ? event.target.value : "",
-                        }))}
-                        aria-label="Score mínimo"
-                      />
-                    </div>
-                  </div>
-              </section>
-            </div>
-          ) : null}
-
           {mobileSearchNoticeOpen ? (
             <section
               ref={mobileSearchNoticeRef}
@@ -3475,21 +3200,6 @@ export default function RadarDigitalClientPage() {
               max={radarQuantityLimit}
               onChange={(quantity) => setFilters((current) => ({ ...current, quantity }))}
             />
-            <RadarChannelFilter
-              value={{
-                preferredChannels: filters.preferredChannels,
-                requiredChannels: filters.requiredChannels,
-                channelMatchMode: filters.channelMatchMode,
-              }}
-              locked={isHbxList}
-              onChange={(next) => setFilters((current) => ({ ...current, ...next }))}
-            />
-            <HbxAdvancedFilters
-              mode="radar"
-              filters={{ ...filters, onlyWithWebsite: filters.withWebsite }}
-              onChange={updateAdvancedFilters}
-              locked={isHbxList}
-            />
           </div>
           <div className={styles.filterActions}>
             <button type="button" data-variant="secondary" onClick={clearFilters}>Limpar filtros</button>
@@ -3518,26 +3228,6 @@ export default function RadarDigitalClientPage() {
 
         {error ? <div className={styles.notice} data-tone="error">{compactRadarMessage(error)}</div> : null}
         {feedback && !activeRun ? <div className={styles.notice} data-tone="ok">{feedback}</div> : null}
-        {instagramRequiredWithoutDeliveredProfile ? (
-          <div className={styles.notice} data-tone="warning">
-            {socialRequiredEmptyMessage}
-          </div>
-        ) : null}
-        {socialPairRequiredWithoutDeliveredProfile ? (
-          <div className={styles.notice} data-tone="warning">
-            {socialRequiredEmptyMessage}
-          </div>
-        ) : null}
-        {instagramRequiredOnlyConfirmedProfiles ? (
-          <div className={styles.notice} data-tone="ok">
-            {socialRequiredActiveMessage}
-          </div>
-        ) : null}
-        {socialPairRequiredOnlyConfirmedProfile ? (
-          <div className={styles.notice} data-tone="ok">
-            {socialRequiredActiveMessage}
-          </div>
-        ) : null}
 
         <section className={styles.results}>
           <div className={styles.resultsHeader}>
@@ -3584,8 +3274,8 @@ export default function RadarDigitalClientPage() {
           ) : !loading && visibleItems.length === 0 ? (
             <div className={styles.emptyState}>
               <span aria-hidden="true">0</span>
-              <strong>{requiredChannelsFilteredEverything ? "Seleção muito específica" : "Nenhum resultado encontrado"}</strong>
-              <p>{requiredChannelsFilteredEverything ? socialRequiredEmptyMessage : "A busca foi concluída sem cards para os filtros aplicados."}</p>
+              <strong>Nenhum resultado encontrado</strong>
+              <p>A busca foi concluída sem cards para os filtros aplicados.</p>
             </div>
           ) : (
             <div className={styles.grid}>
