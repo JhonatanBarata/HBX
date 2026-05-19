@@ -1,0 +1,176 @@
+{
+  "body": "100 RADAR DIGITAL Pronto para abastecer Vendas Escolha cidade, segmento e alcance para buscar cards elegíveis. 50 km CIDADE Definir SEGMENTO Definir ALCANCE 50 km FONTE ATUAL HBX Localização ESTADO UF CIDADE Escolha o estado SEGMENTO Ex.: Clínica, academia, estética Escolha até 5 segmentos. ALCANCE Cidade 25 km 50 km 100 km Busca cidades da região sem pesar a fila. 100 DISPONÍVEIS hoje 0/100 usados CARDS PARA GASTAR 30 de 100 - + FILTROS AVANÇADOS 0+ Buscar e abastecer Vendas Limpar filtros Vendas Radar Escuro Mais",
+  "controls": [
+    {
+      "i": 0,
+      "tag": "BUTTON",
+      "text": "Localização",
+      "placeholder": null,
+      "aria": "Usar minha localização",
+      "role": null,
+      "visible": true
+    },
+    {
+      "i": 1,
+      "tag": "BUTTON",
+      "text": "ESTADO UF",
+      "placeholder": null,
+      "aria": null,
+      "role": null,
+      "visible": true
+    },
+    {
+      "i": 2,
+      "tag": "BUTTON",
+      "text": "CIDADE Escolha o estado",
+      "placeholder": null,
+      "aria": null,
+      "role": null,
+      "visible": true
+    },
+    {
+      "i": 3,
+      "tag": "BUTTON",
+      "text": "SEGMENTO Ex.: Clínica, academia, estética Escolha até 5 segmentos.",
+      "placeholder": null,
+      "aria": null,
+      "role": null,
+      "visible": true
+    },
+    {
+      "i": 4,
+      "tag": "BUTTON",
+      "text": "Cidade",
+      "placeholder": null,
+      "aria": null,
+      "role": null,
+      "visible": true
+    },
+    {
+      "i": 5,
+      "tag": "BUTTON",
+      "text": "25 km",
+      "placeholder": null,
+      "aria": null,
+      "role": null,
+      "visible": true
+    },
+    {
+      "i": 6,
+      "tag": "BUTTON",
+      "text": "50 km",
+      "placeholder": null,
+      "aria": null,
+      "role": null,
+      "visible": true
+    },
+    {
+      "i": 7,
+      "tag": "BUTTON",
+      "text": "100 km",
+      "placeholder": null,
+      "aria": null,
+      "role": null,
+      "visible": true
+    },
+    {
+      "i": 8,
+      "tag": "BUTTON",
+      "text": "-",
+      "placeholder": null,
+      "aria": null,
+      "role": null,
+      "visible": true
+    },
+    {
+      "i": 9,
+      "tag": "INPUT",
+      "text": "30",
+      "placeholder": null,
+      "aria": "Quantidade de cards desta pesquisa",
+      "role": null,
+      "visible": true
+    },
+    {
+      "i": 10,
+      "tag": "BUTTON",
+      "text": "+",
+      "placeholder": null,
+      "aria": null,
+      "role": null,
+      "visible": true
+    },
+    {
+      "i": 11,
+      "tag": "BUTTON",
+      "text": "FILTROS AVANÇADOS 0+",
+      "placeholder": null,
+      "aria": null,
+      "role": null,
+      "visible": true
+    },
+    {
+      "i": 12,
+      "tag": "BUTTON",
+      "text": "Buscar e abastecer Vendas",
+      "placeholder": null,
+      "aria": null,
+      "role": null,
+      "visible": true
+    },
+    {
+      "i": 13,
+      "tag": "BUTTON",
+      "text": "Limpar filtros",
+      "placeholder": null,
+      "aria": null,
+      "role": null,
+      "visible": true
+    },
+    {
+      "i": 62,
+      "tag": "BUTTON",
+      "text": "Vendas",
+      "placeholder": null,
+      "aria": "Vendas",
+      "role": null,
+      "visible": true
+    },
+    {
+      "i": 63,
+      "tag": "BUTTON",
+      "text": "Radar",
+      "placeholder": null,
+      "aria": "Radar",
+      "role": null,
+      "visible": true
+    },
+    {
+      "i": 64,
+      "tag": "BUTTON",
+      "text": "",
+      "placeholder": null,
+      "aria": "Buscar e abastecer Vendas",
+      "role": null,
+      "visible": true
+    },
+    {
+      "i": 65,
+      "tag": "BUTTON",
+      "text": "Escuro",
+      "placeholder": null,
+      "aria": "Ativar tema claro no mobile",
+      "role": null,
+      "visible": true
+    },
+    {
+      "i": 66,
+      "tag": "BUTTON",
+      "text": "Mais",
+      "placeholder": null,
+      "aria": "Mais opções",
+      "role": null,
+      "visible": true
+    }
+  ]
+}

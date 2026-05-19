@@ -5,8 +5,30 @@ from bs4 import BeautifulSoup
 from .filters import is_social_signal_domain
 
 BLOCKED_EXTENSIONS = (".pdf", ".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg", ".zip", ".rar")
-SOCIAL_BLOCKED_PATH_PARTS = ("/p/", "/reel/", "/stories/", "/explore/", "/accounts/", "/login")
-SOCIAL_BLOCKED_FIRST_PATH_PARTS = {"share", "sharer", "sharer.php", "plugins", "dialog", "events", "marketplace", "watch"}
+SOCIAL_BLOCKED_PATH_PARTS = (
+    "/p/",
+    "/reel/",
+    "/stories/",
+    "/explore/",
+    "/accounts/",
+    "/login",
+    "/events",
+    "/posts",
+    "/photos",
+    "/videos",
+    "/groups",
+)
+SOCIAL_BLOCKED_FIRST_PATH_PARTS = {
+    "share",
+    "sharer",
+    "sharer.php",
+    "plugins",
+    "dialog",
+    "events",
+    "marketplace",
+    "watch",
+    "groups",
+}
 SOCIAL_BLOCKED_QUERY_KEYS = {"next", "login", "hl", "__coig_restricted", "utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content", "fbclid", "gclid"}
 
 
@@ -35,7 +57,13 @@ def _has_blocked_social_path(path: str) -> bool:
     if any(part in path_l for part in SOCIAL_BLOCKED_PATH_PARTS):
         return True
     clean_parts = [part for part in path_l.split("/") if part]
-    return bool(clean_parts and clean_parts[0] in SOCIAL_BLOCKED_FIRST_PATH_PARTS)
+    return bool(
+        clean_parts
+        and (
+            clean_parts[0] in SOCIAL_BLOCKED_FIRST_PATH_PARTS
+            or any(part in {"events", "posts", "photos", "videos", "groups"} for part in clean_parts[1:])
+        )
+    )
 
 
 def normalize_social_url(url: str) -> str | None:

@@ -1,0 +1,169 @@
+{
+  "generatedAt": "2026-05-19T13:07:17.318Z",
+  "passed": true,
+  "results": [
+    {
+      "test": "Instagram obrigatorio - alimentacao Rio Claro",
+      "runId": "cmpcn80dz000j8mbqwrd480yt",
+      "status": "completed",
+      "backendMessage": "1 card(s) entregues.",
+      "backendFoundCount": 10,
+      "requiredChannels": [
+        "instagram"
+      ],
+      "passed": true,
+      "phoneKeptCount": 1,
+      "requiredMatchedCount": 1,
+      "badSocials": [],
+      "badWebsites": [],
+      "uiHasRunSignal": true,
+      "uiExcerpt": "100\nRADAR DIGITAL\nRadar abasteceu Vendas\n\nOs aprovados já foram enviados automaticamente para Vendas.\n\nAlimentação · Rio Claro/SP · 50 km\nCIDADE\nRio Claro\nSEGMENTO\nAlimentação\nALCANCE\n50 km\nFONTE ATUAL\nHBX\nLocalização\nESTADO\nSP\nCIDADE\nRio Claro\nSEGMENTO\nAlimentação\nCategoria inteira selecionada.\nALCANCE\nCidade\n25 km\n50 km\n100 km\nBusca cidades da região sem pesar a fila.\n100\nDISPONÍVEIS\nhoje\n0/100 usados\nCARDS PARA GASTAR\n30 de 100\n-\n+\nFILTROS AVANÇADOS\n0+\n1 card(s) entregues.\nInstagram obrigatório: mostrando só perfis confirmados.\nReenviar para Vendas\nLimpar filtros\nVendas abastecido\nOs contatos aprovados foram enviados automaticamente para o Vendas.\nVendas\nRadar\nEscuro\nMais",
+      "screenshot": "tmp-playwright-required-live-T1.png",
+      "items": [
+        {
+          "index": 1,
+          "name": "Wonder Rio Claro Ltda",
+          "city": "Rio Claro",
+          "phone": "(19) 3557-5257",
+          "phoneDigits": "1935575257",
+          "whatsappStatus": "unverified",
+          "website": null,
+          "instagramUrl": "https://instagram.com/wonder_rc",
+          "facebookUrl": null,
+          "email": null
+        }
+      ]
+    },
+    {
+      "test": "Facebook obrigatorio - alimentacao Rio Claro",
+      "runId": "cmpcn8bh4001k8mbqj8xqgxcs",
+      "status": "completed",
+      "backendMessage": "1 card(s) entregues.",
+      "backendFoundCount": 14,
+      "requiredChannels": [
+        "facebook"
+      ],
+      "passed": true,
+      "phoneKeptCount": 1,
+      "requiredMatchedCount": 1,
+      "badSocials": [],
+      "badWebsites": [],
+      "uiHasRunSignal": true,
+      "uiExcerpt": "100\nRADAR DIGITAL\nRadar abasteceu Vendas\n\nOs aprovados já foram enviados automaticamente para Vendas.\n\nAlimentação · Rio Claro/SP · 50 km\nCIDADE\nRio Claro\nSEGMENTO\nAlimentação\nALCANCE\n50 km\nFONTE ATUAL\nHBX\nLocalização\nESTADO\nSP\nCIDADE\nRio Claro\nSEGMENTO\nAlimentação\nCategoria inteira selecionada.\nALCANCE\nCidade\n25 km\n50 km\n100 km\nBusca cidades da região sem pesar a fila.\n100\nDISPONÍVEIS\nhoje\n0/100 usados\nCARDS PARA GASTAR\n30 de 100\n-\n+\nFILTROS AVANÇADOS\n0+\n1 card(s) entregues.\nInstagram obrigatório: mostrando só perfis confirmados.\nReenviar para Vendas\nLimpar filtros\nVendas abastecido\nOs contatos aprovados foram enviados automaticamente para o Vendas.\nVendas\nRadar\nEscuro\nMais",
+      "screenshot": "tmp-playwright-required-live-T2.png",
+      "items": [
+        {
+          "index": 1,
+          "name": "Rotisserie Amor E Sabor",
+          "city": "Rio Claro",
+          "phone": "(19) 3023-1418",
+          "phoneDigits": "1930231418",
+          "whatsappStatus": "unverified",
+          "website": null,
+          "instagramUrl": null,
+          "facebookUrl": "https://facebook.com/rotisseriesaborcaseirorc",
+          "email": null
+        }
+      ]
+    },
+    {
+      "test": "Site obrigatorio - pizzarias Rio Claro",
+      "runId": "cmpcn8moy002x8mbqzyxxbt9z",
+      "status": "completed",
+      "backendMessage": "1 card(s) entregues.",
+      "backendFoundCount": 15,
+      "requiredChannels": [
+        "website"
+      ],
+      "passed": true,
+      "phoneKeptCount": 1,
+      "requiredMatchedCount": 1,
+      "badSocials": [],
+      "badWebsites": [],
+      "uiHasRunSignal": true,
+      "uiExcerpt": "100\nRADAR DIGITAL\nRadar abasteceu Vendas\n\nOs aprovados já foram enviados automaticamente para Vendas.\n\nAlimentação · Rio Claro/SP · 50 km\nCIDADE\nRio Claro\nSEGMENTO\nAlimentação\nALCANCE\n50 km\nFONTE ATUAL\nHBX\nLocalização\nESTADO\nSP\nCIDADE\nRio Claro\nSEGMENTO\nAlimentação\nCategoria inteira selecionada.\nALCANCE\nCidade\n25 km\n50 km\n100 km\nBusca cidades da região sem pesar a fila.\n100\nDISPONÍVEIS\nhoje\n0/100 usados\nCARDS PARA GASTAR\n30 de 100\n-\n+\nFILTROS AVANÇADOS\n0+\n1 card(s) entregues.\nInstagram obrigatório: mostrando só perfis confirmados.\nReenviar para Vendas\nLimpar filtros\nVendas abastecido\nOs contatos aprovados foram enviados automaticamente para o Vendas.\nVendas\nRadar\nEscuro\nMais",
+      "screenshot": "tmp-playwright-required-live-T3.png",
+      "items": [
+        {
+          "index": 1,
+          "name": "Restaurante, Choperia e Pizzaria Fênix (19-35427351)",
+          "city": "Rio Claro",
+          "phone": "(19) 3542-7261",
+          "phoneDigits": "1935427261",
+          "whatsappStatus": "unverified",
+          "website": "https://restaurantefenix.com",
+          "instagramUrl": null,
+          "facebookUrl": null,
+          "email": null
+        }
+      ]
+    },
+    {
+      "test": "Instagram + Facebook obrigatorios - pneus Araraquara",
+      "runId": "cmpcnas8t004r8mbqa3d8rdgu",
+      "status": "completed",
+      "backendMessage": "1 card(s) entregues.",
+      "backendFoundCount": 10,
+      "requiredChannels": [
+        "instagram",
+        "facebook"
+      ],
+      "passed": true,
+      "phoneKeptCount": 1,
+      "requiredMatchedCount": 1,
+      "badSocials": [],
+      "badWebsites": [],
+      "uiHasRunSignal": true,
+      "uiExcerpt": "100\nRADAR DIGITAL\nRadar abasteceu Vendas\n\nOs aprovados já foram enviados automaticamente para Vendas.\n\nAlimentação · Rio Claro/SP · 50 km\nCIDADE\nRio Claro\nSEGMENTO\nAlimentação\nALCANCE\n50 km\nFONTE ATUAL\nHBX\nLocalização\nESTADO\nSP\nCIDADE\nRio Claro\nSEGMENTO\nAlimentação\nCategoria inteira selecionada.\nALCANCE\nCidade\n25 km\n50 km\n100 km\nBusca cidades da região sem pesar a fila.\n100\nDISPONÍVEIS\nhoje\n0/100 usados\nCARDS PARA GASTAR\n30 de 100\n-\n+\nFILTROS AVANÇADOS\n0+\n1 card(s) entregues.\nInstagram obrigatório: mostrando só perfis confirmados.\nReenviar para Vendas\nLimpar filtros\nVendas abastecido\nOs contatos aprovados foram enviados automaticamente para o Vendas.\nVendas\nRadar\nEscuro\nMais",
+      "screenshot": "tmp-playwright-required-live-T4.png",
+      "items": [
+        {
+          "index": 1,
+          "name": "Silcar Pneus Ltda",
+          "city": "Araraquara",
+          "phone": "(16) 3311-1111",
+          "phoneDigits": "1633111111",
+          "whatsappStatus": "unverified",
+          "website": null,
+          "instagramUrl": "https://instagram.com/silcarpneusoficial",
+          "facebookUrl": "https://facebook.com/Silcar-Pneus-1861848717236638",
+          "email": null
+        }
+      ]
+    },
+    {
+      "test": "Instagram + Facebook + Site obrigatorios - pizzarias Rio Claro",
+      "runId": "cmpcnb4zo005x8mbq7n9lq4ow",
+      "status": "completed",
+      "backendMessage": "1 card(s) entregues.",
+      "backendFoundCount": 15,
+      "requiredChannels": [
+        "instagram",
+        "facebook",
+        "website"
+      ],
+      "passed": true,
+      "phoneKeptCount": 1,
+      "requiredMatchedCount": 1,
+      "badSocials": [],
+      "badWebsites": [],
+      "uiHasRunSignal": true,
+      "uiExcerpt": "100\nRADAR DIGITAL\nRadar abasteceu Vendas\n\nOs aprovados já foram enviados automaticamente para Vendas.\n\nAlimentação · Rio Claro/SP · 50 km\nCIDADE\nRio Claro\nSEGMENTO\nAlimentação\nALCANCE\n50 km\nFONTE ATUAL\nHBX\nLocalização\nESTADO\nSP\nCIDADE\nRio Claro\nSEGMENTO\nAlimentação\nCategoria inteira selecionada.\nALCANCE\nCidade\n25 km\n50 km\n100 km\nBusca cidades da região sem pesar a fila.\n100\nDISPONÍVEIS\nhoje\n0/100 usados\nCARDS PARA GASTAR\n30 de 100\n-\n+\nFILTROS AVANÇADOS\n0+\n1 card(s) entregues.\nInstagram obrigatório: mostrando só perfis confirmados.\nReenviar para Vendas\nLimpar filtros\nVendas abastecido\nOs contatos aprovados foram enviados automaticamente para o Vendas.\nVendas\nRadar\nEscuro\nMais",
+      "screenshot": "tmp-playwright-required-live-T5.png",
+      "items": [
+        {
+          "index": 1,
+          "name": "Domino's Pizza",
+          "city": "Rio Claro",
+          "phone": "(19) 3551-0101",
+          "phoneDigits": "1935510101",
+          "whatsappStatus": "unverified",
+          "website": "https://dominopizza.com",
+          "instagramUrl": "https://instagram.com/dominopizzas",
+          "facebookUrl": "https://facebook.com/DominosPizzaRioClaro",
+          "email": null
+        }
+      ]
+    }
+  ]
+}

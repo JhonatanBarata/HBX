@@ -1540,6 +1540,246 @@ test('isRunItemQualityDeliverable aceita Instagram e Facebook quando ambos sao o
   assert.equal(service.isRunItemQualityDeliverable(item, input), true);
 });
 
+test('isRunItemQualityDeliverable nao bloqueia canal real por channelAvailability antigo falso', () => {
+  const service = new WebscrapingService(createPrisma()) as any;
+  const input = {
+    city: 'Rio Claro',
+    state: 'SP',
+    segment: 'pizzarias',
+    targetType: 'pj',
+    requiredChannels: ['instagram', 'facebook', 'website'],
+    channelMatchMode: 'all_required',
+    qualityMode: 'lead_plus',
+  };
+  const item = {
+    id: 'item-dominos-stale-quality',
+    status: 'found',
+    name: "Domino's Pizza",
+    phone: '(19) 3551-0101',
+    phoneDigits: '1935510101',
+    rawJson: JSON.stringify({
+      name: "Domino's Pizza",
+      phone: '(19) 3551-0101',
+      phoneDigits: '1935510101',
+      city: 'Rio Claro',
+      segment: 'pizzarias',
+      website: 'https://dominopizza.com',
+      websiteStatus: 'none',
+      instagramUrl: 'https://instagram.com/dominopizzas',
+      facebookUrl: 'https://facebook.com/DominosPizzaRioClaro',
+      quality: { status: 'approved', billable: true },
+      qualityV2: {
+        version: 'lead-quality-v2',
+        decision: 'review',
+        finalRankScore: 72,
+        recommendedChannel: 'review',
+        channelAvailability: { instagram: true, facebook: true, website: false, phone: true },
+      },
+    }),
+  };
+
+  assert.equal(service.isRunItemQualityDeliverable(item, input), true);
+});
+
+test('isRunItemQualityDeliverable rejeita social incompativel mesmo com channelAvailability antigo verdadeiro', () => {
+  const service = new WebscrapingService(createPrisma()) as any;
+  const input = {
+    city: 'Araraquara',
+    state: 'SP',
+    segment: 'pneus',
+    targetType: 'pj',
+    requiredChannels: ['instagram'],
+    channelMatchMode: 'all_required',
+    qualityMode: 'lead_plus',
+  };
+  const item = {
+    id: 'item-social-incompativel',
+    status: 'found',
+    name: 'Casa dos Pneus',
+    phone: '(16) 3333-1111',
+    phoneDigits: '1633331111',
+    rawJson: JSON.stringify({
+      name: 'Casa dos Pneus',
+      phone: '(16) 3333-1111',
+      phoneDigits: '1633331111',
+      city: 'Araraquara',
+      segment: 'pneus',
+      instagramUrl: 'https://instagram.com/casaseniorararaquara',
+      quality: { status: 'approved', billable: true },
+      qualityV2: {
+        version: 'lead-quality-v2',
+        decision: 'review',
+        finalRankScore: 72,
+        recommendedChannel: 'review',
+        channelAvailability: { instagram: true, phone: true },
+      },
+    }),
+  };
+
+  assert.equal(service.isRunItemQualityDeliverable(item, input), false);
+});
+
+test('isRunItemQualityDeliverable rejeita social com apenas categoria e iniciais da cidade', () => {
+  const service = new WebscrapingService(createPrisma()) as any;
+  const input = {
+    city: 'Rio Claro',
+    state: 'SP',
+    segment: 'pizzarias',
+    targetType: 'pj',
+    requiredChannels: ['facebook'],
+    channelMatchMode: 'all_required',
+    qualityMode: 'lead_plus',
+  };
+  const item = {
+    id: 'item-sula-aero-lanches',
+    status: 'found',
+    name: "Sula's Lanches e Pizzas",
+    phone: '(19) 3377-3296',
+    phoneDigits: '1933773296',
+    rawJson: JSON.stringify({
+      name: "Sula's Lanches e Pizzas",
+      phone: '(19) 3377-3296',
+      phoneDigits: '1933773296',
+      city: 'Rio Claro',
+      segment: 'pizzarias',
+      facebookUrl: 'https://facebook.com/aerolanchesrc',
+      quality: { status: 'approved', billable: true },
+      qualityV2: {
+        version: 'lead-quality-v2',
+        decision: 'review',
+        finalRankScore: 72,
+        recommendedChannel: 'review',
+        channelAvailability: { facebook: true, phone: true },
+      },
+    }),
+  };
+
+  assert.equal(service.isRunItemQualityDeliverable(item, input), false);
+});
+
+test('isRunItemQualityDeliverable rejeita site de outra marca quando site e obrigatorio', () => {
+  const service = new WebscrapingService(createPrisma()) as any;
+  const input = {
+    city: 'Rio Claro',
+    state: 'SP',
+    segment: 'pizzarias',
+    targetType: 'pj',
+    requiredChannels: ['website'],
+    channelMatchMode: 'all_required',
+    qualityMode: 'lead_plus',
+  };
+  const item = {
+    id: 'item-site-outra-marca',
+    status: 'found',
+    name: 'Pizza Do Ricardo e Restaurante',
+    phone: '(19) 99797-3137',
+    phoneDigits: '19997973137',
+    rawJson: JSON.stringify({
+      name: 'Pizza Do Ricardo e Restaurante',
+      phone: '(19) 99797-3137',
+      phoneDigits: '19997973137',
+      city: 'Rio Claro',
+      segment: 'pizzarias',
+      website: 'https://pizza.dominos.com',
+      websiteStatus: 'present',
+      quality: { status: 'approved', billable: true },
+      qualityV2: {
+        version: 'lead-quality-v2',
+        decision: 'review',
+        finalRankScore: 72,
+        recommendedChannel: 'review',
+        channelAvailability: { website: true, phone: true },
+      },
+    }),
+  };
+
+  assert.equal(service.isRunItemQualityDeliverable(item, input), false);
+});
+
+test('isRunItemQualityDeliverable aceita site compativel com nome e categoria', () => {
+  const service = new WebscrapingService(createPrisma()) as any;
+  const input = {
+    city: 'Rio Claro',
+    state: 'SP',
+    segment: 'pizzarias',
+    targetType: 'pj',
+    requiredChannels: ['website'],
+    channelMatchMode: 'all_required',
+    qualityMode: 'lead_plus',
+  };
+  const item = {
+    id: 'item-site-compativel',
+    status: 'found',
+    name: 'Restaurante, Choperia e Pizzaria Fênix',
+    phone: '(19) 3542-7261',
+    phoneDigits: '1935427261',
+    rawJson: JSON.stringify({
+      name: 'Restaurante, Choperia e Pizzaria Fênix',
+      phone: '(19) 3542-7261',
+      phoneDigits: '1935427261',
+      city: 'Rio Claro',
+      segment: 'pizzarias',
+      website: 'https://restaurantefenix.com',
+      websiteStatus: 'present',
+      quality: { status: 'approved', billable: true },
+      qualityV2: {
+        version: 'lead-quality-v2',
+        decision: 'review',
+        finalRankScore: 72,
+        recommendedChannel: 'review',
+        channelAvailability: { website: false, phone: true },
+      },
+    }),
+  };
+
+  assert.equal(service.isRunItemQualityDeliverable(item, input), true);
+});
+
+test('matchesRadarChannelFilters aceita site presente mesmo com websiteStatus antigo none', () => {
+  const service = new WebscrapingService(createPrisma()) as any;
+  const filters = {
+    requiredChannels: ['instagram', 'facebook', 'website'],
+    channelMatchMode: 'all_required',
+  };
+  const row = {
+    id: 'row-millano-stale-site-status',
+    name: 'Pizzaria Millano S',
+    city: 'Limeira',
+    state: 'SP',
+    segment: 'pizzarias',
+    phone: '(19) 3444-8659',
+    phoneDigits: '1934448659',
+    website: 'https://pizzariamillanos.wabiz.delivery',
+    websiteStatus: 'none',
+    instagramUrl: 'https://instagram.com/pizzariamillanos',
+    facebookUrl: 'https://facebook.com/pizzamillanos',
+  };
+
+  assert.equal(service.matchesRadarChannelFilters(row, filters), true);
+});
+
+test('buildRadarLeadPublic sanitiza email de asset e social incompativel', () => {
+  const service = new WebscrapingService(createPrisma()) as any;
+  const item = service.buildRadarLeadPublic({
+    id: 'lead-sanitized',
+    name: "Sula's Lanches e Pizzas",
+    phone: '(19) 3377-3296',
+    phoneDigits: '1933773296',
+    city: 'Rio Claro',
+    state: 'SP',
+    segment: 'pizzarias',
+    email: 'icon@2x.png',
+    emailStatus: 'confirmed',
+    facebookUrl: 'https://facebook.com/aerolanchesrc',
+    socialStatus: 'found',
+    socialConfidence: 90,
+  }, { includeSmartFields: true });
+
+  assert.equal(item.email, null);
+  assert.equal(item.facebookUrl, null);
+  assert.equal(item.socialStatus, 'missing');
+});
+
 test('buildHbxBatchAttemptTask percorre cidade, segmento e variacao em ordem', () => {
   const service = new WebscrapingService(createPrisma()) as any;
   const normalized = service.normalizeSearchInput({

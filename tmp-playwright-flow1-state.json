@@ -1,0 +1,397 @@
+{
+  "body": "100 RADAR DIGITAL Pronto para abastecer Vendas Escolha cidade, segmento e alcance para buscar cards elegíveis. 50 km CIDADE Definir SEGMENTO Definir ALCANCE 50 km FONTE ATUAL HBX Localização ESTADO UF CIDADE Escolha o estado SEGMENTO Ex.: Clínica, academia, estética Escolha até 5 segmentos. ALCANCE Cidade 25 km 50 km 100 km Busca cidades da região sem pesar a fila. 100 DISPONÍVEIS hoje 0/100 usados CARDS PARA GASTAR 30 de 100 - + FILTROS AVANÇADOS 0+ Buscar e abastecer Vendas Limpar filtros Estado Fechar Limpar seleção AC AL AP AM BA CE DF ES GO MA MT MS MG PA PB PR PE PI RJ RN RS RO RR SC SP SE TO Vendas Radar Escuro Mais",
+  "controls": [
+    {
+      "i": 0,
+      "tag": "BUTTON",
+      "text": "Localização",
+      "placeholder": null,
+      "aria": "Usar minha localização",
+      "visible": true
+    },
+    {
+      "i": 1,
+      "tag": "BUTTON",
+      "text": "ESTADO UF",
+      "placeholder": null,
+      "aria": null,
+      "visible": true
+    },
+    {
+      "i": 2,
+      "tag": "BUTTON",
+      "text": "CIDADE Escolha o estado",
+      "placeholder": null,
+      "aria": null,
+      "visible": true
+    },
+    {
+      "i": 3,
+      "tag": "BUTTON",
+      "text": "SEGMENTO Ex.: Clínica, academia, estética Escolha até 5 segmentos.",
+      "placeholder": null,
+      "aria": null,
+      "visible": true
+    },
+    {
+      "i": 4,
+      "tag": "BUTTON",
+      "text": "Cidade",
+      "placeholder": null,
+      "aria": null,
+      "visible": true
+    },
+    {
+      "i": 5,
+      "tag": "BUTTON",
+      "text": "25 km",
+      "placeholder": null,
+      "aria": null,
+      "visible": true
+    },
+    {
+      "i": 6,
+      "tag": "BUTTON",
+      "text": "50 km",
+      "placeholder": null,
+      "aria": null,
+      "visible": true
+    },
+    {
+      "i": 7,
+      "tag": "BUTTON",
+      "text": "100 km",
+      "placeholder": null,
+      "aria": null,
+      "visible": true
+    },
+    {
+      "i": 8,
+      "tag": "BUTTON",
+      "text": "-",
+      "placeholder": null,
+      "aria": null,
+      "visible": true
+    },
+    {
+      "i": 9,
+      "tag": "INPUT",
+      "text": "30",
+      "placeholder": null,
+      "aria": "Quantidade de cards desta pesquisa",
+      "visible": true
+    },
+    {
+      "i": 10,
+      "tag": "BUTTON",
+      "text": "+",
+      "placeholder": null,
+      "aria": null,
+      "visible": true
+    },
+    {
+      "i": 11,
+      "tag": "BUTTON",
+      "text": "FILTROS AVANÇADOS 0+",
+      "placeholder": null,
+      "aria": null,
+      "visible": true
+    },
+    {
+      "i": 12,
+      "tag": "BUTTON",
+      "text": "Buscar e abastecer Vendas",
+      "placeholder": null,
+      "aria": null,
+      "visible": true
+    },
+    {
+      "i": 13,
+      "tag": "BUTTON",
+      "text": "Limpar filtros",
+      "placeholder": null,
+      "aria": null,
+      "visible": true
+    },
+    {
+      "i": 14,
+      "tag": "BUTTON",
+      "text": "",
+      "placeholder": null,
+      "aria": "Pesquisar",
+      "visible": true
+    },
+    {
+      "i": 15,
+      "tag": "BUTTON",
+      "text": "Fechar",
+      "placeholder": null,
+      "aria": null,
+      "visible": true
+    },
+    {
+      "i": 16,
+      "tag": "BUTTON",
+      "text": "Limpar seleção",
+      "placeholder": null,
+      "aria": null,
+      "visible": true
+    },
+    {
+      "i": 17,
+      "tag": "BUTTON",
+      "text": "AC",
+      "placeholder": null,
+      "aria": null,
+      "visible": true
+    },
+    {
+      "i": 18,
+      "tag": "BUTTON",
+      "text": "AL",
+      "placeholder": null,
+      "aria": null,
+      "visible": true
+    },
+    {
+      "i": 19,
+      "tag": "BUTTON",
+      "text": "AP",
+      "placeholder": null,
+      "aria": null,
+      "visible": true
+    },
+    {
+      "i": 20,
+      "tag": "BUTTON",
+      "text": "AM",
+      "placeholder": null,
+      "aria": null,
+      "visible": true
+    },
+    {
+      "i": 21,
+      "tag": "BUTTON",
+      "text": "BA",
+      "placeholder": null,
+      "aria": null,
+      "visible": true
+    },
+    {
+      "i": 22,
+      "tag": "BUTTON",
+      "text": "CE",
+      "placeholder": null,
+      "aria": null,
+      "visible": true
+    },
+    {
+      "i": 23,
+      "tag": "BUTTON",
+      "text": "DF",
+      "placeholder": null,
+      "aria": null,
+      "visible": true
+    },
+    {
+      "i": 24,
+      "tag": "BUTTON",
+      "text": "ES",
+      "placeholder": null,
+      "aria": null,
+      "visible": true
+    },
+    {
+      "i": 25,
+      "tag": "BUTTON",
+      "text": "GO",
+      "placeholder": null,
+      "aria": null,
+      "visible": true
+    },
+    {
+      "i": 26,
+      "tag": "BUTTON",
+      "text": "MA",
+      "placeholder": null,
+      "aria": null,
+      "visible": true
+    },
+    {
+      "i": 27,
+      "tag": "BUTTON",
+      "text": "MT",
+      "placeholder": null,
+      "aria": null,
+      "visible": true
+    },
+    {
+      "i": 28,
+      "tag": "BUTTON",
+      "text": "MS",
+      "placeholder": null,
+      "aria": null,
+      "visible": true
+    },
+    {
+      "i": 29,
+      "tag": "BUTTON",
+      "text": "MG",
+      "placeholder": null,
+      "aria": null,
+      "visible": true
+    },
+    {
+      "i": 30,
+      "tag": "BUTTON",
+      "text": "PA",
+      "placeholder": null,
+      "aria": null,
+      "visible": true
+    },
+    {
+      "i": 31,
+      "tag": "BUTTON",
+      "text": "PB",
+      "placeholder": null,
+      "aria": null,
+      "visible": true
+    },
+    {
+      "i": 32,
+      "tag": "BUTTON",
+      "text": "PR",
+      "placeholder": null,
+      "aria": null,
+      "visible": true
+    },
+    {
+      "i": 33,
+      "tag": "BUTTON",
+      "text": "PE",
+      "placeholder": null,
+      "aria": null,
+      "visible": true
+    },
+    {
+      "i": 34,
+      "tag": "BUTTON",
+      "text": "PI",
+      "placeholder": null,
+      "aria": null,
+      "visible": true
+    },
+    {
+      "i": 35,
+      "tag": "BUTTON",
+      "text": "RJ",
+      "placeholder": null,
+      "aria": null,
+      "visible": true
+    },
+    {
+      "i": 36,
+      "tag": "BUTTON",
+      "text": "RN",
+      "placeholder": null,
+      "aria": null,
+      "visible": true
+    },
+    {
+      "i": 37,
+      "tag": "BUTTON",
+      "text": "RS",
+      "placeholder": null,
+      "aria": null,
+      "visible": true
+    },
+    {
+      "i": 38,
+      "tag": "BUTTON",
+      "text": "RO",
+      "placeholder": null,
+      "aria": null,
+      "visible": true
+    },
+    {
+      "i": 39,
+      "tag": "BUTTON",
+      "text": "RR",
+      "placeholder": null,
+      "aria": null,
+      "visible": true
+    },
+    {
+      "i": 40,
+      "tag": "BUTTON",
+      "text": "SC",
+      "placeholder": null,
+      "aria": null,
+      "visible": true
+    },
+    {
+      "i": 41,
+      "tag": "BUTTON",
+      "text": "SP",
+      "placeholder": null,
+      "aria": null,
+      "visible": true
+    },
+    {
+      "i": 42,
+      "tag": "BUTTON",
+      "text": "SE",
+      "placeholder": null,
+      "aria": null,
+      "visible": true
+    },
+    {
+      "i": 43,
+      "tag": "BUTTON",
+      "text": "TO",
+      "placeholder": null,
+      "aria": null,
+      "visible": true
+    },
+    {
+      "i": 92,
+      "tag": "BUTTON",
+      "text": "Vendas",
+      "placeholder": null,
+      "aria": "Vendas",
+      "visible": true
+    },
+    {
+      "i": 93,
+      "tag": "BUTTON",
+      "text": "Radar",
+      "placeholder": null,
+      "aria": "Radar",
+      "visible": true
+    },
+    {
+      "i": 94,
+      "tag": "BUTTON",
+      "text": "",
+      "placeholder": null,
+      "aria": "Buscar e abastecer Vendas",
+      "visible": true
+    },
+    {
+      "i": 95,
+      "tag": "BUTTON",
+      "text": "Escuro",
+      "placeholder": null,
+      "aria": "Ativar tema claro no mobile",
+      "visible": true
+    },
+    {
+      "i": 96,
+      "tag": "BUTTON",
+      "text": "Mais",
+      "placeholder": null,
+      "aria": "Mais opções",
+      "visible": true
+    }
+  ]
+}
