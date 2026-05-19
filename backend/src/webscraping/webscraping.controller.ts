@@ -131,16 +131,19 @@ class WebscrapingSearchDto {
   salesProfile?: Record<string, any>;
 
   @IsOptional()
-  @IsObject()
-  targetAudience?: Record<string, any>;
+  targetAudience?: string[] | Record<string, any>;
 
   @IsOptional()
-  @IsObject()
-  targetSegments?: Record<string, any>;
+  targetSegments?: string[] | Record<string, any>;
 
   @IsOptional()
-  @IsObject()
-  avoidSegments?: Record<string, any>;
+  avoidSegments?: string[] | Record<string, any>;
+
+  @IsOptional()
+  @Transform(({ value }) => value == null || value === '' ? [] : Array.isArray(value) ? value : [value])
+  @IsArray()
+  @IsString({ each: true })
+  hardRejectSegments?: string[];
 
   @IsOptional()
   @IsObject()
@@ -641,16 +644,19 @@ class RadarPullDto extends RadarDatabaseQueryDto {
   declare salesProfile?: Record<string, any>;
 
   @IsOptional()
-  @IsObject()
-  declare targetAudience?: Record<string, any>;
+  declare targetAudience?: string[] | Record<string, any>;
 
   @IsOptional()
-  @IsObject()
-  declare targetSegments?: Record<string, any>;
+  declare targetSegments?: string[] | Record<string, any>;
 
   @IsOptional()
-  @IsObject()
-  declare avoidSegments?: Record<string, any>;
+  declare avoidSegments?: string[] | Record<string, any>;
+
+  @IsOptional()
+  @Transform(({ value }) => value == null || value === '' ? [] : Array.isArray(value) ? value : [value])
+  @IsArray()
+  @IsString({ each: true })
+  declare hardRejectSegments?: string[];
 
   @IsOptional()
   @IsObject()

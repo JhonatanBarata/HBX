@@ -1320,7 +1320,12 @@ class SearchService:
         candidates: list[dict],
         social_discovery_stats: dict,
     ) -> SearchResponse:
-        allowed_fields = {"name", "phone", "phoneDigits", "rating", "reviews", "address", "website", "email", "instagramUrl", "facebookUrl", "source", "score"}
+        allowed_fields = {
+            "name", "phone", "phoneDigits", "rating", "reviews", "address", "website", "email",
+            "instagramUrl", "facebookUrl", "source", "sourceEngine", "sourceUrl", "score",
+            "evidenceJson", "rejectReasons", "qualityReason", "visibilityTier", "deliveryProduct",
+            "recommendedChannel",
+        }
         public_items = [{key: value for key, value in item.items() if key in allowed_fields} for item in candidates[: request.limit]]
         valid = [ContactResult.model_validate(item).model_dump(exclude_none=True) for item in public_items]
         response_stats = {
@@ -1910,6 +1915,28 @@ class SearchService:
             })
             row[key] = int(row.get(key, 0)) + 1
 
+        def bump_source_url(url: str, source_engine: str, key: str) -> None:
+            domain = domain_from_url(url) or "unknown"
+            metric_key = f"{source_engine}|{domain}"
+            row = source_metrics.setdefault(metric_key, {
+                "sourceEngine": source_engine,
+                "domain": domain,
+                "discovered": 0,
+                "fetched": 0,
+                "parsed": 0,
+                "approved": 0,
+                "rejected": 0,
+                "approvalRate": 0,
+            })
+            row[key] = int(row.get(key, 0)) + 1
+
+        for url in urls:
+            bump_source_url(url, "hbx_scraping", "discovered")
+        for page in pages:
+            bump_source_url(page.url, "hbx_scraping", "fetched")
+        for profile in social_profiles:
+            bump_source_url(str(profile.get("url") or ""), "hbx_scraping_social", "discovered")
+
         for item in deduped:
             if request.targetType == "pj" and not item.get("evidenceJson"):
                 evidence_text = " ".join(str(item.get(key) or "") for key in ("name", "address", "segment", "_socialSnippet", "_pageUrl", "sourceUrl"))
@@ -1987,15 +2014,15 @@ class SearchService:
             approved = int(row.get("approved", 0))
             rejected = int(row.get("rejected", 0))
             total = approved + rejected
-            row["discovered"] = int(row.get("parsed", 0))
-            row["fetched"] = int(row.get("parsed", 0))
             row["approvalRate"] = round(approved / total, 4) if total else 0
         social_stats["missingRequiredChannel"] = stats["missing_required_channel"]
+        parsed_count = max(stats["parsed"], len(deduped))
         response_stats = {
             "urlsDiscovered": len(urls),
             "pagesFetched": len(pages),
             "queriesGenerated": queries_generated,
-            "parsed": stats["parsed"],
+            "parsed": parsed_count,
+            "parsedContacts": parsed_count,
             "approved": stats["approved"],
             "invalidPhone": stats["invalid_phone"],
             "blockedDomain": stats["blocked_domain"],

@@ -21,7 +21,7 @@ export type LeadQualityV2 = {
   reasons: string[];
   discardReason: string | null;
   protectionReason: string | null;
-  recommendedChannel: 'whatsapp' | 'email' | 'call' | 'review' | 'discard';
+  recommendedChannel: 'whatsapp' | 'instagram' | 'facebook' | 'email' | 'call' | 'review' | 'discard';
   channelAvailability?: Record<LeadQualityV2Channel, boolean>;
   productFit: {
     listFit: number;
@@ -1134,12 +1134,16 @@ export function calculateLeadQualityV2(input: {
   else if (!phoneValid && contactabilityScore < 25 && !emailConfirmed && !emailProbable && !hasSocial) recommendedChannel = 'discard';
   else if (whatsappConfirmed || likelyMobile) recommendedChannel = 'whatsapp';
   else if (emailConfirmed || emailProbable) recommendedChannel = 'email';
+  else if (instagramUrl) recommendedChannel = 'instagram';
+  else if (facebookUrl) recommendedChannel = 'facebook';
   else if (phoneValid) recommendedChannel = 'call';
   else recommendedChannel = 'review';
   if (profilePreferredChannels.includes('whatsapp') && (whatsappConfirmed || likelyMobile)) {
     recommendedChannel = 'whatsapp';
   } else if (profilePreferredChannels.includes('instagram') && instagramUrl && recommendedChannel === 'review') {
-    recommendedChannel = 'review';
+    recommendedChannel = 'instagram';
+  } else if (profilePreferredChannels.includes('facebook') && facebookUrl && recommendedChannel === 'review') {
+    recommendedChannel = 'facebook';
   } else if (profilePreferredChannels.includes('email') && (emailConfirmed || emailProbable)) {
     recommendedChannel = 'email';
   } else if (profilePreferredChannels.includes('phone') && phoneValid) {
