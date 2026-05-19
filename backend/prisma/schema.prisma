@@ -1026,6 +1026,7 @@ model WebscrapingSourceQuality {
   fetchedCount    Int      @default(0)
   approvedCount   Int      @default(0)
   rejectedCount   Int      @default(0)
+  approvalRate    Float    @default(0)
   lastSeenAt      DateTime @default(now())
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
@@ -1203,6 +1204,11 @@ model RadarLeadPool {
   sourceEngine         String?
   sourceUrl            String?
   sourceEngines        String   @default("[]")
+  evidenceJson         String?
+  rejectReasons        String?
+  qualityReason        String?
+  visibilityTier       String?
+  deliveryProduct      String?
   opportunityScore     Int      @default(0)
   opportunityReason    String?
   status               String   @default("clean") // clean | sent_to_vendas | denied | complaint | no_answer | duplicate | rejected | hidden

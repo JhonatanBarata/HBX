@@ -3,6 +3,9 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 TargetType = Literal["pj", "pf", "agenda_pf"]
+ChannelMatchMode = Literal["prefer", "any_required", "all_required"]
+QualityMode = Literal["list", "lead_plus"]
+FreshnessMode = Literal["live", "database_first", "hybrid"]
 
 CHANNEL_ALIASES = {
     "insta": "instagram",
@@ -40,17 +43,33 @@ def normalize_channel_list(values: list[str]) -> list[str]:
 class SearchRequest(BaseModel):
     city: str = ""
     state: str = ""
+    radiusKm: int = Field(0, ge=0, le=100)
+    originLat: float | None = Field(None, ge=-90, le=90)
+    originLng: float | None = Field(None, ge=-180, le=180)
     segment: str = ""
+    segments: list[str] = Field(default_factory=list)
     query: str = ""
     targetType: TargetType = "pj"
     limit: int = Field(10, ge=1, le=100)
+    quantity: int | None = Field(None, ge=1, le=100)
     batchLimit: int | None = Field(None, ge=1, le=100)
     fresh: bool = False
     excludePhoneDigits: list[str] = Field(default_factory=list)
     excludeUrls: list[str] = Field(default_factory=list)
     preferredChannels: list[str] = Field(default_factory=list)
     requiredChannels: list[str] = Field(default_factory=list)
-    channelMatchMode: str | None = None
+    channelMatchMode: ChannelMatchMode = "prefer"
+    qualityMode: QualityMode = "list"
+    freshness: FreshnessMode = "live"
+    whatDoYouSell: str | None = None
+    offerCategory: str | None = None
+    targetAudience: dict | list[str] | None = None
+    targetSegments: dict | list[str] | None = None
+    avoidSegments: dict | list[str] | None = None
+    hardRejectSegments: list[str] | None = None
+    leadPreferences: dict | None = None
+    negativeRules: dict | None = None
+    salesProfile: dict | None = None
 
     @field_validator("city", "state", "segment", "query")
     @classmethod
@@ -91,13 +110,31 @@ class SearchRequest(BaseModel):
     @field_validator("preferredChannels", "requiredChannels")
     @classmethod
     def normalize_channels(cls, values: list[str]) -> list[str]:
-        # Canal pedido e canal preferido são hints de enriquecimento. Nunca devem virar corte cego.
         return normalize_channel_list(values)
+
+    @field_validator("segments")
+    @classmethod
+    def normalize_segments(cls, values: list[str]) -> list[str]:
+        seen: set[str] = set()
+        normalized: list[str] = []
+        for value in values or []:
+            item = " ".join(str(value or "").split())
+            key = item.lower()
+            if item and key not in seen:
+                seen.add(key)
+                normalized.append(item)
+        return normalized
 
     @model_validator(mode="after")
     def validate_limit_by_target_type(self) -> "SearchRequest":
+        if self.quantity is not None:
+            self.limit = min(self.quantity, 100)
         if self.batchLimit is not None:
             self.limit = min(self.limit, self.batchLimit)
+        if self.segment and self.segment not in self.segments:
+            self.segments = [self.segment, *self.segments]
+        if not self.segment and self.segments:
+            self.segment = self.segments[0]
         if self.targetType in {"pf", "agenda_pf"} and (not self.city or not self.state):
             raise ValueError("cidade e estado sao obrigatorios")
         if self.targetType != "agenda_pf" and not self.segment:
@@ -108,13 +145,70 @@ class SearchRequest(BaseModel):
         return self
 
 
+class SearchIntent(BaseModel):
+    city: str = ""
+    state: str = ""
+    radiusKm: int = 0
+    originLat: float | None = None
+    originLng: float | None = None
+    segments: list[str] = Field(default_factory=list)
+    targetType: TargetType = "pj"
+    quantity: int = Field(10, ge=1, le=100)
+    preferredChannels: list[str] = Field(default_factory=list)
+    requiredChannels: list[str] = Field(default_factory=list)
+    channelMatchMode: ChannelMatchMode = "prefer"
+    qualityMode: QualityMode = "list"
+    freshness: FreshnessMode = "live"
+    salesProfile: dict = Field(default_factory=dict)
+
+    @classmethod
+    def from_request(cls, request: SearchRequest) -> "SearchIntent":
+        return cls(
+            city=request.city,
+            state=request.state,
+            radiusKm=request.radiusKm,
+            originLat=request.originLat,
+            originLng=request.originLng,
+            segments=request.segments or ([request.segment] if request.segment else []),
+            targetType=request.targetType,
+            quantity=request.limit,
+            preferredChannels=request.preferredChannels,
+            requiredChannels=request.requiredChannels,
+            channelMatchMode=request.channelMatchMode,
+            qualityMode=request.qualityMode,
+            freshness=request.freshness,
+            salesProfile={
+                **(request.salesProfile or {}),
+                **({"whatDoYouSell": request.whatDoYouSell} if request.whatDoYouSell else {}),
+                **({"offerCategory": request.offerCategory} if request.offerCategory else {}),
+                **({"targetAudience": request.targetAudience} if request.targetAudience else {}),
+                **({"targetSegments": request.targetSegments} if request.targetSegments else {}),
+                **({"avoidSegments": request.avoidSegments} if request.avoidSegments else {}),
+                **({"hardRejectSegments": request.hardRejectSegments} if request.hardRejectSegments else {}),
+                **({"leadPreferences": request.leadPreferences} if request.leadPreferences else {}),
+                **({"negativeRules": request.negativeRules} if request.negativeRules else {}),
+            },
+        )
+
+
 class QueryPayload(BaseModel):
     city: str
     state: str
+    radiusKm: int = 0
+    originLat: float | None = None
+    originLng: float | None = None
     segment: str = ""
+    segments: list[str] = Field(default_factory=list)
     query: str = ""
     targetType: TargetType = "pj"
     limit: int
+    quantity: int | None = None
+    preferredChannels: list[str] = Field(default_factory=list)
+    requiredChannels: list[str] = Field(default_factory=list)
+    channelMatchMode: ChannelMatchMode = "prefer"
+    qualityMode: QualityMode = "list"
+    freshness: FreshnessMode = "live"
+    salesProfile: dict | None = None
 
 
 class ContactResult(BaseModel):
@@ -131,7 +225,15 @@ class ContactResult(BaseModel):
     instagramUrl: str | None = None
     facebookUrl: str | None = None
     source: str = "hbx_scraping:web"
+    sourceEngine: str | None = None
+    sourceUrl: str | None = None
     score: int | None = None
+    evidenceJson: dict | None = None
+    rejectReasons: list[str] | None = None
+    qualityReason: str | None = None
+    visibilityTier: str | None = None
+    deliveryProduct: str | None = None
+    recommendedChannel: str | None = None
 
 
 class EnrichLeadRequest(BaseModel):

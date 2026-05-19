@@ -1873,6 +1873,85 @@
   min-width: 0;
 }
 
+.filterChannels {
+  grid-column: 1 / -1;
+  min-width: 0;
+}
+
+.channelFilters {
+  display: grid;
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid color-mix(in srgb, var(--line) 84%, transparent);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--surface) 94%, var(--surface-raised));
+}
+
+.channelFilters > div {
+  display: grid;
+  gap: 7px;
+}
+
+.channelFilters span {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.channelFilters > div > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.channelFilters button {
+  min-height: 34px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid color-mix(in srgb, var(--line) 80%, transparent);
+  border-radius: 999px;
+  padding: 0 10px;
+  background: color-mix(in srgb, var(--surface-raised) 88%, transparent);
+  color: var(--foreground);
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.channelFilters button[data-active="true"] {
+  border-color: color-mix(in srgb, var(--accent) 65%, var(--line));
+  background: color-mix(in srgb, var(--accent) 14%, var(--surface));
+}
+
+.channelFilters img {
+  width: 18px;
+  height: 18px;
+  object-fit: contain;
+}
+
+.channelMode {
+  display: flex !important;
+  flex-direction: row;
+  flex-wrap: wrap;
+}
+
+.channelFilters[data-compact="true"] {
+  padding: 8px;
+}
+
+.channelFilters[data-compact="true"] button {
+  width: 36px;
+  min-height: 36px;
+  justify-content: center;
+  padding: 0;
+}
+
+.channelFilters[data-compact="true"] .channelMode button {
+  width: auto;
+  min-height: 32px;
+  padding: 0 10px;
+}
+
 .radiusSelector,
 .mobileRadiusSelector {
   min-width: 0;
