@@ -1920,10 +1920,30 @@ export class VendasService {
     return match?.[1] || null;
   }
 
+  private isProtectedRadarStatus(value: unknown) {
+    const status = String(value || '').trim().toLowerCase();
+    return [
+      'negative',
+      'denied',
+      'blocked',
+      'opt_out',
+      'optout',
+      'do_not_contact',
+      'complaint',
+      'discarded',
+      'hidden',
+      'lost',
+      'no_whatsapp',
+      'invalid_whatsapp',
+      'invalid_phone',
+    ].includes(status);
+  }
+
   private async assertRadarLeadImportAllowed(context: { companyId: number }, radarLeadId?: string | null) {
     if (!radarLeadId) return;
-    const [hasPool, hasOwnerColumn] = await Promise.all([
+    const [hasPool, hasState, hasOwnerColumn] = await Promise.all([
       this.prisma.hasTable('RadarLeadPool').catch(() => false),
+      this.prisma.hasTable('RadarLeadCompanyState').catch(() => false),
       this.prisma.hasColumn('RadarLeadPool', 'ownerCompanyId').catch(() => false),
     ]);
     if (!hasPool || !hasOwnerColumn) return;
@@ -1936,9 +1956,22 @@ export class VendasService {
     if (ownerCompanyId && ownerCompanyId !== context.companyId) {
       throw new BadRequestException('Este card do Radar já está na carteira de outra empresa.');
     }
-    const status = String(row.status || '').trim().toLowerCase();
-    if (['negative', 'denied', 'blocked', 'opt_out', 'optout', 'do_not_contact', 'complaint', 'discarded', 'hidden', 'lost', 'no_whatsapp', 'invalid_whatsapp', 'invalid_phone'].includes(status)) {
+    if (this.isProtectedRadarStatus(row.status)) {
       throw new BadRequestException('Este card do Radar está protegido e não pode ser enviado para Vendas.');
+    }
+    if (hasState) {
+      const state = await (this.prisma as any).radarLeadCompanyState.findUnique({
+        where: {
+          companyId_radarLeadId: {
+            companyId: context.companyId,
+            radarLeadId,
+          },
+        },
+        select: { status: true },
+      }).catch(() => null);
+      if (this.isProtectedRadarStatus(state?.status)) {
+        throw new BadRequestException('Este card do Radar está protegido para esta empresa e não pode voltar para Vendas.');
+      }
     }
   }
 
@@ -4062,13 +4095,35 @@ export class VendasService {
     `;
   }
 
+  private async resolveRadarLeadIdForDeletedVendasRow(row: any) {
+    const directRadarLeadId = this.extractRadarLeadId(row?.sourceHistoryId);
+    if (directRadarLeadId) return directRadarLeadId;
+
+    const phoneCandidates = this.buildLeadPhoneNormalizedCandidates(row?.phoneNormalized || row?.phone);
+    if (!phoneCandidates.length) return null;
+
+    const matched = await (this.prisma as any).radarLeadPool.findFirst({
+      where: {
+        OR: [
+          { phoneDigits: { in: phoneCandidates } },
+          { phone: { in: phoneCandidates } },
+        ],
+      },
+      orderBy: [
+        { updatedAt: 'desc' },
+        { lastSeenAt: 'desc' },
+      ],
+      select: { id: true },
+    }).catch(() => null);
+
+    return matched?.id ? String(matched.id) : null;
+  }
+
   private async releaseRadarLeadBackToPool(
     context: { companyId: number; userId: number },
     row: any,
     options: { status: 'discarded' | 'complaint'; reason?: string | null },
   ) {
-    const radarLeadId = this.extractRadarLeadId(row?.sourceHistoryId);
-    if (!radarLeadId) return;
     const [hasPool, hasState, hasEvent, hasOwnerColumn, hasClaimedColumn] = await Promise.all([
       this.prisma.hasTable('RadarLeadPool').catch(() => false),
       this.prisma.hasTable('RadarLeadCompanyState').catch(() => false),
@@ -4077,6 +4132,8 @@ export class VendasService {
       this.prisma.hasColumn('RadarLeadPool', 'claimedAt').catch(() => false),
     ]);
     if (!hasPool || !hasState) return;
+    const radarLeadId = await this.resolveRadarLeadIdForDeletedVendasRow(row);
+    if (!radarLeadId) return;
     const now = new Date();
     const status = options.status === 'complaint' ? 'complaint' : 'discarded';
     const reason = this.normalizeText(options.reason);

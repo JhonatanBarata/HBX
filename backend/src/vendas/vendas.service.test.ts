@@ -135,6 +135,66 @@ function createImportPrismaHarness(now = new Date()) {
   return { prisma, createdRows };
 }
 
+test('assertRadarLeadImportAllowed blocks Radar card discarded for the current company', async () => {
+  const { service } = createService({
+    prisma: {
+      hasTable: async (table: string) => ['RadarLeadPool', 'RadarLeadCompanyState'].includes(table),
+      hasColumn: async (table: string, column: string) => table === 'RadarLeadPool' && column === 'ownerCompanyId',
+      radarLeadPool: {
+        findUnique: async () => ({ id: 'radar-1', ownerCompanyId: null, status: 'clean' }),
+      },
+      radarLeadCompanyState: {
+        findUnique: async () => ({ status: 'discarded' }),
+      },
+    },
+  });
+
+  await assert.rejects(
+    () => (service as any).assertRadarLeadImportAllowed({ companyId: 7 }, 'radar-1'),
+    /protegido para esta empresa/,
+  );
+});
+
+test('releaseRadarLeadBackToPool protects deleted Vendas lead by phone when sourceHistoryId is missing', async () => {
+  let upsertPayload: any = null;
+  const { service } = createService({
+    prisma: {
+      hasTable: async (table: string) => ['RadarLeadPool', 'RadarLeadCompanyState'].includes(table),
+      hasColumn: async (table: string, column: string) => table === 'RadarLeadPool' && ['ownerCompanyId', 'claimedAt'].includes(column),
+      radarLeadPool: {
+        findFirst: async ({ where }: any) => {
+          assert.equal(where.OR[0].phoneDigits.in.includes('5511998877766'), true);
+          return { id: 'radar-by-phone' };
+        },
+        findUnique: async () => ({ id: 'radar-by-phone', ownerCompanyId: 7, status: 'sent_to_vendas' }),
+        update: async () => ({ id: 'radar-by-phone' }),
+      },
+      radarLeadCompanyState: {
+        upsert: async (payload: any) => {
+          upsertPayload = payload;
+          return payload;
+        },
+      },
+    },
+  });
+
+  await (service as any).releaseRadarLeadBackToPool(
+    { companyId: 7, userId: 9 },
+    {
+      id: 'lead-1',
+      sourceHistoryId: null,
+      phone: '+55 11 99887-7766',
+      phoneNormalized: '5511998877766',
+      shortNote: 'Lead do Radar',
+    },
+    { status: 'discarded', reason: 'Card ocultado do Vendas.' },
+  );
+
+  assert.equal(upsertPayload.where.companyId_radarLeadId.radarLeadId, 'radar-by-phone');
+  assert.equal(upsertPayload.update.status, 'discarded');
+  assert.equal(upsertPayload.update.vendasLeadId, null);
+});
+
 test('syncTodayAgendaForUser mirrors today leads into Inbox prospeccao and skips leads without phone', async () => {
   const now = new Date();
   const todayAtNoon = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 12, 0, 0, 0);
