@@ -3,18 +3,18 @@ const path = require('path');
 
 const file = path.join('backend', 'src', 'webscraping', 'webscraping.service.ts');
 if (!fs.existsSync(file)) {
-  throw new Error(`Arquivo não encontrado: ${file}. Rode da raiz do repo App.`);
+  throw new Error('Arquivo não encontrado: ' + file + '. Rode da raiz do repo App.');
 }
 
 let content = fs.readFileSync(file, 'utf8');
 if (content.charCodeAt(0) === 0xfeff) content = content.slice(1);
 
 function findMethodBounds(source, name) {
-  const signature = `\n  private ${name}(`;
+  const signature = '\n  private ' + name + '(';
   const start = source.indexOf(signature);
   if (start < 0) return null;
   const braceStart = source.indexOf('{', start);
-  if (braceStart < 0) throw new Error(`Achei ${name}, mas sem chave inicial.`);
+  if (braceStart < 0) throw new Error('Achei ' + name + ', mas sem chave inicial.');
   let depth = 0;
   for (let i = braceStart; i < source.length; i += 1) {
     const ch = source[i];
@@ -28,7 +28,7 @@ function findMethodBounds(source, name) {
       }
     }
   }
-  throw new Error(`Não consegui fechar o método ${name}.`);
+  throw new Error('Não consegui fechar o método ' + name + '.');
 }
 
 function replaceMethod(source, name, replacement) {
@@ -38,9 +38,9 @@ function replaceMethod(source, name, replacement) {
 }
 
 function insertBeforeMethod(source, targetName, block) {
-  const signature = `\n  private ${targetName}(`;
+  const signature = '\n  private ' + targetName + '(';
   const idx = source.indexOf(signature);
-  if (idx < 0) throw new Error(`Método alvo não encontrado: ${targetName}`);
+  if (idx < 0) throw new Error('Método alvo não encontrado: ' + targetName);
   return source.slice(0, idx + 1) + block.trimEnd() + '\n\n' + source.slice(idx + 1);
 }
 
@@ -94,7 +94,7 @@ const getSearchCityTargets = `
       .filter((item) => item.city || item.state);
     const seen = new Set<string>();
     return ordered.filter((item) => {
-      const key = \`${normalizeLookupValue(item.city)}|${String(item.state || '').trim().toUpperCase()}\`;
+      const key = [normalizeLookupValue(item.city), String(item.state || '').trim().toUpperCase()].join('|');
       if (seen.has(key)) return false;
       seen.add(key);
       return true;
@@ -146,7 +146,7 @@ for (const [name, replacement] of [
   ['buildHbxBatchQueryVariants', buildHbxBatchQueryVariants],
 ]) {
   const next = replaceMethod(content, name, replacement);
-  if (next == null) throw new Error(`Método não encontrado: ${name}`);
+  if (next == null) throw new Error('Método não encontrado: ' + name);
   content = next;
 }
 
