@@ -2958,29 +2958,59 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       .trim();
   }
 
+
+  private expandHbxSegmentAliases(segments: string[]) {
+    const aliases = new Map<string, string[]>([
+      ['acougue', ['açougue', 'açougues', 'casa de carnes', 'carnes', 'boutique de carnes', 'frigorífico varejo']],
+      ['acougues', ['açougue', 'açougues', 'casa de carnes', 'carnes', 'boutique de carnes', 'frigorífico varejo']],
+      ['casa de carnes', ['casa de carnes', 'açougue', 'açougues', 'carnes']],
+    ]);
+    const expanded: string[] = [];
+    for (const segment of segments) {
+      const raw = String(segment || '').replace(/\s+/g, ' ').trim();
+      if (!raw) continue;
+      expanded.push(raw);
+      const key = normalizeLookupValue(raw);
+      for (const [aliasKey, values] of aliases.entries()) {
+        if (key === aliasKey || key.includes(aliasKey)) expanded.push(...values);
+      }
+    }
+    return Array.from(new Set(expanded.map((item) => item.replace(/\s+/g, ' ').trim()).filter(Boolean))).slice(0, 30);
+  }
+
+
   private splitHbxBatchSegments(segment: string) {
     const raw = String(segment || '').trim();
     const categoryKey = normalizeLookupValue(raw);
     if (categoryKey && HBX_CATEGORY_SEGMENTS[categoryKey]) {
-      return HBX_CATEGORY_SEGMENTS[categoryKey].slice(0, 20);
+      return this.expandHbxSegmentAliases(HBX_CATEGORY_SEGMENTS[categoryKey].slice(0, 20)).slice(0, 30);
     }
     const segments = raw.includes(',')
       ? raw.split(',').map((item) => item.replace(/\s+/g, ' ').trim()).filter(Boolean)
       : [raw].filter(Boolean);
-    return Array.from(new Set(segments)).slice(0, 20);
+    return this.expandHbxSegmentAliases(Array.from(new Set(segments))).slice(0, 30);
   }
 
+
   private getSearchCityTargets(input: NormalizedSearchInput) {
-    const region = input.radiusKm > 0 && input.regionalCities.length > 0
-      ? input.regionalCities
-      : [];
-    if (region.length) return region;
-    return [{
+    const primary = {
       city: input.city,
       state: input.state,
       normalizedCity: input.normalizedCity,
       distanceKm: 0,
-    }].filter((item) => item.city || item.state);
+    };
+    const region = input.radiusKm > 0 && input.regionalCities.length > 0
+      ? input.regionalCities
+      : [];
+    const ordered = [primary, ...region]
+      .filter((item) => item.city || item.state);
+    const seen = new Set<string>();
+    return ordered.filter((item) => {
+      const key = [normalizeLookupValue(item.city), String(item.state || '').trim().toUpperCase()].join('|');
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
   }
 
   private buildSearchInputForAttempt(input: NormalizedSearchInput, attempt: number) {
@@ -3014,6 +3044,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
+
   private buildHbxBatchQueryVariants(input: NormalizedSearchInput, segment: string, target: RegionalCity) {
     const city = target.city;
     const state = target.state;
@@ -3026,11 +3057,15 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       : segment;
     return input.targetType === 'pj'
       ? [
+          this.compactQuery([effectiveNiche, city, state]),
+          this.compactQuery([effectiveNiche, city, state, 'telefone']),
+          this.compactQuery([effectiveNiche, city, state, 'whatsapp']),
           this.compactQuery([effectiveNiche, city, state, 'empresa']),
           this.compactQuery([effectiveNiche, city, state, 'maps']),
           this.compactQuery([effectiveNiche, city, state, 'site']),
-          this.compactQuery([effectiveNiche, city, state, 'whatsapp']),
-          this.compactQuery([effectiveNiche, city, state, 'telefone']),
+          this.compactQuery(['site:solutudo.com.br', effectiveNiche, city, state]),
+          this.compactQuery(['site:guiamais.com.br', effectiveNiche, city, state]),
+          this.compactQuery(['site:instagram.com', effectiveNiche, city, state]),
           ddd ? this.compactQuery([effectiveNiche, 'DDD', ddd]) : this.compactQuery([effectiveNiche, city, state]),
         ].filter(Boolean)
       : [
