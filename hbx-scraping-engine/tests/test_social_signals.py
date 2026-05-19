@@ -247,7 +247,7 @@ def test_instagram_social_queries_prioritize_profile_results() -> None:
     assert "site:instagram.com farmacia Sao Paulo -/p/ -/reel/ -/stories/" in queries
 
 
-def test_discover_social_profiles_skips_forced_deep_lookup(monkeypatch) -> None:
+def test_discover_social_profiles_honors_forced_target_without_returning_empty(monkeypatch) -> None:
     calls: list[dict] = []
 
     class FakeDDGS:
@@ -268,8 +268,11 @@ def test_discover_social_profiles_skips_forced_deep_lookup(monkeypatch) -> None:
 
     profiles = discover_social_profiles("São Paulo", "SP", "farmacia", 1, required_channels=["instagram"], target_override=1)
 
-    assert profiles == []
-    assert calls == []
+    assert len(profiles) == 1
+    assert profiles[0]["url"] == "https://instagram.com/farmaciasocial"
+    assert calls
+    assert len(calls) <= 3
+    assert calls[0]["max_results"] == 6
 
 
 def test_discover_urls_keeps_social_out_but_social_discovery_returns_it(monkeypatch) -> None:
