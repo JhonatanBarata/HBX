@@ -4,6 +4,38 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 TargetType = Literal["pj", "pf", "agenda_pf"]
 
+CHANNEL_ALIASES = {
+    "insta": "instagram",
+    "instagram": "instagram",
+    "ig": "instagram",
+    "facebook": "facebook",
+    "face": "facebook",
+    "fb": "facebook",
+    "site": "website",
+    "website": "website",
+    "web": "website",
+    "email": "email",
+    "e-mail": "email",
+    "mail": "email",
+    "telefone": "phone",
+    "phone": "phone",
+    "whatsapp": "whatsapp",
+    "wpp": "whatsapp",
+    "zap": "whatsapp",
+}
+
+
+def normalize_channel_list(values: list[str]) -> list[str]:
+    seen: set[str] = set()
+    normalized: list[str] = []
+    for value in values or []:
+        key = str(value or "").strip().lower().replace("_", "-")
+        channel = CHANNEL_ALIASES.get(key)
+        if channel and channel not in seen:
+            seen.add(channel)
+            normalized.append(channel)
+    return normalized
+
 
 class SearchRequest(BaseModel):
     city: str = ""
@@ -59,7 +91,8 @@ class SearchRequest(BaseModel):
     @field_validator("preferredChannels", "requiredChannels")
     @classmethod
     def normalize_channels(cls, values: list[str]) -> list[str]:
-        return []
+        # Canal pedido e canal preferido são hints de enriquecimento. Nunca devem virar corte cego.
+        return normalize_channel_list(values)
 
     @model_validator(mode="after")
     def validate_limit_by_target_type(self) -> "SearchRequest":
@@ -123,7 +156,8 @@ class EnrichLeadRequest(BaseModel):
     @field_validator("preferredChannels", "requiredChannels")
     @classmethod
     def normalize_enrichment_channels(cls, values: list[str]) -> list[str]:
-        return []
+        # Enriquecimento deve respeitar hints de canal sem bloquear resultado.
+        return normalize_channel_list(values)
 
 
 class EnrichLeadResponse(BaseModel):
