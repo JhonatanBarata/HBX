@@ -24,11 +24,29 @@ SOCIAL_ENRICH_MAX_RESULTS_PER_QUERY = 12
 SOCIAL_ENRICH_MAX_CONTACTS_REQUIRED = 4
 SOCIAL_ENRICH_MAX_CONTACTS_PREFERRED = 2
 SOCIAL_ENRICH_MAX_QUERIES_PER_CHANNEL = 6
-SOCIAL_ENRICH_MAX_HANDLE_VALIDATIONS = 6
-SOCIAL_ENRICH_TOTAL_BUDGET_SECONDS = 35
-SOCIAL_ENRICH_WEBSITE_MAX_QUERIES = 3
+SOCIAL_ENRICH_MAX_HANDLE_VALIDATIONS = 10
+SOCIAL_ENRICH_TOTAL_BUDGET_SECONDS = 70
+SOCIAL_ENRICH_WEBSITE_MAX_QUERIES = 10
+SOCIAL_BRIDGE_HOST_PARTS = ("linktr.ee", "linktree.com", "bio.link", "beacons.ai")
+OFFICIAL_WEBSITE_PROBE_TLDS = ("com.br", "com")
 EMAIL_RE = re.compile(r"[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}", re.I)
-BAD_EMAIL_LOCAL_PARTS = {"example", "email", "teste", "test", "usuario", "user"}
+BAD_EMAIL_LOCAL_PARTS = {
+    "asset",
+    "assets",
+    "example",
+    "email",
+    "favicon",
+    "icon",
+    "image",
+    "img",
+    "logo",
+    "sprite",
+    "teste",
+    "test",
+    "usuario",
+    "user",
+}
+BAD_EMAIL_TLDS = {"css", "gif", "jpeg", "jpg", "js", "png", "svg", "webp"}
 BAD_EMAIL_DOMAINS = {
     "bit.ly",
     "benditoguia.com.br",
@@ -56,7 +74,9 @@ BAD_EMAIL_DOMAINS = {
 }
 
 OFFICIAL_WEBSITE_BLOCKED_DOMAINS = {
+    "aguasdesaopedro.com.br",
     "benditoguia.com.br",
+    "cardapio.menu",
     "econodata.com.br",
     "polomap.com",
     "restaurantguru.com",
@@ -66,6 +86,12 @@ OFFICIAL_WEBSITE_BLOCKED_DOMAINS = {
     "locaisdobrasil.com.br",
     "directmap.biz",
     "gupy.io",
+    "linkedin.com",
+    "pizzariaspertodemim.com",
+    "siteindices.com",
+    "tripadvisor.com",
+    "tripadvisor.com.br",
+    "urlm.com.br",
 }
 
 SOCIAL_QUERY_BAD_NAME_HINTS = (
@@ -115,6 +141,7 @@ BUSINESS_NAME_STOP_TOKENS = {
 BUSINESS_CATEGORY_TOKENS = {
     "auto",
     "bar",
+    "bares",
     "barbearia",
     "beleza",
     "borracharia",
@@ -130,6 +157,7 @@ BUSINESS_CATEGORY_TOKENS = {
     "cortes",
     "confeitaria",
     "confeitarias",
+    "delivery",
     "doceria",
     "docerias",
     "doces",
@@ -140,7 +168,11 @@ BUSINESS_CATEGORY_TOKENS = {
     "hamburgueria",
     "japones",
     "kids",
+    "lanches",
+    "lancheria",
+    "lancherias",
     "lanchonete",
+    "lanchonetes",
     "lounge",
     "loja",
     "marmitaria",
@@ -154,12 +186,16 @@ BUSINESS_CATEGORY_TOKENS = {
     "pizzaiolo",
     "pizzaria",
     "pizza",
+    "pizzas",
     "salao",
     "saude",
     "restaurante",
+    "restaurantes",
     "sobrancelha",
     "studio",
     "sushi",
+    "trattoria",
+    "trattorias",
 }
 
 SOCIAL_GENERIC_BUSINESS_TOKENS = BUSINESS_CATEGORY_TOKENS | {
@@ -178,16 +214,27 @@ SOCIAL_GENERIC_BUSINESS_TOKENS = BUSINESS_CATEGORY_TOKENS | {
     "coworking",
     "cortes",
     "design",
+    "delivery",
     "espaco",
     "esmalteria",
     "estar",
     "estetica",
     "kids",
+    "lanches",
+    "lancheria",
+    "lancherias",
+    "lanchonete",
+    "lanchonetes",
     "loja",
     "manicure",
     "moda",
     "penteados",
     "podologia",
+    "pizzaria",
+    "pizza",
+    "pizzas",
+    "restaurante",
+    "restaurantes",
     "salao",
     "saude",
     "sobrancelha",
@@ -201,9 +248,13 @@ WEAK_SOCIAL_DISTINCTIVE_TOKENS = {
     "bello",
     "bem",
     "bigode",
+    "casa",
+    "casas",
     "central",
     "centro",
     "class",
+    "clinic",
+    "comercial",
     "estilo",
     "express",
     "forte",
@@ -249,8 +300,6 @@ class SearchService:
             "instagram": bool(contact.get("instagramUrl")),
             "facebook": bool(contact.get("facebookUrl")),
         }
-        if required_channels == {"instagram", "facebook"}:
-            return available["instagram"] or available["facebook"]
         return all(available[channel] for channel in required_channels)
 
     def time_budget_expired(self, deadline: float | None) -> bool:
@@ -362,6 +411,19 @@ class SearchService:
         distinctive_tokens = self.distinctive_social_name_tokens(name)
         return list(dict.fromkeys(category_tokens)), list(dict.fromkeys(distinctive_tokens))
 
+    def social_category_token_variants(self, token: str) -> list[str]:
+        normalized = text_key(token)
+        variants = [normalized]
+        if len(normalized) >= 5 and normalized.endswith("s"):
+            variants.append(normalized[:-1])
+        if normalized in {"pizzaria", "pizzarias"}:
+            variants.extend(["pizza", "pizzas"])
+        if normalized in {"lanchonete", "lanchonetes"}:
+            variants.append("lanches")
+        if normalized in {"restaurante", "restaurantes"}:
+            variants.extend(["restaurante", "restaurantes"])
+        return list(dict.fromkeys(value for value in variants if value))
+
     def handle_matches_business_identity(self, handle_key: str, category_tokens: list[str], distinctive_tokens: list[str]) -> bool:
         if not handle_key or not category_tokens or not distinctive_tokens:
             return False
@@ -372,7 +434,12 @@ class SearchService:
         ]
         if not strong_distinctive_tokens:
             return False
-        has_category = any(token and token in handle_key for token in category_tokens)
+        category_variants = [
+            variant
+            for token in category_tokens
+            for variant in self.social_category_token_variants(token)
+        ]
+        has_category = any(token and token in handle_key for token in category_variants)
         has_distinctive = any(token and token in handle_key for token in strong_distinctive_tokens)
         return has_category and has_distinctive
 
@@ -557,7 +624,8 @@ class SearchService:
         path_has_name = bool(
             name_compact and len(name_compact) >= 8 and name_compact in path_compact
             or variant_match
-            or strong_distinctive_path_matches >= 1
+            or strong_distinctive_path_matches >= 2
+            or (strong_distinctive_path_matches >= 1 and category_match)
         )
         phone_match = bool(phone_tail and phone_tail in re.sub(r"\D", "", combined))
         domain_match = bool(domain_key and (domain_key in combined_key or website_domain in combined.lower()))
@@ -602,7 +670,7 @@ class SearchService:
             return candidates
         try:
             try:
-                ddgs = DDGS(timeout=self.remaining_budget_seconds(deadline, 2))
+                ddgs = DDGS(timeout=self.remaining_budget_seconds(deadline, 6))
             except TypeError:
                 ddgs = DDGS()
             with ddgs as client:
@@ -614,7 +682,24 @@ class SearchService:
                         break
                     raw_url = str(row.get("href") or row.get("url") or "").strip()
                     url = normalize_social_url(raw_url)
+                    bridge_social_urls: list[str] = []
                     if not url or channel not in url.lower():
+                        bridge_social_urls = self.extract_social_urls_from_bridge(raw_url, channel, deadline)
+                        if not bridge_social_urls:
+                            continue
+                        for url_to_score in bridge_social_urls:
+                            candidate_score = self.score_social_candidate(contact, row, url_to_score, channel, city, segment, query)
+                            if candidate_score < 55:
+                                continue
+                            candidates.append(
+                                {
+                                    "url": url_to_score,
+                                    "score": candidate_score,
+                                    "query": query,
+                                    "title": row.get("title") or "",
+                                    "snippet": row.get("body") or row.get("snippet") or "",
+                                }
+                            )
                         continue
                     candidate_score = self.score_social_candidate(contact, row, url, channel, city, segment, query)
                     combined = f"{row.get('title') or ''} {row.get('body') or ''} {row.get('snippet') or ''} {row.get('description') or ''} {url}"
@@ -672,7 +757,7 @@ class SearchService:
                         or city_key and city_key in combined_key and (distinctive_match or handle_identity_match)
                         or query_identity_match
                     )
-                    if candidate_score >= 70 and has_identity_evidence:
+                    if candidate_score >= 55 and has_identity_evidence:
                         candidates.append({
                             "url": url,
                             "score": candidate_score,
@@ -682,6 +767,33 @@ class SearchService:
         except Exception as error:
             print(f"[social_enrich] query falhou: {query} error={error}")
         return candidates
+
+    def extract_social_urls_from_bridge(self, raw_url: str, channel: str, deadline: float | None = None) -> list[str]:
+        if self.time_budget_expired(deadline):
+            return []
+        parsed = urlparse(str(raw_url or ""))
+        host = parsed.netloc.lower().removeprefix("www.")
+        if not any(part in host for part in SOCIAL_BRIDGE_HOST_PARTS):
+            return []
+        try:
+            response = httpx.get(
+                str(raw_url),
+                timeout=self.remaining_budget_seconds(deadline, 3),
+                follow_redirects=True,
+                headers={"user-agent": self.settings.user_agent},
+            )
+            if response.status_code >= 400:
+                return []
+            page_text = response.text.replace("\\/", "/").replace("&amp;", "&")
+            pattern = r"https?://(?:www\.)?(?:instagram|facebook)\.com/[A-Za-z0-9._%+\-/]+"
+            found: list[str] = []
+            for match in re.findall(pattern, page_text, flags=re.I):
+                normalized = normalize_social_url(match.rstrip(".,;:)"))
+                if normalized and channel in normalized.lower() and is_valid_social_profile_url(normalized):
+                    found.append(normalized)
+            return list(dict.fromkeys(found))[:4]
+        except Exception:
+            return []
 
     def search_social_profile_url(self, contact: dict, query: str, channel: str, city: str, segment: str, deadline: float | None = None) -> tuple[str | None, int]:
         candidates = self.search_social_profile_candidates(contact, query, channel, city, segment, deadline)
@@ -775,16 +887,6 @@ class SearchService:
         return None, 0
 
     def guessed_social_url_for_contact(self, contact: dict, channel: str, city: str = "", deadline: float | None = None) -> tuple[str | None, int]:
-        if SOCIAL_ENRICH_MAX_HANDLE_VALIDATIONS <= 0:
-            return None, 0
-        if channel != "instagram":
-            return None, 0
-        for handle in self.business_social_handle_candidates(str(contact.get("name") or ""))[:SOCIAL_ENRICH_MAX_HANDLE_VALIDATIONS]:
-            if self.time_budget_expired(deadline):
-                return None, 0
-            url, score = self.validate_guessed_social_url(contact, channel, handle, city, deadline)
-            if url:
-                return url, score
         return None, 0
 
     def score_website_candidate(self, contact: dict, row: dict, url: str, city: str) -> int:
@@ -834,7 +936,7 @@ class SearchService:
             queries.append(f"{q_variant} {q_city}".strip())
         try:
             try:
-                ddgs = DDGS(timeout=self.remaining_budget_seconds(deadline, 2))
+                ddgs = DDGS(timeout=self.remaining_budget_seconds(deadline, 6))
             except TypeError:
                 ddgs = DDGS()
             best_url: str | None = None
@@ -865,6 +967,88 @@ class SearchService:
                 return f"{parsed.scheme}://{parsed.netloc}".rstrip("/"), best_score, best_query
         except Exception as error:
             print(f"[website_enrich] falhou name={contact.get('name')} error={error}")
+        return self.probe_direct_website_for_contact(contact, city, deadline)
+
+    def direct_website_candidate_urls(self, contact: dict) -> list[str]:
+        compact_seen: set[str] = set()
+        compacts: list[str] = []
+        for variant in self.business_name_variants(str(contact.get("name") or "")):
+            compact = self.compact_key(variant)
+            if compact in compact_seen:
+                continue
+            compact_seen.add(compact)
+            if len(compact) < 6:
+                continue
+            if len(compact) > 28:
+                continue
+            if compact in {"restaurante", "pizzaria", "choperia", "barbearia", "oficina", "autopecas"}:
+                continue
+            if compact.endswith(("pizzaria", "restaurante", "choperia", "barbearia", "oficina")):
+                continue
+            compacts.append(compact)
+
+        seen: set[str] = set()
+        urls: list[str] = []
+        for tld in OFFICIAL_WEBSITE_PROBE_TLDS:
+            for prefix in ("", "www."):
+                for compact in compacts:
+                    host = f"{prefix}{compact}.{tld}"
+                    if host in seen:
+                        continue
+                    seen.add(host)
+                    urls.append(f"https://{host}")
+        return urls[:12]
+
+    def probe_direct_website_for_contact(self, contact: dict, city: str, deadline: float | None = None) -> tuple[str | None, int, str | None]:
+        phone_digits = re.sub(r"\D", "", str(contact.get("phoneDigits") or contact.get("phone") or ""))
+        phone_tail = phone_digits[-8:] if len(phone_digits) >= 8 else ""
+        city_key = text_key(city or contact.get("city"))
+        variants = self.business_name_variants(str(contact.get("name") or ""))
+        variant_keys = [text_key(variant) for variant in variants if text_key(variant)]
+        variant_compacts = [self.compact_key(variant) for variant in variants if len(self.compact_key(variant)) >= 6]
+
+        for url in self.direct_website_candidate_urls(contact):
+            if self.time_budget_expired(deadline):
+                break
+            try:
+                response = httpx.get(
+                    url,
+                    follow_redirects=True,
+                    timeout=self.remaining_budget_seconds(deadline, 4),
+                    headers={"User-Agent": "Mozilla/5.0 HBXLeadEnrichment/1.0"},
+                )
+            except Exception:
+                continue
+            if response.status_code >= 400:
+                continue
+            final_url = str(response.url or url)
+            parsed = urlparse(final_url)
+            host = parsed.netloc.lower().replace("www.", "")
+            if not parsed.scheme or not host:
+                continue
+            if any(host == domain or host.endswith(f".{domain}") for domain in OFFICIAL_WEBSITE_BLOCKED_DOMAINS):
+                continue
+            html = response.text or ""
+            title_match = re.search(r"<title[^>]*>(.*?)</title>", html, re.I | re.S)
+            title = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", title_match.group(1))).strip() if title_match else ""
+            body = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", html[:80_000])).strip()
+            content_key = text_key(f"{title} {body}")
+            content_compact = self.compact_key(f"{title} {body}")
+            identity_match = any(key and key in content_key for key in variant_keys) or any(
+                compact and compact in content_compact for compact in variant_compacts
+            )
+            city_match = bool(city_key and city_key in content_key)
+            phone_match = bool(phone_tail and phone_tail in re.sub(r"\D", "", body))
+            if not identity_match or not (city_match or phone_match or len(content_key) > 120):
+                continue
+            score = self.score_website_candidate(
+                contact,
+                {"title": title, "body": body[:5000]},
+                final_url,
+                city,
+            )
+            if score >= 65:
+                return f"{parsed.scheme}://{parsed.netloc}".rstrip("/"), score, f"direct_probe:{urlparse(url).netloc}"
         return None, 0, None
 
     def score_social_profile_for_contact(self, contact: dict, profile: dict, city: str, segment: str) -> int:
@@ -886,14 +1070,15 @@ class SearchService:
         phone_tail = phone_digits[-8:] if len(phone_digits) >= 8 else ""
 
         name_tokens = self.social_name_tokens(name)
-        token_hits = sum(1 for token in name_tokens if token in combined_key)
+        distinctive_tokens = self.distinctive_social_name_tokens(name)
+        token_hits = sum(1 for token in distinctive_tokens if token in combined_key)
 
         score = 0
         if name_key and name_key in combined_key:
             score += 50
         if name_compact and name_compact in combined_compact:
             score += 45
-        if name_tokens and token_hits >= max(1, min(2, len(name_tokens))):
+        if distinctive_tokens and token_hits >= max(1, min(2, len(distinctive_tokens))):
             score += 35
         elif token_hits == 1:
             score += 18
@@ -906,7 +1091,7 @@ class SearchService:
         if phone_tail and phone_tail in re.sub(r"\D", "", combined):
             score += 30
 
-        if not name_tokens and not website_stem:
+        if not distinctive_tokens and not website_stem:
             score -= 50
         if score <= 0:
             score = -20
@@ -1166,6 +1351,26 @@ class SearchService:
                 channel for channel in ("instagram", "facebook")
                 if channel in requested_channels and channel not in required_social
             ]
+            if not required_social:
+                for channel in ordered_channels:
+                    field = "instagramUrl" if channel == "instagram" else "facebookUrl"
+                    if contact.get(field):
+                        continue
+                    url, score = self.guessed_social_url_for_contact(contact, channel, city, deadline)
+                    if url:
+                        contact[field] = url
+                        contact.setdefault("_socialEnrichment", {})[field] = {
+                            "score": score,
+                            "query": "validated_handle_guess",
+                            "status": "confirmed" if score >= 70 else "probable",
+                        }
+                        stats["matches"].append({
+                            "field": field,
+                            "url": url,
+                            "score": score,
+                            "status": "confirmed" if score >= 70 else "probable",
+                            "query": "validated_handle_guess",
+                        })
             if required_social:
                 for channel in ordered_channels:
                     if channel not in required_social:
@@ -1290,6 +1495,9 @@ class SearchService:
         local, _, domain = candidate.partition("@")
         if not local or not domain or domain in BAD_EMAIL_DOMAINS or local in BAD_EMAIL_LOCAL_PARTS:
             return None
+        tld = domain.rsplit(".", 1)[-1]
+        if tld in BAD_EMAIL_TLDS:
+            return None
         return candidate
 
     def email_status_for_candidate(self, email: str | None, website: str | None, source: str) -> tuple[str, int]:
@@ -1346,6 +1554,9 @@ class SearchService:
         budget_seconds = max(5.0, min(SOCIAL_ENRICH_TOTAL_BUDGET_SECONDS, requested_budget))
         deadline = time.monotonic() + budget_seconds
         phone_digits = re.sub(r"\D", "", request.phoneDigits or request.phone or "")
+        required_channels = {str(channel or "").strip().lower() for channel in (request.requiredChannels or [])}
+        website_required = bool({"website", "site"} & required_channels)
+        social_required = bool({"instagram", "facebook"} & required_channels)
         contact = {
             "name": request.name,
             "phone": request.phone or phone_digits,
@@ -1360,18 +1571,31 @@ class SearchService:
             "source": "hbx_scraping:lead_plus_enrichment",
             "score": 70,
         }
+        if website_required and not contact.get("website") and not self.time_budget_expired(deadline):
+            website_deadline = min(deadline, time.monotonic() + 18)
+            direct_deadline = min(website_deadline, time.monotonic() + 10)
+            website, website_score, website_query = self.probe_direct_website_for_contact(contact, request.city, direct_deadline)
+            if not website and not social_required and not self.time_budget_expired(website_deadline):
+                website, website_score, website_query = self.discover_website_for_contact(contact, request.city, website_deadline)
+            if website:
+                contact["website"] = website
+                contact["_websiteEnrichment"] = {
+                    "score": website_score,
+                    "query": website_query,
+                }
+        preferred_channels = request.preferredChannels if request.preferredChannels is not None else ["instagram", "facebook"]
         contacts, social_stats = self.enrich_social_links_for_contacts(
             [contact],
             request.city,
             request.state,
             request.segment,
-            request.preferredChannels or ["instagram", "facebook"],
+            preferred_channels,
             request.requiredChannels,
             time_budget_seconds=self.remaining_budget_seconds(deadline, budget_seconds),
         )
         enriched = contacts[0] if contacts else contact
         if not enriched.get("website") and not self.time_budget_expired(deadline):
-            website_deadline = min(deadline, time.monotonic() + 6)
+            website_deadline = min(deadline, time.monotonic() + 10)
             website, website_score, website_query = self.discover_website_for_contact(enriched, request.city, website_deadline)
             if website:
                 enriched["website"] = website

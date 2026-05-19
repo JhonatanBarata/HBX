@@ -131,11 +131,13 @@ class EnrichLeadRequest(BaseModel):
     @field_validator("preferredChannels", "requiredChannels")
     @classmethod
     def normalize_enrichment_channels(cls, values: list[str]) -> list[str]:
-        allowed = {"instagram", "facebook"}
+        allowed = {"instagram", "facebook", "email", "website", "phone", "whatsapp"}
         seen: set[str] = set()
         normalized: list[str] = []
         for value in values or []:
             channel = str(value or "").strip().lower()
+            if channel in {"site", "web", "www"}:
+                channel = "website"
             if channel in allowed and channel not in seen:
                 seen.add(channel)
                 normalized.append(channel)

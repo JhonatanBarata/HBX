@@ -8,6 +8,8 @@ BLOCKED_HOST_PARTS = (
     "youtube.com",
     "youtu.be",
     "tiktok.com",
+    "cardapio.menu",
+    "aguasdesaopedro.com.br",
     "querobolsa.com.br",
 )
 SOCIAL_SIGNAL_HOST_PARTS = ("instagram.com", "facebook.com")
@@ -21,6 +23,8 @@ PF_TECHNICAL_BLOCKED_HOST_PARTS = (
 
 DIRECTORY_HOST_HINTS = (
     "guia",
+    "cardapio.menu",
+    "aguasdesaopedro.com.br",
     "apontador",
     "telelistas",
     "econodata",
@@ -95,6 +99,9 @@ GENERIC_NAME_PREFIXES = (
     "blog ",
     "preco de ",
     "quanto custa ",
+    "gastronomia na ",
+    "gastronomia no ",
+    "gastronomia em ",
     "sms para ",
     "otimizacao seo",
     "whatsapp da ",
@@ -165,6 +172,8 @@ GENERIC_NAME_CONTAINS = (
     "trocar tela iphone",
     "locacao de aparelho",
     "telhado com",
+    "estancia hidromineral",
+    "gastronomia completo",
     "tudo o que voce precisa saber",
     " abre processo seletivo ",
     "dicas de ",
@@ -389,6 +398,10 @@ def _looks_like_category_location_title(key: str, city_key: str = "", segment: s
         if key.startswith(f"{head} em "):
             return True
         if key.startswith(f"{head} no ") or key.startswith(f"{head} na "):
+            return True
+        if city_key and key.startswith(f"{head} ") and f" em {city_key}" in key:
+            return True
+        if city_key and key.startswith(f"{head} ") and (f" no {city_key}" in key or f" na {city_key}" in key):
             return True
         if city_key and key == f"{head} em {city_key}":
             return True
