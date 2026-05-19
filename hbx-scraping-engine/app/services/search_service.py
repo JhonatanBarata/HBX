@@ -287,20 +287,13 @@ class SearchService:
         preferred_channels: list[str] | None = None,
         required_channels: list[str] | None = None,
     ) -> set[str]:
-        values = [*(preferred_channels or []), *(required_channels or [])]
-        return {str(channel or "").strip().lower() for channel in values if str(channel or "").strip().lower() in {"instagram", "facebook"}}
+        return set()
 
     def required_social_channels(self, required_channels: list[str] | None = None) -> set[str]:
-        return {str(channel or "").strip().lower() for channel in (required_channels or []) if str(channel or "").strip().lower() in {"instagram", "facebook"}}
+        return set()
 
     def has_required_social_channels(self, contact: dict, required_channels: set[str]) -> bool:
-        if not required_channels:
-            return True
-        available = {
-            "instagram": bool(contact.get("instagramUrl")),
-            "facebook": bool(contact.get("facebookUrl")),
-        }
-        return all(available[channel] for channel in required_channels)
+        return True
 
     def time_budget_expired(self, deadline: float | None) -> bool:
         return bool(deadline is not None and time.monotonic() >= deadline)
@@ -1266,10 +1259,10 @@ class SearchService:
             "socialProfilesPromoted": len(valid),
         }
         social_stats = {
-            "requestedChannels": sorted(self.requested_social_channels(request.preferredChannels, request.requiredChannels)),
-            "requiredChannels": sorted(self.required_social_channels(request.requiredChannels)),
+            "requestedChannels": [],
+            "requiredChannels": [],
             "enrichmentRan": False,
-            "mode": "required",
+            "mode": "off",
             "processed": 0,
             "skippedBadCandidate": 0,
             "enrichedCount": 0,
@@ -1281,7 +1274,7 @@ class SearchService:
             "[social_first] "
             f"profiles={social_discovery_stats['profilesDiscovered']} "
             f"promoted={len(valid)} "
-            f"required={','.join(sorted(self.required_social_channels(request.requiredChannels)))}"
+            "required=off"
         )
         return SearchResponse(
             query=QueryPayload(city=request.city, state=request.state, segment=request.segment, query=request.query, targetType=request.targetType, limit=request.limit),
@@ -1303,8 +1296,8 @@ class SearchService:
         required_channels: list[str] | None = None,
         time_budget_seconds: float | None = None,
     ) -> tuple[list[dict], dict]:
-        requested_channels = self.requested_social_channels(preferred_channels, required_channels)
-        required_social = self.required_social_channels(required_channels)
+        requested_channels: set[str] = set()
+        required_social: set[str] = set()
         mode = "required" if required_social else "best_effort"
         deadline = time.monotonic() + time_budget_seconds if time_budget_seconds else None
         if not requested_channels:
@@ -1554,7 +1547,7 @@ class SearchService:
         budget_seconds = max(5.0, min(SOCIAL_ENRICH_TOTAL_BUDGET_SECONDS, requested_budget))
         deadline = time.monotonic() + budget_seconds
         phone_digits = re.sub(r"\D", "", request.phoneDigits or request.phone or "")
-        required_channels = {str(channel or "").strip().lower() for channel in (request.requiredChannels or [])}
+        required_channels: set[str] = set()
         website_required = bool({"website", "site"} & required_channels)
         social_required = bool({"instagram", "facebook"} & required_channels)
         contact = {
@@ -1583,14 +1576,14 @@ class SearchService:
                     "score": website_score,
                     "query": website_query,
                 }
-        preferred_channels = request.preferredChannels if request.preferredChannels is not None else ["instagram", "facebook"]
+        preferred_channels: list[str] = []
         contacts, social_stats = self.enrich_social_links_for_contacts(
             [contact],
             request.city,
             request.state,
             request.segment,
             preferred_channels,
-            request.requiredChannels,
+            [],
             time_budget_seconds=self.remaining_budget_seconds(deadline, budget_seconds),
         )
         enriched = contacts[0] if contacts else contact
@@ -1637,8 +1630,8 @@ class SearchService:
     async def search(self, request: SearchRequest) -> SearchResponse:
         excluded_phones = set(request.excludePhoneDigits or [])
         excluded_urls = set(request.excludeUrls or [])
-        requested_social_channels = self.requested_social_channels(request.preferredChannels, request.requiredChannels)
-        required_social_channels = self.required_social_channels(request.requiredChannels)
+        requested_social_channels: set[str] = set()
+        required_social_channels: set[str] = set()
         social_requested = bool(requested_social_channels)
 
         if request.targetType != "pj" and not request.fresh and not excluded_phones and not excluded_urls and not social_requested:
@@ -1659,8 +1652,8 @@ class SearchService:
                 request.state,
                 request.segment,
                 request.limit,
-                request.preferredChannels,
-                request.requiredChannels,
+                [],
+                [],
             )
 
         urls = await asyncio.to_thread(
@@ -1674,8 +1667,8 @@ class SearchService:
             len(excluded_phones),
             request.query,
             list(excluded_urls),
-            request.preferredChannels,
-            request.requiredChannels,
+            [],
+            [],
         )
         print(f"[search] URLs encontradas: {len(urls)}")
 
@@ -1742,8 +1735,8 @@ class SearchService:
                 request.city,
                 request.state,
                 request.segment,
-                request.preferredChannels,
-                request.requiredChannels,
+                [],
+                [],
             )
             social_stats["discovery"] = social_discovery_stats
         allowed_fields = {"name", "phone", "phoneDigits", "rating", "reviews", "address", "website", "instagramUrl", "facebookUrl", "source", "score"}
@@ -1769,9 +1762,6 @@ class SearchService:
                 continue
             if request.targetType != "pf" and int(item.get("score") or 0) < min_score:
                 stats["low_score"] += 1
-                continue
-            if request.targetType == "pj" and not self.has_required_social_channels(item, required_social_channels):
-                stats["missing_required_channel"] += 1
                 continue
             public_item = {key: value for key, value in item.items() if key in allowed_fields}
             public_item["_technicalScore"] = int(item.get("score") or 0)
@@ -1871,8 +1861,8 @@ class SearchService:
                 0,
                 request.query,
                 list(excluded_urls),
-                request.preferredChannels,
-                request.requiredChannels,
+                [],
+                [],
             )
             discovered_count = len(urls)
             print(f"[search:agenda_pf] urls_descobertas={discovered_count}")

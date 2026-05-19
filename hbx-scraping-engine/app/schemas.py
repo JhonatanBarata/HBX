@@ -59,15 +59,7 @@ class SearchRequest(BaseModel):
     @field_validator("preferredChannels", "requiredChannels")
     @classmethod
     def normalize_channels(cls, values: list[str]) -> list[str]:
-        allowed = {"whatsapp", "instagram", "email", "website", "phone", "facebook"}
-        seen: set[str] = set()
-        normalized: list[str] = []
-        for value in values or []:
-            channel = str(value or "").strip().lower()
-            if channel in allowed and channel not in seen:
-                seen.add(channel)
-                normalized.append(channel)
-        return normalized
+        return []
 
     @model_validator(mode="after")
     def validate_limit_by_target_type(self) -> "SearchRequest":
@@ -119,7 +111,7 @@ class EnrichLeadRequest(BaseModel):
     email: str | None = None
     instagramUrl: str | None = None
     facebookUrl: str | None = None
-    preferredChannels: list[str] = Field(default_factory=lambda: ["instagram", "facebook"])
+    preferredChannels: list[str] = Field(default_factory=list)
     requiredChannels: list[str] = Field(default_factory=list)
     timeBudgetSeconds: float | None = None
 
@@ -131,17 +123,7 @@ class EnrichLeadRequest(BaseModel):
     @field_validator("preferredChannels", "requiredChannels")
     @classmethod
     def normalize_enrichment_channels(cls, values: list[str]) -> list[str]:
-        allowed = {"instagram", "facebook", "email", "website", "phone", "whatsapp"}
-        seen: set[str] = set()
-        normalized: list[str] = []
-        for value in values or []:
-            channel = str(value or "").strip().lower()
-            if channel in {"site", "web", "www"}:
-                channel = "website"
-            if channel in allowed and channel not in seen:
-                seen.add(channel)
-                normalized.append(channel)
-        return normalized
+        return []
 
 
 class EnrichLeadResponse(BaseModel):

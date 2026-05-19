@@ -59,6 +59,7 @@ type MobileAgendaTab = "overdue" | "today" | "upcoming";
 type MobileVendasSection = "today" | "cards" | "report";
 type WhatsappFilter = "all" | "with" | "without";
 type InboxFilter = "all" | "in" | "out";
+type MobileVisualChannelFilter = "whatsapp" | "instagram" | "email" | "site" | "phone" | "facebook";
 type MobileReturnScheduler = {
   leadId: string;
   leadName: string;
@@ -373,6 +374,15 @@ type LeadDraft = {
 };
 
 type MobileChannelAsset = "phone" | "whatsapp" | "instagram" | "facebook" | "email" | "site";
+
+const MOBILE_VISUAL_FILTERS: Array<{ value: MobileVisualChannelFilter; label: string; asset: MobileChannelAsset }> = [
+  { value: "whatsapp", label: "WhatsApp", asset: "whatsapp" },
+  { value: "instagram", label: "Instagram", asset: "instagram" },
+  { value: "email", label: "E-mail", asset: "email" },
+  { value: "site", label: "Site", asset: "site" },
+  { value: "phone", label: "Telefone", asset: "phone" },
+  { value: "facebook", label: "Facebook", asset: "facebook" },
+];
 
 const MOBILE_CHANNEL_ASSETS: Record<MobileChannelAsset, { light: string; dark: string; label: string }> = {
   phone: {
@@ -764,6 +774,25 @@ function leadEmailForDisplay(lead: LeadItem) {
 
 function leadWebsiteForDisplay(lead: LeadItem) {
   return String(lead.website || "").trim();
+}
+
+function leadVisualScore(lead: LeadItem) {
+  return Math.max(0, Math.min(100, Math.round(Number(lead.leadIntelligence?.opportunityScore || 0))));
+}
+
+function leadHasVisualChannel(lead: LeadItem, channel: MobileVisualChannelFilter) {
+  const intelligence = lead.leadIntelligence || {};
+  if (channel === "phone") return Boolean(normalizePhoneDigits(lead.phone || ""));
+  if (channel === "whatsapp") {
+    const availabilityStatus = String(lead.whatsappAvailability?.status || "").trim().toLowerCase();
+    const intelligenceStatus = String(intelligence.whatsappStatus || "").trim().toLowerCase();
+    return Boolean(normalizePhoneDigits(lead.phone || "")) && availabilityStatus !== "unavailable" && intelligenceStatus !== "unavailable";
+  }
+  if (channel === "instagram") return Boolean(String(intelligence.instagramUrl || "").trim());
+  if (channel === "facebook") return Boolean(String(intelligence.facebookUrl || "").trim());
+  if (channel === "email") return Boolean(leadEmailForDisplay(lead));
+  if (channel === "site") return Boolean(leadWebsiteForDisplay(lead));
+  return false;
 }
 
 function normalizeExternalUrl(value?: string | null) {
@@ -2343,6 +2372,8 @@ export default function VendasClientPage() {
     useState<string | null>(null);
   const [mobileAnimatedScore, setMobileAnimatedScore] = useState(0);
   const [mobileScoreLead, setMobileScoreLead] = useState<LeadItem | null>(null);
+  const [mobileVisualChannelFilters, setMobileVisualChannelFilters] = useState<MobileVisualChannelFilter[]>([]);
+  const [mobileMinScoreFilter, setMobileMinScoreFilter] = useState(0);
   const [mobileNoteLead, setMobileNoteLead] = useState<LeadItem | null>(null);
   const [mobileNoteDraft, setMobileNoteDraft] = useState("");
   const [mobileSavingNote, setMobileSavingNote] = useState(false);
@@ -3050,6 +3081,18 @@ export default function VendasClientPage() {
     });
   }, [board]);
 
+  const mobileVisualFiltersUnlocked = Boolean(
+    board?.capabilities?.canUseAdvancedFilters ||
+    board?.capabilities?.canSeeLeadIntelligence ||
+    board?.capabilities?.canSeeSocialLinks === true ||
+    salesProfile?.capabilities?.canUseAdvancedFilters ||
+    salesProfile?.capabilities?.canSeeLeadIntelligence ||
+    salesProfile?.capabilities?.canSeeSocialLinks === true,
+  );
+  const mobileVisualFiltersActive = mobileVisualFiltersUnlocked && (
+    mobileVisualChannelFilters.length > 0 || mobileMinScoreFilter > 0
+  );
+
   const mobileLeads = useMemo(() => {
     const normalized = mobileSearch.trim().toLowerCase();
     const liveLeads = (mobileSection === "cards" ? allLeads.filter(({ block }) => block !== "closed") : allLeads.filter(({ block }) => {
@@ -3063,8 +3106,14 @@ export default function VendasClientPage() {
         new Date(right.lead.returnAt || right.lead.updatedAt || 0).getTime()
       );
     });
-    if (!normalized) return liveLeads.slice(0, 24);
-    return liveLeads
+    const visuallyFiltered = mobileVisualFiltersActive
+      ? liveLeads.filter(({ lead }) => (
+          mobileVisualChannelFilters.every((channel) => leadHasVisualChannel(lead, channel)) &&
+          leadVisualScore(lead) >= mobileMinScoreFilter
+        ))
+      : liveLeads;
+    if (!normalized) return visuallyFiltered;
+    return visuallyFiltered
       .filter(({ lead, block }) =>
         [
           lead.name,
@@ -3080,14 +3129,41 @@ export default function VendasClientPage() {
           .join(" ")
           .toLowerCase()
           .includes(normalized),
-      )
-      .slice(0, 24);
-  }, [allLeads, mobileAgendaTab, mobileSearch, mobileSection]);
+      );
+  }, [
+    allLeads,
+    mobileAgendaTab,
+    mobileMinScoreFilter,
+    mobileSearch,
+    mobileSection,
+    mobileVisualChannelFilters,
+    mobileVisualFiltersActive,
+  ]);
 
   const selectedMobileLead = useMemo(() => {
     if (!selectedMobileLeadId) return null;
     return allLeads.find(({ lead }) => lead.id === selectedMobileLeadId)?.lead || null;
   }, [allLeads, selectedMobileLeadId]);
+
+  function toggleMobileVisualFilter(channel: MobileVisualChannelFilter) {
+    if (!mobileVisualFiltersUnlocked) return;
+    setMobileVisualChannelFilters((current) =>
+      current.includes(channel)
+        ? current.filter((item) => item !== channel)
+        : [...current, channel],
+    );
+  }
+
+  function clearMobileVisualFilters() {
+    if (!mobileVisualFiltersUnlocked) return;
+    setMobileVisualChannelFilters([]);
+    setMobileMinScoreFilter(0);
+  }
+
+  function stepMobileScoreFilter(delta: number) {
+    if (!mobileVisualFiltersUnlocked) return;
+    setMobileMinScoreFilter((current) => Math.max(0, Math.min(100, current + delta)));
+  }
 
   useEffect(() => {
     if (selectedMobileLeadId) saveMobileOpenLeadId(selectedMobileLeadId);
@@ -4103,10 +4179,8 @@ export default function VendasClientPage() {
           ? "Preparando sua agenda"
         : mobileRadarState === "receiving"
           ? "ABASTECENDO SUA AGENDA"
-          : mobileRadarState === "partial"
-            ? radarBlockedByStrictFilters
-              ? "Filtros barraram todos"
-              : "Amplie cidade ou segmento"
+            : mobileRadarState === "partial"
+            ? "Amplie cidade ou segmento"
             : mobileRadarState === "warning"
               ? "Abra o Radar para revisar"
               : mobileRadarState === "received"
@@ -4140,9 +4214,7 @@ export default function VendasClientPage() {
           : mobileRadarState === "receiving"
             ? `Cards aprovados chegando de ${radarContextLabel}.`
             : mobileRadarState === "partial"
-              ? radarBlockedByStrictFilters
-                ? "O Radar achou cards brutos, mas nenhum passou por todos os filtros obrigatórios."
-                : "O Radar entregou o que encontrou. Ajuste filtros para completar."
+              ? "O Radar entregou o que encontrou. Ajuste cidade ou segmento para completar."
               : mobileRadarState === "warning"
                 ? "Revise o Radar para destravar a busca."
                 : "Radar alimentou sua agenda comercial.";
@@ -4834,6 +4906,75 @@ export default function VendasClientPage() {
             </button>
           </div>
 
+          <section
+            className={styles.mobileVendasVisualFilters}
+            data-locked={mobileVisualFiltersUnlocked ? "false" : "true"}
+            data-active={mobileVisualFiltersActive ? "true" : "false"}
+            aria-label="Filtros visuais dos cards"
+          >
+            <div className={styles.mobileVendasVisualFilterScroller}>
+              {MOBILE_VISUAL_FILTERS.map((filter) => {
+                const active = mobileVisualChannelFilters.includes(filter.value);
+                return (
+                  <button
+                    type="button"
+                    key={filter.value}
+                    data-active={active ? "true" : "false"}
+                    disabled={!mobileVisualFiltersUnlocked}
+                    onClick={() => toggleMobileVisualFilter(filter.value)}
+                    title={mobileVisualFiltersUnlocked ? filter.label : "Disponível no HBX Lead"}
+                    aria-label={`${active ? "Remover filtro" : "Filtrar por"} ${filter.label}`}
+                  >
+                    <MobileChannelIconAsset channel={filter.asset} />
+                    <span>{filter.label}</span>
+                    {active ? <b>on</b> : null}
+                    {!mobileVisualFiltersUnlocked ? <CrownGlyph /> : null}
+                  </button>
+                );
+              })}
+              <div
+                className={styles.mobileVendasScoreFilter}
+                data-active={mobileMinScoreFilter > 0 ? "true" : "false"}
+                data-locked={mobileVisualFiltersUnlocked ? "false" : "true"}
+              >
+                <button
+                  type="button"
+                  disabled={!mobileVisualFiltersUnlocked || mobileMinScoreFilter <= 0}
+                  onClick={() => stepMobileScoreFilter(-5)}
+                  aria-label="Diminuir score mínimo"
+                >
+                  -
+                </button>
+                <span>
+                  <MobileLeadScoreGauge
+                    className={styles.mobileVendasScoreFilterGauge}
+                    premium
+                    locked={!mobileVisualFiltersUnlocked}
+                    value={mobileMinScoreFilter}
+                    label={mobileVisualFiltersUnlocked ? "Score" : "♕"}
+                    caption={mobileMinScoreFilter ? `${mobileMinScoreFilter}+` : "0+"}
+                  />
+                </span>
+                <button
+                  type="button"
+                  disabled={!mobileVisualFiltersUnlocked || mobileMinScoreFilter >= 100}
+                  onClick={() => stepMobileScoreFilter(5)}
+                  aria-label="Aumentar score mínimo"
+                >
+                  +
+                </button>
+              </div>
+              <button
+                type="button"
+                className={styles.mobileVendasClearVisualFilters}
+                disabled={!mobileVisualFiltersUnlocked || !mobileVisualFiltersActive}
+                onClick={clearMobileVisualFilters}
+              >
+                Limpar
+              </button>
+            </div>
+          </section>
+
           {nextRecommendedMobileLead && mobileSection !== "report" ? (
             <section className={styles.mobileVendasRecommendedCard} aria-label="Próximo card recomendado">
               <button
@@ -4958,7 +5099,7 @@ export default function VendasClientPage() {
               <div className={`${styles.mobileVendasEmpty} hbx-mobile-empty`}>
                 <strong>
                   {(board?.summary.total || 0) <= 0 && radarBlockedByStrictFilters
-                    ? "0 cards passaram pelos filtros"
+                    ? "Cards localizados ainda não entraram"
                     : (board?.summary.total || 0) <= 0 && radarFoundWithoutAgenda
                     ? "Cards encontrados, preparando sua agenda"
                     : (board?.summary.total || 0) <= 0
@@ -4967,7 +5108,7 @@ export default function VendasClientPage() {
                 </strong>
                 <span>
                   {(board?.summary.total || 0) <= 0 && radarBlockedByStrictFilters
-                    ? "O Radar achou empresas, mas nenhuma cumpriu todos os canais obrigatórios."
+                    ? "O Radar localizou empresas. Aguarde a sincronização ou amplie cidade e segmento."
                     : (board?.summary.total || 0) <= 0 && radarFoundWithoutAgenda
                     ? "O Radar encontrou cards aprovados. Mantenha esta tela aberta enquanto o Vendas sincroniza."
                     : (board?.summary.total || 0) <= 0

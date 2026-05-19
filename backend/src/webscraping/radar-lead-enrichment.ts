@@ -338,6 +338,7 @@ export function buildRadarLeadEnrichment(input: RadarLeadEnrichmentInput): Radar
 
   const instagramUrl = normalizeUrl(pickRaw(input, ['instagramUrl', 'instagram', 'instagram_url']));
   const facebookUrl = normalizeUrl(pickRaw(input, ['facebookUrl', 'facebook', 'facebook_url']));
+  const website = normalizeUrl(input.website);
   const socialStatus: RadarSocialStatus = instagramUrl || facebookUrl
     ? 'found'
     : normalizeKey(input.socialStatus) === 'weak'
@@ -435,11 +436,15 @@ export function buildRadarLeadEnrichment(input: RadarLeadEnrichmentInput): Radar
     whatsappStatus: normalizeText(input.whatsappStatus) || null,
     qualityV2,
     signals: {
+      website,
       websiteStatus: normalizeWebsiteStatus(input),
       socialStatus,
       instagramUrl,
       facebookUrl,
+      emailCandidate,
       emailStatus,
+      googleMapsUrl,
+      whatsappStatus: normalizeText(input.whatsappStatus) || null,
       recommendedChannel,
       painType: pain.type,
       qualityV2,

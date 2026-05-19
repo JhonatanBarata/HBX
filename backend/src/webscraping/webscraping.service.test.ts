@@ -949,7 +949,7 @@ test('isRunItemQualityDeliverable no List entrega card com canal social mesmo se
   assert.equal(service.isRunItemQualityDeliverable(item, input), true);
 });
 
-test('isRunItemQualityDeliverable corta canal obrigatorio ausente apenas quando exigido', () => {
+test('isRunItemQualityDeliverable ignora canal obrigatorio ausente', () => {
   const service = new WebscrapingService(createPrisma()) as any;
   const item = {
     id: 'item-sem-instagram-v2',
@@ -991,7 +991,7 @@ test('isRunItemQualityDeliverable corta canal obrigatorio ausente apenas quando 
     requiredChannels: ['instagram'],
     channelMatchMode: 'all_required',
     qualityMode: 'list',
-  }), false);
+  }), true);
 });
 
 test('isRunItemQualityDeliverable protege negativo mesmo no List', () => {
@@ -1082,7 +1082,7 @@ test('Radar entrega Facebook obrigatorio sem descartar telefone quando existir',
   assert.equal(items[1].phoneDigits, '19999990002');
 });
 
-test('Radar com telefone e Facebook obrigatorios continua exigindo telefone', async () => {
+test('Radar ignora telefone e Facebook obrigatorios como regra de corte', async () => {
   const { prisma, run, items } = createSearchRunPrisma({
     segment: 'lanchonete',
     targetQuantity: 10,
@@ -1124,10 +1124,9 @@ test('Radar com telefone e Facebook obrigatorios continua exigindo telefone', as
     'hbx',
   );
 
-  assert.equal(counts.invalid, 1);
-  assert.equal(counts.found, 1);
-  assert.equal(items[0].status, 'invalid');
-  assert.equal(items[0].duplicateReason, 'Canal obrigatorio ausente.');
+  assert.equal(counts.invalid, 0);
+  assert.equal(counts.found, 2);
+  assert.equal(items[0].status, 'found');
   assert.equal(items[1].status, 'found');
   assert.equal(items[1].phoneDigits, '19999990003');
 });
@@ -1169,7 +1168,7 @@ test('Radar sem filtro de canal entrega card social-only da VPS', async () => {
   assert.equal(items[0].phoneDigits, '');
 });
 
-test('buildRadarWhere nao adiciona telefone invisivel quando canal obrigatorio e so social', () => {
+test('buildRadarWhere nao usa canal obrigatorio como filtro de listagem', () => {
   const service = new WebscrapingService(createPrisma()) as any;
   const facebookOnly = service.normalizeRadarFilters({
     city: 'Campinas',
@@ -1186,7 +1185,7 @@ test('buildRadarWhere nao adiciona telefone invisivel quando canal obrigatorio e
     channelMatchMode: 'all_required',
   });
 
-  assert.equal(JSON.stringify(service.buildRadarWhere(facebookOnly, 7, { requirePhone: true })).includes('"phoneDigits":{"not":null}'), false);
+  assert.equal(JSON.stringify(service.buildRadarWhere(facebookOnly, 7, { requirePhone: true })).includes('"phoneDigits":{"not":null}'), true);
   assert.equal(JSON.stringify(service.buildRadarWhere(phoneAndFacebook, 7, { requirePhone: true })).includes('"phoneDigits":{"not":null}'), true);
 });
 
@@ -1275,6 +1274,61 @@ test('buildSearchRunResponse items preserva campos sociais do rawJson', () => {
   assert.equal(item.qualityV2?.channelAvailability?.instagram, true);
 });
 
+test('buildSearchRunResponse preserva campos ricos do rawJson mesmo em List', () => {
+  const { run, items } = createSearchRunPrisma({
+    foundCount: 1,
+    targetQuantity: 1,
+    metricsJson: JSON.stringify({ channelFilters: { qualityMode: 'list' } }),
+  });
+  const service = new WebscrapingService(createPrisma()) as any;
+  items.push({
+    id: 'item-rich-list',
+    runId: run.id,
+    placeId: 'google:rich-list',
+    name: 'Oficina Rica Auto Center',
+    phone: '(19) 98888-0004',
+    phoneDigits: '19988880004',
+    website: 'https://oficinarica.com.br',
+    status: 'found',
+    source: 'hbx',
+    createdAt: new Date('2026-05-06T12:02:00.000Z'),
+    rawJson: JSON.stringify({
+      name: 'Oficina Rica Auto Center',
+      phone: '(19) 98888-0004',
+      phoneDigits: '19988880004',
+      website: 'https://oficinarica.com.br',
+      instagramUrl: 'https://instagram.com/oficinarica',
+      facebookUrl: 'https://facebook.com/oficinarica',
+      email: 'contato@oficinarica.com.br',
+      googleMapsUrl: 'https://maps.google.com/?cid=123',
+      rating: 4.8,
+      reviews: 123,
+      whatsappStatus: 'missing',
+      whatsappCheckStatus: 'missing',
+      recommendedChannel: 'email',
+      opportunityScore: 74,
+      enrichmentScore: 68,
+      signals: {
+        whatsappStatus: 'missing',
+        googleMapsUrl: 'https://maps.google.com/?cid=123',
+      },
+    }),
+  });
+
+  const response = service.buildSearchRunResponse({ ...run, items });
+  const item = response.items[0];
+
+  assert.equal(item.website, 'https://oficinarica.com.br');
+  assert.equal(item.instagramUrl, 'https://instagram.com/oficinarica');
+  assert.equal(item.facebookUrl, 'https://facebook.com/oficinarica');
+  assert.equal(item.email, 'contato@oficinarica.com.br');
+  assert.equal(item.googleMapsUrl, 'https://maps.google.com/?cid=123');
+  assert.equal(item.rating, 4.8);
+  assert.equal(item.reviews, 123);
+  assert.equal(item.whatsappStatus, 'missing');
+  assert.equal(item.recommendedChannel, 'email');
+});
+
 test('mapRunItemToContact preserva social fields do rawJson', () => {
   const service = new WebscrapingService(createPrisma()) as any;
   const contact = service.mapRunItemToContact({
@@ -1325,7 +1379,7 @@ test('persistRadarLeadPoolBatch preserva social ja enriquecido ao sincronizar ca
     metadataJson: JSON.stringify({
       delivery: {
         visibilityTier: 'blocked',
-        qualityReason: 'Canal obrigatorio ausente.',
+        qualityReason: 'Contato publico ausente.',
       },
     }),
     sourceEngines: JSON.stringify(['hbx']),
@@ -1391,7 +1445,78 @@ test('persistRadarLeadPoolBatch preserva social ja enriquecido ao sincronizar ca
   assert.notEqual(metadata.delivery.visibilityTier, 'blocked');
 });
 
-test('isRunItemQualityDeliverable rejeita item sem Instagram quando filtro exige Instagram', () => {
+test('persistRadarLeadPoolBatch preserva campos ricos ao sincronizar card primario', async () => {
+  let created: any = null;
+  const service = new WebscrapingService(createPrisma({
+    radarLeadCompanyState: {},
+    radarLeadPool: {
+      findFirst: async () => null,
+      update: async ({ data }: any) => data,
+      create: async ({ data }: any) => {
+        created = data;
+        return data;
+      },
+    },
+  })) as any;
+  const input = service.normalizeSearchInput({
+    city: 'Campinas',
+    state: 'SP',
+    segment: 'oficinas mecanicas',
+    quantity: 1,
+    radiusKm: 20,
+    engine: 'hbx',
+    targetType: 'pj',
+    qualityMode: 'list',
+  });
+
+  await service.persistRadarLeadPoolBatch(input, [{
+    placeId: 'google:rich-primary',
+    name: 'Oficina Rica Auto Center',
+    phone: '(19) 98888-0004',
+    phoneDigits: '19988880004',
+    city: 'Campinas',
+    state: 'SP',
+    segment: 'oficinas mecanicas',
+    address: 'Rua Um, 123 - Campinas, SP',
+    website: 'https://oficinarica.com.br',
+    instagramUrl: 'https://instagram.com/oficinarica',
+    facebookUrl: 'https://facebook.com/oficinarica',
+    email: 'contato@oficinarica.com.br',
+    googleMapsUrl: 'https://maps.google.com/?cid=123',
+    rating: 4.8,
+    reviews: 123,
+    whatsappStatus: 'missing',
+    whatsappCheckStatus: 'missing',
+    source: 'hbx',
+    quality: {
+      status: 'approved',
+      billable: true,
+      segmentMatchScore: 90,
+      contactQualityScore: 85,
+      commercialScore: 88,
+      reasons: [],
+    },
+  }], 'hbx');
+
+  assert.ok(created);
+  assert.equal(created.website, 'https://oficinarica.com.br');
+  assert.equal(created.instagramUrl, 'https://instagram.com/oficinarica');
+  assert.equal(created.facebookUrl, 'https://facebook.com/oficinarica');
+  assert.equal(created.email, 'contato@oficinarica.com.br');
+  assert.equal(created.googleMapsUrl, 'https://maps.google.com/?cid=123');
+  assert.equal(created.rating, 4.8);
+  assert.equal(created.reviews, 123);
+  const enrichment = JSON.parse(created.enrichmentJson);
+  assert.equal(enrichment.whatsappStatus, 'missing');
+  assert.equal(enrichment.signals.website, 'https://oficinarica.com.br');
+  assert.equal(enrichment.signals.instagramUrl, 'https://instagram.com/oficinarica');
+  assert.equal(enrichment.signals.facebookUrl, 'https://facebook.com/oficinarica');
+  assert.equal(enrichment.signals.emailCandidate, 'contato@oficinarica.com.br');
+  assert.equal(enrichment.signals.googleMapsUrl, 'https://maps.google.com/?cid=123');
+  assert.equal(enrichment.signals.whatsappStatus, 'missing');
+});
+
+test('isRunItemQualityDeliverable nao rejeita item sem Instagram quando filtro legado exige Instagram', () => {
   const service = new WebscrapingService(createPrisma()) as any;
   const input = {
     city: 'Campinas',
@@ -1424,7 +1549,7 @@ test('isRunItemQualityDeliverable rejeita item sem Instagram quando filtro exige
     }),
   };
 
-  assert.equal(service.isRunItemQualityDeliverable(item, input), false);
+  assert.equal(service.isRunItemQualityDeliverable(item, input), true);
   assert.equal(service.isRunItemPrimaryDeliverable(item, input), true);
 });
 
@@ -1465,7 +1590,7 @@ test('isRunItemQualityDeliverable aceita item com Instagram quando filtro exige 
   assert.equal(service.isRunItemQualityDeliverable(item, input), true);
 });
 
-test('isRunItemQualityDeliverable rejeita Facebook sozinho quando Instagram e Facebook sao obrigatorios', () => {
+test('isRunItemQualityDeliverable aceita Facebook sozinho mesmo com filtro legado Instagram/Facebook', () => {
   const service = new WebscrapingService(createPrisma()) as any;
   const input = {
     city: 'Campinas',
@@ -1499,7 +1624,7 @@ test('isRunItemQualityDeliverable rejeita Facebook sozinho quando Instagram e Fa
     }),
   };
 
-  assert.equal(service.isRunItemQualityDeliverable(item, input), false);
+  assert.equal(service.isRunItemQualityDeliverable(item, input), true);
 });
 
 test('isRunItemQualityDeliverable aceita Instagram e Facebook quando ambos sao obrigatorios', () => {
@@ -1581,7 +1706,7 @@ test('isRunItemQualityDeliverable nao bloqueia canal real por channelAvailabilit
   assert.equal(service.isRunItemQualityDeliverable(item, input), true);
 });
 
-test('isRunItemQualityDeliverable rejeita social incompativel mesmo com channelAvailability antigo verdadeiro', () => {
+test('isRunItemQualityDeliverable nao usa social incompativel como bloqueio de canal legado', () => {
   const service = new WebscrapingService(createPrisma()) as any;
   const input = {
     city: 'Araraquara',
@@ -1616,10 +1741,10 @@ test('isRunItemQualityDeliverable rejeita social incompativel mesmo com channelA
     }),
   };
 
-  assert.equal(service.isRunItemQualityDeliverable(item, input), false);
+  assert.equal(service.isRunItemQualityDeliverable(item, input), true);
 });
 
-test('isRunItemQualityDeliverable rejeita social com apenas categoria e iniciais da cidade', () => {
+test('isRunItemQualityDeliverable nao usa social fraco como bloqueio de canal legado', () => {
   const service = new WebscrapingService(createPrisma()) as any;
   const input = {
     city: 'Rio Claro',
@@ -1654,10 +1779,10 @@ test('isRunItemQualityDeliverable rejeita social com apenas categoria e iniciais
     }),
   };
 
-  assert.equal(service.isRunItemQualityDeliverable(item, input), false);
+  assert.equal(service.isRunItemQualityDeliverable(item, input), true);
 });
 
-test('isRunItemQualityDeliverable rejeita site de outra marca quando site e obrigatorio', () => {
+test('isRunItemQualityDeliverable nao usa site obrigatorio legado como bloqueio', () => {
   const service = new WebscrapingService(createPrisma()) as any;
   const input = {
     city: 'Rio Claro',
@@ -1693,7 +1818,7 @@ test('isRunItemQualityDeliverable rejeita site de outra marca quando site e obri
     }),
   };
 
-  assert.equal(service.isRunItemQualityDeliverable(item, input), false);
+  assert.equal(service.isRunItemQualityDeliverable(item, input), true);
 });
 
 test('isRunItemQualityDeliverable aceita site compativel com nome e categoria', () => {
@@ -1831,7 +1956,7 @@ test('updateSearchRunMetrics preserva metadados de alcance e filtros', async () 
   assert.equal(metrics.status, 'running');
 });
 
-test('search-run worker repassa requiredChannels reconstruido da run para motor HBX', async () => {
+test('search-run worker nao repassa requiredChannels legado para motor HBX', async () => {
   const { prisma, run } = createSearchRunPrisma({
     status: 'queued',
     city: 'Campinas',
@@ -1870,7 +1995,7 @@ test('search-run worker repassa requiredChannels reconstruido da run para motor 
   });
 
   const savedMetrics = JSON.parse(String((run as any).metricsJson || '{}'));
-  assert.deepEqual(savedMetrics.channelFilters.requiredChannels, ['instagram']);
+  assert.deepEqual(savedMetrics.channelFilters.requiredChannels, []);
 
   const lease = {
     engineId: 'hbx-engine-1',
@@ -1881,10 +2006,10 @@ test('search-run worker repassa requiredChannels reconstruido da run para motor 
   };
   await service.processSearchRun(run.id, createUser(), undefined, lease);
 
-  assert.deepEqual(receivedRequiredChannels, ['instagram']);
+  assert.deepEqual(receivedRequiredChannels, []);
 });
 
-test('Radar Direct repassa filtros sociais para searchContactsForUser', async () => {
+test('Radar Direct nao repassa filtros sociais legados para searchContactsForUser', async () => {
   const service = new WebscrapingService(createPrisma()) as any;
   let receivedInput: Record<string, any> | null = null;
   service.searchContactsForUser = async (_user: any, input: Record<string, any>) => {
@@ -1916,8 +2041,8 @@ test('Radar Direct repassa filtros sociais para searchContactsForUser', async ()
 
   await service.searchRadarDirectForUser(createUser(), filters, 'test');
 
-  assert.deepEqual(receivedInput?.requiredChannels, ['instagram']);
-  assert.equal(receivedInput?.channelMatchMode, 'any_required');
+  assert.deepEqual(receivedInput?.requiredChannels, []);
+  assert.equal(receivedInput?.channelMatchMode, 'prefer');
   assert.equal(receivedInput?.qualityMode, 'list');
 });
 
