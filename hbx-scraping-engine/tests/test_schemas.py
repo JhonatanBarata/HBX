@@ -48,6 +48,18 @@ def test_search_request_normalizes_channel_aliases() -> None:
     assert request.preferredChannels == ["instagram", "facebook", "website", "whatsapp"]
 
 
+def test_contact_result_allows_business_email() -> None:
+    result = ContactResult.model_validate({
+        "name": "Oficina Rica",
+        "phone": "",
+        "phoneDigits": "",
+        "website": "https://oficinarica.com.br",
+        "email": "contato@oficinarica.com.br",
+    })
+
+    assert result.email == "contato@oficinarica.com.br"
+
+
 def test_contact_result_forbids_removed_and_document_fields() -> None:
     base = {
         "name": "Maria Silva",

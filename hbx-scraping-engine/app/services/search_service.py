@@ -304,13 +304,28 @@ class SearchService:
 
     def has_public_actionable_channel(self, item: dict) -> bool:
         phone_digits = re.sub(r"\D", "", str(item.get("phoneDigits") or item.get("phone") or ""))
+        page_url = str(item.get("_pageUrl") or item.get("sourceUrl") or "").strip()
+        page_host = domain_from_url(page_url)
+        page_social_field = social_field_for_url(page_url)
+        page_is_valid_social = bool(page_social_field and is_valid_social_profile_url(page_url))
+        page_is_maps = bool(re.match(r"^https?://(?:www\.)?(?:google\.[^/]+/maps|maps\.app\.goo\.gl)/", page_url, re.I))
+        page_is_compatible_domain = False
+        if page_url and page_host and not is_blocked_lead_source_domain(page_host) and not is_social_signal_domain(page_host):
+            page_is_compatible_domain = self.score_website_candidate(
+                item,
+                {"title": item.get("name"), "href": page_url, "url": page_url},
+                page_url,
+                str(item.get("city") or ""),
+            ) > 0
         return bool(
             phone_digits
             or item.get("instagramUrl")
             or item.get("facebookUrl")
             or item.get("website")
             or item.get("email")
-            or item.get("_pageUrl")
+            or page_is_valid_social
+            or page_is_maps
+            or page_is_compatible_domain
         )
 
     def time_budget_expired(self, deadline: float | None) -> bool:
@@ -1259,7 +1274,7 @@ class SearchService:
         candidates: list[dict],
         social_discovery_stats: dict,
     ) -> SearchResponse:
-        allowed_fields = {"name", "phone", "phoneDigits", "rating", "reviews", "address", "website", "instagramUrl", "facebookUrl", "source", "score"}
+        allowed_fields = {"name", "phone", "phoneDigits", "rating", "reviews", "address", "website", "email", "instagramUrl", "facebookUrl", "source", "score"}
         public_items = [{key: value for key, value in item.items() if key in allowed_fields} for item in candidates[: request.limit]]
         valid = [ContactResult.model_validate(item).model_dump(exclude_none=True) for item in public_items]
         response_stats = {
@@ -1734,18 +1749,20 @@ class SearchService:
                 request.city,
                 request.segment,
             )
-            if not deduped:
+            remaining = max(0, request.limit - len(deduped))
+            if remaining > 0:
+                before_social_first = len(deduped)
                 social_first_candidates = self.social_profile_candidates(
                     social_profiles,
                     request.city,
                     request.state,
                     request.segment,
                     requested_social_channels,
-                    request.limit,
+                    remaining,
                 )
                 if social_first_candidates:
-                    deduped = dedupe_contacts(social_first_candidates, request.city, request.targetType)
-                    social_discovery_stats["profilesPromoted"] = len(deduped)
+                    deduped = dedupe_contacts([*deduped, *social_first_candidates], request.city, request.targetType)
+                    social_discovery_stats["profilesPromoted"] = max(0, len(deduped) - before_social_first)
         effective_social_channels = requested_social_channels
         social_stats = {
             "requestedChannels": sorted(effective_social_channels),
@@ -1769,7 +1786,7 @@ class SearchService:
                 list(required_social_channels),
             )
             social_stats["discovery"] = social_discovery_stats
-        allowed_fields = {"name", "phone", "phoneDigits", "rating", "reviews", "address", "website", "instagramUrl", "facebookUrl", "source", "score"}
+        allowed_fields = {"name", "phone", "phoneDigits", "rating", "reviews", "address", "website", "email", "instagramUrl", "facebookUrl", "source", "score"}
         min_score = 0 if request.targetType == "pf" else 50
         public_items: list[dict] = []
         stats = {"parsed": len(parsed), "invalid_phone": 0, "blocked_domain": 0, "low_score": 0, "missing_required_channel": 0, "approved": 0}
@@ -1927,7 +1944,7 @@ class SearchService:
             parsed_web_count = len(web_contacts)
             contacts = dedupe_by_phone([*contacts, *web_contacts])
 
-        allowed_fields = {"name", "phone", "phoneDigits", "rating", "reviews", "address", "website", "instagramUrl", "facebookUrl", "source", "score"}
+        allowed_fields = {"name", "phone", "phoneDigits", "rating", "reviews", "address", "website", "email", "instagramUrl", "facebookUrl", "source", "score"}
         public_items = [
             {key: value for key, value in item.items() if key in allowed_fields}
             for item in contacts
