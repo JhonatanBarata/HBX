@@ -6980,12 +6980,8 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async canUseRadarSmartLeadFields(companyId: number) {
-    const company = await this.prisma.company.findUnique({
-      where: { id: companyId },
-      select: { selectedPlanKey: true, premiumAccess: true, paymentStatus: true, subscriptionStatus: true },
-    }).catch(() => null);
-    const planKey = resolveCommercialPlanKeyForCapabilities(company || {});
-    return planKey !== COMMERCIAL_PLAN_KEYS.LITE;
+    void companyId;
+    return true;
   }
 
   private maskRadarSmartFieldsForList(item: any) {
@@ -6995,11 +6991,13 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     const validFacebook = item?.facebookUrl
       && !looksLikeThirdPartySocialProfile(item.facebookUrl)
       && socialProfileLooksCompatibleWithLead(item, item.facebookUrl);
+    const safeEmail = normalizeBusinessEmail(item?.email);
     const hadPremiumSignal = Boolean(
-      normalizeBusinessEmail(item?.email)
-      || validInstagram
-      || validFacebook
-      || item?.recommendedChannel
+      item?.recommendedChannel
+      || item?.painType
+      || item?.painLabel
+      || item?.painPitch
+      || item?.opportunityReason
       || item?.opportunityScore
       || item?.enrichmentScore
       || item?.qualityV2
@@ -7007,24 +7005,34 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     );
     return {
       ...item,
-      email: null,
-      emailSource: null,
-      emailConfidence: 0,
-      instagramUrl: null,
-      facebookUrl: null,
-      googleMapsUrl: null,
-      businessCategory: null,
-      openingHoursStatus: null,
-      recommendedChannel: this.isRadarProtectedStatus(item?.companyStatus || item?.status) ? 'discard' : null,
-      painType: null,
-      painLabel: null,
-      painPitch: null,
-      enrichmentScore: 0,
-      enrichmentConfidence: 0,
-      enrichmentJson: null,
-      lastEnrichedAt: null,
-      premiumLocked: true,
-      premiumFeatureStatus: 'locked',
+      email: safeEmail || item?.email || null,
+      emailStatus: item?.emailStatus || (safeEmail ? 'probable' : 'missing'),
+      emailSource: item?.emailSource || null,
+      emailConfidence: item?.emailConfidence || 0,
+      instagramUrl: validInstagram ? item.instagramUrl : null,
+      facebookUrl: validFacebook ? item.facebookUrl : null,
+      socialStatus: validInstagram || validFacebook ? item?.socialStatus || 'found' : item?.socialStatus || 'missing',
+      socialConfidence: validInstagram || validFacebook ? item?.socialConfidence || 0 : 0,
+      googleMapsUrl: item?.googleMapsUrl || null,
+      businessCategory: item?.businessCategory || null,
+      openingHoursStatus: item?.openingHoursStatus || null,
+      whatsappStatus: item?.whatsappStatus || item?.whatsappCheckStatus || 'unverified',
+      whatsappCheckStatus: item?.whatsappCheckStatus || item?.whatsappStatus || 'unverified',
+      website: item?.website || null,
+      rating: item?.rating ?? null,
+      reviews: item?.reviews ?? null,
+      recommendedChannel: item?.recommendedChannel || null,
+      painType: item?.painType || null,
+      painLabel: item?.painLabel || null,
+      painPitch: item?.painPitch || null,
+      enrichmentScore: item?.enrichmentScore ?? 0,
+      enrichmentConfidence: item?.enrichmentConfidence ?? 0,
+      enrichmentJson: item?.enrichmentJson || null,
+      qualityV2: item?.qualityV2 || null,
+      quality: item?.quality || null,
+      lastEnrichedAt: item?.lastEnrichedAt || null,
+      premiumLocked: false,
+      premiumFeatureStatus: 'available',
       premiumTeaser: hadPremiumSignal,
     };
   }

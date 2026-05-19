@@ -31,6 +31,23 @@ def test_pj_allows_limit_up_to_100() -> None:
     assert request.state == ""
 
 
+def test_search_request_preserves_preferred_social_channel() -> None:
+    request = SearchRequest(city="Campinas", state="SP", segment="oficina", preferredChannels=["instagram"])
+
+    assert request.preferredChannels == ["instagram"]
+
+
+def test_search_request_normalizes_channel_aliases() -> None:
+    request = SearchRequest(
+        city="Campinas",
+        state="SP",
+        segment="oficina",
+        preferredChannels=["insta", "fb", "site", "wpp"],
+    )
+
+    assert request.preferredChannels == ["instagram", "facebook", "website", "whatsapp"]
+
+
 def test_contact_result_forbids_removed_and_document_fields() -> None:
     base = {
         "name": "Maria Silva",

@@ -287,13 +287,20 @@ class SearchService:
         preferred_channels: list[str] | None = None,
         required_channels: list[str] | None = None,
     ) -> set[str]:
-        return set()
+        channels = set(preferred_channels or []) | set(required_channels or [])
+        return {channel for channel in channels if channel in {"instagram", "facebook"}}
 
     def required_social_channels(self, required_channels: list[str] | None = None) -> set[str]:
-        return set()
+        return {channel for channel in (required_channels or []) if channel in {"instagram", "facebook"}}
 
     def has_required_social_channels(self, contact: dict, required_channels: set[str]) -> bool:
-        return True
+        if not required_channels:
+            return True
+        # Compatibilidade legada: isso é diagnóstico/prioridade de busca, não regra de descarte.
+        return any(
+            contact.get("instagramUrl" if channel == "instagram" else "facebookUrl")
+            for channel in required_channels
+        )
 
     def time_budget_expired(self, deadline: float | None) -> bool:
         return bool(deadline is not None and time.monotonic() >= deadline)
@@ -1296,8 +1303,8 @@ class SearchService:
         required_channels: list[str] | None = None,
         time_budget_seconds: float | None = None,
     ) -> tuple[list[dict], dict]:
-        requested_channels: set[str] = set()
-        required_social: set[str] = set()
+        requested_channels = self.requested_social_channels(preferred_channels, required_channels)
+        required_social = self.required_social_channels(required_channels)
         mode = "required" if required_social else "best_effort"
         deadline = time.monotonic() + time_budget_seconds if time_budget_seconds else None
         if not requested_channels:
@@ -1547,8 +1554,9 @@ class SearchService:
         budget_seconds = max(5.0, min(SOCIAL_ENRICH_TOTAL_BUDGET_SECONDS, requested_budget))
         deadline = time.monotonic() + budget_seconds
         phone_digits = re.sub(r"\D", "", request.phoneDigits or request.phone or "")
-        required_channels: set[str] = set()
-        website_required = bool({"website", "site"} & required_channels)
+        preferred_channels = list(request.preferredChannels or ["instagram", "facebook"])
+        required_channels = set(request.requiredChannels or [])
+        website_required = "website" in required_channels
         social_required = bool({"instagram", "facebook"} & required_channels)
         contact = {
             "name": request.name,
@@ -1576,14 +1584,13 @@ class SearchService:
                     "score": website_score,
                     "query": website_query,
                 }
-        preferred_channels: list[str] = []
         contacts, social_stats = self.enrich_social_links_for_contacts(
             [contact],
             request.city,
             request.state,
             request.segment,
             preferred_channels,
-            [],
+            list(required_channels),
             time_budget_seconds=self.remaining_budget_seconds(deadline, budget_seconds),
         )
         enriched = contacts[0] if contacts else contact
@@ -1630,8 +1637,8 @@ class SearchService:
     async def search(self, request: SearchRequest) -> SearchResponse:
         excluded_phones = set(request.excludePhoneDigits or [])
         excluded_urls = set(request.excludeUrls or [])
-        requested_social_channels: set[str] = set()
-        required_social_channels: set[str] = set()
+        requested_social_channels = self.requested_social_channels(request.preferredChannels, request.requiredChannels)
+        required_social_channels = self.required_social_channels(request.requiredChannels)
         social_requested = bool(requested_social_channels)
 
         if request.targetType != "pj" and not request.fresh and not excluded_phones and not excluded_urls and not social_requested:
@@ -1652,8 +1659,8 @@ class SearchService:
                 request.state,
                 request.segment,
                 request.limit,
-                [],
-                [],
+                list(requested_social_channels),
+                list(required_social_channels),
             )
 
         urls = await asyncio.to_thread(
@@ -1735,8 +1742,8 @@ class SearchService:
                 request.city,
                 request.state,
                 request.segment,
-                [],
-                [],
+                list(requested_social_channels),
+                list(required_social_channels),
             )
             social_stats["discovery"] = social_discovery_stats
         allowed_fields = {"name", "phone", "phoneDigits", "rating", "reviews", "address", "website", "instagramUrl", "facebookUrl", "source", "score"}

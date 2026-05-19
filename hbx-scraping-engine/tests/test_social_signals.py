@@ -370,14 +370,21 @@ def test_attach_discovered_social_profiles_matches_real_contact() -> None:
     assert stats["profilesAttached"] == 1
 
 
-def test_required_instagram_and_facebook_requires_both_channels() -> None:
+def test_requested_social_channels_uses_preferred_and_required_hints() -> None:
     service = SearchService()
 
-    assert not service.has_required_social_channels(
+    assert service.requested_social_channels(["instagram"], []) == {"instagram"}
+    assert service.requested_social_channels(["instagram"], ["facebook", "website"]) == {"instagram", "facebook"}
+
+
+def test_required_social_channels_is_legacy_any_match_diagnostic() -> None:
+    service = SearchService()
+
+    assert service.has_required_social_channels(
         {"instagramUrl": "https://instagram.com/barbearia"},
         {"instagram", "facebook"},
     )
-    assert not service.has_required_social_channels(
+    assert service.has_required_social_channels(
         {"facebookUrl": "https://facebook.com/barbearia"},
         {"instagram", "facebook"},
     )
@@ -400,6 +407,39 @@ def test_required_instagram_and_facebook_requires_both_channels() -> None:
         },
         {"instagram", "facebook"},
     )
+
+
+def test_social_enrichment_runs_for_preferred_instagram(monkeypatch) -> None:
+    service = SearchService()
+    calls: list[str] = []
+
+    def fake_guess(contact, channel, city, deadline=None):
+        calls.append(channel)
+        return ("https://instagram.com/oficinarica", 82) if channel == "instagram" else (None, 0)
+
+    monkeypatch.setattr(service, "guessed_social_url_for_contact", fake_guess)
+
+    contacts, stats = service.enrich_social_links_for_contacts(
+        [
+            {
+                "name": "Oficina Rica",
+                "phone": "(19) 98888-0004",
+                "phoneDigits": "19988880004",
+                "city": "Campinas",
+                "segment": "oficina",
+                "score": 80,
+            }
+        ],
+        "Campinas",
+        "SP",
+        "oficina",
+        preferred_channels=["instagram"],
+    )
+
+    assert "instagram" in calls
+    assert contacts[0]["instagramUrl"] == "https://instagram.com/oficinarica"
+    assert stats["enrichmentRan"] is True
+    assert stats["requestedChannels"] == ["instagram"]
 
 
 def test_bridge_page_extraction_reads_instagram_and_facebook(monkeypatch) -> None:
@@ -633,6 +673,61 @@ def test_search_service_enriches_required_instagram_after_base_contact(monkeypat
     assert response.stats["missingRequiredChannel"] == 0
 
 
+def test_search_with_preferred_instagram_keeps_card_without_instagram(monkeypatch) -> None:
+    class FakeFetcher:
+        def __init__(self, *args, **kwargs) -> None:
+            pass
+
+        async def fetch_all(self, urls):
+            return [SimpleNamespace(html="<html></html>", url="https://oficinarica.example.com")]
+
+    monkeypatch.setattr("app.services.search_service.discover_urls", lambda *args, **kwargs: ["https://oficinarica.example.com"])
+    monkeypatch.setattr("app.services.search_service.discover_social_profiles", lambda *args, **kwargs: [])
+    monkeypatch.setattr("app.services.search_service.Fetcher", FakeFetcher)
+    monkeypatch.setattr(
+        "app.services.search_service.parse_page",
+        lambda *args, **kwargs: (
+            [
+                {
+                    "name": "Oficina Rica",
+                    "phone": "(19) 98888-0004",
+                    "phoneDigits": "19988880004",
+                    "rating": 4.8,
+                    "reviews": 123,
+                    "address": "Campinas SP",
+                    "website": "https://oficinarica.example.com",
+                    "source": "hbx_scraping:web",
+                    "_pageUrl": "https://oficinarica.example.com",
+                }
+            ],
+            "Oficina Rica Campinas telefone",
+        ),
+    )
+    monkeypatch.setattr("app.services.search_service.score_contact", lambda *args, **kwargs: 80)
+    monkeypatch.setattr(SearchService, "guessed_social_url_for_contact", lambda *args, **kwargs: (None, 0))
+    monkeypatch.setattr(SearchService, "search_social_profile_url", lambda *args, **kwargs: (None, 0))
+
+    response = asyncio.run(
+        SearchService().search(
+            SearchRequest(
+                city="Campinas",
+                state="SP",
+                segment="oficina",
+                targetType="pj",
+                limit=10,
+                fresh=True,
+                preferredChannels=["instagram"],
+            )
+        )
+    )
+
+    assert response.count == 1
+    assert response.results[0].name == "Oficina Rica"
+    assert response.results[0].instagramUrl is None
+    assert response.social["enrichmentRan"] is True
+    assert response.stats["missingRequiredChannel"] == 0
+
+
 def test_search_service_best_effort_uses_social_from_html_without_required_channels(monkeypatch) -> None:
     html = """
     <html>
@@ -770,7 +865,7 @@ def test_search_service_enriches_top_pj_contacts_when_social_is_preferred(monkey
     assert "socialProfilesUnmatched" in response.stats
 
 
-def test_required_instagram_discards_contact_missing_social(monkeypatch) -> None:
+def test_required_instagram_does_not_discard_contact_missing_social(monkeypatch) -> None:
     class FakeFetcher:
         def __init__(self, *args, **kwargs) -> None:
             pass
@@ -831,9 +926,11 @@ def test_required_instagram_discards_contact_missing_social(monkeypatch) -> None
         )
     )
 
-    assert response.count == 0
-    assert response.stats["missingRequiredChannel"] == 1
-    assert response.social["missingRequiredChannel"] == 1
+    assert response.count == 1
+    assert response.results[0].name == "Barbearia Estilo"
+    assert response.results[0].facebookUrl == "https://facebook.com/barbeariaestilo"
+    assert response.stats["missingRequiredChannel"] == 0
+    assert response.social["missingRequiredChannel"] == 0
 
 
 def test_required_instagram_accepts_social_from_html(monkeypatch) -> None:
@@ -1499,7 +1596,7 @@ def test_required_social_keeps_trying_preferred_second_channel(monkeypatch) -> N
     assert response.socialStatus == "found"
 
 
-def test_required_instagram_and_facebook_rejects_when_one_channel_exists(monkeypatch) -> None:
+def test_required_instagram_and_facebook_does_not_reject_when_one_channel_exists(monkeypatch) -> None:
     class FakeFetcher:
         def __init__(self, *args, **kwargs) -> None:
             pass
@@ -1562,5 +1659,6 @@ def test_required_instagram_and_facebook_rejects_when_one_channel_exists(monkeyp
         )
     )
 
-    assert response.count == 0
-    assert response.stats["missingRequiredChannel"] == 1
+    assert response.count == 1
+    assert response.results[0].facebookUrl == "https://facebook.com/barbeariaestilo"
+    assert response.stats["missingRequiredChannel"] == 0

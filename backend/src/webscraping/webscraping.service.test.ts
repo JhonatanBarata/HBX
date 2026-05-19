@@ -1516,6 +1516,46 @@ test('persistRadarLeadPoolBatch preserva campos ricos ao sincronizar card primar
   assert.equal(enrichment.signals.whatsappStatus, 'missing');
 });
 
+test('maskRadarSmartFieldsForList preserva contato e contexto rico do card', () => {
+  const service = new WebscrapingService(createPrisma()) as any;
+  const item = service.maskRadarSmartFieldsForList({
+    name: 'Oficina Rica',
+    phone: '(19) 98888-0004',
+    phoneDigits: '19988880004',
+    website: 'https://oficinarica.com.br',
+    instagramUrl: 'https://instagram.com/oficinarica',
+    facebookUrl: 'https://facebook.com/oficinarica',
+    email: 'contato@oficinarica.com.br',
+    googleMapsUrl: 'https://maps.google.com/?cid=123',
+    businessCategory: 'Oficina mecânica',
+    rating: 4.8,
+    reviews: 123,
+    whatsappStatus: 'missing',
+    recommendedChannel: 'email',
+    painType: 'site_fraco',
+    painPitch: 'Pitch premium',
+    enrichmentJson: { premium: true },
+    qualityV2: { version: 'lead-quality-v2' },
+  });
+
+  assert.equal(item.website, 'https://oficinarica.com.br');
+  assert.equal(item.instagramUrl, 'https://instagram.com/oficinarica');
+  assert.equal(item.facebookUrl, 'https://facebook.com/oficinarica');
+  assert.equal(item.email, 'contato@oficinarica.com.br');
+  assert.equal(item.googleMapsUrl, 'https://maps.google.com/?cid=123');
+  assert.equal(item.businessCategory, 'Oficina mecânica');
+  assert.equal(item.rating, 4.8);
+  assert.equal(item.reviews, 123);
+  assert.equal(item.whatsappStatus, 'missing');
+
+  assert.equal(item.recommendedChannel, 'email');
+  assert.equal(item.painType, 'site_fraco');
+  assert.equal(item.painPitch, 'Pitch premium');
+  assert.deepEqual(item.enrichmentJson, { premium: true });
+  assert.deepEqual(item.qualityV2, { version: 'lead-quality-v2' });
+  assert.equal(item.premiumLocked, false);
+});
+
 test('isRunItemQualityDeliverable nao rejeita item sem Instagram quando filtro legado exige Instagram', () => {
   const service = new WebscrapingService(createPrisma()) as any;
   const input = {
