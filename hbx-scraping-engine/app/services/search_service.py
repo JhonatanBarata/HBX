@@ -24,7 +24,7 @@ SOCIAL_ENRICH_MAX_RESULTS_PER_QUERY = 12
 SOCIAL_ENRICH_MAX_CONTACTS_REQUIRED = 4
 SOCIAL_ENRICH_MAX_CONTACTS_PREFERRED = 2
 SOCIAL_ENRICH_MAX_QUERIES_PER_CHANNEL = 6
-SOCIAL_ENRICH_MAX_HANDLE_VALIDATIONS = 0
+SOCIAL_ENRICH_MAX_HANDLE_VALIDATIONS = 6
 SOCIAL_ENRICH_TOTAL_BUDGET_SECONDS = 35
 SOCIAL_ENRICH_WEBSITE_MAX_QUERIES = 3
 EMAIL_RE = re.compile(r"[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}", re.I)
@@ -112,17 +112,26 @@ BUSINESS_NAME_STOP_TOKENS = {
 }
 
 BUSINESS_CATEGORY_TOKENS = {
+    "auto",
     "bar",
     "barbearia",
     "beleza",
+    "borracharia",
+    "borracharias",
     "calcado",
     "calcados",
+    "center",
     "choperia",
     "clinica",
     "confeccao",
     "confeccoes",
     "corte",
     "cortes",
+    "confeitaria",
+    "confeitarias",
+    "doceria",
+    "docerias",
+    "doces",
     "esmalteria",
     "espetinho",
     "estetica",
@@ -135,6 +144,12 @@ BUSINESS_CATEGORY_TOKENS = {
     "loja",
     "marmitaria",
     "moda",
+    "oficina",
+    "oficinas",
+    "padaria",
+    "padarias",
+    "pneu",
+    "pneus",
     "pizzaiolo",
     "pizzaria",
     "pizza",
@@ -176,6 +191,37 @@ SOCIAL_GENERIC_BUSINESS_TOKENS = BUSINESS_CATEGORY_TOKENS | {
     "saude",
     "sobrancelha",
     "studio",
+}
+
+WEAK_SOCIAL_DISTINCTIVE_TOKENS = {
+    "absolute",
+    "bella",
+    "belle",
+    "bello",
+    "bem",
+    "bigode",
+    "central",
+    "centro",
+    "class",
+    "estilo",
+    "express",
+    "forte",
+    "ideal",
+    "imperio",
+    "mais",
+    "max",
+    "mega",
+    "melhor",
+    "nova",
+    "novo",
+    "oficial",
+    "popular",
+    "prime",
+    "real",
+    "santa",
+    "santo",
+    "top",
+    "vip",
 }
 
 
@@ -269,17 +315,25 @@ class SearchService:
         compact_all = "".join(tokens)
         if 5 <= len(compact_all) <= 32:
             candidates.append(compact_all)
+            if len(compact_all) + len("oficial") <= 32:
+                candidates.append(f"{compact_all}oficial")
         distinctive = self.distinctive_social_name_tokens(value)
         category = next((token for token in tokens if token in BUSINESS_CATEGORY_TOKENS), "")
         if category and distinctive:
             for token in distinctive[:2]:
                 candidates.append(f"{category}{token}")
                 candidates.append(f"{token}{category}")
+                if len(f"{token}{category}oficial") <= 32:
+                    candidates.append(f"{token}{category}oficial")
+                if len(f"{category}{token}oficial") <= 32:
+                    candidates.append(f"{category}{token}oficial")
         for token in distinctive[:2]:
             if 4 <= len(token) <= 24:
                 candidates.append(token)
                 candidates.append(f"loja{token}")
                 candidates.append(f"{token}loja")
+                if len(f"{token}oficial") <= 32:
+                    candidates.append(f"{token}oficial")
         return list(dict.fromkeys(candidates))
 
     def social_url_handle_key(self, url: str) -> str:
@@ -287,6 +341,12 @@ class SearchService:
         parsed = urlparse(normalized)
         parts = [part for part in parsed.path.split("/") if part]
         return re.sub(r"[^a-z0-9]+", "", text_key(parts[0] if parts else ""))
+
+    def city_initials_key(self, city: str) -> str:
+        tokens = [token for token in text_key(city).split() if len(token) >= 3]
+        if len(tokens) < 2:
+            return ""
+        return "".join(token[0] for token in tokens)
 
     def social_identity_tokens(self, contact: dict) -> tuple[list[str], list[str]]:
         name = str(contact.get("name") or "")
@@ -304,8 +364,15 @@ class SearchService:
     def handle_matches_business_identity(self, handle_key: str, category_tokens: list[str], distinctive_tokens: list[str]) -> bool:
         if not handle_key or not category_tokens or not distinctive_tokens:
             return False
+        strong_distinctive_tokens = [
+            token
+            for token in distinctive_tokens
+            if len(token) >= 4 and token not in WEAK_SOCIAL_DISTINCTIVE_TOKENS
+        ]
+        if not strong_distinctive_tokens:
+            return False
         has_category = any(token and token in handle_key for token in category_tokens)
-        has_distinctive = any(token and token in handle_key for token in distinctive_tokens)
+        has_distinctive = any(token and token in handle_key for token in strong_distinctive_tokens)
         return has_category and has_distinctive
 
     def is_bad_social_candidate_name(self, name: str, city: str, segment: str) -> bool:
@@ -423,6 +490,7 @@ class SearchService:
         name_key = text_key(contact.get("name"))
         name_compact = re.sub(r"[^a-z0-9]+", "", name_key)
         city_key = text_key(city)
+        city_initials = self.city_initials_key(city)
         phone_digits = re.sub(r"\D", "", str(contact.get("phoneDigits") or contact.get("phone") or ""))
         phone_tail = phone_digits[-8:] if len(phone_digits) >= 8 else ""
         website_domain = domain_from_url(contact.get("website"))
@@ -430,6 +498,11 @@ class SearchService:
         website_stem = text_key(website_domain.split(".")[0] if website_domain else "")
         name_tokens = self.social_name_tokens(str(contact.get("name") or ""))
         category_tokens, distinctive_tokens = self.social_identity_tokens(contact)
+        strong_distinctive_tokens = [
+            token
+            for token in distinctive_tokens
+            if len(token) >= 4 and token not in WEAK_SOCIAL_DISTINCTIVE_TOKENS
+        ]
         handle_key = self.social_url_handle_key(normalized_url)
         variant_compacts = [
             re.sub(r"[^a-z0-9]+", "", text_key(variant))
@@ -444,11 +517,24 @@ class SearchService:
             for compact in variant_compacts
         )
         distinctive_combined_matches = sum(1 for token in distinctive_tokens if token in combined_key)
+        strong_distinctive_combined_matches = sum(1 for token in strong_distinctive_tokens if token in combined_key)
         distinctive_path_matches = sum(1 for token in distinctive_tokens if token in path_key or token in path_compact)
+        strong_distinctive_path_matches = sum(1 for token in strong_distinctive_tokens if token in path_key or token in path_compact)
         generic_matches = sum(1 for token in name_tokens if token in combined_key)
         category_match = any(token in combined_key or token in path_key or token in path_compact for token in category_tokens)
         handle_identity_match = self.handle_matches_business_identity(handle_key, category_tokens, distinctive_tokens)
         handle_distinctive_match = any(token and token in handle_key for token in distinctive_tokens)
+        strong_handle_distinctive_match = any(token and token in handle_key for token in strong_distinctive_tokens)
+        business_variant_compacts = [
+            compact
+            for compact in variant_compacts
+            if compact not in set(strong_distinctive_tokens)
+        ]
+        handle_business_variant_match = any(
+            compact and len(compact) >= 6 and (compact in handle_key or handle_key in compact)
+            for compact in business_variant_compacts
+        )
+        handle_city_initials_match = bool(city_initials and handle_key.endswith(city_initials))
         query_name_match = bool(
             name_key and name_key in query_key
             or name_compact and len(name_compact) >= 8 and name_compact in query_compact
@@ -457,16 +543,20 @@ class SearchService:
         query_category_match = any(token in query_key for token in category_tokens)
         query_distinctive_match = any(token in query_key for token in distinctive_tokens)
         hidden_social_identity = bool(
-            handle_distinctive_match
+            strong_handle_distinctive_match
+            and (handle_business_variant_match or handle_city_initials_match)
             and query_city_match
-            and (query_name_match or query_category_match or query_distinctive_match)
+            and (
+                query_name_match
+                or (query_distinctive_match and (query_category_match or any(len(token) >= 6 and token in query_key for token in strong_distinctive_tokens)))
+            )
         )
-        has_name_match = bool(exact_name_match or variant_match or distinctive_combined_matches >= 1)
+        has_name_match = bool(exact_name_match or variant_match or strong_distinctive_combined_matches >= 1)
         path_token_matches = sum(1 for token in name_tokens if token in path_key)
         path_has_name = bool(
             name_compact and len(name_compact) >= 8 and name_compact in path_compact
             or variant_match
-            or distinctive_path_matches >= 1
+            or strong_distinctive_path_matches >= 1
         )
         phone_match = bool(phone_tail and phone_tail in re.sub(r"\D", "", combined))
         domain_match = bool(domain_key and (domain_key in combined_key or website_domain in combined.lower()))
@@ -476,7 +566,7 @@ class SearchService:
             or domain_match
             or ((exact_name_match or variant_match or path_has_name) and (city_match or category_match))
             or (handle_identity_match and (city_match or variant_match or category_match))
-            or (distinctive_combined_matches >= 1 and city_match and category_match)
+            or (strong_distinctive_combined_matches >= 1 and city_match and category_match)
             or hidden_social_identity
         )
         if exact_name_match or (name_compact and len(name_compact) >= 8 and name_compact in combined_compact):
@@ -497,7 +587,7 @@ class SearchService:
             score += 30
         if hidden_social_identity:
             score = max(score, 75)
-        if generic_matches and (not distinctive_tokens or not category_match):
+        if generic_matches and not hidden_social_identity and (not distinctive_tokens or not category_match):
             score -= 15
         if not is_valid_social_profile_url(normalized_url):
             return -100
@@ -535,16 +625,44 @@ class SearchService:
                     handle_key = self.social_url_handle_key(url)
                     combined_key = text_key(combined)
                     city_key = text_key(city)
+                    city_initials = self.city_initials_key(city)
                     category_tokens, distinctive_tokens = self.social_identity_tokens(contact)
+                    strong_distinctive_tokens = [
+                        token
+                        for token in distinctive_tokens
+                        if len(token) >= 4 and token not in WEAK_SOCIAL_DISTINCTIVE_TOKENS
+                    ]
                     handle_identity_match = self.handle_matches_business_identity(handle_key, category_tokens, distinctive_tokens)
                     handle_distinctive_match = any(token and token in handle_key for token in distinctive_tokens)
+                    strong_handle_distinctive_match = any(token and token in handle_key for token in strong_distinctive_tokens)
+                    variant_compacts = [
+                        re.sub(r"[^a-z0-9]+", "", text_key(variant))
+                        for variant in self.business_name_variants(str(contact.get("name") or ""))
+                    ]
+                    business_variant_compacts = [
+                        compact
+                        for compact in variant_compacts
+                        if compact not in set(strong_distinctive_tokens)
+                    ]
+                    handle_business_variant_match = any(
+                        compact and len(compact) >= 6 and (compact in handle_key or handle_key in compact)
+                        for compact in business_variant_compacts
+                    )
+                    handle_city_initials_match = bool(city_initials and handle_key.endswith(city_initials))
                     distinctive_match = any(token in combined_key for token in distinctive_tokens)
                     query_key = text_key(query)
                     query_identity_match = bool(
-                        handle_distinctive_match
+                        strong_handle_distinctive_match
+                        and (handle_business_variant_match or handle_city_initials_match)
                         and city_key
                         and city_key in query_key
-                        and any(token in query_key for token in [*distinctive_tokens, *category_tokens])
+                        and (
+                            any(token in query_key for token in strong_distinctive_tokens)
+                            and (
+                                any(token in query_key for token in category_tokens)
+                                or any(len(token) >= 6 and token in query_key for token in strong_distinctive_tokens)
+                            )
+                        )
                     )
                     has_identity_evidence = bool(
                         phone_tail and phone_tail in combined_digits
@@ -553,7 +671,7 @@ class SearchService:
                         or city_key and city_key in combined_key and (distinctive_match or handle_identity_match)
                         or query_identity_match
                     )
-                    if candidate_score >= 55 and has_identity_evidence:
+                    if candidate_score >= 70 and has_identity_evidence:
                         candidates.append({
                             "url": url,
                             "score": candidate_score,
@@ -637,10 +755,20 @@ class SearchService:
             city_key = text_key(city or contact.get("city"))
             city_match = bool(city_key and city_key in content_key)
             handle_match = handle in content_key
-            if handle_match and distinctive_matches >= 1 and category_matches >= 1 and city_match:
+            has_strong_distinctive = any(
+                token not in WEAK_SOCIAL_DISTINCTIVE_TOKENS and len(token) >= 5
+                for token in distinctive_tokens
+            )
+            official_handle_match = bool(
+                handle_match
+                and has_strong_distinctive
+                and self.handle_matches_business_identity(handle_key, category_tokens, distinctive_tokens)
+                and ("oficial" in handle_key or handle_key.endswith("br"))
+            )
+            if handle_match and distinctive_matches >= 1 and category_matches >= 1 and (city_match or official_handle_match):
                 normalized = normalize_social_url(url)
                 if normalized and is_valid_social_profile_url(normalized):
-                    return normalized, 76
+                    return normalized, 78 if city_match else 72
         except Exception:
             return None, 0
         return None, 0
@@ -648,17 +776,15 @@ class SearchService:
     def guessed_social_url_for_contact(self, contact: dict, channel: str, city: str = "", deadline: float | None = None) -> tuple[str | None, int]:
         if SOCIAL_ENRICH_MAX_HANDLE_VALIDATIONS <= 0:
             return None, 0
+        if channel != "instagram":
+            return None, 0
         for handle in self.business_social_handle_candidates(str(contact.get("name") or ""))[:SOCIAL_ENRICH_MAX_HANDLE_VALIDATIONS]:
             if self.time_budget_expired(deadline):
                 return None, 0
             url, score = self.validate_guessed_social_url(contact, channel, handle, city, deadline)
             if url:
                 return url, score
-        website_domain = domain_from_url(contact.get("website"))
-        if not website_domain:
-            return None, 0
-        handle = text_key(website_domain.split(".")[0])
-        return self.validate_guessed_social_url(contact, channel, handle, city, deadline)
+        return None, 0
 
     def score_website_candidate(self, contact: dict, row: dict, url: str, city: str) -> int:
         parsed = urlparse(url)
@@ -1039,7 +1165,37 @@ class SearchService:
                 channel for channel in ("instagram", "facebook")
                 if channel in requested_channels and channel not in required_social
             ]
-            identity_matches = self.enrich_identity_search(contact, city, segment, ordered_channels, deadline)
+            if required_social:
+                for channel in ordered_channels:
+                    if channel not in required_social:
+                        continue
+                    if self.time_budget_expired(deadline):
+                        stats["timedOut"] = True
+                        break
+                    field = "instagramUrl" if channel == "instagram" else "facebookUrl"
+                    if contact.get(field):
+                        continue
+                    url, score = self.guessed_social_url_for_contact(contact, channel, city, deadline)
+                    if url:
+                        contact[field] = url
+                        contact.setdefault("_socialEnrichment", {})[field] = {
+                            "score": score,
+                            "query": "validated_handle_guess",
+                            "status": "confirmed" if score >= 70 else "probable",
+                        }
+                        stats["matches"].append({
+                            "field": field,
+                            "url": url,
+                            "score": score,
+                            "status": "confirmed" if score >= 70 else "probable",
+                            "query": "validated_handle_guess",
+                        })
+            identity_channels = [
+                channel
+                for channel in ordered_channels
+                if not contact.get("instagramUrl" if channel == "instagram" else "facebookUrl")
+            ]
+            identity_matches = self.enrich_identity_search(contact, city, segment, identity_channels, deadline)
             for field, match in identity_matches.items():
                 if match.get("url"):
                     contact[field] = str(match["url"])
@@ -1056,8 +1212,6 @@ class SearchService:
                         "status": match.get("status"),
                         "query": match.get("query"),
                     })
-            if required_social and self.has_required_social_channels(contact, required_social):
-                continue
             for channel in ordered_channels:
                 if self.time_budget_expired(deadline):
                     stats["timedOut"] = True
@@ -1187,7 +1341,9 @@ class SearchService:
         return None, "missing", "none", 0, stats
 
     async def enrich_lead(self, request: EnrichLeadRequest) -> EnrichLeadResponse:
-        deadline = time.monotonic() + SOCIAL_ENRICH_TOTAL_BUDGET_SECONDS
+        requested_budget = float(request.timeBudgetSeconds or SOCIAL_ENRICH_TOTAL_BUDGET_SECONDS)
+        budget_seconds = max(5.0, min(SOCIAL_ENRICH_TOTAL_BUDGET_SECONDS, requested_budget))
+        deadline = time.monotonic() + budget_seconds
         phone_digits = re.sub(r"\D", "", request.phoneDigits or request.phone or "")
         contact = {
             "name": request.name,
@@ -1210,7 +1366,7 @@ class SearchService:
             request.segment,
             request.preferredChannels or ["instagram", "facebook"],
             request.requiredChannels,
-            time_budget_seconds=self.remaining_budget_seconds(deadline, SOCIAL_ENRICH_TOTAL_BUDGET_SECONDS),
+            time_budget_seconds=self.remaining_budget_seconds(deadline, budget_seconds),
         )
         enriched = contacts[0] if contacts else contact
         if not enriched.get("website") and not self.time_budget_expired(deadline):

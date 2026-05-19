@@ -1029,6 +1029,7 @@ test('isRunItemQualityDeliverable protege negativo mesmo no List', () => {
   };
 
   assert.equal(service.isRunItemQualityDeliverable(item, input), false);
+  assert.equal(service.isRunItemPrimaryDeliverable(item, input), false);
 });
 
 test('Radar entrega Facebook obrigatorio sem descartar telefone quando existir', async () => {
@@ -1302,6 +1303,94 @@ test('mapRunItemToContact preserva social fields do rawJson', () => {
   assert.equal(contact.qualityV2?.finalRankScore, 71);
 });
 
+test('persistRadarLeadPoolBatch preserva social ja enriquecido ao sincronizar card primario', async () => {
+  let updated: any = null;
+  const existing = {
+    id: 'radar-silcar',
+    companyId: null,
+    placeId: 'hbx:pj:1732023332',
+    name: 'Silcar Pneus Ltda',
+    phone: '(17) 3202-3332',
+    phoneDigits: '1732023332',
+    ddd: '17',
+    city: 'Araraquara',
+    state: 'SP',
+    segment: 'borracharias',
+    instagramUrl: 'https://instagram.com/silcarpneusoficial',
+    facebookUrl: 'https://facebook.com/SilcarPneusOficial',
+    socialStatus: 'found',
+    socialConfidence: 92,
+    status: 'rejected',
+    rejectionReason: 'ddd_mismatch',
+    metadataJson: JSON.stringify({
+      delivery: {
+        visibilityTier: 'blocked',
+        qualityReason: 'Canal obrigatorio ausente.',
+      },
+    }),
+    sourceEngines: JSON.stringify(['hbx']),
+  };
+  const service = new WebscrapingService(createPrisma({
+    radarLeadCompanyState: {},
+    radarLeadPool: {
+      findFirst: async () => existing,
+      update: async ({ data }: any) => {
+        updated = data;
+        return { ...existing, ...data };
+      },
+      create: async ({ data }: any) => {
+        updated = data;
+        return data;
+      },
+    },
+  })) as any;
+  const input = service.normalizeSearchInput({
+    city: 'Araraquara',
+    state: 'SP',
+    segment: 'borracharias',
+    quantity: 1,
+    radiusKm: 100,
+    originLat: -21.7845,
+    originLng: -48.178,
+    engine: 'hbx',
+    targetType: 'pj',
+    requiredChannels: ['instagram'],
+    channelMatchMode: 'all_required',
+    qualityMode: 'lead_plus',
+  });
+
+  await service.persistRadarLeadPoolBatch(input, [{
+    placeId: 'hbx:pj:1732023332',
+    name: 'Silcar Pneus Ltda',
+    phone: '(17) 3202-3332',
+    phoneDigits: '1732023332',
+    city: 'Araraquara',
+    state: 'SP',
+    segment: 'borracharias',
+    source: 'hbx',
+    quality: {
+      status: 'weak_contact',
+      billable: false,
+      segmentMatchScore: 60,
+      contactQualityScore: 50,
+      commercialScore: 59,
+      reasons: ['Contato insuficiente para entrega billable.'],
+    },
+  }], 'hbx');
+
+  assert.equal(updated.status, 'clean');
+  assert.equal(updated.rejectionReason, null);
+  assert.equal(updated.instagramUrl, 'https://instagram.com/silcarpneusoficial');
+  assert.equal(updated.facebookUrl, 'https://facebook.com/SilcarPneusOficial');
+  assert.equal(updated.socialStatus, 'found');
+  assert.ok(updated.socialConfidence >= 80);
+  const enrichment = JSON.parse(updated.enrichmentJson);
+  const metadata = JSON.parse(updated.metadataJson);
+  assert.equal(enrichment.signals.instagramUrl, 'https://instagram.com/silcarpneusoficial');
+  assert.equal(enrichment.qualityV2.channelAvailability.instagram, true);
+  assert.notEqual(metadata.delivery.visibilityTier, 'blocked');
+});
+
 test('isRunItemQualityDeliverable rejeita item sem Instagram quando filtro exige Instagram', () => {
   const service = new WebscrapingService(createPrisma()) as any;
   const input = {
@@ -1336,6 +1425,7 @@ test('isRunItemQualityDeliverable rejeita item sem Instagram quando filtro exige
   };
 
   assert.equal(service.isRunItemQualityDeliverable(item, input), false);
+  assert.equal(service.isRunItemPrimaryDeliverable(item, input), true);
 });
 
 test('isRunItemQualityDeliverable aceita item com Instagram quando filtro exige Instagram', () => {

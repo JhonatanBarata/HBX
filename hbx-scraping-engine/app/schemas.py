@@ -121,6 +121,7 @@ class EnrichLeadRequest(BaseModel):
     facebookUrl: str | None = None
     preferredChannels: list[str] = Field(default_factory=lambda: ["instagram", "facebook"])
     requiredChannels: list[str] = Field(default_factory=list)
+    timeBudgetSeconds: float | None = None
 
     @field_validator("name", "phone", "phoneDigits", "city", "state", "segment")
     @classmethod

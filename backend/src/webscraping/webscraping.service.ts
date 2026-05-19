@@ -3706,6 +3706,14 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     return this.isListDeliverableCard(candidate, input, quality, qualityV2);
   }
 
+  private isRunItemPrimaryDeliverable(item: any, input: NormalizedSearchInput | NormalizedRadarFilters) {
+    return this.isRunItemQualityDeliverable(item, this.withoutPrimarySocialRequiredChannels(input) as NormalizedSearchInput | NormalizedRadarFilters);
+  }
+
+  private hasRequiredSocialChannelsFilter(input?: NormalizedSearchInput | NormalizedRadarFilters | null) {
+    return this.requiredChannelsForInput(input).some((channel) => channel === 'instagram' || channel === 'facebook');
+  }
+
   private getResultSegmentForRejected(result: Record<string, any>) {
     const segment = this.normalizeQualityText(result.segment || result.businessCategory || result.category);
     return segment || null;
@@ -7364,7 +7372,11 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
-  private async enrichRadarLeadViaLeadPlusEngine(context: SearchExecutionContext, row: any) {
+  private async enrichRadarLeadViaLeadPlusEngine(
+    context: SearchExecutionContext,
+    row: any,
+    filters?: Pick<NormalizedRadarFilters, 'preferredChannels' | 'requiredChannels'> | null,
+  ) {
     let lease: HbxEngineLease | null = null;
     let engineUrl = this.getHbxScrapingEngineUrl();
     const runKey = `lead-plus-enrich:${context.companyId}:${context.userId}:${row?.id || Date.now()}`;
@@ -7378,6 +7390,9 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         );
         if (lease) engineUrl = lease.url;
       }
+      const requiredChannels = this.normalizeRadarChannels(filters?.requiredChannels);
+      const requiredSocialChannels = requiredChannels.filter((channel) => channel === 'instagram' || channel === 'facebook');
+      const preferredChannels = this.normalizeRadarChannels(filters?.preferredChannels);
       const body = {
         name: row?.name || '',
         phone: row?.phone || '',
@@ -7389,14 +7404,20 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         email: row?.email || null,
         instagramUrl: row?.instagramUrl || null,
         facebookUrl: row?.facebookUrl || null,
-        preferredChannels: ['instagram', 'facebook'],
-        requiredChannels: [],
+        preferredChannels: requiredSocialChannels.length
+          ? requiredSocialChannels
+          : preferredChannels.length
+          ? preferredChannels
+          : ['instagram', 'facebook'],
+        requiredChannels,
+        ...(requiredSocialChannels.length ? { timeBudgetSeconds: 10 } : {}),
       };
+      const timeoutMs = requiredSocialChannels.length ? 13_000 : Math.max(5_000, this.getHbxBatchTimeoutMs());
       const response = await fetch(`${String(engineUrl).replace(/\/+$/, '')}/enrich-lead`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
-        signal: AbortSignal.timeout(Math.max(5_000, this.getHbxBatchTimeoutMs())),
+        signal: AbortSignal.timeout(timeoutMs),
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) {
@@ -7410,6 +7431,113 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     } finally {
       if (lease) await this.getEnginePool().releaseEngine(lease.engineId).catch(() => null);
     }
+  }
+
+  private async applyLeadPlusEnrichmentToRadarRow(
+    context: SearchExecutionContext,
+    row: any,
+    leadPlus: any,
+    filters?: NormalizedRadarFilters | null,
+  ) {
+    if (!row?.id || !leadPlus || typeof leadPlus !== 'object') return row;
+    const now = new Date();
+    const metadata = this.parseMaybeJsonObject(row?.metadataJson);
+    const companyState = Array.isArray(row?.companyStates) && row.companyStates.length ? row.companyStates[0] : null;
+    const protectedStatus = this.isRadarProtectedStatus(companyState?.status || row?.status);
+    const leadPlusEmail = String(leadPlus?.email || '').trim() || null;
+    const leadPlusEmailStatus = ['confirmed', 'probable', 'missing', 'invalid', 'unverified'].includes(String(leadPlus?.emailStatus || ''))
+      ? String(leadPlus.emailStatus)
+      : row.emailStatus;
+    const leadPlusEmailSource = ['website', 'maps', 'inferred', 'manual', 'none'].includes(String(leadPlus?.emailSource || ''))
+      ? String(leadPlus.emailSource)
+      : row.emailSource;
+    const leadPlusInstagram = String(leadPlus?.instagramUrl || '').trim() || null;
+    const leadPlusFacebook = String(leadPlus?.facebookUrl || '').trim() || null;
+    const leadPlusSocialStatus = leadPlusInstagram || leadPlusFacebook ? 'found' : row.socialStatus;
+    const requiredChannels = filters ? this.requiredChannelsForInput(filters) : [];
+    const enrichment = buildRadarLeadEnrichment({
+      ...row,
+      email: leadPlusEmail || row.email,
+      emailStatus: leadPlusEmailStatus,
+      emailSource: leadPlusEmailSource,
+      emailConfidence: safeInteger(leadPlus?.emailConfidence || row.emailConfidence),
+      instagramUrl: leadPlusInstagram || row.instagramUrl,
+      facebookUrl: leadPlusFacebook || row.facebookUrl,
+      socialStatus: leadPlusSocialStatus,
+      socialConfidence: safeInteger(leadPlus?.socialConfidence || row.socialConfidence),
+      companyStatus: companyState?.status || row.status,
+      rawPayload: {
+        ...metadata,
+        leadPlusEnrichment: leadPlus,
+        requiredChannels,
+      },
+      qualityMode: filters?.qualityMode || 'lead_plus',
+      salesProfile: filters ? this.buildLeadQualitySalesProfileFromFilters(filters) : null,
+      now,
+    });
+    const data = {
+      email: enrichment.email || row.email || null,
+      emailStatus: enrichment.emailStatus,
+      emailSource: enrichment.emailSource,
+      emailConfidence: enrichment.emailConfidence,
+      instagramUrl: enrichment.instagramUrl || row.instagramUrl || null,
+      facebookUrl: enrichment.facebookUrl || row.facebookUrl || null,
+      socialStatus: enrichment.socialStatus,
+      socialConfidence: enrichment.socialConfidence,
+      googleMapsUrl: enrichment.googleMapsUrl || row.googleMapsUrl || null,
+      businessCategory: enrichment.businessCategory || row.businessCategory || null,
+      openingHoursStatus: enrichment.openingHoursStatus || row.openingHoursStatus || null,
+      recommendedChannel: protectedStatus ? 'discard' : enrichment.recommendedChannel,
+      painType: enrichment.painType,
+      painLabel: enrichment.painLabel,
+      painPitch: enrichment.painPitch,
+      opportunityReason: enrichment.opportunityReason || row.opportunityReason || null,
+      enrichmentJson: enrichment.enrichmentJson,
+      enrichmentScore: protectedStatus ? 0 : enrichment.enrichmentScore,
+      enrichmentConfidence: enrichment.enrichmentConfidence,
+      lastEnrichedAt: enrichment.lastEnrichedAt,
+      enrichmentVersion: enrichment.enrichmentVersion,
+      metadataJson: JSON.stringify({
+        ...metadata,
+        requiredSocialEnrichment: {
+          key: requiredChannels.join(','),
+          attemptedAt: now.toISOString(),
+          found: Boolean(enrichment.instagramUrl || enrichment.facebookUrl),
+        },
+      }),
+      lastSeenAt: now,
+    };
+    await (this.prisma as any).radarLeadPool.update({ where: { id: row.id }, data }).catch((error: any) => {
+      this.logger.warn(`[radar-enrichment] falha ao salvar social lead=${row.id}: ${String(error?.message || error)}`);
+    });
+    return { ...row, ...data };
+  }
+
+  private recentRequiredSocialAttempt(row: any, filters: NormalizedRadarFilters) {
+    const metadata = this.parseMaybeJsonObject(row?.metadataJson);
+    const attempt = this.parseMaybeJsonObject(metadata?.requiredSocialEnrichment);
+    const key = this.requiredChannelsForInput(filters).join(',');
+    const attemptedAt = Date.parse(String(attempt?.attemptedAt || ''));
+    return Boolean(key && attempt?.key === key && attemptedAt && Date.now() - attemptedAt < 10 * 60 * 1000);
+  }
+
+  private async enrichRowsForRequiredSocialChannels(
+    context: SearchExecutionContext,
+    rows: any[],
+    filters: NormalizedRadarFilters,
+    maxRows: number,
+  ) {
+    if (!this.hasRequiredSocialChannelsFilter(filters) || !rows.length || maxRows <= 0) return rows;
+    let processed = 0;
+    const tasks = rows.map(async (row) => {
+      if (this.matchesRadarChannelFilters(row, filters) || this.recentRequiredSocialAttempt(row, filters) || processed >= maxRows) {
+        return row;
+      }
+      processed += 1;
+      const leadPlus = await this.enrichRadarLeadViaLeadPlusEngine(context, row, filters);
+      return this.applyLeadPlusEnrichmentToRadarRow(context, row, leadPlus, filters);
+    });
+    return Promise.all(tasks);
   }
 
   async enrichRadarLeadForUser(user: any, radarLeadId: string) {
@@ -7764,7 +7892,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       salesProfile: normalized.salesProfile,
     } as NormalizedRadarFilters;
     const foundItems = (Array.isArray(run?.items) ? run.items : [])
-      .filter((item: any) => this.isRunItemQualityDeliverable(item, qualityInput));
+      .filter((item: any) => this.isRunItemPrimaryDeliverable(item, qualityInput));
     if (!foundItems.length) return;
     const contacts = foundItems
       .map((item: any) => this.mapRunItemToContact(item))
@@ -7787,10 +7915,16 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
           city: first.city || normalized.city,
           state: first.state || normalized.state,
           segment: first.segment || normalized.segment,
+          radiusKm: normalized.radiusKm,
+          originLat: normalized.originLat,
+          originLng: normalized.originLng,
           quantity: Math.max(1, groupContacts.length),
           engine: 'hbx',
           targetType: normalized.targetType,
           salesProfile: normalized.salesProfile,
+          preferredChannels: normalized.preferredChannels,
+          requiredChannels: normalized.requiredChannels,
+          channelMatchMode: normalized.channelMatchMode,
           qualityMode: normalized.qualityMode,
         });
         await this.persistRadarLeadPoolBatch(groupInput, groupContacts, 'hbx').catch((error: any) => {
@@ -7850,20 +7984,29 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     });
 
     const filters = this.buildRadarFiltersFromSearchRun(run);
-    const foundItems = (run.items || []).filter((item: any) => this.isRunItemQualityDeliverable(item, filters));
-    const runPhoneOrder = foundItems
+    const primaryFoundItems = (run.items || []).filter((item: any) => this.isRunItemPrimaryDeliverable(item, filters));
+    const runPhoneOrder = primaryFoundItems
       .map((item: any) => normalizePhoneDigits(item.phoneDigits || item.phone))
       .filter(Boolean);
     if (!runPhoneOrder.length) {
       return { ran: true, importedCount: 0, pendingCount, remaining, failures: [] };
     }
-    const orderedRows = await this.findRadarPoolRowsForRunItems(
+    let orderedRows = await this.findRadarPoolRowsForRunItems(
       context.companyId,
-      foundItems,
+      primaryFoundItems,
       safeInteger(run.targetQuantity),
     );
+    if (this.hasRequiredSocialChannelsFilter(filters)) {
+      orderedRows = await this.enrichRowsForRequiredSocialChannels(
+        context,
+        orderedRows,
+        filters,
+        Math.min(Math.max(safeInteger(run.targetQuantity), 1), 2),
+      );
+      orderedRows = orderedRows.filter((row) => this.matchesRadarChannelFilters(row, filters));
+    }
     const failures: Array<{ reason: string }> = [];
-    if (orderedRows.length < foundItems.length) {
+    if (orderedRows.length < primaryFoundItems.length) {
       failures.push({ reason: 'card_nao_materializado_no_pool' });
     }
 
@@ -7938,7 +8081,9 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     const effectiveRun = freshRun || run;
     const metrics = parseJsonObject(effectiveRun.metricsJson);
     const filters = this.buildRadarFiltersFromSearchRun(effectiveRun);
+    const requestedQuantity = Math.max(1, safeInteger(effectiveRun.targetQuantity));
     const allFoundRunItems = (effectiveRun.items || []).filter((item: any) => String(item?.status || '') === 'found');
+    const primaryFoundItems = allFoundRunItems.filter((item: any) => this.isRunItemPrimaryDeliverable(item, filters));
     const foundItems = allFoundRunItems.filter((item: any) => this.isRunItemQualityDeliverable(item, filters));
     const requiredChannelRejectedCount = filters.requiredChannels.length
       ? allFoundRunItems.filter((item: any) => {
@@ -7948,12 +8093,22 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       : 0;
     let orderedRows = await this.findRadarPoolRowsForRunItems(
       context.companyId,
-      foundItems,
+      primaryFoundItems,
       safeInteger(effectiveRun.targetQuantity),
     );
     const status = this.normalizeSearchRunStatus(effectiveRun.status);
     const terminal = this.isTerminalRadarSearchRunStatus(status);
-    const autoImport = !options?.skipAutoImport && terminal
+    if (this.hasRequiredSocialChannelsFilter(filters)) {
+      const hasRequiredSocialMatch = orderedRows.some((row) => this.matchesRadarChannelFilters(row, filters));
+      orderedRows = await this.enrichRowsForRequiredSocialChannels(
+        context,
+        orderedRows,
+        filters,
+        hasRequiredSocialMatch ? 0 : 1,
+      );
+      orderedRows = orderedRows.filter((row) => this.matchesRadarChannelFilters(row, filters));
+    }
+    const autoImport = !options?.skipAutoImport && terminal && !this.hasRequiredSocialChannelsFilter(filters)
       ? await this.autoImportRadarSearchRunToVendas(user, effectiveRun.id).catch((error: any) => {
           this.logger.warn(`[radar-vendas] auto-import ignorado run=${effectiveRun.id}: ${String(error?.message || error)}`);
           return null;
@@ -7962,12 +8117,14 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     if (autoImport?.processedCount || autoImport?.importedCount) {
       orderedRows = await this.findRadarPoolRowsForRunItems(
         context.companyId,
-        foundItems,
+        primaryFoundItems,
         safeInteger(effectiveRun.targetQuantity),
       );
+      if (this.hasRequiredSocialChannelsFilter(filters)) {
+        orderedRows = orderedRows.filter((row) => this.matchesRadarChannelFilters(row, filters));
+      }
     }
     const includeSmartFields = await this.canUseRadarSmartLeadFields(context.companyId);
-    const requestedQuantity = Math.max(1, safeInteger(effectiveRun.targetQuantity));
     const rowPublicItems = orderedRows.map((row) => this.buildRadarLeadPublic(row, { includeSmartFields }));
     const seenPhones = new Set(
       rowPublicItems
@@ -7984,7 +8141,8 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         .map((item: any) => normalizeLookupValue(`${item?.name || ''}-${item?.city || filters.city}-${item?.state || filters.state}`))
         .filter(Boolean),
     );
-    const fallbackRunItems = foundItems.filter((item: any) => {
+    const fallbackSourceItems = this.hasRequiredSocialChannelsFilter(filters) ? foundItems : primaryFoundItems;
+    const fallbackRunItems = fallbackSourceItems.filter((item: any) => {
       const contact = this.mapRunItemToContact(item);
       const phone = normalizePhoneDigits(contact.phoneDigits || contact.phone || item?.phoneDigits || item?.phone);
       const place = String(contact.placeId || item?.placeId || '').trim();
@@ -8831,6 +8989,24 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       if (dddMismatch) counts.rejectedCount += 1;
       else counts.approvedCount += 1;
       const sourceEngines = Array.from(new Set([...parseJsonArray(existing?.sourceEngines), sourceEngine, result.source].filter(Boolean).map(String)));
+      const existingWasDddMismatch = String(existing?.status || '') === 'rejected' && String(existing?.rejectionReason || '') === 'ddd_mismatch';
+      const nextStatus = dddMismatch ? 'rejected' : existingWasDddMismatch ? 'clean' : existing?.status || 'clean';
+      const nextRejectionReason = dddMismatch ? 'ddd_mismatch' : existingWasDddMismatch ? null : existing?.rejectionReason || null;
+      const mergedInstagramUrl = String((result as any).instagramUrl || existing?.instagramUrl || '').trim() || null;
+      const mergedFacebookUrl = String((result as any).facebookUrl || existing?.facebookUrl || '').trim() || null;
+      const mergedSocialStatus = mergedInstagramUrl || mergedFacebookUrl
+        ? 'found'
+        : String((result as any).socialStatus || existing?.socialStatus || '').trim() || null;
+      const mergedSocialConfidence = mergedInstagramUrl || mergedFacebookUrl
+        ? Math.max(80, safeInteger((result as any).socialConfidence || existing?.socialConfidence))
+        : safeInteger((result as any).socialConfidence || existing?.socialConfidence);
+      const mergedResult = {
+        ...(result as any),
+        instagramUrl: mergedInstagramUrl,
+        facebookUrl: mergedFacebookUrl,
+        socialStatus: mergedSocialStatus,
+        socialConfidence: mergedSocialConfidence,
+      };
       const data = {
         companyId: existing?.companyId || null,
         placeId: placeId || existing?.placeId || null,
@@ -8855,8 +9031,8 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         sourceEngines: JSON.stringify(sourceEngines),
         opportunityScore,
         opportunityReason,
-        status: dddMismatch ? 'rejected' : existing?.status || 'clean',
-        rejectionReason: dddMismatch ? 'ddd_mismatch' : existing?.rejectionReason || null,
+        status: nextStatus,
+        rejectionReason: nextRejectionReason,
         campaignId: options.campaignId || existing?.campaignId || null,
         metadataJson: JSON.stringify({
           ...this.parseMaybeJsonObject(existing?.metadataJson),
@@ -8877,24 +9053,34 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       const enrichment = buildRadarLeadEnrichment({
         ...(existing || {}),
         ...data,
-        ...(result as any),
-        status: dddMismatch ? 'rejected' : existing?.status || 'clean',
+        ...mergedResult,
+        status: nextStatus,
         sourceUrl: options.sourceUrl || existing?.sourceUrl || null,
-        rawPayload: result as any,
+        rawPayload: mergedResult as any,
         qualityMode: input.qualityMode,
         salesProfile: this.buildLeadQualitySalesProfileFromFilters(input),
         now,
       });
       const enrichmentJson = this.parseMaybeJsonObject(enrichment.enrichmentJson);
+      const finalQualityV2 = this.extractLeadQualityV2FromObject(enrichmentJson) || qualityV2;
+      const finalCandidate = {
+        ...mergedResult,
+        ...data,
+        email: enrichment.email || existing?.email || null,
+        instagramUrl: enrichment.instagramUrl || mergedInstagramUrl,
+        facebookUrl: enrichment.facebookUrl || mergedFacebookUrl,
+        phoneDigits,
+      };
+      const finalDelivery = this.classifyCardDelivery(finalCandidate, input, quality, finalQualityV2);
       Object.assign(data, {
         email: enrichment.email || existing?.email || null,
         emailStatus: enrichment.emailStatus,
         emailSource: enrichment.emailSource,
         emailConfidence: enrichment.emailConfidence,
-        instagramUrl: enrichment.instagramUrl || existing?.instagramUrl || null,
-        facebookUrl: enrichment.facebookUrl || existing?.facebookUrl || null,
-        socialStatus: enrichment.socialStatus,
-        socialConfidence: enrichment.socialConfidence,
+        instagramUrl: enrichment.instagramUrl || mergedInstagramUrl || null,
+        facebookUrl: enrichment.facebookUrl || mergedFacebookUrl || null,
+        socialStatus: enrichment.instagramUrl || enrichment.facebookUrl || mergedInstagramUrl || mergedFacebookUrl ? 'found' : enrichment.socialStatus,
+        socialConfidence: enrichment.instagramUrl || enrichment.facebookUrl || mergedInstagramUrl || mergedFacebookUrl ? Math.max(80, enrichment.socialConfidence, mergedSocialConfidence) : enrichment.socialConfidence,
         googleMapsUrl: enrichment.googleMapsUrl || existing?.googleMapsUrl || null,
         businessCategory: enrichment.businessCategory || existing?.businessCategory || null,
         openingHoursStatus: enrichment.openingHoursStatus || existing?.openingHoursStatus || null,
@@ -8903,7 +9089,21 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         painLabel: enrichment.painLabel,
         painPitch: enrichment.painPitch,
         opportunityReason: enrichment.opportunityReason || data.opportunityReason,
-        enrichmentJson: JSON.stringify({ ...enrichmentJson, quality, delivery }),
+        metadataJson: JSON.stringify({
+          ...this.parseMaybeJsonObject(existing?.metadataJson),
+          targetType: input.targetType,
+          expectedDdds: resultExpectedDdds.length ? resultExpectedDdds : expectedDdds,
+          searchCity: input.city,
+          searchState: input.state,
+          searchSegment: input.segment,
+          resultCity: resultCity || null,
+          resultState: resultState || null,
+          resultSegment: resultSegment || null,
+          lastSourceEngine: sourceEngine,
+          quality,
+          delivery: finalDelivery,
+        }),
+        enrichmentJson: JSON.stringify({ ...enrichmentJson, quality, delivery: finalDelivery }),
         enrichmentScore: enrichment.enrichmentScore,
         enrichmentConfidence: enrichment.enrichmentConfidence,
         lastEnrichedAt: enrichment.lastEnrichedAt,
