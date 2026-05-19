@@ -1556,6 +1556,24 @@ test('maskRadarSmartFieldsForList preserva contato e contexto rico do card', () 
   assert.equal(item.premiumLocked, false);
 });
 
+test('hasUsablePublicContactChannel aceita card rico sem telefone', () => {
+  const service = new WebscrapingService(createPrisma()) as any;
+
+  assert.equal(service.hasUsablePublicContactChannel({
+    name: 'Oficina Rica',
+    email: 'contato@oficinarica.com.br',
+    emailStatus: 'probable',
+  }), true);
+  assert.equal(service.hasUsablePublicContactChannel({
+    name: 'Oficina Maps',
+    googleMapsUrl: 'https://www.google.com/maps/place/Oficina+Maps',
+  }), true);
+  assert.equal(service.hasUsablePublicContactChannel({
+    name: 'Oficina Fonte',
+    sourceUrl: 'https://oficinafonte.com.br',
+  }), true);
+});
+
 test('isRunItemQualityDeliverable nao rejeita item sem Instagram quando filtro legado exige Instagram', () => {
   const service = new WebscrapingService(createPrisma()) as any;
   const input = {

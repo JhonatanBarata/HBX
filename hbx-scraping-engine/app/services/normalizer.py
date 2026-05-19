@@ -80,22 +80,35 @@ def dedupe_contacts(items: list[dict], city: str | None = None, target_type: str
     for item in items:
         digits = normalize_phone_digits(item.get("phoneDigits") or item.get("phone"))
         name = fallback_name(item.get("name"), city, target_type)
-        if not digits or not name or digits in seen:
+        if not name:
             continue
         if target_type != "pf" and is_generic_name(name, city, target_type):
             continue
         domain = str(item.get("_domain") or domain_from_url(item.get("website")) or "").lower()
         name_key = text_key(name)
+        instagram = str(item.get("instagramUrl") or "").strip().rstrip("/").lower()
+        facebook = str(item.get("facebookUrl") or "").strip().rstrip("/").lower()
+        website = str(item.get("website") or "").strip().rstrip("/").lower()
+        identity = (
+            f"phone:{digits}" if digits else
+            f"instagram:{instagram}" if instagram else
+            f"facebook:{facebook}" if facebook else
+            f"website:{website}:{name_key}" if website else
+            f"domain:{domain}:{name_key}" if domain else
+            ""
+        )
+        if not identity or identity in seen:
+            continue
         website_key = (domain, name_key)
         website_name_count[website_key] = website_name_count.get(website_key, 0) + 1
         if domain and website_name_count[website_key] > 2:
             continue
         next_item = dict(item)
         next_item["name"] = name
-        next_item["phoneDigits"] = digits
-        next_item["phone"] = item.get("phone") or format_phone(digits)
+        next_item["phoneDigits"] = digits or ""
+        next_item["phone"] = item.get("phone") or (format_phone(digits) if digits else "")
         if domain and website_name_count[website_key] > 1:
             next_item["score"] = max(0, int(next_item.get("score") or 0) - 15)
-        seen.add(digits)
+        seen.add(identity)
         deduped.append(next_item)
     return deduped
