@@ -301,6 +301,23 @@ def test_social_queries_escape_internal_quotes() -> None:
     assert all(query.count('"') % 2 == 0 for query in queries)
 
 
+def test_website_candidate_rejects_job_portal_domain() -> None:
+    service = SearchService()
+
+    score = service.score_website_candidate(
+        {"name": "Silcar Pneus Ltda", "segment": "borracharias"},
+        {
+            "href": "https://silcarpneus.gupy.io/",
+            "title": "Silcar Pneus - vagas",
+            "body": "Ambiente de carreira da Silcar Pneus.",
+        },
+        "https://silcarpneus.gupy.io/",
+        "Araraquara",
+    )
+
+    assert score == -100
+
+
 def test_social_enrichment_skips_bad_directory_candidate_without_ddgs(monkeypatch) -> None:
     service = SearchService()
     calls: list[str] = []
