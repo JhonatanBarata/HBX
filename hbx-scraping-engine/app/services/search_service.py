@@ -65,6 +65,7 @@ OFFICIAL_WEBSITE_BLOCKED_DOMAINS = {
     "top-rated.online",
     "locaisdobrasil.com.br",
     "directmap.biz",
+    "gupy.io",
 }
 
 SOCIAL_QUERY_BAD_NAME_HINTS = (
