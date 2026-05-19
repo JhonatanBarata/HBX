@@ -1773,7 +1773,10 @@ class SearchService:
                 contact["_legacyScore"] = legacy_score
                 contact["evidenceJson"] = evidence.model_dump()
                 contact["rejectReasons"] = evidence.penalties
-                contact["qualityReason"] = "; ".join(evidence.reasons[:3]) if evidence.reasons else None
+                commercial_reasons = [reason for reason in evidence.reasons if "público-alvo" in reason or "segmentos-alvo" in reason]
+                technical_reasons = [reason for reason in evidence.reasons if reason not in commercial_reasons]
+                visible_reasons = [*commercial_reasons, *technical_reasons][:3]
+                contact["qualityReason"] = "; ".join(visible_reasons) if visible_reasons else None
                 contact["sourceEngine"] = "hbx_scraping"
                 contact["sourceUrl"] = page.url
                 contact["_pageUrl"] = contact.get("_pageUrl") or page.url
@@ -1927,6 +1930,8 @@ class SearchService:
             row["approvalRate"] = round(approved / total, 4) if total else 0
         social_stats["missingRequiredChannel"] = stats["missing_required_channel"]
         response_stats = {
+            "urlsDiscovered": len(urls),
+            "pagesFetched": len(pages),
             "parsed": stats["parsed"],
             "approved": stats["approved"],
             "invalidPhone": stats["invalid_phone"],
@@ -1953,6 +1958,8 @@ class SearchService:
         )
         print(
             "[search:funnel] "
+            f"urls_discovered={len(urls)} "
+            f"pages_fetched={len(pages)} "
             f"raw_found={len(parsed)} "
             f"deduped={len(deduped)} "
             f"social_profiles={social_discovery_stats['profilesDiscovered']} "
