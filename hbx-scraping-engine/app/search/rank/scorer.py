@@ -61,6 +61,16 @@ def _has_phone(contact: dict) -> bool:
     return bool(re.sub(r"\D", "", str(contact.get("phoneDigits") or contact.get("phone") or "")))
 
 
+def _label_matches(label: str, content_key: str) -> bool:
+    tokens = [token for token in text_key(label).split() if len(token) >= 4]
+    if not tokens:
+        return False
+    if len(tokens) == 1:
+        return tokens[0] in content_key
+    label_key = " ".join(tokens)
+    return label_key in content_key or all(token in content_key for token in tokens)
+
+
 def _channels(contact: dict) -> list[str]:
     channels: list[str] = []
     if _has_phone(contact):
@@ -82,7 +92,15 @@ def _channels(contact: dict) -> list[str]:
 
 
 class EvidenceScorer:
-    def commercial_fit(self, contact: dict, intent: SearchIntent, content: str, penalties: list[str], reasons: list[str]) -> tuple[int, int]:
+    def commercial_fit(
+        self,
+        contact: dict,
+        intent: SearchIntent,
+        content: str,
+        penalties: list[str],
+        reasons: list[str],
+        lead_content: str = "",
+    ) -> tuple[int, int]:
         profile = intent.salesProfile or {}
         what = text_key(str(profile.get("whatDoYouSell") or profile.get("offerCategory") or ""))
         audience_labels = _labels(profile.get("targetAudience"))
@@ -96,25 +114,24 @@ class EvidenceScorer:
             }),
         ]
         content_key = text_key(content)
+        lead_key = text_key(lead_content or content)
         score = 50
         penalty_score = 0
 
         for label in hard_reject_labels:
-            tokens = [token for token in text_key(label).split() if len(token) >= 4]
-            if tokens and any(token in content_key for token in tokens):
+            if _label_matches(label, lead_key):
                 penalties.append("commercial_hard_reject")
                 reasons.append(f"Bloqueado por segmento rejeitado: {label}.")
                 return 0, 100
 
         for label in avoid_labels:
-            tokens = [token for token in text_key(label).split() if len(token) >= 4]
-            if tokens and any(token in content_key for token in tokens):
+            if _label_matches(label, lead_key):
                 penalty_score += 25
                 penalties.append("commercial_avoid_segment")
                 reasons.append(f"Penalizado por segmento evitado: {label}.")
 
         if target_labels:
-            matched = next((label for label in target_labels if any(token in content_key for token in text_key(label).split() if len(token) >= 4)), "")
+            matched = next((label for label in target_labels if _label_matches(label, lead_key)), "")
             if matched:
                 score += 25
                 reasons.append(f"Combina com seus segmentos-alvo: {matched}.")
@@ -132,7 +149,7 @@ class EvidenceScorer:
                 penalties.append("weak_senior_health_fit")
 
         if audience_labels and not senior_audience:
-            matched_audience = next((label for label in audience_labels if any(token in content_key for token in text_key(label).split() if len(token) >= 4)), "")
+            matched_audience = next((label for label in audience_labels if _label_matches(label, lead_key)), "")
             if matched_audience:
                 score += 15
                 reasons.append(f"Combina com seu público-alvo: {matched_audience}.")
@@ -183,14 +200,14 @@ class EvidenceScorer:
             penalties.append("generic_directory_source")
 
         intent_score = 35
-        commercial_content = " ".join([
+        lead_commercial_content = " ".join([
             name,
             str(contact.get("address") or ""),
             str(contact.get("segment") or ""),
             str(contact.get("businessCategory") or ""),
-            page_text,
             page_url,
         ])
+        commercial_content = " ".join([lead_commercial_content, page_text])
         content = text_key(commercial_content)
         if intent.city and text_key(intent.city) in content:
             intent_score += 25
@@ -206,7 +223,7 @@ class EvidenceScorer:
             reasons.append("Canal preferido presente.")
 
         freshness = 65 if intent.freshness in {"live", "hybrid"} else 45
-        commercial_fit, penalty_score = self.commercial_fit(contact, intent, commercial_content, penalties, reasons)
+        commercial_fit, penalty_score = self.commercial_fit(contact, intent, commercial_content, penalties, reasons, lead_commercial_content)
         raw = (
             min(identity, 100) * 0.25
             + min(contact_score, 100) * 0.20
