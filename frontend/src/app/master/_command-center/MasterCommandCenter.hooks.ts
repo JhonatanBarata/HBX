@@ -83,6 +83,17 @@ function buildFinanceSettingsDraft(company: CompanyDetailPayload["company"]) {
   };
 }
 
+function buildCardQuotaDraft(company: CompanyDetailPayload["company"]) {
+  return {
+    monthlyCardLimit: company.commercialCardQuota?.monthlyOverride
+      ? String(company.commercialCardQuota.monthlyOverride)
+      : "",
+    dailyCardLimit: company.commercialCardQuota?.dailyOverride
+      ? String(company.commercialCardQuota.dailyOverride)
+      : "",
+  };
+}
+
 function buildWhatsAppMigrationWorkflowDraft(company: CompanyDetailPayload["company"]) {
   const workflowStatus = String(company.whatsappCenter?.migration?.workflowStatus || "").trim().toUpperCase();
   return {
@@ -249,6 +260,7 @@ export function useMasterCommandCenterActions({
   const [websiteDraft, setWebsiteDraft] = useState<ReturnType<typeof buildWebsiteDraft> | null>(null);
   const [mercadoPagoDraft, setMercadoPagoDraft] = useState<ReturnType<typeof buildMercadoPagoDraft> | null>(null);
   const [financeSettingsDraft, setFinanceSettingsDraft] = useState<ReturnType<typeof buildFinanceSettingsDraft> | null>(null);
+  const [cardQuotaDraft, setCardQuotaDraft] = useState<ReturnType<typeof buildCardQuotaDraft> | null>(null);
   const [whatsAppMigrationWorkflowDraft, setWhatsAppMigrationWorkflowDraft] = useState<ReturnType<typeof buildWhatsAppMigrationWorkflowDraft> | null>(null);
   const [trialDateDraft, setTrialDateDraft] = useState("");
   const [trialDaysDraft, setTrialDaysDraft] = useState("14");
@@ -283,6 +295,7 @@ export function useMasterCommandCenterActions({
       setWebsiteDraft(buildWebsiteDraft(payload.company));
       setMercadoPagoDraft(buildMercadoPagoDraft(payload.company));
       setFinanceSettingsDraft(buildFinanceSettingsDraft(payload.company));
+      setCardQuotaDraft(buildCardQuotaDraft(payload.company));
       setWhatsAppMigrationWorkflowDraft(buildWhatsAppMigrationWorkflowDraft(payload.company));
       setTrialDateDraft(toDateInputValue(payload.company.trialEndsAt));
       setCompanyIntegrations([]);
@@ -836,6 +849,27 @@ export function useMasterCommandCenterActions({
     }
   }
 
+  async function saveCompanyCardQuota() {
+    if (!activeCompany || !cardQuotaDraft) return;
+    setBusyAction(`card-quota-${activeCompany.id}`);
+    setError(null);
+    try {
+      await apiFetch(`/modules/master/company/${activeCompany.id}/card-quota`, {
+        method: "PUT",
+        body: JSON.stringify({
+          monthlyCardLimit: Math.max(0, Math.trunc(Number(cardQuotaDraft.monthlyCardLimit || 0) || 0)),
+          dailyCardLimit: Math.max(0, Math.trunc(Number(cardQuotaDraft.dailyCardLimit || 0) || 0)),
+        }),
+      });
+      setMessage(`Cota de cards de ${activeCompany.name} atualizada.`);
+      await refreshAll(activeCompany.id);
+    } catch (actionError) {
+      setError(actionError instanceof Error ? actionError.message : "Falha ao salvar cota de cards.");
+    } finally {
+      setBusyAction(null);
+    }
+  }
+
   async function saveWebsite() {
     if (!activeCompany || !websiteDraft) return;
     setBusyAction(`website-${activeCompany.id}`);
@@ -1263,6 +1297,7 @@ export function useMasterCommandCenterActions({
     setWebsiteDraft,
     setMercadoPagoDraft,
     setFinanceSettingsDraft,
+    setCardQuotaDraft,
     setWhatsAppMigrationWorkflowDraft,
     setTrialDateDraft,
     setTrialDaysDraft,
@@ -1298,6 +1333,7 @@ export function useMasterCommandCenterActions({
     cancelManualPayment,
     saveProfile,
     saveCompanyFinanceSettings,
+    saveCompanyCardQuota,
     saveWebsite,
     toggleModule,
     changeCompanyPlan,
@@ -1338,6 +1374,7 @@ export function useMasterCommandCenterActions({
       websiteDraft,
       mercadoPagoDraft,
       financeSettingsDraft,
+      cardQuotaDraft,
       whatsAppMigrationWorkflowDraft,
       trialDateDraft,
       trialDaysDraft,

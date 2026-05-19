@@ -81,6 +81,33 @@ test('HBX batch divide segmentos com virgula em no maximo 5 tarefas alternando c
   assert.equal(tasks[30].searchScope.currentSegment, 'oficina');
 });
 
+test('normalizacao do Radar ignora coordenada antiga que nao bate com a cidade selecionada', () => {
+  const service = new WebscrapingService(createPrisma()) as any;
+
+  const input = service.normalizeSearchInput({
+    city: 'Araraquara',
+    state: 'SP',
+    segment: 'auto elétricas',
+    quantity: 30,
+    radiusKm: 100,
+    originLat: -22.4082,
+    originLng: -47.5624,
+    engine: 'hbx',
+    targetType: 'pj',
+  });
+
+  assert.equal(input.city, 'Araraquara');
+  assert.equal(input.state, 'SP');
+  assert.notEqual(input.regionalCities[1]?.city, 'Rio Claro');
+  assert.ok(input.regionalCities.some((row: any) => row.city === 'São Carlos' || row.city === 'Sao Carlos'));
+  assert.ok(input.regionalCities.every((row: any) => row.city !== 'Rio Claro' || row.distanceKm > 50));
+});
+
+test('DDD esperado reconhece Araraquara como DDD 16', () => {
+  const service = new WebscrapingService(createPrisma()) as any;
+  assert.deepEqual(service.buildExpectedDdds({ city: 'Araraquara', state: 'SP', segment: 'auto elétricas' }), ['16']);
+});
+
 function createUser() {
   return {
     id: 9,
@@ -356,7 +383,7 @@ test('buildSearchResponse bloqueia titulos de conteudo e html entity antigos', (
   assert.equal(response.meta.filteredOutCount, 3);
 });
 
-test('buildSearchResponse mantem Lead+ exigindo qualidade aprovada', () => {
+test('buildSearchResponse no Lead+ mantem card real fraco como backup sem debito', () => {
   const service = new WebscrapingService(createPrisma()) as any;
   const input = service.normalizeSearchInput({
     city: 'Boituva',
@@ -389,9 +416,14 @@ test('buildSearchResponse mantem Lead+ exigindo qualidade aprovada', () => {
     technicalCacheValidUntil: null,
   });
 
-  assert.equal(response.results.length, 0);
-  assert.equal(response.meta.deliveredCount, 0);
-  assert.equal(response.meta.filteredOutCount, 1);
+  assert.equal(response.results.length, 1);
+  assert.equal(response.results[0].name, 'Farmacia Teste');
+  assert.equal(response.results[0].deliveryProduct, 'lead_plus');
+  assert.equal(response.results[0].billable, false);
+  assert.equal(response.results[0].debitEligible, false);
+  assert.ok(['enrichment_pending', 'review_backup'].includes(response.results[0].visibilityTier));
+  assert.equal(response.meta.deliveredCount, 1);
+  assert.equal(response.meta.filteredOutCount, 0);
 });
 
 test('normalizeOperationalConfigInput preserves midnight start and end hours', () => {
@@ -709,6 +741,294 @@ test('saveSearchRunResults no List entrega card real com telefone mesmo sem enri
   assert.equal(items.length, 2);
   assert.equal(items[0].status, 'found');
   assert.equal(items[1].status, 'found');
+});
+
+test('saveSearchRunResults no Lead+ nao descarta card primario fraco antes do enriquecimento', async () => {
+  const { prisma, run, items } = createSearchRunPrisma({
+    city: 'Rio Claro',
+    state: 'SP',
+    segment: 'bicicletarias, calçados',
+    targetQuantity: 30,
+  });
+  const service = new WebscrapingService(prisma) as any;
+  const normalized = service.normalizeSearchInput({
+    city: 'Rio Claro',
+    state: 'SP',
+    segment: 'bicicletarias, calçados',
+    quantity: 30,
+    engine: 'hbx',
+    targetType: 'pj',
+    qualityMode: 'lead_plus',
+    preferredChannels: ['whatsapp'],
+  });
+
+  const counts = await service.saveSearchRunResults(
+    { companyId: 7, userId: 9, user: createUser() },
+    normalized,
+    run.id,
+    [
+      {
+        name: 'Humanitarian Calçados',
+        phone: '(19) 3513-9668',
+        phoneDigits: '1935139668',
+        source: 'hbx_scraping:free_pj',
+      },
+      {
+        name: 'Bicicletaria E Borracharia Santana',
+        phone: '(19) 3534-9873',
+        phoneDigits: '1935349873',
+        source: 'hbx_scraping:free_pj',
+      },
+    ],
+    'hbx',
+  );
+
+  assert.equal(counts.found, 2);
+  assert.equal(counts.skipped, 0);
+  assert.equal(items.length, 2);
+  assert.equal(items[0].status, 'found');
+  assert.equal(items[1].status, 'found');
+  assert.equal(JSON.parse(items[0].rawJson).quality.status, 'weak_contact');
+});
+
+test('saveSearchRunResults nao corta candidato primario por social obrigatorio antes do enriquecimento', async () => {
+  const { prisma, run, items } = createSearchRunPrisma({
+    city: 'Sao Paulo',
+    state: 'SP',
+    segment: 'beleza',
+    targetQuantity: 10,
+  });
+  const service = new WebscrapingService(prisma) as any;
+  const normalized = service.normalizeSearchInput({
+    city: 'Sao Paulo',
+    state: 'SP',
+    segment: 'beleza',
+    quantity: 10,
+    engine: 'hbx',
+    targetType: 'pj',
+    qualityMode: 'lead_plus',
+    requiredChannels: ['instagram'],
+    channelMatchMode: 'all_required',
+  });
+
+  const counts = await service.saveSearchRunResults(
+    { companyId: 7, userId: 9, user: createUser() },
+    normalized,
+    run.id,
+    [{
+      name: 'Lc Esmalteria Cabelo e Estetica',
+      phone: '(11) 96429-2108',
+      phoneDigits: '11964292108',
+      businessCategory: 'salao de beleza',
+      source: 'hbx_scraping:free_pj',
+    }],
+    'hbx',
+  );
+
+  assert.equal(counts.found, 1);
+  assert.equal(counts.skipped, 0);
+  assert.equal(items.length, 1);
+  assert.equal(items[0].status, 'found');
+});
+
+test('persistRadarLeadPoolBatch no Lead+ materializa card List fraco no Radar', async () => {
+  const saved: any[] = [];
+  const service = new WebscrapingService(createPrisma({
+    radarLeadPool: {
+      findFirst: async () => null,
+      create: async ({ data }: any) => {
+        saved.push(data);
+        return { id: 'radar-lead-1', ...data };
+      },
+      update: async ({ where, data }: any) => ({ id: where.id, ...data }),
+    },
+    radarLeadCompanyState: {},
+  })) as any;
+  const normalized = service.normalizeSearchInput({
+    city: 'Rio Claro',
+    state: 'SP',
+    segment: 'bicicletarias, calçados',
+    quantity: 30,
+    engine: 'hbx',
+    targetType: 'pj',
+    qualityMode: 'lead_plus',
+    preferredChannels: ['whatsapp'],
+  });
+
+  const counts = await service.persistRadarLeadPoolBatch(normalized, [
+    {
+      name: 'Humanitarian Calçados',
+      phone: '(19) 3513-9668',
+      phoneDigits: '1935139668',
+      segment: 'calçados',
+      source: 'hbx_scraping:free_pj',
+    },
+  ], 'hbx');
+
+  assert.equal(counts.approvedCount, 1);
+  assert.equal(counts.rejectedCount, 0);
+  assert.equal(saved.length, 1);
+  assert.equal(saved[0].name, 'Humanitarian Calçados');
+});
+
+test('isRunItemQualityDeliverable no Lead+ sem canal obrigatorio entrega card primario fraco', () => {
+  const service = new WebscrapingService(createPrisma()) as any;
+  const input = {
+    city: 'Rio Claro',
+    state: 'SP',
+    segment: 'bicicletarias, calçados',
+    targetType: 'pj',
+    requiredChannels: [],
+    channelMatchMode: 'prefer',
+    qualityMode: 'lead_plus',
+  };
+  const item = {
+    id: 'item-humanitarian',
+    status: 'found',
+    name: 'Humanitarian Calçados',
+    phone: '(19) 3513-9668',
+    phoneDigits: '1935139668',
+    rawJson: JSON.stringify({
+      name: 'Humanitarian Calçados',
+      phone: '(19) 3513-9668',
+      phoneDigits: '1935139668',
+      quality: {
+        status: 'weak_contact',
+        billable: false,
+        segmentMatchScore: 85,
+        contactQualityScore: 50,
+        commercialScore: 56,
+      },
+    }),
+  };
+
+  assert.equal(service.isRunItemQualityDeliverable(item, input), true);
+});
+
+test('isRunItemQualityDeliverable no List entrega card com canal social mesmo sem telefone', () => {
+  const service = new WebscrapingService(createPrisma()) as any;
+  const input = {
+    city: 'Campinas',
+    state: 'SP',
+    segment: 'barbearia',
+    targetType: 'pj',
+    requiredChannels: [],
+    preferredChannels: ['whatsapp'],
+    channelMatchMode: 'prefer',
+    qualityMode: 'list',
+  };
+  const item = {
+    id: 'item-social-sem-telefone',
+    status: 'found',
+    name: 'Barbearia Social',
+    phone: '',
+    phoneDigits: '',
+    rawJson: JSON.stringify({
+      name: 'Barbearia Social',
+      segment: 'barbearia',
+      instagramUrl: 'https://instagram.com/barbeariasocial',
+      quality: {
+        status: 'weak_contact',
+        billable: false,
+        segmentMatchScore: 80,
+        contactQualityScore: 42,
+        commercialScore: 52,
+      },
+      qualityV2: {
+        version: 'lead-quality-v2',
+        decision: 'discard',
+        discardReason: 'weak_contactability',
+        finalRankScore: 34,
+        recommendedChannel: 'review',
+        channelAvailability: { instagram: true, phone: false, whatsapp: false },
+        productFit: { listFit: 50, leadFit: 40, botFit: 30, recoveryFit: 20, websiteFit: 10 },
+      },
+    }),
+  };
+
+  assert.equal(service.isRunItemQualityDeliverable(item, input), true);
+});
+
+test('isRunItemQualityDeliverable corta canal obrigatorio ausente apenas quando exigido', () => {
+  const service = new WebscrapingService(createPrisma()) as any;
+  const item = {
+    id: 'item-sem-instagram-v2',
+    status: 'found',
+    name: 'Barbearia Sem Insta V2',
+    phone: '(19) 99999-0001',
+    phoneDigits: '19999990001',
+    rawJson: JSON.stringify({
+      name: 'Barbearia Sem Insta V2',
+      phone: '(19) 99999-0001',
+      phoneDigits: '19999990001',
+      segment: 'barbearia',
+      quality: { status: 'weak_contact', billable: false },
+      qualityV2: {
+        version: 'lead-quality-v2',
+        decision: 'discard',
+        discardReason: 'required_channel_missing',
+        finalRankScore: 39,
+        recommendedChannel: 'review',
+        channelAvailability: { instagram: false, phone: true, whatsapp: true },
+        productFit: { listFit: 50, leadFit: 40, botFit: 30, recoveryFit: 20, websiteFit: 10 },
+      },
+    }),
+  };
+
+  assert.equal(service.isRunItemQualityDeliverable(item, {
+    city: 'Campinas',
+    state: 'SP',
+    segment: 'barbearia',
+    targetType: 'pj',
+    requiredChannels: [],
+    qualityMode: 'list',
+  }), true);
+  assert.equal(service.isRunItemQualityDeliverable(item, {
+    city: 'Campinas',
+    state: 'SP',
+    segment: 'barbearia',
+    targetType: 'pj',
+    requiredChannels: ['instagram'],
+    channelMatchMode: 'all_required',
+    qualityMode: 'list',
+  }), false);
+});
+
+test('isRunItemQualityDeliverable protege negativo mesmo no List', () => {
+  const service = new WebscrapingService(createPrisma()) as any;
+  const input = {
+    city: 'Campinas',
+    state: 'SP',
+    segment: 'barbearia',
+    targetType: 'pj',
+    requiredChannels: [],
+    qualityMode: 'list',
+  };
+  const item = {
+    id: 'item-protegido',
+    status: 'found',
+    name: 'Barbearia Protegida',
+    phone: '(19) 99999-0001',
+    phoneDigits: '19999990001',
+    rawJson: JSON.stringify({
+      name: 'Barbearia Protegida',
+      phone: '(19) 99999-0001',
+      phoneDigits: '19999990001',
+      segment: 'barbearia',
+      quality: { status: 'approved', billable: true },
+      qualityV2: {
+        version: 'lead-quality-v2',
+        decision: 'protect',
+        protectionReason: 'opt_out',
+        finalRankScore: 0,
+        recommendedChannel: 'discard',
+        channelAvailability: { phone: true },
+        productFit: { listFit: 0, leadFit: 0, botFit: 0, recoveryFit: 0, websiteFit: 0 },
+      },
+    }),
+  };
+
+  assert.equal(service.isRunItemQualityDeliverable(item, input), false);
 });
 
 test('Radar entrega Facebook obrigatorio sem descartar telefone quando existir', async () => {
@@ -1055,7 +1375,7 @@ test('isRunItemQualityDeliverable aceita item com Instagram quando filtro exige 
   assert.equal(service.isRunItemQualityDeliverable(item, input), true);
 });
 
-test('isRunItemQualityDeliverable aceita Facebook quando Instagram e Facebook exigem rede social', () => {
+test('isRunItemQualityDeliverable rejeita Facebook sozinho quando Instagram e Facebook sao obrigatorios', () => {
   const service = new WebscrapingService(createPrisma()) as any;
   const input = {
     city: 'Campinas',
@@ -1085,6 +1405,44 @@ test('isRunItemQualityDeliverable aceita Facebook quando Instagram e Facebook ex
         finalRankScore: 72,
         recommendedChannel: 'review',
         channelAvailability: { instagram: false, facebook: true, phone: true },
+      },
+    }),
+  };
+
+  assert.equal(service.isRunItemQualityDeliverable(item, input), false);
+});
+
+test('isRunItemQualityDeliverable aceita Instagram e Facebook quando ambos sao obrigatorios', () => {
+  const service = new WebscrapingService(createPrisma()) as any;
+  const input = {
+    city: 'Campinas',
+    state: 'SP',
+    segment: 'barbearia',
+    targetType: 'pj',
+    requiredChannels: ['instagram', 'facebook'],
+    channelMatchMode: 'all_required',
+    qualityMode: 'list',
+  };
+  const item = {
+    id: 'item-com-instagram-facebook',
+    status: 'found',
+    name: 'Barbearia Com Redes',
+    phone: '(19) 99999-0001',
+    phoneDigits: '19999990001',
+    rawJson: JSON.stringify({
+      name: 'Barbearia Com Redes',
+      phone: '(19) 99999-0001',
+      phoneDigits: '19999990001',
+      segment: 'barbearia',
+      instagramUrl: 'https://instagram.com/barbeariacomredes',
+      facebookUrl: 'https://facebook.com/barbeariacomredes',
+      quality: { status: 'approved', billable: true },
+      qualityV2: {
+        version: 'lead-quality-v2',
+        decision: 'review',
+        finalRankScore: 72,
+        recommendedChannel: 'review',
+        channelAvailability: { instagram: true, facebook: true, phone: true },
       },
     }),
   };

@@ -77,6 +77,8 @@ model Company {
   subscriptionStatus      String    @default("trialing") // trialing | active | past_due | canceled | expired
   billingProvider         String    @default("manual") // manual | mercadopago | stripe | apple | google
   premiumAccess           Boolean   @default(false)
+  commercialCardsMonthlyLimitOverride Int?
+  commercialCardsDailyLimitOverride   Int?
   assistedSetupStatus     String    @default("not_required") // not_required | pending | completed
   assistedSetupRequired   Boolean   @default(false)
   assistedSetupCompletedAt DateTime?

@@ -84,6 +84,12 @@ export class CreateManualVendasLeadDto {
   @IsString()
   @MaxLength(280)
   shortNote?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  attemptCount?: number;
 }
 
 export class UpdateVendasLeadDto {
@@ -124,6 +130,12 @@ export class UpdateVendasLeadDto {
   @IsString()
   @MaxLength(280)
   shortNote?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  attemptCount?: number;
 }
 
 export class BulkDeleteVendasLeadsDto {
@@ -342,6 +354,27 @@ export class ImportWebscrapingLeadItemDto {
   qualityV2?: unknown;
 
   @IsOptional()
+  @IsIn(['candidate', 'list_basic', 'enrichment_pending', 'lead_plus_qualified', 'review_backup', 'blocked'])
+  visibilityTier?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  billable?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  debitEligible?: boolean;
+
+  @IsOptional()
+  @IsIn(['list', 'lead_plus'])
+  deliveryProduct?: 'list' | 'lead_plus';
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  qualityReason?: string;
+
+  @IsOptional()
   @IsString()
   @MaxLength(280)
   shortNote?: string;
@@ -368,6 +401,19 @@ export class ImportWebscrapingLeadsDto {
     return value;
   })
   skipWhatsappValidation?: boolean;
+
+  @IsOptional()
+  @IsIn(['list', 'lead_plus'])
+  qualityMode?: 'list' | 'lead_plus';
+
+  @IsOptional()
+  @Transform(({ value }) => {
+    if (typeof value === 'boolean') return value;
+    if (typeof value === 'string') return ['1', 'true', 'yes', 'on'].includes(value.trim().toLowerCase());
+    return value;
+  })
+  @IsBoolean()
+  debitOnImport?: boolean;
 
   @IsArray()
   @ArrayMaxSize(100)

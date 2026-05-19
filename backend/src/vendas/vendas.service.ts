@@ -851,6 +851,10 @@ export class VendasService {
       nextBestAction: null,
       lastVerifiedAt: null,
       verifiedBy: null,
+      visibilityTier: intelligence?.visibilityTier || null,
+      deliveryProduct: intelligence?.deliveryProduct || null,
+      debitEligible: typeof intelligence?.debitEligible === 'boolean' ? intelligence.debitEligible : null,
+      qualityReason: intelligence?.qualityReason || null,
       messageTemplate: null,
       messageTemplates: [],
       templateLibrarySize: Number(intelligence?.templateLibrarySize || 0) || 0,
@@ -3354,6 +3358,7 @@ export class VendasService {
     const salesProfilePayload = await this.getEffectiveSalesProfileForContext(context, planAccess);
     const salesProfile = salesProfilePayload.effectiveProfile;
     const incomingLeads = Array.isArray(dto?.leads) ? dto.leads : [];
+    const debitOnImport = Boolean((dto as any)?.debitOnImport);
     if (!incomingLeads.length) {
       throw new BadRequestException('Nenhum lead do Radar Digital foi enviado para o CRM.');
     }
@@ -3399,9 +3404,14 @@ export class VendasService {
         });
         continue;
       }
+      const listQualityMode = String(this.normalizeText((dto as any)?.qualityMode || (item as any)?.qualityMode) || '').toLowerCase() !== 'lead_plus';
       const explicitQuality = this.extractLeadQualityFromImportItem(item);
-      const blockedByExplicitQuality = explicitQuality?.billable === false ||
-        (explicitQuality?.status && explicitQuality.status !== 'approved');
+      const explicitQualityHardBlock = explicitQuality?.status
+        ? ['segment_mismatch', 'generic_directory', 'invalid', 'duplicate'].includes(explicitQuality.status)
+        : false;
+      const blockedByExplicitQuality = listQualityMode
+        ? explicitQualityHardBlock
+        : explicitQuality?.billable === false || (explicitQuality?.status && explicitQuality.status !== 'approved');
       if (blockedByExplicitQuality) {
         skippedByQualityCount += 1;
         skippedByFilterCount += 1;
@@ -3426,10 +3436,15 @@ export class VendasService {
           salesProfile,
         },
       });
-      if (
-        qualityV2 &&
-        (qualityV2.decision === 'protect' || qualityV2.decision === 'discard' || this.qualityV2FailedRequiredChannelRule(qualityV2))
-      ) {
+      const listAllowedQualityV2Discard = listQualityMode
+        && qualityV2?.decision === 'discard'
+        && ['weak_contactability', 'required_channel_missing', 'location_mismatch'].includes(String(qualityV2.discardReason || '').trim());
+      const blockedByQualityV2 = qualityV2 && (
+        qualityV2.decision === 'protect'
+        || (qualityV2.decision === 'discard' && !listAllowedQualityV2Discard)
+        || (!listQualityMode && this.qualityV2FailedRequiredChannelRule(qualityV2))
+      );
+      if (blockedByQualityV2) {
         skippedByQualityV2Count += 1;
         skippedByQualityCount += 1;
         skippedByFilterCount += 1;
@@ -3465,7 +3480,12 @@ export class VendasService {
         continue;
       }
       const quality = qualityV2 ? null : explicitQuality;
-      const blockedByQuality = !qualityV2 && (quality?.billable === false || (quality?.status && quality.status !== 'approved'));
+      const qualityHardBlock = quality?.status
+        ? ['segment_mismatch', 'generic_directory', 'invalid', 'duplicate'].includes(quality.status)
+        : false;
+      const blockedByQuality = !qualityV2 && (listQualityMode
+        ? qualityHardBlock
+        : quality?.billable === false || (quality?.status && quality.status !== 'approved'));
       if (blockedByQuality) {
         skippedByQualityCount += 1;
         if (quality?.status === 'segment_mismatch') skippedBySegmentMismatchCount += 1;
@@ -3481,6 +3501,8 @@ export class VendasService {
       }
       const sourceHistoryId = this.normalizeText(item?.sourceHistoryId) || this.normalizeText(dto?.sourceHistoryId);
       const radarLeadId = this.extractRadarLeadId(sourceHistoryId);
+      const itemDebitEligible = (item as any)?.debitEligible !== false && (item as any)?.billable !== false;
+      const shouldDebitOnImport = debitOnImport && itemDebitEligible;
 
       let result: any;
       let duplicateInCompany = false;
@@ -3492,7 +3514,7 @@ export class VendasService {
           item?.email || null,
         );
         if (duplicateInCompany) skippedDuplicateCount += 1;
-        if (!duplicateInCompany) {
+        if (!duplicateInCompany && shouldDebitOnImport) {
           const usageSnapshot = await this.commercialUsageLimits.assertCanImportCard(context.companyId, context.userId);
           const companyRemaining = Number((usageSnapshot as any)?.cards?.remaining);
           const dailyRemaining = Number((usageSnapshot as any)?.cards?.dailyRemaining);
@@ -3578,6 +3600,11 @@ export class VendasService {
         enrichment: (item as any)?.enrichmentJson || null,
         qualityV2,
         quality,
+        visibilityTier: this.normalizeText((item as any)?.visibilityTier),
+        billable: (item as any)?.billable === true ? true : (item as any)?.billable === false ? false : null,
+        debitEligible: (item as any)?.debitEligible === true ? true : (item as any)?.debitEligible === false ? false : null,
+        deliveryProduct: this.normalizeText((item as any)?.deliveryProduct),
+        qualityReason: this.normalizeText((item as any)?.qualityReason),
       };
       if (Object.values(radarEnrichmentMetadata).some((value) => Boolean(value))) {
         await this.prisma.vendasLeadTimelineEvent.create({
@@ -3607,11 +3634,11 @@ export class VendasService {
         action: result.action,
         radarLeadId,
         duplicateInCompany,
-        billableCandidate: result.action === 'created' && !duplicateInCompany,
+        billableCandidate: shouldDebitOnImport && result.action === 'created' && !duplicateInCompany,
         delivered: false,
         skipReason: null,
       });
-      if (result.action === 'created' && !duplicateInCompany) {
+      if (shouldDebitOnImport && result.action === 'created' && !duplicateInCompany) {
         pendingQuotaReservations += 1;
       }
       await this.syncRadarOwnershipAfterVendasImport(context, {
@@ -3663,13 +3690,15 @@ export class VendasService {
       entry.delivered = true;
       deliveredCount += 1;
       if (entry.billableCandidate) {
-        await this.commercialUsageLimits.recordCardImport(context.companyId, context.userId, {
+        const usageResult = await this.commercialUsageLimits.recordCardCommercialUseOnce(context.companyId, context.userId, {
           source: 'vendas_import',
+          eventType: 'vendas_card_imported',
+          usageKey: entry.radarLeadId ? `radar:${entry.radarLeadId}` : `vendas:${entry.lead?.id || ''}`,
           radarLeadId: entry.radarLeadId,
           vendasLeadId: entry.lead?.id || null,
           status: 'created',
         });
-        quotaDebited += 1;
+        if (usageResult?.debited) quotaDebited += 1;
       }
     }
 
@@ -3775,8 +3804,16 @@ export class VendasService {
         shortNote,
       })) || existing.customerProfileId;
     const statusChanged = this.normalizeStatus(existing.status) !== nextStatus;
-    const shouldRegisterContact = statusChanged && nextStatus !== 'novo';
-    const nextAttemptCount = Math.max(0, Math.trunc(Number(existing.attemptCount || 0) || 0)) + (shouldRegisterContact ? 1 : 0);
+    const existingAttemptCount = Math.max(0, Math.trunc(Number(existing.attemptCount || 0) || 0));
+    const requestedAttemptCount = dto?.attemptCount == null
+      ? null
+      : Math.max(0, Math.trunc(Number(dto.attemptCount || 0) || 0));
+    const explicitAttemptRegistered = requestedAttemptCount != null && requestedAttemptCount > existingAttemptCount;
+    const shouldRegisterContact = explicitAttemptRegistered || (statusChanged && nextStatus !== 'novo');
+    const nextAttemptCount = Math.max(
+      requestedAttemptCount ?? existingAttemptCount,
+      existingAttemptCount + (shouldRegisterContact && !explicitAttemptRegistered ? 1 : 0),
+    );
     const nextLastContactAt = shouldRegisterContact ? new Date() : existing.lastContactAt;
     const nextLastResult = shouldRegisterContact ? this.formatStatusLabel(nextStatus) : existing.lastResult;
     const wasClosedBefore = Boolean(existing.wasClosedBefore) || Boolean(existing.closedAt) || String(existing.status || '') === 'encerrado' || nextStatus === 'encerrado';
@@ -3868,6 +3905,32 @@ export class VendasService {
       wasClosedBefore,
       closedAt: nextStatus === 'encerrado' ? existing.closedAt || new Date() : null,
     };
+
+    const shouldDebitCommercialUse =
+      shouldRegisterContact
+      && existingAttemptCount === 0
+      && String(existing.sourceType || '').trim().toLowerCase() === 'webscraping';
+    let commercialUseDebit: { debited: boolean; alreadyDebited: boolean } | null = null;
+    if (shouldDebitCommercialUse) {
+      const radarLeadId = this.extractRadarLeadId(existing.sourceHistoryId);
+      commercialUseDebit = await this.commercialUsageLimits.recordCardCommercialUseOnce(context.companyId, context.userId, {
+        source: 'vendas_contact_attempt',
+        usageKey: radarLeadId ? `radar:${radarLeadId}` : `vendas:${existing.id}`,
+        radarLeadId,
+        vendasLeadId: existing.id,
+        status: 'contact_attempt',
+      });
+      if (commercialUseDebit?.debited) {
+        timelineEvents.push(
+          this.buildTimelineEvent({
+            eventType: 'card_usage_debited',
+            title: 'Uso comercial debitado',
+            description: 'O card consumiu limite no primeiro contato comercial.',
+            createdByUserId: context.userId,
+          }),
+        );
+      }
+    }
 
     const updated = await this.prisma.$transaction(async (tx) => {
       const row = await tx.vendasLead.update({

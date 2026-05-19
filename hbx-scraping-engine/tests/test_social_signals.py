@@ -398,9 +398,9 @@ def test_search_service_enriches_required_instagram_after_base_contact(monkeypat
     )
 
     assert response.count == 1
-    assert response.results[0].instagramUrl is None
+    assert response.results[0].instagramUrl == "https://instagram.com/barbeariaestilo"
     assert response.results[0].website == "https://barbeariaestilo.example.com"
-    assert response.social["enrichmentRan"] is False
+    assert response.social["enrichmentRan"] is True
     assert response.stats["missingRequiredChannel"] == 0
 
 
@@ -456,7 +456,7 @@ def test_search_service_best_effort_uses_social_from_html_without_required_chann
     )
 
     assert response.count == 1
-    assert response.results[0].instagramUrl is None
+    assert response.results[0].instagramUrl == "https://instagram.com/barbeariaestilo"
     assert response.results[0].website == "https://barbeariaestilo.example.com"
     assert response.social["enrichmentRan"] is False
     assert response.stats["missingRequiredChannel"] == 0
@@ -529,10 +529,10 @@ def test_search_service_enriches_top_pj_contacts_when_social_is_preferred(monkey
     )
 
     assert response.count == 1
-    assert response.results[0].instagramUrl is None
-    assert response.results[0].facebookUrl is None
-    assert response.social["processed"] == 0
-    assert response.social["enrichedCount"] == 0
+    assert response.results[0].instagramUrl == "https://instagram.com/barbeariaestilo"
+    assert response.results[0].facebookUrl == "https://facebook.com/barbeariaestilo"
+    assert response.social["processed"] == 1
+    assert response.social["enrichedCount"] == 1
     assert response.stats["missingRequiredChannel"] == 0
     assert response.stats["rawFound"] == 1
     assert response.stats["deduped"] == 1
@@ -602,9 +602,9 @@ def test_required_instagram_discards_contact_missing_social(monkeypatch) -> None
         )
     )
 
-    assert response.count == 1
-    assert response.stats["missingRequiredChannel"] == 0
-    assert response.social["missingRequiredChannel"] == 0
+    assert response.count == 0
+    assert response.stats["missingRequiredChannel"] == 1
+    assert response.social["missingRequiredChannel"] == 1
 
 
 def test_required_instagram_accepts_social_from_html(monkeypatch) -> None:
@@ -660,7 +660,7 @@ def test_required_instagram_accepts_social_from_html(monkeypatch) -> None:
     )
 
     assert response.count == 1
-    assert response.results[0].instagramUrl is None
+    assert response.results[0].instagramUrl == "https://instagram.com/barbeariaestilo"
     assert response.stats["missingRequiredChannel"] == 0
 
 
@@ -711,6 +711,66 @@ def test_lead_plus_enrichment_finds_social_and_confirms_email(monkeypatch) -> No
     assert response.email == "atendimento@barbeariaestilo.com.br"
     assert response.emailStatus == "confirmed"
     assert response.socialStatus == "found"
+
+
+def test_identity_search_finds_confraria_social_without_phone_in_snippet(monkeypatch) -> None:
+    class FakeFetcher:
+        def __init__(self, *args, **kwargs) -> None:
+            pass
+
+        async def fetch_all(self, urls):
+            return []
+
+    class FakeDDGS:
+        def __init__(self, *args, **kwargs) -> None:
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
+        def text(self, query, **kwargs):
+            if "facebook.com" in query:
+                return [
+                    {
+                        "href": "https://facebook.com/confrariachoperiaelounge",
+                        "title": "Confraria - Choperia e Lounge | Rio Claro SP",
+                        "body": "Bar e restaurante em Rio Claro. Choperia, lounge e porções.",
+                    }
+                ]
+            if "instagram.com" in query:
+                return [
+                    {
+                        "href": "https://instagram.com/confrariachoperia",
+                        "title": "Confraria Choperia e Lounge Rio Claro",
+                        "body": "Bar restaurante e choperia em Rio Claro SP.",
+                    }
+                ]
+            return []
+
+    monkeypatch.setattr("app.services.search_service.Fetcher", FakeFetcher)
+    monkeypatch.setattr("app.services.search_service.DDGS", FakeDDGS)
+
+    response = asyncio.run(
+        SearchService().enrich_lead(
+            EnrichLeadRequest(
+                name="Confraria - Choperia e Lounge",
+                phone="19981288136",
+                phoneDigits="19981288136",
+                city="Rio Claro",
+                state="SP",
+                segment="bar/restaurante",
+                requiredChannels=["facebook"],
+            )
+        )
+    )
+
+    assert response.facebookUrl == "https://facebook.com/confrariachoperiaelounge"
+    assert response.socialConfidence >= 55
+    assert response.stats["social"]["matches"][0]["status"] in {"confirmed", "probable"}
+    assert response.stats["social"]["matches"][0]["score"] >= 55
 
 
 def test_required_instagram_promotes_discovered_social_profile_without_phone(monkeypatch) -> None:
@@ -800,6 +860,81 @@ def test_social_first_name_uses_slug_when_title_is_generic() -> None:
     assert name == "Farmácia São Paulo"
 
 
+def test_social_first_response_preserves_social_url() -> None:
+    service = SearchService()
+
+    response = service.build_social_first_response(
+        SearchRequest(
+            city="Rio Claro",
+            state="SP",
+            segment="restaurante",
+            targetType="pj",
+            limit=1,
+            requiredChannels=["facebook"],
+        ),
+        [
+            {
+                "name": "Confraria Choperia",
+                "phone": "",
+                "phoneDigits": "",
+                "address": "Rio Claro SP",
+                "facebookUrl": "https://facebook.com/confrariachoperia",
+                "source": "hbx_scraping:social_discovery",
+                "score": 70,
+            }
+        ],
+        {"profilesDiscovered": 1, "profilesUnmatched": 0},
+    )
+
+    assert response.results[0].facebookUrl == "https://facebook.com/confrariachoperia"
+    assert response.results[0].score == 70
+
+
+def test_identity_search_accepts_hidden_facebook_result_with_handle_and_query(monkeypatch) -> None:
+    class FakeDDGS:
+        def __init__(self, *args, **kwargs) -> None:
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
+        def text(self, query, **kwargs):
+            if 'site:facebook.com "confraria" "Rio Claro"' in query:
+                return [
+                    {
+                        "href": "https://www.facebook.com/confrariarc/",
+                        "title": "Link to facebook.com",
+                        "body": "The site owner hides the web page description.",
+                    }
+                ]
+            return []
+
+    monkeypatch.setattr("app.services.search_service.DDGS", FakeDDGS)
+
+    response = asyncio.run(
+        SearchService().enrich_lead(
+            EnrichLeadRequest(
+                name="Confraria - Choperia e Lounge",
+                phone="19981288136",
+                phoneDigits="19981288136",
+                city="Rio Claro",
+                state="SP",
+                segment="bar/restaurante",
+                preferredChannels=["instagram", "facebook"],
+                requiredChannels=["facebook"],
+            )
+        )
+    )
+
+    assert response.facebookUrl == "https://facebook.com/confrariarc"
+    assert response.socialConfidence >= 55
+    social = response.stats["social"]
+    assert social["matches"][0]["status"] in {"confirmed", "probable"}
+
+
 def test_required_instagram_and_facebook_accepts_when_one_channel_exists(monkeypatch) -> None:
     class FakeFetcher:
         def __init__(self, *args, **kwargs) -> None:
@@ -864,5 +999,5 @@ def test_required_instagram_and_facebook_accepts_when_one_channel_exists(monkeyp
     )
 
     assert response.count == 1
-    assert response.results[0].facebookUrl is None
+    assert response.results[0].facebookUrl == "https://facebook.com/barbeariaestilo"
     assert response.stats["missingRequiredChannel"] == 0

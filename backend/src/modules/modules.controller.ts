@@ -272,6 +272,22 @@ class UpdateMasterCompanyFinanceSettingsDto {
   billingCycle?: string;
 }
 
+class UpdateMasterCompanyQuotaDto {
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(999999)
+  monthlyCardLimit?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(999999)
+  dailyCardLimit?: number;
+}
+
 class PermanentDeleteDto {
   @IsOptional()
   @IsString()
@@ -573,6 +589,16 @@ export class ModulesController {
     @Body() dto: UpdateMasterCompanyFinanceSettingsDto,
   ) {
     return this.modulesService.updateCompanyFinanceSettingsByMaster(Number(req.user?.id), companyId, dto || {});
+  }
+
+  @Put('master/company/:companyId/card-quota')
+  @UseGuards(JwtAuthGuard, MasterGuard)
+  updateCompanyCardQuota(
+    @Req() req: any,
+    @Param('companyId', ParseIntPipe) companyId: number,
+    @Body() dto: UpdateMasterCompanyQuotaDto,
+  ) {
+    return this.modulesService.updateCompanyCardQuotaByMaster(Number(req.user?.id), companyId, dto || {});
   }
 
   @Get('master/exclusoes')

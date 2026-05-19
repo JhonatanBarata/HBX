@@ -4,7 +4,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { COMMERCIAL_PLAN_KEYS, COMMERCIAL_PLAN_QUOTAS, resolveCommercialPlanKeyForCapabilities } from './commercial-plan-catalog';
 
 const FALLBACK_TIMEZONE = 'America/Sao_Paulo';
-const CARD_SUCCESS_EVENTS = ['card_import_success', 'vendas_card_imported', 'radar_card_claimed'];
+const CARD_SUCCESS_EVENTS = ['card_import_success', 'vendas_card_imported', 'radar_card_claimed', 'card_commercial_used'];
 const CARD_REFUND_EVENTS = ['vendas_card_refunded'];
 
 type UsageKind = 'cards' | 'emails';
@@ -88,6 +88,14 @@ export class CommercialUsageLimitsService {
       where: { id: Number(companyId) },
       select: { selectedPlanKey: true, premiumAccess: true, paymentStatus: true, subscriptionStatus: true, timezone: true, slug: true },
     });
+    const quotaOverrideRows = await this.prisma.$queryRawUnsafe<Array<{
+      commercialCardsMonthlyLimitOverride: number | null;
+      commercialCardsDailyLimitOverride: number | null;
+    }>>(
+      'SELECT "commercialCardsMonthlyLimitOverride", "commercialCardsDailyLimitOverride" FROM "Company" WHERE "id" = $1 LIMIT 1',
+      Number(companyId),
+    ).catch(() => []);
+    const quotaOverride = quotaOverrideRows[0] || null;
     const planKey = company?.slug === MASTER_WHATSAPP_ENGINE_COMPANY_SLUG
       ? COMMERCIAL_PLAN_KEYS.MELHOR
       : resolveCommercialPlanKeyForCapabilities(company || {});
@@ -95,7 +103,16 @@ export class CommercialUsageLimitsService {
       planKey,
       timezone: this.normalizeTimezone(company?.timezone),
       isMasterOperationalCompany: company?.slug === MASTER_WHATSAPP_ENGINE_COMPANY_SLUG,
+      quotaOverride: {
+        cardsPerMonth: this.normalizePositiveOverride(quotaOverride?.commercialCardsMonthlyLimitOverride),
+        dailyCardSafetyLimit: this.normalizePositiveOverride(quotaOverride?.commercialCardsDailyLimitOverride),
+      },
     };
+  }
+
+  private normalizePositiveOverride(value: unknown) {
+    const parsed = Math.trunc(Number(value || 0));
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
   }
 
   private async isSystemMasterUser(userId?: number | null) {
@@ -169,10 +186,10 @@ export class CommercialUsageLimitsService {
     });
   }
 
-  private computeLimits(planKey: string, billableUsers: number) {
+  private computeLimits(planKey: string, billableUsers: number, override?: { cardsPerMonth?: number | null; dailyCardSafetyLimit?: number | null }) {
     const quotas = COMMERCIAL_PLAN_QUOTAS[planKey as keyof typeof COMMERCIAL_PLAN_QUOTAS] || COMMERCIAL_PLAN_QUOTAS[COMMERCIAL_PLAN_KEYS.PADRAO];
-    const monthlyCardLimit = quotas.cardsPerMonth || quotas.totalCards || 500;
-    const dailyCardSafetyLimit = quotas.dailyCardSafetyLimit || 100;
+    const monthlyCardLimit = override?.cardsPerMonth || quotas.cardsPerMonth || quotas.totalCards || 500;
+    const dailyCardSafetyLimit = override?.dailyCardSafetyLimit || quotas.dailyCardSafetyLimit || 100;
     const userCount = Math.max(1, billableUsers);
     return {
       cards: {
@@ -214,7 +231,7 @@ export class CommercialUsageLimitsService {
       });
     }
     const billableUsers = await this.getBillableUserCount(companyId);
-    const limits = this.computeLimits(company.planKey, billableUsers);
+    const limits = this.computeLimits(company.planKey, billableUsers, company.quotaOverride);
     const normalizedUserId = Number(userId || 0) || null;
 
     const [cardsGrossUsed, cardsUserGrossUsed, cardsDailyGrossUsed, cardsDailyUserGrossUsed, cardsRefunded, cardsUserRefunded, cardsDailyRefunded, cardsDailyUserRefunded, emailAttempted, emailSent, emailFailed, emailBlocked, emailUserSent] = await Promise.all([
@@ -326,6 +343,38 @@ export class CommercialUsageLimitsService {
     const source = String(metadata.source || 'vendas');
     const eventType = metadata.eventType || (source === 'radar_claim' ? 'radar_card_claimed' : 'vendas_card_imported');
     return this.log(companyId, userId, eventType, source, { status: 'success', ...metadata });
+  }
+
+  private normalizeUsageKey(value: unknown) {
+    return String(value || '').trim().replace(/[^a-zA-Z0-9:_-]+/g, '-').slice(0, 160);
+  }
+
+  async recordCardCommercialUseOnce(companyId: number, userId: number | null, metadata: Record<string, any> = {}) {
+    const usageKey = this.normalizeUsageKey(metadata.usageKey || metadata.vendasLeadId || metadata.radarLeadId);
+    if (!usageKey) {
+      await this.assertCanImportCard(companyId, userId);
+      await this.log(companyId, userId, 'card_commercial_used', String(metadata.source || 'commercial_use'), {
+        status: 'success',
+        ...metadata,
+      });
+      return { debited: true, alreadyDebited: false };
+    }
+    const existing = await this.prisma.companyCommercialUsageLog.findFirst({
+      where: {
+        companyId,
+        eventType: { in: CARD_SUCCESS_EVENTS },
+        metadataJson: { contains: `"usageKey":"${usageKey}"` },
+      },
+      select: { id: true },
+    });
+    if (existing) return { debited: false, alreadyDebited: true };
+    await this.assertCanImportCard(companyId, userId);
+    await this.log(companyId, userId, 'card_commercial_used', String(metadata.source || 'commercial_use'), {
+      status: 'success',
+      ...metadata,
+      usageKey,
+    });
+    return { debited: true, alreadyDebited: false };
   }
 
   async recordCardRefund(companyId: number, userId: number | null, metadata: Record<string, any> = {}) {

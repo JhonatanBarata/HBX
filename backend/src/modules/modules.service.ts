@@ -29,6 +29,7 @@ import {
   COMMERCIAL_PLAN_ENTITLEMENT_KEYS,
   COMMERCIAL_PLAN_KEYS,
   COMMERCIAL_PLAN_MODULE_KEYS,
+  COMMERCIAL_PLAN_QUOTAS,
   getCommercialPlanMonthlyPrice,
   getCommercialPlanTitle,
   normalizeCommercialPlanKey,
@@ -548,6 +549,63 @@ export class ModulesService implements OnModuleInit {
       manualDiscountPercent: this.normalizePercentValue(company?.manualDiscountPercent || 0),
       freeMonths: Math.max(0, Math.trunc(Number(company?.freeMonths || 0) || 0)),
     };
+  }
+
+  private normalizeQuotaOverride(value: unknown) {
+    const parsed = Math.trunc(Number(value || 0));
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+  }
+
+  private resolveCommercialCardQuota(company: any) {
+    const planKey = normalizeCommercialPlanKey(company?.selectedPlanKey || COMMERCIAL_PLAN_KEYS.PADRAO);
+    const planQuota = COMMERCIAL_PLAN_QUOTAS[planKey as ActiveCommercialPlanKey] || COMMERCIAL_PLAN_QUOTAS[COMMERCIAL_PLAN_KEYS.PADRAO];
+    const monthlyOverride = this.normalizeQuotaOverride(company?.commercialCardsMonthlyLimitOverride);
+    const dailyOverride = this.normalizeQuotaOverride(company?.commercialCardsDailyLimitOverride);
+    return {
+      planKey,
+      monthlyDefault: Number(planQuota.cardsPerMonth || planQuota.totalCards || 0) || 0,
+      dailyDefault: Number(planQuota.dailyCardSafetyLimit || 0) || 0,
+      monthlyOverride,
+      dailyOverride,
+      monthlyEffective: monthlyOverride || Number(planQuota.cardsPerMonth || planQuota.totalCards || 0) || 0,
+      dailyEffective: dailyOverride || Number(planQuota.dailyCardSafetyLimit || 0) || 0,
+    };
+  }
+
+  private buildCompanyCardQuotaAuditSnapshot(company: any) {
+    const quota = this.resolveCommercialCardQuota(company);
+    return {
+      selectedPlanKey: quota.planKey,
+      monthlyDefault: quota.monthlyDefault,
+      dailyDefault: quota.dailyDefault,
+      monthlyOverride: quota.monthlyOverride,
+      dailyOverride: quota.dailyOverride,
+      monthlyEffective: quota.monthlyEffective,
+      dailyEffective: quota.dailyEffective,
+    };
+  }
+
+  private async listCompanyQuotaOverrides(companyIds: number[]) {
+    const normalizedIds = [...new Set(companyIds.map((id) => Math.trunc(Number(id || 0))).filter((id) => id > 0))];
+    const result = new Map<number, { commercialCardsMonthlyLimitOverride: number | null; commercialCardsDailyLimitOverride: number | null }>();
+    if (!normalizedIds.length) return result;
+    await ensureMasterBillingRuntimeSchema(this.prisma);
+    const rows = await this.prisma.$queryRawUnsafe<Array<{
+      id: number;
+      commercialCardsMonthlyLimitOverride: number | null;
+      commercialCardsDailyLimitOverride: number | null;
+    }>>(
+      `SELECT "id", "commercialCardsMonthlyLimitOverride", "commercialCardsDailyLimitOverride"
+       FROM "Company"
+       WHERE "id" IN (${normalizedIds.join(',')})`,
+    );
+    for (const row of rows || []) {
+      result.set(Number(row.id), {
+        commercialCardsMonthlyLimitOverride: this.normalizeQuotaOverride(row.commercialCardsMonthlyLimitOverride),
+        commercialCardsDailyLimitOverride: this.normalizeQuotaOverride(row.commercialCardsDailyLimitOverride),
+      });
+    }
+    return result;
   }
 
   private buildCompanyMasterTokenUsageAuditSnapshot(company: any) {
@@ -2445,6 +2503,7 @@ export class ModulesService implements OnModuleInit {
       subscriptionStatus: company.subscriptionStatus,
       billingProvider: company.billingProvider,
       premiumAccess: Boolean(company.premiumAccess),
+      commercialCardQuota: this.resolveCommercialCardQuota(company),
       assistedSetup: {
         required: Boolean(company.assistedSetupRequired),
         status: String(company.assistedSetupStatus || 'not_required'),
@@ -2568,6 +2627,7 @@ export class ModulesService implements OnModuleInit {
     const masterIntegrationConfig = await getMasterGlobalIntegrationConfig(this.prisma);
     const userConfirmationByCompany = await this.listUserConfirmationSummaryByCompanyIds(companyIds);
     const webscrapingUsageByCompany = await this.listWebscrapingUsageSummaryByCompanyIds(companyIds);
+    const quotaOverridesByCompany = await this.listCompanyQuotaOverrides(companyIds);
 
     const ledgerByCompany = new Map<number, BillingLedgerEntryRow[]>();
     for (const row of ledgerRows) {
@@ -2587,6 +2647,7 @@ export class ModulesService implements OnModuleInit {
 
     const companySummaries: Array<any> = [];
     for (const company of companies) {
+      Object.assign(company as any, quotaOverridesByCompany.get(Number(company.id)) || {});
       const status = await this.evaluateCompanyStatus(company.id, company);
       companySummaries.push(
         this.buildMasterCompanySummary(
@@ -3044,14 +3105,16 @@ export class ModulesService implements OnModuleInit {
 
     if (!company) throw new BadRequestException('Empresa nao encontrada');
 
-    const [websiteConfigs, ledgerRows, auditRows, masterIntegrationConfig, userConfirmationByCompany, webscrapingUsageByCompany] = await Promise.all([
+    const [websiteConfigs, ledgerRows, auditRows, masterIntegrationConfig, userConfirmationByCompany, webscrapingUsageByCompany, quotaOverridesByCompany] = await Promise.all([
       listCompanyWebsiteConfigs(this.prisma, [Number(companyId)]),
       this.listBillingLedgerEntriesByCompanyIds([Number(companyId)], 240),
       this.listCompanyAuditRows([Number(companyId)], 240),
       getMasterGlobalIntegrationConfig(this.prisma),
       this.listUserConfirmationSummaryByCompanyIds([Number(companyId)]),
       this.listWebscrapingUsageSummaryByCompanyIds([Number(companyId)]),
+      this.listCompanyQuotaOverrides([Number(companyId)]),
     ]);
+    Object.assign(company as any, quotaOverridesByCompany.get(Number(company.id)) || {});
     const serializedMasterIntegrations = serializeMasterGlobalIntegrationConfig(masterIntegrationConfig);
     const selectedWhatsAppCredential = pickMasterWhatsAppCredential(
       masterIntegrationConfig,
@@ -4387,6 +4450,56 @@ export class ModulesService implements OnModuleInit {
     });
 
     return { ok: true, companyId, billingCycle, manualDiscountPercent, freeMonths };
+  }
+
+  async updateCompanyCardQuotaByMaster(
+    masterUserId: number,
+    companyId: number,
+    dto: {
+      monthlyCardLimit?: number | null;
+      dailyCardLimit?: number | null;
+    },
+  ) {
+    await this.assertMasterUser(masterUserId);
+    await ensureMasterBillingRuntimeSchema(this.prisma);
+    const company = await this.prisma.company.findUnique({ where: { id: companyId } });
+    if (!company) throw new BadRequestException('Empresa nao encontrada');
+    const quotaOverrides = await this.listCompanyQuotaOverrides([companyId]);
+    Object.assign(company as any, quotaOverrides.get(companyId) || {});
+    const previousState = this.buildCompanyCardQuotaAuditSnapshot(company);
+
+    const monthlyOverride = this.normalizeQuotaOverride(dto?.monthlyCardLimit);
+    const dailyOverride = this.normalizeQuotaOverride(dto?.dailyCardLimit);
+
+    await this.prisma.$executeRawUnsafe(
+      `UPDATE "Company"
+       SET "commercialCardsMonthlyLimitOverride" = $1,
+           "commercialCardsDailyLimitOverride" = $2
+       WHERE "id" = $3`,
+      monthlyOverride,
+      dailyOverride,
+      companyId,
+    );
+
+    const updated = {
+      ...company,
+      commercialCardsMonthlyLimitOverride: monthlyOverride,
+      commercialCardsDailyLimitOverride: dailyOverride,
+    };
+    const currentState = this.buildCompanyCardQuotaAuditSnapshot(updated);
+
+    await this.masterContextService.registerSupportAction({
+      masterUserId,
+      companyId,
+      scope: 'master_quota',
+      action: 'COMPANY_CARD_QUOTA_UPDATED',
+      metadata: {
+        previousState,
+        currentState,
+      },
+    });
+
+    return { ok: true, companyId, commercialCardQuota: currentState };
   }
 
   private normalizeVendasComplaintStatus(value: unknown) {

@@ -148,6 +148,10 @@ function extractRadarEnrichment(lead: any) {
     socialStatus: normalizeText(lead?.socialStatus || fromEvent.socialStatus || nested?.socialStatus || direct?.socialStatus || nested?.signals?.socialStatus || direct?.signals?.socialStatus),
     socialConfidence: Number(lead?.socialConfidence || fromEvent.socialConfidence || nested?.socialConfidence || direct?.socialConfidence || nested?.sourceConfidence?.social || direct?.sourceConfidence?.social || 0) || null,
     sourceConfidence: nested?.sourceConfidence || direct?.sourceConfidence || null,
+    visibilityTier: normalizeText(fromEvent.visibilityTier || nested?.visibilityTier || direct?.visibilityTier),
+    deliveryProduct: normalizeText(fromEvent.deliveryProduct || nested?.deliveryProduct || direct?.deliveryProduct),
+    debitEligible: typeof fromEvent.debitEligible === 'boolean' ? fromEvent.debitEligible : nested?.debitEligible ?? direct?.debitEligible ?? null,
+    qualityReason: normalizeText(fromEvent.qualityReason || nested?.qualityReason || direct?.qualityReason),
   };
 }
 
@@ -239,7 +243,7 @@ export function buildVendasLeadIntelligence(input: VendasLeadIntelligenceInput) 
     : domain
       ? 'probable'
       : 'missing';
-  const emailCandidate = hasUsableEmail(email) ? email.toLowerCase() : domain ? `contato@${domain}` : null;
+  const emailCandidate = hasUsableEmail(email) ? email.toLowerCase() : null;
   const tags = new Set<string>();
   if (!normalizeText(lead?.website)) tags.add('sem_site');
   if (radarEnrichment.painType) tags.add(String(radarEnrichment.painType));
@@ -348,6 +352,10 @@ export function buildVendasLeadIntelligence(input: VendasLeadIntelligenceInput) 
     nextBestAction,
     lastVerifiedAt: input.whatsappAvailability?.checkedAt || null,
     verifiedBy: input.verifiedBy || (input.whatsappAvailability?.checkedAt ? 'client_engine' : null),
+    visibilityTier: radarEnrichment.visibilityTier || null,
+    deliveryProduct: radarEnrichment.deliveryProduct || null,
+    debitEligible: typeof radarEnrichment.debitEligible === 'boolean' ? radarEnrichment.debitEligible : null,
+    qualityReason: radarEnrichment.qualityReason || null,
     messageTemplate: templates[0] || null,
     messageTemplates: templates,
     templateLibrarySize: VENDAS_LEAD_MESSAGE_TEMPLATES.length,

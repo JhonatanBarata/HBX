@@ -313,8 +313,6 @@ export function buildRadarLeadEnrichment(input: RadarLeadEnrichmentInput): Radar
     ? explicitEmail
     : hasUsableEmail(collectedEmail.email)
       ? collectedEmail.email
-    : domain && !isBlockedEmailDomain(domain)
-      ? `contato@${domain}`
       : null;
   const emailStatus: RadarEmailStatus = hasUsableEmail(explicitEmail) || hasUsableEmail(collectedEmail.email)
     ? 'confirmed'

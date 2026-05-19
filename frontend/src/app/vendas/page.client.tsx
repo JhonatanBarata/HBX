@@ -180,6 +180,10 @@ type LeadIntelligence = {
   nextBestAction?: "whatsapp" | "call" | "email" | "review" | "discard" | string;
   lastVerifiedAt?: string | null;
   verifiedBy?: "hbx_master" | "client_engine" | "manual" | string | null;
+  visibilityTier?: "candidate" | "list_basic" | "enrichment_pending" | "lead_plus_qualified" | "review_backup" | "blocked" | string | null;
+  deliveryProduct?: "list" | "lead_plus" | string | null;
+  debitEligible?: boolean | null;
+  qualityReason?: string | null;
   messageTemplate?: LeadMessageTemplate | null;
   messageTemplates?: LeadMessageTemplate[];
   templateLibrarySize?: number;
@@ -784,6 +788,101 @@ function canSeeSocialLinks(lead: LeadItem, board?: BoardResponse | null) {
 function hasLockedSocialLinks(lead: LeadItem, board?: BoardResponse | null) {
   const capabilities = leadCapabilities(lead, board);
   return capabilities.canSeeSocialLinks === "teaser_only" && Boolean(lead.leadIntelligence?.primarySocial);
+}
+
+function leadHasPremiumSignals(lead: LeadItem) {
+  const intelligence = lead.leadIntelligence || {};
+  return Boolean(
+    leadEmailForDisplay(lead)
+    || intelligence.instagramUrl
+    || intelligence.facebookUrl
+    || intelligence.primarySocial
+    || intelligence.socialStatus === "found"
+    || Number(intelligence.opportunityScore || 0) > 0
+  );
+}
+
+function leadEnrichmentBadgeState(lead: LeadItem, board?: BoardResponse | null) {
+  const intelligence = lead.leadIntelligence || {};
+  const tier = String(intelligence.visibilityTier || "").trim().toLowerCase();
+  const fromRadar = lead.sourceType === "webscraping" || String(lead.primarySource || "").toLowerCase().includes("radar");
+  const lockedPremium = hasLockedSocialLinks(lead, board) || Boolean(intelligence.premiumTeaser);
+  const pendingTier = ["candidate", "list_basic", "enrichment_pending"].includes(tier);
+  const readyTier = ["lead_plus_qualified", "review_backup"].includes(tier);
+  const enrichmentChecked = Boolean(
+    intelligence.lastVerifiedAt
+    || intelligence.verifiedBy
+    || ["found", "missing", "weak"].includes(String(intelligence.socialStatus || "").toLowerCase())
+    || ["confirmed", "missing", "invalid", "unverified"].includes(String(intelligence.whatsappStatus || "").toLowerCase())
+    || ["confirmed", "probable", "missing", "unverified"].includes(String(intelligence.emailStatus || "").toLowerCase())
+  );
+  if ((pendingTier && !enrichmentChecked) || (fromRadar && !readyTier && !leadHasPremiumSignals(lead) && !enrichmentChecked)) {
+    return {
+      state: "enriching" as const,
+      label: "Enriquecendo",
+      title: "Motor 2 verificando WhatsApp, redes sociais, e-mail e sinais premium.",
+    };
+  }
+  if (lockedPremium) {
+    return {
+      state: "locked" as const,
+      label: "Lead",
+      title: "Sinais premium encontrados. Disponível no HBX Lead.",
+    };
+  }
+  if (readyTier || leadHasPremiumSignals(lead)) {
+    return {
+      state: "ready" as const,
+      label: "Pronto",
+      title: "Enriquecimento premium analisado.",
+    };
+  }
+  return null;
+}
+
+function CrownGlyph() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path d="M4.2 18.5h15.6l.7-9.9-4.6 3.5L12 4.7 8.1 12.1 3.5 8.6l.7 9.9Z" />
+      <path d="M5.2 20.2h13.6" />
+      <circle cx="12" cy="4.7" r="1.25" />
+      <circle cx="3.5" cy="8.6" r="1.15" />
+      <circle cx="20.5" cy="8.6" r="1.15" />
+    </svg>
+  );
+}
+
+function MobileEnrichmentCrown({ lead, board, compact = false }: { lead: LeadItem; board?: BoardResponse | null; compact?: boolean }) {
+  const badge = leadEnrichmentBadgeState(lead, board);
+  if (!badge) return null;
+  if (badge.state === "locked") {
+    return (
+      <Link
+        href={toMobileRoute("/planos?intent=lead")}
+        className={styles.mobileLeadEnrichmentCrown}
+        data-state={badge.state}
+        data-compact={compact ? "true" : "false"}
+        title={badge.title}
+        aria-label={badge.title}
+        onClick={(event) => event.stopPropagation()}
+      >
+        <CrownGlyph />
+        <span>{badge.label}</span>
+      </Link>
+    );
+  }
+  return (
+    <span
+      className={styles.mobileLeadEnrichmentCrown}
+      data-state={badge.state}
+      data-compact={compact ? "true" : "false"}
+      title={badge.title}
+      aria-label={badge.title}
+    >
+      <CrownGlyph />
+      <span>{badge.label}</span>
+    </span>
+  );
 }
 
 function isLeadWhatsappConfirmed(lead: LeadItem) {
@@ -3621,7 +3720,7 @@ export default function VendasClientPage() {
             aria-label="Redes encontradas no HBX Lead"
             onClick={(event) => event.stopPropagation()}
           >
-            <span aria-hidden="true">👑</span>
+            <CrownGlyph />
             Redes encontradas no HBX Lead
           </Link>
         ) : null}
@@ -4269,6 +4368,7 @@ export default function VendasClientPage() {
                     <strong>{lead.name || "Lead sem nome"}</strong>
                     <span>{lead.segment || "Segmento não informado"}</span>
                     <em>{detailPlace}</em>
+                    <MobileEnrichmentCrown lead={lead} board={board} />
                   </div>
                 </div>
                 <button
@@ -4740,7 +4840,10 @@ export default function VendasClientPage() {
                 type="button"
                 onClick={() => openMobileLeadDetail(nextRecommendedMobileLead)}
               >
-                <span>Próximo card recomendado</span>
+                <span className={styles.mobileVendasRecommendedTopline}>
+                  <span>Próximo card recomendado</span>
+                  <MobileEnrichmentCrown lead={nextRecommendedMobileLead} board={board} compact />
+                </span>
                 <strong>{nextRecommendedMobileLead.name || "Lead sem nome"}</strong>
                 <small>
                   {mobileLeadPlace(nextRecommendedMobileLead)} · {nextRecommendedMobileLead.nextAction || "Executar contato"}
@@ -4811,6 +4914,7 @@ export default function VendasClientPage() {
                             <strong>{lead.name || "Lead sem nome"}</strong>
                             <span>{mobileLeadPlace(lead)}</span>
                           </div>
+                          <MobileEnrichmentCrown lead={lead} board={board} compact />
                         </div>
                         <div className={styles.mobileVendasCardMeta}>
                           <span data-status={lead.status}>{status}</span>

@@ -221,6 +221,9 @@ export default function MasterCommandCenter(props: MasterCommandCenterProps) {
         }}
         onOpenTokens={() => actions.setMasterIntegrationsOpen(true)}
         onOpenModules={() => actions.setModuleCatalogOpen(true)}
+        onOpenDatabase={() => {
+          window.location.href = "/bancodedados";
+        }}
         onExitContext={actions.exitContext}
       />
 
@@ -293,6 +296,7 @@ function MasterTopCommandBar({
   onOpenComplaints,
   onOpenTokens,
   onOpenModules,
+  onOpenDatabase,
   onExitContext,
 }: {
   search: string;
@@ -307,6 +311,7 @@ function MasterTopCommandBar({
   onOpenComplaints: () => void;
   onOpenTokens: () => void;
   onOpenModules: () => void;
+  onOpenDatabase: () => void;
   onExitContext: () => void;
 }) {
   return (
@@ -349,6 +354,7 @@ function MasterTopCommandBar({
         <MasterActionButton variant="secondary" onClick={onOpenComplaints}>Reclamações</MasterActionButton>
         <MasterActionButton variant="secondary" onClick={onOpenTokens}>Tokens MASTER</MasterActionButton>
         <MasterActionButton variant="secondary" onClick={onOpenModules}>Módulos</MasterActionButton>
+        <MasterActionButton variant="secondary" onClick={onOpenDatabase}>Banco de Dados</MasterActionButton>
         <MasterActionButton variant="secondary" onClick={onReload}>{refreshing ? "Atualizando..." : "Atualizar"}</MasterActionButton>
         {currentUser?.masterContext?.active ? (
           <MasterActionButton variant="secondary" onClick={onExitContext}>Sair operação</MasterActionButton>
@@ -734,6 +740,43 @@ function MasterPlanAccessPanel({ company, actions, state }: { company: CompanyDe
         <span>Plano atual</span>
         <strong>{commercialPlanLabel(company.selectedPlanKey)}</strong>
         <small>{formatCurrency(company.monthlyValue)}/mês · {activeModuleCount(company)} módulo(s) ativo(s)</small>
+      </div>
+      <div className={styles.quotaEditor}>
+        <div className={styles.sectionTitle}>
+          <span>Cota de cards</span>
+          <h3>Uso comercial do cliente</h3>
+        </div>
+        <div className={styles.billingGrid}>
+          <InfoItem label="Mensal efetivo" value={`${(company.commercialCardQuota?.monthlyEffective || 0).toLocaleString("pt-BR")} cards`} />
+          <InfoItem label="Trava diária efetiva" value={`${(company.commercialCardQuota?.dailyEffective || 0).toLocaleString("pt-BR")} cards`} />
+          <InfoItem label="Padrão do plano" value={`${(company.commercialCardQuota?.monthlyDefault || 0).toLocaleString("pt-BR")} / ${(company.commercialCardQuota?.dailyDefault || 0).toLocaleString("pt-BR")} por dia`} />
+        </div>
+        {state.cardQuotaDraft ? (
+          <div className={styles.inlineForm}>
+            <input
+              type="number"
+              min={0}
+              value={state.cardQuotaDraft.monthlyCardLimit}
+              onChange={(event) => actions.setCardQuotaDraft((current) => current ? { ...current, monthlyCardLimit: event.target.value } : current)}
+              placeholder={`Mensal padrão ${company.commercialCardQuota?.monthlyDefault || 0}`}
+            />
+            <input
+              type="number"
+              min={0}
+              value={state.cardQuotaDraft.dailyCardLimit}
+              onChange={(event) => actions.setCardQuotaDraft((current) => current ? { ...current, dailyCardLimit: event.target.value } : current)}
+              placeholder={`Diário padrão ${company.commercialCardQuota?.dailyDefault || 0}`}
+            />
+            <MasterActionButton
+              variant="secondary"
+              onClick={actions.saveCompanyCardQuota}
+              disabled={state.busyAction === `card-quota-${company.id}`}
+            >
+              {state.busyAction === `card-quota-${company.id}` ? "Salvando..." : "Salvar cota"}
+            </MasterActionButton>
+          </div>
+        ) : null}
+        <p className={styles.helperText}>Deixe em branco ou 0 para usar a cota do plano.</p>
       </div>
       <div className={styles.planCards}>
         {MASTER_PLAN_CATALOG.map((plan) => (
