@@ -617,6 +617,13 @@ export type WebscrapingContactResult = {
   whatsappCheckStatus?: string | null;
   recommendedChannel?: string | null;
   source?: string | null;
+  sourceEngine?: string | null;
+  sourceUrl?: string | null;
+  evidenceJson?: Record<string, any> | string | null;
+  rejectReasons?: string[] | string | null;
+  qualityReason?: string | null;
+  visibilityTier?: string | null;
+  deliveryProduct?: string | null;
   score?: number | null;
   opportunityScore?: number | null;
   opportunityReason?: string | null;
@@ -777,6 +784,7 @@ export type SearchContactsInput = {
   requiredChannels?: string[];
   channelMatchMode?: 'prefer' | 'any_required' | 'all_required' | string | null;
   qualityMode?: 'list' | 'lead_plus' | string | null;
+  freshness?: 'live' | 'database_first' | 'hybrid' | string | null;
   salesProfile?: Partial<LeadQualityV2SalesProfile> | null;
   whatDoYouSell?: string | null;
   offerCategory?: string | null;
@@ -831,6 +839,7 @@ type NormalizedSearchInput = {
   preferredChannels: RadarChannelFilter[];
   requiredChannels: RadarChannelFilter[];
   channelMatchMode: RadarChannelMatchMode;
+  freshness: 'live' | 'database_first' | 'hybrid';
 };
 
 type SearchExecutionOptions = {
@@ -905,6 +914,7 @@ type RadarFiltersInput = {
   requiredChannels?: string[] | null;
   channelMatchMode?: 'prefer' | 'any_required' | 'all_required' | string | null;
   qualityMode?: 'list' | 'lead_plus' | string | null;
+  freshness?: 'live' | 'database_first' | 'hybrid' | string | null;
   salesProfile?: Partial<LeadQualityV2SalesProfile> | null;
   whatDoYouSell?: string | null;
   offerCategory?: string | null;
@@ -1067,6 +1077,7 @@ type NormalizedRadarFilters = {
   requiredChannels: RadarChannelFilter[];
   channelMatchMode: RadarChannelMatchMode;
   qualityMode: 'list' | 'lead_plus';
+  freshness: 'live' | 'database_first' | 'hybrid';
   salesProfile: LeadQualityV2SalesProfile | null;
 };
 
@@ -2014,13 +2025,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       this.logger.warn(`[engine-scheduler] google blocked for ${purpose} purpose`);
       this.logger.warn('[autonomous-bank] skipped google for autonomous bank');
     }
-    const hbxPrimaryInput = normalizeEngine(safeInput?.engine) === 'hbx'
-      ? {
-          ...safeInput,
-          preferredChannels: (safeInput?.preferredChannels || []).filter((channel) => !['instagram', 'facebook', 'email', 'website'].includes(String(channel || '').toLowerCase())),
-          requiredChannels: (safeInput?.requiredChannels || []).filter((channel) => !['instagram', 'facebook', 'email', 'website'].includes(String(channel || '').toLowerCase())),
-        }
-      : safeInput;
+    const hbxPrimaryInput = safeInput;
     const normalized = this.normalizeSearchInput(hbxPrimaryInput);
     this.logSearchSelection(normalized);
     const hasExplicitExclusions = normalized.excludePhoneDigits.length > 0;
@@ -3610,7 +3615,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
   }
 
   private requiredChannelsForInput(input?: NormalizedSearchInput | NormalizedRadarFilters | null) {
-    return [];
+    return this.normalizeRadarChannels((input as any)?.requiredChannels || []);
   }
 
   private hasExplicitRequiredChannels(input?: NormalizedSearchInput | NormalizedRadarFilters | null) {
@@ -3956,7 +3961,12 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
   }
 
   private candidateHasRequiredChannels(candidate: Record<string, any>, input?: NormalizedSearchInput | NormalizedRadarFilters, qualityV2?: LeadQualityV2 | null) {
-    return true;
+    const required = this.requiredChannelsForInput(input);
+    if (!required.length) return true;
+    const mode = this.normalizeChannelMatchMode((input as any)?.channelMatchMode);
+    if (mode === 'prefer') return true;
+    const matches = required.filter((channel) => this.candidateHasRequiredChannel(candidate, channel, qualityV2));
+    return mode === 'all_required' ? matches.length === required.length : matches.length > 0;
   }
 
   private hasUsablePublicContactChannel(candidate: Record<string, any>) {
@@ -3989,7 +3999,9 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
   }
 
   private canDeliverRequiredSocialWithoutPhone(input?: Partial<NormalizedSearchInput | NormalizedRadarFilters> | null) {
-    return false;
+    const required = this.requiredChannelsForInput(input as any);
+    const mode = this.normalizeChannelMatchMode((input as any)?.channelMatchMode);
+    return mode !== 'prefer' && required.some((channel) => ['instagram', 'facebook', 'email', 'website'].includes(channel));
   }
 
   private getCandidateQuality(candidate: Record<string, any>, input: NormalizedSearchInput | NormalizedRadarFilters) {
@@ -4221,7 +4233,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         const metricKey = this.classifyRunRejectionMetric(finalStatus, duplicateReason);
         (metricIncrements as any)[metricKey] = safeInteger((metricIncrements as any)[metricKey]) + 1;
       }
-      const domain = getWebsiteHost(result.website);
+      const domain = getWebsiteHost((result as any).sourceUrl || result.website);
       if (domain) {
         sourceQualityRows.push({
           domain,
@@ -4392,19 +4404,34 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       else current.rejectedCount += 1;
       grouped.set(key, current);
     }
-    await Promise.all(Array.from(grouped.values()).map((row) => delegate.upsert({
-      where: { domain_sourceEngine: { domain: row.domain, sourceEngine: row.sourceEngine } },
-      create: { ...row, lastSeenAt: now },
-      update: {
-        discoveredCount: { increment: row.discoveredCount },
-        fetchedCount: { increment: row.fetchedCount },
-        approvedCount: { increment: row.approvedCount },
-        rejectedCount: { increment: row.rejectedCount },
-        lastSeenAt: now,
-      },
-    }).catch((error: any) => {
-      this.logger.warn(`[radar-source-quality] falha ao registrar fonte=${row.domain}: ${String(error?.message || error)}`);
-    })));
+    await Promise.all(Array.from(grouped.values()).map(async (row) => {
+      try {
+        const saved = await delegate.upsert({
+          where: { domain_sourceEngine: { domain: row.domain, sourceEngine: row.sourceEngine } },
+          create: {
+            ...row,
+            approvalRate: row.approvedCount + row.rejectedCount > 0 ? row.approvedCount / (row.approvedCount + row.rejectedCount) : 0,
+            lastSeenAt: now,
+          },
+          update: {
+            discoveredCount: { increment: row.discoveredCount },
+            fetchedCount: { increment: row.fetchedCount },
+            approvedCount: { increment: row.approvedCount },
+            rejectedCount: { increment: row.rejectedCount },
+            lastSeenAt: now,
+          },
+        });
+        const approved = safeInteger(saved?.approvedCount);
+        const rejected = safeInteger(saved?.rejectedCount);
+        const total = approved + rejected;
+        await delegate.update({
+          where: { id: saved.id },
+          data: { approvalRate: total > 0 ? approved / total : 0 },
+        }).catch(() => null);
+      } catch (error: any) {
+        this.logger.warn(`[radar-source-quality] falha ao registrar fonte=${row.domain}: ${String(error?.message || error)}`);
+      }
+    }));
   }
 
   private async persistSearchRunHistoryIfPossible(runId: string, normalized: NormalizedSearchInput, context: SearchExecutionContext) {
@@ -5761,6 +5788,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       channelMatchMode: input.channelMatchMode,
       qualityMode: input.qualityMode,
     });
+    const freshness = this.normalizeFreshness(input.freshness);
     const salesProfile = this.normalizeLeadQualitySalesProfileInput(input);
     const filtersJson = JSON.stringify({
       ...filters,
@@ -5769,6 +5797,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       engine,
       targetType,
       state,
+      freshness,
       radiusKm,
       originLat,
       originLng,
@@ -5830,6 +5859,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       preferredChannels: channelFilters.preferredChannels,
       requiredChannels: channelFilters.requiredChannels,
       channelMatchMode: channelFilters.channelMatchMode,
+      freshness,
     };
   }
 
@@ -5948,6 +5978,12 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     return 'prefer';
   }
 
+  private normalizeFreshness(value: unknown): 'live' | 'database_first' | 'hybrid' {
+    const normalized = String(value || '').trim();
+    if (normalized === 'database_first' || normalized === 'hybrid') return normalized;
+    return 'live';
+  }
+
   private buildChannelFiltersJson(input: {
     preferredChannels?: string[];
     requiredChannels?: string[];
@@ -5959,10 +5995,13 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     channelMatchMode: RadarChannelMatchMode;
     qualityMode: 'list' | 'lead_plus';
   } {
+    const preferredChannels = this.normalizeRadarChannels(input.preferredChannels);
+    const requiredChannels = this.normalizeRadarChannels(input.requiredChannels);
+    const mode = requiredChannels.length > 0 ? this.normalizeChannelMatchMode(input.channelMatchMode) : 'prefer';
     return {
-      preferredChannels: [],
-      requiredChannels: [],
-      channelMatchMode: 'prefer',
+      preferredChannels,
+      requiredChannels,
+      channelMatchMode: mode,
       qualityMode: String(input.qualityMode || '').trim() === 'lead_plus' ? 'lead_plus' : 'list',
     };
   }
@@ -6167,6 +6206,9 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
   }
 
   private buildOpportunityScore(result: WebscrapingContactResult, quality?: LeadQualityResult | null) {
+    const evidence = this.parseMaybeJsonObject((result as any).evidenceJson);
+    const evidenceScore = safeInteger(evidence?.finalScore ?? evidence?.score);
+    if (evidenceScore > 0) return Math.max(0, Math.min(100, evidenceScore));
     const websiteStatus = inferWebsiteStatus(result.website);
     let score = 0;
     if (websiteStatus === 'none') score += 35;
@@ -6439,10 +6481,17 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
           : rawOpportunityLevel === 'low' || rawOpportunityLevel === 'baixa'
           ? 'low'
             : null;
-    const preferredChannels: RadarChannelFilter[] = [];
-    const requiredChannels: RadarChannelFilter[] = [];
-    const channelMatchMode: RadarChannelMatchMode = 'prefer';
-    const qualityMode = String(input.qualityMode || '').trim() === 'lead_plus' ? 'lead_plus' : 'list';
+    const channelFilters = this.buildChannelFiltersJson({
+      preferredChannels: input.preferredChannels || undefined,
+      requiredChannels: input.requiredChannels || undefined,
+      channelMatchMode: input.channelMatchMode,
+      qualityMode: input.qualityMode,
+    });
+    const preferredChannels = channelFilters.preferredChannels;
+    const requiredChannels = channelFilters.requiredChannels;
+    const channelMatchMode = channelFilters.channelMatchMode;
+    const qualityMode = channelFilters.qualityMode;
+    const freshness = this.normalizeFreshness(input.freshness);
     const salesProfile = this.normalizeLeadQualitySalesProfileInput(input);
 
     return {
@@ -6482,6 +6531,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       requiredChannels,
       channelMatchMode,
       qualityMode,
+      freshness,
       salesProfile,
     };
   }
@@ -6701,6 +6751,8 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
   }
 
   private matchesRadarChannelFilters(row: any, filters: NormalizedRadarFilters) {
+    if (!this.candidateHasRequiredChannels(row, filters)) return false;
+    if (!filters.preferredChannels.length || filters.channelMatchMode !== 'prefer') return true;
     return true;
   }
 
@@ -6823,7 +6875,8 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     const negativePenalty =
       safeInteger(row?.globalNegativeCount) * 80 +
       safeInteger(row?.noAnswerCount) * 12 +
-      (['denied', 'complaint', 'hidden', 'discarded'].includes(status) ? 250 : 0);
+      (['denied', 'complaint', 'hidden', 'discarded'].includes(status) ? 250 : 0) +
+      safeInteger(row?._sourceQualityPenalty);
     return (
       (channelWeight[channel] ?? 0) +
       (whatsappWeight[whatsappStatus] ?? 0) +
@@ -6843,6 +6896,37 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       const importedDelta = safeInteger(left?.globalImportedCount) - safeInteger(right?.globalImportedCount);
       if (importedDelta !== 0) return importedDelta;
       return String(left?.name || '').localeCompare(String(right?.name || ''), 'pt-BR');
+    });
+  }
+
+  private async attachSourceQualityPenalty(rows: any[]) {
+    const delegate = (this.prisma as any).webscrapingSourceQuality;
+    if (!delegate || !(await this.prisma.hasTable('WebscrapingSourceQuality').catch(() => false)) || !rows.length) return rows;
+    const domains = Array.from(new Set(rows.map((row) => getWebsiteHost(row?.sourceUrl || row?.website)).filter(Boolean)));
+    if (!domains.length) return rows;
+    const qualityRows = await delegate.findMany({
+      where: { domain: { in: domains } },
+      select: { domain: true, sourceEngine: true, approvedCount: true, rejectedCount: true, approvalRate: true },
+      take: 1000,
+    }).catch(() => []);
+    const byKey = new Map<string, any>();
+    for (const quality of qualityRows || []) {
+      byKey.set(`${quality.domain}|${quality.sourceEngine || ''}`, quality);
+      if (!byKey.has(`${quality.domain}|*`)) byKey.set(`${quality.domain}|*`, quality);
+    }
+    return rows.map((row) => {
+      const domain = getWebsiteHost(row?.sourceUrl || row?.website);
+      const quality = byKey.get(`${domain}|${row?.sourceEngine || ''}`) || byKey.get(`${domain}|*`);
+      const approved = safeInteger(quality?.approvedCount);
+      const rejected = safeInteger(quality?.rejectedCount);
+      const total = approved + rejected;
+      const rate = Number.isFinite(Number(quality?.approvalRate))
+        ? Number(quality.approvalRate)
+        : total > 0 ? approved / total : 1;
+      return {
+        ...row,
+        _sourceQualityPenalty: total >= 10 && rate < 0.25 ? 140 : total >= 5 && rate < 0.4 ? 70 : 0,
+      };
     });
   }
 
@@ -6922,7 +7006,8 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       },
     }).catch(() => []);
     const enrichedRows = await this.ensureRadarRowsEnriched(this.filterRadarRowsInMemory(rows, filters));
-    return this.sortRadarRowsByCommercialPriority(this.dedupeRadarRows(this.filterRowsByLeadQuality(enrichedRows, filters))).slice(0, readLimit);
+    const qualityWeightedRows = await this.attachSourceQualityPenalty(enrichedRows);
+    return this.sortRadarRowsByCommercialPriority(this.dedupeRadarRows(this.filterRowsByLeadQuality(qualityWeightedRows, filters))).slice(0, readLimit);
   }
 
   private restoreRadarPoolResults(rows: any[]): WebscrapingContactResult[] {
@@ -6942,6 +7027,11 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       score: safeInteger(row?.opportunityScore),
       opportunityScore: safeInteger(row?.opportunityScore),
       opportunityReason: row?.opportunityReason || null,
+      evidenceJson: parseJsonObject(row?.evidenceJson) || null,
+      rejectReasons: parseJsonArray(row?.rejectReasons),
+      qualityReason: row?.qualityReason || null,
+      visibilityTier: row?.visibilityTier || null,
+      deliveryProduct: row?.deliveryProduct || null,
       instagramUrl: row?.instagramUrl || null,
       facebookUrl: row?.facebookUrl || null,
       socialStatus: row?.socialStatus || null,
@@ -7054,6 +7144,8 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     const whatsappStatus = this.extractRadarLeadWhatsappStatus(row) || 'unverified';
     const qualityV2 = this.extractLeadQualityV2FromObject(row) || this.extractLeadQualityV2FromObject(row?.enrichmentJson) || this.extractLeadQualityV2FromObject(row?.metadataJson);
     const quality = this.extractLeadQualityFromObject(row) || this.extractLeadQualityFromObject(row?.enrichmentJson) || this.extractLeadQualityFromObject(row?.metadataJson);
+    const evidenceJson = this.parseMaybeJsonObject(row?.evidenceJson || enrichmentParsed?.evidenceJson);
+    const rejectReasons = parseJsonArray(row?.rejectReasons);
     const safeWebsite = row?.website
       && !this.isBlockedLeadOfficialWebsite(row.website)
       && websiteHostLooksCompatibleWithLead(row, row.website)
@@ -7158,6 +7250,11 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       sourceEngines: parseJsonArray(row?.sourceEngines),
       opportunityScore: safeInteger(row?.opportunityScore),
       opportunityReason: row?.opportunityReason || null,
+      evidenceJson: Object.keys(evidenceJson).length ? evidenceJson : null,
+      rejectReasons,
+      qualityReason: row?.qualityReason || null,
+      visibilityTier: row?.visibilityTier || null,
+      deliveryProduct: row?.deliveryProduct || null,
       qualityV2,
       quality,
       status,
@@ -7259,6 +7356,11 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       sourceEngine,
       sourceUrl: null,
       sourceEngines: [sourceEngine, result.source].filter(Boolean),
+      evidenceJson: (result as any).evidenceJson || null,
+      rejectReasons: Array.isArray((result as any).rejectReasons) ? (result as any).rejectReasons : parseJsonArray((result as any).rejectReasons),
+      qualityReason: (result as any).qualityReason || null,
+      visibilityTier: (result as any).visibilityTier || null,
+      deliveryProduct: (result as any).deliveryProduct || input.qualityMode,
       opportunityScore: safeInteger(opportunityScore),
       qualityV2: parseJsonObject(enrichment.enrichmentJson)?.qualityV2 || null,
       quality,
@@ -7289,6 +7391,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         preferredChannels: input.preferredChannels,
         requiredChannels: input.requiredChannels,
         channelMatchMode: input.channelMatchMode,
+        freshness: input.freshness,
       }),
       status: 'clean',
       ownerCompanyId: null,
@@ -8362,6 +8465,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       requiredChannels: filters.requiredChannels,
       channelMatchMode: filters.channelMatchMode,
       qualityMode: filters.qualityMode,
+      freshness: filters.freshness,
     });
   }
 
@@ -9559,6 +9663,10 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       const dddMismatch = strictLocalDdd && resultExpectedDdds.length > 0 && ddd && !resultExpectedDdds.includes(ddd);
       const opportunityScore = this.buildOpportunityScore(result, quality);
       const opportunityReason = result.opportunityReason || this.buildOpportunityReason(result, input);
+      const evidenceJson = this.parseMaybeJsonObject((result as any).evidenceJson);
+      const rejectReasons = Array.isArray((result as any).rejectReasons)
+        ? (result as any).rejectReasons
+        : parseJsonArray((result as any).rejectReasons);
       const qualityV2 = this.extractLeadQualityV2FromObject(result as any);
       const delivery = this.classifyCardDelivery({ ...(result as any), phoneDigits }, input, quality, qualityV2);
       const existing = await delegate.findFirst({
@@ -9581,6 +9689,11 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
               status: 'rejected',
               rejectionReason: quality.status,
               opportunityScore: Math.min(opportunityScore, 25),
+              evidenceJson: Object.keys(evidenceJson).length ? JSON.stringify(evidenceJson) : existing.evidenceJson || null,
+              rejectReasons: JSON.stringify(Array.from(new Set([quality.status, ...rejectReasons].filter(Boolean)))),
+              qualityReason: delivery.qualityReason || quality.reasons?.[0] || quality.status,
+              visibilityTier: delivery.visibilityTier,
+              deliveryProduct: delivery.deliveryProduct,
               enrichmentJson: JSON.stringify({ ...rejectedEnrichment, quality, delivery }),
               metadataJson: JSON.stringify({
                 ...rejectedMetadata,
@@ -9655,8 +9768,13 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         reviews: Math.max(safeInteger(result.reviews), safeInteger(existing?.reviews)),
         source: result.source || existing?.source || sourceEngine || null,
         sourceEngine: sourceEngine || existing?.sourceEngine || null,
-        sourceUrl: options.sourceUrl || existing?.sourceUrl || null,
+        sourceUrl: options.sourceUrl || (result as any).sourceUrl || (result as any)._pageUrl || existing?.sourceUrl || null,
         sourceEngines: JSON.stringify(sourceEngines),
+        evidenceJson: Object.keys(evidenceJson).length ? JSON.stringify(evidenceJson) : existing?.evidenceJson || null,
+        rejectReasons: rejectReasons.length ? JSON.stringify(rejectReasons) : existing?.rejectReasons || null,
+        qualityReason: (result as any).qualityReason || delivery.qualityReason || existing?.qualityReason || null,
+        visibilityTier: (result as any).visibilityTier || delivery.visibilityTier || existing?.visibilityTier || null,
+        deliveryProduct: (result as any).deliveryProduct || delivery.deliveryProduct || existing?.deliveryProduct || null,
         opportunityScore,
         opportunityReason,
         status: nextStatus,
@@ -15217,13 +15335,30 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       const body: Record<string, unknown> = {
         city: input.city,
         state: input.state,
+        radiusKm: input.radiusKm,
+        originLat: input.originLat,
+        originLng: input.originLng,
+        segments: this.splitHbxBatchSegments(input.segment),
         segment: input.segment,
         targetType: input.targetType,
         limit: batchLimit,
+        quantity: batchLimit,
         fresh: normalizedExcludePhoneDigits.length > 0,
+        freshness: input.freshness,
+        preferredChannels: input.preferredChannels,
+        requiredChannels: input.requiredChannels,
+        channelMatchMode: input.channelMatchMode,
+        qualityMode: input.qualityMode,
+        salesProfile: input.salesProfile || null,
+        ...(input.salesProfile?.whatDoYouSell ? { whatDoYouSell: input.salesProfile.whatDoYouSell } : {}),
+        ...(input.salesProfile?.offerCategory ? { offerCategory: input.salesProfile.offerCategory } : {}),
+        ...(input.salesProfile?.targetAudience ? { targetAudience: input.salesProfile.targetAudience } : {}),
+        ...(input.salesProfile?.targetSegments ? { targetSegments: input.salesProfile.targetSegments } : {}),
+        ...(input.salesProfile?.avoidSegments ? { avoidSegments: input.salesProfile.avoidSegments } : {}),
+        ...((input.salesProfile as any)?.hardRejectSegments ? { hardRejectSegments: (input.salesProfile as any).hardRejectSegments } : {}),
+        ...(input.salesProfile?.leadPreferences ? { leadPreferences: input.salesProfile.leadPreferences } : {}),
+        ...(input.salesProfile?.negativeRules ? { negativeRules: input.salesProfile.negativeRules } : {}),
       };
-      // HBX List is the primary finder. Instagram/Facebook/email enrichment is handled
-      // by the Lead+ enrichment endpoint so List motors do not spend time on social search.
       if (queryText) {
         body.query = queryText;
         body.batchLimit = batchLimit;
@@ -15348,6 +15483,15 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       website: String(item?.website || '').trim() || null,
       instagramUrl,
       facebookUrl,
+      email: String(item?.email || '').trim() || null,
+      evidenceJson: item?.evidenceJson || null,
+      rejectReasons: Array.isArray(item?.rejectReasons) ? item.rejectReasons : null,
+      qualityReason: String(item?.qualityReason || '').trim() || null,
+      visibilityTier: String(item?.visibilityTier || '').trim() || null,
+      deliveryProduct: String(item?.deliveryProduct || '').trim() || null,
+      recommendedChannel: String(item?.recommendedChannel || '').trim() || null,
+      sourceEngine: String(item?.sourceEngine || source || 'hbx_scraping').trim(),
+      sourceUrl: String(item?.sourceUrl || item?._pageUrl || '').trim() || null,
       source,
       score,
     };

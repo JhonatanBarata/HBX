@@ -8,10 +8,11 @@ import httpx
 from ddgs import DDGS
 
 from app.config import DB_PATH, get_settings
-from app.schemas import ContactResult, EnrichLeadRequest, EnrichLeadResponse, QueryPayload, SearchRequest, SearchResponse
+from app.schemas import ContactResult, EnrichLeadRequest, EnrichLeadResponse, QueryPayload, SearchIntent, SearchRequest, SearchResponse
+from app.search.rank import EvidenceScorer
+from app.search.sources import discover_social_profiles, discover_urls
 
 from .agenda_sources import dedupe_by_phone, search_abctelefonos
-from .discovery import discover_social_profiles, discover_urls
 from .fetcher import Fetcher
 from .filters import domain_from_url, is_blocked_lead_source_domain, is_generic_name, is_pf_technical_blocked_domain, is_social_signal_domain, text_key
 from .normalizer import dedupe_contacts
@@ -281,6 +282,7 @@ class SearchService:
     def __init__(self) -> None:
         self.settings = get_settings()
         self.storage = Storage(DB_PATH, self.settings.cache_ttl_hours)
+        self.evidence_scorer = EvidenceScorer()
 
     def requested_social_channels(
         self,
@@ -301,6 +303,37 @@ class SearchService:
             contact.get("instagramUrl" if channel == "instagram" else "facebookUrl")
             for channel in required_channels
         )
+
+    def contact_channels(self, contact: dict) -> set[str]:
+        channels: set[str] = set()
+        phone_digits = re.sub(r"\D", "", str(contact.get("phoneDigits") or contact.get("phone") or ""))
+        if phone_digits:
+            channels.update({"phone", "whatsapp"})
+        if contact.get("website"):
+            channels.add("website")
+        if contact.get("email"):
+            channels.add("email")
+        if contact.get("instagramUrl"):
+            channels.add("instagram")
+        if contact.get("facebookUrl"):
+            channels.add("facebook")
+        page_url = str(contact.get("_pageUrl") or contact.get("sourceUrl") or "")
+        if "instagram.com" in page_url and is_valid_social_profile_url(page_url):
+            channels.add("instagram")
+        if "facebook.com" in page_url and is_valid_social_profile_url(page_url):
+            channels.add("facebook")
+        if re.match(r"^https?://(?:www\.)?(?:google\.[^/]+/maps|maps\.app\.goo\.gl)/", page_url, re.I):
+            channels.add("website")
+        return channels
+
+    def matches_channel_intent(self, contact: dict, request: SearchRequest) -> bool:
+        required = set(request.requiredChannels or [])
+        if not required or request.channelMatchMode == "prefer":
+            return True
+        channels = self.contact_channels(contact)
+        if request.channelMatchMode == "all_required":
+            return required.issubset(channels)
+        return bool(required & channels)
 
     def has_public_actionable_channel(self, item: dict) -> bool:
         phone_digits = re.sub(r"\D", "", str(item.get("phoneDigits") or item.get("phone") or ""))
@@ -1661,6 +1694,7 @@ class SearchService:
         )
 
     async def search(self, request: SearchRequest) -> SearchResponse:
+        intent = SearchIntent.from_request(request)
         excluded_phones = set(request.excludePhoneDigits or [])
         excluded_urls = set(request.excludeUrls or [])
         requested_social_channels = self.requested_social_channels(request.preferredChannels, request.requiredChannels)
@@ -1724,7 +1758,7 @@ class SearchService:
                 print(f"[search] parse ignorado url={page.url} error={error}")
                 continue
             for contact in contacts:
-                contact["score"] = score_contact(
+                legacy_score = score_contact(
                     contact,
                     request.city,
                     request.state,
@@ -1733,6 +1767,15 @@ class SearchService:
                     is_directory_url(page.url),
                     request.targetType,
                 )
+                evidence = self.evidence_scorer.score(contact, intent, text)
+                contact["score"] = evidence.finalScore if request.targetType == "pj" else legacy_score
+                contact["_legacyScore"] = legacy_score
+                contact["evidenceJson"] = evidence.model_dump()
+                contact["rejectReasons"] = evidence.penalties
+                contact["qualityReason"] = "; ".join(evidence.reasons[:3]) if evidence.reasons else None
+                contact["sourceEngine"] = "hbx_scraping"
+                contact["sourceUrl"] = page.url
+                contact["_pageUrl"] = contact.get("_pageUrl") or page.url
                 parsed.append(contact)
 
         deduped = dedupe_contacts(parsed, request.city, request.targetType)
@@ -1786,15 +1829,43 @@ class SearchService:
                 list(required_social_channels),
             )
             social_stats["discovery"] = social_discovery_stats
-        allowed_fields = {"name", "phone", "phoneDigits", "rating", "reviews", "address", "website", "email", "instagramUrl", "facebookUrl", "source", "score"}
+        allowed_fields = {
+            "name", "phone", "phoneDigits", "rating", "reviews", "address", "website", "email",
+            "instagramUrl", "facebookUrl", "source", "sourceEngine", "sourceUrl", "score",
+            "evidenceJson", "rejectReasons", "qualityReason", "visibilityTier", "deliveryProduct",
+            "recommendedChannel",
+        }
         min_score = 0 if request.targetType == "pf" else 50
         public_items: list[dict] = []
-        stats = {"parsed": len(parsed), "invalid_phone": 0, "blocked_domain": 0, "low_score": 0, "missing_required_channel": 0, "approved": 0}
+        stats = {"parsed": len(parsed), "invalid_phone": 0, "blocked_domain": 0, "low_score": 0, "missing_required_channel": 0, "approved": 0, "rejected": 0}
+        source_metrics: dict[str, dict[str, int | str | float]] = {}
+
+        def bump_source(item: dict, key: str) -> None:
+            domain = domain_from_url(item.get("sourceUrl") or item.get("_pageUrl") or item.get("website")) or "unknown"
+            source_engine = str(item.get("sourceEngine") or item.get("source") or "hbx_scraping")
+            metric_key = f"{source_engine}|{domain}"
+            row = source_metrics.setdefault(metric_key, {
+                "sourceEngine": source_engine,
+                "domain": domain,
+                "discovered": 0,
+                "fetched": 0,
+                "parsed": 0,
+                "approved": 0,
+                "rejected": 0,
+                "approvalRate": 0,
+            })
+            row[key] = int(row.get(key, 0)) + 1
+
         for item in deduped:
+            bump_source(item, "parsed")
             if not self.has_public_actionable_channel(item):
                 stats["invalid_phone"] += 1
+                stats["rejected"] += 1
+                bump_source(item, "rejected")
                 continue
             if item.get("phoneDigits") and item.get("phoneDigits") in excluded_phones:
+                stats["rejected"] += 1
+                bump_source(item, "rejected")
                 continue
             blocked_domain = (
                 is_pf_technical_blocked_domain(item.get("website")) or is_pf_technical_blocked_domain(item.get("_pageUrl"))
@@ -1803,19 +1874,34 @@ class SearchService:
             )
             if blocked_domain:
                 stats["blocked_domain"] += 1
+                stats["rejected"] += 1
+                bump_source(item, "rejected")
+                continue
+            if not self.matches_channel_intent(item, request):
+                stats["missing_required_channel"] += 1
+                stats["rejected"] += 1
+                bump_source(item, "rejected")
                 continue
             if request.targetType != "pf" and is_generic_name(item.get("name"), request.city, request.targetType, request.segment):
                 stats["low_score"] += 1
+                stats["rejected"] += 1
+                bump_source(item, "rejected")
                 continue
             if request.targetType != "pf" and int(item.get("score") or 0) < min_score:
                 stats["low_score"] += 1
+                stats["rejected"] += 1
+                bump_source(item, "rejected")
                 continue
             public_item = {key: value for key, value in item.items() if key in allowed_fields}
             public_item["_technicalScore"] = int(item.get("score") or 0)
             if request.targetType == "pj":
                 public_item["source"] = "hbx_scraping:free_pj"
+            public_item["visibilityTier"] = "list_basic" if request.qualityMode == "list" else "lead_plus_qualified"
+            public_item["deliveryProduct"] = request.qualityMode
+            public_item["recommendedChannel"] = next((channel for channel in ["whatsapp", "instagram", "facebook", "email", "website", "phone"] if channel in self.contact_channels(item)), "review")
             public_items.append(public_item)
             stats["approved"] += 1
+            bump_source(item, "approved")
         if request.targetType == "pf":
             print(
                 "[search:pf] "
@@ -1831,6 +1917,13 @@ class SearchService:
             for item in public_items
         ]
         valid = valid[: request.limit]
+        for row in source_metrics.values():
+            approved = int(row.get("approved", 0))
+            rejected = int(row.get("rejected", 0))
+            total = approved + rejected
+            row["discovered"] = int(row.get("parsed", 0))
+            row["fetched"] = int(row.get("parsed", 0))
+            row["approvalRate"] = round(approved / total, 4) if total else 0
         social_stats["missingRequiredChannel"] = stats["missing_required_channel"]
         response_stats = {
             "parsed": stats["parsed"],
@@ -1839,8 +1932,10 @@ class SearchService:
             "blockedDomain": stats["blocked_domain"],
             "lowScore": stats["low_score"],
             "missingRequiredChannel": stats["missing_required_channel"],
+            "rejected": stats["rejected"],
             "rawFound": len(parsed),
             "deduped": len(deduped),
+            "sourceMetrics": list(source_metrics.values()),
             "socialProfilesDiscovered": social_discovery_stats["profilesDiscovered"],
             "socialProfilesAttached": social_discovery_stats["profilesAttached"],
             "socialProfilesUnmatched": social_discovery_stats["profilesUnmatched"],
@@ -1866,7 +1961,25 @@ class SearchService:
         )
 
         response = SearchResponse(
-            query=QueryPayload(city=request.city, state=request.state, segment=request.segment, query=request.query, targetType=request.targetType, limit=request.limit),
+            query=QueryPayload(
+                city=request.city,
+                state=request.state,
+                radiusKm=request.radiusKm,
+                originLat=request.originLat,
+                originLng=request.originLng,
+                segment=request.segment,
+                segments=request.segments,
+                query=request.query,
+                targetType=request.targetType,
+                limit=request.limit,
+                quantity=request.limit,
+                preferredChannels=request.preferredChannels,
+                requiredChannels=request.requiredChannels,
+                channelMatchMode=request.channelMatchMode,
+                qualityMode=request.qualityMode,
+                freshness=request.freshness,
+                salesProfile=intent.salesProfile,
+            ),
             count=len(valid),
             results=[ContactResult.model_validate(item) for item in valid],
             status="completed_with_errors" if errors else "completed",

@@ -115,6 +115,10 @@ class WebscrapingSearchDto {
   qualityMode?: 'list' | 'lead_plus';
 
   @IsOptional()
+  @IsIn(['live', 'database_first', 'hybrid'])
+  freshness?: 'live' | 'database_first' | 'hybrid';
+
+  @IsOptional()
   @IsString()
   whatDoYouSell?: string;
 
@@ -289,6 +293,10 @@ class RadarDatabaseQueryDto {
   @IsOptional()
   @IsIn(['list', 'lead_plus'])
   qualityMode?: 'list' | 'lead_plus';
+
+  @IsOptional()
+  @IsIn(['live', 'database_first', 'hybrid'])
+  freshness?: 'live' | 'database_first' | 'hybrid';
 }
 
 class RadarLeadEventDto {
@@ -615,6 +623,10 @@ class RadarPullDto extends RadarDatabaseQueryDto {
   @IsOptional()
   @IsIn(['list', 'lead_plus'])
   declare qualityMode?: 'list' | 'lead_plus';
+
+  @IsOptional()
+  @IsIn(['live', 'database_first', 'hybrid'])
+  declare freshness?: 'live' | 'database_first' | 'hybrid';
 
   @IsOptional()
   @IsString()
@@ -1012,4 +1024,3 @@ export class MasterWebscrapingController {
     return this.webscrapingService.cancelRadarCampaignByMaster(id);
   }
 }
-

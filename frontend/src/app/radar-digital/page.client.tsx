@@ -92,6 +92,8 @@ type RadarLead = {
   billable?: boolean | null;
   debitEligible?: boolean | null;
   deliveryProduct?: "list" | "lead_plus" | string | null;
+  evidenceJson?: Record<string, unknown> | string | null;
+  rejectReasons?: string[] | null;
   qualityReason?: string | null;
   premiumLocked?: boolean | null;
   premiumFeatureStatus?: string | null;
@@ -472,9 +474,9 @@ function normalizeStoredRadarFilterDraft(value: unknown): FilterState {
     minRating: "",
     minReviews: "",
     status: String(input.status || ""),
-    preferredChannels: [],
-    requiredChannels: [],
-    channelMatchMode: "prefer",
+    preferredChannels: normalizeRadarChannels(input.preferredChannels),
+    requiredChannels: normalizeRadarChannels(input.requiredChannels),
+    channelMatchMode: normalizeChannelMatchMode(input.channelMatchMode),
   };
 }
 
@@ -568,6 +570,75 @@ function RadarQuantitySelector({
         />
         <button type="button" onClick={() => setValue(safeValue + 5)} disabled={disabled || safeValue >= safeMax}>+</button>
       </div>
+    </div>
+  );
+}
+
+function RadarChannelFilterControls({
+  filters,
+  onChange,
+  compact,
+}: {
+  filters: FilterState;
+  onChange: (patch: Partial<FilterState>) => void;
+  compact?: boolean;
+}) {
+  const toggle = (kind: "preferredChannels" | "requiredChannels", channel: RadarChannel) => {
+    const current = filters[kind];
+    const next = current.includes(channel) ? current.filter((item) => item !== channel) : [...current, channel];
+    onChange({
+      [kind]: next,
+      ...(kind === "requiredChannels" && next.length === 0 ? { channelMatchMode: "prefer" as ChannelMatchMode } : {}),
+      ...(kind === "requiredChannels" && next.length > 0 && filters.channelMatchMode === "prefer" ? { channelMatchMode: "any_required" as ChannelMatchMode } : {}),
+    });
+  };
+
+  return (
+    <div className={styles.channelFilters} data-compact={compact ? "true" : "false"}>
+      <div>
+        <span>Canais preferidos</span>
+        <div>
+          {RADAR_CHANNELS.map((channel) => (
+            <button
+              key={`preferred:${channel.value}`}
+              type="button"
+              data-active={filters.preferredChannels.includes(channel.value) ? "true" : "false"}
+              onClick={() => toggle("preferredChannels", channel.value)}
+              title={`Preferir ${channel.label}`}
+            >
+              <img src={channel.icon} alt="" />
+              {compact ? null : channel.label}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div>
+        <span>Canais obrigatórios</span>
+        <div>
+          {RADAR_CHANNELS.map((channel) => (
+            <button
+              key={`required:${channel.value}`}
+              type="button"
+              data-active={filters.requiredChannels.includes(channel.value) ? "true" : "false"}
+              onClick={() => toggle("requiredChannels", channel.value)}
+              title={`Exigir ${channel.label}`}
+            >
+              <img src={channel.icon} alt="" />
+              {compact ? null : channel.label}
+            </button>
+          ))}
+        </div>
+      </div>
+      {filters.requiredChannels.length ? (
+        <div className={styles.channelMode}>
+          <button type="button" data-active={filters.channelMatchMode === "any_required" ? "true" : "false"} onClick={() => onChange({ channelMatchMode: "any_required" })}>
+            Qualquer
+          </button>
+          <button type="button" data-active={filters.channelMatchMode === "all_required" ? "true" : "false"} onClick={() => onChange({ channelMatchMode: "all_required" })}>
+            Todos
+          </button>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -889,6 +960,14 @@ function statusLabel(value?: string | null) {
   return value || "Novo";
 }
 
+function radarCardStatus(lead: RadarLead) {
+  const status = String(lead.companyStatus || lead.status || "").toLowerCase();
+  if (["negative", "denied", "opt_out", "optout", "complaint", "discarded", "hidden", "no_answer"].includes(status)) return "negativo";
+  if (status === "blocked" || lead.visibilityTier === "blocked") return "bloqueado";
+  if (String(lead.visibilityTier || "").includes("review")) return "revisar";
+  return "aprovado";
+}
+
 function ownershipBadge(lead: RadarLead) {
   const status = String(lead.ownershipStatus || "").toLowerCase();
   const leadStatus = String(lead.companyStatus || lead.status || "").toLowerCase();
@@ -918,8 +997,29 @@ function channelLabel(value?: string | null) {
   if (channel === "whatsapp") return "WhatsApp";
   if (channel === "email") return "E-mail";
   if (channel === "call") return "Ligação";
+  if (channel === "instagram") return "Instagram";
+  if (channel === "facebook") return "Facebook";
+  if (channel === "website") return "Site";
+  if (channel === "phone") return "Telefone";
   if (channel === "discard") return "Não chamar";
   return "Revisar";
+}
+
+function leadBackendScore(lead: RadarLead) {
+  const evidence = typeof lead.evidenceJson === "string"
+    ? (() => { try { return JSON.parse(lead.evidenceJson) as Record<string, unknown>; } catch { return {}; } })()
+    : lead.evidenceJson || {};
+  return Math.max(0, Math.min(100, Math.trunc(Number(evidence.finalScore || lead.enrichmentScore || lead.opportunityScore || 0))));
+}
+
+function leadExplanation(lead: RadarLead) {
+  if (lead.qualityReason) return lead.qualityReason;
+  const evidence = typeof lead.evidenceJson === "string"
+    ? (() => { try { return JSON.parse(lead.evidenceJson) as Record<string, unknown>; } catch { return {}; } })()
+    : lead.evidenceJson || {};
+  const reasons = Array.isArray(evidence.reasons) ? evidence.reasons.map(String).filter(Boolean) : [];
+  if (reasons.length) return reasons.slice(0, 2).join(" ");
+  return compactLeadReason(lead);
 }
 
 function websiteTrustBadge(lead: RadarLead) {
@@ -975,33 +1075,6 @@ function buildSmartChips(lead: RadarLead, max = 3) {
     socialFound ? { label: "Rede social", tone: "success" } : null,
     Number(lead.rating || 0) >= 4.2 ? { label: "Boa avaliação", tone: "success" } : null,
   ].filter(Boolean) as Array<{ label: string; tone: string }>).slice(0, max);
-}
-
-function radarCommercialRank(lead: RadarLead) {
-  const status = String(lead.companyStatus || lead.status || "").toLowerCase();
-  if (["negative", "denied", "blocked", "opt_out", "optout", "complaint", "discarded", "hidden"].includes(status)) return -10000;
-  const channel = String(lead.recommendedChannel || "").toLowerCase();
-  const whatsapp = String(lead.whatsappStatus || lead.whatsappCheckStatus || "").toLowerCase();
-  const email = String(lead.emailStatus || "").toLowerCase();
-  const emailSource = String(lead.emailSource || "").toLowerCase();
-  const channelWeight: Record<string, number> = { whatsapp: 650, email: 540, call: 390, review: 180, discard: -1000 };
-  const whatsappWeight: Record<string, number> = { confirmed: 120, unverified: 20, missing: -80, invalid: -120 };
-  const emailWeight: Record<string, number> = { confirmed: 90, probable: emailSource === "inferred" ? 58 : 70, unverified: 12, missing: 0, invalid: -80 };
-  const negativePenalty = Number(lead.ownershipStatus === "negative") * 250;
-  return (
-    (channelWeight[channel] || 0)
-    + (whatsappWeight[whatsapp] || 0)
-    + (emailWeight[email] || 0)
-    + Math.max(0, Number(lead.enrichmentScore || lead.opportunityScore || 0)) * 2
-    + Math.min(80, Number(lead.reviews || 0))
-    - negativePenalty
-  );
-}
-
-function sortRadarLeadsForSales(left: RadarLead, right: RadarLead) {
-  const rankDelta = radarCommercialRank(right) - radarCommercialRank(left);
-  if (rankDelta !== 0) return rankDelta;
-  return String(left.name || "").localeCompare(String(right.name || ""), "pt-BR");
 }
 
 function opportunityLabel(score?: number | null) {
@@ -1101,6 +1174,9 @@ function buildLeadQuery(filters: FilterState, page: number) {
   if (filters.engine) params.set("engine", filters.engine);
   if (filters.scoreRange) params.set("scoreRange", filters.scoreRange);
   if (filters.status) params.set("status", filters.status);
+  filters.preferredChannels.forEach((channel) => params.append("preferredChannels", channel));
+  filters.requiredChannels.forEach((channel) => params.append("requiredChannels", channel));
+  if (filters.channelMatchMode) params.set("channelMatchMode", filters.channelMatchMode);
   return params.toString();
 }
 
@@ -1805,8 +1881,7 @@ export default function RadarDigitalClientPage() {
     [appliedGeneralSearch, items],
   );
   const visibleItems = useMemo(
-    () => searchMatchedItems
-      .sort(sortRadarLeadsForSales),
+    () => searchMatchedItems,
     [searchMatchedItems],
   );
   const highOpportunityCount = useMemo(
@@ -2288,9 +2363,9 @@ export default function RadarDigitalClientPage() {
             segment: payloadFilters.segment || current.segment,
             radiusKm: Number(payloadFilters.radiusKm ?? current.radiusKm ?? DEFAULT_FILTERS.radiusKm),
             targetType: (payloadFilters.targetType === "pf" || payloadFilters.targetType === "both" ? payloadFilters.targetType : "pj") as HbxTargetTypeValue,
-            preferredChannels: [],
-            requiredChannels: [],
-            channelMatchMode: "prefer" as const,
+            preferredChannels: normalizeRadarChannels(payloadFilters.preferredChannels),
+            requiredChannels: normalizeRadarChannels(payloadFilters.requiredChannels),
+            channelMatchMode: normalizeChannelMatchMode(payloadFilters.channelMatchMode),
           };
           return JSON.stringify(current) === JSON.stringify(next) ? current : next;
         });
@@ -2303,9 +2378,9 @@ export default function RadarDigitalClientPage() {
           segment: payloadFilters.segment || current.segment,
           radiusKm: Number(payloadFilters.radiusKm ?? current.radiusKm ?? DEFAULT_FILTERS.radiusKm),
           targetType: (payloadFilters.targetType === "pf" || payloadFilters.targetType === "both" ? payloadFilters.targetType : "pj") as HbxTargetTypeValue,
-          preferredChannels: [],
-          requiredChannels: [],
-          channelMatchMode: "prefer" as const,
+          preferredChannels: normalizeRadarChannels(payloadFilters.preferredChannels),
+          requiredChannels: normalizeRadarChannels(payloadFilters.requiredChannels),
+          channelMatchMode: normalizeChannelMatchMode(payloadFilters.channelMatchMode),
         };
         return JSON.stringify(current) === JSON.stringify(next) ? current : next;
       });
@@ -2518,9 +2593,10 @@ export default function RadarDigitalClientPage() {
           quantity: nextFilters.quantity,
           minimumStock: Math.max(1, Math.min(nextFilters.quantity, 10)),
           desiredStock: Math.max(1, nextFilters.quantity),
-          preferredChannels: [],
-          requiredChannels: [],
-          channelMatchMode: "prefer",
+          preferredChannels: nextFilters.preferredChannels,
+          requiredChannels: nextFilters.requiredChannels,
+          channelMatchMode: nextFilters.channelMatchMode,
+          freshness: "live",
           whatsappCheckMode,
           qualityMode: hasLeadCapabilities ? "lead_plus" : "list",
         }),
@@ -2964,6 +3040,12 @@ export default function RadarDigitalClientPage() {
               onChange={(radiusKm) => setFilters((current) => ({ ...current, radiusKm }))}
             />
 
+            <RadarChannelFilterControls
+              compact
+              filters={filters}
+              onChange={(patch) => setFilters((current) => ({ ...current, ...patch }))}
+            />
+
             <DailyQuotaSpeedometer
               compact
               remaining={dailyRemaining}
@@ -3176,6 +3258,12 @@ export default function RadarDigitalClientPage() {
               onChange={(radiusKm) => setFilters((current) => ({ ...current, radiusKm }))}
             />
           </div>
+          <div className={styles.filterChannels}>
+            <RadarChannelFilterControls
+              filters={filters}
+              onChange={(patch) => setFilters((current) => ({ ...current, ...patch }))}
+            />
+          </div>
           <div className={styles.filterTarget}>
             <HbxTargetTypeSelector
               value={filters.targetType}
@@ -3280,7 +3368,7 @@ export default function RadarDigitalClientPage() {
           ) : (
             <div className={styles.grid}>
               {visibleItems.map((lead, index) => {
-                const score = Math.max(0, Math.min(100, Math.trunc(Number(lead.enrichmentScore || lead.opportunityScore || 0))));
+                const score = leadBackendScore(lead);
                 const isHigh = score >= 70;
                 const origin = [lead.sourceEngine, lead.source, ...(lead.sourceEngines || [])].filter(Boolean)[0] || "Banco HBX";
                 const status = lead.companyStatus || lead.status;
@@ -3311,7 +3399,7 @@ export default function RadarDigitalClientPage() {
                       <span><b>Telefone</b>{formatPhone(lead.phone || lead.phoneDigits)}</span>
                       <span><b>Cidade/UF</b>{[lead.city, lead.state].filter(Boolean).join(" / ") || "Não informado"}</span>
                       <span><b>Origem</b>{origin}</span>
-                      <span><b>Status</b>{statusLabel(status)}</span>
+                      <span><b>Status</b>{radarCardStatus(lead)} · {statusLabel(status)}</span>
                     </div>
                     <RadarLeadChannelIcons lead={lead} />
 
@@ -3320,7 +3408,7 @@ export default function RadarDigitalClientPage() {
                         <div className={styles.smartChips}>
                           {chips.map((chip) => <span key={chip.label} data-tone={chip.tone}>{chip.label}</span>)}
                         </div>
-                        <p className={styles.reason} title={compactLeadReason(lead)}>{compactLeadReason(lead)}</p>
+                        <p className={styles.reason} title={leadExplanation(lead)}><b>Por que apareceu</b>{leadExplanation(lead)}</p>
                         <div className={styles.smartDetails}>
                           <span><b>Canal recomendado</b>{channelLabel(lead.recommendedChannel)}</span>
                           <span><b>E-mail</b>{lead.email || emailLabel(lead.emailStatus)}</span>
@@ -3330,7 +3418,7 @@ export default function RadarDigitalClientPage() {
                       </div>
                     ) : (
                       <>
-                        {lead.opportunityReason ? <p className={styles.reason} title={lead.opportunityReason}>{lead.opportunityReason}</p> : null}
+                        <p className={styles.reason} title={leadExplanation(lead)}><b>Por que apareceu</b>{leadExplanation(lead)}</p>
                         <div className={styles.listUpsell}>Lead inteligente disponível no HBX Lead</div>
                       </>
                     )}
