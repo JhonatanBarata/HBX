@@ -94,7 +94,7 @@ const getSearchCityTargets = `
       .filter((item) => item.city || item.state);
     const seen = new Set<string>();
     return ordered.filter((item) => {
-      const key = `${normalizeLookupValue(item.city)}|${String(item.state || '').trim().toUpperCase()}`;
+      const key = \`${normalizeLookupValue(item.city)}|${String(item.state || '').trim().toUpperCase()}\`;
       if (seen.has(key)) return false;
       seen.add(key);
       return true;
