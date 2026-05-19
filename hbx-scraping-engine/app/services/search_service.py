@@ -326,6 +326,13 @@ class SearchService:
             channels.add("website")
         return channels
 
+    def recommended_channel_for_contact(self, contact: dict, required_channels: list[str] | None = None) -> str:
+        channels = self.contact_channels(contact)
+        for channel in required_channels or []:
+            if channel in {"instagram", "facebook"} and channel in channels:
+                return channel
+        return next((channel for channel in ["whatsapp", "instagram", "facebook", "email", "website", "phone"] if channel in channels), "review")
+
     def matches_channel_intent(self, contact: dict, request: SearchRequest) -> bool:
         required = set(request.requiredChannels or [])
         if not required or request.channelMatchMode == "prefer":
@@ -1266,6 +1273,7 @@ class SearchService:
         segment: str,
         required_social: set[str],
         limit: int,
+        relax_for_required: bool = True,
     ) -> list[dict]:
         if not profiles or not required_social:
             return []
@@ -1277,7 +1285,9 @@ class SearchService:
             url = normalize_social_url(str(profile.get("url") or ""))
             if not field or not url or url in seen_urls:
                 continue
-            if self.social_first_profile_score(profile, url, city, segment) < 35:
+            score = self.social_first_profile_score(profile, url, city, segment)
+            min_score = 20 if relax_for_required and channel in required_social else 35
+            if score < min_score:
                 continue
             item = {
                 "name": self.social_profile_name(profile, city, segment),
@@ -1289,8 +1299,11 @@ class SearchService:
                 "website": None,
                 field: url,
                 "source": "hbx_scraping:social_discovery",
-                "score": 70,
+                "sourceEngine": "hbx_scraping_social",
+                "sourceUrl": url,
+                "score": max(70, score),
                 "_pageUrl": url,
+                "_socialSnippet": " ".join(str(profile.get(key) or "") for key in ("title", "snippet", "query")),
                 "_socialFirst": True,
             }
             if not self.has_required_social_channels(item, required_social):
@@ -1806,18 +1819,45 @@ class SearchService:
                 request.city,
                 request.segment,
             )
-            remaining = max(0, request.limit - len(deduped))
-            if remaining > 0:
-                before_social_first = len(deduped)
+            attached_social_urls = {
+                normalize_social_url(str(contact.get(field) or ""))
+                for contact in deduped
+                for field in ("instagramUrl", "facebookUrl")
+                if contact.get(field)
+            }
+            profiles_for_social_first = [
+                profile
+                for profile in social_profiles
+                if normalize_social_url(str(profile.get("url") or "")) not in attached_social_urls
+            ]
+            if required_social_channels:
                 social_first_candidates = self.social_profile_candidates(
-                    social_profiles,
+                    profiles_for_social_first,
                     request.city,
                     request.state,
                     request.segment,
-                    requested_social_channels,
-                    remaining,
+                    required_social_channels,
+                    request.limit,
                 )
                 if social_first_candidates:
+                    deduped = dedupe_contacts([*social_first_candidates, *deduped], request.city, request.targetType)
+                    social_discovery_stats["profilesPromoted"] = len([item for item in deduped if item.get("_socialFirst")])
+            else:
+                remaining = max(0, request.limit - len(deduped))
+                if remaining <= 0:
+                    social_first_candidates = []
+                else:
+                    social_first_candidates = self.social_profile_candidates(
+                        profiles_for_social_first,
+                        request.city,
+                        request.state,
+                        request.segment,
+                        requested_social_channels,
+                        remaining,
+                        False,
+                    )
+                if social_first_candidates:
+                    before_social_first = len(deduped)
                     deduped = dedupe_contacts([*deduped, *social_first_candidates], request.city, request.targetType)
                     social_discovery_stats["profilesPromoted"] = max(0, len(deduped) - before_social_first)
         effective_social_channels = requested_social_channels
@@ -1871,6 +1911,18 @@ class SearchService:
             row[key] = int(row.get(key, 0)) + 1
 
         for item in deduped:
+            if request.targetType == "pj" and not item.get("evidenceJson"):
+                evidence_text = " ".join(str(item.get(key) or "") for key in ("name", "address", "segment", "_socialSnippet", "_pageUrl", "sourceUrl"))
+                evidence = self.evidence_scorer.score(item, intent, evidence_text)
+                item["score"] = evidence.finalScore
+                item["evidenceJson"] = evidence.model_dump()
+                item["rejectReasons"] = evidence.penalties
+                commercial_reasons = [reason for reason in evidence.reasons if "público-alvo" in reason or "segmentos-alvo" in reason]
+                technical_reasons = [reason for reason in evidence.reasons if reason not in commercial_reasons]
+                visible_reasons = [*commercial_reasons, *technical_reasons][:3]
+                item["qualityReason"] = "; ".join(visible_reasons) if visible_reasons else None
+                item["sourceEngine"] = item.get("sourceEngine") or "hbx_scraping"
+                item["sourceUrl"] = item.get("sourceUrl") or item.get("_pageUrl")
             bump_source(item, "parsed")
             if not self.has_public_actionable_channel(item):
                 stats["invalid_phone"] += 1
@@ -1912,7 +1964,7 @@ class SearchService:
                 public_item["source"] = "hbx_scraping:free_pj"
             public_item["visibilityTier"] = "list_basic" if request.qualityMode == "list" else "lead_plus_qualified"
             public_item["deliveryProduct"] = request.qualityMode
-            public_item["recommendedChannel"] = next((channel for channel in ["whatsapp", "instagram", "facebook", "email", "website", "phone"] if channel in self.contact_channels(item)), "review")
+            public_item["recommendedChannel"] = self.recommended_channel_for_contact(item, request.requiredChannels)
             public_items.append(public_item)
             stats["approved"] += 1
             bump_source(item, "approved")

@@ -1819,3 +1819,51 @@ def test_required_instagram_and_facebook_does_not_reject_when_one_channel_exists
     assert response.count == 1
     assert response.results[0].facebookUrl == "https://facebook.com/barbeariaestilo"
     assert response.stats["missingRequiredChannel"] == 0
+
+
+def test_required_instagram_promotes_social_first_when_web_parse_has_no_phone(monkeypatch) -> None:
+    class FakeFetcher:
+        def __init__(self, *args, **kwargs) -> None:
+            pass
+
+        async def fetch_all(self, urls):
+            return [SimpleNamespace(html="<html><body>Sem telefone estruturado</body></html>", url="https://pizzariavazia.example.com")]
+
+    monkeypatch.setattr("app.services.search_service.discover_urls", lambda *args, **kwargs: ["https://pizzariavazia.example.com"])
+    monkeypatch.setattr(
+        "app.services.search_service.discover_social_profiles",
+        lambda *args, **kwargs: [
+            {
+                "url": "https://instagram.com/pizzariafornorio",
+                "channel": "instagram",
+                "title": "Pizzaria Forno Rio",
+                "snippet": "Pizzaria em Rio Claro SP. Perfil oficial no Instagram.",
+                "query": "site:instagram.com pizzarias Rio Claro",
+            }
+        ],
+    )
+    monkeypatch.setattr("app.services.search_service.Fetcher", FakeFetcher)
+    monkeypatch.setattr("app.services.search_service.parse_page", lambda *args, **kwargs: ([], "página sem contato"))
+    monkeypatch.setattr(SearchService, "guessed_social_url_for_contact", lambda *args, **kwargs: (None, 0))
+    monkeypatch.setattr(SearchService, "enrich_identity_search", lambda *args, **kwargs: {})
+
+    response = asyncio.run(
+        SearchService().search(
+            SearchRequest(
+                city="Rio Claro",
+                state="SP",
+                segment="pizzarias",
+                targetType="pj",
+                limit=5,
+                fresh=True,
+                requiredChannels=["instagram"],
+                channelMatchMode="any_required",
+            )
+        )
+    )
+
+    assert response.count > 0
+    assert response.results[0].instagramUrl == "https://instagram.com/pizzariafornorio"
+    assert response.results[0].recommendedChannel == "instagram"
+    assert response.stats["socialProfilesPromoted"] >= 1
+    assert response.stats["missingRequiredChannel"] == 0
