@@ -8,11 +8,13 @@ if (!(Test-Path $file)) {
 $content = Get-Content -Raw -Encoding UTF8 $file
 
 function Replace-Once([string]$text, [string]$pattern, [string]$replacement, [string]$label) {
-  $count = [regex]::Matches($text, $pattern, [System.Text.RegularExpressions.RegexOptions]::Singleline).Count
+  $options = [System.Text.RegularExpressions.RegexOptions]::Singleline
+  $regex = [System.Text.RegularExpressions.Regex]::new($pattern, $options)
+  $count = $regex.Matches($text).Count
   if ($count -ne 1) {
     throw "Esperava 1 match para $label, encontrei $count. Não apliquei para evitar estragar arquivo."
   }
-  return [regex]::Replace($text, $pattern, $replacement, 1, [System.Text.RegularExpressions.RegexOptions]::Singleline)
+  return $regex.Replace($text, $replacement, 1)
 }
 
 $aliasFunction = @'
