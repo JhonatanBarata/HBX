@@ -127,6 +127,7 @@ class ContactResult(BaseModel):
     reviews: int | None = None
     address: str | None = None
     website: str | None = None
+    email: str | None = None
     instagramUrl: str | None = None
     facebookUrl: str | None = None
     source: str = "hbx_scraping:web"

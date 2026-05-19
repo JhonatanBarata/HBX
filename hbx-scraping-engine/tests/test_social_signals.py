@@ -773,6 +773,87 @@ def test_search_keeps_social_only_card_without_phone(monkeypatch) -> None:
     assert response.stats["invalidPhone"] == 0
 
 
+def test_search_completes_remaining_slots_with_social_first(monkeypatch) -> None:
+    class FakeFetcher:
+        def __init__(self, *args, **kwargs) -> None:
+            pass
+
+        async def fetch_all(self, urls):
+            return [SimpleNamespace(html="<html></html>", url="https://oficinabase.example.com")]
+
+    monkeypatch.setattr("app.services.search_service.discover_urls", lambda *args, **kwargs: ["https://oficinabase.example.com"])
+    monkeypatch.setattr(
+        "app.services.search_service.discover_social_profiles",
+        lambda *args, **kwargs: [
+            {
+                "url": "https://instagram.com/oficinasocialextra",
+                "channel": "instagram",
+                "title": "Oficina Social Extra Campinas",
+                "snippet": "Oficina em Campinas SP",
+                "query": "site:instagram.com oficina Campinas",
+            }
+        ],
+    )
+    monkeypatch.setattr("app.services.search_service.Fetcher", FakeFetcher)
+    monkeypatch.setattr(
+        "app.services.search_service.parse_page",
+        lambda *args, **kwargs: (
+            [
+                {
+                    "name": "Oficina Base",
+                    "phone": "(19) 98888-0004",
+                    "phoneDigits": "19988880004",
+                    "website": "https://oficinabase.example.com",
+                    "source": "hbx_scraping:web",
+                    "_pageUrl": "https://oficinabase.example.com",
+                }
+            ],
+            "Oficina Base Campinas telefone",
+        ),
+    )
+    monkeypatch.setattr("app.services.search_service.score_contact", lambda *args, **kwargs: 80)
+
+    response = asyncio.run(
+        SearchService().search(
+            SearchRequest(
+                city="Campinas",
+                state="SP",
+                segment="oficina",
+                targetType="pj",
+                limit=2,
+                fresh=True,
+                preferredChannels=["instagram"],
+            )
+        )
+    )
+
+    assert response.count == 2
+    assert [item.name for item in response.results] == ["Oficina Base", "Oficina Social Extra Campinas"]
+    assert response.results[1].instagramUrl == "https://instagram.com/oficinasocialextra"
+    assert response.stats["socialProfilesPromoted"] == 1
+
+
+def test_page_url_is_not_actionable_when_domain_is_generic_or_incompatible() -> None:
+    service = SearchService()
+
+    assert not service.has_public_actionable_channel({
+        "name": "Oficina Rica",
+        "_pageUrl": "https://noticias.example.com/materia/oficina-rica",
+    })
+    assert service.has_public_actionable_channel({
+        "name": "Oficina Rica",
+        "_pageUrl": "https://oficinarica.com.br",
+    })
+    assert service.has_public_actionable_channel({
+        "name": "Oficina Rica",
+        "_pageUrl": "https://instagram.com/oficinarica",
+    })
+    assert service.has_public_actionable_channel({
+        "name": "Oficina Rica",
+        "_pageUrl": "https://www.google.com/maps/place/Oficina+Rica",
+    })
+
+
 def test_search_service_best_effort_uses_social_from_html_without_required_channels(monkeypatch) -> None:
     html = """
     <html>
