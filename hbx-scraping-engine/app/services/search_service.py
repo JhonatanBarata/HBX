@@ -10,7 +10,7 @@ from ddgs import DDGS
 from app.config import DB_PATH, get_settings
 from app.schemas import ContactResult, EnrichLeadRequest, EnrichLeadResponse, QueryPayload, SearchIntent, SearchRequest, SearchResponse
 from app.search.rank import EvidenceScorer
-from app.search.sources import discover_social_profiles, discover_urls
+from app.search.sources import build_intent_discovery_queries, discover_social_profiles, discover_urls
 
 from .agenda_sources import dedupe_by_phone, search_abctelefonos
 from .fetcher import Fetcher
@@ -1711,6 +1711,16 @@ class SearchService:
             await asyncio.to_thread(self.storage.save_run, request, response.model_dump())
             return response
 
+        queries_generated = build_intent_discovery_queries(
+            request.segment,
+            request.city,
+            request.state,
+            request.targetType,
+            request.query,
+            list(request.preferredChannels or []),
+            list(request.requiredChannels or []),
+            intent,
+        )
         social_profiles: list[dict] = []
         if request.targetType == "pj" and requested_social_channels:
             social_profiles = await asyncio.to_thread(
@@ -1932,6 +1942,7 @@ class SearchService:
         response_stats = {
             "urlsDiscovered": len(urls),
             "pagesFetched": len(pages),
+            "queriesGenerated": queries_generated,
             "parsed": stats["parsed"],
             "approved": stats["approved"],
             "invalidPhone": stats["invalid_phone"],
