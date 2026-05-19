@@ -1,5 +1,6 @@
 from app.schemas import SearchIntent, SearchRequest
 from app.search.rank import EvidenceScorer
+from app.services.discovery import build_commercial_fit_discovery_queries
 
 
 def test_search_intent_preserves_contract_and_sales_profile() -> None:
@@ -95,3 +96,107 @@ def test_commercial_fit_boosts_senior_health_targets_and_hard_rejects() -> None:
     assert "Combina com seu público-alvo: idosos / plano de saúde." in clinic.reasons
     assert nightclub.finalScore == 0
     assert "commercial_hard_reject" in nightclub.penalties
+
+
+def test_senior_health_profile_generates_compatible_discovery_queries() -> None:
+    intent = SearchIntent(
+        city="Americana",
+        state="SP",
+        segments=["serviços"],
+        salesProfile={
+            "whatDoYouSell": "plano de saúde",
+            "targetAudience": ["idosos", "60+", "aposentados"],
+        },
+    )
+
+    queries = build_commercial_fit_discovery_queries("serviços", "Americana", "SP", intent)
+    joined = "\n".join(queries).lower()
+
+    assert "clínicas geriátricas americana sp telefone" in joined
+    assert "cuidadores de idosos americana sp contato" in joined
+    assert "farmácias americana sp site oficial" in joined
+    assert "associações terceira idade americana sp telefone" in joined
+
+
+def test_generic_directory_does_not_rank_above_official_site_or_social() -> None:
+    scorer = EvidenceScorer()
+    intent = SearchIntent(city="Americana", state="SP", segments=["oficina"])
+    official = scorer.score(
+        {
+            "name": "Oficina Central",
+            "phoneDigits": "19999999999",
+            "website": "https://oficinacentral.com.br",
+            "_pageUrl": "https://oficinacentral.com.br",
+            "address": "Americana SP",
+        },
+        intent,
+        "Oficina Central Americana SP contato",
+    )
+    social = scorer.score(
+        {
+            "name": "Oficina Central",
+            "instagramUrl": "https://instagram.com/oficinacentralamericana",
+            "_pageUrl": "https://instagram.com/oficinacentralamericana",
+            "address": "Americana SP",
+        },
+        intent,
+        "Oficina Central Americana SP",
+    )
+    directory = scorer.score(
+        {
+            "name": "Oficinas mecânicas em Americana",
+            "_pageUrl": "https://www.guiamais.com.br/busca/oficina/americana-sp",
+            "address": "Americana SP",
+        },
+        intent,
+        "Lista de oficinas mecanicas em Americana",
+    )
+
+    assert official.finalScore > directory.finalScore
+    assert social.finalScore > directory.finalScore
+    assert "generic_directory_source" in directory.penalties
+
+
+def test_source_metrics_is_returned_by_search(monkeypatch) -> None:
+    import asyncio
+    from types import SimpleNamespace
+
+    from app.services.search_service import SearchService
+
+    class FakeFetcher:
+        def __init__(self, *args, **kwargs) -> None:
+            pass
+
+        async def fetch_all(self, urls):
+            return [SimpleNamespace(html="<html></html>", url="https://pizzariaoficial.com.br")]
+
+    monkeypatch.setattr("app.services.search_service.discover_social_profiles", lambda *args, **kwargs: [])
+    monkeypatch.setattr("app.services.search_service.discover_urls", lambda *args, **kwargs: ["https://pizzariaoficial.com.br"])
+    monkeypatch.setattr("app.services.search_service.Fetcher", FakeFetcher)
+    monkeypatch.setattr(
+        "app.services.search_service.parse_page",
+        lambda *args, **kwargs: (
+            [
+                {
+                    "name": "Pizzaria Oficial",
+                    "phone": "(19) 99999-9999",
+                    "phoneDigits": "19999999999",
+                    "address": "Rio Claro SP",
+                    "website": "https://pizzariaoficial.com.br",
+                    "source": "hbx_scraping:web",
+                    "_pageUrl": "https://pizzariaoficial.com.br",
+                }
+            ],
+            "Pizzaria Oficial Rio Claro SP telefone site oficial",
+        ),
+    )
+
+    response = asyncio.run(
+        SearchService().search(
+            SearchRequest(city="Rio Claro", state="SP", segment="pizzaria", targetType="pj", limit=5, fresh=True)
+        )
+    )
+
+    assert response.count == 1
+    assert response.stats["sourceMetrics"][0]["approved"] == 1
+    assert response.stats["sourceMetrics"][0]["approvalRate"] == 1
