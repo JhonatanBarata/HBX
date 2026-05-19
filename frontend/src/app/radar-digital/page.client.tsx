@@ -2566,19 +2566,19 @@ export default function RadarDigitalClientPage() {
 
     try {
       if (!canPullWithFilters(nextFilters)) {
-  setSearching(false);
-  setHasSearched(false);
-  setItems([]);
-  setTotal(0);
-  setPage(1);
-  setActiveRun(null);
-  setTerminalRunSnapshot(null);
-  activeRunIdRef.current = null;
-  setTelonProgress(0);
-  setFeedback(null);
-  setError("Para buscar novos cards, escolha cidade e segmento. Para ver histórico salvo, use Ver histórico.");
-  return;
-}
+        setSearching(false);
+        setHasSearched(false);
+        setItems([]);
+        setTotal(0);
+        setPage(1);
+        setActiveRun(null);
+        setTerminalRunSnapshot(null);
+        activeRunIdRef.current = null;
+        setTelonProgress(0);
+        setFeedback(null);
+        setError("Para buscar novos cards, escolha cidade e segmento. Para ver histórico salvo, use Ver histórico.");
+        return;
+      }
 
       setItems([]);
       setTotal(0);
