@@ -302,6 +302,17 @@ class SearchService:
             for channel in required_channels
         )
 
+    def has_public_actionable_channel(self, item: dict) -> bool:
+        phone_digits = re.sub(r"\D", "", str(item.get("phoneDigits") or item.get("phone") or ""))
+        return bool(
+            phone_digits
+            or item.get("instagramUrl")
+            or item.get("facebookUrl")
+            or item.get("website")
+            or item.get("email")
+            or item.get("_pageUrl")
+        )
+
     def time_budget_expired(self, deadline: float | None) -> bool:
         return bool(deadline is not None and time.monotonic() >= deadline)
 
@@ -1723,6 +1734,18 @@ class SearchService:
                 request.city,
                 request.segment,
             )
+            if not deduped:
+                social_first_candidates = self.social_profile_candidates(
+                    social_profiles,
+                    request.city,
+                    request.state,
+                    request.segment,
+                    requested_social_channels,
+                    request.limit,
+                )
+                if social_first_candidates:
+                    deduped = dedupe_contacts(social_first_candidates, request.city, request.targetType)
+                    social_discovery_stats["profilesPromoted"] = len(deduped)
         effective_social_channels = requested_social_channels
         social_stats = {
             "requestedChannels": sorted(effective_social_channels),
@@ -1751,10 +1774,10 @@ class SearchService:
         public_items: list[dict] = []
         stats = {"parsed": len(parsed), "invalid_phone": 0, "blocked_domain": 0, "low_score": 0, "missing_required_channel": 0, "approved": 0}
         for item in deduped:
-            if not item.get("phone") or not item.get("phoneDigits"):
+            if not self.has_public_actionable_channel(item):
                 stats["invalid_phone"] += 1
                 continue
-            if item.get("phoneDigits") in excluded_phones:
+            if item.get("phoneDigits") and item.get("phoneDigits") in excluded_phones:
                 continue
             blocked_domain = (
                 is_pf_technical_blocked_domain(item.get("website")) or is_pf_technical_blocked_domain(item.get("_pageUrl"))

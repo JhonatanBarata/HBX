@@ -3973,15 +3973,19 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     const facebookUrl = String(merged.facebookUrl || merged.signals?.facebookUrl || '').trim();
     if (facebookUrl && !looksLikeThirdPartySocialProfile(facebookUrl) && socialProfileLooksCompatibleWithLead(merged, facebookUrl)) return true;
     const emailStatus = String(merged.emailStatus || merged.signals?.emailStatus || '').trim().toLowerCase();
-    const email = normalizeBusinessEmail(merged.email || merged.signals?.email);
+    const email = normalizeBusinessEmail(merged.email || merged.emailCandidate || merged.signals?.email || merged.signals?.emailCandidate);
     if (email && !['missing', 'invalid'].includes(emailStatus)) return true;
     const website = String(merged.website || '').trim();
-    return Boolean(
+    if (
       website
       && inferWebsiteStatus(website) === 'present'
       && !this.isBlockedLeadOfficialWebsite(website)
-      && websiteHostLooksCompatibleWithLead(merged, website),
-    );
+      && websiteHostLooksCompatibleWithLead(merged, website)
+    ) return true;
+    const mapsUrl = String(merged.googleMapsUrl || merged.mapsUrl || merged.signals?.googleMapsUrl || '').trim();
+    if (mapsUrl && /^https?:\/\/(?:www\.)?(?:google\.[^/]+\/maps|maps\.app\.goo\.gl)\//i.test(mapsUrl)) return true;
+    const sourceUrl = String(merged.sourceUrl || merged._pageUrl || '').trim();
+    return Boolean(sourceUrl && /^https?:\/\//i.test(sourceUrl) && !this.isBlockedLeadOfficialWebsite(sourceUrl));
   }
 
   private canDeliverRequiredSocialWithoutPhone(input?: Partial<NormalizedSearchInput | NormalizedRadarFilters> | null) {
@@ -6221,7 +6225,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     seenPhones: Set<string>,
   ) {
     if (candidate.phoneDigits && seenPhones.has(candidate.phoneDigits)) return false;
-    if (!candidate.phoneDigits && !candidate.instagramUrl && !candidate.facebookUrl && !candidate.website) return false;
+    if (!this.hasUsablePublicContactChannel(candidate as any)) return false;
     const seenKeys = new Set<string>();
     for (const item of existing) {
       for (const key of this.buildContactDedupeKeys(item)) seenKeys.add(key);

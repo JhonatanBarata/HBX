@@ -728,6 +728,51 @@ def test_search_with_preferred_instagram_keeps_card_without_instagram(monkeypatc
     assert response.stats["missingRequiredChannel"] == 0
 
 
+def test_search_keeps_social_only_card_without_phone(monkeypatch) -> None:
+    html = """
+    <html>
+      <head><title>Oficina Social Campinas</title></head>
+      <body>
+        <h1>Oficina Social Campinas</h1>
+        <a href="https://instagram.com/oficinasocialcampinas">Instagram</a>
+      </body>
+    </html>
+    """
+
+    class FakeFetcher:
+        def __init__(self, *args, **kwargs) -> None:
+            pass
+
+        async def fetch_all(self, urls):
+            return [SimpleNamespace(html=html, url="https://oficinasocial.example.com")]
+
+    monkeypatch.setattr("app.services.search_service.discover_urls", lambda *args, **kwargs: ["https://oficinasocial.example.com"])
+    monkeypatch.setattr("app.services.search_service.discover_social_profiles", lambda *args, **kwargs: [])
+    monkeypatch.setattr("app.services.search_service.Fetcher", FakeFetcher)
+    monkeypatch.setattr("app.services.search_service.score_contact", lambda *args, **kwargs: 80)
+
+    response = asyncio.run(
+        SearchService().search(
+            SearchRequest(
+                city="Campinas",
+                state="SP",
+                segment="oficina",
+                targetType="pj",
+                limit=10,
+                fresh=True,
+                preferredChannels=["instagram"],
+            )
+        )
+    )
+
+    assert response.count == 1
+    assert response.results[0].phone == ""
+    assert response.results[0].phoneDigits == ""
+    assert response.results[0].instagramUrl == "https://instagram.com/oficinasocialcampinas"
+    assert response.results[0].website == "https://oficinasocial.example.com"
+    assert response.stats["invalidPhone"] == 0
+
+
 def test_search_service_best_effort_uses_social_from_html_without_required_channels(monkeypatch) -> None:
     html = """
     <html>
@@ -1129,11 +1174,14 @@ def test_required_instagram_promotes_discovered_social_profile_without_phone(mon
         )
     )
 
-    assert response.count == 0
-    assert response.stats["socialProfilesPromoted"] == 0
+    assert response.count == 1
+    assert response.results[0].phone == ""
+    assert response.results[0].phoneDigits == ""
+    assert response.results[0].instagramUrl == "https://instagram.com/farmaciasocial"
+    assert response.stats["socialProfilesPromoted"] == 1
 
 
-def test_required_instagram_rejects_generic_unrelated_social_profile(monkeypatch) -> None:
+def test_required_instagram_promotes_valid_social_profile_and_skips_generic(monkeypatch) -> None:
     monkeypatch.setattr(
         "app.services.search_service.discover_social_profiles",
         lambda *args, **kwargs: [
@@ -1169,8 +1217,9 @@ def test_required_instagram_rejects_generic_unrelated_social_profile(monkeypatch
         )
     )
 
-    assert response.count == 0
-    assert response.stats["socialProfilesPromoted"] == 0
+    assert response.count == 1
+    assert response.results[0].instagramUrl == "https://instagram.com/drogariasaopaulo"
+    assert response.stats["socialProfilesPromoted"] == 1
 
 
 def test_social_first_name_uses_slug_when_title_is_generic() -> None:

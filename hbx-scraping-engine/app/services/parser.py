@@ -197,4 +197,22 @@ def parse_page(html: str, url: str, target_type: str = "pj", city: str | None = 
                 contact[social_field] = normalize_social_url(url) or url.rstrip("/")
             contacts.append(_apply_social_links(contact, social_links))
 
+    has_actionable_channel = bool(fallback_website or social_links or (social_field and is_valid_social_profile_url(url)))
+    if target_type == "pj" and not contacts and resolved_fallback_name and has_actionable_channel:
+        contact = {
+            "name": resolved_fallback_name,
+            "phone": "",
+            "phoneDigits": "",
+            "rating": None,
+            "reviews": None,
+            "address": None,
+            "website": fallback_website,
+            "source": "hbx_scraping:web",
+            "_domain": page_domain,
+            "_pageUrl": url,
+        }
+        if social_field:
+            contact[social_field] = normalize_social_url(url) or url.rstrip("/")
+        contacts.append(_apply_social_links(contact, social_links))
+
     return contacts, visible_text
