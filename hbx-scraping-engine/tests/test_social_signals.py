@@ -691,6 +691,7 @@ def test_lead_plus_enrichment_finds_social_and_confirms_email(monkeypatch) -> No
 
     monkeypatch.setattr("app.services.search_service.Fetcher", FakeFetcher)
     monkeypatch.setattr("app.services.search_service.DDGS", FakeDDGS)
+    monkeypatch.setattr(SearchService, "guessed_social_url_for_contact", lambda *args, **kwargs: (None, 0))
 
     response = asyncio.run(
         SearchService().enrich_lead(
@@ -933,6 +934,348 @@ def test_identity_search_accepts_hidden_facebook_result_with_handle_and_query(mo
     assert response.socialConfidence >= 55
     social = response.stats["social"]
     assert social["matches"][0]["status"] in {"confirmed", "probable"}
+
+
+def test_identity_search_rejects_hidden_facebook_without_city_handle(monkeypatch) -> None:
+    class FakeDDGS:
+        def __init__(self, *args, **kwargs) -> None:
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
+        def text(self, query, **kwargs):
+            if 'site:facebook.com "famiglia" "São Paulo"' in query:
+                return [
+                    {
+                        "href": "https://www.facebook.com/restaurantelafamiglia449/",
+                        "title": "Link to facebook.com",
+                        "body": "The site owner hides the web page description.",
+                    }
+                ]
+            return []
+
+    monkeypatch.setattr("app.services.search_service.DDGS", FakeDDGS)
+
+    response = asyncio.run(
+        SearchService().enrich_lead(
+            EnrichLeadRequest(
+                name="Famiglia Mancini",
+                phone="",
+                phoneDigits="",
+                city="São Paulo",
+                state="SP",
+                segment="restaurante italiano",
+                preferredChannels=["facebook"],
+                requiredChannels=["facebook"],
+            )
+        )
+    )
+
+    assert response.facebookUrl is None
+    assert response.stats["social"]["missingRequiredChannel"] == 1
+
+
+def test_identity_search_rejects_generic_pneus_profile_for_silcar() -> None:
+    service = SearchService()
+    contact = {
+        "name": "Silcar Pneus Ltda",
+        "phone": "(17) 3202-3332",
+        "phoneDigits": "1732023332",
+        "segment": "borracharias",
+        "score": 70,
+    }
+
+    wrong_score = service.score_social_candidate(
+        contact,
+        {
+            "href": "https://facebook.com/dfpneusararaquarasp",
+            "title": "DF Pneus Araraquara SP",
+            "body": "Pneus e borracharia em Araraquara.",
+        },
+        "https://facebook.com/dfpneusararaquarasp",
+        "facebook",
+        "Araraquara",
+        "borracharias",
+        'site:facebook.com "pneus" "Araraquara"',
+    )
+    right_score = service.score_social_candidate(
+        contact,
+        {
+            "href": "https://instagram.com/silcarpneusoficial",
+            "title": "Instagram",
+            "body": "The site owner hides the web page description.",
+        },
+        "https://instagram.com/silcarpneusoficial",
+        "instagram",
+        "Araraquara",
+        "borracharias",
+        "site:instagram.com silcarpneusoficial",
+    )
+
+    assert wrong_score == -100
+    assert right_score >= 70
+
+
+def test_silcar_queries_try_official_handle_variants() -> None:
+    service = SearchService()
+    handles = service.business_social_handle_candidates("Silcar Pneus Ltda")
+    queries = service.social_queries_for_contact(
+        {"name": "Silcar Pneus Ltda", "phone": "(17) 3202-3332", "phoneDigits": "1732023332"},
+        "Araraquara",
+        "borracharias",
+        "instagram",
+    )
+
+    assert "silcarpneusoficial" in handles
+    assert "site:instagram.com silcarpneusoficial" in queries
+
+
+def test_validated_handle_guess_accepts_official_business_handle_without_city(monkeypatch) -> None:
+    class FakeResponse:
+        status_code = 200
+        text = "Silcar Pneus Oficial @silcarpneusoficial pneus e borracharia"
+
+    monkeypatch.setattr("app.services.search_service.httpx.get", lambda *args, **kwargs: FakeResponse())
+    service = SearchService()
+
+    url, score = service.validate_guessed_social_url(
+        {
+            "name": "Silcar Pneus Ltda",
+            "phone": "(17) 3202-3332",
+            "phoneDigits": "1732023332",
+            "segment": "borracharias",
+        },
+        "instagram",
+        "silcarpneusoficial",
+        "Araraquara",
+    )
+
+    assert url == "https://instagram.com/silcarpneusoficial"
+    assert score >= 70
+
+
+def test_validated_handle_guess_does_not_guess_facebook_urls() -> None:
+    service = SearchService()
+
+    url, score = service.guessed_social_url_for_contact(
+        {
+            "name": "Silcar Pneus Ltda",
+            "phone": "(17) 3202-3332",
+            "phoneDigits": "1732023332",
+            "segment": "borracharias",
+        },
+        "facebook",
+        "Araraquara",
+    )
+
+    assert url is None
+    assert score == 0
+
+
+def test_validated_handle_guess_accepts_city_matched_non_official_handle(monkeypatch) -> None:
+    class FakeResponse:
+        status_code = 200
+        text = "Pizzaria do Roberto Rio Claro SP @pizzariadoroberto pizzaria restaurante"
+
+    monkeypatch.setattr("app.services.search_service.httpx.get", lambda *args, **kwargs: FakeResponse())
+    service = SearchService()
+
+    url, score = service.validate_guessed_social_url(
+        {
+            "name": "PIZZARIA E CHOPERIA ROBERTO DE MORAES",
+            "phone": "(19) 99836-8311",
+            "phoneDigits": "19998368311",
+            "segment": "pizzarias restaurantes",
+        },
+        "instagram",
+        "pizzariadoroberto",
+        "Rio Claro",
+    )
+
+    assert url == "https://instagram.com/pizzariadoroberto"
+    assert score >= 70
+
+
+def test_identity_search_rejects_weak_short_social_identity() -> None:
+    service = SearchService()
+    contact = {
+        "name": "DUO estética e design de sobrancelha",
+        "phone": "(13) 99770-6950",
+        "phoneDigits": "13997706950",
+        "segment": "estética sobrancelha",
+        "score": 70,
+    }
+
+    score = service.score_social_candidate(
+        contact,
+        {
+            "href": "https://facebook.com/mikesantosduo",
+            "title": "Mike Santos Duo",
+            "body": "Perfil pessoal em Santos.",
+        },
+        "https://facebook.com/mikesantosduo",
+        "facebook",
+        "Santos",
+        "estética sobrancelha",
+        'site:facebook.com "duo" "Santos"',
+    )
+
+    assert score == -100
+
+
+def test_identity_search_rejects_low_confidence_required_social_candidate(monkeypatch) -> None:
+    class FakeDDGS:
+        def __init__(self, *args, **kwargs) -> None:
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
+        def text(self, query, **kwargs):
+            if 'site:instagram.com "oficina" "Campinas"' in query:
+                return [
+                    {
+                        "href": "https://instagram.com/oficina_de_brindes_campinas",
+                        "title": "Oficina de Brindes Campinas",
+                        "body": "Brindes personalizados em Campinas.",
+                    }
+                ]
+            return []
+
+    monkeypatch.setattr("app.services.search_service.DDGS", FakeDDGS)
+    monkeypatch.setattr(SearchService, "guessed_social_url_for_contact", lambda *args, **kwargs: (None, 0))
+
+    response = asyncio.run(
+        SearchService().enrich_lead(
+            EnrichLeadRequest(
+                name="Oficina Brasil",
+                phone="",
+                phoneDigits="",
+                city="Campinas",
+                state="SP",
+                segment="oficina auto center",
+                preferredChannels=["instagram"],
+                requiredChannels=["instagram"],
+            )
+        )
+    )
+
+    assert response.instagramUrl is None
+    assert response.stats["social"]["missingRequiredChannel"] == 1
+
+
+def test_required_social_validates_official_handle_before_slow_identity_search(monkeypatch) -> None:
+    class FakeResponse:
+        status_code = 200
+        text = "Silcar Pneus Oficial @silcarpneusoficial pneus e borracharia"
+
+    def fail_if_identity_search_runs(*args, **kwargs):
+        raise AssertionError("identity search should not run before official handle validation")
+
+    monkeypatch.setattr("app.services.search_service.httpx.get", lambda *args, **kwargs: FakeResponse())
+    monkeypatch.setattr(SearchService, "search_social_profile_candidates", fail_if_identity_search_runs)
+
+    response = asyncio.run(
+        SearchService().enrich_lead(
+            EnrichLeadRequest(
+                name="Silcar Pneus Ltda",
+                phone="(17) 3202-3332",
+                phoneDigits="1732023332",
+                city="Araraquara",
+                state="SP",
+                segment="borracharias",
+                preferredChannels=["instagram"],
+                requiredChannels=["instagram"],
+            )
+        )
+    )
+
+    assert response.instagramUrl == "https://instagram.com/silcarpneusoficial"
+    assert response.socialConfidence >= 70
+    assert response.stats["social"]["matches"][0]["query"] == "validated_handle_guess"
+
+
+def test_validated_handle_guess_rejects_weak_official_handle_without_city(monkeypatch) -> None:
+    class FakeResponse:
+        status_code = 200
+        text = "Barbearia Estilo Oficial @barbeariaestilooficial cortes masculinos"
+
+    monkeypatch.setattr("app.services.search_service.httpx.get", lambda *args, **kwargs: FakeResponse())
+    service = SearchService()
+
+    url, score = service.validate_guessed_social_url(
+        {
+            "name": "Barbearia Estilo",
+            "phone": "(16) 99999-9999",
+            "phoneDigits": "16999999999",
+            "segment": "barbearia",
+        },
+        "instagram",
+        "barbeariaestilooficial",
+        "Araraquara",
+    )
+
+    assert url is None
+    assert score == 0
+
+
+def test_required_social_keeps_trying_preferred_second_channel(monkeypatch) -> None:
+    class FakeDDGS:
+        def __init__(self, *args, **kwargs) -> None:
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
+        def text(self, query, **kwargs):
+            if query.startswith('site:facebook.com "confraria"'):
+                return [
+                    {
+                        "href": "https://www.facebook.com/confrariarc/",
+                        "title": "Link to facebook.com",
+                        "body": "The site owner hides the web page description.",
+                    }
+                ]
+            if query.startswith('site:instagram.com "confraria"'):
+                return [
+                    {
+                        "href": "https://www.instagram.com/confrariarc/",
+                        "title": "Confraria Rio Claro (@confrariarc) Instagram",
+                        "body": "Choperia e restaurante em Rio Claro SP.",
+                    }
+                ]
+            return []
+
+    monkeypatch.setattr("app.services.search_service.DDGS", FakeDDGS)
+
+    response = asyncio.run(
+        SearchService().enrich_lead(
+            EnrichLeadRequest(
+                name="Confraria - Choperia e Lounge",
+                phone="19981288136",
+                phoneDigits="19981288136",
+                city="Rio Claro",
+                state="SP",
+                segment="bar/restaurante",
+                preferredChannels=["instagram", "facebook"],
+                requiredChannels=["facebook"],
+            )
+        )
+    )
+
+    assert response.facebookUrl == "https://facebook.com/confrariarc"
+    assert response.instagramUrl == "https://instagram.com/confrariarc"
+    assert response.socialStatus == "found"
 
 
 def test_required_instagram_and_facebook_accepts_when_one_channel_exists(monkeypatch) -> None:
