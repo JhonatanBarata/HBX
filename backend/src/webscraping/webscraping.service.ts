@@ -8827,7 +8827,8 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     );
     const status = this.normalizeSearchRunStatus(effectiveRun.status);
     const terminal = this.isTerminalRadarSearchRunStatus(status);
-    const autoImport = !options?.skipAutoImport && terminal
+    const autoImportAlreadyProcessed = safeInteger(effectiveRun.importedCount) > 0;
+    const autoImport = !options?.skipAutoImport && terminal && !autoImportAlreadyProcessed
       ? await this.autoImportRadarSearchRunToVendas(user, effectiveRun.id).catch((error: any) => {
           this.logger.warn(`[radar-vendas] auto-import ignorado run=${effectiveRun.id}: ${String(error?.message || error)}`);
           return null;
