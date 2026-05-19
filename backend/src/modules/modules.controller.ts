@@ -110,6 +110,12 @@ class UpdateVendasComplaintDto {
   refundCards?: number;
 }
 
+class RestoreRadarExclusionDto {
+  @IsOptional()
+  @IsString()
+  motivo?: string;
+}
+
 class UpdateCompanyMasterTokenUsageDto {
   @IsOptional()
   @Type(() => Boolean)
@@ -628,6 +634,16 @@ export class ModulesController {
       motivo: dto?.motivo,
       confirmText: dto?.confirmText,
     });
+  }
+
+  @Patch('master/exclusoes/radar-cards/:stateId/restore')
+  @UseGuards(JwtAuthGuard, MasterGuard)
+  restoreRadarCardExclusion(
+    @Req() req: any,
+    @Param('stateId') stateId: string,
+    @Body() dto: RestoreRadarExclusionDto,
+  ) {
+    return this.modulesService.restoreRadarCardExclusion(Number(req.user?.id), stateId, dto?.motivo);
   }
 
   @Delete('master/exclusoes/:id')
