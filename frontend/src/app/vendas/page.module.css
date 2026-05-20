@@ -2214,7 +2214,7 @@
   }
 
   .mobileRadarActionNotice::after {
-    content: "ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Âº";
+    content: "ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Âº";
     color: #0b72ff;
     font-size: 2rem;
     font-weight: 800;
@@ -3983,7 +3983,7 @@
 }
 
 @media (max-width: 820px) {
-  /* Dois filhos diretos: contextBar + lista (dock ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â© portal no body). SÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â³ 2 linhas: auto + 1fr. */
+  /* Dois filhos diretos: contextBar + lista (dock ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â© portal no body). SÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â³ 2 linhas: auto + 1fr. */
   .mobileVendasShell {
     grid-template-rows: auto minmax(0, 1fr);
     gap: 12px;
@@ -5397,7 +5397,7 @@
   left: 50%;
 }
 
-/* Graphic-only +Agenda button ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â always visible at the end */
+/* Graphic-only +Agenda button ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â always visible at the end */
 .addAgendaButton {
   flex-shrink: 0;
   min-width: 51px;
@@ -5512,7 +5512,7 @@
 }
 
 /* boardShell must allow overflow so selected cards can elevate
-   without being clipped ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â border-radius still renders correctly */
+   without being clipped ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â border-radius still renders correctly */
 .boardShell {
   overflow: visible;
 }
@@ -6869,7 +6869,7 @@
   border-radius: 999px;
 }
 
-/* HBX Vendas ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â Filtro por Datas fixo no topo quando o header some.
+/* HBX Vendas ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â Filtro por Datas fixo no topo quando o header some.
    Cole no FINAL de frontend/src/app/vendas/page.module.css */
 
 .premiumBackdrop {
@@ -7076,7 +7076,7 @@
     min-width: 104px;
   }
 }
-/* HBX Vendas ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â trava o TopBar durante drag para o Filtro por Datas
+/* HBX Vendas ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â trava o TopBar durante drag para o Filtro por Datas
    Cole no FINAL de frontend/src/app/vendas/page.module.css */
 
 :global(html[data-vendas-dragging-card="true"]) {
@@ -11206,6 +11206,170 @@
   background: linear-gradient(135deg, #2563eb, #0ea5e9);
   color: #ffffff;
 }
++
++/* HBX mobile vendas score popup: append puro, anel unico sem textos extras. */
++@media (max-width: 820px) {
++  .mobileVendasScoreModalBackdrop {
++    z-index: 10090 !important;
++    display: grid !important;
++    place-items: center !important;
++    align-items: center !important;
++    min-height: 100dvh !important;
++    box-sizing: border-box !important;
++    padding:
++      max(16px, env(safe-area-inset-top))
++      14px
++      max(16px, env(safe-area-inset-bottom)) !important;
++    overflow-y: auto !important;
++    background:
++      radial-gradient(circle at 50% 16%, rgba(18, 111, 255, 0.18), transparent 34%),
++      rgba(4, 12, 27, 0.72) !important;
++    -webkit-backdrop-filter: blur(13px) saturate(1.08) !important;
++    backdrop-filter: blur(13px) saturate(1.08) !important;
++  }
++
++  .mobileVendasScoreModal {
++    width: min(100%, 344px) !important;
++    max-width: calc(100vw - 28px) !important;
++    max-height: none !important;
++    overflow: visible !important;
++    gap: 16px !important;
++    border: 1px solid rgba(181, 210, 255, 0.68) !important;
++    border-radius: 30px !important;
++    padding: 15px 16px 16px !important;
++    background:
++      radial-gradient(circle at 16% 0%, rgba(11, 102, 255, 0.13), transparent 34%),
++      radial-gradient(circle at 100% 6%, rgba(22, 200, 245, 0.16), transparent 30%),
++      linear-gradient(180deg, rgba(255, 255, 255, 0.995), rgba(239, 247, 255, 0.99)) !important;
++    box-shadow:
++      0 34px 86px -36px rgba(2, 8, 23, 0.72),
++      0 1px 0 rgba(255, 255, 255, 0.86) inset !important;
++  }
++
++  .mobileVendasScoreModal::before,
++  .mobileVendasScoreModalMeter::before,
++  .mobileVendasScoreModalMeter::after {
++    content: none !important;
++    display: none !important;
++  }
++
++  .mobileVendasScoreModalHeader {
++    min-height: 38px !important;
++    align-items: center !important;
++    margin-bottom: -6px !important;
++  }
++
++  .mobileVendasScoreModalHeader div {
++    display: grid !important;
++    gap: 3px !important;
++  }
++
++  .mobileVendasScoreModalHeader span {
++    display: block !important;
++    color: #0b66ff !important;
++    font-size: 0.64rem !important;
++    font-weight: 950 !important;
++    letter-spacing: 0.09em !important;
++    text-transform: uppercase !important;
++  }
++
++  .mobileVendasScoreModalHeader strong {
++    color: #08143a !important;
++    font-size: 1.18rem !important;
++    line-height: 1.04 !important;
++    font-weight: 950 !important;
++  }
++
++  .mobileVendasScoreModalHeader button {
++    width: 36px !important;
++    height: 36px !important;
++    border: 0 !important;
++    border-radius: 999px !important;
++    background:
++      radial-gradient(circle at 32% 24%, rgba(255, 255, 255, 0.8), transparent 42%),
++      rgba(232, 241, 255, 0.92) !important;
++    color: #334155 !important;
++    font-size: 1.15rem !important;
++    line-height: 1 !important;
++    box-shadow: 0 12px 24px -20px rgba(15, 23, 42, 0.42) !important;
++  }
++
++  .mobileVendasScoreModalMeter {
++    position: relative !important;
++    justify-self: center !important;
++    width: 178px !important;
++    height: 178px !important;
++    min-height: 178px !important;
++    display: grid !important;
++    place-items: center !important;
++    align-content: center !important;
++    gap: 0 !important;
++    margin: 0 auto 2px !important;
++    overflow: hidden !important;
++    border: 0 !important;
++    border-radius: 999px !important;
++    padding: 0 !important;
++    background:
++      radial-gradient(circle at center, #ffffff 0 61%, transparent 62%),
++      conic-gradient(from 218deg, #0b66ff 0 var(--mobile-score-filter, 0%), rgba(215, 228, 249, 0.98) 0 100%) !important;
++    box-shadow: 0 26px 42px -34px rgba(11, 102, 255, 0.72) !important;
++  }
++
++  .mobileVendasScoreModalMeter strong {
++    color: #0757df !important;
++    font-size: 3.52rem !important;
++    line-height: 1 !important;
++    font-weight: 950 !important;
++    letter-spacing: -0.065em !important;
++    transform: translateX(-2px) !important;
++  }
++
++  .mobileVendasScoreModalMeter span,
++  .mobileVendasScoreModalControls label span {
++    display: none !important;
++  }
++
++  .mobileVendasScoreModalControls {
++    grid-template-columns: 42px minmax(0, 1fr) 42px !important;
++    gap: 11px !important;
++    margin: 0 !important;
++  }
++
++  .mobileVendasScoreModalControls label {
++    gap: 0 !important;
++  }
++
++  .mobileVendasScoreModalControls input[type="range"] {
++    height: 30px !important;
++    accent-color: #0b66ff !important;
++  }
++
++  .mobileVendasScoreModalControls input[type="range"]::-webkit-slider-runnable-track {
++    height: 8px !important;
++    border-radius: 999px !important;
++    background: linear-gradient(90deg, #0b66ff var(--mobile-score-filter, 0%), rgba(211, 225, 246, 0.96) 0) !important;
++  }
++
++  .mobileVendasScoreModalActions button {
++    min-height: 48px !important;
++    border-radius: 18px !important;
++  }
++}
++
++:global(html[data-hbx-mobile-theme="dark"]) .mobileVendasScoreModalMeter {
++  background:
++    radial-gradient(circle at center, #0a1830 0 61%, transparent 62%),
++    conic-gradient(from 218deg, #58a6ff 0 var(--mobile-score-filter, 0%), rgba(38, 62, 97, 0.92) 0 100%) !important;
++}
++
++:global(html[data-hbx-mobile-theme="dark"]) .mobileVendasScoreModalMeter strong,
++:global(html[data-hbx-mobile-theme="dark"]) .mobileVendasScoreModalHeader span {
++  color: #7dd3fc !important;
++}
++
++:global(html[data-hbx-mobile-theme="dark"]) .mobileVendasScoreModalHeader strong {
++  color: #f8fbff !important;
++}
 
 /* HBX mobile vendas score popup: append puro final, sem textos duplicados e sem anel externo. */
 @media (max-width: 820px) {
