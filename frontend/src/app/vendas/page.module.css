@@ -2214,7 +2214,7 @@
   }
 
   .mobileRadarActionNotice::after {
-    content: "ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Âº";
+    content: "ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Âº";
     color: #0b72ff;
     font-size: 2rem;
     font-weight: 800;
@@ -2694,6 +2694,298 @@
 
   .mobileLeadDetailActionBar button:disabled {
     opacity: 0.55;
+  }
+}
+
+/* HBX mobile/vendas: anel premium do enriquecimento no lugar do selo textual. */
+@media (max-width: 820px) {
+  .mobileVendasCardTitle .mobileLeadEnrichmentCrown,
+  .mobileVendasRecommendedTopline .mobileLeadEnrichmentCrown,
+  .mobileLeadHeroIdentity .mobileLeadEnrichmentCrown {
+    position: relative !important;
+    isolation: isolate !important;
+    flex: 0 0 auto !important;
+    display: inline-grid !important;
+    width: 46px !important;
+    min-width: 46px !important;
+    height: 46px !important;
+    min-height: 46px !important;
+    place-items: center !important;
+    gap: 0 !important;
+    overflow: visible !important;
+    padding: 0 !important;
+    border: 0 !important;
+    border-radius: 999px !important;
+    background: transparent !important;
+    color: #5f6b7a !important;
+    box-shadow: none !important;
+    transform: translateY(-5px) !important;
+  }
+
+  .mobileLeadHeroIdentity .mobileLeadEnrichmentCrown {
+    margin-top: 6px !important;
+    transform: none !important;
+  }
+
+  .mobileVendasRecommendedTopline .mobileLeadEnrichmentCrown {
+    width: 42px !important;
+    min-width: 42px !important;
+    height: 42px !important;
+    min-height: 42px !important;
+    transform: translateY(0) !important;
+  }
+
+  .mobileVendasCardTitle .mobileLeadEnrichmentCrown > span,
+  .mobileVendasRecommendedTopline .mobileLeadEnrichmentCrown > span,
+  .mobileLeadHeroIdentity .mobileLeadEnrichmentCrown > span {
+    position: absolute !important;
+    width: 1px !important;
+    height: 1px !important;
+    margin: -1px !important;
+    padding: 0 !important;
+    overflow: hidden !important;
+    clip: rect(0 0 0 0) !important;
+    clip-path: inset(50%) !important;
+    white-space: nowrap !important;
+    border: 0 !important;
+  }
+
+  .mobileVendasCardTitle .mobileLeadEnrichmentCrown::before,
+  .mobileVendasRecommendedTopline .mobileLeadEnrichmentCrown::before,
+  .mobileLeadHeroIdentity .mobileLeadEnrichmentCrown::before {
+    content: "" !important;
+    position: absolute !important;
+    inset: 5px !important;
+    z-index: 0 !important;
+    border-radius: 999px !important;
+    background:
+      radial-gradient(circle at 32% 22%, rgba(255, 255, 255, 0.92) 0 10%, transparent 24%),
+      linear-gradient(145deg, #e5e7eb, #9ca3af) !important;
+    box-shadow:
+      inset 3px 3px 7px rgba(255, 255, 255, 0.58),
+      inset -4px -4px 8px rgba(71, 85, 105, 0.24),
+      0 12px 20px -16px rgba(15, 23, 42, 0.64) !important;
+    pointer-events: none !important;
+  }
+
+  .mobileVendasCardTitle .mobileLeadEnrichmentCrown::after,
+  .mobileVendasRecommendedTopline .mobileLeadEnrichmentCrown::after,
+  .mobileLeadHeroIdentity .mobileLeadEnrichmentCrown::after {
+    content: "" !important;
+    position: absolute !important;
+    inset: 0 !important;
+    z-index: 1 !important;
+    border-radius: 999px !important;
+    background: conic-gradient(from 0deg, rgba(148, 163, 184, 0.58) 0 100%) !important;
+    mask: radial-gradient(circle, transparent 0 63%, #000 64%) !important;
+    -webkit-mask: radial-gradient(circle, transparent 0 63%, #000 64%) !important;
+    opacity: 0.64 !important;
+    pointer-events: none !important;
+  }
+
+  .mobileVendasCardTitle .mobileLeadEnrichmentCrown svg,
+  .mobileVendasRecommendedTopline .mobileLeadEnrichmentCrown svg,
+  .mobileLeadHeroIdentity .mobileLeadEnrichmentCrown svg {
+    position: relative !important;
+    z-index: 2 !important;
+    width: 20px !important;
+    height: 20px !important;
+    overflow: visible !important;
+    color: currentColor !important;
+    fill: currentColor !important;
+    stroke: currentColor !important;
+    stroke-width: 1.65 !important;
+    filter: drop-shadow(0 1px 0 rgba(255, 255, 255, 0.42)) !important;
+    transform: translateY(-1px) !important;
+  }
+
+  .mobileVendasRecommendedTopline .mobileLeadEnrichmentCrown svg {
+    width: 18px !important;
+    height: 18px !important;
+  }
+
+  .mobileVendasCardTitle .mobileLeadEnrichmentCrown[data-state="enriching"],
+  .mobileVendasRecommendedTopline .mobileLeadEnrichmentCrown[data-state="enriching"],
+  .mobileLeadHeroIdentity .mobileLeadEnrichmentCrown[data-state="enriching"] {
+    color: #5b6472 !important;
+    animation: hbxMobileVendasEnrichmentBreath 1450ms ease-in-out infinite !important;
+  }
+
+  .mobileVendasCardTitle .mobileLeadEnrichmentCrown[data-state="enriching"]::before,
+  .mobileVendasRecommendedTopline .mobileLeadEnrichmentCrown[data-state="enriching"]::before,
+  .mobileLeadHeroIdentity .mobileLeadEnrichmentCrown[data-state="enriching"]::before {
+    animation: hbxMobileVendasEnrichmentCoin 1500ms cubic-bezier(0.2, 0.82, 0.2, 1) infinite !important;
+  }
+
+  .mobileVendasCardTitle .mobileLeadEnrichmentCrown[data-state="enriching"]::after,
+  .mobileVendasRecommendedTopline .mobileLeadEnrichmentCrown[data-state="enriching"]::after,
+  .mobileLeadHeroIdentity .mobileLeadEnrichmentCrown[data-state="enriching"]::after {
+    background:
+      conic-gradient(
+        from 0deg,
+        transparent 0 18%,
+        rgba(255, 216, 106, 0.98) 28%,
+        transparent 42%,
+        transparent 100%
+      ) !important;
+    filter: drop-shadow(0 0 8px rgba(255, 216, 106, 0.42)) !important;
+    opacity: 1 !important;
+    animation: hbxMobileVendasEnrichmentRingSpin 820ms linear infinite !important;
+  }
+
+  .mobileVendasCardTitle .mobileLeadEnrichmentCrown[data-state="enriching"] svg,
+  .mobileVendasRecommendedTopline .mobileLeadEnrichmentCrown[data-state="enriching"] svg,
+  .mobileLeadHeroIdentity .mobileLeadEnrichmentCrown[data-state="enriching"] svg {
+    animation: hbxMobileVendasEnrichmentCrown 1500ms ease-in-out infinite !important;
+  }
+
+  .mobileVendasCardTitle .mobileLeadEnrichmentCrown[data-state="ready"],
+  .mobileVendasRecommendedTopline .mobileLeadEnrichmentCrown[data-state="ready"],
+  .mobileLeadHeroIdentity .mobileLeadEnrichmentCrown[data-state="ready"],
+  .mobileVendasCardTitle .mobileLeadEnrichmentCrown[data-state="locked"],
+  .mobileVendasRecommendedTopline .mobileLeadEnrichmentCrown[data-state="locked"],
+  .mobileLeadHeroIdentity .mobileLeadEnrichmentCrown[data-state="locked"] {
+    color: #7a4a00 !important;
+  }
+
+  .mobileVendasCardTitle .mobileLeadEnrichmentCrown[data-state="ready"]::before,
+  .mobileVendasRecommendedTopline .mobileLeadEnrichmentCrown[data-state="ready"]::before,
+  .mobileLeadHeroIdentity .mobileLeadEnrichmentCrown[data-state="ready"]::before,
+  .mobileVendasCardTitle .mobileLeadEnrichmentCrown[data-state="locked"]::before,
+  .mobileVendasRecommendedTopline .mobileLeadEnrichmentCrown[data-state="locked"]::before,
+  .mobileLeadHeroIdentity .mobileLeadEnrichmentCrown[data-state="locked"]::before {
+    background:
+      radial-gradient(circle at 32% 22%, #fff8d7 0 10%, transparent 24%),
+      linear-gradient(145deg, #fff0a5, #f2b83b) !important;
+    box-shadow:
+      inset 3px 3px 7px rgba(255, 255, 255, 0.5),
+      inset -4px -4px 8px rgba(122, 74, 0, 0.2),
+      0 12px 22px -14px rgba(242, 184, 59, 0.86) !important;
+  }
+
+  .mobileVendasCardTitle .mobileLeadEnrichmentCrown[data-state="ready"]::after,
+  .mobileVendasRecommendedTopline .mobileLeadEnrichmentCrown[data-state="ready"]::after,
+  .mobileLeadHeroIdentity .mobileLeadEnrichmentCrown[data-state="ready"]::after,
+  .mobileVendasCardTitle .mobileLeadEnrichmentCrown[data-state="locked"]::after,
+  .mobileVendasRecommendedTopline .mobileLeadEnrichmentCrown[data-state="locked"]::after,
+  .mobileLeadHeroIdentity .mobileLeadEnrichmentCrown[data-state="locked"]::after {
+    background: conic-gradient(from 0deg, #ffd86a 0 100%) !important;
+    opacity: 0.78 !important;
+  }
+
+  .mobileVendasCardTitle .mobileLeadEnrichmentCrown[data-state="reviewed"],
+  .mobileVendasRecommendedTopline .mobileLeadEnrichmentCrown[data-state="reviewed"],
+  .mobileLeadHeroIdentity .mobileLeadEnrichmentCrown[data-state="reviewed"] {
+    color: #64748b !important;
+    opacity: 0.86 !important;
+  }
+
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileVendasCardTitle .mobileLeadEnrichmentCrown,
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileVendasRecommendedTopline .mobileLeadEnrichmentCrown,
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileLeadHeroIdentity .mobileLeadEnrichmentCrown {
+    color: #9aa8bb !important;
+  }
+
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileVendasCardTitle .mobileLeadEnrichmentCrown::before,
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileVendasRecommendedTopline .mobileLeadEnrichmentCrown::before,
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileLeadHeroIdentity .mobileLeadEnrichmentCrown::before {
+    background:
+      radial-gradient(circle at 32% 22%, rgba(255, 255, 255, 0.18) 0 10%, transparent 24%),
+      linear-gradient(145deg, #263142, #667085) !important;
+    box-shadow:
+      inset 3px 3px 7px rgba(255, 255, 255, 0.09),
+      inset -4px -4px 8px rgba(0, 0, 0, 0.28),
+      0 12px 22px -14px rgba(0, 0, 0, 0.8) !important;
+  }
+
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileVendasCardTitle .mobileLeadEnrichmentCrown[data-state="ready"],
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileVendasRecommendedTopline .mobileLeadEnrichmentCrown[data-state="ready"],
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileLeadHeroIdentity .mobileLeadEnrichmentCrown[data-state="ready"],
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileVendasCardTitle .mobileLeadEnrichmentCrown[data-state="locked"],
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileVendasRecommendedTopline .mobileLeadEnrichmentCrown[data-state="locked"],
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileLeadHeroIdentity .mobileLeadEnrichmentCrown[data-state="locked"],
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileVendasCardTitle .mobileLeadEnrichmentCrown[data-state="enriching"],
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileVendasRecommendedTopline .mobileLeadEnrichmentCrown[data-state="enriching"],
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileLeadHeroIdentity .mobileLeadEnrichmentCrown[data-state="enriching"] {
+    color: #ffe08a !important;
+  }
+
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileVendasCardTitle .mobileLeadEnrichmentCrown[data-state="ready"]::before,
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileVendasRecommendedTopline .mobileLeadEnrichmentCrown[data-state="ready"]::before,
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileLeadHeroIdentity .mobileLeadEnrichmentCrown[data-state="ready"]::before,
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileVendasCardTitle .mobileLeadEnrichmentCrown[data-state="locked"]::before,
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileVendasRecommendedTopline .mobileLeadEnrichmentCrown[data-state="locked"]::before,
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileLeadHeroIdentity .mobileLeadEnrichmentCrown[data-state="locked"]::before {
+    background:
+      radial-gradient(circle at 32% 22%, rgba(255, 248, 215, 0.24) 0 10%, transparent 24%),
+      linear-gradient(145deg, #735019, #d9a92d) !important;
+    box-shadow:
+      inset 3px 3px 7px rgba(255, 255, 255, 0.14),
+      inset -4px -4px 8px rgba(0, 0, 0, 0.26),
+      0 12px 24px -14px rgba(255, 216, 106, 0.66) !important;
+  }
+}
+
+@keyframes hbxMobileVendasEnrichmentRingSpin {
+  to {
+    rotate: 360deg;
+  }
+}
+
+@keyframes hbxMobileVendasEnrichmentBreath {
+  0%,
+  100% {
+    filter: saturate(1);
+    transform: translateY(-5px) scale(1);
+  }
+
+  50% {
+    filter: saturate(1.22);
+    transform: translateY(-5px) scale(1.045);
+  }
+}
+
+@keyframes hbxMobileVendasEnrichmentCoin {
+  0% {
+    transform: scale(0.88) rotateY(0deg);
+    background:
+      radial-gradient(circle at 32% 22%, rgba(255, 255, 255, 0.92) 0 10%, transparent 24%),
+      linear-gradient(145deg, #e5e7eb, #9ca3af);
+  }
+
+  42% {
+    transform: scale(0.93) rotateY(92deg);
+  }
+
+  58%,
+  100% {
+    transform: scale(0.88) rotateY(360deg);
+    background:
+      radial-gradient(circle at 32% 22%, #fff8d7 0 10%, transparent 24%),
+      linear-gradient(145deg, #fff0a5, #f2b83b);
+  }
+}
+
+@keyframes hbxMobileVendasEnrichmentCrown {
+  0%,
+  38% {
+    color: #5b6472;
+    filter: none;
+  }
+
+  58%,
+  100% {
+    color: #7a4a00;
+    filter: drop-shadow(0 0 12px rgba(255, 216, 106, 0.62));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mobileLeadEnrichmentCrown,
+  .mobileLeadEnrichmentCrown::before,
+  .mobileLeadEnrichmentCrown::after,
+  .mobileLeadEnrichmentCrown svg {
+    animation: none !important;
   }
 }
 
@@ -3983,7 +4275,7 @@
 }
 
 @media (max-width: 820px) {
-  /* Dois filhos diretos: contextBar + lista (dock ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â© portal no body). SÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â³ 2 linhas: auto + 1fr. */
+  /* Dois filhos diretos: contextBar + lista (dock ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â© portal no body). SÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â³ 2 linhas: auto + 1fr. */
   .mobileVendasShell {
     grid-template-rows: auto minmax(0, 1fr);
     gap: 12px;
@@ -5397,7 +5689,7 @@
   left: 50%;
 }
 
-/* Graphic-only +Agenda button ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â always visible at the end */
+/* Graphic-only +Agenda button ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â always visible at the end */
 .addAgendaButton {
   flex-shrink: 0;
   min-width: 51px;
@@ -5512,7 +5804,7 @@
 }
 
 /* boardShell must allow overflow so selected cards can elevate
-   without being clipped ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â border-radius still renders correctly */
+   without being clipped ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â border-radius still renders correctly */
 .boardShell {
   overflow: visible;
 }
@@ -6869,7 +7161,7 @@
   border-radius: 999px;
 }
 
-/* HBX Vendas ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â Filtro por Datas fixo no topo quando o header some.
+/* HBX Vendas ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â Filtro por Datas fixo no topo quando o header some.
    Cole no FINAL de frontend/src/app/vendas/page.module.css */
 
 .premiumBackdrop {
@@ -7076,7 +7368,7 @@
     min-width: 104px;
   }
 }
-/* HBX Vendas ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â trava o TopBar durante drag para o Filtro por Datas
+/* HBX Vendas ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â trava o TopBar durante drag para o Filtro por Datas
    Cole no FINAL de frontend/src/app/vendas/page.module.css */
 
 :global(html[data-vendas-dragging-card="true"]) {
@@ -11060,6 +11352,12 @@
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.82);
 }
 
+.mobileVendasScoreModalMeter[data-empty="true"] {
+  background:
+    radial-gradient(circle at center, rgba(255, 255, 255, 0.96) 0 47%, transparent 48%),
+    rgba(210, 225, 247, 0.88);
+}
+
 .mobileVendasScoreModalMeter strong {
   color: #0757df;
   font-size: 3rem;
@@ -11188,6 +11486,12 @@
   background:
     radial-gradient(circle at center, rgba(10, 24, 46, 0.98) 0 47%, transparent 48%),
     conic-gradient(from 220deg, #58a6ff 0 var(--mobile-score-filter, 0%), rgba(38, 62, 97, 0.92) 0 100%);
+}
+
+:global(html[data-hbx-mobile-theme="dark"]) .mobileVendasScoreModalMeter[data-empty="true"] {
+  background:
+    radial-gradient(circle at center, rgba(10, 24, 46, 0.98) 0 47%, transparent 48%),
+    rgba(38, 62, 97, 0.92);
 }
 
 :global(html[data-hbx-mobile-theme="dark"]) .mobileVendasScoreModalMeter span,
@@ -11593,20 +11897,7 @@
 }
 
 .mobileVendasScoreModalRing::before {
-  content: "";
-  position: absolute;
-  top: 11px;
-  left: 50%;
-  width: 12px;
-  height: 12px;
-  border: 3px solid #0757df;
-  border-radius: 999px;
-  background: #55b4ff;
-  transform: translateX(-50%);
-  box-shadow:
-    0 0 0 4px rgba(7, 87, 223, 0.12),
-    inset 0 1px 2px rgba(255, 255, 255, 0.72),
-    0 7px 12px -8px rgba(7, 87, 223, 0.82);
+  content: none;
 }
 
 .mobileVendasScoreModalMeter strong,
@@ -12034,20 +12325,7 @@
   }
 
   .mobileVendasScoreModalMeter::before {
-    content: "" !important;
-    position: absolute !important;
-    top: 11px !important;
-    left: 50% !important;
-    width: 12px !important;
-    height: 12px !important;
-    border: 3px solid #0b66ff !important;
-    border-radius: 999px !important;
-    background: #75c7ff !important;
-    transform: translateX(-50%) !important;
-    box-shadow:
-      0 0 0 4px rgba(11, 102, 255, 0.12),
-      0 7px 12px -8px rgba(7, 87, 223, 0.82) !important;
-    pointer-events: none !important;
+    content: none !important;
   }
 
   .mobileVendasScoreModalMeter::after {
@@ -12172,4 +12450,15 @@
 :global(html[data-hbx-mobile-theme="dark"]) .mobileVendasScoreModalMeter span,
 :global(html[data-hbx-mobile-theme="dark"]) .mobileVendasScoreModalControls label span {
   color: rgba(226, 234, 248, 0.76) !important;
+}
+
+.mobileVendasScoreModalMeter::before,
+.mobileVendasScoreModalRing::before,
+:global(html[data-hbx-mobile-theme="dark"]) .mobileVendasScoreModalMeter::before,
+:global(html[data-hbx-mobile-theme="dark"]) .mobileVendasScoreModalRing::before {
+  content: none !important;
+  display: none !important;
+  border: 0 !important;
+  box-shadow: none !important;
+  background: transparent !important;
 }

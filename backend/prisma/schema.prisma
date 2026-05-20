@@ -977,7 +977,7 @@ model WebscrapingSearchRun {
   companyId       Int
   user            User     @relation(fields: [userId], references: [id])
   userId          Int
-  status          String   @default("queued") // queued | running | completed | partial_error | failed | canceled
+  status          String   @default("queued") // queued | running | sleeping | completed | partial_error | failed | canceled
   city            String
   state           String?
   segment         String

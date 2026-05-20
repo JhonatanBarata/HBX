@@ -165,6 +165,21 @@ const RADAR_SEGMENT_GROUPS: RadarSegmentGroup[] = [
     label: "Digital",
     segments: ["agências de marketing", "estúdios de fotografia", "gráficas", "informática", "provedores de internet", "telecomunicações", "web design"],
   },
+  {
+    key: "agro",
+    label: "Agro e campo",
+    segments: ["agronegócios", "agropecuárias", "casas de ração", "implementos agrícolas", "nutrição animal", "produtos agrícolas"],
+  },
+  {
+    key: "logistica",
+    label: "Atacado e logística",
+    segments: ["atacadistas", "depósitos de bebidas", "distribuidoras", "fornecedoras industriais", "transportadoras"],
+  },
+  {
+    key: "industria",
+    label: "Indústria",
+    segments: ["caldeiraria", "cerâmicas", "componentes elétricos", "embalagens", "ferramentaria", "indústrias de plásticos", "indústrias alimentícias", "indústrias metalúrgicas", "máquinas industriais", "metalúrgicas", "químicas", "usinagem"],
+  },
 ];
 
 const DEFAULT_PROFILE: OnboardingProfile = {
@@ -565,10 +580,9 @@ function PickerSheet({
   onClose: () => void;
 }) {
   const [query, setQuery] = useState("");
-  const normalizedQuery = query.trim().toLowerCase();
+  const normalizedQuery = normalizeLocationLookup(query);
   const filteredOptions = options
-    .filter((option) => !normalizedQuery || option.label.toLowerCase().includes(normalizedQuery) || option.value.toLowerCase().includes(normalizedQuery))
-    .slice(0, 90);
+    .filter((option) => !normalizedQuery || normalizeLocationLookup(`${option.label} ${option.value}`).includes(normalizedQuery));
   const customValue = normalizeText(query);
   const canUseCustom = allowCustom && customValue && !filteredOptions.some((option) => option.value.toLowerCase() === customValue.toLowerCase());
 

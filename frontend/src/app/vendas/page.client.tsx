@@ -70,6 +70,7 @@ type MobileReturnScheduler = {
 type RadarSearchRunStatus =
   | "queued"
   | "running"
+  | "sleeping"
   | "completed"
   | "partial_error"
   | "completed_insufficient_results"
@@ -4331,7 +4332,9 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
                   ? "preparing"
                   : "ready";
     const mobileRadarStatusLabel =
-      mobileRadarState === "searching"
+      runStatus === "sleeping"
+        ? "Radar descansando"
+      : mobileRadarState === "searching"
         ? "Pesquisando leads"
         : mobileRadarState === "preparing"
           ? `${runDelivered} ${runDelivered === 1 ? "card encontrado" : "cards encontrados"}`
@@ -4345,7 +4348,9 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
                 ? `${radarLocatedLabel}, ${radarReceivedVendasLabel}`
                 : "Motor pronto";
     const mobileRadarStatusText =
-      mobileRadarState === "searching"
+      runStatus === "sleeping"
+        ? "Retoma sozinho"
+      : mobileRadarState === "searching"
         ? "Motores cruzando dados"
         : mobileRadarState === "preparing"
           ? "Preparando sua agenda"
@@ -4377,7 +4382,9 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
               ? "syncing"
               : "ready";
     const salesHeaderSubtitle =
-      mobileRadarState === "ready"
+      runStatus === "sleeping"
+        ? "O Radar pausou esta busca e vai retomar automaticamente."
+      : mobileRadarState === "ready"
         ? "Receba cards do Radar e acompanhe retornos."
         : mobileRadarState === "searching"
           ? `Buscando em ${radarContextLabel}.`
@@ -5162,7 +5169,11 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
                   </button>
                 </header>
 
-                <div className={styles.mobileVendasScoreModalMeter} style={{ "--mobile-score-filter": `${mobileMinScoreFilter}%` } as CSSProperties}>
+                <div
+                  className={styles.mobileVendasScoreModalMeter}
+                  data-empty={mobileMinScoreFilter <= 0 ? "true" : "false"}
+                  style={{ "--mobile-score-filter": `${mobileMinScoreFilter}%` } as CSSProperties}
+                >
                   <div className={styles.mobileVendasScoreModalRing}>
                     <strong>{mobileMinScoreFilter}</strong>
                     <span>mÃ­nimo</span>
