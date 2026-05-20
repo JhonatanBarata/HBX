@@ -36,6 +36,7 @@ function DockIcon({
     | "sales"
     | "radar"
     | "plus"
+    | "stop"
     | "theme"
     | "more"
     | "support"
@@ -70,6 +71,19 @@ function DockIcon({
       <svg viewBox="0 0 24 24" aria-hidden="true">
         <path d="M12 5v14" />
         <path d="M5 12h14" />
+      </svg>
+    );
+  }
+  if (name === "stop") {
+    return (
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <defs>
+          <linearGradient id="hbxStopIconGloss" x1="7" y1="5" x2="17" y2="19">
+            <stop offset="0" stopColor="rgba(255,255,255,0.98)" />
+            <stop offset="1" stopColor="rgba(255,255,255,0.84)" />
+          </linearGradient>
+        </defs>
+        <rect x="6.8" y="6.8" width="10.4" height="10.4" rx="2.3" fill="url(#hbxStopIconGloss)" />
       </svg>
     );
   }
@@ -153,7 +167,7 @@ function DockIcon({
 
 export default function HbxMobileDock({
   primaryHref,
-  primaryLabel = "Ação principal",
+  primaryLabel = "AÃ§Ã£o principal",
   primaryTone = "default",
   onPrimaryAction,
   onConta,
@@ -239,7 +253,7 @@ export default function HbxMobileDock({
 
   const dock = (
     <>
-      <nav className="hbx-mobile-dock-root" aria-label="Navegação mobile HBX" data-menu-open={menuOpen ? "true" : "false"}>
+      <nav className="hbx-mobile-dock-root" aria-label="NavegaÃ§Ã£o mobile HBX" data-menu-open={menuOpen ? "true" : "false"}>
         <div className="hbx-mobile-dock">
           {items.map((item) => (
             <button
@@ -262,8 +276,9 @@ export default function HbxMobileDock({
             onClick={runPrimaryAction}
             aria-label={primaryLabel}
             title={primaryLabel}
+            data-radar-pulse={primaryTone === "danger" ? "true" : "false"}
           >
-            <DockIcon name="plus" />
+            <DockIcon name={primaryTone === "danger" ? "stop" : "plus"} />
           </button>
 
           <button
@@ -283,7 +298,7 @@ export default function HbxMobileDock({
             onClick={() => setMenuOpen((current) => !current)}
             aria-expanded={menuOpen}
             aria-controls="hbx-mobile-more-sheet"
-            aria-label="Mais opções"
+            aria-label="Mais opÃ§Ãµes"
           >
             <DockIcon name="more" />
             <span>Mais</span>
@@ -298,7 +313,7 @@ export default function HbxMobileDock({
             className="hbx-mobile-more-sheet"
             role="dialog"
             aria-modal="true"
-            aria-label="Mais opções"
+            aria-label="Mais opÃ§Ãµes"
             onClick={(event) => event.stopPropagation()}
           >
             <span className="hbx-mobile-sheet-handle" aria-hidden="true" />
@@ -328,7 +343,7 @@ export default function HbxMobileDock({
               }}
             >
               <DockIcon name="report" />
-              <span>Relatório</span>
+              <span>RelatÃ³rio</span>
             </button>
             <button
               type="button"
