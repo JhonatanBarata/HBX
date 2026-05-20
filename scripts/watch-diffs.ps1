@@ -2,7 +2,8 @@ param(
   [string]$DiffsDir = "docs\DIFFS",
   [string]$Remote = "origin",
   [string]$Branch = "",
-  [int]$PollSeconds = 2
+  [int]$PollSeconds = 2,
+  [switch]$Once
 )
 
 $ErrorActionPreference = "Stop"
@@ -18,11 +19,37 @@ function Resolve-RepoRoot {
 function Invoke-Git {
   param([Parameter(ValueFromRemainingArguments = $true)][string[]]$Args)
 
-  $output = & git @Args 2>&1
-  if ($LASTEXITCODE -ne 0) {
+  $previousErrorActionPreference = $ErrorActionPreference
+  $ErrorActionPreference = "Continue"
+  try {
+    $output = & git @Args 2>&1
+    $exitCode = $LASTEXITCODE
+  } finally {
+    $ErrorActionPreference = $previousErrorActionPreference
+  }
+
+  if ($exitCode -ne 0) {
     throw "git $($Args -join ' ') falhou:`n$output"
   }
   return $output
+}
+
+function Invoke-GitResult {
+  param([Parameter(ValueFromRemainingArguments = $true)][string[]]$Args)
+
+  $previousErrorActionPreference = $ErrorActionPreference
+  $ErrorActionPreference = "Continue"
+  try {
+    $output = & git @Args 2>&1
+    $exitCode = $LASTEXITCODE
+  } finally {
+    $ErrorActionPreference = $previousErrorActionPreference
+  }
+
+  return @{
+    ExitCode = $exitCode
+    Output = ($output -join "`n")
+  }
 }
 
 function Get-CurrentBranch {
@@ -154,6 +181,132 @@ function Rename-ProcessedDiff {
   return $target
 }
 
+function Try-AppendOnlyDiff {
+  param([string]$DiffPath)
+
+  $lines = Get-Content -LiteralPath $DiffPath
+  $targetPath = $null
+  $addedLines = New-Object System.Collections.Generic.List[string]
+  $hasHunk = $false
+
+  foreach ($line in $lines) {
+    if ($line -match '^\+\+\+ (.+)$') {
+      $nextTarget = Convert-DiffPath (Unquote-DiffPath $Matches[1])
+      if (-not $nextTarget) {
+        return $false
+      }
+
+      if ($targetPath -and $targetPath -ne $nextTarget) {
+        return $false
+      }
+
+      $targetPath = $nextTarget
+      continue
+    }
+
+    if ($line -match '^@@ ') {
+      $hasHunk = $true
+      continue
+    }
+
+    if (-not $hasHunk) {
+      continue
+    }
+
+    if ($line.StartsWith("--- ") -or $line.StartsWith("diff --git ")) {
+      continue
+    }
+
+    if ($line.StartsWith("-")) {
+      return $false
+    }
+
+    if ($line.StartsWith("+")) {
+      $addedLines.Add($line.Substring(1))
+    }
+  }
+
+  if (-not $targetPath -or $addedLines.Count -eq 0) {
+    return $false
+  }
+
+  $fullTargetPath = Join-Path $repoRoot $targetPath
+  if (-not (Test-Path -LiteralPath $fullTargetPath)) {
+    return $false
+  }
+
+  $appendText = ($addedLines -join [Environment]::NewLine).Trim()
+  if ([string]::IsNullOrWhiteSpace($appendText)) {
+    return $false
+  }
+
+  $currentText = Get-Content -LiteralPath $fullTargetPath -Raw
+  $normalizedCurrent = ($currentText -replace "`r`n", "`n")
+  $normalizedAppend = ($appendText -replace "`r`n", "`n")
+  $signatureLines = @(
+    $addedLines |
+      Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
+      Where-Object { $_ -notmatch '^-{8,}$' -and $_ -notmatch '/\*\s*-{8,}\s*\*/' } |
+      Where-Object { $_ -match '^[\x00-\x7F]+$' } |
+      Select-Object -First 3
+  )
+
+  if ($normalizedCurrent.Contains($normalizedAppend)) {
+    Write-Host "Bloco append-only ja existe em $targetPath."
+    return $true
+  }
+
+  if ($signatureLines.Count -gt 0) {
+    $existingSignatureCount = 0
+    foreach ($signatureLine in $signatureLines) {
+      if ($normalizedCurrent.Contains(($signatureLine -replace "`r`n", "`n").Trim())) {
+        $existingSignatureCount++
+      }
+    }
+
+    if ($existingSignatureCount -eq $signatureLines.Count) {
+      Write-Host "Assinatura append-only ja existe em $targetPath."
+      return $true
+    }
+  }
+
+  $encoding = New-Object System.Text.UTF8Encoding($false)
+  $textToAppend = [Environment]::NewLine + $appendText + [Environment]::NewLine
+  [System.IO.File]::AppendAllText($fullTargetPath, $textToAppend, $encoding)
+  Write-Host "Patch aplicado como append-only em $targetPath."
+  return $true
+}
+
+function Apply-Diff {
+  param([string]$DiffPath)
+
+  $normalCheck = Invoke-GitResult apply --check --whitespace=nowarn -- $DiffPath
+  if ($normalCheck.ExitCode -eq 0) {
+    Invoke-Git apply --whitespace=nowarn -- $DiffPath | Out-Null
+    return "normal"
+  }
+
+  $threeWayCheck = Invoke-GitResult apply --3way --check --whitespace=nowarn -- $DiffPath
+  if ($threeWayCheck.ExitCode -eq 0) {
+    $threeWayApply = Invoke-GitResult apply --3way --whitespace=nowarn -- $DiffPath
+    if ($threeWayApply.ExitCode -eq 0) {
+      return "--3way"
+    }
+
+    if ($threeWayApply.Output -match "lacks the necessary blob") {
+      throw "git apply --3way nao pode ser usado neste diff porque o repositorio nao tem o blob base necessario. O patch tambem nao aplica no modo normal.`n--- normal check ---`n$($normalCheck.Output)`n--- 3-way apply ---`n$($threeWayApply.Output)"
+    }
+
+    throw "git apply --3way falhou.`n$($threeWayApply.Output)"
+  }
+
+  if (Try-AppendOnlyDiff -DiffPath $DiffPath) {
+    return "append-only"
+  }
+
+  throw "git apply falhou.`n--- normal check ---`n$($normalCheck.Output)`n--- 3-way check ---`n$($threeWayCheck.Output)"
+}
+
 function Process-Diff {
   param([string]$DiffPath)
 
@@ -169,7 +322,7 @@ function Process-Diff {
   $declaredPaths = Get-DiffTouchedPaths -DiffPath $DiffPath
 
   try {
-    Invoke-Git apply --3way --whitespace=nowarn -- $DiffPath | Out-Null
+    Apply-Diff -DiffPath $DiffPath | Out-Null
   } catch {
     Write-Host "Falhou ao aplicar $fileName. Nada sera commitado."
     throw
@@ -191,7 +344,9 @@ function Process-Diff {
   }
 
   if ($pathsToStage.Count -eq 0) {
-    Write-Host "Diff aplicado sem mudancas rastreaveis: $fileName"
+    $commit = (Invoke-Git rev-parse --short HEAD).Trim()
+    $renamed = Rename-ProcessedDiff -DiffPath $DiffPath -Commit $commit
+    Write-Host "Diff ja estava aplicado: $fileName -> $([System.IO.Path]::GetFileName($renamed))"
     return
   }
 
@@ -229,7 +384,8 @@ Write-Host "Destino do push: $Remote $Branch"
 
 $seen = @{}
 
-while ($true) {
+function Process-PendingDiffs {
+  $processed = 0
   $diffs = Get-ChildItem -LiteralPath $resolvedDiffsDir -Filter "*.diff" -File |
     Sort-Object LastWriteTime
 
@@ -241,6 +397,7 @@ while ($true) {
 
     try {
       Process-Diff -DiffPath $diff.FullName
+      $processed++
     } catch {
       Write-Host $_
     }
@@ -248,5 +405,15 @@ while ($true) {
     $seen[$key] = Get-Date
   }
 
+  return $processed
+}
+
+if ($Once) {
+  Process-PendingDiffs | Out-Null
+  exit 0
+}
+
+while ($true) {
+  Process-PendingDiffs | Out-Null
   Start-Sleep -Seconds $PollSeconds
 }
