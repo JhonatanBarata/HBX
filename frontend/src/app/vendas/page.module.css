@@ -10509,3 +10509,95 @@
     width: 100%;
   }
 }
+
+@media (max-width: 430px) {
+  :global(html[data-hbx-layout="mobile"]) .mobileVendasVisualFilterScroller {
+    display: flex !important;
+    flex-wrap: nowrap !important;
+    align-items: center !important;
+    gap: 3px !important;
+    overflow-x: hidden !important;
+    padding: 7px 6px !important;
+  }
+
+  :global(html[data-hbx-layout="mobile"]) .mobileVendasVisualFilterScroller > button {
+    flex: 1 1 32px !important;
+    min-width: 0 !important;
+    max-width: 38px !important;
+    width: auto !important;
+    height: 34px !important;
+    gap: 0 !important;
+    padding: 0 !important;
+  }
+
+  :global(html[data-hbx-layout="mobile"]) .mobileVendasVisualFilterScroller > button > .mobileVendasChannelIcon {
+    width: 23px !important;
+    height: 23px !important;
+  }
+
+  :global(html[data-hbx-layout="mobile"]) .mobileVendasScoreFilter {
+    flex: 0 0 66px !important;
+    width: 66px !important;
+    min-width: 66px !important;
+    height: 34px !important;
+    gap: 1px !important;
+    justify-content: center !important;
+    padding: 0 2px !important;
+  }
+
+  :global(html[data-hbx-layout="mobile"]) .mobileVendasScoreFilter > button {
+    width: 17px !important;
+    height: 24px !important;
+    border-radius: 8px !important;
+    font-size: 0.7rem !important;
+  }
+
+  :global(html[data-hbx-layout="mobile"]) .mobileVendasScoreFilter > span {
+    flex: 0 0 28px !important;
+    width: 28px !important;
+    height: 28px !important;
+    overflow: hidden !important;
+  }
+
+  :global(html[data-hbx-layout="mobile"]) .mobileVendasScoreFilterGauge[data-premium="true"] {
+    width: 28px !important;
+    min-height: 28px !important;
+    height: 28px !important;
+    gap: 0 !important;
+    padding: 0 !important;
+  }
+
+  :global(html[data-hbx-layout="mobile"]) .mobileVendasScoreFilterGauge[data-premium="true"]::before {
+    inset: 0 !important;
+    box-shadow: none !important;
+  }
+
+  :global(html[data-hbx-layout="mobile"]) .mobileVendasScoreFilterGauge[data-premium="true"]::after,
+  :global(html[data-hbx-layout="mobile"]) .mobileVendasScoreFilterGauge[data-premium="true"] span,
+  :global(html[data-hbx-layout="mobile"]) .mobileVendasScoreFilterGauge[data-premium="true"] small {
+    display: none !important;
+  }
+
+  :global(html[data-hbx-layout="mobile"]) .mobileVendasScoreFilterGauge[data-premium="true"] strong {
+    font-size: 0.82rem !important;
+    line-height: 1 !important;
+  }
+
+  :global(html[data-hbx-layout="mobile"]) .mobileVendasClearVisualFilters {
+    flex: 0 0 28px !important;
+    min-width: 0 !important;
+    max-width: 28px !important;
+    width: 28px !important;
+    height: 34px !important;
+    overflow: hidden !important;
+    padding: 0 !important;
+    font-size: 0 !important;
+  }
+
+  :global(html[data-hbx-layout="mobile"]) .mobileVendasClearVisualFilters::before {
+    content: "Ã—";
+    font-size: 1rem;
+    font-weight: 900;
+    line-height: 1;
+  }
+}
