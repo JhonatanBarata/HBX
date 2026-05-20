@@ -5097,10 +5097,28 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
                 type="button"
                 className={styles.mobileVendasScoreIconFilter}
                 data-active={mobileMinScoreFilter > 0 ? "true" : "false"}
-                disabled={!mobileVisualFiltersUnlocked}
-                onClick={() => setMobileScoreFilterOpen((current) => !current)}
-                title={mobileMinScoreFilter ? `Score mÃƒÂ­nimo ${mobileMinScoreFilter}+` : "Filtrar por score"}
-                aria-label={mobileMinScoreFilter ? `Score mÃƒÂ­nimo ${mobileMinScoreFilter}+` : "Abrir filtro de score"}
+                aria-disabled={!mobileVisualFiltersUnlocked}
+                onClick={() => {
+                  if (!mobileVisualFiltersUnlocked) {
+                    router.push(toMobileRoute("/planos?intent=lead"));
+                    return;
+                  }
+                  setMobileScoreFilterOpen((current) => !current);
+                }}
+                title={
+                  mobileVisualFiltersUnlocked
+                    ? mobileMinScoreFilter
+                      ? `Score mínimo ${mobileMinScoreFilter}+`
+                      : "Filtrar por score"
+                    : "Score disponível no HBX Lead"
+                }
+                aria-label={
+                  mobileVisualFiltersUnlocked
+                    ? mobileMinScoreFilter
+                      ? `Score mínimo ${mobileMinScoreFilter}+`
+                      : "Abrir filtro de score"
+                    : "Abrir planos para liberar filtro de score"
+                }
                 aria-pressed={mobileScoreFilterOpen ? "true" : "false"}
               >
                 <strong aria-hidden="true">S</strong>
