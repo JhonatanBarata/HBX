@@ -1519,3 +1519,364 @@
     grid-template-columns: repeat(3, minmax(160px, 1fr));
   }
 }
+
+/* -------------------------------------------------------------------------- */
+/* MASTER PREMIUM UI OVERRIDE - item 1                                        */
+/* Frontend-only. NÃ£o altera lÃ³gica, handlers, API, plano ou permissÃµes.       */
+/* -------------------------------------------------------------------------- */
+
+.masterShell {
+  --master-bg: #edf3f9;
+  --master-surface: rgba(255, 255, 255, 0.82);
+  --master-surface-strong: rgba(255, 255, 255, 0.96);
+  --master-surface-soft: rgba(241, 246, 251, 0.92);
+  --master-border: rgba(120, 139, 164, 0.28);
+  --master-radius: 24px;
+  --master-radius-sm: 16px;
+  --master-shadow: 0 28px 90px rgba(15, 23, 42, 0.16);
+  --master-shadow-soft: 0 18px 48px rgba(15, 23, 42, 0.09);
+  background:
+    radial-gradient(circle at 0% 0%, rgba(37, 99, 235, 0.18), transparent 370px),
+    radial-gradient(circle at 100% 0%, rgba(20, 184, 166, 0.16), transparent 360px),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.94), transparent 320px),
+    var(--master-bg);
+  padding: 22px;
+}
+
+.topCommandBar {
+  grid-template-columns: minmax(280px, 340px) minmax(420px, 1fr);
+  gap: 14px;
+  margin-bottom: 16px;
+}
+
+.commandIdentity,
+.searchBox,
+.companyBoard,
+.inspector,
+.panelSection,
+.kpiCard,
+.modalCard,
+.operationCard,
+.companyRow {
+  border-color: var(--master-border);
+  border-radius: var(--master-radius);
+  box-shadow: var(--master-shadow-soft);
+  backdrop-filter: blur(18px);
+}
+
+.commandIdentity {
+  position: relative;
+  min-height: 190px;
+  justify-content: space-between;
+  overflow: hidden;
+  padding: 22px;
+  color: #fff;
+  background:
+    radial-gradient(circle at 100% 0%, rgba(34, 211, 238, 0.32), transparent 250px),
+    radial-gradient(circle at 0% 100%, rgba(96, 165, 250, 0.22), transparent 230px),
+    linear-gradient(135deg, rgba(2, 6, 23, 0.99), rgba(15, 23, 42, 0.95));
+  border-color: rgba(255, 255, 255, 0.16);
+  box-shadow: 0 30px 90px rgba(15, 23, 42, 0.25);
+}
+
+.commandIdentity::after {
+  content: "";
+  position: absolute;
+  right: -80px;
+  bottom: -90px;
+  width: 220px;
+  height: 220px;
+  border-radius: 999px;
+  background: rgba(45, 212, 191, 0.16);
+  filter: blur(4px);
+}
+
+.commandIdentity span {
+  color: rgba(255, 255, 255, 0.72);
+  letter-spacing: 0.18em;
+}
+
+.commandIdentity strong {
+  position: relative;
+  z-index: 1;
+  font-size: clamp(34px, 4vw, 54px);
+  line-height: 0.94;
+  letter-spacing: -0.065em;
+}
+
+.commandIdentity small {
+  position: relative;
+  z-index: 1;
+  max-width: 280px;
+  color: rgba(255, 255, 255, 0.72);
+  font-weight: 750;
+}
+
+.searchBox {
+  position: relative;
+  min-height: 190px;
+  justify-content: center;
+  gap: 12px;
+  overflow: hidden;
+  padding: 22px;
+  background:
+    radial-gradient(circle at 100% 50%, rgba(20, 184, 166, 0.10), transparent 300px),
+    linear-gradient(90deg, rgba(37, 99, 235, 0.08), transparent 45%),
+    var(--master-surface);
+}
+
+.searchBox label {
+  font-size: 12px;
+  font-weight: 950;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.searchBox input {
+  min-height: 64px;
+  border-radius: 22px;
+  padding: 0 18px;
+  font-size: 16px;
+  font-weight: 850;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.78),
+    0 16px 38px rgba(15, 23, 42, 0.08);
+}
+
+.filterRail {
+  gap: 9px;
+  padding: 2px 0;
+}
+
+.filterButton {
+  min-height: 42px;
+  padding: 0 16px;
+  font-weight: 950;
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.05);
+  transition:
+    transform 0.18s ease,
+    box-shadow 0.18s ease,
+    background 0.18s ease,
+    border-color 0.18s ease;
+}
+
+.filterButton:hover,
+.filterButton[aria-current="true"],
+.filterButton[data-active="true"] {
+  transform: translateY(-1px);
+  box-shadow: 0 16px 34px rgba(15, 23, 42, 0.13);
+}
+
+.commandActions {
+  gap: 10px;
+}
+
+.actionButton,
+.secondaryLink {
+  min-height: 42px;
+  padding: 0 15px;
+  font-weight: 950;
+}
+
+.kpiStrip {
+  gap: 14px;
+  margin-bottom: 16px;
+}
+
+.kpiCard {
+  min-height: 150px;
+  padding: 20px;
+  transition:
+    transform 0.18s ease,
+    box-shadow 0.18s ease,
+    border-color 0.18s ease,
+    background 0.18s ease;
+}
+
+.kpiCard::before {
+  content: "";
+  position: absolute;
+  top: -70px;
+  right: -70px;
+  width: 165px;
+  height: 165px;
+  border-radius: 999px;
+  background: rgba(14, 165, 233, 0.15);
+}
+
+.kpiCard:hover {
+  transform: translateY(-3px);
+  box-shadow: var(--master-shadow);
+}
+
+.kpiCard strong {
+  margin-top: 12px;
+  font-size: clamp(38px, 4vw, 52px);
+  letter-spacing: -0.065em;
+}
+
+.commandLayout {
+  grid-template-columns: minmax(500px, 0.88fr) minmax(620px, 1.12fr);
+  gap: 16px;
+}
+
+.companyBoard {
+  top: 18px;
+  max-height: calc(100vh - 36px);
+  padding: 16px;
+}
+
+.boardHeader {
+  margin-bottom: 14px;
+}
+
+.boardHeader strong {
+  display: block;
+  margin-top: 3px;
+  font-size: 22px;
+  letter-spacing: -0.035em;
+}
+
+.companyRows {
+  gap: 10px;
+}
+
+.companyRow {
+  grid-template-columns: minmax(170px, 1fr) minmax(140px, 0.78fr) minmax(145px, 0.82fr);
+  gap: 12px;
+  padding: 16px;
+  transition:
+    transform 0.18s ease,
+    box-shadow 0.18s ease,
+    border-color 0.18s ease,
+    background 0.18s ease;
+}
+
+.companyRow:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 18px 44px rgba(15, 23, 42, 0.09);
+}
+
+.companyRow[data-active="true"] {
+  background:
+    radial-gradient(circle at 100% 0%, rgba(14, 165, 233, 0.12), transparent 190px),
+    color-mix(in srgb, var(--master-active-bg) 7%, var(--master-surface));
+  box-shadow: 0 18px 46px rgba(15, 23, 42, 0.10);
+}
+
+.companyMain strong {
+  font-size: 16px;
+  letter-spacing: -0.025em;
+}
+
+.inspector {
+  padding: 16px;
+}
+
+.companyHero {
+  padding: 30px;
+  margin-bottom: 16px;
+  background:
+    radial-gradient(circle at 100% 0%, rgba(14, 165, 233, 0.40), transparent 320px),
+    radial-gradient(circle at 0% 100%, rgba(20, 184, 166, 0.18), transparent 280px),
+    linear-gradient(135deg, rgba(2, 6, 23, 0.99), rgba(30, 41, 59, 0.94));
+}
+
+.companyHero h2 {
+  font-size: clamp(34px, 5vw, 62px);
+  line-height: 0.92;
+  letter-spacing: -0.075em;
+}
+
+.panelSection {
+  padding: 20px;
+  margin-bottom: 16px;
+}
+
+.sectionTitle {
+  margin-bottom: 14px;
+}
+
+.sectionTitle h3 {
+  font-size: 22px;
+  letter-spacing: -0.035em;
+}
+
+.realityGrid,
+.billingGrid,
+.previewGrid,
+.diffGrid,
+.operationStats {
+  grid-template-columns: repeat(4, minmax(150px, 1fr));
+}
+
+.realityTile,
+.infoItem,
+.previewGrid div,
+.diffGrid div {
+  min-height: 90px;
+  padding: 14px;
+}
+
+.realityTile strong,
+.infoItem strong,
+.previewGrid strong,
+.diffGrid strong {
+  font-size: 16px;
+  letter-spacing: -0.02em;
+}
+
+.planCards {
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.planCard {
+  padding: 16px;
+  transition:
+    transform 0.18s ease,
+    box-shadow 0.18s ease,
+    background 0.18s ease,
+    border-color 0.18s ease;
+}
+
+.planCard:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 18px 44px rgba(15, 23, 42, 0.10);
+}
+
+.operationCard summary {
+  padding: 16px;
+  font-size: 15px;
+}
+
+.modalRoot {
+  z-index: 90;
+}
+
+.modalCard {
+  width: min(820px, 100%);
+  max-height: min(900px, 94vh);
+  padding: 22px;
+  border-radius: 28px;
+}
+
+.modalCard[data-wide="true"] {
+  width: min(1260px, 100%);
+}
+
+@media (max-width: 1280px) {
+  .topCommandBar,
+  .commandLayout {
+    grid-template-columns: 1fr;
+  }
+
+  .companyBoard {
+    position: static;
+    max-height: none;
+  }
+
+  .kpiStrip {
+    grid-template-columns: repeat(3, minmax(160px, 1fr));
+  }
+}
