@@ -233,25 +233,21 @@ export default function MasterCommandCenter(props: MasterCommandCenterProps) {
       {loading ? (
         <MasterLoadingState />
       ) : (
-        <>
-          <MasterKpiStrip items={kpis} activeFilter={filter} onFilter={setFilter} />
-          <div className={styles.commandLayout}>
-            <MasterCompanyBoard
-              companies={filteredCompanies}
-              activeCompanyId={state.activeCompany?.id || null}
-              onOpen={(company) => void actions.loadDetail(company.id)}
-              onAssume={actions.assumeContext}
-              companyHasContext={actions.companyHasActiveMasterContext}
-              busyAction={state.busyAction}
-            />
-            <MasterCompanyInspector
-              workspace={workspace}
-              currentUser={currentUser}
-              state={state}
-              actions={actions}
-            />
-          </div>
-        </>
+        <MasterOperationsLayout
+          kpis={kpis}
+          activeFilter={filter}
+          onFilter={setFilter}
+          companies={filteredCompanies}
+          activeCompanyId={state.activeCompany?.id || null}
+          onOpenCompany={(company) => void actions.loadDetail(company.id)}
+          onAssumeCompany={actions.assumeContext}
+          companyHasContext={actions.companyHasActiveMasterContext}
+          busyAction={state.busyAction}
+          workspace={workspace}
+          currentUser={currentUser}
+          state={state}
+          actions={actions}
+        />
       )}
 
       <CreateCompanyModal state={state} actions={actions} />
@@ -281,6 +277,58 @@ export default function MasterCommandCenter(props: MasterCommandCenterProps) {
 
 export function MasterShell({ children }: { children: ReactNode }) {
   return <div className={styles.masterShell}>{children}</div>;
+}
+
+function MasterOperationsLayout({
+  kpis,
+  activeFilter,
+  onFilter,
+  companies,
+  activeCompanyId,
+  onOpenCompany,
+  onAssumeCompany,
+  companyHasContext,
+  busyAction,
+  workspace,
+  currentUser,
+  state,
+  actions,
+}: {
+  kpis: ReturnType<typeof buildCommandKpis>;
+  activeFilter: MasterCommandFilterId;
+  onFilter: (value: MasterCommandFilterId) => void;
+  companies: CompanySummary[];
+  activeCompanyId: number | null;
+  onOpenCompany: (company: CompanySummary) => void;
+  onAssumeCompany: (company: CompanySummary) => void;
+  companyHasContext: (companyId?: number | null) => boolean;
+  busyAction: string | null;
+  workspace: MasterCommandCenterProps["workspace"];
+  currentUser: MasterCommandCenterProps["currentUser"];
+  state: CommandState;
+  actions: CommandActions;
+}) {
+  return (
+    <section className={styles.operationsSurface}>
+      <MasterKpiStrip items={kpis} activeFilter={activeFilter} onFilter={onFilter} />
+      <div className={styles.commandLayout}>
+        <MasterCompanyBoard
+          companies={companies}
+          activeCompanyId={activeCompanyId}
+          onOpen={onOpenCompany}
+          onAssume={onAssumeCompany}
+          companyHasContext={companyHasContext}
+          busyAction={busyAction}
+        />
+        <MasterCompanyInspector
+          workspace={workspace}
+          currentUser={currentUser}
+          state={state}
+          actions={actions}
+        />
+      </div>
+    </section>
+  );
 }
 
 function MasterTopCommandBar({
@@ -314,6 +362,8 @@ function MasterTopCommandBar({
   onOpenDatabase: () => void;
   onExitContext: () => void;
 }) {
+  const contextActive = currentUser?.masterContext?.active === true;
+
   return (
     <section className={styles.topCommandBar}>
       <div className={styles.commandIdentity}>
@@ -322,43 +372,59 @@ function MasterTopCommandBar({
         <small>
           {currentUser?.masterContext?.active
             ? `Operando: ${currentUser.masterContext.companyName || "empresa"}`
-            : "Visão MASTER"}
+            : "Visão executiva da operação"}
         </small>
+        <div className={styles.commandIdentityMeta}>
+          <span data-active={contextActive ? "true" : "false"}>
+            {contextActive ? "Contexto ativo" : "Sem contexto ativo"}
+          </span>
+          <span>Full desktop</span>
+        </div>
       </div>
-      <div className={styles.searchBox}>
-        <label htmlFor="master-command-search">Busca</label>
-        <input
-          id="master-command-search"
-          value={search}
-          onChange={(event) => onSearch(event.target.value)}
-          placeholder="Empresa, contato, plano, módulo, WhatsApp..."
-        />
+
+      <div className={styles.commandWorkstation}>
+        <div className={styles.searchBox}>
+          <label htmlFor="master-command-search">Busca operacional</label>
+          <input
+            id="master-command-search"
+            value={search}
+            onChange={(event) => onSearch(event.target.value)}
+            placeholder="Empresa, contato, plano, módulo, cobrança, WhatsApp..."
+          />
+        </div>
+        <div className={styles.filterRail} aria-label="Filtros por problema real">
+          {MASTER_COMMAND_FILTERS.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              className={styles.filterButton}
+              data-active={filter === item.id ? "true" : "false"}
+              aria-current={filter === item.id ? "true" : undefined}
+              onClick={() => onFilter(item.id)}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
       </div>
-      <div className={styles.filterRail} aria-label="Filtros por problema real">
-        {MASTER_COMMAND_FILTERS.map((item) => (
-          <button
-            key={item.id}
-            type="button"
-            className={styles.filterButton}
-            data-active={filter === item.id ? "true" : "false"}
-            aria-current={filter === item.id ? "true" : undefined}
-            onClick={() => onFilter(item.id)}
-          >
-            {item.label}
-          </button>
-        ))}
-      </div>
-      <div className={styles.commandActions}>
-        <MasterActionButton onClick={onCreateCompany}>Nova empresa</MasterActionButton>
-        <MasterActionButton variant="secondary" onClick={onOpenEmail}>Email</MasterActionButton>
-        <MasterActionButton variant="secondary" onClick={onOpenComplaints}>Reclamações</MasterActionButton>
-        <MasterActionButton variant="secondary" onClick={onOpenTokens}>Tokens MASTER</MasterActionButton>
-        <MasterActionButton variant="secondary" onClick={onOpenModules}>Módulos</MasterActionButton>
-        <MasterActionButton variant="secondary" onClick={onOpenDatabase}>Banco de Dados</MasterActionButton>
-        <MasterActionButton variant="secondary" onClick={onReload}>{refreshing ? "Atualizando..." : "Atualizar"}</MasterActionButton>
-        {currentUser?.masterContext?.active ? (
-          <MasterActionButton variant="secondary" onClick={onExitContext}>Sair operação</MasterActionButton>
-        ) : null}
+
+      <div className={styles.commandActionPanel}>
+        <div className={styles.commandActionHeader}>
+          <span>Ações rápidas</span>
+          <strong>{refreshing ? "Sincronizando..." : "Pronto para operar"}</strong>
+        </div>
+        <div className={styles.commandActions}>
+          <MasterActionButton onClick={onCreateCompany}>Nova empresa</MasterActionButton>
+          <MasterActionButton variant="secondary" onClick={onOpenEmail}>Email</MasterActionButton>
+          <MasterActionButton variant="secondary" onClick={onOpenComplaints}>Reclamações</MasterActionButton>
+          <MasterActionButton variant="secondary" onClick={onOpenDatabase}>Banco de Dados</MasterActionButton>
+          <MasterActionButton variant="secondary" onClick={onOpenTokens}>Tokens</MasterActionButton>
+          <MasterActionButton variant="secondary" onClick={onOpenModules}>Módulos</MasterActionButton>
+          <MasterActionButton variant="secondary" onClick={onReload}>{refreshing ? "Atualizando..." : "Atualizar"}</MasterActionButton>
+          {contextActive ? (
+            <MasterActionButton variant="secondary" onClick={onExitContext}>Sair operação</MasterActionButton>
+          ) : null}
+        </div>
       </div>
     </section>
   );
@@ -384,17 +450,20 @@ function MasterKpiStrip({
     <section className={styles.kpiStrip} aria-label="Indicadores rápidos">
       {items.map((item) => {
         const targetFilter = mapToFilter[item.id] || "all";
+        const active = activeFilter === targetFilter;
         return (
           <button
             key={item.id}
             type="button"
             className={styles.kpiCard}
             data-tone={item.tone}
-            data-active={activeFilter === targetFilter ? "true" : "false"}
+            data-active={active ? "true" : "false"}
             onClick={() => onFilter(targetFilter)}
           >
             <span>{item.label}</span>
             <strong>{item.value.toLocaleString("pt-BR")}</strong>
+            <small>{active ? "Filtro ativo" : "Clique para filtrar"}</small>
+            <i aria-hidden="true" />
           </button>
         );
       })}
@@ -423,7 +492,9 @@ function MasterCompanyBoard({
         <div>
           <span>Base operacional</span>
           <strong>{companies.length.toLocaleString("pt-BR")} empresa(s)</strong>
+          <small>Selecione uma empresa para abrir o inspector completo.</small>
         </div>
+        <MasterStatusBadge tone="neutral">Live</MasterStatusBadge>
       </div>
       <div className={styles.companyRows}>
         {companies.map((company) => (

@@ -1160,6 +1160,182 @@
 }
 
 /* -------------------------------------------------------------------------- */
+/* MASTER PREMIUM STRUCTURE PATCH - generated clean diff                       */
+/* -------------------------------------------------------------------------- */
+
+.operationsSurface {
+  display: grid;
+  gap: 16px;
+}
+
+.commandIdentityMeta {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.commandIdentityMeta span {
+  width: fit-content;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  padding: 6px 9px;
+  color: rgba(255, 255, 255, 0.86);
+  font-size: 11px;
+  font-weight: 950;
+}
+
+.commandIdentityMeta span[data-active="true"] {
+  border-color: rgba(110, 231, 183, 0.42);
+  background: rgba(16, 185, 129, 0.18);
+  color: #bbf7d0;
+}
+
+.commandWorkstation,
+.commandActionPanel {
+  border: 1px solid var(--master-border);
+  border-radius: calc(var(--master-radius) + 8px);
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.9), rgba(255,255,255,0.72)),
+    var(--master-surface);
+  box-shadow: var(--master-shadow-soft);
+  backdrop-filter: blur(18px);
+}
+
+.commandWorkstation {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  gap: 12px;
+  padding: 14px;
+}
+
+.commandActionPanel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px;
+}
+
+.commandActionHeader {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.commandActionHeader span {
+  color: var(--master-muted);
+  font-size: 11px;
+  font-weight: 950;
+  text-transform: uppercase;
+}
+
+.commandActionHeader strong {
+  font-size: 18px;
+  letter-spacing: -0.03em;
+}
+
+.commandWorkstation .searchBox {
+  min-height: auto;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.commandWorkstation .searchBox input {
+  min-height: 58px;
+  border-radius: 18px;
+}
+
+.commandWorkstation .filterRail {
+  grid-column: auto;
+}
+
+.commandActionPanel .commandActions {
+  display: grid;
+  grid-column: auto;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.commandActionPanel .actionButton {
+  width: 100%;
+  min-height: 42px;
+  border-radius: 14px;
+}
+
+.topCommandBar {
+  grid-template-columns: minmax(260px, 0.75fr) minmax(520px, 1.45fr) minmax(320px, 0.8fr);
+}
+
+.kpiCard small {
+  position: relative;
+  z-index: 1;
+  display: block;
+  margin-top: 6px;
+  color: var(--master-muted);
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.kpiCard i {
+  position: absolute;
+  left: 18px;
+  right: 18px;
+  bottom: 16px;
+  height: 7px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--master-muted-bg);
+}
+
+.kpiCard i::after {
+  content: "";
+  display: block;
+  width: 62%;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--master-active-bg);
+}
+
+.kpiCard[data-active="true"] i::after {
+  background: var(--master-active-text);
+}
+
+.boardHeader {
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.boardHeader small {
+  display: block;
+  max-width: 310px;
+  margin-top: 4px;
+  color: var(--master-muted);
+  font-size: 12px;
+  font-weight: 750;
+}
+
+@media (max-width: 1280px) {
+  .topCommandBar {
+    grid-template-columns: 1fr;
+  }
+
+  .commandActionPanel .commandActions {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 760px) {
+  .commandActionPanel .commandActions {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* -------------------------------------------------------------------------- */
 /* MASTER PREMIUM UI OVERRIDE - item 1                                        */
 /* Frontend-only. NÃ£o altera lÃ³gica, handlers, API, plano ou permissÃµes.       */
 /* -------------------------------------------------------------------------- */
