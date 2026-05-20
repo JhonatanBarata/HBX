@@ -1,0 +1,37 @@
+diff --git a/frontend/src/app/mobile/MobileViewportFrame.tsx b/frontend/src/app/mobile/MobileViewportFrame.tsx
+index 16a14cb..a239eb5 100644
+--- a/frontend/src/app/mobile/MobileViewportFrame.tsx
++++ b/frontend/src/app/mobile/MobileViewportFrame.tsx
+@@ -39,7 +39,12 @@ function buildFrameState(): FrameState {
+ }
+ 
+ export default function MobileViewportFrame({ children }: { children: ReactNode }) {
+-  const [frameState, setFrameState] = useState<FrameState>(() => buildFrameState());
++  const [frameState, setFrameState] = useState<FrameState>(() => ({
++    ready: false,
++    isDesktop: false,
++    isFramed: false,
++    frameSrc: "",
++  }));
+ 
+   useEffect(() => {
+     const syncFrameState = () => {
+@@ -58,7 +63,17 @@ export default function MobileViewportFrame({ children }: { children: ReactNode
+     };
+   }, []);
+ 
+-  if (frameState.ready && frameState.isDesktop && !frameState.isFramed) {
++  if (!frameState.ready) {
++    return (
++      <div className={styles.mobilePreviewPage} data-frame="false">
++        <main className={styles.mobileViewport} aria-label="HBX mobile">
++          {children}
++        </main>
++      </div>
++    );
++  }
++
++  if (frameState.isDesktop && !frameState.isFramed) {
+     return (
+       <div className={styles.mobilePreviewPage} data-frame="true">
+         <iframe
