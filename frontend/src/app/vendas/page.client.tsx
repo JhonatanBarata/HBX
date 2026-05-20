@@ -507,101 +507,194 @@ const VENDAS_PROGRESS_STEPS = [
   "lendo banco",
   "filtrando negativos",
   "selecionando melhores cards",
-  "alimentando Vendas/Prospecção",
+<<<<<<< HEAD
+  "alimentando Vendas/ProspecÃ§Ã£o",
+=======
+  "alimentando Vendas/ProspecÃƒÂ§ÃƒÂ£o",
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
 ];
 const MOBILE_READY_MESSAGE_PREF_KEY = "hbx.vendas.mobile.readyMessagePreference.v1";
 const MOBILE_PREFERRED_CALLER_NAME_KEY = "hbx.vendas.mobile.preferredCallerName.v1";
 const MOBILE_OPEN_LEAD_KEY = "hbx.vendas.mobile.openLeadId.v1";
 const SALES_PROFILE_DEFAULT_DRAFT: SalesProfileDraft = {
   whatDoYouSell: "Sistema/Software",
-  offerCategory: "serviço comercial",
-  targetAudience: ["empresas pequenas", "comércios locais"],
-  targetSegments: ["clínicas", "oficinas", "restaurantes"],
-  avoidSegments: ["empresa grande", "órgão público", "sem telefone", "diretório/lista genérica"],
+<<<<<<< HEAD
+  offerCategory: "serviÃ§o comercial",
+  targetAudience: ["empresas pequenas", "comÃ©rcios locais"],
+  targetSegments: ["clÃ­nicas", "oficinas", "restaurantes"],
+  avoidSegments: ["empresa grande", "Ã³rgÃ£o pÃºblico", "sem telefone", "diretÃ³rio/lista genÃ©rica"],
+=======
+  offerCategory: "serviÃƒÂ§o comercial",
+  targetAudience: ["empresas pequenas", "comÃƒÂ©rcios locais"],
+  targetSegments: ["clÃƒÂ­nicas", "oficinas", "restaurantes"],
+  avoidSegments: ["empresa grande", "ÃƒÂ³rgÃƒÂ£o pÃƒÂºblico", "sem telefone", "diretÃƒÂ³rio/lista genÃƒÂ©rica"],
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
   preferredChannels: ["whatsapp"],
   weeklyAutoUpdateEnabled: false,
 };
 const SALES_PROFILE_SELL_EXAMPLES = [
-  "Plano de saúde",
+<<<<<<< HEAD
+  "Plano de saÃºde",
   "Sistema/Software",
-  "Serviços locais",
+  "ServiÃ§os locais",
   "Consultoria",
-  "Imobiliária",
-  "Estética/beleza",
+  "ImobiliÃ¡ria",
+  "EstÃ©tica/beleza",
+=======
+  "Plano de saÃƒÂºde",
+  "Sistema/Software",
+  "ServiÃƒÂ§os locais",
+  "Consultoria",
+  "ImobiliÃƒÂ¡ria",
+  "EstÃƒÂ©tica/beleza",
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
   "Outro",
 ];
 const SALES_PROFILE_AUDIENCE_EXAMPLES = [
   "idosos",
-  "famílias",
+<<<<<<< HEAD
+  "famÃ­lias",
   "empresas pequenas",
-  "comércios locais",
-  "profissionais autônomos",
-  "clínicas",
+  "comÃ©rcios locais",
+  "profissionais autÃ´nomos",
+  "clÃ­nicas",
   "oficinas",
   "restaurantes",
-  "salões",
+  "salÃµes",
 ];
 const SALES_PROFILE_AVOID_EXAMPLES = [
   "empresa grande",
-  "órgão público",
+  "Ã³rgÃ£o pÃºblico",
   "sem telefone",
   "sem WhatsApp",
-  "diretório/lista genérica",
+  "diretÃ³rio/lista genÃ©rica",
   "fora da cidade",
   "segmento errado",
 ];
-const SALES_PROFILE_CHANNELS = ["whatsapp", "ligação", "e-mail", "instagram"];
+const SALES_PROFILE_CHANNELS = ["whatsapp", "ligaÃ§Ã£o", "e-mail", "instagram"];
 const MOBILE_READY_MESSAGE_LIBRARY = [
-  "Olá, tudo bem? Vi a {{company}} em {{city}} e queria te mostrar uma forma simples de organizar contatos, retornos e oportunidades sem depender de planilha.",
-  "Oi, tudo bem? Notei que empresas de {{segment}} costumam perder retorno por falta de acompanhamento. Posso te mandar uma ideia rápida para resolver isso?",
-  "Olá! Vi a {{company}} e achei que o HBX pode ajudar vocês a acompanhar interessados, lembretes e próximos contatos em um só lugar.",
-  "Oi, tudo bem? Trabalho com uma solução para organizar prospecção e atendimento pelo WhatsApp. Faz sentido eu te explicar em 1 minuto?",
-  "Olá! Posso te mostrar como deixar os contatos de {{segment}} mais organizados e com retorno automático no momento certo?",
-  "Oi! Passei pelo perfil da {{company}} e vi espaço para melhorar acompanhamento de clientes. Posso te enviar uma explicação curta?",
-  "Olá. O HBX ajuda empresas locais a não esquecerem retorno, orçamento e follow-up. Posso te mostrar como ficaria para {{segment}}?",
-  "Oi, tudo bem? Se hoje vocês anotam contatos em WhatsApp, agenda ou planilha, tenho uma forma mais simples de centralizar isso. Posso mandar?",
-  "Olá! Vi a {{company}} em {{city}}. Posso te mostrar uma ideia para transformar contatos soltos em uma fila clara de próximas ações?",
+  "OlÃ¡, tudo bem? Vi a {{company}} em {{city}} e queria te mostrar uma forma simples de organizar contatos, retornos e oportunidades sem depender de planilha.",
+  "Oi, tudo bem? Notei que empresas de {{segment}} costumam perder retorno por falta de acompanhamento. Posso te mandar uma ideia rÃ¡pida para resolver isso?",
+  "OlÃ¡! Vi a {{company}} e achei que o HBX pode ajudar vocÃªs a acompanhar interessados, lembretes e prÃ³ximos contatos em um sÃ³ lugar.",
+  "Oi, tudo bem? Trabalho com uma soluÃ§Ã£o para organizar prospecÃ§Ã£o e atendimento pelo WhatsApp. Faz sentido eu te explicar em 1 minuto?",
+  "OlÃ¡! Posso te mostrar como deixar os contatos de {{segment}} mais organizados e com retorno automÃ¡tico no momento certo?",
+  "Oi! Passei pelo perfil da {{company}} e vi espaÃ§o para melhorar acompanhamento de clientes. Posso te enviar uma explicaÃ§Ã£o curta?",
+  "OlÃ¡. O HBX ajuda empresas locais a nÃ£o esquecerem retorno, orÃ§amento e follow-up. Posso te mostrar como ficaria para {{segment}}?",
+  "Oi, tudo bem? Se hoje vocÃªs anotam contatos em WhatsApp, agenda ou planilha, tenho uma forma mais simples de centralizar isso. Posso mandar?",
+  "OlÃ¡! Vi a {{company}} em {{city}}. Posso te mostrar uma ideia para transformar contatos soltos em uma fila clara de prÃ³ximas aÃ§Ãµes?",
   "Oi. Ajudo empresas a organizar leads, retornos e atendimentos para vender com mais previsibilidade. Posso te explicar rapidamente?",
-  "Olá! Tenho uma sugestão prática para melhorar o controle dos contatos que chegam pelo WhatsApp. Posso te enviar?",
-  "Oi! A ideia é simples: cada contato vira um card com status, lembrete e próxima ação. Quer ver como isso pode funcionar para {{company}}?",
-  "Olá. Vi que {{segment}} depende muito de retorno rápido. Posso te mostrar uma ferramenta para não deixar interessados esfriarem?",
-  "Oi! O HBX organiza quem precisa ser chamado hoje, amanhã e depois. Posso te mandar um exemplo aplicado à {{company}}?",
-  "Olá! Posso te mostrar uma forma de acompanhar orçamento, retorno e conversa sem perder histórico no WhatsApp?",
-  "Oi. Trabalho com automação comercial para pequenas empresas. A proposta é ganhar controle sem complicar a rotina. Posso explicar?",
-  "Olá! Se fizer sentido, te mostro como a {{company}} pode ter uma fila diária de contatos prioritários para chamar.",
+  "OlÃ¡! Tenho uma sugestÃ£o prÃ¡tica para melhorar o controle dos contatos que chegam pelo WhatsApp. Posso te enviar?",
+  "Oi! A ideia Ã© simples: cada contato vira um card com status, lembrete e prÃ³xima aÃ§Ã£o. Quer ver como isso pode funcionar para {{company}}?",
+  "OlÃ¡. Vi que {{segment}} depende muito de retorno rÃ¡pido. Posso te mostrar uma ferramenta para nÃ£o deixar interessados esfriarem?",
+  "Oi! O HBX organiza quem precisa ser chamado hoje, amanhÃ£ e depois. Posso te mandar um exemplo aplicado Ã  {{company}}?",
+  "OlÃ¡! Posso te mostrar uma forma de acompanhar orÃ§amento, retorno e conversa sem perder histÃ³rico no WhatsApp?",
+  "Oi. Trabalho com automaÃ§Ã£o comercial para pequenas empresas. A proposta Ã© ganhar controle sem complicar a rotina. Posso explicar?",
+  "OlÃ¡! Se fizer sentido, te mostro como a {{company}} pode ter uma fila diÃ¡ria de contatos prioritÃ¡rios para chamar.",
   "Oi! Vi a {{company}} e pensei em uma melhoria simples: lembrar automaticamente quem precisa de retorno. Posso mandar a ideia?",
-  "Olá. O HBX ajuda a separar contato novo, retorno e cliente interessado. Posso te mostrar como isso reduz esquecimentos?",
-  "Oi, tudo bem? Tenho uma solução para organizar atendimento e prospecção em uma visão de app. Posso te mandar um resumo?",
-  "Olá! Empresas de {{segment}} costumam ganhar muito quando cada conversa já nasce com próxima ação. Posso te mostrar?",
-  "Oi! Posso te enviar uma ideia para acompanhar leads por prioridade, com WhatsApp, ligação e observação no mesmo lugar?",
-  "Olá. Vi a {{company}} e queria sugerir um jeito de melhorar retorno comercial sem contratar mais gente agora.",
-  "Oi, tudo bem? O objetivo é simples: menos contato perdido e mais follow-up no dia certo. Posso te explicar como?",
-  "Olá! Se vocês recebem pedidos, dúvidas ou orçamentos pelo WhatsApp, o HBX pode organizar isso em cards. Posso mostrar?",
+  "OlÃ¡. O HBX ajuda a separar contato novo, retorno e cliente interessado. Posso te mostrar como isso reduz esquecimentos?",
+  "Oi, tudo bem? Tenho uma soluÃ§Ã£o para organizar atendimento e prospecÃ§Ã£o em uma visÃ£o de app. Posso te mandar um resumo?",
+  "OlÃ¡! Empresas de {{segment}} costumam ganhar muito quando cada conversa jÃ¡ nasce com prÃ³xima aÃ§Ã£o. Posso te mostrar?",
+  "Oi! Posso te enviar uma ideia para acompanhar leads por prioridade, com WhatsApp, ligaÃ§Ã£o e observaÃ§Ã£o no mesmo lugar?",
+  "OlÃ¡. Vi a {{company}} e queria sugerir um jeito de melhorar retorno comercial sem contratar mais gente agora.",
+  "Oi, tudo bem? O objetivo Ã© simples: menos contato perdido e mais follow-up no dia certo. Posso te explicar como?",
+  "OlÃ¡! Se vocÃªs recebem pedidos, dÃºvidas ou orÃ§amentos pelo WhatsApp, o HBX pode organizar isso em cards. Posso mostrar?",
   "Oi. Posso te mandar um exemplo de fluxo para a {{company}} acompanhar contatos e oportunidades com mais clareza?",
-  "Olá! Tenho uma ideia curta para transformar o WhatsApp em uma agenda comercial organizada. Faz sentido eu enviar?",
-  "Oi! Vi a {{company}} em {{city}} e achei que vocês podem se beneficiar de uma rotina mais clara de retorno aos clientes.",
-  "Olá. O HBX mostra o próximo contato certo e evita que leads fiquem esquecidos. Posso te mostrar a ideia?",
+  "OlÃ¡! Tenho uma ideia curta para transformar o WhatsApp em uma agenda comercial organizada. Faz sentido eu enviar?",
+  "Oi! Vi a {{company}} em {{city}} e achei que vocÃªs podem se beneficiar de uma rotina mais clara de retorno aos clientes.",
+  "OlÃ¡. O HBX mostra o prÃ³ximo contato certo e evita que leads fiquem esquecidos. Posso te mostrar a ideia?",
   "Oi, tudo bem? Posso te explicar como organizar clientes interessados por status, data de retorno e canal de contato?",
-  "Olá! Trabalho com uma plataforma que ajuda empresas a venderem com mais organização no WhatsApp. Posso te mandar uma prévia?",
-  "Oi. Se hoje vocês dependem de memória para retornar clientes, tenho uma solução simples para automatizar lembretes. Posso mostrar?",
-  "Olá! Vi a {{company}} e pensei em uma forma de melhorar acompanhamento sem mudar o jeito que vocês atendem.",
-  "Oi! Posso te mandar uma ideia rápida para organizar prospecção, contatos e retornos usando o HBX?",
-  "Olá. Para {{segment}}, velocidade de retorno faz diferença. Posso te mostrar como priorizar quem chamar primeiro?",
-  "Oi! O HBX ajuda a enxergar quem está quente, quem precisa de retorno e quem deve ser descartado. Quer ver?",
-  "Olá! Tenho uma forma de deixar o comercial mais visual: cards, score, próxima ação e mensagem pronta. Posso enviar?",
+  "OlÃ¡! Trabalho com uma plataforma que ajuda empresas a venderem com mais organizaÃ§Ã£o no WhatsApp. Posso te mandar uma prÃ©via?",
+  "Oi. Se hoje vocÃªs dependem de memÃ³ria para retornar clientes, tenho uma soluÃ§Ã£o simples para automatizar lembretes. Posso mostrar?",
+  "OlÃ¡! Vi a {{company}} e pensei em uma forma de melhorar acompanhamento sem mudar o jeito que vocÃªs atendem.",
+  "Oi! Posso te mandar uma ideia rÃ¡pida para organizar prospecÃ§Ã£o, contatos e retornos usando o HBX?",
+  "OlÃ¡. Para {{segment}}, velocidade de retorno faz diferenÃ§a. Posso te mostrar como priorizar quem chamar primeiro?",
+  "Oi! O HBX ajuda a enxergar quem estÃ¡ quente, quem precisa de retorno e quem deve ser descartado. Quer ver?",
+  "OlÃ¡! Tenho uma forma de deixar o comercial mais visual: cards, score, prÃ³xima aÃ§Ã£o e mensagem pronta. Posso enviar?",
   "Oi. Vi a {{company}} e queria te mostrar um jeito de reduzir retrabalho no acompanhamento dos contatos.",
-  "Olá! Posso te mostrar como o HBX organiza WhatsApp, ligação e observações em uma rotina diária de vendas?",
-  "Oi! A proposta é ajudar a {{company}} a não perder oportunidades por falta de follow-up. Posso te explicar?",
-  "Olá. Se vocês fazem orçamento ou atendimento consultivo, o HBX pode lembrar cada próxima etapa. Posso mandar um resumo?",
-  "Oi, tudo bem? Tenho uma ideia para deixar o retorno ao cliente mais rápido e rastreável. Posso compartilhar?",
-  "Olá! Vi a {{company}} e achei que uma agenda comercial inteligente pode ajudar no dia a dia. Posso te mostrar?",
-  "Oi. Posso te enviar uma explicação bem objetiva de como o HBX organiza leads e retornos para empresas locais?",
-  "Olá! O HBX cria uma fila de ação para o time saber quem chamar agora. Posso mostrar como seria para {{segment}}?",
-  "Oi! Se fizer sentido, te mando um exemplo de mensagem, card e próxima ação para a rotina comercial da {{company}}.",
-  "Olá. Ajudo empresas a terem mais controle dos contatos vindos do WhatsApp. Posso te mandar uma ideia rápida?",
-  "Oi! Vi a {{company}} e pensei em uma melhoria simples para organizar oportunidades sem perder o histórico.",
-  "Olá! Posso te mostrar como priorizar contatos bons, descartar negativos e manter retornos no prazo?",
-  "Oi. Tenho uma sugestão curta para melhorar a cadência comercial da {{company}} com menos esforço manual. Posso enviar?",
+  "OlÃ¡! Posso te mostrar como o HBX organiza WhatsApp, ligaÃ§Ã£o e observaÃ§Ãµes em uma rotina diÃ¡ria de vendas?",
+  "Oi! A proposta Ã© ajudar a {{company}} a nÃ£o perder oportunidades por falta de follow-up. Posso te explicar?",
+  "OlÃ¡. Se vocÃªs fazem orÃ§amento ou atendimento consultivo, o HBX pode lembrar cada prÃ³xima etapa. Posso mandar um resumo?",
+  "Oi, tudo bem? Tenho uma ideia para deixar o retorno ao cliente mais rÃ¡pido e rastreÃ¡vel. Posso compartilhar?",
+  "OlÃ¡! Vi a {{company}} e achei que uma agenda comercial inteligente pode ajudar no dia a dia. Posso te mostrar?",
+  "Oi. Posso te enviar uma explicaÃ§Ã£o bem objetiva de como o HBX organiza leads e retornos para empresas locais?",
+  "OlÃ¡! O HBX cria uma fila de aÃ§Ã£o para o time saber quem chamar agora. Posso mostrar como seria para {{segment}}?",
+  "Oi! Se fizer sentido, te mando um exemplo de mensagem, card e prÃ³xima aÃ§Ã£o para a rotina comercial da {{company}}.",
+  "OlÃ¡. Ajudo empresas a terem mais controle dos contatos vindos do WhatsApp. Posso te mandar uma ideia rÃ¡pida?",
+  "Oi! Vi a {{company}} e pensei em uma melhoria simples para organizar oportunidades sem perder o histÃ³rico.",
+  "OlÃ¡! Posso te mostrar como priorizar contatos bons, descartar negativos e manter retornos no prazo?",
+  "Oi. Tenho uma sugestÃ£o curta para melhorar a cadÃªncia comercial da {{company}} com menos esforÃ§o manual. Posso enviar?",
+=======
+  "famÃƒÂ­lias",
+  "empresas pequenas",
+  "comÃƒÂ©rcios locais",
+  "profissionais autÃƒÂ´nomos",
+  "clÃƒÂ­nicas",
+  "oficinas",
+  "restaurantes",
+  "salÃƒÂµes",
+];
+const SALES_PROFILE_AVOID_EXAMPLES = [
+  "empresa grande",
+  "ÃƒÂ³rgÃƒÂ£o pÃƒÂºblico",
+  "sem telefone",
+  "sem WhatsApp",
+  "diretÃƒÂ³rio/lista genÃƒÂ©rica",
+  "fora da cidade",
+  "segmento errado",
+];
+const SALES_PROFILE_CHANNELS = ["whatsapp", "ligaÃƒÂ§ÃƒÂ£o", "e-mail", "instagram"];
+const MOBILE_READY_MESSAGE_LIBRARY = [
+  "OlÃƒÂ¡, tudo bem? Vi a {{company}} em {{city}} e queria te mostrar uma forma simples de organizar contatos, retornos e oportunidades sem depender de planilha.",
+  "Oi, tudo bem? Notei que empresas de {{segment}} costumam perder retorno por falta de acompanhamento. Posso te mandar uma ideia rÃƒÂ¡pida para resolver isso?",
+  "OlÃƒÂ¡! Vi a {{company}} e achei que o HBX pode ajudar vocÃƒÂªs a acompanhar interessados, lembretes e prÃƒÂ³ximos contatos em um sÃƒÂ³ lugar.",
+  "Oi, tudo bem? Trabalho com uma soluÃƒÂ§ÃƒÂ£o para organizar prospecÃƒÂ§ÃƒÂ£o e atendimento pelo WhatsApp. Faz sentido eu te explicar em 1 minuto?",
+  "OlÃƒÂ¡! Posso te mostrar como deixar os contatos de {{segment}} mais organizados e com retorno automÃƒÂ¡tico no momento certo?",
+  "Oi! Passei pelo perfil da {{company}} e vi espaÃƒÂ§o para melhorar acompanhamento de clientes. Posso te enviar uma explicaÃƒÂ§ÃƒÂ£o curta?",
+  "OlÃƒÂ¡. O HBX ajuda empresas locais a nÃƒÂ£o esquecerem retorno, orÃƒÂ§amento e follow-up. Posso te mostrar como ficaria para {{segment}}?",
+  "Oi, tudo bem? Se hoje vocÃƒÂªs anotam contatos em WhatsApp, agenda ou planilha, tenho uma forma mais simples de centralizar isso. Posso mandar?",
+  "OlÃƒÂ¡! Vi a {{company}} em {{city}}. Posso te mostrar uma ideia para transformar contatos soltos em uma fila clara de prÃƒÂ³ximas aÃƒÂ§ÃƒÂµes?",
+  "Oi. Ajudo empresas a organizar leads, retornos e atendimentos para vender com mais previsibilidade. Posso te explicar rapidamente?",
+  "OlÃƒÂ¡! Tenho uma sugestÃƒÂ£o prÃƒÂ¡tica para melhorar o controle dos contatos que chegam pelo WhatsApp. Posso te enviar?",
+  "Oi! A ideia ÃƒÂ© simples: cada contato vira um card com status, lembrete e prÃƒÂ³xima aÃƒÂ§ÃƒÂ£o. Quer ver como isso pode funcionar para {{company}}?",
+  "OlÃƒÂ¡. Vi que {{segment}} depende muito de retorno rÃƒÂ¡pido. Posso te mostrar uma ferramenta para nÃƒÂ£o deixar interessados esfriarem?",
+  "Oi! O HBX organiza quem precisa ser chamado hoje, amanhÃƒÂ£ e depois. Posso te mandar um exemplo aplicado ÃƒÂ  {{company}}?",
+  "OlÃƒÂ¡! Posso te mostrar uma forma de acompanhar orÃƒÂ§amento, retorno e conversa sem perder histÃƒÂ³rico no WhatsApp?",
+  "Oi. Trabalho com automaÃƒÂ§ÃƒÂ£o comercial para pequenas empresas. A proposta ÃƒÂ© ganhar controle sem complicar a rotina. Posso explicar?",
+  "OlÃƒÂ¡! Se fizer sentido, te mostro como a {{company}} pode ter uma fila diÃƒÂ¡ria de contatos prioritÃƒÂ¡rios para chamar.",
+  "Oi! Vi a {{company}} e pensei em uma melhoria simples: lembrar automaticamente quem precisa de retorno. Posso mandar a ideia?",
+  "OlÃƒÂ¡. O HBX ajuda a separar contato novo, retorno e cliente interessado. Posso te mostrar como isso reduz esquecimentos?",
+  "Oi, tudo bem? Tenho uma soluÃƒÂ§ÃƒÂ£o para organizar atendimento e prospecÃƒÂ§ÃƒÂ£o em uma visÃƒÂ£o de app. Posso te mandar um resumo?",
+  "OlÃƒÂ¡! Empresas de {{segment}} costumam ganhar muito quando cada conversa jÃƒÂ¡ nasce com prÃƒÂ³xima aÃƒÂ§ÃƒÂ£o. Posso te mostrar?",
+  "Oi! Posso te enviar uma ideia para acompanhar leads por prioridade, com WhatsApp, ligaÃƒÂ§ÃƒÂ£o e observaÃƒÂ§ÃƒÂ£o no mesmo lugar?",
+  "OlÃƒÂ¡. Vi a {{company}} e queria sugerir um jeito de melhorar retorno comercial sem contratar mais gente agora.",
+  "Oi, tudo bem? O objetivo ÃƒÂ© simples: menos contato perdido e mais follow-up no dia certo. Posso te explicar como?",
+  "OlÃƒÂ¡! Se vocÃƒÂªs recebem pedidos, dÃƒÂºvidas ou orÃƒÂ§amentos pelo WhatsApp, o HBX pode organizar isso em cards. Posso mostrar?",
+  "Oi. Posso te mandar um exemplo de fluxo para a {{company}} acompanhar contatos e oportunidades com mais clareza?",
+  "OlÃƒÂ¡! Tenho uma ideia curta para transformar o WhatsApp em uma agenda comercial organizada. Faz sentido eu enviar?",
+  "Oi! Vi a {{company}} em {{city}} e achei que vocÃƒÂªs podem se beneficiar de uma rotina mais clara de retorno aos clientes.",
+  "OlÃƒÂ¡. O HBX mostra o prÃƒÂ³ximo contato certo e evita que leads fiquem esquecidos. Posso te mostrar a ideia?",
+  "Oi, tudo bem? Posso te explicar como organizar clientes interessados por status, data de retorno e canal de contato?",
+  "OlÃƒÂ¡! Trabalho com uma plataforma que ajuda empresas a venderem com mais organizaÃƒÂ§ÃƒÂ£o no WhatsApp. Posso te mandar uma prÃƒÂ©via?",
+  "Oi. Se hoje vocÃƒÂªs dependem de memÃƒÂ³ria para retornar clientes, tenho uma soluÃƒÂ§ÃƒÂ£o simples para automatizar lembretes. Posso mostrar?",
+  "OlÃƒÂ¡! Vi a {{company}} e pensei em uma forma de melhorar acompanhamento sem mudar o jeito que vocÃƒÂªs atendem.",
+  "Oi! Posso te mandar uma ideia rÃƒÂ¡pida para organizar prospecÃƒÂ§ÃƒÂ£o, contatos e retornos usando o HBX?",
+  "OlÃƒÂ¡. Para {{segment}}, velocidade de retorno faz diferenÃƒÂ§a. Posso te mostrar como priorizar quem chamar primeiro?",
+  "Oi! O HBX ajuda a enxergar quem estÃƒÂ¡ quente, quem precisa de retorno e quem deve ser descartado. Quer ver?",
+  "OlÃƒÂ¡! Tenho uma forma de deixar o comercial mais visual: cards, score, prÃƒÂ³xima aÃƒÂ§ÃƒÂ£o e mensagem pronta. Posso enviar?",
+  "Oi. Vi a {{company}} e queria te mostrar um jeito de reduzir retrabalho no acompanhamento dos contatos.",
+  "OlÃƒÂ¡! Posso te mostrar como o HBX organiza WhatsApp, ligaÃƒÂ§ÃƒÂ£o e observaÃƒÂ§ÃƒÂµes em uma rotina diÃƒÂ¡ria de vendas?",
+  "Oi! A proposta ÃƒÂ© ajudar a {{company}} a nÃƒÂ£o perder oportunidades por falta de follow-up. Posso te explicar?",
+  "OlÃƒÂ¡. Se vocÃƒÂªs fazem orÃƒÂ§amento ou atendimento consultivo, o HBX pode lembrar cada prÃƒÂ³xima etapa. Posso mandar um resumo?",
+  "Oi, tudo bem? Tenho uma ideia para deixar o retorno ao cliente mais rÃƒÂ¡pido e rastreÃƒÂ¡vel. Posso compartilhar?",
+  "OlÃƒÂ¡! Vi a {{company}} e achei que uma agenda comercial inteligente pode ajudar no dia a dia. Posso te mostrar?",
+  "Oi. Posso te enviar uma explicaÃƒÂ§ÃƒÂ£o bem objetiva de como o HBX organiza leads e retornos para empresas locais?",
+  "OlÃƒÂ¡! O HBX cria uma fila de aÃƒÂ§ÃƒÂ£o para o time saber quem chamar agora. Posso mostrar como seria para {{segment}}?",
+  "Oi! Se fizer sentido, te mando um exemplo de mensagem, card e prÃƒÂ³xima aÃƒÂ§ÃƒÂ£o para a rotina comercial da {{company}}.",
+  "OlÃƒÂ¡. Ajudo empresas a terem mais controle dos contatos vindos do WhatsApp. Posso te mandar uma ideia rÃƒÂ¡pida?",
+  "Oi! Vi a {{company}} e pensei em uma melhoria simples para organizar oportunidades sem perder o histÃƒÂ³rico.",
+  "OlÃƒÂ¡! Posso te mostrar como priorizar contatos bons, descartar negativos e manter retornos no prazo?",
+  "Oi. Tenho uma sugestÃƒÂ£o curta para melhorar a cadÃƒÂªncia comercial da {{company}} com menos esforÃƒÂ§o manual. Posso enviar?",
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
 ] as const;
 
 const WHATSAPP_FILTER_LABELS: Record<WhatsappFilter, string> = {
@@ -759,15 +852,24 @@ function buildWhatsAppUrl(phone?: string | null, leadName?: string | null) {
   const digits = normalizePhoneDigits(String(phone || ""));
   if (!digits) return "";
   const message = leadName
-    ? `Olá, ${leadName}. Estou retomando nosso contato pelo HBX Vendas.`
-    : "Olá. Estou retomando nosso contato pelo HBX Vendas.";
+<<<<<<< HEAD
+    ? `OlÃ¡, ${leadName}. Estou retomando nosso contato pelo HBX Vendas.`
+    : "OlÃ¡. Estou retomando nosso contato pelo HBX Vendas.";
+=======
+    ? `OlÃƒÂ¡, ${leadName}. Estou retomando nosso contato pelo HBX Vendas.`
+    : "OlÃƒÂ¡. Estou retomando nosso contato pelo HBX Vendas.";
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
   return `https://wa.me/55${digits}?text=${encodeURIComponent(message)}`;
 }
 
 function buildWhatsAppUrlWithMessage(phone?: string | null, message?: string | null) {
   const digits = normalizePhoneDigits(String(phone || ""));
   if (!digits) return "";
-  const text = String(message || "").trim() || "Olá. Estou retomando nosso contato pelo HBX Vendas.";
+<<<<<<< HEAD
+  const text = String(message || "").trim() || "OlÃ¡. Estou retomando nosso contato pelo HBX Vendas.";
+=======
+  const text = String(message || "").trim() || "OlÃƒÂ¡. Estou retomando nosso contato pelo HBX Vendas.";
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
   return `https://wa.me/55${digits}?text=${encodeURIComponent(text)}`;
 }
 
@@ -851,28 +953,44 @@ function leadEnrichmentBadgeState(lead: LeadItem, board?: BoardResponse | null) 
     return {
       state: "enriching" as const,
       label: "Enriquecendo",
-      title: "O Radar está buscando site, redes sociais, CNPJ e sinais comerciais deste card.",
+<<<<<<< HEAD
+      title: "O Radar estÃ¡ buscando site, redes sociais, CNPJ e sinais comerciais deste card.",
+=======
+      title: "O Radar estÃƒÂ¡ buscando site, redes sociais, CNPJ e sinais comerciais deste card.",
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
     };
   }
   if ((pendingTier && !enrichmentChecked) || (fromRadar && !readyTier && !leadHasPremiumSignals(lead) && !enrichmentChecked)) {
     return {
       state: "enriching" as const,
       label: "Enriquecendo",
-      title: "O Radar está buscando site, redes sociais, CNPJ e sinais comerciais deste card.",
+<<<<<<< HEAD
+      title: "O Radar estÃ¡ buscando site, redes sociais, CNPJ e sinais comerciais deste card.",
+=======
+      title: "O Radar estÃƒÂ¡ buscando site, redes sociais, CNPJ e sinais comerciais deste card.",
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
     };
   }
   if (enrichmentStatus === "failed") {
     return {
       state: "reviewed" as const,
       label: "Revisado",
-      title: "O Radar revisou este card, mas não encontrou novos sinais agora.",
+<<<<<<< HEAD
+      title: "O Radar revisou este card, mas nÃ£o encontrou novos sinais agora.",
+=======
+      title: "O Radar revisou este card, mas nÃƒÂ£o encontrou novos sinais agora.",
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
     };
   }
   if (lockedPremium) {
     return {
       state: "locked" as const,
       label: "Lead",
-      title: "Sinais premium encontrados. Disponível no HBX Lead.",
+<<<<<<< HEAD
+      title: "Sinais premium encontrados. DisponÃ­vel no HBX Lead.",
+=======
+      title: "Sinais premium encontrados. DisponÃƒÂ­vel no HBX Lead.",
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
     };
   }
   if (readyTier || leadHasPremiumSignals(lead)) {
@@ -1055,7 +1173,11 @@ function personalizeMobileReadyMessage(
   const company = mobileMessageTokenValue(lead.name, "sua empresa");
   const fromPerson = String(preferredPersonName || "").trim();
   const greetingName = company === "sua empresa" ? "tudo bem" : company;
-  const city = mobileMessageTokenValue(lead.city, "sua região");
+<<<<<<< HEAD
+  const city = mobileMessageTokenValue(lead.city, "sua regiÃ£o");
+=======
+  const city = mobileMessageTokenValue(lead.city, "sua regiÃƒÂ£o");
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
   const segment = mobileMessageTokenValue(lead.segment, "empresas locais");
   const source = mobileMessageTokenValue(lead.primarySource, "Radar Digital");
   return template
@@ -1136,14 +1258,24 @@ function buildSellerScoreBreakdown(lead: LeadItem) {
   const rows = [
     { label: "Base do card", points: 44, active: true },
     { label: "WhatsApp confirmado", points: 24, active: whatsappReady },
-    { label: "Telefone válido", points: 16, active: Boolean(buildCallUrl(lead.phone)) },
+<<<<<<< HEAD
+    { label: "Telefone vÃ¡lido", points: 16, active: Boolean(buildCallUrl(lead.phone)) },
+=======
+    { label: "Telefone vÃƒÂ¡lido", points: 16, active: Boolean(buildCallUrl(lead.phone)) },
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
     { label: "E-mail encontrado", points: String(intelligence.emailStatus || "").toLowerCase() === "probable" ? 8 : 14, active: Boolean(email) },
     { label: "Instagram", points: facebook ? 4 : 6, active: Boolean(instagram) },
     { label: "Facebook", points: instagram ? 4 : 4, active: Boolean(facebook) },
     { label: "Site fraco ou ausente", points: 7, active: !website || tags.has("sem_site") },
-    { label: "Você selecionou cidade", points: 5, active: tags.has("cidade_alvo") || Boolean(lead.city) },
-    { label: "Você selecionou segmento", points: 5, active: tags.has("segmento_alvo") || Boolean(lead.segment) },
-    { label: "Boa avaliação pública", points: 5, active: tags.has("boa_avaliacao") || Number(lead.rating || 0) >= 4.2 },
+<<<<<<< HEAD
+    { label: "VocÃª selecionou cidade", points: 5, active: tags.has("cidade_alvo") || Boolean(lead.city) },
+    { label: "VocÃª selecionou segmento", points: 5, active: tags.has("segmento_alvo") || Boolean(lead.segment) },
+    { label: "Boa avaliaÃ§Ã£o pÃºblica", points: 5, active: tags.has("boa_avaliacao") || Number(lead.rating || 0) >= 4.2 },
+=======
+    { label: "VocÃƒÂª selecionou cidade", points: 5, active: tags.has("cidade_alvo") || Boolean(lead.city) },
+    { label: "VocÃƒÂª selecionou segmento", points: 5, active: tags.has("segmento_alvo") || Boolean(lead.segment) },
+    { label: "Boa avaliaÃƒÂ§ÃƒÂ£o pÃƒÂºblica", points: 5, active: tags.has("boa_avaliacao") || Number(lead.rating || 0) >= 4.2 },
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
     { label: "Prova social", points: 4, active: tags.has("prova_social") || Number(lead.reviews || 0) >= 20 },
   ].filter((row) => row.active);
   return rows.slice(0, 8);
@@ -1156,7 +1288,11 @@ function leadTagLabel(tag: string) {
     email_encontrado: "E-mail encontrado",
     cidade_alvo: "Cidade alvo",
     segmento_alvo: "Segmento alvo",
-    boa_avaliacao: "Boa avaliação",
+<<<<<<< HEAD
+    boa_avaliacao: "Boa avaliaÃ§Ã£o",
+=======
+    boa_avaliacao: "Boa avaliaÃƒÂ§ÃƒÂ£o",
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
     prova_social: "Prova social",
     instagram_encontrado: "Instagram",
     facebook_encontrado: "Facebook",
@@ -1169,15 +1305,25 @@ function leadTagLabel(tag: string) {
 function whatsappStatusLabel(status?: string | null) {
   if (status === "confirmed") return "WhatsApp verificado";
   if (status === "missing") return "Sem WhatsApp";
-  if (status === "invalid") return "Telefone inválido";
+<<<<<<< HEAD
+  if (status === "invalid") return "Telefone invÃ¡lido";
+=======
+  if (status === "invalid") return "Telefone invÃƒÂ¡lido";
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
   return "WhatsApp pendente";
 }
 
 function nextBestActionLabel(action?: string | null) {
   if (action === "whatsapp") return "Chamar no WhatsApp";
-  if (action === "call") return "Tentar ligação";
+<<<<<<< HEAD
+  if (action === "call") return "Tentar ligaÃ§Ã£o";
   if (action === "email") return "Enviar e-mail";
-  if (action === "discard") return "Não chamar";
+  if (action === "discard") return "NÃ£o chamar";
+=======
+  if (action === "call") return "Tentar ligaÃƒÂ§ÃƒÂ£o";
+  if (action === "email") return "Enviar e-mail";
+  if (action === "discard") return "NÃƒÂ£o chamar";
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
   return "Revisar card";
 }
 
@@ -1244,8 +1390,13 @@ function statusLabel(status: LeadStatus) {
 function compactVendasMessage(message: string | null) {
   const text = String(message || "").trim();
   if (!text) return "";
-  if (text.toLowerCase().includes("deve ser um e-mail válido")) {
-    return "E-mail inválido. Remova ou informe um endereço válido.";
+<<<<<<< HEAD
+  if (text.toLowerCase().includes("deve ser um e-mail vÃ¡lido")) {
+    return "E-mail invÃ¡lido. Remova ou informe um endereÃ§o vÃ¡lido.";
+=======
+  if (text.toLowerCase().includes("deve ser um e-mail vÃƒÂ¡lido")) {
+    return "E-mail invÃƒÂ¡lido. Remova ou informe um endereÃƒÂ§o vÃƒÂ¡lido.";
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
   }
   return text;
 }
@@ -1280,8 +1431,13 @@ function buildLeadWebscrapingSummary(lead: LeadItem) {
   const parts: string[] = [];
   if (lead.rating != null) parts.push(`Nota ${Number(lead.rating).toFixed(1)}`);
   if (Number(lead.reviews || 0) > 0)
-    parts.push(`${Number(lead.reviews)} avaliações`);
-  return parts.join(" • ");
+<<<<<<< HEAD
+    parts.push(`${Number(lead.reviews)} avaliaÃ§Ãµes`);
+  return parts.join(" â€¢ ");
+=======
+    parts.push(`${Number(lead.reviews)} avaliaÃƒÂ§ÃƒÂµes`);
+  return parts.join(" Ã¢â‚¬Â¢ ");
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
 }
 
 function hydrateDrafts(board: BoardResponse | null) {
@@ -1352,16 +1508,28 @@ function returnMeta(lead: LeadItem, draft: LeadDraft, block: LeadBlockKey) {
     } as const;
   if (block === "today")
     return {
-      label: `Hoje • ${formatDateTime(effective)}`,
+<<<<<<< HEAD
+      label: `Hoje â€¢ ${formatDateTime(effective)}`,
+=======
+      label: `Hoje Ã¢â‚¬Â¢ ${formatDateTime(effective)}`,
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
       tone: "today",
     } as const;
   if (block === "scheduled")
     return {
-      label: `Agendado • ${formatDateTime(effective)}`,
+<<<<<<< HEAD
+      label: `Agendado â€¢ ${formatDateTime(effective)}`,
       tone: "scheduled",
     } as const;
   return {
-    label: `Arquivo • ${formatShortDate(effective)}`,
+    label: `Arquivo â€¢ ${formatShortDate(effective)}`,
+=======
+      label: `Agendado Ã¢â‚¬Â¢ ${formatDateTime(effective)}`,
+      tone: "scheduled",
+    } as const;
+  return {
+    label: `Arquivo Ã¢â‚¬Â¢ ${formatShortDate(effective)}`,
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
     tone: "closed",
   } as const;
 }
@@ -1634,8 +1802,13 @@ function DateDropSlot({
             e.preventDefault();
             onDateShortcut();
           }}
-          title="Enviar cards visíveis desta data para Prospecção"
-          aria-label="Enviar cards visíveis desta data para Prospecção"
+<<<<<<< HEAD
+          title="Enviar cards visÃ­veis desta data para ProspecÃ§Ã£o"
+          aria-label="Enviar cards visÃ­veis desta data para ProspecÃ§Ã£o"
+=======
+          title="Enviar cards visÃƒÂ­veis desta data para ProspecÃƒÂ§ÃƒÂ£o"
+          aria-label="Enviar cards visÃƒÂ­veis desta data para ProspecÃƒÂ§ÃƒÂ£o"
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
         >
           <svg
             width="10"
@@ -1732,8 +1905,13 @@ function LeadCardView({
   const chips = [
     signals.alreadyExisted ? "Lead conhecido" : null,
     signals.cameFromWebscraping ? "Radar Digital" : null,
-    signals.hadPreviousContact ? "Com histórico" : null,
-    signals.wasClosedBefore ? "Já encerrado" : null,
+<<<<<<< HEAD
+    signals.hadPreviousContact ? "Com histÃ³rico" : null,
+    signals.wasClosedBefore ? "JÃ¡ encerrado" : null,
+=======
+    signals.hadPreviousContact ? "Com histÃƒÂ³rico" : null,
+    signals.wasClosedBefore ? "JÃƒÂ¡ encerrado" : null,
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
     lead.whatsappAvailability?.status === "unavailable" ? "Sem WhatsApp" : null,
     lead.city || null,
   ].filter(Boolean);
@@ -1749,7 +1927,11 @@ function LeadCardView({
   const webscrapingSummary = buildLeadWebscrapingSummary(lead);
   const channelAssets = buildLeadChannelAssets(lead);
 
-  // inline editor mount/animation control — uses global motion timings
+<<<<<<< HEAD
+  // inline editor mount/animation control â€” uses global motion timings
+=======
+  // inline editor mount/animation control Ã¢â‚¬â€ uses global motion timings
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
   const editorRef = useRef<HTMLDivElement | null>(null);
   const [editorRendered, setEditorRendered] = useState<boolean>(
     Boolean(editing),
@@ -1862,7 +2044,11 @@ function LeadCardView({
                 data-selected={bulkSelected ? "true" : "false"}
                 aria-pressed={bulkSelected ? "true" : "false"}
                 aria-label={
-                  bulkSelected ? "Remover card da seleção" : "Selecionar card"
+<<<<<<< HEAD
+                  bulkSelected ? "Remover card da seleÃ§Ã£o" : "Selecionar card"
+=======
+                  bulkSelected ? "Remover card da seleÃƒÂ§ÃƒÂ£o" : "Selecionar card"
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
                 }
                 onPointerDown={(event) => event.stopPropagation()}
                 onClick={(event) => {
@@ -1870,7 +2056,11 @@ function LeadCardView({
                   onBulkToggle?.(lead.id);
                 }}
               >
-                {bulkSelected ? "✓" : ""}
+<<<<<<< HEAD
+                {bulkSelected ? "âœ“" : ""}
+=======
+                {bulkSelected ? "Ã¢Å“â€œ" : ""}
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
               </button>
             ) : null}
             <div className={styles.leadIdentity}>
@@ -1897,14 +2087,22 @@ function LeadCardView({
                 {lead.segment ? (
                   <>
                     {lead.segment}
-                    {lead.city ? ` • ${lead.city}` : null}
+<<<<<<< HEAD
+                    {lead.city ? ` â€¢ ${lead.city}` : null}
+=======
+                    {lead.city ? ` Ã¢â‚¬Â¢ ${lead.city}` : null}
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
                   </>
                 ) : lead.city ? (
                   lead.city
                 ) : null}
               </span>
               {channelAssets.length ? (
-                <div className={styles.leadCardChannelRow} aria-label="Canais disponíveis">
+<<<<<<< HEAD
+                <div className={styles.leadCardChannelRow} aria-label="Canais disponÃ­veis">
+=======
+                <div className={styles.leadCardChannelRow} aria-label="Canais disponÃƒÂ­veis">
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
                   {channelAssets.map((asset) => {
                     const icon = (
                       <span
@@ -1922,7 +2120,11 @@ function LeadCardView({
                         <Link
                           key={asset.channel}
                           href={toMobileRoute("/planos?intent=lead")}
-                          aria-label={`${MOBILE_CHANNEL_ASSETS[asset.channel].label} disponível no HBX Lead`}
+<<<<<<< HEAD
+                          aria-label={`${MOBILE_CHANNEL_ASSETS[asset.channel].label} disponÃ­vel no HBX Lead`}
+=======
+                          aria-label={`${MOBILE_CHANNEL_ASSETS[asset.channel].label} disponÃƒÂ­vel no HBX Lead`}
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
                           onClick={(event) => event.stopPropagation()}
                         >
                           {icon}
@@ -2044,7 +2246,11 @@ function LeadCardView({
                 </select>
               </label>
               <label className={styles.fieldWide}>
-                <span className={styles.fieldLabel}>Próxima ação</span>
+<<<<<<< HEAD
+                <span className={styles.fieldLabel}>PrÃ³xima aÃ§Ã£o</span>
+=======
+                <span className={styles.fieldLabel}>PrÃƒÂ³xima aÃƒÂ§ÃƒÂ£o</span>
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
                 <input
                   className={styles.fieldInput}
                   value={draft.nextAction}
@@ -2065,7 +2271,11 @@ function LeadCardView({
                 />
               </label>
               <label className={styles.fieldWide}>
-                <span className={styles.fieldLabel}>Observação curta</span>
+<<<<<<< HEAD
+                <span className={styles.fieldLabel}>ObservaÃ§Ã£o curta</span>
+=======
+                <span className={styles.fieldLabel}>ObservaÃƒÂ§ÃƒÂ£o curta</span>
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
                 <textarea
                   className={styles.fieldTextarea}
                   rows={3}
@@ -2132,7 +2342,11 @@ function LeadCardView({
               onClick={() => onQuickAction("amanha")}
               disabled={saving}
             >
-              Amanhã
+<<<<<<< HEAD
+              AmanhÃ£
+=======
+              AmanhÃƒÂ£
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
             </button>
           ) : null}
           {lead.quickActions.includes("encerrar") ? (
@@ -2162,12 +2376,21 @@ function LeadCardView({
           className={`${glassCardStyles.stack} ${styles.leadQuickReadStack}`}
         >
           <div className={styles.leadInfoBlock}>
-            <span className={glassCardStyles.sectionLabel}>Endereço</span>
+<<<<<<< HEAD
+            <span className={glassCardStyles.sectionLabel}>EndereÃ§o</span>
             <strong className={glassCardStyles.sectionTitle}>
-              Localização
+              LocalizaÃ§Ã£o
             </strong>
             <p className={glassCardStyles.bodyText}>
-              {lead.address || "Sem endereço registrado."}
+              {lead.address || "Sem endereÃ§o registrado."}
+=======
+            <span className={glassCardStyles.sectionLabel}>EndereÃƒÂ§o</span>
+            <strong className={glassCardStyles.sectionTitle}>
+              LocalizaÃƒÂ§ÃƒÂ£o
+            </strong>
+            <p className={glassCardStyles.bodyText}>
+              {lead.address || "Sem endereÃƒÂ§o registrado."}
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
             </p>
           </div>
           <div className={styles.leadInfoBlock}>
@@ -2179,7 +2402,11 @@ function LeadCardView({
               {draft.shortNote ||
                 lead.shortNote ||
                 webscrapingSummary ||
-                "Sem observação curta registrada."}
+<<<<<<< HEAD
+                "Sem observaÃ§Ã£o curta registrada."}
+=======
+                "Sem observaÃƒÂ§ÃƒÂ£o curta registrada."}
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
             </p>
           </div>
         </div>
@@ -2600,7 +2827,11 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
           avoidSegments: {
             labels: salesProfileDraft.avoidSegments,
             hardReject: salesProfileDraft.avoidSegments.filter((item) =>
-              /órgão|orgao|diretório|diretorio|sem telefone|segmento errado/i.test(item),
+<<<<<<< HEAD
+              /Ã³rgÃ£o|orgao|diretÃ³rio|diretorio|sem telefone|segmento errado/i.test(item),
+=======
+              /ÃƒÂ³rgÃƒÂ£o|orgao|diretÃƒÂ³rio|diretorio|sem telefone|segmento errado/i.test(item),
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
             ),
           },
           preferredChannels: salesProfileDraft.preferredChannels,
@@ -2613,9 +2844,15 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
             preferLocalBusiness: true,
           },
           negativeRules: {
-            avoidPublicSector: salesProfileDraft.avoidSegments.some((item) => /órgão|orgao/i.test(item)),
+<<<<<<< HEAD
+            avoidPublicSector: salesProfileDraft.avoidSegments.some((item) => /Ã³rgÃ£o|orgao/i.test(item)),
             avoidLargeCompanies: salesProfileDraft.avoidSegments.some((item) => /grande/i.test(item)),
-            avoidDirectories: salesProfileDraft.avoidSegments.some((item) => /diretório|diretorio|lista/i.test(item)),
+            avoidDirectories: salesProfileDraft.avoidSegments.some((item) => /diretÃ³rio|diretorio|lista/i.test(item)),
+=======
+            avoidPublicSector: salesProfileDraft.avoidSegments.some((item) => /ÃƒÂ³rgÃƒÂ£o|orgao/i.test(item)),
+            avoidLargeCompanies: salesProfileDraft.avoidSegments.some((item) => /grande/i.test(item)),
+            avoidDirectories: salesProfileDraft.avoidSegments.some((item) => /diretÃƒÂ³rio|diretorio|lista/i.test(item)),
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
             avoidNoPhone: salesProfileDraft.avoidSegments.some((item) => /sem telefone/i.test(item)),
             avoidNoWhatsapp: salesProfileDraft.avoidSegments.some((item) => /sem whatsapp/i.test(item)),
             avoidOutOfCity: salesProfileDraft.avoidSegments.some((item) => /fora da cidade/i.test(item)),
@@ -2641,9 +2878,15 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
         method: "POST",
       });
       setSalesProfileSuggestion(payload.suggestion || null);
-      setFeedback("Sugestão gerada com base na semana.");
+<<<<<<< HEAD
+      setFeedback("SugestÃ£o gerada com base na semana.");
     } catch (profileError) {
-      setError(profileError instanceof Error ? profileError.message : "Falha ao gerar sugestão.");
+      setError(profileError instanceof Error ? profileError.message : "Falha ao gerar sugestÃ£o.");
+=======
+      setFeedback("SugestÃƒÂ£o gerada com base na semana.");
+    } catch (profileError) {
+      setError(profileError instanceof Error ? profileError.message : "Falha ao gerar sugestÃƒÂ£o.");
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
     } finally {
       setSalesProfileSaving(false);
     }
@@ -2655,7 +2898,11 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
       const payload = await apiFetch<ConversionReportResponse>(`/vendas/report?period=${encodeURIComponent(period)}`);
       setConversionReport(payload);
     } catch (reportError) {
-      setError(reportError instanceof Error ? reportError.message : "Falha ao carregar relatório.");
+<<<<<<< HEAD
+      setError(reportError instanceof Error ? reportError.message : "Falha ao carregar relatÃ³rio.");
+=======
+      setError(reportError instanceof Error ? reportError.message : "Falha ao carregar relatÃƒÂ³rio.");
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
     } finally {
       setConversionReportLoading(false);
     }
@@ -2883,18 +3130,30 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
     ) => {
       const visibleLeadIds = leads.map((lead) => lead.id).filter(Boolean);
       if (!visibleLeadIds.length) {
-        setFeedback("Nenhum card visível para importar ao Inbox.");
+<<<<<<< HEAD
+        setFeedback("Nenhum card visÃ­vel para importar ao Inbox.");
+=======
+        setFeedback("Nenhum card visÃƒÂ­vel para importar ao Inbox.");
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
         return null;
       }
 
       todayAgendaLaunchNotice.start({
         loadingTitle: options?.title || "Abrindo Inbox",
         loadingDescription:
-          options?.description || "Enviando os cards visíveis para Prospecção.",
-        successTitle: "Prospecção pronta",
+<<<<<<< HEAD
+          options?.description || "Enviando os cards visÃ­veis para ProspecÃ§Ã£o.",
+        successTitle: "ProspecÃ§Ã£o pronta",
         successDescription:
-          "Tudo certo. Os cards foram preparados em Prospecção.",
-        ctaLabel: "Abrir Prospecção",
+          "Tudo certo. Os cards foram preparados em ProspecÃ§Ã£o.",
+        ctaLabel: "Abrir ProspecÃ§Ã£o",
+=======
+          options?.description || "Enviando os cards visÃƒÂ­veis para ProspecÃƒÂ§ÃƒÂ£o.",
+        successTitle: "ProspecÃƒÂ§ÃƒÂ£o pronta",
+        successDescription:
+          "Tudo certo. Os cards foram preparados em ProspecÃƒÂ§ÃƒÂ£o.",
+        ctaLabel: "Abrir ProspecÃƒÂ§ÃƒÂ£o",
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
         onOpen: () => openInboxAgenda(),
       });
 
@@ -2911,7 +3170,11 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
         if (!syncResult?.ok) {
           throw new Error(
             syncResult?.message ||
-              "Os cards visíveis nao foram enviados para Prospecção. Recarregue e tente novamente.",
+<<<<<<< HEAD
+              "Os cards visÃ­veis nao foram enviados para ProspecÃ§Ã£o. Recarregue e tente novamente.",
+=======
+              "Os cards visÃƒÂ­veis nao foram enviados para ProspecÃƒÂ§ÃƒÂ£o. Recarregue e tente novamente.",
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
           );
         }
         const firstConversationId =
@@ -2939,8 +3202,13 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
           successDescription:
             String(syncResult?.message || "").trim() ||
             (todayLeadCount
-              ? `${mirroredLeadCount} card(s) foram preparados em Prospecção com roteiro pendente para envio manual.`
-              : "Nao ha cards visíveis para preparar em Prospecção."),
+<<<<<<< HEAD
+              ? `${mirroredLeadCount} card(s) foram preparados em ProspecÃ§Ã£o com roteiro pendente para envio manual.`
+              : "Nao ha cards visÃ­veis para preparar em ProspecÃ§Ã£o."),
+=======
+              ? `${mirroredLeadCount} card(s) foram preparados em ProspecÃƒÂ§ÃƒÂ£o com roteiro pendente para envio manual.`
+              : "Nao ha cards visÃƒÂ­veis para preparar em ProspecÃƒÂ§ÃƒÂ£o."),
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
         });
         await loadBoard();
         if (options?.openAfter) openInboxAgenda(firstConversationId);
@@ -2950,7 +3218,11 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
         setError(
           syncError instanceof Error
             ? syncError.message
-            : "Falha ao importar cards para Prospecção.",
+<<<<<<< HEAD
+            : "Falha ao importar cards para ProspecÃ§Ã£o.",
+=======
+            : "Falha ao importar cards para ProspecÃƒÂ§ÃƒÂ£o.",
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
         );
         return null;
       }
@@ -3380,8 +3652,13 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
         count: board?.summary.overdue || 0,
         title: "Atrasados",
         subtitle: board?.summary.overdue
-          ? "Ontem para trás."
-          : "Sem pendência.",
+<<<<<<< HEAD
+          ? "Ontem para trÃ¡s."
+          : "Sem pendÃªncia.",
+=======
+          ? "Ontem para trÃƒÂ¡s."
+          : "Sem pendÃƒÂªncia.",
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
         dayLabel: "Prioridade",
       },
       {
@@ -3390,7 +3667,11 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
         count: board?.summary.today || 0,
         title: "Hoje",
         subtitle: board?.summary.today ? "Fluxo principal." : "Sem agenda.",
-        dayLabel: "Operação",
+<<<<<<< HEAD
+        dayLabel: "OperaÃ§Ã£o",
+=======
+        dayLabel: "OperaÃƒÂ§ÃƒÂ£o",
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
       },
       ...futureBase,
       ...extraFuture,
@@ -3475,7 +3756,11 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
         meta:
           [lead.segment, lead.city, lead.statusLabel]
             .filter(Boolean)
-            .join(" • ") || "Prospecção",
+<<<<<<< HEAD
+            .join(" â€¢ ") || "ProspecÃ§Ã£o",
+=======
+            .join(" Ã¢â‚¬Â¢ ") || "ProspecÃƒÂ§ÃƒÂ£o",
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
         score: lead.timesSeen ? `${lead.timesSeen}x` : undefined,
       }));
 
@@ -3483,7 +3768,11 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
       dispatchTopbarProgress({
         source: "vendas",
         phase: "warning",
-        title: "Vendas precisa de atenção",
+<<<<<<< HEAD
+        title: "Vendas precisa de atenÃ§Ã£o",
+=======
+        title: "Vendas precisa de atenÃƒÂ§ÃƒÂ£o",
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
         status: errorMessage,
         progress: 100,
         metrics,
@@ -3521,7 +3810,11 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
         notice?.statusLabel ||
         (loading
           ? "Preparando a agenda comercial..."
-          : "Filtrando negativos e alimentando Prospecção..."),
+<<<<<<< HEAD
+          : "Filtrando negativos e alimentando ProspecÃ§Ã£o..."),
+=======
+          : "Filtrando negativos e alimentando ProspecÃƒÂ§ÃƒÂ£o..."),
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
       progress: notice?.progress ?? 18,
       steps: VENDAS_PROGRESS_STEPS,
       activeStepIndex: loading ? 0 : 3,
@@ -3547,7 +3840,11 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
     if (!selectedFilter) return;
     await syncLeadsToInbox(filteredLeads, {
       title: "Abrindo Inbox",
-      description: `Enviando os cards visíveis de ${selectedFilter.title} para Prospecção.`,
+<<<<<<< HEAD
+      description: `Enviando os cards visÃ­veis de ${selectedFilter.title} para ProspecÃ§Ã£o.`,
+=======
+      description: `Enviando os cards visÃƒÂ­veis de ${selectedFilter.title} para ProspecÃƒÂ§ÃƒÂ£o.`,
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
     });
   }, [filteredLeads, selectedFilter, syncLeadsToInbox]);
 
@@ -3610,7 +3907,11 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
     const stateMatch = address.match(/\b([A-Z]{2})\b(?:\s*,?\s*Brasil)?$/);
     const state = stateMatch?.[1] || "";
     if (city && state && !city.includes(state)) return `${city} / ${state}`;
-    return city || address || "Local não informado";
+<<<<<<< HEAD
+    return city || address || "Local nÃ£o informado";
+=======
+    return city || address || "Local nÃƒÂ£o informado";
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
   }
 
   function mobileReturnLabel(lead: LeadItem) {
@@ -3628,7 +3929,11 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
       minute: "2-digit",
     });
     if (sameDay(parsed, today)) return `Hoje ${time}`;
-    if (sameDay(parsed, tomorrow)) return `Amanhã ${time}`;
+<<<<<<< HEAD
+    if (sameDay(parsed, tomorrow)) return `AmanhÃ£ ${time}`;
+=======
+    if (sameDay(parsed, tomorrow)) return `AmanhÃƒÂ£ ${time}`;
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
     return formatDateTime(lead.returnAt);
   }
 
@@ -3636,7 +3941,11 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
     const digits = normalizePhoneDigits(String(lead.phone || ""));
     if (digits.length === 11) return `(${digits.slice(0, 2)}) ${digits.slice(2, 7)}-${digits.slice(7)}`;
     if (digits.length === 10) return `(${digits.slice(0, 2)}) ${digits.slice(2, 6)}-${digits.slice(6)}`;
-    return lead.phone || "Telefone não informado";
+<<<<<<< HEAD
+    return lead.phone || "Telefone nÃ£o informado";
+=======
+    return lead.phone || "Telefone nÃƒÂ£o informado";
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
   }
 
   function mobileLeadSourceLabel(lead: LeadItem) {
@@ -3686,7 +3995,11 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
       setFeedback(
         err instanceof Error
           ? err.message
-          : "Não foi possível enriquecer o card agora.",
+<<<<<<< HEAD
+          : "NÃ£o foi possÃ­vel enriquecer o card agora.",
+=======
+          : "NÃƒÂ£o foi possÃƒÂ­vel enriquecer o card agora.",
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
       );
     } finally {
       setMobileEnrichmentLoadingId((current) => (current === lead.id ? null : current));
@@ -3719,7 +4032,11 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
     }
 
     openMobileLeadDetail(lead);
-    setFeedback("Sem WhatsApp ou telefone disponível. Revise o card e registre a observação.");
+<<<<<<< HEAD
+    setFeedback("Sem WhatsApp ou telefone disponÃ­vel. Revise o card e registre a observaÃ§Ã£o.");
+=======
+    setFeedback("Sem WhatsApp ou telefone disponÃƒÂ­vel. Revise o card e registre a observaÃƒÂ§ÃƒÂ£o.");
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
   }
 
   function renderMobileLeadChannels(lead: LeadItem, options?: { compact?: boolean }) {
@@ -3886,7 +4203,11 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
       await navigator.clipboard.writeText(value);
       setFeedback(successMessage);
     } catch {
-      setFeedback("Não foi possível copiar automaticamente.");
+<<<<<<< HEAD
+      setFeedback("NÃ£o foi possÃ­vel copiar automaticamente.");
+=======
+      setFeedback("NÃƒÂ£o foi possÃƒÂ­vel copiar automaticamente.");
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
     }
   }
 
@@ -3898,7 +4219,11 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
       await saveLead(
         targetLead.id,
         { shortNote: mobileNoteDraft },
-        "Observação salva.",
+<<<<<<< HEAD
+        "ObservaÃ§Ã£o salva.",
+=======
+        "ObservaÃƒÂ§ÃƒÂ£o salva.",
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
       );
       mergeMobileLeadPatch(targetLead.id, { shortNote: mobileNoteDraft });
       setMobileNoteLead((current) =>
@@ -3957,7 +4282,11 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
       return;
     }
     if (!timeValue) {
-      setMobileReturnScheduleError("Informe um horário válido.");
+<<<<<<< HEAD
+      setMobileReturnScheduleError("Informe um horÃ¡rio vÃ¡lido.");
+=======
+      setMobileReturnScheduleError("Informe um horÃƒÂ¡rio vÃƒÂ¡lido.");
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
       return;
     }
     const currentDraft = drafts[mobileReturnScheduler.leadId] || (lead ? createDraft(lead) : null);
@@ -3969,7 +4298,11 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
         nextAction: currentDraft?.nextAction || "Retomar lead",
         returnAt: `${dateKey}T${timeValue}`,
       },
-      `Retorno agendado para ${mobileReturnScheduler.dateText} às ${timeValue}.`,
+<<<<<<< HEAD
+      `Retorno agendado para ${mobileReturnScheduler.dateText} Ã s ${timeValue}.`,
+=======
+      `Retorno agendado para ${mobileReturnScheduler.dateText} ÃƒÂ s ${timeValue}.`,
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
     );
     setSelectedDateKey(`scheduled:${dateKey}`);
     setMobileAgendaTab("upcoming");
@@ -4042,7 +4375,11 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
       setFeedback(
         deletedCount
           ? "Card ocultado do Vendas."
-          : "Este card já não estava mais disponível no Vendas.",
+<<<<<<< HEAD
+          : "Este card jÃ¡ nÃ£o estava mais disponÃ­vel no Vendas.",
+=======
+          : "Este card jÃƒÂ¡ nÃƒÂ£o estava mais disponÃƒÂ­vel no Vendas.",
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
       );
       setMobileReportLead(null);
       setMobileReportReason("");
@@ -4081,7 +4418,11 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
       if (payload?.whatsappUrl && !payload.autoSent) {
         window.open(payload.whatsappUrl, "_blank", "noopener,noreferrer");
       }
-      setFeedback(payload?.message || "Reclamação registrada e card removido do Vendas.");
+<<<<<<< HEAD
+      setFeedback(payload?.message || "ReclamaÃ§Ã£o registrada e card removido do Vendas.");
+=======
+      setFeedback(payload?.message || "ReclamaÃƒÂ§ÃƒÂ£o registrada e card removido do Vendas.");
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
       setMobileReportLead(null);
       await loadBoard({ forceHydrateDrafts: true, forceVisualRefresh: true });
     } catch (reportError) {
@@ -4110,7 +4451,11 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
       const deletedCount = Number(payload?.deletedCount || 0);
       setFeedback(
         deletedCount
-          ? `${deletedCount} card(s) excluído(s) de ${mobileBulkDeleteTarget.label}.`
+<<<<<<< HEAD
+          ? `${deletedCount} card(s) excluÃ­do(s) de ${mobileBulkDeleteTarget.label}.`
+=======
+          ? `${deletedCount} card(s) excluÃƒÂ­do(s) de ${mobileBulkDeleteTarget.label}.`
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
           : "Nenhum card novo para excluir.",
       );
       setMobileBulkDeleteTarget(null);
@@ -4279,7 +4624,11 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
             <div className={styles.mobileVendasReportHeader}>
               <div>
                 <span>HBX</span>
-                <strong>Relatório de Conversão</strong>
+<<<<<<< HEAD
+                <strong>RelatÃ³rio de ConversÃ£o</strong>
+=======
+                <strong>RelatÃƒÂ³rio de ConversÃƒÂ£o</strong>
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
                 <p>{conversionReport?.recommendation || "Carregando leitura comercial..."}</p>
               </div>
               <select
@@ -4293,7 +4642,11 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
             </div>
             {!activeCapabilities.canSeeConversionReport ? (
               <div className={styles.mobileVendasTeaser}>
-                Relatório inteligente disponível no HBX Lead
+<<<<<<< HEAD
+                RelatÃ³rio inteligente disponÃ­vel no HBX Lead
+=======
+                RelatÃƒÂ³rio inteligente disponÃƒÂ­vel no HBX Lead
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
               </div>
             ) : null}
             <div className={styles.mobileVendasReportGrid}>
@@ -4303,7 +4656,11 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
                 ["Respostas", reportMetrics.respostas],
                 ["Interessados", reportMetrics.interessados],
                 ["Taxa resposta", formatReportPercent(reportMetrics.taxaResposta)],
-                ["Conversão", formatReportPercent(reportMetrics.taxaConversao)],
+<<<<<<< HEAD
+                ["ConversÃ£o", formatReportPercent(reportMetrics.taxaConversao)],
+=======
+                ["ConversÃƒÂ£o", formatReportPercent(reportMetrics.taxaConversao)],
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
               ].map(([label, value]) => (
                 <span key={label}>
                   <small>{label}</small>
@@ -4326,7 +4683,11 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
               Exportar PDF
             </button>
             {!activeCapabilities.canExportConversionPdf ? (
-              <small className={styles.mobileVendasReportLock}>Exportação PDF disponível no HBX Lead</small>
+<<<<<<< HEAD
+              <small className={styles.mobileVendasReportLock}>ExportaÃ§Ã£o PDF disponÃ­vel no HBX Lead</small>
+=======
+              <small className={styles.mobileVendasReportLock}>ExportaÃƒÂ§ÃƒÂ£o PDF disponÃƒÂ­vel no HBX Lead</small>
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
             ) : null}
           </section>
         </div>
@@ -4347,7 +4708,11 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
       const template = activeMobileTemplate(lead);
       const readyMessage = capabilities.canSeeMessageTemplates
         ? template.text
-        : `Olá, tudo bem? Encontrei a ${lead.name || "sua empresa"} e queria apresentar uma solução simples para organizar contatos e retornos.`;
+<<<<<<< HEAD
+        : `OlÃ¡, tudo bem? Encontrei a ${lead.name || "sua empresa"} e queria apresentar uma soluÃ§Ã£o simples para organizar contatos e retornos.`;
+=======
+        : `OlÃƒÂ¡, tudo bem? Encontrei a ${lead.name || "sua empresa"} e queria apresentar uma soluÃƒÂ§ÃƒÂ£o simples para organizar contatos e retornos.`;
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
       const whatsappHref = buildWhatsAppUrlWithMessage(
         lead.phone,
         readyMessage,
@@ -4404,12 +4769,21 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
       const suggestedAction = lead.nextAction || nextBestActionLabel(intelligence.nextBestAction);
       const priorityLabel = score ? scoreLabel : "Aguardando dados";
       const premiumTeaser = socialTeaserVisible
-        ? { label: "Redes encontradas", cta: "Disponível no HBX Lead - Ver card inteligente" }
+<<<<<<< HEAD
+        ? { label: "Redes encontradas", cta: "DisponÃ­vel no HBX Lead - Ver card inteligente" }
         : !intelligenceVisible && intelligence.premiumTeaser
-        ? { label: intelligence.premiumTeaser.label || "Disponível no HBX Lead", cta: intelligence.premiumTeaser.cta || "Ver card inteligente" }
+        ? { label: intelligence.premiumTeaser.label || "DisponÃ­vel no HBX Lead", cta: intelligence.premiumTeaser.cta || "Ver card inteligente" }
         : null;
       const mobileLeadActionBar = (
-        <nav className={`${styles.mobileLeadDetailActionBar} hbx-mobile-action-bar`} aria-label="Ações do lead">
+        <nav className={`${styles.mobileLeadDetailActionBar} hbx-mobile-action-bar`} aria-label="AÃ§Ãµes do lead">
+=======
+        ? { label: "Redes encontradas", cta: "DisponÃƒÂ­vel no HBX Lead - Ver card inteligente" }
+        : !intelligenceVisible && intelligence.premiumTeaser
+        ? { label: intelligence.premiumTeaser.label || "DisponÃƒÂ­vel no HBX Lead", cta: intelligence.premiumTeaser.cta || "Ver card inteligente" }
+        : null;
+      const mobileLeadActionBar = (
+        <nav className={`${styles.mobileLeadDetailActionBar} hbx-mobile-action-bar`} aria-label="AÃƒÂ§ÃƒÂµes do lead">
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
           <a
             className="hbx-mobile-primary-button"
             href={whatsappHref || undefined}
@@ -4452,7 +4826,11 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
                 type="button"
                 className={`${styles.mobileLeadBackButton} ${styles.mobileLeadCloseButton} hbx-mobile-secondary-button`}
                 onClick={closeMobileLeadDetail}
-                aria-label="Fechar observações"
+<<<<<<< HEAD
+                aria-label="Fechar observaÃ§Ãµes"
+=======
+                aria-label="Fechar observaÃƒÂ§ÃƒÂµes"
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
               >
                 X
               </button>
@@ -4476,7 +4854,11 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
                   </div>
                   <div>
                     <strong>{lead.name || "Lead sem nome"}</strong>
-                    <span>{lead.segment || "Segmento não informado"}</span>
+<<<<<<< HEAD
+                    <span>{lead.segment || "Segmento nÃ£o informado"}</span>
+=======
+                    <span>{lead.segment || "Segmento nÃƒÂ£o informado"}</span>
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
                     <em>{detailPlace}</em>
                     <MobileEnrichmentCrown lead={lead} board={board} />
                   </div>
@@ -4485,14 +4867,22 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
                   type="button"
                   className={styles.mobileLeadScoreButton}
                   onClick={() => setMobileScoreLead(lead)}
-                  aria-label="Ver explicação do score"
+<<<<<<< HEAD
+                  aria-label="Ver explicaÃ§Ã£o do score"
+=======
+                  aria-label="Ver explicaÃƒÂ§ÃƒÂ£o do score"
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
                 >
                   <MobileLeadScoreGauge
                     className={styles.mobileLeadScoreBox}
                     premium
                     locked={!intelligenceVisible}
                     value={visibleScore}
-                    label={!intelligenceVisible ? "♕ Score" : "Score"}
+<<<<<<< HEAD
+                    label={!intelligenceVisible ? "â™• Score" : "Score"}
+=======
+                    label={!intelligenceVisible ? "Ã¢â„¢â€¢ Score" : "Score"}
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
                     caption={intelligenceVisible ? priorityLabel : "HBX Lead"}
                   />
                 </button>
@@ -4510,7 +4900,11 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
                     className={styles.mobileScoreSheet}
                     role="dialog"
                     aria-modal="true"
-                    aria-label="Explicação do score"
+<<<<<<< HEAD
+                    aria-label="ExplicaÃ§Ã£o do score"
+=======
+                    aria-label="ExplicaÃƒÂ§ÃƒÂ£o do score"
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
                     onClick={(event) => event.stopPropagation()}
                   >
                     <header>
@@ -4518,12 +4912,20 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
                         <span>Score do card</span>
                         <strong>{lead.name || "Lead"}</strong>
                       </div>
-                      <button type="button" onClick={() => setMobileScoreLead(null)} aria-label="Fechar explicação do score">
+<<<<<<< HEAD
+                      <button type="button" onClick={() => setMobileScoreLead(null)} aria-label="Fechar explicaÃ§Ã£o do score">
+=======
+                      <button type="button" onClick={() => setMobileScoreLead(null)} aria-label="Fechar explicaÃƒÂ§ÃƒÂ£o do score">
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
                         X
                       </button>
                     </header>
                     <p>
-                      O score mostra quão fácil parece abordar esse lead agora, somando contato disponível, fit com sua busca e sinais comerciais.
+<<<<<<< HEAD
+                      O score mostra quÃ£o fÃ¡cil parece abordar esse lead agora, somando contato disponÃ­vel, fit com sua busca e sinais comerciais.
+=======
+                      O score mostra quÃƒÂ£o fÃƒÂ¡cil parece abordar esse lead agora, somando contato disponÃƒÂ­vel, fit com sua busca e sinais comerciais.
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
                     </p>
                     <div className={styles.mobileScoreBreakdown}>
                       {buildSellerScoreBreakdown(lead).map((row) => (
@@ -4566,7 +4968,11 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
                         {email}
                       </a>
                     ) : (
-                      <strong>E-mail não encontrado</strong>
+<<<<<<< HEAD
+                      <strong>E-mail nÃ£o encontrado</strong>
+=======
+                      <strong>E-mail nÃƒÂ£o encontrado</strong>
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
                     )}
                     <b data-tone={email ? "success" : "muted"}>{email ? "E-mail encontrado" : "Sem e-mail"}</b>
                   </div>
@@ -4622,7 +5028,11 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
 
               {premiumTeaser ? (
                 <section className={`${styles.mobileLeadPremiumTeaser} hbx-mobile-card`}>
-                  <span aria-hidden="true">♕</span>
+<<<<<<< HEAD
+                  <span aria-hidden="true">â™•</span>
+=======
+                  <span aria-hidden="true">Ã¢â„¢â€¢</span>
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
                   <div>
                     <strong>{premiumTeaser.label}</strong>
                     <small>{premiumTeaser.cta}</small>
@@ -4650,7 +5060,11 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
                 <p>
                   {capabilities.canSeeOpportunityReason
                     ? intelligence.opportunityReason || "Revise os sinais comerciais antes da abordagem."
-                    : "Motivo da oportunidade disponível no HBX Lead."}
+<<<<<<< HEAD
+                    : "Motivo da oportunidade disponÃ­vel no HBX Lead."}
+=======
+                    : "Motivo da oportunidade disponÃƒÂ­vel no HBX Lead."}
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
                 </p>
               </section>
 
@@ -4659,7 +5073,11 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
                   <svg viewBox="0 0 24 24" aria-hidden="true">
                     <path d="m13 2-8 12h7l-1 8 8-12h-7l1-8Z" />
                   </svg>
-                  Próxima ação
+<<<<<<< HEAD
+                  PrÃ³xima aÃ§Ã£o
+=======
+                  PrÃƒÂ³xima aÃƒÂ§ÃƒÂ£o
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
                 </h3>
                 <a
                   href={whatsappHref || undefined}
@@ -4677,7 +5095,11 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
                     </svg>
                   </span>
                   {suggestedAction}
-                  <b aria-hidden="true">›</b>
+<<<<<<< HEAD
+                  <b aria-hidden="true">â€º</b>
+=======
+                  <b aria-hidden="true">Ã¢â‚¬Âº</b>
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
                 </a>
               </section>
 
@@ -4692,7 +5114,11 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
                 </h3>
                 <p>
                   {!capabilities.canSeeMessageTemplates
-                    ? "Mensagem pronta por segmento disponível no HBX Lead."
+<<<<<<< HEAD
+                    ? "Mensagem pronta por segmento disponÃ­vel no HBX Lead."
+=======
+                    ? "Mensagem pronta por segmento disponÃƒÂ­vel no HBX Lead."
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
                     : loadingEnrichment
                       ? "Verificando WhatsApp..."
                       : readyMessage}
@@ -4744,7 +5170,11 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
                       <path d="M9 9h6" />
                       <path d="M9 13h4" />
                     </svg>
-                    Observações
+<<<<<<< HEAD
+                    ObservaÃ§Ãµes
+=======
+                    ObservaÃƒÂ§ÃƒÂµes
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
                   </h3>
                   <span>{mobileNoteDraft.length}/280</span>
                 </div>
@@ -4752,7 +5182,11 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
                   <p className={styles.mobileLeadSavedNote}>{lead.shortNote}</p>
                 ) : null}
                 <label className={styles.mobileLeadNoteEditor}>
-                  <span>Nova observação</span>
+<<<<<<< HEAD
+                  <span>Nova observaÃ§Ã£o</span>
+=======
+                  <span>Nova observaÃƒÂ§ÃƒÂ£o</span>
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
                   <textarea
                     value={mobileNoteDraft}
                     onChange={(event) => setMobileNoteDraft(event.target.value)}
@@ -4766,7 +5200,11 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
                     }}
                     rows={4}
                     maxLength={280}
-                    placeholder="Escreva o contexto do atendimento, objeções, próximos passos ou qualquer detalhe importante."
+<<<<<<< HEAD
+                    placeholder="Escreva o contexto do atendimento, objeÃ§Ãµes, prÃ³ximos passos ou qualquer detalhe importante."
+=======
+                    placeholder="Escreva o contexto do atendimento, objeÃƒÂ§ÃƒÂµes, prÃƒÂ³ximos passos ou qualquer detalhe importante."
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
                   />
                 </label>
                 <button
@@ -4775,7 +5213,11 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
                   onClick={() => void saveMobileNote()}
                   disabled={mobileSavingNote || savingLeadId === lead.id}
                 >
-                  {mobileSavingNote ? "Salvando" : "Salvar observação"}
+<<<<<<< HEAD
+                  {mobileSavingNote ? "Salvando" : "Salvar observaÃ§Ã£o"}
+=======
+                  {mobileSavingNote ? "Salvando" : "Salvar observaÃƒÂ§ÃƒÂ£o"}
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
                 </button>
                 <button
                   type="button"
@@ -4788,7 +5230,11 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
 
               <section className={`${styles.mobileLeadTimeline} hbx-mobile-card`}>
                 <span className={styles.mobileTimelineVisual} aria-hidden="true" />
-                <h3>Histórico</h3>
+<<<<<<< HEAD
+                <h3>HistÃ³rico</h3>
+=======
+                <h3>HistÃƒÂ³rico</h3>
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
                 {(timeline.length
                   ? timeline
                   : [
@@ -4796,7 +5242,11 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
                         id: "empty",
                         eventType: "generic",
                         title: "Lead validado pelo HBX",
-                        description: intelligence.opportunityReason || "Aguardando primeira observação.",
+<<<<<<< HEAD
+                        description: intelligence.opportunityReason || "Aguardando primeira observaÃ§Ã£o.",
+=======
+                        description: intelligence.opportunityReason || "Aguardando primeira observaÃƒÂ§ÃƒÂ£o.",
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
                         createdAt: new Date().toISOString(),
                         sourceType: "hbx",
                       } as LeadTimelineEvent,
@@ -4865,7 +5315,11 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
                   ) : mobileRadarState === "partial" || mobileRadarState === "warning" ? (
                     "!"
                   ) : (
-                    "✓"
+<<<<<<< HEAD
+                    "âœ“"
+=======
+                    "Ã¢Å“â€œ"
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
                   )}
                 </b>
                 <span>
@@ -4939,7 +5393,11 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
                 setMobileAgendaTab("upcoming");
               }}
             >
-              <b>Próximos</b>
+<<<<<<< HEAD
+              <b>PrÃ³ximos</b>
+=======
+              <b>PrÃƒÂ³ximos</b>
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
               <strong>{mobileFutureCount}</strong>
             </button>
           </div>
@@ -4960,7 +5418,11 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
                     data-active={active ? "true" : "false"}
                     disabled={!mobileVisualFiltersUnlocked}
                     onClick={() => toggleMobileVisualFilter(filter.value)}
-                    title={mobileVisualFiltersUnlocked ? filter.label : "Disponível no HBX Lead"}
+<<<<<<< HEAD
+                    title={mobileVisualFiltersUnlocked ? filter.label : "DisponÃ­vel no HBX Lead"}
+=======
+                    title={mobileVisualFiltersUnlocked ? filter.label : "DisponÃƒÂ­vel no HBX Lead"}
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
                     aria-label={`${active ? "Remover filtro" : "Filtrar por"} ${filter.label}`}
                   >
                     <MobileChannelIconAsset channel={filter.asset} />
@@ -4976,8 +5438,13 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
                 data-active={mobileMinScoreFilter > 0 ? "true" : "false"}
                 disabled={!mobileVisualFiltersUnlocked}
                 onClick={() => setMobileScoreFilterOpen((current) => !current)}
-                title={mobileMinScoreFilter ? `Score mínimo ${mobileMinScoreFilter}+` : "Filtrar por score"}
-                aria-label={mobileMinScoreFilter ? `Score mínimo ${mobileMinScoreFilter}+` : "Abrir filtro de score"}
+<<<<<<< HEAD
+                title={mobileMinScoreFilter ? `Score mÃ­nimo ${mobileMinScoreFilter}+` : "Filtrar por score"}
+                aria-label={mobileMinScoreFilter ? `Score mÃ­nimo ${mobileMinScoreFilter}+` : "Abrir filtro de score"}
+=======
+                title={mobileMinScoreFilter ? `Score mÃƒÂ­nimo ${mobileMinScoreFilter}+` : "Filtrar por score"}
+                aria-label={mobileMinScoreFilter ? `Score mÃƒÂ­nimo ${mobileMinScoreFilter}+` : "Abrir filtro de score"}
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
                 aria-pressed={mobileScoreFilterOpen ? "true" : "false"}
               >
                 <strong aria-hidden="true">S</strong>
@@ -5008,7 +5475,11 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
                 aria-label="Filtro de score"
               >
                 <div>
-                  <span>Score mínimo</span>
+<<<<<<< HEAD
+                  <span>Score mÃ­nimo</span>
+=======
+                  <span>Score mÃƒÂ­nimo</span>
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
                   <strong>{mobileMinScoreFilter ? `${mobileMinScoreFilter}+` : "Todos"}</strong>
                 </div>
                 <div>
@@ -5016,7 +5487,11 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
                     type="button"
                     disabled={!mobileVisualFiltersUnlocked || mobileMinScoreFilter <= 0}
                     onClick={() => stepMobileScoreFilter(-5)}
-                    aria-label="Diminuir score mínimo"
+<<<<<<< HEAD
+                    aria-label="Diminuir score mÃ­nimo"
+=======
+                    aria-label="Diminuir score mÃƒÂ­nimo"
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
                   >
                     -
                   </button>
@@ -5024,13 +5499,17 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
                     type="button"
                     disabled={!mobileVisualFiltersUnlocked || mobileMinScoreFilter >= 100}
                     onClick={() => stepMobileScoreFilter(5)}
-                    aria-label="Aumentar score mínimo"
+<<<<<<< HEAD
+                    aria-label="Aumentar score mÃ­nimo"
+=======
+                    aria-label="Aumentar score mÃƒÂ­nimo"
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
                   >
                     +
                   </button>
                   <button
                     type="button"
-                    disabled={!mobileVisualFiltersUnlocked || mobileMinScoreFilter <= 0}
+                    disabled={mobileMinScoreFilter <= 0}
                     onClick={() => setMobileMinScoreFilter(0)}
                   >
                     Zerar
@@ -5041,25 +5520,41 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
           </section>
 
           {nextRecommendedMobileLead && mobileSection !== "report" ? (
-            <section className={styles.mobileVendasRecommendedCard} aria-label="Próximo card recomendado">
+<<<<<<< HEAD
+            <section className={styles.mobileVendasRecommendedCard} aria-label="PrÃ³ximo card recomendado">
+=======
+            <section className={styles.mobileVendasRecommendedCard} aria-label="PrÃƒÂ³ximo card recomendado">
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
               <button
                 type="button"
                 onClick={() => openMobileLeadDetail(nextRecommendedMobileLead)}
               >
                 <span className={styles.mobileVendasRecommendedTopline}>
-                  <span>Próximo card recomendado</span>
+<<<<<<< HEAD
+                  <span>PrÃ³ximo card recomendado</span>
+=======
+                  <span>PrÃƒÂ³ximo card recomendado</span>
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
                   <MobileEnrichmentCrown lead={nextRecommendedMobileLead} board={board} compact />
                 </span>
                 <strong>{nextRecommendedMobileLead.name || "Lead sem nome"}</strong>
                 <small>
-                  {mobileLeadPlace(nextRecommendedMobileLead)} · {nextRecommendedMobileLead.nextAction || "Executar contato"}
+<<<<<<< HEAD
+                  {mobileLeadPlace(nextRecommendedMobileLead)} Â· {nextRecommendedMobileLead.nextAction || "Executar contato"}
+=======
+                  {mobileLeadPlace(nextRecommendedMobileLead)} Ã‚Â· {nextRecommendedMobileLead.nextAction || "Executar contato"}
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
                 </small>
               </button>
               <div className={styles.mobileVendasRecommendedFooter}>
                 <div
                   className={styles.mobileVendasRecommendedChannels}
                   data-channel-count={countMobileLeadChannels(nextRecommendedMobileLead)}
-                  aria-label="Canais disponíveis"
+<<<<<<< HEAD
+                  aria-label="Canais disponÃ­veis"
+=======
+                  aria-label="Canais disponÃƒÂ­veis"
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
                 >
                   {renderMobileLeadChannels(nextRecommendedMobileLead, { compact: true })}
                 </div>
@@ -5128,12 +5623,20 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
                             Retorno <b>{mobileReturnLabel(lead)}</b>
                           </small>
                         </div>
-                        <div className={styles.mobileVendasChannelRow} aria-label="Canais disponíveis">
+<<<<<<< HEAD
+                        <div className={styles.mobileVendasChannelRow} aria-label="Canais disponÃ­veis">
+=======
+                        <div className={styles.mobileVendasChannelRow} aria-label="Canais disponÃƒÂ­veis">
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
                         {renderMobileLeadChannels(lead)}
                       </div>
                     </div>
                   </article>
-                    <div className={styles.mobileVendasSwipeActions} aria-label={`Ações de ${lead.name || "lead"}`}>
+<<<<<<< HEAD
+                    <div className={styles.mobileVendasSwipeActions} aria-label={`AÃ§Ãµes de ${lead.name || "lead"}`}>
+=======
+                    <div className={styles.mobileVendasSwipeActions} aria-label={`AÃƒÂ§ÃƒÂµes de ${lead.name || "lead"}`}>
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
                       <button
                         type="button"
                         data-action="report"
@@ -5164,16 +5667,29 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
               <div className={`${styles.mobileVendasEmpty} hbx-mobile-empty`}>
                 <strong>
                   {(board?.summary.total || 0) <= 0 && radarBlockedByStrictFilters
-                    ? "Cards localizados ainda não entraram"
+<<<<<<< HEAD
+                    ? "Cards localizados ainda nÃ£o entraram"
                     : (board?.summary.total || 0) <= 0 && radarFoundWithoutAgenda
                     ? "Cards encontrados, preparando sua agenda"
                     : (board?.summary.total || 0) <= 0
-                    ? "Sua lista de abordagem está vazia"
-                    : "Nenhum lead disponível agora"}
+                    ? "Sua lista de abordagem estÃ¡ vazia"
+                    : "Nenhum lead disponÃ­vel agora"}
                 </strong>
                 <span>
                   {(board?.summary.total || 0) <= 0 && radarBlockedByStrictFilters
-                    ? "O Radar localizou empresas. Aguarde a sincronização ou amplie cidade e segmento."
+                    ? "O Radar localizou empresas. Aguarde a sincronizaÃ§Ã£o ou amplie cidade e segmento."
+=======
+                    ? "Cards localizados ainda nÃƒÂ£o entraram"
+                    : (board?.summary.total || 0) <= 0 && radarFoundWithoutAgenda
+                    ? "Cards encontrados, preparando sua agenda"
+                    : (board?.summary.total || 0) <= 0
+                    ? "Sua lista de abordagem estÃƒÂ¡ vazia"
+                    : "Nenhum lead disponÃƒÂ­vel agora"}
+                </strong>
+                <span>
+                  {(board?.summary.total || 0) <= 0 && radarBlockedByStrictFilters
+                    ? "O Radar localizou empresas. Aguarde a sincronizaÃƒÂ§ÃƒÂ£o ou amplie cidade e segmento."
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
                     : (board?.summary.total || 0) <= 0 && radarFoundWithoutAgenda
                     ? "O Radar encontrou cards aprovados. Mantenha esta tela aberta enquanto o Vendas sincroniza."
                     : (board?.summary.total || 0) <= 0
@@ -5219,7 +5735,11 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
               <div className={styles.mobileVendasSheetHeader}>
                 <h2 id="mobile-vendas-report-title">Reclamar do card</h2>
                 <button type="button" onClick={() => setMobileReportLead(null)}>
-                  ×
+<<<<<<< HEAD
+                  Ã—
+=======
+                  Ãƒâ€”
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
                 </button>
               </div>
               <p className={styles.mobileVendasReportLead}>
@@ -5229,7 +5749,11 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
                 value={mobileReportReason}
                 onChange={(event) => setMobileReportReason(event.target.value)}
                 rows={5}
-                placeholder="Explique por que este card não prestou"
+<<<<<<< HEAD
+                placeholder="Explique por que este card nÃ£o prestou"
+=======
+                placeholder="Explique por que este card nÃƒÂ£o prestou"
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
               />
               <div className={styles.mobileVendasSheetFooter}>
                 <button
@@ -5281,7 +5805,11 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
               <span className={styles.mobileVendasSheetHandle} />
               <div className={styles.mobileVendasSheetHeader}>
                 <div>
-                  <small>Atenção</small>
+<<<<<<< HEAD
+                  <small>AtenÃ§Ã£o</small>
+=======
+                  <small>AtenÃƒÂ§ÃƒÂ£o</small>
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
                   <h2 id="mobile-vendas-bulk-delete-title">
                     Excluir cards de {mobileBulkDeleteTarget.label}
                   </h2>
@@ -5291,13 +5819,23 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
                   onClick={() => setMobileBulkDeleteTarget(null)}
                   disabled={bulkDeleting}
                 >
-                  ×
+<<<<<<< HEAD
+                  Ã—
                 </button>
               </div>
               <div className={styles.mobileVendasAttentionBody}>
-                <strong>{mobileBulkDeleteTarget.count} card(s) serão removidos do Vendas.</strong>
+                <strong>{mobileBulkDeleteTarget.count} card(s) serÃ£o removidos do Vendas.</strong>
                 <p>
-                  A base do Radar Digital continua preservada. Esta ação só limpa
+                  A base do Radar Digital continua preservada. Esta aÃ§Ã£o sÃ³ limpa
+=======
+                  Ãƒâ€”
+                </button>
+              </div>
+              <div className={styles.mobileVendasAttentionBody}>
+                <strong>{mobileBulkDeleteTarget.count} card(s) serÃƒÂ£o removidos do Vendas.</strong>
+                <p>
+                  A base do Radar Digital continua preservada. Esta aÃƒÂ§ÃƒÂ£o sÃƒÂ³ limpa
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
                   os cards devidos desta guia.
                 </p>
               </div>
@@ -5395,7 +5933,11 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
       const deletedCount = Number(payload?.deletedCount || 0);
       setFeedback(
         deletedCount
-          ? `${deletedCount} card(s) excluído(s) do Vendas.`
+<<<<<<< HEAD
+          ? `${deletedCount} card(s) excluÃ­do(s) do Vendas.`
+=======
+          ? `${deletedCount} card(s) excluÃƒÂ­do(s) do Vendas.`
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
           : "Nenhum card novo para excluir.",
       );
       clearBulkSelection();
@@ -6073,13 +6615,21 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
         <aside className={styles.detailPanel} data-detail-panel="true">
           <div className={styles.detailRail}>
             <span>Fluxo UX: selecione um cliente</span>
-            <span className={styles.miniPill}>Operação</span>
+<<<<<<< HEAD
+            <span className={styles.miniPill}>OperaÃ§Ã£o</span>
+=======
+            <span className={styles.miniPill}>OperaÃƒÂ§ÃƒÂ£o</span>
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
           </div>
           <div className={styles.detailEmpty}>
             <span className={styles.panelEyebrow}>Cliente</span>
             <strong>Escolha um card para abrir a lateral.</strong>
             <p>
-              O detalhe fica mais estreito e mostra só o que precisa ser operado
+<<<<<<< HEAD
+              O detalhe fica mais estreito e mostra sÃ³ o que precisa ser operado
+=======
+              O detalhe fica mais estreito e mostra sÃƒÂ³ o que precisa ser operado
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
               agora.
             </p>
           </div>
@@ -6148,7 +6698,11 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
             ) : (
               <div className={styles.emptyPanel}>
                 <strong>Nenhum evento registrado</strong>
-                <p>A timeline aparece conforme o lead é movimentado.</p>
+<<<<<<< HEAD
+                <p>A timeline aparece conforme o lead Ã© movimentado.</p>
+=======
+                <p>A timeline aparece conforme o lead ÃƒÂ© movimentado.</p>
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
               </div>
             )}
           </section>
@@ -6162,7 +6716,11 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
       return (
         <section className={styles.boardShell}>
           <div className={styles.emptyBoard}>
-            <strong>Nenhuma janela de datas disponível</strong>
+<<<<<<< HEAD
+            <strong>Nenhuma janela de datas disponÃ­vel</strong>
+=======
+            <strong>Nenhuma janela de datas disponÃƒÂ­vel</strong>
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
             <p>Assim que houver agenda, os cards aparecem aqui.</p>
           </div>
         </section>
@@ -6182,7 +6740,11 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
             <span className={styles.panelEyebrow}>Clientes</span>
             <h2 className={styles.boardTitle}>{selectedFilter.title}</h2>
             <p className={styles.boardSubtitle}>
-              Acompanhe quem você já chamou e quem precisa de retorno.
+<<<<<<< HEAD
+              Acompanhe quem vocÃª jÃ¡ chamou e quem precisa de retorno.
+=======
+              Acompanhe quem vocÃƒÂª jÃƒÂ¡ chamou e quem precisa de retorno.
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
             </p>
           </div>
           <div className={styles.toolbar}>
@@ -6199,7 +6761,11 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
               data-active={bulkSelectionMode ? "true" : "false"}
               onClick={toggleBulkSelectionMode}
             >
-              {bulkSelectionMode ? "Cancelar seleção" : "Selecionar"}
+<<<<<<< HEAD
+              {bulkSelectionMode ? "Cancelar seleÃ§Ã£o" : "Selecionar"}
+=======
+              {bulkSelectionMode ? "Cancelar seleÃƒÂ§ÃƒÂ£o" : "Selecionar"}
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
             </button>
             {bulkSelectionMode ? (
               <>
@@ -6244,7 +6810,11 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
                 setInboxFilter((current) => nextInboxFilter(current))
               }
               aria-pressed={inboxFilter !== "all"}
-              title="Alternar filtro de presença no Inbox"
+<<<<<<< HEAD
+              title="Alternar filtro de presenÃ§a no Inbox"
+=======
+              title="Alternar filtro de presenÃƒÂ§a no Inbox"
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
             >
               {INBOX_FILTER_LABELS[inboxFilter]}
             </button>
@@ -6280,7 +6850,11 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
     return (
       <DashboardScaffold
         title="Vendas"
-        description="Carregando sessão do CRM comercial."
+<<<<<<< HEAD
+        description="Carregando sessÃ£o do CRM comercial."
+=======
+        description="Carregando sessÃƒÂ£o do CRM comercial."
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
         hideHeader={true}
       >
         <section className={styles.loadingCard}>
@@ -6383,7 +6957,11 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
 `;
 
   const accountCapabilities = board?.capabilities || salesProfile?.capabilities || {};
-  const accountProfileSummary = `${salesProfileDraft.whatDoYouSell || "Perfil"} para ${(salesProfileDraft.targetAudience || [])[0] || "pequenos negócios"}`;
+<<<<<<< HEAD
+  const accountProfileSummary = `${salesProfileDraft.whatDoYouSell || "Perfil"} para ${(salesProfileDraft.targetAudience || [])[0] || "pequenos negÃ³cios"}`;
+=======
+  const accountProfileSummary = `${salesProfileDraft.whatDoYouSell || "Perfil"} para ${(salesProfileDraft.targetAudience || [])[0] || "pequenos negÃƒÂ³cios"}`;
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
 
   function renderAccountChipEditor(
     title: string,
@@ -6419,14 +6997,25 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
         <section className={`${styles.mobileSalesProfileHero} hbx-mobile-card`}>
           <span>Perfil ativo: {accountProfileSummary}</span>
           <strong>Perfil de Venda</strong>
-          <p>O HBX usa isso para escolher melhores cards para você.</p>
+<<<<<<< HEAD
+          <p>O HBX usa isso para escolher melhores cards para vocÃª.</p>
         </section>
         <section className={`${styles.mobileSalesProfileBlock} hbx-mobile-card`}>
-          <strong>O que você vende?</strong>
+          <strong>O que vocÃª vende?</strong>
           <input
             value={salesProfileDraft.whatDoYouSell}
             onChange={(event) => setSalesProfileDraft((current) => ({ ...current, whatDoYouSell: event.target.value }))}
-            placeholder="Ex.: Plano de saúde"
+            placeholder="Ex.: Plano de saÃºde"
+=======
+          <p>O HBX usa isso para escolher melhores cards para vocÃƒÂª.</p>
+        </section>
+        <section className={`${styles.mobileSalesProfileBlock} hbx-mobile-card`}>
+          <strong>O que vocÃƒÂª vende?</strong>
+          <input
+            value={salesProfileDraft.whatDoYouSell}
+            onChange={(event) => setSalesProfileDraft((current) => ({ ...current, whatDoYouSell: event.target.value }))}
+            placeholder="Ex.: Plano de saÃƒÂºde"
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
             maxLength={160}
           />
           <div className={styles.mobileSalesProfileChips}>
@@ -6442,10 +7031,17 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
             ))}
           </div>
         </section>
-        {renderAccountChipEditor("Para quem você quer vender?", salesProfileDraft.targetAudience, SALES_PROFILE_AUDIENCE_EXAMPLES, (values) =>
+<<<<<<< HEAD
+        {renderAccountChipEditor("Para quem vocÃª quer vender?", salesProfileDraft.targetAudience, SALES_PROFILE_AUDIENCE_EXAMPLES, (values) =>
           setSalesProfileDraft((current) => ({ ...current, targetAudience: values })),
         )}
-        {renderAccountChipEditor("O que você quer evitar?", salesProfileDraft.avoidSegments, SALES_PROFILE_AVOID_EXAMPLES, (values) =>
+        {renderAccountChipEditor("O que vocÃª quer evitar?", salesProfileDraft.avoidSegments, SALES_PROFILE_AVOID_EXAMPLES, (values) =>
+=======
+        {renderAccountChipEditor("Para quem vocÃƒÂª quer vender?", salesProfileDraft.targetAudience, SALES_PROFILE_AUDIENCE_EXAMPLES, (values) =>
+          setSalesProfileDraft((current) => ({ ...current, targetAudience: values })),
+        )}
+        {renderAccountChipEditor("O que vocÃƒÂª quer evitar?", salesProfileDraft.avoidSegments, SALES_PROFILE_AVOID_EXAMPLES, (values) =>
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
           setSalesProfileDraft((current) => ({ ...current, avoidSegments: values })),
         )}
         {renderAccountChipEditor("Canal preferido", salesProfileDraft.preferredChannels, SALES_PROFILE_CHANNELS, (values) =>
@@ -6460,11 +7056,19 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
             />
             <span>Deixar o HBX sugerir ajustes toda segunda-feira</span>
           </label>
-          <p>Você revisa antes de aplicar.</p>
+<<<<<<< HEAD
+          <p>VocÃª revisa antes de aplicar.</p>
         </section>
         {salesProfileSuggestion?.diff?.length ? (
           <section className={`${styles.mobileSalesProfileBlock} hbx-mobile-card`}>
-            <strong>Sugestão da semana</strong>
+            <strong>SugestÃ£o da semana</strong>
+=======
+          <p>VocÃƒÂª revisa antes de aplicar.</p>
+        </section>
+        {salesProfileSuggestion?.diff?.length ? (
+          <section className={`${styles.mobileSalesProfileBlock} hbx-mobile-card`}>
+            <strong>SugestÃƒÂ£o da semana</strong>
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
             {salesProfileSuggestion.diff.map((item: string) => <p key={item}>{item}</p>)}
           </section>
         ) : null}
@@ -6473,10 +7077,17 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
             {salesProfileSaving ? "Salvando" : "Salvar perfil"}
           </button>
           <button type="button" className="hbx-mobile-secondary-button" onClick={() => void suggestSalesProfile()} disabled={salesProfileSaving || !accountCapabilities.canUseWeeklyProfileSuggestions}>
-            Gerar sugestão com base na semana
+<<<<<<< HEAD
+            Gerar sugestÃ£o com base na semana
           </button>
           <button type="button" className="hbx-mobile-secondary-button" onClick={() => setSalesProfileDraft(SALES_PROFILE_DEFAULT_DRAFT)}>
-            Restaurar padrão
+            Restaurar padrÃ£o
+=======
+            Gerar sugestÃƒÂ£o com base na semana
+          </button>
+          <button type="button" className="hbx-mobile-secondary-button" onClick={() => setSalesProfileDraft(SALES_PROFILE_DEFAULT_DRAFT)}>
+            Restaurar padrÃƒÂ£o
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
           </button>
         </div>
       </div>
@@ -6543,7 +7154,11 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
                   onClick={() => scrollDateRail(-1)}
                   aria-label="Rolar datas para esquerda"
                 >
-                  <span aria-hidden="true">‹</span>
+<<<<<<< HEAD
+                  <span aria-hidden="true">â€¹</span>
+=======
+                  <span aria-hidden="true">Ã¢â‚¬Â¹</span>
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
                 </button>
                 <div
                   className={styles.filterRailScroller}
@@ -6589,7 +7204,11 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
                   onClick={() => scrollDateRail(1)}
                   aria-label="Rolar datas para direita"
                 >
-                  <span aria-hidden="true">›</span>
+<<<<<<< HEAD
+                  <span aria-hidden="true">â€º</span>
+=======
+                  <span aria-hidden="true">Ã¢â‚¬Âº</span>
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
                 </button>
               </div>
             </section>
@@ -6713,7 +7332,11 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
                 <strong id="new-lead-title">Novo lead</strong>
               </div>
               <div className={styles.systemPopupActions}>
-                <span className={styles.metaBadge}>Cadastro rápido</span>
+<<<<<<< HEAD
+                <span className={styles.metaBadge}>Cadastro rÃ¡pido</span>
+=======
+                <span className={styles.metaBadge}>Cadastro rÃƒÂ¡pido</span>
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
                 <button
                   type="button"
                   className={`btn btn-secondary btn-sm ${styles.mobileComposerClose}`}
@@ -6721,7 +7344,11 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
                   aria-label="Fechar cadastro de lead"
                 >
                   <span className={styles.mobileComposerCloseGlyph} aria-hidden="true">
-                    ×
+<<<<<<< HEAD
+                    Ã—
+=======
+                    Ãƒâ€”
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
                   </span>
                   <span className={styles.mobileComposerCloseText}>Fechar</span>
                 </button>
@@ -6743,7 +7370,11 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
                         name: event.target.value,
                       }))
                     }
-                    placeholder="Ex: Clínica Horizonte"
+<<<<<<< HEAD
+                    placeholder="Ex: ClÃ­nica Horizonte"
+=======
+                    placeholder="Ex: ClÃƒÂ­nica Horizonte"
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
                   />
                 </label>
                 <label className={styles.field}>
@@ -6789,7 +7420,11 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
                   />
                 </label>
                 <label className={styles.fieldWide}>
-                  <span className={styles.fieldLabel}>Próxima ação</span>
+<<<<<<< HEAD
+                  <span className={styles.fieldLabel}>PrÃ³xima aÃ§Ã£o</span>
+=======
+                  <span className={styles.fieldLabel}>PrÃƒÂ³xima aÃƒÂ§ÃƒÂ£o</span>
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
                   <input
                     className={styles.fieldInput}
                     value={manualLead.nextAction}
@@ -6803,7 +7438,11 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
                   />
                 </label>
                 <label className={styles.fieldWide}>
-                  <span className={styles.fieldLabel}>Observação</span>
+<<<<<<< HEAD
+                  <span className={styles.fieldLabel}>ObservaÃ§Ã£o</span>
+=======
+                  <span className={styles.fieldLabel}>ObservaÃƒÂ§ÃƒÂ£o</span>
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
                   <textarea
                     className={styles.fieldTextarea}
                     rows={4}
@@ -6814,7 +7453,11 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
                         shortNote: event.target.value,
                       }))
                     }
-                    placeholder="Contexto rápido do lead."
+<<<<<<< HEAD
+                    placeholder="Contexto rÃ¡pido do lead."
+=======
+                    placeholder="Contexto rÃƒÂ¡pido do lead."
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
                   />
                 </label>
                 <div className={`${styles.formFooter} ${styles.mobileComposerActions}`}>
@@ -6844,15 +7487,25 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
             <div className={styles.mobileReturnSchedulerHeader}>
               <div>
                 <small>Retorno</small>
-                <h2 id="mobile-return-scheduler-title">Agendar horário</h2>
+<<<<<<< HEAD
+                <h2 id="mobile-return-scheduler-title">Agendar horÃ¡rio</h2>
+=======
+                <h2 id="mobile-return-scheduler-title">Agendar horÃƒÂ¡rio</h2>
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
                 <p>{mobileReturnScheduler.leadName}</p>
               </div>
               <button
                 type="button"
                 onClick={() => setMobileReturnScheduler(null)}
-                aria-label="Fechar calendário de retorno"
+<<<<<<< HEAD
+                aria-label="Fechar calendÃ¡rio de retorno"
               >
-                ×
+                Ã—
+=======
+                aria-label="Fechar calendÃƒÂ¡rio de retorno"
+              >
+                Ãƒâ€”
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
               </button>
             </div>
 
@@ -6868,7 +7521,11 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
                 />
               </label>
               <label>
-                <span>Horário</span>
+<<<<<<< HEAD
+                <span>HorÃ¡rio</span>
+=======
+                <span>HorÃƒÂ¡rio</span>
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
                 <input
                   type="time"
                   value={mobileReturnScheduler.timeValue}
@@ -6884,12 +7541,21 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
 
             <div className={styles.mobileReturnCalendarCard}>
               <div className={styles.mobileReturnCalendarHeader}>
-                <button type="button" onClick={() => shiftMobileReturnCalendarMonth(-1)} aria-label="Mês anterior">
-                  ‹
+<<<<<<< HEAD
+                <button type="button" onClick={() => shiftMobileReturnCalendarMonth(-1)} aria-label="MÃªs anterior">
+                  â€¹
                 </button>
                 <strong>{mobileReturnMonthLabel}</strong>
-                <button type="button" onClick={() => shiftMobileReturnCalendarMonth(1)} aria-label="Próximo mês">
-                  ›
+                <button type="button" onClick={() => shiftMobileReturnCalendarMonth(1)} aria-label="PrÃ³ximo mÃªs">
+                  â€º
+=======
+                <button type="button" onClick={() => shiftMobileReturnCalendarMonth(-1)} aria-label="MÃƒÂªs anterior">
+                  Ã¢â‚¬Â¹
+                </button>
+                <strong>{mobileReturnMonthLabel}</strong>
+                <button type="button" onClick={() => shiftMobileReturnCalendarMonth(1)} aria-label="PrÃƒÂ³ximo mÃƒÂªs">
+                  Ã¢â‚¬Âº
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
                 </button>
               </div>
               <div className={styles.mobileReturnWeekdays} aria-hidden="true">
@@ -6919,7 +7585,11 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
               <p className={styles.mobileReturnSchedulerError}>{mobileReturnScheduleError}</p>
             ) : (
               <p className={styles.mobileReturnSchedulerHint}>
-                O card entra na agenda exatamente na data e no horário escolhidos.
+<<<<<<< HEAD
+                O card entra na agenda exatamente na data e no horÃ¡rio escolhidos.
+=======
+                O card entra na agenda exatamente na data e no horÃƒÂ¡rio escolhidos.
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
               </p>
             )}
 
@@ -6952,7 +7622,11 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
             <div className={styles.mobileVendasSheetHeader}>
               <h2 id="mobile-vendas-account-title">Conta</h2>
               <button type="button" onClick={() => setAccountSheetOpen(false)} aria-label="Fechar">
-                ×
+<<<<<<< HEAD
+                Ã—
+=======
+                Ãƒâ€”
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
               </button>
             </div>
             <div className={styles.mobileVendasAccountAvatar} aria-hidden="true">
@@ -6975,7 +7649,11 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
                 saveMobilePreferredCallerName(trimmed);
                 setMobilePreferredCallerName(trimmed);
                 setAccountSheetOpen(false);
-                if (trimmed) setFeedback("Preferência salva.");
+<<<<<<< HEAD
+                if (trimmed) setFeedback("PreferÃªncia salva.");
+=======
+                if (trimmed) setFeedback("PreferÃƒÂªncia salva.");
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
               }}
             >
               Salvar
@@ -6994,13 +7672,23 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
                         accountProfile.company.premiumAccess ? "Premium ativo" : null,
                       ]
                         .filter(Boolean)
-                        .join(" · ") || "Sem dados de cobrança nesta sessão."
-                    : "Não foi possível carregar agora."}
+<<<<<<< HEAD
+                        .join(" Â· ") || "Sem dados de cobranÃ§a nesta sessÃ£o."
+                    : "NÃ£o foi possÃ­vel carregar agora."}
                   </p>
                 </div>
             <div className={styles.mobileVendasAccountBlock}>
-              <strong>Configurações</strong>
-              <p>Ajuste seu perfil de venda, público ideal e filtros de qualidade.</p>
+              <strong>ConfiguraÃ§Ãµes</strong>
+              <p>Ajuste seu perfil de venda, pÃºblico ideal e filtros de qualidade.</p>
+=======
+                        .join(" Ã‚Â· ") || "Sem dados de cobranÃƒÂ§a nesta sessÃƒÂ£o."
+                    : "NÃƒÂ£o foi possÃƒÂ­vel carregar agora."}
+                  </p>
+                </div>
+            <div className={styles.mobileVendasAccountBlock}>
+              <strong>ConfiguraÃƒÂ§ÃƒÂµes</strong>
+              <p>Ajuste seu perfil de venda, pÃƒÂºblico ideal e filtros de qualidade.</p>
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
             </div>
             {renderAccountSalesProfileSettings()}
             <div className={styles.mobileVendasAccountActions}>
@@ -7028,7 +7716,11 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
             <div className={styles.sectionTopline}>
               <div>
                 <span className={styles.panelEyebrow}>Command palette</span>
-                <strong>Buscar lead, cidade, ação, histórico ou origem</strong>
+<<<<<<< HEAD
+                <strong>Buscar lead, cidade, aÃ§Ã£o, histÃ³rico ou origem</strong>
+=======
+                <strong>Buscar lead, cidade, aÃƒÂ§ÃƒÂ£o, histÃƒÂ³rico ou origem</strong>
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
               </div>
               <button
                 type="button"
@@ -7040,7 +7732,11 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
             </div>
             <input
               className={styles.commandInput}
-              placeholder="Digite nome, telefone, cidade, origem ou próxima ação..."
+<<<<<<< HEAD
+              placeholder="Digite nome, telefone, cidade, origem ou prÃ³xima aÃ§Ã£o..."
+=======
+              placeholder="Digite nome, telefone, cidade, origem ou prÃƒÂ³xima aÃƒÂ§ÃƒÂ£o..."
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
               value={commandQuery}
               onChange={(event) => setCommandQuery(event.target.value)}
               autoFocus
@@ -7059,8 +7755,13 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
                     >
                       <strong>{lead.name || "Lead sem nome"}</strong>
                       <span>
-                        {BLOCK_LABELS[block]} • {lead.statusLabel} •{" "}
-                        {lead.nextAction || "Sem próxima ação"}
+<<<<<<< HEAD
+                        {BLOCK_LABELS[block]} â€¢ {lead.statusLabel} â€¢{" "}
+                        {lead.nextAction || "Sem prÃ³xima aÃ§Ã£o"}
+=======
+                        {BLOCK_LABELS[block]} Ã¢â‚¬Â¢ {lead.statusLabel} Ã¢â‚¬Â¢{" "}
+                        {lead.nextAction || "Sem prÃƒÂ³xima aÃƒÂ§ÃƒÂ£o"}
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
                       </span>
                     </button>
                     <div className={styles.commandActionRow}>
@@ -7086,7 +7787,11 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
               ) : (
                 <div className={styles.emptyPanel}>
                   <strong>Nenhum resultado</strong>
-                  <p>Tente nome, telefone, cidade, status ou próxima ação.</p>
+<<<<<<< HEAD
+                  <p>Tente nome, telefone, cidade, status ou prÃ³xima aÃ§Ã£o.</p>
+=======
+                  <p>Tente nome, telefone, cidade, status ou prÃƒÂ³xima aÃƒÂ§ÃƒÂ£o.</p>
+>>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
                 </div>
               )}
             </div>
