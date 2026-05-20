@@ -535,7 +535,7 @@ const SALES_PROFILE_AUDIENCE_EXAMPLES = [
   "famÃƒÂ­lias",
   "empresas pequenas",
   "comÃƒÂ©rcios locais",
-  "profissionais autÃƒÂ´nomos",
+  "profissionais autÃƒÆ’Ã‚Â´nomos",
   "clÃƒÂ­nicas",
   "oficinas",
   "restaurantes",
@@ -554,18 +554,18 @@ const SALES_PROFILE_CHANNELS = ["whatsapp", "ligaÃƒÂ§ÃƒÂ£o", "e-mail", "
 const MOBILE_READY_MESSAGE_LIBRARY = [
   "OlÃƒÂ¡, tudo bem? Vi a {{company}} em {{city}} e queria te mostrar uma forma simples de organizar contatos, retornos e oportunidades sem depender de planilha.",
   "Oi, tudo bem? Notei que empresas de {{segment}} costumam perder retorno por falta de acompanhamento. Posso te mandar uma ideia rÃƒÂ¡pida para resolver isso?",
-  "OlÃƒÂ¡! Vi a {{company}} e achei que o HBX pode ajudar vocÃƒÂªs a acompanhar interessados, lembretes e prÃƒÂ³ximos contatos em um sÃƒÂ³ lugar.",
+  "OlÃƒÂ¡! Vi a {{company}} e achei que o HBX pode ajudar vocÃƒÆ’Ã‚Âªs a acompanhar interessados, lembretes e prÃƒÂ³ximos contatos em um sÃƒÂ³ lugar.",
   "Oi, tudo bem? Trabalho com uma soluÃƒÂ§ÃƒÂ£o para organizar prospecÃƒÂ§ÃƒÂ£o e atendimento pelo WhatsApp. Faz sentido eu te explicar em 1 minuto?",
   "OlÃƒÂ¡! Posso te mostrar como deixar os contatos de {{segment}} mais organizados e com retorno automÃƒÂ¡tico no momento certo?",
   "Oi! Passei pelo perfil da {{company}} e vi espaÃƒÂ§o para melhorar acompanhamento de clientes. Posso te enviar uma explicaÃƒÂ§ÃƒÂ£o curta?",
   "OlÃƒÂ¡. O HBX ajuda empresas locais a nÃƒÂ£o esquecerem retorno, orÃƒÂ§amento e follow-up. Posso te mostrar como ficaria para {{segment}}?",
-  "Oi, tudo bem? Se hoje vocÃƒÂªs anotam contatos em WhatsApp, agenda ou planilha, tenho uma forma mais simples de centralizar isso. Posso mandar?",
+  "Oi, tudo bem? Se hoje vocÃƒÆ’Ã‚Âªs anotam contatos em WhatsApp, agenda ou planilha, tenho uma forma mais simples de centralizar isso. Posso mandar?",
   "OlÃƒÂ¡! Vi a {{company}} em {{city}}. Posso te mostrar uma ideia para transformar contatos soltos em uma fila clara de prÃƒÂ³ximas aÃƒÂ§ÃƒÂµes?",
   "Oi. Ajudo empresas a organizar leads, retornos e atendimentos para vender com mais previsibilidade. Posso te explicar rapidamente?",
   "OlÃƒÂ¡! Tenho uma sugestÃƒÂ£o prÃƒÂ¡tica para melhorar o controle dos contatos que chegam pelo WhatsApp. Posso te enviar?",
   "Oi! A ideia ÃƒÂ© simples: cada contato vira um card com status, lembrete e prÃƒÂ³xima aÃƒÂ§ÃƒÂ£o. Quer ver como isso pode funcionar para {{company}}?",
   "OlÃƒÂ¡. Vi que {{segment}} depende muito de retorno rÃƒÂ¡pido. Posso te mostrar uma ferramenta para nÃƒÂ£o deixar interessados esfriarem?",
-  "Oi! O HBX organiza quem precisa ser chamado hoje, amanhÃƒÂ£ e depois. Posso te mandar um exemplo aplicado ÃƒÂ  {{company}}?",
+  "Oi! O HBX organiza quem precisa ser chamado hoje, amanhÃƒÂ£ e depois. Posso te mandar um exemplo aplicado ÃƒÆ’Ã‚Â  {{company}}?",
   "OlÃƒÂ¡! Posso te mostrar uma forma de acompanhar orÃƒÂ§amento, retorno e conversa sem perder histÃƒÂ³rico no WhatsApp?",
   "Oi. Trabalho com automaÃƒÂ§ÃƒÂ£o comercial para pequenas empresas. A proposta ÃƒÂ© ganhar controle sem complicar a rotina. Posso explicar?",
   "OlÃƒÂ¡! Se fizer sentido, te mostro como a {{company}} pode ter uma fila diÃƒÂ¡ria de contatos prioritÃƒÂ¡rios para chamar.",
@@ -576,15 +576,15 @@ const MOBILE_READY_MESSAGE_LIBRARY = [
   "Oi! Posso te enviar uma ideia para acompanhar leads por prioridade, com WhatsApp, ligaÃƒÂ§ÃƒÂ£o e observaÃƒÂ§ÃƒÂ£o no mesmo lugar?",
   "OlÃƒÂ¡. Vi a {{company}} e queria sugerir um jeito de melhorar retorno comercial sem contratar mais gente agora.",
   "Oi, tudo bem? O objetivo ÃƒÂ© simples: menos contato perdido e mais follow-up no dia certo. Posso te explicar como?",
-  "OlÃƒÂ¡! Se vocÃƒÂªs recebem pedidos, dÃƒÂºvidas ou orÃƒÂ§amentos pelo WhatsApp, o HBX pode organizar isso em cards. Posso mostrar?",
+  "OlÃƒÂ¡! Se vocÃƒÆ’Ã‚Âªs recebem pedidos, dÃƒÂºvidas ou orÃƒÂ§amentos pelo WhatsApp, o HBX pode organizar isso em cards. Posso mostrar?",
   "Oi. Posso te mandar um exemplo de fluxo para a {{company}} acompanhar contatos e oportunidades com mais clareza?",
   "OlÃƒÂ¡! Tenho uma ideia curta para transformar o WhatsApp em uma agenda comercial organizada. Faz sentido eu enviar?",
-  "Oi! Vi a {{company}} em {{city}} e achei que vocÃƒÂªs podem se beneficiar de uma rotina mais clara de retorno aos clientes.",
+  "Oi! Vi a {{company}} em {{city}} e achei que vocÃƒÆ’Ã‚Âªs podem se beneficiar de uma rotina mais clara de retorno aos clientes.",
   "OlÃƒÂ¡. O HBX mostra o prÃƒÂ³ximo contato certo e evita que leads fiquem esquecidos. Posso te mostrar a ideia?",
   "Oi, tudo bem? Posso te explicar como organizar clientes interessados por status, data de retorno e canal de contato?",
   "OlÃƒÂ¡! Trabalho com uma plataforma que ajuda empresas a venderem com mais organizaÃƒÂ§ÃƒÂ£o no WhatsApp. Posso te mandar uma prÃƒÂ©via?",
-  "Oi. Se hoje vocÃƒÂªs dependem de memÃƒÂ³ria para retornar clientes, tenho uma soluÃƒÂ§ÃƒÂ£o simples para automatizar lembretes. Posso mostrar?",
-  "OlÃƒÂ¡! Vi a {{company}} e pensei em uma forma de melhorar acompanhamento sem mudar o jeito que vocÃƒÂªs atendem.",
+  "Oi. Se hoje vocÃƒÆ’Ã‚Âªs dependem de memÃƒÂ³ria para retornar clientes, tenho uma soluÃƒÂ§ÃƒÂ£o simples para automatizar lembretes. Posso mostrar?",
+  "OlÃƒÂ¡! Vi a {{company}} e pensei em uma forma de melhorar acompanhamento sem mudar o jeito que vocÃƒÆ’Ã‚Âªs atendem.",
   "Oi! Posso te mandar uma ideia rÃƒÂ¡pida para organizar prospecÃƒÂ§ÃƒÂ£o, contatos e retornos usando o HBX?",
   "OlÃƒÂ¡. Para {{segment}}, velocidade de retorno faz diferenÃƒÂ§a. Posso te mostrar como priorizar quem chamar primeiro?",
   "Oi! O HBX ajuda a enxergar quem estÃƒÂ¡ quente, quem precisa de retorno e quem deve ser descartado. Quer ver?",
@@ -592,7 +592,7 @@ const MOBILE_READY_MESSAGE_LIBRARY = [
   "Oi. Vi a {{company}} e queria te mostrar um jeito de reduzir retrabalho no acompanhamento dos contatos.",
   "OlÃƒÂ¡! Posso te mostrar como o HBX organiza WhatsApp, ligaÃƒÂ§ÃƒÂ£o e observaÃƒÂ§ÃƒÂµes em uma rotina diÃƒÂ¡ria de vendas?",
   "Oi! A proposta ÃƒÂ© ajudar a {{company}} a nÃƒÂ£o perder oportunidades por falta de follow-up. Posso te explicar?",
-  "OlÃƒÂ¡. Se vocÃƒÂªs fazem orÃƒÂ§amento ou atendimento consultivo, o HBX pode lembrar cada prÃƒÂ³xima etapa. Posso mandar um resumo?",
+  "OlÃƒÂ¡. Se vocÃƒÆ’Ã‚Âªs fazem orÃƒÂ§amento ou atendimento consultivo, o HBX pode lembrar cada prÃƒÂ³xima etapa. Posso mandar um resumo?",
   "Oi, tudo bem? Tenho uma ideia para deixar o retorno ao cliente mais rÃƒÂ¡pido e rastreÃƒÂ¡vel. Posso compartilhar?",
   "OlÃƒÂ¡! Vi a {{company}} e achei que uma agenda comercial inteligente pode ajudar no dia a dia. Posso te mostrar?",
   "Oi. Posso te enviar uma explicaÃƒÂ§ÃƒÂ£o bem objetiva de como o HBX organiza leads e retornos para empresas locais?",
@@ -601,7 +601,7 @@ const MOBILE_READY_MESSAGE_LIBRARY = [
   "OlÃƒÂ¡. Ajudo empresas a terem mais controle dos contatos vindos do WhatsApp. Posso te mandar uma ideia rÃƒÂ¡pida?",
   "Oi! Vi a {{company}} e pensei em uma melhoria simples para organizar oportunidades sem perder o histÃƒÂ³rico.",
   "OlÃƒÂ¡! Posso te mostrar como priorizar contatos bons, descartar negativos e manter retornos no prazo?",
-  "Oi. Tenho uma sugestÃƒÂ£o curta para melhorar a cadÃƒÂªncia comercial da {{company}} com menos esforÃƒÂ§o manual. Posso enviar?",
+  "Oi. Tenho uma sugestÃƒÂ£o curta para melhorar a cadÃƒÆ’Ã‚Âªncia comercial da {{company}} com menos esforÃƒÂ§o manual. Posso enviar?",
 ] as const;
 
 const WHATSAPP_FILTER_LABELS: Record<WhatsappFilter, string> = {
@@ -1237,8 +1237,8 @@ function buildSellerScoreBreakdown(lead: LeadItem) {
     { label: "Instagram", points: facebook ? 4 : 6, active: Boolean(instagram) },
     { label: "Facebook", points: instagram ? 4 : 4, active: Boolean(facebook) },
     { label: "Site fraco ou ausente", points: 7, active: !website || tags.has("sem_site") },
-    { label: "VocÃƒÂª selecionou cidade", points: 5, active: tags.has("cidade_alvo") || Boolean(lead.city) },
-    { label: "VocÃƒÂª selecionou segmento", points: 5, active: tags.has("segmento_alvo") || Boolean(lead.segment) },
+    { label: "VocÃƒÆ’Ã‚Âª selecionou cidade", points: 5, active: tags.has("cidade_alvo") || Boolean(lead.city) },
+    { label: "VocÃƒÆ’Ã‚Âª selecionou segmento", points: 5, active: tags.has("segmento_alvo") || Boolean(lead.segment) },
     { label: "Boa avaliaÃƒÂ§ÃƒÂ£o pÃƒÂºblica", points: 5, active: tags.has("boa_avaliacao") || Number(lead.rating || 0) >= 4.2 },
     { label: "Prova social", points: 4, active: tags.has("prova_social") || Number(lead.reviews || 0) >= 20 },
   ].filter((row) => row.active);
@@ -1377,7 +1377,7 @@ function buildLeadWebscrapingSummary(lead: LeadItem) {
   if (lead.rating != null) parts.push(`Nota ${Number(lead.rating).toFixed(1)}`);
   if (Number(lead.reviews || 0) > 0)
     parts.push(`${Number(lead.reviews)} avaliaÃƒÂ§ÃƒÂµes`);
-  return parts.join(" Ã¢â‚¬Â¢ ");
+  return parts.join(" ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢ ");
 }
 
 function hydrateDrafts(board: BoardResponse | null) {
@@ -1448,16 +1448,16 @@ function returnMeta(lead: LeadItem, draft: LeadDraft, block: LeadBlockKey) {
     } as const;
   if (block === "today")
     return {
-      label: `Hoje Ã¢â‚¬Â¢ ${formatDateTime(effective)}`,
+      label: `Hoje ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢ ${formatDateTime(effective)}`,
       tone: "today",
     } as const;
   if (block === "scheduled")
     return {
-      label: `Agendado Ã¢â‚¬Â¢ ${formatDateTime(effective)}`,
+      label: `Agendado ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢ ${formatDateTime(effective)}`,
       tone: "scheduled",
     } as const;
   return {
-    label: `Arquivo Ã¢â‚¬Â¢ ${formatShortDate(effective)}`,
+    label: `Arquivo ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢ ${formatShortDate(effective)}`,
     tone: "closed",
   } as const;
 }
@@ -1845,7 +1845,7 @@ function LeadCardView({
   const webscrapingSummary = buildLeadWebscrapingSummary(lead);
   const channelAssets = buildLeadChannelAssets(lead);
 
-  // inline editor mount/animation control Ã¢â‚¬â€ uses global motion timings
+  // inline editor mount/animation control ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â uses global motion timings
   const editorRef = useRef<HTMLDivElement | null>(null);
   const [editorRendered, setEditorRendered] = useState<boolean>(
     Boolean(editing),
@@ -1966,7 +1966,7 @@ function LeadCardView({
                   onBulkToggle?.(lead.id);
                 }}
               >
-                {bulkSelected ? "Ã¢Å“â€œ" : ""}
+                {bulkSelected ? "ÃƒÂ¢Ã…â€œÃ¢â‚¬Å“" : ""}
               </button>
             ) : null}
             <div className={styles.leadIdentity}>
@@ -1993,7 +1993,7 @@ function LeadCardView({
                 {lead.segment ? (
                   <>
                     {lead.segment}
-                    {lead.city ? ` Ã¢â‚¬Â¢ ${lead.city}` : null}
+                    {lead.city ? ` ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢ ${lead.city}` : null}
                   </>
                 ) : lead.city ? (
                   lead.city
@@ -3250,9 +3250,8 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
     salesProfile?.capabilities?.canSeeLeadIntelligence ||
     salesProfile?.capabilities?.canSeeSocialLinks === true,
   );
-  const mobileVisualFiltersActive = mobileVisualFiltersUnlocked && (
-    mobileVisualChannelFilters.length > 0 || mobileMinScoreFilter > 0
-  );
+  const mobileVisualFiltersActive =
+    mobileVisualChannelFilters.length > 0 || mobileMinScoreFilter > 0;
 
   const mobileLeads = useMemo(() => {
     const normalized = mobileSearch.trim().toLowerCase();
@@ -3316,13 +3315,11 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
   }
 
   function clearMobileVisualFilters() {
-    if (!mobileVisualFiltersUnlocked) return;
     setMobileVisualChannelFilters([]);
     setMobileMinScoreFilter(0);
   }
 
   function stepMobileScoreFilter(delta: number) {
-    if (!mobileVisualFiltersUnlocked) return;
     setMobileMinScoreFilter((current) => Math.max(0, Math.min(100, current + delta)));
   }
 
@@ -3504,7 +3501,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
         title: "Atrasados",
         subtitle: board?.summary.overdue
           ? "Ontem para trÃƒÂ¡s."
-          : "Sem pendÃƒÂªncia.",
+          : "Sem pendÃƒÆ’Ã‚Âªncia.",
         dayLabel: "Prioridade",
       },
       {
@@ -3598,7 +3595,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
         meta:
           [lead.segment, lead.city, lead.statusLabel]
             .filter(Boolean)
-            .join(" Ã¢â‚¬Â¢ ") || "ProspecÃƒÂ§ÃƒÂ£o",
+            .join(" ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢ ") || "ProspecÃƒÂ§ÃƒÂ£o",
         score: lead.timesSeen ? `${lead.timesSeen}x` : undefined,
       }));
 
@@ -4092,7 +4089,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
         nextAction: currentDraft?.nextAction || "Retomar lead",
         returnAt: `${dateKey}T${timeValue}`,
       },
-      `Retorno agendado para ${mobileReturnScheduler.dateText} ÃƒÂ s ${timeValue}.`,
+      `Retorno agendado para ${mobileReturnScheduler.dateText} ÃƒÆ’Ã‚Â s ${timeValue}.`,
     );
     setSelectedDateKey(`scheduled:${dateKey}`);
     setMobileAgendaTab("upcoming");
@@ -4615,7 +4612,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
                     premium
                     locked={!intelligenceVisible}
                     value={visibleScore}
-                    label={!intelligenceVisible ? "Ã¢â„¢â€¢ Score" : "Score"}
+                    label={!intelligenceVisible ? "ÃƒÂ¢Ã¢â€žÂ¢Ã¢â‚¬Â¢ Score" : "Score"}
                     caption={intelligenceVisible ? priorityLabel : "HBX Lead"}
                   />
                 </button>
@@ -4745,7 +4742,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
 
               {premiumTeaser ? (
                 <section className={`${styles.mobileLeadPremiumTeaser} hbx-mobile-card`}>
-                  <span aria-hidden="true">Ã¢â„¢â€¢</span>
+                  <span aria-hidden="true">ÃƒÂ¢Ã¢â€žÂ¢Ã¢â‚¬Â¢</span>
                   <div>
                     <strong>{premiumTeaser.label}</strong>
                     <small>{premiumTeaser.cta}</small>
@@ -4800,7 +4797,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
                     </svg>
                   </span>
                   {suggestedAction}
-                  <b aria-hidden="true">Ã¢â‚¬Âº</b>
+                  <b aria-hidden="true">ÃƒÂ¢Ã¢â€šÂ¬Ã‚Âº</b>
                 </a>
               </section>
 
@@ -4988,7 +4985,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
                   ) : mobileRadarState === "partial" || mobileRadarState === "warning" ? (
                     "!"
                   ) : (
-                    "Ã¢Å“â€œ"
+                    "ÃƒÂ¢Ã…â€œÃ¢â‚¬Å“"
                   )}
                 </b>
                 <span>
@@ -5097,38 +5094,18 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
                 type="button"
                 className={styles.mobileVendasScoreIconFilter}
                 data-active={mobileMinScoreFilter > 0 ? "true" : "false"}
-                aria-disabled={!mobileVisualFiltersUnlocked}
-                onClick={() => {
-                  if (!mobileVisualFiltersUnlocked) {
-                    router.push(toMobileRoute("/planos?intent=lead"));
-                    return;
-                  }
-                  setMobileScoreFilterOpen((current) => !current);
-                }}
-                title={
-                  mobileVisualFiltersUnlocked
-                    ? mobileMinScoreFilter
-                      ? `Score mínimo ${mobileMinScoreFilter}+`
-                      : "Filtrar por score"
-                    : "Score disponível no HBX Lead"
-                }
-                aria-label={
-                  mobileVisualFiltersUnlocked
-                    ? mobileMinScoreFilter
-                      ? `Score mínimo ${mobileMinScoreFilter}+`
-                      : "Abrir filtro de score"
-                    : "Abrir planos para liberar filtro de score"
-                }
+                onClick={() => setMobileScoreFilterOpen((current) => !current)}
+                title={mobileMinScoreFilter ? `Score mÃ­nimo ${mobileMinScoreFilter}+` : "Filtrar por score"}
+                aria-label={mobileMinScoreFilter ? `Score mÃ­nimo ${mobileMinScoreFilter}+` : "Abrir filtro de score"}
                 aria-pressed={mobileScoreFilterOpen ? "true" : "false"}
               >
                 <strong aria-hidden="true">S</strong>
                 {mobileMinScoreFilter > 0 ? <b>{mobileMinScoreFilter}+</b> : null}
-                {!mobileVisualFiltersUnlocked ? <CrownGlyph /> : null}
               </button>
               <button
                 type="button"
                 className={styles.mobileVendasClearVisualFilters}
-                disabled={!mobileVisualFiltersUnlocked || !mobileVisualFiltersActive}
+                disabled={!mobileVisualFiltersActive}
                 onClick={clearMobileVisualFilters}
                 title="Limpar filtros"
                 aria-label="Limpar filtros"
@@ -5360,7 +5337,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
               <div className={styles.mobileVendasSheetHeader}>
                 <h2 id="mobile-vendas-report-title">Reclamar do card</h2>
                 <button type="button" onClick={() => setMobileReportLead(null)}>
-                  Ãƒâ€”
+                  ÃƒÆ’Ã¢â‚¬â€
                 </button>
               </div>
               <p className={styles.mobileVendasReportLead}>
@@ -5432,7 +5409,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
                   onClick={() => setMobileBulkDeleteTarget(null)}
                   disabled={bulkDeleting}
                 >
-                  Ãƒâ€”
+                  ÃƒÆ’Ã¢â‚¬â€
                 </button>
               </div>
               <div className={styles.mobileVendasAttentionBody}>
@@ -6323,7 +6300,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
             <span className={styles.panelEyebrow}>Clientes</span>
             <h2 className={styles.boardTitle}>{selectedFilter.title}</h2>
             <p className={styles.boardSubtitle}>
-              Acompanhe quem vocÃƒÂª jÃƒÂ¡ chamou e quem precisa de retorno.
+              Acompanhe quem vocÃƒÆ’Ã‚Âª jÃƒÂ¡ chamou e quem precisa de retorno.
             </p>
           </div>
           <div className={styles.toolbar}>
@@ -6560,10 +6537,10 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
         <section className={`${styles.mobileSalesProfileHero} hbx-mobile-card`}>
           <span>Perfil ativo: {accountProfileSummary}</span>
           <strong>Perfil de Venda</strong>
-          <p>O HBX usa isso para escolher melhores cards para vocÃƒÂª.</p>
+          <p>O HBX usa isso para escolher melhores cards para vocÃƒÆ’Ã‚Âª.</p>
         </section>
         <section className={`${styles.mobileSalesProfileBlock} hbx-mobile-card`}>
-          <strong>O que vocÃƒÂª vende?</strong>
+          <strong>O que vocÃƒÆ’Ã‚Âª vende?</strong>
           <input
             value={salesProfileDraft.whatDoYouSell}
             onChange={(event) => setSalesProfileDraft((current) => ({ ...current, whatDoYouSell: event.target.value }))}
@@ -6583,10 +6560,10 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
             ))}
           </div>
         </section>
-        {renderAccountChipEditor("Para quem vocÃƒÂª quer vender?", salesProfileDraft.targetAudience, SALES_PROFILE_AUDIENCE_EXAMPLES, (values) =>
+        {renderAccountChipEditor("Para quem vocÃƒÆ’Ã‚Âª quer vender?", salesProfileDraft.targetAudience, SALES_PROFILE_AUDIENCE_EXAMPLES, (values) =>
           setSalesProfileDraft((current) => ({ ...current, targetAudience: values })),
         )}
-        {renderAccountChipEditor("O que vocÃƒÂª quer evitar?", salesProfileDraft.avoidSegments, SALES_PROFILE_AVOID_EXAMPLES, (values) =>
+        {renderAccountChipEditor("O que vocÃƒÆ’Ã‚Âª quer evitar?", salesProfileDraft.avoidSegments, SALES_PROFILE_AVOID_EXAMPLES, (values) =>
           setSalesProfileDraft((current) => ({ ...current, avoidSegments: values })),
         )}
         {renderAccountChipEditor("Canal preferido", salesProfileDraft.preferredChannels, SALES_PROFILE_CHANNELS, (values) =>
@@ -6601,7 +6578,7 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
             />
             <span>Deixar o HBX sugerir ajustes toda segunda-feira</span>
           </label>
-          <p>VocÃƒÂª revisa antes de aplicar.</p>
+          <p>VocÃƒÆ’Ã‚Âª revisa antes de aplicar.</p>
         </section>
         {salesProfileSuggestion?.diff?.length ? (
           <section className={`${styles.mobileSalesProfileBlock} hbx-mobile-card`}>
@@ -6684,7 +6661,7 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
                   onClick={() => scrollDateRail(-1)}
                   aria-label="Rolar datas para esquerda"
                 >
-                  <span aria-hidden="true">Ã¢â‚¬Â¹</span>
+                  <span aria-hidden="true">ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¹</span>
                 </button>
                 <div
                   className={styles.filterRailScroller}
@@ -6730,7 +6707,7 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
                   onClick={() => scrollDateRail(1)}
                   aria-label="Rolar datas para direita"
                 >
-                  <span aria-hidden="true">Ã¢â‚¬Âº</span>
+                  <span aria-hidden="true">ÃƒÂ¢Ã¢â€šÂ¬Ã‚Âº</span>
                 </button>
               </div>
             </section>
@@ -6862,7 +6839,7 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
                   aria-label="Fechar cadastro de lead"
                 >
                   <span className={styles.mobileComposerCloseGlyph} aria-hidden="true">
-                    Ãƒâ€”
+                    ÃƒÆ’Ã¢â‚¬â€
                   </span>
                   <span className={styles.mobileComposerCloseText}>Fechar</span>
                 </button>
@@ -6993,7 +6970,7 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
                 onClick={() => setMobileReturnScheduler(null)}
                 aria-label="Fechar calendÃƒÂ¡rio de retorno"
               >
-                Ãƒâ€”
+                ÃƒÆ’Ã¢â‚¬â€
               </button>
             </div>
 
@@ -7025,12 +7002,12 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
 
             <div className={styles.mobileReturnCalendarCard}>
               <div className={styles.mobileReturnCalendarHeader}>
-                <button type="button" onClick={() => shiftMobileReturnCalendarMonth(-1)} aria-label="MÃƒÂªs anterior">
-                  Ã¢â‚¬Â¹
+                <button type="button" onClick={() => shiftMobileReturnCalendarMonth(-1)} aria-label="MÃƒÆ’Ã‚Âªs anterior">
+                  ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¹
                 </button>
                 <strong>{mobileReturnMonthLabel}</strong>
-                <button type="button" onClick={() => shiftMobileReturnCalendarMonth(1)} aria-label="PrÃƒÂ³ximo mÃƒÂªs">
-                  Ã¢â‚¬Âº
+                <button type="button" onClick={() => shiftMobileReturnCalendarMonth(1)} aria-label="PrÃƒÂ³ximo mÃƒÆ’Ã‚Âªs">
+                  ÃƒÂ¢Ã¢â€šÂ¬Ã‚Âº
                 </button>
               </div>
               <div className={styles.mobileReturnWeekdays} aria-hidden="true">
@@ -7093,7 +7070,7 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
             <div className={styles.mobileVendasSheetHeader}>
               <h2 id="mobile-vendas-account-title">Conta</h2>
               <button type="button" onClick={() => setAccountSheetOpen(false)} aria-label="Fechar">
-                Ãƒâ€”
+                ÃƒÆ’Ã¢â‚¬â€
               </button>
             </div>
             <div className={styles.mobileVendasAccountAvatar} aria-hidden="true">
@@ -7116,7 +7093,7 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
                 saveMobilePreferredCallerName(trimmed);
                 setMobilePreferredCallerName(trimmed);
                 setAccountSheetOpen(false);
-                if (trimmed) setFeedback("PreferÃƒÂªncia salva.");
+                if (trimmed) setFeedback("PreferÃƒÆ’Ã‚Âªncia salva.");
               }}
             >
               Salvar
@@ -7200,7 +7177,7 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
                     >
                       <strong>{lead.name || "Lead sem nome"}</strong>
                       <span>
-                        {BLOCK_LABELS[block]} Ã¢â‚¬Â¢ {lead.statusLabel} Ã¢â‚¬Â¢{" "}
+                        {BLOCK_LABELS[block]} ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢ {lead.statusLabel} ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢{" "}
                         {lead.nextAction || "Sem prÃƒÂ³xima aÃƒÂ§ÃƒÂ£o"}
                       </span>
                     </button>
