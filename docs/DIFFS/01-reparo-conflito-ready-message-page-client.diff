@@ -1,0 +1,11 @@
+diff --git a/frontend/src/app/vendas/page.client.tsx b/frontend/src/app/vendas/page.client.tsx
+--- a/frontend/src/app/vendas/page.client.tsx
++++ b/frontend/src/app/vendas/page.client.tsx
+@@ -852,13 +852,8 @@
+-<<<<<<< HEAD
+     ? `Olá, ${leadName}. Estou retomando nosso contato pelo HBX Vendas.`
+     : "Olá. Estou retomando nosso contato pelo HBX Vendas.";
+-=======
+-    ? `OlÃ¡, ${leadName}. Estou retomando nosso contato pelo HBX Vendas.`
+-    : "OlÃ¡. Estou retomando nosso contato pelo HBX Vendas.";
+->>>>>>> parent of 48feecd (apply diff 01-reparo-score-mojibake-page-client)
