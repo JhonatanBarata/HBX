@@ -267,6 +267,9 @@ class EnrichLeadResponse(BaseModel):
     name: str
     phone: str = ""
     phoneDigits: str = ""
+    rating: float | None = None
+    reviews: int | None = None
+    address: str | None = None
     website: str | None = None
     email: str | None = None
     emailStatus: str = "missing"
@@ -274,6 +277,8 @@ class EnrichLeadResponse(BaseModel):
     emailConfidence: int = 0
     instagramUrl: str | None = None
     facebookUrl: str | None = None
+    googleMapsUrl: str | None = None
+    cnpj: str | None = None
     socialStatus: str = "missing"
     socialConfidence: int = 0
     stats: dict | None = None

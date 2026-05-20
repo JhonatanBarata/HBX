@@ -50,6 +50,15 @@ export type LeadQualityV2SalesProfile = {
 };
 
 export type LeadQualityV2QualityMode = 'list' | 'lead_plus';
+export type RadarVisibilityTier = 'blocked' | 'list_basic' | 'review_backup' | 'lead_plus_qualified';
+
+export type RadarVisibilityFromQualityV2 = {
+  visibilityTier: RadarVisibilityTier;
+  hardBlocked: boolean;
+  blockReason: string | null;
+  rankScore: number;
+  debitEligible: boolean;
+};
 
 type SegmentIntentGroup = 'core' | 'adjacent_good' | 'adjacent_review' | 'reject';
 
@@ -80,8 +89,10 @@ const PROTECTED_STATUSES = new Set([
 
 const GENERIC_NAME_PATTERNS = [
   'empresa',
+  'empresas',
   'sem nome',
   'contato',
+  'home',
   'telefone',
   'guia comercial',
   'lista de empresas',
@@ -119,6 +130,7 @@ const GENERIC_CATEGORY_TITLE_HEADS = [
   'oficinas mecanicas',
   'perfumarias',
   'perfumarias e cosmeticos',
+  'pizzarias',
   'produtora de video',
   'produtoras de video',
   'saloes de beleza',
@@ -555,7 +567,7 @@ function looksLikeCategoryLocationTitle(nameKey: string, cityKey: string, reques
   for (const head of heads) {
     if (!head) continue;
     if (nameKey === head) return true;
-    if (/^(em|no|na|nos|nas)\s+/.test(nameKey.slice(head.length).trim())) return nameKey.startsWith(`${head} `);
+    if (/^(em|no|na|nos|nas)\s+/.test(nameKey.slice(head.length).trim()) && nameKey.startsWith(`${head} `)) return true;
     if (cityKey && (
       nameKey === `${head} em ${cityKey}` ||
       nameKey === `${head} no ${cityKey}` ||
@@ -575,6 +587,136 @@ function looksLikeBadContentTitle(input: { rawName: string; nameKey: string; cit
   if (/\b\d+(?:[,.]\d+)?\s*(?:g|kg|ml|l|btus?)\b/.test(input.nameKey)) return true;
   if (/^deposito de bebidas?$/.test(input.nameKey)) return true;
   return false;
+}
+
+function hasActionablePublicChannel(row: any, quality?: LeadQualityV2 | null) {
+  const availability = quality?.channelAvailability || {};
+  if (Object.values(availability).some(Boolean)) return true;
+  if (isValidPhone(row?.phoneDigits || row?.phone || row?.phoneNormalized)) return true;
+  const websiteStatus = normalizeWebsiteStatus(row);
+  if (normalizeText(row?.website || row?.websiteUrl) && !['broken', 'unreachable', 'none'].includes(websiteStatus)) return true;
+  if (hasEmail(row?.email || row?.emailCandidate)) return true;
+  if (normalizeText(row?.instagramUrl || row?.signals?.instagramUrl)) return true;
+  if (normalizeText(row?.facebookUrl || row?.signals?.facebookUrl)) return true;
+  if (normalizeText(row?.googleMapsUrl || row?.mapsUrl || row?.signals?.googleMapsUrl)) return true;
+  return false;
+}
+
+function looksLikeGenericRadarName(row: any, requestedSegment?: unknown) {
+  const name = normalizeText(row?.name);
+  const nameKey = normalizeKey(name);
+  const cityKey = normalizeKey(row?.city);
+  const requestedSegmentKey = normalizeKey(requestedSegment || row?.requestedSegment || row?.segment);
+  const badContentTitle = looksLikeBadContentTitle({ rawName: name, nameKey, cityKey, requestedSegmentKey });
+  return !name
+    || nameKey.length < 3
+    || badContentTitle
+    || GENERIC_NAME_PATTERNS.some((term) => nameKey === normalizeKey(term) || nameKey.includes(normalizeKey(term)));
+}
+
+function isPublicSectorMismatch(row: any, requestedSegment?: unknown) {
+  const requested = normalizeKey(requestedSegment || row?.requestedSegment || row?.segment);
+  if (!requested || includesAny(requested, ['prefeitura', 'governo', 'secretaria municipal', 'orgao publico', 'camara municipal'])) return false;
+  const text = normalizeKey([
+    row?.name,
+    row?.segment,
+    row?.businessCategory,
+    row?.category,
+    row?.source,
+    row?.sourceUrl,
+    row?.opportunityReason,
+  ].filter(Boolean).join(' '));
+  return includesAny(text, ['prefeitura', 'camara municipal', 'governo', 'secretaria municipal', 'orgao publico', 'ministerio', 'noticia']);
+}
+
+function isStrongSegmentMismatch(row: any, quality: LeadQualityV2, requestedSegment?: unknown) {
+  return isPublicSectorMismatch(row, requestedSegment)
+    || quality.reasons.some((reason) => {
+      const normalized = normalizeKey(reason);
+      return normalized.includes('hard reject')
+        || normalized.includes('segmento bloqueado')
+        || normalized.includes('orgao publico')
+        || normalized.includes('noticia nao combina');
+    });
+}
+
+export function resolveRadarVisibilityFromQualityV2(input: {
+  lead?: any;
+  quality: LeadQualityV2 | null | undefined;
+  qualityMode?: LeadQualityV2QualityMode | string | null;
+  requestedSegment?: string | null;
+}): RadarVisibilityFromQualityV2 {
+  const quality = input.quality || null;
+  const row = mergeLeadInput(input.lead || {}, {});
+  const qualityMode: LeadQualityV2QualityMode = normalizeKey(input.qualityMode) === 'lead_plus' ? 'lead_plus' : 'list';
+  const rankScore = clampScore(quality?.finalRankScore);
+  const hasChannel = hasActionablePublicChannel(row, quality);
+  const genericName = looksLikeGenericRadarName(row, input.requestedSegment);
+  const publicSectorHardMismatch = isPublicSectorMismatch(row, input.requestedSegment);
+  const block = (reason: string | null): RadarVisibilityFromQualityV2 => ({
+    visibilityTier: 'blocked',
+    hardBlocked: true,
+    blockReason: reason,
+    rankScore,
+    debitEligible: false,
+  });
+  const review = (reason?: string | null): RadarVisibilityFromQualityV2 => ({
+    visibilityTier: 'review_backup',
+    hardBlocked: false,
+    blockReason: reason || null,
+    rankScore,
+    debitEligible: false,
+  });
+
+  if (!quality) {
+    if (genericName) return block('generic_name');
+    if (!hasChannel) return block('no_actionable_channel');
+    return {
+      visibilityTier: 'list_basic',
+      hardBlocked: false,
+      blockReason: null,
+      rankScore,
+      debitEligible: true,
+    };
+  }
+
+  if (quality.decision === 'protect') return block(quality.protectionReason || 'protected_status');
+  if (publicSectorHardMismatch) return block('segment_hard_mismatch');
+  if (genericName) return block('generic_name');
+  if (!hasChannel) return block('no_actionable_channel');
+
+  if (quality.decision === 'discard') {
+    const reason = String(quality.discardReason || '').trim();
+    if (reason === 'generic_directory') return review('Fonte diretorio, revisar');
+    if (reason === 'segment_mismatch') {
+      return isStrongSegmentMismatch(row, quality, input.requestedSegment)
+        ? block('segment_hard_mismatch')
+        : review('segment_mismatch_review');
+    }
+    if (reason === 'weak_contactability') return review('weak_contactability_review');
+    if (reason === 'weak_identity') return review('weak_identity_review');
+    return review(reason || 'quality_review');
+  }
+
+  if (qualityMode === 'lead_plus' && quality.decision === 'deliver') {
+    return {
+      visibilityTier: 'lead_plus_qualified',
+      hardBlocked: false,
+      blockReason: null,
+      rankScore,
+      debitEligible: true,
+    };
+  }
+
+  if (rankScore > 0 && rankScore < 45) return review('low_rank_score_review');
+
+  return {
+    visibilityTier: 'list_basic',
+    hardBlocked: false,
+    blockReason: null,
+    rankScore,
+    debitEligible: true,
+  };
 }
 
 function socialProfileKey(url: string) {
@@ -930,9 +1072,20 @@ export function calculateLeadQualityV2(input: {
   const profileHardRejectSegments = normalizeSegmentArray(salesProfile?.hardRejectSegments);
   const profilePreferredCities = normalizeStringArray(salesProfile?.preferredCities);
   const profilePreferredStates = normalizeStringArray(salesProfile?.preferredStates).map((state) => state.toUpperCase());
-  const profilePreferredChannels: LeadQualityV2Channel[] = [];
+  const profilePreferredChannels = normalizeChannels([
+    ...(salesProfile?.preferredChannels || []),
+    ...(input.context?.salesProfile?.preferredChannels || []),
+  ]);
+  const profileRequiredChannels = normalizeChannels(salesProfile?.requiredChannels);
+  const channelMatchMode = normalizeChannelMatchMode(salesProfile?.channelMatchMode);
   const qualityMode: LeadQualityV2QualityMode = normalizeKey(input.context?.qualityMode || salesProfile?.qualityMode) === 'lead_plus' ? 'lead_plus' : 'list';
   const preferredChannelMatches = profilePreferredChannels.filter((channel) => channelAvailability[channel]);
+  const requiredChannelMatches = profileRequiredChannels.filter((channel) => channelAvailability[channel]);
+  const missingRequiredChannels = channelMatchMode === 'all_required'
+    ? profileRequiredChannels.filter((channel) => !channelAvailability[channel])
+    : channelMatchMode === 'any_required' && profileRequiredChannels.length && requiredChannelMatches.length === 0
+      ? profileRequiredChannels
+      : [];
   const targetSegmentFit = scoreTargetSegmentFit(profileTargetSegments, leadText);
   const profileMatchesTargetSegment = targetSegmentFit.matched;
   const profileMatchesAvoidSegment = profileAvoidSegments.some((segment) => leadText.includes(normalizeKey(segment)));
@@ -961,7 +1114,7 @@ export function calculateLeadQualityV2(input: {
   }
   if (profileMatchesHardReject) {
     segmentFitScore = Math.min(segmentFitScore, 10);
-    reasons.push('Evita perfil configurado pelo vendedor.');
+    reasons.push('Segmento bloqueado pelo perfil do vendedor.');
   }
   if (profilePreferredCities.length && profilePreferredCityMatch) {
     segmentFitScore = clampScore(segmentFitScore + 6);
@@ -1041,6 +1194,7 @@ export function calculateLeadQualityV2(input: {
   let riskScore = 0;
   const protectionReasons: string[] = [];
   const publicSectorLike = includesAny(leadText, ['prefeitura', 'camara municipal', 'governo', 'secretaria municipal', 'orgao publico', 'ministerio']);
+  const publicSectorMismatch = publicSectorLike && isPublicSectorMismatch(row, input.context?.requestedSegment || row?.requestedSegment || row?.segment);
   const largeCompanyLike = includesAny(leadText, ['multinacional', 'franquia nacional', 'shopping', 'grupo empresarial', 'holding', 'banco']);
   if (protectedStatus) {
     riskScore += 90;
@@ -1065,10 +1219,10 @@ export function calculateLeadQualityV2(input: {
   if (statusText.includes('opt-out') || statusText.includes('opt_out')) riskScore += 80;
   if (statusText.includes('invalid_phone') || statusText.includes('invalid_whatsapp')) riskScore += 80;
   if (profileHasNegativeRule(salesProfile, 'avoidDirectories') && directoryLike) riskScore += 35;
-  if (profileHasNegativeRule(salesProfile, 'avoidPublicSector') && publicSectorLike) {
+  if ((profileHasNegativeRule(salesProfile, 'avoidPublicSector') && publicSectorLike) || publicSectorMismatch) {
     riskScore += 55;
     protectionReasons.push('orgao publico');
-    reasons.push('Evita perfil configurado pelo vendedor.');
+    reasons.push(publicSectorMismatch ? 'Orgao publico/noticia nao combina com segmento comercial.' : 'Evita perfil configurado pelo vendedor.');
   }
   if ((profileHasNegativeRule(salesProfile, 'avoidLargeCompanies') || profileHasPreference(salesProfile, 'preferSmallBusiness')) && largeCompanyLike) {
     riskScore += 28;
@@ -1109,6 +1263,10 @@ export function calculateLeadQualityV2(input: {
   );
   if (preferredChannelMatches.length) {
     finalRankScore = clampScore(finalRankScore + Math.min(10, preferredChannelMatches.length * 4));
+  }
+  if (missingRequiredChannels.length) {
+    finalRankScore = Math.min(finalRankScore, 35);
+    reasons.push(`Canal obrigatorio ausente: ${missingRequiredChannels.map((channel) => CHANNEL_LABELS[channel]).join(', ')}.`);
   }
   if (shouldDiscardOutOfCity) {
     finalRankScore = Math.min(finalRankScore, 35);
@@ -1169,7 +1327,7 @@ export function calculateLeadQualityV2(input: {
   } else if (profileMatchesHardReject) {
     decision = 'discard';
     discardReason = 'segment_mismatch';
-  } else if (profileHasNegativeRule(salesProfile, 'avoidPublicSector') && publicSectorLike) {
+  } else if ((profileHasNegativeRule(salesProfile, 'avoidPublicSector') && publicSectorLike) || publicSectorMismatch) {
     decision = 'discard';
     discardReason = 'segment_mismatch';
   } else if (profileHasNegativeRule(salesProfile, 'avoidNoPhone') && !phoneValid) {
@@ -1187,6 +1345,9 @@ export function calculateLeadQualityV2(input: {
     decision = 'discard';
     discardReason = 'segment_mismatch';
     finalRankScore = Math.min(finalRankScore, 35);
+  } else if (missingRequiredChannels.length) {
+    decision = 'discard';
+    discardReason = 'weak_contactability';
   } else if (qualityMode === 'lead_plus' && profilePreferredChannels.includes('whatsapp') && !whatsappConfirmed && !likelyMobile) {
     decision = 'review';
     discardReason = null;

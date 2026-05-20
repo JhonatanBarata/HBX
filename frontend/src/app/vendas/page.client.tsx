@@ -185,6 +185,9 @@ type LeadIntelligence = {
   deliveryProduct?: "list" | "lead_plus" | string | null;
   debitEligible?: boolean | null;
   qualityReason?: string | null;
+  enrichmentStatus?: "queued" | "processing" | "completed" | "failed" | string | null;
+  enrichedAt?: string | null;
+  cnpj?: string | null;
   messageTemplate?: LeadMessageTemplate | null;
   messageTemplates?: LeadMessageTemplate[];
   templateLibrarySize?: number;
@@ -784,9 +787,7 @@ function leadHasVisualChannel(lead: LeadItem, channel: MobileVisualChannelFilter
   const intelligence = lead.leadIntelligence || {};
   if (channel === "phone") return Boolean(normalizePhoneDigits(lead.phone || ""));
   if (channel === "whatsapp") {
-    const availabilityStatus = String(lead.whatsappAvailability?.status || "").trim().toLowerCase();
-    const intelligenceStatus = String(intelligence.whatsappStatus || "").trim().toLowerCase();
-    return Boolean(normalizePhoneDigits(lead.phone || "")) && availabilityStatus !== "unavailable" && intelligenceStatus !== "unavailable";
+    return isLeadWhatsappConfirmed(lead);
   }
   if (channel === "instagram") return Boolean(String(intelligence.instagramUrl || "").trim());
   if (channel === "facebook") return Boolean(String(intelligence.facebookUrl || "").trim());
@@ -833,6 +834,7 @@ function leadHasPremiumSignals(lead: LeadItem) {
 
 function leadEnrichmentBadgeState(lead: LeadItem, board?: BoardResponse | null) {
   const intelligence = lead.leadIntelligence || {};
+  const enrichmentStatus = String(intelligence.enrichmentStatus || "").trim().toLowerCase();
   const tier = String(intelligence.visibilityTier || "").trim().toLowerCase();
   const fromRadar = lead.sourceType === "webscraping" || String(lead.primarySource || "").toLowerCase().includes("radar");
   const lockedPremium = hasLockedSocialLinks(lead, board) || Boolean(intelligence.premiumTeaser);
@@ -845,11 +847,25 @@ function leadEnrichmentBadgeState(lead: LeadItem, board?: BoardResponse | null) 
     || ["confirmed", "missing", "invalid", "unverified"].includes(String(intelligence.whatsappStatus || "").toLowerCase())
     || ["confirmed", "probable", "missing", "unverified"].includes(String(intelligence.emailStatus || "").toLowerCase())
   );
+  if (["queued", "processing"].includes(enrichmentStatus)) {
+    return {
+      state: "enriching" as const,
+      label: "Enriquecendo",
+      title: "O Radar está buscando site, redes sociais, CNPJ e sinais comerciais deste card.",
+    };
+  }
   if ((pendingTier && !enrichmentChecked) || (fromRadar && !readyTier && !leadHasPremiumSignals(lead) && !enrichmentChecked)) {
     return {
       state: "enriching" as const,
       label: "Enriquecendo",
-      title: "Motor 2 verificando WhatsApp, redes sociais, e-mail e sinais premium.",
+      title: "O Radar está buscando site, redes sociais, CNPJ e sinais comerciais deste card.",
+    };
+  }
+  if (enrichmentStatus === "failed") {
+    return {
+      state: "reviewed" as const,
+      label: "Revisado",
+      title: "O Radar revisou este card, mas não encontrou novos sinais agora.",
     };
   }
   if (lockedPremium) {
@@ -923,6 +939,10 @@ function isLeadWhatsappConfirmed(lead: LeadItem) {
   );
 }
 
+function leadWhatsappHref(lead: LeadItem) {
+  return isLeadWhatsappConfirmed(lead) ? buildWhatsAppUrl(lead.phone, lead.name) : "";
+}
+
 type LeadChannelAsset = {
   channel: MobileChannelAsset;
   href: string;
@@ -933,9 +953,7 @@ type LeadChannelAsset = {
 function buildLeadChannelAssets(lead: LeadItem): LeadChannelAsset[] {
   const socialLinksVisible = canSeeSocialLinks(lead);
   const phoneHref = lead.phone ? buildCallUrl(lead.phone) : "";
-  const whatsappHref = lead.phone && lead.whatsappAvailability?.status !== "unavailable"
-    ? buildWhatsAppUrl(lead.phone, lead.name)
-    : "";
+  const whatsappHref = leadWhatsappHref(lead);
   const instagramHref = normalizeExternalUrl(lead.leadIntelligence?.instagramUrl);
   const facebookHref = normalizeExternalUrl(lead.leadIntelligence?.facebookUrl);
   const email = String(lead.email || lead.leadIntelligence?.email || "").trim();
@@ -2549,6 +2567,19 @@ export default function VendasClientPage() {
     }
   }
 
+  const loadBoardRef = useRef(loadBoard);
+
+  useEffect(() => {
+    loadBoardRef.current = loadBoard;
+  });
+
+  const hasEnrichingLead = useMemo(() => {
+    if (!board) return false;
+    return (["overdue", "today", "scheduled", "closed"] as LeadBlockKey[]).some((blockKey) =>
+      (board.blocks[blockKey] || []).some((lead) => leadEnrichmentBadgeState(lead, board)?.state === "enriching"),
+    );
+  }, [board]);
+
   async function loadSalesProfile() {
     try {
       const payload = await apiFetch<SalesProfileResponse>("/vendas/sales-profile");
@@ -2949,6 +2980,18 @@ export default function VendasClientPage() {
   useEffect(() => {
     boardRef.current = board;
   }, [board]);
+
+  useEffect(() => {
+    if (hasToken !== true || !hasEnrichingLead) return undefined;
+    return startSmartPolling(async () => {
+      if (composerOpenRef.current) return;
+      await loadBoardRef.current({ forceVisualRefresh: true });
+    }, {
+      intervalMs: isMobileVendasViewport() ? 4200 : 3200,
+      immediate: false,
+      pauseWhenHidden: true,
+    });
+  }, [hasToken, hasEnrichingLead]);
 
   useEffect(() => {
     function handleFocusOut() {
@@ -3666,7 +3709,7 @@ export default function VendasClientPage() {
   }
 
   function executeMobileLead(lead: LeadItem) {
-    const whatsappHref = isLeadWhatsappConfirmed(lead) ? buildWhatsAppUrl(lead.phone, lead.name) : "";
+    const whatsappHref = leadWhatsappHref(lead);
     if (whatsappHref) {
       void incrementAttempt(lead.id);
       window.open(whatsappHref, "_blank", "noopener,noreferrer");
@@ -3686,7 +3729,7 @@ export default function VendasClientPage() {
 
   function renderMobileLeadChannels(lead: LeadItem, options?: { compact?: boolean }) {
     const callHref = buildCallUrl(lead.phone);
-    const whatsappHref = isLeadWhatsappConfirmed(lead) ? buildWhatsAppUrl(lead.phone, lead.name) : "";
+    const whatsappHref = leadWhatsappHref(lead);
     const socialLinksVisible = canSeeSocialLinks(lead, board);
     const instagramHref = socialLinksVisible
       ? normalizeExternalUrl(lead.leadIntelligence?.instagramUrl)
@@ -3808,7 +3851,7 @@ export default function VendasClientPage() {
     const socialLinksVisible = canSeeSocialLinks(lead, board);
     return [
       buildCallUrl(lead.phone),
-      isLeadWhatsappConfirmed(lead) ? buildWhatsAppUrl(lead.phone, lead.name) : "",
+      leadWhatsappHref(lead),
       socialLinksVisible ? normalizeExternalUrl(lead.leadIntelligence?.instagramUrl) : "",
       socialLinksVisible ? normalizeExternalUrl(lead.leadIntelligence?.facebookUrl) : "",
       leadEmailForDisplay(lead) ? "email" : "",

@@ -197,9 +197,6 @@ type RadarSearchRunResponse = RadarPullResponse & {
       regionalCities?: Array<{ city?: string | null; state?: string | null; distanceKm?: number | null }>;
       selectedSegments?: string[];
       targetType?: HbxTargetTypeValue | string | null;
-      preferredChannels?: RadarChannel[];
-      requiredChannels?: RadarChannel[];
-      channelMatchMode?: ChannelMatchMode;
     };
     searchScope?: {
       currentCity?: string | null;
@@ -296,13 +293,9 @@ type FilterState = {
   minRating: string;
   minReviews: string;
   status: string;
-  preferredChannels: RadarChannel[];
-  requiredChannels: RadarChannel[];
-  channelMatchMode: ChannelMatchMode;
 };
 
 type RadarChannel = "whatsapp" | "instagram" | "email" | "website" | "phone" | "facebook";
-type ChannelMatchMode = "prefer" | "any_required" | "all_required";
 
 const PAGE_SIZE = 100;
 const RADAR_PROGRESS_STEPS = ["lendo banco", "filtrando negativos", "selecionando melhores cards", "alimentando Vendas/Prospecção"];
@@ -326,9 +319,6 @@ const DEFAULT_FILTERS: FilterState = {
   minRating: "",
   minReviews: "",
   status: "",
-  preferredChannels: [],
-  requiredChannels: [],
-  channelMatchMode: "prefer",
 };
 
 const MAX_CARDS_PER_RADAR_SEARCH = 100;
@@ -406,12 +396,6 @@ const RADAR_CHANNELS: Array<{ value: RadarChannel; label: string; icon: string; 
   { value: "facebook", label: "Facebook", icon: "/icons/hbx-channels/facebook.webp", darkIcon: "/icons/hbx-channels/facebook_dark.webp" },
 ];
 
-function normalizeRadarChannels(value: unknown): RadarChannel[] {
-  if (!Array.isArray(value)) return [];
-  const allowed = new Set<RadarChannel>(RADAR_CHANNELS.map((channel) => channel.value));
-  return Array.from(new Set(value.filter((item): item is RadarChannel => allowed.has(item as RadarChannel)))).slice(0, 6);
-}
-
 function normalizeProfileLabels(value: unknown): string[] {
   return Array.isArray(value)
     ? Array.from(new Set(value.map((item) => String(item || "").trim()).filter(Boolean))).slice(0, 30)
@@ -443,10 +427,6 @@ function buildRadarSalesProfilePayload(profile: SalesProfileResponse["effectiveP
   };
 }
 
-function normalizeChannelMatchMode(value: unknown): ChannelMatchMode {
-  return value === "any_required" || value === "all_required" ? value : "prefer";
-}
-
 function normalizeStoredRadarFilterDraft(value: unknown): FilterState {
   const input = (value || {}) as Partial<FilterState>;
   const engine = input.engine === "google" ? "google" : "hbx";
@@ -474,9 +454,6 @@ function normalizeStoredRadarFilterDraft(value: unknown): FilterState {
     minRating: "",
     minReviews: "",
     status: String(input.status || ""),
-    preferredChannels: normalizeRadarChannels(input.preferredChannels),
-    requiredChannels: normalizeRadarChannels(input.requiredChannels),
-    channelMatchMode: normalizeChannelMatchMode(input.channelMatchMode),
   };
 }
 
@@ -570,75 +547,6 @@ function RadarQuantitySelector({
         />
         <button type="button" onClick={() => setValue(safeValue + 5)} disabled={disabled || safeValue >= safeMax}>+</button>
       </div>
-    </div>
-  );
-}
-
-function RadarChannelFilterControls({
-  filters,
-  onChange,
-  compact,
-}: {
-  filters: FilterState;
-  onChange: (patch: Partial<FilterState>) => void;
-  compact?: boolean;
-}) {
-  const toggle = (kind: "preferredChannels" | "requiredChannels", channel: RadarChannel) => {
-    const current = filters[kind];
-    const next = current.includes(channel) ? current.filter((item) => item !== channel) : [...current, channel];
-    onChange({
-      [kind]: next,
-      ...(kind === "requiredChannels" && next.length === 0 ? { channelMatchMode: "prefer" as ChannelMatchMode } : {}),
-      ...(kind === "requiredChannels" && next.length > 0 && filters.channelMatchMode === "prefer" ? { channelMatchMode: "any_required" as ChannelMatchMode } : {}),
-    });
-  };
-
-  return (
-    <div className={styles.channelFilters} data-compact={compact ? "true" : "false"}>
-      <div>
-        <span>Canais preferidos</span>
-        <div>
-          {RADAR_CHANNELS.map((channel) => (
-            <button
-              key={`preferred:${channel.value}`}
-              type="button"
-              data-active={filters.preferredChannels.includes(channel.value) ? "true" : "false"}
-              onClick={() => toggle("preferredChannels", channel.value)}
-              title={`Preferir ${channel.label}`}
-            >
-              <img src={channel.icon} alt="" />
-              {compact ? null : channel.label}
-            </button>
-          ))}
-        </div>
-      </div>
-      <div>
-        <span>Canais obrigatórios</span>
-        <div>
-          {RADAR_CHANNELS.map((channel) => (
-            <button
-              key={`required:${channel.value}`}
-              type="button"
-              data-active={filters.requiredChannels.includes(channel.value) ? "true" : "false"}
-              onClick={() => toggle("requiredChannels", channel.value)}
-              title={`Exigir ${channel.label}`}
-            >
-              <img src={channel.icon} alt="" />
-              {compact ? null : channel.label}
-            </button>
-          ))}
-        </div>
-      </div>
-      {filters.requiredChannels.length ? (
-        <div className={styles.channelMode}>
-          <button type="button" data-active={filters.channelMatchMode === "any_required" ? "true" : "false"} onClick={() => onChange({ channelMatchMode: "any_required" })}>
-            Qualquer
-          </button>
-          <button type="button" data-active={filters.channelMatchMode === "all_required" ? "true" : "false"} onClick={() => onChange({ channelMatchMode: "all_required" })}>
-            Todos
-          </button>
-        </div>
-      ) : null}
     </div>
   );
 }
@@ -1174,9 +1082,6 @@ function buildLeadQuery(filters: FilterState, page: number) {
   if (filters.engine) params.set("engine", filters.engine);
   if (filters.scoreRange) params.set("scoreRange", filters.scoreRange);
   if (filters.status) params.set("status", filters.status);
-  filters.preferredChannels.forEach((channel) => params.append("preferredChannels", channel));
-  filters.requiredChannels.forEach((channel) => params.append("requiredChannels", channel));
-  if (filters.channelMatchMode) params.set("channelMatchMode", filters.channelMatchMode);
   return params.toString();
 }
 
@@ -2363,9 +2268,6 @@ export default function RadarDigitalClientPage() {
             segment: payloadFilters.segment || current.segment,
             radiusKm: Number(payloadFilters.radiusKm ?? current.radiusKm ?? DEFAULT_FILTERS.radiusKm),
             targetType: (payloadFilters.targetType === "pf" || payloadFilters.targetType === "both" ? payloadFilters.targetType : "pj") as HbxTargetTypeValue,
-            preferredChannels: normalizeRadarChannels(payloadFilters.preferredChannels),
-            requiredChannels: normalizeRadarChannels(payloadFilters.requiredChannels),
-            channelMatchMode: normalizeChannelMatchMode(payloadFilters.channelMatchMode),
           };
           return JSON.stringify(current) === JSON.stringify(next) ? current : next;
         });
@@ -2378,9 +2280,6 @@ export default function RadarDigitalClientPage() {
           segment: payloadFilters.segment || current.segment,
           radiusKm: Number(payloadFilters.radiusKm ?? current.radiusKm ?? DEFAULT_FILTERS.radiusKm),
           targetType: (payloadFilters.targetType === "pf" || payloadFilters.targetType === "both" ? payloadFilters.targetType : "pj") as HbxTargetTypeValue,
-          preferredChannels: normalizeRadarChannels(payloadFilters.preferredChannels),
-          requiredChannels: normalizeRadarChannels(payloadFilters.requiredChannels),
-          channelMatchMode: normalizeChannelMatchMode(payloadFilters.channelMatchMode),
         };
         return JSON.stringify(current) === JSON.stringify(next) ? current : next;
       });
@@ -2600,9 +2499,6 @@ export default function RadarDigitalClientPage() {
           quantity: nextFilters.quantity,
           minimumStock: Math.max(1, Math.min(nextFilters.quantity, 10)),
           desiredStock: Math.max(1, nextFilters.quantity),
-          preferredChannels: nextFilters.preferredChannels,
-          requiredChannels: nextFilters.requiredChannels,
-          channelMatchMode: nextFilters.channelMatchMode,
           freshness: "live",
           whatsappCheckMode,
           qualityMode: hasLeadCapabilities ? "lead_plus" : "list",
@@ -3047,12 +2943,6 @@ export default function RadarDigitalClientPage() {
               onChange={(radiusKm) => setFilters((current) => ({ ...current, radiusKm }))}
             />
 
-            <RadarChannelFilterControls
-              compact
-              filters={filters}
-              onChange={(patch) => setFilters((current) => ({ ...current, ...patch }))}
-            />
-
             <DailyQuotaSpeedometer
               compact
               remaining={dailyRemaining}
@@ -3263,12 +3153,6 @@ export default function RadarDigitalClientPage() {
             <RadarRadiusSelector
               value={filters.radiusKm}
               onChange={(radiusKm) => setFilters((current) => ({ ...current, radiusKm }))}
-            />
-          </div>
-          <div className={styles.filterChannels}>
-            <RadarChannelFilterControls
-              filters={filters}
-              onChange={(patch) => setFilters((current) => ({ ...current, ...patch }))}
             />
           </div>
           <div className={styles.filterTarget}>

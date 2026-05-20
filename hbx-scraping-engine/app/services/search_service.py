@@ -24,13 +24,14 @@ from .storage import Storage
 SOCIAL_ENRICH_MAX_RESULTS_PER_QUERY = 12
 SOCIAL_ENRICH_MAX_CONTACTS_REQUIRED = 4
 SOCIAL_ENRICH_MAX_CONTACTS_PREFERRED = 2
-SOCIAL_ENRICH_MAX_QUERIES_PER_CHANNEL = 6
+SOCIAL_ENRICH_MAX_QUERIES_PER_CHANNEL = 5
 SOCIAL_ENRICH_MAX_HANDLE_VALIDATIONS = 10
-SOCIAL_ENRICH_TOTAL_BUDGET_SECONDS = 70
-SOCIAL_ENRICH_WEBSITE_MAX_QUERIES = 10
+SOCIAL_ENRICH_TOTAL_BUDGET_SECONDS = 24
+SOCIAL_ENRICH_WEBSITE_MAX_QUERIES = 3
 SOCIAL_BRIDGE_HOST_PARTS = ("linktr.ee", "linktree.com", "bio.link", "beacons.ai")
 OFFICIAL_WEBSITE_PROBE_TLDS = ("com.br", "com")
 EMAIL_RE = re.compile(r"[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}", re.I)
+CNPJ_RE = re.compile(r"\b\d{2}\.?\d{3}\.?\d{3}/?\d{4}-?\d{2}\b")
 BAD_EMAIL_LOCAL_PARTS = {
     "asset",
     "assets",
@@ -93,6 +94,7 @@ OFFICIAL_WEBSITE_BLOCKED_DOMAINS = {
     "tripadvisor.com",
     "tripadvisor.com.br",
     "urlm.com.br",
+    "visitmestre.com",
 }
 
 SOCIAL_QUERY_BAD_NAME_HINTS = (
@@ -552,14 +554,6 @@ class SearchService:
         name_tokens = self.social_name_tokens(name)
         compact_name = "".join(name_tokens)
         queries: list[str] = []
-        for token in self.distinctive_social_name_tokens(name)[:2]:
-            q_token = self.quote_query_part(token)
-            if not q_token:
-                continue
-            for city_variant in self.text_variants(city_text):
-                q_city = self.quote_query_part(city_variant)
-                queries.append(f"site:{domain} {q_token} {q_city}".strip())
-                queries.append(f"{q_token} {q_city} {channel}".strip())
         for name_variant in self.text_variants(name):
             q_name = self.quote_query_part(name_variant)
             if not q_name:
@@ -568,6 +562,16 @@ class SearchService:
                 q_city = self.quote_query_part(city_variant)
                 queries.append(f"site:{domain} {q_name} {q_city}".strip())
                 queries.append(f"{q_name} {q_city} {channel}".strip())
+                if segment_text:
+                    queries.append(f"{q_name} {self.quote_query_part(segment_text)} {q_city} {channel}".strip())
+        for token in self.distinctive_social_name_tokens(name)[:2]:
+            q_token = self.quote_query_part(token)
+            if not q_token:
+                continue
+            for city_variant in self.text_variants(city_text):
+                q_city = self.quote_query_part(city_variant)
+                queries.append(f"site:{domain} {q_token} {q_city}".strip())
+                queries.append(f"{q_token} {q_city} {channel}".strip())
         if website_stem and len(website_stem) >= 4:
             queries.append(f"site:{domain} {website_stem}")
             queries.append(f"{website_stem} {channel}")
@@ -966,18 +970,44 @@ class SearchService:
             return -100
         text = text_key(" ".join(str(row.get(key) or "") for key in ("title", "body", "snippet", "description", "href", "url")))
         host_stem = text_key(host.split(".")[0])
+        host_compact = self.compact_key(host_stem)
+        name_key = text_key(str(contact.get("name") or ""))
+        name_tokens = [
+            token for token in name_key.split()
+            if len(token) >= 4
+            and token not in BUSINESS_NAME_STOP_TOKENS
+            and token not in WEAK_SOCIAL_DISTINCTIVE_TOKENS
+        ]
+        category_tokens = [token for token in name_tokens if token in BUSINESS_CATEGORY_TOKENS]
+        strong_tokens = [token for token in name_tokens if token not in BUSINESS_CATEGORY_TOKENS]
+        compact_name = "".join(token for token in name_key.split() if token not in BUSINESS_NAME_STOP_TOKENS)
+        strong_host_hits = {
+            token for token in strong_tokens
+            if len(token) >= 4 and token in host_compact
+        }
+        category_host_hits = {
+            token for token in category_tokens
+            if len(token) >= 4 and token in host_compact
+        }
+        full_name_host_match = bool(compact_name and len(compact_name) >= 8 and compact_name in host_compact)
+        host_identity_match = bool(
+            full_name_host_match
+            or len(strong_host_hits) >= 2
+            or (strong_host_hits and category_host_hits)
+            or (len(strong_tokens) == 1 and len(name_tokens) <= 2 and next(iter(strong_host_hits), "") == strong_tokens[0])
+        )
         score = 0
-        host_identity_match = False
         for variant in self.business_name_variants(str(contact.get("name") or "")):
             variant_key = text_key(variant)
             variant_compact = re.sub(r"[^a-z0-9]+", "", variant_key)
             if variant_key and variant_key in text:
                 score += 30
-            if variant_compact and len(variant_compact) >= 5 and (variant_compact in host_stem or host_stem in variant_compact):
-                host_identity_match = True
+            if variant_compact and len(variant_compact) >= 8 and variant_compact in host_compact:
                 score += 45
             if variant_compact and variant_compact in re.sub(r"[^a-z0-9]+", "", text):
                 score += 35
+        if host_identity_match:
+            score += 45
         phone_digits = re.sub(r"\D", "", str(contact.get("phoneDigits") or contact.get("phone") or ""))
         phone_match = bool(len(phone_digits) >= 8 and phone_digits[-8:] in re.sub(r"\D", "", text))
         if phone_match:
@@ -985,7 +1015,7 @@ class SearchService:
         city_key = text_key(city)
         if city_key and city_key in text:
             score += 15
-        if not host_identity_match and not phone_match:
+        if not host_identity_match:
             return -100
         return score
 
@@ -1626,12 +1656,113 @@ class SearchService:
 
         return None, "missing", "none", 0, stats
 
+    def parse_rating_reviews_from_identity_text(self, value: str) -> tuple[float | None, int | None]:
+        text = " ".join(str(value or "").split())
+        rating: float | None = None
+        reviews: int | None = None
+        rating_match = re.search(r"\b([0-5](?:[,.]\d)?)\s*(?:★|estrelas?|stars?)", text, flags=re.I)
+        if not rating_match:
+            rating_match = re.search(r"\bnota\s+([0-5](?:[,.]\d)?)\b", text, flags=re.I)
+        if rating_match:
+            try:
+                rating = max(0.0, min(5.0, float(rating_match.group(1).replace(",", "."))))
+            except Exception:
+                rating = None
+        reviews_match = re.search(r"\b(\d{1,6})\s+(?:avalia[cç][oõ]es|reviews?|coment[aá]rios)\b", text, flags=re.I)
+        if reviews_match:
+            try:
+                reviews = max(0, int(reviews_match.group(1)))
+            except Exception:
+                reviews = None
+        return rating, reviews
+
+    def enrich_identity_lookup(self, contact: dict, city: str, state: str, segment: str, deadline: float | None = None) -> dict:
+        name = " ".join(str(contact.get("name") or "").split())
+        city_text = " ".join(str(city or contact.get("city") or "").split())
+        state_text = " ".join(str(state or contact.get("state") or "").split()).upper()
+        if not name or not city_text or self.time_budget_expired(deadline):
+            return {"stats": {"queries": [], "rows": 0, "mode": "identity_first"}}
+
+        q_name = self.quote_query_part(name)
+        q_city = self.quote_query_part(city_text)
+        queries = list(dict.fromkeys([
+            f"{q_name} {q_city} {state_text}".strip(),
+            f"{q_name} {q_city}".strip(),
+            f"{q_name} {q_city} instagram facebook".strip(),
+            f"{q_name} {q_city} cnpj".strip(),
+        ]))
+        result: dict = {"stats": {"queries": [], "rows": 0, "mode": "identity_first"}}
+        best_social: dict[str, tuple[str, int, str]] = {}
+        best_website: tuple[str | None, int, str | None] = (None, -10_000, None)
+
+        try:
+            try:
+                ddgs = DDGS(timeout=self.remaining_budget_seconds(deadline, 5))
+            except TypeError:
+                ddgs = DDGS()
+            with ddgs as client:
+                for query in queries[:4]:
+                    if self.time_budget_expired(deadline):
+                        break
+                    result["stats"]["queries"].append(query)
+                    try:
+                        rows = list(client.text(query, region="br-pt", safesearch="off", max_results=8) or [])
+                    except Exception as error:
+                        print(f"[identity_enrich] query falhou: {query} error={error}")
+                        continue
+                    result["stats"]["rows"] += len(rows)
+                    for row in rows:
+                        raw_url = str(row.get("href") or row.get("url") or "").strip()
+                        row_text = " ".join(str(row.get(key) or "") for key in ("title", "body", "snippet", "description", "href", "url"))
+                        if not result.get("cnpj"):
+                            cnpj_match = CNPJ_RE.search(row_text)
+                            if cnpj_match:
+                                result["cnpj"] = cnpj_match.group(0)
+                        rating, reviews = self.parse_rating_reviews_from_identity_text(row_text)
+                        if rating is not None and result.get("rating") is None:
+                            result["rating"] = rating
+                        if reviews is not None and result.get("reviews") is None:
+                            result["reviews"] = reviews
+                        if raw_url and re.match(r"^https?://(?:www\.)?(?:google\.[^/]+/maps|maps\.app\.goo\.gl)/", raw_url, re.I):
+                            result.setdefault("googleMapsUrl", raw_url)
+                        for channel in ("instagram", "facebook"):
+                            field = "instagramUrl" if channel == "instagram" else "facebookUrl"
+                            if result.get(field):
+                                continue
+                            score = self.score_social_candidate(contact, row, raw_url, channel, city_text, segment, query)
+                            if score > best_social.get(field, ("", -10_000, ""))[1]:
+                                normalized = normalize_social_url(raw_url)
+                                if normalized:
+                                    best_social[field] = (normalized, score, query)
+                        if raw_url and not is_social_signal_domain(raw_url):
+                            website_score = self.score_website_candidate(contact, row, raw_url, city_text)
+                            if website_score > best_website[1]:
+                                best_website = (raw_url, website_score, query)
+                    if best_social.get("instagramUrl") and best_social.get("facebookUrl") and best_website[1] >= 35:
+                        break
+        except Exception as error:
+            print(f"[identity_enrich] falhou name={name} error={error}")
+
+        for field, (url, score, query) in best_social.items():
+            if score >= 55:
+                result[field] = url
+                result["stats"][field] = {"score": score, "query": query}
+        if best_website[0] and best_website[1] >= 35:
+            parsed = urlparse(best_website[0])
+            result["website"] = f"{parsed.scheme}://{parsed.netloc}".rstrip("/")
+            result["stats"]["website"] = {"score": best_website[1], "query": best_website[2]}
+        return result
+
     async def enrich_lead(self, request: EnrichLeadRequest) -> EnrichLeadResponse:
-        requested_budget = float(request.timeBudgetSeconds or SOCIAL_ENRICH_TOTAL_BUDGET_SECONDS)
+        requested_budget = float(request.timeBudgetSeconds or 18)
         budget_seconds = max(5.0, min(SOCIAL_ENRICH_TOTAL_BUDGET_SECONDS, requested_budget))
         deadline = time.monotonic() + budget_seconds
         phone_digits = re.sub(r"\D", "", request.phoneDigits or request.phone or "")
-        preferred_channels = list(request.preferredChannels or ["instagram", "facebook"])
+        preferred_channels = [
+            channel
+            for channel in dict.fromkeys([*(request.preferredChannels or []), "instagram", "facebook"])
+            if channel in {"instagram", "facebook"}
+        ]
         required_channels = set(request.requiredChannels or [])
         website_required = "website" in required_channels
         social_required = bool({"instagram", "facebook"} & required_channels)
@@ -1649,8 +1780,12 @@ class SearchService:
             "source": "hbx_scraping:lead_plus_enrichment",
             "score": 70,
         }
+        identity = self.enrich_identity_lookup(contact, request.city, request.state, request.segment, min(deadline, time.monotonic() + 8))
+        for key in ("website", "instagramUrl", "facebookUrl"):
+            if identity.get(key) and not contact.get(key):
+                contact[key] = identity.get(key)
         if website_required and not contact.get("website") and not self.time_budget_expired(deadline):
-            website_deadline = min(deadline, time.monotonic() + 18)
+            website_deadline = min(deadline, time.monotonic() + 8)
             direct_deadline = min(website_deadline, time.monotonic() + 10)
             website, website_score, website_query = self.probe_direct_website_for_contact(contact, request.city, direct_deadline)
             if not website and not social_required and not self.time_budget_expired(website_deadline):
@@ -1661,18 +1796,27 @@ class SearchService:
                     "score": website_score,
                     "query": website_query,
                 }
-        contacts, social_stats = self.enrich_social_links_for_contacts(
-            [contact],
-            request.city,
-            request.state,
-            request.segment,
-            preferred_channels,
-            list(required_channels),
-            time_budget_seconds=self.remaining_budget_seconds(deadline, budget_seconds),
-        )
+        missing_social_channels = [
+            channel
+            for channel in preferred_channels
+            if channel in {"instagram", "facebook"}
+            and not contact.get("instagramUrl" if channel == "instagram" else "facebookUrl")
+        ]
+        if missing_social_channels and not self.time_budget_expired(deadline):
+            contacts, social_stats = self.enrich_social_links_for_contacts(
+                [contact],
+                request.city,
+                request.state,
+                request.segment,
+                missing_social_channels,
+                list(required_channels),
+                time_budget_seconds=self.remaining_budget_seconds(deadline, budget_seconds),
+            )
+        else:
+            contacts, social_stats = [contact], {"matches": [], "identity": identity.get("stats")}
         enriched = contacts[0] if contacts else contact
         if not enriched.get("website") and not self.time_budget_expired(deadline):
-            website_deadline = min(deadline, time.monotonic() + 10)
+            website_deadline = min(deadline, time.monotonic() + 5)
             website, website_score, website_query = self.discover_website_for_contact(enriched, request.city, website_deadline)
             if website:
                 enriched["website"] = website
@@ -1680,7 +1824,7 @@ class SearchService:
                     "score": website_score,
                     "query": website_query,
                 }
-        if self.time_budget_expired(deadline):
+        if self.time_budget_expired(deadline) or not enriched.get("website"):
             email, email_status, email_source, email_confidence, email_stats = None, "missing", "none", 0, {"pagesFetched": 0, "emailsFound": 0, "timedOut": True}
         else:
             email, email_status, email_source, email_confidence, email_stats = await self.discover_email_for_contact(enriched)
@@ -1695,6 +1839,8 @@ class SearchService:
             name=request.name,
             phone=request.phone or phone_digits,
             phoneDigits=phone_digits,
+            rating=identity.get("rating"),
+            reviews=identity.get("reviews"),
             website=enriched.get("website") or request.website,
             email=email,
             emailStatus=email_status,
@@ -1702,9 +1848,12 @@ class SearchService:
             emailConfidence=email_confidence,
             instagramUrl=enriched.get("instagramUrl"),
             facebookUrl=enriched.get("facebookUrl"),
+            googleMapsUrl=identity.get("googleMapsUrl"),
+            cnpj=identity.get("cnpj"),
             socialStatus="found" if has_social else "missing",
             socialConfidence=social_confidence,
             stats={
+                "identity": identity.get("stats"),
                 "social": social_stats,
                 "email": email_stats,
                 "website": enriched.get("_websiteEnrichment"),

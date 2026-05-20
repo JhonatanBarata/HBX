@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { calculateLeadQualityV2 } from './lead-quality-v2';
+import { calculateLeadQualityV2, resolveRadarVisibilityFromQualityV2 } from './lead-quality-v2';
 
 test('LeadQualityV2 entrega oficina boa com score alto', () => {
   const quality = calculateLeadQualityV2({
@@ -669,4 +669,145 @@ test('LeadQualityV2 canal WhatsApp obrigatorio nao vira regra de bloqueio Lead+'
   });
 
   assert.notEqual(quality.discardReason, 'required_channel_missing');
+});
+
+test('RadarVisibility salva empresa real com segmento adjacente como card basico ou revisao', () => {
+  const lead = {
+    name: 'Burguer Avenida',
+    phoneDigits: '19999990001',
+    city: 'Rio Claro',
+    state: 'SP',
+    segment: 'hamburgueria',
+  };
+  const quality = calculateLeadQualityV2({
+    lead,
+    context: { requestedSegment: 'pizzaria', qualityMode: 'list' },
+  });
+  const visibility = resolveRadarVisibilityFromQualityV2({
+    lead,
+    quality,
+    qualityMode: 'list',
+    requestedSegment: 'pizzaria',
+  });
+
+  assert.equal(visibility.hardBlocked, false);
+  assert.ok(['list_basic', 'review_backup'].includes(visibility.visibilityTier));
+});
+
+test('RadarVisibility canal preferido WhatsApp ausente nao bloqueia card real', () => {
+  const lead = {
+    name: 'Padaria Central',
+    phoneDigits: '1933334444',
+    city: 'Rio Claro',
+    state: 'SP',
+    segment: 'padaria',
+  };
+  const quality = calculateLeadQualityV2({
+    lead,
+    context: {
+      requestedSegment: 'padaria',
+      qualityMode: 'list',
+      salesProfile: { preferredChannels: ['whatsapp'], channelMatchMode: 'prefer' },
+    },
+  });
+  const visibility = resolveRadarVisibilityFromQualityV2({ lead, quality, qualityMode: 'list', requestedSegment: 'padaria' });
+
+  assert.equal(visibility.hardBlocked, false);
+  assert.notEqual(visibility.visibilityTier, 'blocked');
+});
+
+test('RadarVisibility Lead+ nao impede card basico quando nao qualifica destaque', () => {
+  const lead = {
+    name: 'Clinica Sem WhatsApp',
+    phoneDigits: '1933334444',
+    city: 'Campinas',
+    state: 'SP',
+    segment: 'clinica medica',
+  };
+  const quality = calculateLeadQualityV2({
+    lead,
+    context: {
+      requestedSegment: 'clinica',
+      qualityMode: 'lead_plus',
+      salesProfile: { qualityMode: 'lead_plus', targetSegments: ['clinicas medicas'], preferredChannels: ['whatsapp'] },
+    },
+  });
+  const visibility = resolveRadarVisibilityFromQualityV2({ lead, quality, qualityMode: 'lead_plus', requestedSegment: 'clinica' });
+
+  assert.equal(visibility.hardBlocked, false);
+  assert.ok(['list_basic', 'review_backup'].includes(visibility.visibilityTier));
+});
+
+test('RadarVisibility score baixo vira review_backup, nao bloqueio', () => {
+  const lead = {
+    name: 'Oficina Bairro',
+    phoneDigits: '1933334444',
+    city: 'Campinas',
+    state: 'SP',
+    segment: 'oficina',
+  };
+  const quality = {
+    ...calculateLeadQualityV2({ lead, context: { requestedSegment: 'oficina', qualityMode: 'list' } }),
+    decision: 'review' as const,
+    finalRankScore: 32,
+  };
+  const visibility = resolveRadarVisibilityFromQualityV2({ lead, quality, qualityMode: 'list', requestedSegment: 'oficina' });
+
+  assert.equal(visibility.hardBlocked, false);
+  assert.equal(visibility.visibilityTier, 'review_backup');
+});
+
+test('RadarVisibility diretorio com empresa real e telefone vira revisao', () => {
+  const lead = {
+    name: 'Pizzaria Bella Massa',
+    phoneDigits: '1933334444',
+    city: 'Rio Claro',
+    state: 'SP',
+    segment: 'pizzaria',
+    source: 'diretorio',
+  };
+  const quality = calculateLeadQualityV2({ lead, context: { requestedSegment: 'pizzaria', qualityMode: 'list' } });
+  const visibility = resolveRadarVisibilityFromQualityV2({ lead, quality, qualityMode: 'list', requestedSegment: 'pizzaria' });
+
+  assert.equal(quality.discardReason, 'generic_directory');
+  assert.equal(visibility.hardBlocked, false);
+  assert.equal(visibility.visibilityTier, 'review_backup');
+});
+
+test('RadarVisibility nomes genericos bloqueiam como generic_name', () => {
+  for (const name of ['Pizzarias em Rio Claro', '10 melhores clínicas', 'Contato', 'Home']) {
+    const lead = { name, phoneDigits: '1933334444', city: 'Rio Claro', state: 'SP', segment: 'pizzaria' };
+    const quality = calculateLeadQualityV2({ lead, context: { requestedSegment: 'pizzaria', qualityMode: 'list' } });
+    const visibility = resolveRadarVisibilityFromQualityV2({ lead, quality, qualityMode: 'list', requestedSegment: 'pizzaria' });
+
+    assert.equal(visibility.hardBlocked, true, name);
+    assert.equal(visibility.blockReason, 'generic_name', name);
+  }
+});
+
+test('RadarVisibility prefeitura contra segmento comercial bloqueia hard mismatch', () => {
+  const lead = {
+    name: 'Prefeitura Municipal de Rio Claro',
+    phoneDigits: '1933334444',
+    city: 'Rio Claro',
+    state: 'SP',
+    segment: 'orgao publico',
+  };
+  const quality = calculateLeadQualityV2({ lead, context: { requestedSegment: 'pizzaria', qualityMode: 'list' } });
+  const visibility = resolveRadarVisibilityFromQualityV2({ lead, quality, qualityMode: 'list', requestedSegment: 'pizzaria' });
+
+  assert.equal(visibility.hardBlocked, true);
+  assert.equal(visibility.blockReason, 'segment_hard_mismatch');
+});
+
+test('RadarVisibility negativos e ausencia total de canal bloqueiam', () => {
+  const negativeLead = { name: 'Pet Shop Bloqueado', phoneDigits: '19999990001', status: 'opt_out', segment: 'pet shop' };
+  const negativeQuality = calculateLeadQualityV2({ lead: negativeLead, context: { requestedSegment: 'pet' } });
+  assert.equal(resolveRadarVisibilityFromQualityV2({ lead: negativeLead, quality: negativeQuality, requestedSegment: 'pet' }).hardBlocked, true);
+
+  const noChannelLead = { name: 'Clinica Sem Canal', city: 'Campinas', state: 'SP', segment: 'clinica' };
+  const noChannelQuality = calculateLeadQualityV2({ lead: noChannelLead, context: { requestedSegment: 'clinica' } });
+  const noChannelVisibility = resolveRadarVisibilityFromQualityV2({ lead: noChannelLead, quality: noChannelQuality, requestedSegment: 'clinica' });
+  assert.equal(noChannelVisibility.hardBlocked, true);
+  assert.equal(noChannelVisibility.blockReason, 'no_actionable_channel');
 });

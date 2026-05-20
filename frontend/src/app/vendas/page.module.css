@@ -328,9 +328,14 @@
 
 .mobileLeadEnrichmentCrown {
   flex: 0 0 auto;
-  display: inline-flex;
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  display: inline-grid;
+  grid-auto-flow: column;
+  grid-auto-columns: max-content;
   min-width: 0;
-  min-height: 28px;
+  min-height: 30px;
   align-items: center;
   justify-content: center;
   gap: 5px;
@@ -360,6 +365,7 @@
   width: 15px;
   height: 15px;
   flex: 0 0 auto;
+  transform: translateY(-0.5px);
   fill: currentColor;
   stroke: currentColor;
   stroke-width: 1.8;
@@ -380,7 +386,7 @@
 }
 
 .mobileLeadEnrichmentCrown[data-compact="true"] {
-  min-height: 26px;
+  min-height: 28px;
   padding: 0 7px;
 }
 
@@ -389,7 +395,24 @@
 }
 
 .mobileLeadEnrichmentCrown[data-state="enriching"] {
-  animation: mobileLeadCrownEnriching 1.12s ease-in-out infinite;
+  border-color: rgba(245, 158, 11, 0.42);
+  background:
+    radial-gradient(circle at 35% 18%, rgba(255, 255, 255, 0.94), transparent 42%),
+    linear-gradient(100deg, rgba(241, 245, 249, 0.98) 0%, rgba(226, 232, 240, 0.92) 26%, #fff7d6 48%, #facc15 68%, rgba(226, 232, 240, 0.92) 100%);
+  background-size: 240% 100%;
+  color: #854d0e;
+  animation: mobileLeadCrownEnriching 1.45s ease-in-out infinite;
+}
+
+.mobileLeadEnrichmentCrown[data-state="enriching"]::after {
+  content: "";
+  position: absolute;
+  inset: 1px;
+  z-index: -1;
+  border-radius: inherit;
+  background: linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.42) 50%, transparent 100%);
+  transform: translateX(-120%);
+  animation: mobileLeadCrownSweep 1.45s ease-in-out infinite;
 }
 
 .mobileLeadEnrichmentCrown[data-state="ready"] {
@@ -411,32 +434,51 @@
     0 14px 26px -18px rgba(202, 138, 4, 0.68);
 }
 
+.mobileLeadEnrichmentCrown[data-state="reviewed"] {
+  border-color: rgba(148, 163, 184, 0.42);
+  background:
+    radial-gradient(circle at 35% 18%, rgba(255, 255, 255, 0.86), transparent 42%),
+    linear-gradient(145deg, rgba(241, 245, 249, 0.96), rgba(203, 213, 225, 0.86));
+  color: #475569;
+}
+
 @keyframes mobileLeadCrownEnriching {
   0%,
   100% {
-    border-color: rgba(148, 163, 184, 0.48);
-    background:
-      radial-gradient(circle at 35% 18%, rgba(255, 255, 255, 0.9), transparent 42%),
-      linear-gradient(145deg, rgba(241, 245, 249, 0.98), rgba(226, 232, 240, 0.92));
-    color: #64748b;
+    background-position: 0% 50%;
     box-shadow:
       inset 0 1px 0 rgba(255, 255, 255, 0.82),
       0 12px 22px -18px rgba(15, 23, 42, 0.36),
       0 0 0 0 rgba(245, 158, 11, 0);
-    transform: translateY(0) scale(1);
+    transform: translateY(0);
   }
 
   50% {
+    background-position: 100% 50%;
     border-color: rgba(245, 158, 11, 0.58);
-    background:
-      radial-gradient(circle at 35% 18%, rgba(255, 255, 255, 0.94), transparent 42%),
-      linear-gradient(145deg, #fff7d6, #facc15);
-    color: #854d0e;
     box-shadow:
       inset 0 1px 0 rgba(255, 255, 255, 0.8),
       0 16px 28px -20px rgba(202, 138, 4, 0.62),
       0 0 0 5px rgba(245, 158, 11, 0.1);
-    transform: translateY(-1px) scale(1.025);
+    transform: translateY(-1px);
+  }
+}
+
+@keyframes mobileLeadCrownSweep {
+  0%,
+  100% {
+    transform: translateX(-120%);
+    opacity: 0;
+  }
+
+  45%,
+  60% {
+    opacity: 1;
+  }
+
+  70% {
+    transform: translateX(120%);
+    opacity: 0;
   }
 }
 
@@ -458,6 +500,23 @@
     radial-gradient(circle at 35% 18%, rgba(255, 255, 255, 0.12), transparent 42%),
     linear-gradient(145deg, rgba(82, 56, 12, 0.96), rgba(133, 77, 14, 0.84));
   color: #fde68a;
+}
+
+:global(html[data-hbx-mobile-theme="dark"]) .mobileLeadEnrichmentCrown[data-state="enriching"] {
+  border-color: rgba(250, 204, 21, 0.34);
+  background:
+    radial-gradient(circle at 35% 18%, rgba(255, 255, 255, 0.12), transparent 42%),
+    linear-gradient(100deg, rgba(22, 38, 66, 0.96) 0%, rgba(12, 28, 54, 0.9) 26%, rgba(82, 56, 12, 0.94) 52%, rgba(202, 138, 4, 0.74) 72%, rgba(12, 28, 54, 0.9) 100%);
+  background-size: 240% 100%;
+  color: #fde68a;
+}
+
+:global(html[data-hbx-mobile-theme="dark"]) .mobileLeadEnrichmentCrown[data-state="reviewed"] {
+  border-color: rgba(148, 163, 184, 0.2);
+  background:
+    radial-gradient(circle at 35% 18%, rgba(255, 255, 255, 0.08), transparent 42%),
+    linear-gradient(145deg, rgba(22, 38, 66, 0.88), rgba(15, 23, 42, 0.86));
+  color: #94a3b8;
 }
 
 .mobileVendasReportPanel,

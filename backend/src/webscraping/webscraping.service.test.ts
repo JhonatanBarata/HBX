@@ -103,6 +103,25 @@ test('normalizacao do Radar ignora coordenada antiga que nao bate com a cidade s
   assert.ok(input.regionalCities.every((row: any) => row.city !== 'Rio Claro' || row.distanceKm > 50));
 });
 
+test('normalizacao do Radar nao cruza UF no raio por padrao', () => {
+  const service = new WebscrapingService(createPrisma()) as any;
+
+  const input = service.normalizeSearchInput({
+    city: 'Águas da Prata',
+    state: 'SP',
+    segment: 'barbearias',
+    quantity: 20,
+    radiusKm: 100,
+    engine: 'hbx',
+    targetType: 'pj',
+  });
+
+  assert.ok(input.regionalCities.length > 1);
+  assert.ok(input.regionalCities.every((row: any) => row.state === 'SP'));
+  assert.equal(input.regionalCities.some((row: any) => row.city === 'Poços de Caldas'), false);
+  assert.equal(input.regionalCities.some((row: any) => row.city === 'Andradas'), false);
+});
+
 test('DDD esperado reconhece Araraquara como DDD 16', () => {
   const service = new WebscrapingService(createPrisma()) as any;
   assert.deepEqual(service.buildExpectedDdds({ city: 'Araraquara', state: 'SP', segment: 'auto elétricas' }), ['16']);
@@ -649,7 +668,49 @@ test('LeadQuality reconhece restaurantes reais em busca ampla de alimentacao', (
   assert.ok(espetinho.segmentMatchScore >= 55);
 });
 
-test('saveSearchRunResults salva baixa aderencia como skipped e entrega so aprovado', async () => {
+test('HBX mapper rejeita pagina generica de diretorio perto de mim', () => {
+  const service = new WebscrapingService(createPrisma()) as any;
+  const input = service.normalizeSearchInput({
+    city: 'Águas da Prata',
+    state: 'SP',
+    segment: 'barbearias',
+    quantity: 20,
+    engine: 'hbx',
+    targetType: 'pj',
+  });
+
+  const mapped = service.mapHbxContactResult({
+    name: 'Barbearias Aguas Da Prata Sp perto de mim',
+    website: 'https://listaamarela.com.br',
+    sourceUrl: 'https://listaamarela.com.br/barbearias-aguas-da-prata-sp',
+    source: 'hbx_scraping:free_pj',
+  }, input);
+
+  assert.equal(mapped, null);
+});
+
+test('Radar dedupe nao usa dominio de diretorio como website forte', () => {
+  const service = new WebscrapingService(createPrisma()) as any;
+  const dedup = {
+    rows: [],
+    placeIds: new Set<string>(),
+    phoneDigits: new Set<string>(),
+    websiteKeys: new Set<string>(['listaamarela.com.br']),
+    compositeKeys: new Set<string>(),
+  };
+
+  const classified = service.classifyRunItem({
+    name: 'Barbearia Real',
+    phone: '(19) 99999-0001',
+    phoneDigits: '19999990001',
+    website: 'https://listaamarela.com.br',
+  }, dedup, { runId: 'run-lista', index: 0, city: 'Águas da Prata', state: 'SP', segment: 'barbearias' });
+
+  assert.equal(classified.status, 'found');
+  assert.equal(classified.websiteKey, '');
+});
+
+test('saveSearchRunResults salva baixa aderencia como found para revisao', async () => {
   const { prisma, run, items } = createSearchRunPrisma({
     segment: 'oficina',
     targetQuantity: 10,
@@ -686,16 +747,13 @@ test('saveSearchRunResults salva baixa aderencia como skipped e entrega so aprov
   );
   await service.recalculateSearchRunCounters(run.id);
   const response = service.buildSearchRunResponse({ ...run, items });
-  const skipped = items.find((item) => item.status === 'skipped');
 
-  assert.equal(counts.found, 1);
-  assert.equal(counts.skipped, 1);
-  assert.equal(run.foundCount, 1);
-  assert.equal(response.results.length, 1);
-  assert.equal(response.results[0].name, 'Auto Mecânica São José');
-  assert.ok(skipped);
-  assert.equal(skipped.segment, null);
-  assert.equal(JSON.parse(skipped.rawJson).quality.status, 'segment_mismatch');
+  assert.equal(counts.found, 2);
+  assert.equal(counts.skipped, 0);
+  assert.equal(run.foundCount, 2);
+  assert.equal(response.results.length, 2);
+  assert.equal(items[0].status, 'found');
+  assert.equal(JSON.parse(items[0].rawJson).quality.status, 'segment_mismatch');
 });
 
 test('saveSearchRunResults no List entrega card real com telefone mesmo sem enriquecimento', async () => {
@@ -834,6 +892,7 @@ test('saveSearchRunResults nao corta candidato primario por social obrigatorio a
 test('persistRadarLeadPoolBatch no Lead+ materializa card List fraco no Radar', async () => {
   const saved: any[] = [];
   const service = new WebscrapingService(createPrisma({
+    radarLeadCompanyState: {},
     radarLeadPool: {
       findFirst: async () => null,
       create: async ({ data }: any) => {
@@ -842,7 +901,6 @@ test('persistRadarLeadPoolBatch no Lead+ materializa card List fraco no Radar', 
       },
       update: async ({ where, data }: any) => ({ id: where.id, ...data }),
     },
-    radarLeadCompanyState: {},
   })) as any;
   const normalized = service.normalizeSearchInput({
     city: 'Rio Claro',
@@ -2159,6 +2217,160 @@ test('mapHbxContactResult aceita card social-first na busca padrao sem filtro', 
   assert.equal(mapped.phoneDigits, '');
   assert.equal(mapped.instagramUrl, 'https://instagram.com/lanchonetesocialcampinas');
   assert.equal(service.isApprovedLeadQuality(quality), true);
+});
+
+test('Radar bloqueia requiredChannels apenas em any_required/all_required', () => {
+  const service = new WebscrapingService(createPrisma()) as any;
+  const base = service.normalizeSearchInput({
+    city: 'Rio Claro',
+    state: 'SP',
+    segment: 'pizzarias',
+    quantity: 1,
+    engine: 'hbx',
+    targetType: 'pj',
+    preferredChannels: ['whatsapp'],
+    qualityMode: 'list',
+  });
+  const lead = {
+    name: 'Pizzaria Sem Wpp Confirmado',
+    phone: '(19) 3333-4444',
+    phoneDigits: '1933334444',
+    city: 'Rio Claro',
+    state: 'SP',
+    segment: 'pizzaria',
+    whatsappStatus: 'unverified',
+  };
+
+  assert.equal(service.isListDeliverableCard(lead, base), true);
+  assert.equal(service.isListDeliverableCard(lead, { ...base, requiredChannels: ['whatsapp'], channelMatchMode: 'prefer' }), true);
+  assert.equal(service.isListDeliverableCard(lead, { ...base, requiredChannels: ['whatsapp'], channelMatchMode: 'any_required' }), false);
+});
+
+test('Radar nao bloqueia DDD diferente quando cidade esta dentro do raio', async () => {
+  const saved: any[] = [];
+  const service = new WebscrapingService(createPrisma({
+    radarLeadCompanyState: {},
+    radarLeadPool: {
+      findFirst: async () => null,
+      create: async ({ data }: any) => {
+        saved.push(data);
+        return { id: 'lead-ddd', ...data };
+      },
+      update: async ({ data }: any) => ({ id: 'lead-ddd', ...data }),
+    },
+  })) as any;
+  const input = service.normalizeSearchInput({
+    city: 'Rio Claro',
+    state: 'SP',
+    segment: 'oficina',
+    radiusKm: 100,
+    quantity: 1,
+    engine: 'hbx',
+    targetType: 'pj',
+  });
+
+  const counts = await service.persistRadarLeadPoolBatch(input, [{
+    placeId: 'ddd:nearby',
+    name: 'Auto Center Sao Carlos',
+    phone: '(16) 3333-4444',
+    phoneDigits: '1633334444',
+    city: 'São Carlos',
+    state: 'SP',
+    segment: 'auto center',
+    rating: null,
+    reviews: 0,
+    address: 'São Carlos, SP',
+    website: null,
+    source: 'hbx_scraping:free_pj',
+  }], 'hbx');
+
+  assert.equal(counts.approvedCount, 1);
+  assert.equal(saved[0].status, 'clean');
+  assert.equal(saved[0].rejectionReason, null);
+});
+
+test('Radar duplicate forte por telefone bloqueia item repetido', () => {
+  const service = new WebscrapingService(createPrisma()) as any;
+  const dedup = {
+    rows: [],
+    placeIds: new Set<string>(),
+    phoneDigits: new Set<string>(['19999990001']),
+    websiteKeys: new Set<string>(),
+    compositeKeys: new Set<string>(),
+  };
+  const classified = service.classifyRunItem({
+    name: 'Pizzaria Duplicada',
+    phone: '(19) 99999-0001',
+    phoneDigits: '19999990001',
+    website: null,
+  }, dedup, { runId: 'run-dup', index: 0, city: 'Rio Claro', state: 'SP', segment: 'pizzaria' });
+
+  assert.equal(classified.status, 'duplicate');
+  assert.match(classified.duplicateReason, /Telefone repetido/i);
+});
+
+test('Radar search-run em andamento autoimporta cards encontrados para Vendas', async () => {
+  const run = {
+    id: 'run-live-import',
+    companyId: 7,
+    userId: 9,
+    status: 'running',
+    city: 'Aguas da Prata',
+    state: 'SP',
+    segment: 'barbearias',
+    engine: 'hbx',
+    targetType: 'pj',
+    targetQuantity: 20,
+    foundCount: 1,
+    importedCount: 0,
+    duplicateCount: 0,
+    skippedCount: 0,
+    attemptCount: 3,
+    metricsJson: '{}',
+    nextRetryAt: null,
+    errorMessage: null,
+    items: [{
+      id: 'item-live-import',
+      status: 'found',
+      name: 'Barbearia Real',
+      phone: '(19) 99999-0001',
+      phoneDigits: '19999990001',
+      website: null,
+      city: 'Aguas da Prata',
+      state: 'SP',
+      segment: 'barbearias',
+      source: 'hbx',
+      rawJson: JSON.stringify({
+        name: 'Barbearia Real',
+        phone: '(19) 99999-0001',
+        phoneDigits: '19999990001',
+        city: 'Aguas da Prata',
+        state: 'SP',
+        segment: 'barbearias',
+      }),
+    }],
+  };
+  const service = new WebscrapingService(createPrisma({
+    webscrapingSearchRun: {
+      findFirst: async () => run,
+    },
+  })) as any;
+  let autoImportCalls = 0;
+  service.syncRadarSearchRunItemsToPool = async () => undefined;
+  service.findRadarPoolRowsForRunItems = async () => [];
+  service.canUseRadarSmartLeadFields = async () => false;
+  service.applyRadarWhatsappCheck = async (_context: any, items: any[]) => ({ items, meta: { mode: 'off' } });
+  service.autoImportRadarSearchRunToVendas = async () => {
+    autoImportCalls += 1;
+    return { ran: true, importedCount: 1, processedCount: 1, pendingCount: 1, remaining: null, failures: [] };
+  };
+
+  const response = await service.buildRadarSearchRunResponse(createUser(), run.id);
+
+  assert.equal(autoImportCalls, 1);
+  assert.equal(response.status, 'running');
+  assert.equal(response.meta.autoImport.ran, true);
+  assert.equal(response.meta.autoImport.importedCount, 1);
 });
 
 function normalizeQueryForTest(value: string) {
