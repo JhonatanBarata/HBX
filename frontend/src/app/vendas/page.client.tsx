@@ -5199,20 +5199,6 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
                   </button>
                 </div>
 
-                <div className={styles.mobileVendasScoreModalQuick} aria-label="Atalhos de score">
-                  {[0, 25, 50, 75, 90, 100].map((value) => (
-                    <button
-                      type="button"
-                      key={value}
-                      disabled={!mobileVisualFiltersUnlocked}
-                      data-active={mobileMinScoreFilter === value ? "true" : "false"}
-                      onClick={() => setMobileScoreFilterValue(value)}
-                    >
-                      {value === 0 ? "Todos" : `${value}+`}
-                    </button>
-                  ))}
-                </div>
-
                 <footer className={styles.mobileVendasScoreModalActions}>
                   <button
                     type="button"
