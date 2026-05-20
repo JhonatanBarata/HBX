@@ -22,7 +22,7 @@ import {
   MASTER_WHATSAPP_ENGINE_COMPANY_NAME,
   MASTER_WHATSAPP_ENGINE_COMPANY_SLUG,
 } from '../companies/master-whatsapp-company.constants';
-import { calculateLeadQualityV2, type LeadQualityV2, type LeadQualityV2SalesProfile } from '../webscraping/lead-quality-v2';
+import { calculateLeadQualityV2, resolveRadarVisibilityFromQualityV2, type LeadQualityV2, type LeadQualityV2SalesProfile } from '../webscraping/lead-quality-v2';
 import {
   BulkDeleteVendasLeadsDto,
   CreateManualVendasLeadDto,
@@ -1706,6 +1706,16 @@ export class VendasService {
       select: { id: true },
     });
     return Boolean(existing?.id);
+  }
+
+  private hasActionableImportChannel(item: any, phoneDigits?: string | null) {
+    if (phoneDigits) return true;
+    if (this.normalizeEmail(item?.email || item?.emailCandidate)) return true;
+    if (this.normalizeText(item?.website || item?.websiteUrl)) return true;
+    if (this.normalizeText(item?.instagramUrl || item?.primarySocial || item?.signals?.instagramUrl)) return true;
+    if (this.normalizeText(item?.facebookUrl || item?.signals?.facebookUrl)) return true;
+    if (this.normalizeText(item?.googleMapsUrl || item?.mapsUrl || item?.signals?.googleMapsUrl)) return true;
+    return false;
   }
 
   async previewPresentationEmailForUser(user: any, leadId: string, body?: any) {
@@ -3428,23 +3438,22 @@ export class VendasService {
     for (const item of incomingLeads) {
       const itemName = this.normalizeText(item?.name);
       const itemPhone = this.normalizeText(item?.phone);
-      const itemPhoneDigits = this.normalizeText(item?.phoneDigits);
-      if (!itemName || !itemPhone || !itemPhoneDigits) {
+      const itemPhoneDigits = this.normalizePhone(item?.phoneDigits || item?.phone);
+      const itemContact = itemPhone || itemPhoneDigits;
+      if (!itemName || !this.hasActionableImportChannel(item, itemPhoneDigits)) {
         failedImports.push({
           name: itemName,
-          phone: itemPhone || itemPhoneDigits,
-          error: 'Lead do Radar Digital sem nome, telefone ou telefone normalizado.',
+          phone: itemContact,
+          error: 'Lead do Radar Digital sem nome ou canal publico acionavel.',
         });
         continue;
       }
       const listQualityMode = String(this.normalizeText((dto as any)?.qualityMode || (item as any)?.qualityMode) || '').toLowerCase() !== 'lead_plus';
       const explicitQuality = this.extractLeadQualityFromImportItem(item);
       const explicitQualityHardBlock = explicitQuality?.status
-        ? ['segment_mismatch', 'generic_directory', 'invalid', 'duplicate'].includes(explicitQuality.status)
+        ? ['invalid', 'duplicate'].includes(explicitQuality.status)
         : false;
-      const blockedByExplicitQuality = listQualityMode
-        ? explicitQualityHardBlock
-        : explicitQuality?.billable === false || (explicitQuality?.status && explicitQuality.status !== 'approved');
+      const blockedByExplicitQuality = explicitQualityHardBlock;
       if (blockedByExplicitQuality) {
         skippedByQualityCount += 1;
         skippedByFilterCount += 1;
@@ -3454,7 +3463,7 @@ export class VendasService {
         if (explicitQuality?.status === 'invalid') skippedInvalidQualityCount += 1;
         failedImports.push({
           name: itemName,
-          phone: itemPhone || itemPhoneDigits,
+          phone: itemContact,
           error: 'Lead descartado pela qualidade minima do segmento. Descartados nao consomem limite.',
         });
         continue;
@@ -3469,13 +3478,14 @@ export class VendasService {
           salesProfile,
         },
       });
-      const listAllowedQualityV2Discard = listQualityMode
-        && qualityV2?.decision === 'discard'
-        && ['weak_contactability', 'required_channel_missing', 'location_mismatch'].includes(String(qualityV2.discardReason || '').trim());
+      const visibilityV2 = resolveRadarVisibilityFromQualityV2({
+        lead: item,
+        quality: qualityV2,
+        qualityMode: listQualityMode ? 'list' : 'lead_plus',
+        requestedSegment: item?.segment || null,
+      });
       const blockedByQualityV2 = qualityV2 && (
-        qualityV2.decision === 'protect'
-        || (qualityV2.decision === 'discard' && !listAllowedQualityV2Discard)
-        || (!listQualityMode && this.qualityV2FailedRequiredChannelRule(qualityV2))
+        visibilityV2.hardBlocked
       );
       if (blockedByQualityV2) {
         skippedByQualityV2Count += 1;
@@ -3502,7 +3512,7 @@ export class VendasService {
         if (qualityV2.discardReason === 'weak_identity') skippedInvalidQualityCount += 1;
         failedImports.push({
           name: itemName,
-          phone: itemPhone || itemPhoneDigits,
+          phone: itemContact,
           error: [
             qualityV2.decision === 'protect' ? 'Lead protegido pelo LeadQualityV2.' : 'Lead descartado pelo LeadQualityV2.',
             qualityV2.protectionReason || qualityV2.discardReason || null,
@@ -3514,11 +3524,9 @@ export class VendasService {
       }
       const quality = qualityV2 ? null : explicitQuality;
       const qualityHardBlock = quality?.status
-        ? ['segment_mismatch', 'generic_directory', 'invalid', 'duplicate'].includes(quality.status)
+        ? ['invalid', 'duplicate'].includes(quality.status)
         : false;
-      const blockedByQuality = !qualityV2 && (listQualityMode
-        ? qualityHardBlock
-        : quality?.billable === false || (quality?.status && quality.status !== 'approved'));
+      const blockedByQuality = !qualityV2 && qualityHardBlock;
       if (blockedByQuality) {
         skippedByQualityCount += 1;
         if (quality?.status === 'segment_mismatch') skippedBySegmentMismatchCount += 1;
@@ -3527,14 +3535,17 @@ export class VendasService {
         if (quality?.status === 'invalid') skippedInvalidQualityCount += 1;
         failedImports.push({
           name: itemName,
-          phone: itemPhone || itemPhoneDigits,
+          phone: itemContact,
           error: 'Lead descartado pela qualidade minima do segmento. Descartados nao consomem limite.',
         });
         continue;
       }
       const sourceHistoryId = this.normalizeText(item?.sourceHistoryId) || this.normalizeText(dto?.sourceHistoryId);
       const radarLeadId = this.extractRadarLeadId(sourceHistoryId);
-      const itemDebitEligible = (item as any)?.debitEligible !== false && (item as any)?.billable !== false;
+      const itemDebitEligible = (item as any)?.debitEligible !== false
+        && (item as any)?.billable !== false
+        && explicitQuality?.billable !== false
+        && visibilityV2.debitEligible !== false;
       const shouldDebitOnImport = debitOnImport && itemDebitEligible;
 
       let result: any;
@@ -3543,7 +3554,7 @@ export class VendasService {
         await this.assertRadarLeadImportAllowed(context, radarLeadId);
         duplicateInCompany = await this.hasExistingVendasLeadForImport(
           context.companyId,
-          itemPhone || itemPhoneDigits,
+          itemContact,
           item?.email || null,
         );
         if (duplicateInCompany) skippedDuplicateCount += 1;
@@ -3577,7 +3588,7 @@ export class VendasService {
           sourceHistoryId,
           sourceSignature: [this.normalizeText(item?.segment), this.normalizeText(item?.city)].filter(Boolean).join('|') || null,
           name: itemName,
-          phone: itemPhone || itemPhoneDigits,
+          phone: itemContact,
           email: item?.email || null,
           address: item?.address || null,
           website: item?.website || null,
@@ -3597,11 +3608,11 @@ export class VendasService {
         if (/protegido|negativo|bloque|opt-out|outra empresa/i.test(errorText)) skippedProtectedCount += 1;
         failedImports.push({
           name: this.normalizeText(item?.name),
-          phone: this.normalizeText(item?.phone || item?.phoneDigits),
+          phone: this.normalizeText(itemContact),
           error: errorText || 'Falha ao importar lead.',
         });
         this.logger.warn(
-          `[vendas-import] Lead ignorado por falha no import company=${context.companyId} phone=${this.normalizeText(item?.phone || item?.phoneDigits) || '-'} error=${String(error?.message || error)}`,
+          `[vendas-import] Lead ignorado por falha no import company=${context.companyId} phone=${this.normalizeText(itemContact) || '-'} error=${String(error?.message || error)}`,
         );
         continue;
       }
@@ -3633,6 +3644,7 @@ export class VendasService {
         enrichment: (item as any)?.enrichmentJson || null,
         qualityV2,
         quality,
+        enrichmentStatus: 'queued',
         visibilityTier: this.normalizeText((item as any)?.visibilityTier),
         billable: (item as any)?.billable === true ? true : (item as any)?.billable === false ? false : null,
         debitEligible: (item as any)?.debitEligible === true ? true : (item as any)?.debitEligible === false ? false : null,

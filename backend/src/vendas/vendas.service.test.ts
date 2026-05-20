@@ -533,8 +533,93 @@ test('importWebscrapingLeadsForUser no modo List importa weak_contact sem cortar
 
   assert.equal(result.createdCount, 1);
   assert.equal(result.deliveredCount, 1);
-  assert.equal(assertCanImportCalls, 1);
-  assert.equal(recordCardImportCalls, 1);
+  assert.equal(assertCanImportCalls, 0);
+  assert.equal(recordCardImportCalls, 0);
+});
+
+test('importWebscrapingLeadsForUser no Lead+ importa card basico quando nao qualifica destaque', async () => {
+  const { prisma } = createImportPrismaHarness();
+  const { service } = createService({
+    prisma,
+    vendasLead: {
+      findFirst: async () => null,
+    },
+  });
+
+  const result = await service.importWebscrapingLeadsForUser(
+    { companyId: 7, id: 99 },
+    {
+      qualityMode: 'lead_plus',
+      skipWhatsappValidation: true,
+      leads: [
+        {
+          name: 'Barbearia Bairro',
+          phone: '+55 19 3513-9668',
+          phoneDigits: '1935139668',
+          quality: {
+            status: 'weak_contact',
+            billable: false,
+            segmentMatchScore: 45,
+            contactQualityScore: 40,
+            commercialScore: 35,
+          },
+          enrichmentJson: {
+            qualityV2: {
+              version: 'lead-quality-v2',
+              identityScore: 55,
+              segmentFitScore: 42,
+              contactabilityScore: 33,
+              commercialIntentScore: 35,
+              freshnessScore: 45,
+              riskScore: 0,
+              opportunityScore: 35,
+              finalRankScore: 32,
+              decision: 'discard',
+              reasons: ['Lead+ fraco, mas contato publico existe.'],
+              discardReason: 'weak_contactability',
+              protectionReason: null,
+              recommendedChannel: 'call',
+              productFit: { listFit: 45, leadFit: 35, botFit: 30, recoveryFit: 20, websiteFit: 10 },
+            },
+          },
+        },
+      ],
+    } as any,
+  );
+
+  assert.equal(result.createdCount, 1);
+  assert.equal(result.deliveredCount, 1);
+});
+
+test('importWebscrapingLeadsForUser importa card com site mesmo sem telefone', async () => {
+  const { prisma, createdRows } = createImportPrismaHarness();
+  const { service } = createService({
+    prisma,
+    vendasLead: {
+      findFirst: async () => null,
+    },
+  });
+
+  const result = await service.importWebscrapingLeadsForUser(
+    { companyId: 7, id: 99 },
+    {
+      skipWhatsappValidation: true,
+      leads: [
+        {
+          name: 'Studio Beleza Viva',
+          website: 'https://studiobelezaviva.com.br',
+          segment: 'salões de beleza',
+          city: 'Águas da Prata',
+          state: 'SP',
+        },
+      ],
+    } as any,
+  );
+
+  assert.equal(result.createdCount, 1);
+  assert.equal(result.deliveredCount, 1);
+  assert.equal(createdRows[0].phoneNormalized, null);
+  assert.equal(createdRows[0].website, 'https://studiobelezaviva.com.br');
 });
 
 test('importWebscrapingLeadsForUser entrega card sem debitar quando importacao nao e uso comercial', async () => {
@@ -735,10 +820,15 @@ test('importWebscrapingLeadsForUser reports protected Radar card without quota d
   assert.equal(assertCanImportCalls, 0);
 });
 
-test('importWebscrapingLeadsForUser blocks rejected quality before quota', async () => {
+test('importWebscrapingLeadsForUser importa segment_mismatch fraco como card basico sem debitar', async () => {
   let assertCanImportCalls = 0;
   let recordCardImportCalls = 0;
+  const { prisma } = createImportPrismaHarness();
   const { service } = createService({
+    prisma,
+    vendasLead: {
+      findFirst: async () => null,
+    },
     commercialUsageLimits: {
       assertCanImportCard: async () => {
         assertCanImportCalls += 1;
@@ -750,30 +840,31 @@ test('importWebscrapingLeadsForUser blocks rejected quality before quota', async
     },
   });
 
-  await assert.rejects(
-    () => service.importWebscrapingLeadsForUser(
-      { companyId: 7, id: 99 },
-      {
-        skipWhatsappValidation: true,
-        leads: [
-          {
-            name: 'Tia Luiza',
-            phone: '+55 19 99999-0001',
-            phoneDigits: '19999990001',
-            quality: {
-              status: 'segment_mismatch',
-              billable: false,
-              segmentMatchScore: 20,
-              contactQualityScore: 70,
-              commercialScore: 30,
-              reasons: ['Sem aderencia.'],
-            },
+  const result = await service.importWebscrapingLeadsForUser(
+    { companyId: 7, id: 99 },
+    {
+      debitOnImport: true,
+      skipWhatsappValidation: true,
+      leads: [
+        {
+          name: 'Burguer Avenida',
+          phone: '+55 19 99999-0001',
+          phoneDigits: '19999990001',
+          quality: {
+            status: 'segment_mismatch',
+            billable: false,
+            segmentMatchScore: 20,
+            contactQualityScore: 70,
+            commercialScore: 30,
+            reasons: ['Sem aderencia forte.'],
           },
-        ],
-      } as any,
-    ),
-    /Nenhum lead passou na qualidade minima|Descartados nao consomem limite/i,
+        },
+      ],
+    } as any,
   );
+
+  assert.equal(result.createdCount, 1);
+  assert.equal(result.deliveredCount, 1);
   assert.equal(assertCanImportCalls, 0);
   assert.equal(recordCardImportCalls, 0);
 });
@@ -911,13 +1002,13 @@ test('importWebscrapingLeadsForUser debita somente aprovado criado e reporta des
           quality: approvedQuality,
         },
         {
-          name: 'Guia Comercial',
+          name: 'Pizzaria Bella Massa',
           phone: '+55 19 99999-0002',
           phoneDigits: '19999990002',
           quality: { ...approvedQuality, status: 'generic_directory', billable: false },
         },
         {
-          name: 'Tia Luiza',
+          name: 'Burguer Avenida',
           phone: '+55 19 99999-0003',
           phoneDigits: '19999990003',
           quality: { ...approvedQuality, status: 'segment_mismatch', billable: false },
@@ -926,15 +1017,14 @@ test('importWebscrapingLeadsForUser debita somente aprovado criado e reporta des
     } as any,
   );
 
-  assert.equal(result.createdCount, 1);
+  assert.equal(result.createdCount, 3);
   assert.equal(result.quotaDebited, 1);
-  assert.equal(result.deliveredCount, 1);
+  assert.equal(result.deliveredCount, 3);
   assert.equal(result.whatsappValidationSkipped, true);
-  assert.equal(result.skippedByQualityCount, 2);
-  assert.equal(result.skippedGenericDirectoryCount, 1);
-  assert.equal(result.skippedBySegmentMismatchCount, 1);
-  assert.equal(result.failedImports.length, 2);
-  assert.match(result.failedImports[0].error, /qualidade minima/i);
+  assert.equal(result.skippedByQualityCount, 0);
+  assert.equal(result.skippedGenericDirectoryCount, 0);
+  assert.equal(result.skippedBySegmentMismatchCount, 0);
+  assert.equal(result.failedImports.length, 0);
   assert.equal(assertCanImportCalls, 1);
   assert.equal(recordCardImportCalls, 1);
   assert.equal(checkWhatsappCalls, 0);
