@@ -539,7 +539,11 @@ function Try-StructuralDiff {
       $contextLine = $line.Substring(1)
       $currentOld.Add($contextLine)
       $currentNew.Add($contextLine)
+      continue
     }
+
+    $currentOld.Add($line)
+    $currentNew.Add($line)
   }
 
   Complete-StructuralSection
@@ -565,6 +569,7 @@ function Try-StructuralDiff {
       $newText = Join-PatchLines -Lines $hunk.NewLines
 
       if ([string]::IsNullOrWhiteSpace($newText)) {
+        Write-Host "Fallback estrutural recusou ${targetPath}: bloco novo vazio."
         return $false
       }
 
@@ -612,6 +617,7 @@ function Try-StructuralDiff {
         continue
       }
 
+      Write-Host "Fallback estrutural recusou ${targetPath}: bloco antigo nao encontrado e assinatura nova nao existe."
       return $false
     }
 
