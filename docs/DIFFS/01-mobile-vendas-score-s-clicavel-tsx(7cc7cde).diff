@@ -1,0 +1,81 @@
+diff --git a/frontend/src/app/vendas/page.client.tsx b/frontend/src/app/vendas/page.client.tsx
+--- a/frontend/src/app/vendas/page.client.tsx
++++ b/frontend/src/app/vendas/page.client.tsx
+@@ -3124,9 +3124,9 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
+     salesProfile?.capabilities?.canSeeLeadIntelligence ||
+     salesProfile?.capabilities?.canSeeSocialLinks === true,
+   );
+-  const mobileVisualFiltersActive = mobileVisualFiltersUnlocked && (
+-    mobileVisualChannelFilters.length > 0 || mobileMinScoreFilter > 0
+-  );
++  const mobileVisualFiltersActive =
++    (mobileVisualFiltersUnlocked && mobileVisualChannelFilters.length > 0) ||
++    mobileMinScoreFilter > 0;
+
+   const mobileLeads = useMemo(() => {
+     const normalized = mobileSearch.trim().toLowerCase();
+@@ -3192,13 +3192,12 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
+   }
+
+   function clearMobileVisualFilters() {
+-    if (!mobileVisualFiltersUnlocked) return;
+-    setMobileVisualChannelFilters([]);
++    if (mobileVisualFiltersUnlocked) setMobileVisualChannelFilters([]);
+     setMobileMinScoreFilter(0);
++    setMobileScoreFilterOpen(false);
+   }
+
+   function stepMobileScoreFilter(delta: number) {
+-    if (!mobileVisualFiltersUnlocked) return;
+     setMobileMinScoreFilter((current) => Math.max(0, Math.min(100, current + delta)));
+   }
+
+@@ -4976,18 +4975,16 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
+                 type="button"
+                 className={styles.mobileVendasScoreIconFilter}
+                 data-active={mobileMinScoreFilter > 0 ? "true" : "false"}
+-                disabled={!mobileVisualFiltersUnlocked}
+                 onClick={() => setMobileScoreFilterOpen((current) => !current)}
+                 title={mobileMinScoreFilter ? `Score mínimo ${mobileMinScoreFilter}+` : "Filtrar por score"}
+                 aria-label={mobileMinScoreFilter ? `Score mínimo ${mobileMinScoreFilter}+` : "Abrir filtro de score"}
+                 aria-pressed={mobileScoreFilterOpen ? "true" : "false"}
+               >
+                 <strong aria-hidden="true">S</strong>
+                 {mobileMinScoreFilter > 0 ? <b>{mobileMinScoreFilter}+</b> : null}
+-                {!mobileVisualFiltersUnlocked ? <CrownGlyph /> : null}
+               </button>
+               <button
+                 type="button"
+                 className={styles.mobileVendasClearVisualFilters}
+-                disabled={!mobileVisualFiltersUnlocked || !mobileVisualFiltersActive}
++                disabled={!mobileVisualFiltersActive}
+                 onClick={clearMobileVisualFilters}
+                 title="Limpar filtros"
+                 aria-label="Limpar filtros"
+@@ -5016,7 +5013,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
+                 <div>
+                   <button
+                     type="button"
+-                    disabled={!mobileVisualFiltersUnlocked || mobileMinScoreFilter <= 0}
++                    disabled={mobileMinScoreFilter <= 0}
+                     onClick={() => stepMobileScoreFilter(-5)}
+                     aria-label="Diminuir score mínimo"
+                   >
+@@ -5024,7 +5021,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
+                   </button>
+                   <button
+                     type="button"
+-                    disabled={!mobileVisualFiltersUnlocked || mobileMinScoreFilter >= 100}
++                    disabled={mobileMinScoreFilter >= 100}
+                     onClick={() => stepMobileScoreFilter(5)}
+                     aria-label="Aumentar score mínimo"
+                   >
+@@ -5032,7 +5029,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
+                   </button>
+                   <button
+                     type="button"
+-                    disabled={!mobileVisualFiltersUnlocked || mobileMinScoreFilter <= 0}
++                    disabled={mobileMinScoreFilter <= 0}
+                     onClick={() => setMobileMinScoreFilter(0)}
+                   >
+                     Zerar
