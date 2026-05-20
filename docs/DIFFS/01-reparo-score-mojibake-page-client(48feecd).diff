@@ -1,0 +1,72 @@
+diff --git a/frontend/src/app/vendas/page.client.tsx b/frontend/src/app/vendas/page.client.tsx
+--- a/frontend/src/app/vendas/page.client.tsx
++++ b/frontend/src/app/vendas/page.client.tsx
+@@ -4961,7 +4961,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
+                     key={filter.value}
+                     data-active={active ? "true" : "false"}
+                     disabled={!mobileVisualFiltersUnlocked}
+                     onClick={() => toggleMobileVisualFilter(filter.value)}
+-                    title={mobileVisualFiltersUnlocked ? filter.label : "DisponÃ­vel no HBX Lead"}
++                    title={mobileVisualFiltersUnlocked ? filter.label : "Disponivel no HBX Lead"}
+                     aria-label={`${active ? "Remover filtro" : "Filtrar por"} ${filter.label}`}
+                   >
+                     <MobileChannelIconAsset channel={filter.asset} />
+@@ -4977,8 +4977,8 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
+                 className={styles.mobileVendasScoreIconFilter}
+                 data-active={mobileMinScoreFilter > 0 ? "true" : "false"}
+                 onClick={() => setMobileScoreFilterOpen((current) => !current)}
+-                title={mobileMinScoreFilter ? `Score mÃ­nimo ${mobileMinScoreFilter}+` : "Filtrar por score"}
+-                aria-label={mobileMinScoreFilter ? `Score mÃ­nimo ${mobileMinScoreFilter}+` : "Abrir filtro de score"}
++                title={mobileMinScoreFilter ? `Score minimo ${mobileMinScoreFilter}+` : "Filtrar por score"}
++                aria-label={mobileMinScoreFilter ? `Score minimo ${mobileMinScoreFilter}+` : "Abrir filtro de score"}
+                 aria-pressed={mobileScoreFilterOpen ? "true" : "false"}
+               >
+                 <strong aria-hidden="true">S</strong>
+@@ -5006,7 +5006,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
+                 aria-label="Filtro de score"
+               >
+                 <div>
+-                  <span>Score mÃ­nimo</span>
++                  <span>Score minimo</span>
+                   <strong>{mobileMinScoreFilter ? `${mobileMinScoreFilter}+` : "Todos"}</strong>
+                 </div>
+                 <div>
+@@ -5015,7 +5015,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
+                     type="button"
+                     disabled={mobileMinScoreFilter <= 0}
+                     onClick={() => stepMobileScoreFilter(-5)}
+-                    aria-label="Diminuir score mÃ­nimo"
++                    aria-label="Diminuir score minimo"
+                   >
+                     -
+                   </button>
+@@ -5023,7 +5023,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
+                     type="button"
+                     disabled={mobileMinScoreFilter >= 100}
+                     onClick={() => stepMobileScoreFilter(5)}
+-                    aria-label="Aumentar score mÃ­nimo"
++                    aria-label="Aumentar score minimo"
+                   >
+                     +
+                   </button>
+@@ -5042,15 +5042,15 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
+           </section>
+
+           {nextRecommendedMobileLead && mobileSection !== "report" ? (
+-            <section className={styles.mobileVendasRecommendedCard} aria-label="PrÃ³ximo card recomendado">
++            <section className={styles.mobileVendasRecommendedCard} aria-label="Proximo card recomendado">
+               <button
+                 type="button"
+                 onClick={() => openMobileLeadDetail(nextRecommendedMobileLead)}
+               >
+                 <span className={styles.mobileVendasRecommendedTopline}>
+-                  <span>PrÃ³ximo card recomendado</span>
++                  <span>Proximo card recomendado</span>
+                   <MobileEnrichmentCrown lead={nextRecommendedMobileLead} board={board} compact />
+                 </span>
+                 <strong>{nextRecommendedMobileLead.name || "Lead sem nome"}</strong>
+                 <small>
+-                  {mobileLeadPlace(nextRecommendedMobileLead)} Â· {nextRecommendedMobileLead.nextAction || "Executar contato"}
++                  {mobileLeadPlace(nextRecommendedMobileLead)} - {nextRecommendedMobileLead.nextAction || "Executar contato"}
+                 </small>
+               </button>
