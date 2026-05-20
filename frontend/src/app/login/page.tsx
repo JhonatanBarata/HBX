@@ -306,7 +306,7 @@ export default function LoginPage({ mobileRoute = false }: { mobileRoute?: boole
   const [loginState, setLoginState] = useState<LoginState>("idle");
   const [mounted, setMounted] = useState(false);
   const [isUiReady, setIsUiReady] = useState(false);
-  const [isMobileLoginSurface, setIsMobileLoginSurface] = useState(false);
+  const [isMobileLoginSurface, setIsMobileLoginSurface] = useState(mobileRoute);
   const [waterRipples, setWaterRipples] = useState<LoginWaterRipple[]>([]);
   const [playingWelcome, setPlayingWelcome] = useState(false);
   const [visualsPlayOnLoad, setVisualsPlayOnLoad] = useState(false);
@@ -348,17 +348,7 @@ export default function LoginPage({ mobileRoute = false }: { mobileRoute?: boole
   };
 
   useEffect(() => {
-    if (mobileRoute) {
-      setIsMobileLoginSurface(true);
-      return undefined;
-    }
-
-    const query = window.matchMedia("(max-width: 768px)");
-    const syncMobileSurface = () => setIsMobileLoginSurface(query.matches);
-
-    syncMobileSurface();
-    query.addEventListener("change", syncMobileSurface);
-    return () => query.removeEventListener("change", syncMobileSurface);
+    setIsMobileLoginSurface(mobileRoute);
   }, [mobileRoute]);
 
   function handleThemeModeToggle() {
@@ -378,7 +368,7 @@ export default function LoginPage({ mobileRoute = false }: { mobileRoute?: boole
       // ignore sessionStorage errors
     }
     window.setTimeout(() => {
-      router.push(`/register?from=login&start=${start}`);
+      router.push(`/register?from=login&start=${start}${mobileRoute ? "&surface=mobile" : ""}`);
     }, 500);
   }
 

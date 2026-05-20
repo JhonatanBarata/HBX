@@ -7,7 +7,6 @@ import { apiFetch, clearToken } from "@/app/_lib/api";
 import { mobileRouteIsActive, toMobileRoute } from "@/app/_lib/mobileRoutes";
 import { useInterfaceTransition } from "@/components/InterfaceTransitionProvider";
 
-const MOBILE_VIEWPORT_QUERY = "(max-width: 820px)";
 const MOBILE_THEME_STORAGE_KEY = "hbx-mobile-theme";
 
 type MobileTheme = "light" | "dark";
@@ -28,15 +27,6 @@ function normalizeMobileTheme(value: unknown): MobileTheme {
 function applyMobileTheme(theme: MobileTheme) {
   if (typeof document === "undefined") return;
   document.documentElement.dataset.hbxMobileTheme = theme;
-}
-
-function clearMobileTheme() {
-  if (typeof document === "undefined") return;
-  delete document.documentElement.dataset.hbxMobileTheme;
-}
-
-function isMobileViewport() {
-  return typeof window !== "undefined" && window.matchMedia(MOBILE_VIEWPORT_QUERY).matches;
 }
 
 function DockIcon({
@@ -181,26 +171,15 @@ export default function HbxMobileDock({
     try {
       const storedTheme = normalizeMobileTheme(window.localStorage.getItem(MOBILE_THEME_STORAGE_KEY));
       setTheme(storedTheme);
-      if (isMobileViewport()) applyMobileTheme(storedTheme);
+      applyMobileTheme(storedTheme);
     } catch {
       // localStorage can be blocked in private contexts.
-      if (isMobileViewport()) applyMobileTheme("dark");
+      applyMobileTheme("dark");
     }
   }, []);
 
   useEffect(() => {
-    const viewport = window.matchMedia(MOBILE_VIEWPORT_QUERY);
-    const syncTheme = () => {
-      if (viewport.matches) applyMobileTheme(theme);
-      else clearMobileTheme();
-    };
-
-    syncTheme();
-    viewport.addEventListener("change", syncTheme);
-    return () => {
-      viewport.removeEventListener("change", syncTheme);
-      clearMobileTheme();
-    };
+    applyMobileTheme(theme);
   }, [theme]);
 
   useEffect(() => {
@@ -228,8 +207,7 @@ export default function HbxMobileDock({
   function toggleTheme() {
     const nextTheme = theme === "dark" ? "light" : "dark";
     setTheme(nextTheme);
-    if (isMobileViewport()) applyMobileTheme(nextTheme);
-    else clearMobileTheme();
+    applyMobileTheme(nextTheme);
     try {
       window.localStorage.setItem(MOBILE_THEME_STORAGE_KEY, nextTheme);
     } catch {

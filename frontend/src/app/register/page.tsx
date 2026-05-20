@@ -418,26 +418,20 @@ export default function RegisterPage() {
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const mediaQuery = window.matchMedia("(max-width: 768px)");
-    const applyMobileFlow = () => {
-      const isMobile = mediaQuery.matches;
-      const params = new URLSearchParams(window.location.search);
-      const start = params.get("start");
-      const fromLogin = params.get("from") === "login";
-      const sequence = start === "trial" || start === "plans" ? "plans-first" : start === "form" || fromLogin || isMobile ? "form-first" : "plans-first";
-      setMobileRegisterFlow(isMobile);
-      setRegisterSequence(sequence);
-      setRegisterStep(start === "trial" ? "form" : sequence === "form-first" ? "form" : "plans");
-      setRegisterTransition("idle");
-      if (start === "trial" && getToken()) {
-        setSelectedPlanKey("hbx_padrao");
-        setConfirmationPending(null);
-        setTrialModalOpen(true);
-      }
-    };
-    applyMobileFlow();
-    mediaQuery.addEventListener("change", applyMobileFlow);
-    return () => mediaQuery.removeEventListener("change", applyMobileFlow);
+    const params = new URLSearchParams(window.location.search);
+    const start = params.get("start");
+    const fromLogin = params.get("from") === "login";
+    const mobileSurface = params.get("surface") === "mobile";
+    const sequence = start === "trial" || start === "plans" ? "plans-first" : start === "form" || fromLogin ? "form-first" : "plans-first";
+    setMobileRegisterFlow(mobileSurface);
+    setRegisterSequence(sequence);
+    setRegisterStep(start === "trial" ? "form" : sequence === "form-first" ? "form" : "plans");
+    setRegisterTransition("idle");
+    if (start === "trial" && getToken()) {
+      setSelectedPlanKey("hbx_padrao");
+      setConfirmationPending(null);
+      setTrialModalOpen(true);
+    }
   }, []);
 
   useEffect(() => {
