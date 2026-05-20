@@ -35,9 +35,7 @@ export function useRequireAuth() {
     if (hasToken === false) {
       const query = searchParams.toString();
       const currentPath = `${pathname || ""}${query ? `?${query}` : ""}`;
-      const shouldUseMobileLogin =
-        String(pathname || "").startsWith("/mobile") ||
-        (window.matchMedia && window.matchMedia("(max-width: 820px)").matches);
+      const shouldUseMobileLogin = String(pathname || "").startsWith("/mobile");
       const loginPath = shouldUseMobileLogin ? "/mobile/login" : "/login";
       router.push(`${loginPath}?from=${encodeURIComponent(currentPath || "/")}`);
     }

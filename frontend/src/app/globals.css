@@ -9886,6 +9886,49 @@ html[data-theme="tabler"] .login-card__stat {
 }
 
 /* ensure visuals hidden on small screens to avoid heavy animation */
+html[data-hbx-layout="mobile"] body:has(.app-topbar[data-mobile-fullscreen-route="true"]),
+html[data-hbx-layout="mobile"] body:has([class*="mobileSalesShell"]),
+html[data-hbx-layout="mobile"] body:has([class*="mobileVendasShell"]),
+html[data-hbx-layout="mobile"] body:has([class*="mobileRadar"]) {
+  --topbar-height: 0px;
+  --topbar-total-height: 0px;
+}
+
+html[data-hbx-layout="mobile"] .app-topbar[data-mobile-fullscreen-route="true"],
+html[data-hbx-layout="mobile"] body:has([class*="mobileSalesShell"]) .app-topbar,
+html[data-hbx-layout="mobile"] body:has([class*="mobileVendasShell"]) .app-topbar,
+html[data-hbx-layout="mobile"] body:has([class*="mobileRadar"]) .app-topbar {
+  display: none !important;
+}
+
+html[data-hbx-layout="mobile"] body:has(.app-topbar[data-mobile-fullscreen-route="true"]) .app-shell,
+html[data-hbx-layout="mobile"] body:has(.app-topbar[data-mobile-fullscreen-route="true"]) .app-container,
+html[data-hbx-layout="mobile"] body:has(.app-topbar[data-mobile-fullscreen-route="true"]) .page-content,
+html[data-hbx-layout="mobile"] body:has([class*="mobileSalesShell"]) .app-shell,
+html[data-hbx-layout="mobile"] body:has([class*="mobileSalesShell"]) .app-container,
+html[data-hbx-layout="mobile"] body:has([class*="mobileSalesShell"]) .page-content,
+html[data-hbx-layout="mobile"] body:has([class*="mobileVendasShell"]) .app-shell,
+html[data-hbx-layout="mobile"] body:has([class*="mobileVendasShell"]) .app-container,
+html[data-hbx-layout="mobile"] body:has([class*="mobileVendasShell"]) .page-content,
+html[data-hbx-layout="mobile"] body:has([class*="mobileRadar"]) .app-shell,
+html[data-hbx-layout="mobile"] body:has([class*="mobileRadar"]) .app-container,
+html[data-hbx-layout="mobile"] body:has([class*="mobileRadar"]) .page-content {
+  padding-top: 0 !important;
+  margin-top: 0 !important;
+}
+
+html[data-hbx-layout="desktop"] [class*="mobileVendasShell"] {
+  display: none !important;
+}
+
+html[data-hbx-layout="desktop"] [class*="desktopVendasShell"] {
+  display: block !important;
+}
+
+html[data-hbx-layout="mobile"] [class*="desktopVendasShell"] {
+  display: none !important;
+}
+
 @media (max-width: 768px) {
   body:has(.app-topbar[data-mobile-fullscreen-route="true"]),
   body:has([class*="mobileSalesShell"]),

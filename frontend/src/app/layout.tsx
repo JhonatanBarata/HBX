@@ -6,7 +6,7 @@ import PreCheckoutGate from "../components/PreCheckoutGate";
 import PwaRegister from "../components/PwaRegister";
 import TopBar from "../components/TopBar";
 import { ThemeProvider } from "../components/ThemeProvider";
-import MobileRouteRedirector from "../components/MobileRouteRedirector";
+import LayoutModeSync from "../components/LayoutModeSync";
 import WhatsAppHelpBubble from "../components/WhatsAppHelpBubble";
 import { HBX_THEME_PALETTES } from "../lib/theme-palettes";
 
@@ -143,9 +143,11 @@ const themeBootstrapScript = `
     doc.setAttribute("data-motion-style", motionStyle);
     doc.style.colorScheme = mode;
     try {
+      var isMobileLayout = String(window.location.pathname || "").indexOf("/mobile") === 0;
+      doc.setAttribute("data-hbx-layout", isMobileLayout ? "mobile" : "desktop");
       var storedMobileTheme = String(storage.getItem("hbx-mobile-theme") || "").trim().toLowerCase();
       var mobileTheme = storedMobileTheme === "light" ? "light" : "dark";
-      if (window.matchMedia && window.matchMedia("(max-width: 820px)").matches) {
+      if (isMobileLayout) {
         doc.setAttribute("data-hbx-mobile-theme", mobileTheme);
       } else {
         doc.removeAttribute("data-hbx-mobile-theme");
@@ -262,7 +264,7 @@ export default function RootLayout({
         <ThemeProvider>
           <PwaRegister />
           <InterfaceTransitionProvider>
-            <MobileRouteRedirector />
+            <LayoutModeSync />
             <TopBar />
             <PreCheckoutGate>
               <PageTransition>{children}</PageTransition>

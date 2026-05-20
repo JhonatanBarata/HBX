@@ -105,9 +105,7 @@ function redirectToLogin() {
   if (typeof window === "undefined") return;
   const currentPath = `${window.location.pathname}${window.location.search}`;
   if (window.location.pathname === "/login" || window.location.pathname === "/mobile/login") return;
-  const shouldUseMobileLogin =
-    window.location.pathname.startsWith("/mobile") ||
-    (window.matchMedia && window.matchMedia("(max-width: 820px)").matches);
+  const shouldUseMobileLogin = window.location.pathname.startsWith("/mobile");
   const loginPath = shouldUseMobileLogin ? "/mobile/login" : "/login";
   window.location.assign(`${loginPath}?from=${encodeURIComponent(currentPath)}`);
 }

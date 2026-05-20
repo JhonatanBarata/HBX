@@ -1087,10 +1087,6 @@ function radarRunResponseEqual(left: RadarSearchRunResponse | null, right: Radar
   }
 }
 
-function isMobileVendasViewport() {
-  return typeof window !== "undefined" && window.matchMedia("(max-width: 820px)").matches;
-}
-
 function isTextEntryElementActive() {
   if (typeof document === "undefined") return false;
   const active = document.activeElement;
@@ -2368,7 +2364,7 @@ function SalesMotionBackground() {
   );
 }
 
-export default function VendasClientPage() {
+export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?: boolean } = {}) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const hasToken = useRequireModule("vendas");
@@ -2530,9 +2526,7 @@ export default function VendasClientPage() {
       (composerOpenRef.current ||
         editingInputActiveRef.current ||
         Boolean(editingLeadId) ||
-        (typeof window !== "undefined" &&
-          window.matchMedia("(max-width: 820px)").matches &&
-          mobileSkipDraftHydrateRef.current));
+        (mobileRoute && mobileSkipDraftHydrateRef.current));
     if (skipHydrate) {
       setDrafts((current) =>
         mergeHydratedDraftsPreservingInput(normalizedPayload, current),
@@ -2835,11 +2829,11 @@ export default function VendasClientPage() {
         // keep the last visible Radar status if one poll fails
       }
     }, {
-      intervalMs: isMobileVendasViewport() ? 6500 : 2200,
+      intervalMs: mobileRoute ? 6500 : 2200,
       immediate: true,
       pauseWhenHidden: true,
     });
-  }, [hasToken, storedRadarRun?.city, storedRadarRun?.deliveredCount, storedRadarRun?.runId, storedRadarRun?.segment, storedRadarRun?.state, storedRadarRun?.status, storedRadarRun?.targetQuantity]);
+  }, [hasToken, mobileRoute, storedRadarRun?.city, storedRadarRun?.deliveredCount, storedRadarRun?.runId, storedRadarRun?.segment, storedRadarRun?.state, storedRadarRun?.status, storedRadarRun?.targetQuantity]);
 
   useEffect(() => {
     if (composerOpenRef.current || mobileSkipDraftHydrateRef.current) return;
@@ -2987,11 +2981,11 @@ export default function VendasClientPage() {
       if (composerOpenRef.current) return;
       await loadBoardRef.current({ forceVisualRefresh: true });
     }, {
-      intervalMs: isMobileVendasViewport() ? 4200 : 3200,
+      intervalMs: mobileRoute ? 4200 : 3200,
       immediate: false,
       pauseWhenHidden: true,
     });
-  }, [hasToken, hasEnrichingLead]);
+  }, [hasToken, hasEnrichingLead, mobileRoute]);
 
   useEffect(() => {
     function handleFocusOut() {
@@ -6474,10 +6468,18 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
       })
     : "";
 
+  if (mobileRoute) {
+    return (
+      <DashboardScaffold title="Vendas" hideHeader={true}>
+        <style dangerouslySetInnerHTML={{ __html: vendasDragTopbarLockStyle }} />
+        {renderMobileVendas()}
+      </DashboardScaffold>
+    );
+  }
+
   return (
     <DashboardScaffold title="Vendas" hideHeader={true}>
       <style dangerouslySetInnerHTML={{ __html: vendasDragTopbarLockStyle }} />
-      {renderMobileVendas()}
       <div className={styles.desktopVendasShell}>
         <DndContext
           sensors={sensors}

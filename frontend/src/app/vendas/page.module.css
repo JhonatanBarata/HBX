@@ -10378,6 +10378,24 @@
     text-shadow: none !important;
   }
 
+  :global(html[data-hbx-layout="desktop"]) .mobileVendasShell,
+  :global(html[data-hbx-layout="desktop"]) .mobileLeadDetailShell {
+    display: none !important;
+  }
+
+  :global(html[data-hbx-layout="desktop"]) .desktopVendasShell {
+    display: block !important;
+  }
+
+  :global(html[data-hbx-layout="mobile"]) .desktopVendasShell {
+    display: none !important;
+  }
+
+  :global(html[data-hbx-layout="mobile"]) .mobileVendasShell,
+  :global(html[data-hbx-layout="mobile"]) .mobileLeadDetailShell {
+    display: grid !important;
+  }
+
   .mobileVendasHeroCopy strong {
     font-size: clamp(1.76rem, 7vw, 2.16rem) !important;
     line-height: 1 !important;
@@ -10402,4 +10420,22 @@
     letter-spacing: 0 !important;
     text-shadow: none !important;
   }
+}
+
+:global(html[data-hbx-layout="desktop"]) .mobileVendasShell,
+:global(html[data-hbx-layout="desktop"]) .mobileLeadDetailShell {
+  display: none !important;
+}
+
+:global(html[data-hbx-layout="desktop"]) .desktopVendasShell {
+  display: block !important;
+}
+
+:global(html[data-hbx-layout="mobile"]) .desktopVendasShell {
+  display: none !important;
+}
+
+:global(html[data-hbx-layout="mobile"]) .mobileVendasShell,
+:global(html[data-hbx-layout="mobile"]) .mobileLeadDetailShell {
+  display: grid !important;
 }
