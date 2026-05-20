@@ -191,7 +191,38 @@ function Get-PatchTouchedPaths {
 function Join-PatchLines {
   param([string[]]$Lines)
 
-  return ($Lines -join [Environment]::NewLine).Trim()
+  return ($Lines -join [Environment]::NewLine)
+}
+
+function Test-TextSignatureExists {
+  param(
+    [string]$CurrentText,
+    [string[]]$ExpectedLines
+  )
+
+  $normalizedCurrent = $CurrentText -replace "`r`n", "`n"
+  $signatureLines = @(
+    $ExpectedLines |
+      ForEach-Object { $_.Trim() } |
+      Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
+      Where-Object { $_.Length -ge 8 } |
+      Where-Object { $_ -notmatch '^[{}\(\);,]+$' } |
+      Select-Object -First 5
+  )
+
+  if ($signatureLines.Count -eq 0) {
+    return $false
+  }
+
+  $hits = 0
+  foreach ($signatureLine in $signatureLines) {
+    if ($normalizedCurrent.Contains($signatureLine)) {
+      $hits++
+    }
+  }
+
+  $requiredHits = [Math]::Min(3, $signatureLines.Count)
+  return $hits -ge $requiredHits
 }
 
 function Get-LinesBetween {
@@ -422,99 +453,178 @@ function Rename-ProcessedDiff {
   return $target
 }
 
-function Try-AppendOnlyDiff {
+function Try-StructuralDiff {
   param([string]$DiffPath)
 
-  $lines = Get-Content -LiteralPath $DiffPath
-  $targetPath = $null
-  $addedLines = New-Object System.Collections.Generic.List[string]
-  $hasHunk = $false
+  $lines = @(Get-Content -LiteralPath $DiffPath)
+  $sections = New-Object System.Collections.Generic.List[hashtable]
+  $currentSection = $null
+  $currentOld = $null
+  $currentNew = $null
+
+  function Complete-StructuralHunk {
+    if ($null -eq $currentSection -or $null -eq $currentOld -or $null -eq $currentNew) {
+      return
+    }
+
+    if ($currentOld.Count -gt 0 -or $currentNew.Count -gt 0) {
+      $currentSection.Hunks.Add(@{
+        OldLines = @($currentOld)
+        NewLines = @($currentNew)
+      })
+    }
+
+    $script:__unused = $null
+  }
+
+  function Complete-StructuralSection {
+    Complete-StructuralHunk
+    if ($null -ne $currentSection -and $currentSection.TargetPath -and $currentSection.Hunks.Count -gt 0) {
+      $sections.Add($currentSection)
+    }
+  }
 
   foreach ($line in $lines) {
+    if ($line -match '^diff --git ') {
+      Complete-StructuralSection
+      $currentSection = @{
+        TargetPath = $null
+        Hunks = New-Object System.Collections.Generic.List[hashtable]
+      }
+      $currentOld = $null
+      $currentNew = $null
+      continue
+    }
+
     if ($line -match '^\+\+\+ (.+)$') {
       $nextTarget = Convert-DiffPath (Unquote-DiffPath $Matches[1])
-      if (-not $nextTarget) {
-        return $false
+      if ($nextTarget) {
+        if ($null -eq $currentSection) {
+          $currentSection = @{
+            TargetPath = $null
+            Hunks = New-Object System.Collections.Generic.List[hashtable]
+          }
+        }
+        $currentSection.TargetPath = $nextTarget
       }
-
-      if ($targetPath -and $targetPath -ne $nextTarget) {
-        return $false
-      }
-
-      $targetPath = $nextTarget
       continue
     }
 
-    if ($line -match '^@@ ') {
-      $hasHunk = $true
+    if ($line -match '^@@') {
+      Complete-StructuralHunk
+      $currentOld = New-Object System.Collections.Generic.List[string]
+      $currentNew = New-Object System.Collections.Generic.List[string]
       continue
     }
 
-    if (-not $hasHunk) {
+    if ($null -eq $currentOld -or $null -eq $currentNew) {
       continue
     }
 
-    if ($line.StartsWith("--- ") -or $line.StartsWith("diff --git ")) {
+    if ($line.StartsWith("--- ") -or $line.StartsWith("+++ ") -or $line.StartsWith("diff --git ")) {
       continue
     }
 
     if ($line.StartsWith("-")) {
-      return $false
+      $currentOld.Add($line.Substring(1))
+      continue
     }
 
     if ($line.StartsWith("+")) {
-      $addedLines.Add($line.Substring(1))
+      $currentNew.Add($line.Substring(1))
+      continue
+    }
+
+    if ($line.StartsWith(" ")) {
+      $contextLine = $line.Substring(1)
+      $currentOld.Add($contextLine)
+      $currentNew.Add($contextLine)
     }
   }
 
-  if (-not $targetPath -or $addedLines.Count -eq 0) {
+  Complete-StructuralSection
+
+  if ($sections.Count -eq 0) {
     return $false
   }
 
-  $fullTargetPath = Join-Path $repoRoot $targetPath
-  if (-not (Test-Path -LiteralPath $fullTargetPath)) {
-    return $false
-  }
+  foreach ($section in $sections) {
+    $targetPath = $section.TargetPath
+    $resolvedTarget = Resolve-RepoFilePath -RelativePath $targetPath
+    $fullTargetPath = $resolvedTarget.Full
 
-  $appendText = ($addedLines -join [Environment]::NewLine).Trim()
-  if ([string]::IsNullOrWhiteSpace($appendText)) {
-    return $false
-  }
+    $currentText = ""
+    if (Test-Path -LiteralPath $fullTargetPath) {
+      $currentText = Get-Content -LiteralPath $fullTargetPath -Raw
+    }
 
-  $currentText = Get-Content -LiteralPath $fullTargetPath -Raw
-  $normalizedCurrent = ($currentText -replace "`r`n", "`n")
-  $normalizedAppend = ($appendText -replace "`r`n", "`n")
-  $signatureLines = @(
-    $addedLines |
-      Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
-      Where-Object { $_ -notmatch '^-{8,}$' -and $_ -notmatch '/\*\s*-{8,}\s*\*/' } |
-      Where-Object { $_ -match '^[\x00-\x7F]+$' } |
-      Select-Object -First 3
-  )
+    $changed = $false
 
-  if ($normalizedCurrent.Contains($normalizedAppend)) {
-    Write-Host "Bloco append-only ja existe em $targetPath."
-    return $true
-  }
+    foreach ($hunk in $section.Hunks) {
+      $oldText = Join-PatchLines -Lines $hunk.OldLines
+      $newText = Join-PatchLines -Lines $hunk.NewLines
 
-  if ($signatureLines.Count -gt 0) {
-    $existingSignatureCount = 0
-    foreach ($signatureLine in $signatureLines) {
-      if ($normalizedCurrent.Contains(($signatureLine -replace "`r`n", "`n").Trim())) {
-        $existingSignatureCount++
+      if ([string]::IsNullOrWhiteSpace($newText)) {
+        return $false
       }
+
+      if ([string]::IsNullOrWhiteSpace($oldText)) {
+        $normalizedCurrent = ($currentText -replace "`r`n", "`n")
+        $normalizedNew = ($newText -replace "`r`n", "`n")
+        if ($normalizedCurrent.Contains($normalizedNew.Trim())) {
+          Write-Host "Bloco append-only ja existe em $targetPath."
+          continue
+        }
+
+        $prefix = [Environment]::NewLine
+        if ([string]::IsNullOrEmpty($currentText) -or $currentText.EndsWith("`n")) {
+          $prefix = ""
+        }
+
+        $currentText = $currentText + $prefix + $newText + [Environment]::NewLine
+        $changed = $true
+        continue
+      }
+
+      $replaced = $null
+      if (Replace-TextOnce -CurrentText $currentText -OldText $oldText -NewText $newText -ReplacedText ([ref]$replaced)) {
+        $currentText = $replaced
+        $changed = $true
+        continue
+      }
+
+      $oldTextLf = $oldText -replace "`r`n", "`n"
+      $newTextLf = $newText -replace "`r`n", "`n"
+      $currentTextLf = $currentText -replace "`r`n", "`n"
+      if (Replace-TextOnce -CurrentText $currentTextLf -OldText $oldTextLf -NewText $newTextLf -ReplacedText ([ref]$replaced)) {
+        $currentText = $replaced
+        $changed = $true
+        continue
+      }
+
+      if ($currentTextLf.Contains($newTextLf.Trim())) {
+        Write-Host "Bloco replace estrutural ja existe em $targetPath."
+        continue
+      }
+
+      if (Test-TextSignatureExists -CurrentText $currentText -ExpectedLines $hunk.NewLines) {
+        Write-Host "Assinatura estrutural ja existe em $targetPath."
+        continue
+      }
+
+      return $false
     }
 
-    if ($existingSignatureCount -eq $signatureLines.Count) {
-      Write-Host "Assinatura append-only ja existe em $targetPath."
-      return $true
+    if ($changed) {
+      $directory = [System.IO.Path]::GetDirectoryName($fullTargetPath)
+      New-Item -ItemType Directory -Force -Path $directory | Out-Null
+      Write-Utf8NoBom -Path $fullTargetPath -Text $currentText
+      Write-Host "Patch estrutural aplicado em $targetPath."
+    } else {
+      Write-Host "Patch estrutural ja estava aplicado em $targetPath."
     }
   }
 
-  $encoding = New-Object System.Text.UTF8Encoding($false)
-  $textToAppend = [Environment]::NewLine + $appendText + [Environment]::NewLine
-  [System.IO.File]::AppendAllText($fullTargetPath, $textToAppend, $encoding)
-  Write-Host "Patch aplicado como append-only em $targetPath."
   return $true
 }
 
@@ -545,8 +655,8 @@ function Apply-Diff {
     throw "git apply --3way falhou.`n$($threeWayApply.Output)"
   }
 
-  if (Try-AppendOnlyDiff -DiffPath $DiffPath) {
-    return "append-only"
+  if (Try-StructuralDiff -DiffPath $DiffPath) {
+    return "structural"
   }
 
   throw "git apply falhou.`n--- normal check ---`n$($normalCheck.Output)`n--- 3-way check ---`n$($threeWayCheck.Output)"
