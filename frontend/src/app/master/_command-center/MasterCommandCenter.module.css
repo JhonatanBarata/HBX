@@ -2055,3 +2055,391 @@
     grid-template-columns: 1fr !important;
   }
 }
+
+/* -------------------------------------------------------------------------- */
+/* MASTER THEME-AWARE FINAL CORRECTIONS - item 1                              */
+/* Mantem claro/escuro via tokens globais do tema HBX.                         */
+/* -------------------------------------------------------------------------- */
+
+.masterShell {
+  --master-bg: var(--background) !important;
+  --master-surface: color-mix(in srgb, var(--surface) 92%, transparent) !important;
+  --master-surface-strong: var(--surface) !important;
+  --master-surface-soft: color-mix(in srgb, var(--surface-soft) 88%, var(--surface) 12%) !important;
+  --master-border: color-mix(in srgb, var(--line) 72%, transparent) !important;
+  --master-text: var(--foreground) !important;
+  --master-muted: var(--muted) !important;
+  --master-active-bg: var(--brand) !important;
+  --master-active-text: var(--brand-contrast) !important;
+  --master-muted-bg: color-mix(in srgb, var(--surface-soft) 82%, var(--surface) 18%) !important;
+  --master-muted-text: var(--foreground-soft) !important;
+  --master-danger-bg: color-mix(in srgb, var(--danger) 14%, var(--surface) 86%) !important;
+  --master-danger-text: var(--danger) !important;
+  --master-warn-bg: color-mix(in srgb, var(--warning) 16%, var(--surface) 84%) !important;
+  --master-warn-text: var(--warning) !important;
+  --master-good-bg: color-mix(in srgb, var(--success) 15%, var(--surface) 85%) !important;
+  --master-good-text: var(--success) !important;
+  --master-shadow: var(--shadow-lg) !important;
+  --master-shadow-soft: var(--shadow-sm) !important;
+  color: var(--foreground) !important;
+  background:
+    radial-gradient(circle at 0% 0%, color-mix(in srgb, var(--brand) 17%, transparent), transparent 430px),
+    radial-gradient(circle at 100% 0%, color-mix(in srgb, var(--brand-solid) 14%, transparent), transparent 390px),
+    linear-gradient(180deg, var(--background) 0%, var(--background-alt) 100%) !important;
+}
+
+:global(html[data-theme-mode="dark"]) .masterShell {
+  --master-surface: color-mix(in srgb, var(--surface) 86%, transparent) !important;
+  --master-surface-strong: color-mix(in srgb, var(--surface) 94%, #000 6%) !important;
+  --master-surface-soft: color-mix(in srgb, var(--surface-soft) 88%, #000 12%) !important;
+  --master-border: color-mix(in srgb, var(--line) 78%, transparent) !important;
+  --master-muted-bg: color-mix(in srgb, var(--surface-raised) 76%, transparent) !important;
+  --master-muted-text: var(--foreground-soft) !important;
+}
+
+.commandIdentity {
+  color: var(--brand-contrast) !important;
+  background:
+    radial-gradient(circle at 100% 0%, color-mix(in srgb, var(--brand-solid) 28%, transparent), transparent 260px),
+    radial-gradient(circle at 0% 100%, color-mix(in srgb, var(--brand) 22%, transparent), transparent 230px),
+    linear-gradient(135deg, color-mix(in srgb, var(--hero-to) 82%, var(--surface) 18%), color-mix(in srgb, var(--brand) 38%, var(--hero-to) 62%)) !important;
+  border-color: color-mix(in srgb, var(--brand-solid) 26%, var(--line) 74%) !important;
+}
+
+:global(html[data-theme-mode="light"]) .commandIdentity {
+  color: var(--brand-contrast) !important;
+}
+
+:global(html[data-theme-mode="dark"]) .commandIdentity {
+  color: var(--foreground) !important;
+  background:
+    radial-gradient(circle at 100% 0%, color-mix(in srgb, var(--brand-solid) 34%, transparent), transparent 280px),
+    radial-gradient(circle at 0% 100%, color-mix(in srgb, var(--button-success) 18%, transparent), transparent 260px),
+    linear-gradient(135deg, var(--hero-to), color-mix(in srgb, var(--surface) 78%, #000 22%)) !important;
+}
+
+.commandIdentity span,
+.commandIdentity small,
+.commandIdentityMeta span {
+  color: color-mix(in srgb, currentColor 82%, transparent) !important;
+}
+
+.commandIdentity strong {
+  color: currentColor !important;
+}
+
+.commandIdentityMeta span {
+  border-color: color-mix(in srgb, currentColor 22%, transparent) !important;
+  background: color-mix(in srgb, currentColor 10%, transparent) !important;
+}
+
+.commandIdentityMeta span[data-active="true"] {
+  border-color: color-mix(in srgb, var(--success) 54%, transparent) !important;
+  background: color-mix(in srgb, var(--success) 16%, transparent) !important;
+  color: var(--success) !important;
+}
+
+.commandWorkstation,
+.commandActionPanel,
+.companyBoard,
+.inspector,
+.panelSection,
+.kpiCard,
+.companyRow,
+.modalCard,
+.operationCard {
+  color: var(--foreground) !important;
+  border-color: var(--master-border) !important;
+  background: var(--master-surface) !important;
+  box-shadow: var(--master-shadow-soft) !important;
+}
+
+.commandWorkstation {
+  background:
+    radial-gradient(circle at 100% 0%, color-mix(in srgb, var(--brand-solid) 10%, transparent), transparent 300px),
+    var(--master-surface) !important;
+}
+
+.commandWorkstation .searchBox label,
+.commandActionHeader span,
+.boardHeader span,
+.kpiCard span,
+.sectionTitle span,
+.currentPlanCard span,
+.previewHeader span,
+.infoItem span,
+.realityTile span {
+  color: var(--muted) !important;
+}
+
+.commandActionHeader strong,
+.boardHeader strong,
+.companyMain strong,
+.sectionTitle h3,
+.currentPlanCard strong,
+.previewHeader strong,
+.infoItem strong,
+.realityTile strong {
+  color: var(--foreground) !important;
+}
+
+.commandWorkstation .searchBox input,
+.inlineForm input,
+.inlineForm select,
+.inlineForm textarea,
+.profileForm input,
+.profileForm select,
+.modalForm input,
+.modalForm select,
+.modalForm textarea,
+.integrationEditor input,
+.integrationEditor select,
+.catalogRow input {
+  color: var(--foreground) !important;
+  background: var(--field-surface) !important;
+  border-color: var(--line) !important;
+}
+
+.commandWorkstation .searchBox input::placeholder,
+.inlineForm input::placeholder,
+.profileForm input::placeholder,
+.modalForm input::placeholder {
+  color: color-mix(in srgb, var(--muted) 74%, transparent) !important;
+}
+
+.filterButton,
+.actionButton[data-variant="secondary"],
+.secondaryLink {
+  color: var(--foreground-soft) !important;
+  background: color-mix(in srgb, var(--surface-soft) 78%, var(--surface) 22%) !important;
+  border-color: var(--line) !important;
+}
+
+.filterButton:hover,
+.filterButton[aria-current="true"],
+.filterButton[data-active="true"],
+.actionButton:not([data-variant="secondary"]):not([data-variant="danger"]):not([data-variant="ghost"]) {
+  color: var(--brand-contrast) !important;
+  background: var(--button-primary) !important;
+  border-color: var(--button-primary) !important;
+}
+
+.actionButton[data-variant="danger"] {
+  color: var(--danger) !important;
+  background: color-mix(in srgb, var(--danger) 13%, var(--surface) 87%) !important;
+  border-color: color-mix(in srgb, var(--danger) 42%, var(--line) 58%) !important;
+}
+
+.actionButton[data-variant="ghost"] {
+  color: var(--foreground-soft) !important;
+  background: transparent !important;
+  border-color: var(--line) !important;
+}
+
+.kpiCard {
+  overflow: hidden !important;
+  background:
+    radial-gradient(circle at 100% 0%, color-mix(in srgb, var(--brand-solid) 10%, transparent), transparent 165px),
+    var(--master-surface) !important;
+}
+
+.kpiCard::before {
+  opacity: 0.26 !important;
+  background: color-mix(in srgb, var(--brand-solid) 28%, transparent) !important;
+}
+
+.kpiCard span,
+.kpiCard strong,
+.kpiCard small {
+  position: relative !important;
+  z-index: 2 !important;
+}
+
+.kpiCard span {
+  color: var(--muted) !important;
+}
+
+.kpiCard strong {
+  color: var(--foreground) !important;
+}
+
+.kpiCard small {
+  color: var(--foreground-soft) !important;
+}
+
+.kpiCard[data-tone="danger"] strong {
+  color: var(--danger) !important;
+}
+
+.kpiCard[data-tone="warn"] strong {
+  color: var(--warning) !important;
+}
+
+.kpiCard[data-tone="good"] strong {
+  color: var(--success) !important;
+}
+
+.kpiCard[data-active="true"] {
+  color: var(--brand-contrast) !important;
+  background:
+    radial-gradient(circle at 100% 0%, color-mix(in srgb, var(--brand-solid) 28%, transparent), transparent 180px),
+    var(--button-primary) !important;
+  border-color: var(--button-primary) !important;
+}
+
+.kpiCard[data-active="true"] span,
+.kpiCard[data-active="true"] strong,
+.kpiCard[data-active="true"] small {
+  color: var(--brand-contrast) !important;
+}
+
+.kpiCard i {
+  background: color-mix(in srgb, var(--line) 62%, transparent) !important;
+}
+
+.kpiCard i::after {
+  background: var(--button-primary) !important;
+}
+
+.kpiCard[data-active="true"] i {
+  background: color-mix(in srgb, var(--brand-contrast) 28%, transparent) !important;
+}
+
+.kpiCard[data-active="true"] i::after {
+  background: var(--brand-contrast) !important;
+}
+
+.companyRow {
+  color: var(--foreground) !important;
+  background: var(--master-surface-strong) !important;
+}
+
+.companyRow[data-active="true"] {
+  background:
+    radial-gradient(circle at 100% 0%, color-mix(in srgb, var(--brand) 10%, transparent), transparent 190px),
+    color-mix(in srgb, var(--brand) 7%, var(--surface) 93%) !important;
+  border-color: color-mix(in srgb, var(--brand) 45%, var(--line) 55%) !important;
+}
+
+.companyMain span,
+.rowFacts,
+.rowNext,
+.rowStatus span,
+.boardHeader small,
+.panelLead,
+.contextLine,
+.helperText,
+.ledgerItem span,
+.userCard span,
+.integrationRow span,
+.endpointRow span,
+.auditItem span {
+  color: var(--muted) !important;
+}
+
+.statusBadge {
+  color: var(--foreground-soft) !important;
+  background: color-mix(in srgb, var(--surface-soft) 78%, var(--surface) 22%) !important;
+  border-color: var(--line) !important;
+}
+
+.statusBadge[data-tone="good"] {
+  color: var(--success) !important;
+  background: color-mix(in srgb, var(--success) 12%, var(--surface) 88%) !important;
+  border-color: color-mix(in srgb, var(--success) 42%, var(--line) 58%) !important;
+}
+
+.statusBadge[data-tone="warn"] {
+  color: var(--warning) !important;
+  background: color-mix(in srgb, var(--warning) 13%, var(--surface) 87%) !important;
+  border-color: color-mix(in srgb, var(--warning) 42%, var(--line) 58%) !important;
+}
+
+.statusBadge[data-tone="danger"] {
+  color: var(--danger) !important;
+  background: color-mix(in srgb, var(--danger) 13%, var(--surface) 87%) !important;
+  border-color: color-mix(in srgb, var(--danger) 42%, var(--line) 58%) !important;
+}
+
+.realityTile,
+.infoItem,
+.previewGrid div,
+.diffGrid div,
+.currentPlanCard,
+.quotaEditor,
+.planPreview,
+.riskBand,
+.ledgerItem,
+.userCard,
+.integrationRow,
+.auditItem,
+.endpointRow,
+.catalogRow,
+.complaintCard,
+.complaintToolbar {
+  color: var(--foreground) !important;
+  background: var(--master-surface-soft) !important;
+  border-color: var(--master-border) !important;
+}
+
+.companyHero {
+  color: var(--brand-contrast) !important;
+  background:
+    radial-gradient(circle at 100% 0%, color-mix(in srgb, var(--brand-solid) 34%, transparent), transparent 320px),
+    radial-gradient(circle at 0% 100%, color-mix(in srgb, var(--button-success) 18%, transparent), transparent 280px),
+    linear-gradient(135deg, color-mix(in srgb, var(--hero-to) 88%, var(--brand) 12%), color-mix(in srgb, var(--brand) 34%, var(--hero-to) 66%)) !important;
+}
+
+:global(html[data-theme-mode="dark"]) .companyHero {
+  color: var(--foreground) !important;
+}
+
+.companyHero h2,
+.companyHero span,
+.companyHero small,
+.companyHero .contextLine {
+  color: currentColor !important;
+}
+
+.companyHero .actionButton[data-variant="secondary"],
+.companyHero .actionButton[data-variant="ghost"] {
+  color: var(--brand-contrast) !important;
+  background: color-mix(in srgb, var(--brand-contrast) 12%, transparent) !important;
+  border-color: color-mix(in srgb, var(--brand-contrast) 18%, transparent) !important;
+}
+
+:global(html[data-theme-mode="dark"]) .companyHero .actionButton[data-variant="secondary"],
+:global(html[data-theme-mode="dark"]) .companyHero .actionButton[data-variant="ghost"] {
+  color: var(--foreground) !important;
+  background: color-mix(in srgb, var(--foreground) 10%, transparent) !important;
+  border-color: color-mix(in srgb, var(--foreground) 16%, transparent) !important;
+}
+
+.emptyState,
+.loadingState {
+  color: var(--muted) !important;
+  border-color: var(--line) !important;
+  background: color-mix(in srgb, var(--surface-soft) 72%, transparent) !important;
+}
+
+@media (max-width: 1540px) {
+  .kpiStrip {
+    grid-template-columns: repeat(3, minmax(220px, 1fr)) !important;
+  }
+}
+
+@media (max-width: 1180px) {
+  .topCommandBar {
+    grid-template-columns: 1fr !important;
+    grid-template-areas:
+      "identity"
+      "workstation"
+      "actions" !important;
+  }
+}
+
+@media (max-width: 760px) {
+  .masterShell {
+    padding: 10px !important;
+  }
+}
