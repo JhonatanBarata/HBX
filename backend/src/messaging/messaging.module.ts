@@ -17,11 +17,12 @@ import { CustomerProfileModule } from '../customer-profile/customer-profile.modu
 import { WebwhatsBridgeService } from './webwhats-bridge.service';
 import { InboxRealtimeService } from './inbox-realtime.service';
 import { MailModule } from '../mail/mail.module';
+import { MasterPaymentNotificationsController } from './master-payment-notifications.controller';
 
 @Module({
   imports: [PrismaModule, forwardRef(() => ModulesAccessModule), PaymentsModule, CadastrosModule, CustomerProfileModule, MailModule],
   providers: [MessagingService, ConversationSessionsService, MessageOrchestratorService, OrderDraftsService, ConversationsService, WhatsAppStatusService, WhatsAppAuditService, WebwhatsBridgeService, InboxRealtimeService],
-  controllers: [MessagingController, ConversationsController, WhatsAppController],
+  controllers: [MessagingController, ConversationsController, WhatsAppController, MasterPaymentNotificationsController],
   exports: [WhatsAppStatusService, ConversationsService, WhatsAppAuditService, WebwhatsBridgeService, InboxRealtimeService],
 })
 export class MessagingModule {}

@@ -74,13 +74,6 @@ function Sync-Template(
 Ensure-Dir $templatesRoot
 
 Sync-Template `
-	-templateKey "abner-firebase" `
-	-templateName "Template Abner (Firebase + Functions)" `
-	-sourceProjectDir "Abner projeto" `
-	-templateType "firebase_hosting_functions" `
-	-hasFunctions $true
-
-Sync-Template `
 	-templateKey "diego-firebase" `
 	-templateName "Template Diego (Firebase Hosting)" `
 	-sourceProjectDir "Diego projeto" `

@@ -3,6 +3,6 @@
     "name":  "Template Abner (Firebase + Functions)",
     "type":  "firebase_hosting_functions",
     "hasFunctions":  true,
-    "sourcePath":  "Abner projeto",
+    "sourcePath":  "backend/website-kit/templates/abner-firebase/source",
     "copiedAt":  "2026-03-05T12:59:25.6476402-03:00"
 }

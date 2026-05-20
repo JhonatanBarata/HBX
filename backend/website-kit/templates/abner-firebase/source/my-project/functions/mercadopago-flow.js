@@ -618,6 +618,62 @@ async function sendApprovedEmailIfPossible(record) {
   return { sent: true, email: targetEmail };
 }
 
+async function sendApprovedMasterNotificationIfPossible(record) {
+  const webhookUrl = sanitizeText(process.env.MASTER_PAYMENT_NOTIFY_WEBHOOK_URL || "");
+  const companyId = Number(process.env.MASTER_PAYMENT_NOTIFY_COMPANY_ID || "");
+  const to = sanitizePhone(process.env.MASTER_PAYMENT_NOTIFY_TO || "");
+
+  if (!webhookUrl) {
+    return { sent: false, reason: "webhook_not_configured" };
+  }
+  if (!Number.isInteger(companyId) || companyId <= 0) {
+    return { sent: false, reason: "company_id_not_configured" };
+  }
+  if (!to) {
+    return { sent: false, reason: "target_phone_not_configured" };
+  }
+
+  const totalCharged = sanitizeAmount(
+    record.mercadoPago?.transactionAmount ||
+    record.selection?.estimatedTotalChargeAmount ||
+    record.amount
+  );
+  const paymentId = sanitizeText(record.mercadoPago?.paymentId);
+  const text = [
+    "Pagamento aprovado - Auto Socorro Rio Claro",
+    `Cliente: ${sanitizeText(record.customerName, "Cliente")}`,
+    `Valor: R$ ${totalCharged.toFixed(2).replace(".", ",")}`,
+    `Servico: ${sanitizeText(record.serviceType, "Atendimento com guincho")}`,
+    `Retirada: ${sanitizeText(record.pickupAddress, "Nao informada")}`,
+    record.dropoffAddress ? `Destino: ${sanitizeText(record.dropoffAddress)}` : "",
+    paymentId ? `Pagamento MP: ${paymentId}` : "",
+    record.licensePlate ? `Placa: ${sanitizeText(record.licensePlate)}` : ""
+  ].filter(Boolean).join("\n");
+  const headers = { "Content-Type": "application/json" };
+  const secret = sanitizeText(process.env.MASTER_PAYMENT_NOTIFY_SECRET || "");
+
+  if (secret) {
+    headers["x-master-payment-notify-secret"] = secret;
+  }
+
+  const response = await fetch(webhookUrl, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ companyId, to, text })
+  });
+  const responseText = await response.text().catch(() => "");
+
+  if (!response.ok) {
+    throw createHttpError(502, `Webhook de notificacao recusou o aviso (${response.status}).`);
+  }
+
+  return {
+    sent: true,
+    status: response.status,
+    response: sanitizeText(responseText).slice(0, 500)
+  };
+}
+
 const manageMercadoPagoToken = onRequest(
   {
     region: "southamerica-east1",
@@ -1373,9 +1429,10 @@ const mercadoPagoWebhook = onRequest(
       }
 
       if (webhookResult.shouldSendApprovalEmail) {
+        const latestSnap = await docRef.get();
+        const latestData = latestSnap.data() || {};
+
         try {
-          const latestSnap = await docRef.get();
-          const latestData = latestSnap.data() || {};
           const emailResult = await sendApprovedEmailIfPossible(latestData);
           await docRef.set(
             {
@@ -1396,6 +1453,33 @@ const mercadoPagoWebhook = onRequest(
                 lastEmailAttemptAt: admin.firestore.FieldValue.serverTimestamp(),
                 emailSent: false,
                 emailReason: sanitizeText(emailError.message, "Falha ao enviar email.")
+              }
+            },
+            { merge: true }
+          );
+        }
+
+        try {
+          const masterNotificationResult = await sendApprovedMasterNotificationIfPossible(latestData);
+          await docRef.set(
+            {
+              notifications: {
+                lastMasterNotifyAttemptAt: admin.firestore.FieldValue.serverTimestamp(),
+                masterNotifySent: masterNotificationResult.sent,
+                masterNotifyReason: sanitizeText(masterNotificationResult.reason),
+                masterNotifyStatus: masterNotificationResult.status || null
+              }
+            },
+            { merge: true }
+          );
+        } catch (notifyError) {
+          logger.error("Falha ao enviar notificacao master de aprovacao.", notifyError);
+          await docRef.set(
+            {
+              notifications: {
+                lastMasterNotifyAttemptAt: admin.firestore.FieldValue.serverTimestamp(),
+                masterNotifySent: false,
+                masterNotifyReason: sanitizeText(notifyError.message, "Falha ao enviar notificacao master.")
               }
             },
             { merge: true }
