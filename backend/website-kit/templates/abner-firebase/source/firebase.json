@@ -26,6 +26,13 @@
         }
       },
       {
+        "source": "/api/mercadopago/public-payment",
+        "function": {
+          "functionId": "createPublicMercadoPagoPayment",
+          "region": "southamerica-east1"
+        }
+      },
+      {
         "source": "/api/mercadopago/token",
         "function": {
           "functionId": "manageMercadoPagoToken",

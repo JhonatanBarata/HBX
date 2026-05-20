@@ -394,6 +394,86 @@ function buildSuccessUrl(baseUrl, requestId) {
   return `${baseUrl}/sucesso.html?requestId=${encodeURIComponent(requestId)}`;
 }
 
+function buildPublicPaymentPayload(body = {}, notifyEmail = "") {
+  return {
+    customerName: sanitizeText(body.customerName),
+    customerPhone: sanitizePhone(body.customerPhone),
+    customerEmail: sanitizeText(body.customerEmail),
+    licensePlate: sanitizeText(body.licensePlate).toUpperCase(),
+    vehicleType: sanitizeText(body.vehicleType, "Veículo não informado"),
+    serviceType: sanitizeText(body.serviceType, "Atendimento com guincho"),
+    pickupAddress: sanitizeText(body.pickupAddress),
+    dropoffAddress: sanitizeText(body.dropoffAddress),
+    notes: sanitizeText(body.notes),
+    amount: sanitizeAmount(body.amount),
+    installments: sanitizeInstallments(body.installments || MAX_INSTALLMENTS),
+    notifyEmail: sanitizeText(notifyEmail)
+  };
+}
+
+function assertPaymentPayload(payload) {
+  if (!payload.customerName || payload.amount <= 0) {
+    throw createHttpError(400, "Preencha nome do cliente e valor antes de gerar a cobrança.");
+  }
+}
+
+async function createPaymentRequestRecord({
+  payload,
+  pricingProfile,
+  baseUrl,
+  createdByUid = "",
+  createdByEmail = "",
+  source = "admin"
+}) {
+  assertPaymentPayload(payload);
+
+  pricingProfile.maxInstallments = payload.installments;
+  pricingProfile.installmentFees = buildInstallmentFeeTable(payload.installments, pricingProfile.installmentFees);
+  pricingProfile.notifyEmail = payload.notifyEmail;
+
+  const initialSelection = calculatePricing(payload.amount, payload.installments, pricingProfile);
+  const requestRef = db.collection("paymentRequests").doc();
+  const publicToken = crypto.randomBytes(24).toString("hex");
+  const guideUrl = buildGuideUrl(baseUrl, publicToken);
+  const now = admin.firestore.FieldValue.serverTimestamp();
+
+  const recordData = {
+    ...payload,
+    createdByUid,
+    createdByEmail,
+    source,
+    externalReference: requestRef.id,
+    publicToken,
+    guideUrl,
+    status: "quote_ready",
+    createdAt: now,
+    updatedAt: now,
+    pricing: {
+      ...pricingProfile,
+      siteCommissionAmount: initialSelection.siteCommissionAmount
+    },
+    selection: {
+      requestedInstallments: initialSelection.requestedInstallments,
+      estimatedCardFeePercent: initialSelection.estimatedCardFeePercent,
+      estimatedCardFeeAmount: initialSelection.estimatedCardFeeAmount,
+      estimatedTotalChargeAmount: initialSelection.estimatedTotalChargeAmount,
+      baseCheckoutAmount: initialSelection.baseCheckoutAmount,
+      perInstallmentAmount: initialSelection.perInstallmentAmount
+    },
+    mercadoPago: {
+      provider: "mercadopago",
+      providerStatus: "quote_ready"
+    }
+  };
+
+  await requestRef.set(recordData);
+
+  return {
+    requestId: requestRef.id,
+    recordData
+  };
+}
+
 async function findRequestByPublicToken(publicToken) {
   const query = await db.collection("paymentRequests").where("publicToken", "==", publicToken).limit(1).get();
   if (query.empty) {
@@ -646,80 +726,78 @@ const createMercadoPagoPreference = onRequest(
       const decoded = await requireAuthenticatedAdmin(req);
       const body = parseBody(req);
       const pricingProfile = normalizePricingProfile(body.profileSnapshot || {}, decoded.email || "");
-      const payload = {
-        customerName: sanitizeText(body.customerName),
-        customerPhone: sanitizePhone(body.customerPhone),
-        customerEmail: sanitizeText(body.customerEmail),
-        licensePlate: sanitizeText(body.licensePlate),
-        vehicleType: sanitizeText(body.vehicleType, "Veículo não informado"),
-        serviceType: sanitizeText(body.serviceType, "Atendimento com guincho"),
-        pickupAddress: sanitizeText(body.pickupAddress),
-        dropoffAddress: sanitizeText(body.dropoffAddress),
-        notes: sanitizeText(body.notes),
-        amount: sanitizeAmount(body.amount),
-        installments: sanitizeInstallments(body.installments),
-        notifyEmail: sanitizeText(body.notifyEmail, pricingProfile.notifyEmail || decoded.email || "")
-      };
-
-      if (!payload.customerName || payload.amount <= 0) {
-        res.status(400).json({
-          ok: false,
-          error: "Preencha nome do cliente e valor antes de gerar a cobrança."
-        });
-        return;
-      }
-
-      pricingProfile.maxInstallments = payload.installments;
-      pricingProfile.installmentFees = buildInstallmentFeeTable(payload.installments, pricingProfile.installmentFees);
-      pricingProfile.notifyEmail = payload.notifyEmail;
-
-      const initialSelection = calculatePricing(payload.amount, payload.installments, pricingProfile);
-      const requestRef = db.collection("paymentRequests").doc();
+      const payload = buildPublicPaymentPayload(
+        body,
+        sanitizeText(body.notifyEmail, pricingProfile.notifyEmail || decoded.email || "")
+      );
       const baseUrl = getPublicBaseUrl(req);
-      const publicToken = crypto.randomBytes(24).toString("hex");
-      const guideUrl = buildGuideUrl(baseUrl, publicToken);
-      const now = admin.firestore.FieldValue.serverTimestamp();
-
-      const recordData = {
-        ...payload,
+      const { requestId, recordData } = await createPaymentRequestRecord({
+        payload,
+        pricingProfile,
+        baseUrl,
         createdByUid: sanitizeText(decoded.uid),
         createdByEmail: sanitizeText(decoded.email),
-        externalReference: requestRef.id,
-        publicToken,
-        guideUrl,
-        status: "quote_ready",
-        createdAt: now,
-        updatedAt: now,
-        pricing: {
-          ...pricingProfile,
-          siteCommissionAmount: initialSelection.siteCommissionAmount
-        },
-        selection: {
-          requestedInstallments: initialSelection.requestedInstallments,
-          estimatedCardFeePercent: initialSelection.estimatedCardFeePercent,
-          estimatedCardFeeAmount: initialSelection.estimatedCardFeeAmount,
-          estimatedTotalChargeAmount: initialSelection.estimatedTotalChargeAmount,
-          baseCheckoutAmount: initialSelection.baseCheckoutAmount,
-          perInstallmentAmount: initialSelection.perInstallmentAmount
-        },
-        mercadoPago: {
-          provider: "mercadopago",
-          providerStatus: "quote_ready"
-        }
-      };
-
-      await requestRef.set(recordData);
+        source: "admin"
+      });
 
       res.status(200).json({
         ok: true,
-        requestId: requestRef.id,
-        paymentRequest: buildPaymentRecordResponse(requestRef.id, recordData)
+        requestId,
+        paymentRequest: buildPaymentRecordResponse(requestId, recordData)
       });
     } catch (error) {
       logger.error("Erro ao criar a guia de pagamento.", error);
       res.status(error.statusCode || 500).json({
         ok: false,
         error: error.message || "Não foi possível criar a guia segura agora."
+      });
+    }
+  }
+);
+
+const createPublicMercadoPagoPayment = onRequest(
+  {
+    region: "southamerica-east1",
+    timeoutSeconds: 60
+  },
+  async (req, res) => {
+    if (handleOptions(req, res)) {
+      return;
+    }
+
+    setCorsHeaders(res);
+
+    if (req.method !== "POST") {
+      res.status(405).json({ ok: false, error: "Método não permitido." });
+      return;
+    }
+
+    try {
+      const body = parseBody(req);
+      const notifyEmail = sanitizeText(process.env.PAYMENT_NOTIFY_EMAIL || process.env.SMTP_USER || "");
+      const pricingProfile = normalizePricingProfile({}, notifyEmail);
+      const payload = buildPublicPaymentPayload(body, notifyEmail);
+      const baseUrl = getPublicBaseUrl(req);
+      const { requestId, recordData } = await createPaymentRequestRecord({
+        payload,
+        pricingProfile,
+        baseUrl,
+        createdByUid: "public_site",
+        createdByEmail: "public_site",
+        source: "public_site"
+      });
+
+      res.status(200).json({
+        ok: true,
+        requestId,
+        guideUrl: recordData.guideUrl,
+        paymentRequest: buildPaymentRecordResponse(requestId, recordData)
+      });
+    } catch (error) {
+      logger.error("Erro ao criar pagamento publico.", error);
+      res.status(error.statusCode || 500).json({
+        ok: false,
+        error: error.message || "Não foi possível criar o pagamento online agora."
       });
     }
   }
@@ -1398,6 +1476,7 @@ const cleanupExpiredPaymentGuides = onSchedule(
 
 module.exports = {
   createMercadoPagoPreference,
+  createPublicMercadoPagoPayment,
   manageMercadoPagoToken,
   getMercadoPagoQuote,
   createMercadoPagoCheckout,

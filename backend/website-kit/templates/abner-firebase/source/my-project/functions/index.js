@@ -1,6 +1,7 @@
 const flow = require("./mercadopago-flow");
 
 exports.createMercadoPagoPreference = flow.createMercadoPagoPreference;
+exports.createPublicMercadoPagoPayment = flow.createPublicMercadoPagoPayment;
 exports.manageMercadoPagoToken = flow.manageMercadoPagoToken;
 exports.getMercadoPagoQuote = flow.getMercadoPagoQuote;
 exports.createMercadoPagoCheckout = flow.createMercadoPagoCheckout;
