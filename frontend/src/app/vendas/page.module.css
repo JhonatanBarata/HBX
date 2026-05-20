@@ -2102,7 +2102,7 @@
   }
 
   .mobileRadarActionNotice::after {
-    content: "›";
+    content: "â€º";
     color: #0b72ff;
     font-size: 2rem;
     font-weight: 800;
@@ -3871,7 +3871,7 @@
 }
 
 @media (max-width: 820px) {
-  /* Dois filhos diretos: contextBar + lista (dock é portal no body). Só 2 linhas: auto + 1fr. */
+  /* Dois filhos diretos: contextBar + lista (dock Ã© portal no body). SÃ³ 2 linhas: auto + 1fr. */
   .mobileVendasShell {
     grid-template-rows: auto minmax(0, 1fr);
     gap: 12px;
@@ -5285,7 +5285,7 @@
   left: 50%;
 }
 
-/* Graphic-only +Agenda button — always visible at the end */
+/* Graphic-only +Agenda button â€” always visible at the end */
 .addAgendaButton {
   flex-shrink: 0;
   min-width: 51px;
@@ -5400,7 +5400,7 @@
 }
 
 /* boardShell must allow overflow so selected cards can elevate
-   without being clipped — border-radius still renders correctly */
+   without being clipped â€” border-radius still renders correctly */
 .boardShell {
   overflow: visible;
 }
@@ -6757,7 +6757,7 @@
   border-radius: 999px;
 }
 
-/* HBX Vendas — Filtro por Datas fixo no topo quando o header some.
+/* HBX Vendas â€” Filtro por Datas fixo no topo quando o header some.
    Cole no FINAL de frontend/src/app/vendas/page.module.css */
 
 .premiumBackdrop {
@@ -6964,7 +6964,7 @@
     min-width: 104px;
   }
 }
-/* HBX Vendas — trava o TopBar durante drag para o Filtro por Datas
+/* HBX Vendas â€” trava o TopBar durante drag para o Filtro por Datas
    Cole no FINAL de frontend/src/app/vendas/page.module.css */
 
 :global(html[data-vendas-dragging-card="true"]) {
@@ -10548,6 +10548,70 @@
   .mobileVendasClearVisualFilters {
     min-width: 0;
     width: 100%;
+  }
+}
+
+/* HBX mobile vendas visual filters: seven icon buttons, no score control. */
+@media (max-width: 820px) {
+  .mobileVendasVisualFilterScroller {
+    align-items: center !important;
+  }
+
+  .mobileVendasVisualFilterScroller > button,
+  .mobileVendasClearVisualFilters {
+    min-width: 0 !important;
+    box-sizing: border-box !important;
+  }
+
+  .mobileVendasVisualFilterScroller > button > .mobileVendasChannelIcon {
+    width: 25px !important;
+    height: 25px !important;
+  }
+
+  .mobileVendasChannelIcon > img,
+  .mobileVendasChannelAssetLight,
+  .mobileVendasChannelAssetDark,
+  .mobileVendasChannelIcon[data-channel] img,
+  .mobileVendasChannelIcon[data-channel][data-compact="true"] img {
+    width: 100% !important;
+    height: 100% !important;
+    max-width: 100% !important;
+    max-height: 100% !important;
+    object-fit: contain !important;
+    object-position: center !important;
+  }
+
+  .mobileVendasClearVisualFilters {
+    display: inline-grid !important;
+    place-items: center !important;
+    color: #dc2626 !important;
+    line-height: 0 !important;
+  }
+
+  .mobileVendasClearVisualFilters > svg {
+    width: 18px !important;
+    height: 18px !important;
+    fill: none !important;
+    stroke: currentColor !important;
+    stroke-width: 2.15 !important;
+    stroke-linecap: round !important;
+    stroke-linejoin: round !important;
+  }
+}
+
+@media (max-width: 430px) {
+  .mobileVendasVisualFilterScroller {
+    grid-template-columns: repeat(7, minmax(0, 1fr)) !important;
+    gap: 4px !important;
+    padding: 8px !important;
+  }
+
+  .mobileVendasVisualFilterScroller > button,
+  .mobileVendasClearVisualFilters {
+    width: 100% !important;
+    height: 38px !important;
+    min-height: 38px !important;
+    padding: 0 !important;
   }
 }
 /* HBX mobile vendas channel icon alignment override. */
