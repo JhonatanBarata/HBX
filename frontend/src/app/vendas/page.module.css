@@ -10439,3 +10439,73 @@
 :global(html[data-hbx-layout="mobile"]) .mobileLeadDetailShell {
   display: grid !important;
 }
+
+@media (max-width: 430px) {
+  .mobileVendasVisualFilterScroller {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 6px;
+    overflow-x: hidden;
+    padding: 8px;
+  }
+
+  .mobileVendasVisualFilterScroller > button {
+    min-width: 0;
+    width: 100%;
+    height: 38px;
+    gap: 0;
+    padding: 0;
+  }
+
+  .mobileVendasVisualFilterScroller > button > span {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+
+  .mobileVendasVisualFilterScroller > button > .mobileVendasChannelIcon {
+    width: 25px;
+    height: 25px;
+  }
+
+  .mobileVendasVisualFilterScroller > button > b {
+    position: absolute;
+    top: 3px;
+    right: 3px;
+    min-width: 13px;
+    width: 13px;
+    height: 13px;
+    font-size: 0;
+  }
+
+  .mobileVendasVisualFilterScroller > button > b::after {
+    content: "";
+    width: 5px;
+    height: 5px;
+    border-radius: 999px;
+    background: currentColor;
+  }
+
+  .mobileVendasScoreFilter {
+    min-width: 0;
+    width: 100%;
+    height: 38px;
+    justify-content: center;
+    gap: 2px;
+    padding: 0 3px;
+  }
+
+  .mobileVendasScoreFilter > button {
+    width: 22px;
+    height: 22px;
+    border-radius: 8px;
+  }
+
+  .mobileVendasClearVisualFilters {
+    min-width: 0;
+    width: 100%;
+  }
+}
