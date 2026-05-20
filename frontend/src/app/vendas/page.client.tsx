@@ -5151,7 +5151,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
                 <header className={styles.mobileVendasScoreModalHeader}>
                   <div>
                     <span>Filtro de score</span>
-                    <strong id="mobile-score-filter-title">Score minimo</strong>
+                    <strong id="mobile-score-filter-title">Score mínimo</strong>
                   </div>
                   <button
                     type="button"
@@ -5172,7 +5172,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
                     type="button"
                     disabled={!mobileVisualFiltersUnlocked || mobileMinScoreFilter <= 0}
                     onClick={() => stepMobileScoreFilter(-1)}
-                    aria-label="Diminuir score minimo em 1"
+                    aria-label="Diminuir score mínimo em 1"
                   >
                     -
                   </button>
@@ -5186,14 +5186,14 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
                       value={mobileMinScoreFilter}
                       disabled={!mobileVisualFiltersUnlocked}
                       onChange={(event) => setMobileScoreFilterValue(Number(event.target.value))}
-                      aria-label="Score minimo de 0 a 100"
+                      aria-label="Score mínimo de 0 a 100"
                     />
                   </label>
                   <button
                     type="button"
                     disabled={!mobileVisualFiltersUnlocked || mobileMinScoreFilter >= 100}
                     onClick={() => stepMobileScoreFilter(1)}
-                    aria-label="Aumentar score minimo em 1"
+                    aria-label="Aumentar score mínimo em 1"
                   >
                     +
                   </button>
