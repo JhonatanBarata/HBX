@@ -507,101 +507,101 @@ const VENDAS_PROGRESS_STEPS = [
   "lendo banco",
   "filtrando negativos",
   "selecionando melhores cards",
-  "alimentando Vendas/ProspecÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Â£o",
+  "alimentando Vendas/ProspecÃƒÂ§ÃƒÂ£o",
 ];
 const MOBILE_READY_MESSAGE_PREF_KEY = "hbx.vendas.mobile.readyMessagePreference.v1";
 const MOBILE_PREFERRED_CALLER_NAME_KEY = "hbx.vendas.mobile.preferredCallerName.v1";
 const MOBILE_OPEN_LEAD_KEY = "hbx.vendas.mobile.openLeadId.v1";
 const SALES_PROFILE_DEFAULT_DRAFT: SalesProfileDraft = {
   whatDoYouSell: "Sistema/Software",
-  offerCategory: "serviÃƒÆ’Ã‚Â§o comercial",
-  targetAudience: ["empresas pequenas", "comÃƒÆ’Ã‚Â©rcios locais"],
-  targetSegments: ["clÃƒÆ’Ã‚Â­nicas", "oficinas", "restaurantes"],
-  avoidSegments: ["empresa grande", "ÃƒÆ’Ã‚Â³rgÃƒÆ’Ã‚Â£o pÃƒÆ’Ã‚Âºblico", "sem telefone", "diretÃƒÆ’Ã‚Â³rio/lista genÃƒÆ’Ã‚Â©rica"],
+  offerCategory: "serviÃƒÂ§o comercial",
+  targetAudience: ["empresas pequenas", "comÃƒÂ©rcios locais"],
+  targetSegments: ["clÃƒÂ­nicas", "oficinas", "restaurantes"],
+  avoidSegments: ["empresa grande", "ÃƒÂ³rgÃƒÂ£o pÃƒÂºblico", "sem telefone", "diretÃƒÂ³rio/lista genÃƒÂ©rica"],
   preferredChannels: ["whatsapp"],
   weeklyAutoUpdateEnabled: false,
 };
 const SALES_PROFILE_SELL_EXAMPLES = [
-  "Plano de saÃƒÆ’Ã‚Âºde",
+  "Plano de saÃƒÂºde",
   "Sistema/Software",
-  "ServiÃƒÆ’Ã‚Â§os locais",
+  "ServiÃƒÂ§os locais",
   "Consultoria",
-  "ImobiliÃƒÆ’Ã‚Â¡ria",
-  "EstÃƒÆ’Ã‚Â©tica/beleza",
+  "ImobiliÃƒÂ¡ria",
+  "EstÃƒÂ©tica/beleza",
   "Outro",
 ];
 const SALES_PROFILE_AUDIENCE_EXAMPLES = [
   "idosos",
-  "famÃƒÆ’Ã‚Â­lias",
+  "famÃƒÂ­lias",
   "empresas pequenas",
-  "comÃƒÆ’Ã‚Â©rcios locais",
-  "profissionais autÃƒÆ’Ã‚Â´nomos",
-  "clÃƒÆ’Ã‚Â­nicas",
+  "comÃƒÂ©rcios locais",
+  "profissionais autÃƒÂ´nomos",
+  "clÃƒÂ­nicas",
   "oficinas",
   "restaurantes",
-  "salÃƒÆ’Ã‚Âµes",
+  "salÃƒÂµes",
 ];
 const SALES_PROFILE_AVOID_EXAMPLES = [
   "empresa grande",
-  "ÃƒÆ’Ã‚Â³rgÃƒÆ’Ã‚Â£o pÃƒÆ’Ã‚Âºblico",
+  "ÃƒÂ³rgÃƒÂ£o pÃƒÂºblico",
   "sem telefone",
   "sem WhatsApp",
-  "diretÃƒÆ’Ã‚Â³rio/lista genÃƒÆ’Ã‚Â©rica",
+  "diretÃƒÂ³rio/lista genÃƒÂ©rica",
   "fora da cidade",
   "segmento errado",
 ];
-const SALES_PROFILE_CHANNELS = ["whatsapp", "ligaÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Â£o", "e-mail", "instagram"];
+const SALES_PROFILE_CHANNELS = ["whatsapp", "ligaÃƒÂ§ÃƒÂ£o", "e-mail", "instagram"];
 const MOBILE_READY_MESSAGE_LIBRARY = [
-  "OlÃƒÆ’Ã‚Â¡, tudo bem? Vi a {{company}} em {{city}} e queria te mostrar uma forma simples de organizar contatos, retornos e oportunidades sem depender de planilha.",
-  "Oi, tudo bem? Notei que empresas de {{segment}} costumam perder retorno por falta de acompanhamento. Posso te mandar uma ideia rÃƒÆ’Ã‚Â¡pida para resolver isso?",
-  "OlÃƒÆ’Ã‚Â¡! Vi a {{company}} e achei que o HBX pode ajudar vocÃƒÆ’Ã‚Âªs a acompanhar interessados, lembretes e prÃƒÆ’Ã‚Â³ximos contatos em um sÃƒÆ’Ã‚Â³ lugar.",
-  "Oi, tudo bem? Trabalho com uma soluÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Â£o para organizar prospecÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Â£o e atendimento pelo WhatsApp. Faz sentido eu te explicar em 1 minuto?",
-  "OlÃƒÆ’Ã‚Â¡! Posso te mostrar como deixar os contatos de {{segment}} mais organizados e com retorno automÃƒÆ’Ã‚Â¡tico no momento certo?",
-  "Oi! Passei pelo perfil da {{company}} e vi espaÃƒÆ’Ã‚Â§o para melhorar acompanhamento de clientes. Posso te enviar uma explicaÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Â£o curta?",
-  "OlÃƒÆ’Ã‚Â¡. O HBX ajuda empresas locais a nÃƒÆ’Ã‚Â£o esquecerem retorno, orÃƒÆ’Ã‚Â§amento e follow-up. Posso te mostrar como ficaria para {{segment}}?",
-  "Oi, tudo bem? Se hoje vocÃƒÆ’Ã‚Âªs anotam contatos em WhatsApp, agenda ou planilha, tenho uma forma mais simples de centralizar isso. Posso mandar?",
-  "OlÃƒÆ’Ã‚Â¡! Vi a {{company}} em {{city}}. Posso te mostrar uma ideia para transformar contatos soltos em uma fila clara de prÃƒÆ’Ã‚Â³ximas aÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Âµes?",
+  "OlÃƒÂ¡, tudo bem? Vi a {{company}} em {{city}} e queria te mostrar uma forma simples de organizar contatos, retornos e oportunidades sem depender de planilha.",
+  "Oi, tudo bem? Notei que empresas de {{segment}} costumam perder retorno por falta de acompanhamento. Posso te mandar uma ideia rÃƒÂ¡pida para resolver isso?",
+  "OlÃƒÂ¡! Vi a {{company}} e achei que o HBX pode ajudar vocÃƒÂªs a acompanhar interessados, lembretes e prÃƒÂ³ximos contatos em um sÃƒÂ³ lugar.",
+  "Oi, tudo bem? Trabalho com uma soluÃƒÂ§ÃƒÂ£o para organizar prospecÃƒÂ§ÃƒÂ£o e atendimento pelo WhatsApp. Faz sentido eu te explicar em 1 minuto?",
+  "OlÃƒÂ¡! Posso te mostrar como deixar os contatos de {{segment}} mais organizados e com retorno automÃƒÂ¡tico no momento certo?",
+  "Oi! Passei pelo perfil da {{company}} e vi espaÃƒÂ§o para melhorar acompanhamento de clientes. Posso te enviar uma explicaÃƒÂ§ÃƒÂ£o curta?",
+  "OlÃƒÂ¡. O HBX ajuda empresas locais a nÃƒÂ£o esquecerem retorno, orÃƒÂ§amento e follow-up. Posso te mostrar como ficaria para {{segment}}?",
+  "Oi, tudo bem? Se hoje vocÃƒÂªs anotam contatos em WhatsApp, agenda ou planilha, tenho uma forma mais simples de centralizar isso. Posso mandar?",
+  "OlÃƒÂ¡! Vi a {{company}} em {{city}}. Posso te mostrar uma ideia para transformar contatos soltos em uma fila clara de prÃƒÂ³ximas aÃƒÂ§ÃƒÂµes?",
   "Oi. Ajudo empresas a organizar leads, retornos e atendimentos para vender com mais previsibilidade. Posso te explicar rapidamente?",
-  "OlÃƒÆ’Ã‚Â¡! Tenho uma sugestÃƒÆ’Ã‚Â£o prÃƒÆ’Ã‚Â¡tica para melhorar o controle dos contatos que chegam pelo WhatsApp. Posso te enviar?",
-  "Oi! A ideia ÃƒÆ’Ã‚Â© simples: cada contato vira um card com status, lembrete e prÃƒÆ’Ã‚Â³xima aÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Â£o. Quer ver como isso pode funcionar para {{company}}?",
-  "OlÃƒÆ’Ã‚Â¡. Vi que {{segment}} depende muito de retorno rÃƒÆ’Ã‚Â¡pido. Posso te mostrar uma ferramenta para nÃƒÆ’Ã‚Â£o deixar interessados esfriarem?",
-  "Oi! O HBX organiza quem precisa ser chamado hoje, amanhÃƒÆ’Ã‚Â£ e depois. Posso te mandar um exemplo aplicado ÃƒÆ’Ã‚Â  {{company}}?",
-  "OlÃƒÆ’Ã‚Â¡! Posso te mostrar uma forma de acompanhar orÃƒÆ’Ã‚Â§amento, retorno e conversa sem perder histÃƒÆ’Ã‚Â³rico no WhatsApp?",
-  "Oi. Trabalho com automaÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Â£o comercial para pequenas empresas. A proposta ÃƒÆ’Ã‚Â© ganhar controle sem complicar a rotina. Posso explicar?",
-  "OlÃƒÆ’Ã‚Â¡! Se fizer sentido, te mostro como a {{company}} pode ter uma fila diÃƒÆ’Ã‚Â¡ria de contatos prioritÃƒÆ’Ã‚Â¡rios para chamar.",
+  "OlÃƒÂ¡! Tenho uma sugestÃƒÂ£o prÃƒÂ¡tica para melhorar o controle dos contatos que chegam pelo WhatsApp. Posso te enviar?",
+  "Oi! A ideia ÃƒÂ© simples: cada contato vira um card com status, lembrete e prÃƒÂ³xima aÃƒÂ§ÃƒÂ£o. Quer ver como isso pode funcionar para {{company}}?",
+  "OlÃƒÂ¡. Vi que {{segment}} depende muito de retorno rÃƒÂ¡pido. Posso te mostrar uma ferramenta para nÃƒÂ£o deixar interessados esfriarem?",
+  "Oi! O HBX organiza quem precisa ser chamado hoje, amanhÃƒÂ£ e depois. Posso te mandar um exemplo aplicado ÃƒÂ  {{company}}?",
+  "OlÃƒÂ¡! Posso te mostrar uma forma de acompanhar orÃƒÂ§amento, retorno e conversa sem perder histÃƒÂ³rico no WhatsApp?",
+  "Oi. Trabalho com automaÃƒÂ§ÃƒÂ£o comercial para pequenas empresas. A proposta ÃƒÂ© ganhar controle sem complicar a rotina. Posso explicar?",
+  "OlÃƒÂ¡! Se fizer sentido, te mostro como a {{company}} pode ter uma fila diÃƒÂ¡ria de contatos prioritÃƒÂ¡rios para chamar.",
   "Oi! Vi a {{company}} e pensei em uma melhoria simples: lembrar automaticamente quem precisa de retorno. Posso mandar a ideia?",
-  "OlÃƒÆ’Ã‚Â¡. O HBX ajuda a separar contato novo, retorno e cliente interessado. Posso te mostrar como isso reduz esquecimentos?",
-  "Oi, tudo bem? Tenho uma soluÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Â£o para organizar atendimento e prospecÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Â£o em uma visÃƒÆ’Ã‚Â£o de app. Posso te mandar um resumo?",
-  "OlÃƒÆ’Ã‚Â¡! Empresas de {{segment}} costumam ganhar muito quando cada conversa jÃƒÆ’Ã‚Â¡ nasce com prÃƒÆ’Ã‚Â³xima aÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Â£o. Posso te mostrar?",
-  "Oi! Posso te enviar uma ideia para acompanhar leads por prioridade, com WhatsApp, ligaÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Â£o e observaÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Â£o no mesmo lugar?",
-  "OlÃƒÆ’Ã‚Â¡. Vi a {{company}} e queria sugerir um jeito de melhorar retorno comercial sem contratar mais gente agora.",
-  "Oi, tudo bem? O objetivo ÃƒÆ’Ã‚Â© simples: menos contato perdido e mais follow-up no dia certo. Posso te explicar como?",
-  "OlÃƒÆ’Ã‚Â¡! Se vocÃƒÆ’Ã‚Âªs recebem pedidos, dÃƒÆ’Ã‚Âºvidas ou orÃƒÆ’Ã‚Â§amentos pelo WhatsApp, o HBX pode organizar isso em cards. Posso mostrar?",
+  "OlÃƒÂ¡. O HBX ajuda a separar contato novo, retorno e cliente interessado. Posso te mostrar como isso reduz esquecimentos?",
+  "Oi, tudo bem? Tenho uma soluÃƒÂ§ÃƒÂ£o para organizar atendimento e prospecÃƒÂ§ÃƒÂ£o em uma visÃƒÂ£o de app. Posso te mandar um resumo?",
+  "OlÃƒÂ¡! Empresas de {{segment}} costumam ganhar muito quando cada conversa jÃƒÂ¡ nasce com prÃƒÂ³xima aÃƒÂ§ÃƒÂ£o. Posso te mostrar?",
+  "Oi! Posso te enviar uma ideia para acompanhar leads por prioridade, com WhatsApp, ligaÃƒÂ§ÃƒÂ£o e observaÃƒÂ§ÃƒÂ£o no mesmo lugar?",
+  "OlÃƒÂ¡. Vi a {{company}} e queria sugerir um jeito de melhorar retorno comercial sem contratar mais gente agora.",
+  "Oi, tudo bem? O objetivo ÃƒÂ© simples: menos contato perdido e mais follow-up no dia certo. Posso te explicar como?",
+  "OlÃƒÂ¡! Se vocÃƒÂªs recebem pedidos, dÃƒÂºvidas ou orÃƒÂ§amentos pelo WhatsApp, o HBX pode organizar isso em cards. Posso mostrar?",
   "Oi. Posso te mandar um exemplo de fluxo para a {{company}} acompanhar contatos e oportunidades com mais clareza?",
-  "OlÃƒÆ’Ã‚Â¡! Tenho uma ideia curta para transformar o WhatsApp em uma agenda comercial organizada. Faz sentido eu enviar?",
-  "Oi! Vi a {{company}} em {{city}} e achei que vocÃƒÆ’Ã‚Âªs podem se beneficiar de uma rotina mais clara de retorno aos clientes.",
-  "OlÃƒÆ’Ã‚Â¡. O HBX mostra o prÃƒÆ’Ã‚Â³ximo contato certo e evita que leads fiquem esquecidos. Posso te mostrar a ideia?",
+  "OlÃƒÂ¡! Tenho uma ideia curta para transformar o WhatsApp em uma agenda comercial organizada. Faz sentido eu enviar?",
+  "Oi! Vi a {{company}} em {{city}} e achei que vocÃƒÂªs podem se beneficiar de uma rotina mais clara de retorno aos clientes.",
+  "OlÃƒÂ¡. O HBX mostra o prÃƒÂ³ximo contato certo e evita que leads fiquem esquecidos. Posso te mostrar a ideia?",
   "Oi, tudo bem? Posso te explicar como organizar clientes interessados por status, data de retorno e canal de contato?",
-  "OlÃƒÆ’Ã‚Â¡! Trabalho com uma plataforma que ajuda empresas a venderem com mais organizaÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Â£o no WhatsApp. Posso te mandar uma prÃƒÆ’Ã‚Â©via?",
-  "Oi. Se hoje vocÃƒÆ’Ã‚Âªs dependem de memÃƒÆ’Ã‚Â³ria para retornar clientes, tenho uma soluÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Â£o simples para automatizar lembretes. Posso mostrar?",
-  "OlÃƒÆ’Ã‚Â¡! Vi a {{company}} e pensei em uma forma de melhorar acompanhamento sem mudar o jeito que vocÃƒÆ’Ã‚Âªs atendem.",
-  "Oi! Posso te mandar uma ideia rÃƒÆ’Ã‚Â¡pida para organizar prospecÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Â£o, contatos e retornos usando o HBX?",
-  "OlÃƒÆ’Ã‚Â¡. Para {{segment}}, velocidade de retorno faz diferenÃƒÆ’Ã‚Â§a. Posso te mostrar como priorizar quem chamar primeiro?",
-  "Oi! O HBX ajuda a enxergar quem estÃƒÆ’Ã‚Â¡ quente, quem precisa de retorno e quem deve ser descartado. Quer ver?",
-  "OlÃƒÆ’Ã‚Â¡! Tenho uma forma de deixar o comercial mais visual: cards, score, prÃƒÆ’Ã‚Â³xima aÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Â£o e mensagem pronta. Posso enviar?",
+  "OlÃƒÂ¡! Trabalho com uma plataforma que ajuda empresas a venderem com mais organizaÃƒÂ§ÃƒÂ£o no WhatsApp. Posso te mandar uma prÃƒÂ©via?",
+  "Oi. Se hoje vocÃƒÂªs dependem de memÃƒÂ³ria para retornar clientes, tenho uma soluÃƒÂ§ÃƒÂ£o simples para automatizar lembretes. Posso mostrar?",
+  "OlÃƒÂ¡! Vi a {{company}} e pensei em uma forma de melhorar acompanhamento sem mudar o jeito que vocÃƒÂªs atendem.",
+  "Oi! Posso te mandar uma ideia rÃƒÂ¡pida para organizar prospecÃƒÂ§ÃƒÂ£o, contatos e retornos usando o HBX?",
+  "OlÃƒÂ¡. Para {{segment}}, velocidade de retorno faz diferenÃƒÂ§a. Posso te mostrar como priorizar quem chamar primeiro?",
+  "Oi! O HBX ajuda a enxergar quem estÃƒÂ¡ quente, quem precisa de retorno e quem deve ser descartado. Quer ver?",
+  "OlÃƒÂ¡! Tenho uma forma de deixar o comercial mais visual: cards, score, prÃƒÂ³xima aÃƒÂ§ÃƒÂ£o e mensagem pronta. Posso enviar?",
   "Oi. Vi a {{company}} e queria te mostrar um jeito de reduzir retrabalho no acompanhamento dos contatos.",
-  "OlÃƒÆ’Ã‚Â¡! Posso te mostrar como o HBX organiza WhatsApp, ligaÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Â£o e observaÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Âµes em uma rotina diÃƒÆ’Ã‚Â¡ria de vendas?",
-  "Oi! A proposta ÃƒÆ’Ã‚Â© ajudar a {{company}} a nÃƒÆ’Ã‚Â£o perder oportunidades por falta de follow-up. Posso te explicar?",
-  "OlÃƒÆ’Ã‚Â¡. Se vocÃƒÆ’Ã‚Âªs fazem orÃƒÆ’Ã‚Â§amento ou atendimento consultivo, o HBX pode lembrar cada prÃƒÆ’Ã‚Â³xima etapa. Posso mandar um resumo?",
-  "Oi, tudo bem? Tenho uma ideia para deixar o retorno ao cliente mais rÃƒÆ’Ã‚Â¡pido e rastreÃƒÆ’Ã‚Â¡vel. Posso compartilhar?",
-  "OlÃƒÆ’Ã‚Â¡! Vi a {{company}} e achei que uma agenda comercial inteligente pode ajudar no dia a dia. Posso te mostrar?",
-  "Oi. Posso te enviar uma explicaÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Â£o bem objetiva de como o HBX organiza leads e retornos para empresas locais?",
-  "OlÃƒÆ’Ã‚Â¡! O HBX cria uma fila de aÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Â£o para o time saber quem chamar agora. Posso mostrar como seria para {{segment}}?",
-  "Oi! Se fizer sentido, te mando um exemplo de mensagem, card e prÃƒÆ’Ã‚Â³xima aÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Â£o para a rotina comercial da {{company}}.",
-  "OlÃƒÆ’Ã‚Â¡. Ajudo empresas a terem mais controle dos contatos vindos do WhatsApp. Posso te mandar uma ideia rÃƒÆ’Ã‚Â¡pida?",
-  "Oi! Vi a {{company}} e pensei em uma melhoria simples para organizar oportunidades sem perder o histÃƒÆ’Ã‚Â³rico.",
-  "OlÃƒÆ’Ã‚Â¡! Posso te mostrar como priorizar contatos bons, descartar negativos e manter retornos no prazo?",
-  "Oi. Tenho uma sugestÃƒÆ’Ã‚Â£o curta para melhorar a cadÃƒÆ’Ã‚Âªncia comercial da {{company}} com menos esforÃƒÆ’Ã‚Â§o manual. Posso enviar?",
+  "OlÃƒÂ¡! Posso te mostrar como o HBX organiza WhatsApp, ligaÃƒÂ§ÃƒÂ£o e observaÃƒÂ§ÃƒÂµes em uma rotina diÃƒÂ¡ria de vendas?",
+  "Oi! A proposta ÃƒÂ© ajudar a {{company}} a nÃƒÂ£o perder oportunidades por falta de follow-up. Posso te explicar?",
+  "OlÃƒÂ¡. Se vocÃƒÂªs fazem orÃƒÂ§amento ou atendimento consultivo, o HBX pode lembrar cada prÃƒÂ³xima etapa. Posso mandar um resumo?",
+  "Oi, tudo bem? Tenho uma ideia para deixar o retorno ao cliente mais rÃƒÂ¡pido e rastreÃƒÂ¡vel. Posso compartilhar?",
+  "OlÃƒÂ¡! Vi a {{company}} e achei que uma agenda comercial inteligente pode ajudar no dia a dia. Posso te mostrar?",
+  "Oi. Posso te enviar uma explicaÃƒÂ§ÃƒÂ£o bem objetiva de como o HBX organiza leads e retornos para empresas locais?",
+  "OlÃƒÂ¡! O HBX cria uma fila de aÃƒÂ§ÃƒÂ£o para o time saber quem chamar agora. Posso mostrar como seria para {{segment}}?",
+  "Oi! Se fizer sentido, te mando um exemplo de mensagem, card e prÃƒÂ³xima aÃƒÂ§ÃƒÂ£o para a rotina comercial da {{company}}.",
+  "OlÃƒÂ¡. Ajudo empresas a terem mais controle dos contatos vindos do WhatsApp. Posso te mandar uma ideia rÃƒÂ¡pida?",
+  "Oi! Vi a {{company}} e pensei em uma melhoria simples para organizar oportunidades sem perder o histÃƒÂ³rico.",
+  "OlÃƒÂ¡! Posso te mostrar como priorizar contatos bons, descartar negativos e manter retornos no prazo?",
+  "Oi. Tenho uma sugestÃƒÂ£o curta para melhorar a cadÃƒÂªncia comercial da {{company}} com menos esforÃƒÂ§o manual. Posso enviar?",
 ] as const;
 
 const WHATSAPP_FILTER_LABELS: Record<WhatsappFilter, string> = {
@@ -616,35 +616,35 @@ const INBOX_FILTER_LABELS: Record<InboxFilter, string> = {
   out: "Inbox: Fora do Inbox",
 };
 
-const PT_BR_MOJIBAKE_PATTERN = /[ÃƒÆ’Ãƒâ€šÃƒÂ¢]/;
+const PT_BR_MOJIBAKE_PATTERN = /[ÃƒÃ‚Ã¢]/;
 const WINDOWS_1252_BYTE_BY_CHAR: Record<string, number> = {
-  "Ã¢â€šÂ¬": 0x80,
-  "Ã¢â‚¬Å¡": 0x82,
-  "Ã†â€™": 0x83,
-  "Ã¢â‚¬Å¾": 0x84,
-  "Ã¢â‚¬Â¦": 0x85,
-  "Ã¢â‚¬Â ": 0x86,
-  "Ã¢â‚¬Â¡": 0x87,
-  "Ã‹â€ ": 0x88,
-  "Ã¢â‚¬Â°": 0x89,
-  "Ã…Â ": 0x8a,
-  "Ã¢â‚¬Â¹": 0x8b,
-  "Ã…â€™": 0x8c,
-  "Ã…Â½": 0x8e,
-  "Ã¢â‚¬Ëœ": 0x91,
-  "Ã¢â‚¬â„¢": 0x92,
-  "Ã¢â‚¬Å“": 0x93,
-  "Ã¢â‚¬Â": 0x94,
-  "Ã¢â‚¬Â¢": 0x95,
-  "Ã¢â‚¬â€œ": 0x96,
-  "Ã¢â‚¬â€": 0x97,
-  "Ã‹Å“": 0x98,
-  "Ã¢â€žÂ¢": 0x99,
-  "Ã…Â¡": 0x9a,
-  "Ã¢â‚¬Âº": 0x9b,
-  "Ã…â€œ": 0x9c,
-  "Ã…Â¾": 0x9e,
-  "Ã…Â¸": 0x9f,
+  "â‚¬": 0x80,
+  "â€š": 0x82,
+  "Æ’": 0x83,
+  "â€ž": 0x84,
+  "â€¦": 0x85,
+  "â€ ": 0x86,
+  "â€¡": 0x87,
+  "Ë†": 0x88,
+  "â€°": 0x89,
+  "Å ": 0x8a,
+  "â€¹": 0x8b,
+  "Å’": 0x8c,
+  "Å½": 0x8e,
+  "â€˜": 0x91,
+  "â€™": 0x92,
+  "â€œ": 0x93,
+  "â€": 0x94,
+  "â€¢": 0x95,
+  "â€“": 0x96,
+  "â€”": 0x97,
+  "Ëœ": 0x98,
+  "â„¢": 0x99,
+  "Å¡": 0x9a,
+  "â€º": 0x9b,
+  "Å“": 0x9c,
+  "Å¾": 0x9e,
+  "Å¸": 0x9f,
 };
 const PT_BR_TEXT_ATTRIBUTES_TO_REPAIR = ["title", "aria-label", "placeholder", "alt"] as const;
 
@@ -834,15 +834,15 @@ function buildWhatsAppUrl(phone?: string | null, leadName?: string | null) {
   const digits = normalizePhoneDigits(String(phone || ""));
   if (!digits) return "";
   const message = leadName
-    ? `OlÃƒÆ’Ã‚Â¡, ${leadName}. Estou retomando nosso contato pelo HBX Vendas.`
-    : "OlÃƒÆ’Ã‚Â¡. Estou retomando nosso contato pelo HBX Vendas.";
+    ? `OlÃƒÂ¡, ${leadName}. Estou retomando nosso contato pelo HBX Vendas.`
+    : "OlÃƒÂ¡. Estou retomando nosso contato pelo HBX Vendas.";
   return `https://wa.me/55${digits}?text=${encodeURIComponent(message)}`;
 }
 
 function buildWhatsAppUrlWithMessage(phone?: string | null, message?: string | null) {
   const digits = normalizePhoneDigits(String(phone || ""));
   if (!digits) return "";
-  const text = String(message || "").trim() || "OlÃƒÆ’Ã‚Â¡. Estou retomando nosso contato pelo HBX Vendas.";
+  const text = String(message || "").trim() || "OlÃƒÂ¡. Estou retomando nosso contato pelo HBX Vendas.";
   return `https://wa.me/55${digits}?text=${encodeURIComponent(text)}`;
 }
 
@@ -926,28 +926,28 @@ function leadEnrichmentBadgeState(lead: LeadItem, board?: BoardResponse | null) 
     return {
       state: "enriching" as const,
       label: "Enriquecendo",
-      title: "O Radar estÃƒÆ’Ã‚Â¡ buscando site, redes sociais, CNPJ e sinais comerciais deste card.",
+      title: "O Radar estÃƒÂ¡ buscando site, redes sociais, CNPJ e sinais comerciais deste card.",
     };
   }
   if ((pendingTier && !enrichmentChecked) || (fromRadar && !readyTier && !leadHasPremiumSignals(lead) && !enrichmentChecked)) {
     return {
       state: "enriching" as const,
       label: "Enriquecendo",
-      title: "O Radar estÃƒÆ’Ã‚Â¡ buscando site, redes sociais, CNPJ e sinais comerciais deste card.",
+      title: "O Radar estÃƒÂ¡ buscando site, redes sociais, CNPJ e sinais comerciais deste card.",
     };
   }
   if (enrichmentStatus === "failed") {
     return {
       state: "reviewed" as const,
       label: "Revisado",
-      title: "O Radar revisou este card, mas nÃƒÆ’Ã‚Â£o encontrou novos sinais agora.",
+      title: "O Radar revisou este card, mas nÃƒÂ£o encontrou novos sinais agora.",
     };
   }
   if (lockedPremium) {
     return {
       state: "locked" as const,
       label: "Lead",
-      title: "Sinais premium encontrados. DisponÃƒÆ’Ã‚Â­vel no HBX Lead.",
+      title: "Sinais premium encontrados. DisponÃƒÂ­vel no HBX Lead.",
     };
   }
   if (readyTier || leadHasPremiumSignals(lead)) {
@@ -1130,7 +1130,7 @@ function personalizeMobileReadyMessage(
   const company = mobileMessageTokenValue(lead.name, "sua empresa");
   const fromPerson = String(preferredPersonName || "").trim();
   const greetingName = company === "sua empresa" ? "tudo bem" : company;
-  const city = mobileMessageTokenValue(lead.city, "sua regiÃƒÆ’Ã‚Â£o");
+  const city = mobileMessageTokenValue(lead.city, "sua regiÃƒÂ£o");
   const segment = mobileMessageTokenValue(lead.segment, "empresas locais");
   const source = mobileMessageTokenValue(lead.primarySource, "Radar Digital");
   return template
@@ -1211,14 +1211,14 @@ function buildSellerScoreBreakdown(lead: LeadItem) {
   const rows = [
     { label: "Base do card", points: 44, active: true },
     { label: "WhatsApp confirmado", points: 24, active: whatsappReady },
-    { label: "Telefone vÃƒÆ’Ã‚Â¡lido", points: 16, active: Boolean(buildCallUrl(lead.phone)) },
+    { label: "Telefone vÃƒÂ¡lido", points: 16, active: Boolean(buildCallUrl(lead.phone)) },
     { label: "E-mail encontrado", points: String(intelligence.emailStatus || "").toLowerCase() === "probable" ? 8 : 14, active: Boolean(email) },
     { label: "Instagram", points: facebook ? 4 : 6, active: Boolean(instagram) },
     { label: "Facebook", points: instagram ? 4 : 4, active: Boolean(facebook) },
     { label: "Site fraco ou ausente", points: 7, active: !website || tags.has("sem_site") },
-    { label: "VocÃƒÆ’Ã‚Âª selecionou cidade", points: 5, active: tags.has("cidade_alvo") || Boolean(lead.city) },
-    { label: "VocÃƒÆ’Ã‚Âª selecionou segmento", points: 5, active: tags.has("segmento_alvo") || Boolean(lead.segment) },
-    { label: "Boa avaliaÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Â£o pÃƒÆ’Ã‚Âºblica", points: 5, active: tags.has("boa_avaliacao") || Number(lead.rating || 0) >= 4.2 },
+    { label: "VocÃƒÂª selecionou cidade", points: 5, active: tags.has("cidade_alvo") || Boolean(lead.city) },
+    { label: "VocÃƒÂª selecionou segmento", points: 5, active: tags.has("segmento_alvo") || Boolean(lead.segment) },
+    { label: "Boa avaliaÃƒÂ§ÃƒÂ£o pÃƒÂºblica", points: 5, active: tags.has("boa_avaliacao") || Number(lead.rating || 0) >= 4.2 },
     { label: "Prova social", points: 4, active: tags.has("prova_social") || Number(lead.reviews || 0) >= 20 },
   ].filter((row) => row.active);
   return rows.slice(0, 8);
@@ -1231,7 +1231,7 @@ function leadTagLabel(tag: string) {
     email_encontrado: "E-mail encontrado",
     cidade_alvo: "Cidade alvo",
     segmento_alvo: "Segmento alvo",
-    boa_avaliacao: "Boa avaliaÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Â£o",
+    boa_avaliacao: "Boa avaliaÃƒÂ§ÃƒÂ£o",
     prova_social: "Prova social",
     instagram_encontrado: "Instagram",
     facebook_encontrado: "Facebook",
@@ -1244,15 +1244,15 @@ function leadTagLabel(tag: string) {
 function whatsappStatusLabel(status?: string | null) {
   if (status === "confirmed") return "WhatsApp verificado";
   if (status === "missing") return "Sem WhatsApp";
-  if (status === "invalid") return "Telefone invÃƒÆ’Ã‚Â¡lido";
+  if (status === "invalid") return "Telefone invÃƒÂ¡lido";
   return "WhatsApp pendente";
 }
 
 function nextBestActionLabel(action?: string | null) {
   if (action === "whatsapp") return "Chamar no WhatsApp";
-  if (action === "call") return "Tentar ligaÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Â£o";
+  if (action === "call") return "Tentar ligaÃƒÂ§ÃƒÂ£o";
   if (action === "email") return "Enviar e-mail";
-  if (action === "discard") return "NÃƒÆ’Ã‚Â£o chamar";
+  if (action === "discard") return "NÃƒÂ£o chamar";
   return "Revisar card";
 }
 
@@ -1319,8 +1319,8 @@ function statusLabel(status: LeadStatus) {
 function compactVendasMessage(message: string | null) {
   const text = String(message || "").trim();
   if (!text) return "";
-  if (text.toLowerCase().includes("deve ser um e-mail vÃƒÆ’Ã‚Â¡lido")) {
-    return "E-mail invÃƒÆ’Ã‚Â¡lido. Remova ou informe um endereÃƒÆ’Ã‚Â§o vÃƒÆ’Ã‚Â¡lido.";
+  if (text.toLowerCase().includes("deve ser um e-mail vÃƒÂ¡lido")) {
+    return "E-mail invÃƒÂ¡lido. Remova ou informe um endereÃƒÂ§o vÃƒÂ¡lido.";
   }
   return text;
 }
@@ -1355,8 +1355,8 @@ function buildLeadWebscrapingSummary(lead: LeadItem) {
   const parts: string[] = [];
   if (lead.rating != null) parts.push(`Nota ${Number(lead.rating).toFixed(1)}`);
   if (Number(lead.reviews || 0) > 0)
-    parts.push(`${Number(lead.reviews)} avaliaÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Âµes`);
-  return parts.join(" ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢ ");
+    parts.push(`${Number(lead.reviews)} avaliaÃƒÂ§ÃƒÂµes`);
+  return parts.join(" Ã¢â‚¬Â¢ ");
 }
 
 function hydrateDrafts(board: BoardResponse | null) {
@@ -1427,16 +1427,16 @@ function returnMeta(lead: LeadItem, draft: LeadDraft, block: LeadBlockKey) {
     } as const;
   if (block === "today")
     return {
-      label: `Hoje ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢ ${formatDateTime(effective)}`,
+      label: `Hoje Ã¢â‚¬Â¢ ${formatDateTime(effective)}`,
       tone: "today",
     } as const;
   if (block === "scheduled")
     return {
-      label: `Agendado ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢ ${formatDateTime(effective)}`,
+      label: `Agendado Ã¢â‚¬Â¢ ${formatDateTime(effective)}`,
       tone: "scheduled",
     } as const;
   return {
-    label: `Arquivo ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢ ${formatShortDate(effective)}`,
+    label: `Arquivo Ã¢â‚¬Â¢ ${formatShortDate(effective)}`,
     tone: "closed",
   } as const;
 }
@@ -1709,8 +1709,8 @@ function DateDropSlot({
             e.preventDefault();
             onDateShortcut();
           }}
-          title="Enviar cards visÃƒÆ’Ã‚Â­veis desta data para ProspecÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Â£o"
-          aria-label="Enviar cards visÃƒÆ’Ã‚Â­veis desta data para ProspecÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Â£o"
+          title="Enviar cards visÃƒÂ­veis desta data para ProspecÃƒÂ§ÃƒÂ£o"
+          aria-label="Enviar cards visÃƒÂ­veis desta data para ProspecÃƒÂ§ÃƒÂ£o"
         >
           <svg
             width="10"
@@ -1807,8 +1807,8 @@ function LeadCardView({
   const chips = [
     signals.alreadyExisted ? "Lead conhecido" : null,
     signals.cameFromWebscraping ? "Radar Digital" : null,
-    signals.hadPreviousContact ? "Com histÃƒÆ’Ã‚Â³rico" : null,
-    signals.wasClosedBefore ? "JÃƒÆ’Ã‚Â¡ encerrado" : null,
+    signals.hadPreviousContact ? "Com histÃƒÂ³rico" : null,
+    signals.wasClosedBefore ? "JÃƒÂ¡ encerrado" : null,
     lead.whatsappAvailability?.status === "unavailable" ? "Sem WhatsApp" : null,
     lead.city || null,
   ].filter(Boolean);
@@ -1824,7 +1824,7 @@ function LeadCardView({
   const webscrapingSummary = buildLeadWebscrapingSummary(lead);
   const channelAssets = buildLeadChannelAssets(lead);
 
-  // inline editor mount/animation control ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â uses global motion timings
+  // inline editor mount/animation control Ã¢â‚¬â€ uses global motion timings
   const editorRef = useRef<HTMLDivElement | null>(null);
   const [editorRendered, setEditorRendered] = useState<boolean>(
     Boolean(editing),
@@ -1937,7 +1937,7 @@ function LeadCardView({
                 data-selected={bulkSelected ? "true" : "false"}
                 aria-pressed={bulkSelected ? "true" : "false"}
                 aria-label={
-                  bulkSelected ? "Remover card da seleÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Â£o" : "Selecionar card"
+                  bulkSelected ? "Remover card da seleÃƒÂ§ÃƒÂ£o" : "Selecionar card"
                 }
                 onPointerDown={(event) => event.stopPropagation()}
                 onClick={(event) => {
@@ -1945,7 +1945,7 @@ function LeadCardView({
                   onBulkToggle?.(lead.id);
                 }}
               >
-                {bulkSelected ? "ÃƒÂ¢Ã…â€œÃ¢â‚¬Å“" : ""}
+                {bulkSelected ? "Ã¢Å“â€œ" : ""}
               </button>
             ) : null}
             <div className={styles.leadIdentity}>
@@ -1972,14 +1972,14 @@ function LeadCardView({
                 {lead.segment ? (
                   <>
                     {lead.segment}
-                    {lead.city ? ` ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢ ${lead.city}` : null}
+                    {lead.city ? ` Ã¢â‚¬Â¢ ${lead.city}` : null}
                   </>
                 ) : lead.city ? (
                   lead.city
                 ) : null}
               </span>
               {channelAssets.length ? (
-                <div className={styles.leadCardChannelRow} aria-label="Canais disponÃƒÆ’Ã‚Â­veis">
+                <div className={styles.leadCardChannelRow} aria-label="Canais disponÃƒÂ­veis">
                   {channelAssets.map((asset) => {
                     const icon = (
                       <span
@@ -1997,7 +1997,7 @@ function LeadCardView({
                         <Link
                           key={asset.channel}
                           href={toMobileRoute("/planos?intent=lead")}
-                          aria-label={`${MOBILE_CHANNEL_ASSETS[asset.channel].label} disponÃƒÆ’Ã‚Â­vel no HBX Lead`}
+                          aria-label={`${MOBILE_CHANNEL_ASSETS[asset.channel].label} disponÃƒÂ­vel no HBX Lead`}
                           onClick={(event) => event.stopPropagation()}
                         >
                           {icon}
@@ -2119,7 +2119,7 @@ function LeadCardView({
                 </select>
               </label>
               <label className={styles.fieldWide}>
-                <span className={styles.fieldLabel}>PrÃƒÆ’Ã‚Â³xima aÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Â£o</span>
+                <span className={styles.fieldLabel}>PrÃƒÂ³xima aÃƒÂ§ÃƒÂ£o</span>
                 <input
                   className={styles.fieldInput}
                   value={draft.nextAction}
@@ -2140,7 +2140,7 @@ function LeadCardView({
                 />
               </label>
               <label className={styles.fieldWide}>
-                <span className={styles.fieldLabel}>ObservaÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Â£o curta</span>
+                <span className={styles.fieldLabel}>ObservaÃƒÂ§ÃƒÂ£o curta</span>
                 <textarea
                   className={styles.fieldTextarea}
                   rows={3}
@@ -2207,7 +2207,7 @@ function LeadCardView({
               onClick={() => onQuickAction("amanha")}
               disabled={saving}
             >
-              AmanhÃƒÆ’Ã‚Â£
+              AmanhÃƒÂ£
             </button>
           ) : null}
           {lead.quickActions.includes("encerrar") ? (
@@ -2237,12 +2237,12 @@ function LeadCardView({
           className={`${glassCardStyles.stack} ${styles.leadQuickReadStack}`}
         >
           <div className={styles.leadInfoBlock}>
-            <span className={glassCardStyles.sectionLabel}>EndereÃƒÆ’Ã‚Â§o</span>
+            <span className={glassCardStyles.sectionLabel}>EndereÃƒÂ§o</span>
             <strong className={glassCardStyles.sectionTitle}>
-              LocalizaÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Â£o
+              LocalizaÃƒÂ§ÃƒÂ£o
             </strong>
             <p className={glassCardStyles.bodyText}>
-              {lead.address || "Sem endereÃƒÆ’Ã‚Â§o registrado."}
+              {lead.address || "Sem endereÃƒÂ§o registrado."}
             </p>
           </div>
           <div className={styles.leadInfoBlock}>
@@ -2254,7 +2254,7 @@ function LeadCardView({
               {draft.shortNote ||
                 lead.shortNote ||
                 webscrapingSummary ||
-                "Sem observaÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Â£o curta registrada."}
+                "Sem observaÃƒÂ§ÃƒÂ£o curta registrada."}
             </p>
           </div>
         </div>
@@ -2437,89 +2437,6 @@ function SalesMotionBackground() {
       </svg>
     </div>
   );
-}
-
-const PT_BR_MOJIBAKE_PATTERN = /(?:Ãƒ|Ã‚|Ã¢|ï¿½)/;
-const PT_BR_TEXT_ATTRIBUTES_TO_REPAIR = [
-  "aria-label",
-  "title",
-  "placeholder",
-  "alt",
-] as const;
-
-function decodePtBrMojibakeOnce(value: string) {
-  try {
-    const bytes = new Uint8Array(
-      Array.from(value, (char) => char.charCodeAt(0) & 0xff),
-    );
-    return new TextDecoder("utf-8", { fatal: false }).decode(bytes);
-  } catch {
-    return value;
-  }
-}
-
-function repairPtBrMojibakeText(value: string) {
-  let current = value;
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    if (!PT_BR_MOJIBAKE_PATTERN.test(current)) break;
-    const next = decodePtBrMojibakeOnce(current);
-    if (!next || next === current) break;
-    current = next;
-  }
-  return current
-    .replace(/PrÃƒXIMO/gi, "PRÃ“XIMO")
-    .replace(/ÃƒÂ¢Ã¢â€žÂ¢Ã¢â‚¬Â¢/g, "â™•")
-    .replace(/ÃƒÂ¢Ã…â€œÃ¢â‚¬Å“/g, "âœ“")
-    .replace(/ÃƒÂ¢Ã¢â€šÂ¬Ã‚Âº/g, "â€º")
-    .replace(/Ã‚Â·/g, "Â·");
-}
-
-function repairPtBrMojibakeNode(root: ParentNode) {
-  if (typeof document === "undefined") return;
-
-  const repairTextNode = (node: Node) => {
-    const value = node.textContent || "";
-    if (!PT_BR_MOJIBAKE_PATTERN.test(value) && !/PrÃƒXIMO/i.test(value)) return;
-    const repaired = repairPtBrMojibakeText(value);
-    if (repaired !== value) node.textContent = repaired;
-  };
-
-  if (root instanceof Node) {
-    repairTextNode(root);
-  }
-
-  const walker = document.createTreeWalker(
-    root,
-    NodeFilter.SHOW_TEXT,
-    {
-      acceptNode(node) {
-        const value = node.textContent || "";
-        return PT_BR_MOJIBAKE_PATTERN.test(value) || /PrÃƒXIMO/i.test(value)
-          ? NodeFilter.FILTER_ACCEPT
-          : NodeFilter.FILTER_REJECT;
-      },
-    },
-  );
-
-  const textNodes: Node[] = [];
-  while (walker.nextNode()) textNodes.push(walker.currentNode);
-  textNodes.forEach(repairTextNode);
-
-  if (!(root instanceof Element || root instanceof Document)) return;
-
-  const elements = [
-    root instanceof Element ? root : null,
-    ...Array.from(root.querySelectorAll<HTMLElement>("*")),
-  ].filter(Boolean) as HTMLElement[];
-
-  elements.forEach((element) => {
-    PT_BR_TEXT_ATTRIBUTES_TO_REPAIR.forEach((attribute) => {
-      const value = element.getAttribute(attribute);
-      if (!value || (!PT_BR_MOJIBAKE_PATTERN.test(value) && !/PrÃƒXIMO/i.test(value))) return;
-      const repaired = repairPtBrMojibakeText(value);
-      if (repaired !== value) element.setAttribute(attribute, repaired);
-    });
-  });
 }
 
 export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?: boolean } = {}) {
@@ -2783,7 +2700,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
           avoidSegments: {
             labels: salesProfileDraft.avoidSegments,
             hardReject: salesProfileDraft.avoidSegments.filter((item) =>
-              /ÃƒÆ’Ã‚Â³rgÃƒÆ’Ã‚Â£o|orgao|diretÃƒÆ’Ã‚Â³rio|diretorio|sem telefone|segmento errado/i.test(item),
+              /ÃƒÂ³rgÃƒÂ£o|orgao|diretÃƒÂ³rio|diretorio|sem telefone|segmento errado/i.test(item),
             ),
           },
           preferredChannels: salesProfileDraft.preferredChannels,
@@ -2796,9 +2713,9 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
             preferLocalBusiness: true,
           },
           negativeRules: {
-            avoidPublicSector: salesProfileDraft.avoidSegments.some((item) => /ÃƒÆ’Ã‚Â³rgÃƒÆ’Ã‚Â£o|orgao/i.test(item)),
+            avoidPublicSector: salesProfileDraft.avoidSegments.some((item) => /ÃƒÂ³rgÃƒÂ£o|orgao/i.test(item)),
             avoidLargeCompanies: salesProfileDraft.avoidSegments.some((item) => /grande/i.test(item)),
-            avoidDirectories: salesProfileDraft.avoidSegments.some((item) => /diretÃƒÆ’Ã‚Â³rio|diretorio|lista/i.test(item)),
+            avoidDirectories: salesProfileDraft.avoidSegments.some((item) => /diretÃƒÂ³rio|diretorio|lista/i.test(item)),
             avoidNoPhone: salesProfileDraft.avoidSegments.some((item) => /sem telefone/i.test(item)),
             avoidNoWhatsapp: salesProfileDraft.avoidSegments.some((item) => /sem whatsapp/i.test(item)),
             avoidOutOfCity: salesProfileDraft.avoidSegments.some((item) => /fora da cidade/i.test(item)),
@@ -2824,9 +2741,9 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
         method: "POST",
       });
       setSalesProfileSuggestion(payload.suggestion || null);
-      setFeedback("SugestÃƒÆ’Ã‚Â£o gerada com base na semana.");
+      setFeedback("SugestÃƒÂ£o gerada com base na semana.");
     } catch (profileError) {
-      setError(profileError instanceof Error ? profileError.message : "Falha ao gerar sugestÃƒÆ’Ã‚Â£o.");
+      setError(profileError instanceof Error ? profileError.message : "Falha ao gerar sugestÃƒÂ£o.");
     } finally {
       setSalesProfileSaving(false);
     }
@@ -2838,7 +2755,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
       const payload = await apiFetch<ConversionReportResponse>(`/vendas/report?period=${encodeURIComponent(period)}`);
       setConversionReport(payload);
     } catch (reportError) {
-      setError(reportError instanceof Error ? reportError.message : "Falha ao carregar relatÃƒÆ’Ã‚Â³rio.");
+      setError(reportError instanceof Error ? reportError.message : "Falha ao carregar relatÃƒÂ³rio.");
     } finally {
       setConversionReportLoading(false);
     }
@@ -3066,18 +2983,18 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
     ) => {
       const visibleLeadIds = leads.map((lead) => lead.id).filter(Boolean);
       if (!visibleLeadIds.length) {
-        setFeedback("Nenhum card visÃƒÆ’Ã‚Â­vel para importar ao Inbox.");
+        setFeedback("Nenhum card visÃƒÂ­vel para importar ao Inbox.");
         return null;
       }
 
       todayAgendaLaunchNotice.start({
         loadingTitle: options?.title || "Abrindo Inbox",
         loadingDescription:
-          options?.description || "Enviando os cards visÃƒÆ’Ã‚Â­veis para ProspecÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Â£o.",
-        successTitle: "ProspecÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Â£o pronta",
+          options?.description || "Enviando os cards visÃƒÂ­veis para ProspecÃƒÂ§ÃƒÂ£o.",
+        successTitle: "ProspecÃƒÂ§ÃƒÂ£o pronta",
         successDescription:
-          "Tudo certo. Os cards foram preparados em ProspecÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Â£o.",
-        ctaLabel: "Abrir ProspecÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Â£o",
+          "Tudo certo. Os cards foram preparados em ProspecÃƒÂ§ÃƒÂ£o.",
+        ctaLabel: "Abrir ProspecÃƒÂ§ÃƒÂ£o",
         onOpen: () => openInboxAgenda(),
       });
 
@@ -3094,7 +3011,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
         if (!syncResult?.ok) {
           throw new Error(
             syncResult?.message ||
-              "Os cards visÃƒÆ’Ã‚Â­veis nao foram enviados para ProspecÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Â£o. Recarregue e tente novamente.",
+              "Os cards visÃƒÂ­veis nao foram enviados para ProspecÃƒÂ§ÃƒÂ£o. Recarregue e tente novamente.",
           );
         }
         const firstConversationId =
@@ -3122,8 +3039,8 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
           successDescription:
             String(syncResult?.message || "").trim() ||
             (todayLeadCount
-              ? `${mirroredLeadCount} card(s) foram preparados em ProspecÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Â£o com roteiro pendente para envio manual.`
-              : "Nao ha cards visÃƒÆ’Ã‚Â­veis para preparar em ProspecÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Â£o."),
+              ? `${mirroredLeadCount} card(s) foram preparados em ProspecÃƒÂ§ÃƒÂ£o com roteiro pendente para envio manual.`
+              : "Nao ha cards visÃƒÂ­veis para preparar em ProspecÃƒÂ§ÃƒÂ£o."),
         });
         await loadBoard();
         if (options?.openAfter) openInboxAgenda(firstConversationId);
@@ -3133,7 +3050,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
         setError(
           syncError instanceof Error
             ? syncError.message
-            : "Falha ao importar cards para ProspecÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Â£o.",
+            : "Falha ao importar cards para ProspecÃƒÂ§ÃƒÂ£o.",
         );
         return null;
       }
@@ -3563,8 +3480,8 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
         count: board?.summary.overdue || 0,
         title: "Atrasados",
         subtitle: board?.summary.overdue
-          ? "Ontem para trÃƒÆ’Ã‚Â¡s."
-          : "Sem pendÃƒÆ’Ã‚Âªncia.",
+          ? "Ontem para trÃƒÂ¡s."
+          : "Sem pendÃƒÂªncia.",
         dayLabel: "Prioridade",
       },
       {
@@ -3573,7 +3490,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
         count: board?.summary.today || 0,
         title: "Hoje",
         subtitle: board?.summary.today ? "Fluxo principal." : "Sem agenda.",
-        dayLabel: "OperaÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Â£o",
+        dayLabel: "OperaÃƒÂ§ÃƒÂ£o",
       },
       ...futureBase,
       ...extraFuture,
@@ -3658,7 +3575,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
         meta:
           [lead.segment, lead.city, lead.statusLabel]
             .filter(Boolean)
-            .join(" ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢ ") || "ProspecÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Â£o",
+            .join(" Ã¢â‚¬Â¢ ") || "ProspecÃƒÂ§ÃƒÂ£o",
         score: lead.timesSeen ? `${lead.timesSeen}x` : undefined,
       }));
 
@@ -3666,7 +3583,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
       dispatchTopbarProgress({
         source: "vendas",
         phase: "warning",
-        title: "Vendas precisa de atenÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Â£o",
+        title: "Vendas precisa de atenÃƒÂ§ÃƒÂ£o",
         status: errorMessage,
         progress: 100,
         metrics,
@@ -3704,7 +3621,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
         notice?.statusLabel ||
         (loading
           ? "Preparando a agenda comercial..."
-          : "Filtrando negativos e alimentando ProspecÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Â£o..."),
+          : "Filtrando negativos e alimentando ProspecÃƒÂ§ÃƒÂ£o..."),
       progress: notice?.progress ?? 18,
       steps: VENDAS_PROGRESS_STEPS,
       activeStepIndex: loading ? 0 : 3,
@@ -3730,7 +3647,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
     if (!selectedFilter) return;
     await syncLeadsToInbox(filteredLeads, {
       title: "Abrindo Inbox",
-      description: `Enviando os cards visÃƒÆ’Ã‚Â­veis de ${selectedFilter.title} para ProspecÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Â£o.`,
+      description: `Enviando os cards visÃƒÂ­veis de ${selectedFilter.title} para ProspecÃƒÂ§ÃƒÂ£o.`,
     });
   }, [filteredLeads, selectedFilter, syncLeadsToInbox]);
 
@@ -3793,7 +3710,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
     const stateMatch = address.match(/\b([A-Z]{2})\b(?:\s*,?\s*Brasil)?$/);
     const state = stateMatch?.[1] || "";
     if (city && state && !city.includes(state)) return `${city} / ${state}`;
-    return city || address || "Local nÃƒÆ’Ã‚Â£o informado";
+    return city || address || "Local nÃƒÂ£o informado";
   }
 
   function mobileReturnLabel(lead: LeadItem) {
@@ -3811,7 +3728,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
       minute: "2-digit",
     });
     if (sameDay(parsed, today)) return `Hoje ${time}`;
-    if (sameDay(parsed, tomorrow)) return `AmanhÃƒÆ’Ã‚Â£ ${time}`;
+    if (sameDay(parsed, tomorrow)) return `AmanhÃƒÂ£ ${time}`;
     return formatDateTime(lead.returnAt);
   }
 
@@ -3819,7 +3736,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
     const digits = normalizePhoneDigits(String(lead.phone || ""));
     if (digits.length === 11) return `(${digits.slice(0, 2)}) ${digits.slice(2, 7)}-${digits.slice(7)}`;
     if (digits.length === 10) return `(${digits.slice(0, 2)}) ${digits.slice(2, 6)}-${digits.slice(6)}`;
-    return lead.phone || "Telefone nÃƒÆ’Ã‚Â£o informado";
+    return lead.phone || "Telefone nÃƒÂ£o informado";
   }
 
   function mobileLeadSourceLabel(lead: LeadItem) {
@@ -3869,7 +3786,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
       setFeedback(
         err instanceof Error
           ? err.message
-          : "NÃƒÆ’Ã‚Â£o foi possÃƒÆ’Ã‚Â­vel enriquecer o card agora.",
+          : "NÃƒÂ£o foi possÃƒÂ­vel enriquecer o card agora.",
       );
     } finally {
       setMobileEnrichmentLoadingId((current) => (current === lead.id ? null : current));
@@ -3902,7 +3819,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
     }
 
     openMobileLeadDetail(lead);
-    setFeedback("Sem WhatsApp ou telefone disponÃƒÆ’Ã‚Â­vel. Revise o card e registre a observaÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Â£o.");
+    setFeedback("Sem WhatsApp ou telefone disponÃƒÂ­vel. Revise o card e registre a observaÃƒÂ§ÃƒÂ£o.");
   }
 
   function renderMobileLeadChannels(lead: LeadItem, options?: { compact?: boolean }) {
@@ -4069,7 +3986,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
       await navigator.clipboard.writeText(value);
       setFeedback(successMessage);
     } catch {
-      setFeedback("NÃƒÆ’Ã‚Â£o foi possÃƒÆ’Ã‚Â­vel copiar automaticamente.");
+      setFeedback("NÃƒÂ£o foi possÃƒÂ­vel copiar automaticamente.");
     }
   }
 
@@ -4081,7 +3998,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
       await saveLead(
         targetLead.id,
         { shortNote: mobileNoteDraft },
-        "ObservaÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Â£o salva.",
+        "ObservaÃƒÂ§ÃƒÂ£o salva.",
       );
       mergeMobileLeadPatch(targetLead.id, { shortNote: mobileNoteDraft });
       setMobileNoteLead((current) =>
@@ -4140,7 +4057,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
       return;
     }
     if (!timeValue) {
-      setMobileReturnScheduleError("Informe um horÃƒÆ’Ã‚Â¡rio vÃƒÆ’Ã‚Â¡lido.");
+      setMobileReturnScheduleError("Informe um horÃƒÂ¡rio vÃƒÂ¡lido.");
       return;
     }
     const currentDraft = drafts[mobileReturnScheduler.leadId] || (lead ? createDraft(lead) : null);
@@ -4152,7 +4069,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
         nextAction: currentDraft?.nextAction || "Retomar lead",
         returnAt: `${dateKey}T${timeValue}`,
       },
-      `Retorno agendado para ${mobileReturnScheduler.dateText} ÃƒÆ’Ã‚Â s ${timeValue}.`,
+      `Retorno agendado para ${mobileReturnScheduler.dateText} ÃƒÂ s ${timeValue}.`,
     );
     setSelectedDateKey(`scheduled:${dateKey}`);
     setMobileAgendaTab("upcoming");
@@ -4225,7 +4142,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
       setFeedback(
         deletedCount
           ? "Card ocultado do Vendas."
-          : "Este card jÃƒÆ’Ã‚Â¡ nÃƒÆ’Ã‚Â£o estava mais disponÃƒÆ’Ã‚Â­vel no Vendas.",
+          : "Este card jÃƒÂ¡ nÃƒÂ£o estava mais disponÃƒÂ­vel no Vendas.",
       );
       setMobileReportLead(null);
       setMobileReportReason("");
@@ -4264,7 +4181,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
       if (payload?.whatsappUrl && !payload.autoSent) {
         window.open(payload.whatsappUrl, "_blank", "noopener,noreferrer");
       }
-      setFeedback(payload?.message || "ReclamaÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Â£o registrada e card removido do Vendas.");
+      setFeedback(payload?.message || "ReclamaÃƒÂ§ÃƒÂ£o registrada e card removido do Vendas.");
       setMobileReportLead(null);
       await loadBoard({ forceHydrateDrafts: true, forceVisualRefresh: true });
     } catch (reportError) {
@@ -4293,7 +4210,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
       const deletedCount = Number(payload?.deletedCount || 0);
       setFeedback(
         deletedCount
-          ? `${deletedCount} card(s) excluÃƒÆ’Ã‚Â­do(s) de ${mobileBulkDeleteTarget.label}.`
+          ? `${deletedCount} card(s) excluÃƒÂ­do(s) de ${mobileBulkDeleteTarget.label}.`
           : "Nenhum card novo para excluir.",
       );
       setMobileBulkDeleteTarget(null);
@@ -4462,7 +4379,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
             <div className={styles.mobileVendasReportHeader}>
               <div>
                 <span>HBX</span>
-                <strong>RelatÃƒÆ’Ã‚Â³rio de ConversÃƒÆ’Ã‚Â£o</strong>
+                <strong>RelatÃƒÂ³rio de ConversÃƒÂ£o</strong>
                 <p>{conversionReport?.recommendation || "Carregando leitura comercial..."}</p>
               </div>
               <select
@@ -4476,7 +4393,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
             </div>
             {!activeCapabilities.canSeeConversionReport ? (
               <div className={styles.mobileVendasTeaser}>
-                RelatÃƒÆ’Ã‚Â³rio inteligente disponÃƒÆ’Ã‚Â­vel no HBX Lead
+                RelatÃƒÂ³rio inteligente disponÃƒÂ­vel no HBX Lead
               </div>
             ) : null}
             <div className={styles.mobileVendasReportGrid}>
@@ -4486,7 +4403,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
                 ["Respostas", reportMetrics.respostas],
                 ["Interessados", reportMetrics.interessados],
                 ["Taxa resposta", formatReportPercent(reportMetrics.taxaResposta)],
-                ["ConversÃƒÆ’Ã‚Â£o", formatReportPercent(reportMetrics.taxaConversao)],
+                ["ConversÃƒÂ£o", formatReportPercent(reportMetrics.taxaConversao)],
               ].map(([label, value]) => (
                 <span key={label}>
                   <small>{label}</small>
@@ -4509,7 +4426,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
               Exportar PDF
             </button>
             {!activeCapabilities.canExportConversionPdf ? (
-              <small className={styles.mobileVendasReportLock}>ExportaÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Â£o PDF disponÃƒÆ’Ã‚Â­vel no HBX Lead</small>
+              <small className={styles.mobileVendasReportLock}>ExportaÃƒÂ§ÃƒÂ£o PDF disponÃƒÂ­vel no HBX Lead</small>
             ) : null}
           </section>
         </div>
@@ -4530,7 +4447,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
       const template = activeMobileTemplate(lead);
       const readyMessage = capabilities.canSeeMessageTemplates
         ? template.text
-        : `OlÃƒÆ’Ã‚Â¡, tudo bem? Encontrei a ${lead.name || "sua empresa"} e queria apresentar uma soluÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Â£o simples para organizar contatos e retornos.`;
+        : `OlÃƒÂ¡, tudo bem? Encontrei a ${lead.name || "sua empresa"} e queria apresentar uma soluÃƒÂ§ÃƒÂ£o simples para organizar contatos e retornos.`;
       const whatsappHref = buildWhatsAppUrlWithMessage(
         lead.phone,
         readyMessage,
@@ -4587,12 +4504,12 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
       const suggestedAction = lead.nextAction || nextBestActionLabel(intelligence.nextBestAction);
       const priorityLabel = score ? scoreLabel : "Aguardando dados";
       const premiumTeaser = socialTeaserVisible
-        ? { label: "Redes encontradas", cta: "DisponÃƒÆ’Ã‚Â­vel no HBX Lead - Ver card inteligente" }
+        ? { label: "Redes encontradas", cta: "DisponÃƒÂ­vel no HBX Lead - Ver card inteligente" }
         : !intelligenceVisible && intelligence.premiumTeaser
-        ? { label: intelligence.premiumTeaser.label || "DisponÃƒÆ’Ã‚Â­vel no HBX Lead", cta: intelligence.premiumTeaser.cta || "Ver card inteligente" }
+        ? { label: intelligence.premiumTeaser.label || "DisponÃƒÂ­vel no HBX Lead", cta: intelligence.premiumTeaser.cta || "Ver card inteligente" }
         : null;
       const mobileLeadActionBar = (
-        <nav className={`${styles.mobileLeadDetailActionBar} hbx-mobile-action-bar`} aria-label="AÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Âµes do lead">
+        <nav className={`${styles.mobileLeadDetailActionBar} hbx-mobile-action-bar`} aria-label="AÃƒÂ§ÃƒÂµes do lead">
           <a
             className="hbx-mobile-primary-button"
             href={whatsappHref || undefined}
@@ -4635,7 +4552,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
                 type="button"
                 className={`${styles.mobileLeadBackButton} ${styles.mobileLeadCloseButton} hbx-mobile-secondary-button`}
                 onClick={closeMobileLeadDetail}
-                aria-label="Fechar observaÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Âµes"
+                aria-label="Fechar observaÃƒÂ§ÃƒÂµes"
               >
                 X
               </button>
@@ -4659,7 +4576,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
                   </div>
                   <div>
                     <strong>{lead.name || "Lead sem nome"}</strong>
-                    <span>{lead.segment || "Segmento nÃƒÆ’Ã‚Â£o informado"}</span>
+                    <span>{lead.segment || "Segmento nÃƒÂ£o informado"}</span>
                     <em>{detailPlace}</em>
                     <MobileEnrichmentCrown lead={lead} board={board} />
                   </div>
@@ -4668,14 +4585,14 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
                   type="button"
                   className={styles.mobileLeadScoreButton}
                   onClick={() => setMobileScoreLead(lead)}
-                  aria-label="Ver explicaÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Â£o do score"
+                  aria-label="Ver explicaÃƒÂ§ÃƒÂ£o do score"
                 >
                   <MobileLeadScoreGauge
                     className={styles.mobileLeadScoreBox}
                     premium
                     locked={!intelligenceVisible}
                     value={visibleScore}
-                    label={!intelligenceVisible ? "ÃƒÂ¢Ã¢â€žÂ¢Ã¢â‚¬Â¢ Score" : "Score"}
+                    label={!intelligenceVisible ? "Ã¢â„¢â€¢ Score" : "Score"}
                     caption={intelligenceVisible ? priorityLabel : "HBX Lead"}
                   />
                 </button>
@@ -4693,7 +4610,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
                     className={styles.mobileScoreSheet}
                     role="dialog"
                     aria-modal="true"
-                    aria-label="ExplicaÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Â£o do score"
+                    aria-label="ExplicaÃƒÂ§ÃƒÂ£o do score"
                     onClick={(event) => event.stopPropagation()}
                   >
                     <header>
@@ -4701,12 +4618,12 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
                         <span>Score do card</span>
                         <strong>{lead.name || "Lead"}</strong>
                       </div>
-                      <button type="button" onClick={() => setMobileScoreLead(null)} aria-label="Fechar explicaÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Â£o do score">
+                      <button type="button" onClick={() => setMobileScoreLead(null)} aria-label="Fechar explicaÃƒÂ§ÃƒÂ£o do score">
                         X
                       </button>
                     </header>
                     <p>
-                      O score mostra quÃƒÆ’Ã‚Â£o fÃƒÆ’Ã‚Â¡cil parece abordar esse lead agora, somando contato disponÃƒÆ’Ã‚Â­vel, fit com sua busca e sinais comerciais.
+                      O score mostra quÃƒÂ£o fÃƒÂ¡cil parece abordar esse lead agora, somando contato disponÃƒÂ­vel, fit com sua busca e sinais comerciais.
                     </p>
                     <div className={styles.mobileScoreBreakdown}>
                       {buildSellerScoreBreakdown(lead).map((row) => (
@@ -4749,7 +4666,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
                         {email}
                       </a>
                     ) : (
-                      <strong>E-mail nÃƒÆ’Ã‚Â£o encontrado</strong>
+                      <strong>E-mail nÃƒÂ£o encontrado</strong>
                     )}
                     <b data-tone={email ? "success" : "muted"}>{email ? "E-mail encontrado" : "Sem e-mail"}</b>
                   </div>
@@ -4805,7 +4722,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
 
               {premiumTeaser ? (
                 <section className={`${styles.mobileLeadPremiumTeaser} hbx-mobile-card`}>
-                  <span aria-hidden="true">ÃƒÂ¢Ã¢â€žÂ¢Ã¢â‚¬Â¢</span>
+                  <span aria-hidden="true">Ã¢â„¢â€¢</span>
                   <div>
                     <strong>{premiumTeaser.label}</strong>
                     <small>{premiumTeaser.cta}</small>
@@ -4833,7 +4750,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
                 <p>
                   {capabilities.canSeeOpportunityReason
                     ? intelligence.opportunityReason || "Revise os sinais comerciais antes da abordagem."
-                    : "Motivo da oportunidade disponÃƒÆ’Ã‚Â­vel no HBX Lead."}
+                    : "Motivo da oportunidade disponÃƒÂ­vel no HBX Lead."}
                 </p>
               </section>
 
@@ -4842,7 +4759,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
                   <svg viewBox="0 0 24 24" aria-hidden="true">
                     <path d="m13 2-8 12h7l-1 8 8-12h-7l1-8Z" />
                   </svg>
-                  PrÃƒÆ’Ã‚Â³xima aÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Â£o
+                  PrÃƒÂ³xima aÃƒÂ§ÃƒÂ£o
                 </h3>
                 <a
                   href={whatsappHref || undefined}
@@ -4860,7 +4777,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
                     </svg>
                   </span>
                   {suggestedAction}
-                  <b aria-hidden="true">ÃƒÂ¢Ã¢â€šÂ¬Ã‚Âº</b>
+                  <b aria-hidden="true">Ã¢â‚¬Âº</b>
                 </a>
               </section>
 
@@ -4875,7 +4792,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
                 </h3>
                 <p>
                   {!capabilities.canSeeMessageTemplates
-                    ? "Mensagem pronta por segmento disponÃƒÆ’Ã‚Â­vel no HBX Lead."
+                    ? "Mensagem pronta por segmento disponÃƒÂ­vel no HBX Lead."
                     : loadingEnrichment
                       ? "Verificando WhatsApp..."
                       : readyMessage}
@@ -4927,7 +4844,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
                       <path d="M9 9h6" />
                       <path d="M9 13h4" />
                     </svg>
-                    ObservaÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Âµes
+                    ObservaÃƒÂ§ÃƒÂµes
                   </h3>
                   <span>{mobileNoteDraft.length}/280</span>
                 </div>
@@ -4935,7 +4852,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
                   <p className={styles.mobileLeadSavedNote}>{lead.shortNote}</p>
                 ) : null}
                 <label className={styles.mobileLeadNoteEditor}>
-                  <span>Nova observaÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Â£o</span>
+                  <span>Nova observaÃƒÂ§ÃƒÂ£o</span>
                   <textarea
                     value={mobileNoteDraft}
                     onChange={(event) => setMobileNoteDraft(event.target.value)}
@@ -4949,7 +4866,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
                     }}
                     rows={4}
                     maxLength={280}
-                    placeholder="Escreva o contexto do atendimento, objeÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Âµes, prÃƒÆ’Ã‚Â³ximos passos ou qualquer detalhe importante."
+                    placeholder="Escreva o contexto do atendimento, objeÃƒÂ§ÃƒÂµes, prÃƒÂ³ximos passos ou qualquer detalhe importante."
                   />
                 </label>
                 <button
@@ -4958,7 +4875,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
                   onClick={() => void saveMobileNote()}
                   disabled={mobileSavingNote || savingLeadId === lead.id}
                 >
-                  {mobileSavingNote ? "Salvando" : "Salvar observaÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Â£o"}
+                  {mobileSavingNote ? "Salvando" : "Salvar observaÃƒÂ§ÃƒÂ£o"}
                 </button>
                 <button
                   type="button"
@@ -4971,7 +4888,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
 
               <section className={`${styles.mobileLeadTimeline} hbx-mobile-card`}>
                 <span className={styles.mobileTimelineVisual} aria-hidden="true" />
-                <h3>HistÃƒÆ’Ã‚Â³rico</h3>
+                <h3>HistÃƒÂ³rico</h3>
                 {(timeline.length
                   ? timeline
                   : [
@@ -4979,7 +4896,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
                         id: "empty",
                         eventType: "generic",
                         title: "Lead validado pelo HBX",
-                        description: intelligence.opportunityReason || "Aguardando primeira observaÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Â£o.",
+                        description: intelligence.opportunityReason || "Aguardando primeira observaÃƒÂ§ÃƒÂ£o.",
                         createdAt: new Date().toISOString(),
                         sourceType: "hbx",
                       } as LeadTimelineEvent,
@@ -5048,7 +4965,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
                   ) : mobileRadarState === "partial" || mobileRadarState === "warning" ? (
                     "!"
                   ) : (
-                    "ÃƒÂ¢Ã…â€œÃ¢â‚¬Å“"
+                    "Ã¢Å“â€œ"
                   )}
                 </b>
                 <span>
@@ -5122,7 +5039,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
                 setMobileAgendaTab("upcoming");
               }}
             >
-              <b>PrÃƒÆ’Ã‚Â³ximos</b>
+              <b>PrÃƒÂ³ximos</b>
               <strong>{mobileFutureCount}</strong>
             </button>
           </div>
@@ -5143,7 +5060,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
                     data-active={active ? "true" : "false"}
                     disabled={!mobileVisualFiltersUnlocked}
                     onClick={() => toggleMobileVisualFilter(filter.value)}
-                    title={mobileVisualFiltersUnlocked ? filter.label : "DisponÃƒÆ’Ã‚Â­vel no HBX Lead"}
+                    title={mobileVisualFiltersUnlocked ? filter.label : "DisponÃƒÂ­vel no HBX Lead"}
                     aria-label={`${active ? "Remover filtro" : "Filtrar por"} ${filter.label}`}
                   >
                     <MobileChannelIconAsset channel={filter.asset} />
@@ -5159,8 +5076,8 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
                 data-active={mobileMinScoreFilter > 0 ? "true" : "false"}
                 disabled={!mobileVisualFiltersUnlocked}
                 onClick={() => setMobileScoreFilterOpen((current) => !current)}
-                title={mobileMinScoreFilter ? `Score mÃƒÆ’Ã‚Â­nimo ${mobileMinScoreFilter}+` : "Filtrar por score"}
-                aria-label={mobileMinScoreFilter ? `Score mÃƒÆ’Ã‚Â­nimo ${mobileMinScoreFilter}+` : "Abrir filtro de score"}
+                title={mobileMinScoreFilter ? `Score mÃƒÂ­nimo ${mobileMinScoreFilter}+` : "Filtrar por score"}
+                aria-label={mobileMinScoreFilter ? `Score mÃƒÂ­nimo ${mobileMinScoreFilter}+` : "Abrir filtro de score"}
                 aria-pressed={mobileScoreFilterOpen ? "true" : "false"}
               >
                 <strong aria-hidden="true">S</strong>
@@ -5191,7 +5108,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
                 aria-label="Filtro de score"
               >
                 <div>
-                  <span>Score mÃƒÆ’Ã‚Â­nimo</span>
+                  <span>Score mÃƒÂ­nimo</span>
                   <strong>{mobileMinScoreFilter ? `${mobileMinScoreFilter}+` : "Todos"}</strong>
                 </div>
                 <div>
@@ -5199,7 +5116,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
                     type="button"
                     disabled={!mobileVisualFiltersUnlocked || mobileMinScoreFilter <= 0}
                     onClick={() => stepMobileScoreFilter(-5)}
-                    aria-label="Diminuir score mÃƒÆ’Ã‚Â­nimo"
+                    aria-label="Diminuir score mÃƒÂ­nimo"
                   >
                     -
                   </button>
@@ -5207,7 +5124,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
                     type="button"
                     disabled={!mobileVisualFiltersUnlocked || mobileMinScoreFilter >= 100}
                     onClick={() => stepMobileScoreFilter(5)}
-                    aria-label="Aumentar score mÃƒÆ’Ã‚Â­nimo"
+                    aria-label="Aumentar score mÃƒÂ­nimo"
                   >
                     +
                   </button>
@@ -5224,25 +5141,25 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
           </section>
 
           {nextRecommendedMobileLead && mobileSection !== "report" ? (
-            <section className={styles.mobileVendasRecommendedCard} aria-label="PrÃƒÆ’Ã‚Â³ximo card recomendado">
+            <section className={styles.mobileVendasRecommendedCard} aria-label="PrÃƒÂ³ximo card recomendado">
               <button
                 type="button"
                 onClick={() => openMobileLeadDetail(nextRecommendedMobileLead)}
               >
                 <span className={styles.mobileVendasRecommendedTopline}>
-                  <span>PrÃƒÆ’Ã‚Â³ximo card recomendado</span>
+                  <span>PrÃƒÂ³ximo card recomendado</span>
                   <MobileEnrichmentCrown lead={nextRecommendedMobileLead} board={board} compact />
                 </span>
                 <strong>{nextRecommendedMobileLead.name || "Lead sem nome"}</strong>
                 <small>
-                  {mobileLeadPlace(nextRecommendedMobileLead)} Ãƒâ€šÃ‚Â· {nextRecommendedMobileLead.nextAction || "Executar contato"}
+                  {mobileLeadPlace(nextRecommendedMobileLead)} Ã‚Â· {nextRecommendedMobileLead.nextAction || "Executar contato"}
                 </small>
               </button>
               <div className={styles.mobileVendasRecommendedFooter}>
                 <div
                   className={styles.mobileVendasRecommendedChannels}
                   data-channel-count={countMobileLeadChannels(nextRecommendedMobileLead)}
-                  aria-label="Canais disponÃƒÆ’Ã‚Â­veis"
+                  aria-label="Canais disponÃƒÂ­veis"
                 >
                   {renderMobileLeadChannels(nextRecommendedMobileLead, { compact: true })}
                 </div>
@@ -5311,12 +5228,12 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
                             Retorno <b>{mobileReturnLabel(lead)}</b>
                           </small>
                         </div>
-                        <div className={styles.mobileVendasChannelRow} aria-label="Canais disponÃƒÆ’Ã‚Â­veis">
+                        <div className={styles.mobileVendasChannelRow} aria-label="Canais disponÃƒÂ­veis">
                         {renderMobileLeadChannels(lead)}
                       </div>
                     </div>
                   </article>
-                    <div className={styles.mobileVendasSwipeActions} aria-label={`AÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Âµes de ${lead.name || "lead"}`}>
+                    <div className={styles.mobileVendasSwipeActions} aria-label={`AÃƒÂ§ÃƒÂµes de ${lead.name || "lead"}`}>
                       <button
                         type="button"
                         data-action="report"
@@ -5347,16 +5264,16 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
               <div className={`${styles.mobileVendasEmpty} hbx-mobile-empty`}>
                 <strong>
                   {(board?.summary.total || 0) <= 0 && radarBlockedByStrictFilters
-                    ? "Cards localizados ainda nÃƒÆ’Ã‚Â£o entraram"
+                    ? "Cards localizados ainda nÃƒÂ£o entraram"
                     : (board?.summary.total || 0) <= 0 && radarFoundWithoutAgenda
                     ? "Cards encontrados, preparando sua agenda"
                     : (board?.summary.total || 0) <= 0
-                    ? "Sua lista de abordagem estÃƒÆ’Ã‚Â¡ vazia"
-                    : "Nenhum lead disponÃƒÆ’Ã‚Â­vel agora"}
+                    ? "Sua lista de abordagem estÃƒÂ¡ vazia"
+                    : "Nenhum lead disponÃƒÂ­vel agora"}
                 </strong>
                 <span>
                   {(board?.summary.total || 0) <= 0 && radarBlockedByStrictFilters
-                    ? "O Radar localizou empresas. Aguarde a sincronizaÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Â£o ou amplie cidade e segmento."
+                    ? "O Radar localizou empresas. Aguarde a sincronizaÃƒÂ§ÃƒÂ£o ou amplie cidade e segmento."
                     : (board?.summary.total || 0) <= 0 && radarFoundWithoutAgenda
                     ? "O Radar encontrou cards aprovados. Mantenha esta tela aberta enquanto o Vendas sincroniza."
                     : (board?.summary.total || 0) <= 0
@@ -5402,7 +5319,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
               <div className={styles.mobileVendasSheetHeader}>
                 <h2 id="mobile-vendas-report-title">Reclamar do card</h2>
                 <button type="button" onClick={() => setMobileReportLead(null)}>
-                  ÃƒÆ’Ã¢â‚¬â€
+                  Ãƒâ€”
                 </button>
               </div>
               <p className={styles.mobileVendasReportLead}>
@@ -5412,7 +5329,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
                 value={mobileReportReason}
                 onChange={(event) => setMobileReportReason(event.target.value)}
                 rows={5}
-                placeholder="Explique por que este card nÃƒÆ’Ã‚Â£o prestou"
+                placeholder="Explique por que este card nÃƒÂ£o prestou"
               />
               <div className={styles.mobileVendasSheetFooter}>
                 <button
@@ -5464,7 +5381,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
               <span className={styles.mobileVendasSheetHandle} />
               <div className={styles.mobileVendasSheetHeader}>
                 <div>
-                  <small>AtenÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Â£o</small>
+                  <small>AtenÃƒÂ§ÃƒÂ£o</small>
                   <h2 id="mobile-vendas-bulk-delete-title">
                     Excluir cards de {mobileBulkDeleteTarget.label}
                   </h2>
@@ -5474,13 +5391,13 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
                   onClick={() => setMobileBulkDeleteTarget(null)}
                   disabled={bulkDeleting}
                 >
-                  ÃƒÆ’Ã¢â‚¬â€
+                  Ãƒâ€”
                 </button>
               </div>
               <div className={styles.mobileVendasAttentionBody}>
-                <strong>{mobileBulkDeleteTarget.count} card(s) serÃƒÆ’Ã‚Â£o removidos do Vendas.</strong>
+                <strong>{mobileBulkDeleteTarget.count} card(s) serÃƒÂ£o removidos do Vendas.</strong>
                 <p>
-                  A base do Radar Digital continua preservada. Esta aÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Â£o sÃƒÆ’Ã‚Â³ limpa
+                  A base do Radar Digital continua preservada. Esta aÃƒÂ§ÃƒÂ£o sÃƒÂ³ limpa
                   os cards devidos desta guia.
                 </p>
               </div>
@@ -5578,7 +5495,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
       const deletedCount = Number(payload?.deletedCount || 0);
       setFeedback(
         deletedCount
-          ? `${deletedCount} card(s) excluÃƒÆ’Ã‚Â­do(s) do Vendas.`
+          ? `${deletedCount} card(s) excluÃƒÂ­do(s) do Vendas.`
           : "Nenhum card novo para excluir.",
       );
       clearBulkSelection();
@@ -6256,13 +6173,13 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
         <aside className={styles.detailPanel} data-detail-panel="true">
           <div className={styles.detailRail}>
             <span>Fluxo UX: selecione um cliente</span>
-            <span className={styles.miniPill}>OperaÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Â£o</span>
+            <span className={styles.miniPill}>OperaÃƒÂ§ÃƒÂ£o</span>
           </div>
           <div className={styles.detailEmpty}>
             <span className={styles.panelEyebrow}>Cliente</span>
             <strong>Escolha um card para abrir a lateral.</strong>
             <p>
-              O detalhe fica mais estreito e mostra sÃƒÆ’Ã‚Â³ o que precisa ser operado
+              O detalhe fica mais estreito e mostra sÃƒÂ³ o que precisa ser operado
               agora.
             </p>
           </div>
@@ -6331,7 +6248,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
             ) : (
               <div className={styles.emptyPanel}>
                 <strong>Nenhum evento registrado</strong>
-                <p>A timeline aparece conforme o lead ÃƒÆ’Ã‚Â© movimentado.</p>
+                <p>A timeline aparece conforme o lead ÃƒÂ© movimentado.</p>
               </div>
             )}
           </section>
@@ -6345,7 +6262,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
       return (
         <section className={styles.boardShell}>
           <div className={styles.emptyBoard}>
-            <strong>Nenhuma janela de datas disponÃƒÆ’Ã‚Â­vel</strong>
+            <strong>Nenhuma janela de datas disponÃƒÂ­vel</strong>
             <p>Assim que houver agenda, os cards aparecem aqui.</p>
           </div>
         </section>
@@ -6365,7 +6282,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
             <span className={styles.panelEyebrow}>Clientes</span>
             <h2 className={styles.boardTitle}>{selectedFilter.title}</h2>
             <p className={styles.boardSubtitle}>
-              Acompanhe quem vocÃƒÆ’Ã‚Âª jÃƒÆ’Ã‚Â¡ chamou e quem precisa de retorno.
+              Acompanhe quem vocÃƒÂª jÃƒÂ¡ chamou e quem precisa de retorno.
             </p>
           </div>
           <div className={styles.toolbar}>
@@ -6382,7 +6299,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
               data-active={bulkSelectionMode ? "true" : "false"}
               onClick={toggleBulkSelectionMode}
             >
-              {bulkSelectionMode ? "Cancelar seleÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Â£o" : "Selecionar"}
+              {bulkSelectionMode ? "Cancelar seleÃƒÂ§ÃƒÂ£o" : "Selecionar"}
             </button>
             {bulkSelectionMode ? (
               <>
@@ -6427,7 +6344,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
                 setInboxFilter((current) => nextInboxFilter(current))
               }
               aria-pressed={inboxFilter !== "all"}
-              title="Alternar filtro de presenÃƒÆ’Ã‚Â§a no Inbox"
+              title="Alternar filtro de presenÃƒÂ§a no Inbox"
             >
               {INBOX_FILTER_LABELS[inboxFilter]}
             </button>
@@ -6463,7 +6380,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
     return (
       <DashboardScaffold
         title="Vendas"
-        description="Carregando sessÃƒÆ’Ã‚Â£o do CRM comercial."
+        description="Carregando sessÃƒÂ£o do CRM comercial."
         hideHeader={true}
       >
         <section className={styles.loadingCard}>
@@ -6566,7 +6483,7 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
 `;
 
   const accountCapabilities = board?.capabilities || salesProfile?.capabilities || {};
-  const accountProfileSummary = `${salesProfileDraft.whatDoYouSell || "Perfil"} para ${(salesProfileDraft.targetAudience || [])[0] || "pequenos negÃƒÆ’Ã‚Â³cios"}`;
+  const accountProfileSummary = `${salesProfileDraft.whatDoYouSell || "Perfil"} para ${(salesProfileDraft.targetAudience || [])[0] || "pequenos negÃƒÂ³cios"}`;
 
   function renderAccountChipEditor(
     title: string,
@@ -6602,14 +6519,14 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
         <section className={`${styles.mobileSalesProfileHero} hbx-mobile-card`}>
           <span>Perfil ativo: {accountProfileSummary}</span>
           <strong>Perfil de Venda</strong>
-          <p>O HBX usa isso para escolher melhores cards para vocÃƒÆ’Ã‚Âª.</p>
+          <p>O HBX usa isso para escolher melhores cards para vocÃƒÂª.</p>
         </section>
         <section className={`${styles.mobileSalesProfileBlock} hbx-mobile-card`}>
-          <strong>O que vocÃƒÆ’Ã‚Âª vende?</strong>
+          <strong>O que vocÃƒÂª vende?</strong>
           <input
             value={salesProfileDraft.whatDoYouSell}
             onChange={(event) => setSalesProfileDraft((current) => ({ ...current, whatDoYouSell: event.target.value }))}
-            placeholder="Ex.: Plano de saÃƒÆ’Ã‚Âºde"
+            placeholder="Ex.: Plano de saÃƒÂºde"
             maxLength={160}
           />
           <div className={styles.mobileSalesProfileChips}>
@@ -6625,10 +6542,10 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
             ))}
           </div>
         </section>
-        {renderAccountChipEditor("Para quem vocÃƒÆ’Ã‚Âª quer vender?", salesProfileDraft.targetAudience, SALES_PROFILE_AUDIENCE_EXAMPLES, (values) =>
+        {renderAccountChipEditor("Para quem vocÃƒÂª quer vender?", salesProfileDraft.targetAudience, SALES_PROFILE_AUDIENCE_EXAMPLES, (values) =>
           setSalesProfileDraft((current) => ({ ...current, targetAudience: values })),
         )}
-        {renderAccountChipEditor("O que vocÃƒÆ’Ã‚Âª quer evitar?", salesProfileDraft.avoidSegments, SALES_PROFILE_AVOID_EXAMPLES, (values) =>
+        {renderAccountChipEditor("O que vocÃƒÂª quer evitar?", salesProfileDraft.avoidSegments, SALES_PROFILE_AVOID_EXAMPLES, (values) =>
           setSalesProfileDraft((current) => ({ ...current, avoidSegments: values })),
         )}
         {renderAccountChipEditor("Canal preferido", salesProfileDraft.preferredChannels, SALES_PROFILE_CHANNELS, (values) =>
@@ -6643,11 +6560,11 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
             />
             <span>Deixar o HBX sugerir ajustes toda segunda-feira</span>
           </label>
-          <p>VocÃƒÆ’Ã‚Âª revisa antes de aplicar.</p>
+          <p>VocÃƒÂª revisa antes de aplicar.</p>
         </section>
         {salesProfileSuggestion?.diff?.length ? (
           <section className={`${styles.mobileSalesProfileBlock} hbx-mobile-card`}>
-            <strong>SugestÃƒÆ’Ã‚Â£o da semana</strong>
+            <strong>SugestÃƒÂ£o da semana</strong>
             {salesProfileSuggestion.diff.map((item: string) => <p key={item}>{item}</p>)}
           </section>
         ) : null}
@@ -6656,10 +6573,10 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
             {salesProfileSaving ? "Salvando" : "Salvar perfil"}
           </button>
           <button type="button" className="hbx-mobile-secondary-button" onClick={() => void suggestSalesProfile()} disabled={salesProfileSaving || !accountCapabilities.canUseWeeklyProfileSuggestions}>
-            Gerar sugestÃƒÆ’Ã‚Â£o com base na semana
+            Gerar sugestÃƒÂ£o com base na semana
           </button>
           <button type="button" className="hbx-mobile-secondary-button" onClick={() => setSalesProfileDraft(SALES_PROFILE_DEFAULT_DRAFT)}>
-            Restaurar padrÃƒÆ’Ã‚Â£o
+            Restaurar padrÃƒÂ£o
           </button>
         </div>
       </div>
@@ -6726,7 +6643,7 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
                   onClick={() => scrollDateRail(-1)}
                   aria-label="Rolar datas para esquerda"
                 >
-                  <span aria-hidden="true">ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¹</span>
+                  <span aria-hidden="true">Ã¢â‚¬Â¹</span>
                 </button>
                 <div
                   className={styles.filterRailScroller}
@@ -6772,7 +6689,7 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
                   onClick={() => scrollDateRail(1)}
                   aria-label="Rolar datas para direita"
                 >
-                  <span aria-hidden="true">ÃƒÂ¢Ã¢â€šÂ¬Ã‚Âº</span>
+                  <span aria-hidden="true">Ã¢â‚¬Âº</span>
                 </button>
               </div>
             </section>
@@ -6896,7 +6813,7 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
                 <strong id="new-lead-title">Novo lead</strong>
               </div>
               <div className={styles.systemPopupActions}>
-                <span className={styles.metaBadge}>Cadastro rÃƒÆ’Ã‚Â¡pido</span>
+                <span className={styles.metaBadge}>Cadastro rÃƒÂ¡pido</span>
                 <button
                   type="button"
                   className={`btn btn-secondary btn-sm ${styles.mobileComposerClose}`}
@@ -6904,7 +6821,7 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
                   aria-label="Fechar cadastro de lead"
                 >
                   <span className={styles.mobileComposerCloseGlyph} aria-hidden="true">
-                    ÃƒÆ’Ã¢â‚¬â€
+                    Ãƒâ€”
                   </span>
                   <span className={styles.mobileComposerCloseText}>Fechar</span>
                 </button>
@@ -6926,7 +6843,7 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
                         name: event.target.value,
                       }))
                     }
-                    placeholder="Ex: ClÃƒÆ’Ã‚Â­nica Horizonte"
+                    placeholder="Ex: ClÃƒÂ­nica Horizonte"
                   />
                 </label>
                 <label className={styles.field}>
@@ -6972,7 +6889,7 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
                   />
                 </label>
                 <label className={styles.fieldWide}>
-                  <span className={styles.fieldLabel}>PrÃƒÆ’Ã‚Â³xima aÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Â£o</span>
+                  <span className={styles.fieldLabel}>PrÃƒÂ³xima aÃƒÂ§ÃƒÂ£o</span>
                   <input
                     className={styles.fieldInput}
                     value={manualLead.nextAction}
@@ -6986,7 +6903,7 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
                   />
                 </label>
                 <label className={styles.fieldWide}>
-                  <span className={styles.fieldLabel}>ObservaÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Â£o</span>
+                  <span className={styles.fieldLabel}>ObservaÃƒÂ§ÃƒÂ£o</span>
                   <textarea
                     className={styles.fieldTextarea}
                     rows={4}
@@ -6997,7 +6914,7 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
                         shortNote: event.target.value,
                       }))
                     }
-                    placeholder="Contexto rÃƒÆ’Ã‚Â¡pido do lead."
+                    placeholder="Contexto rÃƒÂ¡pido do lead."
                   />
                 </label>
                 <div className={`${styles.formFooter} ${styles.mobileComposerActions}`}>
@@ -7027,15 +6944,15 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
             <div className={styles.mobileReturnSchedulerHeader}>
               <div>
                 <small>Retorno</small>
-                <h2 id="mobile-return-scheduler-title">Agendar horÃƒÆ’Ã‚Â¡rio</h2>
+                <h2 id="mobile-return-scheduler-title">Agendar horÃƒÂ¡rio</h2>
                 <p>{mobileReturnScheduler.leadName}</p>
               </div>
               <button
                 type="button"
                 onClick={() => setMobileReturnScheduler(null)}
-                aria-label="Fechar calendÃƒÆ’Ã‚Â¡rio de retorno"
+                aria-label="Fechar calendÃƒÂ¡rio de retorno"
               >
-                ÃƒÆ’Ã¢â‚¬â€
+                Ãƒâ€”
               </button>
             </div>
 
@@ -7051,7 +6968,7 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
                 />
               </label>
               <label>
-                <span>HorÃƒÆ’Ã‚Â¡rio</span>
+                <span>HorÃƒÂ¡rio</span>
                 <input
                   type="time"
                   value={mobileReturnScheduler.timeValue}
@@ -7067,12 +6984,12 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
 
             <div className={styles.mobileReturnCalendarCard}>
               <div className={styles.mobileReturnCalendarHeader}>
-                <button type="button" onClick={() => shiftMobileReturnCalendarMonth(-1)} aria-label="MÃƒÆ’Ã‚Âªs anterior">
-                  ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¹
+                <button type="button" onClick={() => shiftMobileReturnCalendarMonth(-1)} aria-label="MÃƒÂªs anterior">
+                  Ã¢â‚¬Â¹
                 </button>
                 <strong>{mobileReturnMonthLabel}</strong>
-                <button type="button" onClick={() => shiftMobileReturnCalendarMonth(1)} aria-label="PrÃƒÆ’Ã‚Â³ximo mÃƒÆ’Ã‚Âªs">
-                  ÃƒÂ¢Ã¢â€šÂ¬Ã‚Âº
+                <button type="button" onClick={() => shiftMobileReturnCalendarMonth(1)} aria-label="PrÃƒÂ³ximo mÃƒÂªs">
+                  Ã¢â‚¬Âº
                 </button>
               </div>
               <div className={styles.mobileReturnWeekdays} aria-hidden="true">
@@ -7102,7 +7019,7 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
               <p className={styles.mobileReturnSchedulerError}>{mobileReturnScheduleError}</p>
             ) : (
               <p className={styles.mobileReturnSchedulerHint}>
-                O card entra na agenda exatamente na data e no horÃƒÆ’Ã‚Â¡rio escolhidos.
+                O card entra na agenda exatamente na data e no horÃƒÂ¡rio escolhidos.
               </p>
             )}
 
@@ -7135,7 +7052,7 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
             <div className={styles.mobileVendasSheetHeader}>
               <h2 id="mobile-vendas-account-title">Conta</h2>
               <button type="button" onClick={() => setAccountSheetOpen(false)} aria-label="Fechar">
-                ÃƒÆ’Ã¢â‚¬â€
+                Ãƒâ€”
               </button>
             </div>
             <div className={styles.mobileVendasAccountAvatar} aria-hidden="true">
@@ -7158,7 +7075,7 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
                 saveMobilePreferredCallerName(trimmed);
                 setMobilePreferredCallerName(trimmed);
                 setAccountSheetOpen(false);
-                if (trimmed) setFeedback("PreferÃƒÆ’Ã‚Âªncia salva.");
+                if (trimmed) setFeedback("PreferÃƒÂªncia salva.");
               }}
             >
               Salvar
@@ -7177,13 +7094,13 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
                         accountProfile.company.premiumAccess ? "Premium ativo" : null,
                       ]
                         .filter(Boolean)
-                        .join(" Ãƒâ€šÃ‚Â· ") || "Sem dados de cobranÃƒÆ’Ã‚Â§a nesta sessÃƒÆ’Ã‚Â£o."
-                    : "NÃƒÆ’Ã‚Â£o foi possÃƒÆ’Ã‚Â­vel carregar agora."}
+                        .join(" Ã‚Â· ") || "Sem dados de cobranÃƒÂ§a nesta sessÃƒÂ£o."
+                    : "NÃƒÂ£o foi possÃƒÂ­vel carregar agora."}
                   </p>
                 </div>
             <div className={styles.mobileVendasAccountBlock}>
-              <strong>ConfiguraÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Âµes</strong>
-              <p>Ajuste seu perfil de venda, pÃƒÆ’Ã‚Âºblico ideal e filtros de qualidade.</p>
+              <strong>ConfiguraÃƒÂ§ÃƒÂµes</strong>
+              <p>Ajuste seu perfil de venda, pÃƒÂºblico ideal e filtros de qualidade.</p>
             </div>
             {renderAccountSalesProfileSettings()}
             <div className={styles.mobileVendasAccountActions}>
@@ -7211,7 +7128,7 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
             <div className={styles.sectionTopline}>
               <div>
                 <span className={styles.panelEyebrow}>Command palette</span>
-                <strong>Buscar lead, cidade, aÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Â£o, histÃƒÆ’Ã‚Â³rico ou origem</strong>
+                <strong>Buscar lead, cidade, aÃƒÂ§ÃƒÂ£o, histÃƒÂ³rico ou origem</strong>
               </div>
               <button
                 type="button"
@@ -7223,7 +7140,7 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
             </div>
             <input
               className={styles.commandInput}
-              placeholder="Digite nome, telefone, cidade, origem ou prÃƒÆ’Ã‚Â³xima aÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Â£o..."
+              placeholder="Digite nome, telefone, cidade, origem ou prÃƒÂ³xima aÃƒÂ§ÃƒÂ£o..."
               value={commandQuery}
               onChange={(event) => setCommandQuery(event.target.value)}
               autoFocus
@@ -7242,8 +7159,8 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
                     >
                       <strong>{lead.name || "Lead sem nome"}</strong>
                       <span>
-                        {BLOCK_LABELS[block]} ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢ {lead.statusLabel} ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢{" "}
-                        {lead.nextAction || "Sem prÃƒÆ’Ã‚Â³xima aÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Â£o"}
+                        {BLOCK_LABELS[block]} Ã¢â‚¬Â¢ {lead.statusLabel} Ã¢â‚¬Â¢{" "}
+                        {lead.nextAction || "Sem prÃƒÂ³xima aÃƒÂ§ÃƒÂ£o"}
                       </span>
                     </button>
                     <div className={styles.commandActionRow}>
@@ -7269,7 +7186,7 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
               ) : (
                 <div className={styles.emptyPanel}>
                   <strong>Nenhum resultado</strong>
-                  <p>Tente nome, telefone, cidade, status ou prÃƒÆ’Ã‚Â³xima aÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Â£o.</p>
+                  <p>Tente nome, telefone, cidade, status ou prÃƒÂ³xima aÃƒÂ§ÃƒÂ£o.</p>
                 </div>
               )}
             </div>
