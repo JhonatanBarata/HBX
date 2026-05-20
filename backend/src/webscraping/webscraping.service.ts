@@ -288,6 +288,7 @@ type SearchRunStatus = 'completed' | 'partial_error' | 'completed_with_errors' |
 type WebscrapingSearchRunStatus =
   | 'queued'
   | 'running'
+  | 'sleeping'
   | 'completed'
   | 'partial_error'
   | 'completed_insufficient_results'
@@ -301,6 +302,7 @@ type HbxBatchStatus =
   | 'empty_batch'
   | 'batch_error'
   | 'engine_error'
+  | 'radar_resting'
   | 'completed'
   | 'completed_insufficient_results'
   | 'failed'
@@ -443,6 +445,50 @@ const HBX_CATEGORY_SEGMENTS: Record<string, string[]> = {
     'auto elétricas',
     'auto center',
     'oficinas mecânicas',
+  ],
+  industria: [
+    'caldeiraria',
+    'cerâmicas',
+    'componentes elétricos',
+    'embalagens',
+    'ferramentaria',
+    'indústrias de plásticos',
+    'indústrias alimentícias',
+    'indústrias metalúrgicas',
+    'máquinas industriais',
+    'metalúrgicas',
+    'químicas',
+    'usinagem',
+  ],
+  logistica: [
+    'atacadistas',
+    'depósitos de bebidas',
+    'distribuidoras',
+    'fornecedoras industriais',
+    'transportadoras',
+  ],
+  'atacado e logistica': [
+    'atacadistas',
+    'depósitos de bebidas',
+    'distribuidoras',
+    'fornecedoras industriais',
+    'transportadoras',
+  ],
+  agro: [
+    'agronegócios',
+    'agropecuárias',
+    'casas de ração',
+    'implementos agrícolas',
+    'nutrição animal',
+    'produtos agrícolas',
+  ],
+  'agro e campo': [
+    'agronegócios',
+    'agropecuárias',
+    'casas de ração',
+    'implementos agrícolas',
+    'nutrição animal',
+    'produtos agrícolas',
   ],
 };
 
@@ -2850,7 +2896,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
 
   private normalizeSearchRunStatus(status: unknown): WebscrapingSearchRunStatus {
     const normalized = String(status || '').trim();
-    if (['queued', 'running', 'completed', 'partial_error', 'completed_insufficient_results', 'failed', 'canceled'].includes(normalized)) {
+    if (['queued', 'running', 'sleeping', 'completed', 'partial_error', 'completed_insufficient_results', 'failed', 'canceled'].includes(normalized)) {
       return normalized as WebscrapingSearchRunStatus;
     }
     return 'queued';
@@ -2936,6 +2982,20 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     return Math.max(1, parsePositiveIntegerEnv('HBX_SEARCH_RUN_MAX_FAILED_BATCHES', 6));
   }
 
+  private getHbxSearchRunRestDelayMs() {
+    return Math.max(60_000, parsePositiveIntegerEnv('HBX_SEARCH_RUN_REST_DELAY_MS', 15 * 60_000));
+  }
+
+  private getHbxSearchRunMaxRestCycles() {
+    return Math.max(0, parsePositiveIntegerEnv('HBX_SEARCH_RUN_MAX_REST_CYCLES', 3));
+  }
+
+  private getHbxSearchRunRestThresholdRatio() {
+    const raw = Number(process.env.HBX_SEARCH_RUN_REST_THRESHOLD_RATIO || 0.5);
+    if (!Number.isFinite(raw)) return 0.5;
+    return Math.max(0.1, Math.min(1, raw));
+  }
+
   private getRadarCampaignMaxEmptyBatches() {
     return Math.max(1, parsePositiveIntegerEnv('HBX_RADAR_MAX_EMPTY_BATCHES', 12));
   }
@@ -2979,7 +3039,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
   private async scheduleNextDueSearchRunPump() {
     const next = await this.prisma.webscrapingSearchRun.findFirst({
       where: {
-        status: { in: ['queued', 'running'] },
+        status: { in: ['queued', 'running', 'sleeping'] },
         assignedEngineId: null,
         nextRetryAt: { not: null },
       },
@@ -3350,6 +3410,66 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
   private buildSearchRunNoCardsMessage(attempts: number, lastQuery: string | null | undefined) {
     const query = String(lastQuery || '').trim();
     return `Busca sem contatos aprovados apos ${attempts} lotes.${query ? ` Ultima query: ${query}.` : ''}`;
+  }
+
+  private buildSearchRunRestMessage(foundCount: number, targetQuantity: number, nextRetryAt: Date) {
+    const minutes = Math.max(1, Math.ceil((nextRetryAt.getTime() - Date.now()) / 60_000));
+    return `Radar descansando. Encontrei ${foundCount} de ${targetQuantity} card(s); vou retomar esta mesma pesquisa em ${minutes} min.`;
+  }
+
+  private buildSearchRunFilterReviewMessage(foundCount: number, targetQuantity: number) {
+    return foundCount > 0
+      ? `Entreguei ${foundCount} de ${targetQuantity} card(s). Revise cidade, alcance ou segmento para completar a meta.`
+      : 'Nao achei cards suficientes para esse filtro. Tente segmento mais amplo, cidade proxima ou maior alcance.';
+  }
+
+  private getSearchRunRestCount(run: any) {
+    return safeInteger(this.parseMaybeJsonObject(run?.metricsJson)?.radarRestCount);
+  }
+
+  private shouldRestSearchRun(run: any, foundCount: number, targetQuantity: number) {
+    // Manual Radar must not wake up later and deliver cached cards after the Vendas stock target is reached.
+    void run;
+    void foundCount;
+    void targetQuantity;
+    return false;
+  }
+
+  private async restSearchRunIfEligible(
+    runId: string,
+    current: any,
+    foundCount: number,
+    targetQuantity: number,
+    reason: string,
+  ) {
+    if (!this.shouldRestSearchRun(current, foundCount, targetQuantity)) return false;
+    const nextRetryAt = new Date(Date.now() + this.getHbxSearchRunRestDelayMs());
+    const nextRestCount = this.getSearchRunRestCount(current) + 1;
+    await this.updateSearchRunMetrics(runId, {
+      radarRestCount: nextRestCount,
+      radarRestReason: reason,
+      radarRestThresholdRatio: this.getHbxSearchRunRestThresholdRatio(),
+      radarRestMaxCycles: this.getHbxSearchRunMaxRestCycles(),
+      radarRestNextRetryAt: nextRetryAt.toISOString(),
+      status: 'sleeping',
+    }).catch(() => null);
+    await this.prisma.webscrapingSearchRun.update({
+      where: { id: runId },
+      data: {
+        status: 'sleeping',
+        lastBatchStatus: 'radar_resting',
+        errorMessage: this.buildSearchRunRestMessage(foundCount, targetQuantity, nextRetryAt),
+        nextRetryAt,
+        assignedEngineId: null,
+        assignedEngineUrl: null,
+        assignedEngineIndex: null,
+        attemptCount: 0,
+        consecutiveEmptyBatchCount: 0,
+        consecutiveEngineErrorCount: 0,
+        finishedAt: null,
+      },
+    });
+    return true;
   }
 
   private logHbxBatch(data: {
@@ -4820,6 +4940,19 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
           nextRetryAt: new Date(),
         },
       }).catch(() => null);
+      await this.prisma.webscrapingSearchRun.updateMany({
+        where: { status: 'sleeping' },
+        data: {
+          status: 'completed_insufficient_results',
+          lastBatchStatus: 'radar_rest_disabled',
+          errorMessage: 'Radar parado. A pesquisa antiga nao sera retomada automaticamente.',
+          nextRetryAt: null,
+          assignedEngineId: null,
+          assignedEngineUrl: null,
+          assignedEngineIndex: null,
+          finishedAt: new Date(),
+        },
+      }).catch(() => null);
 
       for (;;) {
         const now = new Date();
@@ -4840,6 +4973,9 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         if (!run) {
           await this.scheduleNextDueSearchRunPump();
           break;
+        }
+        if (await this.stopSearchRunIfVendasStockLimitReached(run)) {
+          continue;
         }
 
         const avoidEngineId = ['batch_error', 'engine_error'].includes(String(run.lastBatchStatus || ''))
@@ -4962,6 +5098,10 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       if (lease) await this.getEnginePool().releaseEngine(lease.engineId);
       return;
     }
+    if (await this.stopSearchRunIfVendasStockLimitReached(current)) {
+      if (lease) await this.getEnginePool().releaseEngine(lease.engineId);
+      return;
+    }
 
     const normalized = initialInput || this.normalizeSearchInput(this.buildRunInputFromRow(current));
     const hasRequiredEnrichmentGate = this.hasExplicitRequiredChannels(normalized);
@@ -5027,8 +5167,18 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         const finalStatus: WebscrapingSearchRunStatus = counters.foundCount > 0
           ? 'completed_insufficient_results'
           : 'failed';
+        if (counters.foundCount > 0 && !hasRequiredEnrichmentGate) {
+          const rested = await this.restSearchRunIfEligible(
+            runId,
+            current,
+            counters.foundCount,
+            normalized.quantity,
+            'max_attempts_before_batch',
+          );
+          if (rested) return;
+        }
         const finalMessage = counters.foundCount > 0
-          ? this.buildSearchRunInsufficientMessage(counters.foundCount, safeInteger(current.attemptCount))
+          ? this.buildSearchRunFilterReviewMessage(counters.foundCount, normalized.quantity)
           : this.buildSearchRunNoCardsMessage(safeInteger(current.attemptCount), current.lastQueryUsed);
         if (counters.foundCount > 0 && !hasRequiredEnrichmentGate) {
           await this.autoImportRadarSearchRunToVendas(user, runId).catch((error: any) => {
@@ -5233,8 +5383,18 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         const finalStatus: WebscrapingSearchRunStatus = counters.foundCount > 0
           ? 'completed_insufficient_results'
           : 'failed';
+        if (counters.foundCount > 0 && !hasRequiredEnrichmentGate && !reachedRequiredCandidateWindow) {
+          const rested = await this.restSearchRunIfEligible(
+            runId,
+            current,
+            counters.foundCount,
+            normalized.quantity,
+            reachedMaxEmptyBatches ? 'max_empty_batches' : 'max_attempts',
+          );
+          if (rested) return;
+        }
         const finalMessage = counters.foundCount > 0
-          ? this.buildSearchRunInsufficientMessage(counters.foundCount, attempt)
+          ? this.buildSearchRunFilterReviewMessage(counters.foundCount, normalized.quantity)
           : this.buildSearchRunNoCardsMessage(attempt, queryUsed);
         const finalMessageWithMeta = `${finalMessage} ${batchDebugMeta}`;
         if (counters.foundCount > 0) {
@@ -5330,8 +5490,18 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       const finalStatus: WebscrapingSearchRunStatus = counters.foundCount > 0
         ? 'completed_insufficient_results'
         : 'failed';
+      if (counters.foundCount > 0 && !hasRequiredEnrichmentGate) {
+        const rested = await this.restSearchRunIfEligible(
+          runId,
+          current,
+          counters.foundCount,
+          normalized.quantity,
+          reachedMaxAttempts ? 'error_max_attempts' : reachedMaxFailedBatches ? 'error_max_failed_batches' : 'engine_error',
+        );
+        if (rested) return;
+      }
       const finalMessage = counters.foundCount > 0
-        ? this.buildSearchRunInsufficientMessage(counters.foundCount, attempt)
+        ? this.buildSearchRunFilterReviewMessage(counters.foundCount, normalized.quantity)
         : reachedMaxAttempts
           ? `Nenhum card valido foi encontrado apos ${attempt} lotes. Ultima query: ${queryUsed}.`
           : this.buildSearchRunNoCardsMessage(attempt, queryUsed);
@@ -8949,8 +9119,11 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     if (status === 'failed') {
       return rawMessage || 'Nao foi possivel concluir a busca agora.';
     }
+    if (status === 'sleeping') {
+      return rawMessage || 'Radar descansando. A mesma pesquisa sera retomada automaticamente.';
+    }
     if (deliveredCount > 0) {
-      return `Entreguei ${deliveredCount} de ${requestedQuantity} card(s). Buscando o restante em segundo plano.`;
+      return `Entreguei ${deliveredCount} de ${requestedQuantity} card(s). Radar trabalhando para completar a pesquisa.`;
     }
     return rawMessage || 'Busca criada. O Radar esta preparando os primeiros cards.';
   }
@@ -9147,6 +9320,81 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     });
   }
 
+  private getRadarRunVendasStockTarget(run: any) {
+    const metrics = parseJsonObject(run?.metricsJson);
+    const explicitTarget = safeInteger(
+      metrics?.vendasStockTarget
+      || metrics?.desiredStock
+      || metrics?.stockTarget
+      || metrics?.targetStock,
+    );
+    return Math.max(0, explicitTarget || safeInteger(run?.targetQuantity));
+  }
+
+  private async stopSearchRunIfVendasStockLimitReached(run: any, reason = 'vendas_stock_limit') {
+    const runId = String(run?.id || '').trim();
+    const companyId = safeInteger(run?.companyId);
+    if (!runId || !companyId) return false;
+    const target = this.getRadarRunVendasStockTarget(run);
+    if (target <= 0) return false;
+    const pendingCount = await this.getVendasPendingCountForRadarContext(companyId);
+    if (pendingCount < target) return false;
+    await this.prisma.webscrapingSearchRun.update({
+      where: { id: runId },
+      data: {
+        status: 'completed',
+        lastBatchStatus: reason,
+        errorMessage: `Radar parado. Vendas ja esta com ${pendingCount} de ${target} card(s).`,
+        nextRetryAt: null,
+        assignedEngineId: null,
+        assignedEngineUrl: null,
+        assignedEngineIndex: null,
+        finishedAt: new Date(),
+      },
+    }).catch(() => null);
+    return true;
+  }
+
+  private isRadarAutoImportLimitError(error: any) {
+    const code = String(error?.response?.code || error?.code || '').toLowerCase();
+    const message = String(error?.response?.message || error?.message || error || '').toLowerCase();
+    return code.includes('limit')
+      || code.includes('quota')
+      || message.includes('limite diario')
+      || message.includes('limite diário')
+      || message.includes('limite mensal')
+      || message.includes('trava diaria')
+      || message.includes('trava diária')
+      || message.includes('contador reinicia')
+      || message.includes('quota');
+  }
+
+  private async stopSearchRunAutoImportBlocked(run: any, reason = 'vendas_card_limit') {
+    const runId = String(run?.id || '').trim();
+    if (!runId) return false;
+    const message = 'Radar parado pelo limite de cards. Nada sera entregue depois automaticamente.';
+    await this.updateSearchRunMetrics(runId, {
+      autoImportBlocked: true,
+      autoImportBlockedReason: reason,
+      autoImportBlockedAt: new Date().toISOString(),
+      status: 'completed_insufficient_results',
+    }).catch(() => null);
+    await this.prisma.webscrapingSearchRun.update({
+      where: { id: runId },
+      data: {
+        status: 'completed_insufficient_results',
+        lastBatchStatus: reason,
+        errorMessage: message,
+        nextRetryAt: null,
+        assignedEngineId: null,
+        assignedEngineUrl: null,
+        assignedEngineIndex: null,
+        finishedAt: new Date(),
+      },
+    }).catch(() => null);
+    return true;
+  }
+
   private async assertRadarCanFeedVendas(context: SearchExecutionContext) {
     const pendingCount = await this.getVendasPendingCountForRadarContext(context.companyId);
     return {
@@ -9173,6 +9421,19 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       },
     });
     if (!run) return { ran: false, importedCount: 0, pendingCount, remaining };
+    const stockTarget = this.getRadarRunVendasStockTarget(run);
+    if (stockTarget > 0 && pendingCount >= stockTarget) {
+      await this.stopSearchRunIfVendasStockLimitReached(run, 'vendas_stock_limit_before_import');
+      return {
+        ran: true,
+        importedCount: 0,
+        processedCount: 0,
+        pendingCount,
+        remaining,
+        blocked: true,
+        failures: [{ reason: 'vendas_stock_limit' }],
+      };
+    }
 
     await this.syncRadarSearchRunItemsToPool(context, run).catch((error: any) => {
       this.logger.warn(`[radar-vendas] sync antes do auto-import falhou run=${run.id}: ${String(error?.message || error)}`);
@@ -9204,8 +9465,15 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
 
     let importedCount = 0;
     let processedCount = 0;
+    let blockedByLimit = false;
     for (const row of orderedRows.slice(0, requestedQuantity)) {
       pendingCount = await this.getVendasPendingCountForRadarContext(context.companyId);
+      if (stockTarget > 0 && pendingCount >= stockTarget) {
+        await this.stopSearchRunIfVendasStockLimitReached(run, 'vendas_stock_limit_during_import');
+        failures.push({ reason: 'vendas_stock_limit' });
+        blockedByLimit = true;
+        break;
+      }
       const state = Array.isArray(row?.companyStates) && row.companyStates.length ? row.companyStates[0] : null;
       const status = this.normalizeRadarLeadStatus(state?.status || row?.status);
       if (status === 'sent_to_vendas' || this.isRadarProtectedStatus(status)) {
@@ -9218,8 +9486,14 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         pendingCount = await this.getVendasPendingCountForRadarContext(context.companyId);
         importedCount += Math.max(0, safeInteger(imported?.import?.deliveredCount));
       } catch (error: any) {
-        failures.push({ reason: String(error?.response?.code || error?.code || 'falha_importacao_vendas') });
+        const reason = String(error?.response?.code || error?.code || 'falha_importacao_vendas');
+        failures.push({ reason });
         this.logger.warn(`[radar-vendas] auto-import ignorou lead=${row?.id || '-'} run=${run.id}: ${String(error?.message || error)}`);
+        if (this.isRadarAutoImportLimitError(error)) {
+          await this.stopSearchRunAutoImportBlocked(run, reason || 'vendas_card_limit');
+          blockedByLimit = true;
+          break;
+        }
       }
     }
 
@@ -9238,7 +9512,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       processedCount,
       pendingCount: finalPendingCount,
       remaining: null,
-      blocked: false,
+      blocked: blockedByLimit,
       failures: this.summarizeAutoImportFailures(failures),
     };
   }
@@ -9271,6 +9545,52 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       },
     });
     const effectiveRun = freshRun || run;
+    const stockTarget = this.getRadarRunVendasStockTarget(effectiveRun);
+    const pendingCount = stockTarget > 0
+      ? await this.getVendasPendingCountForRadarContext(context.companyId)
+      : 0;
+    if (stockTarget > 0 && pendingCount >= stockTarget) {
+      await this.stopSearchRunIfVendasStockLimitReached(effectiveRun, 'vendas_stock_limit_response');
+      const requestedQuantity = Math.max(1, safeInteger(effectiveRun.targetQuantity));
+      const message = `Radar parado. Vendas ja esta com ${pendingCount} de ${stockTarget} card(s).`;
+      return {
+        id: effectiveRun.id,
+        runId: effectiveRun.id,
+        status: 'completed',
+        items: [],
+        total: 0,
+        code: 'RADAR_SEARCH_COMPLETED',
+        message,
+        retryable: false,
+        targetQuantity: requestedQuantity,
+        foundCount: 0,
+        errorMessage: message,
+        meta: {
+          requestedQuantity,
+          deliveredCount: 0,
+          databaseCount: 0,
+          fetchedCount: 0,
+          requiredChannels: [],
+          channelMatchMode: 'prefer',
+          requiredChannelRejectedCount: 0,
+          progress: 100,
+          terminal: true,
+          status: 'completed',
+          runId: effectiveRun.id,
+          nextRetryAt: null,
+          attemptCount: safeInteger(effectiveRun.attemptCount),
+          autoImport: {
+            ran: false,
+            importedCount: safeInteger(effectiveRun.importedCount),
+            pendingCount,
+            remaining: null,
+            blocked: true,
+            failures: [{ reason: 'vendas_stock_limit' }],
+          },
+          filters: this.buildRadarFiltersFromSearchRun(effectiveRun),
+        },
+      };
+    }
     const metrics = parseJsonObject(effectiveRun.metricsJson);
     const filters = this.buildRadarFiltersFromSearchRun(effectiveRun);
     const requestedQuantity = Math.max(1, safeInteger(effectiveRun.targetQuantity));
@@ -9288,12 +9608,112 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     const terminal = this.isTerminalRadarSearchRunStatus(status);
     const autoImportProcessedCount = safeInteger(effectiveRun.importedCount);
     const hasAutoImportPendingCards = primaryFoundItems.length > 0 && primaryFoundItems.length > autoImportProcessedCount;
-    const autoImport = !options?.skipAutoImport && hasAutoImportPendingCards
+    const lastBatchStatus = String((effectiveRun as any)?.lastBatchStatus || '').toLowerCase();
+    const autoImportBlocked = Boolean(metrics?.autoImportBlocked)
+      || status === 'completed_insufficient_results'
+      || lastBatchStatus.includes('limit')
+      || lastBatchStatus === 'radar_rest_disabled';
+    if (autoImportBlocked && hasAutoImportPendingCards) {
+      const message = String(effectiveRun.errorMessage || 'Radar parado. A pesquisa antiga nao sera retomada automaticamente.');
+      return {
+        id: effectiveRun.id,
+        runId: effectiveRun.id,
+        status,
+        items: [],
+        total: 0,
+        code: 'RADAR_SEARCH_COMPLETED',
+        message,
+        retryable: false,
+        targetQuantity: requestedQuantity,
+        foundCount: safeInteger(effectiveRun.foundCount),
+        errorMessage: message,
+        meta: {
+          requestedQuantity,
+          deliveredCount: 0,
+          databaseCount: 0,
+          fetchedCount: 0,
+          requiredChannels: filters.requiredChannels,
+          channelMatchMode: filters.channelMatchMode,
+          requiredChannelRejectedCount: 0,
+          progress: 100,
+          terminal: true,
+          status,
+          runId: effectiveRun.id,
+          nextRetryAt: null,
+          attemptCount: safeInteger(effectiveRun.attemptCount),
+          autoImport: {
+            ran: false,
+            importedCount: safeInteger(effectiveRun.importedCount),
+            pendingCount: null,
+            remaining: null,
+            blocked: true,
+            failures: [{ reason: lastBatchStatus || 'auto_import_blocked' }],
+          },
+          filters: {
+            state: filters.state,
+            city: filters.city,
+            segment: filters.segment,
+            radiusKm: filters.radiusKm,
+            regionalCities: filters.regionalCities.map((item) => ({
+              city: item.city,
+              state: item.state,
+              distanceKm: item.distanceKm,
+            })),
+            selectedSegments: this.splitHbxBatchSegments(filters.segment),
+          },
+        },
+      };
+    }
+    const autoImport = !autoImportBlocked && !options?.skipAutoImport && hasAutoImportPendingCards
       ? await this.autoImportRadarSearchRunToVendas(user, effectiveRun.id).catch((error: any) => {
           this.logger.warn(`[radar-vendas] auto-import ignorado run=${effectiveRun.id}: ${String(error?.message || error)}`);
           return null;
         })
       : null;
+    if (autoImport?.blocked) {
+      const message = 'Radar parado pelo limite de cards. Nada sera entregue depois automaticamente.';
+      return {
+        id: effectiveRun.id,
+        runId: effectiveRun.id,
+        status: 'completed_insufficient_results',
+        items: [],
+        total: 0,
+        code: 'RADAR_SEARCH_COMPLETED',
+        message,
+        retryable: false,
+        targetQuantity: requestedQuantity,
+        foundCount: safeInteger(effectiveRun.foundCount),
+        errorMessage: message,
+        meta: {
+          requestedQuantity,
+          deliveredCount: 0,
+          databaseCount: 0,
+          fetchedCount: 0,
+          requiredChannels: filters.requiredChannels,
+          channelMatchMode: filters.channelMatchMode,
+          requiredChannelRejectedCount: 0,
+          progress: 100,
+          terminal: true,
+          status: 'completed_insufficient_results',
+          runId: effectiveRun.id,
+          nextRetryAt: null,
+          attemptCount: safeInteger(effectiveRun.attemptCount),
+          autoImport,
+          filters: {
+            state: filters.state,
+            city: filters.city,
+            segment: filters.segment,
+            radiusKm: filters.radiusKm,
+            regionalCities: filters.regionalCities.map((item) => ({
+              city: item.city,
+              state: item.state,
+              distanceKm: item.distanceKm,
+            })),
+            selectedSegments: this.splitHbxBatchSegments(filters.segment),
+          },
+        },
+      };
+    }
     if (autoImport?.processedCount || autoImport?.importedCount) {
       orderedRows = await this.findRadarPoolRowsForRunItems(
         context.companyId,
@@ -9461,7 +9881,11 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     if (!(await this.supportsRadarPersistence())) {
       throw new ServiceUnavailableException('Banco do Radar ainda nao foi migrado neste ambiente.');
     }
-    await this.assertRadarCanFeedVendas(context);
+    const vendasGate = await this.assertRadarCanFeedVendas(context);
+    const vendasStockTarget = Math.max(1, safeInteger(filters.stockOverride ? filters.desiredStock : filters.quantity));
+    if (safeInteger(vendasGate.pendingCount) >= vendasStockTarget) {
+      throw new BadRequestException(`Vendas ja esta com ${safeInteger(vendasGate.pendingCount)} de ${vendasStockTarget} card(s). Radar parado.`);
+    }
     if (this.commercialUsageLimits) {
       const usage = await this.commercialUsageLimits.getUsageSnapshot(context.companyId, context.userId).catch(() => null);
       const cardLimits = usage ? (usage as any).cards || {} : {};
@@ -9526,9 +9950,13 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         errorMessage: completedFromDatabase
           ? 'Entregue do banco Radar/HBX. A frota HBX nao foi acionada.'
           : claimedRows.length
-            ? `Entreguei ${claimedRows.length} card(s) do banco. Buscando mais ${Math.max(0, filters.quantity - claimedRows.length)}.`
+            ? `Entreguei ${claimedRows.length} card(s) do banco. Radar trabalhando para completar a pesquisa.`
             : 'Sem cards prontos no banco. Busca enviada para a fila HBX.',
         metricsJson: JSON.stringify({
+          vendasStockTarget,
+          vendasStockBefore: safeInteger(vendasGate.pendingCount),
+          desiredStock: filters.desiredStock,
+          minimumStock: filters.minimumStock,
           radiusKm: filters.radiusKm,
           originLat: filters.originLat,
           originLng: filters.originLng,

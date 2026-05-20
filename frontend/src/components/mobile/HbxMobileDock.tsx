@@ -14,7 +14,8 @@ type MobileTheme = "light" | "dark";
 type HbxMobileDockProps = {
   primaryHref?: string;
   primaryLabel?: string;
-  primaryTone?: "default" | "danger";
+  primaryTone?: "default" | "danger" | "warning";
+  primaryIcon?: "plus" | "play" | "pause" | "stop";
   onPrimaryAction?: () => void;
   onConta?: () => void;
   onRelatorio?: () => void;
@@ -36,6 +37,8 @@ function DockIcon({
     | "sales"
     | "radar"
     | "plus"
+    | "play"
+    | "pause"
     | "stop"
     | "theme"
     | "more"
@@ -71,6 +74,21 @@ function DockIcon({
       <svg viewBox="0 0 24 24" aria-hidden="true">
         <path d="M12 5v14" />
         <path d="M5 12h14" />
+      </svg>
+    );
+  }
+  if (name === "play") {
+    return (
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M8 5.8v12.4L18.2 12 8 5.8Z" />
+      </svg>
+    );
+  }
+  if (name === "pause") {
+    return (
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <rect x="7.2" y="5.6" width="3.6" height="12.8" rx="1.2" />
+        <rect x="13.2" y="5.6" width="3.6" height="12.8" rx="1.2" />
       </svg>
     );
   }
@@ -169,6 +187,7 @@ export default function HbxMobileDock({
   primaryHref,
   primaryLabel = "AÃ§Ã£o principal",
   primaryTone = "default",
+  primaryIcon,
   onPrimaryAction,
   onConta,
   onRelatorio,
@@ -237,6 +256,9 @@ export default function HbxMobileDock({
     router.push(toMobileRoute(primaryHref || "/radar-digital"));
   }
 
+  const resolvedPrimaryIcon = primaryIcon || (primaryTone === "danger" ? "stop" : "plus");
+  const primaryShouldPulse = ["play", "pause", "stop"].includes(resolvedPrimaryIcon);
+
   async function handleLogout() {
     await runGlobalShutdown(async () => {
       try {
@@ -276,9 +298,9 @@ export default function HbxMobileDock({
             onClick={runPrimaryAction}
             aria-label={primaryLabel}
             title={primaryLabel}
-            data-radar-pulse={primaryTone === "danger" ? "true" : "false"}
+            data-radar-pulse={primaryShouldPulse ? "true" : "false"}
           >
-            <DockIcon name={primaryTone === "danger" ? "stop" : "plus"} />
+            <DockIcon name={resolvedPrimaryIcon} />
           </button>
 
           <button
