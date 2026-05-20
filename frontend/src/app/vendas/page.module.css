@@ -210,6 +210,47 @@
   box-shadow: none;
 }
 
+@media (max-width: 820px) {
+  .mobileVendasChannelIcon {
+    display: inline-grid !important;
+    place-items: center !important;
+    flex: 0 0 auto !important;
+    overflow: hidden !important;
+    line-height: 0 !important;
+    vertical-align: middle !important;
+  }
+
+  .mobileVendasChannelIcon > img {
+    grid-area: 1 / 1 !important;
+    width: 72% !important;
+    height: 72% !important;
+    max-width: 72% !important;
+    max-height: 72% !important;
+    object-fit: contain !important;
+    object-position: center !important;
+    margin: 0 !important;
+    transform: none !important;
+  }
+
+  .mobileVendasChannelIcon[data-channel="whatsapp"] > img,
+  .mobileVendasChannelIcon[data-channel="instagram"] > img,
+  .mobileVendasChannelIcon[data-channel="facebook"] > img {
+    width: 76% !important;
+    height: 76% !important;
+    max-width: 76% !important;
+    max-height: 76% !important;
+  }
+
+  .mobileVendasChannelIcon[data-channel="phone"] > img,
+  .mobileVendasChannelIcon[data-channel="email"] > img,
+  .mobileVendasChannelIcon[data-channel="site"] > img {
+    width: 70% !important;
+    height: 70% !important;
+    max-width: 70% !important;
+    max-height: 70% !important;
+  }
+}
+
 .mobileVendasVisualFilterScroller > button > b {
   display: inline-flex;
   min-width: 19px;
