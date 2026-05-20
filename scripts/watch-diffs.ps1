@@ -129,6 +129,247 @@ function Get-DiffTouchedPaths {
   return @($paths)
 }
 
+function Resolve-RepoFilePath {
+  param([string]$RelativePath)
+
+  if ([string]::IsNullOrWhiteSpace($RelativePath)) {
+    throw "Caminho vazio no patch declarativo."
+  }
+
+  $cleanPath = $RelativePath.Trim() -replace '\\', '/'
+  if ($cleanPath.StartsWith("/") -or $cleanPath -match '^[A-Za-z]:') {
+    throw "Caminho absoluto nao permitido no patch declarativo: $RelativePath"
+  }
+
+  $fullPath = [System.IO.Path]::GetFullPath((Join-Path $repoRoot $cleanPath))
+  $repoRootFull = [System.IO.Path]::GetFullPath($repoRoot)
+  if (-not $fullPath.StartsWith($repoRootFull, [System.StringComparison]::OrdinalIgnoreCase)) {
+    throw "Caminho fora do repo nao permitido no patch declarativo: $RelativePath"
+  }
+
+  return @{
+    Relative = $cleanPath
+    Full = $fullPath
+  }
+}
+
+function Get-DeclarativeHeader {
+  param([string]$PatchPath)
+
+  $lines = @(Get-Content -LiteralPath $PatchPath)
+  for ($i = 0; $i -lt $lines.Count; $i++) {
+    $line = $lines[$i].Trim()
+    if ($line -match '^(APPEND|REPLACE)\s+(.+)$') {
+      return @{
+        Kind = $Matches[1]
+        Path = $Matches[2].Trim()
+        LineIndex = $i
+        Lines = $lines
+      }
+    }
+
+    if ($line -match '^diff --git ') {
+      return $null
+    }
+  }
+
+  return $null
+}
+
+function Get-PatchTouchedPaths {
+  param([string]$PatchPath)
+
+  $declarative = Get-DeclarativeHeader -PatchPath $PatchPath
+  if ($declarative) {
+    $resolved = Resolve-RepoFilePath -RelativePath $declarative.Path
+    return @($resolved.Relative)
+  }
+
+  return Get-DiffTouchedPaths -DiffPath $PatchPath
+}
+
+function Join-PatchLines {
+  param([string[]]$Lines)
+
+  return ($Lines -join [Environment]::NewLine).Trim()
+}
+
+function Get-LinesBetween {
+  param(
+    [string[]]$Lines,
+    [int]$StartExclusive,
+    [int]$EndExclusive
+  )
+
+  if ($EndExclusive -le ($StartExclusive + 1)) {
+    return @()
+  }
+
+  return @($Lines[($StartExclusive + 1)..($EndExclusive - 1)])
+}
+
+function Write-Utf8NoBom {
+  param(
+    [string]$Path,
+    [string]$Text
+  )
+
+  $encoding = New-Object System.Text.UTF8Encoding($false)
+  [System.IO.File]::WriteAllText($Path, $Text, $encoding)
+}
+
+function Get-DelimitedSections {
+  param(
+    [string[]]$Lines,
+    [int]$StartIndex
+  )
+
+  $delimiters = New-Object System.Collections.Generic.List[int]
+  for ($i = $StartIndex + 1; $i -lt $Lines.Count; $i++) {
+    if ($Lines[$i].Trim() -eq "---") {
+      $delimiters.Add($i)
+    }
+  }
+
+  return @($delimiters)
+}
+
+function Apply-AppendPatch {
+  param(
+    [hashtable]$Header,
+    [hashtable]$ResolvedPath
+  )
+
+  $delimiters = Get-DelimitedSections -Lines $Header.Lines -StartIndex $Header.LineIndex
+  if ($delimiters.Count -lt 2) {
+    throw "APPEND precisa de dois delimitadores ---."
+  }
+
+  $contentLines = Get-LinesBetween -Lines $Header.Lines -StartExclusive $delimiters[0] -EndExclusive $delimiters[1]
+  $appendText = Join-PatchLines -Lines $contentLines
+  if ([string]::IsNullOrWhiteSpace($appendText)) {
+    throw "APPEND sem conteudo."
+  }
+
+  $directory = [System.IO.Path]::GetDirectoryName($ResolvedPath.Full)
+  New-Item -ItemType Directory -Force -Path $directory | Out-Null
+
+  $currentText = ""
+  if (Test-Path -LiteralPath $ResolvedPath.Full) {
+    $currentText = Get-Content -LiteralPath $ResolvedPath.Full -Raw
+  }
+
+  $normalizedCurrent = ($currentText -replace "`r`n", "`n")
+  $normalizedAppend = ($appendText -replace "`r`n", "`n")
+  if ($normalizedCurrent.Contains($normalizedAppend.Trim())) {
+    Write-Host "APPEND ja existe em $($ResolvedPath.Relative)."
+    return
+  }
+
+  $encoding = New-Object System.Text.UTF8Encoding($false)
+  $prefix = ""
+  if (-not [string]::IsNullOrEmpty($currentText) -and -not $currentText.EndsWith("`n")) {
+    $prefix = [Environment]::NewLine
+  }
+
+  [System.IO.File]::AppendAllText($ResolvedPath.Full, $prefix + $appendText + [Environment]::NewLine, $encoding)
+  Write-Host "APPEND aplicado em $($ResolvedPath.Relative)."
+}
+
+function Replace-TextOnce {
+  param(
+    [string]$CurrentText,
+    [string]$OldText,
+    [string]$NewText,
+    [ref]$ReplacedText
+  )
+
+  $first = $CurrentText.IndexOf($OldText, [System.StringComparison]::Ordinal)
+  if ($first -lt 0) {
+    return $false
+  }
+
+  $second = $CurrentText.IndexOf($OldText, $first + $OldText.Length, [System.StringComparison]::Ordinal)
+  if ($second -ge 0) {
+    throw "REPLACE encontrou o texto antigo mais de uma vez; patch recusado."
+  }
+
+  $ReplacedText.Value = $CurrentText.Substring(0, $first) + $NewText + $CurrentText.Substring($first + $OldText.Length)
+  return $true
+}
+
+function Apply-ReplacePatch {
+  param(
+    [hashtable]$Header,
+    [hashtable]$ResolvedPath
+  )
+
+  if (-not (Test-Path -LiteralPath $ResolvedPath.Full)) {
+    throw "Arquivo alvo do REPLACE nao existe: $($ResolvedPath.Relative)"
+  }
+
+  $delimiters = Get-DelimitedSections -Lines $Header.Lines -StartIndex $Header.LineIndex
+  if ($delimiters.Count -lt 3) {
+    throw "REPLACE precisa de tres delimitadores ---."
+  }
+
+  $oldLines = Get-LinesBetween -Lines $Header.Lines -StartExclusive $delimiters[0] -EndExclusive $delimiters[1]
+  $newLines = Get-LinesBetween -Lines $Header.Lines -StartExclusive $delimiters[1] -EndExclusive $delimiters[2]
+  $oldText = Join-PatchLines -Lines $oldLines
+  $newText = Join-PatchLines -Lines $newLines
+  if ([string]::IsNullOrWhiteSpace($oldText)) {
+    throw "REPLACE sem texto antigo."
+  }
+
+  $currentText = Get-Content -LiteralPath $ResolvedPath.Full -Raw
+  $replaced = $null
+  if (Replace-TextOnce -CurrentText $currentText -OldText $oldText -NewText $newText -ReplacedText ([ref]$replaced)) {
+    Write-Utf8NoBom -Path $ResolvedPath.Full -Text $replaced
+    Write-Host "REPLACE aplicado em $($ResolvedPath.Relative)."
+    return
+  }
+
+  $oldTextLf = $oldText -replace "`r`n", "`n"
+  $newTextLf = $newText -replace "`r`n", "`n"
+  $currentTextLf = $currentText -replace "`r`n", "`n"
+  if (Replace-TextOnce -CurrentText $currentTextLf -OldText $oldTextLf -NewText $newTextLf -ReplacedText ([ref]$replaced)) {
+    Write-Utf8NoBom -Path $ResolvedPath.Full -Text $replaced
+    Write-Host "REPLACE aplicado em $($ResolvedPath.Relative) com normalizacao LF."
+    return
+  }
+
+  if ($currentTextLf.Contains($newTextLf)) {
+    Write-Host "REPLACE ja existe em $($ResolvedPath.Relative)."
+    return
+  }
+
+  throw "REPLACE nao encontrou o texto antigo em $($ResolvedPath.Relative)."
+}
+
+function Apply-DeclarativePatch {
+  param([string]$PatchPath)
+
+  $header = Get-DeclarativeHeader -PatchPath $PatchPath
+  if (-not $header) {
+    return $false
+  }
+
+  $resolvedPath = Resolve-RepoFilePath -RelativePath $header.Path
+  switch ($header.Kind) {
+    "APPEND" {
+      Apply-AppendPatch -Header $header -ResolvedPath $resolvedPath
+      return $true
+    }
+    "REPLACE" {
+      Apply-ReplacePatch -Header $header -ResolvedPath $resolvedPath
+      return $true
+    }
+    default {
+      throw "Tipo declarativo desconhecido: $($header.Kind)"
+    }
+  }
+}
+
 function Wait-FileReady {
   param([string]$Path)
 
@@ -280,6 +521,10 @@ function Try-AppendOnlyDiff {
 function Apply-Diff {
   param([string]$DiffPath)
 
+  if (Apply-DeclarativePatch -PatchPath $DiffPath) {
+    return "declarative"
+  }
+
   $normalCheck = Invoke-GitResult apply --check --whitespace=nowarn -- $DiffPath
   if ($normalCheck.ExitCode -eq 0) {
     Invoke-Git apply --whitespace=nowarn -- $DiffPath | Out-Null
@@ -319,7 +564,7 @@ function Process-Diff {
   Wait-FileReady -Path $DiffPath
 
   $before = Get-StatusMap
-  $declaredPaths = Get-DiffTouchedPaths -DiffPath $DiffPath
+  $declaredPaths = Get-PatchTouchedPaths -PatchPath $DiffPath
 
   try {
     Apply-Diff -DiffPath $DiffPath | Out-Null
