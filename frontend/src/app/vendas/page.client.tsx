@@ -3323,6 +3323,20 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
     setMobileMinScoreFilter((current) => Math.max(0, Math.min(100, current + delta)));
   }
 
+  function setMobileScoreFilterValue(value: number) {
+    const nextValue = Number.isFinite(value) ? value : 0;
+    setMobileMinScoreFilter(Math.max(0, Math.min(100, Math.round(nextValue))));
+  }
+
+  useEffect(() => {
+    if (!mobileScoreFilterOpen || typeof window === "undefined") return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setMobileScoreFilterOpen(false);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [mobileScoreFilterOpen]);
+
   useEffect(() => {
     if (selectedMobileLeadId) saveMobileOpenLeadId(selectedMobileLeadId);
   }, [selectedMobileLeadId]);
@@ -5119,44 +5133,102 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
                 </svg>
               </button>
             </div>
-            {mobileScoreFilterOpen ? (
-              <div
-                className={styles.mobileVendasScorePopover}
+          </section>
+
+          {mobileScoreFilterOpen && typeof document !== "undefined" ? createPortal(
+            <div
+              className={styles.mobileVendasScoreModalBackdrop}
+              role="presentation"
+              onClick={() => setMobileScoreFilterOpen(false)}
+            >
+              <section
+                className={styles.mobileVendasScoreModal}
                 role="dialog"
-                aria-label="Filtro de score"
+                aria-modal="true"
+                aria-labelledby="mobile-score-filter-title"
+                onClick={(event) => event.stopPropagation()}
               >
-                <div>
-                  <span>Score mÃƒÂ­nimo</span>
-                  <strong>{mobileMinScoreFilter ? `${mobileMinScoreFilter}+` : "Todos"}</strong>
+                <header className={styles.mobileVendasScoreModalHeader}>
+                  <div>
+                    <span>Filtro de score</span>
+                    <strong id="mobile-score-filter-title">Score minimo</strong>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setMobileScoreFilterOpen(false)}
+                    aria-label="Fechar filtro de score"
+                  >
+                    X
+                  </button>
+                </header>
+
+                <div className={styles.mobileVendasScoreModalMeter} style={{ "--mobile-score-filter": `${mobileMinScoreFilter}%` } as CSSProperties}>
+                  <strong>{mobileMinScoreFilter}</strong>
+                  <span>de 100</span>
                 </div>
-                <div>
+
+                <div className={styles.mobileVendasScoreModalControls} data-locked={mobileVisualFiltersUnlocked ? "false" : "true"}>
                   <button
                     type="button"
                     disabled={!mobileVisualFiltersUnlocked || mobileMinScoreFilter <= 0}
-                    onClick={() => stepMobileScoreFilter(-5)}
-                    aria-label="Diminuir score mÃƒÂ­nimo"
+                    onClick={() => stepMobileScoreFilter(-1)}
+                    aria-label="Diminuir score minimo em 1"
                   >
                     -
                   </button>
+                  <label>
+                    <span>{mobileVisualFiltersUnlocked ? "Ajuste de 1 em 1" : "Disponivel no HBX Lead"}</span>
+                    <input
+                      type="range"
+                      min="0"
+                      max="100"
+                      step="1"
+                      value={mobileMinScoreFilter}
+                      disabled={!mobileVisualFiltersUnlocked}
+                      onChange={(event) => setMobileScoreFilterValue(Number(event.target.value))}
+                      aria-label="Score minimo de 0 a 100"
+                    />
+                  </label>
                   <button
                     type="button"
                     disabled={!mobileVisualFiltersUnlocked || mobileMinScoreFilter >= 100}
-                    onClick={() => stepMobileScoreFilter(5)}
-                    aria-label="Aumentar score mÃƒÂ­nimo"
+                    onClick={() => stepMobileScoreFilter(1)}
+                    aria-label="Aumentar score minimo em 1"
                   >
                     +
                   </button>
+                </div>
+
+                <div className={styles.mobileVendasScoreModalQuick} aria-label="Atalhos de score">
+                  {[0, 25, 50, 75, 90, 100].map((value) => (
+                    <button
+                      type="button"
+                      key={value}
+                      disabled={!mobileVisualFiltersUnlocked}
+                      data-active={mobileMinScoreFilter === value ? "true" : "false"}
+                      onClick={() => setMobileScoreFilterValue(value)}
+                    >
+                      {value === 0 ? "Todos" : `${value}+`}
+                    </button>
+                  ))}
+                </div>
+
+                <footer className={styles.mobileVendasScoreModalActions}>
                   <button
                     type="button"
                     disabled={mobileMinScoreFilter <= 0}
-                    onClick={() => setMobileMinScoreFilter(0)}
+                    onClick={() => setMobileScoreFilterValue(0)}
                   >
                     Zerar
                   </button>
-                </div>
-              </div>
-            ) : null}
-          </section>
+                  <button type="button" onClick={() => setMobileScoreFilterOpen(false)}>
+                    Aplicar
+                  </button>
+                </footer>
+              </section>
+            </div>,
+            document.body,
+          ) : null}
 
           {nextRecommendedMobileLead && mobileSection !== "report" ? (
             <section className={styles.mobileVendasRecommendedCard} aria-label="PrÃƒÂ³ximo card recomendado">

@@ -1,0 +1,91 @@
+diff --git a/frontend/src/app/vendas/page.client.tsx b/frontend/src/app/vendas/page.client.tsx
+index 11b157a..3c2f7c2 100644
+--- a/frontend/src/app/vendas/page.client.tsx
++++ b/frontend/src/app/vendas/page.client.tsx
+@@ -6,9 +6,8 @@
+     salesProfile?.capabilities?.canSeeLeadIntelligence ||
+     salesProfile?.capabilities?.canSeeSocialLinks === true,
+   );
+-  const mobileVisualFiltersActive = mobileVisualFiltersUnlocked && (
+-    mobileVisualChannelFilters.length > 0 || mobileMinScoreFilter > 0
+-  );
++  const mobileVisualFiltersActive =
++    mobileVisualChannelFilters.length > 0 || mobileMinScoreFilter > 0;
+ 
+   const mobileLeads = useMemo(() => {
+     const normalized = mobileSearch.trim().toLowerCase();
+@@ -72,13 +71,11 @@
+   }
+ 
+   function clearMobileVisualFilters() {
+-    if (!mobileVisualFiltersUnlocked) return;
+     setMobileVisualChannelFilters([]);
+     setMobileMinScoreFilter(0);
+   }
+ 
+   function stepMobileScoreFilter(delta: number) {
+-    if (!mobileVisualFiltersUnlocked) return;
+     setMobileMinScoreFilter((current) => Math.max(0, Math.min(100, current + delta)));
+   }
+ 
+@@ -86,38 +83,18 @@
+                 type="button"
+                 className={styles.mobileVendasScoreIconFilter}
+                 data-active={mobileMinScoreFilter > 0 ? "true" : "false"}
+-                aria-disabled={!mobileVisualFiltersUnlocked}
+-                onClick={() => {
+-                  if (!mobileVisualFiltersUnlocked) {
+-                    router.push(toMobileRoute("/planos?intent=lead"));
+-                    return;
+-                  }
+-                  setMobileScoreFilterOpen((current) => !current);
+-                }}
+-                title={
+-                  mobileVisualFiltersUnlocked
+-                    ? mobileMinScoreFilter
+-                      ? `Score mínimo ${mobileMinScoreFilter}+`
+-                      : "Filtrar por score"
+-                    : "Score disponível no HBX Lead"
+-                }
+-                aria-label={
+-                  mobileVisualFiltersUnlocked
+-                    ? mobileMinScoreFilter
+-                      ? `Score mínimo ${mobileMinScoreFilter}+`
+-                      : "Abrir filtro de score"
+-                    : "Abrir planos para liberar filtro de score"
+-                }
++                onClick={() => setMobileScoreFilterOpen((current) => !current)}
++                title={mobileMinScoreFilter ? `Score mínimo ${mobileMinScoreFilter}+` : "Filtrar por score"}
++                aria-label={mobileMinScoreFilter ? `Score mínimo ${mobileMinScoreFilter}+` : "Abrir filtro de score"}
+                 aria-pressed={mobileScoreFilterOpen ? "true" : "false"}
+               >
+                 <strong aria-hidden="true">S</strong>
+                 {mobileMinScoreFilter > 0 ? <b>{mobileMinScoreFilter}+</b> : null}
+-                {!mobileVisualFiltersUnlocked ? <CrownGlyph /> : null}
+               </button>
+               <button
+                 type="button"
+                 className={styles.mobileVendasClearVisualFilters}
+-                disabled={!mobileVisualFiltersUnlocked || !mobileVisualFiltersActive}
++                disabled={!mobileVisualFiltersActive}
+                 onClick={clearMobileVisualFilters}
+                 title="Limpar filtros"
+                 aria-label="Limpar filtros"
+@@ -144,7 +121,7 @@
+                 <div>
+                   <button
+                     type="button"
+-                    disabled={!mobileVisualFiltersUnlocked || mobileMinScoreFilter <= 0}
++                    disabled={mobileMinScoreFilter <= 0}
+                     onClick={() => stepMobileScoreFilter(-5)}
+                     aria-label="Diminuir score mÃƒÂ­nimo"
+                   >
+@@ -152,7 +129,7 @@
+                   </button>
+                   <button
+                     type="button"
+-                    disabled={!mobileVisualFiltersUnlocked || mobileMinScoreFilter >= 100}
++                    disabled={mobileMinScoreFilter >= 100}
+                     onClick={() => stepMobileScoreFilter(5)}
+                     aria-label="Aumentar score mÃƒÂ­nimo"
+                   >
