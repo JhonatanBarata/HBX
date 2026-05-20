@@ -1,0 +1,602 @@
+diff --git a/frontend/src/app/master/_command-center/MasterCommandCenter.tsx b/frontend/src/app/master/_command-center/MasterCommandCenter.tsx
+--- a/frontend/src/app/master/_command-center/MasterCommandCenter.tsx
++++ b/frontend/src/app/master/_command-center/MasterCommandCenter.tsx
+@@ -224,25 +224,21 @@ export default function MasterCommandCenter(props: MasterCommandCenterProps) {
+       {loading ? (
+         <MasterLoadingState />
+       ) : (
+-        <>
+-          <MasterKpiStrip items={kpis} activeFilter={filter} onFilter={setFilter} />
+-          <div className={styles.commandLayout}>
+-            <MasterCompanyBoard
+-              companies={filteredCompanies}
+-              activeCompanyId={state.activeCompany?.id || null}
+-              onOpen={(company) => void actions.loadDetail(company.id)}
+-              onAssume={actions.assumeContext}
+-              companyHasContext={actions.companyHasActiveMasterContext}
+-              busyAction={state.busyAction}
+-            />
+-            <MasterCompanyInspector
+-              workspace={workspace}
+-              currentUser={currentUser}
+-              state={state}
+-              actions={actions}
+-            />
+-          </div>
+-        </>
++        <MasterOperationsLayout
++          kpis={kpis}
++          activeFilter={filter}
++          onFilter={setFilter}
++          companies={filteredCompanies}
++          activeCompanyId={state.activeCompany?.id || null}
++          onOpenCompany={(company) => void actions.loadDetail(company.id)}
++          onAssumeCompany={actions.assumeContext}
++          companyHasContext={actions.companyHasActiveMasterContext}
++          busyAction={state.busyAction}
++          workspace={workspace}
++          currentUser={currentUser}
++          state={state}
++          actions={actions}
++        />
+       )}
+
+       <CreateCompanyModal state={state} actions={actions} />
+@@ -282,6 +281,58 @@ export function MasterShell({ children }: { children: ReactNode }) {
+   return <div className={styles.masterShell}>{children}</div>;
+ }
+
++function MasterOperationsLayout({
++  kpis,
++  activeFilter,
++  onFilter,
++  companies,
++  activeCompanyId,
++  onOpenCompany,
++  onAssumeCompany,
++  companyHasContext,
++  busyAction,
++  workspace,
++  currentUser,
++  state,
++  actions,
++}: {
++  kpis: ReturnType<typeof buildCommandKpis>;
++  activeFilter: MasterCommandFilterId;
++  onFilter: (value: MasterCommandFilterId) => void;
++  companies: CompanySummary[];
++  activeCompanyId: number | null;
++  onOpenCompany: (company: CompanySummary) => void;
++  onAssumeCompany: (company: CompanySummary) => void;
++  companyHasContext: (companyId?: number | null) => boolean;
++  busyAction: string | null;
++  workspace: MasterCommandCenterProps["workspace"];
++  currentUser: MasterCommandCenterProps["currentUser"];
++  state: CommandState;
++  actions: CommandActions;
++}) {
++  return (
++    <section className={styles.operationsSurface}>
++      <MasterKpiStrip items={kpis} activeFilter={activeFilter} onFilter={onFilter} />
++      <div className={styles.commandLayout}>
++        <MasterCompanyBoard
++          companies={companies}
++          activeCompanyId={activeCompanyId}
++          onOpen={onOpenCompany}
++          onAssume={onAssumeCompany}
++          companyHasContext={companyHasContext}
++          busyAction={busyAction}
++        />
++        <MasterCompanyInspector
++          workspace={workspace}
++          currentUser={currentUser}
++          state={state}
++          actions={actions}
++        />
++      </div>
++    </section>
++  );
++}
++
+ function MasterTopCommandBar({
+   search,
+   onSearch,
+@@ -321,5 +376,7 @@ function MasterTopCommandBar({
+   onExitContext: () => void;
+ }) {
++  const contextActive = currentUser?.masterContext?.active === true;
++
+   return (
+     <section className={styles.topCommandBar}>
+       <div className={styles.commandIdentity}>
+@@ -329,43 +386,59 @@ function MasterTopCommandBar({
+         <small>
+           {currentUser?.masterContext?.active
+             ? `Operando: ${currentUser.masterContext.companyName || "empresa"}`
+-            : "Visão MASTER"}
++            : "Visão executiva da operação"}
+         </small>
++        <div className={styles.commandIdentityMeta}>
++          <span data-active={contextActive ? "true" : "false"}>
++            {contextActive ? "Contexto ativo" : "Sem contexto ativo"}
++          </span>
++          <span>Full desktop</span>
++        </div>
+       </div>
+-      <div className={styles.searchBox}>
+-        <label htmlFor="master-command-search">Busca</label>
+-        <input
+-          id="master-command-search"
+-          value={search}
+-          onChange={(event) => onSearch(event.target.value)}
+-          placeholder="Empresa, contato, plano, módulo, WhatsApp..."
+-        />
++
++      <div className={styles.commandWorkstation}>
++        <div className={styles.searchBox}>
++          <label htmlFor="master-command-search">Busca operacional</label>
++          <input
++            id="master-command-search"
++            value={search}
++            onChange={(event) => onSearch(event.target.value)}
++            placeholder="Empresa, contato, plano, módulo, cobrança, WhatsApp..."
++          />
++        </div>
++        <div className={styles.filterRail} aria-label="Filtros por problema real">
++          {MASTER_COMMAND_FILTERS.map((item) => (
++            <button
++              key={item.id}
++              type="button"
++              className={styles.filterButton}
++              data-active={filter === item.id ? "true" : "false"}
++              aria-current={filter === item.id ? "true" : undefined}
++              onClick={() => onFilter(item.id)}
++            >
++              {item.label}
++            </button>
++          ))}
++        </div>
+       </div>
+-      <div className={styles.filterRail} aria-label="Filtros por problema real">
+-        {MASTER_COMMAND_FILTERS.map((item) => (
+-          <button
+-            key={item.id}
+-            type="button"
+-            className={styles.filterButton}
+-            data-active={filter === item.id ? "true" : "false"}
+-            aria-current={filter === item.id ? "true" : undefined}
+-            onClick={() => onFilter(item.id)}
+-          >
+-            {item.label}
+-          </button>
+-        ))}
+-      </div>
+-      <div className={styles.commandActions}>
+-        <MasterActionButton onClick={onCreateCompany}>Nova empresa</MasterActionButton>
+-        <MasterActionButton variant="secondary" onClick={onOpenEmail}>Email</MasterActionButton>
+-        <MasterActionButton variant="secondary" onClick={onOpenComplaints}>Reclamações</MasterActionButton>
+-        <MasterActionButton variant="secondary" onClick={onOpenTokens}>Tokens MASTER</MasterActionButton>
+-        <MasterActionButton variant="secondary" onClick={onOpenModules}>Módulos</MasterActionButton>
+-        <MasterActionButton variant="secondary" onClick={onOpenDatabase}>Banco de Dados</MasterActionButton>
+-        <MasterActionButton variant="secondary" onClick={onReload}>{refreshing ? "Atualizando..." : "Atualizar"}</MasterActionButton>
+-        {currentUser?.masterContext?.active ? (
+-          <MasterActionButton variant="secondary" onClick={onExitContext}>Sair operação</MasterActionButton>
+-        ) : null}
++
++      <div className={styles.commandActionPanel}>
++        <div className={styles.commandActionHeader}>
++          <span>Ações rápidas</span>
++          <strong>{refreshing ? "Sincronizando..." : "Pronto para operar"}</strong>
++        </div>
++        <div className={styles.commandActions}>
++          <MasterActionButton onClick={onCreateCompany}>Nova empresa</MasterActionButton>
++          <MasterActionButton variant="secondary" onClick={onOpenEmail}>Email</MasterActionButton>
++          <MasterActionButton variant="secondary" onClick={onOpenComplaints}>Reclamações</MasterActionButton>
++          <MasterActionButton variant="secondary" onClick={onOpenDatabase}>Banco de Dados</MasterActionButton>
++          <MasterActionButton variant="secondary" onClick={onOpenTokens}>Tokens</MasterActionButton>
++          <MasterActionButton variant="secondary" onClick={onOpenModules}>Módulos</MasterActionButton>
++          <MasterActionButton variant="secondary" onClick={onReload}>{refreshing ? "Atualizando..." : "Atualizar"}</MasterActionButton>
++          {contextActive ? (
++            <MasterActionButton variant="secondary" onClick={onExitContext}>Sair operação</MasterActionButton>
++          ) : null}
++        </div>
+       </div>
+     </section>
+   );
+@@ -366,17 +430,20 @@ function MasterKpiStrip({
+     <section className={styles.kpiStrip} aria-label="Indicadores rápidos">
+       {items.map((item) => {
+         const targetFilter = mapToFilter[item.id] || "all";
++        const active = activeFilter === targetFilter;
+         return (
+           <button
+             key={item.id}
+             type="button"
+             className={styles.kpiCard}
+             data-tone={item.tone}
+-            data-active={activeFilter === targetFilter ? "true" : "false"}
++            data-active={active ? "true" : "false"}
+             onClick={() => onFilter(targetFilter)}
+           >
+             <span>{item.label}</span>
+             <strong>{item.value.toLocaleString("pt-BR")}</strong>
++            <small>{active ? "Filtro ativo" : "Clique para filtrar"}</small>
++            <i aria-hidden="true" />
+           </button>
+         );
+       })}
+@@ -396,7 +461,9 @@ function MasterCompanyBoard({
+         <div>
+           <span>Base operacional</span>
+           <strong>{companies.length.toLocaleString("pt-BR")} empresa(s)</strong>
++          <small>Selecione uma empresa para abrir o inspector completo.</small>
+         </div>
++        <MasterStatusBadge tone="neutral">Live</MasterStatusBadge>
+       </div>
+       <div className={styles.companyRows}>
+         {companies.map((company) => (
+diff --git a/frontend/src/app/master/_command-center/MasterCommandCenter.module.css b/frontend/src/app/master/_command-center/MasterCommandCenter.module.css
+--- a/frontend/src/app/master/_command-center/MasterCommandCenter.module.css
++++ b/frontend/src/app/master/_command-center/MasterCommandCenter.module.css
+@@ -1099,6 +1099,182 @@
+   }
+ }
+
++/* -------------------------------------------------------------------------- */
++/* MASTER PREMIUM STRUCTURE PATCH - generated clean diff                       */
++/* -------------------------------------------------------------------------- */
++
++.operationsSurface {
++  display: grid;
++  gap: 16px;
++}
++
++.commandIdentityMeta {
++  position: relative;
++  z-index: 1;
++  display: flex;
++  flex-wrap: wrap;
++  gap: 8px;
++  margin-top: 14px;
++}
++
++.commandIdentityMeta span {
++  width: fit-content;
++  border: 1px solid rgba(255, 255, 255, 0.16);
++  border-radius: 999px;
++  background: rgba(255, 255, 255, 0.08);
++  padding: 6px 9px;
++  color: rgba(255, 255, 255, 0.86);
++  font-size: 11px;
++  font-weight: 950;
++}
++
++.commandIdentityMeta span[data-active="true"] {
++  border-color: rgba(110, 231, 183, 0.42);
++  background: rgba(16, 185, 129, 0.18);
++  color: #bbf7d0;
++}
++
++.commandWorkstation,
++.commandActionPanel {
++  border: 1px solid var(--master-border);
++  border-radius: calc(var(--master-radius) + 8px);
++  background:
++    linear-gradient(180deg, rgba(255,255,255,0.9), rgba(255,255,255,0.72)),
++    var(--master-surface);
++  box-shadow: var(--master-shadow-soft);
++  backdrop-filter: blur(18px);
++}
++
++.commandWorkstation {
++  display: grid;
++  grid-template-rows: auto 1fr;
++  gap: 12px;
++  padding: 14px;
++}
++
++.commandActionPanel {
++  display: flex;
++  flex-direction: column;
++  gap: 12px;
++  padding: 14px;
++}
++
++.commandActionHeader {
++  display: flex;
++  flex-direction: column;
++  gap: 4px;
++}
++
++.commandActionHeader span {
++  color: var(--master-muted);
++  font-size: 11px;
++  font-weight: 950;
++  text-transform: uppercase;
++}
++
++.commandActionHeader strong {
++  font-size: 18px;
++  letter-spacing: -0.03em;
++}
++
++.commandWorkstation .searchBox {
++  min-height: auto;
++  padding: 0;
++  border: 0;
++  background: transparent;
++  box-shadow: none;
++}
++
++.commandWorkstation .searchBox input {
++  min-height: 58px;
++  border-radius: 18px;
++}
++
++.commandWorkstation .filterRail {
++  grid-column: auto;
++}
++
++.commandActionPanel .commandActions {
++  display: grid;
++  grid-column: auto;
++  grid-template-columns: repeat(2, minmax(0, 1fr));
++  gap: 8px;
++}
++
++.commandActionPanel .actionButton {
++  width: 100%;
++  min-height: 42px;
++  border-radius: 14px;
++}
++
++.topCommandBar {
++  grid-template-columns: minmax(260px, 0.75fr) minmax(520px, 1.45fr) minmax(320px, 0.8fr);
++}
++
++.kpiCard small {
++  position: relative;
++  z-index: 1;
++  display: block;
++  margin-top: 6px;
++  color: var(--master-muted);
++  font-size: 12px;
++  font-weight: 850;
++}
++
++.kpiCard i {
++  position: absolute;
++  left: 18px;
++  right: 18px;
++  bottom: 16px;
++  height: 7px;
++  overflow: hidden;
++  border-radius: 999px;
++  background: var(--master-muted-bg);
++}
++
++.kpiCard i::after {
++  content: "";
++  display: block;
++  width: 62%;
++  height: 100%;
++  border-radius: inherit;
++  background: var(--master-active-bg);
++}
++
++.kpiCard[data-active="true"] i::after {
++  background: var(--master-active-text);
++}
++
++.boardHeader {
++  align-items: flex-start;
++  gap: 12px;
++}
++
++.boardHeader small {
++  display: block;
++  max-width: 310px;
++  margin-top: 4px;
++  color: var(--master-muted);
++  font-size: 12px;
++  font-weight: 750;
++}
++
++@media (max-width: 1280px) {
++  .topCommandBar {
++    grid-template-columns: 1fr;
++  }
++
++  .commandActionPanel .commandActions {
++    grid-template-columns: repeat(4, minmax(0, 1fr));
++  }
++}
++
++@media (max-width: 760px) {
++  .commandActionPanel .commandActions {
++    grid-template-columns: 1fr;
++  }
++}
++
+ /* -------------------------------------------------------------------------- */
+ /* MASTER PREMIUM UI OVERRIDE - item 1                                        */
+ /* Frontend-only. NÃ£o altera lÃ³gica, handlers, API, plano ou permissÃµes.       */
+/* FIX FINAL - MASTER PREMIUM VISIVEL - colar no FINAL do arquivo */
+
+.masterShell {
+  padding: 18px !important;
+  background:
+    radial-gradient(circle at 0% 0%, rgba(37, 99, 235, 0.14), transparent 380px),
+    radial-gradient(circle at 100% 0%, rgba(20, 184, 166, 0.12), transparent 360px),
+    #eef4fa !important;
+}
+
+.topCommandBar {
+  display: grid !important;
+  grid-template-columns: 280px minmax(620px, 1fr) 300px !important;
+  gap: 14px !important;
+  align-items: stretch !important;
+  margin-bottom: 18px !important;
+}
+
+.commandIdentity {
+  min-height: 160px !important;
+  padding: 20px !important;
+}
+
+.commandIdentity strong {
+  font-size: 42px !important;
+  line-height: 0.92 !important;
+}
+
+.commandWorkstation {
+  min-height: 160px !important;
+  padding: 18px !important;
+  border: 1px solid var(--master-border) !important;
+  border-radius: 24px !important;
+  background: rgba(255,255,255,0.86) !important;
+  box-shadow: var(--master-shadow-soft) !important;
+}
+
+.commandWorkstation .searchBox {
+  min-height: auto !important;
+  padding: 0 !important;
+  border: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.commandWorkstation .searchBox input {
+  min-height: 54px !important;
+  font-size: 15px !important;
+  color: var(--master-text) !important;
+}
+
+.commandWorkstation .filterRail {
+  display: flex !important;
+  flex-wrap: wrap !important;
+  gap: 8px !important;
+  margin-top: 12px !important;
+}
+
+.commandWorkstation .filterButton {
+  min-height: 42px !important;
+  padding: 0 16px !important;
+  font-size: 12px !important;
+}
+
+.commandActionPanel {
+  min-height: 160px !important;
+  padding: 14px !important;
+  border: 1px solid var(--master-border) !important;
+  border-radius: 24px !important;
+  background: rgba(255,255,255,0.9) !important;
+  box-shadow: var(--master-shadow-soft) !important;
+}
+
+.commandActionHeader {
+  margin-bottom: 10px !important;
+}
+
+.commandActionHeader span {
+  display: block !important;
+  color: var(--master-muted) !important;
+  font-size: 11px !important;
+  font-weight: 900 !important;
+  text-transform: uppercase !important;
+}
+
+.commandActionHeader strong {
+  display: block !important;
+  margin-top: 2px !important;
+  font-size: 17px !important;
+  color: var(--master-text) !important;
+}
+
+.commandActionPanel .commandActions {
+  display: grid !important;
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  gap: 8px !important;
+}
+
+.commandActionPanel .actionButton {
+  width: 100% !important;
+  min-height: 38px !important;
+  padding: 0 10px !important;
+  border-radius: 12px !important;
+  font-size: 12px !important;
+}
+
+.kpiStrip {
+  display: grid !important;
+  grid-template-columns: repeat(6, minmax(170px, 1fr)) !important;
+  gap: 12px !important;
+  margin-bottom: 16px !important;
+}
+
+.kpiCard {
+  min-height: 118px !important;
+  padding: 18px !important;
+}
+
+.kpiCard strong {
+  font-size: 36px !important;
+}
+
+.kpiCard small {
+  display: block !important;
+  margin-top: 6px !important;
+  font-size: 12px !important;
+}
+
+.commandLayout {
+  display: grid !important;
+  grid-template-columns: minmax(540px, 0.78fr) minmax(720px, 1.22fr) !important;
+  gap: 16px !important;
+  align-items: start !important;
+}
+
+.companyBoard {
+  position: sticky !important;
+  top: 14px !important;
+  max-height: calc(100vh - 28px) !important;
+  padding: 16px !important;
+}
+
+.companyRow {
+  display: grid !important;
+  grid-template-columns: minmax(190px, 1fr) minmax(170px, 0.75fr) minmax(170px, 0.8fr) !important;
+  gap: 12px !important;
+  padding: 16px !important;
+}
+
+.inspector {
+  min-height: 420px !important;
+  padding: 18px !important;
+}
+
+.emptyState,
+.loadingState {
+  min-height: 150px !important;
+  font-size: 14px !important;
+}
+
+@media (max-width: 1380px) {
+  .topCommandBar,
+  .commandLayout {
+    grid-template-columns: 1fr !important;
+  }
+
+  .companyBoard {
+    position: static !important;
+    max-height: none !important;
+  }
+
+  .kpiStrip {
+    grid-template-columns: repeat(3, minmax(180px, 1fr)) !important;
+  }
+
+  .commandActionPanel .commandActions {
+    grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+  }
+}
