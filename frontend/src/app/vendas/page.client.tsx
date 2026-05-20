@@ -2388,6 +2388,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
   const [mobileScoreLead, setMobileScoreLead] = useState<LeadItem | null>(null);
   const [mobileVisualChannelFilters, setMobileVisualChannelFilters] = useState<MobileVisualChannelFilter[]>([]);
   const [mobileMinScoreFilter, setMobileMinScoreFilter] = useState(0);
+  const [mobileScoreFilterOpen, setMobileScoreFilterOpen] = useState(false);
   const [mobileNoteLead, setMobileNoteLead] = useState<LeadItem | null>(null);
   const [mobileNoteDraft, setMobileNoteDraft] = useState("");
   const [mobileSavingNote, setMobileSavingNote] = useState(false);
@@ -4971,6 +4972,20 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
               })}
               <button
                 type="button"
+                className={styles.mobileVendasScoreIconFilter}
+                data-active={mobileMinScoreFilter > 0 ? "true" : "false"}
+                disabled={!mobileVisualFiltersUnlocked}
+                onClick={() => setMobileScoreFilterOpen((current) => !current)}
+                title={mobileMinScoreFilter ? `Score mínimo ${mobileMinScoreFilter}+` : "Filtrar por score"}
+                aria-label={mobileMinScoreFilter ? `Score mínimo ${mobileMinScoreFilter}+` : "Abrir filtro de score"}
+                aria-pressed={mobileScoreFilterOpen ? "true" : "false"}
+              >
+                <strong aria-hidden="true">S</strong>
+                {mobileMinScoreFilter > 0 ? <b>{mobileMinScoreFilter}+</b> : null}
+                {!mobileVisualFiltersUnlocked ? <CrownGlyph /> : null}
+              </button>
+              <button
+                type="button"
                 className={styles.mobileVendasClearVisualFilters}
                 disabled={!mobileVisualFiltersUnlocked || !mobileVisualFiltersActive}
                 onClick={clearMobileVisualFilters}
@@ -4986,6 +5001,43 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
                 </svg>
               </button>
             </div>
+            {mobileScoreFilterOpen ? (
+              <div
+                className={styles.mobileVendasScorePopover}
+                role="dialog"
+                aria-label="Filtro de score"
+              >
+                <div>
+                  <span>Score mínimo</span>
+                  <strong>{mobileMinScoreFilter ? `${mobileMinScoreFilter}+` : "Todos"}</strong>
+                </div>
+                <div>
+                  <button
+                    type="button"
+                    disabled={!mobileVisualFiltersUnlocked || mobileMinScoreFilter <= 0}
+                    onClick={() => stepMobileScoreFilter(-5)}
+                    aria-label="Diminuir score mínimo"
+                  >
+                    -
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!mobileVisualFiltersUnlocked || mobileMinScoreFilter >= 100}
+                    onClick={() => stepMobileScoreFilter(5)}
+                    aria-label="Aumentar score mínimo"
+                  >
+                    +
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!mobileVisualFiltersUnlocked || mobileMinScoreFilter <= 0}
+                    onClick={() => setMobileMinScoreFilter(0)}
+                  >
+                    Zerar
+                  </button>
+                </div>
+              </div>
+            ) : null}
           </section>
 
           {nextRecommendedMobileLead && mobileSection !== "report" ? (
