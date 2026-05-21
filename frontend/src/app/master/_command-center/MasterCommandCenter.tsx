@@ -219,6 +219,9 @@ export default function MasterCommandCenter(props: MasterCommandCenterProps) {
           setComplaintsOpen(true);
           void loadComplaints();
         }}
+        onOpenExclusions={() => {
+          window.location.href = "/master/exclusoes";
+        }}
         onOpenTokens={() => actions.setMasterIntegrationsOpen(true)}
         onOpenModules={() => actions.setModuleCatalogOpen(true)}
         onOpenDatabase={() => {
@@ -342,6 +345,7 @@ function MasterTopCommandBar({
   onCreateCompany,
   onOpenEmail,
   onOpenComplaints,
+  onOpenExclusions,
   onOpenTokens,
   onOpenModules,
   onOpenDatabase,
@@ -357,6 +361,7 @@ function MasterTopCommandBar({
   onCreateCompany: () => void;
   onOpenEmail: () => void;
   onOpenComplaints: () => void;
+  onOpenExclusions: () => void;
   onOpenTokens: () => void;
   onOpenModules: () => void;
   onOpenDatabase: () => void;
@@ -417,6 +422,7 @@ function MasterTopCommandBar({
           <MasterActionButton onClick={onCreateCompany}>Nova empresa</MasterActionButton>
           <MasterActionButton variant="secondary" onClick={onOpenEmail}>Email</MasterActionButton>
           <MasterActionButton variant="secondary" onClick={onOpenComplaints}>Reclamações</MasterActionButton>
+          <MasterActionButton variant="secondary" onClick={onOpenExclusions}>Exclusões</MasterActionButton>
           <MasterActionButton variant="secondary" onClick={onOpenDatabase}>Banco de Dados</MasterActionButton>
           <MasterActionButton variant="secondary" onClick={onOpenTokens}>Tokens</MasterActionButton>
           <MasterActionButton variant="secondary" onClick={onOpenModules}>Módulos</MasterActionButton>
