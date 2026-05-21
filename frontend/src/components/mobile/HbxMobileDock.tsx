@@ -185,7 +185,7 @@ function DockIcon({
 
 export default function HbxMobileDock({
   primaryHref,
-  primaryLabel = "AÃ§Ã£o principal",
+  primaryLabel = "Ação principal",
   primaryTone = "default",
   primaryIcon,
   onPrimaryAction,
@@ -275,7 +275,7 @@ export default function HbxMobileDock({
 
   const dock = (
     <>
-      <nav className="hbx-mobile-dock-root" aria-label="NavegaÃ§Ã£o mobile HBX" data-menu-open={menuOpen ? "true" : "false"}>
+      <nav className="hbx-mobile-dock-root" aria-label="Navegação mobile HBX" data-menu-open={menuOpen ? "true" : "false"}>
         <div className="hbx-mobile-dock">
           {items.map((item) => (
             <button
@@ -320,7 +320,7 @@ export default function HbxMobileDock({
             onClick={() => setMenuOpen((current) => !current)}
             aria-expanded={menuOpen}
             aria-controls="hbx-mobile-more-sheet"
-            aria-label="Mais opÃ§Ãµes"
+            aria-label="Mais opções"
           >
             <DockIcon name="more" />
             <span>Mais</span>
@@ -335,7 +335,7 @@ export default function HbxMobileDock({
             className="hbx-mobile-more-sheet"
             role="dialog"
             aria-modal="true"
-            aria-label="Mais opÃ§Ãµes"
+            aria-label="Mais opções"
             onClick={(event) => event.stopPropagation()}
           >
             <span className="hbx-mobile-sheet-handle" aria-hidden="true" />
@@ -365,7 +365,7 @@ export default function HbxMobileDock({
               }}
             >
               <DockIcon name="report" />
-              <span>RelatÃ³rio</span>
+              <span>Relatório</span>
             </button>
             <button
               type="button"

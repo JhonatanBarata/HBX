@@ -2,7 +2,7 @@
   "elapsedMs": 155801,
   "before": {
     "url": "http://localhost:3001/mobile/radar-digital",
-    "text": "100 RADAR DIGITAL Pronto para abastecer Vendas Escolha cidade, segmento e alcance para buscar cards elegíveis. Alimentação · Rio Claro/SP · 50 km CIDADE Rio Claro SEGMENTO Alimentação ALCANCE 50 km FONTE ATUAL HBX Localização ESTADO SP CIDADE Rio Claro SEGMENTO Alimentação Categoria inteira selecionada. ALCANCE Cidade 25 km 50 km 100 km Busca cidades da região sem pesar a fila. 100 DISPONÍVEIS hoje 0/100 usados CARDS PARA GASTAR 30 de 100 - + FILTROS AVANÇADOS 0+ Buscar e abastecer Vendas Limpar filtros Vendas Radar Escuro Mais",
+    "text": "100 RADAR DIGITAL Pronto para abastecer Vendas Escolha cidade, segmento e alcance para buscar cards elegíveis. Alimentação · Rio Claro/SP · 50 km CIDADE Rio Claro SEGMENTO Alimentação ALCANCE 50 km FONTE ATUAL HBX Localização ESTADO SP CIDADE Rio Claro SEGMENTO Alimentação Categoria inteira selecionada. ALCANCE Cidade 25 km 50 km 100 km Busca cidades da região sem pesar a fila. 100 DISPONÍVEIS hoje 0/100 usados CARDS PARA GASTAR 30 de 100 - + FILTROS AVANÇADOS 0+ Buscar Limpar filtros Vendas Radar Escuro Mais",
     "buttons": [
       {
         "i": 0,
@@ -66,7 +66,7 @@
       },
       {
         "i": 12,
-        "text": "Buscar e abastecer Vendas",
+        "text": "Buscar",
         "aria": null
       },
       {
@@ -87,7 +87,7 @@
       {
         "i": 16,
         "text": "",
-        "aria": "Buscar e abastecer Vendas"
+        "aria": "Buscar"
       },
       {
         "i": 17,
@@ -218,7 +218,7 @@
       {
         "i": 16,
         "text": "",
-        "aria": "Buscar e abastecer Vendas"
+        "aria": "Buscar"
       },
       {
         "i": 17,

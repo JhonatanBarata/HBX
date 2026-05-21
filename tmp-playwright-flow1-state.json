@@ -1,5 +1,5 @@
 {
-  "body": "100 RADAR DIGITAL Pronto para abastecer Vendas Escolha cidade, segmento e alcance para buscar cards elegíveis. 50 km CIDADE Definir SEGMENTO Definir ALCANCE 50 km FONTE ATUAL HBX Localização ESTADO UF CIDADE Escolha o estado SEGMENTO Ex.: Clínica, academia, estética Escolha até 5 segmentos. ALCANCE Cidade 25 km 50 km 100 km Busca cidades da região sem pesar a fila. 100 DISPONÍVEIS hoje 0/100 usados CARDS PARA GASTAR 30 de 100 - + FILTROS AVANÇADOS 0+ Buscar e abastecer Vendas Limpar filtros Estado Fechar Limpar seleção AC AL AP AM BA CE DF ES GO MA MT MS MG PA PB PR PE PI RJ RN RS RO RR SC SP SE TO Vendas Radar Escuro Mais",
+  "body": "100 RADAR DIGITAL Pronto para abastecer Vendas Escolha cidade, segmento e alcance para buscar cards elegíveis. 50 km CIDADE Definir SEGMENTO Definir ALCANCE 50 km FONTE ATUAL HBX Localização ESTADO UF CIDADE Escolha o estado SEGMENTO Ex.: Clínica, academia, estética Escolha até 5 segmentos. ALCANCE Cidade 25 km 50 km 100 km Busca cidades da região sem pesar a fila. 100 DISPONÍVEIS hoje 0/100 usados CARDS PARA GASTAR 30 de 100 - + FILTROS AVANÇADOS 0+ Buscar Limpar filtros Estado Fechar Limpar seleção AC AL AP AM BA CE DF ES GO MA MT MS MG PA PB PR PE PI RJ RN RS RO RR SC SP SE TO Vendas Radar Escuro Mais",
   "controls": [
     {
       "i": 0,
@@ -100,7 +100,7 @@
     {
       "i": 12,
       "tag": "BUTTON",
-      "text": "Buscar e abastecer Vendas",
+      "text": "Buscar",
       "placeholder": null,
       "aria": null,
       "visible": true
@@ -374,7 +374,7 @@
       "tag": "BUTTON",
       "text": "",
       "placeholder": null,
-      "aria": "Buscar e abastecer Vendas",
+      "aria": "Buscar",
       "visible": true
     },
     {

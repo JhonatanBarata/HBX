@@ -2,7 +2,7 @@
   "dump": {
     "url": "http://localhost:3001/mobile/radar-digital",
     "title": "HBX Solutions",
-    "body": "100 RADAR DIGITAL Pronto para abastecer Vendas Escolha cidade, segmento e alcance para buscar cards elegíveis. 50 km CIDADE Definir SEGMENTO Definir ALCANCE 50 km FONTE ATUAL HBX Localização ESTADO UF CIDADE Escolha o estado SEGMENTO Ex.: Clínica, academia, estética Escolha até 5 segmentos. ALCANCE Cidade 25 km 50 km 100 km Busca cidades da região sem pesar a fila. 100 DISPONÍVEIS hoje 0/100 usados CARDS PARA GASTAR 30 de 100 - + FILTROS AVANÇADOS 0+ Buscar e abastecer Vendas Limpar filtros Vendas Radar Escuro Mais",
+    "body": "100 RADAR DIGITAL Pronto para abastecer Vendas Escolha cidade, segmento e alcance para buscar cards elegíveis. 50 km CIDADE Definir SEGMENTO Definir ALCANCE 50 km FONTE ATUAL HBX Localização ESTADO UF CIDADE Escolha o estado SEGMENTO Ex.: Clínica, academia, estética Escolha até 5 segmentos. ALCANCE Cidade 25 km 50 km 100 km Busca cidades da região sem pesar a fila. 100 DISPONÍVEIS hoje 0/100 usados CARDS PARA GASTAR 30 de 100 - + FILTROS AVANÇADOS 0+ Buscar Limpar filtros Vendas Radar Escuro Mais",
     "controls": [
       {
         "tag": "A",
@@ -154,7 +154,7 @@
         "name": null,
         "aria": null,
         "placeholder": null,
-        "text": "Buscar e abastecer Vendas",
+        "text": "Buscar",
         "cls": "page-module__Z3-Ujq__mobileRadarSubmit hbx-mobile-primary-button",
         "id": ""
       },
@@ -724,7 +724,7 @@
         "role": null,
         "type": "button",
         "name": null,
-        "aria": "Buscar e abastecer Vendas",
+        "aria": "Buscar",
         "placeholder": null,
         "text": "",
         "cls": "hbx-mobile-dock-primary",

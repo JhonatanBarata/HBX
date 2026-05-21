@@ -3008,6 +3008,10 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     return Math.max(5_000, parsePositiveIntegerEnv('HBX_SEARCH_BATCH_TIMEOUT_MS', 35_000));
   }
 
+  private getHbxSocialBatchTimeoutMs() {
+    return Math.max(this.getHbxBatchTimeoutMs(), parsePositiveIntegerEnv('HBX_SEARCH_SOCIAL_BATCH_TIMEOUT_MS', 120_000));
+  }
+
   private getRadarClientRequestTimeoutMs() {
     return Math.max(60_000, parsePositiveIntegerEnv('HBX_RADAR_CLIENT_REQUEST_TIMEOUT_MS', 65_000));
   }
@@ -3212,6 +3216,17 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     );
   }
 
+  private hasSocialDiscoveryIntent(input: Pick<NormalizedSearchInput, 'preferredChannels' | 'requiredChannels' | 'qualityMode'>) {
+    const channels = new Set([...(input.preferredChannels || []), ...(input.requiredChannels || [])]);
+    return input.qualityMode === 'lead_plus' || channels.has('instagram') || channels.has('facebook');
+  }
+
+  private isSocialDiscoveryQuery(query: string | null | undefined) {
+    const normalized = String(query || '').toLowerCase();
+    return /(^|\s)site:(www\.)?(instagram|facebook)\.com\b/.test(normalized)
+      || /\b(instagram|facebook)\b/.test(normalized);
+  }
+
   private buildHbxBatchQueryVariants(input: NormalizedSearchInput, segment: string, target: RegionalCity) {
     const city = target.city;
     const state = target.state;
@@ -3224,13 +3239,14 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       : segment;
     const requestedChannels = new Set([...(input.preferredChannels || []), ...(input.requiredChannels || [])]);
     const channelQueries: string[] = [];
-    if (requestedChannels.has('instagram')) {
+    const socialDiscovery = this.hasSocialDiscoveryIntent(input);
+    if (socialDiscovery || requestedChannels.has('instagram')) {
       channelQueries.push(
         this.compactQuery(['site:instagram.com', effectiveNiche, city, state]),
         this.compactQuery([effectiveNiche, city, state, 'instagram oficial']),
       );
     }
-    if (requestedChannels.has('facebook')) {
+    if (socialDiscovery || requestedChannels.has('facebook')) {
       channelQueries.push(
         this.compactQuery(['site:facebook.com', effectiveNiche, city, state]),
         this.compactQuery([effectiveNiche, city, state, 'facebook oficial']),
@@ -5272,7 +5288,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         ...attemptInput,
         quantity,
       };
-      const sendExplicitQuery = !this.hasIntentSensitiveDiscovery(batchInput);
+      const sendExplicitQuery = !this.hasIntentSensitiveDiscovery(batchInput) || this.isSocialDiscoveryQuery(queryUsed);
       const batchResponse = await this.searchHbxEngine(
         batchInput,
         excludePhoneDigits,
@@ -5280,7 +5296,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         {
           queryText: sendExplicitQuery ? queryUsed : undefined,
           batchLimit: quantity,
-          timeoutMs: this.getHbxBatchTimeoutMs(),
+          timeoutMs: this.isSocialDiscoveryQuery(queryUsed) ? this.getHbxSocialBatchTimeoutMs() : this.getHbxBatchTimeoutMs(),
         },
       );
       const runAfterEngine = await this.prisma.webscrapingSearchRun.findUnique({
@@ -6218,14 +6234,14 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       onlyWithWebsite: false,
       radiusKm,
     };
+    const salesProfile = this.normalizeLeadQualitySalesProfileInput(input);
     const channelFilters = this.buildChannelFiltersJson({
-      preferredChannels: [],
-      requiredChannels: [],
-      channelMatchMode: 'prefer',
+      preferredChannels: input.preferredChannels || salesProfile?.preferredChannels,
+      requiredChannels: input.requiredChannels || salesProfile?.requiredChannels,
+      channelMatchMode: input.channelMatchMode,
       qualityMode: input.qualityMode,
     });
     const freshness = this.normalizeFreshness(input.freshness);
-    const salesProfile = this.normalizeLeadQualitySalesProfileInput(input);
     const filtersJson = JSON.stringify({
       ...filters,
       ...channelFilters,
@@ -16369,6 +16385,41 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
+  private normalizeRadarSocialUrl(value: unknown, network: 'instagram' | 'facebook') {
+    const raw = String(value || '').trim();
+    if (!raw) return null;
+    try {
+      const parsed = new URL(raw.startsWith('http') ? raw : `https://${raw}`);
+      const host = parsed.hostname.replace(/^www\./i, '').toLowerCase();
+      const expectedHost = network === 'instagram' ? 'instagram.com' : 'facebook.com';
+      const alternateHost = network === 'facebook' ? 'fb.com' : '';
+      if (host !== expectedHost && !host.endsWith(`.${expectedHost}`) && (!alternateHost || (host !== alternateHost && !host.endsWith(`.${alternateHost}`)))) {
+        return null;
+      }
+      const parts = parsed.pathname.split('/').filter(Boolean);
+      if (!parts.length) return null;
+      if (parts.some((part) => RADAR_SOCIAL_BLOCKED_PATH_PARTS.has(normalizeLookupValue(part)))) return null;
+      parsed.protocol = 'https:';
+      parsed.hash = '';
+      parsed.search = '';
+      return parsed.toString().replace(/\/+$/, '');
+    } catch {
+      return null;
+    }
+  }
+
+  private pickRadarSocialUrl(item: any, network: 'instagram' | 'facebook') {
+    const explicitKeys = network === 'instagram'
+      ? ['instagramUrl', 'instagram', 'instagram_url', 'igUrl', 'ig']
+      : ['facebookUrl', 'facebook', 'facebook_url', 'fbUrl', 'fb'];
+    const genericKeys = ['socialUrl', 'socialProfileUrl', 'profileUrl', 'url', 'href', 'link', 'sourceUrl', '_pageUrl', 'pageUrl', 'website'];
+    for (const key of [...explicitKeys, ...genericKeys]) {
+      const url = this.normalizeRadarSocialUrl(item?.[key], network);
+      if (url && !looksLikeThirdPartySocialProfile(url)) return url;
+    }
+    return null;
+  }
+
   private mapHbxContactResult(item: any, inputOrTargetType: HbxTargetType | NormalizedSearchInput): WebscrapingContactResult | null {
     const targetType = typeof inputOrTargetType === 'string' ? inputOrTargetType : inputOrTargetType.targetType;
     const requiredChannels = typeof inputOrTargetType === 'string' ? [] : this.requiredChannelsForInput(inputOrTargetType);
@@ -16381,8 +16432,8 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     }
     const phone = String(item?.phone || '').trim();
     const phoneDigits = normalizePhoneDigits(item?.phoneDigits || phone);
-    const instagramUrl = String(item?.instagramUrl || '').trim() || null;
-    const facebookUrl = String(item?.facebookUrl || '').trim() || null;
+    const instagramUrl = this.pickRadarSocialUrl(item, 'instagram');
+    const facebookUrl = this.pickRadarSocialUrl(item, 'facebook');
     const hasRequiredSocial = Boolean(
       (requiredChannels.includes('instagram') && instagramUrl)
       || (requiredChannels.includes('facebook') && facebookUrl)
