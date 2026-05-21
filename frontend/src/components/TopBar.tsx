@@ -3521,20 +3521,21 @@ export default function TopBar() {
     if (!runId || isTerminalRadarRunStatus(radarTopbarRun?.status)) return undefined;
 
     let active = true;
+    const stableRunId = runId;
     async function refreshRadarTopbarRun() {
       try {
-        const payload = await apiFetch<RadarTopbarRunResponse>(`/webscraping/radar/search-runs/${encodeURIComponent(runId)}`, {
+        const payload = await apiFetch<RadarTopbarRunResponse>(`/webscraping/radar/search-runs/${encodeURIComponent(stableRunId)}`, {
           requireAuth: true,
           timeoutMs: 12000,
         });
         if (!active) return;
         if (payload.status === "canceled") {
-          clearStoredRadarRun(runId);
+          clearStoredRadarRun(stableRunId);
           setRadarTopbarRun(null);
           return;
         }
         setRadarTopbarRun({
-          runId: payload.runId || payload.id || runId,
+          runId: payload.runId || payload.id || stableRunId,
           status: payload.status || radarTopbarRun?.status || null,
           city: payload.meta?.filters?.city || radarTopbarRun?.city || null,
           state: payload.meta?.filters?.state || radarTopbarRun?.state || null,
@@ -4725,7 +4726,7 @@ export default function TopBar() {
           eyebrow: "Radar",
           title,
           description,
-          phase: state === "paused" ? "warning" : state === "running" ? "success" : "neutral",
+          phase: state === "paused" ? "warning" : state === "running" ? "success" : "idle",
           source: "webscraping",
           href: "/vendas?radar=1",
           progress,
