@@ -1,4 +1,5 @@
 export const MOBILE_ROUTE_PREFIX = "/mobile";
+export const MOBILE_VIEWPORT_QUERY = "(max-width: 820px)";
 
 const MOBILE_ROUTE_ALIASES: Record<string, string> = {
   "/login": "/mobile/login",
@@ -39,4 +40,22 @@ export function mobileRouteIsActive(currentPathname: string | null | undefined, 
   const current = String(currentPathname || "");
   const target = toMobileRoute(targetPathname);
   return current === target || current === targetPathname;
+}
+
+export function isMobileRoutePath(pathname: string | null | undefined) {
+  return String(pathname || "").startsWith(MOBILE_ROUTE_PREFIX);
+}
+
+export function isMobileViewport() {
+  if (typeof window === "undefined") return false;
+
+  try {
+    return window.matchMedia(MOBILE_VIEWPORT_QUERY).matches;
+  } catch {
+    return window.innerWidth <= 820;
+  }
+}
+
+export function shouldUseMobileRoute(pathname?: string | null) {
+  return isMobileRoutePath(pathname) || isMobileViewport();
 }

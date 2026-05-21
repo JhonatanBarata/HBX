@@ -62,12 +62,8 @@ import {
   type ProviderCapabilities,
 } from "@/lib/provider-capabilities";
 import {
-  formatWhatsAppDateTime,
-  formatWhatsAppLiveHealthStatus,
   type WhatsAppCenterPayload,
-  type WhatsAppLiveHealthPayload,
 } from "@/lib/whatsapp-center";
-import { useWhatsAppLiveHealth } from "@/lib/useWhatsAppLiveHealth";
 import { apiFetch, getDashboardApiBaseUrl, getToken } from "@/app/_lib/api";
 import { startSmartPolling } from "@/app/_lib/polling";
 import { useRequireModule } from "@/app/_lib/useRequireModule";
@@ -449,32 +445,6 @@ type DockGlyph = "note" | "wallet" | "clock" | "gear" | "spark" | "user";
 
 function joinClassNames(...values: Array<string | false | null | undefined>) {
   return values.filter(Boolean).join(" ");
-}
-
-function parseDateMs(value?: string | null) {
-  if (!value) return null;
-  const parsed = new Date(value).getTime();
-  return Number.isNaN(parsed) ? null : parsed;
-}
-
-function formatSince(value?: string | null) {
-  const ms = parseDateMs(value);
-  if (!ms) return "sem registro";
-  const diffSeconds = Math.max(0, Math.floor((Date.now() - ms) / 1000));
-  if (diffSeconds < 60) return "agora";
-  const minutes = Math.floor(diffSeconds / 60);
-  if (minutes < 60) return `há ${minutes} min`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 48) return `há ${hours} h`;
-  const days = Math.floor(hours / 24);
-  return `há ${days} dias`;
-}
-
-function getWhatsAppLiveHealthTone(health?: WhatsAppLiveHealthPayload | null) {
-  if (!health) return "warning";
-  if (health.liveConfirmed && health.status === "healthy" && !health.inboundStale) return "success";
-  if (health.status === "disconnected" || health.status === "error") return "danger";
-  return "warning";
 }
 
 function readStoredGlobalBotEnabled() {
@@ -3109,10 +3079,6 @@ function InboxDesktopClientPage() {
   const [selectedConversation, setSelectedConversation] = useState<InboxConversation | null>(null);
   const [whatsappSession, setWhatsappSession] = useState<InboxBootstrapPayload["whatsappSession"]>(null);
   const [whatsappAccessBlocked, setWhatsappAccessBlocked] = useState(false);
-  const whatsAppLiveHealth = useWhatsAppLiveHealth({
-    enabled: hasToken === true,
-    intervalMs: 15000,
-  });
   const [bootstrapReady, setBootstrapReady] = useState(false);
   const [loadingList, setLoadingList] = useState(true);
   const [loadingMoreConversations, setLoadingMoreConversations] = useState(false);
@@ -4492,57 +4458,6 @@ function InboxDesktopClientPage() {
       setWhatsappCenterPayload(null);
     }
   }, []);
-
-  const refreshWhatsAppLiveHealthNow = useCallback(async () => {
-    const payload = await whatsAppLiveHealth.refresh(true);
-    if (payload?.liveConfirmed) {
-      setNotice({ tone: "success", text: "WhatsApp revalidado com confirmação viva." });
-      void bootstrapInbox({ take: INBOX_CONVERSATION_LIST_LIMIT });
-    } else if (payload) {
-      setNotice({ tone: "error", text: payload.reason || "WhatsApp ainda sem confirmação viva." });
-    }
-    return payload;
-  }, [bootstrapInbox, whatsAppLiveHealth]);
-
-  const restartWhatsAppSession = useCallback(async () => {
-    try {
-      setNotice({ tone: "info", text: "Reiniciando a sessão do WhatsApp..." });
-      await apiFetch("/companies/me/whatsapp-modal/restart", {
-        method: "POST",
-        requireAuth: true,
-        timeoutMs: 20000,
-      });
-      await refreshWhatsAppLiveHealthNow();
-    } catch (restartError) {
-      setNotice({
-        tone: "error",
-        text: restartError instanceof Error ? restartError.message : "Falha ao reiniciar a sessão.",
-      });
-    }
-  }, [refreshWhatsAppLiveHealthNow]);
-
-  const disconnectAndReconnectWhatsApp = useCallback(async () => {
-    try {
-      setNotice({ tone: "info", text: "Desconectando e solicitando nova conexão por QR..." });
-      await apiFetch("/companies/me/whatsapp-modal/disconnect", {
-        method: "POST",
-        requireAuth: true,
-        timeoutMs: 15000,
-      });
-      await apiFetch("/companies/me/whatsapp-modal/start", {
-        method: "POST",
-        requireAuth: true,
-        timeoutMs: 20000,
-      });
-      await refreshWhatsAppLiveHealthNow();
-      router.push("/whatsapp?focus=qr");
-    } catch (disconnectError) {
-      setNotice({
-        tone: "error",
-        text: disconnectError instanceof Error ? disconnectError.message : "Falha ao reconectar o WhatsApp.",
-      });
-    }
-  }, [refreshWhatsAppLiveHealthNow, router]);
 
   useEffect(() => () => clearInboxBootstrapStageTimer(), [clearInboxBootstrapStageTimer]);
 
@@ -8362,46 +8277,6 @@ function InboxDesktopClientPage() {
 
   if (!hasToken) return null;
 
-  const liveHealth = whatsAppLiveHealth.health;
-  const latestVisibleConversationAt = conversations.reduce<string | null>((latest, conversation) => {
-    const candidates = [
-      conversation.lastRealMessageAt,
-      conversation.lastMessageAt,
-      conversation.messages?.[0]?.createdAt,
-      conversation.updatedAt,
-    ];
-    for (const candidate of candidates) {
-      const currentMs = parseDateMs(candidate);
-      if (!currentMs) continue;
-      const latestMs = parseDateMs(latest);
-      if (!latestMs || currentMs > latestMs) latest = candidate || latest;
-    }
-    return latest;
-  }, selectedConversation?.lastRealMessageAt || selectedConversation?.lastMessageAt || null);
-  const liveHealthTone = getWhatsAppLiveHealthTone(liveHealth);
-  const shouldShowLiveHealthAlert = Boolean(
-    liveHealth &&
-      (
-        !liveHealth.liveConfirmed ||
-        liveHealth.status !== "healthy" ||
-        liveHealth.inboundStale ||
-        (latestVisibleConversationAt && liveHealth.inboundStale)
-      ),
-  );
-  const liveHealthAlertTitle = liveHealth?.liveConfirmed
-    ? "WhatsApp conectado, mas sem mensagens recentes no Atendimento."
-    : "WhatsApp desconectado ou sem confirmação viva. Novas conversas podem não estar chegando.";
-  const liveHealthStatusLabel = liveHealth ? formatWhatsAppLiveHealthStatus(liveHealth.status) : "Em leitura";
-  const lastInboundLabel = liveHealth?.lastInboundMessageAt
-    ? `${formatWhatsAppDateTime(liveHealth.lastInboundMessageAt)} (${formatSince(liveHealth.lastInboundMessageAt)})`
-    : "sem registro";
-  const lastCheckedLabel = liveHealth?.lastCheckedAt
-    ? `${formatWhatsAppDateTime(liveHealth.lastCheckedAt)} (${formatSince(liveHealth.lastCheckedAt)})`
-    : "sem registro";
-  const noRecentConversationWarning = Boolean(
-    liveHealth?.inboundStale ||
-      (latestVisibleConversationAt && parseDateMs(latestVisibleConversationAt) && Date.now() - Number(parseDateMs(latestVisibleConversationAt)) > 60 * 60 * 1000),
-  );
   const queueActionConversationIsArchived =
     queueActionConversationId ? queueByConversationId[queueActionConversationId] === "archived" : false;
 
@@ -8440,45 +8315,6 @@ function InboxDesktopClientPage() {
           </section>
         ) : activeTab === "messages" ? (
           <section className={styles.premiumInboxShell} data-ui-no-reveal="true">
-            {shouldShowLiveHealthAlert ? (
-              <div className={styles.inboxBannerStack}>
-                <div className={styles.whatsappLiveHealthBanner} data-tone={liveHealthTone}>
-                  <div className={styles.whatsappLiveHealthMain}>
-                    <span className={styles.whatsappLiveHealthKicker}>Alerta operacional WhatsApp</span>
-                    <strong>{liveHealthAlertTitle}</strong>
-                    <p>{liveHealth?.reason || "O HBX não confirmou a sessão viva do WhatsApp neste momento."}</p>
-                    {noRecentConversationWarning ? (
-                      <p className={styles.whatsappLiveHealthWarning}>
-                        Nenhuma mensagem nova desde {lastInboundLabel}. Verifique a conexão antes de atender.
-                      </p>
-                    ) : null}
-                  </div>
-                  <div className={styles.whatsappLiveHealthFacts}>
-                    <span><b>Status</b>{liveHealthStatusLabel}</span>
-                    <span><b>Última checagem</b>{lastCheckedLabel}</span>
-                    <span><b>Última recebida</b>{lastInboundLabel}</span>
-                    <span><b>Ação recomendada</b>{liveHealth?.actionLabel || "Revalidar agora"}</span>
-                  </div>
-                  <div className={styles.whatsappLiveHealthActions}>
-                    <button type="button" className="btn btn-primary btn-sm" onClick={() => void refreshWhatsAppLiveHealthNow()}>
-                      Revalidar agora
-                    </button>
-                    <button type="button" className="btn btn-secondary btn-sm" onClick={() => void restartWhatsAppSession()}>
-                      Reiniciar sessão
-                    </button>
-                    <button type="button" className="btn btn-secondary btn-sm" onClick={() => router.push("/whatsapp?focus=qr")}>
-                      Abrir QR Code
-                    </button>
-                    <button type="button" className="btn btn-secondary btn-sm" onClick={() => void disconnectAndReconnectWhatsApp()}>
-                      Desconectar e conectar de novo
-                    </button>
-                    <button type="button" className="btn btn-ghost btn-sm" onClick={() => router.push("/whatsapp?focus=status")}>
-                      Ver diagnóstico técnico
-                    </button>
-                  </div>
-                </div>
-              </div>
-            ) : null}
             <ProspectingAutomationStatus
               status={prospectingAutomationStatus}
               loading={prospectingAutomationLoading}

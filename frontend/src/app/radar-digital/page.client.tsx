@@ -1762,7 +1762,7 @@ function RadarMotionBackground({ active }: { active: boolean }) {
   );
 }
 
-export default function RadarDigitalClientPage() {
+export default function RadarDigitalClientPage({ mobileRoute = false }: { mobileRoute?: boolean } = {}) {
   const hasToken = useRequireModule("webscraping");
   const searchParams = useSearchParams();
   const [filters, setFilters] = useState<FilterState>(DEFAULT_FILTERS);
@@ -1804,6 +1804,10 @@ export default function RadarDigitalClientPage() {
   const mobileSearchNoticeRef = useRef<HTMLElement | null>(null);
   const filterEditingRef = useRef(false);
   const filterEditingReleaseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isMobileRadarSurface = useCallback(
+    () => mobileRoute || isMobileRadarViewport(),
+    [mobileRoute],
+  );
 
   const searchMatchedItems = useMemo(
     () => items.filter((item) => leadMatchesSearch(item, appliedGeneralSearch)),
@@ -2080,7 +2084,7 @@ export default function RadarDigitalClientPage() {
     }
 
     setTelonProgress((current) => (current > 8 && current < 96 ? current : 8));
-    if (isMobileRadarViewport()) {
+    if (isMobileRadarSurface()) {
       return undefined;
     }
 
@@ -2093,7 +2097,7 @@ export default function RadarDigitalClientPage() {
     }, 360);
 
     return () => window.clearInterval(timer);
-  }, [telonBusy]);
+  }, [isMobileRadarSurface, telonBusy]);
 
   useEffect(() => {
     if (!bulkSending) {
@@ -2434,7 +2438,7 @@ export default function RadarDigitalClientPage() {
   useEffect(() => {
     const runId = activeRun?.runId || activeRun?.id;
     if (!runId) return undefined;
-    const intervalMs = isMobileRadarViewport() ? 6500 : 2200;
+    const intervalMs = isMobileRadarSurface() ? 6500 : 2200;
     return startSmartPolling(async () => {
       try {
         const payload = await apiFetch<RadarSearchRunResponse>(`/webscraping/radar/search-runs/${encodeURIComponent(runId)}`, {
@@ -2453,7 +2457,7 @@ export default function RadarDigitalClientPage() {
       immediate: false,
       pauseWhenHidden: true,
     });
-  }, [activeRun?.id, activeRun?.runId, applyRadarRunPayload]);
+  }, [activeRun?.id, activeRun?.runId, applyRadarRunPayload, isMobileRadarSurface]);
 
   async function cancelActiveRadarRun() {
     const runId = activeRun?.runId || activeRun?.id || activeRunIdRef.current;
@@ -2492,7 +2496,7 @@ export default function RadarDigitalClientPage() {
     activeRunIdRef.current = null;
     const nextTargetFilters = {
       ...effectiveFilters,
-      targetType: isMobileRadarViewport() ? "pj" : effectiveFilters.targetType,
+      targetType: isMobileRadarSurface() ? "pj" : effectiveFilters.targetType,
       quantity: Math.max(1, Math.min(RADAR_VENDAS_STOCK_TARGET_MAX, Number(options?.quantityOverride || effectiveFilters.quantity || 1))),
     };
     const nextGeneralSearch = generalSearch.trim();
@@ -2951,7 +2955,7 @@ export default function RadarDigitalClientPage() {
       hideHeader
       showDashboardShortcut={false}
     >
-      <section className={styles.shell}>
+      <section className={styles.shell} data-mobile-route={mobileRoute ? "true" : "false"}>
         <div className={`${styles.mobileRadar} hbx-mobile-page`}>
           <section className={`${styles.mobileRadarHero} hbx-mobile-hero`} data-state={radarMomentState}>
             <RadarMotionBackground active={radarMotionActive} />
