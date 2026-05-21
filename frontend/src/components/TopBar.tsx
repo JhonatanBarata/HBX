@@ -285,7 +285,7 @@ const MODULES_TRIGGER_ID = "app-modules-trigger";
 const SUPPORT_PHONE = "++5519997024884";
 const SUPPORT_MESSAGE = "Olá, preciso de ajuda com o HBX!";
 
-const hiddenRoutes = new Set(["/login", "/register", "/reset-password", "/confirm-email", "/boasvindas", "/tutorial", "/pre-checkout", "/precheckout"]);
+const hiddenRoutes = new Set(["/", "/login", "/register", "/reset-password", "/confirm-email", "/boasvindas", "/tutorial", "/pre-checkout", "/precheckout"]);
 const SCRAPING_ENGINE_POLL_MS = 5000;
 const TOPBAR_FALLBACK_HBX_ENGINE_COUNT = 4;
 const HBX_ENGINE_GROUP_SIZE = 20;
