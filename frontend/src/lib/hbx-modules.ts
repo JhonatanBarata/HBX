@@ -23,7 +23,6 @@ export type UserModule = {
 const MODULE_SORT_ORDER = [
   "atendimento",
   "vendas",
-  "webscraping",
   "website",
   "cadastro",
   "financeiro",
@@ -54,7 +53,7 @@ export function resolveModuleHref(key: string, fallback?: string | null) {
     atendimento: "/atendimento",
     vendas: "/vendas",
     gerencial: "/gerencial",
-    webscraping: "/radar-digital",
+    webscraping: "/vendas?radar=1",
     cadastro: "/cadastros",
     financeiro: "/pagamento",
     website: "/website",
@@ -86,7 +85,7 @@ export function isModuleVisible(module: UserModule) {
 
 export function isCommercialEntryCandidate(module: UserModule) {
   const category = module.category || inferModuleCategory(module.key);
-  return isModuleVisible(module) && category === "commercial" && module.entryEligible !== false;
+  return normalizeUserModuleKey(module.key) !== "webscraping" && isModuleVisible(module) && category === "commercial" && module.entryEligible !== false;
 }
 
 export function isModuleBlocked(module: UserModule) {
@@ -117,7 +116,7 @@ export function resolveModuleBlockedHref(module: Pick<UserModule, "key" | "criti
   }
 
   if (criticalEngine === "webscraping") {
-    return "/radar-digital";
+    return "/vendas?radar=1";
   }
 
   return resolveModuleHref(normalizedKey);

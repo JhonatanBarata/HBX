@@ -849,10 +849,10 @@ export default function DesktopTutorialClient() {
 
   function goToWebscraping() {
     window.localStorage.setItem(TUTORIAL_COMPLETED_KEY, "true");
-    router.push("/radar-digital");
+    router.push("/vendas?radar=1");
   }
 
-  function finishMobileTutorial(destination = "/radar-digital") {
+  function finishMobileTutorial(destination = "/vendas?radar=1") {
     saveMobileTutorialName(tutorialName);
     window.localStorage.setItem(TUTORIAL_COMPLETED_KEY, "true");
     router.push(destination);
@@ -1325,7 +1325,7 @@ export default function DesktopTutorialClient() {
                 Próximo
               </button>
             ) : (
-              <button type="button" className={styles.mobileTutorialPrimary} onClick={() => finishMobileTutorial("/radar-digital")}>
+              <button type="button" className={styles.mobileTutorialPrimary} onClick={() => finishMobileTutorial("/vendas?radar=1")}>
                 Abrir Radar
               </button>
             )}

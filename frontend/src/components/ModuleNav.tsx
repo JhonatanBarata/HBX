@@ -35,7 +35,7 @@ const NAV_MODE_STORAGE_KEY = "hbx:navigation-mode:v1";
 const NAV_MODE_CHANGED_EVENT = "hbx-navigation-mode-changed";
 type NavigationMode = "basic" | "advanced";
 
-const BASIC_NAV_ORDER = ["atendimento", "radar_digital", "vendas", "whatsapp"];
+const BASIC_NAV_ORDER = ["atendimento", "vendas", "whatsapp"];
 const ADVANCED_NAV_KEYS = new Set([
   "website",
   "financeiro",
@@ -59,16 +59,6 @@ const NAV_ITEMS: NavItem[] = [
       route.startsWith("/messages"),
     category: "commercial",
     moduleKey: "atendimento",
-  },
-  {
-    key: "radar_digital",
-    href: "/radar-digital",
-    label: "Radar Digital",
-    shortLabel: "RD",
-    description: "Leads e oportunidades.",
-    matcher: (route) => route.startsWith("/radar-digital") || route.startsWith("/webscraping"),
-    category: "commercial",
-    moduleKey: "webscraping",
   },
   {
     key: "vendas",

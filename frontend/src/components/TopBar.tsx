@@ -4365,7 +4365,7 @@ export default function TopBar() {
     }
 
     if (slide.source === "engines" || slide.source === "webscraping") {
-      router.push(user?.isSystemMaster ? "/master/webscraping" : "/radar-digital");
+      router.push(user?.isSystemMaster ? "/master/webscraping" : "/vendas?radar=1");
       return;
     }
 
@@ -4401,7 +4401,7 @@ export default function TopBar() {
     }
 
     if (id === "queue") {
-      router.push(user?.isSystemMaster ? "/master/webscraping" : "/radar-digital");
+      router.push(user?.isSystemMaster ? "/master/webscraping" : "/vendas?radar=1");
       return;
     }
 
@@ -4703,7 +4703,7 @@ export default function TopBar() {
           description: scrapingEngineStatusMessage || hbxMainGaugeDetail,
           phase: hbxOperationalErrorCount > 0 || hbxQueueCount > visibleHbxEngineCount ? "warning" : "success",
           source: "webscraping",
-          href: user?.isSystemMaster ? "/master/webscraping" : "/radar-digital",
+          href: user?.isSystemMaster ? "/master/webscraping" : "/vendas?radar=1",
           progress,
           metrics: [
             { label: "Disponíveis", value: `${hbxEngineOnlineCount}/${visibleHbxEngineCount}` },
@@ -5136,9 +5136,6 @@ export default function TopBar() {
 
         {/* dock removed: counter is shown on individual icons (wa-health__queue-badge) */}
         <nav className="hbx-mobile-quicknav" aria-label="Navegação mobile">
-          <Link href="/radar-digital" className="hbx-mobile-quicknav__item">
-            <span>Radar</span>
-          </Link>
           <Link href="/vendas" className="hbx-mobile-quicknav__item">
             <span>Vendas</span>
           </Link>
