@@ -2,7 +2,7 @@ import asyncio
 from types import SimpleNamespace
 
 from app.schemas import EnrichLeadRequest, SearchRequest
-from app.services.discovery import _is_allowed_url, build_directory_seed_urls, build_social_queries, discover_social_profiles, discover_urls
+from app.services.discovery import _is_allowed_url, build_directory_seed_urls, build_intent_discovery_queries, build_social_queries, discover_social_profiles, discover_urls
 from app.services.filters import is_blocked_lead_source_domain, is_social_signal_domain
 from app.services.search_service import SearchService
 from app.services.social import is_valid_social_profile_url, normalize_social_url
@@ -26,6 +26,68 @@ def test_enrich_lead_request_preserves_required_website_and_email_channels() -> 
 
     assert request.preferredChannels == []
     assert request.requiredChannels == ["website", "email", "instagram", "facebook"]
+
+
+def test_pj_search_discovers_socials_without_making_them_preferred_channels() -> None:
+    request = SearchRequest(
+        city="Ubatuba",
+        state="SP",
+        segment="academias",
+        preferredChannels=[],
+        requiredChannels=[],
+        qualityMode="lead_plus",
+    )
+    service = SearchService()
+
+    assert request.preferredChannels == []
+    assert request.requiredChannels == []
+    assert service.effective_requested_social_channels(request) == {"instagram", "facebook"}
+    assert service.effective_discovery_channels(request) == ["instagram", "facebook", "website", "email"]
+
+
+def test_pj_search_discovers_site_and_email_without_channel_filters() -> None:
+    request = SearchRequest(
+        city="Ubatuba",
+        state="SP",
+        segment="academias",
+        preferredChannels=[],
+        requiredChannels=[],
+        qualityMode="lead_plus",
+    )
+    service = SearchService()
+    discovery_channels = service.effective_discovery_channels(request)
+    queries = build_intent_discovery_queries(
+        request.segment,
+        request.city,
+        request.state,
+        request.targetType,
+        request.query,
+        discovery_channels,
+        request.requiredChannels,
+    )
+
+    assert request.preferredChannels == []
+    assert request.requiredChannels == []
+    assert any("instagram" in query.lower() for query in queries)
+    assert any("site oficial" in query.lower() for query in queries)
+    assert any("contato email" in query.lower() for query in queries)
+
+
+def test_list_mode_uses_same_signal_discovery_without_channel_filters() -> None:
+    request = SearchRequest(
+        city="Ubatuba",
+        state="SP",
+        segment="academias",
+        preferredChannels=[],
+        requiredChannels=[],
+        qualityMode="list",
+    )
+    service = SearchService()
+
+    assert request.preferredChannels == []
+    assert request.requiredChannels == []
+    assert service.effective_requested_social_channels(request) == {"instagram", "facebook"}
+    assert service.effective_discovery_channels(request) == ["instagram", "facebook", "website", "email"]
 
 
 def test_website_candidate_rejects_aggregator_wrapped_official_domain() -> None:
@@ -678,6 +740,9 @@ def test_search_service_enriches_required_instagram_after_base_contact(monkeypat
         ),
     )
     monkeypatch.setattr("app.services.search_service.score_contact", lambda *args, **kwargs: 80)
+    monkeypatch.setattr(SearchService, "enrich_identity_search", lambda *args, **kwargs: {})
+    monkeypatch.setattr(SearchService, "guessed_social_url_for_contact", lambda *args, **kwargs: (None, 0))
+    monkeypatch.setattr(SearchService, "search_social_profile_url", lambda *args, **kwargs: (None, 0))
 
     response = asyncio.run(
         SearchService().search(
@@ -733,6 +798,7 @@ def test_search_with_preferred_instagram_keeps_card_without_instagram(monkeypatc
     monkeypatch.setattr("app.services.search_service.score_contact", lambda *args, **kwargs: 80)
     monkeypatch.setattr(SearchService, "guessed_social_url_for_contact", lambda *args, **kwargs: (None, 0))
     monkeypatch.setattr(SearchService, "search_social_profile_url", lambda *args, **kwargs: (None, 0))
+    monkeypatch.setattr(SearchService, "enrich_identity_search", lambda *args, **kwargs: {})
 
     response = asyncio.run(
         SearchService().search(
@@ -777,6 +843,9 @@ def test_search_keeps_social_only_card_without_phone(monkeypatch) -> None:
     monkeypatch.setattr("app.services.search_service.discover_social_profiles", lambda *args, **kwargs: [])
     monkeypatch.setattr("app.services.search_service.Fetcher", FakeFetcher)
     monkeypatch.setattr("app.services.search_service.score_contact", lambda *args, **kwargs: 80)
+    monkeypatch.setattr(SearchService, "enrich_identity_search", lambda *args, **kwargs: {})
+    monkeypatch.setattr(SearchService, "guessed_social_url_for_contact", lambda *args, **kwargs: (None, 0))
+    monkeypatch.setattr(SearchService, "search_social_profile_url", lambda *args, **kwargs: (None, 0))
 
     response = asyncio.run(
         SearchService().search(
@@ -839,6 +908,9 @@ def test_search_completes_remaining_slots_with_social_first(monkeypatch) -> None
         ),
     )
     monkeypatch.setattr("app.services.search_service.score_contact", lambda *args, **kwargs: 80)
+    monkeypatch.setattr(SearchService, "enrich_identity_search", lambda *args, **kwargs: {})
+    monkeypatch.setattr(SearchService, "guessed_social_url_for_contact", lambda *args, **kwargs: (None, 0))
+    monkeypatch.setattr(SearchService, "search_social_profile_url", lambda *args, **kwargs: (None, 0))
 
     response = asyncio.run(
         SearchService().search(
@@ -935,7 +1007,7 @@ def test_search_service_best_effort_uses_social_from_html_without_required_chann
     assert response.count == 1
     assert response.results[0].instagramUrl == "https://instagram.com/barbeariaestilo"
     assert response.results[0].website == "https://barbeariaestilo.example.com"
-    assert response.social["enrichmentRan"] is False
+    assert response.social["enrichmentRan"] is True
     assert response.stats["missingRequiredChannel"] == 0
 
 

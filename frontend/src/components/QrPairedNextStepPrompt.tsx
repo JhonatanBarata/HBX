@@ -29,7 +29,7 @@ const OPTIONS = [
   {
     label: "Radar Digital",
     description: "Prospectar contatos e enviar leads para Vendas.",
-    href: "/vendas?radar=1",
+    href: "/radar-digital",
   },
 ];
 

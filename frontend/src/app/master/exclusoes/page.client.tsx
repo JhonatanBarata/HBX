@@ -8,6 +8,7 @@ import { apiFetch } from "@/app/_lib/api";
 import { useRequireAuth } from "@/app/_lib/useRequireAuth";
 
 type ModuleItem = { key: string; name: string };
+type CompanyOption = { id: number; name?: string | null };
 
 type DeletionItem = {
   id: number;
@@ -71,6 +72,23 @@ export default function ExclusoesMasterClientPage() {
   const [deleteDialog, setDeleteDialog] = useState<{ item: DeletionItem; motivo: string } | null>(null);
   const [batchDialog, setBatchDialog] = useState<{ confirmText: string; motivo: string } | null>(null);
   const [restoreDialog, setRestoreDialog] = useState<{ item: RadarExcludedCard; motivo: string } | null>(null);
+
+  const companyOptions = useMemo(() => {
+    const map = new Map<number, CompanyOption>();
+    for (const item of data.records || []) {
+      const id = Number(item.company?.id || item.companyId || 0);
+      if (id > 0) map.set(id, { id, name: item.company?.name || null });
+    }
+    for (const item of data.radarCards || []) {
+      const id = Number(item.companyId || 0);
+      if (id > 0) map.set(id, { id, name: item.companyName || map.get(id)?.name || null });
+    }
+    const selectedId = Number(companyId || 0);
+    if (selectedId > 0 && !map.has(selectedId)) map.set(selectedId, { id: selectedId, name: null });
+    return Array.from(map.values()).sort((a, b) => (a.name || "").localeCompare(b.name || "") || a.id - b.id);
+  }, [companyId, data.records, data.radarCards]);
+
+  const batchScopeLabel = moduleKey || companyId || search ? "filtros atuais" : "todos os registros";
 
   const query = useMemo(() => {
     const params = new URLSearchParams();
@@ -193,7 +211,14 @@ export default function ExclusoesMasterClientPage() {
             <option value="">Todos os módulos</option>
             {data.modules.map((m) => <option key={m.key} value={m.key}>{m.name}</option>)}
           </select>
-          <input className="field" placeholder="Company ID" value={companyId} onChange={(e) => setCompanyId(e.target.value.replace(/[^0-9]/g, ""))} />
+          <select className="field" value={companyId} onChange={(e) => setCompanyId(e.target.value)}>
+            <option value="">Todas as empresas</option>
+            {companyOptions.map((company) => (
+              <option key={company.id} value={String(company.id)}>
+                {company.name ? `${company.name} (#${company.id})` : `Empresa #${company.id}`}
+              </option>
+            ))}
+          </select>
           <input className="field" placeholder="Buscar por entidade/motivo" value={search} onChange={(e) => setSearch(e.target.value)} />
         </div>
         <div className="mt-3 flex justify-end">
@@ -203,7 +228,7 @@ export default function ExclusoesMasterClientPage() {
             disabled={busyBatch}
             onClick={() => setBatchDialog({ confirmText: "", motivo: "" })}
           >
-            {busyBatch ? 'Limpando lote...' : 'Limpeza em lote (filtros atuais)'}
+            {busyBatch ? 'Limpando lote...' : `Limpeza em lote (${batchScopeLabel})`}
           </button>
         </div>
       </section>
@@ -376,7 +401,7 @@ export default function ExclusoesMasterClientPage() {
       <HbxConfirmDialog
         open={batchDialog !== null}
         title="Limpeza em lote"
-        description="A limpeza usará os filtros atuais da tela. Digite uma confirmação com pelo menos 10 caracteres antes de continuar."
+        description={`A limpeza usará ${batchScopeLabel}. Digite uma confirmação com pelo menos 10 caracteres antes de continuar.`}
         confirmLabel="Limpar lote"
         destructive
         busy={busyBatch}

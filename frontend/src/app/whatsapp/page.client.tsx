@@ -52,8 +52,8 @@ function formatPairingPhoneInput(value: string) {
 
 function resolveInternalNextPath(value: string | null) {
   const raw = String(value || "").trim();
-  if (!raw || !raw.startsWith("/") || raw.startsWith("//")) return "/vendas?radar=1";
-  if (/^\/https?:/i.test(raw)) return "/vendas?radar=1";
+  if (!raw || !raw.startsWith("/") || raw.startsWith("//")) return "/radar-digital";
+  if (/^\/https?:/i.test(raw)) return "/radar-digital";
   return raw;
 }
 

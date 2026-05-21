@@ -294,6 +294,18 @@ class SearchService:
         channels = set(preferred_channels or []) | set(required_channels or [])
         return {channel for channel in channels if channel in {"instagram", "facebook"}}
 
+    def effective_requested_social_channels(self, request: SearchRequest) -> set[str]:
+        channels = self.requested_social_channels(request.preferredChannels, request.requiredChannels)
+        if request.targetType == "pj":
+            channels.update({"instagram", "facebook"})
+        return channels
+
+    def effective_discovery_channels(self, request: SearchRequest) -> list[str]:
+        channels = list(dict.fromkeys([*(request.preferredChannels or []), *(request.requiredChannels or [])]))
+        if request.targetType == "pj":
+            channels = list(dict.fromkeys([*channels, "instagram", "facebook", "website", "email"]))
+        return channels
+
     def required_social_channels(self, required_channels: list[str] | None = None) -> set[str]:
         return {channel for channel in (required_channels or []) if channel in {"instagram", "facebook"}}
 
@@ -1864,7 +1876,7 @@ class SearchService:
         intent = SearchIntent.from_request(request)
         excluded_phones = set(request.excludePhoneDigits or [])
         excluded_urls = set(request.excludeUrls or [])
-        requested_social_channels = self.requested_social_channels(request.preferredChannels, request.requiredChannels)
+        requested_social_channels = self.effective_requested_social_channels(request)
         required_social_channels = self.required_social_channels(request.requiredChannels)
         social_requested = bool(requested_social_channels)
 
@@ -1884,7 +1896,7 @@ class SearchService:
             request.state,
             request.targetType,
             request.query,
-            list(request.preferredChannels or []),
+            self.effective_discovery_channels(request),
             list(request.requiredChannels or []),
             intent,
         )
@@ -1911,7 +1923,7 @@ class SearchService:
             len(excluded_phones),
             request.query,
             list(excluded_urls),
-            list(request.preferredChannels or []),
+            self.effective_discovery_channels(request),
             list(request.requiredChannels or []),
             intent,
         )

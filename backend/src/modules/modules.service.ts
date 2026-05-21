@@ -4953,10 +4953,6 @@ export class ModulesService implements OnModuleInit {
     const companyId = Number(filters?.companyId || 0);
     if (companyId > 0) where.companyId = companyId;
 
-    if (!moduleKey && !(companyId > 0)) {
-      throw new BadRequestException('Para limpeza em lote, informe moduleKey e/ou companyId.');
-    }
-
     const rows = await this.prisma.deletionRecord.findMany({
       where,
       select: { id: true, snapshot: true },

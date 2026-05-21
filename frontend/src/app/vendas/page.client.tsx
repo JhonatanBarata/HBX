@@ -22,6 +22,7 @@ import {
   useCallback,
   type CSSProperties,
   type FormEvent,
+  type PointerEvent as ReactPointerEvent,
 } from "react";
 import { createPortal } from "react-dom";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -2524,6 +2525,9 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
   const [mobileDeletingLead, setMobileDeletingLead] = useState(false);
   const [mobileBulkDeleteTarget, setMobileBulkDeleteTarget] =
     useState<MobileBulkDeleteTarget | null>(null);
+  const [mobileBulkHoldTab, setMobileBulkHoldTab] = useState<
+    MobileBulkDeleteTarget["tab"] | null
+  >(null);
   const [whatsappFilter, setWhatsappFilter] = useState<WhatsappFilter>("all");
   const [inboxFilter, setInboxFilter] = useState<InboxFilter>("all");
   const [bulkSelectionMode, setBulkSelectionMode] = useState(false);
@@ -2590,6 +2594,8 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
   const pendingVisualBoardRef = useRef<BoardResponse | null>(null);
   const lastDragEndedAtRef = useRef(0);
   const filterScrollerRef = useRef<HTMLDivElement | null>(null);
+  const mobileBulkHoldTimerRef = useRef<number | null>(null);
+  const mobileBulkHoldCompletedRef = useRef(false);
   const mobileDeepLinkHandledRef = useRef("");
   const lastRadarStatusSnapshotRef = useRef<{ count: number; status: string } | null>(null);
   const mobileScoreAnimatedKeyRef = useRef<string | null>(null);
@@ -2604,11 +2610,19 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
   );
 
   useEffect(() => {
+    if (mobileRoute) return;
     const radarParam = String(searchParams.get("radar") || "").trim().toLowerCase();
     if (radarParam === "1" || radarParam === "open" || radarParam === "true") {
       setRadarPopupOpen(true);
     }
-  }, [searchParams]);
+  }, [mobileRoute, searchParams]);
+
+  useEffect(() => {
+    if (mobileRoute || typeof window === "undefined") return undefined;
+    const handleDesktopRadarPopup = () => setRadarPopupOpen(true);
+    window.addEventListener("hbx:vendas-radar-popup", handleDesktopRadarPopup);
+    return () => window.removeEventListener("hbx:vendas-radar-popup", handleDesktopRadarPopup);
+  }, [mobileRoute]);
 
   useEffect(() => {
     if (!radarPopupOpen || typeof window === "undefined") return;
@@ -3734,6 +3748,21 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
     ? drafts[selectedLead.id] || createDraft(selectedLead)
     : null;
   const closedLeads = board?.blocks.closed || [];
+  const mobileLeadCount = Math.max(
+    board?.summary.total || 0,
+    (board?.summary.overdue || 0) +
+      (board?.summary.today || 0) +
+      (board?.summary.scheduled || 0),
+  );
+  const mobileFutureCount = board?.summary.scheduled || 0;
+
+  useEffect(() => {
+    return () => {
+      if (mobileBulkHoldTimerRef.current) {
+        window.clearTimeout(mobileBulkHoldTimerRef.current);
+      }
+    };
+  }, []);
 
   function mobileLeadPlace(lead: LeadItem) {
     const city = String(lead.city || "").trim();
@@ -4112,6 +4141,54 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
     setMobileReportReason("");
   }
 
+  function getMobileBulkTarget(
+    tab: MobileBulkDeleteTarget["tab"],
+  ): MobileBulkDeleteTarget | null {
+    const leads = tab === "overdue" ? board?.blocks.overdue || [] : board?.blocks.today || [];
+    const leadIds = leads.map((lead) => lead.id).filter(Boolean);
+    if (!leadIds.length) return null;
+    return {
+      tab,
+      label: tab === "overdue" ? "Atrasados" : "Hoje",
+      count: leadIds.length,
+      leadIds,
+    };
+  }
+
+  function cancelMobileBulkHold() {
+    if (mobileBulkHoldTimerRef.current) {
+      window.clearTimeout(mobileBulkHoldTimerRef.current);
+      mobileBulkHoldTimerRef.current = null;
+    }
+    setMobileBulkHoldTab(null);
+  }
+
+  function startMobileBulkHold(
+    event: ReactPointerEvent<HTMLButtonElement>,
+    tab: MobileBulkDeleteTarget["tab"],
+  ) {
+    if (event.pointerType === "mouse" && event.button !== 0) return;
+    const target = getMobileBulkTarget(tab);
+    if (!target || bulkDeleting) return;
+    mobileBulkHoldCompletedRef.current = false;
+    setMobileBulkHoldTab(tab);
+    mobileBulkHoldTimerRef.current = window.setTimeout(() => {
+      mobileBulkHoldTimerRef.current = null;
+      mobileBulkHoldCompletedRef.current = true;
+      setMobileBulkHoldTab(null);
+      setMobileAgendaTab(tab);
+      setMobileBulkDeleteTarget(target);
+      navigator.vibrate?.(24);
+    }, 1000);
+  }
+
+  function finishMobileBulkHold() {
+    cancelMobileBulkHold();
+    window.setTimeout(() => {
+      mobileBulkHoldCompletedRef.current = false;
+    }, 350);
+  }
+
   async function deleteMobileLead(targetLead = mobileReportLead) {
     if (!targetLead) return;
     setMobileDeletingLead(true);
@@ -4244,6 +4321,14 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
     const radarState = runFilters?.state || storedRadarRun?.state || "";
     const radarCity = runFilters?.city || storedRadarRun?.city || "";
     const radarSegment = runFilters?.segment || storedRadarRun?.segment || "";
+    const radarAdjustParams = new URLSearchParams();
+    if (radarState) radarAdjustParams.set("state", radarState);
+    if (radarCity) radarAdjustParams.set("city", radarCity);
+    if (radarSegment) radarAdjustParams.set("segment", radarSegment);
+    radarAdjustParams.set("quantity", String(runTarget || 40));
+    const radarAdjustHref = radarAdjustParams.toString()
+      ? `/radar-digital?${radarAdjustParams.toString()}`
+      : "/radar-digital";
     const radarProgressLabel =
       runTarget > 1
         ? `${Math.min(runDelivered, runTarget)} de ${runTarget} cards`
@@ -4337,30 +4422,6 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
               : mobileRadarState === "warning"
                 ? "Revise o Radar para destravar a busca."
                 : "Radar alimentou sua agenda comercial.";
-    const radarHeaderState =
-      runStatus === "sleeping"
-        ? "paused"
-        : mobileRadarState === "searching" || mobileRadarState === "preparing" || mobileRadarState === "receiving"
-          ? "running"
-          : mobileRadarState === "partial" || mobileRadarState === "warning"
-            ? "paused"
-            : "stopped";
-    const radarHeaderLabel =
-      radarHeaderState === "running"
-        ? "Radar rodando"
-        : radarHeaderState === "paused"
-          ? "Radar pausado"
-          : "Radar parado";
-    const radarHeaderActionLabel =
-      mobileRadarState === "partial" || mobileRadarState === "warning"
-        ? "Ajustar Radar"
-        : radarHeaderState === "running"
-          ? "Acompanhar Radar"
-          : "Abrir Radar";
-    const radarProgressPercent = runTarget > 0
-      ? Math.max(0, Math.min(100, Math.round((Math.min(runDelivered, runTarget) / runTarget) * 100)))
-      : 0;
-
     const activeCapabilities = board?.capabilities || salesProfile?.capabilities || {};
     const mobileHeroPremiumActive = Boolean(
       board?.planTier === "lead" ||
@@ -4958,8 +5019,8 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
               <SalesMotionBackground />
               <HeroPremiumCrown active={mobileHeroPremiumActive} />
               <span className={styles.mobileVendasHeroCopy}>
-                <small>Radar</small>
-                <strong>{radarHeaderLabel}</strong>
+                <small>HBX</small>
+                <strong>Vendas</strong>
                 <em>{salesHeaderSubtitle}</em>
               </span>
               <span className={styles.mobileVendasHeroGoal}>
@@ -4977,54 +5038,74 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
                   <em>{mobileRadarStatusText}</em>
                 </span>
               </span>
-              <button
-                type="button"
+              <Link
                 className={styles.mobileVendasHeroAction}
-                onClick={() => setRadarPopupOpen(true)}
+                href={mobileRadarState === "partial" || mobileRadarState === "warning" ? radarAdjustHref : "/radar-digital"}
                 aria-label={
                   mobileRadarState === "partial" || mobileRadarState === "warning"
                     ? "Ajustar Radar Digital"
                     : "Abrir Radar Digital"
                 }
               >
-                {radarHeaderActionLabel}
-              </button>
+                {mobileRadarState === "partial" || mobileRadarState === "warning" ? "Ajustar Radar" : "Abrir Radar"}
+              </Link>
             </section>
           </header>
 
-          <div className={styles.mobileVendasHeroStats} data-radar-state={radarHeaderState} aria-label="Resumo do Radar">
+          <div className={styles.mobileVendasHeroStats} aria-label="Resumo de Vendas">
             <button
               type="button"
-              className={styles.mobileRadarHeaderShortcut}
-              data-state={radarHeaderState}
-              onClick={() => setRadarPopupOpen(true)}
-              aria-label={`${radarHeaderActionLabel}: ${mobileRadarStatusLabel}`}
+              data-tone="danger"
+              data-active={mobileAgendaTab === "overdue" ? "true" : "false"}
+              data-holding={mobileBulkHoldTab === "overdue" ? "true" : "false"}
+              onPointerDown={(event) => startMobileBulkHold(event, "overdue")}
+              onPointerUp={finishMobileBulkHold}
+              onPointerCancel={cancelMobileBulkHold}
+              onPointerLeave={cancelMobileBulkHold}
+              onClick={(event) => {
+                if (mobileBulkHoldCompletedRef.current) {
+                  event.preventDefault();
+                  return;
+                }
+                setMobileSection("today");
+                setMobileAgendaTab("overdue");
+              }}
             >
-              <span aria-hidden="true">
-                {radarHeaderState === "running" ? <i /> : radarHeaderState === "paused" ? "!" : "•"}
-              </span>
-              <b>{radarHeaderLabel}</b>
-              <strong>{mobileRadarStatusLabel}</strong>
-              <small>{radarContextLabel}</small>
+              <b>Atrasados</b>
+              <strong>{board?.summary.overdue ?? 0}</strong>
             </button>
             <button
               type="button"
-              className={styles.mobileRadarHeaderMetric}
-              onClick={() => setRadarPopupOpen(true)}
-              aria-label={`${runDelivered} cards encontrados pelo Radar`}
+              data-tone="primary"
+              data-active={mobileAgendaTab === "today" ? "true" : "false"}
+              data-holding={mobileBulkHoldTab === "today" ? "true" : "false"}
+              onPointerDown={(event) => startMobileBulkHold(event, "today")}
+              onPointerUp={finishMobileBulkHold}
+              onPointerCancel={cancelMobileBulkHold}
+              onPointerLeave={cancelMobileBulkHold}
+              onClick={(event) => {
+                if (mobileBulkHoldCompletedRef.current) {
+                  event.preventDefault();
+                  return;
+                }
+                setMobileSection("today");
+                setMobileAgendaTab("today");
+              }}
             >
-              <b>Cards</b>
-              <strong>{runDelivered}</strong>
+              <b>Hoje</b>
+              <strong>{board?.summary.today ?? mobileLeadCount}</strong>
             </button>
             <button
               type="button"
-              className={styles.mobileRadarHeaderProgress}
-              onClick={() => setRadarPopupOpen(true)}
-              aria-label={`Progresso do Radar ${radarProgressPercent}%`}
+              data-tone="success"
+              data-active={mobileAgendaTab === "upcoming" ? "true" : "false"}
+              onClick={() => {
+                setMobileSection("today");
+                setMobileAgendaTab("upcoming");
+              }}
             >
-              <span style={{ "--radar-progress": `${radarProgressPercent}%` } as CSSProperties}>
-                {radarProgressPercent}%
-              </span>
+              <b>Próximos</b>
+              <strong>{mobileFutureCount}</strong>
             </button>
           </div>
 
@@ -5316,9 +5397,9 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
                     : "Troque a guia, limpe a busca ou volte ao Radar para ampliar cidade e segmento."}
                 </span>
                 {(board?.summary.total || 0) <= 0 && !radarFoundWithoutAgenda ? (
-                  <button type="button" className="hbx-mobile-primary-button" onClick={() => setRadarPopupOpen(true)}>
+                  <Link className="hbx-mobile-primary-button" href={toMobileRoute("/radar-digital")}>
                     Buscar cards agora
-                  </button>
+                  </Link>
                 ) : null}
               </div>
             )}
@@ -6630,11 +6711,12 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
         year: "numeric",
       })
     : "";
-
   function renderRadarPopup() {
-    if (!radarPopupOpen || typeof document === "undefined") return null;
+    if (mobileRoute || !radarPopupOpen || typeof document === "undefined") return null;
     const radarPopupParams = new URLSearchParams(searchParams.toString());
     radarPopupParams.delete("radar");
+    radarPopupParams.delete("radarAction");
+    radarPopupParams.delete("radarTick");
     const radarPopupSrc = `/mobile/radar-digital${radarPopupParams.toString() ? `?${radarPopupParams.toString()}` : ""}`;
 
     return createPortal(
@@ -6677,7 +6759,6 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
       <DashboardScaffold title="Vendas" hideHeader={true}>
         <style dangerouslySetInnerHTML={{ __html: vendasDragTopbarLockStyle }} />
         {renderMobileVendas()}
-        {renderRadarPopup()}
       </DashboardScaffold>
     );
   }

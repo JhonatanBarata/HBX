@@ -7,7 +7,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import DashboardScaffold from "@/components/DashboardScaffold";
 import { apiFetch } from "@/app/_lib/api";
 import { useRequireAuth } from "@/app/_lib/useRequireAuth";
-import PremiumPaymentCard from "./PremiumPaymentCard";
 import styles from "./page.module.css";
 
 type BillingCycle = "MONTHLY" | "ANNUAL";
@@ -249,6 +248,50 @@ const PLAN_CATALOG: Record<PlanKey, { title: string; monthly: number; includes: 
     monthly: 149.9,
     includes: ["Bot e automação", "Atendimento completo", "Configuração com a HBX"],
   },
+};
+
+const MOCK_FRONT_OVERVIEW: FinanceiroOverview = {
+  generatedAt: "2026-05-21T12:00:00.000Z",
+  permissions: { canManageBilling: true, canStartCheckout: true },
+  company: {
+    id: 0,
+    name: "HBX Preview",
+    paymentStatus: "PENDING",
+    paymentMethod: "CARD",
+    billingCycle: "MONTHLY",
+    billingProvider: "mercadopago",
+    subscriptionStatus: "pending_checkout",
+    selectedPlanKey: "hbx_padrao",
+    premiumAccess: false,
+    isActive: true,
+    contactEmail: "financeiro@hbxpreview.com",
+    primaryContactName: "Cliente Preview",
+    contactPhone: "19997024884",
+    taxDocument: "39053344705",
+    plan: { id: 0, name: "HBX Lead", price: 99.9 },
+  },
+  pricing: {
+    billingCycle: "MONTHLY",
+    monthlyValue: 99.9,
+    annualPlanDiscountPercent: 10,
+    finalCycleAmount: 99.9,
+    commercialPlan: {
+      planKey: "hbx_padrao",
+      title: "HBX Lead",
+      monthlyValue: 99.9,
+      referenceLabel: "mensal",
+      chargeDescription: "Assinatura HBX Lead",
+    },
+  },
+  paymentOptions: {
+    selectedMethod: "CARD",
+    card: { configured: false },
+    pix: { available: true, preferred: false },
+  },
+  subscription: null,
+  accountStatus: { label: "Checkout pendente" },
+  latestCharge: null,
+  history: [],
 };
 
 function formatCurrency(value?: number | null) {
@@ -536,6 +579,7 @@ function waitForMercadoPagoSdk(isActive: () => boolean) {
 export default function FinanceiroClientPage() {
   const hasToken = useRequireAuth();
   const searchParams = useSearchParams();
+  const isFrontMock = searchParams.get("mock") === "front";
   const publicKey = process.env.NEXT_PUBLIC_MERCADO_PAGO_PUBLIC_KEY || "";
   const isMockPayments =
     process.env.NODE_ENV === "development" &&
@@ -582,13 +626,16 @@ export default function FinanceiroClientPage() {
   const reason = searchParams.get("reason");
   const canManageBilling = overview?.permissions?.canManageBilling !== false;
   const checkoutMode = Boolean(overview && canManageBilling && (forceCheckout || isPendingCheckout(overview, reason)));
-  const shouldRenderBrick = Boolean(overview && canManageBilling && !isMockPayments && publicKey && ((checkoutMode && checkoutPaymentMethod === "CARD") || showCardUpdate));
+  const shouldRenderBrick = Boolean(!isFrontMock && overview && canManageBilling && !isMockPayments && publicKey && ((checkoutMode && checkoutPaymentMethod === "CARD") || showCardUpdate));
   const plan = PLAN_CATALOG[selectedPlanKey];
   const selectedPlanIsAssisted = selectedPlanKey === "hbx_melhor";
   const total = planCycleAmount(selectedPlanKey, billingCycle);
   const monthlyTotal = planCycleAmount(selectedPlanKey, "MONTHLY");
   const annualTotal = planCycleAmount(selectedPlanKey, "ANNUAL");
   const annualMonthlyEquivalent = Number((annualTotal / 12).toFixed(2));
+  const renewalCycleLabel = billingCycle === "ANNUAL" ? "anual" : "mensal";
+  const subscriptionLineLabel = billingCycle === "ANNUAL" ? "Assinatura anual" : "Assinatura mensal";
+  const legalRenewalCopy = `Renova ${renewalCycleLabel} até cancelar. Cobraremos ${formatCurrency(total)} com base no plano selecionado e nas vagas ativas. Cancele quando quiser em Configurações. Ao assinar, você concorda com os Termos comerciais e autoriza o armazenamento e a cobrança do seu método de pagamento.`;
   const latestPixCharge = overview?.latestCharge?.paymentMethod === "PIX" ? overview.latestCharge : null;
   const paymentConsentPhoneDigits = normalizeBrazilPhone(paymentConsentForm.phone);
   const paymentConsentTaxDigits = onlyDigits(paymentConsentForm.cpf);
@@ -618,6 +665,20 @@ export default function FinanceiroClientPage() {
   }, [billingCycle, contactName, checkoutMode, contactPhone, overview?.company.name, payerEmail, payerTaxDocument, selectedPlanKey, showCardUpdate]);
 
   const loadOverview = useCallback(async (background = false) => {
+    if (isFrontMock) {
+      setOverview(MOCK_FRONT_OVERVIEW);
+      setSelectedPlanKey("hbx_padrao");
+      setBillingCycle("MONTHLY");
+      setContactName("Cliente Preview");
+      setContactPhone(formatBrazilPhone("19997024884"));
+      setPayerTaxDocument(formatTaxDocument("39053344705"));
+      setPayerEmail("financeiro@hbxpreview.com");
+      setForceCheckout(true);
+      setCheckoutPaymentMethod(searchParams.get("method") === "pix" ? "PIX" : "CARD");
+      setLoading(false);
+      setError(null);
+      return;
+    }
     if (!background) setLoading(true);
     setError(null);
     try {
@@ -640,7 +701,7 @@ export default function FinanceiroClientPage() {
     } finally {
       if (!background) setLoading(false);
     }
-  }, [reason]);
+  }, [isFrontMock, reason, searchParams]);
 
   const openPaymentConsent = useCallback((method: PaymentConsentMethod, cardFormData?: MercadoPagoBrickFormData | null) => {
     const context = checkoutSubmissionRef.current;
@@ -990,12 +1051,12 @@ export default function FinanceiroClientPage() {
   }, [message]);
 
   useEffect(() => {
-    if (!checkoutMode) return;
+    if (isFrontMock || !checkoutMode) return;
     const timer = window.setInterval(() => {
       void loadOverview(true);
     }, 20000);
     return () => window.clearInterval(timer);
-  }, [checkoutMode, loadOverview]);
+  }, [checkoutMode, isFrontMock, loadOverview]);
 
   useEffect(() => {
     if (!shouldRenderBrick || !publicKey) return;
@@ -1227,39 +1288,28 @@ export default function FinanceiroClientPage() {
       {message ? <section className={styles.successCard}>{message}</section> : null}
 
       <section className={styles.checkoutShell}>
+        <header className={styles.checkoutTopbar}>
+          <Link href={changePlanHref} className={styles.checkoutBackLink} aria-label="Voltar para planos">&lt;</Link>
+          <h1 className={styles.checkoutTitle}>Configure o seu plano</h1>
+        </header>
         <article className={styles.checkoutMain}>
           <div className={styles.checkoutCompactGrid}>
             <div className={styles.checkoutLeftRail}>
-              <div className={`${styles.checkoutHero} ${styles.checkoutHeroCompact}`}>
-                <div className={styles.checkoutLogo} aria-hidden="true">HBX</div>
-                <p className={styles.checkoutSecureLine}>Checkout seguro: <strong>Mercado Pago</strong></p>
-              </div>
-
-              <div className={styles.checkoutStepper} aria-label="Etapas do checkout">
-                <Link href={changePlanHref} className={styles.stepLink} data-state="done">
-                  <b>1</b><strong>Plano</strong><small>Trocar plano</small>
-                </Link>
-                <span data-state="current"><b>2</b><strong>Dados</strong><small>Contato e CPF/CNPJ</small></span>
-                <span><b>3</b><strong>Pagamento</strong><small>Pix ou cartão</small></span>
-              </div>
-
               <section className={styles.checkoutSection}>
                 <div className={styles.sectionHeader}>
                   <div>
-                    <strong>Ciclo</strong>
+                    <strong>Detalhes do plano</strong>
                   </div>
                 </div>
                 <div className={styles.cycleCards} role="group" aria-label="Ciclo de cobrança">
                   <button type="button" data-active={billingCycle === "MONTHLY"} onClick={() => setBillingCycle("MONTHLY")}>
-                    <span className={styles.cycleName}>Mensal</span>
+                    <span className={styles.cycleName}>Faturamento mensal</span>
                     <strong>{formatCurrency(monthlyTotal)}/mês</strong>
-                    <small>Mês a mês.</small>
                   </button>
                   <button type="button" data-active={billingCycle === "ANNUAL"} onClick={() => setBillingCycle("ANNUAL")}>
-                    <span className={styles.discountBadge}>10% de desconto</span>
-                    <span className={styles.cycleName}>Anual</span>
+                    <span className={styles.cycleName}>Faturamento anual</span>
+                    <span className={styles.discountBadge}>Salvar 10%</span>
                     <strong>{formatCurrency(annualMonthlyEquivalent)}/mês</strong>
-                    <small>Cobrança anual.</small>
                   </button>
                 </div>
               </section>
@@ -1269,6 +1319,25 @@ export default function FinanceiroClientPage() {
                 <strong>{formatCurrency(total)}</strong>
                 <Link href={changePlanHref}>Trocar plano</Link>
               </div>
+
+              <section className={styles.checkoutSection}>
+                <div className={styles.sectionHeader}>
+                  <div>
+                    <strong>Informações de contato</strong>
+                  </div>
+                </div>
+                <label className={styles.field} htmlFor="checkout-contact-email">
+                  <span className={styles.fieldLabel}>E-mail</span>
+                  <input
+                    id="checkout-contact-email"
+                    className={styles.fieldInput}
+                    autoComplete="email"
+                    value={payerEmail}
+                    onChange={(event) => setPayerEmail(event.target.value)}
+                    placeholder="email@empresa.com"
+                  />
+                </label>
+              </section>
             </div>
 
             <div className={styles.checkoutPaymentRail}>
@@ -1282,13 +1351,9 @@ export default function FinanceiroClientPage() {
             <div className={styles.paymentMethodGrid} role="group" aria-label="Método de pagamento">
               <button type="button" data-active={checkoutPaymentMethod === "CARD"} onClick={() => setCheckoutPaymentMethod("CARD")}>
                 <span>Cartão</span>
-                <strong>Recorrente</strong>
-                <small>Melhor opção.</small>
               </button>
               <button type="button" data-active={checkoutPaymentMethod === "PIX"} onClick={() => setCheckoutPaymentMethod("PIX")}>
                 <span>Pix</span>
-                <strong>Avulso</strong>
-                <small>Libera ao confirmar.</small>
               </button>
             </div>
           </section>
@@ -1303,12 +1368,6 @@ export default function FinanceiroClientPage() {
               </div>
               <div className={styles.cardTokenPanel}>
                 <div className={styles.cardExperience}>
-                  <div className={styles.cardPreviewStack}>
-                    <PremiumPaymentCard
-                      brand="card"
-                      amountLabel={formatCurrency(total)}
-                    />
-                  </div>
                   <div className={styles.cardPaymentStack}>
                     <div className={styles.paymentDataBox}>
                       <div>
@@ -1327,7 +1386,23 @@ export default function FinanceiroClientPage() {
                         />
                       </label>
                     </div>
-                    {isMockPayments ? (
+                    {isFrontMock ? (
+                      <div className={styles.setupNotice}>
+                        <strong>Preview do formulário de cartão.</strong>
+                        <p>Número do cartão</p>
+                        <input className={styles.fieldInput} readOnly value="5031 7557 3453 0604" />
+                        <p>Nome impresso</p>
+                        <input className={styles.fieldInput} readOnly value="CLIENTE PREVIEW" />
+                        <p>Validade e CVV</p>
+                        <div className={styles.paymentDataGrid}>
+                          <input className={styles.fieldInput} readOnly value="11/30" />
+                          <input className={styles.fieldInput} readOnly value="123" />
+                        </div>
+                        <button type="button" className="btn btn-primary btn-sm" disabled>
+                          Assinar com cartão
+                        </button>
+                      </div>
+                    ) : isMockPayments ? (
                       <div className={styles.setupNotice}>
                         <strong>Assinatura mock ativa.</strong>
                         <p>Este ambiente libera o acesso localmente sem abrir Mercado Pago.</p>
@@ -1466,6 +1541,42 @@ export default function FinanceiroClientPage() {
             </div>
           </div>
         </article>
+        <aside className={styles.checkoutSummaryPanel} aria-label="Resumo do plano">
+          <div>
+            <h2 className={styles.summaryPlan}>{plan.title}</h2>
+            <p className={styles.summarySupport}>Principais recursos</p>
+          </div>
+          <ul className={styles.summaryFeatures}>
+            {plan.includes.map((feature) => (
+              <li key={feature}>{feature}</li>
+            ))}
+          </ul>
+          <div className={styles.summaryDivider} />
+          <div className={styles.summaryRows}>
+            <div>
+              <span>{subscriptionLineLabel}</span>
+              <strong>{formatCurrency(total)}</strong>
+            </div>
+            <div>
+              <span>Imposto estimado</span>
+              <strong>{formatCurrency(0)}</strong>
+            </div>
+            <div data-total="true">
+              <span>A pagar hoje</span>
+              <strong>{formatCurrency(total)}</strong>
+            </div>
+          </div>
+          {billingCycle === "ANNUAL" ? (
+            <p className={styles.annualSavings}>
+              Você economiza {formatCurrency((monthlyTotal * 12) - annualTotal)} por ano ao escolher o plano anual.
+            </p>
+          ) : null}
+          <p className={styles.checkoutLegalCopy}>
+            {legalRenewalCopy.split("Termos comerciais")[0]}
+            <Link href="/termos-comerciais" target="_blank">Termos comerciais</Link>
+            {legalRenewalCopy.split("Termos comerciais")[1]}
+          </p>
+        </aside>
       </section>
     </div>
   );

@@ -110,7 +110,7 @@ function mobilePrimaryAction(state: WelcomeState, tutorialCompleted: boolean) {
     return { label: "Abrir tutorial", path: "/tutorial" };
   }
   if (state.loaded && state.leadsCount <= 0) {
-    return { label: "Buscar primeiros cards", path: "/vendas?radar=1" };
+    return { label: "Buscar primeiros cards", path: "/radar-digital" };
   }
   return { label: "Abrir Vendas", path: "/vendas" };
 }
@@ -118,7 +118,7 @@ function mobilePrimaryAction(state: WelcomeState, tutorialCompleted: boolean) {
 function desktopRouteFromMobileDestination(path: string) {
   return path
     .replace(/^\/mobile\/boas-vindas/, "/boasvindas")
-    .replace(/^\/mobile\/radar-digital/, "/vendas?radar=1")
+    .replace(/^\/mobile\/radar-digital/, "/radar-digital")
     .replace(/^\/mobile\/vendas/, "/vendas");
 }
 
@@ -139,23 +139,23 @@ function MobileDashboard({
   const desktopCards = [
     {
       label: "Radar",
-      title: state.leadsCount > 0 ? "Fonte ativa" : "Buscar primeiros cards",
+      title: "Buscar cards",
       text: "Escolha cidade e segmento para montar sua fila comercial.",
-      path: "/vendas?radar=1",
+      path: "/radar-digital",
     },
     {
       label: "Vendas",
-      title: state.leadsCount > 0 ? `${state.leadsCount} cards` : "Fila limpa",
+      title: state.leadsCount > 0 ? `${state.leadsCount} cards` : "Abrir Vendas",
       text: state.leadsCount > 0
         ? "Abra os cards, chame pelo WhatsApp e marque retornos."
-        : "Os contatos aprovados pelo Radar aparecem aqui.",
+        : "Sua mesa comercial fica aqui depois da primeira busca.",
       path: "/vendas",
     },
     {
-      label: "Primeiro acesso",
-      title: "Tutorial mobile",
-      text: "Veja o básico de Conta, Radar e Vendas em poucos passos.",
-      path: "/tutorial",
+      label: "WhatsApp",
+      title: state.whatsappConnected ? "Conectado" : "Conectar depois",
+      text: state.whatsappConnected ? "Canal pronto para acionar oportunidades." : "Você pode buscar cards antes de conectar o canal.",
+      path: state.whatsappConnected ? "/vendas" : "/whatsapp",
     },
   ];
 
@@ -184,17 +184,17 @@ function MobileDashboard({
 
       <section className={styles.desktopWelcomeBoard} aria-label="Resumo da operação HBX">
         <div className={styles.desktopWelcomeHero}>
-          <span>Próximo passo</span>
-          <strong>{state.loaded ? primaryAction.label : "Preparando sua operação"}</strong>
-          <p>{subtitle}</p>
+          <span>HBX pronto</span>
+          <strong>Comece pelo Radar.</strong>
+          <p>Sem checkout agora. Primeiro entre, busque oportunidades e organize sua operação comercial.</p>
           {state.loaded ? (
             <button
               type="button"
               className={styles.desktopWelcomePrimary}
-              onClick={() => onNavigate?.(primaryAction.path)}
+              onClick={() => onNavigate?.("/radar-digital")}
               disabled={disabled}
             >
-              {primaryAction.label}
+              Buscar cards agora
             </button>
           ) : null}
         </div>
@@ -208,8 +208,8 @@ function MobileDashboard({
             <b>{state.whatsappConnected ? "Conectado" : "Opcional"}</b>
           </span>
           <span>
-            <small>Status</small>
-            <b>{status}</b>
+            <small>Cobrança</small>
+            <b>Depois</b>
           </span>
         </div>
         <div className={styles.desktopWelcomeCards}>
@@ -330,7 +330,7 @@ export default function BoasVindasClientPage({ mobileRoute = false }: { mobileRo
         if (mounted) {
           setMasterCheckComplete(true);
           if (!fromLoginEntry) {
-            router.replace(mobileRoute ? toMobileRoute("/vendas?radar=1") : "/vendas?radar=1");
+            router.replace(mobileRoute ? toMobileRoute("/radar-digital") : "/radar-digital");
           }
         }
       }

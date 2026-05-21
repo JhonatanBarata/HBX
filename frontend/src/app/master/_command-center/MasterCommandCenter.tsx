@@ -227,6 +227,9 @@ export default function MasterCommandCenter(props: MasterCommandCenterProps) {
         onOpenDatabase={() => {
           window.location.href = "/bancodedados";
         }}
+        onOpenLinks={() => {
+          window.open("/master/links", "_blank", "noopener,noreferrer");
+        }}
         onExitContext={actions.exitContext}
       />
 
@@ -349,6 +352,7 @@ function MasterTopCommandBar({
   onOpenTokens,
   onOpenModules,
   onOpenDatabase,
+  onOpenLinks,
   onExitContext,
 }: {
   search: string;
@@ -365,6 +369,7 @@ function MasterTopCommandBar({
   onOpenTokens: () => void;
   onOpenModules: () => void;
   onOpenDatabase: () => void;
+  onOpenLinks: () => void;
   onExitContext: () => void;
 }) {
   const contextActive = currentUser?.masterContext?.active === true;
@@ -425,6 +430,7 @@ function MasterTopCommandBar({
           <MasterActionButton variant="secondary" onClick={onOpenExclusions}>Exclusões</MasterActionButton>
           <MasterActionButton variant="secondary" onClick={onOpenDatabase}>Banco de Dados</MasterActionButton>
           <MasterActionButton variant="secondary" onClick={onOpenTokens}>Tokens</MasterActionButton>
+          <MasterActionButton variant="secondary" onClick={onOpenLinks}>Links</MasterActionButton>
           <MasterActionButton variant="secondary" onClick={onOpenModules}>Módulos</MasterActionButton>
           <MasterActionButton variant="secondary" onClick={onReload}>{refreshing ? "Atualizando..." : "Atualizar"}</MasterActionButton>
           {contextActive ? (
