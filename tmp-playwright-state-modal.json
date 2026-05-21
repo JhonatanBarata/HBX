@@ -941,7 +941,7 @@
       "tag": "BUTTON",
       "text": "",
       "placeholder": null,
-      "aria": "Buscar e abastecer Vendas",
+      "aria": "Buscar",
       "role": null,
       "cls": "hbx-mobile-dock-primary"
     },

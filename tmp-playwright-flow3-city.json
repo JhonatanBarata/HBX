@@ -1,5 +1,5 @@
 {
-  "body": "100 RADAR DIGITAL Pronto para abastecer Vendas Escolha cidade, segmento e alcance para buscar cards elegíveis. 50 km CIDADE Definir SEGMENTO Definir ALCANCE 50 km FONTE ATUAL HBX Localização ESTADO SP CIDADE Selecionar cidade SEGMENTO Ex.: Clínica, academia, estética Escolha até 5 segmentos. ALCANCE Cidade 25 km 50 km 100 km Busca cidades da região sem pesar a fila. 100 DISPONÍVEIS hoje 0/100 usados CARDS PARA GASTAR 30 de 100 - + FILTROS AVANÇADOS 0+ Buscar e abastecer Vendas Limpar filtros Cidade Fechar Limpar seleção Adamantina Adolfo Aguaí Águas da Prata Águas de Lindóia Águas de Santa Bárbara Águas de São Pedro Agudos Alambari Alfredo Marcondes Altair Altinópolis Alto Alegre Alumínio Álvares Florence Álvares Machado Álvaro de Carvalho Alvinlândia Americana Américo Brasiliense Américo de Campos Amparo Analândia Andradina Angatuba Anhembi Anhumas Aparecida Aparecida d'Oeste Apiaí Araçariguama Araçatuba Araçoiaba da Serra Aramina Arandu Arapeí Araraquara Araras Arco-Íris Arealva Areias Areiópolis Ariranha Artur Nogueira Arujá Aspásia Assis Atibaia Auriflama Avaí Avanhandava Avaré Bady Bassitt Balbinos Bálsamo Bananal Barão de Antonina Barbosa Bariri Barra Bonita Barra do Chapéu Barra do Turvo Barretos Barrinha Barueri Bastos Batatais Bauru Bebedouro Bento de Abreu Bernardino de Campos Bertioga Bilac Birigui Biritiba Mirim Boa Esperança do Sul Bocaina Bofete Boituva Bom Jesus dos Perdões Vendas Radar Escuro Mais",
+  "body": "100 RADAR DIGITAL Pronto para abastecer Vendas Escolha cidade, segmento e alcance para buscar cards elegíveis. 50 km CIDADE Definir SEGMENTO Definir ALCANCE 50 km FONTE ATUAL HBX Localização ESTADO SP CIDADE Selecionar cidade SEGMENTO Ex.: Clínica, academia, estética Escolha até 5 segmentos. ALCANCE Cidade 25 km 50 km 100 km Busca cidades da região sem pesar a fila. 100 DISPONÍVEIS hoje 0/100 usados CARDS PARA GASTAR 30 de 100 - + FILTROS AVANÇADOS 0+ Buscar Limpar filtros Cidade Fechar Limpar seleção Adamantina Adolfo Aguaí Águas da Prata Águas de Lindóia Águas de Santa Bárbara Águas de São Pedro Agudos Alambari Alfredo Marcondes Altair Altinópolis Alto Alegre Alumínio Álvares Florence Álvares Machado Álvaro de Carvalho Alvinlândia Americana Américo Brasiliense Américo de Campos Amparo Analândia Andradina Angatuba Anhembi Anhumas Aparecida Aparecida d'Oeste Apiaí Araçariguama Araçatuba Araçoiaba da Serra Aramina Arandu Arapeí Araraquara Araras Arco-Íris Arealva Areias Areiópolis Ariranha Artur Nogueira Arujá Aspásia Assis Atibaia Auriflama Avaí Avanhandava Avaré Bady Bassitt Balbinos Bálsamo Bananal Barão de Antonina Barbosa Bariri Barra Bonita Barra do Chapéu Barra do Turvo Barretos Barrinha Barueri Bastos Batatais Bauru Bebedouro Bento de Abreu Bernardino de Campos Bertioga Bilac Birigui Biritiba Mirim Boa Esperança do Sul Bocaina Bofete Boituva Bom Jesus dos Perdões Vendas Radar Escuro Mais",
   "controls": [
     {
       "i": 0,
@@ -100,7 +100,7 @@
     {
       "i": 12,
       "tag": "BUTTON",
-      "text": "Buscar e abastecer Vendas",
+      "text": "Buscar",
       "placeholder": null,
       "aria": null,
       "visible": true
@@ -798,7 +798,7 @@
       "tag": "BUTTON",
       "text": "",
       "placeholder": null,
-      "aria": "Buscar e abastecer Vendas",
+      "aria": "Buscar",
       "visible": true
     },
     {

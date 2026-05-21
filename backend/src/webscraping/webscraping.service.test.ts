@@ -1265,7 +1265,7 @@ test('buildHbxBatchQueries nao gera query PJ sem nicho', () => {
   assert.equal(queries.every((query) => normalizeQueryForTest(query).includes('oficina')), true);
 });
 
-test('buildHbxBatchQueries nao usa rede social como fonte primaria quando canal foi pedido', () => {
+test('buildHbxBatchQueries usa rede social quando canal social foi pedido', () => {
   const service = new WebscrapingService(createPrisma()) as any;
   const normalized = service.normalizeSearchInput({
     city: 'Campinas',
@@ -1278,8 +1278,25 @@ test('buildHbxBatchQueries nao usa rede social como fonte primaria quando canal 
   });
   const queries = service.buildHbxBatchQueries(normalized) as string[];
 
-  assert.equal(queries.some((query) => /\binstagram\b/i.test(query)), false);
-  assert.equal(queries.some((query) => /\bfacebook\b/i.test(query)), false);
+  assert.equal(queries.some((query) => /site:instagram\.com/i.test(query)), true);
+  assert.equal(queries.some((query) => /\binstagram oficial\b/i.test(query)), true);
+});
+
+test('buildHbxBatchQueries usa rede social no Lead Plus mesmo sem filtro de canal', () => {
+  const service = new WebscrapingService(createPrisma()) as any;
+  const normalized = service.normalizeSearchInput({
+    city: 'Campinas',
+    state: 'SP',
+    segment: 'beleza',
+    quantity: 10,
+    engine: 'hbx',
+    targetType: 'pj',
+    qualityMode: 'lead_plus',
+  });
+  const queries = service.buildHbxBatchQueries(normalized) as string[];
+
+  assert.equal(queries.some((query) => /site:instagram\.com/i.test(query)), true);
+  assert.equal(queries.some((query) => /site:facebook\.com/i.test(query)), true);
 });
 
 test('buildSearchRunResponse items preserva campos sociais do rawJson', () => {
@@ -2217,6 +2234,34 @@ test('mapHbxContactResult aceita card social-first na busca padrao sem filtro', 
   assert.equal(mapped.phoneDigits, '');
   assert.equal(mapped.instagramUrl, 'https://instagram.com/lanchonetesocialcampinas');
   assert.equal(service.isApprovedLeadQuality(quality), true);
+});
+
+test('mapHbxContactResult mapeia rede social vinda de sourceUrl generico', () => {
+  const service = new WebscrapingService(createPrisma()) as any;
+  const normalized = service.normalizeSearchInput({
+    city: 'Campinas',
+    state: 'SP',
+    segment: 'beleza',
+    quantity: 1,
+    engine: 'hbx',
+    targetType: 'pj',
+    requiredChannels: ['instagram'],
+    channelMatchMode: 'any_required',
+    qualityMode: 'lead_plus',
+  });
+
+  const mapped = service.mapHbxContactResult({
+    name: 'Studio Bonita Campinas',
+    phone: '',
+    phoneDigits: '',
+    sourceUrl: 'https://www.instagram.com/studiobonitacampinas/?hl=pt-br',
+    source: 'hbx_scraping:social_discovery',
+    score: 70,
+  }, normalized);
+
+  assert.ok(mapped);
+  assert.equal(mapped.instagramUrl, 'https://www.instagram.com/studiobonitacampinas');
+  assert.equal(String(mapped.placeId).startsWith('hbx:pj:social:'), true);
 });
 
 test('Radar bloqueia requiredChannels apenas em any_required/all_required', () => {
