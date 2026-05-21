@@ -366,7 +366,7 @@ export default function LoginPage({ mobileRoute = false }: { mobileRoute?: boole
     setLegalMenuOpen((current) => !current);
   }
 
-  function openRegisterWithTransition(start: "form" | "plans" = "form") {
+  function openRegisterWithTransition() {
     if (registerTransitioning) return;
     setRegisterTransitioning(true);
     try {
@@ -375,7 +375,7 @@ export default function LoginPage({ mobileRoute = false }: { mobileRoute?: boole
       // ignore sessionStorage errors
     }
     window.setTimeout(() => {
-      router.push(`/register?from=login&start=${start}${mobileRoute ? "&surface=mobile" : ""}`);
+      router.push(`/register${mobileRoute ? "?surface=mobile" : ""}`);
     }, 500);
   }
 
@@ -574,7 +574,7 @@ export default function LoginPage({ mobileRoute = false }: { mobileRoute?: boole
             } catch {
               // ignore sessionStorage errors
             }
-            router.push("/register?from=login");
+            router.push("/register");
           }, 2000);
         }
 
@@ -1239,7 +1239,7 @@ export default function LoginPage({ mobileRoute = false }: { mobileRoute?: boole
                   <button
                     type="button"
                     className="login-signInHint"
-                    onClick={() => openRegisterWithTransition("form")}
+                    onClick={() => openRegisterWithTransition()}
                   >
                     Criar conta
                   </button>
@@ -1247,7 +1247,7 @@ export default function LoginPage({ mobileRoute = false }: { mobileRoute?: boole
                 <button
                   type="button"
                   className="btn btn-secondary login-cta"
-                  onClick={() => openRegisterWithTransition("form")}
+                  onClick={() => openRegisterWithTransition()}
                 >
                   Criar conta
                 </button>
@@ -1358,7 +1358,7 @@ export default function LoginPage({ mobileRoute = false }: { mobileRoute?: boole
                           // ignore localStorage errors
                         }
 
-                        openRegisterWithTransition("form");
+                        openRegisterWithTransition();
                       }
                     : undefined
                 }
@@ -1409,14 +1409,6 @@ export default function LoginPage({ mobileRoute = false }: { mobileRoute?: boole
                 </span>
                 <span>Pedir assistência</span>
               </a>
-
-              <button
-                type="button"
-                className="login-plansEntry h-11"
-                onClick={() => openRegisterWithTransition("plans")}
-              >
-                <span>Planos</span>
-              </button>
 
               <p className="login-mobileTerms">
                 Ao entrar, você concorda com as normas do HBX.

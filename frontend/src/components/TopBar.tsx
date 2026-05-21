@@ -29,6 +29,13 @@ import {
   dispatchMasterContextChanged,
   type MasterContextChangedDetail,
 } from "../lib/masterContextEvents";
+import {
+  clearStoredRadarRun,
+  isTerminalRadarRunStatus,
+  readStoredRadarRun,
+  subscribeStoredRadarRun,
+  type StoredRadarRun,
+} from "@/lib/radar-active-run";
 import { dispatchModulesChanged, MODULES_CHANGED_EVENT } from "../lib/module-events";
 import ThemeSwitcher from "./ThemeSwitcher";
 import WhatsAppOperationalDialog from "./WhatsAppOperationalDialog";
@@ -256,16 +263,20 @@ type TopbarOperationalTile = {
   usage?: number | null;
 };
 
-type VendasTopbarBoardPayload = {
-  summary?: {
-    today?: number | null;
-    overdue?: number | null;
-    scheduled?: number | null;
-    total?: number | null;
-    closed?: number | null;
-  } | null;
-  blocks?: {
-    scheduled?: unknown[] | null;
+type RadarTopbarRunResponse = {
+  id?: string | null;
+  runId?: string | null;
+  status?: string | null;
+  targetQuantity?: number | null;
+  foundCount?: number | null;
+  meta?: {
+    requestedQuantity?: number | null;
+    deliveredCount?: number | null;
+    filters?: {
+      state?: string | null;
+      city?: string | null;
+      segment?: string | null;
+    } | null;
   } | null;
 };
 
@@ -460,21 +471,31 @@ function getTopbarMetricIcon(label: string): HbxHeaderIconName {
 function TopbarCenterSummary({
   slide,
   onAction,
+  actions,
 }: {
   slide: BillboardSlide;
   onAction: (slide: BillboardSlide) => void;
+  actions?: React.ReactNode;
 }) {
   const progress = typeof slide.progress === "number" ? clampTopbarPercent(slide.progress) : null;
   const metrics = (slide.metrics || []).slice(0, 3);
   const canNavigate = Boolean(slide.href || slide.source);
 
   return (
-    <button
-      type="button"
+    <div
+      role="button"
+      tabIndex={canNavigate ? 0 : -1}
       className="hbx-module-summary"
       data-phase={slide.phase}
       onClick={() => onAction(slide)}
-      disabled={!canNavigate}
+      onKeyDown={(event) => {
+        if (!canNavigate) return;
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          onAction(slide);
+        }
+      }}
+      aria-disabled={!canNavigate}
       aria-label={`${slide.eyebrow}: ${slide.title}. ${slide.description}`}
     >
       <span className="hbx-module-summary__copy">
@@ -492,19 +513,25 @@ function TopbarCenterSummary({
         </span>
       </span>
 
-      <span className="hbx-module-summary__metrics">
-        {metrics.map((metric) => (
-          <span key={`${metric.label}:${metric.value}`} className="hbx-module-summary__metric">
-            <span className="hbx-module-summary__metricIcon">
-              <HbxHeaderIcon name={getTopbarMetricIcon(metric.label)} />
+      {actions ? (
+        <span className="hbx-module-summary__metrics hbx-module-summary__metrics--actions" onClick={(event) => event.stopPropagation()}>
+          {actions}
+        </span>
+      ) : (
+        <span className="hbx-module-summary__metrics">
+          {metrics.map((metric) => (
+            <span key={`${metric.label}:${metric.value}`} className="hbx-module-summary__metric">
+              <span className="hbx-module-summary__metricIcon">
+                <HbxHeaderIcon name={getTopbarMetricIcon(metric.label)} />
+              </span>
+              <span>
+                <small>{metric.label}</small>
+                <strong>{metric.value}</strong>
+              </span>
             </span>
-            <span>
-              <small>{metric.label}</small>
-              <strong>{metric.value}</strong>
-            </span>
-          </span>
-        ))}
-      </span>
+          ))}
+        </span>
+      )}
 
       {progress !== null ? (
         <span
@@ -515,7 +542,7 @@ function TopbarCenterSummary({
           <strong>{progress}%</strong>
         </span>
       ) : null}
-    </button>
+    </div>
   );
 }
 
@@ -750,6 +777,62 @@ const HBX_TOPBAR_POLISH_CSS = `
     position: relative;
     z-index: 1;
   }
+
+  .hbx-module-summary__metrics--actions {
+    display: inline-grid;
+    grid-template-columns: repeat(3, 38px);
+    align-content: center;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .hbx-module-summary__metrics--actions button {
+    width: 38px;
+    height: 38px;
+    display: grid;
+    place-items: center;
+    border: 1px solid color-mix(in srgb, #2563eb 34%, var(--line, rgba(148,163,184,.34)));
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--surface, #fff) 90%, #eff6ff);
+    color: color-mix(in srgb, #1e3a8a 86%, var(--foreground, #0f172a));
+    font: inherit;
+    font-size: 12px;
+    font-weight: 850;
+    line-height: 1;
+    cursor: pointer;
+  }
+
+  .hbx-module-summary__metrics--actions button:first-child {
+    border-color: color-mix(in srgb, #2563eb 52%, var(--line, rgba(148,163,184,.34)));
+    background:
+      radial-gradient(circle at 34% 18%, rgba(255,255,255,.42), transparent 34%),
+      #2563eb;
+    color: #fff;
+  }
+
+  .hbx-module-summary__metrics--actions button:hover:not(:disabled) {
+    transform: translateY(-1px);
+    box-shadow: 0 13px 23px -18px rgba(37, 99, 235, .9);
+  }
+
+  .hbx-module-summary__metrics--actions button:disabled {
+    cursor: wait;
+    opacity: .62;
+  }
+
+  html[data-theme-mode="dark"] .hbx-module-summary__metrics--actions button {
+    border-color: rgba(96, 165, 250, .28);
+    background: rgba(15, 33, 62, .86);
+    color: #dbeafe;
+  }
+
+  html[data-theme-mode="dark"] .hbx-module-summary__metrics--actions button:first-child {
+    background:
+      radial-gradient(circle at 34% 18%, rgba(255,255,255,.32), transparent 34%),
+      #2563eb;
+    color: #fff;
+  }
+
   .hbx-command-billboard {
     position: relative;
     height: 100%;
@@ -2488,7 +2571,8 @@ export default function TopBar() {
   const [scrapingEngineStatusMessage, setScrapingEngineStatusMessage] = useState<string | null>(null);
   const [hbxGaugeBooting, setHbxGaugeBooting] = useState(true);
   const [hbxGaugeBootUsage, setHbxGaugeBootUsage] = useState(0);
-  const [vendasTopbarBoard, setVendasTopbarBoard] = useState<VendasTopbarBoardPayload | null>(null);
+  const [radarTopbarRun, setRadarTopbarRun] = useState<StoredRadarRun | null>(null);
+  const [radarTopbarBusy, setRadarTopbarBusy] = useState<"play" | "pause" | "stop" | null>(null);
   const [unreadInboxOpen, setUnreadInboxOpen] = useState(false);
   const [unreadInboxLoading, setUnreadInboxLoading] = useState(false);
   const [unreadInboxError, setUnreadInboxError] = useState<string | null>(null);
@@ -3425,34 +3509,65 @@ export default function TopBar() {
   }, [authenticated, modules, pendingCheckoutLocked, refreshScrapingEngines, user]);
 
   useEffect(() => {
-    if (authenticated !== true || !isVendasRoute) {
-      setVendasTopbarBoard(null);
-      return;
-    }
+    if (typeof window === "undefined") return undefined;
+    const syncRadarRun = () => setRadarTopbarRun(readStoredRadarRun());
+    syncRadarRun();
+    return subscribeStoredRadarRun(syncRadarRun);
+  }, []);
+
+  useEffect(() => {
+    if (authenticated !== true || !isVendasRoute) return undefined;
+    const runId = radarTopbarRun?.runId;
+    if (!runId || isTerminalRadarRunStatus(radarTopbarRun?.status)) return undefined;
 
     let active = true;
-    async function loadVendasTopbarBoard() {
+    async function refreshRadarTopbarRun() {
       try {
-        const payload = await apiFetch<VendasTopbarBoardPayload>("/vendas/board", {
+        const payload = await apiFetch<RadarTopbarRunResponse>(`/webscraping/radar/search-runs/${encodeURIComponent(runId)}`, {
           requireAuth: true,
           timeoutMs: 12000,
         });
-        if (active) setVendasTopbarBoard(payload);
+        if (!active) return;
+        if (payload.status === "canceled") {
+          clearStoredRadarRun(runId);
+          setRadarTopbarRun(null);
+          return;
+        }
+        setRadarTopbarRun({
+          runId: payload.runId || payload.id || runId,
+          status: payload.status || radarTopbarRun?.status || null,
+          city: payload.meta?.filters?.city || radarTopbarRun?.city || null,
+          state: payload.meta?.filters?.state || radarTopbarRun?.state || null,
+          segment: payload.meta?.filters?.segment || radarTopbarRun?.segment || null,
+          targetQuantity: Number(payload.targetQuantity || payload.meta?.requestedQuantity || radarTopbarRun?.targetQuantity || 0) || null,
+          deliveredCount: Number(payload.meta?.deliveredCount || payload.foundCount || radarTopbarRun?.deliveredCount || 0) || 0,
+          updatedAt: Date.now(),
+        });
       } catch {
-        if (active) setVendasTopbarBoard(null);
+        if (active) setRadarTopbarRun(readStoredRadarRun());
       }
     }
 
-    void loadVendasTopbarBoard();
+    void refreshRadarTopbarRun();
     const timer = window.setInterval(() => {
-      void loadVendasTopbarBoard();
-    }, 45000);
+      void refreshRadarTopbarRun();
+    }, 6500);
 
     return () => {
       active = false;
       window.clearInterval(timer);
     };
-  }, [authenticated, isVendasRoute]);
+  }, [
+    authenticated,
+    isVendasRoute,
+    radarTopbarRun?.city,
+    radarTopbarRun?.deliveredCount,
+    radarTopbarRun?.runId,
+    radarTopbarRun?.segment,
+    radarTopbarRun?.state,
+    radarTopbarRun?.status,
+    radarTopbarRun?.targetQuantity,
+  ]);
 
   useEffect(() => {
     const hasWhatsAppContext = Boolean(user?.company?.id || user?.masterContext?.active);
@@ -4588,35 +4703,33 @@ export default function TopBar() {
     }
 
     if (isVendasRoute) {
-      const summary = vendasTopbarBoard?.summary || {};
-      const today = Math.max(0, Math.trunc(Number(summary.today || 0)));
-      const overdue = Math.max(0, Math.trunc(Number(summary.overdue || 0)));
-      const scheduled = Math.max(0, Math.trunc(Number(summary.scheduled || 0)));
-      const total = Math.max(0, Math.trunc(Number(summary.total || 0)));
-      const closed = Math.max(0, Math.trunc(Number(summary.closed || 0)));
-      const progress = total > 0 ? clampTopbarPercent((closed / total) * 100) : overdue > 0 ? 42 : 94;
+      const status = String(radarTopbarRun?.status || "");
+      const active = Boolean(radarTopbarRun?.runId && !isTerminalRadarRunStatus(status));
+      const state = active && ["queued", "running"].includes(status) ? "running" : active ? "paused" : "stopped";
+      const delivered = Math.max(0, Math.trunc(Number(radarTopbarRun?.deliveredCount || 0)));
+      const target = Math.max(1, Math.trunc(Number(radarTopbarRun?.targetQuantity || 20)));
+      const context = [radarTopbarRun?.city || "", radarTopbarRun?.state || ""].filter(Boolean).join(" / ");
+      const progress = state === "stopped" ? 0 : clampTopbarPercent((delivered / target) * 100);
+      const title = state === "running" ? "Radar rodando" : state === "paused" ? "Radar pausado" : "Radar parado";
+      const description =
+        state === "running"
+          ? `${delivered} de ${target} cards${context ? ` · ${context}` : ""}`
+          : state === "paused"
+            ? `Retomar no Radar${context ? ` · ${context}` : ""}`
+            : "Abrir busca no Vendas";
 
       return [
         {
-          id: `vendas:${today}:${overdue}:${scheduled}:${closed}:${total}`,
-          kind: "attention",
-          eyebrow: "Vendas",
-          title: overdue > 0 ? `${overdue} atrasadas` : today > 0 ? `${today} para hoje` : "Agenda OK",
-          description:
-            total > 0
-              ? `${closed}/${total} tratadas hoje`
-              : scheduled > 0
-                ? `${scheduled} vendas futuras no radar`
-                : "Pipeline comercial sincronizado",
-          phase: overdue > 0 ? "warning" : "success",
-          source: "operational",
-          href: "/vendas",
+          id: `radar-vendas:${state}:${delivered}:${target}:${context}`,
+          kind: "engines",
+          eyebrow: "Radar",
+          title,
+          description,
+          phase: state === "paused" ? "warning" : state === "running" ? "success" : "neutral",
+          source: "webscraping",
+          href: "/vendas?radar=1",
           progress,
-          metrics: [
-            { label: "Atrasadas", value: String(overdue) },
-            { label: "Hoje", value: String(today) },
-            { label: "Futuras", value: String(scheduled) },
-          ],
+          metrics: [],
         },
       ];
     }
@@ -4757,17 +4870,71 @@ export default function TopBar() {
     pendingHumanCount,
     progressEngineLabel,
     qrOperationalTile,
+    radarTopbarRun?.city,
+    radarTopbarRun?.deliveredCount,
+    radarTopbarRun?.runId,
+    radarTopbarRun?.state,
+    radarTopbarRun?.status,
+    radarTopbarRun?.targetQuantity,
     scrapingEngineStatusMessage,
     showOperationalCompanyPicker,
     topbarProgressPercent,
     unreadInboxCount,
     user?.isSystemMaster,
-    vendasTopbarBoard?.summary,
     visibleHbxEngineCount,
     whatsAppLiveHealth.health,
     whatsAppHealthLabel,
   ]);
   const activeBillboardSlide = billboardSlides[0];
+  const radarTopbarRawStatus = String(radarTopbarRun?.status || "");
+  const radarTopbarActive = Boolean(radarTopbarRun?.runId && !isTerminalRadarRunStatus(radarTopbarRawStatus));
+
+  function openDesktopRadarPopup(action: "play" | "pause" | "stop" = "play") {
+    const detail = { action };
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("hbx:vendas-radar-popup", { detail }));
+    }
+    const nextUrl = `/vendas?radar=1&radarAction=${action}&radarTick=${Date.now()}`;
+    if (isVendasRoute) {
+      router.push(nextUrl);
+      return;
+    }
+    router.push(nextUrl);
+  }
+
+  async function handleRadarTopbarAction(action: "play" | "pause" | "stop") {
+    if (radarTopbarBusy) return;
+    if (action !== "stop") {
+      setRadarTopbarBusy(action);
+      try {
+        openDesktopRadarPopup(action);
+      } finally {
+        window.setTimeout(() => setRadarTopbarBusy(null), 300);
+      }
+      return;
+    }
+
+    const runId = radarTopbarRun?.runId;
+    if (!runId || !radarTopbarActive) {
+      openDesktopRadarPopup("stop");
+      return;
+    }
+
+    setRadarTopbarBusy("stop");
+    try {
+      await apiFetch<RadarTopbarRunResponse>(`/webscraping/radar/search-runs/${encodeURIComponent(runId)}/cancel`, {
+        method: "POST",
+        requireAuth: true,
+        timeoutMs: 15000,
+      });
+      clearStoredRadarRun(runId);
+      setRadarTopbarRun(null);
+    } catch {
+      openDesktopRadarPopup("stop");
+    } finally {
+      setRadarTopbarBusy(null);
+    }
+  }
 
   function handleTopbarSummaryAction(slide: BillboardSlide) {
     if (slide.href === "#atendimento-alerts") {
@@ -4985,7 +5152,41 @@ export default function TopBar() {
           >
             <div className="hbx-command-center__body">
               {activeBillboardSlide ? (
-                <TopbarCenterSummary slide={activeBillboardSlide} onAction={handleTopbarSummaryAction} />
+                <TopbarCenterSummary
+                  slide={activeBillboardSlide}
+                  onAction={handleTopbarSummaryAction}
+                  actions={isVendasRoute ? (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => void handleRadarTopbarAction("play")}
+                        disabled={radarTopbarBusy !== null}
+                        aria-label="Abrir ou iniciar Radar"
+                        title="Play Radar"
+                      >
+                        <span aria-hidden="true">▶</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void handleRadarTopbarAction("pause")}
+                        disabled={radarTopbarBusy !== null}
+                        aria-label="Pausar Radar"
+                        title="Pause Radar"
+                      >
+                        <span aria-hidden="true">Ⅱ</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void handleRadarTopbarAction("stop")}
+                        disabled={radarTopbarBusy !== null}
+                        aria-label="Parar Radar"
+                        title="Stop Radar"
+                      >
+                        <span aria-hidden="true">■</span>
+                      </button>
+                    </>
+                  ) : null}
+                />
               ) : null}
             </div>
           </section>
