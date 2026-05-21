@@ -110,7 +110,7 @@ function mobilePrimaryAction(state: WelcomeState, tutorialCompleted: boolean) {
     return { label: "Abrir tutorial", path: "/tutorial" };
   }
   if (state.loaded && state.leadsCount <= 0) {
-    return { label: "Buscar primeiros cards", path: "/radar-digital" };
+    return { label: "Buscar primeiros cards", path: "/vendas?radar=1" };
   }
   return { label: "Abrir Vendas", path: "/vendas" };
 }
@@ -118,7 +118,7 @@ function mobilePrimaryAction(state: WelcomeState, tutorialCompleted: boolean) {
 function desktopRouteFromMobileDestination(path: string) {
   return path
     .replace(/^\/mobile\/boas-vindas/, "/boasvindas")
-    .replace(/^\/mobile\/radar-digital/, "/radar-digital")
+    .replace(/^\/mobile\/radar-digital/, "/vendas?radar=1")
     .replace(/^\/mobile\/vendas/, "/vendas");
 }
 
@@ -141,7 +141,7 @@ function MobileDashboard({
       label: "Radar",
       title: state.leadsCount > 0 ? "Fonte ativa" : "Buscar primeiros cards",
       text: "Escolha cidade e segmento para montar sua fila comercial.",
-      path: "/radar-digital",
+      path: "/vendas?radar=1",
     },
     {
       label: "Vendas",
@@ -330,7 +330,7 @@ export default function BoasVindasClientPage({ mobileRoute = false }: { mobileRo
         if (mounted) {
           setMasterCheckComplete(true);
           if (!fromLoginEntry) {
-            router.replace(mobileRoute ? toMobileRoute("/radar-digital") : "/radar-digital");
+            router.replace(mobileRoute ? toMobileRoute("/vendas?radar=1") : "/vendas?radar=1");
           }
         }
       }

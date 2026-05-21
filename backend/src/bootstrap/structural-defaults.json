@@ -34,7 +34,7 @@
       "monthlyPrice": 0,
       "defaultEnabled": true,
       "companyAssignable": true,
-      "serviceUrl": "/radar-digital"
+      "serviceUrl": "/vendas?radar=1"
     },
     {
       "key": "financeiro",

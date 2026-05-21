@@ -8,5 +8,5 @@ type LegacyRedirectProps = {
 };
 
 export default async function Page({ searchParams }: LegacyRedirectProps) {
-  redirect(withLegacySearchParams("/radar-digital", await searchParams));
+  redirect(withLegacySearchParams("/vendas?radar=1", await searchParams));
 }

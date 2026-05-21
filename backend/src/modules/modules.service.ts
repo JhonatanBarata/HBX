@@ -67,7 +67,7 @@ type ModuleAvailability = {
 const DEFAULT_MODULES: DefaultModuleDef[] = (structuralDefaults.systemModules as DefaultModuleDef[]).map((moduleDef) => ({
   ...moduleDef,
   serviceUrl: moduleDef.key === 'webscraping'
-    ? '/radar-digital'
+    ? '/vendas?radar=1'
     : moduleDef.serviceUrl,
 }));
 
@@ -2135,10 +2135,12 @@ export class ModulesService implements OnModuleInit {
               ? Boolean(userAccessMap.get(row.moduleId))
               : this.defaultUserModuleAllowed(user, moduleItem.key));
         const roleEligible = this.canUseAdminOnlyModule(user, moduleItem.key);
-        const visible = primaryCommercialModule ||
-          (guardedCommercialModule && Boolean(row)) ||
-          Boolean(effectiveCompanyEnabled && userAllowed && roleEligible) ||
-          financeModule;
+        const visible = normalizedKey === 'webscraping'
+          ? false
+          : primaryCommercialModule ||
+            (guardedCommercialModule && Boolean(row)) ||
+            Boolean(effectiveCompanyEnabled && userAllowed && roleEligible) ||
+            financeModule;
         let blockedReason: string | null = null;
         let blockedCode: string | null = null;
         let criticalEngine: string | null = null;
@@ -2178,7 +2180,7 @@ export class ModulesService implements OnModuleInit {
           accessible,
           visible,
           category: availability.category,
-          entryEligible: availability.entryEligible,
+          entryEligible: normalizedKey === 'webscraping' ? false : availability.entryEligible,
           blockedByEngine: planAllowsModule ? false : availability.blockedByEngine,
           blockedReason: visible ? blockedReason : null,
           blockedCode: visible ? blockedCode : null,

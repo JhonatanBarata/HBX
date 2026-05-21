@@ -227,7 +227,6 @@ export default function HbxMobileDock({
   const items = useMemo(
     () => [
       { key: "sales", label: "Vendas", path: toMobileRoute("/vendas"), icon: "sales" as const },
-      { key: "radar", label: "Radar", path: toMobileRoute("/radar-digital"), icon: "radar" as const },
     ],
     [],
   );
@@ -253,7 +252,7 @@ export default function HbxMobileDock({
       onPrimaryAction();
       return;
     }
-    router.push(toMobileRoute(primaryHref || "/radar-digital"));
+    router.push(toMobileRoute(primaryHref || "/vendas?radar=1"));
   }
 
   const resolvedPrimaryIcon = primaryIcon || (primaryTone === "danger" ? "stop" : "plus");
