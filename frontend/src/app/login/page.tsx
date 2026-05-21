@@ -4,7 +4,7 @@ import type { CSSProperties, FormEvent, PointerEvent as ReactPointerEvent } from
 import { useEffect, useEffectEvent, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { apiFetch, setToken } from "@/app/_lib/api";
-import { toMobileRoute } from "@/app/_lib/mobileRoutes";
+import { shouldUseMobileRoute, toMobileRoute } from "@/app/_lib/mobileRoutes";
 import { useHbxTheme } from "../../components/ThemeProvider";
 import {
   LOGIN_VIDEO_PREFERENCE_EVENT,
@@ -350,6 +350,13 @@ export default function LoginPage({ mobileRoute = false }: { mobileRoute?: boole
   useEffect(() => {
     setIsMobileLoginSurface(mobileRoute);
   }, [mobileRoute]);
+
+  useEffect(() => {
+    if (mobileRoute || typeof window === "undefined") return;
+    if (!shouldUseMobileRoute(window.location.pathname)) return;
+
+    router.replace(toMobileRoute(`${window.location.pathname}${window.location.search}${window.location.hash}`));
+  }, [mobileRoute, router]);
 
   function handleThemeModeToggle() {
     setThemeMode(selection.mode === "dark" ? "light" : "dark");

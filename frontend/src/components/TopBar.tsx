@@ -2422,7 +2422,10 @@ function mergeModalPayload(
 function buildWhatsAppLiveHealthDetail(health: WhatsAppLiveHealthPayload) {
   const checked = formatWhatsAppDateTime(health.lastCheckedAt);
   const inbound = health.lastInboundMessageAt ? formatWhatsAppDateTime(health.lastInboundMessageAt) : "sem registro";
-  return `${health.reason} Checagem: ${checked}. Última recebida: ${inbound}.`;
+  const inboundStale = health.inboundStale
+    ? ` Sem entrada recente no Atendimento${health.inboundStaleMinutes ? ` há ${health.inboundStaleMinutes} min` : ""}.`
+    : "";
+  return `${health.reason}${inboundStale} Checagem: ${checked}. Última recebida: ${inbound}.`;
 }
 
 function topbarTileFromWhatsAppLiveHealth(health: WhatsAppLiveHealthPayload): TopbarOperationalTile {
@@ -2432,6 +2435,9 @@ function topbarTileFromWhatsAppLiveHealth(health: WhatsAppLiveHealthPayload): To
     detail: buildWhatsAppLiveHealthDetail(health),
   };
 
+  if (health.liveConfirmed && health.inboundStale) {
+    return { ...base, value: "Sem mensagens recentes", tone: "warning", usage: 46 };
+  }
   if (health.liveConfirmed && health.status === "healthy") {
     return { ...base, value: "QR vivo confirmado", tone: "success", usage: 100 };
   }
@@ -4616,32 +4622,65 @@ export default function TopBar() {
     }
 
     if (isAtendimentoRoute) {
+      const liveHealth = whatsAppLiveHealth.health;
+      const hasLiveHealthWarning = Boolean(
+        liveHealth &&
+          (!liveHealth.liveConfirmed || liveHealth.status !== "healthy" || liveHealth.inboundStale),
+      );
+      const whatsappWarningCount = hasLiveHealthWarning ? 1 : qrOperationalTile.tone === "success" ? 0 : 1;
       const attentionCount =
         pendingHumanCount +
         unreadInboxCount +
-        (qrOperationalTile.tone === "success" ? 0 : 1) +
+        whatsappWarningCount +
         (incomingPopup ? 1 : 0);
       const progress = qrOperationalTile.usage ?? (attentionCount > 0 ? 58 : 94);
+      const title = incomingPopup
+        ? incomingPopup.customerLabel
+        : pendingHumanCount > 0
+          ? `${pendingHumanCount} na fila`
+          : liveHealth?.liveConfirmed && liveHealth.inboundStale
+            ? "Sem mensagens recentes"
+            : hasLiveHealthWarning
+              ? "WhatsApp precisa validar"
+              : unreadInboxCount > 0
+                ? `${unreadInboxCount} não lidas`
+                : "Atendimento OK";
+      const description = incomingPopup?.preview ||
+        (pendingHumanCount > 0
+          ? "Fila humana aguardando atendimento."
+          : liveHealth?.liveConfirmed && liveHealth.inboundStale
+            ? `Conectado, mas sem entrada recente no Atendimento. ${liveHealth.actionLabel || "Revalidar agora"}.`
+            : hasLiveHealthWarning && liveHealth
+              ? `${formatWhatsAppLiveHealthStatus(liveHealth.status)}. ${liveHealth.actionLabel || "Ver diagnóstico"}.`
+              : whatsAppHealthLabel);
+      const connectionMetric = liveHealth?.liveConfirmed && liveHealth.inboundStale
+        ? "Sem entrada"
+        : qrOperationalTile.value;
+      const actionMetric = hasLiveHealthWarning
+        ? liveHealth?.recommendedAction === "open_qr"
+          ? "Abrir QR"
+          : liveHealth?.recommendedAction === "restart"
+            ? "Reiniciar"
+            : liveHealth?.recommendedAction === "disconnect_reconnect"
+              ? "Reconectar"
+              : "Revalidar"
+        : String(attentionCount);
 
       return [
         {
-          id: `atendimento:${pendingHumanCount}:${unreadInboxCount}:${qrOperationalTile.value}:${incomingPopup?.id || "none"}`,
+          id: `atendimento:${pendingHumanCount}:${unreadInboxCount}:${qrOperationalTile.value}:${liveHealth?.status || "none"}:${liveHealth?.inboundStale ? "stale-inbound" : "fresh"}:${incomingPopup?.id || "none"}`,
           kind: "whatsapp",
           eyebrow: "Atendimento",
-          title: incomingPopup
-            ? incomingPopup.customerLabel
-            : pendingHumanCount > 0
-              ? `${pendingHumanCount} na fila`
-              : "Atendimento OK",
-          description: incomingPopup?.preview || whatsAppHealthLabel,
+          title,
+          description,
           phase: attentionCount > 0 ? "warning" : "success",
           source: "queue",
           href: "#atendimento-alerts",
           progress,
           metrics: [
-            { label: "Conexão", value: qrOperationalTile.value },
+            { label: "Conexão", value: connectionMetric },
             { label: "Não lidas", value: String(unreadInboxCount) },
-            { label: "Avisos", value: String(attentionCount) },
+            { label: hasLiveHealthWarning ? "Ação" : "Pendências", value: actionMetric },
           ],
         },
       ];
@@ -4725,6 +4764,7 @@ export default function TopBar() {
     user?.isSystemMaster,
     vendasTopbarBoard?.summary,
     visibleHbxEngineCount,
+    whatsAppLiveHealth.health,
     whatsAppHealthLabel,
   ]);
   const activeBillboardSlide = billboardSlides[0];

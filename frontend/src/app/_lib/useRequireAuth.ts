@@ -3,6 +3,7 @@
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useSyncExternalStore } from "react";
 import { getToken } from "./api";
+import { shouldUseMobileRoute } from "./mobileRoutes";
 
 function subscribeAuth(callback: () => void) {
   window.addEventListener("auth-change", callback);
@@ -35,7 +36,7 @@ export function useRequireAuth() {
     if (hasToken === false) {
       const query = searchParams.toString();
       const currentPath = `${pathname || ""}${query ? `?${query}` : ""}`;
-      const shouldUseMobileLogin = String(pathname || "").startsWith("/mobile");
+      const shouldUseMobileLogin = shouldUseMobileRoute(pathname);
       const loginPath = shouldUseMobileLogin ? "/mobile/login" : "/login";
       router.push(`${loginPath}?from=${encodeURIComponent(currentPath || "/")}`);
     }

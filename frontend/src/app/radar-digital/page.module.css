@@ -1721,6 +1721,19 @@
   display: none;
 }
 
+.shell[data-mobile-route="true"] > .header,
+.shell[data-mobile-route="true"] > .filters,
+.shell[data-mobile-route="true"] > .runProgress,
+.shell[data-mobile-route="true"] > .results,
+.shell[data-mobile-route="true"] > .notice {
+  display: none;
+}
+
+.shell[data-mobile-route="true"] .mobileRadar {
+  display: grid;
+  overflow: visible;
+}
+
 .header,
 .filters,
 .summaryBar > div,

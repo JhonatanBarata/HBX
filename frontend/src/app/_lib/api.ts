@@ -1,5 +1,7 @@
 "use client";
 
+import { shouldUseMobileRoute } from "./mobileRoutes";
+
 const DEFAULT_API_URL =
   process.env.NODE_ENV === "production"
     ? "https://api.hbxsystem.com.br"
@@ -105,7 +107,7 @@ function redirectToLogin() {
   if (typeof window === "undefined") return;
   const currentPath = `${window.location.pathname}${window.location.search}`;
   if (window.location.pathname === "/login" || window.location.pathname === "/mobile/login") return;
-  const shouldUseMobileLogin = window.location.pathname.startsWith("/mobile");
+  const shouldUseMobileLogin = shouldUseMobileRoute(window.location.pathname);
   const loginPath = shouldUseMobileLogin ? "/mobile/login" : "/login";
   window.location.assign(`${loginPath}?from=${encodeURIComponent(currentPath)}`);
 }
