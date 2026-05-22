@@ -17,6 +17,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { buildHbxPresentationEmailDraft, VendasService } from '../vendas/vendas.service';
 import { HbxPresentationEmailService } from '../mail/hbx-presentation-email.service';
 import { CommercialUsageLimitsService } from '../commercial-plans/commercial-usage-limits.service';
+import { MasterContextService } from '../master-context/master-context.service';
 import { buildLocalHbxEngineUrls, getConfiguredHbxEngineCount, HbxEnginePoolService, isHbxEngineLocalhostUrl, type HbxEngineLease, type HbxEnginePurpose } from './hbx-engine-pool.service';
 import {
   COMMERCIAL_PLAN_QUOTAS,
@@ -423,11 +424,23 @@ const HBX_CATEGORY_SEGMENTS: Record<string, string[]> = {
     'perfumarias',
   ],
   automotivo: [
+    'acessórios automotivos',
     'auto center',
+    'centros automotivos',
+    'auto peças',
     'oficinas mecânicas',
+    'oficinas',
+    'mecânicas',
     'auto elétricas',
+    'auto escolas',
     'pneus',
     'borracharias',
+    'concessionárias',
+    'despachantes',
+    'lava rápidos',
+    'postos de combustível',
+    'revendas de veículos',
+    'vistorias veiculares',
   ],
   pneus: [
     'pneus',
@@ -1431,6 +1444,27 @@ const RADAR_SOCIAL_WEAK_TOKENS = new Set([
   'vip',
 ]);
 
+const RADAR_WEBSITE_GENERIC_HOST_TOKENS = new Set([
+  ...Array.from(RADAR_SOCIAL_CATEGORY_TOKENS),
+  'animal',
+  'animais',
+  'medica',
+  'medicas',
+  'medico',
+  'medicos',
+  'odontologica',
+  'odontologicas',
+  'odontologico',
+  'odontologicos',
+  'pet',
+  'pets',
+  'vet',
+  'veterinaria',
+  'veterinarias',
+  'veterinario',
+  'veterinarios',
+]);
+
 function socialHandleFromUrl(value: string | null | undefined) {
   const raw = String(value || '').trim();
   if (!raw) return '';
@@ -1531,12 +1565,15 @@ function websiteHostLooksCompatibleWithLead(row: any, value: string | null | und
   if (compactName.length >= 8 && hostKey.includes(compactName)) return true;
   const strongVariants = Array.from(new Set(strongTokens.flatMap((token) => socialTokenVariants(token))));
   const strongHits = strongTokens.filter((token) => socialTokenVariants(token).some((variant) => variant.length >= 4 && hostKey.includes(variant)));
+  const distinctiveHits = strongHits.filter((token) => !RADAR_WEBSITE_GENERIC_HOST_TOKENS.has(token));
+  if (!distinctiveHits.length) return false;
   if (strongHits.length >= 2) return true;
   if (strongHits.length === 1 && strongTokens.length === 1 && tokens.length <= 2) return true;
   const categoryVariants = Array.from(new Set(categoryTokens.flatMap((token) => socialCategoryTokenVariants(token))));
   for (const category of categoryVariants) {
     for (const token of strongVariants) {
       if (token.length < 4) continue;
+      if (RADAR_WEBSITE_GENERIC_HOST_TOKENS.has(token)) continue;
       if (hostKey.includes(`${category}${token}`) || hostKey.includes(`${token}${category}`)) return true;
     }
   }
@@ -1745,6 +1782,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     private readonly vendasService?: VendasService,
     @Optional() private readonly hbxPresentationEmails?: HbxPresentationEmailService,
     @Optional() private readonly commercialUsageLimits?: CommercialUsageLimitsService,
+    @Optional() private readonly masterContextService?: MasterContextService,
   ) {}
 
   onModuleInit() {
@@ -3026,7 +3064,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
   private shouldUseGoogleFallbackAfterHbx(input: NormalizedSearchInput, options: SearchExecutionOptions) {
     if (input.engine !== 'hbx' || input.targetType !== 'pj') return false;
     if (options.usageEventType === 'GOOGLE_EMERGENCY_EXECUTED') return false;
-    return input.qualityMode === 'lead_plus' || options.purpose === 'radar_digital';
+    return options.purpose === 'radar_digital';
   }
 
   private getHbxRetryDelayMs(consecutiveEngineErrors: number) {
@@ -3216,9 +3254,9 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     );
   }
 
-  private hasSocialDiscoveryIntent(input: Pick<NormalizedSearchInput, 'preferredChannels' | 'requiredChannels' | 'qualityMode'>) {
+  private hasSocialDiscoveryIntent(input: Pick<NormalizedSearchInput, 'preferredChannels' | 'requiredChannels'>) {
     const channels = new Set([...(input.preferredChannels || []), ...(input.requiredChannels || [])]);
-    return input.qualityMode === 'lead_plus' || channels.has('instagram') || channels.has('facebook');
+    return channels.has('instagram') || channels.has('facebook');
   }
 
   private isSocialDiscoveryQuery(query: string | null | undefined) {
@@ -3304,23 +3342,29 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       searchScope: Record<string, any>;
     }> = [];
     for (const [cityIndex, cityTarget] of cities.entries()) {
-      for (const [segmentIndex, segment] of segments.entries()) {
+      const segmentTasks = segments.map((segment, segmentIndex) => {
         const scopedInput = this.buildSingleScopeSearchInput(input, cityTarget, segment);
         const variants = Array.from(new Set(this.buildHbxBatchQueryVariants(input, segment, cityTarget))).filter(Boolean);
-        for (const [queryIndex, query] of variants.entries()) {
+        return { segment, segmentIndex, scopedInput, variants };
+      });
+      const maxQueryCount = Math.max(0, ...segmentTasks.map((item) => item.variants.length));
+      for (let queryIndex = 0; queryIndex < maxQueryCount; queryIndex += 1) {
+        for (const segmentTask of segmentTasks) {
+          const query = segmentTask.variants[queryIndex];
+          if (!query) continue;
           tasks.push({
-            input: scopedInput,
+            input: segmentTask.scopedInput,
             query,
             searchScope: {
               currentCity: cityTarget.city,
               currentState: cityTarget.state,
-              currentSegment: segment,
+              currentSegment: segmentTask.segment,
               cityIndex: cityIndex + 1,
               cityCount: cities.length,
-              segmentIndex: segmentIndex + 1,
+              segmentIndex: segmentTask.segmentIndex + 1,
               segmentCount: segments.length,
               queryIndex: queryIndex + 1,
-              queryCount: variants.length,
+              queryCount: segmentTask.variants.length,
               taskIndex: tasks.length + 1,
               taskCount: 0,
               radiusKm: input.radiusKm,
@@ -3339,6 +3383,19 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       task.searchScope.taskCount = tasks.length;
     }
     return tasks;
+  }
+
+  private getHbxMinimumCoverageAttempts(input: NormalizedSearchInput) {
+    const cityCount = Math.max(1, this.getSearchCityTargets(input).length || 1);
+    const segmentCount = Math.max(1, this.splitHbxBatchSegments(input.segment).length || 1);
+    if (cityCount <= 1 && segmentCount <= 1) return 0;
+    const taskCount = this.buildHbxBatchQueryTasks(input).length;
+    return Math.min(taskCount, cityCount * segmentCount);
+  }
+
+  private hasCompletedHbxMinimumCoverage(input: NormalizedSearchInput, completedAttempts: number) {
+    const minimumAttempts = this.getHbxMinimumCoverageAttempts(input);
+    return !minimumAttempts || safeInteger(completedAttempts) >= minimumAttempts;
   }
 
   private buildHbxBatchAttemptTask(input: NormalizedSearchInput, attempt: number) {
@@ -5143,7 +5200,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     const engineUrl = lease?.url || String(current.assignedEngineUrl || current.lastEngineUrl || this.getHbxScrapingEngineUrl());
 
     try {
-      if (safeInteger(current.foundCount) >= normalized.quantity) {
+      if (safeInteger(current.foundCount) >= normalized.quantity && this.hasCompletedHbxMinimumCoverage(normalized, safeInteger(current.attemptCount))) {
         const requiredChannelMatches = hasRequiredEnrichmentGate
           ? await this.countExistingRequiredChannelMatchesForRun(context, runId, normalized)
           : safeInteger(current.foundCount);
@@ -5251,7 +5308,10 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       });
       if (!liveRun || liveRun.status === 'canceled') return;
       if (this.isTerminalSearchRunStatus(liveRun.status)) return;
-      if (safeInteger(liveRun.foundCount) >= safeInteger(liveRun.targetQuantity)) {
+      if (
+        safeInteger(liveRun.foundCount) >= safeInteger(liveRun.targetQuantity)
+        && this.hasCompletedHbxMinimumCoverage(normalized, attempt - 1)
+      ) {
         const requiredChannelMatches = hasRequiredEnrichmentGate
           ? await this.countExistingRequiredChannelMatchesForRun(context, runId, normalized)
           : safeInteger(liveRun.foundCount);
@@ -5344,9 +5404,10 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       const requiredChannelMatches = hasRequiredEnrichmentGate && counters.foundCount >= normalized.quantity
         ? await this.countExistingRequiredChannelMatchesForRun(context, runId, normalized)
         : counters.foundCount;
-      const reachedTarget = hasRequiredEnrichmentGate
+      const reachedTargetBeforeCoverage = hasRequiredEnrichmentGate
         ? requiredChannelMatches >= normalized.quantity
         : counters.foundCount >= normalized.quantity;
+      const reachedTarget = reachedTargetBeforeCoverage && this.hasCompletedHbxMinimumCoverage(normalized, attempt);
       const reachedRequiredCandidateWindow = hasRequiredEnrichmentGate && counters.foundCount >= requiredCandidateWindow;
       const reachedMaxAttempts = attempt >= maxAttempts;
       const completedSocialWarmup = !requiredSocialChannels.length || attempt >= Math.max(1, Math.ceil(Math.max(queryTaskCount, 1) * 0.3));
@@ -5565,6 +5626,10 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       rating: raw.rating == null ? null : Number(raw.rating),
       reviews: raw.reviews == null ? null : safeInteger(raw.reviews),
       address: String(item.address || raw.address || '').trim() || null,
+      city: String(item.city || raw.city || '').trim() || null,
+      state: String(item.state || raw.state || '').trim().toUpperCase() || null,
+      segment: String(item.segment || raw.segment || raw.businessCategory || raw.category || '').trim() || null,
+      businessCategory: String(raw.businessCategory || raw.category || item.segment || '').trim() || null,
       website: String(item.website || raw.website || '').trim() || null,
       instagramUrl: String(raw.instagramUrl || '').trim() || null,
       facebookUrl: String(raw.facebookUrl || '').trim() || null,
@@ -7300,6 +7365,40 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     return enrichmentStatus || null;
   }
 
+  private async loadLatestRadarLeadForEnrichmentMerge(row: any) {
+    if (!row?.id || !(await this.supportsRadarPersistence())) return null;
+    return (this.prisma as any).radarLeadPool.findUnique({
+      where: { id: row.id },
+      select: {
+        email: true,
+        emailStatus: true,
+        emailSource: true,
+        emailConfidence: true,
+        website: true,
+        websiteStatus: true,
+        instagramUrl: true,
+        facebookUrl: true,
+        socialStatus: true,
+        socialConfidence: true,
+        googleMapsUrl: true,
+        businessCategory: true,
+        openingHoursStatus: true,
+        opportunityReason: true,
+        rating: true,
+        reviews: true,
+        address: true,
+        metadataJson: true,
+        enrichmentJson: true,
+        lastEnrichedAt: true,
+        enrichmentVersion: true,
+      },
+    }).catch(() => null);
+  }
+
+  private mergeLatestRadarLeadForEnrichment(row: any, latest: any) {
+    return latest ? { ...row, ...latest } : row;
+  }
+
   private needsRadarLeadEnrichmentRefresh(row: any) {
     if (!row?.id) return false;
     if (row?.enrichmentVersion !== RADAR_LEAD_ENRICHMENT_VERSION) return true;
@@ -7356,11 +7455,13 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         updatedRows.push(row);
         continue;
       }
-      const data = this.buildRadarLeadEnrichmentData(row, now);
-      updatedRows.push({ ...row, ...data });
+      const latestRow = await this.loadLatestRadarLeadForEnrichmentMerge(row);
+      const baseRow = this.mergeLatestRadarLeadForEnrichment(row, latestRow);
+      const data = this.buildRadarLeadEnrichmentData(baseRow, now);
+      updatedRows.push({ ...baseRow, ...data });
       pendingUpdates.push(
         (this.prisma as any).radarLeadPool.update({
-          where: { id: row.id },
+          where: { id: baseRow.id },
           data,
         }).catch(() => null),
       );
@@ -8419,7 +8520,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         facebookUrl: row?.facebookUrl || null,
         preferredChannels: [],
         requiredChannels: [],
-        timeBudgetSeconds: 18,
+        timeBudgetSeconds: 24,
       };
       await this.recordVendasRadarEnrichmentStatus(context, row, 'processing', {
         website: body.website || null,
@@ -8630,58 +8731,60 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
   ) {
     if (!row?.id || !leadPlus || typeof leadPlus !== 'object') return row;
     const now = new Date();
-    const metadata = this.parseMaybeJsonObject(row?.metadataJson);
-    const companyState = Array.isArray(row?.companyStates) && row.companyStates.length ? row.companyStates[0] : null;
-    const protectedStatus = this.isRadarProtectedStatus(companyState?.status || row?.status);
-    const existingEmail = normalizeBusinessEmail(row.email) || null;
+    const latestRow = await this.loadLatestRadarLeadForEnrichmentMerge(row);
+    const baseRow = this.mergeLatestRadarLeadForEnrichment(row, latestRow);
+    const metadata = this.parseMaybeJsonObject(baseRow?.metadataJson);
+    const companyState = Array.isArray(baseRow?.companyStates) && baseRow.companyStates.length ? baseRow.companyStates[0] : null;
+    const protectedStatus = this.isRadarProtectedStatus(companyState?.status || baseRow?.status);
+    const existingEmail = normalizeBusinessEmail(baseRow.email) || null;
     const leadPlusEmail = normalizeBusinessEmail(leadPlus?.email) || null;
     const leadPlusEmailStatus = ['confirmed', 'probable', 'missing', 'invalid', 'unverified'].includes(String(leadPlus?.emailStatus || ''))
       ? String(leadPlus.emailStatus)
-      : row.emailStatus;
+      : baseRow.emailStatus;
     const leadPlusEmailSource = ['website', 'maps', 'inferred', 'manual', 'none'].includes(String(leadPlus?.emailSource || ''))
       ? String(leadPlus.emailSource)
-      : row.emailSource;
-    const existingWebsite = this.isBlockedLeadOfficialWebsite(row.website) || !websiteHostLooksCompatibleWithLead(row, row.website) ? null : row.website || null;
+      : baseRow.emailSource;
+    const existingWebsite = this.isBlockedLeadOfficialWebsite(baseRow.website) || !websiteHostLooksCompatibleWithLead(baseRow, baseRow.website) ? null : baseRow.website || null;
     const leadPlusWebsiteRaw = String(leadPlus?.website || '').trim() || null;
     const leadPlusWebsite = leadPlusWebsiteRaw
       && !this.isBlockedLeadOfficialWebsite(leadPlusWebsiteRaw)
-      && websiteHostLooksCompatibleWithLead({ ...row, website: leadPlusWebsiteRaw }, leadPlusWebsiteRaw)
+      && websiteHostLooksCompatibleWithLead({ ...baseRow, website: leadPlusWebsiteRaw }, leadPlusWebsiteRaw)
       ? leadPlusWebsiteRaw
       : null;
-    const existingInstagram = String(row.instagramUrl || '').trim()
-      && !looksLikeThirdPartySocialProfile(row.instagramUrl)
-      && socialProfileLooksCompatibleWithLead(row, row.instagramUrl)
-      ? String(row.instagramUrl).trim()
+    const existingInstagram = String(baseRow.instagramUrl || '').trim()
+      && !looksLikeThirdPartySocialProfile(baseRow.instagramUrl)
+      && socialProfileLooksCompatibleWithLead(baseRow, baseRow.instagramUrl)
+      ? String(baseRow.instagramUrl).trim()
       : null;
-    const existingFacebook = String(row.facebookUrl || '').trim()
-      && !looksLikeThirdPartySocialProfile(row.facebookUrl)
-      && socialProfileLooksCompatibleWithLead(row, row.facebookUrl)
-      ? String(row.facebookUrl).trim()
+    const existingFacebook = String(baseRow.facebookUrl || '').trim()
+      && !looksLikeThirdPartySocialProfile(baseRow.facebookUrl)
+      && socialProfileLooksCompatibleWithLead(baseRow, baseRow.facebookUrl)
+      ? String(baseRow.facebookUrl).trim()
       : null;
     const leadPlusInstagramRaw = String(leadPlus?.instagramUrl || '').trim();
     const leadPlusFacebookRaw = String(leadPlus?.facebookUrl || '').trim();
     const leadPlusInstagram = leadPlusInstagramRaw
       && !looksLikeThirdPartySocialProfile(leadPlusInstagramRaw)
-      && socialProfileLooksCompatibleWithLead(row, leadPlusInstagramRaw)
+      && socialProfileLooksCompatibleWithLead(baseRow, leadPlusInstagramRaw)
       ? leadPlusInstagramRaw
       : null;
     const leadPlusFacebook = leadPlusFacebookRaw
       && !looksLikeThirdPartySocialProfile(leadPlusFacebookRaw)
-      && socialProfileLooksCompatibleWithLead(row, leadPlusFacebookRaw)
+      && socialProfileLooksCompatibleWithLead(baseRow, leadPlusFacebookRaw)
       ? leadPlusFacebookRaw
       : null;
-    const leadPlusSocialStatus = leadPlusInstagram || leadPlusFacebook ? 'found' : row.socialStatus;
-    const leadPlusRating = leadPlus?.rating == null ? row.rating ?? null : Number(leadPlus.rating);
-    const leadPlusReviews = leadPlus?.reviews == null ? safeInteger(row.reviews) : safeInteger(leadPlus.reviews);
-    const leadPlusAddress = String(leadPlus?.address || '').trim() || row.address || null;
-    const leadPlusGoogleMapsUrl = String(leadPlus?.googleMapsUrl || '').trim() || row.googleMapsUrl || null;
+    const leadPlusSocialStatus = leadPlusInstagram || leadPlusFacebook || existingInstagram || existingFacebook ? 'found' : baseRow.socialStatus;
+    const leadPlusRating = leadPlus?.rating == null ? baseRow.rating ?? null : Number(leadPlus.rating);
+    const leadPlusReviews = leadPlus?.reviews == null ? safeInteger(baseRow.reviews) : safeInteger(leadPlus.reviews);
+    const leadPlusAddress = String(leadPlus?.address || '').trim() || baseRow.address || null;
+    const leadPlusGoogleMapsUrl = String(leadPlus?.googleMapsUrl || '').trim() || baseRow.googleMapsUrl || null;
     const requiredChannels = filters ? this.requiredChannelsForInput(filters) : [];
     const enrichment = buildRadarLeadEnrichment({
-      ...row,
+      ...baseRow,
       email: leadPlusEmail || existingEmail,
       emailStatus: leadPlusEmailStatus,
       emailSource: leadPlusEmailSource,
-      emailConfidence: safeInteger(leadPlus?.emailConfidence || row.emailConfidence),
+      emailConfidence: safeInteger(leadPlus?.emailConfidence || baseRow.emailConfidence),
       website: leadPlusWebsite || existingWebsite,
       websiteStatus: leadPlusWebsite || existingWebsite ? 'present' : 'none',
       rating: leadPlusRating,
@@ -8690,9 +8793,9 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       instagramUrl: leadPlusInstagram || existingInstagram,
       facebookUrl: leadPlusFacebook || existingFacebook,
       socialStatus: leadPlusSocialStatus,
-      socialConfidence: safeInteger(leadPlus?.socialConfidence || row.socialConfidence),
+      socialConfidence: safeInteger(leadPlus?.socialConfidence || baseRow.socialConfidence),
       googleMapsUrl: leadPlusGoogleMapsUrl,
-      companyStatus: companyState?.status || row.status,
+      companyStatus: companyState?.status || baseRow.status,
       rawPayload: {
         ...metadata,
         leadPlusEnrichment: this.compactLeadPlusEnrichmentPayload(leadPlus),
@@ -8717,14 +8820,14 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       facebookUrl: enrichment.facebookUrl || existingFacebook || null,
       socialStatus: enrichment.socialStatus,
       socialConfidence: enrichment.socialConfidence,
-      googleMapsUrl: enrichment.googleMapsUrl || leadPlusGoogleMapsUrl || row.googleMapsUrl || null,
-      businessCategory: enrichment.businessCategory || row.businessCategory || null,
-      openingHoursStatus: enrichment.openingHoursStatus || row.openingHoursStatus || null,
+      googleMapsUrl: enrichment.googleMapsUrl || leadPlusGoogleMapsUrl || baseRow.googleMapsUrl || null,
+      businessCategory: enrichment.businessCategory || baseRow.businessCategory || null,
+      openingHoursStatus: enrichment.openingHoursStatus || baseRow.openingHoursStatus || null,
       recommendedChannel: protectedStatus ? 'discard' : enrichment.recommendedChannel,
       painType: enrichment.painType,
       painLabel: enrichment.painLabel,
       painPitch: enrichment.painPitch,
-      opportunityReason: enrichment.opportunityReason || row.opportunityReason || null,
+      opportunityReason: enrichment.opportunityReason || baseRow.opportunityReason || null,
       enrichmentJson: enrichment.enrichmentJson,
       enrichmentScore: protectedStatus ? 0 : enrichment.enrichmentScore,
       enrichmentConfidence: enrichment.enrichmentConfidence,
@@ -8746,11 +8849,11 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       }),
       lastSeenAt: now,
     };
-    await (this.prisma as any).radarLeadPool.update({ where: { id: row.id }, data }).catch((error: any) => {
-      this.logger.warn(`[radar-enrichment] falha ao salvar social lead=${row.id}: ${String(error?.message || error)}`);
+    await (this.prisma as any).radarLeadPool.update({ where: { id: baseRow.id }, data }).catch((error: any) => {
+      this.logger.warn(`[radar-enrichment] falha ao salvar social lead=${baseRow.id}: ${String(error?.message || error)}`);
     });
-    await this.syncVendasLeadAfterRadarEnrichment(context, row, data, enrichment, leadPlus);
-    return { ...row, ...data };
+    await this.syncVendasLeadAfterRadarEnrichment(context, baseRow, data, enrichment, leadPlus);
+    return { ...baseRow, ...data };
   }
 
   private recentRequiredSocialAttempt(row: any, filters: NormalizedRadarFilters) {
@@ -8946,53 +9049,55 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       }
     }
 
-    const companyState = Array.isArray(row.companyStates) && row.companyStates.length ? row.companyStates[0] : null;
     const leadPlus = protectedStatus ? null : await this.enrichRadarLeadViaLeadPlusEngine(context, row);
-    const existingEmail = normalizeBusinessEmail(row.email) || null;
+    const latestRow = await this.loadLatestRadarLeadForEnrichmentMerge(row);
+    const baseRow = this.mergeLatestRadarLeadForEnrichment(row, latestRow);
+    const companyState = Array.isArray(baseRow.companyStates) && baseRow.companyStates.length ? baseRow.companyStates[0] : null;
+    const existingEmail = normalizeBusinessEmail(baseRow.email) || null;
     const leadPlusEmail = normalizeBusinessEmail(leadPlus?.email) || null;
     const leadPlusEmailStatus = ['confirmed', 'probable', 'missing', 'invalid', 'unverified'].includes(String(leadPlus?.emailStatus || ''))
       ? String(leadPlus.emailStatus)
-      : row.emailStatus;
+      : baseRow.emailStatus;
     const leadPlusEmailSource = ['website', 'maps', 'inferred', 'manual', 'none'].includes(String(leadPlus?.emailSource || ''))
       ? String(leadPlus.emailSource)
-      : row.emailSource;
-    const existingInstagram = String(row.instagramUrl || '').trim()
-      && !looksLikeThirdPartySocialProfile(row.instagramUrl)
-      && socialProfileLooksCompatibleWithLead(row, row.instagramUrl)
-      ? String(row.instagramUrl).trim()
+      : baseRow.emailSource;
+    const existingInstagram = String(baseRow.instagramUrl || '').trim()
+      && !looksLikeThirdPartySocialProfile(baseRow.instagramUrl)
+      && socialProfileLooksCompatibleWithLead(baseRow, baseRow.instagramUrl)
+      ? String(baseRow.instagramUrl).trim()
       : null;
-    const existingFacebook = String(row.facebookUrl || '').trim()
-      && !looksLikeThirdPartySocialProfile(row.facebookUrl)
-      && socialProfileLooksCompatibleWithLead(row, row.facebookUrl)
-      ? String(row.facebookUrl).trim()
+    const existingFacebook = String(baseRow.facebookUrl || '').trim()
+      && !looksLikeThirdPartySocialProfile(baseRow.facebookUrl)
+      && socialProfileLooksCompatibleWithLead(baseRow, baseRow.facebookUrl)
+      ? String(baseRow.facebookUrl).trim()
       : null;
     const leadPlusInstagramRaw = String(leadPlus?.instagramUrl || '').trim();
     const leadPlusFacebookRaw = String(leadPlus?.facebookUrl || '').trim();
     const leadPlusInstagram = leadPlusInstagramRaw
       && !looksLikeThirdPartySocialProfile(leadPlusInstagramRaw)
-      && socialProfileLooksCompatibleWithLead(row, leadPlusInstagramRaw)
+      && socialProfileLooksCompatibleWithLead(baseRow, leadPlusInstagramRaw)
       ? leadPlusInstagramRaw
       : null;
     const leadPlusFacebook = leadPlusFacebookRaw
       && !looksLikeThirdPartySocialProfile(leadPlusFacebookRaw)
-      && socialProfileLooksCompatibleWithLead(row, leadPlusFacebookRaw)
+      && socialProfileLooksCompatibleWithLead(baseRow, leadPlusFacebookRaw)
       ? leadPlusFacebookRaw
       : null;
-    const leadPlusSocialStatus = leadPlusInstagram || leadPlusFacebook ? 'found' : row.socialStatus;
+    const leadPlusSocialStatus = leadPlusInstagram || leadPlusFacebook || existingInstagram || existingFacebook ? 'found' : baseRow.socialStatus;
     const enrichment = buildRadarLeadEnrichment({
-      ...row,
+      ...baseRow,
       email: leadPlusEmail || existingEmail,
       emailStatus: leadPlusEmailStatus,
       emailSource: leadPlusEmailSource,
-      emailConfidence: safeInteger(leadPlus?.emailConfidence || row.emailConfidence),
+      emailConfidence: safeInteger(leadPlus?.emailConfidence || baseRow.emailConfidence),
       instagramUrl: leadPlusInstagram || existingInstagram,
       facebookUrl: leadPlusFacebook || existingFacebook,
       socialStatus: leadPlusSocialStatus,
-      socialConfidence: safeInteger(leadPlus?.socialConfidence || row.socialConfidence),
-      companyStatus: companyState?.status || row.status,
+      socialConfidence: safeInteger(leadPlus?.socialConfidence || baseRow.socialConfidence),
+      companyStatus: companyState?.status || baseRow.status,
       whatsappStatus,
       rawPayload: {
-        ...parseJsonObject(row?.metadataJson),
+        ...parseJsonObject(baseRow?.metadataJson),
         leadPlusEnrichment: this.compactLeadPlusEnrichmentPayload(leadPlus),
       },
       now,
@@ -9006,14 +9111,14 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       facebookUrl: enrichment.facebookUrl || existingFacebook || null,
       socialStatus: enrichment.socialStatus,
       socialConfidence: enrichment.socialConfidence,
-      googleMapsUrl: enrichment.googleMapsUrl || row.googleMapsUrl || null,
-      businessCategory: enrichment.businessCategory || row.businessCategory || null,
-      openingHoursStatus: enrichment.openingHoursStatus || row.openingHoursStatus || null,
+      googleMapsUrl: enrichment.googleMapsUrl || baseRow.googleMapsUrl || null,
+      businessCategory: enrichment.businessCategory || baseRow.businessCategory || null,
+      openingHoursStatus: enrichment.openingHoursStatus || baseRow.openingHoursStatus || null,
       recommendedChannel: protectedStatus ? 'discard' : enrichment.recommendedChannel,
       painType: enrichment.painType,
       painLabel: enrichment.painLabel,
       painPitch: enrichment.painPitch,
-      opportunityReason: enrichment.opportunityReason || row.opportunityReason || null,
+      opportunityReason: enrichment.opportunityReason || baseRow.opportunityReason || null,
       enrichmentJson: enrichment.enrichmentJson,
       enrichmentScore: protectedStatus ? 0 : enrichment.enrichmentScore,
       enrichmentConfidence: enrichment.enrichmentConfidence,
@@ -9022,18 +9127,18 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       lastSeenAt: now,
     };
     await (this.prisma as any).radarLeadPool.update({
-      where: { id: row.id },
+      where: { id: baseRow.id },
       data,
     });
     await this.recordRadarLeadEvent({
-      leadId: row.id,
+      leadId: baseRow.id,
       companyId: context.companyId,
       userId: context.userId,
       eventType: 'enriched',
       note: `Card enriquecido (${RADAR_LEAD_ENRICHMENT_VERSION}).`,
     });
     const updated = await (this.prisma as any).radarLeadPool.findUnique({
-      where: { id: row.id },
+      where: { id: baseRow.id },
       include: {
         companyStates: { where: { companyId: context.companyId }, take: 1 },
         events: {
@@ -9047,7 +9152,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       ok: true,
       message: 'Card enriquecido',
       item: this.buildRadarLeadPublic({
-        ...(updated || row),
+        ...(updated || baseRow),
         whatsappStatus: whatsappStatus || undefined,
       }, { includeSmartFields: await this.canUseRadarSmartLeadFields(context.companyId) }),
     };
@@ -9565,7 +9670,9 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     const pendingCount = stockTarget > 0
       ? await this.getVendasPendingCountForRadarContext(context.companyId)
       : 0;
-    if (stockTarget > 0 && pendingCount >= stockTarget) {
+    const hasFoundRunItemsBeforeStockGate = (effectiveRun.items || []).some((item: any) => String(item?.status || '') === 'found');
+    const hasImportedRunItemsBeforeStockGate = safeInteger(effectiveRun.importedCount) > 0 || safeInteger(effectiveRun.foundCount) > 0;
+    if (stockTarget > 0 && pendingCount >= stockTarget && !hasFoundRunItemsBeforeStockGate && !hasImportedRunItemsBeforeStockGate) {
       await this.stopSearchRunIfVendasStockLimitReached(effectiveRun, 'vendas_stock_limit_response');
       const requestedQuantity = Math.max(1, safeInteger(effectiveRun.targetQuantity));
       const message = `Radar parado. Vendas ja esta com ${pendingCount} de ${stockTarget} card(s).`;
@@ -9923,11 +10030,23 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     filters.limit = Math.max(filters.limit, filters.quantity);
 
     const normalized = this.buildNormalizedSearchInputFromRadarFilters(filters);
-    const stockRows = await this.queryRadarRowsForCompany(context.companyId, filters, {
+    let stockRows = await this.queryRadarRowsForCompany(context.companyId, filters, {
       limit: Math.max(filters.quantity, filters.minimumStock, 100),
       requirePhone: false,
       availableOnly: true,
     });
+    let relaxedStockLookup = false;
+    if (!stockRows.length && filters.salesProfile) {
+      stockRows = await this.queryRadarRowsForCompany(context.companyId, {
+        ...filters,
+        salesProfile: null,
+      }, {
+        limit: Math.max(filters.quantity, filters.minimumStock, 100),
+        requirePhone: false,
+        availableOnly: true,
+      });
+      relaxedStockLookup = stockRows.length > 0;
+    }
     let immediateRows = stockRows.slice(0, filters.quantity);
     const includeSmartFields = await this.canUseRadarSmartLeadFields(context.companyId);
     if (filters.whatsappCheckMode === 'only_valid' && immediateRows.length) {
@@ -10009,6 +10128,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
             channelMatchMode: filters.channelMatchMode,
             qualityMode: filters.qualityMode,
           }),
+          relaxedStockLookup,
           ...(filters.salesProfile ? { salesProfile: filters.salesProfile } : {}),
         }),
       },
@@ -10628,8 +10748,39 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       const existingWasDddMismatch = String(existing?.status || '') === 'rejected' && String(existing?.rejectionReason || '') === 'ddd_mismatch';
       const nextStatus = dddMismatch ? 'rejected' : existingWasDddMismatch ? 'clean' : existing?.status || 'clean';
       const nextRejectionReason = dddMismatch ? 'ddd_mismatch' : existingWasDddMismatch ? null : existing?.rejectionReason || null;
-      const mergedInstagramUrl = String((result as any).instagramUrl || existing?.instagramUrl || '').trim() || null;
-      const mergedFacebookUrl = String((result as any).facebookUrl || existing?.facebookUrl || '').trim() || null;
+      const resultIdentity = {
+        ...(result as any),
+        name: result.name || existing?.name || '',
+        city: resultCity || existing?.city || input.city || '',
+        state: resultState || existing?.state || input.state || '',
+        segment: resultSegment || input.segment || existing?.segment || '',
+      };
+      const resultInstagramRaw = String((result as any).instagramUrl || '').trim();
+      const resultFacebookRaw = String((result as any).facebookUrl || '').trim();
+      const existingInstagramRaw = String(existing?.instagramUrl || '').trim();
+      const existingFacebookRaw = String(existing?.facebookUrl || '').trim();
+      const resultInstagramUrl = resultInstagramRaw
+        && !looksLikeThirdPartySocialProfile(resultInstagramRaw)
+        && socialProfileLooksCompatibleWithLead(resultIdentity, resultInstagramRaw)
+        ? resultInstagramRaw
+        : null;
+      const resultFacebookUrl = resultFacebookRaw
+        && !looksLikeThirdPartySocialProfile(resultFacebookRaw)
+        && socialProfileLooksCompatibleWithLead(resultIdentity, resultFacebookRaw)
+        ? resultFacebookRaw
+        : null;
+      const existingInstagramUrl = existingInstagramRaw
+        && !looksLikeThirdPartySocialProfile(existingInstagramRaw)
+        && socialProfileLooksCompatibleWithLead(existing, existingInstagramRaw)
+        ? existingInstagramRaw
+        : null;
+      const existingFacebookUrl = existingFacebookRaw
+        && !looksLikeThirdPartySocialProfile(existingFacebookRaw)
+        && socialProfileLooksCompatibleWithLead(existing, existingFacebookRaw)
+        ? existingFacebookRaw
+        : null;
+      const mergedInstagramUrl = resultInstagramUrl || existingInstagramUrl;
+      const mergedFacebookUrl = resultFacebookUrl || existingFacebookUrl;
       const resultWebsiteRaw = String((result as any).website || '').trim();
       const existingWebsiteRaw = String(existing?.website || '').trim();
       const resultWebsite = resultWebsiteRaw
@@ -14115,6 +14266,109 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
           highOpportunity: filters.opportunityLevel === 'high',
         },
       },
+    };
+  }
+
+  async permanentDeleteMasterDatabaseCards(user: any, input: RadarFiltersInput & { companyId?: number | null; leadIds?: string[] } = {}) {
+    if (!(await this.supportsRadarPersistence())) {
+      throw new ServiceUnavailableException('Banco do Radar ainda nao foi migrado neste ambiente.');
+    }
+
+    const masterUserId = Math.trunc(Number(user?.id || 0)) || null;
+    const leadIds = Array.from(new Set((Array.isArray(input.leadIds) ? input.leadIds : [])
+      .map((id) => String(id || '').trim())
+      .filter(Boolean))).slice(0, 500);
+    if (!leadIds.length) throw new BadRequestException('Nenhum card selecionado para exclusao em massa.');
+
+    const rows = await (this.prisma as any).radarLeadPool.findMany({
+      where: { id: { in: leadIds } },
+      select: {
+        id: true,
+        placeId: true,
+        phone: true,
+        phoneDigits: true,
+        name: true,
+        companyId: true,
+        ownerCompanyId: true,
+      },
+      take: 500,
+    }).catch(() => []);
+
+    const ids = Array.from(new Set((rows || []).map((row: any) => String(row.id || '')).filter(Boolean)));
+    if (!ids.length) return { ok: true, affected: 0, searchHistoryPlaces: 0, searchRunItems: 0, enrichments: 0, recoveryItems: 0 };
+
+    const placeIds = Array.from(new Set((rows || []).map((row: any) => String(row.placeId || '').trim()).filter(Boolean)));
+    const phoneDigits = Array.from(new Set((rows || [])
+      .flatMap((row: any) => {
+        const digits = normalizePhoneDigits(row.phoneDigits || row.phone);
+        if (!digits) return [];
+        return digits.startsWith('55') ? [digits, digits.slice(2)] : [digits, `55${digits}`];
+      })
+      .filter(Boolean) as string[]));
+    const cardIdentityOr = [
+      ...(phoneDigits.length ? [{ phoneDigits: { in: phoneDigits } }] : []),
+      ...(placeIds.length ? [{ placeId: { in: placeIds } }] : []),
+    ];
+
+    let searchHistoryPlaces = 0;
+    if (cardIdentityOr.length && (this.prisma as any).webscrapingSearchPlace?.deleteMany) {
+      const result = await (this.prisma as any).webscrapingSearchPlace.deleteMany({
+        where: { OR: cardIdentityOr },
+      }).catch(() => ({ count: 0 }));
+      searchHistoryPlaces = Number(result?.count || 0);
+    }
+
+    let searchRunItems = 0;
+    if (cardIdentityOr.length && (this.prisma as any).webscrapingSearchRunItem?.deleteMany) {
+      const result = await (this.prisma as any).webscrapingSearchRunItem.deleteMany({
+        where: { OR: cardIdentityOr },
+      }).catch(() => ({ count: 0 }));
+      searchRunItems = Number(result?.count || 0);
+    }
+
+    let enrichments = 0;
+    if ((this.prisma as any).radarLeadEnrichment?.deleteMany) {
+      const result = await (this.prisma as any).radarLeadEnrichment.deleteMany({
+        where: { OR: [{ radarLeadId: { in: ids } }, { sourceLeadPoolId: { in: ids } }] },
+      }).catch(() => ({ count: 0 }));
+      enrichments = Number(result?.count || 0);
+    }
+
+    let recoveryItems = 0;
+    if ((this.prisma as any).recoveryOpportunity?.deleteMany) {
+      const result = await (this.prisma as any).recoveryOpportunity.deleteMany({
+        where: { sourceType: 'radar', sourceId: { in: ids } },
+      }).catch(() => ({ count: 0 }));
+      recoveryItems = Number(result?.count || 0);
+    }
+
+    const deleted = await (this.prisma as any).radarLeadPool.deleteMany({
+      where: { id: { in: ids } },
+    }).catch(() => ({ count: 0 }));
+
+    await this.masterContextService.registerSupportAction({
+      masterUserId: masterUserId || 0,
+      companyId: null,
+      scope: 'master_database',
+      action: 'RADAR_DATABASE_CARDS_MASS_DELETED',
+      severity: 'WARN',
+      metadata: {
+        requestedCount: leadIds.length,
+        affected: Number(deleted?.count || 0),
+        searchHistoryPlaces,
+        searchRunItems,
+        enrichments,
+        recoveryItems,
+      },
+    }).catch(() => null);
+
+    return {
+      ok: true,
+      affected: Number(deleted?.count || 0),
+      searchHistoryPlaces,
+      searchRunItems,
+      enrichments,
+      recoveryItems,
     };
   }
 

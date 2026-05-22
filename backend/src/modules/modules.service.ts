@@ -4515,6 +4515,12 @@ export class ModulesService implements OnModuleInit {
     return normalized ? normalized.slice(0, max) : null;
   }
 
+  private normalizeRadarPhoneDigits(value: unknown) {
+    let digits = String(value || '').replace(/\D/g, '');
+    if (digits.startsWith('55') && digits.length > 11) digits = digits.slice(2);
+    return digits || null;
+  }
+
   private buildVendasComplaintPayload(row: any) {
     const leadPhone = this.normalizeNullableText(row.leadPhone, 40);
     const companyPhone = this.normalizeNullableText(row.companyContactPhone || row.companyWhatsappNumber, 40);
@@ -4677,6 +4683,44 @@ export class ModulesService implements OnModuleInit {
     return this.listMasterVendasComplaints(masterUserId, { limit: 80 });
   }
 
+  async permanentDeleteMasterVendasComplaints(masterUserId: number, input: { complaintIds?: string[]; status?: string } = {}) {
+    await this.assertMasterUser(masterUserId);
+    await ensureVendasComplaintsRuntimeSchema(this.prisma);
+
+    const ids = Array.from(new Set((Array.isArray(input.complaintIds) ? input.complaintIds : [])
+      .map((id) => String(id || '').trim())
+      .filter(Boolean))).slice(0, 500);
+    const status = String(input.status || '').trim().toLowerCase();
+
+    let affected = 0;
+    if (ids.length) {
+      affected = await this.prisma.$executeRaw(
+        Prisma.sql`DELETE FROM "VendasCardComplaint" WHERE "id" IN (${Prisma.join(ids)})`,
+      );
+    } else if (status && status !== 'all') {
+      affected = await this.prisma.$executeRaw(
+        Prisma.sql`DELETE FROM "VendasCardComplaint" WHERE "status" = ${this.normalizeVendasComplaintStatus(status)}`,
+      );
+    } else {
+      throw new BadRequestException('Nenhuma reclamacao selecionada para exclusao em massa.');
+    }
+
+    await this.masterContextService.registerSupportAction({
+      masterUserId,
+      companyId: null,
+      scope: 'vendas_complaint',
+      action: 'VENDAS_COMPLAINT_MASS_DELETED',
+      severity: 'WARN',
+      metadata: {
+        affected,
+        selectedCount: ids.length,
+        status: status || null,
+      },
+    });
+
+    return { ok: true, affected };
+  }
+
   private buildMasterRadarCardExclusionPayload(row: any) {
     const lead = row?.radarLead || {};
     const reason = this.normalizeNullableText(
@@ -4710,17 +4754,11 @@ export class ModulesService implements OnModuleInit {
     };
   }
 
-  private async listMasterRadarCardExclusions(query?: { moduleKey?: string; companyId?: number; search?: string }) {
+  private buildMasterRadarCardExclusionWhere(query?: { moduleKey?: string; companyId?: number; search?: string }) {
     const moduleKey = String(query?.moduleKey || '').trim().toLowerCase();
     const allowedModuleFilter = !moduleKey || ['radar', 'webscraping', 'bancodedados', 'vendas', 'cards'].includes(moduleKey);
     if (!allowedModuleFilter) {
-      return { items: [], summary: { total: 0, discarded: 0, complaint: 0 } };
-    }
-
-    const hasState = await this.prisma.hasTable('RadarLeadCompanyState').catch(() => false);
-    const hasPool = await this.prisma.hasTable('RadarLeadPool').catch(() => false);
-    if (!hasState || !hasPool || !(this.prisma as any).radarLeadCompanyState?.findMany) {
-      return { items: [], summary: { total: 0, discarded: 0, complaint: 0 } };
+      return null;
     }
 
     const where: any = { status: { in: ['discarded', 'complaint'] } };
@@ -4739,6 +4777,21 @@ export class ModulesService implements OnModuleInit {
         { radarLead: { is: { state: { contains: search, mode: 'insensitive' } } } },
         { radarLead: { is: { segment: { contains: search, mode: 'insensitive' } } } },
       ];
+    }
+
+    return where;
+  }
+
+  private async listMasterRadarCardExclusions(query?: { moduleKey?: string; companyId?: number; search?: string }) {
+    const where = this.buildMasterRadarCardExclusionWhere(query);
+    if (!where) {
+      return { items: [], summary: { total: 0, discarded: 0, complaint: 0 } };
+    }
+
+    const hasState = await this.prisma.hasTable('RadarLeadCompanyState').catch(() => false);
+    const hasPool = await this.prisma.hasTable('RadarLeadPool').catch(() => false);
+    if (!hasState || !hasPool || !(this.prisma as any).radarLeadCompanyState?.findMany) {
+      return { items: [], summary: { total: 0, discarded: 0, complaint: 0 } };
     }
 
     const rows = await (this.prisma as any).radarLeadCompanyState.findMany({
@@ -4934,17 +4987,163 @@ export class ModulesService implements OnModuleInit {
     return { ok: true, id: deletionId };
   }
 
+  private async cleanupMasterRadarCardExclusions(
+    masterUserId: number,
+    filters: { moduleKey?: string; companyId?: number; search?: string },
+  ) {
+    const empty = {
+      radarCards: 0,
+      radarEvents: 0,
+      searchHistoryPlaces: 0,
+      searchRunItems: 0,
+      emptySearchHistories: 0,
+      emptySearchRuns: 0,
+    };
+    const where = this.buildMasterRadarCardExclusionWhere(filters);
+    if (!where) return empty;
+
+    const [hasState, hasPool] = await Promise.all([
+      this.prisma.hasTable('RadarLeadCompanyState').catch(() => false),
+      this.prisma.hasTable('RadarLeadPool').catch(() => false),
+    ]);
+    if (!hasState || !hasPool || !(this.prisma as any).radarLeadCompanyState?.findMany) return empty;
+
+    const rows = await (this.prisma as any).radarLeadCompanyState.findMany({
+      where,
+      take: 5000,
+      include: {
+        radarLead: {
+          select: {
+            id: true,
+            placeId: true,
+            phone: true,
+            phoneDigits: true,
+          },
+        },
+      },
+    }).catch(() => []);
+    if (!rows.length) return empty;
+
+    const stateIds: string[] = Array.from(new Set(rows.map((row: any) => String(row.id || '')).filter(Boolean) as string[]));
+    const leadIds: string[] = Array.from(new Set(rows.map((row: any) => String(row.radarLeadId || row.radarLead?.id || '')).filter(Boolean) as string[]));
+    const companyIds: number[] = Array.from(new Set(rows.map((row: any) => Number(row.companyId || 0)).filter((id: number) => id > 0) as number[]));
+    const placeIds: string[] = Array.from(new Set(rows.map((row: any) => String(row.radarLead?.placeId || '').trim()).filter(Boolean) as string[]));
+    const phoneDigits: string[] = Array.from(new Set(
+      rows
+        .flatMap((row: any) => {
+          const digits = this.normalizeRadarPhoneDigits(row.radarLead?.phoneDigits || row.radarLead?.phone);
+          if (!digits) return [];
+          return digits.startsWith('55') ? [digits, digits.slice(2)] : [digits, `55${digits}`];
+        })
+        .filter(Boolean) as string[],
+    ));
+    const cardIdentityOr = [
+      ...(phoneDigits.length ? [{ phoneDigits: { in: phoneDigits } }] : []),
+      ...(placeIds.length ? [{ placeId: { in: placeIds } }] : []),
+    ];
+    const companyFilter = companyIds.length ? { companyId: { in: companyIds } } : {};
+
+    let searchHistoryPlaces = 0;
+    if (cardIdentityOr.length && (this.prisma as any).webscrapingSearchPlace?.deleteMany) {
+      const result = await (this.prisma as any).webscrapingSearchPlace.deleteMany({
+        where: { OR: cardIdentityOr },
+      }).catch(() => ({ count: 0 }));
+      searchHistoryPlaces = Number(result?.count || 0);
+    }
+
+    let searchRunItems = 0;
+    if (cardIdentityOr.length && (this.prisma as any).webscrapingSearchRunItem?.deleteMany) {
+      const result = await (this.prisma as any).webscrapingSearchRunItem.deleteMany({
+        where: { ...companyFilter, OR: cardIdentityOr },
+      }).catch(() => ({ count: 0 }));
+      searchRunItems = Number(result?.count || 0);
+    }
+
+    let emptySearchHistories = 0;
+    if ((this.prisma as any).webscrapingSearchHistory?.deleteMany && companyIds.length) {
+      const result = await (this.prisma as any).webscrapingSearchHistory.deleteMany({
+        where: { companyId: { in: companyIds }, places: { none: {} } },
+      }).catch(() => ({ count: 0 }));
+      emptySearchHistories = Number(result?.count || 0);
+    }
+
+    let emptySearchRuns = 0;
+    if ((this.prisma as any).webscrapingSearchRun?.deleteMany && companyIds.length) {
+      const result = await (this.prisma as any).webscrapingSearchRun.deleteMany({
+        where: { companyId: { in: companyIds }, items: { none: {} } },
+      }).catch(() => ({ count: 0 }));
+      emptySearchRuns = Number(result?.count || 0);
+    }
+
+    let radarEvents = 0;
+    if (leadIds.length && (await this.prisma.hasTable('RadarLeadEvent').catch(() => false)) && (this.prisma as any).radarLeadEvent?.deleteMany) {
+      const result = await (this.prisma as any).radarLeadEvent.deleteMany({
+        where: { leadId: { in: leadIds }, ...(companyIds.length ? { companyId: { in: companyIds } } : {}) },
+      }).catch(() => ({ count: 0 }));
+      radarEvents = Number(result?.count || 0);
+    }
+
+    const deletedStates = await (this.prisma as any).radarLeadCompanyState.deleteMany({
+      where: { id: { in: stateIds } },
+    }).catch(() => ({ count: 0 }));
+
+    if (leadIds.length && (this.prisma as any).radarLeadPool?.updateMany) {
+      const remainingRows = await (this.prisma as any).radarLeadCompanyState.findMany({
+        where: { radarLeadId: { in: leadIds }, status: { in: ['discarded', 'complaint'] } },
+        select: { radarLeadId: true },
+        distinct: ['radarLeadId'],
+      }).catch(() => []);
+      const stillBlocked = new Set((remainingRows || []).map((row: any) => String(row.radarLeadId || '')).filter(Boolean));
+      const releasableLeadIds = leadIds.filter((id) => !stillBlocked.has(id));
+      if (releasableLeadIds.length) {
+        await (this.prisma as any).radarLeadPool.updateMany({
+          where: { id: { in: releasableLeadIds }, status: { in: ['discarded', 'complaint', 'hidden', 'rejected', 'denied'] } },
+          data: {
+            status: 'clean',
+            complaintReason: null,
+            deniedReason: null,
+            rejectionReason: null,
+            lastSeenAt: new Date(),
+          },
+        }).catch(() => null);
+      }
+    }
+
+    await this.masterContextService.registerSupportAction({
+      masterUserId,
+      companyId: companyIds.length === 1 ? companyIds[0] : null,
+      scope: 'master_exclusoes',
+      action: 'RADAR_CARD_EXCLUSIONS_MASS_REMOVED',
+      severity: 'WARN',
+      metadata: {
+        filters,
+        stateIdsCount: stateIds.length,
+        leadIdsCount: leadIds.length,
+        radarCards: Number(deletedStates?.count || 0),
+        radarEvents,
+        searchHistoryPlaces,
+        searchRunItems,
+        emptySearchHistories,
+        emptySearchRuns,
+      },
+    }).catch(() => null);
+
+    return {
+      radarCards: Number(deletedStates?.count || 0),
+      radarEvents,
+      searchHistoryPlaces,
+      searchRunItems,
+      emptySearchHistories,
+      emptySearchRuns,
+    };
+  }
+
   async permanentDeleteExclusoesBatch(
     masterUserId: number,
-    filters: { moduleKey?: string; companyId?: number; motivo?: string; confirmText?: string },
+    filters: { moduleKey?: string; companyId?: number; motivo?: string; search?: string },
   ) {
     const { user } = await this.resolveUserContext(masterUserId);
     await this.assertMasterUser(masterUserId);
-
-    const confirmText = String(filters?.confirmText || '').trim();
-    if (confirmText.length < 10) {
-      throw new BadRequestException('Confirmação inválida. Envie confirmText com pelo menos 10 caracteres.');
-    }
 
     const where: any = { permanentlyDeletedAt: null };
     const moduleKey = String(filters?.moduleKey || '').trim().toLowerCase();
@@ -4953,13 +5152,24 @@ export class ModulesService implements OnModuleInit {
     const companyId = Number(filters?.companyId || 0);
     if (companyId > 0) where.companyId = companyId;
 
+    const search = String(filters?.search || '').trim();
+    if (search) {
+      where.OR = [
+        { entityType: { contains: search, mode: 'insensitive' } },
+        { entityId: { contains: search, mode: 'insensitive' } },
+        { motivo: { contains: search, mode: 'insensitive' } },
+      ];
+    }
+
     const rows = await this.prisma.deletionRecord.findMany({
       where,
       select: { id: true, snapshot: true },
       take: 5000,
     });
 
-    if (!rows.length) return { ok: true, affected: 0 };
+    const radarCleanup = await this.cleanupMasterRadarCardExclusions(masterUserId, filters);
+
+    if (!rows.length) return { ok: true, affected: 0, ...radarCleanup };
 
     const permanentBy = String((user as any)?.username || (user as any)?.email || `master_${masterUserId}`);
     const nowIso = new Date().toISOString();
@@ -4980,6 +5190,6 @@ export class ModulesService implements OnModuleInit {
       }),
     );
 
-    return { ok: true, affected: rows.length };
+    return { ok: true, affected: rows.length, ...radarCleanup };
   }
 }

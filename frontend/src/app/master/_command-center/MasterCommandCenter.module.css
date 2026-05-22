@@ -960,6 +960,75 @@
   padding: 12px;
 }
 
+.databaseWorkspace {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.databaseTabs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.databaseTab {
+  min-height: 82px;
+  border: 1px solid var(--master-border);
+  border-radius: 8px;
+  background: var(--master-muted-bg);
+  color: var(--master-muted-text);
+  padding: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.databaseTab strong,
+.databaseGuidePanel h4 {
+  display: block;
+  margin: 0;
+  font-size: 15px;
+  font-weight: 900;
+}
+
+.databaseTab span,
+.databaseGuidePanel p {
+  display: block;
+  margin: 5px 0 0;
+  color: var(--master-muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.databaseTab[data-active="true"] {
+  background: var(--master-active-bg);
+  color: var(--master-active-text);
+  border-color: var(--master-active-bg);
+}
+
+.databaseTab[data-active="true"] span {
+  color: color-mix(in srgb, var(--master-active-text) 76%, transparent);
+}
+
+.databaseGuidePanel {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  border: 1px solid var(--master-border);
+  border-radius: 8px;
+  background: var(--master-surface-soft);
+  padding: 14px;
+}
+
+.databaseGuidePanel span {
+  color: var(--master-muted);
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: 0;
+}
+
 .complaintQueue {
   display: flex;
   flex-direction: column;
@@ -1114,6 +1183,7 @@
   }
 
   .kpiStrip,
+  .databaseTabs,
   .realityGrid,
   .billingGrid,
   .previewGrid,
@@ -1134,6 +1204,11 @@
   .integrationRow,
   .userCard {
     grid-template-columns: 1fr;
+  }
+
+  .databaseGuidePanel {
+    align-items: stretch;
+    flex-direction: column;
   }
 
   .companyRow {

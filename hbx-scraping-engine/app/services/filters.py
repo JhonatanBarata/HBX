@@ -182,6 +182,7 @@ GENERIC_NAME_CONTAINS = (
     "opiniones ",
     " produto ",
     "produtos em destaque",
+    "perto de mim",
     "redefinindo ",
     "realiza provas ",
     "resenas reales",

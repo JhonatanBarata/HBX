@@ -14,17 +14,17 @@ from app.search.sources import build_intent_discovery_queries, discover_social_p
 
 from .agenda_sources import dedupe_by_phone, search_abctelefonos
 from .fetcher import Fetcher
-from .filters import domain_from_url, is_blocked_lead_source_domain, is_generic_name, is_pf_technical_blocked_domain, is_social_signal_domain, text_key
+from .filters import domain_from_url, expected_ddds, is_blocked_lead_source_domain, is_generic_name, is_pf_technical_blocked_domain, is_social_signal_domain, phone_ddd, text_key
 from .normalizer import dedupe_contacts
 from .parser import is_directory_url, parse_page
 from .scoring import score_contact
-from .social import is_valid_social_profile_url, normalize_social_url, social_field_for_url
+from .social import extract_social_links_from_html, is_valid_social_profile_url, normalize_social_url, social_field_for_url
 from .storage import Storage
 
 SOCIAL_ENRICH_MAX_RESULTS_PER_QUERY = 12
 SOCIAL_ENRICH_MAX_CONTACTS_REQUIRED = 4
 SOCIAL_ENRICH_MAX_CONTACTS_PREFERRED = 2
-SOCIAL_ENRICH_MAX_QUERIES_PER_CHANNEL = 5
+SOCIAL_ENRICH_MAX_QUERIES_PER_CHANNEL = 10
 SOCIAL_ENRICH_MAX_HANDLE_VALIDATIONS = 10
 SOCIAL_ENRICH_TOTAL_BUDGET_SECONDS = 24
 SOCIAL_ENRICH_WEBSITE_MAX_QUERIES = 3
@@ -244,6 +244,26 @@ SOCIAL_GENERIC_BUSINESS_TOKENS = BUSINESS_CATEGORY_TOKENS | {
     "studio",
 }
 
+WEBSITE_GENERIC_HOST_TOKENS = SOCIAL_GENERIC_BUSINESS_TOKENS | {
+    "animal",
+    "animais",
+    "medica",
+    "medicas",
+    "medico",
+    "medicos",
+    "odontologica",
+    "odontologicas",
+    "odontologico",
+    "odontologicos",
+    "pet",
+    "pets",
+    "vet",
+    "veterinaria",
+    "veterinarias",
+    "veterinario",
+    "veterinarios",
+}
+
 WEAK_SOCIAL_DISTINCTIVE_TOKENS = {
     "absolute",
     "bella",
@@ -295,15 +315,12 @@ class SearchService:
         return {channel for channel in channels if channel in {"instagram", "facebook"}}
 
     def effective_requested_social_channels(self, request: SearchRequest) -> set[str]:
-        channels = self.requested_social_channels(request.preferredChannels, request.requiredChannels)
-        if request.targetType == "pj":
-            channels.update({"instagram", "facebook"})
-        return channels
+        return self.requested_social_channels(request.preferredChannels, request.requiredChannels)
 
     def effective_discovery_channels(self, request: SearchRequest) -> list[str]:
         channels = list(dict.fromkeys([*(request.preferredChannels or []), *(request.requiredChannels or [])]))
         if request.targetType == "pj":
-            channels = list(dict.fromkeys([*channels, "instagram", "facebook", "website", "email"]))
+            channels = list(dict.fromkeys([*channels, "website", "email"]))
         return channels
 
     def required_social_channels(self, required_channels: list[str] | None = None) -> set[str]:
@@ -432,12 +449,42 @@ class SearchService:
             variants.append(compact)
         return list(dict.fromkeys(variant for variant in variants if variant.strip()))
 
-    def business_social_handle_candidates(self, value: str) -> list[str]:
+    def business_social_handle_candidates(self, value: str, city: str = "") -> list[str]:
         key = text_key(value)
         if not key:
             return []
         tokens = [token for token in key.split() if token not in BUSINESS_NAME_STOP_TOKENS and token not in {"e"}]
+        city_key = self.compact_key(city)
+        city_initials = self.city_initials_key(city)
+        distinctive = self.distinctive_social_name_tokens(value)
+        category = next((token for token in tokens if token in BUSINESS_CATEGORY_TOKENS), "")
+        handle_prefix_tokens = {
+            "clinica",
+            "clinicas",
+            "veterinaria",
+            "veterinarias",
+            "veterinario",
+            "veterinarios",
+        }
+        brand_tokens = [token for token in tokens if token not in handle_prefix_tokens]
+        brand_compact = "".join(brand_tokens)
+        brand_bases = [brand_compact]
+        if category and brand_compact:
+            brand_bases.append(f"{category}{brand_compact}")
         candidates: list[str] = []
+        category_brand_compact = f"{category}{brand_compact}" if category and brand_compact else ""
+        priority_candidates = [
+            f"{brand_compact}{city_key}" if brand_compact.startswith("vet") and city_key else "",
+            brand_compact,
+            f"{category_brand_compact}{city_initials}" if category_brand_compact and city_initials else "",
+            f"{brand_compact}{city_key}" if brand_compact and city_key else "",
+            category_brand_compact,
+            f"{brand_compact}{city_initials}" if brand_compact and city_initials else "",
+            f"{category_brand_compact}{city_key}" if category_brand_compact and city_key else "",
+        ]
+        for candidate in priority_candidates:
+            if 5 <= len(candidate) <= 32:
+                candidates.append(candidate)
         for variant in self.business_name_variants(value):
             compact = re.sub(r"[^a-z0-9]+", "", text_key(variant))
             if 5 <= len(compact) <= 32:
@@ -447,8 +494,6 @@ class SearchService:
             candidates.append(compact_all)
             if len(compact_all) + len("oficial") <= 32:
                 candidates.append(f"{compact_all}oficial")
-        distinctive = self.distinctive_social_name_tokens(value)
-        category = next((token for token in tokens if token in BUSINESS_CATEGORY_TOKENS), "")
         if category and distinctive:
             for token in distinctive[:2]:
                 candidates.append(f"{category}{token}")
@@ -566,6 +611,11 @@ class SearchService:
         name_tokens = self.social_name_tokens(name)
         compact_name = "".join(name_tokens)
         queries: list[str] = []
+        top_handles = self.business_social_handle_candidates(name, city_text)[:10]
+        for handle in top_handles:
+            queries.append(f"{handle} {channel}")
+        for handle in top_handles[:5]:
+            queries.append(f"site:{domain} {handle}")
         for name_variant in self.text_variants(name):
             q_name = self.quote_query_part(name_variant)
             if not q_name:
@@ -587,9 +637,9 @@ class SearchService:
         if website_stem and len(website_stem) >= 4:
             queries.append(f"site:{domain} {website_stem}")
             queries.append(f"{website_stem} {channel}")
-        for handle in self.business_social_handle_candidates(name):
-            queries.append(f"site:{domain} {handle}")
+        for handle in self.business_social_handle_candidates(name, city_text):
             queries.append(f"{handle} {channel}")
+            queries.append(f"site:{domain} {handle}")
         if phone_tail:
             queries.append(f"site:{domain} {self.quote_query_part(phone_tail)}")
             queries.append(f"{self.quote_query_part(phone_tail)} {channel}")
@@ -639,6 +689,21 @@ class SearchService:
         query_compact = re.sub(r"[^a-z0-9]+", "", query_key)
         name_key = text_key(contact.get("name"))
         name_compact = re.sub(r"[^a-z0-9]+", "", name_key)
+        handle_prefix_tokens = {
+            "clinica",
+            "clinicas",
+            "veterinaria",
+            "veterinarias",
+            "veterinario",
+            "veterinarios",
+        }
+        brand_compact = "".join(
+            token
+            for token in name_key.split()
+            if token not in BUSINESS_NAME_STOP_TOKENS
+            and token not in handle_prefix_tokens
+            and token != "e"
+        )
         city_key = text_key(city)
         city_initials = self.city_initials_key(city)
         phone_digits = re.sub(r"\D", "", str(contact.get("phoneDigits") or contact.get("phone") or ""))
@@ -652,6 +717,12 @@ class SearchService:
             token
             for token in distinctive_tokens
             if len(token) >= 4 and token not in WEAK_SOCIAL_DISTINCTIVE_TOKENS
+        ]
+        business_distinctive_tokens = [
+            token
+            for token in strong_distinctive_tokens
+            if token not in SOCIAL_GENERIC_BUSINESS_TOKENS
+            and token not in WEBSITE_GENERIC_HOST_TOKENS
         ]
         handle_key = self.social_url_handle_key(normalized_url)
         variant_compacts = [
@@ -712,6 +783,23 @@ class SearchService:
         phone_match = bool(phone_tail and phone_tail in re.sub(r"\D", "", combined))
         domain_match = bool(domain_key and (domain_key in combined_key or website_domain in combined.lower()))
         city_match = bool(city_key and city_key in combined_key)
+        handle_has_business_identity = bool(
+            handle_identity_match
+            or handle_business_variant_match
+            or any(token and token in handle_key for token in business_distinctive_tokens)
+        )
+        if handle_key and not handle_has_business_identity and not phone_match and not domain_match:
+            return -100
+        if (
+            brand_compact.startswith("vet")
+            and city_key
+            and handle_key
+            and city_key not in handle_key
+            and not (city_initials and handle_key.endswith(city_initials))
+            and not phone_match
+            and not domain_match
+        ):
+            return -100
         has_min_similarity = bool(
             phone_match
             or domain_match
@@ -800,9 +888,16 @@ class SearchService:
                         for token in distinctive_tokens
                         if len(token) >= 4 and token not in WEAK_SOCIAL_DISTINCTIVE_TOKENS
                     ]
+                    business_distinctive_tokens = [
+                        token
+                        for token in strong_distinctive_tokens
+                        if token not in SOCIAL_GENERIC_BUSINESS_TOKENS
+                        and token not in WEBSITE_GENERIC_HOST_TOKENS
+                    ]
                     handle_identity_match = self.handle_matches_business_identity(handle_key, category_tokens, distinctive_tokens)
                     handle_distinctive_match = any(token and token in handle_key for token in distinctive_tokens)
                     strong_handle_distinctive_match = any(token and token in handle_key for token in strong_distinctive_tokens)
+                    business_handle_distinctive_match = any(token and token in handle_key for token in business_distinctive_tokens)
                     variant_compacts = [
                         re.sub(r"[^a-z0-9]+", "", text_key(variant))
                         for variant in self.business_name_variants(str(contact.get("name") or ""))
@@ -819,16 +914,21 @@ class SearchService:
                     handle_city_initials_match = bool(city_initials and handle_key.endswith(city_initials))
                     distinctive_match = any(token in combined_key for token in distinctive_tokens)
                     query_key = text_key(query)
+                    query_compact = self.compact_key(query)
+                    query_handle_match = bool(handle_key and handle_key in query_compact)
                     query_identity_match = bool(
-                        strong_handle_distinctive_match
+                        (strong_handle_distinctive_match or business_handle_distinctive_match)
                         and (handle_business_variant_match or handle_city_initials_match)
-                        and city_key
-                        and city_key in query_key
                         and (
-                            any(token in query_key for token in strong_distinctive_tokens)
+                            (city_key and city_key in query_key)
+                            or query_handle_match
+                        )
+                        and (
+                            any(token in query_key for token in business_distinctive_tokens or strong_distinctive_tokens)
                             and (
                                 any(token in query_key for token in category_tokens)
                                 or any(len(token) >= 6 and token in query_key for token in strong_distinctive_tokens)
+                                or query_handle_match
                             )
                         )
                     )
@@ -838,6 +938,7 @@ class SearchService:
                         or website_stem and handle_key and (website_stem in handle_key or handle_key in website_stem)
                         or city_key and city_key in combined_key and (distinctive_match or handle_identity_match)
                         or query_identity_match
+                        or (query_handle_match and (handle_identity_match or handle_business_variant_match or business_handle_distinctive_match))
                     )
                     if candidate_score >= 55 and has_identity_evidence:
                         candidates.append({
@@ -986,7 +1087,7 @@ class SearchService:
         name_key = text_key(str(contact.get("name") or ""))
         name_tokens = [
             token for token in name_key.split()
-            if len(token) >= 4
+            if (len(token) >= 4 or token == "vet")
             and token not in BUSINESS_NAME_STOP_TOKENS
             and token not in WEAK_SOCIAL_DISTINCTIVE_TOKENS
         ]
@@ -1001,12 +1102,19 @@ class SearchService:
             token for token in category_tokens
             if len(token) >= 4 and token in host_compact
         }
+        distinctive_host_hits = {
+            token for token in strong_host_hits
+            if token not in WEBSITE_GENERIC_HOST_TOKENS
+        }
         full_name_host_match = bool(compact_name and len(compact_name) >= 8 and compact_name in host_compact)
+        has_distinctive_host_identity = bool(full_name_host_match or distinctive_host_hits)
+        if not has_distinctive_host_identity:
+            return -100
         host_identity_match = bool(
             full_name_host_match
-            or len(strong_host_hits) >= 2
-            or (strong_host_hits and category_host_hits)
-            or (len(strong_tokens) == 1 and len(name_tokens) <= 2 and next(iter(strong_host_hits), "") == strong_tokens[0])
+            or (len(strong_host_hits) >= 2 and distinctive_host_hits)
+            or (strong_host_hits and category_host_hits and distinctive_host_hits)
+            or (len(strong_tokens) == 1 and len(name_tokens) <= 2 and next(iter(strong_host_hits), "") == strong_tokens[0] and distinctive_host_hits)
         )
         score = 0
         for variant in self.business_name_variants(str(contact.get("name") or "")):
@@ -1668,6 +1776,55 @@ class SearchService:
 
         return None, "missing", "none", 0, stats
 
+    async def extract_social_links_from_website(
+        self,
+        contact: dict,
+        deadline: float,
+        budget_seconds: float,
+    ) -> dict:
+        website_social_stats = {
+            "attempted": False,
+            "found": False,
+            "url": contact.get("website"),
+            "fields": [],
+            "error": None,
+        }
+        if not contact.get("website") or self.time_budget_expired(deadline):
+            return website_social_stats
+
+        missing_from_site = [
+            channel
+            for channel in ("instagram", "facebook")
+            if not contact.get("instagramUrl" if channel == "instagram" else "facebookUrl")
+        ]
+        if not missing_from_site:
+            return website_social_stats
+
+        website_social_stats["attempted"] = True
+        try:
+            remaining = self.remaining_budget_seconds(deadline, budget_seconds)
+            if remaining < 1.0:
+                website_social_stats["error"] = "time_budget_exhausted"
+                return website_social_stats
+            website_budget = min(8.0, remaining)
+            pages = await Fetcher(
+                self.settings.user_agent,
+                website_budget,
+                1,
+                self.settings.max_page_bytes,
+            ).fetch_all([str(contact.get("website"))])
+            if pages:
+                links = extract_social_links_from_html(pages[0].html, pages[0].url)
+                for field, value in links.items():
+                    if field in {"instagramUrl", "facebookUrl"} and value and not contact.get(field):
+                        contact[field] = value
+                        website_social_stats["fields"].append(field)
+                website_social_stats["url"] = pages[0].url
+                website_social_stats["found"] = bool(website_social_stats["fields"])
+        except Exception as error:
+            website_social_stats["error"] = str(error)[:180]
+        return website_social_stats
+
     def parse_rating_reviews_from_identity_text(self, value: str) -> tuple[float | None, int | None]:
         text = " ".join(str(value or "").split())
         rating: float | None = None
@@ -1792,15 +1949,31 @@ class SearchService:
             "source": "hbx_scraping:lead_plus_enrichment",
             "score": 70,
         }
+        input_website_accepted = bool(contact.get("website"))
+        if contact.get("website"):
+            website_score = self.score_website_candidate(
+                contact,
+                {"title": contact.get("name"), "body": "", "url": contact.get("website"), "href": contact.get("website")},
+                str(contact.get("website")),
+                request.city,
+            )
+            if website_score < 35:
+                contact["website"] = None
+                input_website_accepted = False
         identity = self.enrich_identity_lookup(contact, request.city, request.state, request.segment, min(deadline, time.monotonic() + 8))
         for key in ("website", "instagramUrl", "facebookUrl"):
             if identity.get(key) and not contact.get(key):
                 contact[key] = identity.get(key)
-        if website_required and not contact.get("website") and not self.time_budget_expired(deadline):
-            website_deadline = min(deadline, time.monotonic() + 8)
-            direct_deadline = min(website_deadline, time.monotonic() + 10)
+        should_find_website_before_social = (
+            not contact.get("website")
+            and not self.time_budget_expired(deadline)
+            and website_required
+        )
+        if should_find_website_before_social:
+            website_deadline = min(deadline, time.monotonic() + (8 if website_required else 6))
+            direct_deadline = min(website_deadline, time.monotonic() + 4)
             website, website_score, website_query = self.probe_direct_website_for_contact(contact, request.city, direct_deadline)
-            if not website and not social_required and not self.time_budget_expired(website_deadline):
+            if not website and not self.time_budget_expired(website_deadline):
                 website, website_score, website_query = self.discover_website_for_contact(contact, request.city, website_deadline)
             if website:
                 contact["website"] = website
@@ -1808,6 +1981,7 @@ class SearchService:
                     "score": website_score,
                     "query": website_query,
                 }
+        website_social_stats = await self.extract_social_links_from_website(contact, deadline, budget_seconds)
         missing_social_channels = [
             channel
             for channel in preferred_channels
@@ -1826,6 +2000,7 @@ class SearchService:
             )
         else:
             contacts, social_stats = [contact], {"matches": [], "identity": identity.get("stats")}
+        social_stats["website"] = website_social_stats
         enriched = contacts[0] if contacts else contact
         if not enriched.get("website") and not self.time_budget_expired(deadline):
             website_deadline = min(deadline, time.monotonic() + 5)
@@ -1836,6 +2011,10 @@ class SearchService:
                     "score": website_score,
                     "query": website_query,
                 }
+                if not (enriched.get("instagramUrl") or enriched.get("facebookUrl")):
+                    late_website_social_stats = await self.extract_social_links_from_website(enriched, deadline, budget_seconds)
+                    if late_website_social_stats.get("attempted"):
+                        social_stats["lateWebsite"] = late_website_social_stats
         if self.time_budget_expired(deadline) or not enriched.get("website"):
             email, email_status, email_source, email_confidence, email_stats = None, "missing", "none", 0, {"pagesFetched": 0, "emailsFound": 0, "timedOut": True}
         else:
@@ -1853,7 +2032,7 @@ class SearchService:
             phoneDigits=phone_digits,
             rating=identity.get("rating"),
             reviews=identity.get("reviews"),
-            website=enriched.get("website") or request.website,
+            website=enriched.get("website") or (request.website if input_website_accepted else None),
             email=email,
             emailStatus=email_status,
             emailSource=email_source,
@@ -2098,6 +2277,7 @@ class SearchService:
         for profile in social_profiles:
             bump_source_url(str(profile.get("url") or ""), "hbx_scraping_social", "discovered")
 
+        expected_local_ddds = expected_ddds(request.city, request.state) if request.targetType == "pj" else set()
         for item in deduped:
             if request.targetType == "pj" and not item.get("evidenceJson"):
                 evidence_text = " ".join(str(item.get(key) or "") for key in ("name", "address", "segment", "_socialSnippet", "_pageUrl", "sourceUrl"))
@@ -2121,6 +2301,13 @@ class SearchService:
                 stats["rejected"] += 1
                 bump_source(item, "rejected")
                 continue
+            if request.targetType == "pj" and item.get("phoneDigits") and expected_local_ddds:
+                ddd = phone_ddd(item.get("phoneDigits"))
+                if ddd and ddd not in expected_local_ddds:
+                    stats["low_score"] += 1
+                    stats["rejected"] += 1
+                    bump_source(item, "rejected")
+                    continue
             blocked_domain = (
                 is_pf_technical_blocked_domain(item.get("website")) or is_pf_technical_blocked_domain(item.get("_pageUrl"))
                 if request.targetType == "pf"
@@ -2165,7 +2352,17 @@ class SearchService:
                 f"descartados_score_baixo=0 "
                 f"aprovados={stats['approved']}"
             )
-        public_items.sort(key=lambda item: int(item.get("_technicalScore") or 0), reverse=True)
+        if request.targetType == "pj":
+            public_items.sort(
+                key=lambda item: (
+                    1 if item.get("phoneDigits") else 0,
+                    1 if item.get("instagramUrl") or item.get("facebookUrl") else 0,
+                    int(item.get("_technicalScore") or 0),
+                ),
+                reverse=True,
+            )
+        else:
+            public_items.sort(key=lambda item: int(item.get("_technicalScore") or 0), reverse=True)
         valid = [
             ContactResult.model_validate({key: value for key, value in item.items() if key != "_technicalScore"}).model_dump(exclude_none=True)
             for item in public_items

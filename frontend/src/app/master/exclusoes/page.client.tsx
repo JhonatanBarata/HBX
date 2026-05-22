@@ -70,7 +70,6 @@ export default function ExclusoesMasterClientPage() {
   const [companyId, setCompanyId] = useState("");
   const [search, setSearch] = useState("");
   const [deleteDialog, setDeleteDialog] = useState<{ item: DeletionItem; motivo: string } | null>(null);
-  const [batchDialog, setBatchDialog] = useState<{ confirmText: string; motivo: string } | null>(null);
   const [restoreDialog, setRestoreDialog] = useState<{ item: RadarExcludedCard; motivo: string } | null>(null);
 
   const companyOptions = useMemo(() => {
@@ -136,31 +135,32 @@ export default function ExclusoesMasterClientPage() {
     }
   }
 
-  async function permanentDeleteBatch(confirmText: string, motivo: string) {
-    const secondText = confirmText.trim();
-    if (secondText.length < 10) {
-      setError('Confirmação inválida: digite pelo menos 10 caracteres para continuar.');
-      return;
-    }
-
+  async function permanentDeleteBatch() {
     setBusyBatch(true);
     setError(null);
     setInfo(null);
     try {
-      const payload = await apiFetch<{ ok: boolean; affected: number }>(`/modules/master/exclusoes/batch`, {
+      const payload = await apiFetch<{
+        ok: boolean;
+        affected: number;
+        radarCards?: number;
+        radarEvents?: number;
+        searchHistoryPlaces?: number;
+        searchRunItems?: number;
+      }>(`/modules/master/exclusoes/batch`, {
         method: 'DELETE',
         body: JSON.stringify({
           moduleKey: moduleKey || undefined,
           companyId: companyId ? Number(companyId) : undefined,
-          motivo: motivo || undefined,
-          confirmText: secondText,
+          search: search || undefined,
         }),
       });
-      setInfo(`Limpeza em lote concluída. Registros afetados: ${payload?.affected ?? 0}.`);
-      setBatchDialog(null);
+      setInfo(
+        `Remoção em massa concluída. Auditoria: ${payload?.affected ?? 0}. Cards: ${payload?.radarCards ?? 0}. Histórico: ${(payload?.radarEvents ?? 0) + (payload?.searchHistoryPlaces ?? 0) + (payload?.searchRunItems ?? 0)}.`,
+      );
       await load();
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Falha na limpeza em lote');
+      setError(e instanceof Error ? e.message : 'Falha ao remover em massa');
     } finally {
       setBusyBatch(false);
     }
@@ -226,9 +226,9 @@ export default function ExclusoesMasterClientPage() {
             type="button"
             className="btn btn-danger btn-sm"
             disabled={busyBatch}
-            onClick={() => setBatchDialog({ confirmText: "", motivo: "" })}
+            onClick={() => void permanentDeleteBatch()}
           >
-            {busyBatch ? 'Limpando lote...' : `Limpeza em lote (${batchScopeLabel})`}
+            {busyBatch ? 'Removendo...' : `Remover em Massa (${batchScopeLabel})`}
           </button>
         </div>
       </section>
@@ -395,43 +395,6 @@ export default function ExclusoesMasterClientPage() {
             setDeleteDialog((current) => current ? { ...current, motivo: event.target.value } : current)
           }
           placeholder="Descreva por que este registro será limpo permanentemente."
-        />
-      </HbxConfirmDialog>
-
-      <HbxConfirmDialog
-        open={batchDialog !== null}
-        title="Limpeza em lote"
-        description={`A limpeza usará ${batchScopeLabel}. Digite uma confirmação com pelo menos 10 caracteres antes de continuar.`}
-        confirmLabel="Limpar lote"
-        destructive
-        busy={busyBatch}
-        confirmDisabled={!batchDialog || batchDialog.confirmText.trim().length < 10}
-        onCancel={() => setBatchDialog(null)}
-        onConfirm={() => {
-          if (batchDialog) void permanentDeleteBatch(batchDialog.confirmText, batchDialog.motivo.trim());
-        }}
-      >
-        <label className="text-xs uppercase tracking-[0.08em] font-semibold text-muted">
-          Confirmação
-        </label>
-        <input
-          className="field"
-          value={batchDialog?.confirmText || ""}
-          onChange={(event) =>
-            setBatchDialog((current) => current ? { ...current, confirmText: event.target.value } : current)
-          }
-          placeholder="Digite ao menos 10 caracteres"
-        />
-        <label className="text-xs uppercase tracking-[0.08em] font-semibold text-muted">
-          Motivo (opcional)
-        </label>
-        <textarea
-          className="field min-h-[96px]"
-          value={batchDialog?.motivo || ""}
-          onChange={(event) =>
-            setBatchDialog((current) => current ? { ...current, motivo: event.target.value } : current)
-          }
-          placeholder="Descreva o motivo da limpeza em lote."
         />
       </HbxConfirmDialog>
     </DashboardScaffold>

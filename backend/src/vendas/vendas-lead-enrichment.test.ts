@@ -55,6 +55,48 @@ test('vendas intelligence blocks protected Radar recommendation', () => {
   assert.equal(intelligence.contactQuality, 'blocked');
 });
 
+test('vendas intelligence treats queued import with preserved enrichment as completed', () => {
+  const intelligence = buildVendasLeadIntelligence({
+    lead: {
+      name: 'R K Charcutaria Artesanal',
+      phone: '19999999999',
+      city: 'Araras',
+      state: 'SP',
+      segment: 'restaurantes',
+      timelineEvents: [
+        {
+          sourceType: 'radar_enrichment',
+          description: JSON.stringify({
+            enrichmentStatus: 'queued',
+            visibilityTier: 'review_backup',
+            recommendedChannel: 'call',
+            painType: 'sem_site',
+            enrichmentScore: 7,
+            enrichment: {
+              version: 'radar-card-v1',
+              signals: {
+                emailStatus: 'missing',
+                socialStatus: 'missing',
+                recommendedChannel: 'call',
+                painType: 'sem_site',
+              },
+              qualityV2: {
+                decision: 'review',
+                finalRankScore: 45,
+              },
+            },
+          }),
+        },
+      ],
+    },
+    whatsappAvailability: { status: 'unknown' },
+  });
+
+  assert.equal(intelligence.enrichmentStatus, 'completed');
+  assert.equal(intelligence.visibilityTier, 'review_backup');
+  assert.equal(intelligence.recommendedChannel, 'call');
+});
+
 test('vendas intelligence scores Instagram and Facebook as commercial signals', () => {
   const intelligence = buildVendasLeadIntelligence({
     lead: {

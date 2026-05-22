@@ -2112,7 +2112,15 @@ export class HbxEnginePoolService implements OnModuleInit {
 
   private async buildQueueStats() {
     const tenMinutesAgo = minutesAgo(10);
+    const now = new Date();
     const hasCampaignTask = Boolean((this.prisma as any).webscrapingCampaignTask) && await this.prisma.hasTable('WebscrapingCampaignTask').catch(() => false);
+    const executableCampaignWhere = {
+      status: { in: ['queued', 'running', 'partial_error'] },
+      OR: [
+        { nextRunAt: null },
+        { nextRunAt: { lte: now } },
+      ],
+    };
     const [searchQueuedCount, searchRunningCount, searchCompletedLast10Min, partialLast10Min, oldestQueued, progressingRuns] = await Promise.all([
       (this.prisma as any).webscrapingSearchRun.count({ where: { status: 'queued' } }),
       (this.prisma as any).webscrapingSearchRun.count({ where: { status: 'running' } }),
@@ -2132,11 +2140,24 @@ export class HbxEnginePoolService implements OnModuleInit {
     ]);
     const [taskQueuedCount, taskRunningCount, taskCompletedLast10Min, oldestTaskQueued] = hasCampaignTask
       ? await Promise.all([
-          (this.prisma as any).webscrapingCampaignTask.count({ where: { status: 'queued' } }),
-          (this.prisma as any).webscrapingCampaignTask.count({ where: { status: 'running' } }),
+          (this.prisma as any).webscrapingCampaignTask.count({
+            where: {
+              status: 'queued',
+              campaign: executableCampaignWhere,
+            },
+          }),
+          (this.prisma as any).webscrapingCampaignTask.count({
+            where: {
+              status: 'running',
+              campaign: { status: { in: ['queued', 'running', 'partial_error'] } },
+            },
+          }),
           (this.prisma as any).webscrapingCampaignTask.count({ where: { status: { in: ['completed', 'exhausted'] }, finishedAt: { gte: tenMinutesAgo } } }),
           (this.prisma as any).webscrapingCampaignTask.findFirst({
-            where: { status: 'queued' },
+            where: {
+              status: 'queued',
+              campaign: executableCampaignWhere,
+            },
             orderBy: { createdAt: 'asc' },
             select: { createdAt: true },
           }),

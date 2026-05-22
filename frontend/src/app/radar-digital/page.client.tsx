@@ -485,6 +485,38 @@ function HeroPremiumCrown({ active }: { active: boolean }) {
   );
 }
 
+function DailyQuotaSpeedometer({
+  remaining,
+  dailyLimit,
+  spendLimit,
+  compact,
+}: {
+  remaining: number;
+  dailyLimit: number;
+  spendLimit: number;
+  compact?: boolean;
+}) {
+  const safeLimit = Math.max(1, Math.trunc(Number(dailyLimit || remaining || spendLimit || 1)));
+  const safeRemaining = Math.max(0, Math.trunc(Number(remaining || 0)));
+  const spentToday = Math.max(0, safeLimit - safeRemaining);
+
+  return (
+    <div
+      className={styles.dailyQuotaGauge}
+      data-compact={compact ? "true" : "false"}
+      aria-label={`${safeRemaining} cards disponíveis hoje`}
+      title={`${safeRemaining} cards disponíveis hoje`}
+    >
+      <b>{safeRemaining}</b>
+      <div className={styles.dailyQuotaText}>
+        <span>disponíveis</span>
+        <strong>hoje</strong>
+        <small>{spentToday}/{safeLimit} usados</small>
+      </div>
+    </div>
+  );
+}
+
 function RadarQuantitySelector({
   value,
   max,
@@ -1029,15 +1061,29 @@ function radarLeadSignature(item: RadarLead) {
     city: item.city,
     state: item.state,
     segment: item.segment,
+    website: item.website,
     websiteStatus: item.websiteStatus,
+    instagramUrl: item.instagramUrl,
+    facebookUrl: item.facebookUrl,
+    socialStatus: item.socialStatus,
     email: item.email,
     emailStatus: item.emailStatus,
     recommendedChannel: item.recommendedChannel,
     painType: item.painType,
     painLabel: item.painLabel,
+    painPitch: item.painPitch,
     enrichmentScore: item.enrichmentScore,
     enrichmentConfidence: item.enrichmentConfidence,
+    enrichmentVersion: item.enrichmentVersion,
+    lastEnrichedAt: item.lastEnrichedAt,
+    premiumFeatureStatus: item.premiumFeatureStatus,
+    premiumLocked: item.premiumLocked,
+    premiumTeaser: item.premiumTeaser,
+    visibilityTier: item.visibilityTier,
+    deliveryProduct: item.deliveryProduct,
+    qualityReason: item.qualityReason,
     whatsappStatus: item.whatsappStatus,
+    whatsappCheckStatus: item.whatsappCheckStatus,
     opportunityScore: item.opportunityScore,
     opportunityReason: item.opportunityReason,
     status: item.status,
@@ -1185,6 +1231,61 @@ function RadarLeadChannelIcons({ lead }: { lead: RadarLead }) {
           </span>
         );
       })}
+    </div>
+  );
+}
+
+function leadPremiumState(lead: RadarLead, loading: boolean) {
+  const status = String(lead.premiumFeatureStatus || lead.visibilityTier || lead.deliveryProduct || "").toLowerCase();
+  const hasEnrichment = Boolean(
+    lead.lastEnrichedAt ||
+    lead.enrichmentVersion ||
+    lead.instagramUrl ||
+    lead.facebookUrl ||
+    status.includes("ready") ||
+    status.includes("enriched") ||
+    status.includes("delivered"),
+  );
+
+  if (loading) return { state: "loading", label: "Enriquecendo", caption: "Pesquisando sinais" };
+  if (lead.premiumLocked || status.includes("locked") || status.includes("blocked")) {
+    return { state: "locked", label: "Premium", caption: "Bloqueado" };
+  }
+  if (hasEnrichment) return { state: "ready", label: "Enriquecido", caption: "Sinais prontos" };
+  if (lead.premiumTeaser || status.includes("pending") || status.includes("teaser")) {
+    return { state: "pending", label: "Premium", caption: "Aguardando" };
+  }
+  return { state: "idle", label: "Premium", caption: "Enriquecer" };
+}
+
+function PremiumCrownGlyph() {
+  return (
+    <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
+      <path d="M4.2 18.5h15.6l.7-9.9-4.6 3.5L12 4.7 8.1 12.1 3.5 8.6l.7 9.9Z" />
+      <path d="M5.2 20.2h13.6" />
+      <circle cx="12" cy="4.7" r="1.25" />
+      <circle cx="3.5" cy="8.6" r="1.15" />
+      <circle cx="20.5" cy="8.6" r="1.15" />
+    </svg>
+  );
+}
+
+function LeadPremiumCrown({ lead, loading }: { lead: RadarLead; loading: boolean }) {
+  const state = leadPremiumState(lead, loading);
+  return (
+    <div
+      className={styles.leadPremiumCrown}
+      data-state={state.state}
+      aria-busy={loading ? "true" : "false"}
+      title={`${state.label}: ${state.caption}`}
+    >
+      <span className={styles.leadPremiumCrownIcon}>
+        <PremiumCrownGlyph />
+      </span>
+      <span className={styles.leadPremiumCrownText}>
+        <b>{state.label}</b>
+        <small>{state.caption}</small>
+      </span>
     </div>
   );
 }
@@ -1553,27 +1654,36 @@ function RadarSegmentFunnel({
 function MobileSegmentSheet({
   value,
   availableSegments,
-  onChange,
+  onApply,
   onClose,
 }: {
   value: string;
   availableSegments: string[];
-  onChange: (value: string) => void;
+  onApply: (value: string) => Promise<void> | void;
   onClose: () => void;
 }) {
   const groups = useMemo(() => buildSegmentGroups(availableSegments), [availableSegments]);
   const [activeGroupKey, setActiveGroupKey] = useState(() => inferRadarSegmentCategory(value));
   const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState("");
+  const [draftValue, setDraftValue] = useState(value);
+  const [applying, setApplying] = useState(false);
+  const [applyError, setApplyError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const resolvedActiveGroupKey = groups.some((group) => group.key === activeGroupKey) ? activeGroupKey : groups[0]?.key || "";
   const activeGroup = groups.find((group) => group.key === resolvedActiveGroupKey) || groups[0];
-  const isCategory = isRadarCategoryValue(value);
-  const selectedSegments = splitRadarSegments(value);
+  const isCategory = isRadarCategoryValue(draftValue);
+  const selectedSegments = splitRadarSegments(draftValue);
   const canAddMore = selectedSegments.length < MAX_RADAR_SEGMENT_SELECTIONS;
   const normalizedQuery = query.trim().toLowerCase();
   const visibleSegments = uniqueStrings(activeGroup?.segments || [])
     .filter((segment) => !normalizedQuery || segment.toLowerCase().includes(normalizedQuery));
+
+  useEffect(() => {
+    setDraftValue(value);
+    setActiveGroupKey(inferRadarSegmentCategory(value));
+    setApplyError(null);
+  }, [value]);
 
   useEffect(() => {
     if (!searchOpen) return;
@@ -1585,17 +1695,31 @@ function MobileSegmentSheet({
     if (!normalized) return;
     const exists = selectedSegments.some((item) => item.toLowerCase() === normalized.toLowerCase());
     if (exists) {
-      onChange(joinRadarSegments(selectedSegments.filter((item) => item.toLowerCase() !== normalized.toLowerCase())));
+      setDraftValue(joinRadarSegments(selectedSegments.filter((item) => item.toLowerCase() !== normalized.toLowerCase())));
       return;
     }
     if (!canAddMore) return;
-    onChange(joinRadarSegments([...selectedSegments, normalized]));
+    setDraftValue(joinRadarSegments([...selectedSegments, normalized]));
+    setApplyError(null);
+  }
+
+  async function applySelection() {
+    setApplying(true);
+    setApplyError(null);
+    try {
+      await onApply(normalizeSegmentLabel(draftValue));
+      setApplying(false);
+      onClose();
+    } catch (error) {
+      setApplyError(error instanceof Error ? error.message : "Não consegui salvar os segmentos.");
+      setApplying(false);
+    }
   }
 
   return (
     <div className={styles.mobilePickerPanel} role="presentation" onClick={onClose}>
       <section
-        className={styles.mobilePickerSheet}
+        className={`${styles.mobilePickerSheet} ${styles.mobileSegmentSheet}`}
         role="dialog"
         aria-modal="true"
         aria-label="Segmento"
@@ -1604,7 +1728,7 @@ function MobileSegmentSheet({
         <div className={styles.mobilePickerHeader}>
           <div>
             <strong>Segmento</strong>
-            <small>{isCategory ? `${radarSegmentSummary(value)} inteiro` : `${selectedSegments.length}/${MAX_RADAR_SEGMENT_SELECTIONS} selecionados`}</small>
+            <small>{isCategory ? `${radarSegmentSummary(draftValue)} inteiro` : `${selectedSegments.length}/${MAX_RADAR_SEGMENT_SELECTIONS} selecionados`}</small>
           </div>
           <div className={styles.mobilePickerActions}>
             <button type="button" aria-label="Pesquisar" onClick={() => setSearchOpen(true)}>
@@ -1640,15 +1764,15 @@ function MobileSegmentSheet({
           ))}
         </div>
         <div className={styles.mobileSegmentToolbar}>
-          <button type="button" onClick={() => onChange("")}>
+          <button type="button" onClick={() => setDraftValue("")}>
             Limpar
           </button>
           <button
             type="button"
             onClick={() => {
               if (!activeGroup) return;
-              onChange(buildRadarCategorySegmentValue(activeGroup));
-              onClose();
+              setDraftValue(buildRadarCategorySegmentValue(activeGroup));
+              setApplyError(null);
             }}
           >
             Usar categoria
@@ -1681,6 +1805,15 @@ function MobileSegmentSheet({
               </button>
             );
           })}
+        </div>
+        {applyError ? <div className={styles.mobileSegmentApplyError}>{applyError}</div> : null}
+        <div className={styles.mobileSegmentApplyBar}>
+          <button type="button" onClick={onClose} disabled={applying}>
+            Cancelar
+          </button>
+          <button type="button" data-primary="true" onClick={() => void applySelection()} disabled={applying}>
+            {applying ? "Salvando" : "Aplicar"}
+          </button>
         </div>
       </section>
     </div>
@@ -1801,9 +1934,11 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
   const [radarFilterDraftReady, setRadarFilterDraftReady] = useState(false);
   const [enrichmentSummary, setEnrichmentSummary] = useState<RadarEnrichmentSummary | null>(null);
   const activeRunIdRef = useRef<string | null>(null);
+  const pendingFreshRunRef = useRef(false);
   const mobileSearchNoticeRef = useRef<HTMLElement | null>(null);
   const filterEditingRef = useRef(false);
   const filterEditingReleaseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const backendSegmentHydrationAttemptedRef = useRef(false);
   const isMobileRadarSurface = useCallback(
     () => mobileRoute || isMobileRadarViewport(),
     [mobileRoute],
@@ -1938,6 +2073,29 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
   }, [filters, generalSearch, radarFilterDraftReady]);
 
   useEffect(() => {
+    if (hasToken !== true || !radarFilterDraftReady) return;
+    if (backendSegmentHydrationAttemptedRef.current) return;
+    backendSegmentHydrationAttemptedRef.current = true;
+    if (filters.segment.trim()) return;
+    let cancelled = false;
+    apiFetch<SalesProfileResponse>("/vendas/sales-profile", {
+      requireAuth: true,
+      timeoutMs: 12000,
+    })
+      .then((payload) => {
+        if (cancelled) return;
+        const savedSegments = joinRadarSegments(normalizeProfileLabels(payload?.effectiveProfile?.targetSegments));
+        if (!savedSegments) return;
+        setFilters((current) => current.segment.trim() ? current : { ...current, segment: savedSegments });
+        setAppliedFilters((current) => current.segment.trim() ? current : { ...current, segment: savedSegments });
+      })
+      .catch(() => null);
+    return () => {
+      cancelled = true;
+    };
+  }, [filters.segment, hasToken, radarFilterDraftReady]);
+
+  useEffect(() => {
     if (hasToken !== true) return;
     let cancelled = false;
     apiFetch<CommercialPlansPayload>("/commercial-plans/me", { requireAuth: true })
@@ -2047,7 +2205,10 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
         requireAuth: true,
         timeoutMs: 15000,
       });
-      setItems((current) => append ? mergeRadarLeads([...current, ...(payload.items || [])]) : payload.items || []);
+      setItems((current) => {
+        const next = append ? mergeRadarLeads([...current, ...(payload.items || [])]) : payload.items || [];
+        return radarLeadListEqual(current, next) ? current : next;
+      });
       setTotal(Number(payload.total || 0));
       setAvailableFilters(payload.meta?.availableFilters || { states: [], citiesByState: {}, segments: [] });
       setEnrichmentSummary(payload.meta?.enrichmentSummary || null);
@@ -2268,6 +2429,7 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
     setActiveRun(null);
     setTerminalRunSnapshot(null);
     activeRunIdRef.current = null;
+    pendingFreshRunRef.current = false;
     setSearching(false);
     setFeedback(null);
     setError(null);
@@ -2309,6 +2471,8 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
     if (activeRunIdRef.current && runId && activeRunIdRef.current !== runId) return;
 
     const nextItems = payload.items || [];
+    const terminal = Boolean(payload.meta?.terminal) || isTerminalRadarRun(payload.status);
+    const shouldReplaceCurrentItems = pendingFreshRunRef.current && (nextItems.length > 0 || terminal);
     const payloadFilters = payload.meta?.filters;
     if (payloadFilters) {
       if (!filterEditingRef.current) {
@@ -2338,9 +2502,10 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
     }
     const nextLimit = Math.max(1, Number(payload.targetQuantity || payload.meta?.requestedQuantity || nextItems.length || 1));
     setItems((current) => {
-      const merged = mergeRadarLeads([...current, ...nextItems]).slice(0, nextLimit);
+      const merged = (shouldReplaceCurrentItems ? nextItems : mergeRadarLeads([...current, ...nextItems])).slice(0, nextLimit);
       return radarLeadListEqual(current, merged) ? current : merged;
     });
+    if (shouldReplaceCurrentItems) pendingFreshRunRef.current = false;
     const nextTotal = Number(payload.targetQuantity || payload.meta?.requestedQuantity || payload.total || nextItems.length || 0);
     setTotal((current) => current === nextTotal ? current : nextTotal);
     setPage((current) => current === 1 ? current : 1);
@@ -2360,7 +2525,6 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
       deliveredCount: Number(payload.meta?.deliveredCount || nextItems.length || 0) || 0,
     });
 
-    const terminal = Boolean(payload.meta?.terminal) || isTerminalRadarRun(payload.status);
     if (terminal) {
       activeRunIdRef.current = null;
       setActiveRun((current) => current === null ? current : null);
@@ -2445,12 +2609,11 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
           requireAuth: true,
           timeoutMs: 15000,
         });
+        setError(null);
         applyRadarRunPayload(payload);
       } catch (pollError) {
-        activeRunIdRef.current = null;
-        setActiveRun(null);
-        setSearching(false);
         setError(radarFriendlyError(pollError));
+        setSearching(Boolean(activeRunIdRef.current || runId));
       }
     }, {
       intervalMs,
@@ -2505,6 +2668,7 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
     if (missingForTarget <= 0) {
       setMobileAutoImportPending(false);
       clearStoredRadarRun();
+      pendingFreshRunRef.current = false;
       setHasSearched(false);
       setItems([]);
       setTotal(0);
@@ -2516,6 +2680,7 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
     if (radarQuantityLimit <= 0) {
       setMobileAutoImportPending(false);
       clearStoredRadarRun();
+      pendingFreshRunRef.current = false;
       setError("Limite diário de cards atingido. O contador reinicia após 00:00.");
       return;
     }
@@ -2546,14 +2711,14 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
         setActiveRun(null);
         setTerminalRunSnapshot(null);
         activeRunIdRef.current = null;
+        pendingFreshRunRef.current = false;
         setTelonProgress(0);
         setFeedback(null);
         setError("Para buscar novos cards, escolha cidade e segmento. Para ver histórico salvo, use Ver histórico.");
         return;
       }
 
-      setItems([]);
-      setTotal(0);
+      pendingFreshRunRef.current = true;
       setPage(1);
       clearStoredRadarRun();
 
@@ -2582,6 +2747,7 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
     } catch (searchError) {
       activeRunIdRef.current = null;
       setActiveRun(null);
+      pendingFreshRunRef.current = false;
       setError(radarFriendlyError(searchError));
     } finally {
       if (!activeRunIdRef.current) setSearching(false);
@@ -2948,6 +3114,31 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
     setMobilePicker(filters.state ? "city" : "state");
   }
 
+  async function applyMobileSegments(value: string) {
+    const normalized = normalizeSegmentLabel(value);
+    const nextSegments = splitRadarSegments(normalized);
+    setFilters((current) => ({ ...current, segment: normalized }));
+    setError(null);
+
+    try {
+      await apiFetch<SalesProfileResponse>("/vendas/sales-profile", {
+        method: "PATCH",
+        requireAuth: true,
+        timeoutMs: 12000,
+        body: JSON.stringify({
+          targetSegments: { labels: nextSegments },
+        }),
+      });
+      setFeedback(normalized ? "Segmentos aplicados e salvos." : "Segmentos limpos e salvos.");
+    } catch (segmentError) {
+      throw new Error(
+        segmentError instanceof Error
+          ? `Filtro aplicado, mas não salvou no backend: ${segmentError.message}`
+          : "Filtro aplicado, mas não salvou no backend.",
+      );
+    }
+  }
+
   return (
     <DashboardScaffold
       title="Radar Digital"
@@ -2960,6 +3151,12 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
           <section className={`${styles.mobileRadarHero} hbx-mobile-hero`} data-state={radarMomentState}>
             <RadarMotionBackground active={radarMotionActive} />
             <HeroPremiumCrown active={mobileHeroPremiumActive} />
+            <DailyQuotaSpeedometer
+              compact
+              remaining={dailyRemaining}
+              dailyLimit={dailyLimit || dailyRemaining || radarQuantityLimit}
+              spendLimit={radarQuantityLimit}
+            />
             <div className={styles.mobileRadarHeroCopy}>
               <span>Radar Digital</span>
               <strong>{radarMomentTitle}</strong>
@@ -3042,6 +3239,13 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
               value={filters.radiusKm}
               disabled={radarFiltersLocked}
               onChange={(radiusKm) => setFilters((current) => ({ ...current, radiusKm }))}
+            />
+
+            <DailyQuotaSpeedometer
+              compact
+              remaining={dailyRemaining}
+              dailyLimit={dailyLimit || dailyRemaining || radarQuantityLimit}
+              spendLimit={radarQuantityLimit}
             />
 
             <RadarQuantitySelector
@@ -3133,7 +3337,7 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
             <MobileSegmentSheet
               value={filters.segment}
               availableSegments={availableSegmentValues}
-              onChange={(value) => setFilters((current) => ({ ...current, segment: value }))}
+              onApply={applyMobileSegments}
               onClose={() => setMobilePicker(null)}
             />
           ) : null}
@@ -3284,6 +3488,11 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
             />
           </div>
           <div className={styles.filterAdvanced}>
+            <DailyQuotaSpeedometer
+              remaining={dailyRemaining}
+              dailyLimit={dailyLimit || dailyRemaining || radarQuantityLimit}
+              spendLimit={radarQuantityLimit}
+            />
             <RadarQuantitySelector
               value={filters.quantity}
               max={RADAR_VENDAS_STOCK_TARGET_MAX}
@@ -3377,11 +3586,14 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
                 const status = lead.companyStatus || lead.status;
                 const ownerBadge = ownershipBadge(lead);
                 const chips = buildSmartChips(lead);
+                const enrichActionId = `${lead.id}:enrich`;
+                const isEnriching = actionId === enrichActionId;
                 return (
                   <article
                     key={lead.id}
                     className={styles.card}
                     data-high={isHigh ? "true" : "false"}
+                    aria-busy={isEnriching ? "true" : "false"}
                     style={{ ["--radar-card-index" as string]: Math.min(index, 8) } as CSSProperties}
                   >
                     <div className={styles.cardHeader}>
@@ -3392,9 +3604,12 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
                         </div>
                         <strong>{lead.name || "Empresa sem nome"}</strong>
                       </div>
-                      <div className={styles.score} style={{ ["--score" as string]: `${score}%` }}>
-                        <b>{score}</b>
-                        <small>{opportunityLabel(score)}</small>
+                      <div className={styles.cardHeaderAside}>
+                        <LeadPremiumCrown lead={lead} loading={isEnriching} />
+                        <div className={styles.score} style={{ ["--score" as string]: `${score}%` }}>
+                          <b>{score}</b>
+                          <small>{opportunityLabel(score)}</small>
+                        </div>
                       </div>
                     </div>
 
@@ -3444,8 +3659,13 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
                         Enviar para Vendas
                       </button>
                       {showSmartLeadCards ? (
-                        <button type="button" onClick={() => void runLeadAction(lead, "enrich")} disabled={Boolean(actionId)}>
-                          Enriquecer
+                        <button
+                          type="button"
+                          onClick={() => void runLeadAction(lead, "enrich")}
+                          disabled={Boolean(actionId)}
+                          data-loading={isEnriching ? "true" : "false"}
+                        >
+                          {isEnriching ? "Enriquecendo" : "Enriquecer"}
                         </button>
                       ) : null}
                       <button type="button" onClick={() => void runLeadAction(lead, "csx")} disabled={Boolean(actionId)}>

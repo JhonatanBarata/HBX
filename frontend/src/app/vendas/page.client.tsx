@@ -12,6 +12,7 @@ import {
   type CollisionDetection,
   type DragEndEvent,
   type DragStartEvent,
+  type Modifier,
 } from "@dnd-kit/core";
 import {
   useDeferredValue,
@@ -504,6 +505,11 @@ const BLOCK_LABELS: Record<LeadBlockKey, string> = {
   scheduled: "Programados",
   closed: "Encerrados",
 };
+const DESKTOP_DRAG_OVERLAY_Y_OFFSET = -34;
+const liftDesktopDragOverlay: Modifier = ({ transform }) => ({
+  ...transform,
+  y: transform.y + DESKTOP_DRAG_OVERLAY_Y_OFFSET,
+});
 const VENDAS_PROGRESS_STEPS = [
   "lendo banco",
   "filtrando negativos",
@@ -6898,7 +6904,7 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
           </div>
         </div>
 
-        <DragOverlay dropAnimation={null}>
+        <DragOverlay dropAnimation={null} modifiers={[liftDesktopDragOverlay]}>
           {activeDragLead && activeDragDraft ? (
             <div className={styles.dragOverlayCard}>
               <LeadCardView

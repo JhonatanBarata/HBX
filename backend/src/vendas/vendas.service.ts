@@ -917,7 +917,8 @@ export class VendasService {
   }
 
   private sanitizeSalesProfileString(value: unknown, max = 160) {
-    return this.normalizeText(value).slice(0, max) || null;
+    const normalized = this.normalizeText(value);
+    return normalized ? normalized.slice(0, max) : null;
   }
 
   private sanitizeSalesProfileArray(value: unknown, limit = 30, maxLength = 80) {
@@ -925,7 +926,7 @@ export class VendasService {
     const seen = new Set<string>();
     const output: string[] = [];
     for (const item of raw) {
-      const normalized = this.normalizeText(item).slice(0, maxLength);
+      const normalized = this.normalizeText(item)?.slice(0, maxLength) || '';
       const key = normalized.toLowerCase();
       if (!normalized || seen.has(key)) continue;
       seen.add(key);
@@ -3644,7 +3645,7 @@ export class VendasService {
         enrichment: (item as any)?.enrichmentJson || null,
         qualityV2,
         quality,
-        enrichmentStatus: 'queued',
+        enrichmentStatus: (item as any)?.enrichmentJson || qualityV2 || (item as any)?.enrichmentVersion ? 'completed' : 'queued',
         visibilityTier: this.normalizeText((item as any)?.visibilityTier),
         billable: (item as any)?.billable === true ? true : (item as any)?.billable === false ? false : null,
         debitEligible: (item as any)?.debitEligible === true ? true : (item as any)?.debitEligible === false ? false : null,
