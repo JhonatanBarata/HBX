@@ -585,9 +585,23 @@ function createSearchRunPrisma(initialRun: Record<string, any>) {
       findMany: async (input?: any) => {
         const where = input?.where || {};
         let rows = [...items];
+        if (where.id) rows = rows.filter((item) => item.id === where.id);
         if (where.runId) rows = rows.filter((item) => item.runId === where.runId);
         if (where.status) rows = rows.filter((item) => item.status === where.status);
         return rows;
+      },
+      findUnique: async (input?: any) => {
+        const where = input?.where || {};
+        return items.find((item) => item.id === where.id) || null;
+      },
+      findFirst: async (input?: any) => {
+        const where = input?.where || {};
+        return items.find((item) => (
+          (!where.id || item.id === where.id)
+          && (!where.companyId || item.companyId === where.companyId)
+          && (!where.runId || item.runId === where.runId)
+          && (!where.status || item.status === where.status)
+        )) || null;
       },
       create: async ({ data }: any) => {
         const item = {
@@ -596,6 +610,12 @@ function createSearchRunPrisma(initialRun: Record<string, any>) {
           ...data,
         };
         items.push(item);
+        return item;
+      },
+      update: async ({ where, data }: any) => {
+        const item = items.find((row) => row.id === where.id);
+        if (!item) return null;
+        Object.assign(item, data);
         return item;
       },
     },
@@ -2320,6 +2340,255 @@ test('mapHbxContactResult mapeia rede social vinda de sourceUrl generico', () =>
   assert.ok(mapped);
   assert.equal(mapped.instagramUrl, 'https://www.instagram.com/studiobonitacampinas');
   assert.equal(String(mapped.placeId).startsWith('hbx:pj:social:'), true);
+});
+
+test('processSearchRun enfileira lookup social automatico para card aprovado sem Instagram', async () => {
+  const previousFetch = global.fetch;
+  global.fetch = (async () =>
+    createResponse(200, {
+      results: [{
+        name: 'Barbearia X',
+        phone: '(19) 99999-0001',
+        phoneDigits: '19999990001',
+        city: 'Rio Claro',
+        state: 'SP',
+        source: 'hbx_scraping:free_pj',
+        socialStatus: 'missing',
+        score: 90,
+      }],
+    }) as any) as any;
+
+  const { prisma, run, items } = createSearchRunPrisma({
+    city: 'Rio Claro',
+    state: 'SP',
+    segment: 'barbearias',
+    targetQuantity: 10,
+  });
+  const service = new WebscrapingService(prisma) as any;
+  disableSearchRunAutoPump(service);
+  let enqueued: any = null;
+  service.enqueueRadarSocialLookupForSavedLeads = (context: any, runId: string, input: any, leadIds: string[]) => {
+    enqueued = { context, runId, input, leadIds };
+  };
+
+  try {
+    await service.processSearchRun(run.id, createUser(), undefined, {
+      engineId: 'hbx-engine-1',
+      engineIndex: 0,
+      url: 'http://engine-1',
+      lockedUntil: new Date(Date.now() + 60_000),
+      googleEmergencyMode: false,
+    });
+
+    assert.equal(items.length, 1);
+    assert.equal(items[0].status, 'found');
+    assert.deepEqual(enqueued?.leadIds, ['item-1']);
+    assert.equal(enqueued?.input.city, 'Rio Claro');
+    assert.equal(JSON.parse(items[0].rawJson).socialStatus, 'pending');
+    assert.notEqual(run.status, 'failed');
+  } finally {
+    global.fetch = previousFetch;
+  }
+});
+
+test('runRadarSocialLookupForSavedLead usa nome e cidade e atualiza Instagram confiavel', async () => {
+  const previousFetch = global.fetch;
+  const bodies: any[] = [];
+  global.fetch = (async (_url: any, init?: any) => {
+    const body = JSON.parse(String(init?.body || '{}'));
+    bodies.push(body);
+    return createResponse(200, {
+      results: body.query === 'site:instagram.com "Barbearia X" "Rio Claro"'
+        ? [{
+            name: 'Barbearia X Rio Claro',
+            instagramUrl: 'https://www.instagram.com/barbeariaxrioclaro/',
+            city: 'Rio Claro',
+            state: 'SP',
+            source: 'hbx_scraping:social_discovery',
+          }]
+        : [],
+    }) as any;
+  }) as any;
+
+  const { prisma, run, items } = createSearchRunPrisma({
+    city: 'Rio Claro',
+    state: 'SP',
+    segment: 'barbearias',
+    targetQuantity: 1,
+  });
+  items.push({
+    id: 'item-1',
+    runId: run.id,
+    companyId: 7,
+    placeId: 'hbx:pj:19999990001',
+    name: 'Barbearia X',
+    phone: '(19) 99999-0001',
+    phoneDigits: '19999990001',
+    website: null,
+    websiteKey: null,
+    address: 'Rio Claro, SP',
+    city: 'Rio Claro',
+    state: 'SP',
+    segment: 'barbearias',
+    source: 'hbx',
+    status: 'found',
+    duplicateReason: null,
+    rawJson: JSON.stringify({ name: 'Barbearia X', phone: '(19) 99999-0001', phoneDigits: '19999990001', socialStatus: 'pending' }),
+    createdAt: new Date(),
+  });
+  const service = new WebscrapingService(prisma) as any;
+  const normalized = service.normalizeSearchInput({
+    city: 'Rio Claro',
+    state: 'SP',
+    segment: 'barbearias',
+    quantity: 1,
+    engine: 'hbx',
+    targetType: 'pj',
+  });
+
+  try {
+    const result = await service.runRadarSocialLookupForSavedLead({ companyId: 7, userId: 9, user: createUser() }, 'item-1', normalized);
+    const raw = JSON.parse(items[0].rawJson);
+
+    assert.deepEqual(bodies.map((body) => body.query), [
+      'site:instagram.com "Barbearia X" "Rio Claro"',
+      '"Barbearia X" "Rio Claro" instagram',
+      'site:facebook.com "Barbearia X" "Rio Claro"',
+      '"Barbearia X" "Rio Claro" facebook',
+    ]);
+    assert.equal(bodies.some((body) => String(body.query || '').includes('barbearias')), false);
+    assert.equal(result.status, 'found');
+    assert.equal(raw.instagramUrl, 'https://www.instagram.com/barbeariaxrioclaro');
+    assert.equal(raw.socialStatus, 'found');
+    assert.equal(raw.socialConfidence >= 80, true);
+    assert.match(String(raw.enrichmentJson || ''), /instagramUrl/);
+  } finally {
+    global.fetch = previousFetch;
+  }
+});
+
+test('runRadarSocialLookupForSavedLead nao salva resultado social generico', async () => {
+  const previousFetch = global.fetch;
+  global.fetch = (async () =>
+    createResponse(200, {
+      results: [{
+        name: 'Hashtag Barbearia',
+        instagramUrl: 'https://www.instagram.com/explore/tags/barbearia/',
+        city: 'Rio Claro',
+        state: 'SP',
+        source: 'hbx_scraping:social_discovery',
+      }],
+    }) as any) as any;
+
+  const { prisma, run, items } = createSearchRunPrisma({
+    city: 'Rio Claro',
+    state: 'SP',
+    segment: 'barbearias',
+    targetQuantity: 1,
+  });
+  items.push({
+    id: 'item-1',
+    runId: run.id,
+    companyId: 7,
+    placeId: 'hbx:pj:19999990001',
+    name: 'Barbearia X',
+    phone: '(19) 99999-0001',
+    phoneDigits: '19999990001',
+    website: null,
+    websiteKey: null,
+    address: 'Rio Claro, SP',
+    city: 'Rio Claro',
+    state: 'SP',
+    segment: 'barbearias',
+    source: 'hbx',
+    status: 'found',
+    duplicateReason: null,
+    rawJson: JSON.stringify({ name: 'Barbearia X', phone: '(19) 99999-0001', phoneDigits: '19999990001', socialStatus: 'pending' }),
+    createdAt: new Date(),
+  });
+  const service = new WebscrapingService(prisma) as any;
+  const normalized = service.normalizeSearchInput({
+    city: 'Rio Claro',
+    state: 'SP',
+    segment: 'barbearias',
+    quantity: 1,
+    engine: 'hbx',
+    targetType: 'pj',
+  });
+
+  try {
+    await service.runRadarSocialLookupForSavedLead({ companyId: 7, userId: 9, user: createUser() }, 'item-1', normalized);
+    const raw = JSON.parse(items[0].rawJson);
+
+    assert.equal(raw.instagramUrl, null);
+    assert.equal(raw.facebookUrl, null);
+    assert.equal(raw.socialStatus, 'missing');
+    assert.equal(items[0].status, 'found');
+  } finally {
+    global.fetch = previousFetch;
+  }
+});
+
+test('runRadarSocialLookupForSavedLead falha sem bloquear nem falhar o card', async () => {
+  const previousFetch = global.fetch;
+  global.fetch = (async () => {
+    throw new Error('motor ocupado');
+  }) as any;
+
+  const { prisma, run, items } = createSearchRunPrisma({
+    city: 'Rio Claro',
+    state: 'SP',
+    segment: 'barbearias',
+    targetQuantity: 1,
+  });
+  items.push({
+    id: 'item-1',
+    runId: run.id,
+    companyId: 7,
+    placeId: 'hbx:pj:19999990001',
+    name: 'Barbearia X',
+    phone: '(19) 99999-0001',
+    phoneDigits: '19999990001',
+    website: null,
+    websiteKey: null,
+    address: 'Rio Claro, SP',
+    city: 'Rio Claro',
+    state: 'SP',
+    segment: 'barbearias',
+    source: 'hbx',
+    status: 'found',
+    duplicateReason: null,
+    rawJson: JSON.stringify({
+      name: 'Barbearia X',
+      phone: '(19) 99999-0001',
+      phoneDigits: '19999990001',
+      instagramUrl: 'instagram.com/accounts/login',
+      socialStatus: 'pending',
+    }),
+    createdAt: new Date(),
+  });
+  const service = new WebscrapingService(prisma) as any;
+  const normalized = service.normalizeSearchInput({
+    city: 'Rio Claro',
+    state: 'SP',
+    segment: 'barbearias',
+    quantity: 1,
+    engine: 'hbx',
+    targetType: 'pj',
+  });
+
+  try {
+    const result = await service.runRadarSocialLookupForSavedLead({ companyId: 7, userId: 9, user: createUser() }, 'item-1', normalized);
+    const raw = JSON.parse(items[0].rawJson);
+
+    assert.equal(result.status, 'weak');
+    assert.equal(raw.socialStatus, 'weak');
+    assert.equal(raw.instagramUrl, 'instagram.com/accounts/login');
+    assert.equal(items[0].status, 'found');
+    assert.equal(run.status, 'running');
+  } finally {
+    global.fetch = previousFetch;
+  }
 });
 
 test('Radar bloqueia requiredChannels apenas em any_required/all_required', () => {
