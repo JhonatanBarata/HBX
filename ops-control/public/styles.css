@@ -186,6 +186,234 @@ button.kill:hover {
   margin: 0;
 }
 
+.radar-audit {
+  display: grid;
+  gap: 14px;
+}
+
+.radar-audit .panel-title {
+  margin-bottom: 0;
+}
+
+.radar-tabs {
+  background: #eef3fa;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  display: inline-flex;
+  gap: 4px;
+  padding: 4px;
+}
+
+.radar-tab {
+  background: transparent;
+  color: var(--muted);
+  min-height: 34px;
+  padding: 7px 12px;
+}
+
+.radar-tab:hover,
+.radar-tab.active {
+  background: var(--panel);
+  color: var(--primary);
+}
+
+.radar-audit-head {
+  align-items: center;
+  background: #f8fafd;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px;
+}
+
+.radar-audit-head > div:first-child {
+  display: grid;
+  gap: 5px;
+}
+
+.radar-audit-head strong {
+  font-size: 18px;
+}
+
+.radar-audit-head span,
+.radar-card span,
+.radar-card small,
+.radar-step small,
+.radar-list-item span,
+.radar-list-item small,
+.radar-empty {
+  color: var(--muted);
+}
+
+.radar-audit-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.radar-audit-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(150px, 1fr));
+  gap: 10px;
+}
+
+.radar-card {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  display: grid;
+  gap: 7px;
+  padding: 13px;
+}
+
+.radar-card strong {
+  font-size: 24px;
+  line-height: 1.1;
+}
+
+.radar-flow {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(170px, 1fr));
+  gap: 10px;
+}
+
+.radar-step {
+  background: #f8fafd;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  display: grid;
+  gap: 6px;
+  min-height: 122px;
+  padding: 13px;
+}
+
+.radar-step > span {
+  align-items: center;
+  background: var(--primary);
+  border-radius: 999px;
+  color: #fff;
+  display: inline-flex;
+  font-weight: 700;
+  height: 26px;
+  justify-content: center;
+  width: 26px;
+}
+
+.radar-audit-split {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 14px;
+}
+
+.radar-audit-split h3 {
+  font-size: 16px;
+  margin: 0 0 10px;
+}
+
+.radar-enrichment {
+  border-top: 1px solid var(--line);
+  display: grid;
+  gap: 12px;
+  padding-top: 14px;
+}
+
+.radar-section-title {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.radar-section-title h3 {
+  font-size: 16px;
+  margin: 0;
+}
+
+.radar-section-title span {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.radar-list {
+  display: grid;
+  gap: 8px;
+}
+
+.radar-list-item,
+.radar-empty {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  display: grid;
+  gap: 5px;
+  padding: 10px;
+}
+
+.radar-list-item strong {
+  font-size: 14px;
+}
+
+.radar-list-item span,
+.radar-list-item small {
+  font-size: 13px;
+}
+
+.radar-breakdown {
+  background: #f8fafd;
+}
+
+.radar-number-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.radar-number-grid div {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  padding: 8px;
+}
+
+.radar-number-grid b {
+  font-size: 18px;
+}
+
+.radar-detail-list {
+  color: var(--muted);
+  display: grid;
+  font-size: 13px;
+  gap: 4px;
+  line-height: 1.35;
+  list-style: disc;
+  margin: 4px 0 0 18px;
+  padding: 0;
+}
+
+.radar-details {
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+}
+
+.radar-details summary {
+  color: var(--primary);
+  cursor: pointer;
+  font-weight: 700;
+  margin-bottom: 10px;
+}
+
+.radar-details pre {
+  background: #111827;
+  border-radius: 8px;
+  color: #e5e7eb;
+  max-height: 360px;
+}
+
 .actions,
 .engine-actions,
 .row-actions {
@@ -281,6 +509,11 @@ button.kill:hover {
   display: grid;
   grid-template-columns: minmax(0, 1.35fr) minmax(360px, 0.65fr);
   gap: 14px;
+}
+
+.split > .panel,
+.radar-audit-split > * {
+  min-width: 0;
 }
 
 .table-wrap {
@@ -444,6 +677,9 @@ pre {
 
 @media (max-width: 1100px) {
   .cards,
+  .radar-audit-grid,
+  .radar-flow,
+  .radar-audit-split,
   .engine-grid,
   .split {
     grid-template-columns: 1fr 1fr;
@@ -456,14 +692,23 @@ pre {
   }
 
   .cards,
+  .radar-audit-grid,
+  .radar-flow,
+  .radar-audit-split,
   .engine-grid,
   .split {
     grid-template-columns: 1fr;
   }
 
   .topbar,
-  .panel-title {
+  .panel-title,
+  .radar-audit-head,
+  .radar-section-title {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .radar-audit-actions {
+    justify-content: flex-start;
   }
 }

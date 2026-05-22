@@ -2,6 +2,11 @@
 
 Painel operacional local para controlar a VPS HBX via SSH, acessivel somente em `127.0.0.1:3099`.
 
+Agora o painel tambem tem a area **Auditoria do Radar**, com abas:
+
+- `VPS`: consulta Docker, logs e Postgres da VPS via SSH.
+- `localhost`: consulta Docker, logs e Postgres da maquina local quando o socket Docker esta disponivel.
+
 ## Uso
 
 ```bash
@@ -24,5 +29,6 @@ http://127.0.0.1:3099
 - Nao existe endpoint de shell livre.
 - Todas as APIs exigem `Authorization: Bearer <token>`.
 - As acoes executam apenas comandos Docker allowlistados.
-- Em modo SSH, o Docker local nao e controlado pelo painel.
+- A auditoria do Radar le apenas Docker, logs recentes e consultas SQL fixas de diagnostico.
+- A aba localhost exige Docker local acessivel pelo processo do Ops Control. No compose, isso usa `/var/run/docker.sock`.
 - O frontend em PM2 nao e controlado nesta primeira versao, porque o painel roda isolado em Docker e nao monta o ambiente PM2 do usuario host.

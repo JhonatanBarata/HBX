@@ -20,6 +20,8 @@ let allContainers = [];
 let overviewErrors = [];
 let containerSort = { key: 'memUsage', direction: 'desc' };
 let filters = { search: '', status: 'all', group: 'all' };
+let activeRadarEnv = 'vps';
+let latestRadarDiagnostic = null;
 
 function setStatus(message) {
   statusText.textContent = message || '';
@@ -252,13 +254,284 @@ async function loadFolders() {
 async function loadAll() {
   try {
     setStatus('Atualizando...');
-    const data = await api('/api/overview');
+    const [data] = await Promise.all([
+      api('/api/overview'),
+      loadRadarAudit(activeRadarEnv),
+    ]);
     renderOverview(data);
     await loadFolders();
     setStatus('Pronto');
   } catch (error) {
     setStatus(error.message);
   }
+}
+
+async function loadRadarAudit(environment) {
+  activeRadarEnv = environment || activeRadarEnv;
+  setRadarAuditLoading();
+  const data = await api(`/api/radar-audit/${encodeURIComponent(activeRadarEnv)}`);
+  renderRadarAudit(data);
+  return data;
+}
+
+function setRadarAuditLoading() {
+  document.getElementById('radarAuditDecision').textContent = 'Auditando Radar...';
+  document.getElementById('radarAuditMeta').textContent = `${activeRadarEnv === 'vps' ? 'VPS' : 'localhost'} - coletando Docker, logs e banco`;
+}
+
+function renderRadarAudit(data) {
+  latestRadarDiagnostic = data.diagnostic || data;
+  updateRadarTabs(data.environment || activeRadarEnv);
+
+  if (data.available === false && data.message) {
+    document.getElementById('radarAuditDecision').textContent = data.message;
+    document.getElementById('radarAuditMeta').textContent = 'Ambiente indisponivel para auditoria.';
+    renderRadarUnavailable(data);
+    return;
+  }
+
+  const latestRun = data.latestRun || null;
+  const backendState = data.services?.backend?.label || '-';
+  const engineRunning = data.engineSummary?.running || 0;
+  const engineTotal = data.engineSummary?.total || 0;
+
+  document.getElementById('radarAuditDecision').textContent = data.decision || 'Sem decisao calculada.';
+  document.getElementById('radarAuditMeta').textContent = `${data.label || activeRadarEnv} - ${data.target || '-'} - atualizado em ${formatDateTime(data.generatedAt)}`;
+  document.getElementById('radarEngineMetric').textContent = `${engineRunning}/${engineTotal}`;
+  document.getElementById('radarEngineSub').textContent = engineTotal ? 'motores rodando/agendados' : 'nenhum motor encontrado';
+  document.getElementById('radarBackendMetric').textContent = backendState;
+  document.getElementById('radarBackendSub').textContent = statusByService(data.services?.backend);
+  document.getElementById('radarBlockedMetric').textContent = String(data.blocked24h ?? '-');
+  document.getElementById('radarBlockedSub').textContent = data.dbAvailable ? 'bloqueios registrados no banco' : data.dbMessage || 'banco nao consultado';
+  document.getElementById('radarLatestMetric').textContent = latestRun ? statusToHuman(latestRun.status) : '-';
+  document.getElementById('radarLatestSub').textContent = latestRun ? `${latestRun.city || '-'} / ${latestRun.segment || '-'}` : 'sem busca recente';
+
+  document.getElementById('radarStepSearch').textContent = latestRun
+    ? `${latestRun.city || '-'} ${latestRun.state || ''} - ${latestRun.segment || '-'} - ${latestRun.targetQuantity || 0} pedidos`
+    : 'Nenhuma WebscrapingSearchRun recente no banco.';
+  document.getElementById('radarStepBackend').textContent = latestRun
+    ? `${statusToHuman(latestRun.status)}${latestRun.errorMessage ? ` - ${latestRun.errorMessage}` : ''}`
+    : statusByService(data.services?.backend);
+  document.getElementById('radarStepEngine').textContent = latestRun?.assignedEngineId
+    ? `${latestRun.assignedEngineId}${latestRun.lastBatchStatus ? ` - ${latestRun.lastBatchStatus}` : ''}`
+    : `${engineRunning} motores rodando`;
+  document.getElementById('radarStepDatabase').textContent = latestRun
+    ? `${latestRun.foundCount || 0} achados, ${latestRun.importedCount || 0} importados, ${latestRun.duplicateCount || 0} duplicados, ${latestRun.skippedCount || 0} barrados`
+    : data.dbMessage || 'Banco ainda nao retornou dados.';
+
+  renderRadarBlockers(data.blockers || [], data.runBreakdowns || []);
+  renderRecentRuns(data.recentRuns || []);
+  renderSocialAudit(data);
+  const socialLogs = data.socialLogLines?.length ? ['--- enriquecimento/social ---', ...data.socialLogLines] : [];
+  document.getElementById('radarLogLines').textContent = [...(data.logLines || []), ...socialLogs].join('\n') || 'Sem logs relevantes.';
+  document.getElementById('radarDiagnosticJson').textContent = JSON.stringify(latestRadarDiagnostic, null, 2);
+}
+
+function renderRadarUnavailable(data) {
+  document.getElementById('radarEngineMetric').textContent = '-';
+  document.getElementById('radarEngineSub').textContent = '-';
+  document.getElementById('radarBackendMetric').textContent = '-';
+  document.getElementById('radarBackendSub').textContent = '-';
+  document.getElementById('radarBlockedMetric').textContent = '-';
+  document.getElementById('radarBlockedSub').textContent = '-';
+  document.getElementById('radarLatestMetric').textContent = '-';
+  document.getElementById('radarLatestSub').textContent = '-';
+  document.getElementById('radarStepSearch').textContent = data.message || 'Ambiente indisponivel.';
+  document.getElementById('radarStepBackend').textContent = '-';
+  document.getElementById('radarStepEngine').textContent = '-';
+  document.getElementById('radarStepDatabase').textContent = '-';
+  renderRadarBlockers([{ kind: 'config', message: data.message || 'Ambiente indisponivel.' }], []);
+  renderRecentRuns([]);
+  renderSocialAudit({ socialSummary: {}, recentEnrichments: [] });
+  document.getElementById('radarLogLines').textContent = '';
+  document.getElementById('radarDiagnosticJson').textContent = JSON.stringify(latestRadarDiagnostic, null, 2);
+}
+
+function updateRadarTabs(environment) {
+  activeRadarEnv = environment || activeRadarEnv;
+  document.querySelectorAll('[data-radar-env]').forEach((button) => {
+    button.classList.toggle('active', button.dataset.radarEnv === activeRadarEnv);
+  });
+}
+
+function renderRadarBlockers(blockers, breakdowns = []) {
+  const box = document.getElementById('radarBlockers');
+  const primaryBreakdown = breakdowns[0] || null;
+  const rows = [];
+  if (primaryBreakdown) rows.push(renderRunBreakdown(primaryBreakdown));
+
+  const filteredBlockers = blockers.filter((item) => {
+    if (!primaryBreakdown) return true;
+    if (item.message === primaryBreakdown.message) return false;
+    if (item.title === primaryBreakdown.title) return false;
+    return true;
+  });
+
+  if (!rows.length && !filteredBlockers.length) {
+    box.innerHTML = '<div class="radar-empty">Sem bloqueio claro nos logs recentes.</div>';
+    return;
+  }
+
+  rows.push(...filteredBlockers.map((item) => `
+    <div class="radar-list-item">
+      <strong>${escapeHtml(item.title || blockerTitle(item.kind))}</strong>
+      <span>${escapeHtml(item.message || '-')}</span>
+      ${renderDetails(item.details)}
+    </div>
+  `));
+
+  box.innerHTML = rows.join('');
+}
+
+function renderRunBreakdown(item) {
+  const numbers = item.numbers || {};
+  const chips = [
+    ['Pedido', numbers.requested],
+    ['Achou', numbers.found],
+    ['Importou', numbers.imported],
+    ['Duplicado', numbers.duplicate],
+    ['Pulado', numbers.skipped],
+    ['Fora desta tentativa', numbers.notImported],
+  ];
+  return `
+    <div class="radar-list-item radar-breakdown">
+      <strong>${escapeHtml(item.title || 'Conta da importacao')}</strong>
+      <span>${escapeHtml(item.message || '-')}</span>
+      <div class="radar-number-grid">
+        ${chips.map(([label, value]) => `
+          <div>
+            <small>${escapeHtml(label)}</small>
+            <b>${escapeHtml(String(value ?? '-'))}</b>
+          </div>
+        `).join('')}
+      </div>
+      ${renderDetails(item.details)}
+      <small>${escapeHtml([
+        item.city ? `${item.city}${item.state ? `/${item.state}` : ''}` : '',
+        item.segment || '',
+        item.lastBatchStatus ? `regra: ${item.lastBatchStatus}` : '',
+      ].filter(Boolean).join(' - '))}</small>
+    </div>
+  `;
+}
+
+function renderDetails(details) {
+  if (!Array.isArray(details) || !details.length) return '';
+  return `
+    <ul class="radar-detail-list">
+      ${details.map((detail) => `<li>${escapeHtml(detail)}</li>`).join('')}
+    </ul>
+  `;
+}
+
+function renderRecentRuns(runs) {
+  const box = document.getElementById('radarRecentRuns');
+  if (!runs.length) {
+    box.innerHTML = '<div class="radar-empty">Sem busca recente vinda do banco.</div>';
+    return;
+  }
+  box.innerHTML = runs.slice(0, 6).map((run) => `
+    <div class="radar-list-item">
+      <strong>${escapeHtml(run.city || '-')} / ${escapeHtml(run.segment || '-')}</strong>
+      <span>${escapeHtml(statusToHuman(run.status))} - motor ${escapeHtml(run.assignedEngineId || '-')} - achou ${escapeHtml(run.foundCount || 0)} - importou ${escapeHtml(run.importedCount || 0)}</span>
+      <small>${escapeHtml(formatDateTime(run.createdAt))}</small>
+    </div>
+  `).join('');
+}
+
+function renderSocialAudit(data) {
+  const summary = data.socialSummary || {};
+  const recent = data.recentEnrichments || [];
+  const total = Number(summary.totalLeads || 0);
+  const instagram = Number(summary.withInstagram || 0);
+  const facebook = Number(summary.withFacebook || 0);
+  const missing = Number(summary.socialMissing || 0);
+  const failed = Number(summary.failed24h || 0);
+  const enriched = Number(summary.enriched24h || 0);
+
+  document.getElementById('radarInstagramMetric').textContent = String(instagram || '-');
+  document.getElementById('radarFacebookMetric').textContent = String(facebook || '-');
+  document.getElementById('radarSocialMissingMetric').textContent = String(missing || '-');
+  document.getElementById('radarEnrichmentFailedMetric').textContent = String(failed || '-');
+  document.getElementById('radarSocialSummary').textContent = total
+    ? `${total} leads no Radar - ${enriched} enriquecidos em 24h`
+    : data.dbAvailable === false
+      ? 'Banco nao consultado.'
+      : 'Sem resumo social no banco.';
+
+  const box = document.getElementById('radarRecentEnrichments');
+  if (!recent.length) {
+    box.innerHTML = '<div class="radar-empty">Sem enriquecimento recente para explicar.</div>';
+    return;
+  }
+
+  box.innerHTML = recent.slice(0, 8).map((item) => {
+    const socials = [
+      item.instagramUrl ? `Instagram: ${item.instagramUrl}` : '',
+      item.facebookUrl ? `Facebook: ${item.facebookUrl}` : '',
+    ].filter(Boolean).join(' | ');
+    return `
+      <div class="radar-list-item">
+        <strong>${escapeHtml(item.name || item.radarLeadId || '-')}</strong>
+        <span>${escapeHtml(item.socialReason || 'Sem motivo salvo.')}</span>
+        <small>${escapeHtml([
+          item.city ? `${item.city}${item.state ? `/${item.state}` : ''}` : '',
+          item.segment || '',
+          item.enrichmentStatus ? `status: ${item.enrichmentStatus}` : '',
+          item.socialStatus ? `social: ${item.socialStatus}` : '',
+        ].filter(Boolean).join(' - '))}</small>
+        ${socials ? `<small>${escapeHtml(socials)}</small>` : ''}
+      </div>
+    `;
+  }).join('');
+}
+
+function blockerTitle(kind) {
+  return {
+    quota: 'Quota ou limite',
+    acesso: 'Plano ou permissao',
+    duplicado: 'Duplicado',
+    negativo: 'Negativo',
+    motor: 'Motor',
+    banco: 'Banco',
+    config: 'Configuracao',
+    ok: 'Sem bloqueio',
+  }[kind] || kind || 'Bloqueio';
+}
+
+function statusToHuman(status) {
+  return {
+    queued: 'na fila',
+    running: 'rodando',
+    sleeping: 'aguardando',
+    completed: 'concluida',
+    completed_insufficient_results: 'concluida com pouco resultado',
+    partial_error: 'erro parcial',
+    failed: 'falhou',
+    canceled: 'cancelada',
+  }[String(status || '').toLowerCase()] || status || '-';
+}
+
+function statusByService(service) {
+  if (!service) return '-';
+  return service.state === 'running' ? 'backend apto a decidir' : service.label || service.state || '-';
+}
+
+function formatDateTime(value) {
+  if (!value) return '-';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+  return date.toLocaleString('pt-BR');
+}
+
+async function copyDiagnostic() {
+  const payload = JSON.stringify(latestRadarDiagnostic || {}, null, 2);
+  if (!payload || payload === '{}') {
+    setStatus('Sem diagnostico para copiar.');
+    return;
+  }
+  await navigator.clipboard.writeText(payload);
+  setStatus('Diagnostico do Radar copiado.');
 }
 
 function renderEngineBlocks() {
@@ -372,7 +645,7 @@ function operationLabel(action, status) {
 }
 
 function escapeHtml(value) {
-  return String(value || '').replace(/[&<>"']/g, (char) => ({
+  return String(value ?? '').replace(/[&<>"']/g, (char) => ({
     '&': '&amp;',
     '<': '&lt;',
     '>': '&gt;',
@@ -429,6 +702,9 @@ document.addEventListener('click', async (event) => {
     if (target.dataset.container) await runContainerAction(target.dataset.container, target.dataset.action);
     if (target.dataset.engineAction) await runEngineRange(target.dataset.engineAction, target.dataset.from, target.dataset.to);
     if (target.dataset.quickTarget) await runQuickAction(target.dataset.quickTarget, target.dataset.quickAction);
+    if (target.dataset.radarEnv) await loadRadarAudit(target.dataset.radarEnv);
+    if (target.matches('[data-radar-refresh]')) await loadRadarAudit(activeRadarEnv);
+    if (target.matches('[data-copy-diagnostic]')) await copyDiagnostic();
   } catch (error) {
     setStatus(error.message);
   }

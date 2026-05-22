@@ -17,3 +17,8 @@ services:
       OPS_CONTROL_SSH_PASSWORD: ${OPS_CONTROL_SSH_PASSWORD}
       OPS_CONTROL_SSH_PRIVATE_KEY: ${OPS_CONTROL_SSH_PRIVATE_KEY:-}
       OPS_CONTROL_HOST_ROOT: ${OPS_CONTROL_HOST_ROOT:-/root/HBX}
+      OPS_CONTROL_VPS_HOST_ROOT: ${OPS_CONTROL_VPS_HOST_ROOT:-/root/HBX}
+      OPS_CONTROL_LOCAL_HOST_ROOT: ${OPS_CONTROL_LOCAL_HOST_ROOT:-/host/hbx}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./:/host/hbx:ro
