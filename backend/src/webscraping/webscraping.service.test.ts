@@ -1296,7 +1296,7 @@ test('buildHbxBatchQueries nao gera query PJ sem nicho', () => {
   assert.equal(queries.every((query) => normalizeQueryForTest(query).includes('oficina')), true);
 });
 
-test('buildHbxBatchQueries usa rede social quando canal social foi pedido', () => {
+test('buildHbxBatchQueries nao usa rede social quando canal social foi pedido', () => {
   const service = new WebscrapingService(createPrisma()) as any;
   const normalized = service.normalizeSearchInput({
     city: 'Campinas',
@@ -1309,11 +1309,11 @@ test('buildHbxBatchQueries usa rede social quando canal social foi pedido', () =
   });
   const queries = service.buildHbxBatchQueries(normalized) as string[];
 
-  assert.equal(queries.some((query) => /site:instagram\.com/i.test(query)), true);
-  assert.equal(queries.some((query) => /\binstagram oficial\b/i.test(query)), true);
+  assert.equal(queries.some((query) => /site:instagram\.com/i.test(query)), false);
+  assert.equal(queries.some((query) => /\binstagram oficial\b/i.test(query)), false);
 });
 
-test('buildHbxBatchQueries usa rede social no Lead Plus mesmo sem filtro de canal', () => {
+test('buildHbxBatchQueries nao usa rede social no Lead Plus sem filtro de canal', () => {
   const service = new WebscrapingService(createPrisma()) as any;
   const normalized = service.normalizeSearchInput({
     city: 'Campinas',
@@ -1326,8 +1326,8 @@ test('buildHbxBatchQueries usa rede social no Lead Plus mesmo sem filtro de cana
   });
   const queries = service.buildHbxBatchQueries(normalized) as string[];
 
-  assert.equal(queries.some((query) => /site:instagram\.com/i.test(query)), true);
-  assert.equal(queries.some((query) => /site:facebook\.com/i.test(query)), true);
+  assert.equal(queries.some((query) => /site:instagram\.com/i.test(query)), false);
+  assert.equal(queries.some((query) => /site:facebook\.com/i.test(query)), false);
 });
 
 test('buildSearchRunResponse items preserva campos sociais do rawJson', () => {
@@ -2591,7 +2591,7 @@ test('runRadarSocialLookupForSavedLead falha sem bloquear nem falhar o card', as
   }
 });
 
-test('Radar bloqueia requiredChannels apenas em any_required/all_required', () => {
+test('Radar ignora requiredChannels na decisao backend de entrega', () => {
   const service = new WebscrapingService(createPrisma()) as any;
   const base = service.normalizeSearchInput({
     city: 'Rio Claro',
@@ -2615,7 +2615,7 @@ test('Radar bloqueia requiredChannels apenas em any_required/all_required', () =
 
   assert.equal(service.isListDeliverableCard(lead, base), true);
   assert.equal(service.isListDeliverableCard(lead, { ...base, requiredChannels: ['whatsapp'], channelMatchMode: 'prefer' }), true);
-  assert.equal(service.isListDeliverableCard(lead, { ...base, requiredChannels: ['whatsapp'], channelMatchMode: 'any_required' }), false);
+  assert.equal(service.isListDeliverableCard(lead, { ...base, requiredChannels: ['whatsapp'], channelMatchMode: 'any_required' }), true);
 });
 
 test('Radar nao bloqueia DDD diferente quando cidade esta dentro do raio', async () => {

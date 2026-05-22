@@ -8320,7 +8320,7 @@ function InboxDesktopClientPage() {
               loading={prospectingAutomationLoading}
               actionLoading={Boolean(prospectingAutomationAction)}
               disabled={!globalBotEnabled}
-              onConfigure={() => router.push("/vendas")}
+              onConfigure={() => router.push("/vendas/automacao?tab=prospeccao")}
               onPause={() => void runProspectingAutomationAction("pause")}
               onResume={() => void runProspectingAutomationAction("resume")}
             />

@@ -20,8 +20,6 @@ import { clearTopbarProgress, dispatchTopbarProgress } from "@/lib/topbar-progre
 import {
   clearStoredRadarFilters,
   clearStoredRadarRun,
-  isRadarRunNotFoundError,
-  isRadarRunNotFoundPayload,
   readStoredRadarFilters,
   readStoredRadarRun,
   saveStoredRadarFilters,
@@ -1193,9 +1191,6 @@ function compactRadarMessage(message: string | null) {
 
 function radarFriendlyError(error: unknown) {
   const apiError = error as ApiFetchError;
-  if (isRadarRunNotFoundError(error)) {
-    return "Busca anterior encerrada. Radar pronto para uma nova pesquisa.";
-  }
   if (apiError?.code === "MODULE_ACCESS_DENIED" || apiError?.status === 403) {
     return "Acesso ao Radar Digital indisponível para este usuário. Verifique a liberação do módulo.";
   }
@@ -1697,7 +1692,6 @@ function MobileSegmentSheet({
 }) {
   const groups = useMemo(() => buildSegmentGroups(availableSegments), [availableSegments]);
   const [activeGroupKey, setActiveGroupKey] = useState(() => inferRadarSegmentCategory(value));
-  const [segmentStep, setSegmentStep] = useState<"categories" | "segments">("categories");
   const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [draftValue, setDraftValue] = useState(value);
@@ -1709,13 +1703,9 @@ function MobileSegmentSheet({
   const isCategory = isRadarCategoryValue(draftValue);
   const selectedSegments = splitRadarSegments(draftValue);
   const canAddMore = selectedSegments.length < MAX_RADAR_SEGMENT_SELECTIONS;
-  const normalizedQuery = normalizeLocationLookup(query);
-  const searchableSegments = normalizedQuery
-    ? uniqueStrings(groups.flatMap((group) => group.segments))
-    : uniqueStrings(activeGroup?.segments || []);
-  const visibleSegments = searchableSegments
-    .filter((segment) => !normalizedQuery || normalizeLocationLookup(segment).includes(normalizedQuery));
-  const canUseTypedSegment = Boolean(query.trim()) && visibleSegments.length === 0;
+  const normalizedQuery = query.trim().toLowerCase();
+  const visibleSegments = uniqueStrings(activeGroup?.segments || [])
+    .filter((segment) => !normalizedQuery || segment.toLowerCase().includes(normalizedQuery));
 
   useEffect(() => {
     setDraftValue(value);
@@ -1724,9 +1714,9 @@ function MobileSegmentSheet({
   }, [value]);
 
   useEffect(() => {
-    if (!searchOpen || segmentStep !== "segments") return;
+    if (!searchOpen) return;
     inputRef.current?.focus();
-  }, [searchOpen, segmentStep]);
+  }, [searchOpen]);
 
   function toggleSegment(segment: string) {
     const normalized = normalizeSegmentLabel(segment);
@@ -1754,32 +1744,6 @@ function MobileSegmentSheet({
     }
   }
 
-  function openSegmentGroup(groupKey: string) {
-    setActiveGroupKey(groupKey);
-    setSegmentStep("segments");
-    setQuery("");
-    setSearchOpen(false);
-  }
-
-  function backToCategories() {
-    setSegmentStep("categories");
-    setQuery("");
-    setSearchOpen(false);
-  }
-
-  function openSearch() {
-    setSegmentStep("segments");
-    setSearchOpen(true);
-  }
-
-  function useTypedSegment() {
-    const normalized = normalizeSegmentLabel(query);
-    if (!normalized) return;
-    setDraftValue(normalized);
-    setApplyError(null);
-    setQuery("");
-  }
-
   return (
     <div className={styles.mobilePickerPanel} role="presentation" onClick={onClose}>
       <section
@@ -1791,23 +1755,11 @@ function MobileSegmentSheet({
       >
         <div className={styles.mobilePickerHeader}>
           <div>
-            {segmentStep === "segments" ? (
-              <button type="button" className={styles.mobileSegmentBack} onClick={backToCategories}>
-                <svg viewBox="0 0 24 24" aria-hidden="true">
-                  <path d="M15 18 9 12l6-6" />
-                </svg>
-                Categorias
-              </button>
-            ) : null}
-            <strong>{segmentStep === "categories" ? "Segmentos" : activeGroup?.label || "Segmento"}</strong>
-            <small>
-              {isCategory
-                ? `${radarSegmentSummary(draftValue)} inteiro`
-                : `${selectedSegments.length}/${MAX_RADAR_SEGMENT_SELECTIONS} selecionados`}
-            </small>
+            <strong>Segmento</strong>
+            <small>{isCategory ? `${radarSegmentSummary(draftValue)} inteiro` : `${selectedSegments.length}/${MAX_RADAR_SEGMENT_SELECTIONS} selecionados`}</small>
           </div>
           <div className={styles.mobilePickerActions}>
-            <button type="button" aria-label="Pesquisar" onClick={() => searchOpen ? setSearchOpen(false) : openSearch()}>
+            <button type="button" aria-label="Pesquisar" onClick={() => setSearchOpen(true)}>
               <svg viewBox="0 0 24 24" aria-hidden="true">
                 <circle cx="10.5" cy="10.5" r="6.5" />
                 <path d="m16 16 4.2 4.2" />
@@ -1816,122 +1768,81 @@ function MobileSegmentSheet({
             <button type="button" onClick={onClose}>Fechar</button>
           </div>
         </div>
-        {segmentStep === "segments" && searchOpen ? (
+        {searchOpen ? (
           <input
             ref={inputRef}
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key !== "Enter") return;
-              event.preventDefault();
-              if (canUseTypedSegment) {
-                useTypedSegment();
-                return;
-              }
-              if (visibleSegments[0]) toggleSegment(visibleSegments[0]);
-            }}
             placeholder="Buscar ou digitar segmento"
           />
         ) : null}
-        {segmentStep === "categories" ? (
-          <div className={styles.mobileSegmentCategoryGrid}>
-            {groups.map((group) => {
-              const selectedInGroup = selectedSegments.filter((segment) =>
-                group.segments.some((item) => item.toLowerCase() === segment.toLowerCase()),
-              ).length;
-              const categoryActive = resolveRadarCategory(draftValue)?.key === group.key;
-              return (
-                <button
-                  type="button"
-                  key={group.key}
-                  data-active={group.key === resolvedActiveGroupKey || categoryActive ? "true" : "false"}
-                  onClick={() => openSegmentGroup(group.key)}
-                >
-                  <span>{group.label}</span>
-                  <small>
-                    {categoryActive
-                      ? "categoria"
-                      : selectedInGroup
-                        ? `${selectedInGroup} selecionados`
-                        : `${group.segments.length} opções`}
-                  </small>
-                </button>
-              );
-            })}
-          </div>
-        ) : (
-          <>
-            <div className={styles.mobileSegmentToolbar}>
-              <button type="button" onClick={() => setDraftValue("")}>
-                Limpar
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  if (!activeGroup) return;
-                  setDraftValue(buildRadarCategorySegmentValue(activeGroup));
-                  setApplyError(null);
-                }}
-              >
-                Usar categoria
-              </button>
-            </div>
-            {canUseTypedSegment ? (
-              <div className={styles.mobileSegmentCustom}>
-                <span>{query.trim()}</span>
-                <button
-                  type="button"
-                  onClick={useTypedSegment}
-                >
-                  Buscar
-                </button>
-              </div>
-            ) : null}
-            <div className={styles.mobileSegmentOptions}>
-              {visibleSegments.map((segment) => {
-                const active = selectedSegments.some((item) => item.toLowerCase() === segment.toLowerCase());
-                return (
-                  <button
-                    type="button"
-                    key={segment}
-                    data-active={active ? "true" : "false"}
-                    disabled={!active && !canAddMore}
-                    onClick={() => toggleSegment(segment)}
-                  >
-                    {segment}
-                  </button>
-                );
-              })}
-            </div>
-          </>
-        )}
-        {applyError ? <div className={styles.mobileSegmentApplyError}>{applyError}</div> : null}
-        <div className={styles.mobileSegmentApplyBar}>
-          {segmentStep === "categories" ? (
+        <div className={styles.mobileSegmentCategories}>
+          {groups.map((group) => (
             <button
               type="button"
+              key={group.key}
+              data-active={group.key === resolvedActiveGroupKey ? "true" : "false"}
               onClick={() => {
-                setDraftValue("");
-                setApplyError(null);
+                setActiveGroupKey(group.key);
+                setQuery("");
               }}
-              disabled={applying || !draftValue}
             >
-              Limpar
+              {group.label}
             </button>
-          ) : (
-            <button type="button" onClick={backToCategories} disabled={applying}>
-              Categorias
+          ))}
+        </div>
+        <div className={styles.mobileSegmentToolbar}>
+          <button type="button" onClick={() => setDraftValue("")}>
+            Limpar
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              if (!activeGroup) return;
+              setDraftValue(buildRadarCategorySegmentValue(activeGroup));
+              setApplyError(null);
+            }}
+          >
+            Usar categoria
+          </button>
+          {query.trim() ? (
+            <button
+              type="button"
+              disabled={!canAddMore}
+              onClick={() => {
+                toggleSegment(query);
+                setQuery("");
+              }}
+            >
+              Usar {`"${query.trim()}"`}
             </button>
-          )}
+          ) : null}
+        </div>
+        <div className={styles.mobileSegmentOptions}>
+          {visibleSegments.map((segment) => {
+            const active = selectedSegments.some((item) => item.toLowerCase() === segment.toLowerCase());
+            return (
+              <button
+                type="button"
+                key={segment}
+                data-active={active ? "true" : "false"}
+                disabled={!active && !canAddMore}
+                onClick={() => toggleSegment(segment)}
+              >
+                {segment}
+              </button>
+            );
+          })}
+        </div>
+        {applyError ? <div className={styles.mobileSegmentApplyError}>{applyError}</div> : null}
+        <div className={styles.mobileSegmentApplyBar}>
+          <button type="button" onClick={onClose} disabled={applying}>
+            Cancelar
+          </button>
           <button type="button" data-primary="true" onClick={() => void applySelection()} disabled={applying}>
             {applying ? "Salvando" : "Aplicar"}
           </button>
         </div>
-        {segmentStep === "segments" ? (
-          <button type="button" className={styles.mobileSegmentCancel} onClick={onClose} disabled={applying}>
-            Cancelar
-          </button>
-        ) : null}
       </section>
     </div>
   );
@@ -2583,19 +2494,9 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
   }
 
   const applyRadarRunPayload = useCallback((payload: RadarSearchRunResponse) => {
-    if (isRadarRunNotFoundPayload(payload)) {
-      activeRunIdRef.current = null;
-      clearStoredRadarRun();
-      setActiveRun(null);
-      setTerminalRunSnapshot(null);
-      setSearching(false);
-      setFeedback(compactRadarMessage(payload.message || "Busca anterior encerrada. Radar pronto para uma nova pesquisa."));
-      return;
-    }
     const runId = String(payload.runId || payload.id || "");
     if (!runId || !payload.status) {
       activeRunIdRef.current = null;
-      clearStoredRadarRun();
       setActiveRun(null);
       setTerminalRunSnapshot(null);
       setSearching(false);
@@ -2700,14 +2601,11 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
             applyRadarRunPayload(payload);
           }
           return;
-        } catch (error) {
+        } catch {
           if (cancelled) return;
           activeRunIdRef.current = null;
           clearStoredRadarRun(stored.runId);
           setSearching(false);
-          if (!isRadarRunNotFoundError(error)) {
-            setError(radarFriendlyError(error));
-          }
         }
       }
 
@@ -2749,15 +2647,6 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
         setError(null);
         applyRadarRunPayload(payload);
       } catch (pollError) {
-        if (isRadarRunNotFoundError(pollError)) {
-          activeRunIdRef.current = null;
-          clearStoredRadarRun(runId);
-          setActiveRun(null);
-          setTerminalRunSnapshot(null);
-          setSearching(false);
-          setFeedback("Busca anterior encerrada. Radar pronto para uma nova pesquisa.");
-          return;
-        }
         setError(radarFriendlyError(pollError));
         setSearching(Boolean(activeRunIdRef.current || runId));
       }
