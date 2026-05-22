@@ -1031,12 +1031,7 @@ export default function TutorialClientPage() {
       : DEFAULT_PROFILE.radiusKm;
     const firstSegment = splitRadarSegments(segment)[0] || segment;
     if (!state || !city || !segment) return false;
-    const isLeadPlus = profile.currentPlan === "premium";
-    const avoidNoWhatsapp = profile.avoid.some((item) => /sem whatsapp/i.test(item));
-    const wantsWhatsapp = true;
-    const whatsappCheckMode = isLeadPlus
-      ? (wantsWhatsapp || avoidNoWhatsapp ? "only_valid" : "enrich")
-      : "off";
+    const whatsappCheckMode = "off";
     const { body: rawSalesProfilePayload } = buildSalesProfilePayload(profile);
     const { preferredCities: _preferredCities, preferredStates: _preferredStates, weeklyAutoUpdateEnabled: _weeklyAutoUpdateEnabled, ...salesProfilePayload } = rawSalesProfilePayload;
     const payload = await apiFetch<RadarSearchRunResponse>("/webscraping/radar/search-runs", {
@@ -1056,7 +1051,7 @@ export default function TutorialClientPage() {
         quantity: 10,
         minimumStock: 10,
         desiredStock: 10,
-        qualityMode: isLeadPlus ? "lead_plus" : "list",
+        qualityMode: "list",
         preferredChannels: ["whatsapp"],
         whatsappCheckMode,
       }),

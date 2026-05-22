@@ -28,7 +28,7 @@ def test_enrich_lead_request_preserves_required_website_and_email_channels() -> 
     assert request.requiredChannels == ["website", "email", "instagram", "facebook"]
 
 
-def test_pj_search_discovers_socials_without_making_them_preferred_channels() -> None:
+def test_pj_search_does_not_turn_lead_plus_into_social_discovery() -> None:
     request = SearchRequest(
         city="Ubatuba",
         state="SP",
@@ -41,11 +41,12 @@ def test_pj_search_discovers_socials_without_making_them_preferred_channels() ->
 
     assert request.preferredChannels == []
     assert request.requiredChannels == []
-    assert service.effective_requested_social_channels(request) == {"instagram", "facebook"}
-    assert service.effective_discovery_channels(request) == ["instagram", "facebook", "website", "email"]
+    assert request.qualityMode == "list"
+    assert service.effective_requested_social_channels(request) == set()
+    assert service.effective_discovery_channels(request) == []
 
 
-def test_pj_search_discovers_site_and_email_without_channel_filters() -> None:
+def test_pj_search_keeps_site_email_out_of_channel_filters() -> None:
     request = SearchRequest(
         city="Ubatuba",
         state="SP",
@@ -68,9 +69,9 @@ def test_pj_search_discovers_site_and_email_without_channel_filters() -> None:
 
     assert request.preferredChannels == []
     assert request.requiredChannels == []
-    assert any("instagram" in query.lower() for query in queries)
+    assert not any("instagram" in query.lower() for query in queries)
     assert any("site oficial" in query.lower() for query in queries)
-    assert any("contato email" in query.lower() for query in queries)
+    assert not any("contato email" in query.lower() for query in queries)
 
 
 def test_list_mode_uses_same_signal_discovery_without_channel_filters() -> None:
@@ -86,8 +87,8 @@ def test_list_mode_uses_same_signal_discovery_without_channel_filters() -> None:
 
     assert request.preferredChannels == []
     assert request.requiredChannels == []
-    assert service.effective_requested_social_channels(request) == {"instagram", "facebook"}
-    assert service.effective_discovery_channels(request) == ["instagram", "facebook", "website", "email"]
+    assert service.effective_requested_social_channels(request) == set()
+    assert service.effective_discovery_channels(request) == []
 
 
 def test_website_candidate_rejects_aggregator_wrapped_official_domain() -> None:

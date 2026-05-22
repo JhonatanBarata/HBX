@@ -413,7 +413,7 @@ test('buildSearchResponse bloqueia titulos de conteudo e html entity antigos', (
   assert.equal(response.meta.filteredOutCount, 3);
 });
 
-test('buildSearchResponse no Lead+ mantem card real fraco como backup sem debito', () => {
+test('buildSearchResponse normaliza Lead+ para List e entrega card real basico', () => {
   const service = new WebscrapingService(createPrisma()) as any;
   const input = service.normalizeSearchInput({
     city: 'Boituva',
@@ -448,10 +448,10 @@ test('buildSearchResponse no Lead+ mantem card real fraco como backup sem debito
 
   assert.equal(response.results.length, 1);
   assert.equal(response.results[0].name, 'Farmacia Teste');
-  assert.equal(response.results[0].deliveryProduct, 'lead_plus');
-  assert.equal(response.results[0].billable, false);
-  assert.equal(response.results[0].debitEligible, false);
-  assert.ok(['enrichment_pending', 'review_backup'].includes(response.results[0].visibilityTier));
+  assert.equal(response.results[0].deliveryProduct, 'list');
+  assert.equal(response.results[0].billable, true);
+  assert.equal(response.results[0].debitEligible, true);
+  assert.equal(response.results[0].visibilityTier, 'list_basic');
   assert.equal(response.meta.deliveredCount, 1);
   assert.equal(response.meta.filteredOutCount, 0);
 });
@@ -1194,18 +1194,18 @@ test('Radar ignora telefone e Facebook obrigatorios como regra de corte', async 
     run.id,
     [
       {
-        name: 'Lanchonete Sem Telefone',
+        name: 'Lanchonete Dona Maria',
         phone: '',
         phoneDigits: '',
-        facebookUrl: 'https://facebook.com/lanchonetesemtelefone',
+        facebookUrl: 'https://facebook.com/lanchonetedonamaria',
         businessCategory: 'lanchonete',
         source: 'hbx_scraping:web',
       },
       {
-        name: 'Lanchonete Com Telefone',
+        name: 'Lanchonete Avenida Brasil',
         phone: '(19) 99999-0003',
         phoneDigits: '19999990003',
-        facebookUrl: 'https://facebook.com/lanchonetecomtelefone',
+        facebookUrl: 'https://facebook.com/lanchoneteavenidabrasil',
         businessCategory: 'lanchonete',
         source: 'hbx_scraping:web',
       },
@@ -1377,7 +1377,9 @@ test('buildSearchRunResponse items preserva campos sociais do rawJson', () => {
   assert.equal(item.recommendedChannel, 'whatsapp');
   assert.equal(item.opportunityScore, 82);
   assert.equal(item.enrichmentScore, 77);
-  assert.equal(item.qualityV2?.channelAvailability?.instagram, true);
+  assert.equal(item.qualityV2, undefined);
+  assert.equal(item.premiumLocked, true);
+  assert.equal(item.premiumTeaser, true);
 });
 
 test('buildSearchRunResponse preserva campos ricos do rawJson mesmo em List', () => {
@@ -1622,7 +1624,7 @@ test('persistRadarLeadPoolBatch preserva campos ricos ao sincronizar card primar
   assert.equal(enrichment.signals.whatsappStatus, 'missing');
 });
 
-test('maskRadarSmartFieldsForList preserva contato e contexto rico do card', () => {
+test('maskRadarSmartFieldsForList preserva contato natural e bloqueia inteligencia premium', () => {
   const service = new WebscrapingService(createPrisma()) as any;
   const item = service.maskRadarSmartFieldsForList({
     name: 'Oficina Rica',
@@ -1654,12 +1656,13 @@ test('maskRadarSmartFieldsForList preserva contato e contexto rico do card', () 
   assert.equal(item.reviews, 123);
   assert.equal(item.whatsappStatus, 'missing');
 
-  assert.equal(item.recommendedChannel, 'email');
-  assert.equal(item.painType, 'site_fraco');
-  assert.equal(item.painPitch, 'Pitch premium');
-  assert.deepEqual(item.enrichmentJson, { premium: true });
-  assert.deepEqual(item.qualityV2, { version: 'lead-quality-v2' });
-  assert.equal(item.premiumLocked, false);
+  assert.equal(item.recommendedChannel, null);
+  assert.equal(item.painType, null);
+  assert.equal(item.painPitch, null);
+  assert.equal(item.enrichmentJson, null);
+  assert.equal(item.qualityV2, null);
+  assert.equal(item.premiumLocked, true);
+  assert.equal(item.premiumFeatureStatus, 'locked');
 });
 
 test('hasUsablePublicContactChannel aceita card rico sem telefone', () => {
@@ -2067,9 +2070,71 @@ test('buildRadarLeadPublic sanitiza email de asset e social incompativel', () =>
   assert.equal(item.email, null);
   assert.equal(item.facebookUrl, null);
   assert.equal(item.socialStatus, 'missing');
+  assert.equal(item.deliveryProduct, 'list');
 });
 
-test('buildHbxBatchAttemptTask percorre cidade, segmento e variacao em ordem', () => {
+test('canUseRadarSmartLeadFields libera somente HBX Lead ou superior', async () => {
+  const liteService = new WebscrapingService(createPrisma({
+    company: {
+      findUnique: async () => ({
+        selectedPlanKey: 'hbx_lite',
+        premiumAccess: false,
+        paymentStatus: 'PAID',
+        subscriptionStatus: 'active',
+        onboardingStatus: 'active_paid',
+      }),
+    },
+  })) as any;
+  const leadService = new WebscrapingService(createPrisma({
+    company: {
+      findUnique: async () => ({
+        selectedPlanKey: 'hbx_padrao',
+        premiumAccess: false,
+        paymentStatus: 'PAID',
+        subscriptionStatus: 'active',
+        onboardingStatus: 'active_paid',
+      }),
+    },
+  })) as any;
+
+  assert.equal(await liteService.canUseRadarSmartLeadFields(7), false);
+  assert.equal(await leadService.canUseRadarSmartLeadFields(7), true);
+});
+
+test('enrichRadarLeadViaLeadPlusEngine prioriza Instagram, Facebook, site e email', async () => {
+  const previousFetch = global.fetch;
+  let body: any = null;
+  global.fetch = (async (_url: any, init?: any) => {
+    body = JSON.parse(String(init?.body || '{}'));
+    return createResponse(200, { instagramUrl: 'https://instagram.com/padariareal' }) as any;
+  }) as any;
+  const service = new WebscrapingService(createPrisma()) as any;
+  service.canAcquireHbxEngineFromPool = async () => false;
+  service.recordVendasRadarEnrichmentStatus = async () => null;
+
+  try {
+    const response = await service.enrichRadarLeadViaLeadPlusEngine(
+      { companyId: 7, userId: 9, user: createUser() },
+      {
+        id: 'radar-1',
+        name: 'Padaria Real',
+        phone: '(19) 3333-0000',
+        phoneDigits: '1933330000',
+        city: 'Campinas',
+        state: 'SP',
+        segment: 'padarias',
+      },
+    );
+
+    assert.equal(response.instagramUrl, 'https://instagram.com/padariareal');
+    assert.deepEqual(body.preferredChannels, ['instagram', 'facebook', 'website', 'email']);
+    assert.deepEqual(body.requiredChannels, []);
+  } finally {
+    global.fetch = previousFetch;
+  }
+});
+
+test('buildHbxBatchAttemptTask intercala segmentos antes da proxima variacao', () => {
   const service = new WebscrapingService(createPrisma()) as any;
   const normalized = service.normalizeSearchInput({
     city: 'Americana',
@@ -2087,8 +2152,8 @@ test('buildHbxBatchAttemptTask percorre cidade, segmento e variacao em ordem', (
 
   assert.equal(first.input.city, 'Americana');
   assert.equal(first.input.segment, 'açougues');
-  assert.equal(sixth.input.segment, 'açougues');
-  assert.equal(seventh.input.segment, 'alimentos naturais');
+  assert.equal(sixth.input.segment, 'bares');
+  assert.equal(seventh.input.segment, 'açougues');
   assert.equal(first.searchScope.segmentCount, 3);
 });
 
@@ -2342,7 +2407,7 @@ test('mapHbxContactResult mapeia rede social vinda de sourceUrl generico', () =>
   assert.equal(String(mapped.placeId).startsWith('hbx:pj:social:'), true);
 });
 
-test('processSearchRun enfileira lookup social automatico para card aprovado sem Instagram', async () => {
+test('processSearchRun nao enfileira lookup social automatico para card aprovado sem Instagram', async () => {
   const previousFetch = global.fetch;
   global.fetch = (async () =>
     createResponse(200, {
@@ -2366,9 +2431,9 @@ test('processSearchRun enfileira lookup social automatico para card aprovado sem
   });
   const service = new WebscrapingService(prisma) as any;
   disableSearchRunAutoPump(service);
-  let enqueued: any = null;
+  let enqueued = false;
   service.enqueueRadarSocialLookupForSavedLeads = (context: any, runId: string, input: any, leadIds: string[]) => {
-    enqueued = { context, runId, input, leadIds };
+    enqueued = true;
   };
 
   try {
@@ -2382,8 +2447,7 @@ test('processSearchRun enfileira lookup social automatico para card aprovado sem
 
     assert.equal(items.length, 1);
     assert.equal(items[0].status, 'found');
-    assert.deepEqual(enqueued?.leadIds, ['item-1']);
-    assert.equal(enqueued?.input.city, 'Rio Claro');
+    assert.equal(enqueued, false);
     assert.equal(JSON.parse(items[0].rawJson).socialStatus, 'pending');
     assert.notEqual(run.status, 'failed');
   } finally {
@@ -2931,6 +2995,13 @@ function createCampaignPrisma(initialCampaign: Record<string, any> = {}) {
             (!where.normalizedSegment || lead.normalizedSegment === where.normalizedSegment));
         }
         return [...leads];
+      },
+      findUnique: async (input?: any) => {
+        const where = input?.where || {};
+        return leads.find((lead) => (
+          (where.id && lead.id === where.id) ||
+          (where.placeId && lead.placeId === where.placeId)
+        )) || null;
       },
       findFirst: async (input?: any) => {
         const where = input?.where || {};
@@ -3677,8 +3748,8 @@ test('engine hbx chama motor local e aceita agenda_pf sem segmento', async () =>
       results: [
         {
           name: 'Contato Limeira',
-          phone: '(19) 99999-0000',
-          phoneDigits: '19999990000',
+          phone: '(19) 98765-4321',
+          phoneDigits: '19987654321',
           rating: null,
           reviews: null,
           address: null,
@@ -3708,21 +3779,25 @@ test('engine hbx chama motor local e aceita agenda_pf sem segmento', async () =>
 
     assert.equal(calls.length, 1);
     assert.equal(calls[0].url, 'http://localhost:8001/search');
-    assert.deepEqual(calls[0].body, {
-      city: 'Limeira',
-      state: 'SP',
-      segment: '',
-      targetType: 'agenda_pf',
-      limit: 100,
-      fresh: false,
-    });
+    assert.equal(calls[0].body.city, 'Limeira');
+    assert.equal(calls[0].body.state, 'SP');
+    assert.equal(calls[0].body.segment, '');
+    assert.equal(calls[0].body.targetType, 'agenda_pf');
+    assert.equal(calls[0].body.limit, 100);
+    assert.equal(calls[0].body.quantity, 100);
+    assert.equal(calls[0].body.fresh, false);
+    assert.equal(calls[0].body.freshness, 'hybrid');
+    assert.deepEqual(calls[0].body.preferredChannels, []);
+    assert.deepEqual(calls[0].body.requiredChannels, []);
+    assert.equal(calls[0].body.channelMatchMode, 'prefer');
+    assert.equal(calls[0].body.qualityMode, 'list');
     assert.equal(response.query.engine, 'hbx');
     assert.equal(response.query.targetType, 'agenda_pf');
     assert.equal(response.query.quantity, 100);
     assert.equal(response.meta.source, 'hbx');
     assert.equal(response.results.length, 1);
     assert.equal(response.results[0].name, 'Contato Limeira');
-    assert.equal(response.results[0].phoneDigits, '19999990000');
+    assert.equal(response.results[0].phoneDigits, '19987654321');
     assert.equal(response.results[0].rating, null);
     assert.equal(response.results[0].reviews, null);
     assert.equal(response.results[0].address, null);

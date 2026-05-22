@@ -26,14 +26,15 @@ def test_search_intent_preserves_contract_and_sales_profile() -> None:
 
     assert intent.quantity == 12
     assert intent.segments == ["pizzaria", "restaurante"]
-    assert intent.preferredChannels == ["instagram"]
-    assert intent.requiredChannels == ["website"]
-    assert intent.channelMatchMode == "any_required"
+    assert intent.preferredChannels == []
+    assert intent.requiredChannels == []
+    assert intent.channelMatchMode == "prefer"
+    assert intent.qualityMode == "list"
     assert intent.salesProfile["whatDoYouSell"] == "plano de saúde"
     assert intent.salesProfile["targetAudience"]["labels"] == ["idosos", "60+"]
 
 
-def test_required_channels_any_required_accepts_only_matching_channel() -> None:
+def test_required_channels_do_not_block_card_discovery() -> None:
     request = SearchRequest(
         city="Campinas",
         state="SP",
@@ -46,10 +47,10 @@ def test_required_channels_any_required_accepts_only_matching_channel() -> None:
 
     service = SearchService()
     assert service.matches_channel_intent({"name": "Oficina A", "instagramUrl": "https://instagram.com/oficinaa"}, request)
-    assert not service.matches_channel_intent({"name": "Oficina B", "website": "https://oficinab.com.br"}, request)
+    assert service.matches_channel_intent({"name": "Oficina B", "website": "https://oficinab.com.br"}, request)
 
 
-def test_preferred_instagram_increases_score_without_cutting() -> None:
+def test_preferred_instagram_does_not_change_score_without_cutting() -> None:
     scorer = EvidenceScorer()
     base = {
         "name": "Pizzaria Roberto",
@@ -64,7 +65,8 @@ def test_preferred_instagram_increases_score_without_cutting() -> None:
     with_instagram = scorer.score({**base, "instagramUrl": "https://instagram.com/pizzariaroberto"}, prefer_instagram, "pizzaria Rio Claro")
     neutral = scorer.score(base, no_preference, "pizzaria Rio Claro")
 
-    assert without_instagram.finalScore >= neutral.finalScore
+    assert prefer_instagram.preferredChannels == []
+    assert without_instagram.finalScore == neutral.finalScore
     assert with_instagram.finalScore > without_instagram.finalScore
 
 

@@ -182,10 +182,7 @@ def build_intent_discovery_queries(
     intent: Any = None,
     sales_profile: dict | None = None,
 ) -> list[str]:
-    effective_preferred = list(preferred_channels or getattr(intent, "preferredChannels", []) or [])
-    effective_required = list(required_channels or getattr(intent, "requiredChannels", []) or [])
     intent_queries = [
-        *build_channel_discovery_queries(segment, city, state, effective_preferred, effective_required),
         *build_commercial_fit_discovery_queries(segment, city, state, intent, sales_profile),
     ]
     base_queries = build_queries(segment, city, state, target_type, query)
@@ -367,8 +364,8 @@ def discover_urls(
     intent: Any = None,
     sales_profile: dict | None = None,
 ) -> list[str]:
-    effective_preferred = list(preferred_channels or getattr(intent, "preferredChannels", []) or [])
-    effective_required = list(required_channels or getattr(intent, "requiredChannels", []) or [])
+    effective_preferred: list[str] = []
+    effective_required: list[str] = []
     queries = build_intent_discovery_queries(
         segment,
         city,
@@ -380,8 +377,8 @@ def discover_urls(
         intent,
         sales_profile,
     )
-    social_channels = requested_social_channels(effective_preferred, effective_required)
-    required_channel_set = {str(value or "").strip().lower() for value in effective_required}
+    social_channels: set[str] = set()
+    required_channel_set: set[str] = set()
     base_queries = build_queries(segment, city, state, target_type, query)
     intent_sensitive = bool(queries[: max(0, len(queries) - len(base_queries))] or required_channel_set)
     if target_type == "pj" and social_channels:
