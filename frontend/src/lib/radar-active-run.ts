@@ -71,6 +71,22 @@ export function isTerminalRadarRunStatus(status?: string | null) {
   return ["completed", "partial_error", "completed_insufficient_results", "failed", "canceled"].includes(String(status || ""));
 }
 
+export function isRadarRunNotFoundPayload(payload: unknown) {
+  if (!payload || typeof payload !== "object") return false;
+  const candidate = payload as { code?: unknown; status?: unknown; meta?: { status?: unknown } };
+  const code = String(candidate.code || "").trim();
+  const status = Number(candidate.status || candidate.meta?.status || 0);
+  return code === "RADAR_RUN_NOT_FOUND" || status === 404;
+}
+
+export function isRadarRunNotFoundError(error: unknown) {
+  if (!error || typeof error !== "object") return false;
+  const candidate = error as { code?: unknown; status?: unknown; payload?: unknown };
+  return String(candidate.code || "").trim() === "RADAR_RUN_NOT_FOUND"
+    || Number(candidate.status || 0) === 404
+    || isRadarRunNotFoundPayload(candidate.payload);
+}
+
 export function formatPtBrCardCount(count: number) {
   const safeCount = Math.max(0, Number(count || 0));
   return `${safeCount} ${safeCount === 1 ? "card" : "cards"}`;

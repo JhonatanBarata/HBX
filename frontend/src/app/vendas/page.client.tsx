@@ -41,6 +41,8 @@ import { useRequireModule } from "@/app/_lib/useRequireModule";
 import { HBX_WINDOW_STANDARD } from "@/lib/hbx-window-system";
 import {
   clearStoredRadarRun,
+  isRadarRunNotFoundError,
+  isRadarRunNotFoundPayload,
   isTerminalRadarRunStatus,
   readStoredRadarRun,
   saveStoredRadarRun,
@@ -2915,6 +2917,11 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
         requireAuth: true,
         timeoutMs: 15000,
       });
+      if (isRadarRunNotFoundPayload(payload)) {
+        clearStoredRadarRun(activeRunId);
+        setLiveRadarRun(null);
+        return;
+      }
       setLiveRadarRun((previous) => {
         return radarRunResponseEqual(previous, payload) ? previous : payload;
       });
@@ -2983,7 +2990,11 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
       if (composerOpenRef.current) return;
       try {
         await refreshRadarRun();
-      } catch {
+      } catch (error) {
+        if (isRadarRunNotFoundError(error)) {
+          clearStoredRadarRun(activeRunId);
+          setLiveRadarRun(null);
+        }
         // keep the last visible Radar status if one poll fails
       }
     }, {

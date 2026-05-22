@@ -1376,7 +1376,7 @@ export default function VendasAutomationClientPage() {
   useEffect(() => {
     const requestedTab = searchParams.get("tab");
     const requestedMode = String(searchParams.get("mode") || "").trim().toLowerCase();
-    if (requestedMode === "mobile" || requestedTab === "prospeccao") {
+    if (requestedMode === "mobile") {
       router.replace("/vendas");
       return;
     }
@@ -1384,7 +1384,7 @@ export default function VendasAutomationClientPage() {
       router.replace("/whatsapp?focus=qr");
       return;
     }
-    if (requestedTab === "atendimento" || requestedTab === "flow" || requestedTab === "recovery") {
+    if (requestedTab === "atendimento" || requestedTab === "flow" || requestedTab === "prospeccao" || requestedTab === "recovery") {
       setActiveTab(requestedTab);
       return;
     }

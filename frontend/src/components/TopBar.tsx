@@ -31,6 +31,8 @@ import {
 } from "../lib/masterContextEvents";
 import {
   clearStoredRadarRun,
+  isRadarRunNotFoundError,
+  isRadarRunNotFoundPayload,
   isTerminalRadarRunStatus,
   readStoredRadarRun,
   subscribeStoredRadarRun,
@@ -3529,6 +3531,11 @@ export default function TopBar() {
           timeoutMs: 12000,
         });
         if (!active) return;
+        if (isRadarRunNotFoundPayload(payload)) {
+          clearStoredRadarRun(stableRunId);
+          setRadarTopbarRun(null);
+          return;
+        }
         if (payload.status === "canceled") {
           clearStoredRadarRun(stableRunId);
           setRadarTopbarRun(null);
@@ -3544,7 +3551,12 @@ export default function TopBar() {
           deliveredCount: Number(payload.meta?.deliveredCount || payload.foundCount || radarTopbarRun?.deliveredCount || 0) || 0,
           updatedAt: Date.now(),
         });
-      } catch {
+      } catch (error) {
+        if (isRadarRunNotFoundError(error)) {
+          clearStoredRadarRun(stableRunId);
+          if (active) setRadarTopbarRun(null);
+          return;
+        }
         if (active) setRadarTopbarRun(readStoredRadarRun());
       }
     }

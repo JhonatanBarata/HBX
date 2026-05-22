@@ -199,14 +199,7 @@ function parseIntegerEnv(name: string, fallback: number) {
 
 function resolveListEngineCount(configuredCount = getConfiguredHbxEngineCount()) {
   return Math.min(
-    Math.max(1, parseIntegerEnv('HBX_LIST_ENGINE_COUNT', 40)),
-    Math.max(1, configuredCount),
-  );
-}
-
-function resolveLeadPlusEnrichmentEngineCount(configuredCount = getConfiguredHbxEngineCount()) {
-  return Math.min(
-    Math.max(1, parseIntegerEnv('HBX_LEAD_PLUS_ENRICHMENT_ENGINE_COUNT', 10)),
+    Math.max(1, parseIntegerEnv('HBX_LIST_ENGINE_COUNT', configuredCount)),
     Math.max(1, configuredCount),
   );
 }
@@ -214,17 +207,6 @@ function resolveLeadPlusEnrichmentEngineCount(configuredCount = getConfiguredHbx
 export function getHbxEnginePurposeRange(purpose: HbxEnginePurpose, configuredCount = getConfiguredHbxEngineCount()) {
   const safeConfigured = Math.max(1, Math.trunc(Number(configuredCount || 1)));
   const listCount = resolveListEngineCount(safeConfigured);
-  const enrichmentCount = resolveLeadPlusEnrichmentEngineCount(safeConfigured);
-  if (purpose === 'lead_plus_enrichment') {
-    const start = listCount < safeConfigured
-      ? listCount
-      : Math.max(0, safeConfigured - enrichmentCount);
-    return {
-      start,
-      endExclusive: safeConfigured,
-      label: `${start + 1}-${safeConfigured}`,
-    };
-  }
   return {
     start: 0,
     endExclusive: listCount,

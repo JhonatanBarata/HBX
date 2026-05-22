@@ -511,6 +511,11 @@ const GENERIC_DIRECTORY_NAMES = [
   'sem nome',
   'contato',
   'home',
+  'ir para o conteúdo',
+  'ir para o conteudo',
+  'laa',
+  'mmm',
+  'nnn',
   'whatsapp',
   'telefone',
   'lista telefonica',
@@ -1723,6 +1728,10 @@ function normalizeEnginePurpose(value: unknown): HbxEnginePurpose {
     return purpose;
   }
   return 'manual';
+}
+
+function normalizeCardDiscoveryQualityMode(): 'list' {
+  return 'list';
 }
 
 function isAutomaticEnginePurpose(purpose: HbxEnginePurpose) {
@@ -2996,7 +3005,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       preferredChannels: this.normalizeRadarChannels(channelFilters.preferredChannels),
       requiredChannels: this.normalizeRadarChannels(channelFilters.requiredChannels),
       channelMatchMode: this.normalizeChannelMatchMode(channelFilters.channelMatchMode),
-      qualityMode: String(channelFilters.qualityMode || '').trim() === 'lead_plus' ? 'lead_plus' : 'list',
+      qualityMode: normalizeCardDiscoveryQualityMode(),
       salesProfile,
     };
   }
@@ -3266,17 +3275,11 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
   }
 
   private hasIntentSensitiveDiscovery(input: NormalizedSearchInput) {
-    return Boolean(
-      input.requiredChannels.length
-      || input.preferredChannels.length
-      || input.salesProfile
-      || input.channelMatchMode !== 'prefer'
-    );
+    return Boolean(input.salesProfile);
   }
 
-  private hasSocialDiscoveryIntent(input: Pick<NormalizedSearchInput, 'preferredChannels' | 'requiredChannels'>) {
-    const channels = new Set([...(input.preferredChannels || []), ...(input.requiredChannels || [])]);
-    return channels.has('instagram') || channels.has('facebook');
+  private hasSocialDiscoveryIntent(_input: Pick<NormalizedSearchInput, 'preferredChannels' | 'requiredChannels'>) {
+    return false;
   }
 
   private isSocialDiscoveryQuery(query: string | null | undefined) {
@@ -3752,6 +3755,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     if (/&[#a-zA-Z0-9]+;/.test(raw)) return true;
     const normalized = this.qualityKey(raw);
     if (!normalized) return false;
+    if (/^([a-z])\1{2,}$/.test(normalized)) return true;
     const cityKey = this.qualityKey(context?.city);
     const segmentVariants = this.segmentNameVariants(context?.segment);
     const genericNames = [
@@ -4320,13 +4324,8 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     return false;
   }
 
-  private candidateHasRequiredChannels(candidate: Record<string, any>, input?: NormalizedSearchInput | NormalizedRadarFilters, qualityV2?: LeadQualityV2 | null) {
-    const required = this.requiredChannelsForInput(input);
-    if (!required.length) return true;
-    const mode = this.normalizeChannelMatchMode((input as any)?.channelMatchMode);
-    if (mode === 'prefer') return true;
-    const matches = required.filter((channel) => this.candidateHasRequiredChannel(candidate, channel, qualityV2));
-    return mode === 'all_required' ? matches.length === required.length : matches.length > 0;
+  private candidateHasRequiredChannels(_candidate: Record<string, any>, _input?: NormalizedSearchInput | NormalizedRadarFilters, _qualityV2?: LeadQualityV2 | null) {
+    return true;
   }
 
   private hasUsablePublicContactChannel(candidate: Record<string, any>) {
@@ -5508,7 +5507,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       preferredChannels: input.preferredChannels,
       requiredChannels: input.requiredChannels,
       channelMatchMode: input.channelMatchMode,
-      qualityMode: input.qualityMode,
+      qualityMode: normalizeCardDiscoveryQualityMode(),
       salesProfile: input.salesProfile,
     });
   }
@@ -6680,12 +6679,15 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       radiusKm,
     };
     const salesProfile = this.normalizeLeadQualitySalesProfileInput(input);
-    const channelFilters = this.buildChannelFiltersJson({
+    const channelFilters = {
+      ...this.buildChannelFiltersJson({
       preferredChannels: input.preferredChannels || salesProfile?.preferredChannels,
       requiredChannels: input.requiredChannels || salesProfile?.requiredChannels,
       channelMatchMode: input.channelMatchMode,
-      qualityMode: input.qualityMode,
-    });
+      qualityMode: normalizeCardDiscoveryQualityMode(),
+      }),
+      qualityMode: normalizeCardDiscoveryQualityMode(),
+    };
     const freshness = this.normalizeFreshness(input.freshness);
     const filtersJson = JSON.stringify({
       ...filters,
@@ -6900,7 +6902,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     return 'live';
   }
 
-  private buildChannelFiltersJson(input: {
+  private buildChannelFiltersJson(_input: {
     preferredChannels?: string[];
     requiredChannels?: string[];
     channelMatchMode?: string | null;
@@ -6909,16 +6911,13 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     preferredChannels: RadarChannelFilter[];
     requiredChannels: RadarChannelFilter[];
     channelMatchMode: RadarChannelMatchMode;
-    qualityMode: 'list' | 'lead_plus';
+    qualityMode: 'list';
   } {
-    const preferredChannels = this.normalizeRadarChannels(input.preferredChannels);
-    const requiredChannels = this.normalizeRadarChannels(input.requiredChannels);
-    const mode = requiredChannels.length > 0 ? this.normalizeChannelMatchMode(input.channelMatchMode) : 'prefer';
     return {
-      preferredChannels,
-      requiredChannels,
-      channelMatchMode: mode,
-      qualityMode: String(input.qualityMode || '').trim() === 'lead_plus' ? 'lead_plus' : 'list',
+      preferredChannels: [],
+      requiredChannels: [],
+      channelMatchMode: 'prefer',
+      qualityMode: normalizeCardDiscoveryQualityMode(),
     };
   }
 
@@ -7446,12 +7445,12 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       preferredChannels: input.preferredChannels || undefined,
       requiredChannels: input.requiredChannels || undefined,
       channelMatchMode: input.channelMatchMode,
-      qualityMode: input.qualityMode,
+      qualityMode: normalizeCardDiscoveryQualityMode(),
     });
     const preferredChannels = channelFilters.preferredChannels;
     const requiredChannels = channelFilters.requiredChannels;
     const channelMatchMode = channelFilters.channelMatchMode;
-    const qualityMode = channelFilters.qualityMode;
+    const qualityMode = normalizeCardDiscoveryQualityMode();
     const freshness = this.normalizeFreshness(input.freshness);
     const salesProfile = this.normalizeLeadQualitySalesProfileInput(input);
 
@@ -7711,10 +7710,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
-  private matchesRadarChannelFilters(row: any, filters: NormalizedRadarFilters) {
-    if (!this.candidateHasRequiredChannels(row, filters)) return false;
-    const preferredChannels = this.normalizeRadarChannels((filters as any)?.preferredChannels || []);
-    if (!preferredChannels.length || this.normalizeChannelMatchMode((filters as any)?.channelMatchMode) !== 'prefer') return true;
+  private matchesRadarChannelFilters(_row: any, _filters: NormalizedRadarFilters) {
     return true;
   }
 
@@ -8061,7 +8057,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       preferredChannels: input.preferredChannels,
       requiredChannels: input.requiredChannels,
       channelMatchMode: input.channelMatchMode,
-      qualityMode: input.qualityMode,
+      qualityMode: normalizeCardDiscoveryQualityMode(),
     });
     const rows = await this.queryRadarRowsForCompany(context.companyId, filters, {
       limit: Math.max(input.quantity * 3, 20),
@@ -8317,7 +8313,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       websiteStatus: inferWebsiteStatus(result.website),
       opportunityScore,
       rawPayload: result as any,
-      qualityMode: input.qualityMode,
+      qualityMode: normalizeCardDiscoveryQualityMode(),
       salesProfile: this.buildLeadQualitySalesProfileFromFilters(input),
     });
     const publicLead = {
@@ -8389,7 +8385,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         normalizedCity: input.normalizedCity,
         normalizedSegment: input.normalizedSegment,
         excludePhoneDigits: [],
-        qualityMode: input.qualityMode,
+        qualityMode: normalizeCardDiscoveryQualityMode(),
         salesProfile: input.salesProfile,
         preferredChannels: input.preferredChannels,
         requiredChannels: input.requiredChannels,
@@ -11258,7 +11254,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         status: nextStatus,
         sourceUrl: options.sourceUrl || existing?.sourceUrl || null,
         rawPayload: mergedResult as any,
-        qualityMode: input.qualityMode,
+        qualityMode: normalizeCardDiscoveryQualityMode(),
         salesProfile: this.buildLeadQualitySalesProfileFromFilters(input),
         now,
       });
@@ -14922,16 +14918,21 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     const status = Number((error as any)?.status || (error as any)?.statusCode || 500);
     const rawCode = String((error as any)?.response?.code || (error as any)?.code || '').trim();
     const code = rawCode
-      || (status === 403 ? 'MODULE_ACCESS_DENIED' : status === 400 ? 'RADAR_INVALID_FILTER' : 'RADAR_TEMPORARILY_UNAVAILABLE');
+      || (status === 404 && route.includes('/webscraping/radar/search-runs/:id') ? 'RADAR_RUN_NOT_FOUND'
+        : status === 403 ? 'MODULE_ACCESS_DENIED'
+          : status === 400 ? 'RADAR_INVALID_FILTER'
+            : 'RADAR_TEMPORARILY_UNAVAILABLE');
     const message = code === 'MODULE_ACCESS_DENIED'
       ? 'Acesso ao Radar Digital indisponível para este usuário.'
       : code === 'NO_ENGINE_AVAILABLE'
         ? 'Motores ocupados. O sistema manteve sua busca na fila.'
-        : code === 'RADAR_STOCK_EMPTY'
-          ? 'Sem cards prontos para esse filtro. A reposição foi solicitada.'
-          : status === 400
-            ? (error instanceof Error ? error.message : 'Revise os filtros do Radar Digital.')
-            : 'Radar temporariamente indisponível. Tente novamente em instantes.';
+        : code === 'RADAR_RUN_NOT_FOUND'
+          ? 'Busca anterior encerrada. Radar pronto para uma nova pesquisa.'
+          : code === 'RADAR_STOCK_EMPTY'
+            ? 'Sem cards prontos para esse filtro. A reposição foi solicitada.'
+            : status === 400
+              ? (error instanceof Error ? error.message : 'Revise os filtros do Radar Digital.')
+              : 'Radar temporariamente indisponível. Tente novamente em instantes.';
     const companyId = Number(user?.masterContext?.active ? user?.masterContext?.companyId : user?.companyId || 0) || null;
     const userId = Number(user?.id || 0) || null;
     const stack = error instanceof Error ? error.stack : undefined;
@@ -14942,7 +14943,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       total: 0,
       code,
       message,
-      retryable: status >= 500 || code === 'NO_ENGINE_AVAILABLE' || code === 'RADAR_STOCK_EMPTY',
+      retryable: code !== 'RADAR_RUN_NOT_FOUND' && (status >= 500 || code === 'NO_ENGINE_AVAILABLE' || code === 'RADAR_STOCK_EMPTY'),
       meta: {
         available: false,
         route,
@@ -16906,7 +16907,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         preferredChannels: input.preferredChannels,
         requiredChannels: input.requiredChannels,
         channelMatchMode: input.channelMatchMode,
-        qualityMode: input.qualityMode,
+        qualityMode: normalizeCardDiscoveryQualityMode(),
         salesProfile: input.salesProfile || null,
         ...(input.salesProfile?.whatDoYouSell ? { whatDoYouSell: input.salesProfile.whatDoYouSell } : {}),
         ...(input.salesProfile?.offerCategory ? { offerCategory: input.salesProfile.offerCategory } : {}),

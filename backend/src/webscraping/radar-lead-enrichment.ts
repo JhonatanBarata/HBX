@@ -404,7 +404,7 @@ export function buildRadarLeadEnrichment(input: RadarLeadEnrichmentInput): Radar
       requestedSegment: (input.rawPayload as any)?.requestedSegment || input.segment || null,
       requestedCity: (input.rawPayload as any)?.requestedCity || input.city || null,
       requestedState: (input.rawPayload as any)?.requestedState || input.state || null,
-      qualityMode: input.qualityMode || input.salesProfile?.qualityMode || (input.rawPayload as any)?.qualityMode || null,
+      qualityMode: 'list',
       salesProfile: input.salesProfile || (input.rawPayload as any)?.salesProfile || null,
       now,
     },

@@ -93,6 +93,8 @@ const GENERIC_NAME_PATTERNS = [
   'sem nome',
   'contato',
   'home',
+  'ir para o conteudo',
+  'ir para o conteúdo',
   'telefone',
   'guia comercial',
   'lista de empresas',
@@ -197,7 +199,12 @@ const BAD_CONTENT_TITLE_CONTAINS = [
 
 const BAD_CONTENT_TITLE_EXACTS = [
   'duvidas frequentes',
+  'ir para o conteudo',
+  'ir para o conteúdo',
+  'laa',
   'loja de maquinas e ferramentas',
+  'mmm',
+  'nnn',
   'piscinas de areia',
 ];
 
@@ -581,6 +588,7 @@ function looksLikeCategoryLocationTitle(nameKey: string, cityKey: string, reques
 function looksLikeBadContentTitle(input: { rawName: string; nameKey: string; cityKey: string; requestedSegmentKey: string }) {
   if (/[&][#a-zA-Z0-9]+;/.test(input.rawName)) return true;
   if (looksLikeCategoryLocationTitle(input.nameKey, input.cityKey, input.requestedSegmentKey)) return true;
+  if (/^([a-z])\1{2,}$/.test(input.nameKey)) return true;
   if (BAD_CONTENT_TITLE_EXACTS.some((exact) => input.nameKey === normalizeKey(exact))) return true;
   if (BAD_CONTENT_TITLE_PREFIXES.some((prefix) => input.nameKey.startsWith(normalizeKey(prefix)))) return true;
   if (BAD_CONTENT_TITLE_CONTAINS.some((term) => ` ${input.nameKey} `.includes(normalizeKey(term)))) return true;
