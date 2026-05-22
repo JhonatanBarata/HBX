@@ -50,6 +50,125 @@
           </article>
         </section>
 
+        <section class="panel radar-audit">
+          <div class="panel-title">
+            <div>
+              <h2>Auditoria do Radar</h2>
+              <span>Motor x backend, bloqueios e diagnostico para suporte</span>
+            </div>
+            <div class="radar-tabs" role="tablist" aria-label="Ambiente da auditoria">
+              <button type="button" class="radar-tab active" data-radar-env="vps">VPS</button>
+              <button type="button" class="radar-tab" data-radar-env="localhost">localhost</button>
+            </div>
+          </div>
+
+          <div class="radar-audit-head">
+            <div>
+              <strong id="radarAuditDecision">Aguardando auditoria</strong>
+              <span id="radarAuditMeta">Selecione um ambiente ou atualize os dados.</span>
+            </div>
+            <div class="radar-audit-actions">
+              <button type="button" data-radar-refresh>Auditar Radar</button>
+              <button type="button" class="secondary" data-copy-diagnostic>Copiar diagnostico</button>
+            </div>
+          </div>
+
+          <div class="radar-audit-grid">
+            <article class="radar-card">
+              <span>Motor</span>
+              <strong id="radarEngineMetric">-</strong>
+              <small id="radarEngineSub">-</small>
+            </article>
+            <article class="radar-card">
+              <span>Backend</span>
+              <strong id="radarBackendMetric">-</strong>
+              <small id="radarBackendSub">-</small>
+            </article>
+            <article class="radar-card">
+              <span>Bloqueios 24h</span>
+              <strong id="radarBlockedMetric">-</strong>
+              <small id="radarBlockedSub">-</small>
+            </article>
+            <article class="radar-card">
+              <span>Ultima busca</span>
+              <strong id="radarLatestMetric">-</strong>
+              <small id="radarLatestSub">-</small>
+            </article>
+          </div>
+
+          <div class="radar-flow" aria-label="Caminho da busca no Radar">
+            <div class="radar-step">
+              <span>1</span>
+              <strong>Pessoa pesquisou</strong>
+              <small id="radarStepSearch">Aguardando busca recente</small>
+            </div>
+            <div class="radar-step">
+              <span>2</span>
+              <strong>Backend decidiu</strong>
+              <small id="radarStepBackend">Aguardando backend</small>
+            </div>
+            <div class="radar-step">
+              <span>3</span>
+              <strong>Motor executou</strong>
+              <small id="radarStepEngine">Aguardando motor</small>
+            </div>
+            <div class="radar-step">
+              <span>4</span>
+              <strong>Banco salvou/barrou</strong>
+              <small id="radarStepDatabase">Aguardando banco</small>
+            </div>
+          </div>
+
+          <div class="radar-audit-split">
+            <div>
+              <h3>Conta do bloqueio</h3>
+              <div id="radarBlockers" class="radar-list"></div>
+            </div>
+            <div>
+              <h3>Buscas recentes</h3>
+              <div id="radarRecentRuns" class="radar-list"></div>
+            </div>
+          </div>
+
+          <div class="radar-enrichment">
+            <div class="radar-section-title">
+              <h3>Enriquecimento e sociais</h3>
+              <span id="radarSocialSummary">Aguardando leitura do banco</span>
+            </div>
+            <div class="radar-audit-grid">
+              <article class="radar-card">
+                <span>Instagram</span>
+                <strong id="radarInstagramMetric">-</strong>
+                <small>leads com Instagram salvo</small>
+              </article>
+              <article class="radar-card">
+                <span>Facebook</span>
+                <strong id="radarFacebookMetric">-</strong>
+                <small>leads com Facebook salvo</small>
+              </article>
+              <article class="radar-card">
+                <span>Sem social</span>
+                <strong id="radarSocialMissingMetric">-</strong>
+                <small>sem canal social confiavel</small>
+              </article>
+              <article class="radar-card">
+                <span>Falhas 24h</span>
+                <strong id="radarEnrichmentFailedMetric">-</strong>
+                <small>enriquecimento com erro</small>
+              </article>
+            </div>
+            <div id="radarRecentEnrichments" class="radar-list"></div>
+          </div>
+
+          <details class="radar-details">
+            <summary>Ver logs relevantes e pacote tecnico</summary>
+            <div class="radar-audit-split">
+              <pre id="radarLogLines"></pre>
+              <pre id="radarDiagnosticJson"></pre>
+            </div>
+          </details>
+        </section>
+
         <section class="panel">
           <div class="panel-title">
             <h2>Ações rápidas</h2>
