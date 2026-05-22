@@ -315,13 +315,10 @@ class SearchService:
         return {channel for channel in channels if channel in {"instagram", "facebook"}}
 
     def effective_requested_social_channels(self, request: SearchRequest) -> set[str]:
-        return self.requested_social_channels(request.preferredChannels, request.requiredChannels)
+        return set()
 
     def effective_discovery_channels(self, request: SearchRequest) -> list[str]:
-        channels = list(dict.fromkeys([*(request.preferredChannels or []), *(request.requiredChannels or [])]))
-        if request.targetType == "pj":
-            channels = list(dict.fromkeys([*channels, "website", "email"]))
-        return channels
+        return []
 
     def required_social_channels(self, required_channels: list[str] | None = None) -> set[str]:
         return {channel for channel in (required_channels or []) if channel in {"instagram", "facebook"}}
@@ -365,13 +362,7 @@ class SearchService:
         return next((channel for channel in ["whatsapp", "instagram", "facebook", "email", "website", "phone"] if channel in channels), "review")
 
     def matches_channel_intent(self, contact: dict, request: SearchRequest) -> bool:
-        required = set(request.requiredChannels or [])
-        if not required or request.channelMatchMode == "prefer":
-            return True
-        channels = self.contact_channels(contact)
-        if request.channelMatchMode == "all_required":
-            return required.issubset(channels)
-        return bool(required & channels)
+        return True
 
     def has_public_actionable_channel(self, item: dict) -> bool:
         phone_digits = re.sub(r"\D", "", str(item.get("phoneDigits") or item.get("phone") or ""))
@@ -2210,7 +2201,7 @@ class SearchService:
             "requestedChannels": sorted(effective_social_channels),
             "requiredChannels": sorted(required_social_channels),
             "enrichmentRan": False,
-            "mode": "required" if required_social_channels else "best_effort",
+            "mode": "off" if not requested_social_channels else "required" if required_social_channels else "best_effort",
             "processed": 0,
             "skippedBadCandidate": 0,
             "enrichedCount": 0,

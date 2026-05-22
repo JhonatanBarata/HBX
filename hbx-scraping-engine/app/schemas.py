@@ -28,6 +28,9 @@ CHANNEL_ALIASES = {
 }
 
 
+DISCOVERY_QUALITY_MODE: QualityMode = "list"
+
+
 def normalize_channel_list(values: list[str]) -> list[str]:
     seen: set[str] = set()
     normalized: list[str] = []
@@ -38,6 +41,20 @@ def normalize_channel_list(values: list[str]) -> list[str]:
             seen.add(channel)
             normalized.append(channel)
     return normalized
+
+
+def normalize_card_discovery_contract(model: BaseModel) -> BaseModel:
+    model.preferredChannels = []
+    model.requiredChannels = []
+    model.channelMatchMode = "prefer"
+    model.qualityMode = DISCOVERY_QUALITY_MODE
+    if isinstance(getattr(model, "salesProfile", None), dict):
+        model.salesProfile = {
+            key: value
+            for key, value in model.salesProfile.items()
+            if key not in {"preferredChannels", "requiredChannels", "channelMatchMode", "qualityMode"}
+        }
+    return model
 
 
 class SearchRequest(BaseModel):
@@ -142,7 +159,7 @@ class SearchRequest(BaseModel):
         max_limit = 100
         if self.limit > max_limit:
             raise ValueError(f"limit maximo para targetType={self.targetType} é {max_limit}")
-        return self
+        return normalize_card_discovery_contract(self)
 
 
 class SearchIntent(BaseModel):
@@ -160,6 +177,10 @@ class SearchIntent(BaseModel):
     qualityMode: QualityMode = "list"
     freshness: FreshnessMode = "live"
     salesProfile: dict = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def normalize_discovery_contract(self) -> "SearchIntent":
+        return normalize_card_discovery_contract(self)
 
     @classmethod
     def from_request(cls, request: SearchRequest) -> "SearchIntent":
@@ -209,6 +230,10 @@ class QueryPayload(BaseModel):
     qualityMode: QualityMode = "list"
     freshness: FreshnessMode = "live"
     salesProfile: dict | None = None
+
+    @model_validator(mode="after")
+    def normalize_discovery_contract(self) -> "QueryPayload":
+        return normalize_card_discovery_contract(self)
 
 
 class ContactResult(BaseModel):
