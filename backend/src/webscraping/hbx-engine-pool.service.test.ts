@@ -660,6 +660,37 @@ test('operational turbo config respects configured engine count', async () => {
   });
 });
 
+test('queue stats ignore queued tasks from sleeping campaigns', async () => {
+  const taskCountQueries: any[] = [];
+  const taskFindQueries: any[] = [];
+  const service = new HbxEnginePoolService({
+    hasTable: async (name: string) => name === 'WebscrapingCampaignTask',
+    webscrapingSearchRun: {
+      count: async () => 0,
+      findFirst: async () => null,
+    },
+    webscrapingCampaignTask: {
+      count: async (input: any) => {
+        taskCountQueries.push(input);
+        if (input?.where?.status === 'queued') {
+          return input.where.campaign ? 0 : 3721;
+        }
+        return 0;
+      },
+      findFirst: async (input: any) => {
+        taskFindQueries.push(input);
+        return null;
+      },
+    },
+  } as any) as any;
+
+  const stats = await service.buildQueueStats();
+
+  assert.equal(stats.queuedCount, 0);
+  assert.equal(taskCountQueries[0]?.where?.campaign?.status?.in.includes('running'), true);
+  assert.equal(taskFindQueries[0]?.where?.campaign?.status?.in.includes('queued'), true);
+});
+
 test('old queue with one stuck run does not degrade pool while nineteen engines are free', async () => {
   await withEnv({
     NODE_ENV: 'production',

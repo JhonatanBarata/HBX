@@ -125,6 +125,26 @@ function parseJsonObject(value: unknown): Record<string, any> {
   }
 }
 
+function hasRadarEnrichmentEvidence(input: Record<string, any>) {
+  const signals = input?.signals && typeof input.signals === 'object' ? input.signals : {};
+  const qualityV2 = input?.qualityV2 || signals?.qualityV2;
+  return Boolean(
+    normalizeText(input?.enrichedAt) ||
+    normalizeText(input?.version) ||
+    normalizeText(input?.visibilityTier) ||
+    normalizeText(input?.deliveryProduct) ||
+    normalizeText(input?.recommendedChannel || signals?.recommendedChannel) ||
+    normalizeText(input?.painType || signals?.painType) ||
+    normalizeText(input?.opportunityReason || signals?.opportunityReason) ||
+    normalizeText(input?.emailStatus || signals?.emailStatus) ||
+    normalizeText(input?.socialStatus || signals?.socialStatus) ||
+    normalizeUrl(input?.instagramUrl || signals?.instagramUrl) ||
+    normalizeUrl(input?.facebookUrl || signals?.facebookUrl) ||
+    Number(input?.enrichmentScore || input?.opportunityScore || 0) > 0 ||
+    Boolean(qualityV2 && typeof qualityV2 === 'object')
+  );
+}
+
 function extractRadarEnrichment(lead: any) {
   const direct = parseJsonObject(lead?.enrichmentJson || lead?.metadataJson);
   const timeline = Array.isArray(lead?.timelineEvents) ? lead.timelineEvents : [];
@@ -135,6 +155,11 @@ function extractRadarEnrichment(lead: any) {
     : fromEvent.enrichment && typeof fromEvent.enrichment === 'object'
       ? fromEvent.enrichment
       : {};
+  const mergedEvidence = { ...direct, ...nested, ...fromEvent };
+  const rawStatus = normalizeText(fromEvent.enrichmentStatus || nested?.enrichmentStatus || direct?.enrichmentStatus);
+  const enrichmentStatus = ['queued', 'processing'].includes(normalizeKey(rawStatus)) && hasRadarEnrichmentEvidence(mergedEvidence)
+    ? 'completed'
+    : rawStatus;
   return {
     ...direct,
     ...nested,
@@ -147,7 +172,7 @@ function extractRadarEnrichment(lead: any) {
     facebookUrl: normalizeUrl(lead?.facebookUrl || fromEvent.facebookUrl || nested?.facebookUrl || direct?.facebookUrl || nested?.signals?.facebookUrl || direct?.signals?.facebookUrl),
     socialStatus: normalizeText(lead?.socialStatus || fromEvent.socialStatus || nested?.socialStatus || direct?.socialStatus || nested?.signals?.socialStatus || direct?.signals?.socialStatus),
     socialConfidence: Number(lead?.socialConfidence || fromEvent.socialConfidence || nested?.socialConfidence || direct?.socialConfidence || nested?.sourceConfidence?.social || direct?.sourceConfidence?.social || 0) || null,
-    enrichmentStatus: normalizeText(fromEvent.enrichmentStatus || nested?.enrichmentStatus || direct?.enrichmentStatus),
+    enrichmentStatus,
     enrichedAt: normalizeText(fromEvent.enrichedAt || nested?.enrichedAt || direct?.enrichedAt),
     cnpj: normalizeText(fromEvent.cnpj || nested?.cnpj || direct?.cnpj),
     sourceConfidence: nested?.sourceConfidence || direct?.sourceConfidence || null,

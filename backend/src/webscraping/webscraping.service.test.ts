@@ -103,6 +103,17 @@ test('normalizacao do Radar ignora coordenada antiga que nao bate com a cidade s
   assert.ok(input.regionalCities.every((row: any) => row.city !== 'Rio Claro' || row.distanceKm > 50));
 });
 
+test('HBX batch expande automotivo para segmentos existentes no estoque Radar', () => {
+  const service = new WebscrapingService(createPrisma()) as any;
+  const segments = service.splitHbxBatchSegments('automotivo');
+
+  assert.ok(segments.includes('auto peças'));
+  assert.ok(segments.includes('oficinas'));
+  assert.ok(segments.includes('oficinas mecânicas'));
+  assert.ok(segments.includes('auto elétricas'));
+  assert.ok(segments.includes('centros automotivos'));
+});
+
 test('normalizacao do Radar nao cruza UF no raio por padrao', () => {
   const service = new WebscrapingService(createPrisma()) as any;
 
@@ -2087,6 +2098,53 @@ test('updateSearchRunMetrics preserva metadados de alcance e filtros', async () 
   assert.equal(metrics.salesProfile.targetSegments[0], 'açougues');
   assert.equal(metrics.parsedContacts, 2);
   assert.equal(metrics.status, 'running');
+});
+
+test('startRadarSearchRunForUser usa estoque sem perfil quando perfil lead plus zera cards locais', async () => {
+  const { prisma, run } = createSearchRunPrisma({});
+  const service = new WebscrapingService(prisma) as any;
+  disableSearchRunAutoPump(service);
+  service.supportsRadarPersistence = async () => true;
+
+  const relaxedRow = {
+    id: 'radar-1',
+    placeId: 'place-1',
+    name: 'Auto Pecas Local',
+    phone: '(19) 99999-0001',
+    phoneDigits: '19999990001',
+    city: 'Sumare',
+    state: 'SP',
+    segment: 'auto pecas',
+    opportunityScore: 82,
+    status: 'clean',
+  };
+  const calls: any[] = [];
+  service.assertRadarCanFeedVendas = async () => ({ pendingCount: 0 });
+  service.queryRadarRowsForCompany = async (_companyId: number, filters: any) => {
+    calls.push(filters);
+    return filters.salesProfile ? [] : [relaxedRow];
+  };
+  service.markRadarDelivered = async (_companyId: number, _userId: number, rows: any[]) => rows;
+  service.recalculateSearchRunCounters = async () => ({ foundCount: 1, duplicateCount: 0, skippedCount: 0 });
+  service.buildRadarSearchRunResponse = async () => ({ status: run.status, foundCount: 1 });
+
+  const response = await service.startRadarSearchRunForUser(createUser(), {
+    city: 'Hortolandia',
+    state: 'SP',
+    segment: 'auto pecas, oficinas mecanicas',
+    quantity: 1,
+    engine: 'hbx',
+    targetType: 'pj',
+    qualityMode: 'lead_plus',
+    salesProfile: { targetSegments: ['servicos locais'] },
+  });
+
+  const metrics = JSON.parse((run as any).metricsJson);
+  assert.equal(response.status, 'completed');
+  assert.equal(calls.length, 2);
+  assert.equal(calls[0].salesProfile.targetSegments[0], 'servicos locais');
+  assert.equal(calls[1].salesProfile, null);
+  assert.equal(metrics.relaxedStockLookup, true);
 });
 
 test('search-run worker nao repassa requiredChannels legado para motor HBX', async () => {

@@ -110,6 +110,17 @@ class UpdateVendasComplaintDto {
   refundCards?: number;
 }
 
+class BatchDeleteVendasComplaintsDto {
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  complaintIds?: string[];
+
+  @IsOptional()
+  @IsIn(['all', 'new', 'reviewing', 'refunded', 'denied', 'resolved'])
+  status?: string;
+}
+
 class RestoreRadarExclusionDto {
   @IsOptional()
   @IsString()
@@ -313,8 +324,9 @@ class BatchPermanentDeleteDto {
   @IsString()
   motivo?: string;
 
+  @IsOptional()
   @IsString()
-  confirmText!: string;
+  search?: string;
 }
 
 @Controller('modules')
@@ -389,6 +401,15 @@ export class ModulesController {
     @Body() dto: UpdateVendasComplaintDto,
   ) {
     return this.modulesService.updateMasterVendasComplaint(Number(req.user?.id), complaintId, dto || {});
+  }
+
+  @Delete('master/vendas-complaints/batch')
+  @UseGuards(JwtAuthGuard, MasterGuard)
+  deleteMasterVendasComplaintsBatch(
+    @Req() req: any,
+    @Body() dto: BatchDeleteVendasComplaintsDto,
+  ) {
+    return this.modulesService.permanentDeleteMasterVendasComplaints(Number(req.user?.id), dto || {});
   }
 
   @Get('master/system-modules')
@@ -632,7 +653,7 @@ export class ModulesController {
       moduleKey: dto?.moduleKey,
       companyId: dto?.companyId,
       motivo: dto?.motivo,
-      confirmText: dto?.confirmText,
+      search: dto?.search,
     });
   }
 

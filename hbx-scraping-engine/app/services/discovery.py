@@ -1,5 +1,6 @@
 import unicodedata
 import re
+import time
 from typing import Any
 from urllib.parse import quote, urlparse
 
@@ -16,6 +17,9 @@ SOCIAL_DISCOVERY_MIN_TARGET = 80
 SOCIAL_DISCOVERY_LIMIT_MULTIPLIER = 12
 SOCIAL_DISCOVERY_MAX_RESULTS_PER_QUERY = 50
 SOCIAL_DISCOVERY_FORCED_QUERY_LIMIT_PER_CHANNEL = 3
+DISCOVERY_QUERY_BACKEND = "bing"
+PJ_DISCOVERY_TIMEOUT_SECONDS = 8
+SOCIAL_DISCOVERY_TIMEOUT_SECONDS = 12
 SocialProfileCandidate = dict[str, str]
 HEALTH_SENIOR_DISCOVERY_SEGMENTS = (
     "clínicas geriátricas",
@@ -295,14 +299,19 @@ def discover_social_profiles(
     seen: set[str] = set()
     profiles: list[SocialProfileCandidate] = []
 
+    deadline = time.monotonic() + (6 if target_override is not None else SOCIAL_DISCOVERY_TIMEOUT_SECONDS)
+
     try:
-        ddgs = DDGS(timeout=2 if target_override is not None else 6)
+        ddgs = DDGS(timeout=2 if target_override is not None else 3)
     except TypeError:
         ddgs = DDGS()
     with ddgs:
         for query in queries:
+            if time.monotonic() >= deadline:
+                print("[social_discovery] budget esgotado")
+                break
             try:
-                rows = ddgs.text(query, region="br-pt", safesearch="off", max_results=per_query_results, backend=backend)
+                rows = ddgs.text(query, region="br-pt", safesearch="off", max_results=per_query_results, backend=DISCOVERY_QUERY_BACKEND)
             except Exception as error:
                 print(f"[social_discovery] query falhou: {query} error={error}")
                 continue
@@ -337,7 +346,7 @@ def discovery_target(limit: int, max_discovery_results: int, target_type: str = 
     if target_type == "agenda_pf":
         return min(max_discovery_results, max(60, limit * 4))
     if target_type == "pj":
-        return min(max_discovery_results, max(80, limit * 3))
+        return min(max_discovery_results, max(12, limit * 4))
     multiplier = 5 if target_type == "pf" else 4
     minimum = 60 if target_type == "pf" else 40
     return min(max_discovery_results, max(minimum, limit * multiplier))
@@ -382,28 +391,34 @@ def discover_urls(
     if target_type == "pj" and social_channels:
         per_query = max(30, target // len(queries) + 5)
     else:
-        per_query = max(8, target // len(queries) + 2)
+        per_query = min(6, max(3, target // len(queries) + 2))
     seen: set[str] = {str(url or "").strip().rstrip("/") for url in (exclude_urls or []) if str(url or "").strip()}
     urls: list[str] = []
 
-    if target_type == "pj" and not intent_sensitive:
+    if target_type == "pj" and not social_channels:
         for url in build_directory_seed_urls(segment, city, state):
             normalized = url.rstrip("/")
             if normalized in seen or not _is_allowed_url(normalized, effective_preferred, effective_required):
                 continue
             seen.add(normalized)
             urls.append(normalized)
-        if len(urls) >= max(1, min(limit, 4)):
-            return urls
+
+    deadline = time.monotonic() + PJ_DISCOVERY_TIMEOUT_SECONDS
+    query_budget = queries
+    if target_type == "pj" and not social_channels:
+        query_budget = queries[:4]
 
     try:
-        ddgs = DDGS(timeout=6)
+        ddgs = DDGS(timeout=3)
     except TypeError:
         ddgs = DDGS()
     with ddgs:
-        for query in queries:
+        for query in query_budget:
+            if time.monotonic() >= deadline:
+                print("[discovery] budget esgotado")
+                break
             try:
-                results = ddgs.text(query, region="br-pt", safesearch="off", max_results=per_query)
+                results = ddgs.text(query, region="br-pt", safesearch="off", max_results=per_query, backend=DISCOVERY_QUERY_BACKEND)
             except Exception as error:
                 print(f"[discovery] query falhou: {query} error={error}")
                 continue

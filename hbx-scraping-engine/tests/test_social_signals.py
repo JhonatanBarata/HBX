@@ -1325,6 +1325,99 @@ def test_identity_search_finds_confraria_social_without_phone_in_snippet(monkeyp
     assert response.stats["social"]["matches"][0]["score"] >= 55
 
 
+def test_enrich_lead_reads_social_links_from_existing_website(monkeypatch) -> None:
+    class FakePage:
+        url = "https://www.cobasi.com.br"
+        html = """
+        <html>
+          <body>
+            <a href="https://www.facebook.com/CobasiOficial">Facebook</a>
+            <a href="https://www.instagram.com/cobasi/">Instagram</a>
+            <a href="https://www.youtube.com/user/TVCOBASI/videos">YouTube</a>
+            <a href="https://x.com/cobasi">X</a>
+          </body>
+        </html>
+        """
+
+    class FakeFetcher:
+        def __init__(self, *args, **kwargs) -> None:
+            pass
+
+        async def fetch_all(self, urls):
+            return [FakePage()]
+
+    monkeypatch.setattr("app.services.search_service.Fetcher", FakeFetcher)
+    monkeypatch.setattr(SearchService, "enrich_identity_lookup", lambda *args, **kwargs: {"stats": {"rows": 0}})
+    monkeypatch.setattr(SearchService, "guessed_social_url_for_contact", lambda *args, **kwargs: (None, 0))
+    monkeypatch.setattr(SearchService, "enrich_identity_search", lambda *args, **kwargs: {})
+
+    response = asyncio.run(
+        SearchService().enrich_lead(
+            EnrichLeadRequest(
+                name="Cobasi",
+                city="Rio Claro",
+                state="SP",
+                segment="pet shop",
+                website="https://www.cobasi.com.br",
+            )
+        )
+    )
+
+    assert response.instagramUrl == "https://instagram.com/cobasi"
+    assert response.facebookUrl == "https://facebook.com/CobasiOficial"
+    assert response.socialStatus == "found"
+    assert response.stats["social"]["website"]["found"] is True
+    assert sorted(response.stats["social"]["website"]["fields"]) == ["facebookUrl", "instagramUrl"]
+
+
+def test_enrich_lead_discovers_website_before_external_social_search(monkeypatch) -> None:
+    class FakePage:
+        url = "https://www.cobasi.com.br"
+        html = """
+        <html>
+          <body>
+            <a href="https://www.facebook.com/CobasiOficial">Facebook</a>
+            <a href="https://www.instagram.com/cobasi/">Instagram</a>
+          </body>
+        </html>
+        """
+
+    class FakeFetcher:
+        def __init__(self, *args, **kwargs) -> None:
+            pass
+
+        async def fetch_all(self, urls):
+            return [FakePage()]
+
+    def fake_probe_website(self, contact, city, deadline=None):
+        return "https://www.cobasi.com.br", 80, '"Cobasi" "Rio Claro" site oficial'
+
+    monkeypatch.setattr("app.services.search_service.Fetcher", FakeFetcher)
+    monkeypatch.setattr(SearchService, "probe_direct_website_for_contact", fake_probe_website)
+    monkeypatch.setattr(SearchService, "discover_website_for_contact", lambda *args, **kwargs: (None, 0, None))
+    monkeypatch.setattr(SearchService, "enrich_identity_lookup", lambda *args, **kwargs: {"stats": {"rows": 0}})
+    monkeypatch.setattr(SearchService, "guessed_social_url_for_contact", lambda *args, **kwargs: (None, 0))
+    monkeypatch.setattr(SearchService, "enrich_identity_search", lambda *args, **kwargs: {})
+
+    response = asyncio.run(
+        SearchService().enrich_lead(
+            EnrichLeadRequest(
+                name="Cobasi",
+                city="Rio Claro",
+                state="SP",
+                segment="pet shop",
+            )
+        )
+    )
+
+    assert response.website == "https://www.cobasi.com.br"
+    assert response.instagramUrl == "https://instagram.com/cobasi"
+    assert response.facebookUrl == "https://facebook.com/CobasiOficial"
+    assert response.socialStatus == "found"
+    assert response.stats["website"]["score"] == 80
+    assert response.stats["social"]["website"]["attempted"] is True
+
+
 def test_required_instagram_promotes_discovered_social_profile_without_phone(monkeypatch) -> None:
     monkeypatch.setattr(
         "app.services.search_service.discover_social_profiles",

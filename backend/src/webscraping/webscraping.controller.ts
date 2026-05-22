@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Put, Query, Req, Res, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Post, Put, Query, Req, Res, UseGuards } from '@nestjs/common';
 import { Transform, Type } from 'class-transformer';
 import { IsArray, IsBoolean, IsIn, IsInt, IsNumber, IsObject, IsOptional, IsString, Max, Min, Validate, ValidationArguments, ValidatorConstraint, ValidatorConstraintInterface } from 'class-validator';
 import type { Response } from 'express';
@@ -565,6 +565,13 @@ class MasterDatabaseCardsQueryDto extends RadarDatabaseQueryDto {
   companyId?: number;
 }
 
+class MasterDeleteDatabaseCardsDto extends MasterDatabaseCardsQueryDto {
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  leadIds?: string[];
+}
+
 class MasterExportCardsDto {
   @IsArray()
   @IsString({ each: true })
@@ -936,6 +943,11 @@ export class MasterWebscrapingController {
   @Get('database-cards')
   getDatabaseCards(@Req() req: any, @Query() query: MasterDatabaseCardsQueryDto) {
     return this.webscrapingService.listMasterDatabaseCards(req.user, query || {});
+  }
+
+  @Delete('database-cards/batch')
+  deleteDatabaseCards(@Req() req: any, @Body() dto: MasterDeleteDatabaseCardsDto) {
+    return this.webscrapingService.permanentDeleteMasterDatabaseCards(req.user, dto || {});
   }
 
   @Get('export-targets')
