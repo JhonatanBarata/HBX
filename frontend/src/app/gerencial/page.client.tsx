@@ -69,6 +69,8 @@ type CommissionClient = {
   commissionDueAt?: string | null;
   commissionPaidAt?: string | null;
   commissionPayoutId?: string | null;
+  recurringCycleKey?: string | null;
+  isRecurring?: boolean | null;
   updatedAt?: string | null;
 };
 
@@ -1109,12 +1111,14 @@ export default function GerencialClientPage() {
                             <div className="min-w-0">
                               <strong className="block truncate">{client.name || "Cliente sem nome"}</strong>
                               <span className="text-xs text-muted">
-                                {saleStatusLabel(client.saleStatus)} · {commissionStatusLabel(client.commissionStatus)}
+                                {client.isRecurring
+                                  ? `Recorrente ${client.recurringCycleKey || ""}`.trim()
+                                  : saleStatusLabel(client.saleStatus)} · {commissionStatusLabel(client.commissionStatus)}
                               </span>
                             </div>
                             <div className="flex flex-wrap items-center gap-2">
                               <span className="badge">{formatCurrency(client.commissionAmount || 0)}</span>
-                              {client.commissionStatus === "payable" ? (
+                              {client.commissionStatus === "payable" && !client.isRecurring ? (
                                 <button
                                   type="button"
                                   disabled={markingCommissionLeadId === client.leadId}

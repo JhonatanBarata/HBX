@@ -19,6 +19,7 @@ type HbxMobileDockProps = {
   onPrimaryAction?: () => void;
   onConta?: () => void;
   onRelatorio?: () => void;
+  onComissao?: () => void;
 };
 
 function normalizeMobileTheme(value: unknown): MobileTheme {
@@ -45,6 +46,7 @@ function DockIcon({
     | "support"
     | "tutorial"
     | "report"
+    | "commission"
     | "settings"
     | "account"
     | "logout";
@@ -158,6 +160,17 @@ function DockIcon({
       </svg>
     );
   }
+  if (name === "commission") {
+    return (
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M4 7h16" />
+        <path d="M6 7v11h12V7" />
+        <path d="M8 11h8" />
+        <path d="M8 15h4" />
+        <path d="M16 4v6" />
+      </svg>
+    );
+  }
   if (name === "settings") {
     return (
       <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -191,6 +204,7 @@ export default function HbxMobileDock({
   onPrimaryAction,
   onConta,
   onRelatorio,
+  onComissao,
 }: HbxMobileDockProps) {
   const router = useRouter();
   const pathname = usePathname();
@@ -354,6 +368,18 @@ export default function HbxMobileDock({
             <button type="button" className="hbx-mobile-sheet-item" onClick={() => navigate(toMobileRoute("/tutorial"))}>
               <DockIcon name="tutorial" />
               <span>Tutorial</span>
+            </button>
+            <button
+              type="button"
+              className="hbx-mobile-sheet-item"
+              onClick={() => {
+                setMenuOpen(false);
+                if (onComissao) onComissao();
+                else navigate(toMobileRoute("/vendas?mobileSection=commission"));
+              }}
+            >
+              <DockIcon name="commission" />
+              <span>Comissão</span>
             </button>
             <button
               type="button"

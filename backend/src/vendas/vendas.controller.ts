@@ -156,6 +156,11 @@ export class VendasController {
     return this.vendasService.getConversionReportForUser(req.user, period);
   }
 
+  @Get('commission/summary')
+  getCommissionSummary(@Req() req: any) {
+    return this.vendasService.getCommissionSummaryForUser(req.user);
+  }
+
   @Get('report/export.pdf')
   async exportConversionReportPdf(@Req() req: any, @Query('period') period: string | undefined, @Res() res: any) {
     const pdf = await this.vendasService.exportConversionReportPdfForUser(req.user, period);

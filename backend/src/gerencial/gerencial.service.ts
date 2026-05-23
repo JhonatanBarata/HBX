@@ -49,6 +49,12 @@ function isDueCommission(row: any, now: Date) {
   return !(row?.commissionDueAt instanceof Date) || row.commissionDueAt.getTime() <= now.getTime();
 }
 
+function isDueReceivable(row: any, now: Date) {
+  if (normalizeCommissionStatus(row?.status) !== 'payable') return false;
+  if (money(row?.amount) <= 0) return false;
+  return !(row?.dueAt instanceof Date) || row.dueAt.getTime() <= now.getTime();
+}
+
 @Injectable()
 export class GerencialService {
   constructor(
@@ -156,6 +162,26 @@ export class GerencialService {
       },
     });
 
+    const receivables = await this.prisma.vendasCommissionReceivable.findMany({
+      where: {
+        companyId,
+        sellerUserId: { in: sellerIds },
+      },
+      orderBy: [{ dueAt: 'asc' }, { updatedAt: 'desc' }],
+      take: 1000,
+      include: {
+        lead: {
+          select: {
+            id: true,
+            name: true,
+            phone: true,
+            city: true,
+            saleStatus: true,
+          },
+        },
+      },
+    });
+
     const bySellerId = new Map<number, any[]>();
     for (const lead of leads) {
       const sellerId = Number(lead.assignedUserId || 0);
@@ -164,18 +190,64 @@ export class GerencialService {
       bySellerId.get(sellerId)?.push(lead);
     }
 
+    const receivablesBySellerId = new Map<number, any[]>();
+    for (const receivable of receivables) {
+      const sellerId = Number(receivable.sellerUserId || 0);
+      if (!sellerId) continue;
+      if (!receivablesBySellerId.has(sellerId)) receivablesBySellerId.set(sellerId, []);
+      receivablesBySellerId.get(sellerId)?.push(receivable);
+    }
+
+    const leadClientPayload = (row: any) => ({
+      leadId: row.id,
+      name: row.name || row.phone || 'Cliente sem nome',
+      phone: row.phone || null,
+      city: row.city || null,
+      saleStatus: row.saleStatus || 'none',
+      commissionStatus: row.commissionStatus || 'none',
+      saleValue: money(row.saleValue || row.commissionBaseAmount),
+      commissionAmount: money(row.commissionAmount),
+      commissionDueAt: row.commissionDueAt instanceof Date ? row.commissionDueAt.toISOString() : null,
+      commissionPaidAt: row.commissionPaidAt instanceof Date ? row.commissionPaidAt.toISOString() : null,
+      commissionPayoutId: row.commissionPayoutId || null,
+      updatedAt: row.updatedAt instanceof Date ? row.updatedAt.toISOString() : null,
+    });
+
+    const receivableClientPayload = (row: any) => ({
+      leadId: row.leadId || row.lead?.id,
+      receivableId: row.id,
+      name: row.lead?.name || row.lead?.phone || 'Comissão recorrente',
+      phone: row.lead?.phone || null,
+      city: row.lead?.city || null,
+      saleStatus: row.lead?.saleStatus || 'sale_confirmed',
+      commissionStatus: row.status || 'payable',
+      saleValue: money(row.baseAmount),
+      commissionAmount: money(row.amount),
+      commissionDueAt: row.dueAt instanceof Date ? row.dueAt.toISOString() : null,
+      commissionPaidAt: row.paidAt instanceof Date ? row.paidAt.toISOString() : null,
+      commissionPayoutId: row.payoutId || null,
+      updatedAt: row.updatedAt instanceof Date ? row.updatedAt.toISOString() : null,
+      recurringCycleKey: row.cycleKey || null,
+      isRecurring: true,
+    });
+
     const now = new Date();
-    const summarize = (rows: any[]) => {
+    const summarize = (rows: any[], receivableRows: any[] = []) => {
       const activeRows = rows.filter((row) => ['trial_started', 'sale_confirmed'].includes(String(row.saleStatus || '').toLowerCase()));
       const pendingRows = rows.filter((row) => String(row.saleStatus || '').toLowerCase() === 'activation_pending');
       const inactiveRows = rows.filter((row) => ['inactive', 'canceled'].includes(String(row.saleStatus || '').toLowerCase()));
       const payableRows = rows.filter((row) => normalizeCommissionStatus(row.commissionStatus) === 'payable');
+      const payableReceivables = receivableRows.filter((row) => normalizeCommissionStatus(row.status) === 'payable');
       const duePayableRows = payableRows.filter((row) => isDueCommission(row, now));
+      const duePayableReceivables = payableReceivables.filter((row) => isDueReceivable(row, now));
       const commissionPendingRows = rows.filter((row) => normalizeCommissionStatus(row.commissionStatus) === 'pending');
       const paidRows = rows.filter((row) => normalizeCommissionStatus(row.commissionStatus) === 'paid');
+      const paidReceivables = receivableRows.filter((row) => normalizeCommissionStatus(row.status) === 'paid');
       const recurringRows = activeRows.filter((row) => Boolean(row.commissionRecurring));
-      const nextDue = payableRows
-        .map((row) => row.commissionDueAt instanceof Date ? row.commissionDueAt : null)
+      const nextDue = [
+        ...payableRows.map((row) => row.commissionDueAt instanceof Date ? row.commissionDueAt : null),
+        ...payableReceivables.map((row) => row.dueAt instanceof Date ? row.dueAt : null),
+      ]
         .filter((date): date is Date => Boolean(date))
         .sort((a, b) => a.getTime() - b.getTime())[0] || null;
       return {
@@ -183,11 +255,20 @@ export class GerencialService {
         activeClients: activeRows.length,
         pendingActivation: pendingRows.length,
         inactiveClients: inactiveRows.length,
-        payableAmount: money(payableRows.reduce((sum, row) => sum + money(row.commissionAmount), 0)),
-        duePayableAmount: money(duePayableRows.reduce((sum, row) => sum + money(row.commissionAmount), 0)),
-        duePayableCount: duePayableRows.length,
+        payableAmount: money(
+          payableRows.reduce((sum, row) => sum + money(row.commissionAmount), 0) +
+          payableReceivables.reduce((sum, row) => sum + money(row.amount), 0),
+        ),
+        duePayableAmount: money(
+          duePayableRows.reduce((sum, row) => sum + money(row.commissionAmount), 0) +
+          duePayableReceivables.reduce((sum, row) => sum + money(row.amount), 0),
+        ),
+        duePayableCount: duePayableRows.length + duePayableReceivables.length,
         pendingAmount: money(commissionPendingRows.reduce((sum, row) => sum + money(row.commissionAmount), 0)),
-        paidAmount: money(paidRows.reduce((sum, row) => sum + money(row.commissionAmount), 0)),
+        paidAmount: money(
+          paidRows.reduce((sum, row) => sum + money(row.commissionAmount), 0) +
+          paidReceivables.reduce((sum, row) => sum + money(row.amount), 0),
+        ),
         recurringAmount: money(recurringRows.reduce((sum, row) => sum + money(row.commissionAmount), 0)),
         nextDueAt: nextDue ? nextDue.toISOString() : null,
       };
@@ -195,7 +276,8 @@ export class GerencialService {
 
     const sellerSummaries = sellers.map((seller) => {
       const rows = bySellerId.get(Number(seller.id)) || [];
-      const summary = summarize(rows);
+      const sellerReceivables = receivablesBySellerId.get(Number(seller.id)) || [];
+      const summary = summarize(rows, sellerReceivables);
       return {
         userId: Number(seller.id),
         name: seller.name || seller.username || seller.email || `Vendedor #${seller.id}`,
@@ -204,24 +286,14 @@ export class GerencialService {
         isActive: Boolean(seller.isActive),
         commissionPercent: money(seller.commissionPercent),
         ...summary,
-        clients: rows.slice(0, 6).map((row) => ({
-          leadId: row.id,
-          name: row.name || row.phone || 'Cliente sem nome',
-          phone: row.phone || null,
-          city: row.city || null,
-          saleStatus: row.saleStatus || 'none',
-          commissionStatus: row.commissionStatus || 'none',
-          saleValue: money(row.saleValue || row.commissionBaseAmount),
-          commissionAmount: money(row.commissionAmount),
-          commissionDueAt: row.commissionDueAt instanceof Date ? row.commissionDueAt.toISOString() : null,
-          commissionPaidAt: row.commissionPaidAt instanceof Date ? row.commissionPaidAt.toISOString() : null,
-          commissionPayoutId: row.commissionPayoutId || null,
-          updatedAt: row.updatedAt instanceof Date ? row.updatedAt.toISOString() : null,
-        })),
+        clients: [
+          ...sellerReceivables.slice(0, 3).map((row) => receivableClientPayload(row)),
+          ...rows.slice(0, 6).map((row) => leadClientPayload(row)),
+        ].slice(0, 6),
       };
     });
 
-    const allSummary = summarize(leads);
+    const allSummary = summarize(leads, receivables);
     return {
       totals: {
         sellers: sellers.length,
@@ -237,21 +309,16 @@ export class GerencialService {
         nextDueAt: allSummary.nextDueAt,
       },
       sellers: sellerSummaries,
-      recentClients: leads.slice(0, 12).map((row) => ({
-        leadId: row.id,
-        userId: Number(row.assignedUserId || 0) || null,
-        name: row.name || row.phone || 'Cliente sem nome',
-        phone: row.phone || null,
-        city: row.city || null,
-        saleStatus: row.saleStatus || 'none',
-        commissionStatus: row.commissionStatus || 'none',
-        saleValue: money(row.saleValue || row.commissionBaseAmount),
-        commissionAmount: money(row.commissionAmount),
-        commissionDueAt: row.commissionDueAt instanceof Date ? row.commissionDueAt.toISOString() : null,
-        commissionPaidAt: row.commissionPaidAt instanceof Date ? row.commissionPaidAt.toISOString() : null,
-        commissionPayoutId: row.commissionPayoutId || null,
-        updatedAt: row.updatedAt instanceof Date ? row.updatedAt.toISOString() : null,
-      })),
+      recentClients: [
+        ...receivables.slice(0, 6).map((row) => ({
+          ...receivableClientPayload(row),
+          userId: Number(row.sellerUserId || 0) || null,
+        })),
+        ...leads.slice(0, 12).map((row) => ({
+          ...leadClientPayload(row),
+          userId: Number(row.assignedUserId || 0) || null,
+        })),
+      ].slice(0, 12),
       payouts,
     };
   }
@@ -442,6 +509,14 @@ export class GerencialService {
             { commissionDueAt: { lte: now } },
             { commissionDueAt: null },
           ],
+      }
+      : {};
+    const receivableDueFilter = dueOnly
+      ? {
+          OR: [
+            { dueAt: { lte: now } },
+            { dueAt: null },
+          ],
         }
       : {};
 
@@ -464,12 +539,40 @@ export class GerencialService {
       },
     });
 
-    const grouped = new Map<number, typeof leads>();
+    const receivables = await this.prisma.vendasCommissionReceivable.findMany({
+      where: {
+        companyId,
+        ...(sellerUserId ? { sellerUserId } : { sellerUserId: { not: null } }),
+        status: 'payable',
+        amount: { gt: 0 },
+        ...receivableDueFilter,
+      },
+      orderBy: [{ sellerUserId: 'asc' }, { dueAt: 'asc' }, { updatedAt: 'asc' }],
+      take: 5000,
+      select: {
+        id: true,
+        leadId: true,
+        sellerUserId: true,
+        amount: true,
+        dueAt: true,
+        cycleKey: true,
+      },
+    });
+
+    const grouped = new Map<number, { leads: any[]; receivables: any[] }>();
+    const ensureGroup = (ownerId: number) => {
+      if (!grouped.has(ownerId)) grouped.set(ownerId, { leads: [], receivables: [] });
+      return grouped.get(ownerId)!;
+    };
     for (const lead of leads) {
       const ownerId = Math.trunc(Number(lead.assignedUserId || 0)) || 0;
       if (!ownerId) continue;
-      if (!grouped.has(ownerId)) grouped.set(ownerId, []);
-      grouped.get(ownerId)?.push(lead);
+      ensureGroup(ownerId).leads.push(lead);
+    }
+    for (const receivable of receivables) {
+      const ownerId = Math.trunc(Number(receivable.sellerUserId || 0)) || 0;
+      if (!ownerId) continue;
+      ensureGroup(ownerId).receivables.push(receivable);
     }
 
     if (!grouped.size) {
@@ -482,15 +585,21 @@ export class GerencialService {
 
     const payouts = await this.prisma.$transaction(async (tx) => {
       const created: any[] = [];
-      for (const [ownerId, rows] of grouped.entries()) {
-        const leadIds = rows.map((row) => row.id);
-        const totalAmount = money(rows.reduce((sum, row) => sum + money(row.commissionAmount), 0));
+      for (const [ownerId, group] of grouped.entries()) {
+        const leadIds = group.leads.map((row) => row.id);
+        const receivableIds = group.receivables.map((row) => row.id);
+        const commissionCount = leadIds.length + receivableIds.length;
+        if (!commissionCount) continue;
+        const totalAmount = money(
+          group.leads.reduce((sum, row) => sum + money(row.commissionAmount), 0) +
+          group.receivables.reduce((sum, row) => sum + money(row.amount), 0),
+        );
         const payout = await tx.vendasCommissionPayout.create({
           data: {
             companyId,
             sellerUserId: ownerId,
             status: 'paid',
-            leadCount: rows.length,
+            leadCount: commissionCount,
             totalAmount,
             referenceLabel,
             notes,
@@ -499,21 +608,38 @@ export class GerencialService {
           },
         });
 
-        await tx.vendasLead.updateMany({
-          where: {
-            companyId,
-            id: { in: leadIds },
-            commissionStatus: 'payable',
-          },
-          data: {
-            commissionStatus: 'paid',
-            commissionPaidAt: now,
-            commissionPayoutId: payout.id,
-          },
-        });
+        if (leadIds.length) {
+          await tx.vendasLead.updateMany({
+            where: {
+              companyId,
+              id: { in: leadIds },
+              commissionStatus: 'payable',
+            },
+            data: {
+              commissionStatus: 'paid',
+              commissionPaidAt: now,
+              commissionPayoutId: payout.id,
+            },
+          });
+        }
 
-        await tx.vendasLeadTimelineEvent.createMany({
-          data: rows.map((row) => ({
+        if (receivableIds.length) {
+          await tx.vendasCommissionReceivable.updateMany({
+            where: {
+              companyId,
+              id: { in: receivableIds },
+              status: 'payable',
+            },
+            data: {
+              status: 'paid',
+              paidAt: now,
+              payoutId: payout.id,
+            },
+          });
+        }
+
+        const timelineEvents = [
+          ...group.leads.map((row) => ({
             leadId: row.id,
             eventType: 'commission_payout_paid',
             title: 'Comissão fechada em lote',
@@ -522,7 +648,20 @@ export class GerencialService {
             resultLabel: 'paid',
             createdByUserId,
           })),
-        });
+          ...group.receivables.map((row) => ({
+            leadId: row.leadId,
+            eventType: 'commission_recurring_payout_paid',
+            title: 'Comissão recorrente fechada',
+            description: `${referenceLabel}. Ciclo ${row.cycleKey || 'recorrente'}. Valor: R$ ${money(row.amount).toFixed(2)}.`,
+            sourceType: 'gerencial_commission_payout',
+            resultLabel: 'paid',
+            createdByUserId,
+          })),
+        ].filter((event) => Boolean(event.leadId));
+
+        if (timelineEvents.length) {
+          await tx.vendasLeadTimelineEvent.createMany({ data: timelineEvents });
+        }
 
         created.push(payout);
       }
@@ -552,11 +691,14 @@ export class GerencialService {
   async syncHbxClientCommissions(user: any) {
     const companyId = requireCompanyIdFromUser(user);
     const result = await this.hbxCommissionSync.syncSalesCompanyCommissions(companyId, { source: 'gerencial_manual_sync' });
+    const createdReceivables = Number((result as any).createdReceivables || 0) || 0;
+    const canceledReceivables = Number((result as any).canceledReceivables || 0) || 0;
+    const totalChanges = Number(result.updatedLeads || 0) + createdReceivables + canceledReceivables;
     return {
       ok: true,
       ...result,
-      message: result.updatedLeads
-        ? `${result.updatedLeads} comissão(ões) sincronizada(s) com clientes HBX.`
+      message: totalChanges
+        ? `${Number(result.updatedLeads || 0)} cliente(s) sincronizado(s), ${createdReceivables} recorrência(s) gerada(s) e ${canceledReceivables} cancelada(s).`
         : 'Nenhuma comissão nova para sincronizar agora.',
     };
   }

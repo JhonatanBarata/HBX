@@ -60,7 +60,7 @@ type SaleStatus = "none" | "activation_pending" | "trial_started" | "sale_confir
 type LeadBlockKey = "today" | "overdue" | "scheduled" | "closed";
 type DateFilterKey = "overdue" | "today" | `scheduled:${string}`;
 type MobileAgendaTab = "overdue" | "today" | "upcoming";
-type MobileVendasSection = "today" | "cards" | "report";
+type MobileVendasSection = "today" | "cards" | "report" | "commission";
 type WhatsappFilter = "all" | "with" | "without";
 type InboxFilter = "all" | "in" | "out";
 type MobileVisualChannelFilter = "whatsapp" | "instagram" | "email" | "site" | "phone" | "facebook";
@@ -263,6 +263,63 @@ type ConversionReportResponse = {
   recommendation?: string;
 };
 
+type CommissionClient = {
+  leadId: string;
+  name?: string | null;
+  phone?: string | null;
+  city?: string | null;
+  segment?: string | null;
+  saleStatus?: SaleStatus | string | null;
+  saleStatusLabel?: string | null;
+  commissionStatus?: string | null;
+  commissionStatusLabel?: string | null;
+  saleValue?: number | null;
+  commissionAmount?: number | null;
+  commissionDueAt?: string | null;
+  commissionPaidAt?: string | null;
+  commissionPayoutId?: string | null;
+  recurringCycleKey?: string | null;
+  isRecurring?: boolean | null;
+  updatedAt?: string | null;
+};
+
+type CommissionPayout = {
+  id: string;
+  sellerUserId?: number | null;
+  status?: string | null;
+  leadCount: number;
+  totalAmount: number;
+  referenceLabel?: string | null;
+  paidAt?: string | null;
+  createdAt?: string | null;
+};
+
+type CommissionSummaryResponse = {
+  ok?: boolean;
+  scope?: "seller" | "company" | string;
+  generatedAt?: string | null;
+  totals?: {
+    assignedCards?: number | null;
+    activeClients?: number | null;
+    pendingActivation?: number | null;
+    inactiveClients?: number | null;
+    payableAmount?: number | null;
+    duePayableAmount?: number | null;
+    duePayableCount?: number | null;
+    pendingAmount?: number | null;
+    paidAmount?: number | null;
+    nextDueAt?: string | null;
+  };
+  clients?: {
+    payable?: CommissionClient[];
+    pendingActivation?: CommissionClient[];
+    active?: CommissionClient[];
+    inactive?: CommissionClient[];
+    paid?: CommissionClient[];
+  };
+  payouts?: CommissionPayout[];
+};
+
 type SalesProfileSuggestion = {
   diff?: string[];
 };
@@ -314,6 +371,7 @@ type LeadItem = {
   commissionLinkedAt?: string | null;
   commissionAutoSyncedAt?: string | null;
   commissionSyncSource?: string | null;
+  commissionPayoutId?: string | null;
   owner?: {
     id?: number | null;
     name?: string | null;
@@ -1403,6 +1461,15 @@ function normalizeSaleStatus(value?: string | null): SaleStatus {
 function saleStatusLabel(status?: string | null) {
   const normalized = normalizeSaleStatus(status);
   return SALE_STATUS_OPTIONS.find((item) => item.value === normalized)?.label || "Sem venda";
+}
+
+function commissionStatusLabel(status?: string | null) {
+  const normalized = String(status || "").trim().toLowerCase();
+  if (normalized === "pending") return "Aguardando ativação";
+  if (normalized === "payable") return "A receber";
+  if (normalized === "paid") return "Pago";
+  if (normalized === "canceled") return "Cancelado";
+  return "Sem comissão";
 }
 
 function formatCurrency(value?: number | null) {
@@ -2681,6 +2748,8 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
   const [conversionReport, setConversionReport] = useState<ConversionReportResponse | null>(null);
   const [conversionReportPeriod, setConversionReportPeriod] = useState<"today" | "7d" | "30d">("7d");
   const [conversionReportLoading, setConversionReportLoading] = useState(false);
+  const [commissionSummary, setCommissionSummary] = useState<CommissionSummaryResponse | null>(null);
+  const [commissionLoading, setCommissionLoading] = useState(false);
   const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null);
   const [editingLeadId, setEditingLeadId] = useState<string | null>(null);
   const [composerOpen, setComposerOpen] = useState(false);
@@ -2944,6 +3013,18 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
     }
   }
 
+  async function loadCommissionSummary() {
+    setCommissionLoading(true);
+    try {
+      const payload = await apiFetch<CommissionSummaryResponse>("/vendas/commission/summary");
+      setCommissionSummary(payload);
+    } catch (commissionError) {
+      setError(commissionError instanceof Error ? commissionError.message : "Falha ao carregar comissões.");
+    } finally {
+      setCommissionLoading(false);
+    }
+  }
+
   async function exportConversionReportPdf() {
     try {
       const token = getToken();
@@ -2969,6 +3050,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
     mobileDeepLinkHandledRef.current = deepLinkKey;
 
     if (requestedSection === "report") setMobileSection("report");
+    if (requestedSection === "commission") setMobileSection("commission");
     if (requestedSection === "cards") {
       setMobileSection("cards");
       setMobileAgendaTab("upcoming");
@@ -3330,6 +3412,11 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
     if (hasToken !== true || mobileSection !== "report") return;
     void loadConversionReport(conversionReportPeriod);
   }, [hasToken, mobileSection, conversionReportPeriod]);
+
+  useEffect(() => {
+    if (hasToken !== true) return;
+    void loadCommissionSummary();
+  }, [hasToken]);
 
   useEffect(() => {
     if (hasToken !== true) return;
@@ -4580,6 +4667,10 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
         String(accountProfile?.company?.subscriptionStatus || "").toLowerCase() === "trialing",
     );
     const reportMetrics = conversionReport?.metrics || {};
+    const commissionTotals = commissionSummary?.totals || {};
+    const payableAmount = Number(commissionTotals.payableAmount || 0);
+    const duePayableAmount = Number(commissionTotals.duePayableAmount || 0);
+    const commissionClients = commissionSummary?.clients || {};
     const nextRecommendedMobileLead =
       allLeads.find(({ block }) => block !== "closed")?.lead || null;
 
@@ -4639,6 +4730,117 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
             {!activeCapabilities.canExportConversionPdf ? (
               <small className={styles.mobileVendasReportLock}>Exportação PDF disponível no HBX Lead</small>
             ) : null}
+          </section>
+        </div>
+      );
+    }
+
+    function renderMobileCommissionList(title: string, items?: CommissionClient[]) {
+      const rows = (items || []).slice(0, 5);
+      return (
+        <section className={`${styles.mobileVendasCommissionBlock} hbx-mobile-card`}>
+          <div className={styles.mobileVendasCommissionBlockHeader}>
+            <strong>{title}</strong>
+            <span>{rows.length}</span>
+          </div>
+          {rows.length ? (
+            <div className={styles.mobileVendasCommissionRows}>
+              {rows.map((client) => (
+                <article key={`${title}:${client.leadId}`}>
+                  <div>
+                    <strong>{client.name || "Cliente sem nome"}</strong>
+                    <span>{client.city || client.segment || "Sem local"} · {client.saleStatusLabel || saleStatusLabel(client.saleStatus)}</span>
+                  </div>
+                  <b>{formatCurrency(client.commissionAmount || 0)}</b>
+                  <small>
+                    {client.isRecurring
+                      ? `Recorrente ${client.recurringCycleKey || ""}`.trim()
+                      : client.commissionDueAt
+                        ? `D+3 ${formatDateTime(client.commissionDueAt)}`
+                        : commissionStatusLabel(client.commissionStatus)}
+                  </small>
+                </article>
+              ))}
+            </div>
+          ) : (
+            <p className={styles.mobileVendasCommissionEmpty}>Sem clientes nesta faixa.</p>
+          )}
+        </section>
+      );
+    }
+
+    function renderMobileCommission() {
+      return (
+        <div className={styles.mobileVendasList}>
+          <section className={`${styles.mobileVendasCommissionPanel} hbx-mobile-card`}>
+            <div className={styles.mobileVendasCommissionHeader}>
+              <div>
+                <span>HBX</span>
+                <strong>Comissão</strong>
+                <p>{commissionSummary?.scope === "company" ? "Resumo da empresa" : "Sua carteira comercial"}</p>
+              </div>
+              <button type="button" onClick={() => void loadCommissionSummary()} disabled={commissionLoading}>
+                {commissionLoading ? "Atualizando" : "Atualizar"}
+              </button>
+            </div>
+            <div className={styles.mobileVendasCommissionHero}>
+              <span>
+                <small>Vencido</small>
+                <strong>{formatCurrency(duePayableAmount)}</strong>
+              </span>
+              <span>
+                <small>A receber</small>
+                <strong>{formatCurrency(payableAmount)}</strong>
+              </span>
+              <span>
+                <small>Pago</small>
+                <strong>{formatCurrency(commissionTotals.paidAmount || 0)}</strong>
+              </span>
+            </div>
+            <div className={styles.mobileVendasCommissionGrid}>
+              {[
+                ["Ativos", commissionTotals.activeClients || 0],
+                ["Aguardando", commissionTotals.pendingActivation || 0],
+                ["Inativados", commissionTotals.inactiveClients || 0],
+                ["Vencidas", commissionTotals.duePayableCount || 0],
+              ].map(([label, value]) => (
+                <span key={label}>
+                  <small>{label}</small>
+                  <strong>{value}</strong>
+                </span>
+              ))}
+            </div>
+            <p className={styles.mobileVendasCommissionHint}>
+              Pagamento é fechado pelo Admin. Quando o lote baixa, o histórico aparece aqui.
+            </p>
+          </section>
+
+          {renderMobileCommissionList("A receber", commissionClients.payable)}
+          {renderMobileCommissionList("Aguardando ativação", commissionClients.pendingActivation)}
+          {renderMobileCommissionList("Clientes ativos", commissionClients.active)}
+          {renderMobileCommissionList("Clientes inativados", commissionClients.inactive)}
+
+          <section className={`${styles.mobileVendasCommissionBlock} hbx-mobile-card`}>
+            <div className={styles.mobileVendasCommissionBlockHeader}>
+              <strong>Pagamentos registrados</strong>
+              <span>{(commissionSummary?.payouts || []).length}</span>
+            </div>
+            {(commissionSummary?.payouts || []).length ? (
+              <div className={styles.mobileVendasCommissionRows}>
+                {(commissionSummary?.payouts || []).map((payout) => (
+                  <article key={payout.id}>
+                    <div>
+                      <strong>{payout.referenceLabel || "Fechamento"}</strong>
+                      <span>{payout.leadCount} comissão(ões) · {formatDateTime(payout.paidAt || payout.createdAt)}</span>
+                    </div>
+                    <b>{formatCurrency(payout.totalAmount || 0)}</b>
+                    <small>Pago</small>
+                  </article>
+                ))}
+              </div>
+            ) : (
+              <p className={styles.mobileVendasCommissionEmpty}>Nenhum fechamento pago ainda.</p>
+            )}
           </section>
         </div>
       );
@@ -5135,6 +5337,10 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
             <HbxMobileDock
               primaryLabel="Incluir lead manual"
               onPrimaryAction={() => setComposerOpen(true)}
+              onComissao={() => {
+                setSelectedMobileLeadId(null);
+                setMobileSection("commission");
+              }}
               onRelatorio={() => {
                 setSelectedMobileLeadId(null);
                 setMobileSection("report");
@@ -5252,6 +5458,18 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
             >
               <b>Próximos</b>
               <strong>{mobileFutureCount}</strong>
+            </button>
+            <button
+              type="button"
+              data-tone="commission"
+              data-active={mobileSection === "commission" ? "true" : "false"}
+              onClick={() => {
+                setMobileSection("commission");
+                setSelectedMobileLeadId(null);
+              }}
+            >
+              <b>Comissão</b>
+              <strong>{formatCurrency(payableAmount).replace(/\s/g, "")}</strong>
             </button>
           </div>
 
@@ -5402,7 +5620,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
             document.body,
           ) : null}
 
-          {nextRecommendedMobileLead && mobileSection !== "report" ? (
+          {nextRecommendedMobileLead && mobileSection !== "report" && mobileSection !== "commission" ? (
             <section className={styles.mobileVendasRecommendedCard} aria-label="Próximo card recomendado">
               <button
                 type="button"
@@ -5434,7 +5652,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
 
         </div>
 
-        {mobileSection === "report" ? renderMobileReport() : loading ? (
+        {mobileSection === "report" ? renderMobileReport() : mobileSection === "commission" ? renderMobileCommission() : loading ? (
           <div className={`${styles.mobileVendasLoading} hbx-mobile-empty`}>
             <span />
             <strong>Carregando agenda</strong>
@@ -5555,6 +5773,10 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
         <HbxMobileDock
           primaryLabel="Incluir lead manual"
           onPrimaryAction={() => setComposerOpen(true)}
+          onComissao={() => {
+            setMobileSection("commission");
+            setSelectedMobileLeadId(null);
+          }}
           onRelatorio={() => {
             setMobileSection("report");
             setSelectedMobileLeadId(null);
@@ -6912,6 +7134,65 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
     );
   }
 
+  function renderDesktopCommissionPanel() {
+    const totals = commissionSummary?.totals || {};
+    const payable = Number(totals.payableAmount || 0);
+    const due = Number(totals.duePayableAmount || 0);
+    const recentPaid = (commissionSummary?.payouts || [])[0] || null;
+    return (
+      <section className={styles.desktopCommissionPanel} aria-label="Resumo de comissão">
+        <div className={styles.desktopCommissionHeader}>
+          <div>
+            <span className={styles.panelEyebrow}>Fase 7</span>
+            <strong>Minha comissão</strong>
+          </div>
+          <button
+            type="button"
+            className={styles.secondaryAction}
+            onClick={() => void loadCommissionSummary()}
+            disabled={commissionLoading}
+          >
+            {commissionLoading ? "Atualizando..." : "Atualizar"}
+          </button>
+        </div>
+        <div className={styles.desktopCommissionMetrics}>
+          <span data-tone="warning">
+            <small>Vencido</small>
+            <strong>{formatCurrency(due)}</strong>
+          </span>
+          <span data-tone="success">
+            <small>A receber</small>
+            <strong>{formatCurrency(payable)}</strong>
+          </span>
+          <span>
+            <small>Pago</small>
+            <strong>{formatCurrency(totals.paidAmount || 0)}</strong>
+          </span>
+          <span>
+            <small>Ativos</small>
+            <strong>{totals.activeClients || 0}</strong>
+          </span>
+        </div>
+        <div className={styles.desktopCommissionFooter}>
+          <span>
+            Aguardando: <b>{totals.pendingActivation || 0}</b>
+          </span>
+          <span>
+            Inativados: <b>{totals.inactiveClients || 0}</b>
+          </span>
+          <span>
+            Próximo D+3: <b>{formatDateTime(totals.nextDueAt)}</b>
+          </span>
+          {recentPaid ? (
+            <span>
+              Último pago: <b>{formatCurrency(recentPaid.totalAmount || 0)}</b>
+            </span>
+          ) : null}
+        </div>
+      </section>
+    );
+  }
+
   if (mobileRoute) {
     return (
       <DashboardScaffold title="Vendas" hideHeader={true}>
@@ -7009,6 +7290,8 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
                 </button>
               </div>
             </section>
+
+            {renderDesktopCommissionPanel()}
 
             {loading ? (
               <section className={styles.loadingCard}>

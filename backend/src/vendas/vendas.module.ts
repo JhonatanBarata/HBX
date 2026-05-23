@@ -5,6 +5,7 @@ import { MessagingModule } from '../messaging/messaging.module';
 import { PrismaModule } from '../prisma/prisma.module';
 import { ModulesAccessModule } from '../modules/modules.module';
 import { CommercialPlansModule } from '../commercial-plans/commercial-plans.module';
+import { CommissionsModule } from '../commissions/commissions.module';
 import { WebscrapingModule } from '../webscraping/webscraping.module';
 import { MailModule } from '../mail/mail.module';
 import { VendasController } from './vendas.controller';
@@ -12,7 +13,7 @@ import { VendasAutomationService } from './vendas-automation.service';
 import { VendasService } from './vendas.service';
 
 @Module({
-  imports: [PrismaModule, CustomerProfileModule, ModulesAccessModule, MessagingModule, InboxModule, CommercialPlansModule, MailModule, forwardRef(() => WebscrapingModule)],
+  imports: [PrismaModule, CustomerProfileModule, ModulesAccessModule, MessagingModule, InboxModule, CommercialPlansModule, CommissionsModule, MailModule, forwardRef(() => WebscrapingModule)],
   controllers: [VendasController],
   providers: [VendasService, VendasAutomationService],
   exports: [VendasService, VendasAutomationService],
