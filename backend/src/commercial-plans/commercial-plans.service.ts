@@ -124,11 +124,12 @@ export class CommercialPlansService {
     const catalogPlan = buildCommercialPlansCatalog({ includeHidden: true }).find((plan) => plan.key === planKey);
     const baseMonthly = toCommercialCurrency(catalogPlan?.monthlyPrice ?? 0);
     const billableUsers = await this.getBillableUserCount(companyId);
-    const includedUsers = planKey === COMMERCIAL_PLAN_KEYS.MELHOR ? Number(catalogPlan?.includedUsers || 1) : 1;
-    const extraUserMonthlyPrice = planKey === COMMERCIAL_PLAN_KEYS.MELHOR
+    const canBillExtraUsers = planKey !== COMMERCIAL_PLAN_KEYS.LITE;
+    const includedUsers = canBillExtraUsers ? Number(catalogPlan?.includedUsers || 1) : 1;
+    const extraUserMonthlyPrice = canBillExtraUsers
       ? toCommercialCurrency(catalogPlan?.extraUserMonthlyPrice ?? 0)
       : 0;
-    const extraUsers = planKey === COMMERCIAL_PLAN_KEYS.MELHOR
+    const extraUsers = canBillExtraUsers
       ? Math.max(0, billableUsers - includedUsers)
       : 0;
     const extraUsersMonthlyAmount = toCommercialCurrency(extraUsers * extraUserMonthlyPrice);

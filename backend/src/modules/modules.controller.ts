@@ -351,15 +351,17 @@ export class ModulesController {
   }
 
   @Get('company/access')
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard, ModuleAccessGuard)
   @Admin()
+  @ModuleAccess('gerencial')
   listCompanyAccess(@Req() req: any) {
     return this.modulesService.listCompanyAccessForAdmin(Number(req.user?.id));
   }
 
   @Put('company/user/:userId/access')
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard, ModuleAccessGuard)
   @Admin()
+  @ModuleAccess('gerencial')
   updateUserAccess(
     @Req() req: any,
     @Param('userId', ParseIntPipe) userId: number,

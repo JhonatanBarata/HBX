@@ -17,6 +17,8 @@ import {
 } from 'class-validator';
 
 const LEAD_STATUSES = ['novo', 'contato', 'retorno', 'qualificado', 'encerrado'] as const;
+const SALE_STATUSES = ['none', 'activation_pending', 'trial_started', 'sale_confirmed', 'inactive', 'canceled'] as const;
+const COMMISSION_STATUSES = ['none', 'pending', 'payable', 'paid', 'canceled'] as const;
 
 function optionalEmail(value: unknown) {
   if (typeof value !== 'string') return value;
@@ -136,6 +138,30 @@ export class UpdateVendasLeadDto {
   @IsInt()
   @Min(0)
   attemptCount?: number;
+
+  @IsOptional()
+  @IsIn(SALE_STATUSES)
+  saleStatus?: (typeof SALE_STATUSES)[number];
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  saleValue?: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  salePlanKey?: string;
+
+  @IsOptional()
+  @IsIn(COMMISSION_STATUSES)
+  commissionStatus?: (typeof COMMISSION_STATUSES)[number];
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(280)
+  commissionNote?: string;
 }
 
 export class BulkDeleteVendasLeadsDto {
@@ -393,6 +419,12 @@ export class ImportWebscrapingLeadsDto {
   @IsOptional()
   @IsString()
   sourceHistoryId?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  assignedUserId?: number;
 
   @IsOptional()
   @Transform(({ value }) => {

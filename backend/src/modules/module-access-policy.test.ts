@@ -40,6 +40,7 @@ test('active_trial/TRIAL/trialing releases padrao commercial modules', () => {
   assert.equal(policy.moduleKeys.has('vendas'), true);
   assert.equal(policy.moduleKeys.has('atendimento'), true);
   assert.equal(policy.moduleKeys.has('webscraping'), true);
+  assert.equal(policy.moduleKeys.has('gerencial'), true);
 });
 
 test('active/PAID releases modules by selected plan', () => {
@@ -52,6 +53,8 @@ test('active/PAID releases modules by selected plan', () => {
   assert.equal(lite.moduleKeys.has('vendas'), true);
   assert.equal(lite.moduleKeys.has('webscraping'), true);
   assert.equal(lite.moduleKeys.has('atendimento'), false);
+  assert.equal(lite.moduleKeys.has('gerencial'), false);
+  assert.equal(lite.moduleKeys.has('cadastro'), false);
 
   const melhor = resolveCompanyModuleAccessPolicy({
     isActive: true,
@@ -62,6 +65,8 @@ test('active/PAID releases modules by selected plan', () => {
   assert.equal(melhor.moduleKeys.has('atendimento'), true);
   assert.equal(melhor.moduleKeys.has('vendas'), true);
   assert.equal(melhor.moduleKeys.has('webscraping'), true);
+  assert.equal(melhor.moduleKeys.has('gerencial'), true);
+  assert.equal(melhor.moduleKeys.has('cadastro'), true);
   assert.equal(melhor.moduleKeys.has('bot_ia'), true);
 });
 
@@ -101,6 +106,7 @@ test('MANUAL/premiumAccess releases selected plan or padrao fallback', () => {
   assert.equal(fallback.moduleKeys.has('atendimento'), true);
   assert.equal(fallback.moduleKeys.has('vendas'), true);
   assert.equal(fallback.moduleKeys.has('webscraping'), true);
+  assert.equal(fallback.moduleKeys.has('gerencial'), true);
 });
 
 test('expired/canceled blocks modules', () => {

@@ -242,8 +242,20 @@ type ImportToVendasResponse = {
   ok: boolean;
   createdCount: number;
   updatedCount: number;
+  distributedCount?: number;
+  failedCount?: number;
   skippedWithoutWhatsapp?: number;
   message?: string;
+};
+
+type GerencialTeamUser = {
+  id: number;
+  name?: string | null;
+  email?: string | null;
+  username?: string | null;
+  role?: string | null;
+  isActive?: boolean;
+  commissionPercent?: number | null;
 };
 
 type RadarEnrichResponse = {
@@ -1385,6 +1397,18 @@ function radarRunMatchesVisibleFilters(run: RadarSearchRunResponse | null, filte
   return true;
 }
 
+function radarFiltersHaveSameSearchMeaning(left: FilterState, right: FilterState) {
+  const sameText = (a?: string | null, b?: string | null) =>
+    normalizedRadarFilterText(a) === normalizedRadarFilterText(b);
+  return (
+    sameText(left.state, right.state) &&
+    sameText(left.city, right.city) &&
+    sameText(left.segment, right.segment) &&
+    Number(left.radiusKm || 0) === Number(right.radiusKm || 0) &&
+    String(left.targetType || "pj") === String(right.targetType || "pj")
+  );
+}
+
 function isTerminalRadarRun(status?: string | null) {
   return ["completed", "partial_error", "completed_insufficient_results", "failed", "canceled"].includes(String(status || ""));
 }
@@ -2036,6 +2060,8 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
   const [commercialPlans, setCommercialPlans] = useState<CommercialPlansPayload | null>(null);
   const [vendasUsage, setVendasUsage] = useState<VendasUsageSnapshot | null>(null);
   const [vendasPendingCount, setVendasPendingCount] = useState<number | null>(null);
+  const [teamUsers, setTeamUsers] = useState<GerencialTeamUser[]>([]);
+  const [distributionUserIds, setDistributionUserIds] = useState<number[]>([]);
   const [feedback, setFeedback] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [mobileAutoImportPending, setMobileAutoImportPending] = useState(false);
@@ -2069,6 +2095,23 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
     () => searchMatchedItems,
     [searchMatchedItems],
   );
+  const activeSellerUsers = useMemo(
+    () =>
+      teamUsers.filter((user) =>
+        user.isActive !== false && String(user.role || "").toUpperCase() === "USER",
+      ),
+    [teamUsers],
+  );
+  const selectedDistributionUsers = useMemo(
+    () => activeSellerUsers.filter((user) => distributionUserIds.includes(user.id)),
+    [activeSellerUsers, distributionUserIds],
+  );
+  const distributionEnabled = selectedDistributionUsers.length > 0;
+  const distributionLabel = distributionEnabled
+    ? selectedDistributionUsers.length === 1
+      ? `Distribuir para ${selectedDistributionUsers[0].name || selectedDistributionUsers[0].username || selectedDistributionUsers[0].email || "vendedor"}`
+      : `Distribuir em rodízio para ${selectedDistributionUsers.length} vendedores`
+    : "Enviar para meu Vendas";
   const highOpportunityCount = useMemo(
     () => visibleItems.filter((item) => Number(item.opportunityScore || 0) >= 70).length,
     [visibleItems],
@@ -2249,6 +2292,31 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
       cancelled = true;
     };
   }, [hasToken]);
+
+  useEffect(() => {
+    if (hasToken !== true) return;
+    let cancelled = false;
+    apiFetch<GerencialTeamUser[]>("/users/company", {
+      requireAuth: true,
+      timeoutMs: 12000,
+    })
+      .then((payload) => {
+        if (cancelled) return;
+        setTeamUsers(Array.isArray(payload) ? payload : []);
+      })
+      .catch(() => {
+        if (!cancelled) setTeamUsers([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [hasToken]);
+
+  useEffect(() => {
+    if (!distributionUserIds.length) return;
+    const activeIds = new Set(activeSellerUsers.map((user) => user.id));
+    setDistributionUserIds((current) => current.filter((id) => activeIds.has(id)));
+  }, [activeSellerUsers, distributionUserIds.length]);
 
   useEffect(() => {
     if (hasToken !== true) return;
@@ -2696,8 +2764,12 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
             requireAuth: true,
             timeoutMs: 15000,
           });
-          if (!cancelled && (!isTerminalRadarRun(payload.status) || radarRunMatchesVisibleFilters(payload, filters))) {
+          if (!cancelled && radarRunMatchesVisibleFilters(payload, filters)) {
             applyRadarRunPayload(payload);
+          } else if (!cancelled) {
+            clearStoredRadarRun(stored.runId);
+            activeRunIdRef.current = null;
+            setSearching(false);
           }
           return;
         } catch (error) {
@@ -2717,7 +2789,7 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
           timeoutMs: 15000,
         });
         if (cancelled || !payload?.runId) return;
-        if (isTerminalRadarRun(payload.status) && !radarRunMatchesVisibleFilters(payload, filters)) return;
+        if (!radarRunMatchesVisibleFilters(payload, filters)) return;
         activeRunIdRef.current = payload.runId || payload.id || null;
         setHasSearched(true);
         setSearching(!isTerminalRadarRun(payload.status));
@@ -2780,11 +2852,17 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
         requireAuth: true,
         timeoutMs: 15000,
       });
-      applyRadarRunPayload(payload);
+      void payload;
       activeRunIdRef.current = null;
       setActiveRun(null);
+      setTerminalRunSnapshot(null);
       setSearching(false);
       setMobileAutoImportPending(false);
+      pendingFreshRunRef.current = false;
+      setItems([]);
+      setTotal(0);
+      setPage(1);
+      setHasSearched(false);
       clearStoredRadarRun(runId);
       setFeedback("Pesquisa cancelada. Motor liberado.");
     } catch (cancelError) {
@@ -2835,6 +2913,7 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
       ...nextTargetFilters,
       quantity: nextSearchQuantity,
     };
+    const searchChanged = !radarFiltersHaveSameSearchMeaning(appliedFilters, nextTargetFilters);
     setSearching(true);
     setTelonProgress(12);
     setHasSearched(true);
@@ -2867,6 +2946,11 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
       pendingFreshRunRef.current = true;
       setPage(1);
       clearStoredRadarRun();
+      if (searchChanged) {
+        setItems([]);
+        setTotal(0);
+        setTerminalRunSnapshot(null);
+      }
 
       const targetType = nextSearchFilters.targetType === "both" ? "pj" : nextSearchFilters.targetType;
       const salesProfilePayload = await apiFetch<SalesProfileResponse>("/vendas/sales-profile", { requireAuth: true })
@@ -2925,13 +3009,25 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
       }
 
       if (action === "send") {
-        await apiFetch(`/webscraping/radar/leads/${lead.id}/send-to-vendas`, {
-          method: "POST",
-          requireAuth: true,
-          timeoutMs: 15000,
-        });
+        if (distributionEnabled) {
+          await apiFetch<ImportToVendasResponse>("/webscraping/radar/leads/distribute-to-vendedores", {
+            method: "POST",
+            requireAuth: true,
+            timeoutMs: 30000,
+            body: JSON.stringify({
+              leadIds: [lead.id],
+              userIds: selectedDistributionUsers.map((user) => user.id),
+            }),
+          });
+        } else {
+          await apiFetch(`/webscraping/radar/leads/${lead.id}/send-to-vendas`, {
+            method: "POST",
+            requireAuth: true,
+            timeoutMs: 15000,
+          });
+        }
         setItems((current) => current.map((item) => item.id === lead.id ? { ...item, status: "sent_to_vendas", companyStatus: "imported_to_vendas", ownershipStatus: "in_attendance" } : item));
-        setFeedback("Card enviado para Vendas.");
+        setFeedback(distributionEnabled ? "Card distribuído para Vendas do vendedor." : "Card enviado para Vendas.");
       }
 
       if (action === "hide") {
@@ -2960,6 +3056,14 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
     } finally {
       setActionId(null);
     }
+  }
+
+  function toggleDistributionUser(userId: number) {
+    setDistributionUserIds((current) =>
+      current.includes(userId)
+        ? current.filter((id) => id !== userId)
+        : [...current, userId],
+    );
   }
 
   function buildVendasLeadPayload(lead: RadarLead) {
@@ -3060,31 +3164,49 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
         setFeedback("0 cards disponíveis para enviar.");
         return;
       }
-      const imported = await apiFetch<ImportToVendasResponse>("/vendas/import/webscraping", {
-        method: "POST",
-        requireAuth: true,
-        timeoutMs: 30000,
-        body: JSON.stringify({ sourceHistoryId: "radar-digital:bulk", leads, debitOnImport: options?.debitOnImport !== false }),
-      });
-      await apiFetch("/webscraping/radar/leads/mark-sent-to-vendas", {
-        method: "POST",
-        requireAuth: true,
-        timeoutMs: 15000,
-        body: JSON.stringify({ leadIds: deliverableItems.map((lead) => lead.id) }),
-      }).catch(() => null);
+      const leadIds = deliverableItems.map((lead) => lead.id);
+      const imported = distributionEnabled
+        ? await apiFetch<ImportToVendasResponse>("/webscraping/radar/leads/distribute-to-vendedores", {
+            method: "POST",
+            requireAuth: true,
+            timeoutMs: 45000,
+            body: JSON.stringify({
+              leadIds,
+              userIds: selectedDistributionUsers.map((user) => user.id),
+            }),
+          })
+        : await apiFetch<ImportToVendasResponse>("/vendas/import/webscraping", {
+            method: "POST",
+            requireAuth: true,
+            timeoutMs: 30000,
+            body: JSON.stringify({ sourceHistoryId: "radar-digital:bulk", leads, debitOnImport: options?.debitOnImport !== false }),
+          });
+      if (!distributionEnabled) {
+        await apiFetch("/webscraping/radar/leads/mark-sent-to-vendas", {
+          method: "POST",
+          requireAuth: true,
+          timeoutMs: 15000,
+          body: JSON.stringify({ leadIds }),
+        }).catch(() => null);
+      }
       setItems((current) => current.map((item) => deliverableItems.some((selected) => selected.id === item.id) ? { ...item, status: "sent_to_vendas", companyStatus: "imported_to_vendas", ownershipStatus: "in_attendance" } : item));
       apiFetch<VendasUsageSnapshot>("/vendas/usage", {
         requireAuth: true,
         timeoutMs: 12000,
       }).then(setVendasUsage).catch(() => null);
       void refreshVendasPendingCount().catch(() => null);
-      setFeedback(imported.message || `${leads.length} lead(s) herdados para Vendas.`);
+      setFeedback(
+        imported.message ||
+          (distributionEnabled
+            ? `${leads.length} card(s) distribuídos entre vendedores.`
+            : `${leads.length} lead(s) herdados para Vendas.`),
+      );
     } catch (bulkError) {
       setError(bulkError instanceof Error ? bulkError.message : "Não foi possível herdar leads para Vendas agora.");
     } finally {
       setBulkSending(false);
     }
-  }, [effectiveFilters.quantity, refreshVendasPendingCount, visibleItems]);
+  }, [distributionEnabled, effectiveFilters.quantity, refreshVendasPendingCount, selectedDistributionUsers, visibleItems]);
 
   if (hasToken === null || loading && items.length === 0 && hasSearched) {
     return (
@@ -3563,7 +3685,7 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
             disabled={!activeRunPartial && !activeRunFailed && (bulkSending || !visibleItems.length)}
             title={!visibleItems.length && !activeRunPartial && !activeRunFailed ? "Pesquise primeiro para escolher o que vai para Vendas." : undefined}
           >
-            {activeRunPartial || activeRunFailed ? "Ajustar busca" : bulkSending ? "Enviando..." : "Enviar para Vendas"}
+            {activeRunPartial || activeRunFailed ? "Ajustar busca" : bulkSending ? "Enviando..." : distributionEnabled ? "Distribuir cards" : "Enviar para Vendas"}
           </button>
         </header>
 
@@ -3647,6 +3769,42 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
               onChange={(quantity) => setFilters((current) => ({ ...current, quantity }))}
             />
           </div>
+          {activeSellerUsers.length ? (
+            <div className={styles.filterDistribution}>
+              <div className={styles.distributionHeader}>
+                <div>
+                  <span>Distribuição</span>
+                  <strong>{distributionLabel}</strong>
+                </div>
+                <button
+                  type="button"
+                  data-variant="secondary"
+                  onClick={() => setDistributionUserIds([])}
+                  disabled={!distributionUserIds.length || radarFiltersLocked}
+                >
+                  Usar Admin
+                </button>
+              </div>
+              <div className={styles.distributionUsers}>
+                {activeSellerUsers.map((user) => {
+                  const selected = distributionUserIds.includes(user.id);
+                  const label = user.name || user.username || user.email || `Vendedor ${user.id}`;
+                  return (
+                    <button
+                      key={user.id}
+                      type="button"
+                      data-active={selected ? "true" : "false"}
+                      onClick={() => toggleDistributionUser(user.id)}
+                      disabled={radarFiltersLocked}
+                    >
+                      <b>{label}</b>
+                      <span>{Number(user.commissionPercent || 0).toLocaleString("pt-BR", { maximumFractionDigits: 2 })}% comissão</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ) : null}
           <div className={styles.filterActions}>
             <button type="button" data-variant="secondary" onClick={clearFilters} disabled={radarFiltersLocked}>Limpar filtros</button>
             <button type="submit" disabled={radarFiltersLocked || dailyQuotaBlocked}>

@@ -7,6 +7,7 @@ import { CommercialUsageLimitsService } from '../commercial-plans/commercial-usa
 import {
   COMMERCIAL_PLAN_KEYS,
   getCommercialPlanCapabilities,
+  getCommercialPlanMonthlyPrice,
   getCommercialPlanTier,
   normalizeCommercialPlanKey,
   resolveCommercialPlanKeyForCapabilities,
@@ -35,6 +36,8 @@ import { buildVendasLeadIntelligence } from './vendas-lead-enrichment';
 import { ensureVendasComplaintsRuntimeSchema } from './vendas-complaints-runtime';
 
 type VendasLeadStatus = 'novo' | 'contato' | 'retorno' | 'qualificado' | 'encerrado';
+type VendasSaleStatus = 'none' | 'activation_pending' | 'trial_started' | 'sale_confirmed' | 'inactive' | 'canceled';
+type VendasCommissionStatus = 'none' | 'pending' | 'payable' | 'paid' | 'canceled';
 
 type LeadBlockKey = 'today' | 'overdue' | 'scheduled' | 'closed';
 
@@ -510,6 +513,27 @@ export class VendasService {
       wasClosedBefore: true,
       closedAt: true,
       createdByUserId: true,
+      assignedUserId: true,
+      assignedByUserId: true,
+      assignedAt: true,
+      commissionPercentSnapshot: true,
+      saleStatus: true,
+      saleValue: true,
+      salePlanKey: true,
+      saleConfirmedAt: true,
+      saleCanceledAt: true,
+      commissionStatus: true,
+      commissionBaseAmount: true,
+      commissionAmount: true,
+      commissionDueAt: true,
+      commissionPaidAt: true,
+      commissionRecurring: true,
+      commissionNote: true,
+      commissionLinkedCompanyId: true,
+      commissionLinkedAt: true,
+      commissionAutoSyncedAt: true,
+      commissionSyncSource: true,
+      commissionPayoutId: true,
       createdAt: true,
       updatedAt: true,
       ...extra,
@@ -555,6 +579,179 @@ export class VendasService {
       default:
         return 'Novo lead';
     }
+  }
+
+  private normalizeSaleStatus(value: unknown): VendasSaleStatus {
+    const normalized = String(value || '').trim().toLowerCase();
+    if (normalized === 'activation_pending') return 'activation_pending';
+    if (normalized === 'trial_started') return 'trial_started';
+    if (normalized === 'sale_confirmed') return 'sale_confirmed';
+    if (normalized === 'inactive') return 'inactive';
+    if (normalized === 'canceled') return 'canceled';
+    return 'none';
+  }
+
+  private normalizeCommissionStatus(value: unknown): VendasCommissionStatus {
+    const normalized = String(value || '').trim().toLowerCase();
+    if (normalized === 'pending') return 'pending';
+    if (normalized === 'payable') return 'payable';
+    if (normalized === 'paid') return 'paid';
+    if (normalized === 'canceled') return 'canceled';
+    return 'none';
+  }
+
+  private formatSaleStatusLabel(status: VendasSaleStatus) {
+    switch (status) {
+      case 'activation_pending':
+        return 'Aguardando ativação';
+      case 'trial_started':
+        return 'Trial iniciado';
+      case 'sale_confirmed':
+        return 'Venda confirmada';
+      case 'inactive':
+        return 'Cliente inativo';
+      case 'canceled':
+        return 'Cancelado';
+      default:
+        return 'Sem venda';
+    }
+  }
+
+  private formatCommissionStatusLabel(status: VendasCommissionStatus) {
+    switch (status) {
+      case 'pending':
+        return 'Aguardando ativação';
+      case 'payable':
+        return 'A pagar';
+      case 'paid':
+        return 'Pago';
+      case 'canceled':
+        return 'Cancelado';
+      default:
+        return 'Sem comissão';
+    }
+  }
+
+  private addBusinessDays(date: Date, days: number) {
+    const next = new Date(date);
+    let added = 0;
+    while (added < days) {
+      next.setDate(next.getDate() + 1);
+      const day = next.getDay();
+      if (day !== 0 && day !== 6) added += 1;
+    }
+    return next;
+  }
+
+  private normalizeCurrencyAmount(value: unknown) {
+    const numeric = Number(value || 0);
+    if (!Number.isFinite(numeric)) return 0;
+    return Number(Math.max(0, numeric).toFixed(2));
+  }
+
+  private resolveSaleBaseAmount(input: { saleValue?: unknown; salePlanKey?: unknown; fallbackValue?: unknown }) {
+    const explicitValue = this.normalizeCurrencyAmount(input.saleValue);
+    if (explicitValue > 0) return explicitValue;
+    const normalizedPlanKey = String(input.salePlanKey || '').trim();
+    if (normalizedPlanKey) return this.normalizeCurrencyAmount(getCommercialPlanMonthlyPrice(normalizedPlanKey));
+    return this.normalizeCurrencyAmount(input.fallbackValue);
+  }
+
+  private async resolveCommissionPercentForLead(row: any) {
+    const snapshot = Number(row?.commissionPercentSnapshot || 0);
+    if (Number.isFinite(snapshot) && snapshot > 0) return Math.min(100, Math.max(0, snapshot));
+    const assignedUserId = Math.trunc(Number(row?.assignedUserId || 0));
+    if (!assignedUserId) return 0;
+    const owner = await this.prisma.user.findFirst({
+      where: {
+        id: assignedUserId,
+        companyId: Number(row?.companyId || 0),
+      },
+      select: { commissionPercent: true },
+    }).catch(() => null);
+    return Math.min(100, Math.max(0, Number(owner?.commissionPercent || 0) || 0));
+  }
+
+  private async buildSaleCommissionPatch(row: any, dto: UpdateVendasLeadDto, userId?: number | null) {
+    const saleStatusProvided = dto?.saleStatus !== undefined;
+    const saleValueProvided = dto?.saleValue !== undefined;
+    const salePlanProvided = dto?.salePlanKey !== undefined;
+    const commissionStatusProvided = dto?.commissionStatus !== undefined;
+    const commissionNoteProvided = dto?.commissionNote !== undefined;
+    if (!saleStatusProvided && !saleValueProvided && !salePlanProvided && !commissionStatusProvided && !commissionNoteProvided) {
+      return { data: {}, event: null as TimelineEventRecord | null };
+    }
+
+    const now = new Date();
+    const previousSaleStatus = this.normalizeSaleStatus(row?.saleStatus);
+    const nextSaleStatus = saleStatusProvided ? this.normalizeSaleStatus(dto.saleStatus) : previousSaleStatus;
+    const salePlanKey = salePlanProvided ? this.normalizeText(dto.salePlanKey) : this.normalizeText(row?.salePlanKey);
+    const baseAmount = this.resolveSaleBaseAmount({
+      saleValue: saleValueProvided ? dto.saleValue : row?.saleValue,
+      salePlanKey,
+      fallbackValue: row?.commissionBaseAmount,
+    });
+    const percent = await this.resolveCommissionPercentForLead(row);
+    const commissionAmount = this.normalizeCurrencyAmount((baseAmount * percent) / 100);
+    const confirmsSale = nextSaleStatus === 'trial_started' || nextSaleStatus === 'sale_confirmed';
+    const endsSale = nextSaleStatus === 'inactive' || nextSaleStatus === 'canceled';
+
+    let commissionStatus = this.normalizeCommissionStatus(row?.commissionStatus);
+    if (commissionStatusProvided) {
+      commissionStatus = this.normalizeCommissionStatus(dto.commissionStatus);
+    } else if (confirmsSale) {
+      commissionStatus = commissionAmount > 0 ? 'payable' : 'pending';
+    } else if (nextSaleStatus === 'activation_pending') {
+      commissionStatus = 'pending';
+    } else if (endsSale) {
+      commissionStatus = 'canceled';
+    } else if (nextSaleStatus === 'none') {
+      commissionStatus = 'none';
+    }
+
+    const paidAt = commissionStatus === 'paid'
+      ? (row?.commissionPaidAt instanceof Date ? row.commissionPaidAt : now)
+      : (commissionStatusProvided ? null : row?.commissionPaidAt || null);
+    const confirmedAt = confirmsSale
+      ? (row?.saleConfirmedAt instanceof Date ? row.saleConfirmedAt : now)
+      : (nextSaleStatus === 'none' || endsSale ? null : row?.saleConfirmedAt || null);
+    const canceledAt = endsSale
+      ? (row?.saleCanceledAt instanceof Date ? row.saleCanceledAt : now)
+      : (nextSaleStatus === 'none' || confirmsSale || nextSaleStatus === 'activation_pending' ? null : row?.saleCanceledAt || null);
+    const dueAt = confirmsSale && commissionStatus !== 'paid'
+      ? (row?.commissionDueAt instanceof Date ? row.commissionDueAt : this.addBusinessDays(confirmedAt || now, 3))
+      : (commissionStatus === 'payable' ? row?.commissionDueAt || this.addBusinessDays(now, 3) : null);
+
+    const data: any = {
+      saleStatus: nextSaleStatus,
+      saleValue: baseAmount,
+      salePlanKey,
+      saleConfirmedAt: confirmedAt,
+      saleCanceledAt: canceledAt,
+      commissionStatus,
+      commissionBaseAmount: baseAmount,
+      commissionAmount,
+      commissionDueAt: dueAt,
+      commissionPaidAt: paidAt,
+      commissionRecurring: confirmsSale,
+      ...(commissionNoteProvided ? { commissionNote: this.normalizeText(dto.commissionNote) } : {}),
+    };
+
+    const event = previousSaleStatus !== nextSaleStatus || commissionStatusProvided
+      ? this.buildTimelineEvent({
+          eventType: 'commission_updated',
+          title: 'Comissão atualizada',
+          description: [
+            `Cliente: ${this.formatSaleStatusLabel(nextSaleStatus)}.`,
+            `Comissão: ${this.formatCommissionStatusLabel(commissionStatus)}.`,
+            commissionAmount > 0 ? `Valor previsto: R$ ${commissionAmount.toFixed(2)}.` : null,
+          ].filter(Boolean).join(' '),
+          resultLabel: commissionStatus,
+          createdByUserId: Number(userId || 0) || null,
+        })
+      : null;
+
+    return { data, event };
   }
 
   private formatSourceLabel(sourceType: unknown) {
@@ -786,6 +983,40 @@ export class VendasService {
       lastResult: row?.lastResult ? String(row.lastResult) : null,
       wasClosedBefore: signals.wasClosedBefore,
       closedAt: row?.closedAt instanceof Date ? row.closedAt.toISOString() : null,
+      createdByUserId: Number(row?.createdByUserId || 0) || null,
+      assignedUserId: Number(row?.assignedUserId || 0) || null,
+      assignedByUserId: Number(row?.assignedByUserId || 0) || null,
+      assignedAt: row?.assignedAt instanceof Date ? row.assignedAt.toISOString() : null,
+      commissionPercentSnapshot: Number(row?.commissionPercentSnapshot || 0) || 0,
+      saleStatus: this.normalizeSaleStatus(row?.saleStatus),
+      saleStatusLabel: this.formatSaleStatusLabel(this.normalizeSaleStatus(row?.saleStatus)),
+      saleValue: this.normalizeCurrencyAmount(row?.saleValue),
+      salePlanKey: row?.salePlanKey ? String(row.salePlanKey) : null,
+      saleConfirmedAt: row?.saleConfirmedAt instanceof Date ? row.saleConfirmedAt.toISOString() : null,
+      saleCanceledAt: row?.saleCanceledAt instanceof Date ? row.saleCanceledAt.toISOString() : null,
+      commissionStatus: this.normalizeCommissionStatus(row?.commissionStatus),
+      commissionStatusLabel: this.formatCommissionStatusLabel(this.normalizeCommissionStatus(row?.commissionStatus)),
+      commissionBaseAmount: this.normalizeCurrencyAmount(row?.commissionBaseAmount),
+      commissionAmount: this.normalizeCurrencyAmount(row?.commissionAmount),
+      commissionDueAt: row?.commissionDueAt instanceof Date ? row.commissionDueAt.toISOString() : null,
+      commissionPaidAt: row?.commissionPaidAt instanceof Date ? row.commissionPaidAt.toISOString() : null,
+      commissionRecurring: Boolean(row?.commissionRecurring),
+      commissionNote: row?.commissionNote ? String(row.commissionNote) : null,
+      commissionLinkedCompanyId: Number(row?.commissionLinkedCompanyId || 0) || null,
+      commissionLinkedAt: row?.commissionLinkedAt instanceof Date ? row.commissionLinkedAt.toISOString() : null,
+      commissionAutoSyncedAt: row?.commissionAutoSyncedAt instanceof Date ? row.commissionAutoSyncedAt.toISOString() : null,
+      commissionSyncSource: row?.commissionSyncSource ? String(row.commissionSyncSource) : null,
+      commissionPayoutId: row?.commissionPayoutId ? String(row.commissionPayoutId) : null,
+      owner: row?.__owner
+        ? {
+            id: Number(row.__owner.id || 0) || null,
+            name: row.__owner.name ? String(row.__owner.name) : null,
+            email: row.__owner.email ? String(row.__owner.email) : null,
+            phone: row.__owner.phone ? String(row.__owner.phone) : null,
+            role: row.__owner.role ? String(row.__owner.role) : null,
+            commissionPercent: Number(row.__owner.commissionPercent || 0) || 0,
+          }
+        : null,
       createdAt: row?.createdAt instanceof Date ? row.createdAt.toISOString() : null,
       updatedAt: row?.updatedAt instanceof Date ? row.updatedAt.toISOString() : null,
       whatsappAvailability: whatsappAvailability || null,
@@ -812,7 +1043,111 @@ export class VendasService {
     const userId = Number(user?.id || 0);
     if (!companyId) throw new ForbiddenException('Empresa nao identificada.');
     if (!userId) throw new ForbiddenException('Usuario nao identificado.');
-    return { companyId, userId };
+    const role = String(user?.role || '').trim().toUpperCase();
+    const canManageTeam = Boolean(user?.isSystemMaster || user?.masterContext?.active || role === 'ADMIN');
+    return { companyId, userId, role, canManageTeam };
+  }
+
+  private buildLeadAccessWhere(context: { companyId: number; userId: number; canManageTeam?: boolean }, extra: Record<string, any> = {}) {
+    const scopedExtra = { ...(extra || {}) };
+    const base: any = {
+      companyId: context.companyId,
+      ...scopedExtra,
+    };
+    if (context.canManageTeam) return base;
+    const access = {
+      OR: [
+        { assignedUserId: context.userId },
+        { assignedUserId: null, createdByUserId: context.userId },
+      ],
+    };
+    if (Object.keys(scopedExtra).length > 0) {
+      return {
+        companyId: context.companyId,
+        AND: [scopedExtra, access],
+      };
+    }
+    return {
+      companyId: context.companyId,
+      ...access,
+    };
+  }
+
+  private async resolveLeadOwnerForContext(
+    context: { companyId: number; userId: number; canManageTeam?: boolean },
+    assignedUserIdRaw?: number | null,
+  ) {
+    const requestedAssignedUserId = Math.trunc(Number(assignedUserIdRaw || 0)) || null;
+    const fallbackSellerUserId = context.canManageTeam ? null : context.userId;
+    const assignedUserId = requestedAssignedUserId || fallbackSellerUserId;
+    if (!assignedUserId) {
+      return {
+        assignedUserId: null,
+        assignedByUserId: null,
+        assignedAt: null,
+        commissionPercentSnapshot: 0,
+        owner: null,
+      };
+    }
+    if (!context.canManageTeam && assignedUserId !== context.userId) {
+      throw new ForbiddenException('Vendedor so pode receber cards para a propria carteira.');
+    }
+    const owner = await this.prisma.user.findFirst({
+      where: {
+        id: assignedUserId,
+        companyId: context.companyId,
+        isActive: true,
+        isSystemMaster: false,
+      },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        username: true,
+        phone: true,
+        role: true,
+        commissionPercent: true,
+      },
+    });
+    if (!owner) {
+      throw new BadRequestException('Vendedor de destino invalido ou inativo.');
+    }
+    return {
+      assignedUserId: owner.id,
+      assignedByUserId: context.canManageTeam && owner.id !== context.userId ? context.userId : null,
+      assignedAt: new Date(),
+      commissionPercentSnapshot: Math.max(0, Math.min(100, Number(owner.commissionPercent || 0) || 0)),
+      owner,
+    };
+  }
+
+  private async attachLeadOwners(rows: any[], companyId: number) {
+    const ownerIds = Array.from(new Set(
+      (Array.isArray(rows) ? rows : [])
+        .flatMap((row) => [Number(row?.assignedUserId || 0), Number(row?.createdByUserId || 0)])
+        .filter((id) => Number.isInteger(id) && id > 0),
+    ));
+    if (!ownerIds.length) return rows;
+    const owners = await this.prisma.user.findMany({
+      where: {
+        companyId,
+        id: { in: ownerIds },
+      },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        username: true,
+        phone: true,
+        role: true,
+        commissionPercent: true,
+      },
+    }).catch(() => []);
+    const byId = new Map((owners || []).map((owner) => [owner.id, owner]));
+    return rows.map((row) => ({
+      ...row,
+      __owner: byId.get(Number(row?.assignedUserId || row?.createdByUserId || 0)) || null,
+    }));
   }
 
   private buildPlanAccess(planKey: unknown): VendasPlanAccess {
@@ -1153,14 +1488,13 @@ export class VendasService {
     const planAccess = await this.resolvePlanAccessForCompany(context.companyId);
     const period = this.resolveReportPeriod(periodRaw);
     const leads = await this.prisma.vendasLead.findMany({
-      where: {
-        companyId: context.companyId,
+      where: this.buildLeadAccessWhere(context, {
         OR: [
           { createdAt: { gte: period.start, lte: period.end } },
           { updatedAt: { gte: period.start, lte: period.end } },
           { lastContactAt: { gte: period.start, lte: period.end } },
         ],
-      },
+      }),
       include: {
         timelineEvents: {
           where: { createdAt: { gte: period.start, lte: period.end } },
@@ -1503,13 +1837,14 @@ export class VendasService {
   }
 
   async enrichLeadForUser(user: any, leadId: string, opts?: { templateOffset?: number }) {
-    const { companyId, userId } = this.resolveUserContext(user);
+    const context = this.resolveUserContext(user);
+    const { companyId, userId } = context;
     const planAccess = await this.resolvePlanAccessForCompany(companyId);
     const normalizedLeadId = this.normalizeText(leadId);
     if (!normalizedLeadId) throw new BadRequestException('Lead nao informado.');
 
     const lead = await this.prisma.vendasLead.findFirst({
-      where: { id: normalizedLeadId, companyId },
+      where: this.buildLeadAccessWhere(context, { id: normalizedLeadId }),
       include: {
         timelineEvents: {
           orderBy: [{ createdAt: 'desc' }],
@@ -1592,12 +1927,13 @@ export class VendasService {
   }
 
   async buildPresentationEmailDraftForUser(user: any, leadId: string) {
-    const { companyId, userId } = this.resolveUserContext(user);
+    const context = this.resolveUserContext(user);
+    const { userId } = context;
     const normalizedLeadId = this.normalizeText(leadId);
     if (!normalizedLeadId) throw new BadRequestException('Lead nao informado.');
 
     const lead = await this.prisma.vendasLead.findFirst({
-      where: { id: normalizedLeadId, companyId },
+      where: this.buildLeadAccessWhere(context, { id: normalizedLeadId }),
       select: this.buildVendasLeadSelectWithoutAddress(),
     });
     if (!lead) throw new NotFoundException('Lead nao encontrado.');
@@ -1720,11 +2056,12 @@ export class VendasService {
   }
 
   async previewPresentationEmailForUser(user: any, leadId: string, body?: any) {
-    const { companyId, userId } = this.resolveUserContext(user);
+    const context = this.resolveUserContext(user);
+    const { companyId, userId } = context;
     const normalizedLeadId = this.normalizeText(leadId);
     if (!normalizedLeadId) throw new BadRequestException('Lead nao informado.');
     const lead = await this.prisma.vendasLead.findFirst({
-      where: { id: normalizedLeadId, companyId },
+      where: this.buildLeadAccessWhere(context, { id: normalizedLeadId }),
       select: this.buildVendasLeadSelectWithoutAddress(),
     });
     if (!lead) throw new NotFoundException('Lead nao encontrado.');
@@ -1784,11 +2121,12 @@ export class VendasService {
   }
 
   async sendPresentationEmailForUser(user: any, leadId: string, body?: any) {
-    const { companyId, userId } = this.resolveUserContext(user);
+    const context = this.resolveUserContext(user);
+    const { companyId, userId } = context;
     const normalizedLeadId = this.normalizeText(leadId);
     if (!normalizedLeadId) throw new BadRequestException('Lead nao informado.');
     const lead = await this.prisma.vendasLead.findFirst({
-      where: { id: normalizedLeadId, companyId },
+      where: this.buildLeadAccessWhere(context, { id: normalizedLeadId }),
       select: this.buildVendasLeadSelectWithoutAddress(),
     });
     if (!lead) throw new NotFoundException('Lead nao encontrado.');
@@ -1988,7 +2326,12 @@ export class VendasService {
 
   private async syncRadarOwnershipAfterVendasImport(
     context: { companyId: number; userId: number },
-    input: { radarLeadId?: string | null; vendasLeadId?: string | null },
+    input: {
+      radarLeadId?: string | null;
+      vendasLeadId?: string | null;
+      assignedUserId?: number | null;
+      assignedByUserId?: number | null;
+    },
   ) {
     if (!input.radarLeadId || !input.vendasLeadId) return;
     const [hasPool, hasState, hasEvent, hasOwnerColumn, hasClaimedColumn] = await Promise.all([
@@ -2029,11 +2372,17 @@ export class VendasService {
         radarLeadId: row.id,
         vendasLeadId: input.vendasLeadId,
         status: 'sent_to_vendas',
+        assignedUserId: input.assignedUserId || null,
+        assignedByUserId: input.assignedByUserId || null,
+        assignedAt: input.assignedUserId ? now : null,
         lastActionAt: now,
       },
       update: {
         vendasLeadId: input.vendasLeadId,
         status: 'sent_to_vendas',
+        assignedUserId: input.assignedUserId || undefined,
+        assignedByUserId: input.assignedByUserId || undefined,
+        assignedAt: input.assignedUserId ? now : undefined,
         lastActionAt: now,
       },
     }).catch(() => null);
@@ -2577,15 +2926,16 @@ export class VendasService {
     const context = this.resolveUserContext(user);
     this.logger.log(`[vendas-agenda] Iniciando espelhamento de cards de hoje para company=${context.companyId}`);
     let rows: any[] = [];
+    const syncWhere = this.buildLeadAccessWhere(context);
     try {
       rows = await this.prisma.vendasLead.findMany({
-        where: { companyId: context.companyId },
+        where: syncWhere,
         orderBy: [{ returnAt: 'asc' }, { updatedAt: 'desc' }, { createdAt: 'desc' }],
       });
     } catch (error: any) {
       if (!this.isMissingAddressColumnError(error)) throw error;
       rows = await this.prisma.vendasLead.findMany({
-        where: { companyId: context.companyId },
+        where: syncWhere,
         orderBy: [{ returnAt: 'asc' }, { updatedAt: 'desc' }, { createdAt: 'desc' }],
         select: this.buildVendasLeadSelectWithoutAddress(),
       });
@@ -2677,6 +3027,7 @@ export class VendasService {
       const leadId = String(queue.leadId || '').trim();
       if (filteredSync && leadId && !requestedLeadIds?.has(leadId)) continue;
       const linkedLead = leadId ? rowById.get(leadId) || null : null;
+      if (!context.canManageTeam && !linkedLead) continue;
       const shouldStayActive =
         Boolean(linkedLead) &&
         (filteredSync ? !this.isClosedLead(linkedLead) : this.shouldMirrorLeadToInboxAgenda(linkedLead)) &&
@@ -2834,6 +3185,10 @@ export class VendasService {
     nextAction?: string | null;
     returnAt?: Date | null;
     shortNote?: string | null;
+    assignedUserId?: number | null;
+    assignedByUserId?: number | null;
+    assignedAt?: Date | null;
+    commissionPercentSnapshot?: number | null;
     planAccess?: VendasPlanAccess | null;
     uniqueRetry?: boolean;
   }) {
@@ -2898,6 +3253,10 @@ export class VendasService {
       wasClosedBefore: status === 'encerrado',
       closedAt: status === 'encerrado' ? new Date() : null,
       createdByUserId: input.userId,
+      assignedUserId: input.assignedUserId || null,
+      assignedByUserId: input.assignedByUserId || null,
+      assignedAt: input.assignedAt || (input.assignedUserId ? new Date() : null),
+      commissionPercentSnapshot: Math.max(0, Math.min(100, Number(input.commissionPercentSnapshot || 0) || 0)),
     };
     if (phoneNormalized) {
       const phoneNormalizedCandidates = this.buildLeadPhoneNormalizedCandidates(input.phone);
@@ -2961,6 +3320,14 @@ export class VendasService {
             nextStatus === 'encerrado'
               ? existing.closedAt || new Date()
               : null,
+          ...(input.assignedUserId
+            ? {
+                assignedUserId: input.assignedUserId,
+                assignedByUserId: input.assignedByUserId || existing.assignedByUserId || null,
+                assignedAt: input.assignedAt || existing.assignedAt || new Date(),
+                commissionPercentSnapshot: Math.max(0, Math.min(100, Number(input.commissionPercentSnapshot || 0) || 0)),
+              }
+            : {}),
         };
 
         let updated: any = null;
@@ -3270,9 +3637,10 @@ export class VendasService {
       },
     });
     let rows: any[] = [];
+    const boardWhere = this.buildLeadAccessWhere(context);
     try {
       rows = await this.prisma.vendasLead.findMany({
-        where: { companyId: context.companyId },
+        where: boardWhere,
         orderBy: [{ returnAt: 'asc' }, { updatedAt: 'desc' }, { createdAt: 'desc' }],
         take: 240,
         include: {
@@ -3285,12 +3653,13 @@ export class VendasService {
     } catch (error: any) {
       if (!this.isMissingAddressColumnError(error)) throw error;
       rows = await this.prisma.vendasLead.findMany({
-        where: { companyId: context.companyId },
+        where: boardWhere,
         orderBy: [{ returnAt: 'asc' }, { updatedAt: 'desc' }, { createdAt: 'desc' }],
         take: 240,
         select: leadWithTimelineSelectWithoutAddress,
       });
     }
+    rows = await this.attachLeadOwners(rows, context.companyId);
     const whatsappAvailabilityByLeadId = await this.ensureWhatsappAvailabilityForRows(
       context.companyId,
       context.userId,
@@ -3366,6 +3735,7 @@ export class VendasService {
   async createManualLeadForUser(user: any, dto: CreateManualVendasLeadDto) {
     const context = this.resolveUserContext(user);
     const planAccess = await this.resolvePlanAccessForCompany(context.companyId);
+    const owner = await this.resolveLeadOwnerForContext(context, null);
     if (!this.normalizeText(dto?.name) && !this.normalizeText(dto?.phone) && !this.normalizeText(dto?.email)) {
       throw new BadRequestException('Informe ao menos nome, telefone ou e-mail para criar o lead.');
     }
@@ -3385,6 +3755,10 @@ export class VendasService {
       nextAction: dto?.nextAction || 'Primeiro contato',
       returnAt: this.parseDate(dto?.returnAt) || new Date(),
       shortNote: dto?.shortNote || null,
+      assignedUserId: owner.assignedUserId,
+      assignedByUserId: owner.assignedByUserId,
+      assignedAt: owner.assignedAt,
+      commissionPercentSnapshot: owner.commissionPercentSnapshot,
       planAccess,
     });
 
@@ -3403,6 +3777,7 @@ export class VendasService {
     const salesProfile = salesProfilePayload.effectiveProfile;
     const incomingLeads = Array.isArray(dto?.leads) ? dto.leads : [];
     const debitOnImport = Boolean((dto as any)?.debitOnImport);
+    const owner = await this.resolveLeadOwnerForContext(context, (dto as any)?.assignedUserId || null);
     if (!incomingLeads.length) {
       throw new BadRequestException('Nenhum lead do Radar Digital foi enviado para o CRM.');
     }
@@ -3602,6 +3977,10 @@ export class VendasService {
           nextAction: 'Primeiro contato',
           returnAt: new Date(),
           shortNote: this.normalizeText(item?.shortNote),
+          assignedUserId: owner.assignedUserId,
+          assignedByUserId: owner.assignedByUserId,
+          assignedAt: owner.assignedAt,
+          commissionPercentSnapshot: owner.commissionPercentSnapshot,
           planAccess,
         });
       } catch (error: any) {
@@ -3690,6 +4069,8 @@ export class VendasService {
       await this.syncRadarOwnershipAfterVendasImport(context, {
         radarLeadId,
         vendasLeadId: result.lead?.id || null,
+        assignedUserId: owner.assignedUserId,
+        assignedByUserId: owner.assignedByUserId,
       });
     }
 
@@ -3799,10 +4180,7 @@ export class VendasService {
       },
     });
     const existing = await this.prisma.vendasLead.findFirst({
-      where: {
-        id: String(leadId || '').trim(),
-        companyId: context.companyId,
-      },
+      where: this.buildLeadAccessWhere(context, { id: String(leadId || '').trim() }),
       ...(addressColumnAvailable ? {} : { select: this.buildVendasLeadSelectWithoutAddress() }),
     });
 
@@ -3951,6 +4329,11 @@ export class VendasService {
       wasClosedBefore,
       closedAt: nextStatus === 'encerrado' ? existing.closedAt || new Date() : null,
     };
+    const saleCommissionPatch = await this.buildSaleCommissionPatch(existing, dto, context.userId);
+    Object.assign(updateData, saleCommissionPatch.data);
+    if (saleCommissionPatch.event) {
+      timelineEvents.push(saleCommissionPatch.event);
+    }
 
     const shouldDebitCommercialUse =
       shouldRegisterContact
@@ -4235,10 +4618,7 @@ export class VendasService {
       throw new BadRequestException('Selecione ao menos um card para excluir.');
     }
 
-    const where: any = {
-      companyId: context.companyId,
-      ...(all ? {} : { id: { in: leadIds } }),
-    };
+    const where: any = this.buildLeadAccessWhere(context, all ? {} : { id: { in: leadIds } });
     const rows = await this.prisma.vendasLead.findMany({
       where,
       select: {
@@ -4283,10 +4663,7 @@ export class VendasService {
     }
 
     await this.prisma.vendasLead.deleteMany({
-      where: {
-        companyId: context.companyId,
-        id: { in: rowIds },
-      },
+      where: this.buildLeadAccessWhere(context, { id: { in: rowIds } }),
     });
 
     return { ok: true, deletedCount: rows.length, rows };
@@ -4309,7 +4686,7 @@ export class VendasService {
     const normalizedLeadId = String(leadId || '').trim();
     if (!normalizedLeadId) throw new BadRequestException('Card nao informado.');
     const row = await this.prisma.vendasLead.findFirst({
-      where: { id: normalizedLeadId, companyId: context.companyId },
+      where: this.buildLeadAccessWhere(context, { id: normalizedLeadId }),
       select: {
         id: true,
         companyId: true,
@@ -4363,10 +4740,7 @@ export class VendasService {
   async registerAttemptForUser(user: any, leadId: string, dto?: { channel?: string }) {
     const context = this.resolveUserContext(user);
     const existing = await this.prisma.vendasLead.findFirst({
-      where: {
-        id: String(leadId || '').trim(),
-        companyId: context.companyId,
-      },
+      where: this.buildLeadAccessWhere(context, { id: String(leadId || '').trim() }),
     });
 
     if (!existing) {

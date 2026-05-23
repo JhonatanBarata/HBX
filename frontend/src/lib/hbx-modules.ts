@@ -89,8 +89,7 @@ export function isCommercialEntryCandidate(module: UserModule) {
 }
 
 export function isModuleBlocked(module: UserModule) {
-  void module;
-  return false;
+  return module.accessible === false || Boolean(module.blockedReason || module.blockedCode);
 }
 
 export function formatCriticalEngineLabel(value?: string | null) {

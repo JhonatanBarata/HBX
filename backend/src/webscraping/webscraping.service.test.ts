@@ -568,6 +568,15 @@ function createSearchRunPrisma(initialRun: Record<string, any>) {
     webscrapingSearchRun: {
       findFirst: async () => ({ ...run, items: [...items] }),
       findUnique: async () => ({ ...run, items: [...items] }),
+      findMany: async (input?: any) => {
+        const where = input?.where || {};
+        if (where.companyId != null && Number(where.companyId) !== Number(run.companyId)) return [];
+        if (where.engine && String(where.engine) !== String(run.engine)) return [];
+        if (where.status?.in && !where.status.in.includes(run.status)) return [];
+        if (where.status && !where.status.in && String(where.status) !== String(run.status)) return [];
+        if (where.assignedEngineId === null && run.assignedEngineId != null) return [];
+        return [{ ...run, items: [...items] }];
+      },
       create: async ({ data, select }: any) => {
         applyData(data);
         const row = { ...run, items: [...items] };
@@ -2232,6 +2241,75 @@ test('startRadarSearchRunForUser usa estoque sem perfil quando perfil lead plus 
   assert.equal(metrics.relaxedStockLookup, true);
 });
 
+test('startRadarSearchRunForUser pausa quando Vendas ja esta no limite', async () => {
+  const { prisma, run } = createSearchRunPrisma({
+    status: 'completed',
+    city: 'Campinas',
+    state: 'SP',
+    segment: 'barbearias',
+    targetQuantity: 20,
+  });
+  const service = new WebscrapingService(prisma) as any;
+  disableSearchRunAutoPump(service);
+  service.supportsRadarPersistence = async () => true;
+  service.assertRadarCanFeedVendas = async () => ({ pendingCount: 20 });
+  let queriedStock = false;
+  service.queryRadarRowsForCompany = async () => {
+    queriedStock = true;
+    return [];
+  };
+  service.buildRadarSearchRunResponse = async (_user: any, runId: string) => ({
+    runId,
+    status: run.status,
+    message: run.errorMessage,
+  });
+
+  const response = await service.startRadarSearchRunForUser(createUser(), {
+    city: 'Campinas',
+    state: 'SP',
+    segment: 'barbearias',
+    quantity: 20,
+    engine: 'hbx',
+    targetType: 'pj',
+    qualityMode: 'list',
+  });
+
+  assert.equal(response.status, 'sleeping');
+  assert.equal(run.status, 'sleeping');
+  assert.equal(run.lastBatchStatus, 'vendas_stock_limit_start');
+  assert.equal(run.nextRetryAt instanceof Date, true);
+  assert.equal(queriedStock, false);
+});
+
+test('resumePausedSearchRunIfPossible retoma Radar pausado quando Vendas libera espaco', async () => {
+  const { prisma, run } = createSearchRunPrisma({
+    status: 'sleeping',
+    city: 'Campinas',
+    state: 'SP',
+    segment: 'barbearias',
+    targetQuantity: 20,
+    lastBatchStatus: 'vendas_stock_limit_start',
+    errorMessage: 'Radar pausado.',
+    nextRetryAt: new Date(Date.now() - 1000),
+    metricsJson: JSON.stringify({
+      vendasStockTarget: 20,
+      radarPauseReason: 'vendas_stock_limit_start',
+      status: 'sleeping',
+    }),
+  });
+  const service = new WebscrapingService(prisma) as any;
+  disableSearchRunAutoPump(service);
+  service.getVendasPendingCountForRadarContext = async () => 3;
+
+  const resumed = await service.resumePausedSearchRunIfPossible(run);
+
+  assert.equal(resumed, true);
+  assert.equal(run.status, 'queued');
+  assert.equal(run.lastBatchStatus, 'resumed_after_limit');
+  assert.equal(run.finishedAt, null);
+  assert.equal(run.nextRetryAt instanceof Date, true);
+});
+
 test('search-run worker nao repassa requiredChannels legado para motor HBX', async () => {
   const { prisma, run } = createSearchRunPrisma({
     status: 'queued',
@@ -2807,6 +2885,67 @@ test('Radar search-run em andamento autoimporta cards encontrados para Vendas', 
   assert.equal(response.status, 'running');
   assert.equal(response.meta.autoImport.ran, true);
   assert.equal(response.meta.autoImport.importedCount, 1);
+});
+
+test('autoImportRadarSearchRunToVendas pausa quando ultimo card completa o limite do Vendas', async () => {
+  const { prisma, run, items } = createSearchRunPrisma({
+    status: 'running',
+    city: 'Aguas da Prata',
+    state: 'SP',
+    segment: 'barbearias',
+    targetQuantity: 1,
+    foundCount: 1,
+    importedCount: 0,
+    metricsJson: JSON.stringify({ vendasStockTarget: 1 }),
+  });
+  items.push({
+    id: 'item-limit-fill',
+    runId: run.id,
+    companyId: 7,
+    placeId: 'hbx:pj:19999990001',
+    name: 'Barbearia Limite',
+    phone: '(19) 99999-0001',
+    phoneDigits: '19999990001',
+    city: 'Aguas da Prata',
+    state: 'SP',
+    segment: 'barbearias',
+    source: 'hbx',
+    status: 'found',
+    rawJson: JSON.stringify({
+      name: 'Barbearia Limite',
+      phone: '(19) 99999-0001',
+      phoneDigits: '19999990001',
+      city: 'Aguas da Prata',
+      state: 'SP',
+      segment: 'barbearias',
+    }),
+    createdAt: new Date(),
+  });
+  const service = new WebscrapingService(prisma) as any;
+  disableSearchRunAutoPump(service);
+  service.vendasService = {};
+  let pendingCount = 0;
+  service.getVendasPendingCountForRadarContext = async () => pendingCount;
+  service.syncRadarSearchRunItemsToPool = async () => undefined;
+  service.isRunItemPrimaryDeliverable = () => true;
+  service.findRadarPoolRowsForRunItems = async () => [{
+    id: 'radar-limit-fill',
+    status: 'clean',
+    name: 'Barbearia Limite',
+    phone: '(19) 99999-0001',
+    phoneDigits: '19999990001',
+    companyStates: [],
+  }];
+  service.importRadarLeadToVendasForUser = async () => {
+    pendingCount = 1;
+    return { import: { deliveredCount: 1 } };
+  };
+
+  const result = await service.autoImportRadarSearchRunToVendas(createUser(), run.id);
+
+  assert.equal(result.blocked, true);
+  assert.equal(run.status, 'sleeping');
+  assert.equal(run.lastBatchStatus, 'vendas_stock_limit_after_import');
 });
 
 function normalizeQueryForTest(value: string) {

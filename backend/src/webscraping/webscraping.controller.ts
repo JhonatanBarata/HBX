@@ -695,6 +695,23 @@ class RadarMarkSentDto {
   leadIds?: string[];
 }
 
+class RadarDistributeDto {
+  @IsArray()
+  @IsString({ each: true })
+  leadIds!: string[];
+
+  @IsArray()
+  @Type(() => Number)
+  @IsInt({ each: true })
+  @Min(1, { each: true })
+  userIds!: number[];
+
+  @IsOptional()
+  @Type(() => Boolean)
+  @IsBoolean()
+  skipWhatsappValidation?: boolean;
+}
+
 @Controller('webscraping')
 @UseGuards(JwtAuthGuard, ModuleAccessGuard)
 @ModuleAccess('webscraping')
@@ -798,6 +815,11 @@ export class WebscrapingController {
   @Post('radar/leads/mark-sent-to-vendas')
   radarLeadsMarkSentToVendas(@Req() req: any, @Body() dto: RadarMarkSentDto) {
     return this.webscrapingService.markRadarLeadsSentToVendasForUser(req.user, dto?.leadIds || []);
+  }
+
+  @Post('radar/leads/distribute-to-vendedores')
+  radarLeadsDistributeToVendedores(@Req() req: any, @Body() dto: RadarDistributeDto) {
+    return this.webscrapingService.distributeRadarLeadsToVendedoresForUser(req.user, dto || ({} as any));
   }
 
   @Post('radar/leads/:id/event')

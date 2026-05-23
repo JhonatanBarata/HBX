@@ -31,6 +31,7 @@ import {
   type ActiveCommercialPlanKey,
 } from '../commercial-plans/commercial-plan-catalog';
 import { MailService } from '../mail/mail.service';
+import { HbxCommissionSyncService } from '../commissions/hbx-commission-sync.service';
 
 const BILLING_GRACE_WINDOW_MS = 48 * 60 * 60 * 1000;
 const BILLING_GRACE_SECOND_NOTICE_MS = 24 * 60 * 60 * 1000;
@@ -74,6 +75,7 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
     private readonly prisma: PrismaService,
     private readonly mercadoPagoClient: MercadoPagoClientService,
     private readonly mailService: MailService,
+    private readonly hbxCommissionSync: HbxCommissionSyncService,
   ) {}
 
   onModuleInit() {
@@ -1713,6 +1715,9 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
       await this.syncPaidPlanModulesTx(tx, companyId, selectedPlanKey);
       await this.syncPaidCommercialEntitlementsTx(tx, companyId, selectedPlanKey, paidAt, periodEnd);
     });
+    await this.hbxCommissionSync.syncActivatedCompany(companyId, { source: 'financeiro_charge_paid' }).catch((error: any) => {
+      this.logger.warn(`commission_sync_charge_failed company=${companyId} error=${String(error?.message || error)}`);
+    });
   }
 
   private async activateCompanyFromSubscription(subscription: any, paidAt: Date, provider?: any) {
@@ -1775,6 +1780,9 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
 
       await this.syncPaidPlanModulesTx(tx, companyId, selectedPlanKey);
       await this.syncPaidCommercialEntitlementsTx(tx, companyId, selectedPlanKey, periodStart, periodEnd);
+    });
+    await this.hbxCommissionSync.syncActivatedCompany(companyId, { source: 'financeiro_subscription_active' }).catch((error: any) => {
+      this.logger.warn(`commission_sync_subscription_failed company=${companyId} error=${String(error?.message || error)}`);
     });
   }
 
@@ -2068,6 +2076,9 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
           isActive: false,
           deactivatedAt: now,
         },
+      });
+      await this.hbxCommissionSync.syncActivatedCompany(Number(subscription.companyId), { source: 'financeiro_subscription_canceled' }).catch((error: any) => {
+        this.logger.warn(`commission_sync_subscription_cancel_failed company=${subscription.companyId} error=${String(error?.message || error)}`);
       });
     }
   }

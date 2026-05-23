@@ -11,7 +11,7 @@ import { CompaniesModule } from '../companies/companies.module';
 import { CommercialPlansModule } from '../commercial-plans/commercial-plans.module';
 
 @Module({
-  imports: [PrismaModule, UsersModule, MasterContextModule, IntegrationsModule, forwardRef(() => CompaniesModule), CommercialPlansModule],
+  imports: [PrismaModule, forwardRef(() => UsersModule), MasterContextModule, IntegrationsModule, forwardRef(() => CompaniesModule), CommercialPlansModule],
   providers: [ModulesService, ModuleAccessGuard, MasterGuard],
   controllers: [ModulesController],
   exports: [ModulesService, ModuleAccessGuard],
