@@ -44,7 +44,16 @@ export class UsersService {
     });
   }
 
-  async create(data: { username?: string | null; email: string; password: string; name?: string; companyId?: number | null; role?: string }): Promise<User> {
+  async create(data: {
+    username?: string | null;
+    email: string;
+    password: string;
+    name?: string | null;
+    phone?: string | null;
+    commissionPercent?: number;
+    companyId?: number | null;
+    role?: string;
+  }): Promise<User> {
     const created = await this.prisma.user.create({ data });
     if (created.companyId && created.isActive && !created.isSystemMaster) {
       await this.logBillableUserChange({
@@ -155,7 +164,7 @@ export class UsersService {
     return updated;
   }
 
-  async listByCompany(companyId: number): Promise<Array<Pick<User, 'id' | 'username' | 'email' | 'name' | 'companyId' | 'role' | 'isActive' | 'deactivatedAt' | 'retentionUntil' | 'createdAt'>>> {
+  async listByCompany(companyId: number): Promise<Array<Pick<User, 'id' | 'username' | 'email' | 'name' | 'phone' | 'commissionPercent' | 'companyId' | 'role' | 'isActive' | 'deactivatedAt' | 'retentionUntil' | 'createdAt'>>> {
     return this.prisma.user.findMany({
       where: { companyId },
       orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
@@ -164,6 +173,8 @@ export class UsersService {
         username: true,
         email: true,
         name: true,
+        phone: true,
+        commissionPercent: true,
         companyId: true,
         role: true,
         isActive: true,

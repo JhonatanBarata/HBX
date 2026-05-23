@@ -11,7 +11,7 @@ test('HBX commercial catalog exposes package prices and quotas', () => {
   assert.equal(COMMERCIAL_PRICING.liteMonthly, 39.90);
   assert.equal(COMMERCIAL_PRICING.padraoMonthly, 99.90);
   assert.equal(COMMERCIAL_PRICING.melhorMonthly, 149.90);
-  assert.equal(COMMERCIAL_PRICING.extraUserMonthly, 29.90);
+  assert.equal(COMMERCIAL_PRICING.extraUserMonthly, 24.90);
   assert.equal(COMMERCIAL_PRICING.annualDiscountPercent, 20);
 
   const catalog = buildCommercialPlansCatalog();
@@ -23,7 +23,7 @@ test('HBX commercial catalog exposes package prices and quotas', () => {
   assert.equal(lite?.status, 'available');
   assert.equal(lite?.trialDays, 0);
   assert.equal(lite?.includedUsers, 1);
-  assert.equal(lite?.extraUserMonthlyPrice, 29.90);
+  assert.equal(lite?.extraUserMonthlyPrice, 0);
   assert.equal(lite?.requiresCheckout, false);
   assert.equal(lite?.quotas?.googleSearchesPerDay, 0);
   assert.equal(lite?.quotas?.cardsPerMonth, 880);
@@ -39,6 +39,8 @@ test('HBX commercial catalog exposes package prices and quotas', () => {
   assert.equal(padrao?.trialDays, 14);
   assert.equal(padrao?.hidden, false);
   assert.equal(padrao?.recommended, true);
+  assert.equal(padrao?.includedUsers, 2);
+  assert.equal(padrao?.extraUserMonthlyPrice, 24.90);
   assert.equal(padrao?.quotas?.googleSearchesPerDay, 2);
   assert.equal(padrao?.quotas?.cardsPerMonth, 2200);
   assert.equal(padrao?.quotas?.dailyCardSafetyLimit, 100);
@@ -47,8 +49,8 @@ test('HBX commercial catalog exposes package prices and quotas', () => {
   assert.equal(melhor?.title, 'HBX Full — Bot e IA');
   assert.equal(melhor?.monthlyPrice, 149.90);
   assert.equal(melhor?.trialDays, 0);
-  assert.equal(melhor?.includedUsers, 1);
-  assert.equal(melhor?.extraUserMonthlyPrice, 29.90);
+  assert.equal(melhor?.includedUsers, 2);
+  assert.equal(melhor?.extraUserMonthlyPrice, 24.90);
   assert.equal(melhor?.requiresAssistedSetup, true);
   assert.equal(melhor?.setupFeeMode, 'negotiated');
   assert.equal(melhor?.requiresCheckout, false);

@@ -76,6 +76,15 @@ const RETIRED_MODULE_KEYS = Array.isArray((structuralDefaults as any).retiredMod
   ? ((structuralDefaults as any).retiredModuleKeys as string[])
   : [];
 const TRIAL_BUNDLED_MODULE_KEYS = ['atendimento', 'vendas', 'webscraping'];
+const EMPLOYEE_BLOCKED_MODULE_KEYS = new Set([
+  'webscraping',
+  'cadastro',
+  'financeiro',
+  'gerencial',
+  'website',
+  'master',
+  'exclusoes',
+]);
 const MODULE_DISPLAY_ORDER = [
   'atendimento',
   'vendas',
@@ -1892,9 +1901,10 @@ export class ModulesService implements OnModuleInit {
   }
 
   private canUseAdminOnlyModule(user: any, moduleKey: string) {
-    void user;
-    void moduleKey;
-    return true;
+    const normalized = this.normalizeRequestedModuleKey(moduleKey);
+    const role = String(user?.role || '').trim().toUpperCase();
+    if (Boolean(user?.isSystemMaster) || role === 'ADMIN') return true;
+    return !EMPLOYEE_BLOCKED_MODULE_KEYS.has(normalized);
   }
 
   private defaultUserModuleAllowed(user: any, moduleKey: string) {
@@ -1912,7 +1922,7 @@ export class ModulesService implements OnModuleInit {
     if (key === 'master' || key === 'exclusoes') return isSystemMaster;
     if (isSystemMaster) return true;
     if (!companyId) return false;
-    if (this.isFinanceModuleKey(key)) return true;
+    if (this.isFinanceModuleKey(key)) return this.canUseAdminOnlyModule(user, key);
     if (this.isTrialBundledModuleKey(key)) {
       await this.ensureTrialBundleForCompany(companyId);
     }
@@ -1952,11 +1962,17 @@ export class ModulesService implements OnModuleInit {
       companyId,
       orderedModules.map((moduleItem) => moduleItem.key),
     );
+    const planManagedModuleKeys = new Set(
+      Object.values(COMMERCIAL_PLAN_MODULE_KEYS)
+        .flat()
+        .map((moduleKey) => this.normalizeRequestedModuleKey(moduleKey)),
+    );
 
     for (const moduleItem of orderedModules) {
       const normalizedModuleKey = this.normalizeRequestedModuleKey(moduleItem.key);
       const availability = availabilityMap.get(normalizedModuleKey);
       if (availability?.blockedByEngine && !accessPolicy.moduleKeys.has(normalizedModuleKey)) continue;
+      if (planManagedModuleKeys.has(normalizedModuleKey) && !accessPolicy.moduleKeys.has(normalizedModuleKey)) continue;
       if (!this.canUseAdminOnlyModule(user, moduleItem.key)) continue;
 
       const userAccess = isSystemMaster
@@ -2140,7 +2156,7 @@ export class ModulesService implements OnModuleInit {
           : primaryCommercialModule ||
             (guardedCommercialModule && Boolean(row)) ||
             Boolean(effectiveCompanyEnabled && userAllowed && roleEligible) ||
-            financeModule;
+            Boolean(financeModule && userAllowed && roleEligible);
         let blockedReason: string | null = null;
         let blockedCode: string | null = null;
         let criticalEngine: string | null = null;
@@ -2230,13 +2246,32 @@ export class ModulesService implements OnModuleInit {
     if (!companyId || (!isAdmin && !isSystemMaster)) throw new ForbiddenException('Admin role required');
     await this.ensureTrialBundleForCompany(companyId);
 
-    const [users, modules] = await Promise.all([
+    const [users, modules, company] = await Promise.all([
       this.usersService.listByCompany(companyId),
       this.prisma.systemModule.findMany({
         where: { companyAssignable: true, key: { notIn: RETIRED_MODULE_KEYS } },
         orderBy: { name: 'asc' },
       }),
+      this.prisma.company.findUnique({
+        where: { id: companyId },
+        select: {
+          isActive: true,
+          onboardingStatus: true,
+          paymentStatus: true,
+          subscriptionStatus: true,
+          premiumAccess: true,
+          selectedPlanKey: true,
+          trialEndsAt: true,
+          billingGraceEndsAt: true,
+        },
+      }),
     ]);
+    const accessPolicy = resolveCompanyModuleAccessPolicy(company);
+    const planManagedModuleKeys = new Set(
+      Object.values(COMMERCIAL_PLAN_MODULE_KEYS)
+        .flat()
+        .map((moduleKey) => this.normalizeRequestedModuleKey(moduleKey)),
+    );
 
     const companyModuleRows = await this.prisma.companyModule.findMany({ where: { companyId } });
     const companyModuleMap = new Map<number, boolean>(companyModuleRows.map((row) => [row.moduleId, row.enabled]));
@@ -2259,7 +2294,9 @@ export class ModulesService implements OnModuleInit {
         key: moduleItem.key,
         name: moduleItem.name,
         description: moduleItem.description,
-        companyEnabled: companyModuleMap.has(moduleItem.id) ? Boolean(companyModuleMap.get(moduleItem.id)) : false,
+        companyEnabled: planManagedModuleKeys.has(this.normalizeRequestedModuleKey(moduleItem.key))
+          ? accessPolicy.moduleKeys.has(this.normalizeRequestedModuleKey(moduleItem.key))
+          : companyModuleMap.has(moduleItem.id) ? Boolean(companyModuleMap.get(moduleItem.id)) : false,
       })),
       users: users.map((u) => {
         const userMap = accessByUser.get(u.id) || new Map<number, boolean>();

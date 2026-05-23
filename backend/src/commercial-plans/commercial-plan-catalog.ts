@@ -47,7 +47,7 @@ export const COMMERCIAL_PRICING = {
   liteMonthly: 39.90,
   padraoMonthly: 99.90,
   melhorMonthly: 149.90,
-  extraUserMonthly: 29.90,
+  extraUserMonthly: 24.90,
   annualDiscountPercent: 20,
 } as const;
 
@@ -101,8 +101,8 @@ export const PENDING_COMMERCIAL_ENTITLEMENT_STATUS = 'pending_checkout';
 
 export const COMMERCIAL_PLAN_MODULE_KEYS: Record<ActiveCommercialPlanKey, string[]> = {
   [COMMERCIAL_PLAN_KEYS.LITE]: ['vendas', 'webscraping'],
-  [COMMERCIAL_PLAN_KEYS.PADRAO]: ['atendimento', 'vendas', 'webscraping'],
-  [COMMERCIAL_PLAN_KEYS.MELHOR]: ['atendimento', 'vendas', 'webscraping', 'bot_ia'],
+  [COMMERCIAL_PLAN_KEYS.PADRAO]: ['atendimento', 'vendas', 'webscraping', 'cadastro', 'gerencial'],
+  [COMMERCIAL_PLAN_KEYS.MELHOR]: ['atendimento', 'vendas', 'webscraping', 'cadastro', 'gerencial', 'bot_ia'],
 };
 
 export const COMMERCIAL_PLAN_ENTITLEMENT_KEYS: Record<ActiveCommercialPlanKey, CommercialEntitlementKey[]> = {
@@ -255,7 +255,7 @@ export function buildCommercialPlansCatalog(options: { includeHidden?: boolean }
       trialDays: 0,
       annualDiscountPercent: COMMERCIAL_PRICING.annualDiscountPercent,
       includedUsers: 1,
-      extraUserMonthlyPrice: COMMERCIAL_PRICING.extraUserMonthly,
+      extraUserMonthlyPrice: 0,
       requiresAssistedSetup: false,
       setupFeeMode: 'none',
       hidden: false,
@@ -286,7 +286,7 @@ export function buildCommercialPlansCatalog(options: { includeHidden?: boolean }
       monthlyPrice: COMMERCIAL_PRICING.padraoMonthly,
       trialDays: 14,
       annualDiscountPercent: COMMERCIAL_PRICING.annualDiscountPercent,
-      includedUsers: 1,
+      includedUsers: 2,
       extraUserMonthlyPrice: COMMERCIAL_PRICING.extraUserMonthly,
       requiresAssistedSetup: false,
       setupFeeMode: 'none',
@@ -320,7 +320,7 @@ export function buildCommercialPlansCatalog(options: { includeHidden?: boolean }
       monthlyPrice: COMMERCIAL_PRICING.melhorMonthly,
       trialDays: 0,
       annualDiscountPercent: COMMERCIAL_PRICING.annualDiscountPercent,
-      includedUsers: 1,
+      includedUsers: 2,
       extraUserMonthlyPrice: COMMERCIAL_PRICING.extraUserMonthly,
       requiresAssistedSetup: true,
       setupFeeMode: 'negotiated',

@@ -56,6 +56,7 @@ import {
 import styles from "./page.module.css";
 
 type LeadStatus = "novo" | "contato" | "retorno" | "qualificado" | "encerrado";
+type SaleStatus = "none" | "activation_pending" | "trial_started" | "sale_confirmed" | "inactive" | "canceled";
 type LeadBlockKey = "today" | "overdue" | "scheduled" | "closed";
 type DateFilterKey = "overdue" | "today" | `scheduled:${string}`;
 type MobileAgendaTab = "overdue" | "today" | "upcoming";
@@ -290,6 +291,37 @@ type LeadItem = {
   attemptCount?: number;
   lastResult?: string | null;
   wasClosedBefore?: boolean;
+  createdByUserId?: number | null;
+  assignedUserId?: number | null;
+  assignedByUserId?: number | null;
+  assignedAt?: string | null;
+  commissionPercentSnapshot?: number | null;
+  saleStatus?: SaleStatus | string | null;
+  saleStatusLabel?: string | null;
+  saleValue?: number | null;
+  salePlanKey?: string | null;
+  saleConfirmedAt?: string | null;
+  saleCanceledAt?: string | null;
+  commissionStatus?: string | null;
+  commissionStatusLabel?: string | null;
+  commissionBaseAmount?: number | null;
+  commissionAmount?: number | null;
+  commissionDueAt?: string | null;
+  commissionPaidAt?: string | null;
+  commissionRecurring?: boolean | null;
+  commissionNote?: string | null;
+  commissionLinkedCompanyId?: number | null;
+  commissionLinkedAt?: string | null;
+  commissionAutoSyncedAt?: string | null;
+  commissionSyncSource?: string | null;
+  owner?: {
+    id?: number | null;
+    name?: string | null;
+    email?: string | null;
+    phone?: string | null;
+    role?: string | null;
+    commissionPercent?: number | null;
+  } | null;
   updatedAt?: string | null;
   createdAt?: string | null;
   signals?: {
@@ -378,6 +410,9 @@ type LeadDraft = {
   nextAction: string;
   returnAt: string;
   shortNote: string;
+  saleStatus: SaleStatus;
+  saleValue: string;
+  commissionNote: string;
 };
 
 type MobileChannelAsset = "phone" | "whatsapp" | "instagram" | "facebook" | "email" | "site";
@@ -499,6 +534,15 @@ const STATUS_OPTIONS: Array<{ value: LeadStatus; label: string }> = [
   { value: "retorno", label: "Retorno" },
   { value: "qualificado", label: "Qualificado" },
   { value: "encerrado", label: "Encerrado" },
+];
+
+const SALE_STATUS_OPTIONS: Array<{ value: SaleStatus; label: string }> = [
+  { value: "none", label: "Sem venda" },
+  { value: "activation_pending", label: "Aguardando ativação" },
+  { value: "trial_started", label: "Trial iniciado" },
+  { value: "sale_confirmed", label: "Pagamento confirmado" },
+  { value: "inactive", label: "Cliente inativo" },
+  { value: "canceled", label: "Cancelado" },
 ];
 
 const BLOCK_LABELS: Record<LeadBlockKey, string> = {
@@ -1346,6 +1390,34 @@ function statusLabel(status: LeadStatus) {
   return STATUS_OPTIONS.find((item) => item.value === status)?.label || status;
 }
 
+function normalizeSaleStatus(value?: string | null): SaleStatus {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (normalized === "activation_pending") return "activation_pending";
+  if (normalized === "trial_started") return "trial_started";
+  if (normalized === "sale_confirmed") return "sale_confirmed";
+  if (normalized === "inactive") return "inactive";
+  if (normalized === "canceled") return "canceled";
+  return "none";
+}
+
+function saleStatusLabel(status?: string | null) {
+  const normalized = normalizeSaleStatus(status);
+  return SALE_STATUS_OPTIONS.find((item) => item.value === normalized)?.label || "Sem venda";
+}
+
+function formatCurrency(value?: number | null) {
+  const numeric = Number(value || 0);
+  return numeric.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+}
+
+function parseCurrencyInput(value: string) {
+  const normalized = String(value || "").trim().replace(/\./g, "").replace(",", ".");
+  if (!normalized) return 0;
+  const numeric = Number(normalized);
+  if (!Number.isFinite(numeric)) return 0;
+  return Math.max(0, Math.round(numeric * 100) / 100);
+}
+
 function compactVendasMessage(message: string | null) {
   const text = String(message || "").trim();
   if (!text) return "";
@@ -1378,6 +1450,11 @@ function createDraft(lead: LeadItem): LeadDraft {
     nextAction: String(lead.nextAction || ""),
     returnAt: toDatetimeLocal(lead.returnAt),
     shortNote: String(lead.shortNote || ""),
+    saleStatus: normalizeSaleStatus(lead.saleStatus),
+    saleValue: Number(lead.saleValue || lead.commissionBaseAmount || 0) > 0
+      ? Number(lead.saleValue || lead.commissionBaseAmount || 0).toLocaleString("pt-BR", { maximumFractionDigits: 2 })
+      : "",
+    commissionNote: String(lead.commissionNote || ""),
   };
 }
 
@@ -1840,6 +1917,9 @@ function LeadCardView({
     signals.hadPreviousContact ? "Com histórico" : null,
     signals.wasClosedBefore ? "Já encerrado" : null,
     lead.whatsappAvailability?.status === "unavailable" ? "Sem WhatsApp" : null,
+    lead.owner?.name ? `Resp.: ${lead.owner.name}` : null,
+    normalizeSaleStatus(lead.saleStatus) !== "none" ? (lead.saleStatusLabel || saleStatusLabel(lead.saleStatus)) : null,
+    Number(lead.commissionAmount || 0) > 0 ? `Comissão ${formatCurrency(lead.commissionAmount)}` : null,
     lead.city || null,
   ].filter(Boolean);
 
@@ -2075,7 +2155,7 @@ function LeadCardView({
             </div>
           </div>
           <div className={glassCardStyles.cluster}>
-            {chips.slice(0, 3).map((chip) => (
+            {chips.slice(0, 5).map((chip) => (
               <span
                 key={`${lead.id}-${chip}`}
                 className={`${styles.memoryChip} ${glassCardStyles.pill} ${glassCardStyles.noBreak}`}
@@ -2148,6 +2228,36 @@ function LeadCardView({
                   ))}
                 </select>
               </label>
+              <label className={styles.field}>
+                <span className={styles.fieldLabel}>Cliente</span>
+                <select
+                  className={styles.fieldInput}
+                  value={draft.saleStatus}
+                  onChange={(e) =>
+                    onDraftChange?.(lead.id, {
+                      saleStatus: normalizeSaleStatus(e.target.value),
+                    })
+                  }
+                >
+                  {SALE_STATUS_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className={styles.field}>
+                <span className={styles.fieldLabel}>Valor base</span>
+                <input
+                  className={styles.fieldInput}
+                  inputMode="decimal"
+                  placeholder="Ex.: 149,90"
+                  value={draft.saleValue}
+                  onChange={(e) =>
+                    onDraftChange?.(lead.id, { saleValue: e.target.value })
+                  }
+                />
+              </label>
               <label className={styles.fieldWide}>
                 <span className={styles.fieldLabel}>Próxima ação</span>
                 <input
@@ -2177,6 +2287,17 @@ function LeadCardView({
                   value={draft.shortNote}
                   onChange={(e) =>
                     onDraftChange?.(lead.id, { shortNote: e.target.value })
+                  }
+                />
+              </label>
+              <label className={styles.fieldWide}>
+                <span className={styles.fieldLabel}>Nota de comissão</span>
+                <textarea
+                  className={styles.fieldTextarea}
+                  rows={2}
+                  value={draft.commissionNote}
+                  onChange={(e) =>
+                    onDraftChange?.(lead.id, { commissionNote: e.target.value })
                   }
                 />
               </label>
@@ -2593,6 +2714,9 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
     nextAction: "Primeiro contato",
     returnAt: plusDaysDatetimeLocal(0),
     shortNote: "",
+    saleStatus: "none",
+    saleValue: "",
+    commissionNote: "",
   });
   const leadCardRefs = useRef<Record<string, HTMLElement | null>>({});
   const leadStableOrderRef = useRef<Record<string, number>>({});
@@ -5692,6 +5816,9 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
         nextAction: "Primeiro contato",
         returnAt: plusDaysDatetimeLocal(0),
         shortNote: "",
+        saleStatus: "none",
+        saleValue: "",
+        commissionNote: "",
       });
       setComposerOpen(false);
       await loadBoard({ forceHydrateDrafts: true, forceVisualRefresh: true });
@@ -5718,6 +5845,9 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
           nextAction: "",
           returnAt: "",
           shortNote: "",
+          saleStatus: "none",
+          saleValue: "",
+          commissionNote: "",
         }),
         ...patch,
       },
@@ -5738,6 +5868,9 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
         nextAction: "",
         returnAt: "",
         shortNote: "",
+        saleStatus: "none",
+        saleValue: "",
+        commissionNote: "",
       }),
       ...(patch || {}),
     };
@@ -5753,6 +5886,9 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
         nextAction: draft.nextAction,
         returnAt: draft.returnAt || "",
         shortNote: draft.shortNote,
+        saleStatus: normalizeSaleStatus(draft.saleStatus),
+        saleValue: parseCurrencyInput(draft.saleValue),
+        commissionNote: draft.commissionNote,
       };
       await apiFetch(`/vendas/lead/${leadId}`, {
         method: "PATCH",

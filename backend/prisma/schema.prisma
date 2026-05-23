@@ -156,6 +156,7 @@ model Company {
   radarLeadCompanyStates RadarLeadCompanyState[]
   radarLeadEvents RadarLeadEvent[]
   vendasLeads         VendasLead[]
+  vendasCommissionPayouts VendasCommissionPayout[]
   salesProfiles       SalesProfile[]
   vendasAutomationCampaigns VendasAutomationCampaign[]
   vendasAutomationJobs VendasAutomationJob[]
@@ -849,6 +850,8 @@ model User {
   emailConfirmationExpiresAt DateTime?
   password        String
   name            String?
+  phone           String?
+  commissionPercent Float          @default(0)
   company         Company?         @relation(fields: [companyId], references: [id])
   companyId       Int?
   role            String           @default("USER")
@@ -1586,6 +1589,27 @@ model VendasLead {
   wasClosedBefore   Boolean  @default(false)
   closedAt          DateTime?
   createdByUserId   Int?
+  assignedUserId    Int?
+  assignedByUserId  Int?
+  assignedAt        DateTime?
+  commissionPercentSnapshot Float @default(0)
+  saleStatus        String   @default("none") // none | activation_pending | trial_started | sale_confirmed | inactive | canceled
+  saleValue         Float    @default(0)
+  salePlanKey       String?
+  saleConfirmedAt   DateTime?
+  saleCanceledAt    DateTime?
+  commissionStatus  String   @default("none") // none | pending | payable | paid | canceled
+  commissionBaseAmount Float @default(0)
+  commissionAmount  Float    @default(0)
+  commissionDueAt   DateTime?
+  commissionPaidAt  DateTime?
+  commissionRecurring Boolean @default(false)
+  commissionNote    String?
+  commissionLinkedCompanyId Int?
+  commissionLinkedAt DateTime?
+  commissionAutoSyncedAt DateTime?
+  commissionSyncSource String?
+  commissionPayoutId String?
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
   timelineEvents    VendasLeadTimelineEvent[]
@@ -1595,7 +1619,31 @@ model VendasLead {
   @@unique([companyId, phoneNormalized])
   @@index([companyId, status, returnAt])
   @@index([companyId, updatedAt])
+  @@index([assignedUserId, status])
+  @@index([assignedUserId, commissionStatus])
+  @@index([companyId, saleStatus])
+  @@index([commissionLinkedCompanyId])
+  @@index([commissionPayoutId])
   @@index([customerProfileId])
+}
+
+model VendasCommissionPayout {
+  id              String   @id @default(cuid())
+  company         Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  companyId       Int
+  sellerUserId    Int?
+  status          String   @default("paid") // paid | canceled
+  leadCount       Int      @default(0)
+  totalAmount     Float    @default(0)
+  referenceLabel  String?
+  notes           String?
+  paidAt          DateTime?
+  createdByUserId Int?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([companyId, paidAt])
+  @@index([sellerUserId, paidAt])
 }
 
 model VendasLeadTimelineEvent {

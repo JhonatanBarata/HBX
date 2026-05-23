@@ -56,6 +56,9 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
       console.log('Prisma runtime target:', describeDatabaseTarget(this.runtimeDatabaseUrl || String(process.env.DATABASE_URL || '').trim()));
     } catch (e) {}
     await this.$connect();
+    await this.ensureUserSalesProfileColumns();
+    await this.ensureVendasLeadAssignmentColumns();
+    await this.ensureVendasCommissionPayoutTables();
   }
 
   async onModuleDestroy() {
@@ -131,5 +134,187 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
       this.schemaCapabilityCache.set(cacheKey, false);
       return false;
     }
+  }
+
+  private async ensureUserSalesProfileColumns() {
+    await this.$executeRawUnsafe(`
+      ALTER TABLE "User"
+      ADD COLUMN IF NOT EXISTS "phone" TEXT
+    `);
+
+    await this.$executeRawUnsafe(`
+      ALTER TABLE "User"
+      ADD COLUMN IF NOT EXISTS "commissionPercent" DOUBLE PRECISION NOT NULL DEFAULT 0
+    `);
+  }
+
+  private async ensureVendasLeadAssignmentColumns() {
+    await this.$executeRawUnsafe(`
+      ALTER TABLE "VendasLead"
+      ADD COLUMN IF NOT EXISTS "assignedUserId" INTEGER
+    `);
+
+    await this.$executeRawUnsafe(`
+      ALTER TABLE "VendasLead"
+      ADD COLUMN IF NOT EXISTS "assignedByUserId" INTEGER
+    `);
+
+    await this.$executeRawUnsafe(`
+      ALTER TABLE "VendasLead"
+      ADD COLUMN IF NOT EXISTS "assignedAt" TIMESTAMP(3)
+    `);
+
+    await this.$executeRawUnsafe(`
+      ALTER TABLE "VendasLead"
+      ADD COLUMN IF NOT EXISTS "commissionPercentSnapshot" DOUBLE PRECISION NOT NULL DEFAULT 0
+    `);
+
+    await this.$executeRawUnsafe(`
+      ALTER TABLE "VendasLead"
+      ADD COLUMN IF NOT EXISTS "saleStatus" TEXT NOT NULL DEFAULT 'none'
+    `);
+
+    await this.$executeRawUnsafe(`
+      ALTER TABLE "VendasLead"
+      ADD COLUMN IF NOT EXISTS "saleValue" DOUBLE PRECISION NOT NULL DEFAULT 0
+    `);
+
+    await this.$executeRawUnsafe(`
+      ALTER TABLE "VendasLead"
+      ADD COLUMN IF NOT EXISTS "salePlanKey" TEXT
+    `);
+
+    await this.$executeRawUnsafe(`
+      ALTER TABLE "VendasLead"
+      ADD COLUMN IF NOT EXISTS "saleConfirmedAt" TIMESTAMP(3)
+    `);
+
+    await this.$executeRawUnsafe(`
+      ALTER TABLE "VendasLead"
+      ADD COLUMN IF NOT EXISTS "saleCanceledAt" TIMESTAMP(3)
+    `);
+
+    await this.$executeRawUnsafe(`
+      ALTER TABLE "VendasLead"
+      ADD COLUMN IF NOT EXISTS "commissionStatus" TEXT NOT NULL DEFAULT 'none'
+    `);
+
+    await this.$executeRawUnsafe(`
+      ALTER TABLE "VendasLead"
+      ADD COLUMN IF NOT EXISTS "commissionBaseAmount" DOUBLE PRECISION NOT NULL DEFAULT 0
+    `);
+
+    await this.$executeRawUnsafe(`
+      ALTER TABLE "VendasLead"
+      ADD COLUMN IF NOT EXISTS "commissionAmount" DOUBLE PRECISION NOT NULL DEFAULT 0
+    `);
+
+    await this.$executeRawUnsafe(`
+      ALTER TABLE "VendasLead"
+      ADD COLUMN IF NOT EXISTS "commissionDueAt" TIMESTAMP(3)
+    `);
+
+    await this.$executeRawUnsafe(`
+      ALTER TABLE "VendasLead"
+      ADD COLUMN IF NOT EXISTS "commissionPaidAt" TIMESTAMP(3)
+    `);
+
+    await this.$executeRawUnsafe(`
+      ALTER TABLE "VendasLead"
+      ADD COLUMN IF NOT EXISTS "commissionRecurring" BOOLEAN NOT NULL DEFAULT false
+    `);
+
+    await this.$executeRawUnsafe(`
+      ALTER TABLE "VendasLead"
+      ADD COLUMN IF NOT EXISTS "commissionNote" TEXT
+    `);
+
+    await this.$executeRawUnsafe(`
+      ALTER TABLE "VendasLead"
+      ADD COLUMN IF NOT EXISTS "commissionLinkedCompanyId" INTEGER
+    `);
+
+    await this.$executeRawUnsafe(`
+      ALTER TABLE "VendasLead"
+      ADD COLUMN IF NOT EXISTS "commissionLinkedAt" TIMESTAMP(3)
+    `);
+
+    await this.$executeRawUnsafe(`
+      ALTER TABLE "VendasLead"
+      ADD COLUMN IF NOT EXISTS "commissionAutoSyncedAt" TIMESTAMP(3)
+    `);
+
+    await this.$executeRawUnsafe(`
+      ALTER TABLE "VendasLead"
+      ADD COLUMN IF NOT EXISTS "commissionSyncSource" TEXT
+    `);
+
+    await this.$executeRawUnsafe(`
+      ALTER TABLE "VendasLead"
+      ADD COLUMN IF NOT EXISTS "commissionPayoutId" TEXT
+    `);
+
+    await this.$executeRawUnsafe(`
+      CREATE INDEX IF NOT EXISTS "VendasLead_assignedUserId_status_idx" ON "VendasLead"("assignedUserId", "status")
+    `);
+
+    await this.$executeRawUnsafe(`
+      CREATE INDEX IF NOT EXISTS "VendasLead_assignedUserId_commissionStatus_idx" ON "VendasLead"("assignedUserId", "commissionStatus")
+    `);
+
+    await this.$executeRawUnsafe(`
+      CREATE INDEX IF NOT EXISTS "VendasLead_companyId_saleStatus_idx" ON "VendasLead"("companyId", "saleStatus")
+    `);
+
+    await this.$executeRawUnsafe(`
+      CREATE INDEX IF NOT EXISTS "VendasLead_commissionLinkedCompanyId_idx" ON "VendasLead"("commissionLinkedCompanyId")
+    `);
+
+    await this.$executeRawUnsafe(`
+      CREATE INDEX IF NOT EXISTS "VendasLead_commissionPayoutId_idx" ON "VendasLead"("commissionPayoutId")
+    `);
+  }
+
+  private async ensureVendasCommissionPayoutTables() {
+    await this.$executeRawUnsafe(`
+      CREATE TABLE IF NOT EXISTS "VendasCommissionPayout" (
+        "id" TEXT NOT NULL,
+        "companyId" INTEGER NOT NULL,
+        "sellerUserId" INTEGER,
+        "status" TEXT NOT NULL DEFAULT 'paid',
+        "leadCount" INTEGER NOT NULL DEFAULT 0,
+        "totalAmount" DOUBLE PRECISION NOT NULL DEFAULT 0,
+        "referenceLabel" TEXT,
+        "notes" TEXT,
+        "paidAt" TIMESTAMP(3),
+        "createdByUserId" INTEGER,
+        "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT "VendasCommissionPayout_pkey" PRIMARY KEY ("id")
+      )
+    `);
+
+    await this.$executeRawUnsafe(`
+      DO $$
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1
+          FROM pg_constraint
+          WHERE conname = 'VendasCommissionPayout_companyId_fkey'
+        ) THEN
+          ALTER TABLE "VendasCommissionPayout"
+          ADD CONSTRAINT "VendasCommissionPayout_companyId_fkey"
+          FOREIGN KEY ("companyId") REFERENCES "Company"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+        END IF;
+      END $$
+    `);
+
+    await this.$executeRawUnsafe(`
+      CREATE INDEX IF NOT EXISTS "VendasCommissionPayout_companyId_paidAt_idx" ON "VendasCommissionPayout"("companyId", "paidAt")
+    `);
+
+    await this.$executeRawUnsafe(`
+      CREATE INDEX IF NOT EXISTS "VendasCommissionPayout_sellerUserId_paidAt_idx" ON "VendasCommissionPayout"("sellerUserId", "paidAt")
+    `);
   }
 }

@@ -27,6 +27,7 @@ import {
   type ActiveCommercialPlanKey,
   type CommercialPlanKey,
 } from '../commercial-plans/commercial-plan-catalog';
+import { HbxCommissionSyncService } from '../commissions/hbx-commission-sync.service';
 
 @Injectable()
 export class AuthService implements OnModuleInit {
@@ -39,6 +40,7 @@ export class AuthService implements OnModuleInit {
     private prisma: PrismaService,
     private mail: MailService,
     private emailTemplates: EmailTemplateService,
+    private hbxCommissionSync: HbxCommissionSyncService,
   ) {}
 
   async onModuleInit() {
@@ -1779,6 +1781,14 @@ export class AuthService implements OnModuleInit {
       }
     });
 
+    if (user.companyId) {
+      await this.hbxCommissionSync.syncActivatedCompany(Number(user.companyId), {
+        source: requiresTrialActivation ? 'auth_email_confirmed_pending_trial' : 'auth_email_confirmed',
+      }).catch((error: any) => {
+        this.logger.warn(`commission_sync_confirm_email_failed company=${user.companyId} error=${String(error?.message || error)}`);
+      });
+    }
+
     const loginPayload = user.companyId
       ? await this.login(
           {
@@ -1900,6 +1910,10 @@ export class AuthService implements OnModuleInit {
         },
       });
       trialEndsAt = await this.activateConfirmedTrialTx(tx, companyId, now);
+    });
+
+    await this.hbxCommissionSync.syncActivatedCompany(companyId, { source: 'auth_trial_started' }).catch((error: any) => {
+      this.logger.warn(`commission_sync_trial_failed company=${companyId} error=${String(error?.message || error)}`);
     });
 
     return {

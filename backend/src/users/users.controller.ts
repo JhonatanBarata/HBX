@@ -5,10 +5,13 @@ import { RolesGuard } from '../auth/roles.guard';
 import { Admin } from '../auth/admin.decorator';
 import { MasterGuard } from '../auth/guards/master.guard';
 import { Throttle } from '@nestjs/throttler';
-import { IsBoolean, IsEmail, IsIn, IsOptional, IsString, MinLength } from 'class-validator';
+import { Type } from 'class-transformer';
+import { IsBoolean, IsEmail, IsIn, IsNumber, IsOptional, IsString, Max, Min, MinLength } from 'class-validator';
 import * as bcrypt from 'bcryptjs';
 import { assertPasswordPolicy } from '../auth/password-policy';
 import { MasterContextService } from '../master-context/master-context.service';
+import { ModuleAccessGuard } from '../modules/module-access.guard';
+import { ModuleAccess } from '../modules/module-feature.decorator';
 
 class UpdateRoleDto {
 	@IsString()
@@ -23,6 +26,17 @@ class CreateCompanyUserDto {
 	@IsOptional()
 	@IsString()
 	name?: string;
+
+	@IsOptional()
+	@IsString()
+	phone?: string;
+
+	@IsOptional()
+	@Type(() => Number)
+	@IsNumber({ maxDecimalPlaces: 2 })
+	@Min(0)
+	@Max(100)
+	commissionPercent?: number;
 
 	@IsOptional()
 	@IsString()
@@ -41,6 +55,23 @@ class ToggleActiveDto {
 	active?: boolean;
 }
 
+class UpdateCompanyUserProfileDto {
+	@IsOptional()
+	@IsString()
+	name?: string;
+
+	@IsOptional()
+	@IsString()
+	phone?: string;
+
+	@IsOptional()
+	@Type(() => Number)
+	@IsNumber({ maxDecimalPlaces: 2 })
+	@Min(0)
+	@Max(100)
+	commissionPercent?: number;
+}
+
 class MasterCreateUserDto {
 	@IsEmail()
 	email!: string;
@@ -52,6 +83,17 @@ class MasterCreateUserDto {
 	@IsOptional()
 	@IsString()
 	name?: string;
+
+	@IsOptional()
+	@IsString()
+	phone?: string;
+
+	@IsOptional()
+	@Type(() => Number)
+	@IsNumber({ maxDecimalPlaces: 2 })
+	@Min(0)
+	@Max(100)
+	commissionPercent?: number;
 
 	@IsOptional()
 	@IsString()
@@ -79,6 +121,17 @@ class MasterEditUserDto {
 
 	@IsOptional()
 	@IsString()
+	phone?: string;
+
+	@IsOptional()
+	@Type(() => Number)
+	@IsNumber({ maxDecimalPlaces: 2 })
+	@Min(0)
+	@Max(100)
+	commissionPercent?: number;
+
+	@IsOptional()
+	@IsString()
 	@IsIn(['USER', 'ADMIN'])
 	role?: 'USER' | 'ADMIN';
 
@@ -92,6 +145,19 @@ class MasterResetPasswordDto {
 	@IsString()
 	@MinLength(8)
 	password?: string;
+}
+
+function normalizeNullableText(value: unknown) {
+	if (typeof value !== 'string') return undefined;
+	const trimmed = value.trim().replace(/\s+/g, ' ');
+	return trimmed || null;
+}
+
+function normalizeCommissionPercent(value: unknown) {
+	if (value === undefined || value === null || value === '') return undefined;
+	const numeric = Number(value);
+	if (!Number.isFinite(numeric)) throw new BadRequestException('Comissão inválida');
+	return Math.min(100, Math.max(0, Math.round(numeric * 100) / 100));
 }
 
 @Controller('users')
@@ -116,8 +182,9 @@ export class UsersController {
 	}
 
 	@Get('company')
-	@UseGuards(JwtAuthGuard, RolesGuard)
+	@UseGuards(JwtAuthGuard, RolesGuard, ModuleAccessGuard)
 	@Admin()
+	@ModuleAccess('gerencial')
 	async listCompanyUsers(@Req() req: any) {
 		const companyId = Number(req?.user?.companyId);
 		if (!companyId) throw new ForbiddenException('Company context required');
@@ -125,8 +192,9 @@ export class UsersController {
 	}
 
 	@Patch(':id/role')
-	@UseGuards(JwtAuthGuard, RolesGuard)
+	@UseGuards(JwtAuthGuard, RolesGuard, ModuleAccessGuard)
 	@Admin()
+	@ModuleAccess('gerencial')
 	async updateRole(@Req() req: any, @Param('id', ParseIntPipe) id: number, @Body() dto: UpdateRoleDto) {
 		const companyId = Number(req?.user?.companyId);
 		if (!companyId) throw new ForbiddenException('Company context required');
@@ -151,9 +219,51 @@ export class UsersController {
 		};
 	}
 
-	@Patch(':id/active')
-	@UseGuards(JwtAuthGuard, RolesGuard)
+	@Patch(':id/profile')
+	@UseGuards(JwtAuthGuard, RolesGuard, ModuleAccessGuard)
 	@Admin()
+	@ModuleAccess('gerencial')
+	async updateCompanyUserProfile(
+		@Req() req: any,
+		@Param('id', ParseIntPipe) id: number,
+		@Body() dto: UpdateCompanyUserProfileDto,
+	) {
+		const companyId = Number(req?.user?.companyId);
+		if (!companyId) throw new ForbiddenException('Company context required');
+
+		const target = await this.usersService.findById(id);
+		if (!target) throw new NotFoundException('Usuário não encontrado');
+		if (Number(target.companyId) !== companyId) {
+			throw new ForbiddenException('Usuário fora da sua empresa');
+		}
+		if (target.isSystemMaster) {
+			throw new ForbiddenException('Usuário MASTER não pode ser alterado por admin da empresa');
+		}
+
+		const data: any = {};
+		const name = normalizeNullableText(dto.name);
+		const phone = normalizeNullableText(dto.phone);
+		const commissionPercent = normalizeCommissionPercent(dto.commissionPercent);
+		if (name !== undefined) data.name = name;
+		if (phone !== undefined) data.phone = phone;
+		if (commissionPercent !== undefined) data.commissionPercent = commissionPercent;
+
+		const updated = Object.keys(data).length
+			? await this.usersService.updateById(id, data)
+			: target;
+
+		return {
+			id: updated.id,
+			name: updated.name,
+			phone: updated.phone,
+			commissionPercent: updated.commissionPercent,
+		};
+	}
+
+	@Patch(':id/active')
+	@UseGuards(JwtAuthGuard, RolesGuard, ModuleAccessGuard)
+	@Admin()
+	@ModuleAccess('gerencial')
 	async toggleActive(@Req() req: any, @Param('id', ParseIntPipe) id: number, @Body() dto: ToggleActiveDto) {
 		const companyId = Number(req?.user?.companyId);
 		const requesterId = Number(req?.user?.id);
@@ -195,8 +305,9 @@ export class UsersController {
 	}
 
 	@Post('company/create')
-	@UseGuards(JwtAuthGuard, RolesGuard)
+	@UseGuards(JwtAuthGuard, RolesGuard, ModuleAccessGuard)
 	@Admin()
+	@ModuleAccess('gerencial')
 	async createCompanyUser(@Req() req: any, @Body() dto: CreateCompanyUserDto) {
 		const companyId = Number(req?.user?.companyId);
 		if (!companyId) throw new ForbiddenException('Company context required');
@@ -221,10 +332,14 @@ export class UsersController {
 		const role = (dto.role === 'ADMIN' ? 'ADMIN' : 'USER') as 'USER' | 'ADMIN';
 
 		const attendantName = String(dto?.name || '').trim();
+		const phone = normalizeNullableText(dto.phone);
+		const commissionPercent = normalizeCommissionPercent(dto.commissionPercent) ?? 0;
 		const created = await this.usersService.create({
 			email,
 			username: email,
 			name: attendantName || undefined,
+			phone,
+			commissionPercent,
 			password: hashed,
 			companyId,
 			role,
@@ -236,6 +351,8 @@ export class UsersController {
 				email: created.email,
 				username: created.username,
 				name: created.name,
+				phone: created.phone,
+				commissionPercent: created.commissionPercent,
 				role: created.role,
 				isActive: created.isActive,
 			},
@@ -295,11 +412,15 @@ export class UsersController {
 		assertPasswordPolicy(tempPassword);
 		const hashed = await bcrypt.hash(tempPassword, 10);
 		const role = (dto.role === 'ADMIN' ? 'ADMIN' : 'USER') as 'USER' | 'ADMIN';
+		const phone = normalizeNullableText(dto.phone);
+		const commissionPercent = normalizeCommissionPercent(dto.commissionPercent) ?? 0;
 
 		const created = await this.usersService.create({
 			email,
 			username: loginUsername,
 			name: attendantName || undefined,
+			phone,
+			commissionPercent,
 			password: hashed,
 			companyId,
 			role,
@@ -315,6 +436,8 @@ export class UsersController {
 				email: created.email,
 				username: created.username || null,
 				name: created.name || null,
+				phone: created.phone || null,
+				commissionPercent: created.commissionPercent,
 				role: created.role,
 			},
 		});
@@ -325,6 +448,8 @@ export class UsersController {
 				email: created.email,
 				username: created.username,
 				name: created.name,
+				phone: created.phone,
+				commissionPercent: created.commissionPercent,
 				role: created.role,
 				isActive: created.isActive,
 			},
@@ -364,6 +489,16 @@ export class UsersController {
 			data.name = dto.name.trim() || null;
 		}
 
+		const phone = normalizeNullableText(dto.phone);
+		if (phone !== undefined) {
+			data.phone = phone;
+		}
+
+		const commissionPercent = normalizeCommissionPercent(dto.commissionPercent);
+		if (commissionPercent !== undefined) {
+			data.commissionPercent = commissionPercent;
+		}
+
 		if (typeof dto.role === 'string') {
 			const role = String(dto.role).toUpperCase();
 			data.role = role === 'ADMIN' ? 'ADMIN' : 'USER';
@@ -392,6 +527,8 @@ export class UsersController {
 				email: updated.email || null,
 				username: updated.username || null,
 				name: updated.name || null,
+				phone: updated.phone || null,
+				commissionPercent: updated.commissionPercent,
 				role: updated.role,
 				isActive: updated.isActive,
 			},
@@ -401,6 +538,8 @@ export class UsersController {
 			email: updated.email,
 			username: updated.username,
 			name: updated.name,
+			phone: updated.phone,
+			commissionPercent: updated.commissionPercent,
 			role: updated.role,
 			isActive: updated.isActive,
 			deactivatedAt: updated.deactivatedAt,
