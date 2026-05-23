@@ -19,7 +19,7 @@ import { MessagingModule } from '../messaging/messaging.module';
 @Module({
   imports: [
     PrismaModule,
-    UsersModule,
+    forwardRef(() => UsersModule),
     PlansModule,
     PaymentsModule,
     MasterContextModule,
