@@ -4,6 +4,7 @@ import { CustomerProfileService } from '../customer-profile/customer-profile.ser
 import { InboxService } from '../inbox/inbox.service';
 import { CommercialPlansService } from '../commercial-plans/commercial-plans.service';
 import { CommercialUsageLimitsService } from '../commercial-plans/commercial-usage-limits.service';
+import { HbxCommissionSyncService } from '../commissions/hbx-commission-sync.service';
 import {
   COMMERCIAL_PLAN_KEYS,
   getCommercialPlanCapabilities,
@@ -249,6 +250,7 @@ export class VendasService {
     private readonly commercialPlansService: CommercialPlansService,
     private readonly hbxPresentationEmails: HbxPresentationEmailService,
     private readonly commercialUsageLimits: CommercialUsageLimitsService,
+    private readonly hbxCommissionSync: HbxCommissionSyncService,
   ) {}
 
   async getAutomationBotConfigForUser(user: any) {
@@ -1472,6 +1474,61 @@ export class VendasService {
       .map(([label, count]) => ({ label, count }));
   }
 
+  private isDueCommission(row: any, now = new Date()) {
+    if (this.normalizeCommissionStatus(row?.commissionStatus) !== 'payable') return false;
+    if (this.normalizeCurrencyAmount(row?.commissionAmount) <= 0) return false;
+    return !(row?.commissionDueAt instanceof Date) || row.commissionDueAt.getTime() <= now.getTime();
+  }
+
+  private isDueReceivable(row: any, now = new Date()) {
+    if (String(row?.status || '').trim().toLowerCase() !== 'payable') return false;
+    if (this.normalizeCurrencyAmount(row?.amount) <= 0) return false;
+    return !(row?.dueAt instanceof Date) || row.dueAt.getTime() <= now.getTime();
+  }
+
+  private buildCommissionClientPayload(row: any) {
+    return {
+      leadId: String(row?.id || ''),
+      name: row?.name ? String(row.name) : row?.phone ? String(row.phone) : 'Cliente sem nome',
+      phone: row?.phone ? String(row.phone) : null,
+      city: row?.city ? String(row.city) : null,
+      segment: row?.segment ? String(row.segment) : null,
+      saleStatus: this.normalizeSaleStatus(row?.saleStatus),
+      saleStatusLabel: this.formatSaleStatusLabel(this.normalizeSaleStatus(row?.saleStatus)),
+      commissionStatus: this.normalizeCommissionStatus(row?.commissionStatus),
+      commissionStatusLabel: this.formatCommissionStatusLabel(this.normalizeCommissionStatus(row?.commissionStatus)),
+      saleValue: this.normalizeCurrencyAmount(row?.saleValue || row?.commissionBaseAmount),
+      commissionAmount: this.normalizeCurrencyAmount(row?.commissionAmount),
+      commissionDueAt: row?.commissionDueAt instanceof Date ? row.commissionDueAt.toISOString() : null,
+      commissionPaidAt: row?.commissionPaidAt instanceof Date ? row.commissionPaidAt.toISOString() : null,
+      commissionPayoutId: row?.commissionPayoutId ? String(row.commissionPayoutId) : null,
+      updatedAt: row?.updatedAt instanceof Date ? row.updatedAt.toISOString() : null,
+    };
+  }
+
+  private buildCommissionReceivablePayload(row: any) {
+    const lead = row?.lead || {};
+    return {
+      leadId: String(row?.leadId || lead?.id || ''),
+      name: lead?.name ? String(lead.name) : lead?.phone ? String(lead.phone) : 'Comissão recorrente',
+      phone: lead?.phone ? String(lead.phone) : null,
+      city: lead?.city ? String(lead.city) : null,
+      segment: lead?.segment ? String(lead.segment) : null,
+      saleStatus: this.normalizeSaleStatus(lead?.saleStatus),
+      saleStatusLabel: this.formatSaleStatusLabel(this.normalizeSaleStatus(lead?.saleStatus)),
+      commissionStatus: String(row?.status || 'payable'),
+      commissionStatusLabel: this.formatCommissionStatusLabel(this.normalizeCommissionStatus(row?.status)),
+      saleValue: this.normalizeCurrencyAmount(row?.baseAmount),
+      commissionAmount: this.normalizeCurrencyAmount(row?.amount),
+      commissionDueAt: row?.dueAt instanceof Date ? row.dueAt.toISOString() : null,
+      commissionPaidAt: row?.paidAt instanceof Date ? row.paidAt.toISOString() : null,
+      commissionPayoutId: row?.payoutId ? String(row.payoutId) : null,
+      recurringCycleKey: row?.cycleKey ? String(row.cycleKey) : null,
+      isRecurring: true,
+      updatedAt: row?.updatedAt instanceof Date ? row.updatedAt.toISOString() : null,
+    };
+  }
+
   private extractTimelineJson(description: unknown) {
     const raw = this.normalizeText(description);
     if (!raw || !raw.startsWith('{')) return {};
@@ -1599,6 +1656,146 @@ export class VendasService {
       };
     }
     return report;
+  }
+
+  async getCommissionSummaryForUser(user: any) {
+    const context = this.resolveUserContext(user);
+    await this.hbxCommissionSync.syncSalesCompanyCommissions(context.companyId, { source: 'vendas_commission_summary' }).catch((error: any) => {
+      this.logger.warn(`commission_summary_sync_failed company=${context.companyId} error=${String(error?.message || error)}`);
+    });
+    const now = new Date();
+    const leads = await this.prisma.vendasLead.findMany({
+      where: this.buildLeadAccessWhere(context, {
+        OR: [
+          { saleStatus: { not: 'none' } },
+          { commissionStatus: { not: 'none' } },
+          { commissionAmount: { gt: 0 } },
+        ],
+      }),
+      orderBy: [{ commissionDueAt: 'asc' }, { updatedAt: 'desc' }],
+      take: 1000,
+      select: {
+        id: true,
+        name: true,
+        phone: true,
+        city: true,
+        segment: true,
+        saleStatus: true,
+        saleValue: true,
+        commissionStatus: true,
+        commissionBaseAmount: true,
+        commissionAmount: true,
+        commissionDueAt: true,
+        commissionPaidAt: true,
+        commissionPayoutId: true,
+        updatedAt: true,
+      },
+    });
+    const receivables = await this.prisma.vendasCommissionReceivable.findMany({
+      where: context.canManageTeam
+        ? { companyId: context.companyId }
+        : { companyId: context.companyId, sellerUserId: context.userId },
+      orderBy: [{ dueAt: 'asc' }, { updatedAt: 'desc' }],
+      take: 1000,
+      include: {
+        lead: {
+          select: {
+            id: true,
+            name: true,
+            phone: true,
+            city: true,
+            segment: true,
+            saleStatus: true,
+          },
+        },
+      },
+    });
+
+    const payable = leads.filter((row) => this.normalizeCommissionStatus(row.commissionStatus) === 'payable');
+    const duePayable = payable.filter((row) => this.isDueCommission(row, now));
+    const pending = leads.filter((row) => this.normalizeCommissionStatus(row.commissionStatus) === 'pending');
+    const paid = leads.filter((row) => this.normalizeCommissionStatus(row.commissionStatus) === 'paid');
+    const payableReceivables = receivables.filter((row) => String(row.status || '').trim().toLowerCase() === 'payable');
+    const duePayableReceivables = payableReceivables.filter((row) => this.isDueReceivable(row, now));
+    const paidReceivables = receivables.filter((row) => String(row.status || '').trim().toLowerCase() === 'paid');
+    const active = leads.filter((row) => ['trial_started', 'sale_confirmed'].includes(this.normalizeSaleStatus(row.saleStatus)));
+    const pendingActivation = leads.filter((row) => this.normalizeSaleStatus(row.saleStatus) === 'activation_pending');
+    const inactive = leads.filter((row) => ['inactive', 'canceled'].includes(this.normalizeSaleStatus(row.saleStatus)));
+    const nextDue = [
+      ...payable.map((row) => row.commissionDueAt instanceof Date ? row.commissionDueAt : null),
+      ...payableReceivables.map((row) => row.dueAt instanceof Date ? row.dueAt : null),
+    ]
+      .filter((date): date is Date => Boolean(date))
+      .sort((a, b) => a.getTime() - b.getTime())[0] || null;
+
+    const payoutWhere = context.canManageTeam
+      ? { companyId: context.companyId }
+      : { companyId: context.companyId, sellerUserId: context.userId };
+    const payouts = await this.prisma.vendasCommissionPayout.findMany({
+      where: payoutWhere,
+      orderBy: [{ paidAt: 'desc' }, { createdAt: 'desc' }],
+      take: 8,
+      select: {
+        id: true,
+        sellerUserId: true,
+        status: true,
+        leadCount: true,
+        totalAmount: true,
+        referenceLabel: true,
+        paidAt: true,
+        createdAt: true,
+      },
+    });
+
+    return {
+      ok: true,
+      scope: context.canManageTeam ? 'company' : 'seller',
+      generatedAt: now.toISOString(),
+      totals: {
+        assignedCards: leads.length,
+        activeClients: active.length,
+        pendingActivation: pendingActivation.length,
+        inactiveClients: inactive.length,
+        payableAmount: this.normalizeCurrencyAmount(
+          payable.reduce((sum, row) => sum + this.normalizeCurrencyAmount(row.commissionAmount), 0) +
+          payableReceivables.reduce((sum, row) => sum + this.normalizeCurrencyAmount(row.amount), 0),
+        ),
+        duePayableAmount: this.normalizeCurrencyAmount(
+          duePayable.reduce((sum, row) => sum + this.normalizeCurrencyAmount(row.commissionAmount), 0) +
+          duePayableReceivables.reduce((sum, row) => sum + this.normalizeCurrencyAmount(row.amount), 0),
+        ),
+        duePayableCount: duePayable.length + duePayableReceivables.length,
+        pendingAmount: this.normalizeCurrencyAmount(pending.reduce((sum, row) => sum + this.normalizeCurrencyAmount(row.commissionAmount), 0)),
+        paidAmount: this.normalizeCurrencyAmount(
+          paid.reduce((sum, row) => sum + this.normalizeCurrencyAmount(row.commissionAmount), 0) +
+          paidReceivables.reduce((sum, row) => sum + this.normalizeCurrencyAmount(row.amount), 0),
+        ),
+        nextDueAt: nextDue ? nextDue.toISOString() : null,
+      },
+      clients: {
+        payable: [
+          ...payable.map((row) => this.buildCommissionClientPayload(row)),
+          ...payableReceivables.map((row) => this.buildCommissionReceivablePayload(row)),
+        ].slice(0, 12),
+        pendingActivation: pendingActivation.slice(0, 12).map((row) => this.buildCommissionClientPayload(row)),
+        active: active.slice(0, 12).map((row) => this.buildCommissionClientPayload(row)),
+        inactive: inactive.slice(0, 12).map((row) => this.buildCommissionClientPayload(row)),
+        paid: [
+          ...paid.map((row) => this.buildCommissionClientPayload(row)),
+          ...paidReceivables.map((row) => this.buildCommissionReceivablePayload(row)),
+        ].slice(0, 12),
+      },
+      payouts: payouts.map((payout) => ({
+        id: payout.id,
+        sellerUserId: Number(payout.sellerUserId || 0) || null,
+        status: payout.status || 'paid',
+        leadCount: Math.max(0, Math.trunc(Number(payout.leadCount || 0) || 0)),
+        totalAmount: this.normalizeCurrencyAmount(payout.totalAmount),
+        referenceLabel: payout.referenceLabel || null,
+        paidAt: payout.paidAt instanceof Date ? payout.paidAt.toISOString() : null,
+        createdAt: payout.createdAt instanceof Date ? payout.createdAt.toISOString() : null,
+      })),
+    };
   }
 
   private pct(value: number) {

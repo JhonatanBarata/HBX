@@ -60,6 +60,16 @@ export class HbxCommissionSyncService {
     return next;
   }
 
+  private cycleKey(date = new Date()) {
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+  }
+
+  private cycleIndex(key: string) {
+    const [year, month] = String(key || '').split('-').map((part) => Math.trunc(Number(part)));
+    if (!year || !month) return 0;
+    return year * 12 + month;
+  }
+
   private resolveClientState(company: any): HbxClientState {
     const paymentStatus = String(company?.paymentStatus || '').trim().toUpperCase();
     const subscriptionStatus = String(company?.subscriptionStatus || '').trim().toLowerCase();
@@ -347,7 +357,13 @@ export class HbxCommissionSyncService {
       or.push({ whatsappDisplayNumber: { in: phones } });
       or.push({ whatsappModalPhone: { in: phones } });
     }
-    if (!or.length) return { scannedCompanies: 0, matchedLeads: 0, updatedLeads: 0 };
+    if (!or.length) {
+      const recurring = await this.generateSalesCompanyRecurringReceivables(normalizedSalesCompanyId, options).catch((error) => {
+        this.logger.warn(`commission_recurring_generation_failed company=${normalizedSalesCompanyId} error=${String((error as any)?.message || error)}`);
+        return { createdReceivables: 0, skippedReceivables: 0, canceledReceivables: 0 };
+      });
+      return { scannedCompanies: 0, matchedLeads: 0, updatedLeads: 0, ...recurring };
+    }
 
     const companies = await this.prisma.company.findMany({
       where: {
@@ -370,10 +386,130 @@ export class HbxCommissionSyncService {
       updatedLeads += Number(result.updatedLeads || 0);
     }
 
+    const recurring = await this.generateSalesCompanyRecurringReceivables(normalizedSalesCompanyId, options).catch((error) => {
+      this.logger.warn(`commission_recurring_generation_failed company=${normalizedSalesCompanyId} error=${String((error as any)?.message || error)}`);
+      return { createdReceivables: 0, skippedReceivables: 0, canceledReceivables: 0 };
+    });
+
     return {
       scannedCompanies: companies.length,
       matchedLeads,
       updatedLeads,
+      ...recurring,
+    };
+  }
+
+  async generateSalesCompanyRecurringReceivables(salesCompanyId: number, options: SyncOptions = {}) {
+    const companyId = Math.trunc(Number(salesCompanyId || 0));
+    if (!companyId) return { createdReceivables: 0, skippedReceivables: 0, canceledReceivables: 0 };
+    const now = new Date();
+    const cycleKey = this.cycleKey(now);
+    const cycleIndex = this.cycleIndex(cycleKey);
+
+    const canceledReceivablesResult = await this.prisma.vendasCommissionReceivable.updateMany({
+      where: {
+        companyId,
+        status: 'payable',
+        lead: {
+          saleStatus: { in: ['inactive', 'canceled'] },
+        },
+      },
+      data: {
+        status: 'canceled',
+      },
+    }).catch(() => ({ count: 0 }));
+
+    const leads = await this.prisma.vendasLead.findMany({
+      where: {
+        companyId,
+        assignedUserId: { not: null },
+        commissionRecurring: true,
+        commissionLinkedCompanyId: { not: null },
+        saleStatus: { in: ['trial_started', 'sale_confirmed'] },
+      },
+      orderBy: [{ updatedAt: 'desc' }],
+      take: 2000,
+      select: {
+        id: true,
+        companyId: true,
+        assignedUserId: true,
+        assignedByUserId: true,
+        createdByUserId: true,
+        saleConfirmedAt: true,
+        commissionLinkedAt: true,
+        createdAt: true,
+        commissionLinkedCompanyId: true,
+        commissionBaseAmount: true,
+        saleValue: true,
+        commissionPercentSnapshot: true,
+      },
+    });
+
+    let createdReceivables = 0;
+    let skippedReceivables = 0;
+    for (const lead of leads) {
+      const activatedAt =
+        lead.saleConfirmedAt instanceof Date
+          ? lead.saleConfirmedAt
+          : lead.commissionLinkedAt instanceof Date
+            ? lead.commissionLinkedAt
+            : lead.createdAt instanceof Date
+              ? lead.createdAt
+              : now;
+      if (this.cycleIndex(this.cycleKey(activatedAt)) >= cycleIndex) {
+        skippedReceivables += 1;
+        continue;
+      }
+      const baseAmount = this.money(lead.commissionBaseAmount || lead.saleValue);
+      const percent = Math.min(100, Math.max(0, Number(lead.commissionPercentSnapshot || 0) || 0));
+      const amount = this.money((baseAmount * percent) / 100);
+      if (amount <= 0) {
+        skippedReceivables += 1;
+        continue;
+      }
+      const exists = await this.prisma.vendasCommissionReceivable.findFirst({
+        where: {
+          leadId: lead.id,
+          cycleKey,
+          kind: 'recurring',
+        },
+        select: { id: true },
+      });
+      if (exists) {
+        skippedReceivables += 1;
+        continue;
+      }
+      await this.prisma.vendasCommissionReceivable.create({
+        data: {
+          companyId,
+          leadId: lead.id,
+          sellerUserId: Number(lead.assignedUserId || 0) || null,
+          linkedCompanyId: Number(lead.commissionLinkedCompanyId || 0) || null,
+          cycleKey,
+          kind: 'recurring',
+          status: 'payable',
+          baseAmount,
+          commissionPercent: percent,
+          amount,
+          dueAt: this.addBusinessDays(now, 3),
+          source: String(options.source || 'hbx_recurring').slice(0, 120),
+          createdByUserId: Number(lead.assignedByUserId || lead.createdByUserId || 0) || null,
+        },
+      }).then(() => {
+        createdReceivables += 1;
+      }).catch((error) => {
+        if (String((error as any)?.code || '') === 'P2002') {
+          skippedReceivables += 1;
+          return;
+        }
+        throw error;
+      });
+    }
+
+    return {
+      createdReceivables,
+      skippedReceivables,
+      canceledReceivables: Number((canceledReceivablesResult as any)?.count || 0) || 0,
     };
   }
 }

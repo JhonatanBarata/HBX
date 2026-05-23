@@ -157,6 +157,7 @@ model Company {
   radarLeadEvents RadarLeadEvent[]
   vendasLeads         VendasLead[]
   vendasCommissionPayouts VendasCommissionPayout[]
+  vendasCommissionReceivables VendasCommissionReceivable[]
   salesProfiles       SalesProfile[]
   vendasAutomationCampaigns VendasAutomationCampaign[]
   vendasAutomationJobs VendasAutomationJob[]
@@ -1615,6 +1616,7 @@ model VendasLead {
   timelineEvents    VendasLeadTimelineEvent[]
   automationJobs    VendasAutomationJob[]
   radarCompanyStates RadarLeadCompanyState[]
+  commissionReceivables VendasCommissionReceivable[]
 
   @@unique([companyId, phoneNormalized])
   @@index([companyId, status, returnAt])
@@ -1644,6 +1646,36 @@ model VendasCommissionPayout {
 
   @@index([companyId, paidAt])
   @@index([sellerUserId, paidAt])
+}
+
+model VendasCommissionReceivable {
+  id              String   @id @default(cuid())
+  company         Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  companyId       Int
+  lead            VendasLead @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  leadId          String
+  sellerUserId    Int?
+  linkedCompanyId Int?
+  cycleKey        String
+  kind            String   @default("recurring") // recurring
+  status          String   @default("payable") // payable | paid | canceled
+  baseAmount      Float    @default(0)
+  commissionPercent Float  @default(0)
+  amount          Float    @default(0)
+  dueAt           DateTime?
+  paidAt          DateTime?
+  payoutId        String?
+  source          String   @default("hbx_recurring")
+  createdByUserId Int?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([leadId, cycleKey, kind])
+  @@index([companyId, status, dueAt])
+  @@index([sellerUserId, status, dueAt])
+  @@index([linkedCompanyId])
+  @@index([payoutId])
+  @@index([cycleKey])
 }
 
 model VendasLeadTimelineEvent {

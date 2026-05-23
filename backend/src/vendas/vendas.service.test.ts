@@ -28,6 +28,19 @@ function createService(overrides?: Partial<Record<string, any>>) {
       findMany: async () => [],
       ...(overrides?.companyConversation || {}),
     },
+    user: {
+      findFirst: async ({ where }: any) => ({
+        id: Number(where?.id || 99),
+        name: 'Vendedor Teste',
+        email: 'vendedor@teste.local',
+        username: 'vendedor',
+        phone: null,
+        role: 'USER',
+        commissionPercent: 10,
+      }),
+      findMany: async () => [],
+      ...(overrides?.user || {}),
+    },
     company: {
       findUnique: async () => ({ selectedPlanKey: 'hbx_padrao' }),
       ...(overrides?.company || {}),
@@ -90,6 +103,11 @@ function createService(overrides?: Partial<Record<string, any>>) {
     ...(overrides?.commercialUsageLimits || {}),
   } as any;
 
+  const hbxCommissionSync = {
+    syncSalesCompanyCommissions: async () => ({ scannedCompanies: 0, matchedLeads: 0, updatedLeads: 0, createdReceivables: 0 }),
+    ...(overrides?.hbxCommissionSync || {}),
+  } as any;
+
   const service = new VendasService(
     prisma,
     customerProfileService,
@@ -99,6 +117,7 @@ function createService(overrides?: Partial<Record<string, any>>) {
     commercialPlansService,
     hbxPresentationEmails,
     commercialUsageLimits,
+    hbxCommissionSync,
   );
   return { service, getOrCreateCalls, updateConversationStateCalls };
 }
