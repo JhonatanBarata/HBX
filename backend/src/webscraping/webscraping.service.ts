@@ -13691,7 +13691,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     return Math.trunc(Number(masterUser?.companyId || 0)) || 0;
   }
 
-  private async listMasterRadarDistributionSellers(companyId: number) {
+  private async listMasterRadarDistributionSellers(companyId: number): Promise<any[]> {
     const sellers = await (this.prisma.user as any).findMany({
       where: {
         companyId,
@@ -14191,8 +14191,8 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         ]);
         return [sellerId, { currentStock, dailySnapshot, sellerDailyLimit }] as const;
       }),
-    );
-    const stateByUserId = new Map(sellerStateEntries);
+    ) as Array<readonly [number, { currentStock: number; dailySnapshot: any; sellerDailyLimit: number }]>;
+    const stateByUserId = new Map<number, { currentStock: number; dailySnapshot: any; sellerDailyLimit: number }>(sellerStateEntries);
     const sellerPayload = sellers.map((seller) => {
       const territory = territoryByUserId.get(Number(seller.id || 0)) || { userId: Number(seller.id || 0), cities: [] };
       const cities = territory.cities.map((item) => {
