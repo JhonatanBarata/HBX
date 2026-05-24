@@ -807,9 +807,31 @@
   font-weight: 900;
 }
 
+.mobileCommissionPayoutButton,
+.mobileCommissionPayoutRow button,
+.mobileCommissionReceiptButton {
+  min-height: 34px;
+  border: 1px solid rgba(16, 185, 129, 0.24);
+  border-radius: 999px;
+  background: rgba(16, 185, 129, 0.1);
+  color: #0f8a55;
+  padding: 0 10px;
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 920;
+}
+
+.mobileCommissionPayoutButton:disabled,
+.mobileCommissionPayoutRow button:disabled,
+.mobileCommissionReceiptButton:disabled {
+  cursor: wait;
+  opacity: 0.58;
+}
+
 .mobileVendasCommissionHero,
 .mobileVendasCommissionGrid,
-.mobileVendasCommissionFlow {
+.mobileVendasCommissionFlow,
+.mobileCommissionAuditGrid {
   display: grid;
   gap: 9px;
 }
@@ -822,13 +844,18 @@
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+.mobileCommissionAuditGrid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
 .mobileVendasCommissionFlow {
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
 .mobileVendasCommissionHero span,
 .mobileVendasCommissionGrid span,
-.mobileVendasCommissionFlow span {
+.mobileVendasCommissionFlow span,
+.mobileCommissionAuditGrid span {
   display: grid;
   gap: 4px;
   min-width: 0;
@@ -855,9 +882,15 @@
   background: rgba(235, 244, 255, 0.94);
 }
 
+.mobileCommissionAuditGrid span[data-tone="danger"] {
+  border-color: rgba(239, 68, 68, 0.18);
+  background: rgba(254, 242, 242, 0.86);
+}
+
 .mobileVendasCommissionHero small,
 .mobileVendasCommissionGrid small,
 .mobileVendasCommissionFlow small,
+.mobileCommissionAuditGrid small,
 .mobileVendasCommissionRows small,
 .mobileVendasCommissionBlockHeader span {
   color: #64748b;
@@ -867,14 +900,20 @@
 
 .mobileVendasCommissionHero strong,
 .mobileVendasCommissionGrid strong,
-.mobileVendasCommissionFlow strong {
+.mobileVendasCommissionFlow strong,
+.mobileCommissionAuditGrid strong {
+  min-width: 0;
+  overflow: hidden;
   color: #12214a;
   font-size: 1.16rem;
   line-height: 1;
   font-weight: 950;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.mobileVendasCommissionFlow strong {
+.mobileVendasCommissionFlow strong,
+.mobileCommissionAuditGrid strong {
   font-size: 0.86rem;
 }
 
@@ -945,6 +984,21 @@
   grid-column: 1 / -1;
 }
 
+.mobileVendasCommissionRows article.mobileCommissionPayoutRow {
+  grid-template-columns: minmax(0, 1fr) auto auto;
+}
+
+.mobileCommissionPayoutRow button {
+  min-width: 58px;
+  cursor: pointer;
+}
+
+.mobileCommissionReceiptButton {
+  grid-column: 1 / -1;
+  width: 100%;
+  cursor: pointer;
+}
+
 :global(html[data-hbx-mobile-theme="dark"]) .mobileVendasCommissionPanel,
 :global(html[data-hbx-mobile-theme="dark"]) .mobileVendasCommissionBlock {
   border-color: rgba(125, 211, 252, 0.18);
@@ -967,6 +1021,14 @@
   color: #7dd3fc;
 }
 
+:global(html[data-hbx-mobile-theme="dark"]) .mobileCommissionPayoutButton,
+:global(html[data-hbx-mobile-theme="dark"]) .mobileCommissionPayoutRow button,
+:global(html[data-hbx-mobile-theme="dark"]) .mobileCommissionReceiptButton {
+  border-color: rgba(74, 222, 128, 0.22);
+  background: rgba(20, 83, 45, 0.34);
+  color: #86efac;
+}
+
 :global(html[data-hbx-mobile-theme="dark"]) .mobileVendasCommissionHeader p,
 :global(html[data-hbx-mobile-theme="dark"]) .mobileVendasCommissionHint,
 :global(html[data-hbx-mobile-theme="dark"]) .mobileVendasCommissionEmpty,
@@ -982,6 +1044,7 @@
 :global(html[data-hbx-mobile-theme="dark"]) .mobileVendasCommissionHero span,
 :global(html[data-hbx-mobile-theme="dark"]) .mobileVendasCommissionGrid span,
 :global(html[data-hbx-mobile-theme="dark"]) .mobileVendasCommissionFlow span,
+:global(html[data-hbx-mobile-theme="dark"]) .mobileCommissionAuditGrid span,
 :global(html[data-hbx-mobile-theme="dark"]) .mobileVendasCommissionRows article {
   border-color: rgba(148, 163, 184, 0.18);
   background: rgba(15, 23, 42, 0.72);
@@ -1003,6 +1066,11 @@
   background: rgba(20, 83, 45, 0.34);
 }
 
+:global(html[data-hbx-mobile-theme="dark"]) .mobileCommissionAuditGrid span[data-tone="danger"] {
+  border-color: rgba(248, 113, 113, 0.22);
+  background: rgba(69, 10, 10, 0.3);
+}
+
 :global(html[data-hbx-mobile-theme="dark"]) .mobileVendasCommissionHero span:first-child {
   border-color: rgba(245, 158, 11, 0.28);
   background: rgba(69, 46, 10, 0.34);
@@ -1015,6 +1083,15 @@
 
   .mobileVendasCommissionFlow {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .mobileVendasCommissionRows article.mobileCommissionPayoutRow {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .mobileCommissionPayoutRow button {
+    grid-column: 1 / -1;
+    width: 100%;
   }
 }
 
@@ -5691,10 +5768,149 @@
   white-space: nowrap;
 }
 
+.desktopCommissionPayouts {
+  display: grid;
+  gap: 0.55rem;
+  border: 1px solid color-mix(in srgb, var(--success) 22%, var(--line));
+  border-radius: 16px;
+  background:
+    radial-gradient(circle at 100% 0%, color-mix(in srgb, var(--success) 9%, transparent), transparent 36%),
+    color-mix(in srgb, var(--surface) 86%, var(--background));
+  padding: 0.75rem;
+}
+
+.desktopCommissionPayoutHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.8rem;
+}
+
+.desktopCommissionPayoutHeader div {
+  min-width: 0;
+  display: grid;
+  gap: 0.16rem;
+}
+
+.desktopCommissionPayoutHeader strong,
+.desktopCommissionPayoutRows strong {
+  color: var(--foreground);
+  font-size: 0.9rem;
+  font-weight: 850;
+}
+
+.desktopCommissionPayoutHeader span,
+.desktopCommissionPayoutRows span {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 720;
+}
+
+.desktopCommissionPayoutHeader button,
+.desktopCommissionPayoutRows button {
+  min-height: 34px;
+  border: 1px solid color-mix(in srgb, var(--success) 28%, var(--line));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--success) 10%, var(--surface));
+  color: color-mix(in srgb, var(--success) 82%, var(--foreground));
+  padding: 0 0.72rem;
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 850;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.desktopCommissionPayoutHeader button:disabled,
+.desktopCommissionPayoutRows button:disabled {
+  cursor: wait;
+  opacity: 0.58;
+}
+
+.desktopCommissionPayoutRows {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.desktopCommissionPayoutRows article {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 0.55rem;
+  align-items: center;
+  border: 1px solid color-mix(in srgb, var(--line) 72%, var(--background));
+  border-radius: 13px;
+  background: color-mix(in srgb, var(--surface) 76%, var(--background));
+  padding: 0.62rem;
+}
+
+.desktopCommissionPayoutRows div {
+  min-width: 0;
+}
+
+.desktopCommissionPayoutRows strong,
+.desktopCommissionPayoutRows span {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.desktopCommissionPayoutRows b {
+  color: color-mix(in srgb, var(--success) 86%, var(--foreground));
+  font-size: 0.84rem;
+  white-space: nowrap;
+}
+
 .desktopCommissionFooter {
   display: flex;
   flex-wrap: wrap;
   gap: 0.5rem 0.85rem;
+}
+
+.desktopCommissionAudit {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 0.5rem;
+  border: 1px solid color-mix(in srgb, var(--brand) 16%, var(--line));
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--surface) 78%, var(--background));
+  padding: 0.65rem;
+}
+
+.desktopCommissionAudit span {
+  min-width: 0;
+  display: grid;
+  gap: 0.18rem;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--surface) 84%, var(--background));
+  padding: 0.55rem;
+}
+
+.desktopCommissionAudit span[data-tone="danger"] {
+  background: color-mix(in srgb, var(--danger) 7%, var(--surface));
+}
+
+.desktopCommissionAudit small {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 0.66rem;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.desktopCommissionAudit strong {
+  overflow: hidden;
+  color: var(--foreground);
+  font-size: 0.82rem;
+  font-weight: 850;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.desktopCommissionAudit span[data-tone="danger"] strong {
+  color: color-mix(in srgb, var(--danger) 84%, var(--foreground));
 }
 
 .desktopCommissionFooter b {
@@ -5702,11 +5918,267 @@
   font-weight: 850;
 }
 
+.desktopCommissionReceiptButton {
+  margin-left: 0.42rem;
+  min-height: 28px;
+  border: 1px solid color-mix(in srgb, var(--brand) 24%, var(--line));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--brand) 8%, var(--surface));
+  color: color-mix(in srgb, var(--brand) 84%, var(--foreground));
+  padding: 0 0.6rem;
+  font: inherit;
+  font-size: 0.68rem;
+  font-weight: 820;
+  cursor: pointer;
+}
+
+.desktopCommissionReceiptButton:disabled {
+  cursor: wait;
+  opacity: 0.62;
+}
+
+.commissionReceiptBackdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 10070;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: rgba(8, 13, 24, 0.48);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}
+
+.commissionReceiptPanel {
+  width: min(620px, 100%);
+  max-height: min(760px, calc(100dvh - 32px));
+  display: grid;
+  grid-template-rows: auto auto auto auto auto minmax(0, 1fr);
+  gap: 12px;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--brand) 22%, var(--line));
+  border-radius: 24px;
+  background:
+    radial-gradient(circle at 92% 0%, color-mix(in srgb, var(--success) 12%, transparent), transparent 36%),
+    color-mix(in srgb, var(--surface-raised) 96%, var(--background));
+  box-shadow: 0 32px 84px -34px rgba(2, 6, 23, 0.62);
+  padding: 16px;
+}
+
+.commissionReceiptHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.commissionReceiptHeader div,
+.commissionReceiptMeta span,
+.commissionReceiptItems article div {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.commissionReceiptHeader span {
+  color: var(--brand);
+  font-size: 0.68rem;
+  font-weight: 850;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.commissionReceiptHeader strong {
+  color: var(--foreground);
+  font-size: 1.1rem;
+  line-height: 1.12;
+  font-weight: 850;
+}
+
+.commissionReceiptHeader p,
+.commissionReceiptNote,
+.commissionReceiptItems span,
+.commissionReceiptItems small {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.35;
+  font-weight: 720;
+}
+
+.commissionReceiptHeader button {
+  width: 36px;
+  height: 36px;
+  border: 1px solid color-mix(in srgb, var(--line) 74%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--surface) 86%, var(--background));
+  color: var(--foreground);
+  font: inherit;
+  font-weight: 850;
+  cursor: pointer;
+}
+
+.commissionReceiptMetrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.commissionReceiptMetrics span,
+.commissionReceiptMeta span {
+  min-width: 0;
+  border: 1px solid color-mix(in srgb, var(--line) 72%, transparent);
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--surface) 82%, var(--background));
+  padding: 10px;
+}
+
+.commissionReceiptMetrics small,
+.commissionReceiptMeta small {
+  color: var(--muted);
+  font-size: 0.66rem;
+  font-weight: 820;
+}
+
+.commissionReceiptMetrics strong,
+.commissionReceiptMeta b,
+.commissionReceiptItems strong,
+.commissionReceiptItems b {
+  color: var(--foreground);
+  font-weight: 850;
+}
+
+.commissionReceiptMeta {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.commissionReceiptNote {
+  border: 1px dashed color-mix(in srgb, var(--brand) 20%, var(--line));
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--brand) 6%, var(--surface));
+  padding: 10px;
+}
+
+.commissionReceiptActions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.commissionReceiptActions span {
+  min-width: 0;
+  border: 1px solid color-mix(in srgb, var(--success) 24%, var(--line));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--success) 8%, var(--surface));
+  color: color-mix(in srgb, var(--success) 82%, var(--foreground));
+  padding: 8px 11px;
+  font-size: 0.72rem;
+  font-weight: 850;
+}
+
+.commissionReceiptActions span[data-status="canceled"] {
+  border-color: color-mix(in srgb, var(--danger) 24%, var(--line));
+  background: color-mix(in srgb, var(--danger) 8%, var(--surface));
+  color: color-mix(in srgb, var(--danger) 84%, var(--foreground));
+}
+
+.commissionReceiptCancelButton {
+  min-height: 36px;
+  border: 1px solid color-mix(in srgb, var(--danger) 30%, var(--line));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--danger) 8%, var(--surface));
+  color: color-mix(in srgb, var(--danger) 86%, var(--foreground));
+  padding: 0 13px;
+  font: inherit;
+  font-size: 0.74rem;
+  font-weight: 850;
+  cursor: pointer;
+}
+
+.commissionReceiptCancelButton:disabled {
+  cursor: wait;
+  opacity: 0.62;
+}
+
+.commissionReceiptItems {
+  min-height: 0;
+  display: grid;
+  gap: 8px;
+  overflow: auto;
+  padding-right: 2px;
+}
+
+.commissionReceiptItems article {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 4px 10px;
+  align-items: center;
+  border: 1px solid color-mix(in srgb, var(--line) 72%, transparent);
+  border-radius: 15px;
+  background: color-mix(in srgb, var(--surface) 82%, var(--background));
+  padding: 10px;
+}
+
+.commissionReceiptItems strong,
+.commissionReceiptItems span {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.commissionReceiptItems b {
+  white-space: nowrap;
+  color: color-mix(in srgb, var(--success) 84%, var(--foreground));
+}
+
+.commissionReceiptItems small {
+  grid-column: 1 / -1;
+}
+
+@media (max-width: 720px) {
+  .commissionReceiptBackdrop {
+    align-items: end;
+    padding: 12px;
+  }
+
+  .commissionReceiptPanel {
+    max-height: min(82dvh, 720px);
+    border-radius: 24px 24px 18px 18px;
+    padding: 14px;
+  }
+
+  .commissionReceiptMetrics,
+  .commissionReceiptMeta {
+    grid-template-columns: 1fr;
+  }
+
+  .commissionReceiptActions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .commissionReceiptActions span,
+  .commissionReceiptCancelButton {
+    width: 100%;
+    text-align: center;
+  }
+}
+
 @media (max-width: 980px) {
   .desktopCommissionMetrics,
   .desktopCommissionFlow,
-  .desktopCommissionQueue {
+  .desktopCommissionQueue,
+  .desktopCommissionAudit {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .desktopCommissionPayoutRows article {
+    grid-template-columns: 1fr;
   }
 }
 
@@ -13388,4 +13860,1292 @@
   border-color: rgba(255, 214, 102, 0.22);
   background: rgba(7, 28, 58, 0.94);
   color: #ffe8a3;
+}
+
+.hbxPipelinePanel {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+  border: 1px solid color-mix(in srgb, var(--brand) 20%, var(--line));
+  border-radius: 22px;
+  background:
+    radial-gradient(circle at 8% 0%, color-mix(in srgb, var(--brand) 10%, transparent), transparent 36%),
+    color-mix(in srgb, var(--surface-raised) 94%, var(--background));
+  box-shadow:
+    0 18px 42px -34px color-mix(in srgb, var(--brand) 30%, transparent),
+    var(--shadow-inset);
+}
+
+.hbxPipelineHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.hbxPipelineHeader div:first-child,
+.hbxPipelineLead,
+.hbxPipelineStep,
+.hbxPipelineMoney,
+.hbxPipelinePolicy,
+.hbxPipelineEmpty {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.hbxPipelineHeader span {
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 850;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.hbxPipelineHeader strong,
+.hbxPipelineLead strong,
+.hbxPipelineStep b,
+.hbxPipelineMoney b,
+.hbxPipelinePolicy strong,
+.hbxPipelineEmpty strong {
+  color: var(--foreground);
+  font-weight: 850;
+}
+
+.hbxPipelineHeader strong {
+  font-size: 1.02rem;
+  line-height: 1.12;
+}
+
+.hbxPipelineHeader p,
+.hbxPipelineLead span,
+.hbxPipelineLead small,
+.hbxPipelineStep span,
+.hbxPipelineMoney small,
+.hbxPipelineMoney span,
+.hbxPipelinePolicy span,
+.hbxPipelineEmpty p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.76rem;
+  line-height: 1.35;
+  font-weight: 720;
+}
+
+.hbxPipelineHeader button {
+  min-height: 36px;
+  border: 1px solid color-mix(in srgb, var(--brand) 22%, var(--line));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--surface-raised) 92%, var(--background));
+  color: color-mix(in srgb, var(--brand) 86%, var(--foreground));
+  padding: 0 12px;
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 850;
+  cursor: pointer;
+}
+
+.hbxPipelineHeader button:disabled {
+  cursor: wait;
+  opacity: 0.66;
+}
+
+.hbxPipelineStages {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.hbxPipelineStages > span {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+  padding: 10px;
+  border: 1px solid color-mix(in srgb, var(--line) 74%, transparent);
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--surface-raised) 86%, var(--background));
+}
+
+.hbxPipelineStages small {
+  color: var(--muted);
+  font-size: 0.65rem;
+  font-weight: 820;
+}
+
+.hbxPipelineStages strong {
+  color: var(--foreground);
+  font-size: 1rem;
+  overflow-wrap: anywhere;
+}
+
+.hbxPipelineStages > span[data-tone="warning"] {
+  border-color: color-mix(in srgb, var(--warning) 32%, var(--line));
+  background: color-mix(in srgb, var(--warning) 8%, var(--surface-raised));
+}
+
+.hbxPipelineStages > span[data-tone="success"] {
+  border-color: color-mix(in srgb, var(--success) 28%, var(--line));
+  background: color-mix(in srgb, var(--success) 7%, var(--surface-raised));
+}
+
+.hbxPipelineStages > span[data-tone="money"] {
+  border-color: color-mix(in srgb, var(--brand) 30%, var(--line));
+  background: color-mix(in srgb, var(--brand) 8%, var(--surface-raised));
+}
+
+.hbxPipelineRows {
+  display: grid;
+  gap: 9px;
+}
+
+.hbxPipelineRows article {
+  display: grid;
+  grid-template-columns: minmax(180px, 0.9fr) minmax(260px, 1.2fr) minmax(145px, 0.72fr) auto;
+  gap: 12px;
+  align-items: center;
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--line) 76%, transparent);
+  border-left: 4px solid color-mix(in srgb, var(--brand) 76%, var(--line));
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--surface-raised) 90%, var(--background));
+}
+
+.hbxPipelineRows article[data-tone="warning"] {
+  border-left-color: var(--warning);
+}
+
+.hbxPipelineRows article[data-tone="success"] {
+  border-left-color: var(--success);
+}
+
+.hbxPipelineRows article[data-tone="danger"] {
+  border-left-color: var(--danger);
+}
+
+.hbxPipelineRows article > button {
+  min-height: 34px;
+  border: 1px solid color-mix(in srgb, var(--brand) 28%, var(--line));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--brand) 9%, var(--surface-raised));
+  color: color-mix(in srgb, var(--brand) 86%, var(--foreground));
+  padding: 0 12px;
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 850;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.hbxPipelinePolicy,
+.hbxPipelineEmpty {
+  padding: 12px;
+  border: 1px dashed color-mix(in srgb, var(--brand) 22%, var(--line));
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--background) 48%, transparent);
+}
+
+.hbxPipelinePanelMobile {
+  border-radius: 22px !important;
+  box-shadow: none !important;
+}
+
+@media (max-width: 1100px) {
+  .hbxPipelineStages {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .hbxPipelineRows article {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 720px) {
+  .hbxPipelinePanel {
+    padding: 14px;
+  }
+
+  .hbxPipelineHeader {
+    display: grid;
+  }
+
+  .hbxPipelineStages {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.crmIntegrityPanel {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid color-mix(in srgb, var(--success) 18%, var(--line));
+  border-radius: 22px;
+  background:
+    radial-gradient(circle at 92% 0%, color-mix(in srgb, var(--success) 10%, transparent), transparent 36%),
+    color-mix(in srgb, var(--surface-raised) 94%, var(--background));
+  box-shadow:
+    0 18px 42px -34px color-mix(in srgb, var(--success) 34%, transparent),
+    var(--shadow-inset);
+}
+
+.crmIntegrityHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.crmIntegrityHeader div {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.crmIntegrityHeader span {
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 850;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.crmIntegrityHeader strong,
+.crmIntegrityScore strong,
+.crmIntegrityChecks strong {
+  color: var(--foreground);
+  font-weight: 850;
+}
+
+.crmIntegrityHeader strong {
+  font-size: 1.02rem;
+  line-height: 1.12;
+}
+
+.crmIntegrityHeader p,
+.crmIntegrityChecks span,
+.crmIntegrityChecks small,
+.crmIntegrityChecks p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.76rem;
+  line-height: 1.35;
+  font-weight: 720;
+}
+
+.crmIntegrityHeader button {
+  min-height: 36px;
+  border: 1px solid color-mix(in srgb, var(--success) 24%, var(--line));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--surface-raised) 92%, var(--background));
+  color: color-mix(in srgb, var(--success) 86%, var(--foreground));
+  padding: 0 12px;
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 850;
+  cursor: pointer;
+}
+
+.crmIntegrityHeader button:disabled {
+  cursor: wait;
+  opacity: 0.66;
+}
+
+.crmIntegrityScore {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.crmIntegrityScore span {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+  padding: 10px;
+  border: 1px solid color-mix(in srgb, var(--line) 74%, transparent);
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--surface-raised) 86%, var(--background));
+}
+
+.crmIntegrityScore span[data-tone="ok"] {
+  border-color: color-mix(in srgb, var(--success) 28%, var(--line));
+  background: color-mix(in srgb, var(--success) 7%, var(--surface-raised));
+}
+
+.crmIntegrityScore span[data-tone="warning"] {
+  border-color: color-mix(in srgb, var(--warning) 32%, var(--line));
+  background: color-mix(in srgb, var(--warning) 8%, var(--surface-raised));
+}
+
+.crmIntegrityScore span[data-tone="danger"] {
+  border-color: color-mix(in srgb, var(--danger) 30%, var(--line));
+  background: color-mix(in srgb, var(--danger) 8%, var(--surface-raised));
+}
+
+.crmIntegrityScore small {
+  color: var(--muted);
+  font-size: 0.65rem;
+  font-weight: 820;
+}
+
+.crmIntegrityScore strong {
+  overflow: hidden;
+  font-size: 1rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.crmIntegrityChecks {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.crmIntegrityChecks article {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+  padding: 10px;
+  border: 1px solid color-mix(in srgb, var(--line) 76%, transparent);
+  border-left: 4px solid color-mix(in srgb, var(--success) 72%, var(--line));
+  border-radius: 15px;
+  background: color-mix(in srgb, var(--surface-raised) 88%, var(--background));
+}
+
+.crmIntegrityChecks article[data-status="warning"] {
+  border-left-color: var(--warning);
+}
+
+.crmIntegrityChecks article[data-status="danger"] {
+  border-left-color: var(--danger);
+}
+
+.crmIntegrityChecks div {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.crmIntegrityChecks strong,
+.crmIntegrityChecks span,
+.crmIntegrityChecks small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.crmIntegrityChecks strong,
+.crmIntegrityChecks span {
+  white-space: nowrap;
+}
+
+.crmIntegrityChecks small {
+  padding: 7px 8px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--brand) 7%, var(--surface-raised));
+}
+
+.crmIntegrityPanelMobile {
+  border-radius: 22px !important;
+  box-shadow: none !important;
+}
+
+@media (max-width: 900px) {
+  .crmIntegrityChecks {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 720px) {
+  .crmIntegrityPanel {
+    padding: 14px;
+  }
+
+  .crmIntegrityHeader {
+    display: grid;
+  }
+
+  .crmIntegrityScore {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.sellerAuditPanel {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+  border: 1px solid color-mix(in srgb, var(--brand) 18%, var(--line));
+  border-radius: 22px;
+  background:
+    radial-gradient(circle at 14% 0%, color-mix(in srgb, var(--success) 10%, transparent), transparent 34%),
+    color-mix(in srgb, var(--surface-raised) 94%, var(--background));
+  box-shadow:
+    0 18px 42px -34px color-mix(in srgb, var(--brand) 26%, transparent),
+    var(--shadow-inset);
+}
+
+.sellerAuditHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.sellerAuditHeader div:first-child {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.sellerAuditHeader span {
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.sellerAuditHeader strong {
+  color: var(--foreground);
+  font-size: 1.02rem;
+  line-height: 1.12;
+}
+
+.sellerAuditHeader p,
+.sellerAuditPolicy span,
+.sellerAuditStatus span,
+.sellerAuditEmpty p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.8rem;
+  line-height: 1.4;
+}
+
+.sellerAuditActions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sellerAuditActions select,
+.sellerAuditActions button {
+  min-height: 36px;
+  border: 1px solid color-mix(in srgb, var(--brand) 20%, var(--line));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--surface-raised) 92%, var(--background));
+  color: var(--foreground);
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.sellerAuditActions select {
+  padding: 0 10px;
+}
+
+.sellerAuditActions button {
+  padding: 0 12px;
+  color: color-mix(in srgb, var(--brand) 86%, var(--foreground));
+  cursor: pointer;
+}
+
+.sellerAuditActions button:disabled {
+  cursor: wait;
+  opacity: 0.66;
+}
+
+.sellerAuditMetrics {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.sellerAuditMetrics > span {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid color-mix(in srgb, var(--line) 72%, transparent);
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--surface-raised) 86%, var(--background));
+}
+
+.sellerAuditMetrics small,
+.sellerAuditRowMetrics small,
+.sellerAuditSeller small,
+.sellerAuditStatus small {
+  color: var(--muted);
+  font-size: 0.66rem;
+  font-weight: 760;
+}
+
+.sellerAuditMetrics strong {
+  color: var(--foreground);
+  font-size: 1.04rem;
+}
+
+.sellerAuditRows {
+  display: grid;
+  gap: 10px;
+}
+
+.sellerAuditRow {
+  display: grid;
+  grid-template-columns: minmax(170px, 0.9fr) minmax(230px, 1fr) minmax(190px, 0.9fr) minmax(210px, 0.9fr);
+  gap: 12px;
+  align-items: center;
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--line) 76%, transparent);
+  border-left: 4px solid var(--brand);
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--surface-raised) 90%, var(--background));
+}
+
+.sellerAuditRow[data-tone="success"] {
+  border-left-color: var(--success);
+}
+
+.sellerAuditRow[data-tone="warning"] {
+  border-left-color: var(--warning);
+}
+
+.sellerAuditRow[data-tone="learning"] {
+  border-left-color: color-mix(in srgb, var(--brand) 70%, var(--warning));
+}
+
+.sellerAuditSeller,
+.sellerAuditOperation,
+.sellerAuditStatus {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.sellerAuditSeller strong,
+.sellerAuditOperation b,
+.sellerAuditStatus b,
+.sellerAuditPolicy strong,
+.sellerAuditEmpty strong {
+  color: var(--foreground);
+  font-weight: 800;
+}
+
+.sellerAuditSeller span,
+.sellerAuditOperation span {
+  color: var(--muted);
+  font-size: 0.76rem;
+}
+
+.sellerAuditGovernanceActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.sellerAuditGovernanceActions button {
+  min-height: 28px;
+  border: 1px solid color-mix(in srgb, var(--line) 78%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--surface-raised) 82%, var(--background));
+  color: var(--foreground);
+  padding: 0 8px;
+  font: inherit;
+  font-size: 0.68rem;
+  font-weight: 820;
+  cursor: pointer;
+}
+
+.sellerAuditGovernanceActions button[data-active="true"] {
+  border-color: color-mix(in srgb, var(--brand) 48%, var(--line));
+  background: color-mix(in srgb, var(--brand) 12%, var(--surface-raised));
+  color: color-mix(in srgb, var(--brand) 86%, var(--foreground));
+}
+
+.sellerAuditGovernanceActions button[data-danger="true"] {
+  border-color: color-mix(in srgb, var(--warning) 44%, var(--line));
+  color: color-mix(in srgb, var(--warning) 82%, var(--foreground));
+}
+
+.sellerAuditGovernanceActions button:disabled {
+  cursor: wait;
+  opacity: 0.58;
+}
+
+.sellerAuditRowMetrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.sellerAuditRowMetrics span {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  padding: 8px;
+  border-radius: 13px;
+  background: color-mix(in srgb, var(--background) 58%, transparent);
+}
+
+.sellerAuditRowMetrics b {
+  color: var(--foreground);
+  font-size: 0.9rem;
+}
+
+.sellerAuditWarRoom {
+  display: grid;
+  gap: 10px;
+  border: 1px solid color-mix(in srgb, var(--brand) 22%, var(--line));
+  border-radius: 18px;
+  background:
+    radial-gradient(circle at 92% 0%, color-mix(in srgb, var(--brand) 12%, transparent), transparent 34%),
+    color-mix(in srgb, var(--surface-raised) 88%, var(--background));
+  padding: 12px;
+}
+
+.sellerAuditWarHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.sellerAuditWarHeader span {
+  display: block;
+  color: var(--brand);
+  font-size: 0.68rem;
+  font-weight: 850;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.sellerAuditWarHeader strong,
+.sellerAuditWarLimit strong {
+  display: block;
+  color: var(--foreground);
+  font-weight: 850;
+}
+
+.sellerAuditWarHeader p,
+.sellerAuditWarLimit span,
+.sellerAuditExceptionList small,
+.sellerAuditExceptionEmpty,
+.sellerAuditOperation small {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.74rem;
+  line-height: 1.35;
+  font-weight: 700;
+}
+
+.sellerAuditWarLimit {
+  min-width: 130px;
+  border: 1px solid color-mix(in srgb, var(--line) 72%, transparent);
+  border-radius: 15px;
+  background: color-mix(in srgb, var(--background) 58%, transparent);
+  padding: 9px;
+  text-align: right;
+}
+
+.sellerAuditWarLimit small,
+.sellerAuditWarMetrics small {
+  color: var(--muted);
+  font-size: 0.64rem;
+  font-weight: 800;
+}
+
+.sellerAuditWarMetrics {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.sellerAuditWarMetrics span,
+.sellerAuditExceptionList span {
+  min-width: 0;
+  border: 1px solid color-mix(in srgb, var(--line) 72%, transparent);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--background) 54%, transparent);
+  padding: 8px;
+}
+
+.sellerAuditWarMetrics b,
+.sellerAuditExceptionList b {
+  display: block;
+  color: var(--foreground);
+  font-size: 0.86rem;
+}
+
+.sellerAuditExceptionList {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.sellerAuditExceptionEmpty {
+  border: 1px dashed color-mix(in srgb, var(--success) 26%, var(--line));
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--success) 7%, var(--background));
+  padding: 10px;
+}
+
+.sellerAuditPolicy,
+.sellerAuditEmpty {
+  display: grid;
+  gap: 5px;
+  padding: 12px;
+  border: 1px dashed color-mix(in srgb, var(--brand) 22%, var(--line));
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--background) 48%, transparent);
+}
+
+.sellerAuditPanelMobile {
+  border-radius: 22px !important;
+  box-shadow: none !important;
+}
+
+@media (max-width: 1100px) {
+  .sellerAuditMetrics,
+  .sellerAuditWarMetrics,
+  .sellerAuditExceptionList {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .sellerAuditRow {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 720px) {
+  .sellerAuditPanel {
+    padding: 14px;
+  }
+
+  .sellerAuditHeader {
+    display: grid;
+  }
+
+  .sellerAuditWarHeader {
+    display: grid;
+  }
+
+  .sellerAuditWarLimit {
+    width: 100%;
+    text-align: left;
+  }
+
+  .sellerAuditActions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .sellerAuditMetrics,
+  .sellerAuditWarMetrics,
+  .sellerAuditExceptionList,
+  .sellerAuditRowMetrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.masterNoticeBell {
+  position: fixed;
+  right: 18px;
+  top: 76px;
+  z-index: 10040;
+  display: inline-flex;
+  min-width: 42px;
+  height: 42px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 0 12px;
+  border: 1px solid rgba(148, 163, 184, 0.42);
+  border-radius: 999px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(242, 247, 255, 0.88));
+  color: #0f172a;
+  box-shadow:
+    0 18px 34px -26px rgba(15, 23, 42, 0.42),
+    inset 0 1px 0 rgba(255, 255, 255, 0.92);
+  font: inherit;
+  font-weight: 900;
+  cursor: pointer;
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+
+.masterNoticeBell[data-unread="true"] {
+  border-color: rgba(14, 165, 233, 0.46);
+  box-shadow:
+    0 0 0 3px rgba(14, 165, 233, 0.12),
+    0 20px 36px -24px rgba(2, 132, 199, 0.54);
+}
+
+.masterNoticeBellIcon {
+  display: grid;
+  width: 20px;
+  height: 20px;
+  place-items: center;
+}
+
+.masterNoticeBellIcon svg {
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2;
+}
+
+.masterNoticeBellText {
+  font-size: 0.78rem;
+}
+
+.masterNoticeBell b {
+  display: grid;
+  min-width: 18px;
+  height: 18px;
+  place-items: center;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: #0b66ff;
+  color: #ffffff;
+  font-size: 0.68rem;
+  line-height: 1;
+}
+
+.masterNoticeBackdrop,
+.masterNoticeForcedBackdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 10060;
+  display: grid;
+  padding: 16px;
+  background: rgba(8, 13, 24, 0.44);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+.masterNoticeBackdrop {
+  justify-items: end;
+  align-items: start;
+}
+
+.masterNoticePanel {
+  width: min(460px, 100%);
+  max-height: calc(100dvh - 32px);
+  display: grid;
+  grid-template-rows: auto auto auto minmax(0, 1fr);
+  overflow: hidden;
+  border: 1px solid rgba(180, 198, 225, 0.74);
+  border-radius: 22px;
+  background:
+    radial-gradient(circle at 15% 0%, rgba(20, 184, 166, 0.12), transparent 34%),
+    linear-gradient(180deg, #f8fbff 0%, #eef5ff 100%);
+  box-shadow: 0 32px 80px -34px rgba(2, 6, 23, 0.6);
+}
+
+.masterNoticeHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 16px 16px 12px;
+  border-bottom: 1px solid rgba(191, 211, 239, 0.76);
+}
+
+.masterNoticeHeader div {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.masterNoticeHeader span {
+  color: #38607f;
+  font-size: 0.68rem;
+  font-weight: 950;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.masterNoticeHeader strong {
+  color: #08163b;
+  font-size: 1.08rem;
+  line-height: 1.12;
+}
+
+.masterNoticeHeader button {
+  width: 36px;
+  height: 36px;
+  border: 1px solid rgba(151, 173, 206, 0.76);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.9);
+  color: #15243d;
+  font: inherit;
+  font-weight: 950;
+  cursor: pointer;
+}
+
+.masterNoticeTabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  padding: 12px 14px;
+}
+
+.masterNoticeTabs button {
+  min-height: 42px;
+  border: 1px solid rgba(159, 182, 217, 0.72);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.74);
+  color: #24507a;
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.masterNoticeTabs button[data-active="true"] {
+  border-color: rgba(11, 102, 255, 0.42);
+  background: linear-gradient(135deg, #0b66ff, #17b8e8);
+  color: #ffffff;
+  box-shadow: 0 16px 28px -20px rgba(11, 102, 255, 0.68);
+}
+
+.masterNoticeTabs button:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+}
+
+.masterNoticeComposer {
+  display: grid;
+  gap: 10px;
+  padding: 0 14px 14px;
+  border-bottom: 1px solid rgba(191, 211, 239, 0.62);
+}
+
+.masterNoticeComposer label,
+.masterNoticeComposerTop label,
+.masterNoticeScheduleGrid label {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.masterNoticeComposer span {
+  color: #546887;
+  font-size: 0.7rem;
+  font-weight: 900;
+}
+
+.masterNoticeComposer input,
+.masterNoticeComposer select,
+.masterNoticeComposer textarea {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid rgba(153, 178, 216, 0.82);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.84);
+  color: #0e1a33;
+  font: inherit;
+  font-size: 0.88rem;
+  outline: none;
+}
+
+.masterNoticeComposer input,
+.masterNoticeComposer select {
+  height: 42px;
+  padding: 0 12px;
+}
+
+.masterNoticeComposer textarea {
+  min-height: 96px;
+  resize: vertical;
+  padding: 10px 12px;
+  line-height: 1.4;
+}
+
+.masterNoticeComposerTop {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 132px;
+  gap: 10px;
+}
+
+.masterNoticeScheduleGrid {
+  display: grid;
+  grid-template-columns: 0.78fr 1fr 1fr;
+  gap: 10px;
+}
+
+.masterNoticePublish {
+  min-height: 44px;
+  border: 0;
+  border-radius: 15px;
+  background: linear-gradient(135deg, #0b66ff, #18bddc);
+  color: #ffffff;
+  font: inherit;
+  font-weight: 950;
+  cursor: pointer;
+  box-shadow: 0 18px 32px -22px rgba(11, 102, 255, 0.7);
+}
+
+.masterNoticePublish:disabled {
+  cursor: wait;
+  opacity: 0.7;
+}
+
+.masterNoticeList {
+  min-height: 0;
+  display: grid;
+  gap: 10px;
+  overflow: auto;
+  padding: 14px;
+}
+
+.masterNoticeItem {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: start;
+  padding: 12px;
+  border: 1px solid rgba(177, 198, 228, 0.72);
+  border-left: 4px solid #0b66ff;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.76);
+}
+
+.masterNoticeItem[data-tone="success"] {
+  border-left-color: #14a46c;
+}
+
+.masterNoticeItem[data-tone="warning"] {
+  border-left-color: #e6a200;
+}
+
+.masterNoticeItem[data-tone="urgent"] {
+  border-left-color: #ef4444;
+}
+
+.masterNoticeItem[data-read="true"] {
+  opacity: 0.62;
+}
+
+.masterNoticeItem div {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.masterNoticeItem span {
+  color: #64748b;
+  font-size: 0.68rem;
+  font-weight: 850;
+}
+
+.masterNoticeItem strong {
+  color: #0f172a;
+  font-size: 0.92rem;
+}
+
+.masterNoticeItem p,
+.masterNoticeEmpty p,
+.masterNoticeForcedCard p {
+  margin: 0;
+  color: #465b78;
+  font-size: 0.82rem;
+  line-height: 1.4;
+}
+
+.masterNoticeItem button {
+  min-height: 34px;
+  border: 1px solid rgba(153, 174, 211, 0.72);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.92);
+  color: #0b66ff;
+  font: inherit;
+  font-size: 0.76rem;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.masterNoticeItem button:disabled {
+  color: #64748b;
+  cursor: default;
+}
+
+.masterNoticeEmpty {
+  display: grid;
+  gap: 6px;
+  padding: 20px;
+  border: 1px dashed rgba(148, 163, 184, 0.72);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.52);
+  text-align: center;
+}
+
+.masterNoticeEmpty strong {
+  color: #0f172a;
+}
+
+.masterNoticeForcedBackdrop {
+  z-index: 10080;
+  place-items: center;
+  background: rgba(4, 8, 18, 0.66);
+}
+
+.masterNoticeForcedCard {
+  width: min(430px, 100%);
+  display: grid;
+  gap: 12px;
+  padding: 22px;
+  border: 1px solid rgba(191, 211, 239, 0.82);
+  border-top: 5px solid #0b66ff;
+  border-radius: 24px;
+  background:
+    radial-gradient(circle at 100% 0%, rgba(20, 184, 166, 0.14), transparent 32%),
+    #ffffff;
+  box-shadow: 0 36px 96px -42px rgba(0, 0, 0, 0.72);
+}
+
+.masterNoticeForcedCard[data-tone="success"] {
+  border-top-color: #14a46c;
+}
+
+.masterNoticeForcedCard[data-tone="warning"] {
+  border-top-color: #e6a200;
+}
+
+.masterNoticeForcedCard[data-tone="urgent"] {
+  border-top-color: #ef4444;
+}
+
+.masterNoticeForcedCard span {
+  color: #38607f;
+  font-size: 0.7rem;
+  font-weight: 950;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.masterNoticeForcedCard h2 {
+  margin: 0;
+  color: #061333;
+  font-size: 1.35rem;
+  line-height: 1.12;
+}
+
+.masterNoticeForcedCard button {
+  min-height: 46px;
+  border: 0;
+  border-radius: 15px;
+  background: linear-gradient(135deg, #0b66ff, #18bddc);
+  color: #ffffff;
+  font: inherit;
+  font-weight: 950;
+  cursor: pointer;
+}
+
+.masterNoticeForcedCard button:disabled {
+  background: #dbe7f7;
+  color: #52647f;
+  cursor: wait;
+}
+
+@media (max-width: 720px) {
+  .masterNoticeBell {
+    right: 14px;
+    top: 14px;
+    height: 40px;
+    padding: 0 10px;
+  }
+
+  .masterNoticeBellText {
+    display: none;
+  }
+
+  .masterNoticeBackdrop {
+    align-items: end;
+    justify-items: stretch;
+    padding: 12px;
+  }
+
+  .masterNoticePanel {
+    width: 100%;
+    max-height: min(82dvh, 720px);
+    border-radius: 22px 22px 18px 18px;
+  }
+
+  .masterNoticeComposerTop,
+  .masterNoticeScheduleGrid,
+  .masterNoticeItem {
+    grid-template-columns: 1fr;
+  }
+
+  .masterNoticeForcedCard {
+    padding: 20px;
+  }
+}
+
+:global(html[data-theme-mode="dark"]) .masterNoticeBell,
+:global(html[data-hbx-mobile-theme="dark"]) .masterNoticeBell {
+  border-color: rgba(125, 211, 252, 0.18);
+  background: rgba(7, 22, 42, 0.9);
+  color: #e6f4ff;
+}
+
+:global(html[data-theme-mode="dark"]) .masterNoticePanel,
+:global(html[data-hbx-mobile-theme="dark"]) .masterNoticePanel,
+:global(html[data-theme-mode="dark"]) .masterNoticeForcedCard,
+:global(html[data-hbx-mobile-theme="dark"]) .masterNoticeForcedCard {
+  border-color: rgba(125, 211, 252, 0.18);
+  background:
+    radial-gradient(circle at 12% 0%, rgba(45, 212, 191, 0.12), transparent 32%),
+    linear-gradient(180deg, #0a1728 0%, #071222 100%);
+}
+
+:global(html[data-theme-mode="dark"]) .masterNoticeHeader,
+:global(html[data-hbx-mobile-theme="dark"]) .masterNoticeHeader,
+:global(html[data-theme-mode="dark"]) .masterNoticeComposer,
+:global(html[data-hbx-mobile-theme="dark"]) .masterNoticeComposer {
+  border-color: rgba(125, 211, 252, 0.14);
+}
+
+:global(html[data-theme-mode="dark"]) .masterNoticeHeader strong,
+:global(html[data-hbx-mobile-theme="dark"]) .masterNoticeHeader strong,
+:global(html[data-theme-mode="dark"]) .masterNoticeForcedCard h2,
+:global(html[data-hbx-mobile-theme="dark"]) .masterNoticeForcedCard h2,
+:global(html[data-theme-mode="dark"]) .masterNoticeItem strong,
+:global(html[data-hbx-mobile-theme="dark"]) .masterNoticeItem strong,
+:global(html[data-theme-mode="dark"]) .masterNoticeEmpty strong,
+:global(html[data-hbx-mobile-theme="dark"]) .masterNoticeEmpty strong {
+  color: #f8fbff;
+}
+
+:global(html[data-theme-mode="dark"]) .masterNoticeItem,
+:global(html[data-hbx-mobile-theme="dark"]) .masterNoticeItem,
+:global(html[data-theme-mode="dark"]) .masterNoticeEmpty,
+:global(html[data-hbx-mobile-theme="dark"]) .masterNoticeEmpty,
+:global(html[data-theme-mode="dark"]) .masterNoticeComposer input,
+:global(html[data-hbx-mobile-theme="dark"]) .masterNoticeComposer input,
+:global(html[data-theme-mode="dark"]) .masterNoticeComposer select,
+:global(html[data-hbx-mobile-theme="dark"]) .masterNoticeComposer select,
+:global(html[data-theme-mode="dark"]) .masterNoticeComposer textarea,
+:global(html[data-hbx-mobile-theme="dark"]) .masterNoticeComposer textarea {
+  border-color: rgba(125, 211, 252, 0.18);
+  background: rgba(8, 26, 48, 0.78);
+  color: #eef7ff;
+}
+
+:global(html[data-theme-mode="dark"]) .masterNoticeItem p,
+:global(html[data-hbx-mobile-theme="dark"]) .masterNoticeItem p,
+:global(html[data-theme-mode="dark"]) .masterNoticeEmpty p,
+:global(html[data-hbx-mobile-theme="dark"]) .masterNoticeEmpty p,
+:global(html[data-theme-mode="dark"]) .masterNoticeForcedCard p,
+:global(html[data-hbx-mobile-theme="dark"]) .masterNoticeForcedCard p,
+:global(html[data-theme-mode="dark"]) .masterNoticeComposer span,
+:global(html[data-hbx-mobile-theme="dark"]) .masterNoticeComposer span,
+:global(html[data-theme-mode="dark"]) .masterNoticeHeader span,
+:global(html[data-hbx-mobile-theme="dark"]) .masterNoticeHeader span,
+:global(html[data-theme-mode="dark"]) .masterNoticeForcedCard span,
+:global(html[data-hbx-mobile-theme="dark"]) .masterNoticeForcedCard span {
+  color: rgba(226, 234, 248, 0.74);
 }

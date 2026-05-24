@@ -12,6 +12,7 @@ import {
   ServiceUnavailableException,
   forwardRef,
 } from '@nestjs/common';
+import { randomUUID } from 'crypto';
 import * as XLSX from 'xlsx';
 import { probeWebscrapingRuntime, type WebscrapingRuntimeDiagnostic } from '../modules/webscraping-runtime.util';
 import { PrismaService } from '../prisma/prisma.service';
@@ -12654,6 +12655,21 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     const sellerById = new Map(sellers.map((seller) => [seller.id, seller]));
     const orderedSellers = requestedUserIds.map((id) => sellerById.get(id)).filter(Boolean) as typeof sellers;
     const targets = orderedSellers.length ? orderedSellers : sellers;
+    const activeRule = await this.prisma.radarAutoDistributionRule.findUnique({
+      where: { companyId_scope: { companyId: context.companyId, scope: 'company' } },
+    }).catch(() => null);
+    const dailyLimitPerSeller = this.normalizeDailyDistributionLimit((activeRule as any)?.dailyLimitPerSeller, 20);
+    const dayKey = this.getSaoPauloDayKey();
+    const dailyStateBySeller = new Map<number, Awaited<ReturnType<typeof this.getDailyDistributionSnapshot>>>();
+    const dailyLimitBySeller = new Map<number, number>();
+    for (const target of targets) {
+      const sellerDailyLimit = this.resolveSellerDistributionDailyLimit(target, dailyLimitPerSeller);
+      dailyLimitBySeller.set(Number(target.id), sellerDailyLimit);
+      dailyStateBySeller.set(
+        Number(target.id),
+        await this.getDailyDistributionSnapshot(context.companyId, Number(target.id), sellerDailyLimit, dayKey),
+      );
+    }
 
     let distributedCount = 0;
     let failedCount = 0;
@@ -12668,8 +12684,34 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
 
     for (let index = 0; index < leadIds.length; index += 1) {
       const radarLeadId = leadIds[index];
-      const target = targets[index % targets.length];
-      if (!target) continue;
+      let target: (typeof targets)[number] | null = null;
+      for (let offset = 0; offset < targets.length; offset += 1) {
+        const candidate = targets[(index + offset) % targets.length];
+        const state = candidate ? dailyStateBySeller.get(Number(candidate.id)) : null;
+        if (candidate && (!state || state.remainingToday > 0)) {
+          target = candidate;
+          break;
+        }
+      }
+      if (!target) {
+        failedCount += 1;
+        failures.push({
+          radarLeadId,
+          error: 'Todos os vendedores atingiram o limite diário não acumulativo.',
+        });
+        continue;
+      }
+      const dailyState = dailyStateBySeller.get(Number(target.id));
+      const targetDailyLimit = dailyLimitBySeller.get(Number(target.id)) ?? dailyLimitPerSeller;
+      if (dailyState?.remainingToday <= 0) {
+        failedCount += 1;
+        await this.recordDailyDistributionSkip(context.companyId, Number(target.id), targetDailyLimit, 'limite_diario_atingido', dayKey);
+        failures.push({
+          radarLeadId,
+          error: 'Limite diário do vendedor atingido.',
+        });
+        continue;
+      }
       try {
         const result = await this.importRadarLeadToVendasForUser(user, radarLeadId, {
           skipWhatsappValidation: Boolean(input.skipWhatsappValidation),
@@ -12677,6 +12719,11 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
           assignedUserId: target.id,
           assignedByUserId: context.userId,
         });
+        await this.incrementDailyDistributionDelivery(context.companyId, target.id, targetDailyLimit, dayKey);
+        if (dailyState) {
+          dailyState.deliveredToday += 1;
+          dailyState.remainingToday = Math.max(0, dailyState.remainingToday - 1);
+        }
         distributedCount += 1;
         assignments.push({
           radarLeadId,
@@ -12727,6 +12774,179 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     return Math.min(max, Math.max(min, numeric));
   }
 
+  private getSaoPauloDayKey(date = new Date()) {
+    const parts = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'America/Sao_Paulo',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).formatToParts(date);
+    const value = (type: string) => parts.find((part) => part.type === type)?.value || '';
+    return `${value('year')}-${value('month')}-${value('day')}`;
+  }
+
+  private getSaoPauloDayBounds(dayKey = this.getSaoPauloDayKey()) {
+    const [year, month, day] = String(dayKey || '').split('-').map((part) => Math.trunc(Number(part || 0)));
+    const startUtc = new Date(Date.UTC(year || 1970, Math.max(0, (month || 1) - 1), day || 1, 3, 0, 0, 0));
+    const endUtc = new Date(startUtc.getTime() + 24 * 60 * 60 * 1000);
+    return { start: startUtc, end: endUtc };
+  }
+
+  private normalizeDailyDistributionLimit(value: unknown, fallback = 20) {
+    return this.normalizeRadarAutoDistributionInt(value, fallback, 0, 500);
+  }
+
+  private isSellerDistributionPaused(seller: any) {
+    const mode = String(seller?.sellerDistributionMode || '').trim().toLowerCase();
+    if (mode !== 'paused') return false;
+    const pausedUntil = seller?.sellerDistributionPausedUntil instanceof Date
+      ? seller.sellerDistributionPausedUntil
+      : seller?.sellerDistributionPausedUntil
+        ? new Date(seller.sellerDistributionPausedUntil)
+        : null;
+    return !pausedUntil || Number.isNaN(pausedUntil.getTime()) || pausedUntil.getTime() > Date.now();
+  }
+
+  private resolveSellerDistributionDailyLimit(seller: any, fallback: number) {
+    const rawOverride = seller?.sellerDistributionDailyLimitOverride;
+    if (rawOverride === null || rawOverride === undefined) return this.normalizeDailyDistributionLimit(fallback, 20);
+    return this.normalizeDailyDistributionLimit(rawOverride, fallback);
+  }
+
+  private sellerDistributionPriorityWeight(seller: any) {
+    const mode = String(seller?.sellerDistributionMode || 'learning').trim().toLowerCase();
+    if (mode === 'priority') return 0;
+    if (mode === 'normal') return 1;
+    if (mode === 'learning') return 2;
+    return 3;
+  }
+
+  private async getDailyDistributionSnapshot(companyId: number, userId: number | null, dailyLimitRaw: unknown, dayKey = this.getSaoPauloDayKey()) {
+    const dailyLimit = this.normalizeDailyDistributionLimit(dailyLimitRaw, 20);
+    const { start, end } = this.getSaoPauloDayBounds(dayKey);
+    const [assignedToday, usageRows] = await Promise.all([
+      this.prisma.vendasLead.count({
+        where: {
+          companyId,
+          assignedUserId: userId ? userId : null,
+          assignedAt: { gte: start, lt: end },
+        },
+      }).catch(() => 0),
+      userId
+        ? this.prisma.$queryRaw<Array<{ deliveredCount?: number | null; lastSkipReason?: string | null }>>`
+            SELECT "deliveredCount", "lastSkipReason"
+            FROM "RadarDistributionDailyUsage"
+            WHERE "companyId" = ${companyId}
+              AND "userId" = ${userId}
+              AND "dayKey" = ${dayKey}
+            LIMIT 1
+          `.catch(() => [])
+        : this.prisma.$queryRaw<Array<{ deliveredCount?: number | null; lastSkipReason?: string | null }>>`
+            SELECT "deliveredCount", "lastSkipReason"
+            FROM "RadarDistributionDailyUsage"
+            WHERE "companyId" = ${companyId}
+              AND "userId" IS NULL
+              AND "dayKey" = ${dayKey}
+            ORDER BY "updatedAt" DESC
+            LIMIT 1
+          `.catch(() => []),
+    ]);
+    const usageDelivered = Math.max(0, Math.trunc(Number(usageRows?.[0]?.deliveredCount || 0) || 0));
+    const deliveredToday = Math.max(assignedToday, usageDelivered);
+    const remainingToday = Math.max(0, dailyLimit - deliveredToday);
+    return {
+      dayKey,
+      dailyLimit,
+      deliveredToday,
+      remainingToday,
+      blocked: remainingToday <= 0,
+      reason: remainingToday <= 0 ? (dailyLimit <= 0 ? 'limite_diario_zero' : 'limite_diario_atingido') : null,
+      lastSkipReason: usageRows?.[0]?.lastSkipReason || null,
+    };
+  }
+
+  private async incrementDailyDistributionDelivery(companyId: number, userId: number | null, dailyLimitRaw: unknown, dayKey = this.getSaoPauloDayKey()) {
+    const dailyLimit = this.normalizeDailyDistributionLimit(dailyLimitRaw, 20);
+    const now = new Date();
+    if (!userId) {
+      const updated = await this.prisma.$executeRaw`
+        UPDATE "RadarDistributionDailyUsage"
+        SET
+          "dailyLimit" = ${dailyLimit},
+          "deliveredCount" = "deliveredCount" + 1,
+          "lastDeliveryAt" = ${now},
+          "updatedAt" = ${now}
+        WHERE "companyId" = ${companyId}
+          AND "userId" IS NULL
+          AND "dayKey" = ${dayKey}
+      `.catch(() => 0);
+      if (updated) return;
+      await this.prisma.$executeRaw`
+        INSERT INTO "RadarDistributionDailyUsage" (
+          "id", "companyId", "userId", "dayKey", "dailyLimit", "deliveredCount", "lastDeliveryAt", "createdAt", "updatedAt"
+        )
+        VALUES (${randomUUID()}, ${companyId}, NULL, ${dayKey}, ${dailyLimit}, 1, ${now}, ${now}, ${now})
+      `.catch(() => null);
+      return;
+    }
+    await this.prisma.$executeRaw`
+      INSERT INTO "RadarDistributionDailyUsage" (
+        "id", "companyId", "userId", "dayKey", "dailyLimit", "deliveredCount", "lastDeliveryAt", "createdAt", "updatedAt"
+      )
+      VALUES (${randomUUID()}, ${companyId}, ${userId}, ${dayKey}, ${dailyLimit}, 1, ${now}, ${now}, ${now})
+      ON CONFLICT ("companyId", "userId", "dayKey")
+      DO UPDATE SET
+        "dailyLimit" = EXCLUDED."dailyLimit",
+        "deliveredCount" = "RadarDistributionDailyUsage"."deliveredCount" + 1,
+        "lastDeliveryAt" = EXCLUDED."lastDeliveryAt",
+        "updatedAt" = EXCLUDED."updatedAt"
+    `.catch(() => null);
+  }
+
+  private async recordDailyDistributionSkip(
+    companyId: number,
+    userId: number | null,
+    dailyLimitRaw: unknown,
+    reason: string,
+    dayKey = this.getSaoPauloDayKey(),
+  ) {
+    const dailyLimit = this.normalizeDailyDistributionLimit(dailyLimitRaw, 20);
+    const now = new Date();
+    if (!userId) {
+      const updated = await this.prisma.$executeRaw`
+        UPDATE "RadarDistributionDailyUsage"
+        SET
+          "dailyLimit" = ${dailyLimit},
+          "skippedCount" = "skippedCount" + 1,
+          "lastSkipReason" = ${reason},
+          "updatedAt" = ${now}
+        WHERE "companyId" = ${companyId}
+          AND "userId" IS NULL
+          AND "dayKey" = ${dayKey}
+      `.catch(() => 0);
+      if (updated) return;
+      await this.prisma.$executeRaw`
+        INSERT INTO "RadarDistributionDailyUsage" (
+          "id", "companyId", "userId", "dayKey", "dailyLimit", "skippedCount", "lastSkipReason", "createdAt", "updatedAt"
+        )
+        VALUES (${randomUUID()}, ${companyId}, NULL, ${dayKey}, ${dailyLimit}, 1, ${reason}, ${now}, ${now})
+      `.catch(() => null);
+      return;
+    }
+    await this.prisma.$executeRaw`
+      INSERT INTO "RadarDistributionDailyUsage" (
+        "id", "companyId", "userId", "dayKey", "dailyLimit", "skippedCount", "lastSkipReason", "createdAt", "updatedAt"
+      )
+      VALUES (${randomUUID()}, ${companyId}, ${userId}, ${dayKey}, ${dailyLimit}, 1, ${reason}, ${now}, ${now})
+      ON CONFLICT ("companyId", "userId", "dayKey")
+      DO UPDATE SET
+        "dailyLimit" = EXCLUDED."dailyLimit",
+        "skippedCount" = "RadarDistributionDailyUsage"."skippedCount" + 1,
+        "lastSkipReason" = EXCLUDED."lastSkipReason",
+        "updatedAt" = EXCLUDED."updatedAt"
+    `.catch(() => null);
+  }
+
   private parseRadarAutoDistributionTargetIds(value: unknown) {
     if (!value) return [] as number[];
     try {
@@ -12747,6 +12967,8 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     const targetUsers = targetUserIds.length
       ? activeSellers.filter((seller) => targetSet.has(Number(seller.id || 0)))
       : activeSellers;
+    const territories = this.parseMasterRadarTerritories(row?.filtersJson);
+    const territoryByUserId = new Map(territories.map((item) => [Number(item.userId || 0), item]));
     return {
       id: row?.id || null,
       scope: row?.scope || 'company',
@@ -12755,12 +12977,16 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       adminUserId: Number(row?.adminUserId || 0) || null,
       adminTargetStock: Math.max(0, Math.trunc(Number(row?.adminTargetStock || 0) || 0)),
       targetStockPerSeller: Math.max(1, Math.trunc(Number(row?.targetStockPerSeller || 30) || 30)),
+      adminDailyLimit: Math.max(0, Math.trunc(Number(row?.adminDailyLimit || 0) || 0)),
+      dailyLimitPerSeller: Math.max(0, Math.trunc(Number(row?.dailyLimitPerSeller || 20) || 20)),
       preferredState: row?.preferredState || null,
       preferredCity: row?.preferredCity || null,
       segment: row?.segment || null,
       categoryKey: row?.categoryKey || null,
       radiusKm: row?.radiusKm == null ? null : Math.max(0, Math.trunc(Number(row.radiusKm || 0) || 0)),
       targetMode: targetUserIds.length ? 'selected_sellers' : 'all_active_sellers',
+      territoryMode: territories.some((item) => item.cities.length > 0) ? 'fixed_cities' : 'open',
+      territories,
       targetUserIds,
       targetUsers: targetUsers.map((seller) => ({
         id: Number(seller.id || 0),
@@ -12768,6 +12994,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         email: seller.email || null,
         phone: seller.phone || null,
         commissionPercent: Number(seller.commissionPercent || 0) || 0,
+        territoryCities: territoryByUserId.get(Number(seller.id || 0))?.cities || [],
       })),
       filters: {
         state: row?.preferredState || null,
@@ -12784,7 +13011,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async listActiveDistributionSellers(companyId: number, userIds?: number[]) {
-    return this.prisma.user.findMany({
+    const sellers = await (this.prisma.user as any).findMany({
       where: {
         companyId,
         isActive: true,
@@ -12799,9 +13026,16 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         username: true,
         phone: true,
         commissionPercent: true,
+        sellerDistributionMode: true,
+        sellerDistributionPausedUntil: true,
+        sellerDistributionDailyLimitOverride: true,
+        sellerDistributionNote: true,
       },
       orderBy: [{ name: 'asc' }, { email: 'asc' }, { id: 'asc' }],
     });
+    return (sellers || [])
+      .filter((seller: any) => !this.isSellerDistributionPaused(seller))
+      .sort((a: any, b: any) => this.sellerDistributionPriorityWeight(a) - this.sellerDistributionPriorityWeight(b));
   }
 
   async getRadarAutoDistributionRuleForUser(user: any) {
@@ -12824,6 +13058,8 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         includeAdmin: false,
         adminTargetStock: 0,
         targetStockPerSeller: 30,
+        adminDailyLimit: 0,
+        dailyLimitPerSeller: 20,
       }, activeSellers),
     };
   }
@@ -12833,12 +13069,15 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     includeAdmin?: boolean;
     adminTargetStock?: number;
     targetStockPerSeller?: number;
+    adminDailyLimit?: number;
+    dailyLimitPerSeller?: number;
     preferredState?: string | null;
     preferredCity?: string | null;
     segment?: string | null;
     categoryKey?: string | null;
     radiusKm?: number | null;
     userIds?: number[];
+    territories?: Array<{ userId?: number; cities?: Array<{ city?: string; state?: string }> }>;
   } = {}) {
     if (!this.canUseWebscrapingRole(user)) {
       throw new ForbiddenException('Apenas ADMIN pode configurar distribuição automática do Radar.');
@@ -12858,6 +13097,13 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       Math.max(1, Math.trunc(Number(existing?.targetStockPerSeller || 30) || 30)),
       1,
       500,
+    );
+    const adminDailyLimit = includeAdmin
+      ? this.normalizeDailyDistributionLimit(input.adminDailyLimit, Math.max(0, Math.trunc(Number((existing as any)?.adminDailyLimit || 0) || 0)))
+      : 0;
+    const dailyLimitPerSeller = this.normalizeDailyDistributionLimit(
+      input.dailyLimitPerSeller,
+      Math.max(0, Math.trunc(Number((existing as any)?.dailyLimitPerSeller || 20) || 20)),
     );
     const preferredState = input.preferredState === undefined
       ? existing?.preferredState || null
@@ -12897,6 +13143,23 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     if (status === 'active' && (!preferredState || !preferredCity || !segment)) {
       throw new BadRequestException('Escolha estado, cidade e segmento antes de ativar a distribuição automática.');
     }
+    const activeSellerIds = new Set(activeSellers.map((seller) => Number(seller.id || 0)));
+    const sourceTerritories = Array.isArray(input.territories)
+      ? input.territories
+      : this.parseMasterRadarTerritories(existing?.filtersJson);
+    const normalizedTerritories = this.parseMasterRadarTerritories(sourceTerritories)
+      .filter((item) => activeSellerIds.has(Number(item.userId || 0)))
+      .map((item) => ({ userId: item.userId, cities: item.cities.slice(0, 20) }))
+      .filter((item) => item.cities.length > 0);
+    const selectedCityKey = `${normalizeLookupValue(preferredCity || '')}:${String(preferredState || '').trim().toUpperCase()}`;
+    if (status === 'active' && !includeAdmin && normalizedTerritories.length) {
+      const hasSellerCoveringSelectedCity = normalizedTerritories.some((territory) =>
+        territory.cities.some((city) => `${normalizeLookupValue(city.city)}:${String(city.state || '').trim().toUpperCase()}` === selectedCityKey),
+      );
+      if (!hasSellerCoveringSelectedCity) {
+        throw new BadRequestException('Nenhum vendedor cobre a cidade escolhida. Ajuste o território ou inclua o Admin no recebimento.');
+      }
+    }
 
     const filtersJson = JSON.stringify({
       state: preferredState,
@@ -12904,6 +13167,11 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       segment,
       categoryKey,
       radiusKm,
+      territoryMode: normalizedTerritories.length ? 'fixed_cities' : 'open',
+      rule: normalizedTerritories.length
+        ? 'Vendedor só recebe se a cidade da regra estiver no território dele.'
+        : 'Sem território fixo: todos os vendedores ativos entram no rodízio.',
+      territories: normalizedTerritories,
     });
     const now = new Date();
     const data = {
@@ -12912,6 +13180,8 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       adminUserId: includeAdmin ? context.userId : null,
       adminTargetStock,
       targetStockPerSeller,
+      adminDailyLimit,
+      dailyLimitPerSeller,
       preferredState,
       preferredCity,
       segment,
@@ -13049,6 +13319,10 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       context.companyId,
       selectedTargetIds.length ? selectedTargetIds : undefined,
     );
+    const sellerTerritories = this.parseMasterRadarTerritories(rule?.filtersJson);
+    const territoryModeFixed = sellerTerritories.some((territory) => territory.cities.length > 0);
+    const territoryByUserId = new Map(sellerTerritories.map((territory) => [Number(territory.userId || 0), territory]));
+    const selectedCityKey = `${normalizeLookupValue(rule?.preferredCity || '')}:${String(rule?.preferredState || '').trim().toUpperCase()}`;
     const sellerById = new Map(activeSellers.map((seller) => [Number(seller.id || 0), seller]));
     const orderedSellers = selectedTargetIds.length
       ? selectedTargetIds.map((id) => sellerById.get(id)).filter(Boolean)
@@ -13061,10 +13335,16 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       label: string;
       targetStock: number;
       currentStock: number;
+      dailyLimit: number;
+      deliveredToday: number;
+      dailyRemaining: number;
+      noDeliveryReason?: string | null;
+      territoryCities?: Array<{ city: string; state: string }>;
       needed: number;
       delivered: number;
     }> = [];
     const adminTargetStock = Math.max(0, Math.trunc(Number(rule?.adminTargetStock || 0) || 0));
+    const adminDailyLimit = this.normalizeDailyDistributionLimit((rule as any)?.adminDailyLimit, adminTargetStock);
     if (Boolean(rule?.includeAdmin) && adminTargetStock > 0) {
       recipients.push({
         key: 'admin',
@@ -13073,14 +13353,33 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         label: 'Admin',
         targetStock: adminTargetStock,
         currentStock: 0,
+        dailyLimit: adminDailyLimit,
+        deliveredToday: 0,
+        dailyRemaining: adminDailyLimit,
+        noDeliveryReason: null,
+        territoryCities: [],
         needed: 0,
         delivered: 0,
       });
     }
     const targetStockPerSeller = Math.max(1, Math.trunc(Number(rule?.targetStockPerSeller || 30) || 30));
+    const dailyLimitPerSeller = this.normalizeDailyDistributionLimit((rule as any)?.dailyLimitPerSeller, 20);
     for (const seller of orderedSellers) {
       const sellerId = Number(seller?.id || 0);
       if (!sellerId) continue;
+      const sellerDailyLimit = this.resolveSellerDistributionDailyLimit(seller, dailyLimitPerSeller);
+      const territory = territoryByUserId.get(sellerId);
+      const territoryCities = territory?.cities || [];
+      const territoryMatches = territoryCities.some((city) => (
+        `${normalizeLookupValue(city.city)}:${String(city.state || '').trim().toUpperCase()}` === selectedCityKey
+      ));
+      const territoryReason = territoryModeFixed
+        ? !territoryCities.length
+          ? 'Sem território configurado'
+          : !territoryMatches
+            ? 'Fora do território desta cidade'
+            : null
+        : null;
       recipients.push({
         key: `seller:${sellerId}`,
         type: 'seller',
@@ -13088,6 +13387,11 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         label: String(seller?.name || seller?.username || seller?.email || `Vendedor ${sellerId}`).trim(),
         targetStock: targetStockPerSeller,
         currentStock: 0,
+        dailyLimit: sellerDailyLimit,
+        deliveredToday: 0,
+        dailyRemaining: sellerDailyLimit,
+        noDeliveryReason: territoryReason,
+        territoryCities,
         needed: 0,
         delivered: 0,
       });
@@ -13099,9 +13403,21 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     const currentStocks = await Promise.all(
       recipients.map((recipient) => this.countRadarAutoDistributionOpenStock(context.companyId, recipient.assignedUserId)),
     );
+    const dayKey = this.getSaoPauloDayKey();
+    const dailySnapshots = await Promise.all(
+      recipients.map((recipient) => this.getDailyDistributionSnapshot(context.companyId, recipient.assignedUserId, recipient.dailyLimit, dayKey)),
+    );
     recipients.forEach((recipient, index) => {
       recipient.currentStock = Math.max(0, Math.trunc(Number(currentStocks[index] || 0) || 0));
-      recipient.needed = Math.max(0, recipient.targetStock - recipient.currentStock);
+      recipient.deliveredToday = Math.max(0, Math.trunc(Number(dailySnapshots[index]?.deliveredToday || 0) || 0));
+      recipient.dailyRemaining = Math.max(0, Math.trunc(Number(dailySnapshots[index]?.remainingToday ?? recipient.dailyLimit) || 0));
+      const stockNeed = Math.max(0, recipient.targetStock - recipient.currentStock);
+      const blockedByReason = Boolean(recipient.noDeliveryReason);
+      recipient.needed = blockedByReason ? 0 : Math.min(stockNeed, recipient.dailyRemaining);
+      if (!blockedByReason && stockNeed > 0 && recipient.dailyRemaining <= 0) {
+        recipient.noDeliveryReason = 'Limite diário atingido';
+        void this.recordDailyDistributionSkip(context.companyId, recipient.assignedUserId, recipient.dailyLimit, 'limite_diario_atingido', dayKey);
+      }
     });
 
     const totalNeeded = recipients.reduce((sum, recipient) => sum + recipient.needed, 0);
@@ -13164,7 +13480,10 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
             assignedUserId: target.assignedUserId,
             assignedByUserId: target.assignedUserId ? context.userId : null,
           });
+          await this.incrementDailyDistributionDelivery(context.companyId, target.assignedUserId, target.dailyLimit, dayKey);
           target.delivered += 1;
+          target.deliveredToday += 1;
+          target.dailyRemaining = Math.max(0, target.dailyRemaining - 1);
           queueIndex += 1;
           assignments.push({
             radarLeadId: row.id,
@@ -13196,6 +13515,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
 
     const deliveredCount = assignments.length;
     const shortageCount = Math.max(0, totalNeeded - deliveredCount);
+    const dailyBlockedCount = recipients.filter((recipient) => recipient.noDeliveryReason).length;
     const message = deliveredCount > 0
       ? blockedByLimit
         ? `${deliveredCount} card(s) distribuídos. Parei porque o limite do plano foi atingido.`
@@ -13203,7 +13523,9 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
           ? `${deliveredCount} card(s) distribuídos. Ainda faltam ${shortageCount} para completar todos os estoques.`
           : `${deliveredCount} card(s) distribuídos automaticamente.`
       : totalNeeded <= 0
-        ? 'Todos os vendedores já estão no estoque configurado.'
+        ? dailyBlockedCount > 0
+          ? 'Distribuição sem entrega: vendedor(es) bloqueados por limite diário ou território.'
+          : 'Todos os vendedores já estão no estoque configurado.'
         : blockedByLimit
           ? 'Distribuição automática pausada pelo limite do plano.'
           : 'Sem cards disponíveis agora para essa regra. O robô tentará novamente.';
@@ -13227,6 +13549,11 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         name: recipient.label,
         targetStock: recipient.targetStock,
         stockBefore: recipient.currentStock,
+        dailyLimit: recipient.dailyLimit,
+        deliveredTodayBefore: Math.max(0, recipient.deliveredToday - recipient.delivered),
+        dailyRemainingAfterEstimate: recipient.dailyRemaining,
+        noDeliveryReason: recipient.noDeliveryReason || null,
+        territoryCities: recipient.territoryCities || [],
         delivered: recipient.delivered,
         stockAfterEstimate: recipient.currentStock + recipient.delivered,
       })),
@@ -13365,7 +13692,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async listMasterRadarDistributionSellers(companyId: number) {
-    return this.prisma.user.findMany({
+    const sellers = await (this.prisma.user as any).findMany({
       where: {
         companyId,
         isActive: true,
@@ -13382,9 +13709,16 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         canRegisterHbxSellers: true,
         sellerReferralCommissionPercent: true,
         referredByUserId: true,
+        sellerDistributionMode: true,
+        sellerDistributionPausedUntil: true,
+        sellerDistributionDailyLimitOverride: true,
+        sellerDistributionNote: true,
       },
       orderBy: [{ name: 'asc' }, { email: 'asc' }, { id: 'asc' }],
     });
+    return (sellers || [])
+      .filter((seller: any) => !this.isSellerDistributionPaused(seller))
+      .sort((a: any, b: any) => this.sellerDistributionPriorityWeight(a) - this.sellerDistributionPriorityWeight(b));
   }
 
   private async estimateRadarPotentialForCities(cities: Array<{ city: string; state: string }>) {
@@ -13647,12 +13981,18 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     const activeSellers = await this.listMasterRadarDistributionSellers(context.companyId);
     const sellerById = new Map(activeSellers.map((seller) => [Number(seller.id || 0), seller]));
     const targetStockPerSeller = Math.max(1, Math.trunc(Number(rule?.targetStockPerSeller || 30) || 30));
+    const dailyLimitPerSeller = this.normalizeDailyDistributionLimit((rule as any)?.dailyLimitPerSeller, 20);
+    const dayKey = this.getSaoPauloDayKey();
     const recipients = [] as Array<{
       userId: number;
       label: string;
       cities: Array<{ city: string; state: string }>;
       targetStock: number;
       currentStock: number;
+      dailyLimit: number;
+      deliveredToday: number;
+      dailyRemaining: number;
+      noDeliveryReason?: string | null;
       remaining: number;
       delivered: number;
       candidates: any[];
@@ -13663,14 +14003,26 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     for (const territory of territories) {
       const seller = sellerById.get(Number(territory.userId || 0));
       if (!seller) continue;
+      const sellerDailyLimit = this.resolveSellerDistributionDailyLimit(seller, dailyLimitPerSeller);
       const currentStock = await this.countRadarAutoDistributionOpenStock(context.companyId, Number(seller.id || 0));
-      const remaining = Math.max(0, targetStockPerSeller - currentStock);
+      const dailySnapshot = await this.getDailyDistributionSnapshot(context.companyId, Number(seller.id || 0), sellerDailyLimit, dayKey);
+      const stockRemaining = Math.max(0, targetStockPerSeller - currentStock);
+      const dailyRemaining = Math.max(0, Math.trunc(Number(dailySnapshot.remainingToday || 0) || 0));
+      const remaining = Math.min(stockRemaining, dailyRemaining);
+      const noDeliveryReason = stockRemaining > 0 && dailyRemaining <= 0 ? 'Limite diário atingido' : null;
+      if (noDeliveryReason) {
+        await this.recordDailyDistributionSkip(context.companyId, Number(seller.id || 0), sellerDailyLimit, 'limite_diario_atingido', dayKey);
+      }
       recipients.push({
         userId: Number(seller.id || 0),
         label: String(seller.name || seller.username || seller.email || `Vendedor ${seller.id}`).trim(),
         cities: territory.cities,
         targetStock: targetStockPerSeller,
         currentStock,
+        dailyLimit: sellerDailyLimit,
+        deliveredToday: Math.max(0, Math.trunc(Number(dailySnapshot.deliveredToday || 0) || 0)),
+        dailyRemaining,
+        noDeliveryReason,
         remaining,
         delivered: 0,
         candidates: [],
@@ -13727,7 +14079,10 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
                 assignedUserId: recipient.userId,
                 assignedByUserId: context.userId,
               });
+              await this.incrementDailyDistributionDelivery(context.companyId, recipient.userId, recipient.dailyLimit, dayKey);
               recipient.delivered += 1;
+              recipient.deliveredToday += 1;
+              recipient.dailyRemaining = Math.max(0, recipient.dailyRemaining - 1);
               recipient.remaining = Math.max(0, recipient.remaining - 1);
               assignments.push({
                 radarLeadId: leadId,
@@ -13765,12 +14120,15 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
 
     const deliveredCount = assignments.length;
     const shortageCount = Math.max(0, totalNeeded - deliveredCount);
+    const dailyBlockedCount = recipients.filter((recipient) => recipient.noDeliveryReason).length;
     const message = deliveredCount > 0
       ? shortageCount > 0
         ? `${deliveredCount} card(s) HBX distribuídos. Ainda faltam ${shortageCount} para completar os estoques.`
         : `${deliveredCount} card(s) HBX distribuídos por cidade fixa.`
       : totalNeeded <= 0
-        ? 'Todos os vendedores HBX já estão no estoque configurado.'
+        ? dailyBlockedCount > 0
+          ? 'Distribuição HBX não acumulativa: vendedor(es) já atingiram o limite diário.'
+          : 'Todos os vendedores HBX já estão no estoque configurado.'
         : 'Sem cards disponíveis nas cidades fixas agora. A fábrica pode abastecer o banco e o robô tenta novamente.';
 
     return {
@@ -13792,6 +14150,10 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         name: recipient.label,
         targetStock: recipient.targetStock,
         stockBefore: recipient.currentStock,
+        dailyLimit: recipient.dailyLimit,
+        deliveredTodayBefore: Math.max(0, recipient.deliveredToday - recipient.delivered),
+        dailyRemainingAfterEstimate: recipient.dailyRemaining,
+        noDeliveryReason: recipient.noDeliveryReason || null,
         delivered: recipient.delivered,
         stockAfterEstimate: recipient.currentStock + recipient.delivered,
         cities: recipient.cities,
@@ -13816,14 +14178,21 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     const potentialByCity = await this.estimateRadarPotentialForCities(allTerritoryCities);
     const territoryByUserId = new Map(territories.map((item) => [item.userId, item]));
     const targetStockPerSeller = Math.max(1, Math.trunc(Number(rule?.targetStockPerSeller || 30) || 30));
+    const dailyLimitPerSeller = this.normalizeDailyDistributionLimit((rule as any)?.dailyLimitPerSeller, 20);
+    const dayKey = this.getSaoPauloDayKey();
     const cityBalance = this.buildMasterRadarCityBalance(citySuggestions, territories, potentialByCity, targetStockPerSeller);
-    const stockEntries = await Promise.all(
+    const sellerStateEntries = await Promise.all(
       sellers.map(async (seller) => {
         const sellerId = Number(seller.id || 0);
-        return [sellerId, await this.countRadarAutoDistributionOpenStock(companyId, sellerId)] as const;
+        const sellerDailyLimit = this.resolveSellerDistributionDailyLimit(seller, dailyLimitPerSeller);
+        const [currentStock, dailySnapshot] = await Promise.all([
+          this.countRadarAutoDistributionOpenStock(companyId, sellerId),
+          this.getDailyDistributionSnapshot(companyId, sellerId, sellerDailyLimit, dayKey),
+        ]);
+        return [sellerId, { currentStock, dailySnapshot, sellerDailyLimit }] as const;
       }),
     );
-    const stockByUserId = new Map(stockEntries);
+    const stateByUserId = new Map(sellerStateEntries);
     const sellerPayload = sellers.map((seller) => {
       const territory = territoryByUserId.get(Number(seller.id || 0)) || { userId: Number(seller.id || 0), cities: [] };
       const cities = territory.cities.map((item) => {
@@ -13834,7 +14203,11 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         };
       });
       const availableCards = cities.reduce((sum, item) => sum + Math.max(0, Math.trunc(Number(item.availableCards || 0) || 0)), 0);
-      const currentStock = Math.max(0, Math.trunc(Number(stockByUserId.get(Number(seller.id || 0)) || 0) || 0));
+      const sellerState = stateByUserId.get(Number(seller.id || 0));
+      const currentStock = Math.max(0, Math.trunc(Number(sellerState?.currentStock || 0) || 0));
+      const deliveredToday = Math.max(0, Math.trunc(Number(sellerState?.dailySnapshot?.deliveredToday || 0) || 0));
+      const sellerDailyLimit = Math.max(0, Math.trunc(Number(sellerState?.sellerDailyLimit ?? dailyLimitPerSeller) || 0));
+      const dailyRemaining = Math.max(0, Math.trunc(Number(sellerState?.dailySnapshot?.remainingToday ?? sellerDailyLimit) || 0));
       const remainingStock = Math.max(0, targetStockPerSeller - currentStock);
       const isMapped = cities.length > 0;
       return {
@@ -13851,11 +14224,18 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         targetStock: targetStockPerSeller,
         currentStock,
         remainingStock,
+        dailyLimit: sellerDailyLimit,
+        deliveredToday,
+        dailyRemaining,
+        noDeliveryReason: remainingStock > 0 && dailyRemaining <= 0 ? 'Limite diário atingido' : null,
         distributionStatus: !isMapped ? 'unmapped' : remainingStock > 0 ? 'needs_cards' : 'full',
       };
     });
     const currentStock = sellerPayload.reduce((sum, seller) => sum + seller.currentStock, 0);
     const missingCards = sellerPayload.reduce((sum, seller) => sum + seller.remainingStock, 0);
+    const deliveredToday = sellerPayload.reduce((sum, seller) => sum + seller.deliveredToday, 0);
+    const dailyRemaining = sellerPayload.reduce((sum, seller) => sum + seller.dailyRemaining, 0);
+    const dailyTarget = sellerPayload.reduce((sum, seller) => sum + seller.dailyLimit, 0);
     return {
       ok: true,
       companyId,
@@ -13864,6 +14244,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       segmentMode: 'free',
       territoryMode: 'fixed_cities',
       targetStockPerSeller,
+      dailyLimitPerSeller,
       sellers: sellerPayload,
       citySuggestions,
       cityBalance,
@@ -13878,6 +14259,9 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         targetStock: sellerPayload.length * targetStockPerSeller,
         currentStock,
         missingCards,
+        dailyTarget,
+        deliveredToday,
+        dailyRemaining,
         recommendedSellerSlots: cityBalance.reduce((sum, city) => sum + Math.max(0, city.recommendedSellerCount), 0),
         assignedCitySlots: cityBalance.reduce((sum, city) => sum + Math.max(0, city.assignedSellerCount), 0),
         uncoveredCityCount: cityBalance.filter((city) => city.coverageStatus === 'uncovered').length,
@@ -13893,6 +14277,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
   async saveMasterRadarAutoDistributionPanel(user: any, input: {
     status?: string;
     targetStockPerSeller?: number;
+    dailyLimitPerSeller?: number;
     territories?: Array<{ userId?: number; cities?: Array<{ city?: string; state?: string }> }>;
   } = {}) {
     if (!user?.isSystemMaster) throw new ForbiddenException('Acesso exclusivo do MASTER.');
@@ -13907,6 +14292,10 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       Math.max(1, Math.trunc(Number(existing?.targetStockPerSeller || 30) || 30)),
       1,
       500,
+    );
+    const dailyLimitPerSeller = this.normalizeDailyDistributionLimit(
+      input.dailyLimitPerSeller,
+      Math.max(0, Math.trunc(Number((existing as any)?.dailyLimitPerSeller || 20) || 20)),
     );
     const sellers = await this.listMasterRadarDistributionSellers(companyId);
     const sellerIds = new Set(sellers.map((seller) => Number(seller.id || 0)));
@@ -13949,6 +14338,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         adminUserId: null,
         adminTargetStock: 0,
         targetStockPerSeller,
+        dailyLimitPerSeller,
         targetUserIdsJson: targetUserIds.length ? JSON.stringify(targetUserIds) : null,
         filtersJson,
         createdByUserId: Math.trunc(Number(user?.id || 0)) || null,
@@ -13961,6 +14351,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         adminUserId: null,
         adminTargetStock: 0,
         targetStockPerSeller,
+        dailyLimitPerSeller,
         targetUserIdsJson: targetUserIds.length ? JSON.stringify(targetUserIds) : null,
         filtersJson,
         updatedByUserId: Math.trunc(Number(user?.id || 0)) || null,
@@ -13971,7 +14362,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     return {
       ...panel,
       message: status === 'active'
-        ? 'Territórios HBX Master ativados. As cidades ficam fixas por vendedor; os segmentos ficam livres no Vendas.'
+        ? 'Territórios HBX Master ativados. As cidades ficam fixas por vendedor; os segmentos ficam livres no Vendas e o limite diário não acumula.'
         : 'Territórios HBX Master salvos.',
     };
   }

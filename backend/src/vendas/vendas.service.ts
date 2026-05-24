@@ -28,8 +28,11 @@ import {
 import { calculateLeadQualityV2, resolveRadarVisibilityFromQualityV2, type LeadQualityV2, type LeadQualityV2SalesProfile } from '../webscraping/lead-quality-v2';
 import {
   BulkDeleteVendasLeadsDto,
+  CancelCommissionPayoutDto,
+  CreateCommissionPayoutDto,
   CreateHbxAssistedSignupDto,
   CreateHbxSalesHandoffDto,
+  CreateMasterNoticeDto,
   CreateManualVendasLeadDto,
   ImportWebscrapingLeadsDto,
   ReportVendasLeadDto,
@@ -129,6 +132,8 @@ type VendasPlanAccess = {
 };
 
 type SalesProfileSource = 'user' | 'company' | 'default';
+type MasterNoticeAudience = 'seller' | 'customer';
+type MasterNoticeTone = 'info' | 'success' | 'warning' | 'urgent';
 
 type EffectiveSalesProfile = LeadQualityV2SalesProfile & {
   id?: string | null;
@@ -186,6 +191,8 @@ export type HbxPresentationEmailDraft = {
 
 const VENDAS_WHATSAPP_LOOKUP_SOURCE = 'webwhats_lookup';
 const VENDAS_REPORT_ADMIN_PHONE = '5519997024884';
+const MASTER_NOTICE_AUDIENCES = new Set(['seller', 'customer']);
+const MASTER_NOTICE_TONES = new Set(['info', 'success', 'warning', 'urgent']);
 
 function compactText(value: unknown) {
   return String(value || '').replace(/\s+/g, ' ').trim();
@@ -1537,6 +1544,7 @@ export class VendasService {
       phone: row?.phone ? String(row.phone) : null,
       city: row?.city ? String(row.city) : null,
       segment: row?.segment ? String(row.segment) : null,
+      sellerUserId: Number(row?.assignedUserId || 0) || null,
       saleStatus: this.normalizeSaleStatus(row?.saleStatus),
       saleStatusLabel: this.formatSaleStatusLabel(this.normalizeSaleStatus(row?.saleStatus)),
       salePlanKey: row?.salePlanKey ? String(row.salePlanKey) : null,
@@ -1564,6 +1572,8 @@ export class VendasService {
       phone: lead?.phone ? String(lead.phone) : null,
       city: lead?.city ? String(lead.city) : null,
       segment: lead?.segment ? String(lead.segment) : null,
+      sellerUserId: Number(row?.sellerUserId || 0) || null,
+      receivableId: row?.id ? String(row.id) : null,
       saleStatus: this.normalizeSaleStatus(lead?.saleStatus),
       saleStatusLabel: this.formatSaleStatusLabel(this.normalizeSaleStatus(lead?.saleStatus)),
       salePlanKey: lead?.salePlanKey ? String(lead.salePlanKey) : null,
@@ -1711,6 +1721,1631 @@ export class VendasService {
     return report;
   }
 
+  private isDateInPeriod(value: unknown, period: { start: Date; end: Date }) {
+    const parsed = value instanceof Date ? value : this.parseDate(value);
+    if (!parsed) return false;
+    const time = parsed.getTime();
+    return time >= period.start.getTime() && time <= period.end.getTime();
+  }
+
+  private getSaoPauloDayKey(date = new Date()) {
+    const parts = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'America/Sao_Paulo',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).formatToParts(date);
+    const value = (type: string) => parts.find((part) => part.type === type)?.value || '';
+    return `${value('year')}-${value('month')}-${value('day')}`;
+  }
+
+  private getSaoPauloDayBounds(dayKey = this.getSaoPauloDayKey()) {
+    const [year, month, day] = String(dayKey || '').split('-').map((part) => Math.trunc(Number(part || 0)));
+    const start = new Date(Date.UTC(year || 1970, Math.max(0, (month || 1) - 1), day || 1, 3, 0, 0, 0));
+    const end = new Date(start.getTime() + 24 * 60 * 60 * 1000);
+    return { start, end };
+  }
+
+  private normalizeLookupKey(city?: unknown, state?: unknown) {
+    const normalizedCity = String(city || '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, ' ')
+      .trim();
+    const normalizedState = String(state || '').trim().toUpperCase();
+    return normalizedCity && normalizedState ? `${normalizedCity}:${normalizedState}` : '';
+  }
+
+  private parseRadarRuleTerritories(value: unknown): Array<{ userId: number; cities: Array<{ city: string; state: string }> }> {
+    const parsed = this.parseMaybeJsonObject(value);
+    const source = Array.isArray(parsed?.territories) ? parsed.territories : Array.isArray(value) ? value : [];
+    return (source as any[])
+      .map((item) => {
+        const userId = Math.trunc(Number(item?.userId || 0));
+        const cities = Array.from(new Map<string, { city: string; state: string }>(
+          (Array.isArray(item?.cities) ? item.cities : [])
+            .map((cityItem: any) => ({
+              city: String(cityItem?.city || '').trim(),
+              state: String(cityItem?.state || '').trim().toUpperCase(),
+            }))
+            .filter((cityItem) => cityItem.city && cityItem.state)
+            .map((cityItem) => [this.normalizeLookupKey(cityItem.city, cityItem.state), cityItem]),
+        ).values()).slice(0, 40);
+        return { userId, cities };
+      })
+      .filter((item) => item.userId > 0 && item.cities.length > 0);
+  }
+
+  private normalizeSellerDistributionMode(value: unknown, fallback = 'learning') {
+    const normalized = String(value || fallback || 'learning').trim().toLowerCase();
+    return ['learning', 'normal', 'priority', 'paused'].includes(normalized) ? normalized : 'learning';
+  }
+
+  private buildSellerGovernance(row: any) {
+    const mode = this.normalizeSellerDistributionMode(row?.sellerDistributionMode);
+    const pausedUntil = row?.sellerDistributionPausedUntil instanceof Date ? row.sellerDistributionPausedUntil : this.parseDate(row?.sellerDistributionPausedUntil);
+    const pausedActive = mode === 'paused' && (!pausedUntil || pausedUntil.getTime() > Date.now());
+    const rawOverride = row?.sellerDistributionDailyLimitOverride;
+    const dailyLimitOverride = rawOverride === null || rawOverride === undefined
+      ? null
+      : Math.max(0, Math.min(500, Math.trunc(Number(rawOverride || 0) || 0)));
+    return {
+      mode,
+      label:
+        pausedActive ? 'Pausado manualmente' :
+        mode === 'priority' ? 'Prioridade' :
+        mode === 'normal' ? 'Normal' :
+        'Aprendizagem',
+      pausedUntil: pausedUntil instanceof Date ? pausedUntil.toISOString() : null,
+      pausedActive,
+      dailyLimitOverride,
+      note: this.normalizeText(row?.sellerDistributionNote),
+      updatedAt: row?.sellerDistributionUpdatedAt instanceof Date ? row.sellerDistributionUpdatedAt.toISOString() : null,
+    };
+  }
+
+  private buildSellerAuditStatus(input: {
+    receivedCards: number;
+    workedCards: number;
+    idleCards: number;
+    activeCards: number;
+    interestedCards: number;
+    overdueCards: number;
+  }) {
+    const workedRate = input.receivedCards > 0 ? input.workedCards / input.receivedCards : input.activeCards > 0 ? input.workedCards / input.activeCards : 0;
+    if (input.interestedCards > 0 || workedRate >= 0.75) {
+      return {
+        key: 'performing',
+        label: 'Respondendo bem',
+        tone: 'success',
+        recommendation: 'Manter volume e observar quais segmentos estão convertendo.',
+      };
+    }
+    if (input.receivedCards > 0 && input.workedCards === 0) {
+      return {
+        key: 'learning',
+        label: 'Aprendizado',
+        tone: 'learning',
+        recommendation: 'Acompanhar abordagem e revisar primeiro contato. Sem bloqueio automático.',
+      };
+    }
+    if (input.idleCards >= 8 || input.overdueCards >= 5) {
+      return {
+        key: 'needs_followup',
+        label: 'Precisa acompanhamento',
+        tone: 'warning',
+        recommendation: 'Conversar com o vendedor antes de reduzir volume. Verificar dificuldade real.',
+      };
+    }
+    return {
+      key: 'active',
+      label: 'Em operação',
+      tone: 'info',
+      recommendation: 'Continuar medindo antes de qualquer regra de corte.',
+    };
+  }
+
+  async getSellerAuditForUser(user: any, periodRaw?: string) {
+    const context = this.resolveUserContext(user);
+    const period = this.resolveReportPeriod(periodRaw || 'today');
+    const now = new Date();
+    const dayKey = this.getSaoPauloDayKey(now);
+    const todayPeriod = this.getSaoPauloDayBounds(dayKey);
+    const sellerWhere = context.canManageTeam
+      ? { companyId: context.companyId, role: 'USER' }
+      : { companyId: context.companyId, id: context.userId };
+
+    const [sellers, distributionRules] = await Promise.all([
+      (this.prisma.user as any).findMany({
+        where: sellerWhere,
+        orderBy: [{ isActive: 'desc' }, { name: 'asc' }, { email: 'asc' }],
+        take: 120,
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          phone: true,
+          role: true,
+          isActive: true,
+          deactivatedAt: true,
+          commissionPercent: true,
+          sellerDistributionMode: true,
+          sellerDistributionPausedUntil: true,
+          sellerDistributionDailyLimitOverride: true,
+          sellerDistributionNote: true,
+          sellerDistributionUpdatedAt: true,
+          createdAt: true,
+        },
+      }),
+      this.prisma.radarAutoDistributionRule.findMany({
+        where: {
+          companyId: context.companyId,
+          status: 'active',
+          scope: { in: ['company', 'hbx_master'] },
+        },
+        orderBy: [{ updatedAt: 'desc' }],
+        take: 4,
+      }).catch(() => []),
+    ]);
+    const sellerIds = sellers.map((seller) => Number(seller.id || 0)).filter(Boolean);
+    const activeDistributionRule = (
+      (user?.isSystemMaster || context.role === 'USERMASTER')
+        ? distributionRules.find((rule: any) => String(rule?.scope || '') === 'hbx_master')
+        : distributionRules.find((rule: any) => String(rule?.scope || '') === 'company')
+    ) || distributionRules.find((rule: any) => String(rule?.scope || '') === 'company') || distributionRules[0] || null;
+    const ruleFilters = this.parseMaybeJsonObject((activeDistributionRule as any)?.filtersJson);
+    const ruleCity = String((activeDistributionRule as any)?.preferredCity || ruleFilters?.city || '').trim();
+    const ruleState = String((activeDistributionRule as any)?.preferredState || ruleFilters?.state || '').trim().toUpperCase();
+    const ruleSegment = String((activeDistributionRule as any)?.segment || ruleFilters?.segment || '').trim();
+    const ruleCityKey = this.normalizeLookupKey(ruleCity, ruleState);
+    const territories = this.parseRadarRuleTerritories((activeDistributionRule as any)?.filtersJson);
+    const territoryMode = territories.length ? 'fixed_cities' : 'open';
+    const territoryByUserId = new Map(territories.map((territory) => [Number(territory.userId || 0), territory]));
+    const dailyLimitPerSeller = activeDistributionRule
+      ? Math.max(0, Math.trunc(Number((activeDistributionRule as any)?.dailyLimitPerSeller ?? 20) || 0))
+      : 0;
+
+    const [leads, dailyUsageRows] = await Promise.all([
+      sellerIds.length
+        ? this.prisma.vendasLead.findMany({
+          where: {
+            companyId: context.companyId,
+            assignedUserId: { in: sellerIds },
+          },
+          orderBy: [{ updatedAt: 'desc' }],
+          take: 5000,
+          include: {
+            timelineEvents: {
+              where: { createdAt: { gte: period.start, lte: period.end } },
+              orderBy: [{ createdAt: 'desc' }],
+              take: 20,
+            },
+          },
+        })
+        : Promise.resolve([]),
+      sellerIds.length
+        ? this.prisma.$queryRawUnsafe<Array<{
+            userId?: number | null;
+            dailyLimit?: number | null;
+            deliveredCount?: number | null;
+            skippedCount?: number | null;
+            lastSkipReason?: string | null;
+          }>>(
+            `SELECT "userId", "dailyLimit", "deliveredCount", "skippedCount", "lastSkipReason"
+             FROM "RadarDistributionDailyUsage"
+             WHERE "companyId" = $1
+               AND "dayKey" = $2
+               AND "userId" IN (${sellerIds.join(',')})`,
+            context.companyId,
+            dayKey,
+          ).catch(() => [])
+        : Promise.resolve([]),
+    ]);
+    const dailyUsageBySeller = new Map(
+      (dailyUsageRows || []).map((row) => [Number(row?.userId || 0), row]),
+    );
+
+    const bySeller = new Map<number, any[]>();
+    for (const lead of leads as any[]) {
+      const sellerId = Number(lead?.assignedUserId || 0);
+      if (!sellerId) continue;
+      const bucket = bySeller.get(sellerId) || [];
+      bucket.push(lead);
+      bySeller.set(sellerId, bucket);
+    }
+
+    const rows = sellers.map((seller) => {
+      const sellerLeads = bySeller.get(Number(seller.id)) || [];
+      let activeCards = 0;
+      let receivedCards = 0;
+      let workedCards = 0;
+      let idleCards = 0;
+      let idleReceivedCards = 0;
+      let overdueCards = 0;
+      let returnCards = 0;
+      let interestedCards = 0;
+      let closedCards = 0;
+      let trialOrSaleCards = 0;
+      let receivedToday = 0;
+      let workedToday = 0;
+      let idleReceivedToday = 0;
+      let responseCards = 0;
+      let refusedCards = 0;
+      let blockedCards = 0;
+      let lastActivityAt: Date | null = null;
+      const cityCounts = new Map<string, number>();
+      const segmentCounts = new Map<string, number>();
+
+      for (const lead of sellerLeads) {
+        const closed = this.isClosedLead(lead);
+        const hasEverWorked = Number(lead?.attemptCount || 0) > 0 || Boolean(lead?.lastContactAt);
+        const periodTimeline = Array.isArray(lead?.timelineEvents) ? lead.timelineEvents : [];
+        const timelineWorked = periodTimeline.some((event: any) =>
+          ['contact_made', 'result_recorded', 'return_scheduled', 'hbx_signup_link_created', 'hbx_assisted_signup_created', 'lead_closed'].includes(String(event?.eventType || '')),
+        );
+        const workedInPeriod = this.isDateInPeriod(lead?.lastContactAt, period) || timelineWorked;
+        const receivedInPeriod = this.isDateInPeriod(lead?.assignedAt, period) || this.isDateInPeriod(lead?.createdAt, period);
+        const workedInToday = this.isDateInPeriod(lead?.lastContactAt, todayPeriod) || periodTimeline.some((event: any) =>
+          this.isDateInPeriod(event?.createdAt, todayPeriod) &&
+          ['contact_made', 'result_recorded', 'return_scheduled', 'hbx_signup_link_created', 'hbx_assisted_signup_created', 'lead_closed'].includes(String(event?.eventType || '')),
+        );
+        const receivedInToday = this.isDateInPeriod(lead?.assignedAt, todayPeriod) || this.isDateInPeriod(lead?.createdAt, todayPeriod);
+        const returnAt = lead?.returnAt instanceof Date ? lead.returnAt : this.parseDate(lead?.returnAt);
+        const saleStatus = this.normalizeSaleStatus(lead?.saleStatus);
+        const interested =
+          this.normalizeStatus(lead?.status) === 'qualificado' ||
+          ['activation_pending', 'trial_started', 'sale_confirmed'].includes(saleStatus);
+        const replied = periodTimeline.some((event: any) =>
+          ['reply_received', 'inbound_reply'].includes(String(event?.eventType || '')),
+        ) || /respondeu|retorno|interess|positivo|trial|ativ/i.test(String(lead?.lastResult || ''));
+        const refused = /sem interesse|recus|negativ|nao quer|não quer|dispens/i.test(String(lead?.lastResult || ''));
+        const blocked = /bloque|opt.?out|complaint|reclam|denuncia|denúncia/i.test(String(lead?.lastResult || ''));
+
+        if (!closed) activeCards += 1;
+        if (receivedInPeriod) receivedCards += 1;
+        if (workedInPeriod) workedCards += 1;
+        if (!closed && !hasEverWorked) idleCards += 1;
+        if (receivedInPeriod && !workedInPeriod) idleReceivedCards += 1;
+        if (receivedInToday) receivedToday += 1;
+        if (workedInToday) workedToday += 1;
+        if (receivedInToday && !workedInToday) idleReceivedToday += 1;
+        if (!closed && returnAt && returnAt.getTime() < now.getTime()) overdueCards += 1;
+        if (!closed && this.normalizeStatus(lead?.status) === 'retorno') returnCards += 1;
+        if (interested) interestedCards += 1;
+        if (closed) closedCards += 1;
+        if (['trial_started', 'sale_confirmed'].includes(saleStatus)) trialOrSaleCards += 1;
+        if (replied) responseCards += 1;
+        if (refused) refusedCards += 1;
+        if (blocked) blockedCards += 1;
+        if (lead?.city) this.incrementRanking(cityCounts, lead.city);
+        if (lead?.segment) this.incrementRanking(segmentCounts, lead.segment);
+
+        const activityDates = [
+          lead?.lastContactAt instanceof Date ? lead.lastContactAt : null,
+          lead?.updatedAt instanceof Date ? lead.updatedAt : null,
+          ...periodTimeline.map((event: any) => event?.createdAt instanceof Date ? event.createdAt : null),
+        ].filter((date): date is Date => Boolean(date));
+        for (const date of activityDates) {
+          if (!lastActivityAt || date.getTime() > lastActivityAt.getTime()) lastActivityAt = date;
+        }
+      }
+      const usage = dailyUsageBySeller.get(Number(seller.id)) || null;
+      const governance = this.buildSellerGovernance(seller);
+      const deliveredToday = Math.max(
+        receivedToday,
+        Math.max(0, Math.trunc(Number(usage?.deliveredCount || 0) || 0)),
+      );
+      const dailyLimit = governance.dailyLimitOverride !== null
+        ? governance.dailyLimitOverride
+        : Math.max(0, Math.trunc(Number(usage?.dailyLimit ?? dailyLimitPerSeller) || 0));
+      const dailyRemaining = Math.max(0, dailyLimit - deliveredToday);
+      const territory = territoryByUserId.get(Number(seller.id));
+      const territoryCities = territory?.cities || [];
+      const coversRuleCity = territoryMode === 'open' || !ruleCityKey || territoryCities.some((city) => this.normalizeLookupKey(city.city, city.state) === ruleCityKey);
+      const noDeliveryReason = !activeDistributionRule
+        ? 'Distribuição automática não configurada'
+        : governance.pausedActive
+          ? 'Pausado manualmente'
+        : territoryMode === 'fixed_cities' && !territoryCities.length
+          ? 'Sem território configurado'
+          : territoryMode === 'fixed_cities' && !coversRuleCity
+            ? 'Fora do território da cidade ativa'
+            : dailyLimit <= 0
+              ? 'Limite diário zerado'
+              : dailyRemaining <= 0
+              ? 'Limite diário atingido'
+              : idleReceivedToday > 0
+                ? 'Cards de hoje parados'
+                : null;
+      const operationAction = !activeDistributionRule
+        ? 'sem_regra'
+        : governance.pausedActive
+          ? 'pausado_manual'
+        : territoryMode === 'fixed_cities' && (!territoryCities.length || !coversRuleCity)
+          ? 'revisar_territorio'
+          : dailyLimit <= 0 || dailyRemaining <= 0
+            ? 'limite_atingido'
+            : idleReceivedToday >= 3
+              ? 'acompanhar'
+              : dailyRemaining > 0
+                ? 'receber'
+                : 'ok';
+      const operationLabel =
+        operationAction === 'receber' ? 'Pode receber' :
+        operationAction === 'acompanhar' ? 'Acompanhar hoje' :
+        operationAction === 'revisar_territorio' ? 'Revisar território' :
+        operationAction === 'limite_atingido' ? 'Limite do dia' :
+        operationAction === 'pausado_manual' ? 'Pausado manualmente' :
+        operationAction === 'sem_regra' ? 'Sem regra ativa' :
+        'Em dia';
+
+      const status = this.buildSellerAuditStatus({
+        receivedCards,
+        workedCards,
+        idleCards,
+        activeCards,
+        interestedCards,
+        overdueCards,
+      });
+      return {
+        seller: {
+          id: Number(seller.id),
+          name: seller.name || seller.email || `Vendedor ${seller.id}`,
+          email: seller.email || null,
+          phone: seller.phone || null,
+          active: Boolean(seller.isActive && !seller.deactivatedAt),
+          commissionPercent: this.normalizeCurrencyAmount(seller.commissionPercent),
+          startedAt: seller.createdAt instanceof Date ? seller.createdAt.toISOString() : null,
+        },
+        metrics: {
+          activeCards,
+          receivedCards,
+          workedCards,
+          idleCards,
+          idleReceivedCards,
+          overdueCards,
+          returnCards,
+          interestedCards,
+          closedCards,
+          trialOrSaleCards,
+          receivedToday,
+          workedToday,
+          idleReceivedToday,
+          responseCards,
+          refusedCards,
+          blockedCards,
+          dailyLimit,
+          deliveredToday,
+          dailyRemaining,
+          skippedToday: Math.max(0, Math.trunc(Number(usage?.skippedCount || 0) || 0)),
+          workRate: receivedCards > 0 ? workedCards / receivedCards : 0,
+        },
+        topCity: this.mapToRanking(cityCounts)[0]?.label || null,
+        topSegment: this.mapToRanking(segmentCounts)[0]?.label || null,
+        lastActivityAt: lastActivityAt ? lastActivityAt.toISOString() : null,
+        status,
+        operation: {
+          action: operationAction,
+          label: operationLabel,
+          reason: noDeliveryReason,
+          dayKey,
+          ruleActive: Boolean(activeDistributionRule),
+          ruleScope: activeDistributionRule ? String((activeDistributionRule as any)?.scope || 'company') : null,
+          ruleCity: ruleCity || null,
+          ruleState: ruleState || null,
+          ruleSegment: ruleSegment || null,
+          territoryMode,
+          territoryCities,
+          coversRuleCity,
+          dailyLimit,
+          deliveredToday,
+          dailyRemaining,
+          skippedToday: Math.max(0, Math.trunc(Number(usage?.skippedCount || 0) || 0)),
+          lastSkipReason: usage?.lastSkipReason || null,
+        },
+        governance,
+        automaticPenalty: false,
+      };
+    });
+
+    const totals = rows.reduce(
+      (acc, row) => {
+        acc.activeCards += row.metrics.activeCards;
+        acc.receivedCards += row.metrics.receivedCards;
+        acc.workedCards += row.metrics.workedCards;
+        acc.idleCards += row.metrics.idleCards;
+        acc.idleReceivedCards += row.metrics.idleReceivedCards;
+        acc.overdueCards += row.metrics.overdueCards;
+        acc.interestedCards += row.metrics.interestedCards;
+        acc.trialOrSaleCards += row.metrics.trialOrSaleCards;
+        acc.receivedToday += row.metrics.receivedToday;
+        acc.workedToday += row.metrics.workedToday;
+        acc.idleReceivedToday += row.metrics.idleReceivedToday;
+        acc.responseCards += row.metrics.responseCards;
+        acc.refusedCards += row.metrics.refusedCards;
+        acc.blockedCards += row.metrics.blockedCards;
+        acc.dailyLimit += row.metrics.dailyLimit;
+        acc.deliveredToday += row.metrics.deliveredToday;
+        acc.dailyRemaining += row.metrics.dailyRemaining;
+        acc.skippedToday += row.metrics.skippedToday;
+        if (row.operation?.action === 'receber') acc.canReceive += 1;
+        if (['acompanhar', 'revisar_territorio', 'limite_atingido', 'sem_regra', 'pausado_manual'].includes(String(row.operation?.action || ''))) acc.exceptions += 1;
+        if (row.operation?.action === 'revisar_territorio') acc.territoryIssues += 1;
+        if (row.operation?.action === 'limite_atingido') acc.dailyLimitReached += 1;
+        if (row.operation?.action === 'pausado_manual') acc.manualPaused += 1;
+        return acc;
+      },
+      {
+        sellers: rows.length,
+        activeCards: 0,
+        receivedCards: 0,
+        workedCards: 0,
+        idleCards: 0,
+        idleReceivedCards: 0,
+        overdueCards: 0,
+        interestedCards: 0,
+        trialOrSaleCards: 0,
+        receivedToday: 0,
+        workedToday: 0,
+        idleReceivedToday: 0,
+        responseCards: 0,
+        refusedCards: 0,
+        blockedCards: 0,
+        dailyLimit: 0,
+        deliveredToday: 0,
+        dailyRemaining: 0,
+        skippedToday: 0,
+        canReceive: 0,
+        exceptions: 0,
+        territoryIssues: 0,
+        dailyLimitReached: 0,
+        manualPaused: 0,
+      },
+    );
+
+    return {
+      ok: true,
+      canManage: Boolean(context.canManageTeam),
+      learningMode: true,
+      automaticPenalty: false,
+      period,
+      operation: {
+        title: 'Painel de guerra diário',
+        dayKey,
+        ruleActive: Boolean(activeDistributionRule),
+        ruleScope: activeDistributionRule ? String((activeDistributionRule as any)?.scope || 'company') : null,
+        ruleCity: ruleCity || null,
+        ruleState: ruleState || null,
+        ruleSegment: ruleSegment || null,
+        territoryMode,
+        dailyLimitPerSeller,
+        summary: {
+          receivedToday: totals.receivedToday,
+          workedToday: totals.workedToday,
+          idleReceivedToday: totals.idleReceivedToday,
+          responses: totals.responseCards,
+          refused: totals.refusedCards,
+          blocked: totals.blockedCards,
+          dailyLimit: totals.dailyLimit,
+          deliveredToday: totals.deliveredToday,
+          dailyRemaining: totals.dailyRemaining,
+          skippedToday: totals.skippedToday,
+          canReceive: totals.canReceive,
+          exceptions: totals.exceptions,
+          territoryIssues: totals.territoryIssues,
+          dailyLimitReached: totals.dailyLimitReached,
+          manualPaused: totals.manualPaused,
+        },
+      },
+      totals,
+      rows,
+      auditPolicy: {
+        title: 'Auditoria operacional transparente',
+        description: 'Mede apenas ações comerciais dentro do HBX: cards recebidos, contato, retorno e venda. Não mede jornada, localização ou dados pessoais fora da finalidade comercial.',
+      },
+    };
+  }
+
+  async updateSellerGovernanceForUser(user: any, sellerIdRaw: number, input: {
+    mode?: string | null;
+    pausedUntil?: string | Date | null;
+    pausedDays?: number | null;
+    dailyLimitOverride?: number | null;
+    note?: string | null;
+  } = {}) {
+    const context = this.resolveUserContext(user);
+    if (!context.canManageTeam) {
+      throw new ForbiddenException('Apenas Admin/Master pode ajustar governança de vendedor.');
+    }
+    const sellerId = Math.trunc(Number(sellerIdRaw || 0));
+    if (!sellerId) throw new BadRequestException('Vendedor inválido.');
+    const seller = await (this.prisma.user as any).findFirst({
+      where: {
+        id: sellerId,
+        companyId: context.companyId,
+        role: 'USER',
+        isSystemMaster: false,
+      },
+      select: {
+        id: true,
+        sellerDistributionMode: true,
+        sellerDistributionPausedUntil: true,
+        sellerDistributionDailyLimitOverride: true,
+        sellerDistributionNote: true,
+        sellerDistributionUpdatedAt: true,
+      },
+    });
+    if (!seller) throw new NotFoundException('Vendedor não encontrado.');
+
+    const hasMode = input.mode !== undefined && input.mode !== null;
+    const mode = hasMode
+      ? this.normalizeSellerDistributionMode(input.mode, 'learning')
+      : this.normalizeSellerDistributionMode(seller.sellerDistributionMode);
+    let pausedUntil: Date | null = seller.sellerDistributionPausedUntil instanceof Date ? seller.sellerDistributionPausedUntil : this.parseDate(seller.sellerDistributionPausedUntil);
+    if (mode !== 'paused') {
+      pausedUntil = null;
+    } else if (input.pausedUntil !== undefined) {
+      pausedUntil = input.pausedUntil ? this.parseDate(input.pausedUntil) : null;
+    } else if (input.pausedDays !== undefined) {
+      const days = Math.max(1, Math.min(30, Math.trunc(Number(input.pausedDays || 1) || 1)));
+      pausedUntil = new Date(Date.now() + days * 24 * 60 * 60 * 1000);
+    } else if (hasMode && (!pausedUntil || pausedUntil.getTime() <= Date.now())) {
+      pausedUntil = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    }
+
+    const data: any = {
+      sellerDistributionMode: mode,
+      sellerDistributionPausedUntil: pausedUntil,
+      sellerDistributionUpdatedAt: new Date(),
+    };
+    if (input.dailyLimitOverride !== undefined) {
+      data.sellerDistributionDailyLimitOverride = input.dailyLimitOverride === null
+        ? null
+        : Math.max(0, Math.min(500, Math.trunc(Number(input.dailyLimitOverride || 0) || 0)));
+    }
+    if (input.note !== undefined) {
+      data.sellerDistributionNote = this.normalizeText(input.note)?.slice(0, 240) || null;
+    }
+
+    const updated = await (this.prisma.user as any).update({
+      where: { id: sellerId },
+      data,
+      select: {
+        id: true,
+        sellerDistributionMode: true,
+        sellerDistributionPausedUntil: true,
+        sellerDistributionDailyLimitOverride: true,
+        sellerDistributionNote: true,
+        sellerDistributionUpdatedAt: true,
+      },
+    });
+
+    return {
+      ok: true,
+      sellerId,
+      governance: this.buildSellerGovernance(updated),
+      message: mode === 'paused'
+        ? 'Vendedor pausado manualmente na distribuição.'
+        : 'Governança do vendedor atualizada.',
+    };
+  }
+
+  private resolveHbxClosingStage(row: any): 'conversation' | 'interested' | 'pendingActivation' | 'trial' | 'confirmed' | 'inactive' {
+    const saleStatus = this.normalizeSaleStatus(row?.saleStatus);
+    const status = this.normalizeStatus(row?.status);
+    const lastResult = String(row?.lastResult || '');
+    if (saleStatus === 'inactive' || saleStatus === 'canceled' || (status === 'encerrado' && saleStatus === 'none')) {
+      return 'inactive';
+    }
+    if (saleStatus === 'sale_confirmed') return 'confirmed';
+    if (saleStatus === 'trial_started') return 'trial';
+    if (saleStatus === 'activation_pending') return 'pendingActivation';
+    if (status === 'qualificado' || /interess|qualific|positivo|fech|trial|ativ/i.test(lastResult)) {
+      return 'interested';
+    }
+    return 'conversation';
+  }
+
+  private buildHbxClosingStageLabel(stage: string) {
+    switch (stage) {
+      case 'interested':
+        return 'Interessado';
+      case 'pendingActivation':
+        return 'Cadastro / e-mail';
+      case 'trial':
+        return 'Trial';
+      case 'confirmed':
+        return 'Cliente pago';
+      case 'inactive':
+        return 'Inativo';
+      default:
+        return 'Em conversa';
+    }
+  }
+
+  private buildHbxClosingNextStep(stage: string, input: { hasSignupLink?: boolean; hasAssistedSignup?: boolean; emailPending?: boolean; linkedCompanyId?: number | null }) {
+    if (stage === 'interested') {
+      return input.hasSignupLink || input.hasAssistedSignup
+        ? 'Cobrar confirmação do e-mail e ativação do cadastro.'
+        : 'Gerar link HBX ou cadastrar pelo cliente com e-mail real.';
+    }
+    if (stage === 'pendingActivation') {
+      if (input.emailPending) return 'Cliente precisa confirmar o e-mail para liberar trial, pagamento ou implantação.';
+      if (!input.linkedCompanyId) return 'Aguardar vínculo da empresa criada ao card para travar comissão.';
+      return 'Ativar trial/pagamento e acompanhar D+ da comissão.';
+    }
+    if (stage === 'trial') return 'Acompanhar implantação, primeiro uso e virada para pagamento.';
+    if (stage === 'confirmed') return 'Cliente ativo: manter recorrência e comissão vinculada.';
+    if (stage === 'inactive') return 'Entender cancelamento e reativar somente se houver sinal real.';
+    return 'Chamar no WhatsApp, registrar resultado e qualificar interesse.';
+  }
+
+  async getHbxClosingPipelineForUser(user: any) {
+    const context = this.resolveUserContext(user);
+    await this.hbxCommissionSync.syncSalesCompanyCommissions(context.companyId, { source: 'vendas_closing_pipeline' }).catch((error: any) => {
+      this.logger.warn(`closing_pipeline_sync_failed company=${context.companyId} error=${String(error?.message || error)}`);
+    });
+
+    const now = new Date();
+    const [company, leads] = await Promise.all([
+      this.prisma.company.findUnique({
+        where: { id: context.companyId },
+        select: { slug: true, commissionDueBusinessDays: true },
+      }).catch(() => null),
+      this.prisma.vendasLead.findMany({
+        where: this.buildLeadAccessWhere(context, {
+          OR: [
+            { status: { in: ['contato', 'retorno', 'qualificado'] } },
+            { saleStatus: { not: 'none' } },
+            { commissionStatus: { not: 'none' } },
+            { commissionAmount: { gt: 0 } },
+            { commissionLinkedCompanyId: { not: null } },
+            { lastContactAt: { not: null } },
+          ],
+        }),
+        orderBy: [{ updatedAt: 'desc' }],
+        take: 240,
+        select: {
+          id: true,
+          name: true,
+          phone: true,
+          email: true,
+          city: true,
+          state: true,
+          segment: true,
+          status: true,
+          nextAction: true,
+          lastResult: true,
+          lastContactAt: true,
+          attemptCount: true,
+          assignedUserId: true,
+          saleStatus: true,
+          saleValue: true,
+          salePlanKey: true,
+          saleConfirmedAt: true,
+          saleCanceledAt: true,
+          commissionStatus: true,
+          commissionBaseAmount: true,
+          commissionAmount: true,
+          commissionDueAt: true,
+          commissionPaidAt: true,
+          commissionLinkedCompanyId: true,
+          commissionLinkedAt: true,
+          createdAt: true,
+          updatedAt: true,
+          timelineEvents: {
+            orderBy: [{ createdAt: 'desc' }],
+            take: 10,
+            select: {
+              eventType: true,
+              title: true,
+              description: true,
+              resultLabel: true,
+              sourceType: true,
+              createdAt: true,
+            },
+          },
+        },
+      }),
+    ]);
+
+    const sellerIds = Array.from(new Set(
+      (leads as any[])
+        .map((lead) => Math.trunc(Number(lead?.assignedUserId || 0)) || 0)
+        .filter((id) => id > 0),
+    ));
+    const sellers = sellerIds.length
+      ? await this.prisma.user.findMany({
+          where: { companyId: context.companyId, id: { in: sellerIds } },
+          select: { id: true, name: true, email: true, phone: true, role: true, commissionPercent: true },
+        }).catch(() => [])
+      : [];
+    const sellerById = new Map((sellers as any[]).map((seller) => [Number(seller.id), seller]));
+    const dueBusinessDays = this.normalizeCommissionDueBusinessDays(company?.commissionDueBusinessDays);
+    const stages: Record<string, any[]> = {
+      conversation: [],
+      interested: [],
+      pendingActivation: [],
+      trial: [],
+      confirmed: [],
+      inactive: [],
+    };
+    const stagePriority: Record<string, number> = {
+      pendingActivation: 0,
+      interested: 1,
+      trial: 2,
+      conversation: 3,
+      confirmed: 4,
+      inactive: 5,
+    };
+    let waitingEmail = 0;
+    let signupLinks = 0;
+    let assistedSignups = 0;
+    let linkedCompanies = 0;
+    let commissionAmount = 0;
+    let dueCommissionAmount = 0;
+
+    const items = (leads as any[]).map((lead) => {
+      const timeline = Array.isArray(lead?.timelineEvents) ? lead.timelineEvents : [];
+      const signupLinkEvent = timeline.find((event: any) => String(event?.eventType || '') === 'hbx_signup_link_created') || null;
+      const assistedSignupEvent = timeline.find((event: any) => String(event?.eventType || '') === 'hbx_assisted_signup_created') || null;
+      const emailPending = Boolean(
+        assistedSignupEvent &&
+        (
+          String(assistedSignupEvent?.resultLabel || '').includes('pending_email') ||
+          /confirmar|confirmação|confirmacao|e-mail|email/i.test(String(assistedSignupEvent?.description || ''))
+        ) &&
+        !lead?.commissionLinkedAt,
+      );
+      const linkedCompanyId = Number(lead?.commissionLinkedCompanyId || 0) || null;
+      const stage = this.resolveHbxClosingStage(lead);
+      const seller = sellerById.get(Number(lead?.assignedUserId || 0)) || null;
+      const commission = this.normalizeCurrencyAmount(lead?.commissionAmount);
+      const isDue = this.isDueCommission(lead, now);
+      if (emailPending) waitingEmail += 1;
+      if (signupLinkEvent) signupLinks += 1;
+      if (assistedSignupEvent) assistedSignups += 1;
+      if (linkedCompanyId) linkedCompanies += 1;
+      commissionAmount += commission;
+      if (isDue) dueCommissionAmount += commission;
+      const item = {
+        leadId: String(lead?.id || ''),
+        name: lead?.name ? String(lead.name) : lead?.phone ? String(lead.phone) : 'Cliente sem nome',
+        phone: lead?.phone ? String(lead.phone) : null,
+        email: lead?.email ? String(lead.email) : null,
+        city: lead?.city ? String(lead.city) : null,
+        state: lead?.state ? String(lead.state) : null,
+        segment: lead?.segment ? String(lead.segment) : null,
+        stage,
+        stageLabel: this.buildHbxClosingStageLabel(stage),
+        stageTone: stage === 'confirmed' || stage === 'trial'
+          ? 'success'
+          : stage === 'pendingActivation'
+            ? 'warning'
+            : stage === 'inactive'
+              ? 'danger'
+              : 'info',
+        status: this.normalizeStatus(lead?.status),
+        statusLabel: this.formatStatusLabel(this.normalizeStatus(lead?.status)),
+        saleStatus: this.normalizeSaleStatus(lead?.saleStatus),
+        saleStatusLabel: this.formatSaleStatusLabel(this.normalizeSaleStatus(lead?.saleStatus)),
+        salePlanKey: lead?.salePlanKey ? String(lead.salePlanKey) : null,
+        saleValue: this.normalizeCurrencyAmount(lead?.saleValue || lead?.commissionBaseAmount),
+        commissionStatus: this.normalizeCommissionStatus(lead?.commissionStatus),
+        commissionStatusLabel: this.formatCommissionStatusLabel(this.normalizeCommissionStatus(lead?.commissionStatus)),
+        commissionAmount: commission,
+        commissionDueAt: lead?.commissionDueAt instanceof Date ? lead.commissionDueAt.toISOString() : null,
+        commissionPaidAt: lead?.commissionPaidAt instanceof Date ? lead.commissionPaidAt.toISOString() : null,
+        linkedCompanyId,
+        linkedAt: lead?.commissionLinkedAt instanceof Date ? lead.commissionLinkedAt.toISOString() : null,
+        hasSignupLink: Boolean(signupLinkEvent),
+        hasAssistedSignup: Boolean(assistedSignupEvent),
+        emailPending,
+        signupLinkCreatedAt: signupLinkEvent?.createdAt instanceof Date ? signupLinkEvent.createdAt.toISOString() : null,
+        assistedSignupCreatedAt: assistedSignupEvent?.createdAt instanceof Date ? assistedSignupEvent.createdAt.toISOString() : null,
+        nextStep: this.buildHbxClosingNextStep(stage, {
+          hasSignupLink: Boolean(signupLinkEvent),
+          hasAssistedSignup: Boolean(assistedSignupEvent),
+          emailPending,
+          linkedCompanyId,
+        }),
+        nextAction: lead?.nextAction ? String(lead.nextAction) : null,
+        lastResult: lead?.lastResult ? String(lead.lastResult) : null,
+        lastContactAt: lead?.lastContactAt instanceof Date ? lead.lastContactAt.toISOString() : null,
+        updatedAt: lead?.updatedAt instanceof Date ? lead.updatedAt.toISOString() : null,
+        seller: seller
+          ? {
+              id: Number(seller.id || 0),
+              name: seller.name ? String(seller.name) : null,
+              email: seller.email ? String(seller.email) : null,
+              phone: seller.phone ? String(seller.phone) : null,
+              role: seller.role ? String(seller.role) : null,
+              commissionPercent: Number(seller.commissionPercent || 0) || 0,
+            }
+          : null,
+      };
+      stages[stage].push(item);
+      return item;
+    });
+
+    const stageCounts = Object.fromEntries(
+      Object.entries(stages).map(([stage, rows]) => [stage, rows.length]),
+    ) as Record<string, number>;
+    const sortedItems = items.sort((a, b) => {
+      const stageDiff = (stagePriority[a.stage] ?? 9) - (stagePriority[b.stage] ?? 9);
+      if (stageDiff !== 0) return stageDiff;
+      return new Date(b.updatedAt || 0).getTime() - new Date(a.updatedAt || 0).getTime();
+    });
+
+    Object.keys(stages).forEach((stage) => {
+      stages[stage] = stages[stage]
+        .sort((a, b) => new Date(b.updatedAt || 0).getTime() - new Date(a.updatedAt || 0).getTime())
+        .slice(0, 12);
+    });
+
+    return {
+      ok: true,
+      scope: context.canManageTeam ? 'company' : 'seller',
+      canManage: Boolean(context.canManageTeam),
+      isHbxSellerNetwork: String(company?.slug || '').trim().toLowerCase() === MASTER_WHATSAPP_ENGINE_COMPANY_SLUG,
+      generatedAt: now.toISOString(),
+      settings: {
+        dueBusinessDays,
+      },
+      totals: {
+        total: items.length,
+        conversation: stageCounts.conversation || 0,
+        interested: stageCounts.interested || 0,
+        pendingActivation: stageCounts.pendingActivation || 0,
+        trial: stageCounts.trial || 0,
+        confirmed: stageCounts.confirmed || 0,
+        inactive: stageCounts.inactive || 0,
+        waitingEmail,
+        signupLinks,
+        assistedSignups,
+        linkedCompanies,
+        commissionAmount: this.normalizeCurrencyAmount(commissionAmount),
+        dueCommissionAmount: this.normalizeCurrencyAmount(dueCommissionAmount),
+      },
+      policy: {
+        title: 'Esteira obrigatória de venda HBX',
+        description: `Card chamado, interessado rastreado, e-mail confirmado, trial/pagamento vinculado e comissão D+${dueBusinessDays}.`,
+      },
+      stages,
+      priority: sortedItems.slice(0, 18),
+    };
+  }
+
+  async createCommissionPayoutForUser(user: any, dto: CreateCommissionPayoutDto = {}) {
+    const context = this.resolveUserContext(user);
+    if (!context.canManageTeam) {
+      throw new ForbiddenException('Apenas Master/Admin pode registrar pagamento de comissão.');
+    }
+
+    await this.hbxCommissionSync.syncSalesCompanyCommissions(context.companyId, { source: 'vendas_commission_payout' }).catch((error: any) => {
+      this.logger.warn(`commission_payout_sync_failed company=${context.companyId} error=${String(error?.message || error)}`);
+    });
+
+    const now = new Date();
+    const sellerUserId = Math.trunc(Number(dto?.sellerUserId || 0)) || null;
+    if (sellerUserId) {
+      const seller = await this.prisma.user.findFirst({
+        where: {
+          id: sellerUserId,
+          companyId: context.companyId,
+          role: 'USER',
+          isSystemMaster: false,
+        },
+        select: { id: true },
+      }).catch(() => null);
+      if (!seller) throw new NotFoundException('Vendedor não encontrado para pagamento.');
+    }
+
+    const includeNotYetDue = Boolean(dto?.includeNotYetDue);
+    const dueWhere = includeNotYetDue
+      ? {}
+      : {
+          OR: [
+            { commissionDueAt: null },
+            { commissionDueAt: { lte: now } },
+          ],
+        };
+    const receivableDueWhere = includeNotYetDue
+      ? {}
+      : {
+          OR: [
+            { dueAt: null },
+            { dueAt: { lte: now } },
+          ],
+        };
+
+    const [leads, receivables] = await Promise.all([
+      this.prisma.vendasLead.findMany({
+        where: {
+          companyId: context.companyId,
+          commissionStatus: 'payable',
+          commissionAmount: { gt: 0 },
+          ...(sellerUserId ? { assignedUserId: sellerUserId } : {}),
+          ...dueWhere,
+        },
+        select: {
+          id: true,
+          name: true,
+          assignedUserId: true,
+          commissionAmount: true,
+          commissionDueAt: true,
+        },
+        orderBy: [{ commissionDueAt: 'asc' }, { updatedAt: 'desc' }],
+        take: 500,
+      }),
+      this.prisma.vendasCommissionReceivable.findMany({
+        where: {
+          companyId: context.companyId,
+          status: 'payable',
+          amount: { gt: 0 },
+          ...(sellerUserId ? { sellerUserId } : {}),
+          ...receivableDueWhere,
+        },
+        select: {
+          id: true,
+          leadId: true,
+          sellerUserId: true,
+          amount: true,
+          dueAt: true,
+          kind: true,
+        },
+        orderBy: [{ dueAt: 'asc' }, { updatedAt: 'desc' }],
+        take: 500,
+      }),
+    ]);
+
+    const groups = new Map<number, { leads: any[]; receivables: any[] }>();
+    const ensureGroup = (idRaw: unknown) => {
+      const id = Math.trunc(Number(idRaw || 0)) || 0;
+      if (!id) return null;
+      const existing = groups.get(id);
+      if (existing) return existing;
+      const created = { leads: [] as any[], receivables: [] as any[] };
+      groups.set(id, created);
+      return created;
+    };
+    leads.forEach((row) => ensureGroup(row.assignedUserId)?.leads.push(row));
+    receivables.forEach((row) => ensureGroup(row.sellerUserId)?.receivables.push(row));
+
+    if (!groups.size) {
+      throw new BadRequestException(includeNotYetDue
+        ? 'Nenhuma comissão em aberto para registrar pagamento.'
+        : 'Nenhuma comissão vencida em D+ para registrar pagamento.');
+    }
+
+    const baseReferenceLabel = this.normalizeText(dto?.referenceLabel)?.slice(0, 120) || null;
+    const notes = this.normalizeText(dto?.notes)?.slice(0, 280) || null;
+
+    const payouts = await this.prisma.$transaction(async (tx) => {
+      const createdPayouts: any[] = [];
+      for (const [groupSellerUserId, group] of groups.entries()) {
+        const payableLeadIds = group.leads.map((row) => String(row.id));
+        const payableReceivableIds = group.receivables.map((row) => String(row.id));
+        const totalAmount = this.normalizeCurrencyAmount(
+          group.leads.reduce((sum, row) => sum + this.normalizeCurrencyAmount(row.commissionAmount), 0) +
+          group.receivables.reduce((sum, row) => sum + this.normalizeCurrencyAmount(row.amount), 0),
+        );
+        const leadCount = payableLeadIds.length + payableReceivableIds.length;
+        if (!leadCount || totalAmount <= 0) continue;
+
+        const referenceLabel =
+          baseReferenceLabel ||
+          `Fechamento vendedor ${groupSellerUserId}`;
+        const created = await tx.vendasCommissionPayout.create({
+          data: {
+            companyId: context.companyId,
+            sellerUserId: groupSellerUserId,
+            status: 'paid',
+            leadCount,
+            totalAmount,
+            referenceLabel,
+            notes,
+            paidAt: now,
+            createdByUserId: context.userId,
+          },
+        });
+
+        if (payableLeadIds.length) {
+          await tx.vendasLead.updateMany({
+            where: {
+              companyId: context.companyId,
+              id: { in: payableLeadIds },
+              commissionStatus: 'payable',
+            },
+            data: {
+              commissionStatus: 'paid',
+              commissionPaidAt: now,
+              commissionPayoutId: created.id,
+            },
+          });
+        }
+
+        if (payableReceivableIds.length) {
+          await tx.vendasCommissionReceivable.updateMany({
+            where: {
+              companyId: context.companyId,
+              id: { in: payableReceivableIds },
+              status: 'payable',
+            },
+            data: {
+              status: 'paid',
+              paidAt: now,
+              payoutId: created.id,
+            },
+          });
+        }
+
+        const timelineLeadIds = Array.from(new Set([
+          ...payableLeadIds,
+          ...group.receivables.map((row) => String(row.leadId || '')).filter(Boolean),
+        ]));
+        if (timelineLeadIds.length) {
+          await tx.vendasLeadTimelineEvent.createMany({
+            data: timelineLeadIds.map((leadId) => ({
+              leadId,
+              eventType: 'commission_paid',
+              title: 'Comissão paga',
+              description: `Pagamento interno registrado no fechamento ${created.id}. Valor total: R$ ${totalAmount.toFixed(2)}.`,
+              sourceType: 'commission_payout',
+              resultLabel: 'paid',
+              createdByUserId: context.userId,
+            })),
+            skipDuplicates: true,
+          });
+        }
+
+        createdPayouts.push(created);
+      }
+      return createdPayouts;
+    });
+    if (!payouts.length) {
+      throw new BadRequestException('Nenhuma comissão válida para registrar pagamento.');
+    }
+    const totalAmount = this.normalizeCurrencyAmount(payouts.reduce((sum, payout) => sum + this.normalizeCurrencyAmount(payout.totalAmount), 0));
+    const leadCount = payouts.reduce((sum, payout) => sum + Math.max(0, Math.trunc(Number(payout.leadCount || 0) || 0)), 0);
+    const firstPayout = payouts[0];
+    const payoutPayload = (payout: any) => ({
+      id: payout.id,
+      sellerUserId: Number(payout.sellerUserId || 0) || null,
+      status: payout.status,
+      leadCount: Math.max(0, Math.trunc(Number(payout.leadCount || 0) || 0)),
+      totalAmount: this.normalizeCurrencyAmount(payout.totalAmount),
+      referenceLabel: payout.referenceLabel || null,
+      paidAt: payout.paidAt instanceof Date ? payout.paidAt.toISOString() : null,
+      createdAt: payout.createdAt instanceof Date ? payout.createdAt.toISOString() : null,
+    });
+
+    return {
+      ok: true,
+      message: payouts.length > 1
+        ? `${payouts.length} pagamentos de comissão registrados por vendedor.`
+        : 'Pagamento de comissão registrado.',
+      payout: firstPayout ? payoutPayload(firstPayout) : null,
+      payouts: payouts.map(payoutPayload),
+      totals: { leadCount, totalAmount },
+    };
+  }
+
+  async cancelCommissionPayoutForUser(user: any, payoutIdRaw: string, dto: CancelCommissionPayoutDto = {}) {
+    const context = this.resolveUserContext(user);
+    if (!context.canManageTeam) {
+      throw new ForbiddenException('Apenas Master/Admin pode cancelar fechamento de comissão.');
+    }
+
+    const payoutId = String(payoutIdRaw || '').trim();
+    if (!payoutId) throw new BadRequestException('Fechamento de comissão inválido.');
+
+    const payout = await this.prisma.vendasCommissionPayout.findFirst({
+      where: {
+        id: payoutId,
+        companyId: context.companyId,
+      },
+      select: {
+        id: true,
+        companyId: true,
+        sellerUserId: true,
+        status: true,
+        leadCount: true,
+        totalAmount: true,
+        referenceLabel: true,
+        notes: true,
+        paidAt: true,
+        createdAt: true,
+      },
+    });
+    if (!payout) throw new NotFoundException('Fechamento de comissão não encontrado.');
+    if (String(payout.status || '').trim().toLowerCase() === 'canceled') {
+      throw new BadRequestException('Este fechamento de comissão já está cancelado.');
+    }
+
+    const sellerUserId = Math.trunc(Number(payout.sellerUserId || 0)) || null;
+    const [directLeads, receivables] = await Promise.all([
+      this.prisma.vendasLead.findMany({
+        where: {
+          companyId: context.companyId,
+          commissionPayoutId: payout.id,
+          ...(sellerUserId ? { assignedUserId: sellerUserId } : {}),
+        },
+        select: { id: true },
+      }),
+      this.prisma.vendasCommissionReceivable.findMany({
+        where: {
+          companyId: context.companyId,
+          payoutId: payout.id,
+          ...(sellerUserId ? { sellerUserId } : {}),
+        },
+        select: { id: true, leadId: true },
+      }),
+    ]);
+
+    const directLeadIds = directLeads.map((row) => String(row.id));
+    const receivableIds = receivables.map((row) => String(row.id));
+    const timelineLeadIds = Array.from(new Set([
+      ...directLeadIds,
+      ...receivables.map((row) => String(row.leadId || '')).filter(Boolean),
+    ]));
+    const cancelReason = this.normalizeText(dto?.notes)?.slice(0, 280) || null;
+    const canceledAt = new Date();
+    const cancelNote = `Cancelado em ${canceledAt.toISOString()} por ${context.userId}${cancelReason ? `: ${cancelReason}` : '.'}`;
+    const nextNotes = [payout.notes ? String(payout.notes) : '', cancelNote]
+      .filter(Boolean)
+      .join('\n')
+      .slice(0, 1200);
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.vendasCommissionPayout.update({
+        where: { id: payout.id },
+        data: {
+          status: 'canceled',
+          notes: nextNotes,
+        },
+      });
+
+      if (directLeadIds.length) {
+        await tx.vendasLead.updateMany({
+          where: {
+            companyId: context.companyId,
+            id: { in: directLeadIds },
+            commissionPayoutId: payout.id,
+            commissionStatus: 'paid',
+          },
+          data: {
+            commissionStatus: 'payable',
+            commissionPaidAt: null,
+          },
+        });
+      }
+
+      if (receivableIds.length) {
+        await tx.vendasCommissionReceivable.updateMany({
+          where: {
+            companyId: context.companyId,
+            id: { in: receivableIds },
+            payoutId: payout.id,
+            status: 'paid',
+          },
+          data: {
+            status: 'payable',
+            paidAt: null,
+          },
+        });
+      }
+
+      if (timelineLeadIds.length) {
+        await tx.vendasLeadTimelineEvent.createMany({
+          data: timelineLeadIds.map((leadId) => ({
+            leadId,
+            eventType: 'commission_payout_canceled',
+            title: 'Fechamento de comissão cancelado',
+            description: `Fechamento ${payout.id} cancelado. A comissão voltou para D+ a pagar${cancelReason ? `: ${cancelReason}` : '.'}`,
+            sourceType: 'commission_payout_cancel',
+            resultLabel: 'canceled',
+            createdByUserId: context.userId,
+          })),
+          skipDuplicates: true,
+        });
+      }
+    });
+
+    return {
+      ok: true,
+      message: 'Fechamento de comissão cancelado. Os valores voltaram para D+ a pagar.',
+      payout: {
+        id: payout.id,
+        sellerUserId,
+        status: 'canceled',
+        leadCount: Math.max(0, Math.trunc(Number(payout.leadCount || 0) || 0)),
+        totalAmount: this.normalizeCurrencyAmount(payout.totalAmount),
+        referenceLabel: payout.referenceLabel || null,
+        paidAt: payout.paidAt instanceof Date ? payout.paidAt.toISOString() : null,
+        createdAt: payout.createdAt instanceof Date ? payout.createdAt.toISOString() : null,
+      },
+      restored: {
+        direct: directLeadIds.length,
+        recurring: receivableIds.length,
+        total: directLeadIds.length + receivableIds.length,
+      },
+    };
+  }
+
+  async getCommissionPayoutDetailForUser(user: any, payoutIdRaw: string) {
+    const context = this.resolveUserContext(user);
+    const payoutId = String(payoutIdRaw || '').trim();
+    if (!payoutId) throw new BadRequestException('Fechamento de comissão inválido.');
+
+    const payout = await this.prisma.vendasCommissionPayout.findFirst({
+      where: {
+        id: payoutId,
+        companyId: context.companyId,
+        ...(context.canManageTeam ? {} : { sellerUserId: context.userId }),
+      },
+      select: {
+        id: true,
+        sellerUserId: true,
+        status: true,
+        leadCount: true,
+        totalAmount: true,
+        referenceLabel: true,
+        notes: true,
+        paidAt: true,
+        createdByUserId: true,
+        createdAt: true,
+      },
+    });
+    if (!payout) throw new NotFoundException('Fechamento de comissão não encontrado.');
+
+    const sellerUserId = Math.trunc(Number(payout.sellerUserId || 0)) || null;
+    const userIds = [
+      sellerUserId,
+      Math.trunc(Number(payout.createdByUserId || 0)) || null,
+    ].filter((id): id is number => Boolean(id));
+    const users = userIds.length
+      ? await this.prisma.user.findMany({
+          where: { companyId: context.companyId, id: { in: userIds } },
+          select: { id: true, name: true, email: true, phone: true, role: true, commissionPercent: true },
+        }).catch(() => [])
+      : [];
+    const userById = new Map((users as any[]).map((row) => [Number(row.id), row]));
+
+    const [directLeads, receivables] = await Promise.all([
+      this.prisma.vendasLead.findMany({
+        where: {
+          companyId: context.companyId,
+          commissionPayoutId: payout.id,
+          ...(sellerUserId ? { assignedUserId: sellerUserId } : {}),
+        },
+        orderBy: [{ commissionPaidAt: 'desc' }, { updatedAt: 'desc' }],
+        select: {
+          id: true,
+          name: true,
+          phone: true,
+          city: true,
+          segment: true,
+          assignedUserId: true,
+          saleStatus: true,
+          saleValue: true,
+          salePlanKey: true,
+          commissionBaseAmount: true,
+          commissionAmount: true,
+          commissionPaidAt: true,
+        },
+      }),
+      this.prisma.vendasCommissionReceivable.findMany({
+        where: {
+          companyId: context.companyId,
+          payoutId: payout.id,
+          ...(sellerUserId ? { sellerUserId } : {}),
+        },
+        orderBy: [{ paidAt: 'desc' }, { updatedAt: 'desc' }],
+        include: {
+          lead: {
+            select: {
+              id: true,
+              name: true,
+              phone: true,
+              city: true,
+              segment: true,
+              saleStatus: true,
+              salePlanKey: true,
+            },
+          },
+        },
+      }),
+    ]);
+
+    const directItems = directLeads.map((row: any) => ({
+      id: String(row.id),
+      type: 'direct',
+      label: 'Comissão direta',
+      leadId: String(row.id),
+      name: row?.name ? String(row.name) : row?.phone ? String(row.phone) : 'Cliente sem nome',
+      phone: row?.phone ? String(row.phone) : null,
+      city: row?.city ? String(row.city) : null,
+      segment: row?.segment ? String(row.segment) : null,
+      saleStatus: this.normalizeSaleStatus(row?.saleStatus),
+      saleStatusLabel: this.formatSaleStatusLabel(this.normalizeSaleStatus(row?.saleStatus)),
+      salePlanKey: row?.salePlanKey ? String(row.salePlanKey) : null,
+      baseAmount: this.normalizeCurrencyAmount(row?.saleValue || row?.commissionBaseAmount),
+      commissionAmount: this.normalizeCurrencyAmount(row?.commissionAmount),
+      paidAt: row?.commissionPaidAt instanceof Date ? row.commissionPaidAt.toISOString() : null,
+    }));
+    const recurringItems = receivables.map((row: any) => {
+      const kind = String(row?.kind || 'recurring');
+      const isInherited = kind.startsWith('inheritance_');
+      const lead = row?.lead || {};
+      return {
+        id: String(row?.id || ''),
+        type: isInherited ? 'inheritance' : 'recurring',
+        label: isInherited ? 'Comissão herdada' : 'Comissão recorrente',
+        leadId: String(row?.leadId || lead?.id || ''),
+        name: lead?.name ? String(lead.name) : lead?.phone ? String(lead.phone) : isInherited ? 'Comissão herdada' : 'Comissão recorrente',
+        phone: lead?.phone ? String(lead.phone) : null,
+        city: lead?.city ? String(lead.city) : null,
+        segment: lead?.segment ? String(lead.segment) : null,
+        saleStatus: this.normalizeSaleStatus(lead?.saleStatus),
+        saleStatusLabel: this.formatSaleStatusLabel(this.normalizeSaleStatus(lead?.saleStatus)),
+        salePlanKey: lead?.salePlanKey ? String(lead.salePlanKey) : null,
+        cycleKey: row?.cycleKey ? String(row.cycleKey) : null,
+        baseAmount: this.normalizeCurrencyAmount(row?.baseAmount),
+        commissionPercent: this.normalizeCurrencyAmount(row?.commissionPercent),
+        commissionAmount: this.normalizeCurrencyAmount(row?.amount),
+        paidAt: row?.paidAt instanceof Date ? row.paidAt.toISOString() : null,
+      };
+    });
+    const paidAt = payout.paidAt instanceof Date ? payout.paidAt : payout.createdAt instanceof Date ? payout.createdAt : new Date();
+    const receiptDate = this.getSaoPauloDayKey(paidAt).replace(/-/g, '');
+    const totalAmount = this.normalizeCurrencyAmount(
+      [...directItems, ...recurringItems].reduce((sum, item) => sum + this.normalizeCurrencyAmount(item.commissionAmount), 0),
+    );
+    const receiptItemCount = directItems.length + recurringItems.length;
+    const seller = sellerUserId ? userById.get(sellerUserId) : null;
+    const createdBy = payout.createdByUserId ? userById.get(Number(payout.createdByUserId)) : null;
+
+    return {
+      ok: true,
+      canCancel: Boolean(context.canManageTeam && String(payout.status || '').trim().toLowerCase() !== 'canceled'),
+      receipt: {
+        id: payout.id,
+        code: `HBX-${receiptDate}-${String(payout.id).slice(-6).toUpperCase()}`,
+        status: payout.status || 'paid',
+        referenceLabel: payout.referenceLabel || null,
+        notes: payout.notes || null,
+        paidAt: payout.paidAt instanceof Date ? payout.paidAt.toISOString() : null,
+        createdAt: payout.createdAt instanceof Date ? payout.createdAt.toISOString() : null,
+        leadCount: receiptItemCount || Math.max(0, Math.trunc(Number(payout.leadCount || 0) || 0)),
+        totalAmount: totalAmount || this.normalizeCurrencyAmount(payout.totalAmount),
+      },
+      seller: seller
+        ? {
+            id: Number(seller.id || 0),
+            name: seller.name ? String(seller.name) : null,
+            email: seller.email ? String(seller.email) : null,
+            phone: seller.phone ? String(seller.phone) : null,
+            commissionPercent: Number(seller.commissionPercent || 0) || 0,
+          }
+        : null,
+      createdBy: createdBy
+        ? {
+            id: Number(createdBy.id || 0),
+            name: createdBy.name ? String(createdBy.name) : null,
+            email: createdBy.email ? String(createdBy.email) : null,
+          }
+        : null,
+      items: [...directItems, ...recurringItems],
+    };
+  }
+
+  async getCrmIntegrityForUser(user: any) {
+    const context = this.resolveUserContext(user);
+    const now = new Date();
+    const staleLimit = new Date(now.getTime() - 48 * 60 * 60 * 1000);
+    const dayKey = this.getSaoPauloDayKey(now);
+    const leadWhere = this.buildLeadAccessWhere(context);
+    const managerOnlyWhere = { companyId: context.companyId };
+    const distributionScope = user?.isSystemMaster || context.role === 'USERMASTER' ? ['company', 'hbx_master'] : ['company'];
+
+    const [
+      totalCards,
+      assignedCards,
+      activeCards,
+      staleAssignedCards,
+      interestedCards,
+      activeSellers,
+      activeDistributionRules,
+      paidLeadsMissingPayout,
+      paidReceivablesMissingPayout,
+      payableDirectCount,
+      payableReceivableCount,
+      canceledPayouts,
+      dailyUsageRows,
+    ] = await Promise.all([
+      this.prisma.vendasLead.count({ where: leadWhere }),
+      this.prisma.vendasLead.count({ where: this.buildLeadAccessWhere(context, { assignedUserId: { not: null } }) }),
+      this.prisma.vendasLead.count({ where: this.buildLeadAccessWhere(context, { status: { not: 'encerrado' } }) }),
+      this.prisma.vendasLead.count({
+        where: this.buildLeadAccessWhere(context, {
+          assignedUserId: { not: null },
+          status: { not: 'encerrado' },
+          attemptCount: 0,
+          lastContactAt: null,
+          assignedAt: { lte: staleLimit },
+        }),
+      }),
+      this.prisma.vendasLead.count({
+        where: this.buildLeadAccessWhere(context, {
+          saleStatus: { in: ['activation_pending', 'trial_started', 'sale_confirmed'] },
+        }),
+      }),
+      context.canManageTeam
+        ? this.prisma.user.count({
+            where: {
+              companyId: context.companyId,
+              role: 'USER',
+              isActive: true,
+              deactivatedAt: null,
+              isSystemMaster: false,
+            },
+          })
+        : Promise.resolve(0),
+      context.canManageTeam
+        ? this.prisma.radarAutoDistributionRule.count({
+            where: {
+              companyId: context.companyId,
+              scope: { in: distributionScope },
+              status: 'active',
+            },
+          })
+        : Promise.resolve(0),
+      this.prisma.vendasLead.count({
+        where: this.buildLeadAccessWhere(context, {
+          commissionStatus: 'paid',
+          commissionAmount: { gt: 0 },
+          commissionPayoutId: null,
+        }),
+      }),
+      this.prisma.vendasCommissionReceivable.count({
+        where: {
+          ...managerOnlyWhere,
+          ...(context.canManageTeam ? {} : { sellerUserId: context.userId }),
+          status: 'paid',
+          amount: { gt: 0 },
+          payoutId: null,
+        },
+      }),
+      this.prisma.vendasLead.count({
+        where: this.buildLeadAccessWhere(context, {
+          commissionStatus: 'payable',
+          commissionAmount: { gt: 0 },
+          OR: [{ commissionDueAt: null }, { commissionDueAt: { lte: now } }],
+        }),
+      }),
+      this.prisma.vendasCommissionReceivable.count({
+        where: {
+          ...managerOnlyWhere,
+          ...(context.canManageTeam ? {} : { sellerUserId: context.userId }),
+          status: 'payable',
+          amount: { gt: 0 },
+          OR: [{ dueAt: null }, { dueAt: { lte: now } }],
+        },
+      }),
+      this.prisma.vendasCommissionPayout.count({
+        where: {
+          ...managerOnlyWhere,
+          ...(context.canManageTeam ? {} : { sellerUserId: context.userId }),
+          status: 'canceled',
+        },
+      }),
+      context.canManageTeam
+        ? this.prisma.$queryRawUnsafe<Array<{ deliveredCount?: number | string | null; skippedCount?: number | string | null }>>(
+            `SELECT COALESCE(SUM("deliveredCount"), 0) AS "deliveredCount",
+                    COALESCE(SUM("skippedCount"), 0) AS "skippedCount"
+             FROM "RadarDistributionDailyUsage"
+             WHERE "companyId" = $1 AND "dayKey" = $2`,
+            context.companyId,
+            dayKey,
+          ).catch(() => [])
+        : Promise.resolve([]),
+    ]);
+
+    const dailyUsage = Array.isArray(dailyUsageRows) && dailyUsageRows[0] ? dailyUsageRows[0] : {};
+    const deliveredToday = Math.max(0, Math.trunc(Number(dailyUsage?.deliveredCount || 0) || 0));
+    const skippedToday = Math.max(0, Math.trunc(Number(dailyUsage?.skippedCount || 0) || 0));
+    const duePayableCount = payableDirectCount + payableReceivableCount;
+    const missingPayoutLinks = paidLeadsMissingPayout + paidReceivablesMissingPayout;
+    const checks: Array<{ key: string; label: string; status: string; description: string; action?: string | null }> = [];
+    const pushCheck = (check: { key: string; label: string; status: string; description: string; action?: string | null }) => {
+      checks.push({ ...check, action: check.action || null });
+    };
+
+    pushCheck({
+      key: 'cards',
+      label: 'Cards no Vendas',
+      status: totalCards > 0 ? 'ok' : 'warning',
+      description: totalCards > 0 ? `${totalCards} card(s) na esteira.` : 'Nenhum card encontrado na esteira de Vendas.',
+      action: totalCards > 0 ? null : 'Gerar ou importar cards pelo Radar.',
+    });
+    pushCheck({
+      key: 'sellers',
+      label: 'Vendedores ativos',
+      status: !context.canManageTeam || activeSellers > 0 ? 'ok' : 'warning',
+      description: context.canManageTeam ? `${activeSellers} vendedor(es) ativo(s).` : 'Visão de vendedor individual.',
+      action: context.canManageTeam && activeSellers <= 0 ? 'Cadastrar vendedor no Gerencial.' : null,
+    });
+    pushCheck({
+      key: 'distribution',
+      label: 'Distribuição automática',
+      status: !context.canManageTeam || activeDistributionRules > 0 ? 'ok' : 'warning',
+      description: context.canManageTeam ? `${activeDistributionRules} regra(s) ativa(s), ${deliveredToday} entrega(s) hoje.` : 'Controlada pelo Admin/Master.',
+      action: context.canManageTeam && activeDistributionRules <= 0 ? 'Ativar distribuição automática no Radar.' : null,
+    });
+    pushCheck({
+      key: 'activity',
+      label: 'Cards parados',
+      status: staleAssignedCards > 10 ? 'warning' : 'ok',
+      description: `${staleAssignedCards} card(s) atribuido(s) sem tentativa em 48h.`,
+      action: staleAssignedCards > 10 ? 'Abrir operação dos vendedores e redistribuir com cuidado.' : null,
+    });
+    pushCheck({
+      key: 'commission_due',
+      label: 'Comissão liberada',
+      status: duePayableCount > 0 ? 'warning' : 'ok',
+      description: `${duePayableCount} comissão(ões) vencida(s) em D+ aguardando fechamento.`,
+      action: duePayableCount > 0 ? 'Registrar pagamento no Fechamento financeiro.' : null,
+    });
+    pushCheck({
+      key: 'commission_links',
+      label: 'Rastro financeiro',
+      status: missingPayoutLinks > 0 ? 'danger' : 'ok',
+      description: `${missingPayoutLinks} comissão(ões) paga(s) sem comprovante vinculado.`,
+      action: missingPayoutLinks > 0 ? 'Auditar manualmente antes de novo fechamento.' : null,
+    });
+    pushCheck({
+      key: 'corrections',
+      label: 'Correções financeiras',
+      status: canceledPayouts > 0 ? 'warning' : 'ok',
+      description: `${canceledPayouts} fechamento(s) cancelado(s) no histórico.`,
+      action: canceledPayouts > 0 ? 'Conferir comprovantes cancelados na auditoria financeira.' : null,
+    });
+
+    const penalties = checks.reduce((sum, check) => {
+      if (check.status === 'danger') return sum + 28;
+      if (check.status === 'warning') return sum + 12;
+      return sum;
+    }, 0);
+    const score = Math.max(0, Math.min(100, 100 - penalties));
+    const statusLabel = score >= 86 ? 'Operação pronta' : score >= 68 ? 'Operação com atenção' : 'Operação precisa revisão';
+
+    return {
+      ok: true,
+      scope: context.canManageTeam ? 'company' : 'seller',
+      canManage: Boolean(context.canManageTeam),
+      generatedAt: now.toISOString(),
+      score,
+      statusLabel,
+      totals: {
+        totalCards,
+        assignedCards,
+        activeCards,
+        staleAssignedCards,
+        interestedCards,
+        activeSellers,
+        activeDistributionRules,
+        deliveredToday,
+        skippedToday,
+        duePayableCount,
+        missingPayoutLinks,
+        canceledPayouts,
+      },
+      checks,
+    };
+  }
+
   async getCommissionSummaryForUser(user: any) {
     const context = this.resolveUserContext(user);
     await this.hbxCommissionSync.syncSalesCompanyCommissions(context.companyId, { source: 'vendas_commission_summary' }).catch((error: any) => {
@@ -1768,6 +3403,7 @@ export class VendasService {
         phone: true,
         city: true,
         segment: true,
+        assignedUserId: true,
         saleStatus: true,
         saleValue: true,
         salePlanKey: true,
@@ -1826,7 +3462,7 @@ export class VendasService {
       : { companyId: context.companyId, sellerUserId: context.userId };
     const payouts = await this.prisma.vendasCommissionPayout.findMany({
       where: payoutWhere,
-      orderBy: [{ paidAt: 'desc' }, { createdAt: 'desc' }],
+      orderBy: [{ updatedAt: 'desc' }, { paidAt: 'desc' }, { createdAt: 'desc' }],
       take: 8,
       select: {
         id: true,
@@ -1839,10 +3475,148 @@ export class VendasService {
         createdAt: true,
       },
     });
+    const payoutAuditRows = await this.prisma.vendasCommissionPayout.findMany({
+      where: payoutWhere,
+      orderBy: [{ updatedAt: 'desc' }, { paidAt: 'desc' }, { createdAt: 'desc' }],
+      take: 200,
+      select: {
+        status: true,
+        totalAmount: true,
+        paidAt: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    }).catch(() => []);
+    const payoutAudit = (payoutAuditRows as any[]).reduce((acc, row) => {
+      const status = String(row?.status || 'paid').trim().toLowerCase();
+      const amount = this.normalizeCurrencyAmount(row?.totalAmount);
+      const paidAt = row?.paidAt instanceof Date ? row.paidAt : row?.createdAt instanceof Date ? row.createdAt : null;
+      const updatedAt = row?.updatedAt instanceof Date ? row.updatedAt : row?.createdAt instanceof Date ? row.createdAt : null;
+      if (status === 'canceled') {
+        acc.canceledPayoutCount += 1;
+        acc.canceledPayoutAmount += amount;
+        if (updatedAt && (!acc.lastCanceledAt || updatedAt.getTime() > acc.lastCanceledAt.getTime())) acc.lastCanceledAt = updatedAt;
+      } else {
+        acc.paidPayoutCount += 1;
+        acc.paidPayoutAmount += amount;
+        if (paidAt && (!acc.lastPaidAt || paidAt.getTime() > acc.lastPaidAt.getTime())) acc.lastPaidAt = paidAt;
+      }
+      return acc;
+    }, {
+      paidPayoutCount: 0,
+      paidPayoutAmount: 0,
+      canceledPayoutCount: 0,
+      canceledPayoutAmount: 0,
+      lastPaidAt: null as Date | null,
+      lastCanceledAt: null as Date | null,
+    });
+    const sellerIds = Array.from(new Set([
+      ...leads.map((row: any) => Math.trunc(Number(row?.assignedUserId || 0)) || 0),
+      ...receivables.map((row: any) => Math.trunc(Number(row?.sellerUserId || 0)) || 0),
+      ...payouts.map((row: any) => Math.trunc(Number(row?.sellerUserId || 0)) || 0),
+    ].filter((id) => id > 0)));
+    const sellers = sellerIds.length
+      ? await this.prisma.user.findMany({
+          where: { companyId: context.companyId, id: { in: sellerIds } },
+          select: { id: true, name: true, email: true, phone: true, commissionPercent: true },
+        }).catch(() => [])
+      : [];
+    const sellerById = new Map((sellers as any[]).map((seller) => [Number(seller.id), seller]));
+    const payoutBySeller = new Map<number, Date>();
+    payouts.forEach((payout) => {
+      if (String(payout.status || '').trim().toLowerCase() === 'canceled') return;
+      const sellerId = Math.trunc(Number(payout.sellerUserId || 0)) || 0;
+      if (!sellerId) return;
+      const paidAt = payout.paidAt instanceof Date ? payout.paidAt : payout.createdAt instanceof Date ? payout.createdAt : null;
+      if (!paidAt) return;
+      const current = payoutBySeller.get(sellerId);
+      if (!current || paidAt.getTime() > current.getTime()) payoutBySeller.set(sellerId, paidAt);
+    });
+    const sellerBuckets = new Map<number, any>();
+    const ensureSellerBucket = (sellerIdRaw: unknown) => {
+      const sellerId = Math.trunc(Number(sellerIdRaw || 0)) || 0;
+      if (!sellerId) return null;
+      const existing = sellerBuckets.get(sellerId);
+      if (existing) return existing;
+      const seller = sellerById.get(sellerId) || {};
+      const bucket = {
+        sellerUserId: sellerId,
+        sellerName: seller?.name ? String(seller.name) : null,
+        sellerEmail: seller?.email ? String(seller.email) : null,
+        sellerPhone: seller?.phone ? String(seller.phone) : null,
+        commissionPercent: Number(seller?.commissionPercent || 0) || 0,
+        activeClients: 0,
+        pendingAmount: 0,
+        payableAmount: 0,
+        duePayableAmount: 0,
+        duePayableCount: 0,
+        paidAmount: 0,
+        nextDueAt: null as Date | null,
+        lastPaidAt: payoutBySeller.get(sellerId) || null,
+      };
+      sellerBuckets.set(sellerId, bucket);
+      return bucket;
+    };
+    const touchNextDue = (bucket: any, value: unknown) => {
+      const parsed = value instanceof Date ? value : this.parseDate(value);
+      if (!parsed) return;
+      if (!bucket.nextDueAt || parsed.getTime() < bucket.nextDueAt.getTime()) bucket.nextDueAt = parsed;
+    };
+
+    leads.forEach((row: any) => {
+      const bucket = ensureSellerBucket(row?.assignedUserId);
+      if (!bucket) return;
+      const status = this.normalizeCommissionStatus(row?.commissionStatus);
+      const amount = this.normalizeCurrencyAmount(row?.commissionAmount);
+      if (['trial_started', 'sale_confirmed'].includes(this.normalizeSaleStatus(row?.saleStatus))) bucket.activeClients += 1;
+      if (status === 'pending') bucket.pendingAmount += amount;
+      if (status === 'payable') {
+        bucket.payableAmount += amount;
+        touchNextDue(bucket, row?.commissionDueAt);
+        if (this.isDueCommission(row, now)) {
+          bucket.duePayableAmount += amount;
+          bucket.duePayableCount += 1;
+        }
+      }
+      if (status === 'paid') bucket.paidAmount += amount;
+    });
+
+    receivables.forEach((row: any) => {
+      const bucket = ensureSellerBucket(row?.sellerUserId);
+      if (!bucket) return;
+      const status = String(row?.status || '').trim().toLowerCase();
+      const amount = this.normalizeCurrencyAmount(row?.amount);
+      if (['trial_started', 'sale_confirmed'].includes(this.normalizeSaleStatus(row?.lead?.saleStatus))) bucket.activeClients += 1;
+      if (status === 'payable') {
+        bucket.payableAmount += amount;
+        touchNextDue(bucket, row?.dueAt);
+        if (this.isDueReceivable(row, now)) {
+          bucket.duePayableAmount += amount;
+          bucket.duePayableCount += 1;
+        }
+      }
+      if (status === 'paid') bucket.paidAmount += amount;
+    });
+    const sellerPayouts = Array.from(sellerBuckets.values())
+      .map((bucket) => ({
+        ...bucket,
+        pendingAmount: this.normalizeCurrencyAmount(bucket.pendingAmount),
+        payableAmount: this.normalizeCurrencyAmount(bucket.payableAmount),
+        duePayableAmount: this.normalizeCurrencyAmount(bucket.duePayableAmount),
+        paidAmount: this.normalizeCurrencyAmount(bucket.paidAmount),
+        nextDueAt: bucket.nextDueAt instanceof Date ? bucket.nextDueAt.toISOString() : null,
+        lastPaidAt: bucket.lastPaidAt instanceof Date ? bucket.lastPaidAt.toISOString() : null,
+      }))
+      .sort((a, b) =>
+        b.duePayableAmount - a.duePayableAmount ||
+        b.payableAmount - a.payableAmount ||
+        String(a.sellerName || a.sellerEmail || '').localeCompare(String(b.sellerName || b.sellerEmail || '')),
+      );
 
     return {
       ok: true,
       scope: context.canManageTeam ? 'company' : 'seller',
+      canPayout: Boolean(context.canManageTeam),
       generatedAt: now.toISOString(),
       settings: {
         dueBusinessDays: this.normalizeCommissionDueBusinessDays(company?.commissionDueBusinessDays),
@@ -1875,6 +3649,15 @@ export class VendasService {
         ),
         nextDueAt: nextDue ? nextDue.toISOString() : null,
       },
+      financeAudit: {
+        paidPayoutCount: payoutAudit.paidPayoutCount,
+        paidPayoutAmount: this.normalizeCurrencyAmount(payoutAudit.paidPayoutAmount),
+        canceledPayoutCount: payoutAudit.canceledPayoutCount,
+        canceledPayoutAmount: this.normalizeCurrencyAmount(payoutAudit.canceledPayoutAmount),
+        reopenedAmount: this.normalizeCurrencyAmount(payoutAudit.canceledPayoutAmount),
+        lastPaidAt: payoutAudit.lastPaidAt instanceof Date ? payoutAudit.lastPaidAt.toISOString() : null,
+        lastCanceledAt: payoutAudit.lastCanceledAt instanceof Date ? payoutAudit.lastCanceledAt.toISOString() : null,
+      },
       clients: {
         payable: [
           ...payable.map((row) => this.buildCommissionClientPayload(row)),
@@ -1888,9 +3671,12 @@ export class VendasService {
           ...paidReceivables.map((row) => this.buildCommissionReceivablePayload(row)),
         ].slice(0, 12),
       },
+      sellerPayouts,
       payouts: payouts.map((payout) => ({
         id: payout.id,
         sellerUserId: Number(payout.sellerUserId || 0) || null,
+        sellerName: sellerById.get(Number(payout.sellerUserId || 0))?.name || null,
+        sellerEmail: sellerById.get(Number(payout.sellerUserId || 0))?.email || null,
         status: payout.status || 'paid',
         leadCount: Math.max(0, Math.trunc(Number(payout.leadCount || 0) || 0)),
         totalAmount: this.normalizeCurrencyAmount(payout.totalAmount),
@@ -1899,6 +3685,192 @@ export class VendasService {
         createdAt: payout.createdAt instanceof Date ? payout.createdAt.toISOString() : null,
       })),
     };
+  }
+
+  private normalizeMasterNoticeAudience(value: unknown): MasterNoticeAudience {
+    const normalized = String(value || '').trim().toLowerCase();
+    return MASTER_NOTICE_AUDIENCES.has(normalized) ? (normalized as MasterNoticeAudience) : 'seller';
+  }
+
+  private normalizeMasterNoticeTone(value: unknown): MasterNoticeTone {
+    const normalized = String(value || '').trim().toLowerCase();
+    return MASTER_NOTICE_TONES.has(normalized) ? (normalized as MasterNoticeTone) : 'info';
+  }
+
+  private canManageMasterNotices(user: any) {
+    return Boolean(user?.isSystemMaster);
+  }
+
+  private parseMasterNoticeDate(value: unknown, fallback: Date | null) {
+    if (!value) return fallback;
+    const parsed = new Date(String(value));
+    return Number.isNaN(parsed.getTime()) ? fallback : parsed;
+  }
+
+  private buildMasterNoticePayload(row: any) {
+    const forceSeconds = Math.max(0, Math.min(120, Math.trunc(Number(row?.forceSeconds || 0) || 0)));
+    return {
+      id: String(row?.id || ''),
+      audience: this.normalizeMasterNoticeAudience(row?.audience),
+      title: String(row?.title || ''),
+      body: String(row?.body || ''),
+      tone: this.normalizeMasterNoticeTone(row?.tone),
+      forceSeconds,
+      startsAt: row?.startsAt instanceof Date ? row.startsAt.toISOString() : row?.startsAt ? new Date(row.startsAt).toISOString() : null,
+      expiresAt: row?.expiresAt instanceof Date ? row.expiresAt.toISOString() : row?.expiresAt ? new Date(row.expiresAt).toISOString() : null,
+      createdAt: row?.createdAt instanceof Date ? row.createdAt.toISOString() : row?.createdAt ? new Date(row.createdAt).toISOString() : null,
+      createdByUserId: Number(row?.createdByUserId || 0) || null,
+      acknowledged: Boolean(row?.acknowledged),
+      acknowledgedAt: row?.acknowledgedAt instanceof Date ? row.acknowledgedAt.toISOString() : row?.acknowledgedAt ? new Date(row.acknowledgedAt).toISOString() : null,
+    };
+  }
+
+  async listMasterNoticesForUser(user: any, audienceRaw?: string) {
+    const context = this.resolveUserContext(user);
+    const canManage = this.canManageMasterNotices(user);
+    const hasRequestedAudience = Boolean(String(audienceRaw || '').trim());
+    const defaultAudience = context.role === 'ADMIN' ? 'customer' : 'seller';
+    const audience = hasRequestedAudience
+      ? this.normalizeMasterNoticeAudience(audienceRaw)
+      : this.normalizeMasterNoticeAudience(defaultAudience);
+    const allowedAudience = context.role === 'ADMIN' ? 'customer' : 'seller';
+    if (!canManage && audience !== allowedAudience) {
+      return { ok: true, audience, canManage, notices: [] };
+    }
+
+    const now = new Date();
+    const rows = await this.prisma.$queryRaw<Array<any>>`
+      SELECT
+        n."id",
+        n."audience",
+        n."title",
+        n."body",
+        n."tone",
+        n."forceSeconds",
+        n."startsAt",
+        n."expiresAt",
+        n."createdAt",
+        n."createdByUserId",
+        CASE WHEN a."id" IS NULL THEN false ELSE true END AS "acknowledged",
+        a."acknowledgedAt" AS "acknowledgedAt"
+      FROM "MasterNotice" n
+      LEFT JOIN "MasterNoticeAck" a
+        ON a."noticeId" = n."id" AND a."userId" = ${context.userId}
+      WHERE n."companyId" = ${context.companyId}
+        AND n."audience" = ${audience}
+        AND n."startsAt" <= ${now}
+        AND (n."expiresAt" IS NULL OR n."expiresAt" >= ${now})
+      ORDER BY n."createdAt" DESC
+      LIMIT 40
+    `;
+
+    return {
+      ok: true,
+      audience,
+      canManage,
+      notices: rows.map((row) => this.buildMasterNoticePayload(row)),
+    };
+  }
+
+  async createMasterNoticeForUser(user: any, dto: CreateMasterNoticeDto) {
+    const context = this.resolveUserContext(user);
+    if (!this.canManageMasterNotices(user)) {
+      throw new ForbiddenException('Somente o UserMaster pode enviar avisos forçados.');
+    }
+
+    const title = this.normalizeText(dto?.title);
+    const body = this.normalizeText(dto?.body);
+    if (!title || title.length < 3) throw new BadRequestException('Informe um título claro para o aviso.');
+    if (!body || body.length < 3) throw new BadRequestException('Informe a mensagem do aviso.');
+
+    const now = new Date();
+    const startsAt = this.parseMasterNoticeDate(dto?.startsAt, now) || now;
+    const defaultExpiresAt = new Date(startsAt.getTime());
+    defaultExpiresAt.setDate(defaultExpiresAt.getDate() + 7);
+    const expiresAt = this.parseMasterNoticeDate(dto?.expiresAt, defaultExpiresAt);
+    if (expiresAt && expiresAt.getTime() <= startsAt.getTime()) {
+      throw new BadRequestException('A data final precisa ser depois do início do aviso.');
+    }
+
+    const id = randomUUID();
+    const audience = this.normalizeMasterNoticeAudience(dto?.audience);
+    const tone = this.normalizeMasterNoticeTone(dto?.tone);
+    const forceSeconds = Math.max(0, Math.min(120, Math.trunc(Number(dto?.forceSeconds || 0) || 0)));
+
+    await this.prisma.$executeRaw`
+      INSERT INTO "MasterNotice" (
+        "id",
+        "companyId",
+        "audience",
+        "title",
+        "body",
+        "tone",
+        "forceSeconds",
+        "startsAt",
+        "expiresAt",
+        "createdByUserId",
+        "createdAt",
+        "updatedAt"
+      )
+      VALUES (
+        ${id},
+        ${context.companyId},
+        ${audience},
+        ${title},
+        ${body},
+        ${tone},
+        ${forceSeconds},
+        ${startsAt},
+        ${expiresAt},
+        ${context.userId},
+        ${now},
+        ${now}
+      )
+    `;
+
+    return {
+      ok: true,
+      notice: {
+        id,
+        audience,
+        title,
+        body,
+        tone,
+        forceSeconds,
+        startsAt: startsAt.toISOString(),
+        expiresAt: expiresAt ? expiresAt.toISOString() : null,
+        createdAt: now.toISOString(),
+        createdByUserId: context.userId,
+        acknowledged: false,
+        acknowledgedAt: null,
+      },
+    };
+  }
+
+  async acknowledgeMasterNoticeForUser(user: any, noticeIdRaw: string) {
+    const context = this.resolveUserContext(user);
+    const noticeId = String(noticeIdRaw || '').trim();
+    if (!noticeId) throw new BadRequestException('Aviso inválido.');
+
+    const rows = await this.prisma.$queryRaw<Array<{ id: string }>>`
+      SELECT "id"
+      FROM "MasterNotice"
+      WHERE "id" = ${noticeId}
+        AND "companyId" = ${context.companyId}
+      LIMIT 1
+    `;
+    if (!rows.length) throw new NotFoundException('Aviso não encontrado.');
+
+    const id = randomUUID();
+    const now = new Date();
+    await this.prisma.$executeRaw`
+      INSERT INTO "MasterNoticeAck" ("id", "noticeId", "userId", "acknowledgedAt")
+      VALUES (${id}, ${noticeId}, ${context.userId}, ${now})
+      ON CONFLICT ("noticeId", "userId")
+      DO UPDATE SET "acknowledgedAt" = EXCLUDED."acknowledgedAt"
+    `;
+
+    return { ok: true, noticeId, acknowledgedAt: now.toISOString() };
   }
 
   private pct(value: number) {

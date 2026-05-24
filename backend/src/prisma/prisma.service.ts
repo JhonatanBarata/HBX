@@ -62,6 +62,8 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
     await this.ensureVendasCommissionPayoutTables();
     await this.ensureVendasCommissionReceivableTables();
     await this.ensureRadarAutoDistributionRuleTables();
+    await this.ensureRadarDistributionDailyUsageTables();
+    await this.ensureMasterNoticeTables();
   }
 
   async onModuleDestroy() {
@@ -177,12 +179,41 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
       ADD COLUMN IF NOT EXISTS "referredByCommissionPercentSnapshot" DOUBLE PRECISION NOT NULL DEFAULT 0
     `);
 
+    await this.$executeRawUnsafe(`
+      ALTER TABLE "User"
+      ADD COLUMN IF NOT EXISTS "sellerDistributionMode" TEXT NOT NULL DEFAULT 'learning'
+    `);
+
+    await this.$executeRawUnsafe(`
+      ALTER TABLE "User"
+      ADD COLUMN IF NOT EXISTS "sellerDistributionPausedUntil" TIMESTAMP(3)
+    `);
+
+    await this.$executeRawUnsafe(`
+      ALTER TABLE "User"
+      ADD COLUMN IF NOT EXISTS "sellerDistributionDailyLimitOverride" INTEGER
+    `);
+
+    await this.$executeRawUnsafe(`
+      ALTER TABLE "User"
+      ADD COLUMN IF NOT EXISTS "sellerDistributionNote" TEXT
+    `);
+
+    await this.$executeRawUnsafe(`
+      ALTER TABLE "User"
+      ADD COLUMN IF NOT EXISTS "sellerDistributionUpdatedAt" TIMESTAMP(3)
+    `);
+
     await this.$executeRawUnsafe(
       'CREATE INDEX IF NOT EXISTS "User_referredByUserId_idx" ON "User"("referredByUserId")',
     );
 
     await this.$executeRawUnsafe(
       'CREATE INDEX IF NOT EXISTS "User_canRegisterHbxSellers_idx" ON "User"("canRegisterHbxSellers")',
+    );
+
+    await this.$executeRawUnsafe(
+      'CREATE INDEX IF NOT EXISTS "User_sellerDistributionMode_idx" ON "User"("sellerDistributionMode")',
     );
   }
 
@@ -481,6 +512,164 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
     `);
     await this.$executeRawUnsafe(`
       CREATE INDEX IF NOT EXISTS "RadarAutoDistributionRule_companyId_updatedAt_idx" ON "RadarAutoDistributionRule"("companyId", "updatedAt")
+    `);
+  }
+
+  private async ensureRadarDistributionDailyUsageTables() {
+    await this.$executeRawUnsafe(`
+      ALTER TABLE "RadarAutoDistributionRule"
+      ADD COLUMN IF NOT EXISTS "adminDailyLimit" INTEGER NOT NULL DEFAULT 0
+    `);
+
+    await this.$executeRawUnsafe(`
+      ALTER TABLE "RadarAutoDistributionRule"
+      ADD COLUMN IF NOT EXISTS "dailyLimitPerSeller" INTEGER NOT NULL DEFAULT 20
+    `);
+
+    await this.$executeRawUnsafe(`
+      CREATE TABLE IF NOT EXISTS "RadarDistributionDailyUsage" (
+        "id" TEXT NOT NULL,
+        "companyId" INTEGER NOT NULL,
+        "userId" INTEGER,
+        "dayKey" TEXT NOT NULL,
+        "dailyLimit" INTEGER NOT NULL DEFAULT 20,
+        "deliveredCount" INTEGER NOT NULL DEFAULT 0,
+        "skippedCount" INTEGER NOT NULL DEFAULT 0,
+        "lastDeliveryAt" TIMESTAMP(3),
+        "lastSkipReason" TEXT,
+        "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT "RadarDistributionDailyUsage_pkey" PRIMARY KEY ("id")
+      )
+    `);
+
+    await this.$executeRawUnsafe(`
+      DO $$
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_constraint
+          WHERE conname = 'RadarDistributionDailyUsage_companyId_fkey'
+        ) THEN
+          ALTER TABLE "RadarDistributionDailyUsage"
+          ADD CONSTRAINT "RadarDistributionDailyUsage_companyId_fkey"
+          FOREIGN KEY ("companyId") REFERENCES "Company"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+        END IF;
+
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_constraint
+          WHERE conname = 'RadarDistributionDailyUsage_userId_fkey'
+        ) THEN
+          ALTER TABLE "RadarDistributionDailyUsage"
+          ADD CONSTRAINT "RadarDistributionDailyUsage_userId_fkey"
+          FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+        END IF;
+      END $$;
+    `);
+
+    await this.$executeRawUnsafe(`
+      CREATE UNIQUE INDEX IF NOT EXISTS "RadarDistributionDailyUsage_companyId_userId_dayKey_key"
+      ON "RadarDistributionDailyUsage"("companyId", "userId", "dayKey")
+    `);
+
+    await this.$executeRawUnsafe(`
+      CREATE INDEX IF NOT EXISTS "RadarDistributionDailyUsage_companyId_dayKey_idx"
+      ON "RadarDistributionDailyUsage"("companyId", "dayKey")
+    `);
+
+    await this.$executeRawUnsafe(`
+      CREATE INDEX IF NOT EXISTS "RadarDistributionDailyUsage_userId_dayKey_idx"
+      ON "RadarDistributionDailyUsage"("userId", "dayKey")
+    `);
+  }
+
+  private async ensureMasterNoticeTables() {
+    await this.$executeRawUnsafe(`
+      CREATE TABLE IF NOT EXISTS "MasterNotice" (
+        "id" TEXT NOT NULL,
+        "companyId" INTEGER NOT NULL,
+        "audience" TEXT NOT NULL DEFAULT 'seller',
+        "title" TEXT NOT NULL,
+        "body" TEXT NOT NULL,
+        "tone" TEXT NOT NULL DEFAULT 'info',
+        "forceSeconds" INTEGER NOT NULL DEFAULT 0,
+        "startsAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        "expiresAt" TIMESTAMP(3),
+        "createdByUserId" INTEGER,
+        "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT "MasterNotice_pkey" PRIMARY KEY ("id")
+      )
+    `);
+
+    await this.$executeRawUnsafe(`
+      CREATE TABLE IF NOT EXISTS "MasterNoticeAck" (
+        "id" TEXT NOT NULL,
+        "noticeId" TEXT NOT NULL,
+        "userId" INTEGER NOT NULL,
+        "acknowledgedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT "MasterNoticeAck_pkey" PRIMARY KEY ("id")
+      )
+    `);
+
+    await this.$executeRawUnsafe(`
+      DO $$
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_constraint
+          WHERE conname = 'MasterNotice_companyId_fkey'
+        ) THEN
+          ALTER TABLE "MasterNotice"
+          ADD CONSTRAINT "MasterNotice_companyId_fkey"
+          FOREIGN KEY ("companyId") REFERENCES "Company"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+        END IF;
+
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_constraint
+          WHERE conname = 'MasterNotice_createdByUserId_fkey'
+        ) THEN
+          ALTER TABLE "MasterNotice"
+          ADD CONSTRAINT "MasterNotice_createdByUserId_fkey"
+          FOREIGN KEY ("createdByUserId") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+        END IF;
+
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_constraint
+          WHERE conname = 'MasterNoticeAck_noticeId_fkey'
+        ) THEN
+          ALTER TABLE "MasterNoticeAck"
+          ADD CONSTRAINT "MasterNoticeAck_noticeId_fkey"
+          FOREIGN KEY ("noticeId") REFERENCES "MasterNotice"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+        END IF;
+
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_constraint
+          WHERE conname = 'MasterNoticeAck_userId_fkey'
+        ) THEN
+          ALTER TABLE "MasterNoticeAck"
+          ADD CONSTRAINT "MasterNoticeAck_userId_fkey"
+          FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+        END IF;
+      END $$;
+    `);
+
+    await this.$executeRawUnsafe(`
+      CREATE INDEX IF NOT EXISTS "MasterNotice_companyId_audience_startsAt_expiresAt_idx"
+      ON "MasterNotice"("companyId", "audience", "startsAt", "expiresAt")
+    `);
+
+    await this.$executeRawUnsafe(`
+      CREATE INDEX IF NOT EXISTS "MasterNotice_companyId_createdAt_idx"
+      ON "MasterNotice"("companyId", "createdAt")
+    `);
+
+    await this.$executeRawUnsafe(`
+      CREATE UNIQUE INDEX IF NOT EXISTS "MasterNoticeAck_noticeId_userId_key"
+      ON "MasterNoticeAck"("noticeId", "userId")
+    `);
+
+    await this.$executeRawUnsafe(`
+      CREATE INDEX IF NOT EXISTS "MasterNoticeAck_userId_acknowledgedAt_idx"
+      ON "MasterNoticeAck"("userId", "acknowledgedAt")
     `);
   }
 }

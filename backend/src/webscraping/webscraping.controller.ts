@@ -737,6 +737,20 @@ class RadarAutoDistributionRuleDto {
   targetStockPerSeller?: number;
 
   @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(500)
+  adminDailyLimit?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(500)
+  dailyLimitPerSeller?: number;
+
+  @IsOptional()
   @IsString()
   preferredState?: string;
 
@@ -765,6 +779,13 @@ class RadarAutoDistributionRuleDto {
   @IsInt({ each: true })
   @Min(1, { each: true })
   userIds?: number[];
+
+  @IsOptional()
+  @IsArray()
+  territories?: Array<{
+    userId?: number;
+    cities?: Array<{ city?: string; state?: string }>;
+  }>;
 }
 
 class RadarAutoDistributionRunDto {
@@ -787,6 +808,13 @@ class MasterRadarAutoDistributionDto {
   @Min(1)
   @Max(500)
   targetStockPerSeller?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(500)
+  dailyLimitPerSeller?: number;
 
   @IsOptional()
   @IsArray()
