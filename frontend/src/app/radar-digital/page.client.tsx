@@ -422,13 +422,13 @@ function normalizeRadarAutoDistributionTerritories(value: unknown): RadarAutoDis
               city: String(cityItem?.city || "").trim(),
               state: String(cityItem?.state || "").trim().toUpperCase(),
             }))
-            .filter((cityItem) => cityItem.city && cityItem.state)
-            .map((cityItem) => [normalizeRadarTerritoryKey(cityItem.city, cityItem.state), cityItem]),
+            .filter((cityItem: RadarAutoDistributionTerritoryCity) => cityItem.city && cityItem.state)
+            .map((cityItem: RadarAutoDistributionTerritoryCity) => [normalizeRadarTerritoryKey(cityItem.city, cityItem.state), cityItem]),
         ).values(),
       ).slice(0, 20);
       return { userId, cities };
     })
-    .filter((item) => item.userId > 0 && item.cities.length > 0);
+    .filter((item: RadarAutoDistributionTerritory) => item.userId > 0 && item.cities.length > 0);
 }
 
 function buildRadarAutoDistributionDraft(
