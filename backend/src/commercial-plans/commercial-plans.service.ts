@@ -126,7 +126,7 @@ export class CommercialPlansService {
         isActive: true,
         deactivatedAt: null,
         isSystemMaster: false,
-        role: { notIn: ['USERMASTER'] },
+        role: 'USER',
       },
     });
   }

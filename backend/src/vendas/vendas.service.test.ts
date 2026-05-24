@@ -108,6 +108,11 @@ function createService(overrides?: Partial<Record<string, any>>) {
     ...(overrides?.hbxCommissionSync || {}),
   } as any;
 
+  const authService = {
+    signup: async () => ({ status: 'pending_email_confirmation' }),
+    ...(overrides?.authService || {}),
+  } as any;
+
   const service = new VendasService(
     prisma,
     customerProfileService,
@@ -118,6 +123,7 @@ function createService(overrides?: Partial<Record<string, any>>) {
     hbxPresentationEmails,
     commercialUsageLimits,
     hbxCommissionSync,
+    authService,
   );
   return { service, getOrCreateCalls, updateConversationStateCalls };
 }

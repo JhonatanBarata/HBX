@@ -712,6 +712,90 @@ class RadarDistributeDto {
   skipWhatsappValidation?: boolean;
 }
 
+class RadarAutoDistributionRuleDto {
+  @IsOptional()
+  @IsIn(['draft', 'active', 'paused'])
+  status?: 'draft' | 'active' | 'paused';
+
+  @IsOptional()
+  @Type(() => Boolean)
+  @IsBoolean()
+  includeAdmin?: boolean;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(500)
+  adminTargetStock?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(500)
+  targetStockPerSeller?: number;
+
+  @IsOptional()
+  @IsString()
+  preferredState?: string;
+
+  @IsOptional()
+  @IsString()
+  preferredCity?: string;
+
+  @IsOptional()
+  @IsString()
+  segment?: string;
+
+  @IsOptional()
+  @IsString()
+  categoryKey?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(100)
+  radiusKm?: number;
+
+  @IsOptional()
+  @IsArray()
+  @Type(() => Number)
+  @IsInt({ each: true })
+  @Min(1, { each: true })
+  userIds?: number[];
+}
+
+class RadarAutoDistributionRunDto {
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  limit?: number;
+}
+
+class MasterRadarAutoDistributionDto {
+  @IsOptional()
+  @IsIn(['draft', 'active', 'paused'])
+  status?: 'draft' | 'active' | 'paused';
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(500)
+  targetStockPerSeller?: number;
+
+  @IsOptional()
+  @IsArray()
+  territories?: Array<{
+    userId?: number;
+    cities?: Array<{ city?: string; state?: string }>;
+  }>;
+}
+
 @Controller('webscraping')
 @UseGuards(JwtAuthGuard, ModuleAccessGuard)
 @ModuleAccess('webscraping')
@@ -820,6 +904,21 @@ export class WebscrapingController {
   @Post('radar/leads/distribute-to-vendedores')
   radarLeadsDistributeToVendedores(@Req() req: any, @Body() dto: RadarDistributeDto) {
     return this.webscrapingService.distributeRadarLeadsToVendedoresForUser(req.user, dto || ({} as any));
+  }
+
+  @Get('radar/auto-distribution')
+  radarAutoDistributionRule(@Req() req: any) {
+    return this.webscrapingService.getRadarAutoDistributionRuleForUser(req.user);
+  }
+
+  @Put('radar/auto-distribution')
+  saveRadarAutoDistributionRule(@Req() req: any, @Body() dto: RadarAutoDistributionRuleDto) {
+    return this.webscrapingService.saveRadarAutoDistributionRuleForUser(req.user, dto || {});
+  }
+
+  @Post('radar/auto-distribution/run')
+  runRadarAutoDistribution(@Req() req: any, @Body() dto: RadarAutoDistributionRunDto) {
+    return this.webscrapingService.runRadarAutoDistributionForUser(req.user, dto || {});
   }
 
   @Post('radar/leads/:id/event')
@@ -975,6 +1074,21 @@ export class MasterWebscrapingController {
   @Get('export-targets')
   getExportTargets() {
     return this.webscrapingService.listMasterRadarExportTargets();
+  }
+
+  @Get('radar-auto-distribution')
+  getRadarAutoDistribution(@Req() req: any) {
+    return this.webscrapingService.getMasterRadarAutoDistributionPanel(req.user);
+  }
+
+  @Put('radar-auto-distribution')
+  saveRadarAutoDistribution(@Req() req: any, @Body() dto: MasterRadarAutoDistributionDto) {
+    return this.webscrapingService.saveMasterRadarAutoDistributionPanel(req.user, dto || {});
+  }
+
+  @Post('radar-auto-distribution/run')
+  runRadarAutoDistribution(@Req() req: any, @Body() dto: RadarAutoDistributionRunDto) {
+    return this.webscrapingService.runMasterRadarAutoDistributionForUser(req.user, dto || {});
   }
 
   @Post('export-cards')

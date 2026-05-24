@@ -118,6 +118,10 @@ type LeadTimelineEventType =
   | "result_recorded"
   | "return_scheduled"
   | "status_changed"
+  | "hbx_signup_link_created"
+  | "hbx_assisted_signup_created"
+  | "card_usage_debited"
+  | "commission_updated"
   | "lead_closed"
   | "lead_reused"
   | "generic";
@@ -271,6 +275,7 @@ type CommissionClient = {
   segment?: string | null;
   saleStatus?: SaleStatus | string | null;
   saleStatusLabel?: string | null;
+  salePlanKey?: string | null;
   commissionStatus?: string | null;
   commissionStatusLabel?: string | null;
   saleValue?: number | null;
@@ -278,6 +283,9 @@ type CommissionClient = {
   commissionDueAt?: string | null;
   commissionPaidAt?: string | null;
   commissionPayoutId?: string | null;
+  commissionLinkedCompanyId?: number | null;
+  commissionLinkedAt?: string | null;
+  commissionSyncSource?: string | null;
   recurringCycleKey?: string | null;
   commissionKind?: string | null;
   isRecurring?: boolean | null;
@@ -300,6 +308,9 @@ type CommissionSummaryResponse = {
   ok?: boolean;
   scope?: "seller" | "company" | string;
   generatedAt?: string | null;
+  settings?: {
+    dueBusinessDays?: number | null;
+  };
   sellerNetwork?: {
     isHbxSellerNetwork?: boolean | null;
     canRegisterReferredSeller?: boolean | null;
@@ -425,6 +436,42 @@ type LeadItem = {
   quickActions: string[];
 };
 
+type HbxSalesHandoffResponse = {
+  ok?: boolean;
+  planKey?: string | null;
+  planLabel?: string | null;
+  registerPath?: string | null;
+  registerUrl?: string | null;
+  message?: string | null;
+  lead?: LeadItem | null;
+};
+
+type HbxAssistedSignupResponse = {
+  ok?: boolean;
+  status?: string | null;
+  requiresEmailConfirmation?: boolean | null;
+  email?: string | null;
+  planKey?: string | null;
+  planLabel?: string | null;
+  generatedPassword?: string | null;
+  message?: string | null;
+  delivery?: {
+    failed?: boolean | null;
+    previewUrl?: string | null;
+    confirmUrl?: string | null;
+  } | null;
+  lead?: LeadItem | null;
+};
+
+type AssistedSignupDraft = {
+  companyName: string;
+  contactName: string;
+  email: string;
+  phone: string;
+  password: string;
+  salePlanKey: string;
+};
+
 type BoardResponse = {
   summary: {
     total: number;
@@ -490,6 +537,7 @@ type LeadDraft = {
   returnAt: string;
   shortNote: string;
   saleStatus: SaleStatus;
+  salePlanKey: string;
   saleValue: string;
   commissionNote: string;
 };
@@ -592,6 +640,11 @@ type LeadCardView = {
   onDraftChange?: (leadId: string, patch: Partial<LeadDraft>) => void;
   onEditingActiveChange?: (active: boolean) => void;
   onSave?: (leadId: string) => void;
+  onCloseSale?: (status: SaleStatus) => void;
+  onHbxHandoff?: () => void;
+  handoffLoading?: boolean;
+  onAssistedSignup?: () => void;
+  assistedSignupLoading?: boolean;
   editing?: boolean;
   bulkSelectionMode?: boolean;
   bulkSelected?: boolean;
@@ -622,6 +675,44 @@ const SALE_STATUS_OPTIONS: Array<{ value: SaleStatus; label: string }> = [
   { value: "sale_confirmed", label: "Pagamento confirmado" },
   { value: "inactive", label: "Cliente inativo" },
   { value: "canceled", label: "Cancelado" },
+];
+
+const SALE_PLAN_OPTIONS = [
+  { value: "hbx_lite", label: "HBX List", shortLabel: "List", monthlyPrice: 39.9 },
+  { value: "hbx_padrao", label: "HBX Lead+", shortLabel: "Lead+", monthlyPrice: 99.9 },
+  { value: "hbx_melhor", label: "HBX Full", shortLabel: "Full", monthlyPrice: 149.9 },
+] as const;
+
+const SALE_CLOSING_ACTIONS: Array<{
+  value: SaleStatus;
+  label: string;
+  helper: string;
+  tone: "pending" | "success" | "primary" | "danger";
+}> = [
+  {
+    value: "activation_pending",
+    label: "Aguard. ativação",
+    helper: "Cliente fechado e aguardando implantação.",
+    tone: "pending",
+  },
+  {
+    value: "trial_started",
+    label: "Trial iniciado",
+    helper: "Comissão prevista entra no prazo definido.",
+    tone: "success",
+  },
+  {
+    value: "sale_confirmed",
+    label: "Pagamento confirmado",
+    helper: "Cliente ativo e comissão recorrente.",
+    tone: "primary",
+  },
+  {
+    value: "canceled",
+    label: "Cancelado",
+    helper: "Cancela comissão desse card.",
+    tone: "danger",
+  },
 ];
 
 const BLOCK_LABELS: Record<LeadBlockKey, string> = {
@@ -1484,6 +1575,30 @@ function saleStatusLabel(status?: string | null) {
   return SALE_STATUS_OPTIONS.find((item) => item.value === normalized)?.label || "Sem venda";
 }
 
+function normalizeSalePlanKey(value?: string | null) {
+  const normalized = String(value || "").trim().toLowerCase();
+  return SALE_PLAN_OPTIONS.some((item) => item.value === normalized)
+    ? normalized
+    : "hbx_padrao";
+}
+
+function salePlanLabel(value?: string | null) {
+  const normalized = normalizeSalePlanKey(value);
+  return SALE_PLAN_OPTIONS.find((item) => item.value === normalized)?.label || "HBX Lead+";
+}
+
+function salePlanPrice(value?: string | null) {
+  const normalized = normalizeSalePlanKey(value);
+  return SALE_PLAN_OPTIONS.find((item) => item.value === normalized)?.monthlyPrice || 99.9;
+}
+
+function salePlanAmountInput(value?: string | null) {
+  return salePlanPrice(value).toLocaleString("pt-BR", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+}
+
 function commissionStatusLabel(status?: string | null) {
   const normalized = String(status || "").trim().toLowerCase();
   if (normalized === "pending") return "Aguardando ativação";
@@ -1500,8 +1615,52 @@ function commissionSourceLabel(client: CommissionClient) {
       : "Herdada inicial";
   }
   if (client.isRecurring) return `Recorrente ${client.recurringCycleKey || ""}`.trim();
-  if (client.commissionDueAt) return `D+3 ${formatDateTime(client.commissionDueAt)}`;
+  if (client.commissionDueAt) return `Libera ${formatDateTime(client.commissionDueAt)}`;
   return commissionStatusLabel(client.commissionStatus);
+}
+
+function isCommissionDue(value?: string | null) {
+  if (!value) return false;
+  const dueAt = new Date(value).getTime();
+  return Number.isFinite(dueAt) && dueAt <= Date.now();
+}
+
+function normalizeCommissionDueBusinessDays(value?: number | string | null) {
+  const numeric = Math.trunc(Number(value));
+  if (!Number.isFinite(numeric)) return 3;
+  return Math.min(30, Math.max(0, numeric));
+}
+
+function commissionLifecycleLabel(client: CommissionClient, dueBusinessDays = 3) {
+  const saleStatus = normalizeSaleStatus(client.saleStatus);
+  const commissionStatus = String(client.commissionStatus || "").trim().toLowerCase();
+  if (saleStatus === "activation_pending") {
+    const syncSource = String(client.commissionSyncSource || "").trim().toLowerCase();
+    if (syncSource.includes("auth_email_confirmed")) return "E-mail confirmado, aguardando ativação";
+    if (client.commissionLinkedCompanyId) return "Cadastro criado, aguardando confirmação do e-mail";
+    return "Link enviado, aguardando cadastro";
+  }
+  if (commissionStatus === "payable") {
+    return isCommissionDue(client.commissionDueAt)
+      ? "Liberado para pagamento"
+      : `Libera em ${formatDateTime(client.commissionDueAt)}`;
+  }
+  if (commissionStatus === "paid") return `Pago ${formatDateTime(client.commissionPaidAt)}`;
+  if (commissionStatus === "canceled" || saleStatus === "canceled") return "Comissão cancelada";
+  if (saleStatus === "trial_started") return `Trial ativo, aguardando D+${dueBusinessDays}`;
+  if (saleStatus === "sale_confirmed") return "Cliente ativo recorrente";
+  if (saleStatus === "inactive") return "Cliente inativado";
+  return commissionSourceLabel(client);
+}
+
+function commissionLifecycleTone(client: CommissionClient) {
+  const saleStatus = normalizeSaleStatus(client.saleStatus);
+  const commissionStatus = String(client.commissionStatus || "").trim().toLowerCase();
+  if (saleStatus === "activation_pending" || commissionStatus === "pending") return "pending";
+  if (commissionStatus === "payable") return isCommissionDue(client.commissionDueAt) ? "due" : "payable";
+  if (commissionStatus === "paid") return "paid";
+  if (commissionStatus === "canceled" || saleStatus === "inactive" || saleStatus === "canceled") return "inactive";
+  return "active";
 }
 
 function formatCurrency(value?: number | null) {
@@ -1520,6 +1679,44 @@ function parseCurrencyInput(value: string) {
   const numeric = Number(normalized);
   if (!Number.isFinite(numeric)) return 0;
   return Math.max(0, Math.round(numeric * 100) / 100);
+}
+
+function leadCommissionPercent(lead: LeadItem) {
+  const snapshot = Number(lead.commissionPercentSnapshot || 0);
+  if (Number.isFinite(snapshot) && snapshot > 0) return Math.min(100, Math.max(0, snapshot));
+  const ownerPercent = Number(lead.owner?.commissionPercent || 0);
+  if (Number.isFinite(ownerPercent) && ownerPercent > 0) return Math.min(100, Math.max(0, ownerPercent));
+  return 0;
+}
+
+function closingNextAction(status: SaleStatus) {
+  if (status === "activation_pending") return "Acompanhar ativação do cliente";
+  if (status === "trial_started") return "Confirmar evolução do trial";
+  if (status === "sale_confirmed") return "Cliente fechado - acompanhar recorrência";
+  if (status === "inactive") return "Cliente inativado";
+  if (status === "canceled") return "Venda cancelada";
+  return "Retomar venda";
+}
+
+function buildSaleClosingPatch(lead: LeadItem, draft: LeadDraft, status: SaleStatus): Partial<LeadDraft> {
+  const planKey = normalizeSalePlanKey(draft.salePlanKey || lead.salePlanKey);
+  const existingValue = parseCurrencyInput(draft.saleValue);
+  return {
+    saleStatus: status,
+    salePlanKey: planKey,
+    saleValue: existingValue > 0 ? draft.saleValue : salePlanAmountInput(planKey),
+    status: status === "canceled" || status === "inactive" ? "encerrado" : "qualificado",
+    nextAction: closingNextAction(status),
+  };
+}
+
+function saleClosingFeedback(status: SaleStatus) {
+  if (status === "activation_pending") return "Fechamento enviado para ativação.";
+  if (status === "trial_started") return "Trial iniciado e comissão prevista.";
+  if (status === "sale_confirmed") return "Pagamento confirmado e comissão recorrente.";
+  if (status === "canceled") return "Venda cancelada no card.";
+  if (status === "inactive") return "Cliente marcado como inativo.";
+  return "Fechamento atualizado.";
 }
 
 function compactVendasMessage(message: string | null) {
@@ -1555,6 +1752,7 @@ function createDraft(lead: LeadItem): LeadDraft {
     returnAt: toDatetimeLocal(lead.returnAt),
     shortNote: String(lead.shortNote || ""),
     saleStatus: normalizeSaleStatus(lead.saleStatus),
+    salePlanKey: lead.salePlanKey ? normalizeSalePlanKey(lead.salePlanKey) : "",
     saleValue: Number(lead.saleValue || lead.commissionBaseAmount || 0) > 0
       ? Number(lead.saleValue || lead.commissionBaseAmount || 0).toLocaleString("pt-BR", { maximumFractionDigits: 2 })
       : "",
@@ -1999,6 +2197,11 @@ function LeadCardView({
   onDraftChange,
   onEditingActiveChange,
   onSave,
+  onCloseSale,
+  onHbxHandoff,
+  handoffLoading,
+  onAssistedSignup,
+  assistedSignupLoading,
   editing,
   bulkSelectionMode,
   bulkSelected,
@@ -2022,6 +2225,7 @@ function LeadCardView({
     signals.wasClosedBefore ? "Já encerrado" : null,
     lead.whatsappAvailability?.status === "unavailable" ? "Sem WhatsApp" : null,
     lead.owner?.name ? `Resp.: ${lead.owner.name}` : null,
+    lead.commissionLinkedCompanyId ? "Cadastro HBX vinculado" : null,
     normalizeSaleStatus(lead.saleStatus) !== "none" ? (lead.saleStatusLabel || saleStatusLabel(lead.saleStatus)) : null,
     Number(lead.commissionAmount || 0) > 0 ? `Comissão ${formatCurrency(lead.commissionAmount)}` : null,
     lead.city || null,
@@ -2037,6 +2241,10 @@ function LeadCardView({
   const inInbox = isLeadInInbox(lead);
   const webscrapingSummary = buildLeadWebscrapingSummary(lead);
   const channelAssets = buildLeadChannelAssets(lead);
+  const selectedSalePlanKey = normalizeSalePlanKey(draft.salePlanKey || lead.salePlanKey);
+  const closingSaleValue = parseCurrencyInput(draft.saleValue) || salePlanPrice(selectedSalePlanKey);
+  const commissionPercent = leadCommissionPercent(lead);
+  const commissionPreview = (closingSaleValue * commissionPercent) / 100;
 
   // inline editor mount/animation control — uses global motion timings
   const editorRef = useRef<HTMLDivElement | null>(null);
@@ -2351,6 +2559,26 @@ function LeadCardView({
                 </select>
               </label>
               <label className={styles.field}>
+                <span className={styles.fieldLabel}>Plano HBX</span>
+                <select
+                  className={styles.fieldInput}
+                  value={selectedSalePlanKey}
+                  onChange={(e) => {
+                    const salePlanKey = normalizeSalePlanKey(e.target.value);
+                    onDraftChange?.(lead.id, {
+                      salePlanKey,
+                      saleValue: salePlanAmountInput(salePlanKey),
+                    });
+                  }}
+                >
+                  {SALE_PLAN_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className={styles.field}>
                 <span className={styles.fieldLabel}>Valor base</span>
                 <input
                   className={styles.fieldInput}
@@ -2362,6 +2590,51 @@ function LeadCardView({
                   }
                 />
               </label>
+              <div className={styles.hbxClosingPanel}>
+                <header>
+                  <div>
+                    <span>Fechamento HBX</span>
+                    <strong>{salePlanLabel(selectedSalePlanKey)} · {formatCurrency(closingSaleValue)}</strong>
+                  </div>
+                  <b>{commissionPercent > 0 ? `${formatCurrency(commissionPreview)} comissão` : "Sem comissão definida"}</b>
+                </header>
+                <div className={styles.hbxClosingSteps}>
+                  {SALE_CLOSING_ACTIONS.map((action) => (
+                    <button
+                      type="button"
+                      key={action.value}
+                      data-tone={action.tone}
+                      data-active={draft.saleStatus === action.value ? "true" : "false"}
+                      onClick={() => onCloseSale?.(action.value)}
+                      disabled={saving}
+                      title={action.helper}
+                    >
+                      <strong>{action.label}</strong>
+                      <span>{action.helper}</span>
+                    </button>
+                  ))}
+                </div>
+                <div className={styles.hbxClosingFooter}>
+                  <div className={styles.hbxClosingFooterActions}>
+                    <button
+                      type="button"
+                      onClick={onHbxHandoff}
+                      disabled={saving || handoffLoading}
+                    >
+                      {handoffLoading ? "Gerando link" : "Copiar link HBX"}
+                    </button>
+                    <button
+                      type="button"
+                      data-variant="secondary"
+                      onClick={onAssistedSignup}
+                      disabled={saving || assistedSignupLoading}
+                    >
+                      {assistedSignupLoading ? "Cadastrando" : "Cadastrar cliente"}
+                    </button>
+                  </div>
+                  <span>Cadastro rastreado para este card e comissão.</span>
+                </div>
+              </div>
               <label className={styles.fieldWide}>
                 <span className={styles.fieldLabel}>Próxima ação</span>
                 <input
@@ -2455,6 +2728,14 @@ function LeadCardView({
           >
             Ligar
           </a>
+          <button
+            type="button"
+            className={`${glassCardStyles.actionButton} ${glassCardStyles.noBreak}`}
+            onClick={() => onEdit?.(lead.id)}
+            disabled={saving}
+          >
+            Venda
+          </button>
           {lead.quickActions.includes("amanha") ? (
             <button
               type="button"
@@ -2731,6 +3012,18 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
   const [board, setBoard] = useState<BoardResponse | null>(null);
   const [drafts, setDrafts] = useState<Record<string, LeadDraft>>({});
   const [savingLeadId, setSavingLeadId] = useState<string | null>(null);
+  const [handoffLeadId, setHandoffLeadId] = useState<string | null>(null);
+  const [assistedSignupLead, setAssistedSignupLead] = useState<LeadItem | null>(null);
+  const [assistedSignupDraft, setAssistedSignupDraft] = useState<AssistedSignupDraft>({
+    companyName: "",
+    contactName: "",
+    email: "",
+    phone: "",
+    password: "",
+    salePlanKey: "hbx_padrao",
+  });
+  const [assistedSignupSaving, setAssistedSignupSaving] = useState(false);
+  const [assistedSignupResult, setAssistedSignupResult] = useState<HbxAssistedSignupResponse | null>(null);
   const [creatingManual, setCreatingManual] = useState(false);
   const [showClosed, setShowClosed] = useState(false);
   const [commandOpen, setCommandOpen] = useState(false);
@@ -2830,6 +3123,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
     returnAt: plusDaysDatetimeLocal(0),
     shortNote: "",
     saleStatus: "none",
+    salePlanKey: "",
     saleValue: "",
     commissionNote: "",
   });
@@ -2857,6 +3151,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
   );
+  const commissionDueDays = normalizeCommissionDueBusinessDays(commissionSummary?.settings?.dueBusinessDays);
 
   useEffect(() => {
     if (mobileRoute) return;
@@ -4754,6 +5049,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
     const commissionTotals = commissionSummary?.totals || {};
     const payableAmount = Number(commissionTotals.payableAmount || 0);
     const duePayableAmount = Number(commissionTotals.duePayableAmount || 0);
+    const waitingCommissionAmount = Math.max(0, payableAmount - duePayableAmount);
     const commissionClients = commissionSummary?.clients || {};
     const nextRecommendedMobileLead =
       allLeads.find(({ block }) => block !== "closed")?.lead || null;
@@ -4830,13 +5126,13 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
           {rows.length ? (
             <div className={styles.mobileVendasCommissionRows}>
               {rows.map((client) => (
-                <article key={`${title}:${client.leadId}`}>
+                <article key={`${title}:${client.leadId}`} data-tone={commissionLifecycleTone(client)}>
                   <div>
                     <strong>{client.name || "Cliente sem nome"}</strong>
-                    <span>{client.city || client.segment || "Sem local"} · {client.saleStatusLabel || saleStatusLabel(client.saleStatus)}</span>
+                    <span>{salePlanLabel(client.salePlanKey)} · {client.city || client.segment || "Sem local"}</span>
                   </div>
                   <b>{formatCurrency(client.commissionAmount || 0)}</b>
-                  <small>{commissionSourceLabel(client)}</small>
+                  <small>{commissionLifecycleLabel(client, commissionDueDays)}</small>
                 </article>
               ))}
             </div>
@@ -4863,7 +5159,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
             </div>
             <div className={styles.mobileVendasCommissionHero}>
               <span>
-                <small>Vencido</small>
+                <small>Liberado</small>
                 <strong>{formatCurrency(duePayableAmount)}</strong>
               </span>
               <span>
@@ -4880,7 +5176,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
                 ["Ativos", commissionTotals.activeClients || 0],
                 ["Aguardando", commissionTotals.pendingActivation || 0],
                 ["Inativados", commissionTotals.inactiveClients || 0],
-                ["Vencidas", commissionTotals.duePayableCount || 0],
+                ["Liberadas", commissionTotals.duePayableCount || 0],
               ].map(([label, value]) => (
                 <span key={label}>
                   <small>{label}</small>
@@ -4888,8 +5184,26 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
                 </span>
               ))}
             </div>
+            <div className={styles.mobileVendasCommissionFlow} aria-label="Esteira da comissão">
+              <span data-active={Number(commissionTotals.pendingActivation || 0) > 0 ? "true" : "false"}>
+                <small>1. Implantação</small>
+                <strong>{commissionTotals.pendingActivation || 0}</strong>
+              </span>
+              <span data-active={waitingCommissionAmount > 0 ? "true" : "false"}>
+                <small>2. D+{commissionDueDays}</small>
+                <strong>{formatCurrency(waitingCommissionAmount)}</strong>
+              </span>
+              <span data-active={duePayableAmount > 0 ? "true" : "false"}>
+                <small>3. Liberado</small>
+                <strong>{formatCurrency(duePayableAmount)}</strong>
+              </span>
+              <span data-active={Number(commissionTotals.paidAmount || 0) > 0 ? "true" : "false"}>
+                <small>4. Pago</small>
+                <strong>{formatCurrency(commissionTotals.paidAmount || 0)}</strong>
+              </span>
+            </div>
             <p className={styles.mobileVendasCommissionHint}>
-              Pagamento é fechado pelo Admin. Quando o lote baixa, o histórico aparece aqui.
+              Fechou no Vendas, o Admin ativa no Gerencial, a comissão entra em D+{commissionDueDays} e depois aparece como paga.
             </p>
           </section>
 
@@ -5072,6 +5386,12 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
         : !intelligenceVisible && intelligence.premiumTeaser
         ? { label: intelligence.premiumTeaser.label || "Disponível no HBX Lead", cta: intelligence.premiumTeaser.cta || "Ver card inteligente" }
         : null;
+      const draft = drafts[lead.id] || createDraft(lead);
+      const mobileSaleStatus = normalizeSaleStatus(draft.saleStatus || lead.saleStatus);
+      const mobileSalePlanKey = normalizeSalePlanKey(draft.salePlanKey || lead.salePlanKey);
+      const mobileSaleValue = parseCurrencyInput(draft.saleValue) || salePlanPrice(mobileSalePlanKey);
+      const mobileCommissionPercent = leadCommissionPercent(lead);
+      const mobileCommissionPreview = (mobileSaleValue * mobileCommissionPercent) / 100;
       const mobileLeadActionBar = (
         <nav className={`${styles.mobileLeadDetailActionBar} hbx-mobile-action-bar`} aria-label="Ações do lead">
           <a
@@ -5343,6 +5663,88 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
                   {suggestedAction}
                   <b aria-hidden="true">›</b>
                 </a>
+              </section>
+
+              <section className={`${styles.mobileLeadClosingCard} hbx-mobile-card`} data-status={mobileSaleStatus}>
+                <header>
+                  <div>
+                    <span>Fechamento HBX</span>
+                    <strong>{saleStatusLabel(mobileSaleStatus)}</strong>
+                  </div>
+                  <b>{formatCurrency(mobileCommissionPreview)}</b>
+                </header>
+                <div className={styles.mobileLeadClosingFields}>
+                  <label>
+                    <span>Plano</span>
+                    <select
+                      value={mobileSalePlanKey}
+                      onChange={(event) => {
+                        const salePlanKey = normalizeSalePlanKey(event.target.value);
+                        setLeadDraft(lead.id, {
+                          salePlanKey,
+                          saleValue: salePlanAmountInput(salePlanKey),
+                        });
+                      }}
+                    >
+                      {SALE_PLAN_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    <span>Valor</span>
+                    <input
+                      inputMode="decimal"
+                      value={draft.saleValue || salePlanAmountInput(mobileSalePlanKey)}
+                      onChange={(event) => setLeadDraft(lead.id, { saleValue: event.target.value })}
+                    />
+                  </label>
+                </div>
+                <div className={styles.mobileLeadClosingMeta}>
+                  <span>{salePlanLabel(mobileSalePlanKey)}</span>
+                  <span>{mobileCommissionPercent > 0 ? `${formatPercent(mobileCommissionPercent)} do vendedor` : "Comissão não definida"}</span>
+                  <span>D+{commissionDueDays} úteis após trial/pagamento</span>
+                </div>
+                <div className={styles.mobileLeadClosingActions}>
+                  {SALE_CLOSING_ACTIONS.map((action) => (
+                    <button
+                      type="button"
+                      key={action.value}
+                      data-tone={action.tone}
+                      data-active={mobileSaleStatus === action.value ? "true" : "false"}
+                      onClick={() => void saveLeadSaleStatus(lead, action.value)}
+                      disabled={savingLeadId === lead.id}
+                    >
+                      {action.label}
+                    </button>
+                  ))}
+                </div>
+                <button
+                  type="button"
+                  className={styles.mobileLeadHandoffButton}
+                  onClick={() => void createHbxSalesHandoff(lead)}
+                  disabled={handoffLeadId === lead.id || savingLeadId === lead.id}
+                >
+                  {handoffLeadId === lead.id ? "Gerando link" : "Copiar link de cadastro"}
+                </button>
+                <button
+                  type="button"
+                  className={styles.mobileLeadAssistedSignupButton}
+                  onClick={() => openAssistedSignup(lead)}
+                  disabled={assistedSignupSaving}
+                >
+                  {assistedSignupSaving && assistedSignupLead?.id === lead.id ? "Cadastrando" : "Cadastrar pelo cliente"}
+                </button>
+                <button
+                  type="button"
+                  className={`${styles.mobileLeadSaveClosingButton} hbx-mobile-primary-button`}
+                  onClick={() => void saveLead(lead.id, undefined, "Fechamento atualizado.")}
+                  disabled={savingLeadId === lead.id}
+                >
+                  {savingLeadId === lead.id ? "Salvando" : "Salvar fechamento"}
+                </button>
               </section>
 
               <section className={`${styles.mobileLeadReadyMessage} hbx-mobile-card`}>
@@ -6190,6 +6592,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
         returnAt: plusDaysDatetimeLocal(0),
         shortNote: "",
         saleStatus: "none",
+        salePlanKey: "",
         saleValue: "",
         commissionNote: "",
       });
@@ -6219,6 +6622,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
           returnAt: "",
           shortNote: "",
           saleStatus: "none",
+          salePlanKey: "",
           saleValue: "",
           commissionNote: "",
         }),
@@ -6242,12 +6646,20 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
         returnAt: "",
         shortNote: "",
         saleStatus: "none",
+        salePlanKey: "",
         saleValue: "",
         commissionNote: "",
       }),
       ...(patch || {}),
     };
     const email = String(draft.email || "").trim();
+    const normalizedSaleStatus = normalizeSaleStatus(draft.saleStatus);
+    const normalizedSalePlanKey = normalizeSalePlanKey(draft.salePlanKey);
+    const parsedSaleValue = parseCurrencyInput(draft.saleValue);
+    const saleValue =
+      normalizedSaleStatus !== "none" && parsedSaleValue <= 0
+        ? salePlanPrice(normalizedSalePlanKey)
+        : parsedSaleValue;
     setSavingLeadId(leadId);
     setError(null);
     try {
@@ -6259,10 +6671,13 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
         nextAction: draft.nextAction,
         returnAt: draft.returnAt || "",
         shortNote: draft.shortNote,
-        saleStatus: normalizeSaleStatus(draft.saleStatus),
-        saleValue: parseCurrencyInput(draft.saleValue),
+        saleStatus: normalizedSaleStatus,
+        saleValue,
         commissionNote: draft.commissionNote,
       };
+      if (normalizedSaleStatus !== "none") {
+        body.salePlanKey = normalizedSalePlanKey;
+      }
       await apiFetch(`/vendas/lead/${leadId}`, {
         method: "PATCH",
         body: JSON.stringify(body),
@@ -6282,6 +6697,124 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
       );
     } finally {
       setSavingLeadId(null);
+    }
+  }
+
+  async function saveLeadSaleStatus(lead: LeadItem, status: SaleStatus) {
+    const currentDraft = drafts[lead.id] || createDraft(lead);
+    const patch = buildSaleClosingPatch(lead, currentDraft, status);
+    setLeadDraft(lead.id, patch);
+    await saveLead(lead.id, patch, saleClosingFeedback(status));
+    mergeMobileLeadPatch(lead.id, {
+      saleStatus: patch.saleStatus,
+      saleStatusLabel: saleStatusLabel(patch.saleStatus),
+      salePlanKey: patch.salePlanKey,
+      saleValue: parseCurrencyInput(String(patch.saleValue || "")),
+    });
+  }
+
+  async function createHbxSalesHandoff(lead: LeadItem) {
+    const currentDraft = drafts[lead.id] || createDraft(lead);
+    const salePlanKey = normalizeSalePlanKey(currentDraft.salePlanKey || lead.salePlanKey);
+    setHandoffLeadId(lead.id);
+    setError(null);
+    try {
+      const payload = await apiFetch<HbxSalesHandoffResponse>(
+        `/vendas/lead/${encodeURIComponent(lead.id)}/hbx-handoff`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            salePlanKey,
+            origin: typeof window !== "undefined" ? window.location.origin : "",
+          }),
+        },
+      );
+      const textToCopy = String(payload?.message || payload?.registerUrl || payload?.registerPath || "").trim();
+      if (textToCopy && typeof navigator !== "undefined" && navigator.clipboard) {
+        await navigator.clipboard.writeText(textToCopy).catch(() => undefined);
+      }
+      const updatedLead = payload?.lead || null;
+      if (updatedLead) {
+        mergeMobileLeadPatch(lead.id, updatedLead);
+        setMobileNoteLead((current) =>
+          current?.id === lead.id ? { ...current, ...updatedLead } : current,
+        );
+      }
+      setFeedback(textToCopy ? "Link HBX copiado para enviar ao cliente." : "Link HBX gerado.");
+      await loadBoard({ forceHydrateDrafts: true, forceVisualRefresh: true });
+    } catch (handoffError) {
+      setError(
+        handoffError instanceof Error
+          ? handoffError.message
+          : "Falha ao gerar link HBX.",
+      );
+    } finally {
+      setHandoffLeadId(null);
+    }
+  }
+
+  function openAssistedSignup(lead: LeadItem) {
+    const currentDraft = drafts[lead.id] || createDraft(lead);
+    const salePlanKey = normalizeSalePlanKey(currentDraft.salePlanKey || lead.salePlanKey);
+    setAssistedSignupLead(lead);
+    setAssistedSignupResult(null);
+    setAssistedSignupDraft({
+      companyName: currentDraft.name || lead.name || "",
+      contactName: currentDraft.name || lead.name || "",
+      email: currentDraft.email || lead.email || "",
+      phone: currentDraft.phone || lead.phone || "",
+      password: "",
+      salePlanKey,
+    });
+  }
+
+  function closeAssistedSignup() {
+    if (assistedSignupSaving) return;
+    setAssistedSignupLead(null);
+    setAssistedSignupResult(null);
+  }
+
+  async function submitAssistedSignup(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!assistedSignupLead) return;
+    const email = assistedSignupDraft.email.trim().toLowerCase();
+    if (!email) {
+      setError("Informe o e-mail do cliente. O e-mail precisa ser confirmado para ativar.");
+      return;
+    }
+    setAssistedSignupSaving(true);
+    setError(null);
+    try {
+      const payload = await apiFetch<HbxAssistedSignupResponse>(
+        `/vendas/lead/${encodeURIComponent(assistedSignupLead.id)}/hbx-assisted-signup`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            ...assistedSignupDraft,
+            email,
+            salePlanKey: normalizeSalePlanKey(assistedSignupDraft.salePlanKey),
+          }),
+        },
+      );
+      setAssistedSignupResult(payload);
+      const updatedLead = payload?.lead || null;
+      if (updatedLead) {
+        mergeMobileLeadPatch(assistedSignupLead.id, updatedLead);
+        setMobileNoteLead((current) =>
+          current?.id === assistedSignupLead.id ? { ...current, ...updatedLead } : current,
+        );
+      }
+      setFeedback(payload?.message || "Cadastro assistido criado. Aguarde a confirmação do e-mail.");
+      await loadBoard({ forceHydrateDrafts: true, forceVisualRefresh: true });
+      await loadCommissionSummary();
+    } catch (signupError) {
+      setError(
+        signupError instanceof Error
+          ? signupError.message
+          : "Falha ao criar cadastro assistido.",
+      );
+    } finally {
+      setAssistedSignupSaving(false);
     }
   }
 
@@ -6793,6 +7326,11 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
         editingInputActiveRef.current = active;
       },
       onSave: (leadId: string) => void saveLead(leadId),
+      onCloseSale: (status: SaleStatus) => void saveLeadSaleStatus(lead, status),
+      onHbxHandoff: () => void createHbxSalesHandoff(lead),
+      handoffLoading: handoffLeadId === lead.id,
+      onAssistedSignup: () => openAssistedSignup(lead),
+      assistedSignupLoading: assistedSignupSaving && assistedSignupLead?.id === lead.id,
       editing: editingLeadId === lead.id,
       bulkSelectionMode,
       bulkSelected: bulkSelectAllAccount || selectedBulkLeadIds.has(lead.id),
@@ -7289,12 +7827,19 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
     const totals = commissionSummary?.totals || {};
     const payable = Number(totals.payableAmount || 0);
     const due = Number(totals.duePayableAmount || 0);
+    const waiting = Math.max(0, payable - due);
     const recentPaid = (commissionSummary?.payouts || [])[0] || null;
+    const commissionClients = commissionSummary?.clients || {};
+    const priorityClients = [
+      ...(commissionClients.pendingActivation || []),
+      ...(commissionClients.payable || []),
+      ...(commissionClients.active || []),
+    ].slice(0, 4);
     return (
       <section className={styles.desktopCommissionPanel} aria-label="Resumo de comissão">
         <div className={styles.desktopCommissionHeader}>
           <div>
-            <span className={styles.panelEyebrow}>Fase 7</span>
+            <span className={styles.panelEyebrow}>Carteira HBX</span>
             <strong>Minha comissão</strong>
           </div>
           <button
@@ -7308,7 +7853,7 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
         </div>
         <div className={styles.desktopCommissionMetrics}>
           <span data-tone="warning">
-            <small>Vencido</small>
+            <small>Liberado</small>
             <strong>{formatCurrency(due)}</strong>
           </span>
           <span data-tone="success">
@@ -7324,6 +7869,37 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
             <strong>{totals.activeClients || 0}</strong>
           </span>
         </div>
+        <div className={styles.desktopCommissionFlow} aria-label="Esteira da comissão">
+          <span data-active={Number(totals.pendingActivation || 0) > 0 ? "true" : "false"}>
+            <small>1. Implantação</small>
+            <strong>{totals.pendingActivation || 0}</strong>
+          </span>
+          <span data-active={waiting > 0 ? "true" : "false"}>
+            <small>2. D+{commissionDueDays}</small>
+            <strong>{formatCurrency(waiting)}</strong>
+          </span>
+          <span data-active={due > 0 ? "true" : "false"}>
+            <small>3. Liberado</small>
+            <strong>{formatCurrency(due)}</strong>
+          </span>
+          <span data-active={Number(totals.paidAmount || 0) > 0 ? "true" : "false"}>
+            <small>4. Pago</small>
+            <strong>{formatCurrency(totals.paidAmount || 0)}</strong>
+          </span>
+        </div>
+        {priorityClients.length ? (
+          <div className={styles.desktopCommissionQueue}>
+            {priorityClients.map((client, index) => (
+              <article key={`${client.leadId}:${client.commissionStatus || client.saleStatus || "lead"}:${index}`} data-tone={commissionLifecycleTone(client)}>
+                <div>
+                  <strong>{client.name || "Cliente sem nome"}</strong>
+                  <span>{salePlanLabel(client.salePlanKey)} · {commissionLifecycleLabel(client, commissionDueDays)}</span>
+                </div>
+                <b>{formatCurrency(client.commissionAmount || 0)}</b>
+              </article>
+            ))}
+          </div>
+        ) : null}
         <div className={styles.desktopCommissionFooter}>
           <span>
             Aguardando: <b>{totals.pendingActivation || 0}</b>
@@ -7332,7 +7908,7 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
             Inativados: <b>{totals.inactiveClients || 0}</b>
           </span>
           <span>
-            Próximo D+3: <b>{formatDateTime(totals.nextDueAt)}</b>
+            Próximo D+{commissionDueDays}: <b>{formatDateTime(totals.nextDueAt)}</b>
           </span>
           {recentPaid ? (
             <span>
@@ -7344,11 +7920,180 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
     );
   }
 
+  function renderAssistedSignupPortal() {
+    if (!assistedSignupLead) return null;
+    const confirmationUrl =
+      assistedSignupResult?.delivery?.confirmUrl ||
+      assistedSignupResult?.delivery?.previewUrl ||
+      "";
+    return createPortal(
+      <div
+        className={`${styles.systemPopupOverlay} ${styles.systemPopupOverlayActive} ${styles.mobileComposerOverlay}`}
+        onClick={closeAssistedSignup}
+      >
+        <div
+          className={`${styles.systemPopupFrame} ${styles.mobileComposerSheet}`}
+          onClick={(event) => event.stopPropagation()}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="assisted-signup-title"
+        >
+          <div className={styles.systemPopupChrome}>
+            <div>
+              <p className={styles.systemPopupEyebrow}>Fechamento HBX</p>
+              <strong id="assisted-signup-title">Cadastro assistido</strong>
+            </div>
+            <div className={styles.systemPopupActions}>
+              <span className={styles.metaBadge}>E-mail obrigatório</span>
+              <button
+                type="button"
+                className={`btn btn-secondary btn-sm ${styles.mobileComposerClose}`}
+                onClick={closeAssistedSignup}
+                aria-label="Fechar cadastro assistido"
+                disabled={assistedSignupSaving}
+              >
+                <span className={styles.mobileComposerCloseGlyph} aria-hidden="true">
+                  ×
+                </span>
+                <span className={styles.mobileComposerCloseText}>Fechar</span>
+              </button>
+            </div>
+          </div>
+          <div className={`${styles.systemPopupBody} ${styles.mobileComposerBody}`}>
+            <form className={styles.composerForm} onSubmit={submitAssistedSignup}>
+              <label className={styles.field}>
+                <span className={styles.fieldLabel}>Empresa/cliente</span>
+                <input
+                  className={styles.fieldInput}
+                  value={assistedSignupDraft.companyName}
+                  onChange={(event) =>
+                    setAssistedSignupDraft((draft) => ({ ...draft, companyName: event.target.value }))
+                  }
+                  placeholder="Nome que vai aparecer no HBX"
+                />
+              </label>
+              <label className={styles.field}>
+                <span className={styles.fieldLabel}>Responsável</span>
+                <input
+                  className={styles.fieldInput}
+                  value={assistedSignupDraft.contactName}
+                  onChange={(event) =>
+                    setAssistedSignupDraft((draft) => ({ ...draft, contactName: event.target.value }))
+                  }
+                  placeholder="Nome do cliente"
+                />
+              </label>
+              <label className={styles.field}>
+                <span className={styles.fieldLabel}>E-mail do cliente</span>
+                <input
+                  className={styles.fieldInput}
+                  type="email"
+                  value={assistedSignupDraft.email}
+                  onChange={(event) =>
+                    setAssistedSignupDraft((draft) => ({ ...draft, email: event.target.value }))
+                  }
+                  placeholder="cliente@email.com"
+                  required
+                />
+              </label>
+              <label className={styles.field}>
+                <span className={styles.fieldLabel}>WhatsApp</span>
+                <input
+                  className={styles.fieldInput}
+                  value={assistedSignupDraft.phone}
+                  onChange={(event) =>
+                    setAssistedSignupDraft((draft) => ({ ...draft, phone: event.target.value }))
+                  }
+                  placeholder="Telefone do cliente"
+                />
+              </label>
+              <label className={styles.field}>
+                <span className={styles.fieldLabel}>Plano</span>
+                <select
+                  className={styles.fieldInput}
+                  value={normalizeSalePlanKey(assistedSignupDraft.salePlanKey)}
+                  onChange={(event) =>
+                    setAssistedSignupDraft((draft) => ({
+                      ...draft,
+                      salePlanKey: normalizeSalePlanKey(event.target.value),
+                    }))
+                  }
+                >
+                  {SALE_PLAN_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className={styles.field}>
+                <span className={styles.fieldLabel}>Senha temporária</span>
+                <input
+                  className={styles.fieldInput}
+                  value={assistedSignupDraft.password}
+                  onChange={(event) =>
+                    setAssistedSignupDraft((draft) => ({ ...draft, password: event.target.value }))
+                  }
+                  placeholder="Gerar automaticamente"
+                  minLength={8}
+                />
+              </label>
+              <div className={styles.assistedSignupNotice}>
+                <strong>Confirmação de e-mail</strong>
+                <span>O vendedor pode preencher o cadastro, mas o cliente precisa confirmar o e-mail antes de ativar trial, pagamento ou implantação.</span>
+              </div>
+
+              {assistedSignupResult ? (
+                <div className={styles.assistedSignupResult}>
+                  <strong>{assistedSignupResult.message || "Cadastro assistido criado."}</strong>
+                  <span>{assistedSignupResult.email || assistedSignupDraft.email}</span>
+                  {assistedSignupResult.generatedPassword ? (
+                    <span>Senha temporária: {assistedSignupResult.generatedPassword}</span>
+                  ) : null}
+                  {assistedSignupResult.generatedPassword ? (
+                    <button
+                      type="button"
+                      className={styles.secondaryAction}
+                      onClick={() => void navigator.clipboard?.writeText(assistedSignupResult.generatedPassword || "")}
+                    >
+                      Copiar senha temporária
+                    </button>
+                  ) : null}
+                  {confirmationUrl ? (
+                    <button
+                      type="button"
+                      className={styles.secondaryAction}
+                      onClick={() => void navigator.clipboard?.writeText(confirmationUrl)}
+                    >
+                      Copiar link de confirmação
+                    </button>
+                  ) : null}
+                </div>
+              ) : null}
+
+              <div className={`${styles.formFooter} ${styles.mobileComposerActions}`}>
+                <button
+                  type="submit"
+                  className={styles.primaryAction}
+                  disabled={assistedSignupSaving}
+                >
+                  {assistedSignupSaving ? "Criando cadastro..." : "Criar cadastro e enviar confirmação"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      </div>,
+      document.body,
+    );
+  }
+
   if (mobileRoute) {
     return (
       <DashboardScaffold title="Vendas" hideHeader={true}>
         <style dangerouslySetInnerHTML={{ __html: vendasDragTopbarLockStyle }} />
         {renderMobileVendas()}
+        {renderAssistedSignupPortal()}
       </DashboardScaffold>
     );
   }
@@ -7682,6 +8427,8 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
         </div>,
         document.body,
       ) : null}
+
+      {renderAssistedSignupPortal()}
 
       {mobileReturnScheduler ? createPortal(
         <div className={styles.mobileReturnSchedulerBackdrop}>

@@ -2,6 +2,7 @@ import { BadRequestException, ForbiddenException, Injectable, NotFoundException 
 import { PrismaService } from '../prisma/prisma.service';
 import { isMasterOperationalCompanySlug } from '../commercial-plans/seat-billing.util';
 import { HbxCommissionSyncService } from '../commissions/hbx-commission-sync.service';
+import { getCommercialPlanMonthlyPrice } from '../commercial-plans/commercial-plan-catalog';
 
 function requireCompanyIdFromUser(user: any): number {
   const companyId = Number(user?.companyId);
@@ -21,6 +22,21 @@ function normalizeCommissionStatus(value: unknown) {
   return 'none';
 }
 
+function normalizeSaleStatus(value: unknown) {
+  const status = String(value || '').trim().toLowerCase();
+  if (['activation_pending', 'trial_started', 'sale_confirmed', 'inactive', 'canceled'].includes(status)) return status;
+  return 'none';
+}
+
+function saleStatusLabel(status: string) {
+  if (status === 'activation_pending') return 'Aguardando ativação';
+  if (status === 'trial_started') return 'Trial iniciado';
+  if (status === 'sale_confirmed') return 'Pagamento confirmado';
+  if (status === 'inactive') return 'Cliente inativo';
+  if (status === 'canceled') return 'Cancelado';
+  return 'Sem venda';
+}
+
 function addBusinessDays(date: Date, days: number) {
   const next = new Date(date);
   let added = 0;
@@ -30,6 +46,16 @@ function addBusinessDays(date: Date, days: number) {
     if (day !== 0 && day !== 6) added += 1;
   }
   return next;
+}
+
+function normalizeCommissionDueBusinessDays(value: unknown) {
+  const numeric = Math.trunc(Number(value));
+  if (!Number.isFinite(numeric)) return 3;
+  return Math.min(30, Math.max(0, numeric));
+}
+
+function canManageCommissionSettings(user: any) {
+  return Boolean(user?.isSystemMaster);
 }
 
 function normalizeOptionalText(value: unknown, maxLength = 500) {
@@ -62,6 +88,14 @@ export class GerencialService {
     private readonly prisma: PrismaService,
     private readonly hbxCommissionSync: HbxCommissionSyncService,
   ) {}
+
+  private async resolveCommissionDueBusinessDays(companyId: number) {
+    const company = await this.prisma.company.findUnique({
+      where: { id: companyId },
+      select: { commissionDueBusinessDays: true },
+    }).catch(() => null);
+    return normalizeCommissionDueBusinessDays(company?.commissionDueBusinessDays);
+  }
 
   private sellerNameMap(companyUsers: any[]) {
     return new Map(
@@ -108,13 +142,17 @@ export class GerencialService {
     }));
   }
 
-  private async buildCommissionOverview(companyId: number, companyUsers: any[]) {
+  private async buildCommissionOverview(companyId: number, companyUsers: any[], settings?: { dueBusinessDays?: number }) {
+    const dueBusinessDays = normalizeCommissionDueBusinessDays(settings?.dueBusinessDays);
     const sellers = (companyUsers || []).filter((user) => String(user?.role || '').trim().toUpperCase() === 'USER');
     const sellerIds = sellers.map((user) => Number(user.id)).filter((id) => Number.isInteger(id) && id > 0);
     const sellerNames = this.sellerNameMap(companyUsers);
     const payouts = await this.fetchRecentCommissionPayouts(companyId, sellerNames);
     if (!sellerIds.length) {
       return {
+        settings: {
+          dueBusinessDays,
+        },
         totals: {
           sellers: 0,
           activeClients: 0,
@@ -147,11 +185,14 @@ export class GerencialService {
         id: true,
         name: true,
         phone: true,
+        email: true,
         city: true,
+        segment: true,
         status: true,
         assignedUserId: true,
         saleStatus: true,
         saleValue: true,
+        salePlanKey: true,
         saleConfirmedAt: true,
         saleCanceledAt: true,
         commissionStatus: true,
@@ -161,6 +202,11 @@ export class GerencialService {
         commissionDueAt: true,
         commissionPaidAt: true,
         commissionRecurring: true,
+        commissionNote: true,
+        commissionLinkedCompanyId: true,
+        commissionLinkedAt: true,
+        commissionAutoSyncedAt: true,
+        commissionSyncSource: true,
         commissionPayoutId: true,
         updatedAt: true,
       },
@@ -179,8 +225,14 @@ export class GerencialService {
             id: true,
             name: true,
             phone: true,
+            email: true,
             city: true,
+            segment: true,
             saleStatus: true,
+            salePlanKey: true,
+            commissionLinkedCompanyId: true,
+            commissionLinkedAt: true,
+            commissionSyncSource: true,
           },
         },
       },
@@ -206,13 +258,21 @@ export class GerencialService {
       leadId: row.id,
       name: row.name || row.phone || 'Cliente sem nome',
       phone: row.phone || null,
+      email: row.email || null,
       city: row.city || null,
+      segment: row.segment || null,
       saleStatus: row.saleStatus || 'none',
+      salePlanKey: row.salePlanKey || null,
       commissionStatus: row.commissionStatus || 'none',
       saleValue: money(row.saleValue || row.commissionBaseAmount),
       commissionAmount: money(row.commissionAmount),
       commissionDueAt: row.commissionDueAt instanceof Date ? row.commissionDueAt.toISOString() : null,
       commissionPaidAt: row.commissionPaidAt instanceof Date ? row.commissionPaidAt.toISOString() : null,
+      commissionNote: row.commissionNote || null,
+      commissionLinkedCompanyId: Number(row.commissionLinkedCompanyId || 0) || null,
+      commissionLinkedAt: row.commissionLinkedAt instanceof Date ? row.commissionLinkedAt.toISOString() : null,
+      commissionAutoSyncedAt: row.commissionAutoSyncedAt instanceof Date ? row.commissionAutoSyncedAt.toISOString() : null,
+      commissionSyncSource: row.commissionSyncSource || null,
       commissionPayoutId: row.commissionPayoutId || null,
       updatedAt: row.updatedAt instanceof Date ? row.updatedAt.toISOString() : null,
     });
@@ -222,14 +282,20 @@ export class GerencialService {
       receivableId: row.id,
       name: row.lead?.name || row.lead?.phone || (String(row.kind || '').startsWith('inheritance_') ? 'Comissão herdada' : 'Comissão recorrente'),
       phone: row.lead?.phone || null,
+      email: row.lead?.email || null,
       city: row.lead?.city || null,
+      segment: row.lead?.segment || null,
       saleStatus: row.lead?.saleStatus || 'sale_confirmed',
+      salePlanKey: row.lead?.salePlanKey || null,
       commissionStatus: row.status || 'payable',
       saleValue: money(row.baseAmount),
       commissionAmount: money(row.amount),
       commissionDueAt: row.dueAt instanceof Date ? row.dueAt.toISOString() : null,
       commissionPaidAt: row.paidAt instanceof Date ? row.paidAt.toISOString() : null,
       commissionPayoutId: row.payoutId || null,
+      commissionLinkedCompanyId: Number(row.lead?.commissionLinkedCompanyId || 0) || null,
+      commissionLinkedAt: row.lead?.commissionLinkedAt instanceof Date ? row.lead.commissionLinkedAt.toISOString() : null,
+      commissionSyncSource: row.lead?.commissionSyncSource || null,
       updatedAt: row.updatedAt instanceof Date ? row.updatedAt.toISOString() : null,
       recurringCycleKey: row.cycleKey || null,
       commissionKind: row.kind || 'recurring',
@@ -337,6 +403,9 @@ export class GerencialService {
       });
 
     return {
+      settings: {
+        dueBusinessDays,
+      },
       totals: {
         sellers: sellers.length,
         activeClients: allSummary.activeClients,
@@ -363,12 +432,19 @@ export class GerencialService {
           userId: Number(row.assignedUserId || 0) || null,
         })),
       ].slice(0, 12),
+      activationQueue: leads
+        .filter((row) => String(row.saleStatus || '').toLowerCase() === 'activation_pending')
+        .slice(0, 30)
+        .map((row) => ({
+          ...leadClientPayload(row),
+          userId: Number(row.assignedUserId || 0) || null,
+        })),
       payroll,
       payouts,
     };
   }
 
-  private async buildOperationAudit(companyId: number, companyUsers: any[], commission: any) {
+  private async buildOperationAudit(companyId: number, companyUsers: any[], commission: any, options?: { isHbxSellerNetwork?: boolean }) {
     const roleOf = (user: any) => {
       const normalized = String(user?.role || '').trim().toUpperCase();
       if (user?.isSystemMaster || normalized === 'USERMASTER') return 'USERMASTER';
@@ -380,6 +456,7 @@ export class GerencialService {
     const masters = users.filter((user) => roleOf(user) === 'USERMASTER');
     const configuredSellers = activeSellers.filter((user) => money(user?.commissionPercent) > 0);
     const referralEnabledSellers = activeSellers.filter((user) => Boolean(user?.canRegisterHbxSellers));
+    const isHbxSellerNetwork = Boolean(options?.isHbxSellerNetwork);
     const now = new Date();
 
     const [
@@ -454,16 +531,18 @@ export class GerencialService {
         key: 'payroll',
         title: 'Folha de comissão',
         status: duePayableAmount > 0 ? 'warning' : 'ok',
-        value: `Vencido R$ ${duePayableAmount.toFixed(2)}`,
-        hint: duePayableAmount > 0 ? 'Pague e feche o lote no Gerencial.' : 'Nenhuma comissão vencida para baixar.',
+        value: `Liberado R$ ${duePayableAmount.toFixed(2)}`,
+        hint: duePayableAmount > 0 ? 'Pague e feche o lote no Gerencial.' : 'Nenhuma comissão liberada para baixar.',
       },
-      {
-        key: 'hbx_referral',
-        title: 'Rede HBX',
-        status: referralEnabledSellers.length || activeSellers.length === 0 ? 'ok' : 'warning',
-        value: `${referralEnabledSellers.length} vendedor(es) podem indicar`,
-        hint: referralEnabledSellers.length ? 'Indicação e comissão herdada disponíveis.' : 'Autorize quem pode cadastrar vendedores indicados.',
-      },
+      ...(isHbxSellerNetwork
+        ? [{
+            key: 'hbx_referral',
+            title: 'Rede HBX',
+            status: referralEnabledSellers.length || activeSellers.length === 0 ? 'ok' : 'warning',
+            value: `${referralEnabledSellers.length} vendedor(es) podem indicar`,
+            hint: referralEnabledSellers.length ? 'Indicação e comissão herdada disponíveis.' : 'Autorize quem pode cadastrar vendedores indicados.',
+          }]
+        : []),
     ];
 
     const readinessPoints = checklist.reduce((sum, item) => sum + (item.status === 'ok' ? 1 : item.status === 'warning' ? 0.5 : 0), 0);
@@ -571,7 +650,7 @@ export class GerencialService {
       }),
       this.prisma.company.findUnique({
         where: { id: companyId },
-        select: { id: true, name: true, slug: true },
+        select: { id: true, name: true, slug: true, commissionDueBusinessDays: true },
       }),
       this.prisma.companyConversation.findMany({ where: { companyId }, select: { contact: true } }),
       this.prisma.satisfactionSurvey.findMany({
@@ -601,16 +680,24 @@ export class GerencialService {
         customerName: item.conversation?.customer?.name || null,
       }));
 
-    const commission = await this.buildCommissionOverview(companyId, companyUsers);
-    const operationAudit = await this.buildOperationAudit(companyId, companyUsers, commission);
+    const commissionDueBusinessDays = normalizeCommissionDueBusinessDays(company?.commissionDueBusinessDays);
+    const commission = await this.buildCommissionOverview(companyId, companyUsers, { dueBusinessDays: commissionDueBusinessDays });
+    const isHbxSellerNetwork = company ? isMasterOperationalCompanySlug(company.slug) : false;
+    const operationAudit = await this.buildOperationAudit(companyId, companyUsers, commission, { isHbxSellerNetwork });
 
     return {
       companyId,
+      currentUser: {
+        id: Math.trunc(Number(user?.id || 0)) || null,
+        role: user?.isSystemMaster ? 'USERMASTER' : String(user?.role || '').trim().toUpperCase(),
+        isSystemMaster: Boolean(user?.isSystemMaster),
+        canManageCommissionSettings: canManageCommissionSettings(user),
+      },
       company: company
         ? {
           id: company.id,
           name: company.name,
-          isHbxSellerNetwork: isMasterOperationalCompanySlug(company.slug),
+          isHbxSellerNetwork,
         }
         : null,
       totals: {
@@ -638,6 +725,34 @@ export class GerencialService {
     };
   }
 
+  async updateCommissionSettings(user: any, input: { commissionDueBusinessDays?: number | string | null }) {
+    const companyId = requireCompanyIdFromUser(user);
+    if (!canManageCommissionSettings(user)) {
+      throw new ForbiddenException('Somente USERMASTER pode alterar o prazo de comissão.');
+    }
+    const rawDays = input?.commissionDueBusinessDays;
+    const numericDays = Math.trunc(Number(rawDays));
+    if (!Number.isFinite(numericDays) || numericDays < 0 || numericDays > 30) {
+      throw new BadRequestException('Informe um prazo D+ entre 0 e 30 dias úteis.');
+    }
+    const company = await this.prisma.company.update({
+      where: { id: companyId },
+      data: {
+        commissionDueBusinessDays: numericDays,
+      },
+      select: {
+        id: true,
+        commissionDueBusinessDays: true,
+      },
+    });
+    return {
+      ok: true,
+      settings: {
+        dueBusinessDays: normalizeCommissionDueBusinessDays(company.commissionDueBusinessDays),
+      },
+    };
+  }
+
   async markComplaint(user: any, messageId: number, isComplaint: boolean) {
     const companyId = requireCompanyIdFromUser(user);
     const msg = await this.prisma.companyMessage.findUnique({ where: { id: messageId } });
@@ -660,11 +775,12 @@ export class GerencialService {
     });
     if (!existing) throw new NotFoundException('Lead comercial nao encontrado.');
     const now = new Date();
+    const dueBusinessDays = await this.resolveCommissionDueBusinessDays(companyId);
     const data: any = {
       commissionStatus: status,
       commissionNote: typeof input?.commissionNote === 'string' ? input.commissionNote.trim() || null : undefined,
       commissionPaidAt: status === 'paid' ? now : null,
-      commissionDueAt: status === 'payable' ? existing.commissionDueAt || addBusinessDays(now, 3) : existing.commissionDueAt,
+      commissionDueAt: status === 'payable' ? existing.commissionDueAt || addBusinessDays(now, dueBusinessDays) : existing.commissionDueAt,
       commissionRecurring: ['trial_started', 'sale_confirmed'].includes(String(existing.saleStatus || '').toLowerCase()) && status !== 'canceled',
       commissionPayoutId: status === 'paid' ? undefined : null,
     };
@@ -689,6 +805,140 @@ export class GerencialService {
       commissionPaidAt: updated.commissionPaidAt instanceof Date ? updated.commissionPaidAt.toISOString() : null,
       commissionDueAt: updated.commissionDueAt instanceof Date ? updated.commissionDueAt.toISOString() : null,
       commissionPayoutId: updated.commissionPayoutId || null,
+    };
+  }
+
+  async updateClientSaleStatus(user: any, leadId: string, input: { saleStatus?: string | null; commissionNote?: string | null }) {
+    const companyId = requireCompanyIdFromUser(user);
+    const normalizedLeadId = String(leadId || '').trim();
+    if (!normalizedLeadId) throw new BadRequestException('Lead nao informado.');
+
+    const saleStatus = normalizeSaleStatus(input?.saleStatus);
+    if (!['activation_pending', 'trial_started', 'sale_confirmed', 'inactive', 'canceled'].includes(saleStatus)) {
+      throw new BadRequestException('Status de venda inválido.');
+    }
+
+    const existing = await this.prisma.vendasLead.findFirst({
+      where: { id: normalizedLeadId, companyId },
+      select: {
+        id: true,
+        name: true,
+        assignedUserId: true,
+        assignedByUserId: true,
+        createdByUserId: true,
+        commissionPercentSnapshot: true,
+        saleStatus: true,
+        saleValue: true,
+        salePlanKey: true,
+        saleConfirmedAt: true,
+        commissionBaseAmount: true,
+        commissionStatus: true,
+        commissionDueAt: true,
+        commissionPaidAt: true,
+        commissionPayoutId: true,
+      },
+    });
+    if (!existing) throw new NotFoundException('Lead comercial nao encontrado.');
+
+    const now = new Date();
+    const dueBusinessDays = await this.resolveCommissionDueBusinessDays(companyId);
+    const assignedUserId = Math.trunc(Number(existing.assignedUserId || 0)) || 0;
+    const owner = assignedUserId
+      ? await this.prisma.user.findFirst({
+          where: { id: assignedUserId, companyId },
+          select: { commissionPercent: true },
+        }).catch(() => null)
+      : null;
+    const percentSnapshot = Number(existing.commissionPercentSnapshot || 0);
+    const commissionPercent = Math.min(
+      100,
+      Math.max(0, Number.isFinite(percentSnapshot) && percentSnapshot > 0 ? percentSnapshot : Number(owner?.commissionPercent || 0) || 0),
+    );
+    const baseAmount = money(
+      money(existing.saleValue) ||
+      money(existing.commissionBaseAmount) ||
+      getCommercialPlanMonthlyPrice(existing.salePlanKey),
+    );
+    const commissionAmount = money((baseAmount * commissionPercent) / 100);
+    const confirmsSale = ['trial_started', 'sale_confirmed'].includes(saleStatus);
+    const endsSale = ['inactive', 'canceled'].includes(saleStatus);
+    const currentCommissionStatus = normalizeCommissionStatus(existing.commissionStatus);
+    const keepPaid = currentCommissionStatus === 'paid' && !endsSale;
+    const commissionStatus = keepPaid
+      ? 'paid'
+      : confirmsSale
+        ? (commissionAmount > 0 ? 'payable' : 'pending')
+        : saleStatus === 'activation_pending'
+          ? 'pending'
+          : 'canceled';
+    const confirmedAt = confirmsSale
+      ? (existing.saleConfirmedAt instanceof Date ? existing.saleConfirmedAt : now)
+      : null;
+    const commissionDueAt = commissionStatus === 'payable'
+      ? (existing.commissionDueAt instanceof Date ? existing.commissionDueAt : addBusinessDays(confirmedAt || now, dueBusinessDays))
+      : (keepPaid ? existing.commissionDueAt : null);
+
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const row = await tx.vendasLead.update({
+        where: { id: existing.id },
+        data: {
+          saleStatus,
+          saleValue: baseAmount,
+          saleConfirmedAt: confirmedAt,
+          saleCanceledAt: endsSale ? now : null,
+          commissionStatus,
+          commissionBaseAmount: baseAmount,
+          commissionAmount,
+          commissionDueAt,
+          commissionPaidAt: keepPaid ? existing.commissionPaidAt : null,
+          commissionRecurring: confirmsSale && commissionStatus !== 'canceled',
+          commissionPayoutId: keepPaid ? existing.commissionPayoutId : null,
+          commissionNote: typeof input?.commissionNote === 'string' ? input.commissionNote.trim() || null : undefined,
+        },
+        select: {
+          id: true,
+          name: true,
+          saleStatus: true,
+          saleValue: true,
+          commissionStatus: true,
+          commissionAmount: true,
+          commissionDueAt: true,
+          commissionPaidAt: true,
+          commissionRecurring: true,
+          updatedAt: true,
+        },
+      });
+
+      await tx.vendasLeadTimelineEvent.create({
+        data: {
+          leadId: existing.id,
+          eventType: 'activation_status_updated',
+          title: 'Implantação atualizada',
+          description: `Gerencial marcou o cliente como ${saleStatusLabel(saleStatus)}. Comissão: ${commissionStatus}.`,
+          sourceType: 'gerencial_activation',
+          statusFrom: normalizeSaleStatus(existing.saleStatus),
+          statusTo: saleStatus,
+          resultLabel: commissionStatus,
+          createdByUserId: Math.trunc(Number(user?.id || 0)) || null,
+        },
+      });
+
+      return row;
+    });
+
+    return {
+      ok: true,
+      leadId: updated.id,
+      name: updated.name || null,
+      saleStatus: updated.saleStatus,
+      saleStatusLabel: saleStatusLabel(normalizeSaleStatus(updated.saleStatus)),
+      saleValue: money(updated.saleValue),
+      commissionStatus: updated.commissionStatus,
+      commissionAmount: money(updated.commissionAmount),
+      commissionDueAt: updated.commissionDueAt instanceof Date ? updated.commissionDueAt.toISOString() : null,
+      commissionPaidAt: updated.commissionPaidAt instanceof Date ? updated.commissionPaidAt.toISOString() : null,
+      commissionRecurring: Boolean(updated.commissionRecurring),
+      updatedAt: updated.updatedAt instanceof Date ? updated.updatedAt.toISOString() : null,
     };
   }
 
@@ -788,7 +1038,7 @@ export class GerencialService {
     }
 
     if (!grouped.size) {
-      throw new BadRequestException(dueOnly ? 'Nenhuma comissão vencida para fechar.' : 'Nenhuma comissão a pagar para fechar.');
+      throw new BadRequestException(dueOnly ? 'Nenhuma comissão liberada para fechar.' : 'Nenhuma comissão a pagar para fechar.');
     }
 
     const referenceLabel = normalizeOptionalText(input?.referenceLabel, 120) || defaultPayoutReferenceLabel(now);

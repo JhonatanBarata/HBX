@@ -8,12 +8,13 @@ import { CommercialPlansModule } from '../commercial-plans/commercial-plans.modu
 import { CommissionsModule } from '../commissions/commissions.module';
 import { WebscrapingModule } from '../webscraping/webscraping.module';
 import { MailModule } from '../mail/mail.module';
+import { AuthModule } from '../auth/auth.module';
 import { VendasController } from './vendas.controller';
 import { VendasAutomationService } from './vendas-automation.service';
 import { VendasService } from './vendas.service';
 
 @Module({
-  imports: [PrismaModule, CustomerProfileModule, ModulesAccessModule, MessagingModule, InboxModule, CommercialPlansModule, CommissionsModule, MailModule, forwardRef(() => WebscrapingModule)],
+  imports: [PrismaModule, CustomerProfileModule, ModulesAccessModule, MessagingModule, InboxModule, CommercialPlansModule, CommissionsModule, MailModule, AuthModule, forwardRef(() => WebscrapingModule)],
   controllers: [VendasController],
   providers: [VendasService, VendasAutomationService],
   exports: [VendasService, VendasAutomationService],

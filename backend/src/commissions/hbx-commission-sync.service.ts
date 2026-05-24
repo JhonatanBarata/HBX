@@ -60,6 +60,20 @@ export class HbxCommissionSyncService {
     return next;
   }
 
+  private normalizeCommissionDueBusinessDays(value: unknown) {
+    const numeric = Math.trunc(Number(value));
+    if (!Number.isFinite(numeric)) return 3;
+    return Math.min(30, Math.max(0, numeric));
+  }
+
+  private async resolveCommissionDueBusinessDays(companyId: number) {
+    const company = await this.prisma.company.findUnique({
+      where: { id: companyId },
+      select: { commissionDueBusinessDays: true },
+    }).catch(() => null);
+    return this.normalizeCommissionDueBusinessDays(company?.commissionDueBusinessDays);
+  }
+
   private cycleKey(date = new Date()) {
     return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
   }
@@ -185,6 +199,7 @@ export class HbxCommissionSyncService {
     kindPrefix: 'inheritance_initial' | 'inheritance_recurring';
     status: 'payable' | 'canceled' | 'none' | 'pending' | 'paid';
     dueAt?: Date | null;
+    dueBusinessDays?: number | null;
     source: string;
     createdByUserId?: number | null;
   }) {
@@ -225,7 +240,7 @@ export class HbxCommissionSyncService {
         baseAmount,
         commissionPercent: item.percent,
         amount,
-        dueAt: input.dueAt || this.addBusinessDays(new Date(), 3),
+        dueAt: input.dueAt || this.addBusinessDays(new Date(), this.normalizeCommissionDueBusinessDays(input.dueBusinessDays)),
         source: String(input.source || 'hbx_inherited').slice(0, 120),
         createdByUserId: Math.trunc(Number(input.createdByUserId || 0)) || null,
       };
@@ -285,9 +300,23 @@ export class HbxCommissionSyncService {
     return { emails: Array.from(emails), phones: Array.from(phones) };
   }
 
+  private extractLinkedLeadId(company: any) {
+    for (const value of [company?.acquisitionSourceDetail, company?.referralCode]) {
+      const text = String(value || '').trim();
+      if (!text) continue;
+      const match =
+        text.match(/hbx-vendas-lead:([a-z0-9_-]{6,120})/i) ||
+        text.match(/[?&]hbxLead=([a-z0-9_-]{6,120})/i);
+      if (match?.[1]) return match[1];
+    }
+    return null;
+  }
+
   private buildLeadMatchWhere(company: any, options: SyncOptions) {
     const identity = this.companyIdentity(company);
+    const linkedLeadId = this.extractLinkedLeadId(company);
     const or: any[] = [];
+    if (linkedLeadId) or.push({ id: linkedLeadId });
     if (identity.emails.length) or.push({ email: { in: identity.emails } });
     if (identity.phones.length) or.push({ phoneNormalized: { in: identity.phones } });
     if (!or.length) return null;
@@ -324,6 +353,7 @@ export class HbxCommissionSyncService {
     const percent = await this.resolveCommissionPercent(lead);
     const baseAmount = this.resolvePlanAmount(company);
     const commissionAmount = this.money((baseAmount * percent) / 100);
+    const dueBusinessDays = await this.resolveCommissionDueBusinessDays(Number(lead?.companyId || 0));
     const now = new Date();
     const currentCommissionStatus = String(lead?.commissionStatus || 'none').trim().toLowerCase();
     const keepPaid = currentCommissionStatus === 'paid';
@@ -334,7 +364,7 @@ export class HbxCommissionSyncService {
         : state.commissionStatus;
     const nextDueAt =
       nextCommissionStatus === 'payable'
-        ? (lead?.commissionDueAt instanceof Date ? lead.commissionDueAt : this.addBusinessDays(state.eventAt, 3))
+        ? (lead?.commissionDueAt instanceof Date ? lead.commissionDueAt : this.addBusinessDays(state.eventAt, dueBusinessDays))
         : null;
 
     const data: any = {
@@ -381,6 +411,7 @@ export class HbxCommissionSyncService {
         kindPrefix: 'inheritance_initial',
         status: nextCommissionStatus,
         dueAt: nextDueAt,
+        dueBusinessDays,
         source: options.source || 'hbx_inherited_initial',
         createdByUserId: Number(lead?.assignedByUserId || lead?.createdByUserId || 0) || null,
       }).catch((error) => {
@@ -424,6 +455,7 @@ export class HbxCommissionSyncService {
       kindPrefix: 'inheritance_initial',
       status: nextCommissionStatus,
       dueAt: nextDueAt,
+      dueBusinessDays,
       source: options.source || 'hbx_inherited_initial',
       createdByUserId: Number(lead?.assignedByUserId || lead?.createdByUserId || 0) || null,
     }).catch((error) => {
@@ -516,12 +548,9 @@ export class HbxCommissionSyncService {
       where: {
         companyId: normalizedSalesCompanyId,
         assignedUserId: { not: null },
-        OR: [
-          { email: { not: null } },
-          { phoneNormalized: { not: null } },
-        ],
       },
       select: {
+        id: true,
         email: true,
         phoneNormalized: true,
       },
@@ -531,7 +560,17 @@ export class HbxCommissionSyncService {
 
     const emails = Array.from(new Set(leads.map((lead) => this.normalizeEmail(lead.email)).filter(Boolean) as string[]));
     const phones = Array.from(new Set(leads.flatMap((lead) => this.buildPhoneCandidates(lead.phoneNormalized))));
+    const linkedLeadRefs = Array.from(new Set(
+      leads
+        .map((lead) => String(lead.id || '').trim())
+        .filter(Boolean)
+        .map((id) => `hbx-vendas-lead:${id}`),
+    ));
     const or: any[] = [];
+    if (linkedLeadRefs.length) {
+      or.push({ acquisitionSourceDetail: { in: linkedLeadRefs } });
+      or.push({ referralCode: { in: linkedLeadRefs } });
+    }
     if (emails.length) {
       or.push({ contactEmail: { in: emails } });
       or.push({ users: { some: { email: { in: emails } } } });
@@ -604,6 +643,7 @@ export class HbxCommissionSyncService {
     const companyId = Math.trunc(Number(salesCompanyId || 0));
     if (!companyId) return { createdReceivables: 0, skippedReceivables: 0, canceledReceivables: 0 };
     const now = new Date();
+    const dueBusinessDays = await this.resolveCommissionDueBusinessDays(companyId);
     const cycleKey = this.cycleKey(now);
     const cycleIndex = this.cycleIndex(cycleKey);
 
@@ -695,7 +735,7 @@ export class HbxCommissionSyncService {
             baseAmount,
             commissionPercent: percent,
             amount,
-            dueAt: this.addBusinessDays(now, 3),
+            dueAt: this.addBusinessDays(now, dueBusinessDays),
             source: String(options.source || 'hbx_recurring').slice(0, 120),
             createdByUserId: Number(lead.assignedByUserId || lead.createdByUserId || 0) || null,
           },
@@ -719,7 +759,8 @@ export class HbxCommissionSyncService {
         cycleKey,
         kindPrefix: 'inheritance_recurring',
         status: 'payable',
-        dueAt: this.addBusinessDays(now, 3),
+        dueAt: this.addBusinessDays(now, dueBusinessDays),
+        dueBusinessDays,
         source: options.source || 'hbx_inherited_recurring',
         createdByUserId: Number(lead.assignedByUserId || lead.createdByUserId || 0) || null,
       }).catch((error) => {

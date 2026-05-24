@@ -95,6 +95,12 @@ type OperationAudit = {
 
 type GerencialOverview = {
   companyId: number;
+  currentUser?: {
+    id?: number | null;
+    role?: string | null;
+    isSystemMaster?: boolean | null;
+    canManageCommissionSettings?: boolean | null;
+  } | null;
   company?: {
     id: number;
     name?: string | null;
@@ -121,13 +127,21 @@ type CommissionClient = {
   userId?: number | null;
   name?: string | null;
   phone?: string | null;
+  email?: string | null;
   city?: string | null;
+  segment?: string | null;
   saleStatus?: string | null;
+  salePlanKey?: string | null;
   commissionStatus?: string | null;
   saleValue?: number | null;
   commissionAmount?: number | null;
   commissionDueAt?: string | null;
   commissionPaidAt?: string | null;
+  commissionNote?: string | null;
+  commissionLinkedCompanyId?: number | null;
+  commissionLinkedAt?: string | null;
+  commissionAutoSyncedAt?: string | null;
+  commissionSyncSource?: string | null;
   commissionPayoutId?: string | null;
   recurringCycleKey?: string | null;
   commissionKind?: string | null;
@@ -196,6 +210,9 @@ type CommissionPayrollRow = {
 };
 
 type CommissionOverview = {
+  settings?: {
+    dueBusinessDays?: number | null;
+  };
   totals: {
     sellers: number;
     activeClients: number;
@@ -213,6 +230,7 @@ type CommissionOverview = {
   };
   sellers: CommissionSellerSummary[];
   recentClients: CommissionClient[];
+  activationQueue?: CommissionClient[];
   payroll?: CommissionPayrollRow[];
   payouts?: CommissionPayout[];
 };
@@ -380,6 +398,22 @@ function saleStatusLabel(status?: string | null) {
   return "Sem venda";
 }
 
+function normalizeCommissionSaleStatus(status?: string | null) {
+  const normalized = String(status || "").toLowerCase();
+  if (["activation_pending", "trial_started", "sale_confirmed", "inactive", "canceled"].includes(normalized)) {
+    return normalized;
+  }
+  return "none";
+}
+
+function salePlanLabel(planKey?: string | null) {
+  const normalized = String(planKey || "").trim().toLowerCase();
+  if (normalized === "hbx_lite") return "HBX List";
+  if (normalized === "hbx_melhor") return "HBX Full";
+  if (normalized === "hbx_padrao") return "HBX Lead+";
+  return "Plano HBX";
+}
+
 function commissionStatusLabel(status?: string | null) {
   const normalized = String(status || "").toLowerCase();
   if (normalized === "pending") return "Pendente";
@@ -396,7 +430,47 @@ function commissionClientSourceLabel(client: CommissionClient) {
       : "Herdada inicial";
   }
   if (client.isRecurring) return `Recorrente ${client.recurringCycleKey || ""}`.trim();
+  return commissionActivationStageLabel(client);
+}
+
+function commissionActivationStageLabel(client: CommissionClient) {
+  const saleStatus = normalizeCommissionSaleStatus(client.saleStatus);
+  const syncSource = String(client.commissionSyncSource || "").toLowerCase();
+  if (saleStatus === "activation_pending") {
+    if (syncSource.includes("auth_email_confirmed")) return "E-mail confirmado";
+    if (client.commissionLinkedCompanyId) return "E-mail pendente";
+    return "Link enviado";
+  }
   return saleStatusLabel(client.saleStatus);
+}
+
+function commissionActivationHint(client: CommissionClient, dueBusinessDays = 3) {
+  const saleStatus = normalizeCommissionSaleStatus(client.saleStatus);
+  const syncSource = String(client.commissionSyncSource || "").toLowerCase();
+  if (saleStatus === "activation_pending") {
+    if (syncSource.includes("auth_email_confirmed")) {
+      return "Cliente comprovou o e-mail. Avance para trial ou pagamento quando a implantação começar.";
+    }
+    if (client.commissionLinkedCompanyId) {
+      return "Cadastro HBX criado. Falta o cliente confirmar o e-mail para liberar implantação.";
+    }
+    return "Link rastreado foi gerado. Falta o cliente concluir o cadastro HBX.";
+  }
+  if (saleStatus === "trial_started") return `Trial ativo. Comissão entra na folha em D+${dueBusinessDays}.`;
+  if (saleStatus === "sale_confirmed") return `Pagamento confirmado. Comissão recorrente em D+${dueBusinessDays}.`;
+  if (saleStatus === "inactive" || saleStatus === "canceled") return "Cliente inativado ou cancelado. Comissão não fica liberada.";
+  return "Sem etapa HBX vinculada.";
+}
+
+function commissionActivationBadgeClass(client: CommissionClient) {
+  const saleStatus = normalizeCommissionSaleStatus(client.saleStatus);
+  const syncSource = String(client.commissionSyncSource || "").toLowerCase();
+  if (saleStatus === "activation_pending" && syncSource.includes("auth_email_confirmed")) return "badge badge-success";
+  if (saleStatus === "activation_pending" && client.commissionLinkedCompanyId) return "badge badge-brand";
+  if (saleStatus === "activation_pending") return "badge";
+  if (saleStatus === "trial_started" || saleStatus === "sale_confirmed") return "badge badge-success";
+  if (saleStatus === "inactive" || saleStatus === "canceled") return "badge badge-danger";
+  return "badge";
 }
 
 function formatShortDate(value?: string | null) {
@@ -414,9 +488,15 @@ function formatDateTime(value?: string | null) {
 }
 
 function payrollStatusLabel(status?: CommissionPayrollRow["status"] | null) {
-  if (status === "due") return "Vencido";
-  if (status === "payable") return "Aguardando D+3";
+  if (status === "due") return "Liberado";
+  if (status === "payable") return "Aguardando prazo";
   return "Em desenvolvimento";
+}
+
+function normalizeCommissionDueBusinessDays(value?: number | string | null) {
+  const numeric = Math.trunc(Number(value));
+  if (!Number.isFinite(numeric)) return 3;
+  return Math.min(30, Math.max(0, numeric));
 }
 
 function operationStatusLabel(status?: OperationAudit["status"] | null) {
@@ -443,12 +523,12 @@ function buildPayrollSummaryText(rows: CommissionPayrollRow[], generatedAt = new
   const totalPayable = payableRows.reduce((sum, row) => sum + Number(row.payableAmount || 0), 0);
   const lines = [
     `Folha de comissões HBX - ${generatedAt.toLocaleDateString("pt-BR")}`,
-    `Total vencido: ${formatCurrency(totalDue)}`,
+    `Total liberado: ${formatCurrency(totalDue)}`,
     `Total a pagar: ${formatCurrency(totalPayable)}`,
     "",
     ...payableRows.map((row) => [
       `${row.sellerName} (${payrollStatusLabel(row.status)})`,
-      `Vencido: ${formatCurrency(row.duePayableAmount || 0)}`,
+      `Liberado: ${formatCurrency(row.duePayableAmount || 0)}`,
       `A pagar: ${formatCurrency(row.payableAmount || 0)}`,
       `Herdada: ${formatCurrency(row.inheritedAmount || 0)}`,
       `Clientes ativos: ${row.activeClients}`,
@@ -540,8 +620,11 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
   const [savingModuleUserId, setSavingModuleUserId] = useState<number | null>(null);
   const [togglingActiveUserId, setTogglingActiveUserId] = useState<number | null>(null);
   const [markingCommissionLeadId, setMarkingCommissionLeadId] = useState<string | null>(null);
+  const [updatingActivationLeadId, setUpdatingActivationLeadId] = useState<string | null>(null);
   const [syncingCommissions, setSyncingCommissions] = useState(false);
   const [closingCommissionScope, setClosingCommissionScope] = useState<string | null>(null);
+  const [commissionDueDaysDraft, setCommissionDueDaysDraft] = useState("3");
+  const [savingCommissionSettings, setSavingCommissionSettings] = useState(false);
   const [userFilter, setUserFilter] = useState<UserFilter>("active");
   const [userSearch, setUserSearch] = useState("");
   const [mobileTab, setMobileTab] = useState<MobileGerencialTab>("status");
@@ -583,6 +666,20 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
   }, [hasToken, load]);
 
   const isHbxSellerNetwork = Boolean(data?.company?.isHbxSellerNetwork);
+  const canCreateAdminUsers = !isHbxSellerNetwork;
+  const canManageCommissionSettings = Boolean(data?.currentUser?.canManageCommissionSettings);
+  const commissionDueDays = normalizeCommissionDueBusinessDays(data?.commission?.settings?.dueBusinessDays);
+
+  useEffect(() => {
+    if (savingCommissionSettings) return;
+    setCommissionDueDaysDraft(String(commissionDueDays));
+  }, [commissionDueDays, savingCommissionSettings]);
+
+  useEffect(() => {
+    if (isHbxSellerNetwork && newUserRole !== "USER") {
+      setNewUserRole("USER");
+    }
+  }, [isHbxSellerNetwork, newUserRole]);
 
   async function setRole(userId: number, role: "USER" | "ADMIN") {
     setChangingUserId(userId);
@@ -714,28 +811,33 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
       setError("Informe um e-mail válido.");
       return;
     }
-    const hasCommissionInput = Boolean(newUserCommissionPercent.trim());
-    const commissionPercent = parsePercentInput(newUserCommissionPercent);
-    if (commissionPercent === null) {
-      setError("Informe uma comissão entre 0 e 100.");
-      return;
-    }
     const shouldUseHbxNetwork = isHbxSellerNetwork && newUserRole === "USER";
-    const sellerReferralCommissionPercent = shouldUseHbxNetwork
-      ? parsePercentInput(newUserSellerReferralCommissionPercent)
-      : 0;
-    const referredByCommissionPercentSnapshot = shouldUseHbxNetwork
-      ? parseOptionalPercentInput(newUserReferredByCommissionPercent)
-      : undefined;
-    if (sellerReferralCommissionPercent === null || referredByCommissionPercentSnapshot === null) {
-      setError("Informe uma comissão de indicação entre 0 e 100.");
-      return;
-    }
     const referredByUserId = shouldUseHbxNetwork && newUserReferredByUserId
       ? Number(newUserReferredByUserId)
       : undefined;
     if (referredByUserId !== undefined && (!Number.isInteger(referredByUserId) || referredByUserId <= 0)) {
       setError("Selecione um indicador válido.");
+      return;
+    }
+    const selectedReferrer = referredByUserId
+      ? hbxReferrers.find((referrer) => referrer.id === referredByUserId)
+      : null;
+    if (referredByUserId && !selectedReferrer) {
+      setError("Indicador precisa ser vendedor ativo e autorizado.");
+      return;
+    }
+    const commissionPercent = parsePercentInput(
+      selectedReferrer ? percentInputValue(selectedReferrer.commissionPercent) : newUserCommissionPercent,
+    );
+    if (commissionPercent === null) {
+      setError("Informe uma comissão entre 0 e 100.");
+      return;
+    }
+    const sellerReferralCommissionPercent = shouldUseHbxNetwork
+      ? parsePercentInput(selectedReferrer ? percentInputValue(selectedReferrer.sellerReferralCommissionPercent) : newUserSellerReferralCommissionPercent)
+      : 0;
+    if (sellerReferralCommissionPercent === null) {
+      setError("Informe uma comissão de indicação entre 0 e 100.");
       return;
     }
 
@@ -748,16 +850,15 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
         role: newUserRole,
         password: newUserPassword.trim() || undefined,
       };
-      if (!(shouldUseHbxNetwork && referredByUserId && !hasCommissionInput)) {
+      if (!(shouldUseHbxNetwork && referredByUserId)) {
         requestBody.commissionPercent = commissionPercent;
       }
       if (shouldUseHbxNetwork) {
         requestBody.canRegisterHbxSellers = newUserCanRegisterHbxSellers;
-        requestBody.sellerReferralCommissionPercent = sellerReferralCommissionPercent ?? 0;
-        if (referredByUserId) requestBody.referredByUserId = referredByUserId;
-        if (referredByUserId && referredByCommissionPercentSnapshot !== undefined) {
-          requestBody.referredByCommissionPercentSnapshot = referredByCommissionPercentSnapshot;
+        if (!referredByUserId) {
+          requestBody.sellerReferralCommissionPercent = sellerReferralCommissionPercent ?? 0;
         }
+        if (referredByUserId) requestBody.referredByUserId = referredByUserId;
       }
       const payload = await apiFetch<CreateCompanyUserResult>("/users/company/create", {
         method: "POST",
@@ -852,11 +953,15 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
       };
       if (canEditHbxNetwork) {
         requestBody.canRegisterHbxSellers = profileDraft.canRegisterHbxSellers;
-        requestBody.sellerReferralCommissionPercent = sellerReferralCommissionPercent ?? 0;
-        requestBody.referredByUserId = referredByUserId ?? null;
-        requestBody.referredByCommissionPercentSnapshot = referredByUserId
-          ? referredByCommissionPercentSnapshot ?? undefined
-          : 0;
+        if (referredByUserId) {
+          if (referredByUserId !== Number(user.referredByUserId || 0)) {
+            requestBody.referredByUserId = referredByUserId;
+          }
+        } else {
+          requestBody.sellerReferralCommissionPercent = sellerReferralCommissionPercent ?? 0;
+          requestBody.referredByUserId = null;
+          requestBody.referredByCommissionPercentSnapshot = 0;
+        }
       }
       const updated = await apiFetch<UserItem>(`/users/${user.id}/profile`, {
         method: "PATCH",
@@ -940,6 +1045,31 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
     }
   }
 
+  async function updateActivationStatus(leadId: string, saleStatus: "trial_started" | "sale_confirmed" | "canceled" | "inactive") {
+    if (!leadId) return;
+    const actionKey = `${leadId}:${saleStatus}`;
+    setUpdatingActivationLeadId(actionKey);
+    setError(null);
+    try {
+      await apiFetch(`/gerencial/commission/${leadId}/sale-status`, {
+        method: "PATCH",
+        body: JSON.stringify({ saleStatus }),
+      });
+      setActionInfo(
+        saleStatus === "trial_started"
+          ? "Cliente marcado com trial iniciado."
+          : saleStatus === "sale_confirmed"
+            ? "Cliente marcado com pagamento confirmado."
+            : "Cliente removido da fila de ativação.",
+      );
+      await load();
+    } catch (activationError) {
+      setError(friendlyGerencialError(activationError, "Falha ao atualizar implantação."));
+    } finally {
+      setUpdatingActivationLeadId(null);
+    }
+  }
+
   async function syncHbxClientCommissions() {
     setSyncingCommissions(true);
     setError(null);
@@ -953,6 +1083,52 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
       setError(friendlyGerencialError(syncError, "Falha ao sincronizar clientes HBX."));
     } finally {
       setSyncingCommissions(false);
+    }
+  }
+
+  async function saveCommissionSettings() {
+    if (!canManageCommissionSettings) {
+      setError("Somente USERMASTER pode alterar o prazo de comissão.");
+      return;
+    }
+    const rawDays = commissionDueDaysDraft.trim();
+    const numericDays = Math.trunc(Number(rawDays));
+    if (!rawDays || !Number.isFinite(Number(rawDays)) || numericDays < 0 || numericDays > 30) {
+      setError("Informe o D+ entre 0 e 30 dias úteis.");
+      return;
+    }
+    const dueBusinessDays = normalizeCommissionDueBusinessDays(numericDays);
+    setSavingCommissionSettings(true);
+    setError(null);
+    try {
+      const payload = await apiFetch<{ settings?: { dueBusinessDays?: number | null } }>("/gerencial/commission/settings", {
+        method: "PATCH",
+        body: JSON.stringify({ commissionDueBusinessDays: dueBusinessDays }),
+      });
+      const savedDays = normalizeCommissionDueBusinessDays(payload?.settings?.dueBusinessDays ?? dueBusinessDays);
+      setCommissionDueDaysDraft(String(savedDays));
+      setData((prev) =>
+        prev
+          ? {
+              ...prev,
+              commission: prev.commission
+                ? {
+                    ...prev.commission,
+                    settings: {
+                      ...(prev.commission.settings || {}),
+                      dueBusinessDays: savedDays,
+                    },
+                  }
+                : prev.commission,
+            }
+          : prev,
+      );
+      setActionInfo(`Prazo de comissão atualizado para D+${savedDays} úteis.`);
+      await load();
+    } catch (settingsError) {
+      setError(friendlyGerencialError(settingsError, "Falha ao salvar prazo de comissão."));
+    } finally {
+      setSavingCommissionSettings(false);
     }
   }
 
@@ -1006,7 +1182,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
     const sellers = teamUsers.filter((user) => normalizeRole(user.role, user.isSystemMaster) === "USER");
     const activeSellers = sellers.filter((user) => user.isActive);
     const inactive = teamUsers.filter((user) => !user.isActive);
-    const extraSeats = Math.max(0, active.length - INCLUDED_TEAM_USERS);
+    const extraSeats = Math.max(0, activeSellers.length - INCLUDED_TEAM_USERS);
     const commissionConfigured = sellers.filter((user) => Number(user.commissionPercent || 0) > 0).length;
     const averageCommission =
       activeSellers.length > 0
@@ -1028,7 +1204,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
   const activeSeatRankByUserId = useMemo(() => {
     const ranks = new Map<number, number>();
     (data?.users || [])
-      .filter((user) => user.isActive && normalizeRole(user.role, user.isSystemMaster) !== "USERMASTER")
+      .filter((user) => user.isActive && normalizeRole(user.role, user.isSystemMaster) === "USER")
       .forEach((user, index) => ranks.set(user.id, index + 1));
     return ranks;
   }, [data?.users]);
@@ -1043,6 +1219,10 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
           )
         : [],
     [data?.users, isHbxSellerNetwork],
+  );
+  const selectedNewUserReferrer = useMemo(
+    () => hbxReferrers.find((referrer) => String(referrer.id) === newUserReferredByUserId) || null,
+    [hbxReferrers, newUserReferredByUserId],
   );
   const hbxNetworkStats = useMemo(() => {
     const sellers = (data?.users || []).filter((user) => normalizeRole(user.role, user.isSystemMaster) === "USER");
@@ -1102,34 +1282,65 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
 
   function renderMobileCreateForm() {
     return (
-      <form onSubmit={createCompanyUser} className="grid gap-3">
+      <form onSubmit={createCompanyUser} autoComplete="off" className="grid gap-3">
         <section className="hbx-mobile-card grid gap-3">
           <div className="flex items-center justify-between gap-2">
             <div>
               <span className="text-xs font-bold uppercase text-[var(--hbx-mobile-primary)]">Novo acesso</span>
-              <h2 className="text-lg font-semibold">Cadastrar funcionário</h2>
+              <h2 className="text-lg font-semibold">{isHbxSellerNetwork ? "Cadastrar vendedor HBX" : "Cadastrar funcionário"}</h2>
             </div>
             <span className="rounded-full border border-[var(--hbx-mobile-border)] px-3 py-1 text-xs font-bold">
-              {newUserRole === "USER" ? "Vendedor" : "Admin"}
+              {isHbxSellerNetwork ? "SellMaster" : newUserRole === "USER" ? "Vendedor" : "Admin"}
             </span>
           </div>
-          <div className="grid grid-cols-2 gap-2">
-            {(["USER", "ADMIN"] as const).map((role) => (
-              <button
-                key={role}
-                type="button"
-                onClick={() => setNewUserRole(role)}
-                className={newUserRole === role ? "hbx-mobile-primary-button" : "hbx-mobile-secondary-button"}
-              >
-                {roleLabel(role)}
-              </button>
-            ))}
-          </div>
+          {canCreateAdminUsers ? (
+            <div className="grid grid-cols-2 gap-2">
+              {(["USER", "ADMIN"] as const).map((role) => (
+                <button
+                  key={role}
+                  type="button"
+                  onClick={() => setNewUserRole(role)}
+                  className={newUserRole === role ? "hbx-mobile-primary-button" : "hbx-mobile-secondary-button"}
+                >
+                  {roleLabel(role)}
+                </button>
+              ))}
+            </div>
+          ) : (
+            <div className="rounded-[16px] border border-[var(--hbx-mobile-border)] bg-[var(--hbx-mobile-surface-soft)] p-3 text-sm text-[var(--hbx-mobile-muted)]">
+              USERMASTER cria SellMaster. Admin fica fora da rede de vendedores HBX.
+            </div>
+          )}
           <input className="field" value={newUserName} onChange={(event) => setNewUserName(event.target.value)} placeholder="Nome" />
-          <input className="field" type="email" value={newUserEmail} onChange={(event) => setNewUserEmail(event.target.value)} placeholder="E-mail" required />
+          <input
+            className="field"
+            type="email"
+            name="hbx-create-seller-login"
+            autoComplete="off"
+            autoCapitalize="none"
+            value={newUserEmail}
+            onChange={(event) => setNewUserEmail(event.target.value)}
+            placeholder="E-mail"
+            required
+          />
           <input className="field" type="tel" value={newUserPhone} onChange={(event) => setNewUserPhone(event.target.value)} placeholder="WhatsApp" />
-          <input className="field" inputMode="decimal" value={newUserCommissionPercent} onChange={(event) => setNewUserCommissionPercent(event.target.value)} placeholder="Comissão %" />
-          <input className="field" type="password" value={newUserPassword} onChange={(event) => setNewUserPassword(event.target.value)} placeholder="Senha opcional" />
+          <input
+            className="field disabled:opacity-60"
+            inputMode="decimal"
+            disabled={Boolean(selectedNewUserReferrer)}
+            value={selectedNewUserReferrer ? percentInputValue(selectedNewUserReferrer.commissionPercent) : newUserCommissionPercent}
+            onChange={(event) => setNewUserCommissionPercent(event.target.value)}
+            placeholder={selectedNewUserReferrer ? "Comissão herdada" : "Comissão %"}
+          />
+          <input
+            className="field"
+            type="password"
+            name="hbx-create-seller-password"
+            autoComplete="new-password"
+            value={newUserPassword}
+            onChange={(event) => setNewUserPassword(event.target.value)}
+            placeholder="Senha opcional"
+          />
         </section>
 
         {isHbxSellerNetwork && newUserRole === "USER" ? (
@@ -1151,11 +1362,12 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
               </span>
             </label>
             <input
-              className="field"
+              className="field disabled:opacity-60"
               inputMode="decimal"
-              value={newUserSellerReferralCommissionPercent}
+              disabled={Boolean(selectedNewUserReferrer)}
+              value={selectedNewUserReferrer ? percentInputValue(selectedNewUserReferrer.sellerReferralCommissionPercent) : newUserSellerReferralCommissionPercent}
               onChange={(event) => setNewUserSellerReferralCommissionPercent(event.target.value)}
-              placeholder="Herança que ele recebe %"
+              placeholder={selectedNewUserReferrer ? "Herança herdada" : "Herança que ele recebe %"}
             />
             <select
               className="field"
@@ -1164,8 +1376,10 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
                 const selectedReferrerId = event.target.value;
                 const selectedReferrer = hbxReferrers.find((referrer) => String(referrer.id) === selectedReferrerId);
                 setNewUserReferredByUserId(selectedReferrerId);
-                if (selectedReferrer && !newUserCommissionPercent.trim()) {
+                if (selectedReferrer) {
                   setNewUserCommissionPercent(percentInputValue(selectedReferrer.commissionPercent));
+                  setNewUserSellerReferralCommissionPercent(percentInputValue(selectedReferrer.sellerReferralCommissionPercent));
+                  setNewUserReferredByCommissionPercent(percentInputValue(selectedReferrer.sellerReferralCommissionPercent));
                 }
                 if (!selectedReferrerId) setNewUserReferredByCommissionPercent("");
               }}
@@ -1180,16 +1394,21 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
             <input
               className="field disabled:opacity-60"
               inputMode="decimal"
-              disabled={!newUserReferredByUserId}
-              value={newUserReferredByCommissionPercent}
+              disabled
+              value={selectedNewUserReferrer ? percentInputValue(selectedNewUserReferrer.sellerReferralCommissionPercent) : newUserReferredByCommissionPercent}
               onChange={(event) => setNewUserReferredByCommissionPercent(event.target.value)}
-              placeholder="Herança para indicador %"
+              placeholder="Herança automática do indicador"
             />
+            {selectedNewUserReferrer ? (
+              <p className="text-xs text-[var(--hbx-mobile-muted)]">
+                Comissão e herança travadas pelo indicador {userLabel(selectedNewUserReferrer)}.
+              </p>
+            ) : null}
           </section>
         ) : null}
 
         <button type="submit" disabled={creatingUser} className="hbx-mobile-primary-button">
-          {creatingUser ? "Criando..." : newUserRole === "USER" ? "Criar vendedor" : "Criar admin"}
+          {creatingUser ? "Criando..." : isHbxSellerNetwork ? "Criar SellMaster" : newUserRole === "USER" ? "Criar vendedor" : "Criar admin"}
         </button>
       </form>
     );
@@ -1203,6 +1422,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
         : null;
     const role = normalizeRole(user.role, user.isSystemMaster);
     const showHbxNetwork = isHbxSellerNetwork && role === "USER";
+    const profileHasReferrer = showHbxNetwork && Boolean(profileDraft.referredByUserId);
 
     return (
       <form
@@ -1214,7 +1434,14 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
       >
         <input className="field" value={profileDraft.name} onChange={(event) => setProfileDraft((draft) => ({ ...draft, name: event.target.value }))} placeholder="Nome" />
         <input className="field" type="tel" value={profileDraft.phone} onChange={(event) => setProfileDraft((draft) => ({ ...draft, phone: event.target.value }))} placeholder="WhatsApp" />
-        <input className="field" inputMode="decimal" value={profileDraft.commissionPercent} onChange={(event) => setProfileDraft((draft) => ({ ...draft, commissionPercent: event.target.value }))} placeholder="Comissão %" />
+        <input
+          className="field disabled:opacity-60"
+          inputMode="decimal"
+          disabled={profileHasReferrer}
+          value={profileDraft.commissionPercent}
+          onChange={(event) => setProfileDraft((draft) => ({ ...draft, commissionPercent: event.target.value }))}
+          placeholder={profileHasReferrer ? "Comissão herdada" : "Comissão %"}
+        />
 
         {showHbxNetwork ? (
           <>
@@ -1231,22 +1458,29 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
               </span>
             </label>
             <input
-              className="field"
+              className="field disabled:opacity-60"
               inputMode="decimal"
+              disabled={profileHasReferrer}
               value={profileDraft.sellerReferralCommissionPercent}
               onChange={(event) => setProfileDraft((draft) => ({ ...draft, sellerReferralCommissionPercent: event.target.value }))}
-              placeholder="Herança que recebe %"
+              placeholder={profileHasReferrer ? "Herança herdada" : "Herança que recebe %"}
             />
             <select
               className="field"
               value={profileDraft.referredByUserId}
-              onChange={(event) =>
+              onChange={(event) => {
+                const selectedReferrerId = event.target.value;
+                const selectedReferrer = hbxReferrers.find((referrer) => String(referrer.id) === selectedReferrerId);
                 setProfileDraft((draft) => ({
                   ...draft,
-                  referredByUserId: event.target.value,
-                  referredByCommissionPercentSnapshot: event.target.value ? draft.referredByCommissionPercentSnapshot : "0",
-                }))
-              }
+                  referredByUserId: selectedReferrerId,
+                  commissionPercent: selectedReferrer ? percentInputValue(selectedReferrer.commissionPercent) : draft.commissionPercent,
+                  sellerReferralCommissionPercent: selectedReferrer ? percentInputValue(selectedReferrer.sellerReferralCommissionPercent) : draft.sellerReferralCommissionPercent,
+                  referredByCommissionPercentSnapshot: selectedReferrerId
+                    ? percentInputValue(selectedReferrer?.sellerReferralCommissionPercent || user.referredByCommissionPercentSnapshot || 0)
+                    : "0",
+                }));
+              }}
             >
               <option value="">Direto HBX</option>
               {currentReferrerOption ? <option value={currentReferrerOption.id}>{referralUserLabel(currentReferrerOption)}</option> : null}
@@ -1259,11 +1493,16 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
             <input
               className="field disabled:opacity-60"
               inputMode="decimal"
-              disabled={!profileDraft.referredByUserId}
+              disabled
               value={profileDraft.referredByCommissionPercentSnapshot}
               onChange={(event) => setProfileDraft((draft) => ({ ...draft, referredByCommissionPercentSnapshot: event.target.value }))}
-              placeholder="Herança do indicador %"
+              placeholder="Herança automática do indicador"
             />
+            {profileHasReferrer ? (
+              <p className="text-xs text-[var(--hbx-mobile-muted)]">
+                Comissão e herança deste vendedor seguem o indicador.
+              </p>
+            ) : null}
           </>
         ) : null}
 
@@ -1287,7 +1526,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
     const showHbxNetwork = isHbxSellerNetwork && isSeller;
     const userModules = moduleAccess?.users.find((item) => item.id === user.id)?.modules || [];
     const seatRank = activeSeatRankByUserId.get(user.id) || 0;
-    const isExtraSeat = !isMaster && user.isActive && seatRank > INCLUDED_TEAM_USERS;
+    const isExtraSeat = isSeller && user.isActive && seatRank > INCLUDED_TEAM_USERS;
     const isEditingProfile = editingUserId === user.id;
 
     return (
@@ -1318,8 +1557,8 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
               <strong>{formatPercent(user.commissionPercent)}</strong>
             </div>
             <div className="rounded-[14px] border border-[var(--hbx-mobile-border)] bg-[var(--hbx-mobile-surface-soft)] p-2">
-              <span className="block text-[0.66rem] text-[var(--hbx-mobile-muted)]">Assento</span>
-              <strong>{isMaster ? "Master" : isExtraSeat ? "Extra" : seatRank || "-"}</strong>
+              <span className="block text-[0.66rem] text-[var(--hbx-mobile-muted)]">Vendedor</span>
+              <strong>{isMaster ? "Master" : isAdmin ? "Admin" : isExtraSeat ? "Extra" : seatRank || "-"}</strong>
             </div>
           </div>
         ) : null}
@@ -1395,19 +1634,20 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
 
   function renderMobileCommissions() {
     const payrollRows = data?.commission?.payroll || [];
+    const activationQueue = data?.commission?.activationQueue || [];
     return (
       <div className="grid gap-3">
         <section className="hbx-mobile-card grid gap-3">
           <div className="flex items-start justify-between gap-2">
             <div>
-              <span className="text-xs font-bold uppercase text-[var(--hbx-mobile-primary)]">D+3 úteis</span>
+              <span className="text-xs font-bold uppercase text-[var(--hbx-mobile-primary)]">D+{commissionDueDays} úteis</span>
               <h2 className="text-lg font-semibold">Comissões</h2>
             </div>
             <strong>{formatCurrency(data?.commission?.totals.payableAmount || 0)}</strong>
           </div>
           <div className="grid grid-cols-2 gap-2 text-sm">
             <div className="rounded-[14px] border border-[var(--hbx-mobile-border)] bg-[var(--hbx-mobile-surface-soft)] p-3">
-              <span className="block text-xs text-[var(--hbx-mobile-muted)]">Vencido</span>
+              <span className="block text-xs text-[var(--hbx-mobile-muted)]">Liberado</span>
               <strong>{formatCurrency(data?.commission?.totals.duePayableAmount || 0)}</strong>
             </div>
             <div className="rounded-[14px] border border-[var(--hbx-mobile-border)] bg-[var(--hbx-mobile-surface-soft)] p-3">
@@ -1423,14 +1663,97 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
               <strong>{data?.commission?.totals.pendingActivation || 0}</strong>
             </div>
           </div>
+          {canManageCommissionSettings ? (
+            <div className="grid grid-cols-[1fr_auto] gap-2 rounded-[14px] border border-[var(--hbx-mobile-border)] bg-[var(--hbx-mobile-surface-soft)] p-3">
+              <label className="grid gap-1 text-sm">
+                <span className="text-xs font-bold uppercase text-[var(--hbx-mobile-muted)]">Prazo comissão</span>
+                <input
+                  type="number"
+                  min={0}
+                  max={30}
+                  value={commissionDueDaysDraft}
+                  onChange={(event) => setCommissionDueDaysDraft(event.target.value)}
+                  className="field"
+                  aria-label="Dias úteis para liberar comissão"
+                />
+              </label>
+              <button type="button" disabled={savingCommissionSettings} onClick={() => void saveCommissionSettings()} className="hbx-mobile-primary-button self-end">
+                {savingCommissionSettings ? "..." : `D+${commissionDueDays}`}
+              </button>
+            </div>
+          ) : (
+            <div className="rounded-[14px] border border-[var(--hbx-mobile-border)] bg-[var(--hbx-mobile-surface-soft)] p-3 text-sm">
+              <span className="block text-xs font-bold uppercase text-[var(--hbx-mobile-muted)]">Regra USERMASTER</span>
+              <strong>D+{commissionDueDays} úteis</strong>
+            </div>
+          )}
           <div className="grid grid-cols-2 gap-2">
             <button type="button" disabled={syncingCommissions} onClick={() => void syncHbxClientCommissions()} className="hbx-mobile-secondary-button">
               {syncingCommissions ? "Sincronizando..." : "Sincronizar"}
             </button>
             <button type="button" disabled={closingCommissionScope !== null || (data?.commission?.totals.duePayableAmount || 0) <= 0} onClick={() => void closeDueCommissions()} className="hbx-mobile-primary-button">
-              {closingCommissionScope === "all" ? "Fechando..." : "Fechar vencidas"}
+              {closingCommissionScope === "all" ? "Fechando..." : "Fechar liberadas"}
             </button>
           </div>
+        </section>
+
+        <section className="hbx-mobile-card grid gap-3">
+          <div className="flex items-start justify-between gap-2">
+            <div>
+              <span className="text-xs font-bold uppercase text-[var(--hbx-mobile-primary)]">Implantação</span>
+              <h2 className="text-lg font-semibold">Aguardando ativação</h2>
+            </div>
+            <strong>{activationQueue.length}</strong>
+          </div>
+          {activationQueue.length === 0 ? (
+            <p className="text-sm text-[var(--hbx-mobile-muted)]">Nenhum cliente aguardando implantação agora.</p>
+          ) : (
+            activationQueue.map((client) => (
+              <article key={client.leadId} className="grid gap-2 rounded-[16px] border border-[var(--hbx-mobile-border)] bg-[var(--hbx-mobile-surface-soft)] p-3">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <strong className="block truncate">{client.name || "Cliente sem nome"}</strong>
+                    <span className="text-xs text-[var(--hbx-mobile-muted)]">
+                      {salePlanLabel(client.salePlanKey)} · {client.city || "sem cidade"} · {formatCurrency(client.saleValue || 0)}
+                    </span>
+                  </div>
+                  <span className={commissionActivationBadgeClass(client)}>{commissionActivationStageLabel(client)}</span>
+                </div>
+                <p className="text-xs text-[var(--hbx-mobile-muted)]">{commissionActivationHint(client, commissionDueDays)}</p>
+                <div className="flex flex-wrap gap-2 text-xs">
+                  {client.email ? <span className="badge">{client.email}</span> : null}
+                  {client.commissionLinkedAt ? <span className="badge">Vinculado {formatShortDate(client.commissionLinkedAt)}</span> : null}
+                </div>
+                {client.commissionNote ? <p className="text-xs text-[var(--hbx-mobile-muted)]">{client.commissionNote}</p> : null}
+                <div className="grid grid-cols-3 gap-2">
+                  <button
+                    type="button"
+                    disabled={updatingActivationLeadId !== null}
+                    onClick={() => void updateActivationStatus(client.leadId, "trial_started")}
+                    className="hbx-mobile-primary-button"
+                  >
+                    {updatingActivationLeadId === `${client.leadId}:trial_started` ? "..." : "Trial"}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={updatingActivationLeadId !== null}
+                    onClick={() => void updateActivationStatus(client.leadId, "sale_confirmed")}
+                    className="hbx-mobile-secondary-button"
+                  >
+                    {updatingActivationLeadId === `${client.leadId}:sale_confirmed` ? "..." : "Pago"}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={updatingActivationLeadId !== null}
+                    onClick={() => void updateActivationStatus(client.leadId, "canceled")}
+                    className="hbx-mobile-secondary-button"
+                  >
+                    {updatingActivationLeadId === `${client.leadId}:canceled` ? "..." : "Cancelar"}
+                  </button>
+                </div>
+              </article>
+            ))
+          )}
         </section>
 
         <section className="hbx-mobile-card grid gap-3">
@@ -1452,7 +1775,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
                   <div className="min-w-0">
                     <strong className="block truncate">{row.sellerName}</strong>
                     <span className="text-xs text-[var(--hbx-mobile-muted)]">
-                      {payrollStatusLabel(row.status)} · {row.duePayableCount} vencida(s) · {formatShortDate(row.nextDueAt)}
+                      {payrollStatusLabel(row.status)} · {row.duePayableCount} liberada(s) · {formatShortDate(row.nextDueAt)}
                     </span>
                   </div>
                   {row.duePayableAmount > 0 ? (
@@ -1462,7 +1785,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
                   ) : null}
                 </div>
                 <div className="grid grid-cols-3 gap-2 text-sm">
-                  <div><span className="block text-xs text-[var(--hbx-mobile-muted)]">Vencido</span><strong>{formatCurrency(row.duePayableAmount || 0)}</strong></div>
+                  <div><span className="block text-xs text-[var(--hbx-mobile-muted)]">Liberado</span><strong>{formatCurrency(row.duePayableAmount || 0)}</strong></div>
                   <div><span className="block text-xs text-[var(--hbx-mobile-muted)]">A pagar</span><strong>{formatCurrency(row.payableAmount || 0)}</strong></div>
                   <div><span className="block text-xs text-[var(--hbx-mobile-muted)]">Ativos</span><strong>{row.activeClients}</strong></div>
                 </div>
@@ -1524,7 +1847,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
               <strong>{audit.pipeline.dueReturns}</strong>
             </div>
             <div className="rounded-[14px] border border-[var(--hbx-mobile-border)] bg-[var(--hbx-mobile-surface-soft)] p-3">
-              <span className="block text-xs text-[var(--hbx-mobile-muted)]">Vencido</span>
+              <span className="block text-xs text-[var(--hbx-mobile-muted)]">Liberado</span>
               <strong>{formatCurrency(audit.finance.duePayableAmount || 0)}</strong>
             </div>
           </div>
@@ -1737,7 +2060,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
                 <span className="badge badge-brand">Fase 2</span>
                 <h2 className="mt-3 text-xl font-semibold">Gerencial vira equipe comercial.</h2>
                 <p className="mt-2 text-sm text-muted max-w-3xl">
-                  Cadastre vendedores, deixe telefone e comissão prontos, acompanhe assentos incluídos e mantenha
+                  Cadastre vendedores, deixe telefone e comissão prontos, acompanhe vendedores incluídos e mantenha
                   Radar, Gerencial e Cadastros sob controle do ADMIN.
                 </p>
                 <div className="mt-4 grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-2">
@@ -1762,11 +2085,11 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
                     <strong className="mt-1 block text-2xl">{teamStats.inactive}</strong>
                   </article>
                   <article className="rounded-[14px] border border-[var(--line)] bg-[var(--surface-soft)] p-3">
-                    <p className="text-xs text-muted">Extras</p>
+                    <p className="text-xs text-muted">Vendedores extra</p>
                     <strong className="mt-1 block text-2xl">{teamStats.extraSeats}</strong>
                   </article>
                   <article className="rounded-[14px] border border-[var(--line)] bg-[var(--surface-soft)] p-3">
-                    <p className="text-xs text-muted">Extras atuais</p>
+                    <p className="text-xs text-muted">Extra mensal</p>
                     <strong className="mt-1 block text-lg">{formatCurrency(teamStats.teamMonthlyExtra)}</strong>
                   </article>
                 </div>
@@ -1788,12 +2111,12 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
                   <p className="mt-1 text-xs text-muted">{SELLER_ROLE_COPY.USERMASTER.description}</p>
                 </article>
                 <article className="rounded-[14px] border border-[var(--line)] bg-[var(--surface-soft)] p-3 sm:col-span-2 xl:col-span-1">
-                  <span className="badge">Assentos</span>
+                  <span className="badge">Vendedores</span>
                   <strong className="mt-2 block text-sm">
-                    {teamStats.includedSeats} incluídos, {formatCurrency(EXTRA_USER_MONTHLY_PRICE)} por extra
+                    {teamStats.includedSeats} vendedores incluídos, {formatCurrency(EXTRA_USER_MONTHLY_PRICE)} por vendedor extra
                   </strong>
                   <p className="mt-1 text-xs text-muted">
-                    Extra entra proporcional no fechamento mensal. Comissão média ativa: {formatPercent(teamStats.averageCommission)}.
+                    Admin não entra nessa cobrança. Vendedor extra entra proporcional no fechamento mensal.
                   </p>
                 </article>
                 {isHbxSellerNetwork ? (
@@ -1838,7 +2161,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
                     <strong className="mt-1 block text-lg">{data.operationAudit.pipeline.dueReturns}</strong>
                   </article>
                   <article className="rounded-[14px] border border-[var(--line)] bg-[var(--surface-soft)] p-3">
-                    <p className="text-xs text-muted">Comissão vencida</p>
+                    <p className="text-xs text-muted">Comissão liberada</p>
                     <strong className="mt-1 block text-lg">{formatCurrency(data.operationAudit.finance.duePayableAmount || 0)}</strong>
                   </article>
                 </div>
@@ -1881,13 +2204,13 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
           <section className="panel p-4 md:p-5 rounded-[20px]">
             <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3">
               <div>
-                <h2 className="text-lg font-semibold">Cadastrar vendedor ou admin</h2>
+                <h2 className="text-lg font-semibold">{isHbxSellerNetwork ? "Cadastrar vendedor HBX" : "Cadastrar vendedor ou admin"}</h2>
                 <p className="mt-1 text-sm text-muted">O login usa o e-mail. Se deixar senha vazia, o HBX gera uma senha temporária.</p>
               </div>
-              <span className="badge">ADMIN / MASTER</span>
+              <span className="badge">{isHbxSellerNetwork ? "USERMASTER / SELLMASTER" : "ADMIN / MASTER"}</span>
             </div>
 
-            <form onSubmit={createCompanyUser} className="mt-4 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+            <form onSubmit={createCompanyUser} autoComplete="off" className="mt-4 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
               <label className="grid gap-1 text-sm">
                 <span className="font-medium">Nome do funcionário</span>
                 <input
@@ -1903,6 +2226,9 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
                 <input
                   type="email"
                   placeholder="email@empresa.com"
+                  name="hbx-create-seller-login"
+                  autoComplete="off"
+                  autoCapitalize="none"
                   value={newUserEmail}
                   onChange={(e) => setNewUserEmail(e.target.value)}
                   className="field"
@@ -1924,10 +2250,11 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
                 <input
                   type="text"
                   inputMode="decimal"
-                  placeholder="Ex.: 10"
-                  value={newUserCommissionPercent}
+                  placeholder={selectedNewUserReferrer ? "Comissão herdada" : "Ex.: 10"}
+                  disabled={Boolean(selectedNewUserReferrer)}
+                  value={selectedNewUserReferrer ? percentInputValue(selectedNewUserReferrer.commissionPercent) : newUserCommissionPercent}
                   onChange={(e) => setNewUserCommissionPercent(e.target.value)}
-                  className="field"
+                  className="field disabled:opacity-60"
                 />
               </label>
               <label className="grid gap-1 text-sm">
@@ -1935,33 +2262,43 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
                 <input
                   type="password"
                   placeholder="Gerar senha temporária"
+                  name="hbx-create-seller-password"
+                  autoComplete="new-password"
                   value={newUserPassword}
                   onChange={(e) => setNewUserPassword(e.target.value)}
                   className="field"
                 />
               </label>
-              <div className="grid gap-1 text-sm">
-                <span className="font-medium">Perfil inicial</span>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  {(["USER", "ADMIN"] as const).map((role) => (
-                    <button
-                      key={role}
-                      type="button"
-                      aria-pressed={newUserRole === role}
-                      onClick={() => setNewUserRole(role)}
-                      className={`rounded-[14px] border p-3 text-left transition ${
-                        newUserRole === role
-                          ? "border-[var(--brand)] bg-[var(--brand-soft)]"
-                          : "border-[var(--line)] bg-[var(--surface-soft)]"
-                      }`}
-                    >
-                      <span className={role === "ADMIN" ? "badge badge-brand" : "badge"}>{roleLabel(role)}</span>
-                      <strong className="mt-2 block text-sm">{role === "USER" ? "Vender no CRM" : "Controlar equipe"}</strong>
-                      <small className="mt-1 block text-xs text-muted">{roleDescription(role)}</small>
-                    </button>
-                  ))}
+              {canCreateAdminUsers ? (
+                <div className="grid gap-1 text-sm">
+                  <span className="font-medium">Perfil inicial</span>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    {(["USER", "ADMIN"] as const).map((role) => (
+                      <button
+                        key={role}
+                        type="button"
+                        aria-pressed={newUserRole === role}
+                        onClick={() => setNewUserRole(role)}
+                        className={`rounded-[14px] border p-3 text-left transition ${
+                          newUserRole === role
+                            ? "border-[var(--brand)] bg-[var(--brand-soft)]"
+                            : "border-[var(--line)] bg-[var(--surface-soft)]"
+                        }`}
+                      >
+                        <span className={role === "ADMIN" ? "badge badge-brand" : "badge"}>{roleLabel(role)}</span>
+                        <strong className="mt-2 block text-sm">{role === "USER" ? "Vender no CRM" : "Controlar equipe"}</strong>
+                        <small className="mt-1 block text-xs text-muted">{roleDescription(role)}</small>
+                      </button>
+                    ))}
+                  </div>
                 </div>
-              </div>
+              ) : (
+                <div className="rounded-[14px] border border-[var(--line)] bg-[var(--surface-soft)] p-3 text-sm">
+                  <span className="badge badge-brand">SellMaster</span>
+                  <strong className="mt-2 block">Vendedor HBX</strong>
+                  <small className="mt-1 block text-xs text-muted">Nesta operação o USERMASTER cria apenas vendedores. Admin fica fora da rede de comissão.</small>
+                </div>
+              )}
               {isHbxSellerNetwork && newUserRole === "USER" ? (
                 <div className="md:col-span-2 xl:col-span-3 rounded-[14px] border border-[var(--line)] bg-[var(--surface-soft)] p-3">
                   <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3">
@@ -1991,10 +2328,11 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
                       <input
                         type="text"
                         inputMode="decimal"
-                        placeholder="Ex.: 3"
-                        value={newUserSellerReferralCommissionPercent}
+                        placeholder={selectedNewUserReferrer ? "Herança herdada" : "Ex.: 3"}
+                        disabled={Boolean(selectedNewUserReferrer)}
+                        value={selectedNewUserReferrer ? percentInputValue(selectedNewUserReferrer.sellerReferralCommissionPercent) : newUserSellerReferralCommissionPercent}
                         onChange={(event) => setNewUserSellerReferralCommissionPercent(event.target.value)}
-                        className="field"
+                        className="field disabled:opacity-60"
                       />
                     </label>
                     <label className="grid gap-1 text-sm">
@@ -2005,8 +2343,10 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
                           const selectedReferrerId = event.target.value;
                           const selectedReferrer = hbxReferrers.find((referrer) => String(referrer.id) === selectedReferrerId);
                           setNewUserReferredByUserId(selectedReferrerId);
-                          if (selectedReferrer && !newUserCommissionPercent.trim()) {
+                          if (selectedReferrer) {
                             setNewUserCommissionPercent(percentInputValue(selectedReferrer.commissionPercent));
+                            setNewUserSellerReferralCommissionPercent(percentInputValue(selectedReferrer.sellerReferralCommissionPercent));
+                            setNewUserReferredByCommissionPercent(percentInputValue(selectedReferrer.sellerReferralCommissionPercent));
                           }
                           if (!selectedReferrerId) setNewUserReferredByCommissionPercent("");
                         }}
@@ -2025,14 +2365,19 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
                       <input
                         type="text"
                         inputMode="decimal"
-                        placeholder="Padrão do indicador"
-                        value={newUserReferredByCommissionPercent}
+                        placeholder="Automático pelo indicador"
+                        value={selectedNewUserReferrer ? percentInputValue(selectedNewUserReferrer.sellerReferralCommissionPercent) : newUserReferredByCommissionPercent}
                         onChange={(event) => setNewUserReferredByCommissionPercent(event.target.value)}
-                        disabled={!newUserReferredByUserId}
+                        disabled
                         className="field disabled:opacity-60"
                       />
                     </label>
                   </div>
+                  {selectedNewUserReferrer ? (
+                    <p className="mt-3 rounded-[12px] border border-[var(--line)] bg-[var(--surface)] p-3 text-xs text-muted">
+                      Comissão normal e herança ficaram travadas pelo indicador {userLabel(selectedNewUserReferrer)}. O backend também recalcula esses valores.
+                    </p>
+                  ) : null}
                 </div>
               ) : null}
               <div
@@ -2041,13 +2386,15 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
                 <div className="min-w-0">
                   <p className="text-sm font-semibold">{newUserRole === "USER" ? "Acesso de vendedor" : "Acesso administrativo"}</p>
                   <p className="mt-1 text-xs text-muted">
-                    {newUserRole === "USER"
+                    {isHbxSellerNetwork
+                      ? "SellMaster recebe cards, trabalha no CRM, chama no WhatsApp e pode ter rede de indicação conforme liberação."
+                      : newUserRole === "USER"
                       ? "Vendas e Atendimento/WhatsApp ficam liberados quando a empresa tiver esses módulos. Comissão e telefone ficam prontos no CRM."
                       : "Admin pode cadastrar equipe, controlar módulos, acessar Gerencial e operar Radar conforme o plano."}
                   </p>
                 </div>
                 <button type="submit" disabled={creatingUser} className="btn btn-primary btn-sm">
-                  {creatingUser ? "Criando..." : newUserRole === "USER" ? "Criar vendedor" : "Criar admin"}
+                  {creatingUser ? "Criando..." : isHbxSellerNetwork ? "Criar SellMaster" : newUserRole === "USER" ? "Criar vendedor" : "Criar admin"}
                 </button>
               </div>
             </form>
@@ -2082,7 +2429,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
                 <span className="badge badge-brand">Fase 7</span>
                 <h2 className="mt-2 text-lg font-semibold">Comissões e carteira dos vendedores</h2>
                 <p className="mt-1 text-sm text-muted">
-                  O HBX sincroniza clientes, separa D+3 úteis e monta a folha de pagamento por vendedor.
+                  O HBX sincroniza clientes, separa D+{commissionDueDays} úteis e monta a folha de pagamento por vendedor.
                 </p>
               </div>
               <div className="flex flex-wrap gap-2">
@@ -2092,7 +2439,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
                   onClick={() => void closeDueCommissions()}
                   className="btn btn-primary btn-sm"
                 >
-                  {closingCommissionScope === "all" ? "Fechando..." : "Fechar vencidas"}
+                  {closingCommissionScope === "all" ? "Fechando..." : "Fechar liberadas"}
                 </button>
                 <button
                   type="button"
@@ -2102,7 +2449,32 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
                 >
                   {syncingCommissions ? "Sincronizando..." : "Sincronizar HBX"}
                 </button>
-                <span className="badge">D+3 úteis</span>
+                {canManageCommissionSettings ? (
+                  <>
+                    <label className="flex items-center gap-2 rounded-[14px] border border-[var(--line)] bg-[var(--surface-soft)] px-3 py-2 text-xs font-semibold">
+                      <span>D+</span>
+                      <input
+                        type="number"
+                        min={0}
+                        max={30}
+                        value={commissionDueDaysDraft}
+                        onChange={(event) => setCommissionDueDaysDraft(event.target.value)}
+                        className="field h-8 w-16 px-2 py-1 text-sm"
+                        aria-label="Dias úteis para liberar comissão"
+                      />
+                    </label>
+                    <button
+                      type="button"
+                      disabled={savingCommissionSettings}
+                      onClick={() => void saveCommissionSettings()}
+                      className="btn btn-secondary btn-sm"
+                    >
+                      {savingCommissionSettings ? "Salvando..." : "Salvar D+"}
+                    </button>
+                  </>
+                ) : (
+                  <span className="badge">USERMASTER define D+{commissionDueDays}</span>
+                )}
               </div>
             </div>
 
@@ -2112,7 +2484,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
                 <strong className="mt-1 block text-lg">{formatCurrency(data.commission?.totals.payableAmount || 0)}</strong>
               </article>
               <article className="rounded-[14px] border border-[var(--line)] bg-[var(--surface-soft)] p-3">
-                <p className="text-xs text-muted">Vencido</p>
+                <p className="text-xs text-muted">Liberado</p>
                 <strong className="mt-1 block text-lg">{formatCurrency(data.commission?.totals.duePayableAmount || 0)}</strong>
               </article>
               <article className="rounded-[14px] border border-[var(--line)] bg-[var(--surface-soft)] p-3">
@@ -2144,10 +2516,96 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
             <div className="mt-4 rounded-[16px] border border-[var(--line)] bg-[var(--surface-soft)] p-4">
               <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3">
                 <div>
+                  <span className="badge badge-brand">Implantação HBX</span>
+                  <h3 className="mt-2 font-semibold">Clientes aguardando ativação</h3>
+                  <p className="mt-1 text-xs text-muted">
+                    Quando o vendedor fecha um card, ele entra aqui. Avance para trial ou pagamento confirmado para liberar a comissão D+{commissionDueDays}.
+                  </p>
+                </div>
+                <span className="badge">{data.commission?.activationQueue?.length || 0} pendente(s)</span>
+              </div>
+
+              {(data.commission?.activationQueue || []).length === 0 ? (
+                <p className="mt-3 text-sm text-muted">Nenhum cliente aguardando implantação agora.</p>
+              ) : (
+                <div className="mt-3 grid grid-cols-1 xl:grid-cols-2 gap-2">
+                  {(data.commission?.activationQueue || []).map((client) => {
+                    const seller = data.users.find((user) => user.id === client.userId);
+                    return (
+                      <article key={client.leadId} className="rounded-[14px] border border-[var(--line)] bg-[var(--surface)] p-3">
+                        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2">
+                          <div className="min-w-0">
+                            <strong className="block truncate">{client.name || "Cliente sem nome"}</strong>
+                            <span className="text-xs text-muted">
+                              {salePlanLabel(client.salePlanKey)} · {formatCurrency(client.saleValue || 0)} · vendedor {seller ? userLabel(seller) : client.userId || "-"}
+                            </span>
+                          </div>
+                          <span className={commissionActivationBadgeClass(client)}>{commissionActivationStageLabel(client)}</span>
+                        </div>
+                        <p className="mt-2 text-xs text-muted">{commissionActivationHint(client, commissionDueDays)}</p>
+                        {client.commissionNote ? <p className="mt-1 text-xs text-muted">{client.commissionNote}</p> : null}
+                        <div className="mt-3 grid grid-cols-2 md:grid-cols-5 gap-2 text-sm">
+                          <div className="rounded-[12px] border border-[var(--line)] bg-[var(--surface-soft)] p-2">
+                            <p className="text-xs text-muted">Valor</p>
+                            <strong className="block text-sm">{formatCurrency(client.commissionAmount || 0)}</strong>
+                          </div>
+                          <div className="rounded-[12px] border border-[var(--line)] bg-[var(--surface-soft)] p-2">
+                            <p className="text-xs text-muted">E-mail</p>
+                            <strong className="block text-sm truncate">{client.email || "-"}</strong>
+                          </div>
+                          <div className="rounded-[12px] border border-[var(--line)] bg-[var(--surface-soft)] p-2">
+                            <p className="text-xs text-muted">Cidade</p>
+                            <strong className="block text-sm truncate">{client.city || "-"}</strong>
+                          </div>
+                          <div className="rounded-[12px] border border-[var(--line)] bg-[var(--surface-soft)] p-2">
+                            <p className="text-xs text-muted">Cadastro</p>
+                            <strong className="block text-sm">{formatShortDate(client.commissionLinkedAt || client.updatedAt)}</strong>
+                          </div>
+                          <div className="rounded-[12px] border border-[var(--line)] bg-[var(--surface-soft)] p-2">
+                            <p className="text-xs text-muted">Comissão</p>
+                            <strong className="block text-sm">{commissionStatusLabel(client.commissionStatus)}</strong>
+                          </div>
+                        </div>
+                        <div className="mt-3 flex flex-wrap items-center gap-2">
+                          <button
+                            type="button"
+                            disabled={updatingActivationLeadId !== null}
+                            onClick={() => void updateActivationStatus(client.leadId, "trial_started")}
+                            className="btn btn-primary btn-sm"
+                          >
+                            {updatingActivationLeadId === `${client.leadId}:trial_started` ? "Atualizando..." : "Trial iniciado"}
+                          </button>
+                          <button
+                            type="button"
+                            disabled={updatingActivationLeadId !== null}
+                            onClick={() => void updateActivationStatus(client.leadId, "sale_confirmed")}
+                            className="btn btn-secondary btn-sm"
+                          >
+                            {updatingActivationLeadId === `${client.leadId}:sale_confirmed` ? "Atualizando..." : "Pagamento confirmado"}
+                          </button>
+                          <button
+                            type="button"
+                            disabled={updatingActivationLeadId !== null}
+                            onClick={() => void updateActivationStatus(client.leadId, "canceled")}
+                            className="btn btn-secondary btn-sm"
+                          >
+                            {updatingActivationLeadId === `${client.leadId}:canceled` ? "Atualizando..." : "Cancelar"}
+                          </button>
+                        </div>
+                      </article>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            <div className="mt-4 rounded-[16px] border border-[var(--line)] bg-[var(--surface-soft)] p-4">
+              <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3">
+                <div>
                   <span className="badge badge-brand">Folha de pagamento</span>
                   <h3 className="mt-2 font-semibold">Quanto pagar para cada vendedor</h3>
                   <p className="mt-1 text-xs text-muted">
-                    Use o valor vencido para pagar hoje. O valor a pagar inclui o que já existe, mas pode ainda estar aguardando D+3.
+                    Use o valor liberado para pagar hoje. O valor a pagar inclui o que já existe, mas pode ainda estar aguardando D+{commissionDueDays}.
                   </p>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
@@ -2160,7 +2618,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
                     Copiar resumo
                   </button>
                   <span className="badge badge-success">
-                    {formatCurrency(data.commission?.totals.duePayableAmount || 0)} vencido
+                    {formatCurrency(data.commission?.totals.duePayableAmount || 0)} liberado
                   </span>
                 </div>
               </div>
@@ -2196,7 +2654,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
                       </div>
                       <div className="mt-3 grid grid-cols-2 md:grid-cols-5 gap-2">
                         <div className="rounded-[12px] border border-[var(--line)] bg-[var(--surface-soft)] p-2">
-                          <p className="text-xs text-muted">Vencido</p>
+                          <p className="text-xs text-muted">Liberado</p>
                           <strong className="block text-sm">{formatCurrency(row.duePayableAmount || 0)}</strong>
                         </div>
                         <div className="rounded-[12px] border border-[var(--line)] bg-[var(--surface-soft)] p-2">
@@ -2259,7 +2717,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
                         <strong className="block text-sm">{formatCurrency(seller.payableAmount || 0)}</strong>
                       </div>
                       <div className="rounded-[12px] border border-[var(--line)] bg-[var(--surface)] p-3">
-                        <p className="text-xs text-muted">Vencido</p>
+                        <p className="text-xs text-muted">Liberado</p>
                         <strong className="block text-sm">{formatCurrency(seller.duePayableAmount || 0)}</strong>
                       </div>
                       <div className="rounded-[12px] border border-[var(--line)] bg-[var(--surface)] p-3">
@@ -2318,7 +2776,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
                   <h3 className="font-semibold">Fechamentos recentes</h3>
                   <p className="text-xs text-muted">Histórico dos lotes baixados como pagos pelo Admin.</p>
                 </div>
-                <span className="badge">{data.commission?.totals.duePayableCount || 0} vencida(s)</span>
+                <span className="badge">{data.commission?.totals.duePayableCount || 0} liberada(s)</span>
               </div>
               {(data.commission?.payouts || []).length === 0 ? (
                 <p className="mt-3 text-sm text-muted">Nenhum fechamento de comissão registrado ainda.</p>
@@ -2393,6 +2851,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
                 const isMaster = role === "USERMASTER";
                 const isSeller = role === "USER";
                 const showHbxNetwork = isHbxSellerNetwork && isSeller;
+                const profileHasReferrer = showHbxNetwork && Boolean(profileDraft.referredByUserId);
                 const editableReferrers = hbxReferrers.filter((referrer) => referrer.id !== user.id);
                 const currentReferrerOption =
                   user.referredByUser && !editableReferrers.some((referrer) => referrer.id === user.referredByUser?.id)
@@ -2400,14 +2859,16 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
                     : null;
                 const userModules = moduleAccess?.users.find((item) => item.id === user.id)?.modules || [];
                 const seatRank = activeSeatRankByUserId.get(user.id) || 0;
-                const isExtraSeat = !isMaster && user.isActive && seatRank > INCLUDED_TEAM_USERS;
+                const isExtraSeat = isSeller && user.isActive && seatRank > INCLUDED_TEAM_USERS;
                 const seatLabel = isMaster
                   ? "Sem cobrança - USERMASTER"
+                  : isAdmin
+                  ? "Admin sem cobrança"
                   : !user.isActive
                   ? "Sem cobrança ativa"
                   : isExtraSeat
                     ? `Extra ${formatCurrency(EXTRA_USER_MONTHLY_PRICE)}/mês proporcional`
-                    : "Incluído no plano";
+                    : "Vendedor incluído";
                 const isEditingProfile = editingUserId === user.id;
 
                 return (
@@ -2445,8 +2906,8 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
                         <strong className="mt-1 block text-sm">{formatPercent(user.commissionPercent)}</strong>
                       </div>
                       <div className="min-w-0 rounded-[12px] border border-[var(--line)] bg-[var(--surface)] p-3">
-                        <p className="text-xs text-muted">Assento</p>
-                        <strong className="mt-1 block text-sm">{isMaster ? "Master" : seatRank || "-"}</strong>
+                        <p className="text-xs text-muted">Vendedor</p>
+                        <strong className="mt-1 block text-sm">{isMaster ? "Master" : isAdmin ? "Admin" : seatRank || "-"}</strong>
                       </div>
                     </div>
 
@@ -2547,11 +3008,12 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
                           <input
                             type="text"
                             inputMode="decimal"
+                            disabled={profileHasReferrer}
                             value={profileDraft.commissionPercent}
                             onChange={(event) =>
                               setProfileDraft((draft) => ({ ...draft, commissionPercent: event.target.value }))
                             }
-                            className="field"
+                            className="field disabled:opacity-60"
                           />
                         </label>
                         {showHbxNetwork ? (
@@ -2588,6 +3050,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
                                 <input
                                   type="text"
                                   inputMode="decimal"
+                                  disabled={profileHasReferrer}
                                   value={profileDraft.sellerReferralCommissionPercent}
                                   onChange={(event) =>
                                     setProfileDraft((draft) => ({
@@ -2595,22 +3058,26 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
                                       sellerReferralCommissionPercent: event.target.value,
                                     }))
                                   }
-                                  className="field"
+                                  className="field disabled:opacity-60"
                                 />
                               </label>
                               <label className="grid gap-1 text-sm">
                                 <span className="font-medium">Indicado por</span>
                                 <select
                                   value={profileDraft.referredByUserId}
-                                  onChange={(event) =>
+                                  onChange={(event) => {
+                                    const selectedReferrerId = event.target.value;
+                                    const selectedReferrer = hbxReferrers.find((referrer) => String(referrer.id) === selectedReferrerId);
                                     setProfileDraft((draft) => ({
                                       ...draft,
-                                      referredByUserId: event.target.value,
-                                      referredByCommissionPercentSnapshot: event.target.value
-                                        ? draft.referredByCommissionPercentSnapshot
+                                      referredByUserId: selectedReferrerId,
+                                      commissionPercent: selectedReferrer ? percentInputValue(selectedReferrer.commissionPercent) : draft.commissionPercent,
+                                      sellerReferralCommissionPercent: selectedReferrer ? percentInputValue(selectedReferrer.sellerReferralCommissionPercent) : draft.sellerReferralCommissionPercent,
+                                      referredByCommissionPercentSnapshot: selectedReferrerId
+                                        ? percentInputValue(selectedReferrer?.sellerReferralCommissionPercent || user.referredByCommissionPercentSnapshot || 0)
                                         : "0",
-                                    }))
-                                  }
+                                    }));
+                                  }}
                                   className="field"
                                 >
                                   <option value="">Direto HBX</option>
@@ -2638,11 +3105,16 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
                                       referredByCommissionPercentSnapshot: event.target.value,
                                     }))
                                   }
-                                  disabled={!profileDraft.referredByUserId}
+                                  disabled
                                   className="field disabled:opacity-60"
                                 />
                               </label>
                             </div>
+                            {profileHasReferrer ? (
+                              <p className="mt-3 rounded-[12px] border border-[var(--line)] bg-[var(--surface)] p-3 text-xs text-muted">
+                                Comissão normal e herança deste vendedor seguem o indicador selecionado. O backend recalcula no salvamento.
+                              </p>
+                            ) : null}
                           </div>
                         ) : null}
                         <div className="md:col-span-3 flex flex-wrap justify-end gap-2">

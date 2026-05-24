@@ -79,6 +79,7 @@ model Company {
   premiumAccess           Boolean   @default(false)
   commercialCardsMonthlyLimitOverride Int?
   commercialCardsDailyLimitOverride   Int?
+  commissionDueBusinessDays Int      @default(3)
   assistedSetupStatus     String    @default("not_required") // not_required | pending | completed
   assistedSetupRequired   Boolean   @default(false)
   assistedSetupCompletedAt DateTime?
@@ -155,6 +156,7 @@ model Company {
   radarLeadPools RadarLeadPool[]
   radarLeadCompanyStates RadarLeadCompanyState[]
   radarLeadEvents RadarLeadEvent[]
+  radarAutoDistributionRules RadarAutoDistributionRule[]
   vendasLeads         VendasLead[]
   vendasCommissionPayouts VendasCommissionPayout[]
   vendasCommissionReceivables VendasCommissionReceivable[]
@@ -1322,6 +1324,35 @@ model RadarLeadEvent {
 
   @@index([leadId, createdAt])
   @@index([companyId, eventType, createdAt])
+}
+
+model RadarAutoDistributionRule {
+  id                   String   @id @default(cuid())
+  company              Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  companyId            Int
+  scope                String   @default("company") // company | hbx_master
+  status               String   @default("draft") // draft | active | paused
+  includeAdmin         Boolean  @default(false)
+  adminUserId          Int?
+  adminTargetStock     Int      @default(0)
+  targetStockPerSeller Int      @default(30)
+  preferredState       String?
+  preferredCity        String?
+  segment              String?
+  categoryKey          String?
+  radiusKm             Int?
+  targetUserIdsJson    String?
+  filtersJson          String?
+  createdByUserId      Int?
+  updatedByUserId      Int?
+  lastActivatedAt      DateTime?
+  lastRunAt            DateTime?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  @@unique([companyId, scope])
+  @@index([companyId, status])
+  @@index([companyId, updatedAt])
 }
 
 model RadarLeadEnrichment {

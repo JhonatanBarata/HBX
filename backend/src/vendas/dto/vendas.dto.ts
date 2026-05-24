@@ -11,6 +11,7 @@ import {
   IsObject,
   IsBoolean,
   MaxLength,
+  MinLength,
   Max,
   Min,
   ValidateNested,
@@ -162,6 +163,50 @@ export class UpdateVendasLeadDto {
   @IsString()
   @MaxLength(280)
   commissionNote?: string;
+}
+
+export class CreateHbxSalesHandoffDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  salePlanKey?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  origin?: string;
+}
+
+export class CreateHbxAssistedSignupDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  salePlanKey?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  companyName?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  contactName?: string;
+
+  @Transform(({ value }) => optionalEmail(value))
+  @IsEmail()
+  email: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(24)
+  phone?: string;
+
+  @IsOptional()
+  @IsString()
+  @MinLength(8)
+  @MaxLength(120)
+  password?: string;
 }
 
 export class BulkDeleteVendasLeadsDto {
