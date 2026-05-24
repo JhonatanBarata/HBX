@@ -1,5 +1,6 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { isMasterOperationalCompanySlug } from '../commercial-plans/seat-billing.util';
 import { HbxCommissionSyncService } from '../commissions/hbx-commission-sync.service';
 
 function requireCompanyIdFromUser(user: any): number {
@@ -125,9 +126,12 @@ export class GerencialService {
           pendingAmount: 0,
           paidAmount: 0,
           recurringAmount: 0,
+          inheritedAmount: 0,
+          inheritedCount: 0,
         },
         sellers: [],
         recentClients: [],
+        payroll: [],
         payouts,
       };
     }
@@ -216,7 +220,7 @@ export class GerencialService {
     const receivableClientPayload = (row: any) => ({
       leadId: row.leadId || row.lead?.id,
       receivableId: row.id,
-      name: row.lead?.name || row.lead?.phone || 'Comissão recorrente',
+      name: row.lead?.name || row.lead?.phone || (String(row.kind || '').startsWith('inheritance_') ? 'Comissão herdada' : 'Comissão recorrente'),
       phone: row.lead?.phone || null,
       city: row.lead?.city || null,
       saleStatus: row.lead?.saleStatus || 'sale_confirmed',
@@ -228,7 +232,9 @@ export class GerencialService {
       commissionPayoutId: row.payoutId || null,
       updatedAt: row.updatedAt instanceof Date ? row.updatedAt.toISOString() : null,
       recurringCycleKey: row.cycleKey || null,
-      isRecurring: true,
+      commissionKind: row.kind || 'recurring',
+      isInherited: String(row.kind || '').startsWith('inheritance_'),
+      isRecurring: String(row.kind || 'recurring').includes('recurring'),
     });
 
     const now = new Date();
@@ -244,6 +250,8 @@ export class GerencialService {
       const paidRows = rows.filter((row) => normalizeCommissionStatus(row.commissionStatus) === 'paid');
       const paidReceivables = receivableRows.filter((row) => normalizeCommissionStatus(row.status) === 'paid');
       const recurringRows = activeRows.filter((row) => Boolean(row.commissionRecurring));
+      const recurringReceivables = receivableRows.filter((row) => String(row.kind || 'recurring').includes('recurring'));
+      const inheritedReceivables = receivableRows.filter((row) => String(row.kind || '').startsWith('inheritance_'));
       const nextDue = [
         ...payableRows.map((row) => row.commissionDueAt instanceof Date ? row.commissionDueAt : null),
         ...payableReceivables.map((row) => row.dueAt instanceof Date ? row.dueAt : null),
@@ -269,7 +277,12 @@ export class GerencialService {
           paidRows.reduce((sum, row) => sum + money(row.commissionAmount), 0) +
           paidReceivables.reduce((sum, row) => sum + money(row.amount), 0),
         ),
-        recurringAmount: money(recurringRows.reduce((sum, row) => sum + money(row.commissionAmount), 0)),
+        recurringAmount: money(
+          recurringRows.reduce((sum, row) => sum + money(row.commissionAmount), 0) +
+          recurringReceivables.reduce((sum, row) => sum + money(row.amount), 0),
+        ),
+        inheritedAmount: money(inheritedReceivables.reduce((sum, row) => sum + money(row.amount), 0)),
+        inheritedCount: inheritedReceivables.length,
         nextDueAt: nextDue ? nextDue.toISOString() : null,
       };
     };
@@ -294,6 +307,35 @@ export class GerencialService {
     });
 
     const allSummary = summarize(leads, receivables);
+    const payroll = sellerSummaries
+      .filter((seller) => seller.duePayableAmount > 0 || seller.payableAmount > 0 || seller.pendingAmount > 0 || seller.inheritedAmount > 0)
+      .map((seller) => ({
+        sellerUserId: seller.userId,
+        sellerName: seller.name,
+        sellerEmail: seller.email,
+        sellerPhone: seller.phone,
+        isActive: seller.isActive,
+        commissionPercent: seller.commissionPercent,
+        duePayableAmount: seller.duePayableAmount,
+        duePayableCount: seller.duePayableCount,
+        payableAmount: seller.payableAmount,
+        pendingAmount: seller.pendingAmount,
+        recurringAmount: seller.recurringAmount,
+        inheritedAmount: seller.inheritedAmount,
+        inheritedCount: seller.inheritedCount,
+        activeClients: seller.activeClients,
+        pendingActivation: seller.pendingActivation,
+        inactiveClients: seller.inactiveClients,
+        assignedCards: seller.assignedCards,
+        nextDueAt: seller.nextDueAt,
+        status: seller.duePayableAmount > 0 ? 'due' : seller.payableAmount > 0 ? 'payable' : 'pending',
+      }))
+      .sort((a, b) => {
+        if (b.duePayableAmount !== a.duePayableAmount) return b.duePayableAmount - a.duePayableAmount;
+        if (b.payableAmount !== a.payableAmount) return b.payableAmount - a.payableAmount;
+        return a.sellerName.localeCompare(b.sellerName);
+      });
+
     return {
       totals: {
         sellers: sellers.length,
@@ -306,6 +348,8 @@ export class GerencialService {
         pendingAmount: allSummary.pendingAmount,
         paidAmount: allSummary.paidAmount,
         recurringAmount: allSummary.recurringAmount,
+        inheritedAmount: allSummary.inheritedAmount,
+        inheritedCount: allSummary.inheritedCount,
         nextDueAt: allSummary.nextDueAt,
       },
       sellers: sellerSummaries,
@@ -319,7 +363,148 @@ export class GerencialService {
           userId: Number(row.assignedUserId || 0) || null,
         })),
       ].slice(0, 12),
+      payroll,
       payouts,
+    };
+  }
+
+  private async buildOperationAudit(companyId: number, companyUsers: any[], commission: any) {
+    const roleOf = (user: any) => {
+      const normalized = String(user?.role || '').trim().toUpperCase();
+      if (user?.isSystemMaster || normalized === 'USERMASTER') return 'USERMASTER';
+      return normalized === 'ADMIN' ? 'ADMIN' : 'USER';
+    };
+    const users = companyUsers || [];
+    const activeSellers = users.filter((user) => roleOf(user) === 'USER' && Boolean(user?.isActive));
+    const activeAdmins = users.filter((user) => roleOf(user) === 'ADMIN' && Boolean(user?.isActive));
+    const masters = users.filter((user) => roleOf(user) === 'USERMASTER');
+    const configuredSellers = activeSellers.filter((user) => money(user?.commissionPercent) > 0);
+    const referralEnabledSellers = activeSellers.filter((user) => Boolean(user?.canRegisterHbxSellers));
+    const now = new Date();
+
+    const [
+      totalCards,
+      assignedCards,
+      unassignedCards,
+      newCards,
+      contactedCards,
+      activePipeline,
+      dueReturns,
+      wonClients,
+      pendingActivation,
+      inactiveClients,
+    ] = await Promise.all([
+      this.prisma.vendasLead.count({ where: { companyId } }),
+      this.prisma.vendasLead.count({ where: { companyId, assignedUserId: { not: null } } }),
+      this.prisma.vendasLead.count({ where: { companyId, assignedUserId: null } }),
+      this.prisma.vendasLead.count({ where: { companyId, status: 'novo' } }),
+      this.prisma.vendasLead.count({ where: { companyId, status: { in: ['contato', 'retorno', 'qualificado', 'encerrado'] } } }),
+      this.prisma.vendasLead.count({ where: { companyId, status: { in: ['novo', 'contato', 'retorno', 'qualificado'] } } }),
+      this.prisma.vendasLead.count({
+        where: {
+          companyId,
+          status: { in: ['contato', 'retorno', 'qualificado'] },
+          returnAt: { lte: now },
+        },
+      }),
+      this.prisma.vendasLead.count({ where: { companyId, saleStatus: { in: ['trial_started', 'sale_confirmed'] } } }),
+      this.prisma.vendasLead.count({ where: { companyId, saleStatus: 'activation_pending' } }),
+      this.prisma.vendasLead.count({ where: { companyId, saleStatus: { in: ['inactive', 'canceled'] } } }),
+    ]);
+
+    const duePayableAmount = money(commission?.totals?.duePayableAmount);
+    const payableAmount = money(commission?.totals?.payableAmount);
+    const checklist = [
+      {
+        key: 'admin_control',
+        title: 'Admin/USERMASTER no controle',
+        status: activeAdmins.length || masters.length ? 'ok' : 'blocked',
+        value: `${activeAdmins.length} admin(s), ${masters.length} USERMASTER`,
+        hint: activeAdmins.length || masters.length ? 'Controle administrativo disponível.' : 'Cadastre ao menos um ADMIN ativo.',
+      },
+      {
+        key: 'seller_access',
+        title: 'Vendedores ativos',
+        status: activeSellers.length ? 'ok' : 'blocked',
+        value: `${activeSellers.length} vendedor(es)`,
+        hint: activeSellers.length ? 'Equipe pronta para receber cards.' : 'Cadastre vendedores pelo Gerencial.',
+      },
+      {
+        key: 'seller_commission',
+        title: 'Comissão configurada',
+        status: !activeSellers.length ? 'blocked' : configuredSellers.length === activeSellers.length ? 'ok' : 'warning',
+        value: `${configuredSellers.length}/${activeSellers.length} configurado(s)`,
+        hint: configuredSellers.length === activeSellers.length ? 'Comissões principais preenchidas.' : 'Preencha a porcentagem de comissão dos vendedores.',
+      },
+      {
+        key: 'card_distribution',
+        title: 'Cards distribuídos',
+        status: assignedCards > 0 ? 'ok' : totalCards > 0 ? 'warning' : 'blocked',
+        value: `${assignedCards}/${totalCards} card(s)`,
+        hint: assignedCards > 0 ? 'Cards já têm dono comercial.' : totalCards > 0 ? 'Distribua cards do Radar para vendedores.' : 'Gere ou importe cards antes de vender.',
+      },
+      {
+        key: 'returns',
+        title: 'Retornos em dia',
+        status: dueReturns > 0 ? 'warning' : 'ok',
+        value: `${dueReturns} retorno(s) vencido(s)`,
+        hint: dueReturns > 0 ? 'Existem contatos que precisam de retorno.' : 'Nenhum retorno vencido agora.',
+      },
+      {
+        key: 'payroll',
+        title: 'Folha de comissão',
+        status: duePayableAmount > 0 ? 'warning' : 'ok',
+        value: `Vencido R$ ${duePayableAmount.toFixed(2)}`,
+        hint: duePayableAmount > 0 ? 'Pague e feche o lote no Gerencial.' : 'Nenhuma comissão vencida para baixar.',
+      },
+      {
+        key: 'hbx_referral',
+        title: 'Rede HBX',
+        status: referralEnabledSellers.length || activeSellers.length === 0 ? 'ok' : 'warning',
+        value: `${referralEnabledSellers.length} vendedor(es) podem indicar`,
+        hint: referralEnabledSellers.length ? 'Indicação e comissão herdada disponíveis.' : 'Autorize quem pode cadastrar vendedores indicados.',
+      },
+    ];
+
+    const readinessPoints = checklist.reduce((sum, item) => sum + (item.status === 'ok' ? 1 : item.status === 'warning' ? 0.5 : 0), 0);
+    const blockedCount = checklist.filter((item) => item.status === 'blocked').length;
+    const warningCount = checklist.filter((item) => item.status === 'warning').length;
+
+    return {
+      updatedAt: now.toISOString(),
+      readinessScore: Math.round((readinessPoints / checklist.length) * 100),
+      status: blockedCount ? 'setup' : warningCount ? 'attention' : 'ready',
+      team: {
+        activeSellers: activeSellers.length,
+        activeAdmins: activeAdmins.length,
+        usermasters: masters.length,
+        configuredSellers: configuredSellers.length,
+        referralEnabledSellers: referralEnabledSellers.length,
+      },
+      pipeline: {
+        totalCards,
+        assignedCards,
+        unassignedCards,
+        newCards,
+        contactedCards,
+        activePipeline,
+        dueReturns,
+        wonClients,
+        pendingActivation,
+        inactiveClients,
+      },
+      finance: {
+        payableAmount,
+        duePayableAmount,
+        pendingAmount: money(commission?.totals?.pendingAmount),
+        inheritedAmount: money(commission?.totals?.inheritedAmount),
+        payrollRows: Array.isArray(commission?.payroll) ? commission.payroll.length : 0,
+      },
+      checklist,
+      nextActions: checklist
+        .filter((item) => item.status !== 'ok')
+        .map((item) => ({ key: item.key, title: item.title, hint: item.hint }))
+        .slice(0, 5),
     };
   }
 
@@ -335,6 +520,7 @@ export class GerencialService {
       totalComplaints,
       recentMessages,
       companyUsers,
+      company,
       companyContacts,
       surveys,
     ] = await Promise.all([
@@ -363,12 +549,29 @@ export class GerencialService {
           name: true,
           phone: true,
           commissionPercent: true,
+          canRegisterHbxSellers: true,
+          sellerReferralCommissionPercent: true,
+          referredByUserId: true,
+          referredByCommissionPercentSnapshot: true,
+          referredByUser: {
+            select: {
+              id: true,
+              name: true,
+              username: true,
+              email: true,
+            },
+          },
           role: true,
+          isSystemMaster: true,
           isActive: true,
           deactivatedAt: true,
           retentionUntil: true,
           createdAt: true,
         },
+      }),
+      this.prisma.company.findUnique({
+        where: { id: companyId },
+        select: { id: true, name: true, slug: true },
       }),
       this.prisma.companyConversation.findMany({ where: { companyId }, select: { contact: true } }),
       this.prisma.satisfactionSurvey.findMany({
@@ -399,9 +602,17 @@ export class GerencialService {
       }));
 
     const commission = await this.buildCommissionOverview(companyId, companyUsers);
+    const operationAudit = await this.buildOperationAudit(companyId, companyUsers, commission);
 
     return {
       companyId,
+      company: company
+        ? {
+          id: company.id,
+          name: company.name,
+          isHbxSellerNetwork: isMasterOperationalCompanySlug(company.slug),
+        }
+        : null,
       totals: {
         conversations: totalConversations,
         messages: totalMessages,
@@ -413,6 +624,7 @@ export class GerencialService {
       },
       users: companyUsers,
       commission,
+      operationAudit,
       recentMessages: recentMessages.map((m) => ({
         id: m.id,
         direction: m.direction,
@@ -692,13 +904,15 @@ export class GerencialService {
     const companyId = requireCompanyIdFromUser(user);
     const result = await this.hbxCommissionSync.syncSalesCompanyCommissions(companyId, { source: 'gerencial_manual_sync' });
     const createdReceivables = Number((result as any).createdReceivables || 0) || 0;
+    const createdInheritedReceivables = Number((result as any).createdInheritedReceivables || 0) || 0;
+    const updatedInheritedReceivables = Number((result as any).updatedInheritedReceivables || 0) || 0;
     const canceledReceivables = Number((result as any).canceledReceivables || 0) || 0;
-    const totalChanges = Number(result.updatedLeads || 0) + createdReceivables + canceledReceivables;
+    const totalChanges = Number(result.updatedLeads || 0) + createdReceivables + createdInheritedReceivables + updatedInheritedReceivables + canceledReceivables;
     return {
       ok: true,
       ...result,
       message: totalChanges
-        ? `${Number(result.updatedLeads || 0)} cliente(s) sincronizado(s), ${createdReceivables} recorrência(s) gerada(s) e ${canceledReceivables} cancelada(s).`
+        ? `${Number(result.updatedLeads || 0)} cliente(s) sincronizado(s), ${createdReceivables} recorrência(s), ${createdInheritedReceivables + updatedInheritedReceivables} herdada(s) e ${canceledReceivables} cancelada(s).`
         : 'Nenhuma comissão nova para sincronizar agora.',
     };
   }

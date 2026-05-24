@@ -1,5 +1,6 @@
 import { randomUUID } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
+import { resolveExtraSeatMonthlyAmount } from '../commercial-plans/seat-billing.util';
 import { ensureMasterBillingRuntimeSchema } from './master-runtime';
 
 export const MASTER_GLOBAL_INTEGRATIONS_KEY = 'default';
@@ -210,7 +211,7 @@ export function serializeMasterGlobalIntegrationConfig(config: any) {
       (entry) => Boolean(normalize(entry.accessToken) && normalize(entry.phoneNumberId)),
     ),
     annualPlanDiscountPercent: Number(config?.annualPlanDiscountPercent || 0) || 0,
-    extraSeatMonthlyAmount: Number(config?.extraSeatMonthlyAmount || 0) || 0,
+    extraSeatMonthlyAmount: resolveExtraSeatMonthlyAmount(config?.extraSeatMonthlyAmount),
     referralDiscountActive: Boolean(config?.referralDiscountActive),
     referralDiscountPercent: Number(config?.referralDiscountPercent || 0) || 0,
     referralDiscountMode:

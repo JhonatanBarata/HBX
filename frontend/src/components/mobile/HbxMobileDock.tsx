@@ -369,6 +369,10 @@ export default function HbxMobileDock({
               <DockIcon name="tutorial" />
               <span>Tutorial</span>
             </button>
+            <button type="button" className="hbx-mobile-sheet-item" onClick={() => navigate(toMobileRoute("/gerencial"))}>
+              <DockIcon name="settings" />
+              <span>Gerencial</span>
+            </button>
             <button
               type="button"
               className="hbx-mobile-sheet-item"

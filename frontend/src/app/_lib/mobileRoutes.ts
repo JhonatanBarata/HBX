@@ -8,6 +8,7 @@ const MOBILE_ROUTE_ALIASES: Record<string, string> = {
   "/tutorial": "/mobile/tutorial",
   "/radar-digital": "/mobile/radar-digital",
   "/vendas": "/mobile/vendas",
+  "/gerencial": "/mobile/gerencial",
   "/planos": "/mobile/planos",
 };
 

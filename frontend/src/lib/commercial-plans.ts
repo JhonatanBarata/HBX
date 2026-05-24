@@ -47,6 +47,12 @@ export type CommercialBillingBreakdown = {
   extraUsers: number;
   extraUserMonthlyPrice: number;
   extraUsersMonthlyAmount: number;
+  extraUsersProratedAmount?: number;
+  extraUsersBillableDays?: number;
+  billedImmediately?: boolean;
+  billingMode?: string | null;
+  billingPeriodStart?: string | null;
+  billingPeriodEnd?: string | null;
   monthlyTotal: number;
   cycleAmount: number;
 };

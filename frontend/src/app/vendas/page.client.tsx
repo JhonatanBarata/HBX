@@ -279,7 +279,9 @@ type CommissionClient = {
   commissionPaidAt?: string | null;
   commissionPayoutId?: string | null;
   recurringCycleKey?: string | null;
+  commissionKind?: string | null;
   isRecurring?: boolean | null;
+  isInherited?: boolean | null;
   updatedAt?: string | null;
 };
 
@@ -298,6 +300,13 @@ type CommissionSummaryResponse = {
   ok?: boolean;
   scope?: "seller" | "company" | string;
   generatedAt?: string | null;
+  sellerNetwork?: {
+    isHbxSellerNetwork?: boolean | null;
+    canRegisterReferredSeller?: boolean | null;
+    commissionPercent?: number | null;
+    inheritedCommissionPercent?: number | null;
+    referredSellerCount?: number | null;
+  } | null;
   totals?: {
     assignedCards?: number | null;
     activeClients?: number | null;
@@ -318,6 +327,18 @@ type CommissionSummaryResponse = {
     paid?: CommissionClient[];
   };
   payouts?: CommissionPayout[];
+};
+
+type ReferredSellerCreateResult = {
+  user?: {
+    id: number;
+    email?: string | null;
+    username?: string | null;
+    name?: string | null;
+    phone?: string | null;
+    commissionPercent?: number | null;
+  };
+  temporaryPassword?: string | null;
 };
 
 type SalesProfileSuggestion = {
@@ -1472,9 +1493,25 @@ function commissionStatusLabel(status?: string | null) {
   return "Sem comissão";
 }
 
+function commissionSourceLabel(client: CommissionClient) {
+  if (client.isInherited) {
+    return client.isRecurring
+      ? `Herdada recorrente ${client.recurringCycleKey || ""}`.trim()
+      : "Herdada inicial";
+  }
+  if (client.isRecurring) return `Recorrente ${client.recurringCycleKey || ""}`.trim();
+  if (client.commissionDueAt) return `D+3 ${formatDateTime(client.commissionDueAt)}`;
+  return commissionStatusLabel(client.commissionStatus);
+}
+
 function formatCurrency(value?: number | null) {
   const numeric = Number(value || 0);
   return numeric.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+}
+
+function formatPercent(value?: number | null) {
+  const numeric = Number(value || 0);
+  return `${numeric.toLocaleString("pt-BR", { maximumFractionDigits: 2 })}%`;
 }
 
 function parseCurrencyInput(value: string) {
@@ -2750,6 +2787,15 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
   const [conversionReportLoading, setConversionReportLoading] = useState(false);
   const [commissionSummary, setCommissionSummary] = useState<CommissionSummaryResponse | null>(null);
   const [commissionLoading, setCommissionLoading] = useState(false);
+  const [referredSellerName, setReferredSellerName] = useState("");
+  const [referredSellerEmail, setReferredSellerEmail] = useState("");
+  const [referredSellerPhone, setReferredSellerPhone] = useState("");
+  const [referredSellerPassword, setReferredSellerPassword] = useState("");
+  const [referredSellerCreating, setReferredSellerCreating] = useState(false);
+  const [referredSellerPasswordInfo, setReferredSellerPasswordInfo] = useState<{
+    label: string;
+    password: string;
+  } | null>(null);
   const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null);
   const [editingLeadId, setEditingLeadId] = useState<string | null>(null);
   const [composerOpen, setComposerOpen] = useState(false);
@@ -3022,6 +3068,44 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
       setError(commissionError instanceof Error ? commissionError.message : "Falha ao carregar comissões.");
     } finally {
       setCommissionLoading(false);
+    }
+  }
+
+  async function createReferredSeller(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const email = referredSellerEmail.trim().toLowerCase();
+    if (!email) {
+      setError("Informe o e-mail do vendedor indicado.");
+      return;
+    }
+    setReferredSellerCreating(true);
+    setError(null);
+    try {
+      const payload = await apiFetch<ReferredSellerCreateResult>("/users/hbx/referred-seller", {
+        method: "POST",
+        body: JSON.stringify({
+          email,
+          name: referredSellerName.trim() || undefined,
+          phone: referredSellerPhone.trim() || undefined,
+          password: referredSellerPassword.trim() || undefined,
+        }),
+      });
+      const label = payload?.user?.name || payload?.user?.email || email;
+      if (payload?.temporaryPassword) {
+        setReferredSellerPasswordInfo({ label, password: payload.temporaryPassword });
+      } else {
+        setReferredSellerPasswordInfo(null);
+      }
+      setFeedback(`${label} entrou na sua rede HBX.`);
+      setReferredSellerName("");
+      setReferredSellerEmail("");
+      setReferredSellerPhone("");
+      setReferredSellerPassword("");
+      await loadCommissionSummary();
+    } catch (sellerError) {
+      setError(sellerError instanceof Error ? sellerError.message : "Falha ao cadastrar vendedor indicado.");
+    } finally {
+      setReferredSellerCreating(false);
     }
   }
 
@@ -4752,13 +4836,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
                     <span>{client.city || client.segment || "Sem local"} · {client.saleStatusLabel || saleStatusLabel(client.saleStatus)}</span>
                   </div>
                   <b>{formatCurrency(client.commissionAmount || 0)}</b>
-                  <small>
-                    {client.isRecurring
-                      ? `Recorrente ${client.recurringCycleKey || ""}`.trim()
-                      : client.commissionDueAt
-                        ? `D+3 ${formatDateTime(client.commissionDueAt)}`
-                        : commissionStatusLabel(client.commissionStatus)}
-                  </small>
+                  <small>{commissionSourceLabel(client)}</small>
                 </article>
               ))}
             </div>
@@ -4814,6 +4892,79 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
               Pagamento é fechado pelo Admin. Quando o lote baixa, o histórico aparece aqui.
             </p>
           </section>
+
+          {commissionSummary?.sellerNetwork?.isHbxSellerNetwork ? (
+            <section className={`${styles.mobileVendasCommissionBlock} hbx-mobile-card`}>
+              <div className={styles.mobileVendasCommissionBlockHeader}>
+                <div>
+                  <strong>Minha rede HBX</strong>
+                  <span>
+                    {commissionSummary.sellerNetwork.referredSellerCount || 0} indicado(s) · herança{" "}
+                    {formatPercent(commissionSummary.sellerNetwork.inheritedCommissionPercent || 0)}
+                  </span>
+                </div>
+                <span>{commissionSummary.sellerNetwork.canRegisterReferredSeller ? "Liberado" : "Bloqueado"}</span>
+              </div>
+
+              {commissionSummary.sellerNetwork.canRegisterReferredSeller ? (
+                <form onSubmit={createReferredSeller} className="grid gap-2">
+                  <input
+                    className="field"
+                    value={referredSellerName}
+                    onChange={(event) => setReferredSellerName(event.target.value)}
+                    placeholder="Nome do vendedor"
+                  />
+                  <input
+                    className="field"
+                    type="email"
+                    value={referredSellerEmail}
+                    onChange={(event) => setReferredSellerEmail(event.target.value)}
+                    placeholder="E-mail do vendedor"
+                    required
+                  />
+                  <input
+                    className="field"
+                    type="tel"
+                    value={referredSellerPhone}
+                    onChange={(event) => setReferredSellerPhone(event.target.value)}
+                    placeholder="WhatsApp"
+                  />
+                  <input
+                    className="field"
+                    type="password"
+                    value={referredSellerPassword}
+                    onChange={(event) => setReferredSellerPassword(event.target.value)}
+                    placeholder="Senha opcional"
+                  />
+                  <button type="submit" className="hbx-mobile-primary-button" disabled={referredSellerCreating}>
+                    {referredSellerCreating ? "Cadastrando..." : "Cadastrar indicado"}
+                  </button>
+                </form>
+              ) : (
+                <p className={styles.mobileVendasCommissionEmpty}>
+                  Seu usuário ainda não está autorizado pelo USERMASTER para cadastrar vendedores.
+                </p>
+              )}
+
+              {referredSellerPasswordInfo ? (
+                <div className={styles.mobileVendasCommissionRows}>
+                  <article>
+                    <div>
+                      <strong>Senha de {referredSellerPasswordInfo.label}</strong>
+                      <span>{referredSellerPasswordInfo.password}</span>
+                    </div>
+                    <button
+                      type="button"
+                      className="hbx-mobile-secondary-button"
+                      onClick={() => void navigator.clipboard?.writeText(referredSellerPasswordInfo.password)}
+                    >
+                      Copiar
+                    </button>
+                  </article>
+                </div>
+              ) : null}
+            </section>
+          ) : null}
 
           {renderMobileCommissionList("A receber", commissionClients.payable)}
           {renderMobileCommissionList("Aguardando ativação", commissionClients.pendingActivation)}

@@ -1508,9 +1508,11 @@ export class VendasService {
 
   private buildCommissionReceivablePayload(row: any) {
     const lead = row?.lead || {};
+    const kind = String(row?.kind || 'recurring');
+    const isInherited = kind.startsWith('inheritance_');
     return {
       leadId: String(row?.leadId || lead?.id || ''),
-      name: lead?.name ? String(lead.name) : lead?.phone ? String(lead.phone) : 'Comissão recorrente',
+      name: lead?.name ? String(lead.name) : lead?.phone ? String(lead.phone) : isInherited ? 'Comissão herdada' : 'Comissão recorrente',
       phone: lead?.phone ? String(lead.phone) : null,
       city: lead?.city ? String(lead.city) : null,
       segment: lead?.segment ? String(lead.segment) : null,
@@ -1524,7 +1526,9 @@ export class VendasService {
       commissionPaidAt: row?.paidAt instanceof Date ? row.paidAt.toISOString() : null,
       commissionPayoutId: row?.payoutId ? String(row.payoutId) : null,
       recurringCycleKey: row?.cycleKey ? String(row.cycleKey) : null,
-      isRecurring: true,
+      commissionKind: kind,
+      isInherited,
+      isRecurring: kind.includes('recurring'),
       updatedAt: row?.updatedAt instanceof Date ? row.updatedAt.toISOString() : null,
     };
   }
@@ -1664,6 +1668,41 @@ export class VendasService {
       this.logger.warn(`commission_summary_sync_failed company=${context.companyId} error=${String(error?.message || error)}`);
     });
     const now = new Date();
+    const [company, currentUser] = await Promise.all([
+      this.prisma.company.findUnique({
+        where: { id: context.companyId },
+        select: { slug: true },
+      }).catch(() => null),
+      this.prisma.user.findFirst({
+        where: { id: context.userId, companyId: context.companyId },
+        select: {
+          id: true,
+          role: true,
+          isActive: true,
+          deactivatedAt: true,
+          isSystemMaster: true,
+          commissionPercent: true,
+          canRegisterHbxSellers: true,
+          sellerReferralCommissionPercent: true,
+          _count: {
+            select: {
+              referredUsers: true,
+            },
+          },
+        },
+      }).catch(() => null),
+    ]);
+    const isHbxSellerNetwork =
+      String(company?.slug || '').trim().toLowerCase() === MASTER_WHATSAPP_ENGINE_COMPANY_SLUG;
+    const currentRole = String(currentUser?.role || context.role || '').trim().toUpperCase();
+    const canRegisterReferredSeller = Boolean(
+      isHbxSellerNetwork &&
+      currentRole === 'USER' &&
+      currentUser?.isActive &&
+      !currentUser?.deactivatedAt &&
+      !currentUser?.isSystemMaster &&
+      currentUser?.canRegisterHbxSellers,
+    );
     const leads = await this.prisma.vendasLead.findMany({
       where: this.buildLeadAccessWhere(context, {
         OR: [
@@ -1751,6 +1790,13 @@ export class VendasService {
       ok: true,
       scope: context.canManageTeam ? 'company' : 'seller',
       generatedAt: now.toISOString(),
+      sellerNetwork: {
+        isHbxSellerNetwork,
+        canRegisterReferredSeller,
+        commissionPercent: this.normalizeCurrencyAmount(currentUser?.commissionPercent),
+        inheritedCommissionPercent: this.normalizeCurrencyAmount(currentUser?.sellerReferralCommissionPercent),
+        referredSellerCount: Math.max(0, Math.trunc(Number(currentUser?._count?.referredUsers || 0) || 0)),
+      },
       totals: {
         assignedCards: leads.length,
         activeClients: active.length,

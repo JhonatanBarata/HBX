@@ -30,6 +30,10 @@ import {
   normalizeCommercialPlanKey as normalizeCatalogCommercialPlanKey,
   type ActiveCommercialPlanKey,
 } from '../commercial-plans/commercial-plan-catalog';
+import {
+  computeCompanySeatBillingSnapshot,
+  resolveExtraSeatMonthlyAmount,
+} from '../commercial-plans/seat-billing.util';
 import { MailService } from '../mail/mail.service';
 import { HbxCommissionSyncService } from '../commissions/hbx-commission-sync.service';
 
@@ -643,35 +647,16 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
   }
 
   private resolveExtraSeatMonthlyAmount(pricingPolicy: any) {
-    return this.normalizeCurrencyAmount(
-      pricingPolicy?.extraSeatMonthlyAmount ?? process.env.HBX_EXTRA_SEAT_MONTHLY_AMOUNT ?? COMMERCIAL_PRICING.extraUserMonthly,
-    );
+    return this.normalizeCurrencyAmount(resolveExtraSeatMonthlyAmount(pricingPolicy?.extraSeatMonthlyAmount));
   }
 
-  private buildSeatBillingSnapshot(company: any, billingCycle: string, pricingPolicy: any) {
+  private async buildSeatBillingSnapshot(company: any, billingCycle: string, pricingPolicy: any) {
     const planKey = normalizeCatalogCommercialPlanKey(company?.selectedPlanKey);
-    const activeUsers = Array.isArray(company?.users)
-      ? company.users.filter((user: any) => Boolean(user?.isActive) && !user?.deactivatedAt && !Boolean(user?.isSystemMaster)).length
-      : 0;
-    const includedActiveUsers = planKey === COMMERCIAL_PLAN_KEYS.MELHOR ? 1 : Math.max(1, activeUsers);
-    const extraActiveUsers = planKey === COMMERCIAL_PLAN_KEYS.MELHOR
-      ? Math.max(0, activeUsers - includedActiveUsers)
-      : 0;
-    const extraSeatMonthlyAmount = planKey === COMMERCIAL_PLAN_KEYS.MELHOR
-      ? this.resolveExtraSeatMonthlyAmount(pricingPolicy)
-      : 0;
-    const cycleMultiplier = billingCycle === 'ANNUAL' ? 12 : 1;
-    const extraSeatCycleAmount = this.normalizeCurrencyAmount(
-      extraActiveUsers * extraSeatMonthlyAmount * cycleMultiplier,
-    );
-
-    return {
-      activeUsers,
-      includedActiveUsers,
-      extraActiveUsers,
-      extraSeatMonthlyAmount,
-      extraSeatCycleAmount,
-    };
+    return computeCompanySeatBillingSnapshot(this.prisma, {
+      companyId: Number(company?.id || 0),
+      planKey,
+      extraSeatMonthlyAmount: this.resolveExtraSeatMonthlyAmount(pricingPolicy),
+    });
   }
 
   private resolveUserContext(user: any) {
@@ -702,6 +687,9 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
       basePlanCycleAmount: 0,
       extraSeatMonthlyAmount: 0,
       extraSeatCycleAmount: 0,
+      extraSeatFullMonthAmount: 0,
+      extraSeatBillableDays: 0,
+      extraSeatAverageUsers: 0,
       baseCycleAmount: 0,
       finalCycleAmount: 0,
       commercialPlan: pricing?.commercialPlan
@@ -888,7 +876,7 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
-  private buildPricing(company: any, pricingPolicy: any, ledgerRows: BillingLedgerEntryRow[]) {
+  private async buildPricing(company: any, pricingPolicy: any, ledgerRows: BillingLedgerEntryRow[]) {
     const commercialPlan = this.resolveCommercialMonthlyValue(company);
     const monthlyValue = commercialPlan?.monthlyValue ?? this.resolveLegacyCompanyMonthlyValue(company);
     const billingCycle = this.normalizeBillingCycle(company?.billingCycle);
@@ -902,7 +890,7 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
       billingCycle === 'ANNUAL'
         ? this.normalizeCurrencyAmount(monthlyValue * 12)
         : monthlyValue;
-    const seats = this.buildSeatBillingSnapshot(company, billingCycle, pricingPolicy);
+    const seats = await this.buildSeatBillingSnapshot(company, billingCycle, pricingPolicy);
     const baseCycleAmount = this.normalizeCurrencyAmount(basePlanCycleAmount + seats.extraSeatCycleAmount);
     const annualDiscountValue =
       billingCycle === 'ANNUAL'
@@ -956,6 +944,13 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
       extraActiveUsers: seats.extraActiveUsers,
       extraSeatMonthlyAmount: seats.extraSeatMonthlyAmount,
       extraSeatCycleAmount: seats.extraSeatCycleAmount,
+      extraSeatFullMonthAmount: seats.extraSeatFullMonthAmount,
+      extraSeatBillableDays: seats.extraSeatBillableDays,
+      extraSeatAverageUsers: seats.extraSeatAverageUsers,
+      seatBillingPeriodStart: seats.billingPeriodStart,
+      seatBillingPeriodEnd: seats.billingPeriodEnd,
+      seatBillingMode: seats.billingMode,
+      seatBillingBilledImmediately: seats.billedImmediately,
       baseCycleAmount,
       finalCycleAmount,
       pendingCount,
@@ -964,6 +959,21 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
       refundAmount: this.normalizeCurrencyAmount(refundAmount),
       cardConfigured: Boolean(company?.billingCardLast4),
       pixAvailable: true,
+    };
+  }
+
+  private pricingSeatBillingMetadata(pricing: any) {
+    return {
+      activeUsers: Number(pricing?.activeUsers || 0) || 0,
+      includedActiveUsers: Number(pricing?.includedActiveUsers || 0) || 0,
+      extraActiveUsers: Number(pricing?.extraActiveUsers || 0) || 0,
+      extraSeatMonthlyAmount: this.normalizeCurrencyAmount(pricing?.extraSeatMonthlyAmount || 0),
+      extraSeatCycleAmount: this.normalizeCurrencyAmount(pricing?.extraSeatCycleAmount || 0),
+      extraSeatBillableDays: Number(pricing?.extraSeatBillableDays || 0) || 0,
+      billingPeriodStart: pricing?.seatBillingPeriodStart || null,
+      billingPeriodEnd: pricing?.seatBillingPeriodEnd || null,
+      billingMode: pricing?.seatBillingMode || null,
+      billedImmediately: Boolean(pricing?.seatBillingBilledImmediately),
     };
   }
 
@@ -1820,6 +1830,7 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
         externalReference: input.externalReference,
         planKey: input.selectedPlanKey,
         billingCycle: input.requestedBillingCycle,
+        seatBilling: this.pricingSeatBillingMetadata(input.pricing),
         provider: 'mock',
         ...(input.paymentProfile ? {
           contactName: input.paymentProfile.contactName,
@@ -2107,7 +2118,7 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
       getMasterGlobalIntegrationConfig(this.prisma),
     ]);
     if (!company) throw new BadRequestException('Empresa nao encontrada.');
-    const pricing = this.buildPricing(company, masterConfig, []);
+    const pricing = await this.buildPricing(company, masterConfig, []);
     const now = new Date();
     const charge = await this.prisma.financeiroCharge.create({
       data: {
@@ -2592,7 +2603,7 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
       if (!company) throw new BadRequestException('Empresa nao encontrada.');
     }
 
-    const pricing = this.buildPricing(company, masterConfig, ledgerRows);
+    const pricing = await this.buildPricing(company, masterConfig, ledgerRows);
     const activeModules = (company.companyModules || [])
       .filter((row: any) => row?.enabled && row?.systemModule?.companyAssignable)
       .map((row: any) => ({
@@ -2816,7 +2827,7 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
       selectedPlanKey,
       billingCycle: requestedBillingCycle,
     };
-    const pricing = this.buildPricing(pricingCompany, masterConfig, []);
+    const pricing = await this.buildPricing(pricingCompany, masterConfig, []);
 
     if (pricing.freeMonths > 0) {
       const complimentary = await this.settleComplimentaryCycle(context.companyId, context.userId);
@@ -2959,6 +2970,7 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
             externalReference,
             planKey: selectedPlanKey,
             billingCycle: requestedBillingCycle,
+            seatBilling: this.pricingSeatBillingMetadata(pricing),
             ...(paymentProfile ? {
               contactName: paymentProfile.contactName,
               taxDocumentProvided: Boolean(paymentProfile.taxDocument),
@@ -3052,6 +3064,7 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
           externalReference,
           planKey: selectedPlanKey,
           billingCycle: requestedBillingCycle,
+          seatBilling: this.pricingSeatBillingMetadata(pricing),
           ...(paymentProfile ? {
             contactName: paymentProfile.contactName,
             taxDocumentProvided: Boolean(paymentProfile.taxDocument),

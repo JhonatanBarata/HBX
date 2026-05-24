@@ -6,7 +6,7 @@ import { Admin } from '../auth/admin.decorator';
 import { MasterGuard } from '../auth/guards/master.guard';
 import { Throttle } from '@nestjs/throttler';
 import { Type } from 'class-transformer';
-import { IsBoolean, IsEmail, IsIn, IsNumber, IsOptional, IsString, Max, Min, MinLength } from 'class-validator';
+import { IsBoolean, IsEmail, IsIn, IsInt, IsNumber, IsOptional, IsString, Max, Min, MinLength } from 'class-validator';
 import * as bcrypt from 'bcryptjs';
 import { assertPasswordPolicy } from '../auth/password-policy';
 import { MasterContextService } from '../master-context/master-context.service';
@@ -37,6 +37,30 @@ class CreateCompanyUserDto {
 	@Min(0)
 	@Max(100)
 	commissionPercent?: number;
+
+	@IsOptional()
+	@IsBoolean()
+	canRegisterHbxSellers?: boolean;
+
+	@IsOptional()
+	@Type(() => Number)
+	@IsNumber({ maxDecimalPlaces: 2 })
+	@Min(0)
+	@Max(100)
+	sellerReferralCommissionPercent?: number;
+
+	@IsOptional()
+	@Type(() => Number)
+	@IsInt()
+	@Min(1)
+	referredByUserId?: number;
+
+	@IsOptional()
+	@Type(() => Number)
+	@IsNumber({ maxDecimalPlaces: 2 })
+	@Min(0)
+	@Max(100)
+	referredByCommissionPercentSnapshot?: number;
 
 	@IsOptional()
 	@IsString()
@@ -70,6 +94,30 @@ class UpdateCompanyUserProfileDto {
 	@Min(0)
 	@Max(100)
 	commissionPercent?: number;
+
+	@IsOptional()
+	@IsBoolean()
+	canRegisterHbxSellers?: boolean;
+
+	@IsOptional()
+	@Type(() => Number)
+	@IsNumber({ maxDecimalPlaces: 2 })
+	@Min(0)
+	@Max(100)
+	sellerReferralCommissionPercent?: number;
+
+	@IsOptional()
+	@Type(() => Number)
+	@IsInt()
+	@Min(1)
+	referredByUserId?: number;
+
+	@IsOptional()
+	@Type(() => Number)
+	@IsNumber({ maxDecimalPlaces: 2 })
+	@Min(0)
+	@Max(100)
+	referredByCommissionPercentSnapshot?: number;
 }
 
 class MasterCreateUserDto {
@@ -94,6 +142,30 @@ class MasterCreateUserDto {
 	@Min(0)
 	@Max(100)
 	commissionPercent?: number;
+
+	@IsOptional()
+	@IsBoolean()
+	canRegisterHbxSellers?: boolean;
+
+	@IsOptional()
+	@Type(() => Number)
+	@IsNumber({ maxDecimalPlaces: 2 })
+	@Min(0)
+	@Max(100)
+	sellerReferralCommissionPercent?: number;
+
+	@IsOptional()
+	@Type(() => Number)
+	@IsInt()
+	@Min(1)
+	referredByUserId?: number;
+
+	@IsOptional()
+	@Type(() => Number)
+	@IsNumber({ maxDecimalPlaces: 2 })
+	@Min(0)
+	@Max(100)
+	referredByCommissionPercentSnapshot?: number;
 
 	@IsOptional()
 	@IsString()
@@ -131,6 +203,30 @@ class MasterEditUserDto {
 	commissionPercent?: number;
 
 	@IsOptional()
+	@IsBoolean()
+	canRegisterHbxSellers?: boolean;
+
+	@IsOptional()
+	@Type(() => Number)
+	@IsNumber({ maxDecimalPlaces: 2 })
+	@Min(0)
+	@Max(100)
+	sellerReferralCommissionPercent?: number;
+
+	@IsOptional()
+	@Type(() => Number)
+	@IsInt()
+	@Min(1)
+	referredByUserId?: number;
+
+	@IsOptional()
+	@Type(() => Number)
+	@IsNumber({ maxDecimalPlaces: 2 })
+	@Min(0)
+	@Max(100)
+	referredByCommissionPercentSnapshot?: number;
+
+	@IsOptional()
 	@IsString()
 	@IsIn(['USER', 'ADMIN'])
 	role?: 'USER' | 'ADMIN';
@@ -138,6 +234,24 @@ class MasterEditUserDto {
 	@IsOptional()
 	@IsBoolean()
 	isActive?: boolean;
+}
+
+class CreateReferredSellerDto {
+	@IsEmail()
+	email!: string;
+
+	@IsOptional()
+	@IsString()
+	name?: string;
+
+	@IsOptional()
+	@IsString()
+	phone?: string;
+
+	@IsOptional()
+	@IsString()
+	@MinLength(8)
+	password?: string;
 }
 
 class MasterResetPasswordDto {
@@ -160,12 +274,134 @@ function normalizeCommissionPercent(value: unknown) {
 	return Math.min(100, Math.max(0, Math.round(numeric * 100) / 100));
 }
 
+function isMissingCommissionInput(value: unknown) {
+	return value === undefined || value === null || value === '';
+}
+
+function normalizeOptionalPositiveInt(value: unknown) {
+	if (value === undefined || value === null || value === '') return undefined;
+	const numeric = Number(value);
+	if (!Number.isInteger(numeric) || numeric <= 0) throw new BadRequestException('Indicador inválido');
+	return numeric;
+}
+
 @Controller('users')
 export class UsersController {
 	constructor(
 		private readonly usersService: UsersService,
 		private readonly masterContextService: MasterContextService,
 	) {}
+
+	private hasSellerNetworkInput(dto: any) {
+		return (
+			dto?.canRegisterHbxSellers !== undefined ||
+			dto?.sellerReferralCommissionPercent !== undefined ||
+			dto?.referredByUserId !== undefined ||
+			dto?.referredByCommissionPercentSnapshot !== undefined
+		);
+	}
+
+	private hasMeaningfulSellerNetworkInput(dto: any) {
+		const referredByUserId = Number(dto?.referredByUserId || 0);
+		const sellerReferralCommissionPercent = Number(dto?.sellerReferralCommissionPercent || 0);
+		const referredByCommissionPercentSnapshot = Number(dto?.referredByCommissionPercentSnapshot || 0);
+		return Boolean(dto?.canRegisterHbxSellers) ||
+			referredByUserId > 0 ||
+			sellerReferralCommissionPercent > 0 ||
+			referredByCommissionPercentSnapshot > 0;
+	}
+
+	private sellerNetworkPayload(user: any) {
+		return {
+			canRegisterHbxSellers: Boolean(user.canRegisterHbxSellers),
+			sellerReferralCommissionPercent: Number(user.sellerReferralCommissionPercent || 0) || 0,
+			referredByUserId: user.referredByUserId || null,
+			referredByCommissionPercentSnapshot: Number(user.referredByCommissionPercentSnapshot || 0) || 0,
+			referredByUser: user.referredByUser
+				? {
+					id: user.referredByUser.id,
+					name: user.referredByUser.name || null,
+					username: user.referredByUser.username || null,
+					email: user.referredByUser.email || null,
+				}
+				: null,
+		};
+	}
+
+	private async buildSellerNetworkData(input: {
+		companyId: number;
+		role: 'USER' | 'ADMIN';
+		dto: any;
+		targetUserId?: number;
+		forCreate?: boolean;
+	}) {
+		const dto = input.dto || {};
+		const hasInput = this.hasSellerNetworkInput(dto);
+		const data: any = {};
+
+		if (input.role !== 'USER') {
+			if (this.hasMeaningfulSellerNetworkInput(dto)) {
+				throw new BadRequestException('Rede de indicação HBX só pode ser configurada para vendedores.');
+			}
+			if (input.forCreate || hasInput) {
+				data.canRegisterHbxSellers = false;
+				data.sellerReferralCommissionPercent = 0;
+				data.referredByUserId = null;
+				data.referredByCommissionPercentSnapshot = 0;
+			}
+			return data;
+		}
+
+		if (!hasInput && !input.forCreate) return data;
+
+		const isHbxNetwork = await this.usersService.isHbxSellerNetworkCompany(input.companyId);
+		if (!isHbxNetwork) {
+			if (this.hasMeaningfulSellerNetworkInput(dto)) {
+				throw new BadRequestException('Rede de indicação de vendedores está disponível apenas para a operação HBX.');
+			}
+			if (input.forCreate) {
+				data.canRegisterHbxSellers = false;
+				data.sellerReferralCommissionPercent = 0;
+				data.referredByUserId = null;
+				data.referredByCommissionPercentSnapshot = 0;
+			}
+			return data;
+		}
+
+		if (dto.canRegisterHbxSellers !== undefined || input.forCreate) {
+			data.canRegisterHbxSellers = Boolean(dto.canRegisterHbxSellers);
+		}
+
+		const sellerReferralCommissionPercent = normalizeCommissionPercent(dto.sellerReferralCommissionPercent);
+		if (sellerReferralCommissionPercent !== undefined || input.forCreate) {
+			data.sellerReferralCommissionPercent = sellerReferralCommissionPercent ?? 0;
+		}
+
+		const referredByUserId = normalizeOptionalPositiveInt(dto.referredByUserId);
+		const explicitSnapshot = normalizeCommissionPercent(dto.referredByCommissionPercentSnapshot);
+		if (referredByUserId !== undefined) {
+			if (input.targetUserId && referredByUserId === input.targetUserId) {
+				throw new BadRequestException('Um vendedor não pode indicar a si mesmo.');
+			}
+			const referrer = await this.usersService.getActiveSellerReferrer(input.companyId, referredByUserId);
+			if (!referrer) {
+				throw new BadRequestException('Indicador precisa ser vendedor ativo e autorizado a cadastrar vendedores HBX.');
+			}
+			data.referredByUserId = referrer.id;
+			data.referredByCommissionPercentSnapshot =
+				explicitSnapshot ?? normalizeCommissionPercent(referrer.sellerReferralCommissionPercent) ?? 0;
+		} else if (dto.referredByUserId === null || dto.referredByUserId === '') {
+			data.referredByUserId = null;
+			data.referredByCommissionPercentSnapshot = 0;
+		} else if (explicitSnapshot !== undefined) {
+			data.referredByCommissionPercentSnapshot = explicitSnapshot;
+		} else if (input.forCreate) {
+			data.referredByUserId = null;
+			data.referredByCommissionPercentSnapshot = 0;
+		}
+
+		return data;
+	}
 
 	// GET /users/check-username?username=foo
 	@Get('check-username')
@@ -209,8 +445,21 @@ export class UsersController {
 		if (Number(target.companyId) !== companyId) {
 			throw new ForbiddenException('Usuário fora da sua empresa');
 		}
+		if (target.isSystemMaster) {
+			throw new ForbiddenException('Usuário USERMASTER não pode ter perfil alterado aqui');
+		}
 
-		const updated = await this.usersService.updateRole(id, role as 'USER' | 'ADMIN');
+		const updated = await this.usersService.updateById(id, {
+			role,
+			...(role === 'ADMIN'
+				? {
+					canRegisterHbxSellers: false,
+					sellerReferralCommissionPercent: 0,
+					referredByUserId: null,
+					referredByCommissionPercentSnapshot: 0,
+				}
+				: {}),
+		});
 		return {
 			id: updated.id,
 			username: updated.username,
@@ -247,6 +496,12 @@ export class UsersController {
 		if (name !== undefined) data.name = name;
 		if (phone !== undefined) data.phone = phone;
 		if (commissionPercent !== undefined) data.commissionPercent = commissionPercent;
+		Object.assign(data, await this.buildSellerNetworkData({
+			companyId,
+			role: String(target.role || '').toUpperCase() === 'ADMIN' ? 'ADMIN' : 'USER',
+			dto,
+			targetUserId: id,
+		}));
 
 		const updated = Object.keys(data).length
 			? await this.usersService.updateById(id, data)
@@ -257,6 +512,7 @@ export class UsersController {
 			name: updated.name,
 			phone: updated.phone,
 			commissionPercent: updated.commissionPercent,
+			...this.sellerNetworkPayload(updated),
 		};
 	}
 
@@ -333,13 +589,24 @@ export class UsersController {
 
 		const attendantName = String(dto?.name || '').trim();
 		const phone = normalizeNullableText(dto.phone);
-		const commissionPercent = normalizeCommissionPercent(dto.commissionPercent) ?? 0;
+		let commissionPercent = normalizeCommissionPercent(dto.commissionPercent) ?? 0;
+		const sellerNetworkData = await this.buildSellerNetworkData({
+			companyId,
+			role,
+			dto,
+			forCreate: true,
+		});
+		if (role === 'USER' && sellerNetworkData.referredByUserId && isMissingCommissionInput(dto.commissionPercent)) {
+			const referrer = await this.usersService.getActiveSellerReferrer(companyId, sellerNetworkData.referredByUserId);
+			commissionPercent = normalizeCommissionPercent(referrer?.commissionPercent) ?? commissionPercent;
+		}
 		const created = await this.usersService.create({
 			email,
 			username: email,
 			name: attendantName || undefined,
 			phone,
 			commissionPercent,
+			...sellerNetworkData,
 			password: hashed,
 			companyId,
 			role,
@@ -354,7 +621,73 @@ export class UsersController {
 				phone: created.phone,
 				commissionPercent: created.commissionPercent,
 				role: created.role,
+				isSystemMaster: created.isSystemMaster,
 				isActive: created.isActive,
+				...this.sellerNetworkPayload(created),
+			},
+			temporaryPassword: dto.password ? null : tempPassword,
+		};
+	}
+
+	@Post('hbx/referred-seller')
+	@UseGuards(JwtAuthGuard)
+	async createHbxReferredSeller(@Req() req: any, @Body() dto: CreateReferredSellerDto) {
+		const requesterId = Number(req?.user?.id || 0);
+		const requester = requesterId ? await this.usersService.findById(requesterId) : null;
+		if (!requester) throw new ForbiddenException('Usuário não identificado');
+		const companyId = Number(requester.companyId || 0);
+		if (!companyId || !(await this.usersService.isHbxSellerNetworkCompany(companyId))) {
+			throw new ForbiddenException('Cadastro por indicação está disponível apenas para vendedores HBX.');
+		}
+		if (
+			String(requester.role || '').toUpperCase() !== 'USER' ||
+			!requester.isActive ||
+			requester.deactivatedAt ||
+			requester.isSystemMaster ||
+			!requester.canRegisterHbxSellers
+		) {
+			throw new ForbiddenException('Seu usuário ainda não está autorizado a cadastrar vendedores HBX.');
+		}
+
+		const email = String(dto?.email || '').trim().toLowerCase();
+		if (!email) throw new BadRequestException('email is required');
+		if (await this.usersService.findByEmail(email)) throw new BadRequestException('E-mail já cadastrado');
+		if (await this.usersService.findByUsername(email)) throw new BadRequestException('Username já cadastrado');
+
+		const tempPassword = dto.password?.trim() || `Tmp@${Math.random().toString(36).slice(2, 10)}A1`;
+		assertPasswordPolicy(tempPassword);
+		const hashed = await bcrypt.hash(tempPassword, 10);
+		const attendantName = String(dto?.name || '').trim();
+		const phone = normalizeNullableText(dto.phone);
+		const inheritedSnapshot = normalizeCommissionPercent(requester.sellerReferralCommissionPercent) ?? 0;
+
+		const created = await this.usersService.create({
+			email,
+			username: email,
+			name: attendantName || undefined,
+			phone,
+			commissionPercent: normalizeCommissionPercent(requester.commissionPercent) ?? 0,
+			canRegisterHbxSellers: false,
+			sellerReferralCommissionPercent: 0,
+			referredByUserId: requester.id,
+			referredByCommissionPercentSnapshot: inheritedSnapshot,
+			password: hashed,
+			companyId,
+			role: 'USER',
+		});
+
+		return {
+			user: {
+				id: created.id,
+				email: created.email,
+				username: created.username,
+				name: created.name,
+				phone: created.phone,
+				commissionPercent: created.commissionPercent,
+				role: created.role,
+				isSystemMaster: created.isSystemMaster,
+				isActive: created.isActive,
+				...this.sellerNetworkPayload(created),
 			},
 			temporaryPassword: dto.password ? null : tempPassword,
 		};
@@ -413,7 +746,17 @@ export class UsersController {
 		const hashed = await bcrypt.hash(tempPassword, 10);
 		const role = (dto.role === 'ADMIN' ? 'ADMIN' : 'USER') as 'USER' | 'ADMIN';
 		const phone = normalizeNullableText(dto.phone);
-		const commissionPercent = normalizeCommissionPercent(dto.commissionPercent) ?? 0;
+		let commissionPercent = normalizeCommissionPercent(dto.commissionPercent) ?? 0;
+		const sellerNetworkData = await this.buildSellerNetworkData({
+			companyId,
+			role,
+			dto,
+			forCreate: true,
+		});
+		if (role === 'USER' && sellerNetworkData.referredByUserId && isMissingCommissionInput(dto.commissionPercent)) {
+			const referrer = await this.usersService.getActiveSellerReferrer(companyId, sellerNetworkData.referredByUserId);
+			commissionPercent = normalizeCommissionPercent(referrer?.commissionPercent) ?? commissionPercent;
+		}
 
 		const created = await this.usersService.create({
 			email,
@@ -421,6 +764,7 @@ export class UsersController {
 			name: attendantName || undefined,
 			phone,
 			commissionPercent,
+			...sellerNetworkData,
 			password: hashed,
 			companyId,
 			role,
@@ -438,6 +782,7 @@ export class UsersController {
 				name: created.name || null,
 				phone: created.phone || null,
 				commissionPercent: created.commissionPercent,
+				...this.sellerNetworkPayload(created),
 				role: created.role,
 			},
 		});
@@ -451,7 +796,9 @@ export class UsersController {
 				phone: created.phone,
 				commissionPercent: created.commissionPercent,
 				role: created.role,
+				isSystemMaster: created.isSystemMaster,
 				isActive: created.isActive,
+				...this.sellerNetworkPayload(created),
 			},
 			temporaryPassword: dto.password ? null : tempPassword,
 		};
@@ -504,6 +851,22 @@ export class UsersController {
 			data.role = role === 'ADMIN' ? 'ADMIN' : 'USER';
 		}
 
+		const nextRole = (data.role || target.role) === 'ADMIN' ? 'ADMIN' : 'USER';
+		if (data.role === 'ADMIN') {
+			Object.assign(data, {
+				canRegisterHbxSellers: false,
+				sellerReferralCommissionPercent: 0,
+				referredByUserId: null,
+				referredByCommissionPercentSnapshot: 0,
+			});
+		}
+		Object.assign(data, await this.buildSellerNetworkData({
+			companyId: Number(target.companyId || 0),
+			role: nextRole,
+			dto,
+			targetUserId: id,
+		}));
+
 		if (typeof dto.isActive === 'boolean') {
 			if (!dto.isActive) {
 				data.isActive = false;
@@ -529,6 +892,7 @@ export class UsersController {
 				name: updated.name || null,
 				phone: updated.phone || null,
 				commissionPercent: updated.commissionPercent,
+				...this.sellerNetworkPayload(updated),
 				role: updated.role,
 				isActive: updated.isActive,
 			},
@@ -540,6 +904,7 @@ export class UsersController {
 			name: updated.name,
 			phone: updated.phone,
 			commissionPercent: updated.commissionPercent,
+			...this.sellerNetworkPayload(updated),
 			role: updated.role,
 			isActive: updated.isActive,
 			deactivatedAt: updated.deactivatedAt,
