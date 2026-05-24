@@ -1,18 +1,113 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import type { User } from '@prisma/client';
+import { isBillableUserSeatSnapshot, isMasterOperationalCompanySlug } from '../commercial-plans/seat-billing.util';
 
 @Injectable()
 export class UsersService {
   constructor(private readonly prisma: PrismaService) {}
 
+  private async isBillableCompany(companyId?: number | null) {
+    const normalizedCompanyId = Number(companyId || 0);
+    if (!normalizedCompanyId) return false;
+    const company = await this.prisma.company.findUnique({
+      where: { id: normalizedCompanyId },
+      select: { slug: true },
+    });
+    return !isMasterOperationalCompanySlug(company?.slug);
+  }
+
+  async isHbxSellerNetworkCompany(companyId?: number | null) {
+    const normalizedCompanyId = Number(companyId || 0);
+    if (!normalizedCompanyId) return false;
+    const company = await this.prisma.company.findUnique({
+      where: { id: normalizedCompanyId },
+      select: { slug: true },
+    });
+    return isMasterOperationalCompanySlug(company?.slug);
+  }
+
+  async getActiveSellerReferrer(companyId: number, userId?: number | null) {
+    const normalizedUserId = Number(userId || 0);
+    if (!normalizedUserId) return null;
+    return this.prisma.user.findFirst({
+      where: {
+        id: normalizedUserId,
+        companyId: Number(companyId),
+        role: 'USER',
+        isActive: true,
+        deactivatedAt: null,
+        isSystemMaster: false,
+        canRegisterHbxSellers: true,
+      },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        username: true,
+        commissionPercent: true,
+        sellerReferralCommissionPercent: true,
+      },
+    });
+  }
+
   private async countBillableUsers(companyId: number) {
+    if (!(await this.isBillableCompany(companyId))) return 0;
     return this.prisma.user.count({
       where: {
         companyId,
         isActive: true,
         deactivatedAt: null,
         isSystemMaster: false,
+        role: { notIn: ['USERMASTER'] },
+      },
+    });
+  }
+
+  private async openBillableSeatUsage(input: {
+    companyId?: number | null;
+    userId?: number | null;
+    role?: string | null;
+    source: string;
+    startedAt?: Date;
+  }) {
+    const companyId = Number(input.companyId || 0);
+    const userId = Number(input.userId || 0);
+    if (!companyId || !userId) return;
+    if (!(await this.isBillableCompany(companyId))) return;
+
+    const existing = await this.prisma.companyBillableSeatUsage.findFirst({
+      where: { companyId, userId, endedAt: null },
+      select: { id: true },
+      orderBy: { startedAt: 'desc' },
+    });
+    if (existing) return;
+
+    await this.prisma.companyBillableSeatUsage.create({
+      data: {
+        companyId,
+        userId,
+        role: input.role || null,
+        startedAt: input.startedAt || new Date(),
+        startSource: input.source,
+      },
+    });
+  }
+
+  private async closeBillableSeatUsage(input: {
+    companyId?: number | null;
+    userId?: number | null;
+    source: string;
+    endedAt?: Date;
+  }) {
+    const companyId = Number(input.companyId || 0);
+    const userId = Number(input.userId || 0);
+    if (!companyId || !userId) return;
+    await this.prisma.companyBillableSeatUsage.updateMany({
+      where: { companyId, userId, endedAt: null },
+      data: {
+        endedAt: input.endedAt || new Date(),
+        endSource: input.source,
       },
     });
   }
@@ -25,6 +120,7 @@ export class UsersService {
   }) {
     const companyId = Number(input.companyId || 0);
     if (!companyId) return;
+    if (!(await this.isBillableCompany(companyId))) return;
     const [company, billableUsers] = await Promise.all([
       this.prisma.company.findUnique({
         where: { id: companyId },
@@ -51,11 +147,22 @@ export class UsersService {
     name?: string | null;
     phone?: string | null;
     commissionPercent?: number;
+    canRegisterHbxSellers?: boolean;
+    sellerReferralCommissionPercent?: number;
+    referredByUserId?: number | null;
+    referredByCommissionPercentSnapshot?: number;
     companyId?: number | null;
     role?: string;
   }): Promise<User> {
     const created = await this.prisma.user.create({ data });
-    if (created.companyId && created.isActive && !created.isSystemMaster) {
+    if (isBillableUserSeatSnapshot(created)) {
+      await this.openBillableSeatUsage({
+        companyId: created.companyId,
+        userId: created.id,
+        role: created.role,
+        source: 'user_create',
+        startedAt: created.createdAt,
+      });
       await this.logBillableUserChange({
         companyId: created.companyId,
         userId: created.id,
@@ -87,6 +194,9 @@ export class UsersService {
         where: {
           companyId,
           isActive: true,
+          deactivatedAt: null,
+          isSystemMaster: false,
+          role: { notIn: ['USERMASTER'] },
         },
       }),
     ]);
@@ -140,21 +250,71 @@ export class UsersService {
   async updateById(userId: number, data: any): Promise<User> {
     const before = await this.prisma.user.findUnique({
       where: { id: userId },
-      select: { id: true, companyId: true, isActive: true, isSystemMaster: true, deactivatedAt: true },
+      select: {
+        id: true,
+        companyId: true,
+        role: true,
+        isActive: true,
+        isSystemMaster: true,
+        deactivatedAt: true,
+      },
     });
-    const updated = await this.prisma.user.update({ where: { id: userId }, data });
-    if (before?.companyId && !before.isSystemMaster && typeof data?.isActive === 'boolean') {
-      const wasBillable = Boolean(before.isActive) && !before.deactivatedAt;
-      const isBillable = Boolean(updated.isActive) && !updated.deactivatedAt;
-      if (wasBillable !== isBillable) {
+    const updated = await this.prisma.user.update({
+      where: { id: userId },
+      data,
+      include: {
+        referredByUser: {
+          select: {
+            id: true,
+            name: true,
+            username: true,
+            email: true,
+          },
+        },
+      },
+    });
+    if (before?.companyId || updated.companyId) {
+      const beforeCompany = before?.companyId
+        ? await this.prisma.company.findUnique({ where: { id: before.companyId }, select: { slug: true } })
+        : null;
+      const updatedCompany = updated.companyId
+        ? await this.prisma.company.findUnique({ where: { id: updated.companyId }, select: { slug: true } })
+        : null;
+      const wasBillable = isBillableUserSeatSnapshot(before, beforeCompany);
+      const isBillable = isBillableUserSeatSnapshot(updated, updatedCompany);
+      const companyChanged = Number(before?.companyId || 0) !== Number(updated.companyId || 0);
+      if (wasBillable !== isBillable || (wasBillable && isBillable && companyChanged)) {
+        if (wasBillable) {
+          await this.closeBillableSeatUsage({
+            companyId: before.companyId,
+            userId,
+            source: 'user_update',
+          });
+        }
+        if (isBillable) {
+          await this.openBillableSeatUsage({
+            companyId: updated.companyId,
+            userId,
+            role: updated.role,
+            source: 'user_update',
+          });
+        }
         await this.logBillableUserChange({
-          companyId: before.companyId,
+          companyId: isBillable ? updated.companyId : before.companyId,
           userId,
           eventType: isBillable ? 'user_billable_added' : 'user_billable_removed',
           source: 'user_update',
         });
+        if (wasBillable && isBillable && companyChanged) {
+          await this.logBillableUserChange({
+            companyId: before.companyId,
+            userId,
+            eventType: 'user_billable_removed',
+            source: 'user_update_company_changed',
+          });
+        }
         await this.logBillableUserChange({
-          companyId: before.companyId,
+          companyId: isBillable ? updated.companyId : before.companyId,
           userId,
           eventType: 'billable_user_count_changed',
           source: 'user_update',
@@ -164,7 +324,7 @@ export class UsersService {
     return updated;
   }
 
-  async listByCompany(companyId: number): Promise<Array<Pick<User, 'id' | 'username' | 'email' | 'name' | 'phone' | 'commissionPercent' | 'companyId' | 'role' | 'isActive' | 'deactivatedAt' | 'retentionUntil' | 'createdAt'>>> {
+  async listByCompany(companyId: number): Promise<any[]> {
     return this.prisma.user.findMany({
       where: { companyId },
       orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
@@ -175,8 +335,21 @@ export class UsersService {
         name: true,
         phone: true,
         commissionPercent: true,
+        canRegisterHbxSellers: true,
+        sellerReferralCommissionPercent: true,
+        referredByUserId: true,
+        referredByCommissionPercentSnapshot: true,
+        referredByUser: {
+          select: {
+            id: true,
+            name: true,
+            username: true,
+            email: true,
+          },
+        },
         companyId: true,
         role: true,
+        isSystemMaster: true,
         isActive: true,
         deactivatedAt: true,
         retentionUntil: true,
@@ -192,18 +365,28 @@ export class UsersService {
   async deactivateUser(userId: number, retentionDays = 730): Promise<User> {
     const before = await this.prisma.user.findUnique({
       where: { id: userId },
-      select: { companyId: true, isActive: true, isSystemMaster: true, deactivatedAt: true },
+      select: { companyId: true, role: true, isActive: true, isSystemMaster: true, deactivatedAt: true },
     });
     const retentionUntil = new Date(Date.now() + retentionDays * 24 * 60 * 60 * 1000);
+    const endedAt = new Date();
     const updated = await this.prisma.user.update({
       where: { id: userId },
       data: {
         isActive: false,
-        deactivatedAt: new Date(),
+        deactivatedAt: endedAt,
         retentionUntil,
       },
     });
-    if (before?.companyId && before.isActive && !before.deactivatedAt && !before.isSystemMaster) {
+    const company = before?.companyId
+      ? await this.prisma.company.findUnique({ where: { id: before.companyId }, select: { slug: true } })
+      : null;
+    if (isBillableUserSeatSnapshot(before, company)) {
+      await this.closeBillableSeatUsage({
+        companyId: before.companyId,
+        userId,
+        source: 'user_deactivate',
+        endedAt,
+      });
       await this.logBillableUserChange({
         companyId: before.companyId,
         userId,
@@ -221,6 +404,7 @@ export class UsersService {
   }
 
   async reactivateUser(userId: number): Promise<User> {
+    const startedAt = new Date();
     const updated = await this.prisma.user.update({
       where: { id: userId },
       data: {
@@ -229,7 +413,17 @@ export class UsersService {
         retentionUntil: null,
       },
     });
-    if (updated.companyId && updated.isActive && !updated.isSystemMaster) {
+    const company = updated.companyId
+      ? await this.prisma.company.findUnique({ where: { id: updated.companyId }, select: { slug: true } })
+      : null;
+    if (isBillableUserSeatSnapshot(updated, company)) {
+      await this.openBillableSeatUsage({
+        companyId: updated.companyId,
+        userId: updated.id,
+        role: updated.role,
+        source: 'user_reactivate',
+        startedAt,
+      });
       await this.logBillableUserChange({
         companyId: updated.companyId,
         userId,
@@ -249,7 +443,7 @@ export class UsersService {
   async hardDeleteUser(userId: number): Promise<void> {
     const target = await this.prisma.user.findUnique({
       where: { id: userId },
-      select: { companyId: true, isActive: true, isSystemMaster: true, deactivatedAt: true },
+      select: { companyId: true, role: true, isActive: true, isSystemMaster: true, deactivatedAt: true },
     });
     const hasWebsiteAdminEntryToken = await this.prisma.hasTable('WebsiteAdminEntryToken');
     const hasMasterBillingLedgerEntry = await this.prisma.hasTable('MasterBillingLedgerEntry');
@@ -314,9 +508,20 @@ export class UsersService {
         );
       }
 
+      await tx.companyBillableSeatUsage.updateMany({
+        where: { userId, endedAt: null },
+        data: {
+          endedAt: new Date(),
+          endSource: 'user_delete',
+        },
+      });
+
       await tx.user.delete({ where: { id: userId } });
     });
-    if (target?.companyId && target.isActive && !target.deactivatedAt && !target.isSystemMaster) {
+    const company = target?.companyId
+      ? await this.prisma.company.findUnique({ where: { id: target.companyId }, select: { slug: true } })
+      : null;
+    if (isBillableUserSeatSnapshot(target, company)) {
       await this.logBillableUserChange({
         companyId: target.companyId,
         userId,

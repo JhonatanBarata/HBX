@@ -30,6 +30,10 @@ import {
   type CommercialEntitlementKey,
   type CommercialPlanKey,
 } from './commercial-plan-catalog';
+import {
+  computeCompanySeatBillingSnapshot,
+  resolveExtraSeatMonthlyAmount,
+} from './seat-billing.util';
 
 type CommercialCurrentState = {
   planKey: ActiveCommercialPlanKey | null;
@@ -63,6 +67,12 @@ type CommercialBillingBreakdown = {
   extraUsers: number;
   extraUserMonthlyPrice: number;
   extraUsersMonthlyAmount: number;
+  extraUsersProratedAmount?: number;
+  extraUsersBillableDays?: number;
+  billedImmediately?: boolean;
+  billingMode?: string;
+  billingPeriodStart?: string;
+  billingPeriodEnd?: string;
   monthlyTotal: number;
   cycleAmount: number;
 };
@@ -105,12 +115,18 @@ export class CommercialPlansService {
   }
 
   async getBillableUserCount(companyId: number): Promise<number> {
+    const company = await this.prisma.company.findUnique({
+      where: { id: Number(companyId) },
+      select: { slug: true },
+    });
+    if (this.isMasterOperationalCompany(company)) return 0;
     return this.prisma.user.count({
       where: {
         companyId: Number(companyId),
         isActive: true,
         deactivatedAt: null,
         isSystemMaster: false,
+        role: { notIn: ['USERMASTER'] },
       },
     });
   }
@@ -123,21 +139,25 @@ export class CommercialPlansService {
     const planKey = normalizeCommercialPlanKey(planKeyRaw);
     const catalogPlan = buildCommercialPlansCatalog({ includeHidden: true }).find((plan) => plan.key === planKey);
     const baseMonthly = toCommercialCurrency(catalogPlan?.monthlyPrice ?? 0);
-    const billableUsers = await this.getBillableUserCount(companyId);
     const canBillExtraUsers = planKey !== COMMERCIAL_PLAN_KEYS.LITE;
-    const includedUsers = canBillExtraUsers ? Number(catalogPlan?.includedUsers || 1) : 1;
-    const extraUserMonthlyPrice = canBillExtraUsers
-      ? toCommercialCurrency(catalogPlan?.extraUserMonthlyPrice ?? 0)
-      : 0;
-    const extraUsers = canBillExtraUsers
-      ? Math.max(0, billableUsers - includedUsers)
-      : 0;
-    const extraUsersMonthlyAmount = toCommercialCurrency(extraUsers * extraUserMonthlyPrice);
-    const monthlyTotal = toCommercialCurrency(baseMonthly + extraUsersMonthlyAmount);
     const billingCycle = String(billingCycleRaw || '').trim().toUpperCase() === 'ANNUAL' ? 'ANNUAL' : 'MONTHLY';
-    const cycleAmount = billingCycle === 'ANNUAL'
-      ? toCommercialCurrency(monthlyTotal * 12 * (1 - COMMERCIAL_PRICING.annualDiscountPercent / 100))
-      : monthlyTotal;
+    const seats = await computeCompanySeatBillingSnapshot(this.prisma, {
+      companyId,
+      planKey,
+      extraSeatMonthlyAmount: canBillExtraUsers
+        ? resolveExtraSeatMonthlyAmount(catalogPlan?.extraUserMonthlyPrice)
+        : 0,
+    });
+    const billableUsers = seats.activeUsers;
+    const includedUsers = seats.includedActiveUsers;
+    const extraUserMonthlyPrice = canBillExtraUsers ? seats.extraSeatMonthlyAmount : 0;
+    const extraUsers = canBillExtraUsers ? seats.extraActiveUsers : 0;
+    const extraUsersMonthlyAmount = canBillExtraUsers ? seats.extraSeatCycleAmount : 0;
+    const monthlyTotal = toCommercialCurrency(baseMonthly + extraUsersMonthlyAmount);
+    const baseCycleAmount = billingCycle === 'ANNUAL'
+      ? toCommercialCurrency(baseMonthly * 12 * (1 - COMMERCIAL_PRICING.annualDiscountPercent / 100))
+      : baseMonthly;
+    const cycleAmount = toCommercialCurrency(baseCycleAmount + extraUsersMonthlyAmount);
 
     return {
       baseMonthly,
@@ -146,6 +166,12 @@ export class CommercialPlansService {
       extraUsers,
       extraUserMonthlyPrice,
       extraUsersMonthlyAmount,
+      extraUsersProratedAmount: seats.extraSeatCycleAmount,
+      extraUsersBillableDays: seats.extraSeatBillableDays,
+      billedImmediately: seats.billedImmediately,
+      billingMode: seats.billingMode,
+      billingPeriodStart: seats.billingPeriodStart,
+      billingPeriodEnd: seats.billingPeriodEnd,
       monthlyTotal,
       cycleAmount,
     };
@@ -324,7 +350,9 @@ export class CommercialPlansService {
       ? Math.max(0, Math.ceil((billingGraceEndsAt.getTime() - Date.now()) / (60 * 60 * 1000)))
       : null;
 
-    const billingBreakdown = planKey
+    const billingBreakdown = masterOperational
+      ? null
+      : planKey
       ? await this.computeCompanyCommercialAmount(Number(company?.id || 0), planKey, company?.billingCycle)
       : null;
     const assistedSetupRequired = masterOperational

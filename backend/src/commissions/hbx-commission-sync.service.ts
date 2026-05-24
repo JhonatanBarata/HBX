@@ -140,6 +140,130 @@ export class HbxCommissionSyncService {
     return Math.min(100, Math.max(0, Number(owner?.commissionPercent || 0) || 0));
   }
 
+  private async resolveReferralChain(companyId: number, sellerUserId?: number | null) {
+    const chain: Array<{ sellerUserId: number; percent: number; depth: number }> = [];
+    let childUserId = Math.trunc(Number(sellerUserId || 0));
+    const seen = new Set<number>();
+    for (let depth = 1; depth <= 5; depth += 1) {
+      if (!childUserId || seen.has(childUserId)) break;
+      seen.add(childUserId);
+      const child = await this.prisma.user.findFirst({
+        where: { id: childUserId, companyId },
+        select: {
+          referredByUserId: true,
+          referredByCommissionPercentSnapshot: true,
+        },
+      }).catch(() => null);
+      const referrerId = Math.trunc(Number(child?.referredByUserId || 0));
+      if (!referrerId || seen.has(referrerId)) break;
+      const referrer = await this.prisma.user.findFirst({
+        where: {
+          id: referrerId,
+          companyId,
+          role: 'USER',
+          isSystemMaster: false,
+        },
+        select: { id: true },
+      }).catch(() => null);
+      if (!referrer) break;
+      const percent = Math.min(100, Math.max(0, Number(child?.referredByCommissionPercentSnapshot || 0) || 0));
+      if (percent > 0) {
+        chain.push({ sellerUserId: referrer.id, percent, depth });
+      }
+      childUserId = referrer.id;
+    }
+    return chain;
+  }
+
+  private async syncInheritedReceivablesForLead(input: {
+    leadId: string;
+    companyId: number;
+    assignedUserId?: number | null;
+    linkedCompanyId?: number | null;
+    baseAmount: number;
+    cycleKey: string;
+    kindPrefix: 'inheritance_initial' | 'inheritance_recurring';
+    status: 'payable' | 'canceled' | 'none' | 'pending' | 'paid';
+    dueAt?: Date | null;
+    source: string;
+    createdByUserId?: number | null;
+  }) {
+    const companyId = Math.trunc(Number(input.companyId || 0));
+    const leadId = String(input.leadId || '').trim();
+    const baseAmount = this.money(input.baseAmount);
+    const active = input.status === 'payable' && baseAmount > 0;
+    const chain = active ? await this.resolveReferralChain(companyId, input.assignedUserId) : [];
+    const activeKinds: string[] = [];
+    let createdInheritedReceivables = 0;
+    let updatedInheritedReceivables = 0;
+    let skippedInheritedReceivables = 0;
+
+    for (const item of chain) {
+      const kind = `${input.kindPrefix}_d${item.depth}`;
+      activeKinds.push(kind);
+      const amount = this.money((baseAmount * item.percent) / 100);
+      if (amount <= 0) {
+        skippedInheritedReceivables += 1;
+        continue;
+      }
+      const existing = await this.prisma.vendasCommissionReceivable.findFirst({
+        where: { leadId, cycleKey: input.cycleKey, kind },
+        select: { id: true, status: true },
+      });
+      if (existing?.status === 'paid') {
+        skippedInheritedReceivables += 1;
+        continue;
+      }
+      const data = {
+        companyId,
+        leadId,
+        sellerUserId: item.sellerUserId,
+        linkedCompanyId: Math.trunc(Number(input.linkedCompanyId || 0)) || null,
+        cycleKey: input.cycleKey,
+        kind,
+        status: 'payable',
+        baseAmount,
+        commissionPercent: item.percent,
+        amount,
+        dueAt: input.dueAt || this.addBusinessDays(new Date(), 3),
+        source: String(input.source || 'hbx_inherited').slice(0, 120),
+        createdByUserId: Math.trunc(Number(input.createdByUserId || 0)) || null,
+      };
+      if (existing) {
+        await this.prisma.vendasCommissionReceivable.update({
+          where: { id: existing.id },
+          data,
+        });
+        updatedInheritedReceivables += 1;
+      } else {
+        await this.prisma.vendasCommissionReceivable.create({ data });
+        createdInheritedReceivables += 1;
+      }
+    }
+
+    const cancelWhere: any = {
+      companyId,
+      leadId,
+      cycleKey: input.cycleKey,
+      kind: { startsWith: input.kindPrefix },
+      status: 'payable',
+    };
+    if (activeKinds.length) {
+      cancelWhere.kind = { startsWith: input.kindPrefix, notIn: activeKinds };
+    }
+    const canceled = await this.prisma.vendasCommissionReceivable.updateMany({
+      where: cancelWhere,
+      data: { status: 'canceled' },
+    }).catch(() => ({ count: 0 }));
+
+    return {
+      createdInheritedReceivables,
+      updatedInheritedReceivables,
+      skippedInheritedReceivables,
+      canceledInheritedReceivables: Number((canceled as any)?.count || 0) || 0,
+    };
+  }
+
   private companyIdentity(company: any) {
     const emails = new Set<string>();
     const phones = new Set<string>();
@@ -247,7 +371,28 @@ export class HbxCommissionSyncService {
           commissionSyncSource: data.commissionSyncSource,
         },
       }).catch(() => null);
-      return false;
+      const inherited = await this.syncInheritedReceivablesForLead({
+        leadId: lead.id,
+        companyId: Number(lead.companyId || 0),
+        assignedUserId: lead.assignedUserId,
+        linkedCompanyId: Number(company.id),
+        baseAmount,
+        cycleKey: 'initial',
+        kindPrefix: 'inheritance_initial',
+        status: nextCommissionStatus,
+        dueAt: nextDueAt,
+        source: options.source || 'hbx_inherited_initial',
+        createdByUserId: Number(lead?.assignedByUserId || lead?.createdByUserId || 0) || null,
+      }).catch((error) => {
+        this.logger.warn(`commission_inherited_sync_failed lead=${lead.id} company=${company.id} error=${String((error as any)?.message || error)}`);
+        return {
+          createdInheritedReceivables: 0,
+          updatedInheritedReceivables: 0,
+          skippedInheritedReceivables: 0,
+          canceledInheritedReceivables: 0,
+        };
+      });
+      return { updated: false, ...inherited };
     }
 
     await this.prisma.$transaction(async (tx) => {
@@ -269,7 +414,28 @@ export class HbxCommissionSyncService {
         },
       });
     });
-    return true;
+    const inherited = await this.syncInheritedReceivablesForLead({
+      leadId: lead.id,
+      companyId: Number(lead.companyId || 0),
+      assignedUserId: lead.assignedUserId,
+      linkedCompanyId: Number(company.id),
+      baseAmount,
+      cycleKey: 'initial',
+      kindPrefix: 'inheritance_initial',
+      status: nextCommissionStatus,
+      dueAt: nextDueAt,
+      source: options.source || 'hbx_inherited_initial',
+      createdByUserId: Number(lead?.assignedByUserId || lead?.createdByUserId || 0) || null,
+    }).catch((error) => {
+      this.logger.warn(`commission_inherited_sync_failed lead=${lead.id} company=${company.id} error=${String((error as any)?.message || error)}`);
+      return {
+        createdInheritedReceivables: 0,
+        updatedInheritedReceivables: 0,
+        skippedInheritedReceivables: 0,
+        canceledInheritedReceivables: 0,
+      };
+    });
+    return { updated: true, ...inherited };
   }
 
   async syncActivatedCompany(companyId: number, options: SyncOptions = {}) {
@@ -307,20 +473,39 @@ export class HbxCommissionSyncService {
         saleConfirmedAt: true,
         commissionLinkedCompanyId: true,
         commissionLinkedAt: true,
+        commissionBaseAmount: true,
+        saleValue: true,
       },
     });
 
     const state = this.resolveClientState(company);
     let updatedLeads = 0;
+    let createdInheritedReceivables = 0;
+    let updatedInheritedReceivables = 0;
+    let skippedInheritedReceivables = 0;
+    let canceledInheritedReceivables = 0;
     for (const lead of leads) {
-      if (await this.updateLeadFromCompany(lead, company, state, options).catch((error) => {
+      const result = await this.updateLeadFromCompany(lead, company, state, options).catch((error) => {
         this.logger.warn(`commission_sync_lead_failed lead=${lead.id} company=${targetCompanyId} error=${String((error as any)?.message || error)}`);
-        return false;
-      })) {
+        return null;
+      });
+      if (result?.updated) {
         updatedLeads += 1;
       }
+      createdInheritedReceivables += Number(result?.createdInheritedReceivables || 0) || 0;
+      updatedInheritedReceivables += Number(result?.updatedInheritedReceivables || 0) || 0;
+      skippedInheritedReceivables += Number(result?.skippedInheritedReceivables || 0) || 0;
+      canceledInheritedReceivables += Number(result?.canceledInheritedReceivables || 0) || 0;
     }
-    return { scannedCompanies: 1, matchedLeads: leads.length, updatedLeads };
+    return {
+      scannedCompanies: 1,
+      matchedLeads: leads.length,
+      updatedLeads,
+      createdInheritedReceivables,
+      updatedInheritedReceivables,
+      skippedInheritedReceivables,
+      canceledInheritedReceivables,
+    };
   }
 
   async syncSalesCompanyCommissions(salesCompanyId: number, options: SyncOptions = {}) {
@@ -376,6 +561,10 @@ export class HbxCommissionSyncService {
 
     let matchedLeads = 0;
     let updatedLeads = 0;
+    let initialCreatedInheritedReceivables = 0;
+    let initialUpdatedInheritedReceivables = 0;
+    let initialSkippedInheritedReceivables = 0;
+    let initialCanceledInheritedReceivables = 0;
     for (const company of companies) {
       const result = await this.syncActivatedCompany(company.id, {
         ...options,
@@ -384,6 +573,10 @@ export class HbxCommissionSyncService {
       });
       matchedLeads += Number(result.matchedLeads || 0);
       updatedLeads += Number(result.updatedLeads || 0);
+      initialCreatedInheritedReceivables += Number((result as any).createdInheritedReceivables || 0) || 0;
+      initialUpdatedInheritedReceivables += Number((result as any).updatedInheritedReceivables || 0) || 0;
+      initialSkippedInheritedReceivables += Number((result as any).skippedInheritedReceivables || 0) || 0;
+      initialCanceledInheritedReceivables += Number((result as any).canceledInheritedReceivables || 0) || 0;
     }
 
     const recurring = await this.generateSalesCompanyRecurringReceivables(normalizedSalesCompanyId, options).catch((error) => {
@@ -396,6 +589,14 @@ export class HbxCommissionSyncService {
       matchedLeads,
       updatedLeads,
       ...recurring,
+      createdInheritedReceivables:
+        initialCreatedInheritedReceivables + Number((recurring as any).createdInheritedReceivables || 0),
+      updatedInheritedReceivables:
+        initialUpdatedInheritedReceivables + Number((recurring as any).updatedInheritedReceivables || 0),
+      skippedInheritedReceivables:
+        initialSkippedInheritedReceivables + Number((recurring as any).skippedInheritedReceivables || 0),
+      canceledInheritedReceivables:
+        initialCanceledInheritedReceivables + Number((recurring as any).canceledInheritedReceivables || 0),
     };
   }
 
@@ -447,6 +648,10 @@ export class HbxCommissionSyncService {
 
     let createdReceivables = 0;
     let skippedReceivables = 0;
+    let createdInheritedReceivables = 0;
+    let updatedInheritedReceivables = 0;
+    let skippedInheritedReceivables = 0;
+    let canceledInheritedReceivables = 0;
     for (const lead of leads) {
       const activatedAt =
         lead.saleConfirmedAt instanceof Date
@@ -477,39 +682,69 @@ export class HbxCommissionSyncService {
       });
       if (exists) {
         skippedReceivables += 1;
-        continue;
+      } else {
+        await this.prisma.vendasCommissionReceivable.create({
+          data: {
+            companyId,
+            leadId: lead.id,
+            sellerUserId: Number(lead.assignedUserId || 0) || null,
+            linkedCompanyId: Number(lead.commissionLinkedCompanyId || 0) || null,
+            cycleKey,
+            kind: 'recurring',
+            status: 'payable',
+            baseAmount,
+            commissionPercent: percent,
+            amount,
+            dueAt: this.addBusinessDays(now, 3),
+            source: String(options.source || 'hbx_recurring').slice(0, 120),
+            createdByUserId: Number(lead.assignedByUserId || lead.createdByUserId || 0) || null,
+          },
+        }).then(() => {
+          createdReceivables += 1;
+        }).catch((error) => {
+          if (String((error as any)?.code || '') === 'P2002') {
+            skippedReceivables += 1;
+            return;
+          }
+          throw error;
+        });
       }
-      await this.prisma.vendasCommissionReceivable.create({
-        data: {
-          companyId,
-          leadId: lead.id,
-          sellerUserId: Number(lead.assignedUserId || 0) || null,
-          linkedCompanyId: Number(lead.commissionLinkedCompanyId || 0) || null,
-          cycleKey,
-          kind: 'recurring',
-          status: 'payable',
-          baseAmount,
-          commissionPercent: percent,
-          amount,
-          dueAt: this.addBusinessDays(now, 3),
-          source: String(options.source || 'hbx_recurring').slice(0, 120),
-          createdByUserId: Number(lead.assignedByUserId || lead.createdByUserId || 0) || null,
-        },
-      }).then(() => {
-        createdReceivables += 1;
+
+      const inherited = await this.syncInheritedReceivablesForLead({
+        leadId: lead.id,
+        companyId,
+        assignedUserId: lead.assignedUserId,
+        linkedCompanyId: Number(lead.commissionLinkedCompanyId || 0) || null,
+        baseAmount,
+        cycleKey,
+        kindPrefix: 'inheritance_recurring',
+        status: 'payable',
+        dueAt: this.addBusinessDays(now, 3),
+        source: options.source || 'hbx_inherited_recurring',
+        createdByUserId: Number(lead.assignedByUserId || lead.createdByUserId || 0) || null,
       }).catch((error) => {
-        if (String((error as any)?.code || '') === 'P2002') {
-          skippedReceivables += 1;
-          return;
-        }
-        throw error;
+        this.logger.warn(`commission_inherited_recurring_failed lead=${lead.id} company=${companyId} error=${String((error as any)?.message || error)}`);
+        return {
+          createdInheritedReceivables: 0,
+          updatedInheritedReceivables: 0,
+          skippedInheritedReceivables: 0,
+          canceledInheritedReceivables: 0,
+        };
       });
+      createdInheritedReceivables += Number(inherited.createdInheritedReceivables || 0) || 0;
+      updatedInheritedReceivables += Number(inherited.updatedInheritedReceivables || 0) || 0;
+      skippedInheritedReceivables += Number(inherited.skippedInheritedReceivables || 0) || 0;
+      canceledInheritedReceivables += Number(inherited.canceledInheritedReceivables || 0) || 0;
     }
 
     return {
       createdReceivables,
       skippedReceivables,
       canceledReceivables: Number((canceledReceivablesResult as any)?.count || 0) || 0,
+      createdInheritedReceivables,
+      updatedInheritedReceivables,
+      skippedInheritedReceivables,
+      canceledInheritedReceivables,
     };
   }
 }

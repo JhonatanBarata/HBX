@@ -158,6 +158,7 @@ model Company {
   vendasLeads         VendasLead[]
   vendasCommissionPayouts VendasCommissionPayout[]
   vendasCommissionReceivables VendasCommissionReceivable[]
+  billableSeatUsages CompanyBillableSeatUsage[]
   salesProfiles       SalesProfile[]
   vendasAutomationCampaigns VendasAutomationCampaign[]
   vendasAutomationJobs VendasAutomationJob[]
@@ -853,6 +854,12 @@ model User {
   name            String?
   phone           String?
   commissionPercent Float          @default(0)
+  canRegisterHbxSellers Boolean    @default(false)
+  sellerReferralCommissionPercent Float @default(0)
+  referredByUserId Int?
+  referredByCommissionPercentSnapshot Float @default(0)
+  referredByUser  User?            @relation("UserSellerReferralNetwork", fields: [referredByUserId], references: [id], onDelete: SetNull)
+  referredUsers   User[]           @relation("UserSellerReferralNetwork")
   company         Company?         @relation(fields: [companyId], references: [id])
   companyId       Int?
   role            String           @default("USER")
@@ -882,6 +889,29 @@ model User {
   nightFactoryRewardClaims NightFactoryRewardClaim[]
   salesProfiles SalesProfile[]
   vendasCardComplaints VendasCardComplaint[]
+  billableSeatUsages CompanyBillableSeatUsage[]
+
+  @@index([referredByUserId])
+  @@index([canRegisterHbxSellers])
+}
+
+model CompanyBillableSeatUsage {
+  id          String   @id @default(cuid())
+  company     Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  companyId   Int
+  user        User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  userId      Int?
+  role        String?
+  startedAt   DateTime
+  endedAt     DateTime?
+  startSource String?
+  endSource   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([companyId, startedAt])
+  @@index([companyId, endedAt])
+  @@index([companyId, userId, endedAt])
 }
 
 model VendasCardComplaint {

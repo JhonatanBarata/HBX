@@ -147,6 +147,34 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
       ALTER TABLE "User"
       ADD COLUMN IF NOT EXISTS "commissionPercent" DOUBLE PRECISION NOT NULL DEFAULT 0
     `);
+
+    await this.$executeRawUnsafe(`
+      ALTER TABLE "User"
+      ADD COLUMN IF NOT EXISTS "canRegisterHbxSellers" BOOLEAN NOT NULL DEFAULT false
+    `);
+
+    await this.$executeRawUnsafe(`
+      ALTER TABLE "User"
+      ADD COLUMN IF NOT EXISTS "sellerReferralCommissionPercent" DOUBLE PRECISION NOT NULL DEFAULT 0
+    `);
+
+    await this.$executeRawUnsafe(`
+      ALTER TABLE "User"
+      ADD COLUMN IF NOT EXISTS "referredByUserId" INTEGER
+    `);
+
+    await this.$executeRawUnsafe(`
+      ALTER TABLE "User"
+      ADD COLUMN IF NOT EXISTS "referredByCommissionPercentSnapshot" DOUBLE PRECISION NOT NULL DEFAULT 0
+    `);
+
+    await this.$executeRawUnsafe(
+      'CREATE INDEX IF NOT EXISTS "User_referredByUserId_idx" ON "User"("referredByUserId")',
+    );
+
+    await this.$executeRawUnsafe(
+      'CREATE INDEX IF NOT EXISTS "User_canRegisterHbxSellers_idx" ON "User"("canRegisterHbxSellers")',
+    );
   }
 
   private async ensureVendasLeadAssignmentColumns() {

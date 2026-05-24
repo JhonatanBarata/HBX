@@ -433,6 +433,31 @@ async function ensureMasterBillingRuntimeSchemaUncached(prisma: PrismaService) {
   );
 
   await prisma.$executeRawUnsafe(`
+    CREATE TABLE IF NOT EXISTS "CompanyBillableSeatUsage" (
+      "id" TEXT PRIMARY KEY,
+      "companyId" INTEGER NOT NULL REFERENCES "Company"("id") ON DELETE CASCADE,
+      "userId" INTEGER REFERENCES "User"("id") ON DELETE SET NULL,
+      "role" TEXT,
+      "startedAt" TIMESTAMP(3) NOT NULL,
+      "endedAt" TIMESTAMP(3),
+      "startSource" TEXT,
+      "endSource" TEXT,
+      "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
+  await prisma.$executeRawUnsafe(
+    'CREATE INDEX IF NOT EXISTS "CompanyBillableSeatUsage_companyId_startedAt_idx" ON "CompanyBillableSeatUsage"("companyId", "startedAt")',
+  );
+  await prisma.$executeRawUnsafe(
+    'CREATE INDEX IF NOT EXISTS "CompanyBillableSeatUsage_companyId_endedAt_idx" ON "CompanyBillableSeatUsage"("companyId", "endedAt")',
+  );
+  await prisma.$executeRawUnsafe(
+    'CREATE INDEX IF NOT EXISTS "CompanyBillableSeatUsage_companyId_userId_endedAt_idx" ON "CompanyBillableSeatUsage"("companyId", "userId", "endedAt")',
+  );
+
+  await prisma.$executeRawUnsafe(`
     CREATE TABLE IF NOT EXISTS "FinanceiroCharge" (
       "id" TEXT PRIMARY KEY,
       "companyId" INTEGER NOT NULL REFERENCES "Company"("id") ON DELETE CASCADE,

@@ -35,6 +35,7 @@ import {
   normalizeCommercialPlanKey,
   type ActiveCommercialPlanKey,
 } from '../commercial-plans/commercial-plan-catalog';
+import { resolveExtraSeatMonthlyAmount } from '../commercial-plans/seat-billing.util';
 import { ensureVendasComplaintsRuntimeSchema } from '../vendas/vendas-complaints-runtime';
 import {
   PRIMARY_COMMERCIAL_MODULE_KEYS,
@@ -324,14 +325,15 @@ export class ModulesService implements OnModuleInit {
   }
 
   private resolveExtraSeatMonthlyAmount(pricingPolicy: any) {
-    return this.normalizeCurrencyAmount(
-      pricingPolicy?.extraSeatMonthlyAmount ?? process.env.HBX_EXTRA_SEAT_MONTHLY_AMOUNT ?? 0,
-    );
+    return this.normalizeCurrencyAmount(resolveExtraSeatMonthlyAmount(pricingPolicy?.extraSeatMonthlyAmount));
   }
 
   private buildSeatBillingSnapshot(company: any, billingCycle: string, pricingPolicy?: any) {
     const activeUsers = Array.isArray(company?.users)
-      ? company.users.filter((user: any) => Boolean(user?.isActive) && !Boolean(user?.isSystemMaster)).length
+      ? company.users.filter((user: any) => {
+          const role = String(user?.role || '').trim().toUpperCase();
+          return Boolean(user?.isActive) && !user?.deactivatedAt && !Boolean(user?.isSystemMaster) && role !== 'USERMASTER';
+        }).length
       : 0;
     const includedActiveUsers = 2;
     const extraActiveUsers = Math.max(0, activeUsers - includedActiveUsers);
