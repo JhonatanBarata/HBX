@@ -267,6 +267,151 @@ type ConversionReportResponse = {
   recommendation?: string;
 };
 
+type SellerAuditRow = {
+  seller: {
+    id: number;
+    name?: string | null;
+    email?: string | null;
+    phone?: string | null;
+    active?: boolean | null;
+    commissionPercent?: number | null;
+    startedAt?: string | null;
+  };
+  metrics: {
+    activeCards?: number | null;
+    receivedCards?: number | null;
+    workedCards?: number | null;
+    idleCards?: number | null;
+    idleReceivedCards?: number | null;
+    overdueCards?: number | null;
+    returnCards?: number | null;
+    interestedCards?: number | null;
+    closedCards?: number | null;
+    trialOrSaleCards?: number | null;
+    receivedToday?: number | null;
+    workedToday?: number | null;
+    idleReceivedToday?: number | null;
+    responseCards?: number | null;
+    refusedCards?: number | null;
+    blockedCards?: number | null;
+    dailyLimit?: number | null;
+    deliveredToday?: number | null;
+    dailyRemaining?: number | null;
+    skippedToday?: number | null;
+    workRate?: number | null;
+  };
+  topCity?: string | null;
+  topSegment?: string | null;
+  lastActivityAt?: string | null;
+  status?: {
+    key?: string | null;
+    label?: string | null;
+    tone?: "success" | "learning" | "warning" | "info" | string | null;
+    recommendation?: string | null;
+  };
+  operation?: {
+    action?: string | null;
+    label?: string | null;
+    reason?: string | null;
+    dayKey?: string | null;
+    ruleActive?: boolean | null;
+    ruleScope?: string | null;
+    ruleCity?: string | null;
+    ruleState?: string | null;
+    ruleSegment?: string | null;
+    territoryMode?: string | null;
+    territoryCities?: Array<{ city: string; state: string }>;
+    coversRuleCity?: boolean | null;
+    dailyLimit?: number | null;
+    deliveredToday?: number | null;
+    dailyRemaining?: number | null;
+    skippedToday?: number | null;
+    lastSkipReason?: string | null;
+  };
+  governance?: {
+    mode?: "learning" | "normal" | "priority" | "paused" | string | null;
+    label?: string | null;
+    pausedUntil?: string | null;
+    pausedActive?: boolean | null;
+    dailyLimitOverride?: number | null;
+    note?: string | null;
+    updatedAt?: string | null;
+  };
+  automaticPenalty?: boolean | null;
+};
+
+type SellerAuditResponse = {
+  ok?: boolean;
+  canManage?: boolean;
+  learningMode?: boolean;
+  automaticPenalty?: boolean;
+  period?: {
+    key?: string | null;
+    label?: string | null;
+    start?: string | null;
+    end?: string | null;
+  };
+  totals?: {
+    sellers?: number | null;
+    activeCards?: number | null;
+    receivedCards?: number | null;
+    workedCards?: number | null;
+    idleCards?: number | null;
+    idleReceivedCards?: number | null;
+    overdueCards?: number | null;
+    interestedCards?: number | null;
+    trialOrSaleCards?: number | null;
+    receivedToday?: number | null;
+    workedToday?: number | null;
+    idleReceivedToday?: number | null;
+    responseCards?: number | null;
+    refusedCards?: number | null;
+    blockedCards?: number | null;
+    dailyLimit?: number | null;
+    deliveredToday?: number | null;
+    dailyRemaining?: number | null;
+    skippedToday?: number | null;
+    canReceive?: number | null;
+    exceptions?: number | null;
+    territoryIssues?: number | null;
+    dailyLimitReached?: number | null;
+    manualPaused?: number | null;
+  };
+  operation?: {
+    title?: string | null;
+    dayKey?: string | null;
+    ruleActive?: boolean | null;
+    ruleScope?: string | null;
+    ruleCity?: string | null;
+    ruleState?: string | null;
+    ruleSegment?: string | null;
+    territoryMode?: string | null;
+    dailyLimitPerSeller?: number | null;
+    summary?: {
+      receivedToday?: number | null;
+      workedToday?: number | null;
+      idleReceivedToday?: number | null;
+      responses?: number | null;
+      refused?: number | null;
+      blocked?: number | null;
+      dailyLimit?: number | null;
+      deliveredToday?: number | null;
+      dailyRemaining?: number | null;
+      skippedToday?: number | null;
+      canReceive?: number | null;
+      exceptions?: number | null;
+      territoryIssues?: number | null;
+      dailyLimitReached?: number | null;
+      manualPaused?: number | null;
+    };
+  };
+  rows?: SellerAuditRow[];
+  auditPolicy?: {
+    title?: string | null;
+    description?: string | null;
+  };
+};
+
 type CommissionClient = {
   leadId: string;
   name?: string | null;
@@ -286,6 +431,8 @@ type CommissionClient = {
   commissionLinkedCompanyId?: number | null;
   commissionLinkedAt?: string | null;
   commissionSyncSource?: string | null;
+  sellerUserId?: number | null;
+  receivableId?: string | null;
   recurringCycleKey?: string | null;
   commissionKind?: string | null;
   isRecurring?: boolean | null;
@@ -296,6 +443,8 @@ type CommissionClient = {
 type CommissionPayout = {
   id: string;
   sellerUserId?: number | null;
+  sellerName?: string | null;
+  sellerEmail?: string | null;
   status?: string | null;
   leadCount: number;
   totalAmount: number;
@@ -307,6 +456,7 @@ type CommissionPayout = {
 type CommissionSummaryResponse = {
   ok?: boolean;
   scope?: "seller" | "company" | string;
+  canPayout?: boolean | null;
   generatedAt?: string | null;
   settings?: {
     dueBusinessDays?: number | null;
@@ -330,6 +480,15 @@ type CommissionSummaryResponse = {
     paidAmount?: number | null;
     nextDueAt?: string | null;
   };
+  financeAudit?: {
+    paidPayoutCount?: number | null;
+    paidPayoutAmount?: number | null;
+    canceledPayoutCount?: number | null;
+    canceledPayoutAmount?: number | null;
+    reopenedAmount?: number | null;
+    lastPaidAt?: string | null;
+    lastCanceledAt?: string | null;
+  } | null;
   clients?: {
     payable?: CommissionClient[];
     pendingActivation?: CommissionClient[];
@@ -337,7 +496,181 @@ type CommissionSummaryResponse = {
     inactive?: CommissionClient[];
     paid?: CommissionClient[];
   };
+  sellerPayouts?: Array<{
+    sellerUserId: number;
+    sellerName?: string | null;
+    sellerEmail?: string | null;
+    sellerPhone?: string | null;
+    commissionPercent?: number | null;
+    activeClients?: number | null;
+    pendingAmount?: number | null;
+    payableAmount?: number | null;
+    duePayableAmount?: number | null;
+    duePayableCount?: number | null;
+    paidAmount?: number | null;
+    nextDueAt?: string | null;
+    lastPaidAt?: string | null;
+  }>;
   payouts?: CommissionPayout[];
+};
+
+type CommissionPayoutDetail = {
+  ok?: boolean;
+  canCancel?: boolean | null;
+  receipt?: {
+    id: string;
+    code?: string | null;
+    status?: string | null;
+    referenceLabel?: string | null;
+    notes?: string | null;
+    paidAt?: string | null;
+    createdAt?: string | null;
+    leadCount?: number | null;
+    totalAmount?: number | null;
+  } | null;
+  seller?: {
+    id?: number | null;
+    name?: string | null;
+    email?: string | null;
+    phone?: string | null;
+    commissionPercent?: number | null;
+  } | null;
+  createdBy?: {
+    id?: number | null;
+    name?: string | null;
+    email?: string | null;
+  } | null;
+  items?: Array<{
+    id: string;
+    type?: "direct" | "recurring" | "inheritance" | string;
+    label?: string | null;
+    leadId?: string | null;
+    name?: string | null;
+    phone?: string | null;
+    city?: string | null;
+    segment?: string | null;
+    saleStatus?: SaleStatus | string | null;
+    saleStatusLabel?: string | null;
+    salePlanKey?: string | null;
+    cycleKey?: string | null;
+    baseAmount?: number | null;
+    commissionPercent?: number | null;
+    commissionAmount?: number | null;
+    paidAt?: string | null;
+  }>;
+};
+
+type CrmIntegrityResponse = {
+  ok?: boolean;
+  scope?: "seller" | "company" | string;
+  canManage?: boolean | null;
+  generatedAt?: string | null;
+  score?: number | null;
+  statusLabel?: string | null;
+  totals?: {
+    totalCards?: number | null;
+    assignedCards?: number | null;
+    activeCards?: number | null;
+    staleAssignedCards?: number | null;
+    interestedCards?: number | null;
+    activeSellers?: number | null;
+    activeDistributionRules?: number | null;
+    deliveredToday?: number | null;
+    skippedToday?: number | null;
+    duePayableCount?: number | null;
+    missingPayoutLinks?: number | null;
+    canceledPayouts?: number | null;
+  } | null;
+  checks?: Array<{
+    key?: string | null;
+    label?: string | null;
+    status?: "ok" | "warning" | "danger" | string | null;
+    description?: string | null;
+    action?: string | null;
+  }>;
+};
+
+type HbxClosingStage =
+  | "conversation"
+  | "interested"
+  | "pendingActivation"
+  | "trial"
+  | "confirmed"
+  | "inactive";
+
+type HbxClosingPipelineItem = {
+  leadId: string;
+  name?: string | null;
+  phone?: string | null;
+  email?: string | null;
+  city?: string | null;
+  state?: string | null;
+  segment?: string | null;
+  stage: HbxClosingStage | string;
+  stageLabel?: string | null;
+  stageTone?: "info" | "warning" | "success" | "danger" | string | null;
+  status?: LeadStatus | string | null;
+  statusLabel?: string | null;
+  saleStatus?: SaleStatus | string | null;
+  saleStatusLabel?: string | null;
+  salePlanKey?: string | null;
+  saleValue?: number | null;
+  commissionStatus?: string | null;
+  commissionStatusLabel?: string | null;
+  commissionAmount?: number | null;
+  commissionDueAt?: string | null;
+  linkedCompanyId?: number | null;
+  linkedAt?: string | null;
+  hasSignupLink?: boolean | null;
+  hasAssistedSignup?: boolean | null;
+  emailPending?: boolean | null;
+  signupLinkCreatedAt?: string | null;
+  assistedSignupCreatedAt?: string | null;
+  nextStep?: string | null;
+  nextAction?: string | null;
+  lastResult?: string | null;
+  lastContactAt?: string | null;
+  updatedAt?: string | null;
+  seller?: {
+    id?: number | null;
+    name?: string | null;
+    email?: string | null;
+    phone?: string | null;
+    role?: string | null;
+    commissionPercent?: number | null;
+  } | null;
+};
+
+type HbxClosingPipelineResponse = {
+  ok?: boolean;
+  scope?: "seller" | "company" | string;
+  canManage?: boolean | null;
+  isHbxSellerNetwork?: boolean | null;
+  generatedAt?: string | null;
+  settings?: {
+    dueBusinessDays?: number | null;
+  };
+  totals?: {
+    total?: number | null;
+    conversation?: number | null;
+    interested?: number | null;
+    pendingActivation?: number | null;
+    trial?: number | null;
+    confirmed?: number | null;
+    inactive?: number | null;
+    waitingEmail?: number | null;
+    signupLinks?: number | null;
+    assistedSignups?: number | null;
+    linkedCompanies?: number | null;
+    commissionAmount?: number | null;
+    dueCommissionAmount?: number | null;
+  };
+  policy?: {
+    title?: string | null;
+    description?: string | null;
+  } | null;
+  stages?: Partial<Record<HbxClosingStage, HbxClosingPipelineItem[]>>;
+  priority?: HbxClosingPipelineItem[];
 };
 
 type ReferredSellerCreateResult = {
@@ -517,6 +850,40 @@ type ReportLeadErrorResponse = {
   autoSent?: boolean;
   whatsappUrl?: string | null;
   message?: string | null;
+};
+
+type MasterNoticeAudience = "seller" | "customer";
+type MasterNoticeTone = "info" | "success" | "warning" | "urgent";
+
+type MasterNotice = {
+  id: string;
+  audience: MasterNoticeAudience;
+  title: string;
+  body: string;
+  tone: MasterNoticeTone;
+  forceSeconds: number;
+  startsAt?: string | null;
+  expiresAt?: string | null;
+  createdAt?: string | null;
+  acknowledged?: boolean;
+  acknowledgedAt?: string | null;
+};
+
+type MasterNoticeListResponse = {
+  ok?: boolean;
+  audience?: MasterNoticeAudience;
+  canManage?: boolean;
+  notices?: MasterNotice[];
+};
+
+type MasterNoticeDraft = {
+  audience: MasterNoticeAudience;
+  title: string;
+  body: string;
+  tone: MasterNoticeTone;
+  forceSeconds: string;
+  startsAt: string;
+  expiresAt: string;
 };
 
 type LeadEnrichmentResponse = {
@@ -972,6 +1339,31 @@ function plusDaysDatetimeLocal(days: number) {
   );
   const local = new Date(now.getTime() - now.getTimezoneOffset() * 60000);
   return local.toISOString().slice(0, 16);
+}
+
+function plusDaysDateInput(days: number) {
+  const now = new Date();
+  now.setDate(now.getDate() + days);
+  const local = new Date(now.getTime() - now.getTimezoneOffset() * 60000);
+  return local.toISOString().slice(0, 10);
+}
+
+function dateInputToIso(value: string, endOfDay = false) {
+  const normalized = String(value || "").trim();
+  if (!normalized) return undefined;
+  return `${normalized}T${endOfDay ? "23:59:59" : "00:00:00"}`;
+}
+
+function createMasterNoticeDefaultDraft(audience: MasterNoticeAudience = "seller"): MasterNoticeDraft {
+  return {
+    audience,
+    title: "",
+    body: "",
+    tone: "info",
+    forceSeconds: "8",
+    startsAt: plusDaysDateInput(0),
+    expiresAt: plusDaysDateInput(7),
+  };
 }
 
 function padDatePart(value: number) {
@@ -3078,8 +3470,28 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
   const [conversionReport, setConversionReport] = useState<ConversionReportResponse | null>(null);
   const [conversionReportPeriod, setConversionReportPeriod] = useState<"today" | "7d" | "30d">("7d");
   const [conversionReportLoading, setConversionReportLoading] = useState(false);
+  const [sellerAudit, setSellerAudit] = useState<SellerAuditResponse | null>(null);
+  const [sellerAuditPeriod, setSellerAuditPeriod] = useState<"today" | "7d">("today");
+  const [sellerAuditLoading, setSellerAuditLoading] = useState(false);
+  const [sellerGovernanceSaving, setSellerGovernanceSaving] = useState<string | null>(null);
   const [commissionSummary, setCommissionSummary] = useState<CommissionSummaryResponse | null>(null);
   const [commissionLoading, setCommissionLoading] = useState(false);
+  const [commissionPayoutSaving, setCommissionPayoutSaving] = useState<string | null>(null);
+  const [commissionReceipt, setCommissionReceipt] = useState<CommissionPayoutDetail | null>(null);
+  const [commissionReceiptLoadingId, setCommissionReceiptLoadingId] = useState<string | null>(null);
+  const [commissionPayoutCancelingId, setCommissionPayoutCancelingId] = useState<string | null>(null);
+  const [crmIntegrity, setCrmIntegrity] = useState<CrmIntegrityResponse | null>(null);
+  const [crmIntegrityLoading, setCrmIntegrityLoading] = useState(false);
+  const [hbxClosingPipeline, setHbxClosingPipeline] = useState<HbxClosingPipelineResponse | null>(null);
+  const [hbxClosingLoading, setHbxClosingLoading] = useState(false);
+  const [masterNoticeAudience, setMasterNoticeAudience] = useState<MasterNoticeAudience>("seller");
+  const [masterNotices, setMasterNotices] = useState<MasterNotice[]>([]);
+  const [masterNoticeCanManage, setMasterNoticeCanManage] = useState(false);
+  const [masterNoticeCenterOpen, setMasterNoticeCenterOpen] = useState(false);
+  const [masterNoticeDraft, setMasterNoticeDraft] = useState<MasterNoticeDraft>(() => createMasterNoticeDefaultDraft("seller"));
+  const [masterNoticeSaving, setMasterNoticeSaving] = useState(false);
+  const [masterNoticeSecondsLeft, setMasterNoticeSecondsLeft] = useState(0);
+  const [activeForcedNoticeId, setActiveForcedNoticeId] = useState<string | null>(null);
   const [referredSellerName, setReferredSellerName] = useState("");
   const [referredSellerEmail, setReferredSellerEmail] = useState("");
   const [referredSellerPhone, setReferredSellerPhone] = useState("");
@@ -3354,6 +3766,39 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
     }
   }
 
+  async function loadSellerAudit(period = sellerAuditPeriod) {
+    setSellerAuditLoading(true);
+    try {
+      const payload = await apiFetch<SellerAuditResponse>(`/vendas/seller-audit?period=${encodeURIComponent(period)}`);
+      setSellerAudit(payload);
+    } catch (auditError) {
+      setError(auditError instanceof Error ? auditError.message : "Falha ao carregar operação dos vendedores.");
+    } finally {
+      setSellerAuditLoading(false);
+    }
+  }
+
+  async function updateSellerGovernance(
+    sellerId: number,
+    input: { mode?: string; pausedDays?: number; pausedUntil?: string | null; dailyLimitOverride?: number | null; note?: string | null },
+  ) {
+    const key = `${sellerId}:${input.mode || "limit"}`;
+    setSellerGovernanceSaving(key);
+    setError(null);
+    try {
+      const payload = await apiFetch<{ message?: string }>(`/vendas/seller-audit/${sellerId}/governance`, {
+        method: "PATCH",
+        body: JSON.stringify(input),
+      });
+      setFeedback(payload.message || "Governança do vendedor atualizada.");
+      await loadSellerAudit(sellerAuditPeriod);
+    } catch (governanceError) {
+      setError(governanceError instanceof Error ? governanceError.message : "Falha ao ajustar governança do vendedor.");
+    } finally {
+      setSellerGovernanceSaving(null);
+    }
+  }
+
   async function loadCommissionSummary() {
     setCommissionLoading(true);
     try {
@@ -3363,6 +3808,178 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
       setError(commissionError instanceof Error ? commissionError.message : "Falha ao carregar comissões.");
     } finally {
       setCommissionLoading(false);
+    }
+  }
+
+  async function createCommissionPayout(sellerUserId?: number | null) {
+    const key = sellerUserId ? `seller:${sellerUserId}` : "all";
+    setCommissionPayoutSaving(key);
+    setError(null);
+    try {
+      const payload = await apiFetch<{ message?: string; payout?: CommissionPayout }>("/vendas/commission/payout", {
+        method: "POST",
+        body: JSON.stringify({
+          sellerUserId: sellerUserId || undefined,
+          referenceLabel: sellerUserId ? `Fechamento D+${commissionDueDays} vendedor` : `Fechamento D+${commissionDueDays} geral`,
+          notes: "Pagamento registrado manualmente no painel de comissão.",
+        }),
+      });
+      setFeedback(payload.message || "Pagamento de comissão registrado.");
+      await loadCommissionSummary();
+      await loadHbxClosingPipeline();
+      await loadCrmIntegrity();
+    } catch (payoutError) {
+      setError(payoutError instanceof Error ? payoutError.message : "Falha ao registrar pagamento de comissão.");
+    } finally {
+      setCommissionPayoutSaving(null);
+    }
+  }
+
+  async function openCommissionReceipt(payoutId?: string | null) {
+    const normalizedPayoutId = String(payoutId || "").trim();
+    if (!normalizedPayoutId) return;
+    setCommissionReceiptLoadingId(normalizedPayoutId);
+    setError(null);
+    try {
+      const payload = await apiFetch<CommissionPayoutDetail>(`/vendas/commission/payout/${encodeURIComponent(normalizedPayoutId)}`);
+      setCommissionReceipt(payload);
+    } catch (receiptError) {
+      setError(receiptError instanceof Error ? receiptError.message : "Falha ao abrir comprovante de comissão.");
+    } finally {
+      setCommissionReceiptLoadingId(null);
+    }
+  }
+
+  async function cancelCommissionPayout(payoutId?: string | null) {
+    const normalizedPayoutId = String(payoutId || "").trim();
+    if (!normalizedPayoutId) return;
+    if (typeof window !== "undefined") {
+      const confirmed = window.confirm("Cancelar este fechamento e devolver as comissões para D+ a pagar?");
+      if (!confirmed) return;
+    }
+    setCommissionPayoutCancelingId(normalizedPayoutId);
+    setError(null);
+    try {
+      const payload = await apiFetch<{ message?: string }>(
+        `/vendas/commission/payout/${encodeURIComponent(normalizedPayoutId)}/cancel`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            notes: "Cancelamento manual pelo painel de comprovante.",
+          }),
+        },
+      );
+      setFeedback(payload.message || "Fechamento de comissão cancelado.");
+      setCommissionReceipt(null);
+      await loadCommissionSummary();
+      await loadHbxClosingPipeline();
+      await loadCrmIntegrity();
+    } catch (cancelError) {
+      setError(cancelError instanceof Error ? cancelError.message : "Falha ao cancelar fechamento de comissão.");
+    } finally {
+      setCommissionPayoutCancelingId(null);
+    }
+  }
+
+  async function loadCrmIntegrity() {
+    setCrmIntegrityLoading(true);
+    try {
+      const payload = await apiFetch<CrmIntegrityResponse>("/vendas/crm-integrity");
+      setCrmIntegrity(payload);
+    } catch (auditError) {
+      setError(auditError instanceof Error ? auditError.message : "Falha ao auditar integridade do CRM.");
+    } finally {
+      setCrmIntegrityLoading(false);
+    }
+  }
+
+  async function loadHbxClosingPipeline() {
+    setHbxClosingLoading(true);
+    try {
+      const payload = await apiFetch<HbxClosingPipelineResponse>("/vendas/hbx-closing-pipeline");
+      setHbxClosingPipeline(payload);
+    } catch (closingError) {
+      setError(closingError instanceof Error ? closingError.message : "Falha ao carregar esteira HBX.");
+    } finally {
+      setHbxClosingLoading(false);
+    }
+  }
+
+  function openHbxClosingLead(leadId?: string | null) {
+    const normalizedLeadId = String(leadId || "").trim();
+    if (!normalizedLeadId) return;
+    setSelectedLeadId(normalizedLeadId);
+    if (mobileRoute) setMobileSection("today");
+    setFeedback("Card aberto na agenda de Vendas.");
+  }
+
+  async function loadMasterNotices(audience?: MasterNoticeAudience) {
+    try {
+      const payload = await apiFetch<MasterNoticeListResponse>(
+        audience
+          ? `/vendas/master-notices?audience=${encodeURIComponent(audience)}`
+          : "/vendas/master-notices",
+      );
+      setMasterNoticeCanManage(Boolean(payload.canManage));
+      if (payload.audience) {
+        setMasterNoticeAudience(payload.audience);
+        setMasterNoticeDraft((current) => ({ ...current, audience: payload.audience || current.audience }));
+      }
+      setMasterNotices(Array.isArray(payload.notices) ? payload.notices : []);
+    } catch {
+      setMasterNotices([]);
+    }
+  }
+
+  async function acknowledgeMasterNotice(noticeId: string) {
+    if (!noticeId) return;
+    setMasterNotices((current) =>
+      current.map((notice) =>
+        notice.id === noticeId
+          ? { ...notice, acknowledged: true, acknowledgedAt: new Date().toISOString() }
+          : notice,
+      ),
+    );
+    try {
+      await apiFetch(`/vendas/master-notices/${encodeURIComponent(noticeId)}/ack`, {
+        method: "POST",
+      });
+    } catch (noticeError) {
+      setError(noticeError instanceof Error ? noticeError.message : "Falha ao fechar aviso.");
+      void loadMasterNotices(masterNoticeAudience);
+    }
+  }
+
+  async function createMasterNotice(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const title = masterNoticeDraft.title.trim();
+    const body = masterNoticeDraft.body.trim();
+    if (!title || !body) {
+      setError("Informe título e mensagem do aviso.");
+      return;
+    }
+    setMasterNoticeSaving(true);
+    setError(null);
+    try {
+      await apiFetch<{ ok?: boolean; notice?: MasterNotice }>("/vendas/master-notices", {
+        method: "POST",
+        body: JSON.stringify({
+          audience: masterNoticeDraft.audience,
+          title,
+          body,
+          tone: masterNoticeDraft.tone,
+          forceSeconds: Math.max(0, Math.min(120, Math.trunc(Number(masterNoticeDraft.forceSeconds || 0) || 0))),
+          startsAt: dateInputToIso(masterNoticeDraft.startsAt),
+          expiresAt: dateInputToIso(masterNoticeDraft.expiresAt, true),
+        }),
+      });
+      setFeedback("Aviso Master publicado.");
+      setMasterNoticeDraft(createMasterNoticeDefaultDraft(masterNoticeDraft.audience));
+      await loadMasterNotices(masterNoticeDraft.audience);
+    } catch (noticeError) {
+      setError(noticeError instanceof Error ? noticeError.message : "Falha ao publicar aviso.");
+    } finally {
+      setMasterNoticeSaving(false);
     }
   }
 
@@ -3794,8 +4411,67 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
 
   useEffect(() => {
     if (hasToken !== true) return;
+    void loadSellerAudit(sellerAuditPeriod);
+  }, [hasToken, sellerAuditPeriod]);
+
+  useEffect(() => {
+    if (hasToken !== true) return;
     void loadCommissionSummary();
   }, [hasToken]);
+
+  useEffect(() => {
+    if (hasToken !== true) return;
+    void loadCrmIntegrity();
+  }, [hasToken]);
+
+  useEffect(() => {
+    if (hasToken !== true) return;
+    void loadHbxClosingPipeline();
+  }, [hasToken]);
+
+  useEffect(() => {
+    if (hasToken !== true) return;
+    void loadMasterNotices();
+  }, [hasToken]);
+
+  useEffect(() => {
+    if (hasToken !== true) return;
+    const timer = window.setInterval(() => void loadMasterNotices(masterNoticeAudience), 60000);
+    return () => window.clearInterval(timer);
+  }, [hasToken, masterNoticeAudience]);
+
+  const pendingMasterNoticeCount = useMemo(
+    () => masterNotices.filter((notice) => !notice.acknowledged).length,
+    [masterNotices],
+  );
+
+  const forcedMasterNotice = useMemo(
+    () =>
+      masterNotices.find(
+        (notice) => !notice.acknowledged && Number(notice.forceSeconds || 0) > 0,
+      ) || null,
+    [masterNotices],
+  );
+
+  useEffect(() => {
+    if (!forcedMasterNotice) {
+      setActiveForcedNoticeId(null);
+      setMasterNoticeSecondsLeft(0);
+      return;
+    }
+    if (activeForcedNoticeId === forcedMasterNotice.id) return;
+    setActiveForcedNoticeId(forcedMasterNotice.id);
+    setMasterNoticeSecondsLeft(Math.max(0, Math.trunc(Number(forcedMasterNotice.forceSeconds || 0) || 0)));
+  }, [forcedMasterNotice, activeForcedNoticeId]);
+
+  useEffect(() => {
+    if (!activeForcedNoticeId || masterNoticeSecondsLeft <= 0) return;
+    const timer = window.setTimeout(
+      () => setMasterNoticeSecondsLeft((current) => Math.max(0, current - 1)),
+      1000,
+    );
+    return () => window.clearTimeout(timer);
+  }, [activeForcedNoticeId, masterNoticeSecondsLeft]);
 
   useEffect(() => {
     if (hasToken !== true) return;
@@ -5111,6 +5787,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
               <small className={styles.mobileVendasReportLock}>Exportação PDF disponível no HBX Lead</small>
             ) : null}
           </section>
+          {renderSellerAuditPanel("mobile")}
         </div>
       );
     }
@@ -5144,6 +5821,9 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
     }
 
     function renderMobileCommission() {
+      const sellerPayoutRows = (commissionSummary?.sellerPayouts || []).filter((row) => Number(row.duePayableAmount || 0) > 0).slice(0, 8);
+      const canRegisterPayout = Boolean(commissionSummary?.canPayout && duePayableAmount > 0);
+      const financeAudit = commissionSummary?.financeAudit || null;
       return (
         <div className={styles.mobileVendasList}>
           <section className={`${styles.mobileVendasCommissionPanel} hbx-mobile-card`}>
@@ -5206,6 +5886,54 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
               Fechou no Vendas, o Admin ativa no Gerencial, a comissão entra em D+{commissionDueDays} e depois aparece como paga.
             </p>
           </section>
+
+          {commissionSummary?.canPayout ? (
+            <section className={`${styles.mobileVendasCommissionBlock} hbx-mobile-card`}>
+              <div className={styles.mobileVendasCommissionBlockHeader}>
+                <div>
+                  <strong>Fechamento financeiro</strong>
+                  <span>{sellerPayoutRows.length ? "Vencido por vendedor" : "Nada vencido agora"}</span>
+                </div>
+                <button
+                  type="button"
+                  className={styles.mobileCommissionPayoutButton}
+                  onClick={() => void createCommissionPayout(null)}
+                  disabled={!canRegisterPayout || commissionPayoutSaving !== null}
+                >
+                  {commissionPayoutSaving === "all" ? "Registrando" : "Pagar D+"}
+                </button>
+              </div>
+              {sellerPayoutRows.length ? (
+                <div className={styles.mobileVendasCommissionRows}>
+                  {sellerPayoutRows.map((seller) => {
+                    const key = `seller:${seller.sellerUserId}`;
+                    return (
+                      <article key={seller.sellerUserId} data-tone="due" className={styles.mobileCommissionPayoutRow}>
+                        <div>
+                          <strong>{seller.sellerName || seller.sellerEmail || "Vendedor"}</strong>
+                          <span>{seller.duePayableCount || 0} comissão(ões) liberada(s) · {formatPercent(seller.commissionPercent || 0)}</span>
+                        </div>
+                        <b>{formatCurrency(seller.duePayableAmount || 0)}</b>
+                        <button
+                          type="button"
+                          onClick={() => void createCommissionPayout(seller.sellerUserId)}
+                          disabled={commissionPayoutSaving !== null}
+                        >
+                          {commissionPayoutSaving === key ? "..." : "Pagar"}
+                        </button>
+                        <small>Próximo D+: {formatDateTime(seller.nextDueAt)}</small>
+                      </article>
+                    );
+                  })}
+                </div>
+              ) : (
+                <p className={styles.mobileVendasCommissionEmpty}>Sem comissão vencida para registrar pagamento.</p>
+              )}
+            </section>
+          ) : null}
+
+          {renderCrmIntegrityPanel("mobile")}
+          {renderHbxClosingPipelinePanel("mobile")}
 
           {commissionSummary?.sellerNetwork?.isHbxSellerNetwork ? (
             <section className={`${styles.mobileVendasCommissionBlock} hbx-mobile-card`}>
@@ -5287,6 +6015,34 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
 
           <section className={`${styles.mobileVendasCommissionBlock} hbx-mobile-card`}>
             <div className={styles.mobileVendasCommissionBlockHeader}>
+              <div>
+                <strong>Auditoria financeira</strong>
+                <span>Pagamentos e correções</span>
+              </div>
+              <span>{financeAudit?.canceledPayoutCount || 0} cancelado(s)</span>
+            </div>
+            <div className={styles.mobileCommissionAuditGrid}>
+              <span>
+                <small>Fechado</small>
+                <strong>{formatCurrency(financeAudit?.paidPayoutAmount || 0)}</strong>
+              </span>
+              <span data-tone="danger">
+                <small>Reaberto</small>
+                <strong>{formatCurrency(financeAudit?.reopenedAmount || 0)}</strong>
+              </span>
+              <span>
+                <small>Pagamentos</small>
+                <strong>{financeAudit?.paidPayoutCount || 0}</strong>
+              </span>
+              <span data-tone="danger">
+                <small>Último cancel.</small>
+                <strong>{formatDateTime(financeAudit?.lastCanceledAt)}</strong>
+              </span>
+            </div>
+          </section>
+
+          <section className={`${styles.mobileVendasCommissionBlock} hbx-mobile-card`}>
+            <div className={styles.mobileVendasCommissionBlockHeader}>
               <strong>Pagamentos registrados</strong>
               <span>{(commissionSummary?.payouts || []).length}</span>
             </div>
@@ -5296,10 +6052,20 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
                   <article key={payout.id}>
                     <div>
                       <strong>{payout.referenceLabel || "Fechamento"}</strong>
-                      <span>{payout.leadCount} comissão(ões) · {formatDateTime(payout.paidAt || payout.createdAt)}</span>
+                      <span>
+                        {payout.sellerName || payout.sellerEmail || "Geral"} · {payout.leadCount} comissão(ões) · {formatDateTime(payout.paidAt || payout.createdAt)}
+                      </span>
                     </div>
                     <b>{formatCurrency(payout.totalAmount || 0)}</b>
-                    <small>Pago</small>
+                    <button
+                      type="button"
+                      className={styles.mobileCommissionReceiptButton}
+                      onClick={() => void openCommissionReceipt(payout.id)}
+                      disabled={commissionReceiptLoadingId === payout.id}
+                    >
+                      {commissionReceiptLoadingId === payout.id ? "Abrindo" : "Comprovante"}
+                    </button>
+                    <small>{String(payout.status || "").toLowerCase() === "canceled" ? "Cancelado" : "Pago"}</small>
                   </article>
                 ))}
               </div>
@@ -6711,6 +7477,8 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
       salePlanKey: patch.salePlanKey,
       saleValue: parseCurrencyInput(String(patch.saleValue || "")),
     });
+    await loadHbxClosingPipeline();
+    await loadCommissionSummary();
   }
 
   async function createHbxSalesHandoff(lead: LeadItem) {
@@ -6742,6 +7510,8 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
       }
       setFeedback(textToCopy ? "Link HBX copiado para enviar ao cliente." : "Link HBX gerado.");
       await loadBoard({ forceHydrateDrafts: true, forceVisualRefresh: true });
+      await loadHbxClosingPipeline();
+      await loadCommissionSummary();
     } catch (handoffError) {
       setError(
         handoffError instanceof Error
@@ -6807,6 +7577,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
       setFeedback(payload?.message || "Cadastro assistido criado. Aguarde a confirmação do e-mail.");
       await loadBoard({ forceHydrateDrafts: true, forceVisualRefresh: true });
       await loadCommissionSummary();
+      await loadHbxClosingPipeline();
     } catch (signupError) {
       setError(
         signupError instanceof Error
@@ -7823,18 +8594,629 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
     );
   }
 
+  function renderMasterNoticeCenter() {
+    const canUseDocument = typeof document !== "undefined";
+    const audienceLabel = masterNoticeAudience === "customer" ? "Clientes" : "Vendedores";
+    const activeForcedNotice =
+      forcedMasterNotice && activeForcedNoticeId === forcedMasterNotice.id
+        ? forcedMasterNotice
+        : null;
+
+    const panel = masterNoticeCenterOpen && canUseDocument
+      ? createPortal(
+          <div
+            className={styles.masterNoticeBackdrop}
+            onClick={() => setMasterNoticeCenterOpen(false)}
+          >
+            <section
+              className={styles.masterNoticePanel}
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="master-notice-title"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <header className={styles.masterNoticeHeader}>
+                <div>
+                  <span>Avisos Master</span>
+                  <strong id="master-notice-title">Central de comunicados</strong>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setMasterNoticeCenterOpen(false)}
+                  aria-label="Fechar avisos"
+                >
+                  X
+                </button>
+              </header>
+
+              <div className={styles.masterNoticeTabs} role="tablist" aria-label="Público dos avisos">
+                {(["seller", "customer"] as MasterNoticeAudience[]).map((audience) => {
+                  return (
+                    <button
+                      key={audience}
+                      type="button"
+                      data-active={masterNoticeAudience === audience ? "true" : "false"}
+                      onClick={() => {
+                        setMasterNoticeAudience(audience);
+                        setMasterNoticeDraft((current) => ({ ...current, audience }));
+                        void loadMasterNotices(audience);
+                      }}
+                    >
+                      {audience === "seller" ? "Vendedores" : "Clientes"}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {masterNoticeCanManage ? (
+                <form className={styles.masterNoticeComposer} onSubmit={createMasterNotice}>
+                  <div className={styles.masterNoticeComposerTop}>
+                    <label>
+                      <span>Título</span>
+                      <input
+                        value={masterNoticeDraft.title}
+                        onChange={(event) =>
+                          setMasterNoticeDraft((current) => ({ ...current, title: event.target.value }))
+                        }
+                        maxLength={96}
+                        placeholder="Ex.: Script novo para estética"
+                      />
+                    </label>
+                    <label>
+                      <span>Tom</span>
+                      <select
+                        value={masterNoticeDraft.tone}
+                        onChange={(event) =>
+                          setMasterNoticeDraft((current) => ({
+                            ...current,
+                            tone: event.target.value as MasterNoticeTone,
+                          }))
+                        }
+                      >
+                        <option value="info">Informativo</option>
+                        <option value="success">Resultado</option>
+                        <option value="warning">Atenção</option>
+                        <option value="urgent">Urgente</option>
+                      </select>
+                    </label>
+                  </div>
+                  <label>
+                    <span>Mensagem</span>
+                    <textarea
+                      value={masterNoticeDraft.body}
+                      onChange={(event) =>
+                        setMasterNoticeDraft((current) => ({ ...current, body: event.target.value }))
+                      }
+                      rows={4}
+                      maxLength={1200}
+                      placeholder={`Aviso para ${audienceLabel.toLowerCase()}`}
+                    />
+                  </label>
+                  <div className={styles.masterNoticeScheduleGrid}>
+                    <label>
+                      <span>Travado por</span>
+                      <input
+                        type="number"
+                        min={0}
+                        max={120}
+                        value={masterNoticeDraft.forceSeconds}
+                        onChange={(event) =>
+                          setMasterNoticeDraft((current) => ({ ...current, forceSeconds: event.target.value }))
+                        }
+                      />
+                    </label>
+                    <label>
+                      <span>Início</span>
+                      <input
+                        type="date"
+                        value={masterNoticeDraft.startsAt}
+                        onChange={(event) =>
+                          setMasterNoticeDraft((current) => ({ ...current, startsAt: event.target.value }))
+                        }
+                      />
+                    </label>
+                    <label>
+                      <span>Expira</span>
+                      <input
+                        type="date"
+                        value={masterNoticeDraft.expiresAt}
+                        onChange={(event) =>
+                          setMasterNoticeDraft((current) => ({ ...current, expiresAt: event.target.value }))
+                        }
+                      />
+                    </label>
+                  </div>
+                  <button type="submit" className={styles.masterNoticePublish} disabled={masterNoticeSaving}>
+                    {masterNoticeSaving ? "Publicando..." : `Publicar para ${audienceLabel}`}
+                  </button>
+                </form>
+              ) : null}
+
+              <div className={styles.masterNoticeList}>
+                {masterNotices.length ? (
+                  masterNotices.map((notice) => (
+                    <article
+                      key={notice.id}
+                      className={styles.masterNoticeItem}
+                      data-tone={notice.tone || "info"}
+                      data-read={notice.acknowledged ? "true" : "false"}
+                    >
+                      <div>
+                        <span>
+                          {notice.audience === "customer" ? "Clientes" : "Vendedores"} · até {formatShortDate(notice.expiresAt)}
+                        </span>
+                        <strong>{notice.title}</strong>
+                        <p>{notice.body}</p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => void acknowledgeMasterNotice(notice.id)}
+                        disabled={notice.acknowledged}
+                      >
+                        {notice.acknowledged ? "Fechado" : "Fechar"}
+                      </button>
+                    </article>
+                  ))
+                ) : (
+                  <div className={styles.masterNoticeEmpty}>
+                    <strong>Nenhum aviso ativo</strong>
+                    <p>Os comunicados aparecem aqui dentro do período definido pelo Master.</p>
+                  </div>
+                )}
+              </div>
+            </section>
+          </div>,
+          document.body,
+        )
+      : null;
+
+    const forced = activeForcedNotice && canUseDocument
+      ? createPortal(
+          <div className={styles.masterNoticeForcedBackdrop}>
+            <section
+              className={styles.masterNoticeForcedCard}
+              data-tone={activeForcedNotice.tone || "info"}
+              role="alertdialog"
+              aria-modal="true"
+              aria-labelledby="master-notice-forced-title"
+            >
+              <span>Aviso Master</span>
+              <h2 id="master-notice-forced-title">{activeForcedNotice.title}</h2>
+              <p>{activeForcedNotice.body}</p>
+              <button
+                type="button"
+                disabled={masterNoticeSecondsLeft > 0}
+                onClick={() => void acknowledgeMasterNotice(activeForcedNotice.id)}
+              >
+                {masterNoticeSecondsLeft > 0
+                  ? `Liberado em ${masterNoticeSecondsLeft}s`
+                  : "Fechar aviso"}
+              </button>
+            </section>
+          </div>,
+          document.body,
+        )
+      : null;
+
+    return (
+      <>
+        <button
+          type="button"
+          className={styles.masterNoticeBell}
+          data-unread={pendingMasterNoticeCount > 0 ? "true" : "false"}
+          onClick={() => setMasterNoticeCenterOpen(true)}
+          aria-label={`Abrir avisos Master. ${pendingMasterNoticeCount} aviso(s) pendente(s).`}
+          title="Avisos Master"
+        >
+          <span className={styles.masterNoticeBellIcon} aria-hidden="true">
+            <svg viewBox="0 0 24 24" focusable="false">
+              <path d="M12 4.2c-2.9 0-5 2.2-5 5.4v3.2c0 .9-.4 1.8-1.1 2.4l-.7.6h13.6l-.7-.6c-.7-.6-1.1-1.5-1.1-2.4V9.6c0-3.2-2.1-5.4-5-5.4Z" />
+              <path d="M9.5 18.1c.5 1 1.3 1.6 2.5 1.6s2-.6 2.5-1.6" />
+            </svg>
+          </span>
+          <span className={styles.masterNoticeBellText}>Avisos</span>
+          {pendingMasterNoticeCount > 0 ? <b>{pendingMasterNoticeCount}</b> : null}
+        </button>
+        {panel}
+        {forced}
+      </>
+    );
+  }
+
+  function renderHbxClosingPipelinePanel(mode: "desktop" | "mobile" = "desktop") {
+    const totals = hbxClosingPipeline?.totals || {};
+    const rows = (hbxClosingPipeline?.priority || []).slice(0, mode === "mobile" ? 5 : 8);
+    const panelClass =
+      mode === "mobile"
+        ? `${styles.hbxPipelinePanel} ${styles.hbxPipelinePanelMobile} hbx-mobile-card`
+        : styles.hbxPipelinePanel;
+    const stageCards: Array<[string, number | string | null | undefined, string]> = [
+      ["Conversa", totals.conversation, "conversation"],
+      ["Interessado", totals.interested, "interested"],
+      ["E-mail", totals.waitingEmail, "warning"],
+      ["Trial", totals.trial, "success"],
+      ["Pago", totals.confirmed, "success"],
+      ["D+ liberado", totals.dueCommissionAmount ? formatCurrency(totals.dueCommissionAmount) : "R$ 0,00", "money"],
+    ];
+
+    return (
+      <section className={panelClass} aria-label="Esteira de fechamento HBX">
+        <div className={styles.hbxPipelineHeader}>
+          <div>
+            <span>Fase 7</span>
+            <strong>Esteira HBX</strong>
+            <p>
+              {hbxClosingPipeline?.policy?.description ||
+                "Card chamado, cadastro rastreado, e-mail comprovado, trial/pagamento e comissão."}
+            </p>
+          </div>
+          <button type="button" onClick={() => void loadHbxClosingPipeline()} disabled={hbxClosingLoading}>
+            {hbxClosingLoading ? "Atualizando" : "Atualizar"}
+          </button>
+        </div>
+
+        <div className={styles.hbxPipelineStages}>
+          {stageCards.map(([label, value, tone]) => (
+            <span key={label} data-tone={tone}>
+              <small>{label}</small>
+              <strong>{hbxClosingLoading ? "..." : value ?? 0}</strong>
+            </span>
+          ))}
+        </div>
+
+        <div className={styles.hbxPipelineRows}>
+          {rows.length ? (
+            rows.map((item) => {
+              const sellerName = item.seller?.name || item.seller?.email || "Sem vendedor";
+              const location = [item.city, item.state].filter(Boolean).join("/") || item.segment || "Sem região";
+              const planLabel = item.salePlanKey ? salePlanLabel(item.salePlanKey) : "Plano aberto";
+              return (
+                <article key={item.leadId} data-tone={item.stageTone || "info"}>
+                  <div className={styles.hbxPipelineLead}>
+                    <strong>{item.name || "Cliente sem nome"}</strong>
+                    <span>{sellerName} · {location}</span>
+                    <small>{item.emailPending ? "E-mail pendente" : item.hasAssistedSignup ? "Cadastro assistido" : item.hasSignupLink ? "Link gerado" : "Sem cadastro HBX"}</small>
+                  </div>
+                  <div className={styles.hbxPipelineStep}>
+                    <b>{item.stageLabel || "Em conversa"}</b>
+                    <span>{item.nextStep || item.nextAction || "Registrar próximo passo."}</span>
+                  </div>
+                  <div className={styles.hbxPipelineMoney}>
+                    <small>{planLabel} · {formatCurrency(item.saleValue || 0)}</small>
+                    <b>{formatCurrency(item.commissionAmount || 0)}</b>
+                    <span>{item.commissionDueAt ? `D+ ${formatDateTime(item.commissionDueAt)}` : item.commissionStatusLabel || "Comissão em aberto"}</span>
+                  </div>
+                  <button type="button" onClick={() => openHbxClosingLead(item.leadId)}>
+                    Abrir card
+                  </button>
+                </article>
+              );
+            })
+          ) : (
+            <div className={styles.hbxPipelineEmpty}>
+              <strong>Nenhuma venda em esteira ainda</strong>
+              <p>Quando o vendedor chamar, qualificar ou gerar cadastro HBX, o ciclo aparece aqui.</p>
+            </div>
+          )}
+        </div>
+
+        <div className={styles.hbxPipelinePolicy}>
+          <strong>{hbxClosingPipeline?.policy?.title || "Ciclo fechado"}</strong>
+          <span>
+            {hbxClosingPipeline?.scope === "company"
+              ? "Master/Admin vê a operação completa da equipe."
+              : "Vendedor vê os próprios cards e clientes vinculados à comissão."}
+          </span>
+        </div>
+      </section>
+    );
+  }
+
+  function renderCrmIntegrityPanel(mode: "desktop" | "mobile" = "desktop") {
+    const score = Math.max(0, Math.min(100, Math.round(Number(crmIntegrity?.score || 0))));
+    const checks = (crmIntegrity?.checks || []).slice(0, mode === "mobile" ? 4 : 7);
+    const totals = crmIntegrity?.totals || {};
+    const panelClass =
+      mode === "mobile"
+        ? `${styles.crmIntegrityPanel} ${styles.crmIntegrityPanelMobile} hbx-mobile-card`
+        : styles.crmIntegrityPanel;
+
+    return (
+      <section className={panelClass} aria-label="Auditoria de integridade do CRM">
+        <div className={styles.crmIntegrityHeader}>
+          <div>
+            <span>Fase 12</span>
+            <strong>{crmIntegrity?.statusLabel || "Checando operação"}</strong>
+            <p>Radar, Vendas, vendedores, distribuição e comissão no mesmo diagnóstico.</p>
+          </div>
+          <button type="button" onClick={() => void loadCrmIntegrity()} disabled={crmIntegrityLoading}>
+            {crmIntegrityLoading ? "..." : "Atualizar"}
+          </button>
+        </div>
+
+        <div className={styles.crmIntegrityScore}>
+          <span data-tone={score >= 86 ? "ok" : score >= 68 ? "warning" : "danger"}>
+            <small>Score</small>
+            <strong>{score}</strong>
+          </span>
+          <span>
+            <small>Cards</small>
+            <strong>{totals.totalCards || 0}</strong>
+          </span>
+          <span>
+            <small>Vendedores</small>
+            <strong>{totals.activeSellers || 0}</strong>
+          </span>
+          <span>
+            <small>Hoje</small>
+            <strong>{totals.deliveredToday || 0}</strong>
+          </span>
+        </div>
+
+        <div className={styles.crmIntegrityChecks}>
+          {checks.length ? (
+            checks.map((check) => (
+              <article key={String(check.key || check.label || "check")} data-status={check.status || "ok"}>
+                <div>
+                  <strong>{check.label || "Checagem"}</strong>
+                  <span>{check.description || "Sem detalhe."}</span>
+                </div>
+                {check.action ? <small>{check.action}</small> : null}
+              </article>
+            ))
+          ) : (
+            <p>Nenhuma checagem carregada ainda.</p>
+          )}
+        </div>
+      </section>
+    );
+  }
+
+  function renderSellerAuditPanel(mode: "desktop" | "mobile" = "desktop") {
+    const totals = sellerAudit?.totals || {};
+    const operation = sellerAudit?.operation;
+    const operationSummary = operation?.summary || {};
+    const rows = (sellerAudit?.rows || []).slice(0, mode === "mobile" ? 4 : 8);
+    const exceptionRows = (sellerAudit?.rows || []).filter((row) =>
+      ["acompanhar", "revisar_territorio", "limite_atingido", "sem_regra", "pausado_manual"].includes(String(row.operation?.action || "")),
+    ).slice(0, mode === "mobile" ? 3 : 6);
+    const title = sellerAudit?.canManage ? "Operação dos vendedores" : "Meu dia comercial";
+    const subtitle = sellerAudit?.canManage
+      ? "Painel diário de exceções, sem bloqueio automático."
+      : "Seu resumo de cards, contatos e retornos.";
+    const panelClass =
+      mode === "mobile"
+        ? `${styles.sellerAuditPanel} ${styles.sellerAuditPanelMobile} hbx-mobile-card`
+        : styles.sellerAuditPanel;
+
+    return (
+      <section className={panelClass} aria-label={title}>
+        <div className={styles.sellerAuditHeader}>
+          <div>
+            <span>Fase 5</span>
+            <strong>{title}</strong>
+            <p>{subtitle}</p>
+          </div>
+          <div className={styles.sellerAuditActions}>
+            <select
+              value={sellerAuditPeriod}
+              onChange={(event) => setSellerAuditPeriod(event.target.value as "today" | "7d")}
+              aria-label="Período da operação"
+            >
+              <option value="today">Hoje</option>
+              <option value="7d">7 dias</option>
+            </select>
+            <button type="button" onClick={() => void loadSellerAudit()} disabled={sellerAuditLoading}>
+              {sellerAuditLoading ? "Atualizando" : "Atualizar"}
+            </button>
+          </div>
+        </div>
+
+        <div className={styles.sellerAuditMetrics}>
+          {[
+            ["Vendedores", totals.sellers],
+            ["Recebidos hoje", operationSummary.receivedToday ?? totals.receivedToday],
+            ["Chamados hoje", operationSummary.workedToday ?? totals.workedToday],
+            ["Parados hoje", operationSummary.idleReceivedToday ?? totals.idleReceivedToday],
+            ["Pode receber", operationSummary.canReceive ?? totals.canReceive],
+            ["Exceções", operationSummary.exceptions ?? totals.exceptions],
+          ].map(([label, value]) => (
+            <span key={label}>
+              <small>{label}</small>
+              <strong>{sellerAuditLoading ? "..." : value ?? 0}</strong>
+            </span>
+          ))}
+        </div>
+
+        <div className={styles.sellerAuditWarRoom}>
+          <div className={styles.sellerAuditWarHeader}>
+            <div>
+              <span>Hoje</span>
+              <strong>{operation?.ruleActive ? "Distribuição em operação" : "Distribuição sem regra ativa"}</strong>
+              <p>
+                {operation?.ruleCity
+                  ? `${operation?.ruleCity}/${operation?.ruleState || ""} · ${operation?.ruleSegment || "segmento aberto"}`
+                  : "Sem cidade ativa para distribuição automática."}
+              </p>
+            </div>
+            <div className={styles.sellerAuditWarLimit}>
+              <small>Limite diário</small>
+              <strong>{operationSummary.deliveredToday ?? 0}/{operationSummary.dailyLimit ?? 0}</strong>
+              <span>{operationSummary.dailyRemaining ?? 0} restantes</span>
+            </div>
+          </div>
+          <div className={styles.sellerAuditWarMetrics}>
+            {[
+              ["Respostas", operationSummary.responses],
+              ["Recusas", operationSummary.refused],
+              ["Bloqueios", operationSummary.blocked],
+              ["Pulados", operationSummary.skippedToday],
+              ["Território", operationSummary.territoryIssues],
+              ["Limite cheio", operationSummary.dailyLimitReached],
+              ["Pausados", operationSummary.manualPaused],
+            ].map(([label, value]) => (
+              <span key={label}>
+                <small>{label}</small>
+                <b>{sellerAuditLoading ? "..." : value ?? 0}</b>
+              </span>
+            ))}
+          </div>
+          {exceptionRows.length ? (
+            <div className={styles.sellerAuditExceptionList}>
+              {exceptionRows.map((row) => (
+                <span key={`exception-${row.seller.id}`}>
+                  <b>{row.seller.name || row.seller.email || "Vendedor"}</b>
+                  <small>{row.operation?.label || "Revisar"} · {row.operation?.reason || "Sem detalhe"}</small>
+                </span>
+              ))}
+            </div>
+          ) : (
+            <div className={styles.sellerAuditExceptionEmpty}>Nenhuma exceção crítica agora.</div>
+          )}
+        </div>
+
+        <div className={styles.sellerAuditRows}>
+          {rows.length ? (
+            rows.map((row) => {
+              const metrics = row.metrics || {};
+              const statusTone = row.status?.tone || "info";
+              const workRate = formatReportPercent(metrics.workRate);
+              return (
+                <article key={row.seller.id} className={styles.sellerAuditRow} data-tone={statusTone}>
+                  <div className={styles.sellerAuditSeller}>
+                    <strong>{row.seller.name || row.seller.email || "Vendedor"}</strong>
+                    <span>
+                      {row.seller.active ? "Ativo" : "Inativo"} · {formatPercent(row.seller.commissionPercent || 0)} comissão
+                    </span>
+                    <small>{row.topCity || "Cidade aberta"} · {row.topSegment || "Segmento aberto"}</small>
+                  </div>
+                  <div className={styles.sellerAuditRowMetrics}>
+                    <span>
+                      <small>Hoje</small>
+                      <b>{metrics.receivedToday || 0}/{metrics.dailyLimit || 0}</b>
+                    </span>
+                    <span>
+                      <small>Chamou</small>
+                      <b>{metrics.workedToday || 0}</b>
+                    </span>
+                    <span>
+                      <small>Parado hoje</small>
+                      <b>{metrics.idleReceivedToday || 0}</b>
+                    </span>
+                    <span>
+                      <small>Taxa</small>
+                      <b>{workRate}</b>
+                    </span>
+                  </div>
+                  <div className={styles.sellerAuditOperation}>
+                    <b>{row.operation?.label || "Em operação"}</b>
+                    <span>{row.operation?.reason || `${row.operation?.dailyRemaining ?? metrics.dailyRemaining ?? 0} card(s) restantes hoje.`}</span>
+                    <small>
+                      {row.operation?.territoryMode === "fixed_cities"
+                        ? `${row.operation?.territoryCities?.length || 0} cidade(s) fixas`
+                        : "Território aberto"}
+                      {row.governance?.dailyLimitOverride != null ? ` · limite manual ${row.governance.dailyLimitOverride}` : ""}
+                    </small>
+                    {sellerAudit?.canManage ? (
+                      <div className={styles.sellerAuditGovernanceActions}>
+                        {[
+                          { label: "Aprendiz", mode: "learning" },
+                          { label: "Normal", mode: "normal" },
+                          { label: "Prioridade", mode: "priority" },
+                        ].map((action) => {
+                          const mode = action.mode;
+                          const active = String(row.governance?.mode || "learning") === mode && !row.governance?.pausedActive;
+                          return (
+                            <button
+                              key={`${row.seller.id}-${mode}`}
+                              type="button"
+                              data-active={active ? "true" : "false"}
+                              disabled={sellerGovernanceSaving !== null}
+                              onClick={() => void updateSellerGovernance(row.seller.id, { mode })}
+                            >
+                              {action.label}
+                            </button>
+                          );
+                        })}
+                        {row.governance?.pausedActive ? (
+                          <button
+                            type="button"
+                            data-danger="false"
+                            disabled={sellerGovernanceSaving !== null}
+                            onClick={() => void updateSellerGovernance(row.seller.id, { mode: "normal", pausedUntil: null })}
+                          >
+                            Liberar
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            data-danger="true"
+                            disabled={sellerGovernanceSaving !== null}
+                            onClick={() => void updateSellerGovernance(row.seller.id, { mode: "paused", pausedDays: 1, note: "Pausa manual pelo painel diário." })}
+                          >
+                            Pausar hoje
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          data-active={row.governance?.dailyLimitOverride === 10 ? "true" : "false"}
+                          disabled={sellerGovernanceSaving !== null}
+                          onClick={() => void updateSellerGovernance(row.seller.id, { dailyLimitOverride: 10, note: "Limite manual definido no painel diário." })}
+                        >
+                          Limite 10
+                        </button>
+                        <button
+                          type="button"
+                          disabled={sellerGovernanceSaving !== null}
+                          onClick={() => void updateSellerGovernance(row.seller.id, { dailyLimitOverride: null })}
+                        >
+                          Limite padrão
+                        </button>
+                      </div>
+                    ) : null}
+                  </div>
+                  <div className={styles.sellerAuditStatus}>
+                    <b>{row.status?.label || "Em operação"}</b>
+                    <span>{row.status?.recommendation || "Sem bloqueio automático."}</span>
+                    <small>Última ação: {formatDateTime(row.lastActivityAt)}</small>
+                  </div>
+                </article>
+              );
+            })
+          ) : (
+            <div className={styles.sellerAuditEmpty}>
+              <strong>Nenhum vendedor com dados ainda</strong>
+              <p>Quando os cards forem distribuídos e trabalhados, a operação aparece aqui.</p>
+            </div>
+          )}
+        </div>
+
+        <div className={styles.sellerAuditPolicy}>
+          <strong>{sellerAudit?.auditPolicy?.title || "Auditoria operacional transparente"}</strong>
+          <span>
+            {sellerAudit?.auditPolicy?.description ||
+              "Mede ações comerciais dentro do HBX e não aplica punição automática."}
+          </span>
+        </div>
+      </section>
+    );
+  }
+
   function renderDesktopCommissionPanel() {
     const totals = commissionSummary?.totals || {};
     const payable = Number(totals.payableAmount || 0);
     const due = Number(totals.duePayableAmount || 0);
     const waiting = Math.max(0, payable - due);
-    const recentPaid = (commissionSummary?.payouts || [])[0] || null;
+    const recentPaid = (commissionSummary?.payouts || []).find((payout) => String(payout.status || "").toLowerCase() !== "canceled") || null;
+    const financeAudit = commissionSummary?.financeAudit || null;
     const commissionClients = commissionSummary?.clients || {};
     const priorityClients = [
       ...(commissionClients.pendingActivation || []),
       ...(commissionClients.payable || []),
       ...(commissionClients.active || []),
     ].slice(0, 4);
+    const sellerPayoutRows = (commissionSummary?.sellerPayouts || []).filter((row) => Number(row.duePayableAmount || 0) > 0).slice(0, 6);
+    const canRegisterPayout = Boolean(commissionSummary?.canPayout && due > 0);
     return (
       <section className={styles.desktopCommissionPanel} aria-label="Resumo de comissão">
         <div className={styles.desktopCommissionHeader}>
@@ -7900,6 +9282,74 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
             ))}
           </div>
         ) : null}
+        {commissionSummary?.canPayout ? (
+          <div className={styles.desktopCommissionPayouts}>
+            <div className={styles.desktopCommissionPayoutHeader}>
+              <div>
+                <strong>Fechamento financeiro</strong>
+                <span>{sellerPayoutRows.length ? "Comissões D+ liberadas por vendedor" : "Nada vencido para pagar agora"}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => void createCommissionPayout(null)}
+                disabled={!canRegisterPayout || commissionPayoutSaving !== null}
+              >
+                {commissionPayoutSaving === "all" ? "Registrando..." : "Registrar tudo D+"}
+              </button>
+            </div>
+            {sellerPayoutRows.length ? (
+              <div className={styles.desktopCommissionPayoutRows}>
+                {sellerPayoutRows.map((seller) => {
+                  const key = `seller:${seller.sellerUserId}`;
+                  return (
+                    <article key={seller.sellerUserId}>
+                      <div>
+                        <strong>{seller.sellerName || seller.sellerEmail || "Vendedor"}</strong>
+                        <span>
+                          {seller.duePayableCount || 0} comissão(ões) · {formatPercent(seller.commissionPercent || 0)} · próximo {formatDateTime(seller.nextDueAt)}
+                        </span>
+                      </div>
+                      <b>{formatCurrency(seller.duePayableAmount || 0)}</b>
+                      <button
+                        type="button"
+                        onClick={() => void createCommissionPayout(seller.sellerUserId)}
+                        disabled={commissionPayoutSaving !== null}
+                      >
+                        {commissionPayoutSaving === key ? "..." : "Pagar"}
+                      </button>
+                    </article>
+                  );
+                })}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+        <div className={styles.desktopCommissionAudit} aria-label="Auditoria financeira de comissão">
+          <span>
+            <small>Fechado</small>
+            <strong>{formatCurrency(financeAudit?.paidPayoutAmount || 0)}</strong>
+          </span>
+          <span data-tone="danger">
+            <small>Reaberto</small>
+            <strong>{formatCurrency(financeAudit?.reopenedAmount || 0)}</strong>
+          </span>
+          <span>
+            <small>Pagamentos</small>
+            <strong>{financeAudit?.paidPayoutCount || 0}</strong>
+          </span>
+          <span data-tone="danger">
+            <small>Cancelamentos</small>
+            <strong>{financeAudit?.canceledPayoutCount || 0}</strong>
+          </span>
+          <span>
+            <small>Último pago</small>
+            <strong>{formatDateTime(financeAudit?.lastPaidAt)}</strong>
+          </span>
+          <span data-tone="danger">
+            <small>Último cancel.</small>
+            <strong>{formatDateTime(financeAudit?.lastCanceledAt)}</strong>
+          </span>
+        </div>
         <div className={styles.desktopCommissionFooter}>
           <span>
             Aguardando: <b>{totals.pendingActivation || 0}</b>
@@ -7913,10 +9363,113 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
           {recentPaid ? (
             <span>
               Último pago: <b>{formatCurrency(recentPaid.totalAmount || 0)}</b>
+              <button
+                type="button"
+                className={styles.desktopCommissionReceiptButton}
+                onClick={() => void openCommissionReceipt(recentPaid.id)}
+                disabled={commissionReceiptLoadingId === recentPaid.id}
+              >
+                {commissionReceiptLoadingId === recentPaid.id ? "Abrindo..." : "Comprovante"}
+              </button>
             </span>
           ) : null}
         </div>
       </section>
+    );
+  }
+
+  function renderCommissionReceiptPortal() {
+    if (!commissionReceipt || typeof document === "undefined") return null;
+    const receipt = commissionReceipt.receipt || null;
+    const items = commissionReceipt.items || [];
+    const receiptStatus = String(receipt?.status || "").trim().toLowerCase();
+    const canCancelReceipt = Boolean(commissionReceipt.canCancel && receipt?.id && receiptStatus !== "canceled");
+    const isCancelingReceipt = Boolean(receipt?.id && commissionPayoutCancelingId === receipt.id);
+    return createPortal(
+      <div className={styles.commissionReceiptBackdrop} onClick={() => setCommissionReceipt(null)}>
+        <section
+          className={styles.commissionReceiptPanel}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="commission-receipt-title"
+          onClick={(event) => event.stopPropagation()}
+        >
+          <header className={styles.commissionReceiptHeader}>
+            <div>
+              <span>Comprovante interno</span>
+              <strong id="commission-receipt-title">{receipt?.code || receipt?.id || "Fechamento HBX"}</strong>
+              <p>{receipt?.referenceLabel || "Pagamento de comissão registrado no HBX."}</p>
+            </div>
+            <button type="button" onClick={() => setCommissionReceipt(null)} aria-label="Fechar comprovante">
+              X
+            </button>
+          </header>
+
+          <div className={styles.commissionReceiptMetrics}>
+            <span>
+              <small>Total</small>
+              <strong>{formatCurrency(receipt?.totalAmount || 0)}</strong>
+            </span>
+            <span>
+              <small>Itens</small>
+              <strong>{receipt?.leadCount || items.length}</strong>
+            </span>
+            <span>
+              <small>{receiptStatus === "canceled" ? "Registrado" : "Pago em"}</small>
+              <strong>{formatDateTime(receipt?.paidAt || receipt?.createdAt)}</strong>
+            </span>
+          </div>
+
+          <div className={styles.commissionReceiptMeta}>
+            <span>
+              <small>Vendedor</small>
+              <b>{commissionReceipt.seller?.name || commissionReceipt.seller?.email || "Não identificado"}</b>
+            </span>
+            <span>
+              <small>Registrado por</small>
+              <b>{commissionReceipt.createdBy?.name || commissionReceipt.createdBy?.email || "HBX"}</b>
+            </span>
+          </div>
+
+          {receipt?.notes ? <p className={styles.commissionReceiptNote}>{receipt.notes}</p> : null}
+
+          <div className={styles.commissionReceiptActions}>
+            <span data-status={receiptStatus || "paid"}>
+              {receiptStatus === "canceled" ? "Fechamento cancelado" : "Fechamento pago"}
+            </span>
+            {canCancelReceipt ? (
+              <button
+                type="button"
+                className={styles.commissionReceiptCancelButton}
+                onClick={() => void cancelCommissionPayout(receipt?.id)}
+                disabled={isCancelingReceipt}
+              >
+                {isCancelingReceipt ? "Cancelando..." : "Cancelar fechamento"}
+              </button>
+            ) : null}
+          </div>
+
+          <div className={styles.commissionReceiptItems}>
+            {items.length ? (
+              items.map((item) => (
+                <article key={`${item.type || "item"}:${item.id}`}>
+                  <div>
+                    <strong>{item.name || "Cliente sem nome"}</strong>
+                    <span>
+                      {item.label || "Comissão"} · {salePlanLabel(item.salePlanKey)} · {item.city || item.segment || "Sem região"}
+                    </span>
+                  </div>
+                  <b>{formatCurrency(item.commissionAmount || 0)}</b>
+                  <small>{item.cycleKey || item.saleStatusLabel || "Pago"}</small>
+                </article>
+              ))
+            ) : (
+              <p className={styles.commissionReceiptNote}>Nenhum item detalhado encontrado para este fechamento.</p>
+            )}
+          </div>
+        </section>
+      </div>,
+      document.body,
     );
   }
 
@@ -8094,6 +9647,8 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
         <style dangerouslySetInnerHTML={{ __html: vendasDragTopbarLockStyle }} />
         {renderMobileVendas()}
         {renderAssistedSignupPortal()}
+        {renderCommissionReceiptPortal()}
+        {renderMasterNoticeCenter()}
       </DashboardScaffold>
     );
   }
@@ -8188,6 +9743,9 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
             </section>
 
             {renderDesktopCommissionPanel()}
+            {renderCrmIntegrityPanel("desktop")}
+            {renderHbxClosingPipelinePanel("desktop")}
+            {renderSellerAuditPanel("desktop")}
 
             {loading ? (
               <section className={styles.loadingCard}>
@@ -8429,6 +9987,7 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
       ) : null}
 
       {renderAssistedSignupPortal()}
+      {renderCommissionReceiptPortal()}
 
       {mobileReturnScheduler ? createPortal(
         <div className={styles.mobileReturnSchedulerBackdrop}>
@@ -8690,6 +10249,7 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
           </div>
         </div>
       ) : null}
+      {renderMasterNoticeCenter()}
       {renderRadarPopup()}
     </DashboardScaffold>
   );

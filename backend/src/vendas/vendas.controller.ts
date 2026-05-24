@@ -8,8 +8,11 @@ import { ModuleAccess } from '../modules/module-feature.decorator';
 import { ModuleAccessGuard } from '../modules/module-access.guard';
 import {
   BulkDeleteVendasLeadsDto,
+  CancelCommissionPayoutDto,
+  CreateCommissionPayoutDto,
   CreateHbxAssistedSignupDto,
   CreateHbxSalesHandoffDto,
+  CreateMasterNoticeDto,
   CreateManualVendasLeadDto,
   ImportWebscrapingLeadsDto,
   ReportVendasLeadDto,
@@ -158,9 +161,59 @@ export class VendasController {
     return this.vendasService.getConversionReportForUser(req.user, period);
   }
 
+  @Get('seller-audit')
+  getSellerAudit(@Req() req: any, @Query('period') period?: string) {
+    return this.vendasService.getSellerAuditForUser(req.user, period);
+  }
+
+  @Patch('seller-audit/:sellerId/governance')
+  updateSellerGovernance(@Req() req: any, @Param('sellerId') sellerId: string, @Body() body: any) {
+    return this.vendasService.updateSellerGovernanceForUser(req.user, Number(sellerId), body || {});
+  }
+
+  @Get('hbx-closing-pipeline')
+  getHbxClosingPipeline(@Req() req: any) {
+    return this.vendasService.getHbxClosingPipelineForUser(req.user);
+  }
+
+  @Get('crm-integrity')
+  getCrmIntegrity(@Req() req: any) {
+    return this.vendasService.getCrmIntegrityForUser(req.user);
+  }
+
   @Get('commission/summary')
   getCommissionSummary(@Req() req: any) {
     return this.vendasService.getCommissionSummaryForUser(req.user);
+  }
+
+  @Post('commission/payout')
+  createCommissionPayout(@Req() req: any, @Body() dto: CreateCommissionPayoutDto) {
+    return this.vendasService.createCommissionPayoutForUser(req.user, dto || {});
+  }
+
+  @Post('commission/payout/:payoutId/cancel')
+  cancelCommissionPayout(@Req() req: any, @Param('payoutId') payoutId: string, @Body() dto: CancelCommissionPayoutDto) {
+    return this.vendasService.cancelCommissionPayoutForUser(req.user, payoutId, dto || {});
+  }
+
+  @Get('commission/payout/:payoutId')
+  getCommissionPayoutDetail(@Req() req: any, @Param('payoutId') payoutId: string) {
+    return this.vendasService.getCommissionPayoutDetailForUser(req.user, payoutId);
+  }
+
+  @Get('master-notices')
+  listMasterNotices(@Req() req: any, @Query('audience') audience?: string) {
+    return this.vendasService.listMasterNoticesForUser(req.user, audience);
+  }
+
+  @Post('master-notices')
+  createMasterNotice(@Req() req: any, @Body() dto: CreateMasterNoticeDto) {
+    return this.vendasService.createMasterNoticeForUser(req.user, dto || ({} as CreateMasterNoticeDto));
+  }
+
+  @Post('master-notices/:noticeId/ack')
+  acknowledgeMasterNotice(@Req() req: any, @Param('noticeId') noticeId: string) {
+    return this.vendasService.acknowledgeMasterNoticeForUser(req.user, noticeId);
   }
 
   @Get('report/export.pdf')

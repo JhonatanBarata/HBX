@@ -128,6 +128,10 @@ type HbxTerritorySeller = {
   targetStock?: number;
   currentStock?: number;
   remainingStock?: number;
+  dailyLimit?: number;
+  deliveredToday?: number;
+  dailyRemaining?: number;
+  noDeliveryReason?: string | null;
   distributionStatus?: "unmapped" | "needs_cards" | "full";
 };
 
@@ -137,6 +141,7 @@ type HbxTerritoryPanel = {
   segmentMode?: string;
   territoryMode?: string;
   targetStockPerSeller?: number;
+  dailyLimitPerSeller?: number;
   sellers?: HbxTerritorySeller[];
   citySuggestions?: HbxTerritoryCity[];
   cityBalance?: HbxTerritoryCityBalance[];
@@ -151,6 +156,9 @@ type HbxTerritoryPanel = {
     targetStock?: number;
     currentStock?: number;
     missingCards?: number;
+    dailyTarget?: number;
+    deliveredToday?: number;
+    dailyRemaining?: number;
     recommendedSellerSlots?: number;
     assignedCitySlots?: number;
     uncoveredCityCount?: number;
@@ -431,6 +439,7 @@ export default function BancoDeDadosClientPage() {
         body: JSON.stringify({
           status,
           targetStockPerSeller: territoryDraft?.targetStockPerSeller || 30,
+          dailyLimitPerSeller: territoryDraft?.dailyLimitPerSeller ?? 20,
           territories: (territoryDraft?.sellers || []).map((seller) => ({
             userId: seller.id,
             cities: seller.cities.map((city) => ({ city: city.city, state: city.state })),
@@ -617,6 +626,7 @@ export default function BancoDeDadosClientPage() {
               onAddCity={addTerritoryCity}
               onRemoveCity={removeTerritoryCity}
               onTargetChange={(value) => setTerritoryDraft((current) => current ? { ...current, targetStockPerSeller: value } : current)}
+              onDailyLimitChange={(value) => setTerritoryDraft((current) => current ? { ...current, dailyLimitPerSeller: value } : current)}
               onSave={saveTerritories}
               onRun={runTerritoriesNow}
             />
@@ -636,6 +646,7 @@ function HbxTerritoryPanelView({
   onAddCity,
   onRemoveCity,
   onTargetChange,
+  onDailyLimitChange,
   onSave,
   onRun,
 }: {
@@ -647,6 +658,7 @@ function HbxTerritoryPanelView({
   onAddCity: (userId: number, city?: HbxTerritoryCity) => void;
   onRemoveCity: (userId: number, city: HbxTerritoryCity) => void;
   onTargetChange: (value: number) => void;
+  onDailyLimitChange: (value: number) => void;
   onSave: (status?: "draft" | "active") => Promise<void>;
   onRun: () => Promise<void>;
 }) {
@@ -686,6 +698,11 @@ function HbxTerritoryPanelView({
           <span>Faltando agora</span>
           <strong>{metric(summary.missingCards)}</strong>
           <small>{metric(summary.pendingSellerCount)} vendedor(es)</small>
+        </article>
+        <article>
+          <span>Entregues hoje</span>
+          <strong>{metric(summary.deliveredToday)}</strong>
+          <small>restam {metric(summary.dailyRemaining)} de {metric(summary.dailyTarget)}</small>
         </article>
         <article>
           <span>Cobertura</span>
@@ -736,13 +753,23 @@ function HbxTerritoryPanelView({
 
       <section className={styles.territoryControls}>
         <label>
-          <span>Cards para manter por vendedor</span>
+          <span>Estoque alvo por vendedor</span>
           <input
             type="number"
             min={1}
             max={500}
             value={panel.targetStockPerSeller || 30}
             onChange={(event) => onTargetChange(Math.max(1, Math.min(500, Math.trunc(Number(event.target.value || 0) || 1))))}
+          />
+        </label>
+        <label>
+          <span>Limite diário por vendedor</span>
+          <input
+            type="number"
+            min={0}
+            max={500}
+            value={panel.dailyLimitPerSeller ?? 20}
+            onChange={(event) => onDailyLimitChange(Math.max(0, Math.min(500, Math.trunc(Number(event.target.value || 0) || 0))))}
           />
         </label>
         <label>
@@ -788,6 +815,9 @@ function HbxTerritoryPanelView({
           const stock = Math.max(0, Number(seller.currentStock || 0));
           const target = Math.max(1, Number(seller.targetStock || panel.targetStockPerSeller || 30));
           const missing = Math.max(0, Number(seller.remainingStock ?? target - stock));
+          const dailyLimit = Math.max(0, Number(panel.dailyLimitPerSeller ?? seller.dailyLimit ?? 20));
+          const deliveredToday = Math.max(0, Number(seller.deliveredToday || 0));
+          const dailyRemaining = Math.max(0, Number(seller.dailyRemaining ?? Math.max(0, dailyLimit - deliveredToday)));
           const stockPercent = Math.max(0, Math.min(100, Math.round((stock / target) * 100)));
           const status = seller.distributionStatus || (seller.cities.length ? missing > 0 ? "needs_cards" : "full" : "unmapped");
           const statusLabel = status === "full" ? "Completo" : status === "needs_cards" ? "Precisa card" : "Sem cidade";
@@ -811,6 +841,9 @@ function HbxTerritoryPanelView({
                 <span data-status={status}>{statusLabel}</span>
                 <span>{metric(seller.availableCards)} potenciais</span>
                 <span>{metric(missing)} faltando</span>
+                <span>Hoje {metric(deliveredToday)}/{metric(dailyLimit)}</span>
+                <span>{metric(dailyRemaining)} restantes</span>
+                {seller.noDeliveryReason ? <span>{seller.noDeliveryReason}</span> : null}
               </div>
               <div className={styles.metaGrid}>
                 <span>Comissão: {Number(seller.commissionPercent || 0).toLocaleString("pt-BR")}%</span>

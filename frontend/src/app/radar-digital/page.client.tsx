@@ -256,6 +256,17 @@ type GerencialTeamUser = {
   role?: string | null;
   isActive?: boolean;
   commissionPercent?: number | null;
+  territoryCities?: RadarAutoDistributionTerritoryCity[];
+};
+
+type RadarAutoDistributionTerritoryCity = {
+  city: string;
+  state: string;
+};
+
+type RadarAutoDistributionTerritory = {
+  userId: number;
+  cities: RadarAutoDistributionTerritoryCity[];
 };
 
 type RadarAutoDistributionRule = {
@@ -264,12 +275,16 @@ type RadarAutoDistributionRule = {
   includeAdmin: boolean;
   adminTargetStock: number;
   targetStockPerSeller: number;
+  adminDailyLimit?: number;
+  dailyLimitPerSeller?: number;
   preferredState?: string | null;
   preferredCity?: string | null;
   segment?: string | null;
   categoryKey?: string | null;
   radiusKm?: number | null;
   targetMode?: string | null;
+  territoryMode?: string | null;
+  territories?: RadarAutoDistributionTerritory[];
   targetUserIds?: number[];
   targetUsers?: GerencialTeamUser[];
   updatedAt?: string | null;
@@ -295,10 +310,13 @@ type RadarAutoDistributionDraft = {
   includeAdmin: boolean;
   adminTargetStock: number;
   targetStockPerSeller: number;
+  adminDailyLimit: number;
+  dailyLimitPerSeller: number;
   preferredState: string;
   preferredCity: string;
   segment: string;
   radiusKm: number;
+  territories: RadarAutoDistributionTerritory[];
 };
 
 type RadarEnrichResponse = {
@@ -386,6 +404,33 @@ const DEFAULT_FILTERS: FilterState = {
   status: "",
 };
 
+function normalizeRadarTerritoryKey(city?: string | null, state?: string | null) {
+  const normalizedCity = normalizeLocationLookup(city || "");
+  const normalizedState = String(state || "").trim().toUpperCase();
+  return normalizedCity && normalizedState ? `${normalizedCity}:${normalizedState}` : "";
+}
+
+function normalizeRadarAutoDistributionTerritories(value: unknown): RadarAutoDistributionTerritory[] {
+  const source = Array.isArray(value) ? value : [];
+  return source
+    .map((item: any) => {
+      const userId = Math.trunc(Number(item?.userId || 0));
+      const cities = Array.from(
+        new Map<string, RadarAutoDistributionTerritoryCity>(
+          (Array.isArray(item?.cities) ? item.cities : [])
+            .map((cityItem: any) => ({
+              city: String(cityItem?.city || "").trim(),
+              state: String(cityItem?.state || "").trim().toUpperCase(),
+            }))
+            .filter((cityItem) => cityItem.city && cityItem.state)
+            .map((cityItem) => [normalizeRadarTerritoryKey(cityItem.city, cityItem.state), cityItem]),
+        ).values(),
+      ).slice(0, 20);
+      return { userId, cities };
+    })
+    .filter((item) => item.userId > 0 && item.cities.length > 0);
+}
+
 function buildRadarAutoDistributionDraft(
   rule: RadarAutoDistributionRule | null | undefined,
   filters: FilterState,
@@ -394,10 +439,13 @@ function buildRadarAutoDistributionDraft(
     includeAdmin: Boolean(rule?.includeAdmin),
     adminTargetStock: Math.max(0, Math.trunc(Number(rule?.adminTargetStock ?? filters.quantity ?? 30) || 0)),
     targetStockPerSeller: Math.max(1, Math.trunc(Number(rule?.targetStockPerSeller ?? 30) || 30)),
+    adminDailyLimit: Math.max(0, Math.trunc(Number(rule?.adminDailyLimit ?? rule?.adminTargetStock ?? filters.quantity ?? 30) || 0)),
+    dailyLimitPerSeller: Math.max(0, Math.trunc(Number(rule?.dailyLimitPerSeller ?? 20) || 20)),
     preferredState: String(rule?.preferredState ?? filters.state ?? "").trim().toUpperCase(),
     preferredCity: String(rule?.preferredCity ?? filters.city ?? "").trim(),
     segment: String(rule?.segment ?? filters.segment ?? "").trim(),
     radiusKm: Math.max(0, Math.trunc(Number(rule?.radiusKm ?? filters.radiusKm ?? DEFAULT_FILTERS.radiusKm) || 0)),
+    territories: normalizeRadarAutoDistributionTerritories(rule?.territories),
   };
 }
 
@@ -2177,6 +2225,23 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
     () => activeSellerUsers.filter((user) => distributionUserIds.includes(user.id)),
     [activeSellerUsers, distributionUserIds],
   );
+  const autoDistributionTerritoryModeActive = useMemo(
+    () => autoDistributionDraft.territories.some((territory) => territory.cities.length > 0),
+    [autoDistributionDraft.territories],
+  );
+  const autoDistributionSelectedCityKey = useMemo(
+    () => normalizeRadarTerritoryKey(autoDistributionDraft.preferredCity, autoDistributionDraft.preferredState),
+    [autoDistributionDraft.preferredCity, autoDistributionDraft.preferredState],
+  );
+  const autoDistributionEligibleSellerUsers = useMemo(() => {
+    if (!autoDistributionTerritoryModeActive || !autoDistributionSelectedCityKey) return activeSellerUsers;
+    const territoryByUserId = new Map(autoDistributionDraft.territories.map((territory) => [territory.userId, territory]));
+    return activeSellerUsers.filter((user) =>
+      (territoryByUserId.get(user.id)?.cities || []).some(
+        (city) => normalizeRadarTerritoryKey(city.city, city.state) === autoDistributionSelectedCityKey,
+      ),
+    );
+  }, [activeSellerUsers, autoDistributionDraft.territories, autoDistributionSelectedCityKey, autoDistributionTerritoryModeActive]);
   const distributionEnabled = selectedDistributionUsers.length > 0;
   const distributionLabel = distributionEnabled
     ? selectedDistributionUsers.length === 1
@@ -2410,6 +2475,58 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
     }
   }
 
+  function addAutoDistributionTerritoryCity(userId: number) {
+    const city = autoDistributionDraft.preferredCity.trim();
+    const state = autoDistributionDraft.preferredState.trim().toUpperCase();
+    if (!userId || !city || !state) {
+      setError("Escolha estado e cidade antes de fixar território para o vendedor.");
+      return;
+    }
+    setAutoDistributionDraft((current) => {
+      const key = normalizeRadarTerritoryKey(city, state);
+      const territories = normalizeRadarAutoDistributionTerritories(current.territories);
+      const existing = territories.find((territory) => territory.userId === userId);
+      const nextCity = { city, state };
+      if (existing) {
+        const cityMap = new Map(existing.cities.map((item) => [normalizeRadarTerritoryKey(item.city, item.state), item]));
+        cityMap.set(key, nextCity);
+        return {
+          ...current,
+          territories: territories.map((territory) =>
+            territory.userId === userId ? { ...territory, cities: Array.from(cityMap.values()).slice(0, 20) } : territory,
+          ),
+        };
+      }
+      return {
+        ...current,
+        territories: [...territories, { userId, cities: [nextCity] }],
+      };
+    });
+  }
+
+  function removeAutoDistributionTerritoryCity(userId: number, city: RadarAutoDistributionTerritoryCity) {
+    setAutoDistributionDraft((current) => ({
+      ...current,
+      territories: normalizeRadarAutoDistributionTerritories(current.territories)
+        .map((territory) => {
+          if (territory.userId !== userId) return territory;
+          const removeKey = normalizeRadarTerritoryKey(city.city, city.state);
+          return {
+            ...territory,
+            cities: territory.cities.filter((item) => normalizeRadarTerritoryKey(item.city, item.state) !== removeKey),
+          };
+        })
+        .filter((territory) => territory.cities.length > 0),
+    }));
+  }
+
+  function clearAutoDistributionTerritory(userId: number) {
+    setAutoDistributionDraft((current) => ({
+      ...current,
+      territories: normalizeRadarAutoDistributionTerritories(current.territories).filter((territory) => territory.userId !== userId),
+    }));
+  }
+
   async function saveAutoDistributionRule() {
     if (!autoDistributionDraft.preferredState || !autoDistributionDraft.preferredCity) {
       setError("Escolha estado e cidade para ativar a distribuição automática.");
@@ -2419,8 +2536,10 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
       setError("Escolha uma categoria ou segmento para ativar a distribuição automática.");
       return;
     }
-    if (!autoDistributionDraft.includeAdmin && activeSellerUsers.length === 0) {
-      setError("Cadastre pelo menos um vendedor ativo ou permita que o Admin receba leads.");
+    if (!autoDistributionDraft.includeAdmin && autoDistributionEligibleSellerUsers.length === 0) {
+      setError(autoDistributionTerritoryModeActive
+        ? "Nenhum vendedor cobre a cidade escolhida. Adicione essa cidade ao território de pelo menos um vendedor ou permita que o Admin receba."
+        : "Cadastre pelo menos um vendedor ativo ou permita que o Admin receba leads.");
       return;
     }
     setAutoDistributionSaving(true);
@@ -2434,13 +2553,16 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
           status: "active",
           includeAdmin: autoDistributionDraft.includeAdmin,
           adminTargetStock: autoDistributionDraft.includeAdmin ? autoDistributionDraft.adminTargetStock : 0,
+          adminDailyLimit: autoDistributionDraft.includeAdmin ? autoDistributionDraft.adminDailyLimit : 0,
           targetStockPerSeller: autoDistributionDraft.targetStockPerSeller,
+          dailyLimitPerSeller: autoDistributionDraft.dailyLimitPerSeller,
           preferredState: autoDistributionDraft.preferredState,
           preferredCity: autoDistributionDraft.preferredCity,
           segment: autoDistributionDraft.segment,
           categoryKey: inferRadarSegmentCategory(autoDistributionDraft.segment),
           radiusKm: autoDistributionDraft.radiusKm,
           userIds: [],
+          territories: normalizeRadarAutoDistributionTerritories(autoDistributionDraft.territories),
         }),
       });
       const rule = payload.rule || null;
@@ -3564,7 +3686,7 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
 
   function renderAutoDistributionModal() {
     if (!autoDistributionOpen) return null;
-    const sellerCount = activeSellerUsers.length;
+    const sellerCount = autoDistributionEligibleSellerUsers.length;
     const targetCount = sellerCount + (autoDistributionDraft.includeAdmin ? 1 : 0);
     const summaryPlace = autoDistributionDraft.preferredCity
       ? `${autoDistributionDraft.preferredCity}/${autoDistributionDraft.preferredState || "-"}`
@@ -3608,7 +3730,7 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
                   <button
                     type="button"
                     data-active={!autoDistributionDraft.includeAdmin ? "true" : "false"}
-                    onClick={() => setAutoDistributionDraft((current) => ({ ...current, includeAdmin: false, adminTargetStock: 0 }))}
+                    onClick={() => setAutoDistributionDraft((current) => ({ ...current, includeAdmin: false, adminTargetStock: 0, adminDailyLimit: 0 }))}
                   >
                     <strong>Não</strong>
                     <span>Só vendedores recebem</span>
@@ -3616,28 +3738,52 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
                   <button
                     type="button"
                     data-active={autoDistributionDraft.includeAdmin ? "true" : "false"}
-                    onClick={() => setAutoDistributionDraft((current) => ({ ...current, includeAdmin: true, adminTargetStock: current.adminTargetStock || 30 }))}
+                    onClick={() =>
+                      setAutoDistributionDraft((current) => ({
+                        ...current,
+                        includeAdmin: true,
+                        adminTargetStock: current.adminTargetStock || 30,
+                        adminDailyLimit: current.adminDailyLimit || current.adminTargetStock || 30,
+                      }))
+                    }
                   >
                     <strong>Sim</strong>
                     <span>Admin também recebe</span>
                   </button>
                 </div>
                 {autoDistributionDraft.includeAdmin ? (
-                  <label className={styles.autoDistributionField}>
-                    <span>Quantos cards manter para o Admin?</span>
-                    <input
-                      type="number"
-                      min={1}
-                      max={500}
-                      value={autoDistributionDraft.adminTargetStock || 0}
-                      onChange={(event) =>
-                        setAutoDistributionDraft((current) => ({
-                          ...current,
-                          adminTargetStock: Math.max(1, Math.min(500, Math.trunc(Number(event.target.value || 0) || 1))),
-                        }))
-                      }
-                    />
-                  </label>
+                  <div className={styles.autoDistributionFieldGrid}>
+                    <label className={styles.autoDistributionField}>
+                      <span>Estoque alvo do Admin</span>
+                      <input
+                        type="number"
+                        min={1}
+                        max={500}
+                        value={autoDistributionDraft.adminTargetStock || 0}
+                        onChange={(event) =>
+                          setAutoDistributionDraft((current) => ({
+                            ...current,
+                            adminTargetStock: Math.max(1, Math.min(500, Math.trunc(Number(event.target.value || 0) || 1))),
+                          }))
+                        }
+                      />
+                    </label>
+                    <label className={styles.autoDistributionField}>
+                      <span>Limite diário do Admin</span>
+                      <input
+                        type="number"
+                        min={0}
+                        max={500}
+                        value={autoDistributionDraft.adminDailyLimit || 0}
+                        onChange={(event) =>
+                          setAutoDistributionDraft((current) => ({
+                            ...current,
+                            adminDailyLimit: Math.max(0, Math.min(500, Math.trunc(Number(event.target.value || 0) || 0))),
+                          }))
+                        }
+                      />
+                    </label>
+                  </div>
                 ) : null}
               </div>
 
@@ -3687,30 +3833,83 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
                     <span>3</span>
                   <div>
                     <strong>Rodízio dos vendedores</strong>
-                    <p>Todos os vendedores ativos entram na reposição automática. O robô mantém o estoque configurado no Vendas.</p>
+                    <p>Todos os vendedores ativos entram na reposição. O estoque é alvo; o limite diário é real, não acumulativo.</p>
                   </div>
                 </div>
-                <label className={styles.autoDistributionField}>
-                  <span>Cards para manter por vendedor</span>
-                  <input
-                    type="number"
-                    min={1}
-                    max={500}
-                    value={autoDistributionDraft.targetStockPerSeller}
-                    onChange={(event) =>
-                      setAutoDistributionDraft((current) => ({
-                        ...current,
-                        targetStockPerSeller: Math.max(1, Math.min(500, Math.trunc(Number(event.target.value || 0) || 1))),
-                      }))
-                    }
-                  />
-                </label>
+                <div className={styles.autoDistributionFieldGrid}>
+                  <label className={styles.autoDistributionField}>
+                    <span>Estoque alvo por vendedor</span>
+                    <input
+                      type="number"
+                      min={1}
+                      max={500}
+                      value={autoDistributionDraft.targetStockPerSeller}
+                      onChange={(event) =>
+                        setAutoDistributionDraft((current) => ({
+                          ...current,
+                          targetStockPerSeller: Math.max(1, Math.min(500, Math.trunc(Number(event.target.value || 0) || 1))),
+                        }))
+                      }
+                    />
+                  </label>
+                  <label className={styles.autoDistributionField}>
+                    <span>Limite diário por vendedor</span>
+                    <input
+                      type="number"
+                      min={0}
+                      max={500}
+                      value={autoDistributionDraft.dailyLimitPerSeller}
+                      onChange={(event) =>
+                        setAutoDistributionDraft((current) => ({
+                          ...current,
+                          dailyLimitPerSeller: Math.max(0, Math.min(500, Math.trunc(Number(event.target.value || 0) || 0))),
+                        }))
+                      }
+                    />
+                  </label>
+                </div>
                 <div className={styles.autoDistributionSellerList}>
-                  {activeSellerUsers.length ? activeSellerUsers.map((user) => (
-                    <span key={user.id}>
-                      {user.name || user.username || user.email || `Vendedor ${user.id}`}
-                    </span>
-                  )) : <em>Nenhum vendedor ativo cadastrado.</em>}
+                  {activeSellerUsers.length ? activeSellerUsers.map((user) => {
+                    const territory = autoDistributionDraft.territories.find((item) => item.userId === user.id);
+                    const cities = territory?.cities || [];
+                    const coversSelectedCity = !autoDistributionTerritoryModeActive || cities.some(
+                      (city) => normalizeRadarTerritoryKey(city.city, city.state) === autoDistributionSelectedCityKey,
+                    );
+                    return (
+                      <article key={user.id} className={styles.autoDistributionSellerTerritory} data-eligible={coversSelectedCity ? "true" : "false"}>
+                        <div>
+                          <strong>{user.name || user.username || user.email || `Vendedor ${user.id}`}</strong>
+                          <span>
+                            {autoDistributionTerritoryModeActive
+                              ? coversSelectedCity
+                                ? "Recebe nesta cidade"
+                                : "Não cobre esta cidade"
+                              : "Território aberto"}
+                          </span>
+                        </div>
+                        <div className={styles.autoDistributionTerritoryChips}>
+                          {cities.length ? cities.map((city) => (
+                            <button
+                              key={`${user.id}-${city.city}-${city.state}`}
+                              type="button"
+                              onClick={() => removeAutoDistributionTerritoryCity(user.id, city)}
+                              title="Remover cidade do território"
+                            >
+                              {city.city}/{city.state}
+                            </button>
+                          )) : <em>Sem cidade fixa</em>}
+                        </div>
+                        <div className={styles.autoDistributionTerritoryActions}>
+                          <button type="button" onClick={() => addAutoDistributionTerritoryCity(user.id)}>
+                            Usar cidade acima
+                          </button>
+                          <button type="button" onClick={() => clearAutoDistributionTerritory(user.id)}>
+                            Limpar
+                          </button>
+                        </div>
+                      </article>
+                    );
+                  }) : <em>Nenhum vendedor ativo cadastrado.</em>}
                 </div>
               </div>
 
@@ -3721,7 +3920,8 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
                 </div>
                 <p>
                   O Radar vai usar {summarySegment} em {summaryPlace}, alcance {radarRadiusLabel(autoDistributionDraft.radiusKm)}.
-                  Os cards serão debitados do plano da empresa/Admin.
+                  Os cards serão debitados do plano da empresa/Admin, com limite diário de {autoDistributionDraft.dailyLimitPerSeller} por vendedor e sem acumular sobra.
+                  {autoDistributionTerritoryModeActive ? ` Território ativo: ${sellerCount} vendedor(es) cobrem essa cidade.` : " Território aberto: todos os vendedores ativos entram."}
                 </p>
               </div>
 

@@ -157,9 +157,11 @@ model Company {
   radarLeadCompanyStates RadarLeadCompanyState[]
   radarLeadEvents RadarLeadEvent[]
   radarAutoDistributionRules RadarAutoDistributionRule[]
+  radarDistributionDailyUsages RadarDistributionDailyUsage[]
   vendasLeads         VendasLead[]
   vendasCommissionPayouts VendasCommissionPayout[]
   vendasCommissionReceivables VendasCommissionReceivable[]
+  masterNotices       MasterNotice[]
   billableSeatUsages CompanyBillableSeatUsage[]
   salesProfiles       SalesProfile[]
   vendasAutomationCampaigns VendasAutomationCampaign[]
@@ -860,6 +862,11 @@ model User {
   sellerReferralCommissionPercent Float @default(0)
   referredByUserId Int?
   referredByCommissionPercentSnapshot Float @default(0)
+  sellerDistributionMode String     @default("learning")
+  sellerDistributionPausedUntil DateTime?
+  sellerDistributionDailyLimitOverride Int?
+  sellerDistributionNote String?
+  sellerDistributionUpdatedAt DateTime?
   referredByUser  User?            @relation("UserSellerReferralNetwork", fields: [referredByUserId], references: [id], onDelete: SetNull)
   referredUsers   User[]           @relation("UserSellerReferralNetwork")
   company         Company?         @relation(fields: [companyId], references: [id])
@@ -891,7 +898,10 @@ model User {
   nightFactoryRewardClaims NightFactoryRewardClaim[]
   salesProfiles SalesProfile[]
   vendasCardComplaints VendasCardComplaint[]
+  createdMasterNotices MasterNotice[] @relation("MasterNoticeCreatedBy")
+  masterNoticeAcks MasterNoticeAck[]
   billableSeatUsages CompanyBillableSeatUsage[]
+  radarDistributionDailyUsages RadarDistributionDailyUsage[]
 
   @@index([referredByUserId])
   @@index([canRegisterHbxSellers])
@@ -914,6 +924,39 @@ model CompanyBillableSeatUsage {
   @@index([companyId, startedAt])
   @@index([companyId, endedAt])
   @@index([companyId, userId, endedAt])
+}
+
+model MasterNotice {
+  id              String   @id @default(cuid())
+  company         Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  companyId       Int
+  audience        String   @default("seller") // seller | customer
+  title           String
+  body            String
+  tone            String   @default("info") // info | success | warning | urgent
+  forceSeconds    Int      @default(0)
+  startsAt        DateTime @default(now())
+  expiresAt       DateTime?
+  createdBy       User?    @relation("MasterNoticeCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  createdByUserId Int?
+  acknowledgements MasterNoticeAck[]
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([companyId, audience, startsAt, expiresAt])
+  @@index([companyId, createdAt])
+}
+
+model MasterNoticeAck {
+  id             String       @id @default(cuid())
+  notice         MasterNotice @relation(fields: [noticeId], references: [id], onDelete: Cascade)
+  noticeId       String
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId         Int
+  acknowledgedAt DateTime     @default(now())
+
+  @@unique([noticeId, userId])
+  @@index([userId, acknowledgedAt])
 }
 
 model VendasCardComplaint {
@@ -1336,6 +1379,8 @@ model RadarAutoDistributionRule {
   adminUserId          Int?
   adminTargetStock     Int      @default(0)
   targetStockPerSeller Int      @default(30)
+  adminDailyLimit      Int      @default(0)
+  dailyLimitPerSeller  Int      @default(20)
   preferredState       String?
   preferredCity        String?
   segment              String?
@@ -1353,6 +1398,26 @@ model RadarAutoDistributionRule {
   @@unique([companyId, scope])
   @@index([companyId, status])
   @@index([companyId, updatedAt])
+}
+
+model RadarDistributionDailyUsage {
+  id             String   @id @default(cuid())
+  company        Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  companyId      Int
+  user           User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  userId         Int?
+  dayKey         String
+  dailyLimit     Int      @default(20)
+  deliveredCount Int      @default(0)
+  skippedCount   Int      @default(0)
+  lastDeliveryAt DateTime?
+  lastSkipReason String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([companyId, userId, dayKey])
+  @@index([companyId, dayKey])
+  @@index([userId, dayKey])
 }
 
 model RadarLeadEnrichment {

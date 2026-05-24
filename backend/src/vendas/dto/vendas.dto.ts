@@ -2,6 +2,7 @@ import { Transform, Type } from 'class-transformer';
 import {
   ArrayMaxSize,
   IsArray,
+  IsDateString,
   IsEmail,
   IsIn,
   IsInt,
@@ -20,6 +21,8 @@ import {
 const LEAD_STATUSES = ['novo', 'contato', 'retorno', 'qualificado', 'encerrado'] as const;
 const SALE_STATUSES = ['none', 'activation_pending', 'trial_started', 'sale_confirmed', 'inactive', 'canceled'] as const;
 const COMMISSION_STATUSES = ['none', 'pending', 'payable', 'paid', 'canceled'] as const;
+const MASTER_NOTICE_AUDIENCES = ['seller', 'customer'] as const;
+const MASTER_NOTICE_TONES = ['info', 'success', 'warning', 'urgent'] as const;
 
 function optionalEmail(value: unknown) {
   if (typeof value !== 'string') return value;
@@ -207,6 +210,75 @@ export class CreateHbxAssistedSignupDto {
   @MinLength(8)
   @MaxLength(120)
   password?: string;
+}
+
+export class CreateMasterNoticeDto {
+  @IsOptional()
+  @IsIn(MASTER_NOTICE_AUDIENCES)
+  audience?: (typeof MASTER_NOTICE_AUDIENCES)[number];
+
+  @IsString()
+  @MinLength(3)
+  @MaxLength(96)
+  title!: string;
+
+  @IsString()
+  @MinLength(3)
+  @MaxLength(1200)
+  body!: string;
+
+  @IsOptional()
+  @IsIn(MASTER_NOTICE_TONES)
+  tone?: (typeof MASTER_NOTICE_TONES)[number];
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(120)
+  forceSeconds?: number;
+
+  @IsOptional()
+  @IsDateString()
+  startsAt?: string;
+
+  @IsOptional()
+  @IsDateString()
+  expiresAt?: string;
+}
+
+export class CreateCommissionPayoutDto {
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  sellerUserId?: number;
+
+  @IsOptional()
+  @Transform(({ value }) => {
+    if (typeof value === 'boolean') return value;
+    if (typeof value === 'string') return ['1', 'true', 'yes', 'on'].includes(value.trim().toLowerCase());
+    return value;
+  })
+  @IsBoolean()
+  includeNotYetDue?: boolean;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  referenceLabel?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(280)
+  notes?: string;
+}
+
+export class CancelCommissionPayoutDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(280)
+  notes?: string;
 }
 
 export class BulkDeleteVendasLeadsDto {
