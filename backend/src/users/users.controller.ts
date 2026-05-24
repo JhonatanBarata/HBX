@@ -274,10 +274,6 @@ function normalizeCommissionPercent(value: unknown) {
 	return Math.min(100, Math.max(0, Math.round(numeric * 100) / 100));
 }
 
-function isMissingCommissionInput(value: unknown) {
-	return value === undefined || value === null || value === '';
-}
-
 function normalizeOptionalPositiveInt(value: unknown) {
 	if (value === undefined || value === null || value === '') return undefined;
 	const numeric = Number(value);
@@ -372,13 +368,11 @@ export class UsersController {
 			data.canRegisterHbxSellers = Boolean(dto.canRegisterHbxSellers);
 		}
 
+		const referredByUserId = normalizeOptionalPositiveInt(dto.referredByUserId);
 		const sellerReferralCommissionPercent = normalizeCommissionPercent(dto.sellerReferralCommissionPercent);
 		if (sellerReferralCommissionPercent !== undefined || input.forCreate) {
 			data.sellerReferralCommissionPercent = sellerReferralCommissionPercent ?? 0;
 		}
-
-		const referredByUserId = normalizeOptionalPositiveInt(dto.referredByUserId);
-		const explicitSnapshot = normalizeCommissionPercent(dto.referredByCommissionPercentSnapshot);
 		if (referredByUserId !== undefined) {
 			if (input.targetUserId && referredByUserId === input.targetUserId) {
 				throw new BadRequestException('Um vendedor não pode indicar a si mesmo.');
@@ -388,13 +382,11 @@ export class UsersController {
 				throw new BadRequestException('Indicador precisa ser vendedor ativo e autorizado a cadastrar vendedores HBX.');
 			}
 			data.referredByUserId = referrer.id;
-			data.referredByCommissionPercentSnapshot =
-				explicitSnapshot ?? normalizeCommissionPercent(referrer.sellerReferralCommissionPercent) ?? 0;
+			data.sellerReferralCommissionPercent = normalizeCommissionPercent(referrer.sellerReferralCommissionPercent) ?? 0;
+			data.referredByCommissionPercentSnapshot = normalizeCommissionPercent(referrer.sellerReferralCommissionPercent) ?? 0;
 		} else if (dto.referredByUserId === null || dto.referredByUserId === '') {
 			data.referredByUserId = null;
 			data.referredByCommissionPercentSnapshot = 0;
-		} else if (explicitSnapshot !== undefined) {
-			data.referredByCommissionPercentSnapshot = explicitSnapshot;
 		} else if (input.forCreate) {
 			data.referredByUserId = null;
 			data.referredByCommissionPercentSnapshot = 0;
@@ -496,12 +488,36 @@ export class UsersController {
 		if (name !== undefined) data.name = name;
 		if (phone !== undefined) data.phone = phone;
 		if (commissionPercent !== undefined) data.commissionPercent = commissionPercent;
-		Object.assign(data, await this.buildSellerNetworkData({
+		const sellerNetworkData = await this.buildSellerNetworkData({
 			companyId,
 			role: String(target.role || '').toUpperCase() === 'ADMIN' ? 'ADMIN' : 'USER',
 			dto,
 			targetUserId: id,
-		}));
+		});
+		const changedReferrerId = sellerNetworkData.referredByUserId
+			? Number(sellerNetworkData.referredByUserId || 0)
+			: 0;
+		const lockedReferrerId = sellerNetworkData.referredByUserId === null
+			? 0
+			: Number(changedReferrerId || target.referredByUserId || 0);
+		if (
+			lockedReferrerId &&
+			String(target.role || '').toUpperCase() !== 'ADMIN' &&
+			await this.usersService.isHbxSellerNetworkCompany(companyId)
+		) {
+			if (changedReferrerId) {
+				const referrer = await this.usersService.getActiveSellerReferrer(companyId, lockedReferrerId);
+				if (!referrer) throw new BadRequestException('Indicador precisa ser vendedor ativo e autorizado a cadastrar vendedores HBX.');
+				data.commissionPercent = normalizeCommissionPercent(referrer.commissionPercent) ?? 0;
+				data.sellerReferralCommissionPercent = normalizeCommissionPercent(referrer.sellerReferralCommissionPercent) ?? 0;
+				data.referredByCommissionPercentSnapshot = normalizeCommissionPercent(referrer.sellerReferralCommissionPercent) ?? 0;
+			} else {
+				data.commissionPercent = normalizeCommissionPercent(target.commissionPercent) ?? 0;
+				data.sellerReferralCommissionPercent = normalizeCommissionPercent(target.sellerReferralCommissionPercent) ?? 0;
+				data.referredByCommissionPercentSnapshot = normalizeCommissionPercent(target.referredByCommissionPercentSnapshot) ?? 0;
+			}
+		}
+		Object.assign(data, sellerNetworkData);
 
 		const updated = Object.keys(data).length
 			? await this.usersService.updateById(id, data)
@@ -568,10 +584,14 @@ export class UsersController {
 		const companyId = Number(req?.user?.companyId);
 		if (!companyId) throw new ForbiddenException('Company context required');
 
+		const role = (dto.role === 'ADMIN' ? 'ADMIN' : 'USER') as 'USER' | 'ADMIN';
 		const seatUsage = await this.usersService.getCompanyTrialSeatUsage(companyId);
 		if (!seatUsage.company) throw new NotFoundException('Empresa não encontrada');
-		if (seatUsage.isTrial && seatUsage.activeUsers >= seatUsage.maxUsers) {
-			throw new BadRequestException('O free trial permite no máximo 2 usuários ativos por empresa.');
+		if (seatUsage.isTrial && role === 'ADMIN' && seatUsage.activeAdmins >= seatUsage.maxAdmins) {
+			throw new BadRequestException('O free trial permite 1 admin ativo por empresa.');
+		}
+		if (seatUsage.isTrial && role === 'USER' && seatUsage.activeSellers >= seatUsage.maxSellers) {
+			throw new BadRequestException('O free trial permite no máximo 2 vendedores ativos por empresa.');
 		}
 
 		const email = String(dto?.email || '').trim().toLowerCase();
@@ -582,10 +602,12 @@ export class UsersController {
 		const existingUsername = await this.usersService.findByUsername(email);
 		if (existingUsername) throw new BadRequestException('Username já cadastrado');
 
+		if (role === 'ADMIN' && await this.usersService.isHbxSellerNetworkCompany(companyId)) {
+			throw new BadRequestException('Na operação HBX, o Gerencial cadastra apenas vendedores SellMaster.');
+		}
 		const tempPassword = dto.password?.trim() || `Tmp@${Math.random().toString(36).slice(2, 10)}A1`;
 		const hashed = await bcrypt.hash(tempPassword, 10);
 		assertPasswordPolicy(tempPassword);
-		const role = (dto.role === 'ADMIN' ? 'ADMIN' : 'USER') as 'USER' | 'ADMIN';
 
 		const attendantName = String(dto?.name || '').trim();
 		const phone = normalizeNullableText(dto.phone);
@@ -596,7 +618,7 @@ export class UsersController {
 			dto,
 			forCreate: true,
 		});
-		if (role === 'USER' && sellerNetworkData.referredByUserId && isMissingCommissionInput(dto.commissionPercent)) {
+		if (role === 'USER' && sellerNetworkData.referredByUserId) {
 			const referrer = await this.usersService.getActiveSellerReferrer(companyId, sellerNetworkData.referredByUserId);
 			commissionPercent = normalizeCommissionPercent(referrer?.commissionPercent) ?? commissionPercent;
 		}
@@ -668,7 +690,7 @@ export class UsersController {
 			phone,
 			commissionPercent: normalizeCommissionPercent(requester.commissionPercent) ?? 0,
 			canRegisterHbxSellers: false,
-			sellerReferralCommissionPercent: 0,
+			sellerReferralCommissionPercent: inheritedSnapshot,
 			referredByUserId: requester.id,
 			referredByCommissionPercentSnapshot: inheritedSnapshot,
 			password: hashed,
@@ -723,10 +745,14 @@ export class UsersController {
 		@Param('companyId', ParseIntPipe) companyId: number,
 		@Body() dto: MasterCreateUserDto,
 	) {
+		const role = (dto.role === 'ADMIN' ? 'ADMIN' : 'USER') as 'USER' | 'ADMIN';
 		const seatUsage = await this.usersService.getCompanyTrialSeatUsage(companyId);
 		if (!seatUsage.company) throw new NotFoundException('Empresa não encontrada');
-		if (seatUsage.isTrial && seatUsage.activeUsers >= seatUsage.maxUsers) {
-			throw new BadRequestException('O free trial permite no máximo 2 usuários ativos por empresa.');
+		if (seatUsage.isTrial && role === 'ADMIN' && seatUsage.activeAdmins >= seatUsage.maxAdmins) {
+			throw new BadRequestException('O free trial permite 1 admin ativo por empresa.');
+		}
+		if (seatUsage.isTrial && role === 'USER' && seatUsage.activeSellers >= seatUsage.maxSellers) {
+			throw new BadRequestException('O free trial permite no máximo 2 vendedores ativos por empresa.');
 		}
 
 		const email = String(dto?.email || '').trim().toLowerCase();
@@ -744,7 +770,6 @@ export class UsersController {
 		const tempPassword = dto.password?.trim() || `Tmp@${Math.random().toString(36).slice(2, 10)}A1`;
 		assertPasswordPolicy(tempPassword);
 		const hashed = await bcrypt.hash(tempPassword, 10);
-		const role = (dto.role === 'ADMIN' ? 'ADMIN' : 'USER') as 'USER' | 'ADMIN';
 		const phone = normalizeNullableText(dto.phone);
 		let commissionPercent = normalizeCommissionPercent(dto.commissionPercent) ?? 0;
 		const sellerNetworkData = await this.buildSellerNetworkData({
@@ -753,7 +778,7 @@ export class UsersController {
 			dto,
 			forCreate: true,
 		});
-		if (role === 'USER' && sellerNetworkData.referredByUserId && isMissingCommissionInput(dto.commissionPercent)) {
+		if (role === 'USER' && sellerNetworkData.referredByUserId) {
 			const referrer = await this.usersService.getActiveSellerReferrer(companyId, sellerNetworkData.referredByUserId);
 			commissionPercent = normalizeCommissionPercent(referrer?.commissionPercent) ?? commissionPercent;
 		}
@@ -860,12 +885,36 @@ export class UsersController {
 				referredByCommissionPercentSnapshot: 0,
 			});
 		}
-		Object.assign(data, await this.buildSellerNetworkData({
+		const sellerNetworkData = await this.buildSellerNetworkData({
 			companyId: Number(target.companyId || 0),
 			role: nextRole,
 			dto,
 			targetUserId: id,
-		}));
+		});
+		const changedReferrerId = sellerNetworkData.referredByUserId
+			? Number(sellerNetworkData.referredByUserId || 0)
+			: 0;
+		const lockedReferrerId = sellerNetworkData.referredByUserId === null
+			? 0
+			: Number(changedReferrerId || target.referredByUserId || 0);
+		if (
+			lockedReferrerId &&
+			nextRole === 'USER' &&
+			await this.usersService.isHbxSellerNetworkCompany(Number(target.companyId || 0))
+		) {
+			if (changedReferrerId) {
+				const referrer = await this.usersService.getActiveSellerReferrer(Number(target.companyId || 0), lockedReferrerId);
+				if (!referrer) throw new BadRequestException('Indicador precisa ser vendedor ativo e autorizado a cadastrar vendedores HBX.');
+				data.commissionPercent = normalizeCommissionPercent(referrer.commissionPercent) ?? 0;
+				data.sellerReferralCommissionPercent = normalizeCommissionPercent(referrer.sellerReferralCommissionPercent) ?? 0;
+				data.referredByCommissionPercentSnapshot = normalizeCommissionPercent(referrer.sellerReferralCommissionPercent) ?? 0;
+			} else {
+				data.commissionPercent = normalizeCommissionPercent(target.commissionPercent) ?? 0;
+				data.sellerReferralCommissionPercent = normalizeCommissionPercent(target.sellerReferralCommissionPercent) ?? 0;
+				data.referredByCommissionPercentSnapshot = normalizeCommissionPercent(target.referredByCommissionPercentSnapshot) ?? 0;
+			}
+		}
+		Object.assign(data, sellerNetworkData);
 
 		if (typeof dto.isActive === 'boolean') {
 			if (!dto.isActive) {

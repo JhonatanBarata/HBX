@@ -332,7 +332,7 @@ export class ModulesService implements OnModuleInit {
     const activeUsers = Array.isArray(company?.users)
       ? company.users.filter((user: any) => {
           const role = String(user?.role || '').trim().toUpperCase();
-          return Boolean(user?.isActive) && !user?.deactivatedAt && !Boolean(user?.isSystemMaster) && role !== 'USERMASTER';
+          return Boolean(user?.isActive) && !user?.deactivatedAt && !Boolean(user?.isSystemMaster) && role === 'USER';
         }).length
       : 0;
     const includedActiveUsers = 2;

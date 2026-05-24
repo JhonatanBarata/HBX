@@ -321,6 +321,19 @@ export class AuthService implements OnModuleInit {
       : null;
   }
 
+  private hasHbxSalesLeadReferral(...values: Array<string | null | undefined>) {
+    return values.some((value) => /^hbx-vendas-lead:[a-z0-9_-]{6,120}$/i.test(String(value || '').trim()));
+  }
+
+  private async syncHbxSalesReferralCompany(companyId: unknown, source: string, enabled: boolean) {
+    if (!enabled) return;
+    const normalizedCompanyId = Math.trunc(Number(companyId || 0));
+    if (!normalizedCompanyId) return;
+    await this.hbxCommissionSync.syncActivatedCompany(normalizedCompanyId, { source }).catch((error: any) => {
+      this.logger.warn(`commission_sync_signup_referral_failed company=${normalizedCompanyId} error=${String(error?.message || error)}`);
+    });
+  }
+
   private isPublicEmailDomain(email: string) {
     const normalized = String(email || '').trim().toLowerCase();
     const domain = normalized.split('@')[1] || '';
@@ -1389,6 +1402,7 @@ export class AuthService implements OnModuleInit {
     const acquisitionSourceDetail = String(data.acquisitionSourceDetail || '').trim() || null;
     const referralReferrerName = String(data.referralReferrerName || '').trim() || null;
     const referralCode = String(data.referralCode || '').trim() || null;
+    const hasHbxSalesReferral = this.hasHbxSalesLeadReferral(acquisitionSourceDetail, referralCode);
     const usesPublicEmail = entityType === 'PJ' ? this.isPublicEmailDomain(email) : false;
     const displayName = this.companyDisplayName(normalizedCompanyName || resolvedName, username);
     const warnings = usesPublicEmail
@@ -1457,6 +1471,17 @@ export class AuthService implements OnModuleInit {
             });
             await this.reserveSignupTrialPhoneTx(tx, existingCompany.id, signupTrialProfile, selectedPlanKey, updated.id);
           }
+          if (hasHbxSalesReferral) {
+            await tx.company.update({
+              where: { id: existingCompany.id },
+              data: {
+                acquisitionSource: acquisitionSource || 'indicacao',
+                acquisitionSourceDetail,
+                referralReferrerName,
+                referralCode,
+              },
+            });
+          }
           return {
             attachedToExistingCompany: true,
             companyId: existingCompany.id,
@@ -1518,8 +1543,14 @@ export class AuthService implements OnModuleInit {
         if (signupTrialProfile) {
           await this.reserveSignupTrialPhoneTx(tx, company.id, signupTrialProfile, selectedPlanKey, updated.id);
         }
-        return { attachedToExistingCompany: false, companyName: company.name, user: updated };
+        return { attachedToExistingCompany: false, companyId: company.id, companyName: company.name, user: updated };
       });
+
+      await this.syncHbxSalesReferralCompany(
+        (createdPending as any).companyId || (createdPending as any).user?.companyId,
+        'auth_signup_pending_hbx_lead',
+        hasHbxSalesReferral,
+      );
 
       if ((createdPending as any).attachedToExistingCompany && !(createdPending as any).pendingEmailConfirmation) {
         return this.login((createdPending as any).user, { companyId: (createdPending as any).companyId });
@@ -1595,6 +1626,17 @@ export class AuthService implements OnModuleInit {
           });
           await this.reserveSignupTrialPhoneTx(tx, existingCompany.id, signupTrialProfile, selectedPlanKey, user.id);
         }
+        if (hasHbxSalesReferral) {
+          await tx.company.update({
+            where: { id: existingCompany.id },
+            data: {
+              acquisitionSource: acquisitionSource || 'indicacao',
+              acquisitionSourceDetail,
+              referralReferrerName,
+              referralCode,
+            },
+          });
+        }
 
         return {
           attachedToExistingCompany: true,
@@ -1660,8 +1702,14 @@ export class AuthService implements OnModuleInit {
         await this.reserveSignupTrialPhoneTx(tx, company.id, signupTrialProfile, selectedPlanKey, user.id);
       }
 
-      return { attachedToExistingCompany: false, companyName: company.name, user };
+      return { attachedToExistingCompany: false, companyId: company.id, companyName: company.name, user };
     });
+
+    await this.syncHbxSalesReferralCompany(
+      (created as any).companyId || (created as any).user?.companyId,
+      'auth_signup_pending_hbx_lead',
+      hasHbxSalesReferral,
+    );
 
     if ((created as any).attachedToExistingCompany && !(created as any).pendingEmailConfirmation) {
       return this.login((created as any).user, { companyId: (created as any).companyId });

@@ -70,7 +70,7 @@ export function isBillableUserSeatSnapshot(user: any, company?: any) {
     Boolean(user?.isActive) &&
     !user?.deactivatedAt &&
     !Boolean(user?.isSystemMaster) &&
-    role !== 'USERMASTER'
+    role === 'USER'
   );
 }
 
@@ -208,7 +208,7 @@ export async function computeCompanySeatBillingSnapshot(prisma: any, input: {
       isActive: true,
       deactivatedAt: null,
       isSystemMaster: false,
-      role: { notIn: ['USERMASTER'] },
+      role: 'USER',
     },
   });
 
@@ -217,6 +217,7 @@ export async function computeCompanySeatBillingSnapshot(prisma: any, input: {
     intervals = await prisma.companyBillableSeatUsage.findMany({
       where: {
         companyId,
+        role: 'USER',
         startedAt: { lt: periodEnd },
         OR: [{ endedAt: null }, { endedAt: { gt: periodStart } }],
       },
@@ -233,7 +234,7 @@ export async function computeCompanySeatBillingSnapshot(prisma: any, input: {
         companyId,
         createdAt: { lt: periodEnd },
         isSystemMaster: false,
-        role: { notIn: ['USERMASTER'] },
+        role: 'USER',
         OR: [{ deactivatedAt: null }, { deactivatedAt: { gt: periodStart } }],
       },
       select: {

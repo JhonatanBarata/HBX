@@ -8,6 +8,8 @@ import { ModuleAccess } from '../modules/module-feature.decorator';
 import { ModuleAccessGuard } from '../modules/module-access.guard';
 import {
   BulkDeleteVendasLeadsDto,
+  CreateHbxAssistedSignupDto,
+  CreateHbxSalesHandoffDto,
   CreateManualVendasLeadDto,
   ImportWebscrapingLeadsDto,
   ReportVendasLeadDto,
@@ -187,6 +189,16 @@ export class VendasController {
   @Patch('lead/:leadId')
   updateLead(@Req() req: any, @Param('leadId') leadId: string, @Body() dto: UpdateVendasLeadDto) {
     return this.vendasService.updateLeadForUser(req.user, leadId, dto);
+  }
+
+  @Post('lead/:leadId/hbx-handoff')
+  createHbxSalesHandoff(@Req() req: any, @Param('leadId') leadId: string, @Body() dto: CreateHbxSalesHandoffDto) {
+    return this.vendasService.createHbxSalesHandoffForUser(req.user, leadId, dto || {});
+  }
+
+  @Post('lead/:leadId/hbx-assisted-signup')
+  createHbxAssistedSignup(@Req() req: any, @Param('leadId') leadId: string, @Body() dto: CreateHbxAssistedSignupDto) {
+    return this.vendasService.createHbxAssistedSignupForUser(req.user, leadId, dto || ({} as CreateHbxAssistedSignupDto));
   }
 
   @Post('lead/:leadId/enrichment')

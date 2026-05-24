@@ -258,6 +258,49 @@ type GerencialTeamUser = {
   commissionPercent?: number | null;
 };
 
+type RadarAutoDistributionRule = {
+  id?: string | null;
+  status: "draft" | "active" | "paused";
+  includeAdmin: boolean;
+  adminTargetStock: number;
+  targetStockPerSeller: number;
+  preferredState?: string | null;
+  preferredCity?: string | null;
+  segment?: string | null;
+  categoryKey?: string | null;
+  radiusKm?: number | null;
+  targetMode?: string | null;
+  targetUserIds?: number[];
+  targetUsers?: GerencialTeamUser[];
+  updatedAt?: string | null;
+};
+
+type RadarAutoDistributionResponse = {
+  ok?: boolean;
+  message?: string;
+  activeSellerCount?: number;
+  rule?: RadarAutoDistributionRule | null;
+};
+
+type RadarAutoDistributionRunResponse = {
+  ok?: boolean;
+  message?: string;
+  distributedCount?: number;
+  failedCount?: number;
+  shortageCount?: number;
+  blockedByLimit?: boolean;
+};
+
+type RadarAutoDistributionDraft = {
+  includeAdmin: boolean;
+  adminTargetStock: number;
+  targetStockPerSeller: number;
+  preferredState: string;
+  preferredCity: string;
+  segment: string;
+  radiusKm: number;
+};
+
 type RadarEnrichResponse = {
   ok?: boolean;
   message?: string;
@@ -342,6 +385,27 @@ const DEFAULT_FILTERS: FilterState = {
   minReviews: "",
   status: "",
 };
+
+function buildRadarAutoDistributionDraft(
+  rule: RadarAutoDistributionRule | null | undefined,
+  filters: FilterState,
+): RadarAutoDistributionDraft {
+  return {
+    includeAdmin: Boolean(rule?.includeAdmin),
+    adminTargetStock: Math.max(0, Math.trunc(Number(rule?.adminTargetStock ?? filters.quantity ?? 30) || 0)),
+    targetStockPerSeller: Math.max(1, Math.trunc(Number(rule?.targetStockPerSeller ?? 30) || 30)),
+    preferredState: String(rule?.preferredState ?? filters.state ?? "").trim().toUpperCase(),
+    preferredCity: String(rule?.preferredCity ?? filters.city ?? "").trim(),
+    segment: String(rule?.segment ?? filters.segment ?? "").trim(),
+    radiusKm: Math.max(0, Math.trunc(Number(rule?.radiusKm ?? filters.radiusKm ?? DEFAULT_FILTERS.radiusKm) || 0)),
+  };
+}
+
+function radarAutoDistributionStatusLabel(status?: string | null) {
+  if (status === "active") return "Ativa";
+  if (status === "paused") return "Pausada";
+  return "Rascunho";
+}
 
 const MAX_CARDS_PER_RADAR_SEARCH = 100;
 const RADAR_VENDAS_STOCK_TARGET_MAX = 100;
@@ -2062,6 +2126,13 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
   const [vendasPendingCount, setVendasPendingCount] = useState<number | null>(null);
   const [teamUsers, setTeamUsers] = useState<GerencialTeamUser[]>([]);
   const [distributionUserIds, setDistributionUserIds] = useState<number[]>([]);
+  const [autoDistributionOpen, setAutoDistributionOpen] = useState(false);
+  const [autoDistributionLoading, setAutoDistributionLoading] = useState(false);
+  const [autoDistributionSaving, setAutoDistributionSaving] = useState(false);
+  const [autoDistributionRule, setAutoDistributionRule] = useState<RadarAutoDistributionRule | null>(null);
+  const [autoDistributionDraft, setAutoDistributionDraft] = useState<RadarAutoDistributionDraft>(() =>
+    buildRadarAutoDistributionDraft(null, DEFAULT_FILTERS),
+  );
   const [feedback, setFeedback] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [mobileAutoImportPending, setMobileAutoImportPending] = useState(false);
@@ -2311,6 +2382,90 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
       cancelled = true;
     };
   }, [hasToken]);
+
+  async function loadRadarAutoDistributionRule(options?: { openAfterLoad?: boolean }) {
+    setAutoDistributionLoading(true);
+    setError(null);
+    try {
+      const payload = await apiFetch<RadarAutoDistributionResponse>("/webscraping/radar/auto-distribution", {
+        requireAuth: true,
+        timeoutMs: 12000,
+      });
+      const rule = payload.rule || null;
+      setAutoDistributionRule(rule);
+      setAutoDistributionDraft(buildRadarAutoDistributionDraft(rule, filters));
+      if (options?.openAfterLoad) setAutoDistributionOpen(true);
+    } catch (ruleError) {
+      setError(radarFriendlyError(ruleError) || "Não consegui carregar a distribuição automática.");
+    } finally {
+      setAutoDistributionLoading(false);
+    }
+  }
+
+  function openAutoDistributionModal() {
+    setAutoDistributionDraft(buildRadarAutoDistributionDraft(autoDistributionRule, filters));
+    setAutoDistributionOpen(true);
+    if (!autoDistributionRule) {
+      void loadRadarAutoDistributionRule();
+    }
+  }
+
+  async function saveAutoDistributionRule() {
+    if (!autoDistributionDraft.preferredState || !autoDistributionDraft.preferredCity) {
+      setError("Escolha estado e cidade para ativar a distribuição automática.");
+      return;
+    }
+    if (!autoDistributionDraft.segment.trim()) {
+      setError("Escolha uma categoria ou segmento para ativar a distribuição automática.");
+      return;
+    }
+    if (!autoDistributionDraft.includeAdmin && activeSellerUsers.length === 0) {
+      setError("Cadastre pelo menos um vendedor ativo ou permita que o Admin receba leads.");
+      return;
+    }
+    setAutoDistributionSaving(true);
+    setError(null);
+    try {
+      const payload = await apiFetch<RadarAutoDistributionResponse>("/webscraping/radar/auto-distribution", {
+        method: "PUT",
+        requireAuth: true,
+        timeoutMs: 15000,
+        body: JSON.stringify({
+          status: "active",
+          includeAdmin: autoDistributionDraft.includeAdmin,
+          adminTargetStock: autoDistributionDraft.includeAdmin ? autoDistributionDraft.adminTargetStock : 0,
+          targetStockPerSeller: autoDistributionDraft.targetStockPerSeller,
+          preferredState: autoDistributionDraft.preferredState,
+          preferredCity: autoDistributionDraft.preferredCity,
+          segment: autoDistributionDraft.segment,
+          categoryKey: inferRadarSegmentCategory(autoDistributionDraft.segment),
+          radiusKm: autoDistributionDraft.radiusKm,
+          userIds: [],
+        }),
+      });
+      const rule = payload.rule || null;
+      setAutoDistributionRule(rule);
+      setAutoDistributionDraft(buildRadarAutoDistributionDraft(rule, filters));
+      let activationMessage = payload.message || "Distribuição automática ativada.";
+      try {
+        const runPayload = await apiFetch<RadarAutoDistributionRunResponse>("/webscraping/radar/auto-distribution/run", {
+          method: "POST",
+          requireAuth: true,
+          timeoutMs: 60000,
+          body: JSON.stringify({ limit: 80 }),
+        });
+        activationMessage = runPayload.message || activationMessage;
+      } catch (runError) {
+        activationMessage = `${activationMessage} ${radarFriendlyError(runError) || "O robô tentará novamente em instantes."}`;
+      }
+      setAutoDistributionOpen(false);
+      setFeedback(activationMessage);
+    } catch (saveError) {
+      setError(radarFriendlyError(saveError) || "Não consegui salvar a distribuição automática.");
+    } finally {
+      setAutoDistributionSaving(false);
+    }
+  }
 
   useEffect(() => {
     if (!distributionUserIds.length) return;
@@ -3407,6 +3562,188 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
     }
   }
 
+  function renderAutoDistributionModal() {
+    if (!autoDistributionOpen) return null;
+    const sellerCount = activeSellerUsers.length;
+    const targetCount = sellerCount + (autoDistributionDraft.includeAdmin ? 1 : 0);
+    const summaryPlace = autoDistributionDraft.preferredCity
+      ? `${autoDistributionDraft.preferredCity}/${autoDistributionDraft.preferredState || "-"}`
+      : "Cidade pendente";
+    const summarySegment = radarSegmentSummary(autoDistributionDraft.segment) || "Categoria pendente";
+    const activeStatus = radarAutoDistributionStatusLabel(autoDistributionRule?.status);
+
+    return (
+      <div className={styles.autoDistributionOverlay} role="presentation" onClick={() => setAutoDistributionOpen(false)}>
+        <section
+          className={styles.autoDistributionSheet}
+          role="dialog"
+          aria-modal="true"
+          aria-label="Distribuição automática"
+          onClick={(event) => event.stopPropagation()}
+        >
+          <header className={styles.autoDistributionHeader}>
+            <div>
+              <span>Distribuição automática</span>
+              <strong>Alimentar vendedores no piloto</strong>
+              <small>Status atual: {activeStatus}</small>
+            </div>
+            <button type="button" onClick={() => setAutoDistributionOpen(false)}>
+              Fechar
+            </button>
+          </header>
+
+          {autoDistributionLoading ? (
+            <div className={styles.autoDistributionEmpty}>Carregando configuração...</div>
+          ) : (
+            <>
+              <div className={styles.autoDistributionSection}>
+                <div className={styles.autoDistributionQuestion}>
+                  <span>1</span>
+                  <div>
+                    <strong>Deseja receber leads também?</strong>
+                    <p>Se não, os cards vão somente para os vendedores ativos. Se sim, o Admin entra no rodízio com estoque próprio.</p>
+                  </div>
+                </div>
+                <div className={styles.autoDistributionChoiceGrid}>
+                  <button
+                    type="button"
+                    data-active={!autoDistributionDraft.includeAdmin ? "true" : "false"}
+                    onClick={() => setAutoDistributionDraft((current) => ({ ...current, includeAdmin: false, adminTargetStock: 0 }))}
+                  >
+                    <strong>Não</strong>
+                    <span>Só vendedores recebem</span>
+                  </button>
+                  <button
+                    type="button"
+                    data-active={autoDistributionDraft.includeAdmin ? "true" : "false"}
+                    onClick={() => setAutoDistributionDraft((current) => ({ ...current, includeAdmin: true, adminTargetStock: current.adminTargetStock || 30 }))}
+                  >
+                    <strong>Sim</strong>
+                    <span>Admin também recebe</span>
+                  </button>
+                </div>
+                {autoDistributionDraft.includeAdmin ? (
+                  <label className={styles.autoDistributionField}>
+                    <span>Quantos cards manter para o Admin?</span>
+                    <input
+                      type="number"
+                      min={1}
+                      max={500}
+                      value={autoDistributionDraft.adminTargetStock || 0}
+                      onChange={(event) =>
+                        setAutoDistributionDraft((current) => ({
+                          ...current,
+                          adminTargetStock: Math.max(1, Math.min(500, Math.trunc(Number(event.target.value || 0) || 1))),
+                        }))
+                      }
+                    />
+                  </label>
+                ) : null}
+              </div>
+
+              <div className={styles.autoDistributionSection}>
+                <div className={styles.autoDistributionQuestion}>
+                  <span>2</span>
+                  <div>
+                    <strong>Preferência do Radar</strong>
+                    <p>Use a mesma cidade, categoria e alcance do Radar para abastecer a equipe.</p>
+                  </div>
+                </div>
+                <div className={styles.autoDistributionLocation}>
+                  <HbxStateCityPicker
+                    state={autoDistributionDraft.preferredState}
+                    city={autoDistributionDraft.preferredCity}
+                    onStateChange={(value) =>
+                      setAutoDistributionDraft((current) => ({
+                        ...current,
+                        preferredState: value,
+                        preferredCity: "",
+                      }))
+                    }
+                    onCityChange={(value) =>
+                      setAutoDistributionDraft((current) => ({
+                        ...current,
+                        preferredCity: value,
+                      }))
+                    }
+                    helperText=""
+                    availableStates={availableFilters.states}
+                    availableCitiesByState={availableFilters.citiesByState}
+                  />
+                </div>
+                <RadarSegmentFunnel
+                  value={autoDistributionDraft.segment}
+                  availableSegments={availableSegmentValues}
+                  onChange={(value) => setAutoDistributionDraft((current) => ({ ...current, segment: value }))}
+                />
+                <RadarRadiusSelector
+                  value={autoDistributionDraft.radiusKm}
+                  onChange={(radiusKm) => setAutoDistributionDraft((current) => ({ ...current, radiusKm }))}
+                />
+              </div>
+
+              <div className={styles.autoDistributionSection}>
+                <div className={styles.autoDistributionQuestion}>
+                    <span>3</span>
+                  <div>
+                    <strong>Rodízio dos vendedores</strong>
+                    <p>Todos os vendedores ativos entram na reposição automática. O robô mantém o estoque configurado no Vendas.</p>
+                  </div>
+                </div>
+                <label className={styles.autoDistributionField}>
+                  <span>Cards para manter por vendedor</span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={500}
+                    value={autoDistributionDraft.targetStockPerSeller}
+                    onChange={(event) =>
+                      setAutoDistributionDraft((current) => ({
+                        ...current,
+                        targetStockPerSeller: Math.max(1, Math.min(500, Math.trunc(Number(event.target.value || 0) || 1))),
+                      }))
+                    }
+                  />
+                </label>
+                <div className={styles.autoDistributionSellerList}>
+                  {activeSellerUsers.length ? activeSellerUsers.map((user) => (
+                    <span key={user.id}>
+                      {user.name || user.username || user.email || `Vendedor ${user.id}`}
+                    </span>
+                  )) : <em>Nenhum vendedor ativo cadastrado.</em>}
+                </div>
+              </div>
+
+              <div className={styles.autoDistributionSummary}>
+                <div>
+                  <span>Resumo</span>
+                  <strong>{targetCount} receptor(es)</strong>
+                </div>
+                <p>
+                  O Radar vai usar {summarySegment} em {summaryPlace}, alcance {radarRadiusLabel(autoDistributionDraft.radiusKm)}.
+                  Os cards serão debitados do plano da empresa/Admin.
+                </p>
+              </div>
+
+              <footer className={styles.autoDistributionFooter}>
+                <button type="button" data-variant="secondary" onClick={() => setAutoDistributionOpen(false)}>
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void saveAutoDistributionRule()}
+                  disabled={autoDistributionSaving}
+                >
+                  {autoDistributionSaving ? "Ativando..." : "Ativar e alimentar agora"}
+                </button>
+              </footer>
+            </>
+          )}
+        </section>
+      </div>
+    );
+  }
+
   return (
     <DashboardScaffold
       title="Radar Digital"
@@ -3415,6 +3752,7 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
       showDashboardShortcut={false}
     >
       <section className={styles.shell} data-mobile-route={mobileRoute ? "true" : "false"}>
+        {renderAutoDistributionModal()}
         <div className={`${styles.mobileRadar} hbx-mobile-page`}>
           <section className={`${styles.mobileRadarHero} hbx-mobile-hero`} data-state={radarMomentState}>
             <RadarMotionBackground active={radarMotionActive} />
@@ -3524,6 +3862,16 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
               disabled={radarFiltersLocked}
               onChange={(quantity) => setFilters((current) => ({ ...current, quantity }))}
             />
+
+            <button
+              type="button"
+              className={styles.mobileAutoDistributionButton}
+              onClick={openAutoDistributionModal}
+              disabled={radarFiltersLocked}
+            >
+              <span>Distribuição automática</span>
+              <strong>{radarAutoDistributionStatusLabel(autoDistributionRule?.status)}</strong>
+            </button>
 
             {radarFiltersLocked ? (
               <div className={styles.mobileRadarLockedNotice} role="status">
@@ -3776,6 +4124,15 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
                   <span>Distribuição</span>
                   <strong>{distributionLabel}</strong>
                 </div>
+                <button
+                  type="button"
+                  data-variant="secondary"
+                  className={styles.distributionAutoButton}
+                  onClick={openAutoDistributionModal}
+                  disabled={radarFiltersLocked}
+                >
+                  Automática
+                </button>
                 <button
                   type="button"
                   data-variant="secondary"

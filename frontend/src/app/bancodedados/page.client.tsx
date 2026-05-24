@@ -10,7 +10,7 @@ type CurrentUser = {
   isSystemMaster?: boolean;
 };
 
-type TabId = "pesquisas" | "excluidos" | "reclamacoes";
+type TabId = "pesquisas" | "excluidos" | "reclamacoes" | "distribuicao";
 type ComplaintStatus = "new" | "reviewing" | "refunded" | "denied" | "resolved";
 
 type RadarCard = {
@@ -99,10 +99,83 @@ type ComplaintPayload = {
   summary?: Record<ComplaintStatus | "total", number>;
 };
 
+type HbxTerritoryCity = {
+  city: string;
+  state: string;
+  availableCards?: number;
+};
+
+type HbxTerritoryCityBalance = HbxTerritoryCity & {
+  normalizedCity?: string;
+  assignedSellerCount?: number;
+  recommendedSellerCount?: number;
+  sellerGap?: number;
+  pressureScore?: number;
+  coverageStatus?: "uncovered" | "needs_sellers" | "overcovered" | "balanced";
+  actionLabel?: string;
+};
+
+type HbxTerritorySeller = {
+  id: number;
+  name: string;
+  email?: string | null;
+  phone?: string | null;
+  commissionPercent?: number | null;
+  inheritedCommissionPercent?: number | null;
+  canRegisterHbxSellers?: boolean;
+  cities: HbxTerritoryCity[];
+  availableCards?: number;
+  targetStock?: number;
+  currentStock?: number;
+  remainingStock?: number;
+  distributionStatus?: "unmapped" | "needs_cards" | "full";
+};
+
+type HbxTerritoryPanel = {
+  ok?: boolean;
+  status?: "draft" | "active" | "paused";
+  segmentMode?: string;
+  territoryMode?: string;
+  targetStockPerSeller?: number;
+  sellers?: HbxTerritorySeller[];
+  citySuggestions?: HbxTerritoryCity[];
+  cityBalance?: HbxTerritoryCityBalance[];
+  summary?: {
+    sellerCount?: number;
+    coveredSellerCount?: number;
+    fullSellerCount?: number;
+    pendingSellerCount?: number;
+    unmappedSellerCount?: number;
+    cityCount?: number;
+    availableCards?: number;
+    targetStock?: number;
+    currentStock?: number;
+    missingCards?: number;
+    recommendedSellerSlots?: number;
+    assignedCitySlots?: number;
+    uncoveredCityCount?: number;
+    overloadedCityCount?: number;
+    balancedCityCount?: number;
+  };
+  lastActivatedAt?: string | null;
+  lastRunAt?: string | null;
+  updatedAt?: string | null;
+  message?: string;
+};
+
+type HbxTerritoryRunPayload = {
+  ok?: boolean;
+  message?: string;
+  distributedCount?: number;
+  failedCount?: number;
+  shortageCount?: number;
+};
+
 const TABS: Array<{ id: TabId; label: string; description: string }> = [
   { id: "pesquisas", label: "Pesquisas", description: "Cards pesquisados e salvos no banco Radar." },
   { id: "excluidos", label: "Excluídos", description: "Cards removidos, bloqueados ou descartados." },
   { id: "reclamacoes", label: "Reclamações", description: "Cards contestados pelos clientes." },
+  { id: "distribuicao", label: "Distribuição HBX", description: "Cidades fixas dos vendedores USERMASTER." },
 ];
 
 const COMPLAINT_LABELS: Record<ComplaintStatus, string> = {
@@ -157,12 +230,17 @@ export default function BancoDeDadosClientPage() {
   const [cardsTotal, setCardsTotal] = useState(0);
   const [exclusions, setExclusions] = useState<ExclusoesPayload>({});
   const [complaints, setComplaints] = useState<VendasComplaint[]>([]);
+  const [territoryPanel, setTerritoryPanel] = useState<HbxTerritoryPanel | null>(null);
+  const [territoryDraft, setTerritoryDraft] = useState<HbxTerritoryPanel | null>(null);
+  const [territorySaving, setTerritorySaving] = useState(false);
+  const [territoryRunning, setTerritoryRunning] = useState(false);
+  const [territoryInput, setTerritoryInput] = useState({ userId: 0, state: "SP", city: "" });
 
   const loadAll = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const [cardsPayload, exclusionsPayload, complaintsPayload] = await Promise.all([
+      const [cardsPayload, exclusionsPayload, complaintsPayload, territoryPayload] = await Promise.all([
         apiFetch<RadarCardsPayload>("/modules/master/webscraping/database-cards?limit=200&targetType=both", {
           requireAuth: true,
           timeoutMs: 20000,
@@ -175,11 +253,19 @@ export default function BancoDeDadosClientPage() {
           requireAuth: true,
           timeoutMs: 20000,
         }),
+        apiFetch<HbxTerritoryPanel>("/modules/master/webscraping/radar-auto-distribution", {
+          requireAuth: true,
+          timeoutMs: 20000,
+        }),
       ]);
       setCards(cardsPayload?.items || []);
       setCardsTotal(Number(cardsPayload?.total || cardsPayload?.items?.length || 0));
       setExclusions(exclusionsPayload || {});
       setComplaints(complaintsPayload?.items || []);
+      setTerritoryPanel(territoryPayload || null);
+      setTerritoryDraft(territoryPayload || null);
+      const firstSellerId = Number(territoryPayload?.sellers?.[0]?.id || 0);
+      setTerritoryInput((current) => ({ ...current, userId: current.userId || firstSellerId }));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Falha ao carregar Banco de Dados.");
     } finally {
@@ -277,15 +363,112 @@ export default function BancoDeDadosClientPage() {
     ].join(" ")).includes(term));
   }, [complaints, search]);
 
+  const territorySellers = territoryDraft?.sellers || [];
+  const territorySummary = territoryDraft?.summary || territoryPanel?.summary || {};
+  const territoryCityCount = territorySellers.reduce((sum, seller) => sum + seller.cities.length, 0);
+  const territoryPotential = territorySellers.reduce((sum, seller) => sum + Number(seller.availableCards || 0), 0);
+
   const tabCount: Record<TabId, number> = {
     pesquisas: filteredCards.length,
     excluidos: excludedCards.length + filteredDeletionRecords.length,
     reclamacoes: filteredComplaints.length,
+    distribuicao: territorySellers.length,
   };
 
   const activeBatchCount = tabCount[activeTab];
 
+  function updateTerritorySeller(userId: number, updater: (seller: HbxTerritorySeller) => HbxTerritorySeller) {
+    setTerritoryDraft((current) => {
+      const base = current || territoryPanel;
+      if (!base) return current;
+      return {
+        ...base,
+        sellers: (base.sellers || []).map((seller) => seller.id === userId ? updater(seller) : seller),
+      };
+    });
+  }
+
+  function addTerritoryCity(userId: number, cityInput?: HbxTerritoryCity) {
+    const city = String(cityInput?.city || territoryInput.city || "").trim();
+    const state = String(cityInput?.state || territoryInput.state || "").trim().toUpperCase();
+    if (!userId || !city || !state) {
+      setError("Escolha vendedor, UF e cidade para fixar o território.");
+      return;
+    }
+    updateTerritorySeller(userId, (seller) => {
+      const exists = seller.cities.some((item) => normalizeText(item.city) === normalizeText(city) && String(item.state || "").toUpperCase() === state);
+      if (exists) return seller;
+      const suggestion = (territoryPanel?.citySuggestions || []).find((item) => normalizeText(item.city) === normalizeText(city) && String(item.state || "").toUpperCase() === state);
+      return {
+        ...seller,
+        cities: [...seller.cities, { city, state, availableCards: suggestion?.availableCards || 0 }],
+        availableCards: Number(seller.availableCards || 0) + Number(suggestion?.availableCards || 0),
+      };
+    });
+    setTerritoryInput((current) => ({ ...current, userId, city: "" }));
+  }
+
+  function removeTerritoryCity(userId: number, city: HbxTerritoryCity) {
+    updateTerritorySeller(userId, (seller) => {
+      const nextCities = seller.cities.filter((item) => !(normalizeText(item.city) === normalizeText(city.city) && String(item.state || "").toUpperCase() === String(city.state || "").toUpperCase()));
+      return {
+        ...seller,
+        cities: nextCities,
+        availableCards: nextCities.reduce((sum, item) => sum + Number(item.availableCards || 0), 0),
+      };
+    });
+  }
+
+  async function saveTerritories(status: "draft" | "active" = "active") {
+    setTerritorySaving(true);
+    setError(null);
+    setFeedback(null);
+    try {
+      const payload = await apiFetch<HbxTerritoryPanel>("/modules/master/webscraping/radar-auto-distribution", {
+        method: "PUT",
+        requireAuth: true,
+        timeoutMs: 20000,
+        body: JSON.stringify({
+          status,
+          targetStockPerSeller: territoryDraft?.targetStockPerSeller || 30,
+          territories: (territoryDraft?.sellers || []).map((seller) => ({
+            userId: seller.id,
+            cities: seller.cities.map((city) => ({ city: city.city, state: city.state })),
+          })),
+        }),
+      });
+      setTerritoryPanel(payload);
+      setTerritoryDraft(payload);
+      setFeedback(payload.message || "Distribuição HBX Master salva.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Falha ao salvar distribuição HBX Master.");
+    } finally {
+      setTerritorySaving(false);
+    }
+  }
+
+  async function runTerritoriesNow() {
+    setTerritoryRunning(true);
+    setError(null);
+    setFeedback(null);
+    try {
+      const payload = await apiFetch<HbxTerritoryRunPayload>("/modules/master/webscraping/radar-auto-distribution/run", {
+        method: "POST",
+        requireAuth: true,
+        timeoutMs: 60000,
+        body: JSON.stringify({ limit: 80 }),
+      });
+      setFeedback(payload.message || "Robô HBX executado.");
+      await loadAll();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Falha ao alimentar vendedores HBX.");
+    } finally {
+      setTerritoryRunning(false);
+    }
+  }
+
   async function deleteActiveBatch() {
+    if (activeTab === "distribuicao") return;
     setBusyBatch(true);
     setError(null);
     setFeedback(null);
@@ -367,8 +550,8 @@ export default function BancoDeDadosClientPage() {
         <section className={styles.kpiGrid} aria-label="Resumo do banco de dados">
           <article><span>Pesquisas</span><strong>{metric(cardsTotal || cards.length)}</strong></article>
           <article><span>Excluídos</span><strong>{metric(excludedCards.length + filteredDeletionRecords.length)}</strong></article>
-          <article><span>Reclamações</span><strong>{metric(complaints.length)}</strong></article>
-          <article><span>Concluídos</span><strong>{metric(completedCards.length)}</strong></article>
+          <article><span>Vendedores HBX</span><strong>{metric(Number(territorySummary.sellerCount || territorySellers.length))}</strong></article>
+          <article><span>Cidades fixas</span><strong>{metric(Number(territorySummary.cityCount || territoryCityCount))}</strong></article>
         </section>
 
         <section className={styles.filterPanel}>
@@ -380,10 +563,10 @@ export default function BancoDeDadosClientPage() {
             <button
               type="button"
               className={styles.dangerButton}
-              disabled={busyBatch || loading || activeBatchCount === 0}
+              disabled={busyBatch || loading || activeBatchCount === 0 || activeTab === "distribuicao"}
               onClick={() => void deleteActiveBatch()}
             >
-              {busyBatch ? "Excluindo..." : `Excluir em massa (${metric(activeBatchCount)})`}
+              {activeTab === "distribuicao" ? "Sem exclusão em massa" : busyBatch ? "Excluindo..." : `Excluir em massa (${metric(activeBatchCount)})`}
             </button>
           </div>
           <div className={styles.tabs} role="tablist" aria-label="Banco de Dados de cards">
@@ -413,20 +596,252 @@ export default function BancoDeDadosClientPage() {
           <div className={styles.sectionTitle}>
             <div>
               <span>{TABS.find((tab) => tab.id === activeTab)?.label}</span>
-              <strong>{loading ? "Carregando..." : `${metric(activeBatchCount)} item(ns)`}</strong>
+              <strong>{loading ? "Carregando..." : activeTab === "distribuicao" ? `${metric(territoryPotential)} cards potenciais` : `${metric(activeBatchCount)} item(ns)`}</strong>
             </div>
           </div>
 
-          {!loading && activeBatchCount === 0 ? (
+          {!loading && activeBatchCount === 0 && activeTab !== "distribuicao" ? (
             <div className={styles.emptyState}>Nenhum card encontrado nesta guia.</div>
           ) : null}
 
           {activeTab === "pesquisas" ? <RadarCardList items={filteredCards} /> : null}
           {activeTab === "excluidos" ? <ExcludedList items={excludedCards} records={filteredDeletionRecords} /> : null}
           {activeTab === "reclamacoes" ? <ComplaintList items={filteredComplaints} /> : null}
+          {activeTab === "distribuicao" ? (
+            <HbxTerritoryPanelView
+              panel={territoryDraft}
+              input={territoryInput}
+              saving={territorySaving}
+              running={territoryRunning}
+              onInputChange={setTerritoryInput}
+              onAddCity={addTerritoryCity}
+              onRemoveCity={removeTerritoryCity}
+              onTargetChange={(value) => setTerritoryDraft((current) => current ? { ...current, targetStockPerSeller: value } : current)}
+              onSave={saveTerritories}
+              onRun={runTerritoriesNow}
+            />
+          ) : null}
         </section>
       </main>
     </DashboardScaffold>
+  );
+}
+
+function HbxTerritoryPanelView({
+  panel,
+  input,
+  saving,
+  running,
+  onInputChange,
+  onAddCity,
+  onRemoveCity,
+  onTargetChange,
+  onSave,
+  onRun,
+}: {
+  panel: HbxTerritoryPanel | null;
+  input: { userId: number; state: string; city: string };
+  saving: boolean;
+  running: boolean;
+  onInputChange: (next: { userId: number; state: string; city: string }) => void;
+  onAddCity: (userId: number, city?: HbxTerritoryCity) => void;
+  onRemoveCity: (userId: number, city: HbxTerritoryCity) => void;
+  onTargetChange: (value: number) => void;
+  onSave: (status?: "draft" | "active") => Promise<void>;
+  onRun: () => Promise<void>;
+}) {
+  const sellers = panel?.sellers || [];
+  const suggestions = panel?.citySuggestions || [];
+  const cityBalance = panel?.cityBalance || [];
+  const selectedSeller = sellers.find((seller) => seller.id === input.userId) || sellers[0] || null;
+  const summary = panel?.summary || {};
+  const lastRunLabel = panel?.lastRunAt ? formatDateTime(panel.lastRunAt) : "Nunca executado";
+
+  if (!panel) {
+    return <div className={styles.emptyState}>Carregando distribuição HBX Master...</div>;
+  }
+
+  return (
+    <div className={styles.territoryLayout}>
+      <section className={styles.territoryHero}>
+        <div>
+          <span>HBX Master</span>
+          <strong>Cidades fixas, segmentos livres</strong>
+          <p>O USERMASTER fixa onde cada vendedor pode receber cards. Dentro do Vendas, o vendedor trabalha segmentos livres dentro da cidade liberada.</p>
+        </div>
+        <div className={styles.territoryStatus}>
+          <span>Status</span>
+          <strong>{panel.status === "active" ? "Ativa" : panel.status === "paused" ? "Pausada" : "Rascunho"}</strong>
+          <small>{lastRunLabel}</small>
+        </div>
+      </section>
+
+      <section className={styles.territoryInsightGrid} aria-label="Resumo operacional da distribuição HBX">
+        <article>
+          <span>Estoque em Vendas</span>
+          <strong>{metric(summary.currentStock)}</strong>
+          <small>meta {metric(summary.targetStock)}</small>
+        </article>
+        <article>
+          <span>Faltando agora</span>
+          <strong>{metric(summary.missingCards)}</strong>
+          <small>{metric(summary.pendingSellerCount)} vendedor(es)</small>
+        </article>
+        <article>
+          <span>Cobertura</span>
+          <strong>{metric(summary.coveredSellerCount)}/{metric(summary.sellerCount)}</strong>
+          <small>{metric(summary.unmappedSellerCount)} sem cidade</small>
+        </article>
+        <article>
+          <span>Banco disponível</span>
+          <strong>{metric(summary.availableCards)}</strong>
+          <small>nas cidades fixas</small>
+        </article>
+        <article>
+          <span>Slots recomendados</span>
+          <strong>{metric(summary.assignedCitySlots)}/{metric(summary.recommendedSellerSlots)}</strong>
+          <small>{metric(summary.uncoveredCityCount)} cidade(s) sem vendedor</small>
+        </article>
+      </section>
+
+      {cityBalance.length ? (
+        <section className={styles.territoryBalancePanel}>
+          <header>
+            <div>
+              <span>Mapa de demanda</span>
+              <strong>Regiões por pressão</strong>
+            </div>
+            <small>{metric(summary.overloadedCityCount)} região(ões) pedindo mais vendedores</small>
+          </header>
+          <div className={styles.territoryBalanceList}>
+            {cityBalance.slice(0, 12).map((city) => {
+              const status = city.coverageStatus || "balanced";
+              return (
+                <button
+                  type="button"
+                  key={`${city.city}-${city.state}-${status}`}
+                  data-status={status}
+                  onClick={() => selectedSeller ? onAddCity(selectedSeller.id, city) : undefined}
+                >
+                  <span>{city.city}/{city.state}</span>
+                  <strong>{metric(city.availableCards)}</strong>
+                  <small>{metric(city.assignedSellerCount)}/{metric(city.recommendedSellerCount)} vendedor(es)</small>
+                  <em>{city.actionLabel || "Cobertura ok"}</em>
+                </button>
+              );
+            })}
+          </div>
+        </section>
+      ) : null}
+
+      <section className={styles.territoryControls}>
+        <label>
+          <span>Cards para manter por vendedor</span>
+          <input
+            type="number"
+            min={1}
+            max={500}
+            value={panel.targetStockPerSeller || 30}
+            onChange={(event) => onTargetChange(Math.max(1, Math.min(500, Math.trunc(Number(event.target.value || 0) || 1))))}
+          />
+        </label>
+        <label>
+          <span>Vendedor</span>
+          <select value={selectedSeller?.id || 0} onChange={(event) => onInputChange({ ...input, userId: Number(event.target.value || 0) })}>
+            {sellers.map((seller) => (
+              <option key={seller.id} value={seller.id}>{seller.name}</option>
+            ))}
+          </select>
+        </label>
+        <label>
+          <span>UF</span>
+          <input value={input.state} maxLength={2} onChange={(event) => onInputChange({ ...input, state: event.target.value.toUpperCase() })} />
+        </label>
+        <label>
+          <span>Cidade</span>
+          <input value={input.city} onChange={(event) => onInputChange({ ...input, city: event.target.value })} placeholder="Ex.: São Paulo" />
+        </label>
+        <button type="button" onClick={() => onAddCity(Number(selectedSeller?.id || 0))}>
+          Adicionar cidade
+        </button>
+      </section>
+
+      {suggestions.length ? (
+        <section className={styles.territorySuggestions}>
+          <span>Cidades com mais cards no banco</span>
+          <div>
+            {suggestions.slice(0, 12).map((city) => (
+              <button
+                type="button"
+                key={`${city.city}-${city.state}`}
+                onClick={() => selectedSeller ? onAddCity(selectedSeller.id, city) : undefined}
+              >
+                {city.city}/{city.state} · {metric(city.availableCards)}
+              </button>
+            ))}
+          </div>
+        </section>
+      ) : null}
+
+      <div className={styles.territorySellerGrid}>
+        {sellers.map((seller) => {
+          const stock = Math.max(0, Number(seller.currentStock || 0));
+          const target = Math.max(1, Number(seller.targetStock || panel.targetStockPerSeller || 30));
+          const missing = Math.max(0, Number(seller.remainingStock ?? target - stock));
+          const stockPercent = Math.max(0, Math.min(100, Math.round((stock / target) * 100)));
+          const status = seller.distributionStatus || (seller.cities.length ? missing > 0 ? "needs_cards" : "full" : "unmapped");
+          const statusLabel = status === "full" ? "Completo" : status === "needs_cards" ? "Precisa card" : "Sem cidade";
+          return (
+            <article key={seller.id} className={styles.territorySellerCard}>
+              <header>
+                <div>
+                  <span>Vendedor HBX</span>
+                  <strong>{seller.name}</strong>
+                  <small>{seller.email || seller.phone || "Sem contato salvo"}</small>
+                </div>
+                <div>
+                  <span>Estoque</span>
+                  <strong>{metric(stock)}/{metric(target)}</strong>
+                </div>
+              </header>
+              <div className={styles.territoryMeter} aria-label={`Estoque de ${seller.name}`}>
+                <span style={{ width: `${stockPercent}%` }} />
+              </div>
+              <div className={styles.territoryBadges}>
+                <span data-status={status}>{statusLabel}</span>
+                <span>{metric(seller.availableCards)} potenciais</span>
+                <span>{metric(missing)} faltando</span>
+              </div>
+              <div className={styles.metaGrid}>
+                <span>Comissão: {Number(seller.commissionPercent || 0).toLocaleString("pt-BR")}%</span>
+                <span>Herdada: {Number(seller.inheritedCommissionPercent || 0).toLocaleString("pt-BR")}%</span>
+                <span>Subvendedores: {seller.canRegisterHbxSellers ? "liberado" : "bloqueado"}</span>
+                <span>Cidades: {metric(seller.cities.length)}</span>
+              </div>
+              <div className={styles.cityChips}>
+                {seller.cities.length ? seller.cities.map((city) => (
+                  <button key={`${seller.id}-${city.city}-${city.state}`} type="button" onClick={() => onRemoveCity(seller.id, city)}>
+                    {city.city}/{city.state} · {metric(city.availableCards)}
+                  </button>
+                )) : <em>Nenhuma cidade fixa. Este vendedor ainda não entra no mapa HBX.</em>}
+              </div>
+            </article>
+          );
+        })}
+      </div>
+
+      <footer className={styles.territoryFooter}>
+        <button type="button" onClick={() => void onSave("draft")} disabled={saving}>
+          {saving ? "Salvando..." : "Salvar rascunho"}
+        </button>
+        <button type="button" data-primary="true" onClick={() => void onSave("active")} disabled={saving}>
+          {saving ? "Ativando..." : "Ativar territórios"}
+        </button>
+        <button type="button" data-primary="true" onClick={() => void onRun()} disabled={saving || running || panel.status !== "active"}>
+          {running ? "Alimentando..." : "Alimentar agora"}
+        </button>
+      </footer>
+    </div>
   );
 }
 

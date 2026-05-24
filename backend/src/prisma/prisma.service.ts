@@ -56,10 +56,12 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
       console.log('Prisma runtime target:', describeDatabaseTarget(this.runtimeDatabaseUrl || String(process.env.DATABASE_URL || '').trim()));
     } catch (e) {}
     await this.$connect();
+    await this.ensureCompanyCommissionSettingsColumns();
     await this.ensureUserSalesProfileColumns();
     await this.ensureVendasLeadAssignmentColumns();
     await this.ensureVendasCommissionPayoutTables();
     await this.ensureVendasCommissionReceivableTables();
+    await this.ensureRadarAutoDistributionRuleTables();
   }
 
   async onModuleDestroy() {
@@ -69,6 +71,13 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
   private isSqliteUrl() {
     const databaseUrl = String(this.runtimeDatabaseUrl || process.env.DATABASE_URL || '').trim().toLowerCase();
     return databaseUrl.startsWith('file:') || databaseUrl.endsWith('.db');
+  }
+
+  private async ensureCompanyCommissionSettingsColumns() {
+    await this.$executeRawUnsafe(`
+      ALTER TABLE "Company"
+      ADD COLUMN IF NOT EXISTS "commissionDueBusinessDays" INTEGER NOT NULL DEFAULT 3
+    `);
   }
 
   async hasTable(tableName: string) {
@@ -419,6 +428,59 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
 
     await this.$executeRawUnsafe(`
       CREATE INDEX IF NOT EXISTS "VendasCommissionReceivable_cycleKey_idx" ON "VendasCommissionReceivable"("cycleKey")
+    `);
+  }
+
+  private async ensureRadarAutoDistributionRuleTables() {
+    await this.$executeRawUnsafe(`
+      CREATE TABLE IF NOT EXISTS "RadarAutoDistributionRule" (
+        "id" TEXT NOT NULL,
+        "companyId" INTEGER NOT NULL,
+        "scope" TEXT NOT NULL DEFAULT 'company',
+        "status" TEXT NOT NULL DEFAULT 'draft',
+        "includeAdmin" BOOLEAN NOT NULL DEFAULT false,
+        "adminUserId" INTEGER,
+        "adminTargetStock" INTEGER NOT NULL DEFAULT 0,
+        "targetStockPerSeller" INTEGER NOT NULL DEFAULT 30,
+        "preferredState" TEXT,
+        "preferredCity" TEXT,
+        "segment" TEXT,
+        "categoryKey" TEXT,
+        "radiusKm" INTEGER,
+        "targetUserIdsJson" TEXT,
+        "filtersJson" TEXT,
+        "createdByUserId" INTEGER,
+        "updatedByUserId" INTEGER,
+        "lastActivatedAt" TIMESTAMP(3),
+        "lastRunAt" TIMESTAMP(3),
+        "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT "RadarAutoDistributionRule_pkey" PRIMARY KEY ("id")
+      )
+    `);
+
+    await this.$executeRawUnsafe(`
+      DO $$
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_constraint
+          WHERE conname = 'RadarAutoDistributionRule_companyId_fkey'
+        ) THEN
+          ALTER TABLE "RadarAutoDistributionRule"
+          ADD CONSTRAINT "RadarAutoDistributionRule_companyId_fkey"
+          FOREIGN KEY ("companyId") REFERENCES "Company"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+        END IF;
+      END $$;
+    `);
+
+    await this.$executeRawUnsafe(`
+      CREATE UNIQUE INDEX IF NOT EXISTS "RadarAutoDistributionRule_companyId_scope_key" ON "RadarAutoDistributionRule"("companyId", "scope")
+    `);
+    await this.$executeRawUnsafe(`
+      CREATE INDEX IF NOT EXISTS "RadarAutoDistributionRule_companyId_status_idx" ON "RadarAutoDistributionRule"("companyId", "status")
+    `);
+    await this.$executeRawUnsafe(`
+      CREATE INDEX IF NOT EXISTS "RadarAutoDistributionRule_companyId_updatedAt_idx" ON "RadarAutoDistributionRule"("companyId", "updatedAt")
     `);
   }
 }

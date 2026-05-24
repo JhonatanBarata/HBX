@@ -2222,6 +2222,230 @@
   font-weight: 800;
 }
 
+.distributionAutoButton {
+  border-color: color-mix(in srgb, var(--brand) 42%, var(--line)) !important;
+  background: color-mix(in srgb, var(--brand) 10%, var(--surface-raised)) !important;
+  color: var(--foreground) !important;
+}
+
+.mobileAutoDistributionButton {
+  display: grid;
+  min-height: 58px;
+  align-content: center;
+  gap: 2px;
+  border: 1px solid color-mix(in srgb, var(--hbx-mobile-primary, var(--brand)) 38%, var(--hbx-mobile-border, var(--line)));
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--hbx-mobile-primary, var(--brand)) 10%, var(--hbx-mobile-surface-soft, var(--surface)));
+  color: var(--hbx-mobile-text, var(--foreground));
+  padding: 10px 12px;
+  text-align: left;
+  font: inherit;
+}
+
+.mobileAutoDistributionButton:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
+}
+
+.mobileAutoDistributionButton span {
+  color: var(--hbx-mobile-muted, var(--muted));
+  font-size: 0.72rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.mobileAutoDistributionButton strong {
+  font-size: 0.98rem;
+  font-weight: 900;
+}
+
+.autoDistributionOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 320;
+  display: grid;
+  place-items: center;
+  padding: max(16px, env(safe-area-inset-top)) 16px max(16px, env(safe-area-inset-bottom));
+  background: rgba(2, 8, 23, 0.58);
+}
+
+.autoDistributionSheet {
+  width: min(960px, calc(100vw - 32px));
+  max-height: min(86dvh, 820px);
+  overflow: auto;
+  display: grid;
+  gap: 14px;
+  border: 1px solid color-mix(in srgb, var(--line) 82%, transparent);
+  border-radius: 24px;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--surface) 98%, var(--background)), color-mix(in srgb, var(--surface-soft) 94%, var(--background)));
+  box-shadow: 0 30px 90px -36px rgba(2, 6, 23, 0.64);
+  padding: 18px;
+}
+
+.autoDistributionHeader,
+.autoDistributionFooter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.autoDistributionHeader span,
+.autoDistributionSummary span {
+  display: block;
+  color: var(--brand);
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.autoDistributionHeader strong,
+.autoDistributionSummary strong {
+  display: block;
+  margin-top: 2px;
+  color: var(--foreground);
+  font-size: 1.12rem;
+  font-weight: 900;
+}
+
+.autoDistributionHeader small,
+.autoDistributionHeader p,
+.autoDistributionQuestion p,
+.autoDistributionSummary p {
+  color: var(--muted);
+  font-size: 0.84rem;
+  font-weight: 700;
+}
+
+.autoDistributionHeader button,
+.autoDistributionFooter button,
+.autoDistributionChoiceGrid button {
+  min-height: 40px;
+  border: 1px solid color-mix(in srgb, var(--line) 84%, transparent);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--surface-raised) 92%, var(--surface));
+  color: var(--foreground);
+  padding: 0 14px;
+  font: inherit;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.autoDistributionFooter button:last-child {
+  border-color: color-mix(in srgb, var(--brand) 54%, var(--line));
+  background: color-mix(in srgb, var(--brand) 14%, var(--surface));
+}
+
+.autoDistributionFooter button:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.autoDistributionSection,
+.autoDistributionSummary,
+.autoDistributionEmpty {
+  display: grid;
+  gap: 12px;
+  border: 1px solid color-mix(in srgb, var(--line) 86%, transparent);
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--surface-soft) 76%, var(--surface));
+  padding: 14px;
+}
+
+.autoDistributionQuestion {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+}
+
+.autoDistributionQuestion > span {
+  display: inline-grid;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--brand) 14%, var(--surface));
+  color: var(--brand);
+  font-size: 0.86rem;
+  font-weight: 950;
+}
+
+.autoDistributionQuestion strong {
+  display: block;
+  color: var(--foreground);
+  font-size: 0.98rem;
+  font-weight: 900;
+}
+
+.autoDistributionChoiceGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.autoDistributionChoiceGrid button {
+  display: grid;
+  gap: 2px;
+  min-height: 64px;
+  text-align: left;
+}
+
+.autoDistributionChoiceGrid button[data-active="true"] {
+  border-color: color-mix(in srgb, var(--brand) 58%, var(--line));
+  background: color-mix(in srgb, var(--brand) 12%, var(--surface));
+}
+
+.autoDistributionChoiceGrid span,
+.autoDistributionSellerList em {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 750;
+}
+
+.autoDistributionField {
+  display: grid;
+  gap: 6px;
+  color: var(--foreground);
+  font-size: 0.84rem;
+  font-weight: 850;
+}
+
+.autoDistributionField input {
+  min-height: 42px;
+  border: 1px solid color-mix(in srgb, var(--line) 82%, transparent);
+  border-radius: 12px;
+  background: var(--surface);
+  color: var(--foreground);
+  padding: 0 12px;
+  font: inherit;
+}
+
+.autoDistributionLocation {
+  min-width: 0;
+}
+
+.autoDistributionSellerList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.autoDistributionSellerList span {
+  display: inline-flex;
+  min-height: 32px;
+  align-items: center;
+  border: 1px solid color-mix(in srgb, var(--line) 84%, transparent);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--foreground);
+  padding: 0 10px;
+  font-size: 0.78rem;
+  font-weight: 850;
+}
+
 .filterAdvanced .radarChannelFilter {
   margin-bottom: 12px;
 }

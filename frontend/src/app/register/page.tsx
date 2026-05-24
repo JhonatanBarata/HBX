@@ -172,6 +172,26 @@ function planName(planKey?: CommercialPlanKey | null) {
   return SIGNUP_PLANS.find((plan) => plan.key === planKey)?.name || "HBX Lead";
 }
 
+function normalizeSignupPlanKey(value?: string | null): CommercialPlanKey | null {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (normalized === "hbx_lite" || normalized === "list" || normalized === "hbx_list") return "hbx_lite";
+  if (normalized === "hbx_melhor" || normalized === "full" || normalized === "hbx_full") return "hbx_melhor";
+  if (
+    normalized === "hbx_padrao" ||
+    normalized === "lead_plus" ||
+    normalized === "lead+" ||
+    normalized === "hbx_lead"
+  ) {
+    return "hbx_padrao";
+  }
+  return null;
+}
+
+function normalizeHbxLeadParam(value?: string | null) {
+  const normalized = String(value || "").trim();
+  return /^[a-z0-9_-]{6,120}$/i.test(normalized) ? normalized : "";
+}
+
 function normalizeEmail(value?: string | null) {
   return String(value || "").trim().toLowerCase();
 }
@@ -344,6 +364,7 @@ export default function RegisterPage() {
   const router = useRouter();
   const { selection } = useHbxTheme();
   const [selectedPlanKey, setSelectedPlanKey] = useState<CommercialPlanKey>(PUBLIC_SIGNUP_PLAN_KEY);
+  const [salesReferralLeadId, setSalesReferralLeadId] = useState("");
   const [registerStep, setRegisterStep] = useState<"plans" | "form">("form");
   const [registerTransition, setRegisterTransition] = useState<"idle" | "selecting">("idle");
   const [mobileRegisterFlow, setMobileRegisterFlow] = useState(false);
@@ -400,6 +421,10 @@ export default function RegisterPage() {
     const start = params.get("start");
     const mobileSurface = params.get("surface") === "mobile";
     const canonicalQuery = mobileSurface ? "?surface=mobile" : "";
+    const linkedPlanKey = normalizeSignupPlanKey(params.get("plan") || params.get("selectedPlanKey"));
+    const linkedLeadId = normalizeHbxLeadParam(params.get("hbxLead") || params.get("leadId"));
+    if (linkedPlanKey) setSelectedPlanKey(linkedPlanKey);
+    setSalesReferralLeadId(linkedLeadId);
     if (params.has("from") || start === "form" || start === "plans") {
       router.replace(`/register${canonicalQuery}`);
     }
@@ -407,7 +432,7 @@ export default function RegisterPage() {
     setRegisterStep("form");
     setRegisterTransition("idle");
     if (start === "trial" && getToken()) {
-      setSelectedPlanKey(PUBLIC_SIGNUP_PLAN_KEY);
+      setSelectedPlanKey(linkedPlanKey || PUBLIC_SIGNUP_PLAN_KEY);
       setConfirmationPending(null);
       setTrialModalOpen(true);
     }
@@ -683,6 +708,13 @@ export default function RegisterPage() {
         username: username.trim() || email.trim().toLowerCase(),
         email,
         password,
+        ...(salesReferralLeadId
+          ? {
+              acquisitionSource: "indicacao",
+              acquisitionSourceDetail: `hbx-vendas-lead:${salesReferralLeadId}`,
+              referralCode: `hbx-vendas-lead:${salesReferralLeadId}`,
+            }
+          : {}),
       };
 
       const signupRes = await fetch(`${API_URL}/auth/signup`, {

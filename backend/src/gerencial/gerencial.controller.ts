@@ -16,6 +16,15 @@ class UpdateCommissionDto {
   commissionNote?: string;
 }
 
+class UpdateCommissionSettingsDto {
+  commissionDueBusinessDays?: number;
+}
+
+class UpdateClientSaleStatusDto {
+  saleStatus?: string;
+  commissionNote?: string;
+}
+
 class CreateCommissionPayoutDto {
   sellerUserId?: number;
   dueOnly?: boolean;
@@ -45,12 +54,28 @@ export class GerencialController {
     return this.gerencialService.markComplaint(req.user, messageId, Boolean(dto.isComplaint));
   }
 
+  @Patch('commission/settings')
+  @UseGuards(JwtAuthGuard, RolesGuard, ModuleAccessGuard)
+  @Admin()
+  @ModuleAccess('gerencial')
+  async updateCommissionSettings(@Req() req: any, @Body() dto: UpdateCommissionSettingsDto) {
+    return this.gerencialService.updateCommissionSettings(req.user, dto || {});
+  }
+
   @Patch('commission/:leadId')
   @UseGuards(JwtAuthGuard, RolesGuard, ModuleAccessGuard)
   @Admin()
   @ModuleAccess('gerencial')
   async updateCommission(@Req() req: any, @Param('leadId') leadId: string, @Body() dto: UpdateCommissionDto) {
     return this.gerencialService.updateCommissionStatus(req.user, leadId, dto || {});
+  }
+
+  @Patch('commission/:leadId/sale-status')
+  @UseGuards(JwtAuthGuard, RolesGuard, ModuleAccessGuard)
+  @Admin()
+  @ModuleAccess('gerencial')
+  async updateClientSaleStatus(@Req() req: any, @Param('leadId') leadId: string, @Body() dto: UpdateClientSaleStatusDto) {
+    return this.gerencialService.updateClientSaleStatus(req.user, leadId, dto || {});
   }
 
   @Post('commission/payouts')

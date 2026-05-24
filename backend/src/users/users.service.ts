@@ -59,7 +59,7 @@ export class UsersService {
         isActive: true,
         deactivatedAt: null,
         isSystemMaster: false,
-        role: { notIn: ['USERMASTER'] },
+        role: 'USER',
       },
     });
   }
@@ -180,7 +180,7 @@ export class UsersService {
   }
 
   async getCompanyTrialSeatUsage(companyId: number) {
-    const [company, activeUsers] = await Promise.all([
+    const [company, activeUsers, activeAdmins, activeSellers] = await Promise.all([
       this.prisma.company.findUnique({
         where: { id: companyId },
         select: {
@@ -199,6 +199,24 @@ export class UsersService {
           role: { notIn: ['USERMASTER'] },
         },
       }),
+      this.prisma.user.count({
+        where: {
+          companyId,
+          isActive: true,
+          deactivatedAt: null,
+          isSystemMaster: false,
+          role: 'ADMIN',
+        },
+      }),
+      this.prisma.user.count({
+        where: {
+          companyId,
+          isActive: true,
+          deactivatedAt: null,
+          isSystemMaster: false,
+          role: 'USER',
+        },
+      }),
     ]);
 
     const onboardingStatus = String(company?.onboardingStatus || '').trim().toLowerCase();
@@ -213,8 +231,12 @@ export class UsersService {
     return {
       company,
       activeUsers,
+      activeAdmins,
+      activeSellers,
       isTrial,
-      maxUsers: 2,
+      maxAdmins: 1,
+      maxSellers: 2,
+      maxUsers: 3,
     };
   }
 

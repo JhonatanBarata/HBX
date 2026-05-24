@@ -1,6 +1,7 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import { CustomerProfileService } from '../customer-profile/customer-profile.service';
+import { AuthService } from '../auth/auth.service';
 import { InboxService } from '../inbox/inbox.service';
 import { CommercialPlansService } from '../commercial-plans/commercial-plans.service';
 import { CommercialUsageLimitsService } from '../commercial-plans/commercial-usage-limits.service';
@@ -27,6 +28,8 @@ import {
 import { calculateLeadQualityV2, resolveRadarVisibilityFromQualityV2, type LeadQualityV2, type LeadQualityV2SalesProfile } from '../webscraping/lead-quality-v2';
 import {
   BulkDeleteVendasLeadsDto,
+  CreateHbxAssistedSignupDto,
+  CreateHbxSalesHandoffDto,
   CreateManualVendasLeadDto,
   ImportWebscrapingLeadsDto,
   ReportVendasLeadDto,
@@ -251,6 +254,7 @@ export class VendasService {
     private readonly hbxPresentationEmails: HbxPresentationEmailService,
     private readonly commercialUsageLimits: CommercialUsageLimitsService,
     private readonly hbxCommissionSync: HbxCommissionSyncService,
+    private readonly authService: AuthService,
   ) {}
 
   async getAutomationBotConfigForUser(user: any) {
@@ -645,6 +649,22 @@ export class VendasService {
     return next;
   }
 
+  private normalizeCommissionDueBusinessDays(value: unknown) {
+    const numeric = Math.trunc(Number(value));
+    if (!Number.isFinite(numeric)) return 3;
+    return Math.min(30, Math.max(0, numeric));
+  }
+
+  private async resolveCommissionDueBusinessDays(companyId?: number | null) {
+    const normalizedCompanyId = Math.trunc(Number(companyId || 0));
+    if (!normalizedCompanyId) return 3;
+    const company = await this.prisma.company.findUnique({
+      where: { id: normalizedCompanyId },
+      select: { commissionDueBusinessDays: true },
+    }).catch(() => null);
+    return this.normalizeCommissionDueBusinessDays(company?.commissionDueBusinessDays);
+  }
+
   private normalizeCurrencyAmount(value: unknown) {
     const numeric = Number(value || 0);
     if (!Number.isFinite(numeric)) return 0;
@@ -657,6 +677,29 @@ export class VendasService {
     const normalizedPlanKey = String(input.salePlanKey || '').trim();
     if (normalizedPlanKey) return this.normalizeCurrencyAmount(getCommercialPlanMonthlyPrice(normalizedPlanKey));
     return this.normalizeCurrencyAmount(input.fallbackValue);
+  }
+
+  private commercialPlanLabel(planKey: string) {
+    const normalized = normalizeCommercialPlanKey(planKey);
+    if (normalized === COMMERCIAL_PLAN_KEYS.LITE) return 'HBX List';
+    if (normalized === COMMERCIAL_PLAN_KEYS.MELHOR) return 'HBX Full';
+    return 'HBX Lead+';
+  }
+
+  private normalizePublicOrigin(value: unknown) {
+    const raw = this.normalizeText(value);
+    if (!raw) return null;
+    try {
+      const parsed = new URL(raw);
+      if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null;
+      return `${parsed.protocol}//${parsed.host}`;
+    } catch {
+      return null;
+    }
+  }
+
+  private generateAssistedSignupPassword() {
+    return `Hbx-${randomUUID().replace(/-/g, '').slice(0, 10)}`;
   }
 
   private async resolveCommissionPercentForLead(row: any) {
@@ -685,6 +728,7 @@ export class VendasService {
     }
 
     const now = new Date();
+    const dueBusinessDays = await this.resolveCommissionDueBusinessDays(row?.companyId);
     const previousSaleStatus = this.normalizeSaleStatus(row?.saleStatus);
     const nextSaleStatus = saleStatusProvided ? this.normalizeSaleStatus(dto.saleStatus) : previousSaleStatus;
     const salePlanKey = salePlanProvided ? this.normalizeText(dto.salePlanKey) : this.normalizeText(row?.salePlanKey);
@@ -721,8 +765,8 @@ export class VendasService {
       ? (row?.saleCanceledAt instanceof Date ? row.saleCanceledAt : now)
       : (nextSaleStatus === 'none' || confirmsSale || nextSaleStatus === 'activation_pending' ? null : row?.saleCanceledAt || null);
     const dueAt = confirmsSale && commissionStatus !== 'paid'
-      ? (row?.commissionDueAt instanceof Date ? row.commissionDueAt : this.addBusinessDays(confirmedAt || now, 3))
-      : (commissionStatus === 'payable' ? row?.commissionDueAt || this.addBusinessDays(now, 3) : null);
+      ? (row?.commissionDueAt instanceof Date ? row.commissionDueAt : this.addBusinessDays(confirmedAt || now, dueBusinessDays))
+      : (commissionStatus === 'payable' ? row?.commissionDueAt || this.addBusinessDays(now, dueBusinessDays) : null);
 
     const data: any = {
       saleStatus: nextSaleStatus,
@@ -1495,6 +1539,7 @@ export class VendasService {
       segment: row?.segment ? String(row.segment) : null,
       saleStatus: this.normalizeSaleStatus(row?.saleStatus),
       saleStatusLabel: this.formatSaleStatusLabel(this.normalizeSaleStatus(row?.saleStatus)),
+      salePlanKey: row?.salePlanKey ? String(row.salePlanKey) : null,
       commissionStatus: this.normalizeCommissionStatus(row?.commissionStatus),
       commissionStatusLabel: this.formatCommissionStatusLabel(this.normalizeCommissionStatus(row?.commissionStatus)),
       saleValue: this.normalizeCurrencyAmount(row?.saleValue || row?.commissionBaseAmount),
@@ -1502,6 +1547,9 @@ export class VendasService {
       commissionDueAt: row?.commissionDueAt instanceof Date ? row.commissionDueAt.toISOString() : null,
       commissionPaidAt: row?.commissionPaidAt instanceof Date ? row.commissionPaidAt.toISOString() : null,
       commissionPayoutId: row?.commissionPayoutId ? String(row.commissionPayoutId) : null,
+      commissionLinkedCompanyId: Number(row?.commissionLinkedCompanyId || 0) || null,
+      commissionLinkedAt: row?.commissionLinkedAt instanceof Date ? row.commissionLinkedAt.toISOString() : null,
+      commissionSyncSource: row?.commissionSyncSource ? String(row.commissionSyncSource) : null,
       updatedAt: row?.updatedAt instanceof Date ? row.updatedAt.toISOString() : null,
     };
   }
@@ -1518,6 +1566,7 @@ export class VendasService {
       segment: lead?.segment ? String(lead.segment) : null,
       saleStatus: this.normalizeSaleStatus(lead?.saleStatus),
       saleStatusLabel: this.formatSaleStatusLabel(this.normalizeSaleStatus(lead?.saleStatus)),
+      salePlanKey: lead?.salePlanKey ? String(lead.salePlanKey) : null,
       commissionStatus: String(row?.status || 'payable'),
       commissionStatusLabel: this.formatCommissionStatusLabel(this.normalizeCommissionStatus(row?.status)),
       saleValue: this.normalizeCurrencyAmount(row?.baseAmount),
@@ -1671,7 +1720,7 @@ export class VendasService {
     const [company, currentUser] = await Promise.all([
       this.prisma.company.findUnique({
         where: { id: context.companyId },
-        select: { slug: true },
+        select: { slug: true, commissionDueBusinessDays: true },
       }).catch(() => null),
       this.prisma.user.findFirst({
         where: { id: context.userId, companyId: context.companyId },
@@ -1721,12 +1770,16 @@ export class VendasService {
         segment: true,
         saleStatus: true,
         saleValue: true,
+        salePlanKey: true,
         commissionStatus: true,
         commissionBaseAmount: true,
         commissionAmount: true,
         commissionDueAt: true,
         commissionPaidAt: true,
         commissionPayoutId: true,
+        commissionLinkedCompanyId: true,
+        commissionLinkedAt: true,
+        commissionSyncSource: true,
         updatedAt: true,
       },
     });
@@ -1745,6 +1798,7 @@ export class VendasService {
             city: true,
             segment: true,
             saleStatus: true,
+            salePlanKey: true,
           },
         },
       },
@@ -1790,6 +1844,9 @@ export class VendasService {
       ok: true,
       scope: context.canManageTeam ? 'company' : 'seller',
       generatedAt: now.toISOString(),
+      settings: {
+        dueBusinessDays: this.normalizeCommissionDueBusinessDays(company?.commissionDueBusinessDays),
+      },
       sellerNetwork: {
         isHbxSellerNetwork,
         canRegisterReferredSeller,
@@ -4638,6 +4695,270 @@ export class VendasService {
 
     return {
       ok: true,
+      lead: this.buildLeadPayload(updated),
+    };
+  }
+
+  async createHbxSalesHandoffForUser(user: any, leadId: string, dto: CreateHbxSalesHandoffDto) {
+    const context = this.resolveUserContext(user);
+    const normalizedLeadId = String(leadId || '').trim();
+    if (!normalizedLeadId) throw new BadRequestException('Lead comercial invalido.');
+
+    const addressColumnAvailable = await this.hasVendasLeadAddressColumn();
+    const leadWithTimelineSelectWithoutAddress: any = this.buildVendasLeadSelectWithoutAddress({
+      timelineEvents: {
+        orderBy: [{ createdAt: 'desc' }],
+        take: 12,
+      },
+    });
+    const existing = await this.prisma.vendasLead.findFirst({
+      where: this.buildLeadAccessWhere(context, { id: normalizedLeadId }),
+      ...(addressColumnAvailable ? {} : { select: this.buildVendasLeadSelectWithoutAddress() }),
+    });
+    if (!existing) throw new NotFoundException('Lead comercial nao encontrado.');
+
+    const planKey = normalizeCommercialPlanKey(dto?.salePlanKey || existing.salePlanKey || COMMERCIAL_PLAN_KEYS.PADRAO);
+    const planLabel = this.commercialPlanLabel(planKey);
+    const planAmount = this.normalizeCurrencyAmount(getCommercialPlanMonthlyPrice(planKey));
+    const registerPath = `/register?plan=${encodeURIComponent(planKey)}&hbxLead=${encodeURIComponent(existing.id)}`;
+    const publicOrigin = this.normalizePublicOrigin(dto?.origin);
+    const registerUrl = publicOrigin ? `${publicOrigin}${registerPath}` : registerPath;
+    const leadName = this.normalizeText(existing.name) || 'cliente';
+    const message = [
+      `Segue o link para ativar seu ${planLabel}:`,
+      registerUrl,
+      '',
+      `Depois do cadastro, eu acompanho a implantacao do ${leadName} pelo HBX.`,
+    ].join('\n');
+
+    const saleCommissionPatch = await this.buildSaleCommissionPatch(existing, {
+      saleStatus: 'activation_pending',
+      salePlanKey: planKey,
+      saleValue: planAmount,
+      commissionNote: `Link de contratacao gerado para ${planLabel}.`,
+    }, context.userId);
+
+    const timelineEvents: TimelineEventRecord[] = [];
+    if (saleCommissionPatch.event) timelineEvents.push(saleCommissionPatch.event);
+    timelineEvents.push(
+      this.buildTimelineEvent({
+        eventType: 'hbx_signup_link_created',
+        title: 'Link HBX gerado',
+        description: `Plano: ${planLabel}. Link rastreado para cadastro/checkout: ${registerPath}.`,
+        sourceType: 'hbx_sales_handoff',
+        statusTo: 'qualificado',
+        resultLabel: planKey,
+        createdByUserId: context.userId,
+      }),
+    );
+
+    const existingAttemptCount = Math.max(0, Math.trunc(Number(existing.attemptCount || 0) || 0));
+    const shouldDebitCommercialUse =
+      existingAttemptCount === 0
+      && String(existing.sourceType || '').trim().toLowerCase() === 'webscraping';
+    let commercialUseDebit: { debited: boolean; alreadyDebited: boolean } | null = null;
+    if (shouldDebitCommercialUse) {
+      const radarLeadId = this.extractRadarLeadId(existing.sourceHistoryId);
+      commercialUseDebit = await this.commercialUsageLimits.recordCardCommercialUseOnce(context.companyId, context.userId, {
+        source: 'vendas_hbx_signup_link',
+        usageKey: radarLeadId ? `radar:${radarLeadId}` : `vendas:${existing.id}`,
+        radarLeadId,
+        vendasLeadId: existing.id,
+        status: 'hbx_signup_link',
+      });
+      if (commercialUseDebit?.debited) {
+        timelineEvents.push(
+          this.buildTimelineEvent({
+            eventType: 'card_usage_debited',
+            title: 'Uso comercial debitado',
+            description: 'O card consumiu limite ao gerar o link HBX para o cliente.',
+            createdByUserId: context.userId,
+          }),
+        );
+      }
+    }
+
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const row = await tx.vendasLead.update({
+        where: { id: existing.id },
+        data: {
+          status: 'qualificado',
+          nextAction: 'Enviar link HBX e acompanhar ativacao',
+          lastContactAt: new Date(),
+          attemptCount: Math.max(existingAttemptCount + 1, existingAttemptCount),
+          lastResult: 'Link HBX enviado',
+          ...saleCommissionPatch.data,
+        },
+      });
+
+      await tx.vendasLeadTimelineEvent.createMany({
+        data: timelineEvents.map((event) => ({
+          leadId: existing.id,
+          ...event,
+        })),
+      });
+
+      return tx.vendasLead.findUniqueOrThrow({
+        where: { id: row.id },
+        ...(addressColumnAvailable
+          ? {
+              include: {
+                timelineEvents: {
+                  orderBy: [{ createdAt: 'desc' }],
+                  take: 12,
+                },
+              },
+            }
+          : { select: leadWithTimelineSelectWithoutAddress }),
+      } as any);
+    });
+
+    await this.syncLeadToInboxAgenda(context.companyId, updated, existing);
+
+    return {
+      ok: true,
+      planKey,
+      planLabel,
+      registerPath,
+      registerUrl,
+      message,
+      lead: this.buildLeadPayload(updated),
+      commercialUseDebit,
+    };
+  }
+
+  async createHbxAssistedSignupForUser(user: any, leadId: string, dto: CreateHbxAssistedSignupDto) {
+    const context = this.resolveUserContext(user);
+    const normalizedLeadId = String(leadId || '').trim();
+    if (!normalizedLeadId) throw new BadRequestException('Lead comercial invalido.');
+
+    const addressColumnAvailable = await this.hasVendasLeadAddressColumn();
+    const leadWithTimelineSelectWithoutAddress: any = this.buildVendasLeadSelectWithoutAddress({
+      timelineEvents: {
+        orderBy: [{ createdAt: 'desc' }],
+        take: 12,
+      },
+    });
+    const existing = await this.prisma.vendasLead.findFirst({
+      where: this.buildLeadAccessWhere(context, { id: normalizedLeadId }),
+      ...(addressColumnAvailable ? {} : { select: this.buildVendasLeadSelectWithoutAddress() }),
+    });
+    if (!existing) throw new NotFoundException('Lead comercial nao encontrado.');
+
+    const email = this.normalizeEmail(dto?.email || existing.email);
+    if (!email) throw new BadRequestException('Informe um e-mail valido do cliente para comprovar o cadastro.');
+
+    const planKey = normalizeCommercialPlanKey(dto?.salePlanKey || existing.salePlanKey || COMMERCIAL_PLAN_KEYS.PADRAO);
+    const planLabel = this.commercialPlanLabel(planKey);
+    const companyName = this.normalizeText(dto?.companyName) || this.normalizeText(existing.name) || 'Cliente HBX';
+    const contactName = this.normalizeText(dto?.contactName) || this.normalizeText(existing.name) || companyName;
+    const phone = this.normalizeText(dto?.phone) || this.normalizeText(existing.phone);
+    const providedPassword = this.normalizeText(dto?.password);
+    const password = providedPassword || this.generateAssistedSignupPassword();
+    const referralCode = `hbx-vendas-lead:${existing.id}`;
+    const signupResult: any = await this.authService.signup({
+      entityType: 'PF',
+      companyName,
+      name: contactName,
+      selectedPlanKey: planKey,
+      username: email,
+      email,
+      password,
+      acquisitionSource: 'indicacao',
+      acquisitionSourceDetail: referralCode,
+      referralCode,
+      trialContactPhone: phone || undefined,
+    });
+
+    await this.hbxCommissionSync.syncSalesCompanyCommissions(context.companyId, { source: 'vendas_assisted_signup' }).catch((error: any) => {
+      this.logger.warn(`commission_sync_assisted_signup_failed company=${context.companyId} error=${String(error?.message || error)}`);
+    });
+
+    const refreshed = await this.prisma.vendasLead.findFirst({
+      where: this.buildLeadAccessWhere(context, { id: existing.id }),
+      ...(addressColumnAvailable ? {} : { select: this.buildVendasLeadSelectWithoutAddress() }),
+    });
+    const commissionSource = refreshed || existing;
+    const saleCommissionPatch = await this.buildSaleCommissionPatch(commissionSource, {
+      saleStatus: 'activation_pending',
+      salePlanKey: planKey,
+      saleValue: getCommercialPlanMonthlyPrice(planKey),
+      commissionNote: `Cadastro assistido criado para ${planLabel}. E-mail do cliente precisa ser confirmado.`,
+    }, context.userId);
+
+    const timelineEvents: TimelineEventRecord[] = [];
+    if (saleCommissionPatch.event) timelineEvents.push(saleCommissionPatch.event);
+    timelineEvents.push(
+      this.buildTimelineEvent({
+        eventType: 'hbx_assisted_signup_created',
+        title: 'Cadastro assistido criado',
+        description: `Vendedor iniciou o cadastro ${planLabel} para ${email}. A ativacao depende da confirmacao do e-mail do cliente.`,
+        sourceType: 'hbx_assisted_signup',
+        statusTo: 'qualificado',
+        resultLabel: 'pending_email_confirmation',
+        createdByUserId: context.userId,
+      }),
+    );
+
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const row = await tx.vendasLead.update({
+        where: { id: existing.id },
+        data: {
+          status: 'qualificado',
+          nextAction: 'Cliente precisa confirmar e-mail para ativar HBX',
+          email,
+          phone: phone || existing.phone,
+          phoneNormalized: phone ? this.normalizePhone(phone) : existing.phoneNormalized,
+          lastContactAt: new Date(),
+          lastResult: 'Cadastro assistido aguardando e-mail',
+          ...saleCommissionPatch.data,
+        },
+      });
+
+      await tx.vendasLeadTimelineEvent.createMany({
+        data: timelineEvents.map((event) => ({
+          leadId: existing.id,
+          ...event,
+        })),
+      });
+
+      return tx.vendasLead.findUniqueOrThrow({
+        where: { id: row.id },
+        ...(addressColumnAvailable
+          ? {
+              include: {
+                timelineEvents: {
+                  orderBy: [{ createdAt: 'desc' }],
+                  take: 12,
+                },
+              },
+            }
+          : { select: leadWithTimelineSelectWithoutAddress }),
+      } as any);
+    });
+
+    await this.syncLeadToInboxAgenda(context.companyId, updated, existing);
+
+    const status = String(signupResult?.status || '').trim() || 'pending_email_confirmation';
+    const requiresEmailConfirmation = status === 'pending_email_confirmation' || !signupResult?.access_token;
+    return {
+      ok: true,
+      status,
+      requiresEmailConfirmation,
+      email,
+      planKey,
+      planLabel,
+      generatedPassword: providedPassword ? null : password,
+      message: requiresEmailConfirmation
+        ? 'Cadastro assistido criado. O cliente precisa confirmar o e-mail para ativar trial, pagamento ou implantação.'
+        : 'Cadastro assistido criado e e-mail confirmado no ambiente local.',
+      delivery: signupResult?.delivery
+        ? {
+            failed: Boolean(signupResult.delivery.failed),
+            previewUrl: signupResult.delivery.previewUrl || null,
+            confirmUrl: signupResult.delivery.confirmUrl || null,
+          }
+        : null,
       lead: this.buildLeadPayload(updated),
     };
   }
