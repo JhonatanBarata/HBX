@@ -110,7 +110,7 @@ const SIGNUP_PLANS: SignupPlan[] = [
     key: "hbx_lite",
     name: "HBX List",
     badge: "List",
-    monthlyPrice: 39.9,
+    monthlyPrice: 49.9,
     detail: "Cards simples para começar barato.",
     cta: "Assinar agora",
     available: true,
@@ -153,6 +153,14 @@ function getErrorMessage(data: unknown) {
   if (typeof payload.message === "string") return payload.message;
   if (typeof payload.error === "string") return payload.error;
   return null;
+}
+
+function formatSignupPrice(value: number) {
+  return value.toLocaleString("pt-BR", {
+    style: "currency",
+    currency: "BRL",
+    minimumFractionDigits: 2,
+  });
 }
 
 function getSignupErrorMessage(status: number, data: unknown) {
@@ -419,7 +427,15 @@ export default function RegisterPage() {
     if (typeof window === "undefined") return;
     const params = new URLSearchParams(window.location.search);
     const start = params.get("start");
-    const mobileSurface = params.get("surface") === "mobile";
+    const mobileSurface =
+      params.get("surface") === "mobile" ||
+      (() => {
+        try {
+          return window.matchMedia("(max-width: 820px)").matches;
+        } catch {
+          return window.innerWidth <= 820;
+        }
+      })();
     const canonicalQuery = mobileSurface ? "?surface=mobile" : "";
     const linkedPlanKey = normalizeSignupPlanKey(params.get("plan") || params.get("selectedPlanKey"));
     const linkedLeadId = normalizeHbxLeadParam(params.get("hbxLead") || params.get("leadId"));
@@ -673,11 +689,17 @@ export default function RegisterPage() {
 
   async function handleRegister(event: FormEvent) {
     event.preventDefault();
+    if (mobileRegisterFlow && registerStep === "form") {
+      setRegisterStep("plans");
+      setRegisterTransition("selecting");
+      return;
+    }
     await submitRegistration();
   }
 
-  async function submitRegistration() {
-    const planKey = selectedPlanKey;
+  async function submitRegistration(planKeyOverride?: CommercialPlanKey) {
+    const planKey = planKeyOverride || selectedPlanKey;
+    setSelectedPlanKey(planKey);
     setError(null);
     setConfirmationPending(null);
     setConfirmationActionMessage(null);
@@ -1112,7 +1134,9 @@ export default function RegisterPage() {
                     <span>
                       {loading
                         ? "Criando..."
-                        : isTrialSignupPlan(selectedPlanKey)
+                        : mobileRegisterFlow
+                          ? "Continuar para planos"
+                          : isTrialSignupPlan(selectedPlanKey)
                           ? "Criar Conta"
                           : "Criar conta"}
                     </span>
@@ -1148,6 +1172,70 @@ export default function RegisterPage() {
             </div>
           </div>
         </div>
+        ) : null}
+        {!confirmationPending && registerStep === "plans" ? (
+          <section className={styles.registerPlansPanel} aria-label="Planos">
+            <header className={styles.plansHeader}>
+              <h1>Escolha seu plano HBX</h1>
+              <p>Conta criada depois da confirmação de e-mail. O plano Lead começa com trial.</p>
+            </header>
+            <div className={styles.plansGrid}>
+              {SIGNUP_PLANS.filter((plan) => plan.key === "hbx_lite" || plan.key === "hbx_padrao").map((plan) => {
+                const displayedPrice = Number(plan.promoPrice ?? plan.monthlyPrice ?? 0);
+                return (
+                  <button
+                    key={plan.key}
+                    type="button"
+                    className={styles.planCard}
+                    aria-label={`${plan.name} ${plan.trialCopy || plan.note || ""}`}
+                    data-featured={plan.featured ? "true" : "false"}
+                    data-selected={selectedPlanKey === plan.key ? "true" : "false"}
+                    onClick={() => void submitRegistration(plan.key)}
+                    disabled={loading}
+                  >
+                    <span className={styles.badge}>{plan.badge}</span>
+                    <span className={styles.planTitle}>
+                      <strong>{plan.name}</strong>
+                      <small>{plan.trialCopy || plan.note}</small>
+                    </span>
+                    <span className={styles.priceBlock}>
+                      <em>{formatSignupPrice(displayedPrice)}</em>
+                      <span>/mês</span>
+                    </span>
+                    {plan.promoLabel ? <span className={styles.billingHint}>{plan.promoLabel}</span> : null}
+                    <span className={styles.planDetail}>{plan.detail}</span>
+                    <span className={styles.planAction}>{loading && selectedPlanKey === plan.key ? "Criando..." : plan.cta}</span>
+                  </button>
+                );
+              })}
+              <button
+                type="button"
+                className={styles.planCard}
+                aria-label="Modo empresarial"
+                data-disabled="true"
+                onClick={() => {}}
+              >
+                <span className={styles.badge}>Empresa</span>
+                <span className={styles.planTitle}>
+                  <strong>Modo empresarial</strong>
+                  <small>Somente notebook/desktop</small>
+                </span>
+                <span className={styles.planDetail}>
+                  Plano maior com operação completa, combinado direto com o time HBX.
+                </span>
+                <span className={styles.planAction}>Montar no WhatsApp</span>
+              </button>
+            </div>
+            <Link
+              className={styles.changePlanButton}
+              href="https://wa.me/5519997024884?text=Ol%C3%A1%2C%20quero%20montar%20um%20plano%20empresarial%20HBX."
+            >
+              Montar plano empresarial no WhatsApp
+            </Link>
+            <button type="button" className={styles.backToLogin} onClick={() => setRegisterStep("form")}>
+              Voltar ao cadastro
+            </button>
+          </section>
         ) : null}
       </div>
       {trialModalOpen && typeof document !== "undefined" ? createPortal((

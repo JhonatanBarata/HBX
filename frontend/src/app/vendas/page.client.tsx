@@ -35,7 +35,7 @@ import HbxMobileDock from "@/components/mobile/HbxMobileDock";
 import MobileLeadScoreGauge from "@/components/mobile/MobileLeadScoreGauge";
 import { useQuickLaunchNotice } from "@/components/useQuickLaunchNotice";
 import { apiFetch, getDashboardApiBaseUrl, getToken } from "@/app/_lib/api";
-import { toMobileRoute } from "@/app/_lib/mobileRoutes";
+import { shouldUseMobileRoute, toMobileRoute } from "@/app/_lib/mobileRoutes";
 import { startSmartPolling } from "@/app/_lib/polling";
 import { useRequireModule } from "@/app/_lib/useRequireModule";
 import { HBX_WINDOW_STANDARD } from "@/lib/hbx-window-system";
@@ -3397,6 +3397,13 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
       observer.disconnect();
     };
   }, [mobileRoute]);
+
+  useEffect(() => {
+    if (mobileRoute || typeof window === "undefined") return;
+    if (!shouldUseMobileRoute(window.location.pathname)) return;
+    router.replace(toMobileRoute(`${window.location.pathname}${window.location.search}${window.location.hash}`));
+  }, [mobileRoute, router]);
+
   const hasToken = useRequireModule("vendas");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -6584,7 +6591,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
                   <p className={styles.mobileLeadSavedNote}>{lead.shortNote}</p>
                 ) : null}
                 <label className={styles.mobileLeadNoteEditor}>
-                  <span>Nova observação</span>
+                  <span>Nova nota</span>
                   <textarea
                     value={mobileNoteDraft}
                     onChange={(event) => setMobileNoteDraft(event.target.value)}
@@ -6962,6 +6969,16 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
                 >
                   {renderMobileLeadChannels(nextRecommendedMobileLead, { compact: true })}
                 </div>
+                <button
+                  type="button"
+                  aria-label={`Abrir observação de ${nextRecommendedMobileLead.name || "lead"}`}
+                  onClick={() => {
+                    setMobileNoteLead(nextRecommendedMobileLead);
+                    setMobileNoteDraft(nextRecommendedMobileLead.shortNote || "");
+                  }}
+                >
+                  Observação
+                </button>
                 <button type="button" onClick={() => executeMobileLead(nextRecommendedMobileLead)}>
                   Chamar agora
                 </button>
@@ -7105,6 +7122,61 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
             setAccountSheetOpen(true);
           }}
         />
+
+        {mobileNoteLead && !selectedMobileLeadId ? (
+          <div
+            className={styles.mobileVendasSheetBackdrop}
+            onClick={() => setMobileNoteLead(null)}
+          >
+            <section
+              className={`${styles.mobileVendasNoteSheet} ${styles.mobileObservationDialog}`}
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="mobile-vendas-note-title"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <span className={styles.mobileVendasSheetHandle} />
+              <div className={styles.mobileVendasSheetHeader}>
+                <div>
+                  <small>{mobileNoteLead.name || "Lead sem nome"}</small>
+                  <h2 id="mobile-vendas-note-title">Observação</h2>
+                </div>
+                <button type="button" onClick={() => setMobileNoteLead(null)} aria-label="Fechar observação">
+                  ×
+                </button>
+              </div>
+              <div className={styles.mobileLeadDetailCard}>
+                <label className={styles.mobileLeadNoteEditor}>
+                  <span>Nova nota</span>
+                  <textarea
+                    value={mobileNoteDraft}
+                    onChange={(event) => setMobileNoteDraft(event.target.value)}
+                    rows={5}
+                    maxLength={280}
+                    placeholder="Contexto, objeção, próximo passo ou detalhe importante."
+                  />
+                </label>
+              </div>
+              <div className={styles.mobileVendasSheetFooter}>
+                <button
+                  type="button"
+                  className={styles.mobileVendasDeleteButton}
+                  onClick={() => setMobileNoteLead(null)}
+                >
+                  Fechar
+                </button>
+                <button
+                  type="button"
+                  className={styles.mobileVendasDangerButton}
+                  onClick={() => void saveMobileNote()}
+                  disabled={mobileSavingNote}
+                >
+                  {mobileSavingNote ? "Salvando" : "Salvar"}
+                </button>
+              </div>
+            </section>
+          </div>
+        ) : null}
 
         {mobileReportLead ? (
           <div
