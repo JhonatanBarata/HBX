@@ -85,7 +85,6 @@ type MasterOverviewCompanyPayload = {
 };
 
 type UserModule = { key: string; accessible: boolean };
-type NavigationMode = "basic" | "advanced";
 type CommercialPlansTopbarPayload = {
   current?: {
     entitlements?: {
@@ -106,14 +105,6 @@ type OperationalStatusChip = {
   source: string[];
   updatedAt: string | null;
 };
-const NAV_MODE_STORAGE_KEY = "hbx:navigation-mode:v1";
-const NAV_MODE_CHANGED_EVENT = "hbx-navigation-mode-changed";
-
-function readNavigationMode(fallback: NavigationMode): NavigationMode {
-  if (typeof window === "undefined") return fallback;
-  const saved = window.localStorage.getItem(NAV_MODE_STORAGE_KEY);
-  return saved === "advanced" || saved === "basic" ? saved : fallback;
-}
 type OperationalStatusPayload = {
   generatedAt: string;
   context: {
@@ -1969,6 +1960,54 @@ const HBX_TOPBAR_POLISH_CSS = `
     z-index: 90 !important;
   }
 
+  .hbx-control-notices .hbx-header-notices-menu {
+    top: calc(100% + 10px) !important;
+    right: 0 !important;
+    left: auto !important;
+    width: min(320px, calc(100vw - 24px)) !important;
+    z-index: 95 !important;
+    display: grid;
+    gap: 0.5rem;
+  }
+
+  .hbx-header-notices-list {
+    display: grid;
+    gap: 0.42rem;
+  }
+
+  .hbx-header-notices-item {
+    width: 100%;
+    min-width: 0;
+    padding: 0.56rem 0.62rem;
+    border-radius: 14px;
+    border: 1px solid color-mix(in srgb, var(--line, rgba(148, 163, 184, 0.22)) 86%, transparent);
+    background: color-mix(in srgb, var(--surface, #ffffff) 92%, var(--background, #f8fafc));
+    color: var(--foreground, #0f172a);
+    display: grid;
+    gap: 0.18rem;
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .hbx-header-notices-item strong,
+  .hbx-header-notices-item span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .hbx-header-notices-item strong {
+    font-size: 0.74rem;
+    font-weight: 900;
+  }
+
+  .hbx-header-notices-item span {
+    color: var(--muted, #64748b);
+    font-size: 0.68rem;
+    font-weight: 700;
+  }
+
   @keyframes hbxHeaderDot {
     0%, 100% { transform: scale(1); opacity: 0.86; }
     50% { transform: scale(1.28); opacity: 1; }
@@ -2601,7 +2640,6 @@ export default function TopBar() {
   const [whatsAppModal, setWhatsAppModal] = useState<WhatsAppModalPayload | null>(null);
   const [whatsAppQrRequested, setWhatsAppQrRequested] = useState(false);
   const [supportHasInternalChat, setSupportHasInternalChat] = useState<boolean | null>(null);
-  const [navigationMode, setNavigationMode] = useState<NavigationMode>("basic");
   const recoveryLastSeenRef = useRef<Map<number, string>>(new Map());
   const recoveryHumanQueueRef = useRef<Map<number, boolean>>(new Map());
   const recoveryAlertReadyRef = useRef(false);
@@ -2638,22 +2676,6 @@ export default function TopBar() {
   });
 
   usePopupTopbarLock(whatsAppDetailOpen || masterContextModalOpen);
-
-  const navigationModeFallback: NavigationMode =
-    user?.isSystemMaster || String(user?.role || "").toUpperCase() === "ADMIN" ? "advanced" : "basic";
-
-  useEffect(() => {
-    setNavigationMode(readNavigationMode(navigationModeFallback));
-  }, [navigationModeFallback]);
-
-  function toggleNavigationMode() {
-    const nextMode: NavigationMode = navigationMode === "advanced" ? "basic" : "advanced";
-    setNavigationMode(nextMode);
-    if (typeof window !== "undefined") {
-      window.localStorage.setItem(NAV_MODE_STORAGE_KEY, nextMode);
-      window.dispatchEvent(new CustomEvent(NAV_MODE_CHANGED_EVENT, { detail: { mode: nextMode } }));
-    }
-  }
 
   useEffect(() => {
     if (window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches) {
@@ -4223,6 +4245,18 @@ export default function TopBar() {
     await loadUnreadInboxEntries();
   }
 
+  async function openHeaderNotices() {
+    setOpen(false);
+
+    if (isVendasRoute && typeof window !== "undefined") {
+      setUnreadInboxOpen(false);
+      window.dispatchEvent(new CustomEvent("hbx:vendas-master-notices"));
+      return;
+    }
+
+    await toggleUnreadInboxPopup();
+  }
+
   async function markUnreadConversationAsRead(conversationId: string) {
     if (!conversationId) return;
     try {
@@ -4667,6 +4701,8 @@ export default function TopBar() {
   }
 
   const pendingHumanCount = recoveryPendingHumanCount + atendimentoPendingHumanCount;
+  const headerNoticeCount = Math.max(0, pendingHumanCount + unreadInboxCount + (incomingPopup ? 1 : 0));
+  const headerNoticeBadge = headerNoticeCount > 99 ? "99+" : headerNoticeCount > 0 ? String(headerNoticeCount) : "!";
   const accountContext = authenticated === true
     ? user?.isSystemMaster
       ? user.masterContext?.active
@@ -5224,17 +5260,53 @@ export default function TopBar() {
             }}
           >
             {authenticated === true ? (
-              <button
-                type="button"
-                className="hbx-control-navMode"
-                onClick={toggleNavigationMode}
-                aria-pressed={navigationMode === "advanced"}
-                title={navigationMode === "advanced" ? "Menu avançado ativo" : "Menu básico ativo"}
-                style={{ flex: "0 0 106px", minWidth: 106, height: 50, alignSelf: "center" }}
+              <div
+                ref={unreadMenuRef}
+                className="hbx-control-notices"
+                style={{ flex: "0 0 106px", minWidth: 106, height: 50, alignSelf: "center", position: "relative" }}
               >
-                <span aria-hidden="true">+</span>
-                <strong>{navigationMode === "advanced" ? "Avançado" : "Básico"}</strong>
-              </button>
+                <button
+                  type="button"
+                  className="hbx-control-navMode"
+                  onClick={() => {
+                    void openHeaderNotices();
+                  }}
+                  aria-expanded={isVendasRoute ? undefined : unreadInboxOpen}
+                  title="Avisos"
+                  style={{ width: "100%", height: 50 }}
+                >
+                  <span aria-hidden="true">{headerNoticeBadge}</span>
+                  <strong>Avisos</strong>
+                </button>
+                {unreadInboxOpen && !isVendasRoute ? (
+                  <div className="app-user__menu hbx-header-notices-menu" role="dialog" aria-label="Avisos">
+                    <p className="app-user__menu-title">Avisos</p>
+                    {unreadInboxLoading ? <p className="text-xs text-muted leading-5">Carregando...</p> : null}
+                    {unreadInboxError ? <div className="alert alert-error">{unreadInboxError}</div> : null}
+                    {!unreadInboxLoading && !unreadInboxError && unreadInboxEntries.length === 0 ? (
+                      <p className="text-xs text-muted leading-5">Nenhum aviso pendente.</p>
+                    ) : null}
+                    {!unreadInboxLoading && unreadInboxEntries.length > 0 ? (
+                      <div className="hbx-header-notices-list">
+                        {unreadInboxEntries.slice(0, 6).map((entry) => (
+                          <button
+                            key={`${entry.conversationId}:${entry.messageId}`}
+                            type="button"
+                            className="hbx-header-notices-item"
+                            onClick={() => {
+                              setUnreadInboxOpen(false);
+                              router.push("/atendimento");
+                            }}
+                          >
+                            <strong>{entry.conversationLabel}</strong>
+                            <span>{entry.messagePreview}</span>
+                          </button>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
+              </div>
             ) : null}
             <div className="hbx-right-themeSlot">
               <ThemeSwitcher />

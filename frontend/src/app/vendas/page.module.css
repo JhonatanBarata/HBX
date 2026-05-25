@@ -2117,9 +2117,9 @@
     display: grid;
     grid-template-columns: minmax(0, 1fr);
     grid-template-rows: auto auto auto;
-    gap: 10px;
-    min-height: 184px;
-    padding: 18px 16px 14px;
+    gap: 6px;
+    min-height: 172px;
+    padding: 10px 16px 14px;
     overflow: hidden;
     isolation: isolate;
     border: 1px solid rgba(170, 205, 255, 0.7);
@@ -2246,7 +2246,7 @@
     align-content: start;
     gap: 6px;
     min-width: 0;
-    padding-right: 42px;
+    padding-right: 82px;
   }
 
   .mobileVendasHeroCopy small {
@@ -2525,7 +2525,15 @@
 
   .mobileVendasHeroStats > button[data-tone="commission"] strong {
     color: #0f8a55;
-    font-size: 0.82rem;
+    grid-column: 1 / -1;
+    min-width: 0;
+    font-size: 0.74rem;
+    line-height: 1.05;
+    white-space: nowrap;
+  }
+
+  .mobileVendasHeroStats > button[data-tone="commission"]::after {
+    content: none;
   }
 
   .mobileRadarActionNotice {
@@ -5509,6 +5517,7 @@
 .premiumBackdrop .page {
   position: relative;
   z-index: 10;
+  gap: 0.24rem;
   /* rely on global tokens (no local color overrides) */
 }
 
@@ -6347,6 +6356,129 @@
   gap: 0.62rem;
 }
 
+.desktopVendasTabRow {
+  display: grid;
+  grid-template-columns: minmax(0, 980px) auto;
+  align-items: center;
+  justify-content: center;
+  gap: 0.72rem;
+  width: 100%;
+}
+
+.desktopVendasTabs {
+  --desktop-tab-count: 1;
+  --desktop-tab-index: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  justify-self: center;
+  width: min(100%, 980px);
+  min-width: 0;
+  overflow-x: auto;
+  padding: 0.34rem;
+  border: 1px solid color-mix(in srgb, var(--line) 82%, var(--background));
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--surface-raised) 90%, var(--background));
+  box-shadow: var(--shadow-inset);
+  scrollbar-width: none;
+}
+
+.desktopAgendaAction {
+  min-height: 42px;
+  white-space: nowrap;
+}
+
+.desktopVendasTabs::before {
+  content: "";
+  position: absolute;
+  top: 0.34rem;
+  bottom: 0.34rem;
+  left: 0.34rem;
+  width: calc((100% - 0.68rem - (var(--desktop-tab-count) - 1) * 0.5rem) / var(--desktop-tab-count));
+  border-radius: 14px;
+  border: 1px solid color-mix(in srgb, var(--brand) 34%, var(--line));
+  background:
+    radial-gradient(circle at 0% 0%, color-mix(in srgb, var(--brand) 13%, transparent), transparent 42%),
+    color-mix(in srgb, var(--surface) 93%, var(--background));
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, white 72%, transparent),
+    0 16px 28px -22px color-mix(in srgb, var(--brand) 42%, transparent);
+  transform: translate3d(calc(var(--desktop-tab-index) * (100% + 0.5rem)), 0, 0);
+  transition:
+    transform var(--hbx-motion-base) var(--hbx-ease-pop),
+    width var(--hbx-motion-base) var(--hbx-ease-standard),
+    opacity var(--hbx-motion-fast) var(--hbx-ease-standard);
+  pointer-events: none;
+}
+
+.desktopVendasTabs::-webkit-scrollbar {
+  display: none;
+}
+
+.desktopVendasTabs button {
+  position: relative;
+  z-index: 1;
+  flex: 0 0 auto;
+  width: calc((100% - (var(--desktop-tab-count) - 1) * 0.5rem) / var(--desktop-tab-count));
+  min-width: 0;
+  max-width: none;
+  min-height: 42px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  border: 1px solid transparent;
+  border-radius: 14px;
+  background: transparent;
+  color: var(--muted);
+  padding: 0 0.74rem;
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 850;
+  letter-spacing: 0;
+  cursor: pointer;
+  transition: background var(--motion-fast), border-color var(--motion-fast), color var(--motion-fast);
+}
+
+.desktopVendasTabs button:hover,
+.desktopVendasTabs button:focus-visible {
+  border-color: color-mix(in srgb, var(--brand) 22%, var(--line));
+  background: color-mix(in srgb, var(--brand) 6%, transparent);
+  color: var(--foreground);
+  outline: none;
+}
+
+.desktopVendasTabs button[data-active="true"] {
+  border-color: transparent;
+  background: transparent;
+  color: var(--foreground);
+}
+
+.desktopVendasTabs button[data-admin="true"] {
+  min-width: 0;
+}
+
+.desktopVendasTabs span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.desktopVendasTabs b {
+  flex: 0 0 auto;
+  max-width: 92px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--brand) 10%, var(--surface-raised));
+  color: color-mix(in srgb, var(--brand) 86%, var(--foreground));
+  padding: 0.16rem 0.42rem;
+  font-size: 0.68rem;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .filterRailHeader {
   margin-bottom: 0.04rem;
 }
@@ -6700,9 +6832,38 @@
 
 .stageGrid {
   display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 0.8rem;
+  grid-template-columns: 176px minmax(0, 1fr);
+  gap: 0.62rem;
   align-items: start;
+}
+
+.stageSideGuide {
+  position: sticky;
+  top: 142px;
+  display: grid;
+  gap: 0.48rem;
+  min-width: 0;
+  padding: 0.58rem;
+  border: 1px solid color-mix(in srgb, var(--line) 76%, var(--background));
+  border-radius: 20px;
+  background:
+    radial-gradient(circle at 0% 0%, color-mix(in srgb, var(--brand) 10%, transparent), transparent 42%),
+    color-mix(in srgb, var(--surface-raised) 90%, var(--background));
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, white 58%, transparent),
+    0 18px 34px -28px color-mix(in srgb, var(--foreground) 32%, transparent);
+}
+
+.stageSideGuide .secondaryAction {
+  width: 100%;
+  min-height: 36px;
+  justify-content: flex-start;
+  padding: 0.48rem 0.58rem;
+  border-radius: 14px;
+  font-size: 0.76rem;
+  font-weight: 850;
+  line-height: 1.1;
+  text-align: left;
 }
 
 .stageMain,
@@ -6718,7 +6879,7 @@
 .detailPanel,
 .archiveSection {
   display: grid;
-  gap: 0.82rem;
+  gap: 0.62rem;
 }
 
 /* boardShell must allow overflow so selected cards can elevate
@@ -6870,9 +7031,14 @@
   min-height: 0;
   overflow-y: auto;
   scrollbar-gutter: stable;
+  border-radius: 18px;
+  border-color: color-mix(in srgb, var(--line) 74%, transparent);
   background:
-    linear-gradient(180deg, color-mix(in srgb, var(--surface) 98%, white 2%), color-mix(in srgb, var(--surface-soft) 96%, var(--background))),
-    radial-gradient(circle at 16% 0%, color-mix(in srgb, var(--liquid-accent, var(--brand)) 10%, transparent), transparent 42%);
+    radial-gradient(circle at 100% 0%, color-mix(in srgb, white 78%, transparent), transparent 44%),
+    linear-gradient(180deg, color-mix(in srgb, var(--surface) 96%, white 4%), color-mix(in srgb, var(--surface-soft) 88%, var(--background)));
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, white 82%, transparent),
+    0 20px 36px -24px color-mix(in srgb, var(--foreground) 28%, transparent);
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
   transition: transform 220ms var(--motion-fast), box-shadow 220ms var(--motion-fast), filter 220ms var(--motion-fast);
@@ -6902,7 +7068,9 @@
 
 .leadCard[data-selected="true"] {
   border-color: color-mix(in srgb, var(--glass-border-strong, var(--brand)) 72%, var(--line));
-  box-shadow: 0 22px 38px -28px color-mix(in srgb, var(--liquid-accent, var(--brand)) 22%, transparent);
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, white 86%, transparent),
+    0 24px 40px -24px color-mix(in srgb, var(--liquid-accent, var(--brand)) 32%, transparent);
 }
 
 .leadCard[data-bulk-selected="true"] {
@@ -6943,6 +7111,16 @@
   background:
     linear-gradient(180deg, color-mix(in srgb, var(--surface) 98%, white 2%), color-mix(in srgb, var(--surface-soft) 94%, var(--background))),
     radial-gradient(circle at 18% 0%, color-mix(in srgb, var(--danger) 12%, transparent), transparent 42%);
+}
+
+:global(html[data-theme-mode="dark"]) .leadCard {
+  border-color: color-mix(in srgb, var(--line) 76%, transparent);
+  background:
+    radial-gradient(circle at 100% 0%, color-mix(in srgb, var(--liquid-accent, var(--brand)) 16%, transparent), transparent 44%),
+    linear-gradient(180deg, color-mix(in srgb, var(--surface-raised) 88%, var(--background)), color-mix(in srgb, var(--surface) 82%, var(--background)));
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, white 10%, transparent),
+    0 22px 38px -28px rgba(0, 0, 0, 0.72);
 }
 
 .dragOverlayCard {
@@ -7009,153 +7187,21 @@
   box-shadow: 0 32px 48px -26px rgba(15, 23, 42, 0.24);
 }
 
-.leadAccent {
-  position: absolute;
-  top: 12px;
-  bottom: 12px;
-  left: 0;
-  width: 6px;
-  border-radius: 0 10px 10px 0;
-  background: linear-gradient(180deg, color-mix(in srgb, var(--brand) 72%, var(--background)), var(--brand));
-  box-shadow: 4px 0 18px -8px rgba(2, 6, 23, 0.14);
-  border-right: 1px solid color-mix(in srgb, var(--line) 8%, var(--background));
-  z-index: 2;
-}
-
-.leadCard[data-tone="overdue"] .leadAccent {
-  background: linear-gradient(180deg, color-mix(in srgb, var(--danger) 72%, var(--background)), color-mix(in srgb, var(--warning) 74%, var(--danger)));
-  box-shadow: 6px 0 22px -10px color-mix(in srgb, var(--danger) 22%, transparent);
-}
-
-.leadCard[data-tone="today"] .leadAccent {
-  background: linear-gradient(180deg, color-mix(in srgb, var(--success) 72%, var(--background)), var(--success));
-  box-shadow: 6px 0 22px -10px color-mix(in srgb, var(--success) 22%, transparent);
-}
-
-.leadCard[data-tone="scheduled"] .leadAccent {
-  background: linear-gradient(180deg, color-mix(in srgb, var(--info) 72%, var(--background)), var(--info));
-  box-shadow: 6px 0 22px -10px color-mix(in srgb, var(--info) 22%, transparent);
-}
-
-.leadCard[data-tone="closed"] .leadAccent {
-  background: linear-gradient(180deg, color-mix(in srgb, var(--warning) 76%, var(--background)), var(--warning));
-  box-shadow: 6px 0 22px -10px color-mix(in srgb, var(--warning) 22%, transparent);
-}
-
-/* subtle divider at the right edge of the accent */
-.leadAccent::after {
-  content: "";
-  position: absolute;
-  top: 10px;
-  bottom: 10px;
-  right: -1px;
-  width: 1px;
-  background: color-mix(in srgb, var(--line) 30%, var(--background));
-  opacity: 0.36;
-}
-
-/* hover elevation specific to cards (stronger than generic hover) */
 .leadCard:hover {
-  transform: perspective(1000px) translateY(-6px) rotateX(1.2deg);
+  transform: translateY(-3px);
   box-shadow:
-    0 14px 28px -10px rgba(2,6,23,0.18),
-    0 34px 72px -34px rgba(2,6,23,0.28);
+    inset 0 1px 0 color-mix(in srgb, white 86%, transparent),
+    0 24px 42px -24px color-mix(in srgb, var(--foreground) 34%, transparent),
+    0 16px 28px -22px color-mix(in srgb, var(--liquid-accent, var(--brand)) 28%, transparent);
   z-index: 6;
 }
 
-/* floating shadow for stronger 3D separation */
-.leadCard::after {
-  content: "";
-  position: absolute;
-  left: 12px;
-  right: 12px;
-  bottom: -12px;
-  height: 20px;
-  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--liquid-accent, var(--brand)) 18%, transparent), transparent);
-  filter: none;
-  border-radius: 20px;
-  z-index: 0;
-  transition: transform 260ms, opacity 260ms;
-  opacity: 1;
-}
-
-.leadCard:hover::after {
-  transform: translateY(2px) scale(1.02);
-  opacity: 0.78;
-}
-
-/* selected state with stronger elevation and slightly wider accent */
 .leadCard[data-selected="true"] {
-  transform: perspective(1000px) translateY(-10px) scale(1.008) rotateX(1.2deg);
+  transform: translateY(-4px);
   box-shadow:
-    0 20px 38px -12px rgba(2,6,23,0.2),
-    0 52px 112px -44px rgba(2,6,23,0.32);
+    inset 0 1px 0 color-mix(in srgb, white 88%, transparent),
+    0 24px 42px -24px color-mix(in srgb, var(--liquid-accent, var(--brand)) 38%, transparent);
   z-index: 10;
-}
-
-.leadCard[data-selected="true"] .leadAccent {
-  width: 10px;
-  box-shadow: 12px 0 42px -18px color-mix(in srgb, var(--accent) 28%, transparent);
-}
-
-/* accent override: slightly larger and stronger for premium look */
-.leadAccent {
-  top: 12px;
-  bottom: 12px;
-  width: 6px;
-  border-radius: 0 14px 14px 0;
-  box-shadow: 6px 0 28px -12px rgba(2, 6, 23, 0.18);
-  border-right: 1px solid color-mix(in srgb, var(--line) 10%, var(--background));
-}
-
-/* premium glow overlay */
-.leadGlow {
-  position: absolute;
-  inset: 0;
-  border-radius: 28px;
-  pointer-events: none;
-  z-index: 1;
-  opacity: 0;
-  transition: opacity 220ms var(--motion-fast), transform 220ms var(--motion-fast);
-  background: linear-gradient(180deg, color-mix(in srgb, var(--brand) 8%, transparent), transparent 38%);
-}
-.leadCard[data-selected="true"] .leadGlow {
-  opacity: 1;
-}
-.leadCard[data-tone="today"] .leadGlow {
-  background: linear-gradient(180deg, color-mix(in srgb, var(--success) 10%, transparent), transparent 38%);
-}
-.leadCard[data-tone="overdue"] .leadGlow {
-  background: linear-gradient(180deg, color-mix(in srgb, var(--danger) 10%, transparent), transparent 38%);
-}
-.leadCard[data-tone="scheduled"] .leadGlow {
-  background: linear-gradient(180deg, color-mix(in srgb, var(--info) 10%, transparent), transparent 38%);
-}
-.leadCard[data-tone="closed"] .leadGlow {
-  background: linear-gradient(180deg, color-mix(in srgb, var(--warning) 10%, transparent), transparent 38%);
-}
-
-/* ensure main content sits above the glow */
-.leadMainButton {
-  position: relative;
-  z-index: 3;
-}
-
-/* stronger per-tone accent glows (overrides earlier, preserves gradients) */
-.leadCard[data-tone="overdue"] .leadAccent {
-  box-shadow: 8px 0 32px -14px color-mix(in srgb, var(--danger) 30%, transparent);
-}
-
-.leadCard[data-tone="today"] .leadAccent {
-  box-shadow: 8px 0 32px -14px color-mix(in srgb, var(--success) 30%, transparent);
-}
-
-.leadCard[data-tone="scheduled"] .leadAccent {
-  box-shadow: 8px 0 32px -14px color-mix(in srgb, var(--info) 30%, transparent);
-}
-
-.leadCard[data-tone="closed"] .leadAccent {
-  box-shadow: 8px 0 32px -14px color-mix(in srgb, var(--warning) 30%, transparent);
 }
 
 .leadMainButton,
@@ -8022,9 +8068,14 @@
   }
 }
 
-@media (max-width: 1400px) {
+@media (max-width: 1100px) {
   .stageGrid {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .stageSideGuide {
+    position: static;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
@@ -8279,6 +8330,7 @@
   isolation: isolate;
   overflow: visible;
   margin-top: -0.12rem;
+  padding-top: 0.52rem;
   border: 1px solid color-mix(in srgb, var(--brand) 34%, var(--line));
   background:
     radial-gradient(circle at 8% 0%, color-mix(in srgb, var(--brand) 16%, transparent), transparent 34%),
@@ -8384,19 +8436,29 @@
 .filterRailCarousel {
   min-width: 0;
   overflow: visible;
+  padding: 0.42rem;
+  border: 1px solid color-mix(in srgb, var(--brand) 28%, var(--line));
+  border-radius: 22px;
+  background:
+    radial-gradient(circle at 0% 0%, color-mix(in srgb, var(--brand) 10%, transparent), transparent 38%),
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--surface-raised) 88%, var(--background)),
+      color-mix(in srgb, var(--surface) 86%, var(--background))
+    );
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, white 52%, transparent),
+    0 14px 30px -26px color-mix(in srgb, var(--foreground) 34%, transparent);
 }
 
 .filterRailScroller {
   gap: 0.5rem;
-  padding-top: 0.46rem;
-  padding-left: 1.7rem;
-  padding-right: 1.7rem;
-  padding-bottom: 0.26rem;
+  padding: 0.04rem 1.3rem 0.04rem;
 }
 
 .dateRailScrollButton {
-  top: 0.48rem;
-  bottom: 0.26rem;
+  top: 0.42rem;
+  bottom: 0.42rem;
   width: 24px;
   border-color: color-mix(in srgb, var(--brand) 32%, var(--line));
   background:
@@ -8924,6 +8986,7 @@
   .mobileLeadReasonBlock,
   .mobileLeadNextActionBox,
   .mobileLeadReadyMessage,
+  .mobileLeadClosingCard,
   .mobileLeadObservationCard,
   .mobileLeadTimeline {
     display: grid;
@@ -9037,7 +9100,12 @@
 
   .mobileLeadClosingCard {
     display: grid;
+    align-content: start;
     gap: 12px;
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    overflow: visible !important;
     padding: 14px;
     border: 1px solid rgba(217, 225, 239, 0.96);
     border-radius: 12px;
@@ -9052,6 +9120,8 @@
     align-items: flex-start;
     justify-content: space-between;
     gap: 10px;
+    min-height: 0;
+    overflow: visible;
   }
 
   .mobileLeadClosingCard header div {
@@ -9070,9 +9140,13 @@
   }
 
   .mobileLeadClosingCard header strong {
+    display: block;
+    min-width: 0;
     color: #17213d;
     font-size: 1rem;
+    line-height: 1.16;
     font-weight: 800;
+    overflow: visible;
   }
 
   .mobileLeadClosingCard header b {
@@ -9090,6 +9164,8 @@
     display: grid;
     grid-template-columns: minmax(0, 1fr) minmax(96px, 0.7fr);
     gap: 10px;
+    min-height: 0;
+    overflow: visible;
   }
 
   .mobileLeadClosingFields label {
@@ -9908,7 +9984,7 @@
       0 20px 44px -36px rgba(20, 52, 112, 0.5),
       inset 0 1px 0 rgba(255, 255, 255, 0.84);
     isolation: isolate;
-    overflow: hidden;
+    overflow: visible;
   }
 
   .mobileLeadReasonBlock span[data-tone="primary"] {
@@ -10227,6 +10303,7 @@
   }
 
   .mobileLeadReadyMessage *,
+  .mobileLeadClosingCard *,
   .mobileLeadObservationCard *,
   .mobileLeadTimeline * {
     min-width: 0;
@@ -11398,6 +11475,7 @@
   .mobileLeadContactPanel,
   .mobileLeadReasonBlock,
   .mobileLeadNextActionBox,
+  .mobileLeadClosingCard,
   .mobileLeadReadyMessage,
   .mobileLeadObservationCard,
   .mobileLeadTimeline {
@@ -11576,14 +11654,16 @@
     inset: 0;
     z-index: 80;
     display: grid;
-    align-items: end;
+    place-items: center;
     padding: 18px;
     background: rgba(6, 18, 36, 0.42);
     backdrop-filter: blur(12px);
   }
 
   .mobileScoreSheet {
-    width: min(100%, 390px);
+    width: min(calc(100vw - 36px), 390px);
+    max-height: min(82dvh, 620px);
+    overflow: auto;
     margin: 0 auto;
     display: grid;
     gap: 12px;
@@ -14742,6 +14822,7 @@
     radial-gradient(circle at 15% 0%, rgba(20, 184, 166, 0.12), transparent 34%),
     linear-gradient(180deg, #f8fbff 0%, #eef5ff 100%);
   box-shadow: 0 32px 80px -34px rgba(2, 6, 23, 0.6);
+  transform-origin: top right;
 }
 
 .masterNoticeHeader {
@@ -15052,14 +15133,41 @@
 
 @media (max-width: 720px) {
   .masterNoticeBell {
-    right: 14px;
-    top: 14px;
-    height: 40px;
-    padding: 0 10px;
+    position: absolute;
+    right: 10px;
+    top: -2px;
+    bottom: 1px;
+    width: 32px;
+    min-width: 32px;
+    height: 32px;
+    padding: 0;
+    border-radius: 12px;
+    box-shadow:
+      0 14px 28px -20px rgba(15, 23, 42, 0.5),
+      inset 0 1px 0 rgba(255, 255, 255, 0.92);
   }
 
   .masterNoticeBellText {
     display: none;
+  }
+
+  .masterNoticeBellIcon,
+  .masterNoticeBellIcon svg {
+    width: 17px;
+    height: 17px;
+  }
+
+  .masterNoticeBell b {
+    position: absolute;
+    top: -5px;
+    right: -5px;
+    min-width: 15px;
+    height: 15px;
+    padding: 0 4px;
+    border: 1.5px solid rgba(255, 255, 255, 0.96);
+    font-size: 0.56rem;
+    font-weight: 900;
+    box-shadow: 0 6px 12px -8px rgba(11, 102, 255, 0.9);
   }
 
   .masterNoticeBackdrop {
@@ -15148,4 +15256,1150 @@
 :global(html[data-theme-mode="dark"]) .masterNoticeForcedCard span,
 :global(html[data-hbx-mobile-theme="dark"]) .masterNoticeForcedCard span {
   color: rgba(226, 234, 248, 0.74);
+}
+
+@keyframes assistedSignupPopIn {
+  from {
+    opacity: 0;
+    transform: translateY(18px) scale(0.96);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes assistedSignupGoldSweep {
+  from {
+    transform: translateX(-110%) rotate(10deg);
+  }
+
+  to {
+    transform: translateX(110%) rotate(10deg);
+  }
+}
+
+@keyframes assistedSignupCongratsIn {
+  0% {
+    opacity: 0;
+    transform: translateY(10px) scale(0.94);
+  }
+
+  68% {
+    opacity: 1;
+    transform: translateY(-1px) scale(1.02);
+  }
+
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.assistedSignupPopup {
+  position: relative;
+  isolation: isolate;
+  border-color: rgba(217, 159, 20, 0.52) !important;
+  background:
+    radial-gradient(circle at 12% 0%, rgba(255, 248, 215, 0.96), transparent 32%),
+    radial-gradient(circle at 92% 6%, rgba(246, 200, 95, 0.42), transparent 35%),
+    linear-gradient(180deg, rgba(255, 253, 245, 0.98), rgba(255, 245, 216, 0.96)) !important;
+  box-shadow:
+    0 34px 84px -34px rgba(122, 74, 0, 0.48),
+    0 18px 48px -30px rgba(2, 8, 23, 0.5),
+    inset 0 1px 0 rgba(255, 255, 255, 0.88) !important;
+  animation: assistedSignupPopIn 240ms cubic-bezier(0.2, 0.82, 0.2, 1) both !important;
+}
+
+.assistedSignupPopup::after {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 -42%;
+  z-index: -1;
+  width: 46%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.36), transparent);
+  pointer-events: none;
+  animation: assistedSignupGoldSweep 1250ms ease-out 140ms both;
+}
+
+.assistedSignupPopup .systemPopupChrome {
+  min-height: 0 !important;
+  height: 44px !important;
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) auto !important;
+  align-items: center !important;
+  padding: 0 10px 0 12px !important;
+  border-bottom-color: rgba(217, 159, 20, 0.24) !important;
+  background: rgba(255, 250, 235, 0.72) !important;
+}
+
+.assistedSignupPopup .systemPopupChrome > div:first-child,
+.assistedSignupPopup .systemPopupActions {
+  min-height: 0 !important;
+  height: 100% !important;
+  display: flex !important;
+  align-items: center !important;
+}
+
+.assistedSignupPopup .systemPopupChrome strong {
+  color: #4f3300 !important;
+  font-size: 0.92rem !important;
+  line-height: 1 !important;
+  font-weight: 850 !important;
+}
+
+.assistedSignupPopup .mobileComposerClose {
+  width: 34px !important;
+  min-width: 34px !important;
+  height: 34px !important;
+  min-height: 34px !important;
+  padding: 0 !important;
+}
+
+.assistedSignupPopup .metaBadge {
+  border-color: rgba(217, 159, 20, 0.28) !important;
+  background: rgba(255, 248, 215, 0.92) !important;
+  color: #8a5a00 !important;
+}
+
+.assistedSignupPopup .fieldInput {
+  border-color: rgba(217, 159, 20, 0.2) !important;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(255, 249, 232, 0.86)) !important;
+}
+
+.assistedSignupPopup .mobileComposerBody {
+  overflow: auto !important;
+  scrollbar-width: none !important;
+}
+
+.assistedSignupPopup .mobileComposerBody::-webkit-scrollbar {
+  display: none !important;
+}
+
+.assistedSignupPopup .composerForm {
+  gap: 10px !important;
+}
+
+.assistedSignupPopup .field {
+  gap: 5px !important;
+}
+
+.assistedSignupPopup .fieldLabel {
+  color: #805b1c !important;
+  font-size: 0.66rem !important;
+  line-height: 1.08 !important;
+  font-weight: 650 !important;
+  letter-spacing: 0.02em !important;
+}
+
+.assistedSignupPopup .fieldInput {
+  min-height: 46px !important;
+  border-radius: 15px !important;
+  padding: 0 12px !important;
+  color: #162449 !important;
+  font-size: 0.9rem !important;
+  line-height: 1.1 !important;
+  font-weight: 500 !important;
+  letter-spacing: 0 !important;
+}
+
+.assistedSignupPopup .primaryAction {
+  border-color: rgba(217, 159, 20, 0.82) !important;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.42), rgba(255, 255, 255, 0.08) 46%),
+    linear-gradient(135deg, #fff8d7 0%, #f6c85f 58%, #d99a12 100%) !important;
+  color: #6b4200 !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.68),
+    0 18px 34px -22px rgba(217, 154, 18, 0.78) !important;
+}
+
+.assistedSignupClosingBlock {
+  display: grid;
+  gap: 10px;
+  padding: 11px;
+  border: 1px solid rgba(217, 159, 20, 0.26);
+  border-radius: 18px;
+  background:
+    radial-gradient(circle at 92% 0%, rgba(246, 200, 95, 0.22), transparent 34%),
+    rgba(255, 255, 255, 0.48);
+}
+
+.assistedSignupClosingSummary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(96px, auto);
+  gap: 9px;
+}
+
+.assistedSignupClosingSummary span {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+  padding: 9px 10px;
+  border: 1px solid rgba(217, 159, 20, 0.22);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.62);
+}
+
+.assistedSignupClosingSummary small,
+.assistedSignupClosingMeta span {
+  color: #8a672b;
+  font-size: 0.65rem;
+  line-height: 1.1;
+  font-weight: 650;
+  letter-spacing: 0;
+}
+
+.assistedSignupClosingSummary strong {
+  overflow: hidden;
+  color: #5a3500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.92rem;
+  line-height: 1.12;
+  font-weight: 760;
+  letter-spacing: 0;
+}
+
+.assistedSignupClosingActions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.assistedSignupClosingActions button {
+  min-width: 0;
+  min-height: 42px;
+  border: 1px solid rgba(213, 167, 68, 0.32);
+  border-radius: 13px;
+  background: rgba(255, 255, 255, 0.58);
+  color: #614017;
+  padding: 0 9px;
+  font: inherit;
+  font-size: 0.76rem;
+  line-height: 1.08;
+  font-weight: 700;
+  letter-spacing: 0;
+}
+
+.assistedSignupClosingActions button[data-active="true"] {
+  border-color: rgba(217, 159, 20, 0.74);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.54), rgba(255, 255, 255, 0.12) 48%),
+    linear-gradient(135deg, #fff6cf, #f4c45a 58%, #d99a12);
+  color: #6b4100;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.64),
+    0 14px 26px -22px rgba(217, 154, 18, 0.7);
+}
+
+.assistedSignupClosingActions button[data-tone="success"][data-active="true"] {
+  border-color: rgba(32, 196, 109, 0.44);
+  background: linear-gradient(135deg, #eafff3, #b6f2cf);
+  color: #08753b;
+}
+
+.assistedSignupClosingActions button[data-tone="danger"][data-active="true"] {
+  border-color: rgba(244, 63, 94, 0.42);
+  background: linear-gradient(135deg, #fff0f3, #ffd1dc);
+  color: #bd123d;
+}
+
+.assistedSignupClosingMeta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.assistedSignupClosingMeta span {
+  min-height: 28px;
+  display: inline-flex;
+  max-width: 100%;
+  align-items: center;
+  overflow: hidden;
+  border: 1px solid rgba(217, 159, 20, 0.2);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.5);
+  padding: 0 8px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.assistedSignupResult {
+  position: relative;
+  overflow: hidden;
+  border-color: rgba(217, 159, 20, 0.32) !important;
+  background:
+    radial-gradient(circle at 18% 0%, rgba(255, 255, 255, 0.72), transparent 32%),
+    linear-gradient(145deg, rgba(255, 248, 215, 0.96), rgba(246, 200, 95, 0.28)) !important;
+  animation: assistedSignupCongratsIn 280ms cubic-bezier(0.2, 0.82, 0.2, 1) both;
+}
+
+.assistedSignupCongratsVisual {
+  display: grid;
+  place-items: center;
+  gap: 4px;
+  width: 100%;
+  min-height: 82px;
+  border-radius: 14px;
+  background:
+    radial-gradient(circle at 25% 22%, rgba(255, 255, 255, 0.9), transparent 18%),
+    radial-gradient(circle at 80% 18%, rgba(255, 216, 106, 0.72), transparent 24%),
+    linear-gradient(135deg, #fff8d7, #f6c85f);
+}
+
+.assistedSignupCongratsVisual svg {
+  width: min(190px, 78%);
+  height: auto;
+  fill: none;
+  stroke: #8a5a00;
+  stroke-width: 5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  filter: drop-shadow(0 8px 14px rgba(138, 90, 0, 0.16));
+}
+
+.assistedSignupCongratsVisual span {
+  color: #6b4200;
+  font-size: 1.05rem;
+  font-weight: 900;
+  letter-spacing: 0;
+}
+
+@media (max-width: 820px) {
+  .mobileComposerOverlay.systemPopupOverlay,
+  .mobileComposerOverlay {
+    display: grid !important;
+    place-items: center !important;
+    align-items: center !important;
+    justify-content: center !important;
+    justify-items: center !important;
+    padding:
+      max(18px, env(safe-area-inset-top))
+      14px
+      max(18px, env(safe-area-inset-bottom)) !important;
+  }
+
+  .mobileComposerSheet.systemPopupFrame.assistedSignupPopup,
+  .mobileComposerSheet.assistedSignupPopup {
+    width: min(calc(100vw - 28px), 390px) !important;
+    max-width: 390px !important;
+    max-height: min(calc(100dvh - 36px - env(safe-area-inset-top) - env(safe-area-inset-bottom)), 720px) !important;
+    align-self: center !important;
+    justify-self: center !important;
+    border-radius: 26px !important;
+    transform: none !important;
+  }
+
+  .mobileComposerSheet.assistedSignupPopup .mobileComposerBody {
+    max-height: calc(min(calc(100dvh - 36px - env(safe-area-inset-top) - env(safe-area-inset-bottom)), 720px) - 45px) !important;
+    padding: 12px !important;
+  }
+}
+
+:global(html[data-hbx-mobile-theme="dark"]) .assistedSignupPopup {
+  border-color: rgba(255, 216, 106, 0.28) !important;
+  background:
+    radial-gradient(circle at 12% 0%, rgba(255, 216, 106, 0.14), transparent 32%),
+    linear-gradient(180deg, #171206 0%, #0d111c 100%) !important;
+}
+
+:global(html[data-hbx-mobile-theme="dark"]) .assistedSignupPopup .systemPopupChrome {
+  background: rgba(27, 21, 8, 0.82) !important;
+}
+
+:global(html[data-hbx-mobile-theme="dark"]) .assistedSignupPopup .systemPopupEyebrow,
+:global(html[data-hbx-mobile-theme="dark"]) .assistedSignupPopup .systemPopupChrome strong {
+  color: #fff7d6 !important;
+}
+
+:global(html[data-hbx-mobile-theme="dark"]) .assistedSignupPopup .fieldLabel {
+  color: rgba(255, 216, 106, 0.72) !important;
+}
+
+:global(html[data-hbx-mobile-theme="dark"]) .assistedSignupPopup .fieldInput {
+  border-color: rgba(255, 216, 106, 0.24) !important;
+  background: rgba(255, 250, 232, 0.92) !important;
+  color: #102047 !important;
+}
+
+:global(html[data-hbx-mobile-theme="dark"]) .assistedSignupClosingBlock,
+:global(html[data-hbx-mobile-theme="dark"]) .assistedSignupClosingSummary span,
+:global(html[data-hbx-mobile-theme="dark"]) .assistedSignupClosingActions button,
+:global(html[data-hbx-mobile-theme="dark"]) .assistedSignupClosingMeta span {
+  border-color: rgba(255, 216, 106, 0.22) !important;
+  background: rgba(24, 21, 15, 0.72) !important;
+}
+
+:global(html[data-hbx-mobile-theme="dark"]) .assistedSignupClosingSummary strong {
+  color: #fff7d6 !important;
+}
+
+:global(html[data-hbx-mobile-theme="dark"]) .assistedSignupClosingSummary small,
+:global(html[data-hbx-mobile-theme="dark"]) .assistedSignupClosingMeta span {
+  color: rgba(255, 247, 214, 0.72) !important;
+}
+
+:global(html[data-hbx-mobile-theme="dark"]) .assistedSignupClosingActions button {
+  color: #fff3c4 !important;
+}
+
+:global(html[data-hbx-mobile-theme="dark"]) .assistedSignupClosingActions button[data-active="true"] {
+  border-color: rgba(255, 216, 106, 0.48) !important;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.16), transparent 46%),
+    linear-gradient(135deg, #8a5a00 0%, #d99a12 58%, #ffd86a 100%) !important;
+  color: #fff7d6 !important;
+}
+
+@media (max-width: 820px) {
+  .mobileLeadDetailActionBar.mobileLeadDetailActionBar {
+    gap: 5px !important;
+  }
+
+  .mobileLeadDetailActionBar.mobileLeadDetailActionBar[data-has-sale="true"] {
+    grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+  }
+
+  .mobileLeadDetailActionBar.mobileLeadDetailActionBar[data-has-sale="false"] {
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+  }
+
+  .mobileLeadDetailActionBar a,
+  .mobileLeadDetailActionBar button {
+    min-width: 0 !important;
+    padding: 0 3px !important;
+    font-size: 0.7rem !important;
+    font-weight: 720 !important;
+    white-space: nowrap !important;
+  }
+
+  .mobileLeadDetailActionBar button[data-tone="sale"] {
+    border-color: rgba(217, 159, 20, 0.82) !important;
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.54), rgba(255, 255, 255, 0.12) 46%),
+      linear-gradient(135deg, #fff8d7 0%, #f6c85f 58%, #d99a12 100%) !important;
+    color: #7a4a00 !important;
+    font-size: 0.58rem !important;
+    font-weight: 760 !important;
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.66),
+      0 14px 28px -22px rgba(217, 154, 18, 0.72) !important;
+  }
+
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileLeadDetailActionBar button[data-tone="sale"] {
+    border-color: rgba(255, 216, 106, 0.46) !important;
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.18), transparent 46%),
+      linear-gradient(135deg, #8a5a00 0%, #d99a12 58%, #ffd86a 100%) !important;
+    color: #fff7d6 !important;
+  }
+}
+
+.mobileClosingPopup {
+  position: relative;
+  isolation: isolate;
+  border-color: rgba(217, 159, 20, 0.5) !important;
+  background:
+    radial-gradient(circle at 14% 0%, rgba(255, 248, 215, 0.94), transparent 32%),
+    radial-gradient(circle at 92% 8%, rgba(246, 200, 95, 0.34), transparent 34%),
+    linear-gradient(180deg, rgba(255, 253, 246, 0.99), rgba(255, 247, 225, 0.96)) !important;
+  box-shadow:
+    0 34px 84px -34px rgba(122, 74, 0, 0.46),
+    0 18px 48px -30px rgba(2, 8, 23, 0.5),
+    inset 0 1px 0 rgba(255, 255, 255, 0.88) !important;
+  animation: assistedSignupPopIn 220ms cubic-bezier(0.2, 0.82, 0.2, 1) both !important;
+}
+
+.mobileClosingPopup .systemPopupChrome {
+  min-height: 44px !important;
+  padding: 8px 12px !important;
+  border-bottom: 1px solid rgba(217, 159, 20, 0.24) !important;
+  background: rgba(255, 251, 238, 0.78) !important;
+}
+
+.mobileClosingPopup .systemPopupChrome > div:first-child {
+  display: grid !important;
+  min-width: 0 !important;
+  gap: 2px !important;
+}
+
+.mobileClosingPopup .systemPopupChrome strong {
+  color: #5f3900 !important;
+  font-size: 1rem !important;
+  line-height: 1.1 !important;
+  font-weight: 760 !important;
+  letter-spacing: 0 !important;
+}
+
+.mobileClosingPopup .systemPopupChrome span {
+  max-width: 230px !important;
+  overflow: hidden !important;
+  color: #89611e !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+  font-size: 0.68rem !important;
+  line-height: 1.1 !important;
+  font-weight: 620 !important;
+  letter-spacing: 0 !important;
+}
+
+.mobileClosingSummary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(96px, auto);
+  gap: 10px;
+}
+
+.mobileClosingSummary span,
+.mobileClosingMeta span {
+  min-width: 0;
+  border: 1px solid rgba(217, 159, 20, 0.22);
+  background: rgba(255, 255, 255, 0.58);
+  color: #70470c;
+}
+
+.mobileClosingSummary span {
+  display: grid;
+  gap: 3px;
+  padding: 10px 12px;
+  border-radius: 16px;
+}
+
+.mobileClosingSummary small,
+.mobileClosingFields span {
+  color: #8a672b;
+  font-size: 0.66rem;
+  line-height: 1.1;
+  font-weight: 680;
+  letter-spacing: 0;
+}
+
+.mobileClosingSummary strong {
+  color: #5a3500;
+  font-size: 0.96rem;
+  line-height: 1.12;
+  font-weight: 760;
+  letter-spacing: 0;
+  white-space: nowrap;
+}
+
+.mobileClosingFields {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(98px, 0.72fr);
+  gap: 10px;
+}
+
+.mobileClosingFields label {
+  display: grid;
+  min-width: 0;
+  gap: 6px;
+}
+
+.mobileClosingFields select,
+.mobileClosingFields input {
+  width: 100%;
+  min-width: 0;
+  min-height: 46px;
+  border: 1px solid rgba(213, 167, 68, 0.36);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.78);
+  color: #463016;
+  padding: 0 12px;
+  font: inherit;
+  font-size: 0.86rem;
+  font-weight: 620;
+  letter-spacing: 0;
+  outline: none;
+}
+
+.mobileClosingActions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 9px;
+}
+
+.mobileClosingActions button {
+  min-width: 0;
+  min-height: 44px;
+  border: 1px solid rgba(213, 167, 68, 0.34);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.62);
+  color: #614017;
+  padding: 0 10px;
+  font: inherit;
+  font-size: 0.8rem;
+  line-height: 1.05;
+  font-weight: 700;
+  letter-spacing: 0;
+}
+
+.mobileClosingActions button[data-active="true"] {
+  border-color: rgba(217, 159, 20, 0.74);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.54), rgba(255, 255, 255, 0.12) 48%),
+    linear-gradient(135deg, #fff6cf, #f4c45a 58%, #d99a12);
+  color: #6b4100;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.64),
+    0 14px 26px -22px rgba(217, 154, 18, 0.7);
+}
+
+.mobileClosingActions button[data-tone="success"][data-active="true"] {
+  border-color: rgba(32, 196, 109, 0.44);
+  background: linear-gradient(135deg, #eafff3, #b6f2cf);
+  color: #08753b;
+}
+
+.mobileClosingActions button[data-tone="danger"][data-active="true"] {
+  border-color: rgba(244, 63, 94, 0.42);
+  background: linear-gradient(135deg, #fff0f3, #ffd1dc);
+  color: #bd123d;
+}
+
+.mobileClosingMeta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.mobileClosingMeta span {
+  min-height: 30px;
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 0 9px;
+  font-size: 0.68rem;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.mobileClosingFooter {
+  display: grid;
+  grid-template-columns: minmax(0, 0.86fr) minmax(0, 1.14fr);
+  gap: 10px;
+  padding-top: 2px;
+}
+
+.mobileClosingPopup .secondaryAction,
+.mobileClosingPopup .primaryAction {
+  min-height: 46px !important;
+  border-radius: 15px !important;
+  font-size: 0.82rem !important;
+  line-height: 1.05 !important;
+  font-weight: 740 !important;
+  letter-spacing: 0 !important;
+}
+
+.mobileClosingPopup .secondaryAction {
+  border: 1px solid rgba(217, 159, 20, 0.38) !important;
+  background: rgba(255, 255, 255, 0.62) !important;
+  color: #70470c !important;
+}
+
+.mobileClosingPopup .primaryAction {
+  border: 1px solid rgba(217, 159, 20, 0.72) !important;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.42), transparent 48%),
+    linear-gradient(135deg, #fff3be, #f0b93f 58%, #c78308) !important;
+  color: #5f3900 !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.58),
+    0 18px 32px -24px rgba(199, 131, 8, 0.78) !important;
+}
+
+@media (max-width: 820px) {
+  .mobileComposerSheet.systemPopupFrame.mobileClosingPopup,
+  .mobileComposerSheet.mobileClosingPopup {
+    width: min(calc(100vw - 24px), 380px) !important;
+    max-height: min(88dvh, 650px) !important;
+  }
+
+  .mobileClosingPopup .mobileComposerBody {
+    gap: 12px !important;
+    padding: 12px !important;
+  }
+}
+
+:global(html[data-hbx-mobile-theme="dark"]) .mobileClosingPopup {
+  border-color: rgba(255, 216, 106, 0.3) !important;
+  background:
+    radial-gradient(circle at 12% 0%, rgba(255, 216, 106, 0.13), transparent 32%),
+    linear-gradient(180deg, #171206 0%, #0d111c 100%) !important;
+}
+
+:global(html[data-hbx-mobile-theme="dark"]) .mobileClosingPopup .systemPopupChrome {
+  border-bottom-color: rgba(255, 216, 106, 0.18) !important;
+  background: rgba(27, 21, 8, 0.82) !important;
+}
+
+:global(html[data-hbx-mobile-theme="dark"]) .mobileClosingPopup .systemPopupChrome strong,
+:global(html[data-hbx-mobile-theme="dark"]) .mobileClosingSummary strong {
+  color: #fff7d6 !important;
+}
+
+:global(html[data-hbx-mobile-theme="dark"]) .mobileClosingPopup .systemPopupChrome span,
+:global(html[data-hbx-mobile-theme="dark"]) .mobileClosingSummary small,
+:global(html[data-hbx-mobile-theme="dark"]) .mobileClosingFields span,
+:global(html[data-hbx-mobile-theme="dark"]) .mobileClosingMeta span {
+  color: rgba(255, 247, 214, 0.72) !important;
+}
+
+:global(html[data-hbx-mobile-theme="dark"]) .mobileClosingSummary span,
+:global(html[data-hbx-mobile-theme="dark"]) .mobileClosingFields select,
+:global(html[data-hbx-mobile-theme="dark"]) .mobileClosingFields input,
+:global(html[data-hbx-mobile-theme="dark"]) .mobileClosingActions button,
+:global(html[data-hbx-mobile-theme="dark"]) .mobileClosingMeta span,
+:global(html[data-hbx-mobile-theme="dark"]) .mobileClosingPopup .secondaryAction {
+  border-color: rgba(255, 216, 106, 0.22) !important;
+  background: rgba(24, 21, 15, 0.78) !important;
+  color: #fff3c4 !important;
+}
+
+:global(html[data-hbx-mobile-theme="dark"]) .mobileClosingActions button[data-active="true"],
+:global(html[data-hbx-mobile-theme="dark"]) .mobileClosingPopup .primaryAction {
+  border-color: rgba(255, 216, 106, 0.48) !important;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.16), transparent 46%),
+    linear-gradient(135deg, #8a5a00 0%, #d99a12 58%, #ffd86a 100%) !important;
+  color: #fff7d6 !important;
+}
+
+@media (max-width: 820px) {
+  .mobileLeadHeroPremium {
+    grid-template-columns: minmax(0, 1fr) auto !important;
+    gap: 12px !important;
+    min-height: 156px !important;
+    height: auto !important;
+    align-items: center !important;
+    align-content: center !important;
+    padding: 18px 14px 14px !important;
+    border-radius: 22px !important;
+    overflow: visible !important;
+  }
+
+  .mobileLeadHeroIdentity {
+    grid-template-columns: minmax(0, 1fr) !important;
+    gap: 0 !important;
+    align-items: center !important;
+    align-self: center !important;
+    min-height: 76px !important;
+  }
+
+  .mobileLeadHeroIdentity .mobileLeadPlusAvatar {
+    width: 50px !important;
+    height: 50px !important;
+    box-shadow:
+      0 14px 26px -18px rgba(7, 87, 223, 0.72),
+      inset 0 0 0 7px rgba(255, 255, 255, 0.12) !important;
+  }
+
+  .mobileLeadHeroIdentity strong {
+    max-width: 100% !important;
+    color: #14203d !important;
+    font-size: 0.98rem !important;
+    line-height: 1.12 !important;
+    font-weight: 820 !important;
+    letter-spacing: 0 !important;
+    overflow-wrap: normal !important;
+    word-break: normal !important;
+    hyphens: none !important;
+  }
+
+  .mobileLeadHeroIdentity span,
+  .mobileLeadHeroIdentity em {
+    margin-top: 3px !important;
+    font-size: 0.72rem !important;
+    line-height: 1.16 !important;
+    font-weight: 680 !important;
+    letter-spacing: 0 !important;
+    overflow-wrap: normal !important;
+    word-break: normal !important;
+    hyphens: none !important;
+  }
+
+  .mobileLeadScoreButton {
+    width: 88px !important;
+    min-width: 88px !important;
+    height: auto !important;
+    align-self: center !important;
+    justify-self: end !important;
+  }
+
+  .mobileLeadHeroPremium .mobileLeadScoreBox {
+    width: 88px !important;
+    min-width: 88px !important;
+    min-height: 88px !important;
+    padding: 11px 7px 7px !important;
+  }
+
+  .mobileLeadHeroPremium .mobileLeadScoreBox::after {
+    top: 7px !important;
+    width: 9px !important;
+    height: 9px !important;
+    border-width: 2px !important;
+  }
+
+  .mobileLeadHeroPremium .mobileLeadScoreBox span {
+    font-size: 0.56rem !important;
+    font-weight: 760 !important;
+    letter-spacing: 0 !important;
+  }
+
+  .mobileLeadHeroPremium .mobileLeadScoreBox strong {
+    font-size: 2.05rem !important;
+    line-height: 0.88 !important;
+    font-weight: 820 !important;
+    letter-spacing: 0 !important;
+    text-shadow: none !important;
+  }
+
+  .mobileLeadHeroPremium .mobileLeadScoreBox small {
+    max-width: 54px !important;
+    font-size: 0.52rem !important;
+    line-height: 1.02 !important;
+    font-weight: 760 !important;
+    letter-spacing: 0 !important;
+  }
+
+  .mobileLeadHeroMeta {
+    gap: 6px !important;
+    margin-top: 2px !important;
+  }
+
+  .mobileLeadHeroMeta span {
+    min-height: 28px !important;
+    padding: 0 7px !important;
+    font-size: 0.62rem !important;
+    font-weight: 760 !important;
+    letter-spacing: 0 !important;
+  }
+
+  .mobileLeadHeroIdentity .mobileLeadEnrichmentCrown {
+    margin-top: 5px !important;
+    transform: none !important;
+  }
+}
+
+@media (max-width: 820px) {
+  .mobileLeadClosingCard.mobileLeadClosingCard {
+    position: relative !important;
+    z-index: 2 !important;
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 12px !important;
+    height: auto !important;
+    min-height: fit-content !important;
+    max-height: none !important;
+    overflow: visible !important;
+    contain: none !important;
+    margin-bottom: 14px !important;
+  }
+
+  .mobileLeadClosingCard > * {
+    position: relative !important;
+    flex: 0 0 auto !important;
+    min-height: 0 !important;
+    overflow: visible !important;
+  }
+
+  .mobileLeadClosingFields,
+  .mobileLeadClosingMeta,
+  .mobileLeadClosingActions {
+    width: 100% !important;
+    min-height: 0 !important;
+    overflow: visible !important;
+  }
+
+  .mobileLeadReadyMessage {
+    position: relative !important;
+    z-index: 1 !important;
+    margin-top: 0 !important;
+  }
+}
+
+@media (max-width: 820px) {
+  .mobileObservationDialog,
+  .mobileLeadObservationCard,
+  .mobileLeadReadyMessage,
+  .mobileLeadClosingCard {
+    -webkit-font-smoothing: antialiased !important;
+    text-rendering: geometricPrecision !important;
+  }
+
+  .mobileVendasSheetBackdrop > .mobileObservationDialog {
+    grid-template-rows: auto auto minmax(0, 1fr) auto !important;
+    gap: 12px !important;
+    width: min(calc(100vw - 28px), 374px) !important;
+    padding: 14px !important;
+    border-radius: 22px !important;
+    animation: mobileObservationCenterIn 180ms cubic-bezier(0.2, 0.8, 0.2, 1) both !important;
+  }
+
+  .mobileObservationDialog .mobileVendasSheetHeader {
+    align-items: center !important;
+    min-height: 42px !important;
+    padding: 0 2px !important;
+  }
+
+  .mobileObservationDialog .mobileVendasSheetHeader > div {
+    min-width: 0 !important;
+    display: grid !important;
+    gap: 2px !important;
+  }
+
+  .mobileObservationDialog .mobileVendasSheetHeader small {
+    max-width: 255px !important;
+    overflow: hidden !important;
+    color: #5d6b86 !important;
+    text-overflow: ellipsis !important;
+    white-space: nowrap !important;
+    font-size: 0.66rem !important;
+    line-height: 1.1 !important;
+    font-weight: 650 !important;
+    letter-spacing: 0 !important;
+    text-transform: none !important;
+  }
+
+  .mobileObservationDialog .mobileVendasSheetHeader h2 {
+    max-width: 255px !important;
+    color: #101a34 !important;
+    font-size: 1.04rem !important;
+    line-height: 1.12 !important;
+    font-weight: 760 !important;
+    letter-spacing: 0 !important;
+  }
+
+  .mobileObservationDialog .mobileVendasSheetHeader button {
+    width: 34px !important;
+    height: 34px !important;
+    border: 1px solid rgba(174, 197, 232, 0.78) !important;
+    background: rgba(247, 251, 255, 0.92) !important;
+    color: #1f2b45 !important;
+    font-size: 1.1rem !important;
+    line-height: 1 !important;
+    font-weight: 600 !important;
+    transition:
+      transform 160ms ease,
+      border-color 160ms ease,
+      background 160ms ease !important;
+  }
+
+  .mobileObservationDialog .mobileVendasSheetHeader button:active {
+    transform: scale(0.96) !important;
+  }
+
+  .mobileObservationDialog .mobileLeadDetailCard {
+    gap: 10px !important;
+    padding: 12px !important;
+    border-radius: 18px !important;
+    background:
+      radial-gradient(circle at 92% 0%, rgba(64, 145, 255, 0.1), transparent 34%),
+      linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(247, 250, 255, 0.94)) !important;
+  }
+
+  .mobileObservationDialog .mobileLeadNoteEditor span,
+  .mobileLeadObservationCard .mobileLeadNoteEditor span {
+    color: #596985 !important;
+    font-size: 0.68rem !important;
+    line-height: 1.1 !important;
+    font-weight: 650 !important;
+    letter-spacing: 0 !important;
+    text-transform: none !important;
+  }
+
+  .mobileObservationDialog textarea,
+  .mobileLeadObservationCard .mobileLeadNoteEditor textarea {
+    min-height: 122px !important;
+    border-color: rgba(164, 187, 224, 0.84) !important;
+    border-radius: 16px !important;
+    background: rgba(255, 255, 255, 0.9) !important;
+    color: #15213b !important;
+    padding: 12px 13px !important;
+    font-size: 0.86rem !important;
+    line-height: 1.5 !important;
+    font-weight: 500 !important;
+    letter-spacing: 0 !important;
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.82),
+      0 12px 24px -22px rgba(15, 23, 42, 0.32) !important;
+  }
+
+  .mobileObservationDialog textarea::placeholder,
+  .mobileLeadObservationCard .mobileLeadNoteEditor textarea::placeholder {
+    color: rgba(78, 94, 122, 0.72) !important;
+    font-weight: 450 !important;
+  }
+
+  .mobileObservationDialog .mobileVendasSheetFooter {
+    display: grid !important;
+    grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr) !important;
+    gap: 10px !important;
+    padding-top: 0 !important;
+  }
+
+  .mobileObservationDialog .mobileVendasSheetFooter button,
+  .mobileLeadSaveNoteButton,
+  .mobileLeadRefreshButton {
+    min-width: 0 !important;
+    min-height: 44px !important;
+    border-radius: 14px !important;
+    font-size: 0.82rem !important;
+    line-height: 1 !important;
+    font-weight: 700 !important;
+    letter-spacing: 0 !important;
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.58),
+      0 14px 26px -22px rgba(15, 23, 42, 0.34) !important;
+    transition:
+      transform 160ms ease,
+      box-shadow 160ms ease,
+      border-color 160ms ease,
+      background 160ms ease !important;
+  }
+
+  .mobileObservationDialog .mobileVendasSheetFooter button:active,
+  .mobileLeadSaveNoteButton:active,
+  .mobileLeadRefreshButton:active {
+    transform: translateY(1px) scale(0.99) !important;
+  }
+
+  .mobileObservationDialog .mobileVendasSheetFooter .mobileVendasDeleteButton {
+    border: 1px solid rgba(176, 198, 232, 0.92) !important;
+    background: rgba(255, 255, 255, 0.86) !important;
+    color: #24405f !important;
+  }
+
+  .mobileObservationDialog .mobileVendasSheetFooter .mobileVendasDangerButton,
+  .mobileLeadSaveNoteButton {
+    border: 1px solid rgba(7, 87, 223, 0.32) !important;
+    background: linear-gradient(135deg, #0f66e8, #18b9ee) !important;
+    color: #ffffff !important;
+  }
+
+  .mobileLeadObservationCard {
+    gap: 11px !important;
+    padding: 13px !important;
+    border-radius: 18px !important;
+    background:
+      radial-gradient(circle at 94% 0%, rgba(39, 166, 238, 0.08), transparent 34%),
+      rgba(255, 255, 255, 0.92) !important;
+  }
+
+  .mobileLeadObservationHeader h3,
+  .mobileLeadReadyMessage h3 {
+    color: #17213d !important;
+    font-size: 0.9rem !important;
+    line-height: 1.14 !important;
+    font-weight: 720 !important;
+    letter-spacing: 0 !important;
+  }
+
+  .mobileLeadObservationHeader > span {
+    color: #71809a !important;
+    font-size: 0.72rem !important;
+    font-weight: 600 !important;
+    letter-spacing: 0 !important;
+  }
+
+  .mobileLeadSavedNote,
+  .mobileLeadReadyMessage p {
+    color: #26324d !important;
+    font-size: 0.86rem !important;
+    line-height: 1.48 !important;
+    font-weight: 500 !important;
+    letter-spacing: 0 !important;
+  }
+
+  .mobileLeadRefreshButton {
+    border-color: rgba(157, 184, 224, 0.86) !important;
+    background: rgba(255, 255, 255, 0.86) !important;
+    color: #195dbb !important;
+  }
+}
+
+@media (max-width: 820px) {
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileVendasSheetBackdrop > .mobileObservationDialog {
+    border-color: rgba(110, 166, 255, 0.28) !important;
+    background:
+      radial-gradient(circle at 88% 0%, rgba(65, 154, 255, 0.14), transparent 36%),
+      linear-gradient(180deg, rgba(9, 25, 49, 0.98), rgba(5, 15, 33, 0.98)) !important;
+    box-shadow:
+      0 34px 80px -30px rgba(0, 0, 0, 0.84),
+      inset 0 1px 0 rgba(148, 197, 255, 0.12) !important;
+  }
+
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileObservationDialog .mobileVendasSheetHandle {
+    background: rgba(151, 181, 226, 0.62) !important;
+  }
+
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileObservationDialog .mobileVendasSheetHeader small,
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileObservationDialog .mobileLeadNoteEditor span,
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileLeadObservationCard .mobileLeadNoteEditor span,
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileLeadObservationHeader > span {
+    color: rgba(221, 232, 248, 0.68) !important;
+  }
+
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileObservationDialog .mobileVendasSheetHeader h2,
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileLeadObservationHeader h3,
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileLeadReadyMessage h3 {
+    color: #f8fbff !important;
+  }
+
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileObservationDialog .mobileVendasSheetHeader button,
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileObservationDialog .mobileVendasSheetFooter .mobileVendasDeleteButton,
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileLeadRefreshButton {
+    border-color: rgba(148, 190, 255, 0.26) !important;
+    background: rgba(14, 35, 67, 0.92) !important;
+    color: #cfe5ff !important;
+  }
+
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileObservationDialog .mobileVendasSheetFooter .mobileVendasDangerButton,
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileLeadSaveNoteButton {
+    border-color: rgba(71, 157, 255, 0.48) !important;
+    background: linear-gradient(135deg, rgba(17, 101, 226, 0.96), rgba(18, 178, 224, 0.9)) !important;
+    color: #ffffff !important;
+  }
+
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileObservationDialog .mobileLeadDetailCard,
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileLeadObservationCard {
+    border-color: rgba(148, 190, 255, 0.22) !important;
+    background:
+      radial-gradient(circle at 92% 0%, rgba(64, 145, 255, 0.1), transparent 36%),
+      rgba(9, 26, 52, 0.9) !important;
+  }
+
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileObservationDialog textarea,
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileLeadObservationCard .mobileLeadNoteEditor textarea {
+    border-color: rgba(148, 190, 255, 0.26) !important;
+    background: rgba(7, 20, 42, 0.92) !important;
+    color: #f8fbff !important;
+    box-shadow:
+      inset 0 1px 0 rgba(148, 190, 255, 0.08),
+      0 12px 24px -22px rgba(0, 0, 0, 0.72) !important;
+  }
+
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileObservationDialog textarea::placeholder,
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileLeadObservationCard .mobileLeadNoteEditor textarea::placeholder {
+    color: rgba(221, 232, 248, 0.48) !important;
+  }
+
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileLeadSavedNote,
+  :global(html[data-hbx-mobile-theme="dark"]) .mobileLeadReadyMessage p {
+    color: rgba(248, 251, 255, 0.88) !important;
+  }
+}
+
+@keyframes mobileObservationCenterIn {
+  from {
+    opacity: 0;
+    transform: translate3d(-50%, calc(-50% + 10px), 0) scale(0.98);
+  }
+
+  to {
+    opacity: 1;
+    transform: translate3d(-50%, -50%, 0) scale(1);
+  }
 }

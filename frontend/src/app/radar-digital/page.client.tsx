@@ -617,15 +617,42 @@ function DailyQuotaSpeedometer({
   dailyLimit,
   spendLimit,
   compact,
+  onClick,
 }: {
   remaining: number;
   dailyLimit: number;
   spendLimit: number;
   compact?: boolean;
+  onClick?: () => void;
 }) {
   const safeLimit = Math.max(1, Math.trunc(Number(dailyLimit || remaining || spendLimit || 1)));
   const safeRemaining = Math.max(0, Math.trunc(Number(remaining || 0)));
   const spentToday = Math.max(0, safeLimit - safeRemaining);
+  const content = (
+    <>
+      <b>{safeRemaining}</b>
+      <div className={styles.dailyQuotaText}>
+        <span>disponíveis</span>
+        <strong>hoje</strong>
+        <small>{spentToday}/{safeLimit} usados</small>
+      </div>
+    </>
+  );
+
+  if (onClick) {
+    return (
+      <button
+        type="button"
+        className={styles.dailyQuotaGauge}
+        data-compact={compact ? "true" : "false"}
+        onClick={onClick}
+        aria-label={`${safeRemaining} cards disponíveis hoje`}
+        title={`${safeRemaining} cards disponíveis hoje`}
+      >
+        {content}
+      </button>
+    );
+  }
 
   return (
     <div
@@ -634,12 +661,7 @@ function DailyQuotaSpeedometer({
       aria-label={`${safeRemaining} cards disponíveis hoje`}
       title={`${safeRemaining} cards disponíveis hoje`}
     >
-      <b>{safeRemaining}</b>
-      <div className={styles.dailyQuotaText}>
-        <span>disponíveis</span>
-        <strong>hoje</strong>
-        <small>{spentToday}/{safeLimit} usados</small>
-      </div>
+      {content}
     </div>
   );
 }
@@ -1734,10 +1756,15 @@ function RadarSegmentFunnel({
   const visibleSegments = uniqueStrings(activeGroup?.segments || [])
     .filter((segment) => !normalizedQuery || segment.toLowerCase().includes(normalizedQuery));
   const canAddMore = selectedSegments.length < MAX_RADAR_SEGMENT_SELECTIONS;
+  const canSelectSegment = isCategory || canAddMore;
 
   function toggleSegment(segment: string) {
     const normalized = normalizeSegmentLabel(segment);
     if (!normalized) return;
+    if (isCategory) {
+      onChange(normalized);
+      return;
+    }
     const exists = selectedSegments.some((item) => item.toLowerCase() === normalized.toLowerCase());
     if (exists) {
       onChange(joinRadarSegments(selectedSegments.filter((item) => item.toLowerCase() !== normalized.toLowerCase())));
@@ -1786,7 +1813,7 @@ function RadarSegmentFunnel({
         {query.trim() ? (
           <button
             type="button"
-            disabled={disabled || !canAddMore}
+            disabled={disabled || !canSelectSegment}
             onClick={() => {
               toggleSegment(query);
               setQuery("");
@@ -1808,7 +1835,7 @@ function RadarSegmentFunnel({
               type="button"
               key={segment}
               data-active={active ? "true" : "false"}
-              disabled={disabled || (!active && !canAddMore)}
+              disabled={disabled || (!active && !canSelectSegment)}
               onClick={() => toggleSegment(segment)}
             >
               {segment}
@@ -1845,6 +1872,7 @@ function MobileSegmentSheet({
   const isCategory = isRadarCategoryValue(draftValue);
   const selectedSegments = splitRadarSegments(draftValue);
   const canAddMore = selectedSegments.length < MAX_RADAR_SEGMENT_SELECTIONS;
+  const canSelectSegment = isCategory || canAddMore;
   const normalizedQuery = normalizeLocationLookup(query);
   const searchableSegments = normalizedQuery
     ? uniqueStrings(groups.flatMap((group) => group.segments))
@@ -1867,6 +1895,11 @@ function MobileSegmentSheet({
   function toggleSegment(segment: string) {
     const normalized = normalizeSegmentLabel(segment);
     if (!normalized) return;
+    if (isCategory) {
+      setDraftValue(normalized);
+      setApplyError(null);
+      return;
+    }
     const exists = selectedSegments.some((item) => item.toLowerCase() === normalized.toLowerCase());
     if (exists) {
       setDraftValue(joinRadarSegments(selectedSegments.filter((item) => item.toLowerCase() !== normalized.toLowerCase())));
@@ -2031,7 +2064,7 @@ function MobileSegmentSheet({
                     type="button"
                     key={segment}
                     data-active={active ? "true" : "false"}
-                    disabled={!active && !canAddMore}
+                    disabled={!active && !canSelectSegment}
                     onClick={() => toggleSegment(segment)}
                   >
                     {segment}
@@ -2186,6 +2219,7 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
   const [mobileAutoImportPending, setMobileAutoImportPending] = useState(false);
   const [mobileSearchNoticeOpen, setMobileSearchNoticeOpen] = useState(false);
   const [mobileSearchNoticeDismissed, setMobileSearchNoticeDismissed] = useState(readMobileRadarSearchNoticeDismissed);
+  const [mobileQuotaPopupOpen, setMobileQuotaPopupOpen] = useState(false);
   const [mobilePicker, setMobilePicker] = useState<"state" | "city" | "segment" | null>(null);
   const [locating, setLocating] = useState(false);
   const [availableFilters, setAvailableFilters] = useState<RadarAvailableFilters>({
@@ -2216,9 +2250,10 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
   );
   const activeSellerUsers = useMemo(
     () =>
-      teamUsers.filter((user) =>
-        user.isActive !== false && String(user.role || "").toUpperCase() === "USER",
-      ),
+      teamUsers.filter((user) => {
+        const role = String(user.role || "").toUpperCase();
+        return user.isActive !== false && (role === "USER" || role === "ADMIN");
+      }),
     [teamUsers],
   );
   const selectedDistributionUsers = useMemo(
@@ -3962,6 +3997,7 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
               remaining={dailyRemaining}
               dailyLimit={dailyLimit || dailyRemaining || radarQuantityLimit}
               spendLimit={radarQuantityLimit}
+              onClick={() => setMobileQuotaPopupOpen((current) => !current)}
             />
             <div className={styles.mobileRadarHeroCopy}>
               <span>Radar Digital</span>
@@ -4047,13 +4083,6 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
               onChange={(radiusKm) => setFilters((current) => ({ ...current, radiusKm }))}
             />
 
-            <DailyQuotaSpeedometer
-              compact
-              remaining={dailyRemaining}
-              dailyLimit={dailyLimit || dailyRemaining || radarQuantityLimit}
-              spendLimit={radarQuantityLimit}
-            />
-
             <RadarQuantitySelector
               compact
               value={filters.quantity}
@@ -4128,6 +4157,33 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
               </button>
             </div>
           </form>
+
+          {mobileQuotaPopupOpen ? (
+            <div className={styles.mobilePickerPanel} role="presentation" onClick={() => setMobileQuotaPopupOpen(false)}>
+              <section
+                className={`${styles.mobilePickerSheet} ${styles.mobileQuotaSheet}`}
+                role="dialog"
+                aria-modal="true"
+                aria-label="Pesquisas disponíveis"
+                onClick={(event) => event.stopPropagation()}
+              >
+                <div className={styles.mobilePickerHeader}>
+                  <div>
+                    <strong>Pesquisas disponíveis</strong>
+                    <small>Limite diário do Radar</small>
+                  </div>
+                  <div className={styles.mobilePickerActions}>
+                    <button type="button" onClick={() => setMobileQuotaPopupOpen(false)}>Fechar</button>
+                  </div>
+                </div>
+                <div className={styles.mobileQuotaSummary}>
+                  <b>{dailyRemaining}</b>
+                  <span>disponíveis hoje</span>
+                  <small>{Math.max(0, (dailyLimit || dailyRemaining || radarQuantityLimit) - dailyRemaining)}/{dailyLimit || dailyRemaining || radarQuantityLimit} usados</small>
+                </div>
+              </section>
+            </div>
+          ) : null}
 
           {!radarFiltersLocked && mobilePicker === "state" ? (
             <MobileFilterSheet
@@ -4346,6 +4402,7 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
                 {activeSellerUsers.map((user) => {
                   const selected = distributionUserIds.includes(user.id);
                   const label = user.name || user.username || user.email || `Vendedor ${user.id}`;
+                  const roleLabel = String(user.role || "").toUpperCase() === "ADMIN" ? "Admin vendedor" : "Vendedor";
                   return (
                     <button
                       key={user.id}
@@ -4355,7 +4412,7 @@ export default function RadarDigitalClientPage({ mobileRoute = false }: { mobile
                       disabled={radarFiltersLocked}
                     >
                       <b>{label}</b>
-                      <span>{Number(user.commissionPercent || 0).toLocaleString("pt-BR", { maximumFractionDigits: 2 })}% comissão</span>
+                      <span>{roleLabel} · {Number(user.commissionPercent || 0).toLocaleString("pt-BR", { maximumFractionDigits: 2 })}% comissão</span>
                     </button>
                   );
                 })}

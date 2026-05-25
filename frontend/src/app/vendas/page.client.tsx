@@ -61,6 +61,7 @@ type LeadBlockKey = "today" | "overdue" | "scheduled" | "closed";
 type DateFilterKey = "overdue" | "today" | `scheduled:${string}`;
 type MobileAgendaTab = "overdue" | "today" | "upcoming";
 type MobileVendasSection = "today" | "cards" | "report" | "commission";
+type DesktopVendasTab = "clientes" | "comissao" | "atencao" | "esteira" | "vendedores";
 type WhatsappFilter = "all" | "with" | "without";
 type InboxFilter = "all" | "in" | "out";
 type MobileVisualChannelFilter = "whatsapp" | "instagram" | "email" | "site" | "phone" | "facebook";
@@ -2716,7 +2717,7 @@ function LeadCardView({
   return (
     <LiquidGlassCard
       as="article"
-      className={styles.leadCard}
+      className={`${styles.leadCard} hbx-card-enter`}
       accentTone={
         blockKey === "today"
           ? "success"
@@ -3491,6 +3492,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
   const [crmIntegrityLoading, setCrmIntegrityLoading] = useState(false);
   const [hbxClosingPipeline, setHbxClosingPipeline] = useState<HbxClosingPipelineResponse | null>(null);
   const [hbxClosingLoading, setHbxClosingLoading] = useState(false);
+  const [desktopVendasTab, setDesktopVendasTab] = useState<DesktopVendasTab>("clientes");
   const [masterNoticeAudience, setMasterNoticeAudience] = useState<MasterNoticeAudience>("seller");
   const [masterNotices, setMasterNotices] = useState<MasterNotice[]>([]);
   const [masterNoticeCanManage, setMasterNoticeCanManage] = useState(false);
@@ -3571,6 +3573,22 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
   );
   const commissionDueDays = normalizeCommissionDueBusinessDays(commissionSummary?.settings?.dueBusinessDays);
+  const desktopAdminMenusEnabled = Boolean(
+    sellerAudit?.canManage ||
+      commissionSummary?.canPayout ||
+      commissionSummary?.scope === "company" ||
+      crmIntegrity?.canManage ||
+      crmIntegrity?.scope === "company" ||
+      hbxClosingPipeline?.canManage ||
+      hbxClosingPipeline?.scope === "company" ||
+      masterNoticeCanManage,
+  );
+
+  useEffect(() => {
+    if (!desktopAdminMenusEnabled && desktopVendasTab !== "clientes") {
+      setDesktopVendasTab("clientes");
+    }
+  }, [desktopAdminMenusEnabled, desktopVendasTab]);
 
   useEffect(() => {
     if (mobileRoute) return;
@@ -3585,6 +3603,13 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
     const handleDesktopRadarPopup = () => setRadarPopupOpen(true);
     window.addEventListener("hbx:vendas-radar-popup", handleDesktopRadarPopup);
     return () => window.removeEventListener("hbx:vendas-radar-popup", handleDesktopRadarPopup);
+  }, [mobileRoute]);
+
+  useEffect(() => {
+    if (mobileRoute || typeof window === "undefined") return undefined;
+    const handleDesktopMasterNotices = () => setMasterNoticeCenterOpen(true);
+    window.addEventListener("hbx:vendas-master-notices", handleDesktopMasterNotices);
+    return () => window.removeEventListener("hbx:vendas-master-notices", handleDesktopMasterNotices);
   }, [mobileRoute]);
 
   useEffect(() => {
@@ -6159,14 +6184,12 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
         : !intelligenceVisible && intelligence.premiumTeaser
         ? { label: intelligence.premiumTeaser.label || "Disponível no HBX Lead", cta: intelligence.premiumTeaser.cta || "Ver card inteligente" }
         : null;
-      const draft = drafts[lead.id] || createDraft(lead);
-      const mobileSaleStatus = normalizeSaleStatus(draft.saleStatus || lead.saleStatus);
-      const mobileSalePlanKey = normalizeSalePlanKey(draft.salePlanKey || lead.salePlanKey);
-      const mobileSaleValue = parseCurrencyInput(draft.saleValue) || salePlanPrice(mobileSalePlanKey);
-      const mobileCommissionPercent = leadCommissionPercent(lead);
-      const mobileCommissionPreview = (mobileSaleValue * mobileCommissionPercent) / 100;
       const mobileLeadActionBar = (
-        <nav className={`${styles.mobileLeadDetailActionBar} hbx-mobile-action-bar`} aria-label="Ações do lead">
+        <nav
+          className={`${styles.mobileLeadDetailActionBar} hbx-mobile-action-bar`}
+          aria-label="Ações do lead"
+          data-has-sale="true"
+        >
           <a
             className="hbx-mobile-primary-button"
             href={whatsappHref || undefined}
@@ -6181,6 +6204,15 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
           >
             WhatsApp
           </a>
+          <button
+            type="button"
+            className="hbx-mobile-secondary-button"
+            data-tone="sale"
+            onClick={() => openAssistedSignup(lead)}
+            disabled={assistedSignupSaving || savingLeadId === lead.id}
+          >
+            Fechou Venda!
+          </button>
           <button
             type="button"
             className="hbx-mobile-secondary-button"
@@ -6222,20 +6254,10 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
               <section className={`${styles.mobileLeadHeroPremium} hbx-mobile-hero hbx-mobile-glass`}>
                 <span className={styles.mobileLeadHeroVisual} aria-hidden="true" />
                 <div className={styles.mobileLeadHeroIdentity}>
-                  <div className={styles.mobileLeadPlusAvatar} aria-hidden="true">
-                    <svg viewBox="0 0 24 24">
-                      <path d="M4 19h16" />
-                      <path d="M6 19V9h12v10" />
-                      <path d="M8 9V6h8v3" />
-                      <path d="M9 13h6" />
-                      <path d="M9 16h6" />
-                    </svg>
-                  </div>
                   <div>
                     <strong>{lead.name || "Lead sem nome"}</strong>
                     <span>{lead.segment || "Segmento não informado"}</span>
                     <em>{detailPlace}</em>
-                    <MobileEnrichmentCrown lead={lead} board={board} />
                   </div>
                 </div>
                 <button
@@ -6438,88 +6460,6 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
                 </a>
               </section>
 
-              <section className={`${styles.mobileLeadClosingCard} hbx-mobile-card`} data-status={mobileSaleStatus}>
-                <header>
-                  <div>
-                    <span>Fechamento HBX</span>
-                    <strong>{saleStatusLabel(mobileSaleStatus)}</strong>
-                  </div>
-                  <b>{formatCurrency(mobileCommissionPreview)}</b>
-                </header>
-                <div className={styles.mobileLeadClosingFields}>
-                  <label>
-                    <span>Plano</span>
-                    <select
-                      value={mobileSalePlanKey}
-                      onChange={(event) => {
-                        const salePlanKey = normalizeSalePlanKey(event.target.value);
-                        setLeadDraft(lead.id, {
-                          salePlanKey,
-                          saleValue: salePlanAmountInput(salePlanKey),
-                        });
-                      }}
-                    >
-                      {SALE_PLAN_OPTIONS.map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label>
-                    <span>Valor</span>
-                    <input
-                      inputMode="decimal"
-                      value={draft.saleValue || salePlanAmountInput(mobileSalePlanKey)}
-                      onChange={(event) => setLeadDraft(lead.id, { saleValue: event.target.value })}
-                    />
-                  </label>
-                </div>
-                <div className={styles.mobileLeadClosingMeta}>
-                  <span>{salePlanLabel(mobileSalePlanKey)}</span>
-                  <span>{mobileCommissionPercent > 0 ? `${formatPercent(mobileCommissionPercent)} do vendedor` : "Comissão não definida"}</span>
-                  <span>D+{commissionDueDays} úteis após trial/pagamento</span>
-                </div>
-                <div className={styles.mobileLeadClosingActions}>
-                  {SALE_CLOSING_ACTIONS.map((action) => (
-                    <button
-                      type="button"
-                      key={action.value}
-                      data-tone={action.tone}
-                      data-active={mobileSaleStatus === action.value ? "true" : "false"}
-                      onClick={() => void saveLeadSaleStatus(lead, action.value)}
-                      disabled={savingLeadId === lead.id}
-                    >
-                      {action.label}
-                    </button>
-                  ))}
-                </div>
-                <button
-                  type="button"
-                  className={styles.mobileLeadHandoffButton}
-                  onClick={() => void createHbxSalesHandoff(lead)}
-                  disabled={handoffLeadId === lead.id || savingLeadId === lead.id}
-                >
-                  {handoffLeadId === lead.id ? "Gerando link" : "Copiar link de cadastro"}
-                </button>
-                <button
-                  type="button"
-                  className={styles.mobileLeadAssistedSignupButton}
-                  onClick={() => openAssistedSignup(lead)}
-                  disabled={assistedSignupSaving}
-                >
-                  {assistedSignupSaving && assistedSignupLead?.id === lead.id ? "Cadastrando" : "Cadastrar pelo cliente"}
-                </button>
-                <button
-                  type="button"
-                  className={`${styles.mobileLeadSaveClosingButton} hbx-mobile-primary-button`}
-                  onClick={() => void saveLead(lead.id, undefined, "Fechamento atualizado.")}
-                  disabled={savingLeadId === lead.id}
-                >
-                  {savingLeadId === lead.id ? "Salvando" : "Salvar fechamento"}
-                </button>
-              </section>
-
               <section className={`${styles.mobileLeadReadyMessage} hbx-mobile-card`}>
                 <h3>
                   <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -6696,8 +6636,8 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
             >
               <SalesMotionBackground />
               <HeroPremiumCrown active={mobileHeroPremiumActive} />
+              {renderMasterNoticeBell()}
               <span className={styles.mobileVendasHeroCopy}>
-                <small>HBX</small>
                 <strong>Vendas</strong>
                 <em>{salesHeaderSubtitle}</em>
               </span>
@@ -8297,97 +8237,8 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
       );
     }
 
-    const bulkActionDisabled =
-      bulkDeleting || (!bulkSelectAllAccount && selectedBulkLeadIds.size === 0);
-    const bulkSelectionLabel = bulkSelectAllAccount
-      ? "Todos os cards da conta"
-      : `${selectedBulkLeadIds.size} selecionado(s)`;
-
     return (
       <section className={styles.boardShell}>
-        <div className={styles.cardsHeader}>
-          <div>
-            <span className={styles.panelEyebrow}>Clientes</span>
-            <h2 className={styles.boardTitle}>{selectedFilter.title}</h2>
-            <p className={styles.boardSubtitle}>
-              Acompanhe quem você já chamou e quem precisa de retorno.
-            </p>
-          </div>
-          <div className={styles.toolbar}>
-            <button
-              type="button"
-              className={`${styles.secondaryAction} ${styles.toolbarHighlight}`}
-              onClick={() => setComposerOpen(true)}
-            >
-              Criar novo Lead
-            </button>
-            <button
-              type="button"
-              className={`${styles.secondaryAction} ${styles.toolbarHighlight}`}
-              data-active={bulkSelectionMode ? "true" : "false"}
-              onClick={toggleBulkSelectionMode}
-            >
-              {bulkSelectionMode ? "Cancelar seleção" : "Selecionar"}
-            </button>
-            {bulkSelectionMode ? (
-              <>
-                <button
-                  type="button"
-                  className={`${styles.secondaryAction} ${styles.toolbarHighlight}`}
-                  data-active={bulkSelectAllAccount ? "true" : "false"}
-                  onClick={toggleBulkSelectAll}
-                >
-                  {bulkSelectAllAccount ? "Limpar todos" : "Selecionar todos"}
-                </button>
-                <button
-                  type="button"
-                  className={`${styles.secondaryAction} ${styles.bulkDeleteButton}`}
-                  onClick={() => void deleteSelectedLeadsBulk()}
-                  disabled={bulkActionDisabled}
-                  title="Remove os cards do Vendas sem apagar a base do Radar Digital"
-                >
-                  {bulkDeleting
-                    ? "Excluindo..."
-                    : `Excluir em massa (${bulkSelectionLabel})`}
-                </button>
-              </>
-            ) : null}
-            <button
-              type="button"
-              className={`${styles.secondaryAction} ${styles.toolbarHighlight} ${styles.whatsappFilterButton}`}
-              data-active={whatsappFilter !== "all" ? "true" : "false"}
-              onClick={() =>
-                setWhatsappFilter((current) => nextWhatsappFilter(current))
-              }
-              aria-pressed={whatsappFilter !== "all"}
-              title="Alternar filtro com WhatsApp / sem WhatsApp"
-            >
-              {WHATSAPP_FILTER_LABELS[whatsappFilter]}
-            </button>
-            <button
-              type="button"
-              className={`${styles.secondaryAction} ${styles.toolbarHighlight} ${styles.inboxFilterButton}`}
-              data-active={inboxFilter !== "all" ? "true" : "false"}
-              onClick={() =>
-                setInboxFilter((current) => nextInboxFilter(current))
-              }
-              aria-pressed={inboxFilter !== "all"}
-              title="Alternar filtro de presença no Inbox"
-            >
-              {INBOX_FILTER_LABELS[inboxFilter]}
-            </button>
-            <button
-              type="button"
-              className={styles.secondaryAction}
-              onClick={() => setShowClosed((current) => !current)}
-            >
-              {showClosed
-                ? "Ocultar arquivo"
-                : `Arquivo (${closedLeads.length})`}
-            </button>
-          </div>
-        </div>
-
         {filteredLeads.length ? (
           <div className={styles.cardsGrid}>
             {filteredLeads.map((lead) =>
@@ -8444,6 +8295,52 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
   const activeDragDateItem = activeDragDateKey
     ? dateFilters.find((f) => f.key === activeDragDateKey)
     : null;
+  const desktopActiveClientCount = Math.max(
+    0,
+    (board?.summary.overdue || 0) + (board?.summary.today || 0) + (board?.summary.scheduled || 0),
+  );
+  const desktopAttentionCount =
+    (crmIntegrity?.checks || []).filter((check) => ["warning", "danger"].includes(String(check.status || ""))).length ||
+    Number(crmIntegrity?.totals?.missingPayoutLinks || 0) ||
+    Number(crmIntegrity?.totals?.staleAssignedCards || 0);
+  const desktopSellerExceptionCount =
+    Number(sellerAudit?.operation?.summary?.exceptions || sellerAudit?.totals?.exceptions || 0);
+  const desktopTabs: Array<{ key: DesktopVendasTab; label: string; badge?: string | number; admin?: boolean }> = [
+    { key: "clientes", label: "Clientes", badge: desktopActiveClientCount },
+    ...(desktopAdminMenusEnabled
+      ? [
+          {
+            key: "comissao" as const,
+            label: "Minha comissão",
+            badge: formatCurrency(commissionSummary?.totals?.duePayableAmount || 0),
+            admin: true,
+          },
+          {
+            key: "atencao" as const,
+            label: "Atenção",
+            badge: desktopAttentionCount,
+            admin: true,
+          },
+          {
+            key: "esteira" as const,
+            label: "Esteira HBX",
+            badge: hbxClosingPipeline?.totals?.total || 0,
+            admin: true,
+          },
+          {
+            key: "vendedores" as const,
+            label: "Vendedores",
+            badge: desktopSellerExceptionCount,
+            admin: true,
+          },
+        ]
+      : []),
+  ];
+  const desktopActiveTabIndex = Math.max(0, desktopTabs.findIndex((tab) => tab.key === desktopVendasTab));
+  const desktopTabsStyle = {
+    ["--desktop-tab-count" as string]: desktopTabs.length,
+    ["--desktop-tab-index" as string]: desktopActiveTabIndex,
+  } satisfies CSSProperties;
 
   const vendasDragTopbarLockStyle = `
 html[data-vendas-dragging-card="true"] {
@@ -8666,7 +8563,29 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
     );
   }
 
-  function renderMasterNoticeCenter() {
+  function renderMasterNoticeBell() {
+    return (
+      <button
+        type="button"
+        className={`${styles.masterNoticeBell} hbx-live-pulse`}
+        data-unread={pendingMasterNoticeCount > 0 ? "true" : "false"}
+        onClick={() => setMasterNoticeCenterOpen(true)}
+        aria-label={`Abrir avisos Master. ${pendingMasterNoticeCount} aviso(s) pendente(s).`}
+        title="Avisos Master"
+      >
+        <span className={styles.masterNoticeBellIcon} aria-hidden="true">
+          <svg viewBox="0 0 24 24" focusable="false">
+            <path d="M10.27 21a2 2 0 0 0 3.46 0" />
+            <path d="M3.26 15.33A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.67C19.41 13.96 18 12.5 18 8A6 6 0 0 0 6 8c0 4.5-1.41 5.96-2.74 7.33Z" />
+          </svg>
+        </span>
+        <span className={styles.masterNoticeBellText}>Avisos</span>
+        {pendingMasterNoticeCount > 0 ? <b>{pendingMasterNoticeCount}</b> : null}
+      </button>
+    );
+  }
+
+  function renderMasterNoticeCenter(includeBell = true) {
     const canUseDocument = typeof document !== "undefined";
     const audienceLabel = masterNoticeAudience === "customer" ? "Clientes" : "Vendedores";
     const activeForcedNotice =
@@ -8677,11 +8596,11 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
     const panel = masterNoticeCenterOpen && canUseDocument
       ? createPortal(
           <div
-            className={styles.masterNoticeBackdrop}
+            className={`${styles.masterNoticeBackdrop} hbx-stage-fade-mask`}
             onClick={() => setMasterNoticeCenterOpen(false)}
           >
             <section
-              className={styles.masterNoticePanel}
+              className={`${styles.masterNoticePanel} hbx-qr-card-pop`}
               role="dialog"
               aria-modal="true"
               aria-labelledby="master-notice-title"
@@ -8844,9 +8763,9 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
 
     const forced = activeForcedNotice && canUseDocument
       ? createPortal(
-          <div className={styles.masterNoticeForcedBackdrop}>
+          <div className={`${styles.masterNoticeForcedBackdrop} hbx-stage-fade-mask`}>
             <section
-              className={styles.masterNoticeForcedCard}
+              className={`${styles.masterNoticeForcedCard} hbx-qr-card-pop`}
               data-tone={activeForcedNotice.tone || "info"}
               role="alertdialog"
               aria-modal="true"
@@ -8872,23 +8791,7 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
 
     return (
       <>
-        <button
-          type="button"
-          className={styles.masterNoticeBell}
-          data-unread={pendingMasterNoticeCount > 0 ? "true" : "false"}
-          onClick={() => setMasterNoticeCenterOpen(true)}
-          aria-label={`Abrir avisos Master. ${pendingMasterNoticeCount} aviso(s) pendente(s).`}
-          title="Avisos Master"
-        >
-          <span className={styles.masterNoticeBellIcon} aria-hidden="true">
-            <svg viewBox="0 0 24 24" focusable="false">
-              <path d="M12 4.2c-2.9 0-5 2.2-5 5.4v3.2c0 .9-.4 1.8-1.1 2.4l-.7.6h13.6l-.7-.6c-.7-.6-1.1-1.5-1.1-2.4V9.6c0-3.2-2.1-5.4-5-5.4Z" />
-              <path d="M9.5 18.1c.5 1 1.3 1.6 2.5 1.6s2-.6 2.5-1.6" />
-            </svg>
-          </span>
-          <span className={styles.masterNoticeBellText}>Avisos</span>
-          {pendingMasterNoticeCount > 0 ? <b>{pendingMasterNoticeCount}</b> : null}
-        </button>
+        {includeBell ? renderMasterNoticeBell() : null}
         {panel}
         {forced}
       </>
@@ -8915,12 +8818,8 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
       <section className={panelClass} aria-label="Esteira de fechamento HBX">
         <div className={styles.hbxPipelineHeader}>
           <div>
-            <span>Fase 7</span>
+            <span>Esteira</span>
             <strong>Esteira HBX</strong>
-            <p>
-              {hbxClosingPipeline?.policy?.description ||
-                "Card chamado, cadastro rastreado, e-mail comprovado, trial/pagamento e comissão."}
-            </p>
           </div>
           <button type="button" onClick={() => void loadHbxClosingPipeline()} disabled={hbxClosingLoading}>
             {hbxClosingLoading ? "Atualizando" : "Atualizar"}
@@ -8974,11 +8873,7 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
 
         <div className={styles.hbxPipelinePolicy}>
           <strong>{hbxClosingPipeline?.policy?.title || "Ciclo fechado"}</strong>
-          <span>
-            {hbxClosingPipeline?.scope === "company"
-              ? "Master/Admin vê a operação completa da equipe."
-              : "Vendedor vê os próprios cards e clientes vinculados à comissão."}
-          </span>
+          <span>{hbxClosingPipeline?.scope === "company" ? "Equipe completa" : "Meus cards"}</span>
         </div>
       </section>
     );
@@ -8997,9 +8892,8 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
       <section className={panelClass} aria-label="Auditoria de integridade do CRM">
         <div className={styles.crmIntegrityHeader}>
           <div>
-            <span>Fase 12</span>
-            <strong>{crmIntegrity?.statusLabel || "Checando operação"}</strong>
-            <p>Radar, Vendas, vendedores, distribuição e comissão no mesmo diagnóstico.</p>
+            <span>Admin</span>
+            <strong>Atenção</strong>
           </div>
           <button type="button" onClick={() => void loadCrmIntegrity()} disabled={crmIntegrityLoading}>
             {crmIntegrityLoading ? "..." : "Atualizar"}
@@ -9052,10 +8946,7 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
     const exceptionRows = (sellerAudit?.rows || []).filter((row) =>
       ["acompanhar", "revisar_territorio", "limite_atingido", "sem_regra", "pausado_manual"].includes(String(row.operation?.action || "")),
     ).slice(0, mode === "mobile" ? 3 : 6);
-    const title = sellerAudit?.canManage ? "Operação dos vendedores" : "Meu dia comercial";
-    const subtitle = sellerAudit?.canManage
-      ? "Painel diário de exceções, sem bloqueio automático."
-      : "Seu resumo de cards, contatos e retornos.";
+    const title = sellerAudit?.canManage ? "Vendedores" : "Meu dia";
     const panelClass =
       mode === "mobile"
         ? `${styles.sellerAuditPanel} ${styles.sellerAuditPanelMobile} hbx-mobile-card`
@@ -9065,9 +8956,8 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
       <section className={panelClass} aria-label={title}>
         <div className={styles.sellerAuditHeader}>
           <div>
-            <span>Fase 5</span>
+            <span>Operação</span>
             <strong>{title}</strong>
-            <p>{subtitle}</p>
           </div>
           <div className={styles.sellerAuditActions}>
             <select
@@ -9104,11 +8994,11 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
           <div className={styles.sellerAuditWarHeader}>
             <div>
               <span>Hoje</span>
-              <strong>{operation?.ruleActive ? "Distribuição em operação" : "Distribuição sem regra ativa"}</strong>
+              <strong>{operation?.ruleActive ? "Distribuição ativa" : "Distribuição manual"}</strong>
               <p>
                 {operation?.ruleCity
                   ? `${operation?.ruleCity}/${operation?.ruleState || ""} · ${operation?.ruleSegment || "segmento aberto"}`
-                  : "Sem cidade ativa para distribuição automática."}
+                  : "Sem regra automática."}
               </p>
             </div>
             <div className={styles.sellerAuditWarLimit}>
@@ -9265,10 +9155,7 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
 
         <div className={styles.sellerAuditPolicy}>
           <strong>{sellerAudit?.auditPolicy?.title || "Auditoria operacional transparente"}</strong>
-          <span>
-            {sellerAudit?.auditPolicy?.description ||
-              "Mede ações comerciais dentro do HBX e não aplica punição automática."}
-          </span>
+          <span>Sem punição automática.</span>
         </div>
       </section>
     );
@@ -9547,6 +9434,15 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
 
   function renderAssistedSignupPortal() {
     if (!assistedSignupLead) return null;
+    const currentLead = leadById.get(assistedSignupLead.id)?.lead || assistedSignupLead;
+    const currentDraft = drafts[currentLead.id] || createDraft(currentLead);
+    const mobileSaleStatus = normalizeSaleStatus(currentDraft.saleStatus || currentLead.saleStatus);
+    const mobileSalePlanKey = normalizeSalePlanKey(assistedSignupDraft.salePlanKey || currentDraft.salePlanKey || currentLead.salePlanKey);
+    const saleValueInput = currentDraft.saleValue || salePlanAmountInput(mobileSalePlanKey);
+    const mobileSaleValue = parseCurrencyInput(saleValueInput) || salePlanPrice(mobileSalePlanKey);
+    const mobileCommissionPercent = leadCommissionPercent(currentLead);
+    const mobileCommissionPreview = (mobileSaleValue * mobileCommissionPercent) / 100;
+    const isSavingClosing = savingLeadId === currentLead.id;
     const confirmationUrl =
       assistedSignupResult?.delivery?.confirmUrl ||
       assistedSignupResult?.delivery?.previewUrl ||
@@ -9557,7 +9453,7 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
         onClick={closeAssistedSignup}
       >
         <div
-          className={`${styles.systemPopupFrame} ${styles.mobileComposerSheet}`}
+          className={`${styles.systemPopupFrame} ${styles.mobileComposerSheet} ${styles.assistedSignupPopup}`}
           onClick={(event) => event.stopPropagation()}
           role="dialog"
           aria-modal="true"
@@ -9565,11 +9461,9 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
         >
           <div className={styles.systemPopupChrome}>
             <div>
-              <p className={styles.systemPopupEyebrow}>Fechamento HBX</p>
-              <strong id="assisted-signup-title">Cadastro assistido</strong>
+              <strong id="assisted-signup-title">Cadastro de cliente</strong>
             </div>
             <div className={styles.systemPopupActions}>
-              <span className={styles.metaBadge}>E-mail obrigatório</span>
               <button
                 type="button"
                 className={`btn btn-secondary btn-sm ${styles.mobileComposerClose}`}
@@ -9586,6 +9480,37 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
           </div>
           <div className={`${styles.systemPopupBody} ${styles.mobileComposerBody}`}>
             <form className={styles.composerForm} onSubmit={submitAssistedSignup}>
+              <section className={styles.assistedSignupClosingBlock} aria-label="Fechamento da venda">
+                <div className={styles.assistedSignupClosingSummary}>
+                  <span>
+                    <small>Status</small>
+                    <strong>{saleStatusLabel(mobileSaleStatus)}</strong>
+                  </span>
+                  <span>
+                    <small>Comissão</small>
+                    <strong>{formatCurrency(mobileCommissionPreview)}</strong>
+                  </span>
+                </div>
+                <div className={styles.assistedSignupClosingActions}>
+                  {SALE_CLOSING_ACTIONS.map((action) => (
+                    <button
+                      type="button"
+                      key={action.value}
+                      data-tone={action.tone}
+                      data-active={mobileSaleStatus === action.value ? "true" : "false"}
+                      onClick={() => void saveLeadSaleStatus(currentLead, action.value)}
+                      disabled={isSavingClosing}
+                    >
+                      {action.label}
+                    </button>
+                  ))}
+                </div>
+                <div className={styles.assistedSignupClosingMeta}>
+                  <span>{salePlanLabel(mobileSalePlanKey)}</span>
+                  <span>{mobileCommissionPercent > 0 ? `${formatPercent(mobileCommissionPercent)} do vendedor` : "Comissão não definida"}</span>
+                  <span>D+{commissionDueDays} úteis</span>
+                </div>
+              </section>
               <label className={styles.field}>
                 <span className={styles.fieldLabel}>Empresa/cliente</span>
                 <input
@@ -9637,12 +9562,17 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
                 <select
                   className={styles.fieldInput}
                   value={normalizeSalePlanKey(assistedSignupDraft.salePlanKey)}
-                  onChange={(event) =>
+                  onChange={(event) => {
+                    const salePlanKey = normalizeSalePlanKey(event.target.value);
                     setAssistedSignupDraft((draft) => ({
                       ...draft,
-                      salePlanKey: normalizeSalePlanKey(event.target.value),
-                    }))
-                  }
+                      salePlanKey,
+                    }));
+                    setLeadDraft(currentLead.id, {
+                      salePlanKey,
+                      saleValue: salePlanAmountInput(salePlanKey),
+                    });
+                  }}
                 >
                   {SALE_PLAN_OPTIONS.map((option) => (
                     <option key={option.value} value={option.value}>
@@ -9650,6 +9580,15 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
                     </option>
                   ))}
                 </select>
+              </label>
+              <label className={styles.field}>
+                <span className={styles.fieldLabel}>Valor do plano</span>
+                <input
+                  className={styles.fieldInput}
+                  inputMode="decimal"
+                  value={saleValueInput}
+                  onChange={(event) => setLeadDraft(currentLead.id, { saleValue: event.target.value })}
+                />
               </label>
               <label className={styles.field}>
                 <span className={styles.fieldLabel}>Senha temporária</span>
@@ -9670,6 +9609,23 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
 
               {assistedSignupResult ? (
                 <div className={styles.assistedSignupResult}>
+                  <div className={styles.assistedSignupCongratsVisual} aria-hidden="true">
+                    <svg viewBox="0 0 160 104" focusable="false">
+                      <path d="M32 80h96" />
+                      <path d="M51 78c0-22 12-38 29-38s29 16 29 38" />
+                      <path d="M61 42 80 18l19 24" />
+                      <path d="M69 62h22" />
+                      <path d="M42 34 29 22" />
+                      <path d="M118 34l13-12" />
+                      <path d="M36 55 18 52" />
+                      <path d="m124 55 18-3" />
+                      <circle cx="36" cy="20" r="3" />
+                      <circle cx="124" cy="20" r="3" />
+                      <circle cx="23" cy="70" r="2.5" />
+                      <circle cx="137" cy="70" r="2.5" />
+                    </svg>
+                    <span>Parabéns!</span>
+                  </div>
                   <strong>{assistedSignupResult.message || "Cadastro assistido criado."}</strong>
                   <span>{assistedSignupResult.email || assistedSignupDraft.email}</span>
                   {assistedSignupResult.generatedPassword ? (
@@ -9720,7 +9676,7 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
         {renderMobileVendas()}
         {renderAssistedSignupPortal()}
         {renderCommissionReceiptPortal()}
-        {renderMasterNoticeCenter()}
+        {renderMasterNoticeCenter(false)}
       </DashboardScaffold>
     );
   }
@@ -9739,129 +9695,206 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
         <div className={styles.premiumBackdrop}>
           <div className={styles.premiumBg} />
           <div className={styles.page}>
-            <section className={styles.filterRail}>
-              <div className={styles.filterRailHeader}>
-                <div>
-                  <span className={styles.panelEyebrow}>Filtro por datas</span>
-                  <strong>Agenda comercial</strong>
-                </div>
-                <div className={styles.filterRailActions}>
-                  <Link
-                    href="/atendimento?atendimentoQueue=scheduled&atendimentoSection=agenda&agendaStudio=1&agendaMode=sales&returnTo=%2Fvendas"
-                    prefetch={false}
-                    className={styles.secondaryAction}
-                  >
-                    Agenda Vendas
-                  </Link>
-                </div>
-              </div>
-              <div className={styles.filterRailCarousel}>
-                <button
-                  type="button"
-                  className={styles.dateRailScrollButton}
-                  data-side="left"
-                  onClick={() => scrollDateRail(-1)}
-                  aria-label="Rolar datas para esquerda"
-                >
-                  <span aria-hidden="true">‹</span>
-                </button>
-                <div
-                  className={styles.filterRailScroller}
-                  ref={filterScrollerRef}
-                >
-                  {dateFilters.map((item) => (
-                    <DateDropSlot
-                      key={item.key}
-                      item={item}
-                      active={selectedDateKey === item.key}
-                      pulse={pulseDateKey === item.key}
-                      dragging={Boolean(activeDragLeadId || activeDragDateKey)}
-                      ignoreClick={() =>
-                        performance.now() - lastDragEndedAtRef.current < 70
-                      }
-                      onDateShortcut={() => void handleActiveDateShortcut()}
-                      onSelect={() => setSelectedDateKey(item.key)}
-                      register={(node) => registerDateFilterRef(item.key, node)}
-                    />
-                  ))}
-
-                  {/* +Agenda button: rendered after all date cards so it is always last */}
-                  <button
-                    type="button"
-                    className={`${styles.dateFilterCard} ${styles.addAgendaButton}`}
-                    aria-label="+Agenda"
-                    title="+Agenda"
-                    onClick={() => {
-                      /* graphical placeholder - no action */
-                    }}
-                  >
-                    <span className={styles.dateFilterDay} />
-                    <strong>+</strong>
-                    <span />
-                    <b />
-                    <span className={styles.receiveHint} />
-                  </button>
-                </div>
-                <button
-                  type="button"
-                  className={styles.dateRailScrollButton}
-                  data-side="right"
-                  onClick={() => scrollDateRail(1)}
-                  aria-label="Rolar datas para direita"
-                >
-                  <span aria-hidden="true">›</span>
-                </button>
-              </div>
-            </section>
-
-            {renderDesktopCommissionPanel()}
-            {renderCrmIntegrityPanel("desktop")}
-            {renderHbxClosingPipelinePanel("desktop")}
-            {renderSellerAuditPanel("desktop")}
-
-            {loading ? (
-              <section className={styles.loadingCard}>
-                <div className={styles.skeletonBoard} />
-              </section>
-            ) : (
-              <div className={styles.stageGrid}>
-                <div className={styles.stageMain}>{renderPipelineBoard()}</div>
-                <div className={styles.stageAside}>{renderDetailPanel()}</div>
-              </div>
-            )}
-
-            {showClosed ? (
-              <section
-                ref={archiveRef}
-                tabIndex={-1}
-                className={styles.archiveSection}
-                aria-labelledby="archive-heading"
+            <div className={styles.desktopVendasTabRow}>
+              <nav
+                className={`${styles.desktopVendasTabs} hbx-tab-glide`}
+                style={desktopTabsStyle}
+                aria-label="Guias de Vendas"
               >
-                <div className={styles.sectionTopline}>
-                  <div id="archive-heading">
-                    <span className={styles.panelEyebrow}>Arquivo</span>
-                    <strong>Encerrados</strong>
-                  </div>
+                {desktopTabs.map((tab) => (
                   <button
+                    key={tab.key}
                     type="button"
-                    className={styles.secondaryAction}
-                    onClick={() => setShowClosed(false)}
+                    data-active={desktopVendasTab === tab.key ? "true" : "false"}
+                    data-admin={tab.admin ? "true" : "false"}
+                    onClick={() => setDesktopVendasTab(tab.key)}
                   >
-                    Ocultar arquivo
+                    <span>{tab.label}</span>
+                    {tab.badge !== undefined && tab.badge !== null ? <b>{tab.badge}</b> : null}
                   </button>
-                </div>
-                {closedLeads.length ? (
-                  <div className={styles.cardsGrid}>
-                    {closedLeads.map((lead) => renderLeadCard(lead, "closed"))}
+                ))}
+              </nav>
+              <Link
+                href="/atendimento?atendimentoQueue=scheduled&atendimentoSection=agenda&agendaStudio=1&agendaMode=sales&returnTo=%2Fvendas"
+                prefetch={false}
+                className={`${styles.secondaryAction} ${styles.desktopAgendaAction}`}
+              >
+                Agenda Vendas
+              </Link>
+            </div>
+
+            <div key={desktopVendasTab} className="hbx-page-mobile-enter">
+              {desktopVendasTab === "clientes" ? (
+                <>
+                <section className={styles.filterRail}>
+                  <div className={styles.filterRailCarousel}>
+                    <button
+                      type="button"
+                      className={styles.dateRailScrollButton}
+                      data-side="left"
+                      onClick={() => scrollDateRail(-1)}
+                      aria-label="Rolar datas para esquerda"
+                    >
+                      <span aria-hidden="true">‹</span>
+                    </button>
+                    <div
+                      className={styles.filterRailScroller}
+                      ref={filterScrollerRef}
+                    >
+                      {dateFilters.map((item) => (
+                        <DateDropSlot
+                          key={item.key}
+                          item={item}
+                          active={selectedDateKey === item.key}
+                          pulse={pulseDateKey === item.key}
+                          dragging={Boolean(activeDragLeadId || activeDragDateKey)}
+                          ignoreClick={() =>
+                            performance.now() - lastDragEndedAtRef.current < 70
+                          }
+                          onDateShortcut={() => void handleActiveDateShortcut()}
+                          onSelect={() => setSelectedDateKey(item.key)}
+                          register={(node) => registerDateFilterRef(item.key, node)}
+                        />
+                      ))}
+
+                      <button
+                        type="button"
+                        className={`${styles.dateFilterCard} ${styles.addAgendaButton}`}
+                        aria-label="+Agenda"
+                        title="+Agenda"
+                        onClick={() => {
+                          /* graphical placeholder - no action */
+                        }}
+                      >
+                        <span className={styles.dateFilterDay} />
+                        <strong>+</strong>
+                        <span />
+                        <b />
+                        <span className={styles.receiveHint} />
+                      </button>
+                    </div>
+                    <button
+                      type="button"
+                      className={styles.dateRailScrollButton}
+                      data-side="right"
+                      onClick={() => scrollDateRail(1)}
+                      aria-label="Rolar datas para direita"
+                    >
+                      <span aria-hidden="true">›</span>
+                    </button>
                   </div>
+                </section>
+
+                {loading ? (
+                  <section className={styles.loadingCard}>
+                    <div className={styles.skeletonBoard} />
+                  </section>
                 ) : (
-                  <div className={styles.emptyPanel}>
-                    <strong>Nenhum encerrado ainda</strong>
-                    <p>Os cards arquivados aparecem aqui.</p>
+                  <div className={styles.stageGrid}>
+                    <aside className={styles.stageSideGuide} aria-label="Ações de Vendas">
+                      <button
+                        type="button"
+                        className={`${styles.secondaryAction} ${styles.toolbarHighlight}`}
+                        onClick={() => setComposerOpen(true)}
+                      >
+                        Criar novo Lead
+                      </button>
+                      <button
+                        type="button"
+                        className={`${styles.secondaryAction} ${styles.toolbarHighlight}`}
+                        data-active={bulkSelectionMode ? "true" : "false"}
+                        onClick={toggleBulkSelectionMode}
+                      >
+                        {bulkSelectionMode ? "Cancelar seleção" : "Selecionar"}
+                      </button>
+                      {bulkSelectionMode ? (
+                        <button
+                          type="button"
+                          className={`${styles.secondaryAction} ${styles.toolbarHighlight}`}
+                          data-active={bulkSelectAllAccount ? "true" : "false"}
+                          onClick={toggleBulkSelectAll}
+                        >
+                          {bulkSelectAllAccount ? "Limpar todos" : "Selecionar todos"}
+                        </button>
+                      ) : null}
+                      <button
+                        type="button"
+                        className={`${styles.secondaryAction} ${styles.toolbarHighlight} ${styles.whatsappFilterButton}`}
+                        data-active={whatsappFilter !== "all" ? "true" : "false"}
+                        onClick={() =>
+                          setWhatsappFilter((current) => nextWhatsappFilter(current))
+                        }
+                        aria-pressed={whatsappFilter !== "all"}
+                        title="Alternar filtro com WhatsApp / sem WhatsApp"
+                      >
+                        {WHATSAPP_FILTER_LABELS[whatsappFilter]}
+                      </button>
+                      <button
+                        type="button"
+                        className={`${styles.secondaryAction} ${styles.toolbarHighlight} ${styles.inboxFilterButton}`}
+                        data-active={inboxFilter !== "all" ? "true" : "false"}
+                        onClick={() =>
+                          setInboxFilter((current) => nextInboxFilter(current))
+                        }
+                        aria-pressed={inboxFilter !== "all"}
+                        title="Alternar filtro de presença no Inbox"
+                      >
+                        {INBOX_FILTER_LABELS[inboxFilter]}
+                      </button>
+                      <button
+                        type="button"
+                        className={styles.secondaryAction}
+                        data-active={showClosed ? "true" : "false"}
+                        onClick={() => setShowClosed((current) => !current)}
+                      >
+                        {showClosed ? "Ocultar arquivo" : `Arquivo (${closedLeads.length})`}
+                      </button>
+                    </aside>
+                    <div className={styles.stageMain}>{renderPipelineBoard()}</div>
+                    <div className={styles.stageAside}>{renderDetailPanel()}</div>
                   </div>
                 )}
-              </section>
-            ) : null}
+
+                {showClosed ? (
+                  <section
+                    ref={archiveRef}
+                    tabIndex={-1}
+                    className={styles.archiveSection}
+                    aria-labelledby="archive-heading"
+                  >
+                    <div className={styles.sectionTopline}>
+                      <div id="archive-heading">
+                        <span className={styles.panelEyebrow}>Arquivo</span>
+                        <strong>Encerrados</strong>
+                      </div>
+                      <button
+                        type="button"
+                        className={styles.secondaryAction}
+                        onClick={() => setShowClosed(false)}
+                      >
+                        Ocultar arquivo
+                      </button>
+                    </div>
+                    {closedLeads.length ? (
+                      <div className={styles.cardsGrid}>
+                        {closedLeads.map((lead) => renderLeadCard(lead, "closed"))}
+                      </div>
+                    ) : (
+                      <div className={styles.emptyPanel}>
+                        <strong>Nenhum encerrado ainda</strong>
+                        <p>Os cards arquivados aparecem aqui.</p>
+                      </div>
+                    )}
+                  </section>
+                ) : null}
+                </>
+              ) : null}
+
+              {desktopAdminMenusEnabled && desktopVendasTab === "comissao" ? renderDesktopCommissionPanel() : null}
+              {desktopAdminMenusEnabled && desktopVendasTab === "atencao" ? renderCrmIntegrityPanel("desktop") : null}
+              {desktopAdminMenusEnabled && desktopVendasTab === "esteira" ? renderHbxClosingPipelinePanel("desktop") : null}
+              {desktopAdminMenusEnabled && desktopVendasTab === "vendedores" ? renderSellerAuditPanel("desktop") : null}
+            </div>
           </div>
         </div>
 
@@ -10321,7 +10354,7 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
           </div>
         </div>
       ) : null}
-      {renderMasterNoticeCenter()}
+      {renderMasterNoticeCenter(false)}
       {renderRadarPopup()}
     </DashboardScaffold>
   );

@@ -412,7 +412,7 @@ export class UsersController {
 	@Get('company')
 	@UseGuards(JwtAuthGuard, RolesGuard, ModuleAccessGuard)
 	@Admin()
-	@ModuleAccess('gerencial')
+	@ModuleAccess('gerencial', 'webscraping')
 	async listCompanyUsers(@Req() req: any) {
 		const companyId = Number(req?.user?.companyId);
 		if (!companyId) throw new ForbiddenException('Company context required');

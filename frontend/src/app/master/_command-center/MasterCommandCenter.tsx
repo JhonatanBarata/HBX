@@ -46,6 +46,19 @@ import styles from "./MasterCommandCenter.module.css";
 
 type CommandActions = ReturnType<typeof useMasterCommandCenterActions>["actions"];
 type CommandState = ReturnType<typeof useMasterCommandCenterActions>["state"];
+type MasterInspectorTabId = "overview" | "access" | "billing" | "users" | "whatsapp" | "radar" | "integrations" | "audit" | "danger";
+
+const MASTER_INSPECTOR_TABS: Array<{ id: MasterInspectorTabId; label: string; meta: string }> = [
+  { id: "overview", label: "Resumo", meta: "estado" },
+  { id: "access", label: "Acesso", meta: "plano" },
+  { id: "billing", label: "Cobranca", meta: "caixa" },
+  { id: "users", label: "Usuarios", meta: "login" },
+  { id: "whatsapp", label: "WhatsApp", meta: "canal" },
+  { id: "radar", label: "Radar", meta: "cards" },
+  { id: "integrations", label: "Integracoes", meta: "tokens" },
+  { id: "audit", label: "Auditoria", meta: "risco" },
+  { id: "danger", label: "Perigo", meta: "bloqueio" },
+];
 
 function featureLabel(value: string) {
   const normalized = String(value || "").trim();
@@ -54,6 +67,7 @@ function featureLabel(value: string) {
     atendimento_chat: "Atendimento",
     vendas: "Vendas",
     webscraping: "Radar Digital",
+    gerencial: "Gerencial",
     bot_ia: "Bot IA",
     radar_premium: "Radar Premium",
     recovery_intelligence: "Recovery",
@@ -68,6 +82,9 @@ function initialFilterFromSection(value?: string | null): MasterCommandFilterId 
   const normalized = String(value || "").trim().toLowerCase();
   const sectionFilters: Partial<Record<string, MasterCommandFilterId>> = {
     clientes: "all",
+    radar: "all",
+    "radar-digital": "all",
+    webscraping: "all",
     finance: "billing_pending",
     financeiro: "billing_pending",
     billing: "billing_pending",
@@ -469,6 +486,12 @@ function MasterCompanyInspector({
   actions: CommandActions;
 }) {
   const company = state.activeCompany;
+  const [activeTabState, setActiveTabState] = useState<{ companyId: number | null; tab: MasterInspectorTabId }>({
+    companyId: null,
+    tab: "overview",
+  });
+  const activeTab = company && activeTabState.companyId === company.id ? activeTabState.tab : "overview";
+
   if (state.detailLoading) return <MasterLoadingState label="Carregando empresa..." />;
   if (!company) return <MasterEmptyState title="Selecione uma empresa" description="O inspector abre a operação completa por empresa." />;
 
@@ -484,14 +507,42 @@ function MasterCompanyInspector({
         onOpenFinance={() => actions.navigateOperational(company, "finance")}
         onOpenWhatsapp={() => actions.navigateOperational(company, "whatsapp")}
       />
-      <MasterRealityPanel company={company} actions={actions} state={state} />
-      <MasterCompanyProfilePanel company={company} actions={actions} state={state} />
-      <MasterPlanAccessPanel key={`${company.id}-${company.selectedPlanKey || "none"}`} company={company} actions={actions} state={state} />
-      <MasterBillingPanel company={company} actions={actions} state={state} />
-      <MasterTrialPanel company={company} actions={actions} state={state} />
-      <MasterOperationPanel workspace={workspace} company={company} actions={actions} state={state} />
-      <MasterRiskPanel company={company} />
-      <MasterDangerZone company={company} actions={actions} state={state} />
+      <nav className={styles.inspectorTabs} aria-label="Areas do controle master">
+        {MASTER_INSPECTOR_TABS.map((tab) => (
+          <button
+            key={tab.id}
+            type="button"
+            className={styles.inspectorTab}
+            data-active={activeTab === tab.id ? "true" : "false"}
+            aria-current={activeTab === tab.id ? "page" : undefined}
+            onClick={() => setActiveTabState({ companyId: company.id, tab: tab.id })}
+          >
+            <strong>{tab.label}</strong>
+            <span>{tab.meta}</span>
+          </button>
+        ))}
+      </nav>
+      <div className={styles.inspectorContent}>
+        {activeTab === "overview" ? (
+          <>
+            <MasterRealityPanel company={company} actions={actions} state={state} />
+            <MasterCompanyProfilePanel company={company} actions={actions} state={state} />
+          </>
+        ) : null}
+        {activeTab === "access" ? (
+          <>
+            <MasterPlanAccessPanel key={`${company.id}-${company.selectedPlanKey || "none"}`} company={company} actions={actions} state={state} />
+            <MasterTrialPanel company={company} actions={actions} state={state} />
+          </>
+        ) : null}
+        {activeTab === "billing" ? <MasterBillingPanel company={company} actions={actions} state={state} /> : null}
+        {activeTab === "users" ? <MasterUsersPanel company={company} actions={actions} /> : null}
+        {activeTab === "whatsapp" ? <MasterWhatsAppPanel workspace={workspace} company={company} actions={actions} state={state} /> : null}
+        {activeTab === "radar" ? <MasterRadarPanel company={company} actions={actions} state={state} /> : null}
+        {activeTab === "integrations" ? <MasterIntegrationsPanel workspace={workspace} company={company} actions={actions} state={state} /> : null}
+        {activeTab === "audit" ? <MasterRiskPanel company={company} /> : null}
+        {activeTab === "danger" ? <MasterDangerZone company={company} actions={actions} state={state} /> : null}
+      </div>
     </aside>
   );
 }
@@ -837,6 +888,9 @@ function MasterPlanChangePreview({ preview }: { preview: NonNullable<ReturnType<
 }
 
 function MasterBillingPanel({ company, actions, state }: { company: CompanyDetailPayload["company"]; actions: CommandActions; state: CommandState }) {
+  const includedSellers = Number(company.finance.includedActiveUsers || 0) || 0;
+  const billableSellers = Number(company.finance.activeUsers || 0) || 0;
+  const extraSellers = Number(company.finance.extraActiveUsers || 0) || 0;
   return (
     <section className={styles.panelSection}>
       <div className={styles.sectionTitle}>
@@ -854,7 +908,16 @@ function MasterBillingPanel({ company, actions, state }: { company: CompanyDetai
         <InfoItem label="Ciclo" value={billingCycleLabel(company.finance.billingCycle)} />
         <InfoItem label="Desconto manual" value={`${company.finance.manualDiscountPercent || 0}%`} />
         <InfoItem label="Meses grátis" value={String(company.finance.freeMonths || 0)} />
+        <InfoItem label="Vendedores faturáveis" value={`${billableSellers} ativo(s)`} />
+        <InfoItem label="Incluídos no plano" value={`${includedSellers} vendedor(es)`} />
+        <InfoItem label="Vendedores extras" value={`${extraSellers} x ${formatCurrency(company.finance.extraSeatMonthlyAmount || 0)}`} />
+        <InfoItem label="Extra no ciclo" value={formatCurrency(company.finance.extraSeatCycleAmount || 0)} />
       </div>
+      {extraSellers > 0 ? (
+        <div className={styles.alertWarning}>
+          Há {extraSellers} vendedor(es) extra(s). O padrão é cobrar {formatCurrency(company.finance.extraSeatMonthlyAmount || 0)} recorrente por vendedor extra no próximo ciclo. Use desconto manual para exceção permanente ou meses grátis para exceção temporária.
+        </div>
+      ) : null}
       <div className={styles.actionCards}>
         <ActionConsequence title="Lançar pagamento manual" text="Registra caixa real no ledger." onClick={() => actions.openManualPayment(company)} />
         <ActionConsequence title="Marcar como pago" text="Libera acesso, mas não lança caixa real." onClick={() => actions.setPaymentStatus(company.id, "PAID", "Cliente marcado como pago operacionalmente.")} />
@@ -868,8 +931,8 @@ function MasterBillingPanel({ company, actions, state }: { company: CompanyDetai
             <option value="MONTHLY">Mensal</option>
             <option value="ANNUAL">Anual</option>
           </select>
-          <input value={state.financeSettingsDraft.manualDiscountPercent} onChange={(event) => actions.setFinanceSettingsDraft((current) => current ? { ...current, manualDiscountPercent: event.target.value } : current)} placeholder="Desconto manual %" />
-          <input value={state.financeSettingsDraft.freeMonths} onChange={(event) => actions.setFinanceSettingsDraft((current) => current ? { ...current, freeMonths: event.target.value } : current)} placeholder="Meses grátis" />
+          <input value={state.financeSettingsDraft.manualDiscountPercent} onChange={(event) => actions.setFinanceSettingsDraft((current) => current ? { ...current, manualDiscountPercent: event.target.value } : current)} placeholder="Desconto permanente %" />
+          <input value={state.financeSettingsDraft.freeMonths} onChange={(event) => actions.setFinanceSettingsDraft((current) => current ? { ...current, freeMonths: event.target.value } : current)} placeholder="Meses grátis temporário" />
           <MasterActionButton variant="secondary" onClick={actions.saveCompanyFinanceSettings}>Salvar ajustes</MasterActionButton>
           <MasterActionButton variant="secondary" onClick={actions.exportFinanceCsv}>Exportar CSV financeiro</MasterActionButton>
         </div>
@@ -954,7 +1017,352 @@ function MasterTrialPanel({ company, actions, state }: { company: CompanyDetailP
   );
 }
 
-function MasterOperationPanel({
+function MasterUsersPanel({ company, actions }: { company: CompanyDetailPayload["company"]; actions: CommandActions }) {
+  const activeSellerUsers = company.users.filter((user) => {
+    const role = String(user.role || "").toUpperCase();
+    return user.isActive && (role === "USER" || role === "ADMIN");
+  });
+  const activeAdminUsers = company.users.filter((user) => user.isActive && String(user.role || "").toUpperCase() === "ADMIN");
+
+  return (
+    <section className={styles.panelSection}>
+      <div className={styles.sectionTitle}>
+        <span>Usuários</span>
+        <h3>Acesso humano da empresa</h3>
+      </div>
+      <div className={styles.operationStats}>
+        <InfoItem label="Vendedores ativos" value={String(activeSellerUsers.length)} />
+        <InfoItem label="Admins ativos" value={String(activeAdminUsers.length)} />
+        <InfoItem label="Total de usuários" value={String(company.users.length)} />
+      </div>
+      {!activeSellerUsers.length ? (
+        <div className={styles.alertWarning}>
+          O Radar precisa de pelo menos um USER ou ADMIN comum ativo para operar como vendedor. USERMASTER interno não entra nessa conta.
+        </div>
+      ) : null}
+      <div className={styles.actionCluster}>
+        <MasterActionButton onClick={() => actions.setUserModal({
+          mode: "create",
+          companyId: company.id,
+          companyName: company.name,
+          email: "",
+          username: "",
+          name: "",
+          role: "USER",
+          password: "",
+        })}>
+          Criar usuário
+        </MasterActionButton>
+      </div>
+      <div className={styles.userGrid}>
+        {company.users.map((user) => (
+          <article key={user.id} className={styles.userCard}>
+            <div>
+              <strong>{user.name || user.username || user.email || `Usuário ${user.id}`}</strong>
+              <span>{user.email || user.username || user.role}</span>
+            </div>
+            <MasterStatusBadge tone={user.isActive ? "good" : "danger"}>{user.isActive ? "Ativo" : "Inativo"}</MasterStatusBadge>
+            <div className={styles.miniActions}>
+              <button type="button" onClick={() => actions.setUserModal({
+                mode: "edit",
+                companyId: company.id,
+                companyName: company.name,
+                userId: user.id,
+                userLabel: user.name || user.email || user.username || `#${user.id}`,
+                email: user.email || "",
+                username: user.username || "",
+                name: user.name || "",
+                role: user.role === "ADMIN" ? "ADMIN" : "USER",
+                password: "",
+              })}>Editar</button>
+              <button type="button" onClick={() => actions.setUserModal({
+                mode: "reset",
+                companyId: company.id,
+                companyName: company.name,
+                userId: user.id,
+                userLabel: user.name || user.email || user.username || `#${user.id}`,
+                email: user.email || "",
+                username: user.username || "",
+                name: user.name || "",
+                role: user.role === "ADMIN" ? "ADMIN" : "USER",
+                password: "",
+              })}>Resetar senha</button>
+              <button type="button" onClick={() => actions.deleteUser(company.id, user.id, user.name || user.username || user.email || `#${user.id}`)}>Remover</button>
+            </div>
+          </article>
+        ))}
+        {!company.users.length ? <MasterEmptyState title="Sem usuários cadastrados" description="Crie o primeiro acesso operacional desta empresa." /> : null}
+      </div>
+    </section>
+  );
+}
+
+function MasterWebsitePanel({ company, actions, state }: { company: CompanyDetailPayload["company"]; actions: CommandActions; state: CommandState }) {
+  return (
+    <section className={styles.panelSection}>
+      <div className={styles.sectionTitle}>
+        <span>Website</span>
+        <h3>Presença pública e admin</h3>
+      </div>
+      <div className={styles.operationStats}>
+        <InfoItem label="Público" value={company.website.enabled ? "Ativo" : "Inativo"} />
+        <InfoItem label="Admin" value={company.website.adminEnabled ? "Ativo" : "Inativo"} />
+        <InfoItem label="URL pública" value={company.website.publicUrl || "-"} />
+        <InfoItem label="Projeto" value={company.website.projectId || "-"} />
+      </div>
+      {state.websiteDraft ? (
+        <div className={styles.inlineForm}>
+          <label><input type="checkbox" checked={state.websiteDraft.websiteEnabled} onChange={(event) => actions.setWebsiteDraft((current) => current ? { ...current, websiteEnabled: event.target.checked } : current)} /> Website ativo</label>
+          <label><input type="checkbox" checked={state.websiteDraft.websiteAdminEnabled} onChange={(event) => actions.setWebsiteDraft((current) => current ? { ...current, websiteAdminEnabled: event.target.checked } : current)} /> Admin ativo</label>
+          <input value={state.websiteDraft.websitePublicUrl} onChange={(event) => actions.setWebsiteDraft((current) => current ? { ...current, websitePublicUrl: event.target.value } : current)} placeholder="URL pública" />
+          <input value={state.websiteDraft.websiteAdminUrl} onChange={(event) => actions.setWebsiteDraft((current) => current ? { ...current, websiteAdminUrl: event.target.value } : current)} placeholder="URL admin" />
+          <input value={state.websiteDraft.websiteProjectId} onChange={(event) => actions.setWebsiteDraft((current) => current ? { ...current, websiteProjectId: event.target.value } : current)} placeholder="Project ID" />
+          <MasterActionButton onClick={actions.saveWebsite}>Salvar website</MasterActionButton>
+          <MasterActionButton variant="secondary" onClick={() => actions.launchWebsite(company.id, "public")}>Abrir website</MasterActionButton>
+          <MasterActionButton variant="secondary" onClick={() => actions.launchWebsite(company.id, "admin")}>Abrir admin</MasterActionButton>
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+function MasterWhatsAppPanel({
+  workspace,
+  company,
+  actions,
+  state,
+}: {
+  workspace: MasterCommandCenterProps["workspace"];
+  company: CompanyDetailPayload["company"];
+  actions: CommandActions;
+  state: CommandState;
+}) {
+  const primaryEndpoint = company.whatsapp.endpoints.find((endpoint) => endpoint.isPrimary);
+  return (
+    <section className={styles.panelSection}>
+      <div className={styles.sectionTitle}>
+        <span>WhatsApp</span>
+        <h3>Canal oficial, token e endpoints</h3>
+      </div>
+      <div className={styles.operationStats}>
+        <InfoItem label="Modo" value={company.whatsappSituation?.mode || company.whatsappCenter.mode} />
+        <InfoItem label="Status atual" value={company.whatsappSituation?.statusLabel || company.whatsappCenter.statusLabel} />
+        <InfoItem label="Número" value={company.whatsapp.masterDisplayNumber || company.whatsappCenter.official.displayNumber || primaryEndpoint?.whatsappDisplayNumber || primaryEndpoint?.whatsappNumber || "-"} />
+        <InfoItem label="Token Master" value={company.whatsapp.usingMasterToken ? "Vinculado" : "Token próprio"} />
+        <InfoItem label="Credencial MASTER" value={company.whatsapp.masterCredentialLabel || company.whatsapp.masterCredentialKey || "-"} />
+        <InfoItem label="Endpoints" value={String(company.whatsapp.endpoints.length)} />
+        <InfoItem label="Phone ID MASTER" value={company.whatsapp.masterPhoneNumberId || "-"} />
+      </div>
+      <div className={styles.inlineForm}>
+        <select
+          value={company.whatsapp.masterCredentialKey || ""}
+          onChange={(event) => actions.setCompanyMasterTokenUsage({ masterWhatsAppCredentialKey: event.target.value || undefined, useMasterWhatsAppToken: true })}
+          disabled={!workspace?.masterIntegrations?.whatsappLibrary.length}
+        >
+          <option value="">Credencial MASTER WhatsApp</option>
+          {(workspace?.masterIntegrations?.whatsappLibrary || []).map((credential) => (
+            <option key={credential.key} value={credential.key}>{credential.label}</option>
+          ))}
+        </select>
+        <MasterActionButton variant="secondary" onClick={() => actions.setCompanyMasterTokenUsage({ useMasterWhatsAppToken: !company.whatsapp.usingMasterToken })}>
+          {company.whatsapp.usingMasterToken ? "Usar token próprio" : "Usar Token MASTER"}
+        </MasterActionButton>
+        <MasterActionButton variant="secondary" onClick={actions.validateWhatsAppConfig} disabled={state.busyAction === `whatsapp-validate-${company.id}`}>
+          {state.busyAction === `whatsapp-validate-${company.id}` ? "Validando..." : "Validar WhatsApp"}
+        </MasterActionButton>
+        <MasterActionButton variant="secondary" onClick={() => actions.setMasterIntegrationsOpen(true)}>Biblioteca de tokens</MasterActionButton>
+      </div>
+      <div className={styles.endpointList}>
+        {company.whatsapp.endpoints.map((endpoint) => {
+          const canValidate = endpoint.id !== "legacy-primary" && (endpoint.accessTokenConfigured || company.whatsapp.usingMasterToken);
+          return (
+            <article key={endpoint.id} className={styles.endpointRow} data-active={endpoint.isActive ? "true" : "false"}>
+              <div>
+                <strong>{endpoint.label || endpoint.whatsappDisplayNumber || endpoint.whatsappNumber || endpoint.id}</strong>
+                <span>
+                  {endpoint.moduleKey || "geral"} · {endpoint.isPrimary ? "primário" : "secundário"} · {endpoint.accessTokenConfigured ? "token configurado" : "sem token próprio"}
+                </span>
+              </div>
+              <div>
+                <MasterStatusBadge tone={String(endpoint.whatsappStatus || "").toUpperCase() === "CONNECTED" ? "good" : endpoint.whatsappStatusError ? "danger" : "warn"}>
+                  {endpoint.whatsappStatus || "Sem status"}
+                </MasterStatusBadge>
+                {endpoint.whatsappStatusUpdatedAt ? <small>{formatDateTime(endpoint.whatsappStatusUpdatedAt)}</small> : null}
+              </div>
+              <div className={styles.endpointMeta}>
+                <span>{endpoint.whatsappDisplayNumber || endpoint.whatsappNumber || "Sem número"}</span>
+                <span>{endpoint.whatsappPhoneNumberId || "Sem Phone ID"}</span>
+                {endpoint.whatsappStatusError ? <span>{endpoint.whatsappStatusError}</span> : null}
+              </div>
+              <MasterActionButton
+                variant="secondary"
+                onClick={() => actions.validateWhatsAppEndpoint(endpoint.id)}
+                disabled={!canValidate || state.busyAction === `whatsapp-endpoint-${endpoint.id}`}
+              >
+                {state.busyAction === `whatsapp-endpoint-${endpoint.id}` ? "Validando..." : "Validar endpoint"}
+              </MasterActionButton>
+            </article>
+          );
+        })}
+        {!company.whatsapp.endpoints.length ? <MasterEmptyState title="Sem endpoints WhatsApp cadastrados" /> : null}
+      </div>
+      {state.whatsAppMigrationWorkflowDraft ? (
+        <div className={styles.inlineForm}>
+          <select value={state.whatsAppMigrationWorkflowDraft.status} onChange={(event) => actions.setWhatsAppMigrationWorkflowDraft((current) => current ? { ...current, status: event.target.value as "REQUESTED" | "CONTACTED" | "RESOLVED" } : current)}>
+            <option value="REQUESTED">REQUESTED</option>
+            <option value="CONTACTED">CONTACTED</option>
+            <option value="RESOLVED">RESOLVED</option>
+          </select>
+          <input type="datetime-local" value={state.whatsAppMigrationWorkflowDraft.lastContactAt} onChange={(event) => actions.setWhatsAppMigrationWorkflowDraft((current) => current ? { ...current, lastContactAt: event.target.value } : current)} />
+          <input value={state.whatsAppMigrationWorkflowDraft.internalNote} onChange={(event) => actions.setWhatsAppMigrationWorkflowDraft((current) => current ? { ...current, internalNote: event.target.value } : current)} placeholder="Nota interna" />
+          <MasterActionButton variant="secondary" onClick={actions.saveWhatsAppMigrationWorkflow}>Salvar workflow</MasterActionButton>
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+function MasterRadarPanel({ company, actions, state }: { company: CompanyDetailPayload["company"]; actions: CommandActions; state: CommandState }) {
+  const usage = company.webscrapingUsage;
+  const radarModule = company.modules.find((moduleItem) => moduleItem.key === "webscraping") || company.modules.find((moduleItem) => moduleItem.key === "radar_premium");
+  const gerencialModule = company.modules.find((moduleItem) => moduleItem.key === "gerencial");
+  const activeSellerUsers = company.users.filter((user) => {
+    const role = String(user.role || "").toUpperCase();
+    return user.isActive && (role === "USER" || role === "ADMIN");
+  });
+  const activeAdminUsers = company.users.filter((user) => user.isActive && String(user.role || "").toUpperCase() === "ADMIN");
+  const quota = company.commercialCardQuota;
+  const reuseRate = Number.isFinite(usage.globalCacheReuseRate) ? `${Math.round(usage.globalCacheReuseRate)}%` : "0%";
+  const radarActive = Boolean(radarModule?.enabled);
+  const gerencialActive = Boolean(gerencialModule?.enabled);
+  const needsSeller = radarActive && activeSellerUsers.length === 0;
+  const needsGerencial = false;
+
+  return (
+    <section className={styles.panelSection}>
+      <div className={styles.sectionTitle}>
+        <span>Radar Digital</span>
+        <h3>Busca, cache e limite comercial</h3>
+      </div>
+      <div className={styles.operationStats}>
+        <InfoItem label="Radar" value={radarActive ? "Ativo" : "Inativo"} />
+        <InfoItem label="Gerencial" value={gerencialActive ? "Ativo" : "Inativo"} />
+        <InfoItem label="Vendedores ativos" value={`${activeSellerUsers.length} incl. admin`} />
+        <InfoItem label="Admins ativos" value={String(activeAdminUsers.length)} />
+        <InfoItem label="Buscas hoje" value={String(usage.searchesToday)} />
+        <InfoItem label="Bloqueios hoje" value={String(usage.blockedToday)} />
+        <InfoItem label="Reuso cache global" value={reuseRate} />
+        <InfoItem label="Cota mensal" value={`${(quota?.monthlyEffective || 0).toLocaleString("pt-BR")} cards`} />
+        <InfoItem label="Trava diária" value={`${(quota?.dailyEffective || 0).toLocaleString("pt-BR")} cards`} />
+        <InfoItem label="Última busca" value={usage.lastSearchLabel || "-"} />
+        <InfoItem label="Último usuário" value={usage.lastSearchUser || "-"} />
+      </div>
+      {usage.lastAttemptMessage ? <div className={usage.hasBlockedAttempts ? styles.alertDanger : styles.alertInfo}>{usage.lastAttemptMessage}</div> : null}
+      {needsSeller || needsGerencial ? (
+        <div className={styles.radarFixPanel}>
+          <div>
+            <span>Diagnóstico Master</span>
+            <strong>Radar ativo, mas operação incompleta</strong>
+            <p>
+              {needsSeller ? "Não existe USER nem ADMIN comum ativo para entrar no rodízio. " : ""}
+              {needsGerencial ? "A tela de equipe pode ficar vazia porque /users/company depende do módulo Gerencial. " : ""}
+              A conta ADMIN comum agora conta como vendedor; USERMASTER interno continua fora da distribuição.
+            </p>
+          </div>
+          <div className={styles.actionCluster}>
+            {needsSeller ? (
+              <MasterActionButton onClick={() => actions.setUserModal({
+                mode: "create",
+                companyId: company.id,
+                companyName: company.name,
+                email: "",
+                username: "",
+                name: "Vendedor",
+                role: "USER",
+                password: "",
+              })}>
+                Criar vendedor extra
+              </MasterActionButton>
+            ) : null}
+            {needsGerencial && gerencialModule ? (
+              <MasterActionButton
+                variant="secondary"
+                onClick={() => actions.toggleModule(company.id, gerencialModule.key, gerencialModule.enabled)}
+                disabled={!companyHasOperationalAccess(company)}
+              >
+                Liberar Gerencial
+              </MasterActionButton>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
+      {state.cardQuotaDraft ? (
+        <div className={styles.inlineForm}>
+          <input
+            type="number"
+            min={0}
+            value={state.cardQuotaDraft.monthlyCardLimit}
+            onChange={(event) => actions.setCardQuotaDraft((current) => current ? { ...current, monthlyCardLimit: event.target.value } : current)}
+            placeholder={`Mensal padrão ${quota?.monthlyDefault || 0}`}
+          />
+          <input
+            type="number"
+            min={0}
+            value={state.cardQuotaDraft.dailyCardLimit}
+            onChange={(event) => actions.setCardQuotaDraft((current) => current ? { ...current, dailyCardLimit: event.target.value } : current)}
+            placeholder={`Diário padrão ${quota?.dailyDefault || 0}`}
+          />
+          <MasterActionButton variant="secondary" onClick={actions.saveCompanyCardQuota} disabled={state.busyAction === `card-quota-${company.id}`}>
+            {state.busyAction === `card-quota-${company.id}` ? "Salvando..." : "Salvar cota"}
+          </MasterActionButton>
+          {radarModule ? (
+            <MasterActionButton
+              variant={radarModule.enabled ? "danger" : "secondary"}
+              onClick={() => actions.toggleModule(company.id, radarModule.key, radarModule.enabled)}
+              disabled={!companyHasOperationalAccess(company)}
+            >
+              {radarModule.enabled ? "Bloquear Radar" : "Liberar Radar"}
+            </MasterActionButton>
+          ) : null}
+          {gerencialModule ? (
+            <MasterActionButton
+              variant={gerencialModule.enabled ? "ghost" : "secondary"}
+              onClick={() => actions.toggleModule(company.id, gerencialModule.key, gerencialModule.enabled)}
+              disabled={!companyHasOperationalAccess(company)}
+            >
+              {gerencialModule.enabled ? "Bloquear Gerencial" : "Liberar Gerencial"}
+            </MasterActionButton>
+          ) : null}
+          <MasterActionButton variant="secondary" onClick={() => { window.location.href = "/bancodedados"; }}>Banco de dados</MasterActionButton>
+          <MasterActionButton variant="secondary" onClick={() => { void actions.assumeContext(company).then(() => { window.location.href = "/radar-digital"; }); }}>Abrir Radar</MasterActionButton>
+        </div>
+      ) : null}
+      <p className={styles.helperText}>O admin comum da empresa conta como vendedor incluído. Vendedores acima do limite incluso entram como assento extra recorrente; ajuste desconto permanente ou meses grátis na aba Cobrança quando negociar exceção.</p>
+    </section>
+  );
+}
+
+function MasterIntegrationsPanel({
+  workspace,
+  company,
+  actions,
+  state,
+}: {
+  workspace: MasterCommandCenterProps["workspace"];
+  company: CompanyDetailPayload["company"];
+  actions: CommandActions;
+  state: CommandState;
+}) {
+  return (
+    <>
+      <MasterWebsitePanel company={company} actions={actions} state={state} />
+      <MasterMercadoPagoPanel workspace={workspace} company={company} actions={actions} state={state} />
+      <MasterCompanyConnectionsPanel company={company} actions={actions} state={state} />
+    </>
+  );
+}
+
+function MasterMercadoPagoPanel({
   workspace,
   company,
   actions,
@@ -968,220 +1376,63 @@ function MasterOperationPanel({
   return (
     <section className={styles.panelSection}>
       <div className={styles.sectionTitle}>
-        <span>Operação</span>
-        <h3>Controles por área</h3>
+        <span>Mercado Pago</span>
+        <h3>Cobrança técnica e credenciais</h3>
       </div>
-      <div className={styles.collapseStack}>
-        <details className={styles.operationCard} open>
-          <summary>Usuários · {company.users.length}</summary>
-          <div className={styles.operationBody}>
-            <div className={styles.actionCluster}>
-              <MasterActionButton onClick={() => actions.setUserModal({
-                mode: "create",
-                companyId: company.id,
-                companyName: company.name,
-                email: "",
-                username: "",
-                name: "",
-                role: "USER",
-                password: "",
-              })}>
-                Criar usuário
-              </MasterActionButton>
-            </div>
-            <div className={styles.userGrid}>
-              {company.users.map((user) => (
-                <article key={user.id} className={styles.userCard}>
-                  <div>
-                    <strong>{user.name || user.username || user.email || `Usuário ${user.id}`}</strong>
-                    <span>{user.email || user.username || user.role}</span>
-                  </div>
-                  <MasterStatusBadge tone={user.isActive ? "good" : "danger"}>{user.isActive ? "Ativo" : "Inativo"}</MasterStatusBadge>
-                  <div className={styles.miniActions}>
-                    <button type="button" onClick={() => actions.setUserModal({
-                      mode: "edit",
-                      companyId: company.id,
-                      companyName: company.name,
-                      userId: user.id,
-                      userLabel: user.name || user.email || user.username || `#${user.id}`,
-                      email: user.email || "",
-                      username: user.username || "",
-                      name: user.name || "",
-                      role: user.role === "ADMIN" ? "ADMIN" : "USER",
-                      password: "",
-                    })}>Editar</button>
-                    <button type="button" onClick={() => actions.setUserModal({
-                      mode: "reset",
-                      companyId: company.id,
-                      companyName: company.name,
-                      userId: user.id,
-                      userLabel: user.name || user.email || user.username || `#${user.id}`,
-                      email: user.email || "",
-                      username: user.username || "",
-                      name: user.name || "",
-                      role: user.role === "ADMIN" ? "ADMIN" : "USER",
-                      password: "",
-                    })}>Resetar senha</button>
-                    <button type="button" onClick={() => actions.deleteUser(company.id, user.id, user.name || user.username || user.email || `#${user.id}`)}>Remover</button>
-                  </div>
-                </article>
-              ))}
-            </div>
-          </div>
-        </details>
+      <div className={styles.operationStats}>
+        <InfoItem label="Token" value={company.mercadoPago.tokenConfigured ? "Configurado" : "Pendente"} />
+        <InfoItem label="Credencial Master" value={company.mercadoPago.usingMasterToken ? "Sim" : "Não"} />
+        <InfoItem label="Conta" value={company.mercadoPago.accountEmail || "-"} />
+      </div>
+      <div className={styles.inlineForm}>
+        <select
+          value={company.mercadoPago.masterCredentialKey || ""}
+          onChange={(event) => actions.setCompanyMasterTokenUsage({ masterMercadoPagoCredentialKey: event.target.value || undefined, useMasterMercadoPagoToken: true })}
+          disabled={!workspace?.masterIntegrations?.mercadoPagoLibrary.length}
+        >
+          <option value="">Credencial MASTER Mercado Pago</option>
+          {(workspace?.masterIntegrations?.mercadoPagoLibrary || []).map((credential) => (
+            <option key={credential.key} value={credential.key}>{credential.label}</option>
+          ))}
+        </select>
+        <MasterActionButton variant="secondary" onClick={() => actions.setCompanyMasterTokenUsage({ useMasterMercadoPagoToken: !company.mercadoPago.usingMasterToken })}>
+          {company.mercadoPago.usingMasterToken ? "Usar token próprio" : "Usar Token MASTER"}
+        </MasterActionButton>
+        <input value={state.mercadoPagoDraft?.mercadoPagoAccessToken || ""} onChange={(event) => actions.setMercadoPagoDraft((current) => current ? { ...current, mercadoPagoAccessToken: event.target.value } : current)} placeholder="Access token Mercado Pago" />
+        <MasterActionButton
+          variant={state.mercadoPagoDraft?.mercadoPagoAccessToken.trim() ? "primary" : "secondary"}
+          onClick={state.mercadoPagoDraft?.mercadoPagoAccessToken.trim() ? actions.saveAndValidateMercadoPagoConfig : actions.validateMercadoPagoConfig}
+          disabled={state.busyAction === `mp-save-validate-${company.id}` || state.busyAction === `mp-validate-${company.id}`}
+        >
+          {state.mercadoPagoDraft?.mercadoPagoAccessToken.trim() ? "Salvar e validar" : "Validar"}
+        </MasterActionButton>
+        <MasterActionButton variant="secondary" onClick={actions.saveMercadoPagoConfig}>Salvar</MasterActionButton>
+      </div>
+      {state.mercadoPagoDraft?.statusError ? <div className={styles.alertDanger}>{state.mercadoPagoDraft.statusError}</div> : null}
+    </section>
+  );
+}
 
-        <details className={styles.operationCard}>
-          <summary>Website · {company.website.configured ? "configurado" : "pendente"}</summary>
-          <div className={styles.operationBody}>
-            {state.websiteDraft ? (
-              <div className={styles.inlineForm}>
-                <label><input type="checkbox" checked={state.websiteDraft.websiteEnabled} onChange={(event) => actions.setWebsiteDraft((current) => current ? { ...current, websiteEnabled: event.target.checked } : current)} /> Website ativo</label>
-                <label><input type="checkbox" checked={state.websiteDraft.websiteAdminEnabled} onChange={(event) => actions.setWebsiteDraft((current) => current ? { ...current, websiteAdminEnabled: event.target.checked } : current)} /> Admin ativo</label>
-                <input value={state.websiteDraft.websitePublicUrl} onChange={(event) => actions.setWebsiteDraft((current) => current ? { ...current, websitePublicUrl: event.target.value } : current)} placeholder="URL pública" />
-                <input value={state.websiteDraft.websiteAdminUrl} onChange={(event) => actions.setWebsiteDraft((current) => current ? { ...current, websiteAdminUrl: event.target.value } : current)} placeholder="URL admin" />
-                <input value={state.websiteDraft.websiteProjectId} onChange={(event) => actions.setWebsiteDraft((current) => current ? { ...current, websiteProjectId: event.target.value } : current)} placeholder="Project ID" />
-                <MasterActionButton onClick={actions.saveWebsite}>Salvar website</MasterActionButton>
-                <MasterActionButton variant="secondary" onClick={() => actions.launchWebsite(company.id, "public")}>Abrir website</MasterActionButton>
-                <MasterActionButton variant="secondary" onClick={() => actions.launchWebsite(company.id, "admin")}>Abrir admin</MasterActionButton>
-              </div>
-            ) : null}
-          </div>
-        </details>
-
-        <details className={styles.operationCard}>
-          <summary>WhatsApp · {company.whatsappSituation?.statusLabel || company.whatsappCenter.statusLabel}</summary>
-          <div className={styles.operationBody}>
-            <div className={styles.operationStats}>
-              <InfoItem label="Modo" value={company.whatsappSituation?.mode || company.whatsappCenter.mode} />
-              <InfoItem label="Status atual" value={company.whatsappSituation?.statusLabel || company.whatsappCenter.statusLabel} />
-              <InfoItem label="Número" value={company.whatsapp.masterDisplayNumber || company.whatsappCenter.official.displayNumber || company.whatsapp.endpoints.find((endpoint) => endpoint.isPrimary)?.whatsappDisplayNumber || company.whatsapp.endpoints.find((endpoint) => endpoint.isPrimary)?.whatsappNumber || "-"} />
-              <InfoItem label="Token Master" value={company.whatsapp.usingMasterToken ? "Vinculado" : "Token próprio"} />
-              <InfoItem label="Credencial MASTER" value={company.whatsapp.masterCredentialLabel || company.whatsapp.masterCredentialKey || "-"} />
-              <InfoItem label="Endpoints" value={String(company.whatsapp.endpoints.length)} />
-              <InfoItem label="Phone ID MASTER" value={company.whatsapp.masterPhoneNumberId || "-"} />
-            </div>
-            <div className={styles.inlineForm}>
-              <select
-                value={company.whatsapp.masterCredentialKey || ""}
-                onChange={(event) => actions.setCompanyMasterTokenUsage({ masterWhatsAppCredentialKey: event.target.value || undefined, useMasterWhatsAppToken: true })}
-                disabled={!workspace?.masterIntegrations?.whatsappLibrary.length}
-              >
-                <option value="">Credencial MASTER WhatsApp</option>
-                {(workspace?.masterIntegrations?.whatsappLibrary || []).map((credential) => (
-                  <option key={credential.key} value={credential.key}>{credential.label}</option>
-                ))}
-              </select>
-              <MasterActionButton variant="secondary" onClick={() => actions.setCompanyMasterTokenUsage({ useMasterWhatsAppToken: !company.whatsapp.usingMasterToken })}>
-                {company.whatsapp.usingMasterToken ? "Usar token próprio" : "Usar Token MASTER"}
-              </MasterActionButton>
-              <MasterActionButton variant="secondary" onClick={actions.validateWhatsAppConfig} disabled={state.busyAction === `whatsapp-validate-${company.id}`}>
-                {state.busyAction === `whatsapp-validate-${company.id}` ? "Validando..." : "Validar WhatsApp"}
-              </MasterActionButton>
-              <MasterActionButton variant="secondary" onClick={() => actions.setMasterIntegrationsOpen(true)}>Biblioteca de tokens</MasterActionButton>
-            </div>
-            <div className={styles.endpointList}>
-              {company.whatsapp.endpoints.map((endpoint) => {
-                const canValidate = endpoint.id !== "legacy-primary" && (endpoint.accessTokenConfigured || company.whatsapp.usingMasterToken);
-                return (
-                  <article key={endpoint.id} className={styles.endpointRow} data-active={endpoint.isActive ? "true" : "false"}>
-                    <div>
-                      <strong>{endpoint.label || endpoint.whatsappDisplayNumber || endpoint.whatsappNumber || endpoint.id}</strong>
-                      <span>
-                        {endpoint.moduleKey || "geral"} · {endpoint.isPrimary ? "primário" : "secundário"} · {endpoint.accessTokenConfigured ? "token configurado" : "sem token próprio"}
-                      </span>
-                    </div>
-                    <div>
-                      <MasterStatusBadge tone={String(endpoint.whatsappStatus || "").toUpperCase() === "CONNECTED" ? "good" : endpoint.whatsappStatusError ? "danger" : "warn"}>
-                        {endpoint.whatsappStatus || "Sem status"}
-                      </MasterStatusBadge>
-                      {endpoint.whatsappStatusUpdatedAt ? <small>{formatDateTime(endpoint.whatsappStatusUpdatedAt)}</small> : null}
-                    </div>
-                    <div className={styles.endpointMeta}>
-                      <span>{endpoint.whatsappDisplayNumber || endpoint.whatsappNumber || "Sem número"}</span>
-                      <span>{endpoint.whatsappPhoneNumberId || "Sem Phone ID"}</span>
-                      {endpoint.whatsappStatusError ? <span>{endpoint.whatsappStatusError}</span> : null}
-                    </div>
-                    <MasterActionButton
-                      variant="secondary"
-                      onClick={() => actions.validateWhatsAppEndpoint(endpoint.id)}
-                      disabled={!canValidate || state.busyAction === `whatsapp-endpoint-${endpoint.id}`}
-                    >
-                      {state.busyAction === `whatsapp-endpoint-${endpoint.id}` ? "Validando..." : "Validar endpoint"}
-                    </MasterActionButton>
-                  </article>
-                );
-              })}
-              {!company.whatsapp.endpoints.length ? <MasterEmptyState title="Sem endpoints WhatsApp cadastrados" /> : null}
-            </div>
-            {state.whatsAppMigrationWorkflowDraft ? (
-              <div className={styles.inlineForm}>
-                <select value={state.whatsAppMigrationWorkflowDraft.status} onChange={(event) => actions.setWhatsAppMigrationWorkflowDraft((current) => current ? { ...current, status: event.target.value as "REQUESTED" | "CONTACTED" | "RESOLVED" } : current)}>
-                  <option value="REQUESTED">REQUESTED</option>
-                  <option value="CONTACTED">CONTACTED</option>
-                  <option value="RESOLVED">RESOLVED</option>
-                </select>
-                <input type="datetime-local" value={state.whatsAppMigrationWorkflowDraft.lastContactAt} onChange={(event) => actions.setWhatsAppMigrationWorkflowDraft((current) => current ? { ...current, lastContactAt: event.target.value } : current)} />
-                <input value={state.whatsAppMigrationWorkflowDraft.internalNote} onChange={(event) => actions.setWhatsAppMigrationWorkflowDraft((current) => current ? { ...current, internalNote: event.target.value } : current)} placeholder="Nota interna" />
-                <MasterActionButton variant="secondary" onClick={actions.saveWhatsAppMigrationWorkflow}>Salvar workflow</MasterActionButton>
-              </div>
-            ) : null}
-          </div>
-        </details>
-
-        <details className={styles.operationCard}>
-          <summary>Mercado Pago · {company.mercadoPago.status || "sem status"}</summary>
-          <div className={styles.operationBody}>
-            <div className={styles.operationStats}>
-              <InfoItem label="Token" value={company.mercadoPago.tokenConfigured ? "Configurado" : "Pendente"} />
-              <InfoItem label="Credencial Master" value={company.mercadoPago.usingMasterToken ? "Sim" : "Não"} />
-              <InfoItem label="Conta" value={company.mercadoPago.accountEmail || "-"} />
-            </div>
-            <div className={styles.inlineForm}>
-              <select
-                value={company.mercadoPago.masterCredentialKey || ""}
-                onChange={(event) => actions.setCompanyMasterTokenUsage({ masterMercadoPagoCredentialKey: event.target.value || undefined, useMasterMercadoPagoToken: true })}
-                disabled={!workspace?.masterIntegrations?.mercadoPagoLibrary.length}
-              >
-                <option value="">Credencial MASTER Mercado Pago</option>
-                {(workspace?.masterIntegrations?.mercadoPagoLibrary || []).map((credential) => (
-                  <option key={credential.key} value={credential.key}>{credential.label}</option>
-                ))}
-              </select>
-              <MasterActionButton variant="secondary" onClick={() => actions.setCompanyMasterTokenUsage({ useMasterMercadoPagoToken: !company.mercadoPago.usingMasterToken })}>
-                {company.mercadoPago.usingMasterToken ? "Usar token próprio" : "Usar Token MASTER"}
-              </MasterActionButton>
-              <input value={state.mercadoPagoDraft?.mercadoPagoAccessToken || ""} onChange={(event) => actions.setMercadoPagoDraft((current) => current ? { ...current, mercadoPagoAccessToken: event.target.value } : current)} placeholder="Access token Mercado Pago" />
-              <MasterActionButton
-                variant={state.mercadoPagoDraft?.mercadoPagoAccessToken.trim() ? "primary" : "secondary"}
-                onClick={state.mercadoPagoDraft?.mercadoPagoAccessToken.trim() ? actions.saveAndValidateMercadoPagoConfig : actions.validateMercadoPagoConfig}
-                disabled={state.busyAction === `mp-save-validate-${company.id}` || state.busyAction === `mp-validate-${company.id}`}
-              >
-                {state.mercadoPagoDraft?.mercadoPagoAccessToken.trim() ? "Salvar e validar" : "Validar"}
-              </MasterActionButton>
-              <MasterActionButton variant="secondary" onClick={actions.saveMercadoPagoConfig}>Salvar</MasterActionButton>
-            </div>
-            {state.mercadoPagoDraft?.statusError ? <div className={styles.alertDanger}>{state.mercadoPagoDraft.statusError}</div> : null}
-          </div>
-        </details>
-
-        <details className={styles.operationCard}>
-          <summary>Integrações · AUVO / TagPlus</summary>
-          <div className={styles.operationBody}>
-            <div className={styles.actionCluster}>
-              <MasterActionButton variant="secondary" onClick={() => actions.loadCompanyIntegrations(company.id)}>
-                {state.integrationsLoading ? "Carregando..." : "Carregar integrações"}
-              </MasterActionButton>
-              <MasterActionButton onClick={() => actions.openIntegrationEditor("AUVO")}>Nova AUVO</MasterActionButton>
-              <MasterActionButton onClick={() => actions.openIntegrationEditor("TAGPLUS")}>Nova TagPlus</MasterActionButton>
-            </div>
-            <IntegrationEditor state={state} actions={actions} />
-            <div className={styles.integrationList}>
-              {state.companyIntegrations.map((connection) => (
-                <IntegrationRow key={connection.id} connection={connection} actions={actions} />
-              ))}
-            </div>
-          </div>
-        </details>
+function MasterCompanyConnectionsPanel({ company, actions, state }: { company: CompanyDetailPayload["company"]; actions: CommandActions; state: CommandState }) {
+  return (
+    <section className={styles.panelSection}>
+      <div className={styles.sectionTitle}>
+        <span>Integrações</span>
+        <h3>AUVO, TagPlus e conexões externas</h3>
+      </div>
+      <div className={styles.actionCluster}>
+        <MasterActionButton variant="secondary" onClick={() => actions.loadCompanyIntegrations(company.id)}>
+          {state.integrationsLoading ? "Carregando..." : "Carregar integrações"}
+        </MasterActionButton>
+        <MasterActionButton onClick={() => actions.openIntegrationEditor("AUVO")}>Nova AUVO</MasterActionButton>
+        <MasterActionButton onClick={() => actions.openIntegrationEditor("TAGPLUS")}>Nova TagPlus</MasterActionButton>
+      </div>
+      <IntegrationEditor state={state} actions={actions} />
+      <div className={styles.integrationList}>
+        {state.companyIntegrations.map((connection) => (
+          <IntegrationRow key={connection.id} connection={connection} actions={actions} />
+        ))}
+        {!state.companyIntegrations.length ? <MasterEmptyState title="Nenhuma integração carregada" description="Carregue as conexões antes de testar ou sincronizar." /> : null}
       </div>
     </section>
   );

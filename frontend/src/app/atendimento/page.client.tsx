@@ -557,6 +557,30 @@ function SearchIcon({ className }: { className?: string }) {
   );
 }
 
+function RobotIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      <rect x="6" y="8" width="12" height="10" rx="3" />
+      <path d="M12 5v3" />
+      <path d="M9.2 13h.01" />
+      <path d="M14.8 13h.01" />
+      <path d="M10 16h4" />
+      <path d="M4 12h2" />
+      <path d="M18 12h2" />
+      <path d="M9 21h6" />
+    </svg>
+  );
+}
+
 function DockButton({
   icon,
   label,
@@ -575,7 +599,7 @@ function DockButton({
   return (
     <button
       type="button"
-      className={styles.commandDockButton}
+      className={`${styles.commandDockButton} hbx-tab-glide__item`}
       data-active={active ? "true" : "false"}
       onClick={onClick}
       aria-label={label}
@@ -2480,17 +2504,7 @@ function renderInboxConversationPreview(conversation?: InboxConversation | null)
   const prospectionStatus = getInboxProspectionStatusMeta(conversation);
   if (!prospectionStatus) return preview;
   const subtitle = String(prospectionStatus.subtitle || "").trim();
-  return (
-    <span className={styles.conversationPreviewStack}>
-      <span className={styles.conversationPreviewText}>{preview}</span>
-      {subtitle ? (
-        <span className={styles.conversationProspectionLine}>
-          <span className={styles.conversationProspectionMiniBadge}>{prospectionStatus.badge}</span>
-          <span className={styles.conversationProspectionSubtitle}>{subtitle}</span>
-        </span>
-      ) : null}
-    </span>
-  );
+  return subtitle ? `${preview} · ${prospectionStatus.badge} ${subtitle}` : preview;
 }
 
 function getInboxConversationSubtitle(conversation?: InboxConversation | null) {
@@ -6300,7 +6314,6 @@ function InboxDesktopClientPage() {
                   conversation,
                 );
                 const displayName = resolveInboxConversationDisplayName(conversation);
-                const subtitleLabel = getInboxConversationSubtitle(conversation);
                 const previewLabel = renderInboxConversationPreview(conversation);
                 const prospectionStatusMeta = getInboxProspectionStatusMeta(conversation);
                 const interested = isProspectingInterestedHandoffConversation(conversation);
@@ -6344,7 +6357,7 @@ function InboxDesktopClientPage() {
                           : mapAtendimentoConversationToneToQueueTone(statusMeta.tone)
                     }
                     title={displayName}
-                    subtitle={subtitleLabel}
+                    subtitle={undefined}
                     preview={previewLabel}
                     badges={
                       unreadCount > 0 || interested ? (
@@ -6428,7 +6441,7 @@ function InboxDesktopClientPage() {
           ) : (
             <section
               key={conversationForView.id}
-              className={`${styles.whatsAppConversationShell} ${styles.whatsAppConversationShellTransition} ${
+              className={`${styles.whatsAppConversationShell} hbx-page-mobile-enter ${
                 isConversationStageSwitching ? styles.whatsAppConversationShellLoading : ""
               } ${selectedConversationIsPersonal ? styles.whatsAppConversationShellPersonal : ""}`}
             >
@@ -7186,9 +7199,9 @@ function InboxDesktopClientPage() {
                 items={CONTEXT_TAB_ITEMS}
                 value={contextTab}
                 onChange={(nextValue) => setContextTab(nextValue as ContextTab)}
-                className={styles.contextTabs}
-                highlightClassName={styles.contextTabHighlight}
-                buttonClassName={styles.contextTab}
+                className={`${styles.contextTabs} hbx-tab-glide`}
+                highlightClassName={`${styles.contextTabHighlight} hbx-tab-glide__item`}
+                buttonClassName={`${styles.contextTab} hbx-tab-glide__item`}
                 activeButtonClassName={styles.contextTabActive}
                 role="tablist"
                 buttonRole="tab"
@@ -8315,15 +8328,6 @@ function InboxDesktopClientPage() {
           </section>
         ) : activeTab === "messages" ? (
           <section className={styles.premiumInboxShell} data-ui-no-reveal="true">
-            <ProspectingAutomationStatus
-              status={prospectingAutomationStatus}
-              loading={prospectingAutomationLoading}
-              actionLoading={Boolean(prospectingAutomationAction)}
-              disabled={!globalBotEnabled}
-              onConfigure={() => router.push("/vendas/automacao?tab=prospeccao")}
-              onPause={() => void runProspectingAutomationAction("pause")}
-              onResume={() => void runProspectingAutomationAction("resume")}
-            />
             <section className={styles.inboxCanvas}>
               <aside className={styles.commandDock}>
                 <div className={styles.commandDockTop}>
@@ -8352,6 +8356,20 @@ function InboxDesktopClientPage() {
                     }
                   >
                     <span>Hbot</span>
+                  </button>
+                  <button
+                    type="button"
+                    className={styles.commandDockRobotButton}
+                    data-busy={prospectingAutomationLoading ? "true" : "false"}
+                    data-enabled={globalBotEnabled ? "true" : "false"}
+                    onClick={() => router.push("/vendas/automacao?tab=prospeccao")}
+                    aria-label="Abrir automação de prospecção"
+                    title="Automação de prospecção"
+                  >
+                    <RobotIcon className={styles.commandDockRobotIcon} />
+                    {globalBotEnabled ? (
+                      <span className={styles.commandDockRobotStatus} aria-hidden="true" />
+                    ) : null}
                   </button>
                 </div>
                 <div className={styles.commandDockNav}>
@@ -8448,7 +8466,7 @@ function InboxDesktopClientPage() {
         ? createPortal(
             <div
               ref={queueActionMenuRef}
-              className={`${styles.conversationQueueMetaPopup} ${styles.conversationQueueMetaPopupPortal}`}
+              className={`${styles.conversationQueueMetaPopup} ${styles.conversationQueueMetaPopupPortal} hbx-qr-card-pop`}
               style={{
                 top: `${queueActionMenuPosition.top}px`,
                 left: `${queueActionMenuPosition.left}px`,

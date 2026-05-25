@@ -57,7 +57,7 @@ test('seat billing charges the occupied seller slot, not each replaced seller', 
   assert.equal(snapshot.extraSeatCycleAmount, 24.9);
 });
 
-test('seat billing only counts active sellers, not admins', () => {
+test('seat billing counts active customer admins as seller seats', () => {
   const base = {
     companyId: 10,
     isActive: true,
@@ -66,6 +66,7 @@ test('seat billing only counts active sellers, not admins', () => {
   };
 
   assert.equal(isBillableUserSeatSnapshot({ ...base, role: 'USER' }), true);
-  assert.equal(isBillableUserSeatSnapshot({ ...base, role: 'ADMIN' }), false);
+  assert.equal(isBillableUserSeatSnapshot({ ...base, role: 'ADMIN' }), true);
   assert.equal(isBillableUserSeatSnapshot({ ...base, role: 'USERMASTER' }), false);
+  assert.equal(isBillableUserSeatSnapshot({ ...base, role: 'ADMIN', isSystemMaster: true }), false);
 });

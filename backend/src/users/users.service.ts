@@ -59,7 +59,7 @@ export class UsersService {
         isActive: true,
         deactivatedAt: null,
         isSystemMaster: false,
-        role: 'USER',
+        role: { in: ['USER', 'ADMIN'] },
       },
     });
   }
@@ -214,7 +214,7 @@ export class UsersService {
           isActive: true,
           deactivatedAt: null,
           isSystemMaster: false,
-          role: 'USER',
+          role: { in: ['USER', 'ADMIN'] },
         },
       }),
     ]);
