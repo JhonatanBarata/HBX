@@ -61,16 +61,20 @@ export function isMasterOperationalCompanySlug(slug: unknown) {
   return String(slug || '').trim().toLowerCase() === MASTER_WHATSAPP_ENGINE_COMPANY_SLUG;
 }
 
+export function isBillableSellerRole(roleRaw: unknown) {
+  const role = String(roleRaw || '').trim().toUpperCase();
+  return role === 'USER' || role === 'ADMIN';
+}
+
 export function isBillableUserSeatSnapshot(user: any, company?: any) {
   if (!user) return false;
   if (company && isMasterOperationalCompanySlug(company.slug)) return false;
-  const role = String(user?.role || '').trim().toUpperCase();
   return (
     Boolean(user?.companyId) &&
     Boolean(user?.isActive) &&
     !user?.deactivatedAt &&
     !Boolean(user?.isSystemMaster) &&
-    role === 'USER'
+    isBillableSellerRole(user?.role)
   );
 }
 
@@ -208,7 +212,7 @@ export async function computeCompanySeatBillingSnapshot(prisma: any, input: {
       isActive: true,
       deactivatedAt: null,
       isSystemMaster: false,
-      role: 'USER',
+      role: { in: ['USER', 'ADMIN'] },
     },
   });
 
@@ -217,7 +221,7 @@ export async function computeCompanySeatBillingSnapshot(prisma: any, input: {
     intervals = await prisma.companyBillableSeatUsage.findMany({
       where: {
         companyId,
-        role: 'USER',
+        role: { in: ['USER', 'ADMIN'] },
         startedAt: { lt: periodEnd },
         OR: [{ endedAt: null }, { endedAt: { gt: periodStart } }],
       },
@@ -234,7 +238,7 @@ export async function computeCompanySeatBillingSnapshot(prisma: any, input: {
         companyId,
         createdAt: { lt: periodEnd },
         isSystemMaster: false,
-        role: 'USER',
+        role: { in: ['USER', 'ADMIN'] },
         OR: [{ deactivatedAt: null }, { deactivatedAt: { gt: periodStart } }],
       },
       select: {

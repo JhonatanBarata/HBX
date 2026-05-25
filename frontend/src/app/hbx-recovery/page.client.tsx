@@ -4921,13 +4921,7 @@ export default function HbxRecoveryClientPage({ embedded = false }: HbxRecoveryC
     return (
       <article
         ref={templatePreviewWindowRef}
-        className={`${styles.templatePreviewPanel} ${styles.templatePreviewPopup} ${styles.tabTransitionStage} ${
-          templatePreviewTransitionStage === "exit"
-            ? styles.tabTransitionExit
-            : templatePreviewTransitionStage === "enter"
-              ? styles.tabTransitionEnter
-              : ""
-        }`}
+        className={`${styles.templatePreviewPanel} ${styles.templatePreviewPopup} hbx-qr-card-pop`}
         style={templateWindowStyleById.preview}
       >
         <div className={`${styles.templatePreviewHeader} ${styles.templatePreviewWindowHeader}`}>
@@ -6549,13 +6543,8 @@ export default function HbxRecoveryClientPage({ embedded = false }: HbxRecoveryC
           <div
             className={`alert ${
               noticeTone === "error" ? "alert-error" : "alert-info"
-            } ${styles.noticeToast} ${styles.tabTransitionStage} ${
-              noticeTransitionStage === "exit"
-                ? styles.tabTransitionExit
-                : noticeTransitionStage === "enter"
-                  ? styles.tabTransitionEnter
-                  : ""
-            }`}
+            } ${styles.noticeToast} hbx-card-enter hbx-live-pulse`}
+            data-live={noticeTransitionStage === "enter" ? "true" : "false"}
           >
             <span>{notice}</span>
             <button
@@ -6573,7 +6562,7 @@ export default function HbxRecoveryClientPage({ embedded = false }: HbxRecoveryC
 
       {humanAttentionPopup ? (
         <div className={styles.humanAttentionViewport} role="status" aria-live="polite">
-          <div className={`${styles.humanAttentionCard} ${styles.tabTransitionStage} ${styles.tabTransitionEnter}`}>
+          <div className={`${styles.humanAttentionCard} hbx-card-enter hbx-live-pulse`} data-live="true">
             <div className={styles.humanAttentionHeader}>
               <div>
                 <p className={styles.humanAttentionEyebrow}>
@@ -6621,13 +6610,14 @@ export default function HbxRecoveryClientPage({ embedded = false }: HbxRecoveryC
         embedded={embedded}
         actions={
           <div className={styles.heroActions}>
-              <div className={styles.heroTabGroup} role="tablist" aria-label="Guias da inadimplencia">
+              <div className={`${styles.heroTabGroup} hbx-tab-glide`} role="tablist" aria-label="Guias da inadimplencia">
               {!embedded ? (
                 <button
                   type="button"
                   role="tab"
                   aria-selected={false}
-                  className={styles.heroTab}
+                  data-active="false"
+                  className={`${styles.heroTab} hbx-tab-glide__item`}
                   onClick={() => window.location.assign("/atendimento")}
                 >
                   Atendimento
@@ -6637,7 +6627,8 @@ export default function HbxRecoveryClientPage({ embedded = false }: HbxRecoveryC
                 type="button"
                 role="tab"
                 aria-selected={activeTab === "recovery"}
-                className={activeTab === "recovery" ? styles.heroTabActive : styles.heroTab}
+                data-active={activeTab === "recovery" ? "true" : "false"}
+                className={`${activeTab === "recovery" ? styles.heroTabActive : styles.heroTab} hbx-tab-glide__item`}
                 onClick={() => handleTabChange("recovery")}
               >
                 Inadimplencia
@@ -6646,7 +6637,8 @@ export default function HbxRecoveryClientPage({ embedded = false }: HbxRecoveryC
                 type="button"
                 role="tab"
                 aria-selected={activeTab === "register"}
-                className={activeTab === "register" ? styles.heroTabActive : styles.heroTab}
+                data-active={activeTab === "register" ? "true" : "false"}
+                className={`${activeTab === "register" ? styles.heroTabActive : styles.heroTab} hbx-tab-glide__item`}
                 onClick={() => handleTabChange("register")}
                 style={embedded ? { display: "none" } : undefined}
               >
@@ -6656,7 +6648,8 @@ export default function HbxRecoveryClientPage({ embedded = false }: HbxRecoveryC
                 type="button"
                 role="tab"
                 aria-selected={activeTab === "payments"}
-                className={activeTab === "payments" ? styles.heroTabActive : styles.heroTab}
+                data-active={activeTab === "payments" ? "true" : "false"}
+                className={`${activeTab === "payments" ? styles.heroTabActive : styles.heroTab} hbx-tab-glide__item`}
                 onClick={() => handleTabChange("payments")}
               >
                 Histórico de pagamentos
@@ -6665,7 +6658,8 @@ export default function HbxRecoveryClientPage({ embedded = false }: HbxRecoveryC
                 type="button"
                 role="tab"
                 aria-selected={activeTab === "messages"}
-                className={activeTab === "messages" ? styles.heroTabActive : styles.heroTab}
+                data-active={activeTab === "messages" ? "true" : "false"}
+                className={`${activeTab === "messages" ? styles.heroTabActive : styles.heroTab} hbx-tab-glide__item`}
                 onClick={() => handleTabChange("messages")}
               >
                 Chat
@@ -6674,7 +6668,8 @@ export default function HbxRecoveryClientPage({ embedded = false }: HbxRecoveryC
                 type="button"
                 role="tab"
                 aria-selected={activeTab === "templates"}
-                className={activeTab === "templates" ? styles.heroTabActive : styles.heroTab}
+                data-active={activeTab === "templates" ? "true" : "false"}
+                className={`${activeTab === "templates" ? styles.heroTabActive : styles.heroTab} hbx-tab-glide__item`}
                 onClick={() => handleTabChange("templates")}
               >
                 Templates Meta
@@ -6684,7 +6679,8 @@ export default function HbxRecoveryClientPage({ embedded = false }: HbxRecoveryC
                   type="button"
                   role="tab"
                   aria-selected={activeTab === "bot"}
-                  className={activeTab === "bot" ? styles.heroTabActive : styles.heroTab}
+                  data-active={activeTab === "bot" ? "true" : "false"}
+                  className={`${activeTab === "bot" ? styles.heroTabActive : styles.heroTab} hbx-tab-glide__item`}
                   onClick={() => handleTabChange("bot")}
                 >
                   Editor do bot
@@ -6704,16 +6700,10 @@ export default function HbxRecoveryClientPage({ embedded = false }: HbxRecoveryC
         }
       >
         <div
-          className={`${styles.tabTransitionStage} ${
-            tabTransitionStage === "exit"
-              ? styles.tabTransitionExit
-              : tabTransitionStage === "enter"
-                ? styles.tabTransitionEnter
-                : ""
-          }`}
+          className="hbx-page-mobile-enter"
         >
         {renderedTab === "register" && !embedded ? (
-          <section className={`panel ${styles.sectionCard} ${styles.registerPanel}`}>
+          <section className={`panel ${styles.sectionCard} ${styles.registerPanel} hbx-card-enter`}>
             <div className={styles.sectionHeader}>
               <div>
                 <p className={styles.sectionEyebrow}>Cadastro operacional</p>
@@ -6725,7 +6715,7 @@ export default function HbxRecoveryClientPage({ embedded = false }: HbxRecoveryC
             </div>
 
             <div className={styles.registerGrid}>
-              <article className={styles.registerCard}>
+              <article className={`${styles.registerCard} hbx-card-enter`}>
                 <label className={styles.fieldBlock}>
                   <span>Empresa</span>
                   <input
@@ -6832,7 +6822,7 @@ export default function HbxRecoveryClientPage({ embedded = false }: HbxRecoveryC
                 </div>
               </article>
 
-              <article className={styles.registerCard}>
+              <article className={`${styles.registerCard} hbx-card-enter`}>
                 <p className={styles.sectionEyebrow}>Importacao e integracoes</p>
                 <h3 className={styles.sectionTitle}>Entrada em lote</h3>
                 <p className={styles.sectionDescription}>
@@ -6923,7 +6913,7 @@ export default function HbxRecoveryClientPage({ embedded = false }: HbxRecoveryC
               </article>
             </div>
 
-            <article className={`panel ${styles.sectionCard} ${styles.registerTableCard}`}>
+            <article className={`panel ${styles.sectionCard} ${styles.registerTableCard} hbx-card-enter`}>
               <div className={styles.sectionHeader}>
                 <div>
                   <p className={styles.sectionEyebrow}>Base atual</p>
@@ -7015,7 +7005,7 @@ export default function HbxRecoveryClientPage({ embedded = false }: HbxRecoveryC
                       <tr
                         key={`register-${customer.id}`}
                         tabIndex={0}
-                        className={`${styles.tableRow} ${
+                        className={`${styles.tableRow} hbx-card-enter ${
                           drawerCustomerId === customer.id ? styles.tableRowActive : ""
                         }`}
                         onClick={() => openCustomer(customer.id)}
@@ -7125,7 +7115,7 @@ export default function HbxRecoveryClientPage({ embedded = false }: HbxRecoveryC
         {renderedTab === "recovery" ? (
           <>
         <section className={styles.impactGrid}>
-          <article className={`panel panel-interactive ${styles.impactCard}`}>
+          <article className={`panel panel-interactive ${styles.impactCard} hbx-card-enter`}>
             <p className={styles.cardEyebrow}>Impacto financeiro</p>
             <h2 className={styles.cardTitle}>Dinheiro Parado</h2>
             <p className={styles.cardValue}>
@@ -7137,7 +7127,7 @@ export default function HbxRecoveryClientPage({ embedded = false }: HbxRecoveryC
             <p className={styles.cardFoot}>Total vencido atualmente</p>
           </article>
 
-          <article className={`panel panel-interactive ${styles.impactCard}`}>
+          <article className={`panel panel-interactive ${styles.impactCard} hbx-card-enter`}>
             <p className={styles.cardEyebrow}>Janela imediata</p>
             <h2 className={styles.cardTitle}>A vencer</h2>
             <p className={styles.cardValue}>
@@ -7149,7 +7139,7 @@ export default function HbxRecoveryClientPage({ embedded = false }: HbxRecoveryC
             <p className={styles.cardFoot}>Proximos 7 dias</p>
           </article>
 
-          <article className={`panel panel-interactive ${styles.impactCard}`}>
+          <article className={`panel panel-interactive ${styles.impactCard} hbx-card-enter`}>
             <p className={styles.cardEyebrow}>Performance</p>
             <h2 className={styles.cardTitle}>Recuperado este mes</h2>
             <p className={styles.cardValue}>
@@ -7162,7 +7152,7 @@ export default function HbxRecoveryClientPage({ embedded = false }: HbxRecoveryC
           </article>
 
           <article
-            className={`panel panel-interactive ${styles.impactCard} ${styles.highlightCard}`}
+            className={`panel panel-interactive ${styles.impactCard} ${styles.highlightCard} hbx-card-enter`}
           >
             <div className={styles.highlightHeader}>
               <div>
@@ -7205,7 +7195,7 @@ export default function HbxRecoveryClientPage({ embedded = false }: HbxRecoveryC
         </section>
 
         <section>
-          <article className={`panel ${styles.sectionCard}`}>
+          <article className={`panel ${styles.sectionCard} hbx-card-enter`}>
             <div className={styles.sectionHeader}>
               <div>
                 <p className={styles.sectionEyebrow}>Inteligência de recuperação</p>
@@ -8598,7 +8588,7 @@ export default function HbxRecoveryClientPage({ embedded = false }: HbxRecoveryC
         ) : null}
 
         {renderedTab === "payments" ? (
-          <section className={`panel ${styles.sectionCard} ${styles.paymentHistoryPanel}`}>
+          <section className={`panel ${styles.sectionCard} ${styles.paymentHistoryPanel} hbx-card-enter`}>
             <div className={styles.sectionHeader}>
               <div>
                 <p className={styles.sectionEyebrow}>Atualizacao ao vivo</p>
@@ -8619,7 +8609,7 @@ export default function HbxRecoveryClientPage({ embedded = false }: HbxRecoveryC
             <div className={styles.paymentStatusCards}>
               <button
                 type="button"
-                className={`${styles.paymentStatusCard} ${
+                className={`${styles.paymentStatusCard} hbx-card-enter ${
                   paymentFilter === "paid" ? styles.paymentStatusCardActive : ""
                 }`}
                 onClick={() => setPaymentFilter("paid")}
@@ -8629,7 +8619,7 @@ export default function HbxRecoveryClientPage({ embedded = false }: HbxRecoveryC
               </button>
               <button
                 type="button"
-                className={`${styles.paymentStatusCard} ${
+                className={`${styles.paymentStatusCard} hbx-card-enter ${
                   paymentFilter === "in_progress" ? styles.paymentStatusCardActive : ""
                 }`}
                 onClick={() => setPaymentFilter("in_progress")}
@@ -8639,7 +8629,7 @@ export default function HbxRecoveryClientPage({ embedded = false }: HbxRecoveryC
               </button>
               <button
                 type="button"
-                className={`${styles.paymentStatusCard} ${
+                className={`${styles.paymentStatusCard} hbx-card-enter ${
                   paymentFilter === "finalized" ? styles.paymentStatusCardActive : ""
                 }`}
                 onClick={() => setPaymentFilter("finalized")}
@@ -8649,7 +8639,7 @@ export default function HbxRecoveryClientPage({ embedded = false }: HbxRecoveryC
               </button>
               <button
                 type="button"
-                className={`${styles.paymentStatusCard} ${
+                className={`${styles.paymentStatusCard} hbx-card-enter ${
                   paymentFilter === "cancelled" ? styles.paymentStatusCardActive : ""
                 }`}
                 onClick={() => setPaymentFilter("cancelled")}
@@ -8660,38 +8650,38 @@ export default function HbxRecoveryClientPage({ embedded = false }: HbxRecoveryC
             </div>
 
             <div className={styles.paymentTotalsGrid}>
-              <article className={styles.paymentTotalCard}>
+              <article className={`${styles.paymentTotalCard} hbx-card-enter`}>
                 <span>Total aprovado</span>
                 <strong>{formatCurrency(paymentSummary.totals.totalApprovedAmount)}</strong>
               </article>
-              <article className={styles.paymentTotalCard}>
+              <article className={`${styles.paymentTotalCard} hbx-card-enter`}>
                 <span>Taxa 3,00%</span>
                 <strong>{formatCurrency(paymentSummary.totals.totalCommissionAmount)}</strong>
               </article>
-              <article className={styles.paymentTotalCard}>
+              <article className={`${styles.paymentTotalCard} hbx-card-enter`}>
                 <span>Qtd. aprovada</span>
                 <strong>{paymentSummary.totals.totalApprovedCount} cobrancas</strong>
               </article>
-              <article className={styles.paymentTotalCard}>
+              <article className={`${styles.paymentTotalCard} hbx-card-enter`}>
                 <span>Pendentes</span>
                 <strong>{paymentSummary.totals.pendingCount} cobrancas</strong>
               </article>
             </div>
 
             <div className={styles.paymentBillingGrid}>
-              <article className={styles.paymentBillingCard}>
+              <article className={`${styles.paymentBillingCard} hbx-card-enter`}>
                 <span>Aguardando pagamento</span>
                 <strong>{formatCurrency(paymentSummary.billing.pendingAmount)}</strong>
               </article>
-              <article className={styles.paymentBillingCard}>
+              <article className={`${styles.paymentBillingCard} hbx-card-enter`}>
                 <span>Faturamento bruto</span>
                 <strong>{formatCurrency(paymentSummary.billing.grossAmount)}</strong>
               </article>
-              <article className={styles.paymentBillingCard}>
+              <article className={`${styles.paymentBillingCard} hbx-card-enter`}>
                 <span>Comissao 3,00%</span>
                 <strong>{formatCurrency(paymentSummary.billing.commissionAmount)}</strong>
               </article>
-              <article className={styles.paymentBillingCard}>
+              <article className={`${styles.paymentBillingCard} hbx-card-enter`}>
                 <span>Faturamento liquido</span>
                 <strong>{formatCurrency(paymentSummary.billing.netAmount)}</strong>
               </article>
@@ -8706,7 +8696,7 @@ export default function HbxRecoveryClientPage({ embedded = false }: HbxRecoveryC
                 </div>
               ) : (
                 paymentSummary.records.map((payment) => (
-                  <article key={payment.id} className={styles.paymentRowCard}>
+                  <article key={payment.id} className={`${styles.paymentRowCard} hbx-card-enter`}>
                     <div>
                       <p className={styles.historyTitle}>{payment.customerName}</p>
                       <p className={styles.historyMeta}>

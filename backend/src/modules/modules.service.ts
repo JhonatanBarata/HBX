@@ -332,7 +332,7 @@ export class ModulesService implements OnModuleInit {
     const activeUsers = Array.isArray(company?.users)
       ? company.users.filter((user: any) => {
           const role = String(user?.role || '').trim().toUpperCase();
-          return Boolean(user?.isActive) && !user?.deactivatedAt && !Boolean(user?.isSystemMaster) && role === 'USER';
+          return Boolean(user?.isActive) && !user?.deactivatedAt && !Boolean(user?.isSystemMaster) && (role === 'USER' || role === 'ADMIN');
         }).length
       : 0;
     const includedActiveUsers = 2;
@@ -2153,12 +2153,11 @@ export class ModulesService implements OnModuleInit {
               ? Boolean(userAccessMap.get(row.moduleId))
               : this.defaultUserModuleAllowed(user, moduleItem.key));
         const roleEligible = this.canUseAdminOnlyModule(user, moduleItem.key);
-        const visible = normalizedKey === 'webscraping'
-          ? false
-          : primaryCommercialModule ||
-            (guardedCommercialModule && Boolean(row)) ||
-            Boolean(effectiveCompanyEnabled && userAllowed && roleEligible) ||
-            Boolean(financeModule && userAllowed && roleEligible);
+        const visible =
+          primaryCommercialModule ||
+          (guardedCommercialModule && Boolean(row)) ||
+          Boolean(effectiveCompanyEnabled && userAllowed && roleEligible) ||
+          Boolean(financeModule && userAllowed && roleEligible);
         let blockedReason: string | null = null;
         let blockedCode: string | null = null;
         let criticalEngine: string | null = null;

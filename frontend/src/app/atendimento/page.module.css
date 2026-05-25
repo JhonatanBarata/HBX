@@ -489,10 +489,6 @@
   isolation: isolate;
 }
 
-.whatsAppConversationShellTransition {
-  animation: inbox-conversation-enter var(--motion-base) both;
-}
-
 .whatsAppConversationShellLoading {
   transition:
     transform var(--motion-base),
@@ -539,20 +535,6 @@
   background: #25d366;
   box-shadow: 0 0 0 0 rgba(37, 211, 102, 0.4);
   animation: inbox-stage-chip-pulse 1s ease-in-out infinite;
-}
-
-@keyframes inbox-conversation-enter {
-  from {
-    opacity: 0;
-    transform: translateY(8px) scale(0.994);
-    filter: saturate(0.96);
-  }
-
-  to {
-    opacity: 1;
-    transform: translateY(0) scale(1);
-    filter: saturate(1);
-  }
 }
 
 @keyframes inbox-stage-mask-in {
@@ -1628,6 +1610,9 @@
 
 .conversationQueueItem {
   isolation: isolate;
+  height: 72px;
+  min-height: 72px;
+  max-height: 72px;
 }
 
 .conversationQueueItem::after {
@@ -1656,6 +1641,12 @@
 .conversationQueueItem p,
 .conversationQueueItem span {
   transition: color var(--motion-fast);
+}
+
+.conversationQueueItem p {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .conversationQueueItemUnread {
@@ -1969,7 +1960,6 @@
   left: 0;
   right: auto;
   z-index: 1200;
-  animation: inbox-queue-menu-in var(--motion-fast) both;
 }
 
 .conversationQueueMetaPopupAction {
@@ -1995,18 +1985,6 @@
 
 .conversationQueueMetaPopupActionDanger:hover {
   background: color-mix(in srgb, var(--danger) 10%, var(--background));
-}
-
-@keyframes inbox-queue-menu-in {
-  from {
-    opacity: 0;
-    transform: translateY(-4px) scale(0.98);
-  }
-
-  to {
-    opacity: 1;
-    transform: translateY(0) scale(1);
-  }
 }
 
 .conversationContent {
@@ -6212,8 +6190,9 @@
 .commandDock {
   min-height: 0;
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto;
-  gap: 0.95rem;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  align-content: start;
+  gap: 0.58rem;
   padding: 0.82rem 0.58rem;
   border-radius: 26px;
   border: 1px solid rgba(96, 119, 186, 0.22);
@@ -6230,7 +6209,7 @@
 .commandDockNav {
   display: grid;
   justify-items: center;
-  gap: 0.7rem;
+  gap: 0.48rem;
 }
 
 .commandDockBrand {
@@ -6282,6 +6261,69 @@
 .commandDockBrand span {
   position: relative;
   z-index: 1;
+}
+
+.commandDockRobotButton {
+  position: relative;
+  width: 52px;
+  height: 52px;
+  display: grid;
+  place-items: center;
+  border-radius: 18px;
+  border: 1px solid rgba(103, 129, 216, 0.18);
+  background: rgba(11, 18, 36, 0.72);
+  color: rgba(237, 243, 255, 0.78);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    0 10px 24px rgba(2, 6, 23, 0.16);
+  cursor: pointer;
+  transition:
+    transform var(--motion-fast),
+    border-color var(--motion-fast),
+    background-color var(--motion-fast),
+    color var(--motion-fast),
+    box-shadow var(--motion-fast);
+}
+
+.commandDockRobotButton:hover {
+  transform: translateY(-1px);
+  border-color: rgba(113, 140, 228, 0.3);
+  background: rgba(17, 28, 58, 0.88);
+  color: #e6eeff;
+}
+
+.commandDockRobotButton[data-busy="true"] {
+  border-color: rgba(37, 211, 102, 0.38);
+  color: #dcfce7;
+}
+
+.commandDockRobotButton[data-enabled="false"] {
+  opacity: 1;
+  filter: none;
+  color: rgba(238, 243, 255, 0.96);
+  border-color: rgba(180, 194, 232, 0.34);
+  background:
+    radial-gradient(circle at 30% 22%, rgba(255, 255, 255, 0.14), transparent 38%),
+    linear-gradient(145deg, rgba(80, 88, 108, 0.92), rgba(52, 58, 72, 0.92));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.16),
+    0 12px 24px rgba(2, 6, 23, 0.2);
+}
+
+.commandDockRobotIcon {
+  width: 25px;
+  height: 25px;
+}
+
+.commandDockRobotStatus {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: #25d366;
+  box-shadow: 0 0 0 4px rgba(37, 211, 102, 0.14);
 }
 
 @keyframes commandDockBrandPulse {

@@ -58,6 +58,7 @@ export default function WorkspaceSegmentedControl({
             role={buttonRole}
             aria-pressed={active}
             aria-selected={role === "tablist" ? active : undefined}
+            data-active={active ? "true" : "false"}
             className={nextClassName}
             onClick={() => onChange(item.id)}
           >

@@ -22,12 +22,6 @@ const THEME_MODE_OPTIONS = [
   { id: "dark", label: "Escuro" },
 ] as const;
 
-const THEME_SCOPE_DESCRIPTIONS: Record<ThemePreferenceScope, string> = {
-  system: "Padrão global do sistema. O master decide aqui.",
-  company: "Padrão da empresa para quem não tem override pessoal.",
-  user: "Seu override pessoal. Vale só para você.",
-};
-
 const THEME_TRANSITION_OPTIONS: ReadonlyArray<{
   id: HbxThemeMotionStyle;
   label: string;
@@ -54,34 +48,45 @@ const THEME_TRANSITION_OPTIONS: ReadonlyArray<{
   },
 ] as const;
 
-const THEME_EDITOR_GROUPS: ReadonlyArray<{
-  title: string;
-  description: string;
-  items: ReadonlyArray<{
-    key: keyof HbxThemeAppearanceConfig;
-    label: string;
-    hint: string;
-  }>;
+const THEME_EDITOR_COLOR_CONTROLS: ReadonlyArray<{
+  id: string;
+  key: keyof HbxThemeAppearanceConfig;
+  label: string;
+  hint: string;
+  base?: boolean;
+  linkedKeys?: ReadonlyArray<keyof HbxThemeAppearanceConfig>;
 }> = [
   {
-    title: "Botões",
-    description: "Cores dos principais CTAs e ações da interface.",
-    items: [
-      { key: "buttonPrimary", label: "Botão primário", hint: "Ação principal" },
-      { key: "buttonSecondary", label: "Desselecionado", hint: "Apoio e ações neutras" },
-      { key: "buttonSuccess", label: "Botão de sucesso", hint: "Confirmações positivas" },
-      { key: "buttonAccent", label: "Botão de destaque", hint: "Ações especiais e glow" },
-    ],
+    id: "base",
+    key: "brand",
+    label: "Principal",
+    hint: "Marca, seleção e menu ativo.",
+    base: true,
   },
   {
-    title: "Seleções e menus",
-    description: "Estados ativos, inativos e desativados da navegação e dos seletores.",
-    items: [
-      { key: "selectionAccent", label: "Seleção", hint: "Chips, abas e estado selecionado" },
-      { key: "menuActive", label: "Menu ativo", hint: "Card de módulo ativo" },
-      { key: "menuInactive", label: "Menu inativo", hint: "Texto e selo do estado neutro" },
-      { key: "menuDisabled", label: "Menu desativado", hint: "Itens bloqueados ou indisponíveis" },
-    ],
+    id: "primary",
+    key: "buttonPrimary",
+    label: "Primário",
+    hint: "CTA principal.",
+  },
+  {
+    id: "support",
+    key: "buttonSecondary",
+    label: "Apoio",
+    hint: "Ações neutras.",
+    linkedKeys: ["menuInactive"],
+  },
+  {
+    id: "success",
+    key: "buttonSuccess",
+    label: "Sucesso",
+    hint: "Confirmações positivas.",
+  },
+  {
+    id: "accent",
+    key: "buttonAccent",
+    label: "Destaque",
+    hint: "Ações especiais.",
   },
 ] as const;
 
@@ -271,7 +276,6 @@ export default function ThemeSwitcher() {
         (selectedScopeConfig.motion && Object.keys(selectedScopeConfig.motion).length))) ||
       hasThemeConfigEntries(editorDraftConfig),
   );
-  const previewScopeLabel = scopeOptions.find((item) => item.id === editorScope)?.label || "Você";
   const activeEditorPalette = React.useMemo(
     () => HBX_THEME_PALETTES[activeEditorState.selection.themeId][activeEditorState.selection.mode],
     [activeEditorState.selection.mode, activeEditorState.selection.themeId],
@@ -463,24 +467,36 @@ export default function ThemeSwitcher() {
     updateEditorDraftConfig({ selection: mergedSelection });
   }
 
-  function updateScopeBaseColor(value: string) {
-    const themedKeys = ["brand", "buttonPrimary", "selectionAccent", "menuActive"] as const;
-
+  function updateScopeThemeAppearance(
+    values: Partial<Record<keyof HbxThemeAppearanceConfig, string>>,
+    clearKeys: ReadonlyArray<keyof HbxThemeAppearanceConfig> = [],
+  ) {
     setEditorResetPending(false);
     setEditorDraftConfig((current) => {
       const next = mergeThemeConfigChain(current, {
         appearanceByTheme: {
-          [activeEditorState.selection.themeId]: {
-            brand: value,
-            buttonPrimary: value,
-            selectionAccent: value,
-            menuActive: value,
-          },
+          [activeEditorState.selection.themeId]: values,
         },
       });
+      const updatedKeys = [...Object.keys(values), ...clearKeys] as Array<keyof HbxThemeAppearanceConfig>;
+      const themeAppearance = next.appearanceByTheme?.[activeEditorState.selection.themeId];
+
+      if (themeAppearance) {
+        clearKeys.forEach((key) => {
+          delete themeAppearance[key];
+        });
+      }
+
+      if (next.appearanceByTheme && themeAppearance && !Object.keys(themeAppearance).length) {
+        delete next.appearanceByTheme[activeEditorState.selection.themeId];
+      }
+
+      if (next.appearanceByTheme && !Object.keys(next.appearanceByTheme).length) {
+        delete next.appearanceByTheme;
+      }
 
       if (next.appearance) {
-        themedKeys.forEach((key) => {
+        updatedKeys.forEach((key) => {
           delete next.appearance?.[key];
         });
         if (!Object.keys(next.appearance).length) delete next.appearance;
@@ -490,22 +506,36 @@ export default function ThemeSwitcher() {
     });
   }
 
-  function updateScopeAppearance(key: keyof HbxThemeAppearanceConfig, value: string) {
-    setEditorResetPending(false);
-    setEditorDraftConfig((current) => {
-      const next = mergeThemeConfigChain(current, {
-        appearanceByTheme: {
-          [activeEditorState.selection.themeId]: { [key]: value },
-        },
-      });
+  function updateScopeBaseColor(value: string) {
+    updateScopeThemeAppearance(
+      {
+        brand: value,
+        selectionAccent: value,
+        menuActive: value,
+      },
+      ["menuDisabled"],
+    );
+  }
 
-      if (next.appearance) {
-        delete next.appearance[key];
-        if (!Object.keys(next.appearance).length) delete next.appearance;
-      }
+  function updateScopeColorControl(
+    control: (typeof THEME_EDITOR_COLOR_CONTROLS)[number],
+    value: string,
+  ) {
+    if (control.base) {
+      updateScopeBaseColor(value);
+      return;
+    }
 
-      return next;
-    });
+    updateScopeThemeAppearance(
+      {
+        [control.key]: value,
+        ...(control.linkedKeys || []).reduce<Partial<Record<keyof HbxThemeAppearanceConfig, string>>>(
+          (acc, key) => ({ ...acc, [key]: value }),
+          {},
+        ),
+      },
+      ["menuDisabled"],
+    );
   }
 
   function updateScopeMotion(transitionStyle: HbxThemeMotionStyle) {
@@ -681,9 +711,8 @@ export default function ThemeSwitcher() {
             <div className="theme-editor">
               <div className="theme-editor__header">
                 <div>
-                  <p className="theme-switcher__eyebrow">Editor premium</p>
-                  <strong className="theme-editor__title">Cores e transições</strong>
-                  <p className="theme-editor__copy">{THEME_SCOPE_DESCRIPTIONS[editorScope]}</p>
+                  <p className="theme-switcher__eyebrow">Tema</p>
+                  <strong className="theme-editor__title">Editor</strong>
                 </div>
 
                 <div className="theme-editor__scopeWrap">
@@ -699,179 +728,87 @@ export default function ThemeSwitcher() {
                     onClick={resetEditorDraft}
                     disabled={!canResetScope}
                   >
-                    Restaurar cores
+                    Restaurar
                   </button>
                 </div>
               </div>
 
               <section className="theme-editor__section">
-                <label className="theme-editor__baseColorField">
-                  <span className="theme-editor__tokenMeta">
-                    <strong>Cor base do tema</strong>
-                    <small>Controla a cor predominante da interface e dos estados principais.</small>
-                  </span>
-                  <span className="theme-editor__tokenControls">
-                    <input
-                      type="color"
-                      value={activeEditorState.appearance.brand}
-                      className="theme-editor__tokenPicker"
-                      onChange={(event) => updateScopeBaseColor(event.target.value)}
-                      aria-label="Escolher cor base do tema"
-                    />
-                    <span className="theme-editor__tokenValue">{activeEditorState.appearance.brand}</span>
-                  </span>
-                </label>
+                <div className="theme-editor__sectionHeader">
+                  <div>
+                    <strong>Cores</strong>
+                    <p>Principal + quatro ações do sistema.</p>
+                  </div>
+                </div>
 
-                <div className="theme-editor__modeBar">
-                  <LiquidGlassSegmentedControl
-                    items={THEME_MODE_OPTIONS}
-                    value={activeEditorState.selection.mode}
-                    ariaLabel="Modo do tema neste escopo"
-                    onChange={(mode) => updateScopeSelection({ mode })}
-                  />
+                <div className="theme-editor__tokenGrid theme-editor__tokenGrid--compact">
+                  {THEME_EDITOR_COLOR_CONTROLS.map((control) => {
+                    const value = activeEditorState.appearance[control.key];
+
+                    return (
+                      <label
+                        key={control.id}
+                        className={control.base ? "theme-editor__baseColorField" : "theme-editor__tokenField"}
+                      >
+                        <span className="theme-editor__tokenMeta">
+                          <strong>{control.label}</strong>
+                          <small>{control.hint}</small>
+                        </span>
+                        <span className="theme-editor__tokenControls">
+                          <input
+                            type="color"
+                            value={value}
+                            className="theme-editor__tokenPicker"
+                            onChange={(event) => updateScopeColorControl(control, event.target.value)}
+                            aria-label={`Escolher cor ${control.label}`}
+                          />
+                          <span className="theme-editor__tokenValue">{value}</span>
+                        </span>
+                      </label>
+                    );
+                  })}
                 </div>
               </section>
 
               <section className="theme-editor__section">
                 <div className="theme-editor__sectionHeader">
                   <div>
-                    <strong>Família de transição</strong>
-                    <p>Escolha o comportamento visual do sistema com o mesmo padrão líquido do Inbox.</p>
+                    <strong>Modo e movimento</strong>
+                    <p>{activeTransitionOption.label}</p>
                   </div>
                 </div>
 
-                <div className="theme-editor__motionSelector">
-                  <LiquidGlassSegmentedControl
-                    items={THEME_TRANSITION_OPTIONS.map((option) => ({
-                      id: option.id,
-                      label: option.controlLabel,
-                    }))}
-                    value={activeEditorState.motion.transitionStyle}
-                    ariaLabel="Família de transição do sistema"
-                    onChange={(transitionStyle) => updateScopeMotion(transitionStyle)}
-                  />
-                </div>
-
-                <div
-                  className="theme-editor__motionShowcase"
-                  data-motion-style={activeEditorState.motion.transitionStyle}
-                  style={livePreviewStyle}
-                >
-                  <div className="theme-editor__motionShowcaseHeader">
-                    <div>
-                      <strong>{activeTransitionOption.label}</strong>
-                      <p>{activeTransitionOption.description}</p>
-                    </div>
-                    <span className="theme-editor__motionShowcaseBadge">Bolha líquida</span>
+                <div className="theme-editor__quickControls">
+                  <div className="theme-editor__modeBar">
+                    <LiquidGlassSegmentedControl
+                      items={THEME_MODE_OPTIONS}
+                      value={activeEditorState.selection.mode}
+                      ariaLabel="Modo do tema neste escopo"
+                      onChange={(mode) => updateScopeSelection({ mode })}
+                    />
                   </div>
 
-                  <div className="theme-editor__motionPreview">
-                    <span className="theme-editor__motionPreviewEyebrow">Prévia da transição</span>
-                    <div className="theme-editor__motionPreviewTrack" aria-hidden="true">
-                      <span className="theme-editor__motionPreviewBubble theme-editor__motionPreviewBubble--primary" />
-                      <span className="theme-editor__motionPreviewBubble theme-editor__motionPreviewBubble--secondary" />
-                      <span className="theme-editor__motionPreviewBubble theme-editor__motionPreviewBubble--accent" />
-                      <span className="theme-editor__motionPreviewPill">Painel entra</span>
-                      <span className="theme-editor__motionPreviewPill">Botão responde</span>
-                      <span className="theme-editor__motionPreviewPill">Menu ativa</span>
-                    </div>
+                  <div className="theme-editor__motionSelector">
+                    <LiquidGlassSegmentedControl
+                      items={THEME_TRANSITION_OPTIONS.map((option) => ({
+                        id: option.id,
+                        label: option.controlLabel,
+                      }))}
+                      value={activeEditorState.motion.transitionStyle}
+                      ariaLabel="Família de transição do sistema"
+                      onChange={(transitionStyle) => updateScopeMotion(transitionStyle)}
+                    />
                   </div>
                 </div>
 
-                <p className="theme-editor__recommendation">
-                  Recomendação HBX: vidro líquido controlado, bolha tátil no seletor e resposta consistente nos botões do sistema.
-                </p>
+                <div className="theme-editor__compactPreview" style={livePreviewStyle} aria-hidden="true">
+                  <span className="btn btn-primary btn-sm theme-editor__previewSystemButton">Salvar</span>
+                  <span className="btn btn-secondary btn-sm theme-editor__previewSystemButton">Ver</span>
+                  <span className="btn btn-success btn-sm theme-editor__previewSystemButton">Ok</span>
+                  <span className="btn btn-accent btn-sm theme-editor__previewSystemButton">Destaque</span>
+                  <span className="theme-editor__previewChip theme-editor__previewChip--selected">Ativo</span>
+                </div>
               </section>
-
-              {THEME_EDITOR_GROUPS.map((group) => (
-                <section key={group.title} className="theme-editor__section">
-                  <div className="theme-editor__sectionHeader">
-                    <div>
-                      <strong>{group.title}</strong>
-                      <p>{group.description}</p>
-                    </div>
-                  </div>
-
-                  <div className="theme-editor__tokenGrid">
-                    {group.items.map((item) => {
-                      const value = activeEditorState.appearance[item.key];
-
-                      return (
-                        <label key={item.key} className="theme-editor__tokenField">
-                          <span className="theme-editor__tokenMeta">
-                            <strong>{item.label}</strong>
-                            <small>{item.hint}</small>
-                          </span>
-                          <span className="theme-editor__tokenControls">
-                            <input
-                              type="color"
-                              value={value}
-                              className="theme-editor__tokenPicker"
-                              onChange={(event) => updateScopeAppearance(item.key, event.target.value)}
-                              aria-label={`Escolher cor de ${item.label}`}
-                            />
-                            <span className="theme-editor__tokenValue">{value}</span>
-                          </span>
-                        </label>
-                      );
-                    })}
-                  </div>
-                </section>
-              ))}
-
-              <div className="theme-editor__stickyPreview" style={livePreviewStyle}>
-                <div className="theme-editor__stickyPreviewHeader">
-                  <div>
-                    <strong>Prévia ao vivo</strong>
-                    <p>Você edita e já vê o resultado final.</p>
-                  </div>
-                  <span className="theme-editor__stickyPreviewScope">Escopo: {previewScopeLabel}</span>
-                </div>
-
-                <div className="theme-editor__stickyPreviewGrid">
-                  <section className="theme-editor__previewCard">
-                    <div className="theme-editor__previewCardHeader">
-                      <strong>Botões</strong>
-                      <p>Como os CTAs vão aparecer na interface.</p>
-                    </div>
-
-                    <div className="theme-editor__previewButtons" aria-hidden="true">
-                      <span className="btn btn-primary btn-sm theme-editor__previewSystemButton">Salvar</span>
-                      <span className="btn btn-secondary btn-sm theme-editor__previewSystemButton">Ver painel</span>
-                      <span className="btn btn-success btn-sm theme-editor__previewSystemButton">Confirmado</span>
-                      <span className="btn btn-accent btn-sm theme-editor__previewSystemButton">Destaque</span>
-                    </div>
-                  </section>
-
-                  <section className="theme-editor__previewCard">
-                    <div className="theme-editor__previewCardHeader">
-                      <strong>Seleções e menus</strong>
-                      <p>Estados visuais de navegação, chips e cards.</p>
-                    </div>
-
-                    <div className="theme-editor__previewSelection" aria-hidden="true">
-                      <span className="theme-editor__previewChip theme-editor__previewChip--selected">Selecionado</span>
-                      <span className="theme-editor__previewChip theme-editor__previewChip--neutral">Disponível</span>
-                      <span className="theme-editor__previewChip theme-editor__previewChip--disabled">Bloqueado</span>
-                    </div>
-
-                    <div className="theme-editor__previewMenus" aria-hidden="true">
-                      <span className="theme-editor__previewMenuCard theme-editor__previewMenuCard--active">
-                        <strong>Menu ativo</strong>
-                        <span>Módulo em foco</span>
-                      </span>
-                      <span className="theme-editor__previewMenuCard theme-editor__previewMenuCard--inactive">
-                        <strong>Menu inativo</strong>
-                        <span>Estado neutro</span>
-                      </span>
-                      <span className="theme-editor__previewMenuCard theme-editor__previewMenuCard--disabled">
-                        <strong>Menu desativado</strong>
-                        <span>Sem acesso</span>
-                      </span>
-                    </div>
-                  </section>
-                </div>
-              </div>
 
               <div className="theme-editor__footer">
                 <button

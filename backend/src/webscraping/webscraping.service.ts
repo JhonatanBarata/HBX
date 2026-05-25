@@ -12637,7 +12637,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         companyId: context.companyId,
         isActive: true,
         isSystemMaster: false,
-        role: 'USER',
+        role: { in: ['USER', 'ADMIN'] },
       },
       select: {
         id: true,
@@ -13016,7 +13016,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         companyId,
         isActive: true,
         isSystemMaster: false,
-        role: 'USER',
+        role: { in: ['USER', 'ADMIN'] },
         ...(Array.isArray(userIds) && userIds.length ? { id: { in: userIds } } : {}),
       },
       select: {
@@ -13697,7 +13697,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         companyId,
         isActive: true,
         isSystemMaster: false,
-        role: 'USER',
+        role: { in: ['USER', 'ADMIN'] },
       },
       select: {
         id: true,

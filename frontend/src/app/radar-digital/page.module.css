@@ -8264,6 +8264,11 @@
   font-family: var(--font-body, "Plus Jakarta Sans", Inter, "Segoe UI", Roboto, Arial, sans-serif);
 }
 
+button.dailyQuotaGauge {
+  appearance: none;
+  cursor: pointer;
+}
+
 .dailyQuotaGauge > b {
   display: grid;
   place-items: center;
@@ -8364,6 +8369,40 @@
   z-index: 3 !important;
 }
 
+.mobileQuotaSheet {
+  max-width: 330px !important;
+}
+
+.mobileQuotaSummary {
+  display: grid;
+  justify-items: center;
+  gap: 5px;
+  padding: 16px 12px 10px;
+  border: 1px solid rgba(37, 99, 235, 0.14);
+  border-radius: 18px;
+  background: linear-gradient(135deg, rgba(239, 246, 255, 0.9), rgba(255, 255, 255, 0.96));
+  color: #0f2557;
+  font-family: var(--font-body, "Plus Jakarta Sans", Inter, "Segoe UI", Roboto, Arial, sans-serif);
+}
+
+.mobileQuotaSummary b {
+  color: #0f4ed8;
+  font-size: 2rem;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.mobileQuotaSummary span {
+  font-size: 0.86rem;
+  font-weight: 850;
+}
+
+.mobileQuotaSummary small {
+  color: rgba(15, 37, 87, 0.62);
+  font-size: 0.74rem;
+  font-weight: 750;
+}
+
 .radarQuantitySelector {
   display: grid;
   gap: 10px;
@@ -8459,6 +8498,16 @@
 
 :global(html[data-hbx-mobile-theme="dark"]) .dailyQuotaText span,
 :global(html[data-hbx-mobile-theme="dark"]) .dailyQuotaText small {
+  color: rgba(226, 232, 240, 0.68);
+}
+
+:global(html[data-hbx-mobile-theme="dark"]) .mobileQuotaSummary {
+  border-color: rgba(96, 165, 250, 0.24);
+  background: rgba(15, 23, 42, 0.72);
+  color: #f8fbff;
+}
+
+:global(html[data-hbx-mobile-theme="dark"]) .mobileQuotaSummary small {
   color: rgba(226, 232, 240, 0.68);
 }
 
