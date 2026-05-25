@@ -4593,7 +4593,7 @@ export class ModulesService implements OnModuleInit {
     await this.assertMasterUser(masterUserId);
     await ensureVendasComplaintsRuntimeSchema(this.prisma);
     const normalizedStatus = String(input.status || '').trim().toLowerCase();
-    const limit = Math.max(1, Math.min(200, Math.trunc(Number(input.limit || 80) || 80)));
+    const limit = Math.max(1, Math.min(2000, Math.trunc(Number(input.limit || 80) || 80)));
     const rows = normalizedStatus && normalizedStatus !== 'all'
       ? await this.prisma.$queryRaw<Array<any>>(
         Prisma.sql`
@@ -4727,7 +4727,7 @@ export class ModulesService implements OnModuleInit {
 
     const ids = Array.from(new Set((Array.isArray(input.complaintIds) ? input.complaintIds : [])
       .map((id) => String(id || '').trim())
-      .filter(Boolean))).slice(0, 500);
+      .filter(Boolean))).slice(0, 2000);
     const status = String(input.status || '').trim().toLowerCase();
 
     let affected = 0;

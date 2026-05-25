@@ -36,7 +36,7 @@ const FRONT_LINKS: LinkItem[] = [
   { key: "vendas", title: "Vendas", href: "/vendas", category: "Operação", detail: "Esteira comercial." },
   { key: "vendas-automacao", title: "Automação de vendas", href: "/vendas/automacao", category: "Operação", detail: "Builder de automação." },
   { key: "atendimento", title: "Atendimento", href: "/atendimento", category: "Operação", detail: "Inbox e conversas." },
-  { key: "whatsapp", title: "WhatsApp", href: "/whatsapp", category: "Operação", detail: "Conexão e status." },
+  { key: "whatsapp", title: "WhatsApp", href: "/vendas/automacao?tab=connection", category: "Operação", detail: "Conexão e status." },
   { key: "website", title: "Website", href: "/website", category: "Operação", detail: "Site e publicação." },
   { key: "gerencial", title: "Gerencial", href: "/gerencial", category: "Operação", detail: "Painel gerencial." },
   { key: "banco", title: "Banco de Dados", href: "/bancodedados", category: "Operação", detail: "Base operacional." },

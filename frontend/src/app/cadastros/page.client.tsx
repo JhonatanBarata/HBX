@@ -2,6 +2,7 @@
 
 import { ChangeEvent, FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import DashboardScaffold from "@/components/DashboardScaffold";
+import HbxGuide1, { type HbxGuide1Tab } from "@/components/HbxGuide1";
 import { apiFetch } from "@/app/_lib/api";
 import { useRequireAuth } from "@/app/_lib/useRequireAuth";
 
@@ -46,6 +47,8 @@ type CsvPreviewRow = {
   notes: string;
   raw: Record<string, string>;
 };
+
+type CadastrosGuideTab = "clientes" | "novo" | "importar" | "atualizar";
 
 const EMPTY_FORM: CustomerForm = {
   name: "",
@@ -201,6 +204,7 @@ function buildCsvPreview(text: string): CsvPreviewRow[] {
 export default function CadastrosClientesPage() {
   const hasToken = useRequireAuth();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [activeGuideTab, setActiveGuideTab] = useState<CadastrosGuideTab>("clientes");
   const [customers, setCustomers] = useState<CustomerRegistry[]>([]);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -241,6 +245,16 @@ export default function CadastrosClientesPage() {
       return (term && haystack.includes(term)) || (digits && phoneDigits.includes(digits));
     });
   }, [customers, query]);
+
+  const guideTabs = useMemo<Array<HbxGuide1Tab<CadastrosGuideTab>>>(
+    () => [
+      { key: "clientes", label: "Clientes", badge: filteredCustomers.length },
+      { key: "novo", label: editingId ? "Editando" : "Novo cliente" },
+      { key: "importar", label: "Importar CSV", badge: csvRows.length || undefined },
+      { key: "atualizar", label: "Atualizar", badge: loading ? "..." : undefined },
+    ],
+    [csvRows.length, editingId, filteredCustomers.length, loading],
+  );
 
   function updateForm(field: keyof CustomerForm, value: string) {
     setForm((current) => ({ ...current, [field]: value }));
@@ -358,39 +372,40 @@ export default function CadastrosClientesPage() {
     await loadCustomers();
   }
 
+  function handleGuideChange(tab: CadastrosGuideTab) {
+    if (tab === "atualizar") {
+      setActiveGuideTab("clientes");
+      void loadCustomers();
+      return;
+    }
+    if (tab === "importar") {
+      setActiveGuideTab(tab);
+      fileInputRef.current?.click();
+      return;
+    }
+    if (tab === "novo") {
+      resetForm();
+    }
+    setActiveGuideTab(tab);
+  }
+
   if (!hasToken) {
     return (
-      <DashboardScaffold title="Cadastros" description="Carregando sessao.">
+      <DashboardScaffold title="Cadastros" description="Carregando sessao." hideHeader>
         <div className="panel p-4 text-sm text-muted">Carregando...</div>
       </DashboardScaffold>
     );
   }
 
   return (
-    <DashboardScaffold title="Cadastros" description="Clientes cadastrados, origem e contexto compartilhado.">
+    <DashboardScaffold title="Cadastros" description="Clientes cadastrados, origem e contexto compartilhado." hideHeader>
       {error ? <div className="alert alert-error">{error}</div> : null}
       {message ? <div className="alert alert-success">{message}</div> : null}
 
-      <section className="panel p-4 md:p-5">
-        <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
-          <div>
-            <p className="text-xs uppercase tracking-[0.22em] text-muted">Clientes</p>
-            <h2 className="mt-2 text-3xl font-semibold">Base central de clientes</h2>
-            <p className="mt-2 max-w-3xl text-sm text-muted">
-              Cadastro manual e importacao simples. Esta tela nao cria conversa de WhatsApp automaticamente.
-            </p>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <button type="button" className="btn btn-secondary" onClick={loadCustomers} disabled={loading}>
-              {loading ? "Atualizando..." : "Atualizar"}
-            </button>
-            <button type="button" className="btn btn-primary" onClick={() => fileInputRef.current?.click()}>
-              Importar CSV
-            </button>
-            <input ref={fileInputRef} type="file" accept=".csv,text/csv" className="hidden" onChange={handleCsvFile} />
-          </div>
-        </div>
-      </section>
+      <div className="hbx-guide1-slot">
+        <HbxGuide1 tabs={guideTabs} activeKey={activeGuideTab} ariaLabel="Cadastros" onChange={handleGuideChange} />
+      </div>
+      <input ref={fileInputRef} type="file" accept=".csv,text/csv" className="hidden" onChange={handleCsvFile} />
 
       <section className="grid grid-cols-1 gap-4 xl:grid-cols-[420px_1fr]">
         <form className="panel p-4 md:p-5" onSubmit={submitCustomer}>
@@ -456,6 +471,14 @@ export default function CadastrosClientesPage() {
               <span className="text-xs uppercase tracking-wide text-muted">Buscar por nome ou telefone</span>
               <input className="field mt-1" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Buscar conversa, telefone ou cliente..." />
             </label>
+            <div className="flex flex-wrap gap-2">
+              <button type="button" className="btn btn-secondary btn-sm" onClick={loadCustomers} disabled={loading}>
+                {loading ? "Atualizando..." : "Atualizar"}
+              </button>
+              <button type="button" className="btn btn-primary btn-sm" onClick={() => fileInputRef.current?.click()}>
+                Importar CSV
+              </button>
+            </div>
           </div>
 
           <div className="mt-4 overflow-x-auto">

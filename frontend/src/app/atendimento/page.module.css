@@ -6189,8 +6189,11 @@
 
 .commandDock {
   min-height: 0;
+  width: 74px;
+  height: fit-content;
+  align-self: start;
   display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr);
+  grid-template-rows: auto auto auto;
   align-content: start;
   gap: 0.58rem;
   padding: 0.82rem 0.58rem;
@@ -6209,6 +6212,7 @@
 .commandDockNav {
   display: grid;
   justify-items: center;
+  align-content: start;
   gap: 0.48rem;
 }
 

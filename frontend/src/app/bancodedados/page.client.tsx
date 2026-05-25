@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import DashboardScaffold from "@/components/DashboardScaffold";
+import HbxGuide1 from "@/components/HbxGuide1";
 import { apiFetch } from "@/app/_lib/api";
 import { useRequireAuth } from "@/app/_lib/useRequireAuth";
 import styles from "./page.module.css";
@@ -186,6 +187,13 @@ const TABS: Array<{ id: TabId; label: string; description: string }> = [
   { id: "distribuicao", label: "Distribuição HBX", description: "Cidades fixas dos vendedores USERMASTER." },
 ];
 
+const TAB_GUIDE_ITEMS = TABS.map((tab) => ({
+  key: tab.id,
+  label: tab.label,
+})) satisfies Array<{ key: TabId; label: string }>;
+
+const MASS_DELETE_LOAD_LIMIT = 2000;
+
 const COMPLAINT_LABELS: Record<ComplaintStatus, string> = {
   new: "Nova",
   reviewing: "Em análise",
@@ -214,17 +222,7 @@ function normalizeText(value: unknown) {
   return String(value || "").trim().toLowerCase();
 }
 
-function cardStatus(card: RadarCard) {
-  const stateStatus = card.companyStates?.map((item) => item.status).filter(Boolean).join(" ");
-  return normalizeText(`${card.status || ""} ${stateStatus || ""}`);
-}
-
-function isCompletedCard(card: RadarCard) {
-  const status = cardStatus(card);
-  return ["sent_to_vendas", "imported_to_vendas", "won", "converted", "completed", "done", "resolved"].some((item) => status.includes(item));
-}
-
-export default function BancoDeDadosClientPage() {
+export default function BancoDeDadosClientPage({ embedded = false }: { embedded?: boolean } = {}) {
   const hasToken = useRequireAuth();
   const [checkingAccess, setCheckingAccess] = useState(true);
   const [allowed, setAllowed] = useState(false);
@@ -249,17 +247,17 @@ export default function BancoDeDadosClientPage() {
     setError(null);
     try {
       const [cardsPayload, exclusionsPayload, complaintsPayload, territoryPayload] = await Promise.all([
-        apiFetch<RadarCardsPayload>("/modules/master/webscraping/database-cards?limit=200&targetType=both", {
+        apiFetch<RadarCardsPayload>(`/modules/master/webscraping/database-cards?limit=${MASS_DELETE_LOAD_LIMIT}&targetType=both`, {
           requireAuth: true,
-          timeoutMs: 20000,
+          timeoutMs: 60000,
         }),
         apiFetch<ExclusoesPayload>("/modules/master/exclusoes", {
           requireAuth: true,
           timeoutMs: 20000,
         }),
-        apiFetch<ComplaintPayload>("/modules/master/vendas-complaints?limit=200", {
+        apiFetch<ComplaintPayload>(`/modules/master/vendas-complaints?limit=${MASS_DELETE_LOAD_LIMIT}`, {
           requireAuth: true,
-          timeoutMs: 20000,
+          timeoutMs: 60000,
         }),
         apiFetch<HbxTerritoryPanel>("/modules/master/webscraping/radar-auto-distribution", {
           requireAuth: true,
@@ -320,8 +318,6 @@ export default function BancoDeDadosClientPage() {
       item.status,
     ].join(" ")).includes(term));
   }, [cards, search]);
-
-  const completedCards = useMemo(() => filteredCards.filter(isCompletedCard), [filteredCards]);
 
   const excludedCards = useMemo(() => {
     const term = normalizeText(search);
@@ -525,73 +521,41 @@ export default function BancoDeDadosClientPage() {
   if (!hasToken) return null;
 
   if (!allowed) {
-    return (
+    const deniedContent = (
+      <main className={styles.shell}>
+        <div className={styles.emptyState}>Acesso exclusivo do MASTER.</div>
+      </main>
+    );
+    return embedded ? deniedContent : (
       <DashboardScaffold title="Banco de Dados" hideHeader showDashboardShortcut={false}>
-        <main className={styles.shell}>
-          <div className={styles.emptyState}>Acesso exclusivo do MASTER.</div>
-        </main>
+        {deniedContent}
       </DashboardScaffold>
     );
   }
 
-  return (
-    <DashboardScaffold title="Banco de Dados" showDashboardShortcut={false}>
-      <main className={styles.shell}>
-        <header className={styles.header}>
-          <div>
-            <span>MASTER</span>
-            <h1>Banco de Dados de cards</h1>
-            <p>Um único painel para pesquisas, excluídos e reclamações.</p>
-          </div>
-          <div className={styles.headerActions}>
-            <button type="button" onClick={() => void loadAll()} disabled={loading}>
-              {loading ? "Atualizando..." : "Atualizar"}
-            </button>
-            <button type="button" onClick={() => { window.location.href = "/master"; }}>
-              Voltar ao Master
-            </button>
-          </div>
-        </header>
-
+  const content = (
+    <main className={styles.shell}>
         {error ? <div className={styles.alert} data-tone="error">{error}</div> : null}
         {feedback ? <div className={styles.alert} data-tone="ok">{feedback}</div> : null}
 
-        <section className={styles.kpiGrid} aria-label="Resumo do banco de dados">
-          <article><span>Pesquisas</span><strong>{metric(cardsTotal || cards.length)}</strong></article>
-          <article><span>Excluídos</span><strong>{metric(excludedCards.length + filteredDeletionRecords.length)}</strong></article>
-          <article><span>Vendedores HBX</span><strong>{metric(Number(territorySummary.sellerCount || territorySellers.length))}</strong></article>
-          <article><span>Cidades fixas</span><strong>{metric(Number(territorySummary.cityCount || territoryCityCount))}</strong></article>
-        </section>
-
         <section className={styles.filterPanel}>
-          <div className={styles.sectionTitle}>
-            <div>
-              <span>Guias</span>
-              <strong>Banco unificado</strong>
+          <div className={styles.databaseToolbar}>
+            <div className="hbx-guide1-slot">
+              <HbxGuide1
+                tabs={TAB_GUIDE_ITEMS}
+                activeKey={activeTab}
+                ariaLabel="Banco de Dados"
+                onChange={setActiveTab}
+              />
             </div>
-            <button
-              type="button"
-              className={styles.dangerButton}
-              disabled={busyBatch || loading || activeBatchCount === 0 || activeTab === "distribuicao"}
-              onClick={() => void deleteActiveBatch()}
-            >
-              {activeTab === "distribuicao" ? "Sem exclusão em massa" : busyBatch ? "Excluindo..." : `Excluir em massa (${metric(activeBatchCount)})`}
-            </button>
-          </div>
-          <div className={styles.tabs} role="tablist" aria-label="Banco de Dados de cards">
-            {TABS.map((tab) => (
-              <button
-                key={tab.id}
-                type="button"
-                role="tab"
-                aria-selected={activeTab === tab.id}
-                data-active={activeTab === tab.id}
-                onClick={() => setActiveTab(tab.id)}
-              >
-                <strong>{tab.label}</strong>
-                <span>{tab.description}</span>
+            <div className={styles.headerActions}>
+              <button type="button" onClick={() => void loadAll()} disabled={loading}>
+                {loading ? "Atualizando..." : "Atualizar"}
               </button>
-            ))}
+              <button type="button" onClick={() => { window.location.href = "/master"; }}>
+                Master
+              </button>
+            </div>
           </div>
           <input
             className={styles.searchInput}
@@ -601,12 +565,27 @@ export default function BancoDeDadosClientPage() {
           />
         </section>
 
+        <section className={styles.kpiGrid} aria-label="Resumo do banco de dados">
+          <article><span>Pesquisas</span><strong>{metric(cardsTotal || cards.length)}</strong></article>
+          <article><span>Excluídos</span><strong>{metric(excludedCards.length + filteredDeletionRecords.length)}</strong></article>
+          <article><span>Vendedores HBX</span><strong>{metric(Number(territorySummary.sellerCount || territorySellers.length))}</strong></article>
+          <article><span>Cidades fixas</span><strong>{metric(Number(territorySummary.cityCount || territoryCityCount))}</strong></article>
+        </section>
+
         <section className={styles.tableCard}>
           <div className={styles.sectionTitle}>
             <div>
               <span>{TABS.find((tab) => tab.id === activeTab)?.label}</span>
               <strong>{loading ? "Carregando..." : activeTab === "distribuicao" ? `${metric(territoryPotential)} cards potenciais` : `${metric(activeBatchCount)} item(ns)`}</strong>
             </div>
+            <button
+              type="button"
+              className={styles.dangerButton}
+              disabled={busyBatch || loading || activeBatchCount === 0 || activeTab === "distribuicao"}
+              onClick={() => void deleteActiveBatch()}
+            >
+              {activeTab === "distribuicao" ? "Sem exclusão em massa" : busyBatch ? "Excluindo..." : `Excluir em massa (${metric(activeBatchCount)})`}
+            </button>
           </div>
 
           {!loading && activeBatchCount === 0 && activeTab !== "distribuicao" ? (
@@ -633,6 +612,13 @@ export default function BancoDeDadosClientPage() {
           ) : null}
         </section>
       </main>
+  );
+
+  if (embedded) return content;
+
+  return (
+    <DashboardScaffold title="Banco de Dados" hideHeader showDashboardShortcut={false}>
+      {content}
     </DashboardScaffold>
   );
 }

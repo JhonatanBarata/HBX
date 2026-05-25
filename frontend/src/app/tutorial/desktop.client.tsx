@@ -3216,7 +3216,7 @@ function QrMockup({ qrCode, connected }: { qrCode: string | null; connected: boo
         )}
       </div>
       {!connected ? (
-        <Link className={styles.qrPhoneLink} href="/whatsapp?focus=phone">
+        <Link className={styles.qrPhoneLink} href="/vendas/automacao?tab=connection">
           Vincular por telefone
         </Link>
       ) : null}

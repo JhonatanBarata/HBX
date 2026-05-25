@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import DashboardScaffold from "@/components/DashboardScaffold";
+import HbxGuide1, { type HbxGuide1Tab } from "@/components/HbxGuide1";
 import { apiFetch } from "@/app/_lib/api";
 import { useRequireAuth } from "@/app/_lib/useRequireAuth";
 import styles from "./page.module.css";
@@ -13,6 +14,7 @@ type BillingCycle = "MONTHLY" | "ANNUAL";
 type CheckoutPaymentMethod = "CARD" | "PIX" | "BOLETO";
 type PlanKey = "hbx_lite" | "hbx_padrao" | "hbx_melhor";
 type PaymentConsentMethod = "CARD" | "PIX";
+type FinanceiroGuideTab = "assinatura" | "cobranca" | "historico" | "cartao";
 
 type PaymentConsentFormState = {
   contactName: string;
@@ -598,6 +600,7 @@ export default function FinanceiroClientPage() {
   const [cardPaymentNotice, setCardPaymentNotice] = useState<CardPaymentNotice | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [overview, setOverview] = useState<FinanceiroOverview | null>(null);
+  const [activeGuideTab, setActiveGuideTab] = useState<FinanceiroGuideTab>("assinatura");
   const [billingCycle, setBillingCycle] = useState<BillingCycle>("MONTHLY");
   const [checkoutPaymentMethod, setCheckoutPaymentMethod] = useState<CheckoutPaymentMethod>("CARD");
   const [selectedPlanKey, setSelectedPlanKey] = useState<PlanKey>("hbx_padrao");
@@ -1203,7 +1206,7 @@ export default function FinanceiroClientPage() {
 
   if (hasToken === null) {
     return (
-      <DashboardScaffold title="Financeiro" description="Carregando visão financeira da conta.">
+      <DashboardScaffold title="Financeiro" description="Carregando visão financeira da conta." hideHeader>
         <section className={styles.loadingCard}>Carregando...</section>
       </DashboardScaffold>
     );
@@ -1213,7 +1216,7 @@ export default function FinanceiroClientPage() {
 
   if (!loading && overview && !canManageBilling) {
     return (
-      <DashboardScaffold title="Financeiro" description="Acesso financeiro restrito ao ADMIN.">
+      <DashboardScaffold title="Financeiro" description="Acesso financeiro restrito ao ADMIN." hideHeader>
         <div className={styles.page}>
           <section className={styles.errorCard}>
             <strong>Seu usuário não pode alterar cobrança.</strong>
@@ -1229,7 +1232,7 @@ export default function FinanceiroClientPage() {
 
   if (loading || !overview) {
     return (
-      <DashboardScaffold title="Financeiro" description="Carregando visão financeira da conta.">
+      <DashboardScaffold title="Financeiro" description="Carregando visão financeira da conta." hideHeader>
         <section className={styles.loadingCard}>Carregando painel financeiro...</section>
       </DashboardScaffold>
     );
@@ -1591,9 +1594,22 @@ export default function FinanceiroClientPage() {
 
   const activeSubscription = overview.subscription;
   const canCancel = ["active", "authorized", "past_due"].includes(String(activeSubscription?.status || "").toLowerCase());
+  const guideTabs: Array<HbxGuide1Tab<FinanceiroGuideTab>> = [
+    { key: "assinatura", label: "Assinatura", badge: subscriptionLabel(overview.company.subscriptionStatus) },
+    { key: "cobranca", label: "Cobrança", badge: formatCurrency(overview.pricing.finalCycleAmount) },
+    { key: "historico", label: "Histórico", badge: overview.history.length },
+    { key: "cartao", label: "Cartão", badge: overview.paymentOptions.card.last4 || "-" },
+  ];
+
+  function handleGuideChange(tab: FinanceiroGuideTab) {
+    setActiveGuideTab(tab);
+    if (tab === "cartao" && activeSubscription?.providerPreapprovalId) {
+      setShowCardUpdate(true);
+    }
+  }
 
   return (
-    <DashboardScaffold title="Financeiro" description="Assinatura, status de acesso e pagamentos recentes.">
+    <DashboardScaffold title="Financeiro" description="Assinatura, status de acesso e pagamentos recentes." hideHeader>
       <div className={styles.page}>
         {!isMockPayments ? (
           <Script src="https://sdk.mercadopago.com/js/v2" strategy="afterInteractive" onLoad={() => setMpScriptReady(true)} />
@@ -1601,26 +1617,9 @@ export default function FinanceiroClientPage() {
         {error ? <section className={styles.errorCard}>{error}</section> : null}
         {message ? <section className={styles.successCard}>{message}</section> : null}
 
-        <section className={styles.hero}>
-          <div className={styles.heroCopy}>
-            <span className={styles.eyebrow}>HBX assinatura</span>
-            <h1 className={styles.heroTitle}>{overview.pricing.commercialPlan?.title || PLAN_CATALOG[normalizePlanKey(overview.company.selectedPlanKey)].title}</h1>
-            <p className={styles.heroText}>
-              {overview.accountStatus.label} • próximo marco em {formatDate(overview.accountStatus.nextDueAt)}
-            </p>
-          </div>
-          <div className={styles.heroPanel}>
-            <span className={styles.statusPill}>{subscriptionLabel(overview.company.subscriptionStatus)}</span>
-            <strong className={styles.heroValue}>
-              {overview.company.subscriptionStatus === "trialing"
-                ? `${overview.company.trialRemainingDays ?? 0} dia(s)`
-                : formatCurrency(overview.pricing.finalCycleAmount)}
-            </strong>
-            <small className={styles.heroHint}>
-              {overview.company.subscriptionStatus === "trialing" ? "Trial interno sem cobrança automática" : "Ciclo financeiro atual"}
-            </small>
-          </div>
-        </section>
+        <div className="hbx-guide1-slot">
+          <HbxGuide1 tabs={guideTabs} activeKey={activeGuideTab} ariaLabel="Financeiro" onChange={handleGuideChange} />
+        </div>
 
         <section className={styles.grid}>
           <article className={styles.panelCard}>

@@ -231,7 +231,7 @@ class RadarDatabaseQueryDto {
   @Type(() => Number)
   @IsInt()
   @Min(1)
-  @Max(300)
+  @Max(2000)
   limit?: number;
 
   @IsOptional()

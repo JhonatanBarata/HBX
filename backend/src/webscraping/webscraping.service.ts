@@ -16807,7 +16807,8 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       includeHidden: targetCompanyId ? input.includeHidden : true,
     });
     const page = filters.page;
-    const limit = filters.limit;
+    const requestedLimit = Math.trunc(Number((input as any)?.limit || filters.limit) || filters.limit);
+    const limit = Math.min(Math.max(requestedLimit, 1), 2000);
     const offset = (page - 1) * limit;
     const readLimit = Math.min(Math.max(limit * 10, 500), 5000);
     const companyStateSelect = {
@@ -17002,7 +17003,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     const masterUserId = Math.trunc(Number(user?.id || 0)) || null;
     const leadIds = Array.from(new Set((Array.isArray(input.leadIds) ? input.leadIds : [])
       .map((id) => String(id || '').trim())
-      .filter(Boolean))).slice(0, 500);
+      .filter(Boolean))).slice(0, 2000);
     if (!leadIds.length) throw new BadRequestException('Nenhum card selecionado para exclusao em massa.');
 
     const rows = await (this.prisma as any).radarLeadPool.findMany({
@@ -17016,7 +17017,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         companyId: true,
         ownerCompanyId: true,
       },
-      take: 500,
+      take: 2000,
     }).catch(() => []);
 
     const ids = Array.from(new Set((rows || []).map((row: any) => String(row.id || '')).filter(Boolean)));

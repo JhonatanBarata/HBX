@@ -2,6 +2,7 @@
 
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import DashboardScaffold from "@/components/DashboardScaffold";
+import HbxGuide1, { type HbxGuide1Tab } from "@/components/HbxGuide1";
 import HbxMobileDock from "@/components/mobile/HbxMobileDock";
 import { apiFetch } from "@/app/_lib/api";
 import { startSmartPolling } from "@/app/_lib/polling";
@@ -277,6 +278,7 @@ type UserProfileDraft = {
 
 type GerencialRole = "USER" | "ADMIN" | "USERMASTER";
 type MobileGerencialTab = "status" | "equipe" | "criar" | "comissoes" | "modulos" | "sinais";
+type DesktopGerencialGuideTab = MobileGerencialTab | "atualizar";
 
 const CREATED_PASSWORD_STORAGE_KEY = "hbx.gerencial.created-password.v1";
 const INCLUDED_TEAM_USERS = 2;
@@ -628,6 +630,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
   const [userFilter, setUserFilter] = useState<UserFilter>("active");
   const [userSearch, setUserSearch] = useState("");
   const [mobileTab, setMobileTab] = useState<MobileGerencialTab>("status");
+  const [desktopGuideTab, setDesktopGuideTab] = useState<DesktopGerencialGuideTab>("status");
   const [editingUserId, setEditingUserId] = useState<number | null>(null);
   const [savingProfileUserId, setSavingProfileUserId] = useState<number | null>(null);
   const [profileDraft, setProfileDraft] = useState<UserProfileDraft>({
@@ -1279,6 +1282,24 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
     ["modulos", "Módulos"],
     ["sinais", "Sinais"],
   ];
+  const desktopGuideTabs: Array<HbxGuide1Tab<DesktopGerencialGuideTab>> = [
+    { key: "status", label: "Status", badge: data?.operationAudit?.readinessScore !== undefined ? `${data.operationAudit.readinessScore}%` : teamStats.active },
+    { key: "equipe", label: "Equipe", badge: teamStats.active },
+    { key: "criar", label: "Criar acesso" },
+    { key: "comissoes", label: "Comissões", badge: formatCurrency(data?.commission?.totals.duePayableAmount || 0) },
+    { key: "modulos", label: "Módulos", badge: enabledModules.length },
+    { key: "sinais", label: "Sinais", badge: topMessages.length + topSurveys.length },
+    { key: "atualizar", label: "Atualizar", badge: loading ? "..." : undefined },
+  ];
+
+  function handleDesktopGuideChange(tab: DesktopGerencialGuideTab) {
+    if (tab === "atualizar") {
+      setDesktopGuideTab("status");
+      void load();
+      return;
+    }
+    setDesktopGuideTab(tab);
+  }
 
   function renderMobileCreateForm() {
     return (
@@ -2041,11 +2062,7 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
     <DashboardScaffold
       title="Gerencial"
       description="Cadastro de vendedores, permissões administrativas e controle de acesso por módulo."
-      actions={
-        <button type="button" onClick={load} className="btn btn-primary btn-sm">
-          Atualizar dados
-        </button>
-      }
+      hideHeader
     >
       {error ? <div className="alert alert-error">{error}</div> : null}
       {actionInfo ? <div className="msg-info"><div className="text-sm">{actionInfo}</div></div> : null}
@@ -2054,85 +2071,9 @@ export default function GerencialClientPage({ mobileRoute = false }: { mobileRou
         <div className="panel p-4 text-sm text-muted">{loading ? "Carregando..." : "Sem dados."}</div>
       ) : (
         <>
-          <section className="panel p-4 md:p-5 rounded-[20px]">
-            <div className="grid grid-cols-1 xl:grid-cols-[1.2fr_0.8fr] gap-4">
-              <div className="min-w-0">
-                <span className="badge badge-brand">Fase 2</span>
-                <h2 className="mt-3 text-xl font-semibold">Gerencial vira equipe comercial.</h2>
-                <p className="mt-2 text-sm text-muted max-w-3xl">
-                  Cadastre vendedores, deixe telefone e comissão prontos, acompanhe vendedores incluídos e mantenha
-                  Radar, Gerencial e Cadastros sob controle do ADMIN.
-                </p>
-                <div className="mt-4 grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-2">
-                  <article className="rounded-[14px] border border-[var(--line)] bg-[var(--surface-soft)] p-3">
-                    <p className="text-xs text-muted">Ativos</p>
-                    <strong className="mt-1 block text-2xl">{teamStats.active}</strong>
-                  </article>
-                  <article className="rounded-[14px] border border-[var(--line)] bg-[var(--surface-soft)] p-3">
-                    <p className="text-xs text-muted">Vendedores</p>
-                    <strong className="mt-1 block text-2xl">{teamStats.sellers}</strong>
-                  </article>
-                  <article className="rounded-[14px] border border-[var(--line)] bg-[var(--surface-soft)] p-3">
-                    <p className="text-xs text-muted">Admins</p>
-                    <strong className="mt-1 block text-2xl">{teamStats.admins}</strong>
-                  </article>
-                  <article className="rounded-[14px] border border-[var(--line)] bg-[var(--surface-soft)] p-3">
-                    <p className="text-xs text-muted">USERMASTER</p>
-                    <strong className="mt-1 block text-2xl">{teamStats.masters}</strong>
-                  </article>
-                  <article className="rounded-[14px] border border-[var(--line)] bg-[var(--surface-soft)] p-3">
-                    <p className="text-xs text-muted">Inativos</p>
-                    <strong className="mt-1 block text-2xl">{teamStats.inactive}</strong>
-                  </article>
-                  <article className="rounded-[14px] border border-[var(--line)] bg-[var(--surface-soft)] p-3">
-                    <p className="text-xs text-muted">Vendedores extra</p>
-                    <strong className="mt-1 block text-2xl">{teamStats.extraSeats}</strong>
-                  </article>
-                  <article className="rounded-[14px] border border-[var(--line)] bg-[var(--surface-soft)] p-3">
-                    <p className="text-xs text-muted">Extra mensal</p>
-                    <strong className="mt-1 block text-lg">{formatCurrency(teamStats.teamMonthlyExtra)}</strong>
-                  </article>
-                </div>
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-1 gap-2">
-                <article className="rounded-[14px] border border-[var(--line)] bg-[var(--surface-soft)] p-3">
-                  <span className="badge">{SELLER_ROLE_COPY.USER.badge}</span>
-                  <strong className="mt-2 block text-sm">{SELLER_ROLE_COPY.USER.label}</strong>
-                  <p className="mt-1 text-xs text-muted">{SELLER_ROLE_COPY.USER.description}</p>
-                </article>
-                <article className="rounded-[14px] border border-[var(--line)] bg-[var(--surface-soft)] p-3">
-                  <span className="badge badge-brand">{SELLER_ROLE_COPY.ADMIN.badge}</span>
-                  <strong className="mt-2 block text-sm">{SELLER_ROLE_COPY.ADMIN.label}</strong>
-                  <p className="mt-1 text-xs text-muted">{SELLER_ROLE_COPY.ADMIN.description}</p>
-                </article>
-                <article className="rounded-[14px] border border-[var(--line)] bg-[var(--surface-soft)] p-3">
-                  <span className="badge">{SELLER_ROLE_COPY.USERMASTER.badge}</span>
-                  <strong className="mt-2 block text-sm">{SELLER_ROLE_COPY.USERMASTER.label}</strong>
-                  <p className="mt-1 text-xs text-muted">{SELLER_ROLE_COPY.USERMASTER.description}</p>
-                </article>
-                <article className="rounded-[14px] border border-[var(--line)] bg-[var(--surface-soft)] p-3 sm:col-span-2 xl:col-span-1">
-                  <span className="badge">Vendedores</span>
-                  <strong className="mt-2 block text-sm">
-                    {teamStats.includedSeats} vendedores incluídos, {formatCurrency(EXTRA_USER_MONTHLY_PRICE)} por vendedor extra
-                  </strong>
-                  <p className="mt-1 text-xs text-muted">
-                    Admin não entra nessa cobrança. Vendedor extra entra proporcional no fechamento mensal.
-                  </p>
-                </article>
-                {isHbxSellerNetwork ? (
-                  <article className="rounded-[14px] border border-[var(--line)] bg-[var(--surface-soft)] p-3 sm:col-span-2 xl:col-span-1">
-                    <span className="badge badge-brand">Rede HBX</span>
-                    <strong className="mt-2 block text-sm">
-                      {hbxNetworkStats.authorized} indica(m), {hbxNetworkStats.referred} indicado(s)
-                    </strong>
-                    <p className="mt-1 text-xs text-muted">
-                      Comissão herdada só aparece na operação HBX master.
-                    </p>
-                  </article>
-                ) : null}
-              </div>
-            </div>
-          </section>
+          <div className="hbx-guide1-slot">
+            <HbxGuide1 tabs={desktopGuideTabs} activeKey={desktopGuideTab} ariaLabel="Gerencial" onChange={handleDesktopGuideChange} />
+          </div>
 
           {data.operationAudit ? (
             <section className="panel p-4 md:p-5 rounded-[20px]">

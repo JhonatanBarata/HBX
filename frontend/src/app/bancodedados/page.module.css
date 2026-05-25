@@ -16,7 +16,8 @@
   background: var(--bd-bg);
 }
 
-:global(html[data-theme-mode="dark"]) .shell {
+:global(html[data-theme-mode="dark"]) .shell,
+:global(html[data-theme="dark"]) .shell {
   --bd-bg: #070b12;
   --bd-surface: #0f172a;
   --bd-soft: #111c2e;
@@ -81,6 +82,7 @@
 }
 
 .header button,
+.headerActions button,
 .sectionTitle button,
 .tabs button {
   min-height: 36px;
@@ -94,9 +96,28 @@
 }
 
 .header button:disabled,
+.headerActions button:disabled,
 .sectionTitle button:disabled {
   cursor: not-allowed;
   opacity: 0.55;
+}
+
+.databaseToolbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+}
+
+.databaseToolbar :global(.hbx-guide1) {
+  width: min(100%, 980px);
+  max-width: 980px;
+}
+
+.databaseToolbar :global(.hbx-guide1__tab) {
+  font-size: 0.76rem;
+  justify-content: space-between;
+  text-align: left;
 }
 
 .dangerButton {

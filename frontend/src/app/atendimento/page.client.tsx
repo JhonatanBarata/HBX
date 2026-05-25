@@ -3007,9 +3007,7 @@ function MessageStatusTick({ status }: { status: string }) {
 
 export default function InboxClientPage() {
   const router = useRouter();
-  const [mobileBlocked, setMobileBlocked] = useState<boolean | null>(() =>
-    typeof window === "undefined" ? null : isMobileAtendimentoViewport(),
-  );
+  const [mobileBlocked, setMobileBlocked] = useState(false);
 
   useEffect(() => {
     if (typeof window === "undefined") return undefined;
@@ -3024,7 +3022,7 @@ export default function InboxClientPage() {
     if (mobileBlocked) router.replace("/vendas");
   }, [mobileBlocked, router]);
 
-  if (mobileBlocked !== false) {
+  if (mobileBlocked) {
     return (
       <main className={styles.mobileAtendimentoRedirect} aria-live="polite">
         <div>
@@ -8312,7 +8310,7 @@ function InboxDesktopClientPage() {
                 <button
                   type="button"
                   className="btn btn-primary"
-                  onClick={() => router.push("/whatsapp?focus=qr")}
+                  onClick={() => window.dispatchEvent(new CustomEvent("hbx:open-whatsapp-qr", { detail: { focus: "qr" } }))}
                 >
                   Conectar WhatsApp
                 </button>
@@ -8329,7 +8327,8 @@ function InboxDesktopClientPage() {
         ) : activeTab === "messages" ? (
           <section className={styles.premiumInboxShell} data-ui-no-reveal="true">
             <section className={styles.inboxCanvas}>
-              <aside className={styles.commandDock}>
+              <div className="hbx-guide4-slot">
+              <aside className={`${styles.commandDock} hbx-guide4`}>
                 <div className={styles.commandDockTop}>
                   <button
                     type="button"
@@ -8440,6 +8439,7 @@ function InboxDesktopClientPage() {
                   />
                 </div>
               </aside>
+              </div>
 
               <div className={styles.inboxStageList}>
                 {inboxWorkspaceComponents.list()}

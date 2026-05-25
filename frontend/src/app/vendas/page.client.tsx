@@ -21,6 +21,7 @@ import {
   useRef,
   useState,
   useCallback,
+  type ReactNode,
   type CSSProperties,
   type FormEvent,
   type PointerEvent as ReactPointerEvent,
@@ -28,6 +29,8 @@ import {
 import { createPortal } from "react-dom";
 import { useRouter, useSearchParams } from "next/navigation";
 import DashboardScaffold from "@/components/DashboardScaffold";
+import HbxGuide1 from "@/components/HbxGuide1";
+import HbxGuide4, { type HbxGuide4Item } from "@/components/HbxGuide4";
 import LiquidGlassCard, {
   liquidGlassCardStyles as glassCardStyles,
 } from "@/components/LiquidGlassCard";
@@ -65,6 +68,7 @@ type DesktopVendasTab = "clientes" | "comissao" | "atencao" | "esteira" | "vende
 type WhatsappFilter = "all" | "with" | "without";
 type InboxFilter = "all" | "in" | "out";
 type MobileVisualChannelFilter = "whatsapp" | "instagram" | "email" | "site" | "phone" | "facebook";
+type VendasGuideIconName = "plus" | "select" | "all" | "whatsapp" | "inbox" | "archive";
 type MobileReturnScheduler = {
   leadId: string;
   leadName: string;
@@ -1206,6 +1210,58 @@ const INBOX_FILTER_LABELS: Record<InboxFilter, string> = {
   in: "Inbox: No Inbox",
   out: "Inbox: Fora do Inbox",
 };
+
+function VendasGuideIcon({ name }: { name: VendasGuideIconName }) {
+  const paths: Record<VendasGuideIconName, ReactNode> = {
+    plus: (
+      <>
+        <path d="M12 5v14" />
+        <path d="M5 12h14" />
+      </>
+    ),
+    select: (
+      <>
+        <rect x="5" y="5" width="14" height="14" rx="3" />
+        <path d="m8.5 12 2.4 2.4 4.8-5" />
+      </>
+    ),
+    all: (
+      <>
+        <path d="M8 7h11" />
+        <path d="M8 12h11" />
+        <path d="M8 17h11" />
+        <path d="m4 7 .01 0" />
+        <path d="m4 12 .01 0" />
+        <path d="m4 17 .01 0" />
+      </>
+    ),
+    whatsapp: (
+      <>
+        <path d="M6.7 18.2 4.5 20l.6-2.8a8 8 0 1 1 3 2.2" />
+        <path d="M9.3 8.9c.3 3 2.1 4.8 5.1 5.8l1.2-1.2" />
+      </>
+    ),
+    inbox: (
+      <>
+        <path d="M4 7h16v10H4z" />
+        <path d="m4 8 8 6 8-6" />
+      </>
+    ),
+    archive: (
+      <>
+        <path d="M4 7h16" />
+        <path d="M6 7v12h12V7" />
+        <path d="M9 11h6" />
+      </>
+    ),
+  };
+
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      {paths[name]}
+    </svg>
+  );
+}
 
 const PT_BR_MOJIBAKE_PATTERN = /(?:\u00c3|\u00c2|\u00e2|\u00c5|\u0192|\ufffd)/;
 const PT_BR_TEXT_ATTRIBUTES_TO_REPAIR = [
@@ -2477,7 +2533,7 @@ function DateDropSlot({
 
   return (
     <div
-      className={styles.dateFilterCard}
+      className={`${styles.dateFilterCard} hbx-guide5__item`}
       data-active={active ? "true" : "false"}
       data-tone={item.blockKey}
       data-dropover={isOver ? "true" : "false"}
@@ -3534,6 +3590,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
   const [activeDragDateKey, setActiveDragDateKey] = useState<string | null>(
     null,
   );
+  const [activeDragRect, setActiveDragRect] = useState<{ width: number; height: number } | null>(null);
   const [pulseDateKey, setPulseDateKey] = useState<DateFilterKey | null>(null);
   const [flyAnimation, setFlyAnimation] = useState<FlyAnimation | null>(null);
   const [manualLead, setManualLead] = useState({
@@ -8010,9 +8067,19 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
     setVendasCardDragLock(isLeadDrag);
 
     if (activeId.startsWith("date:")) {
+      setActiveDragRect(null);
       setActiveDragDateKey(activeId.slice("date:".length));
       setActiveDragLeadId(null);
     } else {
+      const sourceRect = leadCardRefs.current[activeId]?.getBoundingClientRect();
+      setActiveDragRect(
+        sourceRect
+          ? {
+              width: Math.round(sourceRect.width),
+              height: Math.round(sourceRect.height),
+            }
+          : null,
+      );
       setActiveDragLeadId(activeId);
       setActiveDragDateKey(null);
     }
@@ -8022,6 +8089,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
     setVendasCardDragLock(false);
     setActiveDragLeadId(null);
     setActiveDragDateKey(null);
+    setActiveDragRect(null);
     lastDragEndedAtRef.current = performance.now();
   }
 
@@ -8082,6 +8150,7 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
       lastDragEndedAtRef.current = performance.now();
     } finally {
       setVendasCardDragLock(false);
+      setActiveDragRect(null);
     }
   }
 
@@ -8291,6 +8360,12 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
         ["--fly-scale-y" as string]: `${Math.max(0.24, flyAnimation.to.height / flyAnimation.from.height)}`,
       } satisfies CSSProperties)
     : undefined;
+  const dragOverlayStyle = activeDragRect
+    ? ({
+        ["--drag-overlay-width" as string]: `${activeDragRect.width}px`,
+        ["--drag-overlay-height" as string]: `${activeDragRect.height}px`,
+      } satisfies CSSProperties)
+    : undefined;
 
   const activeDragDateItem = activeDragDateKey
     ? dateFilters.find((f) => f.key === activeDragDateKey)
@@ -8336,12 +8411,60 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
         ]
       : []),
   ];
-  const desktopActiveTabIndex = Math.max(0, desktopTabs.findIndex((tab) => tab.key === desktopVendasTab));
-  const desktopTabsStyle = {
-    ["--desktop-tab-count" as string]: desktopTabs.length,
-    ["--desktop-tab-index" as string]: desktopActiveTabIndex,
-  } satisfies CSSProperties;
-
+  const desktopGuide4TopItems: HbxGuide4Item[] = [
+    {
+      id: "new-lead",
+      label: "Criar novo Lead",
+      icon: <VendasGuideIcon name="plus" />,
+      tone: "primary",
+      onClick: () => setComposerOpen(true),
+    },
+  ];
+  const desktopGuide4NavItems: HbxGuide4Item[] = [
+    {
+      id: "select",
+      label: bulkSelectionMode ? "Cancelar seleção" : "Selecionar",
+      icon: <VendasGuideIcon name="select" />,
+      active: bulkSelectionMode,
+      onClick: toggleBulkSelectionMode,
+    },
+    ...(bulkSelectionMode
+      ? [
+          {
+            id: "select-all",
+            label: bulkSelectAllAccount ? "Limpar todos" : "Selecionar todos",
+            icon: <VendasGuideIcon name="all" />,
+            active: bulkSelectAllAccount,
+            onClick: toggleBulkSelectAll,
+          } satisfies HbxGuide4Item,
+        ]
+      : []),
+    {
+      id: "whatsapp",
+      label: WHATSAPP_FILTER_LABELS[whatsappFilter],
+      icon: <VendasGuideIcon name="whatsapp" />,
+      active: whatsappFilter !== "all",
+      tone: whatsappFilter !== "all" ? "success" : "default",
+      onClick: () => setWhatsappFilter((current) => nextWhatsappFilter(current)),
+    },
+    {
+      id: "inbox",
+      label: INBOX_FILTER_LABELS[inboxFilter],
+      icon: <VendasGuideIcon name="inbox" />,
+      active: inboxFilter !== "all",
+      onClick: () => setInboxFilter((current) => nextInboxFilter(current)),
+    },
+  ];
+  const desktopGuide4BottomItems: HbxGuide4Item[] = [
+    {
+      id: "archive",
+      label: showClosed ? "Ocultar arquivo" : `Arquivo (${closedLeads.length})`,
+      icon: <VendasGuideIcon name="archive" />,
+      active: showClosed,
+      badge: showClosed ? null : closedLeads.length,
+      onClick: () => setShowClosed((current) => !current),
+    },
+  ];
   const vendasDragTopbarLockStyle = `
 html[data-vendas-dragging-card="true"] {
   --topbar-total-height: 0px;
@@ -8357,6 +8480,19 @@ html[data-vendas-dragging-card="true"] [class*="app-topbar" i] {
   visibility: hidden !important;
   pointer-events: none !important;
   transition: none !important;
+}
+
+html[data-vendas-dragging-card="true"] .${styles.desktopVendasTabRow},
+html[data-vendas-dragging-card="true"] .${styles.stageGrid},
+html[data-vendas-dragging-card="true"] .${styles.archiveSection} {
+  filter: blur(3px) saturate(0.72);
+  opacity: 0.24;
+  transform: scale(0.996);
+  pointer-events: none;
+  transition:
+    filter var(--hbx-motion-fast, 160ms) var(--hbx-ease-soft, ease),
+    opacity var(--hbx-motion-fast, 160ms) var(--hbx-ease-soft, ease),
+    transform var(--hbx-motion-fast, 160ms) var(--hbx-ease-soft, ease);
 }
 
 html[data-vendas-dragging-card="true"] .${styles.filterRail} {
@@ -8396,14 +8532,35 @@ html[data-vendas-dragging-card="true"] .${styles.filterRail}::after {
 
 html[data-vendas-dragging-card="true"] .${styles.dateFilterCard} {
   pointer-events: auto;
+  opacity: 1 !important;
+  border-color: color-mix(in srgb, var(--brand) 34%, var(--line)) !important;
+  background:
+    radial-gradient(circle at 50% 0%, color-mix(in srgb, var(--brand) 16%, transparent), transparent 48%),
+    linear-gradient(180deg, color-mix(in srgb, var(--surface) 98%, var(--background)), color-mix(in srgb, var(--surface-soft) 98%, var(--background))) !important;
+  box-shadow:
+    0 1px 0 color-mix(in srgb, white 72%, transparent) inset,
+    0 18px 36px -28px color-mix(in srgb, var(--brand) 36%, transparent),
+    0 0 0 1px color-mix(in srgb, var(--brand) 14%, transparent) !important;
+}
+
+html[data-vendas-dragging-card="true"] .${styles.dateFilterCard} .${styles.receiveHint} {
+  opacity: 0.52;
+  transform: translateX(-50%) translateY(0);
 }
 
 html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="true"] {
   z-index: 2147483001 !important;
   border-color: color-mix(in srgb, var(--brand) 78%, var(--line)) !important;
+  transform: translateY(-7px) scale(1.055) !important;
   box-shadow:
-    0 0 0 3px color-mix(in srgb, var(--brand) 24%, transparent),
-    0 30px 58px -26px color-mix(in srgb, var(--brand) 42%, transparent) !important;
+    0 0 0 4px color-mix(in srgb, var(--brand) 28%, transparent),
+    0 30px 58px -24px color-mix(in srgb, var(--brand) 52%, transparent),
+    0 0 34px color-mix(in srgb, var(--brand) 20%, transparent) !important;
+}
+
+html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="true"] .${styles.receiveHint} {
+  opacity: 1;
+  font-weight: 950;
 }
 `;
 
@@ -9696,24 +9853,14 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
           <div className={styles.premiumBg} />
           <div className={styles.page}>
             <div className={styles.desktopVendasTabRow}>
-              <nav
-                className={`${styles.desktopVendasTabs} hbx-tab-glide`}
-                style={desktopTabsStyle}
-                aria-label="Guias de Vendas"
-              >
-                {desktopTabs.map((tab) => (
-                  <button
-                    key={tab.key}
-                    type="button"
-                    data-active={desktopVendasTab === tab.key ? "true" : "false"}
-                    data-admin={tab.admin ? "true" : "false"}
-                    onClick={() => setDesktopVendasTab(tab.key)}
-                  >
-                    <span>{tab.label}</span>
-                    {tab.badge !== undefined && tab.badge !== null ? <b>{tab.badge}</b> : null}
-                  </button>
-                ))}
-              </nav>
+              <div className="hbx-guide1-slot">
+                <HbxGuide1
+                  tabs={desktopTabs}
+                  activeKey={desktopVendasTab}
+                  ariaLabel="Guias de Vendas"
+                  onChange={setDesktopVendasTab}
+                />
+              </div>
               <Link
                 href="/atendimento?atendimentoQueue=scheduled&atendimentoSection=agenda&agendaStudio=1&agendaMode=sales&returnTo=%2Fvendas"
                 prefetch={false}
@@ -9727,10 +9874,10 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
               {desktopVendasTab === "clientes" ? (
                 <>
                 <section className={styles.filterRail}>
-                  <div className={styles.filterRailCarousel}>
+                  <div className={`${styles.filterRailCarousel} hbx-guide5`}>
                     <button
                       type="button"
-                      className={styles.dateRailScrollButton}
+                      className={`${styles.dateRailScrollButton} hbx-guide5__button`}
                       data-side="left"
                       onClick={() => scrollDateRail(-1)}
                       aria-label="Rolar datas para esquerda"
@@ -9738,7 +9885,7 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
                       <span aria-hidden="true">‹</span>
                     </button>
                     <div
-                      className={styles.filterRailScroller}
+                      className={`${styles.filterRailScroller} hbx-guide5__scroller`}
                       ref={filterScrollerRef}
                     >
                       {dateFilters.map((item) => (
@@ -9759,7 +9906,7 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
 
                       <button
                         type="button"
-                        className={`${styles.dateFilterCard} ${styles.addAgendaButton}`}
+                        className={`${styles.dateFilterCard} ${styles.addAgendaButton} hbx-guide5__item`}
                         aria-label="+Agenda"
                         title="+Agenda"
                         onClick={() => {
@@ -9775,7 +9922,7 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
                     </div>
                     <button
                       type="button"
-                      className={styles.dateRailScrollButton}
+                      className={`${styles.dateRailScrollButton} hbx-guide5__button`}
                       data-side="right"
                       onClick={() => scrollDateRail(1)}
                       aria-label="Rolar datas para direita"
@@ -9791,65 +9938,14 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
                   </section>
                 ) : (
                   <div className={styles.stageGrid}>
-                    <aside className={styles.stageSideGuide} aria-label="Ações de Vendas">
-                      <button
-                        type="button"
-                        className={`${styles.secondaryAction} ${styles.toolbarHighlight}`}
-                        onClick={() => setComposerOpen(true)}
-                      >
-                        Criar novo Lead
-                      </button>
-                      <button
-                        type="button"
-                        className={`${styles.secondaryAction} ${styles.toolbarHighlight}`}
-                        data-active={bulkSelectionMode ? "true" : "false"}
-                        onClick={toggleBulkSelectionMode}
-                      >
-                        {bulkSelectionMode ? "Cancelar seleção" : "Selecionar"}
-                      </button>
-                      {bulkSelectionMode ? (
-                        <button
-                          type="button"
-                          className={`${styles.secondaryAction} ${styles.toolbarHighlight}`}
-                          data-active={bulkSelectAllAccount ? "true" : "false"}
-                          onClick={toggleBulkSelectAll}
-                        >
-                          {bulkSelectAllAccount ? "Limpar todos" : "Selecionar todos"}
-                        </button>
-                      ) : null}
-                      <button
-                        type="button"
-                        className={`${styles.secondaryAction} ${styles.toolbarHighlight} ${styles.whatsappFilterButton}`}
-                        data-active={whatsappFilter !== "all" ? "true" : "false"}
-                        onClick={() =>
-                          setWhatsappFilter((current) => nextWhatsappFilter(current))
-                        }
-                        aria-pressed={whatsappFilter !== "all"}
-                        title="Alternar filtro com WhatsApp / sem WhatsApp"
-                      >
-                        {WHATSAPP_FILTER_LABELS[whatsappFilter]}
-                      </button>
-                      <button
-                        type="button"
-                        className={`${styles.secondaryAction} ${styles.toolbarHighlight} ${styles.inboxFilterButton}`}
-                        data-active={inboxFilter !== "all" ? "true" : "false"}
-                        onClick={() =>
-                          setInboxFilter((current) => nextInboxFilter(current))
-                        }
-                        aria-pressed={inboxFilter !== "all"}
-                        title="Alternar filtro de presença no Inbox"
-                      >
-                        {INBOX_FILTER_LABELS[inboxFilter]}
-                      </button>
-                      <button
-                        type="button"
-                        className={styles.secondaryAction}
-                        data-active={showClosed ? "true" : "false"}
-                        onClick={() => setShowClosed((current) => !current)}
-                      >
-                        {showClosed ? "Ocultar arquivo" : `Arquivo (${closedLeads.length})`}
-                      </button>
-                    </aside>
+                    <div className={`${styles.stageSideGuide} hbx-guide4-slot`}>
+                      <HbxGuide4
+                        ariaLabel="Ações de Vendas"
+                        topItems={desktopGuide4TopItems}
+                        navItems={desktopGuide4NavItems}
+                        bottomItems={desktopGuide4BottomItems}
+                      />
+                    </div>
                     <div className={styles.stageMain}>{renderPipelineBoard()}</div>
                     <div className={styles.stageAside}>{renderDetailPanel()}</div>
                   </div>
@@ -9900,7 +9996,7 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
 
         <DragOverlay dropAnimation={null} modifiers={[liftDesktopDragOverlay]}>
           {activeDragLead && activeDragDraft ? (
-            <div className={styles.dragOverlayCard}>
+            <div className={styles.dragOverlayCard} style={dragOverlayStyle}>
               <LeadCardView
                 lead={activeDragLead}
                 draft={activeDragDraft}
@@ -9921,7 +10017,7 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
               className={`${styles.dragOverlayCard} ${styles.dragOverlayDateCard}`}
             >
               <div
-                className={styles.dateFilterCard}
+                className={`${styles.dateFilterCard} hbx-guide5__item`}
                 style={{ pointerEvents: "none" }}
               >
                 <span className={styles.dateFilterDay}>

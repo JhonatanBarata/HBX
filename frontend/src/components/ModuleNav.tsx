@@ -35,7 +35,7 @@ const NAV_MODE_STORAGE_KEY = "hbx:navigation-mode:v1";
 const NAV_MODE_CHANGED_EVENT = "hbx-navigation-mode-changed";
 type NavigationMode = "basic" | "advanced";
 
-const BASIC_NAV_ORDER = ["atendimento", "vendas", "whatsapp"];
+const BASIC_NAV_ORDER = ["atendimento", "vendas"];
 const ADVANCED_NAV_KEYS = new Set([
   "website",
   "financeiro",
@@ -69,17 +69,6 @@ const NAV_ITEMS: NavItem[] = [
     matcher: (route) => route.startsWith("/vendas"),
     category: "commercial",
     moduleKey: "vendas",
-  },
-  {
-    key: "whatsapp",
-    href: "/whatsapp",
-    label: "WhatsApp",
-    shortLabel: "WA",
-    description: "Canal.",
-    matcher: (route) => route.startsWith("/whatsapp"),
-    category: "structural",
-    companyOnly: true,
-    moduleKey: "whatsapp",
   },
   {
     key: "website",

@@ -63,7 +63,7 @@ export default function BotAutomationPremiumEntry({
           <button type="button" className={styles.secondaryAction} onClick={() => setBuilderOpen(true)}>
             TESTAR
           </button>
-          <Link className={styles.secondaryAction} href="/whatsapp">
+          <Link className={styles.secondaryAction} href="/vendas/automacao?tab=connection">
             CONEXÃO
           </Link>
         </div>

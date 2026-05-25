@@ -96,6 +96,17 @@ export type WhatsAppPairingCodePayload = {
   nextAllowedAt?: string | null;
 };
 
+export type WhatsAppBootstrapPayload = {
+  success: boolean;
+  connected: boolean;
+  bootstrapOk: boolean;
+  syncedContacts: number;
+  syncedConversations: number;
+  engine: string | null;
+  message: string;
+  error?: string | null;
+};
+
 export type WhatsAppLiveHealthStatus = "healthy" | "stale" | "reconnecting" | "disconnected" | "error";
 export type WhatsAppLiveHealthRecommendedAction =
   | "none"

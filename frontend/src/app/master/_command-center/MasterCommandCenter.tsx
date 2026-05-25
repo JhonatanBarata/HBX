@@ -1,36 +1,33 @@
 "use client";
 
-import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
-import type { ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import type { KeyboardEvent, ReactNode } from "react";
 import type {
   CompanyDetailPayload,
   CompanyIntegrationConnection,
   CompanySummary,
   IntegrationProviderId,
 } from "../master.types";
+import HbxGuide1 from "@/components/HbxGuide1";
+import BancoDeDadosClientPage from "../../bancodedados/page.client";
 import { MasterEmailWorkspace } from "../email/page.client";
 import { useMasterCommandCenterActions } from "./MasterCommandCenter.hooks";
 import type {
   MasterCommandCenterProps,
-  MasterCommandFilterId,
   MasterPlanKey,
   MasterRealityTone,
 } from "./MasterCommandCenter.types";
 import {
-  MASTER_COMMAND_FILTERS,
   MASTER_PLAN_CATALOG,
   activeModuleCount,
   auditTitle,
   billingCycleLabel,
-  buildCommandKpis,
   buildHardDeleteConfirmation,
   buildPlanChangePreview,
   commercialPlanLabel,
   compactAuditMetadata,
   companyHasOperationalAccess,
-  companyManualPremium,
   companyNoAccess,
-  filterCompanies,
   formatCurrency,
   formatDate,
   formatDateTime,
@@ -47,6 +44,7 @@ import styles from "./MasterCommandCenter.module.css";
 type CommandActions = ReturnType<typeof useMasterCommandCenterActions>["actions"];
 type CommandState = ReturnType<typeof useMasterCommandCenterActions>["state"];
 type MasterInspectorTabId = "overview" | "access" | "billing" | "users" | "whatsapp" | "radar" | "integrations" | "audit" | "danger";
+type MasterPrimaryTabId = "empresas" | "nova" | "email" | "database" | "tokens" | "links" | "modules" | "refresh" | "exit";
 
 const MASTER_INSPECTOR_TABS: Array<{ id: MasterInspectorTabId; label: string; meta: string }> = [
   { id: "overview", label: "Resumo", meta: "estado" },
@@ -59,6 +57,22 @@ const MASTER_INSPECTOR_TABS: Array<{ id: MasterInspectorTabId; label: string; me
   { id: "audit", label: "Auditoria", meta: "risco" },
   { id: "danger", label: "Perigo", meta: "bloqueio" },
 ];
+
+const MASTER_PRIMARY_TABS = [
+  { key: "empresas", label: "Empresas" },
+  { key: "nova", label: "Nova empresa" },
+  { key: "email", label: "Email" },
+  { key: "database", label: "Banco de Dados" },
+  { key: "tokens", label: "Tokens" },
+  { key: "links", label: "Links" },
+  { key: "modules", label: "Módulos" },
+  { key: "refresh", label: "Atualizar" },
+] satisfies Array<{ key: MasterPrimaryTabId; label: string }>;
+
+const MASTER_INSPECTOR_GUIDE_TABS = MASTER_INSPECTOR_TABS.map((item) => ({
+  key: item.id,
+  label: item.label,
+})) satisfies Array<{ key: MasterInspectorTabId; label: string }>;
 
 function featureLabel(value: string) {
   const normalized = String(value || "").trim();
@@ -78,27 +92,9 @@ function featureLabel(value: string) {
   return labels[normalized] || normalized;
 }
 
-function initialFilterFromSection(value?: string | null): MasterCommandFilterId {
-  const normalized = String(value || "").trim().toLowerCase();
-  const sectionFilters: Partial<Record<string, MasterCommandFilterId>> = {
-    clientes: "all",
-    radar: "all",
-    "radar-digital": "all",
-    webscraping: "all",
-    finance: "billing_pending",
-    financeiro: "billing_pending",
-    billing: "billing_pending",
-    whatsapp: "whatsapp_attention",
-    integrations: "whatsapp_attention",
-  };
-  return sectionFilters[normalized] || "all";
-}
-
 export default function MasterCommandCenter(props: MasterCommandCenterProps) {
-  const { workspace, currentUser, loading, refreshing, initialCompanyId, initialSection, initialPanel, onReload, setWorkspace, setCurrentUser } = props;
-  const [search, setSearch] = useState("");
-  const [filter, setFilter] = useState<MasterCommandFilterId>(() => initialFilterFromSection(initialSection));
-  const deferredSearch = useDeferredValue(search);
+  const { workspace, currentUser, loading, refreshing, initialCompanyId, initialPanel, onReload, setWorkspace, setCurrentUser } = props;
+  const [activePrimaryTab, setActivePrimaryTab] = useState<MasterPrimaryTabId>("empresas");
   const deepLinkHandled = useRef<string | null>(null);
   const initialPanelHandled = useRef<string | null>(null);
   const { state, actions } = useMasterCommandCenterActions({
@@ -131,62 +127,45 @@ export default function MasterCommandCenter(props: MasterCommandCenterProps) {
   }, [actions, initialPanel]);
 
   const companies = useMemo(() => workspace?.companies || [], [workspace?.companies]);
-  const filteredCompanies = useMemo(
-    () => filterCompanies(companies, deferredSearch, filter),
-    [companies, deferredSearch, filter],
-  );
-  const kpis = useMemo(() => buildCommandKpis(companies), [companies]);
 
   return (
     <MasterShell>
       <MasterTopCommandBar
-        search={search}
-        onSearch={setSearch}
-        filter={filter}
-        onFilter={setFilter}
+        activeTab={activePrimaryTab}
+        onTabChange={setActivePrimaryTab}
         currentUser={currentUser}
         refreshing={refreshing}
         onReload={() => void onReload(true)}
-        onCreateCompany={() => actions.setCreateCompanyOpen(true)}
-        onOpenEmail={() => actions.setMasterEmailOpen(true)}
-        onOpenTokens={() => actions.setMasterIntegrationsOpen(true)}
-        onOpenModules={() => actions.setModuleCatalogOpen(true)}
-        onOpenDatabase={() => {
-          window.location.href = "/bancodedados";
-        }}
-        onOpenLinks={() => {
-          window.open("/master/links", "_blank", "noopener,noreferrer");
-        }}
         onExitContext={actions.exitContext}
       />
 
       {state.error ? <div className={styles.alertDanger}>{state.error}</div> : null}
       {state.message ? <div className={styles.alertInfo}>{state.message}</div> : null}
 
-      {loading ? (
-        <MasterLoadingState />
+      {activePrimaryTab === "empresas" ? (
+        loading ? (
+          <MasterLoadingState />
+        ) : (
+          <MasterOperationsLayout
+            companies={companies}
+            activeCompanyId={state.activeCompany?.id || null}
+            onOpenCompany={(company) => void actions.loadDetail(company.id)}
+            onAssumeCompany={actions.assumeContext}
+            companyHasContext={actions.companyHasActiveMasterContext}
+            busyAction={state.busyAction}
+            workspace={workspace}
+            state={state}
+            actions={actions}
+          />
+        )
       ) : (
-        <MasterOperationsLayout
-          kpis={kpis}
-          activeFilter={filter}
-          onFilter={setFilter}
-          companies={filteredCompanies}
-          activeCompanyId={state.activeCompany?.id || null}
-          onOpenCompany={(company) => void actions.loadDetail(company.id)}
-          onAssumeCompany={actions.assumeContext}
-          companyHasContext={actions.companyHasActiveMasterContext}
-          busyAction={state.busyAction}
-          workspace={workspace}
-          currentUser={currentUser}
-          state={state}
-          actions={actions}
-        />
+        <MasterPrimaryWorkspace tab={activePrimaryTab} state={state} actions={actions} />
       )}
 
-      <CreateCompanyModal state={state} actions={actions} />
       <UserEditorModal state={state} actions={actions} />
       <ManualPaymentModal state={state} actions={actions} />
       <ConfirmActionModal state={state} actions={actions} />
+      <CreateCompanyModal state={state} actions={actions} />
       <MasterIntegrationsModal state={state} actions={actions} />
       <MasterEmailModal state={state} actions={actions} />
       <ModuleCatalogModal state={state} actions={actions} />
@@ -195,13 +174,10 @@ export default function MasterCommandCenter(props: MasterCommandCenterProps) {
 }
 
 export function MasterShell({ children }: { children: ReactNode }) {
-  return <div className={styles.masterShell}>{children}</div>;
+  return <div className={`${styles.masterShell} hbx-master-shell`}>{children}</div>;
 }
 
 function MasterOperationsLayout({
-  kpis,
-  activeFilter,
-  onFilter,
   companies,
   activeCompanyId,
   onOpenCompany,
@@ -209,13 +185,9 @@ function MasterOperationsLayout({
   companyHasContext,
   busyAction,
   workspace,
-  currentUser,
   state,
   actions,
 }: {
-  kpis: ReturnType<typeof buildCommandKpis>;
-  activeFilter: MasterCommandFilterId;
-  onFilter: (value: MasterCommandFilterId) => void;
   companies: CompanySummary[];
   activeCompanyId: number | null;
   onOpenCompany: (company: CompanySummary) => void;
@@ -223,13 +195,11 @@ function MasterOperationsLayout({
   companyHasContext: (companyId?: number | null) => boolean;
   busyAction: string | null;
   workspace: MasterCommandCenterProps["workspace"];
-  currentUser: MasterCommandCenterProps["currentUser"];
   state: CommandState;
   actions: CommandActions;
 }) {
   return (
     <section className={styles.operationsSurface}>
-      <MasterKpiStrip items={kpis} activeFilter={activeFilter} onFilter={onFilter} />
       <div className={styles.commandLayout}>
         <MasterCompanyBoard
           companies={companies}
@@ -241,7 +211,6 @@ function MasterOperationsLayout({
         />
         <MasterCompanyInspector
           workspace={workspace}
-          currentUser={currentUser}
           state={state}
           actions={actions}
         />
@@ -251,142 +220,130 @@ function MasterOperationsLayout({
 }
 
 function MasterTopCommandBar({
-  search,
-  onSearch,
-  filter,
-  onFilter,
+  activeTab,
+  onTabChange,
   currentUser,
   refreshing,
   onReload,
-  onCreateCompany,
-  onOpenEmail,
-  onOpenTokens,
-  onOpenModules,
-  onOpenDatabase,
-  onOpenLinks,
   onExitContext,
 }: {
-  search: string;
-  onSearch: (value: string) => void;
-  filter: MasterCommandFilterId;
-  onFilter: (value: MasterCommandFilterId) => void;
+  activeTab: MasterPrimaryTabId;
+  onTabChange: (tab: MasterPrimaryTabId) => void;
   currentUser: MasterCommandCenterProps["currentUser"];
   refreshing: boolean;
   onReload: () => void;
-  onCreateCompany: () => void;
-  onOpenEmail: () => void;
-  onOpenTokens: () => void;
-  onOpenModules: () => void;
-  onOpenDatabase: () => void;
-  onOpenLinks: () => void;
   onExitContext: () => void;
 }) {
   const contextActive = currentUser?.masterContext?.active === true;
+  const baseTabs = MASTER_PRIMARY_TABS.map((tab) => (
+    tab.key === "refresh" ? { ...tab, label: refreshing ? "Atualizando" : "Atualizar" } : tab
+  ));
+  const tabs = contextActive
+    ? [...baseTabs, { key: "exit", label: "Sair operação" } satisfies { key: MasterPrimaryTabId; label: string }]
+    : baseTabs;
+
+  function handlePrimaryTab(tab: MasterPrimaryTabId) {
+    if (tab === "refresh") {
+      onReload();
+      onTabChange("empresas");
+      return;
+    }
+    if (tab === "exit") {
+      onExitContext();
+      onTabChange("empresas");
+      return;
+    }
+    onTabChange(tab);
+  }
 
   return (
     <section className={styles.topCommandBar}>
-      <div className={styles.commandIdentity}>
-        <span>MASTER</span>
-        <strong>Command Center</strong>
-        <small>
-          {currentUser?.masterContext?.active
-            ? `Operando: ${currentUser.masterContext.companyName || "empresa"}`
-            : "Visão executiva da operação"}
-        </small>
-        <div className={styles.commandIdentityMeta}>
-          <span data-active={contextActive ? "true" : "false"}>
-            {contextActive ? "Contexto ativo" : "Sem contexto ativo"}
-          </span>
-          <span>Full desktop</span>
-        </div>
-      </div>
-
       <div className={styles.commandWorkstation}>
-        <div className={styles.searchBox}>
-          <label htmlFor="master-command-search">Busca operacional</label>
-          <input
-            id="master-command-search"
-            value={search}
-            onChange={(event) => onSearch(event.target.value)}
-            placeholder="Empresa, contato, plano, módulo, cobrança, WhatsApp..."
+        <div className={`${styles.masterGuide1Slot} hbx-guide1-slot`}>
+          <HbxGuide1
+            tabs={tabs}
+            activeKey={activeTab === "exit" || activeTab === "refresh" ? "empresas" : activeTab}
+            ariaLabel="Master"
+            onChange={handlePrimaryTab}
           />
-        </div>
-        <div className={styles.filterRail} aria-label="Filtros por problema real">
-          {MASTER_COMMAND_FILTERS.map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              className={styles.filterButton}
-              data-active={filter === item.id ? "true" : "false"}
-              aria-current={filter === item.id ? "true" : undefined}
-              onClick={() => onFilter(item.id)}
-            >
-              {item.label}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      <div className={styles.commandActionPanel}>
-        <div className={styles.commandActionHeader}>
-          <span>Ações rápidas</span>
-          <strong>{refreshing ? "Sincronizando..." : "Pronto para operar"}</strong>
-        </div>
-        <div className={styles.commandActions}>
-          <MasterActionButton onClick={onCreateCompany}>Nova empresa</MasterActionButton>
-          <MasterActionButton variant="secondary" onClick={onOpenEmail}>Email</MasterActionButton>
-          <MasterActionButton variant="secondary" onClick={onOpenDatabase}>Banco de Dados</MasterActionButton>
-          <MasterActionButton variant="secondary" onClick={onOpenTokens}>Tokens</MasterActionButton>
-          <MasterActionButton variant="secondary" onClick={onOpenLinks}>Links</MasterActionButton>
-          <MasterActionButton variant="secondary" onClick={onOpenModules}>Módulos</MasterActionButton>
-          <MasterActionButton variant="secondary" onClick={onReload}>{refreshing ? "Atualizando..." : "Atualizar"}</MasterActionButton>
-          {contextActive ? (
-            <MasterActionButton variant="secondary" onClick={onExitContext}>Sair operação</MasterActionButton>
-          ) : null}
         </div>
       </div>
     </section>
   );
 }
 
-function MasterKpiStrip({
-  items,
-  activeFilter,
-  onFilter,
+function MasterPrimaryWorkspace({
+  tab,
+  state,
+  actions,
 }: {
-  items: ReturnType<typeof buildCommandKpis>;
-  activeFilter: MasterCommandFilterId;
-  onFilter: (value: MasterCommandFilterId) => void;
+  tab: MasterPrimaryTabId;
+  state: CommandState;
+  actions: CommandActions;
 }) {
-  const mapToFilter: Record<string, MasterCommandFilterId> = {
-    no_access: "no_access",
-    overdue: "billing_pending",
-    trial: "trial_ending",
-    manual: "manual_premium",
-    whatsapp: "whatsapp_attention",
-  };
+  if (tab === "nova") return <CreateCompanyPanel state={state} actions={actions} />;
+  if (tab === "email") {
+    return (
+      <section className={`${styles.primaryWorkspace} hbx-page-mobile-enter`}>
+        <MasterEmailWorkspace embedded />
+      </section>
+    );
+  }
+  if (tab === "tokens") return <MasterIntegrationsPanelInline state={state} actions={actions} />;
+  if (tab === "modules") return <ModuleCatalogPanelInline state={state} actions={actions} />;
+  if (tab === "database") {
+    return (
+      <section className={`${styles.primaryWorkspace} ${styles.primaryWorkspaceFlush} hbx-page-mobile-enter`}>
+        <BancoDeDadosClientPage embedded />
+      </section>
+    );
+  }
+  if (tab === "links") {
+    return (
+      <MasterInlinePanel eyebrow="Links" title="Atalhos do sistema">
+        <div className={styles.primaryShortcutGrid}>
+          {[
+            ["Master financeiro", "/master/financeiro"],
+            ["Master operação", "/master/operacao"],
+            ["Radar Digital", "/radar-digital"],
+            ["Vendas", "/vendas"],
+            ["Atendimento", "/atendimento"],
+            ["Recovery", "/hbx-recovery"],
+          ].map(([label, href]) => (
+            <a key={href} className={styles.secondaryLink} href={href}>{label}</a>
+          ))}
+        </div>
+      </MasterInlinePanel>
+    );
+  }
+  return null;
+}
+
+function MasterInlinePanel({ eyebrow, title, children }: { eyebrow: string; title: string; children: ReactNode }) {
   return (
-    <section className={styles.kpiStrip} aria-label="Indicadores rápidos">
-      {items.map((item) => {
-        const targetFilter = mapToFilter[item.id] || "all";
-        const active = activeFilter === targetFilter;
-        return (
-          <button
-            key={item.id}
-            type="button"
-            className={styles.kpiCard}
-            data-tone={item.tone}
-            data-active={active ? "true" : "false"}
-            onClick={() => onFilter(targetFilter)}
-          >
-            <span>{item.label}</span>
-            <strong>{item.value.toLocaleString("pt-BR")}</strong>
-            <small>{active ? "Filtro ativo" : "Clique para filtrar"}</small>
-            <i aria-hidden="true" />
-          </button>
-        );
-      })}
+    <section className={`${styles.primaryWorkspace} hbx-page-mobile-enter`}>
+      <div className={styles.sectionTitle}>
+        <div>
+          <span>{eyebrow}</span>
+          <h3>{title}</h3>
+        </div>
+      </div>
+      {children}
     </section>
+  );
+}
+
+function CreateCompanyPanel({ state, actions }: { state: CommandState; actions: CommandActions }) {
+  return (
+    <MasterInlinePanel eyebrow="Master" title="Nova empresa">
+      <div className={styles.inlineForm}>
+        <input value={state.createCompanyName} onChange={(event) => actions.setCreateCompanyName(event.target.value)} placeholder="Nome da empresa" />
+        <input value={state.createCompanySlug} onChange={(event) => actions.setCreateCompanySlug(event.target.value)} placeholder="Slug opcional" />
+        <MasterActionButton onClick={actions.submitCreateCompany} disabled={state.busyAction === "create-company"}>
+          {state.busyAction === "create-company" ? "Criando..." : "Criar empresa"}
+        </MasterActionButton>
+      </div>
+    </MasterInlinePanel>
   );
 }
 
@@ -407,14 +364,6 @@ function MasterCompanyBoard({
 }) {
   return (
     <section className={styles.companyBoard} aria-label="Empresas">
-      <div className={styles.boardHeader}>
-        <div>
-          <span>Base operacional</span>
-          <strong>{companies.length.toLocaleString("pt-BR")} empresa(s)</strong>
-          <small>Selecione uma empresa para abrir o inspector completo.</small>
-        </div>
-        <MasterStatusBadge tone="neutral">Live</MasterStatusBadge>
-      </div>
       <div className={styles.companyRows}>
         {companies.map((company) => (
           <MasterCompanyRow
@@ -449,12 +398,40 @@ function MasterCompanyRow({
   onAssume: () => void;
 }) {
   const reality = resolveReality(company);
+  const displayName = String(company.name || `Empresa ${company.id}`).trim();
+  const displayMeta = String(company.contactPhone || company.contactEmail || company.slug || `ID ${company.id}`).trim();
+  const initials = displayName
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part.slice(0, 1))
+    .join("")
+    .toUpperCase() || "HB";
+
+  function handleKeyDown(event: KeyboardEvent<HTMLElement>) {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    onOpen();
+  }
+
   return (
-    <article className={styles.companyRow} data-active={active ? "true" : "false"} data-tone={riskTone(company)}>
+    <article
+      className={styles.companyRow}
+      data-active={active ? "true" : "false"}
+      data-tone={riskTone(company)}
+      role="button"
+      tabIndex={0}
+      title={`${displayName} - ${displayMeta}`}
+      aria-label={`Abrir ${displayName}`}
+      onClick={onOpen}
+      onKeyDown={handleKeyDown}
+    >
+      <span className={styles.companyAvatar} aria-hidden="true">{initials}</span>
       <div className={styles.companyMain}>
-        <strong>{company.name}</strong>
-        <span>{company.contactPhone || company.contactEmail || company.slug || `ID ${company.id}`}</span>
+        <strong>{displayName}</strong>
+        <span>{displayMeta}</span>
       </div>
+      <span className={styles.companySignal} data-active={contextActive ? "true" : "false"} aria-hidden="true" />
       <div className={styles.rowStatus}>
         <MasterStatusBadge tone={reality.nextActionTone}>{reality.nextAction}</MasterStatusBadge>
         <span>{commercialPlanLabel(company.selectedPlanKey)}</span>
@@ -465,10 +442,18 @@ function MasterCompanyRow({
       </div>
       <div className={styles.rowNext}>{recommendedBoardAction(company)}</div>
       <div className={styles.rowActions}>
-        <MasterActionButton variant={active ? "secondary" : "primary"} onClick={onOpen}>Abrir</MasterActionButton>
-        <MasterActionButton variant="secondary" onClick={onAssume} disabled={contextActive || busyAction === `context-${company.id}`}>
+        <button
+          type="button"
+          className={styles.actionButton}
+          data-variant="secondary"
+          onClick={(event) => {
+            event.stopPropagation();
+            onAssume();
+          }}
+          disabled={contextActive || busyAction === `context-${company.id}`}
+        >
           {contextActive ? "Operando" : "Operar"}
-        </MasterActionButton>
+        </button>
       </div>
     </article>
   );
@@ -476,12 +461,10 @@ function MasterCompanyRow({
 
 function MasterCompanyInspector({
   workspace,
-  currentUser,
   state,
   actions,
 }: {
   workspace: MasterCommandCenterProps["workspace"];
-  currentUser: MasterCommandCenterProps["currentUser"];
   state: CommandState;
   actions: CommandActions;
 }) {
@@ -497,31 +480,14 @@ function MasterCompanyInspector({
 
   return (
     <aside className={styles.inspector} aria-label={`Inspector ${company.name}`}>
-      <MasterCompanyHero
-        company={company}
-        currentUser={currentUser}
-        activeCompanyInContext={state.activeCompanyInContext}
-        busyAction={state.busyAction}
-        onClose={actions.closeCompany}
-        onAssume={() => actions.assumeContext(company)}
-        onOpenFinance={() => actions.navigateOperational(company, "finance")}
-        onOpenWhatsapp={() => actions.navigateOperational(company, "whatsapp")}
-      />
-      <nav className={styles.inspectorTabs} aria-label="Areas do controle master">
-        {MASTER_INSPECTOR_TABS.map((tab) => (
-          <button
-            key={tab.id}
-            type="button"
-            className={styles.inspectorTab}
-            data-active={activeTab === tab.id ? "true" : "false"}
-            aria-current={activeTab === tab.id ? "page" : undefined}
-            onClick={() => setActiveTabState({ companyId: company.id, tab: tab.id })}
-          >
-            <strong>{tab.label}</strong>
-            <span>{tab.meta}</span>
-          </button>
-        ))}
-      </nav>
+      <div className={`${styles.inspectorTabs} hbx-guide1-slot`}>
+        <HbxGuide1
+          tabs={MASTER_INSPECTOR_GUIDE_TABS}
+          activeKey={activeTab}
+          ariaLabel="Areas do controle master"
+          onChange={(tab) => setActiveTabState({ companyId: company.id, tab })}
+        />
+      </div>
       <div className={styles.inspectorContent}>
         {activeTab === "overview" ? (
           <>
@@ -544,55 +510,6 @@ function MasterCompanyInspector({
         {activeTab === "danger" ? <MasterDangerZone company={company} actions={actions} state={state} /> : null}
       </div>
     </aside>
-  );
-}
-
-function MasterCompanyHero({
-  company,
-  currentUser,
-  activeCompanyInContext,
-  busyAction,
-  onClose,
-  onAssume,
-  onOpenFinance,
-  onOpenWhatsapp,
-}: {
-  company: CompanyDetailPayload["company"];
-  currentUser: MasterCommandCenterProps["currentUser"];
-  activeCompanyInContext: boolean;
-  busyAction: string | null;
-  onClose: () => void;
-  onAssume: () => void;
-  onOpenFinance: () => void;
-  onOpenWhatsapp: () => void;
-}) {
-  const reality = resolveReality(company);
-  return (
-    <header className={styles.companyHero} data-tone={riskTone(company)}>
-      <div>
-        <span>Empresa ativa no detalhe</span>
-        <h2>{company.name}</h2>
-        <div className={styles.heroBadges}>
-          <MasterStatusBadge tone={reality.accessTone}>{reality.accessLabel}</MasterStatusBadge>
-          <MasterStatusBadge tone={reality.billingTone}>{reality.billingLabel}</MasterStatusBadge>
-          <MasterStatusBadge tone="neutral">{reality.planLabel}</MasterStatusBadge>
-          {companyManualPremium(company) ? <MasterStatusBadge tone="warn">Acesso manual ativo</MasterStatusBadge> : null}
-        </div>
-      </div>
-      <div className={styles.heroActions}>
-        <MasterActionButton onClick={onAssume} disabled={activeCompanyInContext || busyAction === `context-${company.id}`}>
-          {activeCompanyInContext ? "Operando" : "Operar"}
-        </MasterActionButton>
-        <MasterActionButton variant="secondary" onClick={onOpenFinance}>Financeiro</MasterActionButton>
-        <MasterActionButton variant="secondary" onClick={onOpenWhatsapp}>WhatsApp</MasterActionButton>
-        <MasterActionButton variant="ghost" onClick={onClose}>Fechar</MasterActionButton>
-      </div>
-      <p className={styles.contextLine}>
-        {currentUser?.masterContext?.active && currentUser.masterContext.companyId === company.id
-          ? "Você está operando esta empresa."
-          : "Aberturas internas assumem a operação automaticamente quando necessário."}
-      </p>
-    </header>
   );
 }
 
@@ -1770,31 +1687,45 @@ function ConfirmActionModal({ state, actions }: { state: CommandState; actions: 
 function MasterIntegrationsModal({ state, actions }: { state: CommandState; actions: CommandActions }) {
   return (
     <Modal open={state.masterIntegrationsOpen} title="Credenciais globais do MASTER" onClose={() => actions.setMasterIntegrationsOpen(false)} wide>
-      <div className={styles.modalStack}>
-        {state.activeCompany ? (
-          <div className={styles.alertInfo}>
-            <strong>{state.activeCompany.name}</strong>
-            <MasterActionButton variant="secondary" onClick={() => actions.importActiveCompanyTokensToMaster(true)}>Importar tokens da empresa</MasterActionButton>
-          </div>
-        ) : null}
-        <CredentialLibrary
-          title="Mercado Pago"
-          items={state.masterIntegrationsDraft.mercadoPagoLibrary}
-          onAdd={actions.addMasterMercadoPagoCredential}
-          onRemove={actions.removeMasterMercadoPagoCredential}
-          onUpdate={actions.updateMasterMercadoPagoCredential}
-        />
-        <WhatsAppCredentialLibrary state={state} actions={actions} />
-        <div className={styles.inlineForm}>
-          <input value={String(state.masterIntegrationsDraft.annualPlanDiscountPercent ?? 0)} onChange={(event) => actions.setMasterIntegrationsDraft((current) => ({ ...current, annualPlanDiscountPercent: Number(event.target.value || 0) }))} placeholder="Desconto anual %" />
-          <input value={String(state.masterIntegrationsDraft.extraSeatMonthlyAmount ?? 0)} onChange={(event) => actions.setMasterIntegrationsDraft((current) => ({ ...current, extraSeatMonthlyAmount: Number(event.target.value || 0) }))} placeholder="Assento extra" />
-          <input value={String(state.masterIntegrationsDraft.referralDiscountPercent ?? 0)} onChange={(event) => actions.setMasterIntegrationsDraft((current) => ({ ...current, referralDiscountPercent: Number(event.target.value || 0) }))} placeholder="Indicação %" />
-          <label><input type="checkbox" checked={state.masterIntegrationsDraft.referralDiscountActive} onChange={(event) => actions.setMasterIntegrationsDraft((current) => ({ ...current, referralDiscountActive: event.target.checked }))} /> Indicação ativa</label>
-          <MasterActionButton variant="secondary" onClick={actions.saveMasterBillingPolicy}>Salvar política financeira</MasterActionButton>
-          <MasterActionButton onClick={actions.saveMasterIntegrations}>Salvar credenciais</MasterActionButton>
-        </div>
-      </div>
+      <MasterIntegrationsContent state={state} actions={actions} />
     </Modal>
+  );
+}
+
+function MasterIntegrationsPanelInline({ state, actions }: { state: CommandState; actions: CommandActions }) {
+  return (
+    <MasterInlinePanel eyebrow="Master" title="Tokens e credenciais">
+      <MasterIntegrationsContent state={state} actions={actions} />
+    </MasterInlinePanel>
+  );
+}
+
+function MasterIntegrationsContent({ state, actions }: { state: CommandState; actions: CommandActions }) {
+  return (
+    <div className={styles.modalStack}>
+      {state.activeCompany ? (
+        <div className={styles.alertInfo}>
+          <strong>{state.activeCompany.name}</strong>
+          <MasterActionButton variant="secondary" onClick={() => actions.importActiveCompanyTokensToMaster(true)}>Importar tokens da empresa</MasterActionButton>
+        </div>
+      ) : null}
+      <CredentialLibrary
+        title="Mercado Pago"
+        items={state.masterIntegrationsDraft.mercadoPagoLibrary}
+        onAdd={actions.addMasterMercadoPagoCredential}
+        onRemove={actions.removeMasterMercadoPagoCredential}
+        onUpdate={actions.updateMasterMercadoPagoCredential}
+      />
+      <WhatsAppCredentialLibrary state={state} actions={actions} />
+      <div className={styles.inlineForm}>
+        <input value={String(state.masterIntegrationsDraft.annualPlanDiscountPercent ?? 0)} onChange={(event) => actions.setMasterIntegrationsDraft((current) => ({ ...current, annualPlanDiscountPercent: Number(event.target.value || 0) }))} placeholder="Desconto anual %" />
+        <input value={String(state.masterIntegrationsDraft.extraSeatMonthlyAmount ?? 0)} onChange={(event) => actions.setMasterIntegrationsDraft((current) => ({ ...current, extraSeatMonthlyAmount: Number(event.target.value || 0) }))} placeholder="Assento extra" />
+        <input value={String(state.masterIntegrationsDraft.referralDiscountPercent ?? 0)} onChange={(event) => actions.setMasterIntegrationsDraft((current) => ({ ...current, referralDiscountPercent: Number(event.target.value || 0) }))} placeholder="Indicação %" />
+        <label><input type="checkbox" checked={state.masterIntegrationsDraft.referralDiscountActive} onChange={(event) => actions.setMasterIntegrationsDraft((current) => ({ ...current, referralDiscountActive: event.target.checked }))} /> Indicação ativa</label>
+        <MasterActionButton variant="secondary" onClick={actions.saveMasterBillingPolicy}>Salvar política financeira</MasterActionButton>
+        <MasterActionButton onClick={actions.saveMasterIntegrations}>Salvar credenciais</MasterActionButton>
+      </div>
+    </div>
   );
 }
 
@@ -1854,20 +1785,34 @@ function WhatsAppCredentialLibrary({ state, actions }: { state: CommandState; ac
 }
 
 function ModuleCatalogModal({ state, actions }: { state: CommandState; actions: CommandActions }) {
-  const drafts = Object.values(state.moduleCatalogDrafts).filter((item) => item.companyAssignable);
   return (
     <Modal open={state.moduleCatalogOpen} title="Catálogo de módulos" onClose={() => actions.setModuleCatalogOpen(false)} wide>
-      <div className={styles.modalStack}>
-        {drafts.map((draft) => (
-          <article key={draft.key} className={styles.catalogRow}>
-            <input value={draft.name} onChange={(event) => actions.setModuleCatalogDrafts((current) => ({ ...current, [draft.key]: { ...draft, name: event.target.value } }))} />
-            <input value={draft.description} onChange={(event) => actions.setModuleCatalogDrafts((current) => ({ ...current, [draft.key]: { ...draft, description: event.target.value } }))} />
-            <input type="number" min={0} step="0.01" value={draft.monthlyPrice} onChange={(event) => actions.setModuleCatalogDrafts((current) => ({ ...current, [draft.key]: { ...draft, monthlyPrice: event.target.value } }))} placeholder="Preço mensal" />
-            <label><input type="checkbox" checked={draft.defaultEnabled} onChange={(event) => actions.setModuleCatalogDrafts((current) => ({ ...current, [draft.key]: { ...draft, defaultEnabled: event.target.checked } }))} /> Padrão</label>
-            <MasterActionButton variant="secondary" onClick={() => actions.saveSystemModule(draft.key)}>Salvar</MasterActionButton>
-          </article>
-        ))}
-      </div>
+      <ModuleCatalogContent state={state} actions={actions} />
     </Modal>
+  );
+}
+
+function ModuleCatalogPanelInline({ state, actions }: { state: CommandState; actions: CommandActions }) {
+  return (
+    <MasterInlinePanel eyebrow="Master" title="Módulos">
+      <ModuleCatalogContent state={state} actions={actions} />
+    </MasterInlinePanel>
+  );
+}
+
+function ModuleCatalogContent({ state, actions }: { state: CommandState; actions: CommandActions }) {
+  const drafts = Object.values(state.moduleCatalogDrafts).filter((item) => item.companyAssignable);
+  return (
+    <div className={styles.modalStack}>
+      {drafts.map((draft) => (
+        <article key={draft.key} className={styles.catalogRow}>
+          <input value={draft.name} onChange={(event) => actions.setModuleCatalogDrafts((current) => ({ ...current, [draft.key]: { ...draft, name: event.target.value } }))} />
+          <input value={draft.description} onChange={(event) => actions.setModuleCatalogDrafts((current) => ({ ...current, [draft.key]: { ...draft, description: event.target.value } }))} />
+          <input type="number" min={0} step="0.01" value={draft.monthlyPrice} onChange={(event) => actions.setModuleCatalogDrafts((current) => ({ ...current, [draft.key]: { ...draft, monthlyPrice: event.target.value } }))} placeholder="Preço mensal" />
+          <label><input type="checkbox" checked={draft.defaultEnabled} onChange={(event) => actions.setModuleCatalogDrafts((current) => ({ ...current, [draft.key]: { ...draft, defaultEnabled: event.target.checked } }))} /> Padrão</label>
+          <MasterActionButton variant="secondary" onClick={() => actions.saveSystemModule(draft.key)}>Salvar</MasterActionButton>
+        </article>
+      ))}
+    </div>
   );
 }
