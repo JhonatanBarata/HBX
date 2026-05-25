@@ -5,6 +5,20 @@
   color: var(--foreground);
 }
 
+.builderWorkspace {
+  min-height: min(860px, calc(100vh - 64px));
+  display: grid;
+  grid-template-columns: 74px minmax(0, 1fr);
+  gap: .62rem;
+  align-items: start;
+}
+
+.builderContent {
+  min-width: 0;
+  display: grid;
+  gap: .85rem;
+}
+
 .builderTopbar,
 .inspectorPanel,
 .canvasPanel,

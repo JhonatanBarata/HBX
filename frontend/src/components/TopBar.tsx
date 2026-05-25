@@ -23,6 +23,10 @@ import {
   type WhatsAppLiveHealthPayload,
   type WhatsAppModalPayload,
 } from "@/lib/whatsapp-center";
+import {
+  bootstrapWhatsAppAfterConnect,
+  buildWhatsAppBootstrapKey,
+} from "@/lib/whatsapp-connection-flow";
 import { useWhatsAppLiveHealth } from "@/lib/useWhatsAppLiveHealth";
 import {
   MASTER_CONTEXT_CHANGED_EVENT,
@@ -2651,6 +2655,8 @@ export default function TopBar() {
   const lastScrollYRef = useRef(0);
   const previousWhatsAppModalStatusRef = useRef<string | null>(null);
   const whatsAppQrActionInFlightRef = useRef(false);
+  const whatsAppBootstrapInFlightRef = useRef(false);
+  const lastWhatsAppBootstrapKeyRef = useRef<string | null>(null);
   const scrapingEngineBackoffUntilRef = useRef(0);
   const scrapingEngineBackoffMsRef = useRef(SCRAPING_ENGINE_POLL_MS);
   const authResolved = authenticated !== null;
@@ -2975,6 +2981,40 @@ export default function TopBar() {
 
     return latestPayload;
   }, [router]);
+
+  const runWhatsAppBootstrapAfterConnect = React.useCallback(async (payload: WhatsAppModalPayload) => {
+    const bootstrapKey = buildWhatsAppBootstrapKey(payload);
+    if (
+      payload.status !== "connected" ||
+      whatsAppBootstrapInFlightRef.current ||
+      lastWhatsAppBootstrapKeyRef.current === bootstrapKey
+    ) {
+      return;
+    }
+
+    whatsAppBootstrapInFlightRef.current = true;
+    lastWhatsAppBootstrapKeyRef.current = bootstrapKey;
+    setWhatsAppDetailMessage("Espelhando conversas e clientes...");
+    setWhatsAppDetailError(null);
+
+    try {
+      await bootstrapWhatsAppAfterConnect(payload);
+      setWhatsAppDetailMessage("WhatsApp conectado. Fila atualizada.");
+      void loadWhatsAppCenter({ background: true });
+      void loadWhatsAppModal({ background: true, includeQr: false });
+      void whatsAppLiveHealth.refresh(true);
+      void refreshOperationalStatus(true);
+    } catch (error) {
+      setWhatsAppDetailError(error instanceof Error ? error.message : "WhatsApp conectou, mas falhou ao espelhar conversas e clientes.");
+    } finally {
+      whatsAppBootstrapInFlightRef.current = false;
+    }
+  }, [
+    loadWhatsAppCenter,
+    loadWhatsAppModal,
+    refreshOperationalStatus,
+    whatsAppLiveHealth,
+  ]);
 
   const showMasterContextToast = React.useCallback((detail?: MasterContextChangedDetail | null) => {
     const mode = detail?.mode;
@@ -3678,13 +3718,28 @@ export default function TopBar() {
     const previousStatus = previousWhatsAppModalStatusRef.current;
     previousWhatsAppModalStatusRef.current = currentStatus;
 
+    if (
+      whatsAppDetailOpen &&
+      whatsAppQrRequested &&
+      whatsAppModal?.status === "connected" &&
+      previousStatus &&
+      previousStatus !== "connected"
+    ) {
+      void runWhatsAppBootstrapAfterConnect(whatsAppModal);
+    }
+
     if (!currentStatus || currentStatus === previousStatus) return;
     if (currentStatus !== "connected" && previousStatus !== "connected") return;
 
     dispatchModulesChanged({
       reason: currentStatus === "connected" ? "whatsapp_connected" : "whatsapp_disconnected",
     });
-  }, [whatsAppModal?.status]);
+  }, [
+    runWhatsAppBootstrapAfterConnect,
+    whatsAppDetailOpen,
+    whatsAppModal,
+    whatsAppQrRequested,
+  ]);
 
   useEffect(() => {
     if (!user) return;
@@ -4077,6 +4132,11 @@ export default function TopBar() {
   }, []);
 
   async function handleLogout() {
+    if (user?.isSystemMaster && user.masterContext?.active) {
+      await exitMasterContext();
+      return;
+    }
+
     await runGlobalShutdown(async () => {
       try {
         await apiFetch("/auth/logout", {
@@ -4499,6 +4559,27 @@ export default function TopBar() {
     void loadWhatsAppCenter({ background: true });
     void loadWhatsAppModal({ background: true, includeQr: false });
   }
+
+  useEffect(() => {
+    const onOpenWhatsAppQr = (event: Event) => {
+      if (pendingCheckoutLocked) {
+        router.push(pendingCheckoutHref);
+        return;
+      }
+      const detail = event instanceof CustomEvent ? event.detail : null;
+      const focus = String(detail?.focus || "qr") === "official" ? "official" : String(detail?.focus || "qr") === "status" ? "status" : "qr";
+      setWhatsAppDetailFocus(focus);
+      setWhatsAppDetailOpen(true);
+      setWhatsAppQrRequested(false);
+      void loadWhatsAppCenter({ background: true });
+      void loadWhatsAppModal({ background: true, includeQr: focus === "qr" });
+    };
+
+    window.addEventListener("hbx:open-whatsapp-qr", onOpenWhatsAppQr);
+    return () => {
+      window.removeEventListener("hbx:open-whatsapp-qr", onOpenWhatsAppQr);
+    };
+  }, [loadWhatsAppCenter, loadWhatsAppModal, pendingCheckoutHref, pendingCheckoutLocked, router]);
 
   function handleBillboardAction(slide: BillboardSlide) {
     if (pendingCheckoutLocked) {
@@ -5184,9 +5265,9 @@ export default function TopBar() {
                 onClick={() => {
                   void handleLogout();
                 }}
-                disabled={isShuttingDown}
-                title="Sair do sistema"
-                aria-label="Sair do sistema"
+                disabled={isShuttingDown || masterContextActionBusy}
+                title={user?.isSystemMaster && user.masterContext?.active ? "Sair da empresa" : "Sair do sistema"}
+                aria-label={user?.isSystemMaster && user.masterContext?.active ? "Sair da empresa" : "Sair do sistema"}
               >
                 <HbxHeaderIcon name="logout" />
               </button>
@@ -5404,13 +5485,21 @@ export default function TopBar() {
                   void handleLogout();
                 }}
                 className="hbx-control-logout"
-                disabled={isShuttingDown}
-                title="Sair do sistema"
-                aria-label="Sair do sistema"
+                disabled={isShuttingDown || masterContextActionBusy}
+                title={user?.isSystemMaster && user.masterContext?.active ? "Sair da empresa" : "Sair do sistema"}
+                aria-label={user?.isSystemMaster && user.masterContext?.active ? "Sair da empresa" : "Sair do sistema"}
                 style={{ flex: "0 0 56px", minWidth: 56, width: 56, height: 50, alignSelf: "center", position: "relative" }}
               >
                 <HbxHeaderIcon name="logout" />
-                <span className="hbx-control-logout__label">{isShuttingDown ? "Saindo..." : "Sair do sistema"}</span>
+                <span className="hbx-control-logout__label">
+                  {masterContextActionBusy
+                    ? "Saindo da empresa..."
+                    : isShuttingDown
+                      ? "Saindo..."
+                      : user?.isSystemMaster && user.masterContext?.active
+                        ? "Sair da empresa"
+                        : "Sair do sistema"}
+                </span>
               </button>
             ) : authResolved ? (
               <Link href="/login" prefetch={false} className="hbx-control-logout">

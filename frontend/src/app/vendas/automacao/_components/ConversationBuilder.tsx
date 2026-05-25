@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import HbxGuide4, { type HbxGuide4Item } from "@/components/HbxGuide4";
 import type { ProviderCapabilities } from "@/lib/provider-capabilities";
 import BotPanel from "../../../atendimento/_components/BotPanel";
 import {
@@ -233,6 +234,90 @@ const FIRST_CONTACT_RULE_DEFAULTS: Record<BotGuideId, FirstContactRules> = {
 
 const QUICK_REGISTRATION_FALLBACK =
   "Antes de continuar, me confirme seu nome para eu manter o atendimento organizado.";
+
+function BuilderIcon({ name }: { name: "bot" | "check" | "save" | "play" | "sliders" | "map" | "send" | "close" }) {
+  const common = {
+    viewBox: "0 0 24 24",
+    fill: "none",
+    stroke: "currentColor",
+    strokeWidth: 1.9,
+    strokeLinecap: "round" as const,
+    strokeLinejoin: "round" as const,
+    "aria-hidden": true,
+  };
+
+  if (name === "bot") {
+    return (
+      <svg {...common}>
+        <rect x="6" y="8" width="12" height="10" rx="3" />
+        <path d="M12 5v3" />
+        <path d="M9.3 13h.01" />
+        <path d="M14.7 13h.01" />
+        <path d="M10 16h4" />
+        <path d="M4 12h2" />
+        <path d="M18 12h2" />
+      </svg>
+    );
+  }
+  if (name === "check") {
+    return (
+      <svg {...common}>
+        <path d="M20 6 9 17l-5-5" />
+      </svg>
+    );
+  }
+  if (name === "save") {
+    return (
+      <svg {...common}>
+        <path d="M5 4h12l2 2v14H5z" />
+        <path d="M8 4v6h8V4" />
+        <path d="M8 20v-6h8v6" />
+      </svg>
+    );
+  }
+  if (name === "play") {
+    return (
+      <svg {...common}>
+        <path d="m8 5 11 7-11 7z" />
+      </svg>
+    );
+  }
+  if (name === "sliders") {
+    return (
+      <svg {...common}>
+        <path d="M4 7h9" />
+        <path d="M17 7h3" />
+        <path d="M4 17h3" />
+        <path d="M11 17h9" />
+        <circle cx="15" cy="7" r="2" />
+        <circle cx="9" cy="17" r="2" />
+      </svg>
+    );
+  }
+  if (name === "map") {
+    return (
+      <svg {...common}>
+        <path d="m9 18-5 2V6l5-2 6 2 5-2v14l-5 2z" />
+        <path d="M9 4v14" />
+        <path d="M15 6v14" />
+      </svg>
+    );
+  }
+  if (name === "send") {
+    return (
+      <svg {...common}>
+        <path d="m22 2-7 20-4-9-9-4z" />
+        <path d="M22 2 11 13" />
+      </svg>
+    );
+  }
+  return (
+    <svg {...common}>
+      <path d="M18 6 6 18" />
+      <path d="m6 6 12 12" />
+    </svg>
+  );
+}
 
 export const SCENE_BLUEPRINTS: SceneBlueprint[] = [
   {
@@ -932,79 +1017,120 @@ export default function ConversationBuilder({
     onConfigChange(updateSceneRule(botConfig, selectedScene.id, conditionType, enabled, metadata));
   };
 
-  const handleTestBot = () => {
+  const handleTestBot = useCallback(() => {
     setSelectedSceneId("entry");
     setPreviewPeriod("morning");
     setPreviewRun((value) => value + 1);
-  };
+  }, []);
+
+  const guide4Items = useMemo<{
+    topItems: HbxGuide4Item[];
+    navItems: HbxGuide4Item[];
+    bottomItems: HbxGuide4Item[];
+  }>(() => ({
+    topItems: [
+      {
+        id: "bot",
+        label: `Bot ${activeGuide.label}`,
+        icon: <BuilderIcon name="bot" />,
+        active: true,
+      },
+      {
+        id: "status",
+        label: hasUnsavedChanges ? "Rascunho alterado" : "Fluxo salvo",
+        icon: <BuilderIcon name={hasUnsavedChanges ? "close" : "check"} />,
+        tone: hasUnsavedChanges ? "danger" : "success",
+      },
+    ],
+    navItems: [
+      {
+        id: "save",
+        label: "Salvar rascunho",
+        icon: <BuilderIcon name="save" />,
+        onClick: onSaveDraft,
+      },
+      {
+        id: "test",
+        label: "Testar bot",
+        icon: <BuilderIcon name="play" />,
+        onClick: handleTestBot,
+      },
+      {
+        id: "advanced",
+        label: "Editor avancado",
+        icon: <BuilderIcon name="sliders" />,
+        active: advancedOpen,
+        onClick: () => setAdvancedOpen((value) => !value),
+      },
+      {
+        id: "review",
+        label: "Revisar mapa",
+        icon: <BuilderIcon name="map" />,
+        onClick: () => setReviewOpen(true),
+      },
+    ],
+    bottomItems: [
+      {
+        id: "publish",
+        label: publishing ? "Publicando" : "Publicar",
+        icon: <BuilderIcon name="send" />,
+        tone: "primary",
+        disabled: publishing,
+        onClick: () => setReviewOpen(true),
+      },
+    ],
+  }), [activeGuide.label, advancedOpen, handleTestBot, hasUnsavedChanges, onSaveDraft, publishing]);
 
   return (
     <section className={styles.builderShell}>
-      <header className={styles.builderTopbar}>
-        <div>
-          <span className={styles.eyebrow}>Bot {activeGuide.label}</span>
-          <h2>Construtor de bot</h2>
-          {activeGuideId === "prospeccao" ? (
-            <p className={styles.guideWarning}>Este bot não inicia conversas sozinho. Ele só responde leads que já responderam a campanha.</p>
-          ) : null}
+      <div className={styles.builderWorkspace}>
+        <div className="hbx-guide4-slot">
+          <HbxGuide4
+            ariaLabel="Ações do construtor de bot"
+            topItems={guide4Items.topItems}
+            navItems={guide4Items.navItems}
+            bottomItems={guide4Items.bottomItems}
+          />
         </div>
-        <div className={styles.topbarActions}>
-          <span className={styles.saveState} data-dirty={hasUnsavedChanges ? "true" : "false"}>
-            {hasUnsavedChanges ? "Rascunho alterado" : "Fluxo salvo"}
-          </span>
-          <button type="button" className={styles.secondaryButton} onClick={onSaveDraft}>
-            Salvar rascunho
-          </button>
-          <button type="button" className={styles.secondaryButton} onClick={handleTestBot}>
-            Testar bot
-          </button>
-          <button type="button" className={styles.secondaryButton} onClick={() => setAdvancedOpen((value) => !value)}>
-            Editor avancado
-          </button>
-          <button type="button" className={styles.primaryButton} onClick={() => setReviewOpen(true)}>
-            Revisar mapa
-          </button>
-          <button type="button" className={styles.primaryButton} disabled={publishing} onClick={() => setReviewOpen(true)}>
-            {publishing ? "Publicando..." : "Publicar"}
-          </button>
+
+        <div className={styles.builderContent}>
+          <div className={styles.liveBuilderGrid}>
+            <SceneInspector
+              scene={selectedScene}
+              config={botConfig}
+              destinationOptions={destinationOptions}
+              channelLabel={providerCapabilities.canUseOfficialButtons ? "Meta" : "QR/Evolution"}
+              recoveryEnabled={recoveryEnabled}
+              onTitleChange={updateSelectedTitle}
+              onMessageChange={updateSelectedMessage}
+              onConfigChange={onConfigChange}
+              onInsertVariable={(token) => updateSelectedMessage(`${selectedScene.message}${selectedScene.message ? " " : ""}{{${token}}}`)}
+              onAddButton={addButton}
+              onButtonTitleChange={(index, title) => updateButton(index, { title })}
+              onButtonDestinationChange={updateButtonDestination}
+              onRemoveButton={removeButton}
+              onSceneRuleChange={updateSceneRuleValue}
+            />
+
+            <ConversationCanvas
+              scenes={scenes}
+              edges={edges}
+              selectedSceneId={selectedScene.id}
+              recoveryEnabled={recoveryEnabled}
+              onSelectScene={setSelectedSceneId}
+            />
+
+            <WhatsAppFlowPreview
+              scene={selectedScene}
+              config={botConfig}
+              providerCapabilities={providerCapabilities}
+              recoveryEnabled={recoveryEnabled}
+              period={previewPeriod}
+              previewRun={previewRun}
+              onPeriodChange={setPreviewPeriod}
+            />
+          </div>
         </div>
-      </header>
-
-      <div className={styles.liveBuilderGrid}>
-        <SceneInspector
-          scene={selectedScene}
-          config={botConfig}
-          destinationOptions={destinationOptions}
-          channelLabel={providerCapabilities.canUseOfficialButtons ? "Meta" : "QR/Evolution"}
-          recoveryEnabled={recoveryEnabled}
-          onTitleChange={updateSelectedTitle}
-          onMessageChange={updateSelectedMessage}
-          onConfigChange={onConfigChange}
-          onInsertVariable={(token) => updateSelectedMessage(`${selectedScene.message}${selectedScene.message ? " " : ""}{{${token}}}`)}
-          onAddButton={addButton}
-          onButtonTitleChange={(index, title) => updateButton(index, { title })}
-          onButtonDestinationChange={updateButtonDestination}
-          onRemoveButton={removeButton}
-          onSceneRuleChange={updateSceneRuleValue}
-        />
-
-        <ConversationCanvas
-          scenes={scenes}
-          edges={edges}
-          selectedSceneId={selectedScene.id}
-          recoveryEnabled={recoveryEnabled}
-          onSelectScene={setSelectedSceneId}
-        />
-
-        <WhatsAppFlowPreview
-          scene={selectedScene}
-          config={botConfig}
-          providerCapabilities={providerCapabilities}
-          recoveryEnabled={recoveryEnabled}
-          period={previewPeriod}
-          previewRun={previewRun}
-          onPeriodChange={setPreviewPeriod}
-        />
       </div>
 
       {advancedOpen ? (

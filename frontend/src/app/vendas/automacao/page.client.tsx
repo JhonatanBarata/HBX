@@ -25,7 +25,13 @@ import {
   getWhatsAppModalPlanRedirect,
   type WhatsAppCenterPayload,
   type WhatsAppModalPayload,
+  whatsappModalStatusLabel,
+  whatsappModeLabel,
 } from "@/lib/whatsapp-center";
+import {
+  bootstrapWhatsAppAfterConnect,
+  buildWhatsAppBootstrapKey,
+} from "@/lib/whatsapp-connection-flow";
 import { apiFetch } from "@/app/_lib/api";
 import { useRequireModule } from "@/app/_lib/useRequireModule";
 import {
@@ -37,6 +43,7 @@ import {
   type AtendimentoBotConfig,
 } from "../../atendimento/inbox-model";
 import ConversationBuilder from "./_components/ConversationBuilder";
+import BotQrConnectionCard from "./_components/BotQrConnectionCard";
 import BotQrWorkspace from "./_components/BotQrWorkspace";
 import {
   type BotQrWorkspaceTab,
@@ -1167,7 +1174,8 @@ export default function VendasAutomationClientPage() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [loading, setLoading] = useState(true);
-  const [, setConnectionLoading] = useState(true);
+  const [connectionLoading, setConnectionLoading] = useState(true);
+  const [connectionAction, setConnectionAction] = useState<string | null>(null);
   const [publishing, setPublishing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<NoticeState | null>(null);
@@ -1188,6 +1196,8 @@ export default function VendasAutomationClientPage() {
   const [, setDraftSavedAt] = useState<string | null>(null);
   const [, setPublishedAt] = useState<string | null>(null);
   const previousConnectionStatusRef = useRef<WhatsAppModalPayload["status"] | null>(null);
+  const connectionBootstrapInFlightRef = useRef(false);
+  const lastConnectionBootstrapKeyRef = useRef<string | null>(null);
   const prospectingDirtyRef = useRef(false);
   const prospectingConfigRef = useRef<ProspectingAutomationConfig>(DEFAULT_PROSPECTING_CONFIG);
 
@@ -1251,10 +1261,6 @@ export default function VendasAutomationClientPage() {
 
   const setWorkspaceTab = useCallback(
     (tab: BotQrWorkspaceTab) => {
-      if (tab === "connection") {
-        router.push("/whatsapp?focus=qr");
-        return;
-      }
       setActiveTab(tab);
       const params = new URLSearchParams(searchParams?.toString() || "");
       params.set("tab", tab);
@@ -1284,6 +1290,113 @@ export default function VendasAutomationClientPage() {
       if (!background) setConnectionLoading(false);
     }
   }, [handleModalPlanRedirect]);
+
+  const ensureConnectionQrMode = useCallback(async () => {
+    if (centerPayload?.center.mode === "QR") return centerPayload;
+    const next = await apiFetch<WhatsAppCenterPayload>("/companies/me/whatsapp-center", {
+      method: "PATCH",
+      body: JSON.stringify({ mode: "QR" }),
+    });
+    setCenterPayload(next);
+    return next;
+  }, [centerPayload]);
+
+  const runConnectionAction = useCallback(async (action: "generate_qr" | "reconnect" | "disconnect") => {
+    if (connectionAction) return;
+    setConnectionAction(action);
+    setNotice(null);
+    try {
+      let nextPayload: WhatsAppModalPayload;
+
+      if (action === "disconnect") {
+        nextPayload = await apiFetch<WhatsAppModalPayload>("/companies/me/whatsapp-modal/disconnect", {
+          method: "POST",
+        });
+      } else {
+        const requestQrOnly =
+          action === "generate_qr" &&
+          modalPayload !== null &&
+          modalPayload.status === "waiting_qr" &&
+          !modalPayload.data.qrCodeDataUrl;
+
+        if (!requestQrOnly) {
+          await ensureConnectionQrMode();
+        }
+
+        nextPayload = requestQrOnly
+          ? await apiFetch<WhatsAppModalPayload>("/companies/me/whatsapp-modal/qr")
+          : await apiFetch<WhatsAppModalPayload>("/companies/me/whatsapp-modal/start", {
+              method: "POST",
+            });
+
+        if (shouldLoadModalQr(nextPayload, true) && !nextPayload.data.qrCodeDataUrl) {
+          const qrPayload = await apiFetch<WhatsAppModalPayload>("/companies/me/whatsapp-modal/qr");
+          nextPayload = mergeModalPayload(nextPayload, qrPayload);
+        }
+      }
+
+      setModalPayload(nextPayload);
+      const planRedirect = getWhatsAppModalPlanRedirect(nextPayload);
+      if (planRedirect) {
+        setNotice({ tone: "error", text: nextPayload.message });
+        router.push(planRedirect);
+        return;
+      }
+
+      dispatchModulesChanged({
+        reason: action === "disconnect" ? "whatsapp_disconnected" : "whatsapp_connection_updated",
+      });
+      setNotice({
+        tone: nextPayload.success ? "success" : "error",
+        text:
+          action === "disconnect"
+            ? "WhatsApp desconectado."
+            : nextPayload.data.qrCodeDataUrl
+              ? "QR pronto para leitura."
+              : nextPayload.status === "connected"
+                ? "WhatsApp conectado."
+                : nextPayload.message || "Solicitação enviada ao motor WhatsApp.",
+      });
+      void loadConnection(true, action !== "disconnect");
+    } catch (actionError) {
+      setNotice({
+        tone: "error",
+        text: actionError instanceof Error ? actionError.message : "Falha ao atualizar a conexão WhatsApp.",
+      });
+    } finally {
+      setConnectionAction(null);
+    }
+  }, [connectionAction, ensureConnectionQrMode, loadConnection, modalPayload, router]);
+
+  const runConnectionBootstrapAfterConnect = useCallback(async (payload: WhatsAppModalPayload) => {
+    const bootstrapKey = buildWhatsAppBootstrapKey(payload);
+    if (
+      payload.status !== "connected" ||
+      connectionBootstrapInFlightRef.current ||
+      lastConnectionBootstrapKeyRef.current === bootstrapKey
+    ) {
+      return;
+    }
+
+    connectionBootstrapInFlightRef.current = true;
+    lastConnectionBootstrapKeyRef.current = bootstrapKey;
+    setNotice({ tone: "info", text: "Espelhando conversas e clientes..." });
+
+    try {
+      await bootstrapWhatsAppAfterConnect(payload);
+      setNotice({ tone: "success", text: "WhatsApp conectado. Fila atualizada." });
+      void loadConnection(true, false);
+    } catch (bootstrapError) {
+      setNotice({
+        tone: "error",
+        text: bootstrapError instanceof Error
+          ? bootstrapError.message
+          : "WhatsApp conectou, mas falhou ao espelhar conversas e clientes.",
+      });
+    } finally {
+      connectionBootstrapInFlightRef.current = false;
+    }
+  }, [loadConnection]);
 
   const loadAutomation = useCallback(async () => {
     setLoading(true);
@@ -1380,11 +1493,13 @@ export default function VendasAutomationClientPage() {
       router.replace("/vendas");
       return;
     }
-    if (requestedTab === "connection") {
-      router.replace("/whatsapp?focus=qr");
-      return;
-    }
-    if (requestedTab === "atendimento" || requestedTab === "flow" || requestedTab === "prospeccao" || requestedTab === "recovery") {
+    if (
+      requestedTab === "connection" ||
+      requestedTab === "atendimento" ||
+      requestedTab === "flow" ||
+      requestedTab === "prospeccao" ||
+      requestedTab === "recovery"
+    ) {
       setActiveTab(requestedTab);
       return;
     }
@@ -1404,6 +1519,15 @@ export default function VendasAutomationClientPage() {
     const previousStatus = previousConnectionStatusRef.current;
     previousConnectionStatusRef.current = currentStatus;
 
+    if (
+      activeTab === "connection" &&
+      modalPayload?.status === "connected" &&
+      previousStatus &&
+      previousStatus !== "connected"
+    ) {
+      void runConnectionBootstrapAfterConnect(modalPayload);
+    }
+
     if (currentStatus !== "connected" || previousStatus === "connected") return;
 
     dispatchModulesChanged({ reason: "whatsapp_connected" });
@@ -1413,7 +1537,7 @@ export default function VendasAutomationClientPage() {
     window.dispatchEvent(new Event(QR_PAIRED_EVENT));
     const timer = window.setTimeout(() => setConnectionPaired(false), 3200);
     return () => window.clearTimeout(timer);
-  }, [modalPayload?.status]);
+  }, [activeTab, modalPayload, runConnectionBootstrapAfterConnect]);
 
   useEffect(() => {
     if (!modalPayload?.data.available) return;
@@ -1474,21 +1598,6 @@ export default function VendasAutomationClientPage() {
   const handleSaveDraft = useCallback(() => {
     void saveBotConfig(draftConfig, "Rascunho salvo no banco de dados.");
   }, [draftConfig, saveBotConfig]);
-
-  const disableAi = useCallback(() => {
-    if (!botAiActive) {
-      openBotPlans();
-      return;
-    }
-    const nextConfig = normalizeBotConfig({
-      ...draftConfig,
-      routingRules: {
-        ...draftConfig.routingRules,
-        globalBotEnabled: false,
-      },
-    });
-    void saveBotConfig(nextConfig, "IA desativada. O HBot ficará em modo humano.");
-  }, [botAiActive, draftConfig, openBotPlans, saveBotConfig]);
 
   const updateProspectingConfigState = useCallback(
     (updater: (current: ProspectingAutomationConfig) => ProspectingAutomationConfig) => {
@@ -1647,18 +1756,24 @@ export default function VendasAutomationClientPage() {
               activeTab={activeTab}
               onTabChange={setWorkspaceTab}
               connectionPaired={connectionPaired}
-              aiDisabled={!draftConfig.routingRules.globalBotEnabled}
-              aiBusy={publishing}
-              onDisableAi={botAiActive ? disableAi : undefined}
               connectionPanel={
-                <section className={styles.connectionRedirectPanel}>
-                  <span className={styles.sectionEyebrow}>Conexão</span>
-                  <h3>Use a central WhatsApp para QR e WebWhats</h3>
-                  <p>{modalPayload?.data.phone ? `Número conectado: ${modalPayload.data.phone}` : "Abrindo painel de conexão QR."}</p>
-                  <button type="button" className={styles.primaryButton} onClick={() => router.push("/whatsapp?focus=qr")}>
-                    Abrir conexão
-                  </button>
-                </section>
+                <BotQrConnectionCard
+                  loading={connectionLoading}
+                  actionLoading={connectionAction}
+                  error={modalPayload?.data.lastError || null}
+                  statusLabel={modalPayload ? whatsappModalStatusLabel(modalPayload.status) : centerPayload?.center.statusLabel || "Em leitura"}
+                  centerModeLabel={whatsappModeLabel(centerPayload?.center.mode)}
+                  mainNote={modalPayload?.message || centerPayload?.center.statusHint || "Conecte por QR ou WebWhats sem sair da Automação."}
+                  phone={modalPayload?.data.phone || centerPayload?.center.qrConnection.displayNumber || null}
+                  updatedAt={modalPayload?.data.updatedAt || centerPayload?.generatedAt || null}
+                  connectedAt={modalPayload?.data.connectedAt || centerPayload?.center.qrConnection.connectedAt || null}
+                  qrCodeDataUrl={modalPayload?.data.qrCodeDataUrl || centerPayload?.center.qrConnection.qrCodeDataUrl || null}
+                  isQrPrimary={centerPayload?.center.mode === "QR"}
+                  onGenerateQr={() => void runConnectionAction("generate_qr")}
+                  onReconnect={() => void runConnectionAction("reconnect")}
+                  onDisconnect={() => void runConnectionAction("disconnect")}
+                  onRefresh={() => void loadConnection(false, true)}
+                />
               }
               atendimentoPanel={
                 botAiActive ? (

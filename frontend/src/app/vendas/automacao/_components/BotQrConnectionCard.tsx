@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { formatWhatsAppDateTime } from "@/lib/whatsapp-center";
 import styles from "../page.module.css";
 
@@ -87,9 +86,6 @@ export default function BotQrConnectionCard({
           <button type="button" className={styles.ghostButton} onClick={onRefresh} disabled={loading || Boolean(actionLoading)}>
             Atualizar status
           </button>
-          <Link href="/whatsapp?focus=phone" className={styles.ghostButton}>
-            Vincular por telefone
-          </Link>
         </div>
 
         <div className={styles.connectionDisclaimer}>

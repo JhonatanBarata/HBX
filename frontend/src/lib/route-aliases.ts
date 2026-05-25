@@ -6,7 +6,7 @@ const LEGACY_ROUTE_ALIASES: Array<[string, string]> = [
   ["/planos", "/planos"],
   ["/vendas", "/vendas"],
   ["/inbox", "/atendimento"],
-  ["/whatsapp", "/whatsapp"],
+  ["/whatsapp", "/vendas/automacao"],
   ["/website", "/website"],
   ["/webscraping", "/radar-digital"],
   ["/gerencial", "/gerencial"],

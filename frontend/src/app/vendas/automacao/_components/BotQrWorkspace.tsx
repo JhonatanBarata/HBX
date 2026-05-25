@@ -1,4 +1,5 @@
 import { type ReactNode } from "react";
+import HbxGuide1 from "@/components/HbxGuide1";
 import type { BotQrWorkspaceTab } from "../model";
 import styles from "../page.module.css";
 
@@ -6,9 +7,6 @@ type BotQrWorkspaceProps = {
   activeTab: BotQrWorkspaceTab;
   onTabChange: (tab: BotQrWorkspaceTab) => void;
   connectionPaired?: boolean;
-  aiDisabled?: boolean;
-  aiBusy?: boolean;
-  onDisableAi?: () => void;
   connectionPanel: ReactNode;
   atendimentoPanel: ReactNode;
   flowPanel: ReactNode;
@@ -16,21 +14,18 @@ type BotQrWorkspaceProps = {
   recoveryPanel: ReactNode;
 };
 
-const TABS: Array<{ id: BotQrWorkspaceTab; label: string; helper: string }> = [
-  { id: "connection", label: "CONEXÃO", helper: "QR / WebWhats" },
-  { id: "atendimento", label: "ATENDIMENTO", helper: "Fila Atendimento" },
-  { id: "flow", label: "RESPOSTAS DE VENDAS", helper: "Pós-contato" },
-  { id: "prospeccao", label: "CAMPANHA", helper: "Disparo inicial" },
-  { id: "recovery", label: "RECOVERY", helper: "Financeiro" },
+const TABS: Array<{ key: BotQrWorkspaceTab; label: string }> = [
+  { key: "connection", label: "Conexão" },
+  { key: "atendimento", label: "Atendimento" },
+  { key: "flow", label: "Respostas" },
+  { key: "prospeccao", label: "Campanha" },
+  { key: "recovery", label: "Recovery" },
 ];
 
 export default function BotQrWorkspace({
   activeTab,
   onTabChange,
   connectionPaired = false,
-  aiDisabled = false,
-  aiBusy = false,
-  onDisableAi,
   connectionPanel,
   atendimentoPanel,
   flowPanel,
@@ -47,55 +42,20 @@ export default function BotQrWorkspace({
         : activeTab === "prospeccao"
           ? prospectingPanel
           : flowPanel;
+  const tabs = TABS.map((tab) => ({
+    ...tab,
+    badge: connectionPaired && tab.key === "connection" ? "OK" : undefined,
+  }));
 
   return (
-    <section className={styles.workspaceSection}>
-      <div className={styles.workspaceHeader}>
-        <div>
-          <span className={styles.sectionEyebrow}>Automacao WhatsApp</span>
-          <h2 className={styles.sectionTitle}>Bot</h2>
-        </div>
-      </div>
-      {onDisableAi ? (
-        <div className={styles.aiControl}>
-          <button
-            type="button"
-            className={styles.aiKillButton}
-            data-disabled={aiDisabled ? "true" : "false"}
-            onClick={onDisableAi}
-            disabled={aiBusy || aiDisabled}
-            aria-pressed={aiDisabled}
-          >
-            <span className={styles.aiIcon} aria-hidden="true">
-              AI
-            </span>
-            <span>
-              <strong>{aiDisabled ? "IA desativada" : aiBusy ? "Desativando IA" : "Desativar IA"}</strong>
-              <small>{aiDisabled ? "HBot em modo humano" : "Corta resposta automática de IA"}</small>
-            </span>
-          </button>
-        </div>
-      ) : null}
-
-      <div className={styles.workspaceTabs} role="tablist" aria-label="Abas da Automacao WhatsApp">
-        {TABS.map((tab) => (
-          <button
-            key={tab.id}
-            type="button"
-            className={styles.workspaceTab}
-            data-active={activeTab === tab.id ? "true" : "false"}
-            data-paired={connectionPaired && tab.id === "connection" ? "true" : "false"}
-            onClick={() => onTabChange(tab.id)}
-            role="tab"
-            aria-selected={activeTab === tab.id}
-          >
-            <strong>{tab.label}</strong>
-            <span>{connectionPaired && tab.id === "connection" ? "Conectado agora" : tab.helper}</span>
-          </button>
-        ))}
+    <section className={`${styles.workspaceSection} hbx-page-mobile-enter`}>
+      <div className="hbx-guide1-slot">
+        <HbxGuide1 tabs={tabs} activeKey={activeTab} ariaLabel="Guias da Automacao WhatsApp" onChange={onTabChange} />
       </div>
 
-      <div className={styles.workspaceBody}>{currentPanel}</div>
+      <div key={activeTab} className={`${styles.workspaceBody} hbx-page-mobile-enter`}>
+        {currentPanel}
+      </div>
     </section>
   );
 }

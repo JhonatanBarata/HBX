@@ -112,7 +112,7 @@ export default function WhatsAppOperationalDialog({
   const qrConnection = payload?.center.qrConnection;
   const official = payload?.center.official;
   const migration = payload?.center.migration;
-  const statusHref = `/whatsapp?focus=${focus}`;
+  const statusHref = "/vendas/automacao?tab=connection";
   const qrConnectionLabel = modalPayload
     ? modalPayload.status === "waiting_qr"
       ? "QR aguardando leitura"
@@ -158,7 +158,7 @@ export default function WhatsAppOperationalDialog({
 
             <div className={styles.headerActions}>
               <Link href={statusHref} className={`btn btn-secondary btn-sm ${styles.linkButton}`}>
-                Abrir central completa
+                Abrir na Automação
               </Link>
               <button type="button" className="btn btn-secondary btn-sm" onClick={onClose}>
                 Fechar
@@ -378,9 +378,6 @@ export default function WhatsAppOperationalDialog({
                       >
                         {busyAction === "qr-disconnect" ? "Desconectando..." : "Desconectar"}
                       </button>
-                      <Link href="/whatsapp?focus=phone" className="btn btn-secondary">
-                        Vincular por telefone
-                      </Link>
                       <button
                         type="button"
                         className="btn btn-secondary"
