@@ -4669,6 +4669,8 @@ export default function TopBar() {
         }),
       });
 
+      clearApiCache("/profile/current-user");
+      clearApiCache("/modules/me");
       const [profile, myModules] = await Promise.all([
         apiFetch<User>("/profile/current-user"),
         apiFetch<UserModule[]>("/modules/me"),
@@ -4704,16 +4706,31 @@ export default function TopBar() {
         body: JSON.stringify({ reason: "manual_exit" }),
       });
 
+      clearApiCache("/profile/current-user");
+      clearApiCache("/modules/me");
       const [profile, myModules] = await Promise.all([
         apiFetch<User>("/profile/current-user"),
         apiFetch<UserModule[]>("/modules/me"),
       ]);
-      setUser(profile);
+      const exitedProfile: User = profile.masterContext?.active
+        ? {
+            ...profile,
+            masterContext: {
+              ...profile.masterContext,
+              active: false,
+              mode: "master_puro",
+              sessionId: null,
+              companyId: null,
+              companyName: null,
+            },
+          }
+        : profile;
+      setUser(exitedProfile);
       setModules(myModules || []);
       if (typeof window !== "undefined") {
         (window as HbxPrefetchWindow).__hbx_prefetch = {
           modules: myModules || [],
-          profile,
+          profile: exitedProfile,
         };
       }
       setMasterContextModalOpen(false);
