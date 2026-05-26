@@ -4696,6 +4696,10 @@ function InboxDesktopClientPage() {
   const [activeTab, setActiveTab] = useState<InboxTab>(requestedTab);
   const [inboxQueue, setInboxQueue] = useState<InboxQueue>("all");
   const [conversationSearch, setConversationSearch] = useState("");
+  const [newConversationOpen, setNewConversationOpen] = useState(false);
+  const [newConversationPhone, setNewConversationPhone] = useState("");
+  const [newConversationName, setNewConversationName] = useState("");
+  const [newConversationBusy, setNewConversationBusy] = useState(false);
   const [manualQueueOverrides, setManualQueueOverrides] = useState<Record<string, InboxQueue>>({});
   const [deletedConversationAliases, setDeletedConversationAliases] = useState<DeletedConversationAliasMap>({});
   const [draggedConversationId, setDraggedConversationId] = useState<string | null>(null);
@@ -5798,6 +5802,49 @@ function InboxDesktopClientPage() {
   const loadMoreConversations = useCallback(() => {
     void loadConversations({ silent: true, append: true });
   }, [loadConversations]);
+
+  const startManualConversation = useCallback(async () => {
+    const phone = newConversationPhone.replace(/\D/g, "");
+    if (phone.length < 10) {
+      setError("Informe um telefone com DDD para iniciar a conversa.");
+      return;
+    }
+    setNewConversationBusy(true);
+    setError(null);
+    try {
+      const rawConversation = await apiFetch<InboxConversation>("/inbox/conversations/start", {
+        method: "POST",
+        requireAuth: true,
+        timeoutMs: 12000,
+        body: JSON.stringify({
+          phone: newConversationPhone,
+          name: newConversationName.trim() || null,
+        }),
+      });
+      const conversation = normalizeInboxConversationPayload(rawConversation);
+      if (!conversation) throw new Error("O backend não retornou a conversa criada.");
+      rememberConversationDetail(clearInboxConversationSummaryOnly(conversation));
+      setConversations((current) =>
+        sortInboxConversationsByActivity(
+          normalizeInboxConversationList([
+            conversation,
+            ...current.filter((item) => item.id !== conversation.id),
+          ]),
+        ),
+      );
+      setInboxQueue("all");
+      setConversationSearch("");
+      setNewConversationOpen(false);
+      setNewConversationPhone("");
+      setNewConversationName("");
+      setNotice({ tone: "success", text: "Conversa criada. Digite a mensagem e envie pelo WhatsApp." });
+      await loadConversation(conversation.id, { forceRefresh: true });
+    } catch (startError) {
+      setError(startError instanceof Error ? startError.message : "Falha ao iniciar conversa.");
+    } finally {
+      setNewConversationBusy(false);
+    }
+  }, [loadConversation, newConversationName, newConversationPhone, rememberConversationDetail]);
 
   useEffect(() => {
     if (hasToken !== true) return;
@@ -7885,6 +7932,15 @@ function InboxDesktopClientPage() {
               disabled={!conversationSearch.trim()}
             >
               Limpar
+            </button>
+            <button
+              type="button"
+              className={styles.listSearchNewAction}
+              onClick={() => setNewConversationOpen(true)}
+              aria-label="Nova conversa"
+              title="Nova conversa"
+            >
+              +
             </button>
           </div>
           <ConversationQueueFilterBar
@@ -10192,6 +10248,44 @@ function InboxDesktopClientPage() {
         onPause={() => void runProspectingAutomationAction("pause")}
         onResume={() => void runProspectingAutomationAction("resume")}
       />
+
+      <HbxConfirmDialog
+        open={newConversationOpen}
+        title="Nova conversa"
+        description="Digite o telefone com DDD. O HBX cria a conversa local e você envia a primeira mensagem pelo composer."
+        confirmLabel="Abrir conversa"
+        busy={newConversationBusy}
+        confirmDisabled={newConversationPhone.replace(/\D/g, "").length < 10}
+        onCancel={() => {
+          if (newConversationBusy) return;
+          setNewConversationOpen(false);
+        }}
+        onConfirm={() => void startManualConversation()}
+      >
+        <label className={styles.manualConversationField}>
+          <span>Telefone</span>
+          <input
+            autoFocus
+            value={newConversationPhone}
+            onChange={(event) => setNewConversationPhone(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key !== "Enter") return;
+              event.preventDefault();
+              void startManualConversation();
+            }}
+            placeholder="(19) 99999-9999"
+            inputMode="tel"
+          />
+        </label>
+        <label className={styles.manualConversationField}>
+          <span>Nome opcional</span>
+          <input
+            value={newConversationName}
+            onChange={(event) => setNewConversationName(event.target.value)}
+            placeholder="Nome para aparecer no HBX"
+          />
+        </label>
+      </HbxConfirmDialog>
 
       <HbxConfirmDialog
         open={blockDialog !== null}
