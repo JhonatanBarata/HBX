@@ -7,6 +7,7 @@ import PwaRegister from "../components/PwaRegister";
 import TopBar from "../components/TopBar";
 import { ThemeProvider } from "../components/ThemeProvider";
 import LayoutModeSync from "../components/LayoutModeSync";
+import RadarPopupHost from "../components/RadarPopupHost";
 import WhatsAppHelpBubble from "../components/WhatsAppHelpBubble";
 import { HBX_THEME_PALETTES } from "../lib/theme-palettes";
 
@@ -269,6 +270,7 @@ export default function RootLayout({
             <PreCheckoutGate>
               <PageTransition>{children}</PageTransition>
             </PreCheckoutGate>
+            <RadarPopupHost />
             <WhatsAppHelpBubble />
           </InterfaceTransitionProvider>
         </ThemeProvider>

@@ -53,7 +53,7 @@ export function resolveModuleHref(key: string, fallback?: string | null) {
     atendimento: "/atendimento",
     vendas: "/vendas",
     gerencial: "/gerencial",
-    webscraping: "/vendas?radar=1",
+    webscraping: "/boasvindas?radar=1",
     cadastro: "/cadastros",
     financeiro: "/pagamento",
     website: "/website",
@@ -115,7 +115,7 @@ export function resolveModuleBlockedHref(module: Pick<UserModule, "key" | "criti
   }
 
   if (criticalEngine === "webscraping") {
-    return "/vendas?radar=1";
+    return "/boasvindas?radar=1";
   }
 
   return resolveModuleHref(normalizedKey);

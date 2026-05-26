@@ -292,7 +292,7 @@
   align-items: center;
   justify-content: center;
   min-height: 42px;
-  border-radius: 16px;
+  border-radius: 8px;
   border: 1px solid var(--line-strong);
   cursor: pointer;
   font-weight: 800;
@@ -1112,14 +1112,61 @@
 
 .prospectingGrid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: minmax(260px, 0.8fr) minmax(240px, 0.72fr) minmax(560px, 1.62fr);
   gap: 0.9rem;
+  align-items: start;
 }
 
 .prospectingPanel {
   display: grid;
   gap: 1rem;
   padding: 1rem;
+}
+
+.radarSourceCard {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.55rem 0.75rem;
+  padding: 0.78rem;
+  border: 1px solid rgba(38, 93, 132, 0.14);
+  border-radius: 16px;
+  background:
+    linear-gradient(135deg, rgba(42, 119, 255, 0.1), rgba(52, 216, 255, 0.08)),
+    rgba(255, 255, 255, 0.5);
+}
+
+.radarSourceCard span,
+.radarSourceCard strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.radarSourceCard span {
+  grid-column: 1;
+  color: rgba(40, 78, 124, 0.72);
+  font-size: 0.7rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.radarSourceCard strong {
+  grid-column: 1;
+  color: #102238;
+  font-size: 0.92rem;
+  font-weight: 900;
+}
+
+.radarSourceCard button {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+}
+
+.radarSourceCard[data-ready="false"] {
+  border-color: rgba(245, 158, 11, 0.26);
+  background: rgba(245, 158, 11, 0.1);
 }
 
 .prospectingFormGrid,
@@ -1147,6 +1194,38 @@
   align-items: start;
 }
 
+.prospectingMessagePanel {
+  gap: 0.78rem;
+}
+
+.prospectingMessagePanel .prospectingMessageWorkbench {
+  grid-template-columns: minmax(0, 1fr) minmax(240px, 0.86fr);
+  gap: 0.78rem;
+}
+
+.prospectingMessagePanel .editorTextarea {
+  min-height: 112px;
+}
+
+.prospectingMessagePanel .prospectingWhatsAppPreview {
+  padding: 0.68rem;
+  border-radius: 22px;
+}
+
+.prospectingMessagePanel .prospectingPhoneFrame {
+  min-height: 360px;
+  border-radius: 18px;
+}
+
+.prospectingMessagePanel .variablePreviewCard {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  padding: 0.68rem;
+}
+
+.prospectingMessagePanel .prospectingAdvancedGrid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
 .prospectingMessageEditorStack {
   display: grid;
   gap: 0.78rem;
@@ -1162,6 +1241,39 @@
 .prospectingKeywordGrid label {
   display: grid;
   gap: 0.38rem;
+}
+
+.prospectingAdvanced {
+  display: grid;
+  gap: 0.9rem;
+  padding: 0.85rem;
+  border: 1px solid rgba(38, 93, 132, 0.14);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.46);
+}
+
+.prospectingAdvanced summary {
+  cursor: pointer;
+  color: rgba(40, 78, 124, 0.9);
+  font-size: 0.84rem;
+  font-weight: 900;
+  list-style-position: inside;
+}
+
+.prospectingAdvancedGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.78rem;
+  padding-top: 0.25rem;
+}
+
+.prospectingAdvancedGrid label {
+  display: grid;
+  gap: 0.38rem;
+}
+
+.prospectingAdvancedGrid .toggleCard {
+  display: flex;
 }
 
 .messagePresetField {
@@ -1345,6 +1457,7 @@
 
 .prospectingFormGrid label span,
 .prospectingMessageGrid label span,
+.prospectingAdvancedGrid label span,
 .messagePresetField span,
 .prospectingKeywordGrid label span,
 .toggleCard small {
@@ -2665,6 +2778,15 @@
     grid-template-columns: 1fr;
   }
 
+  .prospectingMessagePanel .prospectingMessageWorkbench {
+    grid-template-columns: 1fr;
+  }
+
+  .prospectingMessagePanel .variablePreviewCard,
+  .prospectingMessagePanel .prospectingAdvancedGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .supremeSideNav nav {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
@@ -2676,6 +2798,7 @@
   .codexGrid,
   .prospectingFormGrid,
   .prospectingMessageGrid,
+  .prospectingAdvancedGrid,
   .prospectingKeywordGrid,
   .supremeModuleGrid,
   .menuBranches,
@@ -2704,6 +2827,7 @@
   .codexGrid,
   .prospectingFormGrid,
   .prospectingMessageGrid,
+  .prospectingAdvancedGrid,
   .prospectingKeywordGrid,
   .prospectingPreviewGrid,
   .variablePreviewCard,
@@ -2714,6 +2838,11 @@
   .supremeRuleGrid,
   .guideGrid,
   .archBranchGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .prospectingMessagePanel .variablePreviewCard,
+  .prospectingMessagePanel .prospectingAdvancedGrid {
     grid-template-columns: 1fr;
   }
 
@@ -2970,6 +3099,8 @@
 :global(html[data-theme-mode="dark"]) .editorSectionHeader span,
 :global(html[data-theme-mode="dark"]) .prospectingFormGrid label span,
 :global(html[data-theme-mode="dark"]) .prospectingMessageGrid label span,
+:global(html[data-theme-mode="dark"]) .prospectingAdvancedGrid label span,
+:global(html[data-theme-mode="dark"]) .prospectingAdvanced summary,
 :global(html[data-theme-mode="dark"]) .prospectingKeywordGrid label span,
 :global(html[data-theme-mode="dark"]) .toggleCard small,
 :global(html[data-theme-mode="dark"]) .variablePreviewCard span,
@@ -3055,10 +3186,20 @@
 }
 
 :global(html[data-theme-mode="dark"]) .toggleCard,
+:global(html[data-theme-mode="dark"]) .prospectingAdvanced,
+:global(html[data-theme-mode="dark"]) .radarSourceCard,
 :global(html[data-theme-mode="dark"]) .variablePreviewCard,
 :global(html[data-theme-mode="dark"]) .variablePopoverCard {
   border-color: color-mix(in srgb, var(--brand) 22%, var(--line));
   background: color-mix(in srgb, var(--surface) 62%, var(--background));
+}
+
+:global(html[data-theme-mode="dark"]) .radarSourceCard span {
+  color: color-mix(in srgb, var(--foreground) 66%, var(--muted));
+}
+
+:global(html[data-theme-mode="dark"]) .radarSourceCard strong {
+  color: var(--foreground);
 }
 
 :global(html[data-theme-mode="dark"]) .riskNotice {

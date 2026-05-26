@@ -681,11 +681,18 @@ export class InboxService {
   }
 
   private isConversationPersonalContact(metadata: Record<string, any>) {
+    const vendasAgendaQueue = this.getNestedMetadataRecord(metadata?.vendasAgendaQueue);
+    const manualQueue = String(
+      metadata?.inboxManualQueueOverride || vendasAgendaQueue?.manualQueueOverride || '',
+    ).trim().toLowerCase();
+    const routeTarget = String(
+      metadata?.queueTarget || metadata?.routeTarget || vendasAgendaQueue?.queueTarget || vendasAgendaQueue?.routeTarget || '',
+    ).trim().toLowerCase();
     return [
       metadata?.inboxPersonalContact,
       metadata?.personalContact,
       metadata?.whatsappPersonalContact,
-    ].some((value) => this.parseBooleanMetadataFlag(value));
+    ].some((value) => this.parseBooleanMetadataFlag(value)) || manualQueue === 'all' || routeTarget === 'conversas';
   }
 
   private canTrashDeleteFallbackToLocal(error: unknown) {
@@ -4600,6 +4607,7 @@ export class InboxService {
         : null;
     const now = new Date().toISOString();
     const unavailable = this.isConversationKnownWithoutWhatsapp(metadata);
+    const personalQueue = queue === 'all' && !unavailable;
     const nextRouteTarget =
       unavailable || queue === 'archived'
         ? 'excluidos'
@@ -4617,12 +4625,27 @@ export class InboxService {
       lastManualRouteChangeAt: now,
       queueTarget: nextRouteTarget,
       routeTarget: nextRouteTarget,
-      ...(queue === 'scheduled'
+      ...(personalQueue
+        ? {
+            inboxPersonalContact: true,
+            inboxPersonalContactAt: now,
+            inboxPersonalContactByUserId: Number(user?.id || 0) || null,
+            personalContact: true,
+            whatsappPersonalContact: true,
+            botOff: true,
+            botOffReason: 'Contato marcado como pessoal em Pessoais.',
+            botOffAt: now,
+          }
+        : {}),
+      ...(queue !== 'all'
         ? {
             inboxPersonalContact: false,
             personalContact: false,
             whatsappPersonalContact: false,
             inboxPersonalContactClearedAt: now,
+            botOff: queue === 'archived' || unavailable ? true : false,
+            botOffReason: queue === 'archived' || unavailable ? metadata.botOffReason || null : null,
+            botOffAt: queue === 'archived' || unavailable ? metadata.botOffAt || now : null,
           }
         : {}),
       ...(queue === 'archived' || unavailable
@@ -4640,7 +4663,22 @@ export class InboxService {
 
     if (currentQueue) {
       nextMetadata.vendasAgendaQueue =
-        queue === 'bot' && !unavailable
+        personalQueue
+          ? {
+              ...currentQueue,
+              active: false,
+              draftPending: false,
+              botEligible: false,
+              botEntryPending: false,
+              botOff: true,
+              queueTarget: 'conversas',
+              routeTarget: 'conversas',
+              manualQueueOverride: 'all',
+              manualQueueOverriddenAt: now,
+              deactivatedAt: currentQueue.deactivatedAt || now,
+              syncedAt: now,
+            }
+          : queue === 'bot' && !unavailable
           ? {
               ...currentQueue,
               active: true,
@@ -4677,21 +4715,29 @@ export class InboxService {
             humanAssigned: false,
             flowResult: 'local_deleted',
           }
-        : queue === 'scheduled'
+        : personalQueue
           ? {
-              humanAssigned: false,
-              flowResult: null,
+              botActive: false,
+              humanAssigned: true,
+              flowResult: 'personal_contact',
             }
-        : {}),
+          : queue === 'scheduled'
+            ? {
+                humanAssigned: false,
+                flowResult: null,
+              }
+          : {}),
     });
 
-    if (queue === 'archived') {
+    if (queue === 'archived' || personalQueue) {
       try {
         await this.customerProfileService.upsertAtendimentoProfileState({
           companyId,
           phone: String(conversation.contact || '').trim(),
           botOff: true,
-          botOffReason: 'Conversa enviada para Excluídos no HBX.',
+          botOffReason: personalQueue
+            ? 'Contato marcado como pessoal em Pessoais.'
+            : 'Conversa enviada para Excluídos no HBX.',
           botOffAt: new Date(),
         } as any);
       } catch (error) {

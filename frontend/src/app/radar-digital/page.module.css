@@ -1832,6 +1832,12 @@
   color: white;
 }
 
+.header button[data-tone="warning"] {
+  border-color: color-mix(in srgb, var(--warning) 54%, var(--line));
+  background: linear-gradient(135deg, color-mix(in srgb, var(--warning) 86%, #b45309), color-mix(in srgb, var(--warning) 64%, var(--brand)));
+  color: #ffffff;
+}
+
 .header button:disabled,
 .filterActions button:disabled,
 .actions button:disabled,
@@ -3344,6 +3350,11 @@
     color-mix(in srgb, var(--brand) 10%, var(--surface-raised));
   color: color-mix(in srgb, var(--brand) 84%, var(--foreground));
   box-shadow: 0 14px 28px -24px color-mix(in srgb, var(--brand) 74%, transparent);
+}
+
+.engineToggle button:disabled {
+  cursor: not-allowed;
+  opacity: 0.62;
 }
 
   .engineToggle button:active {
@@ -8175,6 +8186,13 @@
     box-shadow: 0 16px 30px -22px rgba(185, 28, 28, 0.95) !important;
   }
 
+  .mobileRadarSubmit[data-tone="warning"] {
+    border-color: rgba(217, 119, 6, 0.86) !important;
+    background: linear-gradient(135deg, #b45309, #f59e0b) !important;
+    color: #ffffff !important;
+    box-shadow: 0 16px 30px -22px rgba(217, 119, 6, 0.9) !important;
+  }
+
   :global(html[data-hbx-mobile-theme="dark"]) .mobileRadarHero {
     border-color: rgba(255, 214, 102, 0.34) !important;
     background:
@@ -8707,6 +8725,27 @@ button.dailyQuotaGauge {
   line-height: 1.22;
 }
 
+.mobileRadarLockedNotice button {
+  grid-column: 2;
+  justify-self: start;
+  min-height: 34px;
+  margin-top: 4px;
+  padding: 0 12px;
+  border: 1px solid rgba(217, 119, 6, 0.42);
+  border-radius: 999px;
+  background: linear-gradient(135deg, #b45309, #f59e0b);
+  color: #ffffff;
+  font: inherit;
+  font-size: 0.76rem;
+  font-weight: 820;
+  cursor: pointer;
+}
+
+.mobileRadarLockedNotice button:disabled {
+  cursor: wait;
+  opacity: 0.72;
+}
+
 .mobileRadarForm[data-locked="true"] .mobilePickerButton:disabled,
 .mobileRadarForm[data-locked="true"] .mobileGpsButton:disabled,
 .mobileRadarForm[data-locked="true"] .mobileRadiusSelector,
@@ -8759,6 +8798,12 @@ button.dailyQuotaGauge {
 
 :global(html[data-hbx-mobile-theme="dark"]) .mobileRadarLockedNotice span {
   color: rgba(255, 246, 207, 0.72);
+}
+
+:global(html[data-hbx-mobile-theme="dark"]) .mobileRadarLockedNotice button {
+  border-color: rgba(255, 214, 102, 0.34);
+  background: linear-gradient(135deg, #a16207, #ffd666);
+  color: #1d1604;
 }
 
 :global(html[data-hbx-mobile-theme="dark"]) .mobileRadarForm[data-locked="true"] .mobilePickerButton:disabled,

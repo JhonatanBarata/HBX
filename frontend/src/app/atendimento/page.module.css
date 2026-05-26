@@ -2919,6 +2919,772 @@
   padding: 0.82rem;
 }
 
+.campaignStudioBackdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: grid;
+  place-items: center;
+  padding: 4px 12px;
+  background: color-mix(in srgb, var(--overlay) 90%, #06101d 10%);
+  backdrop-filter: blur(12px);
+}
+
+.campaignStudioFrame {
+  width: min(1180px, 100%);
+  height: min(860px, calc(100dvh - 8px));
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--brand) 20%, var(--line));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--surface-raised) 96%, var(--background));
+  box-shadow: var(--shadow-lg);
+}
+
+.campaignStudioHeader,
+.campaignStudioFooter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 86%, var(--background));
+  background: color-mix(in srgb, var(--surface) 88%, var(--background));
+}
+
+.campaignStudioFooter {
+  border-top: 1px solid color-mix(in srgb, var(--line) 86%, var(--background));
+  border-bottom: 0;
+}
+
+.campaignStudioHeader span,
+.campaignStudioFooter span {
+  color: color-mix(in srgb, var(--muted) 88%, var(--foreground));
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.campaignStudioHeader strong {
+  display: block;
+  color: var(--foreground);
+  font-size: 1rem;
+  font-weight: 800;
+}
+
+.campaignStudioHeaderActions,
+.campaignStudioFooter div {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.campaignIconButton,
+.campaignCloseButton {
+  display: grid;
+  place-items: center;
+  min-width: 36px;
+  height: 36px;
+  border: 1px solid color-mix(in srgb, var(--line) 86%, var(--brand));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--surface-raised) 94%, var(--background));
+  color: var(--foreground);
+  font: inherit;
+  font-weight: 750;
+  cursor: pointer;
+}
+
+.campaignIconButton svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.campaignCloseButton {
+  padding: 0 14px;
+}
+
+.campaignStudioTabs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 86%, var(--background));
+}
+
+.campaignStudioTabs button {
+  min-height: 38px;
+  border: 1px solid color-mix(in srgb, var(--line) 82%, var(--brand));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--surface-soft) 88%, var(--background));
+  color: color-mix(in srgb, var(--foreground) 76%, var(--muted));
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.campaignStudioTabs button[data-active="true"] {
+  border-color: color-mix(in srgb, var(--brand) 46%, var(--line));
+  background: color-mix(in srgb, var(--brand) 14%, var(--surface));
+  color: var(--foreground);
+}
+
+.campaignStudioBody {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.campaignMessageLayout,
+.campaignRadarLayout {
+  height: 100%;
+  min-height: 0;
+  display: grid;
+  gap: 12px;
+  padding: 12px;
+}
+
+.campaignMessageLayout {
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 0.72fr);
+}
+
+.campaignRadarLayout {
+  grid-template-columns: minmax(300px, 0.42fr) minmax(0, 1fr);
+}
+
+.campaignEditorPanel,
+.campaignPreviewPanel,
+.campaignRadarConfig,
+.campaignRadarFrameShell {
+  min-height: 0;
+  display: grid;
+  gap: 12px;
+  padding: 12px;
+  overflow: auto;
+  border: 1px solid color-mix(in srgb, var(--line) 82%, var(--background));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--surface) 92%, var(--background));
+}
+
+.campaignField {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.campaignField span,
+.campaignToggle span {
+  color: color-mix(in srgb, var(--foreground) 80%, var(--muted));
+  font-size: 0.76rem;
+  font-weight: 800;
+}
+
+.campaignField input,
+.campaignField textarea {
+  width: 100%;
+  border: 1px solid color-mix(in srgb, var(--line) 88%, var(--brand));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--field-surface) 96%, var(--surface));
+  color: var(--foreground);
+  font: inherit;
+  padding: 10px 12px;
+}
+
+.campaignField textarea {
+  min-height: 170px;
+  resize: vertical;
+}
+
+.campaignField small {
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.campaignAdvancedGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.campaignWideField {
+  grid-column: 1 / -1;
+}
+
+.campaignToggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--line) 82%, var(--background));
+  border-radius: 8px;
+}
+
+.campaignPhonePreview {
+  align-self: center;
+  width: min(340px, 100%);
+  margin: 0 auto;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--brand) 22%, var(--line));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--surface-soft) 88%, var(--background));
+}
+
+.campaignPhoneHeader {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 12px;
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 82%, var(--background));
+}
+
+.campaignPhoneHeader strong,
+.campaignPhoneHeader span {
+  color: var(--foreground);
+  font-size: 0.84rem;
+}
+
+.campaignPhoneBody {
+  display: grid;
+  gap: 10px;
+  min-height: 360px;
+  padding: 18px 12px;
+}
+
+.campaignPhoneBody > span {
+  justify-self: center;
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.campaignPhoneBody p {
+  align-self: start;
+  justify-self: end;
+  max-width: 82%;
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--success) 16%, var(--surface));
+  color: var(--foreground);
+  line-height: 1.45;
+}
+
+.campaignRadarStatus {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--warning) 24%, var(--line));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--warning) 10%, var(--surface));
+}
+
+.campaignRadarStatus[data-ready="true"] {
+  border-color: color-mix(in srgb, var(--success) 28%, var(--line));
+  background: color-mix(in srgb, var(--success) 10%, var(--surface));
+}
+
+.campaignRadarStatus span {
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-weight: 800;
+}
+
+.campaignRadarStatus strong {
+  color: var(--foreground);
+  font-size: 0.88rem;
+}
+
+.campaignTimeGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.campaignRadarButton {
+  min-height: 40px;
+  border: 1px solid color-mix(in srgb, var(--brand) 42%, var(--line));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--brand) 16%, var(--surface));
+  color: var(--foreground);
+  font: inherit;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.campaignRadarFrameShell {
+  padding: 0;
+  overflow: hidden;
+}
+
+.campaignRadarFrameShell iframe {
+  width: 100%;
+  height: 100%;
+  min-height: 520px;
+  border: 0;
+}
+
+.campaignStudioFrame {
+  width: min(1200px, 100%);
+  height: min(900px, calc(100dvh - 8px));
+  border-color: color-mix(in srgb, var(--brand) 26%, var(--line));
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--surface) 98%, var(--background)), color-mix(in srgb, var(--surface-soft) 92%, var(--background))),
+    radial-gradient(circle at 18% 0%, color-mix(in srgb, var(--success) 8%, transparent), transparent 34%),
+    radial-gradient(circle at 86% 6%, color-mix(in srgb, var(--warning) 8%, transparent), transparent 32%);
+}
+
+.campaignStudioHeader,
+.campaignStudioFooter {
+  padding: 0.78rem 1rem;
+  background: color-mix(in srgb, var(--surface-raised) 88%, var(--background));
+}
+
+.campaignStudioTabs {
+  padding: 0.72rem 1rem;
+  background: color-mix(in srgb, var(--surface-soft) 56%, transparent);
+}
+
+.campaignStudioTabs button {
+  min-height: 42px;
+  border-radius: 999px;
+  transition: transform 180ms ease, border-color 180ms ease, background 180ms ease;
+}
+
+.campaignStudioTabs button[data-active="true"] {
+  transform: translateY(-1px);
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--brand) 16%, var(--surface)), color-mix(in srgb, var(--success) 10%, var(--surface))),
+    var(--surface);
+  box-shadow: 0 14px 34px -28px color-mix(in srgb, var(--brand) 70%, transparent);
+}
+
+.campaignMessageLayout {
+  grid-template-columns: minmax(0, 1fr) minmax(350px, 430px);
+  padding: 1rem;
+}
+
+.campaignRadarLayout {
+  grid-template-columns: 1fr;
+  padding: 1rem;
+}
+
+.campaignEditorPanel,
+.campaignPreviewPanel,
+.campaignRadarFrameShell {
+  border-radius: 22px;
+  padding: 1rem;
+  border-color: color-mix(in srgb, var(--brand) 16%, var(--line));
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--surface) 98%, var(--background)), color-mix(in srgb, var(--surface-soft) 88%, var(--background))),
+    radial-gradient(circle at top right, color-mix(in srgb, var(--brand) 7%, transparent), transparent 38%);
+  box-shadow: 0 20px 46px -36px color-mix(in srgb, var(--foreground) 26%, transparent);
+}
+
+.campaignPreviewPanel {
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  align-content: stretch;
+}
+
+.campaignSectionHeader,
+.campaignPreviewHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.85rem;
+}
+
+.campaignSectionHeader span,
+.campaignPreviewHeader span {
+  display: inline-flex;
+  width: fit-content;
+  margin-bottom: 0.28rem;
+  padding: 0.24rem 0.58rem;
+  border: 1px solid color-mix(in srgb, var(--brand) 18%, var(--line));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--brand) 8%, var(--surface));
+  color: color-mix(in srgb, var(--brand) 74%, var(--foreground));
+  font-size: 0.66rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.campaignSectionHeader strong,
+.campaignPreviewHeader strong {
+  color: var(--foreground);
+  font-size: 0.98rem;
+  font-weight: 900;
+}
+
+.campaignGhostButton,
+.campaignFooterButton,
+.campaignFooterButtonPrimary {
+  min-height: 34px;
+  border: 1px solid color-mix(in srgb, var(--brand) 22%, var(--line));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--surface-raised) 88%, var(--background));
+  color: var(--foreground);
+  padding: 0 0.78rem;
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.campaignFooterButtonPrimary {
+  border-color: color-mix(in srgb, var(--brand) 48%, var(--line));
+  background: linear-gradient(135deg, var(--brand), var(--brand-solid));
+  color: var(--brand-contrast);
+  box-shadow: 0 18px 34px -26px color-mix(in srgb, var(--brand) 82%, transparent);
+}
+
+.campaignGhostButton:disabled,
+.campaignFooterButton:disabled,
+.campaignFooterButtonPrimary:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.campaignMessageCard,
+.campaignAdvanced,
+.campaignVariablePreview {
+  display: grid;
+  gap: 0.8rem;
+  padding: 0.92rem;
+  border: 1px solid color-mix(in srgb, var(--brand) 14%, var(--line));
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--surface-raised) 72%, var(--background));
+}
+
+.campaignField textarea {
+  min-height: 142px;
+  line-height: 1.58;
+}
+
+.campaignMessageCard .campaignField textarea {
+  min-height: 190px;
+}
+
+.campaignField input,
+.campaignField textarea {
+  border-radius: 16px;
+  border-color: color-mix(in srgb, var(--brand) 18%, var(--line));
+  background: color-mix(in srgb, var(--field-surface) 92%, var(--surface));
+}
+
+.campaignField input:focus,
+.campaignField textarea:focus {
+  border-color: color-mix(in srgb, var(--brand) 58%, var(--line));
+  outline: 3px solid color-mix(in srgb, var(--brand) 16%, transparent);
+}
+
+.campaignRiskNotice {
+  padding: 0.72rem 0.82rem;
+  border: 1px solid color-mix(in srgb, var(--warning) 34%, var(--line));
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--warning) 12%, var(--surface));
+  color: color-mix(in srgb, var(--warning) 64%, var(--foreground));
+  font-size: 0.82rem;
+  font-weight: 850;
+}
+
+.campaignAdvanced summary {
+  cursor: pointer;
+  color: color-mix(in srgb, var(--brand) 76%, var(--foreground));
+  font-size: 0.86rem;
+  font-weight: 900;
+  list-style-position: inside;
+}
+
+.campaignAdvancedGrid {
+  padding-top: 0.35rem;
+}
+
+.campaignToggle {
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--surface) 86%, var(--background));
+}
+
+.campaignToggle input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--brand);
+}
+
+.campaignPhonePreview {
+  align-self: stretch;
+  width: 100%;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--success) 22%, var(--line));
+  border-radius: 24px;
+  background: #e5ddd5;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.28),
+    0 24px 60px rgba(0, 0, 0, 0.18);
+}
+
+.campaignPhoneHeader,
+.campaignPhoneComposer {
+  display: flex;
+  align-items: center;
+  gap: 0.58rem;
+  padding: 0.72rem;
+}
+
+.campaignPhoneHeader {
+  min-height: 62px;
+  border: 0;
+  background: linear-gradient(135deg, #075e54, #128c7e);
+  color: #ffffff;
+}
+
+.campaignPhoneHeader > div {
+  min-width: 0;
+}
+
+.campaignPhoneHeader strong,
+.campaignPhoneHeader small {
+  display: block;
+}
+
+.campaignPhoneHeader strong {
+  max-width: 220px;
+  color: #ffffff;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.82rem;
+  line-height: 1.1;
+}
+
+.campaignPhoneHeader small {
+  margin-top: 0.12rem;
+  color: rgba(217, 255, 231, 0.88);
+  font-size: 0.66rem;
+  font-weight: 850;
+}
+
+.campaignPhoneHeader i {
+  margin-left: auto;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: #25d366;
+  box-shadow: 0 0 0 5px rgba(37, 211, 102, 0.16), 0 0 18px rgba(37, 211, 102, 0.7);
+}
+
+.campaignPhoneAvatar {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #25d366, #34d8ff);
+  color: #06342f;
+  font-size: 0.68rem;
+  font-weight: 1000;
+}
+
+.campaignPhoneBody {
+  min-height: 0;
+  display: grid;
+  align-content: start;
+  gap: 0.58rem;
+  overflow: auto;
+  padding: 0.76rem;
+  background:
+    radial-gradient(circle at 18px 18px, rgba(7, 94, 84, 0.09) 0 2px, transparent 2.5px),
+    radial-gradient(circle at 62px 46px, rgba(18, 140, 126, 0.08) 0 2px, transparent 2.5px),
+    linear-gradient(135deg, rgba(231, 255, 239, 0.72), rgba(205, 240, 228, 0.78));
+  background-size: 84px 84px, 84px 84px, auto;
+}
+
+.campaignPhoneBody > span {
+  justify-self: center;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.74);
+  color: #315148;
+  padding: 0.22rem 0.58rem;
+  font-size: 0.64rem;
+  font-weight: 950;
+}
+
+.campaignCustomerBubble,
+.campaignBotBubble,
+.campaignSystemBubble {
+  max-width: 88%;
+  border-radius: 16px;
+  padding: 0.62rem 0.72rem;
+  color: #102238;
+  font-size: 0.74rem;
+  line-height: 1.34;
+  box-shadow: 0 8px 20px rgba(7, 94, 84, 0.1);
+}
+
+.campaignCustomerBubble {
+  justify-self: start;
+  border-top-left-radius: 5px;
+  background: #ffffff;
+}
+
+.campaignBotBubble {
+  justify-self: end;
+  border-top-right-radius: 5px;
+  background: linear-gradient(135deg, #dcf8c6, #c8f2b3);
+}
+
+.campaignBotBubble[data-tone="typing"] {
+  background: linear-gradient(135deg, #d9ffc8, #c6f2b7);
+}
+
+.campaignBotBubble p {
+  margin: 0;
+  max-width: none;
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
+  box-shadow: none;
+  align-self: auto;
+  justify-self: auto;
+  line-height: inherit;
+  white-space: pre-wrap;
+}
+
+.campaignBotBubble small {
+  display: block;
+  margin-bottom: 0.28rem;
+  color: rgba(7, 94, 84, 0.72);
+  font-size: 0.6rem;
+  font-weight: 1000;
+  text-transform: uppercase;
+}
+
+.campaignSystemBubble {
+  justify-self: center;
+  max-width: 94%;
+  background: rgba(255, 255, 255, 0.74);
+  color: #315148;
+  font-size: 0.68rem;
+  font-weight: 900;
+  text-align: center;
+}
+
+.campaignPhoneComposer {
+  min-height: 48px;
+  justify-content: space-between;
+  background: #f4fbf8;
+  color: #55706c;
+}
+
+.campaignPhoneComposer span {
+  min-height: 30px;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  border-radius: 999px;
+  background: #ffffff;
+  padding: 0 0.72rem;
+  font-size: 0.68rem;
+  font-weight: 850;
+}
+
+.campaignPhoneComposer strong {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 999px;
+  background: #25d366;
+  color: #ffffff;
+}
+
+.campaignVariablePreview {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  padding: 0.75rem;
+}
+
+.campaignVariablePreview div {
+  display: grid;
+  gap: 0.24rem;
+  min-width: 0;
+}
+
+.campaignVariablePreview span {
+  color: color-mix(in srgb, var(--brand) 68%, var(--muted));
+  font-size: 0.7rem;
+  font-weight: 900;
+}
+
+.campaignVariablePreview strong {
+  min-width: 0;
+  color: var(--foreground);
+  font-size: 0.84rem;
+  overflow-wrap: anywhere;
+}
+
+.campaignVariablePopover {
+  position: fixed;
+  inset: 0;
+  z-index: 96;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  background: rgba(8, 16, 24, 0.42);
+}
+
+.campaignVariablePopoverCard {
+  width: min(430px, 100%);
+  display: grid;
+  gap: 1rem;
+  padding: 1rem;
+  border: 1px solid color-mix(in srgb, var(--brand) 18%, var(--line));
+  border-radius: 20px;
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-lg);
+}
+
+.campaignVariablePopoverCard header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.8rem;
+}
+
+.campaignVariableGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.55rem;
+}
+
+.campaignRadarFrameShell {
+  padding: 0;
+  overflow: hidden;
+}
+
+.campaignRadarFrameShell iframe {
+  min-height: 0;
+}
+
+@media (max-width: 980px) {
+  .campaignMessageLayout,
+  .campaignRadarLayout {
+    grid-template-columns: 1fr;
+    overflow: auto;
+  }
+
+  .campaignAdvancedGrid {
+    grid-template-columns: 1fr;
+  }
+}
+
 .agendaStudioFrame {
   min-height: calc(100vh - 2rem);
 }
@@ -6301,6 +7067,39 @@
   color: #dcfce7;
 }
 
+.commandDockRobotButton[data-tone="working"] {
+  border-color: rgba(37, 211, 102, 0.48);
+  color: #dcfce7;
+  background:
+    radial-gradient(circle at 30% 22%, rgba(255, 255, 255, 0.16), transparent 38%),
+    linear-gradient(145deg, rgba(21, 128, 61, 0.95), rgba(6, 95, 70, 0.92));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.16),
+    0 14px 28px rgba(22, 163, 74, 0.24);
+}
+
+.commandDockRobotButton[data-tone="empty"] {
+  border-color: rgba(245, 158, 11, 0.52);
+  color: #fffbeb;
+  background:
+    radial-gradient(circle at 30% 22%, rgba(255, 255, 255, 0.18), transparent 38%),
+    linear-gradient(145deg, rgba(217, 119, 6, 0.96), rgba(180, 83, 9, 0.92));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.16),
+    0 14px 28px rgba(245, 158, 11, 0.24);
+}
+
+.commandDockRobotButton[data-tone="error"] {
+  border-color: rgba(239, 68, 68, 0.56);
+  color: #fff1f2;
+  background:
+    radial-gradient(circle at 30% 22%, rgba(255, 255, 255, 0.18), transparent 38%),
+    linear-gradient(145deg, rgba(220, 38, 38, 0.96), rgba(127, 29, 29, 0.94));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.14),
+    0 14px 28px rgba(239, 68, 68, 0.26);
+}
+
 .commandDockRobotButton[data-enabled="false"] {
   opacity: 1;
   filter: none;
@@ -6328,6 +7127,16 @@
   border-radius: 999px;
   background: #25d366;
   box-shadow: 0 0 0 4px rgba(37, 211, 102, 0.14);
+}
+
+.commandDockRobotButton[data-tone="empty"] .commandDockRobotStatus {
+  background: #f59e0b;
+  box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.18);
+}
+
+.commandDockRobotButton[data-tone="error"] .commandDockRobotStatus {
+  background: #ef4444;
+  box-shadow: 0 0 0 4px rgba(239, 68, 68, 0.18);
 }
 
 @keyframes commandDockBrandPulse {

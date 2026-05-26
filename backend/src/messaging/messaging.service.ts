@@ -1358,10 +1358,19 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
   }
 
   private isPersonalWhatsappContact(metadata: Record<string, any>) {
+    const queue = this.readVendasAgendaQueueMetadata(metadata);
+    const manualQueue = String(
+      metadata?.inboxManualQueueOverride || (queue as any)?.manualQueueOverride || '',
+    ).trim().toLowerCase();
+    const routeTarget = String(
+      metadata?.queueTarget || metadata?.routeTarget || queue?.queueTarget || queue?.routeTarget || '',
+    ).trim().toLowerCase();
     return Boolean(
       metadata?.inboxPersonalContact === true ||
       metadata?.personalContact === true ||
-      metadata?.whatsappPersonalContact === true,
+      metadata?.whatsappPersonalContact === true ||
+      manualQueue === 'all' ||
+      routeTarget === 'conversas',
     );
   }
 
@@ -1419,6 +1428,7 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     const explicitTrue =
       metadata?.botOff === true
       || metadata?.atendimentoBotOff === true
+      || this.isPersonalWhatsappContact(metadata)
       || Boolean(blockedAt);
     if (!explicitTrue) {
       return { botOff: undefined, botOffReason: null, botOffAt: null as Date | null };
@@ -6054,7 +6064,19 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
           botActive: false,
           humanAssigned: true,
           flowResult: null,
-          metadata: { ...metadata, hbxGateType: 'talk_to_owner', talkToOwner: true, routeTarget: 'conversas', queueTarget: 'conversas' },
+          metadata: {
+            ...metadata,
+            hbxGateType: 'talk_to_owner',
+            talkToOwner: true,
+            inboxPersonalContact: true,
+            personalContact: true,
+            whatsappPersonalContact: true,
+            botOff: true,
+            botOffReason: 'Contato direcionado para Pessoais.',
+            botOffAt: new Date().toISOString(),
+            routeTarget: 'conversas',
+            queueTarget: 'conversas',
+          },
         },
       });
       return { handled: true, talkToOwner: true };
@@ -6075,7 +6097,19 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
           botActive: false,
           humanAssigned: true,
           flowResult: null,
-          metadata: { ...metadata, hbxGateType: 'supplier', supplierContact: true, routeTarget: 'conversas', queueTarget: 'conversas' },
+          metadata: {
+            ...metadata,
+            hbxGateType: 'supplier',
+            supplierContact: true,
+            inboxPersonalContact: true,
+            personalContact: true,
+            whatsappPersonalContact: true,
+            botOff: true,
+            botOffReason: 'Contato direcionado para Pessoais.',
+            botOffAt: new Date().toISOString(),
+            routeTarget: 'conversas',
+            queueTarget: 'conversas',
+          },
         },
       });
       return { handled: true, supplierContact: true };
@@ -6102,6 +6136,9 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
             inboxPersonalContact: true,
             personalContact: true,
             whatsappPersonalContact: true,
+            botOff: true,
+            botOffReason: 'Contato marcado como pessoal pelo menu do Atendimento.',
+            botOffAt: new Date().toISOString(),
             routeTarget: 'conversas',
             queueTarget: 'conversas',
           },

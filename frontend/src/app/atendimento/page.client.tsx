@@ -168,15 +168,10 @@ type ProspectingAutomationLiveStatus = {
   status: ProspectingAutomationStatusValue;
   text: string;
   active: boolean;
-  campaign: {
+  campaign: (ProspectingCampaignConfig & {
     id: string;
     status: string;
-    city?: string | null;
-    state?: string | null;
-    segment?: string | null;
-    workingHoursStart?: string | null;
-    workingHoursEnd?: string | null;
-  } | null;
+  }) | null;
   counters: {
     pending?: number;
     todayPending?: number;
@@ -188,6 +183,86 @@ type ProspectingAutomationLiveStatus = {
   };
   nextScheduledAt?: string | null;
   lastError?: string | null;
+};
+
+type ProspectingCampaignConfig = {
+  city: string;
+  state: string;
+  segment: string;
+  engine: "hbx" | "google";
+  targetType: "pj" | "pf" | "agenda_pf";
+  messageTemplate: string;
+  intervalMinutes: number;
+  workingHoursStart: string;
+  workingHoursEnd: string;
+  dailyLimit: number;
+  minLeadBuffer: number;
+  desiredLeadBuffer: number;
+  maxAttemptsPerLead: number;
+  typingSeconds: number;
+  typingVarianceSeconds: number;
+  positiveIntentKeywords: string[];
+  negativeIntentKeywords: string[];
+  optOutMessage: string;
+  optOutReplyEnabled: boolean;
+  websiteFallbackEnabled: boolean;
+};
+
+const DEFAULT_PROSPECTING_CAMPAIGN_CONFIG: ProspectingCampaignConfig = {
+  city: "",
+  state: "",
+  segment: "",
+  engine: "hbx",
+  targetType: "pj",
+  messageTemplate: "Oi, tudo bem? Vi a {{empresaresumo}} em {{cidade}}. Posso te mandar uma ideia rápida?",
+  intervalMinutes: 18,
+  workingHoursStart: "08:30",
+  workingHoursEnd: "18:00",
+  dailyLimit: 20,
+  minLeadBuffer: 15,
+  desiredLeadBuffer: 60,
+  maxAttemptsPerLead: 2,
+  typingSeconds: 8,
+  typingVarianceSeconds: 4,
+  positiveIntentKeywords: ["tenho interesse", "pode mandar", "quero saber", "sim"],
+  negativeIntentKeywords: ["não tenho interesse", "pare", "remover", "spam"],
+  optOutMessage: "Tudo certo, vou remover seu contato por aqui. Obrigado.",
+  optOutReplyEnabled: true,
+  websiteFallbackEnabled: false,
+};
+
+const CLICKABLE_FIRST_CONTACT_PATTERN =
+  /\b(?:https?:\/\/|www\.)[^\s<>()]+|\b(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+(?:com(?:\.br)?|br|net|org|io|app|dev|ai|co|gov|edu|info|biz|me|site|online|store|tech|digital)(?:\/[^\s<>()]*)?/gi;
+
+const PROSPECTING_VARIABLES = [
+  { token: "cumprimentacao", label: "Cumprimentação" },
+  { token: "cliente", label: "Cliente" },
+  { token: "empresaresumo", label: "Empresa resumo" },
+  { token: "empresa", label: "Empresa" },
+  { token: "funcionario", label: "Funcionário" },
+  { token: "cidade", label: "Cidade" },
+  { token: "estado", label: "Estado" },
+  { token: "segmento", label: "Segmento" },
+];
+
+const COMPANY_LEGAL_SUFFIXES = new Set(["ltda", "me", "mei", "eireli", "epp", "sa", "s/a", "ss"]);
+const COMPANY_CONNECTORS = new Set(["e", "de", "da", "do", "das", "dos"]);
+const COMPANY_LEADING_GENERIC = new Set(["empresa", "empresas", "companhia", "cia"]);
+const COMPANY_DESCRIPTOR_AFTER_GENERIC = new Set([
+  "maquina",
+  "maquinas",
+  "equipamento",
+  "equipamentos",
+  "comercio",
+  "comercial",
+  "servico",
+  "servicos",
+  "industria",
+]);
+
+type ProspectingPreviewVariables = {
+  funcionario: string;
+  empresa: string;
 };
 
 type InboxAlertKind = "human_queue" | "new_message";
@@ -714,6 +789,186 @@ function formatAutomationSleepingText(campaign: ProspectingAutomationLiveStatus[
   return `Bot em repouso. Fora do horário operacional; retomada ${dayLabel} às ${time}.`;
 }
 
+function getProspectingRobotTone(
+  status: ProspectingAutomationLiveStatus | null,
+  globalBotEnabled: boolean,
+  loading: boolean,
+) {
+  if (!globalBotEnabled) return "off";
+  if (loading) return "working";
+  const currentStatus = String(status?.status || "").trim().toLowerCase();
+  const campaignStatus = String(status?.campaign?.status || "").trim().toLowerCase();
+  const text = String(status?.text || status?.lastError || "").trim().toLowerCase();
+  if (currentStatus === "erro" || Boolean(status?.lastError)) return "error";
+  if (
+    text.includes("sem card") ||
+    text.includes("sem contato") ||
+    text.includes("sem lead") ||
+    text.includes("no eligible") ||
+    text.includes("fila vazia") ||
+    text.includes("sem oportunidade")
+  ) {
+    return "empty";
+  }
+  const counters = status?.counters || {};
+  const pending = Number(counters.pending ?? counters.todayPending ?? 0) || 0;
+  if (campaignStatus === "running" && pending <= 0 && ["parado", "aguardando", "pausado"].includes(currentStatus)) {
+    return "empty";
+  }
+  if (status?.active || campaignStatus === "running") return "working";
+  return "off";
+}
+
+function normalizeProspectingList(value: string, fallback: string[]) {
+  const items = value
+    .split(/[,;\n]+/g)
+    .map((item) => item.trim())
+    .filter(Boolean);
+  return items.length ? items : fallback;
+}
+
+function sanitizeFirstContactPreview(text: string) {
+  return String(text || "")
+    .split(/\r?\n/)
+    .map((line) => line.replace(CLICKABLE_FIRST_CONTACT_PATTERN, "").replace(/\s+/g, " ").trim())
+    .filter((line) => line && !/^(cadastre(?:-se)? aqui|acesse|link|clique aqui)\s*:?$/i.test(line))
+    .join("\n")
+    .trim();
+}
+
+function hasFirstContactLink(text: string) {
+  CLICKABLE_FIRST_CONTACT_PATTERN.lastIndex = 0;
+  return CLICKABLE_FIRST_CONTACT_PATTERN.test(String(text || ""));
+}
+
+function normalizeCompanyToken(value: string) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[.,;:()[\]{}]/g, "")
+    .trim()
+    .toLowerCase();
+}
+
+function smartCompanyTitle(value: string) {
+  const compact = String(value || "").replace(/\s+/g, " ").trim();
+  if (!compact) return "";
+  const shouldTitle = compact === compact.toUpperCase() || compact === compact.toLowerCase();
+  if (!shouldTitle) return compact;
+  return compact
+    .split(" ")
+    .map((word, index) => {
+      const normalized = normalizeCompanyToken(word);
+      if (index > 0 && COMPANY_CONNECTORS.has(normalized)) return normalized;
+      return word.charAt(0).toLocaleUpperCase("pt-BR") + word.slice(1).toLocaleLowerCase("pt-BR");
+    })
+    .join(" ");
+}
+
+function summarizeCompanyName(value: string) {
+  const words = String(value || "")
+    .replace(/[|/\\_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .split(" ")
+    .filter(Boolean);
+  while (words.length && COMPANY_LEGAL_SUFFIXES.has(normalizeCompanyToken(words[words.length - 1]))) {
+    words.pop();
+  }
+
+  const selected: string[] = [];
+  let removedGenericPrefix = false;
+  for (const word of words) {
+    const normalized = normalizeCompanyToken(word);
+    if (!selected.length && (COMPANY_LEADING_GENERIC.has(normalized) || COMPANY_CONNECTORS.has(normalized))) {
+      removedGenericPrefix = true;
+      continue;
+    }
+    if (!selected.length && removedGenericPrefix && COMPANY_DESCRIPTOR_AFTER_GENERIC.has(normalized)) continue;
+    selected.push(word);
+  }
+
+  while (selected.length && COMPANY_CONNECTORS.has(normalizeCompanyToken(selected[0]))) selected.shift();
+  while (selected.length && COMPANY_CONNECTORS.has(normalizeCompanyToken(selected[selected.length - 1]))) selected.pop();
+
+  const compact = selected.slice(0, 4).join(" ") || words.slice(0, 3).join(" ");
+  return smartCompanyTitle(compact);
+}
+
+function renderProspectingPreview(
+  template: string,
+  config: ProspectingCampaignConfig,
+  variables: ProspectingPreviewVariables,
+) {
+  const values: Record<string, string> = {
+    cumprimentacao: computeBrasiliaGreeting(),
+    cliente: "Cliente Modelo",
+    empresaresumo: summarizeCompanyName("Empresa de Máquinas Agrícolas e Pesados LTDA"),
+    clienteresumo: summarizeCompanyName("Empresa de Máquinas Agrícolas e Pesados LTDA"),
+    empresa: variables.empresa,
+    funcionario: variables.funcionario,
+    cidade: config.city || "sua região",
+    estado: config.state || "BR",
+    segmento: config.segment || "seu segmento",
+  };
+  return String(template || "")
+    .replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g, (_match, token) => values[token] || `[${token}]`)
+    .trim();
+}
+
+function computeBrasiliaGreeting() {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    hour: "2-digit",
+    hour12: false,
+    timeZone: "America/Sao_Paulo",
+  }).formatToParts(new Date());
+  const hour = Number(parts.find((part) => part.type === "hour")?.value || "0");
+  if (hour >= 18 || hour < 3) return "Boa noite";
+  if (hour >= 12) return "Boa tarde";
+  return "Bom dia";
+}
+
+function buildProspectingCampaignConfig(status: ProspectingAutomationLiveStatus | null): ProspectingCampaignConfig {
+  const campaign = status?.campaign;
+  return {
+    ...DEFAULT_PROSPECTING_CAMPAIGN_CONFIG,
+    ...(campaign || {}),
+    city: String(campaign?.city || DEFAULT_PROSPECTING_CAMPAIGN_CONFIG.city),
+    state: String(campaign?.state || DEFAULT_PROSPECTING_CAMPAIGN_CONFIG.state),
+    segment: String(campaign?.segment || DEFAULT_PROSPECTING_CAMPAIGN_CONFIG.segment),
+    engine: campaign?.engine === "google" ? "google" : "hbx",
+    targetType:
+      campaign?.targetType === "pf" || campaign?.targetType === "agenda_pf"
+        ? campaign.targetType
+        : "pj",
+    positiveIntentKeywords: Array.isArray(campaign?.positiveIntentKeywords)
+      ? campaign.positiveIntentKeywords
+      : DEFAULT_PROSPECTING_CAMPAIGN_CONFIG.positiveIntentKeywords,
+    negativeIntentKeywords: Array.isArray(campaign?.negativeIntentKeywords)
+      ? campaign.negativeIntentKeywords
+      : DEFAULT_PROSPECTING_CAMPAIGN_CONFIG.negativeIntentKeywords,
+  };
+}
+
+function toProspectingCampaignPayload(config: ProspectingCampaignConfig): ProspectingCampaignConfig {
+  return {
+    ...config,
+    state: config.state.trim().toUpperCase(),
+    city: config.city.trim(),
+    segment: config.segment.trim(),
+    dailyLimit: Math.max(1, Math.trunc(Number(config.dailyLimit || 1))),
+    intervalMinutes: Math.max(1, Math.trunc(Number(config.intervalMinutes || 1))),
+    typingSeconds: Math.max(0, Math.trunc(Number(config.typingSeconds || 0))),
+    typingVarianceSeconds: Math.max(0, Math.trunc(Number(config.typingVarianceSeconds || 0))),
+    minLeadBuffer: Math.max(1, Math.trunc(Number(config.minLeadBuffer || 1))),
+    desiredLeadBuffer: Math.max(1, Math.trunc(Number(config.desiredLeadBuffer || 1))),
+    maxAttemptsPerLead: Math.max(1, Math.trunc(Number(config.maxAttemptsPerLead || 1))),
+    engine: "hbx",
+    targetType: "pj",
+    websiteFallbackEnabled: false,
+  };
+}
+
 function ProspectingAutomationStatus({
   status,
   loading,
@@ -795,6 +1050,351 @@ function ProspectingAutomationStatus({
         ) : null}
       </div>
     </section>
+  );
+}
+
+function ProspectingCampaignStudioModal({
+  open,
+  config,
+  status,
+  actionLoading,
+  companyName,
+  onClose,
+  onChange,
+  onSave,
+  onStart,
+  onPause,
+  onResume,
+}: {
+  open: boolean;
+  config: ProspectingCampaignConfig;
+  status: ProspectingAutomationLiveStatus | null;
+  actionLoading: string | null;
+  companyName: string;
+  onClose: () => void;
+  onChange: (updater: (current: ProspectingCampaignConfig) => ProspectingCampaignConfig) => void;
+  onSave: () => void;
+  onStart: () => void;
+  onPause: () => void;
+  onResume: () => void;
+}) {
+  const [page, setPage] = useState<"mensagem" | "radar">("mensagem");
+  const [variablesOpen, setVariablesOpen] = useState(false);
+  const [variableTarget, setVariableTarget] = useState<"messageTemplate" | "optOutMessage">("messageTemplate");
+  const [positiveDraft, setPositiveDraft] = useState(config.positiveIntentKeywords.join(", "));
+  const [negativeDraft, setNegativeDraft] = useState(config.negativeIntentKeywords.join(", "));
+  const messageTemplateRef = useRef<HTMLTextAreaElement | null>(null);
+  const optOutMessageRef = useRef<HTMLTextAreaElement | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    // Reset the guided flow whenever the campaign studio opens.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setPage("mensagem");
+  }, [open]);
+
+  useEffect(() => {
+    // Keep local drafts aligned after loading a saved campaign.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setPositiveDraft(config.positiveIntentKeywords.join(", "));
+  }, [config.positiveIntentKeywords]);
+
+  useEffect(() => {
+    // Keep local drafts aligned after loading a saved campaign.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setNegativeDraft(config.negativeIntentKeywords.join(", "));
+  }, [config.negativeIntentKeywords]);
+
+  if (!open || typeof document === "undefined") return null;
+
+  const setField = <K extends keyof ProspectingCampaignConfig,>(field: K, value: ProspectingCampaignConfig[K]) => {
+    onChange((current) => ({ ...current, [field]: value }));
+  };
+  const setNumberField = (
+    field: "dailyLimit" | "intervalMinutes" | "typingSeconds" | "typingVarianceSeconds",
+    value: string,
+    min = 0,
+  ) => {
+    onChange((current) => ({ ...current, [field]: Math.max(min, Math.trunc(Number(value) || 0)) }));
+  };
+  const setAdvancedNumberField = (
+    field: "maxAttemptsPerLead",
+    value: string,
+    min = 1,
+  ) => {
+    onChange((current) => ({ ...current, [field]: Math.max(min, Math.trunc(Number(value) || 0)) }));
+  };
+  const setListField = (field: "positiveIntentKeywords" | "negativeIntentKeywords", value: string) => {
+    onChange((current) => ({ ...current, [field]: normalizeProspectingList(value, current[field]) }));
+  };
+  const insertVariable = (token: string) => {
+    const field = variableTarget;
+    const ref = field === "messageTemplate" ? messageTemplateRef.current : optOutMessageRef.current;
+    const currentValue = String(config[field] || "");
+    const start = ref?.selectionStart ?? currentValue.length;
+    const end = ref?.selectionEnd ?? currentValue.length;
+    const insert = `{{${token}}}`;
+    const nextValue = `${currentValue.slice(0, start)}${insert}${currentValue.slice(end)}`;
+    setField(field, nextValue as ProspectingCampaignConfig[typeof field]);
+    setVariablesOpen(false);
+    window.setTimeout(() => {
+      ref?.focus();
+      ref?.setSelectionRange(start + insert.length, start + insert.length);
+    }, 0);
+  };
+  const canPause = Boolean(status?.campaign?.status === "running");
+  const canResume = Boolean(status?.campaign?.status === "paused");
+  const previewVariables = {
+    empresa: companyName || "HBX",
+    funcionario: "time comercial",
+  };
+  const sanitizedMessagePreview = sanitizeFirstContactPreview(config.messageTemplate) || DEFAULT_PROSPECTING_CAMPAIGN_CONFIG.messageTemplate;
+  const messageTemplateHasLink = hasFirstContactLink(config.messageTemplate);
+  const firstStepReady = Boolean(config.messageTemplate.trim() && config.workingHoursStart && config.workingHoursEnd);
+  const radarQuery = {
+    state: config.state,
+    city: config.city,
+    segment: config.segment,
+  };
+  const radarFrameParams = new URLSearchParams();
+  Object.entries(radarQuery).forEach(([key, value]) => {
+    if (value) radarFrameParams.set(key, String(value));
+  });
+  const radarFrameSrc = `/mobile/radar-digital${radarFrameParams.toString() ? `?${radarFrameParams.toString()}` : ""}`;
+
+  return createPortal(
+    <div className={styles.campaignStudioBackdrop} role="presentation" onClick={onClose}>
+      <section
+        className={styles.campaignStudioFrame}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="campaign-studio-title"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <header className={styles.campaignStudioHeader}>
+          <div>
+            <span>Atendimento &gt; Hbot</span>
+            <strong id="campaign-studio-title">Campanha WhatsApp</strong>
+          </div>
+          <div className={styles.campaignStudioHeaderActions}>
+            <button type="button" className={styles.campaignCloseButton} onClick={onClose}>Fechar</button>
+          </div>
+        </header>
+
+        <div className={styles.campaignStudioTabs} role="tablist" aria-label="Etapas da campanha">
+          <button type="button" data-active={page === "mensagem" ? "true" : "false"} onClick={() => setPage("mensagem")}>1. Mensagem inicial</button>
+          <button type="button" data-active={page === "radar" ? "true" : "false"} onClick={() => setPage("radar")}>2. Radar</button>
+        </div>
+
+        <div className={styles.campaignStudioBody}>
+          {page === "mensagem" ? (
+            <div className={styles.campaignMessageLayout}>
+              <main className={styles.campaignEditorPanel}>
+                <div className={styles.campaignSectionHeader}>
+                  <div>
+                    <span>Primeira etapa</span>
+                    <strong>Mensagem, horário e regras do Hbot</strong>
+                  </div>
+                  <button type="button" className={styles.campaignGhostButton} onClick={() => setVariablesOpen(true)}>
+                    Variáveis
+                  </button>
+                </div>
+
+                <div className={styles.campaignTimeGrid}>
+                  <label className={styles.campaignField}>
+                    <span>Início</span>
+                    <input type="time" value={config.workingHoursStart} onChange={(event) => setField("workingHoursStart", event.target.value)} />
+                  </label>
+                  <label className={styles.campaignField}>
+                    <span>Fim</span>
+                    <input type="time" value={config.workingHoursEnd} onChange={(event) => setField("workingHoursEnd", event.target.value)} />
+                  </label>
+                </div>
+
+                <div className={styles.campaignMessageCard}>
+                  <label className={styles.campaignField}>
+                    <span>Mensagem inicial</span>
+                    <textarea
+                      ref={messageTemplateRef}
+                      value={config.messageTemplate}
+                      onFocus={() => setVariableTarget("messageTemplate")}
+                      onChange={(event) => setField("messageTemplate", event.target.value)}
+                      placeholder="Digite a primeira mensagem da campanha..."
+                    />
+                    <small>Primeiro contato não envia links automaticamente. Links só depois que a pessoa responder.</small>
+                  </label>
+                  {messageTemplateHasLink ? (
+                    <div className={styles.campaignRiskNotice}>
+                      O link será removido no primeiro contato para proteger o número.
+                    </div>
+                  ) : null}
+                </div>
+
+                <details className={styles.campaignAdvanced} open>
+                  <summary>Ajustes avançados</summary>
+                  <div className={styles.campaignAdvancedGrid}>
+                    <label className={styles.campaignField}>
+                      <span>Intervalo</span>
+                      <input type="number" min={1} value={config.intervalMinutes} onChange={(event) => setNumberField("intervalMinutes", event.target.value, 1)} />
+                    </label>
+                    <label className={styles.campaignField}>
+                      <span>Typing</span>
+                      <input type="number" min={0} value={config.typingSeconds} onChange={(event) => setNumberField("typingSeconds", event.target.value, 0)} />
+                    </label>
+                    <label className={styles.campaignField}>
+                      <span>Variação</span>
+                      <input type="number" min={0} value={config.typingVarianceSeconds} onChange={(event) => setNumberField("typingVarianceSeconds", event.target.value, 0)} />
+                    </label>
+                    <label className={styles.campaignField}>
+                      <span>Tentativas por contato</span>
+                      <input type="number" min={1} value={config.maxAttemptsPerLead} onChange={(event) => setAdvancedNumberField("maxAttemptsPerLead", event.target.value, 1)} />
+                    </label>
+                    <label className={styles.campaignField}>
+                      <span>Positivas</span>
+                      <input value={positiveDraft} onChange={(event) => setPositiveDraft(event.target.value)} onBlur={(event) => setListField("positiveIntentKeywords", event.target.value)} />
+                    </label>
+                    <label className={styles.campaignField}>
+                      <span>Negativas</span>
+                      <input value={negativeDraft} onChange={(event) => setNegativeDraft(event.target.value)} onBlur={(event) => setListField("negativeIntentKeywords", event.target.value)} />
+                    </label>
+                    <label className={styles.campaignToggle}>
+                      <span>Responder encerramento negativo</span>
+                      <input type="checkbox" checked={config.optOutReplyEnabled} onChange={(event) => setField("optOutReplyEnabled", event.target.checked)} />
+                    </label>
+                    <label className={`${styles.campaignField} ${styles.campaignWideField}`}>
+                      <span>Encerramento negativo</span>
+                      <textarea
+                        ref={optOutMessageRef}
+                        value={config.optOutMessage}
+                        disabled={!config.optOutReplyEnabled}
+                        onFocus={() => setVariableTarget("optOutMessage")}
+                        onChange={(event) => setField("optOutMessage", event.target.value)}
+                      />
+                    </label>
+                  </div>
+                </details>
+              </main>
+              <aside className={styles.campaignPreviewPanel}>
+                <div className={styles.campaignPreviewHeader}>
+                  <div>
+                    <span>WhatsApp</span>
+                    <strong>Prévia ao vivo</strong>
+                  </div>
+                  <button type="button" className={styles.campaignGhostButton} onClick={() => setVariablesOpen(true)}>
+                    Variáveis
+                  </button>
+                </div>
+                <div className={styles.campaignPhonePreview}>
+                  <div className={styles.campaignPhoneHeader}>
+                    <span className={styles.campaignPhoneAvatar}>HBX</span>
+                    <div>
+                      <strong>{previewVariables.empresa}</strong>
+                      <small>online agora</small>
+                    </div>
+                    <i aria-hidden="true" />
+                  </div>
+                  <div className={styles.campaignPhoneBody}>
+                    <span>Hoje</span>
+                    <div className={styles.campaignCustomerBubble}>Contato recebido na fila.</div>
+                    <div className={styles.campaignBotBubble} data-tone="typing">
+                      <small>Digitando</small>
+                      <p>typing por {config.typingSeconds}s, com variação humana de até {config.typingVarianceSeconds}s.</p>
+                    </div>
+                    <div className={styles.campaignBotBubble}>
+                      <small>Disparo inicial</small>
+                      <p>{renderProspectingPreview(sanitizedMessagePreview, config, previewVariables)}</p>
+                    </div>
+                    <div className={styles.campaignCustomerBubble}>Não tenho interesse, remova meu contato.</div>
+                    {config.optOutReplyEnabled ? (
+                      <div className={styles.campaignBotBubble}>
+                        <small>Encerramento negativo</small>
+                        <p>{renderProspectingPreview(config.optOutMessage, config, previewVariables)}</p>
+                      </div>
+                    ) : (
+                      <div className={styles.campaignSystemBubble}>Arquiva, marca opt-out e não envia resposta.</div>
+                    )}
+                  </div>
+                  <div className={styles.campaignPhoneComposer}>
+                    <span>Mensagem</span>
+                    <strong>+</strong>
+                  </div>
+                </div>
+                <div className={styles.campaignVariablePreview}>
+                  <div>
+                    <span>{"{{empresaresumo}}"}</span>
+                    <strong>{summarizeCompanyName("Empresa de Máquinas Agrícolas e Pesados LTDA")}</strong>
+                  </div>
+                  <div>
+                    <span>{"{{funcionario}}"}</span>
+                    <strong>{previewVariables.funcionario}</strong>
+                  </div>
+                  <div>
+                    <span>{"{{empresa}}"}</span>
+                    <strong>{previewVariables.empresa}</strong>
+                  </div>
+                </div>
+              </aside>
+            </div>
+          ) : (
+            <div className={styles.campaignRadarLayout}>
+              <main className={styles.campaignRadarFrameShell}>
+                <iframe src={radarFrameSrc} title="Radar Digital" />
+              </main>
+            </div>
+          )}
+        </div>
+
+        <footer className={styles.campaignStudioFooter}>
+          <span>{status?.text || "Campanha parada"}</span>
+          <div>
+            {page === "radar" ? (
+              <button type="button" className={styles.campaignFooterButton} onClick={() => setPage("mensagem")}>
+                Voltar
+              </button>
+            ) : null}
+            <button type="button" className={styles.campaignFooterButton} onClick={onSave} disabled={Boolean(actionLoading)}>
+              {actionLoading === "save" ? "Salvando..." : "Salvar"}
+            </button>
+            {page === "mensagem" ? (
+              <button type="button" className={styles.campaignFooterButtonPrimary} onClick={() => setPage("radar")} disabled={!firstStepReady}>
+                Avançar para Radar
+              </button>
+            ) : (
+              <button type="button" className={styles.campaignFooterButtonPrimary} onClick={onStart} disabled={Boolean(actionLoading)}>
+                {actionLoading === "start" ? "Iniciando..." : "Iniciar campanha"}
+              </button>
+            )}
+            {canPause ? (
+              <button type="button" className={styles.campaignFooterButton} onClick={onPause} disabled={Boolean(actionLoading)}>
+                {actionLoading === "pause" ? "..." : "Pausar"}
+              </button>
+            ) : canResume ? (
+              <button type="button" className={styles.campaignFooterButton} onClick={onResume} disabled={Boolean(actionLoading)}>
+                {actionLoading === "resume" ? "..." : "Retomar"}
+              </button>
+            ) : null}
+          </div>
+        </footer>
+        {variablesOpen ? (
+          <div className={styles.campaignVariablePopover} role="dialog" aria-modal="true">
+            <div className={styles.campaignVariablePopoverCard}>
+              <header>
+                <strong>Variáveis</strong>
+                <button type="button" className={styles.campaignGhostButton} onClick={() => setVariablesOpen(false)}>Fechar</button>
+              </header>
+              <div className={styles.campaignVariableGrid}>
+                {PROSPECTING_VARIABLES.map((variable) => (
+                  <button key={variable.token} type="button" className={styles.campaignGhostButton} onClick={() => insertVariable(variable.token)}>
+                    {variable.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        ) : null}
+      </section>
+    </div>,
+    document.body,
   );
 }
 
@@ -1691,10 +2291,21 @@ function hasInboxRealMessage(conversation?: InboxConversation | null) {
 
 function isInboxPersonalContact(conversation?: InboxConversation | null) {
   const metadata = getInboxConversationMetadata(conversation);
+  const queue = getInboxVendasAgendaQueue(conversation);
+  const manualQueue = getInboxMetadataText(metadata?.inboxManualQueueOverride || queue?.manualQueueOverride);
+  const routeTarget = getInboxMetadataText(
+    metadata?.queueTarget ||
+      metadata?.routeTarget ||
+      conversation?.routeTarget ||
+      queue?.queueTarget ||
+      queue?.routeTarget,
+  );
   return (
     parseInboxBooleanFlag(metadata?.inboxPersonalContact) ||
     parseInboxBooleanFlag(metadata?.personalContact) ||
-    parseInboxBooleanFlag(metadata?.whatsappPersonalContact)
+    parseInboxBooleanFlag(metadata?.whatsappPersonalContact) ||
+    manualQueue === "all" ||
+    routeTarget === "conversas"
   );
 }
 
@@ -3176,6 +3787,9 @@ function InboxDesktopClientPage() {
     useState<ProspectingAutomationLiveStatus | null>(null);
   const [prospectingAutomationLoading, setProspectingAutomationLoading] = useState(false);
   const [prospectingAutomationAction, setProspectingAutomationAction] = useState<string | null>(null);
+  const [campaignStudioOpen, setCampaignStudioOpen] = useState(false);
+  const [campaignConfig, setCampaignConfig] = useState<ProspectingCampaignConfig>(DEFAULT_PROSPECTING_CAMPAIGN_CONFIG);
+  const campaignConfigDirtyRef = useRef(false);
   const [agendaConfig, setAgendaConfig] = useState<AtendimentoAgendaConfig>(
     DEFAULT_ATENDIMENTO_AGENDA_CONFIG,
   );
@@ -3438,14 +4052,22 @@ function InboxDesktopClientPage() {
         router.replace(INBOX_BOT_PLAN_HREF, { scroll: false });
         return;
       }
-      router.replace(botSetupComplete ? "/vendas/automacao?tab=flow" : "/tutorial?start=bot&from=inbox_bot", {
-        scroll: false,
-      });
+      if (!botSetupComplete) {
+        router.replace("/tutorial?start=bot&from=inbox_bot", { scroll: false });
+        return;
+      }
+      setAgendaStudioOpen(false);
+      setTemplatesStudioOpen(false);
+      setCampaignStudioOpen(true);
+      const params = new URLSearchParams(searchParams?.toString() || "");
+      params.delete("atendimentoSection");
+      const nextUrl = params.toString() ? `${pathname}?${params.toString()}` : pathname;
+      router.replace(nextUrl, { scroll: false });
       return;
     }
     setAgendaStudioOpen(false);
     setContextTab(requestedSection);
-  }, [botAiActive, botSetupComplete, commercialPlans, requestedAgendaStudioOpen, requestedQueue, requestedSection, router]);
+  }, [botAiActive, botSetupComplete, commercialPlans, pathname, requestedAgendaStudioOpen, requestedQueue, requestedSection, router, searchParams]);
 
   useEffect(() => {
     setMounted(true);
@@ -4361,6 +4983,9 @@ function InboxDesktopClientPage() {
     try {
       const data = await apiFetch<ProspectingAutomationLiveStatus>("/vendas/automation/live-status");
       setProspectingAutomationStatus(data);
+      if (!campaignConfigDirtyRef.current) {
+        setCampaignConfig(buildProspectingCampaignConfig(data));
+      }
       return data;
     } catch {
       if (!background) {
@@ -4391,6 +5016,77 @@ function InboxDesktopClientPage() {
     },
     [],
   );
+
+  const updateCampaignConfig = useCallback((updater: (current: ProspectingCampaignConfig) => ProspectingCampaignConfig) => {
+    campaignConfigDirtyRef.current = true;
+    setCampaignConfig((current) => updater(current));
+  }, []);
+
+  const saveProspectingCampaignConfig = useCallback(async () => {
+    const payload = toProspectingCampaignPayload(campaignConfig);
+    if (!payload.city.trim()) {
+      setNotice({ tone: "error", text: "Informe a cidade da Fonte Radar." });
+      return null;
+    }
+    if (!payload.segment.trim()) {
+      setNotice({ tone: "error", text: "Informe o segmento da Fonte Radar." });
+      return null;
+    }
+    setProspectingAutomationAction("save");
+    try {
+      const data = await apiFetch<ProspectingAutomationLiveStatus>("/vendas/automation/prospecting/config", {
+        method: "PATCH",
+        body: JSON.stringify(payload),
+      });
+      campaignConfigDirtyRef.current = false;
+      setCampaignConfig(buildProspectingCampaignConfig(data));
+      setProspectingAutomationStatus(data);
+      setNotice({ tone: "success", text: "Campanha salva no Hbot." });
+      return data;
+    } catch (saveError) {
+      setNotice({
+        tone: "error",
+        text: saveError instanceof Error ? saveError.message : "Falha ao salvar a campanha.",
+      });
+      return null;
+    } finally {
+      setProspectingAutomationAction(null);
+    }
+  }, [campaignConfig]);
+
+  const startProspectingCampaign = useCallback(async () => {
+    const payload = toProspectingCampaignPayload(campaignConfig);
+    if (!payload.city.trim()) {
+      setNotice({ tone: "error", text: "Informe a cidade da Fonte Radar." });
+      return;
+    }
+    if (!payload.segment.trim()) {
+      setNotice({ tone: "error", text: "Informe o segmento da Fonte Radar." });
+      return;
+    }
+    setProspectingAutomationAction("start");
+    try {
+      await apiFetch<ProspectingAutomationLiveStatus>("/vendas/automation/prospecting/config", {
+        method: "PATCH",
+        body: JSON.stringify(payload),
+      });
+      const data = await apiFetch<ProspectingAutomationLiveStatus>("/vendas/automation/prospecting/start", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
+      campaignConfigDirtyRef.current = false;
+      setCampaignConfig(buildProspectingCampaignConfig(data));
+      setProspectingAutomationStatus(data);
+      setNotice({ tone: "success", text: "Campanha iniciada pelo Hbot." });
+    } catch (startError) {
+      setNotice({
+        tone: "error",
+        text: startError instanceof Error ? startError.message : "Falha ao iniciar a campanha.",
+      });
+    } finally {
+      setProspectingAutomationAction(null);
+    }
+  }, [campaignConfig]);
 
   const loadBotConfig = useCallback(async (options?: { force?: boolean }) => {
     if (botConfigLoadedRef.current && !options?.force) return;
@@ -5042,11 +5738,18 @@ function InboxDesktopClientPage() {
   );
   const activeDockSection = templatesStudioOpen
     ? "templates"
+    : campaignStudioOpen
+      ? "automacao"
     : agendaStudioOpen || contextTab === "agenda"
         ? "agenda"
         : contextTab === "financeiro"
           ? "financeiro"
-          : "conversa";
+        : "conversa";
+  const prospectingRobotTone = getProspectingRobotTone(
+    prospectingAutomationStatus,
+    globalBotEnabled,
+    prospectingAutomationLoading,
+  );
 
   useEffect(() => {
     if (hasRecoveryCapability || contextTab !== "financeiro") return;
@@ -5101,15 +5804,20 @@ function InboxDesktopClientPage() {
     const params = new URLSearchParams(searchParams?.toString() || "");
     if (nextSection === "automacao") {
       if (!requireBotReady()) return;
-      router.push("/vendas/automacao?tab=flow");
-      return;
+      setActiveTab("messages");
+      setTemplatesStudioOpen(false);
+      setAgendaStudioOpen(false);
+      setCampaignStudioOpen(true);
+      params.delete("atendimentoTab");
     } else if (nextSection === "agenda") {
       setActiveTab("messages");
+      setCampaignStudioOpen(false);
       setAgendaStudioOpen(true);
       setTemplatesStudioOpen(false);
       setContextTab("agenda");
       params.delete("atendimentoTab");
     } else {
+      setCampaignStudioOpen(false);
       setTemplatesStudioOpen(false);
       setAgendaStudioOpen(false);
       setContextTab(nextSection);
@@ -8361,7 +9069,8 @@ function InboxDesktopClientPage() {
                     className={styles.commandDockRobotButton}
                     data-busy={prospectingAutomationLoading ? "true" : "false"}
                     data-enabled={globalBotEnabled ? "true" : "false"}
-                    onClick={() => router.push("/vendas/automacao?tab=prospeccao")}
+                    data-tone={prospectingRobotTone}
+                    onClick={() => handleSectionChange("automacao")}
                     aria-label="Abrir automação de prospecção"
                     title="Automação de prospecção"
                   >
@@ -8400,7 +9109,7 @@ function InboxDesktopClientPage() {
                     label="Configurar Bot"
                     active={false}
                     badge={botAiActive && !botSetupComplete ? "!" : queueCounts.bot || null}
-                    onClick={() => handleSectionChange("automacao")}
+                    onClick={() => router.push("/vendas/automacao?tab=flow")}
                   />
                   {providerCapabilities.canUseTemplates ? (
                     <DockButton
@@ -8561,6 +9270,20 @@ function InboxDesktopClientPage() {
           </div>
         </div>
       ) : null}
+
+      <ProspectingCampaignStudioModal
+        open={campaignStudioOpen}
+        config={campaignConfig}
+        status={prospectingAutomationStatus}
+        actionLoading={prospectingAutomationAction}
+        companyName={currentUserProfile?.company?.name || "HBX"}
+        onClose={() => setCampaignStudioOpen(false)}
+        onChange={updateCampaignConfig}
+        onSave={() => void saveProspectingCampaignConfig()}
+        onStart={() => void startProspectingCampaign()}
+        onPause={() => void runProspectingAutomationAction("pause")}
+        onResume={() => void runProspectingAutomationAction("resume")}
+      />
 
       <HbxConfirmDialog
         open={blockDialog !== null}

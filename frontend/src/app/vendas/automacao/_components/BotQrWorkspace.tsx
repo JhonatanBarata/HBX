@@ -18,7 +18,6 @@ const TABS: Array<{ key: BotQrWorkspaceTab; label: string }> = [
   { key: "connection", label: "Conexão" },
   { key: "atendimento", label: "Atendimento" },
   { key: "flow", label: "Respostas" },
-  { key: "prospeccao", label: "Campanha" },
   { key: "recovery", label: "Recovery" },
 ];
 

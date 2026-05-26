@@ -277,6 +277,9 @@ function createService(overrides?: {
   const inboxRealtime = {
     publish: (payload: Record<string, any>) => events.push(payload),
   };
+  const commercialPlansService = {
+    assertAssistedSetupCompleteForCompany: async () => true,
+  };
 
   const service = new VendasAutomationService(
     prisma,
@@ -285,7 +288,7 @@ function createService(overrides?: {
     vendasService as any,
     conversations as any,
     inboxRealtime as any,
-    {} as any,
+    commercialPlansService as any,
   ) as any;
   service.isInsideWorkingHours = () => true;
   const originalScheduleJobsForCampaign = service.scheduleJobsForCampaign.bind(service);
@@ -518,6 +521,23 @@ test('lead without scriptText uses campaign messageTemplate', async () => {
 
   assert.equal(queueCalls.length, 1);
   assert.equal(queueCalls[0].payload.body, 'Olá Empresa Teste, aqui é Jhonatan da HBX falando sobre clínica odontológica.');
+});
+
+test('campaign template can use smart lead company summary variable', async () => {
+  const { service, queueCalls } = createService({ conversationMetadata: null });
+  const campaign = buildCampaign({
+    messageTemplate: 'Olá, falo na empresa {{empresaresumo}}?',
+  });
+  const lead = buildLead({
+    name: 'empresa de maquinas agrícolas e pesados LTDA',
+    segment: campaign.segment,
+    scriptText: '   ',
+  });
+
+  await service.processDueJob(buildJob({ campaign, lead, leadId: lead.id }));
+
+  assert.equal(queueCalls.length, 1);
+  assert.equal(queueCalls[0].payload.body, 'Olá, falo na empresa Agrícolas e Pesados?');
 });
 
 test('lead without script and campaign without template uses DEFAULT_MESSAGE_TEMPLATE', async () => {
