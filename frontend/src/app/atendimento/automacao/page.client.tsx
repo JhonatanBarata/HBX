@@ -1002,7 +1002,7 @@ function ProspectingAutomationPanel({
               />
             </label>
             <label className={styles.prospectingWideField}>
-              <span>Respostas para "o que é?"</span>
+              <span>Respostas para &quot;o que é?&quot;</span>
               <textarea
                 className={styles.editorTextarea}
                 ref={whatIsItReplyVariantsRef}
@@ -1582,22 +1582,6 @@ export default function AtendimentoAutomationClientPage() {
         return;
       }
       const currentProspectingConfig = prospectingConfigRef.current;
-      if (
-        action === "start" &&
-        requiresProspectingCity(currentProspectingConfig) &&
-        !currentProspectingConfig.city.trim()
-      ) {
-        const message = "Informe a cidade da Fonte Radar.";
-        setError(message);
-        setNotice({ tone: "error", text: message });
-        return;
-      }
-      if (action === "start" && !currentProspectingConfig.segment.trim()) {
-        const message = "Informe o segmento para iniciar a prospecção automática.";
-        setError(message);
-        setNotice({ tone: "error", text: message });
-        return;
-      }
       const nextBotConfig = upsertProspectingRules(draftConfig, currentProspectingConfig);
       setProspectingAction(action);
       setError(null);

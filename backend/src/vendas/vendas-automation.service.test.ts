@@ -4,7 +4,19 @@ import assert from 'node:assert/strict';
 import { VendasAutomationService } from './vendas-automation.service';
 import { SAFE_FIRST_CONTACT_TEMPLATE } from './prospecting-safety';
 
-const FALLBACK_MESSAGE = SAFE_FIRST_CONTACT_TEMPLATE.replace('{{cliente}}', 'Empresa Teste').replace('{{cidade}}', 'Sao Paulo');
+function computeTestBrasiliaGreeting() {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    hour: '2-digit',
+    hour12: false,
+    timeZone: 'America/Sao_Paulo',
+  }).formatToParts(new Date());
+  const hour = Number(parts.find((part) => part.type === 'hour')?.value || '0');
+  if (hour >= 18 || hour < 3) return 'Boa noite';
+  if (hour >= 12) return 'Boa tarde';
+  return 'Bom dia';
+}
+
+const FALLBACK_MESSAGE = SAFE_FIRST_CONTACT_TEMPLATE.replace('{{cumprimentacao}}', computeTestBrasiliaGreeting());
   
 function buildCampaign(overrides?: Record<string, unknown>) {
   return {
@@ -422,10 +434,10 @@ test('scheduleJobsForCampaign falls back to broader webscraping pool when exact 
 
   assert.equal(createdJobBatches.length, 1);
   assert.equal(createdJobBatches[0][0].leadId, 'lead-broader');
-  assert.ok(campaignStageUpdates.some((data) => String(data.lastStatusText || '').includes('ramo próximo')));
+  assert.ok(campaignStageUpdates.some((data) => String(data.lastStatusText || '').includes('outros cards do Vendas')));
 });
 
-test('scrapeImportAndSchedule blocks incomplete campaign config before calling webscraping', async () => {
+test('scrapeImportAndSchedule keeps campaign on Vendas cards when Radar filters are blank', async () => {
   const { service, campaignStageUpdates, searchCalls } = createService({
     campaign: { segment: '' },
   });
@@ -433,8 +445,8 @@ test('scrapeImportAndSchedule blocks incomplete campaign config before calling w
   await service.scrapeImportAndSchedule('campaign-1', undefined, 'refill');
 
   assert.equal(searchCalls.length, 0);
-  assert.ok(campaignStageUpdates.some((data) => String(data.lastError || '').includes('segmento')));
-  assert.ok(campaignStageUpdates.some((data) => String(data.lastStatusText || '').includes('Revise a configuração')));
+  assert.ok(!campaignStageUpdates.some((data) => data.lastError));
+  assert.ok(campaignStageUpdates.some((data) => String(data.lastStatusText || '').includes('cards do Vendas com WhatsApp')));
 });
 
 test('scrapeImportAndSchedule records webscraping failures in campaign status', async () => {

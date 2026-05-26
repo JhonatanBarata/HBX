@@ -1827,6 +1827,23 @@
 
 .conversationQueueItemProspection[data-prospection-stage="reply_received"] {
   border-color: color-mix(in srgb, var(--conversation-prospeccao-accent, #16a34a) 34%, var(--line));
+  animation: prospection-attention-pulse 1.8s ease-in-out infinite;
+}
+
+@keyframes prospection-attention-pulse {
+  0%,
+  100% {
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.2),
+      0 8px 18px color-mix(in srgb, var(--conversation-prospeccao-accent, #16a34a) 8%, transparent);
+  }
+
+  50% {
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.22),
+      0 12px 24px color-mix(in srgb, var(--conversation-prospeccao-accent, #16a34a) 18%, transparent),
+      0 0 0 2px color-mix(in srgb, var(--conversation-prospeccao-accent, #16a34a) 10%, transparent);
+  }
 }
 
 .conversationQueueItemProspection[data-prospection-stage="no_whatsapp"],
@@ -2943,6 +2960,14 @@
   box-shadow: var(--shadow-lg);
 }
 
+.campaignStudioFrame:global(.hbx-popup1) {
+  width: min(1180px, 100%);
+  height: min(860px, calc(100dvh - 8px));
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  border-radius: 24px;
+}
+
 .campaignStudioHeader,
 .campaignStudioFooter {
   display: flex;
@@ -3035,6 +3060,13 @@
   color: var(--foreground);
 }
 
+.campaignStudioTabs button[data-invalid="true"] {
+  border-color: color-mix(in srgb, var(--danger) 62%, var(--line));
+  background: color-mix(in srgb, var(--danger) 10%, var(--surface));
+  color: color-mix(in srgb, var(--danger) 74%, var(--foreground));
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--danger) 16%, transparent);
+}
+
 .campaignStudioBody {
   min-height: 0;
   overflow: hidden;
@@ -3093,6 +3125,17 @@
   color: var(--foreground);
   font: inherit;
   padding: 10px 12px;
+}
+
+.campaignField[data-invalid="true"] span {
+  color: color-mix(in srgb, var(--danger) 78%, var(--foreground));
+}
+
+.campaignField[data-invalid="true"] input,
+.campaignField[data-invalid="true"] textarea {
+  border-color: color-mix(in srgb, var(--danger) 68%, var(--line));
+  background: color-mix(in srgb, var(--danger) 8%, var(--field-surface));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger) 14%, transparent);
 }
 
 .campaignField textarea {
@@ -3238,6 +3281,14 @@
     radial-gradient(circle at 86% 6%, color-mix(in srgb, var(--warning) 8%, transparent), transparent 32%);
 }
 
+.campaignStudioFrame:global(.hbx-popup1) {
+  width: min(1200px, 100%);
+  height: min(900px, calc(100dvh - 8px));
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  border-radius: 24px;
+}
+
 .campaignStudioHeader,
 .campaignStudioFooter {
   padding: 0.78rem 1rem;
@@ -3342,11 +3393,51 @@
   box-shadow: 0 18px 34px -26px color-mix(in srgb, var(--brand) 82%, transparent);
 }
 
+.campaignFooterButtonPrimary[data-state="running"] {
+  border-color: color-mix(in srgb, var(--warning) 58%, var(--line));
+  background: linear-gradient(135deg, color-mix(in srgb, var(--warning) 94%, #7c2d12), color-mix(in srgb, var(--warning) 68%, #78350f));
+  color: #1f1600;
+  box-shadow: 0 18px 34px -26px color-mix(in srgb, var(--warning) 82%, transparent);
+}
+
+.campaignFooterButtonPrimary[data-state="paused"],
+.campaignFooterButtonPrimary[data-state="idle"] {
+  border-color: color-mix(in srgb, var(--success) 58%, var(--line));
+  background: linear-gradient(135deg, color-mix(in srgb, var(--success) 96%, #064e3b), color-mix(in srgb, var(--success) 66%, #052e16));
+  color: white;
+  box-shadow: 0 18px 34px -26px color-mix(in srgb, var(--success) 82%, transparent);
+}
+
+.campaignFooterButtonPrimary[data-state="error"] {
+  border-color: color-mix(in srgb, var(--danger) 58%, var(--line));
+  background: linear-gradient(135deg, color-mix(in srgb, var(--danger) 92%, #7f1d1d), color-mix(in srgb, var(--danger) 68%, #450a0a));
+  color: white;
+  box-shadow: 0 18px 34px -26px color-mix(in srgb, var(--danger) 82%, transparent);
+}
+
 .campaignGhostButton:disabled,
 .campaignFooterButton:disabled,
 .campaignFooterButtonPrimary:disabled {
   cursor: not-allowed;
   opacity: 0.55;
+}
+
+.campaignFooterButton[data-state="saving"] {
+  border-color: color-mix(in srgb, var(--brand) 52%, var(--line));
+  background: color-mix(in srgb, var(--brand) 14%, var(--surface));
+  color: color-mix(in srgb, var(--brand) 78%, var(--foreground));
+}
+
+.campaignFooterButton[data-state="saved"] {
+  border-color: color-mix(in srgb, var(--success) 62%, var(--line));
+  background: color-mix(in srgb, var(--success) 14%, var(--surface));
+  color: color-mix(in srgb, var(--success) 68%, var(--foreground));
+}
+
+.campaignFooterButton[data-state="error"] {
+  border-color: color-mix(in srgb, var(--danger) 54%, var(--line));
+  background: color-mix(in srgb, var(--danger) 12%, var(--surface));
+  color: color-mix(in srgb, var(--danger) 74%, var(--foreground));
 }
 
 .campaignMessageCard,
@@ -3375,6 +3466,12 @@
   opacity: 0.64;
   filter: grayscale(0.35);
   background: color-mix(in srgb, var(--muted) 8%, var(--surface));
+}
+
+.campaignVariantPager[data-invalid="true"] {
+  border-color: color-mix(in srgb, var(--danger) 66%, var(--line));
+  background: color-mix(in srgb, var(--danger) 7%, var(--surface));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger) 12%, transparent);
 }
 
 .campaignVariantHeader {
@@ -3502,6 +3599,91 @@
   padding: 0.52rem 0.62rem;
   resize: vertical;
   line-height: 1.42;
+}
+
+.campaignKeywordChips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.campaignKeywordChip {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid color-mix(in srgb, var(--brand) 18%, var(--line));
+  border-radius: 999px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--surface-raised) 88%, var(--background));
+  color: var(--foreground);
+}
+
+.campaignKeywordChip[data-active="true"] {
+  border-color: color-mix(in srgb, var(--brand) 62%, var(--line));
+  background: color-mix(in srgb, var(--brand) 14%, var(--surface));
+  box-shadow: 0 10px 22px -18px color-mix(in srgb, var(--brand) 80%, transparent);
+}
+
+.campaignKeywordChip button {
+  min-height: 30px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 850;
+}
+
+.campaignKeywordChip button:first-child {
+  max-width: 210px;
+  padding: 0.32rem 0.62rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.campaignKeywordChip button:last-child {
+  width: 28px;
+  border-left: 1px solid color-mix(in srgb, var(--brand) 14%, var(--line));
+  color: color-mix(in srgb, var(--muted) 72%, var(--foreground));
+  font-weight: 950;
+}
+
+.campaignKeywordAdd {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 34px;
+  gap: 0.35rem;
+  align-items: center;
+}
+
+.campaignKeywordAdd input {
+  min-height: 34px;
+  width: 100%;
+  border: 1px solid color-mix(in srgb, var(--brand) 14%, var(--line));
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--field-surface) 94%, var(--surface));
+  color: var(--foreground);
+  font: inherit;
+  font-size: 0.76rem;
+  padding: 0 0.62rem;
+}
+
+.campaignKeywordAdd input:focus {
+  border-color: color-mix(in srgb, var(--brand) 58%, var(--line));
+  outline: 3px solid color-mix(in srgb, var(--brand) 16%, transparent);
+}
+
+.campaignKeywordAdd button {
+  min-height: 34px;
+  border: 1px solid color-mix(in srgb, var(--brand) 28%, var(--line));
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--brand) 10%, var(--surface));
+  color: color-mix(in srgb, var(--brand) 78%, var(--foreground));
+  cursor: pointer;
+  font: inherit;
+  font-weight: 950;
 }
 
 .campaignClassifierPanel small {
@@ -3863,8 +4045,45 @@
 }
 
 .campaignRadarFrameShell {
+  position: relative;
   padding: 0;
   overflow: hidden;
+}
+
+.campaignRadarFrameShell[data-invalid="true"] {
+  border-color: color-mix(in srgb, var(--danger) 64%, var(--line));
+  box-shadow:
+    0 0 0 3px color-mix(in srgb, var(--danger) 12%, transparent),
+    0 20px 46px -36px color-mix(in srgb, var(--foreground) 26%, transparent);
+}
+
+.campaignRadarError {
+  position: absolute;
+  top: 0.9rem;
+  left: 50%;
+  z-index: 3;
+  width: min(420px, calc(100% - 2rem));
+  display: grid;
+  gap: 0.18rem;
+  transform: translateX(-50%);
+  border: 1px solid color-mix(in srgb, var(--danger) 48%, var(--line));
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--surface-raised) 96%, var(--danger) 4%);
+  color: var(--foreground);
+  padding: 0.72rem 0.86rem;
+  box-shadow: 0 18px 42px -28px color-mix(in srgb, var(--danger) 50%, transparent);
+}
+
+.campaignRadarError strong {
+  color: color-mix(in srgb, var(--danger) 76%, var(--foreground));
+  font-size: 0.82rem;
+  font-weight: 950;
+}
+
+.campaignRadarError span {
+  color: color-mix(in srgb, var(--danger) 58%, var(--muted));
+  font-size: 0.74rem;
+  font-weight: 760;
 }
 
 .campaignRadarFrameShell iframe {
@@ -7036,6 +7255,26 @@
 
 .automationPulse[data-status="erro"] {
   border-color: rgba(255, 111, 145, 0.34);
+  background:
+    linear-gradient(135deg, rgba(34, 10, 22, 0.94), rgba(46, 12, 21, 0.84)),
+    radial-gradient(circle at left center, rgba(239, 68, 68, 0.18), transparent 38%);
+}
+
+.automationPulse[data-status="erro"] .automationPulseDot {
+  background: #ef4444;
+  box-shadow: 0 0 0 5px rgba(239, 68, 68, 0.12);
+}
+
+.automationPulse[data-status="pausado"] {
+  border-color: rgba(245, 158, 11, 0.38);
+  background:
+    linear-gradient(135deg, rgba(34, 24, 8, 0.94), rgba(47, 30, 8, 0.82)),
+    radial-gradient(circle at left center, rgba(245, 158, 11, 0.16), transparent 38%);
+}
+
+.automationPulse[data-status="pausado"] .automationPulseDot {
+  background: #f59e0b;
+  box-shadow: 0 0 0 5px rgba(245, 158, 11, 0.14);
 }
 
 .automationPulse[data-status="dormindo"] {
@@ -7291,6 +7530,17 @@
     0 14px 28px rgba(245, 158, 11, 0.24);
 }
 
+.commandDockRobotButton[data-tone="paused"] {
+  border-color: rgba(245, 158, 11, 0.52);
+  color: #fffbeb;
+  background:
+    radial-gradient(circle at 30% 22%, rgba(255, 255, 255, 0.18), transparent 38%),
+    linear-gradient(145deg, rgba(217, 119, 6, 0.96), rgba(146, 64, 14, 0.94));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.16),
+    0 14px 28px rgba(245, 158, 11, 0.24);
+}
+
 .commandDockRobotButton[data-tone="error"] {
   border-color: rgba(239, 68, 68, 0.56);
   color: #fff1f2;
@@ -7302,7 +7552,7 @@
     0 14px 28px rgba(239, 68, 68, 0.26);
 }
 
-.commandDockRobotButton[data-enabled="false"] {
+.commandDockRobotButton[data-enabled="false"][data-tone="off"] {
   opacity: 1;
   filter: none;
   color: rgba(238, 243, 255, 0.96);
@@ -7331,7 +7581,26 @@
   box-shadow: 0 0 0 4px rgba(37, 211, 102, 0.14);
 }
 
-.commandDockRobotButton[data-tone="empty"] .commandDockRobotStatus {
+.commandDockRobotTimer {
+  position: absolute;
+  left: 50%;
+  bottom: -0.44rem;
+  transform: translateX(-50%);
+  min-width: 2.72rem;
+  padding: 0.11rem 0.28rem 0.13rem;
+  border-radius: 999px;
+  border: 1px solid rgba(34, 211, 184, 0.36);
+  background: rgba(5, 12, 25, 0.9);
+  color: #dcfce7;
+  font-size: 0.56rem;
+  font-weight: 900;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  box-shadow: 0 8px 16px rgba(2, 6, 23, 0.26);
+}
+
+.commandDockRobotButton[data-tone="empty"] .commandDockRobotStatus,
+.commandDockRobotButton[data-tone="paused"] .commandDockRobotStatus {
   background: #f59e0b;
   box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.18);
 }

@@ -316,7 +316,7 @@ test('listConversations repara Company CONNECTED sem sessao antes de listar Aten
   assert.equal(companyUpdates.at(-1).currentWhatsappConnectionSessionId, 'session-repaired');
 });
 
-test('inbox classifier moves prospection with customer inbound to Atendimento', async () => {
+test('inbox classifier keeps prospection with customer inbound in Prospecção', async () => {
   const { service } = createService({
     prisma: {
       companyMessage: {
@@ -359,10 +359,10 @@ test('inbox classifier moves prospection with customer inbound to Atendimento', 
     { preferRecoveryForDebtors: true },
   );
 
-  assert.equal(context.routeTarget, 'atendimento');
+  assert.equal(context.routeTarget, 'prospeccao');
 });
 
-test('inbox classifier trusts replied_positive job state as Atendimento even in summary rows', async () => {
+test('inbox classifier keeps replied_positive job state in Prospecção summary rows', async () => {
   const { service } = createService({
     prisma: {
       companyMessage: {
@@ -411,7 +411,7 @@ test('inbox classifier trusts replied_positive job state as Atendimento even in 
     { preferRecoveryForDebtors: true },
   );
 
-  assert.equal(context.routeTarget, 'atendimento');
+  assert.equal(context.routeTarget, 'prospeccao');
 });
 
 test('inbox classifier moves expired prospection without response to Excluídos', async () => {
@@ -799,16 +799,17 @@ test('updateConversationQueue marks Pessoais as personal contact and disables bo
   assert.ok(profileStateCalls[0].botOffAt instanceof Date);
 });
 
-test('deleteConversation archives conversations with history locally', async () => {
+test('deleteConversation removes conversations with history from local backend', async () => {
   const messageDeleteCalls: Array<Record<string, unknown>> = [];
   const conversationDeleteCalls: Array<Record<string, unknown>> = [];
   const { service, auditCalls, conversationStateCalls } = createService({
     prisma: {
       companyMessage: {
         count: async () => 3,
-        deleteMany: async (input: Record<string, unknown>) => {
+        findMany: async () => [{ id: 901 }, { id: 902 }, { id: 903 }],
+        delete: async (input: Record<string, unknown>) => {
           messageDeleteCalls.push(input);
-          return { count: 3 };
+          return { id: (input as any).where.id };
         },
       },
       companyConversation: {
@@ -825,6 +826,7 @@ test('deleteConversation archives conversations with history locally', async () 
           updatedAt: new Date('2026-03-18T10:01:00.000Z'),
           messages: [],
         }),
+        findMany: async () => [{ id: 42 }],
         delete: async (input: Record<string, unknown>) => {
           conversationDeleteCalls.push(input);
           return { id: 42 };
@@ -844,26 +846,27 @@ test('deleteConversation archives conversations with history locally', async () 
   const result = await service.deleteConversation({ companyId: 7, role: 'ADMIN' }, 42);
 
   assert.equal(result.success, true);
-  assert.equal(result.message, 'Conversa enviada para Excluídos apenas no HBX.');
+  assert.equal(result.message, 'Conversa removida do backend local do HBX.');
+  assert.equal(result.deleted, true);
   assert.equal(result.localOnly, true);
-  assert.equal(messageDeleteCalls.length, 0);
-  assert.equal(conversationDeleteCalls.length, 0);
-  assert.equal(conversationStateCalls.length, 1);
-  assert.equal((conversationStateCalls[0].payload as any).flowResult, 'local_deleted');
+  assert.equal(messageDeleteCalls.length, 3);
+  assert.equal(conversationDeleteCalls.length, 1);
+  assert.equal(conversationStateCalls.length, 0);
   assert.equal(auditCalls.length, 1);
-  assert.equal(auditCalls[0].event, 'conversation_local_deleted');
+  assert.equal(auditCalls[0].event, 'conversation_backend_deleted');
 });
 
-test('deleteConversation keeps local archive success without WhatsApp command', async () => {
+test('deleteConversation removes local backend row without WhatsApp command', async () => {
   const messageDeleteCalls: Array<Record<string, unknown>> = [];
   const conversationDeleteCalls: Array<Record<string, unknown>> = [];
   const { service, auditCalls, conversationStateCalls } = createService({
     prisma: {
       companyMessage: {
         count: async () => 2,
-        deleteMany: async (input: Record<string, unknown>) => {
+        findMany: async () => [{ id: 901 }, { id: 902 }],
+        delete: async (input: Record<string, unknown>) => {
           messageDeleteCalls.push(input);
-          return { count: 2 };
+          return { id: (input as any).where.id };
         },
       },
       companyConversation: {
@@ -880,6 +883,7 @@ test('deleteConversation keeps local archive success without WhatsApp command', 
           updatedAt: new Date('2026-03-18T10:01:00.000Z'),
           messages: [],
         }),
+        findMany: async () => [{ id: 42 }],
         delete: async (input: Record<string, unknown>) => {
           conversationDeleteCalls.push(input);
           return { id: 42 };
@@ -899,26 +903,27 @@ test('deleteConversation keeps local archive success without WhatsApp command', 
   const result = await service.deleteConversation({ companyId: 7, role: 'ADMIN' }, 42);
 
   assert.equal(result.success, true);
-  assert.equal(result.message, 'Conversa enviada para Excluídos apenas no HBX.');
+  assert.equal(result.message, 'Conversa removida do backend local do HBX.');
+  assert.equal(result.deleted, true);
   assert.equal(result.localOnly, true);
-  assert.equal(messageDeleteCalls.length, 0);
-  assert.equal(conversationDeleteCalls.length, 0);
-  assert.equal(conversationStateCalls.length, 1);
-  assert.equal((conversationStateCalls[0].payload as any).flowResult, 'local_deleted');
+  assert.equal(messageDeleteCalls.length, 2);
+  assert.equal(conversationDeleteCalls.length, 1);
+  assert.equal(conversationStateCalls.length, 0);
   assert.equal(auditCalls.length, 1);
-  assert.equal(auditCalls[0].event, 'conversation_local_deleted');
+  assert.equal(auditCalls[0].event, 'conversation_backend_deleted');
 });
 
-test('deleteConversation ignores disconnected WhatsApp session and archives locally', async () => {
+test('deleteConversation ignores disconnected WhatsApp session and deletes locally', async () => {
   const messageDeleteCalls: Array<Record<string, unknown>> = [];
   const conversationDeleteCalls: Array<Record<string, unknown>> = [];
   const { service, auditCalls, conversationStateCalls } = createService({
     prisma: {
       companyMessage: {
         count: async () => 2,
-        deleteMany: async (input: Record<string, unknown>) => {
+        findMany: async () => [{ id: 901 }, { id: 902 }],
+        delete: async (input: Record<string, unknown>) => {
           messageDeleteCalls.push(input);
-          return { count: 0 };
+          return { id: (input as any).where.id };
         },
       },
       companyConversation: {
@@ -935,6 +940,7 @@ test('deleteConversation ignores disconnected WhatsApp session and archives loca
           updatedAt: new Date('2026-03-18T10:01:00.000Z'),
           messages: [],
         }),
+        findMany: async () => [{ id: 42 }],
         delete: async (input: Record<string, unknown>) => {
           conversationDeleteCalls.push(input);
           return { id: 42 };
@@ -954,18 +960,18 @@ test('deleteConversation ignores disconnected WhatsApp session and archives loca
   const result = await service.deleteConversation({ companyId: 7, role: 'ADMIN' }, 42);
 
   assert.equal(result.success, true);
+  assert.equal(result.deleted, true);
   assert.equal(result.localOnly, true);
-  assert.equal(messageDeleteCalls.length, 0);
-  assert.equal(conversationDeleteCalls.length, 0);
-  assert.equal(conversationStateCalls.length, 1);
+  assert.equal(messageDeleteCalls.length, 2);
+  assert.equal(conversationDeleteCalls.length, 1);
+  assert.equal(conversationStateCalls.length, 0);
   assert.equal(auditCalls.length, 1);
-  assert.equal(auditCalls[0].event, 'conversation_local_deleted');
+  assert.equal(auditCalls[0].event, 'conversation_backend_deleted');
 });
 
-test('purgeConversationFromTrash removes one archived conversation locally without WhatsApp command', async () => {
+test('purgeConversationFromTrash is disabled', async () => {
   const messageDeleteCalls: Array<Record<string, unknown>> = [];
   const conversationDeleteCalls: Array<Record<string, unknown>> = [];
-  let whatsappDeleteCalls = 0;
   const { service, auditCalls } = createService({
     prisma: {
       company: {
@@ -1019,26 +1025,18 @@ test('purgeConversationFromTrash removes one archived conversation locally witho
         },
       },
     },
-    webwhatsBridge: {
-      deleteChat: async () => {
-        whatsappDeleteCalls += 1;
-        return { outcome: 'deleted' };
-      },
-    },
   });
 
-  const result = await service.purgeConversationFromTrash({ companyId: 7, role: 'ADMIN' }, 42);
-
-  assert.equal(result.success, true);
-  assert.equal(result.localOnly, true);
-  assert.equal(whatsappDeleteCalls, 0);
-  assert.equal(messageDeleteCalls.length, 2);
-  assert.equal(conversationDeleteCalls.length, 1);
-  assert.equal(auditCalls.some((call) => call.event === 'conversation_marked_negative_before_purge'), true);
-  assert.equal(auditCalls.some((call) => call.event === 'conversation_trash_purged_local'), true);
+  await assert.rejects(
+    () => service.purgeConversationFromTrash({ companyId: 7, role: 'ADMIN' }, 42),
+    /Exclusao permanente removida do HBX/,
+  );
+  assert.equal(messageDeleteCalls.length, 0);
+  assert.equal(conversationDeleteCalls.length, 0);
+  assert.equal(auditCalls.length, 0);
 });
 
-test('emptyTrash legacy endpoint is blocked in favor of meticulous purge', async () => {
+test('emptyTrash legacy endpoint is blocked because permanent delete was removed', async () => {
   const conversationDeleteCalls: Array<Record<string, unknown>> = [];
   const { service, auditCalls } = createService({
     prisma: {
@@ -1071,6 +1069,16 @@ test('emptyTrash legacy endpoint is blocked in favor of meticulous purge', async
   assert.equal(conversationDeleteCalls.length, 0);
   assert.equal(auditCalls.length, 1);
   assert.equal(auditCalls[0].event, 'conversation_empty_trash_legacy_blocked');
+  assert.match(result.message, /Exclusao permanente foi removida/);
+});
+
+test('startMeticulousTrashPurge blocks real permanent delete jobs', async () => {
+  const { service } = createService();
+
+  await assert.rejects(
+    () => service.startMeticulousTrashPurge({ companyId: 7, role: 'ADMIN' }, { dryRun: false }),
+    /Exclusao permanente removida do HBX/,
+  );
 });
 
 test('getConversationById exposes customer identity fields from AtendimentoCustomer and CustomerProfile', async () => {

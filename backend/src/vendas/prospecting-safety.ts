@@ -5,12 +5,13 @@ export type ProspectingAutoReplyClassification =
   | 'awaiting_human';
 
 export const SAFE_FIRST_CONTACT_TEMPLATE =
-  'Oi, tudo bem? Vi a {{cliente}} em {{cidade}}. Posso te mandar uma ideia rápida para organizar contatos e retornos no WhatsApp?';
+  '{{cumprimentacao}}, tudo bem? Me chamo Jhonatan. Trabalho ajudando empresas a melhorar processos e automatizar tarefas repetitivas do dia a dia. Posso te explicar rapidinho e ver se faz sentido aí?';
 
 export const SAFE_FIRST_CONTACT_VARIANTS = [
-  'Oi, tudo bem? Vi a {{cliente}} em {{cidade}}. Posso te mostrar uma ideia rápida para organizar retornos no WhatsApp?',
-  'Oii, tudo bem? Trabalho com uma ferramenta para organizar contatos e retornos. Posso te explicar em 1 minuto?',
-  'Oi! Vi a {{cliente}} e achei que o HBX talvez ajude na organização dos contatos. Posso te mandar uma explicação curta?',
+  '{{cumprimentacao}}, tudo certo? Aqui é o Jhonatan. Eu ajudo empresas a organizar melhor a rotina, reduzir retrabalho e implantar soluções simples para ganhar tempo na operação. Posso te mandar uma ideia rápida?',
+  '{{cumprimentacao}}! Sou o Jhonatan. Trabalho com consultoria e implantação de automações para empresas que querem parar de perder tempo com processos manuais, controles soltos e tarefas repetidas. Faz sentido eu te explicar em 1 minuto?',
+  '{{cumprimentacao}}, tudo bem? Me chamo Jhonatan. Eu olho a rotina da empresa, entendo onde está dando retrabalho e ajudo a implantar soluções práticas para deixar o dia a dia mais organizado. Posso te explicar rapidinho?',
+  '{{cumprimentacao}}, tudo bem? Trabalho com melhoria de processos para empresas: atendimento, vendas, administrativo, retornos, controles internos e automações conforme a necessidade. Posso te mostrar por alto como funciona?',
 ] as const;
 
 const CLICKABLE_URL_PATTERN =

@@ -16,6 +16,15 @@ type ConversationQueueFilterBarProps = {
   onChange: (value: ConversationQueueFilterValue) => void;
   counts: Record<ConversationQueueFilterValue, number>;
   unreadCounts?: Partial<Record<ConversationQueueFilterValue, number>>;
+  botSignalCounts?: {
+    active: boolean;
+    state?: "running" | "paused" | "error" | "idle" | "off";
+    green: number;
+    yellow: number;
+    red: number;
+    nextSendAt?: string | null;
+    statusText?: string | null;
+  };
   dropOverQueue: ConversationQueueFilterValue | null;
   allowQueueCardDrag?: boolean;
   draggedQueue?: ConversationQueueFilterValue | null;
@@ -40,6 +49,7 @@ export default function ConversationQueueFilterBar({
   onChange,
   counts,
   unreadCounts,
+  botSignalCounts,
   dropOverQueue,
   allowQueueCardDrag = false,
   draggedQueue = null,
@@ -106,12 +116,24 @@ export default function ConversationQueueFilterBar({
         const active = value === option.value;
         const dropping = dropOverQueue === option.value;
         const unreadCount = Math.max(0, Math.trunc(Number(unreadCounts?.[option.value] || 0)));
+        const botState =
+          option.value === "bot"
+            ? botSignalCounts?.state || (botSignalCounts?.active ? "running" : "idle")
+            : undefined;
+        const botStateLabel =
+          botState === "running"
+            ? "Ativa"
+            : botState === "paused"
+              ? "Pausada"
+              : botState === "error"
+                ? "Erro"
+                : "Parada";
         return (
           <button
             key={option.value}
             type="button"
             role="tab"
-            aria-label={`${option.label}: ${counts[option.value] || 0}${unreadCount > 0 ? `, ${unreadCount} não lida${unreadCount === 1 ? "" : "s"}` : ""}`}
+            aria-label={`${option.label}: ${option.value === "bot" ? botStateLabel : counts[option.value] || 0}${unreadCount > 0 ? `, ${unreadCount} não lida${unreadCount === 1 ? "" : "s"}` : ""}`}
             className={styles.queueCard}
             draggable={allowQueueCardDrag}
             data-active={active ? "true" : "false"}
@@ -119,6 +141,7 @@ export default function ConversationQueueFilterBar({
             data-dropover={dropping ? "true" : "false"}
             data-dragging-source={draggedQueue === option.value ? "true" : "false"}
             data-tone={option.value}
+            data-bot-state={botState}
             data-queue-value="true"
             data-queue={option.value}
             onClick={() => onChange(option.value)}
@@ -143,12 +166,68 @@ export default function ConversationQueueFilterBar({
           >
             {unreadCount > 0 ? <span className={styles.unreadBadge}>{unreadCount}</span> : null}
             <span className={styles.queueTitle}>{option.label}</span>
-            <AnimatedQueueCount value={counts[option.value] || 0} />
+            {option.value === "bot" && botSignalCounts ? (
+              <span
+                className={styles.signalBubbles}
+                data-active={botSignalCounts.active ? "true" : "false"}
+                aria-label={`Prospecção: ${botSignalCounts.green} verdes, ${botSignalCounts.yellow} amarelos, ${botSignalCounts.red} vermelhos`}
+              >
+                <i data-tone="green">{botSignalCounts.green}</i>
+                <i data-tone="yellow">{botSignalCounts.yellow}</i>
+                <i data-tone="red">{botSignalCounts.red}</i>
+              </span>
+            ) : null}
+            {option.value !== "bot" ? <AnimatedQueueCount value={counts[option.value] || 0} /> : null}
+            {option.value === "bot" && botSignalCounts?.nextSendAt ? (
+              <NextProspectionCountdown targetAt={botSignalCounts.nextSendAt} />
+            ) : null}
+            {option.value === "bot" && botSignalCounts && !botSignalCounts.nextSendAt ? (
+              <span className={styles.botStatePill} data-state={botState}>
+                {botSignalCounts.statusText || botStateLabel}
+              </span>
+            ) : null}
             <span className={styles.receiveHint}>Solte aqui</span>
           </button>
         );
       })}
     </div>
+  );
+}
+
+function formatCountdown(targetAt: string, now = Date.now()) {
+  const target = new Date(targetAt).getTime();
+  if (!Number.isFinite(target)) return null;
+  const remainingMs = Math.max(0, target - now);
+  const totalSeconds = Math.ceil(remainingMs / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  if (minutes >= 100) {
+    const hours = Math.floor(minutes / 60);
+    const restMinutes = minutes % 60;
+    return `${String(hours).padStart(2, "0")}:${String(restMinutes).padStart(2, "0")}`;
+  }
+  return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+}
+
+function NextProspectionCountdown({ targetAt }: { targetAt: string }) {
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      setNow(Date.now());
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  const label = formatCountdown(targetAt, now);
+  if (!label) return null;
+  return (
+    <span className={styles.nextProspectionTimer} aria-label={`Próxima prospecção em ${label}`}>
+      <span className={styles.nextProspectionIcon} aria-hidden="true">
+        <span />
+      </span>
+      <strong>{label}</strong>
+    </span>
   );
 }
 
