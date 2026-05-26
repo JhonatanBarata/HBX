@@ -7,7 +7,7 @@ export default function WebscrapingClientPage() {
   const router = useRouter();
 
   useEffect(() => {
-    router.replace("/vendas?radar=1");
+    router.replace("/boasvindas?radar=1");
   }, [router]);
 
   return null;

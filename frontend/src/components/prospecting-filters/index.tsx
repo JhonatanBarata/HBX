@@ -437,12 +437,14 @@ export function HbxTargetTypeSelector({
   allowedTypes = ["pj", "pf", "agenda_pf"],
   showDescription = true,
   compact = false,
+  disabled = false,
 }: {
   value: HbxTargetTypeValue;
   onChange: (value: HbxTargetTypeValue) => void;
   allowedTypes?: HbxTargetTypeValue[];
   showDescription?: boolean;
   compact?: boolean;
+  disabled?: boolean;
 }) {
   const options: Array<{ value: HbxTargetTypeValue; label: string; description: string }> = [
     { value: "pj", label: "PJ — Empresas/CNPJ", description: "Empresas e negócios locais." },
@@ -461,6 +463,7 @@ export function HbxTargetTypeSelector({
             key={item.value}
             type="button"
             className={value === item.value ? styles.choiceActive : styles.choice}
+            disabled={disabled}
             onClick={() => onChange(item.value)}
             role="radio"
             aria-checked={value === item.value}

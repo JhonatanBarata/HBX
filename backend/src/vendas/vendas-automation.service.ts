@@ -132,6 +132,20 @@ const NEGATIVE_OR_OPT_OUT_STATUS_KEYS = [
 ] as const;
 const NO_RESPONSE_ARCHIVE_MS = 24 * 60 * 60 * 1000;
 const BUSINESS_TIME_ZONE = 'America/Sao_Paulo';
+const COMPANY_LEGAL_SUFFIXES = new Set(['ltda', 'me', 'mei', 'eireli', 'epp', 'sa', 's/a', 'ss']);
+const COMPANY_LEADING_GENERIC = new Set(['empresa', 'empresas', 'companhia', 'cia']);
+const COMPANY_DESCRIPTOR_AFTER_GENERIC = new Set([
+  'maquina',
+  'maquinas',
+  'equipamento',
+  'equipamentos',
+  'comercio',
+  'comercial',
+  'servico',
+  'servicos',
+  'industria',
+]);
+const COMPANY_CONNECTORS = new Set(['e', 'de', 'da', 'do', 'das', 'dos']);
 
 const businessTimeFormatter = new Intl.DateTimeFormat('en-US', {
   timeZone: BUSINESS_TIME_ZONE,
@@ -157,6 +171,74 @@ function trimOrNull(value: unknown) {
 
 function normalizeTemplateText(value: unknown) {
   return String(value || '').replace(/\s+/g, ' ').trim();
+}
+
+function computeBrasiliaGreeting() {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    hour: '2-digit',
+    hour12: false,
+    timeZone: BUSINESS_TIME_ZONE,
+  }).formatToParts(new Date());
+  const hour = Number(parts.find((part) => part.type === 'hour')?.value || '0');
+  if (hour >= 18 || hour < 3) return 'Boa noite';
+  if (hour >= 12) return 'Boa tarde';
+  return 'Bom dia';
+}
+
+function normalizeCompanyToken(value: string) {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[.,;:()[\]{}]/g, '')
+    .trim()
+    .toLowerCase();
+}
+
+function smartCompanyTitle(value: string) {
+  const compact = normalizeTemplateText(value);
+  if (!compact) return '';
+  const shouldTitle = compact === compact.toUpperCase() || compact === compact.toLowerCase();
+  if (!shouldTitle) return compact;
+  return compact
+    .split(' ')
+    .map((word, index) => {
+      const normalized = normalizeCompanyToken(word);
+      if (index > 0 && COMPANY_CONNECTORS.has(normalized)) return normalized;
+      return word.charAt(0).toLocaleUpperCase('pt-BR') + word.slice(1).toLocaleLowerCase('pt-BR');
+    })
+    .join(' ');
+}
+
+function summarizeCompanyName(value: string) {
+  const words = String(value || '')
+    .replace(/[|/\\_-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .split(' ')
+    .filter(Boolean);
+  while (words.length && COMPANY_LEGAL_SUFFIXES.has(normalizeCompanyToken(words[words.length - 1]))) {
+    words.pop();
+  }
+
+  const selected: string[] = [];
+  let removedGenericPrefix = false;
+  for (const word of words) {
+    const normalized = normalizeCompanyToken(word);
+    if (!selected.length && (COMPANY_LEADING_GENERIC.has(normalized) || COMPANY_CONNECTORS.has(normalized))) {
+      removedGenericPrefix = true;
+      continue;
+    }
+    if (!selected.length && removedGenericPrefix && COMPANY_DESCRIPTOR_AFTER_GENERIC.has(normalized)) {
+      continue;
+    }
+    selected.push(word);
+  }
+
+  while (selected.length && COMPANY_CONNECTORS.has(normalizeCompanyToken(selected[0]))) selected.shift();
+  while (selected.length && COMPANY_CONNECTORS.has(normalizeCompanyToken(selected[selected.length - 1]))) selected.pop();
+
+  const compact = selected.slice(0, 4).join(' ') || words.slice(0, 3).join(' ');
+  return smartCompanyTitle(compact);
 }
 
 function isSystemGeneratedProspectingTemplate(value: unknown) {
@@ -1475,7 +1557,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     const now = new Date();
     const startsInsideWorkingHours = this.isInsideWorkingHours(now, data);
     const initialStatusText = startsInsideWorkingHours
-      ? `Buscando ${searchLabel}.`
+      ? `Consultando fonte Radar: ${searchLabel}.`
       : this.formatSleepingUntilText(this.moveToWorkingWindow(now, data));
     const searchChanged = this.hasCampaignSearchChanged(current, searchSignature);
     const campaign = current
@@ -1508,7 +1590,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
       companyId: context.companyId,
       campaignId: campaign.id,
       status: startsInsideWorkingHours ? 'buscando' : 'dormindo',
-      text: campaign.lastStatusText || (startsInsideWorkingHours ? 'Buscando novos contatos...' : initialStatusText),
+      text: campaign.lastStatusText || (startsInsideWorkingHours ? 'Consultando fonte Radar...' : initialStatusText),
       type: 'campaign_started',
     });
 
@@ -1651,8 +1733,12 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
   private renderMessageTemplate(template: string, input: { lead: any; campaign: any; user: any }) {
     const companyName = String(input.user?.company?.name || input.user?.masterContext?.companyName || '').trim() || 'nossa empresa';
     const employeeName = String(input.user?.name || '').trim() || 'time comercial';
+    const leadName = String(input.lead?.name || 'sua empresa').trim();
     const values: Record<string, string> = {
-      cliente: String(input.lead?.name || 'sua empresa').trim(),
+      cumprimentacao: computeBrasiliaGreeting(),
+      cliente: leadName,
+      empresaresumo: summarizeCompanyName(leadName),
+      clienteresumo: summarizeCompanyName(leadName),
       empresa: companyName,
       funcionario: employeeName,
       cidade: String(input.lead?.city || input.campaign.city || '').trim(),
@@ -1788,7 +1874,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     }
     const runtimeUser = user || (await this.buildAutomationUser(campaign));
     const searchLabel = `${campaignSegment} em ${campaignCity}${campaign.state ? `/${campaign.state}` : ''}`;
-    await this.markCampaignStage(campaign.id, campaign.companyId, 'buscando', `Buscando ${searchLabel}.`, {
+    await this.markCampaignStage(campaign.id, campaign.companyId, 'buscando', `Consultando fonte Radar: ${searchLabel}.`, {
       type: reason === 'refill' ? 'scrape_refill_started' : 'scrape_started',
     });
     const filters = parseJsonObject(campaign.filtersJson);
@@ -1863,12 +1949,12 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
       companyId: campaign.companyId,
       campaignId: campaign.id,
       status: 'buscando',
-      text: `Busca retornou ${search.results.length} contatos.`,
+      text: `Radar entregou ${search.results.length} contato(s).`,
       type: 'scrape_completed',
     });
 
     const dedupedResults = await this.dedupeSearchResults(campaign.companyId, search.results);
-    await this.markCampaignStage(campaign.id, campaign.companyId, 'importando', `Importando ${dedupedResults.length} novos cards...`, {
+    await this.markCampaignStage(campaign.id, campaign.companyId, 'importando', `Preparando ${dedupedResults.length} card(s) do Radar...`, {
       type: 'import_started',
     });
     const leads = dedupedResults.map((result: ProspectingSearchResult) => ({
@@ -1905,7 +1991,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
       companyId: campaign.companyId,
       campaignId: campaign.id,
       status: 'importando',
-      text: `Importação concluída com ${leads.length} contato(s).`,
+      text: `Fonte Radar pronta com ${leads.length} contato(s).`,
       type: 'leads_imported',
     });
     await this.scheduleJobsForCampaign(campaign.id);
@@ -2035,7 +2121,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     const campaign = await this.prisma.vendasAutomationCampaign.findUnique({ where: { id: campaignId } });
     if (!campaign || campaign.status !== 'running') return;
     const runtimeUser = await this.buildAutomationUser(campaign);
-    await this.markCampaignStage(campaign.id, campaign.companyId, 'agendando', 'Agendando próximos envios...', {
+    await this.markCampaignStage(campaign.id, campaign.companyId, 'agendando', 'Preparando fila da fonte Radar...', {
       type: 'schedule_started',
     });
     const pendingCount = await this.prisma.vendasAutomationJob.count({
@@ -2085,7 +2171,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     });
     if (!leads.length) {
       usedBroaderLeadPool = true;
-      await this.markCampaignStage(campaign.id, campaign.companyId, 'agendando', 'Sem card exato. Procurando cards de ramo próximo no banco...', {
+      await this.markCampaignStage(campaign.id, campaign.companyId, 'agendando', 'Fonte Radar sem card exato. Procurando cards de ramo próximo...', {
         type: 'schedule_similar_pool_started',
       });
       const broaderSourceFilters: any[] = [{ sourceType: 'webscraping' }];
@@ -2213,8 +2299,8 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
         : draftOnlyCount
           ? `${draftOnlyCount} card(s) prontos para primeiro contato.`
           : usedBroaderLeadPool
-            ? 'Bot parado: preciso de cards válidos. O banco foi consultado, mas não há contato enviável agora.'
-            : 'Bot parado: preciso de cards válidos desta busca.',
+            ? 'Aguardando Radar: a fonte foi consultada, mas não há contato enviável agora.'
+            : 'Aguardando Radar: preciso de cards válidos nesta fonte.',
       { type: 'jobs_scheduled' },
     );
   }

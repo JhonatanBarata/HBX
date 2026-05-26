@@ -3495,7 +3495,6 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
   const [mobileVisualChannelFilters, setMobileVisualChannelFilters] = useState<MobileVisualChannelFilter[]>([]);
   const [mobileMinScoreFilter, setMobileMinScoreFilter] = useState(0);
   const [mobileScoreFilterOpen, setMobileScoreFilterOpen] = useState(false);
-  const [radarPopupOpen, setRadarPopupOpen] = useState(false);
   const [mobileNoteLead, setMobileNoteLead] = useState<LeadItem | null>(null);
   const [mobileNoteDraft, setMobileNoteDraft] = useState("");
   const [mobileSavingNote, setMobileSavingNote] = useState(false);
@@ -3648,35 +3647,11 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
   }, [desktopAdminMenusEnabled, desktopVendasTab]);
 
   useEffect(() => {
-    if (mobileRoute) return;
-    const radarParam = String(searchParams.get("radar") || "").trim().toLowerCase();
-    if (radarParam === "1" || radarParam === "open" || radarParam === "true") {
-      setRadarPopupOpen(true);
-    }
-  }, [mobileRoute, searchParams]);
-
-  useEffect(() => {
-    if (mobileRoute || typeof window === "undefined") return undefined;
-    const handleDesktopRadarPopup = () => setRadarPopupOpen(true);
-    window.addEventListener("hbx:vendas-radar-popup", handleDesktopRadarPopup);
-    return () => window.removeEventListener("hbx:vendas-radar-popup", handleDesktopRadarPopup);
-  }, [mobileRoute]);
-
-  useEffect(() => {
     if (mobileRoute || typeof window === "undefined") return undefined;
     const handleDesktopMasterNotices = () => setMasterNoticeCenterOpen(true);
     window.addEventListener("hbx:vendas-master-notices", handleDesktopMasterNotices);
     return () => window.removeEventListener("hbx:vendas-master-notices", handleDesktopMasterNotices);
   }, [mobileRoute]);
-
-  useEffect(() => {
-    if (!radarPopupOpen || typeof window === "undefined") return;
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setRadarPopupOpen(false);
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [radarPopupOpen]);
 
   const detectDateFilterCollision = useMemo<CollisionDetection>(
     () =>
@@ -8677,49 +8652,6 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
         year: "numeric",
       })
     : "";
-  function renderRadarPopup() {
-    if (mobileRoute || !radarPopupOpen || typeof document === "undefined") return null;
-    const radarPopupParams = new URLSearchParams(searchParams.toString());
-    radarPopupParams.delete("radar");
-    radarPopupParams.delete("radarAction");
-    radarPopupParams.delete("radarTick");
-    const radarPopupSrc = `/mobile/radar-digital${radarPopupParams.toString() ? `?${radarPopupParams.toString()}` : ""}`;
-
-    return createPortal(
-      <div
-        className={styles.radarPopupBackdrop}
-        role="presentation"
-        onClick={() => setRadarPopupOpen(false)}
-      >
-        <section
-          className={styles.radarPopup}
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="vendas-radar-popup-title"
-          onClick={(event) => event.stopPropagation()}
-        >
-          <header className={styles.radarPopupHeader}>
-            <div>
-              <span>Radar Digital</span>
-              <strong id="vendas-radar-popup-title">Buscar cards para Vendas</strong>
-            </div>
-            <button type="button" onClick={() => setRadarPopupOpen(false)} aria-label="Fechar Radar Digital">
-              X
-            </button>
-          </header>
-          <div className={styles.radarPopupBody}>
-            <iframe
-              src={radarPopupSrc}
-              title="Radar Digital"
-              className={styles.radarPopupFrame}
-            />
-          </div>
-        </section>
-      </div>,
-      document.body,
-    );
-  }
-
   function renderMasterNoticeBell() {
     return (
       <button
@@ -10451,7 +10383,6 @@ html[data-vendas-dragging-card="true"] .${styles.dateFilterCard}[data-dropover="
         </div>
       ) : null}
       {renderMasterNoticeCenter(false)}
-      {renderRadarPopup()}
     </DashboardScaffold>
   );
 }

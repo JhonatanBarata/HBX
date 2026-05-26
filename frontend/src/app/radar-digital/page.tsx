@@ -13,5 +13,5 @@ export default async function Page({ searchParams }: RadarRedirectProps) {
   const userAgent = requestHeaders.get("user-agent") || "";
   const clientHintsMobile = requestHeaders.get("sec-ch-ua-mobile") || "";
   const mobileRequest = clientHintsMobile.includes("?1") || /Android|iPhone|iPad|iPod|Mobile/i.test(userAgent);
-  redirect(withLegacySearchParams(mobileRequest ? "/mobile/radar-digital" : "/vendas?radar=1", await searchParams));
+  redirect(withLegacySearchParams(mobileRequest ? "/mobile/radar-digital" : "/boasvindas?radar=1", await searchParams));
 }

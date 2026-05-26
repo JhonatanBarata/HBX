@@ -13,13 +13,9 @@ import { getProviderCapabilitiesFromWhatsAppCenter } from "@/lib/provider-capabi
 import type { UserModule } from "@/lib/hbx-modules";
 import { dispatchModulesChanged } from "@/lib/module-events";
 import {
-  HbxAdvancedFilters,
-  HbxEngineSelector,
   HbxQuantitySelector,
   HbxSegmentCombobox,
   HbxStateCityPicker,
-  HbxTargetTypeSelector,
-  type HbxAdvancedFiltersValue,
 } from "@/components/prospecting-filters";
 import {
   getWhatsAppModalPlanRedirect,
@@ -133,32 +129,8 @@ const DRAFT_STORAGE_KEY = "hbx.vendas.automacao.bot-qrcode.draft.v1";
 const BOT_PLAN_HREF = "/planos?intent=bot_ia&from=vendas_automacao";
 const PROSPECTING_SCENE_ID = "first_contact_rules_prospeccao";
 const PROSPECTING_RULE_CONDITION = "first_contact_rules";
-const CAMPAIGN_TYPES = [
-  {
-    id: "cnpj_local",
-    label: "CNPJ local — vender HBX para empresas finais",
-  },
-  {
-    id: "agencias_vendedores",
-    label: "Agências/vendedores — achar quem vai usar HBX para prospectar para terceiros",
-  },
-  {
-    id: "servicos_orcamento",
-    label: "Serviços com orçamento — empresas que vivem de orçamento e follow-up",
-  },
-] as const;
-
-type CampaignTypeId = (typeof CAMPAIGN_TYPES)[number]["id"];
-
 const GENERIC_ERROR_MESSAGE_TEMPLATE =
   "Oi, tudo bem? Vi a {{cliente}} em {{cidade}}. Posso te mandar uma ideia rápida para organizar contatos e retornos no WhatsApp?";
-
-const SAFE_FIRST_CONTACT_VARIANTS = [
-  GENERIC_ERROR_MESSAGE_TEMPLATE,
-  "Oi, tudo bem? Vi a {{cliente}} em {{cidade}}. Posso te mostrar uma ideia rápida para organizar retornos no WhatsApp?",
-  "Oii, tudo bem? Trabalho com uma ferramenta para organizar contatos e retornos. Posso te explicar em 1 minuto?",
-  "Oi! Vi a {{cliente}} e achei que o HBX talvez ajude na organização dos contatos. Posso te mandar uma explicação curta?",
-] as const;
 
 const CLICKABLE_FIRST_CONTACT_PATTERN =
   /\b(?:https?:\/\/|www\.)[^\s<>()]+|\b(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+(?:com(?:\.br)?|br|net|org|io|app|dev|ai|co|gov|edu|info|biz|me|site|online|store|tech|digital)(?:\/[^\s<>()]*)?/gi;
@@ -177,194 +149,10 @@ function hasFirstContactLink(text: string) {
   return CLICKABLE_FIRST_CONTACT_PATTERN.test(String(text || ""));
 }
 
-const MESSAGE_PRESETS = [
-  {
-    id: "generica_caso_erro",
-    group: "cnpj_local",
-    label: "Genérica segura",
-    segment: "serviços locais",
-    targetType: "pj",
-    messageTemplate: GENERIC_ERROR_MESSAGE_TEMPLATE,
-  },
-  {
-    id: "local_general",
-    group: "cnpj_local",
-    label: "Empresa local - geral",
-    segment: "serviços locais",
-    targetType: "pj",
-    messageTemplate: GENERIC_ERROR_MESSAGE_TEMPLATE,
-  },
-  {
-    id: "auto_socorro",
-    group: "cnpj_local",
-    label: "Auto socorro / guincho",
-    segment: "auto socorro",
-    targetType: "pj",
-    messageTemplate: GENERIC_ERROR_MESSAGE_TEMPLATE,
-  },
-  {
-    id: "energia_solar",
-    group: "cnpj_local",
-    label: "Energia solar",
-    segment: "energia solar",
-    targetType: "pj",
-    messageTemplate: GENERIC_ERROR_MESSAGE_TEMPLATE,
-  },
-  {
-    id: "limpeza_piscina",
-    group: "cnpj_local",
-    label: "Limpeza de piscina",
-    segment: "limpeza de piscina",
-    targetType: "pj",
-    messageTemplate: GENERIC_ERROR_MESSAGE_TEMPLATE,
-  },
-  {
-    id: "clinica_estetica",
-    group: "cnpj_local",
-    label: "Clínica estética",
-    segment: "clínicas de estética",
-    targetType: "pj",
-    messageTemplate: GENERIC_ERROR_MESSAGE_TEMPLATE,
-  },
-  {
-    id: "ar_condicionado",
-    group: "cnpj_local",
-    label: "Ar condicionado",
-    segment: "ar condicionado",
-    targetType: "pj",
-    messageTemplate: GENERIC_ERROR_MESSAGE_TEMPLATE,
-  },
-  {
-    id: "oficina_mecanica",
-    group: "servicos_orcamento",
-    label: "Oficina mecânica",
-    segment: "oficinas mecânicas",
-    targetType: "pj",
-    messageTemplate: GENERIC_ERROR_MESSAGE_TEMPLATE,
-  },
-  {
-    id: "orcamento_vidracaria",
-    group: "servicos_orcamento",
-    label: "Vidraçaria / serralheria / marcenaria",
-    segment: "vidraçarias",
-    targetType: "pj",
-    messageTemplate: GENERIC_ERROR_MESSAGE_TEMPLATE,
-  },
-  {
-    id: "seguranca_eletronica",
-    group: "servicos_orcamento",
-    label: "Segurança eletrônica",
-    segment: "sistemas de segurança",
-    targetType: "pj",
-    messageTemplate: GENERIC_ERROR_MESSAGE_TEMPLATE,
-  },
-  {
-    id: "odontologia_saude",
-    group: "cnpj_local",
-    label: "Odontologia / saúde",
-    segment: "clínicas odontológicas",
-    targetType: "pj",
-    messageTemplate: GENERIC_ERROR_MESSAGE_TEMPLATE,
-  },
-  {
-    id: "imobiliaria",
-    group: "cnpj_local",
-    label: "Imobiliária",
-    segment: "imobiliárias",
-    targetType: "pj",
-    messageTemplate: GENERIC_ERROR_MESSAGE_TEMPLATE,
-  },
-  {
-    id: "provedor_internet",
-    group: "cnpj_local",
-    label: "Provedor de internet",
-    segment: "provedores de internet",
-    targetType: "pj",
-    messageTemplate: GENERIC_ERROR_MESSAGE_TEMPLATE,
-  },
-  {
-    id: "escola_curso",
-    group: "cnpj_local",
-    label: "Escola / curso profissionalizante",
-    segment: "cursos profissionalizantes",
-    targetType: "pj",
-    messageTemplate: GENERIC_ERROR_MESSAGE_TEMPLATE,
-  },
-  {
-    id: "loja_moveis",
-    group: "servicos_orcamento",
-    label: "Loja de móveis / colchões / planejados",
-    segment: "lojas de móveis",
-    targetType: "pj",
-    messageTemplate: GENERIC_ERROR_MESSAGE_TEMPLATE,
-  },
-  {
-    id: "agencia_marketing",
-    group: "agencias_vendedores",
-    label: "Agência de marketing",
-    segment: "agências de marketing",
-    targetType: "pj",
-    messageTemplate: GENERIC_ERROR_MESSAGE_TEMPLATE,
-  },
-  {
-    id: "gestor_trafego",
-    group: "agencias_vendedores",
-    label: "Gestor de tráfego / freelancer",
-    segment: "gestores de tráfego",
-    targetType: "pj",
-    messageTemplate: GENERIC_ERROR_MESSAGE_TEMPLATE,
-  },
-  {
-    id: "agencia_revenda",
-    group: "agencias_vendedores",
-    label: "Agência que quer revender prospecção",
-    segment: "agências de marketing",
-    targetType: "pj",
-    messageTemplate: GENERIC_ERROR_MESSAGE_TEMPLATE,
-  },
-  {
-    id: "representante_comercial",
-    group: "agencias_vendedores",
-    label: "Vendedor autônomo / representante comercial",
-    segment: "representantes comerciais",
-    targetType: "pj",
-    messageTemplate: GENERIC_ERROR_MESSAGE_TEMPLATE,
-  },
-  {
-    id: "consultoria_comercial",
-    group: "agencias_vendedores",
-    label: "Consultoria comercial",
-    segment: "consultorias empresariais",
-    targetType: "pj",
-    messageTemplate: GENERIC_ERROR_MESSAGE_TEMPLATE,
-  },
-  {
-    id: "software_house",
-    group: "agencias_vendedores",
-    label: "Software house / web design",
-    segment: "web design",
-    targetType: "pj",
-    messageTemplate: GENERIC_ERROR_MESSAGE_TEMPLATE,
-  },
-  {
-    id: "servicos_limpeza",
-    group: "servicos_orcamento",
-    label: "Serviços de limpeza",
-    segment: "serviços de limpeza",
-    targetType: "pj",
-    messageTemplate: GENERIC_ERROR_MESSAGE_TEMPLATE,
-  },
-  {
-    id: "materiais_construcao",
-    group: "servicos_orcamento",
-    label: "Materiais de construção",
-    segment: "materiais de construção",
-    targetType: "pj",
-    messageTemplate: GENERIC_ERROR_MESSAGE_TEMPLATE,
-  },
-] as const;
 const PROSPECTING_VARIABLES = [
+  { token: "cumprimentacao", label: "Cumprimentação" },
   { token: "cliente", label: "Cliente" },
+  { token: "empresaresumo", label: "Empresa resumo" },
   { token: "empresa", label: "Empresa" },
   { token: "funcionario", label: "Funcionário" },
   { token: "cidade", label: "Cidade" },
@@ -372,11 +160,85 @@ const PROSPECTING_VARIABLES = [
   { token: "segmento", label: "Segmento" },
 ];
 
-function getSafePresetFirstContact(presetId: string) {
-  const index = Math.abs(
-    Array.from(presetId).reduce((sum, char) => sum + char.charCodeAt(0), 0),
-  ) % SAFE_FIRST_CONTACT_VARIANTS.length;
-  return SAFE_FIRST_CONTACT_VARIANTS[index];
+const COMPANY_LEGAL_SUFFIXES = new Set([
+  "ltda",
+  "me",
+  "mei",
+  "eireli",
+  "epp",
+  "sa",
+  "s/a",
+  "ss",
+]);
+
+const COMPANY_LEADING_GENERIC = new Set(["empresa", "empresas", "companhia", "cia"]);
+const COMPANY_DESCRIPTOR_AFTER_GENERIC = new Set([
+  "maquina",
+  "maquinas",
+  "equipamento",
+  "equipamentos",
+  "comercio",
+  "comercial",
+  "servico",
+  "servicos",
+  "industria",
+]);
+const COMPANY_CONNECTORS = new Set(["e", "de", "da", "do", "das", "dos"]);
+
+function normalizeCompanyToken(value: string) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[.,;:()[\]{}]/g, "")
+    .trim()
+    .toLowerCase();
+}
+
+function smartCompanyTitle(value: string) {
+  const compact = String(value || "").replace(/\s+/g, " ").trim();
+  if (!compact) return "";
+  const shouldTitle = compact === compact.toUpperCase() || compact === compact.toLowerCase();
+  if (!shouldTitle) return compact;
+  return compact
+    .split(" ")
+    .map((word, index) => {
+      const normalized = normalizeCompanyToken(word);
+      if (index > 0 && COMPANY_CONNECTORS.has(normalized)) return normalized;
+      return word.charAt(0).toLocaleUpperCase("pt-BR") + word.slice(1).toLocaleLowerCase("pt-BR");
+    })
+    .join(" ");
+}
+
+function summarizeCompanyName(value: string) {
+  const words = String(value || "")
+    .replace(/[|/\\_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .split(" ")
+    .filter(Boolean);
+  while (words.length && COMPANY_LEGAL_SUFFIXES.has(normalizeCompanyToken(words[words.length - 1]))) {
+    words.pop();
+  }
+
+  const selected: string[] = [];
+  let removedGenericPrefix = false;
+  for (const word of words) {
+    const normalized = normalizeCompanyToken(word);
+    if (!selected.length && (COMPANY_LEADING_GENERIC.has(normalized) || COMPANY_CONNECTORS.has(normalized))) {
+      removedGenericPrefix = true;
+      continue;
+    }
+    if (!selected.length && removedGenericPrefix && COMPANY_DESCRIPTOR_AFTER_GENERIC.has(normalized)) {
+      continue;
+    }
+    selected.push(word);
+  }
+
+  while (selected.length && COMPANY_CONNECTORS.has(normalizeCompanyToken(selected[0]))) selected.shift();
+  while (selected.length && COMPANY_CONNECTORS.has(normalizeCompanyToken(selected[selected.length - 1]))) selected.pop();
+
+  const compact = selected.slice(0, 4).join(" ") || words.slice(0, 3).join(" ");
+  return smartCompanyTitle(compact);
 }
 
 const DEFAULT_PROSPECTING_CONFIG: ProspectingAutomationConfig = {
@@ -428,7 +290,10 @@ function renderProspectingPreview(
   variables: ProspectingPreviewVariables,
 ) {
   const values: Record<string, string> = {
+    cumprimentacao: computeBrasiliaGreeting(),
     cliente: "Cliente Modelo",
+    empresaresumo: summarizeCompanyName("Empresa de Máquinas Agrícolas e Pesados LTDA"),
+    clienteresumo: summarizeCompanyName("Empresa de Máquinas Agrícolas e Pesados LTDA"),
     empresa: variables.empresa,
     funcionario: variables.funcionario,
     cidade: config.city || "sua região",
@@ -438,6 +303,18 @@ function renderProspectingPreview(
   return String(template || "")
     .replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g, (_match, token) => values[token] || `[${token}]`)
     .trim();
+}
+
+function computeBrasiliaGreeting() {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    hour: "2-digit",
+    hour12: false,
+    timeZone: "America/Sao_Paulo",
+  }).formatToParts(new Date());
+  const hour = Number(parts.find((part) => part.type === "hour")?.value || "0");
+  if (hour >= 18 || hour < 3) return "Boa noite";
+  if (hour >= 12) return "Boa tarde";
+  return "Bom dia";
 }
 
 function shouldLoadModalQr(nextPayload: WhatsAppModalPayload | null, includeQr: boolean) {
@@ -618,7 +495,7 @@ function toProspectingRequestPayload(config: ProspectingAutomationConfig): Prosp
     dailyLimit: config.dailyLimit,
     minLeadBuffer: config.minLeadBuffer,
     desiredLeadBuffer: Math.min(100, Math.max(1, Math.trunc(Number(config.desiredLeadBuffer || 1)))),
-    maxAttemptsPerLead: config.maxAttemptsPerLead,
+    maxAttemptsPerLead: 1,
     typingSeconds: config.typingSeconds,
     typingVarianceSeconds: config.typingVarianceSeconds,
     positiveIntentKeywords: config.positiveIntentKeywords,
@@ -665,7 +542,6 @@ function upsertProspectingRules(
 function ProspectingAutomationPanel({
   config,
   liveStatus,
-  loading,
   actionLoading,
   previewVariables,
   onChange,
@@ -677,7 +553,6 @@ function ProspectingAutomationPanel({
 }: {
   config: ProspectingAutomationConfig;
   liveStatus: ProspectingAutomationLiveStatus | null;
-  loading: boolean;
   actionLoading: string | null;
   previewVariables: ProspectingPreviewVariables;
   onChange: (updater: (current: ProspectingAutomationConfig) => ProspectingAutomationConfig) => void;
@@ -707,23 +582,15 @@ function ProspectingAutomationPanel({
   const [negativeKeywordsDraft, setNegativeKeywordsDraft] = useState(config.negativeIntentKeywords.join(", "));
   const [variableTarget, setVariableTarget] = useState<"messageTemplate" | "optOutMessage">("messageTemplate");
   const [variablesOpen, setVariablesOpen] = useState(false);
-  const [openDropdown, setOpenDropdown] = useState<string | null>(null);
-  const [selectedCampaignTypeId, setSelectedCampaignTypeId] = useState<CampaignTypeId>("cnpj_local");
-  const [selectedMessagePresetId, setSelectedMessagePresetId] = useState("");
   const messageTemplateRef = useRef<HTMLTextAreaElement | null>(null);
   const optOutMessageRef = useRef<HTMLTextAreaElement | null>(null);
-  const filteredMessagePresets = useMemo(
-    () => MESSAGE_PRESETS.filter((preset) => preset.group === selectedCampaignTypeId),
-    [selectedCampaignTypeId],
-  );
   const messageTemplateHasLink = hasFirstContactLink(config.messageTemplate);
   const sanitizedMessagePreview = sanitizeFirstContactPreview(config.messageTemplate) || GENERIC_ERROR_MESSAGE_TEMPLATE;
   const cityRequired = requiresProspectingCity(config);
-  const advancedFilters = useMemo<HbxAdvancedFiltersValue>(() => ({
-    minRating: String(config.filtersJson?.minRating ?? ""),
-    minReviews: String(config.filtersJson?.minReviews ?? ""),
-    onlyWithWebsite: config.filtersJson?.onlyWithWebsite === true,
-  }), [config.filtersJson]);
+  const radarSourceReady = Boolean(config.city.trim() && config.segment.trim());
+  const radarSourceLabel = radarSourceReady
+    ? `${config.segment.trim()} · ${config.city.trim()}${config.state.trim() ? `/${config.state.trim().toUpperCase()}` : ""}`
+    : "Selecione uma fonte do Radar";
 
   useEffect(() => {
     // Keep textarea drafts aligned when a saved campaign replaces the local config.
@@ -763,46 +630,8 @@ function ProspectingAutomationPanel({
     const parsed = Math.max(min, Math.trunc(Number(value) || 0));
     onChange((current) => ({ ...current, [field]: parsed }));
   };
-  const setAdvancedFilters = (next: HbxAdvancedFiltersValue) => {
-    onChange((current) => ({
-      ...current,
-      filtersJson: {
-        ...(current.filtersJson || {}),
-        minRating: next.minRating || undefined,
-        minReviews: next.minReviews || undefined,
-        onlyWithWebsite: next.onlyWithWebsite === true,
-      },
-    }));
-  };
   const setListField = (field: "positiveIntentKeywords" | "negativeIntentKeywords", value: string) => {
     onChange((current) => ({ ...current, [field]: normalizeTextList(value, current[field]) }));
-  };
-  const applyMessagePreset = (presetId: string) => {
-    setSelectedMessagePresetId(presetId);
-    const preset = MESSAGE_PRESETS.find((item) => item.id === presetId);
-    if (!preset) return;
-    setSelectedCampaignTypeId(preset.group);
-    onChange((current) => ({
-      ...current,
-      segment: preset.segment,
-      targetType: preset.targetType,
-      messageTemplate: getSafePresetFirstContact(preset.id),
-    }));
-  };
-  const applyCampaignType = (campaignTypeId: CampaignTypeId) => {
-    setSelectedCampaignTypeId(campaignTypeId);
-    const preset = MESSAGE_PRESETS.find((item) => item.group === campaignTypeId);
-    if (!preset) {
-      setSelectedMessagePresetId("");
-      return;
-    }
-    setSelectedMessagePresetId(preset.id);
-    onChange((current) => ({
-      ...current,
-      segment: preset.segment,
-      targetType: preset.targetType,
-      messageTemplate: getSafePresetFirstContact(preset.id),
-    }));
   };
   const insertVariable = (token: string) => {
     const field = variableTarget;
@@ -824,8 +653,8 @@ function ProspectingAutomationPanel({
     <section className={styles.prospectingShell}>
       <div className={styles.prospectingStatusBar}>
         <div>
-          <span className={styles.sectionEyebrow}>Prospecção automática</span>
-          <h3 className={styles.cardTitle}>{liveStatus?.text || "Motor contínuo"}</h3>
+          <span className={styles.sectionEyebrow}>Campanha WhatsApp</span>
+          <h3 className={styles.cardTitle}>{liveStatus?.text || "Fonte Radar pronta"}</h3>
           {botAttentionText ? (
             <div className={styles.prospectingHeaderAlert} role="status">
               {botAttentionText}
@@ -846,9 +675,15 @@ function ProspectingAutomationPanel({
         <section className={styles.prospectingPanel}>
           <div className={styles.editorSectionHeader}>
             <div>
-              <strong>Pesquisa base</strong>
-              <span>{loading ? "Carregando status..." : campaignStatus}</span>
+              <strong>Fonte Radar</strong>
             </div>
+          </div>
+          <div className={styles.radarSourceCard} data-ready={radarSourceReady ? "true" : "false"}>
+            <span>Radar Digital</span>
+            <strong>{radarSourceLabel}</strong>
+            <button type="button" className={styles.inlineGhostButton} onClick={() => { window.location.href = "/radar-digital"; }}>
+              Abrir Radar
+            </button>
           </div>
           <div className={styles.prospectingFormGrid}>
             <div className={styles.prospectingWideField}>
@@ -858,51 +693,30 @@ function ProspectingAutomationPanel({
                 onStateChange={setStateField}
                 onCityChange={(value) => setField("city", value)}
                 requiredCity={cityRequired}
+                helperText=""
               />
             </div>
             <HbxSegmentCombobox
               value={config.segment}
               onChange={(value) => setField("segment", value)}
-            />
-            <HbxEngineSelector
-              value={config.engine}
-              onChange={(value) => setField("engine", value)}
-            />
-            <HbxTargetTypeSelector
-              value={config.targetType}
-              onChange={(value) => setField("targetType", value as ProspectingAutomationConfig["targetType"])}
-              allowedTypes={["pj", "pf", "agenda_pf"]}
+              helperText=""
             />
             <HbxQuantitySelector
               value={config.dailyLimit}
               onChange={(value) => setNumberField("dailyLimit", String(value), 1)}
               options={[10, 15, 20, 30, 40, 50]}
               limitLabel="Novos contatos por dia"
-              helperText="Quantidade de pessoas diferentes que podem receber uma mensagem automática com sucesso hoje."
             />
-            <div className={styles.prospectingWideField}>
-              <HbxAdvancedFilters
-                mode="automation"
-                filters={advancedFilters}
-                onChange={setAdvancedFilters}
-              />
-            </div>
           </div>
         </section>
 
         <section className={styles.prospectingPanel}>
           <div className={styles.editorSectionHeader}>
             <div>
-              <strong>Envio seguro</strong>
-              <span>{config.maxAttemptsPerLead} tentativa(s) por lead. Recomendado: 1.</span>
+              <strong>Janela de envio</strong>
             </div>
           </div>
           <div className={styles.prospectingFormGrid}>
-            <label>
-              <span>Intervalo entre envios</span>
-              <input className={styles.inputField} type="number" min={1} value={config.intervalMinutes} onChange={(event) => setNumberField("intervalMinutes", event.target.value, 1)} />
-              <small>Tempo mínimo entre mensagens realmente enviadas. Leads pulados não contam.</small>
-            </label>
             <label>
               <span>Início</span>
               <input className={styles.inputField} type="time" value={config.workingHoursStart} onChange={(event) => setField("workingHoursStart", event.target.value)} />
@@ -911,85 +725,20 @@ function ProspectingAutomationPanel({
               <span>Fim</span>
               <input className={styles.inputField} type="time" value={config.workingHoursEnd} onChange={(event) => setField("workingHoursEnd", event.target.value)} />
             </label>
-            <label>
-              <span>Estoque mínimo</span>
-              <input className={styles.inputField} type="number" min={1} value={config.minLeadBuffer} onChange={(event) => setNumberField("minLeadBuffer", event.target.value, 1)} />
-            </label>
-            <label>
-              <span>Estoque desejado</span>
-              <input className={styles.inputField} type="number" min={1} max={100} value={config.desiredLeadBuffer} onChange={(event) => setNumberField("desiredLeadBuffer", event.target.value, 1)} />
-              <small>Por segurança, cada herança do Radar para Vendas usa no máximo 100 leads.</small>
-            </label>
-            <label>
-              <span>Tentativas por lead</span>
-              <input className={styles.inputField} type="number" min={1} max={3} value={config.maxAttemptsPerLead} onChange={(event) => setNumberField("maxAttemptsPerLead", event.target.value, 1)} />
-              <small>Quantas vezes o bot pode tentar falar com a mesma pessoa. Recomendado: 1.</small>
-            </label>
-            <label>
-              <span>Typing</span>
-              <input className={styles.inputField} type="number" min={0} value={config.typingSeconds} onChange={(event) => setNumberField("typingSeconds", event.target.value, 0)} />
-            </label>
-            <label>
-              <span>Variação</span>
-              <input className={styles.inputField} type="number" min={0} value={config.typingVarianceSeconds} onChange={(event) => setNumberField("typingVarianceSeconds", event.target.value, 0)} />
-            </label>
-          </div>
-          <div className={styles.riskNotice}>
-            <strong>Exemplo operacional</strong>
-            <p>
-              Para amanhã, use 15 novos contatos/dia, 1 tentativa por lead, intervalo mínimo de 20min e variação de typing.
-              Leads pulados por revisão, sem WhatsApp ou já contatados não consomem limite.
-            </p>
           </div>
         </section>
-      </div>
 
-      <section className={styles.prospectingPanel}>
+        <section className={`${styles.prospectingPanel} ${styles.prospectingMessagePanel}`}>
         <div className={styles.prospectingMessageWorkbench}>
           <div className={styles.prospectingMessageEditorStack}>
-            <label className={styles.messagePresetField} onBlur={() => window.setTimeout(() => setOpenDropdown((prev) => (prev === "campaignType" ? null : prev)), 120)}>
-              <span>Tipo de campanha</span>
-              <div className={styles.hbxDropdown}>
-                <select
-                  className={styles.selectField}
-                  value={selectedCampaignTypeId}
-                  onChange={(event) => applyCampaignType(event.target.value as CampaignTypeId)}
-                  onFocus={() => setOpenDropdown("campaignType")}
-                  onClick={() => setOpenDropdown("campaignType")}
-                  onBlur={() => window.setTimeout(() => setOpenDropdown((prev) => (prev === "campaignType" ? null : prev)), 120)}
-                >
-                  {CAMPAIGN_TYPES.map((campaignType) => (
-                    <option key={campaignType.id} value={campaignType.id}>
-                      {campaignType.label}
-                    </option>
-                  ))}
-                </select>
-                {openDropdown === "campaignType" ? <div className={styles.hbxDropdownOpeningNotice}>Abrindo os dados...</div> : null}
+            <div className={styles.editorSectionHeader}>
+              <div>
+                <strong>Mensagem inicial</strong>
+                <span>Sem link no primeiro contato. O backend remove automaticamente.</span>
               </div>
-            </label>
-            <label className={styles.messagePresetField} onBlur={() => window.setTimeout(() => setOpenDropdown((prev) => (prev === "messagePreset" ? null : prev)), 120)}>
-              <span>Modelo de abordagem</span>
-              <div className={styles.hbxDropdown}>
-                <select
-                  className={styles.selectField}
-                  value={selectedMessagePresetId}
-                  onChange={(event) => applyMessagePreset(event.target.value)}
-                  onFocus={() => setOpenDropdown("messagePreset")}
-                  onClick={() => setOpenDropdown("messagePreset")}
-                  onBlur={() => window.setTimeout(() => setOpenDropdown((prev) => (prev === "messagePreset" ? null : prev)), 120)}
-                >
-                  <option value="">Personalizado</option>
-                  {filteredMessagePresets.map((preset) => (
-                    <option key={preset.id} value={preset.id}>
-                      {preset.label}
-                    </option>
-                  ))}
-                </select>
-                {openDropdown === "messagePreset" ? <div className={styles.hbxDropdownOpeningNotice}>Abrindo os dados...</div> : null}
-              </div>
-            </label>
+            </div>
             <div className={styles.prospectingMessageGrid}>
-              <label>
+              <label className={styles.prospectingWideField}>
                 <span>Mensagem inicial</span>
                 <textarea
                   ref={messageTemplateRef}
@@ -997,22 +746,10 @@ function ProspectingAutomationPanel({
                   value={config.messageTemplate}
                   onFocus={() => setVariableTarget("messageTemplate")}
                   onChange={(event) => {
-                    setSelectedMessagePresetId("");
                     setField("messageTemplate", event.target.value);
                   }}
                 />
                 <small>Primeiro contato não envia links automaticamente. Links só depois que a pessoa responder.</small>
-              </label>
-              <label>
-                <span>Encerramento negativo</span>
-                <textarea
-                  ref={optOutMessageRef}
-                  className={styles.editorTextarea}
-                  value={config.optOutMessage}
-                  disabled={!config.optOutReplyEnabled}
-                  onFocus={() => setVariableTarget("optOutMessage")}
-                  onChange={(event) => setField("optOutMessage", event.target.value)}
-                />
               </label>
             </div>
             {messageTemplateHasLink ? (
@@ -1020,44 +757,6 @@ function ProspectingAutomationPanel({
                 O link será removido no primeiro contato para proteger o número.
               </div>
             ) : null}
-            <label className={styles.toggleCard}>
-              <span>
-                <strong>Responder encerramento negativo</strong>
-                <small>Desligado por padrão. Mesmo desligado, resposta negativa arquiva e bloqueia recontato automático.</small>
-              </span>
-              <input type="checkbox" checked={config.optOutReplyEnabled} onChange={(event) => setField("optOutReplyEnabled", event.target.checked)} />
-            </label>
-            {config.optOutReplyEnabled ? (
-              <div className={styles.riskNotice}>
-                Responder depois de uma negativa pode aumentar risco de bloqueio no WhatsApp. Use apenas uma mensagem curta, sem insistência e sem link.
-              </div>
-            ) : null}
-            <div className={styles.prospectingKeywordGrid}>
-              <label>
-                <span>Palavras positivas</span>
-                <input
-                  className={styles.inputField}
-                  value={positiveKeywordsDraft}
-                  placeholder="tenho interesse, pode mandar, quero saber"
-                  onChange={(event) => {
-                    setPositiveKeywordsDraft(event.target.value);
-                  }}
-                  onBlur={(event) => setListField("positiveIntentKeywords", event.target.value)}
-                />
-              </label>
-              <label>
-                <span>Palavras negativas</span>
-                <input
-                  className={styles.inputField}
-                  value={negativeKeywordsDraft}
-                  placeholder="não tenho interesse, pare, remover, spam"
-                  onChange={(event) => {
-                    setNegativeKeywordsDraft(event.target.value);
-                  }}
-                  onBlur={(event) => setListField("negativeIntentKeywords", event.target.value)}
-                />
-              </label>
-            </div>
           </div>
 
           <aside className={styles.prospectingWhatsAppPreview}>
@@ -1111,16 +810,76 @@ function ProspectingAutomationPanel({
             </div>
           </aside>
         </div>
+        <details className={styles.prospectingAdvanced}>
+          <summary>Ajustes avançados</summary>
+          <div className={styles.prospectingAdvancedGrid}>
+            <label>
+              <span>Intervalo entre envios</span>
+              <input className={styles.inputField} type="number" min={1} value={config.intervalMinutes} onChange={(event) => setNumberField("intervalMinutes", event.target.value, 1)} />
+            </label>
+            <label>
+              <span>Typing</span>
+              <input className={styles.inputField} type="number" min={0} value={config.typingSeconds} onChange={(event) => setNumberField("typingSeconds", event.target.value, 0)} />
+            </label>
+            <label>
+              <span>Variação</span>
+              <input className={styles.inputField} type="number" min={0} value={config.typingVarianceSeconds} onChange={(event) => setNumberField("typingVarianceSeconds", event.target.value, 0)} />
+            </label>
+            <label>
+              <span>Palavras positivas</span>
+              <input
+                className={styles.inputField}
+                value={positiveKeywordsDraft}
+                placeholder="tenho interesse, pode mandar, quero saber"
+                onChange={(event) => {
+                  setPositiveKeywordsDraft(event.target.value);
+                }}
+                onBlur={(event) => setListField("positiveIntentKeywords", event.target.value)}
+              />
+            </label>
+            <label>
+              <span>Palavras negativas</span>
+              <input
+                className={styles.inputField}
+                value={negativeKeywordsDraft}
+                placeholder="não tenho interesse, pare, remover, spam"
+                onChange={(event) => {
+                  setNegativeKeywordsDraft(event.target.value);
+                }}
+                onBlur={(event) => setListField("negativeIntentKeywords", event.target.value)}
+              />
+            </label>
+            <label className={styles.toggleCard}>
+              <span>
+                <strong>Responder encerramento negativo</strong>
+              </span>
+              <input type="checkbox" checked={config.optOutReplyEnabled} onChange={(event) => setField("optOutReplyEnabled", event.target.checked)} />
+            </label>
+            <label className={styles.prospectingWideField}>
+              <span>Encerramento negativo</span>
+              <textarea
+                ref={optOutMessageRef}
+                className={styles.editorTextarea}
+                value={config.optOutMessage}
+                disabled={!config.optOutReplyEnabled}
+                onFocus={() => setVariableTarget("optOutMessage")}
+                onChange={(event) => setField("optOutMessage", event.target.value)}
+              />
+            </label>
+          </div>
+        </details>
         <div className={styles.variablePreviewCard} aria-label="Valores atuais das variáveis">
+          <div>
+            <span>{"{{empresaresumo}}"}</span>
+            <strong>{summarizeCompanyName("Empresa de Máquinas Agrícolas e Pesados LTDA")}</strong>
+          </div>
           <div>
             <span>{"{{funcionario}}"}</span>
             <strong>{previewVariables.funcionario}</strong>
-            <small>nome do usuário logado</small>
           </div>
           <div>
             <span>{"{{empresa}}"}</span>
             <strong>{previewVariables.empresa}</strong>
-            <small>nome da empresa</small>
           </div>
         </div>
         {variablesOpen ? (
@@ -1140,7 +899,8 @@ function ProspectingAutomationPanel({
             </div>
           </div>
         ) : null}
-      </section>
+        </section>
+      </div>
 
       <div className={styles.prospectingActionRow}>
         <button type="button" className={styles.secondaryButton} onClick={onSave} disabled={Boolean(actionLoading)}>
@@ -1185,7 +945,7 @@ export default function VendasAutomationClientPage() {
   const [publishedConfig, setPublishedConfig] = useState<AtendimentoBotConfig>(DEFAULT_ATENDIMENTO_BOT_CONFIG);
   const [prospectingConfig, setProspectingConfig] = useState<ProspectingAutomationConfig>(DEFAULT_PROSPECTING_CONFIG);
   const [prospectingStatus, setProspectingStatus] = useState<ProspectingAutomationLiveStatus | null>(null);
-  const [prospectingLoading, setProspectingLoading] = useState(false);
+  const [, setProspectingLoading] = useState(false);
   const [prospectingAction, setProspectingAction] = useState<string | null>(null);
   const [agendaConfig, setAgendaConfig] = useState<AtendimentoAgendaConfig>(DEFAULT_ATENDIMENTO_AGENDA_CONFIG);
   const [centerPayload, setCenterPayload] = useState<WhatsAppCenterPayload | null>(null);
@@ -1493,11 +1253,14 @@ export default function VendasAutomationClientPage() {
       router.replace("/vendas");
       return;
     }
+    if (requestedTab === "prospeccao") {
+      router.replace("/atendimento?atendimentoSection=automacao");
+      return;
+    }
     if (
       requestedTab === "connection" ||
       requestedTab === "atendimento" ||
       requestedTab === "flow" ||
-      requestedTab === "prospeccao" ||
       requestedTab === "recovery"
     ) {
       setActiveTab(requestedTab);
@@ -1658,7 +1421,7 @@ export default function VendasAutomationClientPage() {
         requiresProspectingCity(currentProspectingConfig) &&
         !currentProspectingConfig.city.trim()
       ) {
-        const message = "Informe a cidade para buscar empresas.";
+        const message = "Informe a cidade da Fonte Radar.";
         setError(message);
         setNotice({ tone: "error", text: message });
         return;
@@ -1812,7 +1575,6 @@ export default function VendasAutomationClientPage() {
                   <ProspectingAutomationPanel
                     config={prospectingConfig}
                     liveStatus={prospectingStatus}
-                    loading={prospectingLoading}
                     actionLoading={prospectingAction}
                     previewVariables={previewVariables}
                     onChange={updateProspectingConfigState}

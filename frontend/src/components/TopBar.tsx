@@ -4608,7 +4608,11 @@ export default function TopBar() {
     }
 
     if (slide.source === "engines" || slide.source === "webscraping") {
-      router.push(user?.isSystemMaster ? "/master/webscraping" : "/vendas?radar=1");
+      if (user?.isSystemMaster) {
+        router.push("/master/webscraping");
+      } else if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("hbx:radar-popup", { detail: { source: "topbar" } }));
+      }
       return;
     }
 
@@ -4644,7 +4648,11 @@ export default function TopBar() {
     }
 
     if (id === "queue") {
-      router.push(user?.isSystemMaster ? "/master/webscraping" : "/vendas?radar=1");
+      if (user?.isSystemMaster) {
+        router.push("/master/webscraping");
+      } else if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("hbx:radar-popup", { detail: { source: "topbar" } }));
+      }
       return;
     }
 
@@ -4863,7 +4871,7 @@ export default function TopBar() {
           ? `${delivered} de ${target} cards${context ? ` · ${context}` : ""}`
           : state === "paused"
             ? `Retomar no Radar${context ? ` · ${context}` : ""}`
-            : "Abrir busca no Vendas";
+            : "Abrir Radar";
 
       return [
         {
@@ -4874,7 +4882,7 @@ export default function TopBar() {
           description,
           phase: state === "paused" ? "warning" : state === "running" ? "success" : "idle",
           source: "webscraping",
-          href: "/vendas?radar=1",
+          href: "/boasvindas?radar=1",
           progress,
           metrics: [],
         },
@@ -4963,7 +4971,7 @@ export default function TopBar() {
           description: scrapingEngineStatusMessage || hbxMainGaugeDetail,
           phase: hbxOperationalErrorCount > 0 || hbxQueueCount > visibleHbxEngineCount ? "warning" : "success",
           source: "webscraping",
-          href: user?.isSystemMaster ? "/master/webscraping" : "/vendas?radar=1",
+          href: user?.isSystemMaster ? "/master/webscraping" : "/boasvindas?radar=1",
           progress,
           metrics: [
             { label: "Disponíveis", value: `${hbxEngineOnlineCount}/${visibleHbxEngineCount}` },
@@ -5039,14 +5047,8 @@ export default function TopBar() {
   function openDesktopRadarPopup(action: "play" | "pause" | "stop" = "play") {
     const detail = { action };
     if (typeof window !== "undefined") {
-      window.dispatchEvent(new CustomEvent("hbx:vendas-radar-popup", { detail }));
+      window.dispatchEvent(new CustomEvent("hbx:radar-popup", { detail }));
     }
-    const nextUrl = `/vendas?radar=1&radarAction=${action}&radarTick=${Date.now()}`;
-    if (isVendasRoute) {
-      router.push(nextUrl);
-      return;
-    }
-    router.push(nextUrl);
   }
 
   async function handleRadarTopbarAction(action: "play" | "pause" | "stop") {

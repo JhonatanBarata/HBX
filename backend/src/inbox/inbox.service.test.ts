@@ -765,6 +765,40 @@ test('unblockConversation clears BOT_OFF on CustomerProfile', async () => {
   assert.equal(profileStateCalls[0].botOff, false);
 });
 
+test('updateConversationQueue marks Pessoais as personal contact and disables bot', async () => {
+  const profileStateCalls: Array<Record<string, unknown>> = [];
+  const { service, conversationStateCalls } = createService({
+    customerProfileService: {
+      upsertAtendimentoProfileState: async (input: Record<string, unknown>) => {
+        profileStateCalls.push(input);
+        return { id: 'profile-1', ...input };
+      },
+    },
+  });
+  (service as any).getConversationByIdForCompany = async () => ({ id: '42', messages: [] });
+
+  await service.updateConversationQueue({ companyId: 7, id: 99 }, 42, 'all');
+
+  assert.equal(conversationStateCalls.length, 1);
+  const payload = conversationStateCalls[0].payload as any;
+  assert.equal(payload.botActive, false);
+  assert.equal(payload.humanAssigned, true);
+  assert.equal(payload.flowResult, 'personal_contact');
+  assert.equal(payload.metadata.queueTarget, 'conversas');
+  assert.equal(payload.metadata.routeTarget, 'conversas');
+  assert.equal(payload.metadata.inboxPersonalContact, true);
+  assert.equal(payload.metadata.personalContact, true);
+  assert.equal(payload.metadata.whatsappPersonalContact, true);
+  assert.equal(payload.metadata.botOff, true);
+
+  assert.equal(profileStateCalls.length, 1);
+  assert.equal(profileStateCalls[0].companyId, 7);
+  assert.equal(profileStateCalls[0].phone, '+5519998877766');
+  assert.equal(profileStateCalls[0].botOff, true);
+  assert.equal(profileStateCalls[0].botOffReason, 'Contato marcado como pessoal em Pessoais.');
+  assert.ok(profileStateCalls[0].botOffAt instanceof Date);
+});
+
 test('deleteConversation archives conversations with history locally', async () => {
   const messageDeleteCalls: Array<Record<string, unknown>> = [];
   const conversationDeleteCalls: Array<Record<string, unknown>> = [];

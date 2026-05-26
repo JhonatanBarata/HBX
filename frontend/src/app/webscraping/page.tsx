@@ -3,5 +3,5 @@ export const dynamic = "force-dynamic";
 import { redirect } from "next/navigation";
 
 export default function Page() {
-  redirect("/vendas?radar=1");
+  redirect("/boasvindas?radar=1");
 }
