@@ -3360,6 +3360,204 @@
   background: color-mix(in srgb, var(--surface-raised) 72%, var(--background));
 }
 
+.campaignVariantPager {
+  min-width: 0;
+  display: grid;
+  gap: 0.62rem;
+  padding: 0.82rem;
+  border: 1px solid color-mix(in srgb, var(--brand) 16%, var(--line));
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--surface) 88%, var(--background));
+  transition: opacity 180ms ease, filter 180ms ease, background 180ms ease;
+}
+
+.campaignVariantPager[data-disabled="true"] {
+  opacity: 0.64;
+  filter: grayscale(0.35);
+  background: color-mix(in srgb, var(--muted) 8%, var(--surface));
+}
+
+.campaignVariantHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.7rem;
+}
+
+.campaignVariantHeader strong {
+  color: var(--foreground);
+  font-size: 0.8rem;
+  font-weight: 950;
+}
+
+.campaignVariantHeader span {
+  flex: 0 0 auto;
+  margin-top: 0.38rem;
+  color: color-mix(in srgb, var(--brand) 72%, var(--foreground));
+  font-size: 0.7rem;
+  font-weight: 950;
+}
+
+.campaignVariantBody {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 36px;
+  gap: 0.58rem;
+  align-items: stretch;
+}
+
+.campaignVariantBody textarea {
+  width: 100%;
+  min-height: 104px;
+  max-height: 170px;
+  resize: vertical;
+  border: 1px solid color-mix(in srgb, var(--brand) 18%, var(--line));
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--field-surface) 92%, var(--surface));
+  color: var(--foreground);
+  font: inherit;
+  line-height: 1.46;
+  padding: 0.72rem 0.82rem;
+  animation: campaignVariantSlide 180ms ease both;
+}
+
+.campaignVariantBody textarea:disabled {
+  cursor: not-allowed;
+  background: color-mix(in srgb, var(--muted) 10%, var(--surface));
+}
+
+.campaignVariantBody textarea:focus {
+  border-color: color-mix(in srgb, var(--brand) 58%, var(--line));
+  outline: 3px solid color-mix(in srgb, var(--brand) 16%, transparent);
+}
+
+.campaignVariantActions {
+  display: grid;
+  grid-template-rows: repeat(4, minmax(30px, auto));
+  gap: 0.35rem;
+  align-self: start;
+}
+
+.campaignVariantActions button {
+  min-width: 34px;
+  min-height: 30px;
+  border: 1px solid color-mix(in srgb, var(--brand) 22%, var(--line));
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--surface-raised) 92%, var(--background));
+  color: var(--foreground);
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 950;
+  cursor: pointer;
+  transition: transform 160ms ease, opacity 160ms ease, background 160ms ease;
+}
+
+.campaignVariantActions button:hover:not(:disabled) {
+  transform: translateY(-1px);
+  background: color-mix(in srgb, var(--brand) 12%, var(--surface));
+}
+
+.campaignVariantActions button:disabled {
+  cursor: not-allowed;
+  opacity: 0.42;
+}
+
+.campaignVariantPager small {
+  color: var(--muted);
+  font-size: 0.72rem;
+  line-height: 1.35;
+}
+
+.campaignClassifierPanel,
+.campaignClassifierPanelGroup {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.campaignClassifierPanel {
+  display: grid;
+  gap: 0.36rem;
+  padding: 0.58rem 0.68rem;
+  border: 1px solid color-mix(in srgb, var(--brand) 18%, var(--line));
+  border-radius: 16px 16px 10px 10px;
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--brand) 9%, var(--surface)), color-mix(in srgb, var(--surface-raised) 92%, var(--background)));
+  box-shadow: inset 0 1px 0 color-mix(in srgb, #ffffff 18%, transparent);
+}
+
+.campaignClassifierPanel strong {
+  color: color-mix(in srgb, var(--brand) 72%, var(--foreground));
+  font-size: 0.72rem;
+  font-weight: 950;
+}
+
+.campaignClassifierTextarea {
+  min-height: 40px;
+  max-height: 86px;
+  width: 100%;
+  border: 1px solid color-mix(in srgb, var(--brand) 14%, var(--line));
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--field-surface) 94%, var(--surface));
+  color: var(--foreground);
+  font: inherit;
+  padding: 0.52rem 0.62rem;
+  resize: vertical;
+  line-height: 1.42;
+}
+
+.campaignClassifierPanel small {
+  color: var(--muted);
+  font-size: 0.68rem;
+  line-height: 1.25;
+}
+
+.campaignClassifierPanelGroup {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(210px, 0.44fr);
+  gap: 0.58rem;
+  align-items: stretch;
+}
+
+.campaignInlineToggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.55rem;
+  padding: 0.58rem 0.68rem;
+  border: 1px solid color-mix(in srgb, var(--brand) 18%, var(--line));
+  border-radius: 16px 16px 10px 10px;
+  background: color-mix(in srgb, var(--surface-raised) 82%, var(--background));
+}
+
+.campaignInlineToggle span {
+  color: color-mix(in srgb, var(--foreground) 82%, var(--muted));
+  font-size: 0.72rem;
+  font-weight: 900;
+  line-height: 1.25;
+}
+
+.campaignInlineToggle input {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  accent-color: var(--brand);
+}
+
+.campaignVariantPager[data-disabled="true"] .campaignClassifierPanel,
+.campaignVariantPager[data-disabled="true"] .campaignInlineToggle {
+  background: color-mix(in srgb, var(--muted) 9%, var(--surface));
+}
+
+@keyframes campaignVariantSlide {
+  from {
+    opacity: 0;
+    transform: translateX(14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
 .campaignField textarea {
   min-height: 142px;
   line-height: 1.58;
@@ -3681,6 +3879,10 @@
   }
 
   .campaignAdvancedGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .campaignClassifierPanelGroup {
     grid-template-columns: 1fr;
   }
 }

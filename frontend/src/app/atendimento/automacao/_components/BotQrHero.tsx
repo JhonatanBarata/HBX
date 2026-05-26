@@ -22,7 +22,7 @@ export default function BotQrHero({
       <div className={styles.heroContent}>
         <div className={styles.heroIntro}>
           <span className={styles.heroEyebrow}>HBX</span>
-          <span className={styles.heroModule}>Modulo: Vendas</span>
+          <span className={styles.heroModule}>Modulo: Atendimento</span>
         </div>
         <h1 className={styles.heroTitle}>Automacao WhatsApp</h1>
         <p className={styles.heroText}>

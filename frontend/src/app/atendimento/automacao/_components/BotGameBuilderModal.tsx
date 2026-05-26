@@ -7,7 +7,7 @@ import type {
   AtendimentoBotButton,
   AtendimentoBotConfig,
   AtendimentoBotVariableDefinition,
-} from "../../../atendimento/inbox-model";
+} from "../../inbox-model";
 import { renderConfigText } from "../model";
 import styles from "./BotGameBuilderModal.module.css";
 
@@ -129,7 +129,7 @@ function nextNodeLabel(value?: string | null) {
     case "recoveryDetectedMessage":
       return "Recovery";
     default:
-      return "Vendas";
+      return "Atendimento";
   }
 }
 
@@ -359,7 +359,7 @@ export default function BotGameBuilderModal({
                         nextNodeId: "postActionPrompt",
                       }))}
                     >
-                      Vendas
+                      Atendimento
                     </button>
                     <button
                       type="button"

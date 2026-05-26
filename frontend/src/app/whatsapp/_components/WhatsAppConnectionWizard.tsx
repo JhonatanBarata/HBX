@@ -338,7 +338,7 @@ export default function WhatsAppConnectionWizard({
                 ESCOLHA UM MÉTODO
               </button>
             ) : (
-              <Link className={styles.primaryAction} href="/vendas/automacao?tab=flow">
+              <Link className={styles.primaryAction} href="/atendimento/automacao?tab=flow">
                 Bot
               </Link>
             )}
@@ -375,7 +375,7 @@ export default function WhatsAppConnectionWizard({
           </div>
           <div className={styles.actionRow}>
             {metaReady ? (
-              <Link className={styles.primaryAction} href="/vendas/automacao?tab=flow">
+              <Link className={styles.primaryAction} href="/atendimento/automacao?tab=flow">
                 Bot
               </Link>
             ) : (

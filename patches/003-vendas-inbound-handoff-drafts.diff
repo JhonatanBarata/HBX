@@ -1,0 +1,201 @@
+diff --git a/backend/src/messaging/messaging.service.ts b/backend/src/messaging/messaging.service.ts
+index 58b0513..d50cc4c 100644
+--- a/backend/src/messaging/messaging.service.ts
++++ b/backend/src/messaging/messaging.service.ts
+@@ -51,6 +51,7 @@ import {
+ import {
+   classifyProspectingAutoReply,
+   isExplicitProspectingNegativeReply,
++  sanitizeFirstContactMessage,
+   type ProspectingAutoReplyClassification,
+ } from '../vendas/prospecting-safety';
+ import {
+@@ -73,7 +74,6 @@ import {
+ import { HbxPresentationEmailService, type HbxPresentationEmailResult } from '../mail/hbx-presentation-email.service';
+ import {
+   addBusinessHours,
+-  detectHbxPresentationEmailIntent,
+   normalizeHbxEmail,
+   type HbxPresentationEmailIntent,
+ } from '../mail/hbx-email-intent.util';
+@@ -1486,6 +1486,46 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
+     );
+   }
+ 
++  private readVendasVariantList(campaign: any, key: string, fallback: string[]) {
++    const filters = this.readJsonRecord(campaign?.filtersJson);
++    const value = filters[key];
++    const source = Array.isArray(value)
++      ? value
++      : typeof value === 'string'
++        ? value.split(/\r?\n/)
++        : fallback;
++    return Array.from(
++      new Set(
++        source
++          .map((item) => sanitizeFirstContactMessage(String(item || '').trim()))
++          .filter(Boolean),
++      ),
++    ).slice(0, 20);
++  }
++
++  private renderVendasVariant(template: string, job: any) {
++    const leadName = String(job?.lead?.name || 'sua empresa').trim();
++    const values: Record<string, string> = {
++      cliente: leadName,
++      empresaresumo: leadName.replace(/\s+(ltda|me|mei|eireli|epp|s\/a|sa)$/i, '').trim(),
++      clienteresumo: leadName.replace(/\s+(ltda|me|mei|eireli|epp|s\/a|sa)$/i, '').trim(),
++      cidade: String(job?.lead?.city || job?.campaign?.city || '').trim(),
++      estado: String(job?.campaign?.state || '').trim(),
++      segmento: String(job?.lead?.segment || job?.campaign?.segment || '').trim(),
++    };
++    return sanitizeFirstContactMessage(
++      String(template || '')
++        .replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g, (_match, key) => values[key] || '')
++        .trim(),
++    );
++  }
++
++  private pickVendasVariant(campaign: any, job: any, key: string, fallback: string[]) {
++    const variants = this.readVendasVariantList(campaign, key, fallback);
++    const variant = variants[Math.floor(Math.random() * variants.length)] || fallback[0] || '';
++    return this.renderVendasVariant(variant, job);
++  }
++
+   private containsVendasAutomationKeyword(normalizedText: string, keywords: string[]) {
+     return keywords.some((keyword) => {
+       const normalizedKeyword = this.normalizeVendasAutomationIntentText(keyword);
+@@ -2022,9 +2062,10 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
+     ]).map((item) => this.normalizeVendasAutomationIntentText(item));
+     const optOut = this.containsVendasAutomationKeyword(normalizedText, ['remover', 'pare', 'spam', 'nao me chame', 'não me chame', 'bloqueia', 'bloqueie']);
+     const humanHandoff = this.containsVendasAutomationKeyword(normalizedText, ['humano', 'atendente', 'ligar', 'me chama']);
++    const whatIsIt = this.containsVendasAutomationKeyword(normalizedText, ['o que é', 'oque é', 'sobre o que', 'como funciona', 'me explica', 'explica melhor', 'do que se trata']);
+     const autoReplyClassification = classifyProspectingAutoReply(input.text);
+     const negative = optOut || isExplicitProspectingNegativeReply(input.text, negativeKeywords);
+-    const positive = !negative && !humanHandoff && this.containsVendasAutomationKeyword(normalizedText, positiveKeywords);
++    const positive = !negative && !humanHandoff && (whatIsIt || this.containsVendasAutomationKeyword(normalizedText, positiveKeywords));
+     const terminalStatus = new Set(['negative', 'opt_out', 'replied_negative', 'no_response_archived']);
+     const alreadyClosed =
+       terminalStatus.has(automationStatus) ||
+@@ -2069,16 +2110,10 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
+       return { handled: true, classification: autoReplyClassification };
+     }
+ 
+-    const hbxEmailIntent = detectHbxPresentationEmailIntent(input.text);
+-    const hbxEmailHandled = await this.handleHbxPresentationEmailIntent(input, job, hbxEmailIntent);
+-    if (hbxEmailHandled?.handled) {
+-      return hbxEmailHandled;
+-    }
+-
+     if (positive) {
+       await input.setInboundMeta('vendas_prospeccao_interessado', false);
+-      await this.markVendasAutomationInterested(input, job);
+-      return { handled: true, classification: 'positive' };
++      await this.markVendasAutomationInterested({ ...input, replyKind: whatIsIt ? 'what_is_it' : 'positive' }, job);
++      return { handled: true, classification: whatIsIt ? 'what_is_it' : 'positive' };
+     }
+ 
+     if (humanHandoff) {
+@@ -2133,6 +2168,20 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
+     const queue = this.readJsonRecord(input.metadata?.vendasAgendaQueue);
+     const automation = this.readJsonRecord(input.metadata?.vendasAutomation);
+     const prospeccao = this.readJsonRecord(input.metadata?.vendasProspeccao);
++    const draftMessage = this.pickVendasVariant(
++      job.campaign,
++      job,
++      input.replyKind === 'what_is_it' ? 'whatIsItReplyVariants' : 'positiveReplyVariants',
++      input.replyKind === 'what_is_it'
++        ? [
++            'É uma forma de organizar contatos, orçamentos e retornos pelo WhatsApp. Vou deixar um resumo para o atendimento humano te explicar melhor.',
++            'É sobre organização comercial no WhatsApp. Vou passar para uma pessoa te explicar sem mensagem automática longa.',
++          ]
++        : [
++            'Perfeito. Vou deixar um resumo curto aqui para o atendimento humano continuar com você.',
++            'Combinado. Vou te passar para uma pessoa do time continuar sem mensagem automática.',
++          ],
++    );
+     await this.updateAtendimentoConversationState(
+       input.companyId,
+       input.conversationId,
+@@ -2145,14 +2194,18 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
+       },
+       {
+         ...this.clearAtendimentoBlockedMetadata(input.metadata),
++        botActive: false,
++        humanAssigned: true,
+         queueTarget: 'atendimento',
+         routeTarget: 'atendimento',
++        hbotBlockedReason: 'prospection_interested_handoff',
+         vendasAutomation: {
+           ...automation,
+           campaignId: job.campaignId,
+           jobId: job.id,
+           leadId: job.leadId,
+           status: 'interested',
++          disposition: 'positive',
+           interestedAt: now.toISOString(),
+         },
+         vendasAgendaQueue: {
+@@ -2163,9 +2216,12 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
+           routeTarget: 'atendimento',
+           status: 'qualificado',
+           nextAction: 'Atendimento humano',
+-          draftPending: false,
++          draftMessage,
++          draftPending: Boolean(draftMessage),
+           botEligible: false,
+           botEntryPending: false,
++          botActive: false,
++          humanAssigned: true,
+           respondedAt: now.toISOString(),
+           syncedAt: now.toISOString(),
+           interested: true,
+@@ -2238,7 +2294,11 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
+       });
+     });
+ 
+-    const optOutMessage = String(job.campaign.optOutMessage || 'Entendi. Vou arquivar este contato e nao chamaremos novamente.').trim();
++    const optOutMessage = this.pickVendasVariant(job.campaign, job, 'optOutVariants', [
++      String(job.campaign.optOutMessage || '').trim() || 'Entendi. Vou arquivar este contato e nao chamaremos novamente.',
++      'Tudo bem. Vou remover este contato da prospecção.',
++      'Entendido. Não vamos chamar novamente por aqui.',
++    ]);
+     if (this.vendasCampaignOptOutReplyEnabled(job.campaign) && optOutMessage) {
+       try {
+         await this.conversations.queueOutboundForCompany(input.companyId, {
+@@ -2503,6 +2563,10 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
+     const queue = this.readJsonRecord(input.metadata?.vendasAgendaQueue);
+     const automation = this.readJsonRecord(input.metadata?.vendasAutomation);
+     const prospeccao = this.readJsonRecord(input.metadata?.vendasProspeccao);
++    const draftMessage = this.pickVendasVariant(job.campaign, job, 'neutralHandoffVariants', [
++      'Vou passar para uma pessoa do atendimento continuar com você.',
++      'Vou deixar isso com o atendimento humano para responder melhor.',
++    ]);
+     await this.updateAtendimentoConversationState(
+       input.companyId,
+       input.conversationId,
+@@ -2515,8 +2579,11 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
+       },
+       {
+         ...this.clearAtendimentoBlockedMetadata(input.metadata),
++        botActive: false,
++        humanAssigned: true,
+         queueTarget: 'atendimento',
+         routeTarget: 'atendimento',
++        hbotBlockedReason: 'prospection_neutral_handoff',
+         vendasAutomation: {
+           ...automation,
+           campaignId: job.campaignId,
+@@ -2533,9 +2600,11 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
+           queueTarget: 'atendimento',
+           routeTarget: 'atendimento',
+           nextAction: 'Atendimento humano',
+-          draftPending: false,
++          draftMessage,
++          draftPending: Boolean(draftMessage),
+           botEligible: false,
+           botEntryPending: false,
++          botActive: false,
+           humanAssigned: true,
+           respondedAt: now.toISOString(),
+           syncedAt: now.toISOString(),

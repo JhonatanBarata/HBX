@@ -1,13 +1,13 @@
 import { useMemo, useState } from "react";
 import { getProviderLabel, type ProviderCapabilities } from "@/lib/provider-capabilities";
-import BotPanel from "../../../atendimento/_components/BotPanel";
+import BotPanel from "../../_components/BotPanel";
 import {
   buildAgendaActionId,
   isAtendimentoRecoveryActionId,
   type AtendimentoAgendaConfig,
   type AtendimentoBotButton,
   type AtendimentoBotConfig,
-} from "../../../atendimento/inbox-model";
+} from "../../inbox-model";
 import type { BotQrActionOption } from "../model";
 import styles from "../page.module.css";
 
@@ -226,7 +226,7 @@ function MenuMap({
       <div className={styles.supremeRuleGrid}>
         <div>Recovery {recoveryPublic ? "aparece porque o plano libera." : "fica oculto quando o plano nao libera."}</div>
         <div>Agenda Bot {agendaPublic ? "esta disponivel no menu publico." : "nao tem guia publica ativa."}</div>
-        <div>Agenda Vendas e interna e nao entra como agenda publica.</div>
+        <div>Agenda interna nao entra como agenda publica.</div>
       </div>
     </article>
   );
@@ -268,7 +268,7 @@ function ArchitectureMap({
         </div>
       ) : null}
       <div className={styles.archInternalNode}>
-        Agenda Vendas<br /><span>Fluxo interno separado. Nao faz parte deste menu.</span>
+        Agenda interna<br /><span>Fluxo interno separado. Nao faz parte deste menu.</span>
       </div>
     </article>
   );
@@ -407,7 +407,7 @@ export default function BotSupremeFlowWorkspace({
                         description={agendaCount ? `${agendaCount} guia(s) publica(s) ativa(s).` : "Disponivel, mas sem guia ativa."}
                         state="public"
                       />
-                      <ModuleCard title="Agenda Vendas" description="Fluxo comercial interno. Nao aparece no menu publico." state="internal" />
+                      <ModuleCard title="Agenda interna" description="Fluxo interno. Nao aparece no menu publico." state="internal" />
                     </div>
                   </div>
 
@@ -477,7 +477,7 @@ export default function BotSupremeFlowWorkspace({
                     <ModuleCard title="Evolution" description="Guia principal por texto/lista. Fallback sem botao e encaminhamento para atendente." state="public" />
                     <ModuleCard title="Meta Cloud API" description="Botoes rapidos, lista interativa e templates oficiais aprovados." state={isMeta ? "active" : "inactive"} />
                     <ModuleCard title="Agenda Bot" description={agendaCount ? "Guias publicas entram no menu do cliente." : "Sem agenda publica ativa no momento."} state="public" />
-                    <ModuleCard title="Agenda Vendas" description="Interna. Responde hora a hora e nao entra como agenda publica." state="internal" />
+                    <ModuleCard title="Agenda interna" description="Responde hora a hora e nao entra como agenda publica." state="internal" />
                   </div>
                 </section>
               ) : null}
@@ -495,7 +495,7 @@ export default function BotSupremeFlowWorkspace({
                     <div>Evolution transforma botoes em lista numerada.</div>
                     <div>Meta libera botoes, listas e templates oficiais.</div>
                     <div>Recovery so aparece se o plano liberar.</div>
-                    <div>Agenda Bot e publica; Agenda Vendas e interna.</div>
+                    <div>Agenda Bot e publica; agenda interna fica separada.</div>
                     <div>Templates oficiais continuam bloqueados fora da Meta.</div>
                     <div>O editor completo fica em Editor avancado.</div>
                   </div>
@@ -511,7 +511,7 @@ export default function BotSupremeFlowWorkspace({
                 <div className={styles.supremeChecklistItem} data-ok={isMeta ? "true" : "false"}>Templates: {isMeta ? "liberados" : "Meta-only"}</div>
                 <div className={styles.supremeChecklistItem} data-ok={recoveryEnabled ? "true" : "false"}>Recovery: {recoveryEnabled ? "liberado" : "nao liberado"}</div>
                 <div className={styles.supremeChecklistItem} data-ok={agendaCount ? "true" : "false"}>Agenda Bot: {agendaCount ? "com guia publica" : "sem guia ativa"}</div>
-                <div className={styles.supremeChecklistItem} data-ok="true">Agenda Vendas: interna</div>
+                <div className={styles.supremeChecklistItem} data-ok="true">Agenda interna: separada</div>
                 <div className={styles.supremeChecklistItem} data-ok={recoveryPublic ? "true" : "false"}>Financeiro publico: {recoveryPublic ? "visivel" : "oculto/condicional"}</div>
               </article>
             </aside>

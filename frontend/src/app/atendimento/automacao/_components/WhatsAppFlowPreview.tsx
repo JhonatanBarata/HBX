@@ -1,5 +1,5 @@
 import type { ProviderCapabilities } from "@/lib/provider-capabilities";
-import type { AtendimentoBotConfig } from "../../../atendimento/inbox-model";
+import type { AtendimentoBotConfig } from "../../inbox-model";
 import type { ConversationPreviewPeriod, ConversationScene } from "./ConversationBuilder";
 import { resolveGreetingPreview } from "./GreetingVariablePopover";
 import styles from "./ConversationBuilder.module.css";

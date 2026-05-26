@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ClipboardEvent, type MouseEvent } from "react";
-import type { AtendimentoBotConfig } from "../../../atendimento/inbox-model";
+import type { AtendimentoBotConfig } from "../../inbox-model";
 import type {
   ConversationDestinationId,
   ConversationDestinationOption,

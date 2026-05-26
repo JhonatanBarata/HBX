@@ -155,7 +155,7 @@ function MobileDashboard({
       label: "WhatsApp",
       title: state.whatsappConnected ? "Conectado" : "Conectar depois",
       text: state.whatsappConnected ? "Canal pronto para acionar oportunidades." : "Você pode buscar cards antes de conectar o canal.",
-      path: state.whatsappConnected ? "/vendas" : "/vendas/automacao?tab=connection",
+      path: state.whatsappConnected ? "/vendas" : "/atendimento/automacao?tab=connection",
     },
   ];
 

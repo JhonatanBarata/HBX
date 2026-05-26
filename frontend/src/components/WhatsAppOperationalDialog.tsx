@@ -112,7 +112,7 @@ export default function WhatsAppOperationalDialog({
   const qrConnection = payload?.center.qrConnection;
   const official = payload?.center.official;
   const migration = payload?.center.migration;
-  const statusHref = "/vendas/automacao?tab=connection";
+  const statusHref = "/atendimento/automacao?tab=connection";
   const qrConnectionLabel = modalPayload
     ? modalPayload.status === "waiting_qr"
       ? "QR aguardando leitura"

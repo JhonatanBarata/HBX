@@ -1169,6 +1169,30 @@
   background: rgba(245, 158, 11, 0.1);
 }
 
+.capacityBadge {
+  display: grid;
+  gap: 0.22rem;
+  align-content: center;
+  min-height: 76px;
+  padding: 0.78rem;
+  border: 1px solid rgba(38, 93, 132, 0.14);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.54);
+}
+
+.capacityBadge span,
+.capacityBadge small {
+  color: rgba(40, 78, 124, 0.72);
+  font-size: 0.72rem;
+  font-weight: 900;
+}
+
+.capacityBadge strong {
+  color: #102238;
+  font-size: 0.98rem;
+  font-weight: 950;
+}
+
 .prospectingFormGrid,
 .prospectingMessageGrid {
   display: grid;

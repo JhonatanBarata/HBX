@@ -3,14 +3,14 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import HbxGuide4, { type HbxGuide4Item } from "@/components/HbxGuide4";
 import type { ProviderCapabilities } from "@/lib/provider-capabilities";
-import BotPanel from "../../../atendimento/_components/BotPanel";
+import BotPanel from "../../_components/BotPanel";
 import {
   buildAgendaActionId,
   type AtendimentoAgendaConfig,
   type AtendimentoBotActionGuide,
   type AtendimentoBotButton,
   type AtendimentoBotConfig,
-} from "../../../atendimento/inbox-model";
+} from "../../inbox-model";
 import { buildActionOptions } from "../model";
 import ConversationCanvas from "./ConversationCanvas";
 import PublishMapReview from "./PublishMapReview";
@@ -154,10 +154,10 @@ const BOT_GUIDES: Array<{
   },
   {
     id: "prospeccao",
-    label: "Respostas de Vendas",
+    label: "Respostas de Atendimento",
     queueLabel: "Pós-contato",
     instruction:
-      "Só responde leads que já responderam à campanha. Não inicia conversas sozinho.",
+      "Só responde leads que já responderam ao primeiro contato. Não inicia conversas sozinho.",
   },
   {
     id: "recovery",
@@ -383,7 +383,7 @@ export const SCENE_BLUEPRINTS: SceneBlueprint[] = [
   {
     id: "post_action",
     title: "Pos acao",
-    condition: "Continuidade de vendas",
+    condition: "Continuidade de atendimento",
     conditionType: "post_action",
     source: { type: "message", field: "postActionPrompt" },
     buttonsField: "postActionButtons",
@@ -455,7 +455,7 @@ export function getDestinationOptions(recoveryEnabled: boolean): ConversationDes
     },
     {
       id: "vendas",
-      label: "Vendas",
+      label: "Atendimento",
       description: "Continua a jornada principal",
       actionId: "continue_journey",
       nextNodeId: "postActionPrompt",
@@ -543,7 +543,7 @@ export function getTargetSceneFromAction(actionId: string): ConversationSceneId 
 
 export function getDestinationLabel(actionId: string, recoveryEnabled: boolean) {
   const destination = getDestinationFromAction(actionId);
-  return getDestinationOptions(recoveryEnabled).find((item) => item.id === destination)?.label || "Vendas";
+  return getDestinationOptions(recoveryEnabled).find((item) => item.id === destination)?.label || "Atendimento";
 }
 
 function normalizeButtonId(sectionKey: string, actionId: string, index: number) {
@@ -842,7 +842,7 @@ function applyBotGuide(config: AtendimentoBotConfig, guideId: BotGuideId) {
     setup: {
       ...presetConfig.setup,
       botType: guide.id,
-      configuredFrom: "vendas_automacao",
+      configuredFrom: "atendimento_automacao",
     },
     sceneRules: [
       ...sceneRules,
