@@ -1055,6 +1055,8 @@ type RadarLeadStatus =
   | 'approved'
   | 'sent_to_vendas'
   | 'in_attendance'
+  | 'interested'
+  | 'positive'
   | 'converted'
   | 'denied'
   | 'negative'
@@ -7384,12 +7386,14 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     if (normalized === 'imported_to_vendas' || normalized === 'sent_to_vendas') return 'sent_to_vendas';
     if (normalized === 'reservado' || normalized === 'reserved') return 'reserved';
     if (normalized === 'em_atendimento' || normalized === 'atendimento') return 'in_attendance';
+    if (normalized === 'interessado' || normalized === 'interested') return 'interested';
+    if (normalized === 'positivo' || normalized === 'positive') return 'positive';
     if (normalized === 'disponivel' || normalized === 'disponível' || normalized === 'available') return 'clean';
     if (normalized === 'won') return 'converted';
     if (normalized === 'optout' || normalized === 'do_not_contact') return 'opt_out';
     if (normalized === 'lost' || normalized === 'sem_interesse') return 'negative';
     if (normalized === 'descartado') return 'discarded';
-    if (['clean', 'new', 'reserved', 'delivered', 'approved', 'in_attendance', 'converted', 'denied', 'negative', 'blocked', 'opt_out', 'discarded', 'complaint', 'no_answer', 'no_whatsapp', 'invalid_whatsapp', 'duplicate', 'rejected', 'hidden'].includes(normalized)) {
+    if (['clean', 'new', 'reserved', 'delivered', 'approved', 'in_attendance', 'interested', 'positive', 'converted', 'denied', 'negative', 'blocked', 'opt_out', 'discarded', 'complaint', 'no_answer', 'no_whatsapp', 'invalid_whatsapp', 'duplicate', 'rejected', 'hidden'].includes(normalized)) {
       return normalized as RadarLeadStatus;
     }
     return 'clean';
@@ -8793,6 +8797,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       this.buildRadarFacet('approved', 'Aprovados', statusCounts.get('approved') || 0, 'success'),
       this.buildRadarFacet('sent_to_vendas', 'Já enviados para Vendas', statusCounts.get('sent_to_vendas') || 0, 'success'),
       this.buildRadarFacet('in_attendance', 'Em atendimento', statusCounts.get('in_attendance') || 0, 'info'),
+      this.buildRadarFacet('interested', 'Interessados', (statusCounts.get('interested') || 0) + (statusCounts.get('positive') || 0), 'success'),
       this.buildRadarFacet('converted', 'Convertidos', statusCounts.get('converted') || 0, 'success'),
       this.buildRadarFacet('negative', 'Negativos', (statusCounts.get('negative') || 0) + (statusCounts.get('denied') || 0), 'warning'),
       this.buildRadarFacet('blocked', 'Bloqueados', statusCounts.get('blocked') || 0, 'danger'),
@@ -14506,11 +14511,96 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         },
       });
     }
+    const dispositionStatus = this.normalizeRadarLeadStatus(input.status);
+    if (dispositionStatus === 'interested' || dispositionStatus === 'positive') {
+      return this.markRadarLeadPositiveDispositionForUser(user, row.id, {
+        status: dispositionStatus,
+        reason: input.reason || input.status,
+        privateNotes: input.source || 'Vendas Automação',
+      });
+    }
     return this.markRadarLeadNegativeForUser(user, row.id, {
       status: input.status,
       reason: input.reason || input.status,
       privateNotes: input.source || 'Vendas Automação',
     });
+  }
+
+  private async markRadarLeadPositiveDispositionForUser(
+    user: any,
+    radarLeadId: string,
+    input: { status?: string; reason?: string; privateNotes?: string } = {},
+  ) {
+    const context = this.resolveContext(user);
+    if (!(await this.supportsRadarPersistence())) {
+      throw new ServiceUnavailableException('Banco do Radar ainda nao foi migrado neste ambiente.');
+    }
+    const row = await (this.prisma as any).radarLeadPool.findUnique({
+      where: { id: String(radarLeadId || '').trim() },
+    });
+    if (!row) throw new NotFoundException('Card do Radar nao encontrado.');
+    const ownershipEnabled = await this.supportsRadarOwnershipPersistence();
+    const status = this.normalizeRadarLeadStatus(input.status || 'interested');
+    const existing = await (this.prisma as any).radarLeadCompanyState.findUnique({
+      where: {
+        companyId_radarLeadId: {
+          companyId: context.companyId,
+          radarLeadId: row.id,
+        },
+      },
+    }).catch(() => null);
+    const now = new Date();
+    await (this.prisma as any).radarLeadCompanyState.upsert({
+      where: {
+        companyId_radarLeadId: {
+          companyId: context.companyId,
+          radarLeadId: row.id,
+        },
+      },
+      create: {
+        companyId: context.companyId,
+        radarLeadId: row.id,
+        status,
+        negativeReason: null,
+        deniedReason: null,
+        complaintReason: null,
+        privateNotes: String(input.privateNotes || '').trim() || null,
+        lastActionAt: now,
+      },
+      update: {
+        status,
+        negativeReason: null,
+        deniedReason: null,
+        complaintReason: null,
+        privateNotes: String(input.privateNotes || '').trim() || null,
+        lastActionAt: now,
+      },
+    });
+    await (this.prisma as any).radarLeadPool.update({
+      where: { id: row.id },
+      data: {
+        ...(ownershipEnabled ? { ownerCompanyId: context.companyId, claimedAt: now } : {}),
+        status,
+        deniedReason: null,
+        complaintReason: null,
+        recommendedChannel: 'whatsapp',
+        lastSeenAt: now,
+      },
+    }).catch(() => null);
+    await this.recordRadarLeadEvent({
+      leadId: row.id,
+      companyId: context.companyId,
+      userId: context.userId,
+      eventType: 'status_changed',
+      note: String(input.reason || '').trim() || null,
+      statusFrom: this.normalizeRadarLeadStatus(existing?.status || row.status),
+      statusTo: status,
+    });
+    return {
+      ok: true,
+      radarLeadId: row.id,
+      status,
+    };
   }
 
   async markRadarLeadNegativeForUser(user: any, radarLeadId: string, input: { status?: string; reason?: string; privateNotes?: string } = {}) {

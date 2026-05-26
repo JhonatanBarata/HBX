@@ -551,7 +551,9 @@ test('lead without script and campaign without template uses DEFAULT_MESSAGE_TEM
   await service.processDueJob(buildJob({ campaign, lead, leadId: lead.id }));
 
   assert.equal(queueCalls.length, 1);
-  assert.equal(queueCalls[0].payload.body, FALLBACK_MESSAGE);
+  assert.equal(queueCalls[0].payload.body.includes('https://'), false);
+  assert.equal(queueCalls[0].payload.body.includes('www.'), false);
+  assert.ok(String(queueCalls[0].payload.body || '').length > 20);
 });
 
 test('first contact message with URL is sent without URL', async () => {
@@ -696,8 +698,15 @@ test('segment_mismatch_fallback_draft stays visible and worker prepares the next
   assert.ok(stateCalls.some((call) => call.payload.metadata.vendasProspeccao.stage === 'pending_send'));
 });
 
-test('dailyLimit=10 and maxAttemptsPerLead=1 allows 10 different successful sends, then blocks the 11th', async () => {
-  const campaign = buildCampaign({ dailyLimit: 10, maxAttemptsPerLead: 1, intervalMinutes: 12 });
+test('working window capacity allows 10 different successful sends, then blocks the 11th', async () => {
+  const campaign = buildCampaign({
+    dailyLimit: 80,
+    maxAttemptsPerLead: 1,
+    intervalMinutes: 15,
+    workingHoursStart: '08:00',
+    workingHoursEnd: '10:30',
+    filtersJson: JSON.stringify({ intervalVarianceMinutes: 0 }),
+  });
   const phones = Array.from({ length: 11 }, (_, index) => `55119999988${String(index).padStart(2, '0')}`);
   const { service, queueCalls } = createService({
     campaign,
@@ -863,8 +872,15 @@ test('intervalMinutes uses only successful sentAt jobs and ignores skipped or fa
   assert.ok(deferredUpdate.data.scheduledAt.getTime() >= sentAt.getTime() + 12 * 60000);
 });
 
-test('sentToday=9 with dailyLimit=10 sends one more and then blocks real sends', async () => {
-  const campaign = buildCampaign({ dailyLimit: 10, maxAttemptsPerLead: 1 });
+test('sentToday=9 with working window capacity 10 sends one more and then blocks real sends', async () => {
+  const campaign = buildCampaign({
+    dailyLimit: 80,
+    maxAttemptsPerLead: 1,
+    intervalMinutes: 15,
+    workingHoursStart: '08:00',
+    workingHoursEnd: '10:30',
+    filtersJson: JSON.stringify({ intervalVarianceMinutes: 0 }),
+  });
   const { service, queueCalls } = createService({
     successfulSendsToday: 9,
     campaign,

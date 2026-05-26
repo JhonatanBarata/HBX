@@ -192,7 +192,7 @@ function normalizeOperationalHref(value?: string | null) {
     ["/planos", "/planos"],
     ["/vendas", "/vendas"],
     ["/inbox", "/atendimento"],
-    ["/whatsapp", "/vendas/automacao"],
+    ["/whatsapp", "/atendimento/automacao"],
     ["/website", "/website"],
     ["/webscraping", "/radar-digital"],
     ["/gerencial", "/gerencial"],
@@ -229,7 +229,7 @@ function resolveOperationalHref(company: CompanySummary, kind: "finance" | "what
   const tokenChip = company.operationalStatus?.statuses.find((chip) => chip.key === "token");
   const metaChip = company.operationalStatus?.statuses.find((chip) => chip.key === "meta");
   const webWhatsChip = company.operationalStatus?.statuses.find((chip) => chip.key === "webwhats");
-  return normalizeOperationalHref(tokenChip?.href) || normalizeOperationalHref(metaChip?.href) || normalizeOperationalHref(webWhatsChip?.href) || "/vendas/automacao?tab=connection";
+  return normalizeOperationalHref(tokenChip?.href) || normalizeOperationalHref(metaChip?.href) || normalizeOperationalHref(webWhatsChip?.href) || "/atendimento/automacao?tab=connection";
 }
 
 function operationalHrefRequiresContext(href: string) {

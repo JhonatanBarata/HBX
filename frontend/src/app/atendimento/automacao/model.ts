@@ -3,7 +3,7 @@ import {
   type AtendimentoAgendaConfig,
   type AtendimentoBotButton,
   type AtendimentoBotConfig,
-} from "../../atendimento/inbox-model";
+} from "../inbox-model";
 
 export type BotQrWorkspaceTab = "connection" | "atendimento" | "flow" | "prospeccao" | "recovery";
 

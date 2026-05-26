@@ -5,7 +5,7 @@ import Link from "next/link";
 import type {
   AtendimentoAgendaConfig,
   AtendimentoBotConfig,
-} from "../../../atendimento/inbox-model";
+} from "../../inbox-model";
 import type { ProviderCapabilities } from "@/lib/provider-capabilities";
 import type { WhatsAppCenterPayload, WhatsAppModalPayload } from "@/lib/whatsapp-center";
 import BotGameBuilderModal from "./BotGameBuilderModal";
@@ -63,7 +63,7 @@ export default function BotAutomationPremiumEntry({
           <button type="button" className={styles.secondaryAction} onClick={() => setBuilderOpen(true)}>
             TESTAR
           </button>
-          <Link className={styles.secondaryAction} href="/vendas/automacao?tab=connection">
+          <Link className={styles.secondaryAction} href="/atendimento/automacao?tab=connection">
             CONEXÃO
           </Link>
         </div>

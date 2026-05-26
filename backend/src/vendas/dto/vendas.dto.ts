@@ -613,6 +613,13 @@ export class UpdateVendasProspectingConfigDto {
   @IsOptional()
   @Type(() => Number)
   @IsInt()
+  @Min(0)
+  @Max(180)
+  intervalVarianceMinutes?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
   @Min(1)
   @Max(300)
   dailyLimit?: number;
@@ -673,6 +680,48 @@ export class UpdateVendasProspectingConfigDto {
   @ArrayMaxSize(40)
   @IsString({ each: true })
   negativeIntentKeywords?: string[];
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(40)
+  @IsString({ each: true })
+  whatIsItIntentKeywords?: string[];
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(40)
+  @IsString({ each: true })
+  neutralIntentKeywords?: string[];
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(20)
+  @IsString({ each: true })
+  firstContactVariants?: string[];
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(20)
+  @IsString({ each: true })
+  positiveReplyVariants?: string[];
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(20)
+  @IsString({ each: true })
+  whatIsItReplyVariants?: string[];
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(20)
+  @IsString({ each: true })
+  optOutVariants?: string[];
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(20)
+  @IsString({ each: true })
+  neutralHandoffVariants?: string[];
 
   @IsOptional()
   @IsString()

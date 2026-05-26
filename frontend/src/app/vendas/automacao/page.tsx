@@ -1,18 +1,18 @@
 export const dynamic = "force-dynamic";
 
 import { redirect } from "next/navigation";
-import VendasAutomationClientPage from "./page.client";
+import { withLegacySearchParams, type LegacySearchParams } from "@/app/_lib/legacyRedirect";
 
 type VendasAutomationPageProps = {
-  searchParams?: Promise<Record<string, string | string[] | undefined>> | Record<string, string | string[] | undefined>;
+  searchParams?: Promise<LegacySearchParams> | LegacySearchParams;
 };
 
 export default async function Page({ searchParams }: VendasAutomationPageProps) {
   const params = await searchParams;
   const mode = Array.isArray(params?.mode) ? params?.mode[0] : params?.mode;
   if (String(mode || "").trim().toLowerCase() === "mobile") {
-    redirect("/vendas");
+    redirect("/atendimento");
   }
 
-  return <VendasAutomationClientPage />;
+  redirect(withLegacySearchParams("/atendimento/automacao", params));
 }

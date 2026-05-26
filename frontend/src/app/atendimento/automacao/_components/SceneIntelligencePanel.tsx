@@ -1,4 +1,4 @@
-import type { AtendimentoBotConfig } from "../../../atendimento/inbox-model";
+import type { AtendimentoBotConfig } from "../../inbox-model";
 import type { ConversationScene } from "./ConversationBuilder";
 import styles from "./ConversationBuilder.module.css";
 
@@ -136,7 +136,7 @@ export default function SceneIntelligencePanel({
 
       <div className={styles.intelligenceTags}>
         <span>canal: {channelLabel}</span>
-        <span>modulo Vendas</span>
+        <span>modulo Atendimento</span>
         <span>recoveryEnabled: {recoveryEnabled ? "sim" : "nao"}</span>
       </div>
     </section>

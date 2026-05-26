@@ -226,7 +226,7 @@ export default function PlanosClientPage({ mobileRoute = false }: { mobileRoute?
   const closeFallbackBase =
     explicitReturnTo ||
     (from === "vendas_automacao" || intent === "bot_ia"
-      ? "/vendas/automacao"
+      ? "/atendimento/automacao"
       : intent === "lead"
         ? "/vendas"
         : "/boasvindas");

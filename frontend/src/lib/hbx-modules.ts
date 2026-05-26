@@ -59,7 +59,7 @@ export function resolveModuleHref(key: string, fallback?: string | null) {
     website: "/website",
     master: "/master",
     exclusoes: "/master/exclusoes",
-    whatsapp: "/vendas/automacao?tab=connection",
+    whatsapp: "/atendimento/automacao?tab=connection",
   };
 
   return routes[normalized] || normalizeInternalRouteAlias(fallback) || "/boasvindas";
@@ -106,8 +106,8 @@ export function resolveModuleBlockedHref(module: Pick<UserModule, "key" | "criti
   const normalizedKey = normalizeUserModuleKey(module.key);
 
   if (criticalEngine === "whatsapp") {
-    if (blockedCode === "whatsapp_missing") return "/vendas/automacao?tab=connection";
-    return "/vendas/automacao?tab=connection";
+    if (blockedCode === "whatsapp_missing") return "/atendimento/automacao?tab=connection";
+    return "/atendimento/automacao?tab=connection";
   }
 
   if (criticalEngine === "payment") {

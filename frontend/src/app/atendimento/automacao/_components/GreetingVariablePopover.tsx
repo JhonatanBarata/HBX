@@ -1,4 +1,4 @@
-import type { AtendimentoBotConfig } from "../../../atendimento/inbox-model";
+import type { AtendimentoBotConfig } from "../../inbox-model";
 import styles from "./ConversationBuilder.module.css";
 
 type Props = {

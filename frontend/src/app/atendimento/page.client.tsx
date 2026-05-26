@@ -11,6 +11,8 @@ import {
   type MouseEvent as ReactMouseEvent,
   type FormEvent,
   type CSSProperties,
+  type RefObject,
+  type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
@@ -193,6 +195,7 @@ type ProspectingCampaignConfig = {
   targetType: "pj" | "pf" | "agenda_pf";
   messageTemplate: string;
   intervalMinutes: number;
+  intervalVarianceMinutes: number;
   workingHoursStart: string;
   workingHoursEnd: string;
   dailyLimit: number;
@@ -203,10 +206,60 @@ type ProspectingCampaignConfig = {
   typingVarianceSeconds: number;
   positiveIntentKeywords: string[];
   negativeIntentKeywords: string[];
+  whatIsItIntentKeywords: string[];
+  neutralIntentKeywords: string[];
+  firstContactVariants: string[];
+  positiveReplyVariants: string[];
+  whatIsItReplyVariants: string[];
+  optOutVariants: string[];
+  neutralHandoffVariants: string[];
   optOutMessage: string;
   optOutReplyEnabled: boolean;
   websiteFallbackEnabled: boolean;
+  filtersJson?: Record<string, unknown>;
 };
+
+const DEFAULT_FIRST_CONTACT_VARIANTS = [
+  "{{cumprimentacao}}, tudo bem? Vi a {{empresaresumo}} em {{cidade}}. Posso te mandar uma ideia rápida?",
+  "Oi, tudo bem? Vi a {{empresaresumo}} e pensei numa forma simples de organizar retornos pelo WhatsApp. Posso te explicar rapidinho?",
+  "Oi! Vi a {{cliente}} em {{cidade}}. Posso te mandar uma explicação curta sobre organização pelo WhatsApp?",
+  "Oii, tudo bem? Trabalho com uma ferramenta para organizar contatos e retornos. Posso te explicar em 1 minuto?",
+  "Oi, tudo bem? Vi a {{empresaresumo}} em {{cidade}} e queria te mostrar uma ideia simples para melhorar os retornos. Posso mandar?",
+];
+
+const DEFAULT_POSITIVE_REPLY_VARIANTS = [
+  "Perfeito. Vou deixar um resumo curto aqui para o atendimento humano continuar com você.",
+  "Boa. Já vou separar uma explicação objetiva para o nosso atendimento te mostrar com calma.",
+  "Combinado. Vou te passar para uma pessoa do time continuar sem mensagem automática.",
+  "Legal. Vou preparar o próximo passo para um humano te atender por aqui.",
+  "Show. Vou marcar como interessado e deixar o atendimento humano seguir com você.",
+];
+
+const DEFAULT_WHAT_IS_IT_REPLY_VARIANTS = [
+  "É uma forma de organizar contatos, orçamentos e retornos pelo WhatsApp. Vou deixar um resumo para o atendimento humano te explicar melhor.",
+  "É sobre organização comercial no WhatsApp. Vou passar para uma pessoa te explicar sem mensagem automática longa.",
+  "É uma ferramenta para ajudar no controle de contatos e retornos. Vou deixar o atendimento humano continuar com você.",
+  "É uma solução para acompanhar conversas, orçamentos e retornos. Vou preparar um resumo curto para o time humano.",
+  "É para melhorar a rotina de vendas e atendimento pelo WhatsApp. Vou encaminhar para uma pessoa te explicar.",
+];
+
+const DEFAULT_OPT_OUT_VARIANTS = [
+  "Entendi. Vou arquivar este contato e não chamaremos novamente.",
+  "Tudo bem. Vou remover este contato da prospecção.",
+  "Entendido. Não vamos chamar novamente por aqui.",
+  "Certo, vou arquivar e bloquear novos contatos automáticos.",
+  "Sem problema. Seu contato fica removido da nossa prospecção.",
+];
+
+const DEFAULT_NEUTRAL_HANDOFF_VARIANTS = [
+  "Vou passar para uma pessoa do atendimento continuar com você.",
+  "Vou deixar isso com o atendimento humano para responder melhor.",
+  "Certo. Um humano continua daqui para frente.",
+  "Vou encaminhar para o time humano verificar.",
+  "Obrigado pelo retorno. Vou deixar o atendimento humano seguir.",
+];
+const DEFAULT_WHAT_IS_IT_INTENT_KEYWORDS = ["o que é", "oque é", "sobre o que", "como funciona", "me explica", "explica melhor", "do que se trata"];
+const DEFAULT_NEUTRAL_INTENT_KEYWORDS = ["vou ver", "mais tarde", "depois", "manda depois", "me chama depois", "entendi", "ok"];
 
 const DEFAULT_PROSPECTING_CAMPAIGN_CONFIG: ProspectingCampaignConfig = {
   city: "",
@@ -214,20 +267,28 @@ const DEFAULT_PROSPECTING_CAMPAIGN_CONFIG: ProspectingCampaignConfig = {
   segment: "",
   engine: "hbx",
   targetType: "pj",
-  messageTemplate: "Oi, tudo bem? Vi a {{empresaresumo}} em {{cidade}}. Posso te mandar uma ideia rápida?",
-  intervalMinutes: 18,
-  workingHoursStart: "08:30",
+  messageTemplate: DEFAULT_FIRST_CONTACT_VARIANTS[0],
+  intervalMinutes: 15,
+  intervalVarianceMinutes: 30,
+  workingHoursStart: "08:00",
   workingHoursEnd: "18:00",
-  dailyLimit: 20,
-  minLeadBuffer: 15,
-  desiredLeadBuffer: 60,
-  maxAttemptsPerLead: 2,
+  dailyLimit: 10,
+  minLeadBuffer: 10,
+  desiredLeadBuffer: 10,
+  maxAttemptsPerLead: 1,
   typingSeconds: 8,
-  typingVarianceSeconds: 4,
-  positiveIntentKeywords: ["tenho interesse", "pode mandar", "quero saber", "sim"],
-  negativeIntentKeywords: ["não tenho interesse", "pare", "remover", "spam"],
-  optOutMessage: "Tudo certo, vou remover seu contato por aqui. Obrigado.",
-  optOutReplyEnabled: true,
+  typingVarianceSeconds: 12,
+  positiveIntentKeywords: ["tenho interesse", "pode mandar", "quero saber", "me explica", "quanto custa"],
+  negativeIntentKeywords: ["não tenho interesse", "não quero", "remover", "pare", "não me chame", "spam", "bloqueia", "não autorizei"],
+  whatIsItIntentKeywords: DEFAULT_WHAT_IS_IT_INTENT_KEYWORDS,
+  neutralIntentKeywords: DEFAULT_NEUTRAL_INTENT_KEYWORDS,
+  firstContactVariants: DEFAULT_FIRST_CONTACT_VARIANTS,
+  positiveReplyVariants: DEFAULT_POSITIVE_REPLY_VARIANTS,
+  whatIsItReplyVariants: DEFAULT_WHAT_IS_IT_REPLY_VARIANTS,
+  optOutVariants: DEFAULT_OPT_OUT_VARIANTS,
+  neutralHandoffVariants: DEFAULT_NEUTRAL_HANDOFF_VARIANTS,
+  optOutMessage: DEFAULT_OPT_OUT_VARIANTS[0],
+  optOutReplyEnabled: false,
   websiteFallbackEnabled: false,
 };
 
@@ -819,12 +880,40 @@ function getProspectingRobotTone(
   return "off";
 }
 
-function normalizeProspectingList(value: string, fallback: string[]) {
-  const items = value
-    .split(/[,;\n]+/g)
-    .map((item) => item.trim())
+function normalizeProspectingList(value: unknown, fallback: string[]) {
+  const source = Array.isArray(value)
+    ? value
+    : typeof value === "string"
+      ? value.split(/[,;\n]+/g)
+      : fallback;
+  const items = source
+    .map((item) => String(item || "").trim())
     .filter(Boolean);
-  return items.length ? items : fallback;
+  return items.length ? Array.from(new Set(items)) : fallback;
+}
+
+function normalizeProspectingVariantList(value: unknown, fallback: string[]) {
+  const source = Array.isArray(value)
+    ? value
+    : typeof value === "string"
+      ? value.split(/\r?\n/g)
+      : fallback;
+  const items = source
+    .map((item) => String(item || "").trim())
+    .filter(Boolean);
+  return items.length ? Array.from(new Set(items)) : fallback;
+}
+
+function joinProspectingVariantList(value: string[]) {
+  return normalizeProspectingVariantList(value, []).join("\n");
+}
+
+function calculateProspectingCapacity(config: ProspectingCampaignConfig) {
+  const [startHour, startMinute] = String(config.workingHoursStart || "08:00").split(":").map((part) => Number(part) || 0);
+  const [endHour, endMinute] = String(config.workingHoursEnd || "18:00").split(":").map((part) => Number(part) || 0);
+  const windowMinutes = Math.max(0, (endHour * 60 + endMinute) - (startHour * 60 + startMinute));
+  const averageInterval = Math.max(1, Number(config.intervalMinutes || 15)) + Math.max(0, Number(config.intervalVarianceMinutes || 0)) / 2;
+  return Math.max(1, Math.min(80, Math.floor(windowMinutes / averageInterval)));
 }
 
 function sanitizeFirstContactPreview(text: string) {
@@ -930,6 +1019,10 @@ function computeBrasiliaGreeting() {
 
 function buildProspectingCampaignConfig(status: ProspectingAutomationLiveStatus | null): ProspectingCampaignConfig {
   const campaign = status?.campaign;
+  const campaignFilters: Record<string, unknown> =
+    campaign?.filtersJson && typeof campaign.filtersJson === "object" ? campaign.filtersJson : {};
+  const campaignMessageTemplate = String(campaign?.messageTemplate || "").trim();
+  const campaignOptOutMessage = String(campaign?.optOutMessage || "").trim();
   return {
     ...DEFAULT_PROSPECTING_CAMPAIGN_CONFIG,
     ...(campaign || {}),
@@ -941,31 +1034,87 @@ function buildProspectingCampaignConfig(status: ProspectingAutomationLiveStatus 
       campaign?.targetType === "pf" || campaign?.targetType === "agenda_pf"
         ? campaign.targetType
         : "pj",
+    messageTemplate: String(campaign?.messageTemplate || DEFAULT_PROSPECTING_CAMPAIGN_CONFIG.messageTemplate),
+    intervalMinutes: Number(campaign?.intervalMinutes || DEFAULT_PROSPECTING_CAMPAIGN_CONFIG.intervalMinutes),
+    intervalVarianceMinutes: Number(campaign?.intervalVarianceMinutes || campaignFilters.intervalVarianceMinutes || DEFAULT_PROSPECTING_CAMPAIGN_CONFIG.intervalVarianceMinutes),
+    workingHoursStart: String(campaign?.workingHoursStart || DEFAULT_PROSPECTING_CAMPAIGN_CONFIG.workingHoursStart),
+    workingHoursEnd: String(campaign?.workingHoursEnd || DEFAULT_PROSPECTING_CAMPAIGN_CONFIG.workingHoursEnd),
+    dailyLimit: Number(campaign?.dailyLimit || DEFAULT_PROSPECTING_CAMPAIGN_CONFIG.dailyLimit),
+    minLeadBuffer: Number(campaign?.minLeadBuffer || DEFAULT_PROSPECTING_CAMPAIGN_CONFIG.minLeadBuffer),
+    desiredLeadBuffer: Number(campaign?.desiredLeadBuffer || DEFAULT_PROSPECTING_CAMPAIGN_CONFIG.desiredLeadBuffer),
+    maxAttemptsPerLead: Math.max(1, Number(campaign?.maxAttemptsPerLead || DEFAULT_PROSPECTING_CAMPAIGN_CONFIG.maxAttemptsPerLead)),
+    typingSeconds: Number(campaign?.typingSeconds || DEFAULT_PROSPECTING_CAMPAIGN_CONFIG.typingSeconds),
+    typingVarianceSeconds: Number(campaign?.typingVarianceSeconds || DEFAULT_PROSPECTING_CAMPAIGN_CONFIG.typingVarianceSeconds),
     positiveIntentKeywords: Array.isArray(campaign?.positiveIntentKeywords)
       ? campaign.positiveIntentKeywords
       : DEFAULT_PROSPECTING_CAMPAIGN_CONFIG.positiveIntentKeywords,
     negativeIntentKeywords: Array.isArray(campaign?.negativeIntentKeywords)
       ? campaign.negativeIntentKeywords
       : DEFAULT_PROSPECTING_CAMPAIGN_CONFIG.negativeIntentKeywords,
+    whatIsItIntentKeywords: normalizeProspectingList(campaign?.whatIsItIntentKeywords || campaignFilters.whatIsItIntentKeywords, DEFAULT_PROSPECTING_CAMPAIGN_CONFIG.whatIsItIntentKeywords),
+    neutralIntentKeywords: normalizeProspectingList(campaign?.neutralIntentKeywords || campaignFilters.neutralIntentKeywords, DEFAULT_PROSPECTING_CAMPAIGN_CONFIG.neutralIntentKeywords),
+    firstContactVariants: normalizeProspectingVariantList(
+      campaign?.firstContactVariants || campaignFilters.firstContactVariants || (campaignMessageTemplate ? [campaignMessageTemplate] : null),
+      DEFAULT_PROSPECTING_CAMPAIGN_CONFIG.firstContactVariants,
+    ),
+    positiveReplyVariants: normalizeProspectingVariantList(campaign?.positiveReplyVariants || campaignFilters.positiveReplyVariants, DEFAULT_PROSPECTING_CAMPAIGN_CONFIG.positiveReplyVariants),
+    whatIsItReplyVariants: normalizeProspectingVariantList(campaign?.whatIsItReplyVariants || campaignFilters.whatIsItReplyVariants, DEFAULT_PROSPECTING_CAMPAIGN_CONFIG.whatIsItReplyVariants),
+    optOutVariants: normalizeProspectingVariantList(
+      campaign?.optOutVariants || campaignFilters.optOutVariants || (campaignOptOutMessage ? [campaignOptOutMessage] : null),
+      DEFAULT_PROSPECTING_CAMPAIGN_CONFIG.optOutVariants,
+    ),
+    neutralHandoffVariants: normalizeProspectingVariantList(campaign?.neutralHandoffVariants || campaignFilters.neutralHandoffVariants, DEFAULT_PROSPECTING_CAMPAIGN_CONFIG.neutralHandoffVariants),
+    optOutMessage: String(campaign?.optOutMessage || DEFAULT_PROSPECTING_CAMPAIGN_CONFIG.optOutMessage),
+    optOutReplyEnabled: Boolean(campaign?.optOutReplyEnabled ?? campaignFilters.optOutReplyEnabled ?? DEFAULT_PROSPECTING_CAMPAIGN_CONFIG.optOutReplyEnabled),
+    websiteFallbackEnabled: false,
+    filtersJson: campaignFilters,
   };
 }
 
 function toProspectingCampaignPayload(config: ProspectingCampaignConfig): ProspectingCampaignConfig {
+  const firstContactVariants = normalizeProspectingVariantList(config.firstContactVariants, DEFAULT_PROSPECTING_CAMPAIGN_CONFIG.firstContactVariants)
+    .map((message) => sanitizeFirstContactPreview(message))
+    .filter(Boolean);
+  const optOutVariants = normalizeProspectingVariantList(config.optOutVariants, DEFAULT_PROSPECTING_CAMPAIGN_CONFIG.optOutVariants);
   return {
     ...config,
     state: config.state.trim().toUpperCase(),
     city: config.city.trim(),
     segment: config.segment.trim(),
-    dailyLimit: Math.max(1, Math.trunc(Number(config.dailyLimit || 1))),
+    messageTemplate: firstContactVariants[0] || sanitizeFirstContactPreview(config.messageTemplate) || DEFAULT_PROSPECTING_CAMPAIGN_CONFIG.messageTemplate,
+    dailyLimit: calculateProspectingCapacity(config),
     intervalMinutes: Math.max(1, Math.trunc(Number(config.intervalMinutes || 1))),
+    intervalVarianceMinutes: Math.max(0, Math.trunc(Number(config.intervalVarianceMinutes || 0))),
     typingSeconds: Math.max(0, Math.trunc(Number(config.typingSeconds || 0))),
     typingVarianceSeconds: Math.max(0, Math.trunc(Number(config.typingVarianceSeconds || 0))),
     minLeadBuffer: Math.max(1, Math.trunc(Number(config.minLeadBuffer || 1))),
     desiredLeadBuffer: Math.max(1, Math.trunc(Number(config.desiredLeadBuffer || 1))),
     maxAttemptsPerLead: Math.max(1, Math.trunc(Number(config.maxAttemptsPerLead || 1))),
+    positiveIntentKeywords: normalizeProspectingList(config.positiveIntentKeywords, DEFAULT_PROSPECTING_CAMPAIGN_CONFIG.positiveIntentKeywords),
+    negativeIntentKeywords: normalizeProspectingList(config.negativeIntentKeywords, DEFAULT_PROSPECTING_CAMPAIGN_CONFIG.negativeIntentKeywords),
+    whatIsItIntentKeywords: normalizeProspectingList(config.whatIsItIntentKeywords, DEFAULT_PROSPECTING_CAMPAIGN_CONFIG.whatIsItIntentKeywords),
+    neutralIntentKeywords: normalizeProspectingList(config.neutralIntentKeywords, DEFAULT_PROSPECTING_CAMPAIGN_CONFIG.neutralIntentKeywords),
+    firstContactVariants: firstContactVariants.length ? firstContactVariants : DEFAULT_PROSPECTING_CAMPAIGN_CONFIG.firstContactVariants,
+    positiveReplyVariants: normalizeProspectingVariantList(config.positiveReplyVariants, DEFAULT_PROSPECTING_CAMPAIGN_CONFIG.positiveReplyVariants),
+    whatIsItReplyVariants: normalizeProspectingVariantList(config.whatIsItReplyVariants, DEFAULT_PROSPECTING_CAMPAIGN_CONFIG.whatIsItReplyVariants),
+    optOutVariants,
+    neutralHandoffVariants: normalizeProspectingVariantList(config.neutralHandoffVariants, DEFAULT_PROSPECTING_CAMPAIGN_CONFIG.neutralHandoffVariants),
+    optOutMessage: optOutVariants[0] || config.optOutMessage || DEFAULT_PROSPECTING_CAMPAIGN_CONFIG.optOutMessage,
     engine: "hbx",
     targetType: "pj",
     websiteFallbackEnabled: false,
+    filtersJson: {
+      ...(config.filtersJson || {}),
+      intervalVarianceMinutes: Math.max(0, Math.trunc(Number(config.intervalVarianceMinutes || 0))),
+      firstContactVariants: firstContactVariants.length ? firstContactVariants : DEFAULT_PROSPECTING_CAMPAIGN_CONFIG.firstContactVariants,
+      positiveReplyVariants: normalizeProspectingVariantList(config.positiveReplyVariants, DEFAULT_PROSPECTING_CAMPAIGN_CONFIG.positiveReplyVariants),
+      whatIsItReplyVariants: normalizeProspectingVariantList(config.whatIsItReplyVariants, DEFAULT_PROSPECTING_CAMPAIGN_CONFIG.whatIsItReplyVariants),
+      optOutVariants,
+      neutralHandoffVariants: normalizeProspectingVariantList(config.neutralHandoffVariants, DEFAULT_PROSPECTING_CAMPAIGN_CONFIG.neutralHandoffVariants),
+      whatIsItIntentKeywords: normalizeProspectingList(config.whatIsItIntentKeywords, DEFAULT_PROSPECTING_CAMPAIGN_CONFIG.whatIsItIntentKeywords),
+      neutralIntentKeywords: normalizeProspectingList(config.neutralIntentKeywords, DEFAULT_PROSPECTING_CAMPAIGN_CONFIG.neutralIntentKeywords),
+      optOutReplyEnabled: config.optOutReplyEnabled,
+    },
   };
 }
 
@@ -1032,7 +1181,7 @@ function ProspectingAutomationStatus({
         <span>Pendentes <strong>{counters.pending}</strong></span>
         <span>Enviados <strong>{counters.sent}</strong></span>
         <span>Interessados <strong>{counters.interested}</strong></span>
-        <span title="Negativos, sem resposta, pulados ou cancelados pela campanha">Encerrados <strong>{counters.archived}</strong></span>
+        <span title="Negativos, sem resposta, pulados ou encerrados pela automação">Encerrados <strong>{counters.archived}</strong></span>
         <span>Falhas <strong>{counters.failed}</strong></span>
       </div>
       <div className={styles.automationPulseActions}>
@@ -1052,6 +1201,21 @@ function ProspectingAutomationStatus({
     </section>
   );
 }
+
+type ProspectingVariantField =
+  | "firstContactVariants"
+  | "positiveReplyVariants"
+  | "whatIsItReplyVariants"
+  | "optOutVariants"
+  | "neutralHandoffVariants";
+
+type ProspectingKeywordField =
+  | "positiveIntentKeywords"
+  | "negativeIntentKeywords"
+  | "whatIsItIntentKeywords"
+  | "neutralIntentKeywords";
+
+type ProspectingVariableTarget = "messageTemplate" | "optOutMessage" | ProspectingVariantField;
 
 function ProspectingCampaignStudioModal({
   open,
@@ -1080,11 +1244,25 @@ function ProspectingCampaignStudioModal({
 }) {
   const [page, setPage] = useState<"mensagem" | "radar">("mensagem");
   const [variablesOpen, setVariablesOpen] = useState(false);
-  const [variableTarget, setVariableTarget] = useState<"messageTemplate" | "optOutMessage">("messageTemplate");
+  const [variableTarget, setVariableTarget] = useState<ProspectingVariableTarget>("firstContactVariants");
   const [positiveDraft, setPositiveDraft] = useState(config.positiveIntentKeywords.join(", "));
   const [negativeDraft, setNegativeDraft] = useState(config.negativeIntentKeywords.join(", "));
+  const [whatIsItDraft, setWhatIsItDraft] = useState(config.whatIsItIntentKeywords.join(", "));
+  const [neutralDraft, setNeutralDraft] = useState(config.neutralIntentKeywords.join(", "));
+  const [variantIndexes, setVariantIndexes] = useState<Record<ProspectingVariantField, number>>({
+    firstContactVariants: 0,
+    positiveReplyVariants: 0,
+    whatIsItReplyVariants: 0,
+    optOutVariants: 0,
+    neutralHandoffVariants: 0,
+  });
   const messageTemplateRef = useRef<HTMLTextAreaElement | null>(null);
   const optOutMessageRef = useRef<HTMLTextAreaElement | null>(null);
+  const firstContactVariantsRef = useRef<HTMLTextAreaElement | null>(null);
+  const positiveReplyVariantsRef = useRef<HTMLTextAreaElement | null>(null);
+  const whatIsItReplyVariantsRef = useRef<HTMLTextAreaElement | null>(null);
+  const optOutVariantsRef = useRef<HTMLTextAreaElement | null>(null);
+  const neutralHandoffVariantsRef = useRef<HTMLTextAreaElement | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -1105,13 +1283,25 @@ function ProspectingCampaignStudioModal({
     setNegativeDraft(config.negativeIntentKeywords.join(", "));
   }, [config.negativeIntentKeywords]);
 
+  useEffect(() => {
+    // Keep local drafts aligned after loading a saved campaign.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setWhatIsItDraft(config.whatIsItIntentKeywords.join(", "));
+  }, [config.whatIsItIntentKeywords]);
+
+  useEffect(() => {
+    // Keep local drafts aligned after loading a saved campaign.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setNeutralDraft(config.neutralIntentKeywords.join(", "));
+  }, [config.neutralIntentKeywords]);
+
   if (!open || typeof document === "undefined") return null;
 
   const setField = <K extends keyof ProspectingCampaignConfig,>(field: K, value: ProspectingCampaignConfig[K]) => {
     onChange((current) => ({ ...current, [field]: value }));
   };
   const setNumberField = (
-    field: "dailyLimit" | "intervalMinutes" | "typingSeconds" | "typingVarianceSeconds",
+    field: "intervalMinutes" | "intervalVarianceMinutes" | "typingSeconds" | "typingVarianceSeconds",
     value: string,
     min = 0,
   ) => {
@@ -1124,18 +1314,74 @@ function ProspectingCampaignStudioModal({
   ) => {
     onChange((current) => ({ ...current, [field]: Math.max(min, Math.trunc(Number(value) || 0)) }));
   };
-  const setListField = (field: "positiveIntentKeywords" | "negativeIntentKeywords", value: string) => {
+  const setListField = (field: ProspectingKeywordField, value: string) => {
     onChange((current) => ({ ...current, [field]: normalizeProspectingList(value, current[field]) }));
+  };
+  const getEditableVariantList = (field: ProspectingVariantField) => {
+    const items = Array.isArray(config[field]) ? config[field].map((item) => String(item ?? "")) : [];
+    return items.length ? items : [""];
+  };
+  const setVariantListField = (field: ProspectingVariantField, nextList: string[]) => {
+    const cleanList = nextList.slice(0, 20).map((item) => String(item ?? ""));
+    onChange((current) => ({ ...current, [field]: cleanList.length ? cleanList : [""] }));
+  };
+  const setVariantAt = (field: ProspectingVariantField, index: number, value: string) => {
+    const nextList = getEditableVariantList(field);
+    nextList[index] = value;
+    setVariantListField(field, nextList);
+  };
+  const clampVariantIndex = (field: ProspectingVariantField, index: number) => {
+    const total = getEditableVariantList(field).length;
+    return Math.max(0, Math.min(Math.max(0, total - 1), index));
+  };
+  const setVariantIndex = (field: ProspectingVariantField, index: number) => {
+    setVariantIndexes((current) => ({ ...current, [field]: clampVariantIndex(field, index) }));
+  };
+  const addVariant = (field: ProspectingVariantField) => {
+    const nextList = getEditableVariantList(field);
+    if (nextList.length >= 20) return;
+    const currentIndex = clampVariantIndex(field, variantIndexes[field] || 0);
+    nextList.splice(currentIndex + 1, 0, "");
+    setVariantListField(field, nextList);
+    setVariantIndexes((current) => ({ ...current, [field]: currentIndex + 1 }));
+  };
+  const removeVariant = (field: ProspectingVariantField) => {
+    const nextList = getEditableVariantList(field);
+    const currentIndex = clampVariantIndex(field, variantIndexes[field] || 0);
+    if (nextList.length <= 1) {
+      setVariantListField(field, [""]);
+      setVariantIndexes((current) => ({ ...current, [field]: 0 }));
+      return;
+    }
+    nextList.splice(currentIndex, 1);
+    setVariantListField(field, nextList);
+    setVariantIndexes((current) => ({ ...current, [field]: Math.max(0, Math.min(currentIndex, nextList.length - 1)) }));
   };
   const insertVariable = (token: string) => {
     const field = variableTarget;
-    const ref = field === "messageTemplate" ? messageTemplateRef.current : optOutMessageRef.current;
-    const currentValue = String(config[field] || "");
+    const refs = {
+      messageTemplate: messageTemplateRef.current,
+      optOutMessage: optOutMessageRef.current,
+      firstContactVariants: firstContactVariantsRef.current,
+      positiveReplyVariants: positiveReplyVariantsRef.current,
+      whatIsItReplyVariants: whatIsItReplyVariantsRef.current,
+      optOutVariants: optOutVariantsRef.current,
+      neutralHandoffVariants: neutralHandoffVariantsRef.current,
+    };
+    const ref = refs[field];
+    const variantIndex = Array.isArray(config[field]) ? clampVariantIndex(field as ProspectingVariantField, variantIndexes[field as ProspectingVariantField] || 0) : 0;
+    const currentValue = Array.isArray(config[field])
+      ? getEditableVariantList(field as ProspectingVariantField)[variantIndex] || ""
+      : String(config[field] || "");
     const start = ref?.selectionStart ?? currentValue.length;
     const end = ref?.selectionEnd ?? currentValue.length;
     const insert = `{{${token}}}`;
     const nextValue = `${currentValue.slice(0, start)}${insert}${currentValue.slice(end)}`;
-    setField(field, nextValue as ProspectingCampaignConfig[typeof field]);
+    if (Array.isArray(config[field])) {
+      setVariantAt(field as ProspectingVariantField, variantIndex, nextValue);
+    } else {
+      setField(field, nextValue as ProspectingCampaignConfig[typeof field]);
+    }
     setVariablesOpen(false);
     window.setTimeout(() => {
       ref?.focus();
@@ -1148,9 +1394,11 @@ function ProspectingCampaignStudioModal({
     empresa: companyName || "HBX",
     funcionario: "time comercial",
   };
-  const sanitizedMessagePreview = sanitizeFirstContactPreview(config.messageTemplate) || DEFAULT_PROSPECTING_CAMPAIGN_CONFIG.messageTemplate;
-  const messageTemplateHasLink = hasFirstContactLink(config.messageTemplate);
-  const firstStepReady = Boolean(config.messageTemplate.trim() && config.workingHoursStart && config.workingHoursEnd);
+  const firstContactText = config.firstContactVariants[0] || config.messageTemplate;
+  const optOutText = config.optOutVariants[0] || config.optOutMessage;
+  const sanitizedMessagePreview = sanitizeFirstContactPreview(firstContactText) || DEFAULT_PROSPECTING_CAMPAIGN_CONFIG.messageTemplate;
+  const messageTemplateHasLink = hasFirstContactLink(joinProspectingVariantList(config.firstContactVariants));
+  const firstStepReady = Boolean(config.firstContactVariants.some((item) => item.trim()) && config.workingHoursStart && config.workingHoursEnd);
   const radarQuery = {
     state: config.state,
     city: config.city,
@@ -1161,6 +1409,61 @@ function ProspectingCampaignStudioModal({
     if (value) radarFrameParams.set(key, String(value));
   });
   const radarFrameSrc = `/mobile/radar-digital${radarFrameParams.toString() ? `?${radarFrameParams.toString()}` : ""}`;
+  const renderTriggerPanel = (
+    field: ProspectingKeywordField,
+    label: string,
+    value: string,
+    setValue: (value: string) => void,
+    helper: string,
+  ) => (
+    <label className={styles.campaignClassifierPanel}>
+      <strong>{label}</strong>
+      <textarea
+        className={styles.campaignClassifierTextarea}
+        value={value}
+        onChange={(event) => setValue(event.target.value)}
+        onBlur={(event) => setListField(field, event.target.value)}
+      />
+      <small>{helper}</small>
+    </label>
+  );
+  const renderVariantPager = (
+    field: ProspectingVariantField,
+    label: string,
+    helper: string,
+    ref: RefObject<HTMLTextAreaElement | null>,
+    options?: { disabled?: boolean; triggerPanel?: ReactNode },
+  ) => {
+    const list = getEditableVariantList(field);
+    const index = clampVariantIndex(field, variantIndexes[field] || 0);
+    const disabled = Boolean(options?.disabled);
+    return (
+      <div className={`${styles.campaignWideField} ${styles.campaignVariantPager}`} data-disabled={disabled ? "true" : "false"}>
+        <div className={styles.campaignVariantHeader}>
+          {options?.triggerPanel || <strong>{label}</strong>}
+          <span>{index + 1} de {list.length}</span>
+        </div>
+        <div className={styles.campaignVariantBody}>
+          <textarea
+            key={`${field}-${index}`}
+            ref={ref}
+            value={list[index] || ""}
+            disabled={disabled}
+            onFocus={() => setVariableTarget(field)}
+            onChange={(event) => setVariantAt(field, index, event.target.value)}
+            placeholder="Escreva esta variação..."
+          />
+          <div className={styles.campaignVariantActions}>
+            <button type="button" onClick={() => addVariant(field)} disabled={disabled || list.length >= 20} title="Adicionar variação">+</button>
+            <button type="button" onClick={() => setVariantIndex(field, index + 1)} disabled={disabled || index >= list.length - 1} title="Próxima variação">&gt;</button>
+            <button type="button" onClick={() => setVariantIndex(field, index - 1)} disabled={disabled || index <= 0} title="Variação anterior">&lt;</button>
+            <button type="button" onClick={() => removeVariant(field)} disabled={disabled} title="Remover variação">Del</button>
+          </div>
+        </div>
+        <small>{helper}</small>
+      </div>
+    );
+  };
 
   return createPortal(
     <div className={styles.campaignStudioBackdrop} role="presentation" onClick={onClose}>
@@ -1174,14 +1477,14 @@ function ProspectingCampaignStudioModal({
         <header className={styles.campaignStudioHeader}>
           <div>
             <span>Atendimento &gt; Hbot</span>
-            <strong id="campaign-studio-title">Campanha WhatsApp</strong>
+            <strong id="campaign-studio-title">HBot WhatsApp</strong>
           </div>
           <div className={styles.campaignStudioHeaderActions}>
             <button type="button" className={styles.campaignCloseButton} onClick={onClose}>Fechar</button>
           </div>
         </header>
 
-        <div className={styles.campaignStudioTabs} role="tablist" aria-label="Etapas da campanha">
+        <div className={styles.campaignStudioTabs} role="tablist" aria-label="Etapas do HBot">
           <button type="button" data-active={page === "mensagem" ? "true" : "false"} onClick={() => setPage("mensagem")}>1. Mensagem inicial</button>
           <button type="button" data-active={page === "radar" ? "true" : "false"} onClick={() => setPage("radar")}>2. Radar</button>
         </div>
@@ -1212,17 +1515,12 @@ function ProspectingCampaignStudioModal({
                 </div>
 
                 <div className={styles.campaignMessageCard}>
-                  <label className={styles.campaignField}>
-                    <span>Mensagem inicial</span>
-                    <textarea
-                      ref={messageTemplateRef}
-                      value={config.messageTemplate}
-                      onFocus={() => setVariableTarget("messageTemplate")}
-                      onChange={(event) => setField("messageTemplate", event.target.value)}
-                      placeholder="Digite a primeira mensagem da campanha..."
-                    />
-                    <small>Primeiro contato não envia links automaticamente. Links só depois que a pessoa responder.</small>
-                  </label>
+                  {renderVariantPager(
+                    "firstContactVariants",
+                    "Variações da primeira mensagem",
+                    "Primeiro contato não envia links automaticamente. Use as setas para navegar entre as variações.",
+                    firstContactVariantsRef,
+                  )}
                   {messageTemplateHasLink ? (
                     <div className={styles.campaignRiskNotice}>
                       O link será removido no primeiro contato para proteger o número.
@@ -1238,39 +1536,90 @@ function ProspectingCampaignStudioModal({
                       <input type="number" min={1} value={config.intervalMinutes} onChange={(event) => setNumberField("intervalMinutes", event.target.value, 1)} />
                     </label>
                     <label className={styles.campaignField}>
+                      <span>Variação do intervalo</span>
+                      <input type="number" min={0} value={config.intervalVarianceMinutes} onChange={(event) => setNumberField("intervalVarianceMinutes", event.target.value, 0)} />
+                    </label>
+                    <label className={styles.campaignField}>
                       <span>Typing</span>
                       <input type="number" min={0} value={config.typingSeconds} onChange={(event) => setNumberField("typingSeconds", event.target.value, 0)} />
                     </label>
                     <label className={styles.campaignField}>
-                      <span>Variação</span>
+                      <span>Variação do typing</span>
                       <input type="number" min={0} value={config.typingVarianceSeconds} onChange={(event) => setNumberField("typingVarianceSeconds", event.target.value, 0)} />
                     </label>
                     <label className={styles.campaignField}>
                       <span>Tentativas por contato</span>
                       <input type="number" min={1} value={config.maxAttemptsPerLead} onChange={(event) => setAdvancedNumberField("maxAttemptsPerLead", event.target.value, 1)} />
                     </label>
-                    <label className={styles.campaignField}>
-                      <span>Positivas</span>
-                      <input value={positiveDraft} onChange={(event) => setPositiveDraft(event.target.value)} onBlur={(event) => setListField("positiveIntentKeywords", event.target.value)} />
-                    </label>
-                    <label className={styles.campaignField}>
-                      <span>Negativas</span>
-                      <input value={negativeDraft} onChange={(event) => setNegativeDraft(event.target.value)} onBlur={(event) => setListField("negativeIntentKeywords", event.target.value)} />
-                    </label>
-                    <label className={styles.campaignToggle}>
-                      <span>Responder encerramento negativo</span>
-                      <input type="checkbox" checked={config.optOutReplyEnabled} onChange={(event) => setField("optOutReplyEnabled", event.target.checked)} />
-                    </label>
-                    <label className={`${styles.campaignField} ${styles.campaignWideField}`}>
-                      <span>Encerramento negativo</span>
-                      <textarea
-                        ref={optOutMessageRef}
-                        value={config.optOutMessage}
-                        disabled={!config.optOutReplyEnabled}
-                        onFocus={() => setVariableTarget("optOutMessage")}
-                        onChange={(event) => setField("optOutMessage", event.target.value)}
-                      />
-                    </label>
+                    {renderVariantPager(
+                      "positiveReplyVariants",
+                      "Respostas positivas",
+                      "O pitch fica como rascunho autorizado para o atendimento humano.",
+                      positiveReplyVariantsRef,
+                      {
+                        triggerPanel: renderTriggerPanel(
+                          "positiveIntentKeywords",
+                          "Positivas",
+                          positiveDraft,
+                          setPositiveDraft,
+                          "Palavras ou frases que indicam interesse.",
+                        ),
+                      },
+                    )}
+                    {renderVariantPager(
+                      "whatIsItReplyVariants",
+                      'Respostas para "o que é?"',
+                      "Use respostas curtas. O atendimento humano continua a partir do rascunho.",
+                      whatIsItReplyVariantsRef,
+                      {
+                        triggerPanel: renderTriggerPanel(
+                          "whatIsItIntentKeywords",
+                          "O que é?",
+                          whatIsItDraft,
+                          setWhatIsItDraft,
+                          "Frases que identificam pergunta sobre o assunto.",
+                        ),
+                      },
+                    )}
+                    {renderVariantPager(
+                      "optOutVariants",
+                      "Encerramento negativo",
+                      "Quando desligado, o contato é arquivado e bloqueado sem resposta automática.",
+                      optOutVariantsRef,
+                      {
+                        disabled: !config.optOutReplyEnabled,
+                        triggerPanel: (
+                          <div className={styles.campaignClassifierPanelGroup}>
+                            {renderTriggerPanel(
+                              "negativeIntentKeywords",
+                              "Negativas",
+                              negativeDraft,
+                              setNegativeDraft,
+                              "Frases que encerram ou removem o contato.",
+                            )}
+                            <label className={styles.campaignInlineToggle}>
+                              <span>Responder encerramento negativo</span>
+                              <input type="checkbox" checked={config.optOutReplyEnabled} onChange={(event) => setField("optOutReplyEnabled", event.target.checked)} />
+                            </label>
+                          </div>
+                        ),
+                      },
+                    )}
+                    {renderVariantPager(
+                      "neutralHandoffVariants",
+                      "Resposta neutra para humano",
+                      "Mensagem curta para deixar o atendimento humano assumir a conversa.",
+                      neutralHandoffVariantsRef,
+                      {
+                        triggerPanel: renderTriggerPanel(
+                          "neutralIntentKeywords",
+                          "Neutras para humano",
+                          neutralDraft,
+                          setNeutralDraft,
+                          "Frases que devem virar atendimento humano.",
+                        ),
+                      },
+                    )}
                   </div>
                 </details>
               </main>
@@ -1308,7 +1657,7 @@ function ProspectingCampaignStudioModal({
                     {config.optOutReplyEnabled ? (
                       <div className={styles.campaignBotBubble}>
                         <small>Encerramento negativo</small>
-                        <p>{renderProspectingPreview(config.optOutMessage, config, previewVariables)}</p>
+                        <p>{renderProspectingPreview(optOutText, config, previewVariables)}</p>
                       </div>
                     ) : (
                       <div className={styles.campaignSystemBubble}>Arquiva, marca opt-out e não envia resposta.</div>
@@ -1345,7 +1694,7 @@ function ProspectingCampaignStudioModal({
         </div>
 
         <footer className={styles.campaignStudioFooter}>
-          <span>{status?.text || "Campanha parada"}</span>
+          <span>{status?.text || "HBot parado"}</span>
           <div>
             {page === "radar" ? (
               <button type="button" className={styles.campaignFooterButton} onClick={() => setPage("mensagem")}>
@@ -1361,7 +1710,7 @@ function ProspectingCampaignStudioModal({
               </button>
             ) : (
               <button type="button" className={styles.campaignFooterButtonPrimary} onClick={onStart} disabled={Boolean(actionLoading)}>
-                {actionLoading === "start" ? "Iniciando..." : "Iniciar campanha"}
+                {actionLoading === "start" ? "Ativando..." : "Ativar HBot"}
               </button>
             )}
             {canPause ? (
@@ -2486,7 +2835,7 @@ function getInboxProspectionStatusMeta(conversation?: InboxConversation | null):
   const campaignSegment = formatProspectionSegment(prospeccao?.campaignSegment);
   const mismatchSubtitle =
     prospeccao?.mismatchReason === "segment_mismatch" && (leadSegment || campaignSegment)
-      ? `Segmento divergente: ${leadSegment || "sem segmento"} / campanha ${campaignSegment || "sem segmento"}`
+      ? `Segmento divergente: ${leadSegment || "sem segmento"} / automação ${campaignSegment || "sem segmento"}`
       : "Revisar segmento antes de enviar";
 
   const byStage: Record<VendasProspeccaoStage, InboxProspectionStatusMeta> = {
@@ -4028,7 +4377,7 @@ function InboxDesktopClientPage() {
       router.replace(INBOX_BOT_PLAN_HREF, { scroll: false });
       return;
     }
-    router.replace(botSetupComplete ? "/vendas/automacao?tab=flow" : "/tutorial?start=bot&from=inbox_bot", {
+    router.replace(botSetupComplete ? "/atendimento/automacao?tab=flow" : "/tutorial?start=bot&from=inbox_bot", {
       scroll: false,
     });
   }, [botAiActive, botSetupComplete, commercialPlans, requestedTab, router]);
@@ -5041,12 +5390,12 @@ function InboxDesktopClientPage() {
       campaignConfigDirtyRef.current = false;
       setCampaignConfig(buildProspectingCampaignConfig(data));
       setProspectingAutomationStatus(data);
-      setNotice({ tone: "success", text: "Campanha salva no Hbot." });
+      setNotice({ tone: "success", text: "HBot salvo." });
       return data;
     } catch (saveError) {
       setNotice({
         tone: "error",
-        text: saveError instanceof Error ? saveError.message : "Falha ao salvar a campanha.",
+        text: saveError instanceof Error ? saveError.message : "Falha ao salvar o HBot.",
       });
       return null;
     } finally {
@@ -5077,11 +5426,11 @@ function InboxDesktopClientPage() {
       campaignConfigDirtyRef.current = false;
       setCampaignConfig(buildProspectingCampaignConfig(data));
       setProspectingAutomationStatus(data);
-      setNotice({ tone: "success", text: "Campanha iniciada pelo Hbot." });
+      setNotice({ tone: "success", text: "HBot ativado." });
     } catch (startError) {
       setNotice({
         tone: "error",
-        text: startError instanceof Error ? startError.message : "Falha ao iniciar a campanha.",
+        text: startError instanceof Error ? startError.message : "Falha ao ativar o HBot.",
       });
     } finally {
       setProspectingAutomationAction(null);
@@ -9109,7 +9458,7 @@ function InboxDesktopClientPage() {
                     label="Configurar Bot"
                     active={false}
                     badge={botAiActive && !botSetupComplete ? "!" : queueCounts.bot || null}
-                    onClick={() => router.push("/vendas/automacao?tab=flow")}
+                    onClick={() => router.push("/atendimento/automacao?tab=flow")}
                   />
                   {providerCapabilities.canUseTemplates ? (
                     <DockButton
@@ -9241,7 +9590,7 @@ function InboxDesktopClientPage() {
                   className="btn btn-secondary btn-sm"
                   onClick={() => {
                     setTemplatesStudioOpen(false);
-                    router.push("/vendas/automacao?tab=flow");
+                    router.push("/atendimento/automacao?tab=flow");
                   }}
                 >
                   Configurar Bot
