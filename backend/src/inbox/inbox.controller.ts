@@ -104,6 +104,14 @@ export class InboxController {
     return this.inboxService.listConversations(req.user, { take, skip, queue });
   }
 
+  @Post('conversations/start')
+  startConversation(
+    @Req() req: any,
+    @Body() dto: { phone?: string; name?: string | null },
+  ) {
+    return this.inboxService.startConversation(req.user, dto || {});
+  }
+
   @Get('conversations/:id/messages')
   listConversationMessages(
     @Req() req: any,

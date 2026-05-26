@@ -50,7 +50,7 @@ import {
 } from '../modules/master-global-integrations.util';
 import {
   classifyProspectingAutoReply,
-  isExplicitProspectingNegativeReply,
+  classifyProspectingIntent,
   sanitizeFirstContactMessage,
   type ProspectingAutoReplyClassification,
 } from '../vendas/prospecting-safety';
@@ -2041,7 +2041,6 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     const queue = this.readJsonRecord(input.metadata?.vendasAgendaQueue);
     const automationStatus = this.normalizeVendasAutomationIntentText(automation.status);
     const queueStatus = this.normalizeVendasAutomationIntentText(queue.status);
-    const normalizedText = this.normalizeVendasAutomationIntentText(input.text);
     const filters = this.readJsonRecord(job.campaign.filtersJson);
     const positiveKeywords = this.readJsonTextList(job.campaign.positiveIntentKeywordsJson, [
       'tenho interesse',
@@ -2080,13 +2079,14 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
       'entendi',
       'ok',
     ]).map((item) => this.normalizeVendasAutomationIntentText(item));
-    const optOut = this.containsVendasAutomationKeyword(normalizedText, ['remover', 'pare', 'spam', 'nao me chame', 'não me chame', 'bloqueia', 'bloqueie']);
-    const humanHandoff = this.containsVendasAutomationKeyword(normalizedText, ['humano', 'atendente', 'ligar', 'me chama']);
-    const whatIsIt = this.containsVendasAutomationKeyword(normalizedText, whatIsItKeywords);
-    const neutralByKeyword = this.containsVendasAutomationKeyword(normalizedText, neutralKeywords);
+    const intent = classifyProspectingIntent({
+      text: input.text,
+      positiveKeywords,
+      negativeKeywords,
+      whatIsItKeywords,
+      neutralKeywords,
+    });
     const autoReplyClassification = classifyProspectingAutoReply(input.text);
-    const negative = optOut || isExplicitProspectingNegativeReply(input.text, negativeKeywords);
-    const positive = !negative && !humanHandoff && (whatIsIt || this.containsVendasAutomationKeyword(normalizedText, positiveKeywords));
     const terminalStatus = new Set(['negative', 'opt_out', 'replied_negative', 'no_response_archived']);
     const alreadyClosed =
       terminalStatus.has(automationStatus) ||
@@ -2103,10 +2103,10 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
       job.lead.wasClosedBefore;
     if (alreadyClosed) return null;
 
-    if (negative) {
-      await input.setInboundMeta(optOut ? 'vendas_prospeccao_opt_out' : 'vendas_prospeccao_negativo', false);
-      await this.markVendasAutomationNegative({ ...input, optOut }, job);
-      return { handled: true, classification: optOut ? 'opt_out' : 'negative' };
+    if (intent.kind === 'negative' || intent.kind === 'opt_out') {
+      await input.setInboundMeta(intent.kind === 'opt_out' ? 'vendas_prospeccao_opt_out' : 'vendas_prospeccao_negativo', false);
+      await this.markVendasAutomationNegative({ ...input, optOut: intent.kind === 'opt_out' }, job);
+      return { handled: true, classification: intent.kind };
     }
 
     const blockedStatus = new Set([
@@ -2135,21 +2135,27 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
       return { handled: true, classification: autoReplyClassification };
     }
 
-    if (positive) {
-      await input.setInboundMeta('vendas_prospeccao_interessado', false);
-      await this.markVendasAutomationInterested({ ...input, replyKind: whatIsIt ? 'what_is_it' : 'positive' }, job);
-      return { handled: true, classification: whatIsIt ? 'what_is_it' : 'positive' };
+    if (intent.kind === 'ambiguous_intent' || intent.confidence < 0.5) {
+      await input.setInboundMeta('vendas_prospeccao_duvida', false);
+      await this.markVendasAutomationNeutral({ ...input, intentReview: intent }, job);
+      return { handled: true, classification: intent.kind === 'ambiguous_intent' ? 'ambiguous_intent' : 'low_confidence' };
     }
 
-    if (humanHandoff) {
+    if (intent.kind === 'positive' || intent.kind === 'what_is_it') {
+      await input.setInboundMeta('vendas_prospeccao_interessado', false);
+      await this.markVendasAutomationInterested({ ...input, replyKind: intent.kind }, job);
+      return { handled: true, classification: intent.kind };
+    }
+
+    if (intent.kind === 'human_requested') {
       await input.setInboundMeta('vendas_prospeccao_humano', false);
       await this.markVendasAutomationNeutral({ ...input, humanRequested: true }, job);
       return { handled: true, classification: 'human_requested' };
     }
 
     await input.setInboundMeta('vendas_prospeccao_neutro', false);
-    await this.markVendasAutomationNeutral(input, job);
-    return { handled: true, classification: neutralByKeyword ? 'neutral_keyword' : 'neutral' };
+    await this.markVendasAutomationNeutral({ ...input, intentReview: intent.confidence < 0.5 ? intent : undefined }, job);
+    return { handled: true, classification: intent.reasons.includes('low_confidence') ? 'low_confidence' : 'neutral' };
   }
 
   private async markVendasAutomationInterested(input: any, job: any) {
@@ -2597,10 +2603,16 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
 
   private async markVendasAutomationNeutral(input: any, job: any) {
     const now = new Date();
+    const intentReview = input.intentReview && typeof input.intentReview === 'object' ? input.intentReview : null;
+    const jobClassification = intentReview?.kind === 'ambiguous_intent'
+      ? 'ambiguous_intent'
+      : intentReview?.confidence < 0.5
+        ? 'low_confidence'
+        : 'neutral';
     await this.prisma.vendasAutomationJob.update({
       where: { id: job.id },
       data: {
-        classification: 'neutral',
+        classification: jobClassification,
         repliedAt: now,
         conversationId: input.conversationId,
       },
@@ -2631,12 +2643,17 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
         hbotBlockedReason: 'prospection_attention_required',
         prospectionAttentionRequired: true,
         prospectionAttentionTone: 'yellow',
+        prospectionReviewReason: intentReview?.reasons?.join(', ') || null,
+        prospectionIntentConfidence: intentReview?.confidence ?? null,
         vendasAutomation: {
           ...automation,
           campaignId: job.campaignId,
           jobId: job.id,
           leadId: job.leadId,
           status: input.humanRequested ? 'human_requested' : 'neutral',
+          classification: jobClassification,
+          reviewReason: intentReview?.reasons?.join(', ') || null,
+          confidence: intentReview?.confidence ?? null,
           humanAssigned: false,
           awaitingProspectionReview: true,
           attentionRequired: true,
@@ -2652,6 +2669,9 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
           nextAction: 'Prospecção: resposta neutra aguardando operador',
           draftMessage,
           draftPending: Boolean(draftMessage),
+          classification: jobClassification,
+          reviewReason: intentReview?.reasons?.join(', ') || null,
+          confidence: intentReview?.confidence ?? null,
           botEligible: false,
           botEntryPending: false,
           botActive: false,
@@ -2680,8 +2700,10 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
       leadId: job.leadId,
       conversationId: input.conversationId,
       status: 'aguardando',
-      text: 'Resposta recebida. Aguardando Prospecção.',
-      type: 'lead_neutral',
+      text: jobClassification === 'ambiguous_intent'
+        ? 'Resposta ambigua. Bot pausado para revisao.'
+        : 'Resposta recebida. Aguardando Prospecção.',
+      type: jobClassification === 'ambiguous_intent' ? 'ambiguous_intent' : 'lead_neutral',
     });
   }
 

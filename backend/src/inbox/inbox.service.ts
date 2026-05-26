@@ -1538,6 +1538,20 @@ export class InboxService {
     return normalizedPhone.replace(/\D/g, '').slice(-13) || null;
   }
 
+  private normalizeManualConversationContact(value: unknown) {
+    let digits = String(value || '').replace(/\D/g, '');
+    if (!digits) return null;
+    if (!digits.startsWith('55') && (digits.length === 10 || digits.length === 11)) {
+      digits = `55${digits}`;
+    }
+    if (digits.length < 10 || digits.length > 15) return null;
+    return {
+      contact: `+${digits}`,
+      digits,
+      remoteJid: `${digits}@s.whatsapp.net`,
+    };
+  }
+
   private buildConversationLocalDeleteAliases(conversation: any, metadata: Record<string, any>) {
     const rawValues = [
       conversation?.contact,
@@ -3106,15 +3120,26 @@ export class InboxService {
     );
 
     for (const row of rows) {
-      const activityAt = this.resolveConversationActivityDate(row);
+      const metadata = this.parseConversationMetadata(row.metadata);
+      const activityAt =
+        this.resolveConversationActivityDate(row) ||
+        (metadata.manualConversationStarted ? this.resolveLatestDate(row.lastMessageAt, row.createdAt) : null);
       if (!activityAt) continue;
       if (row.lastMessageAt && activityAt.getTime() <= new Date(row.lastMessageAt).getTime()) continue;
       await this.repairConversationActivityIfStale(companyId, row.id, activityAt);
     }
 
     const sortedRows = [...rows].sort((left, right) => {
-      const leftTime = this.resolveConversationActivityDate(left)?.getTime() || 0;
-      const rightTime = this.resolveConversationActivityDate(right)?.getTime() || 0;
+      const leftMetadata = this.parseConversationMetadata(left.metadata);
+      const rightMetadata = this.parseConversationMetadata(right.metadata);
+      const leftTime = (
+        this.resolveConversationActivityDate(left) ||
+        (leftMetadata.manualConversationStarted ? this.resolveLatestDate(left.lastMessageAt, left.createdAt) : null)
+      )?.getTime() || 0;
+      const rightTime = (
+        this.resolveConversationActivityDate(right) ||
+        (rightMetadata.manualConversationStarted ? this.resolveLatestDate(right.lastMessageAt, right.createdAt) : null)
+      )?.getTime() || 0;
       if (leftTime !== rightTime) return rightTime - leftTime;
       const leftCreated = this.resolveLatestDate(left.createdAt)?.getTime() || 0;
       const rightCreated = this.resolveLatestDate(right.createdAt)?.getTime() || 0;
@@ -3124,7 +3149,10 @@ export class InboxService {
 
     const summaries: any[] = [];
     for (const row of sortedRows) {
-      const activityAt = this.resolveConversationActivityDate(row);
+      const metadata = this.parseConversationMetadata(row.metadata);
+      const activityAt =
+        this.resolveConversationActivityDate(row) ||
+        (metadata.manualConversationStarted ? this.resolveLatestDate(row.lastMessageAt, row.createdAt) : null);
       const conversation = {
         ...row,
         lastRealMessageAt: activityAt || null,
@@ -3473,7 +3501,10 @@ export class InboxService {
     const phoneNormalized = this.normalizeConversationPhone(String(row.contact || '')) || '';
     const identityRow = identityMap.get(phoneNormalized);
     const sharedMap = await this.loadSharedProfileMap(companyId, [String(row.contact || '')], identityMap);
-    const activityAt = this.resolveConversationActivityDate(row);
+    const rowMetadata = this.parseConversationMetadata(row.metadata);
+    const activityAt =
+      this.resolveConversationActivityDate(row) ||
+      (rowMetadata.manualConversationStarted ? this.resolveLatestDate(row.lastMessageAt, row.createdAt) : null);
     await this.repairConversationActivityIfStale(companyId, row.id, activityAt);
 
     return this.mapConversation(
@@ -3788,6 +3819,110 @@ export class InboxService {
     }
     return this.listPersistedConversationSummariesForCompany(companyId, {
       ...options,
+      sessionScope,
+    });
+  }
+
+  async startConversation(user: any, input: { phone?: string; name?: string | null }) {
+    const companyId = this.requireCompanyIdFromUser(user);
+    const sessionScope = await this.resolveInboxWhatsappSessionScope(companyId);
+    this.assertInboxWhatsappAccessible(sessionScope);
+    const normalized = this.normalizeManualConversationContact(input?.phone);
+    if (!normalized) {
+      throw new BadRequestException('Informe um telefone valido com DDD.');
+    }
+    const now = new Date();
+    const displayName = String(input?.name || '').replace(/\s+/g, ' ').trim();
+    const metadata = {
+      sourceModule: 'atendimento_manual',
+      queueTarget: 'conversas',
+      routeTarget: 'conversas',
+      whatsappRemoteJid: normalized.remoteJid,
+      whatsappIsGroup: false,
+      ...(displayName
+        ? {
+            whatsappName: displayName,
+            whatsappContactName: displayName,
+          }
+        : {}),
+      manualConversationStarted: true,
+      manualConversationStartedAt: now.toISOString(),
+      whatsappConnectionSessionId: sessionScope.currentSessionId || null,
+    };
+    const candidates = Array.from(new Set([
+      normalized.contact,
+      normalized.digits,
+      normalized.digits.startsWith('55') ? `+${normalized.digits.slice(2)}` : '',
+      normalized.digits.startsWith('55') ? normalized.digits.slice(2) : '',
+    ].filter(Boolean)));
+    const currentSessionWhere = sessionScope.currentSessionId
+      ? { whatsappConnectionSessionId: sessionScope.currentSessionId }
+      : {};
+    let conversation = await this.prisma.companyConversation.findFirst({
+      where: {
+        companyId,
+        channel: 'whatsapp',
+        ...currentSessionWhere,
+        OR: [
+          ...candidates.map((contact) => ({ contact })),
+          { metadata: { contains: normalized.remoteJid } },
+        ],
+      },
+      orderBy: [{ updatedAt: 'desc' }],
+    });
+
+    if (conversation) {
+      const previousMetadata = this.parseConversationMetadata(conversation.metadata);
+      conversation = await this.prisma.companyConversation.update({
+        where: { id: conversation.id },
+        data: {
+          contact: normalized.contact,
+          metadata: JSON.stringify({ ...previousMetadata, ...metadata }),
+          currentFlow: 'cobranca_recovery',
+          currentStep: 'novo',
+          flowResult: null,
+          botActive: false,
+          humanAssigned: true,
+          assignedUserId: Number(user?.id || 0) || null,
+          lastInteractionAt: now,
+          ...(sessionScope.currentSessionId ? { whatsappConnectionSessionId: sessionScope.currentSessionId } : {}),
+        },
+      });
+    } else {
+      conversation = await this.prisma.companyConversation.create({
+        data: {
+          companyId,
+          channel: 'whatsapp',
+          contact: normalized.contact,
+          currentFlow: 'cobranca_recovery',
+          currentStep: 'novo',
+          flowResult: null,
+          botActive: false,
+          humanAssigned: true,
+          assignedUserId: Number(user?.id || 0) || null,
+          lastInteractionAt: now,
+          lastMessageAt: now,
+          metadata: JSON.stringify(metadata),
+          ...(sessionScope.currentSessionId ? { whatsappConnectionSessionId: sessionScope.currentSessionId } : {}),
+        },
+      });
+    }
+
+    await this.logInboxEvent({
+      companyId,
+      event: 'manual_conversation_started',
+      message: 'Conversa manual iniciada pelo Atendimento.',
+      conversationId: conversation.id,
+      phone: normalized.contact,
+      result: 'created',
+      extra: {
+        whatsappCommandSent: false,
+        remoteJid: normalized.remoteJid,
+      },
+    });
+
+    return this.getPersistedConversationByIdForCompany(companyId, conversation.id, {
+      messagesLimit: 20,
       sessionScope,
     });
   }

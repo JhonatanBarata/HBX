@@ -4,6 +4,30 @@ export type ProspectingAutoReplyClassification =
   | 'out_of_hours_auto_reply'
   | 'awaiting_human';
 
+export type ProspectingIntentKind =
+  | 'positive'
+  | 'what_is_it'
+  | 'human_requested'
+  | 'neutral'
+  | 'negative'
+  | 'opt_out'
+  | 'ambiguous_intent';
+
+export type ProspectingIntentClassification = {
+  kind: ProspectingIntentKind;
+  confidence: number;
+  reasons: string[];
+  signals: {
+    positive: boolean;
+    negative: boolean;
+    optOut: boolean;
+    whatIsIt: boolean;
+    delay: boolean;
+    humanHandoff: boolean;
+    neutral: boolean;
+  };
+};
+
 export const SAFE_FIRST_CONTACT_TEMPLATE =
   '{{cumprimentacao}}, tudo bem? Me chamo Jhonatan. Trabalho ajudando empresas a melhorar processos e automatizar tarefas repetitivas do dia a dia. Posso te explicar rapidinho e ver se faz sentido aí?';
 
@@ -26,6 +50,201 @@ function normalizeProspectingSafetyText(value: unknown) {
     .toLowerCase()
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+function normalizeIntentText(value: unknown) {
+  return normalizeProspectingSafetyText(value)
+    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function tokenizeIntentText(value: unknown) {
+  const normalized = normalizeIntentText(value);
+  return normalized ? normalized.split(' ').filter(Boolean) : [];
+}
+
+function levenshteinDistance(left: string, right: string) {
+  if (left === right) return 0;
+  if (!left) return right.length;
+  if (!right) return left.length;
+  const previous = Array.from({ length: right.length + 1 }, (_, index) => index);
+  const current = Array.from({ length: right.length + 1 }, () => 0);
+  for (let i = 1; i <= left.length; i += 1) {
+    current[0] = i;
+    for (let j = 1; j <= right.length; j += 1) {
+      const cost = left[i - 1] === right[j - 1] ? 0 : 1;
+      current[j] = Math.min(
+        previous[j] + 1,
+        current[j - 1] + 1,
+        previous[j - 1] + cost,
+      );
+    }
+    for (let j = 0; j <= right.length; j += 1) previous[j] = current[j];
+  }
+  return previous[right.length];
+}
+
+function tokenMatchesIntentKeyword(textToken: string, keywordToken: string) {
+  if (!textToken || !keywordToken) return false;
+  if (textToken === keywordToken) return true;
+  if (keywordToken.length < 5 || textToken.length < 5) return false;
+  if (Math.abs(textToken.length - keywordToken.length) > 1) return false;
+  return levenshteinDistance(textToken, keywordToken) <= 1;
+}
+
+function containsIntentKeyword(text: string, keywords: string[]) {
+  const textTokens = tokenizeIntentText(text);
+  if (!textTokens.length) return false;
+  const normalizedText = ` ${textTokens.join(' ')} `;
+  return keywords.some((keyword) => {
+    const keywordTokens = tokenizeIntentText(keyword);
+    if (!keywordTokens.length) return false;
+    if (keywordTokens.length === 1) {
+      const [keywordToken] = keywordTokens;
+      if (keywordToken.length <= 3) {
+        return textTokens.includes(keywordToken);
+      }
+      return textTokens.some((token) => tokenMatchesIntentKeyword(token, keywordToken));
+    }
+    if (normalizedText.includes(` ${keywordTokens.join(' ')} `)) return true;
+    if (keywordTokens.some((token) => token.length < 4)) return false;
+    for (let index = 0; index <= textTokens.length - keywordTokens.length; index += 1) {
+      const windowTokens = textTokens.slice(index, index + keywordTokens.length);
+      if (windowTokens.every((token, tokenIndex) => tokenMatchesIntentKeyword(token, keywordTokens[tokenIndex]))) {
+        return true;
+      }
+    }
+    return false;
+  });
+}
+
+const DEFAULT_DELAY_INTENT_KEYWORDS = [
+  'depois',
+  'mais tarde',
+  'outro horario',
+  'outro dia',
+  'amanha',
+  'semana que vem',
+  'pode ligar depois',
+  'me chama depois',
+  'manda depois',
+  'agora nao',
+];
+
+const DEFAULT_DOUBT_INTENT_KEYWORDS = [
+  'nao entendi',
+  'nao entendo',
+  'nao compreendi',
+  'fiquei confuso',
+  'duvida',
+  'tenho duvida',
+  'explica melhor',
+  'me explica melhor',
+];
+
+const DEFAULT_HUMAN_HANDOFF_INTENT_KEYWORDS = [
+  'humano',
+  'atendente',
+  'consultor',
+  'ligar',
+  'me liga',
+  'me chama',
+  'pode ligar',
+];
+
+const DEFAULT_OPT_OUT_INTENT_KEYWORDS = [
+  'remover',
+  'remova',
+  'pare',
+  'spam',
+  'nao me chame',
+  'bloqueia',
+  'bloqueie',
+  'descadastrar',
+];
+
+export function classifyProspectingIntent(input: {
+  text: string;
+  positiveKeywords: string[];
+  negativeKeywords: string[];
+  whatIsItKeywords: string[];
+  neutralKeywords: string[];
+}) {
+  const text = String(input.text || '');
+  const normalized = normalizeIntentText(text);
+  const empty: ProspectingIntentClassification = {
+    kind: 'neutral',
+    confidence: 0,
+    reasons: ['empty_text'],
+    signals: {
+      positive: false,
+      negative: false,
+      optOut: false,
+      whatIsIt: false,
+      delay: false,
+      humanHandoff: false,
+      neutral: false,
+    },
+  };
+  if (!normalized) return empty;
+
+  const optOut = containsIntentKeyword(text, DEFAULT_OPT_OUT_INTENT_KEYWORDS);
+  const negative = optOut || isExplicitProspectingNegativeReply(text, input.negativeKeywords);
+  const whatIsIt = containsIntentKeyword(text, [
+    ...input.whatIsItKeywords,
+    ...DEFAULT_DOUBT_INTENT_KEYWORDS,
+  ]);
+  const positive = containsIntentKeyword(text, input.positiveKeywords);
+  const delay = containsIntentKeyword(text, DEFAULT_DELAY_INTENT_KEYWORDS);
+  const humanHandoff = containsIntentKeyword(text, DEFAULT_HUMAN_HANDOFF_INTENT_KEYWORDS);
+  const neutral = containsIntentKeyword(text, input.neutralKeywords);
+  const signals = { positive, negative, optOut, whatIsIt, delay, humanHandoff, neutral };
+  const reasons = Object.entries(signals)
+    .filter(([, value]) => value)
+    .map(([key]) => key);
+
+  if (negative) {
+    return {
+      kind: optOut ? 'opt_out' : 'negative',
+      confidence: optOut ? 0.98 : 0.94,
+      reasons: reasons.length ? reasons : ['negative'],
+      signals,
+    };
+  }
+
+  if (positive && (whatIsIt || delay || humanHandoff || neutral)) {
+    return {
+      kind: 'ambiguous_intent',
+      confidence: 0.48,
+      reasons: reasons.length ? reasons : ['mixed_positive_signal'],
+      signals,
+    };
+  }
+
+  if (whatIsIt && (delay || humanHandoff)) {
+    return {
+      kind: 'ambiguous_intent',
+      confidence: 0.45,
+      reasons: reasons.length ? reasons : ['mixed_question_signal'],
+      signals,
+    };
+  }
+
+  if (whatIsIt) {
+    return { kind: 'what_is_it', confidence: 0.86, reasons: reasons.length ? reasons : ['what_is_it'], signals };
+  }
+  if (positive) {
+    return { kind: 'positive', confidence: 0.88, reasons: reasons.length ? reasons : ['positive'], signals };
+  }
+  if (humanHandoff) {
+    return { kind: 'human_requested', confidence: 0.78, reasons: reasons.length ? reasons : ['human_requested'], signals };
+  }
+  if (delay || neutral) {
+    return { kind: 'neutral', confidence: delay ? 0.74 : 0.66, reasons: reasons.length ? reasons : ['neutral'], signals };
+  }
+
+  return { kind: 'neutral', confidence: 0.32, reasons: ['low_confidence'], signals };
 }
 
 export function normalizeFirstContactForComparison(value: unknown) {
