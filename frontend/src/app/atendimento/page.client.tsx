@@ -29,6 +29,7 @@ import {
 } from "@/components/chat/PremiumChat";
 import DashboardScaffold from "@/components/DashboardScaffold";
 import HbxConfirmDialog from "@/components/HbxConfirmDialog";
+import { HbxPopup2, HbxPopup3 } from "@/components/HbxPopup";
 import LiquidGlassCard, { liquidGlassCardStyles as glassCardStyles } from "@/components/LiquidGlassCard";
 import PremiumLaunchDialog from "@/components/PremiumLaunchDialog";
 import { useQuickLaunchNotice } from "@/components/useQuickLaunchNotice";
@@ -97,9 +98,8 @@ import {
   type InboxConversation,
   type InboxFullBootstrapPayload,
   type InboxMessage,
-  type MeticulousTrashPurgeJob,
 } from "./inbox-model";
-import { renderSafeText, normalizeMeticulousTrashJob } from "@/lib/renderSafeText";
+import { renderSafeText } from "@/lib/renderSafeText";
 import styles from "./page.module.css";
 
 type InboxTab = "messages" | "automation";
@@ -173,6 +173,8 @@ type ProspectingAutomationLiveStatus = {
   campaign: (ProspectingCampaignConfig & {
     id: string;
     status: string;
+    lastStatusText?: string | null;
+    lastError?: string | null;
   }) | null;
   counters: {
     pending?: number;
@@ -182,8 +184,13 @@ type ProspectingAutomationLiveStatus = {
     positives?: number;
     archived?: number;
     failed?: number;
+    prospectingGreen?: number;
+    prospectingYellow?: number;
+    prospectingRed?: number;
   };
   nextScheduledAt?: string | null;
+  nextAllowedSendAt?: string | null;
+  lastSuccessfulSendAt?: string | null;
   lastError?: string | null;
 };
 
@@ -219,7 +226,77 @@ type ProspectingCampaignConfig = {
   filtersJson?: Record<string, unknown>;
 };
 
+function normalizeProspectingStatusText(value: unknown) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+function isStaleProspectingRadarConfigText(value: unknown) {
+  const normalized = normalizeProspectingStatusText(value);
+  if (!normalized) return false;
+  return (
+    normalized.includes("campanha sem") &&
+    (normalized.includes("cidade") || normalized.includes("segmento")) &&
+    normalized.includes("revise a configuracao da prospeccao")
+  );
+}
+
+function sanitizeProspectingAutomationStatus(
+  status: ProspectingAutomationLiveStatus | null,
+): ProspectingAutomationLiveStatus | null {
+  if (!status) return status;
+  const staleText = isStaleProspectingRadarConfigText(status.text);
+  const staleError = isStaleProspectingRadarConfigText(status.lastError);
+  const campaign = status.campaign
+    ? ({
+        ...status.campaign,
+        lastStatusText: isStaleProspectingRadarConfigText(status.campaign.lastStatusText)
+          ? null
+          : status.campaign.lastStatusText,
+        lastError: isStaleProspectingRadarConfigText(status.campaign.lastError)
+          ? null
+          : status.campaign.lastError,
+      } as ProspectingAutomationLiveStatus["campaign"])
+    : null;
+  if (!staleText && !staleError) return { ...status, campaign };
+  return {
+    ...status,
+    status: status.status === "erro" ? "aguardando" : status.status,
+    text: staleText ? "Aguardando cards do Vendas com WhatsApp para continuar a Prospecção." : status.text,
+    lastError: staleError ? null : status.lastError,
+    campaign,
+  };
+}
+
 const DEFAULT_FIRST_CONTACT_VARIANTS = [
+  "{{cumprimentacao}}, tudo bem? Me chamo Jhonatan. Trabalho ajudando empresas a melhorar processos e automatizar tarefas repetitivas do dia a dia. Posso te explicar rapidinho e ver se faz sentido aí?",
+  "{{cumprimentacao}}, tudo certo? Aqui é o Jhonatan. Eu ajudo empresas a organizar melhor a rotina, reduzir retrabalho e implantar soluções simples para ganhar tempo na operação. Posso te mandar uma ideia rápida?",
+  "{{cumprimentacao}}! Sou o Jhonatan. Trabalho com consultoria e implantação de automações para empresas que querem parar de perder tempo com processos manuais, controles soltos e tarefas repetidas. Faz sentido eu te explicar em 1 minuto?",
+  "{{cumprimentacao}}, tudo bem? Me chamo Jhonatan. Eu olho a rotina da empresa, entendo onde está dando retrabalho e ajudo a implantar soluções práticas para deixar o dia a dia mais organizado. Posso te explicar rapidinho?",
+  "{{cumprimentacao}}, tudo bem? Trabalho com melhoria de processos para empresas: atendimento, vendas, administrativo, retornos, controles internos e automações conforme a necessidade. Posso te mostrar por alto como funciona?",
+];
+
+const DEFAULT_POSITIVE_REPLY_VARIANTS = [
+  "Boa! A ideia é entender como funciona a rotina de vocês hoje, onde tem retrabalho, tarefa manual ou informação perdida, e ver se dá para resolver com uma automação ou ajuste simples no processo. Posso te ligar rapidinho?",
+  "Perfeito. Primeiro eu entendo o cenário da empresa, porque cada operação tem um gargalo diferente. Pode ser atendimento, vendas, financeiro, planilhas, retornos, cadastros, tarefas internas… aí vejo o que faria sentido implantar. Posso te chamar numa ligação rápida?",
+  "Show. Meu trabalho não é empurrar uma ferramenta pronta. Eu entendo o processo, vejo onde a empresa está perdendo tempo e monto uma solução em cima da necessidade real. Posso te ligar 2 minutinhos para entender melhor?",
+  "Legal. Normalmente eu converso com o gestor ou responsável pela operação, faço algumas perguntas sobre a rotina e identifico onde uma melhoria simples já poderia economizar tempo. Pode ser uma ligação rápida?",
+  "Boa. A ideia é bem prática: entender o que hoje é manual, repetitivo ou bagunçado, e ver se vale implantar alguma automação, organização ou sistema simples para facilitar. Posso te ligar rapidinho?",
+];
+
+const DEFAULT_WHAT_IS_IT_REPLY_VARIANTS = [
+  "Claro. É sobre consultoria e implantação de melhorias na rotina da empresa. Eu analiso processos manuais, retrabalho, controles espalhados e tarefas repetitivas, e vejo o que pode ser organizado ou automatizado.",
+  "É um trabalho para ajudar empresas a ganhar tempo e reduzir bagunça operacional. Eu entendo como a empresa funciona hoje e proponho soluções práticas: automações, sistemas simples, organização de fluxo ou ajustes no processo.",
+  "Basicamente eu ajudo a empresa a parar de depender tanto de planilha solta, memória, mensagem perdida e tarefa manual. Primeiro eu entendo o problema, depois implanto o que fizer sentido para aquela operação.",
+  "É uma consultoria bem prática. Eu olho áreas como atendimento, vendas, administrativo, retornos, cadastros, controles e tarefas repetitivas, e vejo onde dá para simplificar ou automatizar.",
+  "É sobre melhorar a operação da empresa. Não é uma solução única para todo mundo: eu entendo o gargalo, desenho uma forma mais organizada de trabalhar e implanto algo que ajude no dia a dia.",
+];
+
+const LEGACY_FIRST_CONTACT_VARIANTS = [
   "{{cumprimentacao}}, tudo bem? Vi a {{empresaresumo}} em {{cidade}}. Posso te mandar uma ideia rápida?",
   "Oi, tudo bem? Vi a {{empresaresumo}} e pensei numa forma simples de organizar retornos pelo WhatsApp. Posso te explicar rapidinho?",
   "Oi! Vi a {{cliente}} em {{cidade}}. Posso te mandar uma explicação curta sobre organização pelo WhatsApp?",
@@ -227,7 +304,7 @@ const DEFAULT_FIRST_CONTACT_VARIANTS = [
   "Oi, tudo bem? Vi a {{empresaresumo}} em {{cidade}} e queria te mostrar uma ideia simples para melhorar os retornos. Posso mandar?",
 ];
 
-const DEFAULT_POSITIVE_REPLY_VARIANTS = [
+const LEGACY_POSITIVE_REPLY_VARIANTS = [
   "Perfeito. Vou deixar um resumo curto aqui para o atendimento humano continuar com você.",
   "Boa. Já vou separar uma explicação objetiva para o nosso atendimento te mostrar com calma.",
   "Combinado. Vou te passar para uma pessoa do time continuar sem mensagem automática.",
@@ -235,12 +312,12 @@ const DEFAULT_POSITIVE_REPLY_VARIANTS = [
   "Show. Vou marcar como interessado e deixar o atendimento humano seguir com você.",
 ];
 
-const DEFAULT_WHAT_IS_IT_REPLY_VARIANTS = [
-  "É uma forma de organizar contatos, orçamentos e retornos pelo WhatsApp. Vou deixar um resumo para o atendimento humano te explicar melhor.",
-  "É sobre organização comercial no WhatsApp. Vou passar para uma pessoa te explicar sem mensagem automática longa.",
-  "É uma ferramenta para ajudar no controle de contatos e retornos. Vou deixar o atendimento humano continuar com você.",
-  "É uma solução para acompanhar conversas, orçamentos e retornos. Vou preparar um resumo curto para o time humano.",
-  "É para melhorar a rotina de vendas e atendimento pelo WhatsApp. Vou encaminhar para uma pessoa te explicar.",
+const LEGACY_WHAT_IS_IT_REPLY_VARIANTS = [
+  "É uma forma de organizar contatos, orçamentos e retornos pelo WhatsApp. Posso te ligar rapidinho para explicar melhor?",
+  "É sobre organização comercial no WhatsApp: menos retorno perdido e mais controle das conversas. Posso te ligar rapidinho?",
+  "É uma ferramenta para ajudar no controle de contatos, tarefas e retornos. Posso te explicar em uma ligação curta?",
+  "É uma solução para acompanhar conversas, orçamentos e retornos sem depender de planilha solta. Posso te ligar para mostrar?",
+  "É para melhorar a rotina de vendas e atendimento pelo WhatsApp. Posso te ligar rapidinho e ver se faz sentido?",
 ];
 
 const DEFAULT_OPT_OUT_VARIANTS = [
@@ -785,6 +862,50 @@ function formatAutomationScheduleLabel(value?: string | null) {
   return `Próximo envio em ${parsed.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" })} às ${time}`;
 }
 
+function resolveNextProspectionSendAt(status: ProspectingAutomationLiveStatus | null) {
+  if (status?.campaign?.status !== "running") return null;
+  const lastSuccessfulSendAt = new Date(String(status.lastSuccessfulSendAt || ""));
+  const intervalMinutes = Math.max(1, Number(status.campaign?.intervalMinutes || 0) || 0);
+  const fallbackNextAllowedAt = Number.isNaN(lastSuccessfulSendAt.getTime())
+    ? null
+    : new Date(lastSuccessfulSendAt.getTime() + intervalMinutes * 60_000).toISOString();
+  const candidates = [status.nextScheduledAt, status.nextAllowedSendAt]
+    .concat(fallbackNextAllowedAt ? [fallbackNextAllowedAt] : [])
+    .map((value) => {
+      const parsed = new Date(String(value || ""));
+      return Number.isNaN(parsed.getTime()) ? null : parsed;
+    })
+    .filter((value): value is Date => value instanceof Date && value.getTime() > Date.now());
+  if (!candidates.length) return null;
+  return new Date(Math.max(...candidates.map((value) => value.getTime()))).toISOString();
+}
+
+function formatProspectionCountdownLabel(targetAt: string, now = Date.now()) {
+  const target = new Date(targetAt).getTime();
+  if (!Number.isFinite(target)) return null;
+  const remainingMs = Math.max(0, target - now);
+  const totalSeconds = Math.ceil(remainingMs / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  if (minutes < 100) return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+  const hours = Math.floor(minutes / 60);
+  const restMinutes = minutes % 60;
+  return `${String(hours).padStart(2, "0")}:${String(restMinutes).padStart(2, "0")}`;
+}
+
+function ProspectionCountdownBadge({ targetAt }: { targetAt: string }) {
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  const label = formatProspectionCountdownLabel(targetAt, now);
+  if (!label) return null;
+  return <span className={styles.commandDockRobotTimer}>{label}</span>;
+}
+
 function parseAutomationClock(value: string | null | undefined, fallback: string) {
   const source = /^\d{2}:\d{2}$/.test(String(value || "")) ? String(value) : fallback;
   const [hourRaw, minuteRaw] = source.split(":");
@@ -861,6 +982,8 @@ function getProspectingRobotTone(
   const campaignStatus = String(status?.campaign?.status || "").trim().toLowerCase();
   const text = String(status?.text || status?.lastError || "").trim().toLowerCase();
   if (currentStatus === "erro" || Boolean(status?.lastError)) return "error";
+  if (campaignStatus === "paused" || currentStatus === "pausado") return "paused";
+  if (status?.active || campaignStatus === "running") return "working";
   if (
     text.includes("sem card") ||
     text.includes("sem contato") ||
@@ -876,7 +999,6 @@ function getProspectingRobotTone(
   if (campaignStatus === "running" && pending <= 0 && ["parado", "aguardando", "pausado"].includes(currentStatus)) {
     return "empty";
   }
-  if (status?.active || campaignStatus === "running") return "working";
   return "off";
 }
 
@@ -902,6 +1024,23 @@ function normalizeProspectingVariantList(value: unknown, fallback: string[]) {
     .map((item) => String(item || "").trim())
     .filter(Boolean);
   return items.length ? Array.from(new Set(items)) : fallback;
+}
+
+function normalizeProspectingVariantSignature(items: string[]) {
+  return items
+    .map((item) => String(item || "").trim().toLowerCase().replace(/\s+/g, " "))
+    .filter(Boolean)
+    .join("\n");
+}
+
+function replaceLegacyProspectingVariants(items: string[], legacy: string[], nextDefaults: string[]) {
+  const currentSignature = normalizeProspectingVariantSignature(items);
+  if (!currentSignature) return nextDefaults;
+  const legacySignature = normalizeProspectingVariantSignature(legacy);
+  const currentSet = new Set(currentSignature.split("\n").filter(Boolean));
+  const legacySet = new Set(legacySignature.split("\n").filter(Boolean));
+  const onlyLegacyItems = currentSet.size > 0 && Array.from(currentSet).every((item) => legacySet.has(item));
+  return currentSignature === legacySignature || onlyLegacyItems ? nextDefaults : items;
 }
 
 function joinProspectingVariantList(value: string[]) {
@@ -1053,12 +1192,24 @@ function buildProspectingCampaignConfig(status: ProspectingAutomationLiveStatus 
       : DEFAULT_PROSPECTING_CAMPAIGN_CONFIG.negativeIntentKeywords,
     whatIsItIntentKeywords: normalizeProspectingList(campaign?.whatIsItIntentKeywords || campaignFilters.whatIsItIntentKeywords, DEFAULT_PROSPECTING_CAMPAIGN_CONFIG.whatIsItIntentKeywords),
     neutralIntentKeywords: normalizeProspectingList(campaign?.neutralIntentKeywords || campaignFilters.neutralIntentKeywords, DEFAULT_PROSPECTING_CAMPAIGN_CONFIG.neutralIntentKeywords),
-    firstContactVariants: normalizeProspectingVariantList(
-      campaign?.firstContactVariants || campaignFilters.firstContactVariants || (campaignMessageTemplate ? [campaignMessageTemplate] : null),
+    firstContactVariants: replaceLegacyProspectingVariants(
+      normalizeProspectingVariantList(
+        campaign?.firstContactVariants || campaignFilters.firstContactVariants || (campaignMessageTemplate ? [campaignMessageTemplate] : null),
+        DEFAULT_PROSPECTING_CAMPAIGN_CONFIG.firstContactVariants,
+      ),
+      LEGACY_FIRST_CONTACT_VARIANTS,
       DEFAULT_PROSPECTING_CAMPAIGN_CONFIG.firstContactVariants,
     ),
-    positiveReplyVariants: normalizeProspectingVariantList(campaign?.positiveReplyVariants || campaignFilters.positiveReplyVariants, DEFAULT_PROSPECTING_CAMPAIGN_CONFIG.positiveReplyVariants),
-    whatIsItReplyVariants: normalizeProspectingVariantList(campaign?.whatIsItReplyVariants || campaignFilters.whatIsItReplyVariants, DEFAULT_PROSPECTING_CAMPAIGN_CONFIG.whatIsItReplyVariants),
+    positiveReplyVariants: replaceLegacyProspectingVariants(
+      normalizeProspectingVariantList(campaign?.positiveReplyVariants || campaignFilters.positiveReplyVariants, DEFAULT_PROSPECTING_CAMPAIGN_CONFIG.positiveReplyVariants),
+      LEGACY_POSITIVE_REPLY_VARIANTS,
+      DEFAULT_PROSPECTING_CAMPAIGN_CONFIG.positiveReplyVariants,
+    ),
+    whatIsItReplyVariants: replaceLegacyProspectingVariants(
+      normalizeProspectingVariantList(campaign?.whatIsItReplyVariants || campaignFilters.whatIsItReplyVariants, DEFAULT_PROSPECTING_CAMPAIGN_CONFIG.whatIsItReplyVariants),
+      LEGACY_WHAT_IS_IT_REPLY_VARIANTS,
+      DEFAULT_PROSPECTING_CAMPAIGN_CONFIG.whatIsItReplyVariants,
+    ),
     optOutVariants: normalizeProspectingVariantList(
       campaign?.optOutVariants || campaignFilters.optOutVariants || (campaignOptOutMessage ? [campaignOptOutMessage] : null),
       DEFAULT_PROSPECTING_CAMPAIGN_CONFIG.optOutVariants,
@@ -1071,37 +1222,31 @@ function buildProspectingCampaignConfig(status: ProspectingAutomationLiveStatus 
   };
 }
 
-function toProspectingCampaignPayload(config: ProspectingCampaignConfig): ProspectingCampaignConfig {
+function toProspectingCampaignPayload(config: ProspectingCampaignConfig): Record<string, unknown> {
   const firstContactVariants = normalizeProspectingVariantList(config.firstContactVariants, DEFAULT_PROSPECTING_CAMPAIGN_CONFIG.firstContactVariants)
     .map((message) => sanitizeFirstContactPreview(message))
     .filter(Boolean);
   const optOutVariants = normalizeProspectingVariantList(config.optOutVariants, DEFAULT_PROSPECTING_CAMPAIGN_CONFIG.optOutVariants);
   return {
-    ...config,
     state: config.state.trim().toUpperCase(),
     city: config.city.trim(),
     segment: config.segment.trim(),
+    engine: "hbx",
+    targetType: "pj",
     messageTemplate: firstContactVariants[0] || sanitizeFirstContactPreview(config.messageTemplate) || DEFAULT_PROSPECTING_CAMPAIGN_CONFIG.messageTemplate,
     dailyLimit: calculateProspectingCapacity(config),
     intervalMinutes: Math.max(1, Math.trunc(Number(config.intervalMinutes || 1))),
-    intervalVarianceMinutes: Math.max(0, Math.trunc(Number(config.intervalVarianceMinutes || 0))),
-    typingSeconds: Math.max(0, Math.trunc(Number(config.typingSeconds || 0))),
-    typingVarianceSeconds: Math.max(0, Math.trunc(Number(config.typingVarianceSeconds || 0))),
     minLeadBuffer: Math.max(1, Math.trunc(Number(config.minLeadBuffer || 1))),
     desiredLeadBuffer: Math.max(1, Math.trunc(Number(config.desiredLeadBuffer || 1))),
     maxAttemptsPerLead: Math.max(1, Math.trunc(Number(config.maxAttemptsPerLead || 1))),
+    workingHoursStart: config.workingHoursStart,
+    workingHoursEnd: config.workingHoursEnd,
+    typingSeconds: Math.max(0, Math.trunc(Number(config.typingSeconds || 0))),
+    typingVarianceSeconds: Math.max(0, Math.trunc(Number(config.typingVarianceSeconds || 0))),
     positiveIntentKeywords: normalizeProspectingList(config.positiveIntentKeywords, DEFAULT_PROSPECTING_CAMPAIGN_CONFIG.positiveIntentKeywords),
     negativeIntentKeywords: normalizeProspectingList(config.negativeIntentKeywords, DEFAULT_PROSPECTING_CAMPAIGN_CONFIG.negativeIntentKeywords),
-    whatIsItIntentKeywords: normalizeProspectingList(config.whatIsItIntentKeywords, DEFAULT_PROSPECTING_CAMPAIGN_CONFIG.whatIsItIntentKeywords),
-    neutralIntentKeywords: normalizeProspectingList(config.neutralIntentKeywords, DEFAULT_PROSPECTING_CAMPAIGN_CONFIG.neutralIntentKeywords),
-    firstContactVariants: firstContactVariants.length ? firstContactVariants : DEFAULT_PROSPECTING_CAMPAIGN_CONFIG.firstContactVariants,
-    positiveReplyVariants: normalizeProspectingVariantList(config.positiveReplyVariants, DEFAULT_PROSPECTING_CAMPAIGN_CONFIG.positiveReplyVariants),
-    whatIsItReplyVariants: normalizeProspectingVariantList(config.whatIsItReplyVariants, DEFAULT_PROSPECTING_CAMPAIGN_CONFIG.whatIsItReplyVariants),
-    optOutVariants,
-    neutralHandoffVariants: normalizeProspectingVariantList(config.neutralHandoffVariants, DEFAULT_PROSPECTING_CAMPAIGN_CONFIG.neutralHandoffVariants),
     optOutMessage: optOutVariants[0] || config.optOutMessage || DEFAULT_PROSPECTING_CAMPAIGN_CONFIG.optOutMessage,
-    engine: "hbx",
-    targetType: "pj",
+    optOutReplyEnabled: config.optOutReplyEnabled,
     websiteFallbackEnabled: false,
     filtersJson: {
       ...(config.filtersJson || {}),
@@ -1194,7 +1339,7 @@ function ProspectingAutomationStatus({
           </button>
         ) : canResume ? (
           <button type="button" onClick={onResume} disabled={disabled || actionLoading}>
-            {actionLoading ? "..." : "Retomar"}
+            {actionLoading ? "..." : "Ativar"}
           </button>
         ) : null}
       </div>
@@ -1216,6 +1361,112 @@ type ProspectingKeywordField =
   | "neutralIntentKeywords";
 
 type ProspectingVariableTarget = "messageTemplate" | "optOutMessage" | ProspectingVariantField;
+type ProspectingIntentKind = "positive" | "whatIsIt" | "neutral" | "negative";
+
+type ProspectingPreviewScenario = {
+  kind: ProspectingIntentKind;
+  text: string;
+};
+
+const PROSPECTING_RISK_CONFIRMATION_KEY = "hbx:prospeccao:risk-confirmation:v1";
+
+type ProspectingValidationField =
+  | "workingHoursStart"
+  | "workingHoursEnd"
+  | "firstContactVariants"
+  | "intervalMinutes"
+  | "intervalVarianceMinutes"
+  | "typingSeconds"
+  | "typingVarianceSeconds"
+  | "maxAttemptsPerLead";
+
+const PROSPECTING_VALIDATION_FIELD_LABELS: Record<ProspectingValidationField, string> = {
+  workingHoursStart: "horário de início",
+  workingHoursEnd: "horário de fim",
+  firstContactVariants: "primeira mensagem",
+  intervalMinutes: "intervalo",
+  intervalVarianceMinutes: "variação do intervalo",
+  typingSeconds: "typing",
+  typingVarianceSeconds: "variação do typing",
+  maxAttemptsPerLead: "tentativas por contato",
+};
+
+function prospectingInteger(value: unknown) {
+  return Math.trunc(Number(value || 0));
+}
+
+function prospectingFieldFromBackendMessage(message: string): ProspectingValidationField[] {
+  const normalized = String(message || "").toLowerCase();
+  const fields: ProspectingValidationField[] = [];
+  const add = (field: ProspectingValidationField) => {
+    if (!fields.includes(field)) fields.push(field);
+  };
+  if (normalized.includes("workinghoursstart")) add("workingHoursStart");
+  if (normalized.includes("workinghoursend")) add("workingHoursEnd");
+  if (normalized.includes("firstcontactvariants") || normalized.includes("messagetemplate")) add("firstContactVariants");
+  if (normalized.includes("intervalminutes")) add("intervalMinutes");
+  if (normalized.includes("intervalvarianceminutes")) add("intervalVarianceMinutes");
+  if (normalized.includes("typingseconds")) add("typingSeconds");
+  if (normalized.includes("typingvarianceseconds")) add("typingVarianceSeconds");
+  if (normalized.includes("maxattemptsperlead")) add("maxAttemptsPerLead");
+  return fields;
+}
+
+function prospectingErrorMessage(error: unknown) {
+  const payload = (error as { payload?: unknown } | null)?.payload;
+  if (payload && typeof payload === "object") {
+    const message = (payload as { message?: unknown; error?: unknown }).message;
+    if (Array.isArray(message)) return message.map((item) => String(item || "").trim()).filter(Boolean).join(", ");
+    if (typeof message === "string" && message.trim()) return message.trim();
+    const fallback = (payload as { error?: unknown }).error;
+    if (typeof fallback === "string" && fallback.trim()) return fallback.trim();
+  }
+  if (error instanceof Error && error.message.trim()) return error.message.trim();
+  return "O backend recusou a configuração.";
+}
+
+function validateProspectingCampaignConfig(config: ProspectingCampaignConfig) {
+  const fields: ProspectingValidationField[] = [];
+  const messages: string[] = [];
+  if (!String(config.workingHoursStart || "").trim()) {
+    fields.push("workingHoursStart");
+    messages.push("Informe o horário de início na etapa Mensagem inicial.");
+  }
+  if (!String(config.workingHoursEnd || "").trim()) {
+    fields.push("workingHoursEnd");
+    messages.push("Informe o horário de fim na etapa Mensagem inicial.");
+  }
+  if (!normalizeProspectingVariantList(config.firstContactVariants, []).some((item) => item.trim())) {
+    fields.push("firstContactVariants");
+    messages.push("Escreva pelo menos uma variação da primeira mensagem.");
+  }
+  const intervalMinutes = prospectingInteger(config.intervalMinutes);
+  if (intervalMinutes < 1 || intervalMinutes > 180) {
+    fields.push("intervalMinutes");
+    messages.push("O intervalo precisa ficar entre 1 e 180 minutos.");
+  }
+  const intervalVarianceMinutes = prospectingInteger(config.intervalVarianceMinutes);
+  if (intervalVarianceMinutes < 0 || intervalVarianceMinutes > 180) {
+    fields.push("intervalVarianceMinutes");
+    messages.push("A variação do intervalo precisa ficar entre 0 e 180 minutos.");
+  }
+  const typingSeconds = prospectingInteger(config.typingSeconds);
+  if (typingSeconds < 0 || typingSeconds > 45) {
+    fields.push("typingSeconds");
+    messages.push("O typing precisa ficar entre 0 e 45 segundos.");
+  }
+  const typingVarianceSeconds = prospectingInteger(config.typingVarianceSeconds);
+  if (typingVarianceSeconds < 0 || typingVarianceSeconds > 30) {
+    fields.push("typingVarianceSeconds");
+    messages.push("A variação do typing precisa ficar entre 0 e 30 segundos.");
+  }
+  const maxAttemptsPerLead = prospectingInteger(config.maxAttemptsPerLead);
+  if (maxAttemptsPerLead < 1 || maxAttemptsPerLead > 3) {
+    fields.push("maxAttemptsPerLead");
+    messages.push("Tentativas por contato precisa ficar entre 1 e 3.");
+  }
+  return { ok: fields.length === 0, fields, messages };
+}
 
 function ProspectingCampaignStudioModal({
   open,
@@ -1229,15 +1480,19 @@ function ProspectingCampaignStudioModal({
   onStart,
   onPause,
   onResume,
+  canActivateProspecting,
+  activationBlockedReason,
 }: {
   open: boolean;
   config: ProspectingCampaignConfig;
   status: ProspectingAutomationLiveStatus | null;
   actionLoading: string | null;
   companyName: string;
+  canActivateProspecting: boolean;
+  activationBlockedReason?: string;
   onClose: () => void;
   onChange: (updater: (current: ProspectingCampaignConfig) => ProspectingCampaignConfig) => void;
-  onSave: () => void;
+  onSave: (configOverride?: ProspectingCampaignConfig) => Promise<ProspectingAutomationLiveStatus | null> | void;
   onStart: () => void;
   onPause: () => void;
   onResume: () => void;
@@ -1245,10 +1500,18 @@ function ProspectingCampaignStudioModal({
   const [page, setPage] = useState<"mensagem" | "radar">("mensagem");
   const [variablesOpen, setVariablesOpen] = useState(false);
   const [variableTarget, setVariableTarget] = useState<ProspectingVariableTarget>("firstContactVariants");
-  const [positiveDraft, setPositiveDraft] = useState(config.positiveIntentKeywords.join(", "));
-  const [negativeDraft, setNegativeDraft] = useState(config.negativeIntentKeywords.join(", "));
-  const [whatIsItDraft, setWhatIsItDraft] = useState(config.whatIsItIntentKeywords.join(", "));
-  const [neutralDraft, setNeutralDraft] = useState(config.neutralIntentKeywords.join(", "));
+  const [saveFeedback, setSaveFeedback] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [savePopup, setSavePopup] = useState<{ tone: "info" | "success" | "danger"; title: string; text: string } | null>(null);
+  const [riskConfirmationOpen, setRiskConfirmationOpen] = useState(false);
+  const [invalidFields, setInvalidFields] = useState<ProspectingValidationField[]>([]);
+  const [positiveDraft, setPositiveDraft] = useState("");
+  const [negativeDraft, setNegativeDraft] = useState("");
+  const [whatIsItDraft, setWhatIsItDraft] = useState("");
+  const [neutralDraft, setNeutralDraft] = useState("");
+  const [previewScenario, setPreviewScenario] = useState<ProspectingPreviewScenario>({
+    kind: "positive",
+    text: DEFAULT_PROSPECTING_CAMPAIGN_CONFIG.positiveIntentKeywords[0],
+  });
   const [variantIndexes, setVariantIndexes] = useState<Record<ProspectingVariantField, number>>({
     firstContactVariants: 0,
     positiveReplyVariants: 0,
@@ -1263,41 +1526,77 @@ function ProspectingCampaignStudioModal({
   const whatIsItReplyVariantsRef = useRef<HTMLTextAreaElement | null>(null);
   const optOutVariantsRef = useRef<HTMLTextAreaElement | null>(null);
   const neutralHandoffVariantsRef = useRef<HTMLTextAreaElement | null>(null);
+  const campaignStudioWasOpenRef = useRef(false);
+  const pendingRiskSaveConfigRef = useRef<ProspectingCampaignConfig | null>(null);
 
   useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      campaignStudioWasOpenRef.current = false;
+      return;
+    }
+    if (campaignStudioWasOpenRef.current) return;
+    campaignStudioWasOpenRef.current = true;
     // Reset the guided flow whenever the campaign studio opens.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     setPage("mensagem");
-  }, [open]);
+    setPreviewScenario({
+      kind: "positive",
+      text: config.positiveIntentKeywords[0] || DEFAULT_PROSPECTING_CAMPAIGN_CONFIG.positiveIntentKeywords[0],
+    });
+  }, [open, config.positiveIntentKeywords]);
 
   useEffect(() => {
-    // Keep local drafts aligned after loading a saved campaign.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setPositiveDraft(config.positiveIntentKeywords.join(", "));
+    // Clear the add-chip field after loading a saved campaign.
+    setPositiveDraft("");
   }, [config.positiveIntentKeywords]);
 
   useEffect(() => {
-    // Keep local drafts aligned after loading a saved campaign.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setNegativeDraft(config.negativeIntentKeywords.join(", "));
+    // Clear the add-chip field after loading a saved campaign.
+    setNegativeDraft("");
   }, [config.negativeIntentKeywords]);
 
   useEffect(() => {
-    // Keep local drafts aligned after loading a saved campaign.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setWhatIsItDraft(config.whatIsItIntentKeywords.join(", "));
+    // Clear the add-chip field after loading a saved campaign.
+    setWhatIsItDraft("");
   }, [config.whatIsItIntentKeywords]);
 
   useEffect(() => {
-    // Keep local drafts aligned after loading a saved campaign.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setNeutralDraft(config.neutralIntentKeywords.join(", "));
+    // Clear the add-chip field after loading a saved campaign.
+    setNeutralDraft("");
   }, [config.neutralIntentKeywords]);
+
+  useEffect(() => {
+    if (!savePopup || savePopup.tone !== "success") return;
+    const timer = window.setTimeout(() => setSavePopup(null), 3600);
+    return () => window.clearTimeout(timer);
+  }, [savePopup]);
 
   if (!open || typeof document === "undefined") return null;
 
+  const hasInvalidField = (field: ProspectingValidationField) => invalidFields.includes(field);
+  const clearInvalidField = (field: ProspectingValidationField) => {
+    if (!invalidFields.includes(field)) return;
+    setInvalidFields((current) => current.filter((item) => item !== field));
+  };
+  const focusInvalidField = (field: ProspectingValidationField | null | undefined) => {
+    if (!field) return;
+    setPage("mensagem");
+    window.setTimeout(() => {
+      const target = document.querySelector<HTMLElement>(`[data-prospecting-field="${field}"]`);
+      target?.scrollIntoView({ behavior: "smooth", block: "center" });
+      const input = target?.querySelector<HTMLElement>("input, textarea, button");
+      input?.focus();
+    }, 90);
+  };
+  const markInvalidFields = (fields: ProspectingValidationField[]) => {
+    const uniqueFields = Array.from(new Set(fields));
+    setInvalidFields(uniqueFields);
+    focusInvalidField(uniqueFields[0]);
+  };
   const setField = <K extends keyof ProspectingCampaignConfig,>(field: K, value: ProspectingCampaignConfig[K]) => {
+    setSaveFeedback("idle");
+    if (field === "workingHoursStart" || field === "workingHoursEnd") {
+      clearInvalidField(field);
+    }
     onChange((current) => ({ ...current, [field]: value }));
   };
   const setNumberField = (
@@ -1305,6 +1604,8 @@ function ProspectingCampaignStudioModal({
     value: string,
     min = 0,
   ) => {
+    setSaveFeedback("idle");
+    clearInvalidField(field);
     onChange((current) => ({ ...current, [field]: Math.max(min, Math.trunc(Number(value) || 0)) }));
   };
   const setAdvancedNumberField = (
@@ -1312,10 +1613,40 @@ function ProspectingCampaignStudioModal({
     value: string,
     min = 1,
   ) => {
+    setSaveFeedback("idle");
+    clearInvalidField(field);
     onChange((current) => ({ ...current, [field]: Math.max(min, Math.trunc(Number(value) || 0)) }));
   };
-  const setListField = (field: ProspectingKeywordField, value: string) => {
-    onChange((current) => ({ ...current, [field]: normalizeProspectingList(value, current[field]) }));
+  const setKeywordItems = (field: ProspectingKeywordField, items: string[]) => {
+    setSaveFeedback("idle");
+    onChange((current) => ({ ...current, [field]: normalizeProspectingList(items, current[field]) }));
+  };
+  const addKeywordItem = (
+    field: ProspectingKeywordField,
+    value: string,
+    setValue: (value: string) => void,
+    kind: ProspectingIntentKind,
+  ) => {
+    const additions = normalizeProspectingList(value, []);
+    if (!additions.length) return;
+    const nextItems = normalizeProspectingList([...(config[field] || []), ...additions], []);
+    setKeywordItems(field, nextItems);
+    setValue("");
+    setPreviewScenario({ kind, text: additions[0] });
+  };
+  const removeKeywordItem = (field: ProspectingKeywordField, item: string) => {
+    const nextItems = (config[field] || []).filter((currentItem) => currentItem !== item);
+    if (!nextItems.length) return;
+    setKeywordItems(field, nextItems);
+    if (previewScenario.text === item) {
+      const kindByField: Record<ProspectingKeywordField, ProspectingIntentKind> = {
+        positiveIntentKeywords: "positive",
+        negativeIntentKeywords: "negative",
+        whatIsItIntentKeywords: "whatIsIt",
+        neutralIntentKeywords: "neutral",
+      };
+      setPreviewScenario({ kind: kindByField[field], text: nextItems[0] });
+    }
   };
   const getEditableVariantList = (field: ProspectingVariantField) => {
     const items = Array.isArray(config[field]) ? config[field].map((item) => String(item ?? "")) : [];
@@ -1323,6 +1654,10 @@ function ProspectingCampaignStudioModal({
   };
   const setVariantListField = (field: ProspectingVariantField, nextList: string[]) => {
     const cleanList = nextList.slice(0, 20).map((item) => String(item ?? ""));
+    setSaveFeedback("idle");
+    if (field === "firstContactVariants" && cleanList.some((item) => item.trim())) {
+      clearInvalidField("firstContactVariants");
+    }
     onChange((current) => ({ ...current, [field]: cleanList.length ? cleanList : [""] }));
   };
   const setVariantAt = (field: ProspectingVariantField, index: number, value: string) => {
@@ -1390,12 +1725,16 @@ function ProspectingCampaignStudioModal({
   };
   const canPause = Boolean(status?.campaign?.status === "running");
   const canResume = Boolean(status?.campaign?.status === "paused");
+  const campaignHasError = Boolean(status?.lastError || status?.status === "erro");
+  const activationDisabled = Boolean(actionLoading || (!canPause && !canActivateProspecting));
+  const activationState = campaignHasError ? "error" : canPause ? "running" : canResume ? "paused" : "idle";
+  const activationLabel = canPause ? "Pausar Prospecção" : "Ativar Prospecção";
+  const activationBusyLabel = canPause ? "Pausando..." : canResume ? "Ativando..." : "Ativando...";
   const previewVariables = {
     empresa: companyName || "HBX",
     funcionario: "time comercial",
   };
   const firstContactText = config.firstContactVariants[0] || config.messageTemplate;
-  const optOutText = config.optOutVariants[0] || config.optOutMessage;
   const sanitizedMessagePreview = sanitizeFirstContactPreview(firstContactText) || DEFAULT_PROSPECTING_CAMPAIGN_CONFIG.messageTemplate;
   const messageTemplateHasLink = hasFirstContactLink(joinProspectingVariantList(config.firstContactVariants));
   const firstStepReady = Boolean(config.firstContactVariants.some((item) => item.trim()) && config.workingHoursStart && config.workingHoursEnd);
@@ -1409,23 +1748,264 @@ function ProspectingCampaignStudioModal({
     if (value) radarFrameParams.set(key, String(value));
   });
   const radarFrameSrc = `/mobile/radar-digital${radarFrameParams.toString() ? `?${radarFrameParams.toString()}` : ""}`;
+  const buildConfigWithPendingKeywordDrafts = () => {
+    const draftEntries: Array<{
+      field: ProspectingKeywordField;
+      value: string;
+      clear: (value: string) => void;
+      kind: ProspectingIntentKind;
+    }> = [
+      { field: "positiveIntentKeywords", value: positiveDraft, clear: setPositiveDraft, kind: "positive" },
+      { field: "whatIsItIntentKeywords", value: whatIsItDraft, clear: setWhatIsItDraft, kind: "whatIsIt" },
+      { field: "negativeIntentKeywords", value: negativeDraft, clear: setNegativeDraft, kind: "negative" },
+      { field: "neutralIntentKeywords", value: neutralDraft, clear: setNeutralDraft, kind: "neutral" },
+    ];
+    let nextConfig = config;
+    let firstAddedPreview: ProspectingPreviewScenario | null = null;
+
+    draftEntries.forEach((entry) => {
+      const additions = normalizeProspectingList(entry.value, []);
+      if (!additions.length) return;
+      nextConfig = {
+        ...nextConfig,
+        [entry.field]: normalizeProspectingList([...(nextConfig[entry.field] || []), ...additions], []),
+      };
+      entry.clear("");
+      firstAddedPreview ||= { kind: entry.kind, text: additions[0] };
+    });
+
+    if (firstAddedPreview) {
+      setPreviewScenario(firstAddedPreview);
+      onChange(() => nextConfig);
+    }
+
+    return nextConfig;
+  };
+
+  const getRiskRules = (nextConfig: ProspectingCampaignConfig) => {
+    const risks: string[] = [];
+    if (Number(nextConfig.intervalMinutes || 0) < 15) {
+      risks.push("Intervalo abaixo de 15 minutos aumenta risco de bloqueio, reclamação e perda do chip.");
+    }
+    if (Number(nextConfig.maxAttemptsPerLead || 1) > 1) {
+      risks.push("Mais de 1 tentativa por contato pode repetir abordagem e gerar percepção de spam.");
+    }
+    return risks;
+  };
+  const hasConfirmedRiskRules = () => {
+    try {
+      return window.localStorage.getItem(PROSPECTING_RISK_CONFIRMATION_KEY) === "confirmed";
+    } catch {
+      return false;
+    }
+  };
+  const confirmRiskRulesOnce = () => {
+    try {
+      window.localStorage.setItem(PROSPECTING_RISK_CONFIRMATION_KEY, "confirmed");
+    } catch {
+      // Local storage can be unavailable in restricted browsers; the current confirmation still proceeds.
+    }
+  };
+  const saveConfigNow = async (nextConfig: ProspectingCampaignConfig) => {
+    setSaveFeedback("saving");
+    setInvalidFields([]);
+    setSavePopup({
+      tone: "info",
+      title: "Salvando HBot",
+      text: "Estou gravando as regras da Prospecção no backend.",
+    });
+    try {
+      const result = await onSave(nextConfig);
+      if (result === null) {
+        setSaveFeedback("error");
+        setSavePopup({
+          tone: "danger",
+          title: "Não salvou",
+          text: "O backend recusou a configuração, mas não informou um campo específico.",
+        });
+        return;
+      }
+    } catch (error) {
+      const message = prospectingErrorMessage(error);
+      const backendFields = prospectingFieldFromBackendMessage(message);
+      if (backendFields.length) markInvalidFields(backendFields);
+      setSaveFeedback("error");
+      setSavePopup({
+        tone: "danger",
+        title: "Não salvou",
+        text: backendFields.length
+          ? `${message} Campo: ${backendFields.map((field) => PROSPECTING_VALIDATION_FIELD_LABELS[field]).join(", ")}.`
+          : `O backend recusou: ${message}`,
+      });
+      return;
+    }
+    setSaveFeedback("saved");
+    setInvalidFields([]);
+    setSavePopup({
+      tone: "success",
+      title: "HBot salvo",
+      text: "Configuração salva no backend e pronta para a Prospecção.",
+    });
+    window.setTimeout(() => setSaveFeedback("idle"), 2600);
+  };
+  const handleSaveClick = async () => {
+    const nextConfig = buildConfigWithPendingKeywordDrafts();
+    const validation = validateProspectingCampaignConfig(nextConfig);
+    if (!validation.ok) {
+      markInvalidFields(validation.fields);
+      setSaveFeedback("error");
+      setSavePopup({
+        tone: "danger",
+        title: "Não salvou",
+        text: validation.messages[0] || "Revise os campos destacados em vermelho.",
+      });
+      return;
+    }
+    if (getRiskRules(nextConfig).length && !hasConfirmedRiskRules()) {
+      pendingRiskSaveConfigRef.current = nextConfig;
+      setRiskConfirmationOpen(true);
+      return;
+    }
+    await saveConfigNow(nextConfig);
+  };
+  const handleStartClick = () => {
+    if (!canActivateProspecting) {
+      setSaveFeedback("error");
+      setSavePopup({
+        tone: "danger",
+        title: "Ative o HBot primeiro",
+        text: activationBlockedReason || "A Prospecção só pode ser ativada depois que o HBot estiver ligado.",
+      });
+      return;
+    }
+    const nextConfig = buildConfigWithPendingKeywordDrafts();
+    const validation = validateProspectingCampaignConfig(nextConfig);
+    if (!validation.ok) {
+      markInvalidFields(validation.fields);
+      setSaveFeedback("error");
+      setSavePopup({
+        tone: "danger",
+        title: "Não ativou",
+        text: validation.messages[0] || "Revise os campos destacados em vermelho.",
+      });
+      return;
+    }
+    onStart();
+  };
+  const handleProspectingActivationClick = () => {
+    if (canPause) {
+      onPause();
+      return;
+    }
+    if (canResume) {
+      if (!canActivateProspecting) {
+        setSaveFeedback("error");
+        setSavePopup({
+          tone: "danger",
+          title: "Ative o HBot primeiro",
+          text: activationBlockedReason || "A Prospecção só pode ser ativada depois que o HBot estiver ligado.",
+        });
+        return;
+      }
+      onResume();
+      return;
+    }
+    handleStartClick();
+  };
+  const confirmRiskAndSave = async () => {
+    const nextConfig = pendingRiskSaveConfigRef.current || config;
+    confirmRiskRulesOnce();
+    pendingRiskSaveConfigRef.current = null;
+    setRiskConfirmationOpen(false);
+    await saveConfigNow(nextConfig);
+  };
+  const previewIntentMeta: Record<
+    ProspectingIntentKind,
+    {
+      label: string;
+      field: ProspectingKeywordField;
+      replyField: ProspectingVariantField;
+      final: string;
+      confirmationText?: string;
+    }
+  > = {
+    positive: {
+      label: "Positiva",
+      field: "positiveIntentKeywords",
+      replyField: "positiveReplyVariants",
+      confirmationText: "Pode me ligar sim.",
+      final: "Final: fica piscando em Prospecção como verde. Só vai para Atendimento quando o operador assumir.",
+    },
+    whatIsIt: {
+      label: "O que é?",
+      field: "whatIsItIntentKeywords",
+      replyField: "whatIsItReplyVariants",
+      confirmationText: "Entendi. Pode me ligar rapidinho.",
+      final: "Final: fica piscando em Prospecção como verde. Só vai para Atendimento quando o operador assumir.",
+    },
+    neutral: {
+      label: "Neutra",
+      field: "neutralIntentKeywords",
+      replyField: "neutralHandoffVariants",
+      final: "Final: fica piscando em Prospecção como amarelo para operador decidir o próximo passo.",
+    },
+    negative: {
+      label: "Negativa",
+      field: "negativeIntentKeywords",
+      replyField: "optOutVariants",
+      final: "Final: deletar/arquivar contato, marcar opt-out e não chamar novamente.",
+    },
+  };
+  const selectedPreviewMeta = previewIntentMeta[previewScenario.kind];
+  const selectedPreviewText =
+    previewScenario.text ||
+    config[selectedPreviewMeta.field]?.[0] ||
+    DEFAULT_PROSPECTING_CAMPAIGN_CONFIG[selectedPreviewMeta.field][0];
+  const previewReplyText = renderProspectingPreview(
+    config[selectedPreviewMeta.replyField]?.[0] || DEFAULT_PROSPECTING_CAMPAIGN_CONFIG[selectedPreviewMeta.replyField][0],
+    config,
+    previewVariables,
+  );
+  const shouldShowPreviewConfirmation = Boolean(selectedPreviewMeta.confirmationText && previewReplyText.includes("?"));
   const renderTriggerPanel = (
     field: ProspectingKeywordField,
     label: string,
-    value: string,
-    setValue: (value: string) => void,
+    draftValue: string,
+    setDraftValue: (value: string) => void,
     helper: string,
+    kind: ProspectingIntentKind,
   ) => (
-    <label className={styles.campaignClassifierPanel}>
+    <div className={styles.campaignClassifierPanel}>
       <strong>{label}</strong>
-      <textarea
-        className={styles.campaignClassifierTextarea}
-        value={value}
-        onChange={(event) => setValue(event.target.value)}
-        onBlur={(event) => setListField(field, event.target.value)}
-      />
+      <div className={styles.campaignKeywordChips}>
+        {normalizeProspectingList(config[field], DEFAULT_PROSPECTING_CAMPAIGN_CONFIG[field]).map((item) => (
+          <span key={`${field}-${item}`} className={styles.campaignKeywordChip} data-active={previewScenario.kind === kind && selectedPreviewText === item ? "true" : "false"}>
+            <button type="button" onClick={() => setPreviewScenario({ kind, text: item })}>
+              {item}
+            </button>
+            <button type="button" aria-label={`Remover ${item}`} onClick={() => removeKeywordItem(field, item)}>
+              x
+            </button>
+          </span>
+        ))}
+      </div>
+      <div className={styles.campaignKeywordAdd}>
+        <input
+          value={draftValue}
+          onChange={(event) => setDraftValue(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key !== "Enter") return;
+            event.preventDefault();
+            addKeywordItem(field, draftValue, setDraftValue, kind);
+          }}
+          placeholder="Nova frase do cliente"
+        />
+        <button type="button" onClick={() => addKeywordItem(field, draftValue, setDraftValue, kind)}>
+          +
+        </button>
+      </div>
       <small>{helper}</small>
-    </label>
+    </div>
   );
   const renderVariantPager = (
     field: ProspectingVariantField,
@@ -1437,8 +2017,14 @@ function ProspectingCampaignStudioModal({
     const list = getEditableVariantList(field);
     const index = clampVariantIndex(field, variantIndexes[field] || 0);
     const disabled = Boolean(options?.disabled);
+    const invalid = field === "firstContactVariants" && hasInvalidField("firstContactVariants");
     return (
-      <div className={`${styles.campaignWideField} ${styles.campaignVariantPager}`} data-disabled={disabled ? "true" : "false"}>
+      <div
+        className={`${styles.campaignWideField} ${styles.campaignVariantPager}`}
+        data-prospecting-field={field}
+        data-disabled={disabled ? "true" : "false"}
+        data-invalid={invalid ? "true" : "false"}
+      >
         <div className={styles.campaignVariantHeader}>
           {options?.triggerPanel || <strong>{label}</strong>}
           <span>{index + 1} de {list.length}</span>
@@ -1466,9 +2052,10 @@ function ProspectingCampaignStudioModal({
   };
 
   return createPortal(
-    <div className={styles.campaignStudioBackdrop} role="presentation" onClick={onClose}>
+    <div className={styles.campaignStudioBackdrop} role="presentation">
       <section
-        className={styles.campaignStudioFrame}
+        className={`${styles.campaignStudioFrame} hbx-popup1`}
+        data-tone="info"
         role="dialog"
         aria-modal="true"
         aria-labelledby="campaign-studio-title"
@@ -1485,8 +2072,21 @@ function ProspectingCampaignStudioModal({
         </header>
 
         <div className={styles.campaignStudioTabs} role="tablist" aria-label="Etapas do HBot">
-          <button type="button" data-active={page === "mensagem" ? "true" : "false"} onClick={() => setPage("mensagem")}>1. Mensagem inicial</button>
-          <button type="button" data-active={page === "radar" ? "true" : "false"} onClick={() => setPage("radar")}>2. Radar</button>
+          <button
+            type="button"
+            data-active={page === "mensagem" ? "true" : "false"}
+            data-invalid={invalidFields.some((field) => field === "workingHoursStart" || field === "workingHoursEnd" || field === "firstContactVariants") ? "true" : "false"}
+            onClick={() => setPage("mensagem")}
+          >
+            1. Mensagem inicial
+          </button>
+          <button
+            type="button"
+            data-active={page === "radar" ? "true" : "false"}
+            onClick={() => setPage("radar")}
+          >
+            2. Radar
+          </button>
         </div>
 
         <div className={styles.campaignStudioBody}>
@@ -1504,11 +2104,11 @@ function ProspectingCampaignStudioModal({
                 </div>
 
                 <div className={styles.campaignTimeGrid}>
-                  <label className={styles.campaignField}>
+                  <label className={styles.campaignField} data-prospecting-field="workingHoursStart" data-invalid={hasInvalidField("workingHoursStart") ? "true" : "false"}>
                     <span>Início</span>
                     <input type="time" value={config.workingHoursStart} onChange={(event) => setField("workingHoursStart", event.target.value)} />
                   </label>
-                  <label className={styles.campaignField}>
+                  <label className={styles.campaignField} data-prospecting-field="workingHoursEnd" data-invalid={hasInvalidField("workingHoursEnd") ? "true" : "false"}>
                     <span>Fim</span>
                     <input type="time" value={config.workingHoursEnd} onChange={(event) => setField("workingHoursEnd", event.target.value)} />
                   </label>
@@ -1531,23 +2131,23 @@ function ProspectingCampaignStudioModal({
                 <details className={styles.campaignAdvanced} open>
                   <summary>Ajustes avançados</summary>
                   <div className={styles.campaignAdvancedGrid}>
-                    <label className={styles.campaignField}>
+                    <label className={styles.campaignField} data-prospecting-field="intervalMinutes" data-invalid={hasInvalidField("intervalMinutes") ? "true" : "false"}>
                       <span>Intervalo</span>
                       <input type="number" min={1} value={config.intervalMinutes} onChange={(event) => setNumberField("intervalMinutes", event.target.value, 1)} />
                     </label>
-                    <label className={styles.campaignField}>
+                    <label className={styles.campaignField} data-prospecting-field="intervalVarianceMinutes" data-invalid={hasInvalidField("intervalVarianceMinutes") ? "true" : "false"}>
                       <span>Variação do intervalo</span>
                       <input type="number" min={0} value={config.intervalVarianceMinutes} onChange={(event) => setNumberField("intervalVarianceMinutes", event.target.value, 0)} />
                     </label>
-                    <label className={styles.campaignField}>
+                    <label className={styles.campaignField} data-prospecting-field="typingSeconds" data-invalid={hasInvalidField("typingSeconds") ? "true" : "false"}>
                       <span>Typing</span>
                       <input type="number" min={0} value={config.typingSeconds} onChange={(event) => setNumberField("typingSeconds", event.target.value, 0)} />
                     </label>
-                    <label className={styles.campaignField}>
+                    <label className={styles.campaignField} data-prospecting-field="typingVarianceSeconds" data-invalid={hasInvalidField("typingVarianceSeconds") ? "true" : "false"}>
                       <span>Variação do typing</span>
                       <input type="number" min={0} value={config.typingVarianceSeconds} onChange={(event) => setNumberField("typingVarianceSeconds", event.target.value, 0)} />
                     </label>
-                    <label className={styles.campaignField}>
+                    <label className={styles.campaignField} data-prospecting-field="maxAttemptsPerLead" data-invalid={hasInvalidField("maxAttemptsPerLead") ? "true" : "false"}>
                       <span>Tentativas por contato</span>
                       <input type="number" min={1} value={config.maxAttemptsPerLead} onChange={(event) => setAdvancedNumberField("maxAttemptsPerLead", event.target.value, 1)} />
                     </label>
@@ -1563,6 +2163,7 @@ function ProspectingCampaignStudioModal({
                           positiveDraft,
                           setPositiveDraft,
                           "Palavras ou frases que indicam interesse.",
+                          "positive",
                         ),
                       },
                     )}
@@ -1578,6 +2179,7 @@ function ProspectingCampaignStudioModal({
                           whatIsItDraft,
                           setWhatIsItDraft,
                           "Frases que identificam pergunta sobre o assunto.",
+                          "whatIsIt",
                         ),
                       },
                     )}
@@ -1596,6 +2198,7 @@ function ProspectingCampaignStudioModal({
                               negativeDraft,
                               setNegativeDraft,
                               "Frases que encerram ou removem o contato.",
+                              "negative",
                             )}
                             <label className={styles.campaignInlineToggle}>
                               <span>Responder encerramento negativo</span>
@@ -1617,6 +2220,7 @@ function ProspectingCampaignStudioModal({
                           neutralDraft,
                           setNeutralDraft,
                           "Frases que devem virar atendimento humano.",
+                          "neutral",
                         ),
                       },
                     )}
@@ -1653,33 +2257,33 @@ function ProspectingCampaignStudioModal({
                       <small>Disparo inicial</small>
                       <p>{renderProspectingPreview(sanitizedMessagePreview, config, previewVariables)}</p>
                     </div>
-                    <div className={styles.campaignCustomerBubble}>Não tenho interesse, remova meu contato.</div>
-                    {config.optOutReplyEnabled ? (
-                      <div className={styles.campaignBotBubble}>
-                        <small>Encerramento negativo</small>
-                        <p>{renderProspectingPreview(optOutText, config, previewVariables)}</p>
-                      </div>
-                    ) : (
+                    <div className={styles.campaignCustomerBubble}>{selectedPreviewText}</div>
+                    <div className={styles.campaignSystemBubble}>Detectado: {selectedPreviewMeta.label}</div>
+                    {previewScenario.kind === "negative" && !config.optOutReplyEnabled ? (
                       <div className={styles.campaignSystemBubble}>Arquiva, marca opt-out e não envia resposta.</div>
+                    ) : (
+                      <>
+                        <div className={styles.campaignBotBubble} data-tone="typing">
+                          <small>Digitando</small>
+                          <p>typing por {config.typingSeconds}s, com variação humana de até {config.typingVarianceSeconds}s.</p>
+                        </div>
+                        <div className={styles.campaignBotBubble}>
+                          <small>{selectedPreviewMeta.label}</small>
+                          <p>{previewReplyText}</p>
+                        </div>
+                        {shouldShowPreviewConfirmation ? (
+                          <>
+                            <div className={styles.campaignCustomerBubble}>{selectedPreviewMeta.confirmationText}</div>
+                            <div className={styles.campaignSystemBubble}>Cliente confirmou continuidade.</div>
+                          </>
+                        ) : null}
+                      </>
                     )}
+                    <div className={styles.campaignSystemBubble}>{selectedPreviewMeta.final}</div>
                   </div>
                   <div className={styles.campaignPhoneComposer}>
                     <span>Mensagem</span>
                     <strong>+</strong>
-                  </div>
-                </div>
-                <div className={styles.campaignVariablePreview}>
-                  <div>
-                    <span>{"{{empresaresumo}}"}</span>
-                    <strong>{summarizeCompanyName("Empresa de Máquinas Agrícolas e Pesados LTDA")}</strong>
-                  </div>
-                  <div>
-                    <span>{"{{funcionario}}"}</span>
-                    <strong>{previewVariables.funcionario}</strong>
-                  </div>
-                  <div>
-                    <span>{"{{empresa}}"}</span>
-                    <strong>{previewVariables.empresa}</strong>
                   </div>
                 </div>
               </aside>
@@ -1694,36 +2298,92 @@ function ProspectingCampaignStudioModal({
         </div>
 
         <footer className={styles.campaignStudioFooter}>
-          <span>{status?.text || "HBot parado"}</span>
+          <span>
+            {saveFeedback === "saving"
+              ? "Salvando alterações..."
+              : saveFeedback === "saved"
+                ? "Salvo no backend agora."
+                : saveFeedback === "error"
+                  ? invalidFields.length
+                    ? "Não salvou. Corrija o campo em vermelho."
+                    : "Não salvou. Leia o aviso vermelho."
+                  : page === "radar" && !canActivateProspecting
+                    ? activationBlockedReason || "Ligue o HBot antes de ativar a Prospecção."
+                    : campaignHasError
+                      ? status?.lastError || status?.text || "Prospecção com erro. Revise o aviso vermelho."
+                  : status?.text || "HBot parado"}
+          </span>
           <div>
             {page === "radar" ? (
               <button type="button" className={styles.campaignFooterButton} onClick={() => setPage("mensagem")}>
                 Voltar
               </button>
             ) : null}
-            <button type="button" className={styles.campaignFooterButton} onClick={onSave} disabled={Boolean(actionLoading)}>
-              {actionLoading === "save" ? "Salvando..." : "Salvar"}
+            <button
+              type="button"
+              className={styles.campaignFooterButton}
+              data-state={saveFeedback}
+              onClick={() => void handleSaveClick()}
+              disabled={Boolean(actionLoading)}
+            >
+              {actionLoading === "save" || saveFeedback === "saving"
+                ? "Salvando..."
+                : saveFeedback === "saved"
+                  ? "Salvo"
+                  : saveFeedback === "error"
+                    ? "Tentar salvar"
+                    : "Salvar"}
             </button>
             {page === "mensagem" ? (
               <button type="button" className={styles.campaignFooterButtonPrimary} onClick={() => setPage("radar")} disabled={!firstStepReady}>
                 Avançar para Radar
               </button>
             ) : (
-              <button type="button" className={styles.campaignFooterButtonPrimary} onClick={onStart} disabled={Boolean(actionLoading)}>
-                {actionLoading === "start" ? "Ativando..." : "Ativar HBot"}
+              <button
+                type="button"
+                className={styles.campaignFooterButtonPrimary}
+                data-state={activationState}
+                onClick={handleProspectingActivationClick}
+                disabled={activationDisabled}
+                title={!canActivateProspecting ? activationBlockedReason || "Ative o HBot primeiro." : undefined}
+              >
+                {actionLoading === "start" || actionLoading === "pause" || actionLoading === "resume"
+                  ? activationBusyLabel
+                  : activationLabel}
               </button>
             )}
-            {canPause ? (
-              <button type="button" className={styles.campaignFooterButton} onClick={onPause} disabled={Boolean(actionLoading)}>
-                {actionLoading === "pause" ? "..." : "Pausar"}
-              </button>
-            ) : canResume ? (
-              <button type="button" className={styles.campaignFooterButton} onClick={onResume} disabled={Boolean(actionLoading)}>
-                {actionLoading === "resume" ? "..." : "Retomar"}
-              </button>
-            ) : null}
           </div>
         </footer>
+        {savePopup ? (
+          <HbxPopup2
+            open
+            tone={savePopup.tone}
+            title={savePopup.title}
+            onClose={savePopup.tone === "info" ? undefined : () => setSavePopup(null)}
+          >
+            {savePopup.text}
+          </HbxPopup2>
+        ) : null}
+        <HbxPopup3
+          open={riskConfirmationOpen}
+          tone="warning"
+          eyebrow="HBX Popup 3"
+          title="Confirme as regras de risco da Prospecção"
+          description="Esses ajustes podem aumentar bloqueios e respostas negativas. Leia antes de salvar."
+          items={[
+            ...getRiskRules(pendingRiskSaveConfigRef.current || config),
+            "A recomendação segura é intervalo mínimo de 15 minutos e 1 tentativa por contato.",
+            "Depois de confirmar, este aviso não aparece novamente neste navegador.",
+          ]}
+          cancelLabel="Voltar"
+          confirmLabel="OK, li e quero salvar"
+          busy={saveFeedback === "saving"}
+          onCancel={() => {
+            pendingRiskSaveConfigRef.current = null;
+            setRiskConfirmationOpen(false);
+          }}
+          onConfirm={() => void confirmRiskAndSave()}
+        />
         {variablesOpen ? (
           <div className={styles.campaignVariablePopover} role="dialog" aria-modal="true">
             <div className={styles.campaignVariablePopoverCard}>
@@ -2507,14 +3167,6 @@ function isProspectingInterestedConversation(conversation?: InboxConversation | 
   );
 }
 
-function isProspectingInterestedHandoffConversation(conversation?: InboxConversation | null) {
-  return (
-    resolveInboxProspectionStage(conversation) === "reply_received" &&
-    isProspectingInterestedConversation(conversation) &&
-    isInboxExplicitAtendimentoHandoff(conversation)
-  );
-}
-
 function parseInboxDateOnlyKey(value: string) {
   const normalized = String(value || "").trim();
   if (!normalized) return null;
@@ -2830,7 +3482,10 @@ function getInboxProspectionStatusMeta(conversation?: InboxConversation | null):
   const stage = resolveInboxProspectionStage(conversation);
   if (!stage) return null;
   const prospeccao = getInboxVendasProspeccaoMetadata(conversation);
-  const interestedHandoff = isProspectingInterestedHandoffConversation(conversation);
+  const interestedProspection = isProspectingInterestedConversation(conversation);
+  const interestedHandoff = interestedProspection && isInboxExplicitAtendimentoHandoff(conversation);
+  const replyReceivedAccent = interestedProspection ? "#16a34a" : "#d97706";
+  const replyReceivedSurface = interestedProspection ? "#e8f7ee" : "#fff3d6";
   const leadSegment = formatProspectionSegment(prospeccao?.leadSegment);
   const campaignSegment = formatProspectionSegment(prospeccao?.campaignSegment);
   const mismatchSubtitle =
@@ -2865,13 +3520,15 @@ function getInboxProspectionStatusMeta(conversation?: InboxConversation | null):
     },
     reply_received: {
       stage,
-      badge: interestedHandoff ? "Interessado" : "Resposta",
-      preview: interestedHandoff ? "Cliente gostou" : "Cliente respondeu",
+      badge: interestedProspection ? "Interessado" : "Resposta",
+      preview: interestedProspection ? "Cliente gostou" : "Cliente respondeu",
       subtitle: interestedHandoff
         ? "Transferido para atendimento"
-        : "Cliente respondeu",
-      accent: interestedHandoff ? "#16a34a" : "#7c3aed",
-      surface: interestedHandoff ? "#e8f7ee" : "#f1eafe",
+        : interestedProspection
+          ? "Aguardando operador em Prospecção"
+          : "Aguardando operador em Prospecção",
+      accent: replyReceivedAccent,
+      surface: replyReceivedSurface,
     },
     expired_no_reply: {
       stage,
@@ -2997,13 +3654,11 @@ function resolveInboxBucket(
     return "conversas";
   }
   const hasProspectionOrigin = hasInboxHbxProspectionOrigin(conversation);
-  const hasProspectionResponse = hasInboxProspectionCustomerResponse(conversation);
   if (
     persistedRouteTarget === "atendimento" ||
-    isInboxExplicitAtendimentoHandoff(conversation, manualQueue, persistedQueue) ||
-    (hasProspectionOrigin && hasProspectionResponse)
+    isInboxExplicitAtendimentoHandoff(conversation, manualQueue, persistedQueue)
   ) return "atendimento";
-  if (hasProspectionOrigin && !hasProspectionResponse) {
+  if (hasProspectionOrigin) {
     return "prospeccao";
   }
 
@@ -4050,6 +4705,9 @@ function InboxDesktopClientPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedConversation, setSelectedConversation] = useState<InboxConversation | null>(null);
   const [whatsappSession, setWhatsappSession] = useState<InboxBootstrapPayload["whatsappSession"]>(null);
+  const [whatsappSessionCleanup, setWhatsappSessionCleanup] =
+    useState<InboxBootstrapPayload["whatsappSessionCleanup"]>(null);
+  const [whatsappSessionCleanupBusy, setWhatsappSessionCleanupBusy] = useState<"merge" | "discard" | null>(null);
   const [whatsappAccessBlocked, setWhatsappAccessBlocked] = useState(false);
   const [bootstrapReady, setBootstrapReady] = useState(false);
   const [loadingList, setLoadingList] = useState(true);
@@ -4091,12 +4749,6 @@ function InboxDesktopClientPage() {
   const [messageReactionTargetId, setMessageReactionTargetId] = useState<string | null>(null);
   const [blockDialog, setBlockDialog] = useState<{ conversationId: string; reason: string } | null>(null);
   const [deleteConversationDialog, setDeleteConversationDialog] = useState<{ conversationId: string } | null>(null);
-  const [purgeConversationDialog, setPurgeConversationDialog] = useState<{ conversationId: string } | null>(null);
-  const [emptyTrashDialogOpen, setEmptyTrashDialogOpen] = useState(false);
-  const [emptyingTrash, setEmptyingTrash] = useState(false);
-  const [meticulousTrashJob, setMeticulousTrashJob] = useState<MeticulousTrashPurgeJob | null>(null);
-  const [meticulousTrashBusy, setMeticulousTrashBusy] = useState(false);
-  const [meticulousTrashLimit, setMeticulousTrashLimit] = useState("1");
   const [deleteMessageDialog, setDeleteMessageDialog] = useState<{ messageId: string } | null>(null);
 
   useEffect(() => {
@@ -4638,6 +5290,7 @@ function InboxDesktopClientPage() {
         timeoutMs: 25000,
       });
       setWhatsappSession(payload?.whatsappSession || null);
+      setWhatsappSessionCleanup(payload?.whatsappSessionCleanup || null);
       const blocked = payload?.whatsappSession?.accessible === false || payload?.providerWarning?.code === "WHATSAPP_REQUIRED";
       setWhatsappAccessBlocked(blocked);
       if (blocked) {
@@ -4694,6 +5347,31 @@ function InboxDesktopClientPage() {
       setLoadingConversation(false);
     }
   }, [rememberConversationDetail]);
+
+  const resolveWhatsappSessionCleanup = useCallback(async (mode: "merge" | "discard") => {
+    setWhatsappSessionCleanupBusy(mode);
+    setError(null);
+    try {
+      const payload = await apiFetch<{ message?: string }>("/inbox/whatsapp-sessions/cleanup", {
+        method: "POST",
+        body: JSON.stringify({ mode }),
+      });
+      setWhatsappSessionCleanup(null);
+      setNotice({
+        tone: "success",
+        text:
+          String(payload?.message || "").trim() ||
+          (mode === "merge"
+            ? "Histórico antigo mesclado na sessão atual."
+            : "Histórico antigo descartado do HBX."),
+      });
+      await bootstrapInbox({ take: INBOX_CONVERSATION_LIST_LIMIT });
+    } catch (cleanupError) {
+      setError(cleanupError instanceof Error ? cleanupError.message : "Falha ao limpar sessões antigas.");
+    } finally {
+      setWhatsappSessionCleanupBusy(null);
+    }
+  }, [bootstrapInbox]);
 
   const loadConversation = useCallback(async (
     id: string | null | undefined,
@@ -5330,7 +6008,9 @@ function InboxDesktopClientPage() {
     }
     if (!background) setProspectingAutomationLoading(true);
     try {
-      const data = await apiFetch<ProspectingAutomationLiveStatus>("/vendas/automation/live-status");
+      const data = sanitizeProspectingAutomationStatus(
+        await apiFetch<ProspectingAutomationLiveStatus>("/vendas/automation/live-status"),
+      );
       setProspectingAutomationStatus(data);
       if (!campaignConfigDirtyRef.current) {
         setCampaignConfig(buildProspectingCampaignConfig(data));
@@ -5348,11 +6028,20 @@ function InboxDesktopClientPage() {
 
   const runProspectingAutomationAction = useCallback(
     async (action: "pause" | "resume") => {
+      if (action === "resume" && !globalBotEnabled) {
+        setNotice({
+          tone: "error",
+          text: "Ligue o HBot antes de ativar a Prospecção.",
+        });
+        return;
+      }
       setProspectingAutomationAction(action);
       try {
-        const data = await apiFetch<ProspectingAutomationLiveStatus>(`/vendas/automation/prospecting/${action}`, {
-          method: "POST",
-        });
+        const data = sanitizeProspectingAutomationStatus(
+          await apiFetch<ProspectingAutomationLiveStatus>(`/vendas/automation/prospecting/${action}`, {
+            method: "POST",
+          }),
+        );
         setProspectingAutomationStatus(data);
       } catch (actionError) {
         setNotice({
@@ -5363,7 +6052,7 @@ function InboxDesktopClientPage() {
         setProspectingAutomationAction(null);
       }
     },
-    [],
+    [globalBotEnabled],
   );
 
   const updateCampaignConfig = useCallback((updater: (current: ProspectingCampaignConfig) => ProspectingCampaignConfig) => {
@@ -5371,22 +6060,16 @@ function InboxDesktopClientPage() {
     setCampaignConfig((current) => updater(current));
   }, []);
 
-  const saveProspectingCampaignConfig = useCallback(async () => {
-    const payload = toProspectingCampaignPayload(campaignConfig);
-    if (!payload.city.trim()) {
-      setNotice({ tone: "error", text: "Informe a cidade da Fonte Radar." });
-      return null;
-    }
-    if (!payload.segment.trim()) {
-      setNotice({ tone: "error", text: "Informe o segmento da Fonte Radar." });
-      return null;
-    }
+  const saveProspectingCampaignConfig = useCallback(async (configOverride?: ProspectingCampaignConfig) => {
+    const payload = toProspectingCampaignPayload(configOverride || campaignConfig);
     setProspectingAutomationAction("save");
     try {
-      const data = await apiFetch<ProspectingAutomationLiveStatus>("/vendas/automation/prospecting/config", {
-        method: "PATCH",
-        body: JSON.stringify(payload),
-      });
+      const data = sanitizeProspectingAutomationStatus(
+        await apiFetch<ProspectingAutomationLiveStatus>("/vendas/automation/prospecting/config", {
+          method: "PATCH",
+          body: JSON.stringify(payload),
+        }),
+      );
       campaignConfigDirtyRef.current = false;
       setCampaignConfig(buildProspectingCampaignConfig(data));
       setProspectingAutomationStatus(data);
@@ -5397,36 +6080,37 @@ function InboxDesktopClientPage() {
         tone: "error",
         text: saveError instanceof Error ? saveError.message : "Falha ao salvar o HBot.",
       });
-      return null;
+      throw saveError;
     } finally {
       setProspectingAutomationAction(null);
     }
   }, [campaignConfig]);
 
   const startProspectingCampaign = useCallback(async () => {
+    if (!globalBotEnabled) {
+      setNotice({
+        tone: "error",
+        text: "Ligue o HBot antes de ativar a Prospecção.",
+      });
+      return;
+    }
     const payload = toProspectingCampaignPayload(campaignConfig);
-    if (!payload.city.trim()) {
-      setNotice({ tone: "error", text: "Informe a cidade da Fonte Radar." });
-      return;
-    }
-    if (!payload.segment.trim()) {
-      setNotice({ tone: "error", text: "Informe o segmento da Fonte Radar." });
-      return;
-    }
     setProspectingAutomationAction("start");
     try {
       await apiFetch<ProspectingAutomationLiveStatus>("/vendas/automation/prospecting/config", {
         method: "PATCH",
         body: JSON.stringify(payload),
       });
-      const data = await apiFetch<ProspectingAutomationLiveStatus>("/vendas/automation/prospecting/start", {
-        method: "POST",
-        body: JSON.stringify(payload),
-      });
+      const data = sanitizeProspectingAutomationStatus(
+        await apiFetch<ProspectingAutomationLiveStatus>("/vendas/automation/prospecting/start", {
+          method: "POST",
+          body: JSON.stringify(payload),
+        }),
+      );
       campaignConfigDirtyRef.current = false;
       setCampaignConfig(buildProspectingCampaignConfig(data));
       setProspectingAutomationStatus(data);
-      setNotice({ tone: "success", text: "HBot ativado." });
+      setNotice({ tone: "success", text: "Prospecção ativada." });
     } catch (startError) {
       setNotice({
         tone: "error",
@@ -5435,7 +6119,7 @@ function InboxDesktopClientPage() {
     } finally {
       setProspectingAutomationAction(null);
     }
-  }, [campaignConfig]);
+  }, [campaignConfig, globalBotEnabled]);
 
   const loadBotConfig = useCallback(async (options?: { force?: boolean }) => {
     if (botConfigLoadedRef.current && !options?.force) return;
@@ -5753,6 +6437,46 @@ function InboxDesktopClientPage() {
     return base;
   }, [conversations, manualQueueOverrides]);
 
+  const prospectionSignalCounts = useMemo(() => {
+    const counters = prospectingAutomationStatus?.counters || {};
+    const automationActive = Boolean(
+      prospectingAutomationStatus?.active &&
+        prospectingAutomationStatus?.campaign?.status === "running",
+    );
+    const currentStatus = String(prospectingAutomationStatus?.status || "").trim().toLowerCase();
+    const campaignStatus = String(prospectingAutomationStatus?.campaign?.status || "").trim().toLowerCase();
+    const hasError = currentStatus === "erro" || Boolean(prospectingAutomationStatus?.lastError);
+    const state: "running" | "paused" | "error" | "idle" | "off" =
+      !globalBotEnabled
+        ? "off"
+        : hasError
+        ? "error"
+        : campaignStatus === "paused" || currentStatus === "pausado"
+          ? "paused"
+          : automationActive
+            ? "running"
+            : "idle";
+    const statusText =
+      state === "error"
+        ? "Erro"
+        : state === "paused"
+          ? "Pausada"
+          : state === "running"
+            ? "Rodando"
+            : globalBotEnabled
+              ? "Parada"
+              : "HBot off";
+    return {
+      active: globalBotEnabled && automationActive,
+      state,
+      green: Math.max(0, Number(counters.prospectingGreen ?? counters.interested ?? counters.positives ?? 0) || 0),
+      yellow: Math.max(0, Number(counters.prospectingYellow ?? 0) || 0),
+      red: Math.max(0, Number(counters.prospectingRed ?? counters.archived ?? 0) || 0),
+      nextSendAt: globalBotEnabled ? resolveNextProspectionSendAt(prospectingAutomationStatus) : null,
+      statusText,
+    };
+  }, [globalBotEnabled, prospectingAutomationStatus]);
+
   const filteredConversations = useMemo(() => {
     const normalizedSearch = deferredConversationSearch.trim().toLowerCase();
     const filtered = conversations.filter((conversation) => {
@@ -6065,7 +6789,7 @@ function InboxDesktopClientPage() {
     hasRecoveryCapability && conversationForView
       ? hasAtendimentoRecoveryContext(conversationForView)
       : false;
-  const selectedConversationIsInterested = isProspectingInterestedHandoffConversation(conversationForView);
+  const selectedConversationIsInterested = isProspectingInterestedConversation(conversationForView);
 
   useEffect(() => {
     if (!selectedId || selectedBlocked) return;
@@ -6099,6 +6823,7 @@ function InboxDesktopClientPage() {
     globalBotEnabled,
     prospectingAutomationLoading,
   );
+  const nextProspectionSendAt = globalBotEnabled ? resolveNextProspectionSendAt(prospectingAutomationStatus) : null;
 
   useEffect(() => {
     if (hasRecoveryCapability || contextTab !== "financeiro") return;
@@ -6782,7 +7507,7 @@ function InboxDesktopClientPage() {
           tone: "success",
           text:
             String(response?.message || "").trim() ||
-            "Conversa enviada para Excluídos apenas no HBX.",
+            "Conversa removida do backend local do HBX.",
         });
         await loadConversations({ preferredId: response?.deleted ? null : conversationId, silent: true });
       } catch (deleteError) {
@@ -6801,168 +7526,17 @@ function InboxDesktopClientPage() {
     dispatchTopbarProgress({
       source: "atendimento-delete",
       phase: "warning",
-      title: "Enviar conversa para Excluídos",
-      status: "Remoção local no HBX. Nenhum comando será enviado ao WhatsApp.",
+      title: "Excluir conversa do HBX",
+      status: "Remoção do backend local. Nenhum comando será enviado ao WhatsApp.",
       progress: 82,
       metrics: [
-        { label: "Destino", value: "Excluídos" },
+        { label: "Destino", value: "Remover do HBX" },
         { label: "WhatsApp", value: "0 comandos" },
         { label: "Escopo", value: "HBX" },
       ],
     });
     return () => clearTopbarProgress("atendimento-delete");
   }, [deleteConversationDialog]);
-
-  const openEmptyTrashDialog = useCallback(() => {
-    setActiveTab("messages");
-    setInboxQueue("archived");
-    if (queueCounts.archived <= 0) {
-      setNotice({ tone: "info", text: "Excluídos está vazio." });
-      return;
-    }
-    setEmptyTrashDialogOpen(true);
-  }, [queueCounts.archived]);
-
-  const refreshMeticulousTrashJob = useCallback(async (jobId: string) => {
-    if (!jobId) return null;
-    const payload = await apiFetch<MeticulousTrashPurgeJob>(
-      `/inbox/conversations/empty-trash/meticulous/${jobId}/status`,
-    );
-    setMeticulousTrashJob(normalizeMeticulousTrashJob(payload));
-    return payload;
-  }, []);
-
-  const startMeticulousTrashJob = useCallback(async (dryRun: boolean) => {
-    setError(null);
-    setEmptyingTrash(true);
-    setMeticulousTrashBusy(true);
-    try {
-      const normalizedLimit = Math.max(1, Math.trunc(Number(meticulousTrashLimit || 1) || 1));
-      const endpoint = dryRun
-        ? "/inbox/conversations/empty-trash/meticulous/dry-run"
-        : "/inbox/conversations/empty-trash/meticulous/start";
-      const payload = await apiFetch<MeticulousTrashPurgeJob>(endpoint, {
-        method: "POST",
-        body: JSON.stringify({
-          olderThanHours: 24,
-          limit: dryRun ? Math.max(normalizedLimit, 25) : normalizedLimit,
-          delayMs: 120000,
-        }),
-      });
-      setMeticulousTrashJob(normalizeMeticulousTrashJob(payload));
-      setNotice({
-        tone: "info",
-        text: dryRun ? "Simulação da limpeza meticulosa iniciada." : "Limpeza meticulosa iniciada.",
-      });
-    } catch (deleteError) {
-      const message = deleteError instanceof Error ? deleteError.message : "Falha ao iniciar limpeza meticulosa.";
-      setError(message);
-    } finally {
-      setMeticulousTrashBusy(false);
-    }
-  }, [meticulousTrashLimit]);
-
-  const runMeticulousTrashAction = useCallback(async (action: "pause" | "resume" | "cancel") => {
-    const jobId = meticulousTrashJob?.jobId;
-    if (!jobId) return;
-    setMeticulousTrashBusy(true);
-    setError(null);
-    try {
-      const payload = await apiFetch<MeticulousTrashPurgeJob>(
-        `/inbox/conversations/empty-trash/meticulous/${jobId}/${action}`,
-        { method: "POST" },
-      );
-      setMeticulousTrashJob(normalizeMeticulousTrashJob(payload));
-      if (action === "cancel") {
-        setNotice({ tone: "info", text: "Limpeza meticulosa cancelada." });
-      }
-      if (action === "pause") {
-        setNotice({ tone: "info", text: "Limpeza meticulosa pausada." });
-      }
-      if (action === "resume") {
-        setNotice({ tone: "info", text: "Limpeza meticulosa retomada." });
-      }
-    } catch (actionError) {
-      const message = actionError instanceof Error ? actionError.message : "Falha ao controlar limpeza meticulosa.";
-      setError(message);
-    } finally {
-      setMeticulousTrashBusy(false);
-    }
-  }, [meticulousTrashJob?.jobId]);
-
-  useEffect(() => {
-    const job = meticulousTrashJob;
-    if (!job?.jobId) return;
-    const active = ["running", "paused", "paused_provider_unhealthy", "paused_after_restart"].includes(String(job.status));
-    setEmptyingTrash(active);
-    if (!active) return;
-    const delay = job.status === "running" ? 3000 : 8000;
-    const timer = window.setTimeout(() => {
-      void refreshMeticulousTrashJob(job.jobId).then((payload) => {
-        if (!payload) return;
-        if (payload.status === "completed" || payload.status === "canceled") {
-          void loadConversations({ preferredId: null, silent: true });
-        }
-      }).catch((pollError) => {
-        const message = pollError instanceof Error ? pollError.message : "Falha ao atualizar limpeza meticulosa.";
-        setError(message);
-      });
-    }, delay);
-    return () => window.clearTimeout(timer);
-  }, [loadConversations, meticulousTrashJob, refreshMeticulousTrashJob]);
-
-  const purgeConversationById = useCallback(
-    async (conversationId: string) => {
-      if (!conversationId) return;
-      setPurgeConversationDialog({ conversationId });
-    },
-    [],
-  );
-
-  const confirmPurgeConversation = useCallback(
-    async () => {
-      const conversationId = purgeConversationDialog?.conversationId;
-      if (!conversationId) return;
-      setError(null);
-      try {
-        const response = await apiFetch<{ message?: string; deleted?: boolean }>(
-          `/inbox/conversations/${conversationId}/purge`,
-          { method: "DELETE" },
-        );
-        setQueueActionConversationId(null);
-        setQueueActionMenuPosition(null);
-        setPurgeConversationDialog(null);
-        conversationDetailCacheRef.current.delete(conversationId);
-        customerConversationCardCacheRef.current.delete(conversationId);
-        setConversations((current) => current.filter((conversation) => conversation.id !== conversationId));
-        if (selectedIdRef.current === conversationId) {
-          setSelectedId(null);
-          setSelectedConversation(null);
-          selectedIdRef.current = null;
-          selectedConversationRef.current = null;
-        }
-        setManualQueueOverrides((current) => {
-          const next = { ...current };
-          delete next[conversationId];
-          return next;
-        });
-        setNotice({
-          tone: "success",
-          text:
-            String(response?.message || "").trim() ||
-            "Conversa removida permanentemente de Excluídos apenas no HBX.",
-        });
-        await loadConversations({ preferredId: null, silent: true });
-      } catch (deleteError) {
-        const message =
-          deleteError instanceof Error
-            ? deleteError.message
-            : "Falha ao excluir permanentemente a conversa.";
-        setError(message);
-      }
-    },
-    [loadConversations, purgeConversationDialog?.conversationId],
-  );
 
   const reactToMessage = useCallback(
     async (messageId: string, reaction: string) => {
@@ -7317,6 +7891,7 @@ function InboxDesktopClientPage() {
             value={inboxQueue as ConversationQueueFilterValue}
             counts={queueCounts as Record<ConversationQueueFilterValue, number>}
             unreadCounts={queueUnreadCounts as Record<ConversationQueueFilterValue, number>}
+            botSignalCounts={prospectionSignalCounts}
             dropOverQueue={dropOverQueue as ConversationQueueFilterValue | null}
             allowQueueCardDrag
             draggedQueue={draggedQueueId as ConversationQueueFilterValue | null}
@@ -7371,7 +7946,7 @@ function InboxDesktopClientPage() {
                 const displayName = resolveInboxConversationDisplayName(conversation);
                 const previewLabel = renderInboxConversationPreview(conversation);
                 const prospectionStatusMeta = getInboxProspectionStatusMeta(conversation);
-                const interested = isProspectingInterestedHandoffConversation(conversation);
+                const interested = isProspectingInterestedConversation(conversation);
                 const activityAt = getInboxConversationActivityAt(conversation);
                 const activityAtLabel = activityAt ? formatTimeLabel(activityAt, mounted) : "Sem mensagens";
                 const itemStyle = {
@@ -8694,6 +9269,7 @@ function InboxDesktopClientPage() {
       openCustomerReturnPicker,
       openedAsset,
       olderMessagesHasMore,
+      prospectionSignalCounts,
       queueActionConversationId,
       queueCounts,
       queueUnreadCounts,
@@ -9345,9 +9921,6 @@ function InboxDesktopClientPage() {
 
   if (!hasToken) return null;
 
-  const queueActionConversationIsArchived =
-    queueActionConversationId ? queueByConversationId[queueActionConversationId] === "archived" : false;
-
   return (
     <>
       <DashboardScaffold
@@ -9427,6 +10000,7 @@ function InboxDesktopClientPage() {
                     {globalBotEnabled ? (
                       <span className={styles.commandDockRobotStatus} aria-hidden="true" />
                     ) : null}
+                    {nextProspectionSendAt ? <ProspectionCountdownBadge targetAt={nextProspectionSendAt} /> : null}
                   </button>
                 </div>
                 <div className={styles.commandDockNav}>
@@ -9471,23 +10045,6 @@ function InboxDesktopClientPage() {
                   ) : null}
                 </div>
                 <div className={styles.commandDockBottom}>
-                  <button
-                    type="button"
-                    className={styles.commandDockTrashButton}
-                    onClick={openEmptyTrashDialog}
-                    disabled={emptyingTrash}
-                    aria-label="Limpar conversas vazias"
-                    title={
-                      queueCounts.archived > 0
-                        ? `Limpar conversas vazias de Excluídos (${queueCounts.archived})`
-                        : "Excluídos vazio"
-                    }
-                  >
-                    <ChatGlyph name="trash" />
-                    {queueCounts.archived > 0 ? (
-                      <span className={styles.commandDockTrashBadge}>{queueCounts.archived}</span>
-                    ) : null}
-                  </button>
                   <DockButton
                     icon="user"
                     label="Operador"
@@ -9556,14 +10113,10 @@ function InboxDesktopClientPage() {
                 onClick={(event) => {
                   event.preventDefault();
                   event.stopPropagation();
-                  if (queueActionConversationIsArchived) {
-                    void purgeConversationById(queueActionConversationId);
-                    return;
-                  }
                   void deleteConversationById(queueActionConversationId);
                 }}
               >
-                {queueActionConversationIsArchived ? "Excluir permanente" : "Excluir"}
+                Excluir
               </button>
             </div>,
             document.body,
@@ -9626,9 +10179,15 @@ function InboxDesktopClientPage() {
         status={prospectingAutomationStatus}
         actionLoading={prospectingAutomationAction}
         companyName={currentUserProfile?.company?.name || "HBX"}
+        canActivateProspecting={globalBotEnabled}
+        activationBlockedReason={
+          botAiActive && botSetupComplete
+            ? "Ligue o HBot no botão principal antes de ativar a Prospecção."
+            : "Conclua e ligue o HBot antes de ativar a Prospecção."
+        }
         onClose={() => setCampaignStudioOpen(false)}
         onChange={updateCampaignConfig}
-        onSave={() => void saveProspectingCampaignConfig()}
+        onSave={saveProspectingCampaignConfig}
         onStart={() => void startProspectingCampaign()}
         onPause={() => void runProspectingAutomationAction("pause")}
         onResume={() => void runProspectingAutomationAction("resume")}
@@ -9664,15 +10223,45 @@ function InboxDesktopClientPage() {
         celebrate={inboxBootstrapCelebrate}
       />
 
+      {whatsappSessionCleanup?.required ? (
+        <HbxPopup2
+          open
+          tone="warning"
+          title="Sessões antigas do WhatsApp"
+          action={
+            <>
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                disabled={whatsappSessionCleanupBusy !== null}
+                onClick={() => void resolveWhatsappSessionCleanup("discard")}
+              >
+                {whatsappSessionCleanupBusy === "discard" ? "Limpando..." : "Não, descartar"}
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary btn-sm"
+                disabled={whatsappSessionCleanupBusy !== null}
+                onClick={() => void resolveWhatsappSessionCleanup("merge")}
+              >
+                {whatsappSessionCleanupBusy === "merge" ? "Mesclando..." : "Sim, mesclar"}
+              </button>
+            </>
+          }
+        >
+          {`${whatsappSessionCleanup.oldSessionCount || 0} sessão(ões) antiga(s), ${whatsappSessionCleanup.oldConversationCount || 0} conversa(s) e ${whatsappSessionCleanup.oldMessageCount || 0} mensagem(ns) ficaram antes da queda. Mesclar com a sessão atual?`}
+        </HbxPopup2>
+      ) : null}
+
       <HbxConfirmDialog
         open={deleteConversationDialog !== null}
-        title="Enviar conversa para Excluídos"
-        description="A conversa será removida apenas no HBX. Nenhum comando será enviado ao WhatsApp."
-        confirmLabel="Enviar para Excluídos"
+        title="Excluir conversa do HBX"
+        description="A conversa será removida do backend local do HBX. Nenhum comando será enviado ao WhatsApp."
+        confirmLabel="Excluir do HBX"
         presentation="billboard"
         eyebrow="Telão de segurança"
         metrics={[
-          { label: "Destino", value: "Excluídos" },
+          { label: "Destino", value: "Remover do HBX" },
           { label: "WhatsApp", value: "0 comandos" },
           { label: "Escopo", value: "HBX" },
         ]}
@@ -9680,170 +10269,6 @@ function InboxDesktopClientPage() {
         onCancel={() => setDeleteConversationDialog(null)}
         onConfirm={() => void confirmDeleteConversation()}
       />
-
-      <HbxConfirmDialog
-        open={purgeConversationDialog !== null}
-        title="Excluir permanentemente"
-        description="A conversa será removida definitivamente apenas do HBX. Nenhum comando será enviado ao WhatsApp."
-        confirmLabel="Excluir permanentemente"
-        destructive
-        onCancel={() => setPurgeConversationDialog(null)}
-        onConfirm={() => void confirmPurgeConversation()}
-      />
-
-      <HbxConfirmDialog
-        open={emptyTrashDialogOpen}
-        title="Limpeza meticulosa"
-        description="Esse modo lê as últimas mensagens do cliente, preenche observação como SEM INTERESSE / NEGATIVO e exclui permanentemente 1 conversa a cada 2 minutos. Se o WhatsApp/QR ficar instável, o processo pausa sozinho para proteger a sessão."
-        confirmLabel="Iniciar limpeza real"
-        cancelLabel={emptyingTrash ? "Fechar painel" : "Fechar"}
-        destructive
-        busy={meticulousTrashBusy}
-        confirmDisabled={emptyingTrash}
-        onCancel={() => {
-          if (emptyingTrash) {
-            setNotice({
-              tone: "info",
-              text:
-                meticulousTrashJob?.status === "paused" ||
-                meticulousTrashJob?.status === "paused_provider_unhealthy" ||
-                meticulousTrashJob?.status === "paused_after_restart"
-                  ? "Limpeza meticulosa está pausada."
-                  : "Limpeza meticulosa continua em segundo plano.",
-            });
-          }
-          setEmptyTrashDialogOpen(false);
-        }}
-        onConfirm={() => void startMeticulousTrashJob(false)}
-      >
-        <div className={styles.meticulousTrashPanel}>
-          <div className={styles.meticulousTrashActions}>
-            <label className={styles.meticulousTrashLimit}>
-              <span>Limite real</span>
-              <input
-                className="field"
-                type="number"
-                min={1}
-                max={5000}
-                value={meticulousTrashLimit}
-                disabled={emptyingTrash || meticulousTrashBusy}
-                onChange={(event) => setMeticulousTrashLimit(event.target.value)}
-              />
-            </label>
-            <button
-              type="button"
-              className="btn btn-secondary btn-sm"
-              disabled={meticulousTrashBusy || emptyingTrash}
-              onClick={() => void startMeticulousTrashJob(true)}
-            >
-              Simular primeiro / Dry run
-            </button>
-          </div>
-
-          {meticulousTrashJob ? (
-            <div className={styles.meticulousTrashStatus}>
-              <div className={styles.meticulousTrashMotor}>
-                <span className={styles.meticulousTrashPulse} />
-                <div>
-                  <strong>
-                    {meticulousTrashJob.status === "paused_provider_unhealthy"
-                      ? "Pausado para proteger o QR Code / sessão WhatsApp."
-                      : meticulousTrashJob.dryRun
-                        ? "Simulação em andamento"
-                        : "Motor de limpeza cuidadosa"}
-                  </strong>
-                  <small>
-                    Progresso {Math.min(meticulousTrashJob.currentIndex, meticulousTrashJob.totalCandidates)}/
-                    {meticulousTrashJob.totalCandidates} · WhatsApp/QR:{" "}
-                    {meticulousTrashJob.providerHealth?.status || meticulousTrashJob.providerStatus || "aguardando"}
-                  </small>
-                </div>
-              </div>
-
-              <div className={styles.meticulousTrashGrid}>
-                <span>Telefone atual</span>
-                <strong>{meticulousTrashJob.currentPhone || "-"}</strong>
-                <span>Motivo detectado</span>
-                <strong>
-                  {renderSafeText(meticulousTrashJob.currentDetectedReason) || "-"}
-                  {meticulousTrashJob.candidates.at(-1)?.confidence
-                    ? ` (${Math.round(Number(meticulousTrashJob.candidates.at(-1)?.confidence || 0) * 100)}%)`
-                    : ""}
-                </strong>
-                <span>Próxima exclusão</span>
-                <strong>
-                  {meticulousTrashJob.countdownSeconds > 0
-                    ? `${meticulousTrashJob.countdownSeconds}s`
-                    : meticulousTrashJob.status}
-                </strong>
-                <span>Últimas palavras</span>
-                <strong>{renderSafeText(meticulousTrashJob.currentLastCustomerWords) || "-"}</strong>
-              </div>
-
-              <div className={styles.meticulousTrashCounters}>
-                <span>Marcados: {meticulousTrashJob.markedNegative}</span>
-                <span>Apagados: {meticulousTrashJob.purged}</span>
-                <span>Pulados: {meticulousTrashJob.skipped}</span>
-                <span>Erros: {meticulousTrashJob.errors.length}</span>
-              </div>
-
-              {meticulousTrashJob.candidates.length ? (
-                <div className={styles.meticulousTrashList}>
-                  {meticulousTrashJob.candidates.slice(-8).reverse().map((candidate, index) => (
-                    <div key={`${candidate.conversationId}-${index}`} className={styles.meticulousTrashRow}>
-                      <strong>{candidate.phone || candidate.conversationId}</strong>
-                      <span>{renderSafeText(candidate.action) || "-"} · {renderSafeText(candidate.detectedReason ?? candidate.reason ?? "-")}</span>
-                      <small>{renderSafeText(candidate.lastCustomerWords) || "Sem últimas palavras confiáveis."}</small>
-                    </div>
-                  ))}
-                </div>
-              ) : null}
-
-              {meticulousTrashJob.errors.length ? (
-                <div className={styles.meticulousTrashErrors}>
-                  {meticulousTrashJob.errors.slice(-3).map((item, index) => {
-                    const message = renderSafeText(item.message ?? item.note ?? item.reason ?? item);
-                    return <span key={index}>{message}</span>;
-                  })}
-                </div>
-              ) : null}
-
-              <div className={styles.meticulousTrashControls}>
-                <button
-                  type="button"
-                  className="btn btn-secondary btn-sm"
-                  disabled={meticulousTrashBusy || !["running"].includes(String(meticulousTrashJob.status))}
-                  onClick={() => void runMeticulousTrashAction("pause")}
-                >
-                  Pausar
-                </button>
-                <button
-                  type="button"
-                  className="btn btn-secondary btn-sm"
-                  disabled={
-                    meticulousTrashBusy ||
-                    !["paused", "paused_provider_unhealthy", "paused_after_restart"].includes(String(meticulousTrashJob.status))
-                  }
-                  onClick={() => void runMeticulousTrashAction("resume")}
-                >
-                  Continuar
-                </button>
-                <button
-                  type="button"
-                  className="btn btn-danger btn-sm"
-                  disabled={
-                    meticulousTrashBusy ||
-                    ["completed", "canceled"].includes(String(meticulousTrashJob.status))
-                  }
-                  onClick={() => void runMeticulousTrashAction("cancel")}
-                >
-                  Cancelar
-                </button>
-              </div>
-            </div>
-          ) : null}
-        </div>
-      </HbxConfirmDialog>
 
       <HbxConfirmDialog
         open={deleteMessageDialog !== null}

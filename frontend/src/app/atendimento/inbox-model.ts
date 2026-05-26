@@ -163,6 +163,22 @@ export type InboxBootstrapPayload = {
       connectedAt?: string | null;
     } | null;
   } | null;
+  whatsappSessionCleanup?: {
+    required?: boolean;
+    currentSessionId?: string | null;
+    oldSessionCount?: number;
+    oldConversationCount?: number;
+    oldMessageCount?: number;
+    latestOldSession?: {
+      id: string;
+      phoneNormalized?: string | null;
+      displayPhone?: string | null;
+      status?: string | null;
+      connectedAt?: string | null;
+      disconnectedAt?: string | null;
+      createdAt?: string | null;
+    } | null;
+  } | null;
 };
 
 export type MeticulousTrashPurgeCandidate = {

@@ -74,6 +74,7 @@ import {
 import { HbxPresentationEmailService, type HbxPresentationEmailResult } from '../mail/hbx-presentation-email.service';
 import {
   addBusinessHours,
+  detectHbxPresentationEmailIntent,
   normalizeHbxEmail,
   type HbxPresentationEmailIntent,
 } from '../mail/hbx-email-intent.util';
@@ -2124,6 +2125,10 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
       queue.humanAssigned === true;
     if (blocked) return null;
 
+    const hbxEmailIntent = detectHbxPresentationEmailIntent(input.text);
+    const hbxEmailHandled = await this.handleHbxPresentationEmailIntent(input, job, hbxEmailIntent);
+    if (hbxEmailHandled) return hbxEmailHandled;
+
     if (autoReplyClassification) {
       await input.setInboundMeta('vendas_prospeccao_auto_reply', false);
       await this.markVendasAutomationAutoReply({ ...input, classification: autoReplyClassification }, job);
@@ -2194,12 +2199,18 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
       input.replyKind === 'what_is_it' ? 'whatIsItReplyVariants' : 'positiveReplyVariants',
       input.replyKind === 'what_is_it'
         ? [
-            'É uma forma de organizar contatos, orçamentos e retornos pelo WhatsApp. Vou deixar um resumo para o atendimento humano te explicar melhor.',
-            'É sobre organização comercial no WhatsApp. Vou passar para uma pessoa te explicar sem mensagem automática longa.',
+            'Claro. É sobre consultoria e implantação de melhorias na rotina da empresa. Eu analiso processos manuais, retrabalho, controles espalhados e tarefas repetitivas, e vejo o que pode ser organizado ou automatizado.',
+            'É um trabalho para ajudar empresas a ganhar tempo e reduzir bagunça operacional. Eu entendo como a empresa funciona hoje e proponho soluções práticas: automações, sistemas simples, organização de fluxo ou ajustes no processo.',
+            'Basicamente eu ajudo a empresa a parar de depender tanto de planilha solta, memória, mensagem perdida e tarefa manual. Primeiro eu entendo o problema, depois implanto o que fizer sentido para aquela operação.',
+            'É uma consultoria bem prática. Eu olho áreas como atendimento, vendas, administrativo, retornos, cadastros, controles e tarefas repetitivas, e vejo onde dá para simplificar ou automatizar.',
+            'É sobre melhorar a operação da empresa. Não é uma solução única para todo mundo: eu entendo o gargalo, desenho uma forma mais organizada de trabalhar e implanto algo que ajude no dia a dia.',
           ]
         : [
-            'Perfeito. Vou deixar um resumo curto aqui para o atendimento humano continuar com você.',
-            'Combinado. Vou te passar para uma pessoa do time continuar sem mensagem automática.',
+            'Boa! A ideia é entender como funciona a rotina de vocês hoje, onde tem retrabalho, tarefa manual ou informação perdida, e ver se dá para resolver com uma automação ou ajuste simples no processo. Posso te ligar rapidinho?',
+            'Perfeito. Primeiro eu entendo o cenário da empresa, porque cada operação tem um gargalo diferente. Pode ser atendimento, vendas, financeiro, planilhas, retornos, cadastros, tarefas internas… aí vejo o que faria sentido implantar. Posso te chamar numa ligação rápida?',
+            'Show. Meu trabalho não é empurrar uma ferramenta pronta. Eu entendo o processo, vejo onde a empresa está perdendo tempo e monto uma solução em cima da necessidade real. Posso te ligar 2 minutinhos para entender melhor?',
+            'Legal. Normalmente eu converso com o gestor ou responsável pela operação, faço algumas perguntas sobre a rotina e identifico onde uma melhoria simples já poderia economizar tempo. Pode ser uma ligação rápida?',
+            'Boa. A ideia é bem prática: entender o que hoje é manual, repetitivo ou bagunçado, e ver se vale implantar alguma automação, organização ou sistema simples para facilitar. Posso te ligar rapidinho?',
           ],
     );
     await this.updateAtendimentoConversationState(
@@ -2207,18 +2218,20 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
       input.conversationId,
       {
         currentFlow: ATENDIMENTO_FLOW_ID,
-        currentStep: ATENDIMENTO_STEP.HUMAN,
+        currentStep: ATENDIMENTO_STEP.MAIN_MENU,
         botActive: false,
-        humanAssigned: true,
+        humanAssigned: false,
         flowResult: 'prospection_interested',
       },
       {
         ...this.clearAtendimentoBlockedMetadata(input.metadata),
         botActive: false,
-        humanAssigned: true,
-        queueTarget: 'atendimento',
-        routeTarget: 'atendimento',
-        hbotBlockedReason: 'prospection_interested_handoff',
+        humanAssigned: false,
+        queueTarget: 'prospeccao',
+        routeTarget: 'prospeccao',
+        hbotBlockedReason: 'prospection_attention_required',
+        prospectionAttentionRequired: true,
+        prospectionAttentionTone: 'green',
         vendasAutomation: {
           ...automation,
           campaignId: job.campaignId,
@@ -2226,22 +2239,28 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
           leadId: job.leadId,
           status: 'interested',
           disposition: 'positive',
+          awaitingProspectionReview: true,
+          attentionRequired: true,
+          attentionTone: 'green',
           interestedAt: now.toISOString(),
         },
         vendasAgendaQueue: {
           ...queue,
           active: true,
           leadId: job.leadId,
-          queueTarget: 'atendimento',
-          routeTarget: 'atendimento',
+          queueTarget: 'prospeccao',
+          routeTarget: 'prospeccao',
           status: 'qualificado',
-          nextAction: 'Atendimento humano',
+          nextAction: 'Prospecção: interessado aguardando operador',
           draftMessage,
           draftPending: Boolean(draftMessage),
           botEligible: false,
           botEntryPending: false,
           botActive: false,
-          humanAssigned: true,
+          humanAssigned: false,
+          awaitingProspectionReview: true,
+          attentionRequired: true,
+          attentionTone: 'green',
           respondedAt: now.toISOString(),
           syncedAt: now.toISOString(),
           interested: true,
@@ -2256,7 +2275,7 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
         },
       },
     );
-    this.logger.log(`[prospeccao] inbound detectado, movendo para atendimento conversation=${input.conversationId}`);
+    this.logger.log(`[prospeccao] inbound detectado, mantendo em prospeccao conversation=${input.conversationId}`);
     this.publishVendasAutomationEvent({
       companyId: input.companyId,
       campaignId: job.campaignId,
@@ -2264,7 +2283,7 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
       leadId: job.leadId,
       conversationId: input.conversationId,
       status: 'aguardando',
-      text: 'Interessado encontrado',
+      text: 'Interessado encontrado. Aguardando Prospecção.',
       type: 'lead_interested',
     });
     this.inboxRealtime.publish({
@@ -2529,6 +2548,9 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
           status: classification,
           autoReplyDetected: true,
           awaitingHuman: true,
+          awaitingProspectionReview: true,
+          attentionRequired: true,
+          attentionTone: 'yellow',
           autoReplyAt: now.toISOString(),
         },
         vendasAgendaQueue: {
@@ -2543,6 +2565,9 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
           botEligible: false,
           botEntryPending: false,
           awaitingHuman: true,
+          awaitingProspectionReview: true,
+          attentionRequired: true,
+          attentionTone: 'yellow',
           autoReplyDetected: true,
           respondedAt: now.toISOString(),
           syncedAt: now.toISOString(),
@@ -2592,40 +2617,48 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
       input.conversationId,
       {
         currentFlow: ATENDIMENTO_FLOW_ID,
-        currentStep: ATENDIMENTO_STEP.HUMAN,
+        currentStep: ATENDIMENTO_STEP.MAIN_MENU,
         botActive: false,
-        humanAssigned: true,
+        humanAssigned: false,
         flowResult: 'prospection_neutral',
       },
       {
         ...this.clearAtendimentoBlockedMetadata(input.metadata),
         botActive: false,
-        humanAssigned: true,
-        queueTarget: 'atendimento',
-        routeTarget: 'atendimento',
-        hbotBlockedReason: 'prospection_neutral_handoff',
+        humanAssigned: false,
+        queueTarget: 'prospeccao',
+        routeTarget: 'prospeccao',
+        hbotBlockedReason: 'prospection_attention_required',
+        prospectionAttentionRequired: true,
+        prospectionAttentionTone: 'yellow',
         vendasAutomation: {
           ...automation,
           campaignId: job.campaignId,
           jobId: job.id,
           leadId: job.leadId,
-          status: input.humanRequested ? 'human_assigned' : 'neutral',
-          humanAssigned: true,
+          status: input.humanRequested ? 'human_requested' : 'neutral',
+          humanAssigned: false,
+          awaitingProspectionReview: true,
+          attentionRequired: true,
+          attentionTone: 'yellow',
           neutralAt: now.toISOString(),
         },
         vendasAgendaQueue: {
           ...queue,
           active: true,
           leadId: job.leadId,
-          queueTarget: 'atendimento',
-          routeTarget: 'atendimento',
-          nextAction: 'Atendimento humano',
+          queueTarget: 'prospeccao',
+          routeTarget: 'prospeccao',
+          nextAction: 'Prospecção: resposta neutra aguardando operador',
           draftMessage,
           draftPending: Boolean(draftMessage),
           botEligible: false,
           botEntryPending: false,
           botActive: false,
-          humanAssigned: true,
+          humanAssigned: false,
+          awaitingProspectionReview: true,
+          attentionRequired: true,
+          attentionTone: 'yellow',
           respondedAt: now.toISOString(),
           syncedAt: now.toISOString(),
         },
@@ -2639,7 +2672,7 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
         },
       },
     );
-    this.logger.log(`[prospeccao] inbound detectado, movendo para atendimento conversation=${input.conversationId}`);
+    this.logger.log(`[prospeccao] inbound detectado, mantendo em prospeccao conversation=${input.conversationId}`);
     this.publishVendasAutomationEvent({
       companyId: input.companyId,
       campaignId: job.campaignId,
@@ -2647,7 +2680,7 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
       leadId: job.leadId,
       conversationId: input.conversationId,
       status: 'aguardando',
-      text: 'Resposta recebida. Enviado para Atendimento.',
+      text: 'Resposta recebida. Aguardando Prospecção.',
       type: 'lead_neutral',
     });
   }

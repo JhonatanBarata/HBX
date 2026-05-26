@@ -436,6 +436,78 @@ test('consolidateDuplicateConversations keeps phone row canonical when preferred
   assert.equal(calls.updateData?.contact, undefined);
 });
 
+test('findConversation consolidates lid row matched by message contactId with phone row', async () => {
+  const phoneRow = makeConversation({
+    id: 842,
+    contact: '+5519997024884',
+    whatsappConnectionSessionId: TEST_SESSION.id,
+    metadata: JSON.stringify({
+      whatsappRemoteJid: '5519997024884@s.whatsapp.net',
+      whatsappContactName: 'Jhonatan',
+    }),
+  });
+  const lidRow = makeConversation({
+    id: 839,
+    contact: '75471266001032@lid',
+    whatsappConnectionSessionId: TEST_SESSION.id,
+    metadata: JSON.stringify({
+      whatsappRemoteJid: '75471266001032@lid',
+      whatsappIsGroup: false,
+    }),
+  });
+  const calls = {
+    queryWhere: null as Record<string, any> | null,
+    movedMessageConversationIds: [] as number[],
+    deletedConversationIds: [] as number[],
+    updatedConversationId: 0,
+  };
+  const prisma = {
+    companyConversation: {
+      findMany: async ({ where }: any) => {
+        calls.queryWhere = where;
+        return [lidRow, phoneRow];
+      },
+    },
+    $transaction: async (callback: (tx: any) => Promise<unknown>) =>
+      callback({
+        companyMessage: {
+          updateMany: async ({ where, data }: any) => {
+            calls.movedMessageConversationIds = where.conversationId.in;
+            assert.equal(data.conversationId, 842);
+          },
+        },
+        companyConversation: {
+          deleteMany: async ({ where }: any) => {
+            calls.deletedConversationIds = where.id.in;
+          },
+          update: async ({ where, data }: any) => {
+            calls.updatedConversationId = where.id;
+            return { ...phoneRow, ...data };
+          },
+        },
+      }),
+  };
+  const service = new WebwhatsBridgeService(prisma as any);
+
+  const result = await (service as any).findConversation(
+    47,
+    TEST_SESSION.id,
+    '5519997024884@s.whatsapp.net',
+    null,
+    '+5519997024884',
+  );
+
+  const whereJson = JSON.stringify(calls.queryWhere);
+  assert.equal(result.id, 842);
+  assert.equal(calls.updatedConversationId, 842);
+  assert.deepEqual(calls.movedMessageConversationIds, [839]);
+  assert.deepEqual(calls.deletedConversationIds, [839]);
+  assert.match(whereJson, /"messages"/);
+  assert.match(whereJson, /"contactId":"\+5519997024884"/);
+  assert.match(whereJson, /"contact":\{"contains":"@g\.us"\}/);
+  assert.match(whereJson, /"metadata":\{"contains":"\\"whatsappIsGroup\\":true"\}/);
+});
+
 test('upsertConversationMessage does not relay inbound when concurrent create already won', async () => {
   const calls = {
     relays: 0,

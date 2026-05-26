@@ -125,24 +125,25 @@ const GENERICA_CASO_ERRO_MESSAGE =
 const DEFAULT_MESSAGE_TEMPLATE = SAFE_FIRST_CONTACT_TEMPLATE;
 const DEFAULT_SEGMENT_MISMATCH_FALLBACK_MESSAGE = SAFE_FIRST_CONTACT_TEMPLATE;
 const DEFAULT_FIRST_CONTACT_VARIANTS = [
-  SAFE_FIRST_CONTACT_TEMPLATE,
-  ...SAFE_FIRST_CONTACT_VARIANTS,
-  '{{cumprimentacao}}, tudo bem? Vi a {{empresaresumo}} em {{cidade}}. Posso te mandar uma ideia rápida?',
-  'Oi, tudo bem? Vi a {{empresaresumo}} e pensei numa forma simples de organizar retornos pelo WhatsApp. Posso te explicar rapidinho?',
+  '{{cumprimentacao}}, tudo bem? Me chamo Jhonatan. Trabalho ajudando empresas a melhorar processos e automatizar tarefas repetitivas do dia a dia. Posso te explicar rapidinho e ver se faz sentido aí?',
+  '{{cumprimentacao}}, tudo certo? Aqui é o Jhonatan. Eu ajudo empresas a organizar melhor a rotina, reduzir retrabalho e implantar soluções simples para ganhar tempo na operação. Posso te mandar uma ideia rápida?',
+  '{{cumprimentacao}}! Sou o Jhonatan. Trabalho com consultoria e implantação de automações para empresas que querem parar de perder tempo com processos manuais, controles soltos e tarefas repetidas. Faz sentido eu te explicar em 1 minuto?',
+  '{{cumprimentacao}}, tudo bem? Me chamo Jhonatan. Eu olho a rotina da empresa, entendo onde está dando retrabalho e ajudo a implantar soluções práticas para deixar o dia a dia mais organizado. Posso te explicar rapidinho?',
+  '{{cumprimentacao}}, tudo bem? Trabalho com melhoria de processos para empresas: atendimento, vendas, administrativo, retornos, controles internos e automações conforme a necessidade. Posso te mostrar por alto como funciona?',
 ];
 const DEFAULT_POSITIVE_REPLY_VARIANTS = [
-  'Perfeito. Vou deixar um resumo curto aqui para o atendimento humano continuar com você.',
-  'Boa. Já vou separar uma explicação objetiva para o nosso atendimento te mostrar com calma.',
-  'Combinado. Vou te passar para uma pessoa do time continuar sem mensagem automática.',
-  'Legal. Vou preparar o próximo passo para um humano te atender por aqui.',
-  'Show. Vou marcar como interessado e deixar o atendimento humano seguir com você.',
+  'Boa! A ideia é entender como funciona a rotina de vocês hoje, onde tem retrabalho, tarefa manual ou informação perdida, e ver se dá para resolver com uma automação ou ajuste simples no processo. Posso te ligar rapidinho?',
+  'Perfeito. Primeiro eu entendo o cenário da empresa, porque cada operação tem um gargalo diferente. Pode ser atendimento, vendas, financeiro, planilhas, retornos, cadastros, tarefas internas… aí vejo o que faria sentido implantar. Posso te chamar numa ligação rápida?',
+  'Show. Meu trabalho não é empurrar uma ferramenta pronta. Eu entendo o processo, vejo onde a empresa está perdendo tempo e monto uma solução em cima da necessidade real. Posso te ligar 2 minutinhos para entender melhor?',
+  'Legal. Normalmente eu converso com o gestor ou responsável pela operação, faço algumas perguntas sobre a rotina e identifico onde uma melhoria simples já poderia economizar tempo. Pode ser uma ligação rápida?',
+  'Boa. A ideia é bem prática: entender o que hoje é manual, repetitivo ou bagunçado, e ver se vale implantar alguma automação, organização ou sistema simples para facilitar. Posso te ligar rapidinho?',
 ];
 const DEFAULT_WHAT_IS_IT_REPLY_VARIANTS = [
-  'É uma forma de organizar contatos, orçamentos e retornos pelo WhatsApp. Vou deixar um resumo para o atendimento humano te explicar melhor.',
-  'É sobre organização comercial no WhatsApp. Vou passar para uma pessoa te explicar sem mensagem automática longa.',
-  'É uma ferramenta para ajudar no controle de contatos e retornos. Vou deixar o atendimento humano continuar com você.',
-  'É uma solução para acompanhar conversas, orçamentos e retornos. Vou preparar um resumo curto para o time humano.',
-  'É para melhorar a rotina de vendas e atendimento pelo WhatsApp. Vou encaminhar para uma pessoa te explicar.',
+  'Claro. É sobre consultoria e implantação de melhorias na rotina da empresa. Eu analiso processos manuais, retrabalho, controles espalhados e tarefas repetitivas, e vejo o que pode ser organizado ou automatizado.',
+  'É um trabalho para ajudar empresas a ganhar tempo e reduzir bagunça operacional. Eu entendo como a empresa funciona hoje e proponho soluções práticas: automações, sistemas simples, organização de fluxo ou ajustes no processo.',
+  'Basicamente eu ajudo a empresa a parar de depender tanto de planilha solta, memória, mensagem perdida e tarefa manual. Primeiro eu entendo o problema, depois implanto o que fizer sentido para aquela operação.',
+  'É uma consultoria bem prática. Eu olho áreas como atendimento, vendas, administrativo, retornos, cadastros, controles e tarefas repetitivas, e vejo onde dá para simplificar ou automatizar.',
+  'É sobre melhorar a operação da empresa. Não é uma solução única para todo mundo: eu entendo o gargalo, desenho uma forma mais organizada de trabalhar e implanto algo que ajude no dia a dia.',
 ];
 const DEFAULT_OPT_OUT_VARIANTS = [
   DEFAULT_OPT_OUT_MESSAGE,
@@ -213,6 +214,16 @@ function trimOrNull(value: unknown) {
 
 function normalizeTemplateText(value: unknown) {
   return String(value || '').replace(/\s+/g, ' ').trim();
+}
+
+function isStaleProspectingRadarConfigText(value: unknown) {
+  const normalized = normalizeKey(value);
+  if (!normalized) return false;
+  return (
+    normalized.includes('campanha sem') &&
+    (normalized.includes('cidade') || normalized.includes('segmento')) &&
+    normalized.includes('revise a configuracao da prospeccao')
+  );
 }
 
 function computeBrasiliaGreeting() {
@@ -1452,7 +1463,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     const todayStart = makeBusinessDate(today.year, today.month, today.day, 0, 0);
     const tomorrowStart = makeBusinessDate(today.year, today.month, today.day + 1, 0, 0);
     const pendingWhere = { campaignId: campaign.id, status: { in: [...BUFFER_JOB_STATUSES] as any } };
-    const [todayPending, overdue, future, sent, positives, archived, failed, sending, nextJob, sentToday, skippedJobsToday, needsReviewCount, noWhatsappCount, failedJobsToday, lastSkipJob, lastSuccessfulSendAt] = await Promise.all([
+    const [todayPending, overdue, future, sent, positives, archived, failed, sending, nextJob, sentToday, skippedJobsToday, needsReviewCount, noWhatsappCount, failedJobsToday, lastSkipJob, lastSuccessfulSendAt, yellowCount, redCount] = await Promise.all([
       this.prisma.vendasAutomationJob.count({
         where: { ...pendingWhere, scheduledAt: { gte: todayStart, lt: tomorrowStart } },
       }),
@@ -1478,7 +1489,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
         where: { campaignId: campaign.id, status: 'sending' },
       }),
       this.prisma.vendasAutomationJob.findFirst({
-        where: { campaignId: campaign.id, status: 'scheduled', scheduledAt: { not: null } },
+        where: { campaignId: campaign.id, status: { in: [...BUFFER_JOB_STATUSES] as any }, scheduledAt: { not: null } },
         orderBy: { scheduledAt: 'asc' },
         select: { id: true, scheduledAt: true, lead: { select: { name: true } } },
       }),
@@ -1501,6 +1512,24 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
         select: { classification: true, errorMessage: true },
       }),
       this.getLastSuccessfulSendAt(campaign.id, campaign.companyId),
+      this.prisma.vendasAutomationJob.count({
+        where: {
+          campaignId: campaign.id,
+          OR: [
+            { classification: { in: ['neutral', 'auto_reply_detected', 'bot_menu_detected', 'out_of_hours_auto_reply', 'awaiting_human', 'needs_review', 'manual_review_required'] as any } },
+            { status: 'failed' },
+          ],
+        },
+      }),
+      this.prisma.vendasAutomationJob.count({
+        where: {
+          campaignId: campaign.id,
+          OR: [
+            { status: { in: ['replied_negative', 'no_response_archived'] as any } },
+            { classification: { in: ['negative', 'opt_out', 'negative_or_opt_out', 'no_response', 'no_whatsapp', 'invalid_whatsapp'] as any } },
+          ],
+        },
+      }),
     ]);
     let nextScheduledAt = nextJob?.scheduledAt instanceof Date ? nextJob.scheduledAt : null;
     if (nextJob?.id && nextScheduledAt && !this.isInsideWorkingHours(nextScheduledAt, campaign)) {
@@ -1532,10 +1561,19 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
       needsReviewCount,
       noWhatsappCount,
       failedJobsToday,
+      prospectingGreen: positives,
+      prospectingYellow: yellowCount,
+      prospectingRed: redCount,
     };
     const status = this.inferLiveStatus(campaign, counters, sending);
     const nextWorkingWindow = status === 'dormindo' ? this.moveToWorkingWindow(new Date(), campaign) : null;
     const nextScheduledText = nextScheduledAt ? this.formatNextScheduledText(nextScheduledAt) : null;
+    const lastStatusText = isStaleProspectingRadarConfigText(campaign.lastStatusText)
+      ? null
+      : campaign.lastStatusText;
+    const lastError = isStaleProspectingRadarConfigText(campaign.lastError)
+      ? null
+      : campaign.lastError;
     return {
       status,
       text:
@@ -1544,7 +1582,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
           :
         status === 'aguardando' && nextScheduledText
           ? nextScheduledText
-          : campaign.lastStatusText || (todayPending > 0 ? `${todayPending} contatos na fila hoje.` : 'Aguardando respostas.'),
+          : lastStatusText || (todayPending > 0 ? `${todayPending} contatos na fila hoje.` : 'Aguardando cards do Vendas com WhatsApp para continuar a Prospecção.'),
       active: campaign.status === 'running' && status !== 'dormindo',
       campaign: this.serializeCampaign(campaign),
       counters,
@@ -1563,7 +1601,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
       lastSkipReason: lastSkipJob?.classification || lastSkipJob?.errorMessage || null,
       lastSuccessfulSendAt: lastSuccessfulSendAt ? lastSuccessfulSendAt.toISOString() : null,
       nextEligibleLeadName: String((nextJob as any)?.lead?.name || '').trim() || null,
-      lastError: campaign.lastError || null,
+      lastError: lastError || null,
     };
   }
 
@@ -1604,8 +1642,8 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
       optOutReplyEnabled: filtersJson.optOutReplyEnabled === true,
       websiteFallbackEnabled: false,
       lastScrapeAt: campaign.lastScrapeAt instanceof Date ? campaign.lastScrapeAt.toISOString() : null,
-      lastStatusText: campaign.lastStatusText || null,
-      lastError: campaign.lastError || null,
+      lastStatusText: isStaleProspectingRadarConfigText(campaign.lastStatusText) ? null : campaign.lastStatusText || null,
+      lastError: isStaleProspectingRadarConfigText(campaign.lastError) ? null : campaign.lastError || null,
       createdAt: campaign.createdAt instanceof Date ? campaign.createdAt.toISOString() : null,
       updatedAt: campaign.updatedAt instanceof Date ? campaign.updatedAt.toISOString() : null,
     };
@@ -1619,6 +1657,11 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     const data = this.normalizeProspectingConfig(dto || {}, botConfig, current);
     const searchSignature = this.buildSearchSignature(data);
     const searchChanged = this.hasCampaignSearchChanged(current, searchSignature);
+    const savedStatusText = current?.status === 'running'
+      ? isStaleProspectingRadarConfigText(current.lastStatusText)
+        ? 'Configuração salva. Preparando fila com cards do Vendas que têm WhatsApp.'
+        : current.lastStatusText || 'Configuração salva. Preparando fila com cards do Vendas que têm WhatsApp.'
+      : 'Configuração salva. Pronta para iniciar.';
     const campaign = current
       ? await this.prisma.vendasAutomationCampaign.update({
           where: { id: current.id },
@@ -1627,7 +1670,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
             searchSignature,
             status: current.status === 'running' ? 'running' : 'paused',
             createdByUserId: current.createdByUserId || context.userId,
-            lastStatusText: current.status === 'running' ? current.lastStatusText : 'Configuração salva. Pronta para iniciar.',
+            lastStatusText: savedStatusText,
             lastError: null,
           },
         })
@@ -1643,6 +1686,22 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
         });
     if (searchChanged) {
       await this.cancelQueuedJobsAfterSearchChange(campaign.id);
+    }
+    if (campaign.status === 'running') {
+      void this.primeExistingProspectingQueue(campaign.id).catch((error) => {
+        const errorMessage = String(error?.message || error);
+        this.logger.warn(`Falha ao preparar fila apos salvar prospeccao campaign=${campaign.id}: ${errorMessage}`);
+        void this.markCampaignStage(
+          campaign.id,
+          context.companyId,
+          'aguardando',
+          'Falha ao preparar a fila. Campanha segue ativa e tentará novamente pelos cards do Vendas.',
+          {
+            error: errorMessage,
+            type: 'config_queue_failed',
+          },
+        ).catch(() => null);
+      });
     }
     this.publishAutomationEvent({
       companyId: context.companyId,
@@ -1661,18 +1720,12 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     const botConfig = await this.inboxService.getBotConfig(user);
     const current = await this.latestCampaign(context.companyId);
     const data = this.normalizeProspectingConfig(dto || {}, botConfig, current);
-    if (!data.segment) {
-      throw new BadRequestException('Informe o segmento para iniciar a prospecção automática.');
-    }
-    if (data.targetType === 'pj' && !data.city) {
-      throw new BadRequestException('Informe a cidade para iniciar a prospecção automática.');
-    }
     const searchSignature = this.buildSearchSignature(data);
     const searchLabel = this.formatProspectingSearchLabel(data);
     const now = new Date();
     const startsInsideWorkingHours = this.isInsideWorkingHours(now, data);
     const initialStatusText = startsInsideWorkingHours
-      ? `Consultando fonte Radar: ${searchLabel}.`
+      ? `Preparando fila de Prospecção${searchLabel ? `: ${searchLabel}` : ''}.`
       : this.formatSleepingUntilText(this.moveToWorkingWindow(now, data));
     const searchChanged = this.hasCampaignSearchChanged(current, searchSignature);
     const campaign = current
@@ -1705,7 +1758,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
       companyId: context.companyId,
       campaignId: campaign.id,
       status: startsInsideWorkingHours ? 'buscando' : 'dormindo',
-      text: campaign.lastStatusText || (startsInsideWorkingHours ? 'Consultando fonte Radar...' : initialStatusText),
+      text: campaign.lastStatusText || (startsInsideWorkingHours ? 'Preparando fila de Prospecção...' : initialStatusText),
       type: 'campaign_started',
     });
 
@@ -1717,7 +1770,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
           campaign.id,
           context.companyId,
           'aguardando',
-          'Falha ao preparar a fila inicial. Campanha segue ativa e tentará novamente pelo banco do Radar.',
+          'Falha ao preparar a fila inicial. Campanha segue ativa e tentará novamente pelos cards do Vendas.',
           {
             error: errorMessage,
             type: 'initial_queue_failed',
@@ -1981,16 +2034,10 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     const campaignCity = trimOrNull(campaign.city);
     const campaignSegment = trimOrNull(campaign.segment);
     if (!campaignCity || !campaignSegment) {
-      const missing = [
-        !campaignCity ? 'cidade' : null,
-        !campaignSegment ? 'segmento' : null,
-      ].filter(Boolean).join(' e ');
-      const text = `Campanha sem ${missing}. Revise a configuração da prospecção.`;
+      const text = 'Sem filtros do Radar. Mantendo a Prospecção nos cards do Vendas com WhatsApp.';
       await this.markCampaignStage(campaign.id, campaign.companyId, 'aguardando', text, {
-        error: text,
-        type: 'invalid_campaign_config',
+        type: 'radar_filters_skipped',
       });
-      this.logger.warn(`[vendas-automation] refill bloqueado por configuracao incompleta campaign=${campaign.id} missing=${missing}`);
       return;
     }
     const now = new Date();
@@ -2272,7 +2319,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     const campaign = await this.prisma.vendasAutomationCampaign.findUnique({ where: { id: campaignId } });
     if (!campaign || campaign.status !== 'running') return;
     const runtimeUser = await this.buildAutomationUser(campaign);
-    await this.markCampaignStage(campaign.id, campaign.companyId, 'agendando', 'Preparando fila da fonte Radar...', {
+    await this.markCampaignStage(campaign.id, campaign.companyId, 'agendando', 'Preparando fila com cards do Vendas que têm WhatsApp...', {
       type: 'schedule_started',
     });
     const pendingCount = await this.prisma.vendasAutomationJob.count({
@@ -2302,6 +2349,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
         sourceType: 'webscraping',
         ...(sourceSignature ? { sourceSignature } : {}),
       },
+      { sourceType: 'manual' },
     ];
     if (activeProspectionLeadIds.size) {
       sourceFilters.push({ id: { in: Array.from(activeProspectionLeadIds) } });
@@ -2323,10 +2371,10 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     });
     if (!leads.length) {
       usedBroaderLeadPool = true;
-      await this.markCampaignStage(campaign.id, campaign.companyId, 'agendando', 'Fonte Radar sem card exato. Procurando cards de ramo próximo...', {
+      await this.markCampaignStage(campaign.id, campaign.companyId, 'agendando', 'Sem card exato na fila. Procurando outros cards do Vendas com WhatsApp...', {
         type: 'schedule_similar_pool_started',
       });
-      const broaderSourceFilters: any[] = [{ sourceType: 'webscraping' }];
+      const broaderSourceFilters: any[] = [{ sourceType: 'webscraping' }, { sourceType: 'manual' }];
       if (activeProspectionLeadIds.size) {
         broaderSourceFilters.push({ id: { in: Array.from(activeProspectionLeadIds) } });
       }
@@ -2346,6 +2394,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
       });
     }
     let cursor = await this.buildScheduleCursorForCampaign(campaign);
+    let hasScheduledInBatch = false;
     const data: any[] = [];
     const fallbackLeadIds = new Set<string>();
     let draftOnlyCount = 0;
@@ -2394,7 +2443,10 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
         }
         fallbackLeadIds.add(String(lead.id));
       }
-      cursor = this.moveToWorkingWindow(new Date(cursor.getTime() + this.getRandomizedCampaignIntervalMs(campaign)), campaign);
+      cursor = hasScheduledInBatch
+        ? this.moveToWorkingWindow(new Date(cursor.getTime() + this.getRandomizedCampaignIntervalMs(campaign)), campaign)
+        : this.moveToWorkingWindow(cursor, campaign);
+      hasScheduledInBatch = true;
       data.push({
         campaignId: campaign.id,
         companyId: campaign.companyId,
@@ -2450,8 +2502,8 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
         : draftOnlyCount
           ? `${draftOnlyCount} card(s) prontos para primeiro contato.`
           : usedBroaderLeadPool
-            ? 'Aguardando Radar: a fonte foi consultada, mas não há contato enviável agora.'
-            : 'Aguardando Radar: preciso de cards válidos nesta fonte.',
+            ? 'Sem cards do Vendas com WhatsApp disponíveis agora.'
+            : 'Aguardando cards do Vendas com WhatsApp para continuar a Prospecção.',
       { type: 'jobs_scheduled' },
     );
   }
@@ -2537,6 +2589,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
 
       const runtimeUser = await this.buildAutomationUser(campaign);
       let cursor = await this.buildScheduleCursorForCampaign(campaign);
+      let hasScheduledInBatch = false;
 
       const data: any[] = [];
       const fallbackLeadIds = new Set<string>();
@@ -2586,7 +2639,10 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
           }
           fallbackLeadIds.add(String(lead.id));
         }
-        cursor = this.moveToWorkingWindow(new Date(cursor.getTime() + this.getRandomizedCampaignIntervalMs(campaign)), campaign);
+        cursor = hasScheduledInBatch
+          ? this.moveToWorkingWindow(new Date(cursor.getTime() + this.getRandomizedCampaignIntervalMs(campaign)), campaign)
+          : this.moveToWorkingWindow(cursor, campaign);
+        hasScheduledInBatch = true;
         data.push({
           campaignId: campaign.id,
           companyId: campaign.companyId,
@@ -2810,6 +2866,27 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
         now.getTime() - lastScrapeAt.getTime() < EMPTY_REFILL_RETRY_MS &&
         statusText.includes('bot parado')
       ) {
+        continue;
+      }
+      await this.scheduleJobsForCampaign(campaign.id).catch((error) => {
+        this.logger.warn(`Preparo da fila de Vendas falhou campaign=${campaign.id}: ${String(error?.message || error)}`);
+      });
+      const pendingAfterSchedule = await this.prisma.vendasAutomationJob.count({
+        where: { campaignId: campaign.id, status: { in: [...BUFFER_JOB_STATUSES] as any } },
+      });
+      if (pendingAfterSchedule > 0) continue;
+      const campaignCity = trimOrNull(campaign.city);
+      const campaignSegment = trimOrNull(campaign.segment);
+      if (!campaignCity || !campaignSegment) {
+        await this.markCampaignStage(
+          campaign.id,
+          campaign.companyId,
+          'aguardando',
+          'Aguardando cards do Vendas com WhatsApp para continuar a Prospecção.',
+          { type: 'waiting_vendas_cards' },
+        ).catch((error) => {
+          this.logger.warn(`Falha ao marcar campanha aguardando cards campaign=${campaign.id}: ${String(error?.message || error)}`);
+        });
         continue;
       }
       await this.scrapeImportAndSchedule(campaign.id, undefined, 'refill').catch((error) => {
@@ -3900,15 +3977,17 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     );
     await this.conversations.updateConversationState(input.companyId, input.conversationId, {
       botActive: false,
-      humanAssigned: true,
+      humanAssigned: false,
       flowResult: 'prospection_interested',
       metadata: {
         ...metadata,
         botActive: false,
-        humanAssigned: true,
-        queueTarget: 'atendimento',
-        routeTarget: 'atendimento',
-        hbotBlockedReason: 'prospection_interested_handoff',
+        humanAssigned: false,
+        queueTarget: 'prospeccao',
+        routeTarget: 'prospeccao',
+        hbotBlockedReason: 'prospection_attention_required',
+        prospectionAttentionRequired: true,
+        prospectionAttentionTone: 'green',
         vendasAutomation: {
           ...parseJsonObject((metadata as any).vendasAutomation),
           campaignId: job.campaignId,
@@ -3916,22 +3995,28 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
           leadId: job.leadId,
           status: 'interested',
           disposition: 'positive',
+          awaitingProspectionReview: true,
+          attentionRequired: true,
+          attentionTone: 'green',
           interestedAt: now.toISOString(),
         },
         vendasAgendaQueue: {
           ...queue,
           active: true,
           leadId: job.leadId,
-          queueTarget: 'atendimento',
-          routeTarget: 'atendimento',
+          queueTarget: 'prospeccao',
+          routeTarget: 'prospeccao',
           status: 'qualificado',
-          nextAction: 'Atendimento humano',
+          nextAction: 'Prospecção: interessado aguardando operador',
           draftMessage,
           draftPending: Boolean(draftMessage),
           botEligible: false,
           botEntryPending: false,
           botActive: false,
-          humanAssigned: true,
+          humanAssigned: false,
+          awaitingProspectionReview: true,
+          attentionRequired: true,
+          attentionTone: 'green',
           respondedAt: now.toISOString(),
           syncedAt: now.toISOString(),
           interested: true,
@@ -3953,7 +4038,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
       leadId: job.leadId,
       conversationId: input.conversationId,
       status: 'aguardando',
-      text: 'Interessado encontrado',
+      text: 'Interessado encontrado. Aguardando Prospecção.',
       type: 'lead_interested',
     });
     this.inboxRealtime.publish({
@@ -4138,6 +4223,9 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
           status: classification,
           autoReplyDetected: true,
           awaitingHuman: true,
+          awaitingProspectionReview: true,
+          attentionRequired: true,
+          attentionTone: 'yellow',
           autoReplyAt: now.toISOString(),
         },
         vendasAgendaQueue: {
@@ -4152,6 +4240,9 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
           botEligible: false,
           botEntryPending: false,
           awaitingHuman: true,
+          awaitingProspectionReview: true,
+          attentionRequired: true,
+          attentionTone: 'yellow',
           autoReplyDetected: true,
           respondedAt: now.toISOString(),
           syncedAt: now.toISOString(),
@@ -4198,37 +4289,45 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     );
     await this.conversations.updateConversationState(input.companyId, input.conversationId, {
       botActive: false,
-      humanAssigned: true,
+      humanAssigned: false,
       flowResult: 'prospection_neutral',
       metadata: {
         ...metadata,
         botActive: false,
-        humanAssigned: true,
-        queueTarget: 'atendimento',
-        routeTarget: 'atendimento',
-        hbotBlockedReason: 'prospection_neutral_handoff',
+        humanAssigned: false,
+        queueTarget: 'prospeccao',
+        routeTarget: 'prospeccao',
+        hbotBlockedReason: 'prospection_attention_required',
+        prospectionAttentionRequired: true,
+        prospectionAttentionTone: 'yellow',
         vendasAutomation: {
           ...parseJsonObject((metadata as any).vendasAutomation),
           campaignId: job.campaignId,
           jobId: job.id,
           leadId: job.leadId,
-          status: input.humanRequested ? 'human_assigned' : 'neutral',
-          humanAssigned: true,
+          status: input.humanRequested ? 'human_requested' : 'neutral',
+          humanAssigned: false,
+          awaitingProspectionReview: true,
+          attentionRequired: true,
+          attentionTone: 'yellow',
           neutralAt: now.toISOString(),
         },
         vendasAgendaQueue: {
           ...queue,
           active: true,
           leadId: job.leadId,
-          queueTarget: 'atendimento',
-          routeTarget: 'atendimento',
-          nextAction: 'Atendimento humano',
+          queueTarget: 'prospeccao',
+          routeTarget: 'prospeccao',
+          nextAction: 'Prospecção: resposta neutra aguardando operador',
           draftMessage,
           draftPending: Boolean(draftMessage),
           botEligible: false,
           botEntryPending: false,
           botActive: false,
-          humanAssigned: true,
+          humanAssigned: false,
+          awaitingProspectionReview: true,
+          attentionRequired: true,
+          attentionTone: 'yellow',
           respondedAt: now.toISOString(),
           syncedAt: now.toISOString(),
         },
@@ -4248,7 +4347,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
       leadId: job.leadId,
       conversationId: input.conversationId,
       status: 'aguardando',
-      text: 'Resposta recebida. Enviado para Atendimento.',
+      text: 'Resposta recebida. Aguardando Prospecção.',
       type: 'lead_neutral',
     });
   }

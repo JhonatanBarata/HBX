@@ -625,6 +625,142 @@ export class InboxService {
     };
   }
 
+  private async buildWhatsappSessionCleanupState(companyId: number, scope: InboxWhatsappSessionScope) {
+    if (!scope.currentSessionId) {
+      return {
+        required: false,
+        currentSessionId: null,
+        oldSessionCount: 0,
+        oldConversationCount: 0,
+        oldMessageCount: 0,
+        latestOldSession: null,
+      };
+    }
+    const oldSessions = await this.prisma.whatsAppConnectionSession.findMany({
+      where: {
+        companyId,
+        provider: 'webwhats',
+        NOT: { id: String(scope.currentSessionId) },
+      },
+      orderBy: [{ connectedAt: 'desc' }, { createdAt: 'desc' }],
+      select: {
+        id: true,
+        phoneNormalized: true,
+        displayPhone: true,
+        status: true,
+        connectedAt: true,
+        disconnectedAt: true,
+        createdAt: true,
+      },
+    });
+    const oldSessionIds = oldSessions.map((session) => String(session.id));
+    if (!oldSessionIds.length) {
+      return {
+        required: false,
+        currentSessionId: String(scope.currentSessionId),
+        oldSessionCount: 0,
+        oldConversationCount: 0,
+        oldMessageCount: 0,
+        latestOldSession: null,
+      };
+    }
+    const [oldConversationCount, oldMessageCount] = await Promise.all([
+      this.prisma.companyConversation.count({
+        where: { companyId, whatsappConnectionSessionId: { in: oldSessionIds } },
+      }),
+      this.prisma.companyMessage.count({
+        where: { companyId, whatsappConnectionSessionId: { in: oldSessionIds } },
+      }),
+    ]);
+    const latest = oldSessions[0] || null;
+    return {
+      required: oldConversationCount > 0 || oldMessageCount > 0,
+      currentSessionId: String(scope.currentSessionId),
+      oldSessionCount: oldSessions.length,
+      oldConversationCount,
+      oldMessageCount,
+      latestOldSession: latest
+        ? {
+            id: String(latest.id),
+            phoneNormalized: latest.phoneNormalized || null,
+            displayPhone: latest.displayPhone || null,
+            status: latest.status || null,
+            connectedAt: latest.connectedAt || null,
+            disconnectedAt: latest.disconnectedAt || null,
+            createdAt: latest.createdAt || null,
+          }
+        : null,
+    };
+  }
+
+  private buildWhatsappSessionConversationAliases(conversation: any) {
+    const metadata = this.parseConversationMetadata(conversation?.metadata);
+    const values = [
+      conversation?.contact,
+      metadata?.whatsappRemoteJid,
+      metadata?.whatsappRemoteJidAlt,
+    ].map((value) => String(value || '').trim()).filter(Boolean);
+    const contacts = new Set<string>();
+    const metadataTokens = new Set<string>();
+    for (const value of values) {
+      if (value.includes('@g.us') || value.includes('@broadcast')) continue;
+      if (value.includes('@')) {
+        metadataTokens.add(value);
+        const digits = value.split('@')[0]?.replace(/\D/g, '') || '';
+        if (digits.length >= 10) {
+          contacts.add(`+${digits}`);
+          contacts.add(digits);
+          metadataTokens.add(digits);
+        }
+        continue;
+      }
+      contacts.add(value);
+      const phone = this.normalizeConversationPhone(value);
+      if (phone) {
+        contacts.add(`+${phone}`);
+        contacts.add(phone);
+        metadataTokens.add(phone);
+        if (phone.startsWith('55')) {
+          contacts.add(`+${phone.slice(2)}`);
+          contacts.add(phone.slice(2));
+          metadataTokens.add(phone.slice(2));
+        }
+      }
+    }
+    return {
+      contacts: Array.from(contacts).filter(Boolean),
+      metadataTokens: Array.from(metadataTokens).filter(Boolean),
+    };
+  }
+
+  private async findCurrentSessionConversationForMerge(
+    client: any,
+    companyId: number,
+    currentSessionId: string,
+    staleConversation: any,
+  ) {
+    const aliases = this.buildWhatsappSessionConversationAliases(staleConversation);
+    const phoneSuffixes = aliases.contacts
+      .map((contact) => contact.replace(/\D/g, ''))
+      .filter((digits) => digits.length >= 10);
+    const or: any[] = [
+      ...aliases.contacts.map((contact) => ({ contact })),
+      ...phoneSuffixes.map((digits) => ({ contact: { endsWith: digits } })),
+      ...aliases.metadataTokens.map((token) => ({ metadata: { contains: token } })),
+    ];
+    if (!or.length) return null;
+    return client.companyConversation.findFirst({
+      where: {
+        companyId,
+        channel: 'whatsapp',
+        whatsappConnectionSessionId: currentSessionId,
+        OR: or,
+      },
+      orderBy: [{ lastMessageAt: 'desc' }, { updatedAt: 'desc' }],
+      select: { id: true },
+    });
+  }
+
   private getNestedMetadataRecord(value: unknown): Record<string, any> | null {
     if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
     return value as Record<string, any>;
@@ -1402,6 +1538,89 @@ export class InboxService {
     return normalizedPhone.replace(/\D/g, '').slice(-13) || null;
   }
 
+  private buildConversationLocalDeleteAliases(conversation: any, metadata: Record<string, any>) {
+    const rawValues = [
+      conversation?.contact,
+      metadata?.whatsappRemoteJid,
+      metadata?.whatsappRemoteJidAlt,
+      metadata?.whatsappPhone,
+      metadata?.whatsappNumber,
+    ]
+      .map((value) => String(value || '').trim())
+      .filter(Boolean);
+    const contacts = new Set<string>();
+    const remoteJids = new Set<string>();
+    const phoneDigits = new Set<string>();
+
+    for (const raw of rawValues) {
+      const lowered = raw.toLowerCase();
+      if (lowered.includes('@g.us') || lowered.includes('@broadcast')) continue;
+      if (lowered.includes('@')) {
+        remoteJids.add(raw);
+        const beforeAt = raw.split('@')[0] || '';
+        const digits = beforeAt.replace(/\D/g, '');
+        if (digits.length >= 10) phoneDigits.add(digits.slice(-13));
+        continue;
+      }
+      contacts.add(raw);
+      const normalized = this.normalizeConversationPhone(raw);
+      if (normalized && normalized.length >= 10) phoneDigits.add(normalized);
+    }
+
+    for (const digits of Array.from(phoneDigits)) {
+      contacts.add(`+${digits}`);
+      if (digits.startsWith('55')) contacts.add(`+${digits.slice(2)}`);
+      remoteJids.add(`${digits}@s.whatsapp.net`);
+    }
+
+    return {
+      contacts: Array.from(contacts),
+      remoteJids: Array.from(remoteJids),
+      phoneDigits: Array.from(phoneDigits),
+    };
+  }
+
+  private async findLocalDeleteConversationIds(companyId: number, conversation: any, metadata: Record<string, any>) {
+    const aliases = this.buildConversationLocalDeleteAliases(conversation, metadata);
+    const or: any[] = [
+      { id: Number(conversation.id) },
+      ...aliases.contacts.map((contact) => ({ contact })),
+      ...aliases.remoteJids.map((jid) => ({ metadata: { contains: jid } })),
+      ...aliases.contacts.map((contact) => ({
+        messages: {
+          some: {
+            companyId,
+            contactId: contact,
+          },
+        },
+      })),
+      ...aliases.phoneDigits.map((digits) => ({ contact: { endsWith: digits } })),
+      ...aliases.phoneDigits.map((digits) => ({
+        messages: {
+          some: {
+            companyId,
+            contactId: { endsWith: digits },
+          },
+        },
+      })),
+    ];
+
+    const rows = await this.prisma.companyConversation.findMany({
+      where: {
+        companyId,
+        channel: 'whatsapp',
+        NOT: [
+          { contact: { contains: '@g.us' } },
+          { metadata: { contains: '"whatsappIsGroup":true' } },
+        ],
+        OR: or,
+      },
+      select: { id: true },
+    });
+    const ids = rows.map((row) => Number(row.id)).filter((id) => Number.isFinite(id) && id > 0);
+    return Array.from(new Set([Number(conversation.id), ...ids])).filter(Boolean);
+  }
+
   private normalizeConversationTakeLimit(value: string | number | null | undefined, fallback?: number) {
     const parsed = Number(value);
     if (!Number.isFinite(parsed) || parsed <= 0) {
@@ -2125,7 +2344,7 @@ export class InboxService {
       this.logger.log(`[prospeccao-classifier] sem inbound do cliente, mantendo em prospeccao conversation=${conversation?.id || '-'}`);
     }
     if (isProspectionCandidate && hasProspectionInbound) {
-      this.logger.log(`[prospeccao] inbound detectado, movendo para atendimento conversation=${conversation?.id || '-'}`);
+      this.logger.log(`[prospeccao] inbound detectado, mantendo em prospeccao conversation=${conversation?.id || '-'}`);
     }
     if (prospectionNoResponseExpired) {
       this.logger.log(`[prospeccao] 24h sem resposta, movendo para excluidos conversation=${conversation?.id || '-'}`);
@@ -2165,26 +2384,26 @@ export class InboxService {
       manualQueue === 'scheduled' ||
       isAtendimentoTarget ||
       isExplicitHandoff ||
-      conversation?.humanAssigned === true ||
-      positiveOrHumanProspection ||
-      hasProspectionInbound ||
-      (isProspectionCandidate && hasLoadedInboundMessage)
+      conversation?.humanAssigned === true
     ) {
       routeTarget = 'atendimento';
-      routeReason = positiveOrHumanProspection || hasProspectionInbound || (isProspectionCandidate && hasLoadedInboundMessage)
-        ? 'Resposta do cliente em prospeccao operacional.'
-        : 'Conversa assumida por humano ou encaminhada para Atendimento.';
+      routeReason = 'Conversa assumida por humano ou encaminhada para Atendimento.';
     } else if (
       isProspectionCandidate &&
       (
         !hasProspectionInbound ||
+        positiveOrHumanProspection ||
+        hasProspectionInbound ||
+        hasLoadedInboundMessage ||
         isProspectionWaitingJob ||
         Boolean(automaticProspectionOutbound) ||
         vendasAgendaQueue?.active === true
       )
     ) {
       routeTarget = 'prospeccao';
-      routeReason = 'Lead de Vendas/Prospecção aguardando resposta do cliente.';
+      routeReason = hasProspectionInbound || positiveOrHumanProspection || hasLoadedInboundMessage
+        ? 'Resposta do cliente aguardando operador em Prospecção.'
+        : 'Lead de Vendas/Prospecção aguardando resposta do cliente.';
     }
 
     this.logger.log(`[inbox-classifier] conversationId=${conversation?.id || '-'} queue=${routeTarget}`);
@@ -3285,6 +3504,7 @@ export class InboxService {
           message: 'Atendimento indisponível sem WhatsApp/celular vinculado.',
         },
         whatsappSession: this.buildWhatsappSessionMetadata(sessionScope),
+        whatsappSessionCleanup: await this.buildWhatsappSessionCleanupState(companyId, sessionScope),
       };
     }
     if (sessionScope.mode === 'current') {
@@ -3311,6 +3531,7 @@ export class InboxService {
       selectedConversation,
       providerWarning: null,
       whatsappSession: this.buildWhatsappSessionMetadata(sessionScope),
+      whatsappSessionCleanup: await this.buildWhatsappSessionCleanupState(companyId, sessionScope),
     };
   }
 
@@ -5584,36 +5805,6 @@ export class InboxService {
         conversationId: conversation.id,
       },
     });
-    const currentQueue =
-      metadata?.vendasAgendaQueue &&
-      typeof metadata.vendasAgendaQueue === 'object' &&
-      !Array.isArray(metadata.vendasAgendaQueue)
-        ? (metadata.vendasAgendaQueue as Record<string, unknown>)
-        : null;
-    const now = new Date().toISOString();
-    const nextMetadata: Record<string, unknown> = {
-      ...metadata,
-      inboxLocalDeleted: true,
-      inboxLocalDeletedAt: now,
-      inboxLocalDeletedByUserId: Number(user?.id || 0) || null,
-      inboxManualQueueOverride: 'archived',
-      inboxManualQueueOverriddenAt: now,
-    };
-
-    if (currentQueue) {
-      nextMetadata.vendasAgendaQueue = {
-        ...currentQueue,
-        active: false,
-        draftPending: false,
-        botEligible: false,
-        botEntryPending: false,
-        manualQueueOverride: 'archived',
-        manualQueueOverriddenAt: now,
-        deactivatedAt: currentQueue.deactivatedAt || now,
-        syncedAt: now,
-      };
-    }
-
     const archivedLeadId = await this.archiveVendasLeadFromConversation({
       companyId,
       userId: Number(user?.id || 0) || null,
@@ -5624,119 +5815,35 @@ export class InboxService {
           ? 'Conversa encerrada no Atendimento e enviada para Excluídos no HBX.'
           : 'Conversa sem mensagens encerrada no Atendimento; card comercial arquivado.',
     });
+    const localDeleteIds = await this.findLocalDeleteConversationIds(companyId, conversation, metadata);
 
-    if (exchangedMessages === 0) {
-      try {
-        await this.prisma.$transaction(async (tx) => {
-          const emptyConversationMessages = await tx.companyMessage.findMany({
-            where: {
-              companyId,
-              conversationId: conversation.id,
-            },
-            select: { id: true },
-            orderBy: [{ id: 'asc' }],
-          });
-          for (const message of emptyConversationMessages) {
-            await tx.companyMessage.delete({ where: { id: message.id } });
-          }
-          await tx.companyConversation.delete({
-            where: { id: conversation.id },
-          });
-        });
-      } catch (error) {
-        await this.logInboxEvent({
-          companyId,
-          event: 'conversation_empty_physical_delete_failed',
-          message: 'Falha ao remover conversa vazia do backend; aplicando arquivamento local.',
-          conversationId,
-          phone: String(conversation.contact || '').trim(),
-          result: 'archive_fallback',
-          extra: {
-            error: error instanceof Error ? error.message : 'unknown_error',
-            archivedLeadId,
-          },
-        });
-
-        await this.conversations.updateConversationState(companyId, conversation.id, {
-          botActive: false,
-          humanAssigned: false,
-          flowResult: 'local_deleted',
-          metadata: {
-            ...nextMetadata,
-            inboxPhysicalDeleteFailedAt: new Date().toISOString(),
-          },
-        });
-
-        return {
-          success: true,
-          id: String(conversation.id),
-          message: 'Conversa arquivada em Excluídos e card arquivado em Vendas.',
-          deleted: false,
-          archivedLeadId,
-          localOnly: true,
-          fallback: 'archived',
-        };
-      }
-
-      try {
-        await this.customerProfileService.upsertAtendimentoProfileState({
-          companyId,
-          phone: String(conversation.contact || '').trim(),
-          botOff: true,
-          botOffReason: 'Conversa sem mensagens removida do Atendimento.',
-          botOffAt: new Date(),
-        } as any);
-      } catch (error) {
-        await this.logInboxEvent({
-          companyId,
-          event: 'conversation_empty_delete_profile_sync_failed',
-          message: 'Falha ao persistir BOT_OFF no CustomerProfile durante remocao de conversa vazia.',
-          conversationId,
-          phone: String(conversation.contact || '').trim(),
-          result: 'warning',
-          extra: {
-            error: error instanceof Error ? error.message : 'unknown_error',
-          },
-        });
-      }
-
+    try {
+      await this.purgeInboxConversationsLocally(companyId, localDeleteIds);
+    } catch (error) {
       await this.logInboxEvent({
         companyId,
-        event: 'conversation_empty_deleted',
-        message: 'Conversa sem mensagens removida do backend e card comercial arquivado.',
+        event: 'conversation_backend_delete_failed',
+        message: 'Falha ao excluir conversa do backend local.',
         conversationId,
         phone: String(conversation.contact || '').trim(),
-        result: 'deleted_empty',
+        result: 'delete_failed',
         extra: {
           localOnly: true,
           whatsappCommandSent: false,
           archivedLeadId,
+          localDeleteIds,
+          error: error instanceof Error ? error.message : 'unknown_error',
         },
       });
-
-      return {
-        success: true,
-        id: String(conversation.id),
-        message: 'Conversa sem mensagens removida do Atendimento e card arquivado em Vendas.',
-        deleted: true,
-        archivedLeadId,
-        localOnly: true,
-      };
+      throw new BadRequestException('Falha ao excluir conversa do backend local. Tente novamente.');
     }
-
-    await this.conversations.updateConversationState(companyId, conversation.id, {
-      botActive: false,
-      humanAssigned: false,
-      flowResult: 'local_deleted',
-      metadata: nextMetadata,
-    });
 
     try {
       await this.customerProfileService.upsertAtendimentoProfileState({
         companyId,
         phone: String(conversation.contact || '').trim(),
         botOff: true,
-        botOffReason: 'Conversa excluida localmente no HBX.',
+        botOffReason: 'Conversa removida do backend local do HBX.',
         botOffAt: new Date(),
       } as any);
     } catch (error) {
@@ -5755,32 +5862,56 @@ export class InboxService {
 
     await this.logInboxEvent({
       companyId,
-      event: 'conversation_local_deleted',
-      message: 'Conversa enviada para Excluídos apenas no HBX. Nenhum comando foi enviado ao WhatsApp.',
+      event: 'conversation_backend_deleted',
+      message: 'Conversa removida do backend local do HBX. Nenhum comando foi enviado ao WhatsApp.',
       conversationId,
       phone: String(conversation.contact || '').trim(),
-      result: 'local_deleted',
+      result: 'backend_deleted',
       extra: {
         localOnly: true,
         whatsappCommandSent: false,
         archivedLeadId,
+        exchangedMessages,
+        localDeleteIds,
       },
     });
     return {
       success: true,
       id: String(conversation.id),
-      message: 'Conversa enviada para Excluídos apenas no HBX.',
+      message: 'Conversa removida do backend local do HBX.',
+      deleted: true,
+      deletedIds: localDeleteIds.map((id) => String(id)),
+      deletedCount: localDeleteIds.length,
       archivedLeadId,
       localOnly: true,
     };
   }
 
   private async purgeInboxConversationLocally(companyId: number, conversationId: number) {
+    await this.purgeInboxConversationsLocally(companyId, [conversationId]);
+  }
+
+  private async purgeInboxConversationsLocally(companyId: number, conversationIds: number[]) {
+    const ids = Array.from(new Set(
+      conversationIds.map((id) => Number(id)).filter((id) => Number.isFinite(id) && id > 0),
+    ));
+    if (!ids.length) return;
     await this.prisma.$transaction(async (tx) => {
+      if (tx.atendimentoAppointment?.updateMany) {
+        await tx.atendimentoAppointment.updateMany({
+          where: {
+            companyId,
+            conversationId: { in: ids },
+          },
+          data: {
+            conversationId: null,
+          },
+        });
+      }
       const messages = await tx.companyMessage.findMany({
         where: {
           companyId,
-          conversationId,
+          conversationId: { in: ids },
         },
         select: { id: true },
         orderBy: [{ id: 'asc' }],
@@ -5790,69 +5921,188 @@ export class InboxService {
           where: { id: message.id },
         });
       }
-      const conversation = await tx.companyConversation.findFirst({
-        where: { id: conversationId, companyId, channel: 'whatsapp' },
+      const conversations = await tx.companyConversation.findMany({
+        where: { id: { in: ids }, companyId, channel: 'whatsapp' },
         select: { id: true },
       });
-      if (conversation) await tx.companyConversation.delete({ where: { id: conversation.id } });
+      for (const conversation of conversations) {
+        await tx.companyConversation.delete({ where: { id: conversation.id } });
+      }
     });
   }
 
-  async purgeConversationFromTrash(user: any, conversationId: number) {
+  async cleanupOldWhatsappSessions(user: any, modeRaw?: string | null) {
     this.assertAdministrativeAction(user);
     const companyId = this.requireCompanyIdFromUser(user);
-    const conversation = await this.ensureConversation(companyId, conversationId);
-    const metadata = this.parseConversationMetadata(conversation.metadata);
-
-    if (!this.isConversationMetadataInTrash(metadata, conversation.flowResult)) {
-      throw new BadRequestException('Envie a conversa para Excluídos antes da exclusão permanente.');
+    const mode = String(modeRaw || '').trim().toLowerCase();
+    if (!['merge', 'discard'].includes(mode)) {
+      throw new BadRequestException('Informe se deseja mesclar ou descartar sessões antigas.');
     }
-
-    const trashAt = this.getTrashDeletedAt(metadata);
-    if (await this.hasCustomerMessageAfterTrash({ companyId, conversationId: conversation.id, trashAt })) {
-      throw new BadRequestException('Cliente respondeu depois que a conversa foi para Excluídos. A conversa nao foi apagada.');
+    const sessionScope = await this.resolveInboxWhatsappSessionScope(companyId);
+    this.assertInboxWhatsappAccessible(sessionScope);
+    if (!sessionScope.currentSessionId) {
+      throw new BadRequestException('Sessão atual do WhatsApp não encontrada.');
     }
-
-    await this.assertProviderHealthyForTrashPurge(companyId);
-
-    const extraction = await this.extractLastCustomerWordsForPurge(conversation.id, {
-      companyId,
-      olderThanHours: 24,
+    const currentSessionId = String(sessionScope.currentSessionId);
+    const oldSessions = await this.prisma.whatsAppConnectionSession.findMany({
+      where: {
+        companyId,
+        provider: 'webwhats',
+        NOT: { id: currentSessionId },
+      },
+      orderBy: [{ connectedAt: 'desc' }, { createdAt: 'desc' }],
+      select: { id: true },
     });
-    if (extraction.detectedReason === 'MOTIVO_NAO_IDENTIFICADO') {
-      throw new BadRequestException('Nao encontrei ultimas palavras confiaveis do cliente. A conversa nao foi apagada.');
+    const oldSessionIds = oldSessions.map((session) => String(session.id));
+    if (!oldSessionIds.length) {
+      return {
+        success: true,
+        mode,
+        merged: 0,
+        deletedConversations: 0,
+        deletedMessages: 0,
+        deletedSessions: 0,
+        message: 'Nenhuma sessão antiga encontrada.',
+      };
     }
 
-    await this.markConversationAsNegativeNoInterestBeforePurge({
-      companyId,
-      userId: Number(user?.id || 0) || null,
-      conversationId: conversation.id,
-      extraction,
+    const oldConversations = await this.prisma.companyConversation.findMany({
+      where: {
+        companyId,
+        channel: 'whatsapp',
+        whatsappConnectionSessionId: { in: oldSessionIds },
+      },
+      orderBy: [{ lastMessageAt: 'desc' }, { updatedAt: 'desc' }],
+      select: {
+        id: true,
+        contact: true,
+        metadata: true,
+        whatsappConnectionSessionId: true,
+        lastMessageAt: true,
+        lastInteractionAt: true,
+      },
     });
 
-    await this.purgeInboxConversationLocally(companyId, conversation.id);
+    let merged = 0;
+    let deletedConversations = 0;
+    let deletedMessages = 0;
+
+    await this.prisma.$transaction(async (tx) => {
+      if (mode === 'merge') {
+        for (const stale of oldConversations) {
+          const target = await this.findCurrentSessionConversationForMerge(tx, companyId, currentSessionId, stale);
+          if (target?.id && Number(target.id) !== Number(stale.id)) {
+            const messages = await tx.companyMessage.findMany({
+              where: { companyId, conversationId: stale.id },
+              select: { id: true },
+              orderBy: [{ id: 'asc' }],
+            });
+            for (const message of messages) {
+              await tx.companyMessage.update({
+                where: { id: message.id },
+                data: {
+                  conversationId: Number(target.id),
+                  whatsappConnectionSessionId: currentSessionId,
+                },
+              });
+              merged += 1;
+            }
+            await tx.atendimentoAppointment.updateMany({
+              where: { companyId, conversationId: stale.id },
+              data: { conversationId: Number(target.id) },
+            });
+            await tx.companyConversation.delete({ where: { id: stale.id } });
+            deletedConversations += 1;
+            continue;
+          }
+
+          await tx.companyConversation.update({
+            where: { id: stale.id },
+            data: {
+              whatsappConnectionSessionId: currentSessionId,
+              metadata: JSON.stringify({
+                ...this.parseConversationMetadata(stale.metadata),
+                whatsappSessionMergedFrom: stale.whatsappConnectionSessionId || null,
+                whatsappSessionMergedAt: new Date().toISOString(),
+              }),
+            },
+          });
+          await tx.companyMessage.updateMany({
+            where: { companyId, conversationId: stale.id },
+            data: { whatsappConnectionSessionId: currentSessionId },
+          });
+          merged += 1;
+        }
+      } else {
+        const messages = await tx.companyMessage.findMany({
+          where: {
+            companyId,
+            OR: [
+              { whatsappConnectionSessionId: { in: oldSessionIds } },
+              { conversationId: { in: oldConversations.map((conversation) => Number(conversation.id)) } },
+            ],
+          },
+          select: { id: true },
+          orderBy: [{ id: 'asc' }],
+        });
+        for (const message of messages) {
+          await tx.companyMessage.delete({ where: { id: message.id } });
+          deletedMessages += 1;
+        }
+        await tx.atendimentoAppointment.updateMany({
+          where: { companyId, conversationId: { in: oldConversations.map((conversation) => Number(conversation.id)) } },
+          data: { conversationId: null },
+        });
+        for (const conversation of oldConversations) {
+          await tx.companyConversation.delete({ where: { id: conversation.id } });
+          deletedConversations += 1;
+        }
+      }
+
+      await tx.companyMessage.updateMany({
+        where: { companyId, whatsappConnectionSessionId: { in: oldSessionIds } },
+        data: { whatsappConnectionSessionId: null },
+      });
+      await tx.whatsAppConnectionSession.deleteMany({
+        where: {
+          companyId,
+          id: { in: oldSessionIds },
+        },
+      });
+    });
 
     await this.logInboxEvent({
       companyId,
-      event: 'conversation_trash_purged_local',
-      message: 'Conversa removida permanentemente de Excluídos apenas no HBX.',
-      conversationId: conversation.id,
-      phone: String(conversation.contact || '').trim(),
-      result: 'local_purged',
+      event: 'whatsapp_old_sessions_cleaned',
+      message: mode === 'merge'
+        ? 'Sessões antigas do WhatsApp foram mescladas na sessão atual e removidas.'
+        : 'Sessões antigas do WhatsApp foram descartadas do HBX.',
+      result: mode,
       extra: {
-        localOnly: true,
-        whatsappCommandSent: false,
-        detectedReason: extraction.detectedReason,
+        currentSessionId,
+        oldSessionIds,
+        merged,
+        deletedConversations,
+        deletedMessages,
       },
     });
 
     return {
       success: true,
-      id: String(conversation.id),
-      deleted: true,
-      localOnly: true,
-      message: 'Conversa removida permanentemente de Excluídos apenas no HBX.',
+      mode,
+      merged,
+      deletedConversations,
+      deletedMessages,
+      deletedSessions: oldSessionIds.length,
+      message: mode === 'merge'
+        ? 'Histórico antigo mesclado na sessão atual. Sessões antigas removidas.'
+        : 'Histórico de sessões antigas descartado do HBX.',
     };
+  }
+
+  async purgeConversationFromTrash(user: any, conversationId: number) {
+    this.assertAdministrativeAction(user);
+    throw new BadRequestException('Exclusao permanente removida do HBX. Use apenas Enviar para Excluidos.');
   }
 
   private serializeMeticulousTrashJob(job: any) {
@@ -6042,6 +6292,19 @@ export class InboxService {
     const job = await this.prisma.inboxTrashMeticulousPurgeJob.findUnique({ where: { id: jobId } });
     if (!job || String(job.status) !== 'running') return;
 
+    if (!job.dryRun) {
+      await this.prisma.inboxTrashMeticulousPurgeJob.update({
+        where: { id: job.id },
+        data: {
+          status: 'canceled',
+          nextRunAt: null,
+          finishedAt: new Date(),
+          lastError: 'Exclusao permanente removida do HBX. Use apenas Enviar para Excluidos.',
+        },
+      });
+      return;
+    }
+
     const ids = this.parseJsonArray(job.candidateIdsJson)
       .map((id) => Number(id))
       .filter((id) => Number.isFinite(id) && id > 0);
@@ -6182,6 +6445,10 @@ export class InboxService {
   }) {
     this.assertAdministrativeAction(user);
     const companyId = this.requireCompanyIdFromUser(user);
+    const options = this.normalizeMeticulousTrashOptions(dto);
+    if (!options.dryRun) {
+      throw new BadRequestException('Exclusao permanente removida do HBX. Use apenas Enviar para Excluidos.');
+    }
     const running = await this.prisma.inboxTrashMeticulousPurgeJob.findFirst({
       where: {
         companyId,
@@ -6193,7 +6460,6 @@ export class InboxService {
       throw new ConflictException('Ja existe uma limpeza meticulosa ativa ou pausada para esta empresa.');
     }
 
-    const options = this.normalizeMeticulousTrashOptions(dto);
     const providerHealth = await this.getWhatsAppProviderHealth(companyId);
     const candidateIds = await this.listMeticulousTrashCandidates({
       companyId,
@@ -6294,6 +6560,9 @@ export class InboxService {
     const companyId = this.requireCompanyIdFromUser(user);
     const job = await this.prisma.inboxTrashMeticulousPurgeJob.findFirst({ where: { id: jobId, companyId } });
     if (!job) throw new NotFoundException('Job de limpeza nao encontrado.');
+    if (!job.dryRun) {
+      throw new BadRequestException('Exclusao permanente removida do HBX. Use apenas Enviar para Excluidos.');
+    }
     if (!['paused', 'paused_provider_unhealthy', 'paused_after_restart'].includes(String(job.status))) {
       throw new BadRequestException('Apenas jobs pausados podem continuar.');
     }
@@ -6326,7 +6595,7 @@ export class InboxService {
     await this.logInboxEvent({
       companyId,
       event: 'conversation_empty_trash_legacy_blocked',
-      message: 'Limpeza antiga de Excluídos bloqueada. Use a Limpeza meticulosa da lixeira.',
+      message: 'Limpeza antiga de Excluídos bloqueada. Exclusao permanente foi removida do HBX.',
       result: 'blocked',
       extra: {
         localOnly: true,
@@ -6340,7 +6609,7 @@ export class InboxService {
       deletedIds: [],
       skipped: 0,
       localOnly: true,
-      message: 'Use a Limpeza meticulosa da lixeira para simular e excluir com segurança.',
+      message: 'Exclusao permanente foi removida do HBX. Use apenas Enviar para Excluidos.',
     };
   }
 

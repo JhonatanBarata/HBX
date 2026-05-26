@@ -61,6 +61,14 @@ export class InboxController {
     return this.inboxService.bootstrapFullMirrorBackground(req.user, take);
   }
 
+  @Post('whatsapp-sessions/cleanup')
+  cleanupWhatsappSessions(
+    @Req() req: any,
+    @Body() dto: { mode?: 'merge' | 'discard' | string },
+  ) {
+    return this.inboxService.cleanupOldWhatsappSessions(req.user, dto?.mode);
+  }
+
   @Get('bot-config')
   getBotConfig(@Req() req: any) {
     return this.inboxService.getBotConfig(req.user);

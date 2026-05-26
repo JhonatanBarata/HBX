@@ -2603,6 +2603,12 @@ export class WebwhatsBridgeService {
 
     const remoteJidAlt = this.getChatRemoteJidAlt(chat);
     const preferredContact = this.resolvePreferredConversationContact(remoteJidAlt, remoteJid);
+    const lastMessageAt =
+      this.resolveMessageDate(chat?.lastMessage?.messageTimestamp || chat?.updatedAt)
+      || null;
+    if (await this.isLocallyDeletedChatSuppressed(companyId, remoteJid, remoteJidAlt, preferredContact, lastMessageAt)) {
+      return null;
+    }
     const existing = await this.findConversation(companyId, session.id, remoteJid, remoteJidAlt, preferredContact);
     const contact = this.resolveStateContact(preferredContact, existing?.contact, remoteJid, remoteJidAlt);
     const displayName =
@@ -2615,11 +2621,8 @@ export class WebwhatsBridgeService {
       || this.normalizeOptionalString(alternateContact?.profilePicUrl)
       || this.normalizeOptionalString(this.parseMetadata(existing?.metadata)?.whatsappAvatarUrl)
       || null;
-    const lastMessageAt =
-      this.resolveMessageDate(chat?.lastMessage?.messageTimestamp || chat?.updatedAt)
-      || existing?.lastMessageAt
-      || null;
-    const lastInteractionAt = lastMessageAt || existing?.lastInteractionAt || null;
+    const resolvedLastMessageAt = lastMessageAt || existing?.lastMessageAt || null;
+    const lastInteractionAt = resolvedLastMessageAt || existing?.lastInteractionAt || null;
     const metadata = this.buildConversationStateMetadata(
       this.parseMetadata(existing?.metadata),
       remoteJid,
@@ -2642,7 +2645,7 @@ export class WebwhatsBridgeService {
     const conversation = existing
       ? String(existing.contact || '') === contact
           && String(existing.metadata || '') === serializedMetadata
-          && String(existing.lastMessageAt || '') === String(lastMessageAt || '')
+          && String(existing.lastMessageAt || '') === String(resolvedLastMessageAt || '')
           && String(existing.lastInteractionAt || '') === String(lastInteractionAt || '')
         ? existing
         : await this.prisma.companyConversation.update({
@@ -2653,7 +2656,7 @@ export class WebwhatsBridgeService {
               sourcePhoneNormalized: session.phoneNormalized,
               sourceTenantKey: session.tenantKey,
               metadata: serializedMetadata,
-              ...(lastMessageAt ? { lastMessageAt } : {}),
+              ...(resolvedLastMessageAt ? { lastMessageAt: resolvedLastMessageAt } : {}),
               ...(lastInteractionAt ? { lastInteractionAt } : {}),
             },
             select: {
@@ -2678,7 +2681,7 @@ export class WebwhatsBridgeService {
           metadata: serializedMetadata,
           remoteJid,
           remoteJidAlt,
-          lastMessageAt,
+          lastMessageAt: resolvedLastMessageAt,
           lastInteractionAt,
         });
 
@@ -2996,6 +2999,19 @@ export class WebwhatsBridgeService {
     const digits = String(remoteJid).replace(/\D/g, '');
     const altDigits = String(remoteJidAlt || '').replace(/\D/g, '');
     const candidates = buildWhatsAppPhoneCandidates(preferredContact);
+    const messageContactCandidates = Array.from(
+      new Set(
+        [preferredContact, ...candidates]
+          .map((value) => this.normalizeOptionalString(value))
+          .filter(Boolean),
+      ),
+    ) as string[];
+    const nonGroupConversationGuard = {
+      NOT: [
+        { contact: { contains: '@g.us' } },
+        { metadata: { contains: '"whatsappIsGroup":true' } },
+      ],
+    };
     const metadataCandidates = Array.from(
       new Set(
         [remoteJid, remoteJidAlt]
@@ -3016,6 +3032,52 @@ export class WebwhatsBridgeService {
           ...(digits ? [{ contact: { endsWith: digits } }] : []),
           ...(altDigits ? [{ contact: { endsWith: altDigits } }] : []),
           ...metadataCandidates.map((candidate) => ({ metadata: { contains: candidate } })),
+          ...messageContactCandidates.map((candidate) => ({
+            AND: [
+              nonGroupConversationGuard,
+              {
+                messages: {
+                  some: {
+                    companyId,
+                    whatsappConnectionSessionId,
+                    contactId: candidate,
+                  },
+                },
+              },
+            ],
+          })),
+          ...(digits
+            ? [{
+                AND: [
+                  nonGroupConversationGuard,
+                  {
+                    messages: {
+                      some: {
+                        companyId,
+                        whatsappConnectionSessionId,
+                        contactId: { endsWith: digits },
+                      },
+                    },
+                  },
+                ],
+              }]
+            : []),
+          ...(altDigits
+            ? [{
+                AND: [
+                  nonGroupConversationGuard,
+                  {
+                    messages: {
+                      some: {
+                        companyId,
+                        whatsappConnectionSessionId,
+                        contactId: { endsWith: altDigits },
+                      },
+                    },
+                  },
+                ],
+              }]
+            : []),
         ],
       },
       orderBy: { lastMessageAt: 'desc' },
@@ -3424,6 +3486,49 @@ export class WebwhatsBridgeService {
     if (remoteJid.includes('@broadcast')) return false;
     if (remoteJid === 'status@broadcast') return false;
     return remoteJid.includes('@s.whatsapp.net') || remoteJid.includes('@lid') || remoteJid.includes('@g.us');
+  }
+
+  private buildSuppressionLookupTokens(...values: Array<string | null | undefined>) {
+    const tokens = new Set<string>();
+    for (const value of values) {
+      const normalized = this.normalizeOptionalString(value);
+      if (!normalized) continue;
+      tokens.add(normalized);
+      const digits = normalized.includes('@')
+        ? String(normalized.split('@')[0] || '').replace(/\D/g, '')
+        : String(normalized).replace(/\D/g, '');
+      if (digits.length >= 10) {
+        tokens.add(digits);
+        if (digits.startsWith('55')) tokens.add(digits.slice(2));
+      }
+    }
+    return Array.from(tokens).filter((token) => token.length >= 10 || token.includes('@'));
+  }
+
+  private async isLocallyDeletedChatSuppressed(
+    companyId: number,
+    remoteJid: string | null,
+    remoteJidAlt: string | null,
+    preferredContact: string | null,
+    lastMessageAt: Date | null,
+  ) {
+    if (this.isGroupRemoteJid(remoteJid) || this.isGroupRemoteJid(remoteJidAlt)) return false;
+    const tokens = this.buildSuppressionLookupTokens(remoteJid, remoteJidAlt, preferredContact);
+    if (!tokens.length) return false;
+    if (!(this.prisma as any).whatsAppAuditLog?.findFirst) return false;
+    const log = await this.prisma.whatsAppAuditLog.findFirst({
+      where: {
+        companyId,
+        scope: 'inbox',
+        event: 'conversation_backend_deleted',
+        OR: tokens.map((token) => ({ metadata: { contains: token } })),
+      },
+      orderBy: { createdAt: 'desc' },
+      select: { createdAt: true },
+    });
+    if (!log) return false;
+    if (!lastMessageAt) return true;
+    return log.createdAt.getTime() >= lastMessageAt.getTime();
   }
 
   private isGroupRemoteJid(remoteJidRaw: string | null | undefined) {

@@ -68,7 +68,7 @@ type DesktopVendasTab = "clientes" | "comissao" | "atencao" | "esteira" | "vende
 type WhatsappFilter = "all" | "with" | "without";
 type InboxFilter = "all" | "in" | "out";
 type MobileVisualChannelFilter = "whatsapp" | "instagram" | "email" | "site" | "phone" | "facebook";
-type VendasGuideIconName = "plus" | "select" | "all" | "whatsapp" | "inbox" | "archive";
+type VendasGuideIconName = "plus" | "select" | "all" | "trash" | "whatsapp" | "inbox" | "archive";
 type MobileReturnScheduler = {
   leadId: string;
   leadName: string;
@@ -1233,6 +1233,15 @@ function VendasGuideIcon({ name }: { name: VendasGuideIconName }) {
         <path d="m4 7 .01 0" />
         <path d="m4 12 .01 0" />
         <path d="m4 17 .01 0" />
+      </>
+    ),
+    trash: (
+      <>
+        <path d="M3 6h18" />
+        <path d="M8 6V4h8v2" />
+        <path d="M6 6l1 14h10l1-14" />
+        <path d="M10 11v5" />
+        <path d="M14 11v5" />
       </>
     ),
     whatsapp: (
@@ -8411,6 +8420,19 @@ export default function VendasClientPage({ mobileRoute = false }: { mobileRoute?
             icon: <VendasGuideIcon name="all" />,
             active: bulkSelectAllAccount,
             onClick: toggleBulkSelectAll,
+          } satisfies HbxGuide4Item,
+          {
+            id: "delete-selected",
+            label: bulkSelectAllAccount
+              ? "Excluir todos selecionados"
+              : selectedBulkLeadIds.size
+                ? `Excluir ${selectedBulkLeadIds.size} selecionado(s)`
+                : "Selecione cards para excluir",
+            icon: <VendasGuideIcon name="trash" />,
+            tone: "danger",
+            disabled: bulkDeleting || (!bulkSelectAllAccount && selectedBulkLeadIds.size === 0),
+            badge: bulkSelectAllAccount ? loadedLeadIds.length : selectedBulkLeadIds.size,
+            onClick: () => void deleteSelectedLeadsBulk(),
           } satisfies HbxGuide4Item,
         ]
       : []),
