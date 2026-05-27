@@ -4876,6 +4876,8 @@ function InboxDesktopClientPage() {
   const errorTimerRef = useRef<number | null>(null);
   const skipNotePersistRef = useRef(false);
   const chatTimelineRef = useRef<HTMLDivElement | null>(null);
+  const chatTimelineStickToBottomRef = useRef(true);
+  const previousChatTimelineConversationRef = useRef<string | null>(null);
   const chatComposerInputRef = useRef<HTMLTextAreaElement | null>(null);
   const conversationListScrollRef = useRef<HTMLDivElement | null>(null);
   const emojiPickerRef = useRef<HTMLDivElement | null>(null);
@@ -4916,6 +4918,7 @@ function InboxDesktopClientPage() {
   });
   const deferredConversationSearch = useDeferredValue(conversationSearch);
   const initialMirrorBootstrapStartedRef = useRef(false);
+  const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   const botAiActive = hasBotAi(commercialPlans);
   const botSetupComplete = isAtendimentoBotSetupComplete(botConfig);
   const globalBotEnabled = botAiActive && botSetupComplete && botConfig.routingRules.globalBotEnabled !== false;
@@ -6822,6 +6825,26 @@ function InboxDesktopClientPage() {
     () => getInboxMessageStableKey(getInboxLatestMessage(conversationMessagesForView)),
     [conversationMessagesForView],
   );
+  const handleChatTimelineScroll = useCallback(() => {
+    const timeline = chatTimelineRef.current;
+    if (!timeline) return;
+
+    const distanceFromBottom = timeline.scrollHeight - timeline.scrollTop - timeline.clientHeight;
+    const isNearBottom = distanceFromBottom <= 96;
+    chatTimelineStickToBottomRef.current = isNearBottom;
+    setShowScrollToBottom((current) => {
+      const next = !isNearBottom;
+      return current === next ? current : next;
+    });
+  }, []);
+  const scrollChatTimelineToBottom = useCallback(() => {
+    const timeline = chatTimelineRef.current;
+    if (!timeline) return;
+
+    timeline.scrollTop = timeline.scrollHeight;
+    chatTimelineStickToBottomRef.current = true;
+    setShowScrollToBottom(false);
+  }, []);
   const conversationReactionIndex = useMemo(
     () => buildInboxReactionIndex(conversationForView?.messages),
     [conversationForView],
@@ -8189,32 +8212,37 @@ function InboxDesktopClientPage() {
                 </div>
               </header>
 
-              <div ref={chatTimelineRef} className={styles.whatsAppTimeline}>
-                {loadingConversation || isInboxConversationSummaryOnly(conversationForView) ? (
-                  <ChatEmptyState title="Carregando conversa">Preparando historico do cliente.</ChatEmptyState>
-                ) : conversationMessagesForView.length === 0 ? (
-                  selectedVendasAgendaDraftMessage ? (
-                    <ChatEmptyState title="Roteiro carregado">
-                      A mensagem de Vendas esta pre-carregada abaixo para envio manual.
-                    </ChatEmptyState>
+              <div className={styles.whatsAppTimelineFrame}>
+                <div
+                  ref={chatTimelineRef}
+                  className={styles.whatsAppTimeline}
+                  onScroll={handleChatTimelineScroll}
+                >
+                  {loadingConversation || isInboxConversationSummaryOnly(conversationForView) ? (
+                    <ChatEmptyState title="Carregando conversa">Preparando historico do cliente.</ChatEmptyState>
+                  ) : conversationMessagesForView.length === 0 ? (
+                    selectedVendasAgendaDraftMessage ? (
+                      <ChatEmptyState title="Roteiro carregado">
+                        A mensagem de Vendas esta pre-carregada abaixo para envio manual.
+                      </ChatEmptyState>
+                    ) : (
+                      <ChatEmptyState title="Sem mensagens">Esta conversa ainda nao tem historico registrado.</ChatEmptyState>
+                    )
                   ) : (
-                    <ChatEmptyState title="Sem mensagens">Esta conversa ainda nao tem historico registrado.</ChatEmptyState>
-                  )
-                ) : (
-                  <>
-                    {olderMessagesHasMore ? (
-                      <div className={styles.whatsAppOlderMessagesRow}>
-                        <button
-                          type="button"
-                          className={styles.whatsAppOlderMessagesButton}
-                          onClick={() => void loadOlderMessages()}
-                          disabled={loadingOlderMessages}
-                        >
-                          {loadingOlderMessages ? "Carregando..." : "Carregar mensagens anteriores"}
-                        </button>
-                      </div>
-                    ) : null}
-                    {conversationMessagesForView.map((message, index) => {
+                    <>
+                      {olderMessagesHasMore ? (
+                        <div className={styles.whatsAppOlderMessagesRow}>
+                          <button
+                            type="button"
+                            className={styles.whatsAppOlderMessagesButton}
+                            onClick={() => void loadOlderMessages()}
+                            disabled={loadingOlderMessages}
+                          >
+                            {loadingOlderMessages ? "Carregando..." : "Carregar mensagens anteriores"}
+                          </button>
+                        </div>
+                      ) : null}
+                      {conversationMessagesForView.map((message, index) => {
                     const tone = mapInboxBubbleTone(message);
                     let rendered = parseInboxMessageMedia(message, conversationForView);
                     const mediaFailedInBrowser = Boolean(
@@ -8536,9 +8564,21 @@ function InboxDesktopClientPage() {
                         </div>
                       </div>
                     );
-                  })}
-                  </>
-                )}
+                    })}
+                    </>
+                  )}
+                </div>
+                {showScrollToBottom && conversationMessagesForView.length > 0 ? (
+                  <button
+                    type="button"
+                    className={styles.whatsAppScrollToBottomButton}
+                    onClick={scrollChatTimelineToBottom}
+                    aria-label="Ir para a mensagem mais recente"
+                    title="Ir para o fim"
+                  >
+                    ↓
+                  </button>
+                ) : null}
               </div>
 
               <form className={styles.whatsAppComposerForm} onSubmit={sendMessage}>
@@ -9267,6 +9307,7 @@ function InboxDesktopClientPage() {
       conversationListHasMore,
       hasRecoveryCapability,
       filteredConversations,
+      handleChatTimelineScroll,
       handleSectionChange,
       handleComposerPaste,
       handleCustomerReturnChange,
@@ -9315,11 +9356,13 @@ function InboxDesktopClientPage() {
       selectedConversationStatusMeta,
       selectedConversationWithoutWhatsapp,
       selectedVendasAgendaDraftMessage,
+      showScrollToBottom,
       selectedId,
       selectedStatus,
       saveCustomerConversationCard,
       savingCustomerConversationCard,
       scheduleCustomerReturnTomorrow,
+      scrollChatTimelineToBottom,
       dropOverQueue,
       handleQueueDrop,
       sendMessage,
@@ -9595,19 +9638,29 @@ function InboxDesktopClientPage() {
   useEffect(() => {
     if (!selectedConversationScrollKey || !chatTimelineRef.current) return;
     if (typeof window === "undefined") return;
-    const timeline = chatTimelineRef.current;
-    const scrollToBottom = () => {
-      timeline.scrollTop = timeline.scrollHeight;
-    };
-    const frame = window.requestAnimationFrame(scrollToBottom);
-    const shortTimer = window.setTimeout(scrollToBottom, 80);
-    const mediaTimer = window.setTimeout(scrollToBottom, 300);
+    const conversationChanged =
+      previousChatTimelineConversationRef.current !== selectedConversationScrollKey;
+    previousChatTimelineConversationRef.current = selectedConversationScrollKey;
+
+    if (!conversationChanged && !chatTimelineStickToBottomRef.current) {
+      setShowScrollToBottom(true);
+      return;
+    }
+
+    if (conversationChanged) {
+      chatTimelineStickToBottomRef.current = true;
+      setShowScrollToBottom(false);
+    }
+
+    const frame = window.requestAnimationFrame(scrollChatTimelineToBottom);
+    const shortTimer = window.setTimeout(scrollChatTimelineToBottom, 80);
+    const mediaTimer = window.setTimeout(scrollChatTimelineToBottom, 300);
     return () => {
       window.cancelAnimationFrame(frame);
       window.clearTimeout(shortTimer);
       window.clearTimeout(mediaTimer);
     };
-  }, [latestVisibleMessageKey, selectedConversationScrollKey]);
+  }, [latestVisibleMessageKey, scrollChatTimelineToBottom, selectedConversationScrollKey]);
 
   // Clear composer state when switching conversations
   useEffect(() => {

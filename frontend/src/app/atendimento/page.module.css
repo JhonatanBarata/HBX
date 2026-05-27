@@ -620,6 +620,14 @@
   gap: 0.45rem;
 }
 
+.whatsAppTimelineFrame {
+  position: relative;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr);
+  overflow: hidden;
+}
+
 .whatsAppTimeline {
   min-height: 0;
   display: grid;
@@ -634,6 +642,41 @@
     radial-gradient(circle at 78% 22%, color-mix(in srgb, var(--accent) 4%, var(--background)) 0, color-mix(in srgb, var(--accent) 4%, var(--background)) 2px, transparent 2.8px),
     linear-gradient(180deg, color-mix(in srgb, var(--surface) 98%, var(--background)), color-mix(in srgb, var(--surface-raised) 92%, var(--background)));
   background-size: 180px 180px, 220px 220px, auto;
+}
+
+.whatsAppScrollToBottomButton {
+  position: absolute;
+  right: 1rem;
+  bottom: 0.65rem;
+  z-index: 5;
+  display: inline-grid;
+  place-items: center;
+  width: 2.35rem;
+  height: 2.35rem;
+  border: 1px solid color-mix(in srgb, var(--success) 32%, var(--line));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--surface-raised) 92%, var(--background));
+  color: color-mix(in srgb, var(--success) 88%, var(--foreground));
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--surface) 52%, transparent),
+    0 16px 34px -22px color-mix(in srgb, var(--success) 46%, transparent),
+    0 16px 30px -24px rgba(0, 0, 0, 0.56);
+  font-size: 1.16rem;
+  font-weight: 800;
+  line-height: 1;
+  cursor: pointer;
+  transition:
+    transform 160ms ease,
+    border-color 160ms ease,
+    background 160ms ease,
+    color 160ms ease;
+}
+
+.whatsAppScrollToBottomButton:hover {
+  transform: translateY(-1px);
+  border-color: color-mix(in srgb, var(--success) 56%, var(--line));
+  background: color-mix(in srgb, var(--success) 14%, var(--surface-raised));
+  color: color-mix(in srgb, var(--success) 96%, var(--foreground));
 }
 
 .whatsAppComposerForm {
