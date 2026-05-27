@@ -25,6 +25,15 @@ test('buildWhatsAppPhoneCandidates includes country and local variants', () => {
   ]);
 });
 
+test('buildWhatsAppPhoneCandidates adds brazilian country variants for local DDD phones', () => {
+  assert.deepEqual(buildWhatsAppPhoneCandidates('(19) 99887-7766').sort(), [
+    '+19998877766',
+    '+5519998877766',
+    '19998877766',
+    '5519998877766',
+  ]);
+});
+
 test('normalizeWhatsAppMessageType supports text button interactive and media', () => {
   assert.equal(normalizeWhatsAppMessageType('text'), 'text');
   assert.equal(normalizeWhatsAppMessageType('button'), 'button');
