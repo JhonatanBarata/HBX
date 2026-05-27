@@ -4067,14 +4067,28 @@ function getInboxConversationInitials(conversation?: InboxConversation | null) {
 function extractInboxRawContact(conversation?: InboxConversation | null) {
   const metadata = getInboxConversationMetadata(conversation);
   const candidates = [
+    conversation?.customer?.phone,
+    conversation?.contact,
+    metadata?.customerPhone,
+    metadata?.whatsappPhone,
+    metadata?.phone,
     metadata?.whatsappRemoteJidAlt,
     metadata?.remoteJidAlt,
-    conversation?.customer?.phone,
     metadata?.whatsappRemoteJid,
     metadata?.remoteJid,
   ]
     .map((value) => String(value || "").trim())
-    .filter(Boolean);
+    .filter((value) => {
+      if (!value) return false;
+      const lowered = value.toLowerCase();
+      if (lowered === "0@s.whatsapp.net") return false;
+      if (lowered.includes("@s.whatsapp.net")) {
+        const left = lowered.split("@")[0] || "";
+        const digits = left.replace(/\D/g, "");
+        return digits.length >= 10 && digits.length <= 15 && !/^0+$/.test(digits);
+      }
+      return true;
+    });
 
   const phoneLike = candidates.find((value) => {
     const lowered = value.toLowerCase();
@@ -5100,6 +5114,7 @@ function InboxDesktopClientPage() {
   const activeConversationLatestMessageKeyRef = useRef<Record<string, string>>({});
   const inboxQueueRef = useRef<InboxQueue>("all");
   const conversationLoadTokenRef = useRef(0);
+  const customerConversationCardLoadTokenRef = useRef(0);
   const botConfigLoadedRef = useRef(false);
   const agendaConfigLoadedRef = useRef(false);
   const sendTextDirtyRef = useRef(false);
@@ -6117,6 +6132,7 @@ function InboxDesktopClientPage() {
 
   const loadCustomerConversationCard = useCallback(async (conversationId: string | null | undefined) => {
     const normalizedId = normalizeInboxConversationId(conversationId);
+    const requestToken = ++customerConversationCardLoadTokenRef.current;
     if (!normalizedId) {
       setCustomerConversationCard(null);
       setCustomerConversationCardDraft({
@@ -6141,6 +6157,12 @@ function InboxDesktopClientPage() {
       const payload = await apiFetch<CustomerConversationCardPayload>(
         `/inbox/conversations/${normalizedId}/status-card`,
       );
+      if (
+        requestToken !== customerConversationCardLoadTokenRef.current ||
+        normalizeInboxConversationId(selectedIdRef.current) !== normalizedId
+      ) {
+        return;
+      }
       customerConversationCardCacheRef.current.set(normalizedId, payload);
       setCustomerConversationCard(payload);
       setCustomerConversationCardDraft(buildCustomerConversationCardDraft(payload));
@@ -6149,7 +6171,9 @@ function InboxDesktopClientPage() {
         loadError instanceof Error ? loadError.message : "Falha ao carregar card do cliente.";
       setCustomerConversationCardError(message);
     } finally {
-      setLoadingCustomerConversationCard(false);
+      if (requestToken === customerConversationCardLoadTokenRef.current) {
+        setLoadingCustomerConversationCard(false);
+      }
     }
   }, []);
 

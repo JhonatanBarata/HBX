@@ -110,6 +110,7 @@ export type InboxRecoveryPaymentSummary = {
 
 export type InboxConversation = {
   id: string;
+  contact?: string | null;
   status: InboxStatus | string;
   assignedTo: string | null;
   botActive: boolean | null;

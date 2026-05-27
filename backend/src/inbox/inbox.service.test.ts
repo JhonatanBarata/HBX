@@ -4,6 +4,10 @@ import assert from 'node:assert/strict';
 import { InboxService } from './inbox.service';
 import { WebwhatsProviderError } from '../messaging/webwhats-bridge.service';
 
+function createBareService() {
+  return Object.create(InboxService.prototype) as any;
+}
+
 function createService(overrides?: Partial<Record<string, any>>) {
   const auditCalls: Array<Record<string, unknown>> = [];
   const queueCalls: Array<Record<string, unknown>> = [];
@@ -230,6 +234,28 @@ function createService(overrides?: Partial<Record<string, any>>) {
   );
   return { service, prisma, conversations, auditCalls, queueCalls, conversationStateCalls, cadastrosService };
 }
+
+test('InboxService prefers conversation contact over conflicting WhatsApp alternate JID', () => {
+  const service = createBareService();
+  const conversation = { contact: '+5519996197927' };
+  const metadata = {
+    whatsappRemoteJid: '0@s.whatsapp.net',
+    whatsappRemoteJidAlt: '5519997493700@s.whatsapp.net',
+  };
+
+  assert.equal(service.resolveConversationDisplayPhone(conversation, null, metadata), '+5519996197927');
+  assert.equal(service.resolveConversationIdentityPhone({ ...conversation, metadata: JSON.stringify(metadata) }), '5519996197927');
+  assert.equal(service.isConversationWhatsappIdentityConflicting(conversation, metadata), true);
+});
+
+test('InboxService can react using providerMessageId when raw payload key is missing', () => {
+  const service = createBareService();
+
+  assert.equal(
+    service.extractWebwhatsRawMessageIdFromProviderMessageId('webwhats:company-11:ABC123'),
+    'ABC123',
+  );
+});
 
 test('inbox classifier keeps automatic prospection outbound in Prospecção without inbound response', async () => {
   const { service } = createService({
