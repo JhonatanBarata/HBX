@@ -83,6 +83,10 @@ export function buildWhatsAppPhoneCandidates(valueRaw: string | null | undefined
   const candidates = new Set<string>();
   candidates.add(`+${digits}`);
   candidates.add(digits);
+  if (!digits.startsWith('55') && (digits.length === 10 || digits.length === 11)) {
+    candidates.add(`+55${digits}`);
+    candidates.add(`55${digits}`);
+  }
   if (digits.startsWith('55') && digits.length > 11) {
     candidates.add(digits.slice(2));
     candidates.add(`+${digits.slice(2)}`);
