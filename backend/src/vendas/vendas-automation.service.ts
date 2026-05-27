@@ -115,22 +115,22 @@ const DEFAULT_OPT_OUT_MESSAGE = 'Entendi. Vou arquivar este contato e nao chamar
 const LEGACY_DEFAULT_MESSAGE_TEMPLATE =
   'Oi, tudo bem? Aqui é {{funcionario}} da {{empresa}}. Vi a {{cliente}} em {{cidade}} e queria te explicar em 1 minuto uma solução para {{segmento}}. Faz sentido eu te mandar?';
 const LEGACY_SEGMENT_MISMATCH_FALLBACK_MESSAGE =
-  'Oi, tudo bem? Sou o Jhonatan, da HBX. Vi sua empresa no Google e queria te mostrar uma ferramenta que ajuda a organizar contatos, orçamentos e retornos pelo WhatsApp. Tenho 7 dias grátis, sem compromisso. Faz sentido eu te mostrar?';
+  'Oi, tudo bem? Sou o {{funcionario}}, da HBX. Vi sua empresa no Google e queria te mostrar uma ferramenta que ajuda a organizar contatos, orçamentos e retornos pelo WhatsApp. Tenho 7 dias grátis, sem compromisso. Faz sentido eu te mostrar?';
 const LEGACY_GENERICA_CASO_ERRO_MESSAGE =
-  'Oi, tudo bem? Meu nome é Jhonatan, eu trabalho com empresas organizadoras de vendas, orçamentos, prospectar clientes e retornos pelo WhatsApp.\n' +
+  'Oi, tudo bem? Meu nome é {{funcionario}}, eu trabalho com empresas organizadoras de vendas, orçamentos, prospectar clientes e retornos pelo WhatsApp.\n' +
   'Tem interesse em conhecer? Eu tenho 7 dias grátis no plano, totalmente sem compromisso.\n' +
   '';
 const GENERICA_CASO_ERRO_MESSAGE =
-  'Oi, tudo bem? Meu nome é Jhonatan, trabalho com uma plataforma para organizar vendas, orçamentos, prospecção de clientes e retornos pelo WhatsApp.\n' +
+  'Oi, tudo bem? Meu nome é {{funcionario}}, trabalho com uma plataforma para organizar vendas, orçamentos, prospecção de clientes e retornos pelo WhatsApp.\n' +
   'Tenho 7 dias grátis, sem compromisso. Faz sentido eu te mostrar?\n' +
   '';
 const DEFAULT_MESSAGE_TEMPLATE = SAFE_FIRST_CONTACT_TEMPLATE;
 const DEFAULT_SEGMENT_MISMATCH_FALLBACK_MESSAGE = SAFE_FIRST_CONTACT_TEMPLATE;
 const DEFAULT_FIRST_CONTACT_VARIANTS = [
-  '{{cumprimentacao}}, tudo bem? Me chamo Jhonatan. Trabalho ajudando empresas a melhorar processos e automatizar tarefas repetitivas do dia a dia. Posso te explicar rapidinho e ver se faz sentido aí?',
-  '{{cumprimentacao}}, tudo certo? Aqui é o Jhonatan. Eu ajudo empresas a organizar melhor a rotina, reduzir retrabalho e implantar soluções simples para ganhar tempo na operação. Posso te mandar uma ideia rápida?',
-  '{{cumprimentacao}}! Sou o Jhonatan. Trabalho com consultoria e implantação de automações para empresas que querem parar de perder tempo com processos manuais, controles soltos e tarefas repetidas. Faz sentido eu te explicar em 1 minuto?',
-  '{{cumprimentacao}}, tudo bem? Me chamo Jhonatan. Eu olho a rotina da empresa, entendo onde está dando retrabalho e ajudo a implantar soluções práticas para deixar o dia a dia mais organizado. Posso te explicar rapidinho?',
+  '{{cumprimentacao}}, tudo bem? Me chamo {{funcionario}}. Trabalho ajudando empresas a melhorar processos e automatizar tarefas repetitivas do dia a dia. Posso te explicar rapidinho e ver se faz sentido aí?',
+  '{{cumprimentacao}}, tudo certo? Aqui é o {{funcionario}}. Eu ajudo empresas a organizar melhor a rotina, reduzir retrabalho e implantar soluções simples para ganhar tempo na operação. Posso te mandar uma ideia rápida?',
+  '{{cumprimentacao}}! Sou o {{funcionario}}. Trabalho com consultoria e implantação de automações para empresas que querem parar de perder tempo com processos manuais, controles soltos e tarefas repetidas. Faz sentido eu te explicar em 1 minuto?',
+  '{{cumprimentacao}}, tudo bem? Me chamo {{funcionario}}. Eu olho a rotina da empresa, entendo onde está dando retrabalho e ajudo a implantar soluções práticas para deixar o dia a dia mais organizado. Posso te explicar rapidinho?',
   '{{cumprimentacao}}, tudo bem? Trabalho com melhoria de processos para empresas: atendimento, vendas, administrativo, retornos, controles internos e automações conforme a necessidade. Posso te mostrar por alto como funciona?',
 ];
 const DEFAULT_POSITIVE_REPLY_VARIANTS = [
