@@ -2165,3 +2165,656 @@ body:has(.hero) .site-footer p {
     text-align: left;
   }
 }
+
+/* Home composition refinement */
+body:has(.hero) {
+  background:
+    linear-gradient(115deg, rgba(11, 42, 62, 0.12), transparent 34%),
+    radial-gradient(circle at 82% 16%, rgba(108, 228, 46, 0.2), transparent 28%),
+    radial-gradient(circle at 20% 86%, rgba(37, 95, 198, 0.16), transparent 30%),
+    #f2f6f3;
+}
+
+body:has(.hero) .site-header {
+  background: rgba(246, 250, 247, 0.86);
+}
+
+body:has(.hero) .hero {
+  min-height: auto;
+  padding: clamp(38px, 6vw, 82px) 0 clamp(36px, 5vw, 68px);
+}
+
+body:has(.hero) .hero-grid {
+  grid-template-columns: minmax(360px, 0.8fr) minmax(520px, 1.2fr);
+  gap: clamp(40px, 6vw, 92px);
+  align-items: center;
+}
+
+body:has(.hero) .hero-grid > div:first-child {
+  align-self: center;
+}
+
+body:has(.hero) .eyebrow {
+  margin-bottom: 16px;
+  padding: 8px 12px;
+  background: rgba(255, 255, 255, 0.72);
+  font-size: 0.64rem;
+}
+
+body:has(.hero) h1 {
+  max-width: 17ch;
+  font-size: clamp(2rem, 3.35vw, 3rem);
+  line-height: 1.08;
+}
+
+body:has(.hero) .hero-copy {
+  max-width: 54ch;
+  margin-top: 18px;
+  font-size: 0.98rem;
+  line-height: 1.72;
+}
+
+body:has(.hero) .contact-highlight {
+  display: flex;
+  flex-wrap: wrap;
+  width: fit-content;
+  margin-top: 26px;
+  padding: 8px;
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.8);
+}
+
+body:has(.hero) .contact-highlight span {
+  min-height: 38px;
+  padding: 0 14px;
+  white-space: nowrap;
+  background: rgba(240, 247, 242, 0.92);
+  font-size: 0.86rem;
+}
+
+body:has(.hero) .hero-actions {
+  margin-top: 18px;
+}
+
+body:has(.hero) .button {
+  min-height: 44px;
+  padding: 0 22px;
+}
+
+body:has(.hero) .hero-panel {
+  padding: 12px;
+  border-radius: 32px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.86), rgba(239, 246, 242, 0.76)),
+    rgba(255, 255, 255, 0.74);
+}
+
+body:has(.hero) .bannerSwiper {
+  height: auto;
+  aspect-ratio: 1.18 / 1;
+  min-height: 430px;
+  max-height: 650px;
+  padding: 0 0 28px;
+}
+
+body:has(.hero) .bannerSwiper .swiper-slide,
+body:has(.hero) .heavyBannerSwiper .swiper-slide {
+  border-radius: 24px;
+}
+
+body:has(.hero) .bannerSwiper .swiper-slide img {
+  object-fit: cover;
+  object-position: center;
+}
+
+body:has(.hero) .section {
+  padding: 44px 0;
+}
+
+body:has(.hero) .heavy-carousel-section {
+  padding-top: 18px;
+}
+
+body:has(.hero) .heavy-carousel-head {
+  text-align: left;
+}
+
+body:has(.hero) .heavy-carousel-panel {
+  max-width: none;
+}
+
+body:has(.hero) .heavyBannerSwiper {
+  height: auto;
+  aspect-ratio: 2.35 / 1;
+  min-height: 260px;
+  max-height: 430px;
+}
+
+body:has(.hero) .feature-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+body:has(.hero) .stats-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr)) minmax(300px, 1.35fr);
+}
+
+body:has(.hero) .stat-card--timeline {
+  grid-column: auto;
+}
+
+body:has(.hero) .trust-banner__grid {
+  grid-template-columns: minmax(180px, 230px) minmax(0, 1fr);
+  gap: 26px;
+}
+
+body:has(.hero) .trust-pill {
+  max-width: 100%;
+  white-space: normal;
+}
+
+@media (max-width: 980px) {
+  body:has(.hero) .hero {
+    padding-top: 30px;
+  }
+
+  body:has(.hero) .hero-grid,
+  body:has(.hero) .feature-grid,
+  body:has(.hero) .stats-grid {
+    grid-template-columns: 1fr;
+  }
+
+  body:has(.hero) .hero-panel {
+    max-width: 760px;
+  }
+
+  body:has(.hero) .bannerSwiper {
+    min-height: 360px;
+    aspect-ratio: 1.35 / 1;
+  }
+}
+
+@media (max-width: 760px) {
+  body:has(.hero) .hero {
+    padding: 28px 0 30px;
+  }
+
+  body:has(.hero) .hero-grid {
+    gap: 28px;
+  }
+
+  body:has(.hero) .eyebrow {
+    margin-bottom: 14px;
+    font-size: 0.56rem;
+  }
+
+  body:has(.hero) h1 {
+    max-width: 15ch;
+    font-size: clamp(1.72rem, 8.5vw, 2.18rem);
+    line-height: 1.08;
+  }
+
+  body:has(.hero) .hero-copy {
+    margin-top: 16px;
+    font-size: 0.93rem;
+    line-height: 1.68;
+  }
+
+  body:has(.hero) .contact-highlight {
+    width: 100%;
+    margin-top: 24px;
+    padding: 8px;
+  }
+
+  body:has(.hero) .contact-highlight span {
+    width: 100%;
+  }
+
+  body:has(.hero) .contact-highlight span {
+    min-height: 40px;
+    justify-content: center;
+    white-space: normal;
+  }
+
+  body:has(.hero) .hero-panel {
+    padding: 8px;
+    border-radius: 24px;
+  }
+
+  body:has(.hero) .bannerSwiper {
+    min-height: 300px;
+    aspect-ratio: 1 / 0.9;
+  }
+
+  body:has(.hero) .heavyBannerSwiper {
+    min-height: 240px;
+    aspect-ratio: 1 / 0.78;
+  }
+
+  body:has(.hero) .section {
+    padding: 32px 0;
+  }
+
+  body:has(.hero) .whatsapp-help {
+    width: calc(100% - 24px);
+    right: 12px;
+    bottom: 12px;
+  }
+}
+
+/* Public site premium v2 */
+body {
+  overflow-x: hidden;
+  font-family: "IBM Plex Sans", "Segoe UI", Arial, sans-serif;
+  background:
+    radial-gradient(circle at 82% 9%, rgba(108, 228, 46, 0.18), transparent 30%),
+    radial-gradient(circle at 16% 86%, rgba(37, 95, 198, 0.14), transparent 32%),
+    linear-gradient(180deg, #f4f8f5 0%, #eef4f1 46%, #f6f8f7 100%);
+}
+
+.shell,
+body:has(.hero) .shell {
+  width: min(1180px, calc(100% - 48px));
+}
+
+.site-header,
+body:has(.hero) .site-header {
+  background: rgba(246, 250, 247, 0.88);
+  border-bottom: 1px solid rgba(12, 31, 45, 0.1);
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.05);
+}
+
+.topbar,
+body:has(.hero) .topbar {
+  padding: 10px 0;
+}
+
+.brand-mark,
+body:has(.hero) .brand-mark {
+  width: 82px;
+  height: 40px;
+  border-radius: 14px;
+}
+
+.brand strong,
+body:has(.hero) .brand strong {
+  font-family: "IBM Plex Sans", "Segoe UI", Arial, sans-serif;
+  font-size: 0.96rem;
+  font-weight: 800;
+  letter-spacing: 0;
+}
+
+.brand small,
+body:has(.hero) .brand small {
+  margin-top: 2px;
+  font-size: 0.64rem;
+  letter-spacing: 0.14em;
+}
+
+.main-nav,
+body:has(.hero) .main-nav {
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid rgba(12, 31, 45, 0.1);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.62);
+}
+
+.main-nav a,
+body:has(.hero) .main-nav a {
+  padding: 8px 13px;
+  font-size: 0.84rem;
+  font-weight: 700;
+}
+
+h1,
+h2,
+h3,
+body:has(.hero) h1,
+body:has(.hero) h2,
+body:has(.hero) h3 {
+  font-family: "IBM Plex Sans", "Segoe UI", Arial, sans-serif;
+  letter-spacing: 0;
+}
+
+h1,
+body:has(.hero) h1 {
+  max-width: 18ch;
+  font-size: clamp(2rem, 3.6vw, 3.2rem);
+  line-height: 1.08;
+  font-weight: 800;
+}
+
+h2,
+body:has(.hero) h2 {
+  font-size: clamp(1.45rem, 2.6vw, 2.25rem);
+  line-height: 1.12;
+  font-weight: 800;
+}
+
+h3,
+body:has(.hero) h3 {
+  font-size: 1.02rem;
+  line-height: 1.2;
+  font-weight: 800;
+}
+
+p,
+.hero-copy,
+.section-copy,
+body:has(.hero) .hero-copy,
+body:has(.hero) .section-copy {
+  color: rgba(12, 31, 45, 0.72);
+  font-size: 0.95rem;
+  line-height: 1.68;
+}
+
+.eyebrow,
+body:has(.hero) .eyebrow {
+  display: inline-flex;
+  width: fit-content;
+  margin-bottom: 14px;
+  padding: 7px 10px;
+  border: 1px solid rgba(12, 31, 45, 0.1);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.7);
+  color: rgba(12, 31, 45, 0.76);
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+}
+
+.page-main {
+  padding-top: 26px;
+}
+
+.section,
+body:has(.hero) .section {
+  padding: 42px 0;
+}
+
+.section-head,
+body:has(.hero) .section-head {
+  max-width: 620px;
+  margin-bottom: 22px;
+}
+
+.card,
+.hero-panel,
+body:has(.hero) .card,
+body:has(.hero) .hero-panel {
+  border: 1px solid rgba(12, 31, 45, 0.1);
+  border-radius: 22px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.82), rgba(255, 255, 255, 0.62)),
+    rgba(255, 255, 255, 0.72);
+  box-shadow: 0 18px 42px rgba(15, 23, 42, 0.09);
+}
+
+.card,
+body:has(.hero) .card {
+  padding: 20px;
+}
+
+.feature-grid,
+.stats-grid,
+.highlight-grid,
+.footer-grid,
+body:has(.hero) .feature-grid,
+body:has(.hero) .stats-grid,
+body:has(.hero) .highlight-grid,
+body:has(.hero) .footer-grid {
+  gap: 16px;
+}
+
+.hero,
+body:has(.hero) .hero {
+  min-height: auto;
+  padding: clamp(42px, 6vw, 84px) 0 clamp(44px, 6vw, 76px);
+}
+
+.hero-grid,
+body:has(.hero) .hero-grid {
+  grid-template-columns: minmax(340px, 0.82fr) minmax(500px, 1.18fr);
+  gap: clamp(42px, 6vw, 88px);
+  align-items: center;
+}
+
+.hero-copy,
+body:has(.hero) .hero-copy {
+  max-width: 52ch;
+  margin-top: 18px;
+}
+
+.contact-highlight,
+body:has(.hero) .contact-highlight {
+  display: flex;
+  flex-wrap: wrap;
+  width: fit-content;
+  max-width: 100%;
+  gap: 8px;
+  margin-top: 26px;
+  padding: 8px;
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.78);
+}
+
+.contact-highlight span,
+body:has(.hero) .contact-highlight span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 38px;
+  padding: 0 14px;
+  border-radius: 14px;
+  background: rgba(241, 248, 243, 0.94);
+  font-size: 0.86rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.hero-actions,
+body:has(.hero) .hero-actions {
+  margin-top: 18px;
+}
+
+.hero-actions-centered,
+body:has(.hero) .hero-actions-centered {
+  justify-content: flex-start;
+}
+
+.button,
+body:has(.hero) .button {
+  min-height: 42px;
+  padding: 0 18px;
+  font-size: 0.88rem;
+}
+
+.hero-panel,
+body:has(.hero) .hero-panel {
+  padding: 12px;
+  border-radius: 30px;
+}
+
+.bannerSwiper,
+body:has(.hero) .bannerSwiper {
+  height: auto;
+  min-height: 410px;
+  aspect-ratio: 1.22 / 1;
+  padding: 0 0 28px;
+}
+
+.heavyBannerSwiper,
+body:has(.hero) .heavyBannerSwiper {
+  height: auto;
+  min-height: 270px;
+  aspect-ratio: 2.25 / 1;
+  padding: 0 0 28px;
+}
+
+.heavy-carousel-section,
+body:has(.hero) .heavy-carousel-section {
+  padding-top: 12px;
+}
+
+.heavy-carousel-head,
+body:has(.hero) .heavy-carousel-head {
+  text-align: left;
+}
+
+.heavy-carousel-panel,
+body:has(.hero) .heavy-carousel-panel {
+  max-width: none;
+}
+
+.stats-grid,
+body:has(.hero) .stats-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr)) minmax(280px, 1.28fr);
+}
+
+.stat-card--timeline,
+body:has(.hero) .stat-card--timeline {
+  grid-column: auto;
+}
+
+.trust-banner__grid,
+body:has(.hero) .trust-banner__grid {
+  grid-template-columns: minmax(180px, 230px) minmax(0, 1fr);
+  gap: 24px;
+  padding: 18px;
+  border-radius: 24px;
+}
+
+.site-footer,
+body:has(.hero) .site-footer {
+  margin-top: 18px;
+  padding: 40px 0 22px;
+}
+
+.reveal {
+  transform: translateY(22px);
+}
+
+@media (max-width: 980px) {
+  .shell,
+  body:has(.hero) .shell {
+    width: min(100% - 32px, 1180px);
+  }
+
+  .hero-grid,
+  .feature-grid,
+  .stats-grid,
+  .highlight-grid,
+  .footer-grid,
+  .trust-banner__grid,
+  body:has(.hero) .hero-grid,
+  body:has(.hero) .feature-grid,
+  body:has(.hero) .stats-grid,
+  body:has(.hero) .highlight-grid,
+  body:has(.hero) .footer-grid,
+  body:has(.hero) .trust-banner__grid {
+    grid-template-columns: 1fr;
+  }
+
+  .hero-panel,
+  body:has(.hero) .hero-panel {
+    max-width: 760px;
+  }
+}
+
+@media (max-width: 760px) {
+  .shell,
+  body:has(.hero) .shell {
+    width: min(100% - 24px, 1180px);
+  }
+
+  .brand-mark,
+  body:has(.hero) .brand-mark {
+    width: 70px;
+    height: 36px;
+  }
+
+  .brand strong,
+  body:has(.hero) .brand strong {
+    font-size: 0.84rem;
+  }
+
+  .brand small,
+  body:has(.hero) .brand small {
+    font-size: 0.56rem;
+  }
+
+  .hero,
+  body:has(.hero) .hero {
+    padding: 30px 0 32px;
+  }
+
+  h1,
+  body:has(.hero) h1 {
+    max-width: 16ch;
+    font-size: clamp(1.75rem, 8.2vw, 2.22rem);
+  }
+
+  h2,
+  body:has(.hero) h2 {
+    font-size: clamp(1.28rem, 6vw, 1.72rem);
+  }
+
+  .hero-copy,
+  .section-copy,
+  body:has(.hero) .hero-copy,
+  body:has(.hero) .section-copy {
+    font-size: 0.92rem;
+  }
+
+  .contact-highlight,
+  body:has(.hero) .contact-highlight {
+    width: 100%;
+  }
+
+  .contact-highlight span,
+  body:has(.hero) .contact-highlight span {
+    width: 100%;
+    justify-content: center;
+    white-space: normal;
+    text-align: center;
+  }
+
+  .hero-actions,
+  .hero-actions-centered,
+  body:has(.hero) .hero-actions,
+  body:has(.hero) .hero-actions-centered {
+    justify-content: stretch;
+  }
+
+  .button,
+  body:has(.hero) .button {
+    width: 100%;
+  }
+
+  .bannerSwiper,
+  body:has(.hero) .bannerSwiper {
+    min-height: 300px;
+    aspect-ratio: 1 / 0.9;
+  }
+
+  .heavyBannerSwiper,
+  body:has(.hero) .heavyBannerSwiper {
+    min-height: 240px;
+    aspect-ratio: 1 / 0.78;
+  }
+
+  .section,
+  body:has(.hero) .section {
+    padding: 32px 0;
+  }
+
+  .trust-banner__content,
+  body:has(.hero) .trust-banner__content {
+    text-align: left;
+  }
+
+  .trust-pill-row,
+  body:has(.hero) .trust-pill-row {
+    justify-content: flex-start;
+  }
+}

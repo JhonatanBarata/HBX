@@ -1522,10 +1522,10 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
       cliente: leadName,
       empresaresumo: leadName.replace(/\s+(ltda|me|mei|eireli|epp|s\/a|sa)$/i, '').trim(),
       clienteresumo: leadName.replace(/\s+(ltda|me|mei|eireli|epp|s\/a|sa)$/i, '').trim(),
-      empresa: String(job?.campaign?.company?.name || 'nossa empresa').trim(),
+      empresa: 'nossa empresa',
       funcionario: 'time comercial',
       cidade: String(job?.lead?.city || job?.campaign?.city || '').trim(),
-      estado: String(job?.campaign?.state || '').trim(),
+      estado: String(job?.lead?.state || job?.campaign?.state || '').trim(),
       segmento: String(job?.lead?.segment || job?.campaign?.segment || '').trim(),
       ...extraValues,
     };
@@ -1536,13 +1536,13 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     );
   }
 
-  private pickVendasVariant(campaign: any, job: any, key: string, fallback: string[]) {
+  private pickVendasVariant(campaign: any, job: any, key: string, fallback: string[], extraValues: Record<string, string> = {}) {
     const variants = this.readVendasVariantList(campaign, key, fallback);
     const variant = variants[Math.floor(Math.random() * variants.length)] || fallback[0] || '';
-    return this.renderVendasVariant(variant, job);
+    return this.renderVendasVariant(variant, job, extraValues);
   }
 
-  private pickVendasScheduledReplyVariant(job: any, label: string) {
+  private pickVendasScheduledReplyVariant(job: any, label: string, extraValues: Record<string, string> = {}) {
     const fallback = [
       'Perfeito, {{retorno_label}} eu te chamo por aqui ou te ligo rapidinho.',
       'Combinado, {{retorno_label}} eu retorno com você.',
@@ -1551,9 +1551,28 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     const variants = this.readVendasVariantList(job?.campaign, 'scheduledReplyVariants', fallback);
     const variant = variants[Math.floor(Math.random() * variants.length)] || fallback[0];
     return this.renderVendasVariant(variant, job, {
+      ...extraValues,
       retorno_label: label,
       horario_retorno: label,
     });
+  }
+
+  private async buildVendasTemplateExtraValues(job: any) {
+    const [company, user] = await Promise.all([
+      this.prisma.company.findUnique({ where: { id: Number(job?.campaign?.companyId || 0) } }).catch(() => null),
+      Number(job?.campaign?.createdByUserId || 0)
+        ? this.prisma.user.findFirst({
+            where: {
+              id: Number(job.campaign.createdByUserId),
+              companyId: Number(job?.campaign?.companyId || 0),
+            },
+          }).catch(() => null)
+        : Promise.resolve(null),
+    ]);
+    return {
+      empresa: String(company?.name || 'nossa empresa').trim(),
+      funcionario: String(user?.name || user?.username || 'time comercial').trim(),
+    };
   }
 
   private isVendasPreMessageAwaitingHuman(metadata: Record<string, any>) {
@@ -1564,6 +1583,22 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
       automation.preMessagePitchSent !== true &&
       queue.preMessagePitchSent !== true
     );
+  }
+
+  private isVendasPreMessageEnabledForCampaign(campaign: any) {
+    const filters = this.readJsonRecord(campaign?.filtersJson);
+    return campaign?.preMessageEnabled === true || filters.preMessageEnabled === true;
+  }
+
+  private isVendasPreMessageAwaitingHumanForJob(metadata: Record<string, any>, job: any) {
+    if (this.isVendasPreMessageAwaitingHuman(metadata)) return true;
+    const automation = this.readJsonRecord(metadata?.vendasAutomation);
+    const queue = this.readJsonRecord(metadata?.vendasAgendaQueue);
+    const alreadySentPitch = automation.preMessagePitchSent === true || queue.preMessagePitchSent === true;
+    if (alreadySentPitch) return false;
+    if (!this.isVendasPreMessageEnabledForCampaign(job?.campaign)) return false;
+    const lastResult = this.normalizeVendasAutomationIntentText(job?.lead?.lastResult);
+    return lastResult.includes('pre mensagem automatica') || lastResult.includes('pre-mensagem automatica');
   }
 
   private getVendasBotReplyIntervalReductionPercent(campaign: any) {
@@ -2076,7 +2111,7 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
         scheduledCallAt: parsed.scheduledAt.toISOString(),
       },
     };
-    const scheduledReplyBody = this.pickVendasScheduledReplyVariant(job, label);
+    const scheduledReplyBody = this.pickVendasScheduledReplyVariant(job, label, await this.buildVendasTemplateExtraValues(job));
     await input.setInboundMeta('vendas_prospeccao_retorno_agendado', false);
     await this.conversations.queueOutboundForCompany(input.companyId, {
       conversationId: input.conversationId,
@@ -2556,7 +2591,7 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     const queue = this.readJsonRecord(input.metadata?.vendasAgendaQueue);
     const automationStatus = this.normalizeVendasAutomationIntentText(automation.status);
     const queueStatus = this.normalizeVendasAutomationIntentText(queue.status);
-    const awaitingPreMessageHumanReply = this.isVendasPreMessageAwaitingHuman(input.metadata);
+    const awaitingPreMessageHumanReply = this.isVendasPreMessageAwaitingHumanForJob(input.metadata, job);
     const filters = this.readJsonRecord(job.campaign.filtersJson);
     const positiveKeywords = this.readJsonTextList(job.campaign.positiveIntentKeywordsJson, [
       'tenho interesse',
@@ -2639,11 +2674,8 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
       blockedStatus.has(queueStatus) ||
       input.metadata?.humanAssigned === true ||
       queue.humanAssigned === true;
-    if (blocked) return null;
-
-    const hbxEmailIntent = detectHbxPresentationEmailIntent(input.text);
-    const hbxEmailHandled = await this.handleHbxPresentationEmailIntent(input, job, hbxEmailIntent);
-    if (hbxEmailHandled) return hbxEmailHandled;
+    const hardBlocked = input.metadata?.humanAssigned === true || queue.humanAssigned === true;
+    if (hardBlocked || (blocked && !awaitingPreMessageHumanReply)) return null;
 
     if (autoReplyClassification) {
       await input.setInboundMeta('vendas_prospeccao_auto_reply', false);
@@ -2652,10 +2684,15 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     }
 
     if (awaitingPreMessageHumanReply) {
+      // A pré-mensagem só filtra bot: qualquer resposta humana libera o pitch.
       await input.setInboundMeta('vendas_prospeccao_pre_mensagem_humana', false);
       await this.sendVendasPitchAfterPreMessage(input, job);
       return { handled: true, classification: 'pre_message_human_reply' };
     }
+
+    const hbxEmailIntent = detectHbxPresentationEmailIntent(input.text);
+    const hbxEmailHandled = await this.handleHbxPresentationEmailIntent(input, job, hbxEmailIntent);
+    if (hbxEmailHandled) return hbxEmailHandled;
 
     if (intent.kind === 'ambiguous_intent' || intent.confidence < 0.5) {
       await input.setInboundMeta('vendas_prospeccao_duvida', false);
@@ -2750,6 +2787,7 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
             'Legal. Normalmente eu converso com o gestor ou responsável pela operação, faço algumas perguntas sobre a rotina e identifico onde uma melhoria simples já poderia economizar tempo. Pode ser uma ligação rápida?',
             'Boa. A ideia é bem prática: entender o que hoje é manual, repetitivo ou bagunçado, e ver se vale implantar alguma automação, organização ou sistema simples para facilitar. Posso te ligar rapidinho?',
           ],
+      await this.buildVendasTemplateExtraValues(job),
     );
     const nextMetadata = {
       ...this.clearAtendimentoBlockedMetadata(input.metadata),
@@ -2911,11 +2949,17 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
       });
     });
 
-    const optOutMessage = this.pickVendasVariant(job.campaign, job, 'optOutVariants', [
-      String(job.campaign.optOutMessage || '').trim() || 'Entendi. Vou arquivar este contato e nao chamaremos novamente.',
-      'Tudo bem. Vou remover este contato da prospecção.',
-      'Entendido. Não vamos chamar novamente por aqui.',
-    ]);
+    const optOutMessage = this.pickVendasVariant(
+      job.campaign,
+      job,
+      'optOutVariants',
+      [
+        String(job.campaign.optOutMessage || '').trim() || 'Entendi. Vou arquivar este contato e nao chamaremos novamente.',
+        'Tudo bem. Vou remover este contato da prospecção.',
+        'Entendido. Não vamos chamar novamente por aqui.',
+      ],
+      await this.buildVendasTemplateExtraValues(job),
+    );
     if (this.vendasCampaignOptOutReplyEnabled(job.campaign) && optOutMessage) {
       try {
         await this.conversations.queueOutboundForCompany(input.companyId, {

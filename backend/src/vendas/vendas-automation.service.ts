@@ -1953,7 +1953,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
       empresa: companyName,
       funcionario: employeeName,
       cidade: String(input.lead?.city || input.campaign.city || '').trim(),
-      estado: String(input.campaign.state || '').trim(),
+      estado: String(input.lead?.state || input.campaign.state || '').trim(),
       segmento: String(input.lead?.segment || input.campaign.segment || '').trim(),
       website: String(input.lead?.website || '').trim(),
     };
@@ -3913,6 +3913,21 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     );
   }
 
+  private isPreMessageEnabledForCampaign(campaign: any) {
+    const filters = parseJsonObject(campaign?.filtersJson);
+    return campaign?.preMessageEnabled === true || (filters as any).preMessageEnabled === true;
+  }
+
+  private isAwaitingPreMessageHumanReplyForJob(metadata: Record<string, any>, job: any) {
+    if (this.isAwaitingPreMessageHumanReply(metadata)) return true;
+    const automation = parseJsonObject(metadata?.vendasAutomation);
+    const queue = parseJsonObject(metadata?.vendasAgendaQueue);
+    if ((automation as any).preMessagePitchSent === true || (queue as any).preMessagePitchSent === true) return false;
+    if (!this.isPreMessageEnabledForCampaign(job?.campaign)) return false;
+    const lastResult = normalizeKey(job?.lead?.lastResult);
+    return lastResult.includes('pre mensagem automatica') || lastResult.includes('pre-mensagem automatica');
+  }
+
   private getBotReplyIntervalReductionPercent(campaign: any) {
     const filters = parseJsonObject(campaign?.filtersJson);
     return clampInteger(
@@ -4066,7 +4081,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     if (String(job.status || '') !== 'sent') return null;
     const automationStatus = normalizeKey((automation as any).status);
     const queueStatus = normalizeKey((queue as any).status);
-    const awaitingPreMessageHumanReply = this.isAwaitingPreMessageHumanReply(input.metadata);
+    const awaitingPreMessageHumanReply = this.isAwaitingPreMessageHumanReplyForJob(input.metadata, job);
     const positives = parseJsonList(job.campaign.positiveIntentKeywordsJson, DEFAULT_POSITIVE_KEYWORDS).map(normalizeKey);
     const negatives = parseJsonList(job.campaign.negativeIntentKeywordsJson, DEFAULT_NEGATIVE_KEYWORDS).map(normalizeKey);
     const filtersJson = parseJsonObject(job.campaign.filtersJson);
@@ -4108,7 +4123,8 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
       blockedStatus.includes(queueStatus) ||
       input.metadata?.humanAssigned === true ||
       (queue as any).humanAssigned === true;
-    if (isBlocked) return null;
+    const hardBlocked = input.metadata?.humanAssigned === true || (queue as any).humanAssigned === true;
+    if (hardBlocked || (isBlocked && !awaitingPreMessageHumanReply)) return null;
 
     if (autoReplyClassification) {
       await input.setInboundMeta('vendas_prospeccao_auto_reply', false);
@@ -4117,6 +4133,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     }
 
     if (awaitingPreMessageHumanReply) {
+      // A pré-mensagem só filtra bot: qualquer resposta humana libera o pitch.
       await input.setInboundMeta('vendas_prospeccao_pre_mensagem_humana', false);
       await this.sendPitchAfterPreMessage(input, job);
       return { handled: true, classification: 'pre_message_human_reply' };
