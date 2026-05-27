@@ -1274,6 +1274,13 @@ function toProspectingCampaignPayload(config: ProspectingCampaignConfig): Record
     .map((message) => sanitizeFirstContactPreview(message))
     .filter(Boolean);
   const optOutVariants = normalizeProspectingVariantList(config.optOutVariants, DEFAULT_PROSPECTING_CAMPAIGN_CONFIG.optOutVariants);
+  const positiveReplyVariants = normalizeProspectingVariantList(config.positiveReplyVariants, DEFAULT_PROSPECTING_CAMPAIGN_CONFIG.positiveReplyVariants);
+  const whatIsItReplyVariants = normalizeProspectingVariantList(config.whatIsItReplyVariants, DEFAULT_PROSPECTING_CAMPAIGN_CONFIG.whatIsItReplyVariants);
+  const scheduledReplyVariants = normalizeProspectingVariantList(config.scheduledReplyVariants, DEFAULT_PROSPECTING_CAMPAIGN_CONFIG.scheduledReplyVariants);
+  const neutralHandoffVariants = normalizeProspectingVariantList(config.neutralHandoffVariants, DEFAULT_PROSPECTING_CAMPAIGN_CONFIG.neutralHandoffVariants);
+  const whatIsItIntentKeywords = normalizeProspectingList(config.whatIsItIntentKeywords, DEFAULT_PROSPECTING_CAMPAIGN_CONFIG.whatIsItIntentKeywords);
+  const neutralIntentKeywords = normalizeProspectingList(config.neutralIntentKeywords, DEFAULT_PROSPECTING_CAMPAIGN_CONFIG.neutralIntentKeywords);
+  const intervalVarianceMinutes = Math.max(0, Math.trunc(Number(config.intervalVarianceMinutes || 0)));
   return {
     state: config.state.trim().toUpperCase(),
     city: config.city.trim(),
@@ -1283,6 +1290,7 @@ function toProspectingCampaignPayload(config: ProspectingCampaignConfig): Record
     messageTemplate: firstContactVariants[0] || sanitizeFirstContactPreview(config.messageTemplate) || DEFAULT_PROSPECTING_CAMPAIGN_CONFIG.messageTemplate,
     dailyLimit: calculateProspectingCapacity(config),
     intervalMinutes: Math.max(1, Math.trunc(Number(config.intervalMinutes || 1))),
+    intervalVarianceMinutes,
     minLeadBuffer: Math.max(1, Math.trunc(Number(config.minLeadBuffer || 1))),
     desiredLeadBuffer: Math.max(1, Math.trunc(Number(config.desiredLeadBuffer || 1))),
     maxAttemptsPerLead: Math.max(1, Math.trunc(Number(config.maxAttemptsPerLead || 1))),
@@ -1292,21 +1300,28 @@ function toProspectingCampaignPayload(config: ProspectingCampaignConfig): Record
     typingVarianceSeconds: Math.max(0, Math.trunc(Number(config.typingVarianceSeconds || 0))),
     positiveIntentKeywords: normalizeProspectingList(config.positiveIntentKeywords, DEFAULT_PROSPECTING_CAMPAIGN_CONFIG.positiveIntentKeywords),
     negativeIntentKeywords: normalizeProspectingList(config.negativeIntentKeywords, DEFAULT_PROSPECTING_CAMPAIGN_CONFIG.negativeIntentKeywords),
-    scheduledReplyVariants: normalizeProspectingVariantList(config.scheduledReplyVariants, DEFAULT_PROSPECTING_CAMPAIGN_CONFIG.scheduledReplyVariants),
+    whatIsItIntentKeywords,
+    neutralIntentKeywords,
+    firstContactVariants: firstContactVariants.length ? firstContactVariants : DEFAULT_PROSPECTING_CAMPAIGN_CONFIG.firstContactVariants,
+    positiveReplyVariants,
+    whatIsItReplyVariants,
+    scheduledReplyVariants,
+    optOutVariants,
+    neutralHandoffVariants,
     optOutMessage: optOutVariants[0] || config.optOutMessage || DEFAULT_PROSPECTING_CAMPAIGN_CONFIG.optOutMessage,
     optOutReplyEnabled: config.optOutReplyEnabled,
     websiteFallbackEnabled: false,
     filtersJson: {
       ...(config.filtersJson || {}),
-      intervalVarianceMinutes: Math.max(0, Math.trunc(Number(config.intervalVarianceMinutes || 0))),
+      intervalVarianceMinutes,
       firstContactVariants: firstContactVariants.length ? firstContactVariants : DEFAULT_PROSPECTING_CAMPAIGN_CONFIG.firstContactVariants,
-      positiveReplyVariants: normalizeProspectingVariantList(config.positiveReplyVariants, DEFAULT_PROSPECTING_CAMPAIGN_CONFIG.positiveReplyVariants),
-      whatIsItReplyVariants: normalizeProspectingVariantList(config.whatIsItReplyVariants, DEFAULT_PROSPECTING_CAMPAIGN_CONFIG.whatIsItReplyVariants),
-      scheduledReplyVariants: normalizeProspectingVariantList(config.scheduledReplyVariants, DEFAULT_PROSPECTING_CAMPAIGN_CONFIG.scheduledReplyVariants),
+      positiveReplyVariants,
+      whatIsItReplyVariants,
+      scheduledReplyVariants,
       optOutVariants,
-      neutralHandoffVariants: normalizeProspectingVariantList(config.neutralHandoffVariants, DEFAULT_PROSPECTING_CAMPAIGN_CONFIG.neutralHandoffVariants),
-      whatIsItIntentKeywords: normalizeProspectingList(config.whatIsItIntentKeywords, DEFAULT_PROSPECTING_CAMPAIGN_CONFIG.whatIsItIntentKeywords),
-      neutralIntentKeywords: normalizeProspectingList(config.neutralIntentKeywords, DEFAULT_PROSPECTING_CAMPAIGN_CONFIG.neutralIntentKeywords),
+      neutralHandoffVariants,
+      whatIsItIntentKeywords,
+      neutralIntentKeywords,
       optOutReplyEnabled: config.optOutReplyEnabled,
     },
   };
@@ -1543,15 +1558,14 @@ function ProspectingCampaignStudioModal({
   onClose: () => void;
   onChange: (updater: (current: ProspectingCampaignConfig) => ProspectingCampaignConfig) => void;
   onSave: (configOverride?: ProspectingCampaignConfig) => Promise<ProspectingAutomationLiveStatus | null> | void;
-  onStart: () => void;
+  onStart: (configOverride?: ProspectingCampaignConfig) => void;
   onPause: () => void;
   onResume: () => void;
 }) {
-  const [page, setPage] = useState<"mensagem" | "radar">("mensagem");
   const [variablesOpen, setVariablesOpen] = useState(false);
   const [variableTarget, setVariableTarget] = useState<ProspectingVariableTarget>("firstContactVariants");
   const [saveFeedback, setSaveFeedback] = useState<"idle" | "saving" | "saved" | "error">("idle");
-  const [savePopup, setSavePopup] = useState<{ tone: "info" | "success" | "danger"; title: string; text: string } | null>(null);
+  const [savePopup, setSavePopup] = useState<{ tone: "info" | "success" | "warning" | "danger"; title: string; text: string } | null>(null);
   const [riskConfirmationOpen, setRiskConfirmationOpen] = useState(false);
   const [invalidFields, setInvalidFields] = useState<ProspectingValidationField[]>([]);
   const [positiveDraft, setPositiveDraft] = useState("");
@@ -1588,8 +1602,6 @@ function ProspectingCampaignStudioModal({
     }
     if (campaignStudioWasOpenRef.current) return;
     campaignStudioWasOpenRef.current = true;
-    // Reset the guided flow whenever the campaign studio opens.
-    setPage("mensagem");
     setPreviewScenario({
       kind: "scheduled",
       text: "Agora não consigo, amanhã umas 09?",
@@ -1631,7 +1643,6 @@ function ProspectingCampaignStudioModal({
   };
   const focusInvalidField = (field: ProspectingValidationField | null | undefined) => {
     if (!field) return;
-    setPage("mensagem");
     window.setTimeout(() => {
       const target = document.querySelector<HTMLElement>(`[data-prospecting-field="${field}"]`);
       target?.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -1779,7 +1790,7 @@ function ProspectingCampaignStudioModal({
   const canPause = Boolean(status?.campaign?.status === "running");
   const canResume = Boolean(status?.campaign?.status === "paused");
   const campaignHasError = Boolean(status?.lastError || status?.status === "erro");
-  const activationDisabled = Boolean(actionLoading || (!canPause && !canActivateProspecting));
+  const activationDisabled = Boolean(actionLoading);
   const activationState = campaignHasError ? "error" : canPause ? "running" : canResume ? "paused" : "idle";
   const activationLabel = canPause ? "Pausar Prospecção" : "Ativar Prospecção";
   const activationBusyLabel = canPause ? "Pausando..." : canResume ? "Ativando..." : "Ativando...";
@@ -1790,17 +1801,6 @@ function ProspectingCampaignStudioModal({
   const firstContactText = config.firstContactVariants[0] || config.messageTemplate;
   const sanitizedMessagePreview = sanitizeFirstContactPreview(firstContactText) || DEFAULT_PROSPECTING_CAMPAIGN_CONFIG.messageTemplate;
   const messageTemplateHasLink = hasFirstContactLink(joinProspectingVariantList(config.firstContactVariants));
-  const firstStepReady = Boolean(config.firstContactVariants.some((item) => item.trim()) && config.workingHoursStart && config.workingHoursEnd);
-  const radarQuery = {
-    state: config.state,
-    city: config.city,
-    segment: config.segment,
-  };
-  const radarFrameParams = new URLSearchParams();
-  Object.entries(radarQuery).forEach(([key, value]) => {
-    if (value) radarFrameParams.set(key, String(value));
-  });
-  const radarFrameSrc = `/mobile/radar-digital${radarFrameParams.toString() ? `?${radarFrameParams.toString()}` : ""}`;
   const buildConfigWithPendingKeywordDrafts = () => {
     const draftEntries: Array<{
       field: ProspectingKeywordField;
@@ -1921,14 +1921,17 @@ function ProspectingCampaignStudioModal({
     }
     await saveConfigNow(nextConfig);
   };
+  const showCentralBotWarning = () => {
+    setSaveFeedback("idle");
+    setSavePopup({
+      tone: "warning",
+      title: "Ative o HBot na central dos bots",
+      text: activationBlockedReason || "A Prospecção usa o HBot como central. Ligue o HBot principal antes de ativar a Prospecção.",
+    });
+  };
   const handleStartClick = () => {
     if (!canActivateProspecting) {
-      setSaveFeedback("error");
-      setSavePopup({
-        tone: "danger",
-        title: "Ative o HBot primeiro",
-        text: activationBlockedReason || "A Prospecção só pode ser ativada depois que o HBot estiver ligado.",
-      });
+      showCentralBotWarning();
       return;
     }
     const nextConfig = buildConfigWithPendingKeywordDrafts();
@@ -1943,7 +1946,7 @@ function ProspectingCampaignStudioModal({
       });
       return;
     }
-    onStart();
+    onStart(nextConfig);
   };
   const handleProspectingActivationClick = () => {
     if (canPause) {
@@ -1952,18 +1955,27 @@ function ProspectingCampaignStudioModal({
     }
     if (canResume) {
       if (!canActivateProspecting) {
-        setSaveFeedback("error");
-        setSavePopup({
-          tone: "danger",
-          title: "Ative o HBot primeiro",
-          text: activationBlockedReason || "A Prospecção só pode ser ativada depois que o HBot estiver ligado.",
-        });
+        showCentralBotWarning();
         return;
       }
       onResume();
       return;
     }
     handleStartClick();
+  };
+  const openRadarPopup = () => {
+    if (typeof window === "undefined") return;
+    window.dispatchEvent(new CustomEvent("hbx:radar-popup", {
+      detail: {
+        query: {
+          state: config.state,
+          city: config.city,
+          segment: config.segment,
+          engine: config.engine,
+          targetType: config.targetType,
+        },
+      },
+    }));
   };
   const confirmRiskAndSave = async () => {
     const nextConfig = pendingRiskSaveConfigRef.current || config;
@@ -2152,27 +2164,8 @@ function ProspectingCampaignStudioModal({
           </div>
         </header>
 
-        <div className={styles.campaignStudioTabs} role="tablist" aria-label="Etapas do HBot">
-          <button
-            type="button"
-            data-active={page === "mensagem" ? "true" : "false"}
-            data-invalid={invalidFields.some((field) => field === "workingHoursStart" || field === "workingHoursEnd" || field === "firstContactVariants") ? "true" : "false"}
-            onClick={() => setPage("mensagem")}
-          >
-            1. Mensagem inicial
-          </button>
-          <button
-            type="button"
-            data-active={page === "radar" ? "true" : "false"}
-            onClick={() => setPage("radar")}
-          >
-            2. Radar
-          </button>
-        </div>
-
         <div className={styles.campaignStudioBody}>
-          {page === "mensagem" ? (
-            <div className={styles.campaignMessageLayout}>
+          <div className={styles.campaignMessageLayout}>
               <main className={styles.campaignEditorPanel}>
                 <div className={styles.campaignSectionHeader}>
                   <div>
@@ -2378,13 +2371,6 @@ function ProspectingCampaignStudioModal({
                 </div>
               </aside>
             </div>
-          ) : (
-            <div className={styles.campaignRadarLayout}>
-              <main className={styles.campaignRadarFrameShell}>
-                <iframe src={radarFrameSrc} title="Radar Digital" />
-              </main>
-            </div>
-          )}
         </div>
 
         <footer className={styles.campaignStudioFooter}>
@@ -2397,18 +2383,11 @@ function ProspectingCampaignStudioModal({
                   ? invalidFields.length
                     ? "Não salvou. Corrija o campo em vermelho."
                     : "Não salvou. Leia o aviso vermelho."
-                  : page === "radar" && !canActivateProspecting
-                    ? activationBlockedReason || "Ligue o HBot antes de ativar a Prospecção."
-                    : campaignHasError
-                      ? status?.lastError || status?.text || "Prospecção com erro. Revise o aviso vermelho."
+                  : campaignHasError
+                    ? status?.lastError || status?.text || "Prospecção com erro. Revise o aviso vermelho."
                   : status?.text || "HBot parado"}
           </span>
           <div>
-            {page === "radar" ? (
-              <button type="button" className={styles.campaignFooterButton} onClick={() => setPage("mensagem")}>
-                Voltar
-              </button>
-            ) : null}
             <button
               type="button"
               className={styles.campaignFooterButton}
@@ -2424,24 +2403,25 @@ function ProspectingCampaignStudioModal({
                     ? "Tentar salvar"
                     : "Salvar"}
             </button>
-            {page === "mensagem" ? (
-              <button type="button" className={styles.campaignFooterButtonPrimary} onClick={() => setPage("radar")} disabled={!firstStepReady}>
-                Avançar para Radar
-              </button>
-            ) : (
-              <button
-                type="button"
-                className={styles.campaignFooterButtonPrimary}
-                data-state={activationState}
-                onClick={handleProspectingActivationClick}
-                disabled={activationDisabled}
-                title={!canActivateProspecting ? activationBlockedReason || "Ative o HBot primeiro." : undefined}
-              >
-                {actionLoading === "start" || actionLoading === "pause" || actionLoading === "resume"
-                  ? activationBusyLabel
-                  : activationLabel}
-              </button>
-            )}
+            <button
+              type="button"
+              className={styles.campaignFooterButton}
+              onClick={openRadarPopup}
+            >
+              Radar
+            </button>
+            <button
+              type="button"
+              className={styles.campaignFooterButtonPrimary}
+              data-state={activationState}
+              onClick={handleProspectingActivationClick}
+              disabled={activationDisabled}
+              title={!canActivateProspecting ? activationBlockedReason || "Ative o HBot na central dos bots." : undefined}
+            >
+              {actionLoading === "start" || actionLoading === "pause" || actionLoading === "resume"
+                ? activationBusyLabel
+                : activationLabel}
+            </button>
           </div>
         </footer>
         {savePopup ? (
@@ -6325,15 +6305,9 @@ function InboxDesktopClientPage() {
     }
   }, [campaignConfig]);
 
-  const startProspectingCampaign = useCallback(async () => {
-    if (!globalBotEnabled) {
-      setNotice({
-        tone: "error",
-        text: "Ligue o HBot antes de ativar a Prospecção.",
-      });
-      return;
-    }
-    const payload = toProspectingCampaignPayload(campaignConfig);
+  const startProspectingCampaign = useCallback(async (configOverride?: ProspectingCampaignConfig) => {
+    const nextConfig = configOverride || campaignConfig;
+    const payload = toProspectingCampaignPayload(nextConfig);
     setProspectingAutomationAction("start");
     try {
       await apiFetch<ProspectingAutomationLiveStatus>("/vendas/automation/prospecting/config", {
@@ -6358,7 +6332,7 @@ function InboxDesktopClientPage() {
     } finally {
       setProspectingAutomationAction(null);
     }
-  }, [campaignConfig, globalBotEnabled]);
+  }, [campaignConfig]);
 
   const loadBotConfig = useCallback(async (options?: { force?: boolean }) => {
     if (botConfigLoadedRef.current && !options?.force) return;
@@ -10428,7 +10402,7 @@ function InboxDesktopClientPage() {
         onClose={() => setCampaignStudioOpen(false)}
         onChange={updateCampaignConfig}
         onSave={saveProspectingCampaignConfig}
-        onStart={() => void startProspectingCampaign()}
+        onStart={(configOverride) => void startProspectingCampaign(configOverride)}
         onPause={() => void runProspectingAutomationAction("pause")}
         onResume={() => void runProspectingAutomationAction("resume")}
       />

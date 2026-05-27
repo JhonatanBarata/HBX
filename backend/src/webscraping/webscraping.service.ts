@@ -298,6 +298,7 @@ type WebscrapingSearchRunStatus =
   | 'completed_insufficient_results'
   | 'failed'
   | 'canceled';
+type RadarOperationalState = 'funcionando' | 'pausado' | 'parado';
 type WebscrapingSearchRunItemStatus = 'found' | 'duplicate' | 'skipped' | 'invalid';
 type HbxBatchStatus =
   | 'queued_wait'
@@ -809,6 +810,9 @@ export type WebscrapingSearchRunResponse = {
     duplicateCount: number;
     skippedCount: number;
     importedCount: number;
+    operationalState?: RadarOperationalState;
+    operationalReason?: string | null;
+    operationalMessage?: string | null;
   };
   items: Array<{
     id: string;
@@ -2144,7 +2148,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
   async getSearchRunForUser(user: any, runId: string): Promise<WebscrapingSearchRunResponse> {
     const context = this.resolveContext(user);
     await this.assertSearchRunPersistence();
-    const run = await this.prisma.webscrapingSearchRun.findFirst({
+    let run = await this.prisma.webscrapingSearchRun.findFirst({
       where: {
         id: String(runId || '').trim(),
         companyId: context.companyId,
@@ -2156,6 +2160,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       },
     });
     if (!run) throw new NotFoundException('Pesquisa nao encontrada.');
+    run = await this.requeueStaleAssignedSearchRunIfNeeded(run);
     const capacity = await this.getEnginePool().getCurrentCapacityLevel().catch(() => null);
     return this.buildSearchRunResponse(run, capacity || undefined);
   }
@@ -5451,6 +5456,42 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
+  private async requeueStaleAssignedSearchRunIfNeeded(run: any) {
+    const status = this.normalizeSearchRunStatus(run?.status);
+    const updatedAtMs = run?.updatedAt instanceof Date ? run.updatedAt.getTime() : 0;
+    const staleBeforeMs = Date.now() - Math.max(this.getHbxBatchTimeoutMs() + 60_000, 180_000);
+    if (status !== 'running' || !run?.assignedEngineId || !updatedAtMs || updatedAtMs >= staleBeforeMs) {
+      return run;
+    }
+    await this.prisma.webscrapingSearchRun.updateMany({
+      where: {
+        id: run.id,
+        status: 'running',
+        assignedEngineId: { not: null },
+      },
+      data: {
+        status: 'queued',
+        assignedEngineId: null,
+        assignedEngineUrl: null,
+        assignedEngineIndex: null,
+        lastBatchStatus: 'stale_requeued',
+        lastBatchError: 'Lote travado reencaminhado automaticamente.',
+        errorMessage: 'A busca demorou demais em um motor e foi retomada em outro.',
+        nextRetryAt: new Date(),
+      },
+    }).catch(() => null);
+    await this.getEnginePool().releaseEngine(String(run.assignedEngineId)).catch(() => null);
+    this.scheduleSearchRunPump(0);
+    return this.prisma.webscrapingSearchRun.findFirst({
+      where: { id: run.id },
+      include: {
+        items: {
+          orderBy: { createdAt: 'asc' },
+        },
+      },
+    }).catch(() => run);
+  }
+
   private async processNextQueuedSearchRun() {
     if (this.searchRunQueuePumpActive) return;
     this.searchRunQueuePumpActive = true;
@@ -5466,6 +5507,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
           updatedAt: { lt: staleRunningBefore },
         },
         data: {
+          status: 'queued',
           assignedEngineId: null,
           assignedEngineUrl: null,
           assignedEngineIndex: null,
@@ -6164,6 +6206,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     const guardedMessage = foundCount > 0 && /nenhum card valido/i.test(rawMessage)
         ? this.buildSearchRunInsufficientMessage(foundCount, attemptCount)
         : rawMessage || null;
+    const operational = this.resolveRadarRunOperationalState(run, status, guardedMessage);
     return {
       id: run.id,
       runId: run.id,
@@ -6219,6 +6262,9 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         duplicateCount: safeInteger(run.duplicateCount),
         skippedCount: safeInteger(run.skippedCount),
         importedCount: safeInteger(run.importedCount),
+        operationalState: operational.state,
+        operationalReason: operational.reason,
+        operationalMessage: operational.message,
         attempts: attemptCount,
         requiredChannels,
         channelMatchMode,
@@ -9813,6 +9859,40 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
     return this.isTerminalSearchRunStatus(status);
   }
 
+  private resolveRadarRunOperationalState(run: any, status: WebscrapingSearchRunStatus, message: string | null): {
+    state: RadarOperationalState;
+    reason: string | null;
+    message: string | null;
+  } {
+    const lastBatchStatus = String(run?.lastBatchStatus || '').trim();
+    if (status === 'sleeping') {
+      return {
+        state: 'pausado',
+        reason: lastBatchStatus || 'radar_paused',
+        message: message || 'Radar pausado. A mesma pesquisa sera retomada automaticamente.',
+      };
+    }
+    if (status === 'queued' && lastBatchStatus === 'queued_wait' && !run?.assignedEngineId) {
+      return {
+        state: 'pausado',
+        reason: 'engine_wait',
+        message: message || 'Radar pausado aguardando motor livre. A fila tecnica continua tentando automaticamente.',
+      };
+    }
+    if (status === 'queued' || status === 'running') {
+      return {
+        state: 'funcionando',
+        reason: lastBatchStatus || status,
+        message: message || (status === 'queued' ? 'Radar na fila HBX.' : 'Radar funcionando.'),
+      };
+    }
+    return {
+      state: 'parado',
+      reason: lastBatchStatus || status,
+      message: message || 'Radar parado. Rode uma nova pesquisa quando quiser abastecer Vendas.',
+    };
+  }
+
   private buildRadarSearchRunMessage(run: any, deliveredCount: number, requestedQuantity: number) {
     const status = this.normalizeSearchRunStatus(run?.status);
     const rawMessage = String(run?.errorMessage || '').trim();
@@ -10376,6 +10456,9 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         terminal: false,
         paused: true,
         pauseReason: String(run?.lastBatchStatus || ''),
+        operationalState: 'pausado' as RadarOperationalState,
+        operationalReason: String(run?.lastBatchStatus || 'radar_paused'),
+        operationalMessage: message,
         status: 'sleeping' as WebscrapingSearchRunStatus,
         runId: run.id,
         nextRetryAt: run?.nextRetryAt instanceof Date ? run.nextRetryAt.toISOString() : null,
@@ -10503,6 +10586,9 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
           requiredChannelRejectedCount: 0,
           progress: 100,
           terminal: true,
+          operationalState: 'parado' as RadarOperationalState,
+          operationalReason: lastBatchStatus || 'auto_import_blocked',
+          operationalMessage: message,
           status,
           runId: effectiveRun.id,
           nextRetryAt: null,
@@ -10560,6 +10646,9 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
           requiredChannelRejectedCount: 0,
           progress: 100,
           terminal: true,
+          operationalState: 'parado' as RadarOperationalState,
+          operationalReason: 'auto_import_blocked',
+          operationalMessage: message,
           status: 'completed_insufficient_results',
           runId: effectiveRun.id,
           nextRetryAt: null,
@@ -10654,6 +10743,7 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
       : 100;
     const qualitySummary = this.buildSearchRunQualitySummary(effectiveRun, deliveredCount);
     const message = this.buildRadarSearchRunMessage(effectiveRun, deliveredCount, requestedQuantity);
+    const operational = this.resolveRadarRunOperationalState(effectiveRun, status, message);
     if (terminal) {
       await this.updateSearchRunMetrics(effectiveRun.id, {
         status,
@@ -10683,6 +10773,9 @@ export class WebscrapingService implements OnModuleInit, OnModuleDestroy {
         requiredChannelRejectedCount,
         progress,
         terminal,
+        operationalState: operational.state,
+        operationalReason: operational.reason,
+        operationalMessage: operational.message,
         status,
         runId: effectiveRun.id,
         nextRetryAt: effectiveRun.nextRetryAt instanceof Date ? effectiveRun.nextRetryAt.toISOString() : null,
